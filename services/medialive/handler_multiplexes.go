@@ -143,6 +143,10 @@ func (h *Handler) handleDeleteMultiplex(c *echo.Context, multiplexID string) err
 }
 
 func (h *Handler) handleListMultiplexes(c *echo.Context) error {
+	if err := validPaging(c); err != nil {
+		return respondErr(c, err)
+	}
+
 	maxResults, nextTokenParam := paginationParams(c)
 	summaries, nextToken, err := h.Backend.ListMultiplexes(maxResults, nextTokenParam)
 	if err != nil {

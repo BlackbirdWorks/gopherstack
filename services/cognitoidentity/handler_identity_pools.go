@@ -125,7 +125,20 @@ func (h *Handler) handleListIdentityPools(
 	ctx context.Context,
 	in *listIdentityPoolsInput,
 ) (*listIdentityPoolsOutput, error) {
-	pools, nextToken := h.Backend.ListIdentityPools(ctx, in.MaxResults, in.NextToken)
+	if in.MaxResults < 0 || in.MaxResults > listIdentityPoolsMaxResults {
+		return nil, fmt.Errorf(
+			"%w: MaxResults must be between 1 and %d",
+			ErrInvalidParameter,
+			listIdentityPoolsMaxResults,
+		)
+	}
+
+	cursor, err := decodePageToken(in.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	pools, nextToken := h.Backend.ListIdentityPools(ctx, in.MaxResults, cursor)
 
 	items := make([]identityPoolShortDescription, 0, len(pools))
 	for _, p := range pools {
@@ -135,7 +148,7 @@ func (h *Handler) handleListIdentityPools(
 		})
 	}
 
-	return &listIdentityPoolsOutput{IdentityPools: items, NextToken: nextToken}, nil
+	return &listIdentityPoolsOutput{IdentityPools: items, NextToken: encodePageToken(nextToken)}, nil
 }
 
 type updateIdentityPoolInput struct {

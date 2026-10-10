@@ -381,41 +381,73 @@ func (b *InMemoryBackend) CreateTrainingJobFull(ctx context.Context, opts Traini
 	return cloneTrainingJob(tj), nil
 }
 
-// scheduleTrainingCompletion drives InProgress → Completed after delay.
-// ctx must be b.lifecycleCtx captured by the caller while holding b.mu.
-// region must be captured by the caller before the lock is released.
+// trainingSecondaryPhases are the SecondaryStatus steps a running job passes
+// through between Starting and Completed.
+//
+//nolint:gochecknoglobals // read-only phase table
+var trainingSecondaryPhases = []SecondaryStatusTransition{
+	{Status: "Downloading", StatusMessage: "Downloading input data"},
+	{Status: "Training", StatusMessage: "Training image download completed. Training in progress."},
+	{Status: "Uploading", StatusMessage: "Uploading generated training model"},
+}
+
+// advanceTrainingSecondary closes the open transition and opens next. Caller holds b.mu.
+func advanceTrainingSecondary(tj *TrainingJob, next SecondaryStatusTransition, now time.Time) {
+	if n := len(tj.SecondaryStatusTransitions); n > 0 && tj.SecondaryStatusTransitions[n-1].EndTime == nil {
+		tj.SecondaryStatusTransitions[n-1].EndTime = &now
+	}
+
+	next.StartTime = now
+	tj.SecondaryStatus = next.Status
+	tj.LastModifiedTime = now
+	tj.SecondaryStatusTransitions = append(tj.SecondaryStatusTransitions, next)
+}
+
+// scheduleTrainingCompletion drives Starting → Downloading → Training →
+// Uploading → Completed. ctx must be b.lifecycleCtx captured by the caller
+// while holding b.mu; region must be captured before the lock is released.
 func (b *InMemoryBackend) scheduleTrainingCompletion(ctx context.Context, region, name string) {
-	b.runDelayed(ctx, trainingInProgressToCompleted, func() {
+	b.scheduleTrainingStep(ctx, region, name, 0)
+}
+
+func (b *InMemoryBackend) scheduleTrainingStep(ctx context.Context, region, name string, step int) {
+	stepDelay := trainingInProgressToCompleted / time.Duration(len(trainingSecondaryPhases)+1)
+
+	b.runDelayed(ctx, stepDelay, func() {
 		b.mu.Lock("scheduleTrainingCompletion.goroutine")
 		defer b.mu.Unlock()
 
 		tj, ok := b.trainingJobsStore(region).Get(name)
-		if !ok {
-			return
-		}
-
-		if tj.TrainingJobStatus != trainingJobStatusInProgress {
+		if !ok || tj.TrainingJobStatus != trainingJobStatusInProgress {
 			return
 		}
 
 		now := time.Now()
+
+		if step < len(trainingSecondaryPhases) {
+			advanceTrainingSecondary(tj, trainingSecondaryPhases[step], now)
+			b.scheduleTrainingStep(ctx, region, name, step+1)
+
+			return
+		}
+
+		advanceTrainingSecondary(tj, SecondaryStatusTransition{
+			Status: algorithmStatusCompleted, StatusMessage: "Training job completed",
+		}, now)
+
+		last := &tj.SecondaryStatusTransitions[len(tj.SecondaryStatusTransitions)-1]
+		last.EndTime = &now
 		tj.TrainingJobStatus = algorithmStatusCompleted
-		tj.SecondaryStatus = algorithmStatusCompleted
 		tj.TrainingEndTime = &now
-		tj.LastModifiedTime = now
-		billable := max(int32(trainingInProgressToCompleted.Seconds()), 1)
+		billable := max(int32(now.Sub(tj.CreationTime).Seconds()), 1)
 		tj.BillableTimeInSeconds = billable
 		tj.TrainingTimeInSeconds = billable
 		tj.ModelArtifacts = modelArtifactsFromTrainingOutputDataConfig(tj.OutputDataConfig, name)
-
-		tj.SecondaryStatusTransitions = append(
-			tj.SecondaryStatusTransitions,
-			SecondaryStatusTransition{StartTime: now, EndTime: &now, Status: algorithmStatusCompleted},
-		)
 	})
 }
 
-// StopTrainingJobFSM transitions InProgress → Stopping → Stopped.
+// StopTrainingJobFSM transitions InProgress → Stopping → Stopped. Stopping a
+// job that already reached a terminal state is a no-op, as on AWS.
 func (b *InMemoryBackend) StopTrainingJobFSM(ctx context.Context, name string) error {
 	b.mu.Lock("StopTrainingJobFSM")
 	defer b.mu.Unlock()
@@ -427,8 +459,14 @@ func (b *InMemoryBackend) StopTrainingJobFSM(ctx context.Context, name string) e
 		return fmt.Errorf("%w: training job %q not found", ErrTrainingJobNotFound, name)
 	}
 
+	if tj.TrainingJobStatus != trainingJobStatusInProgress {
+		return nil
+	}
+
 	tj.TrainingJobStatus = pipelineStatusStopping
-	tj.LastModifiedTime = time.Now()
+	advanceTrainingSecondary(tj, SecondaryStatusTransition{
+		Status: pipelineStatusStopping, StatusMessage: "Training job is being stopped",
+	}, time.Now())
 
 	b.runDelayed(b.lifecycleCtx, trainingStoppingToStopped, func() {
 		b.mu.Lock("StopTrainingJobFSM.goroutine")
@@ -436,8 +474,13 @@ func (b *InMemoryBackend) StopTrainingJobFSM(ctx context.Context, name string) e
 
 		if tj2, ok2 := b.trainingJobsStore(region).Get(name); ok2 &&
 			tj2.TrainingJobStatus == pipelineStatusStopping {
+			now := time.Now()
 			tj2.TrainingJobStatus = pipelineStatusStopped
-			tj2.LastModifiedTime = time.Now()
+			tj2.TrainingEndTime = &now
+			advanceTrainingSecondary(tj2, SecondaryStatusTransition{
+				Status: pipelineStatusStopped, StatusMessage: "Training job is stopped",
+			}, now)
+			tj2.SecondaryStatusTransitions[len(tj2.SecondaryStatusTransitions)-1].EndTime = &now
 		}
 	})
 

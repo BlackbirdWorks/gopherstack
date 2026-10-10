@@ -176,7 +176,7 @@ func (b *InMemoryBackend) nodeARN(region, clusterArn string, brokerID int32) str
 		"kafka",
 		region,
 		b.accountID,
-		fmt.Sprintf("broker/%s/%d", clusterArn, brokerID),
+		fmt.Sprintf("broker/%s/%d", clusterArnSuffix(clusterArn), brokerID),
 	)
 }
 
@@ -287,4 +287,12 @@ func nonNilTagsCopy(tags map[string]string) map[string]string {
 	}
 
 	return maps.Clone(tags)
+}
+
+func clusterArnSuffix(clusterArn string) string {
+	if _, rest, ok := strings.Cut(clusterArn, ":cluster/"); ok {
+		return rest
+	}
+
+	return clusterArn
 }

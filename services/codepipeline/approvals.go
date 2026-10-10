@@ -27,7 +27,7 @@ func (b *InMemoryBackend) PutActionRevision(
 
 	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
-		return nil, false, fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
+		return nil, false, b.pipelineNotFound(pipelineName)
 	}
 
 	stage := findStage(p, stageName)
@@ -63,7 +63,11 @@ func (b *InMemoryBackend) PutActionRevision(
 		Trigger:             triggerTypePutActionRevision,
 		StartTime:           now,
 		LastUpdateTime:      now,
+		SourceRevisions:     []SourceRevision{{ActionName: actionName, RevisionID: revisionID}},
 	}
+	exec.ArtifactRevisions = sourceArtifactRevisions(
+		p.Declaration.Stages, exec.SourceRevisions, map[string]string{actionName: revisionChangeID}, now,
+	)
 
 	execs := b.executionsStore(region)
 	execs[pipelineName] = append(execs[pipelineName], exec)
@@ -93,7 +97,7 @@ func (b *InMemoryBackend) PutApprovalResult(
 
 	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
-		return time.Time{}, fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
+		return time.Time{}, b.pipelineNotFound(pipelineName)
 	}
 
 	stage := findStage(p, stageName)

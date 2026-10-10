@@ -57,9 +57,12 @@ func (b *InMemoryBackend) AddDevEndpointInternal(dep *DevEndpoint) {
 // UpdateDevEndpointOptions carries the optional UpdateDevEndpoint fields
 // beyond AddArguments/DeleteArguments.
 type UpdateDevEndpointOptions struct {
-	PublicKey        string
-	AddPublicKeys    []string
-	DeletePublicKeys []string
+	PublicKey             string
+	ExtraPythonLibsS3Path string
+	ExtraJarsS3Path       string
+	AddPublicKeys         []string
+	DeletePublicKeys      []string
+	UpdateEtlLibraries    bool
 }
 
 // UpdateDevEndpoint updates an existing dev endpoint's arguments and public
@@ -110,6 +113,12 @@ func (b *InMemoryBackend) UpdateDevEndpoint(
 	}
 
 	dep.PublicKeys = append(dep.PublicKeys, opts.AddPublicKeys...)
+
+	if opts.UpdateEtlLibraries {
+		dep.ExtraPythonLibsS3Path = opts.ExtraPythonLibsS3Path
+		dep.ExtraJarsS3Path = opts.ExtraJarsS3Path
+	}
+
 	dep.LastModifiedTimestamp = float64(time.Now().Unix())
 	dep.LastUpdateStatus = "SUCCESS"
 

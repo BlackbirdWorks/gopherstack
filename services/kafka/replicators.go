@@ -65,12 +65,16 @@ func (b *InMemoryBackend) describeReplicatorLocked(r *Replicator) *Replicator {
 	out := cloneReplicator(r)
 
 	for i := range out.KafkaClusters {
-		out.KafkaClusters[i].Alias = b.clusterAliasForArn(out.KafkaClusters[i].MskClusterArn)
+		out.KafkaClusters[i].Alias = b.clusterAlias(
+			out.KafkaClusters[i].MskClusterArn,
+			out.KafkaClusters[i].ApacheKafkaClusterID,
+		)
 	}
 
 	for i := range out.ReplicationInfoList {
-		out.ReplicationInfoList[i].SourceAlias = b.clusterAliasForArn(out.ReplicationInfoList[i].SourceKafkaClusterArn)
-		out.ReplicationInfoList[i].TargetAlias = b.clusterAliasForArn(out.ReplicationInfoList[i].TargetKafkaClusterArn)
+		ri := &out.ReplicationInfoList[i]
+		ri.SourceAlias = b.clusterAlias(ri.SourceKafkaClusterArn, ri.SourceKafkaClusterID)
+		ri.TargetAlias = b.clusterAlias(ri.TargetKafkaClusterArn, ri.TargetKafkaClusterID)
 	}
 
 	return out
@@ -145,12 +149,33 @@ func (b *InMemoryBackend) clusterAliasForArn(mskClusterArn string) string {
 	return mskClusterArn
 }
 
+// clusterAlias resolves the alias of an MSK cluster by ARN, or of a non-MSK
+// cluster by its ID. Caller must hold b.mu.
+func (b *InMemoryBackend) clusterAlias(mskClusterArn, kafkaClusterID string) string {
+	if mskClusterArn == "" && kafkaClusterID != "" {
+		return kafkaClusterID
+	}
+
+	return b.clusterAliasForArn(mskClusterArn)
+}
+
+// sameKafkaCluster reports whether a stored flow endpoint (arn, id) is the one an
+// UpdateReplicationInfo request names by ARN and/or ID.
+func sameKafkaCluster(storedArn, storedID, reqArn, reqID string) bool {
+	if reqArn == "" && reqID == "" {
+		return storedArn == "" && storedID == ""
+	}
+
+	return (reqArn != "" && storedArn == reqArn) || (reqID != "" && storedID == reqID)
+}
+
 // UpdateReplicationInfo updates the topic/consumer-group replication settings
 // for one source->target flow of a replicator, enforcing the same
 // optimistic-lock CurrentVersion contract as the cluster Update* operations.
 func (b *InMemoryBackend) UpdateReplicationInfo(
 	_ context.Context,
 	replicatorArn, currentVersion, sourceKafkaClusterArn, targetKafkaClusterArn string,
+	sourceKafkaClusterID, targetKafkaClusterID string,
 	topicReplication *TopicReplicationConfig,
 	consumerGroupReplication *ConsumerGroupReplicationConfig,
 	logDelivery *LogDelivery,
@@ -170,8 +195,18 @@ func (b *InMemoryBackend) UpdateReplicationInfo(
 	}
 
 	idx := slices.IndexFunc(r.ReplicationInfoList, func(ri ReplicationInfoConfig) bool {
-		return ri.SourceKafkaClusterArn == sourceKafkaClusterArn &&
-			ri.TargetKafkaClusterArn == targetKafkaClusterArn
+		return sameKafkaCluster(
+			ri.SourceKafkaClusterArn,
+			ri.SourceKafkaClusterID,
+			sourceKafkaClusterArn,
+			sourceKafkaClusterID,
+		) &&
+			sameKafkaCluster(
+				ri.TargetKafkaClusterArn,
+				ri.TargetKafkaClusterID,
+				targetKafkaClusterArn,
+				targetKafkaClusterID,
+			)
 	})
 	if idx == -1 {
 		return nil, ErrNotFound
@@ -276,10 +311,21 @@ func cloneKafkaClusterConfigs(src []ClusterConfig) []ClusterConfig {
 	out := make([]ClusterConfig, len(src))
 	for i, kc := range src {
 		out[i] = ClusterConfig{
-			MskClusterArn:    kc.MskClusterArn,
-			Alias:            kc.Alias,
-			SubnetIDs:        append([]string(nil), kc.SubnetIDs...),
-			SecurityGroupIDs: append([]string(nil), kc.SecurityGroupIDs...),
+			MskClusterArn:         kc.MskClusterArn,
+			ApacheKafkaClusterID:  kc.ApacheKafkaClusterID,
+			BootstrapBrokerString: kc.BootstrapBrokerString,
+			Alias:                 kc.Alias,
+			SubnetIDs:             append([]string(nil), kc.SubnetIDs...),
+			SecurityGroupIDs:      append([]string(nil), kc.SecurityGroupIDs...),
+		}
+		if kc.ClientAuthentication != nil {
+			ca := *kc.ClientAuthentication
+			out[i].ClientAuthentication = &ca
+		}
+
+		if kc.EncryptionInTransit != nil {
+			et := *kc.EncryptionInTransit
+			out[i].EncryptionInTransit = &et
 		}
 	}
 
@@ -296,7 +342,9 @@ func cloneReplicationInfoConfigs(src []ReplicationInfoConfig) []ReplicationInfoC
 	for i, ri := range src {
 		out[i] = ReplicationInfoConfig{
 			SourceKafkaClusterArn: ri.SourceKafkaClusterArn,
+			SourceKafkaClusterID:  ri.SourceKafkaClusterID,
 			TargetKafkaClusterArn: ri.TargetKafkaClusterArn,
+			TargetKafkaClusterID:  ri.TargetKafkaClusterID,
 			TargetCompressionType: ri.TargetCompressionType,
 			SourceAlias:           ri.SourceAlias,
 			TargetAlias:           ri.TargetAlias,

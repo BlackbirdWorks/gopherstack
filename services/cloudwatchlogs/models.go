@@ -269,14 +269,14 @@ type QueryStatistics struct {
 // elsewhere in this package. QueryDuration is the real measured wall-clock
 // time StartQuery took to collect and execute the query (this backend runs
 // queries synchronously, so it is a genuine, not fabricated, value -- just
-// usually small). UserIdentity is not modeled: it needs a caller-identity
-// model this backend does not have (same blocker as gopherstack-cu4g).
+// usually small). UserIdentity is the caller ARN when one resolves.
 type QueryInfo struct {
 	QueryID       string      `json:"queryId"`
 	QueryString   string      `json:"queryString"`
 	LogGroupName  string      `json:"logGroupName,omitempty"`
 	QueryLanguage string      `json:"queryLanguage,omitempty"`
 	Status        QueryStatus `json:"status"`
+	UserIdentity  string      `json:"userIdentity,omitempty"`
 	CreateTime    int64       `json:"createTime"`
 	QueryDuration int64       `json:"queryDuration,omitempty"`
 	BytesScanned  float64     `json:"bytesScanned,omitempty"`
@@ -663,6 +663,7 @@ type Transformer struct {
 	// (transformers is a "clean" table, store_setup.go), which json:"-"
 	// silently broke (gopherstack-gqxy0).
 	CreatedAt          time.Time        `json:"createdAt,omitzero"`
+	LastModifiedAt     time.Time        `json:"lastModifiedAt,omitzero"`
 	LogGroupIdentifier string           `json:"logGroupIdentifier"`
 	Processors         []map[string]any `json:"transformerConfig"`
 }

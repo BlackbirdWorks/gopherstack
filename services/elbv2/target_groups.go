@@ -79,7 +79,7 @@ func (b *InMemoryBackend) tgARN(name string) string {
 		"elasticloadbalancing",
 		b.region,
 		b.accountID,
-		"targetgroup/"+name+"/0123456789abcdef",
+		"targetgroup/"+name+"/"+newHexID(),
 	)
 }
 
@@ -195,15 +195,8 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 		TargetControlPort:          input.TargetControlPort,
 		CrossZoneLoadBalancing:     true,
 		Targets:                    []Target{},
-		TargetGroupAttributes: map[string]string{
-			"deregistration_delay.timeout_seconds": "300",
-			"stickiness.enabled":                   attrValueFalse,
-			"stickiness.type":                      "lb_cookie",
-			"load_balancing.algorithm.type":        "round_robin",
-			"slow_start.duration_seconds":          "0",
-			attrCrossZoneLoadBalancingEnabled:      attrValueTrue,
-		},
-		Tags: t,
+		TargetGroupAttributes:      defaultTargetGroupAttributes(proto, targetType),
+		Tags:                       t,
 	}
 
 	b.targetGroups.Put(tg)

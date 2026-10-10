@@ -103,6 +103,7 @@ func TestPutPolicyBasedShare(t *testing.T) {
 		shares := backend.ListResourceShares("SELF", "")
 		require.Len(t, shares, 1)
 
+		promotePolicyPermission(t, backend, shares[0].ARN)
 		_, err := backend.PromoteResourceShareCreatedFromPolicy(shares[0].ARN)
 		require.NoError(t, err)
 
@@ -214,6 +215,7 @@ func TestCreatedFromPolicyShare_StateMachine(t *testing.T) {
 
 		backend, share := newPolicyShareForStateMachineTest(t)
 
+		promotePolicyPermission(t, backend, share.ARN)
 		promoted, err := backend.PromoteResourceShareCreatedFromPolicy(share.ARN)
 		require.NoError(t, err)
 		assert.Equal(t, "STANDARD", promoted.FeatureSet)
@@ -239,6 +241,7 @@ func TestCreatedFromPolicyShare_StateMachine(t *testing.T) {
 
 		backend, share := newPolicyShareForStateMachineTest(t)
 
+		promotePolicyPermission(t, backend, share.ARN)
 		_, err := backend.PromoteResourceShareCreatedFromPolicy(share.ARN)
 		require.NoError(t, err)
 
@@ -246,4 +249,54 @@ func TestCreatedFromPolicyShare_StateMachine(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ram.ErrInvalidStateTransition)
 	})
+}
+
+func promotePolicyPermission(t *testing.T, backend *ram.InMemoryBackend, shareARN string) {
+	t.Helper()
+
+	perms := backend.ListResourceSharePermissions(shareARN)
+	require.Len(t, perms, 1)
+
+	_, err := backend.PromotePermissionCreatedFromPolicy(perms[0].Permission.ARN, "promoted")
+	require.NoError(t, err)
+}
+
+func TestPromoteResourceShareUnmatchedPolicyPermission(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		name    string
+		promote bool
+	}{
+		{name: "no customer permission", promote: false, wantErr: ram.ErrUnmatchedPolicyPermission},
+		{name: "after permission promoted", promote: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := ram.NewInMemoryBackend("000000000000", "us-east-1")
+			require.NoError(t, backend.PutPolicyBasedShare(
+				policyShareResourceARN, []string{"111122223333"}, []string{"glue:GetDatabase"},
+			))
+
+			shares := backend.ListResourceShares("SELF", "")
+			require.Len(t, shares, 1)
+
+			if tt.promote {
+				promotePolicyPermission(t, backend, shares[0].ARN)
+			}
+
+			_, err := backend.PromoteResourceShareCreatedFromPolicy(shares[0].ARN)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
 }

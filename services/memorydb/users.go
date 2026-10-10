@@ -43,7 +43,14 @@ func validateAuthPasswordCombo(authType string, passwords []string) error {
 		return fmt.Errorf("passwords cannot be set when AuthenticationMode.Type is iam: %w", ErrValidation)
 	}
 
-	return nil
+	if authType == authTypePassword && len(passwords) == 0 {
+		return fmt.Errorf(
+			"at least one password is required when AuthenticationMode.Type is password: %w",
+			ErrValidation,
+		)
+	}
+
+	return validateUserPasswords(passwords)
 }
 
 // applyUserAuthModeUpdate validates and applies an UpdateUser AuthenticationMode
@@ -60,6 +67,10 @@ func applyUserAuthModeUpdate(u *User, mode *authenticationModeReq) error {
 		}
 
 		u.AuthType = authType
+	}
+
+	if err := validateUserPasswords(mode.Passwords); err != nil {
+		return err
 	}
 
 	if len(mode.Passwords) > 0 {
@@ -90,6 +101,10 @@ func (b *InMemoryBackend) CreateUser(ctx context.Context, req *createUserRequest
 	}
 
 	if err = validateAuthPasswordCombo(authType, req.AuthenticationMode.Passwords); err != nil {
+		return nil, err
+	}
+
+	if err = validateAccessString(req.AccessString); err != nil {
 		return nil, err
 	}
 
@@ -185,6 +200,10 @@ func (b *InMemoryBackend) UpdateUser(ctx context.Context, req *updateUserRequest
 	u, ok := b.usersStore(region).Get(req.UserName)
 	if !ok {
 		return nil, ErrUserNotFound
+	}
+
+	if err := validateAccessString(req.AccessString); err != nil {
+		return nil, err
 	}
 
 	if req.AccessString != "" {

@@ -49,15 +49,27 @@ func (b *InMemoryBackend) ensureAwslogsStreams(task *Task, td *TaskDefinition) {
 	}
 
 	taskID := taskIDFromARN(task.TaskArn)
+	_, realRuntime := b.runner.(cwLogsRunner)
 
 	for _, cd := range td.ContainerDefinitions {
 		group, stream, ok := awslogsTarget(cd, taskID)
-		if !ok {
+		if !ok || (realRuntime && cd.LogConfiguration.Options[optAwslogsStreamPrefix] == "") {
 			continue
 		}
 
 		_ = cwl.EnsureLogGroupAndStream(group, stream)
 	}
+}
+
+// awslogsContainerTarget is awslogsTarget for a started container: without awslogs-stream-prefix the
+// stream is named after the runtime container ID.
+func awslogsContainerTarget(cd ContainerDefinition, taskID, containerID string) (string, string, bool) {
+	group, stream, ok := awslogsTarget(cd, taskID)
+	if ok && cd.LogConfiguration.Options[optAwslogsStreamPrefix] == "" && containerID != "" {
+		stream = containerID
+	}
+
+	return group, stream, ok
 }
 
 // awslogsTarget returns the CloudWatch Logs group/stream an awslogs-driver
@@ -94,10 +106,9 @@ func taskIDFromARN(taskARN string) string {
 // container. Per the aws-sdk-go-v2 doc for LogConfiguration's
 // awslogs-stream-prefix option (service/ecs types/types.go): "If you specify
 // a prefix with this option, then the log stream takes the format
-// prefix-name/container-name/ecs-task-id." When no prefix is configured, real
-// ECS instead names the stream after the Docker-assigned container ID; this
-// is computed here (in ensureAwslogsStreams, before the container exists) so
-// the task ID alone is used as an approximation instead (gopherstack-jnct).
+// prefix-name/container-name/ecs-task-id." Without a prefix the stream is
+// named after the container ID, which exists only under a real runtime
+// (awslogsContainerTarget); without one the task ID stands in.
 func awslogsStreamName(prefix, containerName, taskID string) string {
 	if prefix == "" {
 		return taskID

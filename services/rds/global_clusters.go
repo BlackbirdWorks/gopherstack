@@ -238,34 +238,50 @@ func (b *InMemoryBackend) RemoveFromGlobalCluster(globalClusterID, dbClusterARN 
 	return &cp, nil
 }
 
-// FailoverGlobalCluster initiates a failover for a global cluster.
-func (b *InMemoryBackend) FailoverGlobalCluster(
-	globalClusterID, _ string,
-) (*GlobalCluster, error) {
+// FailoverGlobalCluster promotes the target member cluster to writer.
+func (b *InMemoryBackend) FailoverGlobalCluster(globalClusterID, target string) (*GlobalCluster, error) {
 	b.mu.Lock("FailoverGlobalCluster")
 	defer b.mu.Unlock()
-	gc, ok := b.globalClusters.Get(globalClusterID)
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrGlobalClusterNotFound, globalClusterID)
-	}
-	gc.Status = instanceStatusAvailable
-	cp := *gc
 
-	return &cp, nil
+	return b.promoteGlobalWriterLocked(globalClusterID, target)
 }
 
-// SwitchoverGlobalCluster initiates a switchover for a global cluster.
-func (b *InMemoryBackend) SwitchoverGlobalCluster(
-	globalClusterID, _ string,
-) (*GlobalCluster, error) {
+// SwitchoverGlobalCluster promotes the target member cluster to writer.
+func (b *InMemoryBackend) SwitchoverGlobalCluster(globalClusterID, target string) (*GlobalCluster, error) {
 	b.mu.Lock("SwitchoverGlobalCluster")
 	defer b.mu.Unlock()
+
+	return b.promoteGlobalWriterLocked(globalClusterID, target)
+}
+
+// promoteGlobalWriterLocked makes target (id or ARN of an existing member cluster) the sole writer.
+func (b *InMemoryBackend) promoteGlobalWriterLocked(globalClusterID, target string) (*GlobalCluster, error) {
 	gc, ok := b.globalClusters.Get(globalClusterID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrGlobalClusterNotFound, globalClusterID)
 	}
+	if target == "" {
+		return nil, fmt.Errorf("%w: TargetDbClusterIdentifier must not be empty", ErrInvalidParameter)
+	}
+	cluster, ok := b.clusters.Get(normalizeID(rdsIDFromARN(target)))
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, target)
+	}
+	idx := slices.IndexFunc(gc.GlobalClusterMembers, func(m GlobalClusterMember) bool {
+		return m.DBClusterArn == cluster.DBClusterArn
+	})
+	if idx < 0 {
+		return nil, fmt.Errorf(
+			"%w: cluster %s is not a member of global cluster %s",
+			ErrInvalidGlobalClusterState, cluster.DBClusterIdentifier, globalClusterID,
+		)
+	}
+	for i := range gc.GlobalClusterMembers {
+		gc.GlobalClusterMembers[i].IsWriter = i == idx
+	}
 	gc.Status = instanceStatusAvailable
 	cp := *gc
+	cp.GlobalClusterMembers = slices.Clone(gc.GlobalClusterMembers)
 
 	return &cp, nil
 }

@@ -11,6 +11,7 @@ type InMemoryBackend struct {
 	mu       *lockmetrics.RWMutex
 	registry *store.Registry
 	s3       S3Backend
+	notifier JobNotifier
 
 	collections       *store.Table[storedCollection]
 	faces             *store.Table[storedFace]

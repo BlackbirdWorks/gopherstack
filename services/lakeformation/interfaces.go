@@ -8,6 +8,8 @@ type StorageBackend interface {
 
 	GetDataLakeSettings() *DataLakeSettings
 	PutDataLakeSettings(settings *DataLakeSettings)
+	GetDataLakeSettingsForCatalog(catalogID string) *DataLakeSettings
+	PutDataLakeSettingsForCatalog(catalogID string, settings *DataLakeSettings)
 
 	RegisterResource(resourceArn, roleArn string, opts RegisterResourceOptions) error
 	UpdateResource(resourceArn, roleArn string, opts RegisterResourceOptions) error
@@ -31,6 +33,7 @@ type StorageBackend interface {
 		nextToken string,
 		principal *DataLakePrincipal,
 		resourceType, catalogID, account string,
+		includeRelated bool,
 	) ([]*PermissionEntry, string)
 
 	CreateLFTag(catalogID, tagKey string, tagValues []string) error

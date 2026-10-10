@@ -99,13 +99,12 @@ func extractOperationFromRequest(r interface {
 		return ""
 	}
 
-	// Format is "DynamoDB_20120810.GetItem" or "Logs_20140328.CreateLogGroup".
-	_, op, found := strings.Cut(target, ".")
-	if !found {
-		return sanitizeName(target)
+	// Operations never contain dots; namespaced prefixes (botocore CloudTrail) do.
+	if _, op, found := strings.CutLast(target, "."); found {
+		return sanitizeName(op)
 	}
 
-	return sanitizeName(op)
+	return sanitizeName(target)
 }
 
 // echoRequestAdapter wraps an echo.Context to implement the header interface
@@ -188,9 +187,6 @@ func Middleware(store *FaultStore) func(echo.HandlerFunc) echo.HandlerFunc {
 
 					log.InfoContext(
 						ctx, "chaos: injecting fault",
-						"service", svc,
-						"operation", op,
-						"region", region,
 						"status_code", fe.StatusCode,
 						"error_code", fe.Code,
 					)

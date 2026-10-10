@@ -62,7 +62,14 @@ func accumulateNodeStats(node *serviceNode, seg *Segment) {
 	}
 
 	if seg.EndTime > 0 && seg.StartTime > 0 {
-		node.TotalRespTime += seg.EndTime - seg.StartTime
+		d := seg.EndTime - seg.StartTime
+		node.TotalRespTime += d
+
+		if node.respTimes == nil {
+			node.respTimes = map[float64]int32{}
+		}
+
+		node.respTimes[d]++
 	}
 
 	if seg.ParentID == "" {
@@ -131,6 +138,24 @@ func summaryStatisticsView(s *serviceNode) map[string]any {
 	}
 }
 
+// histogramView renders observed segment durations as HistogramEntry values (ascending, one entry per
+// distinct value); X-Ray's own bucketing scheme is undocumented.
+func histogramView(respTimes map[float64]int32) []map[string]any {
+	values := make([]float64, 0, len(respTimes))
+	for v := range respTimes {
+		values = append(values, v)
+	}
+
+	sort.Float64s(values)
+
+	out := make([]map[string]any, 0, len(values))
+	for _, v := range values {
+		out = append(out, map[string]any{"Value": v, "Count": respTimes[v]})
+	}
+
+	return out
+}
+
 // nodeToView converts a service node to its JSON output representation.
 func nodeToView(
 	key serviceKey,
@@ -147,27 +172,27 @@ func nodeToView(
 
 		to := nodeMap[e.To]
 		nodeEdges = append(nodeEdges, map[string]any{
-			"ReferenceId":       to.ReferenceID,
-			keyStartTime:        stats.StartTime,
-			keyEndTime:          stats.EndTime,
-			"SummaryStatistics": summaryStatisticsView(stats),
+			"ReferenceId":           to.ReferenceID,
+			keyStartTime:            stats.StartTime,
+			keyEndTime:              stats.EndTime,
+			"SummaryStatistics":     summaryStatisticsView(stats),
+			"ResponseTimeHistogram": histogramView(stats.respTimes),
 		})
 	}
 
-	nodeStats := summaryStatisticsView(node)
-	nodeStats["DurationHistogram"] = []any{}
-
 	return map[string]any{
-		"ReferenceId":       node.ReferenceID,
-		"Name":              node.Name,
-		"Names":             []string{node.Name},
-		"Type":              node.Type,
-		"State":             "active",
-		"Root":              node.IsRoot,
-		keyStartTime:        node.StartTime,
-		keyEndTime:          node.EndTime,
-		"Edges":             nodeEdges,
-		"SummaryStatistics": nodeStats,
+		"ReferenceId":           node.ReferenceID,
+		"Name":                  node.Name,
+		"Names":                 []string{node.Name},
+		"Type":                  node.Type,
+		"State":                 "active",
+		"Root":                  node.IsRoot,
+		keyStartTime:            node.StartTime,
+		keyEndTime:              node.EndTime,
+		"Edges":                 nodeEdges,
+		"SummaryStatistics":     summaryStatisticsView(node),
+		"ResponseTimeHistogram": histogramView(node.respTimes),
+		"DurationHistogram":     histogramView(node.respTimes),
 	}
 }
 

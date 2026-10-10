@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -24,6 +25,10 @@ func (b *InMemoryBackend) CreateConfigurationProfile(
 
 	if locationURI == "" {
 		return nil, fmt.Errorf("%w: LocationUri is required", ErrBadRequest)
+	}
+
+	if !validLocationURI(locationURI) {
+		return nil, fmt.Errorf("%w: LocationUri %q is not a supported configuration source", ErrBadRequest, locationURI)
 	}
 
 	if !b.applications.Has(applicationID) {
@@ -251,4 +256,19 @@ func (b *InMemoryBackend) DeleteConfigurationProfile(applicationID, profileID, d
 	})
 
 	return nil
+}
+
+// validLocationURI accepts the LocationUri forms documented on CreateConfigurationProfileInput.
+func validLocationURI(uri string) bool {
+	if uri == "hosted" || strings.HasPrefix(uri, "arn:") {
+		return true
+	}
+
+	for _, p := range []string{"codepipeline://", "ssm-parameter://", "ssm-document://", "secretsmanager://", "s3://"} {
+		if strings.HasPrefix(uri, p) && len(uri) > len(p) {
+			return true
+		}
+	}
+
+	return false
 }

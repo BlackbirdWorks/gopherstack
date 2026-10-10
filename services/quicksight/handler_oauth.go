@@ -190,7 +190,7 @@ func (h *Handler) handleCreateOAuthClientApp(c *echo.Context) error {
 	)
 	if err != nil {
 		if errors.Is(err, ErrOAuthClientAppAlreadyExists) {
-			return writeError(c, http.StatusConflict, errResourceExistsCode, err.Error())
+			return writeError(c, http.StatusConflict, errResourceExistsCode, errMessage(err))
 		}
 
 		return httpErr(c, err)

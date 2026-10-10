@@ -2,6 +2,7 @@ package eventbridge
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -69,7 +70,7 @@ func validatePatternObject(pattern map[string]any) error {
 				return err
 			}
 		default:
-			return fmt.Errorf("%w: value for field %q must be an array or object, got scalar", ErrInvalidParameter, key)
+			return fmt.Errorf("%w: %q must be an object or an array", ErrInvalidParameter, key)
 		}
 	}
 
@@ -119,7 +120,7 @@ func validateMatcherArray(field string, matchers []any) error {
 func validateMatcherObject(field string, m map[string]any) error {
 	for key, val := range m {
 		if !isKnownMatcher(key) {
-			return fmt.Errorf("%w: unknown matcher %q for field %q", ErrInvalidParameter, key, field)
+			return fmt.Errorf("%w: Unrecognized match type %s", ErrInvalidParameter, key)
 		}
 
 		if key == "anything-but" {
@@ -635,4 +636,23 @@ func matchWildcard(pattern, s string) bool {
 	}
 
 	return tokenIdx == len(tokens)
+}
+
+// invalidPatternErr wraps a compilePattern failure as AWS's
+// InvalidEventPatternException "Event pattern is not valid. Reason: ..." form.
+func invalidPatternErr(err error) error {
+	reason := "Invalid JSON"
+
+	var syn *json.SyntaxError
+	var typ *json.UnmarshalTypeError
+
+	switch {
+	case errors.As(err, &syn):
+	case errors.As(err, &typ):
+		reason = "Filter is not an object"
+	default:
+		reason = strings.TrimPrefix(err.Error(), ErrInvalidParameter.Error()+": ")
+	}
+
+	return fmt.Errorf("%w: Event pattern is not valid. Reason: %s", ErrInvalidEventPattern, reason)
 }

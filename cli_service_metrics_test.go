@@ -26,6 +26,8 @@ import (
 	fhtypes "github.com/aws/aws-sdk-go-v2/service/firehose/types"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kintypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
+	lambdasdk "github.com/aws/aws-sdk-go-v2/service/lambda"
+	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
@@ -761,5 +763,72 @@ func TestServiceMetrics_EventBridge(t *testing.T) {
 		{namespace: ns, name: "MatchedEvents", dims: custom, unit: cwtypes.StandardUnitCount, sum: 1},
 		{namespace: ns, name: "FailedInvocations", dims: dead, unit: cwtypes.StandardUnitCount, sum: 1},
 		{namespace: ns, name: "DeadLetterInvocations", dims: dead, unit: cwtypes.StandardUnitCount, sum: 1},
+	})
+}
+
+func TestServiceMetrics_Lambda(t *testing.T) {
+	t.Parallel()
+
+	fx := newSFNFixture(t)
+	lc := lambdasdk.NewFromConfig(fx.cfg)
+
+	_, err := lc.CreateFunction(t.Context(), &lambdasdk.CreateFunctionInput{
+		FunctionName: aws.String("metric-fn"), PackageType: lambdatypes.PackageTypeImage,
+		Code: &lambdatypes.FunctionCode{ImageUri: aws.String("x:latest")},
+		Role: aws.String("arn:aws:iam::000000000000:role/r"),
+	})
+	require.NoError(t, err)
+
+	_, err = lc.PutFunctionConcurrency(t.Context(), &lambdasdk.PutFunctionConcurrencyInput{
+		FunctionName: aws.String("metric-fn"), ReservedConcurrentExecutions: aws.Int32(0),
+	})
+	require.NoError(t, err)
+
+	_, err = lc.Invoke(t.Context(), &lambdasdk.InvokeInput{FunctionName: aws.String("metric-fn")})
+	require.Error(t, err)
+
+	assertMetricsEmitted(t, fx, []metricWant{{
+		namespace: "AWS/Lambda", name: "Throttles", dims: map[string]string{"FunctionName": "metric-fn"},
+		unit: cwtypes.StandardUnitCount, sum: 1, minSum: true,
+	}})
+}
+
+func TestServiceMetrics_SNSSQSDeliveryFailure(t *testing.T) {
+	t.Parallel()
+
+	fx := newSFNFixture(t)
+	snsc := sns.NewFromConfig(fx.cfg)
+	sqsc := sqs.NewFromConfig(fx.cfg)
+
+	topic, err := snsc.CreateTopic(t.Context(), &sns.CreateTopicInput{Name: aws.String("mtf-topic")})
+	require.NoError(t, err)
+
+	q, err := sqsc.CreateQueue(t.Context(), &sqs.CreateQueueInput{QueueName: aws.String("mtf-q")})
+	require.NoError(t, err)
+
+	qa, err := sqsc.GetQueueAttributes(t.Context(), &sqs.GetQueueAttributesInput{
+		QueueUrl: q.QueueUrl, AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameQueueArn},
+	})
+	require.NoError(t, err)
+
+	_, err = snsc.Subscribe(t.Context(), &sns.SubscribeInput{
+		TopicArn: topic.TopicArn, Protocol: aws.String("sqs"), Endpoint: aws.String(qa.Attributes["QueueArn"]),
+	})
+	require.NoError(t, err)
+
+	_, err = sqsc.DeleteQueue(t.Context(), &sqs.DeleteQueueInput{QueueUrl: q.QueueUrl})
+	require.NoError(t, err)
+
+	_, err = snsc.Publish(t.Context(), &sns.PublishInput{TopicArn: topic.TopicArn, Message: aws.String("hello")})
+	require.NoError(t, err)
+
+	assertMetricsEmitted(t, fx, []metricWant{
+		{
+			namespace: "AWS/SNS",
+			name:      "NumberOfNotificationsFailed",
+			dims:      map[string]string{"TopicName": "mtf-topic"},
+			unit:      cwtypes.StandardUnitCount,
+			sum:       1,
+		},
 	})
 }

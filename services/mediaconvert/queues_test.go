@@ -143,7 +143,8 @@ func TestMediaConvert_ListQueues_Empty(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 	queues, ok := out["queues"].([]any)
 	require.True(t, ok)
-	assert.Empty(t, queues)
+	require.Len(t, queues, 1)
+	assert.Equal(t, "Default", queues[0].(map[string]any)["name"])
 }
 
 func TestMediaConvert_DeleteQueue_NotFound(t *testing.T) {
@@ -363,10 +364,11 @@ func TestListQueues_SortedByName(t *testing.T) {
 	}
 
 	queues := b.ListQueues()
-	require.Len(t, queues, 3)
-	assert.Equal(t, "a-queue", queues[0].Name)
-	assert.Equal(t, "b-queue", queues[1].Name)
-	assert.Equal(t, "c-queue", queues[2].Name)
+	require.Len(t, queues, 4)
+	assert.Equal(t, "Default", queues[0].Name)
+	assert.Equal(t, "a-queue", queues[1].Name)
+	assert.Equal(t, "b-queue", queues[2].Name)
+	assert.Equal(t, "c-queue", queues[3].Name)
 }
 
 // TestCreateQueue_TypeIsCustom verifies queue type is always CUSTOM.
@@ -435,8 +437,9 @@ func TestListQueues_JobCountsIncluded(t *testing.T) {
 	require.NoError(t, err)
 
 	queues := b.ListQueues()
-	require.Len(t, queues, 1)
-	assert.Equal(t, 1, queues[0].SubmittedJobsCount)
+	require.Len(t, queues, 2)
+	assert.Equal(t, "list-q", queues[1].Name)
+	assert.Equal(t, 1, queues[1].SubmittedJobsCount)
 }
 
 // TestListQueues_JobCountsViaHTTP verifies HTTP /queues includes counts.
@@ -459,8 +462,9 @@ func TestListQueues_JobCountsViaHTTP(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 	queues, ok := out["queues"].([]any)
 	require.True(t, ok)
-	require.Len(t, queues, 1)
-	q := queues[0].(map[string]any)
+	require.Len(t, queues, 2)
+	q := queues[1].(map[string]any)
+	assert.Equal(t, "count-q", q["name"])
 	assert.InDelta(t, float64(1), q["submittedJobsCount"], 0)
 }
 
@@ -662,8 +666,9 @@ func TestListQueues_UsesCounters(t *testing.T) {
 	require.NoError(t, err)
 
 	queues := b.ListQueues()
-	require.Len(t, queues, 1)
-	assert.Equal(t, 1, queues[0].SubmittedJobsCount)
+	require.Len(t, queues, 2)
+	assert.Equal(t, "list-counter-q", queues[1].Name)
+	assert.Equal(t, 1, queues[1].SubmittedJobsCount)
 }
 
 // TestResolveQueueByARN verifies a job can be created by referencing a queue by ARN.

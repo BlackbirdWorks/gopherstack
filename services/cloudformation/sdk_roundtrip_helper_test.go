@@ -1,6 +1,7 @@
 package cloudformation_test
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -38,6 +39,7 @@ func newTestHandlerAndClientWithBackend(t *testing.T) (*cloudformation.InMemoryB
 	t.Helper()
 
 	backend := cloudformation.NewInMemoryBackend()
+	t.Cleanup(backend.WaitForStackSetOperations)
 	client := newTestClientForBackend(t, backend)
 
 	return backend, client
@@ -57,7 +59,10 @@ func newTestClientForBackend(t *testing.T, backend *cloudformation.InMemoryBacke
 	require.NoError(t, registry.Register(h))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 
-	srv := httptest.NewServer(e)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		e.ServeHTTP(w, r)
+		backend.WaitForStackSetOperations()
+	}))
 	t.Cleanup(srv.Close)
 
 	cfg, err := awscfg.LoadDefaultConfig(

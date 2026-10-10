@@ -222,6 +222,7 @@ type InMemoryBackend struct {
 	sourceAssocs           *store.Table[SourceAPIAssociation]
 	introspections         *store.Table[DataSourceIntrospection]
 	lambdaFn               LambdaInvoker
+	webACLs                WebACLResolver
 	ddbBackend             DynamoDBBackend
 	jwksProvider           JWKSProvider
 	mu                     *lockmetrics.RWMutex

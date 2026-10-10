@@ -105,9 +105,10 @@ type InMemoryBackend struct {
 
 	issuedTokens *store.Table[issuedImpersonationToken]
 
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	mu          *lockmetrics.RWMutex
+	directories DirectoryDeleter
+	accountID   string
+	region      string
 }
 
 // NewInMemoryBackend creates a new in-memory WorkMail backend.

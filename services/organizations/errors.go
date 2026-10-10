@@ -69,6 +69,16 @@ var (
 		"AccountAlreadyRegisteredException: account is already a delegated administrator",
 		awserr.ErrAlreadyExists,
 	)
+	// ErrCannotCloseManagementAccount is returned by CloseAccount for the management account.
+	ErrCannotCloseManagementAccount = awserr.New(
+		"ConstraintViolationException: CANNOT_CLOSE_MANAGEMENT_ACCOUNT",
+		awserr.ErrConflict,
+	)
+	// ErrParentNotFound is returned when a well-formed parent ID names no root or OU.
+	ErrParentNotFound = awserr.New(
+		"ParentNotFoundException: parent not found",
+		awserr.ErrNotFound,
+	)
 	// ErrPolicyLimitExceeded is returned when the maximum number of policies per target is exceeded.
 	ErrPolicyLimitExceeded = awserr.New(
 		"ConstraintViolationException: maximum policies per target exceeded",

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -245,25 +246,73 @@ func validateBasepath(basepath string) error {
 	}
 }
 
-// validateFailOnWarnings reads the failOnWarnings query param (ImportApiInput/
-// ReimportApiInput, same querystring location as basepath). It is read and
-// validated rather than silently dropped, but has no further observable
-// effect yet: this emulator's OpenAPI import (parseOpenAPISpec/
-// applyOpenAPIToAPI) never generates import warnings for any spec it accepts,
-// so there is never a warning for failOnWarnings to escalate -- see
-// PARITY.md gaps (matches the precedent set for API.ImportInfo/Warnings,
-// which are deliberately never populated with speculative text).
-func validateFailOnWarnings(c *echo.Context) error {
+// failOnWarnings reads the failOnWarnings query param (ImportApiInput/ReimportApiInput).
+func failOnWarnings(c *echo.Context) (bool, error) {
 	raw := c.Request().URL.Query().Get("failOnWarnings")
 	if raw == "" {
-		return nil
+		return false, nil
 	}
 
-	if _, err := strconv.ParseBool(raw); err != nil {
-		return fmt.Errorf("%w: failOnWarnings must be a boolean", ErrBadRequest)
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("%w: failOnWarnings must be a boolean", ErrBadRequest)
+	}
+
+	return v, nil
+}
+
+// importWarnings lists the documented import warnings: HTTP APIs support only Lambda proxy and HTTP proxy
+// integrations (docs: Use OpenAPI definitions for HTTP APIs).
+func importWarnings(spec *openAPISpec) []string {
+	var warnings []string
+
+	for path, methods := range spec.Paths {
+		for method, op := range methods {
+			if op.Integration == nil {
+				continue
+			}
+
+			if t := strings.ToLower(op.Integration.Type); t != "aws_proxy" && t != "http_proxy" {
+				warnings = append(warnings, fmt.Sprintf(
+					"%s %s: integration type %q is not supported for HTTP APIs",
+					strings.ToUpper(method),
+					path,
+					op.Integration.Type,
+				))
+			}
+		}
+	}
+
+	sort.Strings(warnings)
+
+	return warnings
+}
+
+// checkFailOnWarnings rejects the import with BadRequestException when failOnWarnings is set and spec warns.
+func checkFailOnWarnings(c *echo.Context, spec *openAPISpec) error {
+	fail, err := failOnWarnings(c)
+	if err != nil || !fail {
+		return err
+	}
+
+	if w := importWarnings(spec); len(w) > 0 {
+		return fmt.Errorf("%w: warnings found during import: %s", ErrBadRequest, strings.Join(w, "; "))
 	}
 
 	return nil
+}
+
+// splitBasePath drops the top-most segment of a base path ("/a/b/c" -> "/b/c"), per the
+// split option in docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-import-api-basePath.html.
+func splitBasePath(basePath string) string {
+	trimmed := strings.Trim(basePath, "/")
+
+	_, rest, found := strings.Cut(trimmed, "/")
+	if !found {
+		return ""
+	}
+
+	return "/" + rest
 }
 
 // specBasePath returns the OpenAPI document's declared base path: Swagger 2's
@@ -315,17 +364,17 @@ func parseOpenAPISpec(body string) (*openAPISpec, error) {
 	return &spec, nil
 }
 
-// applyOpenAPIToAPI creates a route (and integration, when defined) for each
-// path+method in the spec. Entries that are not valid HTTP route keys are
-// skipped gracefully. When basepath is "prepend", the document's declared
-// base path (specBasePath) is prefixed onto every route path; "split" is not
-// implemented (falls back to the "ignore" default, since API Gateway's
-// prepend/split base-path semantics aren't described by the SDK wire model,
-// only by prose docs -- see PARITY.md gaps).
+// applyOpenAPIToAPI creates a route (and integration, when defined) for each path+method in the
+// spec. Entries that are not valid HTTP route keys are skipped. basepath "prepend" prefixes the
+// document's base path onto every route path; "split" prefixes all but its top-most segment.
 func (h *Handler) applyOpenAPIToAPI(apiID string, spec *openAPISpec, basepath string) {
 	prefix := ""
-	if basepath == basepathPrepend {
+
+	switch basepath {
+	case basepathPrepend:
 		prefix = strings.TrimSuffix(specBasePath(spec), "/")
+	case basepathSplit:
+		prefix = splitBasePath(specBasePath(spec))
 	}
 
 	for path, methods := range spec.Paths {
@@ -403,7 +452,7 @@ func (h *Handler) handleImportAPI(c *echo.Context) error {
 		return writeErr(c, http.StatusBadRequest, err.Error())
 	}
 
-	if err := validateFailOnWarnings(c); err != nil {
+	if _, err := failOnWarnings(c); err != nil {
 		return writeErr(c, http.StatusBadRequest, err.Error())
 	}
 
@@ -417,6 +466,10 @@ func (h *Handler) handleImportAPI(c *echo.Context) error {
 	spec, err := parseOpenAPISpec(input.Body)
 	if err != nil {
 		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
+	}
+
+	if err = checkFailOnWarnings(c, spec); err != nil {
+		return writeErr(c, http.StatusBadRequest, err.Error())
 	}
 
 	name := spec.Info.Title
@@ -443,7 +496,7 @@ func (h *Handler) handleReimportAPI(c *echo.Context, apiID string) error {
 		return writeErr(c, http.StatusBadRequest, err.Error())
 	}
 
-	if err := validateFailOnWarnings(c); err != nil {
+	if _, err := failOnWarnings(c); err != nil {
 		return writeErr(c, http.StatusBadRequest, err.Error())
 	}
 
@@ -459,6 +512,10 @@ func (h *Handler) handleReimportAPI(c *echo.Context, apiID string) error {
 		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
+	if err = checkFailOnWarnings(c, spec); err != nil {
+		return writeErr(c, http.StatusBadRequest, err.Error())
+	}
+
 	// Replace existing routes and integrations from the new spec.
 	if routes, rErr := h.Backend.GetRoutes(apiID); rErr == nil {
 		for _, r := range routes {
@@ -468,11 +525,7 @@ func (h *Handler) handleReimportAPI(c *echo.Context, apiID string) error {
 		return writeErr(c, http.StatusNotFound, msgNotFound)
 	}
 
-	if integrations, iErr := h.Backend.GetIntegrations(apiID); iErr == nil {
-		for _, i := range integrations {
-			_ = h.Backend.DeleteIntegration(apiID, i.IntegrationID)
-		}
-	}
+	_ = h.Backend.PurgeIntegrations(apiID)
 
 	update := UpdateAPIInput{}
 	if spec.Info.Title != "" {

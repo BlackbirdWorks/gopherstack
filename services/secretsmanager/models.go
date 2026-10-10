@@ -219,6 +219,7 @@ type SecretListEntry struct {
 	RotationLambdaARN              string                               `json:"RotationLambdaARN,omitempty"`
 	PrimaryRegion                  string                               `json:"PrimaryRegion,omitempty"`
 	Type                           string                               `json:"Type,omitempty"`
+	OwningService                  string                               `json:"OwningService,omitempty"`
 	ExternalSecretRotationRoleArn  string                               `json:"ExternalSecretRotationRoleArn,omitempty"`
 	Tags                           []Tag                                `json:"Tags,omitempty"`
 	ExternalSecretRotationMetadata []ExternalSecretRotationMetadataItem `json:"ExternalSecretRotationMetadata,omitempty"`
@@ -278,6 +279,7 @@ type DescribeSecretOutput struct {
 	PrimaryRegion                  string                               `json:"PrimaryRegion,omitempty"`
 	ARN                            string                               `json:"ARN"`
 	Type                           string                               `json:"Type,omitempty"`
+	OwningService                  string                               `json:"OwningService,omitempty"`
 	ExternalSecretRotationRoleArn  string                               `json:"ExternalSecretRotationRoleArn,omitempty"`
 	Tags                           []Tag                                `json:"Tags,omitempty"`
 	ReplicationStatus              []ReplicationStatusType              `json:"ReplicationStatus,omitempty"`

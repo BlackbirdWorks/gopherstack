@@ -28,10 +28,11 @@ func (b *InMemoryBackend) subnetGroupsInRegion(region string) []*DBSubnetGroup {
 }
 
 // cloneSubnetGroup returns a deep copy of a subnet group (with its SubnetIDs slice copied).
-func cloneSubnetGroup(sg *DBSubnetGroup) DBSubnetGroup {
+func (b *InMemoryBackend) cloneSubnetGroup(sg *DBSubnetGroup) DBSubnetGroup {
 	cp := *sg
 	cp.SubnetIDs = make([]string, len(sg.SubnetIDs))
 	copy(cp.SubnetIDs, sg.SubnetIDs)
+	b.decorateSubnetGroup(&cp)
 
 	return cp
 }
@@ -49,6 +50,9 @@ func (b *InMemoryBackend) CreateDBSubnetGroup(
 ) (*DBSubnetGroup, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: DBSubnetGroupName is required", ErrInvalidParameter)
+	}
+	if err := validateSubnetGroupName(name); err != nil {
+		return nil, err
 	}
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("CreateDBSubnetGroup")
@@ -71,10 +75,14 @@ func (b *InMemoryBackend) CreateDBSubnetGroup(
 		Status:                   "Complete",
 		SubnetIDs:                ids,
 	}
+	if n := b.subnetGroupNetwork(ids); n.vpcID != "" {
+		sg.VpcID = n.vpcID
+	}
 	b.subnetGroupPut(sg)
 	cp := *sg
 	cp.SubnetIDs = make([]string, len(ids))
 	copy(cp.SubnetIDs, ids)
+	b.decorateSubnetGroup(&cp)
 
 	return &cp, nil
 }
@@ -93,12 +101,12 @@ func (b *InMemoryBackend) DescribeDBSubnetGroups(
 			return nil, fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, name)
 		}
 
-		return []DBSubnetGroup{cloneSubnetGroup(sg)}, nil
+		return []DBSubnetGroup{b.cloneSubnetGroup(sg)}, nil
 	}
 	subnetGroups := b.subnetGroupsInRegion(region)
 	result := make([]DBSubnetGroup, 0, len(subnetGroups))
 	for _, sg := range subnetGroups {
-		result = append(result, cloneSubnetGroup(sg))
+		result = append(result, b.cloneSubnetGroup(sg))
 	}
 	slices.SortFunc(result, func(a, b DBSubnetGroup) int {
 		return strings.Compare(a.DBSubnetGroupName, b.DBSubnetGroupName)
@@ -152,7 +160,12 @@ func (b *InMemoryBackend) ModifyDBSubnetGroup(
 		copy(ids, subnetIDs)
 		sg.SubnetIDs = ids
 	}
-	cp := cloneSubnetGroup(sg)
+	if len(subnetIDs) > 0 {
+		if n := b.subnetGroupNetwork(sg.SubnetIDs); n.vpcID != "" {
+			sg.VpcID = n.vpcID
+		}
+	}
+	cp := b.cloneSubnetGroup(sg)
 
 	return &cp, nil
 }

@@ -7,7 +7,7 @@
 service: transfer
 sdk_module: aws-sdk-go-v2/service/transfer@v1.75.4   # version audited against (go.mod)
 last_audit_commit: 1940758f8
-last_audit_date: 2026-09-20                          # requiredoutputfields census: all 69 required output
+last_audit_date: 2026-10-07                          # requiredoutputfields census: all 69 required output
                                                        # members across 51 ops checked, all always populated
                                                        # on the success path; see 2026-09-19 Notes entry.
                                                        # 2026-09-18: reqfielddiff tier-1 request-field audit: 5 tier-1
@@ -66,8 +66,9 @@ families:
   ListFileTransferResults: {status: ok, note: "gopherstack-tp8x (2026-08-21), fixed: was one row per TRANSFER with a 'FilePaths' array of every file (this backend's r.Files); real types.ConnectorFileTransferResult's member is the singular 'FilePath' -- one row per file, not a list. Also: TransferId is a required ListFileTransferResultsInput member (api_op_ListFileTransferResults.go) and the handler was ignoring it entirely, listing every transfer for the connector instead of the one specified -- added GetFileTransferResult(connectorID, transferID) and required-field validation for both ConnectorId and TransferId. Locked by TestListFileTransferResults_OneRowPerFile_RealClient (3-file transfer, real SDK client), TestListFileTransferResults_SingleFile_RealClient, TestHandler_StartFileTransferPersistsRecord. FIXED 2026-08-29 (filter/pagination parameter audit): MaxResults/NextToken (also real ListFileTransferResultsInput members) were read into the handler's input struct but never applied -- every call returned every file in the transfer regardless of MaxResults, with no NextToken ever emitted. Now routed through applyNextTokenItems. In practice the real per-transfer file count is capped at 10 (StartFileTransfer's own SendFilePaths/RetrieveFilePaths limit, per that op's docs), so this bounds how much truncation ever mattered, but the parameter is real and is now honoured rather than silently ignored. Proven via TestListFileTransferResults_SDKRoundTrip_Pagination, hand-reverted/confirmed-failing/restored."}
   Persistence: {status: ok, note: "unchanged since 2026-07-12 audit; new WebApp/Certificate fields ride the existing store.Table[T] generic Snapshot/Restore, no manual persistence.go wiring needed (confirmed via TestPersistence_FullStateRoundTrip)."}
 gaps: []
-items_still_open:
-  - "StartFileTransfer.CustomHttpHeaders is accepted but not applied: the emulator never sends AS2 messages and no SDK output (ListFileTransferResults) echoes request headers, so there is nothing observable to model."
+items_still_open: []
+structural_gaps:
+  - "StartFileTransfer.CustomHttpHeaders is accepted but cannot be applied: the emulator never sends AS2 messages and no SDK output (ListFileTransferResults) echoes request headers."
 deferred: []
 leaks: {status: clean, note: "Shutdown(ctx) stops the backend's worker (StartServer/StopServer async-transition timer) via Backend.Close(); no goroutine or timer outlives the service. leak_test.go / leak_main_test.go already cover this. No new goroutines/tickers were introduced this pass."}
 ---
@@ -411,3 +412,11 @@ Tool false positives (cmd/zeroguard): required path/identifier members (Name, *I
 ## 2026-10-05 (undeclared response members)
 
 SshPublicKey no longer emits KeyType (SDK type has only DateImported/SshPublicKeyBody/SshPublicKeyId).
+
+## 2026-10-10 (realism pass)
+
+- UserName must be 3-100 of `[\w@.-]` and not start with `-`/`.`/`@` per `CreateUserInput.UserName` (`TestUserNameValidation`); ImportSshPublicKey requires an RSA/ECDSA/ED25519 key line (`TestImportSSHPublicKeyFormat`).
+- CreateServer with FTP/FTPS requires a VPC endpoint and a non-SERVICE_MANAGED identity provider, enforced at the API boundary (`TestFTPServerRequirements`).
+- List* ops reject an invalid NextToken (InvalidNextTokenException) and MaxResults outside 1..1000 (`TestListPagingValidation`).
+- TagResource/UntagResource on an ARN with no matching resource is ResourceNotFoundException (`TestTagResourceUnknownARN`); messages no longer repeat the exception name.
+- Kept lenient: the SSH key check is structural (type plus base64 body), not a full parse, because in-repo fixtures use truncated keys; FTP rules are not applied to backend-level callers.

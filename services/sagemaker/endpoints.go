@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -45,8 +46,9 @@ type Endpoint struct {
 // ProductionVariantStatus describes the current deployment stage of a
 // production variant on a deployed endpoint.
 type ProductionVariantStatus struct {
-	Status        string `json:"Status"`
-	StatusMessage string `json:"StatusMessage,omitempty"`
+	Status        string  `json:"Status"`
+	StatusMessage string  `json:"StatusMessage,omitempty"`
+	StartTime     float64 `json:"StartTime,omitempty"`
 }
 
 // ProductionVariantSummary describes a production variant as deployed on a
@@ -55,29 +57,42 @@ type ProductionVariantStatus struct {
 // AWS renames Initial* to Desired* and adds Current* fields that reflect
 // deployed state once the endpoint has finished (re)deploying.
 type ProductionVariantSummary struct {
-	CurrentWeight        *float64                  `json:"CurrentWeight,omitempty"`
-	DesiredWeight        *float64                  `json:"DesiredWeight,omitempty"`
-	CurrentInstanceCount *int32                    `json:"CurrentInstanceCount,omitempty"`
-	DesiredInstanceCount *int32                    `json:"DesiredInstanceCount,omitempty"`
-	VariantName          string                    `json:"VariantName"`
-	VariantStatus        []ProductionVariantStatus `json:"VariantStatus,omitempty"`
+	CurrentWeight             *float64                  `json:"CurrentWeight,omitempty"`
+	DesiredWeight             *float64                  `json:"DesiredWeight,omitempty"`
+	CurrentInstanceCount      *int32                    `json:"CurrentInstanceCount,omitempty"`
+	DesiredInstanceCount      *int32                    `json:"DesiredInstanceCount,omitempty"`
+	CurrentServerless         *ServerlessConfig         `json:"CurrentServerlessConfig,omitempty"`
+	DesiredServerless         *ServerlessConfig         `json:"DesiredServerlessConfig,omitempty"`
+	ManagedInstanceScaling    *ManagedScaling           `json:"ManagedInstanceScaling,omitempty"`
+	RoutingConfig             *VariantRoutingConfig     `json:"RoutingConfig,omitempty"`
+	CapacityReservationConfig *ReservationConfig        `json:"CapacityReservationConfig,omitempty"`
+	InstancePools             []InstancePoolSummary     `json:"InstancePools,omitempty"`
+	VariantName               string                    `json:"VariantName"`
+	VariantStatus             []ProductionVariantStatus `json:"VariantStatus,omitempty"`
 }
 
 // newVariantSummaries builds the initial ProductionVariantSummary list for an
 // endpoint from an endpoint config's ProductionVariants. Desired* fields are
 // populated from the config's Initial* fields; Current* fields are left nil
-// until the endpoint (re)reaches InService.
-func newVariantSummaries(pvs []ProductionVariant) []ProductionVariantSummary {
+// until the endpoint (re)reaches InService. VariantStatus holds the transitional
+// types.VariantStatus (Creating/Updating) and is cleared once InService, since
+// InService is not a member of that enum.
+func newVariantSummaries(pvs []ProductionVariant, status string, now time.Time) []ProductionVariantSummary {
 	summaries := make([]ProductionVariantSummary, len(pvs))
 
 	for i, pv := range pvs {
 		weight := pv.InitialVariantWeight
 		count := pv.InitialInstanceCount
 		summaries[i] = ProductionVariantSummary{
-			VariantName:          pv.VariantName,
-			DesiredWeight:        &weight,
-			DesiredInstanceCount: &count,
-			VariantStatus:        []ProductionVariantStatus{{Status: "Creating"}},
+			VariantName:               pv.VariantName,
+			DesiredWeight:             &weight,
+			DesiredInstanceCount:      &count,
+			DesiredServerless:         cloneServerlessConfig(pv.ServerlessConfig),
+			ManagedInstanceScaling:    cloneManagedInstanceScaling(pv.ManagedInstanceScaling),
+			RoutingConfig:             cloneRoutingConfig(pv.RoutingConfig),
+			CapacityReservationConfig: cloneCapacityReservation(pv.CapacityReservationConfig),
+			InstancePools:             instancePoolSummaries(pv.InstancePools),
+			VariantStatus:             []ProductionVariantStatus{{Status: status, StartTime: epochSeconds(now)}},
 		}
 	}
 
@@ -128,6 +143,12 @@ func cloneProductionVariantSummary(pv ProductionVariantSummary) ProductionVarian
 		c := *pv.DesiredInstanceCount
 		pv.DesiredInstanceCount = &c
 	}
+	pv.CurrentServerless = cloneServerlessConfig(pv.CurrentServerless)
+	pv.DesiredServerless = cloneServerlessConfig(pv.DesiredServerless)
+	pv.ManagedInstanceScaling = cloneManagedInstanceScaling(pv.ManagedInstanceScaling)
+	pv.RoutingConfig = cloneRoutingConfig(pv.RoutingConfig)
+	pv.CapacityReservationConfig = cloneCapacityReservation(pv.CapacityReservationConfig)
+	pv.InstancePools = slices.Clone(pv.InstancePools)
 	pv.VariantStatus = append([]ProductionVariantStatus(nil), pv.VariantStatus...)
 
 	return pv
@@ -171,9 +192,11 @@ func (b *InMemoryBackend) CreateEndpoint(
 
 	ec, ok := b.endpointConfigsStore(region).Get(opts.EndpointConfigName)
 	if !ok {
-		return nil, fmt.Errorf(
-			"%w: could not find endpoint configuration %q",
+		return nil, b.couldNotFind(
 			ErrEndpointConfigNotFound,
+			region,
+			"endpoint configuration",
+			"endpoint-config/",
 			opts.EndpointConfigName,
 		)
 	}
@@ -188,8 +211,8 @@ func (b *InMemoryBackend) CreateEndpoint(
 		CreationTime:             now,
 		LastModifiedTime:         now,
 		Tags:                     mergeTags(nil, opts.Tags),
-		ProductionVariants:       newVariantSummaries(ec.ProductionVariants),
-		ShadowProductionVariants: newVariantSummaries(ec.ShadowProductionVariants),
+		ProductionVariants:       newVariantSummaries(ec.ProductionVariants, statusCreating, now),
+		ShadowProductionVariants: newVariantSummaries(ec.ShadowProductionVariants, statusCreating, now),
 		DataCaptureConfig:        ec.DataCaptureConfig,
 		AsyncInferenceConfig:     ec.AsyncInferenceConfig,
 		DeploymentConfig:         opts.DeploymentConfig,
@@ -209,7 +232,7 @@ func (b *InMemoryBackend) DescribeEndpoint(ctx context.Context, name string) (*E
 
 	ep, ok := b.endpointsStoreRO(region).Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
+		return nil, b.couldNotFind(ErrEndpointNotFound, region, "endpoint", "endpoint/", name)
 	}
 
 	return cloneEndpoint(ep), nil
@@ -308,7 +331,7 @@ func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, name string) error
 
 	ep, ok := b.endpointsStore(region).Get(name)
 	if !ok {
-		return fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
+		return b.couldNotFind(ErrEndpointNotFound, region, "endpoint", "endpoint/", name)
 	}
 
 	arnIdx := b.endpointARNIndexStore(region)
@@ -356,6 +379,7 @@ func carryOverVariantProperties(
 
 			newVariants[i].CurrentWeight = old.CurrentWeight
 			newVariants[i].CurrentInstanceCount = old.CurrentInstanceCount
+			newVariants[i].CurrentServerless = cloneServerlessConfig(old.CurrentServerless)
 
 			if opts.RetainAllVariantProperties {
 				if !excluded["DesiredWeight"] {
@@ -387,25 +411,29 @@ func (b *InMemoryBackend) UpdateEndpoint(
 
 	ep, ok := b.endpointsStore(region).Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
+		return nil, b.couldNotFind(ErrEndpointNotFound, region, "endpoint", "endpoint/", name)
 	}
 
 	ec, ok := b.endpointConfigsStore(region).Get(opts.EndpointConfigName)
 	if !ok {
-		return nil, fmt.Errorf(
-			"%w: could not find endpoint configuration %q",
+		return nil, b.couldNotFind(
 			ErrEndpointConfigNotFound,
+			region,
+			"endpoint configuration",
+			"endpoint-config/",
 			opts.EndpointConfigName,
 		)
 	}
 
-	newVariants := carryOverVariantProperties(newVariantSummaries(ec.ProductionVariants), ep.ProductionVariants, opts)
+	newVariants := carryOverVariantProperties(
+		newVariantSummaries(ec.ProductionVariants, statusUpdating, time.Now()), ep.ProductionVariants, opts,
+	)
 
 	ep.EndpointConfigName = opts.EndpointConfigName
 	ep.EndpointStatus = statusUpdating
 	ep.LastModifiedTime = time.Now()
 	ep.ProductionVariants = newVariants
-	ep.ShadowProductionVariants = newVariantSummaries(ec.ShadowProductionVariants)
+	ep.ShadowProductionVariants = newVariantSummaries(ec.ShadowProductionVariants, statusUpdating, time.Now())
 	ep.DataCaptureConfig = ec.DataCaptureConfig
 	ep.AsyncInferenceConfig = ec.AsyncInferenceConfig
 
@@ -447,7 +475,13 @@ func (b *InMemoryBackend) scheduleEndpointTransition(
 			for i := range ep.ProductionVariants {
 				ep.ProductionVariants[i].CurrentWeight = ep.ProductionVariants[i].DesiredWeight
 				ep.ProductionVariants[i].CurrentInstanceCount = ep.ProductionVariants[i].DesiredInstanceCount
-				ep.ProductionVariants[i].VariantStatus = []ProductionVariantStatus{{Status: statusInService}}
+				pv := &ep.ProductionVariants[i]
+				pv.CurrentServerless = cloneServerlessConfig(pv.DesiredServerless)
+				ep.ProductionVariants[i].VariantStatus = nil
+			}
+
+			for i := range ep.ShadowProductionVariants {
+				ep.ShadowProductionVariants[i].VariantStatus = nil
 			}
 		}
 	})
@@ -508,7 +542,7 @@ func (b *InMemoryBackend) UpdateEndpointWeightsAndCapacitiesFull(
 
 	ep, ok := b.endpointsStore(region).Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
+		return nil, b.couldNotFind(ErrEndpointNotFound, region, "endpoint", "endpoint/", name)
 	}
 
 	// Apply weight/capacity changes to the endpoint's variant snapshots.
@@ -555,4 +589,14 @@ type DesiredWeightAndCapacity struct {
 	DesiredWeight        *float64 `json:"DesiredWeight,omitempty"`
 	DesiredInstanceCount *int32   `json:"DesiredInstanceCount,omitempty"`
 	VariantName          string   `json:"VariantName"`
+}
+
+func cloneServerlessConfig(c *ServerlessConfig) *ServerlessConfig {
+	if c == nil {
+		return nil
+	}
+
+	cp := *c
+
+	return &cp
 }

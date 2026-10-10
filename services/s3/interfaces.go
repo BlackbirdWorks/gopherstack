@@ -225,6 +225,7 @@ type StorageBackend interface {
 		ctx context.Context, bucket string, sessionMode types.SessionMode, enc SessionEncryption,
 	) (SessionCredentials, error)
 	ExpressSessionEncryption(accessKeyID, sessionToken string) (SessionEncryption, bool)
+	ExpressSessionReadOnly(accessKeyID string) bool
 	ExpressSessionSecret(accessKeyID, sessionToken string) (bucket, secret string, ok bool)
 	IsDirectoryBucket(bucket string) bool
 
@@ -246,6 +247,9 @@ type StorageBackend interface {
 	// so it is cleared automatically once the bucket record is removed.
 	SetObjectLambdaConfig(bucket, lambdaARN string)
 	ObjectLambdaConfig(bucket string) string
+	SetObjectLambdaAccessPoint(bucket string, ap StoredObjectLambdaAccessPoint)
+	DeleteObjectLambdaAccessPoint(name, accountID string)
+	resolveObjectLambdaTarget(label string) objectLambdaRoute
 
 	// S3 Express directory buckets
 	ListDirectoryBuckets(ctx context.Context) ([]types.Bucket, error)

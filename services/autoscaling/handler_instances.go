@@ -71,6 +71,7 @@ func (h *Handler) handleDescribeAutoScalingInstances(vals url.Values) (any, erro
 			InstanceID:              inst.InstanceID,
 			AutoScalingGroupName:    inst.AutoScalingGroupName,
 			AvailabilityZone:        inst.AvailabilityZone,
+			AvailabilityZoneID:      availabilityZoneID(inst.AvailabilityZone),
 			LifecycleState:          inst.LifecycleState,
 			HealthStatus:            inst.HealthStatus,
 			LaunchConfigurationName: inst.LaunchConfigurationName,
@@ -112,6 +113,7 @@ type xmlInstanceDetails struct {
 	InstanceID              string `xml:"InstanceId"`
 	AutoScalingGroupName    string `xml:"AutoScalingGroupName"`
 	AvailabilityZone        string `xml:"AvailabilityZone"`
+	AvailabilityZoneID      string `xml:"AvailabilityZoneId,omitempty"`
 	LifecycleState          string `xml:"LifecycleState"`
 	HealthStatus            string `xml:"HealthStatus"`
 	LaunchConfigurationName string `xml:"LaunchConfigurationName,omitempty"`
@@ -262,9 +264,13 @@ func (h *Handler) handleLaunchInstances(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: invalid RetryStrategy %q", ErrInvalidParameter, rs)
 	}
 
-	zones := parseMembers(vals, "AvailabilityZones.member")
+	targets := LaunchTargets{
+		Zones:   parseMembers(vals, "AvailabilityZones.member"),
+		ZoneIDs: parseMembers(vals, "AvailabilityZoneIds.member"),
+		Subnets: parseMembers(vals, "SubnetIds.member"),
+	}
 
-	instances, launchErr := h.launchOnce(groupName, clientToken, count, zones)
+	instances, launchErr := h.launchOnce(groupName, clientToken, count, targets)
 	if launchErr != nil {
 		return nil, launchErr
 	}
@@ -285,13 +291,13 @@ func (h *Handler) handleLaunchInstances(vals url.Values) (any, error) {
 // returns (a flat per-instance list with LifecycleState/HealthStatus belongs to
 // DescribeAutoScalingGroups/DescribeAutoScalingInstances, not this operation).
 func toXMLInstanceCollections(instances []Instance) xmlInstanceCollectionList {
-	type collectionKey struct{ az, instanceType string }
+	type collectionKey struct{ az, instanceType, subnet string }
 
 	order := make([]collectionKey, 0, len(instances))
 	grouped := make(map[collectionKey][]string, len(instances))
 
 	for _, inst := range instances {
-		key := collectionKey{az: inst.AvailabilityZone, instanceType: inst.InstanceType}
+		key := collectionKey{az: inst.AvailabilityZone, instanceType: inst.InstanceType, subnet: inst.SubnetID}
 		if _, ok := grouped[key]; !ok {
 			order = append(order, key)
 		}
@@ -308,9 +314,11 @@ func toXMLInstanceCollections(instances []Instance) xmlInstanceCollectionList {
 		}
 
 		members = append(members, xmlInstanceCollection{
-			AvailabilityZone: key.az,
-			InstanceType:     key.instanceType,
-			InstanceIDs:      xmlStringValueList{Members: ids},
+			AvailabilityZone:   key.az,
+			AvailabilityZoneID: availabilityZoneID(key.az),
+			InstanceType:       key.instanceType,
+			SubnetID:           key.subnet,
+			InstanceIDs:        xmlStringValueList{Members: ids},
 		})
 	}
 
@@ -368,9 +376,11 @@ type setInstanceProtectionResponse struct {
 // reports their IDs together, NOT as a flat per-instance list with lifecycle/health
 // fields (that shape belongs to DescribeAutoScalingGroups/DescribeAutoScalingInstances).
 type xmlInstanceCollection struct {
-	AvailabilityZone string             `xml:"AvailabilityZone,omitempty"`
-	InstanceType     string             `xml:"InstanceType,omitempty"`
-	InstanceIDs      xmlStringValueList `xml:"InstanceIds,omitempty"`
+	AvailabilityZone   string             `xml:"AvailabilityZone,omitempty"`
+	AvailabilityZoneID string             `xml:"AvailabilityZoneId,omitempty"`
+	InstanceType       string             `xml:"InstanceType,omitempty"`
+	SubnetID           string             `xml:"SubnetId,omitempty"`
+	InstanceIDs        xmlStringValueList `xml:"InstanceIds,omitempty"`
 }
 
 type xmlInstanceCollectionList struct {
@@ -396,11 +406,11 @@ type launchedInstances struct {
 }
 
 // launchOnce replays the instances a ClientToken already launched into the group.
-func (h *Handler) launchOnce(groupName, token string, count int32, zones []string) ([]Instance, error) {
+func (h *Handler) launchOnce(groupName, token string, count int32, targets LaunchTargets) ([]Instance, error) {
 	req := struct {
-		Zones []string
-		Count int32
-	}{zones, count}
+		Targets LaunchTargets
+		Count   int32
+	}{targets, count}
 
 	out, err := idempotency.Create(
 		h.idem, "LaunchInstances|"+groupName, token, idempotency.Fingerprint(req),
@@ -416,7 +426,7 @@ func (h *Handler) launchOnce(groupName, token string, count int32, zones []strin
 			return &launchedInstances{instances: got, ids: ids}, nil
 		},
 		func() (*launchedInstances, error) {
-			got, launchErr := h.Backend.LaunchInstancesIn(groupName, count, zones)
+			got, launchErr := h.Backend.LaunchInstancesWith(groupName, targets, count)
 			if launchErr != nil {
 				return nil, launchErr
 			}

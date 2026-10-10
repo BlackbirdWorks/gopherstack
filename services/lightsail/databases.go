@@ -14,6 +14,7 @@ package lightsail
 // implementation ordering step 8).
 
 import (
+	"cmp"
 	"slices"
 	"sort"
 	"time"
@@ -96,6 +97,15 @@ func (b *InMemoryBackend) CreateRelationalDatabase(
 
 	if masterUserPassword == "" {
 		masterUserPassword = newSupportCode()
+	} else if err := validateMasterPassword(bp.Engine, masterUserPassword); err != nil {
+		return nil, err
+	}
+
+	backupWindow := cmp.Or(preferredBackupWindow, defaultPreferredBackupWindow)
+	maintenanceWindow := cmp.Or(preferredMaintenanceWindow, defaultPreferredMaintenanceWindow)
+
+	if err := validateDatabaseWindows(backupWindow, maintenanceWindow); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateRelationalDatabase")
@@ -110,22 +120,13 @@ func (b *InMemoryBackend) CreateRelationalDatabase(
 		az = availabilityZoneA(b.region)
 	}
 
-	backupWindow := preferredBackupWindow
-	if backupWindow == "" {
-		backupWindow = defaultPreferredBackupWindow
-	}
-
-	maintenanceWindow := preferredMaintenanceWindow
-	if maintenanceWindow == "" {
-		maintenanceWindow = defaultPreferredMaintenanceWindow
-	}
-
 	now := nowUTC()
 	db := &RelationalDatabase{
 		Name:                       name,
 		Arn:                        b.regionalARN(ResourceTypeRelationalDatabase, newUUID()),
 		SupportCode:                newSupportCode(),
 		State:                      RelationalDatabaseStateCreating,
+		MasterUserPasswordSetAt:    now,
 		Engine:                     bp.Engine,
 		EngineVersion:              bp.EngineVersion,
 		MasterDatabaseName:         masterDatabaseName,
@@ -185,65 +186,154 @@ func (b *InMemoryBackend) scheduleRDSAvailableLocked(name string) {
 	})
 }
 
-// CreateRelationalDatabaseFromSnapshot restores a new database from an
-// existing RelationalDatabaseSnapshot.
-func (b *InMemoryBackend) CreateRelationalDatabaseFromSnapshot(
-	name, snapshotName, availabilityZone, bundleID string, publiclyAccessible bool, userTags map[string]string,
-) ([]Operation, error) {
+// RestoreDatabaseRequest is CreateRelationalDatabaseFromSnapshot's input: a
+// snapshot, or a source database plus RestoreTime/UseLatestRestorableTime.
+type RestoreDatabaseRequest struct {
+	RestoreTime             *time.Time
+	Tags                    map[string]string
+	Name                    string
+	SnapshotName            string
+	SourceName              string
+	AvailabilityZone        string
+	BundleID                string
+	PubliclyAccessible      bool
+	UseLatestRestorableTime bool
+}
+
+// restoreOrigin is what a restored database inherits from its snapshot or source.
+type restoreOrigin struct {
+	passwordSetAt      time.Time
+	engine             string
+	engineVersion      string
+	blueprintID        string
+	bundleID           string
+	masterDatabaseName string
+	masterUsername     string
+	password           string
+}
+
+// resolveRestoreOriginLocked validates the restore request against its snapshot
+// or source database. Caller must hold b.mu.
+func (b *InMemoryBackend) resolveRestoreOriginLocked(req *RestoreDatabaseRequest) (restoreOrigin, error) {
+	if req.SnapshotName != "" {
+		snap, ok := b.dbSnapshots.Get(req.SnapshotName)
+		if !ok {
+			return restoreOrigin{}, notFoundError("RelationalDatabaseSnapshot", req.SnapshotName)
+		}
+
+		return restoreOrigin{
+			engine: snap.Engine, engineVersion: snap.EngineVersion,
+			blueprintID: snap.FromRelationalDatabaseBlueprintID, bundleID: snap.FromRelationalDatabaseBundleID,
+		}, nil
+	}
+
+	if req.SourceName == "" {
+		return restoreOrigin{}, validationError(
+			"either relationalDatabaseSnapshotName or sourceRelationalDatabaseName is required",
+		)
+	}
+
+	if req.RestoreTime != nil && req.UseLatestRestorableTime {
+		return restoreOrigin{}, validationError("restoreTime cannot be specified with useLatestRestorableTime")
+	}
+
+	if req.RestoreTime == nil && !req.UseLatestRestorableTime {
+		return restoreOrigin{}, validationError(
+			"restoreTime or useLatestRestorableTime is required with sourceRelationalDatabaseName",
+		)
+	}
+
+	src, ok := b.databases.Get(req.SourceName)
+	if !ok {
+		return restoreOrigin{}, notFoundError("RelationalDatabase", req.SourceName)
+	}
+
+	view := src.clone()
+	if !view.BackupRetentionEnabled {
+		return restoreOrigin{}, validationError("automated backups are not enabled for " + req.SourceName)
+	}
+
+	if req.RestoreTime != nil &&
+		(req.RestoreTime.Before(view.CreatedAt) || !req.RestoreTime.Before(view.LatestRestorableTime)) {
+		return restoreOrigin{}, validationError(
+			"restoreTime must be after the database was created and before the latest restorable time",
+		)
+	}
+
+	return restoreOrigin{
+		engine: view.Engine, engineVersion: view.EngineVersion, blueprintID: view.BlueprintID,
+		bundleID: view.BundleID, masterDatabaseName: view.MasterDatabaseName,
+		masterUsername: view.MasterUsername, password: view.MasterUserPassword,
+		passwordSetAt: view.MasterUserPasswordSetAt,
+	}, nil
+}
+
+// CreateRelationalDatabaseFromSnapshot restores a new database from a
+// RelationalDatabaseSnapshot, or from a source database's automated backups.
+func (b *InMemoryBackend) CreateRelationalDatabaseFromSnapshot(req *RestoreDatabaseRequest) ([]Operation, error) {
 	b.mu.Lock("CreateRelationalDatabaseFromSnapshot")
 	defer b.mu.Unlock()
 
-	snap, ok := b.dbSnapshots.Get(snapshotName)
-	if !ok {
-		return nil, notFoundError("RelationalDatabaseSnapshot", snapshotName)
+	origin, err := b.resolveRestoreOriginLocked(req)
+	if err != nil {
+		return nil, err
 	}
 
-	bundle := bundleID
-	if bundle == "" {
-		bundle = snap.FromRelationalDatabaseBundleID
-	}
+	bundle := cmp.Or(req.BundleID, origin.bundleID)
 
 	rdsBd, ok := findRDSBundle(bundle)
 	if !ok {
 		return nil, validationError("unknown RelationalDatabaseBundleId: " + bundle)
 	}
 
-	if err := b.registerNameLocked(ResourceTypeRelationalDatabase, name); err != nil {
-		return nil, err
+	if orig, found := findRDSBundle(origin.bundleID); found &&
+		(rdsBd.RAMSizeInGb < orig.RAMSizeInGb || rdsBd.DiskSizeInGb < orig.DiskSizeInGb) {
+		return nil, validationError("the bundle cannot be smaller than the source database's bundle")
 	}
 
-	az := availabilityZone
-	if az == "" {
-		az = availabilityZoneA(b.region)
+	if err = b.registerNameLocked(ResourceTypeRelationalDatabase, req.Name); err != nil {
+		return nil, err
 	}
 
 	now := nowUTC()
 	db := &RelationalDatabase{
-		Name:                   name,
-		Arn:                    b.regionalARN(ResourceTypeRelationalDatabase, newUUID()),
-		SupportCode:            newSupportCode(),
-		State:                  RelationalDatabaseStateCreating,
-		Engine:                 snap.Engine,
-		EngineVersion:          snap.EngineVersion,
-		BlueprintID:            snap.FromRelationalDatabaseBlueprintID,
-		BundleID:               bundle,
-		CPUCount:               rdsBd.CPUCount,
-		DiskSizeInGb:           rdsBd.DiskSizeInGb,
-		RAMSizeInGb:            rdsBd.RAMSizeInGb,
-		PubliclyAccessible:     publiclyAccessible,
-		BackupRetentionEnabled: true,
-		CreatedAt:              now,
-		LatestRestorableTime:   now,
-		Location:               ResourceLocation{RegionName: b.region, AvailabilityZone: az},
-		Parameters:             defaultRDSParameters(),
-		Tags:                   tags.New("lightsail.database." + name + ".tags"),
+		Name:                       req.Name,
+		Arn:                        b.regionalARN(ResourceTypeRelationalDatabase, newUUID()),
+		SupportCode:                newSupportCode(),
+		State:                      RelationalDatabaseStateCreating,
+		Engine:                     origin.engine,
+		EngineVersion:              origin.engineVersion,
+		MasterDatabaseName:         origin.masterDatabaseName,
+		MasterUsername:             origin.masterUsername,
+		MasterUserPassword:         origin.password,
+		MasterUserPasswordSetAt:    cmp.Or(origin.passwordSetAt, now),
+		BlueprintID:                origin.blueprintID,
+		BundleID:                   bundle,
+		CPUCount:                   rdsBd.CPUCount,
+		DiskSizeInGb:               rdsBd.DiskSizeInGb,
+		RAMSizeInGb:                rdsBd.RAMSizeInGb,
+		PubliclyAccessible:         req.PubliclyAccessible,
+		BackupRetentionEnabled:     true,
+		PreferredBackupWindow:      defaultPreferredBackupWindow,
+		PreferredMaintenanceWindow: defaultPreferredMaintenanceWindow,
+		CreatedAt:                  now,
+		LatestRestorableTime:       now,
+		Location: ResourceLocation{
+			RegionName: b.region, AvailabilityZone: cmp.Or(req.AvailabilityZone, availabilityZoneA(b.region)),
+		},
+		Parameters: defaultRDSParameters(),
+		Tags:       tags.New("lightsail.database." + req.Name + ".tags"),
 	}
-	db.Tags.Merge(userTags)
+	db.Tags.Merge(req.Tags)
 	b.databases.Put(db)
 
-	b.scheduleRDSAvailableLocked(name)
+	b.scheduleRDSAvailableLocked(req.Name)
 
-	return b.newOperationsLocked(opTypeCreateRelationalDatabase, ResourceTypeRelationalDatabase, []string{name}), nil
+	return b.newOperationsLocked(
+		opTypeCreateRelationalDatabase,
+		ResourceTypeRelationalDatabase,
+		[]string{req.Name},
+	), nil
 }
 
 // DeleteRelationalDatabase deletes the named database, optionally taking a
@@ -385,50 +475,148 @@ func (b *InMemoryBackend) addRDSEventLocked(db *RelationalDatabase, message, cat
 	})
 }
 
+// UpdateDatabaseRequest is UpdateRelationalDatabase's input; nil pointers mean
+// "leave unchanged".
+type UpdateDatabaseRequest struct {
+	EnableBackupRetention    *bool
+	DisableBackupRetention   *bool
+	PubliclyAccessible       *bool
+	Name                     string
+	MasterUserPassword       string
+	PreferredBackupWindow    string
+	PreferredMaintenance     string
+	CaCertificateIdentifier  string
+	BlueprintID              string
+	ApplyImmediately         bool
+	RotateMasterUserPassword bool
+}
+
 // UpdateRelationalDatabase applies caller-supplied updates to the named
-// database.
-func (b *InMemoryBackend) UpdateRelationalDatabase(
-	name string, masterUserPassword, preferredBackupWindow, preferredMaintenanceWindow, caCertificateIdentifier string,
-	enableBackupRetention, disableBackupRetention, publiclyAccessible *bool,
-) ([]Operation, error) {
+// database. Password and engine-version changes wait for the next maintenance
+// window unless ApplyImmediately; backup-retention changes always wait
+// (api_op_UpdateRelationalDatabase.go).
+func (b *InMemoryBackend) UpdateRelationalDatabase(req *UpdateDatabaseRequest) ([]Operation, error) {
 	b.mu.Lock("UpdateRelationalDatabase")
 	defer b.mu.Unlock()
 
-	db, ok := b.databases.Get(name)
+	db, ok := b.databases.Get(req.Name)
 	if !ok {
-		return nil, notFoundError("RelationalDatabase", name)
+		return nil, notFoundError("RelationalDatabase", req.Name)
 	}
 
-	if masterUserPassword != "" {
-		db.PreviousMasterUserPassword = db.MasterUserPassword
-		db.MasterUserPassword = masterUserPassword
+	now := nowUTC()
+	db.applyDue(now)
+
+	newBP, err := validateDatabaseUpdate(db, req)
+	if err != nil {
+		return nil, err
 	}
 
-	if preferredBackupWindow != "" {
-		db.PreferredBackupWindow = preferredBackupWindow
+	if req.PreferredBackupWindow != "" {
+		db.PreferredBackupWindow = req.PreferredBackupWindow
 	}
 
-	if preferredMaintenanceWindow != "" {
-		db.PreferredMaintenanceWindow = preferredMaintenanceWindow
+	if req.PreferredMaintenance != "" {
+		db.PreferredMaintenanceWindow = req.PreferredMaintenance
 	}
 
-	if caCertificateIdentifier != "" {
-		db.CaCertificateIdentifier = caCertificateIdentifier
+	if req.CaCertificateIdentifier != "" {
+		db.CaCertificateIdentifier = req.CaCertificateIdentifier
 	}
 
-	if enableBackupRetention != nil && *enableBackupRetention {
-		db.BackupRetentionEnabled = true
+	if req.PubliclyAccessible != nil {
+		db.PubliclyAccessible = *req.PubliclyAccessible
 	}
 
-	if disableBackupRetention != nil && *disableBackupRetention {
-		db.BackupRetentionEnabled = false
+	stageDatabaseChanges(db, req, newBP, now)
+
+	return b.newOperationsLocked(
+		opTypeUpdateRelationalDatabase,
+		ResourceTypeRelationalDatabase,
+		[]string{req.Name},
+	), nil
+}
+
+func validateDatabaseUpdate(db *RelationalDatabase, req *UpdateDatabaseRequest) (*RelationalDatabaseBlueprint, error) {
+	backup := cmp.Or(req.PreferredBackupWindow, db.PreferredBackupWindow)
+	maintenance := cmp.Or(req.PreferredMaintenance, db.PreferredMaintenanceWindow)
+
+	if req.PreferredBackupWindow != "" || req.PreferredMaintenance != "" {
+		if err := validateDatabaseWindows(backup, maintenance); err != nil {
+			return nil, err
+		}
 	}
 
-	if publiclyAccessible != nil {
-		db.PubliclyAccessible = *publiclyAccessible
+	if req.MasterUserPassword != "" {
+		if err := validateMasterPassword(db.Engine, req.MasterUserPassword); err != nil {
+			return nil, err
+		}
 	}
 
-	return b.newOperationsLocked(opTypeUpdateRelationalDatabase, ResourceTypeRelationalDatabase, []string{name}), nil
+	if req.BlueprintID == "" {
+		return nil, nil //nolint:nilnil // no blueprint change requested
+	}
+
+	bp, ok := findRDSBlueprint(req.BlueprintID)
+	if !ok {
+		return nil, validationError("unknown RelationalDatabaseBlueprintId: " + req.BlueprintID)
+	}
+
+	if bp.Engine != db.Engine {
+		return nil, validationError("relationalDatabaseBlueprintId must use the database's engine " + db.Engine)
+	}
+
+	return bp, nil
+}
+
+// stageDatabaseChanges applies the password, engine-version and backup-retention
+// changes now or queues them for the next maintenance window.
+func stageDatabaseChanges(
+	db *RelationalDatabase,
+	req *UpdateDatabaseRequest,
+	bp *RelationalDatabaseBlueprint,
+	now time.Time,
+) {
+	password := req.MasterUserPassword
+	if password == "" && req.RotateMasterUserPassword {
+		password = newSupportCode()
+	}
+
+	applyAt := nextWindowStart(now, db.PreferredMaintenanceWindow)
+
+	if password != "" {
+		if req.ApplyImmediately {
+			db.setMasterPassword(password, now)
+		} else {
+			p := db.pending()
+			p.MasterUserPassword, p.MasterUserPasswordSetAt, p.ApplyAt = password, now, applyAt
+		}
+	}
+
+	if bp != nil && bp.EngineVersion != db.EngineVersion {
+		if req.ApplyImmediately {
+			db.EngineVersion, db.BlueprintID = bp.EngineVersion, bp.BlueprintID
+		} else {
+			p := db.pending()
+			p.EngineVersion, p.BlueprintID, p.ApplyAt = bp.EngineVersion, bp.BlueprintID, applyAt
+		}
+	}
+
+	var retention *bool
+
+	switch {
+	case req.EnableBackupRetention != nil && *req.EnableBackupRetention:
+		retention = req.EnableBackupRetention
+	case req.DisableBackupRetention != nil && *req.DisableBackupRetention:
+		off := false
+		retention = &off
+	default:
+	}
+
+	if retention != nil && *retention != db.BackupRetentionEnabled {
+		p := db.pending()
+		p.BackupRetentionEnabled, p.ApplyAt = retention, applyAt
+	}
 }
 
 // GetRelationalDatabaseEvents returns the named database's recorded events
@@ -498,26 +686,35 @@ func (b *InMemoryBackend) GetRelationalDatabaseLogStreams(name string) ([]string
 	return append([]string(nil), seedRDSLogStreams...), nil
 }
 
-// GetRelationalDatabaseMasterUserPassword genuinely decrypts (returns) the
-// real master password material this backend stores, by PasswordVersion
-// (PARITY.md 4.3): CURRENT is db.MasterUserPassword, PREVIOUS is the value
-// before the most recent UpdateRelationalDatabase rotation (empty if none
-// occurred), PENDING is not modeled (this backend applies password changes
-// immediately, never queues one) and falls back to CURRENT.
-func (b *InMemoryBackend) GetRelationalDatabaseMasterUserPassword(name, passwordVersion string) (string, error) {
+// GetRelationalDatabaseMasterUserPassword returns the password for the
+// requested version and when it was set: CURRENT, PREVIOUS (before the most
+// recent rotation), or PENDING (queued for the next maintenance window; absent
+// once promoted, per api_op_GetRelationalDatabaseMasterUserPassword.go).
+func (b *InMemoryBackend) GetRelationalDatabaseMasterUserPassword(
+	name, passwordVersion string,
+) (string, time.Time, error) {
 	b.mu.RLock("GetRelationalDatabaseMasterUserPassword")
 	defer b.mu.RUnlock()
 
-	db, ok := b.databases.Get(name)
+	stored, ok := b.databases.Get(name)
 	if !ok {
-		return "", notFoundError("RelationalDatabase", name)
+		return "", time.Time{}, notFoundError("RelationalDatabase", name)
 	}
 
-	if passwordVersion == PasswordVersionPrevious {
-		return db.PreviousMasterUserPassword, nil
-	}
+	db := stored.clone()
 
-	return db.MasterUserPassword, nil
+	switch passwordVersion {
+	case PasswordVersionPrevious:
+		return db.PreviousMasterUserPassword, db.PreviousMasterUserPasswordSetAt, nil
+	case PasswordVersionPending:
+		if db.Pending == nil || db.Pending.MasterUserPassword == "" {
+			return "", time.Time{}, validationError("no pending master user password for " + name)
+		}
+
+		return db.Pending.MasterUserPassword, db.Pending.MasterUserPasswordSetAt, nil
+	default:
+		return db.MasterUserPassword, db.MasterUserPasswordSetAt, nil
+	}
 }
 
 // GetRelationalDatabaseMetricData returns a real, well-formed, EMPTY

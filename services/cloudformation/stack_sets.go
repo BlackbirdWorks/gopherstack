@@ -1,6 +1,7 @@
 package cloudformation
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"sort"
@@ -80,7 +81,13 @@ func (b *InMemoryBackend) CreateStackSet(
 func (b *InMemoryBackend) UpdateStackSet(
 	name, description, templateBody string,
 	opts StackSetOptions,
+	opOpts ...StackSetOpOption,
 ) (*StackSet, string, error) {
+	prefs, err := resolveOpPreferences(opOpts)
+	if err != nil {
+		return nil, "", err
+	}
+
 	b.mu.Lock("UpdateStackSet")
 	defer b.mu.Unlock()
 	ss, ok := b.stackSets.Get(name)
@@ -120,7 +127,8 @@ func (b *InMemoryBackend) UpdateStackSet(
 	if opts.ManagedExecution != nil {
 		ss.ManagedExecution = opts.ManagedExecution
 	}
-	opID := b.recordStackSetOperation(name, "UPDATE")
+	noop := func(context.Context, string, stackSetUnit) string { return "" }
+	opID := b.admitStackSetOp(context.Background(), name, "UPDATE", prefs, false, nil, noop)
 
 	return ss, opID, nil
 }
@@ -134,6 +142,9 @@ func (b *InMemoryBackend) DeleteStackSet(name string) error {
 		// deleting a StackSet that doesn't exist (or was already deleted) is a
 		// silent no-op in real AWS, not an error.
 		return nil
+	}
+	if b.stackSetHasActiveOps(name) {
+		return ErrOperationInProgress
 	}
 	if len(b.stackInstances[name]) > 0 {
 		return ErrStackSetNotEmpty
@@ -221,107 +232,64 @@ func (b *InMemoryBackend) ListStackSets(
 	return page.New(result, nextToken, limit, cfnDefaultPageSize), nil
 }
 
-func (b *InMemoryBackend) DetectStackSetDrift(stackSetName string) (string, error) {
+func (b *InMemoryBackend) DetectStackSetDrift(stackSetName string, opOpts ...StackSetOpOption) (string, error) {
+	prefs, err := resolveOpPreferences(opOpts)
+	if err != nil {
+		return "", err
+	}
+
 	b.mu.Lock("DetectStackSetDrift")
 	defer b.mu.Unlock()
 	if !b.stackSets.Has(stackSetName) {
 		return "", ErrStackSetNotFound
 	}
-	opID := b.recordStackSetOperation(stackSetName, "DETECT_DRIFT")
-	b.detectStackInstanceDrift(stackSetName)
 
-	return opID, nil
-}
+	units := make([]stackSetUnit, 0, len(b.stackInstances[stackSetName]))
+	for _, inst := range b.stackInstances[stackSetName] {
+		units = append(units, stackSetUnit{account: inst.Account, region: inst.Region})
+	}
 
-// detectStackInstanceDrift runs real per-resource drift comparison (the same
-// compareStackResources logic DetectStackDrift uses for a standalone stack)
-// against every stack instance's provisioned child stack, updating each
-// instance's DriftStatus in place. Previously DetectStackSetDrift only
-// recorded a SUCCEEDED operation without ever touching instance DriftStatus
-// at all -- a disguised stub (looks real, records a real operation, but the
-// actual per-instance drift diff never ran). Caller must hold b.mu.Lock.
-func (b *InMemoryBackend) detectStackInstanceDrift(stackSetName string) {
-	instances := b.stackInstances[stackSetName]
-	now := time.Now()
-	for i := range instances {
-		stackName, ok := b.stackIDIndex[instances[i].StackID]
-		if !ok {
-			instances[i].DriftStatus = driftStatusNotChecked
-
-			continue
-		}
-		stack, ok := b.stacks.Get(stackName)
-		if !ok {
-			instances[i].DriftStatus = driftStatusNotChecked
-
-			continue
-		}
-
-		instances[i].DriftStatus = driftStatusInSync
-		for _, status := range b.compareStackResources(stack) {
-			if status != driftStatusInSync {
-				instances[i].DriftStatus = driftStatusDrifted
-
-				break
+	apply := func(_ context.Context, _ string, u stackSetUnit) string {
+		instances := b.stackInstances[stackSetName]
+		for i := range instances {
+			if instances[i].Account == u.account && instances[i].Region == u.region {
+				b.detectInstanceDrift(&instances[i], time.Now())
 			}
 		}
-		instances[i].LastDriftCheckTimestamp = &now
+
+		return ""
 	}
+
+	return b.admitStackSetOp(context.Background(), stackSetName, "DETECT_DRIFT", prefs, false, units, apply), nil
 }
 
-// recordStackSetOperation creates a StackSetOperation record and returns its
-// ID. action must be one of the real StackSetOperationAction enum values
-// (CREATE/UPDATE/DELETE/DETECT_DRIFT, cloudformation@v1.76.1 types/enums.go)
-// -- StackSetOperation.Action's own doc comment: "Create and delete
-// operations affect only the specified stack instances ... Update operations
-// affect both the StackSet itself, in addition to all associated stack
-// instances", i.e. Create/Update/DeleteStackInstances report the same
-// CREATE/UPDATE/DELETE action as their StackSet-level counterparts, not a
-// distinct "_INSTANCES" suffix (there is no such enum value).
-// Caller must hold b.mu.Lock.
-func (b *InMemoryBackend) recordStackSetOperation(stackSetName, action string) string {
-	opID := uuid.New().String()
-	if b.stackSetOperations[stackSetName] == nil {
-		b.stackSetOperations[stackSetName] = make(map[string]*StackSetOperation)
-	}
-	b.stackSetOperations[stackSetName][opID] = &StackSetOperation{
-		OperationID:  opID,
-		StackSetName: stackSetName,
-		Action:       action,
-		// SUCCEEDED synchronously, deliberately: cloudformation has no
-		// clock/janitor lifecycle anywhere (see PARITY.md, gopherstack-b3pm).
-		Status:    "SUCCEEDED",
-		CreatedAt: time.Now(),
-	}
-	if b.stackSetOpResults[stackSetName] == nil {
-		b.stackSetOpResults[stackSetName] = make(map[string][]StackSetOperationResult)
-	}
-	b.trimStackSetOperations(stackSetName)
+// detectInstanceDrift runs the same per-resource comparison DetectStackDrift uses against the
+// instance's provisioned child stack. Caller must hold b.mu.Lock.
+func (b *InMemoryBackend) detectInstanceDrift(inst *StackInstance, now time.Time) {
+	stackName, ok := b.stackIDIndex[inst.StackID]
+	if !ok {
+		inst.DriftStatus = driftStatusNotChecked
 
-	return opID
-}
-
-// recordOpResults records per-account/region operation results. Caller must hold b.mu.Lock.
-func (b *InMemoryBackend) recordOpResults(
-	stackSetName, opID string,
-	accounts, regions []string,
-	status string,
-) {
-	if b.stackSetOpResults[stackSetName] == nil {
-		b.stackSetOpResults[stackSetName] = make(map[string][]StackSetOperationResult)
+		return
 	}
-	for _, acct := range accounts {
-		for _, region := range regions {
-			b.stackSetOpResults[stackSetName][opID] = append(
-				b.stackSetOpResults[stackSetName][opID],
-				StackSetOperationResult{
-					Account: acct,
-					Region:  region,
-					Status:  status,
-				},
-			)
+
+	stack, ok := b.stacks.Get(stackName)
+	if !ok {
+		inst.DriftStatus = driftStatusNotChecked
+
+		return
+	}
+
+	inst.DriftStatus = driftStatusInSync
+	for _, status := range b.compareStackResources(stack) {
+		if status != driftStatusInSync {
+			inst.DriftStatus = driftStatusDrifted
+
+			break
 		}
 	}
+
+	inst.LastDriftCheckTimestamp = &now
 }
 
 const maxOpsPerStackSet = 1000
@@ -350,6 +318,10 @@ func (b *InMemoryBackend) ListStackSetOperations(
 			Action:       op.Action,
 			Status:       op.Status,
 			CreationTime: op.CreatedAt,
+			EndTime:      op.EndedAt,
+			Preferences:  op.Preferences,
+			StatusReason: op.StatusReason,
+			FailedCount:  op.FailedCount,
 		})
 	}
 
@@ -404,7 +376,9 @@ func (b *InMemoryBackend) DescribeStackSetOperation(
 		return nil, fmt.Errorf("%w: %s in %s", ErrOperationNotFound, operationID, stackSetName)
 	}
 
-	return op, nil
+	cp := *op
+
+	return &cp, nil
 }
 
 func (b *InMemoryBackend) StopStackSetOperation(stackSetName, operationID string) error {
@@ -418,10 +392,20 @@ func (b *InMemoryBackend) StopStackSetOperation(stackSetName, operationID string
 	if !ok {
 		return fmt.Errorf("%w: %s in %s", ErrOperationNotFound, operationID, stackSetName)
 	}
-	if op.Status != "RUNNING" {
+	if op.Status != opStatusRunning {
 		return fmt.Errorf("%w: %s (current: %s)", ErrOperationNotRunning, operationID, op.Status)
 	}
-	op.Status = "STOPPED"
+	run := b.stackSetRuns[operationID]
+	if run == nil {
+		now := time.Now()
+		op.Status = opStatusStopped
+		op.EndedAt = &now
+
+		return nil
+	}
+
+	run.stop = true
+	op.Status = opStatusStopping
 
 	return nil
 }
@@ -493,41 +477,102 @@ func (b *InMemoryBackend) ListStackSetAutoDeploymentTargets(
 	return page.New(targets, nextToken, maxResults, cfnDefaultPageSize), nil
 }
 
-func (b *InMemoryBackend) ImportStacksToStackSet(stackSetName string, stackIDs []string) (string, error) {
+// importOUFor returns the entry of ouIDs enclosing account. Must be called with b.mu held.
+func (b *InMemoryBackend) importOUFor(account string, ouIDs []string) (string, error) {
+	chain, err := b.orgDirectory.OrganizationalUnitIDsForAccount(account)
+	if err != nil {
+		return "", fmt.Errorf("resolve organizational unit for account %s: %w", account, err)
+	}
+
+	for _, id := range chain {
+		if slices.Contains(ouIDs, id) {
+			return id, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: account %s", ErrAccountNotInOrganizationalUnits, account)
+}
+
+// stampImportOUs maps each imported stack to the listed OU enclosing its account. Must be called with b.mu held.
+func (b *InMemoryBackend) stampImportOUs(ss *StackSet, stackIDs, ouIDs []string) (map[string]string, error) {
+	if len(ouIDs) == 0 {
+		return map[string]string{}, nil
+	}
+	if ss.PermissionModel != stackSetPermissionServiceManaged {
+		return nil, ErrServiceManagedRequired
+	}
+	if !b.orgAccessEnabled {
+		return nil, ErrOrganizationsAccessNotActive
+	}
+	if b.orgDirectory == nil {
+		return nil, ErrOrganizationsNotWired
+	}
+	stamped := make(map[string]string, len(stackIDs))
+	for _, stackID := range stackIDs {
+		account, _ := parseStackARN(stackID)
+		ou, err := b.importOUFor(account, ouIDs)
+		if err != nil {
+			return nil, err
+		}
+		stamped[stackID] = ou
+	}
+
+	return stamped, nil
+}
+
+// ImportStacksToStackSet adopts stacks into a stack set; with ouIDs each instance is stamped with the
+// listed OU that encloses its account.
+func (b *InMemoryBackend) ImportStacksToStackSet(
+	stackSetName string, stackIDs, ouIDs []string, opOpts ...StackSetOpOption,
+) (string, error) {
+	prefs, err := resolveOpPreferences(opOpts)
+	if err != nil {
+		return "", err
+	}
+
 	b.mu.Lock("ImportStacksToStackSet")
 	defer b.mu.Unlock()
 	ss, ok := b.stackSets.Get(stackSetName)
 	if !ok {
 		return "", ErrStackSetNotFound
 	}
-	opID := b.recordStackSetOperation(stackSetName, "IMPORT")
-	for _, stackID := range stackIDs {
-		// Skip duplicates.
-		already := false
-		for _, inst := range b.stackInstances[stackSetName] {
-			if inst.StackID == stackID {
-				already = true
-
-				break
-			}
-		}
-		if already {
-			continue
-		}
-		account, region := parseStackARN(stackID)
-		b.stackInstances[stackSetName] = append(b.stackInstances[stackSetName], StackInstance{
-			StackSetID:      ss.StackSetID,
-			StackSetName:    stackSetName,
-			StackID:         stackID,
-			Account:         account,
-			Region:          region,
-			Status:          "CURRENT",
-			DriftStatus:     driftStatusNotChecked,
-			LastOperationID: opID,
-		})
+	stamped, err := b.stampImportOUs(ss, stackIDs, ouIDs)
+	if err != nil {
+		return "", err
 	}
 
-	return opID, nil
+	units := make([]stackSetUnit, 0, len(stackIDs))
+	unitStack := make(map[stackSetUnit]string, len(stackIDs))
+	for _, stackID := range stackIDs {
+		account, region := parseStackARN(stackID)
+		u := stackSetUnit{account: account, region: region, ouID: stamped[stackID]}
+		units = append(units, u)
+		unitStack[u] = stackID
+	}
+
+	apply := func(_ context.Context, opID string, u stackSetUnit) string {
+		stackID := unitStack[u]
+		for _, inst := range b.stackInstances[stackSetName] {
+			if inst.StackID == stackID {
+				return ""
+			}
+		}
+		b.stackInstances[stackSetName] = append(b.stackInstances[stackSetName], StackInstance{
+			StackSetID:           ss.StackSetID,
+			StackSetName:         stackSetName,
+			StackID:              stackID,
+			Account:              u.account,
+			Region:               u.region,
+			OrganizationalUnitID: u.ouID,
+			Status:               "CURRENT",
+			DriftStatus:          driftStatusNotChecked,
+			LastOperationID:      opID,
+		})
+
+		return ""
+	}
+
+	return b.admitStackSetOp(context.Background(), stackSetName, "IMPORT", prefs, false, units, apply), nil
 }
 
 func (b *InMemoryBackend) ActivateOrganizationsAccess() error {

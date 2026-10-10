@@ -12,6 +12,8 @@ import (
 
 // PutRecord appends a record to the delivery stream and flushes if buffer threshold is met.
 func (b *InMemoryBackend) PutRecord(ctx context.Context, streamName string, data []byte) error {
+	started := time.Now()
+
 	if len(data) == 0 {
 		return fmt.Errorf("%w: record Data must not be empty", ErrValidation)
 	}
@@ -46,6 +48,7 @@ func (b *InMemoryBackend) PutRecord(ctx context.Context, streamName string, data
 			return
 		}
 
+		s.noteBuffered(data)
 		s.Records = append(s.Records, data)
 		s.bufferSizeBytes += len(data)
 		s.Metrics.TotalRecords++
@@ -62,7 +65,9 @@ func (b *InMemoryBackend) PutRecord(ctx context.Context, streamName string, data
 		return err
 	}
 
-	b.emitIncoming(getRegionFromContext(ctx, b), streamName, 1, len(data))
+	region := getRegionFromContext(ctx, b)
+	b.emitIncoming(region, streamName, 1, len(data))
+	b.emitPutRequest(region, streamName, "PutRecord", 1, len(data), time.Since(started))
 
 	if snap != nil {
 		b.deliverSnapshot(b.svcCtx, snap, streamName)
@@ -108,6 +113,8 @@ func (b *InMemoryBackend) updateFlushWatchLocked(region, name string, s *Deliver
 
 // PutRecordBatch appends multiple records to the delivery stream and flushes if buffer threshold is met.
 func (b *InMemoryBackend) PutRecordBatch(ctx context.Context, streamName string, records [][]byte) (int, error) {
+	started := time.Now()
+
 	if len(records) > maxBatchRecords {
 		return 0, fmt.Errorf("%w: batch size %d exceeds maximum of %d records",
 			ErrBatchTooLarge, len(records), maxBatchRecords)
@@ -158,6 +165,7 @@ func (b *InMemoryBackend) PutRecordBatch(ctx context.Context, streamName string,
 
 		backupEnabled := b.isBackupEnabledLocked(s)
 		for _, rec := range records {
+			s.noteBuffered(rec)
 			s.Records = append(s.Records, rec)
 			s.bufferSizeBytes += len(rec)
 			s.Metrics.TotalRecords++
@@ -175,7 +183,9 @@ func (b *InMemoryBackend) PutRecordBatch(ctx context.Context, streamName string,
 		return 0, err
 	}
 
-	b.emitIncoming(getRegionFromContext(ctx, b), streamName, len(records), totalBytes)
+	region := getRegionFromContext(ctx, b)
+	b.emitIncoming(region, streamName, len(records), totalBytes)
+	b.emitPutRequest(region, streamName, apiPutRecordBatch, len(records), totalBytes, time.Since(started))
 
 	if snap != nil {
 		b.deliverSnapshot(b.svcCtx, snap, streamName)

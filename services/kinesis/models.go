@@ -361,6 +361,7 @@ type PutRecordInput struct {
 	PartitionKey    string
 	ExplicitHashKey string
 	Data            []byte
+	DryRun          bool
 }
 
 // PutRecordOutput is the output for PutRecord.
@@ -389,6 +390,7 @@ type PutRecordsResultEntry struct {
 type PutRecordsInput struct {
 	StreamName string
 	Records    []PutRecordsEntry
+	DryRun     bool
 }
 
 // PutRecordsOutput is the output for PutRecords.
@@ -407,6 +409,7 @@ type GetShardIteratorInput struct {
 	ShardID                string
 	ShardIteratorType      string
 	StartingSequenceNumber string
+	DryRun                 bool
 }
 
 // GetShardIteratorOutput is the output for GetShardIterator.
@@ -418,6 +421,7 @@ type GetShardIteratorOutput struct {
 type GetRecordsInput struct {
 	ShardIterator string
 	Limit         int
+	DryRun        bool
 }
 
 // GetRecordResult is a single record returned by GetRecords.

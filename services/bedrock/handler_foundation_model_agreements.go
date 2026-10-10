@@ -2,8 +2,10 @@ package bedrock
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 
+	bedrocktypes "github.com/aws/aws-sdk-go-v2/service/bedrock/types"
 	"github.com/labstack/echo/v5"
 )
 
@@ -92,6 +94,12 @@ func (h *Handler) handleListFoundationModelAgreementOffers(c *echo.Context, mode
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "modelId is required"))
 	}
 
+	if offerType := c.Request().URL.Query().Get("offerType"); offerType != "" &&
+		!slices.Contains(offerTypeValues(), offerType) {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException",
+			"offerType must be one of "+strings.Join(offerTypeValues(), ", ")))
+	}
+
 	offers := h.Backend.ListFoundationModelAgreementOffers(modelID)
 	wire := make([]map[string]any, 0, len(offers))
 
@@ -129,4 +137,16 @@ func (h *Handler) handleDeleteFoundationModelAgreement(c *echo.Context, body []b
 	}
 
 	return c.NoContent(http.StatusOK)
+}
+
+// offerTypeValues are the OfferType enum values; the one synthetic offer is PUBLIC, so every value lists it.
+func offerTypeValues() []string {
+	values := bedrocktypes.OfferType("").Values()
+	out := make([]string, 0, len(values))
+
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+
+	return out
 }

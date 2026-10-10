@@ -76,6 +76,16 @@ func (b *InMemoryBackend) CreateModelCustomizationJobWithOptions(
 		return nil, fmt.Errorf("%w: outputDataConfig.s3Uri is required", ErrValidation)
 	}
 
+	if err := firstErr(
+		validateJobName("jobName", jobName),
+		validateJobName("customModelName", customModelName),
+		validateRoleArn("roleArn", roleArn),
+		validateS3Uri("outputDataConfig.s3Uri", outputDataConfig.S3Uri),
+		validateS3Uri("trainingDataConfig.s3Uri", trainingDataConfig.S3Uri),
+	); err != nil {
+		return nil, err
+	}
+
 	if _, exists := b.customizationJobsByName[jobName]; exists {
 		return nil, fmt.Errorf("%w: customization job %s already exists", ErrAlreadyExists, jobName)
 	}
@@ -88,6 +98,11 @@ func (b *InMemoryBackend) CreateModelCustomizationJobWithOptions(
 		if j.CustomModelName == customModelName {
 			return nil, fmt.Errorf("%w: custom model %s already exists", ErrAlreadyExists, customModelName)
 		}
+	}
+
+	kmsARN, kmsErr := b.kmsARN(opts.CustomModelKmsKeyID)
+	if kmsErr != nil {
+		return nil, kmsErr
 	}
 
 	id := b.newCustomizationJobID()
@@ -121,7 +136,7 @@ func (b *InMemoryBackend) CreateModelCustomizationJobWithOptions(
 		HyperParameters:      opts.HyperParameters,
 		CustomizationConfig:  opts.CustomizationConfig,
 		VpcConfig:            opts.VpcConfig,
-		OutputModelKmsKeyArn: kmsKeyARN(b.region, b.accountID, opts.CustomModelKmsKeyID),
+		OutputModelKmsKeyArn: kmsARN,
 	}
 	b.modelCustomizationJobs.Put(job)
 	b.customizationJobsByName[jobName] = jobARN
@@ -241,7 +256,14 @@ func (b *InMemoryBackend) StopModelCustomizationJob(idOrARN string) error {
 	}
 
 	j, _ := b.modelCustomizationJobs.Get(jobARN)
-	j.Status = statusStopped
+	if j.Status != statusInProgress {
+		return fmt.Errorf(
+			"%w: model customization job %s cannot be stopped in status %s", ErrValidation, idOrARN, j.Status,
+		)
+	}
+
+	j.Status = statusStopping
+	j.LastModifiedTime = time.Now().UTC()
 
 	return nil
 }

@@ -314,8 +314,7 @@ type entryTriggerFire struct {
 // WorkflowName == name and no Predicate. AWS docs call this a workflow's "start
 // trigger" (workflows_overview.html: "each workflow has a start trigger"),
 // fired when StartWorkflowRun is called; predicate-gated (conditional)
-// triggers fire later, from other actions completing -- a chain this backend
-// does not evaluate (see StartWorkflowRun). Caller must hold b.mu.
+// triggers fire later, from other actions completing (trigger_conditional.go). Caller must hold b.mu.
 func (b *InMemoryBackend) entryTriggersLocked(name string) []entryTriggerFire {
 	var fires []entryTriggerFire
 
@@ -333,12 +332,15 @@ func (b *InMemoryBackend) entryTriggersLocked(name string) []entryTriggerFire {
 
 // StartWorkflowRun creates a new workflow run record and fires the workflow's
 // entry-point trigger(s), stamping the new run's ID onto the job runs/crawls
-// they start (see fireTriggerActions). Downstream conditional triggers within
-// the workflow are never evaluated by this backend (no predicate-evaluation
-// engine exists), so only the entry trigger's own actions are ever linked to
-// a workflow run -- WorkflowRunStatistics reflects exactly that real subset,
-// not the full DAG.
+// they start (see fireTriggerActions). Downstream conditional triggers fire from
+// the reconciler (trigger_conditional.go) and carry the workflow run ID forward.
 func (b *InMemoryBackend) StartWorkflowRun(name string) (*WorkflowRun, error) {
+	return b.StartWorkflowRunWithProperties(name, nil)
+}
+
+// StartWorkflowRunWithProperties starts a run whose properties are the
+// workflow's DefaultRunProperties overlaid with the request's RunProperties.
+func (b *InMemoryBackend) StartWorkflowRunWithProperties(name string, props map[string]string) (*WorkflowRun, error) {
 	var fires []entryTriggerFire
 
 	run, err := func() (*WorkflowRun, error) {
@@ -368,6 +370,13 @@ func (b *InMemoryBackend) StartWorkflowRun(name string) (*WorkflowRun, error) {
 			Status:       stateRunning,
 			StartedOn:    float64(time.Now().Unix()),
 		}
+
+		if len(w.DefaultRunProperties) > 0 || len(props) > 0 {
+			run.Properties = make(map[string]string, len(w.DefaultRunProperties)+len(props))
+			maps.Copy(run.Properties, w.DefaultRunProperties)
+			maps.Copy(run.Properties, props)
+		}
+
 		b.workflowRuns[name] = append(b.workflowRuns[name], run)
 
 		fires = b.entryTriggersLocked(name)
@@ -381,7 +390,7 @@ func (b *InMemoryBackend) StartWorkflowRun(name string) (*WorkflowRun, error) {
 	// Fire outside the lock: StartJobRun/StartCrawler take the same coarse
 	// backend lock, and it is not reentrant.
 	for _, f := range fires {
-		b.fireTriggerActions(f.actions, f.triggerName, run.RunID)
+		b.fireTriggerActions(f.actions, f.triggerName, run.RunID, nil)
 	}
 
 	return run, nil
@@ -500,4 +509,13 @@ func tallyCrawlAction(stats *WorkflowRunStatistics, state string) {
 	case stateRunning:
 		stats.RunningActions++
 	}
+}
+
+// WorkflowRunGraph returns the current graph of the named workflow, for
+// GetWorkflowRun(s) with IncludeGraph.
+func (b *InMemoryBackend) WorkflowRunGraph(workflowName string) *WorkflowGraph {
+	b.mu.RLock("WorkflowRunGraph")
+	defer b.mu.RUnlock()
+
+	return b.workflowGraphLocked(workflowName)
 }

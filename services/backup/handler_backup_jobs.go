@@ -174,7 +174,12 @@ func (h *Handler) dispatchBackupJobSummaryOps(c *echo.Context, route backupRoute
 	switch route.operation {
 	case opListBackupJobSummaries:
 		q := c.Request().URL.Query()
-		summaries, next := pageQuery(q, h.Backend.ListBackupJobSummaries(NewJobSummaryFilter(q)), summaryStateKey)
+		f := NewJobSummaryFilter(q)
+		if err := f.Validate(); err != nil {
+			return true, h.handleError(c, err)
+		}
+
+		summaries, next := pageQuery(q, h.Backend.ListBackupJobSummaries(f), summaryStateKey)
 
 		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"BackupJobSummaries": summaries}, next))
 	case opStopBackupJob:

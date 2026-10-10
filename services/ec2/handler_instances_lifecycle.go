@@ -294,7 +294,7 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 	shutdownBehavior := vals.Get("InstanceInitiatedShutdownBehavior")
 	ebsOptimized := vals.Get("EbsOptimized")
 
-	if err := validateUserData(userData); err != nil {
+	if err := h.validateRunInstancesInput(imageID, instanceType, keyName, userData); err != nil {
 		return nil, err
 	}
 
@@ -385,6 +385,9 @@ const describeInstancesMinResults = 5
 
 func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "InstanceId")
+	if err := h.requireInstancesExist(ids); err != nil {
+		return nil, err
+	}
 
 	// Parse named EC2 filters: Filter.N.Name / Filter.N.Value.M
 	filters := parseEC2Filters(vals)
@@ -444,16 +447,19 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 		items = append(items, item)
 	}
 
-	reservation := reservationItem{
-		ReservationID: newReservationID(),
-		OwnerID:       h.AccountID,
-		InstancesSet:  instanceItemSet{Items: items},
+	reservations := []reservationItem{}
+	if len(items) > 0 {
+		reservations = append(reservations, reservationItem{
+			ReservationID: newReservationID(),
+			OwnerID:       h.AccountID,
+			InstancesSet:  instanceItemSet{Items: items},
+		})
 	}
 
 	return &describeInstancesResponse{
 		Xmlns:          ec2XMLNS,
 		RequestID:      reqID,
-		ReservationSet: reservationSet{Items: []reservationItem{reservation}},
+		ReservationSet: reservationSet{Items: reservations},
 		NextToken:      nextToken,
 	}, nil
 }

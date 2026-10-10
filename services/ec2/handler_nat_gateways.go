@@ -66,7 +66,8 @@ func (h *Handler) handleAssociateNatGatewayAddress(vals url.Values, reqID string
 	natGatewayID := vals.Get("NatGatewayId")
 	allocationIDs := parseMemberList(vals, "AllocationId")
 
-	ngw, err := h.Backend.AssociateNatGatewayAddress(natGatewayID, allocationIDs)
+	ngw, err := h.Backend.AssociateNatGatewayAddressInZone(
+		natGatewayID, vals.Get("AvailabilityZone"), vals.Get("AvailabilityZoneId"), allocationIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -176,13 +177,14 @@ func natGatewaysSupportedOperations() []string {
 }
 
 type natGatewayAddressItem struct {
-	AllocationID     string `xml:"allocationId,omitempty"`
-	AssociationID    string `xml:"associationId,omitempty"`
-	PublicIP         string `xml:"publicIp,omitempty"`
-	PrivateIP        string `xml:"privateIp,omitempty"`
-	AvailabilityZone string `xml:"availabilityZone,omitempty"`
-	Status           string `xml:"status,omitempty"`
-	IsPrimary        bool   `xml:"isPrimary,omitempty"`
+	AllocationID       string `xml:"allocationId,omitempty"`
+	AssociationID      string `xml:"associationId,omitempty"`
+	PublicIP           string `xml:"publicIp,omitempty"`
+	PrivateIP          string `xml:"privateIp,omitempty"`
+	AvailabilityZone   string `xml:"availabilityZone,omitempty"`
+	AvailabilityZoneID string `xml:"availabilityZoneId,omitempty"`
+	Status             string `xml:"status,omitempty"`
+	IsPrimary          bool   `xml:"isPrimary,omitempty"`
 }
 
 type natGatewayAddressSet struct {
@@ -191,7 +193,11 @@ type natGatewayAddressSet struct {
 
 type natGatewayItem struct {
 	NatGatewayID        string               `xml:"natGatewayId"`
-	SubnetID            string               `xml:"subnetId"`
+	SubnetID            string               `xml:"subnetId,omitempty"`
+	AvailabilityMode    string               `xml:"availabilityMode,omitempty"`
+	RouteTableID        string               `xml:"routeTableId,omitempty"`
+	AutoProvisionZones  string               `xml:"autoProvisionZones,omitempty"`
+	AutoScalingIPs      string               `xml:"autoScalingIps,omitempty"`
 	VpcID               string               `xml:"vpcId,omitempty"`
 	State               string               `xml:"state"`
 	ConnectivityType    string               `xml:"connectivityType,omitempty"`
@@ -241,15 +247,30 @@ func toNatGatewayItem(ngw *NatGateway, tags map[string]string) natGatewayItem {
 		[]natGatewayAddressItem, 0,
 		1+len(ngw.SecondaryAddresses)+len(ngw.SecondaryPrivateIPs),
 	)
-	items = append(items, natGatewayAddressItem{
-		AllocationID:     ngw.AllocationID,
-		AssociationID:    ngw.AssociationID,
-		PublicIP:         ngw.PublicIP,
-		PrivateIP:        ngw.PrivateIP,
-		AvailabilityZone: ngw.AvailabilityZone,
-		Status:           natAddressStatusSucceeded,
-		IsPrimary:        true,
-	})
+	if ngw.NatGatewayMode() == natGatewayModeZonal {
+		items = append(items, natGatewayAddressItem{
+			AllocationID:       ngw.AllocationID,
+			AssociationID:      ngw.AssociationID,
+			PublicIP:           ngw.PublicIP,
+			PrivateIP:          ngw.PrivateIP,
+			AvailabilityZone:   ngw.AvailabilityZone,
+			AvailabilityZoneID: availabilityZoneID(ngw.AvailabilityZone),
+			Status:             natAddressStatusSucceeded,
+			IsPrimary:          true,
+		})
+	}
+
+	for _, za := range ngw.ZoneAddresses {
+		items = append(items, natGatewayAddressItem{
+			AllocationID:       za.AllocationID,
+			AssociationID:      za.AssociationID,
+			PublicIP:           za.PublicIP,
+			PrivateIP:          za.PrivateIP,
+			AvailabilityZone:   za.AvailabilityZone,
+			AvailabilityZoneID: availabilityZoneID(za.AvailabilityZone),
+			Status:             natAddressStatus(ngw, za.AssociationID, "disassociating"),
+		})
+	}
 
 	for _, sa := range ngw.SecondaryAddresses {
 		items = append(items, natGatewayAddressItem{
@@ -273,6 +294,10 @@ func toNatGatewayItem(ngw *NatGateway, tags map[string]string) natGatewayItem {
 	return natGatewayItem{
 		NatGatewayID:        ngw.ID,
 		SubnetID:            ngw.SubnetID,
+		AvailabilityMode:    ngw.NatGatewayMode(),
+		RouteTableID:        ngw.RouteTableID,
+		AutoProvisionZones:  ngw.AutoProvisionZones,
+		AutoScalingIPs:      ngw.AutoScalingIPs,
 		VpcID:               ngw.VPCID,
 		State:               ngw.State,
 		ConnectivityType:    ngw.ConnectivityType,
@@ -283,6 +308,15 @@ func toNatGatewayItem(ngw *NatGateway, tags map[string]string) natGatewayItem {
 }
 
 func (h *Handler) handleCreateNatGateway(vals url.Values, reqID string) (any, error) {
+	if vals.Get("AvailabilityMode") != "" {
+		return h.handleCreateAvailabilityModeNatGateway(vals, reqID)
+	}
+
+	if vals.Get("VpcId") != "" || vals.Get("AvailabilityZoneAddress.1.AvailabilityZone") != "" {
+		return nil, fmt.Errorf("%w: VpcId and AvailabilityZoneAddress apply to regional NAT gateways only",
+			ErrInvalidParameter)
+	}
+
 	subnetID := vals.Get("SubnetId")
 	allocationID := vals.Get("AllocationId")
 
@@ -302,6 +336,66 @@ func (h *Handler) handleCreateNatGateway(vals url.Values, reqID string) (any, er
 		RequestID:  reqID,
 		NatGateway: toNatGatewayItem(ngw, h.Backend.TagsForResource(ngw.ID)),
 	}, nil
+}
+
+func (h *Handler) handleCreateAvailabilityModeNatGateway(vals url.Values, reqID string) (any, error) {
+	mode := vals.Get("AvailabilityMode")
+
+	switch mode {
+	case natGatewayModeZonal:
+		if vals.Get("VpcId") != "" || vals.Get("AvailabilityZoneAddress.1.AvailabilityZone") != "" {
+			return nil, fmt.Errorf("%w: VpcId and AvailabilityZoneAddress apply to regional NAT gateways only",
+				ErrInvalidParameter)
+		}
+
+		vals.Del("AvailabilityMode")
+
+		return h.handleCreateNatGateway(vals, reqID)
+	case natGatewayModeRegional:
+	default:
+		return nil, fmt.Errorf("%w: invalid AvailabilityMode %q", ErrInvalidParameter, mode)
+	}
+
+	if vals.Get("SubnetId") != "" || vals.Get("AllocationId") != "" {
+		return nil, fmt.Errorf("%w: SubnetId and AllocationId cannot be used with a regional NAT gateway",
+			ErrInvalidParameter)
+	}
+
+	if ct := vals.Get("ConnectivityType"); ct != "" && ct != natGatewayConnectivityTypePublic {
+		return nil, fmt.Errorf("%w: a regional NAT gateway supports public connectivity only", ErrInvalidParameter)
+	}
+
+	zones := parseNatGatewayZoneRequests(vals)
+
+	ngw, err := h.Backend.CreateRegionalNatGateway(vals.Get("VpcId"), zones, parseTagSpecification(vals, "natgateway"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &createNatGatewayResponse{
+		Xmlns:      ec2XMLNS,
+		RequestID:  reqID,
+		NatGateway: toNatGatewayItem(ngw, h.Backend.TagsForResource(ngw.ID)),
+	}, nil
+}
+
+func parseNatGatewayZoneRequests(vals url.Values) []NatGatewayZoneRequest {
+	var zones []NatGatewayZoneRequest
+
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("AvailabilityZoneAddress.%d.", i)
+		z := NatGatewayZoneRequest{
+			AvailabilityZone:   vals.Get(prefix + "AvailabilityZone"),
+			AvailabilityZoneID: vals.Get(prefix + "AvailabilityZoneId"),
+			AllocationIDs:      parseMemberList(vals, prefix+"AllocationId"),
+		}
+
+		if z.AvailabilityZone == "" && z.AvailabilityZoneID == "" && len(z.AllocationIDs) == 0 {
+			return zones
+		}
+
+		zones = append(zones, z)
+	}
 }
 
 func (h *Handler) handleDeleteNatGateway(vals url.Values, reqID string) (any, error) {

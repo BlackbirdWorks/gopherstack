@@ -15,16 +15,16 @@ import (
 
 // Cluster represents an ElastiCache cluster.
 type Cluster struct {
+	AvailableAt                time.Time
 	CreatedAt                  time.Time
+	mini                       *miniredis.Miniredis
 	Tags                       *tags.Tags
 	AutoMinorVersionUpgrade    *bool
-	LogDeliveryConfigurations  []LogDeliveryConfig
-	SecurityGroupIDs           []string
-	NotificationTopicArn       string
-	NotificationTopicStatus    string
+	KmsKeyID                   string
+	ConnectAddress             string
 	NetworkType                string
 	IPDiscovery                string
-	mini                       *miniredis.Miniredis
+	NotificationTopicArn       string
 	ClusterID                  string
 	Engine                     string
 	EngineVersion              string
@@ -37,23 +37,27 @@ type Cluster struct {
 	PreferredMaintenanceWindow string
 	SnapshotWindow             string
 	ReplicationGroupID         string
-	KmsKeyID                   string
+	PreferredOutpostArn        string
 	TransitEncryptionMode      string
-	ConnectAddress             string
+	NotificationTopicStatus    string
 	PendingStatus              string
 	SubnetGroupName            string
 	PreferredAvailabilityZone  string
 	AuthToken                  string
-	AvailableAt                time.Time
-	Members                    []CacheNodeMember
+	AZMode                     string
+	SecurityGroupIDs           []string
 	PreferredAvailabilityZones []string
 	CacheSecurityGroupNames    []string
-	Port                       int
-	AllocatedPort              int
-	NumCacheNodes              int
+	CacheNodeIDs               []string
+	CacheNodeAZs               []string
+	LogDeliveryConfigurations  []LogDeliveryConfig
+	Members                    []CacheNodeMember
 	SnapshotRetentionLimit     int
-	TransitEncryptionEnabled   bool
+	NumCacheNodes              int
+	AllocatedPort              int
+	Port                       int
 	AtRestEncryptionEnabled    bool
+	TransitEncryptionEnabled   bool
 	AuthTokenEnabled           bool
 }
 
@@ -80,6 +84,9 @@ type ReplicationGroup struct {
 	AuthTokenLastModifiedDate  *time.Time               `json:"authTokenLastModifiedDate,omitempty"`
 	AvailableAt                time.Time                `json:"availableAt,omitzero"`
 	PendingModifiedValues      *RGPendingModifiedValues `json:"pendingModifiedValues,omitempty"`
+	ConfigurationEndpoint      *NodeEndpoint            `json:"configurationEndpoint,omitempty"`
+	GlobalReplicationGroupID   string                   `json:"globalReplicationGroupId,omitempty"`
+	GlobalReplicationGroupRole string                   `json:"globalReplicationGroupRole,omitempty"`
 	Tags                       *tags.Tags               `json:"tags,omitempty"`
 	ReplicationGroupID         string                   `json:"replicationGroupID"`
 	Description                string                   `json:"description"`
@@ -154,6 +161,16 @@ type CacheSnapshot struct {
 	NodeType               string     `json:"nodeType"`
 	KmsKeyID               string     `json:"kmsKeyId,omitempty"`
 	SnapshotSource         string     `json:"snapshotSource"` // "manual" or "automated"
+	// Durability is the source replication group's Durability at snapshot time.
+	Durability string `json:"durability,omitempty"`
+	// ReplicationGroupDescription and AutomaticFailover mirror the source replication group.
+	ReplicationGroupDescription string `json:"replicationGroupDescription,omitempty"`
+	AutomaticFailover           string `json:"automaticFailover,omitempty"`
+	// NodeGroups is the source replication group's topology at snapshot time.
+	NodeGroups []NodeGroup `json:"nodeGroups,omitempty"`
+	// CacheNodeIDs and CacheNodeAZs are the source cluster's nodes at snapshot time.
+	CacheNodeIDs []string `json:"cacheNodeIds,omitempty"`
+	CacheNodeAZs []string `json:"cacheNodeAzs,omitempty"`
 }
 
 // StorageBackend defines the interface for the ElastiCache in-memory store.
@@ -166,9 +183,10 @@ type StorageBackend interface {
 	) (*Cluster, error)
 	DeleteCluster(ctx context.Context, id string) error
 	SetClusterSubnetGroupName(ctx context.Context, id, subnetGroupName string) error
-	SetClusterAvailabilityZones(ctx context.Context, id, az string, azs []string) error
+	SetClusterPlacement(ctx context.Context, id string, p ClusterPlacement) error
 	SetClusterSnapshotRetentionLimit(ctx context.Context, id string, limit *int) error
 	SetClusterReplicationGroupID(ctx context.Context, id, replicationGroupID string) error
+	CheckReplicaAttach(ctx context.Context, replicationGroupID, engine string) error
 	DescribeClusters(ctx context.Context, id, marker string, maxRecords int, notInRG bool) (page.Page[Cluster], error)
 	ModifyCluster(
 		ctx context.Context,
@@ -185,6 +203,7 @@ type StorageBackend interface {
 		id, description, paramGroupName, maintenanceWindow, snapshotWindow string,
 	) (*ReplicationGroup, error)
 	DeleteReplicationGroup(ctx context.Context, id string) error
+	DeleteReplicationGroupFull(ctx context.Context, id string, retainPrimary bool) error
 	DescribeReplicationGroups(
 		ctx context.Context,
 		id, marker string,
@@ -402,24 +421,18 @@ type StorageBackend interface {
 		replicationGroupID string,
 		customerNodeEndpoints []CustomerNodeEndpoint,
 	) (*ReplicationGroup, error)
-	IncreaseReplicaCount(
+	IncreaseReplicaCountFull(
 		ctx context.Context,
 		replicationGroupID string,
-		newReplicaCount int32,
-		applyImmediately bool,
+		req ReplicaCountRequest,
 	) (*ReplicationGroup, error)
-	DecreaseReplicaCount(
+	DecreaseReplicaCountFull(
 		ctx context.Context,
 		replicationGroupID string,
-		newReplicaCount int32,
-		applyImmediately bool,
+		req ReplicaCountRequest,
 	) (*ReplicationGroup, error)
-	ModifyReplicationGroupShardConfiguration(
-		ctx context.Context,
-		replicationGroupID string,
-		nodeGroupCount int32,
-		applyImmediately bool,
-		reshardingConfig []ReshardingConfig,
+	ModifyReplicationGroupShardConfigurationFull(
+		ctx context.Context, replicationGroupID string, req ShardConfigRequest,
 	) (*ReplicationGroup, error)
 	// Cache info operations
 	DescribeCacheEngineVersions(
@@ -563,11 +576,13 @@ type NodeGroupNode struct {
 
 // NodeGroup represents a shard / node group in a cluster-mode-enabled replication group (gap #2).
 type NodeGroup struct {
-	PrimaryNode *NodeGroupNode  `json:"primaryNode,omitempty"`
-	NodeGroupID string          `json:"nodeGroupId"`
-	Status      string          `json:"status"`
-	Slots       string          `json:"slots"`
-	Replicas    []NodeGroupNode `json:"replicas,omitempty"`
+	PrimaryNode     *NodeGroupNode  `json:"primaryNode,omitempty"`
+	PrimaryEndpoint *NodeEndpoint   `json:"primaryEndpoint,omitempty"`
+	ReaderEndpoint  *NodeEndpoint   `json:"readerEndpoint,omitempty"`
+	NodeGroupID     string          `json:"nodeGroupId"`
+	Status          string          `json:"status"`
+	Slots           string          `json:"slots"`
+	Replicas        []NodeGroupNode `json:"replicas,omitempty"`
 }
 
 // RGPendingModifiedValues holds modifications queued for the next maintenance window (gap #7).
@@ -603,33 +618,42 @@ type LogDeliveryConfig struct {
 
 // ReplicationGroupCreateOpts carries all fields for full replication-group creation.
 type ReplicationGroupCreateOpts struct {
-	Tags                    map[string]string
-	AutoMinorVersionUpgrade *bool
-	Engine                  string
-	EngineVersion           string
-	ID                      string
-	Description             string
-	ParameterGroupName      string
-	// SnapshotName, when set, restores the new replication group from an
-	// existing snapshot: the snapshot must exist, and its engine/node type
-	// become defaults for any field the caller didn't explicitly set.
+	Tags                      map[string]string
+	AutoMinorVersionUpgrade   *bool
+	AuthToken                 string
+	CacheNodeType             string
+	ID                        string
+	Description               string
+	ParameterGroupName        string
 	SnapshotName              string
 	MaintenanceWindow         string
 	TransitEncryptionMode     string
-	AuthToken                 string
+	PrimaryClusterID          string
 	KmsKeyID                  string
 	NotificationTopicArn      string
-	CacheNodeType             string
+	EngineVersion             string
 	SnapshotWindow            string
 	Durability                string
 	NetworkType               string
 	IPDiscovery               string
 	ClusterMode               string
-	UserGroupIDs              []string
+	ServerlessSnapshotName    string
+	Engine                    string
+	SubnetGroupName           string
+	GlobalReplicationGroupID  string
 	LogDeliveryConfigurations []LogDeliveryConfig
+	NodeGroupConfiguration    []NodeGroupConfig
+	PreferredCacheClusterAZs  []string
+	SecurityGroupIDs          []string
+	CacheSecurityGroupNames   []string
+	SnapshotArns              []string
+	UserGroupIDs              []string
 	SnapshotRetentionLimit    int
+	Port                      int
 	ReplicasPerNodeGroup      int32
+	NumCacheClusters          int32
 	NumNodeGroups             int32
+	HasReplicasPerNodeGroup   bool
 	ClusterModeEnabled        bool
 	AuthTokenEnabled          bool
 	AtRestEncryptionEnabled   bool
@@ -646,8 +670,8 @@ type ReplicationGroupModifyOpts struct {
 	ReplicaCount              *int32
 	AutomaticFailoverEnabled  *bool
 	MultiAZEnabled            *bool
-	IPDiscovery               string
-	ClusterMode               string
+	AuthToken                 string
+	NotificationTopicArn      string
 	SnapshottingClusterID     string
 	Description               string
 	ParameterGroupName        string
@@ -655,15 +679,18 @@ type ReplicationGroupModifyOpts struct {
 	CacheNodeType             string
 	MaintenanceWindow         string
 	SnapshotWindow            string
-	AuthToken                 string
+	IPDiscovery               string
 	AuthTokenUpdateStrategy   string
-	NotificationTopicArn      string
+	ClusterMode               string
 	TransitEncryptionMode     string
 	Durability                string
-	LogDeliveryConfigurations []LogDeliveryConfig
-	UserGroupIDsToAdd         []string
+	NotificationTopicStatus   string
+	PrimaryClusterID          string
 	UserGroupIDsToRemove      []string
 	CacheSecurityGroupNames   []string
+	SecurityGroupIDs          []string
+	UserGroupIDsToAdd         []string
+	LogDeliveryConfigurations []LogDeliveryConfig
 	RemoveUserGroups          bool
 	ApplyImmediately          bool
 }
@@ -676,10 +703,6 @@ type CustomerNodeEndpoint struct {
 	Address string
 	Port    int32
 }
-
-// ----------------------------------------
-// resizeNodeGroups helper (gap #2)
-// ----------------------------------------
 
 // CacheSecurityGroup represents an ElastiCache cache security group (EC2-Classic).
 type CacheSecurityGroup struct {
@@ -699,19 +722,30 @@ type EC2SecurityGroupMembership struct {
 
 // GlobalReplicationGroup represents an ElastiCache global replication group.
 type GlobalReplicationGroup struct {
-	CreatedAt                     time.Time         `json:"createdAt"`
-	AvailableAt                   time.Time         `json:"availableAt,omitzero"`
-	Tags                          *tags.Tags        `json:"tags,omitempty"`
-	SecondaryReplicationGroups    map[string]string `json:"secondaryReplicationGroups,omitempty"`
-	GlobalReplicationGroupID      string            `json:"globalReplicationGroupId"`
-	Description                   string            `json:"description"`
-	Status                        string            `json:"status"`
-	PendingStatus                 string            `json:"pendingStatus,omitempty"`
-	ARN                           string            `json:"arn"`
-	Engine                        string            `json:"engine"`
-	EngineVersion                 string            `json:"engineVersion"`
-	PrimaryReplicationGroupRegion string            `json:"primaryReplicationGroupRegion,omitempty"`
-	NodeGroupCount                int32             `json:"nodeGroupCount,omitempty"`
+	CreatedAt                     time.Time                      `json:"createdAt"`
+	AvailableAt                   time.Time                      `json:"availableAt,omitzero"`
+	Tags                          *tags.Tags                     `json:"tags,omitempty"`
+	SecondaryReplicationGroups    map[string]string              `json:"secondaryReplicationGroups,omitempty"`
+	Description                   string                         `json:"description"`
+	GlobalReplicationGroupID      string                         `json:"globalReplicationGroupId"`
+	Status                        string                         `json:"status"`
+	PendingStatus                 string                         `json:"pendingStatus,omitempty"`
+	ARN                           string                         `json:"arn"`
+	Engine                        string                         `json:"engine"`
+	EngineVersion                 string                         `json:"engineVersion"`
+	PrimaryReplicationGroupRegion string                         `json:"primaryReplicationGroupRegion,omitempty"`
+	PrimaryReplicationGroupID     string                         `json:"primaryReplicationGroupId,omitempty"`
+	Members                       []GlobalReplicationGroupMember `json:"-"`
+	NodeGroupCount                int32                          `json:"nodeGroupCount,omitempty"`
+}
+
+// GlobalReplicationGroupMember is one replication group of a Global datastore.
+type GlobalReplicationGroupMember struct {
+	ReplicationGroupID string
+	Region             string
+	Role               string
+	AutomaticFailover  string
+	Status             string
 }
 
 // ServerlessCacheEndpoint holds the address and port for a serverless cache endpoint.

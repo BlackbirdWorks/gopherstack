@@ -222,13 +222,19 @@ func TestAWSConfigHandler_DescribeDeliveryChannels_NameFilter(t *testing.T) {
 			name:      "no_filter_returns_all",
 			body:      map[string]any{},
 			wantCode:  http.StatusOK,
-			wantCount: 2,
+			wantCount: 1,
 		},
 		{
 			name:      "filter_one_channel",
 			body:      map[string]any{"DeliveryChannelNames": []string{"ch-a"}},
 			wantCode:  http.StatusOK,
 			wantCount: 1,
+		},
+		{
+			name:      "filter_other_channel",
+			body:      map[string]any{"DeliveryChannelNames": []string{"ch-b"}},
+			wantCode:  http.StatusNotFound,
+			wantCount: 0,
 		},
 	}
 
@@ -238,10 +244,13 @@ func TestAWSConfigHandler_DescribeDeliveryChannels_NameFilter(t *testing.T) {
 
 			h := newTestAWSConfigHandler(t)
 			require.NoError(t, h.Backend.PutDeliveryChannel("ch-a", "bucket-a", "", "", nil))
-			require.NoError(t, h.Backend.PutDeliveryChannel("ch-b", "bucket-b", "", "", nil))
 
 			rec := doAWSConfigRequest(t, h, "DescribeDeliveryChannels", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode != http.StatusOK {
+				return
+			}
 
 			var out map[string]json.RawMessage
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))

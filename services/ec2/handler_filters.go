@@ -359,7 +359,7 @@ func volumeMatchesFilter(vol *Volume, filterName string, values []string, b Back
 		}
 
 		return anyEqual(vol.Attachment.InstanceID, values)
-	case "attachment.status":
+	case filterKeyAttachmentStatus:
 		if vol.Attachment == nil {
 			return false
 		}
@@ -1730,11 +1730,10 @@ func naclEntryAny(acl *NetworkACL, values []string, field func(NACLEntry) string
 // applyInstanceStatusFilters supports availability-zone, instance-state-code,
 // instance-state-name, instance-status.reachability, instance-status.status,
 // system-status.reachability, system-status.status
-// (api_op_DescribeInstanceStatus.go) plus availability-zone-id. event.*,
-// operator.*, attached-ebs-status.status, and application-status.status are
-// documented but left: this backend models neither scheduled events,
-// managed-instance operators, nor per-resource-type health independent of
-// the single computed instance/system status below.
+// (api_op_DescribeInstanceStatus.go) plus availability-zone-id. This backend
+// has no AWS-scheduled events and no managed instances, so event.* and
+// operator.principal match nothing and operator.managed is false.
+// attached-ebs-status.status follows the instance health; application-status.status is not applied.
 func applyInstanceStatusFilters(instances []*Instance, filters map[string][]string) []*Instance {
 	if len(filters) == 0 {
 		return instances
@@ -1771,7 +1770,7 @@ func instanceStatusMatchesFilter(
 		return anyEqual(itoa(inst.State.Code), values)
 	case filterKeyInstStateName:
 		return anyEqual(inst.State.Name, values)
-	case "instance-status.status", "system-status.status":
+	case "instance-status.status", "system-status.status", "attached-ebs-status.status":
 		return anyEqual(health.Status, values)
 	case "instance-status.reachability", "system-status.reachability":
 		for _, d := range health.Details {
@@ -1781,9 +1780,13 @@ func instanceStatusMatchesFilter(
 		}
 
 		return false
+	case "operator.managed":
+		return anyEqual(ec2BooleanFalse, values)
+	case "operator.principal":
+		return false
 	}
 
-	return true
+	return !strings.HasPrefix(filterName, "event.")
 }
 
 // applyActiveFleetInstanceFilters filters DescribeFleetInstances' results.
@@ -1962,10 +1965,8 @@ func classicLinkInstanceMatchesFilter(link *ClassicLinkInstance, filterName stri
 // applySecondaryInterfaceFilters supports owner-id, status,
 // secondary-interface-id, secondary-interface-arn, secondary-interface-type,
 // secondary-network-id, secondary-network-type, secondary-subnet-id,
-// attachment.instance-id, private-ipv4-addresses.private-ip-address, and tag:
-// (api_op_DescribeSecondaryInterfaces.go). attachment.attachment-id,
-// attachment.instance-owner-id, attachment.status, and tag-key are
-// documented but not tracked by this backend's SecondaryInterface struct.
+// attachment.*, private-ipv4-addresses.private-ip-address, tag: and tag-key
+// (api_op_DescribeSecondaryInterfaces.go).
 func applySecondaryInterfaceFilters(
 	sis []*SecondaryInterface, filters map[string][]string, b Backend,
 ) []*SecondaryInterface {
@@ -1987,6 +1988,22 @@ siLoop:
 	}
 
 	return out
+}
+
+const filterKeyAttachmentStatus = "attachment.status"
+
+// secondaryAttachmentFilter applies the attachment.* filters of DescribeSecondaryInterfaces.
+func secondaryAttachmentFilter(si *SecondaryInterface, name string, values []string) (bool, bool) {
+	switch name {
+	case "attachment.attachment-id":
+		return anyEqual(si.AttachmentID, values), true
+	case "attachment.instance-owner-id":
+		return anyEqual(si.InstanceOwnerID, values), true
+	case filterKeyAttachmentStatus:
+		return si.InstanceID != "" && anyEqual(secondaryAttachmentAttached, values), true
+	}
+
+	return false, false
 }
 
 func secondaryInterfaceMatchesFilter(si *SecondaryInterface, filterName string, values []string, b Backend) bool {
@@ -2012,8 +2029,12 @@ func secondaryInterfaceMatchesFilter(si *SecondaryInterface, filterName string, 
 	case "private-ipv4-addresses.private-ip-address":
 		return anyContains(si.PrivateIpv4Addresses, values)
 	default:
-		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
-			return tagMatch(si.SecondaryInterfaceID, tagKey, values, b)
+		if ok, handled := secondaryAttachmentFilter(si, filterName, values); handled {
+			return ok
+		}
+
+		if ok, handled := matchesTagFilter(si.SecondaryInterfaceID, filterName, values, b); handled {
+			return ok
 		}
 	}
 
@@ -2479,7 +2500,7 @@ func tgwVpcAttachmentMatchesFilter(
 	switch filterName {
 	case filterKeyState:
 		return anyEqual(att.State, values)
-	case "transit-gateway-attachment-id":
+	case filterKeyTGWAttachmentID:
 		return anyEqual(att.TransitGatewayAttachmentID, values)
 	case filterKeyTransitGatewayID:
 		return anyEqual(att.TransitGatewayID, values)
@@ -2541,7 +2562,7 @@ func tgwAttachmentMatchesFilter(
 		return anyEqual(att.ResourceType, values)
 	case filterKeyState:
 		return anyEqual(att.State, values)
-	case "transit-gateway-attachment-id":
+	case filterKeyTGWAttachmentID:
 		return anyEqual(att.TransitGatewayAttachmentID, values)
 	case filterKeyTransitGatewayID:
 		return anyEqual(att.TransitGatewayID, values)

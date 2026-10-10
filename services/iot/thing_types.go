@@ -16,6 +16,10 @@ func (b *InMemoryBackend) CreateThingType(input *CreateThingTypeInput) (*ThingTy
 		return nil, fmt.Errorf("%w: ThingTypeName is required", ErrValidation)
 	}
 
+	if err := validateEntityName("ThingTypeName", input.ThingTypeName); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateThingType")
 	defer b.mu.Unlock()
 

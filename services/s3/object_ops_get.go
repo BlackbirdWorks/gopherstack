@@ -27,9 +27,8 @@ func (h *S3Handler) getObject(
 	h.setOperation(ctx, "GetObject")
 
 	// If the bucket has an Object Lambda configuration, delegate to the lambda path.
-	if lambdaARN := h.objectLambdaARN(bucketName); lambdaARN != "" {
-		h.handleObjectLambdaGetObject(ctx, w, r, bucketName, key, lambdaARN)
-
+	bucketName, handled := h.routeObjectLambda(ctx, w, r, bucketName, key, objectLambdaActionGetObject)
+	if handled {
 		return
 	}
 
@@ -301,6 +300,9 @@ func buildGetObjectDetails(ver *s3.GetObjectOutput) objectCommonDetails {
 		ChecksumSHA1:              ver.ChecksumSHA1,
 		ChecksumSHA256:            ver.ChecksumSHA256,
 		ChecksumCRC64NVME:         ver.ChecksumCRC64NVME,
+		ChecksumMD5:               ver.ChecksumMD5,
+		ChecksumSHA512:            ver.ChecksumSHA512,
+		ChecksumType:              string(ver.ChecksumType),
 		SSEAlgorithm:              string(ver.ServerSideEncryption),
 		SSEKMSKeyID:               aws.ToString(ver.SSEKMSKeyId),
 		SSECAlgorithm:             aws.ToString(ver.SSECustomerAlgorithm),

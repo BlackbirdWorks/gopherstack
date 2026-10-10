@@ -136,12 +136,16 @@ func (b *InMemoryBackend) CreateDistribution(
 		)
 	}
 
-	id := generateID()
+	if err := b.checkCNAMEConflictsLocked("", rawConfig); err != nil {
+		return nil, err
+	}
+
+	id := generateIDWithPrefix("E")
 	d := &Distribution{
 		ID:               id,
 		ARN:              b.distributionARN(id),
 		DomainName:       strings.ToLower(id) + ".cloudfront.net",
-		Status:           statusDeployed,
+		Status:           statusInProgress,
 		ETag:             uuid.NewString(),
 		CallerReference:  callerRef,
 		Comment:          comment,
@@ -154,6 +158,7 @@ func (b *InMemoryBackend) CreateDistribution(
 	b.distributionARNs[d.ARN] = id
 	b.distributionCallerRefs[callerRef] = id
 	b.indexDistributionConfig(id, rawConfig)
+	b.scheduleDistributionDeployed(id)
 	cp := b.copyDistribution(d)
 
 	return cp, nil
@@ -186,6 +191,10 @@ func (b *InMemoryBackend) UpdateDistribution(
 		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, id)
 	}
 
+	if err := b.checkCNAMEConflictsLocked(id, rawConfig); err != nil {
+		return nil, err
+	}
+
 	d.Comment = comment
 	d.Enabled = enabled
 	d.RawConfig = rawConfig
@@ -208,7 +217,7 @@ func (b *InMemoryBackend) UpdateDistribution(
 // Callers may hold b.mu (After only schedules; the callback takes its own
 // lock).
 func (b *InMemoryBackend) scheduleDistributionDeployed(id string) {
-	b.work.After("DistributionDeployed", distributionDeployDelay, func() {
+	b.work.After("DistributionDeployed", b.deployDelay, func() {
 		b.mu.Lock("DistributionDeployed-async")
 		defer b.mu.Unlock()
 
@@ -220,6 +229,17 @@ func (b *InMemoryBackend) scheduleDistributionDeployed(id string) {
 		d.Status = statusDeployed
 		d.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	})
+}
+
+// SetDistributionDeployDelay sets the InProgress -> Deployed dwell; d <= 0 keeps the current value.
+func (b *InMemoryBackend) SetDistributionDeployDelay(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+
+	b.mu.Lock("SetDistributionDeployDelay")
+	defer b.mu.Unlock()
+	b.deployDelay = d
 }
 
 // rearmPendingDistributionDeploysLocked re-schedules the InProgress ->
@@ -363,7 +383,7 @@ func (b *InMemoryBackend) CopyDistribution(primaryDistID, callerRef string, enab
 		)
 	}
 
-	id := generateID()
+	id := generateIDWithPrefix("E")
 	rawCopy := make([]byte, len(src.RawConfig))
 	copy(rawCopy, src.RawConfig)
 

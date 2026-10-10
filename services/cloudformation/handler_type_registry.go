@@ -221,6 +221,7 @@ func (h *Handler) handleActivateType(form url.Values, c *echo.Context) error {
 		ExecutionRoleArn: form.Get("ExecutionRoleArn"),
 		LogGroupName:     form.Get("LoggingConfig.LogGroupName"),
 		LogRoleArn:       form.Get("LoggingConfig.LogRoleArn"),
+		PublisherID:      form.Get("PublisherId"),
 	}
 	if v, parseErr := strconv.ParseBool(form.Get("AutoUpdate")); parseErr == nil {
 		opts.AutoUpdate = &v
@@ -343,7 +344,18 @@ func (h *Handler) handleSetTypeDefaultVersion(form url.Values, c *echo.Context) 
 }
 
 func (h *Handler) handleSetTypeConfiguration(form url.Values, c *echo.Context) error {
-	configArn, err := h.Backend.SetTypeConfiguration(form.Get("TypeName"), form.Get("Configuration"))
+	typeName := form.Get("TypeName")
+	if arn := form.Get("TypeArn"); typeName == "" && arn != "" {
+		if d, derr := h.Backend.DescribeType("", arn, ""); derr == nil {
+			typeName = d.TypeName
+		}
+	}
+
+	configArn, err := h.Backend.SetTypeConfiguration(typeName, form.Get("Configuration"))
+	if errors.Is(err, ErrTypeNotFound) {
+		return h.xmlError(c, "TypeNotFoundException", err.Error())
+	}
+
 	if err != nil {
 		return h.xmlError(c, "CFNRegistryException", err.Error())
 	}
@@ -425,6 +437,7 @@ func (h *Handler) handleListTypes(form url.Values, c *echo.Context) error {
 		TypeNamePrefix:   form.Get("Filters.TypeNamePrefix"),
 		Type:             form.Get("Type"),
 		Category:         form.Get("Filters.Category"),
+		PublisherID:      form.Get("Filters.PublisherId"),
 		DeprecatedStatus: form.Get("DeprecatedStatus"),
 		MaxResults:       parseFormMaxResults(form),
 		NextToken:        form.Get("NextToken"),
@@ -442,6 +455,7 @@ func (h *Handler) handleListTypes(form url.Values, c *echo.Context) error {
 		TypeArn          string `xml:"TypeArn,omitempty"`
 		Type             string `xml:"Type,omitempty"`
 		DefaultVersionID string `xml:"DefaultVersionId,omitempty"`
+		PublisherID      string `xml:"PublisherId,omitempty"`
 		IsActivated      bool   `xml:"IsActivated,omitempty"`
 	}
 	members := make([]typeXML, 0, len(p.Data))
@@ -451,6 +465,7 @@ func (h *Handler) handleListTypes(form url.Values, c *echo.Context) error {
 			TypeArn:          t.TypeArn,
 			Type:             t.Type,
 			DefaultVersionID: t.DefaultVersionID,
+			PublisherID:      t.PublisherID,
 			IsActivated:      t.IsActivated,
 		})
 	}

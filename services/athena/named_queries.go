@@ -26,7 +26,7 @@ func (b *InMemoryBackend) CreateNamedQuery(
 	defer b.mu.Unlock()
 
 	if !b.workGroups.Has(workGroup) {
-		return "", fmt.Errorf("%w: workgroup %q not found", ErrNotFound, workGroup)
+		return "", awsErrorf(ErrNotFound, "WorkGroup %s is not found.", workGroup)
 	}
 
 	id := randomID()

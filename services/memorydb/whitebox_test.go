@@ -40,7 +40,7 @@ func newTaggableUser(t *testing.T, b *InMemoryBackend) string {
 		AccessString: "on ~* &* +@all",
 		AuthenticationMode: authenticationModeReq{
 			Type:      "password",
-			Passwords: []string{"mypassword"},
+			Passwords: []string{"mypassword-long-enough"},
 		},
 	})
 	require.NoError(t, err)

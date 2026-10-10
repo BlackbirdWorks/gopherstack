@@ -16,17 +16,14 @@ func (h *Handler) handleCreateDirectory(c *echo.Context) error {
 	}
 
 	var req struct {
-		Name        string `json:"Name"`
-		ShortName   string `json:"ShortName"`
-		Description string `json:"Description"`
-		Password    string `json:"Password"`
-		Size        string `json:"Size"`
-		NetworkType string `json:"NetworkType"`
-		VpcSettings *struct {
-			VpcID     string   `json:"VpcId"`
-			SubnetIDs []string `json:"SubnetIds"`
-		} `json:"VpcSettings"`
-		Tags []struct {
+		Name        string             `json:"Name"`
+		ShortName   string             `json:"ShortName"`
+		Description string             `json:"Description"`
+		Password    string             `json:"Password"`
+		Size        string             `json:"Size"`
+		NetworkType string             `json:"NetworkType"`
+		VpcSettings *createVpcSettings `json:"VpcSettings"`
+		Tags        []struct {
 			Key   string `json:"Key"`
 			Value string `json:"Value"`
 		} `json:"Tags"`
@@ -41,6 +38,10 @@ func (h *Handler) handleCreateDirectory(c *echo.Context) error {
 	}
 	if req.Password == "" {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "Password is required"))
+	}
+
+	if vErr := validateNewDirectory(req.Name, req.ShortName, req.Password, req.VpcSettings); vErr != nil {
+		return h.mapError(c, vErr)
 	}
 	if req.Size != string(DirectorySizeSmall) && req.Size != string(DirectorySizeLarge) {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "Size must be Small or Large"))
@@ -83,17 +84,14 @@ func (h *Handler) handleCreateMicrosoftAD(c *echo.Context) error {
 	}
 
 	var req struct {
-		Name        string `json:"Name"`
-		ShortName   string `json:"ShortName"`
-		Description string `json:"Description"`
-		Password    string `json:"Password"`
-		Edition     string `json:"Edition"`
-		NetworkType string `json:"NetworkType"`
-		VpcSettings *struct {
-			VpcID     string   `json:"VpcId"`
-			SubnetIDs []string `json:"SubnetIds"`
-		} `json:"VpcSettings"`
-		Tags []struct {
+		Name        string             `json:"Name"`
+		ShortName   string             `json:"ShortName"`
+		Description string             `json:"Description"`
+		Password    string             `json:"Password"`
+		Edition     string             `json:"Edition"`
+		NetworkType string             `json:"NetworkType"`
+		VpcSettings *createVpcSettings `json:"VpcSettings"`
+		Tags        []struct {
 			Key   string `json:"Key"`
 			Value string `json:"Value"`
 		} `json:"Tags"`
@@ -108,6 +106,10 @@ func (h *Handler) handleCreateMicrosoftAD(c *echo.Context) error {
 	}
 	if req.Password == "" {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "Password is required"))
+	}
+
+	if vErr := validateNewDirectory(req.Name, req.ShortName, req.Password, req.VpcSettings); vErr != nil {
+		return h.mapError(c, vErr)
 	}
 
 	edition := DirectoryEdition(req.Edition)
@@ -447,4 +449,29 @@ func (h *Handler) handleConnectDirectory(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{keyDirectoryID: d.DirectoryID})
+}
+
+type createVpcSettings struct {
+	VpcID     string   `json:"VpcId"`
+	SubnetIDs []string `json:"SubnetIds"`
+}
+
+func validateNewDirectory(name, shortName, password string, vpc *createVpcSettings) error {
+	if err := validateDirectoryName(name); err != nil {
+		return err
+	}
+
+	if err := validateShortName(shortName); err != nil {
+		return err
+	}
+
+	if err := validateDirectoryPassword(password); err != nil {
+		return err
+	}
+
+	if vpc == nil {
+		return nil
+	}
+
+	return validateVpcSubnets(vpc.SubnetIDs)
 }

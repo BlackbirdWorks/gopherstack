@@ -13,8 +13,9 @@ import (
 // per-subnet VPC/AZ maps, standing in for the real services/ec2 backend
 // cli.go wires in (see wireEFSCrossService in cli.go).
 type fakeEFSEC2Resolver struct {
-	vpc map[string]string
-	az  map[string]string
+	vpc  map[string]string
+	az   map[string]string
+	free map[string]int
 }
 
 func (f *fakeEFSEC2Resolver) SubnetExists(id string) bool {
@@ -25,6 +26,14 @@ func (f *fakeEFSEC2Resolver) SubnetExists(id string) bool {
 
 func (f *fakeEFSEC2Resolver) SubnetVPC(id string) string { return f.vpc[id] }
 func (f *fakeEFSEC2Resolver) SubnetAZ(id string) string  { return f.az[id] }
+
+func (f *fakeEFSEC2Resolver) SubnetFreeAddresses(id string) int {
+	if n, ok := f.free[id]; ok {
+		return n
+	}
+
+	return -1
+}
 
 // TestCreateMountTarget_EC2Resolver_Placement verifies CreateMountTarget
 // enforces api_op_CreateMountTarget.go's documented placement rule against a
@@ -132,6 +141,63 @@ func TestCreateMountTarget_EC2Resolver_UnknownSubnet(t *testing.T) {
 			require.NoError(t, err)
 
 			_, err = b.CreateMountTarget(context.Background(), mtReq(fs.FileSystemID, "subnet-ghost"))
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestCreateMountTarget_NoFreeAddressesInSubnet(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		free     map[string]int
+		wantErr  error
+		name     string
+		ipSecond string
+	}{
+		{name: "unknown_free_count_is_permissive", free: map[string]int{}},
+		{
+			name:    "one_free_address_second_target_rejected",
+			free:    map[string]int{"subnet-a": 1},
+			wantErr: efs.ErrNoFreeAddressesInSubnet,
+		},
+		{name: "two_free_addresses_accepts_second", free: map[string]int{"subnet-a": 2}},
+		{
+			name: "explicit_ip_address_bypasses_exhaustion", free: map[string]int{"subnet-a": 1},
+			ipSecond: "10.0.0.9",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestEFSBackend()
+			b.SetEC2Resolver(&fakeEFSEC2Resolver{
+				vpc:  map[string]string{"subnet-a": "vpc-1"},
+				az:   map[string]string{"subnet-a": "us-east-1a"},
+				free: tt.free,
+			})
+
+			ctx := context.Background()
+
+			fs1, err := b.CreateFileSystem(ctx, fsReq("tok-free-1-"+tt.name))
+			require.NoError(t, err)
+
+			fs2, err := b.CreateFileSystem(ctx, fsReq("tok-free-2-"+tt.name))
+			require.NoError(t, err)
+
+			_, err = b.CreateMountTarget(ctx, mtReq(fs1.FileSystemID, "subnet-a"))
+			require.NoError(t, err)
+
+			second := mtReq(fs2.FileSystemID, "subnet-a")
+			second.IPAddress = tt.ipSecond
+
+			_, err = b.CreateMountTarget(ctx, second)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 			} else {

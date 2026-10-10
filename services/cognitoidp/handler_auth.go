@@ -94,11 +94,37 @@ func authOutputFromResult(result *AuthResult) *authOutput {
 	}
 }
 
+// withNewDevice sets NewDeviceMetadata on a token result when the pool remembers devices and
+// the sign-in did not present a registered device key.
+func (h *Handler) withNewDevice(ar *authResult, deviceKey string) *authResult {
+	if ar == nil || ar.AccessToken == "" {
+		return ar
+	}
+
+	poolID, username, _, err := h.Backend.AccessTokenIdentity(ar.AccessToken)
+	if err != nil {
+		return ar
+	}
+
+	if nd := h.Backend.NewDeviceMetadataFor(poolID, username, deviceKey); nd != nil {
+		ar.NewDeviceMetadata = &newDeviceMetadataType{DeviceGroupKey: nd.DeviceGroupKey, DeviceKey: nd.DeviceKey}
+	}
+
+	return ar
+}
+
+// withNewDeviceOutput applies withNewDevice to an InitiateAuth-style output.
+func (h *Handler) withNewDeviceOutput(out *authOutput, deviceKey string) *authOutput {
+	out.AuthenticationResult = h.withNewDevice(out.AuthenticationResult, deviceKey)
+
+	return out
+}
+
 func (h *Handler) handleAdminConfirmSignUp(
 	_ context.Context,
 	in *adminConfirmSignUpInput,
 ) (*adminConfirmSignUpOutput, error) {
-	if err := h.Backend.AdminConfirmSignUp(in.UserPoolID, in.Username); err != nil {
+	if err := h.Backend.AdminConfirmSignUp(in.UserPoolID, in.Username, in.ClientMetadata); err != nil {
 		return nil, err
 	}
 
@@ -120,7 +146,14 @@ func (h *Handler) handleAdminResetUserPassword(
 	_ context.Context,
 	in *adminResetUserPasswordInput,
 ) (*adminResetUserPasswordOutput, error) {
-	if err := h.Backend.AdminResetUserPassword(in.UserPoolID, in.Username); err != nil {
+	code, err := h.Backend.AdminResetUserPasswordCode(in.UserPoolID, in.Username)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, _, err = h.Backend.InvokeCustomMessageTriggerForUser(
+		in.UserPoolID, adminClientID, in.Username, code, triggerSourceCustomMessageForgotPwd, in.ClientMetadata,
+	); err != nil {
 		return nil, err
 	}
 
@@ -152,13 +185,13 @@ func mfaChallengeCodeKey(challengeName string) string {
 // token, exactly like RespondToMFAChallenge/RespondToNewPasswordRequired/
 // RespondToSRPChallenge already did before USER_AUTH was added (gopherstack-5f20).
 func (h *Handler) respondToChallengeRound(
-	clientID, session, challengeName string, challengeResponses map[string]string,
+	clientID, session, challengeName string, challengeResponses map[string]string, cm map[string]string,
 ) (*AuthResult, error) {
 	switch challengeName {
 	case challengeSoftwareTokenMFA, challengeSMSMFA:
 		code := challengeResponses[mfaChallengeCodeKey(challengeName)]
 
-		tokens, err := h.Backend.RespondToMFAChallenge(clientID, session, code)
+		tokens, err := h.Backend.RespondToMFAChallenge(clientID, session, code, cm)
 		if err != nil {
 			return nil, err
 		}
@@ -166,7 +199,7 @@ func (h *Handler) respondToChallengeRound(
 		return &AuthResult{Tokens: tokens}, nil
 
 	case challengeMFASetup:
-		tokens, err := h.Backend.RespondToMFASetupChallenge(clientID, session)
+		tokens, err := h.Backend.RespondToMFASetupChallenge(clientID, session, cm)
 		if err != nil {
 			return nil, err
 		}
@@ -174,7 +207,9 @@ func (h *Handler) respondToChallengeRound(
 		return &AuthResult{Tokens: tokens}, nil
 
 	case challengeNewPasswordRequired:
-		tokens, err := h.Backend.RespondToNewPasswordRequired(clientID, session, challengeResponses["NEW_PASSWORD"])
+		tokens, err := h.Backend.RespondToNewPasswordRequired(
+			clientID, session, challengeResponses["NEW_PASSWORD"], cm,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -182,16 +217,22 @@ func (h *Handler) respondToChallengeRound(
 		return &AuthResult{Tokens: tokens}, nil
 
 	case challengePasswordVerifier:
-		return h.Backend.RespondToSRPChallenge(clientID, session, challengeResponses)
+		return h.Backend.RespondToSRPChallenge(clientID, session, challengeResponses, cm)
+
+	case challengeDeviceSRPAuth:
+		return h.Backend.RespondToDeviceSRPChallenge(clientID, session, challengeResponses)
+
+	case challengeDevicePasswordVerifer:
+		return h.Backend.RespondToDevicePasswordVerifier(clientID, session, challengeResponses, cm)
 
 	case challengeCustomChallenge:
-		return h.Backend.RespondToCustomAuthChallenge(clientID, session, challengeResponses["ANSWER"])
+		return h.Backend.RespondToCustomAuthChallenge(clientID, session, challengeResponses["ANSWER"], cm)
 
 	case challengeSelectChallenge:
 		return h.Backend.RespondToSelectChallenge(clientID, session, challengeResponses["ANSWER"])
 
 	case authFactorPassword, challengeEmailOTP, authFactorSMSOTP:
-		return h.Backend.RespondToFirstFactorChallenge(clientID, session, challengeResponses)
+		return h.Backend.RespondToFirstFactorChallenge(clientID, session, challengeResponses, cm)
 
 	default:
 		return &AuthResult{}, nil
@@ -202,12 +243,17 @@ func (h *Handler) handleRespondToAuthChallengeAccurate(
 	_ context.Context,
 	in *respondToAuthChallengeAccurateInput,
 ) (*respondToAuthChallengeAccurateOutput, error) {
-	result, err := h.respondToChallengeRound(in.ClientID, in.Session, in.ChallengeName, in.ChallengeResponses)
+	result, err := h.respondToChallengeRound(
+		in.ClientID, in.Session, in.ChallengeName, in.ChallengeResponses, in.ClientMetadata,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return respondToAuthChallengeOutputFromResult(result), nil
+	out := respondToAuthChallengeOutputFromResult(result)
+	out.AuthenticationResult = h.withNewDevice(out.AuthenticationResult, in.ChallengeResponses[deviceKeyParam])
+
+	return out, nil
 }
 
 // respondToAuthChallengeOutputFromResult converts an AuthResult from a CUSTOM_AUTH
@@ -239,12 +285,17 @@ func (h *Handler) handleAdminRespondToAuthChallengeAccurate(
 	_ context.Context,
 	in *adminRespondToAuthChallengeInput,
 ) (*adminRespondToAuthChallengeOutput, error) {
-	result, err := h.respondToChallengeRound(in.ClientID, in.Session, in.ChallengeName, in.ChallengeResponses)
+	result, err := h.respondToChallengeRound(
+		in.ClientID, in.Session, in.ChallengeName, in.ChallengeResponses, in.ClientMetadata,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return adminChallengeOutputFromResult(result), nil
+	out := adminChallengeOutputFromResult(result)
+	out.AuthenticationResult = h.withNewDevice(out.AuthenticationResult, in.ChallengeResponses[deviceKeyParam])
+
+	return out, nil
 }
 
 // adminChallengeOutputFromResult converts an AuthResult into an
@@ -301,7 +352,7 @@ func (h *Handler) handleSignUpAccurate(
 		}
 
 		message, subject, cmErr := h.Backend.InvokeCustomMessageTrigger(
-			in.ClientID, in.Username, user.ConfirmCode, triggerSourceCustomMessageSignUp,
+			in.ClientID, in.Username, user.ConfirmCode, triggerSourceCustomMessageSignUp, in.ClientMetadata,
 		)
 		if cmErr != nil {
 			return nil, cmErr
@@ -338,7 +389,7 @@ func (h *Handler) handleInitiateAuthAccurate(
 	if in.AuthFlow == authFlowRefreshTokenAuth || in.AuthFlow == authFlowRefreshToken {
 		refreshToken := in.AuthParameters[authFlowRefreshToken]
 
-		tokens, err := h.Backend.InitiateAuthRefreshToken(in.ClientID, refreshToken)
+		tokens, err := h.Backend.InitiateAuthRefreshToken(in.ClientID, refreshToken, in.ClientMetadata)
 		if err != nil {
 			return nil, err
 		}
@@ -349,7 +400,9 @@ func (h *Handler) handleInitiateAuthAccurate(
 	}
 
 	if in.AuthFlow == authFlowUserSRP {
-		result, err := h.Backend.InitiateAuthSRP(in.ClientID, in.AuthFlow, username, in.AuthParameters["SRP_A"])
+		result, err := h.Backend.InitiateAuthSRP(
+			in.ClientID, in.AuthFlow, username, in.AuthParameters["SRP_A"], in.ClientMetadata,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -358,7 +411,9 @@ func (h *Handler) handleInitiateAuthAccurate(
 	}
 
 	if in.AuthFlow == authFlowUserAuth {
-		result, err := h.Backend.InitiateUserAuth(in.ClientID, username, in.AuthParameters["PREFERRED_CHALLENGE"])
+		result, err := h.Backend.InitiateUserAuth(
+			in.ClientID, username, in.AuthParameters["PREFERRED_CHALLENGE"], in.ClientMetadata,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -368,12 +423,15 @@ func (h *Handler) handleInitiateAuthAccurate(
 
 	password := in.AuthParameters["PASSWORD"]
 
-	result, err := h.Backend.InitiateAuth(in.ClientID, in.AuthFlow, username, password)
+	deviceKey := in.AuthParameters[deviceKeyParam]
+
+	result, err := h.Backend.InitiateAuthWithDevice(
+		in.ClientID, in.AuthFlow, username, password, deviceKey, in.ClientMetadata)
 	if err != nil {
 		return nil, err
 	}
 
-	return authOutputFromResult(result), nil
+	return h.withNewDeviceOutput(authOutputFromResult(result), deviceKey), nil
 }
 
 func (h *Handler) handleAdminInitiateAuthAccurate(
@@ -395,7 +453,7 @@ func (h *Handler) handleAdminInitiateAuthAccurate(
 	if in.AuthFlow == authFlowRefreshTokenAuth || in.AuthFlow == authFlowRefreshToken {
 		refreshToken := in.AuthParameters[authFlowRefreshToken]
 
-		tokens, err := h.Backend.InitiateAuthRefreshToken(in.ClientID, refreshToken)
+		tokens, err := h.Backend.InitiateAuthRefreshToken(in.ClientID, refreshToken, in.ClientMetadata)
 		if err != nil {
 			return nil, err
 		}
@@ -407,7 +465,7 @@ func (h *Handler) handleAdminInitiateAuthAccurate(
 
 	if in.AuthFlow == authFlowAdminUserSRP {
 		result, err := h.Backend.AdminInitiateAuthSRP(
-			in.UserPoolID, in.ClientID, in.AuthFlow, username, in.AuthParameters["SRP_A"],
+			in.UserPoolID, in.ClientID, in.AuthFlow, username, in.AuthParameters["SRP_A"], in.ClientMetadata,
 		)
 		if err != nil {
 			return nil, err
@@ -418,7 +476,7 @@ func (h *Handler) handleAdminInitiateAuthAccurate(
 
 	if in.AuthFlow == authFlowUserAuth {
 		result, err := h.Backend.AdminInitiateUserAuth(
-			in.UserPoolID, in.ClientID, username, in.AuthParameters["PREFERRED_CHALLENGE"],
+			in.UserPoolID, in.ClientID, username, in.AuthParameters["PREFERRED_CHALLENGE"], in.ClientMetadata,
 		)
 		if err != nil {
 			return nil, err
@@ -429,12 +487,16 @@ func (h *Handler) handleAdminInitiateAuthAccurate(
 
 	password := in.AuthParameters["PASSWORD"]
 
-	result, err := h.Backend.AdminInitiateAuth(in.UserPoolID, in.ClientID, in.AuthFlow, username, password)
+	deviceKey := in.AuthParameters[deviceKeyParam]
+
+	result, err := h.Backend.AdminInitiateAuthWithDevice(
+		in.UserPoolID, in.ClientID, in.AuthFlow, username, password, deviceKey, in.ClientMetadata,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return authOutputFromResult(result), nil
+	return h.withNewDeviceOutput(authOutputFromResult(result), deviceKey), nil
 }
 
 func (h *Handler) handleConfirmSignUpAccurate(
@@ -445,7 +507,10 @@ func (h *Handler) handleConfirmSignUpAccurate(
 		return nil, err
 	}
 
-	if err := h.Backend.ConfirmSignUp(in.ClientID, in.Username, in.ConfirmationCode); err != nil {
+	if err := h.Backend.ConfirmSignUpWithOptions(
+		in.ClientID, in.Username, in.ConfirmationCode,
+		ConfirmSignUpOptions{ClientMetadata: in.ClientMetadata, ForceAliasCreation: in.ForceAliasCreation},
+	); err != nil {
 		return nil, err
 	}
 
@@ -460,7 +525,7 @@ func (h *Handler) handleForgotPasswordAccurate(
 		return nil, err
 	}
 
-	code, err := h.Backend.ForgotPassword(in.ClientID, in.Username)
+	code, err := h.Backend.ForgotPassword(in.ClientID, in.Username, in.ClientMetadata)
 	if err != nil {
 		return nil, err
 	}
@@ -473,7 +538,7 @@ func (h *Handler) handleForgotPasswordAccurate(
 	}
 
 	message, subject, cmErr := h.Backend.InvokeCustomMessageTrigger(
-		in.ClientID, in.Username, code, triggerSourceCustomMessageForgotPwd,
+		in.ClientID, in.Username, code, triggerSourceCustomMessageForgotPwd, in.ClientMetadata,
 	)
 	if cmErr != nil {
 		return nil, cmErr
@@ -499,7 +564,7 @@ func (h *Handler) handleConfirmForgotPasswordAccurate(
 	}
 
 	if err := h.Backend.ConfirmForgotPassword(
-		in.ClientID, in.Username, in.ConfirmationCode, in.Password,
+		in.ClientID, in.Username, in.ConfirmationCode, in.Password, in.ClientMetadata,
 	); err != nil {
 		return nil, err
 	}
@@ -528,7 +593,7 @@ func (h *Handler) handleResendConfirmationCodeAccurate(
 	}
 
 	message, subject, cmErr := h.Backend.InvokeCustomMessageTrigger(
-		in.ClientID, in.Username, code, triggerSourceCustomMessageResendCode,
+		in.ClientID, in.Username, code, triggerSourceCustomMessageResendCode, in.ClientMetadata,
 	)
 	if cmErr != nil {
 		return nil, cmErr

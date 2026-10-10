@@ -103,8 +103,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	_ = commit2
 
+	require.NoError(t, original.CreateBranch(repo.RepositoryName, "feature", commit2.CommitID))
+
 	pr, err := original.CreatePullRequest("a PR", "desc", "", []codecommit.PullRequestTarget{
-		{RepositoryName: repo.RepositoryName, SourceReference: "refs/heads/main"},
+		{RepositoryName: repo.RepositoryName, SourceReference: "refs/heads/feature"},
 	})
 	require.NoError(t, err)
 
@@ -175,7 +177,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// branches table (composite key + byRepo index).
 	branchNames, err := fresh.ListBranches(repo.RepositoryName)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"main"}, branchNames)
+	assert.Equal(t, []string{"feature", "main"}, branchNames)
 	gotBranch, err := fresh.GetBranch(repo.RepositoryName, "main")
 	require.NoError(t, err)
 	assert.Equal(t, commit2.CommitID, gotBranch.CommitID)

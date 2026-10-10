@@ -219,6 +219,7 @@ type startJobRunInput struct {
 	JobRunQueuingEnabled       *bool                 `json:"JobRunQueuingEnabled,omitempty"`
 	JobName                    string                `json:"JobName"`
 	WorkerType                 string                `json:"WorkerType,omitempty"`
+	JobRunID                   string                `json:"JobRunId,omitempty"`
 	SecurityConfiguration      string                `json:"SecurityConfiguration,omitempty"`
 	ExecutionClass             string                `json:"ExecutionClass,omitempty"`
 	ExecutionRoleSessionPolicy string                `json:"ExecutionRoleSessionPolicy,omitempty"`
@@ -257,6 +258,7 @@ func (h *Handler) handleStartJobRun(_ context.Context, in *startJobRunInput) (*s
 		JobRunQueuingEnabled:       in.JobRunQueuingEnabled,
 		ExecutionClass:             in.ExecutionClass,
 		ExecutionRoleSessionPolicy: in.ExecutionRoleSessionPolicy,
+		PreviousRunID:              in.JobRunID,
 	})
 	if err != nil {
 		return nil, err
@@ -266,8 +268,9 @@ func (h *Handler) handleStartJobRun(_ context.Context, in *startJobRunInput) (*s
 }
 
 type getJobRunInput struct {
-	JobName string `json:"JobName"`
-	RunID   string `json:"RunId"`
+	JobName              string `json:"JobName"`
+	RunID                string `json:"RunId"`
+	PredecessorsIncluded bool   `json:"PredecessorsIncluded,omitempty"`
 }
 
 type getJobRunOutput struct {
@@ -278,6 +281,10 @@ func (h *Handler) handleGetJobRun(_ context.Context, in *getJobRunInput) (*getJo
 	run, err := h.Backend.GetJobRun(in.JobName, in.RunID)
 	if err != nil {
 		return nil, err
+	}
+
+	if !in.PredecessorsIncluded {
+		run.PredecessorRuns = nil
 	}
 
 	return &getJobRunOutput{JobRun: run}, nil
@@ -298,6 +305,10 @@ func (h *Handler) handleGetJobRuns(_ context.Context, in *getJobRunsInput) (*get
 	runs, err := h.Backend.GetJobRuns(in.JobName)
 	if err != nil {
 		return nil, err
+	}
+
+	for _, r := range runs {
+		r.PredecessorRuns = nil
 	}
 
 	runs, next, err := pagedSlice(runs, in.NextToken, in.MaxResults, defaultListPageSize)

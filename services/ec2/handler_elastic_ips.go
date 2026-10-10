@@ -411,6 +411,10 @@ type releaseAddressResponse struct {
 }
 
 func (h *Handler) handleAllocateAddress(vals url.Values, reqID string) (any, error) {
+	if err := validateAddressDomain(vals.Get("Domain")); err != nil {
+		return nil, err
+	}
+
 	addr, err := h.Backend.AllocateAddress()
 	if err != nil {
 		return nil, err

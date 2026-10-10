@@ -18,6 +18,7 @@ import (
 
 const (
 	codeconnectionsMatchPriority = service.PriorityHeaderExact
+	ccTargetNamespace            = "com.amazonaws.codeconnections."
 	ccTargetPrefix               = "CodeConnections_20231201."
 	ccContentType                = "application/x-amz-json-1.0"
 	ccDefaultPageSize            = 100
@@ -141,7 +142,7 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 // RouteMatcher returns a function that matches AWS CodeConnections JSON 1.0 requests.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), ccTargetPrefix)
+		return strings.HasPrefix(targetHeader(c), ccTargetPrefix)
 	}
 }
 
@@ -150,9 +151,12 @@ func (h *Handler) MatchPriority() int { return codeconnectionsMatchPriority }
 
 // ExtractOperation extracts the CodeConnections operation name from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	target := c.Request().Header.Get("X-Amz-Target")
+	return strings.TrimPrefix(targetHeader(c), ccTargetPrefix)
+}
 
-	return strings.TrimPrefix(target, ccTargetPrefix)
+// targetHeader returns X-Amz-Target without the namespace botocore clients prepend.
+func targetHeader(c *echo.Context) string {
+	return strings.TrimPrefix(c.Request().Header.Get("X-Amz-Target"), ccTargetNamespace)
 }
 
 // ExtractResource extracts the primary resource identifier from the JSON request body.

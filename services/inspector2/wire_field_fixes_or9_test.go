@@ -33,10 +33,8 @@ import (
 // in this table because the finding seeded below has no title and no
 // Resources, so they still correctly produce no groups -- this pins the
 // "no groupable data" case, not "these types are always unsupported".
-// PACKAGE, FINDING_TYPE and AMI remain genuinely unsupported: PACKAGE has no
-// backing sub-struct on FindingResource, FINDING_TYPE's response shape
-// carries no group key to aggregate by, and AMI has no AMI-ID field
-// anywhere in this model.
+// PACKAGE and AMI also stay here: the finding seeded below has no vulnerable
+// packages and no EC2 image ID.
 func TestListFindingAggregations_NonAccountType_RealClient(t *testing.T) {
 	t.Parallel()
 
@@ -45,7 +43,6 @@ func TestListFindingAggregations_NonAccountType_RealClient(t *testing.T) {
 		aggregationType string
 	}{
 		{name: "package", aggregationType: "PACKAGE"},
-		{name: "finding_type", aggregationType: "FINDING_TYPE"},
 		{name: "title", aggregationType: "TITLE"},
 		{name: "repository", aggregationType: "REPOSITORY"},
 		{name: "ami", aggregationType: "AMI"},

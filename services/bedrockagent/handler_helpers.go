@@ -1,18 +1,23 @@
 package bedrockagent
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
+
+var wireCodePrefix = regexp.MustCompile(`^(?:[A-Za-z]+Exception: )+`)
 
 func handleErr(c *echo.Context, err error) error {
 	var syntaxErr *json.SyntaxError
@@ -40,7 +45,7 @@ func handleErr(c *echo.Context, err error) error {
 
 	c.Response().Header().Set("X-Amzn-Errortype", code)
 
-	return c.JSON(status, map[string]any{"message": err.Error()})
+	return c.JSON(status, map[string]any{"message": wireCodePrefix.ReplaceAllString(err.Error(), "")})
 }
 
 func errResp(code, msg string) map[string]any {
@@ -154,4 +159,57 @@ func indexOf(segs []string, seg string) int {
 	}
 
 	return -1
+}
+
+const (
+	minPageSize = 1
+	maxPageSize = 1000
+)
+
+func decodePageToken(tok string) string {
+	if raw, err := base64.StdEncoding.DecodeString(tok); err == nil {
+		return string(raw)
+	}
+
+	return tok
+}
+
+type pageFields struct {
+	MaxResults *int   `json:"maxResults"`
+	NextToken  string `json:"nextToken"`
+}
+
+func (p *pageFields) overlay(o pageFields) {
+	if o.NextToken != "" {
+		p.NextToken = o.NextToken
+	}
+
+	if o.MaxResults != nil {
+		p.MaxResults = o.MaxResults
+	}
+}
+
+// validatePageRequest rejects out-of-range maxResults and non-opaque nextToken
+// values on any request that carries them (query string or JSON body).
+func validatePageRequest(query url.Values, body []byte) error {
+	req := pageFields{NextToken: query.Get(keyNextToken)}
+
+	if n, err := strconv.Atoi(query.Get("maxResults")); err == nil {
+		req.MaxResults = &n
+	}
+
+	var fromBody pageFields
+	if len(body) > 0 && json.Unmarshal(body, &fromBody) == nil {
+		req.overlay(fromBody)
+	}
+
+	if m := req.MaxResults; m != nil && (*m < minPageSize || *m > maxPageSize) {
+		return fmt.Errorf("%w: maxResults must be between %d and %d", ErrValidation, minPageSize, maxPageSize)
+	}
+
+	if _, err := base64.StdEncoding.DecodeString(req.NextToken); err != nil {
+		return fmt.Errorf("%w: invalid nextToken", ErrValidation)
+	}
+
+	return nil
 }

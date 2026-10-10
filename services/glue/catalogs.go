@@ -14,6 +14,8 @@ func cloneCatalogEntry(c *CatalogEntry) *CatalogEntry {
 		maps.Copy(cp.Parameters, c.Parameters)
 	}
 
+	cp.Tags = maps.Clone(c.Tags)
+
 	return &cp
 }
 
@@ -21,8 +23,20 @@ func (b *InMemoryBackend) CreateCatalog(
 	catalogID, name, description string,
 	params map[string]string,
 ) error {
-	b.mu.Lock("CreateCatalog")
+	return b.CreateCatalogWithTags(catalogID, name, description, params, nil)
+}
+
+// CreateCatalogWithTags is CreateCatalog plus the request's Tags.
+func (b *InMemoryBackend) CreateCatalogWithTags(
+	catalogID, name, description string,
+	params, tags map[string]string,
+) error {
+	b.mu.Lock("CreateCatalogWithTags")
 	defer b.mu.Unlock()
+
+	if err := validateTags(tags); err != nil {
+		return err
+	}
 
 	if b.catalogs.Has(catalogID) {
 		return fmt.Errorf("catalog %q already exists: %w", catalogID, ErrAlreadyExists)
@@ -32,6 +46,8 @@ func (b *InMemoryBackend) CreateCatalog(
 		Name:        name,
 		Description: description,
 		Parameters:  params,
+		Tags:        maps.Clone(tags),
+		ResourceArn: b.catalogARN(name),
 		CreateTime:  float64(time.Now().Unix()),
 	})
 

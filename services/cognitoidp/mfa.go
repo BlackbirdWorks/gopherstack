@@ -82,7 +82,9 @@ func mfaChallengeType(_ *UserPool, user *User) string {
 // generated when the challenge session was created (see newMFASession). A wrong code
 // returns CodeMismatchException without consuming the session, so the caller may retry
 // until the session expires — matching real Cognito.
-func (b *InMemoryBackend) RespondToMFAChallenge(clientID, session, code string) (*TokenResult, error) {
+func (b *InMemoryBackend) RespondToMFAChallenge(
+	clientID, session, code string, meta ...ClientMetadata,
+) (*TokenResult, error) {
 	b.mu.Lock("RespondToMFAChallenge")
 	defer b.mu.Unlock()
 
@@ -129,7 +131,7 @@ func (b *InMemoryBackend) RespondToMFAChallenge(clientID, session, code string) 
 	// Consume the session (one-time use).
 	delete(b.mfaSessions, session)
 
-	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication)
+	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication, firstMetadata(meta))
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +306,9 @@ func (b *InMemoryBackend) VerifySoftwareToken(accessToken, session, userCode str
 // via AssociateSoftwareToken/VerifySoftwareToken first. On success it records
 // SOFTWARE_TOKEN_MFA as the user's MFA preference (the only factor this backend's MFA_SETUP
 // path can establish) and issues tokens.
-func (b *InMemoryBackend) RespondToMFASetupChallenge(clientID, session string) (*TokenResult, error) {
+func (b *InMemoryBackend) RespondToMFASetupChallenge(
+	clientID, session string, meta ...ClientMetadata,
+) (*TokenResult, error) {
 	b.mu.Lock("RespondToMFASetupChallenge")
 	defer b.mu.Unlock()
 
@@ -350,7 +354,7 @@ func (b *InMemoryBackend) RespondToMFASetupChallenge(clientID, session string) (
 
 	delete(b.mfaSessions, session)
 
-	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication)
+	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication, firstMetadata(meta))
 	if err != nil {
 		return nil, err
 	}

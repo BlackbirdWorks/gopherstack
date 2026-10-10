@@ -2,6 +2,7 @@ package appsync
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -32,6 +33,11 @@ func (b *InMemoryBackend) CreateDataSource(apiID string, ds *DataSource) (*DataS
 
 	if ds.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	}
+
+	if !dataSourceNamePattern.MatchString(ds.Name) {
+		return nil, fmt.Errorf("%w: data source name must match [_A-Za-z][_0-9A-Za-z]* (max 65 characters)",
+			ErrValidation)
 	}
 
 	if ds.Type == "" {
@@ -271,3 +277,5 @@ func (b *InMemoryBackend) GetDataSourceIntrospection(introspectionID string) (*D
 
 	return &cp, nil
 }
+
+var dataSourceNamePattern = regexp.MustCompile(`^[_A-Za-z][_0-9A-Za-z]{0,64}$`)

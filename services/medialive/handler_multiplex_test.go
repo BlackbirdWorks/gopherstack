@@ -41,10 +41,10 @@ func TestMultiplex_Create(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name: "create returns multiplex with ARN and IDLE state",
+			name: "create returns multiplex with ARN and CREATING state",
 			body: map[string]any{
 				"name":              "my-multiplex",
-				"availabilityZones": []any{"us-east-1a"},
+				"availabilityZones": []any{"us-east-1a", "us-east-1b"},
 				"multiplexSettings": map[string]any{
 					"transportStreamBitrate": 2000000,
 					"transportStreamId":      5,
@@ -58,7 +58,7 @@ func TestMultiplex_Create(t *testing.T) {
 				require.NoError(t, json.Unmarshal(body, &resp))
 				m := resp["multiplex"].(map[string]any)
 				assert.Contains(t, m["arn"], "arn:aws:medialive:us-east-1:000000000000:multiplex:")
-				assert.Equal(t, "IDLE", m["state"])
+				assert.Equal(t, "CREATING", m["state"])
 				assert.NotEmpty(t, m["id"])
 				assert.Equal(t, "my-multiplex", m["name"])
 				assert.InDelta(t, 0, m["pipelinesRunningCount"], 0)

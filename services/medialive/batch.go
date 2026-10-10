@@ -6,32 +6,49 @@ func (b *InMemoryBackend) batchSetState(
 	channelIDs, multiplexIDs []string,
 	state string,
 ) *BatchResult {
+	from, label := stateIdle, stateStarting
+	if state == stateIdle {
+		from, label = stateRunning, stateStopping
+	}
+
 	var result BatchResult
+
 	for _, id := range channelIDs {
-		ch, ok := b.channels.Get(id)
-		if !ok {
+		ch, err := b.liveChannel(id)
+		if err != nil {
 			result.Failed = append(result.Failed, BatchFailedResult{ID: id, Code: batchErrNotFound})
 
 			continue
 		}
+
+		if b.channelState(ch) != from {
+			result.Failed = append(result.Failed, BatchFailedResult{ID: id, Arn: ch.ARN, Code: batchErrConflict})
+
+			continue
+		}
+
 		ch.State = state
-		result.Successful = append(
-			result.Successful,
-			BatchSuccessfulResult{ID: id, Arn: ch.ARN, State: ch.State},
-		)
+		ch.phase = b.newPhase(label)
+		result.Successful = append(result.Successful, BatchSuccessfulResult{ID: id, Arn: ch.ARN, State: label})
 	}
+
 	for _, id := range multiplexIDs {
 		mx, ok := b.multiplexes.Get(id)
-		if !ok {
+		if !ok || mx.State == stateDeleted {
 			result.Failed = append(result.Failed, BatchFailedResult{ID: id, Code: batchErrNotFound})
 
 			continue
 		}
+
+		if b.multiplexState(mx) != from {
+			result.Failed = append(result.Failed, BatchFailedResult{ID: id, Arn: mx.ARN, Code: batchErrConflict})
+
+			continue
+		}
+
 		mx.State = state
-		result.Successful = append(
-			result.Successful,
-			BatchSuccessfulResult{ID: id, Arn: mx.ARN, State: mx.State},
-		)
+		mx.phase = b.newPhase(label)
+		result.Successful = append(result.Successful, BatchSuccessfulResult{ID: id, Arn: mx.ARN, State: label})
 	}
 
 	return &result
@@ -91,21 +108,24 @@ func (b *InMemoryBackend) BatchDelete(
 	defer b.mu.Unlock()
 	var result BatchResult
 	for _, id := range channelIDs {
-		ch, ok := b.channels.Get(id)
-		if !ok {
+		ch, err := b.liveChannel(id)
+		if err != nil {
 			result.Failed = append(result.Failed, BatchFailedResult{ID: id, Code: batchErrNotFound})
 
 			continue
 		}
-		if ch.State == stateRunning {
+		if b.channelState(ch) != stateIdle {
 			result.Failed = append(
 				result.Failed,
-				BatchFailedResult{ID: id, Arn: ch.ARN, Code: "CONFLICT"},
+				BatchFailedResult{ID: id, Arn: ch.ARN, Code: batchErrConflict},
 			)
 
 			continue
 		}
-		b.channels.Delete(id)
+		b.releaseVpcLocked(ch.Vpc)
+		ch.State = stateDeleted
+		ch.DeletedAt = b.now()
+		ch.phase = b.newPhase(stateDeleting)
 		result.Successful = append(
 			result.Successful,
 			BatchSuccessfulResult{ID: id, Arn: ch.ARN, State: stateDeleting},
@@ -126,23 +146,25 @@ func (b *InMemoryBackend) BatchDelete(
 	}
 	for _, id := range multiplexIDs {
 		mx, ok := b.multiplexes.Get(id)
-		if !ok {
+		if !ok || mx.State == stateDeleted {
 			result.Failed = append(result.Failed, BatchFailedResult{ID: id, Code: batchErrNotFound})
 
 			continue
 		}
-		if mx.State == stateRunning {
+		if b.multiplexState(mx) != stateIdle {
 			result.Failed = append(
 				result.Failed,
-				BatchFailedResult{ID: id, Arn: mx.ARN, Code: "CONFLICT"},
+				BatchFailedResult{ID: id, Arn: mx.ARN, Code: batchErrConflict},
 			)
 
 			continue
 		}
-		b.multiplexes.Delete(id)
+		mx.State = stateDeleted
+		mx.DeletedAt = b.now()
+		mx.phase = b.newPhase(stateDeleting)
 		result.Successful = append(
 			result.Successful,
-			BatchSuccessfulResult{ID: id, Arn: mx.ARN, State: stateDeleted},
+			BatchSuccessfulResult{ID: id, Arn: mx.ARN, State: stateDeleting},
 		)
 	}
 	b.batchDeleteInputSecurityGroups(&result, inputSecurityGroupIDs)

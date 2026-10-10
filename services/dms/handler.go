@@ -371,6 +371,10 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
 
+	if err := h.checkMarker(body); err != nil {
+		return nil, err
+	}
+
 	result, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
@@ -385,43 +389,43 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 		return c.JSON(http.StatusNotFound, service.JSONErrorResponse{
 			Type:    "ResourceNotFoundFault",
-			Message: err.Error(),
+			Message: publicMessage(err),
 		})
 	case errors.Is(err, ErrCollectorNotFound):
 
 		return c.JSON(http.StatusNotFound, service.JSONErrorResponse{
 			Type:    "CollectorNotFoundFault",
-			Message: err.Error(),
+			Message: publicMessage(err),
 		})
 	case errors.Is(err, ErrAlreadyExists):
 
 		return c.JSON(http.StatusConflict, service.JSONErrorResponse{
 			Type:    "ResourceAlreadyExistsFault",
-			Message: err.Error(),
+			Message: publicMessage(err),
 		})
 	case errors.Is(err, ErrInvalidState):
 
 		return c.JSON(http.StatusBadRequest, service.JSONErrorResponse{
 			Type:    "InvalidResourceStateFault",
-			Message: err.Error(),
+			Message: publicMessage(err),
 		})
 	case errors.Is(err, ErrValidation):
 
 		return c.JSON(http.StatusBadRequest, service.JSONErrorResponse{
 			Type:    "ValidationException",
-			Message: err.Error(),
+			Message: publicMessage(err),
 		})
 	case errors.Is(err, errUnknownAction):
 
 		return c.JSON(http.StatusBadRequest, service.JSONErrorResponse{
 			Type:    "UnknownOperationException",
-			Message: err.Error(),
+			Message: publicMessage(err),
 		})
 	default:
 
 		return c.JSON(http.StatusInternalServerError, service.JSONErrorResponse{
 			Type:    "InternalFailure",
-			Message: err.Error(),
+			Message: publicMessage(err),
 		})
 	}
 }

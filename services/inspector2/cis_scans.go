@@ -444,12 +444,9 @@ func (b *InMemoryBackend) ListCisScans() ([]map[string]any, error) {
 			"scanName":              s.ScanName,
 			keyStatus:               s.Status,
 			"securityLevel":         s.SecurityLevel,
-			// scanDate is the real CisScan wire field (a DateTimeTimestamp,
-			// epoch-seconds encoded); "scheduledBy" is a distinct *string*
-			// field (the account/org that scheduled the scan) this backend
-			// does not track, so it is not emitted rather than filled with
-			// a fabricated value.
+			// scanDate is epoch-seconds; scheduledBy is the account that owns the scan configuration.
 			"scanDate":     awstime.Epoch(s.ScheduledAt),
+			"scheduledBy":  b.accountID,
 			"failedChecks": s.FailedChecks,
 			"totalChecks":  s.TotalChecks,
 			// types.CisTargets (inspector2@v1.54.1 deserializers.go's
@@ -582,6 +579,7 @@ func (b *InMemoryBackend) ListCisScanResultsAggregatedByTargetResource(
 			keyTargetResourceID: tid,
 			keyAccountID:        a.accountID,
 			keyPlatform:         a.platform,
+			"targetStatus":      cisTargetStatusCompleted,
 			"statusCounts": map[string]any{
 				"passed":  a.passed,
 				"failed":  a.failed,

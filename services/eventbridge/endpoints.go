@@ -11,7 +11,7 @@ import (
 // CreateEndpoint creates a new global endpoint.
 func (b *InMemoryBackend) CreateEndpoint(ctx context.Context, input CreateEndpointInput) (*Endpoint, error) {
 	if input.Name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+		return nil, awsErrorf(ErrInvalidParameter, "Name is required")
 	}
 
 	region := getRegionFromContext(ctx, b.region)
@@ -53,7 +53,7 @@ func (b *InMemoryBackend) CreateEndpoint(ctx context.Context, input CreateEndpoi
 // DeleteEndpoint deletes an endpoint.
 func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, name string) error {
 	if name == "" {
-		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+		return awsErrorf(ErrInvalidParameter, "Name is required")
 	}
 
 	region := getRegionFromContext(ctx, b.region)
@@ -63,7 +63,7 @@ func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, name string) error
 
 	store := b.endpointsTable(region)
 	if !store.Has(name) {
-		return fmt.Errorf("%w: endpoint %s not found", ErrNotFound, name)
+		return awsErrorf(ErrNotFound, "Endpoint %s does not exist.", name)
 	}
 
 	store.Delete(name)
@@ -74,7 +74,7 @@ func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, name string) error
 // DescribeEndpoint returns a single endpoint by name.
 func (b *InMemoryBackend) DescribeEndpoint(ctx context.Context, name string) (*Endpoint, error) {
 	if name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+		return nil, awsErrorf(ErrInvalidParameter, "Name is required")
 	}
 
 	region := getRegionFromContext(ctx, b.region)
@@ -84,7 +84,7 @@ func (b *InMemoryBackend) DescribeEndpoint(ctx context.Context, name string) (*E
 
 	ep, exists := b.endpointsTable(region).Get(name)
 	if !exists {
-		return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, name)
+		return nil, awsErrorf(ErrNotFound, "Endpoint %s does not exist.", name)
 	}
 
 	cp := *ep
@@ -119,7 +119,7 @@ func (b *InMemoryBackend) ListEndpoints(
 // UpdateEndpoint updates an existing endpoint.
 func (b *InMemoryBackend) UpdateEndpoint(ctx context.Context, input UpdateEndpointInput) (*Endpoint, error) {
 	if input.Name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+		return nil, awsErrorf(ErrInvalidParameter, "Name is required")
 	}
 
 	region := getRegionFromContext(ctx, b.region)
@@ -129,7 +129,7 @@ func (b *InMemoryBackend) UpdateEndpoint(ctx context.Context, input UpdateEndpoi
 
 	ep, exists := b.endpointsTable(region).Get(input.Name)
 	if !exists {
-		return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, input.Name)
+		return nil, awsErrorf(ErrNotFound, "Endpoint %s does not exist.", input.Name)
 	}
 
 	if input.Description != nil {

@@ -101,6 +101,7 @@ func createBranchFromMain(t *testing.T, h *codecommit.Handler, repoName, branchN
 func setupPR(t *testing.T, h *codecommit.Handler, repoName string) string {
 	t.Helper()
 	setupRepoAndBranch(t, h, repoName)
+	createBranchFromMain(t, h, repoName, "feature")
 	rec := doRequest(t, h, "CreatePullRequest", map[string]any{
 		"title": "Test PR",
 		"targets": []map[string]any{
@@ -429,6 +430,9 @@ func TestBackend_Reset(t *testing.T) {
 	require.NoError(t, err)
 	_, _, _, err = b.CreateCommit("repo-a", "main", "Alice", "alice@test.com", "init", "", nil, nil, false)
 	require.NoError(t, err)
+	tip, err := b.GetBranch("repo-a", "main")
+	require.NoError(t, err)
+	require.NoError(t, b.CreateBranch("repo-a", "feature", tip.CommitID))
 	_, err = b.CreatePullRequest("My PR", "", "", []codecommit.PullRequestTarget{
 		{RepositoryName: "repo-a", SourceReference: "refs/heads/feature"},
 	})

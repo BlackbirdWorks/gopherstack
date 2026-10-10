@@ -25,6 +25,8 @@ type Trial struct {
 	LastModifiedTime   time.Time           `json:"LastModifiedTime"`
 	Tags               map[string]string   `json:"Tags,omitempty"`
 	MetadataProperties *MetadataProperties `json:"MetadataProperties,omitempty"`
+	CreatedBy          *UserContext        `json:"CreatedBy,omitempty"`
+	LastModifiedBy     *UserContext        `json:"LastModifiedBy,omitempty"`
 	TrialName          string              `json:"TrialName"`
 	TrialArn           string              `json:"TrialArn"`
 	ExperimentName     string              `json:"ExperimentName"`
@@ -34,6 +36,8 @@ type Trial struct {
 func cloneTrial(t *Trial) *Trial {
 	cp := *t
 	cp.Tags = maps.Clone(t.Tags)
+	cp.CreatedBy = cloneUserContext(t.CreatedBy)
+	cp.LastModifiedBy = cloneUserContext(t.LastModifiedBy)
 
 	if t.MetadataProperties != nil {
 		mp := *t.MetadataProperties
@@ -70,6 +74,8 @@ func (b *InMemoryBackend) CreateTrial(
 		MetadataProperties: metadataProperties,
 		CreationTime:       now,
 		LastModifiedTime:   now,
+		CreatedBy:          optionalCallerUserContext(ctx),
+		LastModifiedBy:     optionalCallerUserContext(ctx),
 		Tags:               mergeTags(nil, tags),
 	}
 	b.trialsStore(region).Put(t)
@@ -221,6 +227,7 @@ func (b *InMemoryBackend) UpdateTrial(ctx context.Context, name, displayName str
 		t.DisplayName = displayName
 	}
 	t.LastModifiedTime = time.Now()
+	t.LastModifiedBy = optionalCallerUserContext(ctx)
 
 	return cloneTrial(t), nil
 }

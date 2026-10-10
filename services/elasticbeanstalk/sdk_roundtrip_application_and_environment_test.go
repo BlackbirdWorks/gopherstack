@@ -375,9 +375,8 @@ func Test_SDKRoundTrip_EnvironmentOperations(t *testing.T) {
 	assert.Equal(t, envName, aws.ToString(terminated.EnvironmentName))
 }
 
-// Test_SDKRoundTrip_ComposeAndSwapEnvironments drives ComposeEnvironments
-// and SwapEnvironmentCNAMEs through the real typed client.
-func Test_SDKRoundTrip_ComposeAndSwapEnvironments(t *testing.T) {
+// Test_SDKRoundTrip_SwapEnvironmentCNAMEs drives SwapEnvironmentCNAMEs through the real typed client.
+func Test_SDKRoundTrip_SwapEnvironmentCNAMEs(t *testing.T) {
 	t.Parallel()
 
 	client := newEBClient31(t)
@@ -385,41 +384,24 @@ func Test_SDKRoundTrip_ComposeAndSwapEnvironments(t *testing.T) {
 
 	_, err := client.CreateApplication(
 		ctx,
-		&ebsdk.CreateApplicationInput{ApplicationName: aws.String("app-31-compose")},
+		&ebsdk.CreateApplicationInput{ApplicationName: aws.String("app-31-swap")},
 	)
 	require.NoError(t, err)
 
-	_, err = client.CreateEnvironment(ctx, &ebsdk.CreateEnvironmentInput{
-		ApplicationName:   aws.String("app-31-compose"),
-		EnvironmentName:   aws.String("env-31-a"),
-		SolutionStackName: aws.String(testSolutionStack),
-	})
-	require.NoError(t, err)
+	for _, name := range []string{"env-31-a", "env-31-b"} {
+		_, err = client.CreateEnvironment(ctx, &ebsdk.CreateEnvironmentInput{
+			ApplicationName:   aws.String("app-31-swap"),
+			EnvironmentName:   aws.String(name),
+			SolutionStackName: aws.String(testSolutionStack),
+		})
+		require.NoError(t, err)
+	}
 
-	_, err = client.CreateEnvironment(ctx, &ebsdk.CreateEnvironmentInput{
-		ApplicationName:   aws.String("app-31-compose"),
-		EnvironmentName:   aws.String("env-31-b"),
-		SolutionStackName: aws.String(testSolutionStack),
-	})
-	require.NoError(t, err)
-
-	// ComposeEnvironments in this backend returns the application's existing
-	// environments (it does not synthesize new ones from env.yaml manifests
-	// named by VersionLabels -- see typed/NOTES.md's 2026-09-12 entry
-	// and this pass's PARITY.md addendum: a disclosed simplification, not
-	// independently fixable within this pass's scope).
-	composed, err := client.ComposeEnvironments(ctx, &ebsdk.ComposeEnvironmentsInput{
-		ApplicationName: aws.String("app-31-compose"),
-	})
-	require.NoError(t, err)
-	require.Len(t, composed.Environments, 2)
-
-	swapped, err := client.SwapEnvironmentCNAMEs(ctx, &ebsdk.SwapEnvironmentCNAMEsInput{
+	_, err = client.SwapEnvironmentCNAMEs(ctx, &ebsdk.SwapEnvironmentCNAMEsInput{
 		SourceEnvironmentName:      aws.String("env-31-a"),
 		DestinationEnvironmentName: aws.String("env-31-b"),
 	})
 	require.NoError(t, err)
-	_ = swapped
 }
 
 // Test_SDKRoundTrip_UpdateTagsForResource drives UpdateTagsForResource

@@ -46,6 +46,11 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 		errors.Is(err, ErrPlatformApplicationNotFound), errors.Is(err, ErrEndpointNotFound),
 		errors.Is(err, ErrPhoneNumberNotFound):
 		log.WarnContext(ctx, "SNS resource not found", "code", code)
+	case errors.Is(err, ErrResourceNotFound):
+		status = http.StatusNotFound
+		log.WarnContext(ctx, "SNS resource not found", "code", code)
+	case errors.Is(err, ErrTagLimitExceeded):
+		log.WarnContext(ctx, "SNS tag limit exceeded", "code", code)
 	case errors.Is(err, ErrTopicAlreadyExists), errors.Is(err, ErrPlatformApplicationAlreadyExists),
 		errors.Is(err, ErrSandboxPhoneAlreadyExists):
 		log.WarnContext(ctx, "SNS resource already exists", "code", code)
@@ -55,7 +60,8 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 		log.WarnContext(ctx, "SNS endpoint disabled", "code", code)
 	case errors.Is(err, ErrOptedOut):
 		log.WarnContext(ctx, "SNS phone number opted out", "code", code)
-	case errors.Is(err, ErrPermissionLabelExists), errors.Is(err, ErrPermissionLabelNotFound):
+	case errors.Is(err, ErrPermissionLabelExists), errors.Is(err, ErrPermissionLabelNotFound),
+		errors.Is(err, ErrUnauthenticatedUnsubscribe):
 		status = http.StatusForbidden
 		log.WarnContext(ctx, "SNS permission label error", "code", code)
 	case errors.Is(err, ErrSubscriptionLimitExceeded), errors.Is(err, ErrFilterPolicyLimitExceeded):
@@ -75,6 +81,10 @@ func errorCode(err error) string {
 	case errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound),
 		errors.Is(err, ErrPlatformApplicationNotFound), errors.Is(err, ErrEndpointNotFound):
 		return "NotFound"
+	case errors.Is(err, ErrResourceNotFound):
+		return "ResourceNotFound"
+	case errors.Is(err, ErrTagLimitExceeded):
+		return "TagLimitExceeded"
 	case errors.Is(err, ErrPhoneNumberNotFound):
 		// DeleteSMSSandboxPhoneNumber and VerifySMSSandboxPhoneNumber both
 		// declare "ResourceNotFound" (not "NotFound") in their own
@@ -106,7 +116,8 @@ func errorCode(err error) string {
 		// CreateSMSSandboxPhoneNumber's switch. InvalidParameter is the same
 		// nearest-fit precedent used above for ErrPlatformApplicationAlreadyExists.
 		return errCodeInvalidParameter
-	case errors.Is(err, ErrPermissionLabelExists), errors.Is(err, ErrPermissionLabelNotFound):
+	case errors.Is(err, ErrPermissionLabelExists), errors.Is(err, ErrPermissionLabelNotFound),
+		errors.Is(err, ErrUnauthenticatedUnsubscribe):
 		return "AuthorizationError"
 	case errors.Is(err, ErrSubscriptionLimitExceeded):
 		return "SubscriptionLimitExceeded"

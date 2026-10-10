@@ -273,6 +273,9 @@ func TestBuildBatchAndBuildLifecycle_RealClient(t *testing.T) {
 			require.NoError(t, allListErr)
 			assert.Contains(t, allListed.Ids, batchID)
 
+			_, stopErr := client.StopBuildBatch(t.Context(), &codebuildsdk.StopBuildBatchInput{Id: aws.String(batchID)})
+			require.NoError(t, stopErr)
+
 			retried, retryErr := client.RetryBuildBatch(t.Context(), &codebuildsdk.RetryBuildBatchInput{
 				Id: aws.String(batchID),
 			})

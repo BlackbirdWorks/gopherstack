@@ -15,6 +15,7 @@ type regionContextKey struct{}
 
 // InMemoryBackend is the in-memory store for Firehose resources.
 type InMemoryBackend struct {
+	appConfig      any
 	s3             S3Storer
 	lambda         LambdaInvoker
 	kinesisBackend KinesisReader

@@ -1,6 +1,7 @@
 package mq
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -23,6 +24,10 @@ func (h *Handler) handleListConfigurationRevisions(c *echo.Context, configID str
 		if n, parseErr := strconv.Atoi(s); parseErr == nil && n > 0 && n <= 100 {
 			maxResults = n
 		}
+	}
+
+	if tokErr := page.ValidateToken(nextToken); tokErr != nil {
+		return h.writeError(c, fmt.Errorf("%w: invalid nextToken", ErrValidation))
 	}
 
 	pg := page.New(revisions, nextToken, maxResults, mqDefaultPageSize)

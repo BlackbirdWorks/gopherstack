@@ -2,6 +2,7 @@ package cloudformation
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"slices"
 	"strconv"
@@ -16,7 +17,7 @@ func (h *Handler) dispatchStackOps(action string, form url.Values, c *echo.Conte
 	case "CreateStack":
 
 		return true, h.handleCreateStack(form, c)
-	case "UpdateStack":
+	case opUpdateStack:
 
 		return true, h.handleUpdateStack(form, c)
 	case "DeleteStack":
@@ -92,6 +93,12 @@ func (h *Handler) handleCreateStack(form url.Values, c *echo.Context) error {
 	if stackName == "" {
 		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
+	if err := validateStackNameForCreate(stackName); err != nil {
+		return h.xmlError(c, errCodeValidation, err.Error())
+	}
+	if form.Get("TemplateBody") == "" {
+		return h.xmlError(c, errCodeValidation, "Either Template URL or Template Body must be specified.")
+	}
 	stack, err := h.Backend.CreateStack(
 		c.Request().Context(),
 		stackName, form.Get("TemplateBody"),
@@ -110,6 +117,9 @@ func (h *Handler) handleUpdateStack(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
 	if stackName == "" {
 		return h.xmlError(c, "ValidationError", "StackName is required")
+	}
+	if form.Get("TemplateBody") == "" && form.Get("UsePreviousTemplate") != boolTrue {
+		return h.xmlError(c, errCodeValidation, "Either Template URL or Template Body must be specified.")
 	}
 	stack, err := h.Backend.UpdateStack(
 		c.Request().Context(),
@@ -244,6 +254,14 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 func (h *Handler) handleListStacks(form url.Values, c *echo.Context) error {
 	statusFilter := parseMemberList(form, "StackStatusFilter.")
 	nextToken := form.Get("NextToken")
+
+	if bad := invalidStackStatuses(statusFilter); len(bad) > 0 {
+		return h.xmlError(c, errCodeValidation, fmt.Sprintf(
+			"1 validation error detected: Value '[%s]' at 'stackStatusFilter' failed to satisfy constraint: "+
+				"Member must satisfy constraint: [Member must satisfy enum value set: [%s]]",
+			strings.Join(bad, ", "), strings.Join(validStackStatuses(), ", "),
+		))
+	}
 
 	p, err := h.Backend.ListStacks(statusFilter, nextToken)
 	if err != nil {

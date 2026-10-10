@@ -125,6 +125,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	snap.applyNilDefaults()
 	b.assignSnapshotFields(snap)
 	b.rebuildDerivedIndexes()
+	b.settleInterruptedStackSetOps()
 
 	return nil
 }

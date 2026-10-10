@@ -146,7 +146,7 @@ func (h *Handler) handlePutLoggingConfiguration(ctx context.Context, body []byte
 func validateLoggingDestination(dest string) error {
 	for _, prefix := range validLoggingDestinationPrefixes {
 		if strings.HasPrefix(dest, prefix) {
-			return nil
+			return validateLoggingDestinationName(dest)
 		}
 	}
 
@@ -309,4 +309,36 @@ func (h *Handler) loggingConfigDispatchOps() map[string]dispatchFn {
 		"GetLoggingConfiguration":    h.handleGetLoggingConfiguration,
 		"ListLoggingConfigurations":  h.handleListLoggingConfigurations,
 	}
+}
+
+const (
+	logDestinationNamePrefix = "aws-waf-logs-"
+	logGroupARNFields        = 7
+)
+
+// validateLoggingDestinationName enforces the aws-waf-logs- naming WAF requires
+// of bucket, delivery stream and log group names (wafv2 types.LoggingConfiguration).
+func validateLoggingDestinationName(dest string) error {
+	var name string
+
+	switch {
+	case strings.HasPrefix(dest, "arn:aws:s3:::"):
+		name, _, _ = strings.Cut(strings.TrimPrefix(dest, "arn:aws:s3:::"), "/")
+	case strings.HasPrefix(dest, "arn:aws:firehose:"):
+		name = dest[strings.LastIndex(dest, "/")+1:]
+	default:
+		parts := strings.SplitN(dest, ":", logGroupARNFields)
+		if len(parts) == logGroupARNFields {
+			name = parts[logGroupARNFields-1]
+		}
+	}
+
+	if !strings.HasPrefix(name, logDestinationNamePrefix) {
+		return fmt.Errorf(
+			"%w: LogDestinationConfig %q: the destination name must start with %s",
+			errInvalidRequest, dest, logDestinationNamePrefix,
+		)
+	}
+
+	return nil
 }

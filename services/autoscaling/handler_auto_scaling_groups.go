@@ -87,6 +87,7 @@ func (h *Handler) handleCreateAutoScalingGroup(vals url.Values) (any, error) {
 
 	input := CreateAutoScalingGroupInput{
 		AutoScalingGroupName:             name,
+		InstanceID:                       vals.Get("InstanceId"),
 		ServiceLinkedRoleARN:             vals.Get("ServiceLinkedRoleARN"),
 		LaunchConfigurationName:          lcName,
 		LaunchTemplate:                   lt,
@@ -106,6 +107,7 @@ func (h *Handler) handleCreateAutoScalingGroup(vals url.Values) (any, error) {
 		NewInstancesProtectedFromScaleIn: vals.Get("NewInstancesProtectedFromScaleIn") == formValueTrue,
 		CapacityRebalance:                vals.Get("CapacityRebalance") == formValueTrue,
 		AvailabilityZones:                azs,
+		AvailabilityZoneIDs:              parseMembers(vals, "AvailabilityZoneIds.member"),
 		LoadBalancerNames:                lbNames,
 		TargetGroupARNs:                  targetGroupARNs,
 		TrafficSources:                   trafficSources,
@@ -217,6 +219,7 @@ func (h *Handler) handleUpdateAutoScalingGroup(vals url.Values) (any, error) {
 		DesiredCapacityType:              formStringOrNil(vals, "DesiredCapacityType"),
 		DeletionProtection:               vals.Get("DeletionProtection"),
 		AvailabilityZones:                parseMembers(vals, "AvailabilityZones.member"),
+		AvailabilityZoneIDs:              parseMembers(vals, "AvailabilityZoneIds.member"),
 		TerminationPolicies:              parseMembers(vals, "TerminationPolicies.member"),
 		LaunchTemplate:                   parseLaunchTemplate(vals, "LaunchTemplate"),
 		MixedInstancesPolicy:             parseMixedInstancesPolicy(vals),
@@ -407,6 +410,7 @@ func buildXMLGroupLists(g *AutoScalingGroup) xmlGroupLists {
 		instances = append(instances, xmlInstance{
 			InstanceID:              inst.InstanceID,
 			AvailabilityZone:        inst.AvailabilityZone,
+			AvailabilityZoneID:      availabilityZoneID(inst.AvailabilityZone),
 			LifecycleState:          inst.LifecycleState,
 			HealthStatus:            inst.HealthStatus,
 			InstanceType:            inst.InstanceType,
@@ -499,6 +503,7 @@ func toXMLGroup(g *AutoScalingGroup) xmlAutoScalingGroup {
 		CreatedTime:                      g.CreatedTime.UTC().Format(time.RFC3339),
 		Status:                           g.Status,
 		AvailabilityZones:                lists.AvailabilityZones,
+		AvailabilityZoneIDs:              zoneIDList(g.AvailabilityZones),
 		LoadBalancerNames:                lists.LoadBalancerNames,
 		TargetGroupARNs:                  lists.TargetGroupARNs,
 		TrafficSources:                   lists.TrafficSources,
@@ -773,6 +778,7 @@ type xmlTagList struct {
 type xmlInstance struct {
 	InstanceID              string `xml:"InstanceId"`
 	AvailabilityZone        string `xml:"AvailabilityZone"`
+	AvailabilityZoneID      string `xml:"AvailabilityZoneId,omitempty"`
 	LifecycleState          string `xml:"LifecycleState"`
 	HealthStatus            string `xml:"HealthStatus"`
 	InstanceType            string `xml:"InstanceType,omitempty"`
@@ -965,6 +971,7 @@ type xmlAutoScalingGroup struct {
 	CapacityReservationSpecification *xmlCapacityReservationSpec      `xml:"CapacityReservationSpecification,omitempty"`
 	InstanceLifecyclePolicy          *xmlInstanceLifecyclePolicy      `xml:"InstanceLifecyclePolicy,omitempty"`
 	InstanceMaintenancePolicy        *xmlInstanceMaintenancePolicy    `xml:"InstanceMaintenancePolicy,omitempty"`
+	AvailabilityZoneIDs              *xmlStringValueList              `xml:"AvailabilityZoneIds,omitempty"`
 	AutoScalingGroupARN              string                           `xml:"AutoScalingGroupARN"`
 	Status                           string                           `xml:"Status,omitempty"`
 	CreatedTime                      string                           `xml:"CreatedTime"`

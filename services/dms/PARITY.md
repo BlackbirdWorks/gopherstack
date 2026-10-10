@@ -16,7 +16,7 @@ service: dms
 # 2026-08-20). Do not repeat cmd/opcensus's mistake when re-auditing.
 sdk_module: aws-sdk-go-v2/service/databasemigrationservice@v1.66.4
 last_audit_commit: 0c1472972  # terraform-coverage pass: S3Settings modeled, Certificate tagging added; prior: f16ac0367fc476ca2ffd1643ed5ef900b9ff0480
-last_audit_date: 2026-09-23  # prior: 2026-08-29
+last_audit_date: 2026-10-10  # prior: 2026-09-23
 overall: A            # 2026-08-29 (gopherstack-21my, parameter-honoring sweep): audited a coherent slice
                        # of ~44 Filters/pagination-bearing Describe ops (Filters+Marker/MaxRecords or
                        # Filters+NextToken/MaxRecords), not the full 47-op Describe/List surface. Fixed
@@ -106,10 +106,10 @@ ops:
   ModifyReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20 -- NetworkType/PreferredMaintenanceWindow (real ModifyReplicationInstanceInput members) were accepted nowhere; now accepted and applied. KmsKeyId is deliberately NOT accepted here -- the real ModifyReplicationInstanceInput has no KmsKeyId member (create-only in real AWS); proven unchanged by TestReplicationInstanceSettings_SDKRoundTrip. FIXED 2026-08-29 -- VpcSecurityGroupIds (also a real ModifyReplicationInstanceInput member) now accepted and applied; ReplicationSubnetGroupIdentifier is deliberately NOT accepted here (real ModifyReplicationInstanceInput has no such member, create-only) -- proven unchanged by TestReplicationInstance_SubnetGroupAndVpcSecurityGroups_RealClient. KerberosAuthenticationSettings applied/echoed (also on Create) and ReplicationInstanceIdentifier renames. Proven by TestRealClient_ReplicationInstanceKerberosAndRename."}
   RebootReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "synchronous no-op reboot is correct emulation -- real reboot causes only a momentary outage, no persistent field changes"}
   ApplyPendingMaintenanceAction: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass -- ApplyAction/OptInType previously accepted arbitrary strings; now validated against the SDK's documented valid-values lists (os-upgrade|system-update|db-upgrade|os-patch and immediate|next-maintenance|undo-opt-in), 400 ValidationException otherwise. Still correctly returns an empty PendingMaintenanceActionDetails -- no pending-maintenance-action producer exists in this emulation, matching a freshly-created instance's real state."}
-  CreateEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "EndpointType/EngineName validated against types.ReplicationEndpointTypeValue and the documented EngineName valid-values list. FIXED 2026-07-31 -- Password was accepted in the request but silently dropped (never stored, never usable); now stored on Endpoint.Password and never put on the wire (matching the real Endpoint type, which has no Password field -- AWS never echoes credentials back). FIXED 2026-08-10 (gopherstack-z79q) -- CreateEndpointInput/ModifyEndpointInput's 19 heterogeneous engine-specific settings structs (MySQLSettings/PostgreSQLSettings/S3Settings/OracleSettings/... totaling ~300 fields) were being silently dropped by encoding/json instead of modeled. Judgment: modeling all ~300 fields faithfully (validated types, stored, echoed on Describe, persisted) is not achievable in one pass, and a partial subset would be worse than the honest gap (a client seeing some settings preserved would reasonably assume the rest are too). Per the no-stub rule, the drop is now made visible instead: any request that sets one of the 19 settings fields is rejected with 400 ValidationException naming the field, matching the sagemaker PipelineDefinitionS3Location / cloudformation AccountFilterType precedent for explicitly-rejected-rather-than-silently-dropped fields. See engineSettingsFields in handler_endpoints.go. FIXED 2026-08-20 -- 6 top-level (non-engine-specific) connection-settings members were ALSO missing, separately from the engine-settings gap above: CertificateArn/ExtraConnectionAttributes/KmsKeyId/ServiceAccessRoleArn/SslMode/ExternalTableDefinition (all real CreateEndpointInput members, api_op_CreateEndpoint.go). These are simple scalars unrelated to the ~300-field engine-settings problem and are now accepted, validated (SslMode against types.DmsSslModeValue: none|require|verify-ca|verify-full, defaulting to none), stored, and echoed. See EndpointConnectionSettings in endpoints.go. FIXED 2026-09-23 -- S3Settings is now an exception to the reject-all-19 rule: aws_dms_s3_endpoint always sends its full, provider-defaulted S3Settings (no way to omit it, unlike a genuinely user-opted-in *_settings block on the other 18 engines), so it is now stored and echoed back verbatim instead of rejected. See TestEndpoint_S3SettingsStoredAndEchoed."}
+  CreateEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "EndpointType/EngineName validated against types.ReplicationEndpointTypeValue and the documented EngineName valid-values list. FIXED 2026-07-31 -- Password was accepted in the request but silently dropped (never stored, never usable); now stored on Endpoint.Password and never put on the wire (matching the real Endpoint type, which has no Password field -- AWS never echoes credentials back). FIXED 2026-10-07 -- all 19 engine-specific settings blocks are stored and echoed (credentials stripped), see the 2026-10-07 note. FIXED 2026-08-20 -- 6 top-level (non-engine-specific) connection-settings members were ALSO missing, separately from the engine-settings gap above: CertificateArn/ExtraConnectionAttributes/KmsKeyId/ServiceAccessRoleArn/SslMode/ExternalTableDefinition (all real CreateEndpointInput members, api_op_CreateEndpoint.go). These are simple scalars unrelated to the ~300-field engine-settings problem and are now accepted, validated (SslMode against types.DmsSslModeValue: none|require|verify-ca|verify-full, defaulting to none), stored, and echoed. See EndpointConnectionSettings in endpoints.go. FIXED 2026-09-23 -- S3Settings is now an exception to the reject-all-19 rule: aws_dms_s3_endpoint always sends its full, provider-defaulted S3Settings (no way to omit it, unlike a genuinely user-opted-in *_settings block on the other 18 engines), so it is now stored and echoed back verbatim instead of rejected. See TestEndpoint_S3SettingsStoredAndEchoed."}
   DescribeEndpoints: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20 -- same 6-field connection-settings fix as CreateEndpoint above (shared epToJSON)"}
   DeleteEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects delete while referenced by a task"}
-  ModifyEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "EndpointType/EngineName accepted on Modify, validated with the same enum check as Create, and applied. FIXED 2026-07-31 -- same Password fix as CreateEndpoint above. FIXED 2026-08-10 (gopherstack-z79q) -- same engine-settings explicit-rejection fix as CreateEndpoint above. FIXED 2026-08-20 -- CertificateArn/ExtraConnectionAttributes/ServiceAccessRoleArn/SslMode/ExternalTableDefinition (same gap as CreateEndpoint above) now accepted and applied. KmsKeyId is deliberately NOT accepted here -- the real ModifyEndpointInput has no KmsKeyId member (create-only in real AWS); proven unchanged by TestEndpointConnectionSettings_SDKRoundTrip. EndpointIdentifier renames; S3Settings merges by key unless ExactSettings. Proven by TestRealClient_EndpointRenameAndExactSettings."}
+  ModifyEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "EndpointType/EngineName accepted on Modify, validated with the same enum check as Create, and applied. FIXED 2026-07-31 -- same Password fix as CreateEndpoint above. FIXED 2026-10-07 -- engine settings blocks merge per block, ExactSettings drops unspecified blocks. FIXED 2026-08-20 -- CertificateArn/ExtraConnectionAttributes/ServiceAccessRoleArn/SslMode/ExternalTableDefinition (same gap as CreateEndpoint above) now accepted and applied. KmsKeyId is deliberately NOT accepted here -- the real ModifyEndpointInput has no KmsKeyId member (create-only in real AWS); proven unchanged by TestEndpointConnectionSettings_SDKRoundTrip. EndpointIdentifier renames; settings blocks merge by key unless ExactSettings. Proven by TestRealClient_EndpointRenameAndExactSettings."}
   TestConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "records a Connection row, visible via DescribeConnections"}
   DescribeConnections: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-07-31 -- never called dmsPaginate or set Marker on the response, unlike every other Describe op in this service, so MaxRecords/Marker were silently ignored; now paginated like its siblings"}
   DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -204,20 +204,24 @@ families:
   assessment-runs: {status: ok, note: "FIXED this pass (deferred item #3, now resolved) -- StartReplicationTaskAssessmentRun now validates its four required fields and IncludeOnly/Exclude mutual exclusion, then synchronously runs a real (bounded, static-catalog-backed) set of IndividualAssessment checks, all passing. DescribeReplicationTaskIndividualAssessments and DescribeReplicationTaskAssessmentResults are now backed by that real state instead of hardcoded empty lists. Cancel/Delete/DescribeReplicationTaskAssessmentRuns now return the full real ReplicationTaskAssessmentRun wire shape instead of a hand-rolled 4-field map."}
 gaps: []
 items_still_open:
-  - "DescribeApplicableIndividualAssessments: ReplicationTaskArn/ReplicationInstanceArn/ReplicationConfigArn are existence-checked, but the catalog is not narrowed by MigrationType/SourceEngineName/TargetEngineName: no per-engine support metadata is modeled and inventing it would be fabrication."
-  - "DescribeDataMigrationsInput.WithoutStatistics is accepted-and-ignored: DataMigration carries no DataMigrationStatistics (this backend never runs a migration, so there is nothing to hide)."
-  - "StartReplicationInput.PremigrationAssessmentSettings (api_op_StartReplication.go:104, FailOnAssessmentFailure gate) is undeclared: no premigration-assessment run is executed on StartReplication, so there is no failure to gate."
-  - "ModifyReplicationInstance.ApplyImmediately/AllowMajorVersionUpgrade are undeclared: every modify applies immediately (no deferred PendingModifiedValues state machine) and the SDK names no error for a major-version change without the flag."
+  - "DescribeApplicableIndividualAssessments: MigrationType/SourceEngineName/TargetEngineName do not narrow the catalog. The SDK doc says a partial set of these three cannot produce a list, but names no error and no per-engine support matrix (the real assessment names live only in the user guide), so narrowing or rejecting would be invention."
+  - "ModifyReplicationInstance.ApplyImmediately/AllowMajorVersionUpgrade are undeclared: the SDK gives neither the maintenance-window application timing, the definition of a 'major' DMS version, nor the error for an unflagged major upgrade."
   - "DescribeEvents.Duration is undeclared: the pinned SDK doc gives no unit for 'the duration of the events to be listed', so applying a window would be invention."
-  - "CdcStartTime on CreateReplicationTask/ModifyReplicationTask/StartReplicationTask/StartReplication and CdcStartPosition/CdcStopPosition on the Start ops are validated (position and time are mutually exclusive) but not applied: no CDC engine exists and ReplicationTask echoes none of them back from Start."
-  - "Engine-specific endpoint settings blocks other than S3Settings (CreateEndpoint/ModifyEndpoint) are rejected with ValidationException rather than modeled; ModifyEndpoint.ExactSettings applies to S3Settings only."
+structural_gaps:
+  - "DescribeDataMigrationsInput.WithoutStatistics: DataMigration.DataMigrationStatistics is never populated because no migration engine ever runs, so there is nothing to omit."
+  - "StartReplicationInput.PremigrationAssessmentSettings is validated (JSON object, ResultEncryptionMode enum, IncludeOnly/Exclude exclusive), but the FailOnAssessmentFailure gate never trips: every individual assessment passes since no source/target connectivity exists to check."
+  - "CdcStartTime on CreateReplicationTask/ModifyReplicationTask/StartReplicationTask: validated against CdcStartPosition but not stored, since types.ReplicationTask has no CdcStartTime member and no CDC engine consumes it. StartReplication echoes CdcStartTime on the Replication."
 deferred: []
 leaks: {status: clean, note: "no goroutines, janitors, or timers in this service; all state lives in store.Table/store.Index behind the single lockmetrics.RWMutex. leak_test.go / isolation_test.go pre-existing and passing. Confirmed again this pass -- no new goroutines/tickers/channels were introduced by the assessment-run rework (StartReplicationTaskAssessmentRun completes synchronously)."}
 ---
 
 ## Notes
 
-- **2026-10-04 (reqfielddiff census)**: 13 tier-1 findings. Six are WrapOp(h.handle<Op>) false positives (ResourceIdentifier x3, MaxRecords x3, already applied, see gopherstack-99nj). Six were already recorded above. StartReplication.PremigrationAssessmentSettings recorded in items_still_open.
+### 2026-10-10 realism pass
+Probed with the AWS CLI. Fixed: error messages drop the doubled code prefix; replication instance identifier (letter first, alphanumeric/hyphen, no `--`, no trailing hyphen, 63 max), class (`dms.` prefix) and `AllocatedStorage` (5-6144) validated; `TableMappings` must be JSON; unissued `Marker`/`NextToken` rejected; StartReplicationTask returns `starting` and the next DescribeReplicationTasks moves it to `running` (starting tasks cannot be deleted/modified). Tests: `request_validation_test.go`.
+Kept lenient: ARNs still embed the identifier (`rep:ri1`) or a UUID rather than AWS 26-character ids; instances are `available` on creation; TestConnection is `successful` at once.
+
+- **2026-10-04 (reqfielddiff census)**: 13 tier-1 findings. Six are WrapOp(h.handle<Op>) false positives (ResourceIdentifier x3, MaxRecords x3, already applied, see gopherstack-99nj). Six were already recorded above. StartReplication.PremigrationAssessmentSettings is validated (see structural_gaps).
 
 - **2026-09-23, terraform coverage sweep**: S3Settings is now modeled (stored
   and echoed verbatim) instead of blanket-rejected, since aws_dms_s3_endpoint
@@ -467,31 +471,13 @@ leaks: {status: clean, note: "no goroutines, janitors, or timers in this service
   5. `DescribeConnections` never called `dmsPaginate` or set `Marker` on the
      response, unlike every other Describe op in this service.
 
-- **2026-08-10 engine-specific endpoint settings (gopherstack-z79q)**:
-  `CreateEndpointInput`/`ModifyEndpointInput` accept 19 heterogeneous
-  engine-specific settings structs (`MySQLSettings`, `PostgreSQLSettings`,
-  `S3Settings`, `OracleSettings`, `MongoDbSettings`, `KafkaSettings`,
-  `KinesisSettings`, `RedshiftSettings`, `DynamoDbSettings`,
-  `ElasticsearchSettings`, `NeptuneSettings`, `DocDbSettings`,
-  `IBMDb2Settings`, `MicrosoftSQLServerSettings`, `SybaseSettings`,
-  `DmsTransferSettings`, `GcpMySQLSettings`, `RedisSettings`,
-  `TimestreamSettings`), field-counted directly against
-  `aws-sdk-go-v2/service/databasemigrationservice/types/types.go`
-  (`@v1.61.8`): ~301 fields total (2 to 44 fields per struct; `S3Settings`
-  alone has 41, `OracleSettings` 44). Modeling all of them faithfully
-  (validated types, stored, echoed on `DescribeEndpoints`, persisted) is not
-  achievable in one pass, and per the issue's own instruction a partial
-  subset is worse than the honest gap -- a client seeing some settings
-  preserved would reasonably assume the rest are too. Instead of leaving the
-  silent drop in place (the pre-existing behavior: `encoding/json` ignores
-  unknown fields), the drop is now made visible: `engineSettingsFields` in
-  `handler_endpoints.go` decodes all 19 fields, and `CreateEndpoint`/
-  `ModifyEndpoint` reject the request with 400 `ValidationException` naming
-  the field if any is set, rather than accepting and discarding it. This
-  follows the same explicit-rejection-over-silent-drop precedent as
-  sagemaker's `PipelineDefinitionS3Location` and cloudformation's
-  unsupported `AccountFilterType` values. The `Password` fix from
-  2026-07-31 is unaffected and unchanged.
+- **2026-10-07 engine-specific endpoint settings**: all 18 non-S3 settings blocks on
+  CreateEndpoint/ModifyEndpoint are now stored as raw JSON (`Endpoint.EngineSettings`),
+  echoed on Create/Modify/DescribeEndpoints with credential members (`Password`,
+  `SaslPassword`, `SslClientKeyPassword`, `AsmPassword`, `AuthPassword`) stripped, merged
+  per block on ModifyEndpoint and dropped when `ExactSettings` is true (S3Settings included).
+  A non-object block is a ValidationException. Supersedes the 2026-08-10 explicit-rejection
+  (gopherstack-z79q). See TestEndpoint_EngineSettingsRoundTrip.
 
 - **2026-08-12 Filters-absent sweep (gopherstack-o53q)**: the gopherstack-7rq1
   wire-field audit flagged 14 candidate Describe ops missing the real

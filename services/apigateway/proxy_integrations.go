@@ -124,6 +124,14 @@ func (h *Handler) handleAWSIntegration(
 	integration *Integration,
 ) {
 	region, service, kind, spec := awsIntegrationTarget(integration.URI)
+	if h.canInvokeAWSService(service, kind, spec) {
+		h.handleGenericAWSServiceIntegration(
+			ctx, w, r, apiID, stageName, resource, stageVars, integration, region, service, kind, spec,
+		)
+
+		return
+	}
+
 	if h.canDispatchToTarget(service, kind, spec) {
 		h.handleAWSServiceIntegration(
 			ctx, w, r, apiID, stageName, resource, stageVars, integration, region, service, spec,
@@ -167,7 +175,7 @@ func (h *Handler) handleAWSIntegration(
 	w.Header().Set("Content-Type", contentTypeJSON)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)
-	_, _ = w.Write(responseBody) //nolint:gosec // local emulation: response passthrough is intentional
+	_, _ = w.Write(responseBody)
 }
 
 // buildAWSIntegrationPayload reads the request body, builds the VTL request context,
@@ -345,7 +353,7 @@ func awsIntegrationTarget(uri string) (string, string, string, string) {
 		return region, service, "", ""
 	}
 
-	if kind == "action" {
+	if kind == awsKindAction {
 		action, _, _ := strings.Cut(rest, "&")
 
 		return region, service, kind, action
@@ -358,9 +366,9 @@ func awsIntegrationTarget(uri string) (string, string, string, string) {
 // names a wired non-Lambda target this handler can dispatch to.
 func (h *Handler) canDispatchToTarget(service, kind, spec string) bool {
 	switch {
-	case service == "sqs" && kind == "path" && h.sqsSender != nil:
+	case service == "sqs" && kind == awsKindPath && h.sqsSender != nil:
 		return sqsQueuePathValid(spec)
-	case service == "sns" && kind == "action" && spec == "Publish" && h.snsPublisher != nil:
+	case service == "sns" && kind == awsKindAction && spec == "Publish" && h.snsPublisher != nil:
 		return true
 	default:
 		return false
@@ -379,15 +387,24 @@ func sqsQueuePathValid(spec string) bool {
 // (using regex selectionPattern), applies VTL response template and contentHandling conversion,
 // and returns the rendered body and HTTP status code. Falls back to the raw response bytes and 200 if no match.
 func (h *Handler) applyResponseTemplate(respBytes []byte, integration *Integration, requestID string) ([]byte, int) {
+	return h.applyResponseTemplateMatching(respBytes, string(respBytes), http.StatusOK, integration, requestID)
+}
+
+// applyResponseTemplateMatching is applyResponseTemplate with an explicit selection
+// key (the body for Lambda, the backend status code for other AWS services) and the
+// status returned when no integration response applies.
+func (h *Handler) applyResponseTemplateMatching(
+	respBytes []byte, matchKey string, fallbackStatus int, integration *Integration, requestID string,
+) ([]byte, int) {
 	if integration.IntegrationResponses == nil {
-		return respBytes, http.StatusOK
+		return respBytes, fallbackStatus
 	}
 
 	// Try to find a matching integration response by selectionPattern (regex) against respBytes.
 	// If no pattern matches, fall back to the "default" or "200" entry.
-	ir := h.matchIntegrationResponse(integration.IntegrationResponses, string(respBytes))
+	ir := h.matchIntegrationResponse(integration.IntegrationResponses, matchKey)
 	if ir == nil {
-		return respBytes, http.StatusOK
+		return respBytes, fallbackStatus
 	}
 
 	statusCode := http.StatusOK

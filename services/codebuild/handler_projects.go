@@ -3,6 +3,7 @@ package codebuild
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 )
@@ -68,6 +69,48 @@ func (f projectConfigFields) toProjectConfig(name string) ProjectConfig {
 	}
 }
 
+var projectNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9\-_]{1,254}$`)
+
+const (
+	minBuildTimeoutMinutes  = 5
+	maxBuildTimeoutMinutes  = 2160
+	maxQueuedTimeoutMinutes = 480
+)
+
+func (f projectConfigFields) validate() error {
+	if f.TimeoutInMinutes != 0 &&
+		(f.TimeoutInMinutes < minBuildTimeoutMinutes || f.TimeoutInMinutes > maxBuildTimeoutMinutes) {
+		return fmt.Errorf("%w: timeoutInMinutes must be between %d and %d",
+			ErrValidation, minBuildTimeoutMinutes, maxBuildTimeoutMinutes)
+	}
+
+	if f.QueuedTimeoutInMinutes != 0 &&
+		(f.QueuedTimeoutInMinutes < minBuildTimeoutMinutes || f.QueuedTimeoutInMinutes > maxQueuedTimeoutMinutes) {
+		return fmt.Errorf("%w: queuedTimeoutInMinutes must be between %d and %d",
+			ErrValidation, minBuildTimeoutMinutes, maxQueuedTimeoutMinutes)
+	}
+
+	errs := []error{}
+	if f.Environment != nil {
+		errs = append(errs,
+			checkEnum("environment.type", cbtypes.EnvironmentType(f.Environment.Type)),
+			checkEnum("environment.computeType", cbtypes.ComputeType(f.Environment.ComputeType)),
+			checkEnum("environment.imagePullCredentialsType",
+				cbtypes.ImagePullCredentialsType(f.Environment.ImagePullCredentialsType)),
+		)
+	}
+
+	if f.Source != nil {
+		errs = append(errs, checkEnum("source.type", cbtypes.SourceType(f.Source.Type)))
+	}
+
+	if f.Artifacts != nil {
+		errs = append(errs, checkEnum("artifacts.type", cbtypes.ArtifactsType(f.Artifacts.Type)))
+	}
+
+	return firstErr(errs...)
+}
+
 type createProjectInput struct {
 	Name string `json:"name"`
 	projectConfigFields
@@ -83,6 +126,16 @@ func (h *Handler) handleCreateProject(
 ) (*createProjectOutput, error) {
 	if in.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
+	}
+
+	if !projectNamePattern.MatchString(in.Name) {
+		return nil, fmt.Errorf(
+			"%w: Invalid project name: %s. Names must match [A-Za-z0-9][A-Za-z0-9\\-_]{1,254}",
+			ErrValidation, in.Name)
+	}
+
+	if err := in.validate(); err != nil {
+		return nil, err
 	}
 
 	p, err := h.Backend.CreateProject(in.toProjectConfig(in.Name))
@@ -129,6 +182,10 @@ func (h *Handler) handleUpdateProject(
 ) (*updateProjectOutput, error) {
 	if in.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
+	}
+
+	if err := in.validate(); err != nil {
+		return nil, err
 	}
 
 	p, err := h.Backend.UpdateProject(in.Name, in.toProjectConfig(in.Name))

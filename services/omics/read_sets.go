@@ -105,19 +105,29 @@ func (b *InMemoryBackend) ListReadSets(
 // List and Get differ).
 func newReadSetSummary(rs *ReadSetMetadata) ReadSetSummary {
 	return ReadSetSummary{
-		CreationTime:    rs.CreationTime,
-		Arn:             rs.Arn,
-		ID:              rs.ID,
-		SequenceStoreID: rs.SequenceStoreID,
-		Name:            rs.Name,
-		Description:     rs.Description,
-		FileType:        rs.FileType,
-		Status:          rs.Status,
-		StatusMessage:   rs.StatusMessage,
-		SubjectID:       rs.SubjectID,
-		SampleID:        rs.SampleID,
-		ReferenceARN:    rs.ReferenceARN,
+		CreationTime:        rs.CreationTime,
+		Arn:                 rs.Arn,
+		ID:                  rs.ID,
+		SequenceStoreID:     rs.SequenceStoreID,
+		Name:                rs.Name,
+		Description:         rs.Description,
+		FileType:            rs.FileType,
+		Status:              rs.Status,
+		StatusMessage:       rs.StatusMessage,
+		SubjectID:           rs.SubjectID,
+		SampleID:            rs.SampleID,
+		ReferenceARN:        rs.ReferenceARN,
+		CreationType:        rs.CreationType,
+		SequenceInformation: rs.SequenceInformation,
 	}
+}
+
+func sequenceInformation(generatedFrom string) *ReadSetSequenceInformation {
+	if generatedFrom == "" {
+		return nil
+	}
+
+	return &ReadSetSequenceInformation{GeneratedFrom: generatedFrom}
 }
 
 // StartReadSetActivationJob creates a read set activation job.
@@ -339,15 +349,17 @@ func (b *InMemoryBackend) StartReadSetImportJob(
 				b.accountID,
 				fmt.Sprintf("sequenceStore/%s/readSet/%s", sequenceStoreID, rsID),
 			),
-			Name:         src.Name,
-			Description:  src.Description,
-			FileType:     src.SourceFileType,
-			SubjectID:    src.SubjectID,
-			SampleID:     src.SampleID,
-			ReferenceARN: src.ReferenceARN,
-			Status:       statusActive,
-			CreationTime: time.Now().UTC(),
-			Files:        files,
+			Name:                src.Name,
+			Description:         src.Description,
+			FileType:            src.SourceFileType,
+			SubjectID:           src.SubjectID,
+			SampleID:            src.SampleID,
+			ReferenceARN:        src.ReferenceARN,
+			Status:              statusActive,
+			CreationType:        creationTypeImport,
+			SequenceInformation: sequenceInformation(src.GeneratedFrom),
+			CreationTime:        time.Now().UTC(),
+			Files:               files,
 		}
 		b.readSets.Put(rs)
 	}
@@ -464,6 +476,21 @@ func (b *InMemoryBackend) CreateMultipartReadSetUpload(
 	return &result, nil
 }
 
+// GetMultipartReadSetUpload returns the in-progress upload uploadID of sequenceStoreID.
+func (b *InMemoryBackend) GetMultipartReadSetUpload(sequenceStoreID, uploadID string) (*MultipartReadSetUpload, error) {
+	b.mu.RLock("GetMultipartReadSetUpload")
+	defer b.mu.RUnlock()
+
+	upload, ok := b.multipartUploads.Get(parentKey(sequenceStoreID, uploadID))
+	if !ok {
+		return nil, fmt.Errorf("%w: multipart upload %s not found", ErrNotFound, uploadID)
+	}
+
+	result := *upload
+
+	return &result, nil
+}
+
 // AbortMultipartReadSetUpload aborts a multipart read set upload.
 func (b *InMemoryBackend) AbortMultipartReadSetUpload(sequenceStoreID, uploadID string) error {
 	b.mu.Lock("AbortMultipartReadSetUpload")
@@ -550,16 +577,18 @@ func (b *InMemoryBackend) CompleteMultipartReadSetUpload(
 			b.accountID,
 			fmt.Sprintf("sequenceStore/%s/readSet/%s", sequenceStoreID, rsID),
 		),
-		Name:         upload.Name,
-		Description:  upload.Description,
-		FileType:     upload.SourceFileType,
-		SubjectID:    upload.SubjectID,
-		SampleID:     upload.SampleID,
-		ReferenceARN: upload.ReferenceARN,
-		Status:       statusActive,
-		CreationTime: time.Now().UTC(),
-		Tags:         maps.Clone(upload.Tags),
-		Files:        files,
+		Name:                upload.Name,
+		Description:         upload.Description,
+		FileType:            upload.SourceFileType,
+		SubjectID:           upload.SubjectID,
+		SampleID:            upload.SampleID,
+		ReferenceARN:        upload.ReferenceARN,
+		Status:              statusActive,
+		CreationType:        creationTypeUpload,
+		SequenceInformation: sequenceInformation(upload.GeneratedFrom),
+		CreationTime:        time.Now().UTC(),
+		Tags:                maps.Clone(upload.Tags),
+		Files:               files,
 	}
 	b.readSets.Put(rs)
 	b.readSetBytes[sequenceStoreID][rsID] = combined

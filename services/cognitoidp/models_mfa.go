@@ -21,6 +21,8 @@ type mfaSessionEntry struct {
 	SRPb           string `json:"srpSmallB,omitempty"`
 	SRPB           string `json:"srpLargeB,omitempty"`
 	SRPSecretBlock string `json:"srpSecretBlock,omitempty"`
+	// DeviceKey is the remembered device a DEVICE_SRP_AUTH/DEVICE_PASSWORD_VERIFIER round authenticates.
+	DeviceKey string `json:"deviceKey,omitempty"`
 	// Code holds the one-time code generated for SMS_MFA/EMAIL_OTP challenges. Unlike
 	// SOFTWARE_TOKEN_MFA (verified cryptographically against the user's TOTP secret), SMS
 	// and email codes have no client-held secret to re-derive from, so — exactly like

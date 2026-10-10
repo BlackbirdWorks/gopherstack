@@ -57,8 +57,43 @@ func (b *InMemoryBackend) DescribeElasticLoadBalancers(
 		if len(layerIDs) > 0 && !slices.Contains(layerIDs, e.LayerID) {
 			continue
 		}
-		result = append(result, e.toElasticLoadBalancer())
+		result = append(result, b.resolveElasticLoadBalancer(e))
 	}
 
 	return result, nil
+}
+
+func (b *InMemoryBackend) resolveElasticLoadBalancer(e *storedElasticLoadBalancer) *ElasticLoadBalancer {
+	elb := e.toElasticLoadBalancer()
+
+	stack, hasStack := b.stacks.Get(e.StackID)
+	if hasStack {
+		elb.VpcID = stack.VpcID
+	}
+
+	for _, i := range b.instancesByStack.Get(e.StackID) {
+		if !slices.Contains(i.LayerIDs, e.LayerID) {
+			continue
+		}
+
+		if i.SubnetID != "" && !slices.Contains(elb.SubnetIDs, i.SubnetID) {
+			elb.SubnetIDs = append(elb.SubnetIDs, i.SubnetID)
+		}
+
+		az := ""
+		if i.Extras != nil {
+			az = i.Extras.AvailabilityZone
+		}
+		if az == "" && hasStack {
+			az = stack.DefaultAvailabilityZone
+		}
+		if az != "" && !slices.Contains(elb.AvailabilityZones, az) {
+			elb.AvailabilityZones = append(elb.AvailabilityZones, az)
+		}
+	}
+
+	slices.Sort(elb.SubnetIDs)
+	slices.Sort(elb.AvailabilityZones)
+
+	return elb
 }

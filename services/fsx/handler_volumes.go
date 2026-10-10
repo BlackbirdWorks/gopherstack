@@ -45,9 +45,14 @@ type deleteVolumeOntapConfig struct {
 	FinalBackupTags []Tag `json:"FinalBackupTags,omitempty"`
 }
 
+type deleteVolumeOpenZFSConfig struct {
+	Options []string `json:"Options,omitempty"`
+}
+
 type deleteVolumeInput struct {
-	OntapConfiguration *deleteVolumeOntapConfig `json:"OntapConfiguration,omitempty"`
-	VolumeID           string                   `json:"VolumeId"`
+	OntapConfiguration   *deleteVolumeOntapConfig   `json:"OntapConfiguration,omitempty"`
+	OpenZFSConfiguration *deleteVolumeOpenZFSConfig `json:"OpenZFSConfiguration,omitempty"`
+	VolumeID             string                     `json:"VolumeId"`
 }
 
 type deleteVolumeOutput struct {

@@ -66,6 +66,10 @@ func (b *InMemoryBackend) executeStatement(
 
 	switch {
 	case hasKeyword(upper, "SELECT"), hasKeyword(upper, "WITH"):
+		if out := b.missingSelectTable(trimmed, ctx); out.failed {
+			return nil, out
+		}
+
 		return b.executeSQL(query, ctx), stmtOK()
 	case hasKeyword(upper, "CREATE DATABASE"), hasKeyword(upper, "CREATE SCHEMA"):
 		return &sqlResult{}, b.execCreateDatabase(trimmed, ctx)

@@ -137,6 +137,9 @@ func TestSDK_IdempotencyTokenReplaysAndRejectsMismatch(t *testing.T) {
 				})
 				require.NoError(t, err)
 
+				_, err = c.StopBuildBatch(t.Context(), &codebuildsdk.StopBuildBatchInput{Id: start.BuildBatch.Id})
+				require.NoError(t, err)
+
 				return func(token string, variant bool) (string, error) {
 					in := &codebuildsdk.RetryBuildBatchInput{
 						Id: start.BuildBatch.Id, IdempotencyToken: aws.String(token),

@@ -84,6 +84,9 @@ func (b *InMemoryBackend) ActivateType(typeName, typeArn string, opts ActivateTy
 	t.ExecutionRoleArn = opts.ExecutionRoleArn
 	t.LogGroupName = opts.LogGroupName
 	t.LogRoleArn = opts.LogRoleArn
+	if opts.PublisherID != "" {
+		t.PublisherID = opts.PublisherID
+	}
 
 	return key, nil
 }
@@ -255,6 +258,11 @@ func (b *InMemoryBackend) SetTypeDefaultVersion(typeArn, typeName, version strin
 func (b *InMemoryBackend) SetTypeConfiguration(typeName, configuration string) (string, error) {
 	b.mu.Lock("SetTypeConfiguration")
 	defer b.mu.Unlock()
+
+	if _, ok := b.typeRegistry.Get(b.buildTypeARN(typeName)); !ok {
+		return "", fmt.Errorf("%w: %s", ErrTypeNotFound, typeName)
+	}
+
 	b.typeConfigs[typeName] = configuration
 
 	return "arn:aws:cloudformation:::type-configuration/resource/" + typeName + "/default", nil
@@ -345,12 +353,12 @@ func (b *InMemoryBackend) ListTypes(
 // (REGISTERED/ACTIVATED/THIRD_PARTY/AWS_TYPES); DeprecatedStatus defaults to LIVE.
 type ListTypesOptions struct {
 	Visibility, ProvisioningType, TypeNamePrefix, NextToken string
-	Type, Category, DeprecatedStatus                        string
+	Type, Category, DeprecatedStatus, PublisherID           string
 	MaxResults                                              int
 }
 
 // typeMatchesCategory reports whether a registry entry falls in ListTypes' Filters.Category.
-// The registry holds no Amazon-published types, so AWS_TYPES never matches.
+// AWS_TYPES entries come from the modeled Amazon catalog, never the registry.
 func typeMatchesCategory(t *RegisteredType, category string) bool {
 	switch category {
 	case "REGISTERED":
@@ -368,7 +376,7 @@ func typeMatchesCategory(t *RegisteredType, category string) bool {
 
 // ListTypesFiltered is ListTypes with the Type, Filters.Category and DeprecatedStatus filters.
 func (b *InMemoryBackend) ListTypesFiltered(opts ListTypesOptions) (page.Page[TypeSummary], error) {
-	visibilityFilter, provisioningTypeFilter, typeNamePrefix := opts.Visibility, opts.ProvisioningType, opts.TypeNamePrefix
+	provisioningTypeFilter, typeNamePrefix := opts.ProvisioningType, opts.TypeNamePrefix
 	maxResults, nextToken := opts.MaxResults, opts.NextToken
 	wantDeprecated := opts.DeprecatedStatus == typeStatusDeprecated
 
@@ -381,37 +389,86 @@ func (b *InMemoryBackend) ListTypesFiltered(opts ListTypesOptions) (page.Page[Ty
 
 	result := make([]TypeSummary, 0, b.typeRegistry.Len())
 	for _, t := range b.typeRegistry.All() {
-		if (t.Status == typeStatusDeprecated) != wantDeprecated || !strings.HasPrefix(t.TypeName, typeNamePrefix) {
-			continue
-		}
-
-		if (opts.Type != "" && t.Type != opts.Type) || !typeMatchesCategory(t, opts.Category) {
-			continue
-		}
-		if t.Status == statusComplete || t.IsActivated || wantDeprecated {
-			visibility := "PRIVATE"
-			if t.IsPublished {
-				visibility = typeVisibilityPublic
-			}
-
-			if visibilityFilter != "" && visibilityFilter != visibility {
-				continue
-			}
-
-			result = append(result, TypeSummary{
-				TypeName:         t.TypeName,
-				TypeArn:          t.TypeArn,
-				Type:             t.Type,
-				Visibility:       visibility,
-				Description:      t.Configuration,
-				DefaultVersionID: t.DefaultVersion,
-				IsActivated:      t.IsActivated,
-			})
+		if summary, ok := registrySummary(t, opts, typeNamePrefix, wantDeprecated); ok {
+			result = append(result, summary)
 		}
 	}
+	result = append(result, b.amazonTypeSummaries(opts, wantDeprecated)...)
 	sort.Slice(result, func(i, j int) bool { return result[i].TypeName < result[j].TypeName })
 
 	return page.New(result, nextToken, maxResults, cfnDefaultPageSize), nil
+}
+
+// registrySummary applies ListTypes' filters to one registry entry.
+func registrySummary(t *RegisteredType, opts ListTypesOptions, prefix string, wantDeprecated bool) (TypeSummary, bool) {
+	if (t.Status == typeStatusDeprecated) != wantDeprecated || !strings.HasPrefix(t.TypeName, prefix) {
+		return TypeSummary{}, false
+	}
+
+	if (opts.Type != "" && t.Type != opts.Type) || !typeMatchesCategory(t, opts.Category) {
+		return TypeSummary{}, false
+	}
+
+	if opts.PublisherID != "" && t.PublisherID != opts.PublisherID {
+		return TypeSummary{}, false
+	}
+
+	if t.Status != statusComplete && !t.IsActivated && !wantDeprecated {
+		return TypeSummary{}, false
+	}
+
+	visibility := "PRIVATE"
+	if t.IsPublished {
+		visibility = typeVisibilityPublic
+	}
+
+	if opts.Visibility != "" && opts.Visibility != visibility {
+		return TypeSummary{}, false
+	}
+
+	return TypeSummary{
+		TypeName:         t.TypeName,
+		TypeArn:          t.TypeArn,
+		Type:             t.Type,
+		Visibility:       visibility,
+		Description:      t.Configuration,
+		DefaultVersionID: t.DefaultVersion,
+		PublisherID:      t.PublisherID,
+		IsActivated:      t.IsActivated,
+	}, true
+}
+
+// amazonTypeSummaries lists the modeled Amazon-published resource types for
+// Filters.Category=AWS_TYPES. Amazon types carry no PublisherId (types.TypeSummary).
+func (b *InMemoryBackend) amazonTypeSummaries(opts ListTypesOptions, wantDeprecated bool) []TypeSummary {
+	if opts.Category != "AWS_TYPES" || wantDeprecated || opts.PublisherID != "" ||
+		(opts.Type != "" && opts.Type != typeKindResource) ||
+		(opts.Visibility != "" && opts.Visibility != typeVisibilityPublic) {
+		return nil
+	}
+
+	var out []TypeSummary
+
+	for name := range resourceTypeSchemaCatalog() {
+		if !strings.HasPrefix(name, opts.TypeNamePrefix) {
+			continue
+		}
+
+		out = append(out, TypeSummary{
+			TypeName: name,
+			TypeArn: awsarn.Build(
+				"cloudformation",
+				b.region,
+				"",
+				"type/resource/"+strings.ReplaceAll(name, "::", "-"),
+			),
+			Type:        typeKindResource,
+			Visibility:  typeVisibilityPublic,
+			IsActivated: true,
+		})
+	}
+
+	return out
 }
 
 // ListTypeVersions defaults to LIVE versions only, matching ListTypeVersionsInput's
@@ -465,7 +522,7 @@ func (b *InMemoryBackend) ListTypeVersions(
 // (RESOURCE/MODULE/HOOK) filter remains unimplemented -- TypeRegistrationRecord
 // doesn't track a type kind at all, a separate, pre-existing gap.
 func (b *InMemoryBackend) ListTypeRegistrations(
-	typeName, _ /* typeKind */, registrationStatusFilter string, maxResults int, nextToken string,
+	typeName, typeKind, registrationStatusFilter string, maxResults int, nextToken string,
 ) (page.Page[string], error) {
 	b.mu.RLock("ListTypeRegistrations")
 	defer b.mu.RUnlock()
@@ -476,6 +533,10 @@ func (b *InMemoryBackend) ListTypeRegistrations(
 		}
 
 		if registrationStatusFilter != "" && rec.Status != registrationStatusFilter {
+			continue
+		}
+
+		if t, ok := b.typeRegistry.Get(rec.TypeArn); typeKind != "" && (!ok || t.Type != typeKind) {
 			continue
 		}
 

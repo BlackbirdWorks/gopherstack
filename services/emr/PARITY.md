@@ -7,7 +7,7 @@
 service: emr
 sdk_module: aws-sdk-go-v2/service/emr@v1.64.4   # bumped from v1.64.0 pin; no new ops, field-diffed Cluster/MonitoringConfiguration/ListInstancesInput this pass
 last_audit_commit: 0c1472972  # terraform-coverage pass: InstanceTypeConfigs modeled (closes gopherstack-dqd8 item below); prior: d522d763f
-last_audit_date: 2026-09-23  # prior: 2026-09-19
+last_audit_date: 2026-10-10  # prior: 2026-09-19
 overall: A                # 2026-09-04 (gopherstack-s1m six-bug-pattern sweep): checked all nine named delete/
                            # cancel/remove ops (TerminateJobFlows, RemoveTags, RemoveAutoScalingPolicy,
                            # RemoveManagedScalingPolicy, DeleteSecurityConfiguration, DeleteStudio,
@@ -150,7 +150,7 @@ ops:
   PutManagedScalingPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   GetManagedScalingPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-24: fixed nil-vs-zero-value bug -- ManagedScalingPolicy field is now a pointer with omitempty, so it is omitted from the wire (matching real GetManagedScalingPolicyOutput.ManagedScalingPolicy *T) when no policy is attached, instead of a zero-valued object that would deserialize as a non-nil struct on a real client"}
   RemoveManagedScalingPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutAutoTerminationPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutAutoTerminationPolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "2026-10-07: IdleTimeout now enforced by the janitor (idle_termination.go): WAITING + no pending step + no live session for IdleTimeout seconds terminates with ALL_STEPS_COMPLETED. Idle = approximation, AWS publishes no finer definition; test TestJanitor_IdleTimeoutSweep."}
   GetAutoTerminationPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-24: same nil-vs-zero-value fix as GetManagedScalingPolicy"}
   RemoveAutoTerminationPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateSecurityConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed CreationDateTime ISO8601-string->epoch-seconds"}
@@ -214,8 +214,7 @@ ops:
 families:
   error-mapping: {status: ok, note: "EMR's real error model has exactly two exception types (InvalidRequestException 400, InternalServerException 500) per aws-sdk-go-v2/service/emr/types/errors.go; the deserializeError switch matches __type against these two strings verbatim. Fixed handleError, which returned the non-existent 'ValidationException' for ErrInvalidParameter and 'InternalFailure' for the default/500 case -- neither would deserialize into a typed exception a real client checks with errors.As."}
 gaps: []
-items_still_open:
-  - "AutoTerminationPolicy.IdleTimeout (real, emr@v1.64.4 types/types.go:114-122: \"Specifies the amount of idle time in seconds after which the cluster automatically terminates. You can specify a minimum of 60 seconds and a maximum of 604800 seconds (seven days).\") is accepted, bounds-validated, persisted, and echoed back verbatim (PutAutoTerminationPolicy/RunJobFlow), but the janitor never evaluates it to trigger termination (gopherstack-cxp3, 2026-09-06). Unlike KeepJobFlowAliveWhenNoSteps (fixed this pass, see below), IdleTimeout is not fixable from state this backend already tracks: the SDK doc comment defines only the timeout duration, never what 'idle' means (no active steps? no active YARN application? no active interactive session -- Session, sessions.go?), and this backend has no last-activity timestamp of any kind on a cluster -- effectiveStepStatus's PENDING->COMPLETED promotion is a pure function of a step's own CreationDateTime, not a cluster-level 'went idle at T' event. Wiring termination against an invented idle definition (e.g. reusing the ALL_STEPS_COMPLETED signal below, but on a timer) would mean guessing AWS's real activity model rather than reading it off the pinned SDK, which is the exact failure mode this campaign avoids elsewhere (see PutAutoScalingPolicy/PutManagedScalingPolicy precedent). Left NOT-WIRED as a verified negative; would need either a documented idle definition or a deliberate, disclosed approximation before implementing."
+items_still_open: []
 structural_gaps:
   - "CancelSteps.StepCancellationOption (reqfieldiff tier-1, 2026-09-18) is not read: it
     chooses SEND_INTERRUPT vs TERMINATE_PROCESS semantics for cancelling a RUNNING step, but
@@ -234,6 +233,10 @@ session-termination-cascade: {status: ok, note: "2026-07-25: terminateSingle (cl
 ---
 
 ## Notes
+
+### 2026-10-10 realism pass
+Probed with the AWS CLI. Fixed: error messages drop the doubled code prefix and use AWS wording ("Cluster id 'j-x' is not valid.", "Step id 's-x' is not valid.", "A job flow that is shutting down, terminated, or finished may not be modified"); ListSteps on an unknown cluster errors instead of returning empty; unissued `Marker`/`NextToken` rejected; instance group types must look like `family.size`; step `ActionOnFailure` enum enforced on RunJobFlow/AddJobFlowSteps. Tests: `request_validation_test.go`.
+Kept lenient: clusters are created directly in WAITING (no STARTING/BOOTSTRAPPING phase) and steps complete after `stepCompletionDelay`; a STARTING phase would break in-repo callers that add steps or sessions right after RunJobFlow.
 
 ### 2026-09-23: terraform coverage sweep (closes gopherstack-dqd8 InstanceTypeConfigs item)
 

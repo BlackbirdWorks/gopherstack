@@ -84,6 +84,10 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 		return h.handleBackendError(c, err)
 	}
 
+	if rejected, pErr := h.checkPaging(c, 0, req.NextToken); rejected {
+		return pErr
+	}
+
 	p := page.New(tags, req.NextToken, 0, defaultMaxResults)
 
 	return c.JSON(http.StatusOK, listTagsForResourceResponse{Tags: p.Data, NextToken: p.Next})

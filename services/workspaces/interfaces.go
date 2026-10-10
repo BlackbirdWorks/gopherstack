@@ -133,7 +133,7 @@ type StorageBackend interface {
 	DeleteWorkspaceImage(imageID string) error
 	ImportWorkspaceImage(
 		ec2ImageID, name, description, ingestionProcess string,
-		tags map[string]string,
+		applications []string, tags map[string]string,
 	) (string, error)
 	ImportCustomWorkspaceImage(
 		name, description string, spec customWorkspaceImageImportSpec,

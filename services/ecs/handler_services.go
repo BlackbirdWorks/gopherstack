@@ -2,6 +2,9 @@ package ecs
 
 import (
 	"context"
+	"fmt"
+	"slices"
+	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -27,6 +30,12 @@ type deploymentConfigurationInput struct {
 	DeploymentCircuitBreaker *deploymentCircuitBreakerInput `json:"deploymentCircuitBreaker,omitempty"`
 	MinimumHealthyPercent    *int                           `json:"minimumHealthyPercent,omitempty"`
 	MaximumPercent           *int                           `json:"maximumPercent,omitempty"`
+	Alarms                   *DeploymentAlarms              `json:"alarms,omitempty"`
+	BakeTimeInMinutes        *int                           `json:"bakeTimeInMinutes,omitempty"`
+	CanaryConfiguration      *CanaryConfiguration           `json:"canaryConfiguration,omitempty"`
+	LinearConfiguration      *LinearConfiguration           `json:"linearConfiguration,omitempty"`
+	Strategy                 string                         `json:"strategy,omitempty"`
+	LifecycleHooks           []DeploymentLifecycleHook      `json:"lifecycleHooks,omitempty"`
 }
 
 type deploymentControllerInput struct {
@@ -214,8 +223,38 @@ func (h *Handler) handleDescribeServices(
 		return nil, err
 	}
 
+	for i := range views {
+		views[i].ResourceManagementType = resourceManagementCustomer
+	}
+
+	express := h.Backend.ExpressServicesInCluster(in.Cluster, in.Services)
+
+	expressViews, err := attachTagsIfWanted(
+		h, express,
+		func(s Service) string { return s.ServiceArn },
+		toServiceView,
+		func(v *serviceView, tags []Tag) { v.Tags = tags },
+		wantTags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range expressViews {
+		expressViews[i].ResourceManagementType = resourceManagementECS
+	}
+
+	views = append(views, expressViews...)
+
 	failViews := make([]failureView, 0, len(failures))
 	for _, f := range failures {
+		if slices.ContainsFunc(
+			express,
+			func(s Service) bool { return s.ServiceArn == f.Arn || s.ServiceName == f.Arn },
+		) {
+			continue
+		}
+
 		failViews = append(failViews, failureView(f))
 	}
 
@@ -315,12 +354,18 @@ func (h *Handler) handleDeleteService(
 	return &deleteServiceOutput{Service: view}, nil
 }
 
+const (
+	resourceManagementCustomer = "CUSTOMER"
+	resourceManagementECS      = "ECS"
+)
+
 type listServicesInput struct {
-	Cluster            string `json:"cluster,omitempty"`
-	LaunchType         string `json:"launchType,omitempty"`
-	SchedulingStrategy string `json:"schedulingStrategy,omitempty"`
-	NextToken          string `json:"nextToken,omitempty"`
-	MaxResults         int    `json:"maxResults,omitempty"`
+	Cluster                string `json:"cluster,omitempty"`
+	LaunchType             string `json:"launchType,omitempty"`
+	SchedulingStrategy     string `json:"schedulingStrategy,omitempty"`
+	NextToken              string `json:"nextToken,omitempty"`
+	ResourceManagementType string `json:"resourceManagementType,omitempty"`
+	MaxResults             int    `json:"maxResults,omitempty"`
 }
 
 type listServicesOutput struct {
@@ -332,6 +377,12 @@ func (h *Handler) handleListServices(
 	_ context.Context,
 	in *listServicesInput,
 ) (*listServicesOutput, error) {
+	switch in.ResourceManagementType {
+	case "", resourceManagementCustomer, resourceManagementECS:
+	default:
+		return nil, fmt.Errorf("%w: invalid resourceManagementType %q", ErrInvalidParameter, in.ResourceManagementType)
+	}
+
 	arns, err := h.Backend.ListServices(in.Cluster, in.LaunchType, in.SchedulingStrategy)
 	if err != nil {
 		return nil, err
@@ -339,6 +390,18 @@ func (h *Handler) handleListServices(
 
 	if arns == nil {
 		arns = []string{}
+	}
+
+	if in.ResourceManagementType == resourceManagementECS {
+		arns = arns[:0]
+	}
+
+	if in.ResourceManagementType != resourceManagementCustomer && in.LaunchType == "" && in.SchedulingStrategy == "" {
+		for _, svc := range h.Backend.ExpressServicesInCluster(in.Cluster, nil) {
+			arns = append(arns, svc.ServiceArn)
+		}
+
+		sort.Strings(arns)
 	}
 
 	arns, nextToken := applyNextTokenSlice(arns, in.NextToken, in.MaxResults)
@@ -393,6 +456,12 @@ type deploymentConfigurationView struct {
 	DeploymentCircuitBreaker *deploymentCircuitBreakerView `json:"deploymentCircuitBreaker,omitempty"`
 	MinimumHealthyPercent    *int                          `json:"minimumHealthyPercent,omitempty"`
 	MaximumPercent           *int                          `json:"maximumPercent,omitempty"`
+	Alarms                   *DeploymentAlarms             `json:"alarms,omitempty"`
+	BakeTimeInMinutes        *int                          `json:"bakeTimeInMinutes,omitempty"`
+	CanaryConfiguration      *CanaryConfiguration          `json:"canaryConfiguration,omitempty"`
+	LinearConfiguration      *LinearConfiguration          `json:"linearConfiguration,omitempty"`
+	Strategy                 string                        `json:"strategy,omitempty"`
+	LifecycleHooks           []DeploymentLifecycleHook     `json:"lifecycleHooks,omitempty"`
 }
 
 type deploymentControllerView struct {
@@ -431,6 +500,12 @@ func toDeploymentConfigurationView(dc *DeploymentConfiguration) *deploymentConfi
 	v := &deploymentConfigurationView{
 		MinimumHealthyPercent: dc.MinimumHealthyPercent,
 		MaximumPercent:        dc.MaximumPercent,
+		Alarms:                dc.Alarms,
+		BakeTimeInMinutes:     dc.BakeTimeInMinutes,
+		CanaryConfiguration:   dc.CanaryConfiguration,
+		LinearConfiguration:   dc.LinearConfiguration,
+		Strategy:              dc.Strategy,
+		LifecycleHooks:        dc.LifecycleHooks,
 	}
 
 	if dc.DeploymentCircuitBreaker != nil {
@@ -465,37 +540,31 @@ type serviceView struct {
 	DeploymentController          *deploymentControllerView    `json:"deploymentController,omitempty"`
 	NetworkConfiguration          *networkConfigurationView    `json:"networkConfiguration,omitempty"`
 	HealthCheckGracePeriodSeconds *int                         `json:"healthCheckGracePeriodSeconds,omitempty"`
+	ServiceName                   string                       `json:"serviceName"`
+	TaskDefinition                string                       `json:"taskDefinition,omitempty"`
+	Status                        string                       `json:"status"`
+	LaunchType                    string                       `json:"launchType,omitempty"`
+	SchedulingStrategy            string                       `json:"schedulingStrategy,omitempty"`
+	PropagateTags                 string                       `json:"propagateTags,omitempty"`
+	AvailabilityZoneRebalancing   string                       `json:"availabilityZoneRebalancing,omitempty"`
+	PlatformVersion               string                       `json:"platformVersion,omitempty"`
+	RoleArn                       string                       `json:"roleArn,omitempty"`
+	ServiceArn                    string                       `json:"serviceArn"`
 	ClusterArn                    string                       `json:"clusterArn"`
-	// omitempty: an EXTERNAL-controller service has no task definition of its
-	// own (task sets carry theirs) and real AWS omits the field entirely
-	// rather than sending "". terraform-provider-aws's flatten
-	// (internal/service/ecs/service.go) treats any non-nil TaskDefinition
-	// as present and indexes strings.Split(arn, "/")[1] unconditionally,
-	// which panics (crashing the whole provider process, "Plugin did not
-	// respond") on an empty string instead of a real ARN.
-	TaskDefinition              string                    `json:"taskDefinition,omitempty"`
-	Status                      string                    `json:"status"`
-	LaunchType                  string                    `json:"launchType,omitempty"`
-	SchedulingStrategy          string                    `json:"schedulingStrategy,omitempty"`
-	PropagateTags               string                    `json:"propagateTags,omitempty"`
-	AvailabilityZoneRebalancing string                    `json:"availabilityZoneRebalancing,omitempty"`
-	PlatformVersion             string                    `json:"platformVersion,omitempty"`
-	RoleArn                     string                    `json:"roleArn,omitempty"`
-	ServiceArn                  string                    `json:"serviceArn"`
-	ServiceName                 string                    `json:"serviceName"`
-	LoadBalancers               []loadBalancerView        `json:"loadBalancers"`
-	ServiceRegistries           []serviceRegistryView     `json:"serviceRegistries"`
-	CapacityProviderStrategy    []cpStrategyItemInput     `json:"capacityProviderStrategy,omitempty"`
-	PlacementConstraints        []placementConstraintView `json:"placementConstraints,omitempty"`
-	PlacementStrategy           []placementStrategyView   `json:"placementStrategy,omitempty"`
-	Deployments                 []deploymentView          `json:"deployments,omitempty"`
-	Tags                        []Tag                     `json:"tags,omitempty"`
-	CreatedAt                   float64                   `json:"createdAt"`
-	DesiredCount                int                       `json:"desiredCount"`
-	PendingCount                int                       `json:"pendingCount"`
-	RunningCount                int                       `json:"runningCount"`
-	EnableExecuteCommand        bool                      `json:"enableExecuteCommand,omitempty"`
-	EnableECSManagedTags        bool                      `json:"enableECSManagedTags,omitempty"`
+	ResourceManagementType        string                       `json:"resourceManagementType,omitempty"`
+	CapacityProviderStrategy      []cpStrategyItemInput        `json:"capacityProviderStrategy,omitempty"`
+	ServiceRegistries             []serviceRegistryView        `json:"serviceRegistries"`
+	PlacementConstraints          []placementConstraintView    `json:"placementConstraints,omitempty"`
+	PlacementStrategy             []placementStrategyView      `json:"placementStrategy,omitempty"`
+	Deployments                   []deploymentView             `json:"deployments,omitempty"`
+	Tags                          []Tag                        `json:"tags,omitempty"`
+	LoadBalancers                 []loadBalancerView           `json:"loadBalancers"`
+	CreatedAt                     float64                      `json:"createdAt"`
+	DesiredCount                  int                          `json:"desiredCount"`
+	PendingCount                  int                          `json:"pendingCount"`
+	RunningCount                  int                          `json:"runningCount"`
+	EnableExecuteCommand          bool                         `json:"enableExecuteCommand,omitempty"`
+	EnableECSManagedTags          bool                         `json:"enableECSManagedTags,omitempty"`
 }
 
 func toServiceView(s Service) serviceView {
@@ -611,6 +680,12 @@ func toDeploymentConfiguration(in *deploymentConfigurationInput) *DeploymentConf
 	dc := &DeploymentConfiguration{
 		MinimumHealthyPercent: in.MinimumHealthyPercent,
 		MaximumPercent:        in.MaximumPercent,
+		Alarms:                in.Alarms,
+		BakeTimeInMinutes:     in.BakeTimeInMinutes,
+		CanaryConfiguration:   in.CanaryConfiguration,
+		LinearConfiguration:   in.LinearConfiguration,
+		Strategy:              in.Strategy,
+		LifecycleHooks:        in.LifecycleHooks,
 	}
 
 	if in.DeploymentCircuitBreaker != nil {

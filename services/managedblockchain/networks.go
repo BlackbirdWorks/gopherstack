@@ -85,6 +85,10 @@ func (b *InMemoryBackend) CreateNetwork(
 		}
 	}
 
+	if fabricEdition != "" && b.networksWithOwnedMemberLocked(fabricEdition) >= maxNetworksPerEdition {
+		return nil, nil, ErrResourceLimitExceeded
+	}
+
 	now := time.Now().UTC()
 	networkID := uuid.NewString()
 	memberID := uuid.NewString()
@@ -180,6 +184,11 @@ func cloneNetworkFrameworkAttributes(fa *NetworkFrameworkAttributesState) *Netwo
 	if fa.Fabric != nil {
 		fabric := *fa.Fabric
 		cp.Fabric = &fabric
+	}
+
+	if fa.Ethereum != nil {
+		eth := *fa.Ethereum
+		cp.Ethereum = &eth
 	}
 
 	return cp

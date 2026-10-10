@@ -3,6 +3,7 @@ package directoryservice_test
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	directoryservicesdk "github.com/aws/aws-sdk-go-v2/service/directoryservice"
@@ -183,13 +184,16 @@ func TestDescribeSettings_RequestStatus_RealClientRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	described, err := client.DescribeSettings(t.Context(), &directoryservicesdk.DescribeSettingsInput{
-		DirectoryId: aws.String(dirID),
-	})
-	require.NoError(t, err)
-	require.Len(t, described.SettingEntries, 1)
-	assert.Equal(t, types.DirectoryConfigurationStatusUpdated, described.SettingEntries[0].RequestStatus,
-		"RequestStatus must decode -- real response member, not the request-side filter's \"Status\" name")
+	require.Eventually(t, func() bool {
+		described, descErr := client.DescribeSettings(t.Context(), &directoryservicesdk.DescribeSettingsInput{
+			DirectoryId: aws.String(dirID),
+		})
+
+		return descErr == nil && len(described.SettingEntries) == 1 &&
+			described.SettingEntries[0].RequestStatus == types.DirectoryConfigurationStatusUpdated &&
+			aws.ToString(described.SettingEntries[0].AppliedValue) == "Disable" &&
+			len(described.SettingEntries[0].RequestDetailedStatus) == 1
+	}, 5*time.Second, 10*time.Millisecond, "RequestStatus must decode and settle at Updated")
 }
 
 // TestAcceptSharedDirectory_RealClientRoundTrip proves AcceptSharedDirectory

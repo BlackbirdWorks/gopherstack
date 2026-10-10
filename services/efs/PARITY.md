@@ -2,7 +2,7 @@
 service: efs
 sdk_module: aws-sdk-go-v2/service/efs@v1.48.0   # version audited against
 last_audit_commit: d79e0612c
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-07
 overall: A            # gopherstack-wks5 (2026-08-30): field-identity request-parameter sweep found and
                       # fixed 1 real bug (DescribeMountTargets/DescribeAccessPoints missing a
                       # FileSystemId existence check) and disclosed 1 (PutFileSystemPolicy's
@@ -74,18 +74,10 @@ families:
   AccountPreferences: {status: ok}
 gaps: []
 items_still_open:
-  - DeleteFileSystem rejects (FileSystemInUse) while access points exist for the file
-    system. efs@v1.44.4 types/errors.go's FileSystemInUse doc is scoped strictly to
-    mount targets ("Returned if a file system has mount targets"), and
-    api_op_DeleteFileSystem.go's own doc lists only mount targets and an active
-    replication configuration as blockers -- access points are never mentioned. This
-    may be an over-restriction, but the behavior is tested
-    (TestDeleteFileSystem_RequiresEmptyState) and a prior audit (2026-09-04) left it
-    rather than remove tested behavior on weak evidence. Not changed this pass either
-    (gopherstack-g8sg): confirming/removing it is a real-AWS-behavior judgment call
-    outside what the SDK doc text alone can settle, left for deliberate review.
-  - "ThroughputLimitExceeded (region-dependent quota vs the SDK's flat 1024 MiB/s), NetworkInterfaceLimitExceeded/NoFreeAddressesInSubnet/IpAddressInUse (no subnet IP-occupancy model) and the 1,400 mount-targets-per-VPC cap (no per-VPC index; would be MountTargetConflict) are not enforced."
-  - DescribeTags (the legacy GET-only op, distinct from the resource-tags family) does not apply Marker/MaxItems pagination server-side -- always returns the full tag set in one page. Low priority: EFS caps tags per resource at 50 (maxTagsPerResource), so a single page is always sufficient in practice; a real client would never actually see a second page from real AWS either at that low a cap.
+  - "File systems and mount targets report available at once (the creating dwell is opt-in via the activation delay, off by default): in-repo integration and root tests create mount targets straight after CreateFileSystem."
+  - "DeleteFileSystem rejects (FileSystemInUse) while access points exist; API_DeleteFileSystem documents FileSystemInUse only for mount targets and replication, and nothing documents access points, so this may be an over-restriction (tested in TestDeleteFileSystem_RequiresEmptyState)."
+  - "NetworkInterfaceLimitExceeded is not enforced: it keys off the VPC 'Network interfaces per Region' quota (VPC User Guide), which also counts ENIs from non-EFS resources this backend does not model (NoFreeAddressesInSubnet is enforced from the subnet CIDR minus EC2 ENI and EFS mount-target addresses)."
+  - "The 1,400 mount-targets-per-VPC cap is not enforced: the EFS quotas page gives the figure but CreateMountTarget's documented errors name no code for exceeding it."
 deferred:
   - DescribeTags pagination (Marker/MaxItems) -- see gaps; capped at 50 tags/resource so unreachable in practice.
 leaks: {status: clean, note: "fixed 2026-09-24 (background-timer audit): CreateFileSystem's fsActivationDelay simulation used to spawn an untracked `go func(){ time.Sleep(...); ... }()` per call, unbounded by the backend's lifecycle -- a real (if test-only, since fsActivationDelay is 0 outside tests) pile-up/leak risk. Replaced with effectiveFileSystemState, a pure function computing creating->available lazily from CreationTime+fsActivationDelay: no goroutine or timer exists at all now. DescribeFileSystems and checkFileSystemAvailable (renamed to a *InMemoryBackend method so it can see fsActivationDelay) both resolve through it, so every read/gate sees the promoted state without mutating shared state under RLock. lazy_activation_test.go (testing/synctest) proves creating holds pre-deadline and available appears post-deadline. No new persisted fields."}
@@ -393,10 +385,6 @@ enum's validation set (`LifeCycleState`, `PerformanceMode`, `ThroughputMode`,
   operations at different paths. This is correct: both `DescribeTagsOutput` and
   `ListTagsForResourceOutput` use the same wire key (`Tags`, an array of `{Key, Value}`), so
   reusing the handler is not a wire-shape bug -- don't "fix" this by splitting them apart.
-- `CreateFileSystem`'s idempotent-retry path (identical `CreationToken` + identical args)
-  returns HTTP 200 with the existing file system, while a fresh create returns 201. This
-  matches the existing `ErrCreationTokenExists` handling and is intentional, not a status-code
-  bug.
 - `DeleteFileSystemPolicy`'s real AWS `responseCode` is 200 per botocore, but gopherstack
   returns 204 (`NoContent`). Left as-is: `aws-sdk-go-v2`'s restjson1 deserializers accept any
   `2xx` for void-result ops (`response.StatusCode < 200 || >= 300` is the only check across
@@ -669,3 +657,11 @@ UpdateFileSystem leaving provisioned throughput mode now clears ProvisionedThrou
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 UnsupportedOperation (handler.go:492) is the unknown-route fallback, matched by no operation deserializer.
+
+## 2026-10-09 realism pass
+
+- CreateFileSystem with an already-used CreationToken now always fails 409 `FileSystemAlreadyExists` carrying the existing FileSystemId; the previous "identical args -> 200 existing file system" path was invented (API_CreateFileSystem documents the error for any reuse). Error Message no longer repeats the code. Tests: TestCreateFileSystem_CreationTokenIdempotency, TestCreationTokenIdempotency_HTTP.
+
+## 2026-10-10 lifecycle dwell knob
+
+`--lifecycle-efs` (`EFS_ACTIVATION_DELAY`, falls back to `--lifecycle-delay`, default `0s`) is passed to `SetFileSystemActivationDelay`, so file systems report `creating` before `available`. Proof: root `TestLifecycleDelayWiring/efs`.

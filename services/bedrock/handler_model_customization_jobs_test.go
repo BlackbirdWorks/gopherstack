@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -239,7 +240,7 @@ func TestAccuracy_CustomizationJob_StopTransitionsStatus(t *testing.T) {
 
 			var out map[string]any
 			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out))
-			assert.Equal(t, "Stopped", out["status"])
+			assert.Equal(t, "Stopping", out["status"])
 		})
 	}
 }
@@ -340,6 +341,7 @@ func TestAccuracy_CustomizationJob_ListFilters(t *testing.T) {
 			betaJob, err := createCustomizationJob(b, "beta-job", "beta-job-model")
 			require.NoError(t, err)
 			require.NoError(t, b.StopModelCustomizationJob(betaJob.JobArn))
+			b.SettleStoppingJobs()
 
 			rec := doRequest(t, h, http.MethodGet, "/model-customization-jobs"+tt.query, nil)
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -436,8 +438,8 @@ func TestAccuracy_CustomizationJob_CustomizationTypePreserved(t *testing.T) {
 			rec := doRequest(
 				t, h, http.MethodPost, "/model-customization-jobs",
 				withCustomizationJobRequiredFields(map[string]any{
-					"jobName":             fmt.Sprintf("job-%s", tt.name),
-					"customModelName":     fmt.Sprintf("model-%s", tt.name),
+					"jobName":             fmt.Sprintf("job-%s", strings.ReplaceAll(tt.name, " ", "-")),
+					"customModelName":     fmt.Sprintf("model-%s", strings.ReplaceAll(tt.name, " ", "-")),
 					"baseModelIdentifier": "amazon.titan-text-express-v1",
 					"customizationType":   tt.customizationType,
 				}),

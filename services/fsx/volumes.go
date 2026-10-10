@@ -2,6 +2,7 @@ package fsx
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -9,15 +10,16 @@ import (
 )
 
 type storedVolume struct {
-	CreationTime            time.Time         `json:"creationTime"`
-	Tags                    map[string]string `json:"tags"`
-	VolumeID                string            `json:"volumeId"`
-	VolumeType              string            `json:"volumeType"`
-	FileSystemID            string            `json:"fileSystemId"`
-	StorageVirtualMachineID string            `json:"storageVirtualMachineId,omitempty"`
-	Name                    string            `json:"name"`
-	Lifecycle               string            `json:"lifecycle"`
-	ResourceARN             string            `json:"resourceArn"`
+	CreationTime            time.Time                   `json:"creationTime"`
+	Tags                    map[string]string           `json:"tags"`
+	OpenZFS                 *OpenZFSVolumeConfiguration `json:"openZfs,omitempty"`
+	VolumeID                string                      `json:"volumeId"`
+	VolumeType              string                      `json:"volumeType"`
+	FileSystemID            string                      `json:"fileSystemId"`
+	StorageVirtualMachineID string                      `json:"storageVirtualMachineId,omitempty"`
+	Name                    string                      `json:"name"`
+	Lifecycle               string                      `json:"lifecycle"`
+	ResourceARN             string                      `json:"resourceArn"`
 }
 
 // toPublic renders v's wire shape. OntapConfiguration is only populated for
@@ -45,11 +47,22 @@ func (v *storedVolume) toPublic() *Volume {
 			volumePath = "/fsx"
 		}
 
-		vol.OpenZFSConfiguration = &OpenZFSVolumeConfiguration{
-			DataCompressionType: "NONE",
-			VolumePath:          volumePath,
-			RecordSizeKiB:       openZFSDefaultRecordSizeKiB,
+		cfg := cloneOpenZFSConfig(v.OpenZFS)
+		if cfg == nil {
+			cfg = &OpenZFSVolumeConfiguration{}
 		}
+
+		cfg.VolumePath = volumePath
+
+		if cfg.DataCompressionType == "" {
+			cfg.DataCompressionType = "NONE"
+		}
+
+		if cfg.RecordSizeKiB == 0 {
+			cfg.RecordSizeKiB = openZFSDefaultRecordSizeKiB
+		}
+
+		vol.OpenZFSConfiguration = cfg
 	}
 
 	return vol
@@ -70,7 +83,9 @@ type createOntapVolumeConfigInput struct {
 // required member) is modeled, same scoping rationale as
 // createOntapVolumeConfigInput.
 type createOpenZFSVolumeConfigInput struct {
-	ParentVolumeID string `json:"ParentVolumeId"`
+	OriginSnapshot *OpenZFSOriginSnapshot `json:"OriginSnapshot,omitempty"`
+	ParentVolumeID string                 `json:"ParentVolumeId"`
+	openZFSVolumeSettings
 }
 
 // createVolumeInput mirrors the real CreateVolumeInput wire shape
@@ -83,6 +98,7 @@ type createOpenZFSVolumeConfigInput struct {
 type createVolumeInput struct {
 	VolumeType           string                          `json:"VolumeType"`
 	Name                 string                          `json:"Name"`
+	ClientRequestToken   string                          `json:"ClientRequestToken,omitempty"`
 	OntapConfiguration   *createOntapVolumeConfigInput   `json:"OntapConfiguration,omitempty"`
 	OpenZFSConfiguration *createOpenZFSVolumeConfigInput `json:"OpenZFSConfiguration,omitempty"`
 	Tags                 []Tag                           `json:"Tags,omitempty"`
@@ -106,9 +122,26 @@ func (b *InMemoryBackend) CreateVolume(input *createVolumeInput) (*Volume, error
 	b.mu.Lock("CreateVolume")
 	defer b.mu.Unlock()
 
+	fp, replayID, err := b.replayTokenLocked("CreateVolume", input.ClientRequestToken, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if existing, ok := b.volumes.Get(replayID); ok {
+		return existing.toPublic(), nil
+	}
+
 	fileSystemID, svmID, err := b.resolveVolumeParentLocked(input)
 	if err != nil {
 		return nil, err
+	}
+
+	var zfs *OpenZFSVolumeConfiguration
+
+	if input.VolumeType == fileSystemTypeOpenZFS {
+		if zfs, err = b.buildOpenZFSVolumeLocked(input.OpenZFSConfiguration, fileSystemID); err != nil {
+			return nil, err
+		}
 	}
 
 	id := newFSxVolumeID()
@@ -126,10 +159,12 @@ func (b *InMemoryBackend) CreateVolume(input *createVolumeInput) (*Volume, error
 		Name:                    input.Name,
 		Lifecycle:               lifecycleAvailable,
 		ResourceARN:             arn,
+		OpenZFS:                 zfs,
 	}
 
 	b.volumes.Put(v)
 	b.tags[arn] = tags
+	b.recordTokenLocked("CreateVolume", input.ClientRequestToken, fp, id)
 
 	return v.toPublic(), nil
 }
@@ -175,6 +210,7 @@ func (b *InMemoryBackend) resolveVolumeParentLocked(input *createVolumeInput) (s
 type createVolumeFromBackupInput struct {
 	BackupID           string                        `json:"BackupId"`
 	Name               string                        `json:"Name"`
+	ClientRequestToken string                        `json:"ClientRequestToken,omitempty"`
 	OntapConfiguration *createOntapVolumeConfigInput `json:"OntapConfiguration,omitempty"`
 	Tags               []Tag                         `json:"Tags,omitempty"`
 }
@@ -195,6 +231,15 @@ func (b *InMemoryBackend) CreateVolumeFromBackup(input *createVolumeFromBackupIn
 
 	b.mu.Lock("CreateVolumeFromBackup")
 	defer b.mu.Unlock()
+
+	fp, replayID, err := b.replayTokenLocked("CreateVolumeFromBackup", input.ClientRequestToken, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if existing, ok := b.volumes.Get(replayID); ok {
+		return existing.toPublic(), nil
+	}
 
 	if !b.backups.Has(input.BackupID) {
 		return nil, ErrBackupNotFound
@@ -224,6 +269,7 @@ func (b *InMemoryBackend) CreateVolumeFromBackup(input *createVolumeFromBackupIn
 
 	b.volumes.Put(v)
 	b.tags[arn] = tags
+	b.recordTokenLocked("CreateVolumeFromBackup", input.ClientRequestToken, fp, id)
 
 	return v.toPublic(), nil
 }
@@ -247,6 +293,24 @@ func (b *InMemoryBackend) DeleteVolume(in *deleteVolumeInput) (*deleteVolumeOutp
 		return nil, ErrVolumeNotFound
 	}
 
+	var zfsOptions []string
+	if in.OpenZFSConfiguration != nil {
+		zfsOptions = in.OpenZFSConfiguration.Options
+	}
+
+	if err := validateOptions("OpenZFSConfiguration.Options", zfsOptions, optionDeleteChildVolumes); err != nil {
+		return nil, err
+	}
+
+	if deps := b.volumeDependentsLocked(
+		in.VolumeID,
+	); len(deps) > 0 &&
+		!slices.Contains(zfsOptions, optionDeleteChildVolumes) {
+		return nil, fmt.Errorf(
+			"%w: volume %q has child or clone volumes; use %s", ErrValidation, in.VolumeID, optionDeleteChildVolumes,
+		)
+	}
+
 	out := &deleteVolumeOutput{VolumeID: in.VolumeID, Lifecycle: lifecycleDeleting}
 
 	if v.VolumeType == fileSystemTypeONTAP && (cfg.SkipFinalBackup == nil || !*cfg.SkipFinalBackup) {
@@ -259,7 +323,7 @@ func (b *InMemoryBackend) DeleteVolume(in *deleteVolumeInput) (*deleteVolumeOutp
 		}
 	}
 
-	b.deleteVolumeLocked(in.VolumeID)
+	b.deleteVolumeTreeLocked(in.VolumeID)
 
 	return out, nil
 }
@@ -325,7 +389,7 @@ func (b *InMemoryBackend) createOpenZFSRootVolumeLocked(fs *storedFileSystem) st
 // Real VolumeFilterName (aws-sdk-go-v2/service/fsx@v1.68.4 types/enums.go)
 // has 2 values: file-system-id, storage-virtual-machine-id -- both tracked
 // directly on storedVolume.
-func (b *InMemoryBackend) DescribeVolumes(
+func (b *InMemoryBackend) DescribeVolumes( //nolint:dupl // same paging shape as the other Describe ops.
 	ids []string,
 	filters []wireFilter,
 	maxResults int32,
@@ -381,8 +445,10 @@ func (b *InMemoryBackend) DescribeVolumes(
 }
 
 type restoreVolumeFromSnapshotInput struct {
-	VolumeID   string `json:"VolumeId"`
-	SnapshotID string `json:"SnapshotId"`
+	VolumeID           string   `json:"VolumeId"`
+	SnapshotID         string   `json:"SnapshotId"`
+	ClientRequestToken string   `json:"ClientRequestToken,omitempty"`
+	Options            []string `json:"Options,omitempty"`
 }
 
 // RestoreVolumeFromSnapshot restores a volume to a snapshot state.
@@ -399,21 +465,41 @@ func (b *InMemoryBackend) RestoreVolumeFromSnapshot(input *restoreVolumeFromSnap
 	b.mu.Lock("RestoreVolumeFromSnapshot")
 	defer b.mu.Unlock()
 
+	fp, _, err := b.replayTokenLocked("RestoreVolumeFromSnapshot", input.ClientRequestToken, input)
+	if err != nil {
+		return nil, err
+	}
+
 	v, ok := b.volumes.Get(input.VolumeID)
 	if !ok {
 		return nil, ErrVolumeNotFound
 	}
 
-	if !b.snapshots.Has(input.SnapshotID) {
+	snap, found := b.snapshots.Get(input.SnapshotID)
+	if !found {
 		return nil, fmt.Errorf("%w: snapshot %q not found", ErrValidation, input.SnapshotID)
 	}
+
+	if err = validateOptions(
+		"Options", input.Options, optionDeleteIntermediateSnapshots, optionDeleteClonedVolumes,
+	); err != nil {
+		return nil, err
+	}
+
+	if err = b.restoreIntermediatesLocked(v, snap, input.Options); err != nil {
+		return nil, err
+	}
+
+	b.recordTokenLocked("RestoreVolumeFromSnapshot", input.ClientRequestToken, fp, v.VolumeID)
 
 	return v.toPublic(), nil
 }
 
 type updateVolumeInput struct {
-	VolumeID string `json:"VolumeId"`
-	Name     string `json:"Name,omitempty"`
+	OpenZFSConfiguration *updateOpenZFSVolumeConfigInput `json:"OpenZFSConfiguration,omitempty"`
+	VolumeID             string                          `json:"VolumeId"`
+	Name                 string                          `json:"Name,omitempty"`
+	ClientRequestToken   string                          `json:"ClientRequestToken,omitempty"`
 }
 
 // UpdateVolume updates volume metadata.
@@ -421,14 +507,27 @@ func (b *InMemoryBackend) UpdateVolume(input *updateVolumeInput) (*Volume, error
 	b.mu.Lock("UpdateVolume")
 	defer b.mu.Unlock()
 
+	fp, _, err := b.replayTokenLocked("UpdateVolume", input.ClientRequestToken, input)
+	if err != nil {
+		return nil, err
+	}
+
 	v, ok := b.volumes.Get(input.VolumeID)
 	if !ok {
 		return nil, ErrVolumeNotFound
 	}
 
+	if input.OpenZFSConfiguration != nil {
+		if err = b.updateOpenZFSVolumeLocked(v, input.OpenZFSConfiguration); err != nil {
+			return nil, err
+		}
+	}
+
 	if input.Name != "" {
 		v.Name = input.Name
 	}
+
+	b.recordTokenLocked("UpdateVolume", input.ClientRequestToken, fp, v.VolumeID)
 
 	return v.toPublic(), nil
 }

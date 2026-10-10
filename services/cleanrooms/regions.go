@@ -10,7 +10,10 @@ func (h *Handler) EnableRegions() {
 	}
 
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
-		return NewHandler(NewInMemoryBackend(home.accountID, region))
+		sibling := NewInMemoryBackend(home.accountID, region)
+		sibling.glue = home.glueReader()
+
+		return NewHandler(sibling)
 	})
 }
 

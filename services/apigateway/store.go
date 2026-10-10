@@ -198,7 +198,6 @@ type StorageBackend interface {
 	UpdateIntegrationResponse(input UpdateIntegrationResponseInput) (*IntegrationResponse, error)
 	UpdateMethodResponse(input UpdateMethodResponseInput) (*MethodResponse, error)
 	UpdateAccount(input UpdateAccountInput) (*Account, error)
-	TestInvokeAuthorizer(input TestInvokeAuthorizerInput) (*TestInvokeAuthorizerOutput, error)
 	GetModelTemplate(restAPIID, modelName string) (string, error)
 
 	// Gateway response operations.
@@ -238,12 +237,13 @@ type StorageBackend interface {
 	UpdateClientCertificate(input UpdateClientCertificateInput) (*ClientCertificate, error)
 
 	// OpenAPI export.
-	GetExport(restAPIID, stageName, exportType string) (map[string]any, error)
+	GetExport(restAPIID, stageName, exportType string, opts ExportOptions) (map[string]any, error)
 
 	// SDK generation.
 	GetSdkTypes() []SdkType
 	GetSdkType(id string) (*SdkType, error)
-	GetSdk(restAPIID, stageName, sdkType string) (*SdkExport, error)
+	CheckDomainNameID(name, id string) error
+	GetSdk(restAPIID, stageName, sdkType string, params map[string]string) (*SdkExport, error)
 
 	// API key / documentation part bulk import.
 	ImportAPIKeys(body []byte, format string, failOnWarnings bool) ([]string, []string, error)

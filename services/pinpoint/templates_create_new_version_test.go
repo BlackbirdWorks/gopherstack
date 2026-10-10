@@ -68,6 +68,15 @@ func TestUpdateTemplate_CreateNewVersion(t *testing.T) {
 
 			rec = doPinpointRequest(t, h, http.MethodGet, path, nil)
 			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(
+				t,
+				"1",
+				decodeBody(t, rec.Body.Bytes())["Version"],
+				"version 1 stays active until pinned elsewhere",
+			)
+
+			rec = doPinpointRequest(t, h, http.MethodGet, path+"?version="+tt.wantVersion, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
 
 			var got map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))

@@ -135,7 +135,7 @@ func validateRunningMode(mode string) error {
 	return nil
 }
 
-func (w *storedWorkspace) toWorkspace() *Workspace {
+func (w *storedWorkspace) toWorkspace(state string) *Workspace {
 	tags := make(map[string]string)
 	maps.Copy(tags, w.Tags)
 
@@ -176,7 +176,7 @@ func (w *storedWorkspace) toWorkspace() *Workspace {
 		UserName:                    w.UserName,
 		IPAddress:                   w.IPAddress,
 		BundleID:                    w.BundleID,
-		State:                       w.State,
+		State:                       state,
 		ComputerName:                w.ComputerName,
 		SubnetID:                    w.SubnetID,
 		VolumeEncryptionKey:         w.VolumeEncryptionKey,
@@ -259,12 +259,13 @@ func (b *InMemoryBackend) CreateWorkspace(
 		Tags:                        storedTags,
 		Properties:                  props,
 		Region:                      region,
+		pendingUntil:                b.settleDeadline(),
 	}
 
 	b.workspaces.Put(w)
 	b.tags[workspaceID] = storedTags
 
-	return w.toWorkspace(), nil
+	return w.toWorkspace(statePending), nil
 }
 
 // DescribeWorkspaces returns workspaces matching the given filters.
@@ -285,6 +286,10 @@ func (b *InMemoryBackend) DescribeWorkspacesFiltered(
 	workspaceName string,
 	limit int32, nextToken string,
 ) ([]*Workspace, string, error) {
+	if err := checkPageToken(nextToken); err != nil {
+		return nil, "", err
+	}
+
 	b.mu.RLock("DescribeWorkspaces")
 	defer b.mu.RUnlock()
 
@@ -307,7 +312,7 @@ func (b *InMemoryBackend) DescribeWorkspacesFiltered(
 
 	result := make([]*Workspace, 0, len(matched))
 	for _, w := range matched {
-		result = append(result, w.toWorkspace())
+		result = append(result, w.toWorkspace(b.stateOf(w)))
 	}
 
 	return result, newToken, nil
@@ -599,8 +604,8 @@ func (b *InMemoryBackend) StartWorkspaces(workspaceIDs []string) ([]FailedReques
 			continue
 		}
 
-		if !isStartableWorkspaceState(w.State, workspaceRunningMode(w)) {
-			failures = append(failures, startStopFailure(id, w.State, workspaceRunningMode(w)))
+		if !isStartableWorkspaceState(b.stateOf(w), workspaceRunningMode(w)) {
+			failures = append(failures, startStopFailure(id, b.stateOf(w), workspaceRunningMode(w)))
 
 			continue
 		}
@@ -632,8 +637,8 @@ func (b *InMemoryBackend) StopWorkspaces(workspaceIDs []string) ([]FailedRequest
 			continue
 		}
 
-		if !isStoppableWorkspaceState(w.State, workspaceRunningMode(w)) {
-			failures = append(failures, startStopFailure(id, w.State, workspaceRunningMode(w)))
+		if !isStoppableWorkspaceState(b.stateOf(w), workspaceRunningMode(w)) {
+			failures = append(failures, startStopFailure(id, b.stateOf(w), workspaceRunningMode(w)))
 
 			continue
 		}
@@ -710,13 +715,13 @@ func (b *InMemoryBackend) collectStateFailures(
 			continue
 		}
 
-		if !isAllowed(w.State) {
+		if !isAllowed(b.stateOf(w)) {
 			failures = append(failures, FailedRequest{
 				WorkspaceID: id,
 				ErrorCode:   errOperationNotSupported,
 				ErrorMessage: fmt.Sprintf(
 					"WorkSpace %s is not in a state that supports this operation (current state: %s)",
-					id, w.State,
+					id, b.stateOf(w),
 				),
 			})
 		}
@@ -827,7 +832,7 @@ func (b *InMemoryBackend) CreateStandbyWorkspace(
 			{
 				WorkspaceID: spec.PrimaryWorkspaceID,
 				Type:        "PRIMARY",
-				State:       primary.State,
+				State:       b.stateOf(primary),
 				Region:      spec.PrimaryRegion,
 			},
 		},

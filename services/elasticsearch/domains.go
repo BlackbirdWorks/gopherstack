@@ -27,6 +27,8 @@ func (b *InMemoryBackend) CreateDomain(ctx context.Context, inp CreateDomainInpu
 	b.mu.Lock("CreateDomain")
 	defer b.mu.Unlock()
 
+	b.purgeExpiredDomainsLocked(region)
+
 	if _, exists := b.domainGet(region, inp.Name); exists {
 		return nil, fmt.Errorf("%w: domain %s already exists", ErrDomainAlreadyExists, inp.Name)
 	}
@@ -85,6 +87,7 @@ func (b *InMemoryBackend) CreateDomain(ctx context.Context, inp CreateDomainInpu
 		d.Tags.Merge(inp.Tags)
 	}
 
+	b.beginProcessing(d, dpsCreating)
 	b.domainPut(d)
 	b.arnIndexStore(region)[domainARN] = inp.Name
 
@@ -95,36 +98,64 @@ func (b *InMemoryBackend) CreateDomain(ctx context.Context, inp CreateDomainInpu
 	return domainCopy(d), nil
 }
 
-// DeleteDomain removes a domain by name.
+// DeleteDomain removes a domain by name. With a processing delay the domain
+// stays describable as Deleted/Deleting until the window elapses.
 func (b *InMemoryBackend) DeleteDomain(ctx context.Context, name string) (*Domain, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("DeleteDomain")
 	defer b.mu.Unlock()
+
+	b.purgeExpiredDomainsLocked(region)
 
 	d, exists := b.domainGet(region, name)
 	if !exists {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
 	}
 
+	if b.processingDelay > 0 {
+		d.Deleted = true
+		b.beginProcessing(d, dpsDeleting)
+
+		return domainCopy(d), nil
+	}
+
 	cp := domainCopy(d)
+	b.removeDomainLocked(region, d)
+
+	return cp, nil
+}
+
+// removeDomainLocked drops d and every index entry that references it.
+func (b *InMemoryBackend) removeDomainLocked(region string, d *Domain) {
 	d.Tags.Close()
 	delete(b.arnIndexStore(region), d.ARN)
-	delete(b.vpcAccessStore(region), name)
+	delete(b.vpcAccessStore(region), d.Name)
 
 	assocs := b.packageAssociationsStore(region)
 	for packageID, domains := range assocs {
-		if idx := slices.Index(domains, name); idx >= 0 {
+		if idx := slices.Index(domains, d.Name); idx >= 0 {
 			assocs[packageID] = slices.Delete(domains, idx, idx+1)
 		}
+
+		delete(b.packageAssociationMetaStore(region)[packageID], d.Name)
 	}
 
-	b.domainDelete(region, name)
+	b.domainDelete(region, d.Name)
 
 	if b.dnsRegistrar != nil {
-		b.dnsRegistrar.Deregister(cp.Endpoint)
+		b.dnsRegistrar.Deregister(d.Endpoint)
 	}
+}
 
-	return cp, nil
+// purgeExpiredDomainsLocked finalises deleted domains whose window elapsed.
+func (b *InMemoryBackend) purgeExpiredDomainsLocked(region string) {
+	now := b.clock()
+
+	for _, d := range b.domainsByRegion.Get(region) {
+		if deleteWindowElapsed(d, now) {
+			b.removeDomainLocked(region, d)
+		}
+	}
 }
 
 // DescribeDomain returns details about a domain.

@@ -125,11 +125,11 @@ func TestListImageReferrers(t *testing.T) {
 
 			c := newTestECRClient(t, newTestHandler(t))
 			ctx := t.Context()
-			_, err := c.CreateRepository(ctx, &ecrsdk.CreateRepositoryInput{RepositoryName: aws.String("r")})
+			_, err := c.CreateRepository(ctx, &ecrsdk.CreateRepositoryInput{RepositoryName: aws.String("rr")})
 			require.NoError(t, err)
 
 			put, err := c.PutImage(ctx, &ecrsdk.PutImageInput{
-				RepositoryName: aws.String("r"), ImageManifest: aws.String(subject),
+				RepositoryName: aws.String("rr"), ImageManifest: aws.String(subject),
 				ImageManifestMediaType: aws.String("application/vnd.oci.image.manifest.v1+json"),
 			})
 			require.NoError(t, err)
@@ -142,14 +142,14 @@ func TestListImageReferrers(t *testing.T) {
 						`"artifactType":%q,"subject":{"digest":%q},"annotations":{"n":"%d"},"layers":[]}`,
 					at, subjDigest, i)
 				_, err = c.PutImage(ctx, &ecrsdk.PutImageInput{
-					RepositoryName: aws.String("r"), ImageManifest: aws.String(m),
+					RepositoryName: aws.String("rr"), ImageManifest: aws.String(m),
 					ImageManifestMediaType: aws.String("application/vnd.oci.image.manifest.v1+json"),
 				})
 				require.NoError(t, err)
 			}
 
 			in := &ecrsdk.ListImageReferrersInput{
-				RepositoryName: aws.String("r"),
+				RepositoryName: aws.String("rr"),
 				SubjectId:      &ecrtypes.SubjectIdentifier{ImageDigest: aws.String(subjDigest)},
 				Filter:         tt.filter,
 			}

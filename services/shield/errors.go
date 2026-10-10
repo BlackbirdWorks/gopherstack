@@ -37,6 +37,9 @@ var (
 	// LimitsExceededException wire type -- distinct from ErrValidation/InvalidParameterException
 	// because AWS Shield uses a dedicated error family for quota violations.
 	ErrLimitExceeded = errors.New("shield: limit exceeded")
+	// ErrLockedSubscription is returned when AutoRenew is changed before the final 30 days of the
+	// subscription's commitment. Maps to the real LockedSubscriptionException wire type.
+	ErrLockedSubscription = errors.New("shield: subscription locked")
 	// ErrNoAssociatedRole is returned when a DRT operation (AssociateDRTLogBucket) requires an IAM
 	// role to already be associated via AssociateDRTRole first. Maps to the real
 	// NoAssociatedRoleException wire type.

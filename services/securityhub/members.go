@@ -137,6 +137,9 @@ func (b *InMemoryBackend) InviteMembers(accountIDs []string) []map[string]any {
 	return unprocessed
 }
 
+// memberStatusEnabled is the Member.MemberStatus of a member that accepted its invitation.
+const memberStatusEnabled = "Enabled"
+
 func (b *InMemoryBackend) ListMembers(onlyAssociated bool, nextToken string, maxResults int) ([]*Member, string) {
 	b.mu.RLock("ListMembers")
 	defer b.mu.RUnlock()
@@ -144,7 +147,7 @@ func (b *InMemoryBackend) ListMembers(onlyAssociated bool, nextToken string, max
 	var all []*Member
 
 	for _, m := range b.members.Snapshot() {
-		if onlyAssociated && m.MemberStatus != "Enabled" {
+		if onlyAssociated && m.MemberStatus != memberStatusEnabled {
 			continue
 		}
 

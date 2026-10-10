@@ -2,6 +2,7 @@ package apigateway
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -157,26 +158,63 @@ type Resource struct {
 // HTTP-API (apigatewayv2) concept only. CorsConfiguration MUST stay
 // persisted on Resource (do not retag it json:"-"); the nil *struct{} here
 // shadows the embedded field and, with omitempty, drops the key.
+//
+// ResourceMethods shadows the embedded map: without embed=methods each entry
+// is an empty object, as real API Gateway returns the Method only when embedded.
 type wireResource struct {
 	*Resource
-	CorsConfiguration *struct{} `json:"corsConfiguration,omitempty"`
+	ResourceMethods   map[string]any `json:"resourceMethods,omitempty"`
+	CorsConfiguration *struct{}      `json:"corsConfiguration,omitempty"`
 }
 
-func toWireResource(r *Resource) *wireResource {
+func newWireResource(r *Resource, embedMethods bool) wireResource {
+	w := wireResource{Resource: r}
+
+	if len(r.ResourceMethods) > 0 {
+		w.ResourceMethods = make(map[string]any, len(r.ResourceMethods))
+
+		for httpMethod, m := range r.ResourceMethods {
+			if embedMethods {
+				w.ResourceMethods[httpMethod] = m
+			} else {
+				w.ResourceMethods[httpMethod] = struct{}{}
+			}
+		}
+	}
+
+	return w
+}
+
+func toWireResource(r *Resource, embedMethods bool) *wireResource {
 	if r == nil {
 		return nil
 	}
 
-	return &wireResource{Resource: r}
+	w := newWireResource(r, embedMethods)
+
+	return &w
 }
 
-func toWireResources(rs []Resource) []wireResource {
+func toWireResources(rs []Resource, embedMethods bool) []wireResource {
 	out := make([]wireResource, len(rs))
 	for i := range rs {
-		out[i] = wireResource{Resource: &rs[i]}
+		out[i] = newWireResource(&rs[i], embedMethods)
 	}
 
 	return out
+}
+
+// embedsValue reports whether an Embed list (repeated or comma-separated) names want.
+func embedsValue(embed []string, want string) bool {
+	for _, e := range embed {
+		for part := range strings.SplitSeq(e, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), want) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // Method represents an API Gateway method on a resource.
@@ -604,10 +642,12 @@ type CreateDocumentationVersionInput struct {
 // DomainName represents a custom domain name for an API.
 type DomainName struct {
 	CreatedDate             *unixEpochTime           `json:"createdDate,omitempty"`
+	CertificateUploadDate   *unixEpochTime           `json:"certificateUploadDate,omitempty"`
 	Tags                    *tags.Tags               `json:"tags,omitempty"`
 	EndpointConfiguration   *EndpointConfiguration   `json:"endpointConfiguration,omitempty"`
 	MutualTLSAuthentication *MutualTLSAuthentication `json:"mutualTlsAuthentication,omitempty"`
 	DomainNameValue         string                   `json:"domainName"`
+	DomainNameID            string                   `json:"domainNameId,omitempty"`
 	// DomainNameArn was missing from responses, leaving a real client's
 	// DomainNameArn field nil (apigateway@v1.29.4 types.DomainName).
 	DomainNameArnValue                  string `json:"domainNameArn,omitempty"`
@@ -636,6 +676,9 @@ type CreateDomainNameInput struct {
 	DomainName                          string                   `json:"domainName"`
 	CertificateARN                      string                   `json:"certificateArn,omitempty"`
 	CertificateName                     string                   `json:"certificateName,omitempty"`
+	CertificateBody                     string                   `json:"certificateBody,omitempty"`
+	CertificateChain                    string                   `json:"certificateChain,omitempty"`
+	CertificatePrivateKey               string                   `json:"certificatePrivateKey,omitempty"`
 	RegionalCertificateARN              string                   `json:"regionalCertificateArn,omitempty"`
 	RegionalCertificateName             string                   `json:"regionalCertificateName,omitempty"`
 	OwnershipVerificationCertificateARN string                   `json:"ownershipVerificationCertificateArn,omitempty"`
@@ -801,10 +844,13 @@ type CreateRestAPIInput struct {
 	EndpointConfiguration     *EndpointConfiguration `json:"endpointConfiguration,omitempty"`
 	Tags                      *tags.Tags             `json:"tags,omitempty"`
 	Name                      string                 `json:"name"`
+	CloneFrom                 string                 `json:"cloneFrom,omitempty"`
 	Description               string                 `json:"description,omitempty"`
 	Policy                    string                 `json:"policy,omitempty"`
 	APIKeySource              string                 `json:"apiKeySource,omitempty"`
 	EndpointAccessMode        string                 `json:"endpointAccessMode,omitempty"`
+	SecurityPolicy            string                 `json:"securityPolicy,omitempty"`
+	Version                   string                 `json:"version,omitempty"`
 	BinaryMediaTypes          []string               `json:"binaryMediaTypes,omitempty"`
 	MinimumCompressionSize    int                    `json:"minimumCompressionSize,omitempty"`
 	DisableExecuteAPIEndpoint bool                   `json:"disableExecuteApiEndpoint,omitempty"`
@@ -859,6 +905,7 @@ type TestInvokeMethodInput struct {
 	StageVariables      map[string]string   `json:"stageVariables,omitempty"`
 	PathWithQueryString string              `json:"pathWithQueryString,omitempty"`
 	Body                string              `json:"body,omitempty"`
+	ClientCertificateID string              `json:"clientCertificateId,omitempty"`
 	RestAPIID           string              `json:"restApiId"`
 	ResourceID          string              `json:"resourceId"`
 	HTTPMethod          string              `json:"httpMethod"`
@@ -1033,12 +1080,14 @@ type UpdateAccountInput struct {
 
 // TestInvokeAuthorizerInput is the input for TestInvokeAuthorizer.
 type TestInvokeAuthorizerInput struct {
-	Headers        map[string]string `json:"headers,omitempty"`
-	StageVariables map[string]string `json:"stageVariables,omitempty"`
-	Body           string            `json:"body,omitempty"`
-	RestAPIID      string            `json:"restApiId"`
-	AuthorizerID   string            `json:"authorizerId"`
-	Identity       string            `json:"identity,omitempty"`
+	Headers             map[string]string   `json:"headers,omitempty"`
+	MultiValueHeaders   map[string][]string `json:"multiValueHeaders,omitempty"`
+	StageVariables      map[string]string   `json:"stageVariables,omitempty"`
+	AdditionalContext   map[string]string   `json:"additionalContext,omitempty"`
+	Body                string              `json:"body,omitempty"`
+	PathWithQueryString string              `json:"pathWithQueryString,omitempty"`
+	RestAPIID           string              `json:"restApiId"`
+	AuthorizerID        string              `json:"authorizerId"`
 }
 
 // TestInvokeAuthorizerOutput is the output from TestInvokeAuthorizer.
@@ -1050,7 +1099,7 @@ type TestInvokeAuthorizerOutput struct {
 	Claims         map[string]string   `json:"claims,omitempty"`
 	Authorization  map[string][]string `json:"authorization,omitempty"`
 	Log            string              `json:"log,omitempty"`
-	PrincipalID    string              `json:"principalId"`
+	PrincipalID    string              `json:"principalId,omitempty"`
 	PolicyDocument string              `json:"policy,omitempty"`
 	ClientStatus   int                 `json:"clientStatus"`
 	Latency        int64               `json:"latency"`

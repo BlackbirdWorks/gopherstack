@@ -786,7 +786,6 @@ func TestHandler_RegisterTaskDefinition_PortMapping_Extended(t *testing.T) {
 				"image": "nginx",
 				"portMappings": []map[string]any{
 					{
-						"containerPort":      8080,
 						"protocol":           "tcp",
 						"appProtocol":        "http",
 						"containerPortRange": "8080-8090",

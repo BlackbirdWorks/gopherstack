@@ -1,6 +1,7 @@
 package cloudformation_test
 
 import (
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
@@ -45,10 +46,10 @@ func TestBackend_CreateStack(t *testing.T) {
 			wantErr:   cloudformation.ErrStackAlreadyExists,
 		},
 		{
-			name:       "invalid_template",
-			stackName:  "bad-stack",
-			template:   "{bad}",
-			wantStatus: "CREATE_FAILED",
+			name:      "invalid_template",
+			stackName: "bad-stack",
+			template:  "{bad}",
+			wantErr:   cloudformation.ErrTemplateFormat,
 		},
 		{
 			name:      "with_params",
@@ -214,7 +215,7 @@ func TestBackend_UpdateStack(t *testing.T) {
 				require.NoError(t, err)
 			},
 			stackName:      "upd-stack",
-			updateTemplate: simpleTemplate,
+			updateTemplate: modifiedTemplate,
 			wantStatus:     "UPDATE_COMPLETE",
 		},
 		{
@@ -797,8 +798,9 @@ func TestBackend_DescribeStackEvents_Pagination(t *testing.T) {
 	// Each successful UpdateStack on an unchanged plain resource emits 3
 	// events (stack UPDATE_IN_PROGRESS, resource UPDATE_COMPLETE, stack
 	// UPDATE_COMPLETE), so 40 updates comfortably exceeds one default page.
-	for range 40 {
-		_, uerr := b.UpdateStack(t.Context(), "evt-page-stack", simpleTemplate, nil, cloudformation.StackOptions{})
+	for i := range 40 {
+		tmpl := strings.Replace(simpleTemplate, `"Resources"`, fmt.Sprintf(`"Description":"v%d","Resources"`, i), 1)
+		_, uerr := b.UpdateStack(t.Context(), "evt-page-stack", tmpl, nil, cloudformation.StackOptions{})
 		require.NoError(t, uerr)
 	}
 

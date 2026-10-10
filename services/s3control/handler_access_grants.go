@@ -2,9 +2,11 @@ package s3control
 
 import (
 	"encoding/xml"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 )
@@ -869,6 +871,20 @@ const (
 	getDataAccessMaxDurationSeconds = 43200
 )
 
+type getDataAccessCredentialsXML struct {
+	AccessKeyID     string `xml:"AccessKeyId"`
+	SecretAccessKey string `xml:"SecretAccessKey"`
+	SessionToken    string `xml:"SessionToken"`
+	Expiration      string `xml:"Expiration"`
+}
+
+type getDataAccessResponseXML struct {
+	XMLName            xml.Name                    `xml:"GetDataAccessResult"`
+	MatchedGrantTarget string                      `xml:"MatchedGrantTarget"`
+	Credentials        getDataAccessCredentialsXML `xml:"Credentials"`
+	Grantee            createAccessGrantGranteeXML `xml:"Grantee"`
+}
+
 func (h *Handler) handleGetDataAccess(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	target := c.Request().URL.Query().Get("target")
@@ -887,30 +903,32 @@ func (h *Handler) handleGetDataAccess(c *echo.Context) error {
 			"privilege must be one of Default, Minimal")
 	}
 
-	if _, err := h.Backend.GetDataAccess(accountID, target, permission); err != nil {
+	var duration time.Duration
+	if s := c.Request().URL.Query().Get("durationSeconds"); s != "" {
+		n, _ := strconv.Atoi(s)
+		duration = time.Duration(n) * time.Second
+	}
+
+	access, err := h.Backend.GetDataAccess(accountID, target, permission, duration)
+	if errors.Is(err, errNoMatchingGrant) {
+		return writeXMLErrorCode(c, http.StatusForbidden, "AccessDenied", err.Error())
+	}
+
+	if err != nil {
 		return handleBackendError(c, err)
 	}
 
-	// GAP (no backing data, not fabricated): real GetDataAccessOutput also
-	// carries Credentials.SessionToken, Credentials.Expiration, and a
-	// top-level Grantee (GranteeType/GranteeIdentifier) —
-	// awsRestxml_deserializeOpDocumentGetDataAccessOutput. This backend
-	// issues no real STS credentials and resolves no matching grant, so
-	// those fields are omitted rather than invented.
-	//
-	// MatchedGrantTarget is the requested S3 URI target
-	// (api_op_GetDataAccess.go: "The S3 URI path of the data to which you
-	// are being granted temporary access credentials"), not the backend's
-	// internal mock presigned URL -- a real client previously decoded a
-	// bogus https:// URL here instead of an S3 URI.
-	return writeXML(c, struct {
-		XMLName     xml.Name `xml:"GetDataAccessResult"`
-		Credentials struct {
-			AccessKeyID     string `xml:"AccessKeyId"`
-			SecretAccessKey string `xml:"SecretAccessKey"`
-		} `xml:"Credentials"`
-		MatchedGrantTarget string `xml:"MatchedGrantTarget"`
-	}{
+	return writeXML(c, getDataAccessResponseXML{
+		Credentials: getDataAccessCredentialsXML{
+			AccessKeyID:     access.AccessKeyID,
+			SecretAccessKey: access.SecretAccessKey,
+			SessionToken:    access.SessionToken,
+			Expiration:      access.Expiration.Format(time.RFC3339),
+		},
+		Grantee: createAccessGrantGranteeXML{
+			GranteeType:       access.GranteeType,
+			GranteeIdentifier: access.GranteeIdentifier,
+		},
 		MatchedGrantTarget: target,
 	})
 }

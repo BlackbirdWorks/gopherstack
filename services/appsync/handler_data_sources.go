@@ -59,7 +59,7 @@ func (h *Handler) createDataSource(ctx context.Context, c *echo.Context, apiID s
 		return h.handleError(ctx, c, "CreateDataSource", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{keyDataSource: created})
+	return c.JSON(http.StatusCreated, map[string]any{keyDataSource: wireShape(created, "apiId", "tags")})
 }
 
 // getDataSource handles GET /v1/apis/{apiId}/datasources/{name}.
@@ -69,7 +69,7 @@ func (h *Handler) getDataSource(ctx context.Context, c *echo.Context, apiID, nam
 		return h.handleError(ctx, c, "GetDataSource", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyDataSource: ds})
+	return c.JSON(http.StatusOK, map[string]any{keyDataSource: wireShape(ds, "apiId", "tags")})
 }
 
 // listDataSources handles GET /v1/apis/{apiId}/datasources.
@@ -84,7 +84,7 @@ func (h *Handler) listDataSources(ctx context.Context, c *echo.Context, apiID st
 	}
 
 	page, tok := appsyncPaginate(dss, nextToken, maxResults)
-	out := map[string]any{"dataSources": page}
+	out := map[string]any{"dataSources": wireShape(page, "apiId", "tags")}
 	if tok != "" {
 		out["nextToken"] = tok
 	}
@@ -118,7 +118,7 @@ func (h *Handler) updateDataSource(ctx context.Context, c *echo.Context, apiID, 
 		return h.handleError(ctx, c, "UpdateDataSource", updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyDataSource: updated})
+	return c.JSON(http.StatusOK, map[string]any{keyDataSource: wireShape(updated, "apiId", "tags")})
 }
 
 // handleDataSourceIntrospections handles the legacy convenience alias

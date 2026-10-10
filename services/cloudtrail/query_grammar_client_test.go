@@ -206,13 +206,9 @@ func TestQueryGrammar_CountAggregate(t *testing.T) {
 	})
 }
 
-// TestQueryGrammar_JoinReachesFailed verifies a JOIN query (a real
-// CloudTrail Lake feature this emulator does not implement -- see
-// PARITY.md) reaches QueryStatus FAILED with a populated ErrorMessage via
-// DescribeQuery, never a silent FINISHED with zero rows. This fails against
-// the pre-fix code, which always returned FINISHED regardless of grammar
-// support.
-func TestQueryGrammar_JoinReachesFailed(t *testing.T) {
+// TestQueryGrammar_UnsupportedReachesFailed verifies constructs outside the supported subset reach
+// QueryStatus FAILED with a populated ErrorMessage via DescribeQuery, never a silent empty FINISHED.
+func TestQueryGrammar_UnsupportedReachesFailed(t *testing.T) {
 	t.Parallel()
 
 	backend := cloudtrail.NewInMemoryBackend("123456789012", config.DefaultRegion)
@@ -220,16 +216,48 @@ func TestQueryGrammar_JoinReachesFailed(t *testing.T) {
 	client := newTestCloudTrailClient(t, cloudtrail.NewHandler(backend))
 	edsARN := newQueryGrammarEDS(t, client)
 
-	stmt := "SELECT edsA.eventName FROM " + edsARN + " AS edsA LEFT JOIN " + edsARN +
-		" AS edsB ON edsA.eventId = edsB.eventId"
+	tests := []struct {
+		name string
+		stmt string
+	}{
+		{
+			name: "full_join",
+			stmt: "SELECT a.eventName FROM " + edsARN + " a FULL JOIN " + edsARN + " b ON a.eventId = b.eventId",
+		},
+		{
+			name: "intersect_all",
+			stmt: "SELECT eventName FROM " + edsARN + " INTERSECT ALL SELECT eventName FROM " + edsARN,
+		},
+		{
+			name: "column_count_mismatch",
+			stmt: "SELECT eventName FROM " + edsARN + " UNION SELECT eventName, username FROM " + edsARN,
+		},
+		{
+			name: "non_equi_join",
+			stmt: "SELECT a.eventName FROM " + edsARN + " a JOIN " + edsARN + " b ON a.eventId = 'x'",
+		},
+		{
+			name: "multi_row_scalar",
+			stmt: "SELECT eventName FROM " + edsARN + " WHERE eventName = (SELECT eventName FROM " + edsARN + ")",
+		},
+	}
 
-	start, err := client.StartQuery(t.Context(), &cloudtrailsdk.StartQueryInput{QueryStatement: aws.String(stmt)})
-	require.NoError(t, err, "StartQuery must accept syntactically valid Lake SQL synchronously")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	desc, err := client.DescribeQuery(t.Context(), &cloudtrailsdk.DescribeQueryInput{QueryId: start.QueryId})
-	require.NoError(t, err)
-	assert.Equal(t, "FAILED", string(desc.QueryStatus))
-	assert.NotEmpty(t, aws.ToString(desc.ErrorMessage))
+			start, err := client.StartQuery(
+				t.Context(),
+				&cloudtrailsdk.StartQueryInput{QueryStatement: aws.String(tt.stmt)},
+			)
+			require.NoError(t, err, "StartQuery must accept syntactically valid Lake SQL synchronously")
+
+			desc, err := client.DescribeQuery(t.Context(), &cloudtrailsdk.DescribeQueryInput{QueryId: start.QueryId})
+			require.NoError(t, err)
+			assert.Equal(t, "FAILED", string(desc.QueryStatus))
+			assert.NotEmpty(t, aws.ToString(desc.ErrorMessage))
+		})
+	}
 }
 
 // TestListQueries_ThroughClient_UnknownStoreErrors verifies ListQueries

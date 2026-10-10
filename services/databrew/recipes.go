@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 const (
@@ -110,6 +111,7 @@ func (b *InMemoryBackend) CreateRecipe(
 		Name: name, Arn: b.recipeARN(region, name), Description: description,
 		Steps: steps, Tags: maps.Clone(tags), RecipeVersion: recipeVersionLatestWorking,
 		CreateDate: now, LastModifiedDate: now,
+		CreatedBy: awsmeta.CallerArn(ctx), LastModifiedBy: awsmeta.CallerArn(ctx),
 	}
 	t.Put(r)
 
@@ -279,7 +281,7 @@ func (b *InMemoryBackend) PublishRecipe(ctx context.Context, name, description s
 	}
 	now := float64(time.Now().Unix())
 	working.PublishedDate = now
-	working.PublishedBy = "admin"
+	working.PublishedBy = awsmeta.CallerArn(ctx)
 	working.LastModifiedDate = now
 
 	versions := b.recipeVersionsStore(region)
@@ -292,7 +294,7 @@ func (b *InMemoryBackend) PublishRecipe(ctx context.Context, name, description s
 		CreateDate:       working.CreateDate,
 		LastModifiedBy:   working.LastModifiedBy,
 		LastModifiedDate: now,
-		PublishedBy:      "admin",
+		PublishedBy:      awsmeta.CallerArn(ctx),
 		PublishedDate:    now,
 	}
 	versions[name] = append(versions[name], snapshot)
@@ -325,6 +327,7 @@ func (b *InMemoryBackend) UpdateRecipe(
 		r.Steps = steps
 	}
 	r.LastModifiedDate = float64(time.Now().Unix())
+	stampModifiedBy(ctx, &r.LastModifiedBy)
 
 	return nil
 }

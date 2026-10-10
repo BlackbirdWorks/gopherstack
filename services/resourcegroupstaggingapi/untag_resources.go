@@ -86,11 +86,7 @@ func (b *InMemoryBackend) UntagResources(
 			if ok {
 				handled = true
 				if err != nil {
-					failed[arn] = FailureInfo{
-						ErrorCode:    "InternalServiceException",
-						ErrorMessage: err.Error(),
-						StatusCode:   http.StatusInternalServerError,
-					}
+					failed[arn] = failureForError(err)
 				}
 
 				break

@@ -183,10 +183,8 @@ type Sample struct {
 // against that same deserializer's full case list: no such key exists), so
 // the field this struct previously carried under that name was fabricated,
 // a real API caller never sends it, and it has been removed. OpenDate is
-// set by StartProjectSession, the real trigger for it (see
-// InMemoryBackend.OpenProjectSession). OpenedBy stays unpopulated -- like
-// CreatedBy/LastModifiedBy above, this backend has no caller-identity
-// infrastructure to derive it from.
+// set by StartProjectSession (InMemoryBackend.OpenProjectSession), which also
+// records the caller as OpenedBy.
 type Project struct {
 	Tags             map[string]string `json:"Tags,omitempty"`
 	Name             string            `json:"Name"`
@@ -329,12 +327,9 @@ type JobExtras struct {
 // RecipeReference mirror real types.JobRun members (deserializers.go's
 // awsRestjson1_deserializeDocumentJobRun) that were previously never
 // emitted at all; StartJobRun now snapshots them from the parent Job, the
-// only backend state they could come from. ErrorMessage/StartedBy are also
-// real members, left always-unpopulated and disclosed in PARITY.md: this
-// backend's StartJobRun always transitions STARTING->SUCCEEDED (see
-// jobRunTransitionDelay) with no FAILED path to source an error message
-// from, and, like CreatedBy/LastModifiedBy elsewhere in this package, there
-// is no caller-identity infrastructure to derive StartedBy from.
+// only backend state they could come from. StartedBy is the calling principal.
+// ErrorMessage stays empty: StartJobRun always transitions STARTING->SUCCEEDED
+// (see jobRunTransitionDelay), so no run ever fails.
 type JobRun struct {
 	RecipeReference          *RecipeRef                `json:"RecipeReference,omitempty"`
 	JobSample                *JobSample                `json:"JobSample,omitempty"`

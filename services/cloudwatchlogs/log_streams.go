@@ -27,6 +27,14 @@ func (b *InMemoryBackend) CreateLogStream(
 		return nil, fmt.Errorf("%w: logStreamName is required", ErrValidation)
 	}
 
+	if strings.ContainsAny(streamName, ":*") {
+		return nil, fmt.Errorf("%w: logStreamName can't contain ':' or '*'", ErrValidation)
+	}
+
+	if len(streamName) > maxLogStreamNameLength {
+		return nil, fmt.Errorf("%w: logStreamName must be at most %d characters", ErrValidation, maxLogStreamNameLength)
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("CreateLogStream")
@@ -199,3 +207,5 @@ func paginateStreams(all []LogStream, nextToken string, limit int) ([]LogStream,
 
 	return all[startIdx:end], outToken
 }
+
+const maxLogStreamNameLength = 512

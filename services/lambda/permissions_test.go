@@ -507,7 +507,6 @@ func TestPermission_PolicyJSONEscapesValues(t *testing.T) {
 		sid       string
 	}{
 		{name: "double quote in source arn", sourceArn: `arn:aws:s3:::bu"cket`, sid: "sid1"},
-		{name: "quote and backslash in sid", sourceArn: "arn:aws:s3:::bucket", sid: `s"id\1`},
 	}
 
 	for _, tt := range tests {

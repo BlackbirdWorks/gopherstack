@@ -828,3 +828,12 @@ func copyCA(ca *CertificateAuthority) CertificateAuthority {
 
 	return cp
 }
+
+// currentStatus reports EXPIRED for an ACTIVE CA whose certificate has lapsed.
+func (ca *CertificateAuthority) currentStatus() string {
+	if ca.Status == caStatusActive && !ca.NotAfter.IsZero() && time.Now().After(ca.NotAfter) {
+		return caStatusExpired
+	}
+
+	return ca.Status
+}

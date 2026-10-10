@@ -2,6 +2,7 @@ package kinesis
 
 import (
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
@@ -42,7 +43,7 @@ func recordBytes(partitionKey string, data []byte) float64 {
 }
 
 func (b *InMemoryBackend) emitPutRecord(region string, in *PutRecordInput, start time.Time, err error) {
-	if !b.metrics.Enabled() || errors.Is(err, ErrStreamNotFound) {
+	if !b.metrics.Enabled() || errors.Is(err, ErrStreamNotFound) || errors.Is(err, ErrDryRunOperation) {
 		return
 	}
 
@@ -133,11 +134,57 @@ func (b *InMemoryBackend) emitGetRecords(region, stream string, results []GetRec
 		age = float64(time.Since(results[n-1].ApproximateArrivalTimestamp).Milliseconds())
 	}
 
+	b.putMetric(region, stream, "OutgoingRecords", metricUnitCount, float64(len(results)))
+	b.putMetric(region, stream, "OutgoingBytes", metricUnitBytes, bytes)
 	b.putMetric(region, stream, "GetRecords.Latency", metricUnitMillis, millisSince(start))
 	b.putMetric(region, stream, "GetRecords.Success", metricUnitCount, 1)
 	b.putMetric(region, stream, "GetRecords.Records", metricUnitCount, float64(len(results)))
 	b.putMetric(region, stream, "GetRecords.Bytes", metricUnitBytes, bytes)
 	b.putMetric(region, stream, "GetRecords.IteratorAgeMilliseconds", metricUnitMillis, age)
+}
+
+func shardMetricEnabled(enabled []string, name string) bool {
+	return slices.Contains(enabled, name) || slices.Contains(enabled, "ALL")
+}
+
+// putShardMetric publishes an enhanced shard-level metric (StreamName and ShardId
+// dimensions) only when the stream has enabled it via EnableEnhancedMonitoring.
+func (b *InMemoryBackend) putShardMetric(
+	region, stream, shardID string, enabled []string, name, unit string, v float64,
+) {
+	if !b.metrics.Enabled() || !shardMetricEnabled(enabled, name) {
+		return
+	}
+
+	b.metrics.Put(region, kinesisMetricNamespace, name, unit, v,
+		streamDim(stream), cwmetric.Dimension{Name: "ShardId", Value: shardID})
+}
+
+func (b *InMemoryBackend) emitShardIncoming(region, stream, shardID string, enabled []string, bytes float64) {
+	b.putShardMetric(region, stream, shardID, enabled, "IncomingRecords", metricUnitCount, 1)
+	b.putShardMetric(region, stream, shardID, enabled, "IncomingBytes", metricUnitBytes, bytes)
+}
+
+func (b *InMemoryBackend) emitShardOutgoing(
+	region, stream, shardID string, enabled []string, results []GetRecordResult,
+) {
+	if !b.metrics.Enabled() {
+		return
+	}
+
+	var bytes, age float64
+
+	for _, r := range results {
+		bytes += float64(len(r.Data))
+	}
+
+	if n := len(results); n > 0 {
+		age = float64(time.Since(results[n-1].ApproximateArrivalTimestamp).Milliseconds())
+	}
+
+	b.putShardMetric(region, stream, shardID, enabled, "OutgoingRecords", metricUnitCount, float64(len(results)))
+	b.putShardMetric(region, stream, shardID, enabled, "OutgoingBytes", metricUnitBytes, bytes)
+	b.putShardMetric(region, stream, shardID, enabled, "IteratorAgeMilliseconds", metricUnitMillis, age)
 }
 
 func millisSince(start time.Time) float64 {

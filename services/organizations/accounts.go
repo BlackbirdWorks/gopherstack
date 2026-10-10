@@ -15,21 +15,39 @@ const (
 	joinedMethodCreated         = "CREATED"
 
 	createAccountStateSucceeded = "SUCCEEDED"
+	createAccountStateFailed    = "FAILED"
+
+	createAccountFailureEmailExists = "EMAIL_ALREADY_EXISTS"
 )
+
+func (b *InMemoryBackend) failedCreateStatusLocked(name, reason string) *CreateAccountStatus {
+	b.statusCounter++
+	now := epochSeconds(time.Now())
+	status := &CreateAccountStatus{
+		ID:                 fmt.Sprintf("car-%012d", b.statusCounter),
+		AccountName:        name,
+		State:              createAccountStateFailed,
+		FailureReason:      reason,
+		RequestedTimestamp: now,
+		CompletedTimestamp: now,
+	}
+	b.createStatuses.Put(status)
+
+	return status
+}
 
 // createAccountLocked creates an account and status record.
 // Must be called with the write lock held.
-// Returns nil if the email already exists (duplicate email).
+// A duplicate email yields a FAILED status with no account, as in AWS.
 func (b *InMemoryBackend) createAccountLocked(
 	name, email, roleName, iamUserAccessToBilling string,
 	acctIDFn func(counter int) string,
 	govCloudID string,
 	tags []Tag,
 ) *CreateAccountStatus {
-	// Check for duplicate email.
 	if b.emailToAccountID != nil {
 		if _, exists := b.emailToAccountID[email]; exists {
-			return nil
+			return b.failedCreateStatusLocked(name, createAccountFailureEmailExists)
 		}
 	}
 
@@ -93,12 +111,7 @@ func (b *InMemoryBackend) CreateAccount(
 		return nil, err
 	}
 
-	status := b.createAccountLocked(name, email, roleName, iamUserAccessToBilling, newAccountID, "", tags)
-	if status == nil {
-		return nil, ErrInvalidInput
-	}
-
-	return status, nil
+	return b.createAccountLocked(name, email, roleName, iamUserAccessToBilling, newAccountID, "", tags), nil
 }
 
 // DescribeCreateAccountStatus returns the status of a CreateAccount request.
@@ -158,6 +171,33 @@ func (b *InMemoryBackend) ListAccounts() ([]*Account, error) {
 
 // RemoveAccountFromOrganization removes an account from the organization.
 func (b *InMemoryBackend) RemoveAccountFromOrganization(accountID string) error {
+	if err := b.removeAccountLocking(accountID); err != nil {
+		return err
+	}
+
+	b.notifyAccountLeft(accountID)
+
+	return nil
+}
+
+// OnAccountLeave registers fn to run (outside the backend lock) after an account has left the organization.
+func (b *InMemoryBackend) OnAccountLeave(fn func(accountID string)) {
+	b.mu.Lock("OnAccountLeave")
+	defer b.mu.Unlock()
+	b.accountLeaveHooks = append(b.accountLeaveHooks, fn)
+}
+
+func (b *InMemoryBackend) notifyAccountLeft(accountID string) {
+	b.mu.RLock("notifyAccountLeft")
+	hooks := slices.Clone(b.accountLeaveHooks)
+	b.mu.RUnlock()
+
+	for _, fn := range hooks {
+		fn(accountID)
+	}
+}
+
+func (b *InMemoryBackend) removeAccountLocking(accountID string) error {
 	b.mu.Lock("RemoveAccountFromOrganization")
 	defer b.mu.Unlock()
 
@@ -263,7 +303,7 @@ func (b *InMemoryBackend) CloseAccount(accountID string) error {
 	}
 
 	if accountID == b.org.MasterAccountID {
-		return ErrInvalidInput
+		return ErrCannotCloseManagementAccount
 	}
 
 	if acct.Status == accountStatusPendingClosure || acct.Status == accountStatusSuspended {
@@ -294,12 +334,7 @@ func (b *InMemoryBackend) CreateGovCloudAccount(
 	// Pre-calculate the GovCloud account ID using the next counter value.
 	govCloudID := newGovCloudAccountID(b.accountCounter + 1)
 
-	status := b.createAccountLocked(name, email, roleName, iamUserAccessToBilling, newAccountID, govCloudID, tags)
-	if status == nil {
-		return nil, ErrInvalidInput
-	}
-
-	return status, nil
+	return b.createAccountLocked(name, email, roleName, iamUserAccessToBilling, newAccountID, govCloudID, tags), nil
 }
 
 // ListCreateAccountStatus returns all CreateAccount status records, optionally filtered by state.

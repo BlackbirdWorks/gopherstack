@@ -29,7 +29,11 @@ func (b *InMemoryBackend) StartIngestionJob(
 		func(j *IngestionJob) string { return j.ClientToken },
 		func(j *IngestionJob) bool { return j.KnowledgeBaseID == kbID && j.DataSourceID == dsID },
 	); prior != nil {
-		return jobCopy(prior), nil
+		return b.jobView(prior), nil
+	}
+
+	if b.ingestionInFlightLocked(kbID, dsID) {
+		return nil, fmt.Errorf("%w: data source %q already has an ingestion job in progress", ErrAlreadyExists, dsID)
 	}
 
 	id := b.nextID("job", &b.jobCounter)
@@ -48,8 +52,9 @@ func (b *InMemoryBackend) StartIngestionJob(
 	}
 
 	b.ingestionJobs.Put(job)
+	b.beginTransition("job/"+jobKey(kbID, dsID, id), ingestionJobStarting, ingestionJobRunning)
 
-	return jobCopy(job), nil
+	return b.jobView(job), nil
 }
 
 // ingestionStatisticsLocked computes document-count statistics for a data
@@ -84,7 +89,7 @@ func (b *InMemoryBackend) GetIngestionJob(
 		return nil, fmt.Errorf("%w: ingestion job %q not found", ErrNotFound, jobID)
 	}
 
-	return jobCopy(job), nil
+	return b.jobView(job), nil
 }
 
 // StopIngestionJob stops an ingestion job.
@@ -101,8 +106,9 @@ func (b *InMemoryBackend) StopIngestionJob(
 
 	job.Status = "STOPPED"
 	job.UpdatedAt = time.Now().UTC()
+	delete(b.transient, "job/"+jobKey(kbID, dsID, jobID))
 
-	return jobCopy(job), nil
+	return b.jobView(job), nil
 }
 
 // IngestionJobFilter mirrors types.IngestionJobFilter. The real SDK's only
@@ -199,7 +205,7 @@ func (b *InMemoryBackend) ListIngestionJobs(
 
 	for _, id := range pageIDs {
 		job, _ := b.ingestionJobs.Get(jobKey(kbID, dsID, id))
-		out = append(out, jobCopy(job))
+		out = append(out, b.jobView(job))
 	}
 
 	return out, outToken, nil

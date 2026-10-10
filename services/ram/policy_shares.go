@@ -2,6 +2,7 @@ package ram
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -232,4 +233,48 @@ func policyTemplateFromActions(actions []string) string {
 	}
 
 	return string(body)
+}
+
+// matchPolicyPermissionLocked requires a customer-managed permission whose default
+// version equals rs's policy-derived permission (api_op_PromoteResourceShareCreatedFromPolicy.go)
+// and re-points rs at it. Caller must hold the write lock.
+func (b *InMemoryBackend) matchPolicyPermissionLocked(rs *ResourceShare) error {
+	for permARN := range b.sharePermissions[rs.ARN] {
+		derived, ok := b.permissions.Get(permARN)
+		if !ok || derived.PermissionType != permissionTypeCreatedFromPolicy {
+			continue
+		}
+
+		match := b.findCustomerPermissionMatchLocked(derived)
+		if match == nil {
+			return fmt.Errorf(
+				"%w: no customer managed permission matches %s; run PromotePermissionCreatedFromPolicy first",
+				ErrUnmatchedPolicyPermission, permARN,
+			)
+		}
+
+		delete(b.sharePermissions[rs.ARN], permARN)
+		b.sharePermissions[rs.ARN][match.ARN] = match.DefaultVersion
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) findCustomerPermissionMatchLocked(derived *Permission) *Permission {
+	want := derived.Versions[derived.DefaultVersion]
+	if want == nil {
+		return nil
+	}
+
+	for _, p := range b.permissions.All() {
+		if p.Deleted || p.PermissionType != permissionTypeCustomer || p.ResourceType != derived.ResourceType {
+			continue
+		}
+
+		if v := p.Versions[p.DefaultVersion]; v != nil && v.PolicyTemplate == want.PolicyTemplate {
+			return p
+		}
+	}
+
+	return nil
 }

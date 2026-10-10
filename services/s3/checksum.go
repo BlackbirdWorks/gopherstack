@@ -1,8 +1,10 @@
 package s3
 
 import (
+	"crypto/md5"  //nolint:gosec // S3 checksum algorithm, not a security use of MD5
 	"crypto/sha1" //nolint:gosec // S3 checksum algorithm, not a security use of SHA1
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
 	"encoding/binary"
 	"hash"
@@ -72,6 +74,10 @@ func newHasherForAlgo(algo string) (hash.Hash, bool) {
 		return sha256.New(), true
 	case ChecksumCRC64NVME:
 		return NewCRC64NVME(), true
+	case ChecksumMD5:
+		return md5.New(), true //nolint:gosec // S3 checksum algorithm, not a security use of MD5
+	case ChecksumSHA512:
+		return sha512.New(), true
 	default:
 		return nil, false
 	}

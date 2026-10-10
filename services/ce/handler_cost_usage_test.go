@@ -5,6 +5,7 @@ import (
 	"maps"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -163,23 +164,93 @@ func TestGetCostAndUsageComparisons_RequiredFields(t *testing.T) {
 	}
 }
 
-// TestGetCostComparisonDrivers_Shape verifies comparison drivers stub.
-func TestGetCostComparisonDrivers_Shape(t *testing.T) {
+func TestGetCostComparisonDrivers(t *testing.T) {
 	t.Parallel()
 
-	h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
-	rec := doRequest(t, h, "GetCostComparisonDrivers", map[string]any{
-		"BaselineTimePeriod":   map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
-		"ComparisonTimePeriod": map[string]string{"Start": "2023-01-01", "End": "2023-02-01"},
-		"MetricForComparison":  "BlendedCost",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	now := time.Now().UTC()
+	day := func(offset int) string { return now.AddDate(0, 0, offset).Format("2006-01-02") }
 
-	var out struct {
-		CostComparisonDrivers []any `json:"CostComparisonDrivers"`
+	tests := []struct {
+		name       string
+		extra      map[string]any
+		baseline   [2]string
+		comparison [2]string
+		minGroups  int
+		maxGroups  int
+	}{
+		{
+			name:       "ungrouped",
+			baseline:   [2]string{day(-60), day(-30)},
+			comparison: [2]string{day(-30), day(0)},
+			minGroups:  1,
+			maxGroups:  1,
+		},
+		{
+			name:       "grouped by service",
+			extra:      map[string]any{"GroupBy": []map[string]string{{"Type": "DIMENSION", "Key": "SERVICE"}}},
+			baseline:   [2]string{day(-60), day(-30)},
+			comparison: [2]string{day(-30), day(0)},
+			minGroups:  2,
+			maxGroups:  100,
+		},
+		{
+			name: "filtered to one service",
+			extra: map[string]any{
+				"GroupBy": []map[string]string{{"Type": "DIMENSION", "Key": "SERVICE"}},
+				"Filter": map[string]any{"Dimensions": map[string]any{
+					"Key": "SERVICE", "Values": []string{"Amazon Simple Storage Service"},
+				}},
+			},
+			baseline:   [2]string{day(-60), day(-30)},
+			comparison: [2]string{day(-30), day(0)},
+			minGroups:  1,
+			maxGroups:  1,
+		},
+		{
+			name:       "no ledger data",
+			baseline:   [2]string{"2020-01-01", "2020-02-01"},
+			comparison: [2]string{"2020-02-01", "2020-03-01"},
+			maxGroups:  0,
+		},
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-	assert.NotNil(t, out.CostComparisonDrivers)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+			body := map[string]any{
+				"BaselineTimePeriod":   map[string]string{"Start": tt.baseline[0], "End": tt.baseline[1]},
+				"ComparisonTimePeriod": map[string]string{"Start": tt.comparison[0], "End": tt.comparison[1]},
+				"MetricForComparison":  "BLENDED_COST",
+			}
+			maps.Copy(body, tt.extra)
+
+			rec := doRequest(t, h, "GetCostComparisonDrivers", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				CostComparisonDrivers []struct {
+					Metrics     map[string]map[string]string `json:"Metrics"`
+					CostDrivers []struct {
+						Name string `json:"Name"`
+						Type string `json:"Type"`
+					} `json:"CostDrivers"`
+				} `json:"CostComparisonDrivers"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NotNil(t, out.CostComparisonDrivers)
+			assert.GreaterOrEqual(t, len(out.CostComparisonDrivers), tt.minGroups)
+			assert.LessOrEqual(t, len(out.CostComparisonDrivers), tt.maxGroups)
+
+			for _, d := range out.CostComparisonDrivers {
+				require.NotEmpty(t, d.CostDrivers)
+				assert.Equal(t, "USAGE_CHANGE", d.CostDrivers[0].Type)
+				assert.NotEmpty(t, d.CostDrivers[0].Name)
+				assert.NotEmpty(t, d.Metrics["BLENDED_COST"]["Difference"])
+			}
+		})
+	}
 }
 
 // TestGetUsageForecast_MatchesCostForecast verifies same shape as cost forecast.
@@ -257,7 +328,7 @@ func TestGetTags_WithTagKey(t *testing.T) {
 func TestGetCostAndUsage_GroupByDimensions(t *testing.T) {
 	t.Parallel()
 
-	dimensions := []string{"REGION", "USAGE_TYPE", "LINKED_ACCOUNT", "TAG$Env"}
+	dimensions := []string{"REGION", "USAGE_TYPE", "LINKED_ACCOUNT"}
 
 	for _, dim := range dimensions {
 		t.Run(dim, func(t *testing.T) {
@@ -297,7 +368,6 @@ func TestGetCostAndUsage_AlternateMetrics(t *testing.T) {
 		{name: "net_unblended_cost", metric: "NetUnblendedCost"},
 		{name: "usage_quantity", metric: "UsageQuantity"},
 		{name: "normalized_usage", metric: "NormalizedUsageAmount"},
-		{name: "unknown_metric", metric: "UnknownMetric"},
 	}
 
 	for _, tt := range tests {

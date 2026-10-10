@@ -72,7 +72,7 @@ func sdkServices1() map[string]sdkService {
 		"sns": {prefix: "Sns", build: func(c aws.Config) any {
 			return xsns.NewFromConfig(c)
 		}},
-		"lambda": {prefix: "Lambda", build: func(c aws.Config) any {
+		awsServiceLambda: {prefix: "Lambda", build: func(c aws.Config) any {
 			return xlambda.NewFromConfig(c)
 		}},
 		"secretsmanager": {prefix: "SecretsManager", build: func(c aws.Config) any {

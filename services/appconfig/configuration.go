@@ -83,20 +83,45 @@ func (b *InMemoryBackend) publishDeployedConfigurationLocked(d *Deployment) {
 	}
 
 	profile, ok := b.configProfiles.Get(d.ConfigurationProfileID)
-	if !ok || profile.LocationURI != contentTypeHostedLocation {
+	if !ok {
 		return
 	}
 
-	hcv, ok := b.resolveHostedConfigVersion(d.ApplicationID, d.ConfigurationProfileID, d.ConfigurationVersion)
-	if !ok {
-		return
+	var (
+		content     []byte
+		contentType string
+	)
+
+	if profile.LocationURI == contentTypeHostedLocation {
+		hcv, found := b.resolveHostedConfigVersion(d.ApplicationID, d.ConfigurationProfileID, d.ConfigurationVersion)
+		if !found {
+			return
+		}
+
+		content, contentType = hcv.Content, hcv.ContentType
+		key := deploymentKey(d.ApplicationID, d.EnvironmentID, d.DeploymentNumber)
+		if override, overridden := b.deploymentContent[key]; overridden {
+			content = override
+		}
+	} else {
+		fetched, err := b.fetchExternalConfigurationLocked(profile, d.ConfigurationVersion)
+		if err != nil {
+			logger.Load(context.Background()).Error(
+				"appconfig: non-hosted configuration read failed",
+				"error", err, "applicationId", d.ApplicationID, "deploymentNumber", d.DeploymentNumber)
+
+			return
+		}
+
+		b.fetchedConfigs[appEnvProfileKey(d.ApplicationID, d.EnvironmentID, d.ConfigurationProfileID)] = fetched
+		content, contentType = fetched.Content, fetched.ContentType
 	}
 
 	deploymentID := strconv.FormatInt(int64(d.DeploymentNumber), 10)
 
 	err := b.configPublisher.PublishConfiguration(
 		d.ApplicationID, d.EnvironmentID, d.ConfigurationProfileID,
-		string(hcv.Content), hcv.ContentType, deploymentID,
+		string(content), contentType, deploymentID,
 	)
 	if err != nil {
 		logger.Load(context.Background()).Error(
@@ -104,6 +129,33 @@ func (b *InMemoryBackend) publishDeployedConfigurationLocked(d *Deployment) {
 			"error", err, "applicationId", d.ApplicationID,
 			"environmentId", d.EnvironmentID, "deploymentNumber", d.DeploymentNumber)
 	}
+}
+
+// fetchExternalConfigurationLocked reads a non-hosted profile's content at version via the wired reader.
+func (b *InMemoryBackend) fetchExternalConfigurationLocked(
+	profile *ConfigurationProfile, version string,
+) (*HostedConfigurationVersion, error) {
+	if b.contentReader == nil {
+		return nil, ErrBadRequest
+	}
+
+	content, contentType, err := b.contentReader.ReadConfiguration(
+		context.Background(), profile.LocationURI, profile.RetrievalRoleArn, version,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if contentType == "" {
+		contentType = contentTypeOctetStream
+	}
+
+	return &HostedConfigurationVersion{
+		ApplicationID:          profile.ApplicationID,
+		ConfigurationProfileID: profile.ID,
+		ContentType:            contentType,
+		Content:                content,
+	}, nil
 }
 
 // resolveConfigurationTriple resolves an application/environment/
@@ -146,6 +198,7 @@ func (b *InMemoryBackend) deleteDeployedConfigsLocked(match func(appID, envID, p
 
 		if match(parts[0], parts[1], parts[2]) {
 			delete(b.deployedConfigs, k)
+			delete(b.fetchedConfigs, k)
 		}
 	}
 }
@@ -216,6 +269,12 @@ func (b *InMemoryBackend) deployedConfigVersionLocked(appID, envID, profileID st
 
 	v, ok := b.resolveHostedConfigVersion(appID, profileID, configVersion)
 	if !ok {
+		if fetched, found := b.fetchedConfigs[appEnvProfileKey(appID, envID, profileID)]; found {
+			cp := *fetched
+
+			return &cp
+		}
+
 		return empty
 	}
 

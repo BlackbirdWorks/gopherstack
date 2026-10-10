@@ -33,6 +33,10 @@ func (b *InMemoryBackend) CreateCluster(
 		return nil, fmt.Errorf("numberOfBrokerNodes must be at least 1: %w", ErrValidation)
 	}
 
+	if err := validateCreateClusterInput(name, kafkaVersion, brokerInfo.InstanceType); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx, b.region)
 
 	var evicted *liveBroker
@@ -114,6 +118,10 @@ func (b *InMemoryBackend) CreateServerlessCluster(
 ) (*Cluster, error) {
 	if name == "" {
 		return nil, fmt.Errorf("clusterName is required: %w", ErrValidation)
+	}
+
+	if err := validateClusterName(name); err != nil {
+		return nil, err
 	}
 
 	region := getRegion(ctx, b.region)
@@ -257,6 +265,19 @@ func (b *InMemoryBackend) AddClusterInternal(name, kafkaVersion string) *Cluster
 	b.clusters.Put(cluster)
 
 	return cloneCluster(cluster)
+}
+
+// AddExpressClusterInternal adds an ACTIVE provisioned cluster with Express brokers directly (seed helper for tests).
+func (b *InMemoryBackend) AddExpressClusterInternal(name, kafkaVersion string) *Cluster {
+	cl := b.AddClusterInternal(name, kafkaVersion)
+
+	b.mu.Lock("AddExpressClusterInternal")
+	defer b.mu.Unlock()
+
+	stored, _ := b.clusters.Get(cl.ClusterArn)
+	stored.BrokerNodeGroupInfo.InstanceType = expressInstanceTypePrefix + "m7g.large"
+
+	return cloneCluster(stored)
 }
 
 // cloneCluster creates a deep copy of a cluster.

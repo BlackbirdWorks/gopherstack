@@ -750,11 +750,14 @@ func TestCreateAccount_EmailUniqueness(t *testing.T) {
 			_, err := b.CreateAccount("Account1", tt.email1, "", "", nil)
 			require.NoError(t, err, "first account creation should succeed")
 
-			_, err = b.CreateAccount("Account2", tt.email2, "", "", nil)
+			st, err := b.CreateAccount("Account2", tt.email2, "", "", nil)
+			require.NoError(t, err)
+
 			if tt.wantErr {
-				require.Error(t, err, "duplicate email should fail")
+				assert.Equal(t, "FAILED", st.State)
+				assert.Equal(t, "EMAIL_ALREADY_EXISTS", st.FailureReason)
 			} else {
-				require.NoError(t, err, "unique email should succeed")
+				assert.Equal(t, "SUCCEEDED", st.State)
 			}
 		})
 	}

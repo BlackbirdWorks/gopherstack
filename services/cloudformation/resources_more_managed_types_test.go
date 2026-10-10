@@ -2,6 +2,7 @@ package cloudformation_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,7 +94,7 @@ func TestCreateStack_EC2LaunchTemplate(t *testing.T) {
 }
 }`, tt.instanceType)
 
-			stackName := "lt-stack-" + tt.name
+			stackName := "lt-stack-" + strings.ReplaceAll(tt.name, "_", "-")
 			outputs := createStackAndGetOutputs(t, client, stackName, tmpl)
 
 			ltID := outputs["Id"]
@@ -207,7 +208,7 @@ func TestCreateStack_AutoScalingScalingPolicy(t *testing.T) {
 }
 }`, tt.policyType, tt.extraProps)
 
-			stackName := "sp-stack-" + tt.name
+			stackName := "sp-stack-" + strings.ReplaceAll(tt.name, "_", "-")
 			outputs := createStackAndGetOutputs(t, client, stackName, tmpl)
 
 			policyARN := outputs["Arn"]

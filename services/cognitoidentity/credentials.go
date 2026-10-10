@@ -100,17 +100,21 @@ func (b *InMemoryBackend) GetOpenIDToken(
 	b.mu.RLock("GetOpenIDToken")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.identityGet(region, identityID); !ok {
+	identity, ok := b.identityGet(region, identityID)
+	if !ok {
 		return nil, fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
 	}
 
-	// Return a synthetic token.
-	payload, err := randomAlphanumeric(tokenLen)
+	token, err := issueOpenIDToken(
+		identity.IdentityPoolID,
+		identityID,
+		len(identity.Logins) > 0,
+		getOpenIDTokenTTL,
+		nil,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("generate token: %w", err)
+		return nil, err
 	}
-
-	token := fmt.Sprintf("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.%s.signature", payload)
 
 	return &OpenIDToken{
 		IdentityID: identityID,
@@ -126,6 +130,7 @@ func (b *InMemoryBackend) GetOpenIDTokenForDeveloperIdentity(
 	identityID string,
 	logins map[string]string,
 	tokenDuration int64,
+	opts ...DeveloperTokenOptions,
 ) (*DeveloperOpenIDToken, error) {
 	const maxTokenDuration = 86400
 
@@ -162,12 +167,20 @@ func (b *InMemoryBackend) GetOpenIDTokenForDeveloperIdentity(
 		identityID = b.lookupOrCreateDeveloperIdentity(region, poolID, logins)
 	}
 
-	payload, err := randomAlphanumeric(tokenLen)
-	if err != nil {
-		return nil, fmt.Errorf("generate token: %w", err)
+	ttl := defaultDeveloperTokenTTL
+	if tokenDuration > 0 {
+		ttl = time.Duration(tokenDuration) * time.Second
 	}
 
-	token := fmt.Sprintf("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.%s.signature", payload)
+	var tags map[string]string
+	if len(opts) > 0 {
+		tags = opts[0].PrincipalTags
+	}
+
+	token, err := issueOpenIDToken(poolID, identityID, true, ttl, tags)
+	if err != nil {
+		return nil, err
+	}
 
 	return &DeveloperOpenIDToken{
 		IdentityID: identityID,

@@ -11,6 +11,8 @@ import (
 // construct near ..." error message quotes.
 const maxSQLErrorPreviewTokens = 6
 
+const havingItemName = "_having"
+
 // selectItemKind identifies what a single SELECT list entry projects.
 type selectItemKind int
 
@@ -18,7 +20,28 @@ const (
 	itemColumn selectItemKind = iota
 	itemCountStar
 	itemCount
+	itemSum
+	itemAvg
+	itemMin
+	itemMax
 )
+
+func aggFuncKind(name string) (selectItemKind, bool) {
+	switch strings.ToUpper(name) {
+	case "SUM":
+		return itemSum, true
+	case "AVG":
+		return itemAvg, true
+	case "MIN":
+		return itemMin, true
+	case "MAX":
+		return itemMax, true
+	default:
+		return 0, false
+	}
+}
+
+func (k selectItemKind) isAggregate() bool { return k >= itemCountStar }
 
 // selectItem is one resolved SELECT list entry: a bare column, or a COUNT
 // aggregate. column is the lowercased source column to read from a row
@@ -35,18 +58,67 @@ type selectItem struct {
 	column  string
 	outName string
 	kind    selectItemKind
+	aliased bool
 }
 
 // parsedLakeQuery is a successfully parsed statement in the supported
 // CloudTrail Lake SQL subset (see query_exec.go's file doc comment).
 type parsedLakeQuery struct {
-	items    []selectItem // nil means "SELECT *"
-	where    whereExpr    // nil means no WHERE (match everything)
-	groupBy  []string     // lowercased GROUP BY column names
+	where    whereExpr
+	having   *havingCond
+	from     fromSource
+	items    []selectItem
+	joins    []joinClause
+	groupBy  []string
 	orderBy  []orderTerm
-	limit    int // 0 means "use defaultQueryRowLimit"
+	limit    int
 	hasAgg   bool
 	distinct bool
+}
+
+// fromSource is one FROM/JOIN relation: an event data store or a derived-table subquery.
+type fromSource struct {
+	sub   *queryNode
+	store string
+	alias string
+}
+
+// prefix is the qualifier columns of this source may be addressed with ("alias.col").
+func (f fromSource) prefix() string {
+	if f.alias != "" {
+		return strings.ToLower(f.alias)
+	}
+
+	return strings.ToLower(f.store)
+}
+
+// joinCond is one equality of an ON clause.
+type joinCond struct{ left, right string }
+
+type joinClause struct {
+	kind string
+	src  fromSource
+	on   []joinCond
+}
+
+// queryNode is a query expression: a plain SELECT, or a UNION/INTERSECT/EXCEPT of two query expressions
+// with an optional trailing ORDER BY/LIMIT applying to the combined result.
+type queryNode struct {
+	sel     *parsedLakeQuery
+	left    *queryNode
+	right   *queryNode
+	op      string
+	orderBy []orderTerm
+	limit   int
+	all     bool
+}
+
+// havingCond is a HAVING <aggregate | select alias> <op> <literal> predicate.
+type havingCond struct {
+	alias string
+	op    string
+	value string
+	item  selectItem
 }
 
 // orderTerm is one ORDER BY key: a SELECT-list alias/column or a source column.
@@ -110,13 +182,13 @@ func (p *lakeParser) eatPunct(punct string) bool {
 	return true
 }
 
-func (p *lakeParser) peekPunctAt(offset int, punct string) bool {
-	i := p.pos + offset
+func (p *lakeParser) openParenNext() bool {
+	i := p.pos + 1
 	if i >= len(p.toks) {
 		return false
 	}
 
-	return p.toks[i].kind == sqlTokPunct && p.toks[i].text == punct
+	return p.toks[i].kind == sqlTokPunct && p.toks[i].text == "("
 }
 
 func (p *lakeParser) remainingPreview() string {
@@ -136,7 +208,8 @@ func (p *lakeParser) remainingPreview() string {
 var lakeReservedWords = map[string]struct{}{ //nolint:gochecknoglobals // static lookup table
 	"WHERE": {}, "GROUP": {}, "LIMIT": {}, "AND": {}, "OR": {}, "NOT": {},
 	"LIKE": {}, "IN": {}, "AS": {}, "BY": {}, "JOIN": {}, "INNER": {},
-	"LEFT": {}, "RIGHT": {}, "UNION": {}, "EXCEPT": {}, "INTERSECT": {}, "ORDER": {}, "HAVING": {},
+	"LEFT": {}, "RIGHT": {}, setOpUnion: {}, setOpExcept: {}, setOpIntersect: {}, "ORDER": {}, "HAVING": {},
+	"ON": {}, "OUTER": {}, "FULL": {}, "CROSS": {}, "SELECT": {}, "ALL": {}, "DISTINCT": {},
 }
 
 func isLakeKeyword(text string) bool {
@@ -144,15 +217,6 @@ func isLakeKeyword(text string) bool {
 
 	return ok
 }
-
-// multiTableKeywords are the real CloudTrail Lake join/set operators this
-// emulator does not implement (docs.aws.amazon.com/awscloudtrail/latest/
-// userguide/query-limitations.html#query-aggregates-condition-operators'
-// "Supported join operators": JOIN/UNION/EXCEPT/INTERSECT, plus INNER/LEFT/
-// RIGHT as the JOIN qualifiers CloudTrail's own doc lists separately).
-//
-//nolint:gochecknoglobals // static lookup table
-var multiTableKeywords = []string{"JOIN", "INNER", "LEFT", "RIGHT", "UNION", "EXCEPT", "INTERSECT"}
 
 // parseLakeQuery attempts to parse stmt against the supported CloudTrail
 // Lake SQL subset. The second return is "" on success, or a human-readable
@@ -162,27 +226,146 @@ var multiTableKeywords = []string{"JOIN", "INNER", "LEFT", "RIGHT", "UNION", "EX
 // v1.58.4 api_op_DescribeQuery.go:69; QueryStatus has a FAILED value,
 // types/enums.go:384) -- a query outside what this emulator can execute is
 // a genuine query failure, not a silent empty result set.
-func parseLakeQuery(stmt string) (parsedLakeQuery, string) {
+func parseLakeQuery(stmt string) (*queryNode, string) {
 	toks, ok := tokenizeLakeSQL(stmt)
 	if !ok {
-		return parsedLakeQuery{}, "unable to parse query: unsupported character or unterminated string literal"
+		return nil, "unable to parse query: unsupported character or unterminated string literal"
 	}
 
 	p := &lakeParser{toks: toks}
 
-	pq, errMsg := p.parseSelectStatement()
+	node, errMsg := p.parseQuery()
 	if errMsg != "" {
-		return parsedLakeQuery{}, errMsg
+		return nil, errMsg
 	}
 
 	if p.pos != len(p.toks) {
-		return parsedLakeQuery{}, fmt.Sprintf("unsupported SQL construct near %q", p.remainingPreview())
+		return nil, fmt.Sprintf("unsupported SQL construct near %q", p.remainingPreview())
 	}
 
-	return pq, ""
+	return node, ""
 }
 
-func (p *lakeParser) parseSelectStatement() (parsedLakeQuery, string) {
+// parseQuery parses set-operation expressions followed by the ORDER BY/LIMIT that applies to the whole result.
+func (p *lakeParser) parseQuery() (*queryNode, string) {
+	node, errMsg := p.parseSetExpr()
+	if errMsg != "" {
+		return nil, errMsg
+	}
+
+	orderBy, errMsg := p.parseOptionalOrderBy()
+	if errMsg != "" {
+		return nil, errMsg
+	}
+
+	limit, errMsg := p.parseOptionalLimit()
+	if errMsg != "" {
+		return nil, errMsg
+	}
+
+	if node.sel == nil {
+		node.orderBy, node.limit = orderBy, limit
+
+		return node, ""
+	}
+
+	if (len(orderBy) > 0 || limit > 0) && (len(node.sel.orderBy) > 0 || node.sel.limit > 0) {
+		return nil, "ORDER BY/LIMIT applied twice to the same query"
+	}
+
+	if len(orderBy) > 0 || limit > 0 {
+		node.sel.orderBy, node.sel.limit = orderBy, limit
+	}
+
+	if validErr := validateOrderAndDistinct(
+		node.sel.items, node.sel.hasAgg, node.sel.distinct, node.sel.orderBy,
+	); validErr != "" {
+		return nil, validErr
+	}
+
+	return node, ""
+}
+
+// parseSetExpr parses UNION/EXCEPT chains; INTERSECT binds tighter, as in standard SQL.
+func (p *lakeParser) parseSetExpr() (*queryNode, string) {
+	left, errMsg := p.parseIntersectExpr()
+	if errMsg != "" {
+		return nil, errMsg
+	}
+
+	for p.atKeyword(setOpUnion) || p.atKeyword(setOpExcept) {
+		left, errMsg = p.parseSetTail(left, p.parseIntersectExpr)
+		if errMsg != "" {
+			return nil, errMsg
+		}
+	}
+
+	return left, ""
+}
+
+func (p *lakeParser) parseIntersectExpr() (*queryNode, string) {
+	left, errMsg := p.parseQueryPrimary()
+	if errMsg != "" {
+		return nil, errMsg
+	}
+
+	for p.atKeyword(setOpIntersect) {
+		left, errMsg = p.parseSetTail(left, p.parseQueryPrimary)
+		if errMsg != "" {
+			return nil, errMsg
+		}
+	}
+
+	return left, ""
+}
+
+func (p *lakeParser) parseSetTail(
+	left *queryNode, operand func() (*queryNode, string),
+) (*queryNode, string) {
+	op := strings.ToUpper(p.advance().text)
+	all := false
+
+	switch {
+	case p.eatKeyword("ALL"):
+		all = true
+	case p.eatKeyword("DISTINCT"):
+	}
+
+	if all && op != setOpUnion {
+		return nil, op + " ALL is not supported by this emulator"
+	}
+
+	right, errMsg := operand()
+	if errMsg != "" {
+		return nil, errMsg
+	}
+
+	return &queryNode{op: op, all: all, left: left, right: right}, ""
+}
+
+func (p *lakeParser) parseQueryPrimary() (*queryNode, string) {
+	if p.eatPunct("(") {
+		node, errMsg := p.parseQuery()
+		if errMsg != "" {
+			return nil, errMsg
+		}
+
+		if !p.eatPunct(")") {
+			return nil, "expected ) to close ("
+		}
+
+		return node, ""
+	}
+
+	sel, errMsg := p.parseSelectCore()
+	if errMsg != "" {
+		return nil, errMsg
+	}
+
+	return &queryNode{sel: &sel}, ""
+}
+
+func (p *lakeParser) parseSelectCore() (parsedLakeQuery, string) {
 	if !p.eatKeyword("SELECT") {
 		return parsedLakeQuery{}, "expected SELECT"
 	}
@@ -198,9 +381,12 @@ func (p *lakeParser) parseSelectStatement() (parsedLakeQuery, string) {
 		return parsedLakeQuery{}, "expected FROM"
 	}
 
-	if fromErr := p.parseFromTarget(); fromErr != "" {
-		return parsedLakeQuery{}, fromErr
+	from, joins, errMsg := p.parseFromClause()
+	if errMsg != "" {
+		return parsedLakeQuery{}, errMsg
 	}
+
+	stripSourceQualifiers(items, from, joins)
 
 	where, errMsg := p.parseOptionalWhere()
 	if errMsg != "" {
@@ -212,66 +398,200 @@ func (p *lakeParser) parseSelectStatement() (parsedLakeQuery, string) {
 		return parsedLakeQuery{}, errMsg
 	}
 
-	orderBy, errMsg := p.parseOptionalOrderBy()
+	having, errMsg := p.parseOptionalHaving()
 	if errMsg != "" {
 		return parsedLakeQuery{}, errMsg
 	}
 
-	limit, errMsg := p.parseOptionalLimit()
-	if errMsg != "" {
-		return parsedLakeQuery{}, errMsg
+	if havingErr := validateHaving(having, items, hasAgg); havingErr != "" {
+		return parsedLakeQuery{}, havingErr
 	}
 
 	if validErr := validateAggregateColumns(items, hasAgg, groupBy); validErr != "" {
 		return parsedLakeQuery{}, validErr
 	}
 
-	if validErr := validateOrderAndDistinct(items, hasAgg, distinct, orderBy); validErr != "" {
+	if validErr := validateOrderAndDistinct(items, hasAgg, distinct, nil); validErr != "" {
 		return parsedLakeQuery{}, validErr
 	}
 
 	return parsedLakeQuery{
-		items: items, where: where, groupBy: groupBy, orderBy: orderBy,
-		limit: limit, hasAgg: hasAgg, distinct: distinct,
+		items: items, where: where, groupBy: groupBy, having: having,
+		hasAgg: hasAgg, distinct: distinct, from: from, joins: joins,
 	}, ""
 }
 
-// parseFromTarget consumes the FROM clause's single event-data-store
-// identifier and an optional alias, then rejects anything that looks like a
-// multi-event-data-store construct: CloudTrail Lake genuinely supports
-// joins/set operations across event data stores (see multiTableKeywords),
-// which this emulator does not implement -- disclosed in PARITY.md, not
-// silently ignored.
-func (p *lakeParser) parseFromTarget() string {
-	if p.advance().kind != sqlTokIdent {
-		return "expected an event data store identifier after FROM"
+// stripSourceQualifiers drops a leading "<source>." from the default output name of an unaliased
+// column, so SELECT a.eventName is named eventName as in Trino.
+func stripSourceQualifiers(items []selectItem, from fromSource, joins []joinClause) {
+	prefixes := make([]string, 0, 1+len(joins))
+	prefixes = append(prefixes, from.prefix())
+
+	for _, j := range joins {
+		prefixes = append(prefixes, j.src.prefix())
+	}
+
+	for i := range items {
+		if items[i].kind != itemColumn || items[i].aliased {
+			continue
+		}
+
+		for _, pre := range prefixes {
+			if pre != "" && len(items[i].outName) > len(pre)+1 &&
+				strings.EqualFold(items[i].outName[:len(pre)+1], pre+".") {
+				items[i].outName = items[i].outName[len(pre)+1:]
+
+				break
+			}
+		}
+	}
+}
+
+// parseFromClause parses the FROM relation and any JOINs.
+func (p *lakeParser) parseFromClause() (fromSource, []joinClause, string) {
+	src, errMsg := p.parseFromSource()
+	if errMsg != "" {
+		return fromSource{}, nil, errMsg
+	}
+
+	var joins []joinClause
+
+	for {
+		kind, kindErr := p.parseJoinKind()
+		if kindErr != "" {
+			return fromSource{}, nil, kindErr
+		}
+
+		if kind == "" {
+			break
+		}
+
+		jc, tailErr := p.parseJoinTail(kind)
+		if tailErr != "" {
+			return fromSource{}, nil, tailErr
+		}
+
+		joins = append(joins, jc)
+	}
+
+	if p.atPunct(",") {
+		return fromSource{}, nil, "multi-table FROM (comma-separated event data stores) is not supported by this emulator"
+	}
+
+	return src, joins, ""
+}
+
+func (p *lakeParser) parseFromSource() (fromSource, string) {
+	var src fromSource
+
+	if p.eatPunct("(") {
+		sub, errMsg := p.parseQuery()
+		if errMsg != "" {
+			return fromSource{}, errMsg
+		}
+
+		if !p.eatPunct(")") {
+			return fromSource{}, "expected ) to close the subquery"
+		}
+
+		src.sub = sub
+	} else {
+		t := p.advance()
+		if t.kind != sqlTokIdent {
+			return fromSource{}, "expected an event data store identifier or subquery after FROM"
+		}
+
+		src.store = t.text
 	}
 
 	switch {
 	case p.eatKeyword("AS"):
-		if p.advance().kind != sqlTokIdent {
-			return "expected an alias identifier after AS"
+		t := p.advance()
+		if t.kind != sqlTokIdent {
+			return fromSource{}, "expected an alias identifier after AS"
 		}
+
+		src.alias = t.text
 	case p.peek().kind == sqlTokIdent && !isLakeKeyword(p.peek().text):
-		p.pos++ // bare alias, no AS
+		src.alias = p.advance().text
 	}
 
-	for _, kw := range multiTableKeywords {
-		if p.atKeyword(kw) {
-			return fmt.Sprintf(
-				"multi-event-data-store queries (JOIN/UNION/EXCEPT/INTERSECT) are not supported by this "+
-					"emulator -- see docs.aws.amazon.com/awscloudtrail/latest/userguide/query-limitations.html"+
-					"#query-aggregates-condition-operators; found %q after the FROM target",
-				kw,
-			)
-		}
+	return src, ""
+}
+
+const (
+	setOpUnion     = "UNION"
+	setOpExcept    = "EXCEPT"
+	setOpIntersect = "INTERSECT"
+
+	joinInner = "INNER"
+	joinLeft  = "LEFT"
+	joinRight = "RIGHT"
+)
+
+// parseJoinKind consumes a join keyword sequence, returning INNER, LEFT or RIGHT, or "" when none follows.
+func (p *lakeParser) parseJoinKind() (string, string) {
+	switch {
+	case p.eatKeyword("JOIN"):
+		return joinInner, ""
+	case p.eatKeyword("INNER"):
+		return joinInner, p.expectJoin()
+	case p.eatKeyword("LEFT"):
+		p.eatKeyword("OUTER")
+
+		return joinLeft, p.expectJoin()
+	case p.eatKeyword("RIGHT"):
+		p.eatKeyword("OUTER")
+
+		return joinRight, p.expectJoin()
+	case p.atKeyword("FULL") || p.atKeyword("CROSS"):
+		return "", strings.ToUpper(p.peek().text) + " JOIN is not supported by this emulator"
 	}
 
-	if p.atPunct(",") {
-		return "multi-table FROM (comma-separated event data stores) is not supported by this emulator"
+	return "", ""
+}
+
+func (p *lakeParser) expectJoin() string {
+	if !p.eatKeyword("JOIN") {
+		return "expected JOIN"
 	}
 
 	return ""
+}
+
+const joinOnUnsupported = "JOIN ... ON supports only column = column equalities joined by AND"
+
+func (p *lakeParser) parseJoinTail(kind string) (joinClause, string) {
+	src, errMsg := p.parseFromSource()
+	if errMsg != "" {
+		return joinClause{}, errMsg
+	}
+
+	if !p.eatKeyword("ON") {
+		return joinClause{}, "expected ON after JOIN"
+	}
+
+	jc := joinClause{kind: kind, src: src}
+
+	for {
+		l := p.advance()
+		if l.kind != sqlTokIdent || !p.eatPunct("=") {
+			return joinClause{}, joinOnUnsupported
+		}
+
+		r := p.advance()
+		if r.kind != sqlTokIdent {
+			return joinClause{}, joinOnUnsupported
+		}
+
+		jc.on = append(jc.on, joinCond{left: strings.ToLower(l.text), right: strings.ToLower(r.text)})
+
+		if !p.eatKeyword("AND") {
+			break
+		}
+	}
+
+	return jc, ""
 }
 
 func (p *lakeParser) parseSelectList() ([]selectItem, bool, string) {
@@ -291,7 +611,7 @@ func (p *lakeParser) parseSelectList() ([]selectItem, bool, string) {
 			return nil, false, errMsg
 		}
 
-		if item.kind == itemCount || item.kind == itemCountStar {
+		if item.kind.isAggregate() {
 			hasAgg = true
 		}
 
@@ -306,15 +626,12 @@ func (p *lakeParser) parseSelectList() ([]selectItem, bool, string) {
 }
 
 func (p *lakeParser) parseSelectItem(idx int) (selectItem, string) {
-	if p.atKeyword("COUNT") && p.peekPunctAt(1, "(") {
+	if p.atKeyword("COUNT") && p.openParenNext() {
 		return p.parseCountItem(idx)
 	}
 
-	if isUnsupportedAggregateFunc(p.peek().text) && p.peekPunctAt(1, "(") {
-		return selectItem{}, fmt.Sprintf(
-			"aggregate function %s is not supported by this emulator (only COUNT is implemented) -- see PARITY.md",
-			strings.ToUpper(p.peek().text),
-		)
+	if kind, ok := aggFuncKind(p.peek().text); ok && p.openParenNext() {
+		return p.parseColumnAggItem(idx, kind)
 	}
 
 	t := p.advance()
@@ -331,6 +648,35 @@ func (p *lakeParser) parseSelectItem(idx int) (selectItem, string) {
 
 	if alias != "" {
 		item.outName = alias
+		item.aliased = true
+	}
+
+	return item, ""
+}
+
+func (p *lakeParser) parseColumnAggItem(idx int, kind selectItemKind) (selectItem, string) {
+	name := strings.ToUpper(p.peek().text)
+	p.pos += 2
+
+	col := p.advance()
+	if col.kind != sqlTokIdent {
+		return selectItem{}, fmt.Sprintf("expected a column name inside %s(...)", name)
+	}
+
+	if !p.eatPunct(")") {
+		return selectItem{}, fmt.Sprintf("expected ) to close %s(", name)
+	}
+
+	item := selectItem{kind: kind, column: strings.ToLower(col.text), outName: fmt.Sprintf("_col%d", idx)}
+
+	alias, errMsg := p.parseOptionalAlias()
+	if errMsg != "" {
+		return selectItem{}, errMsg
+	}
+
+	if alias != "" {
+		item.outName = alias
+		item.aliased = true
 	}
 
 	return item, ""
@@ -364,6 +710,7 @@ func (p *lakeParser) parseCountItem(idx int) (selectItem, string) {
 
 	if alias != "" {
 		item.outName = alias
+		item.aliased = true
 	}
 
 	return item, ""
@@ -380,15 +727,6 @@ func (p *lakeParser) parseOptionalAlias() (string, string) {
 	}
 
 	return t.text, ""
-}
-
-func isUnsupportedAggregateFunc(name string) bool {
-	switch strings.ToUpper(name) {
-	case "SUM", "AVG", "MIN", "MAX":
-		return true
-	default:
-		return false
-	}
 }
 
 func (p *lakeParser) parseOptionalWhere() (whereExpr, string) {
@@ -453,6 +791,17 @@ func (p *lakeParser) parseUnaryExpr() (whereExpr, string) {
 }
 
 func (p *lakeParser) parsePrimaryExpr() (whereExpr, string) {
+	if p.atKeyword("EXISTS") && p.openParenNext() {
+		p.pos++
+
+		sub, errMsg := p.parseSubquery()
+		if errMsg != "" {
+			return nil, errMsg
+		}
+
+		return existsNode{sub: sub}, ""
+	}
+
 	if p.eatPunct("(") {
 		expr, errMsg := p.parseOrExpr()
 		if errMsg != "" {
@@ -496,6 +845,15 @@ func (p *lakeParser) parseComparison(column string) (whereExpr, string) {
 		return nil, fmt.Sprintf("expected =, !=, <>, LIKE, or IN after column %q", column)
 	}
 
+	if p.atPunct("(") && p.peekKeywordNext("SELECT") {
+		sub, errMsg := p.parseSubquery()
+		if errMsg != "" {
+			return nil, errMsg
+		}
+
+		return cmpSubNode{column: column, sub: sub, negate: op.text != "="}, ""
+	}
+
 	val, errMsg := p.parseValue()
 	if errMsg != "" {
 		return nil, errMsg
@@ -518,7 +876,40 @@ func (p *lakeParser) parseLikeCondition(column string, negate bool) (whereExpr, 
 	return likeNode{column: column, pattern: re, negate: negate}, ""
 }
 
+// parseSubquery parses "( query )" starting at the opening parenthesis.
+func (p *lakeParser) parseSubquery() (*queryNode, string) {
+	if !p.eatPunct("(") {
+		return nil, "expected ( to open the subquery"
+	}
+
+	sub, errMsg := p.parseQuery()
+	if errMsg != "" {
+		return nil, errMsg
+	}
+
+	if !p.eatPunct(")") {
+		return nil, "expected ) to close the subquery"
+	}
+
+	return sub, ""
+}
+
+func (p *lakeParser) peekKeywordNext(kw string) bool {
+	i := p.pos + 1
+
+	return i < len(p.toks) && p.toks[i].kind == sqlTokIdent && strings.EqualFold(p.toks[i].text, kw)
+}
+
 func (p *lakeParser) parseInCondition(column string, negate bool) (whereExpr, string) {
+	if p.atPunct("(") && p.peekKeywordNext("SELECT") {
+		sub, errMsg := p.parseSubquery()
+		if errMsg != "" {
+			return nil, errMsg
+		}
+
+		return inSubNode{column: column, sub: sub, negate: negate}, ""
+	}
+
 	if !p.eatPunct("(") {
 		return nil, "expected ( after IN"
 	}
@@ -579,6 +970,46 @@ func (p *lakeParser) parseOptionalGroupBy() ([]string, string) {
 	}
 
 	return cols, ""
+}
+
+func (p *lakeParser) parseOptionalHaving() (*havingCond, string) {
+	if !p.eatKeyword("HAVING") {
+		return nil, ""
+	}
+
+	h := &havingCond{}
+
+	_, isAgg := aggFuncKind(p.peek().text)
+	if (isAgg || p.atKeyword("COUNT")) && p.openParenNext() {
+		item, errMsg := p.parseSelectItem(0)
+		if errMsg != "" {
+			return nil, errMsg
+		}
+
+		item.outName = havingItemName
+		h.item = item
+	} else {
+		t := p.advance()
+		if t.kind != sqlTokIdent {
+			return nil, "expected an aggregate or SELECT-list alias after HAVING"
+		}
+
+		h.alias = t.text
+	}
+
+	op := p.advance()
+	if op.kind != sqlTokPunct || !slices.Contains([]string{"=", "!=", "<>", "<", "<=", ">", ">="}, op.text) {
+		return nil, "expected a comparison operator in HAVING"
+	}
+
+	val, errMsg := p.parseValue()
+	if errMsg != "" {
+		return nil, errMsg
+	}
+
+	h.op, h.value = op.text, val
+
+	return h, ""
 }
 
 func (p *lakeParser) parseOptionalOrderBy() ([]orderTerm, string) {
@@ -667,7 +1098,7 @@ func (p *lakeParser) parseOptionalLimit() (int, string) {
 func validateAggregateColumns(items []selectItem, hasAgg bool, groupBy []string) string {
 	if !hasAgg {
 		if len(groupBy) > 0 {
-			return "GROUP BY without an aggregate function (COUNT) in the SELECT list is not supported by this emulator"
+			return "GROUP BY without an aggregate function in the SELECT list is not supported by this emulator"
 		}
 
 		return ""
@@ -684,6 +1115,23 @@ func validateAggregateColumns(items []selectItem, hasAgg bool, groupBy []string)
 				item.column,
 			)
 		}
+	}
+
+	return ""
+}
+
+func validateHaving(h *havingCond, items []selectItem, hasAgg bool) string {
+	if h == nil {
+		return ""
+	}
+
+	if !hasAgg {
+		return "HAVING requires an aggregate function in the SELECT list"
+	}
+
+	if h.alias != "" &&
+		!slices.ContainsFunc(items, func(it selectItem) bool { return strings.EqualFold(it.outName, h.alias) }) {
+		return fmt.Sprintf("HAVING %q must name a SELECT-list alias or be an aggregate", h.alias)
 	}
 
 	return ""

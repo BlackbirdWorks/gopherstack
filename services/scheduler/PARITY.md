@@ -2,7 +2,7 @@
 service: scheduler
 sdk_module: aws-sdk-go-v2/service/scheduler@v1.20.4   # version audited against
 last_audit_commit: 615cda74e                           # HEAD when this audit pass started
-last_audit_date: 2026-08-20
+last_audit_date: 2026-10-10
 overall: A            # genuine wire-breaking and next-invocation-computation bugs found and fixed (see Notes)
 ops:
   CreateSchedule:      {wire: fixed, errors: ok, state: fixed, persist: ok, note: "Target.EcsParameters wire bugs fixed (see 2026-08-20 Notes); ClientToken now idempotent (see Notes); ScheduleExpressionTimezone now validated as a real IANA name; ScheduleExpression now semantically validated (rate/cron/at), not just structurally; cron field values (ranges/names/wildcards) now validated per-field, see 2026-08-11 gopherstack-cz9e Notes"}
@@ -20,13 +20,32 @@ ops:
 families:
   RouteMatcher: {status: ok, note: "re-verified every op's REST method+path prefix against aws-sdk-go-v2 serializers.go this pass -- no drift; see prior pass's per-op mapping in Notes."}
   next-invocation computation: {status: fixed, note: "at() one-time expressions were validated at Create/Update time but the runner's isDue only matched rate()/cron() prefixes -- an at() schedule could NEVER fire. ScheduleExpressionTimezone was stored/round-tripped on the wire but never applied when evaluating cron/at wall-clock matches (runner always used the poll goroutine's raw time.Time, i.e. implicitly UTC/server-local). StartDate/EndDate were stored/round-tripped but the runner never gated cron/rate firing on them. All three fixed this pass -- see Notes."}
-  cross-service target delivery: {status: ok, note: "cli.go's wireSchedulerRunner wires ALL 8 Runner invoker interfaces (Lambda, SQS, SNS, StepFunctions, EventBridge, Kinesis, SageMaker, ECS); unchanged this pass, re-confirmed not a gap."}
+  cross-service target delivery: {status: ok, note: "wireSchedulerRunner wires the 8 core invokers; wireSchedulerDeliveryTargets adds Firehose, CodeBuild and CodePipeline; wireSchedulerUniversalTargets adds aws-sdk universal targets (see 2026-10-09 Notes)."}
 gaps: []
 items_still_open:
-  - {area: "cron L/W/# matching", note: "validateCronFields (2026-08-11, gopherstack-cz9e) accepts AWS-documented L/W/# cron tokens (last day, nearest-weekday, nth-weekday-of-month), plus the undocumented-but-plausible LW and L-<n> composite forms (see Notes), as syntactically legal, but matchesCronPart (schedule_expression.go) does not implement any of their matching semantics -- a schedule using e.g. cron(15 10 ? * 6L 2022-2023) or cron(30 23 L-2 * ? *) is accepted at Create/Update and then never fires. Deliberately left accepting rather than rejecting per this pass's under-enforcement directive (AWS genuinely accepts at least the documented subset of this syntax, and neither AWS source rules out the rest); implementing the matcher is separate follow-up work."}
+  - "Classic Inspector StartAssessmentRun templated target (arn:aws:inspector:...) is not delivered: only inspector2 is implemented, which has no assessment templates."
 deferred: []
 leaks: {status: clean, note: "leak_main_test.go (testleak.VerifyTestMain) passes under -race. The runner's poll goroutine remains the only background goroutine (ctx-parented via Handler.StartWorker/Shutdown, unchanged this pass). New state added this pass (Runner.locCache, Handler.idempotency) is plain in-memory data with no goroutines/tickers of its own; both are swept/bounded (locCache via the existing per-poll sweep alongside cronCache; idempotency via TTL-based lazy eviction) and cleared on Handler.Reset."}
 ---
+
+## 2026-10-09 universal targets
+
+`arn:aws:scheduler:::aws-sdk:{service}:{action}` targets call the service API in-process: `Target.Input` is the JSON
+request (PascalCase members, `{}` when empty) and the call goes through the Step Functions SDK integration, so any
+service in its table (including `batch:submitJob`) is reachable, with errors retried per the retry policy and then sent
+to the DLQ. Under `--enforce-iam` the call is signed with credentials of the schedule's `RoleArn` assumed by
+`scheduler.amazonaws.com`, so the target service authorizes against the real resource. Wired by
+`wireSchedulerUniversalTargets`. Tests: `TestSchedulerUniversalTargets` (sqs, dynamodb, batch),
+`TestSchedulerDeliveryTargets` (Firehose, CodePipeline). All templated target shapes in scheduler@v1.20.4
+(`EcsParameters`, `EventBridgeParameters`, `KinesisParameters`, `SageMakerPipelineParameters`, `SqsParameters`) were
+already delivered; the classic Amazon Inspector `StartAssessmentRun` templated target is not (no classic Inspector
+service exists here, only inspector2).
+
+## 2026-10-07 items_still_open burn-down
+
+cron L, LW, L-n, nW (day-of-month) and L, nL, n#m (day-of-week) now match
+(`cron_special.go`, `TestScheduler_Runner_CronSpecialTokens`); earlier notes saying such schedules never
+fire are history. L-n in day-of-week is now rejected (Quartz supports it for day-of-month only).
 
 ## Notes (2026-08-21 pass, gopherstack-r80d batch 32)
 
@@ -778,3 +797,17 @@ SQS (incl. FIFO), Kinesis, EventBridge and SageMaker targets resolve their backe
 ## 2026-10-05 (gopherstack-uox6 pass 5, value semantics)
 
 UpdateSchedule resets an omitted State to ENABLED and ActionAfterCompletion to NONE (full replacement, api_op_UpdateSchedule.go:16-19); omitted ScheduleExpressionTimezone is stored and returned as UTC.
+
+## 2026-10-09: Firehose, CodeBuild and CodePipeline targets
+
+Schedules targeting these ARNs were warned about and skipped. `Runner.SetDeliveryTargets` (runner_build_targets.go) now
+delivers them through cli_scheduler_build_targets_wiring.go; `TestSchedulerCodeBuildTarget` verifies a build is started
+via the SDK. Firehose and CodePipeline are wired but lack a root-level test. Universal (`arn:aws:scheduler:::aws-sdk:`)
+targets remain unsupported.
+
+## 2026-10-10: realism pass (CLI/SDK probing)
+
+- Error messages no longer repeat the error code (`ValidationException: ValidationException: ...`); not-found/exists wording is `Schedule X does not exist.` / `ScheduleGroup X does not exist.`.
+- `rate()` enforces singular unit for 1 and plural otherwise; `FlexibleTimeWindow.MaximumWindowInMinutes` capped at 1440; Description max 512, ScheduleExpression max 256, Target.Input max 8192; Target.Arn/RoleArn must be ARNs.
+- ListSchedules/ListScheduleGroups: MaxResults 1-100, opaque base64 NextToken, malformed token is ValidationException.
+- Lenient on purpose: RoleArn is only checked for an `arn:` prefix (in-repo fixtures use `arn:r`, account `0`); `rate(N seconds)` stays accepted for local testing; past `at()` times and EndDate before StartDate are accepted (AWS behaviour not determinable from the SDK).

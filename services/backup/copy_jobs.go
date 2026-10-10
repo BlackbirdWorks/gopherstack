@@ -52,35 +52,22 @@ func (b *InMemoryBackend) DescribeCopyJob(copyJobID string) (*CopyJob, error) {
 
 // --- Restore Testing read/update/delete methods ---
 
-// ListCopyJobSummaries returns a summary of copy jobs grouped by State.
-// gopherstack-21my (2026-09-18): AccountId (real CopyJobSummary member,
-// backup@v1.64.0 types.go) was never emitted here, unlike every sibling
-// summary op (ListBackupJobSummaries/ListRestoreJobSummaries/
-// ListScanJobSummaries all include it) -- fixed.
+// ListCopyJobSummaries counts copy jobs per aggregation window, resource type, state and message category.
 func (b *InMemoryBackend) ListCopyJobSummaries(f JobSummaryFilter) []map[string]any {
 	b.mu.RLock("ListCopyJobSummaries")
 	defer b.mu.RUnlock()
 
-	counts := make(map[string]int)
-	for _, j := range b.copyJobs.All() {
-		if f.matches(b.summaryAccount(j.AccountID), j.ResourceType, j.State, "") {
-			counts[j.State]++
-		}
-	}
+	all := b.copyJobs.All()
+	jobs := make([]summaryJob, 0, len(all))
 
-	summaries := make([]map[string]any, 0, len(counts))
-	for state, count := range counts {
-		summaries = append(summaries, map[string]any{
-			keyState:         state,
-			keySummaryCount:  count,
-			keySummaryRegion: b.region,
-			keyAccountID:     b.accountID,
+	for _, j := range all {
+		jobs = append(jobs, summaryJob{
+			at: j.CreationDate, account: b.summaryAccount(j.AccountID), resourceType: j.ResourceType,
+			state: j.State, messageCategory: copyMessageCategory(j.State),
 		})
 	}
 
-	sortSummaries(summaries)
-
-	return summaries
+	return b.buildSummaries(f, jobs, summaryShape{messageCategory: true})
 }
 
 // StartCopyJob creates a copy job that copies a recovery point from a

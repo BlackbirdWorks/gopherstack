@@ -38,6 +38,10 @@ func (b *InMemoryBackend) CreateThingGroup(input *CreateThingGroupInput) (*Thing
 		return nil, fmt.Errorf("%w: ThingGroupName is required", ErrValidation)
 	}
 
+	if err := validateEntityName("ThingGroupName", input.ThingGroupName); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateThingGroup")
 	defer b.mu.Unlock()
 

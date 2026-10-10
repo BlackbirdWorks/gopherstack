@@ -246,11 +246,9 @@ func (h *Handler) handleGetReservedNodeExchangeOfferings(vals url.Values) (any, 
 // any data) at all -- a disguised stub: a real client's XML deserializer
 // failed outright looking for that required nesting, confirmed live
 // ("failed to decode response body, ...Result node not found").
-//
-//nolint:govet // fieldalignment: embeds existing xml structs; reordering fields here doesn't help
 type xmlReservedNodeConfigurationOption struct {
-	SourceReservedNode         xmlReservedNode         `xml:"SourceReservedNode"`
 	TargetReservedNodeOffering xmlReservedNodeOffering `xml:"TargetReservedNodeOffering"`
+	SourceReservedNode         xmlReservedNode         `xml:"SourceReservedNode"`
 	TargetReservedNodeCount    int                     `xml:"TargetReservedNodeCount"`
 }
 
@@ -270,25 +268,31 @@ type getReservedNodeExchangeConfigurationOptionsResponse struct {
 	Result  getReservedNodeExchangeConfigurationOptionsResult `xml:"GetReservedNodeExchangeConfigurationOptionsResult"`
 }
 
-func (h *Handler) handleGetReservedNodeExchangeConfigurationOptions(_ url.Values) (any, error) {
-	opts := h.Backend.GetReservedNodeExchangeConfigurationOptions()
-
-	xmlOpts := make([]xmlReservedNodeConfigurationOption, 0, len(opts))
-
-	for _, o := range opts {
-		xmlOpts = append(xmlOpts, xmlReservedNodeConfigurationOption{
-			SourceReservedNode:         reservedNodeToXML(&o.SourceReservedNode),
-			TargetReservedNodeOffering: xmlReservedNodeOffering(o.TargetReservedNodeOffering),
-			TargetReservedNodeCount:    o.TargetReservedNodeCount,
-		})
-	}
-
-	return &getReservedNodeExchangeConfigurationOptionsResponse{
-		Xmlns: redshiftXMLNS,
-		Result: getReservedNodeExchangeConfigurationOptionsResult{
-			Options: xmlReservedNodeConfigurationOptionList{Members: xmlOpts},
+func (h *Handler) handleGetReservedNodeExchangeConfigurationOptions(vals url.Values) (any, error) {
+	return describePaginated(vals,
+		func() ([]ReservedNodeConfigurationOption, error) {
+			return h.Backend.GetReservedNodeExchangeConfigurationOptions(
+				vals.Get("ActionType"), vals.Get("ClusterIdentifier"), vals.Get("SnapshotIdentifier"),
+			)
 		},
-	}, nil
+		func(o *ReservedNodeConfigurationOption) xmlReservedNodeConfigurationOption {
+			return xmlReservedNodeConfigurationOption{
+				SourceReservedNode:         reservedNodeToXML(&o.SourceReservedNode),
+				TargetReservedNodeOffering: xmlReservedNodeOffering(o.TargetReservedNodeOffering),
+				TargetReservedNodeCount:    o.TargetReservedNodeCount,
+			}
+		},
+		func(o xmlReservedNodeConfigurationOption) string { return o.SourceReservedNode.ReservedNodeID },
+		func(members []xmlReservedNodeConfigurationOption, marker string) any {
+			return &getReservedNodeExchangeConfigurationOptionsResponse{
+				Xmlns: redshiftXMLNS,
+				Result: getReservedNodeExchangeConfigurationOptionsResult{
+					Marker:  marker,
+					Options: xmlReservedNodeConfigurationOptionList{Members: members},
+				},
+			}
+		},
+	)
 }
 
 // ---- AcceptReservedNodeExchange ----

@@ -172,6 +172,54 @@ func (b *InMemoryBackend) checkMountTargetPreconditions(
 		}
 	}
 
+	if err := b.checkSubnetHasFreeAddress(region, req); err != nil {
+		return err
+	}
+
+	return b.checkIPAddressFree(region, req)
+}
+
+// checkSubnetHasFreeAddress rejects a mount target that needs an auto-assigned address from a
+// subnet whose free addresses (EC2's, minus this backend's own mount targets) are exhausted.
+func (b *InMemoryBackend) checkSubnetHasFreeAddress(region string, req CreateMountTargetRequest) error {
+	if b.ec2Resolver == nil || req.SubnetID == "" || req.IPAddress != "" {
+		return nil
+	}
+
+	free := b.ec2Resolver.SubnetFreeAddresses(req.SubnetID)
+	if free < 0 {
+		return nil
+	}
+
+	for _, mt := range b.mountTargets.All() {
+		if mt.region == region && mt.SubnetID == req.SubnetID {
+			free--
+		}
+	}
+
+	if free <= 0 {
+		return fmt.Errorf("%w: subnet %s has no free IP addresses", ErrNoFreeAddressesInSubnet, req.SubnetID)
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) checkIPAddressFree(region string, req CreateMountTargetRequest) error {
+	if req.IPAddress == "" || req.SubnetID == "" {
+		return nil
+	}
+
+	for _, mt := range b.mountTargets.All() {
+		if mt.region == region && mt.SubnetID == req.SubnetID && mt.IPAddress == req.IPAddress {
+			return fmt.Errorf(
+				"%w: IP address %s is already in use in subnet %s",
+				ErrIPAddressInUse,
+				req.IPAddress,
+				req.SubnetID,
+			)
+		}
+	}
+
 	return nil
 }
 

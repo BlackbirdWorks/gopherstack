@@ -2,8 +2,13 @@
 service: athena
 sdk_module: aws-sdk-go-v2/service/athena@v1.60.4
 last_audit_commit: 0c1472972  # 2026-09-23 lakeformation-appsync-neptune-and-athena terraform coverage; prior: d522d763f
-last_audit_date: 2026-09-23  # prior: 2026-09-19
+last_audit_date: 2026-10-09
 overall: A            # genuine wire-shape fixes found in a previously well-built, well-tested service
+                       # 2026-10-09 realism pass: error messages no longer repeat the exception name;
+                       # QueryExecutionId/NamedQueryId/session/notebook/calculation IDs are UUIDs (were 10 hex chars); SELECT against a
+                       # table absent from the catalog and loaded rows now FAILs with TABLE_NOT_FOUND (was an empty SUCCEEDED result);
+                       # GetQueryResults on a FAILED/CANCELLED query says "Query did not finish successfully. Final query state: X";
+                       # WorkGroup name pattern; WorkGroup/QueryExecution not-found wording.
                        # 2026-08-28 (gopherstack-6flj write-only-state sweep): CreateWorkGroup silently
                        # dropped Configuration.EngineConfiguration/MonitoringConfiguration entirely (no
                        # model field existed); EngineConfiguration.Classifications was missing too,
@@ -47,12 +52,13 @@ families:
   janitor/leaks: {status: clean, note: "worker.Group-based ticker with ctx cancellation; sweeps queryExecutions+queryResults, sessions, calculations under RLock-collect/Lock-delete with re-verification to avoid racing a concurrent revival. No goroutine leak risk found."}
 gaps: []
 items_still_open:
-  - DeleteDataCatalogInput.DeleteCatalogOnly (real SDK v1.57.2 field, FEDERATED-catalog-only) is not modeled as a request input; gopherstack does not simulate the underlying CFN Stack/Lambda/Glue Connection resources a FEDERATED catalog's deletion would otherwise need to selectively preserve, so the flag would have no observable effect either way in this emulator. Not a wire-shape break (an extra unrecognized request field is harmlessly ignored). (bd: unfiled)
-  - "WorkGroupConfiguration.IdentityCenterConfiguration/ManagedQueryResultsConfiguration/QueryResultsS3AccessGrantsConfiguration (real members on types.WorkGroupConfiguration/types.WorkGroupConfigurationUpdates, confirmed 2026-08-28 via serializers.go) remain unmodeled — each is a substantial real feature (IAM Identity Center-gated workgroups, Athena-managed query-result-object lifecycle, S3 Access Grants) this emulator does not simulate end to end, not a quick wire-shape passthrough. WorkGroup.IdentityCenterApplicationArn (the paired response field) likewise unmodeled. (bd: unfiled)"
-  - "QueryExecution.SubstatementType (real *string member on types.QueryExecution, e.g. further classifying a DDL StatementType as CTAS) is not modeled — found 2026-08-28 field-diffing types.QueryExecution, not fixed this pass; low-value single descriptive field. (bd: unfiled)"
-  - "ImportNotebook.NotebookS3LocationUri is rejected with InvalidRequestException (Payload required): reading the notebook from S3 needs a GetObject path, and the S3Storer hook only exposes PutObject. StartCalculationExecution.CalculationConfiguration (deprecated CodeBlock) is unmodeled and unobservable, since no output echoes the code block. GetQueryResults.QueryResultType=DATA_MANIFEST is unmodeled: manifests come from CTAS/UNLOAD/INSERT result files this emulator does not write."
-  - "WorkGroup on GetDatabase/ListDatabases/GetTableMetadata/ListTableMetadata/GetDataCatalog/ListDataCatalogs is accepted and ignored; the SDK ties it to IAM Identity Center-enabled Glue catalogs, which the IdentityCenterConfiguration item above leaves unmodeled."
-  - "StartQueryExecution.EngineConfiguration (reqfielddiff tier-1, 2026-09-18) is not declared at all -- it only matters for Capacity Reservation DPU-range validation (min-dpu-count/max-dpu-count classifications), a per-query override into the Capacity Reservations subsystem this emulator's StartQueryExecution never consults. No observable effect to gate without wiring query execution into capacity-reservation DPU accounting, a larger feature than a field-level fix. (bd: unfiled)"
+  - "QueryExecution.SubstatementType is not modeled: the pinned SDK documents it only as \"The kind of query statement that was run\" with no enum or value list, so the vocabulary cannot be verified."
+structural_gaps:
+  - "DeleteDataCatalogInput.DeleteCatalogOnly has no effect: a FEDERATED catalog's CFN Stack/Lambda/Glue Connection resources are not simulated."
+  - "WorkGroup.IdentityCenterApplicationArn is never set: the IAM Identity Center application AWS provisions for an Identity Center workgroup does not exist here."
+  - "WorkGroup on GetDatabase/ListDatabases/GetTableMetadata/ListTableMetadata/GetDataCatalog/ListDataCatalogs is accepted and ignored: it only matters for IAM Identity Center-enabled Glue catalogs, which do not exist here."
+  - "StartCalculationExecution.CalculationConfiguration (deprecated CodeBlock) is unobservable (no Spark engine, no output echoes it); GetQueryResults QueryResultType=DATA_MANIFEST is unmodeled because CTAS/UNLOAD/INSERT result files and manifests are never written."
+  - "StartQueryExecution.EngineConfiguration is validated (classification and min/max-dpu-count) but cannot change anything: query execution is never routed through Capacity Reservation DPU accounting."
 deferred:
   - none — full routed-op surface re-audited this pass (base + extended dispatch tables, 70 ops total)
 leaks: {status: clean, note: "janitor uses pkgs/worker.Group with proper ctx.Done() teardown; no raw goroutines spawned elsewhere in the service. New capacityReservationARN-based resourceTags entries are cascade-deleted on DeleteCapacityReservation (TestInMemoryBackend_DeleteCapacityReservation_CascadesTags), matching the existing WorkGroup/DataCatalog cascade-delete behavior — no ghost tag rows after delete."}

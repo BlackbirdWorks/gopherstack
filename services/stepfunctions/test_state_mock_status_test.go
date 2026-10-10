@@ -163,3 +163,74 @@ func TestTestState_MockAndContextValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestTestState_MockMapParallelAndValidationMode(t *testing.T) {
+	t.Parallel()
+
+	const (
+		mapDef = `{"Type":"Map","ItemsPath":"$.items","ItemProcessor":{"StartAt":"P",` +
+			`"States":{"P":{"Type":"Pass","End":true}}},"End":true}`
+		parallelDef = `{"Type":"Parallel","Branches":[{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}],` +
+			`"End":true}`
+	)
+
+	tests := []struct {
+		name       string
+		definition string
+		mock       *sfntypes.MockInput
+		wantOutput string
+		wantStatus sfntypes.TestExecutionStatus
+		wantErr    bool
+	}{
+		{
+			name: "map_result", definition: mapDef, mock: &sfntypes.MockInput{Result: aws.String(`["m"]`)},
+			wantOutput: `["m"]`, wantStatus: sfntypes.TestExecutionStatusSucceeded,
+		},
+		{
+			name: "parallel_result", definition: parallelDef, mock: &sfntypes.MockInput{Result: aws.String(`[1,2]`)},
+			wantOutput: `[1,2]`, wantStatus: sfntypes.TestExecutionStatusSucceeded,
+		},
+		{
+			name: "map_error", definition: mapDef, wantStatus: sfntypes.TestExecutionStatusFailed,
+			mock: &sfntypes.MockInput{ErrorOutput: &sfntypes.MockErrorOutput{Error: aws.String("Boom")}},
+		},
+		{
+			name: "bad_validation_mode", definition: mapDef, wantErr: true,
+			mock: &sfntypes.MockInput{Result: aws.String(`1`), FieldValidationMode: "LOOSE"},
+		},
+		{
+			name: "none_validation_mode", definition: mapDef, wantOutput: `1`,
+			mock: &sfntypes.MockInput{
+				Result: aws.String(`1`), FieldValidationMode: sfntypes.MockResponseValidationModeNone,
+			},
+			wantStatus: sfntypes.TestExecutionStatusSucceeded,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newJSONataClient(t, stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend()))
+
+			out, err := client.TestState(t.Context(), &sfnsdk.TestStateInput{
+				Definition: aws.String(tt.definition),
+				Input:      aws.String(`{"items":[1]}`),
+				RoleArn:    aws.String(testRoleArn),
+				Mock:       tt.mock,
+			})
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, out.Status)
+
+			if tt.wantOutput != "" {
+				assert.JSONEq(t, tt.wantOutput, aws.ToString(out.Output))
+			}
+		})
+	}
+}

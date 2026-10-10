@@ -93,5 +93,11 @@ func sessionToListItem(sess *SessionData) map[string]any {
 		item["DbUser"] = sess.DBUser
 	}
 
+	item["SessionTtl"] = epochSeconds(sess.TTL)
+
+	if sess.AliveSeconds > 0 {
+		item["SessionAliveSeconds"] = sess.AliveSeconds
+	}
+
 	return item
 }

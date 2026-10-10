@@ -64,6 +64,12 @@ func (h *S3Handler) deleteObject(
 	}
 
 	versionID := queryParam(r, "versionId")
+	if err := h.requireMFA(ctx, r, bucketName, versionID != ""); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	logger.Load(ctx).DebugContext(
 		ctx,
 		"S3 deleteObject input",
@@ -161,6 +167,17 @@ func (h *S3Handler) deleteObjects(
 			Key:       aws.String(obj.Key),
 			VersionId: obj.VersionID,
 		})
+	}
+
+	versioned := false
+	for _, obj := range req.Objects {
+		versioned = versioned || obj.VersionID != nil
+	}
+
+	if mfaErr := h.requireMFA(ctx, r, bucketName, versioned); mfaErr != nil {
+		WriteError(ctx, w, r, mfaErr)
+
+		return
 	}
 
 	out, err := h.Backend.DeleteObjects(ctx, input)

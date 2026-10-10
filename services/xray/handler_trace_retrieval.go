@@ -85,6 +85,10 @@ func (h *Handler) handleListRetrievedTraces(_ context.Context, body []byte) ([]b
 		traceViews = append(traceViews, buildTraceView(t))
 	}
 
+	if tokErr := checkNextToken(in.NextToken); tokErr != nil {
+		return nil, tokErr
+	}
+
 	pg := page.New(traceViews, in.NextToken, 0, defaultTracesPageSize)
 	resp := map[string]any{
 		"RetrievalStatus": status,
@@ -180,6 +184,10 @@ func (h *Handler) handleGetRetrievedTracesGraph(_ context.Context, body []byte) 
 	status, services, err := h.Backend.GetRetrievedTracesGraph(in.RetrievalToken)
 	if err != nil {
 		return nil, err
+	}
+
+	if tokErr := checkNextToken(in.NextToken); tokErr != nil {
+		return nil, tokErr
 	}
 
 	pg := page.New(services, in.NextToken, 0, defaultServiceGraphPageSize)

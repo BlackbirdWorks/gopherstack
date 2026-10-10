@@ -58,6 +58,8 @@ type Subscription struct {
 	FilterPolicy        string `json:"filterPolicy,omitempty"`
 	RawMessageDelivery  bool   `json:"rawMessageDelivery,omitempty"`
 	PendingConfirmation bool   `json:"pendingConfirmation"`
+	// AuthenticateOnUnsubscribe rejects Unsubscribe calls that carry no AWS signature.
+	AuthenticateOnUnsubscribe bool `json:"authenticateOnUnsubscribe,omitempty"`
 }
 
 // Message represents a published SNS message.

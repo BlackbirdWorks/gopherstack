@@ -17,7 +17,8 @@ import (
 )
 
 const (
-	codestarTargetPrefix = "CodeStar_connections_20191201."
+	codestarTargetNamespace = "com.amazonaws.codestar.connections."
+	codestarTargetPrefix    = "CodeStar_connections_20191201."
 	// errTypeInvalidInput is the wire error type used for every malformed-
 	// input case that maps to the real InvalidInputException (see
 	// ErrValidation's doc comment in errors.go for why the real error
@@ -148,7 +149,7 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 // RouteMatcher returns a function that matches CodeStar Connections requests.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), codestarTargetPrefix)
+		return strings.HasPrefix(targetHeader(c), codestarTargetPrefix)
 	}
 }
 
@@ -157,9 +158,12 @@ func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
 // ExtractOperation extracts the CodeStar Connections action from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	target := c.Request().Header.Get("X-Amz-Target")
+	return strings.TrimPrefix(targetHeader(c), codestarTargetPrefix)
+}
 
-	return strings.TrimPrefix(target, codestarTargetPrefix)
+// targetHeader returns X-Amz-Target without the namespace botocore clients prepend.
+func targetHeader(c *echo.Context) string {
+	return strings.TrimPrefix(c.Request().Header.Get("X-Amz-Target"), codestarTargetNamespace)
 }
 
 // ExtractResource extracts the primary resource identifier from the JSON request body.

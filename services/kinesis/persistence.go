@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -38,10 +40,77 @@ type backendSnapshot struct {
 	MinimumThroughputBillingCommitment MinimumThroughputBillingCommitmentOutput `json:"minimumThroughputBillingCommitment"`
 	Tables                             map[string]json.RawMessage               `json:"tables"`
 	ResourcePolicies                   map[string]map[string]string             `json:"resourcePolicies,omitempty"`
+	ChannelBuffers                     map[string]channelBufferSnapshot         `json:"channelBuffers,omitempty"`
 	AccountID                          string                                   `json:"accountID"`
 	Region                             string                                   `json:"region"`
 	OnDemandStreamCountLimit           int                                      `json:"onDemandStreamCountLimit,omitempty"`
 	Version                            int                                      `json:"version"`
+}
+
+// channelBufferSnapshot persists a channel's not-yet-flushed records so a crash
+// or restart does not drop them.
+type channelBufferSnapshot struct {
+	Records [][]byte                      `json:"records,omitempty"`
+	Failed  []failedChannelRecordSnapshot `json:"failed,omitempty"`
+}
+
+type failedChannelRecordSnapshot struct {
+	StreamARN      string `json:"streamARN"`
+	ShardID        string `json:"shardID"`
+	SequenceNumber string `json:"sequenceNumber"`
+	ErrorMessage   string `json:"errorMessage"`
+}
+
+func (b *InMemoryBackend) snapshotChannelBuffers() map[string]channelBufferSnapshot {
+	b.deliveryMu.RLock("Snapshot.delivery")
+	defer b.deliveryMu.RUnlock()
+
+	var out map[string]channelBufferSnapshot
+
+	for arn, buf := range b.channelBuffers {
+		if len(buf.records) == 0 && len(buf.failed) == 0 {
+			continue
+		}
+
+		if out == nil {
+			out = map[string]channelBufferSnapshot{}
+		}
+
+		s := channelBufferSnapshot{Records: slices.Clone(buf.records)}
+		for _, f := range buf.failed {
+			s.Failed = append(s.Failed, failedChannelRecordSnapshot{
+				StreamARN:      f.streamARN,
+				ShardID:        f.shardID,
+				SequenceNumber: f.sequenceNumber,
+				ErrorMessage:   f.errorMessage,
+			})
+		}
+
+		out[arn] = s
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) restoreChannelBuffers(in map[string]channelBufferSnapshot) {
+	b.deliveryMu.Lock("Restore.delivery")
+	defer b.deliveryMu.Unlock()
+
+	b.channelBuffers = make(map[string]*channelBuffer, len(in))
+
+	for arn, s := range in {
+		buf := &channelBuffer{lastFlush: time.Now(), records: s.Records}
+		for _, f := range s.Failed {
+			buf.failed = append(buf.failed, failedChannelRecord{
+				streamARN:      f.StreamARN,
+				shardID:        f.ShardID,
+				sequenceNumber: f.SequenceNumber,
+				errorMessage:   f.ErrorMessage,
+			})
+		}
+
+		b.channelBuffers[arn] = buf
+	}
 }
 
 // streamAlias avoids infinite recursion from Stream.MarshalJSON.
@@ -74,6 +143,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Version:                            kinesisSnapshotVersion,
 		Tables:                             tables,
 		ResourcePolicies:                   b.resourcePolicies,
+		ChannelBuffers:                     b.snapshotChannelBuffers(),
 		AccountID:                          b.accountID,
 		Region:                             b.region,
 		OnDemandStreamCountLimit:           b.onDemandStreamCountLimit,
@@ -134,6 +204,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.resourcePolicies = snap.ResourcePolicies
+	b.restoreChannelBuffers(snap.ChannelBuffers)
 
 	if snap.OnDemandStreamCountLimit > 0 {
 		b.onDemandStreamCountLimit = snap.OnDemandStreamCountLimit

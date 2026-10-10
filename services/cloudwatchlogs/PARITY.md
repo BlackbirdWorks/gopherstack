@@ -2,7 +2,7 @@
 service: cloudwatchlogs
 sdk_module: aws-sdk-go-v2/service/cloudwatchlogs@v1.86.0
 last_audit_commit: 2bc650bf9  # 2026-09-19 terraform glue-and-cloudwatch-logs (anomaly detector visibility-time unit bug)
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
 overall: A            # 2026-08-13 (gopherstack-wl0s): GetLogFields never read dataSourceType
                        # from the request body at all (not even a field on the decode struct),
                        # so it was silently unused rather than required (validateOpGetLogFieldsInput
@@ -123,25 +123,27 @@ families:
   pagination_sweep: {status: fixed, note: "2026-08-28/29 (wrapper-key-sweep-rds-cloudwatch-sqs-sns pagination pass): audited every op with a page-size + continuation member (List*/Describe*/GetQueryResults) against the pinned SDK. Three ops accepted Limit/MaxItems/MaxResults + NextToken on the real wire but decoded neither, always returning everything in one call: DescribeResourcePolicies (api_op_DescribeResourcePolicies.go:29-42, no documented default -- now falls back to this service's existing defaultDescribeLimit=50 convention, same as DescribeLogStreams et al.); GetQueryResults (api_op_GetQueryResults.go:56-66, documented 'maximum is 10,000 log events per request' -- now the default/max page size, maxGetQueryResultsItems); ListLogGroupsForQuery (no documented default -- same defaultDescribeLimit=50 fallback). All three fixed at the handler layer (parseNextToken/encodeNextToken, the shared index-token helpers store.go already provides) without touching the underlying backend methods' full-result-set signatures. TestDescribeResourcePolicies_FullPagination/TestGetQueryResults_FullPagination/TestListLogGroupsForQuery_FullPagination (wire_field_fixes_test.go) each create more records than one page holds, drive the real SDK client through the full pagination loop asserting per-page truncation plus a duplicate-free/complete union, and were hand-verified to fail against unfixed code (page sizes of 9/25/9 instead of the requested 4/10/4). Everything else audited (DescribeLogGroups/DescribeLogStreams/DescribeSubscriptionFilters/DescribeMetricFilters/DescribeExportTasks/DescribeImportTasks/DescribeDeliveries/DescribeDestinations/DescribeQueries/DescribeQueryDefinitions/DescribeLookupTables/ListLogAnomalyDetectors/ListAnomalies/ListLogGroups/ListScheduledQueries/ListSourcesForS3TableIntegration/ListSyslogConfigurations) already shares the same parseNextToken/encodeNextToken/defaultDescribeLimit convention and correctly truncates+resumes+emits-only-when-truncated. ListAggregateLogGroupSummaries has no Limit/NextToken in this backend's signature by design: the backend always collapses to at most one summary bucket (no per-log-group data-source classification to group by), so a token could never be meaningful; DescribeConfigurationTemplates/DescribeImportTaskBatches are disclosed structural void-results (no create op backs either)."}
 gaps: []
 items_still_open:
-  - SyslogConfiguration's VpcEndpointId is accepted/stored/returned as an opaque string, never cross-validated against real EC2 VPC-endpoint state -- there is no VPC-endpoint model anywhere in this service, and no established cross-service ARN/ID validation pattern anywhere in this codebase to reuse.
-  - LookupTable's ARN (arn:{partition}:logs:{region}:{account}:lookup-table:{name}) is constructed by analogy to this codebase's log-group ARN convention, not confirmed against an authoritative AWS source: no smithy model ships with the installed aws-sdk-go-v2 module and no ARN pattern appears in any doc comment for LookupTableArn.
-  - Anomaly's Histogram/LogSamples/PatternString/PatternTokens are only ever populated when a caller seeds them via the AddAnomalyInternal test seam -- this backend has no pattern-detection engine to generate them from real log content; unmodeled ML subsystem.
-  - PutLogEvents does not accept Entity (Attributes/KeyAttributes, OTel entity correlation); PutLogEventsOutput.RejectedEntityInfo is never populated as a result -- no entity-schema validation model exists in this backend to derive a rejection reason from.
-  - DescribeLogGroups/ListLogGroups/ListAggregateLogGroupSummaries lack IncludeLinkedAccounts (no cross-account link model), DataSources/FieldIndexNames (no field-indexing engine), and LogGroup.DataProtectionStatus/InheritedProperties output; aggregate Limit is moot (single bucket, no data-source classification).
-  - Data protection masking covers only the managed identifiers EmailAddress, IpAddress and CreditCardNumber (Luhn-checked, approximate patterns) plus custom data identifiers; other AWS managed identifiers (SSN, passport, AWS secret key, ...), Audit findings destinations and SELECTION_CRITERIA account policies are not modeled (2026-10-04).
-  - QueryInfo.UserIdentity needs a caller-identity model this backend does not have (same blocker as gopherstack-cu4g). ScheduledQueryDestination.ProcessedIdentifier (and the rest of that nested type) remains unmodeled: this backend does not simulate destination delivery for scheduled query runs, so Destinations is always empty rather than populated with invented status.
-  - DeliverySource.Status/StatusReason are not modeled (StatusReason=RESOURCE_DELETED specifically needs cross-service resource-deletion tracking this backend does not have).
-  - DescribeConfigurationTemplates and DescribeFieldIndexes are unconditional empty-list stubs, reconfirmed structural void-results (no create op backs either, confirmed by grepping the full 118-op dispatch table): DescribeConfigurationTemplates is meant to return AWS's own static catalog of supported delivery-destination/log-type template combinations, which this backend would have to fabricate wholesale rather than derive from anything it models; DescribeFieldIndexes needs a field-indexing engine this backend does not have.
-  - S3TableIntegrationSource's ParentSourceIdentifier and StatusReason (real, optional members) are not modeled -- this backend does not model nested/derived associations or a health-check-driven failure reason, so every association is a top-level, unconditionally-ACTIVE entry.
-  - Transformers, Integrations (GetIntegration/PutIntegration field-diffed; ListIntegrations filters now real), and AccountPolicy top-level shapes remain spot-checked flat, not exhaustively re-audited field-by-field op-by-op. Resource Policies and Index Policies were field-diffed for real in a prior pass and are no longer deferred.
-  - StartQuery.QueryLanguage (SQL/PPL) is not honoured: only the Logs Insights QL engine exists, so a SQL or PPL query string cannot be executed (no SQL/PPL parser in this backend).
-  - StartLiveTail streaming transport (intentionally out of scope; validation-only by design -- the real op is a Smithy event stream this unary-JSON-response handler cannot emulate).
-  - Import tasks: ImportStatistics/ErrorMessage and DescribeImportTaskBatches execution state need a real external-source import engine (ImportFilter itself is now stored and echoed).
-  - "Subscription-filter denial messages are documented text, not SDK-verified; a delivery denied after PutSubscriptionFilter is dropped silently (2026-10-03)."
+  - "PutLogEvents Entity: only InvalidKeyAttributes (keyAttributes outside Type/ResourceType/Identifier/Name/Environment) is derived into RejectedEntityInfo; the API reference gives Entity size constraints (attributes <=10, keyAttributes 2..4, key/value lengths) but not which EntityRejectionErrorType each violation maps to, or whether it is a request error instead."
+  - "SyslogConfiguration's VpcEndpointId is stored as an opaque string: the pinned SDK documents no validation or error for it, so cross-checking against EC2 endpoint state would invent behaviour (2026-10-07)."
+  - "LookupTable's ARN format (arn:{partition}:logs:{region}:{account}:lookup-table:{name}) is unverifiable: no pinned-SDK doc comment or model gives the LookupTableArn pattern (re-checked 2026-10-07)."
+  - "Data protection masking detects EmailAddress, IpAddress, CreditCardNumber (Luhn), CreditCardExpiration, CreditCardSecurityCode, AwsSecretKey, OpenSsh/Pgp/Pkcs/Putty private keys, Ssn-US, custom identifiers, and checksum/format identifiers CpfCode-BR, Cnpj-BR, CepCode-BR, NationalInsuranceNumber-GB, PostalCode-CA, DrugEnforcementAgencyNumber-US, IndividualTaxIdentificationNumber-US, NifNumber-ES, NieNumber-ES (public national formats; the managed-identifiers page lists names only). Not modeled: keyword-proximity identifiers whose keyword sets and formats the docs do not give (Name, Address, LatLong, VehicleIdentificationNumber, PhoneNumber-*, PassportNumber-*, DriversLicense-*, BankAccountNumber-*, ZipCode-US, TaxId-*, Ssn-ES, NationalIdentificationNumber-*, NhsNumber-GB, SocialInsuranceNumber-CA, NationalProviderId-US, health/insurance codes); Audit findings destinations and SELECTION_CRITERIA account policies are not modeled."
+  - "Subscription-filter denial messages are documented text, not SDK-verified (2026-10-03)."
+structural_gaps:
+  - "Anomaly Histogram/LogSamples/PatternString/PatternTokens are populated only via the AddAnomalyInternal seam: no pattern-detection ML engine exists to derive them from log content."
+  - "IncludeLinkedAccounts (no cross-account link model), DataSources/FieldIndexNames (no field-indexing engine) and LogGroup.DataProtectionStatus/InheritedProperties are not modeled; aggregate Limit is moot with a single bucket."
+  - "ScheduledQueryDestination.ProcessedIdentifier and its nested type are unmodeled: scheduled query runs do not simulate destination delivery, so Destinations is always empty."
+  - "DeliverySource.Status/StatusReason are not modeled: RESOURCE_DELETED needs cross-service resource-deletion tracking."
+  - "DescribeConfigurationTemplates (AWS's static template catalog) and DescribeFieldIndexes (needs a field-indexing engine) are empty-list void-results; no create op backs either."
+  - "S3TableIntegrationSource ParentSourceIdentifier/StatusReason are not modeled: no nested/derived associations or health-check failure path, so every association is a top-level ACTIVE entry."
+  - "StartQuery.QueryLanguage SQL/PPL is not honoured: only the Logs Insights QL engine exists."
+  - "StartLiveTail streaming transport: the real op is a Smithy event stream this unary handler cannot emulate; validation-only by design."
+  - "Import tasks: ImportStatistics/ErrorMessage and DescribeImportTaskBatches execution state need a real external-source import engine."
 leaks: {status: clean, note: "Only one goroutine spawn site (scheduleFilterDelivery for subscription filter delivery), bounded by a semaphore + backend WaitGroup + ctx cancellation; Close()/Drain() join in-flight work. Janitor ticker is ctx-cancel safe via pkgs/worker. No unbounded per-request goroutines found in the areas audited this pass."}
 ---
 
 ## Notes
+
+**2026-10-09 realism pass:** log stream names containing `:` or `*` (or over 512 chars) are `InvalidParameterException`; DescribeLogGroups/DescribeLogStreams `limit` above 50 is rejected instead of silently clamped. Not modeled: Logs Insights query syntax errors (`MalformedQueryException`), metric-filter/filter-pattern syntax validation and subscription-filter destination existence checks.
 
 ## 2026-10-03: Subscription filter role under --enforce-iam
 
@@ -1096,3 +1098,7 @@ FIXED: DescribeLogGroups logGroupNamePattern (case-sensitive substring, exclusiv
 ## 2026-10-05 (undeclared response members)
 
 DescribeExportTasks no longer emits logStreamNamePrefix (not a member of types.ExportTask).
+
+## 2026-10-07: managed data identifiers
+
+- Masking in GetLogEvents/FilterLogEvents (skipped with Unmask) now covers keyword-context identifiers (CreditCardSecurityCode, CreditCardExpiration, AwsSecretKey mask only the value) and multi-line private keys. Proof: `TestDataProtection_ManagedIdentifiers`.

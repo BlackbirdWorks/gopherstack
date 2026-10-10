@@ -11,6 +11,8 @@ import (
 // their doc comments in interfaces.go for what each wire member is and,
 // where relevant, what sub-shape is deliberately not modeled.
 type storedChannel struct {
+	DeletedAt             time.Time `json:"deletedAt"`
+	phase                 phase
 	Tags                  map[string]string            `json:"tags"`
 	Maintenance           ChannelMaintenance           `json:"maintenance"`
 	InputSpecification    InputSpecification           `json:"inputSpecification"`
@@ -243,6 +245,7 @@ type storedMultiplexSettings struct {
 
 // Tags and Programs (maps) first, then slice, then strings, then value struct: reduces GC pointer scan.
 type storedMultiplex struct {
+	phase phase
 	// DeletedAt is when State became DELETED; pruneDeletedMultiplexesLocked
 	// evicts the multiplex medialiveDeletedTTL past this point. Zero when
 	// State is not DELETED.
@@ -616,6 +619,7 @@ func (t *storedEventBridgeRuleTemplate) toTemplate() *EventBridgeRuleTemplate {
 }
 
 type storedReservation struct {
+	DeletedAt             time.Time                     `json:"deletedAt"`
 	Tags                  map[string]string             `json:"tags"`
 	ResourceSpecification OfferingResourceSpecification `json:"resourceSpecification"`
 	OfferingType          string                        `json:"offeringType"`

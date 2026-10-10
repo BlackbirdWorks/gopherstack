@@ -52,6 +52,15 @@ type APIClient interface {
 	Close() error
 }
 
+// ExecAPIClient is implemented by clients that can run commands inside a container.
+type ExecAPIClient interface {
+	ContainerExec(
+		ctx context.Context,
+		containerID string,
+		cmd []string,
+	) (stdout, stderr []byte, exitCode int, err error)
+}
+
 // realDockerClient wraps the standard Docker SDK client to satisfy APIClient.
 type realDockerClient struct {
 	c *client.Client
@@ -102,6 +111,14 @@ func (r *realDockerClient) ContainerRemove(
 	options dockercontainer.RemoveOptions,
 ) error {
 	return r.c.ContainerRemove(ctx, containerID, options)
+}
+
+func (r *realDockerClient) ContainerExec(
+	ctx context.Context,
+	containerID string,
+	cmd []string,
+) ([]byte, []byte, int, error) {
+	return r.c.ContainerExec(ctx, containerID, cmd)
 }
 
 func (r *realDockerClient) Ping(ctx context.Context) (any, error) {
@@ -302,6 +319,21 @@ func (r *DockerRuntime) StartContainer(ctx context.Context, containerID string) 
 	}
 
 	return nil
+}
+
+// Exec runs cmd inside a running container and waits for it to finish.
+func (r *DockerRuntime) Exec(ctx context.Context, containerID string, cmd []string) (ExecResult, error) {
+	api, ok := r.docker.(ExecAPIClient)
+	if !ok {
+		return ExecResult{}, ErrExecUnsupported
+	}
+
+	stdout, stderr, code, err := api.ContainerExec(ctx, containerID, cmd)
+	if err != nil {
+		return ExecResult{}, fmt.Errorf("container exec %q: %w", containerID, err)
+	}
+
+	return ExecResult{Stdout: string(stdout), Stderr: string(stderr), ExitCode: code}, nil
 }
 
 // AcquireWarm returns a warm container from the pool for the given image.

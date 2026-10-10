@@ -280,7 +280,7 @@ func (h *Handler) handleDescribeWorkflowExecution(
 			OpenDecisionTasks:           c["openDecisionTasks"],
 			OpenTimers:                  c["openTimers"],
 			OpenChildWorkflowExecutions: c["openChildWorkflowExecutions"],
-			OpenLambdaFunctions:         0,
+			OpenLambdaFunctions:         c["openLambdaFunctions"],
 		}
 	}
 

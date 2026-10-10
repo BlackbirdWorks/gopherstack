@@ -56,6 +56,7 @@ type expressSession struct {
 	bucket    string
 	secret    string
 	token     string
+	readOnly  bool
 }
 
 func randomHex(n int) string {
@@ -68,9 +69,7 @@ func randomHex(n int) string {
 }
 
 // CreateSession issues temporary session credentials scoped to bucketName,
-// expiring s3ExpressSessionTTL from now. SessionMode is accepted but not
-// enforced (this emulator does not model IAM-policy-scoped ReadOnly vs
-// ReadWrite sessions).
+// expiring s3ExpressSessionTTL from now. A ReadOnly session is limited to GET/HEAD requests by resolveSigningSecret.
 //
 // Deliberately does NOT require bucketName to already exist: the pinned SDK
 // (s3@v1.111.0) issues an implicit CreateSession as part of its own identity
@@ -95,7 +94,7 @@ func (b *InMemoryBackend) CreateSession(
 
 // CreateSessionWithEncryption is CreateSession with a session-level default SSE configuration.
 func (b *InMemoryBackend) CreateSessionWithEncryption(
-	_ context.Context, bucketName string, _ types.SessionMode, enc SessionEncryption,
+	_ context.Context, bucketName string, mode types.SessionMode, enc SessionEncryption,
 ) (SessionCredentials, error) {
 	b.sweepExpiredSessions()
 
@@ -113,6 +112,7 @@ func (b *InMemoryBackend) CreateSessionWithEncryption(
 		secret:    creds.SecretAccessKey,
 		token:     creds.SessionToken,
 		expiresAt: creds.Expiration,
+		readOnly:  mode == types.SessionModeReadOnly,
 	})
 
 	return creds, nil
@@ -156,6 +156,13 @@ func (b *InMemoryBackend) ExpressSessionSecret(accessKeyID, sessionToken string)
 	}
 
 	return sess.bucket, sess.secret, true
+}
+
+// ExpressSessionReadOnly reports whether the live session for accessKeyID was created with SessionMode ReadOnly.
+func (b *InMemoryBackend) ExpressSessionReadOnly(accessKeyID string) bool {
+	sess, found := b.expressSessions.Get(accessKeyID)
+
+	return found && sess.readOnly
 }
 
 // ExpressSessionEncryption returns the SSE defaults of a live session.

@@ -1,6 +1,7 @@
 package acm
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -25,20 +26,20 @@ func (b *InMemoryBackend) RequestCertificate(
 	domainName, certType, validationMethod, idempotencyToken, keyAlgorithm, caArn, optionsPref string,
 	sans []string,
 ) (*Certificate, error) {
-	if err := validateRequestCertInput(domainName, sans); err != nil {
+	if err := validateRequestCertInput(
+		domainName, sans, validationMethod, idempotencyToken, keyAlgorithm, optionsPref,
+	); err != nil {
 		return nil, err
 	}
 
-	if keyAlgorithm == "" {
-		keyAlgorithm = keyAlgorithmRSA2048
-	}
+	keyAlgorithm = cmp.Or(keyAlgorithm, keyAlgorithmRSA2048)
 
 	certBody, privateKey, certMeta, notBefore, notAfter, err := generateSelfSignedCert(domainName, sans, keyAlgorithm)
-	if errors.Is(err, errWeakKey) {
-		return nil, fmt.Errorf("%w: %w", ErrRequestCertInvalidParameter, err)
-	}
-
 	if err != nil {
+		if errors.Is(err, errWeakKey) {
+			return nil, fmt.Errorf("%w: %w", ErrRequestCertInvalidParameter, err)
+		}
+
 		return nil, fmt.Errorf("failed to generate certificate: %w", err)
 	}
 
@@ -150,7 +151,7 @@ func (b *InMemoryBackend) ApplyDomainValidationOverrides(
 
 	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
-		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+		return fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, certARN)
 	}
 
 	for i, dvo := range cert.DomainValidationOptions {
@@ -195,7 +196,7 @@ func (b *InMemoryBackend) SetExportPreference(ctx context.Context, certARN, expo
 
 	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
-		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+		return fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, certARN)
 	}
 
 	cert.ExportPref = exportPref
@@ -223,7 +224,7 @@ func (b *InMemoryBackend) SetManagedBy(ctx context.Context, certARN, managedBy s
 
 	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
-		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+		return fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, certARN)
 	}
 
 	cert.ManagedBy = managedBy
@@ -281,9 +282,18 @@ func (b *InMemoryBackend) checkIdempotency(
 }
 
 // validateRequestCertInput validates the DomainName and all SANs for a RequestCertificate call.
-func validateRequestCertInput(domainName string, sans []string) error {
+func validateRequestCertInput(
+	domainName string, sans []string, validationMethod, idempotencyToken, keyAlgorithm, optionsPref string,
+) error {
 	if domainName == "" {
 		return fmt.Errorf("%w: DomainName is required", ErrRequestCertInvalidParameter)
+	}
+
+	if len(domainName) > maxCommonNameLength {
+		return fmt.Errorf(
+			"%w: DomainName %q exceeds %d characters; put longer names in SubjectAlternativeNames",
+			ErrRequestCertInvalidParameter, domainName, maxCommonNameLength,
+		)
 	}
 
 	// AWS's default account quota for domain names per certificate (1
@@ -307,7 +317,51 @@ func validateRequestCertInput(domainName string, sans []string) error {
 		}
 	}
 
+	return validateRequestCertEnums(validationMethod, idempotencyToken, keyAlgorithm, optionsPref)
+}
+
+// validateRequestCertEnums rejects ValidationMethod, KeyAlgorithm, IdempotencyToken
+// and CertificateTransparencyLoggingPreference values outside the API's documented sets.
+func validateRequestCertEnums(validationMethod, idempotencyToken, keyAlgorithm, optionsPref string) error {
+	switch validationMethod {
+	case "", validationMethodDNS, validationMethodEMAIL, validationMethodHTTP:
+	default:
+		return fmt.Errorf("%w: invalid ValidationMethod %q", ErrRequestCertInvalidParameter, validationMethod)
+	}
+
+	switch keyAlgorithm {
+	case "", keyAlgorithmRSA1024, keyAlgorithmRSA2048, keyAlgorithmRSA3072, keyAlgorithmRSA4096,
+		keyAlgorithmEC, keyAlgorithmECSecp384r1, keyAlgorithmECSecp521r1:
+	default:
+		return fmt.Errorf("%w: invalid KeyAlgorithm %q", ErrRequestCertInvalidParameter, keyAlgorithm)
+	}
+
+	if optionsPref != "" && !validTransparencyPreference(optionsPref) {
+		return fmt.Errorf(
+			"%w: invalid CertificateTransparencyLoggingPreference %q", ErrRequestCertInvalidParameter, optionsPref,
+		)
+	}
+
+	if len(idempotencyToken) > maxIdempotencyTokenLength || !wordChars(idempotencyToken) {
+		return fmt.Errorf(
+			"%w: IdempotencyToken must be 1-%d word characters",
+			ErrRequestCertInvalidParameter,
+			maxIdempotencyTokenLength,
+		)
+	}
+
 	return nil
+}
+
+// wordChars is lenient about '-' (real pattern is \\w+): in-repo fixtures use hyphenated tokens.
+func wordChars(s string) bool {
+	for _, r := range s {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' && r != '-' {
+			return false
+		}
+	}
+
+	return true
 }
 
 // buildInitialDVOList constructs the initial DomainValidationOptions list and determines
@@ -382,7 +436,7 @@ func (b *InMemoryBackend) ImportCertificate(
 	if certARNToUpdate != "" {
 		existing, ok := b.certs.Get(regionKey(region, certARNToUpdate))
 		if !ok {
-			return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARNToUpdate)
+			return nil, fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, certARNToUpdate)
 		}
 
 		existing.CertificateBody = certBody
@@ -456,7 +510,7 @@ func (b *InMemoryBackend) RenewCertificate(ctx context.Context, certARN string) 
 
 	c, exists := b.certs.Get(regionKey(region, certARN))
 	if !exists {
-		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+		return fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, certARN)
 	}
 
 	if c.Type == certTypeImported {
@@ -611,7 +665,7 @@ func (b *InMemoryBackend) ExportCertificate(
 
 	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
-		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+		return nil, fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, certARN)
 	}
 
 	if err := validateCertExportable(cert); err != nil {
@@ -648,7 +702,7 @@ func (b *InMemoryBackend) GetCertificate(ctx context.Context, certARN string) (s
 
 	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
-		return "", "", fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+		return "", "", fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, certARN)
 	}
 
 	if cert.Status == statusPendingValidation || cert.Status == statusValidationTimedOut ||
@@ -668,7 +722,7 @@ func (b *InMemoryBackend) DescribeCertificate(ctx context.Context, arn string) (
 
 	cert, exists := b.certs.Get(regionKey(region, arn))
 	if !exists {
-		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, arn)
+		return nil, fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, arn)
 	}
 
 	cp := copyCert(cert)
@@ -697,7 +751,11 @@ func (b *InMemoryBackend) ListCertificateDomainValidations(
 
 	cert, exists := b.certs.Get(regionKey(region, arn))
 	if !exists {
-		return page.Page[DomainValidationOption]{}, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, arn)
+		return page.Page[DomainValidationOption]{}, fmt.Errorf(
+			"%w: Could not find certificate %s",
+			ErrCertNotFound,
+			arn,
+		)
 	}
 
 	dvos := copyDomainValidationOptions(cert.DomainValidationOptions)
@@ -941,7 +999,7 @@ func (b *InMemoryBackend) DeleteCertificate(ctx context.Context, certARN string)
 
 	cert, exists := b.certs.Get(key)
 	if !exists {
-		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+		return fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, certARN)
 	}
 
 	if len(cert.InUseBy) > 0 {

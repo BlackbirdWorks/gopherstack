@@ -113,6 +113,7 @@ func TestServiceResourceAuthzEventBridgeQueue(t *testing.T) {
 
 			destURL, destARN := authzQueue(t, fx, "res-dest")
 			dlqURL, dlqARN := authzQueue(t, fx, "res-dlq")
+			authzQueuePolicy(t, fx, dlqURL, dlqARN, "events.amazonaws.com", "")
 
 			if !tt.noPolicy {
 				authzQueuePolicy(t, fx, destURL, destARN, tt.principal, tt.sourceLike)
@@ -181,6 +182,7 @@ func TestServiceResourceAuthzEventBridgeTopic(t *testing.T) {
 
 			subURL, subARN := authzQueue(t, fx, "topic-sub")
 			dlqURL, dlqARN := authzQueue(t, fx, "topic-dlq")
+			authzQueuePolicy(t, fx, dlqURL, dlqARN, "events.amazonaws.com", "")
 
 			snsc := sns.NewFromConfig(fx.cfg)
 			topic, err := snsc.CreateTopic(t.Context(), &sns.CreateTopicInput{Name: aws.String("authz-topic")})

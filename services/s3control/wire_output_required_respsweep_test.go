@@ -39,7 +39,7 @@ func TestGetBucketTagging_NoSuchTagSet(t *testing.T) {
 			t.Parallel()
 
 			b := s3control.NewInMemoryBackendWithConfig(createTagsTestAccountID, createTagsTestRegion)
-			b.CreateBucket(createTagsTestAccountID, "resp-bucket")
+			b.CreateBucket(createTagsTestAccountID, "", "resp-bucket")
 			if tt.tag {
 				require.NoError(t, b.PutBucketTagging("resp-bucket", s3control.TagSet{"env": "prod"}))
 			}

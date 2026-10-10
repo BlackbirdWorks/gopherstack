@@ -2,7 +2,7 @@
 service: sagemakerruntime
 sdk_module: aws-sdk-go-v2/service/sagemakerruntime@v1.43.4
 last_audit_commit: ab7ac08a7
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-07
 overall: A            # 2026-09-18: fixed InvokeEndpointAsync.Filename (was read nowhere; now shapes the generated OutputLocation's final path segment, per its doc "generates a filename based on the inference ID"); InvocationTimeoutSeconds/RequestTTLSeconds recorded as structural (no output member, no queue to expire)
 ops:
   InvokeEndpoint: {wire: ok, errors: ok, state: ok, persist: n/a, note: "sync op; EndpointName is now validated against the wired services/sagemaker endpoint registry (existence + InService); NewSessionId's Expires= attribute now matches the SDK's RFC-3339 wire format; ClosedSessionId is now emitted when an expired session is touched. body is an opaque mock, other headers round-trip correctly"}
@@ -13,10 +13,9 @@ families:
   invocation_history: {status: ok, note: "bounded FIFO (maxInvocationHistory=1000), persisted."}
   endpoint_validation: {status: ok, note: "EndpointLookup (endpoint_lookup.go) is a minimal interface satisfied directly by *sagemaker.InMemoryBackend's exported DescribeEndpoint method; wired at Provider.Init via wireEndpointLookup (provider.go), following the services/cloudwatchlogs/provider.go s3HandlerProvider precedent -- no change to services/sagemaker was needed, since DescribeEndpoint was already an exported, lock-safe read accessor. Unknown EndpointName and known-but-not-InService both surface real AWS's 'Endpoint <name> of account <account> not found.' ValidationError message (confirmed against real-world AWS error reports: an endpoint still Creating is reported as not-found from InvokeEndpoint's perspective too, since the runtime routing table only serves InService endpoints). When no lookup is wired (bare NewInMemoryBackend, e.g. every pre-existing test in this package), validation is a no-op, preserving standalone behaviour."}
 gaps: []
-items_still_open:
-  - "InvokeEndpointAsync.InvocationTimeoutSeconds: request-only header (serializers.go), no output member reflects it and there is no real async queue/timeout engine to expire against -- structural, not fixable without simulating actual processing duration."
-  - "InvokeEndpointAsync.RequestTTLSeconds: same as InvocationTimeoutSeconds -- request-only header, no queue to age a request out of."
-  - "InvokeEndpoint/InvokeEndpointWithResponseStream InferenceComponentName and TargetContainerHostname select a real inference component/container; no output member reflects them and no routing exists, so they are accepted and unused. ContentType and CustomAttributes are not gaps: ContentType is the request body type (the response type follows Accept) and CustomAttributes is echoed from X-Amzn-Sagemaker-Custom-Attributes (setForwardedHeader), on all three ops."
+items_still_open: []
+structural_gaps:
+  - "InvokeEndpointAsync.InvocationTimeoutSeconds/RequestTTLSeconds: request-only headers with no output member, and no async queue or processing-duration engine to expire a request against."
 deferred: []
 leaks: {status: clean, note: "sessions/asyncInvocations/invocations are all FIFO-capped (maxSessions/maxAsyncInvocations/maxInvocationHistory=1000); no goroutines, no janitor (Shutdown is a documented no-op). New endpointLookup field is a plain interface reference (no goroutine, no owned resource); SetEndpointLookup/validateEndpoint both take/release the backend's own lock before calling out to the (separately-locked) sagemaker backend, so no lock is held across the cross-service call and no lock-ordering cycle is introduced."}
 ---

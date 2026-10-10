@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"sort"
 	"time"
 )
 
@@ -178,9 +177,7 @@ func (b *InMemoryBackend) UngroupResources(
 	return result, nil
 }
 
-// ListGroupResources returns resource identifiers associated with a group, optionally
-// filtered and paginated. Supported filter Name: "resource-type" (filter by AWS resource type).
-// Returns identifiers, a continuation token (empty when no more results), and any error.
+// ListGroupResources is ListGroupResourcesPage without the query errors.
 func (b *InMemoryBackend) ListGroupResources(
 	ctx context.Context,
 	nameOrARN string,
@@ -188,22 +185,49 @@ func (b *InMemoryBackend) ListGroupResources(
 	nextToken string,
 	maxResults int,
 ) ([]ResourceIdentifier, string, error) {
+	p, err := b.ListGroupResourcesPage(ctx, nameOrARN, filters, nextToken, maxResults)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return p.Identifiers, p.NextToken, nil
+}
+
+// ListGroupResourcesPage returns a group's members: explicitly grouped
+// resources, or for a ResourceQuery group the live query result when a
+// resource source is wired. Supported filter Name: "resource-type".
+func (b *InMemoryBackend) ListGroupResourcesPage(
+	ctx context.Context,
+	nameOrARN string,
+	filters []ListGroupResourcesFilter,
+	nextToken string,
+	maxResults int,
+) (QueryPage, error) {
 	b.mu.RLock("ListGroupResources")
-	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 	name := resolveGroupName(nameOrARN)
 
-	if !b.groups.Has(regionKey(region, name)) {
-		return nil, "", fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+	g, ok := b.groups.Get(regionKey(region, name))
+	if !ok {
+		b.mu.RUnlock()
+
+		return QueryPage{}, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+	}
+
+	var query *ResourceQuery
+	if g.ResourceQuery != nil {
+		q := *g.ResourceQuery
+		query = &q
 	}
 
 	var arns []string
 	if b.groupResources[region] != nil {
-		arns = b.groupResources[region][name]
+		arns = slices.Clone(b.groupResources[region][name])
 	}
 
-	// Build the desired resource type set from filters (if any).
+	b.mu.RUnlock()
+
 	wantTypes := make(map[string]bool)
 	for _, f := range filters {
 		if f.Name == listGroupResourcesFilterResourceType {
@@ -213,24 +237,29 @@ func (b *InMemoryBackend) ListGroupResources(
 		}
 	}
 
-	out := make([]ResourceIdentifier, 0, len(arns))
+	var (
+		members []ResourceIdentifier
+		errs    []queryErrorWire
+	)
 
-	for _, a := range arns {
-		resType := resourceTypeFromARN(a)
-
-		if len(wantTypes) > 0 && !wantTypes[resType] {
-			continue
+	if live, qerrs, handled := b.evaluateQuery(ctx, query); handled {
+		members, errs = live, qerrs
+	} else {
+		members = make([]ResourceIdentifier, 0, len(arns))
+		for _, a := range arns {
+			members = append(members, ResourceIdentifier{ResourceArn: a, ResourceType: resourceTypeFromARN(a)})
 		}
-
-		out = append(out, ResourceIdentifier{ResourceArn: a, ResourceType: resType})
 	}
 
-	// Stable sort by ARN for deterministic pagination.
-	sort.Slice(out, func(i, j int) bool { return out[i].ResourceArn < out[j].ResourceArn })
+	out := make([]ResourceIdentifier, 0, len(members))
 
-	page, token := paginate(out, func(id ResourceIdentifier) string { return id.ResourceArn }, nextToken, maxResults)
+	for _, m := range members {
+		if len(wantTypes) == 0 || wantTypes[m.ResourceType] {
+			out = append(out, m)
+		}
+	}
 
-	return page, token, nil
+	return pageIdentifiers(out, errs, nextToken, maxResults), nil
 }
 
 // ListGroupingStatuses returns the grouping/ungrouping status history for a group,

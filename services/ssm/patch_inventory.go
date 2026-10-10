@@ -16,6 +16,13 @@ type InventoryDeletionSummary struct {
 	TotalCount     int   `json:"TotalCount"`
 }
 
+// InventoryDeletionSummaryItem counts deleted items for one schema version.
+type InventoryDeletionSummaryItem struct {
+	Version        string `json:"Version,omitempty"`
+	Count          int    `json:"Count"`
+	RemainingCount int    `json:"RemainingCount"`
+}
+
 // InventoryDeletion is a record of a DeleteInventory job, returned by
 // DescribeInventoryDeletions.
 type InventoryDeletion struct {
@@ -45,7 +52,7 @@ func defaultBaselineID(os string) string {
 // defaultPatchScanOS is the operating system assumed for a patch operation
 // whose instance has no registered patch group / baseline, matching the
 // Windows fallback GetDefaultPatchBaseline already uses.
-const defaultPatchScanOS = "WINDOWS"
+const defaultPatchScanOS = patchOSWindows
 
 // patchProductAmazonLinux2 identifies the Amazon Linux 2 platform in patch
 // catalogue/baseline data (mirrored across the built-in catalogue and the
@@ -107,13 +114,13 @@ func defaultPatchCatalog() []Patch {
 			ReleaseDate: UnixTimeFloat(time.Date(2023, time.December, 12, 0, 0, 0, 0, time.UTC)),
 		},
 		{
-			Name: "ALAS2-2024-2451", Product: patchProductAmazonLinux2, ProductFamily: "Amazon Linux 2",
+			Name: "ALAS2-2024-2451", Product: patchProductAmazonLinux2, ProductFamily: patchFamilyAmazonLinux2,
 			Classification: "Security", Severity: patchSeverityCritical,
 			PatchSet:    patchSetOS,
 			ReleaseDate: UnixTimeFloat(time.Date(2024, time.March, 1, 0, 0, 0, 0, time.UTC)),
 		},
 		{
-			Name: "ALAS2-2024-2460", Product: patchProductAmazonLinux2, ProductFamily: "Amazon Linux 2",
+			Name: "ALAS2-2024-2460", Product: patchProductAmazonLinux2, ProductFamily: patchFamilyAmazonLinux2,
 			Classification: "Bugfix", Severity: "Medium",
 			PatchSet:    patchSetOS,
 			ReleaseDate: UnixTimeFloat(time.Date(2024, time.March, 15, 0, 0, 0, 0, time.UTC)),

@@ -26,7 +26,7 @@ func (b *InMemoryBackend) CreateAgent(ctx context.Context, cfg AgentConfig) (*Ag
 
 	if prior := findByClientToken(b.agents, cfg.ClientToken,
 		func(a *Agent) string { return a.ClientToken }, func(*Agent) bool { return true }); prior != nil {
-		return agentCopy(prior), nil
+		return b.agentView(prior), nil
 	}
 
 	if _, exists := b.agentsByName[cfg.AgentName]; exists {
@@ -74,7 +74,7 @@ func (b *InMemoryBackend) CreateAgent(ctx context.Context, cfg AgentConfig) (*Ag
 	b.agentsByName[cfg.AgentName] = id
 	b.tags[a.AgentARN] = maps.Clone(cfg.Tags)
 
-	return agentCopy(a), nil
+	return b.agentView(a), nil
 }
 
 // GetAgent returns an agent by ID.
@@ -87,7 +87,7 @@ func (b *InMemoryBackend) GetAgent(_ context.Context, agentID string) (*Agent, e
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
-	return agentCopy(a), nil
+	return b.agentView(a), nil
 }
 
 // UpdateAgent updates an existing agent.
@@ -113,7 +113,7 @@ func (b *InMemoryBackend) UpdateAgent(_ context.Context, agentID string, cfg Age
 	applyAgentConfig(a, cfg)
 	a.UpdatedAt = time.Now().UTC()
 
-	return agentCopy(a), nil
+	return b.agentView(a), nil
 }
 
 func promptOverrideOrDefault(cfg map[string]any) map[string]any {
@@ -270,7 +270,7 @@ func (b *InMemoryBackend) ListAgents(
 		out = append(out, &AgentSummary{
 			AgentID:                a.AgentID,
 			AgentName:              a.AgentName,
-			AgentStatus:            a.AgentStatus,
+			AgentStatus:            b.statusOf("agent/"+a.AgentID, a.AgentStatus),
 			Description:            a.Description,
 			UpdatedAt:              a.UpdatedAt,
 			GuardrailConfiguration: a.Guardrail,
@@ -295,8 +295,9 @@ func (b *InMemoryBackend) PrepareAgent(_ context.Context, agentID string) (*Agen
 	a.AgentStatus = agentStatusPrepared
 	a.UpdatedAt = now
 	a.PreparedAt = &now
+	b.beginTransition("agent/"+agentID, agentStatusPreparing)
 
-	return agentCopy(a), nil
+	return b.agentView(a), nil
 }
 
 func agentCopy(a *Agent) *Agent {

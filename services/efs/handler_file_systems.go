@@ -44,12 +44,7 @@ func (h *Handler) handleCreateFileSystem(c *echo.Context, body []byte) error {
 
 	fs, err := h.Backend.CreateFileSystem(h.contextWithRegion(c), req)
 	if err != nil {
-		if errors.Is(err, ErrCreationTokenExists) {
-			// Identical token with identical args: return existing fs with 200 OK.
-			return c.JSON(http.StatusOK, fsToResponse(fs))
-		}
-		if errors.Is(err, ErrAlreadyExists) {
-			// Different args: return 409 with file system ID in body.
+		if errors.Is(err, ErrCreationTokenExists) || errors.Is(err, ErrAlreadyExists) {
 			c.Response().Header().Set("x-amzn-ErrorType", "FileSystemAlreadyExists")
 			resp := map[string]string{
 				"ErrorCode":    "FileSystemAlreadyExists",

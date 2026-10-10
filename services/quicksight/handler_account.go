@@ -210,7 +210,7 @@ func (h *Handler) handleCreateAccountSubscription(c *echo.Context) error {
 	)
 	if err != nil {
 		if errors.Is(err, ErrAccountSubscriptionAlreadyExists) {
-			return writeError(c, http.StatusConflict, errResourceExistsCode, err.Error())
+			return writeError(c, http.StatusConflict, errResourceExistsCode, errMessage(err))
 		}
 
 		return httpErr(c, err)
@@ -301,7 +301,7 @@ func (h *Handler) handleCreateAccountCustomization(c *echo.Context) error {
 	cust, err := h.Backend.CreateAccountCustomization(accountID, namespace, defaultTheme, defaultEmailTemplate)
 	if err != nil {
 		if errors.Is(err, ErrAccountCustomizationAlreadyExists) {
-			return writeError(c, http.StatusConflict, errResourceExistsCode, err.Error())
+			return writeError(c, http.StatusConflict, errResourceExistsCode, errMessage(err))
 		}
 
 		return httpErr(c, err)

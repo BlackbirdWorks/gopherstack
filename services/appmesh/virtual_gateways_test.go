@@ -73,7 +73,7 @@ func TestAppMesh_UpdateVirtualGateway(t *testing.T) {
 			},
 			meshName:   "m1",
 			vgName:     "gw1",
-			body:       map[string]any{"spec": map[string]any{}},
+			body:       map[string]any{"spec": validGatewaySpecBody()},
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -230,7 +230,10 @@ func TestBackend_UpdateVirtualGateway(t *testing.T) {
 			t.Parallel()
 			b := appmesh.NewInMemoryBackend("000000000000", "us-east-1")
 			tt.setup(b)
-			vg, err := b.UpdateVirtualGateway(tt.meshName, tt.vgName, json.RawMessage(`{}`))
+			vg, err := b.UpdateVirtualGateway(
+				tt.meshName, tt.vgName,
+				json.RawMessage(`{"listeners":[{"portMapping":{"port":8080,"protocol":"http"}}]}`),
+			)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.True(t, appmesh.ErrIs(err, tt.wantErr))

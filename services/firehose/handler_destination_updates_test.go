@@ -224,7 +224,7 @@ func TestUpdateDestination_ChangesS3Bucket(t *testing.T) {
 }
 
 // TestUpdateDestination_VersionMismatchRejected verifies that a stale VersionId is
-// rejected with 400 InvalidArgumentException.
+// rejected with 400 ConcurrentModificationException.
 func TestUpdateDestination_VersionMismatchRejected(t *testing.T) {
 	t.Parallel()
 
@@ -248,7 +248,7 @@ func TestUpdateDestination_VersionMismatchRejected(t *testing.T) {
 
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	assert.Equal(t, "InvalidArgumentException", body["__type"])
+	assert.Equal(t, "ConcurrentModificationException", body["__type"])
 }
 
 // TestUpdateDestination_HTTPEndpoint verifies that UpdateDestination accepts updates for

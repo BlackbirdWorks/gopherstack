@@ -141,9 +141,8 @@ func writeXML(c *echo.Context, payload any, status int) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	out := append([]byte(xml.Header), body...)
-	c.Response().Header().Set("Content-Type", "application/xml")
 
-	return c.XMLBlob(status, out)
+	return c.Blob(status, "application/xml", out)
 }
 
 // requestID returns the request's amazon request id header if present, so the

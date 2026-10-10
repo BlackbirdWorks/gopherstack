@@ -109,6 +109,10 @@ func signCSR(ca *CertificateAuthority, csrPEM string, validityDays int, o issueC
 		return "", "", fmt.Errorf("parse CA certificate: %w", err)
 	}
 
+	if pathErr := checkIssuerPathLen(caCert, o.resolvedTemplate.profile); pathErr != nil {
+		return "", "", pathErr
+	}
+
 	serial, err := cryptorand.Int(
 		cryptorand.Reader,
 		new(big.Int).Lsh(big.NewInt(1), serialBitLen),
@@ -132,6 +136,12 @@ func signCSR(ca *CertificateAuthority, csrPEM string, validityDays int, o issueC
 		DNSNames:              csr.DNSNames,
 		CRLDistributionPoints: crlDistributionPoints(ca, o.resolvedTemplate.profile),
 	}
+
+	if rt := o.resolvedTemplate; rt.allowCSRPassthrough && len(tmpl.CRLDistributionPoints) == 0 && !rt.profile.noCRLDP {
+		tmpl.CRLDistributionPoints = csrCRLDistributionPoints(csr)
+	}
+
+	applyCSRPassthrough(tmpl, csr, o.resolvedTemplate)
 
 	if applyErr := applyAPIPassthrough(tmpl, o.apiPassthrough, o.resolvedTemplate.profile); applyErr != nil {
 		return "", "", applyErr
@@ -406,6 +416,25 @@ func splitARN(a string) []string {
 				return []string{a[i+1:]}
 			}
 		}
+	}
+
+	return nil
+}
+
+// checkIssuerPathLen enforces that a CA certificate's pathLenConstraint stays
+// below the issuing CA's own (RFC 5280 §4.2.1.9; the template docs: "The CA
+// depth configured on a subordinate CA certificate must not exceed the limit
+// set by its parents in the CA hierarchy").
+func checkIssuerPathLen(issuer *x509.Certificate, profile templateProfile) error {
+	if !profile.isCA || profile.pathLen < 0 || !issuer.BasicConstraintsValid || issuer.MaxPathLen < 0 {
+		return nil
+	}
+
+	if profile.pathLen > issuer.MaxPathLen-1 {
+		return fmt.Errorf(
+			"%w: requested path length %d exceeds the limit allowed by the issuing CA (pathLenConstraint %d)",
+			ErrInvalidArgs, profile.pathLen, issuer.MaxPathLen,
+		)
 	}
 
 	return nil

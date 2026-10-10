@@ -146,7 +146,7 @@ func (b *InMemoryBackend) roleDerivedMaxDuration(input *AssumeRoleInput) (int32,
 		return meta.MaxSessionDuration, nil
 	}
 
-	return int32(MaxDurationSeconds), nil
+	return int32(DefaultDurationSeconds), nil
 }
 
 // checkAssumeRoleTrust evaluates the target role's trust policy against the
@@ -174,10 +174,10 @@ func (b *InMemoryBackend) checkAssumeRoleTrust(input *AssumeRoleInput) error {
 		callerArn:        input.CallerArn,
 		externalID:       input.ExternalID,
 		strictConditions: strict,
-		conditionCtx: map[string]string{
+		conditionCtx: withSourceIP(map[string]string{
 			condKeyPrincipalArn: input.CallerArn,
 			condKeyMFAPresent:   strconv.FormatBool(mfaPresent(input)),
-		},
+		}, input.SourceIP),
 	})
 }
 

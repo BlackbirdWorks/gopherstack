@@ -384,7 +384,7 @@ func (b *InMemoryBackend) SearchTablesByLFTags(
 	maxResults int,
 	nextToken string,
 ) ([]TaggedTable, string) {
-	b.mu.RLock("SearchTablesByLFTags")
+	b.mu.RLock(opSearchTablesByLFTags)
 	defer b.mu.RUnlock()
 
 	const tablePrefix = "table:"
@@ -434,7 +434,7 @@ func (b *InMemoryBackend) SearchDatabasesByLFTags(
 	maxResults int,
 	nextToken string,
 ) ([]TaggedDatabase, string) {
-	b.mu.RLock("SearchDatabasesByLFTags")
+	b.mu.RLock(opSearchDatabasesByLFTags)
 	defer b.mu.RUnlock()
 
 	const dbPrefix = "database:"

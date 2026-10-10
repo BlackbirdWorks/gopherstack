@@ -58,6 +58,7 @@ type ImageCriterion struct {
 	ImageNames               []string                  `json:"imageNames,omitempty"`
 	ImageProviders           []string                  `json:"imageProviders,omitempty"`
 	MarketplaceProductCodes  []string                  `json:"marketplaceProductCodes,omitempty"`
+	ImageWatermarks          []ImageWatermarkFilter    `json:"imageWatermarks,omitempty"`
 }
 
 // AllowedImagesSettings is the account-region singleton setting controlling which AMIs are
@@ -118,13 +119,17 @@ func (b *InMemoryBackend) GetAllowedImagesSettings() *AllowedImagesSettings {
 }
 
 // ReplaceImageCriteriaInAllowedImagesSettings replaces the full list of image criteria.
-func (b *InMemoryBackend) ReplaceImageCriteriaInAllowedImagesSettings(criteria []ImageCriterion) bool {
+func (b *InMemoryBackend) ReplaceImageCriteriaInAllowedImagesSettings(criteria []ImageCriterion) error {
+	if err := validateImageCriteria(criteria); err != nil {
+		return err
+	}
+
 	b.mu.Lock("ReplaceImageCriteriaInAllowedImagesSettings")
 	defer b.mu.Unlock()
 
 	b.allowedImagesSettings.ImageCriteria = criteria
 
-	return true
+	return nil
 }
 
 // ---- Store / Restore Image Tasks ----
@@ -245,6 +250,7 @@ func (b *InMemoryBackend) CreateRestoreImageTask(bucket, objectKey, name string)
 		Architecture: archX8664,
 		State:        stateAvailable,
 		OwnerID:      b.AccountID,
+		CreationTime: time.Now().UTC(),
 	}
 	b.images.Put(img)
 
@@ -482,6 +488,12 @@ func (b *InMemoryBackend) AttachImageWatermark(imageID, watermarkName string) (s
 	key := watermarkKey(b.AccountID, watermarkName)
 	if !slices.Contains(b.imageWatermarks[imageID], key) {
 		b.imageWatermarks[imageID] = append(b.imageWatermarks[imageID], key)
+
+		if b.imageWatermarkTimes[imageID] == nil {
+			b.imageWatermarkTimes[imageID] = make(map[string]time.Time)
+		}
+
+		b.imageWatermarkTimes[imageID][key] = time.Now().UTC()
 	}
 
 	return key, nil
@@ -512,6 +524,7 @@ func (b *InMemoryBackend) DetachImageWatermark(imageID, watermarkKey string) err
 		}
 	}
 	b.imageWatermarks[imageID] = kept
+	delete(b.imageWatermarkTimes[imageID], watermarkKey)
 
 	return nil
 }

@@ -224,6 +224,8 @@ type StorageBackend interface {
 	UpdateWorkflow(name string, update Workflow) error
 	DeleteWorkflow(name string) error
 	StartWorkflowRun(name string) (*WorkflowRun, error)
+	StartWorkflowRunWithProperties(name string, props map[string]string) (*WorkflowRun, error)
+	WorkflowRunGraph(workflowName string) *WorkflowGraph
 	GetWorkflowRun(workflowName, runID string) (*WorkflowRun, error)
 	GetWorkflowRuns(workflowName string) ([]*WorkflowRun, error)
 
@@ -255,6 +257,9 @@ type StorageBackend interface {
 	DescribeSchema(registryName, schemaName string) (*Schema, error)
 	ListSchemas(registryName string) []*Schema
 	UpdateSchema(registryName, schemaName, compatibility, description string) (*Schema, error)
+	UpdateSchemaWithCheckpoint(
+		registryName, schemaName, compatibility, description string, checkpoint *SchemaCheckpointRequest,
+	) (*Schema, error)
 	DeleteSchema(registryName, schemaName string) (*Schema, error)
 
 	// Schema Version operations.
@@ -370,6 +375,7 @@ type StorageBackend interface {
 
 	// Catalog operations.
 	CreateCatalog(catalogID, name, description string, params map[string]string) error
+	CreateCatalogWithTags(catalogID, name, description string, params, tags map[string]string) error
 	GetCatalog(catalogID string) (*CatalogEntry, error)
 	GetCatalogs() []*CatalogEntry
 	UpdateCatalog(catalogID, description string, params map[string]string) error
@@ -503,9 +509,9 @@ type StorageBackend interface {
 
 	// ML transform task run operations.
 	StartMLEvaluationTaskRun(transformID string) (*MLTaskRun, error)
-	StartMLLabelingSetGenerationTaskRun(transformID string) (*MLTaskRun, error)
+	StartMLLabelingSetGenerationTaskRun(transformID, outputPath string) (*MLTaskRun, error)
 	StartExportLabelsTaskRun(transformID, outputPath string) (*MLTaskRun, error)
-	StartImportLabelsTaskRun(transformID, inputPath string) (*MLTaskRun, error)
+	StartImportLabelsTaskRun(transformID, inputPath string, replace bool) (*MLTaskRun, error)
 	GetMLTaskRun(transformID, taskRunID string) (*MLTaskRun, error)
 	GetMLTaskRuns(transformID string) ([]*MLTaskRun, error)
 	CancelMLTaskRun(transformID, taskRunID string) error
@@ -547,11 +553,13 @@ type StorageBackend interface {
 
 	// Business glossary operations (glossaries.go).
 	CreateGlossary(name, description string) (*Glossary, error)
+	CreateGlossaryWithToken(name, description, clientToken string) (*Glossary, error)
 	GetGlossary(id string) (*Glossary, error)
 	UpdateGlossary(id string, name, description *string) (*Glossary, error)
 	DeleteGlossary(id string) error
 	ListGlossaries() []*Glossary
 	CreateGlossaryTerm(glossaryID, name, shortDesc, longDesc string) (*GlossaryTerm, error)
+	CreateGlossaryTermWithToken(glossaryID, name, shortDesc, longDesc, clientToken string) (*GlossaryTerm, error)
 	GetGlossaryTerm(id string) (*GlossaryTerm, error)
 	UpdateGlossaryTerm(id string, name, shortDesc, longDesc *string) (*GlossaryTerm, error)
 	DeleteGlossaryTerm(id string) error

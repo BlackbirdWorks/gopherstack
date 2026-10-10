@@ -185,6 +185,7 @@ type RevisionLocation struct {
 	S3Location     *RevisionS3Location     `json:"s3Location,omitempty"`
 	GitHubLocation *RevisionGitHubLocation `json:"gitHubLocation,omitempty"`
 	AppSpecContent *RevisionAppSpecContent `json:"appSpecContent,omitempty"`
+	RawString      *RevisionAppSpecContent `json:"string,omitempty"`
 	RevisionType   string                  `json:"revisionType,omitempty"`
 }
 

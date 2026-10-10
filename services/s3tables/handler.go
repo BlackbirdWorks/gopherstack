@@ -79,10 +79,11 @@ var (
 
 // Handler is the HTTP handler for the AWS S3 Tables API.
 type Handler struct {
-	peers     *regionpeers.Set[Handler]
-	Backend   *InMemoryBackend
-	AccountID string
-	Region    string
+	peers          *regionpeers.Set[Handler]
+	metadataWriter MetadataWriter
+	Backend        *InMemoryBackend
+	AccountID      string
+	Region         string
 }
 
 // NewHandler creates a new S3 Tables handler.

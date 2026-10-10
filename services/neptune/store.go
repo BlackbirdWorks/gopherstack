@@ -143,11 +143,12 @@ const (
 // (a bare []string / []Tag) carry no identity of their own to key a
 // store.Table by (see store_setup.go's doc comment for the full rationale).
 type InMemoryBackend struct {
-	registry                       *store.Registry
-	clusters                       *store.Table[DBCluster]
+	subnets                        SubnetResolver
+	clusterEndpoints               *store.Table[DBClusterEndpoint]
+	eventsLog                      map[string][]Event
 	clustersByRegion               *store.Index[DBCluster]
 	instances                      *store.Table[DBInstance]
-	instancesByRegion              *store.Index[DBInstance]
+	clusterEndpointsByRegion       *store.Index[DBClusterEndpoint]
 	subnetGroups                   *store.Table[DBSubnetGroup]
 	subnetGroupsByRegion           *store.Index[DBSubnetGroup]
 	clusterParameterGroups         *store.Table[DBClusterParameterGroup]
@@ -155,38 +156,22 @@ type InMemoryBackend struct {
 	clusterSnapshots               *store.Table[DBClusterSnapshot]
 	clusterSnapshotsByRegion       *store.Index[DBClusterSnapshot]
 	parameterGroups                *store.Table[DBParameterGroup]
+	clusters                       *store.Table[DBCluster]
 	parameterGroupsByRegion        *store.Index[DBParameterGroup]
-	clusterEndpoints               *store.Table[DBClusterEndpoint]
-	clusterEndpointsByRegion       *store.Index[DBClusterEndpoint]
+	instancesByRegion              *store.Index[DBInstance]
 	eventSubscriptions             *store.Table[EventSubscription]
 	eventSubscriptionsByRegion     *store.Index[EventSubscription]
-	globalClusters                 *store.Table[GlobalCluster] // global/partition-scoped, not region-nested
+	globalClusters                 *store.Table[GlobalCluster]
 	clusterRoles                   map[string]map[string][]string
 	tags                           map[string]map[string][]Tag
-	// parameterOverrides and clusterParameterOverrides hold per-group
-	// parameter value overrides written by Modify/Reset(DBCluster)ParameterGroup,
-	// keyed by regionKey(region, groupName) -> parameter name -> value (see
-	// parameter_catalog.go). Plain nested maps, not store.Table, following the
-	// same rationale as clusterRoles/tags above: a bare ParameterValue carries
-	// no identity of its own to key a table by.
-	parameterOverrides map[string]map[string]ParameterValue
-	// clusterParameterOverrides is the DBClusterParameterGroup counterpart of
-	// parameterOverrides.
-	clusterParameterOverrides map[string]map[string]ParameterValue
-	// pendingMaintenanceActions holds queued maintenance actions keyed by
-	// resource ARN -> action name -> action, seeded via
-	// AddPendingMaintenanceActionInternal (see maintenance.go) since nothing
-	// in this backend organically generates them the way real AWS does from
-	// system-side upgrade/security-patch availability data.
-	pendingMaintenanceActions map[string]map[string]PendingMaintenanceAction
-	// eventsLog holds the account activity event log, keyed by region,
-	// appended to by recordEvent at the point of the underlying state change
-	// (see events.go). Bounded by maxEventsLogPerRegion to avoid unbounded
-	// growth in a long-lived backend.
-	eventsLog map[string][]Event
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	parameterOverrides             map[string]map[string]ParameterValue
+	clusterParameterOverrides      map[string]map[string]ParameterValue
+	pendingMaintenanceActions      map[string]map[string]PendingMaintenanceAction
+	registry                       *store.Registry
+	mu                             *lockmetrics.RWMutex
+	accountID                      string
+	region                         string
+	lifecycleDelay                 time.Duration
 }
 
 // NewInMemoryBackend creates a new in-memory Neptune backend.

@@ -110,6 +110,7 @@ func TestSDK_DroppedMembersApplied(t *testing.T) {
 
 				put, err := c.PutConformancePack(t.Context(), &configservicesdk.PutConformancePackInput{
 					ConformancePackName: aws.String("cp"),
+					TemplateBody:        aws.String("Resources: {}"),
 					ConformancePackInputParameters: []types.ConformancePackInputParameter{
 						{ParameterName: aws.String("p"), ParameterValue: aws.String("v")},
 					},

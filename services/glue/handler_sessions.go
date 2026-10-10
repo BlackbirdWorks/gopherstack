@@ -26,6 +26,7 @@ func (h *Handler) handleCancelStatement(
 
 // createSessionInput holds input for CreateSession.
 type createSessionInput struct {
+	Tags                  map[string]string `json:"Tags,omitempty"`
 	DefaultArguments      map[string]string `json:"DefaultArguments,omitempty"`
 	Command               SessionCommand    `json:"Command"`
 	Description           string            `json:"Description,omitempty"`
@@ -54,7 +55,12 @@ func (h *Handler) handleCreateSession(
 		return nil, err
 	}
 
+	if err := validateTags(in.Tags); err != nil {
+		return nil, err
+	}
+
 	opts := Session{
+		Tags:                  in.Tags,
 		Timeout:               in.Timeout,
 		IdleTimeout:           in.IdleTimeout,
 		MaxCapacity:           in.MaxCapacity,

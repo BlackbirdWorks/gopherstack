@@ -3,16 +3,20 @@ package redshift
 import (
 	"encoding/xml"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
+
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // ---- Parameter Group XML types ----
 
 type xmlClusterParameterGroup struct {
-	ParameterGroupName   string `xml:"ParameterGroupName"`
-	ParameterGroupFamily string `xml:"ParameterGroupFamily"`
-	Description          string `xml:"Description,omitempty"`
+	ParameterGroupName   string       `xml:"ParameterGroupName"`
+	ParameterGroupFamily string       `xml:"ParameterGroupFamily"`
+	Description          string       `xml:"Description,omitempty"`
+	Tags                 []svcTags.KV `xml:"Tags>Tag,omitempty"`
 }
 
 type xmlClusterParameterGroupList struct {
@@ -47,6 +51,7 @@ func paramGroupToXML(pg *ClusterParameterGroup) xmlClusterParameterGroup {
 		ParameterGroupName:   pg.ParameterGroupName,
 		ParameterGroupFamily: pg.ParameterGroupFamily,
 		Description:          pg.Description,
+		Tags:                 tagMapToKVList(pg.Tags),
 	}
 }
 
@@ -55,10 +60,18 @@ func (h *Handler) handleCreateClusterParameterGroup(vals url.Values) (any, error
 	family := vals.Get("ParameterGroupFamily")
 	description := vals.Get("Description")
 
+	tags := parseRedshiftTags(vals)
+
 	pg, err := h.Backend.CreateClusterParameterGroup(name, family, description)
 	if err != nil {
 		return nil, err
 	}
+
+	if err = h.Backend.TagNewResource(tagTypeParameterGroup, name, tags); err != nil {
+		return nil, err
+	}
+
+	pg.Tags = tags
 
 	return &createClusterParameterGroupResponse{
 		Xmlns:          redshiftXMLNS,
@@ -94,9 +107,20 @@ type describeClusterParameterGroupsResponse struct {
 
 func (h *Handler) handleDescribeClusterParameterGroups(vals url.Values) (any, error) {
 	name := vals.Get("ParameterGroupName")
+	tagKeys := parseRedshiftTagKeysAt(vals, "TagKeys.TagKey.")
+	tagValues := parseRedshiftTagKeysAt(vals, "TagValues.TagValue.")
 
 	return describePaginated(vals,
-		func() ([]ClusterParameterGroup, error) { return h.Backend.DescribeClusterParameterGroups(name) },
+		func() ([]ClusterParameterGroup, error) {
+			groups, err := h.Backend.DescribeClusterParameterGroups(name)
+			if err != nil {
+				return nil, err
+			}
+
+			return slices.DeleteFunc(groups, func(g ClusterParameterGroup) bool {
+				return !anyTagMatchesFilter(g.Tags, tagKeys, tagValues)
+			}), nil
+		},
 		paramGroupToXML,
 		func(g xmlClusterParameterGroup) string { return g.ParameterGroupName },
 		func(members []xmlClusterParameterGroup, marker string) any {

@@ -257,25 +257,36 @@ func (b *InMemoryBackend) GetReservedNodeExchangeOfferings(reservedNodeID string
 // ReservedNodeConfigurationOption mirrors
 // types.ReservedNodeConfigurationOption: a candidate exchange pairing a
 // currently-owned reserved node with an available target offering.
-//
-//nolint:govet // fieldalignment: embeds existing model structs; reordering fields here doesn't help
 type ReservedNodeConfigurationOption struct {
-	SourceReservedNode         ReservedNode
 	TargetReservedNodeOffering ReservedNodeOffering
+	SourceReservedNode         ReservedNode
 	TargetReservedNodeCount    int
 }
 
-// GetReservedNodeExchangeConfigurationOptions returns exchange configuration
-// options for every reserved node currently owned by the account, each
-// paired against this backend's static reserved-node-offering catalog
-// (defaultReservedNodeOfferings, same source GetReservedNodeExchangeOfferings
-// already uses). This backend does not track which specific cluster or
-// snapshot a reservation applies to, so ClusterIdentifier/SnapshotIdentifier
-// scoping (real GetReservedNodeExchangeConfigurationOptionsInput members) is
-// accepted by the handler but not filtered on here.
-func (b *InMemoryBackend) GetReservedNodeExchangeConfigurationOptions() []ReservedNodeConfigurationOption {
+// GetReservedNodeExchangeConfigurationOptions returns exchange options for every
+// reserved node the account owns, each paired with the first catalog offering.
+// Reservations are not tracked per cluster or snapshot, so ClusterIdentifier and
+// SnapshotIdentifier only have to name an existing resource.
+func (b *InMemoryBackend) GetReservedNodeExchangeConfigurationOptions(
+	actionType, clusterID, snapshotID string,
+) ([]ReservedNodeConfigurationOption, error) {
+	if actionType != reservedNodeActionRestoreCluster && actionType != reservedNodeActionResizeCluster {
+		return nil, fmt.Errorf(
+			"%w: ActionType must be %s or %s",
+			ErrInvalidParameter, reservedNodeActionRestoreCluster, reservedNodeActionResizeCluster,
+		)
+	}
+
 	b.mu.RLock("GetReservedNodeExchangeConfigurationOptions")
 	defer b.mu.RUnlock()
+
+	if clusterID != "" && !b.clusters.Has(clusterID) {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
+	}
+
+	if snapshotID != "" && !b.snapshots.Has(snapshotID) {
+		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
+	}
 
 	offerings := defaultReservedNodeOfferings()
 
@@ -294,8 +305,13 @@ func (b *InMemoryBackend) GetReservedNodeExchangeConfigurationOptions() []Reserv
 		options = append(options, opt)
 	}
 
-	return options
+	return options, nil
 }
+
+const (
+	reservedNodeActionRestoreCluster = "restore-cluster"
+	reservedNodeActionResizeCluster  = "resize-cluster"
+)
 
 // AcceptReservedNodeExchange exchanges an existing reserved node for a new offering.
 func (b *InMemoryBackend) AcceptReservedNodeExchange(reservedNodeID, targetOfferingID string) (*ReservedNode, error) {

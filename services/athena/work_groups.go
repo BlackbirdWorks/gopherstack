@@ -2,6 +2,7 @@ package athena
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"time"
 )
@@ -37,6 +38,46 @@ func validateWorkGroupConfiguration(cfg WorkGroupConfiguration) error {
 		)
 	}
 
+	return validateWorkGroupFeatureConfigs(cfg)
+}
+
+const authTypeDirectoryIdentity = "DIRECTORY_IDENTITY"
+
+func validateWorkGroupFeatureConfigs(cfg WorkGroupConfiguration) error {
+	if ic := cfg.IdentityCenter; ic != nil && ic.EnableIdentityCenter != nil &&
+		*ic.EnableIdentityCenter && cfg.ExecutionRole == "" {
+		return fmt.Errorf("%w: ExecutionRole is required for IAM Identity Center enabled workgroups", ErrValidation)
+	}
+
+	if m := cfg.ManagedResults; m != nil {
+		if m.Enabled && cfg.ResultConfiguration.OutputLocation != "" {
+			return fmt.Errorf(
+				"%w: a workgroup with managed query results enabled cannot have ResultConfiguration.OutputLocation",
+				ErrValidation,
+			)
+		}
+
+		if e := m.EncryptionConfiguration; e != nil && e.KmsKey == "" {
+			return fmt.Errorf(
+				"%w: ManagedQueryResultsConfiguration.EncryptionConfiguration.KmsKey is required",
+				ErrValidation,
+			)
+		}
+	}
+
+	if g := cfg.S3AccessGrants; g != nil {
+		if g.EnableS3AccessGrants == nil {
+			return fmt.Errorf("%w: S3AccessGrantsConfig.EnableS3AccessGrants is required", ErrValidation)
+		}
+
+		if g.AuthenticationType != authTypeDirectoryIdentity {
+			return fmt.Errorf(
+				"%w: S3AccessGrantsConfig.AuthenticationType must be %s",
+				ErrValidation, authTypeDirectoryIdentity,
+			)
+		}
+	}
+
 	return nil
 }
 
@@ -48,6 +89,14 @@ func (b *InMemoryBackend) CreateWorkGroup(
 ) error {
 	if name == "" {
 		return fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	if !workGroupNamePattern.MatchString(name) {
+		return fmt.Errorf(
+			"%w: 1 validation error detected: Value '%s' at 'name' failed to satisfy constraint: "+
+				"Member must satisfy regular expression pattern: [a-zA-Z0-9._-]{1,128}",
+			ErrValidation, name,
+		)
 	}
 
 	if err := validateWorkGroupState(state); err != nil {
@@ -93,7 +142,7 @@ func (b *InMemoryBackend) GetWorkGroup(name string) (*WorkGroup, error) {
 
 	wg, ok := b.workGroups.Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: workgroup %q not found", ErrNotFound, name)
+		return nil, awsErrorf(ErrNotFound, "WorkGroup %s is not found.", name)
 	}
 
 	cp := *wg
@@ -169,7 +218,7 @@ func (b *InMemoryBackend) UpdateWorkGroup(
 
 	wg, ok := b.workGroups.Get(name)
 	if !ok {
-		return fmt.Errorf("%w: workgroup %q not found", ErrNotFound, name)
+		return awsErrorf(ErrNotFound, "WorkGroup %s is not found.", name)
 	}
 
 	if cfg != nil {
@@ -212,7 +261,7 @@ func (b *InMemoryBackend) DeleteWorkGroup(name string, recursiveDelete bool) err
 	}
 
 	if !b.workGroups.Has(name) {
-		return fmt.Errorf("%w: workgroup %q not found", ErrNotFound, name)
+		return awsErrorf(ErrNotFound, "WorkGroup %s is not found.", name)
 	}
 
 	queries := b.namedQueriesByWorkGroup.Get(name)
@@ -259,3 +308,5 @@ func (b *InMemoryBackend) notebooksInWorkGroupLocked(workGroup string) []*Notebo
 
 	return out
 }
+
+var workGroupNamePattern = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,128}$`)

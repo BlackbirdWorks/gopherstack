@@ -169,14 +169,19 @@ type ActivityTaskActivityType struct {
 
 // ActivityTask represents a pending activity task returned by PollForActivityTask.
 type ActivityTask struct {
-	TaskToken        string                   `json:"taskToken"`
-	ActivityID       string                   `json:"activityId"`
-	ActivityType     ActivityTaskActivityType `json:"activityType"`
-	Input            string                   `json:"input,omitempty"`
-	WorkflowID       string                   `json:"workflowId"`
-	RunID            string                   `json:"runId"`
-	StartedEventID   int64                    `json:"startedEventId"`
-	ScheduledEventID int64                    `json:"scheduledEventId"`
+	ActivityType           ActivityTaskActivityType `json:"activityType"`
+	ScheduleToStartTimeout string                   `json:"scheduleToStartTimeout,omitempty"`
+	ActivityID             string                   `json:"activityId"`
+	Input                  string                   `json:"input,omitempty"`
+	WorkflowID             string                   `json:"workflowId"`
+	RunID                  string                   `json:"runId"`
+	TaskToken              string                   `json:"taskToken"`
+	ScheduleToCloseTimeout string                   `json:"scheduleToCloseTimeout,omitempty"`
+	StartToCloseTimeout    string                   `json:"startToCloseTimeout,omitempty"`
+	HeartbeatTimeout       string                   `json:"heartbeatTimeout,omitempty"`
+	StartedEventID         int64                    `json:"startedEventId"`
+	ScheduledEventID       int64                    `json:"scheduledEventId"`
+	ScheduledAt            float64                  `json:"scheduledAt,omitempty"`
 }
 
 // DecisionTask represents a pending decision task returned by PollForDecisionTask.
@@ -191,6 +196,10 @@ type DecisionTask struct {
 	StartedEventID         int64          `json:"startedEventId"`
 	PreviousStartedEventID int64          `json:"previousStartedEventId"`
 	ScheduledEventID       int64          `json:"-"`
+	// StickyDeadline is the epoch-seconds instant after which a task queued on a sticky
+	// task list times out (0 for none); Sticky marks a task scheduled on that list.
+	StickyDeadline float64 `json:"-"`
+	Sticky         bool    `json:"-"`
 }
 
 // Domain represents an SWF domain.
@@ -230,8 +239,8 @@ type WorkflowType struct {
 type WorkflowExecution struct {
 	TimerStartedEventIDs         map[string]int64   `json:"-"`
 	OpenTimerDeadlines           map[string]float64 `json:"-"`
-	ParentRunID                  string             `json:"parentRunID,omitempty"`
-	WorkflowTypeName             string             `json:"workflowTypeName,omitempty"`
+	TaskPriority                 string             `json:"taskPriority,omitempty"`
+	Status                       string             `json:"status"`
 	TaskList                     string             `json:"taskList,omitempty"`
 	CloseStatus                  string             `json:"closeStatus,omitempty"`
 	LatestExecutionContext       string             `json:"latestExecutionContext,omitempty"`
@@ -241,18 +250,21 @@ type WorkflowExecution struct {
 	Input                        string             `json:"input,omitempty"`
 	LambdaRole                   string             `json:"lambdaRole,omitempty"`
 	RunID                        string             `json:"runID"`
-	Status                       string             `json:"status"`
-	TaskPriority                 string             `json:"taskPriority,omitempty"`
 	ExecutionStartToCloseTimeout string             `json:"executionStartToCloseTimeout,omitempty"`
-	ParentWorkflowID             string             `json:"parentWorkflowID,omitempty"`
+	WorkflowTypeName             string             `json:"workflowTypeName,omitempty"`
+	ParentRunID                  string             `json:"parentRunID,omitempty"`
+	StickyTaskList               string             `json:"stickyTaskList,omitempty"`
 	WorkflowTypeVersion          string             `json:"workflowTypeVersion,omitempty"`
 	Domain                       string             `json:"domain"`
+	StickyScheduleToStartTimeout string             `json:"stickyScheduleToStartTimeout,omitempty"`
+	ParentWorkflowID             string             `json:"parentWorkflowID,omitempty"`
 	OpenTimerIDs                 []string           `json:"openTimerIDs,omitempty"`
+	OpenLambdaIDs                []string           `json:"openLambdaIDs,omitempty"`
 	TagList                      []string           `json:"tagList,omitempty"`
-	StartTimestamp               float64            `json:"startTimestamp"`
-	CloseTimestamp               float64            `json:"closeTimestamp,omitempty"`
-	ParentInitiatedEventID       int64              `json:"parentInitiatedEventID,omitempty"`
 	ParentStartedEventID         int64              `json:"parentStartedEventID,omitempty"`
+	ParentInitiatedEventID       int64              `json:"parentInitiatedEventID,omitempty"`
+	CloseTimestamp               float64            `json:"closeTimestamp,omitempty"`
+	StartTimestamp               float64            `json:"startTimestamp"`
 	CancelRequested              bool               `json:"cancelRequested,omitempty"`
 }
 
@@ -281,15 +293,22 @@ type StartWorkflowExecutionInput struct {
 // round-trips it through a dedicated activeActivityTaskDTO that carries the token as a
 // real JSON field, so it survives the round trip despite being excluded here.
 type activeActivityTaskRecord struct {
-	ActivityType     ActivityTaskActivityType
-	Domain           string
-	WorkflowID       string
-	RunID            string
-	ActivityID       string
-	TaskList         string
-	TaskToken        string `json:"-"`
-	ScheduledEventID int64
-	StartedEventID   int64
+	ActivityType           ActivityTaskActivityType
+	ScheduleToCloseTimeout string
+	Domain                 string
+	RunID                  string
+	ActivityID             string
+	TaskList               string
+	TaskToken              string `json:"-"`
+	WorkflowID             string
+	HeartbeatDetails       string
+	HeartbeatTimeout       string
+	StartToCloseTimeout    string
+	LastHeartbeatAt        float64
+	StartedEventID         int64
+	StartedAt              float64
+	ScheduledEventID       int64
+	ScheduledAt            float64
 }
 
 // activeDecisionTaskRecord tracks a decision task token dispatched to a poller.
@@ -302,6 +321,8 @@ type activeDecisionTaskRecord struct {
 	TaskToken        string `json:"-"`
 	ScheduledEventID int64
 	StartedEventID   int64
+	StartedAt        float64
+	Sticky           bool
 }
 
 // CompleteWorkflowExecutionDecisionAttrs holds attributes for CompleteWorkflowExecution.
@@ -417,6 +438,7 @@ type Decision struct {
 	ScheduleActivityTaskAttrs                   *ScheduleActivityTaskDecisionAttrs
 	RequestCancelActivityTaskAttrs              *RequestCancelActivityTaskDecisionAttrs
 	StartTimerAttrs                             *StartTimerDecisionAttrs
+	ScheduleLambdaFunctionAttrs                 *ScheduleLambdaFunctionDecisionAttrs
 	CancelTimerAttrs                            *CancelTimerDecisionAttrs
 	RecordMarkerAttrs                           *RecordMarkerDecisionAttrs
 	ContinueAsNewWorkflowExecutionAttrs         *ContinueAsNewWorkflowExecutionDecisionAttrs

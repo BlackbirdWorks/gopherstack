@@ -666,7 +666,7 @@ func TestListDataSources_Pagination(t *testing.T) {
 
 	for i := range 4 {
 		rec = doRequest(t, h, http.MethodPost, fmt.Sprintf("/v1/apis/%s/datasources", apiID), map[string]any{
-			"name": fmt.Sprintf("ds-%d", i),
+			"name": fmt.Sprintf("ds_%d", i),
 			"type": "NONE",
 		})
 		require.Equal(t, http.StatusCreated, rec.Code)

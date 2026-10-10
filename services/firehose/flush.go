@@ -172,6 +172,7 @@ type flushSnapshot struct {
 	splunkDest        *SplunkDestinationDescription
 	icebergDest       *IcebergDestinationDescription
 	snowflakeDest     *SnowflakeDestinationDescription
+	oldest            time.Time
 	streamARN         string
 	streamName        string
 	region            string
@@ -274,6 +275,7 @@ func (b *InMemoryBackend) extractAllRecordsLocked(s *DeliveryStream) *flushSnaps
 		streamARN:     s.ARN,
 		streamName:    s.Name,
 		region:        s.Region,
+		oldest:        s.oldestBuffered,
 	}
 
 	if s.S3Destination != nil && b.s3 != nil {
@@ -331,6 +333,10 @@ type nonS3Target struct {
 	cwLog    *CloudWatchLoggingOptions
 	roleARN  string
 	failType string
+	// metric is the DeliveryTo<X> metric prefix; empty emits nothing.
+	metric string
+	// perCall reports Success as 1/0 per delivery call rather than the delivered record count.
+	perCall bool
 }
 
 // deliverSnapshot delivers records to every configured destination, routing processing and
@@ -343,21 +349,28 @@ func (b *InMemoryBackend) deliverSnapshot(ctx context.Context, snap *flushSnapsh
 	if d := snap.httpDest; d != nil {
 		b.deliverProcessedNonS3(ctx, snap, streamName,
 			nonS3Target{pc: d.ProcessingConfiguration, backup: d.S3BackupDescription, cwLog: d.CloudWatchLoggingOptions,
-				failType: errTypeHTTP},
+				failType: errTypeHTTP, metric: "DeliveryToHttpEndpoint"},
 			func(recs [][]byte) [][]byte { return b.deliverToHTTPEndpoint(ctx, recs, d, snap.streamARN) })
 	}
 
 	if d := snap.redshiftDest; d != nil {
 		b.deliverProcessedNonS3(ctx, snap, streamName,
-			nonS3Target{pc: d.ProcessingConfiguration, backup: d.S3BackupDescription, roleARN: d.RoleARN,
-				cwLog: d.CloudWatchLoggingOptions, failType: errTypeProcessing},
+			nonS3Target{
+				pc:       d.ProcessingConfiguration,
+				backup:   d.S3BackupDescription,
+				roleARN:  d.RoleARN,
+				cwLog:    d.CloudWatchLoggingOptions,
+				failType: errTypeProcessing,
+				metric:   "DeliveryToRedshift",
+				perCall:  true,
+			},
 			func(recs [][]byte) [][]byte { return b.deliverToRedshift(ctx, recs, d, snap.streamARN, streamName) })
 	}
 
 	if d := snap.openSearchDest; d != nil {
 		b.deliverProcessedNonS3(ctx, snap, streamName,
 			nonS3Target{pc: d.ProcessingConfiguration, backup: d.S3BackupDescription, cwLog: d.CloudWatchLoggingOptions,
-				roleARN: d.RoleARN, failType: errTypeOpenSearch},
+				roleARN: d.RoleARN, failType: errTypeOpenSearch, metric: "DeliveryToAmazonOpenSearchService"},
 			func(recs [][]byte) [][]byte { return b.deliverToOpenSearch(ctx, recs, d, snap.streamARN) })
 	}
 
@@ -375,12 +388,8 @@ func (b *InMemoryBackend) deliverLakeAndSplunk(ctx context.Context, snap *flushS
 	if d := snap.splunkDest; d != nil {
 		b.deliverProcessedNonS3(ctx, snap, streamName,
 			nonS3Target{pc: d.ProcessingConfiguration, backup: d.S3BackupDescription, cwLog: d.CloudWatchLoggingOptions,
-				failType: errTypeSplunk},
-			func(recs [][]byte) [][]byte {
-				b.deliverToSplunk(ctx, recs, d, snap.streamARN)
-
-				return nil
-			})
+				failType: errTypeSplunk, metric: "DeliveryToSplunk"},
+			func(recs [][]byte) [][]byte { return b.deliverToSplunk(ctx, recs, d, snap.streamARN) })
 	}
 
 	if d := snap.icebergDest; d != nil {
@@ -393,7 +402,7 @@ func (b *InMemoryBackend) deliverLakeAndSplunk(ctx context.Context, snap *flushS
 	if d := snap.snowflakeDest; d != nil {
 		b.deliverProcessedNonS3(ctx, snap, streamName,
 			nonS3Target{pc: d.ProcessingConfiguration, cwLog: d.CloudWatchLoggingOptions, roleARN: d.RoleARN,
-				failType: errTypeProcessing},
+				failType: errTypeProcessing, metric: "DeliveryToSnowflake", perCall: true},
 			func(recs [][]byte) [][]byte { return b.deliverToSnowflake(ctx, recs, d, streamName) })
 	}
 }
@@ -421,6 +430,7 @@ func (b *InMemoryBackend) deliverProcessedNonS3(
 	var undelivered [][]byte
 	if len(out.Ok) > 0 {
 		undelivered = deliver(out.Ok)
+		b.emitDestinationDelivery(snap, t, out.Ok, undelivered)
 	}
 
 	if t.backup != nil {
@@ -462,8 +472,9 @@ func (b *InMemoryBackend) deliverS3Backup(
 		return
 	}
 
-	_, _ = b.writeRecordsToBucket(ctx, snap.backupRecords, backup.BucketARN,
+	_, err := b.writeRecordsToBucket(ctx, snap.backupRecords, backup.BucketARN,
 		backup.Prefix, backup.CompressionFormat, streamName)
+	b.emitBackup(snap, streamName, err == nil)
 }
 
 // recordFailedRecords increments the FailedRecords delivery metric for a stream.

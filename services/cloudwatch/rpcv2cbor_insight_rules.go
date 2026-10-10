@@ -41,6 +41,8 @@ func (h *Handler) cborPutInsightRuleWithName(
 		Name:       ruleName,
 		Definition: definition,
 		State:      cborStr(input, "RuleState"),
+
+		ApplyOnTransformedLogs: cborBool(input, "ApplyOnTransformedLogs"),
 	}); err != nil {
 		if errors.Is(err, ErrValidation) {
 			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
@@ -98,6 +100,8 @@ func (h *Handler) cborDescribeInsightRules(input cbor.Map, c *echo.Context) erro
 			"Schema":      cbor.String(r.Schema),
 			"Definition":  cbor.String(r.Definition),
 			"ManagedRule": cbor.Bool(r.ManagedRule),
+
+			"ApplyOnTransformedLogs": cbor.Bool(r.ApplyOnTransformedLogs),
 		}
 		if r.Arn != "" {
 			entry["RuleArn"] = cbor.String(r.Arn)
@@ -366,4 +370,10 @@ func buildInsightRuleFailureCBOR(failures []InsightRuleFailure) cbor.Map {
 	return cbor.Map{
 		"Failures": failList,
 	}
+}
+
+func cborBool(m cbor.Map, key string) bool {
+	b, _ := m[key].(cbor.Bool)
+
+	return bool(b)
 }

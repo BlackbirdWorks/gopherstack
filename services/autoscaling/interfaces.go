@@ -14,6 +14,7 @@ type StorageBackend interface {
 	DeleteLaunchConfiguration(name string) error
 
 	DescribeScalingActivities(groupName string, statuses []string) ([]ScalingActivity, error)
+	DescribeScalingActivitiesFor(groupName string, statuses []string, includeDeleted bool) ([]ScalingActivity, error)
 
 	AttachInstances(groupName string, instanceIDs []string) error
 	AttachLoadBalancerTargetGroups(groupName string, targetGroupARNs []string) error
@@ -95,7 +96,7 @@ type StorageBackend interface {
 
 	// Launch instances
 	LaunchInstances(groupName string, count int32) ([]Instance, error)
-	LaunchInstancesIn(groupName string, count int32, zones []string) ([]Instance, error)
+	LaunchInstancesWith(groupName string, t LaunchTargets, count int32) ([]Instance, error)
 	GroupInstances(groupName string, instanceIDs []string) ([]Instance, error)
 
 	// Predictive scaling

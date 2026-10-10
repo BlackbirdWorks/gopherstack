@@ -59,6 +59,7 @@ type PolicyStore struct {
 	CreatedDate        time.Time         `json:"createdDate"`
 	LastUpdated        time.Time         `json:"lastUpdated"`
 	Tags               map[string]string `json:"tags,omitempty"`
+	KMSEncryptionCtx   map[string]string `json:"kmsEncryptionCtx,omitempty"`
 	PolicyStoreID      string            `json:"policyStoreID"`
 	Arn                string            `json:"arn"`
 	Description        string            `json:"description"`
@@ -66,6 +67,13 @@ type PolicyStore struct {
 	Region             string            `json:"region"`
 	ValidationMode     string            `json:"validationMode"`
 	DeletionProtection string            `json:"deletionProtection"`
+	KMSKeyArn          string            `json:"kmsKeyArn,omitempty"`
+}
+
+// PolicyStoreEncryption is the customer-managed KMS configuration from CreatePolicyStore.
+type PolicyStoreEncryption struct {
+	Context map[string]string
+	Key     string
 }
 
 // Policy represents a policy in a Verified Permissions policy store.

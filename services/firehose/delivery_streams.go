@@ -3,6 +3,7 @@ package firehose
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -32,8 +33,12 @@ type CreateDeliveryStreamInput struct {
 func (b *InMemoryBackend) CreateDeliveryStream(
 	ctx context.Context, input CreateDeliveryStreamInput,
 ) (*DeliveryStream, error) {
-	if strings.TrimSpace(input.Name) == "" {
-		return nil, fmt.Errorf("%w: DeliveryStreamName is required", ErrValidation)
+	if err := validateDeliveryStreamName(input.Name); err != nil {
+		return nil, err
+	}
+
+	if err := b.resolveVpcConfigurations(getRegionFromContext(ctx, b), &input); err != nil {
+		return nil, err
 	}
 
 	var (
@@ -262,4 +267,20 @@ func (b *InMemoryBackend) ListDeliveryStreamsByType(ctx context.Context, streamT
 	}
 
 	return filtered
+}
+
+var deliveryStreamNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,64}$`)
+
+func validateDeliveryStreamName(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("%w: DeliveryStreamName is required", ErrValidation)
+	}
+
+	if !deliveryStreamNamePattern.MatchString(name) {
+		return fmt.Errorf(
+			"%w: DeliveryStreamName must be 1-64 characters of letters, digits, underscore, hyphen or period",
+			ErrValidation)
+	}
+
+	return nil
 }

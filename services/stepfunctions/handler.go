@@ -316,7 +316,7 @@ func (h *Handler) handleError(
 
 	errResp := service.JSONErrorResponse{
 		Type:    errType,
-		Message: reqErr.Error(),
+		Message: errorMessage(reqErr),
 	}
 
 	payload, _ := json.Marshal(errResp)
@@ -324,14 +324,14 @@ func (h *Handler) handleError(
 	return c.JSONBlob(statusCode, payload)
 }
 
-func classifyError(reqErr error) (string, int) {
-	type mapping struct {
-		err    error
-		kind   string
-		status int
-	}
+type errorMapping struct {
+	err    error
+	kind   string
+	status int
+}
 
-	mappings := []mapping{
+func errorMappings() []errorMapping {
+	return []errorMapping{
 		{ErrStateMachineDoesNotExist, "StateMachineDoesNotExist", http.StatusNotFound},
 		{
 			ErrStateMachineVersionDoesNotExist,
@@ -384,15 +384,37 @@ func classifyError(reqErr error) (string, int) {
 		{ErrTaskTokenAlreadyExists, "TaskTokenAlreadyExists", http.StatusBadRequest},
 		{ErrValidation, "ValidationException", http.StatusBadRequest},
 		{errUnknownOperation, "UnknownOperationException", http.StatusBadRequest},
+		{ErrInvalidToken, "InvalidToken", http.StatusBadRequest},
 	}
+}
 
-	for _, m := range mappings {
+func classifyError(reqErr error) (string, int) {
+	for _, m := range errorMappings() {
 		if errors.Is(reqErr, m.err) {
 			return m.kind, m.status
 		}
 	}
 
 	return "InternalServerError", http.StatusInternalServerError
+}
+
+// errorMessage drops the sentinel prefix that wrapping adds, so clients see "msg" rather than "Code: msg".
+func errorMessage(reqErr error) string {
+	msg := reqErr.Error()
+
+	for _, m := range errorMappings() {
+		if !errors.Is(reqErr, m.err) {
+			continue
+		}
+
+		for _, prefix := range []string{m.err.Error() + ": ", m.kind + ": "} {
+			if rest, ok := strings.CutPrefix(msg, prefix); ok && rest != "" {
+				return rest
+			}
+		}
+	}
+
+	return msg
 }
 
 // Reset clears all in-memory state from the backend. It is used by the

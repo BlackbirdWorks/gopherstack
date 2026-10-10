@@ -60,6 +60,10 @@ func (h *Handler) handleListResources(_ context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: resourceOwner is required", errInvalidRequest)
 	}
 
+	if err := validateResourceOwner(req.ResourceOwner); err != nil {
+		return nil, err
+	}
+
 	assocs := h.Backend.ListResources(req.ResourceOwner, req.ResourceShareArns, req.ResourceType)
 	objs := make([]resourceObject, 0, len(assocs))
 	withPrincipal := h.Backend.ResourceShareARNsFor(ShareFilter{Principal: req.Principal})

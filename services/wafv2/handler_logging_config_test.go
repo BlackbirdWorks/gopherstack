@@ -93,9 +93,11 @@ func TestLoggingConfigurationFullRoundTrip(t *testing.T) {
 
 	// Put a full logging configuration.
 	loggingConfig := map[string]any{
-		"ResourceArn":           webACLARN,
-		"LogDestinationConfigs": []string{"arn:aws:firehose:us-east-1:000000000000:deliverystream/my-stream"},
-		"RedactedFields":        []any{},
+		"ResourceArn": webACLARN,
+		"LogDestinationConfigs": []string{
+			"arn:aws:firehose:us-east-1:000000000000:deliverystream/aws-waf-logs-my-stream",
+		},
+		"RedactedFields": []any{},
 	}
 	putRec := doWafv2Request(t, h, "PutLoggingConfiguration", map[string]any{
 		"LoggingConfiguration": loggingConfig,
@@ -141,7 +143,7 @@ func TestLoggingConfig_FirehoseDestination(t *testing.T) {
 	rec := doWafv2Request(t, h, "PutLoggingConfiguration", map[string]any{
 		"LoggingConfiguration": map[string]any{
 			"ResourceArn":           webACLARN,
-			"LogDestinationConfigs": []string{"arn:aws:firehose:us-east-1:000000000000:deliverystream/waf-logs"},
+			"LogDestinationConfigs": []string{"arn:aws:firehose:us-east-1:000000000000:deliverystream/aws-waf-logs-x"},
 			"RedactedFields":        []any{},
 		},
 	})
@@ -169,7 +171,7 @@ func TestLoggingConfig_S3Destination(t *testing.T) {
 	rec := doWafv2Request(t, h, "PutLoggingConfiguration", map[string]any{
 		"LoggingConfiguration": map[string]any{
 			"ResourceArn":           webACLARN,
-			"LogDestinationConfigs": []string{"arn:aws:s3:::my-waf-log-bucket"},
+			"LogDestinationConfigs": []string{"arn:aws:s3:::aws-waf-logs-bucket"},
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code, "S3 destination: %s", rec.Body.String())
@@ -255,7 +257,7 @@ func TestLoggingConfig_DeleteAndGetNotFound(t *testing.T) {
 	rec := doWafv2Request(t, h, "PutLoggingConfiguration", map[string]any{
 		"LoggingConfiguration": map[string]any{
 			"ResourceArn":           webACLARN,
-			"LogDestinationConfigs": []string{"arn:aws:s3:::my-log-bucket"},
+			"LogDestinationConfigs": []string{"arn:aws:s3:::aws-waf-logs-my-bucket"},
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -300,7 +302,7 @@ func TestLoggingConfig_FullFieldRoundTrip(t *testing.T) {
 
 	loggingConfig := map[string]any{
 		"ResourceArn":           webACLARN,
-		"LogDestinationConfigs": []string{"arn:aws:firehose:us-east-1:000000000000:deliverystream/waf-stream"},
+		"LogDestinationConfigs": []string{"arn:aws:firehose:us-east-1:000000000000:deliverystream/aws-waf-logs-stream"},
 		"RedactedFields": []map[string]any{
 			{
 				"SingleHeader": map[string]any{"Name": "authorization"},
@@ -431,7 +433,7 @@ func TestListLoggingConfigurations_ReturnsStoredConfigs(t *testing.T) {
 		rec := doWafv2Request(t, h, "PutLoggingConfiguration", map[string]any{
 			"LoggingConfiguration": map[string]any{
 				"ResourceArn":           a,
-				"LogDestinationConfigs": []string{"arn:aws:s3:::my-log-bucket"},
+				"LogDestinationConfigs": []string{"arn:aws:s3:::aws-waf-logs-my-bucket"},
 			},
 		})
 		require.Equal(t, http.StatusOK, rec.Code)

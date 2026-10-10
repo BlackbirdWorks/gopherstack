@@ -62,6 +62,12 @@ func generateID() string {
 	return string(b)
 }
 
+// generateIDWithPrefix returns a 14-character ID starting with prefix, the shape
+// real CloudFront distribution ("E"), invalidation ("I") and public key ("K") IDs take.
+func generateIDWithPrefix(prefix string) string {
+	return prefix + generateID()[len(prefix):]
+}
+
 // InMemoryBackend stores CloudFront resources in memory.
 //
 // Every map[string]*T resource collection is a *store.Table[T] registered exactly
@@ -174,9 +180,10 @@ type InMemoryBackend struct {
 	// services/mgn/exportimport.go and services/outposts's order lifecycle
 	// use -- distinct from the older stopCh-based invalidation reconciler
 	// above.
-	work      *worker.Group
-	accountID string
-	region    string
+	work        *worker.Group
+	accountID   string
+	region      string
+	deployDelay time.Duration
 }
 
 // NewInMemoryBackend creates a new in-memory CloudFront backend. ctx roots
@@ -186,6 +193,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		work:                                worker.NewGroup(ctx, "cloudfront"),
+		deployDelay:                         distributionDeployDelay,
 		distributionARNs:                    make(map[string]string),
 		distributionCallerRefs:              make(map[string]string),
 		distributionAliases:                 make(map[string][]string),

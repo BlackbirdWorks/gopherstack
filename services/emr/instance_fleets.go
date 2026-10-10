@@ -73,7 +73,7 @@ func (b *InMemoryBackend) AddInstanceFleet(
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return nil, "", notValidErr("Cluster", clusterID)
 	}
 
 	fleet := InstanceFleet{
@@ -106,7 +106,7 @@ func (b *InMemoryBackend) ModifyInstanceFleet(
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return notValidErr("Cluster", clusterID)
 	}
 
 	for i := range cluster.instanceFleets {
@@ -147,7 +147,7 @@ func (b *InMemoryBackend) ListInstanceFleets(ctx context.Context, clusterID stri
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return nil, notValidErr("Cluster", clusterID)
 	}
 
 	fleets := make([]InstanceFleet, len(cluster.instanceFleets))

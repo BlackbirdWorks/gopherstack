@@ -3,6 +3,7 @@ package apigateway
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 )
 
@@ -18,6 +19,14 @@ func (b *InMemoryBackend) CreateModel(input CreateModelInput) (*Model, error) {
 
 	if input.ContentType == "" {
 		return nil, fmt.Errorf("%w: contentType is required", ErrInvalidParameter)
+	}
+
+	if !modelNamePattern.MatchString(input.Name) {
+		return nil, fmt.Errorf("%w: Model name must be alphanumeric", ErrInvalidParameter)
+	}
+
+	if input.Schema != "" && !json.Valid([]byte(input.Schema)) {
+		return nil, fmt.Errorf("%w: Invalid model specified: schema is not valid JSON", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("CreateModel")
@@ -260,3 +269,5 @@ func (b *InMemoryBackend) GetModelTemplate(restAPIID, modelName string) (string,
 
 	return "#set($inputRoot = $input.path('$'))\n{}", nil
 }
+
+var modelNamePattern = regexp.MustCompile(`^[a-zA-Z0-9]+$`)

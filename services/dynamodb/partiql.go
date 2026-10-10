@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -304,16 +305,21 @@ func (h *DynamoDBHandler) handleExecuteStatement(ctx context.Context, body []byt
 		return nil, err
 	}
 
+	start := time.Now()
 	runner := &partiQLRunner{backend: h.Backend}
 	out, err := runner.executeStatement(ctx, req)
 	if err != nil {
 		// ErrInvalidStatement maps to AWS ValidationException, not 500.
 		if errors.Is(err, ErrInvalidStatement) {
-			return nil, NewValidationException(err.Error())
+			err = NewValidationException(err.Error())
 		}
+
+		h.observeExecuteStatement(ctx, req.Statement, start, err, nil)
 
 		return nil, err
 	}
+
+	h.observeExecuteStatement(ctx, req.Statement, start, nil, out)
 
 	out.WireConsumedCapacity = models.FromSDKConsumedCapacity(out.ConsumedCapacity)
 

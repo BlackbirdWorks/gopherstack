@@ -398,6 +398,12 @@ func (h *Handler) dispatch(
 	c *echo.Context,
 	body []byte,
 ) ([]byte, error) {
+	if usesClientToken(op) {
+		result, err := h.replayClientToken(ctx, op, c, body)
+
+		return result, err
+	}
+
 	if result, ok, err := h.dispatchMutateOps(ctx, op, c, body); ok {
 		return result, err
 	}
@@ -686,8 +692,8 @@ var errCodeLookup = []struct {
 	err  error
 	code string
 }{
-	{ErrNotFound, "UnknownResourceException"},
-	{ErrPermissionNotFound, "UnknownResourceException"},
+	{ErrNotFound, codeUnknownResource},
+	{ErrPermissionNotFound, codeUnknownResource},
 	{ErrPermissionVersionNotFound, codeInvalidParameter},
 	{ErrInvitationNotFound, "ResourceShareInvitationArnNotFoundException"},
 	{ErrPermissionAlreadyExists, "PermissionAlreadyExistsException"},
@@ -699,7 +705,19 @@ var errCodeLookup = []struct {
 	{ErrInvalidParameter, codeInvalidParameter},
 	{ErrValidation, codeInvalidParameter},
 	{ErrMalformedArn, "MalformedArnException"},
+	{ErrInvalidNextToken, "InvalidNextTokenException"},
 	{ErrInvalidStateTransition, "InvalidStateTransitionException"},
+	{ErrUnmatchedPolicyPermission, "UnmatchedPolicyPermissionException"},
+}
+
+// errorMessage drops the leading "<Code>: " that sentinel wrapping puts in front of the detail.
+func errorMessage(err error, code string) string {
+	msg := err.Error()
+	for _, prefix := range []string{code, "InvalidParameterException", codeUnknownResource} {
+		msg = strings.TrimPrefix(msg, prefix+": ")
+	}
+
+	return msg
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
@@ -713,7 +731,9 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 
 	for _, e := range errCodeLookup {
 		if errors.Is(err, e.err) {
-			payload, _ := json.Marshal(map[string]string{keyTypeField: e.code, keyMessageField: err.Error()})
+			payload, _ := json.Marshal(
+				map[string]string{keyTypeField: e.code, keyMessageField: errorMessage(err, e.code)},
+			)
 
 			return c.JSONBlob(http.StatusBadRequest, payload)
 		}
@@ -758,26 +778,25 @@ func epochSeconds(t time.Time) float64 {
 // through ramPaginate.
 const ramMaxResults = 500
 
-// ramParseNextToken decodes an opaque NextToken string to a slice start index.
-// Tokens are base64-encoded offsets; a plain-integer fallback handles any
-// tokens produced before this change.
-func ramParseNextToken(token string) int {
+const codeUnknownResource = "UnknownResourceException"
+
+// ramParseNextToken decodes an opaque NextToken to a slice start index; ok is false for foreign tokens.
+func ramParseNextToken(token string) (int, bool) {
 	if token == "" {
-		return 0
-	}
-	// Try base64-encoded offset first (current format).
-	if decoded, decErr := base64.StdEncoding.DecodeString(token); decErr == nil {
-		if idx, atoiErr := strconv.Atoi(string(decoded)); atoiErr == nil && idx >= 0 {
-			return idx
-		}
-	}
-	// Fallback: plain decimal offset from tokens produced before this change.
-	idx, err := strconv.Atoi(token)
-	if err != nil || idx < 0 {
-		return 0
+		return 0, true
 	}
 
-	return idx
+	decoded, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		return 0, false
+	}
+
+	idx, err := strconv.Atoi(string(decoded))
+	if err != nil || idx < 0 {
+		return 0, false
+	}
+
+	return idx, true
 }
 
 // ramEncodeNextToken encodes a pagination offset as an opaque base64 token.
@@ -802,7 +821,10 @@ func ramPaginate[T any](items []T, nextToken string, maxResults *int32) ([]T, st
 		limit = *maxResults
 	}
 
-	start := ramParseNextToken(nextToken)
+	start, ok := ramParseNextToken(nextToken)
+	if !ok {
+		return nil, "", fmt.Errorf("%w: the specified next token is invalid", ErrInvalidNextToken)
+	}
 
 	if start >= len(items) {
 		return items[:0], "", nil

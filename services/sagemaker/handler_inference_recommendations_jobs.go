@@ -30,6 +30,10 @@ func (h *Handler) handleCreateInferenceRecommendationsJob(ctx context.Context, b
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if err := validateRequestShapes("CreateInferenceRecommendationsJob", &req); err != nil {
+		return nil, err
+	}
+
 	if req.JobName == "" {
 		return nil, fmt.Errorf("%w: JobName is required", errInvalidRequest)
 	}

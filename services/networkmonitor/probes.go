@@ -51,6 +51,7 @@ func (b *InMemoryBackend) CreateProbe(
 		ProbeID:         probeID,
 		ProbeArn:        probeARN,
 		SourceArn:       pi.SourceArn,
+		VpcID:           b.subnetVpcID(pi.SourceArn),
 		Destination:     pi.Destination,
 		Protocol:        proto,
 		DestinationPort: pi.DestinationPort,

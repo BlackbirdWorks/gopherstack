@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -235,6 +238,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.backfillEcsClusterArns()
 
 	return nil
 }
@@ -303,4 +307,25 @@ func (h *Handler) Snapshot(ctx context.Context) []byte { return h.Backend.Snapsh
 // Restore implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	return h.Backend.Restore(ctx, data)
+}
+
+// backfillEcsClusterArns fills EcsClusterArn (and UUID) on ECS compute
+// environments restored from snapshots taken before those fields existed.
+func (b *InMemoryBackend) backfillEcsClusterArns() {
+	for _, ce := range b.computeEnvironments.All() {
+		if ce.EksConfiguration != nil || ce.EcsClusterArn != "" {
+			continue
+		}
+
+		if ce.UUID == "" {
+			ce.UUID = uuid.NewString()
+		}
+
+		ce.EcsClusterArn = arn.Build(
+			"ecs",
+			ce.region,
+			b.accountID,
+			"cluster/"+ce.ComputeEnvironmentName+"_Batch_"+ce.UUID,
+		)
+	}
 }

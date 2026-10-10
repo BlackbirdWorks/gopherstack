@@ -94,6 +94,10 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 		)
 	}
 
+	if err = validateMasterPassword(engine, vals.Get("MasterUserPassword")); err != nil {
+		return nil, err
+	}
+
 	vpcSGIds := parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId")
 	dbSGNames := parseMultiValueParam(vals, "DBSecurityGroups.DBSecurityGroupName")
 	logExports := parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member")
@@ -369,6 +373,7 @@ func toXMLInstance(inst *DBInstance, roles []DBInstanceRole) xmlDBInstance {
 		VpcID:                              inst.VpcID,
 		DBSubnetGroupName:                  inst.DBSubnetGroupName,
 		ReplicaSourceDBInstanceIdentifier:  inst.ReplicaSourceDBInstanceIdentifier,
+		ReplicaSourceDBClusterIdentifier:   inst.ReplicaSourceDBClusterIdentifier,
 		StorageType:                        inst.StorageType,
 		StorageEncrypted:                   inst.StorageEncrypted,
 		MultiAZ:                            inst.MultiAZ,
@@ -619,6 +624,7 @@ type xmlDBInstance struct {
 	DBSubnetGroupName                 string `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
 	NetworkType                       string `xml:"NetworkType,omitempty"`
 	ReplicaSourceDBInstanceIdentifier string `xml:"ReadReplicaSourceDBInstanceIdentifier,omitempty"`
+	ReplicaSourceDBClusterIdentifier  string `xml:"ReadReplicaSourceDBClusterIdentifier,omitempty"`
 	StorageType                       string `xml:"StorageType,omitempty"`
 	AvailabilityZone                  string `xml:"AvailabilityZone,omitempty"`
 	DBInstanceIdentifier              string `xml:"DBInstanceIdentifier"`
@@ -697,6 +703,7 @@ func (h *Handler) handleCreateDBInstanceReadReplica(vals url.Values) (any, error
 	}
 
 	replicaOpts := DBInstanceOptions{
+		SourceDBClusterIdentifier:          vals.Get("SourceDBClusterIdentifier"),
 		VpcSecurityGroupIDs:                parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
 		AutoMinorVersionUpgrade:            vals.Get("AutoMinorVersionUpgrade") == formTrue,
 		IAMDatabaseAuthenticationEnabled:   vals.Get("EnableIAMDatabaseAuthentication") == formTrue,

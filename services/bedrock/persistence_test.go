@@ -204,7 +204,7 @@ func seedJobResources(
 	)
 	require.NoError(t, err)
 
-	tc, err := b.CreateAutomatedReasoningPolicyTestCase(arp.PolicyArn)
+	tc, err := b.CreateAutomatedReasoningPolicyTestCase(arp.PolicyArn, validARPTestCase())
 	require.NoError(t, err)
 
 	arpv, err := b.CreateAutomatedReasoningPolicyVersion(arp.PolicyArn, "definition-hash-123", nil)

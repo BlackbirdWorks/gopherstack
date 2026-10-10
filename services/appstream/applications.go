@@ -89,6 +89,12 @@ func (b *InMemoryBackend) CreateApplication(
 		return nil, ErrAlreadyExists
 	}
 
+	if appBlockArn != "" {
+		if _, ok := b.findAppBlock(appBlockArn); !ok {
+			return nil, fmt.Errorf("%w: app block %q not found", ErrNotFound, appBlockArn)
+		}
+	}
+
 	arn := b.applicationARN(name)
 	storedTags := make(map[string]string)
 	maps.Copy(storedTags, tags)
@@ -219,6 +225,10 @@ func (b *InMemoryBackend) UpdateApplication(
 	}
 
 	if opts.AppBlockArn != "" {
+		if _, found := b.findAppBlock(opts.AppBlockArn); !found {
+			return nil, fmt.Errorf("%w: app block %q not found", ErrNotFound, opts.AppBlockArn)
+		}
+
 		app.AppBlockArn = opts.AppBlockArn
 	}
 

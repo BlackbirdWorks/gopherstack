@@ -324,29 +324,46 @@ func TestDomainVerificationLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// TestResourceEndpointAssociationFamiliesAlwaysEmpty documents that
-// ResourceEndpointAssociation/ServiceNetworkVpcEndpointAssociation lists are
-// always empty in this backend: both are populated in real AWS exclusively
-// by EC2 CreateVpcEndpoint, which this backend doesn't model (gap, see
-// PARITY.md).
-func TestResourceEndpointAssociationFamiliesAlwaysEmpty(t *testing.T) {
+func TestEndpointAssociationRequests(t *testing.T) {
 	t.Parallel()
-	h := newTestHandler(t)
 
-	rec := doRequest(t, h, http.MethodGet, "/resourceendpointassociations", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-	list := parseBody(t, rec)
-	items, _ := list["items"].([]any)
-	assert.Empty(t, items)
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		want   int
+	}{
+		{name: "list_rea_missing_identifier", method: http.MethodGet, path: "/resourceendpointassociations", want: 400},
+		{
+			name: "list_rea_unknown_resource_config", method: http.MethodGet,
+			path: "/resourceendpointassociations?resourceConfigurationIdentifier=rcfg-none", want: 404,
+		},
+		{
+			name:   "delete_rea_unknown",
+			method: http.MethodDelete,
+			path:   "/resourceendpointassociations/rea-none",
+			want:   404,
+		},
+		{
+			name:   "list_snvea_missing_identifier",
+			method: http.MethodGet,
+			path:   "/servicenetworkvpcendpointassociations",
+			want:   400,
+		},
+		{
+			name: "list_snvea_unknown_service_network", method: http.MethodGet,
+			path: "/servicenetworkvpcendpointassociations?serviceNetworkIdentifier=sn-none", want: 404,
+		},
+	}
 
-	rec = doRequest(t, h, http.MethodDelete, "/resourceendpointassociations/reassoc-notexist", nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	rec = doRequest(t, h, http.MethodGet, "/servicenetworkvpcendpointassociations", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-	list = parseBody(t, rec)
-	items, _ = list["items"].([]any)
-	assert.Empty(t, items)
+			rec := doRequest(t, newTestHandler(t), tt.method, tt.path, nil)
+			assert.Equal(t, tt.want, rec.Code)
+		})
+	}
 }
 
 // TestPolicyOrphanFixedByARNNormalization is a regression test for the

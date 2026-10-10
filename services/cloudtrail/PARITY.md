@@ -7,7 +7,7 @@
 service: cloudtrail
 sdk_module: aws-sdk-go-v2/service/cloudtrail@v1.58.4   # version audited against
 last_audit_commit: d522d763f
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
 overall: A            # A = ~1k genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -74,13 +74,13 @@ ops:
   ListInsightsMetricData: {wire: fixed, errors: ok, state: partial, persist: n/a, note: "gopherstack-6flj: this pass's prior 'wire: ok' claim was WRONG -- the real ListInsightsMetricDataOutput is a flat time series (ErrorCode/EventName/EventSource/InsightType/NextToken/Timestamps/TrailARN/Values), not a '{Values: [...]}' wrapped list of records (confirmed against cloudtrail@v1.58.4's awsAwsjson11_deserializeOpDocumentListInsightsMetricDataOutput). Fixed: now echoes EventName/EventSource/InsightType (all required, validated) plus optional ErrorCode/TrailARN (TrailName resolved to TrailARN via the existing trail lookup), and returns Timestamps/Values as the real flat arrays. 2026-10-04: the series is now computed from recorded management events (see Notes) -- no longer always empty."}
 gaps: []
 items_still_open:
-  - "ListInsightsData/ListPublicKeys/SearchSampleQueries return empty lists: Insights anomaly detection (no Insight events are ever generated), legacy digest public keys and the AWS-owned sample-query catalog are unmodeled; their StartTime/EndTime/DataType/MaxResults filters have no data to apply to. ListInsightsMetricData is computed from recorded events (2026-10-04)."
-  - "gopherstack-53eh: Lake SQL subset omits cross-store JOIN/set-ops, SUM/AVG/MIN/MAX, subqueries and HAVING (such statements reach FAILED with an ErrorMessage); unaliased COUNT is named _col<N> by position, inferred from Trino, not AWS-documented."
+  - "gopherstack-53eh: unaliased aggregates are named _col<N> by position, inferred from Trino; AWS documents no naming convention, so it is unverifiable."
+  - "GetEventDataStore PartitionKeys content is AWS-computed and undocumented in the SDK; StartQuery QueryParameters ($StartTime$/$EndTime$/$Period$) are recorded on the Query but their substitution semantics are undocumented."
+structural_gaps:
+  - "ListInsightsData/ListPublicKeys/SearchSampleQueries return empty lists: no Insight events are generated, no log-file digests are signed, and the sample-query catalog is AWS-owned data. ListInsightsMetricData is computed from recorded events."
   - "Org delegated-admin state is unmodeled (no read-back op upstream), so GetResourcePolicy's DelegatedAdminResourcePolicy is never populated."
-  - "gopherstack-53eh: wrapCloudTrailCapture's error-body extraction lacks query-protocol XML and CBOR shapes; it lives in pkgs/service, outside this directory."
-  - "gopherstack-6flj: GetChannel IngestionStatus/SourceConfig and GetEventDataStore PartitionKeys are AWS-computed with no modeled source or documented content; GetImport ImportStatistics needs real import execution."
-  - "gopherstack-2wvq: StartQuery QueryParameters and DescribeQuery RefreshId are dashboard-internal; no output echoes the former and StartDashboardRefresh creates no linked Query for the latter."
-  - "gopherstack-g9b4: log delivery writes one gzipped file per event instead of ~5-minute batches; batching needs a flush timer with goroutine lifecycle, a larger change."
+  - "GetChannel IngestionStatus/SourceConfig need the CloudTrail Data PutAuditEvents ingest path (no such service exists here); GetImport ImportStatistics needs real import execution."
+  - "Log delivery writes one gzipped file per event instead of ~5-minute batches: batching is a real-time property and tests would have to wait out the window."
 deferred: []              # both prior deferred items (Lake SQL execution, Dashboard Widgets) were implemented in an earlier pass — see ops above
 leaks: {status: fixed, note: "no goroutines/janitors in this service; Reset() closes every tags.Tags (trails/channels/dashboards/eventDataStores) before clearing tables. Fixed this pass: Event had a hand-written MarshalJSON (epoch-seconds EventTime) but no matching UnmarshalJSON, so any Snapshot containing a recorded event failed Restore entirely (100% data loss of the events log on every restart with in-flight events) -- this was a previously-documented-but-unfixed bug (TestInMemoryBackend_SnapshotRestore_EventsPreexistingBug), now fixed with a real UnmarshalJSON and the test repurposed to assert the round trip succeeds (TestInMemoryBackend_SnapshotRestore_EventsRoundTrip). GetQueryResults/DescribeQuery now mutate on read (materializeQueryLocked lazily executes a QUEUED query) -- both switched from RLock to Lock accordingly, no lock-upgrade race since the mutation happens entirely under the single write lock, not via RLock->Lock promotion. gopherstack-h6a (2026-09-04): DeleteTrail never purged b.eventConfigs/b.resourcePolicies (both keyed by the deleted resource's ARN, separate from the store.Table-managed trails/channels/eventDataStores tables and their auto-maintained indexes). A trail's ARN is deterministic from its user-chosen name (arn.Build('trail/'+name)), so DeleteTrail followed by CreateTrail with the same name silently resurrected the previous trail's GetEventConfiguration/GetResourcePolicy state -- the exact reused-identity ghost-row class this campaign flags as severe. Regression tests (both proven to fail against unmodified code first): TestCloudTrailEventConfiguration/recreated_trail_does_not_inherit_deleted_trails_config (handler_event_selectors_test.go) and TestCloudTrailResourcePolicy/recreated_trail_does_not_inherit_deleted_trails_resource_policy (handler_resource_policies_test.go). Fixed by purging both maps in DeleteTrail; DeleteEventDataStore and DeleteChannel got the same two-line cleanup for the matching (lower-severity, since eds-/channel- IDs are counter-generated and never reused) unbounded-growth leak."}
 ---
@@ -95,6 +95,15 @@ system-wide) at 59% of heap allocs (`gzip.NewWriter` per event) and holding
 work out of `RecordEvent`'s critical section (still one coarse `b.mu`, just a
 shorter hold); same one-file-per-event delivery, same tests. See
 `BenchmarkLogFileBody`/`BenchmarkRecordManagementEvent_Concurrent`.
+
+### 2026-10-07: Lake SQL joins, set operations, subqueries
+
+INNER/LEFT/RIGHT JOIN ... ON col = col [AND ...] (alias-qualified columns, derived-table sources), UNION [ALL],
+INTERSECT, EXCEPT (INTERSECT binds tighter; trailing ORDER BY/LIMIT apply to the combined result; column-count
+mismatch FAILs), and uncorrelated subqueries (derived tables, IN, scalar =, EXISTS) execute in query_setops.go.
+Every event data store reads the shared recorded-events log, so a cross-store join sees the same events on both
+sides. FULL/CROSS JOIN, INTERSECT/EXCEPT ALL, non-equality ON and correlated subqueries still reach FAILED with an
+ErrorMessage. Tests: `TestQueryGrammar_JoinsSetOpsAndSubqueries`, `TestQueryGrammar_UnsupportedReachesFailed`.
 
 ### 2026-10-01: items_still_open re-audit
 
@@ -605,3 +614,9 @@ Adjudicated (reqfielddiff -adjudicated), unchanged:
 - ListInsightsData.Dimensions: no Insight events are generated to filter (see items_still_open).
 - StartDashboardRefresh.QueryParameterValues: dashboard-internal and echoed by no output (see items_still_open).
 - SearchSampleQueries.SearchPhrase: the AWS-owned sample-query catalog is unmodeled (see items_still_open).
+
+## 2026-10-10 (service realism pass)
+
+FIXED: botocore-based clients (AWS CLI v1/v2, boto3, CDK) send `X-Amz-Target: com.amazonaws.cloudtrail.v20131101.CloudTrail_20131101.<Op>`; the Go SDK sends the bare `CloudTrail_20131101.<Op>`. The handler only matched the bare form, so every CLI/boto3 call fell through to S3 (`SignatureDoesNotMatch ... scoped to s3`). `RouteMatcher` and `ExtractOperation` now strip the namespace. NOT FIXED here (root wiring, owned by cli.go): `routeTargetGates()["CloudTrail"]` in `cli_route_gates.go` must also list `com.amazonaws.cloudtrail.v20131101.` or the router index never offers the request to this handler, and `services/iam/actions.go` needs the same prefix for IAM action mapping; `pkgs/chaos` also splits the target on the first `.`.
+FIXED: CreateTrail validates the documented name rules (3-128 chars, letters/numbers/`.`/`_`/`-`, alphanumeric ends, no adjacent separators, not an IP address) with `InvalidTrailNameException`; CreateEventDataStore/UpdateEventDataStore validate the name (3-128) and RetentionPeriod (7-3653) with `InvalidParameterException`; LookupEvents rejects MaxResults > 50 (`InvalidMaxResultsException`) and unknown LookupAttribute keys (`InvalidLookupAttributesException`); PutEventSelectors rejects a ReadWriteType outside All/ReadOnly/WriteOnly and more than 5 selectors (`InvalidEventSelectorsException`). Error messages no longer repeat the code (`TrailNotFoundException: ...`). Query IDs are UUIDs (the CLI model requires 36+ chars; `query-000001` failed client-side validation). Proof: `validation_sdk_test.go`.
+LENIENT (recorded): the trail's S3 bucket policy, SNS topic existence and KMS key are not checked (`InsufficientS3BucketPolicyException`, `InvalidSnsTopicNameException`, `KmsKeyNotFoundException`) because in-repo callers create trails against bare buckets; StartQuery does not resolve its FROM clause to an existing event data store; DeleteEventDataStore hard-deletes instead of entering PENDING_DELETION (RestoreEventDataStore therefore always reports not-found) because the Terraform provider's delete waiter behaviour against PENDING_DELETION could not be verified here.

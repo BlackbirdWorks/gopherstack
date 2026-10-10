@@ -104,6 +104,10 @@ func (h *Handler) handleDescribeDeliveryChannels(
 ) (*describeDeliveryChannelsOutput, error) {
 	channels := h.Backend.DescribeDeliveryChannels(in.DeliveryChannelNames)
 
+	if err := requireNamed(in.DeliveryChannelNames, len(channels), ErrNoSuchDeliveryChannel); err != nil {
+		return nil, err
+	}
+
 	return &describeDeliveryChannelsOutput{DeliveryChannels: channels}, nil
 }
 
@@ -155,9 +159,13 @@ type describeDeliveryChannelStatusOutput struct {
 func (h *Handler) handleDescribeDeliveryChannelStatus(
 	_ context.Context, in *describeDeliveryChannelStatusInput,
 ) (*describeDeliveryChannelStatusOutput, error) {
-	return &describeDeliveryChannelStatusOutput{
-		DeliveryChannelsStatus: h.Backend.DescribeDeliveryChannelStatus(in.DeliveryChannelNames),
-	}, nil
+	statuses := h.Backend.DescribeDeliveryChannelStatus(in.DeliveryChannelNames)
+
+	if err := requireNamed(in.DeliveryChannelNames, len(statuses), ErrNoSuchDeliveryChannel); err != nil {
+		return nil, err
+	}
+
+	return &describeDeliveryChannelStatusOutput{DeliveryChannelsStatus: statuses}, nil
 }
 
 // buildDeliveryChannelDispatch returns dispatch entries for delivery channel ops.

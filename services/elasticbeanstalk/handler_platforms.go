@@ -120,7 +120,7 @@ func (h *Handler) handleCreatePlatformVersion(ctx context.Context, vals url.Valu
 		CreatePlatformVersionResult: createPlatformVersionResult{
 			PlatformSummary: toPlatformSummaryDesc(pv),
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-create-platform-ver"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-create-platform-ver"),
 	}, nil
 }
 
@@ -152,7 +152,7 @@ func (h *Handler) handleDeletePlatformVersion(ctx context.Context, vals url.Valu
 		DeletePlatformVersionResult: deletePlatformVersionResult{
 			PlatformSummary: toPlatformSummaryDesc(pv),
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-delete-platform-ver"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-delete-platform-ver"),
 	}, nil
 }
 
@@ -184,7 +184,7 @@ func (h *Handler) handleDescribePlatformVersion(ctx context.Context, vals url.Va
 		DescribePlatformVersionResult: describePlatformVersionResult{
 			PlatformDescription: toPlatformDescriptionDesc(pv),
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-describe-platform-ver"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-describe-platform-ver"),
 	}, nil
 }
 
@@ -254,7 +254,7 @@ var allPlatformBranches = []platformBranchSummary{
 }
 
 // handleListPlatformBranches lists platform branches with optional filtering (improvement #3).
-func (h *Handler) handleListPlatformBranches(_ context.Context, vals url.Values) (any, error) {
+func (h *Handler) handleListPlatformBranches(ctx context.Context, vals url.Values) (any, error) {
 	// Collect filters: Filters.member.N.Attribute / Values.member.M
 	type filterEntry struct {
 		attribute string
@@ -307,7 +307,7 @@ func (h *Handler) handleListPlatformBranches(_ context.Context, vals url.Values)
 			PlatformBranchSummaryList: pg.Data,
 			NextToken:                 pg.Next,
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-list-platform-branches"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-list-platform-branches"),
 	}, nil
 }
 
@@ -399,6 +399,6 @@ func (h *Handler) handleListPlatformVersions(ctx context.Context, vals url.Value
 			PlatformSummaryList: summaries,
 			NextToken:           pg.Next,
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-list-platform-versions"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-list-platform-versions"),
 	}, nil
 }

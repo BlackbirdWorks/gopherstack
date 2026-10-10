@@ -708,7 +708,7 @@ func TestUpdateDistributionWithStagingConfig_MalformedBodyHandled(t *testing.T) 
 	assert.Contains(t, rec.Body.String(), "MalformedXML")
 }
 
-func TestDistributionCreatesAsDeployed(t *testing.T) {
+func TestDistributionCreatesAsInProgress(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -726,7 +726,8 @@ func TestDistributionCreatesAsDeployed(t *testing.T) {
 			b := newTestBackend(t)
 			d, err := b.CreateDistribution(tc.callerRef, "test", true, nil)
 			require.NoError(t, err)
-			assert.Equal(t, "Deployed", d.Status)
+			assert.Equal(t, "InProgress", d.Status)
+			waitForDistributionDeployed(t, b, d.ID)
 		})
 	}
 }

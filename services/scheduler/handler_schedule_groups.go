@@ -104,8 +104,17 @@ func (h *Handler) handleListScheduleGroups(
 	ctx context.Context,
 	in *listScheduleGroupsInput,
 ) (*listScheduleGroupsOutput, error) {
-	maxResults := parseMaxResults(in.MaxResults)
-	groups, nextToken := h.Backend.ListScheduleGroups(ctx, in.NamePrefix, in.NextToken, maxResults)
+	maxResults, err := checkMaxResults(in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	token, err := decodePageToken(in.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	groups, nextToken := h.Backend.ListScheduleGroups(ctx, in.NamePrefix, token, maxResults)
 	items := make([]scheduleGroupSummary, 0, len(groups))
 
 	for _, g := range groups {
@@ -118,5 +127,5 @@ func (h *Handler) handleListScheduleGroups(
 		})
 	}
 
-	return &listScheduleGroupsOutput{ScheduleGroups: items, NextToken: nextToken}, nil
+	return &listScheduleGroupsOutput{ScheduleGroups: items, NextToken: encodePageToken(nextToken)}, nil
 }

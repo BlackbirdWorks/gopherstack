@@ -17,6 +17,7 @@ var (
 	ErrSandboxPhoneAlreadyExists        = errors.New("AlreadyExists")
 	ErrPermissionLabelExists            = errors.New("AuthorizationError")
 	ErrPermissionLabelNotFound          = errors.New("AuthorizationError")
+	ErrUnauthenticatedUnsubscribe       = errors.New("AuthorizationError")
 	ErrSandboxPhoneNotVerified          = errors.New("InvalidParameter")
 	// ErrSubscriptionLimitExceeded maps to the SNS "SubscriptionLimitExceeded" error
 	// (HTTP 403): the customer already owns the maximum allowed number of
@@ -31,6 +32,11 @@ var (
 	// embeds it verbatim into the API error message returned to the caller: it
 	// previously read "KMSOptInRequired", an unrelated KMS error string that leaked
 	// into every opted-out-SMS error message.
-	ErrOptedOut   = errors.New("OptedOut")
-	ErrHTTPStatus = errors.New("HTTP status")
+	ErrOptedOut = errors.New("OptedOut")
+	// ErrResourceNotFound is TagResource/UntagResource/ListTagsForResource's
+	// ResourceNotFoundException (HTTP 404) for a missing topic.
+	ErrResourceNotFound = errors.New("ResourceNotFound")
+	// ErrTagLimitExceeded is TagLimitExceededException (HTTP 400): more than 50 tags on a topic.
+	ErrTagLimitExceeded = errors.New("TagLimitExceeded")
+	ErrHTTPStatus       = errors.New("HTTP status")
 )

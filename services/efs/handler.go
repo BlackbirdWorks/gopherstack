@@ -567,8 +567,10 @@ func (h *Handler) dispatchTagAndMiscOps(
 	switch route.operation {
 	case opTagResource:
 		return true, h.handleTagResource(c, route.resource, body)
-	case opListTagsForResource, opDescribeTags:
+	case opListTagsForResource:
 		return true, h.handleListTagsForResource(c, route.resource)
+	case opDescribeTags:
+		return true, h.handleDescribeTags(c, route.resource)
 	case opUntagResource:
 		return true, h.handleUntagResource(c, route.resource)
 	case opCreateTags:
@@ -600,11 +602,14 @@ type errClassification struct {
 func efsErrClassifications() []errClassification {
 	return []errClassification{
 		{ErrValidation, "ValidationException", http.StatusBadRequest},
+		{ErrThroughputLimitExceeded, "ThroughputLimitExceeded", http.StatusBadRequest},
 		{ErrBadRequest, "BadRequest", http.StatusBadRequest},
 		{ErrInvalidPolicy, "InvalidPolicyException", http.StatusBadRequest},
 		{ErrTooManyRequests, "TooManyRequests", http.StatusTooManyRequests},
 		{ErrFileSystemInUse, "FileSystemInUse", http.StatusConflict},
 		{ErrMountTargetConflict, "MountTargetConflict", http.StatusConflict},
+		{ErrIPAddressInUse, "IpAddressInUse", http.StatusConflict},
+		{ErrNoFreeAddressesInSubnet, "NoFreeAddressesInSubnet", http.StatusConflict},
 		{ErrIncorrectFileSystemLifeCycleState, "IncorrectFileSystemLifeCycleState", http.StatusConflict},
 		{ErrSecurityGroupLimitExceeded, "SecurityGroupLimitExceeded", http.StatusBadRequest},
 		// FileSystemLimitExceeded/AccessPointLimitExceeded are httpStatusCode 403 in
@@ -637,7 +642,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 }
 
 func errResp(code, msg string) map[string]string {
-	return map[string]string{"ErrorCode": code, "Message": msg}
+	return map[string]string{"ErrorCode": code, "Message": strings.TrimPrefix(msg, code+": ")}
 }
 
 type tagEntry struct {

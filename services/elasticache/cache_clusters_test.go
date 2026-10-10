@@ -252,7 +252,7 @@ func TestModifyCluster_ScalesAndEngineVersion(t *testing.T) {
 
 			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1", nil)
 
-			_, err := backend.CreateCluster(context.Background(), "mod-cluster", "redis", "cache.t3.micro", 0)
+			_, err := backend.CreateCluster(context.Background(), "mod-cluster", "memcached", "cache.t3.micro", 0)
 			require.NoError(t, err)
 
 			modified, err := backend.ModifyCluster(

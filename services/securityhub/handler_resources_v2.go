@@ -49,10 +49,14 @@ func (h *Handler) handleGetResourcesV2(c *echo.Context, body map[string]any) err
 }
 
 func (h *Handler) handleGetResourcesStatisticsV2(c *echo.Context, body map[string]any) error {
-	groupByFields := groupByFieldsFromRules(body[keyGroupByRules])
+	if msg := validateStatisticsRequest(body); msg != "" {
+		return typedErrorResponse(c, http.StatusBadRequest, "ValidationException", msg)
+	}
+
+	rules := groupByRulesFromBody(body[keyGroupByRules])
 	sortOrder, _ := body[keySortOrder].(string)
 
-	stats := h.Backend.GetResourcesStatisticsV2(groupByFields, sortOrder)
+	stats := h.Backend.GetResourcesStatisticsV2(rules, sortOrder)
 
 	if stats == nil {
 		stats = []map[string]any{}
@@ -66,6 +70,7 @@ func (h *Handler) handleGetResourcesStatisticsV2(c *echo.Context, body map[strin
 func (h *Handler) handleGetResourcesTrendsV2(c *echo.Context, body map[string]any) error {
 	startTime, _ := body["StartTime"].(string)
 	endTime, _ := body["EndTime"].(string)
+	filters, _ := body["Filters"].(map[string]any)
 
 	nextToken, _ := body["NextToken"].(string)
 	maxResults := intFromBody(body)
@@ -75,7 +80,7 @@ func (h *Handler) handleGetResourcesTrendsV2(c *echo.Context, body map[string]an
 	}
 
 	trends, next := paginateSlice(
-		h.Backend.GetResourcesTrendsV2(startTime, endTime),
+		h.Backend.GetResourcesTrendsV2(startTime, endTime, filters),
 		nextToken,
 		maxResults,
 		maxTrendPoints,

@@ -708,7 +708,7 @@ func (b *InMemoryBackend) startZipContainer(
 
 		var fetchErr error
 
-		zipData, fetchErr = b.s3Fetcher.GetObjectBytes(ctx, fn.S3BucketCode, fn.S3KeyCode)
+		zipData, fetchErr = b.fetchS3Code(ctx, fn)
 		if fetchErr != nil {
 			return "", "", fmt.Errorf(
 				"%w: failed to fetch zip from S3: %w",
@@ -891,4 +891,18 @@ func extractZipIntoDir(dir string, zipData []byte) error {
 	}
 
 	return nil
+}
+
+// fetchS3Code reads the function's S3 deployment package, at S3ObjectVersionCode when one was given.
+func (b *InMemoryBackend) fetchS3Code(ctx context.Context, fn *FunctionConfiguration) ([]byte, error) {
+	if fn.S3ObjectVersionCode == "" {
+		return b.s3Fetcher.GetObjectBytes(ctx, fn.S3BucketCode, fn.S3KeyCode)
+	}
+
+	versioned, ok := b.s3Fetcher.(S3VersionedCodeFetcher)
+	if !ok {
+		return nil, fmt.Errorf("%w: S3 fetcher cannot read object versions", ErrLambdaUnavailable)
+	}
+
+	return versioned.GetObjectVersionBytes(ctx, fn.S3BucketCode, fn.S3KeyCode, fn.S3ObjectVersionCode)
 }

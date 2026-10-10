@@ -166,120 +166,16 @@ func (b *InMemoryBackend) resolveKeyMaterial(keyID string, material []byte) ([]b
 	return raw, nil
 }
 
-// ImportKeyMaterial imports externally supplied key material into a key created with
-// Origin=EXTERNAL. The key must be in PendingImport state. On success the key transitions
-// to Enabled. Only SYMMETRIC_DEFAULT keys are supported; asymmetric EXTERNAL keys are
-// not modeled by this mock.
-func (b *InMemoryBackend) ImportKeyMaterial(
-	ctx context.Context,
-	input *ImportKeyMaterialInput,
-) error {
-	b.mu.Lock("ImportKeyMaterial")
-	defer b.mu.Unlock()
+// ImportKeyMaterial imports externally supplied key material; see ImportKeyMaterialWithResult.
+func (b *InMemoryBackend) ImportKeyMaterial(ctx context.Context, input *ImportKeyMaterialInput) error {
+	_, err := b.ImportKeyMaterialWithResult(ctx, input)
 
-	region := getRegion(ctx, b.defaultRegion)
-
-	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
-	if err != nil {
-		return err
-	}
-
-	if key.Origin != KeyOriginExternal {
-		return fmt.Errorf(
-			"%w: ImportKeyMaterial is only valid for keys with Origin=%s",
-			ErrUnsupportedOrigin,
-			KeyOriginExternal,
-		)
-	}
-
-	// Only allow import when the key is awaiting material.
-	if key.KeyState != KeyStatePendingImport {
-		return fmt.Errorf("%w: key %q is not awaiting key material", ErrKeyInvalidState, key.KeyID)
-	}
-
-	// Only symmetric (AES-256) key material is supported for external import.
-	// UnsupportedOperationException's doc covers this: "a specified ... resource is
-	// not valid for this operation" -- the key's own KeySpec, not a request parameter.
-	if key.KeySpec != keySpecSymmetric {
-		return fmt.Errorf(
-			"%w: ImportKeyMaterial only supports SYMMETRIC_DEFAULT keys; got %s",
-			ErrUnsupportedParameter, key.KeySpec,
-		)
-	}
-
-	// IncorrectKeyMaterialException's own doc disjunction -- "is, expired, invalid, or
-	// does not meet expectations" -- covers empty material under "invalid", same
-	// declared code as the wrong-length check below under "does not meet expectations".
-	if len(input.KeyMaterial) == 0 {
-		return fmt.Errorf("%w: KeyMaterial must not be empty", ErrIncorrectKeyMaterial)
-	}
-
-	rawMaterial, err := b.resolveKeyMaterial(key.KeyID, input.KeyMaterial)
-	if err != nil {
-		return err
-	}
-
-	if len(rawMaterial) != aes256Bytes {
-		return fmt.Errorf(
-			"%w: symmetric key material must be exactly %d bytes, got %d",
-			ErrIncorrectKeyMaterial, aes256Bytes, len(rawMaterial),
-		)
-	}
-
-	// Copy the material bytes so the caller cannot mutate the key's internal state.
-	mat := make([]byte, aes256Bytes)
-	copy(mat, rawMaterial)
-
-	km, kmErr := newSymmetricKeyMaterial(mat)
-	if kmErr != nil {
-		return fmt.Errorf("creating imported symmetric key material: %w", kmErr)
-	}
-
-	b.keyMaterialsStore(region)[key.KeyID] = km
-	key.KeyState = KeyStateEnabled
-	key.Enabled = true
-
-	expModel, validTo, err := resolveExpirationModel(input.ExpirationModel, input.ValidTo)
-	if err != nil {
-		return err
-	}
-
-	key.ValidTo = validTo
-	key.ExpirationModel = expModel
-
-	return nil
+	return err
 }
 
-// DeleteImportedKeyMaterial removes the imported key material from an EXTERNAL-origin key.
-// The key transitions to PendingImport; it can receive new material via ImportKeyMaterial.
-func (b *InMemoryBackend) DeleteImportedKeyMaterial(
-	ctx context.Context,
-	input *DeleteImportedKeyMaterialInput,
-) error {
-	b.mu.Lock("DeleteImportedKeyMaterial")
-	defer b.mu.Unlock()
+// DeleteImportedKeyMaterial removes imported key material; see DeleteImportedKeyMaterialWithResult.
+func (b *InMemoryBackend) DeleteImportedKeyMaterial(ctx context.Context, input *DeleteImportedKeyMaterialInput) error {
+	_, err := b.DeleteImportedKeyMaterialWithResult(ctx, input)
 
-	region := getRegion(ctx, b.defaultRegion)
-
-	key, err := b.lookupKeyWrite(ctx, input.KeyID, ErrInvalidArn)
-	if err != nil {
-		return err
-	}
-
-	if key.Origin != KeyOriginExternal {
-		return fmt.Errorf(
-			"%w: DeleteImportedKeyMaterial is only valid for keys with Origin=%s",
-			ErrUnsupportedOrigin,
-			KeyOriginExternal,
-		)
-	}
-
-	delete(b.keyMaterialsStore(region), key.KeyID)
-	delete(b.keyMaterialHistoryStore(region), key.KeyID)
-	key.KeyState = KeyStatePendingImport
-	key.Enabled = false
-	key.ValidTo = 0
-	key.ExpirationModel = ""
-
-	return nil
+	return err
 }

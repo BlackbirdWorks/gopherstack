@@ -142,6 +142,7 @@ func TestBucketVersioning_MfaDeleteEcho(t *testing.T) {
 
 	_, err = client.PutBucketVersioning(t.Context(), &sdk_s3.PutBucketVersioningInput{
 		Bucket: aws.String(bucket),
+		MFA:    aws.String("arn:aws:iam::000000000000:mfa/user 123456"),
 		VersioningConfiguration: &types.VersioningConfiguration{
 			Status:    types.BucketVersioningStatusEnabled,
 			MFADelete: types.MFADeleteEnabled,

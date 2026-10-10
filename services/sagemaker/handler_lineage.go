@@ -807,18 +807,16 @@ func (h *Handler) handleDeleteAssociation(ctx context.Context, body []byte) ([]b
 }
 
 // associationSummary mirrors types.AssociationSummary (types.go:157-188).
-// CreatedBy (types.UserContext) is not emitted: same class of gap as every
-// other CreatedBy/LastModifiedBy field in this service (no user-identity
-// concept modeled), and Association has no CreatedBy field to source it from.
 type associationSummary struct {
-	SourceArn       string  `json:"SourceArn"`
-	SourceType      string  `json:"SourceType,omitempty"`
-	SourceName      string  `json:"SourceName,omitempty"`
-	DestinationArn  string  `json:"DestinationArn"`
-	DestinationType string  `json:"DestinationType,omitempty"`
-	DestinationName string  `json:"DestinationName,omitempty"`
-	AssociationType string  `json:"AssociationType,omitempty"`
-	CreationTime    float64 `json:"CreationTime"`
+	CreatedBy       *UserContext `json:"CreatedBy,omitempty"`
+	SourceArn       string       `json:"SourceArn"`
+	SourceType      string       `json:"SourceType,omitempty"`
+	SourceName      string       `json:"SourceName,omitempty"`
+	DestinationArn  string       `json:"DestinationArn"`
+	DestinationType string       `json:"DestinationType,omitempty"`
+	DestinationName string       `json:"DestinationName,omitempty"`
+	AssociationType string       `json:"AssociationType,omitempty"`
+	CreationTime    float64      `json:"CreationTime"`
 }
 
 // listAssociationsInput is the ListAssociations request shape (named, not
@@ -872,6 +870,7 @@ func (h *Handler) handleListAssociations(ctx context.Context, body []byte) ([]by
 			DestinationType: dstType,
 			AssociationType: a.AssociationType,
 			CreationTime:    epochSeconds(a.CreationTime),
+			CreatedBy:       a.CreatedBy,
 		}
 	})
 }

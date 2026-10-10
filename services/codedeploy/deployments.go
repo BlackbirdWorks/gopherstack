@@ -14,9 +14,6 @@ const (
 	defaultDeploymentCreator = "user"
 )
 
-// simulatedDeployDuration is the simulated time for a deployment to complete.
-const simulatedDeployDuration = 5 * time.Second
-
 // generateDeploymentID produces an AWS-format deployment ID: d- followed by 9 uppercase alphanumeric chars.
 func generateDeploymentID() string {
 	b := make([]byte, deployIDLen)
@@ -33,12 +30,12 @@ func (b *InMemoryBackend) CreateDeployment(appName, dgName string, opts Deployme
 	defer b.mu.Unlock()
 
 	if !b.applications.Has(appName) {
-		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
+		return nil, fmt.Errorf("%w: No application found for name: %s", ErrNotFound, appName)
 	}
 
 	dg, ok := b.deploymentGroups.Get(dgKey(appName, dgName))
 	if !ok {
-		return nil, fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
+		return nil, fmt.Errorf("%w: Deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
 	}
 
 	if err := validateFileExistsBehavior(opts.FileExistsBehavior); err != nil {
@@ -49,11 +46,15 @@ func (b *InMemoryBackend) CreateDeployment(appName, dgName string, opts Deployme
 		return nil, err
 	}
 
+	if err := validateRevisionLocation(opts.Revision); err != nil {
+		return nil, err
+	}
+
 	deploymentConfigName := dg.DeploymentConfigName
 	if opts.DeploymentConfigName != "" {
 		if !b.deploymentConfigs.Has(opts.DeploymentConfigName) {
 			return nil, fmt.Errorf(
-				"%w: deployment config %s not found", ErrDeploymentConfigNotFound, opts.DeploymentConfigName,
+				"%w: Deployment configuration %s not found", ErrDeploymentConfigNotFound, opts.DeploymentConfigName,
 			)
 		}
 
@@ -66,14 +67,18 @@ func (b *InMemoryBackend) CreateDeployment(appName, dgName string, opts Deployme
 
 	deployID := generateDeploymentID()
 	now := time.Now().UTC()
-	completed := now.Add(simulatedDeployDuration)
+	status, completeTime := statusSucceeded, &now
+
+	if awaitsReadyContinue(dg) {
+		status, completeTime = statusReady, nil
+	}
 
 	d := &Deployment{
 		DeploymentID:                  deployID,
 		ApplicationName:               appName,
 		DeploymentGroupName:           dgName,
 		DeploymentConfigName:          deploymentConfigName,
-		Status:                        statusSucceeded,
+		Status:                        status,
 		Creator:                       opts.Creator,
 		Description:                   opts.Description,
 		FileExistsBehavior:            opts.FileExistsBehavior,
@@ -86,7 +91,7 @@ func (b *InMemoryBackend) CreateDeployment(appName, dgName string, opts Deployme
 		DeploymentStyle:               copyDeploymentStyle(dg.DeploymentStyle),
 		ComputePlatform:               b.applicationComputePlatform(appName),
 		CreateTime:                    now,
-		CompleteTime:                  &completed,
+		CompleteTime:                  completeTime,
 		AccountID:                     b.accountID,
 		Region:                        b.region,
 	}
@@ -96,6 +101,34 @@ func (b *InMemoryBackend) CreateDeployment(appName, dgName string, opts Deployme
 	cp := *d
 
 	return &cp, nil
+}
+
+// awaitsReadyContinue reports whether a blue/green group holds new deployments in Ready until ContinueDeployment.
+func awaitsReadyContinue(dg *DeploymentGroup) bool {
+	bg := dg.BlueGreenDeploymentConfiguration
+
+	return dg.DeploymentStyle != nil && dg.DeploymentStyle.DeploymentType == "BLUE_GREEN" &&
+		bg != nil && bg.DeploymentReadyOption != nil && bg.DeploymentReadyOption.ActionOnTimeout == "STOP_DEPLOYMENT"
+}
+
+// validateRevisionLocation rejects a revision whose RevisionType has no matching location member.
+func validateRevisionLocation(r *RevisionLocation) error {
+	if r == nil || r.RevisionType == "" {
+		return nil
+	}
+
+	present := map[string]bool{
+		"S3":             r.S3Location != nil && r.S3Location.Bucket != "" && r.S3Location.Key != "",
+		"GitHub":         r.GitHubLocation != nil,
+		"String":         r.RawString != nil,
+		"AppSpecContent": r.AppSpecContent != nil,
+	}
+
+	if ok, known := present[r.RevisionType]; known && !ok {
+		return fmt.Errorf("%w: revisionType %s requires its matching location", ErrInvalidRevision, r.RevisionType)
+	}
+
+	return nil
 }
 
 func validateTargetInstances(ti *TargetInstances) error {
@@ -132,7 +165,7 @@ func (b *InMemoryBackend) GetDeployment(deploymentID string) (*Deployment, error
 
 	d, ok := b.deployments.Get(deploymentID)
 	if !ok {
-		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
+		return nil, fmt.Errorf("%w: Deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
 
 	cp := *d
@@ -207,14 +240,17 @@ func (b *InMemoryBackend) StopDeployment(deploymentID string) error {
 
 	d, ok := b.deployments.Get(deploymentID)
 	if !ok {
-		return fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
+		return fmt.Errorf("%w: Deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
 
-	if d.Status == statusStopped {
-		return fmt.Errorf("%w: deployment %s is already complete", ErrDeploymentAlreadyCompleted, deploymentID)
+	switch d.Status {
+	case statusSucceeded, statusFailed, statusStopped:
+		return fmt.Errorf("%w: Deployment %s is already complete", ErrDeploymentAlreadyCompleted, deploymentID)
 	}
 
+	now := time.Now().UTC()
 	d.Status = statusStopped
+	d.CompleteTime = &now
 
 	return nil
 }
@@ -230,11 +266,15 @@ func (b *InMemoryBackend) ContinueDeployment(deploymentID string) error {
 
 	d, ok := b.deployments.Get(deploymentID)
 	if !ok {
-		return fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
+		return fmt.Errorf("%w: Deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
 
 	switch d.Status {
 	case statusReady:
+		now := time.Now().UTC()
+		d.Status = statusSucceeded
+		d.CompleteTime = &now
+
 		return nil
 	case statusSucceeded, statusFailed, statusStopped:
 		return fmt.Errorf("%w: deployment %s is already complete", ErrDeploymentAlreadyCompleted, deploymentID)

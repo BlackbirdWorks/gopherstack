@@ -727,6 +727,14 @@ func validPaging(maxResults int, nextToken string) bool {
 	return err == nil && n >= 0
 }
 
+// maxFindingsPage is the documented MaxResults ceiling of GetFindings and GetFindingsV2 (1-100).
+const maxFindingsPage = 100
+
+// validPagingMax is validPaging that also rejects maxResults above limit.
+func validPagingMax(maxResults, limit int, nextToken string) bool {
+	return maxResults <= limit && validPaging(maxResults, nextToken)
+}
+
 func pagingErrorResponse(c *echo.Context) error {
 	return typedErrorResponse(c, http.StatusBadRequest, "InvalidInputException", "invalid MaxResults or NextToken")
 }

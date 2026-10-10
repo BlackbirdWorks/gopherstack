@@ -84,7 +84,12 @@ func TestFSx_Backup(t *testing.T) {
 		t.Parallel()
 		h := newTestHandler(t)
 		bkID := createFSandBackup(t, h, "WINDOWS")
-		rec := doFSxRequest(t, h, "CreateFileSystemFromBackup", map[string]any{"BackupId": bkID})
+		rec := doFSxRequest(
+			t,
+			h,
+			"CreateFileSystemFromBackup",
+			map[string]any{"BackupId": bkID, "SubnetIds": []string{"subnet-0123456789abcdef0"}},
+		)
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -129,7 +134,7 @@ func TestFSx_CreateFileSystemFromBackup_FileSystemTypeVersion(t *testing.T) {
 			h := newTestHandler(t)
 			bkID := createFSandBackup(t, h, "LUSTRE")
 
-			body := map[string]any{"BackupId": bkID}
+			body := map[string]any{"BackupId": bkID, "SubnetIds": []string{"subnet-0123456789abcdef0"}}
 			maps.Copy(body, tt.request)
 
 			rec := doFSxRequest(t, h, "CreateFileSystemFromBackup", body)

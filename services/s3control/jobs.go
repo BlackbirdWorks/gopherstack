@@ -4,7 +4,45 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"time"
 )
+
+const jobPrepareDelay = 2 * time.Second
+
+// effectiveJobStatus advances a still-New job by elapsed time: Preparing, then
+// Suspended when confirmation is required, else Ready. Stored status is untouched.
+func effectiveJobStatus(job *BatchJob, now time.Time) string {
+	if job.Status != jobStatusNew {
+		return job.Status
+	}
+
+	created, err := time.Parse(time.RFC3339, job.CreationTime)
+	if err != nil {
+		return job.Status
+	}
+
+	age := now.Sub(created)
+
+	switch {
+	case age < jobPrepareDelay:
+		return jobStatusNew
+	case age < 2*jobPrepareDelay:
+		return "Preparing"
+	case job.ConfirmationRequired:
+		return "Suspended"
+	default:
+		return "Ready"
+	}
+}
+
+func jobStatusTerminal(status string) bool {
+	switch status {
+	case "Cancelled", "Complete", "Failed":
+		return true
+	}
+
+	return false
+}
 
 // CreateJob creates an S3 Batch Operations job.
 // Returns ErrValidation if roleArn is empty.
@@ -64,6 +102,21 @@ func (b *InMemoryBackend) UpdateJobDetails(
 	return nil
 }
 
+// SetJobManifestGenerator stores the raw ManifestGenerator element of a CreateJob request.
+func (b *InMemoryBackend) SetJobManifestGenerator(accountID, jobID, manifestGenerator string) error {
+	b.mu.Lock("SetJobManifestGenerator")
+	defer b.mu.Unlock()
+
+	job, ok := b.batchJobs.Get(accountID + ":" + jobID)
+	if !ok {
+		return fmt.Errorf("%w: %s", errJobNotFound, jobID)
+	}
+
+	job.ManifestGenerator = manifestGenerator
+
+	return nil
+}
+
 // GetJob retrieves a batch job by ID.
 func (b *InMemoryBackend) GetJob(accountID, jobID string) (*BatchJob, error) {
 	b.mu.RLock("GetJob")
@@ -75,6 +128,7 @@ func (b *InMemoryBackend) GetJob(accountID, jobID string) (*BatchJob, error) {
 	}
 
 	cp := *job
+	cp.Status = effectiveJobStatus(job, time.Now())
 
 	return &cp, nil
 }
@@ -91,6 +145,7 @@ func (b *InMemoryBackend) ListJobs(accountID string) []*BatchJob {
 	for _, v := range b.batchJobs.All() {
 		if v.AccountID == accountID {
 			cp := *v
+			cp.Status = effectiveJobStatus(v, time.Now())
 			out = append(out, &cp)
 		}
 	}
@@ -217,6 +272,11 @@ func (b *InMemoryBackend) UpdateJobStatusValidated(
 	job, ok := b.batchJobs.Get(accountID + ":" + jobID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errJobNotFound, jobID)
+	}
+
+	cur := effectiveJobStatus(job, time.Now())
+	if jobStatusTerminal(cur) {
+		return nil, errJobStatus
 	}
 
 	job.Status = requestedStatus

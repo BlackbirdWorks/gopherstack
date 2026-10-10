@@ -2,10 +2,13 @@ package ecs
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // Defaults applied to an Express service revision's compute configuration
@@ -310,4 +313,55 @@ func (b *InMemoryBackend) DescribeExpressGatewayService(
 	)
 
 	return &out, nil
+}
+
+// expressServiceAsService renders an express gateway service as the ECS service the real API lists
+// it as (resourceManagementType ECS). Caller holds b.mu.
+func (b *InMemoryBackend) expressServiceAsService(e *ExpressGatewayService) Service {
+	svc := Service{
+		ServiceArn:  e.ServiceArn,
+		ServiceName: e.ServiceName,
+		ClusterArn:  arn.Build("ecs", b.region, b.accountID, "cluster/"+e.Cluster),
+		Status:      e.Status,
+		CreatedAt:   e.CreatedAt,
+		Tags:        copyTags(e.Tags),
+	}
+
+	if len(e.ActiveConfigurations) > 0 {
+		cfg := e.ActiveConfigurations[0]
+		svc.TaskDefinition = cfg.TaskDefinitionArn
+
+		if nc := cfg.NetworkConfiguration; nc != nil {
+			svc.NetworkConfiguration = &NetworkConfiguration{
+				AwsvpcConfiguration: &AwsvpcConfiguration{Subnets: nc.Subnets, SecurityGroups: nc.SecurityGroups},
+			}
+		}
+	}
+
+	return svc
+}
+
+// ExpressServicesInCluster returns the express gateway services in cluster as ECS services, filtered to
+// names (names or ARNs) when non-empty.
+func (b *InMemoryBackend) ExpressServicesInCluster(cluster string, names []string) []Service {
+	clusterName := clusterKey(b.resolveCluster(cluster))
+
+	b.mu.RLock("ExpressServicesInCluster")
+	defer b.mu.RUnlock()
+
+	var out []Service
+
+	for _, e := range b.expressGatewayServices.All() {
+		if e.Cluster != clusterName {
+			continue
+		}
+
+		if len(names) > 0 && !slices.Contains(names, e.ServiceArn) && !slices.Contains(names, e.ServiceName) {
+			continue
+		}
+
+		out = append(out, b.expressServiceAsService(e))
+	}
+
+	return out
 }

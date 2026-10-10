@@ -173,6 +173,14 @@ type Job struct {
 	// echoed on the wire.
 	FailureMessage string `json:"failureMessage,omitempty"`
 	FailureType    string `json:"failureType,omitempty"`
+	// Configuration, ExecutionID, StageName, ActionName and ActionExecutionID
+	// tie a job created by a pipeline run back to its action execution.
+	Configuration     map[string]string `json:"configuration,omitempty"`
+	ExecutionID       string            `json:"executionId,omitempty"`
+	StageName         string            `json:"stageName,omitempty"`
+	ActionName        string            `json:"actionName,omitempty"`
+	ActionExecutionID string            `json:"actionExecutionId,omitempty"`
+	ContinuationToken string            `json:"continuationToken,omitempty"`
 	// ClientID is issued the first time PollForThirdPartyJobs hands this job
 	// to a worker and echoed back as ThirdPartyJob.ClientId; the four
 	// ThirdPartyJob* consumer operations require their clientToken to match
@@ -264,6 +272,8 @@ type Rule struct {
 	RoleArn        string            `json:"roleArn,omitempty"`
 	Region         string            `json:"region,omitempty"`
 	InputArtifacts []ArtifactRef     `json:"inputArtifacts,omitempty"`
+	Commands       []string          `json:"commands,omitempty"`
+	TimeoutMinutes int               `json:"timeoutInMinutes,omitempty"`
 }
 
 // Condition represents a set of rules that control stage entry or exit.
@@ -293,12 +303,34 @@ type ArtifactRef struct {
 
 // Stage represents a pipeline stage.
 type Stage struct {
-	BeforeEntry *Condition `json:"beforeEntry,omitempty"`
-	OnFailure   *Condition `json:"onFailure,omitempty"`
-	OnSuccess   *Condition `json:"onSuccess,omitempty"`
-	Name        string     `json:"name"`
-	Type        string     `json:"type,omitempty"`
-	Actions     []Action   `json:"actions"`
+	BeforeEntry *BeforeEntryConditions `json:"beforeEntry,omitempty"`
+	OnFailure   *FailureConditions     `json:"onFailure,omitempty"`
+	OnSuccess   *SuccessConditions     `json:"onSuccess,omitempty"`
+	Name        string                 `json:"name"`
+	Type        string                 `json:"type,omitempty"`
+	Actions     []Action               `json:"actions"`
+}
+
+// BeforeEntryConditions are the entry conditions of a stage.
+type BeforeEntryConditions struct {
+	Conditions []Condition `json:"conditions"`
+}
+
+// SuccessConditions are the conditions a stage must meet to succeed.
+type SuccessConditions struct {
+	Conditions []Condition `json:"conditions"`
+}
+
+// FailureConditions describe what happens when a stage fails.
+type FailureConditions struct {
+	RetryConfiguration *RetryConfiguration `json:"retryConfiguration,omitempty"`
+	Result             string              `json:"result,omitempty"`
+	Conditions         []Condition         `json:"conditions,omitempty"`
+}
+
+// RetryConfiguration configures automatic stage retry on failure.
+type RetryConfiguration struct {
+	RetryMode string `json:"retryMode,omitempty"`
 }
 
 // GitBranchFilterCriteria is the include/exclude filter for branch names.
@@ -436,22 +468,34 @@ type Tag struct {
 type PipelineExecution struct {
 	StartTime                 time.Time                  `json:"startTime"`
 	LastUpdateTime            time.Time                  `json:"lastUpdateTime"`
-	PipelineName              string                     `json:"pipelineName"`
+	ExecutionMode             string                     `json:"executionMode,omitempty"`
 	PipelineExecutionID       string                     `json:"pipelineExecutionId"`
 	Status                    string                     `json:"status"`
 	Trigger                   string                     `json:"trigger,omitempty"`
-	ExecutionMode             string                     `json:"executionMode,omitempty"`
+	PipelineName              string                     `json:"pipelineName"`
 	ExecutionType             string                     `json:"executionType,omitempty"`
 	RollbackTargetExecutionID string                     `json:"rollbackTargetExecutionId,omitempty"`
 	StopReason                string                     `json:"stopReason,omitempty"`
+	StatusSummary             string                     `json:"statusSummary,omitempty"`
 	Variables                 []ResolvedPipelineVariable `json:"variables,omitempty"`
 	SourceRevisions           []SourceRevision           `json:"sourceRevisions,omitempty"`
+	ArtifactRevisions         []ArtifactRevision         `json:"artifactRevisions,omitempty"`
 	PipelineVersion           int                        `json:"pipelineVersion"`
+}
+
+// ArtifactRevision is the revision of a source artifact included in a pipeline execution.
+type ArtifactRevision struct {
+	Created                  time.Time `json:"created"`
+	Name                     string    `json:"name"`
+	RevisionID               string    `json:"revisionId"`
+	RevisionChangeIdentifier string    `json:"revisionChangeIdentifier,omitempty"`
 }
 
 // StageState represents the state of a pipeline stage.
 type StageState struct {
 	InboundTransitionState *StageTransitionState
+	LatestExecution        map[string]any
+	Conditions             map[string]any
 	StageName              string
 	ActionStates           []map[string]any
 }
@@ -464,15 +508,20 @@ type StageState struct {
 // carries the reviewer's PutApprovalResult summary, mirroring the real
 // ActionExecution.Summary field.
 type ActionExecution struct {
-	StartTime           time.Time `json:"startTime"`
-	LastUpdateTime      time.Time `json:"lastUpdateTime"`
-	PipelineExecutionID string    `json:"pipelineExecutionId"`
-	ActionExecutionID   string    `json:"actionExecutionId"`
-	StageName           string    `json:"stageName"`
-	ActionName          string    `json:"actionName"`
-	Status              string    `json:"status"`
-	Token               string    `json:"token,omitempty"`
-	Summary             string    `json:"summary,omitempty"`
+	StartTime           time.Time         `json:"startTime"`
+	LastUpdateTime      time.Time         `json:"lastUpdateTime"`
+	PipelineExecutionID string            `json:"pipelineExecutionId"`
+	ActionExecutionID   string            `json:"actionExecutionId"`
+	StageName           string            `json:"stageName"`
+	ActionName          string            `json:"actionName"`
+	Status              string            `json:"status"`
+	OutputVariables     map[string]string `json:"outputVariables,omitempty"`
+	Token               string            `json:"token,omitempty"`
+	Summary             string            `json:"summary,omitempty"`
+	ExternalExecutionID string            `json:"externalExecutionId,omitempty"`
+	ErrorCode           string            `json:"errorCode,omitempty"`
+	ErrorMessage        string            `json:"errorMessage,omitempty"`
+	PercentComplete     int32             `json:"percentComplete,omitempty"`
 }
 
 // ActionRevisionRecord tracks the most recent ActionRevision submitted via

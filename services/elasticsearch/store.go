@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -64,6 +65,7 @@ type InMemoryBackend struct {
 	packagesByRegion            *store.Index[Package]
 	packagesByName              map[string]map[string]string   // region → package name → package ID
 	packageAssociations         map[string]map[string][]string // region → package ID → []domain names
+	packageAssociationMeta      map[string]map[string]map[string]PackageAssociation
 	inboundConnections          *store.Table[InboundConnection]
 	inboundConnectionsByRegion  *store.Index[InboundConnection]
 	outboundConnections         *store.Table[OutboundConnection]
@@ -74,27 +76,59 @@ type InMemoryBackend struct {
 	reservedInstances           *store.Table[ReservedInstance]
 	reservedInstancesByRegion   *store.Index[ReservedInstance]
 	registry                    *store.Registry
+	now                         func() time.Time
+	subnets                     SubnetResolver
 	mu                          *lockmetrics.RWMutex
 	accountID                   string
 	region                      string
+	processingDelay             time.Duration
 	nextID                      int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		arnIndex:            make(map[string]map[string]string),
-		packagesByName:      make(map[string]map[string]string),
-		packageAssociations: make(map[string]map[string][]string),
-		vpcAccess:           make(map[string]map[string][]string),
-		accountID:           accountID,
-		region:              region,
-		mu:                  lockmetrics.New("elasticsearch"),
-		registry:            store.NewRegistry(),
+		arnIndex:               make(map[string]map[string]string),
+		packagesByName:         make(map[string]map[string]string),
+		packageAssociations:    make(map[string]map[string][]string),
+		packageAssociationMeta: make(map[string]map[string]map[string]PackageAssociation),
+		vpcAccess:              make(map[string]map[string][]string),
+		accountID:              accountID,
+		region:                 region,
+		mu:                     lockmetrics.New("elasticsearch"),
+		registry:               store.NewRegistry(),
 	}
 	registerAllTables(b)
 
 	return b
+}
+
+// SubnetResolver maps subnets to their VPC and availability zones, so
+// VPCOptions responses carry VPCId and AvailabilityZones. Optional: unset
+// leaves both empty.
+type SubnetResolver interface {
+	ResolveSubnets(region string, subnetIDs []string) (vpcID string, zones []string)
+}
+
+// SetSubnetResolver wires VPC lookups against the EC2 backend.
+func (b *InMemoryBackend) SetSubnetResolver(r SubnetResolver) {
+	b.mu.Lock("SetSubnetResolver")
+	defer b.mu.Unlock()
+
+	b.subnets = r
+}
+
+// vpcDerivedInfo resolves the VPC and zones of v's subnets.
+func (b *InMemoryBackend) vpcDerivedInfo(region string, v *VPCOptions) (string, []string) {
+	b.mu.RLock("vpcDerivedInfo")
+	resolver := b.subnets
+	b.mu.RUnlock()
+
+	if resolver == nil || v == nil || len(v.SubnetIDs) == 0 {
+		return "", nil
+	}
+
+	return resolver.ResolveSubnets(region, v.SubnetIDs)
 }
 
 // Region returns the backend's default AWS region.
@@ -110,7 +144,12 @@ func regionKey(region, id string) string { return region + "|" + id }
 // store.Table performs no locking of its own (see pkgs/store's package doc).
 
 func (b *InMemoryBackend) domainGet(region, name string) (*Domain, bool) {
-	return b.domains.Get(regionKey(region, name))
+	d, ok := b.domains.Get(regionKey(region, name))
+	if !ok || deleteWindowElapsed(d, b.clock()) {
+		return nil, false
+	}
+
+	return d, true
 }
 
 func (b *InMemoryBackend) domainPut(v *Domain) { b.domains.Put(v) }
@@ -120,7 +159,17 @@ func (b *InMemoryBackend) domainDelete(region, name string) {
 }
 
 func (b *InMemoryBackend) domainsInRegion(region string) []*Domain {
-	return b.domainsByRegion.Get(region)
+	all := b.domainsByRegion.Get(region)
+	now := b.clock()
+	out := make([]*Domain, 0, len(all))
+
+	for _, d := range all {
+		if !deleteWindowElapsed(d, now) {
+			out = append(out, d)
+		}
+	}
+
+	return out
 }
 
 func (b *InMemoryBackend) arnIndexStore(region string) map[string]string {
@@ -163,6 +212,24 @@ func (b *InMemoryBackend) packagesByNameStore(region string) map[string]string {
 	}
 
 	return b.packagesByName[region]
+}
+
+// packageAssociationMetaStore returns region's package ID → domain name →
+// association details map, creating it on first use.
+func (b *InMemoryBackend) packageAssociationMetaStore(region string) map[string]map[string]PackageAssociation {
+	if b.packageAssociationMeta[region] == nil {
+		b.packageAssociationMeta[region] = make(map[string]map[string]PackageAssociation)
+	}
+
+	return b.packageAssociationMeta[region]
+}
+
+func (b *InMemoryBackend) packageAssociationMetaStoreRO(region string) map[string]map[string]PackageAssociation {
+	if v := b.packageAssociationMeta[region]; v != nil {
+		return v
+	}
+
+	return map[string]map[string]PackageAssociation{}
 }
 
 func (b *InMemoryBackend) packageAssociationsStore(region string) map[string][]string {
@@ -279,6 +346,7 @@ func (b *InMemoryBackend) Reset() {
 	b.arnIndex = make(map[string]map[string]string)
 	b.packagesByName = make(map[string]map[string]string)
 	b.packageAssociations = make(map[string]map[string][]string)
+	b.packageAssociationMeta = make(map[string]map[string]map[string]PackageAssociation)
 	b.vpcAccess = make(map[string]map[string][]string)
 	b.nextID = 0
 }

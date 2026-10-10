@@ -107,7 +107,7 @@ func (h *Handler) handleCreateCustomPermissions(c *echo.Context) error {
 	)
 	if err != nil {
 		if errors.Is(err, ErrCustomPermissionsAlreadyExists) {
-			return writeError(c, http.StatusConflict, errResourceExistsCode, err.Error())
+			return writeError(c, http.StatusConflict, errResourceExistsCode, errMessage(err))
 		}
 
 		return httpErr(c, err)
@@ -274,7 +274,7 @@ func (h *Handler) handleCreateRoleMembership(c *echo.Context) error {
 
 	if err := h.Backend.CreateRoleMembership(accountID, namespace, role, memberName); err != nil {
 		if errors.Is(err, ErrRoleMembershipAlreadyExists) {
-			return writeError(c, http.StatusConflict, errResourceExistsCode, err.Error())
+			return writeError(c, http.StatusConflict, errResourceExistsCode, errMessage(err))
 		}
 
 		return httpErr(c, err)

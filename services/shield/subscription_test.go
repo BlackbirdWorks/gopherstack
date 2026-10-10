@@ -2,6 +2,7 @@ package shield_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -169,9 +170,17 @@ func TestInMemoryBackend_UpdateSubscription(t *testing.T) {
 		{
 			name: "set_disabled",
 			setup: func(b *shield.InMemoryBackend) {
+				b.AddSubscriptionInternalStartedAt(time.Now().AddDate(0, 0, -340))
+			},
+			autoRenew: shield.AutoRenewDisabled,
+		},
+		{
+			name: "change_inside_commitment_is_locked",
+			setup: func(b *shield.InMemoryBackend) {
 				require.NoError(t, b.CreateSubscription())
 			},
 			autoRenew: shield.AutoRenewDisabled,
+			wantErr:   true,
 		},
 		{
 			name: "set_enabled",
@@ -191,7 +200,7 @@ func TestInMemoryBackend_UpdateSubscription(t *testing.T) {
 			// unchanged.
 			name: "omit_preserves_existing_value",
 			setup: func(b *shield.InMemoryBackend) {
-				require.NoError(t, b.CreateSubscription())
+				b.AddSubscriptionInternalStartedAt(time.Now().AddDate(0, 0, -340))
 				require.NoError(t, b.UpdateSubscription(shield.AutoRenewDisabled))
 			},
 			autoRenew:     "",

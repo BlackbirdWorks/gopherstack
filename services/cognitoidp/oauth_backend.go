@@ -83,7 +83,7 @@ func (b *InMemoryBackend) oauthLogin(clientID, username, password string) (hoste
 		return hostedLogin{}, err
 	}
 
-	if err = b.precheckUserLocked(pool, clientID, user); err != nil {
+	if err = b.precheckUserLocked(pool, clientID, user, nil); err != nil {
 		return hostedLogin{}, err
 	}
 
@@ -104,7 +104,9 @@ func (b *InMemoryBackend) hostedLoginUserLocked(
 		return user, "", nil
 	}
 
-	migrated, finalStatus, err := b.tryUserMigration(pool, client.ClientID, authFlowUserPassword, username, password)
+	migrated, finalStatus, err := b.tryUserMigration(
+		pool, client.ClientID, authFlowUserPassword, username, password, nil,
+	)
 	if err != nil {
 		return nil, "", err
 	}

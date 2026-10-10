@@ -3,6 +3,7 @@ package eventbridge
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,10 +92,12 @@ var (
 )
 
 const (
-	defaultEventBusName = "default"
-	maxEventLogSize     = 1000
-	ruleStateEnabled    = "ENABLED"
-	ruleStateDisabled   = "DISABLED"
+	errCodeResourceNotFound = "ResourceNotFoundException"
+	servicePrefixEvents     = "events"
+	defaultEventBusName     = "default"
+	maxEventLogSize         = 1000
+	ruleStateEnabled        = "ENABLED"
+	ruleStateDisabled       = "DISABLED"
 	// ruleStateEnabledAllCloudTrailMgmtEvents is RuleState's third value (AWS
 	// SDK types.RuleState.Values(), aws-sdk-go-v2/service/eventbridge
 	// types/enums.go): used for a rule that also matches CloudTrail
@@ -519,6 +522,19 @@ func (b *InMemoryBackend) SetDeliveryTargets(dt *DeliveryTargets) {
 	b.deliveryTargets = dt
 }
 
+// ConfigureDeliveryTargets applies fn to the installed delivery targets under the backend lock,
+// installing an empty set first when none is set.
+func (b *InMemoryBackend) ConfigureDeliveryTargets(fn func(*DeliveryTargets)) {
+	b.mu.Lock("ConfigureDeliveryTargets")
+	defer b.mu.Unlock()
+
+	if b.deliveryTargets == nil {
+		b.deliveryTargets = &DeliveryTargets{}
+	}
+
+	fn(b.deliveryTargets)
+}
+
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (b *InMemoryBackend) Reset() {
@@ -561,4 +577,19 @@ func (b *InMemoryBackend) Reset() {
 	b.apiDestLimiters = sync.Map{}
 
 	b.busesTable(b.region)
+}
+
+// messageError carries AWS's exact wire text (capitalised, with a trailing
+// period) while still matching its sentinel via errors.Is.
+type messageError struct {
+	kind error
+	text string
+}
+
+func (e *messageError) Error() string { return e.text }
+
+func (e *messageError) Unwrap() error { return e.kind }
+
+func awsErrorf(kind error, format string, args ...any) error {
+	return &messageError{kind: kind, text: fmt.Sprintf(format, args...)}
 }

@@ -280,6 +280,12 @@ func applyLegacyQueryParams(
 		return err
 	}
 
+	if !hasKeyConditions && !hasKeyCondExpr {
+		return NewValidationException(
+			"Either the KeyConditions or KeyConditionExpression parameter must be specified in the request.",
+		)
+	}
+
 	hasQueryFilter := len(input.QueryFilter) > 0
 	hasFilterExpr := aws.ToString(input.FilterExpression) != ""
 

@@ -86,7 +86,7 @@ func (h *Handler) createTypeHandler(ctx context.Context, c *echo.Context, apiID 
 		return h.handleError(ctx, c, "CreateType", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{keyType: created})
+	return c.JSON(http.StatusCreated, map[string]any{keyType: wireShape(created, "apiId")})
 }
 
 // getType handles GET /v1/apis/{apiId}/types/{typeName}.
@@ -102,7 +102,7 @@ func (h *Handler) getType(ctx context.Context, c *echo.Context, apiID, typeName 
 		return h.handleError(ctx, c, "GetType", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyType: t})
+	return c.JSON(http.StatusOK, map[string]any{keyType: wireShape(t, "apiId")})
 }
 
 // listTypes handles GET /v1/apis/{apiId}/types.
@@ -120,7 +120,7 @@ func (h *Handler) listTypes(ctx context.Context, c *echo.Context, apiID string) 
 	}
 
 	page, tok := appsyncPaginate(types, nextToken, maxResults)
-	out := map[string]any{"types": page}
+	out := map[string]any{"types": wireShape(page, "apiId")}
 	if tok != "" {
 		out["nextToken"] = tok
 	}
@@ -158,7 +158,7 @@ func (h *Handler) updateType(ctx context.Context, c *echo.Context, apiID, typeNa
 		return h.handleError(ctx, c, "UpdateType", updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyType: updated})
+	return c.JSON(http.StatusOK, map[string]any{keyType: wireShape(updated, "apiId")})
 }
 
 // listTypesByAssociation handles GET /v1/mergedApis/{mergedApiId}/sourceApiAssociations/{assocId}/types.
@@ -186,7 +186,7 @@ func (h *Handler) listTypesByAssociation(
 	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
 	page, tok := appsyncPaginate(types, nextToken, maxResults)
-	out := map[string]any{pathSegTypes: page}
+	out := map[string]any{pathSegTypes: wireShape(page, "apiId")}
 	if tok != "" {
 		out["nextToken"] = tok
 	}

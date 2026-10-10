@@ -47,11 +47,8 @@ func (b *InMemoryBackend) StartPrimaryEmailUpdate(email string) (string, error) 
 }
 
 // AcceptPrimaryEmailUpdate confirms a pending email change using the OTP.
-// Real AWS's AcceptPrimaryEmailUpdateOutput reports Status ACCEPTED
-// immediately, then asynchronously transitions to COMPLETED once the change
-// propagates; like EnableRegion/DisableRegion (see PARITY.md gaps), this
-// simulator does not model that async completion tail -- ACCEPTED is the
-// terminal status GetPrimaryEmailUpdateStatus reports here.
+// The status is ACCEPTED immediately and settles to COMPLETED after
+// regionTransitionDelay.
 func (b *InMemoryBackend) AcceptPrimaryEmailUpdate(otp, email string) error {
 	b.mu.Lock("AcceptPrimaryEmailUpdate")
 	defer b.mu.Unlock()
@@ -69,6 +66,15 @@ func (b *InMemoryBackend) AcceptPrimaryEmailUpdate(otp, email string) error {
 	b.pendingOTP = ""
 	b.primaryEmailUpdateStatus = PrimaryEmailUpdateStatusAccepted
 	b.primaryEmailUpdateAt = time.Now().UTC()
+	b.work.After("PrimaryEmailUpdateComplete", regionTransitionDelay, func() {
+		b.mu.Lock("completePrimaryEmailUpdate")
+		defer b.mu.Unlock()
+
+		if b.primaryEmailUpdateStatus == PrimaryEmailUpdateStatusAccepted {
+			b.primaryEmailUpdateStatus = PrimaryEmailUpdateStatusCompleted
+			b.primaryEmailUpdateAt = time.Now().UTC()
+		}
+	})
 
 	return nil
 }

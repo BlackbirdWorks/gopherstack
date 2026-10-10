@@ -2,7 +2,7 @@
 service: apprunner
 sdk_module: aws-sdk-go-v2/service/apprunner@v1.42.4
 last_audit_commit: 22b4f068c
-last_audit_date: 2026-09-20
+last_audit_date: 2026-10-07
 overall: A            # full field-diff sweep: closed every gaps/deferred item from the 2026-07-13 audit,
                        # plus the wrapper-key/nested-shape sweep (2026-08-19, one fabricated-field bug fixed);
                        # 2026-08-23: closed the four member-never-emitted items disclosed 2026-08-19 (see Notes)
@@ -33,7 +33,7 @@ ops:
   DescribeVpcConnector: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same DeletedAt fix as CreateVpcConnector."}
   DeleteVpcConnector: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "same DeletedAt fix as CreateVpcConnector. FIXED 2026-09-03 (gopherstack-9vv): now rejects (InvalidRequestException) deleting a connector still referenced by a service's NetworkConfiguration.EgressConfiguration.VpcConnectorArn, matching the op's own doc sentence -- see Notes."}
   ListVpcConnectors: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateVpcIngressConnection: {wire: ok, errors: ok, state: partial, persist: ok, note: "doesn't validate ServiceArn refers to an existing service (dangling ref allowed); matches real op's documented error set which has no ResourceNotFoundException, so not a wire bug -- see gaps"}
+  CreateVpcIngressConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-10-07: ServiceArn must refer to an existing service, else InvalidRequestException (the op's error set has no ResourceNotFoundException)"}
   DescribeVpcIngressConnection: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-23: VpcIngressConnection.DeletedAt (deserializers.go:7547) was already tracked on storedVpcIngressConnection/VpcIngressConnection (DeleteVpcIngressConnection already set it) but never surfaced on the wire; emit-only fix, omitempty pointer."}
   DeleteVpcIngressConnection: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same DeletedAt fix as DescribeVpcIngressConnection."}
   ListVpcIngressConnections: {wire: ok, errors: ok, state: ok, persist: ok, note: "Re-verified 2026-09-19 (gopherstack-dv4s over-wide-response census): VpcIngressConnectionSummary member set exact against v1.42.4, see list_summary_shapes_test.go."}
@@ -47,12 +47,23 @@ ops:
 families:
   error_taxonomy: {status: ok, note: "was systemically broken across all 35 ops -- see Notes; fixed 2026-07-13"}
 gaps: []
-items_still_open:
-  - "CreateVpcIngressConnection doesn't validate that ServiceArn refers to an existing service, allowing a dangling reference. Left as-is because CreateVpcIngressConnection's documented error set has no ResourceNotFoundException -- adding validation would need a new InvalidRequestException-mapped check, not a NotFound one, to stay wire-correct; low traffic op, deferred. Re-verified 2026-07-23: still the correct call, not a bug."
-  - "CustomDomain omits CertificateValidationRecords (deserializers.go:4899, 5381): no certificate validation flow is modeled, so there is no internal state to surface."
+items_still_open: []
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this backend; existing leak_test.go covers handler/backend lifecycle. 2026-07-23: found and fixed one real leak -- DeleteService left its b.customDomains[serviceArn] entry behind forever (unreachable once the service is gone, since DescribeCustomDomains 404s on a deleted ServiceArn); now cascade-deleted, covered by TestDeleteService_CascadesCustomDomains. New AutoScalingConfiguration HasAssociatedService bookkeeping (CreateService/UpdateService/DeleteService) stays entirely inside the existing b.mu critical sections, no new lock paths or goroutines introduced."}
 ---
+
+## 2026-10-07 items_still_open burn-down
+
+CreateVpcIngressConnection now rejects a dangling ServiceArn with InvalidRequestException
+(`TestCreateVpcIngressConnection_ServiceMustExist`). The CertificateValidationRecords item was stale:
+AssociateCustomDomain already emits them.
+
+## 2026-10-10 realism pass
+
+Opt-in `--lifecycle-apprunner` (`SetOperationDelay`, default 0): services report OPERATION_IN_PROGRESS (and IN_PROGRESS
+operations) after create/update/pause/resume/deploy/delete; state checks use the effective status. ServiceName now
+validated (4-40, `[A-Za-z0-9][A-Za-z0-9_-]*`); service ARN is `service/<name>/<32hex>`; errors no longer carry the
+exception name as a message suffix (`TestOperationLifecycle`, `TestCreateService_NameValidation`, `TestNotFoundMessage`).
 
 ## Notes
 
@@ -408,8 +419,7 @@ fields, 1 counted bug, 2 fixed-but-not-counted findings, 1 disclosed
     way `Create`/`DeleteObservabilityConfiguration` do. `AutoScalingConfiguration.DeletedAt`
     (deserializers.go:4660) was bundled into this fix too -- same already-tracked-but-unemitted
     gap as VpcConnector/VpcIngressConnection, on the same struct.
-  - Not touched: `CustomDomain.CertificateValidationRecords` (deserializers.go:4899, 5381) --
-    still a genuine backend gap, no cert-validation flow modeled, nothing internal to surface.
+  - `CustomDomain.CertificateValidationRecords` was later implemented (see AssociateCustomDomain).
   - Persisted-struct changes: `storedService` gained `DeletedAt time.Time`;
     `storedAutoScalingConfiguration` gained `Latest bool`. Both are additive
     (`encoding/json` zero-values a missing key on restore of an older snapshot: `DeletedAt`

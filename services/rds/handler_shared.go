@@ -56,6 +56,10 @@ func parseMultiValueParam(vals url.Values, prefix string) []string {
 
 func parseDescribePagination(vals url.Values) (string, int, error) {
 	marker := vals.Get("Marker")
+	if err := page.ValidateToken(marker); err != nil {
+		return "", 0, fmt.Errorf("%w: invalid Marker %q", ErrInvalidParameter, marker)
+	}
+
 	maxRecords := 0
 	rawMaxRecords := vals.Get("MaxRecords")
 	if rawMaxRecords == "" {

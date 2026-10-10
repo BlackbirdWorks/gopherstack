@@ -115,7 +115,12 @@ func (h *Handler) handleListJobTemplates(c *echo.Context) error {
 		q.Get("listBy"), q.Get("order"),
 	)
 
-	pg := page.New(templates, q.Get("nextToken"), parseMaxResults(q.Get("maxResults")), defaultListPageSize)
+	token, maxResults, err := listPageArgs(q)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	pg := page.New(templates, token, maxResults, defaultListPageSize)
 
 	return c.JSON(http.StatusOK, jobTemplatesListOutput{JobTemplates: pg.Data, NextToken: pg.Next})
 }

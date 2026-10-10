@@ -72,11 +72,15 @@ type BrokerInstance struct {
 	Endpoints  []string `json:"endpoints"`
 }
 
-// SharedResource describes a single resource shared to a broker via AWS
-// Resource Access Manager (cross-account VPC subnets/configurations shared
-// through a RAM resource share). This backend does not model RAM resource
-// sharing, so DescribeSharedResources never populates one -- the type exists
-// only to document the real DescribeSharedResourcesOutput wire shape.
+const (
+	sharedResourceTypeShare        = "RESOURCE_SHARE"
+	sharedResourceTypeResource     = "RESOURCE"
+	sharedResourceStatusAvailable  = "AVAILABLE"
+	sharedResourceStatusError      = "ERROR"
+	sharedResourceErrShareNotFound = "SHARE_NOT_FOUND"
+)
+
+// SharedResource is one entry of DescribeSharedResources: a RAM resource share or a resource it grants.
 type SharedResource struct {
 	Error             *SharedResourceError `json:"error,omitempty"`
 	ResourceArn       string               `json:"resourceArn"`
@@ -177,6 +181,7 @@ type Broker struct {
 	SecurityGroups             []string                 `json:"securityGroups,omitempty"`
 	SubnetIDs                  []string                 `json:"subnetIds,omitempty"`
 	PendingResourceShareArns   []string                 `json:"pendingResourceShareArns,omitempty"`
+	ResourceShareArns          []string                 `json:"resourceShareArns,omitempty"`
 	PubliclyAccessible         bool                     `json:"publiclyAccessible"`
 	AutoMinorVersionUpgrade    bool                     `json:"autoMinorVersionUpgrade"`
 	StorageSize                int32                    `json:"storageSize,omitempty"`
@@ -350,12 +355,7 @@ type UpdateBrokerOptions struct {
 	Configuration              *ConfigurationID
 	AuthenticationStrategy     string
 	DataReplicationMode        string
-	// ResourceShareArns is UpdateBrokerInput.ResourceShareArns ("The list
-	// of resource shares to update on the broker"). This backend does not
-	// model AWS RAM resource sharing (see DescribeSharedResources), so the
-	// list is accepted and echoed back on UpdateBrokerOutput.ResourceShareArns
-	// without any real sharing behavior -- the same accept-and-echo
-	// treatment already given to DataReplicationMode/CRDR.
+	// ResourceShareArns is UpdateBrokerInput.ResourceShareArns; staged until the next reboot.
 	ResourceShareArns []string
 	// StorageSize is UpdateBrokerInput.StorageSize. Like EngineVersion/
 	// HostInstanceType, it stages into Broker.PendingStorageSize and only

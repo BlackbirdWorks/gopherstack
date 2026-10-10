@@ -42,10 +42,11 @@ func TestRealClient_DeleteReservation(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, reservationID, aws.ToString(deleted.ReservationId))
-	assert.Equal(t, "CANCELED", string(deleted.State))
+	assert.Equal(t, "DELETED", string(deleted.State))
 
-	_, err = client.DescribeReservation(ctx, &medialivesdk.DescribeReservationInput{
+	described, err := client.DescribeReservation(ctx, &medialivesdk.DescribeReservationInput{
 		ReservationId: aws.String(reservationID),
 	})
-	require.Error(t, err)
+	require.NoError(t, err)
+	assert.Equal(t, "DELETED", string(described.State))
 }

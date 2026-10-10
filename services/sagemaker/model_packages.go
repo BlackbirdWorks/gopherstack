@@ -89,15 +89,11 @@ type ManagedConfiguration struct {
 }
 
 // ModelPackageGroup represents a SageMaker model package group.
-//
-// CreatedBy (types.UserContext) is "This member is required" on
-// DescribeModelPackageGroupOutput but is disclosed absent, not fabricated —
-// this backend has no IAM-identity model to honestly derive it from, the same
-// class-d gap as every other CreatedBy/LastModifiedBy field in this service.
 type ModelPackageGroup struct {
 	CreationTime                 time.Time             `json:"CreationTime"`
 	Tags                         map[string]string     `json:"Tags,omitempty"`
 	ManagedConfiguration         *ManagedConfiguration `json:"ManagedConfiguration,omitempty"`
+	CreatedBy                    *UserContext          `json:"CreatedBy,omitempty"`
 	ModelPackageGroupName        string                `json:"ModelPackageGroupName"`
 	ModelPackageGroupArn         string                `json:"ModelPackageGroupArn"`
 	ModelPackageGroupDescription string                `json:"ModelPackageGroupDescription,omitempty"`
@@ -110,6 +106,7 @@ type ModelPackageGroup struct {
 func cloneModelPackageGroup(g *ModelPackageGroup) *ModelPackageGroup {
 	cp := *g
 	cp.Tags = maps.Clone(g.Tags)
+	cp.CreatedBy = cloneUserContext(g.CreatedBy)
 
 	if g.ManagedConfiguration != nil {
 		mc := *g.ManagedConfiguration
@@ -190,6 +187,7 @@ func (b *InMemoryBackend) CreateModelPackageGroup(
 		ModelPackageGroupStatus:      algorithmStatusCompleted,
 		Tags:                         mergeTags(nil, opts.Tags),
 		CreationTime:                 time.Now(),
+		CreatedBy:                    callerUserContext(ctx),
 	}
 	if opts.ManagedStorageType != "" {
 		g.ManagedConfiguration = &ManagedConfiguration{ManagedStorageType: opts.ManagedStorageType}
@@ -468,6 +466,8 @@ func (b *InMemoryBackend) CreateModelPackage(
 		SecurityConfig:                    opts.SecurityConfig,
 		AdditionalInferenceSpecifications: opts.AdditionalInferenceSpecifications,
 		CreationTime:                      time.Now(),
+		CreatedBy:                         callerUserContext(ctx),
+		LastModifiedBy:                    callerUserContext(ctx),
 		ModelPackageStatusDetails: ModelPackageStatusDetails{
 			ValidationStatuses: []ModelPackageStatusItem{},
 		},
@@ -765,6 +765,7 @@ func (b *InMemoryBackend) UpdateModelPackage(
 	}
 
 	mp.LastModifiedTime = time.Now()
+	mp.LastModifiedBy = callerUserContext(ctx)
 
 	return cloneModelPackage(mp), nil
 }

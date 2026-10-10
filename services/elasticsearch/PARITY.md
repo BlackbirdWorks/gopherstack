@@ -7,7 +7,7 @@
 service: elasticsearch
 sdk_module: aws-sdk-go-v2/service/elasticsearchservice@v1.45.4
 last_audit_commit: 366fb4907                    # HEAD after the 2026-09-18 reqfielddiff tier-1 sweep (reserved-instance pagination)
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-09
 overall: A            # gopherstack-6flj pass (2026-08-15): the outbound cross-cluster-search-connection
                        # family -- adjacent territory none of the 6 prior audits' notes mention -- had 3 real
                        # bugs: CreateOutboundCrossClusterSearchConnection's request/response used
@@ -80,10 +80,8 @@ ops:
   PurchaseReservedElasticsearchInstanceOffering: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "FIXED (2026-09-04 pass) -- never validated ReservedElasticsearchInstanceOfferingId against the known offering; an unknown offering ID silently created a reservation with zero-value InstanceType/FixedPrice/UsagePrice/Duration and 200 OK instead of the modelled ResourceNotFoundException. See Notes."}
 gaps: []
 items_still_open:
-  - "DomainPackageDetails.PackageVersion/ReferencePath/LastUpdated: package associations store only domain names, so association-time version, path and timestamp are not tracked."
-  - "Domains never pass through Processing: all changes apply synchronously, so Processing/DomainProcessingStatus/OptionStatus.State are always settled (deliberate; a timed delay would be invented state)."
-  - "VPCOptions.VPCId/AvailabilityZones are never populated: they need a cross-service EC2 lookup wired in cli.go (same accepted gap as services/opensearch)."
-  - "DescribeDomainAutoTunes.MaxResults has no effect: no auto-tune action history exists to page (the opensearch placeholder derived from maintenance schedules is not reproduced here)."
+structural_gaps:
+  - "DescribeDomainAutoTunes MaxResults: auto-tune actions are produced by analysis of live cluster metrics; with no cluster there is no action history to page."
 deferred: []              # this pass's target deferred item (DescribeElasticsearchDomainConfig per-field OptionStatus) is now implemented; remaining edges tracked under gaps above
 leaks: {status: clean, note: "no goroutines/janitors in this service; Snapshot/Restore close domain Tags before replacing state (verified in persistence.go). This pass also fixed domainCopy (store.go) to deep-clone AdvancedOptions/VPCOptions/CognitoOptions/AdvancedSecurityOptions/AutoTuneOptions/LogPublishingOptions -- previously AdvancedOptions (and now the five new option fields) were shallow-copied, so a caller mutating the map/slice on a DescribeDomain result would have silently mutated the backend's stored state. Not a resource leak, but a real aliasing bug fixed alongside the new fields it would otherwise have applied to as well. 2026-08-10: extended the same deep-clone treatment to AdvancedSecurityOptions.SAMLOptions (and its Idp pointer) and AutoTuneOptions.MaintenanceSchedules (and each element's Duration pointer), which would otherwise have reintroduced the identical aliasing bug for the newly-added nested pointers/slices."}
 ---
@@ -880,3 +878,11 @@ UpdateElasticsearchDomainConfig replaced ElasticsearchClusterConfig, EBSOptions 
 ## 2026-10-05 (undeclared response members)
 
 ElasticsearchClusterConfig is now read and written as ColdStorageOptions{Enabled}; the flat ColdStorageEnabled key was not an SDK member.
+
+## 2026-10-09 -- domain Processing window knob
+
+`--elasticsearch-processing-delay` (`ELASTICSEARCH_PROCESSING_DELAY`, default `0s`) is passed to `SetProcessingDelay` by the provider. Proof: root `TestElasticsearchProcessingDelayWiring`.
+
+## 2026-10-10 lifecycle dwell knob
+
+`--lifecycle-delay` is the fallback when `ELASTICSEARCH_PROCESSING_DELAY` is unset. Proof: root `TestLifecycleDelayWiring/elasticsearch`.

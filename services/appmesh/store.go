@@ -35,6 +35,7 @@ import (
 // Snapshot/Restore alongside the registered tables.
 type InMemoryBackend struct {
 	registry               *store.Registry
+	schemas                *specSchemas
 	meshes                 *store.Table[Mesh]
 	virtualNodes           *store.Table[VirtualNode]
 	virtualNodesByMesh     *store.Index[VirtualNode]
@@ -62,6 +63,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		registry:  store.NewRegistry(),
 		tags:      make(map[string]map[string]string),
 		mu:        lockmetrics.New("appmesh"),
+		schemas:   mustSpecSchemas(),
 	}
 	registerAllTables(b)
 

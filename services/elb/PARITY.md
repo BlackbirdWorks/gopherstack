@@ -7,7 +7,7 @@
 service: elb
 sdk_module: aws-sdk-go-v2/service/elasticloadbalancing@v1.36.4   # version audited against
 last_audit_commit: 9249d4561                      # HEAD when this audit began (working tree, pre-commit)
-last_audit_date: 2026-08-20
+last_audit_date: 2026-10-07
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -45,10 +45,10 @@ ops:
 families:
   snapshot_restore: {status: ok, note: "Handler-level Snapshot/Restore delegation (persistence.go) verified intact; backend.Snapshot/Restore round-trip all LB + policy state incl. tags; version-guarded (v4) against incompatible older snapshots"}
   route_matcher: {status: ok, note: "single query/xml POST matcher (Version=2012-06-01 form field) confirmed reachable for all 29 dispatch-table ops; TestSDKCompleteness passes with empty notImplemented list"}
+  create_lb_network_validation: {status: ok, note: "2026-10-07: CreateLoadBalancer's own SecurityGroups and Subnets are existence-checked through elb.EC2Resolver (InvalidSecurityGroup / SubnetNotFound, both in the op's error set), like ApplySecurityGroups/AttachLoadBalancerToSubnets. Guarded by TestCreateLoadBalancer_EC2Resolver."}
 gaps: []
 items_still_open:
-  - gopherstack-6851 FOLLOW-UP addressed this pass: ApplySecurityGroupsToLoadBalancer/AttachLoadBalancerToSubnets now validate SecurityGroups/Subnets against the real EC2 backend (elb.EC2Resolver, wired by cli.go's wireELBCrossService), and CreateLoadBalancer/CreateLoadBalancerListeners/SetLoadBalancerListenerSSLCertificate now validate SSLCertificateId against the real ACM and IAM backends (elb.CertificateResolver, same wiring call). CreateLoadBalancer's own SecurityGroups/Subnets fields (as opposed to Apply/Attach) are NOT existence-checked -- out of scope for this pass, tracked separately if ever needed.
-  - CreateLoadBalancerPolicy has no TooManyPolicies limit (AWS models TooManyPoliciesException for this op per the SDK's op-specific error switch, but no default per-LB policy count limit is documented anywhere gopherstack could source a correct number from; fabricating one risked being wrong, so left unenforced rather than guessed). Re-verified gopherstack-6851 2026-08-10: the official quota table at docs.aws.amazon.com/elasticloadbalancing/latest/classic/elb-limits.html lists exactly three Classic ELB quotas (Load Balancers per Region: 20, Listeners per Classic Load Balancer: 100, Registered Instances per Classic Load Balancer: 1,000) and no policies-per-load-balancer quota -- confirmed absent, not just unfound, so still deliberately left unenforced.
+  - "CreateLoadBalancerPolicy has no TooManyPolicies limit: the SDK models TooManyPoliciesException for the op, but the Classic ELB quota table lists only load balancers per region (20), listeners per load balancer (100) and registered instances per load balancer (1,000), so no per-LB policy count can be sourced. Unverifiable (gopherstack-6851)."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - none — full op-by-op pass completed this round (parity-3: re-verified after the Go-refactoring-2 file split; all backend.go/handler.go logic re-read post-split and re-diffed against the SDK)
 leaks: {status: clean, note: "Reset()/Snapshot()/Restore() all close+recreate tags.Tags registries correctly (no Prometheus label leak); DeleteLoadBalancer cascade-deletes policies via policiesByLB index with a cloned slice before delete to avoid corrupting the in-progress scan"}

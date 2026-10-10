@@ -87,6 +87,7 @@ type SubnetCIDRAssociation struct {
 	AssociationID string `json:"associationID,omitempty"`
 	IPv6CIDRBlock string `json:"ipv6CidrBlock,omitempty"`
 	State         string `json:"state,omitempty"`
+	IPSource      string `json:"ipSource,omitempty"`
 }
 
 // Image state constants (formerly batch2 constants).
@@ -660,9 +661,13 @@ type PriceScheduleEntry struct {
 // ReservedInstancesModification holds a reserved instances modification.
 
 type ReservedInstancesModification struct {
-	ReservedInstancesModificationID string `json:"reservedInstancesModificationId,omitempty"`
-	Status                          string `json:"status,omitempty"`
-	StatusMessage                   string `json:"statusMessage,omitempty"`
+	CreateDate                      time.Time `json:"createDate"`
+	EffectiveDate                   time.Time `json:"effectiveDate"`
+	UpdateDate                      time.Time `json:"updateDate"`
+	ClientToken                     string    `json:"clientToken,omitempty"`
+	ReservedInstancesModificationID string    `json:"reservedInstancesModificationId,omitempty"`
+	Status                          string    `json:"status,omitempty"`
+	StatusMessage                   string    `json:"statusMessage,omitempty"`
 	ReservedInstancesIDs            []string
 	ModificationResults             []ReservedInstancesModificationResult
 }

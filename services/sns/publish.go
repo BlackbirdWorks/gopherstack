@@ -65,13 +65,13 @@ func (b *InMemoryBackend) collectPublishTargets(
 		// scope "MessageAttributes" (or unset) evaluates against message attributes.
 		if sub.FilterPolicyScope == "MessageBody" {
 			if !matchesFilterPolicyMessageBody(sub.parsedFilterPolicy, msg) {
-				out.filteredOut.record(false, true)
+				out.filteredOut.record(classifyBodyRejection(msg))
 
 				continue
 			}
 		} else {
 			if !matchesParsedFilterPolicy(sub.parsedFilterPolicy, attrs) {
-				out.filteredOut.record(len(attrs) == 0, false)
+				out.filteredOut.record(classifyAttributeRejection(attrs))
 
 				continue
 			}
@@ -320,6 +320,7 @@ func (b *InMemoryBackend) buildPublishedEvent(
 		Signature:        sn.signature,
 		SignatureVersion: sigVersion,
 		SigningCertURL:   sn.certURL,
+		ReportDelivery:   func(_ string, ok bool) { b.emitDeliveryOutcome(topicArn, ok) },
 	}
 }
 

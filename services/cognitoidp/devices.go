@@ -94,9 +94,10 @@ func (b *InMemoryBackend) paginateDevicesLocked(key string, limit int, nextToken
 // client-side from SRP device-verifier material handed out during
 // authentication, but this emulator does not mint device metadata during
 // InitiateAuth, so it provisions a key here so ListDevices/GetDevice can
-// enumerate the device afterward. Returns the confirmed device key and
-// whether user confirmation is necessary (always false: this emulator does
-// not model the adaptive-auth device-confirmation workflow).
+// enumerate the device afterward. With the pool's DeviceConfiguration set, a
+// new device is remembered immediately unless DeviceOnlyRememberedOnUserPrompt
+// is true, in which case the caller must confirm via UpdateDeviceStatus
+// (returned as userConfirmationNecessary).
 func (b *InMemoryBackend) ConfirmDevice(accessToken, deviceKey, deviceName string) (string, bool, error) {
 	b.mu.Lock("ConfirmDevice")
 	defer b.mu.Unlock()
@@ -137,16 +138,33 @@ func (b *InMemoryBackend) ConfirmDevice(accessToken, deviceKey, deviceName strin
 		attrs["device_name"] = deviceName
 	}
 
+	status, confirmNecessary := b.newDeviceStatusLocked(user.UserPoolID)
+
 	b.devices[key][deviceKey] = &Device{
 		DeviceKey:           deviceKey,
 		CreatedAt:           now,
 		LastModifiedAt:      now,
 		LastAuthenticatedAt: now,
 		Attributes:          attrs,
-		Status:              DeviceStatusNotRemembered,
+		Status:              status,
 	}
 
-	return deviceKey, false, nil
+	return deviceKey, confirmNecessary, nil
+}
+
+// newDeviceStatusLocked is the status a freshly confirmed device gets under the pool's
+// DeviceConfiguration, and whether the user must confirm remembering it. Caller must hold b.mu.
+func (b *InMemoryBackend) newDeviceStatusLocked(poolID string) (string, bool) {
+	pool, ok := b.pools.Get(poolID)
+	if !ok || pool.Settings.DeviceConfiguration == nil {
+		return DeviceStatusNotRemembered, false
+	}
+
+	if onPrompt, _ := pool.Settings.DeviceConfiguration["DeviceOnlyRememberedOnUserPrompt"].(bool); onPrompt {
+		return DeviceStatusNotRemembered, true
+	}
+
+	return DeviceStatusRemembered, false
 }
 
 // AdminGetDevice returns a single tracked device for a user (admin operation).

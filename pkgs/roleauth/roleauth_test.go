@@ -26,6 +26,7 @@ func TestTargetAction(t *testing.T) {
 		{"sqs", "arn:aws:sqs:us-east-1:1:q", "sqs:SendMessage", true},
 		{"bus", "arn:aws:events:us-east-1:1:event-bus/b", "events:PutEvents", true},
 		{"api_destination", "arn:aws:events:us-east-1:1:api-destination/d/x", "events:InvokeApiDestination", true},
+		{"execute_api", "arn:aws:execute-api:us-east-1:1:api/prod/POST/x", "execute-api:Invoke", true},
 		{"unknown", "arn:aws:s3:::b", "", false},
 		{"malformed", "nope", "", false},
 	}

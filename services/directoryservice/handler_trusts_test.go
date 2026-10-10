@@ -3,8 +3,11 @@ package directoryservice_test
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/blackbirdworks/gopherstack/services/directoryservice"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -113,6 +116,19 @@ func TestCreateTrust_Validation(t *testing.T) {
 
 // TestCreateTrust_StateByDirection verifies every direction except "One-Way: Incoming" lands on
 // TrustState "Verified": terraform's resourceTrustCreate waits on waitTrustVerified for the rest.
+func trustStateOf(t *testing.T, h *directoryservice.Handler, dirID string) string {
+	t.Helper()
+
+	body := respBody(t, doRequest(t, h, "DescribeTrusts", map[string]any{"DirectoryId": dirID}))
+	trusts, _ := body["Trusts"].([]any)
+	if len(trusts) != 1 {
+		return ""
+	}
+	state, _ := trusts[0].(map[string]any)["TrustState"].(string)
+
+	return state
+}
+
 func TestCreateTrust_StateByDirection(t *testing.T) {
 	t.Parallel()
 
@@ -130,7 +146,7 @@ func TestCreateTrust_StateByDirection(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
-			dirID := mustCreateSimpleAD(t, h, tt.name+".example.com")
+			dirID := mustCreateSimpleAD(t, h, strings.ReplaceAll(tt.name, "_", "-")+".example.com")
 
 			rec := doRequest(t, h, "CreateTrust", map[string]any{
 				"DirectoryId":      dirID,
@@ -140,13 +156,9 @@ func TestCreateTrust_StateByDirection(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			descRec := doRequest(t, h, "DescribeTrusts", map[string]any{"DirectoryId": dirID})
-			require.Equal(t, http.StatusOK, descRec.Code)
-			body := respBody(t, descRec)
-			trusts, _ := body["Trusts"].([]any)
-			require.Len(t, trusts, 1)
-			trust := trusts[0].(map[string]any)
-			assert.Equal(t, tt.wantState, trust["TrustState"])
+			require.Eventually(t, func() bool {
+				return trustStateOf(t, h, dirID) == tt.wantState
+			}, 5*time.Second, 10*time.Millisecond)
 		})
 	}
 }
@@ -265,13 +277,14 @@ func TestTrusts(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec5.Body.Bytes(), &r5))
 			assert.Equal(t, trustID, r5["TrustId"])
 
-			// Describe after delete
-			rec6 := doRequest(t, h, "DescribeTrusts", map[string]any{"DirectoryId": dirID})
-			assert.Equal(t, http.StatusOK, rec6.Code)
-			var r6 map[string]any
-			require.NoError(t, json.Unmarshal(rec6.Body.Bytes(), &r6))
-			trusts2, _ := r6["Trusts"].([]any)
-			assert.Empty(t, trusts2)
+			require.Eventually(t, func() bool {
+				var r6 map[string]any
+				rec6 := doRequest(t, h, "DescribeTrusts", map[string]any{"DirectoryId": dirID})
+				require.NoError(t, json.Unmarshal(rec6.Body.Bytes(), &r6))
+				trusts2, _ := r6["Trusts"].([]any)
+
+				return rec6.Code == http.StatusOK && len(trusts2) == 0
+			}, 5*time.Second, 10*time.Millisecond)
 
 			_ = tc
 		})

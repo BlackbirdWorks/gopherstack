@@ -16,7 +16,7 @@ func (b *InMemoryBackend) CreateBranch(repositoryName, branchName, commitID stri
 	defer b.mu.Unlock()
 
 	if !b.repositories.Has(repositoryName) {
-		return fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+		return fmt.Errorf("%w: %s does not exist", ErrNotFound, repositoryName)
 	}
 
 	// Validate that the commitID exists in the repository.
@@ -28,7 +28,7 @@ func (b *InMemoryBackend) CreateBranch(repositoryName, branchName, commitID stri
 		return fmt.Errorf("%w: branch %s already exists", ErrBranchAlreadyExists, branchName)
 	}
 
-	b.branches.Put(&Branch{
+	b.putBranchLocked(&Branch{
 		BranchName:     branchName,
 		CommitID:       commitID,
 		RepositoryName: repositoryName,
@@ -43,12 +43,12 @@ func (b *InMemoryBackend) GetBranch(repositoryName, branchName string) (*Branch,
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repositoryName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, repositoryName)
 	}
 
 	br, ok := b.branches.Get(branchKey(repositoryName, branchName))
 	if !ok {
-		return nil, fmt.Errorf("%w: branch %s not found", ErrBranchNotFound, branchName)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrBranchNotFound, branchName)
 	}
 
 	cp := *br
@@ -62,7 +62,7 @@ func (b *InMemoryBackend) DeleteBranch(repositoryName, branchName string) (*Bran
 	defer b.mu.Unlock()
 
 	if !b.repositories.Has(repositoryName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, repositoryName)
 	}
 
 	br, ok := b.branches.Get(branchKey(repositoryName, branchName))
@@ -86,7 +86,7 @@ func (b *InMemoryBackend) ListBranches(repositoryName string) ([]string, error) 
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repositoryName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, repositoryName)
 	}
 
 	group := b.branchesByRepo.Get(repositoryName)
@@ -107,7 +107,7 @@ func (b *InMemoryBackend) UpdateDefaultBranch(repoName, branchName string) error
 
 	r, ok := b.repositories.Get(repoName)
 	if !ok {
-		return fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return fmt.Errorf("%w: %s does not exist", ErrNotFound, repoName)
 	}
 	// Validate the branch exists.
 	if branchName != "" && !b.branches.Has(branchKey(repoName, branchName)) {
@@ -117,4 +117,13 @@ func (b *InMemoryBackend) UpdateDefaultBranch(repoName, branchName string) error
 	r.LastModifiedDate = time.Now().UTC()
 
 	return nil
+}
+
+// putBranchLocked stores br and makes it the repository default when none is set. Caller holds the write lock.
+func (b *InMemoryBackend) putBranchLocked(br *Branch) {
+	b.branches.Put(br)
+
+	if r, ok := b.repositories.Get(br.RepositoryName); ok && r.DefaultBranch == "" {
+		r.DefaultBranch = br.BranchName
+	}
 }

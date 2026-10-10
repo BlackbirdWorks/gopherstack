@@ -196,6 +196,7 @@ type StorageBackend interface {
 
 	// Tickets V2
 	CreateTicketV2(connectorID, findingMetadataUID, mode string) (*TicketV2, error)
+	GetTicketV2(ticketID string) (*TicketV2, error)
 
 	// Findings V2
 	GetFindingsV2(
@@ -209,13 +210,13 @@ type StorageBackend interface {
 		metadataUids []string,
 		updates map[string]any,
 	) ([]map[string]any, []map[string]any)
-	GetFindingStatisticsV2(groupByFields []string, sortOrder string) []map[string]any
-	GetFindingsTrendsV2(startTime, endTime string) []map[string]any
+	GetFindingStatisticsV2(rules []GroupByRule, sortOrder string) []map[string]any
+	GetFindingsTrendsV2(startTime, endTime string, filters map[string]any) []map[string]any
 
 	// Resources V2
 	GetResourcesV2(filters map[string]any, nextToken string, maxResults int) ([]map[string]any, string)
-	GetResourcesStatisticsV2(groupByFields []string, sortOrder string) []map[string]any
-	GetResourcesTrendsV2(startTime, endTime string) []map[string]any
+	GetResourcesStatisticsV2(rules []GroupByRule, sortOrder string) []map[string]any
+	GetResourcesTrendsV2(startTime, endTime string, filters map[string]any) []map[string]any
 
 	// Products V2
 	DescribeProductsV2(nextToken string, maxResults int) ([]*Product, string)

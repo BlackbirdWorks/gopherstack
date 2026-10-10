@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -38,9 +39,34 @@ const (
 	jsUserAgentMarker = "mediastore-data"
 )
 
+// ContainerResolver reports whether a MediaStore container exists.
+type ContainerResolver interface {
+	ContainerExists(region, name string) bool
+}
+
 // Handler is the Echo HTTP handler for Amazon MediaStore Data operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend    *InMemoryBackend
+	containers ContainerResolver
+}
+
+// SetContainerResolver makes requests addressed to a container endpoint fail with
+// ContainerNotFoundException when the container does not exist.
+func (h *Handler) SetContainerResolver(r ContainerResolver) { h.containers = r }
+
+// containerHostPattern matches the per-container data endpoint "{container}.data.mediastore.{region}.amazonaws.com".
+var containerHostPattern = regexp.MustCompile(
+	`^([A-Za-z0-9_]+)\.data\.mediastore\.([a-z0-9-]+)\.amazonaws\.com(?::\d+)?$`,
+)
+
+// containerFromHost returns the container and region a per-container endpoint host names.
+func containerFromHost(host string) (string, string, bool) {
+	m := containerHostPattern.FindStringSubmatch(host)
+	if m == nil {
+		return "", "", false
+	}
+
+	return m[1], m[2], true
 }
 
 // NewHandler creates a new MediaStore Data handler.
@@ -131,6 +157,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
 		log := logger.Load(r.Context())
+
+		if name, region, ok := containerFromHost(r.Host); ok && h.containers != nil &&
+			!h.containers.ContainerExists(region, name) {
+			return writeErrorJSON(c, http.StatusNotFound, "ContainerNotFoundException",
+				"container "+name+" not found")
+		}
 
 		switch r.Method {
 		case http.MethodPut:

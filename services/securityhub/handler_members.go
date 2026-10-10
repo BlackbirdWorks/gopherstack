@@ -161,7 +161,7 @@ func (h *Handler) handleInviteMembers(c *echo.Context, body map[string]any) erro
 }
 
 func (h *Handler) handleListMembers(c *echo.Context) error {
-	onlyAssociated := false
+	onlyAssociated := true
 
 	if v := c.QueryParam("OnlyAssociated"); v != "" {
 		onlyAssociated = strings.EqualFold(v, "true")

@@ -87,3 +87,51 @@ func TestSortedGetCrawlers(t *testing.T) {
 	assert.Equal(t, "mu", crawlers[1].Name)
 	assert.Equal(t, "zeta", crawlers[2].Name)
 }
+
+func TestGetCrawler_LastCrawlAfterRun(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus string
+		stop       bool
+	}{
+		{name: "completed_run", stop: false, wantStatus: "SUCCEEDED"},
+		{name: "stopped_run", stop: true, wantStatus: "CANCELLED"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := glue.NewInMemoryBackend("000000000000", "us-east-1")
+			defer b.Close()
+
+			_, err := b.CreateCrawler("lc", "arn:aws:iam::000000000000:role/glue", "", glue.CrawlerTarget{}, nil)
+			require.NoError(t, err)
+
+			c, err := b.GetCrawler("lc")
+			require.NoError(t, err)
+			assert.Nil(t, c.LastCrawl, "no crawl has run yet")
+
+			require.NoError(t, b.StartCrawler("lc"))
+
+			if tt.stop {
+				require.NoError(t, b.StopCrawler("lc"))
+			}
+
+			require.Eventually(t, func() bool {
+				got, gErr := b.GetCrawler("lc")
+				require.NoError(t, gErr)
+
+				return got.State == "READY" && got.LastCrawl != nil
+			}, 2*time.Second, 10*time.Millisecond)
+
+			got, err := b.GetCrawler("lc")
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, got.LastCrawl.Status)
+			assert.Equal(t, "/aws-glue/crawlers", got.LastCrawl.LogGroup)
+			assert.Positive(t, got.LastCrawl.StartTime)
+		})
+	}
+}

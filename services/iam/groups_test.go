@@ -21,7 +21,14 @@ func TestDetachGroupPolicy(t *testing.T) {
 	_, err := b.CreateGroup("detach-policy-group", "/")
 	require.NoError(t, err)
 
-	policyARN := "arn:aws:iam::000000000000:policy/GroupPolicy"
+	pol, err := b.CreatePolicy(
+		"GroupPolicy",
+		"/",
+		allowAllPolicyDoc,
+	)
+	require.NoError(t, err)
+
+	policyARN := pol.Arn
 	require.NoError(t, b.AttachGroupPolicy("detach-policy-group", policyARN))
 
 	// ListAttachedGroupPolicies.
@@ -495,7 +502,7 @@ func TestUpdateGroup_Rename_KeepsPolicyAttachmentInSync(t *testing.T) {
 	require.NoError(t, err)
 	pol, err := b.CreatePolicy(
 		"RenameGroupPolicy", "/",
-		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+		allowAllPolicyDoc,
 	)
 	require.NoError(t, err)
 	require.NoError(t, b.AttachGroupPolicy("OldGroup", pol.Arn))
@@ -593,7 +600,7 @@ func TestInMemoryBackend_GroupInlinePolicies(t *testing.T) {
 				_, _ = b.CreateGroup("Admins", "/")
 			},
 			action:  "put_get",
-			wantDoc: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+			wantDoc: allowAllPolicyDoc,
 		},
 		{
 			name:    "PutGroupPolicy_GroupNotFound",
@@ -616,7 +623,7 @@ func TestInMemoryBackend_GroupInlinePolicies(t *testing.T) {
 				_ = b.PutGroupPolicy(
 					"Admins",
 					"InlinePolicy",
-					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+					allowAllPolicyDoc,
 				)
 			},
 			action: "delete",
@@ -628,12 +635,12 @@ func TestInMemoryBackend_GroupInlinePolicies(t *testing.T) {
 				_ = b.PutGroupPolicy(
 					"Admins",
 					"ZPolicy",
-					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+					allowAllPolicyDoc,
 				)
 				_ = b.PutGroupPolicy(
 					"Admins",
 					"APolicy",
-					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+					allowAllPolicyDoc,
 				)
 			},
 			action: "list",
@@ -645,7 +652,7 @@ func TestInMemoryBackend_GroupInlinePolicies(t *testing.T) {
 				_ = b.PutGroupPolicy(
 					"Admins",
 					"InlinePolicy",
-					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+					allowAllPolicyDoc,
 				)
 			},
 			action:  "delete_group_conflict",
@@ -673,7 +680,7 @@ func TestInMemoryBackend_GroupInlinePolicies(t *testing.T) {
 				err := b.PutGroupPolicy(
 					"Ghost",
 					"MyPolicy",
-					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+					allowAllPolicyDoc,
 				)
 				require.ErrorIs(t, err, tt.wantErr)
 

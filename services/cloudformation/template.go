@@ -17,6 +17,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	directconnectbackend "github.com/blackbirdworks/gopherstack/services/directconnect"
 )
 
 // ErrEmptyTemplate is returned when a template body is empty.
@@ -1554,7 +1555,15 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 			resTypeEC2NetworkInsightsPath, resTypeElastiCacheUser,
 			resTypeKinesisVideoStream, resTypeKinesisVideoSignalingChannel,
 			resTypeECRPublicRepository,
-			resTypeKafkaConnectConnector, resTypeKafkaConnectCustomPlugin, resTypeKafkaConnectWorkerConfiguration:
+			resTypeKafkaConnectConnector, resTypeKafkaConnectCustomPlugin, resTypeKafkaConnectWorkerConfiguration,
+			resTypeNMGlobalNetwork, resTypeNMSite, resTypeNMDevice, resTypeNMLink,
+			resTypeNMLinkAssociation, resTypeNMCustomerGatewayAssociation, resTypeNMTransitGatewayRegistration,
+			resTypeNMCoreNetwork, resTypeNMVpcAttachment, resTypeNMSiteToSiteVpnAttachment,
+			resTypeNMConnectAttachment, resTypeNMConnectPeer, resTypeNMTransitGatewayPeering,
+			resTypeNMTransitGatewayRouteTableAttach, resTypeNMDirectConnectGatewayAttachment,
+			directconnectbackend.CFNConnection, directconnectbackend.CFNLag, directconnectbackend.CFNDirectConnectGateway,
+			directconnectbackend.CFNGatewayAssociation, directconnectbackend.CFNPrivateVirtualInterface,
+			directconnectbackend.CFNPublicVirtualInterface, directconnectbackend.CFNTransitVirtualInterface:
 			return v
 		}
 	}

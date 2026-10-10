@@ -101,7 +101,8 @@ func (b *InMemoryBackend) CreateMember(
 		return nil, err
 	}
 
-	if _, exists := b.networks.Get(networkID); !exists {
+	network, exists := b.networks.Get(networkID)
+	if !exists {
 		return nil, ErrNetworkNotFound
 	}
 
@@ -116,6 +117,17 @@ func (b *InMemoryBackend) CreateMember(
 
 	if inv.Status != invitationStatusPending {
 		return nil, ErrInvitationNotPending
+	}
+
+	if edition := fabricEditionOf(network); edition != "" &&
+		b.memberCountLocked(networkID) >= maxMembersPerNetwork(edition) {
+		return nil, ErrResourceLimitExceeded
+	}
+
+	if fa := network.FrameworkAttributes; fa != nil && fa.Fabric != nil &&
+		b.networksWithOwnedMemberLocked(fa.Fabric.Edition) >= maxNetworksPerEdition &&
+		!b.hasOwnedMemberLocked(networkID) {
+		return nil, ErrResourceLimitExceeded
 	}
 
 	now := time.Now().UTC()

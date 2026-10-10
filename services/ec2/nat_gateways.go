@@ -22,22 +22,62 @@ const natGatewayConnectivityTypePublic = "public"
 // types/enums.go), the tombstone state DeleteNatGateway leaves behind.
 const natGatewayStateDeleted = "deleted"
 
+const (
+	natGatewayStatePending  = "pending"
+	natGatewayStateDeleting = "deleting"
+)
+
+func (b *InMemoryBackend) natGatewaysTransitionalLocked() bool {
+	for _, ngw := range b.natGateways.All() {
+		if ngw.State == natGatewayStatePending {
+			return true
+		}
+	}
+
+	for _, tomb := range b.natGatewayTombstones {
+		if tomb.value.State == natGatewayStateDeleting {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (b *InMemoryBackend) advanceNatGatewaysLocked() {
+	for _, ngw := range b.natGateways.All() {
+		if ngw.State == natGatewayStatePending {
+			ngw.State = stateAvailable
+		}
+	}
+
+	for _, tomb := range b.natGatewayTombstones {
+		if tomb.value.State == natGatewayStateDeleting {
+			tomb.value.State = natGatewayStateDeleted
+		}
+	}
+}
+
 // NatGateway represents an EC2 NAT Gateway.
 type NatGateway struct {
 	CreateTime          time.Time            `json:"createTime"`
 	DrainingAddresses   map[string]time.Time `json:"drainingAddresses,omitempty"`
-	AssociationID       string               `json:"associationID,omitempty"`
-	VPCID               string               `json:"vpcID,omitempty"`
+	PrivateIP           string               `json:"privateIP,omitempty"`
+	State               string               `json:"state,omitempty"`
 	AvailabilityZone    string               `json:"availabilityZone,omitempty"`
 	AllocationID        string               `json:"allocationID,omitempty"`
 	SubnetID            string               `json:"subnetID,omitempty"`
 	PublicIP            string               `json:"publicIP,omitempty"`
-	PrivateIP           string               `json:"privateIP,omitempty"`
-	State               string               `json:"state,omitempty"`
+	AssociationID       string               `json:"associationID,omitempty"`
+	VPCID               string               `json:"vpcID,omitempty"`
 	ConnectivityType    string               `json:"connectivityType,omitempty"`
 	ID                  string               `json:"id,omitempty"`
-	SecondaryAddresses  []NatGatewayAddress  `json:"secondaryAddresses,omitempty"`
+	AutoScalingIPs      string               `json:"autoScalingIPs,omitempty"`
+	AutoProvisionZones  string               `json:"autoProvisionZones,omitempty"`
+	AvailabilityMode    string               `json:"availabilityMode,omitempty"`
+	RouteTableID        string               `json:"routeTableID,omitempty"`
+	ZoneAddresses       []NatGatewayAddress  `json:"zoneAddresses,omitempty"`
 	SecondaryPrivateIPs []string             `json:"secondaryPrivateIPs,omitempty"`
+	SecondaryAddresses  []NatGatewayAddress  `json:"secondaryAddresses,omitempty"`
 }
 
 // NatGatewayAddress represents one secondary (non-primary) EIP association on
@@ -47,6 +87,9 @@ type NatGatewayAddress struct {
 	AssociationID string `json:"associationID,omitempty"`
 	PrivateIP     string `json:"privateIP,omitempty"`
 	PublicIP      string `json:"publicIP,omitempty"`
+	// AvailabilityZone and Auto are set only on regional NAT gateway addresses.
+	AvailabilityZone string `json:"availabilityZone,omitempty"`
+	Auto             bool   `json:"auto,omitempty"`
 }
 
 // CreateNatGateway creates a new NAT Gateway.
@@ -72,11 +115,12 @@ func (b *InMemoryBackend) CreateNatGateway(
 		SubnetID:         subnetID,
 		VPCID:            subnet.VPCID,
 		AvailabilityZone: subnet.AvailabilityZone,
+		AvailabilityMode: natGatewayModeZonal,
 		AllocationID:     allocationID,
 		AssociationID:    newEIPAssociationID(),
 		PublicIP:         addr.PublicIP,
 		PrivateIP:        b.allocPrivateIP(),
-		State:            stateAvailable,
+		State:            natGatewayStatePending,
 		ConnectivityType: natGatewayConnectivityTypePublic,
 		CreateTime:       time.Now(),
 	}
@@ -113,12 +157,15 @@ func (b *InMemoryBackend) DeleteNatGateway(id string) error {
 		b.recycleIPLocked(ip)
 	}
 
+	b.releaseRegionalAddressesLocked(ngw)
+	b.deleteRegionalNatRouteTableLocked(ngw)
+
 	b.deindexNatGatewayLocked(ngw)
 	b.natGateways.Delete(id)
 	delete(b.tags, id)
 
 	cp := *ngw
-	cp.State = natGatewayStateDeleted
+	cp.State = natGatewayStateDeleting
 	pruneExpiredTombstones(b.natGatewayTombstones, time.Now())
 	b.natGatewayTombstones[id] = tombstone[NatGateway]{value: &cp, deletedAt: time.Now()}
 
@@ -186,6 +233,19 @@ func (b *InMemoryBackend) DisassociateNatGatewayAddressDrain(
 	}
 
 	for _, assocID := range associationIDs {
+		if zi := slices.IndexFunc(ngw.ZoneAddresses, func(a NatGatewayAddress) bool {
+			return a.AssociationID == assocID
+		}); zi >= 0 {
+			if maxDrainSeconds > 0 {
+				ngw.markDrainingLocked(assocID, maxDrainSeconds)
+			} else {
+				b.releaseZoneAddressLocked(ngw.ZoneAddresses[zi])
+				ngw.ZoneAddresses = slices.Delete(ngw.ZoneAddresses, zi, zi+1)
+			}
+
+			continue
+		}
+
 		idx := -1
 
 		for i, sa := range ngw.SecondaryAddresses {
@@ -219,6 +279,7 @@ func copyNatGateway(ngw *NatGateway) *NatGateway {
 	cp := *ngw
 	cp.SecondaryAddresses = slices.Clone(ngw.SecondaryAddresses)
 	cp.SecondaryPrivateIPs = slices.Clone(ngw.SecondaryPrivateIPs)
+	cp.ZoneAddresses = slices.Clone(ngw.ZoneAddresses)
 	cp.DrainingAddresses = maps.Clone(ngw.DrainingAddresses)
 
 	return &cp
@@ -254,6 +315,18 @@ func (b *InMemoryBackend) purgeDrainedNatAddressesLocked() {
 			return true
 		})
 
+		ngw.ZoneAddresses = slices.DeleteFunc(ngw.ZoneAddresses, func(a NatGatewayAddress) bool {
+			due, draining := ngw.DrainingAddresses[a.AssociationID]
+			if !draining || due.After(now) {
+				return false
+			}
+
+			b.releaseZoneAddressLocked(a)
+			delete(ngw.DrainingAddresses, a.AssociationID)
+
+			return true
+		})
+
 		ngw.SecondaryPrivateIPs = slices.DeleteFunc(ngw.SecondaryPrivateIPs, func(ip string) bool {
 			due, draining := ngw.DrainingAddresses[ip]
 			if !draining || due.After(now) {
@@ -273,6 +346,14 @@ func (b *InMemoryBackend) purgeDrainedNatAddressesLocked() {
 func (b *InMemoryBackend) AssociateNatGatewayAddress(
 	natGatewayID string, allocationIDs []string,
 ) (*NatGateway, error) {
+	return b.AssociateNatGatewayAddressInZone(natGatewayID, "", "", allocationIDs)
+}
+
+// AssociateNatGatewayAddressInZone is AssociateNatGatewayAddress plus the
+// AvailabilityZone/AvailabilityZoneId that regional NAT gateways require.
+func (b *InMemoryBackend) AssociateNatGatewayAddressInZone(
+	natGatewayID, azName, azID string, allocationIDs []string,
+) (*NatGateway, error) {
 	if natGatewayID == "" {
 		return nil, fmt.Errorf("%w: NatGatewayId is required", ErrInvalidParameter)
 	}
@@ -287,6 +368,18 @@ func (b *InMemoryBackend) AssociateNatGatewayAddress(
 	ngw, ok := b.natGateways.Get(natGatewayID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNatGatewayNotFound, natGatewayID)
+	}
+
+	if ngw.AvailabilityMode == natGatewayModeRegional {
+		if err := b.associateRegionalAddressLocked(ngw, azName, azID, allocationIDs); err != nil {
+			return nil, err
+		}
+
+		return copyNatGateway(ngw), nil
+	}
+
+	if azName != "" || azID != "" {
+		return nil, fmt.Errorf("%w: AvailabilityZone applies to regional NAT gateways only", ErrInvalidParameter)
 	}
 
 	for _, allocID := range allocationIDs {

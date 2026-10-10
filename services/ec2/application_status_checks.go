@@ -47,6 +47,8 @@ const (
 
 	// maxApplicationStatusChecksPerAccount: real AWS quota, 50/account.
 	maxApplicationStatusChecksPerAccount = 50
+	// maxApplicationStatusCheckTagAssociations is the documented per-check tag association limit.
+	maxApplicationStatusCheckTagAssociations = 50
 
 	// appStatusAssocType{Instance,Tag}: AssociationTypeEnum wire values used
 	// by ApplicationStatusCheckAssociationObject.
@@ -621,8 +623,30 @@ func (b *InMemoryBackend) associateTagsLocked(
 ) ([]ApplicationStatusAssociationResult, []ApplicationStatusAssociationResult) {
 	var successful, unsuccessful []ApplicationStatusAssociationResult
 
+	tagCount := 0
+
+	for _, a := range b.applicationStatusCheckAssociations.All() {
+		if a.ApplicationStatusCheckID == checkID && a.AssociationType == appStatusAssocTypeTag {
+			tagCount++
+		}
+	}
+
 	for _, kv := range tagAssociations {
 		value := kv.Key + "=" + kv.Value
+
+		if tagCount >= maxApplicationStatusCheckTagAssociations {
+			unsuccessful = append(unsuccessful, ApplicationStatusAssociationResult{
+				ApplicationStatusCheckID: checkID,
+				AssociationType:          appStatusAssocTypeTagWire,
+				AssociationValue:         value,
+				Reason: fmt.Sprintf(
+					"maximum of %d tag associations per application status check",
+					maxApplicationStatusCheckTagAssociations,
+				),
+			})
+
+			continue
+		}
 
 		if kv.Key == "" {
 			unsuccessful = append(unsuccessful, ApplicationStatusAssociationResult{
@@ -641,6 +665,10 @@ func (b *InMemoryBackend) associateTagsLocked(
 			TagKey:                   kv.Key,
 			TagValue:                 kv.Value,
 		}
+		if !b.applicationStatusCheckAssociations.Has(appStatusCheckAssociationKeyFn(assoc)) {
+			tagCount++
+		}
+
 		b.applicationStatusCheckAssociations.Put(assoc)
 
 		successful = append(successful, ApplicationStatusAssociationResult{

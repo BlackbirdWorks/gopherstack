@@ -28,21 +28,6 @@ import "fmt"
 // 2026-09-11), "Amazon EFS quotas that you can increase" table:
 //   - "Number of file systems for each customer account in an AWS Region": 1,000
 //   - "Number of access points for each file system": 10,000
-//
-// Every other exception the same class of ops declares but that efs leaves
-// unenforced is deliberate, not an oversight -- see PARITY.md's gaps list:
-// ThroughputLimitExceeded (CreateFileSystem/CreateReplicationConfiguration/
-// UpdateFileSystem) overlaps the ProvisionedThroughputInMibps 1-1024
-// structural bound already enforced as BadRequest in
-// validateProvisionedThroughput/applyThroughputModeChange, and the current
-// published per-file-system throughput quota is region-dependent (3-10
-// GiBps), not the flat 1024 MiB/s the SDK doc string still cites --
-// picking either number to also raise a second, distinct exception would be
-// guessing, not citing. NetworkInterfaceLimitExceeded/NoFreeAddressesInSubnet/
-// IpAddressInUse (CreateMountTarget) depend on real subnet CIDR occupancy and
-// account-wide ENI counts, which are EC2/VPC quotas efs's own limits page
-// never publishes a number for -- gopherstack has no subnet-IP-occupancy
-// model to check them against without fabricating a threshold.
 const (
 	defaultMaxFileSystemsPerAccount  = 1000  // "Number of file systems for each customer account in an AWS Region"
 	defaultMaxAccessPointsPerFileSys = 10000 // "Number of access points for each file system"

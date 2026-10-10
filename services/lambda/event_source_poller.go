@@ -112,6 +112,7 @@ type EventSourcePoller struct {
 	mqSecrets        MQSecretResolver
 	lambdaBackend    *InMemoryBackend
 	shardIterators   map[string]string
+	streamPending    map[string][]*streamBatch
 	// sqsBatchBuffers holds partial SQS batches per mapping UUID while the
 	// MaximumBatchingWindow has not yet elapsed. Keyed by ESM UUID.
 	sqsBatchBuffers map[string]*sqsBatchBuffer
@@ -132,6 +133,8 @@ type EventSourcePoller struct {
 	cancelSignal chan struct{}
 	// kafkaInvoker overrides the Kafka batch invocation in unit tests.
 	kafkaInvoker func(ctx context.Context, fnName string, payload []byte) error
+	// streamInvoker overrides the Kinesis/DynamoDB batch invocation in unit tests.
+	streamInvoker func(ctx context.Context, fnName string, payload []byte) invokeOutcome
 	// kafkaFactory overrides the Kafka consumer constructor in unit tests.
 	kafkaFactory kafkaConsumerFactory
 	// mqFactory overrides the Amazon MQ consumer constructor in unit tests.
@@ -153,6 +156,7 @@ func NewEventSourcePoller(
 		lambdaBackend:    lambdaBackend,
 		kinesisReader:    kinesisReader,
 		shardIterators:   make(map[string]string),
+		streamPending:    make(map[string][]*streamBatch),
 		sqsBatchBuffers:  make(map[string]*sqsBatchBuffer),
 		kafkaWorkers:     make(map[string]*kafkaWorker),
 		mqWorkers:        make(map[string]*mqWorker),
@@ -384,6 +388,12 @@ func (p *EventSourcePoller) sweepStaleIterators(activeUUIDs map[string]struct{})
 		}
 	}
 
+	for key := range p.streamPending {
+		if _, active := activeUUIDs[p.shardKeyMapping(key)]; !active {
+			delete(p.streamPending, key)
+		}
+	}
+
 	for uuid := range p.sqsBatchBuffers {
 		if _, active := activeUUIDs[uuid]; !active {
 			delete(p.sqsBatchBuffers, uuid)
@@ -426,6 +436,12 @@ func (p *EventSourcePoller) RemoveMapping(uuid string) {
 		}
 
 		delete(p.shardIterators, key)
+	}
+
+	for key := range p.streamPending {
+		if p.shardKeyMapping(key) == uuid {
+			delete(p.streamPending, key)
+		}
 	}
 
 	delete(p.sqsBatchBuffers, uuid)
@@ -492,6 +508,11 @@ func (p *EventSourcePoller) processMapping(ctx context.Context, m *EventSourceMa
 			}()
 		}
 
+		ref := streamShardRef{shardID: shardID, key: iterKey}
+		if p.resumePendingStream(ctx, m, ref) {
+			continue
+		}
+
 		records, nextIt, readErr := p.kinesisReader.GetRecords(it, m.BatchSize)
 		if readErr != nil {
 			// Iterator may have expired; reset it
@@ -514,11 +535,13 @@ func (p *EventSourcePoller) processMapping(ctx context.Context, m *EventSourceMa
 			p.shardIterators[iterKey] = nextIt
 		}()
 
+		p.esmCount(m, esmMetricPolled, len(records))
+
 		if len(records) == 0 {
 			continue
 		}
 
-		p.invokeLambda(ctx, m, streamARN, shardID, records)
+		p.invokeLambda(ctx, m, ref, records)
 	}
 }
 
@@ -526,7 +549,7 @@ func (p *EventSourcePoller) processMapping(ctx context.Context, m *EventSourceMa
 func (p *EventSourcePoller) invokeLambda(
 	ctx context.Context,
 	m *EventSourceMapping,
-	streamARN, shardID string,
+	ref streamShardRef,
 	records []KinesisRecord,
 ) {
 	type kinesisRecord struct {
@@ -546,18 +569,14 @@ func (p *EventSourcePoller) invokeLambda(
 		EventSourceARN    string        `json:"eventSourceARN"`
 		Kinesis           kinesisRecord `json:"kinesis"`
 	}
-	type lambdaEvent struct {
-		Records []lambdaRecord `json:"Records"`
-	}
+	events := make([]streamEvent, 0, len(records))
 
-	eventRecords := make([]lambdaRecord, 0, len(records))
 	for _, r := range records {
-		// Apply FilterCriteria: records matching no filter are skipped.
 		if !eventFilterMatches(m.FilterCriteria, kinesisFilterView(r.PartitionKey, r.SequenceNumber, r.Data)) {
 			continue
 		}
 
-		eventRecords = append(eventRecords, lambdaRecord{
+		raw, err := json.Marshal(lambdaRecord{
 			Kinesis: kinesisRecord{
 				KinesisSchemaVersion:        "1.0",
 				PartitionKey:                r.PartitionKey,
@@ -567,39 +586,28 @@ func (p *EventSourcePoller) invokeLambda(
 			},
 			EventSource:       "aws:kinesis",
 			EventVersion:      "1.0",
-			EventID:           fmt.Sprintf("%s:%s", shardID, r.SequenceNumber),
+			EventID:           fmt.Sprintf("%s:%s", ref.shardID, r.SequenceNumber),
 			EventName:         "aws:kinesis:record",
 			InvokeIdentityArn: m.FunctionARN,
 			AWSRegion:         p.lambdaBackend.region,
 			EventSourceARN:    m.EventSourceARN,
 		})
+		if err != nil {
+			logger.Load(ctx).WarnContext(ctx, "event source poller: failed to marshal event", "error", err)
+
+			continue
+		}
+
+		events = append(events, streamEvent{arrival: r.ArrivalTime, seq: r.SequenceNumber, raw: raw})
 	}
 
-	if len(eventRecords) == 0 {
+	p.esmFilteredMetric(m, len(records)-len(events))
+
+	if len(events) == 0 {
 		return
 	}
 
-	payload, err := json.Marshal(lambdaEvent{Records: eventRecords})
-	if err != nil {
-		logger.Load(ctx).WarnContext(ctx, "event source poller: failed to marshal event", "error", err)
-
-		return
-	}
-
-	// Extract function name (and optional version/alias qualifier) from ARN.
-	fnName, qualifier := functionNameAndQualifierFromARN(m.FunctionARN)
-	if fnName == "" {
-		fnName = m.FunctionARN
-	}
-
-	_, err = p.invokeESMFunctionEvent(ctx, fnName, qualifier, payload)
-	if err != nil {
-		logger.Load(ctx).WarnContext(ctx, "event source poller: Lambda invocation failed",
-			"function", fnName, "stream", streamARN, "error", err)
-	} else {
-		logger.Load(ctx).DebugContext(ctx, "event source poller: invoked Lambda",
-			"function", fnName, "records", len(records))
-	}
+	p.deliverStreamEvents(ctx, m, ref, events)
 }
 
 // streamNameFromARN extracts the stream name from a Kinesis ARN.
@@ -686,6 +694,10 @@ func (p *EventSourcePoller) processDDBShard(
 ) {
 	iterKey := m.UUID + ":" + shardID
 
+	if p.resumePendingStream(ctx, m, streamShardRef{shardID: shardID, key: iterKey, ddb: true}) {
+		return
+	}
+
 	var (
 		it     string
 		exists bool
@@ -738,17 +750,20 @@ func (p *EventSourcePoller) processDDBShard(
 		p.shardIterators[iterKey] = nextIt
 	}()
 
+	p.esmCount(m, esmMetricPolled, len(records))
+
 	if len(records) == 0 {
 		return
 	}
 
-	p.invokeLambdaForDDB(ctx, m, records)
+	p.invokeLambdaForDDB(ctx, m, streamShardRef{shardID: shardID, key: iterKey, ddb: true}, records)
 }
 
 // invokeLambdaForDDB formats DynamoDB stream records as a Lambda event and invokes the function.
 func (p *EventSourcePoller) invokeLambdaForDDB(
 	ctx context.Context,
 	m *EventSourceMapping,
+	ref streamShardRef,
 	records []DynamoDBStreamRecord,
 ) {
 	type ddbStreamRecord struct {
@@ -769,18 +784,14 @@ func (p *EventSourcePoller) invokeLambdaForDDB(
 		EventSourceARN string          `json:"eventSourceARN"`
 		Dynamodb       ddbStreamRecord `json:"dynamodb"`
 	}
-	type lambdaEvent struct {
-		Records []lambdaRecord `json:"Records"`
-	}
+	events := make([]streamEvent, 0, len(records))
 
-	eventRecords := make([]lambdaRecord, 0, len(records))
 	for _, r := range records {
-		// Apply FilterCriteria: records matching no filter are skipped.
 		if !eventFilterMatches(m.FilterCriteria, dynamoDBFilterView(r.EventName, r.NewImage, r.OldImage, r.Keys)) {
 			continue
 		}
 
-		eventRecords = append(eventRecords, lambdaRecord{
+		raw, err := json.Marshal(lambdaRecord{
 			EventID:        r.EventID,
 			EventName:      r.EventName,
 			EventVersion:   "1.1",
@@ -797,38 +808,39 @@ func (p *EventSourcePoller) invokeLambdaForDDB(
 				OldImage:                    r.OldImage,
 			},
 		})
+		if err != nil {
+			logger.Load(ctx).WarnContext(ctx, "event source poller: failed to marshal DDB event", "error", err)
+
+			continue
+		}
+
+		sec := int64(r.ApproximateCreationDateTime)
+		arrival := time.Unix(sec, int64((r.ApproximateCreationDateTime-float64(sec))*float64(time.Second)))
+		if r.ApproximateCreationDateTime == 0 {
+			arrival = time.Time{}
+		}
+
+		events = append(events, streamEvent{arrival: arrival, seq: r.SequenceNumber, raw: raw})
 	}
 
-	if len(eventRecords) == 0 {
+	p.esmFilteredMetric(m, len(records)-len(events))
+
+	if len(events) == 0 {
 		return
 	}
 
-	payload, err := json.Marshal(lambdaEvent{Records: eventRecords})
-	if err != nil {
-		logger.Load(ctx).WarnContext(ctx, "event source poller: failed to marshal DDB event", "error", err)
+	p.deliverStreamEvents(ctx, m, ref, events)
+}
 
-		return
+// resumePendingStream retries the shard's pending batches and reports whether the shard is still blocked.
+func (p *EventSourcePoller) resumePendingStream(ctx context.Context, m *EventSourceMapping, ref streamShardRef) bool {
+	if p.frontStreamBatch(ref.key) == nil {
+		return false
 	}
 
-	fnName, qualifier := functionNameAndQualifierFromARN(m.FunctionARN)
-	if fnName == "" {
-		fnName = m.FunctionARN
-	}
+	p.drainStream(ctx, m, ref)
 
-	var invokeErr error
-	if p.ddbInvoker != nil {
-		invokeErr = p.ddbInvoker(ctx, fnName, payload)
-	} else {
-		_, invokeErr = p.invokeESMFunctionEvent(ctx, fnName, qualifier, payload)
-	}
-
-	if invokeErr != nil {
-		logger.Load(ctx).WarnContext(ctx, "event source poller: DDB Lambda invocation failed",
-			"function", fnName, "stream", m.EventSourceARN, "error", invokeErr)
-	} else {
-		logger.Load(ctx).DebugContext(ctx, "event source poller: invoked Lambda for DDB stream",
-			"function", fnName, "records", len(records))
-	}
+	return p.frontStreamBatch(ref.key) != nil
 }
 
 // processSQSMapping polls an SQS queue, invokes Lambda with the messages, and
@@ -846,6 +858,7 @@ func (p *EventSourcePoller) processSQSMapping(ctx context.Context, m *EventSourc
 	}
 
 	log := logger.Load(ctx)
+	p.esmCount(m, esmMetricPolled, len(msgs))
 
 	// Enforce MaximumRecordAgeInSeconds: messages older than the limit are dropped
 	// (deleted) instead of invoked, matching AWS's record-age expiry.
@@ -859,6 +872,7 @@ func (p *EventSourcePoller) processSQSMapping(ctx context.Context, m *EventSourc
 	// Apply FilterCriteria: records that match no filter are discarded (deleted)
 	// without invoking the function, exactly as AWS drops filtered-out records.
 	matched, filtered := splitByFilter(m.FilterCriteria, kept)
+	p.esmFilteredMetric(m, len(filtered))
 	if len(filtered) > 0 {
 		if delErr := reader.DeleteMessagesLocal(m.EventSourceARN, receiptHandles(filtered)); delErr != nil {
 			log.WarnContext(ctx, "esm sqs: failed to delete filtered messages", "error", delErr)
@@ -877,10 +891,16 @@ func (p *EventSourcePoller) processSQSMapping(ctx context.Context, m *EventSourc
 		return
 	}
 
+	deleted := len(toDelete)
+
 	if delErr := reader.DeleteMessagesLocal(m.EventSourceARN, toDelete); delErr != nil {
+		deleted = 0
+
 		log.WarnContext(ctx, "esm sqs: failed to delete messages",
 			"queue", m.EventSourceARN, "error", delErr)
 	}
+
+	p.esmCount(m, esmMetricDeleted, deleted)
 }
 
 // deliverSQSBatch invokes the function for a batch of SQS messages, honoring
@@ -1017,6 +1037,8 @@ func (p *EventSourcePoller) invokeLambdaForSQS(
 	}
 
 	if invokeErr != nil {
+		p.esmInvokeMetrics(m, len(msgs), len(msgs))
+
 		return nil, invokeErr
 	}
 
@@ -1025,8 +1047,12 @@ func (p *EventSourcePoller) invokeLambdaForSQS(
 
 	// Apply partial-batch failure filtering when enabled.
 	if handles := filterByBatchItemFailures(reportFailures, respBody, msgs); handles != nil {
+		p.esmInvokeMetrics(m, len(msgs), len(msgs)-len(handles))
+
 		return handles, nil
 	}
+
+	p.esmInvokeMetrics(m, len(msgs), 0)
 
 	// Default: delete all delivered messages.
 	allHandles := make([]string, len(msgs))
@@ -1062,4 +1088,19 @@ func filterByBatchItemFailures(reportFailures bool, respBody []byte, msgs []*SQS
 	}
 
 	return toDelete
+}
+
+func failedCount(err error, n int) int {
+	if err != nil {
+		return n
+	}
+
+	return 0
+}
+
+// esmFilteredMetric reports FilteredOutEventCount only for mappings that carry filter criteria.
+func (p *EventSourcePoller) esmFilteredMetric(m *EventSourceMapping, n int) {
+	if m.FilterCriteria != nil && len(m.FilterCriteria.Filters) > 0 {
+		p.esmCount(m, esmMetricFilteredOut, n)
+	}
 }

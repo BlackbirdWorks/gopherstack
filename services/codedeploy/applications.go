@@ -16,6 +16,11 @@ func (b *InMemoryBackend) CreateApplication(name, computePlatform string, kv map
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
 
+	if len(name) > maxCodeDeployNameLength {
+		return nil, fmt.Errorf("%w: application name must be 1-%d characters",
+			ErrInvalidApplicationName, maxCodeDeployNameLength)
+	}
+
 	if b.applications.Has(name) {
 		return nil, fmt.Errorf("%w: application %s already exists", ErrAlreadyExists, name)
 	}
@@ -57,7 +62,7 @@ func (b *InMemoryBackend) GetApplication(name string) (*Application, error) {
 
 	app, ok := b.applications.Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, name)
+		return nil, fmt.Errorf("%w: No application found for name: %s", ErrNotFound, name)
 	}
 
 	cp := *app
@@ -107,7 +112,7 @@ func (b *InMemoryBackend) DeleteApplication(name string) error {
 		// (aws-sdk-go-v2/service/codedeploy deserializers.go) -- this code is provably
 		// wrong here, but idempotent-success vs. a different code is unconfirmed.
 		// Do NOT "fix" this by guessing; needs real evidence (gopherstack-3pz8).
-		return fmt.Errorf("%w: application %s not found", ErrNotFound, name)
+		return fmt.Errorf("%w: No application found for name: %s", ErrNotFound, name)
 	}
 
 	app.Tags.Close()
@@ -134,7 +139,7 @@ func (b *InMemoryBackend) UpdateApplication(name, newName string) error {
 
 	app, ok := b.applications.Get(name)
 	if !ok {
-		return fmt.Errorf("%w: application %s not found", ErrNotFound, name)
+		return fmt.Errorf("%w: No application found for name: %s", ErrNotFound, name)
 	}
 
 	if newName == "" || newName == name {

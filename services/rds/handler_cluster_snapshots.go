@@ -89,6 +89,11 @@ func toXMLClusterSnapshot(s *DBClusterSnapshot) xmlDBClusterSnapshot {
 		snapshotCreateTime = s.SnapshotCreateTime.UTC().Format(time.RFC3339)
 	}
 
+	var clusterCreateTime string
+	if !s.ClusterCreateTime.IsZero() {
+		clusterCreateTime = s.ClusterCreateTime.UTC().Format(time.RFC3339)
+	}
+
 	return xmlDBClusterSnapshot{
 		DBClusterSnapshotIdentifier: s.DBClusterSnapshotIdentifier,
 		DBClusterSnapshotArn:        s.DBClusterSnapshotArn,
@@ -103,6 +108,13 @@ func toXMLClusterSnapshot(s *DBClusterSnapshot) xmlDBClusterSnapshot {
 		PercentProgress:             s.PercentProgress,
 		StorageEncrypted:            s.StorageEncrypted,
 		SourceDBClusterSnapshotArn:  s.SourceDBClusterSnapshotArn,
+		ClusterCreateTime:           clusterCreateTime,
+		MasterUsername:              s.MasterUsername,
+		StorageType:                 s.StorageType,
+		Port:                        s.Port,
+		AllocatedStorage:            s.AllocatedStorage,
+		Iops:                        s.Iops,
+		IAMDatabaseAuthEnabled:      s.IAMDatabaseAuthEnabled,
 	}
 }
 
@@ -118,8 +130,15 @@ type xmlDBClusterSnapshot struct {
 	KmsKeyID                    string `xml:"KmsKeyId,omitempty"`
 	SnapshotCreateTime          string `xml:"SnapshotCreateTime,omitempty"`
 	SourceDBClusterSnapshotArn  string `xml:"SourceDBClusterSnapshotArn,omitempty"`
+	ClusterCreateTime           string `xml:"ClusterCreateTime,omitempty"`
+	MasterUsername              string `xml:"MasterUsername,omitempty"`
+	StorageType                 string `xml:"StorageType,omitempty"`
 	PercentProgress             int    `xml:"PercentProgress,omitempty"`
+	Port                        int    `xml:"Port,omitempty"`
+	AllocatedStorage            int    `xml:"AllocatedStorage,omitempty"`
+	Iops                        int    `xml:"Iops,omitempty"`
 	StorageEncrypted            bool   `xml:"StorageEncrypted,omitempty"`
+	IAMDatabaseAuthEnabled      bool   `xml:"IAMDatabaseAuthenticationEnabled,omitempty"`
 }
 
 type xmlDBClusterSnapshotList struct {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -81,6 +82,7 @@ type backendSnapshot struct {
 	Tables            map[string]json.RawMessage   `json:"tables"`
 	Tags              map[string]map[string]string `json:"tags"`
 	EnabledTypes      map[string]bool              `json:"enabledTypes"`
+	MemberEnabled     map[string]map[string]bool   `json:"memberEnabled,omitempty"`
 	CodeSecurityScans map[string]map[string]any    `json:"codeSecurityScans"`
 	Config            Configuration                `json:"config"`
 	AccountID         string                       `json:"accountId"`
@@ -133,6 +135,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Tables:            tables,
 		Tags:              b.tags,
 		EnabledTypes:      b.enabledTypes,
+		MemberEnabled:     b.memberEnabled,
 		CodeSecurityScans: b.codeSecurityScans,
 		Config:            b.config,
 		Ec2DeepConfig:     b.ec2DeepConfig,
@@ -225,6 +228,11 @@ func (b *InMemoryBackend) restoreRawState(snap *backendSnapshot) {
 		b.enabledTypes = make(map[string]bool)
 	}
 
+	b.memberEnabled = snap.MemberEnabled
+	if b.memberEnabled == nil {
+		b.memberEnabled = make(map[string]map[string]bool)
+	}
+
 	b.codeSecurityScans = snap.CodeSecurityScans
 	if b.codeSecurityScans == nil {
 		b.codeSecurityScans = make(map[string]map[string]any)
@@ -241,6 +249,8 @@ func (b *InMemoryBackend) restoreRawState(snap *backendSnapshot) {
 func (b *InMemoryBackend) resetRawState() {
 	b.tags = make(map[string]map[string]string)
 	b.enabledTypes = make(map[string]bool)
+	b.transitions = make(map[string]time.Time)
+	b.memberEnabled = make(map[string]map[string]bool)
 	b.codeSecurityScans = make(map[string]map[string]any)
 	b.config = defaultConfiguration()
 	b.ec2DeepConfig = defaultEc2DeepInspectionConfig()

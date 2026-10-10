@@ -2,7 +2,9 @@ package iot
 
 import (
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"fmt"
 	"slices"
 	"time"
@@ -177,6 +179,10 @@ func (b *InMemoryBackend) RegisterCertificate(input *RegisterCertificateInput) (
 	pem := input.CertificatePem
 	if pem == "" {
 		pem = fakePEM
+	}
+
+	if err := verifySignedByCA(pem, input.CACertificatePem); err != nil {
+		return nil, err
 	}
 
 	cert := b.newCertificate(pem, status, certModeDefault)
@@ -816,4 +822,32 @@ func (b *InMemoryBackend) caCertificateIDByPEMLocked(pem string) string {
 	})
 
 	return id
+}
+
+// verifySignedByCA checks the device certificate's signature against the CA when both are real X.509 PEMs.
+func verifySignedByCA(certPEM, caPEM string) error {
+	cert, caCert := parseCertPEM(certPEM), parseCertPEM(caPEM)
+	if cert == nil || caCert == nil {
+		return nil
+	}
+
+	if err := cert.CheckSignatureFrom(caCert); err != nil {
+		return fmt.Errorf("%w: certificate is not signed by the supplied CA: %w", ErrCertificateValidation, err)
+	}
+
+	return nil
+}
+
+func parseCertPEM(s string) *x509.Certificate {
+	block, _ := pem.Decode([]byte(s))
+	if block == nil {
+		return nil
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil
+	}
+
+	return cert
 }

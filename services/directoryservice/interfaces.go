@@ -261,6 +261,7 @@ const (
 type SnapshotStatus string
 
 const (
+	SnapshotStatusCreating  SnapshotStatus = "Creating"
 	SnapshotStatusCompleted SnapshotStatus = "Completed"
 )
 

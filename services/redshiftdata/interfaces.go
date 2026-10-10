@@ -33,6 +33,7 @@ type StorageBackend interface {
 	)
 
 	// Sessions
+	SetStatementSessionKeepAlive(ctx context.Context, id string, seconds int32)
 	// ListSessions returns a page of sessions -- derived from stored statements
 	// that share a SessionID, not a separately stored resource -- and a
 	// next-token for pagination.

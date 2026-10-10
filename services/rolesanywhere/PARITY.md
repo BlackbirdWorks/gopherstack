@@ -2,7 +2,7 @@
 service: rolesanywhere
 sdk_module: aws-sdk-go-v2/service/rolesanywhere@v1.26.3
 last_audit_commit: e75a8cecd
-last_audit_date: 2026-08-20
+last_audit_date: 2026-10-07
 overall: A            # wrapper-key/nested-shape sweep this pass: zero bugs found, clean
 ops:
   CreateTrustAnchor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: no longer rejects duplicate names with an invented ConflictException (the real service has ZERO ConflictException shape anywhere in its model -- confirmed via botocore's rolesanywhere service-2.json, which lists only AccessDeniedException/ResourceNotFoundException/TooManyTagsException/ValidationException across all 27 operations); also fixed: now applies the request's notificationSettings at creation (previously silently dropped); also fixed: now validates source.sourceType is non-empty (required per CreateTrustAnchorInput); tags no longer stored on the TrustAnchor struct -- routed into the same ARN-keyed tags store TagResource/ListTagsForResource use (see families.tags_field_removed)"}
@@ -43,10 +43,10 @@ families:
   duplicate_name_rejection: {status: ok, note: "REMOVED this pass: CreateTrustAnchor/CreateProfile/ImportCrl each independently rejected duplicate names with a gopherstack-invented ConflictException/409. Cross-checked against botocore's rolesanywhere/2018-05-10/service-2.json: the service's shapes map contains exactly 4 exception shapes total (AccessDeniedException, ResourceNotFoundException, TooManyTagsException, ValidationException) across ALL 27 operations -- there is no ConflictException shape in the entire service model, so this was invented behavior with a fabricated error code, not a real AWS constraint. Real Roles Anywhere trust anchors/profiles/CRLs are identified by generated ID/ARN; names are not unique. Deleted ErrTrustAnchorAlreadyExists/ErrProfileAlreadyExists/ErrCrlAlreadyExists and their duplicate-check code paths; all three Create/Import ops now accept duplicate names, matching the real API."}
 gaps: []
 items_still_open:
-  - "GetSubject/ListSubjects: subjects store is never populated -- there is no CreateSession endpoint in this service (AWS Roles Anywhere's session-vending API is a separate mTLS-authenticated data-plane API, not SigV4/control-plane, and remains out of scope). SubjectDetail's Credentials/InstanceProperties fields are also unmodeled. Would need its own audit pass if CreateSession is ever added to gopherstack."
-  - "No AccessDeniedException path anywhere in this service -- gopherstack has no IAM policy evaluation engine to source it from; this is a cross-cutting infra gap common to every gopherstack service, not specific to rolesanywhere."
-  - "TrustAnchorDetail has no createdBy field in the real API (confirmed absent from types.TrustAnchorDetail) -- correctly NOT added to TrustAnchor's JSON output this pass (a prior gaps note incorrectly implied it should be); ProfileDetail DOES have createdBy and it is now implemented."
-  - "gopherstack-i5ss (2026-09-06): ImportCrl does not validate TrustAnchorArn refers to an existing trust anchor, and DeleteTrustAnchor does not cascade to CRLs referencing it. Both left unimplemented -- see the dated section below for the sourced reasoning. Would be revisited if AWS ever adds ResourceNotFoundException to ImportCrl's modelled errors, or a doc revision states either behavior explicitly."
+  - "gopherstack-i5ss: ImportCrl does not validate TrustAnchorArn refers to an existing trust anchor, and DeleteTrustAnchor does not cascade to CRLs. Re-checked 2026-10-07: ImportCrl declares only AccessDeniedException/ValidationException (SDK deserializers + API reference), and the API reference and user-guide trust-model/revocation pages state neither behavior."
+structural_gaps:
+  - "GetSubject/ListSubjects stay empty: subjects are created by CreateSession, a separate mTLS data-plane API outside this service."
+  - "No AccessDeniedException path: no IAM policy evaluation engine exists for this service."
 leaks: {status: clean, note: "no goroutines/janitors in this service; locking is via the shared lockmetrics.RWMutex per pkgs-catalog rule, single lock, no re-entrant locking (CreateTrustAnchor's notificationSettings-at-create path calls the new putNotificationSettingsLocked helper directly instead of re-entering PutNotificationSettings's own Lock). This pass's real find: DeleteTrustAnchor/DeleteProfile/DeleteCrl left ghost rows in the notificationSettings/attributeMappings/tags maps (keyed by the now-dead resource ID/ARN) -- all three Delete paths now cascade-delete their dependent maps under the same lock as the primary delete, closing the leak."}
 ---
 

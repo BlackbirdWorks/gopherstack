@@ -95,15 +95,11 @@ func HandleTarget(
 			"UnknownOperationException", "Missing X-Amz-Target")
 	}
 
-	parts := strings.Split(target, ".")
-
-	const targetParts = 2
-	if len(parts) != targetParts {
+	_, action, found := strings.CutLast(target, ".")
+	if !found || action == "" {
 		return writeDispatchError(c, contentType, http.StatusBadRequest,
 			"UnknownOperationException", "Invalid X-Amz-Target")
 	}
-
-	action := parts[1]
 
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {

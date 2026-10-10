@@ -99,3 +99,31 @@ func (b *InMemoryBackend) findTagsByARN(resourceARN string) (*tags.Tags, error) 
 
 	return nil, fmt.Errorf("%w: unsupported Amplify ARN resource path: %s", ErrNotFound, resource)
 }
+
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every tagged app and branch.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	for _, a := range b.apps.All() {
+		if a.Tags != nil && a.Tags.Len() > 0 {
+			out = append(out, TaggedEntry{ARN: a.ARN, Tags: a.Tags.Clone()})
+		}
+	}
+
+	for _, br := range b.branches.All() {
+		if br.Tags != nil && br.Tags.Len() > 0 {
+			out = append(out, TaggedEntry{ARN: br.BranchARN, Tags: br.Tags.Clone()})
+		}
+	}
+
+	return out
+}

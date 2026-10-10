@@ -215,7 +215,7 @@ func TestEmailTemplate_VersionBumpsOnUpdate(t *testing.T) {
 			}
 
 			getRec := doPinpointRequest(t, h, http.MethodGet,
-				"/v1/templates/"+templateName+"/email", nil)
+				"/v1/templates/"+templateName+"/email?version="+tc.wantVersion, nil)
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var resp map[string]any

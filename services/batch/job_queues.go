@@ -46,9 +46,9 @@ func (b *InMemoryBackend) CreateJobQueue(
 	b.mu.Lock("CreateJobQueue")
 	defer b.mu.Unlock()
 
-	if len(name) == 0 || len(name) > maxJobQueueNameLength {
+	if !resourceNameRe.MatchString(name) {
 		return nil, fmt.Errorf(
-			"%w: jobQueueName must be between 1 and %d characters",
+			"%w: jobQueueName must match [a-zA-Z0-9_-]{1,%d}",
 			ErrValidation, maxJobQueueNameLength,
 		)
 	}
@@ -318,5 +318,31 @@ func (b *InMemoryBackend) GetJobQueueSnapshot(ctx context.Context, jobQueue stri
 			Jobs:          foqJobs,
 			LastUpdatedAt: now,
 		},
+		FrontOfQuotaShares: b.frontOfQuotaSharesLocked(region, jq.JobQueueArn, now),
 	}, nil
+}
+
+// frontOfQuotaSharesLocked picks, per quota share, the RUNNABLE service job with the
+// highest scheduling priority (oldest first on ties).
+func (b *InMemoryBackend) frontOfQuotaSharesLocked(region, queueARN string, now int64) *FrontOfQuotaShares {
+	front := map[string]*ServiceJob{}
+
+	for _, sj := range b.serviceJobsByRegion.Get(region) {
+		if sj.JobQueue != queueARN || sj.Status != jobStatusRunnable || sj.QuotaShareName == "" {
+			continue
+		}
+
+		cur := front[sj.QuotaShareName]
+		if cur == nil || sj.SchedulingPriority > cur.SchedulingPriority ||
+			(sj.SchedulingPriority == cur.SchedulingPriority && sj.CreatedAt < cur.CreatedAt) {
+			front[sj.QuotaShareName] = sj
+		}
+	}
+
+	out := &FrontOfQuotaShares{QuotaShares: make(map[string][]FrontOfQueueJob, len(front)), LastUpdatedAt: now}
+	for name, sj := range front {
+		out.QuotaShares[name] = []FrontOfQueueJob{{JobArn: sj.JobArn, EarliestTimeAtPosition: sj.CreatedAt}}
+	}
+
+	return out
 }

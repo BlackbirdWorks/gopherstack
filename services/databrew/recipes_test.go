@@ -189,7 +189,7 @@ func TestHandlerCreateRecipe(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 	rec := databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{
-		"Name": "my-recipe", "Description": "test",
+		"Name": "my-recipe", "Description": "test", "Steps": []any{},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
@@ -197,10 +197,38 @@ func TestHandlerCreateRecipe(t *testing.T) {
 	assert.Equal(t, "my-recipe", resp["Name"])
 }
 
+func TestHandlerCreateRecipe_StepsRequired(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{name: "missing", body: map[string]any{"Name": "r"}, wantStatus: http.StatusBadRequest},
+		{name: "null", body: map[string]any{"Name": "r", "Steps": nil}, wantStatus: http.StatusBadRequest},
+		{name: "empty_list", body: map[string]any{"Name": "r", "Steps": []any{}}, wantStatus: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusBadRequest {
+				assert.Contains(t, rec.Body.String(), "ValidationException")
+			}
+		})
+	}
+}
+
 func TestHandlerDescribeRecipe(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
-	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "r1"})
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "r1", "Steps": []any{}})
 	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/recipes/r1", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -218,7 +246,7 @@ func TestHandlerListRecipes(t *testing.T) {
 func TestHandlerPublishRecipe(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
-	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "pub-r"})
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "pub-r", "Steps": []any{}})
 	rec := databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes/pub-r/publishRecipe", map[string]any{
 		"Description": "published",
 	})
@@ -228,7 +256,7 @@ func TestHandlerPublishRecipe(t *testing.T) {
 func TestHandlerUpdateRecipe(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
-	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "upd-r"})
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "upd-r", "Steps": []any{}})
 	rec := databrewReq(t, h, http.MethodPut, "/databrew/v1/recipes/upd-r", map[string]any{
 		"Description": "updated",
 	})
@@ -238,7 +266,7 @@ func TestHandlerUpdateRecipe(t *testing.T) {
 func TestHandlerDeleteRecipe(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
-	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "del-r"})
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "del-r", "Steps": []any{}})
 	rec := databrewReq(t, h, http.MethodDelete, "/databrew/v1/recipes/del-r", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -248,7 +276,7 @@ func TestHandlerDeleteRecipe(t *testing.T) {
 func TestHandlerListRecipeVersions(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
-	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "ver-r"})
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "ver-r", "Steps": []any{}})
 	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/recipes/ver-r/recipeVersions", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
@@ -272,7 +300,7 @@ func TestHandlerListRecipeVersions_UnknownRecipe(t *testing.T) {
 func TestHandlerDeleteRecipeVersion(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
-	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "rv-r"})
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "rv-r", "Steps": []any{}})
 	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes/rv-r/publishRecipe", nil)
 	rec := databrewReq(t, h, http.MethodDelete, "/databrew/v1/recipes/rv-r/recipeVersion/1.0", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -283,7 +311,7 @@ func TestHandlerDeleteRecipeVersion(t *testing.T) {
 func TestHandlerDeleteRecipeVersion_NotFound(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
-	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "rv-r2"})
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "rv-r2", "Steps": []any{}})
 	rec := databrewReq(t, h, http.MethodDelete, "/databrew/v1/recipes/rv-r2/recipeVersion/1.0", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
@@ -291,7 +319,7 @@ func TestHandlerDeleteRecipeVersion_NotFound(t *testing.T) {
 func TestHandlerBatchDeleteRecipeVersion(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
-	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "bdrv-r"})
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "bdrv-r", "Steps": []any{}})
 	// Real AWS path: POST /recipes/{Name}/batchDeleteRecipeVersion (a recipe
 	// sub-op), not a bare /recipeVersions endpoint -- see
 	// aws-sdk-go-v2/service/databrew's serializers.go SplitURI call for
@@ -319,7 +347,7 @@ func TestHandlerBatchDeleteRecipeVersion_NotFound(t *testing.T) {
 func TestHandlerBatchDeleteRecipeVersion_LatestWorkingOnly(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
-	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "bdrv-lw-only"})
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "bdrv-lw-only", "Steps": []any{}})
 
 	rec := databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes/bdrv-lw-only/batchDeleteRecipeVersion",
 		map[string]any{"RecipeVersions": []string{"LATEST_WORKING"}})
@@ -344,7 +372,13 @@ func TestHandlerBatchDeleteRecipeVersion_LatestWorkingOnly(t *testing.T) {
 func TestHandlerBatchDeleteRecipeVersion_LatestWorkingBlockedByPublished(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
-	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "bdrv-lw-blocked"})
+	databrewReq(
+		t,
+		h,
+		http.MethodPost,
+		"/databrew/v1/recipes",
+		map[string]any{"Name": "bdrv-lw-blocked", "Steps": []any{}},
+	)
 	pub := databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes/bdrv-lw-blocked/publishRecipe", nil)
 	require.Equal(t, http.StatusOK, pub.Code)
 

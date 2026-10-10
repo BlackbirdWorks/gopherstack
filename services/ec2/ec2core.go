@@ -503,21 +503,8 @@ func (b *InMemoryBackend) AssociateVpcCidrBlock(
 	}
 
 	if cidrBlock != "" {
-		if !vpcCIDRPrefixLenValid(cidrBlock) {
-			return nil, fmt.Errorf("%w: the CIDR %s is invalid", ErrVpcCIDRRange, cidrBlock)
-		}
-
-		if cidrsOverlap(cidrBlock, vpc.CIDRBlock) {
-			return nil, fmt.Errorf("%w: %s conflicts with the VPC's CIDR %s",
-				ErrVpcCIDRRange, cidrBlock, vpc.CIDRBlock)
-		}
-
-		prefix := vpcID + ":"
-		for key, existing := range b.vpcCidrAssociations {
-			if strings.HasPrefix(key, prefix) && cidrsOverlap(cidrBlock, existing.CidrBlock) {
-				return nil, fmt.Errorf("%w: %s conflicts with existing association %s (%s)",
-					ErrVpcCIDRRange, cidrBlock, existing.AssociationID, existing.CidrBlock)
-			}
+		if err := b.validateVpcCidrAssociationLocked(vpc, cidrBlock); err != nil {
+			return nil, err
 		}
 	}
 
@@ -819,4 +806,34 @@ func (b *InMemoryBackend) DisassociateTransitGatewayRouteTable(
 	b.tgwRTAssociations.Delete(key)
 
 	return nil
+}
+
+// validateVpcCidrAssociationLocked checks size, overlap and the documented range restrictions for a new
+// secondary CIDR block. Caller must hold b.mu.
+func (b *InMemoryBackend) validateVpcCidrAssociationLocked(vpc *VPC, cidrBlock string) error {
+	if !vpcCIDRPrefixLenValid(cidrBlock) {
+		return fmt.Errorf("%w: the CIDR %s is invalid", ErrVpcCIDRRange, cidrBlock)
+	}
+
+	if cidrsOverlap(cidrBlock, vpc.CIDRBlock) {
+		return fmt.Errorf("%w: %s conflicts with the VPC's CIDR %s", ErrVpcCIDRRange, cidrBlock, vpc.CIDRBlock)
+	}
+
+	prefix := vpc.ID + ":"
+	blocks := []string{vpc.CIDRBlock}
+
+	for key, existing := range b.vpcCidrAssociations {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+
+		if cidrsOverlap(cidrBlock, existing.CidrBlock) {
+			return fmt.Errorf("%w: %s conflicts with existing association %s (%s)",
+				ErrVpcCIDRRange, cidrBlock, existing.AssociationID, existing.CidrBlock)
+		}
+
+		blocks = append(blocks, existing.CidrBlock)
+	}
+
+	return validateCIDRAssociation(blocks, cidrBlock)
 }

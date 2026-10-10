@@ -98,6 +98,10 @@ func asyncJobSpecs() map[string]jobSpec {
 
 func (h *Handler) startJob(spec jobSpec) operation {
 	return func(input map[string]any) (map[string]any, error) {
+		if err := validateNestedConfigs(input); err != nil {
+			return nil, err
+		}
+
 		job, err := h.Backend.StartJob(spec.jobType, stringValue(input, "JobName", ""), input, inputTags(input))
 		if err != nil {
 			return nil, err

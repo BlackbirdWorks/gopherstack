@@ -104,6 +104,7 @@ func TestThingTypeName_Stored(t *testing.T) {
 	t.Parallel()
 
 	backend := iot.NewInMemoryBackend()
+	mustCreateThingTypes(t, backend, "SensorType")
 	_, err := backend.CreateThing(&iot.CreateThingInput{
 		ThingName:     "typed-thing",
 		ThingTypeName: "SensorType",
@@ -119,6 +120,7 @@ func TestUpdateThing_RemoveThingType(t *testing.T) {
 	t.Parallel()
 
 	backend := iot.NewInMemoryBackend()
+	mustCreateThingTypes(t, backend, "OldType")
 	_, err := backend.CreateThing(&iot.CreateThingInput{
 		ThingName:     "typed-remove",
 		ThingTypeName: "OldType",
@@ -503,6 +505,7 @@ func TestUpdateThing_RemoveThingType_Clears(t *testing.T) {
 	t.Parallel()
 
 	_, b := newR3Handler()
+	mustCreateThingTypes(t, b, "SomeType")
 	_, err := b.CreateThing(&iot.CreateThingInput{
 		ThingName:     "typed-clear-thing",
 		ThingTypeName: "SomeType",
@@ -524,6 +527,7 @@ func TestUpdateThing_ChangeThingType(t *testing.T) {
 	t.Parallel()
 
 	_, b := newR3Handler()
+	mustCreateThingTypes(t, b, "TypeA", "TypeB")
 	_, err := b.CreateThing(&iot.CreateThingInput{
 		ThingName:     "changetype-thing",
 		ThingTypeName: "TypeA",

@@ -94,7 +94,12 @@ func (h *Handler) handleListPresets(c *echo.Context) error {
 		q.Get("listBy"), q.Get("order"),
 	)
 
-	pg := page.New(presets, q.Get("nextToken"), parseMaxResults(q.Get("maxResults")), defaultListPageSize)
+	token, maxResults, err := listPageArgs(q)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	pg := page.New(presets, token, maxResults, defaultListPageSize)
 
 	return c.JSON(http.StatusOK, presetsListOutput{Presets: pg.Data, NextToken: pg.Next})
 }

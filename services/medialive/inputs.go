@@ -2,12 +2,21 @@ package medialive
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // --- Input operations ---
+
+func validInputType(t string) bool {
+	return slices.Contains([]string{
+		"UDP_PUSH", "RTP_PUSH", "RTMP_PUSH", "RTMP_PULL", "URL_PULL", "MP4_FILE", "MEDIACONNECT",
+		"INPUT_DEVICE", "AWS_CDI", "TS_FILE", "SRT_CALLER", "MULTICAST", "SMPTE_2110_RECEIVER_GROUP",
+		"SDI", "MEDIACONNECT_ROUTER", "SRT_LISTENER",
+	}, t)
+}
 
 // CreateInput creates a new input.
 func (b *InMemoryBackend) CreateInput(
@@ -21,6 +30,10 @@ func (b *InMemoryBackend) CreateInput(
 
 	if inputType == "" {
 		inputType = inputTypeUDPPush
+	}
+
+	if !validInputType(inputType) {
+		return nil, fmt.Errorf("%w: invalid input type %q", ErrInvalidParameter, inputType)
 	}
 
 	sources := make([]string, len(sdiSources))

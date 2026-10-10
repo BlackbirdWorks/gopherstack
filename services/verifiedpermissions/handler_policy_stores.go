@@ -16,12 +16,63 @@ type validationSettingsJSON struct {
 	Mode string `json:"mode"`
 }
 
+type kmsEncryptionJSON struct {
+	EncryptionContext map[string]string `json:"encryptionContext,omitempty"`
+	Key               string            `json:"key"`
+}
+
+type unitJSON struct{}
+
+// encryptionSettingsJSON is the EncryptionSettings union (serializers.go:2509).
+type encryptionSettingsJSON struct {
+	Default               *unitJSON          `json:"default,omitempty"`
+	KMSEncryptionSettings *kmsEncryptionJSON `json:"kmsEncryptionSettings,omitempty"`
+}
+
+// encryptionStateJSON is the EncryptionState union (deserializers.go:5955).
+type encryptionStateJSON struct {
+	Default            *unitJSON          `json:"default,omitempty"`
+	KMSEncryptionState *kmsEncryptionJSON `json:"kmsEncryptionState,omitempty"`
+}
+
+func newEncryptionState(ps *PolicyStore) *encryptionStateJSON {
+	if ps.KMSKeyArn == "" {
+		return &encryptionStateJSON{Default: &unitJSON{}}
+	}
+
+	ctx := ps.KMSEncryptionCtx
+	if ctx == nil {
+		ctx = map[string]string{}
+	}
+
+	return &encryptionStateJSON{KMSEncryptionState: &kmsEncryptionJSON{Key: ps.KMSKeyArn, EncryptionContext: ctx}}
+}
+
+func parseEncryptionSettings(in *encryptionSettingsJSON) (*PolicyStoreEncryption, error) {
+	switch {
+	case in == nil:
+		return nil, nil //nolint:nilnil // no encryption settings supplied
+	case in.Default != nil && in.KMSEncryptionSettings != nil:
+		return nil, fmt.Errorf("%w: encryptionSettings must set exactly one member", errInvalidRequest)
+	case in.KMSEncryptionSettings == nil:
+		return nil, nil //nolint:nilnil // default (AWS owned key)
+	case in.KMSEncryptionSettings.Key == "":
+		return nil, fmt.Errorf("%w: encryptionSettings.kmsEncryptionSettings.key is required", errInvalidRequest)
+	}
+
+	return &PolicyStoreEncryption{
+		Key:     in.KMSEncryptionSettings.Key,
+		Context: in.KMSEncryptionSettings.EncryptionContext,
+	}, nil
+}
+
 type createPolicyStoreInput struct {
-	Tags               map[string]string      `json:"tags"`
-	Description        string                 `json:"description"`
-	ValidationSettings validationSettingsJSON `json:"validationSettings"`
-	DeletionProtection string                 `json:"deletionProtection,omitempty"`
-	ClientToken        string                 `json:"clientToken,omitempty"`
+	EncryptionSettings *encryptionSettingsJSON `json:"encryptionSettings,omitempty"`
+	Tags               map[string]string       `json:"tags"`
+	Description        string                  `json:"description"`
+	ValidationSettings validationSettingsJSON  `json:"validationSettings"`
+	DeletionProtection string                  `json:"deletionProtection,omitempty"`
+	ClientToken        string                  `json:"clientToken,omitempty"`
 }
 
 // createPolicyStoreOutput mirrors the real SDK's CreatePolicyStoreOutput:
@@ -56,9 +107,14 @@ func (h *Handler) handleCreatePolicyStore(
 		)
 	}
 
-	ps, err := h.Backend.CreatePolicyStore(
+	enc, err := parseEncryptionSettings(in.EncryptionSettings)
+	if err != nil {
+		return nil, err
+	}
+
+	ps, err := h.Backend.CreatePolicyStoreEncrypted(
 		in.Description, in.Tags,
-		in.ValidationSettings.Mode, in.DeletionProtection, in.ClientToken,
+		in.ValidationSettings.Mode, in.DeletionProtection, in.ClientToken, enc,
 	)
 	if err != nil {
 		return nil, err
@@ -89,6 +145,7 @@ type policyStoreView struct {
 
 // getPolicyStoreOutput mirrors the real SDK's GetPolicyStoreOutput.
 type getPolicyStoreOutput struct {
+	EncryptionState    *encryptionStateJSON   `json:"encryptionState,omitempty"`
 	Tags               map[string]string      `json:"tags,omitempty"`
 	PolicyStoreID      string                 `json:"policyStoreId"`
 	Arn                string                 `json:"arn"`
@@ -134,6 +191,7 @@ func (h *Handler) handleGetPolicyStore(_ context.Context, in *getPolicyStoreInpu
 		ValidationSettings: validationSettingsJSON{Mode: ps.ValidationMode},
 		CedarVersion:       cedarVersion,
 		DeletionProtection: ps.DeletionProtection,
+		EncryptionState:    newEncryptionState(ps),
 		Tags:               tags,
 	}, nil
 }

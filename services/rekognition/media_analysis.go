@@ -15,6 +15,9 @@ const (
 	// jobStatusSucceeded is the terminal success status shared by async video
 	// jobs, media analysis jobs, and face liveness sessions.
 	jobStatusSucceeded = "SUCCEEDED"
+
+	// asyncJobSettledPolls is the PollCount past which GetAsyncJob no longer advances a job.
+	asyncJobSettledPolls = 2
 )
 
 // =============================================================================
@@ -39,6 +42,20 @@ func evictOneIfAtCapacity[V any](t *store.Table[V], maxLen int, keyFn func(*V) s
 
 // StartAsyncJob creates a new async video analysis job.
 func (b *InMemoryBackend) StartAsyncJob(params StartAsyncJobParams) (string, error) {
+	jobID, started, err := b.startAsyncJob(params)
+	if err != nil {
+		return "", err
+	}
+
+	if started && params.NotificationTopicARN != "" {
+		b.publishJobNotification(buildJobNotification(jobID, params))
+	}
+
+	return jobID, nil
+}
+
+// startAsyncJob reports whether a new job was created (not an idempotent replay).
+func (b *InMemoryBackend) startAsyncJob(params StartAsyncJobParams) (string, bool, error) {
 	b.mu.Lock("StartAsyncJob")
 	defer b.mu.Unlock()
 
@@ -57,22 +74,29 @@ func (b *InMemoryBackend) StartAsyncJob(params StartAsyncJobParams) (string, err
 
 		if prior != nil {
 			if !prior.sameStartParams(params) {
-				return "", ErrIdempotentParameterMismatch
+				return "", false, ErrIdempotentParameterMismatch
 			}
 
-			return prior.JobID, nil
+			return prior.JobID, false, nil
 		}
 	}
 
 	evictOneIfAtCapacity(b.asyncJobs, maxAsyncJobs, asyncJobKeyFn)
 
 	jobID := uuid.NewString()
+	status, polls := "IN_PROGRESS", 0
+
+	if params.NotificationTopicARN != "" {
+		status, polls = jobStatusSucceeded, asyncJobSettledPolls
+	}
+
 	b.asyncJobs.Put(&storedAsyncJob{
 		JobID:              jobID,
 		ClientRequestToken: params.ClientRequestToken,
 		JobType:            params.JobType,
 		CollectionID:       params.CollectionID,
-		JobStatus:          "IN_PROGRESS",
+		JobStatus:          status,
+		PollCount:          polls,
 		JobTag:             params.JobTag,
 		VideoS3Bucket:      params.VideoS3Bucket,
 		VideoS3Name:        params.VideoS3Name,
@@ -80,7 +104,7 @@ func (b *InMemoryBackend) StartAsyncJob(params StartAsyncJobParams) (string, err
 		SegmentTypes:       params.SegmentTypes,
 	})
 
-	return jobID, nil
+	return jobID, true, nil
 }
 
 // GetAsyncJob returns an async job by ID, simulating state progression on each poll.

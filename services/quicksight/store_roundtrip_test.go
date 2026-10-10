@@ -114,7 +114,7 @@ func TestQuickSight_Phase3_3_StoreRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.StartAssetBundleImportJob(testAccountID, "importjob1", "")
+	_, err = b.StartAssetBundleImportJob(testAccountID, "importjob1", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.StartDashboardSnapshotJob(testAccountID, "dash1", "snapjob1", nil)

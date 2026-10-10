@@ -8,6 +8,7 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	iotdataplanesdk "github.com/aws/aws-sdk-go-v2/service/iotdataplane"
+	iotdataplanetypes "github.com/aws/aws-sdk-go-v2/service/iotdataplane/types"
 	smithy "github.com/aws/smithy-go"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -86,4 +87,33 @@ func TestUpdateThingShadow_MalformedDocumentSurfacesInvalidRequestException(t *t
 	var apiErr smithy.APIError
 	require.ErrorAs(t, err, &apiErr, "SDK must surface a typed API error, not an opaque one")
 	assert.Equal(t, "InvalidRequestException", apiErr.ErrorCode())
+}
+
+func TestUpdateThingShadow_NonUTF8PayloadSurfacesUnsupportedDocumentEncoding(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		payload []byte
+	}{
+		{name: "invalid_utf8", payload: []byte("{\"state\":{\"reported\":{\"a\":\"\xff\xfe\"}}}")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := iotdataplane.NewInMemoryBackend()
+			client := newTestIoTDataPlaneClient(t, iotdataplane.NewHandler(backend))
+
+			_, err := client.UpdateThingShadow(t.Context(), &iotdataplanesdk.UpdateThingShadowInput{
+				ThingName: aws.String("thing-1"),
+				Payload:   tt.payload,
+			})
+
+			var enc *iotdataplanetypes.UnsupportedDocumentEncodingException
+
+			require.ErrorAs(t, err, &enc)
+		})
+	}
 }

@@ -23,7 +23,7 @@ last_audit_commit: c02948310   # 2026-09-20 ssoadmin-config-and-lightsail terraf
 # closed the CreateCloudFormationStack wiring gap below; see "cli.go wiring" section for the cli.go
 # diff, which is the only .go-file change this follow-up pass made (plus errors.go's disclosure
 # comment).
-last_audit_date: 2026-09-20
+last_audit_date: 2026-10-07
 overall: A   # raised from A- by a follow-up pass that closed the one load-bearing gap the re-audit
 # above found: cli.go now calls wireLightsailCloudFormation(byName["Lightsail"], cfnSvc) from
 # registerCloudFormationAndDashboard (not from wireStorageAndSecretsIntegrations -- CloudFormation
@@ -95,11 +95,14 @@ families:
   misc: {status: partial, note: "2 ops, tagging_vpc_misc.go. GetActiveNames is fully real (backed directly by the activeNames global-uniqueness index every other family maintains). GetCostEstimate (tagging_vpc_misc.go:729) deliberately returns a real, well-formed, EMPTY cost-estimate response after existence validation -- a real cost estimate needs real usage-based billing logic this emulator has no grounds to fabricate, disclosed at the call site."}
 gaps: []
 items_still_open:
-  - "5 of 8 wire exceptions (AccessDenied/AccountSetupInProgress/OperationFailure/RegionSetupInProgress/Unauthenticated) are classified in errors.go but never raised: each needs a permission or account/region provisioning-state model this backend lacks."
   - "InstanceState and RelationalDatabaseState have no typed SDK enum; the constants in consts.go are commented UNCONFIRMED conventions pending external evidence."
-  - "Point-in-time restore (RestoreTime/UseLatestRestorableTime/SourceRelationalDatabaseName), UpdateRelationalDatabase.ApplyImmediately and PendingMaintenanceActions/PendingModifiedValues need an automated-backup and maintenance-window state machine that is not modeled."
-  - "GetRelationalDatabaseLogEvents always returns an empty page (no real database engine backs it), so StartFromHead is moot; Domain.RegisteredDomainDelegationInfo and CertificateDetail validation/renewal fields have no registrar or ACM-style state machine to source them."
-  - "GetBuckets omits AccountLevelBpaSync and does not model account-level block-public-access or bucket-level BPA state."
+structural_gaps:
+  - "5 of 8 wire exceptions (AccessDenied/AccountSetupInProgress/OperationFailure/RegionSetupInProgress/Unauthenticated) are classified in errors.go but never raised: each needs a permission or account/region provisioning-state model this backend lacks."
+  - "RelationalDatabase.PendingMaintenanceActions is never set: these are raised by AWS-initiated engine maintenance, which has no analogue here (user-requested changes surface as PendingModifiedValues)."
+  - "GetRelationalDatabaseLogEvents always returns an empty page: no real database engine produces log lines."
+  - "Domain.RegisteredDomainDelegationInfo has no source: it describes Route 53 registered-domain delegation, and there is no registrar state to read."
+  - "Certificate RenewalSummary/EligibleToRenew/KeyAlgorithm/IssuerCA/SerialNumber are not set: no certificate authority or renewal engine exists (validation records, status, support code and in-use count are modeled)."
+  - "GetBuckets omits AccountLevelBpaSync and does not model account-level or bucket-level block-public-access state: it comes from the account's S3 Block Public Access settings, which this service cannot read."
 deferred:
   - "A full per-op {wire, errors, state, persist} grid (161 rows) was not written into this frontmatter, in favor of per-family status plus explicit per-op call-outs within each family's note above -- with 28 families already enumerating all 161 ops individually in the body's section 3 tables (left unmodified as ground truth), a second 161-row restatement here would duplicate rather than add information. Any future audit needing finer grain than family-level should start from the body's existing per-op tables plus this frontmatter's per-family notes, not re-derive from scratch."
   - "Whether real EC2/ELB/RDS state should eventually back Instance/LoadBalancer/RelationalDatabase (PARITY.md 5.2's architectural question) remains unresolved -- this implementation chose independent modeling (matching the original audit's own recommendation), not revisited by this pass."

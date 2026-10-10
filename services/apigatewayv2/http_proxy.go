@@ -136,6 +136,8 @@ func (h *Handler) handleHTTPAPIProxy(c *echo.Context, apiID, stageName, resource
 		return c.String(http.StatusNotFound, "Not Found")
 	}
 
+	c.Set(routeKeyCtxKey, matchedRoute.RouteKey)
+
 	// Throttle (RouteSettings/DefaultRouteSettings) then authorization (NONE /
 	// JWT / CUSTOM / AWS_IAM) enforcement for the matched route.
 	if ctrlErr := h.applyRouteControls(c, apiID, stageName, resourcePath, matchedRoute); ctrlErr != nil {

@@ -32,6 +32,10 @@ func (h *Handler) handleCreateUserProfile(ctx context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if err := validateRequestShapes("CreateUserProfile", &req); err != nil {
+		return nil, err
+	}
+
 	if req.DomainID == "" {
 		return nil, fmt.Errorf("%w: DomainId is required", errInvalidRequest)
 	}
@@ -197,6 +201,10 @@ func (h *Handler) handleUpdateUserProfile(ctx context.Context, body []byte) ([]b
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := validateRequestShapes("UpdateUserProfile", &req); err != nil {
+		return nil, err
 	}
 
 	if req.DomainID == "" {

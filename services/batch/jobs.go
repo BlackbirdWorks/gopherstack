@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -204,14 +205,19 @@ func (b *InMemoryBackend) SubmitJob(
 	shareIdentifier string,
 	schedulingPriorityOverride int32,
 	propagateTags bool,
+	opts ...SubmitOption,
 ) (*Job, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("SubmitJob")
 	defer b.mu.Unlock()
 
-	if len(name) == 0 || len(name) > maxJobNameLength {
-		return nil, fmt.Errorf("%w: jobName must be between 1 and %d characters", ErrValidation, maxJobNameLength)
+	if !resourceNameRe.MatchString(name) {
+		return nil, fmt.Errorf("%w: jobName must match [a-zA-Z0-9_-]{1,%d}", ErrValidation, maxJobNameLength)
+	}
+
+	if err := validateRetryStrategy(retryStrategy); err != nil {
+		return nil, err
 	}
 
 	jq, ok := b.lookupJQByNameOrARN(region, queue)
@@ -276,12 +282,61 @@ func (b *InMemoryBackend) SubmitJob(
 		// setting, not re-derived at describe time).
 		PlatformCapabilities: append([]string(nil), jd.PlatformCapabilities...),
 	}
+
+	for _, opt := range opts {
+		opt(j)
+	}
+
+	if err := b.validateSubmitOverrides(j, jd); err != nil {
+		return nil, err
+	}
+
 	b.jobs.Put(j)
+
+	if isArrayParent(j) {
+		b.spawnArrayChildrenLocked(j)
+	}
 
 	cp := *j
 	cp.Tags = tagsCloneOrEmpty(j.Tags)
 
 	return &cp, nil
+}
+
+// SubmitOption sets an optional SubmitJob input.
+type SubmitOption func(*Job)
+
+// WithNodeOverrides sets SubmitJob's nodeOverrides.
+func WithNodeOverrides(no *NodeOverrides) SubmitOption { return func(j *Job) { j.NodeOverrides = no } }
+
+// WithEksOverride sets SubmitJob's eksPropertiesOverride.
+func WithEksOverride(o *EksPropertiesOverride) SubmitOption {
+	return func(j *Job) { j.EksOverride = o }
+}
+
+// WithEcsOverride sets SubmitJob's ecsPropertiesOverride.
+func WithEcsOverride(o map[string]any) SubmitOption { return func(j *Job) { j.EcsOverride = o } }
+
+func (b *InMemoryBackend) validateSubmitOverrides(j *Job, jd *JobDefinition) error {
+	if err := validateArraySize(j.ArrayProperties); err != nil {
+		return err
+	}
+
+	if err := validateJobOverrides(j.ContainerOverrides, j.EksOverride, j.NodeOverrides); err != nil {
+		return err
+	}
+
+	if j.NodeOverrides != nil {
+		if jd.NodeProperties == nil {
+			return fmt.Errorf("%w: nodeOverrides require a multi-node parallel job definition", ErrValidation)
+		}
+
+		if _, err := effectiveNodeProperties(jd.NodeProperties, j.NodeOverrides); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // listJobIDsForQueue returns job IDs for region, either all jobs sorted by ID
@@ -448,7 +503,7 @@ func (b *InMemoryBackend) ListJobs(
 
 	for _, k := range allKeys {
 		j, _ := b.jobs.Get(regionKey(region, k))
-		if applyStatus && j.Status != wantStatus {
+		if j.ArrayParentID != "" || (applyStatus && j.Status != wantStatus) {
 			continue
 		}
 
@@ -476,6 +531,7 @@ func (b *InMemoryBackend) ListJobs(
 		j, _ := b.jobs.Get(regionKey(region, k))
 		cp := *j
 		cp.Tags = tagsCloneOrEmpty(cp.Tags)
+		b.withArrayDetailLocked(&cp)
 		out = append(out, &cp)
 	}
 
@@ -494,6 +550,10 @@ func (b *InMemoryBackend) DescribeJobs(ctx context.Context, jobIDs []string) []*
 	for _, id := range jobIDs {
 		j, ok := b.lookupJobByIDOrARN(region, id)
 		if !ok {
+			j, ok = b.lookupNodeJobLocked(region, id)
+		}
+
+		if !ok {
 			continue
 		}
 
@@ -501,10 +561,34 @@ func (b *InMemoryBackend) DescribeJobs(ctx context.Context, jobIDs []string) []*
 		cp.Tags = tagsCloneOrEmpty(j.Tags)
 		cp.Attempts = cloneJobAttempts(j.Attempts)
 		cp.Container = b.buildJobContainerDetail(region, j)
+		cp.NodeProperties = b.effectiveNodePropertiesLocked(j)
+		cp.EksProperties = b.effectiveEksPropertiesLocked(j)
+		cp.EcsProperties = b.effectiveEcsPropertiesLocked(j)
+		b.withArrayDetailLocked(&cp)
 		out = append(out, &cp)
 	}
 
 	return out
+}
+
+// lookupNodeJobLocked resolves "<jobId>#<nodeIndex>" to a node job derived from its multi-node parent.
+func (b *InMemoryBackend) lookupNodeJobLocked(region, id string) (*Job, bool) {
+	base, index, ok := splitNodeJobID(id)
+	if !ok {
+		return nil, false
+	}
+
+	parent, found := b.lookupJobByIDOrARN(region, base)
+	if !found {
+		return nil, false
+	}
+
+	np := b.effectiveNodePropertiesLocked(parent)
+	if np == nil || index >= np.NumNodes {
+		return nil, false
+	}
+
+	return nodeJobFrom(parent, np, index), true
 }
 
 // cloneJobAttempts deep-copies attempts so callers never alias stored state.
@@ -545,11 +629,23 @@ func cloneJobAttempts(attempts []JobAttempt) []JobAttempt {
 // hold at least a read lock.
 func (b *InMemoryBackend) buildJobContainerDetail(region string, j *Job) *ContainerDetail {
 	jd, ok := b.jobDefinitions.Get(regionKey(region, j.JobDefinition))
-	if !ok || jd.ContainerProperties == nil || jd.NodeProperties != nil {
+	if !ok {
 		return nil
 	}
 
 	cp := jd.ContainerProperties
+	if jd.NodeProperties != nil {
+		if j.nodeIndex == nil {
+			return nil
+		}
+
+		cp = b.nodeContainerLocked(j)
+	}
+
+	if cp == nil {
+		return nil
+	}
+
 	cd := &ContainerDetail{
 		LinuxParameters:              cp.LinuxParameters,
 		RepositoryCredentials:        cp.RepositoryCredentials,
@@ -576,7 +672,9 @@ func (b *InMemoryBackend) buildJobContainerDetail(region string, j *Job) *Contai
 		Privileged:                   cp.Privileged,
 	}
 
-	applyContainerOverrides(cd, j.ContainerOverrides)
+	if jd.NodeProperties == nil {
+		applyContainerOverrides(cd, j.ContainerOverrides)
+	}
 
 	// Real AWS assigns a log stream name once the container reaches RUNNING.
 	if j.StartedAt != nil {
@@ -603,13 +701,34 @@ func applyContainerOverrides(cd *ContainerDetail, overrides *ContainerOverrides)
 		cd.Command = overrides.Command
 	}
 
-	if len(overrides.Environment) > 0 {
-		cd.Environment = overrides.Environment
+	if overrides.Vcpus > 0 {
+		cd.Vcpus = overrides.Vcpus
 	}
 
-	if len(overrides.ResourceRequirements) > 0 {
-		cd.ResourceRequirements = overrides.ResourceRequirements
+	if overrides.Memory > 0 {
+		cd.Memory = overrides.Memory
 	}
+
+	cd.Environment = mergeEnv(cd.Environment, overrides.Environment)
+	cd.ResourceRequirements = mergeResources(cd.ResourceRequirements, overrides.ResourceRequirements)
+}
+
+// nodeContainerLocked returns the container properties of the node range that covers a node job.
+func (b *InMemoryBackend) nodeContainerLocked(j *Job) *ContainerProperties {
+	np := b.effectiveNodePropertiesLocked(j)
+	if np == nil {
+		return nil
+	}
+
+	index := *j.nodeIndex
+
+	for _, r := range slices.Backward(np.NodeRangeProperties) {
+		if rng, err := parseTargetNodes(r.TargetNodes, np.NumNodes); err == nil && index >= rng.lo && index <= rng.hi {
+			return r.ContainerProperties
+		}
+	}
+
+	return nil
 }
 
 // TerminateJob marks a job as FAILED with the given reason.
@@ -634,6 +753,13 @@ func (b *InMemoryBackend) TerminateJob(ctx context.Context, idOrARN, reason stri
 	j.StatusReason = reason
 	j.StoppedAt = &now
 	j.IsTerminated = true
+
+	b.cascadeToChildrenLocked(j, func(c *Job) {
+		c.Status = jobStatusFailed
+		c.StatusReason = reason
+		c.StoppedAt = &now
+		c.IsTerminated = true
+	})
 
 	return nil
 }
@@ -663,6 +789,15 @@ func (b *InMemoryBackend) CancelJob(ctx context.Context, idOrARN, reason string)
 		j.StatusReason = reason
 		j.StoppedAt = &now
 		j.IsCancelled = true
+
+		b.cascadeToChildrenLocked(j, func(c *Job) {
+			if c.Status == jobStatusSubmitted || c.Status == jobStatusPending || c.Status == jobStatusRunnable {
+				c.Status = jobStatusFailed
+				c.StatusReason = reason
+				c.StoppedAt = &now
+				c.IsCancelled = true
+			}
+		})
 
 		return nil
 	case jobStatusStarting, jobStatusRunning:

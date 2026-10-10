@@ -77,6 +77,9 @@ func (h *Handler) handleListActivityTypes(
 	_ context.Context,
 	in *handleListActivityTypesInput,
 ) (*listActivityTypesOutput, error) {
+	if err := requireRegistrationStatus(in.RegistrationStatus); err != nil {
+		return nil, err
+	}
 	ats, err := h.Backend.ListActivityTypes(in.Domain, in.RegistrationStatus)
 	if err != nil {
 		return nil, err

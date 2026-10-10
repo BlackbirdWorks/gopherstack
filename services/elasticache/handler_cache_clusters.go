@@ -76,6 +76,9 @@ type cacheClusterXML struct {
 	CacheParameterGroupName    string                 `xml:"CacheParameterGroup>CacheParameterGroupName,omitempty"`
 	PreferredMaintenanceWindow string                 `xml:"PreferredMaintenanceWindow,omitempty"`
 	CacheNodeType              string                 `xml:"CacheNodeType"`
+	CacheSubnetGroupName       string                 `xml:"CacheSubnetGroupName,omitempty"`
+	PreferredOutpostArn        string                 `xml:"PreferredOutpostArn,omitempty"`
+	ConfigurationEndpoint      *cacheEndpoint         `xml:"ConfigurationEndpoint,omitempty"`
 	Engine                     string                 `xml:"Engine"`
 	EngineVersion              string                 `xml:"EngineVersion"`
 	ARN                        string                 `xml:"ARN"`
@@ -110,58 +113,96 @@ func parseNumCacheNodes(form url.Values, def int) int {
 	return def
 }
 
+// clusterCreatePlan is CreateCacheCluster's validated request.
+type clusterCreatePlan struct {
+	engine        string
+	nodeType      string
+	params        clusterCreateParams
+	numCacheNodes int
+}
+
+// planClusterCreate validates a CreateCacheCluster request before anything is created.
+// ok is false when an error response was already written.
+func (h *Handler) planClusterCreate(
+	ctx context.Context, c *echo.Context, form url.Values,
+) (clusterCreatePlan, bool, error) {
+	plan := clusterCreatePlan{
+		engine:        form.Get("Engine"),
+		nodeType:      form.Get("CacheNodeType"),
+		numCacheNodes: parseNumCacheNodes(form, 1),
+	}
+
+	var restoreErr error
+
+	plan.engine, plan.nodeType, restoreErr = h.applySnapshotDefaults(
+		ctx, form.Get("SnapshotName"), plan.engine, plan.nodeType,
+	)
+	if restoreErr != nil {
+		return plan, false, snapshotDefaultsErrorResponse(c, restoreErr)
+	}
+
+	var paramErr error
+
+	plan.params, paramErr = parseClusterCreateParams(form, plan.engine, plan.numCacheNodes)
+	if paramErr != nil {
+		status, code, _ := paramErrorCode(paramErr)
+
+		return plan, false, xmlError(c, status, code, paramErr.Error())
+	}
+
+	// A nonexistent ReplicationGroupId is rejected before creating anything:
+	// ReplicationGroupNotFoundFault is in CreateCacheCluster's modeled error
+	// list, and real AWS never materializes the cluster in that case.
+	if rgID := form.Get("ReplicationGroupId"); rgID != "" {
+		if rgErr := h.Backend.CheckReplicaAttach(ctx, rgID, plan.engine); rgErr != nil {
+			return plan, false, h.attachErrorResponse(c, rgErr)
+		}
+	}
+
+	return plan, true, nil
+}
+
+// attachErrorResponse maps a replication-group attach error to its wire fault.
+func (h *Handler) attachErrorResponse(c *echo.Context, err error) error {
+	if status, code, ok := paramErrorCode(err); ok {
+		return xmlError(c, status, code, err.Error())
+	}
+
+	return h.replicationGroupErrorResponse(c, err)
+}
+
 func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("CacheClusterId")
 	if id == "" {
 		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "CacheClusterId is required")
 	}
 
-	engine := form.Get("Engine")
-	nodeType := form.Get("CacheNodeType")
-	paramGroupName := form.Get("CacheParameterGroupName")
-	maintenanceWindow := form.Get("PreferredMaintenanceWindow")
-	snapshotWindow := form.Get("SnapshotWindow")
-	numCacheNodes := parseNumCacheNodes(form, 1)
-
-	var restoreErr error
-
-	engine, nodeType, restoreErr = h.applySnapshotDefaults(ctx, form.Get("SnapshotName"), engine, nodeType)
-	if restoreErr != nil {
-		return snapshotDefaultsErrorResponse(c, restoreErr)
+	if err := firstError(
+		validateCacheID("CacheClusterId", id, maxCacheClusterIDLen),
+		validateCacheEngine(form.Get("Engine")),
+		validateCacheNodeType(form.Get("CacheNodeType")),
+		validateNumCacheNodesRaw(form.Get("NumCacheNodes")),
+	); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
 	}
 
-	// Reject a nonexistent ReplicationGroupId before creating anything:
-	// ReplicationGroupNotFoundFault is in CreateCacheCluster's modeled error
-	// list (CreateCacheClusterMessage/errors in botocore's service-2.json),
-	// and real AWS never materializes the cluster in that case.
-	if replicationGroupID := form.Get("ReplicationGroupId"); replicationGroupID != "" {
-		if rgErr := h.checkReplicationGroupExists(ctx, replicationGroupID); rgErr != nil {
-			return h.replicationGroupErrorResponse(c, rgErr)
-		}
+	plan, ok, planErr := h.planClusterCreate(ctx, c, form)
+	if !ok {
+		return planErr
 	}
 
 	cluster, err := h.Backend.CreateClusterWithOptions(ctx,
 		id,
-		engine,
-		nodeType,
-		paramGroupName,
-		maintenanceWindow,
-		snapshotWindow,
-		numCacheNodes,
-		0,
+		plan.engine,
+		plan.nodeType,
+		form.Get("CacheParameterGroupName"),
+		form.Get("PreferredMaintenanceWindow"),
+		form.Get("SnapshotWindow"),
+		plan.numCacheNodes,
+		plan.params.port,
 	)
 	if err != nil {
-		if errors.Is(err, ErrClusterAlreadyExists) {
-			return xmlError(c, http.StatusBadRequest, "CacheClusterAlreadyExists", "Cache cluster already exists")
-		}
-		if errors.Is(err, ErrParameterGroupNotFound) {
-			return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
-		}
-		if errors.Is(err, ErrInvalidParameterGroupFamily) {
-			return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return mapClusterCreateErr(c, err)
 	}
 
 	h.applyCreateTimeTags(ctx, form, cluster.ARN)
@@ -170,7 +211,7 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", sgErr.Error())
 	}
 
-	if azErr := h.applyClusterAvailabilityZones(ctx, form, id, cluster); azErr != nil {
+	if azErr := h.Backend.SetClusterPlacement(ctx, id, plan.params.placement); azErr != nil {
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", azErr.Error())
 	}
 
@@ -179,7 +220,7 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 	}
 
 	if rgErr := h.applyClusterReplicationGroup(ctx, form, id, cluster); rgErr != nil {
-		return h.replicationGroupErrorResponse(c, rgErr)
+		return h.attachErrorResponse(c, rgErr)
 	}
 
 	settled, setErr := h.Backend.ApplyClusterSettings(ctx, id, clusterSettingsFromForm(form))
@@ -191,8 +232,6 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", setErr.Error())
 	}
 
-	cluster = mergeClusterSettings(cluster, settled)
-
 	type result struct {
 		XMLName      xml.Name        `xml:"CreateCacheClusterResponse"`
 		Xmlns        string          `xml:"xmlns,attr"`
@@ -201,8 +240,42 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 
 	return xmlResp(c, http.StatusOK, result{
 		Xmlns:        elasticacheNS,
-		CacheCluster: clusterToXML(cluster, cluster.Status),
+		CacheCluster: clusterToXML(settled, settled.Status),
 	})
+}
+
+// mapClusterCreateErr maps a CreateClusterWithOptions failure to its wire fault.
+func mapClusterCreateErr(c *echo.Context, err error) error {
+	switch {
+	case errors.Is(err, ErrClusterAlreadyExists):
+		return xmlError(c, http.StatusBadRequest, "CacheClusterAlreadyExists", "Cache cluster already exists")
+	case errors.Is(err, ErrParameterGroupNotFound):
+		return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
+	case errors.Is(err, ErrInvalidParameterGroupFamily):
+		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+	}
+
+	return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+}
+
+// mapClusterModifyErr maps a ModifyCluster failure to its wire fault.
+func mapClusterModifyErr(c *echo.Context, err error) error {
+	switch {
+	case errors.Is(err, ErrClusterNotFound):
+		return xmlError(c, http.StatusNotFound, "CacheClusterNotFound", "Cache cluster not found")
+	case errors.Is(err, ErrParameterGroupNotFound):
+		return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
+	case errors.Is(err, ErrClusterNotAvailable):
+		return xmlError(c, http.StatusBadRequest, "InvalidCacheClusterState", err.Error())
+	case errors.Is(err, ErrCacheSecurityGroupNotFound):
+		return xmlError(c, http.StatusNotFound, "CacheSecurityGroupNotFound", "Cache security group not found")
+	}
+
+	if status, code, ok := paramErrorCode(err); ok {
+		return xmlError(c, status, code, err.Error())
+	}
+
+	return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 }
 
 // applyClusterSubnetGroup records CacheSubnetGroupName on a just-created cluster,
@@ -224,31 +297,6 @@ func (h *Handler) applyClusterSubnetGroup(
 	}
 
 	cluster.SubnetGroupName = subnetGroupName
-
-	return nil
-}
-
-// applyClusterAvailabilityZones records PreferredAvailabilityZone (single-node,
-// Redis OSS/Valkey) and PreferredAvailabilityZones (one per node, Memcached
-// only) on a just-created cluster, if the caller supplied either. Split out
-// of createCacheCluster for the same reason as applyClusterSubnetGroup.
-func (h *Handler) applyClusterAvailabilityZones(
-	ctx context.Context, form url.Values, id string, cluster *Cluster,
-) error {
-	az := form.Get("PreferredAvailabilityZone")
-	azs := parseRepeatedField(form, "PreferredAvailabilityZones.PreferredAvailabilityZone")
-	if az == "" && len(azs) == 0 {
-		return nil
-	}
-
-	if err := h.Backend.SetClusterAvailabilityZones(ctx, id, az, azs); err != nil {
-		return err
-	}
-
-	cluster.PreferredAvailabilityZone = az
-	if len(azs) > 0 {
-		cluster.PreferredAvailabilityZones = azs
-	}
 
 	return nil
 }
@@ -298,17 +346,6 @@ func snapshotRetentionLimitErrorResponse(c *echo.Context, err error) error {
 	}
 
 	return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
-}
-
-// checkReplicationGroupExists returns ErrReplicationGroupNotFound (or a
-// generic backend error) when replicationGroupID names no replication
-// group, nil otherwise. Returns the raw error rather than an xmlError so
-// createCacheCluster maps and returns it directly -- see
-// replicationGroupErrorResponse.
-func (h *Handler) checkReplicationGroupExists(ctx context.Context, replicationGroupID string) error {
-	_, err := h.Backend.DescribeReplicationGroups(ctx, replicationGroupID, "", 0)
-
-	return err
 }
 
 // replicationGroupErrorResponse maps a raw replication-group lookup error to
@@ -530,19 +567,16 @@ func clusterSettingsFromForm(form url.Values) ClusterSettings {
 
 // clusterToXML converts a Cluster to its XML representation with the given status.
 func clusterToXML(cl *Cluster, status string) cacheClusterXML {
-	n := cl.NumCacheNodes
-	if n <= 0 {
-		n = 1
-	}
-
 	region := cl.Region
 	if region == "" {
 		region = config.DefaultRegion
 	}
 
+	ids := nodeIDsOf(cl)
+	n := len(ids)
+
 	nodes := make([]cacheNode, 0, n)
-	for i := range n {
-		nodeID := fmt.Sprintf("%04d", i+1)
+	for i, nodeID := range ids {
 		nodes = append(nodes, cacheNode{
 			CacheNodeID:              nodeID,
 			CacheNodeStatus:          status,
@@ -555,7 +589,15 @@ func clusterToXML(cl *Cluster, status string) cacheClusterXML {
 		})
 	}
 
+	var configEndpoint *cacheEndpoint
+	if cl.Engine == engineMemcached {
+		configEndpoint = &cacheEndpoint{Address: cl.Endpoint, Port: cl.Port}
+	}
+
 	return cacheClusterXML{
+		CacheSubnetGroupName:       cl.SubnetGroupName,
+		PreferredOutpostArn:        cl.PreferredOutpostArn,
+		ConfigurationEndpoint:      configEndpoint,
 		AutoMinorVersionUpgrade:    cl.AutoMinorVersionUpgrade,
 		NotificationConfiguration:  notificationConfigToXML(cl),
 		SecurityGroups:             securityGroupsToXML(cl.SecurityGroupIDs),
@@ -608,6 +650,10 @@ func cacheSecurityGroupMembershipsXML(names []string) []cacheSecurityGroupMember
 // PreferredAvailabilityZones for a Memcached multi-node cluster, or the
 // synthetic region+"a" fallback when the caller specified neither.
 func nodeAvailabilityZone(cl *Cluster, i int, region string) string {
+	if i < len(cl.CacheNodeAZs) {
+		return cl.CacheNodeAZs[i]
+	}
+
 	if cl.PreferredAvailabilityZone != "" {
 		return cl.PreferredAvailabilityZone
 	}
@@ -627,6 +673,10 @@ func clusterAvailabilityZone(cl *Cluster) string {
 		return cl.PreferredAvailabilityZone
 	}
 	if len(cl.PreferredAvailabilityZones) == 0 {
+		if len(distinctStrings(cl.CacheNodeAZs)) > 1 {
+			return "Multiple"
+		}
+
 		return ""
 	}
 	for _, az := range cl.PreferredAvailabilityZones[1:] {
@@ -656,7 +706,10 @@ func (h *Handler) modifyCacheCluster(ctx context.Context, c *echo.Context, form 
 	opts := &ModifyClusterOptions{
 		AuthToken:               form.Get("AuthToken"),
 		AuthTokenUpdateStrategy: form.Get("AuthTokenUpdateStrategy"),
+		AZMode:                  form.Get("AZMode"),
 		CacheSecurityGroupNames: parseRepeatedField(form, "CacheSecurityGroupNames.CacheSecurityGroupName"),
+		CacheNodeIDsToRemove:    parseRepeatedField(form, "CacheNodeIdsToRemove.CacheNodeId"),
+		NewAvailabilityZones:    parseRepeatedField(form, "NewAvailabilityZones.PreferredAvailabilityZone"),
 		ApplyImmediately:        strings.EqualFold(form.Get("ApplyImmediately"), "true"),
 	}
 
@@ -671,20 +724,7 @@ func (h *Handler) modifyCacheCluster(ctx context.Context, c *echo.Context, form 
 		opts,
 	)
 	if err != nil {
-		if errors.Is(err, ErrClusterNotFound) {
-			return xmlError(c, http.StatusNotFound, "CacheClusterNotFound", "Cache cluster not found")
-		}
-		if errors.Is(err, ErrParameterGroupNotFound) {
-			return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
-		}
-		if errors.Is(err, ErrClusterNotAvailable) {
-			return xmlError(c, http.StatusBadRequest, "InvalidCacheClusterState", err.Error())
-		}
-		if errors.Is(err, ErrCacheSecurityGroupNotFound) {
-			return xmlError(c, http.StatusNotFound, "CacheSecurityGroupNotFound", "Cache security group not found")
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return mapClusterModifyErr(c, err)
 	}
 
 	if srErr := h.applyClusterSnapshotRetentionLimit(ctx, form, id, cluster); srErr != nil {

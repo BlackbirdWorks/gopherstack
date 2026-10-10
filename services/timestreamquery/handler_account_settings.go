@@ -47,7 +47,7 @@ func (h *Handler) handlePrepareQuery(ctx context.Context, body []byte) ([]byte, 
 
 	return json.Marshal(map[string]any{
 		"QueryString": result.QueryString,
-		"Columns":     marshalColumnInfos(result.Columns),
+		"Columns":     marshalSelectColumns(result.Selected),
 		"Parameters":  marshalColumnInfos(result.Parameters),
 	})
 }
@@ -131,4 +131,21 @@ func (h *Handler) handleUpdateAccountSettings(ctx context.Context, body []byte) 
 	}
 
 	return json.Marshal(buildAccountSettingsResponse(settings))
+}
+
+func marshalSelectColumns(cols []SelectColumn) []map[string]any {
+	out := make([]map[string]any, len(cols))
+	for i, c := range cols {
+		entry := marshalColumnInfos([]ColumnInfo{c.ColumnInfo})[0]
+		entry["Aliased"] = c.Aliased
+		if c.DatabaseName != "" {
+			entry["DatabaseName"] = c.DatabaseName
+		}
+		if c.TableName != "" {
+			entry["TableName"] = c.TableName
+		}
+		out[i] = entry
+	}
+
+	return out
 }

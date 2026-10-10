@@ -1,6 +1,7 @@
 package docdb
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"sort"
@@ -15,6 +16,9 @@ func validateCreateDBClusterParams(
 ) error {
 	if id == "" {
 		return fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
+	}
+	if err := validateIdentifier("DBClusterIdentifier", id); err != nil {
+		return err
 	}
 	if err := validateEngineVersion(engineVersion); err != nil {
 		return err
@@ -60,6 +64,17 @@ func extractCreateDBClusterOpts(
 	return opts.KmsKeyID, opts.StorageType, vpcSecurityGroupIDs, enabledCloudwatchLogsExports
 }
 
+func clusterNumericDefaults(port, backupRetentionPeriod int) (int, int) {
+	if port <= 0 {
+		port = defaultDocDBPort
+	}
+	if backupRetentionPeriod == 0 {
+		backupRetentionPeriod = 1
+	}
+
+	return port, backupRetentionPeriod
+}
+
 // CreateDBCluster creates a cluster. The unnamed string parameter between
 // masterUserPassword and paramGroupName is a deliberately ignored
 // database-name slot, kept only to hold this exported method's positional
@@ -84,6 +99,9 @@ func (b *InMemoryBackend) CreateDBCluster(
 	); err != nil {
 		return nil, err
 	}
+	if err := validateClusterNaming(masterUser, engine); err != nil {
+		return nil, err
+	}
 	var extras ClusterExtras
 	if opts != nil {
 		extras = opts.ClusterExtras
@@ -97,6 +115,9 @@ func (b *InMemoryBackend) CreateDBCluster(
 	if b.clusterHas(region, id) {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, id)
 	}
+	if err := b.checkNetworkType(region, extras.NetworkType, subnetGroupName); err != nil {
+		return nil, err
+	}
 	if engine == "" {
 		engine = docDBEngine
 	}
@@ -106,18 +127,9 @@ func (b *InMemoryBackend) CreateDBCluster(
 	if paramGroupName == "" {
 		paramGroupName = defaultParamGroupName(engineVersion)
 	}
-	if port <= 0 {
-		port = defaultDocDBPort
-	}
-	if backupRetentionPeriod == 0 {
-		backupRetentionPeriod = 1
-	}
-	if preferredBackupWindow == "" {
-		preferredBackupWindow = defaultBackupWindow
-	}
-	if preferredMaintenanceWindow == "" {
-		preferredMaintenanceWindow = defaultMaintenanceWindow
-	}
+	port, backupRetentionPeriod = clusterNumericDefaults(port, backupRetentionPeriod)
+	preferredBackupWindow = cmp.Or(preferredBackupWindow, defaultBackupWindow)
+	preferredMaintenanceWindow = cmp.Or(preferredMaintenanceWindow, defaultMaintenanceWindow)
 	clusterArn := b.clusterARN(region, id)
 	endpoint := fmt.Sprintf("%s.cluster.docdb.%s.amazonaws.com", id, region)
 	readerEndpoint := fmt.Sprintf("%s.cluster-ro.docdb.%s.amazonaws.com", id, region)
@@ -131,6 +143,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	}
 
 	cluster := &DBCluster{
+		readyAt:                      b.readyAtLocked(),
 		DBClusterResourceID:          newResourceID("cluster-"),
 		region:                       region,
 		DBClusterIdentifier:          id,
@@ -161,7 +174,9 @@ func (b *InMemoryBackend) CreateDBCluster(
 	if err = b.createClusterMasterSecret(cluster, opts, masterUserPassword); err != nil {
 		return nil, err
 	}
-	b.clusterPut(cluster)
+	if err = b.storeNewCluster(cluster, opts); err != nil {
+		return nil, err
+	}
 	if len(tags) > 0 {
 		b.tagsStore(region)[clusterArn] = tagsFromMap(tags)
 	}
@@ -249,11 +264,14 @@ func (b *InMemoryBackend) DeleteDBCluster(
 			SnapshotCreateTime:          time.Now().UTC().Format(time.RFC3339),
 			DBClusterArn:                b.clusterARN(region, id),
 			StorageType:                 c.StorageType,
+			VpcID:                       b.subnetGroupVpcID(region, c.DBSubnetGroupName),
 		}
 		b.clusterSnapshotPut(snap)
 	}
 
+	b.releaseMasterSecret(c)
 	b.clusterDelete(region, id)
+	b.detachFromGlobalClusters(cp.DBClusterArn)
 	delete(b.tagsStore(region), b.clusterARN(region, id))
 	b.recordEvent(region, id, sourceTypeDBCluster, cp.DBClusterArn, "DB cluster deleted", eventCatDelete)
 
@@ -319,6 +337,9 @@ func (b *InMemoryBackend) applyModifyDBClusterExtras(
 		}
 	}
 	if err := opts.validate(); err != nil {
+		return err
+	}
+	if err := b.checkNetworkType(region, opts.NetworkType, c.DBSubnetGroupName); err != nil {
 		return err
 	}
 	if err := validateScaling(mergeScaling(c.ServerlessV2Scaling, opts.Scaling)); err != nil {

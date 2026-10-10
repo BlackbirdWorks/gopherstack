@@ -224,6 +224,8 @@ type InMemoryDB struct {
 	txnTokens            map[string]txnTokenRecord // committed idempotency tokens → expiry+request hash
 	txnPending           map[string]time.Time      // in-progress idempotency tokens → start time
 	fisReplicationPaused map[string]time.Time      // keyed by table ARN; value is expiry (zero = no expiry)
+	kmsKeys              KMSKeyStateChecker
+	keyInaccessibleSince map[string]time.Time // keyed by table ARN; set while the table's KMS key is unusable
 	exprCache            *ExpressionCache
 	throttler            *Throttler
 	metrics              cwmetric.Sink
@@ -258,6 +260,7 @@ type Backup struct {
 	KeySchema              []models.KeySchemaElement               `json:"KeySchema"`
 	LocalSecondaryIndexes  []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
 	GlobalSecondaryIndexes []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
+	VectorIndexes          []models.VectorIndexDescription         `json:"VectorIndexes,omitempty"`
 	Items                  []map[string]any                        `json:"Items"`
 	AttributeDefinitions   []models.AttributeDefinition            `json:"AttributeDefinitions"`
 	ProvisionedThroughput  models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
@@ -325,6 +328,7 @@ type Table struct {
 	ReplicaAutoScaling      map[string]*replicaAutoScalingSettings `json:"ReplicaAutoScaling,omitempty"`
 	OnDemandMaxWriteRRU     *int64                                 `json:"OnDemandMaxWriteRRU,omitempty"`
 	OnDemandMaxReadRRU      *int64                                 `json:"OnDemandMaxReadRRU,omitempty"`
+	WarmThroughput          *models.WarmThroughput                 `json:"WarmThroughput,omitempty"`
 	ResourcePolicy          string                                 `json:"ResourcePolicy,omitempty"`
 	ResourcePolicyRevision  string                                 `json:"ResourcePolicyRevision,omitempty"`
 	TTLAttribute            string                                 `json:"TTLAttribute,omitempty"`
@@ -344,6 +348,8 @@ type Table struct {
 	AttributeDefinitions    []models.AttributeDefinition           `json:"AttributeDefinitions"`
 	GlobalSecondaryIndexes  []models.GlobalSecondaryIndex          `json:"GlobalSecondaryIndexes,omitempty"`
 	Replicas                []models.ReplicaDescription            `json:"Replicas,omitempty"`
+	GlobalTableWitnesses    []models.GlobalTableWitness            `json:"GlobalTableWitnesses,omitempty"`
+	VectorIndexes           []models.VectorIndexDescription        `json:"VectorIndexes,omitempty"`
 	LocalSecondaryIndexes   []models.LocalSecondaryIndex           `json:"LocalSecondaryIndexes,omitempty"`
 	KeySchema               []models.KeySchemaElement              `json:"KeySchema"`
 	KinesisDestinations     []KinesisDestinationEntry              `json:"KinesisDestinations,omitempty"`
@@ -380,6 +386,7 @@ func NewInMemoryDB() *InMemoryDB {
 		txnTokens:            make(map[string]txnTokenRecord),
 		txnPending:           make(map[string]time.Time),
 		fisReplicationPaused: make(map[string]time.Time),
+		keyInaccessibleSince: make(map[string]time.Time),
 		exprCache:            NewExpressionCache(exprCacheSize),
 		iteratorStore:        NewShardIteratorStore(),
 		defaultRegion:        config.DefaultRegion,

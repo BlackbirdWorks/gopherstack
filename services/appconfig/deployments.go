@@ -116,6 +116,13 @@ func (b *InMemoryBackend) resolveStartDeploymentInputsLocked(
 		}
 
 		versionLabel = hcv.VersionLabel
+	} else if b.contentReader != nil {
+		if _, readErr := b.fetchExternalConfigurationLocked(profile, configVersion); readErr != nil {
+			return ConfigurationProfile{}, DeploymentStrategy{}, "", fmt.Errorf(
+				"%w: cannot retrieve configuration version %s from %s: %v",
+				ErrBadRequest, configVersion, profile.LocationURI, readErr.Error(),
+			)
+		}
 	}
 
 	currentLatestDeployment := b.deploymentCounters[applicationID][environmentID]
@@ -152,6 +159,28 @@ func (b *InMemoryBackend) StartDeployment(
 	latestDeploymentNumber *int32,
 	tags map[string]string,
 ) (*Deployment, error) {
+	return b.StartDeploymentWithParameters(
+		applicationID, environmentID, configProfileID, strategyID, configVersion, description,
+		kmsKeyIdentifier, latestDeploymentNumber, tags, nil,
+	)
+}
+
+// StartDeploymentWithParameters is StartDeployment with the request's DynamicExtensionParameters, which are
+// handed to PRE_START_DEPLOYMENT extension actions alongside the association parameters.
+func (b *InMemoryBackend) StartDeploymentWithParameters(
+	applicationID, environmentID, configProfileID, strategyID, configVersion, description string,
+	kmsKeyIdentifier *string,
+	latestDeploymentNumber *int32,
+	tags map[string]string,
+	dynamicParameters map[string]string,
+) (*Deployment, error) {
+	override, err := b.preStartDeployment(
+		applicationID, environmentID, configProfileID, strategyID, configVersion, description, dynamicParameters,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("StartDeployment")
 	defer b.mu.Unlock()
 
@@ -196,12 +225,16 @@ func (b *InMemoryBackend) StartDeployment(
 		AppliedExtensions:           b.appliedExtensionsLocked(applicationID, environmentID, configProfileID),
 	}
 	appendDeploymentEvent(deployment, "DEPLOYMENT_STARTED", triggeredByUser, "Deployment started", now)
+	b.fireDeploymentActionLocked(deployment, actionPointOnDeploymentStart)
 
 	if len(tags) > 0 {
 		b.tags[b.deploymentArn(applicationID, environmentID, deploymentNumber)] = maps.Clone(tags)
 	}
 
 	key := deploymentKey(applicationID, environmentID, deploymentNumber)
+	if override != nil {
+		b.deploymentContent[key] = override
+	}
 
 	switch {
 	case strategy.DeploymentDurationInMinutes <= 0 && strategy.FinalBakeTimeInMinutes <= 0:
@@ -212,6 +245,7 @@ func (b *InMemoryBackend) StartDeployment(
 		deployment.State = deploymentStateBaking
 		deployment.PercentageComplete = fullPercentage
 		appendDeploymentEvent(deployment, "BAKE_TIME_STARTED", "APPCONFIG", "Bake time started", now)
+		b.fireDeploymentActionLocked(deployment, actionPointOnDeploymentBaking)
 		b.deploymentTimers[key] = &deploymentTimer{nextAt: now.Add(deploymentBakeDelay)}
 		b.scheduleDeploymentReconcilerLocked()
 	default:
@@ -287,6 +321,11 @@ func appendDeploymentEvent(d *Deployment, eventType, triggeredBy, description st
 // records the deployed configuration version so GetConfiguration /
 // CurrentDeployedConfiguration serve it. Must be called under lock.
 func (b *InMemoryBackend) finalizeDeploymentLocked(d *Deployment, at time.Time) {
+	b.completeDeploymentLocked(d, at)
+	b.fireDeploymentActionLocked(d, actionPointOnDeploymentComplete)
+}
+
+func (b *InMemoryBackend) completeDeploymentLocked(d *Deployment, at time.Time) {
 	d.State = deploymentStateComplete
 	d.PercentageComplete = fullPercentage
 	d.CompletedAt = at
@@ -357,6 +396,8 @@ func (b *InMemoryBackend) scheduleDeploymentReconcilerLocked() {
 		for {
 			<-ticker.C
 
+			b.runDeploymentTicks()
+
 			b.mu.Lock("deploymentReconcile")
 			b.reconcileDeploymentsLocked()
 
@@ -409,6 +450,7 @@ func (b *InMemoryBackend) advanceDeploymentLocked(d *Deployment, timer *deployme
 			if d.FinalBakeTimeInMinutes > 0 {
 				d.State = deploymentStateBaking
 				appendDeploymentEvent(d, "BAKE_TIME_STARTED", "APPCONFIG", "Bake time started", now)
+				b.fireDeploymentActionLocked(d, actionPointOnDeploymentBaking)
 				timer.nextAt = now.Add(deploymentBakeDelay)
 			} else {
 				b.finalizeDeploymentLocked(d, now)
@@ -421,6 +463,7 @@ func (b *InMemoryBackend) advanceDeploymentLocked(d *Deployment, timer *deployme
 			d, "PERCENTAGE_UPDATED", "APPCONFIG",
 			fmt.Sprintf("Deployment is %.0f%% complete", d.PercentageComplete), now,
 		)
+		b.fireDeploymentActionLocked(d, actionPointOnDeploymentStep)
 		timer.nextAt = now.Add(deploymentStepDelay)
 	case deploymentStateBaking:
 		b.finalizeDeploymentLocked(d, now)
@@ -439,7 +482,7 @@ func (b *InMemoryBackend) finalizeStaleDeploymentsLocked() {
 
 	for _, d := range b.deployments.All() {
 		if d.State == deploymentStateDeploying || d.State == deploymentStateBaking {
-			b.finalizeDeploymentLocked(d, now)
+			b.completeDeploymentLocked(d, now)
 			b.deployments.Put(d)
 		}
 	}
@@ -579,6 +622,11 @@ func (b *InMemoryBackend) StopDeployment(
 
 	delete(b.deploymentTimers, key)
 	b.deployments.Put(&updated)
+
+	if updated.State == deploymentStateRolledBack {
+		b.fireDeploymentActionLocked(&updated, actionPointOnDeploymentRolledBack)
+	}
+
 	cp := updated
 
 	return &cp, nil
@@ -611,6 +659,7 @@ func (b *InMemoryBackend) revertDeployedConfigLocked(reverted *Deployment) {
 	key := appEnvProfileKey(reverted.ApplicationID, reverted.EnvironmentID, reverted.ConfigurationProfileID)
 	if previous == nil {
 		delete(b.deployedConfigs, key)
+		delete(b.fetchedConfigs, key)
 
 		return
 	}

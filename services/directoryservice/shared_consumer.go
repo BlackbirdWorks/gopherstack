@@ -9,7 +9,27 @@ func (b *InMemoryBackend) describeByID(region, id string) (Directory, bool) {
 		return b.describeDirectory(d), true
 	}
 
+	if d, _, ok := b.replicaOwner(region, id); ok {
+		return b.describeDirectory(d), true
+	}
+
 	return b.consumerDirectory(region, id)
+}
+
+// replicaOwner returns the primary-Region directory and its Region name when region hosts a
+// multi-Region replica of directory id. Callers must hold b.mu.
+func (b *InMemoryBackend) replicaOwner(region, id string) (*storedDirectory, string, bool) {
+	for _, r := range b.dsRegions.All() {
+		if r.DirectoryID != id || r.RegionName != region {
+			continue
+		}
+
+		if d, ok := b.directoryGet(r.region, id); ok {
+			return d, r.region, true
+		}
+	}
+
+	return nil, "", false
 }
 
 // consumerDirectory builds the consumer-side view of an accepted share.

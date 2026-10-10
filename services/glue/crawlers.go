@@ -67,6 +67,11 @@ func cloneCrawler(c *Crawler) *Crawler {
 	cp.Classifiers = append([]string(nil), c.Classifiers...)
 	cp.Targets = cloneCrawlerTarget(c.Targets)
 
+	if c.LastCrawl != nil {
+		v := *c.LastCrawl
+		cp.LastCrawl = &v
+	}
+
 	if c.SchemaChangePolicy != nil {
 		v := *c.SchemaChangePolicy
 		cp.SchemaChangePolicy = &v
@@ -627,4 +632,22 @@ func (b *InMemoryBackend) GetCrawlerMetrics(crawlerNames []string) []*CrawlerMet
 	}
 
 	return out
+}
+
+// setLastCrawlLocked records the just-finished crawl on c.LastCrawl. Must be
+// called with b.mu held.
+func (b *InMemoryBackend) setLastCrawlLocked(c *Crawler, status string) {
+	hist := b.crawlHistory[c.Name]
+	if len(hist) == 0 {
+		return
+	}
+
+	last := hist[len(hist)-1]
+	c.LastCrawl = &LastCrawlInfo{
+		Status:        status,
+		StartTime:     last.StartTime,
+		LogGroup:      "/aws-glue/crawlers",
+		LogStream:     c.Name,
+		MessagePrefix: last.CrawlID,
+	}
 }

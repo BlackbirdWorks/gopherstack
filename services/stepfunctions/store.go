@@ -2,12 +2,14 @@ package stepfunctions
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -155,8 +157,11 @@ type InMemoryBackend struct {
 	// historyTruncated tracks executions where the history cap has been reached
 	// so we only emit a single warning per execution.
 	historyTruncated map[string]bool
-	stateMachines    *store.Table[StateMachine]
-	mu               *lockmetrics.RWMutex
+	// closedExecNames maps a pruned STANDARD execution's ARN to its close time so the
+	// name stays reserved for closedExecNameReservation after retention pruning.
+	closedExecNames map[string]float64
+	stateMachines   *store.Table[StateMachine]
+	mu              *lockmetrics.RWMutex
 	// registry lets Reset (via resetLocked) collapse the six resource tables'
 	// lifecycle to one registry.ResetAll() call instead of hand-rolled
 	// re-initialization of each map. See store_setup.go.
@@ -252,6 +257,7 @@ func newInMemoryBackend(svcCtx context.Context, accountID, region string) *InMem
 		smAliases:            make(map[string][]string),
 		executionDefinitions: make(map[string]string),
 		historyTruncated:     make(map[string]bool),
+		closedExecNames:      make(map[string]float64),
 		mu:                   lockmetrics.New("stepfunctions"),
 		registry:             store.NewRegistry(),
 		settings:             DefaultSettings(),
@@ -507,9 +513,8 @@ func (b *InMemoryBackend) regionActivityIndex(region string) map[string]string {
 	return b.activityNameIndex[region]
 }
 
-// namePattern is the AWS-allowed character set for state machine, execution, and activity names.
-// AWS allows: letters, digits, and [-+/=_.@ ].
-var namePattern = regexp.MustCompile(`^[-a-zA-Z0-9+/=_.@ ]+$`)
+// invalidNameChars are the characters AWS rejects in state machine, execution and activity names.
+const invalidNameChars = "<>{}[]?*\"#%\\^|~`$&,;:/"
 
 // validateName checks that a resource name meets AWS length and character constraints.
 func validateName(name string, maxLen int) error {
@@ -517,23 +522,31 @@ func validateName(name string, maxLen int) error {
 		return fmt.Errorf("%w: name must be 1-%d characters", ErrInvalidName, maxLen)
 	}
 
-	if !namePattern.MatchString(name) {
-		return fmt.Errorf(
-			"%w: name must contain only letters, digits, and [-+/=_.@ ]",
-			ErrInvalidName,
-		)
+	for _, r := range name {
+		if unicode.IsSpace(r) || unicode.IsControl(r) || strings.ContainsRune(invalidNameChars, r) {
+			return fmt.Errorf("%w: name must not contain whitespace, control or special characters", ErrInvalidName)
+		}
 	}
 
 	return nil
 }
 
+// ErrInvalidToken is returned for a malformed pagination token.
+var ErrInvalidToken = errors.New("InvalidToken")
+
+const tokenPrefix = "sfn-page:"
+
 // paginate applies token-based pagination to a sorted slice.
-func paginate[T any](all []T, nextToken string, maxResults int) ([]T, string) {
+func paginate[T any](all []T, nextToken string, maxResults int) ([]T, string, error) {
 	const defaultLimit = 100
 
-	startIdx := parseNextToken(nextToken)
+	startIdx, err := parseNextToken(nextToken)
+	if err != nil {
+		return nil, "", err
+	}
+
 	if startIdx >= len(all) {
-		return []T{}, ""
+		return []T{}, "", nil
 	}
 
 	limit := defaultLimit
@@ -545,24 +558,30 @@ func paginate[T any](all []T, nextToken string, maxResults int) ([]T, string) {
 
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = base64.RawURLEncoding.EncodeToString([]byte(tokenPrefix + strconv.Itoa(end)))
 	} else {
 		end = len(all)
 	}
 
-	return all[startIdx:end], outToken
+	return all[startIdx:end], outToken, nil
 }
 
-func parseNextToken(token string) int {
+func parseNextToken(token string) (int, error) {
 	if token == "" {
-		return 0
-	}
-	idx, err := strconv.Atoi(token)
-	if err != nil || idx < 0 {
-		return 0
+		return 0, nil
 	}
 
-	return idx
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil || !strings.HasPrefix(string(raw), tokenPrefix) {
+		return 0, fmt.Errorf("%w: invalid pagination token", ErrInvalidToken)
+	}
+
+	idx, err := strconv.Atoi(strings.TrimPrefix(string(raw), tokenPrefix))
+	if err != nil || idx < 0 {
+		return 0, fmt.Errorf("%w: invalid pagination token", ErrInvalidToken)
+	}
+
+	return idx, nil
 }
 
 // Reset clears all in-memory state from the backend. It is used by the
@@ -610,7 +629,12 @@ func (b *InMemoryBackend) resetLocked() {
 	b.smAliases = make(map[string][]string)
 	b.executionDefinitions = make(map[string]string)
 	b.historyTruncated = make(map[string]bool)
+	b.closedExecNames = make(map[string]float64)
 	b.historyMu = sync.RWMutex{}
 	b.smExecsByStatus = make(map[string]map[string][]string)
 	b.mapChildSeq = 0
 }
+
+const millisPerSecond = 1000
+
+func epochNow() float64 { return float64(time.Now().UnixMilli()) / millisPerSecond }

@@ -241,7 +241,7 @@ func testEvaluationJobsExtraRealClient(t *testing.T) {
 		JobIdentifier: job1.JobArn,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, types.EvaluationJobStatusStopped, got.Status)
+	assert.Equal(t, types.EvaluationJobStatusStopping, got.Status)
 
 	// BatchDeleteEvaluationJob rejects a job still InProgress, so job2 must be
 	// stopped first (evaluation_jobs.go's BatchDeleteEvaluationJob).
@@ -706,7 +706,7 @@ func testCustomModelAndJobStopsRealClient(t *testing.T) {
 		t.Context(), &bedrocksdk.GetModelCustomizationJobInput{JobIdentifier: custJob.JobArn},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, types.ModelCustomizationJobStatusStopped, gotCustJob.Status)
+	assert.Equal(t, types.ModelCustomizationJobStatusStopping, gotCustJob.Status)
 
 	invocJob, err := client.CreateModelInvocationJob(
 		t.Context(),
@@ -737,7 +737,7 @@ func testCustomModelAndJobStopsRealClient(t *testing.T) {
 		t.Context(), &bedrocksdk.GetModelInvocationJobInput{JobIdentifier: invocJob.JobArn},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, types.ModelInvocationJobStatusStopped, gotInvocJob.Status)
+	assert.Equal(t, types.ModelInvocationJobStatusStopping, gotInvocJob.Status)
 }
 
 // testAdvancedPromptOptimizationJobsRealClient covers

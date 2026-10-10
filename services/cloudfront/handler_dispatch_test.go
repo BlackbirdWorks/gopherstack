@@ -70,8 +70,8 @@ func TestNewDispatchRefactoring(t *testing.T) {
 
 				return "/2020-05-31/distribution/" + d.ID
 			},
-			// 412 PreconditionFailed confirms route reached handleDeleteDistribution (missing If-Match)
-			wantStatus: http.StatusPreconditionFailed,
+			// 400 InvalidIfMatchVersion confirms route reached handleDeleteDistribution (missing If-Match)
+			wantStatus: http.StatusBadRequest,
 		},
 		// dispatchUpdateDeletePolicyAndOAIOps
 		{

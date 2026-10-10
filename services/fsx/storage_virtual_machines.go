@@ -9,36 +9,41 @@ import (
 )
 
 type storedStorageVirtualMachine struct {
-	CreationTime            time.Time         `json:"creationTime"`
-	Tags                    map[string]string `json:"tags"`
-	StorageVirtualMachineID string            `json:"storageVirtualMachineId"`
-	FileSystemID            string            `json:"fileSystemId"`
-	Name                    string            `json:"name"`
-	Lifecycle               string            `json:"lifecycle"`
-	ResourceARN             string            `json:"resourceArn"`
-	Subtype                 string            `json:"subtype,omitempty"`
-	RootVolumeSecurityStyle string            `json:"rootVolumeSecurityStyle,omitempty"`
+	CreationTime            time.Time                        `json:"creationTime"`
+	Tags                    map[string]string                `json:"tags"`
+	ActiveDirectory         *SvmActiveDirectoryConfiguration `json:"activeDirectory,omitempty"`
+	StorageVirtualMachineID string                           `json:"storageVirtualMachineId"`
+	FileSystemID            string                           `json:"fileSystemId"`
+	Name                    string                           `json:"name"`
+	Lifecycle               string                           `json:"lifecycle"`
+	ResourceARN             string                           `json:"resourceArn"`
+	Subtype                 string                           `json:"subtype,omitempty"`
+	RootVolumeSecurityStyle string                           `json:"rootVolumeSecurityStyle,omitempty"`
 }
 
 func (s *storedStorageVirtualMachine) toPublic() *StorageVirtualMachine {
 	return &StorageVirtualMachine{
-		CreationTime:            epochTime(s.CreationTime),
-		StorageVirtualMachineID: s.StorageVirtualMachineID,
-		FileSystemID:            s.FileSystemID,
-		Name:                    s.Name,
-		Lifecycle:               s.Lifecycle,
-		ResourceARN:             s.ResourceARN,
-		Subtype:                 s.Subtype,
-		RootVolumeSecurityStyle: s.RootVolumeSecurityStyle,
-		Tags:                    tagsMapToSlice(s.Tags),
+		CreationTime:                 epochTime(s.CreationTime),
+		StorageVirtualMachineID:      s.StorageVirtualMachineID,
+		FileSystemID:                 s.FileSystemID,
+		Name:                         s.Name,
+		Lifecycle:                    s.Lifecycle,
+		ResourceARN:                  s.ResourceARN,
+		Subtype:                      s.Subtype,
+		RootVolumeSecurityStyle:      s.RootVolumeSecurityStyle,
+		ActiveDirectoryConfiguration: cloneSvmAD(s.ActiveDirectory),
+		Tags:                         tagsMapToSlice(s.Tags),
 	}
 }
 
 type createStorageVirtualMachineInput struct {
-	FileSystemID            string `json:"FileSystemId"`
-	Name                    string `json:"Name"`
-	RootVolumeSecurityStyle string `json:"RootVolumeSecurityStyle,omitempty"`
-	Tags                    []Tag  `json:"Tags,omitempty"`
+	FileSystemID                 string      `json:"FileSystemId"`
+	Name                         string      `json:"Name"`
+	RootVolumeSecurityStyle      string      `json:"RootVolumeSecurityStyle,omitempty"`
+	ClientRequestToken           string      `json:"ClientRequestToken,omitempty"`
+	SvmAdminPassword             string      `json:"SvmAdminPassword,omitempty"`
+	ActiveDirectoryConfiguration *svmADInput `json:"ActiveDirectoryConfiguration,omitempty"`
+	Tags                         []Tag       `json:"Tags,omitempty"`
 }
 
 // CreateStorageVirtualMachine creates an SVM on an ONTAP file system.
@@ -53,8 +58,21 @@ func (b *InMemoryBackend) CreateStorageVirtualMachine(
 		return nil, err
 	}
 
+	if err := validateSvmAD(input.ActiveDirectoryConfiguration, true); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateStorageVirtualMachine")
 	defer b.mu.Unlock()
+
+	fp, replayID, err := b.replayTokenLocked("CreateStorageVirtualMachine", input.ClientRequestToken, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if existing, ok := b.storageVirtualMachines.Get(replayID); ok {
+		return existing.toPublic(), nil
+	}
 
 	if !b.fileSystems.Has(input.FileSystemID) {
 		return nil, ErrFileSystemNotFound
@@ -75,10 +93,12 @@ func (b *InMemoryBackend) CreateStorageVirtualMachine(
 		ResourceARN:             arn,
 		Subtype:                 svmSubtypeDefault,
 		RootVolumeSecurityStyle: input.RootVolumeSecurityStyle,
+		ActiveDirectory:         mergeSvmAD(nil, input.ActiveDirectoryConfiguration),
 	}
 
 	b.storageVirtualMachines.Put(svm)
 	b.tags[arn] = tags
+	b.recordTokenLocked("CreateStorageVirtualMachine", input.ClientRequestToken, fp, id)
 
 	return svm.toPublic(), nil
 }
@@ -156,7 +176,7 @@ func (b *InMemoryBackend) deleteStorageVirtualMachineLocked(svmID string) {
 // DescribeStorageVirtualMachines returns SVMs, optionally filtered by ID or
 // Filters. Real StorageVirtualMachineFilterName (aws-sdk-go-v2/service/fsx@v1.68.4
 // types/enums.go) has exactly one value, file-system-id.
-func (b *InMemoryBackend) DescribeStorageVirtualMachines( //nolint:dupl // existing issue.
+func (b *InMemoryBackend) DescribeStorageVirtualMachines(
 	ids []string,
 	filters []wireFilter,
 	maxResults int32,
@@ -220,8 +240,9 @@ func (b *InMemoryBackend) DescribeStorageVirtualMachines( //nolint:dupl // exist
 // cross-region replication state) and was previously (wrongly) exposed here
 // as a client-settable field a real client's request could never populate.
 type updateStorageVirtualMachineInput struct {
-	StorageVirtualMachineID string `json:"StorageVirtualMachineId"`
-	SvmAdminPassword        string `json:"SvmAdminPassword,omitempty"`
+	ActiveDirectoryConfiguration *svmADInput `json:"ActiveDirectoryConfiguration,omitempty"`
+	StorageVirtualMachineID      string      `json:"StorageVirtualMachineId"`
+	SvmAdminPassword             string      `json:"SvmAdminPassword,omitempty"`
 }
 
 // UpdateStorageVirtualMachine updates an SVM. SvmAdminPassword is accepted
@@ -232,6 +253,10 @@ type updateStorageVirtualMachineInput struct {
 func (b *InMemoryBackend) UpdateStorageVirtualMachine(
 	input *updateStorageVirtualMachineInput,
 ) (*StorageVirtualMachine, error) {
+	if err := validateSvmAD(input.ActiveDirectoryConfiguration, false); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateStorageVirtualMachine")
 	defer b.mu.Unlock()
 
@@ -239,6 +264,8 @@ func (b *InMemoryBackend) UpdateStorageVirtualMachine(
 	if !ok {
 		return nil, ErrStorageVirtualMachineNotFound
 	}
+
+	svm.ActiveDirectory = mergeSvmAD(svm.ActiveDirectory, input.ActiveDirectoryConfiguration)
 
 	return svm.toPublic(), nil
 }

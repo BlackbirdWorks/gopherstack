@@ -1,6 +1,7 @@
 package securityhub
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -68,18 +69,64 @@ var knownStandards = []Standard{ //nolint:gochecknoglobals // read-only lookup d
 			"security and privacy controls.",
 		EnabledByDefault: false,
 	},
+	{
+		StandardsArn: "arn:aws:securityhub:us-east-1::standards/cis-aws-foundations-benchmark/v/3.0.0",
+		Name:         "CIS AWS Foundations Benchmark v3.0.0",
+		Description: "The Center for Internet Security (CIS) AWS Foundations Benchmark v3.0.0 is a set of " +
+			"security configuration best practices for AWS.",
+	},
+	{
+		StandardsArn: "arn:aws:securityhub:us-east-1::standards/pci-dss/v/4.0.1",
+		Name:         "PCI DSS v4.0.1",
+		Description: "The Payment Card Industry Data Security Standard (PCI DSS) v4.0.1 is a proprietary " +
+			"information security standard.",
+	},
+	{
+		StandardsArn: "arn:aws:securityhub:us-east-1::standards/nist-800-171/v/2.0.0",
+		Name:         "NIST Special Publication 800-171 Revision 2",
+		Description: "NIST SP 800-171 provides recommended security requirements for protecting the " +
+			"confidentiality of controlled unclassified information.",
+	},
+	{
+		StandardsArn: "arn:aws:securityhub:us-east-1::standards/aws-resource-tagging-standard/v/1.0.0",
+		Name:         "AWS Resource Tagging Standard v1.0.0",
+		Description:  "The AWS Resource Tagging Standard checks that resources are tagged.",
+	},
 }
 
-// standardsSubscriptionArn derives a StandardsSubscriptionArn from a
-// StandardsArn the same way real AWS does: same ARN, "standards/" swapped
-// for "subscription/" (e.g. "arn:aws:securityhub:us-east-1::standards/
-// aws-foundational-security-best-practices/v/1.0.0" ->
-// ".../subscription/aws-foundational-security-best-practices/v/1.0.0").
-// The prior "subscription/<seq>" shape (account-scoped, no standard name)
-// didn't match this, breaking aws_securityhub_standards_control's ARN-based
-// lookup after BatchEnableStandards/aws_securityhub_standards_subscription.
-func standardsSubscriptionArn(standardsArn string) string {
-	return strings.Replace(standardsArn, ":standards/", ":subscription/", 1)
+// standardsKey returns the "<name>/v/<version>" tail of a StandardsArn, whichever of the "standards/" (current)
+// or "ruleset/" (CIS 1.2.0) forms it uses, and false for an ARN that is neither.
+func standardsKey(standardsArn string) (string, bool) {
+	for _, marker := range []string{":standards/", ":ruleset/"} {
+		if _, tail, ok := strings.Cut(standardsArn, marker); ok && tail != "" {
+			return tail, true
+		}
+	}
+
+	return "", false
+}
+
+func isKnownStandard(standardsArn string) bool {
+	key, ok := standardsKey(standardsArn)
+	if !ok {
+		return false
+	}
+
+	for i := range knownStandards {
+		if known, _ := standardsKey(knownStandards[i].StandardsArn); known == key {
+			return true
+		}
+	}
+
+	return false
+}
+
+// standardsSubscriptionArn builds the account-scoped StandardsSubscriptionArn real Security Hub returns:
+// arn:aws:securityhub:<region>:<account>:subscription/<name>/v/<version>.
+func (b *InMemoryBackend) standardsSubscriptionArn(standardsArn string) string {
+	key, _ := standardsKey(standardsArn)
+
+	return fmt.Sprintf("arn:aws:securityhub:%s:%s:subscription/%s", b.region, b.accountID, key)
 }
 
 func (b *InMemoryBackend) BatchEnableStandards(requests []map[string]any) ([]*StandardsSubscription, []map[string]any) {
@@ -102,8 +149,24 @@ func (b *InMemoryBackend) BatchEnableStandards(requests []map[string]any) ([]*St
 			continue
 		}
 
+		if !isKnownStandard(standardsArn) {
+			failures = append(failures, map[string]any{
+				keyStandardsArn: standardsArn,
+				keyErrorCode:    errCodeInvalidInput,
+				keyErrorMessage: "StandardsArn does not name a known standard",
+			})
+
+			continue
+		}
+
+		subArn := b.standardsSubscriptionArn(standardsArn)
+		if existing, ok := b.standardsSubscriptions.Get(subArn); ok {
+			subscriptions = append(subscriptions, existing.clone())
+
+			continue
+		}
+
 		b.standardsSeq++
-		subArn := standardsSubscriptionArn(standardsArn)
 
 		sub := &StandardsSubscription{
 			StandardsSubscriptionArn: subArn,
@@ -238,6 +301,14 @@ func (b *InMemoryBackend) DescribeStandards(nextToken string, maxResults int) ([
 	return page, nextOut
 }
 
+// HasStandardsSubscription reports whether subscriptionArn names an enabled standards subscription.
+func (b *InMemoryBackend) HasStandardsSubscription(subscriptionArn string) bool {
+	b.mu.RLock("HasStandardsSubscription")
+	defer b.mu.RUnlock()
+
+	return b.standardsSubscriptions.Has(subscriptionArn)
+}
+
 func (b *InMemoryBackend) DescribeStandardsControls(
 	subscriptionArn, nextToken string,
 	maxResults int,
@@ -301,7 +372,7 @@ func defaultControls(subscriptionArn string) []*StandardsControl {
 			Title:                  "Avoid the use of the root user",
 			Description:            "The root user has unrestricted access to all resources in the AWS account.",
 			RemediationURL:         "https://docs.aws.amazon.com/securityhub/latest/userguide/securityhub-cis-controls.html",
-			SeverityRating:         "CRITICAL",
+			SeverityRating:         severityLabelCritical,
 			RelatedRequirements:    []string{"CIS AWS Foundations 1.1"},
 			ControlStatusUpdatedAt: time.Now().UTC().Format(time.RFC3339),
 		},

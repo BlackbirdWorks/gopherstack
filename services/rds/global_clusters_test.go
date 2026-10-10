@@ -29,52 +29,57 @@ func TestGlobalClusterPrimaryRegionAndMembers(t *testing.T) {
 	assert.Equal(t, "test-global", clusters[0].GlobalClusterIdentifier)
 }
 
-func TestGlobalCluster_Failover(t *testing.T) {
+func TestGlobalCluster_PromoteWriter(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend(t)
-	_, err := b.CreateGlobalCluster("gc1", "aurora-postgresql", "14.9", "", false, false)
-	require.NoError(t, err)
+	tests := []struct {
+		promote func(b *rds.InMemoryBackend, gc, target string) (*rds.GlobalCluster, error)
+		name    string
+	}{
+		{name: "failover", promote: func(b *rds.InMemoryBackend, gc, target string) (*rds.GlobalCluster, error) {
+			return b.FailoverGlobalCluster(gc, target)
+		}},
+		{name: "switchover", promote: func(b *rds.InMemoryBackend, gc, target string) (*rds.GlobalCluster, error) {
+			return b.SwitchoverGlobalCluster(gc, target)
+		}},
+	}
 
-	_, err = b.CreateDBCluster(
-		"member-cluster",
-		"aurora-postgresql",
-		"admin",
-		"",
-		"",
-		5432,
-		nil,
-		rds.DBClusterOptions{},
-	)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	result, err := b.FailoverGlobalCluster("gc1", "member-cluster")
-	require.NoError(t, err)
-	assert.Equal(t, "gc1", result.GlobalClusterIdentifier)
-}
+			b := newBatch2Backend(t)
+			_, err := b.CreateGlobalCluster("gc", "aurora-postgresql", "14.9", "", false, false)
+			require.NoError(t, err)
+			for _, id := range []string{"primary", "secondary"} {
+				_, err = b.CreateDBCluster(id, "aurora-postgresql", "admin", "", "", 5432, nil,
+					rds.DBClusterOptions{GlobalClusterIdentifier: "gc"})
+				require.NoError(t, err)
+			}
+			_, err = b.CreateDBCluster(
+				"outsider", "aurora-postgresql", "admin", "", "", 5432, nil, rds.DBClusterOptions{},
+			)
+			require.NoError(t, err)
 
-func TestGlobalCluster_Switchover(t *testing.T) {
-	t.Parallel()
+			_, err = tt.promote(b, "gc", "outsider")
+			require.ErrorIs(t, err, rds.ErrInvalidGlobalClusterState)
+			_, err = tt.promote(b, "gc", "ghost")
+			require.ErrorIs(t, err, rds.ErrClusterNotFound)
+			_, err = tt.promote(b, "gc", "")
+			require.ErrorIs(t, err, rds.ErrInvalidParameter)
 
-	b := newBatch2Backend(t)
-	_, err := b.CreateGlobalCluster("gc2", "aurora-mysql", "3.04.0", "", false, false)
-	require.NoError(t, err)
-
-	_, err = b.CreateDBCluster(
-		"sw-cluster",
-		"aurora-mysql",
-		"admin",
-		"",
-		"",
-		3306,
-		nil,
-		rds.DBClusterOptions{},
-	)
-	require.NoError(t, err)
-
-	result, err := b.SwitchoverGlobalCluster("gc2", "sw-cluster")
-	require.NoError(t, err)
-	assert.Equal(t, "gc2", result.GlobalClusterIdentifier)
+			got, err := tt.promote(b, "gc", "secondary")
+			require.NoError(t, err)
+			writers := map[string]bool{}
+			for _, m := range got.GlobalClusterMembers {
+				writers[m.DBClusterArn] = m.IsWriter
+			}
+			assert.Equal(t, map[string]bool{
+				"arn:aws:rds:us-east-1:000000000000:cluster:primary":   false,
+				"arn:aws:rds:us-east-1:000000000000:cluster:secondary": true,
+			}, writers)
+		})
+	}
 }
 
 func TestGlobalCluster_RemoveMember(t *testing.T) {
@@ -122,6 +127,16 @@ func TestGlobalCluster_HTTP(t *testing.T) {
 	}.Encode())
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "http-gc")
+
+	rec = postRDSForm(t, h, url.Values{
+		"Action":                  {"CreateDBCluster"},
+		"Version":                 {"2014-10-31"},
+		"DBClusterIdentifier":     {"target-cluster"},
+		"Engine":                  {"aurora-postgresql"},
+		"MasterUsername":          {"admin"},
+		"GlobalClusterIdentifier": {"http-gc"},
+	}.Encode())
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = postRDSForm(t, h, url.Values{
 		"Action":                    {"FailoverGlobalCluster"},
@@ -357,6 +372,9 @@ func TestFailoverGlobalCluster(t *testing.T) {
 			if !tt.wantErr {
 				_, err := b.CreateGlobalCluster(tt.globalClusterID, "aurora-mysql", "", "", false, false)
 				require.NoError(t, err)
+				_, err = b.CreateDBCluster("target", "aurora-mysql", "admin", "", "", 3306, nil,
+					rds.DBClusterOptions{GlobalClusterIdentifier: tt.globalClusterID})
+				require.NoError(t, err)
 			}
 			got, err := b.FailoverGlobalCluster(tt.globalClusterID, tt.target)
 			if tt.wantErr {
@@ -400,6 +418,9 @@ func TestSwitchoverGlobalCluster(t *testing.T) {
 			b := newTestBackend(t)
 			if !tt.wantErr {
 				_, err := b.CreateGlobalCluster(tt.globalClusterID, "aurora-mysql", "", "", false, false)
+				require.NoError(t, err)
+				_, err = b.CreateDBCluster("target", "aurora-mysql", "admin", "", "", 3306, nil,
+					rds.DBClusterOptions{GlobalClusterIdentifier: tt.globalClusterID})
 				require.NoError(t, err)
 			}
 			got, err := b.SwitchoverGlobalCluster(tt.globalClusterID, tt.target)

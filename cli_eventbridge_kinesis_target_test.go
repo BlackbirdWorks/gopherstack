@@ -162,6 +162,7 @@ func TestServiceRoleAuthzEventBridgeKinesis(t *testing.T) {
 			role := authzRole(t, fx, "eb-kin-role", principal, tt.action)
 			streamARN := kinesisStreamARN(t, fx, "authz-stream", true)
 			dlqURL, dlqARN := authzQueue(t, fx, "eb-kin-dlq")
+			authzQueuePolicy(t, fx, dlqURL, dlqARN, "events.amazonaws.com", "")
 
 			ebc := eventbridge.NewFromConfig(fx.cfg)
 			_, err := ebc.PutRule(t.Context(), &eventbridge.PutRuleInput{

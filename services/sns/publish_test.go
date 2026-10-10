@@ -329,7 +329,7 @@ func TestPublishBatchEntryMessageAttributesFilterPolicy(t *testing.T) {
 
 			// Each subtest builds its own isolated backend, topic, subscriber, and server.
 			received := make(chan string, 1)
-			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				body, _ := io.ReadAll(r.Body)
 				received <- extractSNSHTTPMessage(string(body))
 				w.WriteHeader(http.StatusOK)
@@ -381,7 +381,7 @@ func TestMessageStructureJSON(t *testing.T) {
 	b := sns.NewInMemoryBackend()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -413,7 +413,7 @@ func TestMessageStructureJSONDefaultFallback(t *testing.T) {
 	b := sns.NewInMemoryBackend()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -711,7 +711,7 @@ func TestBatchMessageStructureJSON(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -758,7 +758,7 @@ func TestBatchMessageStructureDefault(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -962,7 +962,7 @@ func TestMessageStructureJSONSinglePublish(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)

@@ -100,6 +100,8 @@ func (in poolSettingsInput) toSettings() PoolSettings {
 		UserAttributeUpdateSettings: maps.Clone(in.UserAttributeUpdateSettings),
 		UserPoolAddOns:              maps.Clone(in.UserPoolAddOns),
 		VerificationMessageTemplate: maps.Clone(in.VerificationMessageTemplate),
+		IssuerConfiguration:         maps.Clone(in.IssuerConfiguration),
+		KeyConfiguration:            maps.Clone(in.KeyConfiguration),
 		UserPoolTier:                in.UserPoolTier,
 		EmailVerificationMessage:    in.EmailVerificationMessage,
 		EmailVerificationSubject:    in.EmailVerificationSubject,
@@ -141,6 +143,8 @@ func poolToAccurateData(pool *UserPool) userPoolDataAccurate {
 		UserAttributeUpdateSettings: pool.Settings.UserAttributeUpdateSettings,
 		UserPoolAddOns:              pool.Settings.UserPoolAddOns,
 		VerificationMessageTemplate: pool.Settings.VerificationMessageTemplate,
+		IssuerConfiguration:         pool.Settings.IssuerConfiguration,
+		KeyConfiguration:            pool.Settings.KeyConfiguration,
 		UserPoolTier:                pool.Settings.UserPoolTier,
 		EmailVerificationMessage:    pool.Settings.EmailVerificationMessage,
 		EmailVerificationSubject:    pool.Settings.EmailVerificationSubject,
@@ -204,6 +208,17 @@ func (h *Handler) handleCreateUserPoolWithOpts(
 		}
 		if err := validatePasswordPolicy(opts.PasswordPolicy); err != nil {
 			return nil, err
+		}
+	}
+
+	if opts.PasswordPolicy == nil {
+		opts.PasswordPolicy = &PasswordPolicy{
+			MinimumLength:                 defaultPasswordMinLength,
+			RequireUppercase:              true,
+			RequireLowercase:              true,
+			RequireNumbers:                true,
+			RequireSymbols:                true,
+			TemporaryPasswordValidityDays: defaultTempPasswordValidDays,
 		}
 	}
 

@@ -247,6 +247,7 @@ type Job struct {
 	JobTemplateARN             string             `json:"jobTemplateArn,omitempty"`
 	Status                     JobStatus          `json:"status"`
 	TargetSelection            string             `json:"targetSelection,omitempty"`
+	NamespaceID                string             `json:"namespaceId,omitempty"`
 	Comment                    string             `json:"comment,omitempty"`
 	ReasonCode                 string             `json:"reasonCode,omitempty"`
 	DestinationPackageVersions []string           `json:"destinationPackageVersions,omitempty"`
@@ -340,6 +341,7 @@ type CreateJobInput struct {
 	DocumentSource             string                      `json:"documentSource,omitempty"`
 	JobTemplateARN             string                      `json:"jobTemplateArn,omitempty"`
 	TargetSelection            string                      `json:"targetSelection,omitempty"`
+	NamespaceID                string                      `json:"namespaceId,omitempty"`
 	Targets                    []string                    `json:"targets"`
 }
 
@@ -363,6 +365,7 @@ func (b *InMemoryBackend) createJobLocked(input *CreateJobInput) (*Job, error) {
 		DocumentSource:             input.DocumentSource,
 		JobTemplateARN:             input.JobTemplateARN,
 		TargetSelection:            input.TargetSelection,
+		NamespaceID:                input.NamespaceID,
 		Targets:                    append([]string(nil), input.Targets...),
 		AbortConfig:                input.AbortConfig,
 		JobExecutionsRolloutConfig: input.JobExecutionsRolloutConfig,

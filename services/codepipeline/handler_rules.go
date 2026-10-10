@@ -8,10 +8,16 @@ import (
 // maxResultsCapRuleExecutions is the per-operation pagination cap for ListRuleExecutions.
 const maxResultsCapRuleExecutions int32 = 100
 
+type ruleExecutionFilter struct {
+	LatestInPipelineExecution *latestInPipelineExecutionFilter `json:"latestInPipelineExecution"`
+	PipelineExecutionID       string                           `json:"pipelineExecutionId"`
+}
+
 type listRuleExecutionsInput struct {
-	PipelineName string `json:"pipelineName"`
-	NextToken    string `json:"nextToken"`
-	MaxResults   int32  `json:"maxResults"`
+	Filter       *ruleExecutionFilter `json:"filter"`
+	PipelineName string               `json:"pipelineName"`
+	NextToken    string               `json:"nextToken"`
+	MaxResults   int32                `json:"maxResults"`
 }
 
 type listRuleExecutionsOutput struct {
@@ -27,7 +33,15 @@ func (h *Handler) handleListRuleExecutions(
 		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
 	}
 
-	items, err := h.Backend.ListRuleExecutions(ctx, in.PipelineName)
+	var execFilter string
+	if in.Filter != nil {
+		execFilter = in.Filter.PipelineExecutionID
+		if execFilter == "" && in.Filter.LatestInPipelineExecution != nil {
+			execFilter = in.Filter.LatestInPipelineExecution.PipelineExecutionID
+		}
+	}
+
+	items, err := h.Backend.ListRuleExecutions(ctx, in.PipelineName, execFilter)
 	if err != nil {
 		return nil, err
 	}

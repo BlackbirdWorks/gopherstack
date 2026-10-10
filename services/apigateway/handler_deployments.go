@@ -19,8 +19,9 @@ type createDeploymentInput struct {
 }
 
 type getDeploymentInput struct {
-	RestAPIID    string `json:"restApiId"`
-	DeploymentID string `json:"deploymentId"`
+	RestAPIID    string   `json:"restApiId"`
+	DeploymentID string   `json:"deploymentId"`
+	Embed        []string `json:"embed"`
 }
 
 type getDeploymentsInput struct {
@@ -111,6 +112,10 @@ func (h *Handler) getDeploymentAction(b []byte) (int, any, error) {
 		return 0, nil, err
 	}
 
+	if !embedsValue(input.Embed, embedAPISummary) {
+		depl.APISummary = nil
+	}
+
 	return http.StatusOK, depl, nil
 }
 
@@ -122,6 +127,10 @@ func (h *Handler) getDeploymentsAction(b []byte) (int, any, error) {
 	depls, err := h.Backend.GetDeployments(input.RestAPIID)
 	if err != nil {
 		return 0, nil, err
+	}
+
+	for i := range depls {
+		depls[i].APISummary = nil
 	}
 	if input.Limit == 0 && input.Position == "" {
 		return http.StatusOK, map[string]any{keyItem: depls}, nil

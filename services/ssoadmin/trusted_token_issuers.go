@@ -5,8 +5,6 @@ import (
 	"maps"
 	"net/url"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
@@ -116,7 +114,7 @@ func (b *InMemoryBackend) CreateTrustedTokenIssuer(
 		}
 	}
 
-	id := uuid.NewString()[:uuidShortLen]
+	id := newResourceID()
 	instanceID := instanceARNToID(instanceArn)
 	arnStr := arn.Build("sso", "", b.accountID, fmt.Sprintf("trustedTokenIssuer/%s/tti-%s", instanceID, id))
 	ti := &TrustedTokenIssuer{

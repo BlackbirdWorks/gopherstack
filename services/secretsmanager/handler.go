@@ -278,6 +278,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errors.Is(reqErr, ErrInvalidParameter),
 		errors.Is(reqErr, ErrInvalidSecretName):
 		errorType = "InvalidParameterException"
+	case errors.Is(reqErr, ErrInvalidNextToken):
+		errorType = "InvalidNextTokenException"
 	case errors.Is(reqErr, ErrUnknownOperation):
 		errorType = "UnknownOperationException"
 	default:

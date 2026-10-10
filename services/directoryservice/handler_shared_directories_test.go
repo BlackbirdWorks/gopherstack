@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -124,12 +125,17 @@ func TestShareDirectory_StatusLifecycle(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, shareRec.Code)
 
-			descRec := doRequest(t, h, "DescribeSharedDirectories", map[string]any{"OwnerDirectoryId": dirID})
-			resp := respBody(t, descRec)
-			list, _ := resp["SharedDirectories"].([]any)
-			require.Len(t, list, 1)
-			entry, _ := list[0].(map[string]any)
-			assert.Equal(t, tt.wantAfterShare, entry["ShareStatus"])
+			require.Eventually(t, func() bool {
+				descRec := doRequest(t, h, "DescribeSharedDirectories", map[string]any{"OwnerDirectoryId": dirID})
+				resp := respBody(t, descRec)
+				list, _ := resp["SharedDirectories"].([]any)
+				if len(list) != 1 {
+					return false
+				}
+				entry, _ := list[0].(map[string]any)
+
+				return entry["ShareStatus"] == tt.wantAfterShare
+			}, 5*time.Second, 10*time.Millisecond)
 		})
 	}
 

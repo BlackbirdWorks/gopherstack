@@ -42,6 +42,8 @@ type EndpointConnectionSettings struct {
 	// create time are exactly what's read back, matching what the provider
 	// itself sent regardless of AWS's real per-field defaults.
 	S3Settings string
+	// EngineSettings holds the other engine-specific settings blocks as raw JSON, keyed by wire name.
+	EngineSettings map[string]string
 	// NewIdentifier is ModifyEndpoint-only: rename the endpoint.
 	NewIdentifier string
 	// ExactSettings is ModifyEndpoint-only: replace rather than merge settings.
@@ -102,6 +104,7 @@ func (b *InMemoryBackend) CreateEndpoint(
 		SslMode:                   settings.SslMode,
 		ExternalTableDefinition:   settings.ExternalTableDefinition,
 		S3Settings:                settings.S3Settings,
+		EngineSettings:            settings.EngineSettings,
 	}
 	b.endpoints.Put(ep)
 	b.appendEvent(
@@ -310,9 +313,32 @@ func applyEndpointConnectionSettings(ep *Endpoint, settings EndpointConnectionSe
 		ep.ExternalTableDefinition = settings.ExternalTableDefinition
 	}
 
-	if settings.S3Settings != "" {
+	if settings.S3Settings != "" || settings.ExactSettings {
 		ep.S3Settings = mergeEndpointSettings(ep.S3Settings, settings.S3Settings, settings.ExactSettings)
 	}
+
+	ep.EngineSettings = mergeEngineSettings(ep.EngineSettings, settings.EngineSettings, settings.ExactSettings)
+}
+
+func mergeEngineSettings(current, incoming map[string]string, exact bool) map[string]string {
+	if exact {
+		return incoming
+	}
+
+	if len(incoming) == 0 {
+		return current
+	}
+
+	out := maps.Clone(current)
+	if out == nil {
+		out = map[string]string{}
+	}
+
+	for name, raw := range incoming {
+		out[name] = mergeEndpointSettings(current[name], raw, false)
+	}
+
+	return out
 }
 
 // ModifyEndpoint updates endpoint settings.

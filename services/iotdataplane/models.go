@@ -76,7 +76,9 @@ type shadowEntry struct {
 // exported fields, so it is never JSON-marshaled directly; connectionEntrySnap
 // (persistence.go) is its serialisable form.
 type connectionEntry struct {
-	connectedAt time.Time
-	clientID    string
-	sourceIP    string
+	disconnectedAt   time.Time
+	disconnectReason string
+	connectedAt      time.Time
+	clientID         string
+	sourceIP         string
 }

@@ -95,6 +95,10 @@ func (b *InMemoryBackend) CreateParameterGroup(
 		return nil, fmt.Errorf("family is required: %w", ErrValidation)
 	}
 
+	if err := validateParameterGroupFamily(req.Family); err != nil {
+		return nil, err
+	}
+
 	if err := validateResourceName(req.ParameterGroupName, "parameter group"); err != nil {
 		return nil, err
 	}

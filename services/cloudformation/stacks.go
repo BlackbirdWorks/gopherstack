@@ -64,10 +64,19 @@ type StackOptions struct {
 // CreateNestedStack implements NestedStackCreator. Must be called while b.mu is held by caller.
 func (b *InMemoryBackend) CreateNestedStack(
 	ctx context.Context,
-	name, _ /* templateURL */, templateBody string,
+	name, templateURL, templateBody string,
 	params []Parameter,
 	parentID string,
 ) (string, error) {
+	if templateBody == "" && templateURL != "" {
+		fetched, fetchErr := b.FetchS3URL(ctx, templateURL)
+		if fetchErr != nil {
+			return "", fetchErr
+		}
+
+		templateBody = fetched
+	}
+
 	// Lock already held by parent CreateStack — use the no-lock variant.
 	stack, err := b.createStackLocked(ctx, name, templateBody, params, StackOptions{}, parentID)
 	if err != nil {
@@ -266,6 +275,10 @@ func (b *InMemoryBackend) CreateStack(
 	b.mu.Lock("CreateStack")
 	defer b.mu.Unlock()
 
+	if err := preflightTemplateErr(templateBody, params); err != nil {
+		return nil, err
+	}
+
 	return b.createStackLocked(ctx, name, templateBody, params, opts, "")
 }
 
@@ -305,16 +318,10 @@ func (b *InMemoryBackend) createStackLocked(
 		return nil, err
 	}
 
-	if existing, ok := b.stacks.Get(name); ok {
-		if existing.StackStatus != statusDeleteComplete {
-			return nil, ErrStackAlreadyExists
-		}
-		// Remove the old stack ID from the index before re-creating.
-		delete(b.stackIDIndex, existing.StackID)
+	arn, err := b.stackARNForCreateLocked(name)
+	if err != nil {
+		return nil, err
 	}
-
-	stackID := uuid.New().String()
-	arn := b.buildStackARN(name, stackID)
 	now := time.Now()
 
 	stack := &Stack{
@@ -353,7 +360,9 @@ func (b *InMemoryBackend) createStackLocked(
 	if opts.StackPolicyBody != "" {
 		b.stackPolicies[arn] = opts.StackPolicyBody
 	}
-	b.events[arn] = nil
+	if _, reused := b.events[arn]; !reused {
+		b.events[arn] = nil
+	}
 	b.resources[arn] = make(map[string]*StackResource)
 
 	b.addEvent(arn, name, name, arn, cfnStackType, statusCreateInProgress, reasonUserInitiated)
@@ -706,31 +715,16 @@ func (b *InMemoryBackend) UpdateStack(
 	b.mu.Lock("UpdateStack")
 	defer b.mu.Unlock()
 
-	// Validate RoleARN format and IAM capability requirements.
-	if err := validateStackOptions(templateBody, opts); err != nil {
+	stack, params, err := b.prepareUpdateLocked(nameOrID, templateBody, params, opts)
+	if err != nil {
 		return nil, err
-	}
-
-	if err := validateStackPolicyBody(opts.StackPolicyBody); err != nil {
-		return nil, err
-	}
-
-	if !opts.DisableValidation {
-		if err := preflightGetAttAttributeErr(templateBody); err != nil {
-			return nil, err
-		}
-	}
-
-	stack, ok := b.resolveStack(nameOrID)
-	if !ok {
-		return nil, ErrStackNotFound
 	}
 
 	// Enforce the stack policy before mutating any state: computeChanges
 	// needs stack.TemplateBody as it stood before this update, and a denied
 	// update must fail atomically rather than partially transitioning the
 	// stack to UPDATE_IN_PROGRESS.
-	if err := b.checkStackPolicy(stack, templateBody, opts); err != nil {
+	if err = b.checkStackPolicy(stack, templateBody, opts); err != nil {
 		return nil, err
 	}
 
@@ -1262,4 +1256,68 @@ func (b *InMemoryBackend) rollbackUpdateResources(
 		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
 		cfnStackType, statusUpdateRollbackComplete, "",
 	)
+}
+
+// prepareUpdateLocked resolves the target stack and runs every synchronous
+// UpdateStack check; the returned params have UsePreviousValue resolved.
+func (b *InMemoryBackend) prepareUpdateLocked(
+	nameOrID, templateBody string,
+	params []Parameter,
+	opts StackOptions,
+) (*Stack, []Parameter, error) {
+	if err := validateStackOptions(templateBody, opts); err != nil {
+		return nil, nil, err
+	}
+
+	if err := validateStackPolicyBody(opts.StackPolicyBody); err != nil {
+		return nil, nil, err
+	}
+
+	stack, ok := b.resolveStack(nameOrID)
+	if !ok || stack.StackStatus == statusDeleteComplete {
+		return nil, nil, ErrStackNotFound
+	}
+
+	if err := stackUpdatableErr(stack); err != nil {
+		return nil, nil, err
+	}
+
+	merged, err := mergePreviousParameters(stack, params)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err = preflightTemplateErr(templateBody, merged); err != nil {
+		return nil, nil, err
+	}
+
+	if !opts.DisableValidation {
+		if err = preflightGetAttAttributeErr(templateBody); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if isNoOpUpdate(stack, templateBody, merged, opts) {
+		return nil, nil, awsErrorf(ErrNoUpdates, "No updates are to be performed.")
+	}
+
+	return stack, merged, nil
+}
+
+// stackARNForCreateLocked returns the StackId a CreateStack of name uses: the
+// REVIEW_IN_PROGRESS stack's own ARN when a CREATE change set made one,
+// otherwise a fresh one.
+func (b *InMemoryBackend) stackARNForCreateLocked(name string) (string, error) {
+	if existing, ok := b.stacks.Get(name); ok {
+		switch existing.StackStatus {
+		case statusDeleteComplete:
+			delete(b.stackIDIndex, existing.StackID)
+		case statusReviewInProgress:
+			return existing.StackID, nil
+		default:
+			return "", ErrStackAlreadyExists
+		}
+	}
+
+	return b.buildStackARN(name, uuid.New().String()), nil
 }

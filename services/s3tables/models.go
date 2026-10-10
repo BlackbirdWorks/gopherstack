@@ -111,7 +111,10 @@ type Table struct {
 	// default (SSE-S3/AES256) -- see GetTableEncryption. There is no
 	// separate PutTableEncryption SDK operation; this can only be set at
 	// creation.
-	Encryption     map[string]any `json:"encryption"`
+	Encryption map[string]any `json:"encryption"`
+	// Metadata is the Iceberg metadata supplied at CreateTable time (schema, partition spec,
+	// write order, properties).
+	Metadata       map[string]any `json:"metadata,omitempty"`
 	TableBucketARN string         `json:"tableBucketARN"`
 	// TableBucketID is the owning bucket's system-assigned ID (TableBucket.BucketID
 	// at CreateTable time), the real GetTableOutput/TableSummary "tableBucketId"
@@ -143,6 +146,7 @@ type CreateTableBucketOptions struct {
 // on the wire request) in addition to the required name/format.
 type CreateTableOptions struct {
 	Encryption   map[string]any
+	Metadata     map[string]any
 	Tags         map[string]string
 	StorageClass string
 }

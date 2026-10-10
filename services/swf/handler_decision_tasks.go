@@ -159,6 +159,14 @@ type requestCancelExternalWorkflowExecutionDecisionAttrs struct {
 	Control    string `json:"control,omitempty"`
 }
 
+type scheduleLambdaFunctionDecisionAttrs struct {
+	ID                  string `json:"id"`
+	Name                string `json:"name"`
+	Control             string `json:"control,omitempty"`
+	Input               string `json:"input,omitempty"`
+	StartToCloseTimeout string `json:"startToCloseTimeout,omitempty"`
+}
+
 //nolint:lll // AWS API field names exceed 120 chars; cannot shorten JSON tags
 type decisionInput struct {
 	CompleteWorkflowExecutionDecisionAttributes              *completeWorkflowDecisionAttrs                       `json:"completeWorkflowExecutionDecisionAttributes,omitempty"`
@@ -169,6 +177,7 @@ type decisionInput struct {
 	StartTimerDecisionAttributes                             *startTimerDecisionAttrs                             `json:"startTimerDecisionAttributes,omitempty"`
 	CancelTimerDecisionAttributes                            *cancelTimerDecisionAttrs                            `json:"cancelTimerDecisionAttributes,omitempty"`
 	RecordMarkerDecisionAttributes                           *recordMarkerDecisionAttrs                           `json:"recordMarkerDecisionAttributes,omitempty"`
+	ScheduleLambdaFunctionDecisionAttributes                 *scheduleLambdaFunctionDecisionAttrs                 `json:"scheduleLambdaFunctionDecisionAttributes,omitempty"`
 	ContinueAsNewWorkflowExecutionDecisionAttributes         *continueAsNewWorkflowDecisionAttrs                  `json:"continueAsNewWorkflowExecutionDecisionAttributes,omitempty"`
 	StartChildWorkflowExecutionDecisionAttributes            *startChildWorkflowExecutionDecisionAttrs            `json:"startChildWorkflowExecutionDecisionAttributes,omitempty"`
 	SignalExternalWorkflowExecutionDecisionAttributes        *signalExternalWorkflowExecutionDecisionAttrs        `json:"signalExternalWorkflowExecutionDecisionAttributes,omitempty"`
@@ -177,9 +186,11 @@ type decisionInput struct {
 }
 
 type handleRespondDecisionTaskCompletedInput struct {
-	TaskToken        string          `json:"taskToken"`
-	ExecutionContext string          `json:"executionContext,omitempty"`
-	Decisions        []decisionInput `json:"decisions,omitempty"`
+	TaskList                       *taskListRef    `json:"taskList,omitempty"`
+	TaskToken                      string          `json:"taskToken"`
+	ExecutionContext               string          `json:"executionContext,omitempty"`
+	TaskListScheduleToStartTimeout string          `json:"taskListScheduleToStartTimeout,omitempty"`
+	Decisions                      []decisionInput `json:"decisions,omitempty"`
 }
 
 type respondDecisionTaskCompletedOutput struct{}
@@ -243,6 +254,11 @@ func convertDecisionTaskAttrs(d decisionInput, dec *Decision) {
 	if d.CancelTimerDecisionAttributes != nil {
 		dec.CancelTimerAttrs = &CancelTimerDecisionAttrs{
 			TimerID: d.CancelTimerDecisionAttributes.TimerID,
+		}
+	}
+	if sl := d.ScheduleLambdaFunctionDecisionAttributes; sl != nil {
+		dec.ScheduleLambdaFunctionAttrs = &ScheduleLambdaFunctionDecisionAttrs{
+			ID: sl.ID, Name: sl.Name, Control: sl.Control, Input: sl.Input, StartToCloseTimeout: sl.StartToCloseTimeout,
 		}
 	}
 	if d.RecordMarkerDecisionAttributes != nil {
@@ -328,7 +344,15 @@ func (h *Handler) handleRespondDecisionTaskCompleted(
 		convertDecisionOrchestrationAttrs(d, &dec)
 		decisions = append(decisions, dec)
 	}
-	if err := h.Backend.RespondDecisionTaskCompleted(in.TaskToken, in.ExecutionContext, decisions); err != nil {
+	var opts []RespondDecisionOption
+	if in.TaskList != nil && in.TaskList.Name != "" {
+		opts = append(opts, WithStickyTaskList(in.TaskList.Name, in.TaskListScheduleToStartTimeout))
+	}
+	if err := h.Backend.RespondDecisionTaskCompleted(
+		in.TaskToken,
+		in.ExecutionContext,
+		decisions,
+		opts...); err != nil {
 		return nil, err
 	}
 

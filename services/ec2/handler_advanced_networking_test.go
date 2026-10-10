@@ -437,7 +437,7 @@ func TestEC2Core_Handler_AssociateVpcCidrBlock(t *testing.T) {
 		vpcID := body[vpcIDStart:vpcIDEnd]
 
 		assocRec := postForm(t, h, fmt.Sprintf(
-			"Action=AssociateVpcCidrBlock&Version=2016-11-15&VpcId=%s&CidrBlock=192.168.0.0/24",
+			"Action=AssociateVpcCidrBlock&Version=2016-11-15&VpcId=%s&CidrBlock=10.1.0.0/24",
 			vpcID,
 		))
 		assert.Equal(t, http.StatusOK, assocRec.Code)

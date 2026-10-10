@@ -148,7 +148,7 @@ func NewHandler(backend StorageBackend) *Handler {
 
 // resetHome clears the home region only.
 func (h *Handler) resetHome() {
-	h.idem.reset()
+	h.idempotency().reset()
 
 	if r, ok := h.Backend.(interface{ Reset() }); ok {
 		r.Reset()
@@ -982,6 +982,7 @@ func writeJSON(c *echo.Context, status int, v any) error {
 // decodeNotFoundError maps not-found sentinel errors to 404.
 func isNotFound(err error) bool {
 	return errors.Is(err, ErrDeviceNotFound) ||
+		errors.Is(err, ErrNoPositionSolver) ||
 		errors.Is(err, ErrGatewayNotFound) ||
 		errors.Is(err, ErrServiceProfileNotFound) ||
 		errors.Is(err, ErrDestinationNotFound) ||

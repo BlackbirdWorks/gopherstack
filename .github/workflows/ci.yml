@@ -149,13 +149,33 @@ jobs:
           token: ${{ env.GH_CI_TOKEN }}
           persist-credentials: false
 
-      - name: govulncheck
-        uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
-          go-version-file: go.mod
-          go-package: ./...
-          output-format: sarif
-          output-file: govulncheck.sarif
+          go-version: '1.27'
+          check-latest: true
+          cache: true
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@19b0bb6a272792b9afa8a6983c3e9b9a1816947f
+
+      # Source mode (./...) peaks at ~11 GB RSS and ~20 min on this module and
+      # OOM-kills the runner; binary mode scans the shipped binary in ~0.5 GB.
+      - name: Build gopherstack binary
+        run: go build -o "$RUNNER_TEMP/gopherstack" .
+
+      - name: Run govulncheck and save to file
+        run: govulncheck -mode=binary -format sarif "$RUNNER_TEMP/gopherstack" > govulncheck-raw.sarif
+
+      # Binary mode emits identical stacks (schema requires unique items) and no
+      # locations (code scanning requires one); anchor to go.mod:1 like source mode.
+      - name: Normalize SARIF for code scanning
+        run: |
+          jq '.runs[].results[] |= (
+            (if .stacks then .stacks |= unique else . end)
+            | (if (.locations // []) | length == 0
+               then .locations = [{physicalLocation: {artifactLocation: {uri: "go.mod"}, region: {startLine: 1}}}]
+               else . end))' govulncheck-raw.sarif > govulncheck.sarif
 
       - name: Upload govulncheck SARIF
         if: always()

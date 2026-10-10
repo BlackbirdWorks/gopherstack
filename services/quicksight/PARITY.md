@@ -1,7 +1,7 @@
 service: quicksight
 sdk_module: aws-sdk-go-v2/service/quicksight@v1.129.0
 last_audit_commit: 2332c3128  # 2026-09-24 DELETED analysis unbounded-growth fix; prior: 4ad783e5c
-last_audit_date: 2026-09-24 # quicksight-resources terraform coverage: CreateNamespace/Reset's
+last_audit_date: 2026-10-10 # quicksight-resources terraform coverage: CreateNamespace/Reset's
                       # default-namespace seed used the ResourceStatus enum's
                       # "CREATION_SUCCESSFUL" for Namespace.CreationStatus instead of the real,
                       # distinct NamespaceStatus enum's "CREATED" -- confirmed against
@@ -310,13 +310,17 @@ gaps: []
   # dropping the field from vpcConnectionToMap; the model still stores/round-trips
   # SubnetIDs for Create/Update. See handler_vpcconnections.go, handler_vpcconnections_test.go.
 items_still_open:
-  - "BatchDescribeUserLimits AGENT_HOURS SYSTEM_DEFAULT (4 STANDARD / 8 ENTERPRISE) has no primary AWS source (API_EffectiveLimit.html gives no default); the figure is from third-party pricing coverage. Correct it if AWS documents one."
-  - "DescribeTopicV2/DescribeTopic do not project each other's family-only fields (V1 ConfigOptions/full DatasetMetadata, V2 DataSetRelations/CustomInstructions): the schemas are not convertible and the SDK documents no projection."
-  - "No backing subsystem for: GetDashboardEmbedUrl ResetDisabled/StatePersistenceEnabled/UndoRedoDisabled (opaque embed URL), CreateDashboard.Parameters (no Describe* echo, opaque Definition), and StartAssetBundleExportJob strict-mode validation errors (ValidationStrategy itself is echoed since 2026-10-04, but no dependency validation runs)."
-  - "DataSetSummary.RowLevelPermissionDataSetMap and KnowledgeBaseSummary.PrimaryOwnerUsername/Type are not modeled: no multi-RLS-map request member on Create/UpdateDataSet, no username or knowledge-base-type source."
-  - "2026-09-30: CLOSED ListFoldersForResource ARN-with-slash routing (realclient_datasets_and_dashboards_test.go testFoldersExtraRealClient), ListApps (TestRealClient_AppLifecycle), dataset RLS/CLS/UseAs fields (dataset_security_client_test.go) and ListDashboardVersions Description/SourceEntityArn/CreatedTime (dashboard_versions_client_test.go; per-version records capped at 1000)."
-  - "Accepted but not applied: StartAssetBundleImportJob OverrideParameters, OverridePermissions, OverrideTags and OverrideValidationStrategy (the import applies no overrides), PredictQAResults IncludeGeneratedAnswer, IncludeQuickSightQIndex and MaxTopicsToConsider (no answer-generation engine), StartDashboardSnapshotJob.UserConfiguration, GenerateEmbedUrlForAnonymousUser.SessionTags and GetIdentityContext.SessionExpiresAt (the embed URL and identity token are opaque), DescribeSpace.MaxContributors (Space.Contributors is unmodeled), RegisterUser.IamArn (User.Arn is always the synthesized user ARN), and UpdateAnalysis/UpdateDashboard Parameters (no Describe op echoes them)."
-  - "SessionLifetimeInMinutes (15-600) and AllowedDomains (at most three) are validated on the embed ops but the generated URL does not carry them; the error code for a bad value, the code for AdditionalDashboardIds with a non-ANONYMOUS identity, the INITIAL_INGESTION and EDIT request types of dataset-triggered ingestions, and RestoreToFolders=false dropping folder memberships are from the SDK docs' wording, not observed against AWS."
+  - "DescribeTopicV2/DescribeTopic do not project each other's family-only fields (V1 ConfigOptions/full DatasetMetadata, V2 DataSetRelations/CustomInstructions): the schemas are not convertible and neither the SDK nor the API reference documents a projection."
+  - "KnowledgeBaseSummary.Type is a free string (*string, no enum) and no doc says what it is derived from."
+  - "Embed/ingestion edge semantics not documented: the error code for AdditionalDashboardIds with a non-ANONYMOUS identity (InvalidParameterValueException used; IdentityTypeNotSupportedException's doc names only IAM/QUICKSIGHT), the INITIAL_INGESTION and EDIT dataset-triggered ingestion request types, and RestoreToFolders=false dropping folder memberships."
+structural_gaps:
+  - "GetDashboardEmbedUrl ResetDisabled/StatePersistenceEnabled/UndoRedoDisabled, SessionLifetimeInMinutes/AllowedDomains carriage in the URL, GenerateEmbedUrlForAnonymousUser.SessionTags and GetIdentityContext.SessionExpiresAt: the embed URL and identity token are opaque."
+  - "CreateDashboard/UpdateDashboard/UpdateAnalysis Parameters: no Describe* operation echoes them and the Definition is opaque."
+  - "StartAssetBundleExportJob strict-mode validation errors: no resource dependency graph runs. StartAssetBundleImportJob Override* members are echoed by DescribeAssetBundleImportJob (since 2026-10-07) but never applied: the import does not unpack or re-create bundle contents."
+  - "PredictQAResults IncludeGeneratedAnswer, IncludeQuickSightQIndex and MaxTopicsToConsider: no answer-generation engine."
+  - "StartDashboardSnapshotJob.UserConfiguration: no Describe* output carries it and snapshots render no real output."
+  - "DescribeSpace.MaxContributors (Space.Contributors needs per-user raw-file-size attribution from an ingestion pipeline) and RegisterUser.IamArn (no output member carries it)."
+  - "DataSetSummary.RowLevelPermissionDataSetMap: no Create/UpdateDataSet request member sets the new-experience RLS map."
 deferred: []
   # All families audited across the prior and this pass; see families above. None
   # remain deferred.
@@ -2281,3 +2285,10 @@ Tool false positives: both folder-permission ops page through `writePagedFolderP
 - DescribeFolderPermissions.NextToken: same path as MaxResults.
 - DescribeFolderResolvedPermissions.MaxResults: paged through the same helper.
 - DescribeFolderResolvedPermissions.NextToken: same path as MaxResults.
+
+## 2026-10-10: realism pass (CLI/SDK probing)
+
+- Duplicate creates now return `ResourceExistsException` (the SDK-modelled code) instead of `ConflictException` for namespace, group, user, data source, data set, ingestion, dashboard and analysis; ApprovalPolicy keeps `ConflictException` (its only modelled code). Error messages no longer echo the bare code.
+- CreateIngestion: id validated (`[a-zA-Z0-9-_]{1,128}`); ingestions stay RUNNING for `SetIngestionDelay` (default 1s) then report COMPLETED with IngestionTimeInSeconds; ListIngestions uses opaque tokens, newest first, bad token is `InvalidNextTokenException`.
+- CreateDashboard/CreateAnalysis/CreateDataSource report CREATION_IN_PROGRESS; Describe settles to CREATION_SUCCESSFUL after `SetCreationDelay` (default 0, root wiring needed for a flag).
+- Other list operations still use hand-rolled id tokens that silently restart on a bad token.

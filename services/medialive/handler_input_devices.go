@@ -66,6 +66,10 @@ func (h *Handler) handleClaimDevice(c *echo.Context, body map[string]any) error 
 }
 
 func (h *Handler) handleListInputDevices(c *echo.Context) error {
+	if err := validPaging(c); err != nil {
+		return respondErr(c, err)
+	}
+
 	maxResults, nextTokenParam := paginationParams(c)
 	devices, nextToken, err := h.Backend.ListInputDevices(maxResults, nextTokenParam)
 	if err != nil {
@@ -165,6 +169,10 @@ func (h *Handler) handleRejectInputDeviceTransfer(c *echo.Context, deviceID stri
 
 func (h *Handler) handleListInputDeviceTransfers(c *echo.Context) error {
 	transferType := c.QueryParam("transferType")
+	if err := validPaging(c); err != nil {
+		return respondErr(c, err)
+	}
+
 	maxResults, nextTokenParam := paginationParams(c)
 
 	transfers, nextToken, err := h.Backend.ListInputDeviceTransfers(transferType, maxResults, nextTokenParam)

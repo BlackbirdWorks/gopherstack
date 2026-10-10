@@ -65,33 +65,33 @@ func TestCodeArtifactRepositoryRegionIsolation(t *testing.T) {
 	ctxEast := caCtxRegion("us-east-1")
 	ctxWest := caCtxRegion("us-west-2")
 
-	_, err := backend.CreateDomain(ctxEast, "d", "", nil)
+	_, err := backend.CreateDomain(ctxEast, "dom", "", nil)
 	require.NoError(t, err)
-	_, err = backend.CreateDomain(ctxWest, "d", "", nil)
-	require.NoError(t, err)
-
-	_, err = backend.CreateRepository(ctxEast, "d", "repo", "east repo", nil, nil)
-	require.NoError(t, err)
-	_, err = backend.CreateRepository(ctxWest, "d", "repo", "west repo", nil, nil)
+	_, err = backend.CreateDomain(ctxWest, "dom", "", nil)
 	require.NoError(t, err)
 
-	eastRepo, err := backend.DescribeRepository(ctxEast, "d", "repo")
+	_, err = backend.CreateRepository(ctxEast, "dom", "repo", "east repo", nil, nil)
+	require.NoError(t, err)
+	_, err = backend.CreateRepository(ctxWest, "dom", "repo", "west repo", nil, nil)
+	require.NoError(t, err)
+
+	eastRepo, err := backend.DescribeRepository(ctxEast, "dom", "repo")
 	require.NoError(t, err)
 	assert.Equal(t, "east repo", eastRepo.Description)
 	assert.Contains(t, eastRepo.ARN, "us-east-1")
 
-	westRepo, err := backend.DescribeRepository(ctxWest, "d", "repo")
+	westRepo, err := backend.DescribeRepository(ctxWest, "dom", "repo")
 	require.NoError(t, err)
 	assert.Equal(t, "west repo", westRepo.Description)
 	assert.Contains(t, westRepo.ARN, "us-west-2")
 
 	// Deleting the repo in us-east-1 leaves us-west-2's repo intact.
-	_, err = backend.DeleteRepository(ctxEast, "d", "repo")
+	_, err = backend.DeleteRepository(ctxEast, "dom", "repo")
 	require.NoError(t, err)
 
-	_, err = backend.DescribeRepository(ctxEast, "d", "repo")
+	_, err = backend.DescribeRepository(ctxEast, "dom", "repo")
 	require.Error(t, err)
 
-	_, err = backend.DescribeRepository(ctxWest, "d", "repo")
+	_, err = backend.DescribeRepository(ctxWest, "dom", "repo")
 	require.NoError(t, err)
 }

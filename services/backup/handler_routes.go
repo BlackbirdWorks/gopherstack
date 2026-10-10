@@ -84,7 +84,7 @@ type backupRoute struct {
 func parseBackupPath(
 	method, rawPath string,
 ) backupRoute {
-	path, _ := url.PathUnescape(rawPath)
+	path := normalizeRoutePath(rawPath)
 
 	switch {
 	case strings.HasPrefix(path, pathBackupVaults):
@@ -1055,4 +1055,13 @@ func parseBackupAccessPointRoute(method, suffix string) backupRoute {
 	}
 
 	return backupRoute{operation: opUnknown}
+}
+
+func normalizeRoutePath(rawPath string) string {
+	path, _ := url.PathUnescape(rawPath)
+	if len(path) > 1 {
+		path = strings.TrimSuffix(path, "/")
+	}
+
+	return path
 }

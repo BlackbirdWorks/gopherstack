@@ -7,7 +7,7 @@
 service: waf
 sdk_module: aws-sdk-go-v2/service/waf@v1.33.4   # WAF Classic (legacy WAF/WAF Regional), distinct from wafv2
 last_audit_commit: 1ecd57d33
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-07
 overall: A            # 2026-08-29 (cursor-population sweep): all 16 List ops declare a real NextMarker
                       # (from the pinned SDK Output structs directly), and 15 of 16 already read
                       # NextMarker/Limit from the request and set NextMarker on the response through the
@@ -40,10 +40,9 @@ families:
   PermissionPolicy: {status: ok, note: "no ChangeToken in real AWS, correctly not required"}
   Migration: {status: ok, note: "CreateWebACLMigrationStack returns a deterministic S3 URL shape; genuinely can't produce a real migration template without wafv2 state, documented as a stub-shape return, not a disguised no-op"}
 gaps: []
-items_still_open:
-  - "2026-08-29 (constrain-not-honoured sweep, confirmed clean): every List op's Limit/NextMarker is applied via the shared paginate() chokepoint (handler.go) except opListSubscribedRuleGroups, which ignores its request body entirely. Not fixed: ListSubscribedRuleGroups' backend (rule_groups.go) always returns an empty slice (structural_gaps: no marketplace-subscription simulation), so there is never more than zero items to paginate -- Limit/NextMarker have no observable effect either way. GetRateBasedRuleManagedKeys.NextMarker is documented on the SDK itself as \"not currently used\" (api_op_GetRateBasedRuleManagedKeys.go), correctly unread. No other List/Get op in this service accepts a filter/selector parameter beyond Limit/NextMarker on the pinned v1.33.4 SDK -- verified by reading every api_op_List*.go/api_op_Get*ManagedKeys.go input struct."
-  - "2026-09-06 (gopherstack-y6ok, deliberately NOT fixed): ListTagsForResource performs no existence check on ResourceARN. WAFNonexistentItemException IS declared on ListTagsForResource's error list (deserializers.go awk recipe confirms it), but so is it declared, with the identical generic doc text (\"The operation failed because the referenced object doesn't exist.\", types/errors.go:440) on TagResource, UntagResource, and every Get/Delete op that unambiguously does existence-check by resource ID (e.g. GetIPSet, DeleteIPSet) -- the doc text is boilerplate on the exception type, not operation-specific behavior, and no sentence anywhere in api_op_ListTagsForResource.go (operation doc, ResourceARN field doc, or the error type doc) pins down that ListTagsForResource itself validates ARN existence. Declaring an error in a Smithy operation's error trait is not proof the emulated operation reaches it. Left unimplemented rather than guessing; if a doc source surfaces later that pins this down, revisit."
+items_still_open: []
 structural_gaps:
+  - "ListSubscribedRuleGroups ignores Limit/NextMarker: the marketplace-subscription list is always empty, so paging is unobservable. GetRateBasedRuleManagedKeys.NextMarker is documented by the SDK as not currently used."
   - "GetSampledRequests always returns an empty SampledRequests list: real AWS randomly samples from actual HTTP requests evaluated against the WebACL's rules. Gopherstack has no request-proxying subsystem -- it never sees or evaluates real client traffic through WAF rules, so there is no request data to sample from, ever. Producing non-empty samples would mean fabricating fictitious HTTP requests, exactly the failure mode this parity campaign exists to remove. (WebAclId existence validation IS buildable from real state and was added this pass; the sample content is not.) (bd: gopherstack-smld)"
   - "GetRateBasedRuleManagedKeys always returns an empty ManagedKeys list: real AWS derives it from live request-rate tracking against the rule's RateLimit over a trailing 5-minute window, which requires the same real-traffic evaluation GetSampledRequests lacks. Nothing in InMemoryBackend's state (RateBasedRule config, WebACL associations) encodes request rates, so there is no rate to threshold against. (RuleId existence validation IS buildable and already present.) (bd: gopherstack-smld)"
 deferred: []

@@ -181,6 +181,13 @@ func (b *InMemoryBackend) SetDNSRegistrar(dns DNSRegistrar) {
 	b.dnsRegistrar = dns
 }
 
+// SetClusterActivationDelay sets how long a new cluster stays "creating"; zero (default) is instant.
+func (b *InMemoryBackend) SetClusterActivationDelay(d time.Duration) {
+	b.mu.Lock("SetClusterActivationDelay")
+	defer b.mu.Unlock()
+	b.clusterActivationDelay = d
+}
+
 // cloneCluster returns a deep copy of a Cluster, excluding the live Tags pointer.
 // The caller receives a value copy with a nil Tags field; use Tags.Clone() to get tag data.
 func cloneCluster(c *Cluster) Cluster {

@@ -296,7 +296,7 @@ func TestListIdentityPools_TokenPastEnd(t *testing.T) {
 
 	rec := doCognitoIdentityRequest(t, h, "ListIdentityPools", map[string]any{
 		"MaxResults": 10,
-		"NextToken":  "zzz-past-end-token",
+		"NextToken":  "enp6LXBhc3QtZW5kLXRva2Vu",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

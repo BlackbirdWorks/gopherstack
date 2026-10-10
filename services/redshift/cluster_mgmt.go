@@ -23,6 +23,7 @@ type ModifyClusterOptions struct {
 	ExtraComputeForAutomaticOptimization *bool
 	AutomatedSnapshotRetentionPeriod     *int
 	ManualSnapshotRetentionPeriod        *int
+	NewClusterIdentifier                 string
 	NodeType                             string
 	MasterUserPassword                   string
 	ClusterVersion                       string
@@ -71,6 +72,10 @@ func (b *InMemoryBackend) ModifyCluster(id string, opts ModifyClusterOptions) (*
 		return nil, err
 	}
 
+	if err := b.validateNewClusterIDLocked(id, opts.NewClusterIdentifier); err != nil {
+		return nil, err
+	}
+
 	applyModifyClusterUnconditional(cluster, opts)
 
 	if opts.ApplyImmediately {
@@ -81,6 +86,7 @@ func (b *InMemoryBackend) ModifyCluster(id string, opts ModifyClusterOptions) (*
 	}
 
 	b.applyModifyClusterSettingsLocked(cluster, opts.Settings)
+	b.renameClusterLocked(id, opts.NewClusterIdentifier)
 
 	cp := cloneCluster(cluster)
 

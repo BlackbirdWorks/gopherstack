@@ -316,3 +316,47 @@ func TestDeleteSyncConfiguration_CleansUpSyncBlockers(t *testing.T) {
 	_, err = b.UpdateSyncBlocker(ctx, blocker.ID, "fixed")
 	assert.ErrorIs(t, err, codeconnections.ErrSyncBlockerNotFound)
 }
+
+func TestSyncBlockerContextsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		contexts []codeconnections.SyncBlockerContext
+	}{
+		{name: "none"},
+		{
+			name:     "two_pairs",
+			contexts: []codeconnections.SyncBlockerContext{{Key: "Branch", Value: "main"}, {Key: "Repo", Value: "r"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			ctx := context.Background()
+
+			conn, err := b.CreateConnection(ctx, "conn", "GitHub", "", nil)
+			require.NoError(t, err)
+
+			link, err := b.CreateRepositoryLink(ctx, conn.ConnectionArn, "my-org", "my-repo", "", nil)
+			require.NoError(t, err)
+
+			_, err = b.CreateSyncConfiguration(
+				ctx, "main", "sync.yaml", link.RepositoryLinkID, "ctx-stack",
+				"arn:aws:iam::123456789012:role/r", "CFN_STACK_SYNC", "", "", "",
+			)
+			require.NoError(t, err)
+
+			_, err = b.CreateSyncBlocker(ctx, "ctx-stack", "CFN_STACK_SYNC", "AUTOMATED", "drift", tt.contexts...)
+			require.NoError(t, err)
+
+			summary, err := b.GetSyncBlockerSummary(ctx, "ctx-stack", "CFN_STACK_SYNC")
+			require.NoError(t, err)
+			require.Len(t, summary.LatestBlockers, 1)
+			assert.Equal(t, tt.contexts, summary.LatestBlockers[0].Contexts)
+		})
+	}
+}

@@ -105,8 +105,9 @@ func (h *Handler) handleGetWorkflow(
 
 // getWorkflowRunInput holds input for GetWorkflowRun.
 type getWorkflowRunInput struct {
-	Name  string `json:"Name"`
-	RunID string `json:"RunId"`
+	Name         string `json:"Name"`
+	RunID        string `json:"RunId"`
+	IncludeGraph bool   `json:"IncludeGraph,omitempty"`
 }
 
 // getWorkflowRunOutput holds the result for GetWorkflowRun.
@@ -123,7 +124,12 @@ func (h *Handler) handleGetWorkflowRun(
 		return nil, err
 	}
 
-	return &getWorkflowRunOutput{Run: toWorkflowRunWire(run)}, nil
+	wire := toWorkflowRunWire(run)
+	if in.IncludeGraph {
+		wire.Graph = toWorkflowGraphWire(h.Backend.WorkflowRunGraph(in.Name))
+	}
+
+	return &getWorkflowRunOutput{Run: wire}, nil
 }
 
 // getWorkflowRunPropertiesInput holds input for GetWorkflowRunProperties.
@@ -170,9 +176,10 @@ const defaultGetWorkflowRunsLimit = 100
 // wire struct, so every call returned every stored run in one unbounded
 // response regardless of what a real client requested.
 type getWorkflowRunsInput struct {
-	Name       string `json:"Name"`
-	NextToken  string `json:"NextToken,omitempty"`
-	MaxResults int32  `json:"MaxResults,omitempty"`
+	Name         string `json:"Name"`
+	NextToken    string `json:"NextToken,omitempty"`
+	MaxResults   int32  `json:"MaxResults,omitempty"`
+	IncludeGraph bool   `json:"IncludeGraph,omitempty"`
 }
 
 // getWorkflowRunsOutput holds the result for GetWorkflowRuns.
@@ -197,7 +204,16 @@ func (h *Handler) handleGetWorkflowRuns(
 
 	page, next := paginateSlice(all, in.NextToken, limit)
 
-	return &getWorkflowRunsOutput{Runs: toWorkflowRunWireList(page), NextToken: next}, nil
+	runs := toWorkflowRunWireList(page)
+
+	if in.IncludeGraph && len(runs) > 0 {
+		graph := toWorkflowGraphWire(h.Backend.WorkflowRunGraph(in.Name))
+		for _, r := range runs {
+			r.Graph = graph
+		}
+	}
+
+	return &getWorkflowRunsOutput{Runs: runs, NextToken: next}, nil
 }
 
 // defaultListWorkflowsLimit is used when ListWorkflowsInput.MaxResults is unset.
@@ -282,7 +298,8 @@ func (h *Handler) handleResumeWorkflowRun(
 
 // startWorkflowRunInput holds input for StartWorkflowRun.
 type startWorkflowRunInput struct {
-	Name string `json:"Name"`
+	RunProperties map[string]string `json:"RunProperties,omitempty"`
+	Name          string            `json:"Name"`
 }
 
 // startWorkflowRunOutput holds the result for StartWorkflowRun.
@@ -294,7 +311,7 @@ func (h *Handler) handleStartWorkflowRun(
 	_ context.Context,
 	in *startWorkflowRunInput,
 ) (*startWorkflowRunOutput, error) {
-	run, err := h.Backend.StartWorkflowRun(in.Name)
+	run, err := h.Backend.StartWorkflowRunWithProperties(in.Name, in.RunProperties)
 	if err != nil {
 		return nil, err
 	}

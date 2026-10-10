@@ -26,7 +26,7 @@ func (b *InMemoryBackend) PutManagedScalingPolicy(
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return notValidErr("Cluster", clusterID)
 	}
 
 	cp := policy
@@ -67,7 +67,7 @@ func (b *InMemoryBackend) GetManagedScalingPolicy(
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return nil, notValidErr("Cluster", clusterID)
 	}
 
 	if cluster.managedScalingPolicy == nil {
@@ -88,7 +88,7 @@ func (b *InMemoryBackend) RemoveManagedScalingPolicy(ctx context.Context, cluste
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return notValidErr("Cluster", clusterID)
 	}
 
 	cluster.managedScalingPolicy = nil
@@ -129,7 +129,7 @@ func (b *InMemoryBackend) PutAutoTerminationPolicy(
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return notValidErr("Cluster", clusterID)
 	}
 
 	cp := policy
@@ -152,7 +152,7 @@ func (b *InMemoryBackend) GetAutoTerminationPolicy(
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return nil, notValidErr("Cluster", clusterID)
 	}
 
 	if cluster.autoTerminationPolicy == nil {
@@ -173,7 +173,7 @@ func (b *InMemoryBackend) RemoveAutoTerminationPolicy(ctx context.Context, clust
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return notValidErr("Cluster", clusterID)
 	}
 
 	cluster.autoTerminationPolicy = nil
@@ -194,7 +194,7 @@ func (b *InMemoryBackend) PutAutoScalingPolicy(
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return nil, "", "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return nil, "", "", notValidErr("Cluster", clusterID)
 	}
 
 	for i := range cluster.instanceGroups {
@@ -224,7 +224,7 @@ func (b *InMemoryBackend) RemoveAutoScalingPolicy(
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return notValidErr("Cluster", clusterID)
 	}
 
 	for i := range cluster.instanceGroups {

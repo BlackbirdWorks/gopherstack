@@ -311,6 +311,8 @@ func classifySSMError(reqErr error) (string, int) {
 	switch {
 	case errors.Is(reqErr, ErrParameterVersionNotFound):
 		return "ParameterVersionNotFound", statusCode
+	case errors.Is(reqErr, ErrParameterLabelLimitExceeded):
+		return "ParameterVersionLabelLimitExceeded", statusCode
 	case errors.Is(reqErr, ErrParameterNotFound):
 		return "ParameterNotFound", statusCode
 	case errors.Is(reqErr, ErrParameterAlreadyExists):
@@ -432,6 +434,10 @@ func classifySSMResourceIdentityError(reqErr error) (string, int, bool) {
 		return "InvalidActivationId", statusCode, true
 	case errors.Is(reqErr, ErrInvalidResourceID):
 		return "InvalidResourceId", statusCode, true
+	case errors.Is(reqErr, ErrInvalidTypeName):
+		return "InvalidTypeNameException", statusCode, true
+	case errors.Is(reqErr, ErrUnsupportedInventorySchemaVersion):
+		return "UnsupportedInventorySchemaVersionException", statusCode, true
 	default:
 		return "", 0, false
 	}

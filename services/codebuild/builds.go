@@ -257,7 +257,7 @@ func (b *InMemoryBackend) StartBuild(projectName string, cfg StartBuildConfig) (
 
 	proj, ok := b.projects.Get(projectName)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: Project cannot be found: %s", ErrNotFound, b.buildProjectARN(projectName))
 	}
 
 	token := cfg.IdempotencyToken
@@ -360,7 +360,13 @@ func (b *InMemoryBackend) StopBuild(id string) (*Build, error) {
 
 	build, ok := b.builds.Get(id)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: Build cannot be found: %s", ErrNotFound, id)
+	}
+
+	if build.BuildComplete {
+		out := *build
+
+		return &out, nil
 	}
 
 	build.BuildStatus = buildStatusStopped
@@ -415,7 +421,7 @@ func (b *InMemoryBackend) RetryBuild(id, idempotencyToken string) (*Build, error
 
 	existing, ok := b.builds.Get(id)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: Build cannot be found: %s", ErrNotFound, id)
 	}
 
 	fp := idemFingerprint(id)
@@ -498,7 +504,7 @@ func (b *InMemoryBackend) ListBuildsForProject(projectName string) ([]string, er
 	defer b.mu.RUnlock()
 
 	if !b.projects.Has(projectName) {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: Project cannot be found: %s", ErrNotFound, b.buildProjectARN(projectName))
 	}
 
 	group := b.buildsByProject.Get(projectName)
@@ -546,4 +552,30 @@ func buildLogsFor(cfg *LogsConfig) *BuildLogs {
 	}
 
 	return out
+}
+
+// executionPhases are the phases a build passes through between SUBMITTED and COMPLETED.
+var executionPhases = []string{ //nolint:gochecknoglobals // read-only phase order
+	"QUEUED", "PROVISIONING", "DOWNLOAD_SOURCE", "INSTALL", "PRE_BUILD",
+	"BUILD", "POST_BUILD", "UPLOAD_ARTIFACTS", "FINALIZING",
+}
+
+// recordSuccessfulPhases fills in the phase timeline of a build that ran to completion at now.
+func recordSuccessfulPhases(build *Build, now float64) {
+	start := build.StartTime
+	step := (now - start) / float64(len(executionPhases))
+
+	for i, p := range executionPhases {
+		begin := start + step*float64(i)
+		end := start + step*float64(i+1)
+		build.Phases = append(build.Phases, BuildPhase{
+			PhaseType:         p,
+			PhaseStatus:       buildStatusSucceeded,
+			StartTime:         begin,
+			EndTime:           end,
+			DurationInSeconds: end - begin,
+		})
+	}
+
+	build.Phases = append(build.Phases, BuildPhase{PhaseType: phaseCompleted, StartTime: now})
 }

@@ -119,6 +119,10 @@ func (h *Handler) handleGetInsightEvents(_ context.Context, body []byte) ([]byte
 		})
 	}
 
+	if tokErr := checkNextToken(in.NextToken); tokErr != nil {
+		return nil, tokErr
+	}
+
 	pg := page.New(views, in.NextToken, int(in.MaxResults), defaultInsightEventsPageSize)
 
 	return json.Marshal(map[string]any{
@@ -251,6 +255,10 @@ func (h *Handler) handleGetInsightSummaries(_ context.Context, body []byte) ([]b
 
 	for i := range summaries {
 		views = append(views, toInsightSummaryView(&summaries[i]))
+	}
+
+	if tokErr := checkNextToken(in.NextToken); tokErr != nil {
+		return nil, tokErr
 	}
 
 	pg := page.New(views, in.NextToken, int(in.MaxResults), defaultInsightSummariesPageSize)

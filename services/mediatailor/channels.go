@@ -110,6 +110,10 @@ func (b *InMemoryBackend) CreateChannel(
 		return nil, fmt.Errorf("%w: ChannelName required", ErrInvalidParameter)
 	}
 
+	if err := validateResourceName("ChannelName", name); err != nil {
+		return nil, err
+	}
+
 	switch playbackMode {
 	case "", playbackModeLoop:
 		playbackMode = playbackModeLoop

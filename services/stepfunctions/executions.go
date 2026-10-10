@@ -61,6 +61,7 @@ func (b *InMemoryBackend) pruneExecutionsLocked(cutoff float64) int {
 		// Removes the execution from the table and, via the executionsByStateMachine
 		// index, from the former smExecutions bookkeeping too -- the execution's
 		// inline history goes with it since there is no longer a separate map.
+		b.reserveClosedExecName(arn)
 		b.executions.Delete(arn)
 		delete(b.executionDefinitions, arn)
 		delete(b.historyTruncated, arn)
@@ -70,10 +71,31 @@ func (b *InMemoryBackend) pruneExecutionsLocked(cutoff float64) int {
 		}
 	}
 
+	closedBefore := float64(time.Now().Add(-closedExecNameReservation).Unix())
+	for arn, closed := range b.closedExecNames {
+		if closed < closedBefore {
+			delete(b.closedExecNames, arn)
+		}
+	}
+
 	b.pruneMapRunsLocked(cutoff)
 	b.sweepOrphanedTombstonesLocked()
 
 	return len(toDelete)
+}
+
+// reserveClosedExecName keeps a pruned STANDARD execution's name reserved: AWS only
+// frees a closed execution's name 90 days after it closes (api_op_StartExecution.go).
+func (b *InMemoryBackend) reserveClosedExecName(execARN string) {
+	exec, ok := b.executions.Get(execARN)
+	if !ok || exec.StopDate == nil {
+		return
+	}
+
+	if sm, smOK := b.stateMachines.Get(exec.StateMachineArn); smOK &&
+		sm.Type != validateStateMachineDefinitionTypeExpress {
+		b.closedExecNames[execARN] = *exec.StopDate
+	}
 }
 
 // sweepOrphanedTombstonesLocked removes deletedExecs entries whose goroutines
@@ -93,12 +115,8 @@ func (b *InMemoryBackend) sweepOrphanedTombstonesLocked() {
 func (b *InMemoryBackend) StartSyncExecution(
 	stateMachineArn, name, input string,
 ) (*SyncExecutionResult, error) {
-	if len(input) > maxExecutionInputBytes {
-		return nil, fmt.Errorf(
-			"%w: input exceeds %d bytes",
-			ErrInvalidExecutionInput,
-			maxExecutionInputBytes,
-		)
+	if err := validateExecutionInput(input); err != nil {
+		return nil, err
 	}
 
 	stateMachineArn, testCase, hasTestCase := splitMockTestCase(stateMachineArn)
@@ -154,14 +172,12 @@ func (b *InMemoryBackend) StartSyncExecution(
 	// execution ARN, even when StartSyncExecution was called with one.
 	baseSMArn := sm.StateMachineArn
 
-	const millisPerSecond = 1000.0
-	startDate := float64(time.Now().UnixMilli()) / millisPerSecond
+	startDate := epochNow()
 	execARN := b.execARN(baseSMArn, smName, name)
 
-	// Express Workflows must complete within 5 minutes per AWS spec.
-	const expressSyncTimeout = 5 * time.Minute
+	syncLimit, timeoutCause := syncExecutionLimit(parsedSM.TimeoutSeconds)
 
-	syncCtx, syncCancel := context.WithTimeout(b.execContext(execARN), expressSyncTimeout)
+	syncCtx, syncCancel := context.WithTimeout(b.execContext(execARN), syncLimit)
 	defer syncCancel()
 
 	// Run synchronously with nil history recorder (sync executions are ephemeral).
@@ -192,11 +208,24 @@ func (b *InMemoryBackend) StartSyncExecution(
 		startDate,
 		result,
 		execErr,
+		timeoutCause,
 	)
 	b.emitExecutionStarted(baseSMArn)
 	b.emitExecutionEnded(baseSMArn, syncResult.Status, syncResult.StartDate, syncResult.StopDate)
 
 	return syncResult, nil
+}
+
+// expressSyncTimeout is the AWS cap on an Express Workflow execution.
+const expressSyncTimeout = 5 * time.Minute
+
+// syncExecutionLimit returns the sync deadline and its TIMED_OUT cause (empty when the definition's own limit applies).
+func syncExecutionLimit(definitionSeconds int) (time.Duration, string) {
+	if def := time.Duration(definitionSeconds) * time.Second; def > 0 && def < expressSyncTimeout {
+		return def, ""
+	}
+
+	return expressSyncTimeout, "Express Workflow exceeded the 5-minute maximum execution time"
 }
 
 // finalizeSyncExecutionResult assembles the SyncExecutionResult based on the
@@ -207,8 +236,9 @@ func finalizeSyncExecutionResult(
 	startDate float64,
 	result *asl.ExecutionResult,
 	execErr error,
+	timeoutCause string,
 ) *SyncExecutionResult {
-	stopDate := float64(time.Now().Unix())
+	stopDate := epochNow()
 
 	syncResult := &SyncExecutionResult{
 		StartDate:       startDate,
@@ -222,8 +252,8 @@ func finalizeSyncExecutionResult(
 	if execErr != nil {
 		if errors.Is(execErr, context.DeadlineExceeded) {
 			syncResult.Status = "TIMED_OUT"
-			syncResult.Error = "States.Timeout"
-			syncResult.Cause = "Express Workflow exceeded the 5-minute maximum execution time"
+			syncResult.Error = errCodeStatesTimeout
+			syncResult.Cause = timeoutCause
 		} else {
 			syncResult.Status = statusFailed
 			syncResult.Error = execErr.Error()
@@ -367,6 +397,10 @@ func (b *InMemoryBackend) startExecutionLocked(
 
 			return nil, fmt.Errorf("%w: %s", ErrExecutionAlreadyExists, name)
 		}
+
+		if _, closed := b.closedExecNames[execArn]; closed {
+			return nil, fmt.Errorf("%w: %s", ErrExecutionAlreadyExists, name)
+		}
 	}
 
 	// Parse the definition before inserting any state, so a bad definition never
@@ -378,8 +412,7 @@ func (b *InMemoryBackend) startExecutionLocked(
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
 	}
 
-	const millisPerSecond = 1000.0
-	now := float64(time.Now().UnixMilli()) / millisPerSecond
+	now := epochNow()
 	exec := b.initializeExecutionRecord(
 		baseSMArn, name, execArn, input, definition, now, resolved.VersionArn, resolved.AliasArn,
 	)
@@ -411,12 +444,8 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 func (b *InMemoryBackend) StartExecutionWithTrace(
 	stateMachineArn, name, input, traceHeader string,
 ) (*Execution, error) {
-	if len(input) > maxExecutionInputBytes {
-		return nil, fmt.Errorf(
-			"%w: input exceeds %d bytes",
-			ErrInvalidExecutionInput,
-			maxExecutionInputBytes,
-		)
+	if err := validateExecutionInput(input); err != nil {
+		return nil, err
 	}
 
 	if name != "" {
@@ -506,7 +535,13 @@ func (b *InMemoryBackend) runParsedExecution(
 	executor.SetMapRunNotifier(b)
 	executor.SetDistributedMapRunner(&distributedMapChildRunner{backend: b})
 	b.applyExecutorContext(executor, execARN)
-	result, execErr := executor.Execute(ctx, execARN, input)
+
+	runCtx, cancelRun := executionDeadline(ctx, sm.TimeoutSeconds)
+	result, execErr := executor.Execute(runCtx, execARN, input)
+	timedOut := sm.TimeoutSeconds > 0 && ctx.Err() == nil &&
+		errors.Is(runCtx.Err(), context.DeadlineExceeded) && (execErr != nil || result == nil || result.Failed)
+
+	cancelRun()
 
 	b.mu.Lock("runParsedExecution")
 	defer b.mu.Unlock()
@@ -532,7 +567,40 @@ func (b *InMemoryBackend) runParsedExecution(
 		return
 	}
 
+	if timedOut {
+		b.timeOutExecutionLocked(exec, execARN)
+
+		return
+	}
+
 	b.finalizeExecutionRecordLocked(exec, execARN, result, execErr)
+}
+
+// executionDeadline bounds ctx by the state machine's top-level TimeoutSeconds (0 means unbounded).
+func executionDeadline(ctx context.Context, timeoutSeconds int) (context.Context, context.CancelFunc) {
+	if timeoutSeconds <= 0 {
+		return context.WithCancel(ctx)
+	}
+
+	return context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
+}
+
+// timeOutExecutionLocked closes a RUNNING execution as TIMED_OUT with States.Timeout.
+func (b *InMemoryBackend) timeOutExecutionLocked(exec *Execution, execARN string) {
+	now := epochNow()
+	exec.Status = statusTimedOut
+	exec.StopDate = &now
+	exec.Error = "States.Timeout"
+	exec.RedriveStatus = redriveStatusRedrivable
+	exec.RedriveStatusReason = ""
+	b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, execARN)
+	b.addToStatusBucket(exec.StateMachineArn, statusTimedOut, execARN)
+	b.emitExecutionEnded(exec.StateMachineArn, statusTimedOut, exec.StartDate, now)
+
+	nextID := int64(len(exec.history) + 1)
+	exec.history = append(exec.history, &HistoryEvent{
+		Timestamp: now, Type: "ExecutionTimedOut", ID: nextID, PreviousEventID: nextID - 1,
+	})
 }
 
 func (b *InMemoryBackend) finalizeExecutionRecordLocked(
@@ -541,7 +609,7 @@ func (b *InMemoryBackend) finalizeExecutionRecordLocked(
 	result *asl.ExecutionResult,
 	execErr error,
 ) {
-	now := float64(time.Now().Unix())
+	now := epochNow()
 	exec.StopDate = &now
 	nextID := int64(len(exec.history) + 1)
 
@@ -606,7 +674,7 @@ func (b *InMemoryBackend) StopExecution(executionArn, errCode, cause string) err
 		return nil
 	}
 
-	now := float64(time.Now().Unix())
+	now := epochNow()
 	exec.Status = statusAborted
 	exec.StopDate = &now
 	exec.Error = errCode
@@ -705,7 +773,10 @@ func (b *InMemoryBackend) ListExecutions(
 	// single page will ever return.
 	sort.Slice(ptrs, func(i, j int) bool { return ptrs[i].StartDate > ptrs[j].StartDate })
 
-	pagePtrs, token := paginate(ptrs, nextToken, maxResults)
+	pagePtrs, token, pageErr := paginate(ptrs, nextToken, maxResults)
+	if pageErr != nil {
+		return nil, "", pageErr
+	}
 
 	// See the comment in DescribeExecution: whole-struct copies of *Execution
 	// touch history, which appendHistory writes under historyMu rather than
@@ -751,7 +822,10 @@ func (b *InMemoryBackend) ListExecutionsByMapRun(
 	// every execution attributed to this map run.
 	sort.Slice(ptrs, func(i, j int) bool { return ptrs[i].StartDate > ptrs[j].StartDate })
 
-	pagePtrs, token := paginate(ptrs, nextToken, maxResults)
+	pagePtrs, token, pageErr := paginate(ptrs, nextToken, maxResults)
+	if pageErr != nil {
+		return nil, "", pageErr
+	}
 
 	// See the comment in DescribeExecution: whole-struct copies of *Execution
 	// touch history, which appendHistory writes under historyMu rather than
@@ -809,9 +883,9 @@ func (b *InMemoryBackend) redriveExecutionLocked(executionARN string) (*redriven
 		return nil, fmt.Errorf("%w: %s", ErrExecutionDoesNotExist, executionARN)
 	}
 
-	if exec.Status != statusFailed && exec.Status != statusAborted {
+	if exec.Status != statusFailed && exec.Status != statusAborted && exec.Status != statusTimedOut {
 		return nil, fmt.Errorf(
-			"%w: execution %s is in status %s; only FAILED or ABORTED executions can be redriven",
+			"%w: execution %s is in status %s; only FAILED, TIMED_OUT or ABORTED executions can be redriven",
 			ErrExecutionNotRedrivable,
 			executionARN,
 			exec.Status,
@@ -838,7 +912,7 @@ func (b *InMemoryBackend) redriveExecutionLocked(executionARN string) (*redriven
 	}
 
 	// Reset the execution to RUNNING.
-	now := float64(time.Now().Unix())
+	now := epochNow()
 	b.resetExecutionForRedrive(exec, executionARN, smARN, now)
 
 	// Snapshot the (possibly-updated) definition.
@@ -993,4 +1067,16 @@ func matchesRedriveFilter(exec *Execution, filter string) bool {
 	default:
 		return true
 	}
+}
+
+func validateExecutionInput(input string) error {
+	if len(input) > maxExecutionInputBytes {
+		return fmt.Errorf("%w: input exceeds %d bytes", ErrInvalidExecutionInput, maxExecutionInputBytes)
+	}
+
+	if input != "" && !json.Valid([]byte(input)) {
+		return fmt.Errorf("%w: input is not valid JSON", ErrInvalidExecutionInput)
+	}
+
+	return nil
 }

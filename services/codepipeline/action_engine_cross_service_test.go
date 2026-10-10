@@ -324,7 +324,7 @@ func TestRunOneAction_NonAWSProviderUntouched(t *testing.T) {
 
 	exec, err := h.Backend.StartPipelineExecution(ctx, p.Name)
 	require.NoError(t, err)
-	assert.Equal(t, "Succeeded", exec.Status)
+	assert.Equal(t, "InProgress", exec.Status, "a Custom action waits for its job worker, not CodeBuild")
 }
 
 // regionRecorder records the region each cross-service call carried.

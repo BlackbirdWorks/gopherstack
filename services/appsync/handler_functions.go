@@ -74,7 +74,7 @@ func (h *Handler) createFunction(ctx context.Context, c *echo.Context, apiID str
 		return h.handleError(ctx, c, "CreateFunction", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{keyFunctionConfiguration: created})
+	return c.JSON(http.StatusCreated, map[string]any{keyFunctionConfiguration: wireShape(created, "apiId")})
 }
 
 // getFunction handles GET /v1/apis/{apiId}/functions/{functionId}.
@@ -84,7 +84,7 @@ func (h *Handler) getFunction(ctx context.Context, c *echo.Context, apiID, funct
 		return h.handleError(ctx, c, "GetFunction", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyFunctionConfiguration: fn})
+	return c.JSON(http.StatusOK, map[string]any{keyFunctionConfiguration: wireShape(fn, "apiId")})
 }
 
 // listFunctions handles GET /v1/apis/{apiId}/functions.
@@ -99,7 +99,7 @@ func (h *Handler) listFunctions(ctx context.Context, c *echo.Context, apiID stri
 	}
 
 	page, tok := appsyncPaginate(fns, nextToken, maxResults)
-	out := map[string]any{"functions": page}
+	out := map[string]any{"functions": wireShape(page, "apiId")}
 	if tok != "" {
 		out["nextToken"] = tok
 	}
@@ -133,5 +133,5 @@ func (h *Handler) updateFunction(ctx context.Context, c *echo.Context, apiID, fu
 		return h.handleError(ctx, c, "UpdateFunction", updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyFunctionConfiguration: updated})
+	return c.JSON(http.StatusOK, map[string]any{keyFunctionConfiguration: wireShape(updated, "apiId")})
 }

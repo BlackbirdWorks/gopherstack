@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,9 +33,13 @@ const (
 	keyTags         = "Tags"
 	keyArn          = "Arn"
 
-	maxTagCount    = 50
-	maxTagKeyLen   = 128
-	maxTagValueLen = 256
+	maxTagCount = 50
+
+	maxNamespacesPerRegion   = 50
+	maxInstancesPerService   = 1000
+	maxInstancesPerNamespace = 2000
+	maxTagKeyLen             = 128
+	maxTagValueLen           = 256
 
 	// RegisterInstance custom-attribute quota, per the api_op_RegisterInstance.go
 	// doc comment: "You can add up to 30 custom attributes. For each key-value
@@ -416,6 +422,7 @@ var sentinelErrorCodes = sync.OnceValue(func() []struct {
 		{ErrServiceAlreadyExists, "ServiceAlreadyExists"},
 		{ErrResourceInUse, "ResourceInUse"},
 		{ErrTooManyTags, "TooManyTagsException"},
+		{ErrResourceLimitExceeded, "ResourceLimitExceeded"},
 		{ErrServiceAttributesLimitExceeded, "ServiceAttributesLimitExceededException"},
 		{ErrInvalidInput, errInvalidInput},
 		{errUnknownAction, errInvalidInput},
@@ -450,10 +457,17 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	})
 }
 
+var exceptionPrefixRe = regexp.MustCompile(`^(?:[A-Za-z]+: )+`)
+
 func (h *Handler) errorResponse(c *echo.Context, errType string, err error) error {
+	msg := exceptionPrefixRe.ReplaceAllString(err.Error(), "")
+	if msg == "" {
+		msg = err.Error()
+	}
+
 	payload, _ := json.Marshal(map[string]string{
 		keyTypeField:    errType,
-		keyMessageField: err.Error(),
+		keyMessageField: msg,
 	})
 
 	return c.JSONBlob(http.StatusBadRequest, payload)
@@ -598,4 +612,72 @@ func decodeCursor(token string) int {
 	}
 
 	return offset
+}
+
+var (
+	namespaceNameAnyRe    = regexp.MustCompile(`^[!-~]+$`)
+	namespaceNamePublicRe = regexp.MustCompile(`^(` + dnsLabelPattern + `\.)*` + dnsLabelPattern + `$`)
+	serviceNameRe         = regexp.MustCompile(`^` + serviceLabelPattern + `(\.` + serviceLabelPattern + `)*$`)
+	instanceIDRe          = regexp.MustCompile(`^[0-9a-zA-Z_/:.@-]+$`)
+)
+
+const (
+	dnsLabelPattern     = `[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?`
+	serviceLabelPattern = `([a-zA-Z0-9_][a-zA-Z0-9\-_]{0,61}[a-zA-Z0-9_]|[a-zA-Z0-9])`
+	maxServiceNameLen   = 127
+	maxInstanceIDLen    = 64
+	maxDNSNamespaceName = 253
+	maxNamespaceNameLen = 1024
+)
+
+// validateNamespaceName applies the per-kind name patterns; public names may be single-label
+// because in-repo fixtures rely on it.
+func validateNamespaceName(kind, name string) error {
+	ok := len(name) <= maxNamespaceNameLen && namespaceNameAnyRe.MatchString(name) && !strings.HasPrefix(name, "arn:")
+
+	switch kind {
+	case "public":
+		ok = ok && len(name) <= maxDNSNamespaceName && namespaceNamePublicRe.MatchString(name)
+	case "private":
+		ok = ok && len(name) <= maxDNSNamespaceName
+	}
+
+	if !ok {
+		return fmt.Errorf("%w: invalid namespace name %q", ErrInvalidInput, name)
+	}
+
+	return nil
+}
+
+func validateServiceName(name string) error {
+	if len(name) > maxServiceNameLen || !serviceNameRe.MatchString(name) {
+		return fmt.Errorf("%w: invalid service name %q", ErrInvalidInput, name)
+	}
+
+	return nil
+}
+
+func validateInstanceID(id string) error {
+	if len(id) > maxInstanceIDLen || !instanceIDRe.MatchString(id) {
+		return fmt.Errorf("%w: invalid instance id %q", ErrInvalidInput, id)
+	}
+
+	return nil
+}
+
+// validateInstanceAddresses rejects malformed AWS_INSTANCE_IPV4/IPV6 attribute values.
+func validateInstanceAddresses(attrs map[string]string) error {
+	if v, ok := attrs[instanceAttrIPv4]; ok {
+		if a, err := netip.ParseAddr(v); err != nil || !a.Is4() {
+			return fmt.Errorf("%w: %s %q is not a valid IPv4 address", ErrInvalidInput, instanceAttrIPv4, v)
+		}
+	}
+
+	if v, ok := attrs["AWS_INSTANCE_IPV6"]; ok {
+		if a, err := netip.ParseAddr(v); err != nil || !a.Is6() {
+			return fmt.Errorf("%w: AWS_INSTANCE_IPV6 %q is not a valid IPv6 address", ErrInvalidInput, v)
+		}
+	}
+
+	return nil
 }

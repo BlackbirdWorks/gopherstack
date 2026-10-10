@@ -61,6 +61,44 @@ func TestRealClient_RecordingGroupStrategy(t *testing.T) {
 			invalid: true,
 		},
 		{
+			name:    "empty_group",
+			group:   &types.RecordingGroup{},
+			invalid: true,
+		},
+		{
+			name: "all_supported_with_exclusion_strategy",
+			group: &types.RecordingGroup{
+				AllSupported:      true,
+				RecordingStrategy: strategy(types.RecordingStrategyTypeExclusionByResourceTypes),
+			},
+			invalid: true,
+		},
+		{
+			name:    "unknown_resource_type",
+			group:   &types.RecordingGroup{ResourceTypes: []types.ResourceType{"AWS::Nope::Thing"}},
+			invalid: true,
+		},
+		{
+			name: "unknown_excluded_resource_type",
+			group: &types.RecordingGroup{
+				ExclusionByResourceTypes: &types.ExclusionByResourceTypes{ResourceTypes: []types.ResourceType{"Nope"}},
+				RecordingStrategy:        strategy(types.RecordingStrategyTypeExclusionByResourceTypes),
+			},
+			invalid: true,
+		},
+		{
+			name: "unknown_strategy",
+			group: &types.RecordingGroup{
+				ResourceTypes:     []types.ResourceType{types.ResourceTypeInstance},
+				RecordingStrategy: strategy("BOGUS"),
+			},
+			invalid: true,
+		},
+		{
+			name:  "inclusion_ok",
+			group: &types.RecordingGroup{ResourceTypes: []types.ResourceType{types.ResourceTypeInstance}},
+		},
+		{
 			name: "all_supported_strategy_ok",
 			group: &types.RecordingGroup{
 				AllSupported:      true,

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -136,8 +137,10 @@ type getConnectionResponse struct {
 	ClientID          string `json:"clientId"`
 	SourceIP          string `json:"sourceIp,omitempty"`
 	TargetIP          string `json:"targetIp,omitempty"`
+	DisconnectReason  string `json:"disconnectReason,omitempty"`
 	ConnectedSince    int64  `json:"connectedSince,omitempty"`
 	SessionExpiry     int64  `json:"sessionExpiry,omitempty"`
+	DisconnectedSince int64  `json:"disconnectedSince,omitempty"`
 	SourcePort        int32  `json:"sourcePort,omitempty"`
 	TargetPort        int32  `json:"targetPort,omitempty"`
 	KeepAliveDuration int32  `json:"keepAliveDuration,omitempty"`
@@ -171,6 +174,14 @@ func (h *Handler) handleGetConnection(c *echo.Context) error {
 	conn, err := h.Backend.GetConnection(clientID)
 	if err != nil {
 		return h.handleError(c, err)
+	}
+
+	if !conn.DisconnectedAt.IsZero() {
+		return c.JSON(http.StatusOK, getConnectionResponse{
+			ClientID:          conn.ClientID,
+			DisconnectedSince: conn.DisconnectedAt.UnixMilli(),
+			DisconnectReason:  conn.DisconnectReason,
+		})
 	}
 
 	resp := getConnectionResponse{
@@ -283,10 +294,8 @@ type sendDirectMessageResponse struct {
 // via awsRestjson1_serializeOpHttpBindingsSendDirectMessageInput -- so
 // parseMQTT5PublishParams is reused here too, and every field now reaches
 // the broker as a real MQTT5 packet property, same as Publish.
-// confirmation/timeout (real AWS: wait for a QoS-1 PUBACK, 504 on timeout)
-// select QoS 0-vs-1 on the outgoing publish but never block or time out,
-// since neither MQTTPublisher.SendToClient nor PublishWithProperties wait
-// for an ack.
+// confirmation selects QoS 1 and waits up to timeout (1-15s, default 5) for the PUBACK, else 504
+// GatewayTimeoutException.
 func (h *Handler) handleSendDirectMessage(c *echo.Context) error {
 	log := logger.Load(c.Request().Context())
 
@@ -314,8 +323,15 @@ func (h *Handler) handleSendDirectMessage(c *echo.Context) error {
 	confirmation := parseRetainFlag(q.Get("confirmation"))
 
 	var qos int32
+
+	timeout := defaultDirectMessageTimeout
 	if confirmation {
 		qos = 1
+
+		var timeoutErr error
+		if timeout, timeoutErr = parseDirectMessageTimeout(q.Get("timeout")); timeoutErr != nil {
+			return h.handleError(c, timeoutErr)
+		}
 	}
 
 	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxPublishBodyBytes)
@@ -332,13 +348,16 @@ func (h *Handler) handleSendDirectMessage(c *echo.Context) error {
 		)
 	}
 
-	if sendErr := h.Backend.SendDirectMessage(
-		clientID,
-		topic,
-		payload,
-		qos,
-		mqtt5.toMQTT5Properties(),
-	); sendErr != nil {
+	var sendErr error
+	if confirmation {
+		sendErr = h.Backend.SendDirectMessageAwaitAck(
+			clientID, topic, payload, mqtt5.toMQTT5Properties(), timeout,
+		)
+	} else {
+		sendErr = h.Backend.SendDirectMessage(clientID, topic, payload, qos, mqtt5.toMQTT5Properties())
+	}
+
+	if sendErr != nil {
 		switch {
 		case errors.Is(sendErr, ErrNoBroker):
 			log.Warn("iot data plane: no broker configured, direct message dropped",
@@ -357,4 +376,24 @@ func (h *Handler) handleSendDirectMessage(c *echo.Context) error {
 		Message: "OK",
 		TraceID: uuid.NewString(),
 	})
+}
+
+const (
+	defaultDirectMessageTimeout = 5 * time.Second
+	minDirectMessageTimeoutSecs = 1
+	maxDirectMessageTimeoutSecs = 15
+)
+
+func parseDirectMessageTimeout(raw string) (time.Duration, error) {
+	if raw == "" {
+		return defaultDirectMessageTimeout, nil
+	}
+
+	secs, err := strconv.Atoi(raw)
+	if err != nil || secs < minDirectMessageTimeoutSecs || secs > maxDirectMessageTimeoutSecs {
+		return 0, fmt.Errorf("%w: timeout must be between %d and %d seconds",
+			ErrValidation, minDirectMessageTimeoutSecs, maxDirectMessageTimeoutSecs)
+	}
+
+	return time.Duration(secs) * time.Second, nil
 }

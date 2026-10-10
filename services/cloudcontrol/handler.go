@@ -178,7 +178,7 @@ type createResourceOutput struct {
 }
 
 func (h *Handler) handleCreateResource(
-	_ context.Context,
+	ctx context.Context,
 	in *createResourceInput,
 ) (*createResourceOutput, error) {
 	if in.TypeName == "" {
@@ -189,7 +189,7 @@ func (h *Handler) handleCreateResource(
 		return nil, fmt.Errorf("%w: DesiredState is required", ErrValidation)
 	}
 
-	event, err := h.Backend.CreateResource(in.TypeName, in.DesiredState, in.ClientToken)
+	event, err := h.Backend.CreateResourceContext(ctx, in.TypeName, in.DesiredState, in.ClientToken)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +210,7 @@ type deleteResourceOutput struct {
 }
 
 func (h *Handler) handleDeleteResource(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteResourceInput,
 ) (*deleteResourceOutput, error) {
 	if in.TypeName == "" {
@@ -221,7 +221,7 @@ func (h *Handler) handleDeleteResource(
 		return nil, fmt.Errorf("%w: Identifier is required", ErrValidation)
 	}
 
-	event, err := h.Backend.DeleteResource(in.TypeName, in.Identifier, in.ClientToken)
+	event, err := h.Backend.DeleteResourceContext(ctx, in.TypeName, in.Identifier, in.ClientToken)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +247,7 @@ type getResourceOutput struct {
 }
 
 func (h *Handler) handleGetResource(
-	_ context.Context,
+	ctx context.Context,
 	in *getResourceInput,
 ) (*getResourceOutput, error) {
 	if in.TypeName == "" {
@@ -258,7 +258,7 @@ func (h *Handler) handleGetResource(
 		return nil, fmt.Errorf("%w: Identifier is required", ErrValidation)
 	}
 
-	r, err := h.Backend.GetResource(in.TypeName, in.Identifier)
+	r, err := h.Backend.GetResourceContext(ctx, in.TypeName, in.Identifier)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +290,7 @@ type listResourcesOutput struct {
 }
 
 func (h *Handler) handleListResources(
-	_ context.Context,
+	ctx context.Context,
 	in *listResourcesInput,
 ) (*listResourcesOutput, error) {
 	if in.TypeName == "" {
@@ -307,7 +307,13 @@ func (h *Handler) handleListResources(
 		nextToken = *in.NextToken
 	}
 
-	resources, outToken := h.Backend.ListResources(in.TypeName, maxResults, nextToken, in.ResourceModel)
+	resources, outToken, listErr := h.Backend.ListResourcesContext(
+		ctx, in.TypeName, maxResults, nextToken, in.ResourceModel,
+	)
+	if listErr != nil {
+		return nil, listErr
+	}
+
 	if resources == nil {
 		// TypeName did not pass validation — backend returned nil.
 		return nil, fmt.Errorf("%w: invalid TypeName %q", ErrValidation, in.TypeName)
@@ -348,7 +354,7 @@ type updateResourceOutput struct {
 }
 
 func (h *Handler) handleUpdateResource(
-	_ context.Context,
+	ctx context.Context,
 	in *updateResourceInput,
 ) (*updateResourceOutput, error) {
 	if in.TypeName == "" {
@@ -363,7 +369,7 @@ func (h *Handler) handleUpdateResource(
 		return nil, fmt.Errorf("%w: PatchDocument is required", ErrValidation)
 	}
 
-	event, err := h.Backend.UpdateResource(in.TypeName, in.Identifier, in.PatchDocument, in.ClientToken)
+	event, err := h.Backend.UpdateResourceContext(ctx, in.TypeName, in.Identifier, in.PatchDocument, in.ClientToken)
 	if err != nil {
 		return nil, err
 	}

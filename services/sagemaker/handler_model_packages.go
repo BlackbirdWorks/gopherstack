@@ -47,6 +47,10 @@ func (h *Handler) handleCreateModelPackage(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if err := validateRequestShapes("CreateModelPackage", &req); err != nil {
+		return nil, err
+	}
+
 	if req.ModelPackageName == "" && req.ModelPackageGroupName == "" {
 		return nil, fmt.Errorf(
 			"%w: ModelPackageName is required for unversioned model packages", errInvalidRequest,
@@ -459,6 +463,10 @@ func (h *Handler) handleUpdateModelPackage(ctx context.Context, body []byte) ([]
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := validateRequestShapes("UpdateModelPackage", &req); err != nil {
+		return nil, err
 	}
 
 	if req.ModelPackageArn == "" {

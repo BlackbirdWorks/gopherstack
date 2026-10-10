@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	nhpprof "net/http/pprof"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/signal"
@@ -274,6 +275,7 @@ type CLI struct {
 	SQS                           sqsbackend.Settings `embed:"" prefix:"sqs-"`
 	SNS                           struct{}            `embed:"" prefix:"sns-"`
 	IAM                           struct{}            `embed:"" prefix:"iam-"`
+	shutdownDeadline              time.Time
 	kinesisHandler                service.Registerable
 	athenaHandler                 service.Registerable
 	emrserverlessHandler          service.Registerable
@@ -432,31 +434,30 @@ type CLI struct {
 	s3Client                      *s3.Client
 	globalConfig                  *config.GlobalConfig
 	portAlloc                     *portalloc.Allocator
-	shutdownDeadline              time.Time
-	ElastiCacheEngine             string                            `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"      default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                            //nolint:lll // config struct tags are intentionally verbose
-	KafkaEngine                   string                            `                                       name:"kafka-engine"            env:"KAFKA_ENGINE"            default:"stub"          help:"MSK engine mode: stub (metadata only) or docker (real Kafka broker per cluster)."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	MQEngine                      string                            `                                       name:"mq-engine"               env:"MQ_ENGINE"               default:"stub"          help:"Amazon MQ engine mode: stub (metadata only) or docker (real RabbitMQ/ActiveMQ container per broker)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
-	EKSEngine                     string                            `                                       name:"eks-engine"              env:"EKS_ENGINE"              default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
-	RDSEngine                     string                            `                                       name:"rds-engine"              env:"RDS_ENGINE"              default:"stub"          help:"RDS engine mode: stub (metadata only) or docker (real database container)."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
-	EC2Provider                   string                            `                                       name:"ec2-provider"            env:"EC2_PROVIDER"            default:"inmemory"      help:"EC2 compute provider: inmemory (stub) or docker (launches real containers as instances)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerImage                string                            `                                       name:"ec2-docker-image"        env:"EC2_DOCKER_IMAGE"        default:"amazonlinux:2" help:"Docker image used by the EC2 docker provider when launching instances."`                                                                                                                                     //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerNetwork              string                            `                                       name:"ec2-docker-network"      env:"EC2_DOCKER_NETWORK"      default:""              help:"Docker network EC2 docker-provider containers attach to (empty = daemon default bridge)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerSSHHostIP            string                            `                                       name:"ec2-docker-ssh-host-ip"  env:"EC2_DOCKER_SSH_HOST_IP"  default:"127.0.0.1"     help:"Host IP that mapped EC2-docker SSH ports bind to (use 0.0.0.0 to expose externally)."`                                                                                                                       //nolint:lll // config struct tags are intentionally verbose
-	Port                          string                            `                                       name:"port"                    env:"PORT"                    default:"8000"          help:"HTTP server port."`                                                                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
-	DataDir                       string                            `                                       name:"data-dir"                env:"GOPHERSTACK_DATA_DIR"    default:""              help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
-	DNSListenAddr                 string                            `                                       name:"dns-addr"                env:"DNS_ADDR"                default:""              help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	LogLevel                      string                            `                                       name:"log-level"               env:"LOG_LEVEL"               default:"info"          help:"Log level (debug|info|warn|error)."`                                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
-	Region                        string                            `                                       name:"region"                  env:"REGION"                  default:"us-east-1"     help:"AWS region (also read from AWS_DEFAULT_REGION and AWS_REGION)."`                                                                                                                                             //nolint:lll // config struct tags are intentionally verbose
-	OpenSearchEngine              string                            `                                       name:"opensearch-engine"       env:"OPENSEARCH_ENGINE"       default:"stub"          help:"OpenSearch engine mode: stub (API-only) or docker."`                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
-	ElasticsearchEngine           string                            `                                       name:"elasticsearch-engine"    env:"ELASTICSEARCH_ENGINE"    default:"stub"          help:"Elasticsearch engine mode: stub (API-only) or docker."`                                                                                                                                                      //nolint:lll // config struct tags are intentionally verbose
-	DNSResolveIP                  string                            `                                       name:"dns-resolve-ip"          env:"DNS_RESOLVE_IP"          default:"127.0.0.1"     help:"IP address synthetic hostnames resolve to."`                                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
-	AccountID                     string                            `                                       name:"account-id"              env:"ACCOUNT_ID"              default:"000000000000"  help:"Mock AWS account ID used in ARNs."`                                                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
-	TLSCertFile                   string                            `                                       name:"tls-cert"                env:"TLS_CERT"                default:""              help:"Path to a TLS certificate (PEM). Enables an HTTPS listener; requires --tls-key. Empty = HTTP only."`                                                                                                         //nolint:lll // config struct tags are intentionally verbose
-	TLSKeyFile                    string                            `                                       name:"tls-key"                 env:"TLS_KEY"                 default:""              help:"Path to a TLS private key (PEM). Required with --tls-cert."`                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
-	Compression                   string                            `                                       name:"compression"             env:"COMPRESSION"             default:"on"            help:"Runtime response compression: zstd/br/gzip for the dashboard, gzip for DynamoDB clients that opt in."                                                                                         enum:"on,off"` //nolint:lll // config struct tags are intentionally verbose
-	SigV4Secret                   string                            `                                       name:"sigv4-secret"            env:"SIGV4_SECRET"            default:"test"          help:"Secret access key SigV4 validation signs against (used only when --validate-sigv4 is set)."`                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
-	InitScripts                   []string                          `                                       name:"init-script"             env:"INIT_SCRIPTS"                                    help:"Shell scripts to run on startup (may be specified multiple times)."`                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
-	S3InitBuckets                 []string                          `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                      help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
+	ElastiCacheEngine             string                            `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"             default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                            //nolint:lll // config struct tags are intentionally verbose
+	KafkaEngine                   string                            `                                       name:"kafka-engine"            env:"KAFKA_ENGINE"                   default:"stub"          help:"MSK engine mode: stub (metadata only) or docker (real Kafka broker per cluster)."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	MQEngine                      string                            `                                       name:"mq-engine"               env:"MQ_ENGINE"                      default:"stub"          help:"Amazon MQ engine mode: stub (metadata only) or docker (real RabbitMQ/ActiveMQ container per broker)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
+	EKSEngine                     string                            `                                       name:"eks-engine"              env:"EKS_ENGINE"                     default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	RDSEngine                     string                            `                                       name:"rds-engine"              env:"RDS_ENGINE"                     default:"stub"          help:"RDS engine mode: stub (metadata only) or docker (real database container)."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	EC2Provider                   string                            `                                       name:"ec2-provider"            env:"EC2_PROVIDER"                   default:"inmemory"      help:"EC2 compute provider: inmemory (stub) or docker (launches real containers as instances)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerImage                string                            `                                       name:"ec2-docker-image"        env:"EC2_DOCKER_IMAGE"               default:"amazonlinux:2" help:"Docker image used by the EC2 docker provider when launching instances."`                                                                                                                                     //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerNetwork              string                            `                                       name:"ec2-docker-network"      env:"EC2_DOCKER_NETWORK"             default:""              help:"Docker network EC2 docker-provider containers attach to (empty = daemon default bridge)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerSSHHostIP            string                            `                                       name:"ec2-docker-ssh-host-ip"  env:"EC2_DOCKER_SSH_HOST_IP"         default:"127.0.0.1"     help:"Host IP that mapped EC2-docker SSH ports bind to (use 0.0.0.0 to expose externally)."`                                                                                                                       //nolint:lll // config struct tags are intentionally verbose
+	Port                          string                            `                                       name:"port"                    env:"PORT"                           default:"8000"          help:"HTTP server port."`                                                                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	DataDir                       string                            `                                       name:"data-dir"                env:"GOPHERSTACK_DATA_DIR"           default:""              help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
+	DNSListenAddr                 string                            `                                       name:"dns-addr"                env:"DNS_ADDR"                       default:""              help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	LogLevel                      string                            `                                       name:"log-level"               env:"LOG_LEVEL"                      default:"info"          help:"Log level (debug|info|warn|error)."`                                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	Region                        string                            `                                       name:"region"                  env:"REGION"                         default:"us-east-1"     help:"AWS region (also read from AWS_DEFAULT_REGION and AWS_REGION)."`                                                                                                                                             //nolint:lll // config struct tags are intentionally verbose
+	OpenSearchEngine              string                            `                                       name:"opensearch-engine"       env:"OPENSEARCH_ENGINE"              default:"stub"          help:"OpenSearch engine mode: stub (API-only) or docker."`                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	ElasticsearchEngine           string                            `                                       name:"elasticsearch-engine"    env:"ELASTICSEARCH_ENGINE"           default:"stub"          help:"Elasticsearch engine mode: stub (API-only) or docker."`                                                                                                                                                      //nolint:lll // config struct tags are intentionally verbose
+	DNSResolveIP                  string                            `                                       name:"dns-resolve-ip"          env:"DNS_RESOLVE_IP"                 default:"127.0.0.1"     help:"IP address synthetic hostnames resolve to."`                                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	AccountID                     string                            `                                       name:"account-id"              env:"ACCOUNT_ID"                     default:"000000000000"  help:"Mock AWS account ID used in ARNs."`                                                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	TLSCertFile                   string                            `                                       name:"tls-cert"                env:"TLS_CERT"                       default:""              help:"Path to a TLS certificate (PEM). Enables an HTTPS listener; requires --tls-key. Empty = HTTP only."`                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	TLSKeyFile                    string                            `                                       name:"tls-key"                 env:"TLS_KEY"                        default:""              help:"Path to a TLS private key (PEM). Required with --tls-cert."`                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	Compression                   string                            `                                       name:"compression"             env:"COMPRESSION"                    default:"on"            help:"Runtime response compression: zstd/br/gzip for the dashboard, gzip for DynamoDB clients that opt in."                                                                                         enum:"on,off"` //nolint:lll // config struct tags are intentionally verbose
+	SigV4Secret                   string                            `                                       name:"sigv4-secret"            env:"SIGV4_SECRET"                   default:"test"          help:"Secret access key SigV4 validation signs against (used only when --validate-sigv4 is set)."`                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	InitScripts                   []string                          `                                       name:"init-script"             env:"INIT_SCRIPTS"                                           help:"Shell scripts to run on startup (may be specified multiple times)."`                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	S3InitBuckets                 []string                          `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                             help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	AzureARM                      azurearmbackend.Settings          `embed:"" prefix:"azure-arm-"`
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
@@ -482,19 +483,21 @@ type CLI struct {
 	AzureTable                    azuretablebackend.Settings        `embed:"" prefix:"azure-table-"`
 	AzureServiceBus               azureservicebusbackend.Settings   `embed:"" prefix:"azure-servicebus-"`
 	AzureStorageVHost             azurestoragevhostbackend.Settings `embed:"" prefix:"azure-storage-vhost-"`
-	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"        default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
-	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"          default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN" default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerSSHPortMax           int                               `                                       name:"ec2-docker-ssh-port-max" env:"EC2_DOCKER_SSH_PORT_MAX" default:"0"             help:"Upper bound of the host TCP port range used to map EC2-docker SSH."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	InitScriptTimeout             time.Duration                     `                                       name:"init-timeout"            env:"INIT_TIMEOUT"            default:"30s"           help:"Per-script timeout for init hooks."`                                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	JanitorTimeout                time.Duration                     `                                       name:"janitor-timeout"         env:"JANITOR_TIMEOUT"         default:"30s"           help:"Per-task timeout for janitor operations (TTL sweeps, table cleaners, etc.). Zero disables per-task timeouts. Higher values prevent deadlocks; lower values keep the janitor loop responsive."` //nolint:lll // config struct tags are intentionally verbose
-	LatencyMs                     int                               `                                       name:"latency-ms"              env:"LATENCY_MS"              default:"0"             help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."`                                                                   //nolint:lll // config struct tags are intentionally verbose
-	AutoPurgeTTL                  time.Duration                     `                                       name:"auto-purge-ttl"          env:"AUTO_PURGE_TTL"                                  help:"If set, automatically reset all services on a timer based on the TTL (e.g., 10m)."`                                                                                                            //nolint:lll // config struct tags are intentionally verbose
-	EnforceIAM                    bool                              `                                       name:"enforce-iam"             env:"GOPHERSTACK_ENFORCE_IAM" default:"false"         help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
-	Persist                       bool                              `                                       name:"persist"                 env:"PERSIST"                 default:"false"         help:"Enable snapshot-based persistence across restarts."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	Demo                          bool                              `                                       name:"demo"                    env:"DEMO"                    default:"false"         help:"Load demo data on startup."`                                                                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
-	TLS                           bool                              `                                       name:"tls"                     env:"TLS"                     default:"false"         help:"Serve over HTTPS. With --tls-cert/--tls-key uses those files; otherwise a self-signed certificate is generated on demand."`                                                                    //nolint:lll // config struct tags are intentionally verbose
-	ValidateSigV4                 bool                              `                                       name:"validate-sigv4"          env:"VALIDATE_SIGV4"          default:"false"         help:"Cryptographically validate AWS SigV4 request signatures (opt-in). Signed requests whose signature does not match --sigv4-secret are rejected."`                                                //nolint:lll // config struct tags are intentionally verbose
+	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"               default:"10000"         help:"Start of the port range for resource endpoints."`                                          //nolint:lll // config struct tags are intentionally verbose
+	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                 default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"        default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."` //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerSSHPortMax           int                               `                                       name:"ec2-docker-ssh-port-max" env:"EC2_DOCKER_SSH_PORT_MAX"        default:"0"             help:"Upper bound of the host TCP port range used to map EC2-docker SSH."`                       //nolint:lll // config struct tags are intentionally verbose
+	Lifecycle                     LifecycleSettings                 `embed:"" prefix:"lifecycle-"`
+	ElasticsearchProcessingDelay  time.Duration                     `                                       name:"es-processing-delay"     env:"ELASTICSEARCH_PROCESSING_DELAY" default:"0s"            help:"Elasticsearch domain Processing window; 0 settles instantly."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	InitScriptTimeout             time.Duration                     `                                       name:"init-timeout"            env:"INIT_TIMEOUT"                   default:"30s"           help:"Per-script timeout for init hooks."`                                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	JanitorTimeout                time.Duration                     `                                       name:"janitor-timeout"         env:"JANITOR_TIMEOUT"                default:"30s"           help:"Per-task timeout for janitor operations (TTL sweeps, table cleaners, etc.). Zero disables per-task timeouts. Higher values prevent deadlocks; lower values keep the janitor loop responsive."` //nolint:lll // config struct tags are intentionally verbose
+	LatencyMs                     int                               `                                       name:"latency-ms"              env:"LATENCY_MS"                     default:"0"             help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."`                                                                   //nolint:lll // config struct tags are intentionally verbose
+	AutoPurgeTTL                  time.Duration                     `                                       name:"auto-purge-ttl"          env:"AUTO_PURGE_TTL"                                         help:"If set, automatically reset all services on a timer based on the TTL (e.g., 10m)."`                                                                                                            //nolint:lll // config struct tags are intentionally verbose
+	EnforceIAM                    bool                              `                                       name:"enforce-iam"             env:"GOPHERSTACK_ENFORCE_IAM"        default:"false"         help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
+	Persist                       bool                              `                                       name:"persist"                 env:"PERSIST"                        default:"false"         help:"Enable snapshot-based persistence across restarts."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	Demo                          bool                              `                                       name:"demo"                    env:"DEMO"                           default:"false"         help:"Load demo data on startup."`                                                                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
+	TLS                           bool                              `                                       name:"tls"                     env:"TLS"                            default:"false"         help:"Serve over HTTPS. With --tls-cert/--tls-key uses those files; otherwise a self-signed certificate is generated on demand."`                                                                    //nolint:lll // config struct tags are intentionally verbose
+	ValidateSigV4                 bool                              `                                       name:"validate-sigv4"          env:"VALIDATE_SIGV4"                 default:"false"         help:"Cryptographically validate AWS SigV4 request signatures (opt-in). Signed requests whose signature does not match --sigv4-secret are rejected."`                                                //nolint:lll // config struct tags are intentionally verbose
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -537,7 +540,10 @@ func (c *CLI) createPersistenceStore() (*persistence.FileStore, error) {
 }
 
 func (c *CLI) GetDynamoDBSettings() ddbbackend.Settings {
-	return c.DynamoDB
+	s := c.DynamoDB
+	s.CreateDelay = c.Lifecycle.effective(s.CreateDelay)
+
+	return s
 }
 
 // GetS3Settings returns S3 settings (s3.ConfigProvider).
@@ -1229,6 +1235,11 @@ func (c *CLI) GetEC2Handler() service.Registerable { return c.ec2Handler }
 
 // GetElasticsearchEngine returns the Elasticsearch engine mode (elasticsearch.EngineConfig).
 func (c *CLI) GetElasticsearchEngine() string { return c.ElasticsearchEngine }
+
+// GetElasticsearchProcessingDelay returns the domain Processing window (elasticsearch.ProcessingDelayConfig).
+func (c *CLI) GetElasticsearchProcessingDelay() time.Duration {
+	return c.Lifecycle.effective(c.ElasticsearchProcessingDelay)
+}
 
 // GetElasticsearchHandler returns the Elasticsearch handler.
 //
@@ -2939,6 +2950,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Store handlers in CLI so dashboard and CloudFormation can access them.
 	if cli, ok := appCtx.Config.(*CLI); ok {
 		storeCLIHandlers(cli, services)
+		wireLifecycleDelays(serviceByName(services), cli.Lifecycle)
 	}
 
 	// Build name-based lookup for cross-service wiring.
@@ -3031,6 +3043,8 @@ func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable
 		byName["StepFunctions"],
 		byName["CloudWatchLogs"],
 	)
+	wireEventBridgeJobTargets(byName)
+	wireHTTPTargets(byName)
 
 	// Wire S3 bucket notification delivery to SQS/SNS/Lambda targets.
 	wireS3Notifications(
@@ -3130,6 +3144,7 @@ func wireEventSourcePollers(byName map[string]service.Registerable) {
 func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName map[string]service.Registerable) {
 	// Wire Lambda async DeadLetterConfig / DestinationConfig delivery to SQS/SNS/Lambda.
 	wireLambdaAsyncDestinations(byName["Lambda"], byName["SQS"], byName["SNS"])
+	wireLambdaESMS3Destination(byName)
 
 	// Wire CloudWatch alarm actions → SNS, Lambda, EC2, and Auto Scaling backends.
 	wireCloudWatchAlarmActions(byName["CloudWatch"], byName["SNS"], byName["Lambda"])
@@ -3140,6 +3155,7 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// Wire FIS "aws:cloudwatch:alarm" stop conditions → CloudWatch's
 	// alarm-state-change subscription (gopherstack-x842, gopherstack-9939).
 	wireFISStopConditions(byName["FIS"], byName["CloudWatch"])
+	wireFISTargetResolver(byName)
 
 	// Wire Auto Scaling → EC2 so scale-out launches real (mock) EC2 instances
 	// and scale-in terminates them there too, instead of Auto Scaling
@@ -3362,7 +3378,50 @@ func (a *networkManagerEC2ResolverAdapter) ResolveTransitGatewayRouteTable(trans
 	return len(bk.DescribeTransitGatewayRouteTables([]string{arnResourceID(transitGatewayRouteTableArn)})) > 0
 }
 
-// TransitGatewayRouteTableForAttachment resolves a TGW VPC attachment to
+const tgwAttachmentAvailable = "available"
+
+// attachmentTransitGateway returns the transit gateway owning an available VPC or peering attachment;
+// for a peering it is the gateway on the side living in region.
+func attachmentTransitGateway(backend *ec2backend.InMemoryBackend, id, region string) (string, bool) {
+	if atts := backend.DescribeTransitGatewayVpcAttachments([]string{id}); len(atts) > 0 {
+		return atts[0].TransitGatewayID, atts[0].State == tgwAttachmentAvailable
+	}
+
+	peers := backend.DescribeTransitGatewayPeeringAttachments([]string{id})
+	if len(peers) == 0 || peers[0].State != tgwAttachmentAvailable {
+		return "", false
+	}
+
+	if peers[0].AccepterRegion == region {
+		return peers[0].AccepterTransitGatewayID, true
+	}
+
+	return peers[0].RequesterTransitGatewayID, true
+}
+
+// TransitGatewayPeerAttachment implements networkmanager.EC2PeeringResolver.
+func (a *networkManagerEC2ResolverAdapter) TransitGatewayPeerAttachment(
+	attachmentID, fromAttachmentArn string,
+) (string, bool) {
+	for _, b := range a.regions.handler.RegionBackends() {
+		for _, p := range b.DescribeTransitGatewayPeeringAttachments([]string{attachmentID}) {
+			if p.State != tgwAttachmentAvailable {
+				continue
+			}
+
+			region, owner := p.AccepterRegion, p.AccepterOwnerID
+			if arnRegion(fromAttachmentArn) == p.AccepterRegion {
+				region, owner = p.RequesterRegion, p.RequesterOwnerID
+			}
+
+			return "arn:aws:ec2:" + region + ":" + owner + ":transit-gateway-attachment/" + attachmentID, true
+		}
+	}
+
+	return "", false
+}
+
+// TransitGatewayRouteTableForAttachment resolves a TGW VPC or peering attachment to
 // the route table it is associated with, by scanning its owning transit
 // gateway's route tables for an association naming this attachment --
 // services/ec2 has no direct "route table for attachment" index, only the
@@ -3373,13 +3432,13 @@ func (a *networkManagerEC2ResolverAdapter) TransitGatewayRouteTableForAttachment
 	attachmentID := arnResourceID(transitGatewayAttachmentArn)
 	backend := a.regions.forARN(transitGatewayAttachmentArn)
 
-	atts := backend.DescribeTransitGatewayVpcAttachments([]string{attachmentID})
-	if len(atts) == 0 || atts[0].State != "available" {
+	tgwID, ok := attachmentTransitGateway(backend, attachmentID, arnRegion(transitGatewayAttachmentArn))
+	if !ok {
 		return "", false
 	}
 
 	for _, rt := range backend.DescribeTransitGatewayRouteTables(nil) {
-		if rt.TransitGatewayID != atts[0].TransitGatewayID {
+		if rt.TransitGatewayID != tgwID {
 			continue
 		}
 
@@ -3702,6 +3761,32 @@ func (a *efsEC2ResolverAdapter) SubnetAZ(id string) string {
 	return ""
 }
 
+// subnetReservedAddresses is the count of addresses AWS reserves in every subnet.
+const subnetReservedAddresses = 5
+
+func (a *efsEC2ResolverAdapter) SubnetFreeAddresses(id string) int {
+	sn := a.subnet(id)
+	if sn == nil {
+		return -1
+	}
+
+	prefix, err := netip.ParsePrefix(sn.CIDRBlock)
+	if err != nil || !prefix.Addr().Is4() {
+		return -1
+	}
+
+	usable := 1<<(prefix.Addr().BitLen()-prefix.Bits()) - subnetReservedAddresses
+
+	for _, rb := range a.regions.handler.RegionBackends() {
+		b, isMem := rb.(*ec2backend.InMemoryBackend)
+		if isMem && len(b.DescribeSubnets([]string{id})) > 0 {
+			return max(usable-b.SubnetAddressesInUse(id), 0)
+		}
+	}
+
+	return -1
+}
+
 // wireEFSCrossService wires the EFS backend to EC2 so CreateMountTarget
 // validates its SubnetId against real EC2 state and enforces the
 // documented "one VPC, one mount target per Availability Zone" placement
@@ -3771,6 +3856,9 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// actually receives forwarded table mutations instead of accepting the
 	// destination and never delivering anything (gopherstack-eouu).
 	wireDynamoDBKinesis(byName["DynamoDB"], byName["Kinesis"])
+	wireDynamoDBKMS(byName["DynamoDB"], byName["KMS"])
+	wireS3TablesS3(byName["S3tables"], byName["S3"])
+	wireCloudFrontKVSImport(byName["CloudFront"], byName["S3"])
 
 	// Wire MGN → S3 so StartImport reads its caller-supplied S3 object and
 	// actually creates SourceServers.
@@ -3799,6 +3887,19 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 
 	// Route RDS Data API calls for docker-backed Aurora clusters to their real database.
 	wireRDSData(byName["RDSData"], byName["RDS"], byName["SecretsManager"])
+	wireManagedMasterSecrets(byName)
+	wireSubnetLookups(byName)
+	wireDirectConnectMacSecSecrets(byName)
+	wireMQResourceShares(byName)
+	wireEKSIdcApplications(byName)
+	wireMediaStoreDataContainers(byName)
+	wireECSAutoScaling(byName)
+	wireECSDeploymentHooks(byName)
+	wireSWFLambda(byName)
+	wireWorkMailDirectory(byName)
+	wireAppSyncWAF(byName)
+	wireAWSConfigTemplates(byName)
+	wireCleanRoomsGlue(byName)
 
 	// Wire IoT rules → SQS/Lambda action dispatch, and broker → IoT Data Plane.
 	wireIoTRules(byName["IoT"], byName["IoTDataPlane"], byName["SQS"], byName["Lambda"])
@@ -3813,10 +3914,12 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// well-formed request. Firehose delivery streams stay unreachable as a source (see
 	// services/kinesisanalytics/PARITY.md's known gaps).
 	wireKinesisAnalyticsCrossService(byName["KinesisAnalytics"], byName["Kinesis"], byName["S3"])
+	wireKinesisAnalyticsFirehose(byName["KinesisAnalytics"], byName["Firehose"])
 
 	// Wire AppConfig → AppConfigData so a completed deployment's
 	// configuration becomes observable through GetLatestConfiguration polling.
 	wireAppConfigDeployments(byName["AppConfig"], byName["AppConfigData"])
+	wireAppConfigContent(byName["AppConfig"], byName["SSM"], byName["S3"], byName["SecretsManager"])
 
 	// Wire CloudTrail → S3 so CreateTrail/UpdateTrail validate the configured
 	// bucket exists and logging trails actually deliver log files to it,
@@ -3829,6 +3932,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// instead of every request being processed regardless of whether the
 	// referenced object exists (gopherstack-eshx).
 	wireTextractS3(byName["Textract"], byName["S3"])
+	wireOmicsS3(byName["Omics"], byName["S3"])
 	wireRekognitionS3(byName["Rekognition"], byName["S3"])
 
 	// Wire Backup → S3 so StartBackupJob validates an S3-typed ResourceArn
@@ -3926,6 +4030,8 @@ func wireSchedulerAndPipesIntegrations(byName map[string]service.Registerable) {
 		byName["Firehose"],
 		byName["DynamoDB"],
 	)
+	wirePipesJobTargets(byName)
+	wireSchedulerDeliveryTargets(byName)
 }
 
 // wireGovernanceIntegrations wires Resource Groups Tagging API aggregation
@@ -3983,6 +4089,9 @@ func registerCloudFormationAndDashboard(
 	// expand DeploymentTargets.OrganizationalUnitIds against the real OU
 	// hierarchy instead of rejecting OU-based targets outright.
 	wireCloudFormationOrganizations(cfnSvc, byName["Organizations"])
+	wireRAMOrganizations(byName["RAM"], byName["Organizations"])
+
+	wireVPCLatticeEndpoints(byName["VPCLattice"], byName["EC2"])
 
 	if cli, ok := appCtx.Config.(*CLI); ok {
 		cli.cloudFormationHandler = cfnSvc
@@ -4823,6 +4932,11 @@ func (a *ebCloudWatchLogsAdapter) PutLogEvents(
 	logGroupName, logStreamName string,
 	logEvents []any,
 ) error {
+	if _, err := a.backend.CreateLogStream(ctx, logGroupName, logStreamName); err != nil &&
+		!errors.Is(err, cwlogsbackend.ErrLogStreamAlreadyExist) {
+		return err
+	}
+
 	now := time.Now().UnixMilli()
 	events := make([]cwlogsbackend.InputLogEvent, 0, len(logEvents))
 
@@ -6312,6 +6426,26 @@ func (a *ecsELBv2RegistrarAdapter) DeregisterTargets(
 	return a.backendFor(tgArn).DeregisterTargets(tgArn, a.toELBv2Targets(tgArn, targets))
 }
 
+// TargetHealthState implements ecs.ELBv2TargetHealthReader.
+func (a *ecsELBv2RegistrarAdapter) TargetHealthState(
+	_ context.Context, tgArn string, target ecsbackend.ELBTarget,
+) (string, bool) {
+	descs, err := a.backendFor(tgArn).DescribeTargetHealth(tgArn)
+	if err != nil {
+		return "", false
+	}
+
+	port := a.port(tgArn, target.Port)
+
+	for _, d := range descs {
+		if d.Target.ID == target.ID && d.Target.Port == port {
+			return d.HealthState, true
+		}
+	}
+
+	return "", false
+}
+
 func (a *ecsELBv2RegistrarAdapter) toELBv2Targets(
 	tgArn string, targets []ecsbackend.ELBTarget,
 ) []elbv2backend.Target {
@@ -6949,12 +7083,7 @@ func athenaGlueTable(t *gluebackend.Table) *athenabackend.GlueTable {
 	}
 }
 
-// wireLambdaS3 connects the Lambda backend to S3 so a function deployed from
-// a Code.S3Bucket/S3Key zip can actually fetch its code, instead of
-// startZipContainer always returning ErrLambdaUnavailable for S3-sourced
-// code. sfnbackend.NewS3Integration already adapts an s3.StorageBackend to
-// GetObjectBytes(ctx, bucket, key) -- the exact shape lambda.S3CodeFetcher
-// needs -- so it is reused here rather than writing a new adapter.
+// wireLambdaS3 lets Lambda fetch Zip code from S3 (Code.S3Bucket/S3Key, optionally S3ObjectVersion).
 func wireLambdaS3(lambdaReg, s3Reg service.Registerable) {
 	lambdaH, ok := lambdaReg.(*lambdabackend.Handler)
 	if !ok {
@@ -6971,7 +7100,7 @@ func wireLambdaS3(lambdaReg, s3Reg service.Registerable) {
 		return
 	}
 
-	lambdaBk.SetS3CodeFetcher(sfnbackend.NewS3Integration(s3H.Backend))
+	lambdaBk.SetS3CodeFetcher(lambdaS3Fetcher{backend: s3H.Backend})
 }
 
 // wireLambdaECR connects the Lambda backend to ECR so Code.ImageUri on an
@@ -7631,6 +7760,7 @@ func wireResourceGroupsTagging(taggingReg service.Registerable, byName map[strin
 	wireResourceGroupsTaggingExtra(bk, byName)
 	wireResourceGroupsTaggingSweep5(bk, byName)
 	wireResourceGroupsTaggingSweep6(bk, byName)
+	wireResourceGroupsTaggingSweep7(bk, byName)
 	wireResourceGroupsTaggingPolicy(bk, byName["Organizations"])
 }
 
@@ -7844,6 +7974,7 @@ func wireResourceGroupsTaggingSweep6(
 	wireTaggingEmrServerless(bk, byName["EmrServerless"])
 	wireTaggingACM(bk, byName["ACM"])
 	wireTaggingSSOAdmin(bk, byName["SsoAdmin"])
+	wireTaggingAPIGatewayV2(bk, byName["APIGatewayV2"])
 	wireTaggingAPIGateway(bk, byName["APIGateway"])
 	wireTaggingOrganizations(bk, byName["Organizations"])
 }
@@ -11357,6 +11488,9 @@ func setupChaosAndRegistry(
 
 	chaos.RegisterRoutes(chaosGroup, faultStore, registry)
 	wireStepFunctionsSDKIntegration(e, services, cli.GetGlobalConfig().GetRegion(), cli.EnforceIAM)
+	wireAPIGatewayAWSServiceInvoker(e, services)
+	wireSchedulerUniversalTargets(e, services, cli.GetGlobalConfig().GetRegion(), cli.EnforceIAM)
+	wireCloudControlHandlers(e, services)
 	wireServiceRoleAuthorizer(services, cli.EnforceIAM)
 
 	return nil
@@ -11381,20 +11515,22 @@ func wireStepFunctionsSDKIntegration(e http.Handler, services []service.Register
 
 	if stsH, stsOk := byName["STS"].(*stsbackend.Handler); stsOk && enforceIAM {
 		if stsBk, bkOk := stsH.Backend.(*stsbackend.InMemoryBackend); bkOk {
-			roles = &sfnRoleAssumer{sts: stsBk}
+			roles = &serviceRoleAssumer{sts: stsBk, principal: "states.amazonaws.com", session: "states-execution"}
 		}
 	}
 
 	bk.SetSDKIntegration(sfnbackend.NewSDKIntegrationWithHTTP(e, region, roles, sfnConnectionsFor(byName)))
 }
 
-// sfnRoleAssumer issues execution-role credentials to states.amazonaws.com via STS.
-type sfnRoleAssumer struct {
-	sts *stsbackend.InMemoryBackend
+// serviceRoleAssumer issues execution-role credentials to a service principal via STS.
+type serviceRoleAssumer struct {
+	sts       *stsbackend.InMemoryBackend
+	principal string
+	session   string
 }
 
-func (r *sfnRoleAssumer) AssumeExecutionRole(roleArn string) (sfnbackend.RoleCredentials, error) {
-	out, err := r.sts.AssumeRoleForService("states.amazonaws.com", roleArn, "states-execution")
+func (r *serviceRoleAssumer) AssumeExecutionRole(roleArn string) (sfnbackend.RoleCredentials, error) {
+	out, err := r.sts.AssumeRoleForService(r.principal, roleArn, r.session)
 	if err != nil {
 		return sfnbackend.RoleCredentials{}, err
 	}
@@ -11587,6 +11723,10 @@ func extractExtendedResourcePolicyProvider(svc service.Registerable) iambackend.
 	case *bedrockbackend.Handler:
 		if h.Backend != nil {
 			return &bedrockPolicyAdapter{backend: h.Backend}
+		}
+	case *cwlogsbackend.Handler:
+		if b, ok := h.Backend.(logsPolicyBackend); ok {
+			return &logsPolicyAdapter{backend: b}
 		}
 	}
 
@@ -12073,6 +12213,27 @@ func wireRDSData(dataReg, rdsReg, smReg service.Registerable) {
 	dataBk.WithRealEngine(&rdsDataResolver{handler: rdsH}, smBk)
 }
 
+// wireManagedMasterSecrets lets RDS and DocumentDB back ManageMasterUserPassword with real Secrets Manager secrets.
+func wireManagedMasterSecrets(byName map[string]service.Registerable) {
+	smH, ok := byName["SecretsManager"].(*secretsmanagerbackend.Handler)
+	if !ok {
+		return
+	}
+
+	smBk, ok := smH.Backend.(*secretsmanagerbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	if h, hok := byName["RDS"].(*rdsbackend.Handler); hok {
+		h.SetSecretsStore(smBk)
+	}
+
+	if h, hok := byName["DocDB"].(*docdbbackend.Handler); hok {
+		h.Backend.SetSecretsStore(smBk)
+	}
+}
+
 // wireRedshiftDNS sets the DNS registrar on the Redshift backend so that cluster
 // hostnames are automatically registered with the embedded DNS server.
 func wireRedshiftDNS(redshiftReg service.Registerable, dns redshiftbackend.DNSRegistrar) {
@@ -12478,6 +12639,51 @@ func wireDynamoDBS3(ddbReg, s3Reg service.Registerable) {
 
 	if ddbBk, ddbBkOk := ddbH.Backend.(*ddbbackend.InMemoryDB); ddbBkOk {
 		ddbBk.SetS3Backend(s3Bk)
+	}
+}
+
+// wireDynamoDBKMS lets DynamoDB report INACCESSIBLE_ENCRYPTION_CREDENTIALS when a
+// table's KMS key is disabled or pending deletion.
+func wireDynamoDBKMS(ddbReg, kmsReg service.Registerable) {
+	ddbH, ok := ddbReg.(*ddbbackend.DynamoDBHandler)
+	if !ok {
+		return
+	}
+
+	ddbBk, ok := ddbH.Backend.(*ddbbackend.InMemoryDB)
+	if !ok {
+		return
+	}
+
+	kmsH, ok := kmsReg.(*kmsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	kmsBk, ok := kmsH.Backend.(*kmsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	ddbBk.SetKMSKeyStateChecker(&ddbKMSKeyStateAdapter{backend: kmsBk})
+}
+
+// ddbKMSKeyStateAdapter adapts kms.InMemoryBackend to dynamodb.KMSKeyStateChecker.
+type ddbKMSKeyStateAdapter struct {
+	backend *kmsbackend.InMemoryBackend
+}
+
+func (a *ddbKMSKeyStateAdapter) KMSKeyInaccessible(ctx context.Context, keyARN string) bool {
+	out, err := a.backend.DescribeKey(ctx, &kmsbackend.DescribeKeyInput{KeyID: keyARN})
+	if err != nil {
+		return false
+	}
+
+	switch out.KeyMetadata.KeyState {
+	case kmsbackend.KeyStateDisabled, kmsbackend.KeyStatePendingDeletion:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -12950,6 +13156,32 @@ func wireCloudFormationOrganizations(cfnReg, orgReg service.Registerable) {
 	}
 
 	cfnBk.SetOrganizationsDirectory(orgBk)
+}
+
+// wireRAMOrganizations makes an Organizations account-leave disassociate that account from shares
+// without RetainSharingOnAccountLeaveOrganization.
+func wireRAMOrganizations(ramReg, orgReg service.Registerable) {
+	ramH, ok := ramReg.(*rambackend.Handler)
+	if !ok || ramH.Backend == nil {
+		return
+	}
+
+	ramBk, ok := ramH.Backend.(*rambackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	orgH, ok := orgReg.(*organizationsbackend.Handler)
+	if !ok || orgH.Backend == nil {
+		return
+	}
+
+	orgBk, ok := orgH.Backend.(*organizationsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	orgBk.OnAccountLeave(ramBk.HandleAccountLeftOrganization)
 }
 
 // extractServiceName finds the service name for a given Echo context by checking

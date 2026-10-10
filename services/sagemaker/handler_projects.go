@@ -83,7 +83,15 @@ func projectResponseMap(p *Project) map[string]any {
 	}
 
 	if len(p.TemplateProviders) > 0 {
-		resp["TemplateProviderDetails"] = p.TemplateProviders
+		resp["TemplateProviderDetails"] = templateProviderDetails(p.TemplateProviders)
+	}
+
+	if p.CreatedBy != nil && p.CreatedBy.IamIdentity != nil {
+		resp["CreatedBy"] = p.CreatedBy
+	}
+
+	if p.LastModifiedBy != nil && p.LastModifiedBy.IamIdentity != nil {
+		resp["LastModifiedBy"] = p.LastModifiedBy
 	}
 
 	return resp
@@ -183,14 +191,12 @@ func (h *Handler) handleListProjects(ctx context.Context, body []byte) ([]byte, 
 // ---------------------------------------------------------------------------
 
 // updateProjectInput mirrors UpdateProjectInput (api_op_UpdateProject.go:27-58).
-// ServiceCatalogProvisioningUpdateDetails/TemplateProvidersToUpdate are
-// deliberately not decoded — see UpdateProject's doc comment in projects.go
-// for why they can't be honored yet; this is a disclosed gap, not a
-// parsed-then-ignored field.
 type updateProjectInput struct {
-	ProjectName        string      `json:"ProjectName"`
-	ProjectDescription string      `json:"ProjectDescription,omitempty"`
-	Tags               []tagObject `json:"Tags,omitempty"`
+	ServiceCatalogProvisioningUpdateDetails *serviceCatalogUpdateDetails  `json:"ServiceCatalogProvisioningUpdateDetails"`
+	ProjectName                             string                        `json:"ProjectName"`
+	ProjectDescription                      string                        `json:"ProjectDescription,omitempty"`
+	Tags                                    []tagObject                   `json:"Tags,omitempty"`
+	TemplateProvidersToUpdate               []updateTemplateProviderInput `json:"TemplateProvidersToUpdate"`
 }
 
 func (h *Handler) handleUpdateProject(ctx context.Context, body []byte) ([]byte, error) {
@@ -204,7 +210,20 @@ func (h *Handler) handleUpdateProject(ctx context.Context, body []byte) ([]byte,
 		return nil, fmt.Errorf("%w: ProjectName is required", errInvalidRequest)
 	}
 
-	p, err := h.Backend.UpdateProject(ctx, req.ProjectName, req.ProjectDescription, fromTagObjects(req.Tags))
+	updates := make([]cfnUpdateTemplateProvider, 0, len(req.TemplateProvidersToUpdate))
+
+	for _, t := range req.TemplateProvidersToUpdate {
+		if t.CfnTemplateProvider != nil {
+			updates = append(updates, *t.CfnTemplateProvider)
+		}
+	}
+
+	p, err := h.Backend.UpdateProject(ctx, req.ProjectName, UpdateProjectOptions{
+		Description:             req.ProjectDescription,
+		Tags:                    fromTagObjects(req.Tags),
+		ServiceCatalogUpdate:    req.ServiceCatalogProvisioningUpdateDetails,
+		TemplateProviderUpdates: updates,
+	})
 	if err != nil {
 		return nil, err
 	}

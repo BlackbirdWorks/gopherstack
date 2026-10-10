@@ -3,7 +3,9 @@ package eventbridge
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
+	"strings"
 )
 
 // PutTargets adds or updates targets for a rule.
@@ -22,17 +24,21 @@ func (b *InMemoryBackend) PutTargets(ctx context.Context,
 	region := getRegionFromContext(ctx, b.region)
 	busKey := ebBusKey(eventBusName)
 
+	if err := validateTargetIdentifiers(targets); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("PutTargets")
 	defer b.mu.Unlock()
 
 	busRules, exists := b.rulesStore(region)[busKey]
 	if !exists {
-		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, ruleName)
+		return nil, awsErrorf(ErrRuleNotFound, "Rule %s does not exist on EventBus %s.", ruleName, busKey)
 	}
 
 	rule, ruleExists := busRules.Get(ruleName)
 	if !ruleExists {
-		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, ruleName)
+		return nil, awsErrorf(ErrRuleNotFound, "Rule %s does not exist on EventBus %s.", ruleName, busKey)
 	}
 
 	if err := checkManagedRule(rule); err != nil {
@@ -140,7 +146,7 @@ func (b *InMemoryBackend) RemoveTargetsForce(ctx context.Context,
 		if !exists {
 			failed = append(failed, FailedEntry{
 				TargetID:     id,
-				ErrorCode:    "ResourceNotFoundException",
+				ErrorCode:    errCodeResourceNotFound,
 				ErrorMessage: fmt.Sprintf("Target %s not found", id),
 			})
 
@@ -185,3 +191,28 @@ func (b *InMemoryBackend) ListTargetsByRule(ctx context.Context,
 
 	return page, outToken, nil
 }
+
+var targetIDPattern = regexp.MustCompile(`^[.\-_A-Za-z0-9]+$`)
+
+func validateTargetIdentifiers(targets []Target) error {
+	for i, t := range targets {
+		if t.ID != "" && (!targetIDPattern.MatchString(t.ID) || len(t.ID) > maxTargetIDLength) {
+			return fmt.Errorf(
+				"%w: 1 validation error detected: Value '%s' at 'targets.%d.member.id' failed to satisfy constraint: "+
+					"Member must satisfy regular expression pattern: [\\.\\-_A-Za-z0-9]+",
+				ErrInvalidParameter, t.ID, i+1,
+			)
+		}
+
+		if t.Arn != "" && !strings.HasPrefix(t.Arn, "arn:") {
+			return awsErrorf(
+				ErrInvalidParameter,
+				"Parameter %s is not valid. Reason: Provided Arn is not in correct format.", t.Arn,
+			)
+		}
+	}
+
+	return nil
+}
+
+const maxTargetIDLength = 64

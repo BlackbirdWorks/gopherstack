@@ -29,7 +29,7 @@ func TestAddOperation_CapsPerServiceHistory(t *testing.T) {
 			b := apprunner.NewInMemoryBackend("123456789012", "us-east-1")
 
 			svc, err := b.CreateService(apprunner.CreateServiceParams{
-				Name: "svc",
+				Name: "svc-one",
 				Source: apprunner.SourceConfig{
 					ImageRepository: &apprunner.ImageSource{
 						ImageIdentifier:     "public.ecr.aws/x/y:latest",

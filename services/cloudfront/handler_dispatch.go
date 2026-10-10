@@ -907,6 +907,7 @@ var errCodeMapping = []struct {
 	{ErrRealtimeLogConfigAlreadyExists, "RealtimeLogConfigAlreadyExists", http.StatusConflict},
 	{ErrAlreadyExists, "EntityAlreadyExists", http.StatusConflict},
 	{ErrConnectionGroupAlreadyExists, "EntityAlreadyExists", http.StatusConflict},
+	{ErrEntitySizeLimitExceeded, "EntitySizeLimitExceeded", http.StatusRequestEntityTooLarge},
 	{ErrInvalidTagging, "InvalidTagging", http.StatusBadRequest},
 	{ErrStreamingDistributionNotDisabled, "StreamingDistributionNotDisabled", http.StatusConflict},
 	{ErrCNAMEAlreadyExists, "CNAMEAlreadyExists", http.StatusConflict},
@@ -916,19 +917,19 @@ var errCodeMapping = []struct {
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	if code, ok := notFoundCode(err); ok {
-		return xmlResp(c, http.StatusNotFound, cfErrorXML(code, err.Error()))
+		return xmlResp(c, http.StatusNotFound, cfErrorXML(code, publicMessage(err)))
 	}
 
 	for _, m := range errCodeMapping {
 		if errors.Is(err, m.err) {
-			return xmlResp(c, m.status, cfErrorXML(m.code, err.Error()))
+			return xmlResp(c, m.status, cfErrorXML(m.code, publicMessage(err)))
 		}
 	}
 
 	return xmlResp(
 		c,
 		http.StatusInternalServerError,
-		cfErrorXML("InternalFailure", err.Error()),
+		cfErrorXML("InternalFailure", publicMessage(err)),
 	)
 }
 

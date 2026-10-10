@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -77,6 +78,11 @@ type InMemoryBackend struct {
 	// reach/leave RUNNING. Nil preserves the historical behavior of
 	// Service.LoadBalancers being stored and echoed with no effect on ELBv2.
 	elbv2Registrar ELBv2TargetRegistrar
+	alarmStates    AlarmStateProvider
+	lambdaInvoker  LambdaInvoker
+	hooksInFlight  map[string]struct{}
+	asgResolver    AutoScalingGroupResolver
+	metrics        cwmetric.Sink
 	// registry is the Phase 3.3 datalayer lifecycle registry: every *store.Table
 	// below (except taskDefByArn/daemonTaskDefByArn, which are derived caches --
 	// see store_setup.go) is registered on it exactly once at construction, so

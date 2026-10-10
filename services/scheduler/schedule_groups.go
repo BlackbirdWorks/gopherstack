@@ -76,7 +76,7 @@ func (b *InMemoryBackend) CreateScheduleGroup(
 	b.ensureRegionGroupsSeeded(region)
 
 	if b.scheduleGroups.Has(regionKey(region, name)) {
-		return nil, fmt.Errorf("%w: schedule group %s already exists", ErrAlreadyExists, name)
+		return nil, alreadyExists("ScheduleGroup", name)
 	}
 
 	groupARN := arn.Build("scheduler", region, b.accountID, "schedule-group/"+name)
@@ -106,7 +106,7 @@ func (b *InMemoryBackend) GetScheduleGroup(ctx context.Context, name string) (*S
 
 	g, ok := b.scheduleGroups.Get(regionKey(region, name))
 	if !ok {
-		return nil, fmt.Errorf("%w: schedule group %s not found", ErrNotFound, name)
+		return nil, notFound("ScheduleGroup", name)
 	}
 
 	return cloneScheduleGroup(g), nil
@@ -127,7 +127,7 @@ func (b *InMemoryBackend) DeleteScheduleGroup(ctx context.Context, name string) 
 
 	g, ok := b.scheduleGroups.Get(regionKey(region, name))
 	if !ok {
-		return fmt.Errorf("%w: schedule group %s not found", ErrNotFound, name)
+		return notFound("ScheduleGroup", name)
 	}
 
 	// Cascade-delete all schedules belonging to this group.

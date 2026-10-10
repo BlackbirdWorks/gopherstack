@@ -119,8 +119,8 @@ func TestStopServiceDeployment(t *testing.T) {
 	require.Equal(t, http.StatusOK, stopResp.Code)
 	var stopOut map[string]any
 	require.NoError(t, json.Unmarshal(stopResp.Body.Bytes(), &stopOut))
-	dep := stopOut["serviceDeployment"].(map[string]any)
-	assert.Equal(t, "STOPPED", dep["status"])
+	assert.Equal(t, depArn, stopOut["serviceDeploymentArn"])
+	assert.NotContains(t, stopOut, "serviceDeployment")
 
 	// Stop again should fail
 	stopAgain := doECSRequest(t, h, "StopServiceDeployment", map[string]any{
@@ -357,9 +357,8 @@ func TestECS_StopServiceDeployment(t *testing.T) {
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-			sd, ok := resp["serviceDeployment"].(map[string]any)
-			require.True(t, ok)
-			assert.Equal(t, "STOPPED", sd["status"])
+			assert.NotEmpty(t, resp["serviceDeploymentArn"])
+			assert.NotContains(t, resp, "serviceDeployment")
 		})
 	}
 }

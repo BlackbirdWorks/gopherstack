@@ -7,7 +7,7 @@
 service: kinesisanalyticsv2
 sdk_module: aws-sdk-go-v2/service/kinesisanalyticsv2@v1.41.4
 last_audit_commit: 47436caf9
-last_audit_date: 2026-09-04
+last_audit_date: 2026-10-10
 overall: A            # one real non-total-sort bug found and fixed this pass
                        # (ListApplicationSnapshots tie-break); every other prior
                        # finding re-verified, none regressed
@@ -49,11 +49,11 @@ families:
   error_mapping: {status: ok, note: "unchanged this pass; ConcurrentModificationException mapping (fixed prior pass) also now covers ConditionalToken mismatches (checkAndBumpVersionOrToken returns the same ErrConcurrentModification sentinel as version mismatches)."}
 gaps: []
 items_still_open:
-  - DescribeApplication.IncludeAdditionalDetails is accepted-but-ignored, so JobPlanDescription is never returned: needs a real Flink job compiler to produce the plan (structural).
-  - StopApplication Force: the pre-stop auto-snapshot is not modeled; AWS does not publicly document its naming/visibility, so it is not invented.
-  - Zeppelin Glue/S3 ARNs (and every other ARN field here) are not cross-service validated; could adopt the SetAppConfig/siblingServices pattern (gopherstack-osg7).
-  - DeleteApplication is synchronous (no DELETING status), matching the repo-wide convention; ApplicationStatusDeleting is unused.
-  - The default maintenance window real AWS assigns at creation is not modeled; ApplicationMaintenanceConfigurationDescription appears only after UpdateApplicationMaintenanceConfiguration (AWS does not document the default start).
+  - "StopApplication without Force: API_StopApplication says a snapshot is taken on stop, but neither it nor the SDK documents the snapshot's name or whether snapshots must be enabled, so none is invented."
+  - "Zeppelin Glue/S3 and other ARN fields are not cross-service validated: no doc says which fields AWS existence-checks at call time."
+  - "DeleteApplication is synchronous (ApplicationStatusDeleting unused) and Start/Stop are instantaneous: API_DeleteApplication/StartApplication/StopApplication document no transition windows or durations."
+structural_gaps:
+  - "DescribeApplication.IncludeAdditionalDetails never returns JobPlanDescription: the plan comes from a real Flink job compiler."
 deferred:
   - DiscoverInputSchema returns placeholder columns (no live sampling); InputProcessingConfiguration is not applied, so ProcessedInputRecords is never returned.
 leaks: {status: clean, note: "New Application fields (CodeConfig/FlinkConfig/EnvironmentPropertyGroups/SnapshotsEnabled/RollbackEnabled/EncryptionConfig/RunConfig/version-lineage pointers) all live inside the Application struct itself, not a separate map -- DeleteApplication's existing applications.Delete(...) cleans them up with no new leak surface. The four Add*/Delete* config ops that now call recordOperation (AddApplicationCloudWatchLoggingOption/AddApplicationVpcConfiguration/DeleteApplicationCloudWatchLoggingOption/DeleteApplicationVpcConfiguration) write into the same b.operations[region][name] map DeleteApplication already clears -- verified via TestBackend_AddDeleteVpcAndCWLOption_ReturnOperationID plus the existing DeleteApplication cleanup tests, no new cleanup path needed. go test -race clean at -count=3."}
@@ -618,3 +618,9 @@ UpdateApplication with a RunConfigurationUpdate that omits AllowNonRestoredState
 ## 2026-10-05 (reqfielddiff, dropped request members)
 
 AddApplicationCloudWatchLoggingOption, AddApplicationVpcConfiguration, DeleteApplicationCloudWatchLoggingOption and DeleteApplicationVpcConfiguration now honour ConditionalToken (`TestSDK_ConditionalTokenGuardsConfigOps`). DiscoverInputSchema accepts S3Configuration as the alternative to ResourceARN (`TestSDK_DiscoverInputSchemaS3Configuration`). No persisted fields changed.
+
+## 2026-10-10 realism pass
+- Start/Stop/Update now report STARTING/STOPPING/UPDATING for `SetLifecycleDelay(d)` (default 0 = instant, previous behaviour); time-driven, not per-Describe. Start/Stop/CreateSnapshot guards use the effective status. `TestLifecycleDelay_TransitionalStatuses`. Root wiring needed: a `--lifecycle-*` field and `SetLifecycleDelay` call in cli_lifecycle.go (not done here).
+- CreateApplication validates ApplicationName (`[a-zA-Z0-9_.-]`, 1-128) and RuntimeEnvironment against the pinned SDK enum -> InvalidArgumentException. `TestCreateApplication_InputValidation`.
+- Error messages are human text instead of the bare code.
+- Left lenient: ServiceExecutionRole is not required to be an ARN (in-repo tests/fixtures pass empty or non-ARN roles).

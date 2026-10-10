@@ -23,12 +23,8 @@ func channelARN(clusterArn, channelName string) string {
 	return prefix + ":channel/" + clusterPath + "/" + channelName
 }
 
-// CreateChannel creates a channel on an MSK cluster. Real MSK creation is
-// async (Status starts CREATING); this emulator makes it ACTIVE immediately,
-// matching CreateTopic's simplification. ClusterOperationArn is returned but
-// not persisted — real DescribeChannel/ListChannels would show it empty too
-// once Status is ACTIVE (it's only set while CREATING/UPDATING/DELETING, per
-// types.go's DescribeChannelOutput doc comment).
+// CreateChannel creates a channel in CREATING; the first DescribeChannel poll
+// advances it to ACTIVE, as DescribeCluster does for clusters.
 func (b *InMemoryBackend) CreateChannel(
 	ctx context.Context,
 	clusterArn, channelName string,
@@ -54,8 +50,13 @@ func (b *InMemoryBackend) CreateChannel(
 	b.mu.Lock("CreateChannel")
 	defer b.mu.Unlock()
 
-	if !b.clusters.Has(clusterArn) {
+	cluster, ok := b.clusters.Get(clusterArn)
+	if !ok {
 		return nil, ErrNotFound
+	}
+
+	if err := b.validateChannelSourceLocked(cluster, topicConfigurationList[0].TopicArn); err != nil {
+		return nil, err
 	}
 
 	channelArn := channelARN(clusterArn, channelName)
@@ -73,7 +74,7 @@ func (b *InMemoryBackend) CreateChannel(
 		ChannelName:                     channelName,
 		ClusterArn:                      clusterArn,
 		DestinationType:                 destinationType,
-		Status:                          ChannelStatusActive,
+		Status:                          ChannelStatusCreating,
 		CreationTime:                    time.Now().UTC().Format(time.RFC3339),
 		TopicConfigurationList:          cloneTopicConfigurationList(topicConfigurationList),
 		EncryptionConfiguration:         cloneChannelEncryptionConfiguration(encryptionConfiguration),
@@ -82,14 +83,29 @@ func (b *InMemoryBackend) CreateChannel(
 		LoggingInfo:                     cloneChannelLoggingInfo(loggingInfo),
 		Tags:                            nonNilTagsCopy(tags),
 	}
+	op := b.newClusterOperationLocked(region, clusterArn, "CREATE_CHANNEL", nil, nil)
+	ch.ClusterOperationArn = op.ClusterOperationArn
 	b.channels.Put(ch)
 
-	op := b.newClusterOperationLocked(region, clusterArn, "CREATE_CHANNEL", nil, nil)
+	return cloneChannel(ch), nil
+}
 
-	result := cloneChannel(ch)
-	result.ClusterOperationArn = op.ClusterOperationArn
+const expressInstanceTypePrefix = "express."
 
-	return result, nil
+// validateChannelSourceLocked requires an Express cluster (api_op_CreateChannel.go: "streams records from an
+// Amazon MSK Express cluster topic") and a topic that exists on it. Must be called with b.mu held.
+func (b *InMemoryBackend) validateChannelSourceLocked(cluster *Cluster, topicArn string) error {
+	if !strings.HasPrefix(cluster.BrokerNodeGroupInfo.InstanceType, expressInstanceTypePrefix) {
+		return fmt.Errorf("channels require a cluster with Express brokers: %w", ErrValidation)
+	}
+
+	for _, t := range b.topics.All() {
+		if t.ClusterArn == cluster.ClusterArn && t.TopicArn == topicArn {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("topic %s does not exist on the cluster: %w", topicArn, ErrNotFound)
 }
 
 // validateCreateChannelInput applies validators.go's required-field rules
@@ -216,8 +232,7 @@ func validateIcebergDestinationConfig(cfg *IcebergDestinationConfiguration) erro
 	return nil
 }
 
-// DeleteChannel deletes a channel from an MSK cluster. Real MSK deletion is
-// async (DELETING); this emulator removes it immediately.
+// DeleteChannel moves a channel to DELETING; the next DescribeChannel poll removes it.
 func (b *InMemoryBackend) DeleteChannel(ctx context.Context, clusterArn, channelArn string) (*Channel, error) {
 	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
 
@@ -229,23 +244,34 @@ func (b *InMemoryBackend) DeleteChannel(ctx context.Context, clusterArn, channel
 		return nil, ErrNotFound
 	}
 
-	b.channels.Delete(channelArn)
-
 	op := b.newClusterOperationLocked(region, clusterArn, "DELETE_CHANNEL", nil, nil)
+	ch.Status = ChannelStatusDeleting
+	ch.ClusterOperationArn = op.ClusterOperationArn
+	b.channels.Put(ch)
 
 	return &Channel{ChannelArn: channelArn, ClusterOperationArn: op.ClusterOperationArn}, nil
 }
 
-// DescribeChannel retrieves a channel by cluster ARN and channel ARN. A
-// channelArn that exists but belongs to a different cluster is reported as
-// not found, matching real MSK's cluster-scoped Channel resource model.
+// DescribeChannel retrieves a channel by cluster ARN and channel ARN, settling
+// a CREATING/UPDATING channel to ACTIVE and finishing a DELETING one (not found).
+// A channelArn belonging to a different cluster is reported as not found.
 func (b *InMemoryBackend) DescribeChannel(_ context.Context, clusterArn, channelArn string) (*Channel, error) {
-	b.mu.RLock("DescribeChannel")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeChannel")
+	defer b.mu.Unlock()
 
 	ch, ok := b.channels.Get(channelArn)
 	if !ok || ch.ClusterArn != clusterArn {
 		return nil, ErrNotFound
+	}
+
+	switch ch.Status {
+	case ChannelStatusDeleting:
+		b.channels.Delete(channelArn)
+
+		return nil, ErrNotFound
+	case ChannelStatusCreating, ChannelStatusUpdating:
+		ch.Status = ChannelStatusActive
+		ch.ClusterOperationArn = ""
 	}
 
 	return cloneChannel(ch), nil
@@ -321,11 +347,10 @@ func (b *InMemoryBackend) UpdateChannel(
 	}
 
 	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_CHANNEL", nil, nil)
+	ch.Status = ChannelStatusUpdating
+	ch.ClusterOperationArn = op.ClusterOperationArn
 
-	result := cloneChannel(ch)
-	result.ClusterOperationArn = op.ClusterOperationArn
-
-	return result, nil
+	return cloneChannel(ch), nil
 }
 
 // applyChannelDestinationUpdateLocked mutates ch's destination-freshness

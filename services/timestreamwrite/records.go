@@ -3,6 +3,7 @@ package timestreamwrite
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,6 +40,9 @@ func recordGoesToMemoryStore(r Record, tbl *Table, now time.Time) bool {
 
 	return r.InternalTimestamp.After(cutoff)
 }
+
+// futureIngestionWindow is how far ahead of now a record timestamp may lie.
+const futureIngestionWindow = 15 * time.Minute
 
 // recordOutsideRetention reports whether ts lies outside the table's memory-store
 // retention window and the table has no magnetic store write path to receive it.
@@ -132,7 +136,28 @@ func writeRecordsIntoSlot(
 	var memoryInserted, magneticInserted int32
 
 	for i, r := range records {
+		if missing := missingRequiredPartitionKey(tbl, r); missing != "" {
+			rejected = append(rejected, RejectedRecord{
+				RecordIndex: i,
+				Reason: fmt.Sprintf(
+					"The record is missing the dimension %q, which is a REQUIRED customer-defined partition key",
+					missing,
+				),
+			})
+
+			continue
+		}
+
 		ts := parseTimestreamTime(r.Time, r.TimeUnit)
+
+		if ts.After(now.Add(futureIngestionWindow)) {
+			rejected = append(rejected, RejectedRecord{
+				RecordIndex: i,
+				Reason:      "The record timestamp is outside the time range of the data ingestion window.",
+			})
+
+			continue
+		}
 
 		if recordOutsideRetention(ts, tbl, now) {
 			rejected = append(rejected, RejectedRecord{
@@ -289,4 +314,23 @@ func (b *InMemoryBackend) pruneTableRecords(dbName, tblName string, tbl *Table, 
 	}
 
 	return pruned
+}
+
+// missingRequiredPartitionKey returns the name of the first REQUIRED dimension partition key absent from r.
+func missingRequiredPartitionKey(tbl *Table, r Record) string {
+	if tbl == nil || tbl.Schema == nil {
+		return ""
+	}
+
+	for _, k := range tbl.Schema.CompositePartitionKey {
+		if k.Type != PartitionKeyTypeDimension || k.EnforcementInRecord != PartitionKeyEnforcementRequired {
+			continue
+		}
+
+		if !slices.ContainsFunc(r.Dimensions, func(d Dimension) bool { return d.Name == k.Name }) {
+			return k.Name
+		}
+	}
+
+	return ""
 }

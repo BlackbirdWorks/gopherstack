@@ -123,11 +123,27 @@ type associatePackageOutput struct {
 }
 
 type domainPackageJSON struct {
-	PackageID           string `json:"PackageID"`
-	PackageName         string `json:"PackageName,omitempty"`
-	DomainName          string `json:"DomainName"`
-	PackageType         string `json:"PackageType,omitempty"`
-	DomainPackageStatus string `json:"DomainPackageStatus"`
+	PackageID           string  `json:"PackageID"`
+	PackageName         string  `json:"PackageName,omitempty"`
+	DomainName          string  `json:"DomainName"`
+	PackageType         string  `json:"PackageType,omitempty"`
+	DomainPackageStatus string  `json:"DomainPackageStatus"`
+	PackageVersion      string  `json:"PackageVersion,omitempty"`
+	ReferencePath       string  `json:"ReferencePath,omitempty"`
+	LastUpdated         float64 `json:"LastUpdated,omitempty"`
+}
+
+func toDomainPackageJSON(dp *DomainPackage, status string) domainPackageJSON {
+	return domainPackageJSON{
+		PackageID:           dp.Package.ID,
+		PackageName:         dp.Package.Name,
+		DomainName:          dp.DomainName,
+		PackageType:         dp.Package.PackageType,
+		DomainPackageStatus: status,
+		PackageVersion:      dp.PackageVersion,
+		ReferencePath:       dp.ReferencePath,
+		LastUpdated:         awstime.Epoch(dp.LastUpdated),
+	}
 }
 
 // associatePackagePathParts is the expected number of path segments after /associate/.
@@ -152,7 +168,8 @@ func (h *Handler) handleAssociatePackage(w http.ResponseWriter, r *http.Request)
 
 	packageID, domainName := parts[0], parts[1]
 
-	if assocErr := h.Backend.AssociatePackage(h.reqContext(r), packageID, domainName); assocErr != nil {
+	assoc, assocErr := h.Backend.AssociatePackage(h.reqContext(r), packageID, domainName)
+	if assocErr != nil {
 		switch {
 		case errors.Is(assocErr, ErrDomainNotFound) || errors.Is(assocErr, ErrPackageNotFound):
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", assocErr.Error())
@@ -165,12 +182,7 @@ func (h *Handler) handleAssociatePackage(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var out associatePackageOutput
-	out.DomainPackageDetails.PackageID = packageID
-	out.DomainPackageDetails.DomainName = domainName
-	out.DomainPackageDetails.DomainPackageStatus = "ACTIVE"
-
-	h.writeJSON(r, w, &out)
+	h.writeJSON(r, w, &associatePackageOutput{DomainPackageDetails: toDomainPackageJSON(assoc, statusActive)})
 }
 
 func (h *Handler) handleDissociatePackage(w http.ResponseWriter, r *http.Request) {
@@ -182,17 +194,14 @@ func (h *Handler) handleDissociatePackage(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := h.Backend.DissociatePackage(h.reqContext(r), parts[0], parts[1]); err != nil {
+	dissoc, err := h.Backend.DissociatePackage(h.reqContext(r), parts[0], parts[1])
+	if err != nil {
 		h.writeOperationError(r, w, err)
 
 		return
 	}
 
-	h.writeJSON(r, w, map[string]any{"DomainPackageDetails": map[string]any{
-		keyPackageID:          parts[0],
-		"DomainName":          parts[1],
-		"DomainPackageStatus": "DISSOCIATING",
-	}})
+	h.writeJSON(r, w, &associatePackageOutput{DomainPackageDetails: toDomainPackageJSON(dissoc, "DISSOCIATING")})
 }
 
 // describePackagesFilter is the wire shape of types.DescribePackagesFilter --
@@ -347,10 +356,8 @@ func (h *Handler) handleListDomainsForPackage(w http.ResponseWriter, r *http.Req
 	}
 
 	result := make([]domainPackageJSON, 0, len(domains))
-	for _, domainName := range domains {
-		result = append(result, domainPackageJSON{
-			PackageID: id, DomainName: domainName, DomainPackageStatus: statusActive,
-		})
+	for _, dp := range domains {
+		result = append(result, toDomainPackageJSON(dp, statusActive))
 	}
 
 	writePagedList(h, w, r, listSpec("DomainPackageDetailsList"), result,
@@ -368,14 +375,8 @@ func (h *Handler) handleListPackagesForDomain(w http.ResponseWriter, r *http.Req
 	}
 
 	result := make([]domainPackageJSON, 0, len(packages))
-	for _, pkg := range packages {
-		result = append(result, domainPackageJSON{
-			PackageID:           pkg.ID,
-			PackageName:         pkg.Name,
-			PackageType:         pkg.PackageType,
-			DomainName:          domainName,
-			DomainPackageStatus: statusActive,
-		})
+	for _, dp := range packages {
+		result = append(result, toDomainPackageJSON(dp, statusActive))
 	}
 
 	writePagedList(h, w, r, listSpec("DomainPackageDetailsList"), result,

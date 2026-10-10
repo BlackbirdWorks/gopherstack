@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 
@@ -142,6 +143,41 @@ func (b *InMemoryBackend) CreateSecret(ctx context.Context, input *CreateSecretI
 		return nil, err
 	}
 
+	return b.createSecret(ctx, input)
+}
+
+// CreateManagedSecret creates a service-owned secret (e.g. "rds!cluster-<uuid>") whose name bypasses the
+// public-name pattern, and returns its ARN.
+func (b *InMemoryBackend) CreateManagedSecret(region, name, kmsKeyID, secretString string) (string, error) {
+	out, err := b.createSecret(WithRegion(context.Background(), region), &CreateSecretInput{
+		Name: name, KmsKeyID: kmsKeyID, SecretString: secretString, Region: region,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return out.ARN, nil
+}
+
+// PutManagedSecretValue writes a new current value to a service-owned secret by ARN.
+func (b *InMemoryBackend) PutManagedSecretValue(region, secretARN, secretString string) error {
+	_, err := b.PutSecretValue(WithRegion(context.Background(), region), &PutSecretValueInput{
+		SecretID: secretARN, SecretString: secretString,
+	})
+
+	return err
+}
+
+// DeleteManagedSecret permanently removes a service-owned secret by ARN.
+func (b *InMemoryBackend) DeleteManagedSecret(region, secretARN string) error {
+	_, err := b.DeleteSecret(WithRegion(context.Background(), region), &DeleteSecretInput{
+		SecretID: secretARN, ForceDeleteWithoutRecovery: true,
+	})
+
+	return err
+}
+
+func (b *InMemoryBackend) createSecret(ctx context.Context, input *CreateSecretInput) (*CreateSecretOutput, error) {
 	if input.SecretString != "" && len(input.SecretBinary) > 0 {
 		return nil, fmt.Errorf(
 			"%w: you must provide either SecretString or SecretBinary, but not both",
@@ -442,6 +478,10 @@ func (b *InMemoryBackend) ListSecrets(ctx context.Context, input *ListSecretsInp
 		return nil, err
 	}
 
+	if err := validateNextToken(input.NextToken); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock(opListSecrets)
@@ -577,20 +617,11 @@ func secretMatchesFilter(s *Secret, f SecretFilter) bool {
 	case "tag-value":
 		return secretHasTagValue(s, f.Values)
 	case "all":
-		// "all" matches any of the filterable string fields.
-		return matchPrefix(f.Values, secretAllAttributes(s), hasPrefixFold)
+		return secretMatchesAllFilter(s, f.Values)
 	case "primary-region":
-		// In a single-region mock every secret belongs to the single region;
-		// the filter always passes (no cross-region replication routing needed).
-		return true
+		return anyMatchPrefix(f.Values, s.primaryRegionOrSelf())
 	case "owning-service":
-		// No secret in this mock ever has an owning service (no CreateSecret/
-		// UpdateSecret input field sets DescribeSecretOutput.OwningService — it
-		// is only ever set by AWS itself for service-linked secrets, e.g.
-		// RDS-managed rotation, which this mock does not model). A real
-		// "owning-service" prefix filter therefore matches nothing here, same
-		// as it would against any AWS secret with no owning service.
-		return anyMatchPrefix(f.Values, "")
+		return anyMatchPrefix(f.Values, owningService(s.Name))
 	default:
 		return true
 	}
@@ -708,6 +739,7 @@ func (b *InMemoryBackend) DescribeSecret(
 		ReplicationStatus:              b.replicationConfigsStoreRO(region)[name],
 		PrimaryRegion:                  secret.primaryRegionOrSelf(),
 		Type:                           secret.Type,
+		OwningService:                  owningService(secret.Name),
 		ExternalSecretRotationRoleArn:  secret.ExternalSecretRotationRoleArn,
 		ExternalSecretRotationMetadata: cloneExternalSecretRotationMetadata(secret.ExternalSecretRotationMetadata),
 	}
@@ -923,7 +955,92 @@ func secretToListEntry(s *Secret) SecretListEntry {
 		Tags:                           tagsToSlice(s.Tags),
 		SecretVersionsToStages:         versionStages,
 		Type:                           s.Type,
+		OwningService:                  owningService(s.Name),
 		ExternalSecretRotationRoleArn:  s.ExternalSecretRotationRoleArn,
 		ExternalSecretRotationMetadata: cloneExternalSecretRotationMetadata(s.ExternalSecretRotationMetadata),
 	}
+}
+
+// owningService is the service that owns a service-linked secret: public names cannot
+// contain "!", so a "<service>!<id>" name (see CreateManagedSecret) marks one.
+func owningService(name string) string {
+	svc, _, ok := strings.Cut(name, "!")
+	if !ok {
+		return ""
+	}
+
+	return svc
+}
+
+// secretMatchesAllFilter implements the "all" key: each value is split into words and matches secrets having
+// any of them as a word prefix in the name, description, tag keys or tag values; a leading "!" negates the value.
+func secretMatchesAllFilter(s *Secret, values []string) bool {
+	attrs := secretAllAttributes(s)
+	have := make([]string, 0, len(attrs))
+
+	for _, attr := range attrs {
+		have = append(have, searchWords(attr)...)
+	}
+
+	hasPositive, positiveMatch := false, false
+
+	for _, v := range values {
+		negated, isNeg := strings.CutPrefix(v, "!")
+		matched := slices.ContainsFunc(searchWords(negated), func(w string) bool {
+			return slices.ContainsFunc(have, func(h string) bool { return strings.HasPrefix(h, w) })
+		})
+
+		if isNeg {
+			if matched {
+				return false
+			}
+
+			continue
+		}
+
+		hasPositive = true
+		positiveMatch = positiveMatch || matched
+	}
+
+	return !hasPositive || positiveMatch
+}
+
+// searchWords lower-cases and splits text on punctuation, lowercase-to-uppercase changes and letter/digit
+// changes, per the Secrets Manager "Find secrets" user guide.
+func searchWords(text string) []string {
+	var (
+		words []string
+		cur   []rune
+		prev  rune
+	)
+
+	flush := func() {
+		if len(cur) > 0 {
+			words = append(words, strings.ToLower(string(cur)))
+			cur = cur[:0]
+		}
+	}
+
+	for _, r := range text {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			flush()
+
+			prev = 0
+
+			continue
+		}
+
+		boundary := prev != 0 &&
+			((unicode.IsLower(prev) && unicode.IsUpper(r)) || unicode.IsDigit(prev) != unicode.IsDigit(r))
+		if boundary {
+			flush()
+		}
+
+		cur = append(cur, r)
+		prev = r
+	}
+
+	flush()
+
+	return words
 }

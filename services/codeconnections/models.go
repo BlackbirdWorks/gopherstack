@@ -208,21 +208,23 @@ type SyncBlockerSummary struct {
 	LatestBlockers     []SyncBlocker
 }
 
+// SyncBlockerContext is a key-value pair of context for a sync blocker.
+type SyncBlockerContext struct {
+	Key   string
+	Value string
+}
+
 // SyncBlocker represents a single sync blocker entry.
 type SyncBlocker struct {
+	CreatedAt      time.Time
+	ResolvedAt     *time.Time
 	ID             string
 	Type           string
 	Status         string
-	CreatedAt      time.Time
 	CreatedReason  string
-	ResolvedAt     *time.Time
 	ResolvedReason string
 	ResourceName   string
 	SyncType       string
-	// region qualifies the byResource secondary index (see
-	// syncBlockerResourceIndexKeyFn in store_setup.go): ResourceName+SyncType
-	// alone is not region-unique, and UpdateSyncBlocker's lookup by ID must
-	// still be scoped to the caller's context region, so region is captured
-	// at creation time and re-checked on every ID-based lookup.
-	region string
+	region         string
+	Contexts       []SyncBlockerContext
 }

@@ -2,6 +2,7 @@ package ecr
 
 import (
 	"context"
+	"fmt"
 	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
@@ -17,6 +18,20 @@ func (b *InMemoryBackend) TagResource(
 	defer b.mu.Unlock()
 
 	existing := b.findResourceTagsLocked(resourceArn)
+
+	total := len(existing)
+
+	for k := range tags {
+		if _, ok := existing[k]; !ok {
+			total++
+		}
+	}
+
+	if total > maxTagsPerRepo {
+		return fmt.Errorf("%w: The maximum number of tags (%d) per resource has been exceeded",
+			ErrTooManyTags, maxTagsPerRepo)
+	}
+
 	maps.Copy(existing, tags)
 
 	return nil

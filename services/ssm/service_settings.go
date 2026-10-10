@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -57,6 +58,7 @@ func (b *InMemoryBackend) UpdateServiceSetting(
 		SettingID:        input.SettingID,
 		SettingValue:     input.SettingValue,
 		Status:           settingStatusCustomized,
+		LastModifiedUser: awsmeta.CallerArn(ctx),
 		LastModifiedDate: UnixTimeFloat(time.Now()),
 	})
 

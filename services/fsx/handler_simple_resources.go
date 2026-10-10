@@ -215,12 +215,15 @@ func (h *Handler) handleCreateDataRepositoryAssociation(
 // --- DeleteDataRepositoryAssociation ---
 
 type deleteDataRepositoryAssociationInput struct {
-	AssociationID string `json:"AssociationId"`
+	DeleteDataInFileSystem *bool  `json:"DeleteDataInFileSystem,omitempty"`
+	AssociationID          string `json:"AssociationId"`
+	ClientRequestToken     string `json:"ClientRequestToken,omitempty"`
 }
 
 type deleteDataRepositoryAssociationOutput struct {
-	AssociationID string `json:"AssociationId"`
-	Lifecycle     string `json:"Lifecycle"`
+	DeleteDataInFileSystem *bool  `json:"DeleteDataInFileSystem,omitempty"`
+	AssociationID          string `json:"AssociationId"`
+	Lifecycle              string `json:"Lifecycle"`
 }
 
 func (h *Handler) handleDeleteDataRepositoryAssociation(
@@ -231,7 +234,11 @@ func (h *Handler) handleDeleteDataRepositoryAssociation(
 		return nil, err
 	}
 
-	return &deleteDataRepositoryAssociationOutput{AssociationID: in.AssociationID, Lifecycle: lifecycleDeleting}, nil
+	return &deleteDataRepositoryAssociationOutput{
+		AssociationID:          in.AssociationID,
+		Lifecycle:              lifecycleDeleting,
+		DeleteDataInFileSystem: in.DeleteDataInFileSystem,
+	}, nil
 }
 
 // --- DescribeDataRepositoryAssociations ---

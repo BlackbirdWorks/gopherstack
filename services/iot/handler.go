@@ -46,7 +46,10 @@ func (h *Handler) EnableRegions() {
 	}
 
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
-		return NewHandler(NewInMemoryBackendWithConfig(home.accountID, region), h.broker)
+		sib := NewInMemoryBackendWithConfig(home.accountID, region)
+		sib.SetServerCertificateChecker(home.certificateChecker())
+
+		return NewHandler(sib, h.broker)
 	})
 
 	if h.broker != nil {
@@ -233,6 +236,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		op := resolveOperation(c.Request().URL.Path, c.Request().Method)
 
 		log.Debug("iot request", "operation", op, "path", c.Request().URL.Path)
+
+		if msg := invalidPaginationQuery(c); msg != "" {
+			return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, msg})
+		}
 
 		if handled, err := h.dispatchCoreOp(c, op); handled {
 			return err

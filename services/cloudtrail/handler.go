@@ -17,6 +17,7 @@ import (
 const (
 	cloudtrailMatchPriority         = service.PriorityHeaderExact
 	cloudtrailTargetPrefix          = "CloudTrail_20131101."
+	cloudtrailLegacyTargetNamespace = "com.amazonaws.cloudtrail.v20131101."
 	keyTrailARN                     = "TrailARN"
 	keyName                         = "Name"
 	keyQueryID                      = "QueryId"
@@ -146,9 +147,7 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 // RouteMatcher returns a function that matches AWS CloudTrail JSON requests.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		target := c.Request().Header.Get("X-Amz-Target")
-
-		return strings.HasPrefix(target, cloudtrailTargetPrefix)
+		return strings.HasPrefix(targetHeader(c), cloudtrailTargetPrefix)
 	}
 }
 
@@ -157,9 +156,13 @@ func (h *Handler) MatchPriority() int { return cloudtrailMatchPriority }
 
 // ExtractOperation extracts the CloudTrail operation name from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	target := c.Request().Header.Get("X-Amz-Target")
+	return strings.TrimPrefix(targetHeader(c), cloudtrailTargetPrefix)
+}
 
-	return strings.TrimPrefix(target, cloudtrailTargetPrefix)
+// targetHeader returns X-Amz-Target without the namespace botocore-based clients
+// (AWS CLI v1/v2, boto3, CDK) prepend; the Go SDK sends it bare.
+func targetHeader(c *echo.Context) string {
+	return strings.TrimPrefix(c.Request().Header.Get("X-Amz-Target"), cloudtrailLegacyTargetNamespace)
 }
 
 // ExtractResource extracts the primary resource identifier from the request body.
@@ -302,6 +305,10 @@ var errorMappings = []errorMapping{
 	{ErrInsightNotEnabled, "InsightNotEnabledException", http.StatusBadRequest},
 	{ErrS3BucketNotFound, "S3BucketDoesNotExistException", http.StatusBadRequest},
 	{ErrAlreadyExists, "TrailAlreadyExistsException", http.StatusConflict},
+	{ErrInvalidTrailName, "InvalidTrailNameException", http.StatusBadRequest},
+	{ErrInvalidLookupAttributes, "InvalidLookupAttributesException", http.StatusBadRequest},
+	{ErrInvalidMaxResults, "InvalidMaxResultsException", http.StatusBadRequest},
+	{ErrInvalidEventSelectors, "InvalidEventSelectorsException", http.StatusBadRequest},
 	{ErrValidation, "InvalidParameterException", http.StatusBadRequest},
 	{errInvalidRequest, "InvalidParameterCombinationException", http.StatusBadRequest},
 }
@@ -309,7 +316,7 @@ var errorMappings = []errorMapping{
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	for _, m := range errorMappings {
 		if errors.Is(err, m.sentinel) {
-			return c.JSON(m.status, errResp(m.code, err.Error()))
+			return c.JSON(m.status, errResp(m.code, publicMessage(err)))
 		}
 	}
 

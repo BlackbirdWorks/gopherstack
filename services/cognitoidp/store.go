@@ -83,6 +83,7 @@ type InMemoryBackend struct {
 	resourceServersByPool         *store.Index[ResourceServer]
 	tokenRevokedBeforeSeq         map[string]int64
 	tokenRevokedBefore            map[string]time.Time
+	revokedChains                 map[string]time.Time
 	registry                      *store.Registry
 	identityProviders             *store.Table[IdentityProvider]
 	identityProvidersByPool       *store.Index[IdentityProvider]
@@ -127,6 +128,7 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		groupMembers:          make(map[string]map[string]map[string]struct{}),
 		tokenRevokedBeforeSeq: make(map[string]int64),
 		tokenRevokedBefore:    make(map[string]time.Time),
+		revokedChains:         make(map[string]time.Time),
 		resourceTags:          make(map[string]map[string]string),
 		riskConfigurations:    make(map[string]*RiskConfiguration),
 		logDeliveryConfigs:    make(map[string]*LogDeliveryConfig),

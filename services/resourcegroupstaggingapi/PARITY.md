@@ -2,7 +2,7 @@
 service: resourcegroupstaggingapi
 sdk_module: aws-sdk-go-v2/service/resourcegroupstaggingapi@v1.35.4
 last_audit_commit: 6d3b2159e
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-10
 overall: A            # 2026-08-07 (gopherstack-3xfq): ListRequiredTags now derives real
                        # RequiredTag rows from an effective TAG_POLICY document's
                        # report_required_tag_for blocks (see requiredTagsFromPolicy,
@@ -38,29 +38,10 @@ families:
   report_lifecycle: {status: ok, note: "RUNNING -> SUCCEEDED transition, ConcurrentModificationException while RUNNING, per-region isolation via store.Table, NO REPORT for never-started/stale (>90d) reports -- all verified against real semantics (see DescribeReportCreation note above for this sweep's correction)"}
   error_codes: {status: ok, note: "prior sweep's core fix: every validation failure in this package was returning __type: ValidationException, which is not a shape in resourcegroupstaggingapi's error model at all (confirmed against aws-sdk-go-v2/service/resourcegroupstaggingapi/types/errors.go and deserializers.go's error-code switch). Fixed to InvalidParameterException. This sweep added the sixth and final error-model member, PaginationTokenExpiredException, which was declared but never producible by any code path -- see GetResources/GetTagKeys/GetTagValues notes above. All 6 error types in the real model (ConcurrentModificationException, ConstraintViolationException, InternalServiceException, InvalidParameterException, PaginationTokenExpiredException, ThrottledException) are now field-diff-confirmed; ConstraintViolationException/ThrottledException remain structurally unreachable because gopherstack has no tag-policy engine or rate limiter (not a wiring bug, an architectural absence tracked by gopherstack-i710)."}
 gaps: []
-items_still_open:
-  - "GetComplianceSummary always reports zero noncompliant resources. This is NOT simply 'no
-    tag-policy engine exists' (services/organizations does model TAG_POLICY content,
-    attachment, and effective-policy merging) -- the real blocker is architectural: real
-    GetComplianceSummary is callable only from an organization's management account
-    (confirmed via the pinned SDK's doc comment) and aggregates noncompliant counts across
-    every member account, and gopherstack has no multi-account resource-store simulation to
-    aggregate across. A single-account approximation would misrepresent the operation's
-    actual cross-account contract, so was not built (bd: gopherstack-i710)."
-  - "ListRequiredTags parses a policy's report_required_tag_for element for real (see the
-    ListRequiredTags ops row) but returns an empty list until central wiring registers a
-    TagPolicyProvider: nothing currently calls RegisterTagPolicyProvider. cli.go should look
-    up the account's effective TAG_POLICY via services/organizations' DescribeEffectivePolicy
-    and register a closure returning it, mirroring RegisterProvider/RegisterARNTagger's
-    existing wiring in wireResourceGroupsTagging. Out of this service's scope."
-  - "cli.go's wireResourceGroupsTagging covers 91 of the ~90 services with native TagResource
-    support (bd: gopherstack-3xne) -- central wiring, out of this service's scope. s3control
-    remains blocked (its taggable ARNs use the s3/s3-object-lambda namespaces, not
-    s3control, which the current single-namespace-per-service dispatch doesn't fit). NOT
-    PURSUED: acm, amplify, apigateway(v2), appsync, databrew, emrserverless, iot,
-    iotanalytics, kafka, organizations, ssoadmin, textract -- see cli.go's
-    wireResourceGroupsTagging doc comment for the exact current list and why each was
-    skipped."
+items_still_open: []
+structural_gaps:
+  - "s3control tagging is not wired: its taggable ARNs use the s3/s3-object-lambda namespaces, which the s3 tagger already owns."
+  - "GetComplianceSummary always reports zero noncompliant resources: it is callable only from an organization management account and aggregates noncompliant counts across every member account, and there is no multi-account resource store to aggregate across (bd: gopherstack-i710)."
 deferred:
   - "Full TagsPerPage/ResourcesPerPage interaction edge cases beyond the cumulative-tag-count
     cap (e.g. exact AWS behavior when a single oversized resource's tag count alone exceeds
@@ -313,3 +294,7 @@ go.sum` empty. No code or persisted-field change.
 ## 2026-10-03 (gopherstack-taq78 multi-region)
 
 The bridge lists the request region's resources and resolves TagResources/UntagResources by the ARN's region for ECS, Athena, Glue, ECR, Backup, CodeCommit, Cloud Map, Lightsail, Cognito IdP, SESv2 and CodeDeploy (`regionalTagSpec` in cli_cross_region.go). Auto Scaling, ELBv2 and CloudFormation expose no tagged-resource listing and are not bridged. Proof: `TestInitializeServices_TaggingBridgeFollowsRegion`.
+
+## 2026-10-10 realism pass
+
+GetResources rejects ResourcesPerPage outside 1-100 with InvalidParameterException (api_op_GetResources.go doc) instead of clamping. TagResources/UntagResources report a tagger's not-found or invalid-parameter failure as InvalidParameterException/400 in FailedResourcesMap rather than InternalServiceException/500. Proof: `TestGetResources_ResourcesPerPageRange`, `TestTagResources_TaggerErrorClassification`.

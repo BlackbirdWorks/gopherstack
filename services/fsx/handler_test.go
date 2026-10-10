@@ -57,7 +57,7 @@ func doFSxRequest(t *testing.T, h *fsx.Handler, op string, body any) *httptest.R
 // stays usable as a shared fixture across every _test.go file in this
 // package.
 func fileSystemCreateBody(fsType string) map[string]any {
-	body := map[string]any{"FileSystemType": fsType}
+	body := map[string]any{"FileSystemType": fsType, "SubnetIds": []string{"subnet-0123456789abcdef0"}}
 
 	switch fsType {
 	case "WINDOWS":
@@ -100,7 +100,7 @@ func createFSandBackup(t *testing.T, h *fsx.Handler, fsType string) string {
 // creates) one of those anchors under fsID before calling CreateVolume, the
 // same way fileSystemCreateBody mirrors CreateFileSystem's own per-type
 // required config block. An empty fsID creates a fresh file system of volType.
-func createVolume(t *testing.T, h *fsx.Handler, fsID, volType, name string) string { //nolint:unparam // existing issue.
+func createVolume(t *testing.T, h *fsx.Handler, fsID, volType, name string) string {
 	t.Helper()
 
 	if fsID == "" {
@@ -161,7 +161,7 @@ func createSVM(t *testing.T, h *fsx.Handler, fsID, name string) string {
 	return out["StorageVirtualMachine"].(map[string]any)["StorageVirtualMachineId"].(string)
 }
 
-func createFileCache(t *testing.T, h *fsx.Handler, cacheType string) string {
+func createFileCache(t *testing.T, h *fsx.Handler, cacheType string) string { //nolint:unparam // explicit type.
 	t.Helper()
 	rec := doFSxRequest(t, h, "CreateFileCache", map[string]any{
 		"FileCacheType":        cacheType,
@@ -238,8 +238,15 @@ func Test_CreationTime_IsEpochSecondsNumber(t *testing.T) {
 			create: func(t *testing.T, h *fsx.Handler) map[string]any {
 				t.Helper()
 
-				return decodeField(t, doFSxRequest(t, h, "CreateFileSystem",
-					map[string]any{"FileSystemType": "LUSTRE"}), "FileSystem")
+				return decodeField(t, doFSxRequest(
+					t,
+					h,
+					"CreateFileSystem",
+					map[string]any{
+						"FileSystemType": "LUSTRE",
+						"SubnetIds":      []string{"subnet-0123456789abcdef0"},
+					},
+				), "FileSystem")
 			},
 		},
 		{

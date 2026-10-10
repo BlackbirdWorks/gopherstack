@@ -3,6 +3,7 @@ package transfer
 import (
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"sort"
 	"time"
@@ -37,6 +38,10 @@ func (b *InMemoryBackend) CreateUser(
 
 // CreateUserFull creates a user on the given server with full configuration.
 func (b *InMemoryBackend) CreateUserFull(in *CreateUserInput) (*User, error) {
+	if err := validateUserName(in.UserName); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
@@ -245,4 +250,18 @@ func (b *InMemoryBackend) UpdateUserFull(in *UpdateUserInput) (*User, error) {
 	}
 
 	return cloneUser(u), nil
+}
+
+var userNameRe = regexp.MustCompile(`^[\w][\w@.-]{2,99}$`)
+
+// validateUserName enforces the 3-100 character pattern from transfer CreateUserInput.UserName.
+func validateUserName(name string) error {
+	if !userNameRe.MatchString(name) {
+		return fmt.Errorf(
+			"%w: UserName must be 3-100 characters of a-z, A-Z, 0-9, _, -, . and @, and cannot start with -, . or @",
+			ErrValidation,
+		)
+	}
+
+	return nil
 }

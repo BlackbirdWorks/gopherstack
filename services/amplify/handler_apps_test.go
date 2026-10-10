@@ -172,12 +172,12 @@ func TestHandler_ListAppsPagination(t *testing.T) {
 		},
 		{
 			name:        "second_page",
-			queryString: "?maxResults=2&nextToken=2",
+			queryString: "?maxResults=2&nextToken=Mg%3D%3D",
 			wantCount:   2,
 		},
 		{
 			name:        "token_beyond_end",
-			queryString: "?maxResults=2&nextToken=100",
+			queryString: "?maxResults=2&nextToken=MTAw",
 			wantCount:   0,
 		},
 	}

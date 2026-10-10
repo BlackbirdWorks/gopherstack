@@ -31,4 +31,5 @@ var (
 	ErrSnapshotRequired                   = errors.New("InvalidParameterCombination")
 	ErrInvalidParameterCombination        = ErrSnapshotRequired
 	ErrInvalidGlobalClusterState          = errors.New("InvalidGlobalClusterStateFault")
+	ErrNetworkTypeNotSupported            = errors.New("NetworkTypeNotSupported")
 )

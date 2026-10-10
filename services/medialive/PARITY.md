@@ -1,7 +1,7 @@
 service: medialive
 sdk_module: aws-sdk-go-v2/service/medialive@v1.101.4   # version audited against
 last_audit_commit: 2332c3128  # 2026-09-24 DELETED input-security-group/multiplex TTL eviction; prior: 5cb6665a0
-last_audit_date: 2026-09-24
+last_audit_date: 2026-10-07
 overall: A            # Sweep 6 (gopherstack-jb9i): Channel now models all 17
                        # CreateChannelInput/UpdateChannelInput top-level members (was 5) --
                        # CdiInputSpecification/ChannelEngineVersion/ChannelSecurityGroups/
@@ -746,16 +746,18 @@ gaps: []
 
 
 items_still_open:
-  - "Channel.Vpc response-side availabilityZones/networkInterfaceIds are omitted: MediaLive derives them from a real VPC/ENI integration this backend lacks."
-  - "Members with no backing source, not fabricated: ChannelSummary.UsedChannelEngineVersions (no engine-version history); InputDeviceSummary AvailabilityZone/HdDeviceSettings/MedialiveInputArns/NetworkSettings/OutputType/UhdDeviceSettings (hardware-registered devices); Node NodeInterfaceMapping.PhysicalInterfaceIpAddresses and DescribeNodeSummary InstanceArn/ManagedInstanceId (node hardware)."
-  - "ListOfferings ChannelConfiguration (match a channel's configuration) and the CW/EB template-group Scope filter are unimplemented: the offering catalog has no channel-derived matching, and Scope's wire values appear only in an SDK prose comment (no enum), so a filter risks the wrong-vocabulary bug. ChannelClass filters ListOfferings/ListReservations over ResourceSpecification.ChannelClass, which no seeded offering sets."
-  - "DeleteReservation hard-deletes (after a transient CANCELED) rather than reaching the real DELETED state; unproven without AWS evidence, tested as deliberate."
-  - "Op-by-op state/error-code audit of Cluster, Node, SignalMap and Batch beyond the fixes in the dated notes was not re-performed."
+  - "ListOfferings ChannelConfiguration (match a channel's configuration) and the CW/EB template-group Scope filter stay unimplemented: api_op_ListOfferings.go says only 'match the configuration of an existing channel' and the Scope doc (api_op_ListCloudWatchAlarmTemplateGroups.go, API reference cloudwatch-alarm-template-groups) says only 'all scopes, AWS provided resources, or local resources' with no query-parameter value vocabulary (re-checked 2026-10-07). ChannelClass filtering needs a seeded offering catalog whose real ResourceSpecification.ChannelClass values are not published."
+  - "Cluster/Node/SignalMap/Batch state and error rules beyond the SDK-documented ones now enforced (DeleteCluster/DeleteNode require idle, UpdateNodeState ACTIVE|DRAINING) are not documented in the pinned SDK or the MediaLive API reference (e.g. signal-map name conflicts, group-identifier existence checks, async monitor-deployment progress), so they cannot be verified."
+structural_gaps:
+  - "Members with no backing source: InputDeviceSummary AvailabilityZone/HdDeviceSettings/MedialiveInputArns/NetworkSettings/OutputType/UhdDeviceSettings come from hardware-registered devices; Node NodeInterfaceMapping.PhysicalInterfaceIpAddresses and DescribeNodeSummary InstanceArn/ManagedInstanceId come from node hardware."
 leaks: {status: clean, note: "No goroutines/janitors in this service (re-confirmed sweep 5: no `go func`/time.NewTicker/time.AfterFunc/context.WithCancel anywhere in non-test files). Two real leaks found and fixed this pass: (1) b.tags[ARN] rows were never removed on delete for every resource family outside the Channel/Input/InputSecurityGroup/Multiplex/InputDevice fast path (taggableResourceTags) -- Cluster/Node/SignalMap/CloudWatchAlarmTemplate(Group)/EventBridgeRuleTemplate(Group)/Reservation/Network/SdiSource/ChannelPlacementGroup all now clear their b.tags entry in their respective Delete method; regression-tested via TestTags_LegacyStoreClearedOnDelete. (2) DeleteCluster never cascade-deleted its ChannelPlacementGroups -- unlike Nodes (embedded in storedCluster.Nodes, removed automatically with their parent), ChannelPlacementGroup lives in its own top-level table keyed by \"clusterID/groupID\"; fixed via cascadeDeleteChannelPlacementGroups, regression-tested via TestChannelPlacementGroup_CascadeDeletedWithCluster. Every b.mu.Lock/RLock call site was re-verified this pass to have an immediately-following `defer b.mu.Unlock()`/`RUnlock()` (125 call sites, no exceptions)."}
 
 ---
 
 ## Notes
+
+**2026-10-10 (realism pass):** channels and multiplexes report CREATING/STARTING/STOPPING/DELETING for an opt-in `SetLifecycleDelay` window (default 0 settles at once; the create/start/stop/delete responses still carry the transient state) and DeleteChannel now leaves a DELETED tombstone (TTL one hour, like multiplexes) so the SDK ChannelDeleted waiter can finish; Start/Stop/Delete/Update/UpdateChannelClass/Batch* check the effective state. ChannelClass and InputType enums, WhitelistRule CIDRs and the two-AZ multiplex rule are validated; every List op rejects maxResults outside 1..1000 and malformed nextToken. Tests: TestChannelLifecycleDelay, TestChannelWaitersWithoutDelay, TestMultiplexLifecycleDelay, TestCreateValidation. The setter is not wired to a CLI flag yet (cli.go is owned elsewhere).
+
 
 ### 2026-10-01: ListOfferings filters, Node mappings
 

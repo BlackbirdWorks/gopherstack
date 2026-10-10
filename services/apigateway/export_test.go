@@ -107,7 +107,7 @@ func TestGetExport_OAS30_IncludesOperations(t *testing.T) {
 	depl, _ := b.CreateDeployment(api.ID, "prod", "v1")
 	_ = depl
 
-	doc, err := b.GetExport(api.ID, "prod", "oas30")
+	doc, err := b.GetExport(api.ID, "prod", "oas30", apigateway.ExportOptions{Integrations: true})
 	require.NoError(t, err)
 
 	assert.Equal(t, "3.0.1", doc["openapi"])
@@ -143,7 +143,10 @@ func TestGetExport_Swagger20(t *testing.T) {
 	})
 	_, _ = b.PutIntegration(api.ID, child.ID, "POST", apigateway.PutIntegrationInput{Type: "MOCK"})
 
-	doc, err := b.GetExport(api.ID, "prod", "swagger")
+	_, err := b.CreateDeployment(api.ID, "prod", "v1")
+	require.NoError(t, err)
+
+	doc, err := b.GetExport(api.ID, "prod", "swagger", apigateway.ExportOptions{})
 	require.NoError(t, err)
 
 	assert.Equal(t, "2.0", doc["swagger"])

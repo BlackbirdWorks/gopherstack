@@ -21,6 +21,10 @@ func (b *InMemoryBackend) CreateRepository(
 		return nil, err
 	}
 
+	if err := ValidateRepositoryDescription(description); err != nil {
+		return nil, err
+	}
+
 	if b.repositories.Has(name) {
 		return nil, fmt.Errorf("%w: repository %s already exists", ErrAlreadyExists, name)
 	}
@@ -60,7 +64,7 @@ func (b *InMemoryBackend) GetRepository(name string) (*Repository, error) {
 
 	r, ok := b.repositories.Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, name)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, name)
 	}
 	cp := *r
 
@@ -213,9 +217,13 @@ func (b *InMemoryBackend) UpdateRepositoryDescription(name, desc string) error {
 	b.mu.Lock("UpdateRepositoryDescription")
 	defer b.mu.Unlock()
 
+	if err := ValidateRepositoryDescription(desc); err != nil {
+		return err
+	}
+
 	r, ok := b.repositories.Get(name)
 	if !ok {
-		return fmt.Errorf("%w: repository %s not found", ErrNotFound, name)
+		return fmt.Errorf("%w: %s does not exist", ErrNotFound, name)
 	}
 	r.Description = desc
 	r.LastModifiedDate = time.Now().UTC()
@@ -225,12 +233,16 @@ func (b *InMemoryBackend) UpdateRepositoryDescription(name, desc string) error {
 
 // UpdateRepositoryName renames a repository from oldName to newName.
 func (b *InMemoryBackend) UpdateRepositoryName(oldName, newName string) error {
+	if err := ValidateRepositoryName(newName); err != nil {
+		return err
+	}
+
 	b.mu.Lock("UpdateRepositoryName")
 	defer b.mu.Unlock()
 
 	r, ok := b.repositories.Get(oldName)
 	if !ok {
-		return fmt.Errorf("%w: repository %s not found", ErrNotFound, oldName)
+		return fmt.Errorf("%w: %s does not exist", ErrNotFound, oldName)
 	}
 
 	if b.repositories.Has(newName) {
@@ -288,7 +300,7 @@ func (b *InMemoryBackend) UpdateRepositoryEncryptionKey(
 
 	r, ok := b.repositories.Get(name)
 	if !ok {
-		return "", "", fmt.Errorf("%w: repository %s not found", ErrNotFound, name)
+		return "", "", fmt.Errorf("%w: %s does not exist", ErrNotFound, name)
 	}
 
 	originalKmsKeyID := r.KmsKeyID

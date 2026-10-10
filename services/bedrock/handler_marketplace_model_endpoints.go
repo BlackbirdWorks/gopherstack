@@ -160,7 +160,8 @@ type createMarketplaceModelEndpointInput struct {
 }
 
 type updateMarketplaceModelEndpointInput struct {
-	EndpointConfig *endpointConfigWire `json:"endpointConfig,omitempty"`
+	EndpointConfig     *endpointConfigWire `json:"endpointConfig,omitempty"`
+	ClientRequestToken string              `json:"clientRequestToken,omitempty"`
 }
 
 type createMarketplaceModelEndpointOutput struct {
@@ -302,7 +303,13 @@ func (h *Handler) handleUpdateMarketplaceModelEndpoint(c *echo.Context, id strin
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	ep, err := h.Backend.UpdateMarketplaceModelEndpoint(id, endpointConfigFromWire(in.EndpointConfig))
+	ep, err := idemCreate(
+		h.idem, "UpdateMarketplaceModelEndpoint", in.ClientRequestToken, idemFingerprint(in)+id, ErrAlreadyExists,
+		func(e *MarketplaceModelEndpoint) string { return e.EndpointArn }, h.Backend.GetMarketplaceModelEndpoint,
+		func() (*MarketplaceModelEndpoint, error) {
+			return h.Backend.UpdateMarketplaceModelEndpoint(id, endpointConfigFromWire(in.EndpointConfig))
+		},
+	)
 	if err != nil {
 		return h.writeError(c, err)
 	}

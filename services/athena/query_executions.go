@@ -37,7 +37,7 @@ func (b *InMemoryBackend) StartQueryExecution(
 
 		wg, ok := b.workGroups.Get(workGroup)
 		if !ok {
-			startErr = fmt.Errorf("%w: workgroup %q not found", ErrNotFound, workGroup)
+			startErr = awsErrorf(ErrNotFound, "WorkGroup %s is not found.", workGroup)
 
 			return
 		}
@@ -55,6 +55,11 @@ func (b *InMemoryBackend) StartQueryExecution(
 
 		id = randomID()
 		qe := newQueryExecution(id, query, workGroup, ctx, rc, execParams, reuseCfg, reused)
+
+		if m := wg.Configuration.ManagedResults; m != nil && m.Enabled {
+			cp := *m
+			qe.ManagedQueryResultsConfiguration = &cp
+		}
 
 		b.queryExecutions.Put(qe)
 	}()
@@ -224,7 +229,7 @@ func (b *InMemoryBackend) GetQueryExecution(id string) (*QueryExecution, error) 
 
 	qe, ok := b.queryExecutions.Get(id)
 	if !ok {
-		return nil, fmt.Errorf("%w: query execution %q not found", ErrNotFound, id)
+		return nil, awsErrorf(ErrNotFound, "QueryExecution %s was not found", id)
 	}
 
 	cp := *qe
@@ -270,7 +275,7 @@ func (b *InMemoryBackend) StopQueryExecution(id string) error {
 
 	qe, ok := b.queryExecutions.Get(id)
 	if !ok {
-		return fmt.Errorf("%w: query execution %q not found", ErrNotFound, id)
+		return awsErrorf(ErrNotFound, "QueryExecution %s was not found", id)
 	}
 
 	if isTerminalState(qe.Status.State) {
@@ -305,7 +310,7 @@ func (b *InMemoryBackend) BatchGetQueryExecution(
 			unprocessed = append(unprocessed, UnprocessedQueryExecutionID{
 				QueryExecutionID: id,
 				ErrorCode:        "InvalidRequestException",
-				ErrorMessage:     fmt.Sprintf("query execution %q not found", id),
+				ErrorMessage:     fmt.Sprintf("QueryExecution %s was not found", id),
 			})
 		}
 	}
@@ -320,7 +325,7 @@ func (b *InMemoryBackend) GetQueryRuntimeStatistics(id string) (*QueryRuntimeSta
 
 	qe, ok := b.queryExecutions.Get(id)
 	if !ok {
-		return nil, fmt.Errorf("%w: query execution %q not found", ErrNotFound, id)
+		return nil, awsErrorf(ErrNotFound, "QueryExecution %s was not found", id)
 	}
 
 	engineMs := qe.Statistics.EngineExecutionTimeInMillis

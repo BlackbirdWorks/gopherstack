@@ -1,7 +1,7 @@
 service: vpclattice
 sdk_module: aws-sdk-go-v2/service/vpclattice@v1.25.5
 last_audit_commit: 2bc650bf9
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
 # 2026-08-21 gopherstack-r80d batch 13 (required-output cut): last_audit_commit
 # left unchanged per this campaign's convention (the orchestrator, not this
 # pass, creates the commit; see gopherstack-z31a). 1 bug found and fixed,
@@ -116,36 +116,19 @@ ops:
   GetDomainVerification: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
   DeleteDomainVerification: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
   ListDomainVerifications: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
-  ListResourceEndpointAssociations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "NEW this pass -- always returns an empty page, see gaps: this resource is populated in real AWS exclusively by EC2 CreateVpcEndpoint (VPC endpoint type Resource), which this backend doesn't model; vpc-lattice itself has no Create op for it"}
-  DeleteResourceEndpointAssociation: {wire: ok, errors: ok, state: ok, persist: n/a, note: "NEW this pass -- always ResourceNotFoundException, see ListResourceEndpointAssociations note"}
-  ListServiceNetworkVpcEndpointAssociations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "NEW this pass -- always returns an empty page, same structural note as ListResourceEndpointAssociations (populated via EC2 CreateVpcEndpoint of type ServiceNetwork)"}
+  ListResourceEndpointAssociations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Lists EC2 Resource VPC endpoints bound to the resource configuration (EndpointDirectory seam wired from cli.go to EC2 VpcEndpointsByResourceConfigurationArn); resourceConfigurationIdentifier is required; filters resourceEndpointAssociationIdentifier/vpcEndpointId/vpcEndpointOwner. Ids are rea-<vpce suffix>, derived, not stored."}
+  DeleteResourceEndpointAssociation: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Disassociates the resource configuration from the EC2 endpoint (clears its ResourceConfigurationArn; the endpoint remains, per the SDK doc); 200 with arn/id/resourceConfigurationArn/resourceConfigurationId/vpcEndpointId. Unknown id is ResourceNotFoundException."}
+  ListServiceNetworkVpcEndpointAssociations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Lists EC2 ServiceNetwork VPC endpoints bound to the service network (EC2 VpcEndpointsByServiceNetworkArn); serviceNetworkIdentifier is required, unknown is ResourceNotFoundException. Ids are snea-<vpce suffix>; state is the endpoint state."}
 families:
   routing: {status: ok, note: "handleREST (was a ~50-case switch, nolint:gocyclo,cyclop,funlen, gocyclo=57) and classifyPath (was a flat switch, nolint:gocyclo,cyclop,funlen, gocyclo=31) were both decomposed into sync.OnceValue-built lookup tables (op-name -> handler adapter; path-collection -> create/list op + sub-classifier; method -> op for the auth-policy/resource-policy/tags singleton routes), matching the inspector2/apigatewayv2 onceOpTable convention already used elsewhere in the fleet. Both banned nolints are gone; gocyclo/cyclop/funlen all report 0 issues on the package now. Every (method, path, op) triple was preserved verbatim during the refactor -- the full existing routing/handler test suite (handler_test.go, handler_routing coverage via ExtractOperation/ExtractResource, and all handler_*_test.go CRUD tests) passes unchanged, confirming no method/path collisions or unreachable-op regressions were introduced. RouteMatcher is unchanged (still a boolean prefix chain for route eligibility, not a method/path->op mapping, so the same treatment doesn't apply there)."
   timestamps: {status: ok, note: "all createdAt/lastUpdatedAt use time.Time.Format(\"2006-01-02T15:04:05.000Z\") which smithytime.ParseDateTime (restjson1 DateTime shape) accepts; not epoch, correctly ISO-8601."}
 gaps: []
 items_still_open:
-  - "GetServiceOutput/GetServiceNetworkVpcAssociationOutput failureCode/failureMessage fields (populated when a resource is stuck in a *_FAILED state) are never set because this backend's Create paths are synchronous and never fail after validation — acceptable since there's no in-progress/failed state machine to represent, but worth knowing if async failure simulation is ever added."
-  - "ResourceEndpointAssociation and ServiceNetworkVpcEndpointAssociation lists are always empty (bd: gopherstack-lx2k). Both are populated in real AWS exclusively by EC2 CreateVpcEndpoint (VPC endpoints of type Resource/ServiceNetwork referencing a ResourceConfiguration/ServiceNetwork ARN) — vpc-lattice itself exposes no Create operation for either, and this backend has no EC2 VPC-endpoint cross-service integration to source one from. Buildable with enough cross-service work (not structural), just out of scope this pass; the wire shape and empty-vs-error behavior is honest (List returns real empty, Delete honestly 404s) rather than fabricated."
-  - "DomainVerification.Status can never advance past PENDING to VERIFIED (bd: gopherstack-lx2k). Real AWS polls public DNS for a caller-provisioned TXT record; this backend has no DNS to observe. Deliberately left PENDING rather than fabricating VERIFIED — a caller relying on verification completing will need to poll forever, which is the honest reflection of what this mock can and can't do."
-  - "GetResourceGateway's ManagedBy field (set when a resource gateway is provisioned by another AWS service, not directly by the caller) stays unset -- this backend has no cross-service provisioning path that would ever set it, so every resource gateway here is caller-managed and real AWS would omit it too. serviceManaged was FIXED 2026-08-28: previously omitted entirely (a silent drop of a real, always-present field), now always emitted as false, its correct value for every gateway this backend can create."
-  - "2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s): 14
-    census-flagged List ops verified member by member. 9 already exactly
-    matched their Summary type. 5 were dropping sourced-but-unwired
-    members: DomainVerificationSummary.Tags (StartDomainVerificationInput
-    accepts tags, storedDomainVerification already stored them, just never
-    surfaced -- fixed for both Get and List); ServiceNetworkResourceAssoc-
-    iationSummary.CreatedBy/PrivateDnsEnabled; ServiceNetworkServiceAssoc-
-    iationSummary.CreatedBy; ServiceNetworkVpcAssociationSummary.CreatedBy/
-    LastUpdatedAt; ServiceNetworkSummary.LastUpdatedAt. All five are
-    genuinely stored on the corresponding storedX type already, just never
-    copied onto the X...Summary struct that feeds List. Members with no
-    backing source, recorded rather than fabricated: DomainVerification-
-    Summary.TxtMethodConfig (a synthesized DNS TXT verification token --
-    no known algorithm to reproduce it against); ServiceNetworkResource-
-    AssociationSummary.DnsEntry/FailureCode/IsManagedAssociation/
-    PrivateDnsEntry (no DNS-entry/managed-association modeling for this
-    resource, same class as the pre-existing ResourceEndpointAssociation
-    gap above)."
+  - "ServiceNetworkResourceAssociation dnsEntry is never emitted: neither the SDK, the API reference nor the VPC Lattice user guide (resource-configuration, service-network-associations) documents how its domain name or hosted zone is derived. privateDnsEntry is served from the resource configuration's custom domain (TestServiceNetworkResourceAssociation_PrivateDNSEntry)."
+structural_gaps:
+  - "failureCode/failureMessage on Service, ServiceNetworkVpcAssociation and ServiceNetworkResourceAssociation are never set: creates are synchronous and never reach a *_FAILED state."
+  - "DomainVerification.Status never advances past PENDING: AWS polls public DNS for the TXT record (name/value are emulator-derived), and there is no DNS to observe."
+  - "GetResourceGateway managedBy stays unset: no other AWS service provisions gateways here."
 leaks: {status: clean, note: "no goroutines/timers/background workers in this backend; Reset()/Snapshot()/Restore() all take the single lockmetrics.RWMutex and touch only in-memory maps/store.Table instances. No janitor loop to check. DeleteService/DeleteServiceNetwork now also cascade-delete their dependent listeners/rules/resourcePolicy/authPolicy/accessLogSubscriptions/tags instead of leaving ghost rows behind (previously: only tags were cleaned up on these two deletes; DeleteListener/DeleteTargetGroup already cascaded correctly and are unchanged)."
 
 ### 2026-09-19: terraform s3control-and-vpclattice coverage (13 previously-uncovered resources)
@@ -233,9 +216,8 @@ ServiceNetworkVpcAssociation/ServiceNetworkResourceAssociation Get+List+
 Update+Delete, BatchUpdateRule (success and per-rule failure), resource and
 auth policy Put/Get/Delete, UpdateResourceConfiguration/UpdateResourceGateway/
 UpdateService, ListDomainVerifications, TagResource/UntagResource, and the
-always-empty ResourceEndpointAssociation/ServiceNetworkVpcEndpointAssociation
-families (proving the honest-empty shape decodes cleanly, not just that the
-backend never populates it). vpclattice typed coverage: 31/73 -> 73/73.
+ResourceEndpointAssociation/ServiceNetworkVpcEndpointAssociation
+families (empty without an EndpointDirectory; populated from EC2 endpoints when wired). vpclattice typed coverage: 31/73 -> 73/73.
 
 No new bugs found -- this package had already been through 13+ dated
 wire-fidelity passes (the entries below), all field-diffed against

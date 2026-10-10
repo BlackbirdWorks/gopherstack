@@ -74,6 +74,10 @@ func resourceSpecs() map[string]resourceSpec {
 
 func (h *Handler) createResource(spec resourceSpec) operation {
 	return func(input map[string]any) (map[string]any, error) {
+		if err := validateNestedConfigs(input); err != nil {
+			return nil, err
+		}
+
 		resource, err := h.Backend.CreateResource(
 			spec.resourceType, stringValue(input, spec.nameField, ""), stringValue(input, "VersionName", ""),
 			input, inputTags(input),

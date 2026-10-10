@@ -128,6 +128,10 @@ func (h *Handler) handleCreateTags(vals url.Values, reqID string) (any, error) {
 	resourceIDs := parseMemberList(vals, "ResourceId")
 	tags := parseEC2Tags(vals)
 
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
+
 	if err := h.Backend.CreateTags(resourceIDs, tags); err != nil {
 		return nil, err
 	}

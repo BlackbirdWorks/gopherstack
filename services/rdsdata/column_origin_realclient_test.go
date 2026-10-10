@@ -72,25 +72,8 @@ func TestExecuteStatement_ColumnMetadata_TableOrigin(t *testing.T) {
 	assert.Zero(t, out.ColumnMetadata[0].ArrayBaseColumnType, "arrays are unsupported -- always 0")
 }
 
-// TestExecuteStatement_ColumnMetadata_TableOrigin_InsideTransaction verifies
-// that a statement run inside a BeginTransaction transaction leaves
-// SchemaName/TableName/IsAutoIncrement at their zero value: *sql.Tx has no
-// equivalent to *sql.Conn.Raw, so engine.go's columnOriginInfo can't recover
-// the underlying driver connection to call ColumnInfo -- see PARITY.md. This
-// is a permanent structural limitation of database/sql's *sql.Tx, unrelated
-// to the transaction-context-lifetime bug below.
-//
-// This drives the handler in-process (doRDSDataRequest) rather than through
-// a live newRoundTripClient server round trip, matching this package's other
-// multi-call transaction tests (transactions_test.go) -- a plain style
-// choice now, not a workaround. It used to be a required workaround: before
-// gopherstack-wh8gv's fix, sqlEngine.beginTx (engine.go) opened the
-// engine-side *sql.Tx against the BeginTransaction call's own per-request
-// context, so a real http.Server auto-rolled back the transaction the
-// instant that first HTTP request finished, and this test would have
-// spuriously failed over a live server for a reason unrelated to what it's
-// named for. See transaction_context_realclient_test.go for the fix's own
-// coverage, driven over a real httptest.Server on purpose.
+// TestExecuteStatement_ColumnMetadata_TableOrigin_InsideTransaction verifies origin metadata is
+// populated for a statement run inside a BeginTransaction transaction.
 func TestExecuteStatement_ColumnMetadata_TableOrigin_InsideTransaction(t *testing.T) {
 	t.Parallel()
 
@@ -132,9 +115,9 @@ func TestExecuteStatement_ColumnMetadata_TableOrigin_InsideTransaction(t *testin
 
 	col, ok := cols[0].(map[string]any)
 	require.True(t, ok)
-	assert.Empty(t, col["tableName"])
-	assert.Empty(t, col["schemaName"])
-	assert.Equal(t, false, col["isAutoIncrement"])
+	assert.Equal(t, "gizmos", col["tableName"])
+	assert.Equal(t, "main", col["schemaName"])
+	assert.Equal(t, true, col["isAutoIncrement"])
 
 	rec = doRDSDataRequest(t, h, "/CommitTransaction", map[string]any{
 		"resourceArn":   columnOriginResourceARN,

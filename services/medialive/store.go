@@ -14,12 +14,15 @@ import (
 const (
 	defaultMaxResults = 20
 
+	multiplexAvailabilityZones = 2
+
 	stateIdle     = "IDLE"
 	stateStarting = "STARTING"
 	stateRunning  = "RUNNING"
 	stateStopping = "STOPPING"
 	stateDeleted  = "DELETED"
 	stateDeleting = "DELETING"
+	stateCreating = "CREATING"
 
 	stateDetached = "DETACHED"
 
@@ -40,6 +43,7 @@ const (
 	offeringUsagePrice3          = 0.2
 	offeringDuration             = 12
 	batchErrNotFound             = "NOT_FOUND"
+	batchErrConflict             = "CONFLICT"
 
 	resourceTypeChannel            = "channel"
 	resourceTypeInput              = "input"
@@ -55,6 +59,7 @@ const (
 
 	nodeStateActive    = "ACTIVE"
 	nodeStateDeleted   = "DELETED"
+	nodeStateDraining  = "DRAINING"
 	nodeRoleActive     = "ACTIVE"
 	nodeConnectionConn = "CONNECTED"
 
@@ -103,6 +108,7 @@ type InMemoryBackend struct {
 	ebRuleTemplates          *store.Table[storedEventBridgeRuleTemplate]
 	channels                 *store.Table[storedChannel]
 	mu                       *lockmetrics.RWMutex
+	vpcNetwork               VPCNetwork
 	registry                 *store.Registry
 	cwAlarmTemplateGroups    *store.Table[storedCloudWatchAlarmTemplateGroup]
 	reservations             *store.Table[storedReservation]
@@ -117,6 +123,7 @@ type InMemoryBackend struct {
 	accountID       string
 	region          string
 	offerings       []*Offering
+	lifecycleDelay  time.Duration
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.

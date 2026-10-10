@@ -194,6 +194,7 @@ const (
 type Handler struct {
 	peers   *regionpeers.Set[Handler]
 	idem    *idempotency.Memo
+	s3      S3ObjectReader
 	Backend StorageBackend
 }
 

@@ -43,3 +43,7 @@ var errAccessPointPolicyNotFound = awserr.New("NoSuchAccessPointPolicy", awserr.
 
 // errAPPABNotFound is returned when no per-AP public access block configuration exists.
 var errAPPABNotFound = awserr.New("NoSuchPublicAccessBlockConfiguration", awserr.ErrNotFound)
+
+var errJobStatus = awserr.New("JobStatusException", awserr.ErrAlreadyExists)
+
+var errAccessPointAlreadyOwned = awserr.New("AccessPointAlreadyOwnedByYou", awserr.ErrAlreadyExists)

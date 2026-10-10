@@ -33,6 +33,10 @@ func (h *Handler) handleLookupEvents(c *echo.Context, body []byte) error {
 		}
 	}
 
+	if err := validateLookupInput(in.LookupAttributes, in.MaxResults); err != nil {
+		return h.handleError(c, err)
+	}
+
 	if badOffsetToken(in.NextToken) {
 		return writeInvalidNextToken(c)
 	}

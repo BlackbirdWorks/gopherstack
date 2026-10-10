@@ -29,12 +29,12 @@ const (
 // Cooldown, are typed String even though the underlying API field is numeric).
 func int32Prop(props map[string]any, key string, params, physicalIDs map[string]string) int32 {
 	if v, ok := props[key].(float64); ok {
-		return int32(v)
+		return floatToInt32(v)
 	}
 
 	if s := strProp(props, key, params, physicalIDs); s != "" {
 		if n, err := strconv.ParseInt(s, 10, 32); err == nil {
-			return int32(n)
+			return clampInt32(n)
 		}
 	}
 
@@ -45,7 +45,7 @@ func int32Prop(props map[string]any, key string, params, physicalIDs map[string]
 // distinguishing "not set" from "set to zero" for optional fields.
 func int32PtrProp(props map[string]any, key string, params, physicalIDs map[string]string) *int32 {
 	if v, ok := props[key].(float64); ok {
-		n := int32(v)
+		n := floatToInt32(v)
 
 		return &n
 	}

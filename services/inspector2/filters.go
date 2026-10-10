@@ -76,8 +76,7 @@ func validateFilterAction(action string) error {
 // rule, not a one-off action -- the finding-creation-time half of that rule
 // (newly seeded findings matching an already-active SUPPRESS filter) is
 // handled by matchesSuppressFilter, called from findings.go's
-// SeedFinding/AddFinding. Reversal on delete is reactivateUnsuppressedFindings;
-// reversal on an action change is undocumented and not modeled. Caller must hold b.mu.
+// SeedFinding/AddFinding. Reversal on delete or edit is reactivateUnsuppressedFindings. Caller must hold b.mu.
 func (b *InMemoryBackend) suppressMatchingFindings(f *Filter) {
 	if f.Action != filterActionSuppress {
 		return
@@ -208,6 +207,8 @@ func (b *InMemoryBackend) UpdateFilter(
 		}
 	}
 
+	before := *f
+
 	if action != "" {
 		f.Action = action
 	}
@@ -226,6 +227,7 @@ func (b *InMemoryBackend) UpdateFilter(
 
 	f.UpdatedAt = time.Now().UTC()
 	b.suppressMatchingFindings(f)
+	b.reactivateUnsuppressedFindings(&before)
 
 	return f, nil
 }

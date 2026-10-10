@@ -150,6 +150,7 @@ type InMemoryBackend struct {
 	// (gopherstack-x842, gopherstack-9939). Nil (the default) leaves stop
 	// conditions validated and stored but otherwise inert.
 	alarmSubscriber                AlarmStateSubscriber
+	targetResolver                 TargetResolver
 	experimentsByArn               *store.Index[Experiment]
 	faultStore                     *chaos.FaultStore
 	registry                       *store.Registry

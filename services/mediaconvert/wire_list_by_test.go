@@ -45,15 +45,15 @@ func TestListOps_ListBy(t *testing.T) {
 			Order:  mediaconverttypes.OrderAscending,
 		})
 		require.NoError(t, err)
-		require.Len(t, out.Queues, 3)
-		assert.Equal(t, []string{"zulu", "alpha", "mike"}, queueNames(out.Queues))
+		require.Len(t, out.Queues, 4)
+		assert.Equal(t, []string{"zulu", "alpha", "mike", "Default"}, queueNames(out.Queues))
 
 		outByName, err := client.ListQueues(t.Context(), &mediaconvertsdk.ListQueuesInput{
 			ListBy: mediaconverttypes.QueueListByName,
 			Order:  mediaconverttypes.OrderAscending,
 		})
 		require.NoError(t, err)
-		assert.Equal(t, []string{"alpha", "mike", "zulu"}, queueNames(outByName.Queues))
+		assert.Equal(t, []string{"Default", "alpha", "mike", "zulu"}, queueNames(outByName.Queues))
 	})
 
 	t.Run("ListJobTemplates", func(t *testing.T) {

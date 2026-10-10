@@ -59,10 +59,16 @@ var (
 		"InvalidStateTransitionException",
 		awserr.ErrConflict,
 	)
+	// ErrUnmatchedPolicyPermission is PromoteResourceShareCreatedFromPolicy's
+	// UnmatchedPolicyPermissionException (types/errors.go).
+	ErrUnmatchedPolicyPermission = awserr.New("UnmatchedPolicyPermissionException", awserr.ErrConflict)
 	// ErrMalformedArn is returned when a resourceArns entry isn't ARN-shaped.
 	// CreateResourceShare and AssociateResourceShare both model
 	// MalformedArnException for this (ram@v1.39.4 deserializers.go,
 	// awsRestjson1_deserializeOpErrorCreateResourceShare and
 	// awsRestjson1_deserializeOpErrorAssociateResourceShare).
 	ErrMalformedArn = awserr.New("MalformedArnException", awserr.ErrInvalidParameter)
+	// ErrInvalidNextToken is returned for a NextToken this service did not issue
+	// (InvalidNextTokenException on every paginated List/Get op).
+	ErrInvalidNextToken = awserr.New("InvalidNextTokenException", awserr.ErrInvalidParameter)
 )

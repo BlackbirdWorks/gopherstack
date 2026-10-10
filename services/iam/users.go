@@ -560,6 +560,10 @@ func (b *InMemoryBackend) TagUser(userName string, tags map[string]string) error
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
+	if err := checkTagLimit(u.Tags, tags); err != nil {
+		return err
+	}
+
 	if u.Tags == nil {
 		u.Tags = make(map[string]string, len(tags))
 	}

@@ -27,6 +27,7 @@ type RuleDispatcher interface {
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	dispatcher                 RuleDispatcher
+	serverCertChecker          ServerCertificateChecker
 	roleAuth                   roleauth.Authorizer
 	targets                    *ActionTargets
 	resourceTags               map[string]map[string]string
@@ -41,6 +42,7 @@ type InMemoryBackend struct {
 	auditMitigationTasks       map[string]string
 	auditTasks                 map[string]string
 	clientRequestTokens        map[string]string
+	opReplay                   *opReplayCache
 	thingGroupMembers          map[string][]string
 	policyVersions             map[string][]*PolicyVersion
 	provTemplateVersions       map[string][]*ProvisioningTemplateVersion
@@ -131,6 +133,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		auditMitigationTasks:   make(map[string]string),
 		auditTasks:             make(map[string]string),
 		clientRequestTokens:    make(map[string]string),
+		opReplay:               newOpReplayCache(),
 		thingGroupMembers:      make(map[string][]string),
 		policyVersions:         make(map[string][]*PolicyVersion),
 		provTemplateVersions:   make(map[string][]*ProvisioningTemplateVersion),
@@ -196,6 +199,7 @@ func (b *InMemoryBackend) Reset() {
 	b.auditMitigationTasks = make(map[string]string)
 	b.auditTasks = make(map[string]string)
 	b.clientRequestTokens = make(map[string]string)
+	b.opReplay.reset()
 	b.thingGroupMembers = make(map[string][]string)
 	b.policyVersions = make(map[string][]*PolicyVersion)
 	b.provTemplateVersions = make(map[string][]*ProvisioningTemplateVersion)
@@ -338,11 +342,19 @@ func (b *InMemoryBackend) CreateThing(input *CreateThingInput) (*CreateThingOutp
 		return nil, fmt.Errorf("%w: ThingName is required", ErrValidation)
 	}
 
+	if err := validateEntityName("ThingName", input.ThingName); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateThing")
 	defer b.mu.Unlock()
 
 	if b.things.Has(input.ThingName) {
 		return nil, fmt.Errorf("%w: thing %q already exists", ErrAlreadyExists, input.ThingName)
+	}
+
+	if input.ThingTypeName != "" && !b.thingTypes.Has(input.ThingTypeName) {
+		return nil, fmt.Errorf("%w: %s", ErrThingTypeNotFound, input.ThingTypeName)
 	}
 
 	attrs := make(map[string]string)

@@ -49,19 +49,21 @@ func (h *Handler) handleGetTokensFromRefreshToken(
 	_ context.Context,
 	in *getTokensFromRefreshTokenInput,
 ) (*getTokensFromRefreshTokenOutput, error) {
-	tokens, err := h.Backend.GetTokensFromRefreshToken(in.ClientID, in.RefreshToken, in.ClientSecret)
+	tokens, err := h.Backend.GetTokensFromRefreshToken(
+		in.ClientID, in.RefreshToken, in.ClientSecret, in.ClientMetadata,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	return &getTokensFromRefreshTokenOutput{
-		AuthenticationResult: &authResult{
+		AuthenticationResult: h.withNewDevice(&authResult{
 			AccessToken:  tokens.AccessToken,
 			IDToken:      tokens.IDToken,
 			RefreshToken: tokens.RefreshToken,
 			TokenType:    authTypeBearer,
 			ExpiresIn:    tokens.ExpiresIn,
-		},
+		}, in.DeviceKey),
 	}, nil
 }
 

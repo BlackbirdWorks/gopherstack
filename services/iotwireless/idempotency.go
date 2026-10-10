@@ -42,7 +42,7 @@ type idempotentResult struct {
 }
 
 // idempotencyCache replays the first successful response for an op+token and
-// rejects the same token with different parameters. Bounded FIFO, not persisted.
+// rejects the same token with different parameters. Bounded FIFO, persisted via the backend snapshot.
 type idempotencyCache struct {
 	entries map[string]idempotentResult
 	order   []string
@@ -130,11 +130,12 @@ func (h *Handler) dispatchIdempotent(
 		return h.dispatch(c, op, resource, body, query)
 	}
 
-	h.idem.mu.Lock()
-	defer h.idem.mu.Unlock()
+	cache := h.idempotency()
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
 
 	key := op + "\x00" + token
-	if prev, hit := h.idem.entries[key]; hit {
+	if prev, hit := cache.entries[key]; hit {
 		if prev.params != params {
 			return writeError(c, http.StatusConflict, "ClientRequestToken was already used with different parameters")
 		}
@@ -158,7 +159,7 @@ func (h *Handler) dispatchIdempotent(
 	_, _ = orig.Write(cw.body.Bytes())
 
 	if err == nil && cw.status >= http.StatusOK && cw.status < http.StatusMultipleChoices {
-		h.idem.put(key, idempotentResult{
+		cache.put(key, idempotentResult{
 			status:      cw.status,
 			contentType: cw.header.Get("Content-Type"),
 			body:        cw.body.Bytes(),
@@ -167,4 +168,63 @@ func (h *Handler) dispatchIdempotent(
 	}
 
 	return err
+}
+
+type idempotentSnapshotEntry struct {
+	Key         string `json:"key"`
+	ContentType string `json:"contentType,omitempty"`
+	Body        []byte `json:"body,omitempty"`
+	Params      []byte `json:"params"`
+	Status      int    `json:"status"`
+}
+
+func (c *idempotencyCache) snapshot() []idempotentSnapshotEntry {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	out := make([]idempotentSnapshotEntry, 0, len(c.order))
+
+	for _, key := range c.order {
+		res, ok := c.entries[key]
+		if !ok {
+			continue
+		}
+
+		out = append(out, idempotentSnapshotEntry{
+			Key: key, Status: res.status, ContentType: res.contentType,
+			Body: res.body, Params: res.params[:],
+		})
+	}
+
+	return out
+}
+
+func (c *idempotencyCache) restore(entries []idempotentSnapshotEntry) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.entries = nil
+	c.order = nil
+
+	for _, e := range entries {
+		if len(e.Params) != sha256.Size {
+			continue
+		}
+
+		res := idempotentResult{status: e.Status, contentType: e.ContentType, body: e.Body}
+		copy(res.params[:], e.Params)
+		c.put(e.Key, res)
+	}
+}
+
+type idempotencyHolder interface {
+	idempotency() *idempotencyCache
+}
+
+func (h *Handler) idempotency() *idempotencyCache {
+	if p, ok := h.Backend.(idempotencyHolder); ok {
+		return p.idempotency()
+	}
+
+	return &h.idem
 }

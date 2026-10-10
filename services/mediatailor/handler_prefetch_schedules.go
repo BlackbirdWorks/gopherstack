@@ -50,6 +50,10 @@ func (h *Handler) handleDeletePrefetchSchedule(c *echo.Context, playbackConfigNa
 }
 
 func (h *Handler) handleListPrefetchSchedules(c *echo.Context, playbackConfigName string, body map[string]any) error {
+	if err := checkBodyPaging(body); err != nil {
+		return respondErr(c, err)
+	}
+
 	maxResults, nextToken := extractBodyPaginationParams(body)
 	scheduleType, _ := body["ScheduleType"].(string)
 	streamID, _ := body["StreamId"].(string)

@@ -14,6 +14,7 @@ type jsonPutRecordReq struct {
 	// SequenceNumberForOrdering is validated; ordering already holds because shard sequence numbers only increase.
 	SequenceNumberForOrdering string `json:"SequenceNumberForOrdering,omitempty"`
 	Data                      []byte `json:"Data"`
+	DryRun                    bool   `json:"DryRun,omitempty"`
 }
 
 type jsonPutRecordEntry struct {
@@ -26,11 +27,13 @@ type jsonPutRecordsReq struct {
 	StreamName string               `json:"StreamName"`
 	StreamARN  string               `json:"StreamARN"`
 	Records    []jsonPutRecordEntry `json:"Records"`
+	DryRun     bool                 `json:"DryRun,omitempty"`
 }
 
 type jsonGetRecordsReq struct {
 	ShardIterator string `json:"ShardIterator"`
 	Limit         int    `json:"Limit"`
+	DryRun        bool   `json:"DryRun,omitempty"`
 }
 
 type jsonPutRecordResp struct {
@@ -106,6 +109,7 @@ func (h *Handler) handlePutRecord(
 		PartitionKey:    req.PartitionKey,
 		ExplicitHashKey: req.ExplicitHashKey,
 		Data:            req.Data,
+		DryRun:          req.DryRun,
 	})
 	if err != nil {
 		return nil, err
@@ -133,19 +137,15 @@ func (h *Handler) handlePutRecords(
 		streamName = streamNameFromARN(req.StreamARN)
 	}
 
-	numRecords := len(req.Records)
-	const maxPutRecords = 500
-	if numRecords > maxPutRecords {
-		numRecords = maxPutRecords
-	}
-	entries := make([]PutRecordsEntry, numRecords)
-	for i, r := range req.Records[:numRecords] {
+	entries := make([]PutRecordsEntry, len(req.Records))
+	for i, r := range req.Records {
 		entries[i] = PutRecordsEntry(r)
 	}
 
 	out, err := h.Backend.PutRecords(ctx, &PutRecordsInput{
 		StreamName: streamName,
 		Records:    entries,
+		DryRun:     req.DryRun,
 	})
 	if err != nil {
 		return nil, err
@@ -175,6 +175,7 @@ func (h *Handler) handleGetRecords(
 	out, err := h.Backend.GetRecords(ctx, &GetRecordsInput{
 		ShardIterator: req.ShardIterator,
 		Limit:         req.Limit,
+		DryRun:        req.DryRun,
 	})
 	if err != nil {
 		return nil, err

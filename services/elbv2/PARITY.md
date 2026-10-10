@@ -2,7 +2,7 @@
 service: elbv2
 sdk_module: aws-sdk-go-v2/service/elasticloadbalancingv2@v1.58.5   # bumped from v1.54.8 this pass (go.mod already pinned v1.58.5; PARITY.md was stale)
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0)
-last_audit_date: 2026-09-19  # prior: 2026-09-18  # gopherstack-xhu2t: reqfielddiff tier-1 request-field audit. All
+last_audit_date: 2026-10-07
                               # 5 tier-1 findings real, all fixed (CreateLoadBalancer/SetSubnets
                               # .EnablePrefixForIpv6SourceNat, CreateTargetGroup.IpAddressType,
                               # SetSecurityGroups.EnforceSecurityGroupInboundRulesOnPrivateLink
@@ -85,10 +85,9 @@ families:
   load-balancer-attributes / target-group-attributes / listener-attributes (Modify/Describe): {status: partial, note: "load-balancer-attributes/listener-attributes unchanged this pass, previously verified against real AWS defaults. target-group-attributes: ModifyTargetGroupAttributes/DescribeTargetGroupAttributes wire shape and any explicitly-set key/value round-trip correctly, but CreateTargetGroup's default attribute map (target_groups.go, 5 keys: deregistration_delay.timeout_seconds/stickiness.enabled/stickiness.type/load_balancing.algorithm.type/slow_start.duration_seconds) is missing several attributes real AWS always pre-populates on DescribeTargetGroupAttributes (verified against types.TargetGroupAttribute's doc comment: proxy_protocol_v2.enabled, preserve_client_ip.enabled, stickiness.app_cookie.*, target_group_health.dns_failover.*/unhealthy_state_routing.*, target_health_state.unhealthy.*, deregistration_delay.connection_termination.enabled, load_balancing.algorithm.anomaly_mitigation, target_failover.on_deregistration/on_unhealthy, and lambda.multi_value_headers.enabled for Lambda target groups) - see deferred"}
   capacity-reservation / ip-pools / resource-policy / account-limits / ssl-policies: {status: ok, note: "unchanged this pass; verified op-by-op, all accurate"}
 gaps: []
-items_still_open:
-  - "GetTrustStoreCaCertificatesBundle/GetTrustStoreRevocationContent return an empty Location: no S3-backed object exists to point at. The ops still validate TrustStoreNotFound/RevocationIdNotFound, and CreateTrustStore/ModifyTrustStore record the S3 bucket/key/version without using them."
-  - "DescribeSSLPolicies returns the same full catalog for LoadBalancerType application and network (gateway returns empty): the per-policy ALB-vs-NLB applicability table is not available offline."
-  - "CreateTargetGroup pre-populates 5 of the ~15 attribute keys real AWS returns from DescribeTargetGroupAttributes; the per-target-type (instance/ip vs lambda) default values are not verifiable offline, and ~30 tests assert the 5-key map."
+items_still_open: []
+structural_gaps:
+  - "GetTrustStoreCaCertificatesBundle/GetTrustStoreRevocationContent return an empty Location: the real value is a presigned URL to an AWS-owned copy of the bundle, which the emulator does not store. The ops still validate TrustStoreNotFound/RevocationIdNotFound."
 deferred:
   - "TargetHealth.AnomalyDetection and AdministrativeOverride are never returned: no anomaly-mitigation or zonal-shift subsystem exists to source them, and the default values AWS reports when idle are unverified."
   - "authenticate-cognito, authenticate-oidc and jwt-validation actions are stored and echoed (including AuthenticationRequestExtraParams and JwtValidationConfig) but never executed: no Cognito/OIDC redirect flow and no JWKS fetch or token validation exists."
@@ -96,6 +95,8 @@ leaks: {status: clean, note: "runHealthReconciler's ticker-based goroutine is un
 ---
 
 ## Notes
+
+**2026-10-07:** DescribeSSLPolicies now serves the 45 predefined policies from the ALB and NLB security-policy user guide pages (ssl_policy_catalog.go): ciphers and protocols per policy, SupportedLoadBalancerTypes from which page lists the policy (ELBSecurityPolicy-2015-05 is NLB only), and a LoadBalancerType filter. Fixes the invented ELBSecurityPolicy-TLS13-1-3-2022-11 (documented name is -2021-06) and the wrong cipher lists for 2016-08 and TLS13-1-2-2021-06. TestDescribeSSLPolicies_LoadBalancerType / _CatalogShape.
 
 ### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
 
@@ -568,3 +569,7 @@ DescribeSSLPolicies and DescribeAccountLimits honour Marker/PageSize (default 40
 ### 2026-10-05: PARITY burn-down pass 5 (gopherstack-9x62)
 
 Removed stale open items: ASG and ECS already register and deregister ELBv2 targets (services/autoscaling/elbv2_targets_test.go, services/ecs/elbv2_targets_internal_test.go), and the EC2 and ACM resolvers already raise InvalidSubnet/SubnetNotFound/InvalidSecurityGroup/CertificateNotFound on create (crossservice_test.go). New: SetSecurityGroups and SetSubnets now validate through the resolver, SetSubnets applies IpAddressType, CreateLoadBalancer keeps IpamPools and CustomerOwnedIpv4Pool, CreateTargetGroup keeps TargetControlPort, DescribeLoadBalancers echoes EnforceSecurityGroupInboundRulesOnPrivateLinkTraffic, authenticate actions keep AuthenticationRequestExtraParams, and jwt-validation actions are accepted and echoed. Tests: services/elbv2/dropped_members_sdk_test.go.
+
+## 2026-10-09 (service realism pass)
+
+Load balancer and target group ARNs now carry random 16-hex ids (were a constant), LB ARNs use app/net/gwy by type, listener and rule ARNs derive from the LB/listener ARN, and DNS names use a numeric suffix. Target group names reject underscores; LB names reject the `internal-` prefix. Bare NotFound/Duplicate errors carry AWS messages. Left open: LB state is `active` immediately (no provisioning window); Marker values are not validated.

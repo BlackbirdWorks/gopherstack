@@ -7,7 +7,7 @@
 service: neptune
 sdk_module: aws-sdk-go-v2/service/neptune@v1.48.4
 last_audit_commit: 0c1472972  # 2026-09-24 lakeformation-appsync-neptune-and-athena terraform coverage; prior: 064cc837d
-last_audit_date: 2026-09-24  # prior: 2026-09-17
+last_audit_date: 2026-10-07  # prior: 2026-09-17
 overall: A            # every previously-open gap this pass either genuinely fixed or re-verified as correct-as-is
                       # 2026-09-11 (gopherstack-jd33, both follow-up items closed): (1) the parameter
                       # catalog's "8-parameter representative approximation" deferred note is retired --
@@ -88,11 +88,10 @@ families:
   StaticCatalog: {status: ok, note: "DescribeDBEngineVersions, DescribeOrderableDBInstanceOptions, DescribeValidDBInstanceModifications -- correctly modeled as static/hardcoded catalog data (not a stub; there is no per-account mutable state for engine version catalogs). DescribeEngineDefault(Cluster)Parameters moved out of this family this pass: they now return the real parameter catalog (see DBParameterGroup/DBClusterParameterGroup above) instead of an always-empty list, which was a genuine gap masquerading as static-catalog behavior -- an empty catalog is not the same thing as a hardcoded non-empty one. FIXED this pass (gopherstack-uhsb): DescribeOrderableDBInstanceOptions took `_ url.Values` and ignored Engine/EngineVersion/DBInstanceClass entirely, so a filtered request always got the full unfiltered catalog back with a 200 -- now genuinely filters the static catalog by each non-empty parameter (no typed exception exists for an unmatched/unknown Engine in this op's error switch, so an empty result set is correct, not an invented error). DescribeValidDBInstanceModifications had two real bugs, also fixed this pass: (1) DBInstanceIdentifier is a required input (api_op_DescribeValidDBInstanceModifications.go) but was ignored -- neither required-ness nor instance existence was checked, so a nonexistent/omitted identifier silently got a 200 with fabricated data instead of the documented DBInstanceNotFound; now validated via the existing DescribeDBInstances existence check. (2) The response was wire-shape-wrong: types.ValidDBInstanceModificationsMessage (neptune@v1.48.4 types/types.go:1608) has exactly one field, `Storage []ValidStorageOptions` (IopsToStorageRatio/ProvisionedIops/StorageSize/StorageType, all doc'd 'Not applicable. In Neptune the storage type is managed at the DB Cluster level.') -- gopherstack was instead emitting a fabricated `ValidProcessorFeatures>AvailableProcessorFeature` list of DB instance classes, an element name that does not exist anywhere in the real deserializer's switch (deserializers.go:23143 only recognizes 'Storage'), so a real client's decoder silently skipped the entire payload via its default-case Skip() and always saw an empty message regardless of what gopherstack sent. Now emits the correctly-named (always-empty) Storage list -- matches Neptune's own 'not applicable' semantics honestly instead of a mislabeled, unreachable fake."}
 gaps: []
 items_still_open:
-  - "SupportedNetworkTypes (DBSubnetGroup/OrderableDBInstanceOption) stays empty and NetworkTypeNotSupportedFault is not raised: subnets are opaque IDs with no IPv4/IPv6 CIDR data, so no honest basis exists to derive or enforce them."
-  - "GlobalCluster.FailoverState is not modeled: Failover/Switchover promote members synchronously, leaving no in-process window to report."
-  - "DescribeDBClusterSnapshots IncludePublic/IncludeShared are unenforced: single-account emulator, every snapshot is already owned and returned."
+  - "UNVERIFIABLE: OrderableDBInstanceOption.SupportedNetworkTypes stays empty; the pinned SDK states no per-instance-class network type support."
+structural_gaps:
+  - "DescribeDBClusterSnapshots IncludePublic/IncludeShared add other accounts' snapshots; single-account emulator, so there are none to add (SnapshotType=public/shared are evaluated)."
   - "DeleteDBInstance SkipFinalSnapshot=false creates no snapshot: Neptune has no DB-instance snapshot resource in the pinned SDK."
-  - "CreateDBInstance VpcSecurityGroupIds/KmsKeyId are never read: both are cluster-managed per the SDK docs (api_op_CreateDBInstance.go:300, types.go:738); VpcSecurityGroups is inherited from the cluster, KmsKeyId is never populated by real AWS."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - RESOLVED 2026-09-11 (gopherstack-jd33): "8-parameter representative approximation" catalog gap -- see the top-level 2026-09-11 note and the DBParameterGroup/DBClusterParameterGroup family notes above. Residual, still-disclosed gap: neptune_lookup_cache's documented default flip to "1" when an R5d instance joins the cluster is not modeled (this backend's parameter override store isn't keyed by instance class); neptune_slow_query_log_threshold has no documented AllowedValues range to enforce (only a default is documented).
   - RESOLVED 2026-09-11 (gopherstack-jd33): GlobalCluster Failover/Switchover silent-no-op-on-unresolvable-target gap -- see the top-level 2026-09-11 note and the GlobalCluster family note above.
@@ -963,3 +962,7 @@ Adjudicated (reqfielddiff -adjudicated), unchanged:
 ## 2026-10-05 (undeclared response members)
 
 DBCluster no longer emits EngineMode or MasterUserManagedSecret; neither exists on neptune@v1.48.4 DBCluster or Create/ModifyDBClusterInput. The backend fields stay.
+
+## 2026-10-10 realism pass
+
+Same message/pagination/lifecycle changes as DocDB. CreateDBCluster rejects Engine other than neptune; DBInstanceClass and DBSubnetGroupName are validated; DbClusterResourceId is now random and instances carry DbiResourceId. DeleteDBCluster still cascades to instances (the backend forbids deleting a cluster's last instance, so rejecting would make clusters undeletable). `SetLifecycleDelay` needs root wiring. Proof: `TestSDK_CreateValidation`, `TestSDK_ResourceIDsAndNotFound`, `TestSDK_DescribePagination`, `TestSDK_CreateReportsCreatingUntilDelay`.

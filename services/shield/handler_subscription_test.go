@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -324,9 +325,25 @@ func TestHandler_UpdateSubscription(t *testing.T) {
 		{
 			name: "disable_auto_renew",
 			setup: func(b *shield.InMemoryBackend) {
+				b.AddSubscriptionInternalStartedAt(time.Now().AddDate(0, 0, -340))
+			},
+			body:       map[string]any{"AutoRenew": shield.AutoRenewDisabled},
+			wantStatus: 200,
+		},
+		{
+			name: "change_inside_commitment_is_locked",
+			setup: func(b *shield.InMemoryBackend) {
 				require.NoError(t, b.CreateSubscription())
 			},
 			body:       map[string]any{"AutoRenew": shield.AutoRenewDisabled},
+			wantStatus: 400,
+		},
+		{
+			name: "same_value_inside_commitment_is_allowed",
+			setup: func(b *shield.InMemoryBackend) {
+				require.NoError(t, b.CreateSubscription())
+			},
+			body:       map[string]any{"AutoRenew": shield.AutoRenewEnabled},
 			wantStatus: 200,
 		},
 		{
@@ -367,7 +384,7 @@ func TestHandler_UpdateSubscriptionOmitAutoRenewPreservesExistingValue(t *testin
 	t.Parallel()
 
 	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b.CreateSubscription())
+	b.AddSubscriptionInternalStartedAt(time.Now().AddDate(0, 0, -340))
 	h := shield.NewHandler(b)
 
 	rec := doShieldRequest(t, h, "UpdateSubscription", map[string]any{"AutoRenew": shield.AutoRenewDisabled})

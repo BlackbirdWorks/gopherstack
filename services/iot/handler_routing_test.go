@@ -95,6 +95,7 @@ func TestHandler_Operations(t *testing.T) {
 
 			e := echo.New()
 			backend := iot.NewInMemoryBackend()
+			mustCreateThingTypes(t, backend, "Sensor")
 			handler := iot.NewHandler(backend, nil)
 
 			var reqBody []byte

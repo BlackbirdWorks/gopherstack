@@ -46,8 +46,8 @@ func (h *Handler) containsPIIEntities(input map[string]any) (map[string]any, err
 		expression *regexp.Regexp
 		kind       string
 	}{
-		{piiEmailRe, "EMAIL"},
-		{piiSSNRe, "SSN"},
+		{piiEmailRe, piiTypeEmail},
+		{piiSSNRe, piiTypeSSN},
 	}
 	seen := make(map[string]bool)
 	labels := []map[string]any{}

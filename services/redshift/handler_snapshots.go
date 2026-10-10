@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"time"
+
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // ---- CreateClusterSnapshot ----
@@ -23,10 +25,18 @@ func (h *Handler) handleCreateClusterSnapshot(vals url.Values) (any, error) {
 	snapshotID := vals.Get("SnapshotIdentifier")
 	clusterID := vals.Get("ClusterIdentifier")
 
+	tags := parseRedshiftTags(vals)
+
 	snap, err := h.Backend.CreateClusterSnapshot(snapshotID, clusterID)
 	if err != nil {
 		return nil, err
 	}
+
+	if err = h.Backend.TagNewResource(tagTypeSnapshot, clusterID+"/"+snapshotID, tags); err != nil {
+		return nil, err
+	}
+
+	snap.Tags = tags
 
 	return &createClusterSnapshotResponse{
 		Xmlns:    redshiftXMLNS,
@@ -85,6 +95,10 @@ func (h *Handler) handleDescribeClusterSnapshots(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	tagKeys := parseRedshiftTagKeysAt(vals, "TagKeys.TagKey.")
+	tagValues := parseRedshiftTagKeysAt(vals, "TagValues.TagValue.")
+	snaps = slices.DeleteFunc(snaps, func(s Snapshot) bool { return !anyTagMatchesFilter(s.Tags, tagKeys, tagValues) })
 
 	snaps, err = filterSnapshotsByTimeRange(snaps, vals.Get("StartTime"), vals.Get("EndTime"))
 	if err != nil {
@@ -428,6 +442,7 @@ type xmlSnapshot struct {
 	SnapshotCreateTime            string               `xml:"SnapshotCreateTime,omitempty"`
 	Status                        string               `xml:"Status"`
 	AccountsWithRestoreAccess     xmlRestoreAccessList `xml:"AccountsWithRestoreAccess"`
+	Tags                          []svcTags.KV         `xml:"Tags>Tag,omitempty"`
 	ManualSnapshotRetentionPeriod int                  `xml:"ManualSnapshotRetentionPeriod"`
 }
 
@@ -457,6 +472,7 @@ func snapshotToXML(snap *Snapshot) xmlSnapshot {
 		Status:                        snap.Status,
 		ManualSnapshotRetentionPeriod: snap.ManualSnapshotRetentionPeriod,
 		AccountsWithRestoreAccess:     xmlRestoreAccessList{Members: accounts},
+		Tags:                          tagMapToKVList(snap.Tags),
 	}
 }
 

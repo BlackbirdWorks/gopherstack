@@ -8,6 +8,7 @@ var (
 	ErrParameterNotFound            = errors.New("ParameterNotFound")
 	ErrParameterVersionNotFound     = errors.New("ParameterVersionNotFound")
 	ErrParameterAlreadyExists       = errors.New("ParameterAlreadyExists")
+	ErrParameterLabelLimitExceeded  = errors.New("ParameterVersionLabelLimitExceeded")
 	ErrInvalidKeyID                 = errors.New("InvalidKeyId")
 	ErrCiphertextTooShort           = errors.New("ciphertext too short")
 	ErrValidationException          = errors.New("ValidationException")

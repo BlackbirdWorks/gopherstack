@@ -65,7 +65,11 @@ func (h *Handler) updateParallelData(input map[string]any) (map[string]any, erro
 	description, _ := input["Description"].(string)
 	cfg := extractParallelDataConfig(input)
 
-	pd, err := h.Backend.UpdateParallelData(name, description, cfg)
+	pd, err := replayCreate(h, "UpdateParallelData", input, ErrConflict,
+		func(p *ParallelData) string { return p.Name }, h.Backend.PeekParallelData,
+		func() (*ParallelData, error) {
+			return h.Backend.UpdateParallelData(name, description, cfg)
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -139,6 +143,13 @@ func parallelDataToMap(pd *ParallelData) map[string]any {
 			"S3Uri":  pd.ParallelDataConfig.S3URI,
 			"Format": pd.ParallelDataConfig.Format,
 		}
+	}
+
+	if pd.Imported {
+		m["ImportedDataSize"] = pd.ImportedDataSize
+		m["ImportedRecordCount"] = pd.ImportedRecordCount
+		m["FailedRecordCount"] = pd.FailedRecordCount
+		m["SkippedRecordCount"] = pd.SkippedRecordCount
 	}
 
 	if pd.EncryptionKey != nil {

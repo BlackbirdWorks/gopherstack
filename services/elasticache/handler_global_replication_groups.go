@@ -15,16 +15,46 @@ import (
 )
 
 type globalReplicationGroupXML struct {
-	GlobalReplicationGroupID          string `xml:"GlobalReplicationGroupId"`
-	GlobalReplicationGroupDescription string `xml:"GlobalReplicationGroupDescription,omitempty"`
-	Status                            string `xml:"Status"`
-	ARN                               string `xml:"ARN"`
-	Engine                            string `xml:"Engine,omitempty"`
-	EngineVersion                     string `xml:"EngineVersion,omitempty"`
+	Members                           *globalMembersXML `xml:"Members,omitempty"`
+	GlobalReplicationGroupID          string            `xml:"GlobalReplicationGroupId"`
+	GlobalReplicationGroupDescription string            `xml:"GlobalReplicationGroupDescription,omitempty"`
+	Status                            string            `xml:"Status"`
+	ARN                               string            `xml:"ARN"`
+	Engine                            string            `xml:"Engine,omitempty"`
+	EngineVersion                     string            `xml:"EngineVersion,omitempty"`
+}
+
+type globalMemberXML struct {
+	ReplicationGroupID     string `xml:"ReplicationGroupId"`
+	ReplicationGroupRegion string `xml:"ReplicationGroupRegion"`
+	Role                   string `xml:"Role"`
+	AutomaticFailover      string `xml:"AutomaticFailover,omitempty"`
+	Status                 string `xml:"Status"`
+}
+
+type globalMembersXML struct {
+	Member []globalMemberXML `xml:"GlobalReplicationGroupMember"`
 }
 
 func globalRGToXML(grg *GlobalReplicationGroup) globalReplicationGroupXML {
+	var members *globalMembersXML
+
+	if len(grg.Members) > 0 {
+		members = &globalMembersXML{Member: make([]globalMemberXML, 0, len(grg.Members))}
+
+		for _, m := range grg.Members {
+			members.Member = append(members.Member, globalMemberXML{
+				ReplicationGroupID:     m.ReplicationGroupID,
+				ReplicationGroupRegion: m.Region,
+				Role:                   m.Role,
+				AutomaticFailover:      m.AutomaticFailover,
+				Status:                 m.Status,
+			})
+		}
+	}
+
 	return globalReplicationGroupXML{
+		Members:                           members,
 		GlobalReplicationGroupID:          grg.GlobalReplicationGroupID,
 		GlobalReplicationGroupDescription: grg.Description,
 		Status:                            grg.Status,
@@ -54,9 +84,9 @@ func (h *Handler) createGlobalReplicationGroup(ctx context.Context, c *echo.Cont
 	}
 
 	type result struct {
+		GlobalReplicationGroup globalReplicationGroupXML `xml:"CreateGlobalReplicationGroupResult>GlobalReplicationGroup"`
 		XMLName                xml.Name                  `xml:"CreateGlobalReplicationGroupResponse"`
 		Xmlns                  string                    `xml:"xmlns,attr"`
-		GlobalReplicationGroup globalReplicationGroupXML `xml:"CreateGlobalReplicationGroupResult>GlobalReplicationGroup"`
 	}
 
 	return xmlResp(c, http.StatusOK, result{
@@ -93,9 +123,13 @@ func mapGlobalReplicationGroupErr(c *echo.Context, err error) error {
 		return xmlError(c, http.StatusBadRequest, "InvalidGlobalReplicationGroupState", err.Error())
 	case errors.Is(err, ErrApplyImmediatelyRequired):
 		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
-	default:
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
+
+	if status, code, ok := paramErrorCode(err); ok {
+		return xmlError(c, status, code, err.Error())
+	}
+
+	return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 }
 
 func (h *Handler) deleteGlobalReplicationGroup(ctx context.Context, c *echo.Context, form url.Values) error {
@@ -108,9 +142,9 @@ func (h *Handler) deleteGlobalReplicationGroup(ctx context.Context, c *echo.Cont
 	}
 
 	type result struct {
+		GlobalReplicationGroup globalReplicationGroupXML `xml:"DeleteGlobalReplicationGroupResult>GlobalReplicationGroup"`
 		XMLName                xml.Name                  `xml:"DeleteGlobalReplicationGroupResponse"`
 		Xmlns                  string                    `xml:"xmlns,attr"`
-		GlobalReplicationGroup globalReplicationGroupXML `xml:"DeleteGlobalReplicationGroupResult>GlobalReplicationGroup"`
 	}
 
 	return xmlResp(c, http.StatusOK, result{
@@ -136,7 +170,13 @@ func (h *Handler) describeGlobalReplicationGroups(ctx context.Context, c *echo.C
 	res.Xmlns = elasticacheNS
 	res.Marker = p.Next
 
+	showMembers := strings.EqualFold(form.Get("ShowMemberInfo"), "true")
+
 	for i := range p.Data {
+		if !showMembers {
+			p.Data[i].Members = nil
+		}
+
 		res.GlobalReplicationGroups.GlobalReplicationGroup = append(
 			res.GlobalReplicationGroups.GlobalReplicationGroup,
 			globalRGToXML(&p.Data[i]),
@@ -157,9 +197,9 @@ func (h *Handler) disassociateGlobalReplicationGroup(ctx context.Context, c *ech
 	}
 
 	type result struct {
+		GRG     globalReplicationGroupXML `xml:"DisassociateGlobalReplicationGroupResult>GlobalReplicationGroup"`
 		XMLName xml.Name                  `xml:"DisassociateGlobalReplicationGroupResponse"`
 		Xmlns   string                    `xml:"xmlns,attr"`
-		GRG     globalReplicationGroupXML `xml:"DisassociateGlobalReplicationGroupResult>GlobalReplicationGroup"`
 	}
 
 	return xmlResp(c, http.StatusOK, result{
@@ -179,9 +219,9 @@ func (h *Handler) failoverGlobalReplicationGroup(ctx context.Context, c *echo.Co
 	}
 
 	type result struct {
+		GlobalReplicationGroup globalReplicationGroupXML `xml:"FailoverGlobalReplicationGroupResult>GlobalReplicationGroup"`
 		XMLName                xml.Name                  `xml:"FailoverGlobalReplicationGroupResponse"`
 		Xmlns                  string                    `xml:"xmlns,attr"`
-		GlobalReplicationGroup globalReplicationGroupXML `xml:"FailoverGlobalReplicationGroupResult>GlobalReplicationGroup"`
 	}
 
 	return xmlResp(c, http.StatusOK, result{
@@ -205,9 +245,9 @@ func (h *Handler) increaseNodeGroupsInGlobalReplicationGroup(
 	}
 
 	type result struct {
+		GRG     globalReplicationGroupXML `xml:"IncreaseNodeGroupsInGlobalReplicationGroupResult>GlobalReplicationGroup"`
 		XMLName xml.Name                  `xml:"IncreaseNodeGroupsInGlobalReplicationGroupResponse"`
 		Xmlns   string                    `xml:"xmlns,attr"`
-		GRG     globalReplicationGroupXML `xml:"IncreaseNodeGroupsInGlobalReplicationGroupResult>GlobalReplicationGroup"`
 	}
 
 	return xmlResp(c, http.StatusOK, result{
@@ -231,9 +271,9 @@ func (h *Handler) decreaseNodeGroupsInGlobalReplicationGroup(
 	}
 
 	type result struct {
+		GRG     globalReplicationGroupXML `xml:"DecreaseNodeGroupsInGlobalReplicationGroupResult>GlobalReplicationGroup"`
 		XMLName xml.Name                  `xml:"DecreaseNodeGroupsInGlobalReplicationGroupResponse"`
 		Xmlns   string                    `xml:"xmlns,attr"`
-		GRG     globalReplicationGroupXML `xml:"DecreaseNodeGroupsInGlobalReplicationGroupResult>GlobalReplicationGroup"`
 	}
 
 	return xmlResp(c, http.StatusOK, result{
@@ -257,9 +297,9 @@ func (h *Handler) modifyGlobalReplicationGroup(ctx context.Context, c *echo.Cont
 	}
 
 	type result struct {
+		GlobalReplicationGroup globalReplicationGroupXML `xml:"ModifyGlobalReplicationGroupResult>GlobalReplicationGroup"`
 		XMLName                xml.Name                  `xml:"ModifyGlobalReplicationGroupResponse"`
 		Xmlns                  string                    `xml:"xmlns,attr"`
-		GlobalReplicationGroup globalReplicationGroupXML `xml:"ModifyGlobalReplicationGroupResult>GlobalReplicationGroup"`
 	}
 
 	return xmlResp(c, http.StatusOK, result{
@@ -278,9 +318,9 @@ func (h *Handler) rebalanceSlotsInGlobalReplicationGroup(ctx context.Context, c 
 	}
 
 	type result struct {
+		GRG     globalReplicationGroupXML `xml:"RebalanceSlotsInGlobalReplicationGroupResult>GlobalReplicationGroup"`
 		XMLName xml.Name                  `xml:"RebalanceSlotsInGlobalReplicationGroupResponse"`
 		Xmlns   string                    `xml:"xmlns,attr"`
-		GRG     globalReplicationGroupXML `xml:"RebalanceSlotsInGlobalReplicationGroupResult>GlobalReplicationGroup"`
 	}
 
 	return xmlResp(c, http.StatusOK, result{

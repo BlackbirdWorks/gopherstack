@@ -7,7 +7,7 @@
 service: bedrockruntime
 sdk_module: aws-sdk-go-v2/service/bedrockruntime@v1.57.1   # unchanged this pass; re-verified against go.mod pin
 last_audit_commit: d4dc4a723
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-07
 overall: A            # 2026-09-04: fixed two real bugs. (1) ListAsyncInvokes silently ignored
                       # submitTimeAfter/submitTimeBefore/sortOrder (ListAsyncInvokesInput fields,
                       # httpQuery-bound in serializers.go's
@@ -59,14 +59,15 @@ families:
   chaos-fault-injection: {status: ok, note: "2026-08-07 (gopherstack-ayfw): ChaosServiceName was \"bedrockruntime\", but real Bedrock Runtime signs every request with SigV4 service name \"bedrock\" (verified: aws-sdk-go-v2/service/bedrockruntime@v1.57.1 auth.go's serviceAuthOptions, unconditional for every operation) -- the same signing name the sibling services/bedrock control-plane handler already declares. pkgs/chaos's Middleware extracts the fault-matching service string straight from the real Authorization header's SigV4 credential scope, so the old value could never match real client traffic; a fault rule created from the chaos dashboard's own GET /targets discovery (which surfaced \"bedrockruntime\") would silently never fire. Fixed to \"bedrock\" -- getTargets already merges entries sharing one signing name across handlers (its own doc comment cites S3/S3 Control as precedent), so this needed no pkgs/chaos change. New chaos_test.go proves both the fix (a \"bedrock\"-targeted rule now intercepts a real InvokeModel call before the handler runs) and the regression it fixes (a \"bedrockruntime\"-targeted rule does not). This resolves the bd issue's premise -- once the service name matches, the existing generic mechanism already supports injecting ModelError/ModelNotReady/Throttling/ServiceUnavailable (or any other) error code/status for InvokeModel/Converse/any op; see gaps for the one remaining, out-of-scope refinement (ModelErrorException's extra OriginalStatusCode/ResourceName members)."}
 gaps: []
 items_still_open:
-  - "chaos.FaultError cannot carry ModelErrorException's OriginalStatusCode/ResourceName: shared pkgs/chaos infrastructure with no per-service extension point (bd: gopherstack-ayfw)."
+  - "chaos.FaultError cannot carry ModelErrorException's OriginalStatusCode/ResourceName: needs a per-service extension point in shared pkgs/chaos, outside this service (bd: gopherstack-ayfw)."
+  - "AsyncInvokeStatusFailed/FailureMessage are unreachable: the janitor only moves InProgress -> Completed; the StartAsyncInvoke/GetAsyncInvoke docs name no condition that produces Failed."
+  - "Converse guardrailConfig accepts an identifier without a version: GuardrailConfiguration marks both members optional (patterns allow empty) and no doc says a version is required (InvokeModel's header rule is documented; patterns and trace/streamProcessingMode enums are enforced)."
+structural_gaps:
   - "No real inference or classifier: CountTokens estimates from byte length, Converse/InvokeModel return a canned reply, InvokeGuardrailChecks contentFilter/promptAttack return empty results and sensitiveInformation matches only the literal-format entity types (EMAIL/PHONE/IP_ADDRESS/URL/AWS_ACCESS_KEY/MAC_ADDRESS/US_SSN/CREDIT_DEBIT_CARD_NUMBER), never NER-based ones."
-  - "AsyncInvokeStatusFailed/FailureMessage are unreachable: the janitor only moves InProgress -> Completed and no AWS-documented trigger exists to key a Failed transition off."
-  - "Converse guardrailConfig is opaque and not checked for identifier-requires-version: no AWS doc states that rule for the Converse body (InvokeModel's header rule is documented)."
-  - "No model behind Converse/ConverseStream/InvokeModel: InvokeModel.Body is never interpreted; AdditionalModelRequestFields, AdditionalModelResponseFieldPaths (so no AdditionalModelResponseFields), OutputConfig (structured output), PromptVariables (prompt-management modelId) and RequestMetadata (invocation-log filtering) are accepted but cannot change a canned reply."
-  - "InvokeModel/InvokeModelWithResponseStream Trace is enum-validated but no guardrail trace is ever produced, and RequestMetadata is not validated (no documented bounds in the pinned SDK)."
-  - "ApplyGuardrail.OutputScope is enum-validated; FULL has no extra output to add because only word-policy assessments exist (the SDK says FULL does not apply to word filters)."
-  - "Converse/InvokeModel serviceTier and performanceConfig latency are echoed from the request, not negotiated: no tiers or latency-optimized hosting exist to fall back from."
+  - "No model behind Converse/ConverseStream/InvokeModel: InvokeModel.Body is never interpreted; AdditionalModelRequestFields, AdditionalModelResponseFieldPaths, OutputConfig, PromptVariables and RequestMetadata (invocation-log filtering) are accepted but cannot change a canned reply."
+  - "InvokeModel/InvokeModelWithResponseStream Trace is enum-validated but no guardrail trace is produced without a classifier."
+  - "ApplyGuardrail.OutputScope FULL has no extra output to add: only word-policy assessments exist, and the SDK says FULL does not apply to word filters."
+  - "Converse/InvokeModel serviceTier and performanceConfig latency are echoed from the request: no tiers or latency-optimized hosting exist to negotiate."
 deferred: []
 leaks: {status: clean, note: "2026-09-04: re-verified; janitor (RunJanitor/StartWorker/Shutdown) uses context-bounded worker.Group with proper cancel+done-channel wiring, no goroutine leaks found. Model-invoke and stream handlers (InvokeModel/InvokeModelWithResponseStream/InvokeModelWithBidirectionalStream/ConverseStream) write synchronously to the response and spawn no per-request goroutines, so there is nothing there to leak on client disconnect. Fixed this pass: StartWorker's janitor interval (see async-invoke family) -- not a leak, but the same worker-lifecycle surface. No new goroutines/locks introduced."}
 ---

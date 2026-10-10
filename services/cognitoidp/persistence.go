@@ -131,6 +131,7 @@ type backendSnapshot struct {
 	GroupMembers          map[string]map[string]map[string]struct{} `json:"groupMembers,omitempty"`
 	TokenRevokedBeforeSeq map[string]int64                          `json:"tokenRevokedBeforeSeq,omitempty"`
 	TokenRevokedBefore    map[string]time.Time                      `json:"tokenRevokedBefore,omitempty"`
+	RevokedChains         map[string]time.Time                      `json:"revokedChains,omitempty"`
 	Tables                map[string]json.RawMessage                `json:"tables,omitempty"`
 	ResourceTags          map[string]map[string]string              `json:"resourceTags,omitempty"`
 	RiskConfigurations    map[string]*RiskConfiguration             `json:"riskConfigurations,omitempty"`
@@ -327,6 +328,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		GroupMembers:          b.groupMembers,
 		TokenRevokedBeforeSeq: b.tokenRevokedBeforeSeq,
 		TokenRevokedBefore:    b.tokenRevokedBefore,
+		RevokedChains:         b.revokedChains,
 		TokenSeq:              b.tokenSeq,
 		ResourceTags:          b.resourceTags,
 		RiskConfigurations:    b.riskConfigurations,
@@ -401,6 +403,7 @@ func (b *InMemoryBackend) resetForIncompatibleSnapshotLocked() {
 	b.groupMembers = make(map[string]map[string]map[string]struct{})
 	b.tokenRevokedBeforeSeq = make(map[string]int64)
 	b.tokenRevokedBefore = make(map[string]time.Time)
+	b.revokedChains = make(map[string]time.Time)
 	b.tokenSeq = 0
 	b.refreshTokenInsertsSinceSweep = 0
 	b.resourceTags = make(map[string]map[string]string)
@@ -505,6 +508,10 @@ func (b *InMemoryBackend) restoreRawMapsLocked(snap *backendSnapshot) {
 	b.groupMembers = snap.GroupMembers
 	b.tokenRevokedBeforeSeq = snap.TokenRevokedBeforeSeq
 	b.tokenRevokedBefore = snap.TokenRevokedBefore
+	b.revokedChains = snap.RevokedChains
+	if b.revokedChains == nil {
+		b.revokedChains = make(map[string]time.Time)
+	}
 	b.tokenSeq = snap.TokenSeq
 	b.resourceTags = snap.ResourceTags
 	b.riskConfigurations = snap.RiskConfigurations

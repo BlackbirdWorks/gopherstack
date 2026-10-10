@@ -13,9 +13,15 @@ import (
 // (no-op) unless SetLifecycleDelay has been configured, preserving the
 // pre-existing instant-available behavior by default.
 type Cluster struct {
-	CreatedAt   time.Time         `json:"createdAt"`
-	AvailableAt time.Time         `json:"availableAt"`
-	Tags        map[string]string `json:"tags"`
+	CreatedAt   time.Time `json:"createdAt"`
+	AvailableAt time.Time `json:"availableAt"`
+	// ReshardingStartedAt/ReshardingUntil bound an in-flight online resharding
+	// (only recorded when a lifecycle delay is configured).
+	ReshardingStartedAt time.Time `json:"reshardingStartedAt"`
+	ReshardingUntil     time.Time `json:"reshardingUntil"`
+	// ReshardingProgress is derived per read by clusterView; nil when idle.
+	ReshardingProgress *float64          `json:"-"`
+	Tags               map[string]string `json:"tags"`
 	// AppliedServiceUpdates tracks which service updates BatchUpdateCluster has
 	// applied to this cluster, keyed by ServiceUpdateName. Drives the per-cluster
 	// "complete" vs "available" status DescribeServiceUpdates reports.
@@ -197,8 +203,17 @@ type nodeObject struct {
 
 // pendingUpdatesObject represents pending changes to a cluster.
 type pendingUpdatesObject struct {
+	Resharding     *pendingResharding     `json:"Resharding,omitempty"`
 	ACLs           *pendingACLsUpdate     `json:"ACLs,omitempty"`
 	ServiceUpdates []pendingServiceUpdate `json:"ServiceUpdates,omitempty"`
+}
+
+type pendingResharding struct {
+	SlotMigration pendingSlotMigration `json:"SlotMigration"`
+}
+
+type pendingSlotMigration struct {
+	ProgressPercentage float64 `json:"ProgressPercentage"`
 }
 
 // pendingACLsUpdate represents a pending ACL change.

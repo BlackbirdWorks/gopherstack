@@ -20,7 +20,11 @@ func (h *Handler) handleSearchJobs(c *echo.Context) error {
 	statusFilter := q.Get("status")
 	queueFilter := q.Get("queue")
 	order := q.Get("order")
-	maxResults := parseMaxResults(q.Get("maxResults"))
+
+	token, maxResults, err := listPageArgs(q)
+	if err != nil {
+		return h.writeError(c, err)
+	}
 
 	jobs := h.Backend.ListJobsFiltered(statusFilter, queueFilter, order)
 	if jobs == nil {
@@ -39,8 +43,7 @@ func (h *Handler) handleSearchJobs(c *echo.Context) error {
 		jobs = filtered
 	}
 
-	nextTokenIn := q.Get("nextToken")
-	pg := page.New(jobs, nextTokenIn, maxResults, defaultListPageSize)
+	pg := page.New(jobs, token, maxResults, defaultListPageSize)
 
 	out := searchJobsOutput{Jobs: pg.Data}
 	if pg.Next != "" {

@@ -49,6 +49,11 @@ func (b *InMemoryBackend) CreateModelImportJobWithOptions(
 	b.mu.Lock("CreateModelImportJob")
 	defer b.mu.Unlock()
 
+	kmsARN, kmsErr := b.kmsARN(opts.ImportedModelKmsKeyID)
+	if kmsErr != nil {
+		return nil, kmsErr
+	}
+
 	b.importJobCounter++
 	id := fmt.Sprintf("mij-%07d", b.importJobCounter)
 	jobARN := arn.Build("bedrock", b.region, b.accountID, "model-import-job/"+id)
@@ -68,7 +73,7 @@ func (b *InMemoryBackend) CreateModelImportJobWithOptions(
 		Tags:                   copyTags(tags),
 		ImportedModelTags:      copyTags(opts.ImportedModelTags),
 		VpcConfig:              opts.VpcConfig,
-		ImportedModelKmsKeyArn: kmsKeyARN(b.region, b.accountID, opts.ImportedModelKmsKeyID),
+		ImportedModelKmsKeyArn: kmsARN,
 	}
 	b.modelImportJobs.Put(job)
 

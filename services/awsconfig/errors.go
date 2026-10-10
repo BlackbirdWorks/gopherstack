@@ -24,6 +24,8 @@ var (
 	)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("MaxNumberOfConfigurationRecordersExceededException", awserr.ErrAlreadyExists)
+	// ErrMaxDeliveryChannels is returned when a second delivery channel is put (the limit is one per region).
+	ErrMaxDeliveryChannels = awserr.New("MaxNumberOfDeliveryChannelsExceededException", awserr.ErrInvalidParameter)
 	// ErrNoDeliveryChannel is returned when starting a recorder with no delivery channel configured.
 	ErrNoDeliveryChannel = awserr.New("NoAvailableDeliveryChannelException", awserr.ErrInvalidParameter)
 	// ErrValidation is returned when a required field is missing or invalid.
@@ -37,6 +39,11 @@ var (
 	// which declares InsufficientPermissionsException/
 	// InvalidParameterValueException only).
 	ErrInvalidParameterValue = awserr.New("InvalidParameterValueException", awserr.ErrInvalidParameter)
+	// ErrConformancePackTemplateValidation is returned when a conformance pack template cannot be read or is
+	// too large (declared by PutConformancePack as ConformancePackTemplateValidationException).
+	ErrConformancePackTemplateValidation = awserr.New(
+		"ConformancePackTemplateValidationException", awserr.ErrInvalidParameter,
+	)
 	// ErrInvalidNextToken is returned for a malformed pagination token on an op whose
 	// declared error model has InvalidNextTokenException instead of ValidationException --
 	// e.g. DescribeConfigRules (verified against aws-sdk-go-v2/service/configservice's

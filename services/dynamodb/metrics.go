@@ -8,6 +8,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	streamstypes "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 )
@@ -34,6 +36,66 @@ func (db *InMemoryDB) emitWCU(region, table string, units float64) {
 	db.metrics.Put(region, ddbMetricNamespace, "ConsumedWriteCapacityUnits", ddbUnitCount, units, ddbTableDim(table))
 }
 
+func ddbIndexDim(index string) cwmetric.Dimension {
+	return cwmetric.Dimension{Name: "GlobalSecondaryIndexName", Value: index}
+}
+
+// emitIndexRCU publishes read capacity under the TableName+GlobalSecondaryIndexName dimensions when index is a GSI.
+func (db *InMemoryDB) emitIndexRCU(region, tableName string, table *Table, index string, units float64) {
+	if index == "" || !db.metrics.Enabled() || !isIndexGSI(table, index) {
+		return
+	}
+
+	db.metrics.Put(region, ddbMetricNamespace, "ConsumedReadCapacityUnits", ddbUnitCount, units,
+		ddbTableDim(tableName), ddbIndexDim(index))
+}
+
+// emitIndexWCU publishes write capacity for every GSI the items populate. Caller holds table.mu.
+func (db *InMemoryDB) emitIndexWCU(region string, table *Table, units float64, items ...map[string]any) {
+	if !db.metrics.Enabled() {
+		return
+	}
+
+	for index, wcu := range calculateGSIWriteBreakdowns(table, units, items...) {
+		db.metrics.Put(region, ddbMetricNamespace, "ConsumedWriteCapacityUnits", ddbUnitCount, wcu,
+			ddbTableDim(table.Name), ddbIndexDim(index))
+	}
+}
+
+// emitIndexWCUMap publishes already-computed per-GSI write capacity for tableName.
+func (db *InMemoryDB) emitIndexWCUMap(region, tableName string, gsiWCU map[string]float64) {
+	if !db.metrics.Enabled() {
+		return
+	}
+
+	for index, wcu := range gsiWCU {
+		db.metrics.Put(region, ddbMetricNamespace, "ConsumedWriteCapacityUnits", ddbUnitCount, wcu,
+			ddbTableDim(tableName), ddbIndexDim(index))
+	}
+}
+
+// emitStreamReturned publishes GetRecords' ReturnedRecordsCount and ReturnedBytes under TableName+StreamLabel.
+func (db *InMemoryDB) emitStreamReturned(region string, table *Table, records []streamstypes.Record) {
+	if !db.metrics.Enabled() {
+		return
+	}
+
+	table.mu.RLock("GetRecords.metrics")
+	tableName, streamARN := table.Name, table.StreamARN
+	table.mu.RUnlock()
+
+	var size int64
+	for _, r := range records {
+		if r.Dynamodb != nil {
+			size += aws.ToInt64(r.Dynamodb.SizeBytes)
+		}
+	}
+
+	dims := []cwmetric.Dimension{ddbTableDim(tableName), {Name: "StreamLabel", Value: streamLabelFromARN(streamARN)}}
+	db.metrics.Put(region, ddbMetricNamespace, "ReturnedRecordsCount", ddbUnitCount, float64(len(records)), dims...)
+	db.metrics.Put(region, ddbMetricNamespace, "ReturnedBytes", "Bytes", float64(size), dims...)
+}
+
 // observeOp publishes latency and error metrics for one finished table operation; items < 0 skips ReturnedItemCount.
 func (db *InMemoryDB) observeOp(ctx context.Context, op, table string, start time.Time, err error, items int) {
 	region := getRegionFromContext(ctx, db)
@@ -52,6 +114,8 @@ func (db *InMemoryDB) observeOp(ctx context.Context, op, table string, start tim
 
 	wireErr, ok := errors.AsType[*Error](err)
 	if !ok || wireErr.Type == errInternalServerErrorType {
+		db.metrics.Put(region, ddbMetricNamespace, "SystemErrors", ddbUnitCount, 1, dims...)
+
 		return
 	}
 
@@ -191,6 +255,157 @@ func (db *InMemoryDB) BatchWriteItem(
 	for table := range input.RequestItems {
 		db.observeOp(ctx, opBatchWriteItem, table, start, err, -1)
 	}
+
+	return out, err
+}
+
+// observeExecuteStatement publishes ExecuteStatement latency, error and (for SELECT) returned-item metrics.
+func (h *DynamoDBHandler) observeExecuteStatement(
+	ctx context.Context, statement string, start time.Time, err error, out *executeStatementResponse,
+) {
+	db, ok := h.Backend.(*InMemoryDB)
+	if !ok || !db.metrics.Enabled() {
+		return
+	}
+
+	table := extractPartiQLTableName(statement)
+	if table == "" {
+		return
+	}
+
+	items := -1
+	if out != nil && partiqlSelectRe.MatchString(strings.TrimSpace(statement)) {
+		items = len(out.Items)
+	}
+
+	db.observeOp(ctx, "ExecuteStatement", table, start, err, items)
+}
+
+func transactWriteTables(items []types.TransactWriteItem) []string {
+	names := make([]string, 0, len(items))
+
+	for _, ti := range items {
+		switch {
+		case ti.Put != nil:
+			names = append(names, aws.ToString(ti.Put.TableName))
+		case ti.Delete != nil:
+			names = append(names, aws.ToString(ti.Delete.TableName))
+		case ti.Update != nil:
+			names = append(names, aws.ToString(ti.Update.TableName))
+		case ti.ConditionCheck != nil:
+			names = append(names, aws.ToString(ti.ConditionCheck.TableName))
+		}
+	}
+
+	return names
+}
+
+func transactGetTables(items []types.TransactGetItem) []string {
+	names := make([]string, 0, len(items))
+
+	for _, ti := range items {
+		if ti.Get != nil {
+			names = append(names, aws.ToString(ti.Get.TableName))
+		}
+	}
+
+	return names
+}
+
+func transactStatementTables(statements []types.ParameterizedStatement) []string {
+	names := make([]string, 0, len(statements))
+
+	for _, s := range statements {
+		if name := extractPartiQLTableName(aws.ToString(s.Statement)); name != "" {
+			names = append(names, name)
+		}
+	}
+
+	return names
+}
+
+func batchStatementTables(statements []types.BatchStatementRequest) []string {
+	names := make([]string, 0, len(statements))
+
+	for _, s := range statements {
+		if name := extractPartiQLTableName(aws.ToString(s.Statement)); name != "" {
+			names = append(names, name)
+		}
+	}
+
+	return names
+}
+
+// observeTables publishes one operation's latency/error metrics once per distinct table.
+func (db *InMemoryDB) observeTables(ctx context.Context, op string, tables []string, start time.Time, err error) {
+	seen := make(map[string]struct{}, len(tables))
+
+	for _, table := range tables {
+		if _, dup := seen[table]; dup || table == "" {
+			continue
+		}
+
+		seen[table] = struct{}{}
+		db.observeOp(ctx, op, table, start, err, -1)
+	}
+}
+
+// TransactWriteItems executes the write actions atomically and publishes per-table metrics.
+func (db *InMemoryDB) TransactWriteItems(
+	ctx context.Context, input *dynamodb.TransactWriteItemsInput,
+) (*dynamodb.TransactWriteItemsOutput, error) {
+	if !db.metrics.Enabled() {
+		return db.transactWriteItemsOp(ctx, input)
+	}
+
+	start := time.Now()
+	out, err := db.transactWriteItemsOp(ctx, input)
+	db.observeTables(ctx, opTransactWriteItems, transactWriteTables(input.TransactItems), start, err)
+
+	return out, err
+}
+
+// TransactGetItems reads the items atomically and publishes per-table metrics.
+func (db *InMemoryDB) TransactGetItems(
+	ctx context.Context, input *dynamodb.TransactGetItemsInput,
+) (*dynamodb.TransactGetItemsOutput, error) {
+	if !db.metrics.Enabled() {
+		return db.transactGetItemsOp(ctx, input)
+	}
+
+	start := time.Now()
+	out, err := db.transactGetItemsOp(ctx, input)
+	db.observeTables(ctx, opTransactGetItems, transactGetTables(input.TransactItems), start, err)
+
+	return out, err
+}
+
+// ExecuteTransaction runs the PartiQL statements atomically and publishes per-table metrics.
+func (db *InMemoryDB) ExecuteTransaction(
+	ctx context.Context, input *dynamodb.ExecuteTransactionInput,
+) (*dynamodb.ExecuteTransactionOutput, error) {
+	if !db.metrics.Enabled() {
+		return db.executeTransactionOp(ctx, input)
+	}
+
+	start := time.Now()
+	out, err := db.executeTransactionOp(ctx, input)
+	db.observeTables(ctx, "ExecuteTransaction", transactStatementTables(input.TransactStatements), start, err)
+
+	return out, err
+}
+
+// BatchExecuteStatement runs the PartiQL statements and publishes per-table metrics.
+func (db *InMemoryDB) BatchExecuteStatement(
+	ctx context.Context, input *dynamodb.BatchExecuteStatementInput,
+) (*dynamodb.BatchExecuteStatementOutput, error) {
+	if !db.metrics.Enabled() || input == nil {
+		return db.batchExecuteStatementOp(ctx, input)
+	}
+
+	start := time.Now()
+	out, err := db.batchExecuteStatementOp(ctx, input)
+	db.observeTables(ctx, "BatchExecuteStatement", batchStatementTables(input.Statements), start, err)
 
 	return out, err
 }

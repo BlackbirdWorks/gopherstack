@@ -38,7 +38,7 @@ func TestResourceCreator_AppSync_Supplemental_CreateDelete(t *testing.T) {
 			resourceType: "AWS::AppSync::DataSource",
 			props: map[string]any{
 				"ApiId": apiPhysID,
-				"Name":  "cfn-test-ds",
+				"Name":  "cfn_test_ds",
 				"Type":  "NONE",
 			},
 		},

@@ -1,5 +1,7 @@
 package inspector2
 
+import "time"
+
 // Resource types and scan-mode defaults for Enable/Disable and Configuration.
 const (
 	resourceTypeEC2            = "EC2"
@@ -33,16 +35,7 @@ func knownResourceTypes() []string {
 // Enable enables Inspector2 scanning for the given resource types.
 // If resourceTypes is empty, all known resource types are enabled.
 func (b *InMemoryBackend) Enable(resourceTypes []string) error {
-	b.mu.Lock("Enable")
-	defer b.mu.Unlock()
-
-	if len(resourceTypes) == 0 {
-		resourceTypes = knownResourceTypes()
-	}
-
-	for _, rt := range resourceTypes {
-		b.enabledTypes[rt] = true
-	}
+	b.setEnabled(nil, resourceTypes, true)
 
 	return nil
 }
@@ -50,18 +43,88 @@ func (b *InMemoryBackend) Enable(resourceTypes []string) error {
 // Disable disables Inspector2 scanning for the given resource types.
 // If resourceTypes is empty, all known resource types are disabled.
 func (b *InMemoryBackend) Disable(resourceTypes []string) error {
-	b.mu.Lock("Disable")
+	b.setEnabled(nil, resourceTypes, false)
+
+	return nil
+}
+
+// AccountOutcome splits requested accounts into those updated and those that cannot be addressed.
+type AccountOutcome struct {
+	Updated []string
+	Unknown []string
+}
+
+// StatusLookup holds the statuses found for requested accounts and the IDs that could not be addressed.
+type StatusLookup struct {
+	Found   []*AccountStatusResponse
+	Unknown []string
+}
+
+// EnableAccounts enables resourceTypes for each account and returns the accounts that could not be addressed.
+func (b *InMemoryBackend) EnableAccounts(accountIDs, resourceTypes []string) AccountOutcome {
+	return b.setEnabled(accountIDs, resourceTypes, true)
+}
+
+// DisableAccounts disables resourceTypes for each account and returns the accounts that could not be addressed.
+func (b *InMemoryBackend) DisableAccounts(accountIDs, resourceTypes []string) AccountOutcome {
+	return b.setEnabled(accountIDs, resourceTypes, false)
+}
+
+// setEnabled addresses the backend's own account or an associated member; an empty accountIDs means the own account.
+func (b *InMemoryBackend) setEnabled(accountIDs, resourceTypes []string, enabled bool) AccountOutcome {
+	b.mu.Lock("SetEnabled")
 	defer b.mu.Unlock()
 
 	if len(resourceTypes) == 0 {
 		resourceTypes = knownResourceTypes()
 	}
 
-	for _, rt := range resourceTypes {
-		b.enabledTypes[rt] = false
+	if len(accountIDs) == 0 {
+		accountIDs = []string{b.accountID}
 	}
 
-	return nil
+	var out AccountOutcome
+
+	for _, id := range accountIDs {
+		target, ok := b.enabledMapLocked(id, true)
+		if !ok {
+			out.Unknown = append(out.Unknown, id)
+
+			continue
+		}
+
+		for _, rt := range resourceTypes {
+			if target[rt] != enabled {
+				b.transitions[transitionKey(id, rt)] = b.now()
+			}
+
+			target[rt] = enabled
+		}
+
+		out.Updated = append(out.Updated, id)
+	}
+
+	return out
+}
+
+// enabledMapLocked returns accountID's resource-type enablement map; false when the account is neither the
+// backend's own nor an associated member. Callers must hold b.mu.
+func (b *InMemoryBackend) enabledMapLocked(accountID string, create bool) (map[string]bool, bool) {
+	if accountID == b.accountID {
+		return b.enabledTypes, true
+	}
+
+	if _, ok := b.members.Get(accountID); !ok {
+		return nil, false
+	}
+
+	m, ok := b.memberEnabled[accountID]
+	if !ok && create {
+		m = make(map[string]bool)
+		b.memberEnabled[accountID] = m
+	}
+
+	return m, true
 }
 
 // IsEnabled returns whether Inspector2 is enabled for any resource type.
@@ -78,38 +141,115 @@ func (b *InMemoryBackend) IsEnabled() bool {
 	return false
 }
 
-// GetStatus returns account status information with per-resource-type detail.
+// GetStatus returns the backend's own account status with per-resource-type detail.
 func (b *InMemoryBackend) GetStatus() *AccountStatusResponse {
 	b.mu.RLock("GetStatus")
 	defer b.mu.RUnlock()
 
-	typeStatus := func(rt string) string {
-		if b.enabledTypes[rt] {
-			return statusEnabled
-		}
+	return b.statusLocked(b.accountID, b.enabledTypes)
+}
 
-		return statusDisabled
+// GetAccountStatuses returns the status of each requested account (the own account when none are given) and the
+// IDs that are neither the own account nor an associated member.
+func (b *InMemoryBackend) GetAccountStatuses(accountIDs []string) StatusLookup {
+	b.mu.RLock("GetAccountStatuses")
+	defer b.mu.RUnlock()
+
+	if len(accountIDs) == 0 {
+		accountIDs = []string{b.accountID}
 	}
 
-	overall := statusDisabled
+	var out StatusLookup
 
-	for _, v := range b.enabledTypes {
-		if v {
-			overall = statusEnabled
+	for _, id := range accountIDs {
+		enabled, ok := b.enabledMapLocked(id, false)
+		if !ok {
+			out.Unknown = append(out.Unknown, id)
 
-			break
+			continue
 		}
+
+		out.Found = append(out.Found, b.statusLocked(id, enabled))
+	}
+
+	return out
+}
+
+// SetLifecycleDelay sets how long Enable and Disable report ENABLING and DISABLING before settling; the default 0
+// settles instantly.
+func (b *InMemoryBackend) SetLifecycleDelay(d time.Duration) {
+	b.mu.Lock("SetLifecycleDelay")
+	defer b.mu.Unlock()
+
+	b.lifecycleDelay = d
+}
+
+// SetClock overrides the backend clock; for deterministic tests.
+func (b *InMemoryBackend) SetClock(clock func() time.Time) {
+	b.mu.Lock("SetClock")
+	defer b.mu.Unlock()
+
+	b.clock = clock
+}
+
+func (b *InMemoryBackend) now() time.Time {
+	if b.clock != nil {
+		return b.clock()
+	}
+
+	return time.Now()
+}
+
+func transitionKey(accountID, resourceType string) string { return accountID + "|" + resourceType }
+
+// resourceStatusLocked reports one resource type's status, ENABLING or DISABLING while its dwell window is open.
+func (b *InMemoryBackend) resourceStatusLocked(accountID, rt string, enabled bool) string {
+	inWindow := false
+
+	if at, ok := b.transitions[transitionKey(accountID, rt)]; ok && b.lifecycleDelay > 0 {
+		inWindow = b.now().Sub(at) < b.lifecycleDelay
+	}
+
+	switch {
+	case enabled && inWindow:
+		return statusEnabling
+	case enabled:
+		return statusEnabled
+	case inWindow:
+		return statusDisabling
+	default:
+		return statusDisabled
+	}
+}
+
+func (b *InMemoryBackend) statusLocked(accountID string, enabled map[string]bool) *AccountStatusResponse {
+	statuses := make(map[string]string, len(knownResourceTypes()))
+	for _, rt := range knownResourceTypes() {
+		statuses[rt] = b.resourceStatusLocked(accountID, rt, enabled[rt])
 	}
 
 	return &AccountStatusResponse{
-		AccountID:            b.accountID,
-		Status:               overall,
-		Ec2Status:            typeStatus(resourceTypeEC2),
-		EcrStatus:            typeStatus(resourceTypeECR),
-		LambdaStatus:         typeStatus(resourceTypeLambda),
-		LambdaCodeStatus:     typeStatus(resourceTypeLambdaCode),
-		CodeRepositoryStatus: typeStatus(resourceTypeCodeRepository),
+		AccountID:            accountID,
+		Status:               overallStatus(statuses),
+		Ec2Status:            statuses[resourceTypeEC2],
+		EcrStatus:            statuses[resourceTypeECR],
+		LambdaStatus:         statuses[resourceTypeLambda],
+		LambdaCodeStatus:     statuses[resourceTypeLambdaCode],
+		CodeRepositoryStatus: statuses[resourceTypeCodeRepository],
 	}
+}
+
+// overallStatus rolls per-type statuses up: ENABLING outranks ENABLED, which outranks DISABLING.
+func overallStatus(statuses map[string]string) string {
+	for _, want := range []string{statusEnabling, statusEnabled, statusDisabling} {
+		for _, st := range statuses {
+			if st == want {
+				return want
+			}
+		}
+	}
+
+	return statusDisabled
 }
 
 // effectiveMemberConfig returns accountID's effective configuration: any

@@ -18,8 +18,8 @@ func TestDescribeSSLPoliciesAndAccountLimits_PageSize(t *testing.T) {
 		pageSize int32
 		wantAll  int
 	}{
-		{name: "ssl policies pages of two", op: "ssl", pageSize: 2, wantAll: 6},
-		{name: "ssl policies one page", op: "ssl", pageSize: 100, wantAll: 6},
+		{name: "ssl policies pages of two", op: "ssl", pageSize: 2, wantAll: 45},
+		{name: "ssl policies one page", op: "ssl", pageSize: 100, wantAll: 45},
 		{name: "account limits pages of five", op: "limits", pageSize: 5, wantAll: 12},
 		{name: "account limits one page", op: "limits", wantAll: 12},
 	}

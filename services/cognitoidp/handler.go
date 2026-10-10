@@ -408,6 +408,10 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
 
+	if err := validateCommonIdentifiers(body); err != nil {
+		return nil, err
+	}
+
 	result, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
@@ -421,7 +425,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	return c.JSON(statusCode, service.JSONErrorResponse{
 		Type:    errType,
-		Message: err.Error(),
+		Message: strings.TrimPrefix(err.Error(), errType+": "),
 	})
 }
 
@@ -438,6 +442,8 @@ var cognitoSentinelErrors = []struct { //nolint:gochecknoglobals // package-leve
 	{ErrUsernameExists, ErrUsernameExists.Error()},
 	{ErrNotAuthorized, ErrNotAuthorized.Error()},
 	{ErrTokenUnauthorized, ErrTokenUnauthorized.Error()},
+	{ErrRefreshTokenReuse, ErrRefreshTokenReuse.Error()},
+	{ErrAliasExists, ErrAliasExists.Error()},
 	{ErrInvalidPassword, ErrInvalidPassword.Error()},
 	{ErrUserNotConfirmed, ErrUserNotConfirmed.Error()},
 	{ErrPasswordResetRequired, ErrPasswordResetRequired.Error()},

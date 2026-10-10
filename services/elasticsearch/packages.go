@@ -64,22 +64,23 @@ func (b *InMemoryBackend) CreatePackage(
 }
 
 // AssociatePackage associates an Elasticsearch package with a domain.
-func (b *InMemoryBackend) AssociatePackage(ctx context.Context, packageID, domainName string) error {
+func (b *InMemoryBackend) AssociatePackage(ctx context.Context, packageID, domainName string) (*DomainPackage, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("AssociatePackage")
 	defer b.mu.Unlock()
 
-	if _, exists := b.packageGet(region, packageID); !exists {
-		return fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
+	pkg, exists := b.packageGet(region, packageID)
+	if !exists {
+		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
 	}
 
-	if _, exists := b.domainGet(region, domainName); !exists {
-		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	if _, exists = b.domainGet(region, domainName); !exists {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
 	assocs := b.packageAssociationsStore(region)
 	if slices.Contains(assocs[packageID], domainName) {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"%w: package %s is already associated with domain %s",
 			ErrPackageAlreadyAssociated, packageID, domainName,
 		)
@@ -87,8 +88,39 @@ func (b *InMemoryBackend) AssociatePackage(ctx context.Context, packageID, domai
 
 	assocs[packageID] = append(assocs[packageID], domainName)
 
-	return nil
+	meta := b.packageAssociationMetaStore(region)
+	if meta[packageID] == nil {
+		meta[packageID] = make(map[string]PackageAssociation)
+	}
+
+	meta[packageID][domainName] = PackageAssociation{
+		LastUpdated:    b.clock(),
+		PackageVersion: availablePackageVersion(pkg),
+	}
+
+	return b.domainPackageLocked(region, pkg, domainName), nil
 }
+
+// domainPackageLocked builds the details of one association; associations
+// restored without details fall back to the package's current version.
+func (b *InMemoryBackend) domainPackageLocked(region string, pkg *Package, domainName string) *DomainPackage {
+	meta, ok := b.packageAssociationMetaStoreRO(region)[pkg.ID][domainName]
+	if !ok {
+		meta = PackageAssociation{LastUpdated: pkg.LastUpdatedAt, PackageVersion: availablePackageVersion(pkg)}
+	}
+
+	return &DomainPackage{
+		Package:        clonePackage(pkg),
+		DomainName:     domainName,
+		LastUpdated:    meta.LastUpdated,
+		PackageVersion: meta.PackageVersion,
+		ReferencePath:  packageReferencePath(pkg.ID),
+	}
+}
+
+// packageReferencePath is the node-relative path a package is mounted at
+// (the "analyzers/F111111111" form used as synonyms_path).
+func packageReferencePath(packageID string) string { return "analyzers/" + packageID }
 
 // DeletePackage removes a package by ID.
 func (b *InMemoryBackend) DeletePackage(ctx context.Context, packageID string) (*Package, error) {
@@ -105,6 +137,7 @@ func (b *InMemoryBackend) DeletePackage(ctx context.Context, packageID string) (
 	delete(b.packagesByNameStore(region), pkg.Name)
 	b.packageDelete(region, packageID)
 	delete(b.packageAssociationsStore(region), packageID)
+	delete(b.packageAssociationMetaStore(region), packageID)
 
 	return &cp, nil
 }
@@ -137,31 +170,32 @@ func (b *InMemoryBackend) DescribePackages(ctx context.Context, packageIDs []str
 	return result
 }
 
-// DissociatePackage removes a package association from a domain.
-func (b *InMemoryBackend) DissociatePackage(ctx context.Context, packageID, domainName string) error {
+// DissociatePackage removes a package association from a domain and returns
+// the association as it stood.
+func (b *InMemoryBackend) DissociatePackage(ctx context.Context, packageID, domainName string) (*DomainPackage, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("DissociatePackage")
 	defer b.mu.Unlock()
 
-	if _, exists := b.packageGet(region, packageID); !exists {
-		return fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
+	pkg, exists := b.packageGet(region, packageID)
+	if !exists {
+		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
 	}
 
-	if _, exists := b.domainGet(region, domainName); !exists {
-		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+	if _, exists = b.domainGet(region, domainName); !exists {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
+
+	out := b.domainPackageLocked(region, pkg, domainName)
 
 	associations := b.packageAssociationsStore(region)
-	assocs := associations[packageID]
-	for i, name := range assocs {
-		if name == domainName {
-			associations[packageID] = append(assocs[:i], assocs[i+1:]...)
-
-			return nil
-		}
+	if idx := slices.Index(associations[packageID], domainName); idx >= 0 {
+		associations[packageID] = slices.Delete(associations[packageID], idx, idx+1)
 	}
 
-	return nil
+	delete(b.packageAssociationMetaStore(region)[packageID], domainName)
+
+	return out, nil
 }
 
 // GetPackageVersionHistory returns the package's versions, newest first.
@@ -214,25 +248,29 @@ func clonePackage(p *Package) *Package {
 	return &cp
 }
 
-// ListDomainsForPackage returns all domain names associated with a package.
-func (b *InMemoryBackend) ListDomainsForPackage(ctx context.Context, packageID string) ([]string, error) {
+// ListDomainsForPackage returns the domains associated with a package.
+func (b *InMemoryBackend) ListDomainsForPackage(ctx context.Context, packageID string) ([]*DomainPackage, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.RLock("ListDomainsForPackage")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.packageGet(region, packageID); !exists {
+	pkg, exists := b.packageGet(region, packageID)
+	if !exists {
 		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
 	}
 
 	assocs := b.packageAssociationsStoreRO(region)[packageID]
-	result := make([]string, len(assocs))
-	copy(result, assocs)
+	result := make([]*DomainPackage, 0, len(assocs))
+
+	for _, domainName := range assocs {
+		result = append(result, b.domainPackageLocked(region, pkg, domainName))
+	}
 
 	return result, nil
 }
 
-// ListPackagesForDomain returns all packages associated with a domain.
-func (b *InMemoryBackend) ListPackagesForDomain(ctx context.Context, domainName string) ([]*Package, error) {
+// ListPackagesForDomain returns the packages associated with a domain.
+func (b *InMemoryBackend) ListPackagesForDomain(ctx context.Context, domainName string) ([]*DomainPackage, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.RLock("ListPackagesForDomain")
 	defer b.mu.RUnlock()
@@ -241,13 +279,15 @@ func (b *InMemoryBackend) ListPackagesForDomain(ctx context.Context, domainName 
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
-	var result []*Package
+	var result []*DomainPackage
+
 	for packageID, assocs := range b.packageAssociationsStoreRO(region) {
-		if slices.Contains(assocs, domainName) {
-			if pkg, exists := b.packageGet(region, packageID); exists {
-				cp := *pkg
-				result = append(result, &cp)
-			}
+		if !slices.Contains(assocs, domainName) {
+			continue
+		}
+
+		if pkg, exists := b.packageGet(region, packageID); exists {
+			result = append(result, b.domainPackageLocked(region, pkg, domainName))
 		}
 	}
 

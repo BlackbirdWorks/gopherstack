@@ -203,17 +203,17 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyType:    resourceNotFoundType,
-			keyMessage: err.Error(),
+			keyMessage: errMessage(err),
 		})
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyType:    invalidRequestType,
-			keyMessage: err.Error(),
+			keyMessage: errMessage(err),
 		})
 	case errors.Is(err, awserr.ErrConflict):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyType:    invalidStateType,
-			keyMessage: err.Error(),
+			keyMessage: errMessage(err),
 		})
 	case errors.Is(err, awserr.ErrInvalidParameter),
 		errors.Is(err, errInvalidRequest),
@@ -222,12 +222,12 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyType:    invalidRequestType,
-			keyMessage: err.Error(),
+			keyMessage: errMessage(err),
 		})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			keyType:    internalServiceErrorType,
-			keyMessage: err.Error(),
+			keyMessage: errMessage(err),
 		})
 	}
 }
@@ -252,4 +252,14 @@ func tagsFromInput(inputs []tagInput) map[string]string {
 	}
 
 	return m
+}
+
+// errMessage drops the exception-name suffix that wrapping a sentinel with %w leaves on the message.
+func errMessage(err error) string {
+	msg := err.Error()
+	for _, name := range []string{resourceNotFoundType, invalidRequestType, invalidStateType} {
+		msg = strings.TrimSuffix(msg, ": "+name)
+	}
+
+	return msg
 }

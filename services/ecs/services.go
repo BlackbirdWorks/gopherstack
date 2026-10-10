@@ -183,6 +183,8 @@ func (b *InMemoryBackend) sweepServiceTransitionsLocked(now time.Time) {
 		}
 	}
 
+	b.advanceAllDeploymentLifecyclesLocked(now)
+
 	for _, svc := range evict {
 		b.services.Delete(servicesKeyFn(svc))
 		delete(b.serviceIndex, svcRef{cluster: clusterKey(svc.ClusterArn), name: svc.ServiceName})
@@ -191,8 +193,8 @@ func (b *InMemoryBackend) sweepServiceTransitionsLocked(now time.Time) {
 
 // CreateService creates a new ECS service.
 func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, error) {
-	if input.ServiceName == "" {
-		return nil, fmt.Errorf("%w: serviceName is required", ErrInvalidParameter)
+	if err := validateServiceBasics(input.ServiceName, input.DesiredCount); err != nil {
+		return nil, err
 	}
 
 	if err := validateDeploymentController(input.DeploymentController); err != nil {
@@ -209,7 +211,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		return nil, fmt.Errorf("%w: taskDefinition is required", ErrInvalidParameter)
 	}
 
-	if err := validatePlatformVersion(input.PlatformVersion); err != nil {
+	if err := validateServiceConfig(input.PlatformVersion, input.DeploymentConfiguration); err != nil {
 		return nil, err
 	}
 
@@ -220,6 +222,10 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 
 	b.sweepServiceTransitionsLocked(time.Now())
 	b.ensureClusterLocked(clusterName)
+
+	if !b.clusters.Has(clusterName) {
+		return nil, fmt.Errorf("%w: Cluster not found", ErrClusterNotFound)
+	}
 
 	// api_op_DeleteService.go: "If you attempt to create a new service with
 	// the same name as an existing service in either ACTIVE or DRAINING
@@ -463,6 +469,7 @@ func (b *InMemoryBackend) enrichService(s *Service, clusterName string) Service 
 
 		if d.Status == deploymentStatusPrimary &&
 			d.RolloutState == deploymentRolloutStateInProgress &&
+			!b.lifecycleHoldsLocked(s, d) &&
 			d.RunningCount >= d.DesiredCount && d.DesiredCount > 0 {
 			d.RolloutState = deploymentRolloutStateCompleted
 			d.RolloutStateReason = fmt.Sprintf(
@@ -560,7 +567,7 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 		return nil, fmt.Errorf("%w: service is required", ErrInvalidParameter)
 	}
 
-	if err := validatePlatformVersion(input.PlatformVersion); err != nil {
+	if err := validateServiceConfig(input.PlatformVersion, input.DeploymentConfiguration); err != nil {
 		return nil, err
 	}
 
@@ -1002,4 +1009,16 @@ func (b *InMemoryBackend) ListServices(
 	sort.Strings(arns)
 
 	return arns, nil
+}
+
+func validateServiceBasics(name string, desiredCount int) error {
+	if name == "" {
+		return fmt.Errorf("%w: serviceName is required", ErrInvalidParameter)
+	}
+
+	if desiredCount < 0 {
+		return fmt.Errorf("%w: desiredCount must be greater than or equal to 0", ErrInvalidParameter)
+	}
+
+	return nil
 }

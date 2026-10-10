@@ -55,7 +55,7 @@ func (b *InMemoryBackend) AssociateApprovalRuleTemplateWithRepository(templateNa
 	}
 
 	if !b.repositories.Has(repositoryName) {
-		return fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+		return fmt.Errorf("%w: %s does not exist", ErrNotFound, repositoryName)
 	}
 
 	if b.repoTemplateAssoc[repositoryName] == nil {
@@ -76,7 +76,7 @@ func (b *InMemoryBackend) DisassociateApprovalRuleTemplateFromRepository(templat
 	}
 
 	if !b.repositories.Has(repositoryName) {
-		return fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+		return fmt.Errorf("%w: %s does not exist", ErrNotFound, repositoryName)
 	}
 
 	if assoc, ok := b.repoTemplateAssoc[repositoryName]; ok {
@@ -303,7 +303,7 @@ func (b *InMemoryBackend) ListAssociatedApprovalRuleTemplatesForRepository(repoN
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repoName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, repoName)
 	}
 
 	assoc := b.repoTemplateAssoc[repoName]

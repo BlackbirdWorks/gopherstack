@@ -3,6 +3,7 @@ package sagemaker
 import (
 	"encoding/json"
 	"maps"
+	"slices"
 	"time"
 )
 
@@ -109,19 +110,23 @@ type CoreDumpConfig struct {
 
 // ProductionVariant holds configuration for a production variant in an endpoint config.
 type ProductionVariant struct {
-	ServerlessConfig                            *ServerlessConfig `json:"ServerlessConfig,omitempty"`
-	CoreDumpConfig                              *CoreDumpConfig   `json:"CoreDumpConfig,omitempty"`
-	VariantName                                 string            `json:"VariantName"`
-	ModelName                                   string            `json:"ModelName"`
-	AcceleratorType                             string            `json:"AcceleratorType,omitempty"`
-	InstanceType                                string            `json:"InstanceType,omitempty"`
-	InferenceAmiVersion                         string            `json:"InferenceAmiVersion,omitempty"`
-	InitialVariantWeight                        float64           `json:"InitialVariantWeight,omitempty"`
-	InitialInstanceCount                        int32             `json:"InitialInstanceCount,omitempty"`
-	VolumeSizeInGB                              int32             `json:"VolumeSizeInGB,omitempty"`
-	ModelDataDownloadTimeoutInSeconds           int32             `json:"ModelDataDownloadTimeoutInSeconds,omitempty"`
-	ContainerStartupHealthCheckTimeoutInSeconds int32             `json:"ContainerStartupHealthCheckTimeoutInSeconds,omitempty"` //nolint:lll // AWS API field name exceeds 120 chars; cannot be shortened
-	EnableSSMAccess                             bool              `json:"EnableSSMAccess,omitempty"`
+	ServerlessConfig                            *ServerlessConfig     `json:"ServerlessConfig,omitempty"`
+	CoreDumpConfig                              *CoreDumpConfig       `json:"CoreDumpConfig,omitempty"`
+	ManagedInstanceScaling                      *ManagedScaling       `json:"ManagedInstanceScaling,omitempty"`
+	RoutingConfig                               *VariantRoutingConfig `json:"RoutingConfig,omitempty"`
+	CapacityReservationConfig                   *ReservationConfig    `json:"CapacityReservationConfig,omitempty"`
+	VariantName                                 string                `json:"VariantName"`
+	ModelName                                   string                `json:"ModelName"`
+	AcceleratorType                             string                `json:"AcceleratorType,omitempty"`
+	InstanceType                                string                `json:"InstanceType,omitempty"`
+	InferenceAmiVersion                         string                `json:"InferenceAmiVersion,omitempty"`
+	InstancePools                               []InstancePool        `json:"InstancePools,omitempty"`
+	InitialVariantWeight                        float64               `json:"InitialVariantWeight,omitempty"`
+	InitialInstanceCount                        int32                 `json:"InitialInstanceCount,omitempty"`
+	VolumeSizeInGB                              int32                 `json:"VolumeSizeInGB,omitempty"`
+	ModelDataDownloadTimeoutInSeconds           int32                 `json:"ModelDataDownloadTimeoutInSeconds,omitempty"`
+	ContainerStartupHealthCheckTimeoutInSeconds int32                 `json:"ContainerStartupHealthCheckTimeoutInSeconds,omitempty"` //nolint:lll // AWS API field name exceeds 120 chars; cannot be shortened
+	EnableSSMAccess                             bool                  `json:"EnableSSMAccess,omitempty"`
 }
 
 // DataCaptureConfig specifies real-time data capture for an endpoint config.
@@ -190,6 +195,11 @@ func cloneProductionVariant(pv ProductionVariant) ProductionVariant {
 		pv.CoreDumpConfig = &cdc
 	}
 
+	pv.ManagedInstanceScaling = cloneManagedInstanceScaling(pv.ManagedInstanceScaling)
+	pv.RoutingConfig = cloneRoutingConfig(pv.RoutingConfig)
+	pv.CapacityReservationConfig = cloneCapacityReservation(pv.CapacityReservationConfig)
+	pv.InstancePools = slices.Clone(pv.InstancePools)
+
 	return pv
 }
 
@@ -229,6 +239,7 @@ func cloneEndpointConfig(ec *EndpointConfig) *EndpointConfig {
 type Association struct {
 	CreationTime    time.Time         `json:"CreationTime"`
 	Tags            map[string]string `json:"Tags,omitempty"`
+	CreatedBy       *UserContext      `json:"CreatedBy,omitempty"`
 	SourceArn       string            `json:"SourceArn"`
 	DestinationArn  string            `json:"DestinationArn"`
 	AssociationType string            `json:"AssociationType,omitempty"`
@@ -330,6 +341,7 @@ func cloneAlgorithm(al *Algorithm) *Algorithm {
 func cloneAssociation(a *Association) *Association {
 	cp := *a
 	cp.Tags = maps.Clone(a.Tags)
+	cp.CreatedBy = cloneUserContext(a.CreatedBy)
 
 	return &cp
 }
@@ -788,6 +800,8 @@ type ModelPackage struct {
 	ModelMetrics                      json.RawMessage           `json:"ModelMetrics,omitempty"`
 	ModelCard                         json.RawMessage           `json:"ModelCard,omitempty"`
 	ModelLifeCycle                    json.RawMessage           `json:"ModelLifeCycle,omitempty"`
+	CreatedBy                         *UserContext              `json:"CreatedBy,omitempty"`
+	LastModifiedBy                    *UserContext              `json:"LastModifiedBy,omitempty"`
 	MetadataProperties                json.RawMessage           `json:"MetadataProperties,omitempty"`
 	SecurityConfig                    json.RawMessage           `json:"SecurityConfig,omitempty"`
 	AdditionalInferenceSpecifications json.RawMessage           `json:"AdditionalInferenceSpecifications,omitempty"`
@@ -814,6 +828,8 @@ type ModelPackage struct {
 func cloneModelPackage(mp *ModelPackage) *ModelPackage {
 	cp := *mp
 	cp.Tags = maps.Clone(mp.Tags)
+	cp.CreatedBy = cloneUserContext(mp.CreatedBy)
+	cp.LastModifiedBy = cloneUserContext(mp.LastModifiedBy)
 	cp.CustomerMetadataProperties = maps.Clone(mp.CustomerMetadataProperties)
 	cp.ModelPackageStatusDetails.ValidationStatuses = append(
 		[]ModelPackageStatusItem{}, mp.ModelPackageStatusDetails.ValidationStatuses...,

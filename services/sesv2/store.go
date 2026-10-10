@@ -1,6 +1,9 @@
 package sesv2
 
 import (
+	"encoding/base64"
+	"fmt"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/smtprelay"
@@ -138,6 +141,13 @@ func paginateMaps(
 
 	start := 0
 	if nextToken != "" {
+		raw, decErr := base64.StdEncoding.DecodeString(nextToken)
+		if decErr != nil {
+			return nil, "", fmt.Errorf("%w: NextToken is not valid", ErrInvalidInput)
+		}
+
+		nextToken = string(raw)
+
 		// Default to the end of the collection when the cursor doesn't
 		// resolve (e.g. the item it named was deleted) -- defaulting to 0
 		// would silently restart pagination from page one forever.
@@ -158,7 +168,7 @@ func paginateMaps(
 	if end < len(all) {
 		v, ok := all[end][keyName].(string)
 		if ok {
-			next = v
+			next = base64.StdEncoding.EncodeToString([]byte(v))
 		}
 	} else {
 		end = len(all)

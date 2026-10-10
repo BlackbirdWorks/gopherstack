@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 )
 
 // GetPipelineExecution returns the stored execution by pipeline name and execution ID.
@@ -17,7 +18,7 @@ func (b *InMemoryBackend) GetPipelineExecution(
 	region := getRegion(ctx, b.region)
 
 	if !b.pipelines.Has(regionKey(region, pipelineName)) {
-		return nil, ErrNotFound
+		return nil, b.pipelineNotFound(pipelineName)
 	}
 
 	for _, exec := range b.executionsStoreRO(region)[pipelineName] {
@@ -42,7 +43,7 @@ func (b *InMemoryBackend) ListPipelineExecutions(
 	region := getRegion(ctx, b.region)
 
 	if !b.pipelines.Has(regionKey(region, pipelineName)) {
-		return nil, ErrNotFound
+		return nil, b.pipelineNotFound(pipelineName)
 	}
 
 	stored := b.executionsStoreRO(region)[pipelineName]
@@ -68,7 +69,7 @@ func (b *InMemoryBackend) ListActionExecutions(
 	region := getRegion(ctx, b.region)
 
 	if !b.pipelines.Has(regionKey(region, pipelineName)) {
-		return nil, ErrNotFound
+		return nil, b.pipelineNotFound(pipelineName)
 	}
 
 	stored := b.actionExecutionsStoreRO(region)[pipelineName]
@@ -80,15 +81,21 @@ func (b *InMemoryBackend) ListActionExecutions(
 			continue
 		}
 
-		out = append(out, map[string]any{
+		item := map[string]any{
 			keyPipelineExecutionID: ae.PipelineExecutionID,
-			"actionExecutionId":    ae.ActionExecutionID,
+			keyActionExecutionID:   ae.ActionExecutionID,
 			"stageName":            ae.StageName,
 			"actionName":           ae.ActionName,
 			"startTime":            float64(ae.StartTime.Unix()),
 			"lastUpdateTime":       float64(ae.LastUpdateTime.Unix()),
 			keyStatus:              ae.Status,
-		})
+		}
+
+		if output := actionExecutionOutput(ae); output != nil {
+			item["output"] = output
+		}
+
+		out = append(out, item)
 	}
 
 	return out, nil
@@ -147,7 +154,7 @@ func (b *InMemoryBackend) ListDeployActionExecutionTargets(
 
 	if pipelineName != "" {
 		if !b.pipelines.Has(regionKey(region, pipelineName)) {
-			return nil, ErrNotFound
+			return nil, b.pipelineNotFound(pipelineName)
 		}
 
 		if !hasActionExecution(b.actionExecutionsStoreRO(region)[pipelineName], executionID) {
@@ -175,4 +182,86 @@ func hasActionExecution(execs []*ActionExecution, executionID string) bool {
 	}
 
 	return false
+}
+
+// actionExecutionOutput renders ActionExecutionDetail.output (executionResult
+// and outputVariables) from what a job worker reported, or nil when it reported nothing.
+func actionExecutionOutput(ae *ActionExecution) map[string]any {
+	result := map[string]any{}
+
+	if ae.ExternalExecutionID != "" {
+		result["externalExecutionId"] = ae.ExternalExecutionID
+	}
+
+	if ae.Summary != "" && ae.ExternalExecutionID != "" {
+		result["externalExecutionSummary"] = ae.Summary
+	}
+
+	if ae.ErrorMessage != "" || ae.ErrorCode != "" {
+		result["errorDetails"] = map[string]any{"code": ae.ErrorCode, "message": ae.ErrorMessage}
+	}
+
+	out := map[string]any{}
+	if len(result) > 0 {
+		out["executionResult"] = result
+	}
+
+	if len(ae.OutputVariables) > 0 {
+		out["outputVariables"] = ae.OutputVariables
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
+}
+
+// sourceArtifactRevisions maps pinned source revisions onto the output artifacts of the pipeline's
+// Source-category actions. changeIDs optionally carries each action's revisionChangeIdentifier.
+func sourceArtifactRevisions(
+	stages []Stage, revisions []SourceRevision, changeIDs map[string]string, created time.Time,
+) []ArtifactRevision {
+	var out []ArtifactRevision
+
+	for _, rev := range revisions {
+		for _, st := range stages {
+			for _, a := range st.Actions {
+				if a.Name != rev.ActionName || a.ActionTypeID.Category != actionCategorySource {
+					continue
+				}
+
+				for _, art := range a.OutputArtifacts {
+					out = append(out, ArtifactRevision{
+						Name:                     art.Name,
+						RevisionID:               rev.RevisionID,
+						RevisionChangeIdentifier: changeIDs[a.Name],
+						Created:                  created,
+					})
+				}
+			}
+		}
+	}
+
+	return out
+}
+
+func artifactRevisionsWire(revs []ArtifactRevision) []map[string]any {
+	out := make([]map[string]any, len(revs))
+
+	for i, r := range revs {
+		item := map[string]any{
+			keyName:      r.Name,
+			"revisionId": r.RevisionID,
+			"created":    float64(r.Created.Unix()),
+		}
+
+		if r.RevisionChangeIdentifier != "" {
+			item["revisionChangeIdentifier"] = r.RevisionChangeIdentifier
+		}
+
+		out[i] = item
+	}
+
+	return out
 }

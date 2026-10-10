@@ -96,10 +96,13 @@ type createSubnetCidrReservationResponse struct {
 // deserializers.go:107294) -- imageId/imageState do NOT sit at the top
 // level of instanceImageMetadataItem.
 type imageMetadataItem struct {
-	ImageID      string `xml:"imageId,omitempty"`
-	Name         string `xml:"name,omitempty"`
-	ImageOwnerID string `xml:"imageOwnerId,omitempty"`
-	ImageState   string `xml:"imageState,omitempty"`
+	ImageID           string               `xml:"imageId,omitempty"`
+	Name              string               `xml:"name,omitempty"`
+	ImageOwnerID      string               `xml:"imageOwnerId,omitempty"`
+	ImageOwnerAlias   string               `xml:"imageOwnerAlias,omitempty"`
+	ImageState        string               `xml:"imageState,omitempty"`
+	ImageAllowed      *bool                `xml:"imageAllowed,omitempty"`
+	ImageWatermarkSet []imageWatermarkItem `xml:"imageWatermarkSet>item,omitempty"`
 }
 
 // instanceImageMetadataItem matches types.InstanceImageMetadata
@@ -136,6 +139,10 @@ func toInstanceImageMetadataItem(
 			ImageState:   item.ImageState,
 		},
 	}
+	if knownImageOwnerAliases[item.ImageOwnerID] {
+		wire.ImageMetadata.ImageOwnerID, wire.ImageMetadata.ImageOwnerAlias = "", item.ImageOwnerID
+	}
+
 	if !item.LaunchTime.IsZero() {
 		wire.LaunchTime = item.LaunchTime.UTC().Format(timeLayoutISO)
 	}
@@ -241,22 +248,40 @@ func (h *Handler) handleGetSubnetCidrReservations(vals url.Values, reqID string)
 	return finishPaged(vals, resp)
 }
 
-func (h *Handler) handleModifySubnetAttribute(vals url.Values, reqID string) (any, error) {
-	var attr string
-	var valueStr string
-
-	switch {
-	case vals.Get("MapPublicIpOnLaunch.Value") != "":
-		attr = attrMapPublicIPOnLaunch
-		valueStr = vals.Get("MapPublicIpOnLaunch.Value")
-	default:
-		attr = attrMapPublicIPOnLaunch
-		valueStr = ec2BooleanTrue
+func attributeBool(vals url.Values, name string) *bool {
+	key := name + ".Value"
+	if !vals.Has(key) {
+		return nil
 	}
 
-	value, _ := strconv.ParseBool(valueStr)
+	v, _ := strconv.ParseBool(vals.Get(key))
 
-	if err := h.Backend.ModifySubnetAttribute(vals.Get("SubnetId"), attr, value); err != nil {
+	return &v
+}
+
+func (h *Handler) handleModifySubnetAttribute(vals url.Values, reqID string) (any, error) {
+	u := SubnetAttributeUpdate{
+		MapPublicIPOnLaunch:             attributeBool(vals, "MapPublicIpOnLaunch"),
+		EnableDNS64:                     attributeBool(vals, "EnableDns64"),
+		AssignIPv6AddressOnCreation:     attributeBool(vals, "AssignIpv6AddressOnCreation"),
+		EnableResourceNameDNSARecord:    attributeBool(vals, "EnableResourceNameDnsARecordOnLaunch"),
+		EnableResourceNameDNSAAAARecord: attributeBool(vals, "EnableResourceNameDnsAAAARecordOnLaunch"),
+		MapCustomerOwnedIPOnLaunch:      attributeBool(vals, "MapCustomerOwnedIpOnLaunch"),
+		DisableLNIAtDeviceIndex:         attributeBool(vals, "DisableLniAtDeviceIndex"),
+		CustomerOwnedIPv4Pool:           vals.Get("CustomerOwnedIpv4Pool"),
+		PrivateDNSHostnameType:          vals.Get("PrivateDnsHostnameTypeOnLaunch"),
+	}
+
+	if vals.Has("EnableLniAtDeviceIndex") {
+		n, err := strconv.Atoi(vals.Get("EnableLniAtDeviceIndex"))
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid EnableLniAtDeviceIndex", ErrInvalidParameter)
+		}
+
+		u.EnableLNIAtDeviceIndex = &n
+	}
+
+	if err := h.Backend.ModifySubnetAttributes(vals.Get("SubnetId"), u); err != nil {
 		return nil, err
 	}
 
@@ -309,7 +334,7 @@ func (h *Handler) handleDescribeSubnets(vals url.Values, reqID string) (any, err
 
 	items := make([]subnetItem, 0, len(subnets))
 	for _, s := range subnets {
-		items = append(items, toSubnetItem(s, h.Backend.TagsForResource(s.ID)))
+		items = append(items, toSubnetItem(s, h.Backend.TagsForResource(s.ID), h.Backend.SubnetIpv6Associations(s.ID)))
 	}
 
 	return finishPaged(vals, &describeSubnetsResponse{
@@ -320,12 +345,29 @@ func (h *Handler) handleDescribeSubnets(vals url.Values, reqID string) (any, err
 }
 
 func (h *Handler) handleCreateSubnet(vals url.Values, reqID string) (any, error) {
-	vpcID := vals.Get("VpcId")
-	cidr := vals.Get("CidrBlock")
-	az := vals.Get("AvailabilityZone")
-	outpostArn := vals.Get("OutpostArn")
+	v4Len, err := optionalInt(vals, "Ipv4NetmaskLength")
+	if err != nil {
+		return nil, err
+	}
 
-	s, err := h.Backend.CreateSubnetWithOutpost(vpcID, cidr, az, outpostArn)
+	v6Len, err := optionalInt(vals, "Ipv6NetmaskLength")
+	if err != nil {
+		return nil, err
+	}
+
+	s, err := h.Backend.CreateSubnetWithOptions(CreateSubnetParams{
+		VPCID:              vals.Get("VpcId"),
+		CIDRBlock:          vals.Get("CidrBlock"),
+		AvailabilityZone:   vals.Get("AvailabilityZone"),
+		AvailabilityZoneID: vals.Get("AvailabilityZoneId"),
+		OutpostArn:         vals.Get("OutpostArn"),
+		IPv6CIDRBlock:      vals.Get("Ipv6CidrBlock"),
+		IPv6Native:         vals.Get("Ipv6Native") == ec2BooleanTrue,
+		IPv4IpamPoolID:     vals.Get("Ipv4IpamPoolId"),
+		IPv6IpamPoolID:     vals.Get("Ipv6IpamPoolId"),
+		IPv4NetmaskLength:  v4Len,
+		IPv6NetmaskLength:  v6Len,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +381,7 @@ func (h *Handler) handleCreateSubnet(vals url.Values, reqID string) (any, error)
 	return &createSubnetResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Subnet:    toSubnetItem(s, h.Backend.TagsForResource(s.ID)),
+		Subnet:    toSubnetItem(s, h.Backend.TagsForResource(s.ID), h.Backend.SubnetIpv6Associations(s.ID)),
 	}, nil
 }
 
@@ -360,41 +402,96 @@ func (h *Handler) handleDeleteSubnet(vals url.Values, reqID string) (any, error)
 	}, nil
 }
 
-func toSubnetItem(s *Subnet, tags map[string]string) subnetItem {
-	return subnetItem{
-		SubnetID:            s.ID,
-		VPCID:               s.VPCID,
-		CIDRBlock:           s.CIDRBlock,
-		AvailabilityZone:    s.AvailabilityZone,
-		AvailabilityZoneID:  availabilityZoneID(s.AvailabilityZone),
-		OutpostArn:          s.OutpostArn,
-		SubnetArn:           s.Arn,
-		State:               stateAvailable,
-		MapPublicIPOnLaunch: s.MapPublicIPOnLaunch,
-		DefaultForAz:        s.IsDefault,
-		Ipv6Native:          s.Ipv6Native,
-		TagSet:              tagItemsFromMap(tags),
+func optionalInt(vals url.Values, key string) (int, error) {
+	if !vals.Has(key) {
+		return 0, nil
 	}
+
+	n, err := strconv.Atoi(vals.Get(key))
+	if err != nil {
+		return 0, fmt.Errorf("%w: invalid %s", ErrInvalidParameter, key)
+	}
+
+	return n, nil
 }
 
-// subnetItem's MapPublicIpOnLaunch/DefaultForAz element names verified
-// against ec2@v1.329.0 deserializers.go's awsEc2query_deserializeDocumentSubnet
-// (mapPublicIpOnLaunch, defaultForAz) -- both were absent here, so
-// ModifySubnetAttribute's real effect never round-tripped through Describe
-// to any client (gopherstack-ggu4a, found by TestSlice2_RealClient).
+func toSubnetItem(s *Subnet, tags map[string]string, ipv6 []*SubnetCIDRAssociation) subnetItem {
+	hostnameType := s.PrivateDNSHostnameType
+	if hostnameType == "" {
+		hostnameType = hostnameTypeIPName
+	}
+
+	item := subnetItem{
+		SubnetID:                    s.ID,
+		VPCID:                       s.VPCID,
+		CIDRBlock:                   s.CIDRBlock,
+		AvailabilityZone:            s.AvailabilityZone,
+		AvailabilityZoneID:          availabilityZoneID(s.AvailabilityZone),
+		OutpostArn:                  s.OutpostArn,
+		SubnetArn:                   s.Arn,
+		State:                       stateAvailable,
+		MapPublicIPOnLaunch:         s.MapPublicIPOnLaunch,
+		DefaultForAz:                s.IsDefault,
+		Ipv6Native:                  s.Ipv6Native,
+		EnableDNS64:                 s.EnableDNS64,
+		AssignIPv6AddressOnCreation: s.AssignIPv6AddressOnCreation,
+		MapCustomerOwnedIPOnLaunch:  s.MapCustomerOwnedIPOnLaunch,
+		CustomerOwnedIPv4Pool:       s.CustomerOwnedIPv4Pool,
+		EnableLNIAtDeviceIndex:      s.EnableLNIAtDeviceIndex,
+		PrivateDNSNameOptions: subnetPrivateDNSOptions{
+			HostnameType:                hostnameType,
+			EnableResourceNameDNSARec:   s.EnableResourceNameDNSARecord,
+			EnableResourceNameDNSAAAARc: s.EnableResourceNameDNSAAAARecord,
+		},
+		TagSet: tagItemsFromMap(tags),
+	}
+
+	for _, a := range ipv6 {
+		it := subnetIpv6AssocItem{AssociationID: a.AssociationID, Ipv6CIDRBlock: a.IPv6CIDRBlock, IPSource: a.IPSource}
+		it.State.State = a.State
+		item.Ipv6CidrBlockAssociationSet = append(item.Ipv6CidrBlockAssociationSet, it)
+	}
+
+	return item
+}
+
+type subnetPrivateDNSOptions struct {
+	HostnameType                string `xml:"hostnameType"`
+	EnableResourceNameDNSARec   bool   `xml:"enableResourceNameDnsARecord"`
+	EnableResourceNameDNSAAAARc bool   `xml:"enableResourceNameDnsAAAARecord"`
+}
+
+type subnetIpv6AssocItem struct {
+	AssociationID string `xml:"associationId"`
+	Ipv6CIDRBlock string `xml:"ipv6CidrBlock"`
+	IPSource      string `xml:"ipSource,omitempty"`
+	State         struct {
+		State string `xml:"state"`
+	} `xml:"ipv6CidrBlockState"`
+}
+
+// subnetItem element names verified against ec2@v1.329.0 deserializers.go
+// awsEc2query_deserializeDocumentSubnet.
 type subnetItem struct {
-	SubnetID            string          `xml:"subnetId"`
-	VPCID               string          `xml:"vpcId"`
-	CIDRBlock           string          `xml:"cidrBlock"`
-	AvailabilityZone    string          `xml:"availabilityZone"`
-	AvailabilityZoneID  string          `xml:"availabilityZoneId,omitempty"`
-	OutpostArn          string          `xml:"outpostArn,omitempty"`
-	SubnetArn           string          `xml:"subnetArn,omitempty"`
-	State               string          `xml:"state"`
-	TagSet              []simpleTagItem `xml:"tagSet>item"`
-	MapPublicIPOnLaunch bool            `xml:"mapPublicIpOnLaunch"`
-	DefaultForAz        bool            `xml:"defaultForAz"`
-	Ipv6Native          bool            `xml:"ipv6Native"`
+	SubnetID                    string                  `xml:"subnetId"`
+	VPCID                       string                  `xml:"vpcId"`
+	CIDRBlock                   string                  `xml:"cidrBlock,omitempty"`
+	AvailabilityZone            string                  `xml:"availabilityZone"`
+	AvailabilityZoneID          string                  `xml:"availabilityZoneId,omitempty"`
+	OutpostArn                  string                  `xml:"outpostArn,omitempty"`
+	SubnetArn                   string                  `xml:"subnetArn,omitempty"`
+	State                       string                  `xml:"state"`
+	CustomerOwnedIPv4Pool       string                  `xml:"customerOwnedIpv4Pool,omitempty"`
+	PrivateDNSNameOptions       subnetPrivateDNSOptions `xml:"privateDnsNameOptionsOnLaunch"`
+	TagSet                      []simpleTagItem         `xml:"tagSet>item"`
+	Ipv6CidrBlockAssociationSet []subnetIpv6AssocItem   `xml:"ipv6CidrBlockAssociationSet>item,omitempty"`
+	EnableLNIAtDeviceIndex      int                     `xml:"enableLniAtDeviceIndex,omitempty"`
+	MapPublicIPOnLaunch         bool                    `xml:"mapPublicIpOnLaunch"`
+	DefaultForAz                bool                    `xml:"defaultForAz"`
+	Ipv6Native                  bool                    `xml:"ipv6Native"`
+	EnableDNS64                 bool                    `xml:"enableDns64"`
+	AssignIPv6AddressOnCreation bool                    `xml:"assignIpv6AddressOnCreation"`
+	MapCustomerOwnedIPOnLaunch  bool                    `xml:"mapCustomerOwnedIpOnLaunch"`
 }
 
 type subnetItemSet struct {

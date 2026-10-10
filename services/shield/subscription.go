@@ -98,9 +98,32 @@ func (b *InMemoryBackend) UpdateSubscription(autoRenew string) error {
 		return fmt.Errorf("%w: no active subscription found", ErrSubscriptionNotFound)
 	}
 
-	if autoRenew != "" {
+	if autoRenew != "" && autoRenew != b.subscription.AutoRenew {
+		if time.Now().Before(b.subscription.EndTime.AddDate(0, 0, -autoRenewWindowDays)) {
+			return fmt.Errorf(
+				"%w: AutoRenew can only be changed during the last %d days of the commitment",
+				ErrLockedSubscription, autoRenewWindowDays,
+			)
+		}
+
 		b.subscription.AutoRenew = autoRenew
 	}
 
 	return nil
+}
+
+// autoRenewWindowDays is the final stretch of the commitment during which AutoRenew may change.
+const autoRenewWindowDays = 30
+
+// AddSubscriptionInternalStartedAt creates a subscription that began at start (for tests).
+func (b *InMemoryBackend) AddSubscriptionInternalStartedAt(start time.Time) {
+	b.mu.Lock("AddSubscriptionInternalStartedAt")
+	defer b.mu.Unlock()
+
+	b.subscription = &Subscription{
+		StartTime:            start,
+		EndTime:              start.AddDate(1, 0, 0),
+		AutoRenew:            AutoRenewEnabled,
+		TimeCommitmentInDays: subscriptionCommitmentDays,
+	}
 }

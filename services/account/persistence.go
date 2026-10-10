@@ -9,6 +9,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 // accountSnapshotVersion identifies the shape of [backendSnapshot]. It must
@@ -115,6 +117,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.mu = lockmetrics.New("account")
 	}
 
+	if b.work == nil {
+		b.work = worker.NewGroup(context.Background(), "account")
+	}
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
@@ -160,8 +166,26 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.primaryEmailUpdateStatus = snap.PrimaryEmailUpdateStatus
 	b.primaryEmailUpdateAt = snap.PrimaryEmailUpdateAt
 	b.accountCreatedDate = snap.AccountCreatedDate
+	b.settleTransitionsLocked()
 
 	return nil
+}
+
+// settleTransitionsLocked completes in-flight transitions: their timers do not survive a restore.
+func (b *InMemoryBackend) settleTransitionsLocked() {
+	for _, r := range b.regions {
+		if r.RegionOptStatus == RegionOptStatusEnabling {
+			r.RegionOptStatus = RegionOptStatusEnabled
+		}
+
+		if r.RegionOptStatus == RegionOptStatusDisabling {
+			r.RegionOptStatus = RegionOptStatusDisabled
+		}
+	}
+
+	if b.primaryEmailUpdateStatus == PrimaryEmailUpdateStatusAccepted {
+		b.primaryEmailUpdateStatus = PrimaryEmailUpdateStatusCompleted
+	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
@@ -179,3 +203,12 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	return h.Backend.Restore(ctx, data)
 }
+
+// Shutdown stops the backend's transition timers.
+func (h *Handler) Shutdown(_ context.Context) {
+	if c, ok := h.Backend.(interface{ Close() }); ok {
+		c.Close()
+	}
+}
+
+var _ service.Shutdowner = (*Handler)(nil)

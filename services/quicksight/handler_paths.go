@@ -1105,13 +1105,22 @@ func httpErr(c *echo.Context, err error) error {
 
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", errMessage(err))
 	case errors.Is(err, awserr.ErrAlreadyExists):
-		return writeError(c, http.StatusConflict, "ConflictException", err.Error())
+		code := errResourceExists
+		if strings.HasPrefix(err.Error(), errConflictException) {
+			code = errConflictException
+		}
+
+		return writeError(c, http.StatusConflict, code, errMessage(err))
 	case errors.Is(err, awserr.ErrConflict):
-		return writeError(c, http.StatusConflict, "ConflictException", err.Error())
+		return writeError(c, http.StatusConflict, "ConflictException", errMessage(err))
+	case errors.Is(err, errBadPageToken):
+		return writeError(c, http.StatusBadRequest, "InvalidNextTokenException", "The NextToken is invalid.")
+	case errors.Is(err, ErrSessionLifetimeInvalid):
+		return writeError(c, http.StatusBadRequest, errSessionLifetimeInvalid, errMessage(err))
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return writeError(c, http.StatusBadRequest, errInvalidParam, err.Error())
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errMessage(err))
 	}
 
 	log.Error("quicksight: unexpected error", "error", err)

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"sort"
@@ -563,6 +564,12 @@ var ssoAdminOps = map[string]func(*Handler, *echo.Context, []byte) error{
 
 func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
 	if fn, ok := ssoAdminOps[op]; ok {
+		if strings.HasPrefix(op, "List") {
+			if msg := checkPaging(body); msg != "" {
+				return writeError(c, http.StatusBadRequest, "ValidationException", msg)
+			}
+		}
+
 		return fn(h, c, body)
 	}
 
@@ -654,6 +661,11 @@ func handleBackendError(c *echo.Context, err error, notFoundMsg string) error {
 		return writeError(c, http.StatusBadRequest, "ConflictException", err.Error())
 	}
 
+	if errors.Is(err, ErrInstanceNotFound) {
+		return writeError(c, http.StatusBadRequest, "ResourceNotFoundException",
+			"The specified SSO instance could not be found.")
+	}
+
 	switch err.Error() {
 	case "ResourceNotFoundException":
 
@@ -733,6 +745,31 @@ func writeJSON(c *echo.Context, status int, v any) error {
 	_, _ = c.Response().Write(data)
 
 	return nil
+}
+
+// checkPaging rejects an out-of-range MaxResults or a NextToken this service could not have issued.
+func checkPaging(body []byte) string {
+	var req struct {
+		MaxResults *int    `json:"MaxResults"`
+		NextToken  *string `json:"NextToken"`
+	}
+
+	if json.Unmarshal(body, &req) != nil {
+		return ""
+	}
+
+	if req.MaxResults != nil && (*req.MaxResults < 1 || *req.MaxResults > maxPageSize) {
+		return fmt.Sprintf("Value %d at 'maxResults' failed to satisfy constraint: "+
+			"Member must have value between 1 and %d", *req.MaxResults, maxPageSize)
+	}
+
+	if req.NextToken != nil && *req.NextToken != "" {
+		if _, err := base64.StdEncoding.DecodeString(*req.NextToken); err != nil {
+			return "Invalid NextToken provided"
+		}
+	}
+
+	return ""
 }
 
 func writeError(c *echo.Context, status int, errType, message string) error {

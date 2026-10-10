@@ -1179,9 +1179,13 @@ func (h *Handler) handleUpdateRegistry(
 
 // updateSchemaInput holds input for UpdateSchema.
 type updateSchemaInput struct {
-	SchemaID      *schemaIDInput `json:"SchemaId"`
-	Compatibility string         `json:"Compatibility"`
-	Description   string         `json:"Description"`
+	SchemaID            *schemaIDInput `json:"SchemaId"`
+	SchemaVersionNumber *struct {
+		VersionNumber *int64 `json:"VersionNumber"`
+		LatestVersion bool   `json:"LatestVersion"`
+	} `json:"SchemaVersionNumber,omitempty"`
+	Compatibility string `json:"Compatibility"`
+	Description   string `json:"Description"`
 }
 
 // updateSchemaOutput holds the result for UpdateSchema.
@@ -1200,7 +1204,17 @@ func (h *Handler) handleUpdateSchema(
 		registryName, schemaName = schemaIDNames(in.SchemaID)
 	}
 
-	s, err := h.Backend.UpdateSchema(registryName, schemaName, in.Compatibility, in.Description)
+	var checkpoint *SchemaCheckpointRequest
+	if v := in.SchemaVersionNumber; v != nil {
+		checkpoint = &SchemaCheckpointRequest{LatestVersion: v.LatestVersion}
+		if v.VersionNumber != nil {
+			checkpoint.VersionNumber = *v.VersionNumber
+		}
+	}
+
+	s, err := h.Backend.UpdateSchemaWithCheckpoint(
+		registryName, schemaName, in.Compatibility, in.Description, checkpoint,
+	)
 	if err != nil {
 		return nil, err
 	}

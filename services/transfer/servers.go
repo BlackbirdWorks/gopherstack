@@ -610,3 +610,32 @@ func (b *InMemoryBackend) AddServerInternal(serverID string) {
 		Region:    b.region,
 	})
 }
+
+// validateFTPServerConfig applies the CreateServer Protocols rule: FTP and FTPS need
+// a VPC endpoint and a non-SERVICE_MANAGED identity provider.
+func validateFTPServerConfig(protocols []string, endpointType, identityProviderType string) error {
+	if endpointType == "" {
+		endpointType = endpointTypePublic
+	}
+
+	if identityProviderType == "" {
+		identityProviderType = "SERVICE_MANAGED"
+	}
+
+	if !slices.Contains(protocols, "FTP") && !slices.Contains(protocols, "FTPS") {
+		return nil
+	}
+
+	if endpointType == endpointTypePublic {
+		return fmt.Errorf("%w: FTP and FTPS require EndpointType VPC", ErrValidation)
+	}
+
+	if identityProviderType == "SERVICE_MANAGED" {
+		return fmt.Errorf(
+			"%w: FTP and FTPS require IdentityProviderType AWS_DIRECTORY_SERVICE, AWS_LAMBDA or API_GATEWAY",
+			ErrValidation,
+		)
+	}
+
+	return nil
+}

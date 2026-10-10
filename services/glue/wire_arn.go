@@ -170,6 +170,7 @@ func toWorkflowWireList(ws []*Workflow) []*workflowWire {
 type workflowRunWire struct {
 	Properties    map[string]string      `json:"WorkflowRunProperties,omitempty"`
 	Statistics    *WorkflowRunStatistics `json:"Statistics,omitempty"`
+	Graph         *workflowGraphWire     `json:"Graph,omitempty"`
 	Name          string                 `json:"Name"`
 	RunID         string                 `json:"WorkflowRunId"`
 	Status        string                 `json:"Status"`

@@ -1,6 +1,9 @@
 package cloudtrail
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // sqlTokKind classifies a single lexed token of a CloudTrail Lake SQL
 // statement (see query_parse.go for the grammar built on top of these).
@@ -78,7 +81,7 @@ func lexToken(runes []rune, i int) (sqlToken, int, bool) {
 }
 
 // twoCharPunctLen is the token length of the two-character punctuation this
-// lexer recognizes (!=, <>).
+// lexer recognizes (!=, <>, <=, >=).
 const twoCharPunctLen = 2
 
 // lexPunct lexes a single- or double-character punctuation token
@@ -92,8 +95,10 @@ func lexPunct(runes []rune, i int) (sqlToken, int, bool) {
 		return sqlToken{kind: sqlTokPunct, text: string(r)}, i + 1, true
 	case r == '!' && i+1 < n && runes[i+1] == '=':
 		return sqlToken{kind: sqlTokPunct, text: "!="}, i + twoCharPunctLen, true
-	case r == '<' && i+1 < n && runes[i+1] == '>':
-		return sqlToken{kind: sqlTokPunct, text: "<>"}, i + twoCharPunctLen, true
+	case i+1 < n && slices.Contains([]string{"<>", "<=", ">="}, string(runes[i:i+twoCharPunctLen])):
+		return sqlToken{kind: sqlTokPunct, text: string(runes[i : i+twoCharPunctLen])}, i + twoCharPunctLen, true
+	case r == '<' || r == '>':
+		return sqlToken{kind: sqlTokPunct, text: string(r)}, i + 1, true
 	default:
 		return sqlToken{}, 0, false
 	}

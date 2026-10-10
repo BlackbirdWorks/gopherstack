@@ -33,7 +33,7 @@ func TestCreateLoadBalancer(t *testing.T) {
 				"Type":    {"application"},
 			},
 			wantStatus: http.StatusOK,
-			wantDNS:    "my-alb-00000001.us-east-1.elb.amazonaws.com",
+			wantDNS:    `^my-alb-[0-9]{10}\.us-east-1\.elb\.amazonaws\.com$`,
 		},
 		{
 			name: "duplicate_returns_conflict",
@@ -61,7 +61,7 @@ func TestCreateLoadBalancer(t *testing.T) {
 			vals: url.Values{
 				"Action":  {"CreateLoadBalancer"},
 				"Version": {"2015-12-01"},
-				"Name":    {"internal-alb"},
+				"Name":    {"private-alb"},
 				"Scheme":  {"internal"},
 			},
 			wantStatus: http.StatusOK,
@@ -93,7 +93,7 @@ func TestCreateLoadBalancer(t *testing.T) {
 				}
 				parseXMLBody(t, rec, &resp)
 				require.Len(t, resp.Result.LoadBalancers.Members, 1)
-				assert.Equal(t, tt.wantDNS, resp.Result.LoadBalancers.Members[0].DNSName)
+				assert.Regexp(t, tt.wantDNS, resp.Result.LoadBalancers.Members[0].DNSName)
 			}
 		})
 	}

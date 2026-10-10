@@ -1,6 +1,11 @@
 package opensearch
 
-import "github.com/blackbirdworks/gopherstack/pkgs/awstime"
+import (
+	"fmt"
+	"regexp"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+)
 
 // domainClusterConfig holds the cluster configuration request parameters for a domain.
 type domainClusterConfig struct {
@@ -586,4 +591,45 @@ func toOffPeakWindowOptionsJSON(opts *OffPeakWindowOptions) *offPeakWindowOption
 	}
 
 	return out
+}
+
+var instanceTypePattern = regexp.MustCompile(`^[a-z0-9]+\.[a-z0-9]+\.(search|elasticsearch)$`)
+
+const (
+	maxDomainInstanceCount = 80
+	minEBSVolumeSize       = 10
+	maxEBSVolumeSize       = 16384
+)
+
+func validateInstanceTypeName(field, v string) error {
+	if v != "" && !instanceTypePattern.MatchString(v) {
+		return fmt.Errorf("%w: %s %q is not a valid instance type", ErrValidation, field, v)
+	}
+
+	return nil
+}
+
+// validateDomainOptions checks the cluster and EBS members shared by CreateDomain and UpdateDomainConfig.
+func validateDomainOptions(req *domainJSON) error {
+	if cc := req.ClusterConfig; cc != nil {
+		for field, v := range map[string]string{
+			"InstanceType": cc.InstanceType, "DedicatedMasterType": cc.DedicatedMasterType, "WarmType": cc.WarmType,
+		} {
+			if err := validateInstanceTypeName(field, v); err != nil {
+				return err
+			}
+		}
+
+		if cc.InstanceCount < 0 || cc.InstanceCount > maxDomainInstanceCount {
+			return fmt.Errorf("%w: InstanceCount must be between 1 and %d", ErrValidation, maxDomainInstanceCount)
+		}
+	}
+
+	if eb := req.EBSOptions; eb != nil && eb.EBSEnabled && eb.VolumeSize != 0 &&
+		(eb.VolumeSize < minEBSVolumeSize || eb.VolumeSize > maxEBSVolumeSize) {
+		return fmt.Errorf("%w: EBS VolumeSize must be between %d and %d GiB",
+			ErrValidation, minEBSVolumeSize, maxEBSVolumeSize)
+	}
+
+	return nil
 }

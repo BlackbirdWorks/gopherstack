@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/xml"
 	"net/http"
 	"strings"
 
@@ -252,6 +253,27 @@ func extractErrorInfo(status int, body []byte) (string, string) {
 		return "", ""
 	}
 
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return "", ""
+	}
+
+	switch trimmed[0] {
+	case '<':
+		return extractXMLErrorInfo(trimmed)
+	case '{':
+		return extractJSONErrorInfo(trimmed)
+	default:
+		js, err := CBORToJSON(trimmed)
+		if err != nil {
+			return "", ""
+		}
+
+		return extractJSONErrorInfo(js)
+	}
+}
+
+func extractJSONErrorInfo(body []byte) (string, string) {
 	var env jsonErrorEnvelope
 	if err := json.Unmarshal(body, &env); err != nil {
 		return "", ""
@@ -268,4 +290,37 @@ func extractErrorInfo(status int, body []byte) (string, string) {
 	}
 
 	return code, message
+}
+
+// extractXMLErrorInfo covers query/EC2/REST-XML envelopes (<ErrorResponse><Error>,
+// <Response><Errors><Error>, <Error>) by taking the first Code and Message elements.
+func extractXMLErrorInfo(body []byte) (string, string) {
+	dec := xml.NewDecoder(bytes.NewReader(body))
+
+	var code, message string
+
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+
+		start, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+
+		switch start.Name.Local {
+		case "Code":
+			if code == "" {
+				_ = dec.DecodeElement(&code, &start)
+			}
+		case "Message":
+			if message == "" {
+				_ = dec.DecodeElement(&message, &start)
+			}
+		}
+	}
+
+	return strings.TrimSpace(code), strings.TrimSpace(message)
 }

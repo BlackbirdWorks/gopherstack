@@ -34,6 +34,12 @@ func (h *S3Handler) createMultipartUpload(
 		return
 	}
 
+	if err := validateUserMetadataSize(r.Header); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	// Capture SSE config at session-init time and pin it on the upload via
 	// ctx. CompleteMultipartUpload reads it back to apply envelope encryption
 	// to the assembled body — same flow real S3 uses (SSE chosen on Create,
@@ -72,6 +78,8 @@ func (h *S3Handler) createMultipartUpload(
 		ContentLanguage:         ptrconv.NilIfEmpty(r.Header.Get("Content-Language")),
 		WebsiteRedirectLocation: ptrconv.NilIfEmpty(r.Header.Get("X-Amz-Website-Redirect-Location")),
 		StorageClass:            types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
+		ChecksumAlgorithm:       types.ChecksumAlgorithm(r.Header.Get("X-Amz-Checksum-Algorithm")),
+		ChecksumType:            types.ChecksumType(r.Header.Get("X-Amz-Checksum-Type")),
 		ACL:                     acl,
 		ServerSideEncryption:    types.ServerSideEncryption(sse.Algorithm),
 		SSEKMSKeyId:             ptrconv.NilIfEmpty(sse.KMSKeyID),
@@ -88,6 +96,10 @@ func (h *S3Handler) createMultipartUpload(
 
 	setAbortIncompleteHeaders(w, out.AbortDate, out.AbortRuleId)
 	setSSEResponseHeaders(w, sse)
+	if out.ChecksumAlgorithm != "" {
+		w.Header().Set("X-Amz-Checksum-Algorithm", string(out.ChecksumAlgorithm))
+		w.Header().Set("X-Amz-Checksum-Type", string(out.ChecksumType))
+	}
 
 	resp := InitiateMultipartUploadResult{
 		Bucket:   bucketName,
@@ -145,10 +157,8 @@ func (h *S3Handler) uploadPart(
 	}
 
 	algo, crc32p, crc32cp, sha1p, sha256p := extractAlgoAndChecksums(r)
-	crc64nvmeP := extractCRC64NVMEChecksum(r)
-	if algo == "" && crc64nvmeP != nil {
-		algo = ChecksumCRC64NVME
-	}
+	extra := extractExtraChecksums(r)
+	algo = extra.algoOrInferred(algo)
 
 	out, err := h.Backend.UploadPart(ctx, &s3.UploadPartInput{
 		Bucket:            aws.String(bucketName),
@@ -160,7 +170,9 @@ func (h *S3Handler) uploadPart(
 		ChecksumAlgorithm: types.ChecksumAlgorithm(algo),
 		ChecksumCRC32:     crc32p,
 		ChecksumCRC32C:    crc32cp,
-		ChecksumCRC64NVME: crc64nvmeP,
+		ChecksumCRC64NVME: extra.crc64nvme,
+		ChecksumMD5:       extra.md5,
+		ChecksumSHA512:    extra.sha512,
 		ChecksumSHA1:      sha1p,
 		ChecksumSHA256:    sha256p,
 	})
@@ -182,6 +194,8 @@ func (h *S3Handler) uploadPart(
 		ChecksumCRC32:     out.ChecksumCRC32,
 		ChecksumCRC32C:    out.ChecksumCRC32C,
 		ChecksumCRC64NVME: out.ChecksumCRC64NVME,
+		ChecksumMD5:       out.ChecksumMD5,
+		ChecksumSHA512:    out.ChecksumSHA512,
 		ChecksumSHA1:      out.ChecksumSHA1,
 		ChecksumSHA256:    out.ChecksumSHA256,
 	})
@@ -289,21 +303,17 @@ func (h *S3Handler) completeMultipartUpload(
 			UploadId:        aws.String(uploadID),
 			MultipartUpload: &types.CompletedMultipartUpload{Parts: sdkParts},
 			MpuObjectSize:   parseMpuObjectSize(r),
+			ChecksumType:    types.ChecksumType(r.Header.Get("X-Amz-Checksum-Type")),
+			ChecksumCRC32:   ptrconv.NilIfEmpty(r.Header.Get("X-Amz-Checksum-Crc32")),
+			ChecksumCRC32C:  ptrconv.NilIfEmpty(r.Header.Get("X-Amz-Checksum-Crc32c")),
+			ChecksumSHA1:    ptrconv.NilIfEmpty(r.Header.Get("X-Amz-Checksum-Sha1")),
+			ChecksumSHA256:  ptrconv.NilIfEmpty(r.Header.Get("X-Amz-Checksum-Sha256")),
+
+			ChecksumCRC64NVME: extractCRC64NVMEChecksum(r),
+			ChecksumMD5:       extractMD5Checksum(r),
+			ChecksumSHA512:    extractSHA512Checksum(r),
 		},
 	)
-	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) ||
-		errors.Is(err, ErrNoSuchUpload) {
-		WriteError(ctx, w, r, err)
-
-		return
-	}
-
-	if errors.Is(err, ErrInvalidPart) {
-		WriteError(ctx, w, r, err)
-
-		return
-	}
-
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -315,6 +325,15 @@ func (h *S3Handler) completeMultipartUpload(
 		Bucket:   bucketName,
 		Key:      key,
 		ETag:     *out.ETag,
+
+		ChecksumCRC32:     aws.ToString(out.ChecksumCRC32),
+		ChecksumCRC32C:    aws.ToString(out.ChecksumCRC32C),
+		ChecksumCRC64NVME: aws.ToString(out.ChecksumCRC64NVME),
+		ChecksumSHA1:      aws.ToString(out.ChecksumSHA1),
+		ChecksumSHA256:    aws.ToString(out.ChecksumSHA256),
+		ChecksumMD5:       aws.ToString(out.ChecksumMD5),
+		ChecksumSHA512:    aws.ToString(out.ChecksumSHA512),
+		ChecksumType:      string(out.ChecksumType),
 	}
 
 	// Dispatch S3 notification if configured.
@@ -521,6 +540,8 @@ func (h *S3Handler) listParts(
 			ChecksumCRC32:     aws.ToString(p.ChecksumCRC32),
 			ChecksumCRC32C:    aws.ToString(p.ChecksumCRC32C),
 			ChecksumCRC64NVME: aws.ToString(p.ChecksumCRC64NVME),
+			ChecksumMD5:       aws.ToString(p.ChecksumMD5),
+			ChecksumSHA512:    aws.ToString(p.ChecksumSHA512),
 			ChecksumSHA1:      aws.ToString(p.ChecksumSHA1),
 			ChecksumSHA256:    aws.ToString(p.ChecksumSHA256),
 		})

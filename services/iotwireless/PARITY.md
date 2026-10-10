@@ -7,7 +7,7 @@
 service: iotwireless
 sdk_module: aws-sdk-go-v2/service/iotwireless@v1.59.4   # version audited against; bumped from v1.54.7 by gopherstack-jvqt (LoRaWAN/Sidewalk typing) -- no op surface changes between the two, only this manifest's citations needed updating
 last_audit_commit: da97fccdb
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-07
 overall: A                # all 4 prior gaps + 9 deferred families field-diffed and fixed this pass;
                            # 2026-08-23: corrected one stale gap claim, see gaps below
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
@@ -56,6 +56,7 @@ families:
   errors (global): {status: ok, note: "writeError now sets X-Amzn-Errortype header + __type body field derived from HTTP status (404->ResourceNotFoundException, 400->ValidationException, 403->AccessDeniedException, 409->ConflictException, 429->ThrottlingException, else->InternalServerException). Every error path in the service routes through writeError, so this is a single-point fix covering all ops."}
   pagination (List operations): {status: ok, note: "was gap; every List* op (ListWirelessDevices, ListWirelessGateways, ListServiceProfiles, ListDeviceProfiles, ListDestinations, ListFuotaTasks, ListMulticastGroups, ListMulticastGroupsByFuotaTask, ListNetworkAnalyzerConfigurations, ListPositionConfigurations, ListEventConfigurations, ListPartnerAccounts, ListWirelessGatewayTaskDefinitions, ListWirelessDeviceImportTasks, ListQueuedMessages) now honors maxResults/nextToken via a shared paginateQuery helper (pkgs/page), against a deterministically sorted slice"}
   locking (InMemoryBackend): {status: ok, note: "was gap; InMemoryBackend.mu is now *lockmetrics.RWMutex (was a raw sync.RWMutex), matching the project's coarse-instrumented-lock convention. All ~110 Lock()/RLock() call sites across every <family>.go file were labeled with their enclosing method name as the metrics operation label"}
+  single_import_task_and_token_replay: {status: ok, note: "2026-10-07: StartSingleWirelessDeviceImportTask stores DeviceName/Positioning/Sidewalk positioning and Tags (on the task ARN); Get/DeleteWirelessDeviceImportTask accept the single-task Id (table now keyed by Id); Start*ImportTask Tags are stored; WirelessDeviceType on ListQueuedMessages/DeleteQueuedMessages/DeregisterWirelessDevice is validated against Sidewalk|LoRaWAN; ClientRequestToken replay entries persist in the snapshot (idempotency.go). Guarded by TestSingleImportTaskRoundTrip/TestWirelessDeviceTypeParamValidation/TestClientRequestTokenSurvivesRestore."}
 deferred: []                # none — every family from the prior pass was field-diffed this pass; see families above
 gaps: []
   # gopherstack-jqh2: the AssociateWirelessDeviceWithFuotaTask/AssociateMulticastGroupWithFuotaTask
@@ -63,11 +64,18 @@ gaps: []
   # (routing.go's pathSubWirelessDevice/pathSubMulticastGroup, landed d39bf33e4) but never
   # reflected in this file. Corrected in ops/families above; TestExtractOperation_SDKRouteTable
   # (handler_paths_sdk_diff_test.go) now guards all 112 real ops against regressing.
-items_still_open:
-  - "Accepted and ignored: StartBulkAssociate/DisassociateWirelessDevice QueryString and Tags (no search-expression evaluator, so bulk ops act on every device), StartSingleWirelessDeviceImportTask DeviceName/Sidewalk/Positioning/Tags (no read API), ListDevicesForWirelessDeviceImportTask Status (the device list is always empty), WirelessDeviceType on ListQueuedMessages/DeleteQueuedMessages/DeregisterWirelessDevice, GetPositionEstimate inputs, UpdateResourcePosition GeoJsonPayload."
-  - "ClientRequestToken replay is held in memory per region (1024 tokens, FIFO) and is not persisted, so a token is forgotten across a restart."
+items_still_open: []
+structural_gaps:
+  - "StartBulkAssociate/DisassociateWirelessDevice QueryString (fleet-indexing search, syntax unspecified in the SDK) and Tags (no resource to attach to): bulk ops act on every device."
+  - "GetPositionEstimate: positions come from third-party solvers (HERE, MaxMind, LoRa Cloud) and the inputs carry no coordinates, so a validated request returns ResourceNotFoundException instead of a fabricated point; ListDevicesForWirelessDeviceImportTask list and Status filter (no import engine creates devices); StartSingleWirelessDeviceImportTask Sidewalk.SidewalkManufacturingSn has no read member in the SDK."
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state is plain in-memory maps/store.Table under the single mu *lockmetrics.RWMutex, released on Reset(). DeleteWirelessDevice/DeleteWirelessGateway/DeleteMulticastGroup/DeleteFuotaTask now cascade-clean every dependent association map (thing associations, queued messages, multicast/FUOTA membership sets, gateway tasks) so no ghost row survives a parent resource's deletion — this was NOT the case before this pass. FIXED (gopherstack-8907, 2026-09-06): DeleteWirelessDevice/DeleteWirelessGateway also missed the positions map (GetPosition/UpdatePosition). GetPosition has no existence check, so it still returned the stale position for a deleted device/gateway's own ID, and positions is persisted verbatim in Snapshot() regardless (device/gateway IDs are uuid.NewString(), so this is unbounded growth rather than a wrong-answer-on-recreate case). Now cleared in both delete paths. See TestDelete_ClearsPosition."}
 ---
+
+## 2026-10-07: GetPositionEstimate no longer fabricates a point
+
+It returned a hardcoded [0,0] GeoJSON point. It now validates Ip/Gnss/WiFiAccessPoints members and returns
+ResourceNotFoundException (declared for the op) because no solver exists. Tests: `TestHandler_GetPositionEstimate`,
+`testPositioningExtraRealClient`. The earlier Timestamp note below is historical.
 
 ## Notes
 

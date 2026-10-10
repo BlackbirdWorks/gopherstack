@@ -236,6 +236,12 @@ func (b *InMemoryBackend) PurchaseCapacityBlockExtension(
 		CapacityBlockExtensionEndDate:       offering.CapacityBlockExtensionEndDate,
 		CapacityBlockExtensionPurchaseDate:  now,
 	}
+
+	if cr, found := b.capacityReservations.Get(offering.CapacityReservationID); found {
+		ext.InstanceType = cr.InstanceType
+		ext.InstanceCount = int32(cr.TotalInstanceCount) //nolint:gosec // reservation sizes are small
+	}
+
 	b.capacityBlockExtensions.Put(ext)
 
 	if block := b.findCapacityBlockByReservationIDLocked(offering.CapacityReservationID); block != nil {
@@ -245,6 +251,9 @@ func (b *InMemoryBackend) PurchaseCapacityBlockExtension(
 
 	return ext, nil
 }
+
+// capacityBlockTypeInstances is the ultraserver-type of every block: offerings here are instance-only.
+const capacityBlockTypeInstances = "instances"
 
 // DescribeCapacityBlocks returns Capacity Blocks matching the given IDs (all, if
 // empty) and filters (capacity-block-id, availability-zone, state), sorted by ID.
@@ -264,6 +273,7 @@ func (b *InMemoryBackend) DescribeCapacityBlocks(
 			matchesCapacityFilter(filters, "capacity-block-id", block.CapacityBlockID),
 			matchesCapacityFilter(filters, "availability-zone", block.AvailabilityZone),
 			matchesCapacityFilter(filters, "state", block.State),
+			matchesCapacityFilter(filters, "ultraserver-type", capacityBlockTypeInstances),
 		)
 		if !matched {
 			continue
@@ -352,6 +362,8 @@ func (b *InMemoryBackend) DescribeCapacityBlockExtensionHistory(
 		matched := idAndFiltersMatch(idSet, ext.CapacityReservationID,
 			matchesCapacityFilter(filters, "capacity-reservation-id", ext.CapacityReservationID),
 			matchesCapacityFilter(filters, "availability-zone", ext.AvailabilityZone),
+			matchesCapacityFilter(filters, "availability-zone-id", availabilityZoneID(ext.AvailabilityZone)),
+			matchesCapacityFilter(filters, "instance-type", ext.InstanceType),
 			matchesCapacityFilter(filters, "capacity-block-extension-status", ext.CapacityBlockExtensionStatus),
 		)
 		if !matched {

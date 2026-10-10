@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
 )
 
@@ -99,6 +98,20 @@ func (b *InMemoryBackend) AssociateSubnetCidrBlock(
 	b.subnetCIDRAssociations[subnetID] = append(b.subnetCIDRAssociations[subnetID], assoc)
 
 	return assoc, nil
+}
+
+// SubnetHasIPv6Block reports whether subnetID has an associated IPv6 CIDR block.
+func (b *InMemoryBackend) SubnetHasIPv6Block(subnetID string) bool {
+	b.mu.RLock("SubnetHasIPv6Block")
+	defer b.mu.RUnlock()
+
+	for _, assoc := range b.subnetCIDRAssociations[subnetID] {
+		if assoc.State == stateAssociated {
+			return true
+		}
+	}
+
+	return false
 }
 
 // ---- DisassociateSubnetCidrBlock ----
@@ -217,30 +230,20 @@ type SecurityGroupForVpcItem struct {
 	VPCID       string `json:"vpcid,omitempty"`
 }
 
-// ModifySubnetAttribute enables or disables auto-assign public IP for a subnet.
+// ModifySubnetAttribute sets a single boolean subnet attribute by name.
 func (b *InMemoryBackend) ModifySubnetAttribute(subnetID, attribute string, value bool) error {
-	if subnetID == "" {
-		return fmt.Errorf("%w: SubnetId is required", ErrInvalidParameter)
-	}
-
-	b.mu.Lock("ModifySubnetAttribute")
-	defer b.mu.Unlock()
-
-	subnet, ok := b.subnets.Get(subnetID)
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
-	}
+	var u SubnetAttributeUpdate
 
 	switch attribute {
 	case attrMapPublicIPOnLaunch:
-		subnet.MapPublicIPOnLaunch = value
-
-		return nil
+		u.MapPublicIPOnLaunch = &value
 	case attrEnableResourceNameDNSARec:
-		return nil
+		u.EnableResourceNameDNSARecord = &value
 	default:
 		return fmt.Errorf("%w: unknown subnet attribute %q", ErrInvalidParameter, attribute)
 	}
+
+	return b.ModifySubnetAttributes(subnetID, u)
 }
 
 // ---- Network ACL CRUD ----
@@ -311,55 +314,9 @@ func (b *InMemoryBackend) CreateSubnet(vpcID, cidr, az string) (*Subnet, error) 
 // cross_service.go's validateOutpostArn) -- matches real AWS CreateSubnet
 // rejecting an OutpostArn that doesn't resolve to a real Outpost.
 func (b *InMemoryBackend) CreateSubnetWithOutpost(vpcID, cidr, az, outpostArn string) (*Subnet, error) {
-	if vpcID == "" {
-		return nil, fmt.Errorf("%w: VpcId is required", ErrInvalidParameter)
-	}
-
-	if cidr == "" {
-		return nil, fmt.Errorf("%w: CidrBlock is required", ErrInvalidParameter)
-	}
-
-	if err := b.validateOutpostArn(outpostArn); err != nil {
-		return nil, err
-	}
-
-	b.mu.Lock("CreateSubnet")
-	defer b.mu.Unlock()
-
-	if _, ok := b.vpcs.Get(vpcID); !ok {
-		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
-	}
-
-	if az == "" {
-		az = b.Region + "a"
-	}
-
-	vpc, _ := b.vpcs.Get(vpcID)
-	if !cidrContains(vpc.CIDRBlock, cidr) {
-		return nil, fmt.Errorf("%w: subnet CIDR %s is not within VPC CIDR %s",
-			ErrInvalidParameter, cidr, vpc.CIDRBlock)
-	}
-
-	for _, existing := range b.subnets.All() {
-		if existing.VPCID == vpcID && cidrsOverlap(cidr, existing.CIDRBlock) {
-			return nil, fmt.Errorf("%w: CIDR %s overlaps with existing subnet %s (%s)",
-				ErrSubnetCIDRConflict, cidr, existing.ID, existing.CIDRBlock)
-		}
-	}
-
-	id := newSubnetID()
-	s := &Subnet{
-		ID:               id,
-		VPCID:            vpcID,
-		CIDRBlock:        cidr,
-		AvailabilityZone: az,
-		OutpostArn:       outpostArn,
-		Arn:              arn.Build("ec2", b.Region, b.AccountID, "subnet/"+id),
-	}
-	b.subnets.Put(s)
-	b.indexSubnetLocked(id, vpcID)
-
-	return s, nil
+	return b.CreateSubnetWithOptions(CreateSubnetParams{
+		VPCID: vpcID, CIDRBlock: cidr, AvailabilityZone: az, OutpostArn: outpostArn,
+	})
 }
 
 // subnetDependencyViolationLocked returns a DependencyViolation error naming
@@ -420,6 +377,8 @@ func (b *InMemoryBackend) DeleteSubnet(id string) error {
 	delete(b.tags, id)
 	delete(b.subnetCIDRReservations, id)
 	delete(b.subnetCIDRAssociations, id)
+	b.releaseSubnetAllocationsLocked(id)
+	b.retractRegionalNatGatewaysLocked(subnet.VPCID)
 
 	return nil
 }

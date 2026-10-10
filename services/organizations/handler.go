@@ -243,10 +243,19 @@ func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
 // ----------------------------------------
 
 func (h *Handler) writeError(c *echo.Context, statusCode int, errType, message string) error {
-	return c.JSON(statusCode, map[string]string{
+	return h.writeErrorReason(c, statusCode, errType, message, "")
+}
+
+func (h *Handler) writeErrorReason(c *echo.Context, statusCode int, errType, message, reason string) error {
+	body := map[string]string{
 		"__type":  errType,
 		"message": message,
-	})
+	}
+	if reason != "" {
+		body["Reason"] = reason
+	}
+
+	return c.JSON(statusCode, body)
 }
 
 const errConstraintViolation = "ConstraintViolationException"
@@ -284,10 +293,12 @@ func getErrorTable() map[error]awserr.APIError {
 			Code:       "HandshakeConstraintViolationException",
 			HTTPStatus: http.StatusBadRequest,
 		},
-		ErrResourcePolicyNotFound:  {Code: "ResourcePolicyNotFoundException", HTTPStatus: http.StatusBadRequest},
-		ErrEffectivePolicyNotFound: {Code: "EffectivePolicyNotFoundException", HTTPStatus: http.StatusBadRequest},
-		ErrAccountAlreadyClosed:    {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
-		ErrOUDepthLimitExceeded:    {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
+		ErrResourcePolicyNotFound:       {Code: "ResourcePolicyNotFoundException", HTTPStatus: http.StatusBadRequest},
+		ErrEffectivePolicyNotFound:      {Code: "EffectivePolicyNotFoundException", HTTPStatus: http.StatusBadRequest},
+		ErrAccountAlreadyClosed:         {Code: "AccountAlreadyClosedException", HTTPStatus: http.StatusBadRequest},
+		ErrParentNotFound:               {Code: "ParentNotFoundException", HTTPStatus: http.StatusBadRequest},
+		ErrCannotCloseManagementAccount: {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
+		ErrOUDepthLimitExceeded:         {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
 		ErrDuplicateOrganizationalUnit: {
 			Code:       "DuplicateOrganizationalUnitException",
 			HTTPStatus: http.StatusBadRequest,
@@ -351,10 +362,15 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 		HTTPStatus: http.StatusInternalServerError,
 	})
 
-	msg := apiErr.Message
-	if idx := strings.Index(msg, ":"); idx > 0 {
-		msg = strings.TrimSpace(msg[idx+1:])
+	d := detailFor(err)
+	msg := d.message
+
+	if msg == "" {
+		msg = apiErr.Message
+		if idx := strings.Index(msg, ":"); idx > 0 {
+			msg = strings.TrimSpace(msg[idx+1:])
+		}
 	}
 
-	return h.writeError(c, apiErr.HTTPStatus, apiErr.Code, msg)
+	return h.writeErrorReason(c, apiErr.HTTPStatus, apiErr.Code, msg, d.reason)
 }

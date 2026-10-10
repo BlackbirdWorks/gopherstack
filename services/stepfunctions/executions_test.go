@@ -1110,6 +1110,7 @@ func TestBackend_ListExecutions_Pagination(t *testing.T) {
 
 	tests := []struct {
 		name       string
+		wantErr    error
 		nextToken  string
 		maxResults int
 		wantLen    int
@@ -1122,21 +1123,21 @@ func TestBackend_ListExecutions_Pagination(t *testing.T) {
 		},
 		{
 			name:       "page_2_via_token",
-			nextToken:  "1", // start from index 1
+			nextToken:  "c2ZuLXBhZ2U6MQ", // start from index 1
 			maxResults: 10,
 			wantLen:    1,
 		},
 		{
-			name:       "invalid_token_treated_as_zero",
+			name:       "invalid_token_rejected",
 			nextToken:  "not-a-number",
 			maxResults: 10,
-			wantLen:    2,
+			wantErr:    stepfunctions.ErrInvalidToken,
 		},
 		{
-			name:       "negative_token_treated_as_zero",
-			nextToken:  "-5",
+			name:       "negative_token_rejected",
+			nextToken:  "c2ZuLXBhZ2U6LTU",
 			maxResults: 10,
-			wantLen:    2,
+			wantErr:    stepfunctions.ErrInvalidToken,
 		},
 	}
 
@@ -1163,6 +1164,12 @@ func TestBackend_ListExecutions_Pagination(t *testing.T) {
 				synctest.Wait()
 
 				execs, _, err := b.ListExecutions(sm.StateMachineArn, "", tt.nextToken, tt.maxResults)
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
+
+					return
+				}
+
 				require.NoError(t, err)
 				assert.Len(t, execs, tt.wantLen)
 			})

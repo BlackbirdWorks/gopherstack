@@ -222,33 +222,36 @@ func (b *InMemoryBackend) validateOrganizationalUnits(ous []string) error {
 	return nil
 }
 
-// resolveIdentityStoreID returns the account's IAM Identity Center identity
-// store ID via the SSO Admin backend's instance registry. Returns ok=false
-// when no SSO instance exists in this account/region -- a legitimate,
-// unvalidatable state (an account without IAM Identity Center enabled can't
-// have AWS_SSO permission grants checked against it either, on real AWS) --
-// or when ssoadmin isn't wired.
-func (b *InMemoryBackend) resolveIdentityStoreID() (string, bool) {
+// resolveIdentityStoreIDs returns every IAM Identity Center identity store ID in
+// the account via the SSO Admin backend's instance registry, or ok=false when
+// none exists or ssoadmin isn't wired.
+func (b *InMemoryBackend) resolveIdentityStoreIDs() ([]string, bool) {
 	ssoBk, ok := b.ssoadminBackend()
 	if !ok {
-		return "", false
+		return nil, false
 	}
+
+	var ids []string
 
 	for _, inst := range ssoBk.ListInstances() {
 		if inst.IdentityStoreID != "" {
-			return inst.IdentityStoreID, true
+			ids = append(ids, inst.IdentityStoreID)
 		}
 	}
 
-	return "", false
+	return ids, len(ids) > 0
 }
 
 // validatePermissionUser rejects an SSO_USER/SSO_GROUP permission grant
 // whose ID doesn't resolve in the account's IAM Identity Center identity
 // store. Non-SSO user types and grants made when no identity store can be
-// resolved pass through unvalidated (see resolveIdentityStoreID).
+// resolved pass through unvalidated (see resolveIdentityStoreIDs).
 func (b *InMemoryBackend) validatePermissionUser(ctx context.Context, u userWire) error {
-	storeID, ok := b.resolveIdentityStoreID()
+	if u.Type != UserTypeSSOUser && u.Type != UserTypeSSOGroup {
+		return nil
+	}
+
+	storeIDs, ok := b.resolveIdentityStoreIDs()
 	if !ok {
 		return nil
 	}
@@ -258,20 +261,19 @@ func (b *InMemoryBackend) validatePermissionUser(ctx context.Context, u userWire
 		return nil
 	}
 
-	var err error
+	for _, storeID := range storeIDs {
+		var err error
 
-	switch u.Type {
-	case UserTypeSSOUser:
-		_, err = isBk.DescribeUser(ctx, storeID, u.ID)
-	case UserTypeSSOGroup:
-		_, err = isBk.DescribeGroup(ctx, storeID, u.ID)
-	default:
-		return nil
+		if u.Type == UserTypeSSOUser {
+			_, err = isBk.DescribeUser(ctx, storeID, u.ID)
+		} else {
+			_, err = isBk.DescribeGroup(ctx, storeID, u.ID)
+		}
+
+		if err == nil {
+			return nil
+		}
 	}
 
-	if err != nil {
-		return validationError("permission grant references an SSO " + u.Type + " that does not exist: " + u.ID)
-	}
-
-	return nil
+	return validationError("permission grant references an SSO " + u.Type + " that does not exist: " + u.ID)
 }

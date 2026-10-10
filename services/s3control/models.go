@@ -123,6 +123,7 @@ type BatchJob struct {
 	JobID                string `json:"jobID"`
 	Report               string `json:"report,omitempty"`
 	Manifest             string `json:"manifest,omitempty"`
+	ManifestGenerator    string `json:"manifestGenerator,omitempty"`
 	CreationTime         string `json:"creationTime,omitempty"`
 	Priority             int32  `json:"priority"`
 	ConfirmationRequired bool   `json:"confirmationRequired,omitempty"`

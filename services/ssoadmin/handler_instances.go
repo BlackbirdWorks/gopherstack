@@ -7,11 +7,6 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// PrimaryRegion: aws-sdk-go-v2/service/ssoadmin@v1.43.1/types/types.go:518
-// (InstanceMetadata.PrimaryRegion). Server-resolved with no caller-settable or
-// otherwise derivable source in this backend (AddRegion never marks a region
-// primary -- see RegionMetadata.IsPrimaryRegion gap in PARITY.md) -- left
-// permanently unset rather than filled with an invented region.
 type instanceView struct {
 	PrimaryRegion   *string          `json:"PrimaryRegion,omitempty"`
 	InstanceArn     string           `json:"InstanceArn"`
@@ -21,6 +16,15 @@ type instanceView struct {
 	Status          string           `json:"Status"`
 	Regions         []map[string]any `json:"Regions,omitempty"`
 	CreatedDate     float64          `json:"CreatedDate,omitempty"`
+}
+
+func primaryRegionPtr(home string, inst *Instance) *string {
+	region := inst.PrimaryRegion
+	if region == "" {
+		region = home
+	}
+
+	return &region
 }
 
 func (h *Handler) handleListInstances(c *echo.Context, body []byte) error {
@@ -45,6 +49,7 @@ func (h *Handler) handleListInstances(c *echo.Context, body []byte) error {
 			regionViews = append(regionViews, regionMetadataView(r))
 		}
 		views = append(views, instanceView{
+			PrimaryRegion:   primaryRegionPtr(h.Backend.Region(), inst),
 			InstanceArn:     inst.InstanceArn,
 			OwnerAccountID:  inst.OwnerAccountID,
 			IdentityStoreID: inst.IdentityStoreID,

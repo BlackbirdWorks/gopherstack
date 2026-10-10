@@ -21,14 +21,18 @@ var (
 	ErrPermanentRedirect = errors.New("PermanentRedirect")
 	// ErrPreconditionFailed is returned when an If-Match / If-None-Match
 	// condition on a write op (PutObject / DeleteObject) fails.
-	ErrPreconditionFailed = errors.New("PreconditionFailed")
-	ErrNotImplemented     = errors.New("NotImplemented")
-	ErrMethodNotAllowed   = errors.New("MethodNotAllowed")
-	ErrInvalidArgument    = errors.New(errInvalidArgument)
-	ErrNoSuchUpload       = awserr.New("NoSuchUpload", awserr.ErrNotFound)
-	ErrInvalidPart        = errors.New("InvalidPart")
-	ErrInvalidPartOrder   = errors.New("InvalidPartOrder")
-	ErrEmptyParts         = errors.New("InvalidRequest")
+	ErrPreconditionFailed       = errors.New("PreconditionFailed")
+	ErrNotImplemented           = errors.New("NotImplemented")
+	ErrMethodNotAllowed         = errors.New("MethodNotAllowed")
+	ErrInvalidArgument          = errors.New(errInvalidArgument)
+	ErrInvalidContinuationToken = errors.New("InvalidContinuationToken")
+	ErrInvalidMaxKeys           = errors.New("InvalidMaxKeys")
+	ErrMetadataTooLarge         = errors.New("MetadataTooLarge")
+	ErrInvalidWriteOffset       = errors.New("InvalidWriteOffset")
+	ErrNoSuchUpload             = awserr.New("NoSuchUpload", awserr.ErrNotFound)
+	ErrInvalidPart              = errors.New("InvalidPart")
+	ErrInvalidPartOrder         = errors.New("InvalidPartOrder")
+	ErrEmptyParts               = errors.New("InvalidRequest")
 	// ErrMpuObjectSizeMismatch is the 400 InvalidRequest documented for x-amz-mp-object-size.
 	ErrMpuObjectSizeMismatch = errors.New("InvalidRequest")
 	ErrNoCompressor          = errors.New("data is compressed but no compressor available")
@@ -235,10 +239,36 @@ func coreErrorTableBucket() []s3ErrorEntry {
 			"The provided x-amz-mp-object-size does not match the size of the assembled object.",
 			http.StatusBadRequest,
 		}},
+		{ErrMalformedXML, s3ErrorInfo{errMalformedXML, errMalformedXMLMsg, http.StatusBadRequest}},
+		{
+			ErrInvalidContinuationToken,
+			s3ErrorInfo{errInvalidArgument, "The continuation token provided is incorrect", http.StatusBadRequest},
+		},
+		{
+			ErrInvalidMaxKeys,
+			s3ErrorInfo{
+				errInvalidArgument,
+				"Argument maxKeys must be an integer between 0 and 2147483647",
+				http.StatusBadRequest,
+			},
+		},
+		{
+			ErrMetadataTooLarge,
+			s3ErrorInfo{
+				"MetadataTooLarge",
+				"Your metadata headers exceed the maximum allowed metadata size.",
+				http.StatusBadRequest,
+			},
+		},
 		{
 			ErrInvalidArgument,
 			s3ErrorInfo{errInvalidArgument, "Invalid Argument.", http.StatusBadRequest},
 		},
+		{ErrInvalidWriteOffset, s3ErrorInfo{
+			"InvalidWriteOffset",
+			"The write offset value that you specified does not match the current object size.",
+			http.StatusBadRequest,
+		}},
 	}
 }
 

@@ -184,6 +184,7 @@ type TokenParams struct {
 	ClaimsToAddOrOverride map[string]string `json:"claimsToAddOrOverride,omitempty"`
 	ClientID              string            `json:"clientID,omitempty"`
 	Nonce                 string            `json:"nonce,omitempty"`
+	OriginJTI             string            `json:"originJti,omitempty"`
 	PreferredRole         string            `json:"preferredRole,omitempty"`
 	Username              string            `json:"username,omitempty"`
 	UserSub               string            `json:"userSub,omitempty"`
@@ -412,6 +413,10 @@ func (t *tokenIssuer) signAccessToken(
 	}
 	if len(p.Groups) > 0 {
 		accessClaims[claimCognitoGroups] = p.Groups
+	}
+
+	if p.OriginJTI != "" {
+		accessClaims[claimOriginJTI] = p.OriginJTI
 	}
 
 	applyClaimsOverride(accessClaims, p.ClaimsToAddOrOverride, p.ClaimsToSuppress)

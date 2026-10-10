@@ -7,6 +7,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -437,7 +438,7 @@ func (h *Handler) handleInviteOrganizationToTransferResponsibility(c *echo.Conte
 }
 
 func (h *Handler) handleLeaveOrganization(c *echo.Context, _ []byte) error {
-	if err := h.Backend.LeaveOrganization(); err != nil {
+	if err := h.Backend.LeaveOrganizationAs(awsmeta.Account(c.Request().Context())); err != nil {
 		return h.handleBackendError(c, err)
 	}
 
@@ -470,6 +471,10 @@ func (h *Handler) handleListHandshakesForAccount(c *echo.Context, body []byte) e
 				objs = append(objs, toHandshakeObject(hs))
 			}
 		}
+	}
+
+	if rejected, pErr := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return pErr
 	}
 
 	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
@@ -505,6 +510,10 @@ func (h *Handler) handleListHandshakesForOrganization(c *echo.Context, body []by
 		}
 	}
 
+	if rejected, pErr := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return pErr
+	}
+
 	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
 
 	return c.JSON(http.StatusOK, listHandshakesForOrganizationResponse{Handshakes: p.Data, NextToken: p.Next})
@@ -530,6 +539,10 @@ func (h *Handler) handleListInboundResponsibilityTransfers(c *echo.Context, body
 	objs := make([]responsibilityTransferObject, 0, len(transfers))
 	for _, rt := range transfers {
 		objs = append(objs, toResponsibilityTransferObject(rt))
+	}
+
+	if rejected, pErr := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return pErr
 	}
 
 	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
@@ -560,6 +573,10 @@ func (h *Handler) handleListOutboundResponsibilityTransfers(c *echo.Context, bod
 	objs := make([]responsibilityTransferObject, 0, len(transfers))
 	for _, rt := range transfers {
 		objs = append(objs, toResponsibilityTransferObject(rt))
+	}
+
+	if rejected, pErr := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return pErr
 	}
 
 	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)

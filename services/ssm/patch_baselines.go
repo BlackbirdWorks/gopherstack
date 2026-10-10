@@ -153,10 +153,9 @@ func (b *InMemoryBackend) CreatePatchBaseline(
 		return nil, err
 	}
 
-	const defaultPatchOS = "WINDOWS"
 	os := input.OperatingSystem
 	if os == "" {
-		os = defaultPatchOS
+		os = patchOSWindows
 	}
 
 	region := getRegion(ctx)
@@ -248,6 +247,16 @@ func (b *InMemoryBackend) DeregisterPatchBaselineForPatchGroup(
 	}, nil
 }
 
+const (
+	patchPropProduct        = "PRODUCT"
+	patchPropSeverity       = "SEVERITY"
+	patchPropClassification = "CLASSIFICATION"
+	patchPropProductFamily  = "PRODUCT_FAMILY"
+	patchPropMsrcSeverity   = "MSRC_SEVERITY"
+	patchOSWindows          = "WINDOWS"
+	patchFamilyAmazonLinux2 = "Amazon Linux 2"
+)
+
 // patchMatchesFilters returns true when p satisfies all provided key-value
 // filters. Supported keys are the ones backed by fields this emulator's Patch
 // actually models: PRODUCT, NAME, SEVERITY, CLASSIFICATION (real keys per
@@ -259,17 +268,17 @@ func patchMatchesFilters(p Patch, filters []PatchFilter) bool {
 		var fieldValue string
 
 		switch f.Key {
-		case "PRODUCT":
+		case patchPropProduct:
 			fieldValue = p.Product
 		case "NAME":
 			fieldValue = p.Name
-		case "SEVERITY":
+		case patchPropSeverity:
 			fieldValue = p.Severity
-		case "CLASSIFICATION":
+		case patchPropClassification:
 			fieldValue = p.Classification
-		case "PRODUCT_FAMILY":
+		case patchPropProductFamily:
 			fieldValue = p.ProductFamily
-		case "MSRC_SEVERITY":
+		case patchPropMsrcSeverity:
 			fieldValue = p.MsrcSeverity
 		case "PATCH_SET":
 			fieldValue = p.PatchSet
@@ -300,7 +309,7 @@ func ruleFilterGroupMatches(p Patch, group *PatchFilterGroup) bool {
 
 	for _, f := range group.PatchFilters {
 		switch f.Key {
-		case "PRODUCT", "NAME", "SEVERITY", "CLASSIFICATION":
+		case patchPropProduct, "NAME", patchPropSeverity, patchPropClassification:
 		default:
 			return false
 		}
@@ -725,7 +734,7 @@ func (b *InMemoryBackend) GetDefaultPatchBaseline(
 	// GetPatchBaseline can describe it), rather than a fabricated all-zeros ID.
 	os := input.OperatingSystem
 	if os == "" {
-		os = "WINDOWS"
+		os = patchOSWindows
 	}
 
 	return &GetDefaultPatchBaselineOutput{
@@ -1028,29 +1037,10 @@ func (b *InMemoryBackend) DescribePatchProperties(
 	}
 
 	region := getRegion(ctx)
-	b.mu.RLock("DescribePatchProperties")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribePatchProperties")
+	defer b.mu.Unlock()
 
-	seen := map[string]bool{}
-	props := make([]map[string]string, 0)
-	for _, bl := range b.patchBaselinesStore(region).All() {
-		if input.OperatingSystem != "" && bl.OperatingSystem != input.OperatingSystem {
-			continue
-		}
-
-		key := bl.OperatingSystem + ":" + bl.Name
-		if seen[key] {
-			continue
-		}
-
-		seen[key] = true
-		props = append(props, map[string]string{
-			"OperatingSystem": bl.OperatingSystem,
-			"BaselineName":    bl.Name,
-		})
-	}
-
-	sort.Slice(props, func(i, k int) bool { return props[i]["BaselineName"] < props[k]["BaselineName"] })
+	props := patchPropertiesFor(b.availablePatchesFor(region), input)
 
 	maxResults := 0
 	if input.MaxResults != nil {
@@ -1060,6 +1050,87 @@ func (b *InMemoryBackend) DescribePatchProperties(
 	page, next := paginateSlice(props, input.NextToken, maxResults, defaultDescribeMaxResults)
 
 	return &DescribePatchPropertiesOutput{Properties: page, NextToken: next}, nil
+}
+
+// patchOperatingSystem maps a catalogue patch to the OperatingSystem it belongs to.
+func patchOperatingSystem(p Patch) string {
+	switch p.ProductFamily {
+	case patchProductFamilyWindows:
+		return patchOSWindows
+	case patchFamilyAmazonLinux2:
+		return "AMAZON_LINUX_2"
+	case "Ubuntu":
+		return "UBUNTU"
+	}
+
+	return ""
+}
+
+// patchPropertyValid reports whether property is one of the "Valid properties" the
+// api_op_DescribePatchProperties.go doc lists for operatingSystem.
+func patchPropertyValid(operatingSystem, property string) bool {
+	switch operatingSystem {
+	case "DEBIAN", "UBUNTU":
+		return property == patchPropProduct || property == "PRIORITY"
+	case "MACOS":
+		return property == patchPropProduct || property == patchPropClassification
+	case patchOSWindows:
+		return slices.Contains(
+			[]string{patchPropProduct, patchPropProductFamily, patchPropClassification, patchPropMsrcSeverity},
+			property,
+		)
+	default:
+		return slices.Contains([]string{patchPropProduct, patchPropClassification, patchPropSeverity}, property)
+	}
+}
+
+// patchPropertiesFor lists the distinct values of input.Property across the catalogue's patches
+// for input.OperatingSystem; PRODUCT entries carry Name and ProductFamily (the API reference sample).
+func patchPropertiesFor(catalog []Patch, input *DescribePatchPropertiesInput) []map[string]string {
+	props := make([]map[string]string, 0)
+	if !patchPropertyValid(input.OperatingSystem, input.Property) {
+		return props
+	}
+
+	seen := map[string]bool{}
+
+	for _, p := range catalog {
+		if patchOperatingSystem(p) != input.OperatingSystem || (input.PatchSet != "" && p.PatchSet != input.PatchSet) {
+			continue
+		}
+
+		var value string
+
+		switch input.Property {
+		case patchPropProduct:
+			value = p.Product
+		case patchPropProductFamily:
+			value = p.ProductFamily
+		case patchPropClassification:
+			value = p.Classification
+		case patchPropMsrcSeverity:
+			value = p.MsrcSeverity
+		default:
+			value = p.Severity
+		}
+
+		if value == "" || seen[value] {
+			continue
+		}
+
+		seen[value] = true
+
+		entry := map[string]string{"Name": value}
+		if input.Property == patchPropProduct && p.ProductFamily != "" {
+			entry["ProductFamily"] = p.ProductFamily
+		}
+
+		props = append(props, entry)
+	}
+
+	sort.Slice(props, func(i, k int) bool { return props[i]["Name"] < props[k]["Name"] })
+
+	return props
 }
 
 // DescribeEffectivePatchesForPatchBaseline returns the effective patch set for

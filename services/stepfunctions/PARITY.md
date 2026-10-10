@@ -2,7 +2,7 @@
 service: stepfunctions
 sdk_module: aws-sdk-go-v2/service/sfn@v1.49.0
 last_audit_commit: 88924fa3b  # 2026-09-24 perf sweep: ListExecutions/ListExecutionsByMapRun sort-pointers-then-copy-page; prior: 4a7682d1e
-last_audit_date: 2026-09-24
+last_audit_date: 2026-10-09
 overall: A            # Re-audit against `43aa6d65` baseline (2026-07-11 zero-drift pass). This
                        # pass found real drift/gaps despite the "zero drift" label: two commits
                        # ("Parity 4" efc42cbc, "Go refactoring 2" 9d7e36e0) landed on
@@ -467,9 +467,8 @@ families:
       FailError instead of falling back to the error's raw Go string as the
       Catch-match code -- AWS's own documented predefined error name for
       this failure class, so a Map state's Catch can now match it
-      specifically instead of only via States.ALL. ManifestType=ATHENA_DATA
-      and InputType=PARQUET are explicitly rejected with dedicated sentinel
-      errors (ErrAthenaManifestUnsupported/ErrParquetUnsupported) rather
+      specifically instead of only via States.ALL. InputType=PARQUET is explicitly rejected with a dedicated sentinel
+      error (ErrParquetUnsupported) rather
       than silently mis-parsed -- see the narrowed items_still_open entry.
       Verified via TestItemReader_S3ListObjectsV2/TestItemReader_S3Manifest/
       TestItemReader_S3GetObject_Errors, all driven through the real
@@ -515,14 +514,13 @@ families:
       no request-side parse direction to check for this service.
 filter_semantics: {status: ok, note: "gopherstack-uox6 (value-semantics sweep, 2026-08-30): this service establishes no prior sweep of this kind. First, its protocol: aws-sdk-go-v2/service/sfn@v1.45.4's types package has NO Filter struct at all (grep of types/types.go) -- this API surface has almost no server-side filtering. The one real filter is ListExecutionsInput.StatusFilter (types.ExecutionStatus, a single-value equality field, not a list), applied at executions.go:643 via an exact bucket lookup -- no documented modifier to get wrong. Everything else this service's ~14 hand-rolled 'match' helpers implement is Amazon States Language Choice-state comparators (asl/executor.go), which decide whether a state's input satisfies a rule, not an SDK list filter, but the same right-field-wrong-algorithm risk applies: evaluateChoiceRule's And/Or/Not (correct all/any/negate), IsPresent/IsNull/IsString/IsNumeric/IsBoolean/IsTimestamp (each compares a computed bool against *rule.IsX with ==, correctly honoring both true and false rather than only checking truthiness), and the String/Numeric/Boolean/Timestamp -Equals/-LessThan/-GreaterThan/-LessThanEquals/-GreaterThanEquals families (each Path and literal variant) were all read and are correct. stringMatchesPattern/globMatch (StringMatches) is the one genuine wildcard comparator in this family -- verified against the ASL spec's documented semantics (its own doc comment: '*' matches zero or more chars, backslash escapes the next character, anchored both ends) via a real two-pointer backtracking implementation; correct, including the escape case. No bugs found -- clean verdict."}
 gaps: []
+structural_gaps:
+  - "ExecutionThrottled is never emitted: the emulator applies no account-level StartExecution throttling."
+  - "ItemReader InputType=PARQUET (asl.ErrParquetUnsupported) fails with a sentinel error: no pure-Go Parquet reader is in go.mod."
+  - "TestState RevealSecrets has no effect and TRACE adds no HTTP request/response: the executor runs without SDK integrations, so HTTP Tasks and EventBridge connection secrets are unavailable."
 items_still_open:
-  - "AWS/States execution metrics are emitted for every terminal status the emulator produces; ServiceIntegration* metrics, ExecutionThrottled and ExecutionsTimedOut for STANDARD workflows (timeouts surface as FAILED) are not emitted. (gopherstack-4m1qr)"
-  - "ItemReader: ManifestType=ATHENA_DATA (asl.ErrAthenaManifestUnsupported; the docs do not specify the manifest format precisely enough to implement) and InputType=PARQUET (asl.ErrParquetUnsupported; no pure-Go Parquet reader in go.mod) fail with distinct sentinel errors rather than mis-decoding."
-  - "A closed STANDARD execution's name becomes reusable once ExecutionRetention (default 24h) prunes it, not AWS's fixed 90 days after close (bd: gopherstack-1sf)."
-  - "No TaskSubmitted/TaskStarted history events are emitted for .sync/.waitForTaskToken Task states; this emulator models neither event kind (bd: gopherstack-996)."
-  - "TestState: RevealSecrets has no effect and TRACE adds no HTTP request/response (the executor runs without SDK integrations, so HTTP Tasks and EventBridge connection secrets are unavailable; states:RevealSecrets is not authorized separately). Mock is accepted only for Task states (Map/Parallel mocks are rejected with ValidationException) and MockInput.fieldValidationMode is not enforced. StateConfiguration.ErrorCausedByState/MapIterationFailureCount/MapItemReaderData are accepted but unused. The pinned SDK models no StateConfiguration.Variables, so none is accepted."
-  - "The ASL engine accepts intrinsics AWS does not define (ArrayFlatten, ArrayReverse, ArraySlice, ArraySort, MathDivide, MathMax, MathMin, MathMod, MathMultiply, MathSubtract, StringConcat, StringIndex, StringLength, StringToLower, StringToUpper); a definition using them runs here and would fail on real AWS. Kept as a deliberate superset, covered by asl/intrinsics_parity_test.go."
-  - "JSONata (gopherstack-iisrz) gaps (ToleratedFailureCount/Percentage expressions are supported: TestJSONata_ToleratedFailureExpressions): Items given as a JSON object (AWS accepts array or object; objects are rejected with States.QueryEvaluationError); ItemReader/ItemBatcher/ResultWriter expressions; Retry Output/Assign; Distributed Map reading outer-scope variables is permitted here (AWS forbids); 256 KiB per-variable / 10 MiB per-execution variable size limits and the Expression-evaluation memory limit are not enforced; JSONPath-mode variable references work in Parameters/ResultSelector/Assign/ItemSelector and intrinsic arguments only (not InputPath/OutputPath/Choice Variable/*Path fields); the AWS wording of JSONPath-field-in-JSONata validation errors is undocumented, so a plain InvalidDefinition message is used; omitted Task Arguments passes the state input (unverified against AWS)."
+  - "TestState StateConfiguration.ErrorCausedByState/MapIterationFailureCount/MapItemReaderData are accepted but unused (the pinned SDK documents the fields but not their observable effect), and MockInput.fieldValidationMode is enum-checked but mocks are not validated against service API models (no per-service response schemas). The pinned SDK models no StateConfiguration.Variables."
+  - "JSONata (gopherstack-iisrz) gaps (ToleratedFailureCount/Percentage expressions are supported: TestJSONata_ToleratedFailureExpressions): Items given as a JSON object (AWS accepts array or object but the docs checked, state-map-distributed and input-output-itemspath, do not give the per-pair item shape; objects are rejected with States.QueryEvaluationError); ItemReader/ItemBatcher/ResultWriter expressions; Retry Output/Assign; Distributed Map reading outer-scope variables is permitted here (AWS forbids); 256 KiB per-variable / 10 MiB per-execution variable size limits and the Expression-evaluation memory limit are not enforced; JSONPath-mode variable references work in Parameters/ResultSelector/Assign/ItemSelector and intrinsic arguments only (not InputPath/OutputPath/Choice Variable/*Path fields); the AWS wording of JSONPath-field-in-JSONata validation errors is undocumented, so a plain InvalidDefinition message is used; omitted Task Arguments passes the state input (unverified against AWS)."
   - "Service integrations not implemented (bd gopherstack-wdw): eks:* optimized integrations (the EKS engine is optional Docker), bedrock:invokeModel (routed to bedrockruntime, untested), and aws-sdk integrations for services outside the 55-service table in sdk_services.go. Not documented by AWS and unverified: States.Http.StatusCode.<n> Cause format, SQS/SNS/StepFunctions/Bedrock optimized error prefixes, ECS/Glue .sync output (Glue keeps GetJobRun {JobRun})."
   - "Service-initiated calls not yet authorized against a customer role under --enforce-iam (2026-10-03): Firehose delivery role (S3/Redshift/HTTP destinations), CloudWatch Logs subscription-filter RoleArn (Kinesis/Firehose destinations), IoT rule action roleArn, SNS SubscriptionRoleArn Firehose subscriptions, Step Functions S3 ItemReader/ResultWriter (s3:GetObject/PutObject) and activity paths, Scheduler DLQ sqs:SendMessage under the schedule role, and EventBridge Lambda/SQS/SNS targets (AWS authorizes them by the target's resource policy, which gopherstack does not evaluate for these in-process deliveries)."
 deferred: []
@@ -534,6 +532,10 @@ leaks: {status: clean, note: "StopExecution/DeleteStateMachine cancel the execut
 JSONata Map ToleratedFailureCount/ToleratedFailurePercentage accept `{% %}` expressions. TestState honours Mock (Task), Context and StateConfiguration.RetrierRetryCount, and reports RETRIABLE/CAUGHT_ERROR (with NextState) instead of waiting out Retry or following Catch.Next into a missing state. Proof: asl/jsonata_tolerated_failure_test.go, test_state_mock_status_test.go.
 
 ## Notes
+
+### 2026-10-07: TaskStarted / TaskSubmitted history events
+
+Every non-mocked Task attempt records TaskStarted; .waitForTaskToken, ECS runTask.sync and Glue startJobRun.sync record TaskSubmitted (output = submit response) before waiting, and other .sync tasks record it on completion. Proof: execution_history_task_lifecycle_test.go.
 
 ### 2026-10-03: legacy integrations run as the execution role under --enforce-iam
 
@@ -588,8 +590,7 @@ unchanged from the prior sweep: no pure-Go Parquet reader dependency exists
 in `go.mod` and adding one was out of scope (explicitly disallowed for this
 pass), and ATHENA_DATA's manifest format isn't documented precisely enough
 to implement against confidently. Both still fail with their existing
-dedicated sentinel errors (`ErrParquetUnsupported`/
-`ErrAthenaManifestUnsupported`), not silently.
+dedicated sentinel error (`ErrParquetUnsupported`), not silently (ATHENA_DATA is now implemented: TestItemReader_S3Manifest).
 
 New table-driven cases in `TestDecodeReaderItems`
 (`asl/intrinsics_extras_test.go`): CSV with `PIPE`/lowercase `semicolon`/
@@ -1553,3 +1554,7 @@ ListExecutions applies redriveFilter (REDRIVEN/NOT_REDRIVEN on RedriveCount; api
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 Removed dead ErrInvalidExecutionType (never raised) and its mapper row. TaskTokenAlreadyExists and ActivityTaskFailed come from the in-engine WaitForTaskToken path (activities.go:347,368), not from an API op, so no op deserializer applies. StateMachineVersionReferencedByAlias maps to ConflictException; TaskTokenNotFound maps to TaskDoesNotExist.
+
+## 2026-10-09 realism pass
+
+CreateStateMachine rejects transitions to missing states and Task/Pass/Wait/Parallel/Map states with neither Next nor End (InvalidDefinition); TestState keeps single-state definitions valid. Names reject whitespace, control and `<>{}[]?*"#%\^|~`$&,;:/` rather than allowing space and `/`. Malformed nextToken is InvalidToken (tokens are now opaque), a non-JSON execution input is InvalidExecutionInput, an unknown statusFilter is ValidationException. StopDate/CreationDate/UpdatedDate/history timestamps carry millisecond precision (stopDate was truncated below startDate). Error messages no longer repeat the code prefix. Lenient on purpose: StartExecution still runs to completion synchronously (no RUNNING window for fast definitions). Tests: realism_validation_test.go.

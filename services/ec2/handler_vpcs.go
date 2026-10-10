@@ -215,19 +215,9 @@ func (h *Handler) handleModifyVpcAttribute(vals url.Values, reqID string) (any, 
 }
 
 type createVpcPeeringConnectionResponse struct {
-	XMLName              xml.Name `xml:"CreateVpcPeeringConnectionResponse"`
-	RequestID            string   `xml:"requestId"`
-	VpcPeeringConnection struct {
-		VpcPeeringConnectionID string `xml:"vpcPeeringConnectionId"`
-		RequesterVpcID         string `xml:"requesterVpcInfo>vpcId"`
-		AccepterVpcID          string `xml:"accepterVpcInfo>vpcId"`
-		AccepterOwnerID        string `xml:"accepterVpcInfo>ownerId,omitempty"`
-		AccepterRegion         string `xml:"accepterVpcInfo>region,omitempty"`
-		Status                 struct {
-			Code string `xml:"code"`
-		} `xml:"status"`
-		TagSet []simpleTagItem `xml:"tagSet>item"`
-	} `xml:"vpcPeeringConnection"`
+	XMLName              xml.Name                 `xml:"CreateVpcPeeringConnectionResponse"`
+	RequestID            string                   `xml:"requestId"`
+	VpcPeeringConnection vpcPeeringConnectionItem `xml:"vpcPeeringConnection"`
 }
 
 type deleteVpcPeeringConnectionResponse struct {
@@ -310,14 +300,10 @@ func (h *Handler) handleCreateVpcPeeringConnection(vals url.Values, reqID string
 		}
 	}
 
-	resp := &createVpcPeeringConnectionResponse{RequestID: reqID}
-	resp.VpcPeeringConnection.VpcPeeringConnectionID = pc.VpcPeeringConnectionID
-	resp.VpcPeeringConnection.RequesterVpcID = pc.RequesterVpcID
-	resp.VpcPeeringConnection.AccepterVpcID = pc.AccepterVpcID
-	resp.VpcPeeringConnection.AccepterOwnerID = pc.AccepterOwnerID
-	resp.VpcPeeringConnection.AccepterRegion = pc.AccepterRegion
-	resp.VpcPeeringConnection.Status.Code = pc.State
-	resp.VpcPeeringConnection.TagSet = tagItemsFromMap(tags)
+	resp := &createVpcPeeringConnectionResponse{
+		RequestID:            reqID,
+		VpcPeeringConnection: toVpcPeeringConnectionItem(pc, tags, nil),
+	}
 
 	return resp, nil
 }
@@ -359,7 +345,14 @@ func vpcsSupportedOperations() []string {
 
 func (h *Handler) handleDescribeVpcs(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "VpcId")
+	if err := requireIDPrefix(ids, "vpc-", ErrMalformedVPCID); err != nil {
+		return nil, err
+	}
+
 	vpcs := h.Backend.DescribeVpcs(ids)
+	if err := requireAllIDsPresent(ids, vpcs, func(v *VPC) string { return v.ID }, ErrVPCNotFound); err != nil {
+		return nil, err
+	}
 
 	filters := parseEC2Filters(vals)
 	vpcs = applyVPCFilters(vpcs, filters, h.Backend)
@@ -443,6 +436,16 @@ func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
 	tenancy := vals.Get("InstanceTenancy")
 	if tenancy == "" {
 		tenancy = vpcTenancyDefault
+	}
+
+	if cidr != "" {
+		if err := validateVpcCIDR(cidr); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := validateVpcTenancy(tenancy); err != nil {
+		return nil, err
 	}
 
 	v, err := h.Backend.CreateVpc(cidr, tenancy)

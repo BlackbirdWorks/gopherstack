@@ -28,6 +28,7 @@ func TestCreateStackInstances_ProvisionsChildStacks(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	b.WaitForStackSetOperations()
 	instances, err := b.ListStackInstances("prov-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 2)
@@ -57,6 +58,7 @@ func TestDeleteStackInstances_TearsDownChildStacks(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	b.WaitForStackSetOperations()
 	instances, err := b.ListStackInstances("teardown-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 1)
@@ -67,6 +69,7 @@ func TestDeleteStackInstances_TearsDownChildStacks(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	b.WaitForStackSetOperations()
 	remaining, err := b.ListStackInstances("teardown-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, remaining.Data)
@@ -90,6 +93,7 @@ func TestDeleteStackInstances_RetainStacksKeepsChildStack(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	b.WaitForStackSetOperations()
 	instances, err := b.ListStackInstances("retain-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 1)
@@ -100,6 +104,7 @@ func TestDeleteStackInstances_RetainStacksKeepsChildStack(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	b.WaitForStackSetOperations()
 	remaining, err := b.ListStackInstances("retain-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, remaining.Data, "stack instance association must be removed")

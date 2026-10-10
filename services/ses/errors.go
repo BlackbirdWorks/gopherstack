@@ -22,6 +22,7 @@ var (
 	ErrTemplateNotFound            = errors.New("TemplateDoesNotExist")
 	ErrTemplateExists              = errors.New("AlreadyExists")
 	ErrConfigSetNotFound           = errors.New("ConfigurationSetDoesNotExist")
+	ErrInvalidConfigurationSet     = errors.New("InvalidConfigurationSet")
 	ErrConfigSetExists             = errors.New("ConfigurationSetAlreadyExists")
 	ErrReceiptRuleSetNotFound      = errors.New("RuleSetDoesNotExist")
 	ErrReceiptRuleSetExists        = errors.New("AlreadyExists")

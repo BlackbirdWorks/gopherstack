@@ -3,6 +3,7 @@ package apprunner
 import (
 	"fmt"
 	"maps"
+	"regexp"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -27,7 +28,7 @@ func (b *InMemoryBackend) CreateService(params CreateServiceParams) (*Service, e
 	}
 
 	id := newID()
-	svcArn := b.serviceARN(id)
+	svcArn := b.serviceARN(params.Name, id)
 	now := time.Now().UTC()
 
 	instance := params.Instance
@@ -46,7 +47,7 @@ func (b *InMemoryBackend) CreateService(params CreateServiceParams) (*Service, e
 		ServiceArn:                  svcArn,
 		ServiceID:                   id,
 		ServiceName:                 params.Name,
-		ServiceURL:                  buildServiceURL(id, b.region),
+		ServiceURL:                  buildServiceURL(id[:10], b.region),
 		Status:                      statusRunning,
 		Instance:                    instance,
 		Source:                      normalizeSource(params.Source),
@@ -68,7 +69,7 @@ func (b *InMemoryBackend) CreateService(params CreateServiceParams) (*Service, e
 		maps.Copy(b.tags[svcArn], svcTags)
 	}
 
-	cp := svc.toService()
+	cp := b.serviceView(svc)
 
 	return &cp, nil
 }
@@ -77,7 +78,16 @@ func (b *InMemoryBackend) CreateService(params CreateServiceParams) (*Service, e
 // cross-resource validation against other backend state (VPC connectors,
 // observability configurations, connections) or business rules (exactly one
 // of ImageRepository/CodeRepository). Called with the lock already held.
+var serviceNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{3,39}$`)
+
 func (b *InMemoryBackend) validateCreateService(params CreateServiceParams) error {
+	if !serviceNameRE.MatchString(params.Name) {
+		return fmt.Errorf(
+			"ServiceName must be 4-40 characters: letters, digits, '-' or '_', starting alphanumeric: %w",
+			ErrInvalidParameter,
+		)
+	}
+
 	if err := validateSourceConfig(params.Source, true); err != nil {
 		return err
 	}
@@ -147,7 +157,7 @@ func (b *InMemoryBackend) DescribeService(serviceArn string) (*Service, error) {
 		return nil, fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}
 
-	cp := svc.toService()
+	cp := b.serviceView(svc)
 
 	return &cp, nil
 }
@@ -162,10 +172,10 @@ func (b *InMemoryBackend) UpdateService(params UpdateServiceParams) (*Service, e
 		return nil, fmt.Errorf("service %s not found: %w", params.ServiceArn, ErrNotFound)
 	}
 
-	if svc.Status != statusRunning {
+	if status := b.effectiveStatus(svc); status != statusRunning {
 		return nil, fmt.Errorf(
 			"service %s cannot be updated in status %s: %w",
-			params.ServiceArn, svc.Status, ErrInvalidState,
+			params.ServiceArn, status, ErrInvalidState,
 		)
 	}
 
@@ -176,7 +186,7 @@ func (b *InMemoryBackend) UpdateService(params UpdateServiceParams) (*Service, e
 	svc.UpdatedAt = time.Now().UTC()
 	b.addOperation(svc, opTypeUpdate)
 
-	cp := svc.toService()
+	cp := b.serviceView(svc)
 
 	return &cp, nil
 }
@@ -483,6 +493,9 @@ func (b *InMemoryBackend) DeleteService(serviceArn string) (*Service, error) {
 	b.addOperation(svc, opTypeDelete)
 
 	cp := svc.toService()
+	if b.operationDelay > 0 {
+		cp.Status = statusOperationInProgress
+	}
 
 	b.services.Delete(serviceArn)
 	delete(b.tags, serviceArn)
@@ -506,6 +519,7 @@ func (b *InMemoryBackend) ListServices(maxResults int32, nextToken string) ([]*S
 	all := make([]*ServiceSummary, 0, len(items))
 	for _, svc := range items {
 		s := svc.toSummary()
+		s.Status = b.effectiveStatus(svc)
 		all = append(all, &s)
 	}
 
@@ -525,10 +539,10 @@ func (b *InMemoryBackend) PauseService(serviceArn string) (*Service, error) {
 		return nil, fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}
 
-	if svc.Status != statusRunning {
+	if status := b.effectiveStatus(svc); status != statusRunning {
 		return nil, fmt.Errorf(
 			"service %s cannot be paused in status %s: %w",
-			serviceArn, svc.Status, ErrInvalidState,
+			serviceArn, status, ErrInvalidState,
 		)
 	}
 
@@ -536,7 +550,7 @@ func (b *InMemoryBackend) PauseService(serviceArn string) (*Service, error) {
 	svc.UpdatedAt = time.Now().UTC()
 	b.addOperation(svc, opTypePause)
 
-	cp := svc.toService()
+	cp := b.serviceView(svc)
 
 	return &cp, nil
 }
@@ -551,10 +565,10 @@ func (b *InMemoryBackend) ResumeService(serviceArn string) (*Service, error) {
 		return nil, fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}
 
-	if svc.Status != statusPaused {
+	if status := b.effectiveStatus(svc); status != statusPaused {
 		return nil, fmt.Errorf(
 			"service %s cannot be resumed in status %s: %w",
-			serviceArn, svc.Status, ErrInvalidState,
+			serviceArn, status, ErrInvalidState,
 		)
 	}
 
@@ -562,7 +576,7 @@ func (b *InMemoryBackend) ResumeService(serviceArn string) (*Service, error) {
 	svc.UpdatedAt = time.Now().UTC()
 	b.addOperation(svc, opTypeResume)
 
-	cp := svc.toService()
+	cp := b.serviceView(svc)
 
 	return &cp, nil
 }
@@ -577,7 +591,7 @@ func (b *InMemoryBackend) StartDeployment(serviceArn string) (string, error) {
 		return "", fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}
 
-	if svc.Status != statusRunning {
+	if status := b.effectiveStatus(svc); status != statusRunning {
 		// Unlike UpdateService/PauseService/ResumeService, StartDeployment's
 		// documented error set has no InvalidStateException (only
 		// InternalServiceErrorException, InvalidRequestException, and
@@ -587,7 +601,7 @@ func (b *InMemoryBackend) StartDeployment(serviceArn string) (string, error) {
 		// rather than the usual ErrInvalidState.
 		return "", fmt.Errorf(
 			"service %s cannot start deployment in status %s: %w",
-			serviceArn, svc.Status, ErrInvalidParameter,
+			serviceArn, status, ErrInvalidParameter,
 		)
 	}
 

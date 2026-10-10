@@ -28,7 +28,7 @@ func (b *InMemoryBackend) GetDomainHealth(domainName string) (map[string]any, er
 
 	d, exists := b.domains.Get(domainName)
 	if !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	instanceCount := d.ClusterConfig.InstanceCount
@@ -63,7 +63,7 @@ func (b *InMemoryBackend) GetDomainNodes(domainName string) ([]map[string]any, e
 
 	d, exists := b.domains.Get(domainName)
 	if !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	count := d.ClusterConfig.InstanceCount
@@ -126,7 +126,7 @@ func (b *InMemoryBackend) GetDryRunProgress(domainName string) (*DryRunStatus, e
 	defer b.mu.Unlock()
 
 	if !b.domains.Has(domainName) {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	dr, exists := b.dryRuns.Get(domainName)
@@ -161,7 +161,7 @@ func (b *InMemoryBackend) GetChangeProgress(domainName string) (map[string]any, 
 
 	d, exists := b.domains.Get(domainName)
 	if !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	changeID := d.LastChangeID

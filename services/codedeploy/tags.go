@@ -113,7 +113,7 @@ func (b *InMemoryBackend) findResourceTagsLocked(resourceARN string) (*tags.Tags
 	case "application":
 		app, ok := b.applications.Get(resourceID)
 		if !ok {
-			return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, resourceID)
+			return nil, fmt.Errorf("%w: No application found for name: %s", ErrNotFound, resourceID)
 		}
 
 		return app.Tags, nil
@@ -127,7 +127,7 @@ func (b *InMemoryBackend) findResourceTagsLocked(resourceARN string) (*tags.Tags
 
 		dg, ok := b.deploymentGroups.Get(dgKey(appName, dgName))
 		if !ok {
-			return nil, fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
+			return nil, fmt.Errorf("%w: Deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
 		}
 
 		return dg.Tags, nil

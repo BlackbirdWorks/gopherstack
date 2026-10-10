@@ -88,7 +88,7 @@ func TestHandler_ListJobs_Pagination(t *testing.T) {
 	}{
 		{name: "no_limit_returns_all", queryString: "", wantCount: 3},
 		{name: "first_page", queryString: "?maxResults=2", wantCount: 2, wantNextToken: true},
-		{name: "second_page", queryString: "?maxResults=2&nextToken=2", wantCount: 1},
+		{name: "second_page", queryString: "?maxResults=2&nextToken=Mg%3D%3D", wantCount: 1},
 	}
 
 	for _, tt := range tests {

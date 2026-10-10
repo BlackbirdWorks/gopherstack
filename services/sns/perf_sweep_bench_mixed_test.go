@@ -33,7 +33,7 @@ const (
 func newMixedSubscriberBackend(tb testing.TB, delivered chan<- struct{}) (*sns.Handler, *httptest.Server, string) {
 	tb.Helper()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		_ = r.Body.Close()
 		w.WriteHeader(http.StatusOK)

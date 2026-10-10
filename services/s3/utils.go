@@ -1,8 +1,10 @@
 package s3
 
 import (
+	"crypto/md5"  //nolint:gosec // S3 checksum algorithm, not a security use of MD5
 	"crypto/sha1" //nolint:gosec // SHA1 required for S3 checksum compatibility
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
 	"encoding/binary"
 	"hash/crc32"
@@ -36,6 +38,23 @@ func parseUserMetadata(h http.Header) map[string]string {
 	}
 
 	return meta
+}
+
+const maxUserMetadataBytes = 2048
+
+func validateUserMetadataSize(h http.Header) error {
+	total := 0
+	for k, vals := range h {
+		if key, ok := strings.CutPrefix(strings.ToLower(k), "x-amz-meta-"); ok && len(vals) > 0 {
+			total += len(key) + len(vals[0])
+		}
+	}
+
+	if total > maxUserMetadataBytes {
+		return ErrMetadataTooLarge
+	}
+
+	return nil
 }
 
 const (
@@ -91,6 +110,12 @@ func CalculateChecksum(data []byte, algorithm string) string {
 		sum = h[:]
 	case ChecksumSHA256:
 		h := sha256.Sum256(data)
+		sum = h[:]
+	case ChecksumMD5:
+		h := md5.Sum(data) //nolint:gosec // S3 checksum algorithm, not a security use of MD5
+		sum = h[:]
+	case ChecksumSHA512:
+		h := sha512.Sum512(data)
 		sum = h[:]
 	default:
 		return ""

@@ -280,8 +280,11 @@ type FilterRule struct {
 
 // TaskSchedule holds a task's cron/rate schedule expression and enabled status.
 type TaskSchedule struct {
+	StatusUpdateTime   time.Time
 	ScheduleExpression string
 	Status             string
+	DisabledBy         string
+	DisabledReason     string
 }
 
 // TaskSettings groups the optional CreateTask/UpdateTask configuration knobs

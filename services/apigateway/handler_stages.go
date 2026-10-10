@@ -68,6 +68,10 @@ func (h *Handler) updateStageAction(b []byte) (int, any, error) {
 		return 0, nil, err
 	}
 
+	if !stage.CacheClusterEnabled {
+		h.respCache.flush(input.RestAPIID, input.StageName)
+	}
+
 	return http.StatusOK, toWireStage(stage), nil
 }
 
@@ -79,6 +83,8 @@ func (h *Handler) flushStageCacheAction(b []byte) (int, any, error) {
 	if _, err := h.Backend.GetStage(input.RestAPIID, input.StageName); err != nil {
 		return 0, nil, err
 	}
+
+	h.respCache.flush(input.RestAPIID, input.StageName)
 
 	return http.StatusAccepted, map[string]any{}, nil
 }
@@ -136,6 +142,8 @@ func (h *Handler) deleteStageAction(b []byte) (int, any, error) {
 	if err := h.Backend.DeleteStage(input.RestAPIID, input.StageName); err != nil {
 		return 0, nil, err
 	}
+
+	h.respCache.flush(input.RestAPIID, input.StageName)
 
 	return http.StatusNoContent, map[string]any{}, nil
 }

@@ -377,7 +377,7 @@ func TestDeleteFileSystem_RejectedWhileReplicating(t *testing.T) {
 	require.NoError(t, b.DeleteFileSystem(context.Background(), fs.FileSystemID))
 }
 
-// TestCreationTokenIdempotency verifies identical args return 200, different args return 409.
+// TestCreationTokenIdempotency verifies a reused token is rejected whether or not the args match.
 func TestCreationTokenIdempotency(t *testing.T) {
 	t.Parallel()
 
@@ -487,7 +487,7 @@ func TestProvisionedThroughput(t *testing.T) {
 			req: efs.CreateFileSystemRequest{
 				CreationToken:            "prov-high",
 				ThroughputMode:           "provisioned",
-				ProvisionedThroughputMib: 2048,
+				ProvisionedThroughputMib: 3415,
 			},
 			wantErr:   true,
 			wantErrIs: efs.ErrValidation,
@@ -685,7 +685,7 @@ func TestUpdateFileSystem_ProvisionedThroughput(t *testing.T) {
 		{
 			name: "update_provisioned_throughput_out_of_range",
 			updateReq: efs.UpdateFileSystemRequest{
-				ProvisionedThroughputMib: 2048,
+				ProvisionedThroughputMib: 3415,
 			},
 			wantErr:   true,
 			wantErrIs: efs.ErrBadRequest,
@@ -760,6 +760,60 @@ func TestUpdateFileSystem_RequiresAvailableFileSystem(t *testing.T) {
 			})
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestProvisionedThroughput_RegionQuota(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		region  string
+		mib     float64
+		wantErr bool
+	}{
+		{name: "us_east_1_high", region: "us-east-1", mib: 3414},
+		{name: "eu_west_1_high", region: "eu-west-1", mib: 2048},
+		{name: "frankfurt_at_limit", region: "eu-central-1", mib: 1024},
+		{name: "frankfurt_over_limit", region: "eu-central-1", mib: 1025, wantErr: true},
+		{name: "tokyo_over_limit", region: "ap-northeast-1", mib: 3414, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := efs.NewInMemoryBackend("123456789012", tt.region)
+			ctx := context.Background()
+			_, err := b.CreateFileSystem(ctx, efs.CreateFileSystemRequest{
+				CreationToken:            "create-" + tt.name,
+				ThroughputMode:           "provisioned",
+				ProvisionedThroughputMib: tt.mib,
+			})
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, efs.ErrThroughputLimitExceeded)
+			} else {
+				require.NoError(t, err)
+			}
+
+			base, err := b.CreateFileSystem(ctx, efs.CreateFileSystemRequest{
+				CreationToken:            "base-" + tt.name,
+				ThroughputMode:           "provisioned",
+				ProvisionedThroughputMib: 100,
+			})
+			require.NoError(t, err)
+
+			_, err = b.UpdateFileSystem(ctx, base.FileSystemID, efs.UpdateFileSystemRequest{
+				ProvisionedThroughputMib: tt.mib,
+			})
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, efs.ErrThroughputLimitExceeded)
 			} else {
 				require.NoError(t, err)
 			}

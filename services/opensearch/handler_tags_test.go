@@ -120,14 +120,8 @@ func TestOpenSearchHandler_ListTags_UnknownARN(t *testing.T) {
 	resp := doRequest(t, h, http.MethodGet, "/2021-01-01/tags?arn="+unknownARN, nil)
 	defer resp.Body.Close()
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-
-	tagList, ok := out["TagList"].([]any)
-	require.True(t, ok)
-	assert.Empty(t, tagList)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	assert.Equal(t, "ResourceNotFoundException", resp.Header.Get("X-Amzn-Errortype"))
 }
 
 func TestTagRoutes_InvalidBody(t *testing.T) {

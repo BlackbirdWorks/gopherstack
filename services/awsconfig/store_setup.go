@@ -241,6 +241,12 @@ var tableRegistrations = []func(*InMemoryBackend){
 		b.resourceConfigsByType = b.resourceConfigs.AddIndex("byType", resourceConfigItemTypeIndexKeyFn)
 	},
 	func(b *InMemoryBackend) {
+		b.deletedResourceConfigs = store.Register(
+			b.registry, "deletedResourceConfigs", store.New(resourceConfigItemKeyFn),
+		)
+		b.deletedResourceConfigsByType = b.deletedResourceConfigs.AddIndex("byType", resourceConfigItemTypeIndexKeyFn)
+	},
+	func(b *InMemoryBackend) {
 		b.ruleResourceEvals = store.Register(b.registry, "ruleResourceEvals", store.New(storedEvaluationKeyFn))
 		b.ruleResourceEvalsByRule = b.ruleResourceEvals.AddIndex("byRule", storedEvaluationRuleIndexKeyFn)
 		b.ruleResourceEvalsByResource = b.ruleResourceEvals.AddIndex("byResource", storedEvaluationResourceIndexKeyFn)

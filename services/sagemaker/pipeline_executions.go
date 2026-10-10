@@ -132,6 +132,10 @@ func (b *InMemoryBackend) StopPipelineExecution(ctx context.Context, execArn str
 		)
 	}
 
+	if pe.PipelineExecutionStatus != pipelineStatusExecuting {
+		return clonePipelineExecution(pe), nil
+	}
+
 	pe.PipelineExecutionStatus = pipelineStatusStopping
 	cp := clonePipelineExecution(pe)
 

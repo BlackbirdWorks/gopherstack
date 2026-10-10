@@ -63,6 +63,7 @@ type InMemoryBackend struct {
 	groupResources       map[string]map[string][]string // region → group name → []resourceARN
 	groupingStatuses     map[string]map[string][]GroupingStatusItem
 	mu                   *lockmetrics.RWMutex
+	source               ResourceSource
 	accountSettings      AccountSettings
 	accountID            string
 	region               string

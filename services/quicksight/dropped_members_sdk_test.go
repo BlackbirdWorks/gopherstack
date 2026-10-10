@@ -435,8 +435,9 @@ func TestDroppedMembers_UsersEmbedAndSubscription(t *testing.T) {
 				tooShort := anon()
 				tooShort.SessionLifetimeInMinutes = aws.Int64(14)
 				_, err := e.client.GenerateEmbedUrlForAnonymousUser(t.Context(), tooShort)
+				var badLifetime *types.SessionLifetimeInMinutesInvalidException
+				require.ErrorAs(t, err, &badLifetime)
 				var invalid *types.InvalidParameterValueException
-				require.ErrorAs(t, err, &invalid)
 
 				tooMany := anon()
 				tooMany.AllowedDomains = []string{
@@ -451,7 +452,7 @@ func TestDroppedMembers_UsersEmbedAndSubscription(t *testing.T) {
 				_, err = e.client.GetSessionEmbedUrl(t.Context(), &quicksightsdk.GetSessionEmbedUrlInput{
 					AwsAccountId: aws.String(qsTestAccountID), SessionLifetimeInMinutes: aws.Int64(601),
 				})
-				require.ErrorAs(t, err, &invalid)
+				require.ErrorAs(t, err, &badLifetime)
 
 				ok, err := e.client.GetSessionEmbedUrl(t.Context(), &quicksightsdk.GetSessionEmbedUrlInput{
 					AwsAccountId: aws.String(qsTestAccountID), SessionLifetimeInMinutes: aws.Int64(600),

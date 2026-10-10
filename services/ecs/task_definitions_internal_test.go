@@ -319,8 +319,6 @@ func TestPortMapping_ExtendedFields(t *testing.T) {
 	b := newTestBackend()
 
 	pm := PortMapping{
-		ContainerPort:      8080,
-		HostPort:           0,
 		Protocol:           "tcp",
 		AppProtocol:        "http",
 		ContainerPortRange: "8080-8090",

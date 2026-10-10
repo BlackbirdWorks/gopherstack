@@ -232,6 +232,7 @@ func (j *Janitor) sweepKeys(now float64) (int, int) {
 func (j *Janitor) purgeKey(region, keyID string) {
 	delete(j.Backend.keyMaterialsStore(region), keyID)
 	delete(j.Backend.keyMaterialHistoryStore(region), keyID)
+	delete(j.Backend.pendingMaterialsStore(region), keyID)
 
 	for _, alias := range j.Backend.aliasesStore(region).All() {
 		if alias.TargetKeyID == keyID {
@@ -282,7 +283,7 @@ func (j *Janitor) shouldExpireMaterial(key *Key, now float64) bool {
 // Must be called with the backend write lock held.
 func (j *Janitor) expireMaterial(region, keyID string, key *Key) {
 	delete(j.Backend.keyMaterialsStore(region), keyID)
-	delete(j.Backend.keyMaterialHistoryStore(region), keyID)
+	markCurrentMaterialGone(key)
 	key.KeyState = KeyStatePendingImport
 	key.Enabled = false
 	key.ValidTo = 0

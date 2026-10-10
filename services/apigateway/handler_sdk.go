@@ -52,7 +52,18 @@ func (h *Handler) sdkActions() map[string]actionFn {
 				return 0, nil, err
 			}
 
-			sdk, err := h.Backend.GetSdk(input.RestAPIID, input.StageName, input.SdkType)
+			var raw map[string]any
+			_ = json.Unmarshal(b, &raw)
+
+			params := make(map[string]string)
+
+			for _, name := range SdkParameterNames() {
+				if v, ok := raw[name].(string); ok {
+					params[name] = v
+				}
+			}
+
+			sdk, err := h.Backend.GetSdk(input.RestAPIID, input.StageName, input.SdkType, params)
 			if err != nil {
 				return 0, nil, err
 			}

@@ -16,6 +16,7 @@ const (
 	caStatusActive             = "ACTIVE"
 	caStatusDisabled           = "DISABLED"
 	caStatusDeleted            = "DELETED"
+	caStatusExpired            = "EXPIRED"
 	caStatusPendingCertificate = "PENDING_CERTIFICATE"
 	caTypePRoot                = "ROOT"
 	caTypeSubordinate          = "SUBORDINATE"

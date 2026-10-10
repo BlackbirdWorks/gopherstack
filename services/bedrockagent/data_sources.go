@@ -144,6 +144,8 @@ func (b *InMemoryBackend) deleteDataSourceChildrenLocked(kbID, dsID string) {
 	for _, doc := range slices.Clone(b.kbDocumentsByDataSource.Get(scope)) {
 		b.kbDocuments.Delete(kbDocKey(doc.KnowledgeBaseID, doc.DataSourceID, doc.Identifier.key()))
 	}
+
+	b.pruneDocRequests(kbID, dsID)
 }
 
 // ListDataSources returns paginated data source summaries.

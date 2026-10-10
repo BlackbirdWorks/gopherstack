@@ -115,6 +115,10 @@ func (b *InMemoryBackend) GetShardIterator(
 		return nil, ErrInvalidArgument
 	}
 
+	if input.DryRun {
+		return nil, ErrDryRunOperation
+	}
+
 	it := &ShardIterator{
 		StreamName:     input.StreamName,
 		ShardID:        input.ShardID,

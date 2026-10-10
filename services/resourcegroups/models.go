@@ -135,11 +135,7 @@ type GroupingFailedItem struct {
 	ErrorMessage string `json:"ErrorMessage"`
 }
 
-// queryErrorWire mirrors the real types.QueryError shape (ErrorCode, Message)
-// returned by SearchResources/ListGroupResources. Its documented ErrorCode
-// values only ever arise for CLOUDFORMATION_STACK_1_0-based groups, whose
-// query evaluation isn't wired to gopherstack's CloudFormation backend --
-// so this always serializes as an empty/omitted list here. See PARITY.md gaps.
+// queryErrorWire mirrors types.QueryError (ErrorCode, Message).
 type queryErrorWire struct {
 	ErrorCode string `json:"ErrorCode,omitempty"`
 	Message   string `json:"Message,omitempty"`

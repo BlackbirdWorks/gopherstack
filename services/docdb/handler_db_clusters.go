@@ -36,6 +36,7 @@ func (h *Handler) handleCreateDBCluster(ctx context.Context, vals url.Values) (a
 	opts := &CreateDBClusterOptions{
 		ClusterExtras:                parseClusterExtras(vals),
 		MasterSecretRequest:          parseMasterSecretRequest(vals),
+		GlobalClusterIdentifier:      vals.Get("GlobalClusterIdentifier"),
 		KmsKeyID:                     vals.Get("KmsKeyId"),
 		StorageType:                  vals.Get("StorageType"),
 		VpcSecurityGroupIDs:          parseVpcSecurityGroupIDs(vals),
@@ -265,7 +266,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 	return xmlDBCluster{
 		DBClusterIdentifier:          c.DBClusterIdentifier,
 		Engine:                       c.Engine,
-		Status:                       c.Status,
+		Status:                       observedStatus(c.Status, c.readyAt),
 		StorageType:                  storageType,
 		MasterUsername:               c.MasterUsername,
 		DBClusterParameterGroupName:  c.DBClusterParameterGroupName,
@@ -289,6 +290,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		KmsKeyID:                     c.KmsKeyID,
 		MasterUserSecret:             toXMLMasterUserSecret(c),
 		ReplicationSourceIdentifier:  c.ReplicationSourceIdentifier,
+		ReadReplicaIdentifiers:       xmlReadReplicaIdentifierList{Members: c.ReadReplicaIdentifiers},
 		NetworkType:                  c.NetworkType,
 		ServerlessV2Scaling:          toXMLScaling(c.ServerlessV2Scaling),
 		VpcSecurityGroups:            xmlVpcSecurityGroupMembershipList{Members: vpcSGs},
@@ -355,6 +357,7 @@ type xmlDBCluster struct {
 	KmsKeyID                     string                            `xml:"KmsKeyId,omitempty"`
 	StorageType                  string                            `xml:"StorageType,omitempty"`
 	ReplicationSourceIdentifier  string                            `xml:"ReplicationSourceIdentifier,omitempty"`
+	ReadReplicaIdentifiers       xmlReadReplicaIdentifierList      `xml:"ReadReplicaIdentifiers"`
 	NetworkType                  string                            `xml:"NetworkType,omitempty"`
 	ServerlessV2Scaling          *xmlServerlessV2Scaling           `xml:"ServerlessV2ScalingConfiguration,omitempty"`
 	VpcSecurityGroups            xmlVpcSecurityGroupMembershipList `xml:"VpcSecurityGroups"`
@@ -366,6 +369,10 @@ type xmlDBCluster struct {
 	StorageEncrypted             bool                              `xml:"StorageEncrypted"`
 	MultiAZ                      bool                              `xml:"MultiAZ"`
 	DeletionProtection           bool                              `xml:"DeletionProtection"`
+}
+
+type xmlReadReplicaIdentifierList struct {
+	Members []string `xml:"ReadReplicaIdentifier"`
 }
 
 type xmlDBClusterList struct {

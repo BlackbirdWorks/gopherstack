@@ -149,8 +149,14 @@ func (b *InMemoryBackend) ListDataQualityRulesets() []*DataQualityRuleset {
 // shared by StartDataQualityRulesetEvaluationRun and
 // StartDataQualityRuleRecommendationRun.
 type DataQualityRunOptions struct {
-	NumberOfWorkers int32
-	Timeout         int32
+	GlueTable                        *GlueTable
+	Role                             string
+	CreatedRulesetName               string
+	DataQualitySecurityConfiguration string
+	CustomLogGroupPrefix             string
+	ClientToken                      string
+	NumberOfWorkers                  int32
+	Timeout                          int32
 }
 
 // StartDataQualityRulesetEvaluationRun validates the rulesets exist and creates a run.
@@ -317,14 +323,30 @@ func (b *InMemoryBackend) StartDataQualityRuleRecommendationRunWithOptions(
 	b.mu.Lock("StartDataQualityRuleRecommendationRun")
 	defer b.mu.Unlock()
 
+	if opts.ClientToken != "" {
+		for _, existing := range b.dqRecommendationRuns.All() {
+			if existing.ClientToken == opts.ClientToken {
+				cp := *existing
+
+				return &cp, nil
+			}
+		}
+	}
+
 	runID := "dqrec-" + uuid.NewString()[:8]
 	run := &DQRuleRecommendationRun{
-		RecommendationRunID: runID,
-		DataSourceS3Path:    s3Path,
-		Status:              stateRunning,
-		StartedOn:           float64(time.Now().Unix()),
-		NumberOfWorkers:     opts.NumberOfWorkers,
-		Timeout:             opts.Timeout,
+		RecommendationRunID:              runID,
+		DataSourceS3Path:                 s3Path,
+		Status:                           stateRunning,
+		StartedOn:                        float64(time.Now().Unix()),
+		NumberOfWorkers:                  opts.NumberOfWorkers,
+		Timeout:                          opts.Timeout,
+		GlueTable:                        opts.GlueTable,
+		Role:                             opts.Role,
+		CreatedRulesetName:               opts.CreatedRulesetName,
+		DataQualitySecurityConfiguration: opts.DataQualitySecurityConfiguration,
+		CustomLogGroupPrefix:             opts.CustomLogGroupPrefix,
+		ClientToken:                      opts.ClientToken,
 	}
 	b.dqRecommendationRuns.Put(run)
 	cp := *run

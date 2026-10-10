@@ -450,9 +450,43 @@ func ValidateDataTypes(item map[string]any) error {
 		if err := validateAttribute(k, v); err != nil {
 			return err
 		}
+
+		if attrNestingDepth(v) > maxNestingDepth {
+			return NewValidationException("Nesting Levels have exceeded supported limits")
+		}
 	}
 
 	return nil
+}
+
+const maxNestingDepth = 32
+
+func attrNestingDepth(v any) int {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return 0
+	}
+
+	deepest := 0
+
+	for t, inner := range m {
+		switch t {
+		case typeM:
+			if im, isMap := inner.(map[string]any); isMap {
+				for _, child := range im {
+					deepest = max(deepest, 1+attrNestingDepth(child))
+				}
+			}
+		case typeL:
+			if il, isList := inner.([]any); isList {
+				for _, child := range il {
+					deepest = max(deepest, 1+attrNestingDepth(child))
+				}
+			}
+		}
+	}
+
+	return deepest
 }
 
 func validateAttribute(k string, v any) error {
@@ -819,12 +853,22 @@ func validateListTablesLimit(limit *int32) error {
 	}
 
 	v := *limit
-	if v < minListTablesLimit || v > maxListTablesLimit {
+	if v < minListTablesLimit {
 		return NewValidationException(
 			fmt.Sprintf(
-				"Value '%d' at 'limit' failed to satisfy constraint: "+
+				"1 validation error detected: Value '%d' at 'limit' failed to satisfy constraint: "+
 					"Member must have value greater than or equal to %d",
 				v, minListTablesLimit,
+			),
+		)
+	}
+
+	if v > maxListTablesLimit {
+		return NewValidationException(
+			fmt.Sprintf(
+				"1 validation error detected: Value '%d' at 'limit' failed to satisfy constraint: "+
+					"Member must have value less than or equal to %d",
+				v, maxListTablesLimit,
 			),
 		)
 	}
@@ -906,6 +950,78 @@ func validateNumberNoLeadingZeros(k, n string) error {
 				n, k,
 			),
 		)
+	}
+
+	return nil
+}
+
+func attrWireType(val any) string {
+	m, ok := val.(map[string]any)
+	if !ok || len(m) != 1 {
+		return ""
+	}
+
+	for t := range m {
+		return t
+	}
+
+	return ""
+}
+
+// validateItemKeyTypes rejects a put item whose table or index key attribute has a type other
+// than the one declared in AttributeDefinitions.
+func validateItemKeyTypes(item map[string]any, table *Table) error {
+	for _, k := range table.KeySchema {
+		want := getAttributeType(table.AttributeDefinitions, k.AttributeName, "")
+		got := attrWireType(item[k.AttributeName])
+
+		if want != "" && got != "" && got != want {
+			return NewValidationException(fmt.Sprintf(
+				"One or more parameter values were invalid: Type mismatch for key %s expected: %s actual: %s",
+				k.AttributeName, want, got,
+			))
+		}
+	}
+
+	return validateItemIndexKeyTypes(item, table)
+}
+
+func validateItemIndexKeyTypes(item map[string]any, table *Table) error {
+	schemas := make([][]models.KeySchemaElement, 0, len(table.GlobalSecondaryIndexes)+len(table.LocalSecondaryIndexes))
+	for i := range table.GlobalSecondaryIndexes {
+		schemas = append(schemas, table.GlobalSecondaryIndexes[i].KeySchema)
+	}
+
+	for i := range table.LocalSecondaryIndexes {
+		schemas = append(schemas, table.LocalSecondaryIndexes[i].KeySchema)
+	}
+
+	for _, schema := range schemas {
+		for _, k := range schema {
+			want := getAttributeType(table.AttributeDefinitions, k.AttributeName, "")
+			got := attrWireType(item[k.AttributeName])
+
+			if want != "" && got != "" && got != want {
+				return NewValidationException(fmt.Sprintf(
+					"One or more parameter values were invalid: Type mismatch for Index Key %s Expected: %s Actual: %s",
+					k.AttributeName, want, got,
+				))
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateKeyElementTypes rejects a Get/Update/Delete key whose element types differ from the schema.
+func validateKeyElementTypes(key map[string]any, table *Table) error {
+	for _, k := range table.KeySchema {
+		want := getAttributeType(table.AttributeDefinitions, k.AttributeName, "")
+		got := attrWireType(key[k.AttributeName])
+
+		if want != "" && got != "" && got != want {
+			return NewValidationException("The provided key element does not match the schema")
+		}
 	}
 
 	return nil

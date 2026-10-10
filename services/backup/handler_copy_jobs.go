@@ -83,7 +83,12 @@ func (h *Handler) dispatchCopyJobExtraOps(c *echo.Context, route backupRoute, bo
 	switch route.operation {
 	case opListCopyJobSummaries:
 		q := c.Request().URL.Query()
-		summaries, next := pageQuery(q, h.Backend.ListCopyJobSummaries(NewJobSummaryFilter(q)), summaryStateKey)
+		f := NewJobSummaryFilter(q)
+		if err := f.Validate(); err != nil {
+			return true, h.handleError(c, err)
+		}
+
+		summaries, next := pageQuery(q, h.Backend.ListCopyJobSummaries(f), summaryStateKey)
 
 		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"CopyJobSummaries": summaries}, next))
 	case opStartCopyJob:

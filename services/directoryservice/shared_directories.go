@@ -23,13 +23,9 @@ func (b *InMemoryBackend) ShareDirectory(
 	id := newHexID("d-")
 	now := time.Now().UTC()
 
-	// HANDSHAKE shares require the consumer account to call
-	// AcceptSharedDirectory before the share is active, so they start
-	// PendingAcceptance; ORGANIZATIONS shares need no handshake and are
-	// Shared immediately. Matches AWS's ShareStatus lifecycle.
-	shareStatus := "Shared"
+	shareStatus := string(ShareStatusSharing)
 	if shareMethod == "HANDSHAKE" {
-		shareStatus = "PendingAcceptance"
+		shareStatus = string(ShareStatusPendingAcceptance)
 	}
 
 	b.sharedDirectoryPut(&storedSharedDirectory{
@@ -44,6 +40,15 @@ func (b *InMemoryBackend) ShareDirectory(
 		CreatedDateTime:     now,
 		LastUpdatedDateTime: now,
 	})
+
+	if shareStatus == string(ShareStatusSharing) {
+		b.settleLater("ShareDirectory:shared", func() {
+			if sd, ok := b.sharedDirectoryGet(region, id); ok && sd.ShareStatus == string(ShareStatusSharing) {
+				sd.ShareStatus = string(ShareStatusShared)
+				sd.LastUpdatedDateTime = time.Now().UTC()
+			}
+		})
+	}
 
 	return id, nil
 }

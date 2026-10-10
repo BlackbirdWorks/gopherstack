@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 // GetStageTransitionState returns the disabled state for a stage transition, or nil if enabled.
@@ -47,7 +49,7 @@ func (b *InMemoryBackend) DisableStageTransition(
 
 	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
-		return fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
+		return b.pipelineNotFound(pipelineName)
 	}
 
 	if !pipelineHasStage(p, stageName) {
@@ -82,7 +84,7 @@ func (b *InMemoryBackend) EnableStageTransition(
 
 	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
-		return fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
+		return b.pipelineNotFound(pipelineName)
 	}
 
 	key := regionKey(region, stageTransitionKey{
@@ -137,7 +139,7 @@ func (b *InMemoryBackend) GetPipelineState(ctx context.Context, pipelineName str
 
 	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
-		return nil, ErrNotFound
+		return nil, b.pipelineNotFound(pipelineName)
 	}
 
 	states := make([]StageState, len(p.Declaration.Stages))
@@ -163,11 +165,54 @@ func (b *InMemoryBackend) GetPipelineState(ctx context.Context, pipelineName str
 		states[i] = StageState{
 			StageName:              stage.Name,
 			InboundTransitionState: inState,
+			LatestExecution:        stageLatestExecution(actionExecs, stage.Name),
 			ActionStates:           actionStates,
+			Conditions:             b.stageConditionStates(region, pipelineName, stage.Name),
 		}
 	}
 
 	return states, nil
+}
+
+// stageLatestExecution derives StageState.latestExecution from the newest
+// execution that ran an action in the stage.
+func stageLatestExecution(actionExecs []*ActionExecution, stageName string) map[string]any {
+	var execID string
+
+	for _, ae := range slices.Backward(actionExecs) {
+		if ae.StageName == stageName {
+			execID = ae.PipelineExecutionID
+
+			break
+		}
+	}
+
+	if execID == "" {
+		return nil
+	}
+
+	status := statusSucceeded
+
+	for _, ae := range actionExecs {
+		if ae.StageName != stageName || ae.PipelineExecutionID != execID {
+			continue
+		}
+
+		switch ae.Status {
+		case statusFailed:
+			status = statusFailed
+		case statusInProgress:
+			if status != statusFailed {
+				status = statusInProgress
+			}
+		case statusActionAbandoned:
+			if status == statusSucceeded {
+				status = statusStopped
+			}
+		}
+	}
+
+	return map[string]any{keyPipelineExecutionID: execID, keyStatus: status}
 }
 
 // buildActionState builds the ActionState wire map for a single stage/action
@@ -187,11 +232,11 @@ func buildActionState(
 		}
 
 		latest := map[string]any{
-			"actionExecutionId": ae.ActionExecutionID,
-			keyStatus:           ae.Status,
-			"startTime":         float64(ae.StartTime.Unix()),
-			"lastUpdateTime":    float64(ae.LastUpdateTime.Unix()),
-			"lastStatusChange":  float64(ae.LastUpdateTime.Unix()),
+			keyActionExecutionID: ae.ActionExecutionID,
+			keyStatus:            ae.Status,
+			"startTime":          float64(ae.StartTime.Unix()),
+			"lastUpdateTime":     float64(ae.LastUpdateTime.Unix()),
+			"lastStatusChange":   float64(ae.LastUpdateTime.Unix()),
 		}
 
 		if ae.Summary != "" {
@@ -200,6 +245,18 @@ func buildActionState(
 
 		if ae.Token != "" {
 			latest["token"] = ae.Token
+		}
+
+		if ae.ExternalExecutionID != "" {
+			latest["externalExecutionId"] = ae.ExternalExecutionID
+		}
+
+		if ae.PercentComplete != 0 {
+			latest["percentComplete"] = ae.PercentComplete
+		}
+
+		if ae.ErrorMessage != "" || ae.ErrorCode != "" {
+			latest["errorDetails"] = map[string]any{"code": ae.ErrorCode, "message": ae.ErrorMessage}
 		}
 
 		state["latestExecution"] = latest
@@ -239,7 +296,7 @@ func (b *InMemoryBackend) RetryStageExecution(
 
 	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
-		return nil, fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
+		return nil, b.pipelineNotFound(pipelineName)
 	}
 
 	if findStage(p, stageName) == nil {
@@ -339,7 +396,7 @@ func (b *InMemoryBackend) RollbackStage(
 
 	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
-		return nil, fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
+		return nil, b.pipelineNotFound(pipelineName)
 	}
 
 	stage := findStage(p, stageName)
@@ -355,35 +412,7 @@ func (b *InMemoryBackend) RollbackStage(
 		)
 	}
 
-	now := time.Now().UTC()
-	exec := &PipelineExecution{
-		PipelineName:              pipelineName,
-		PipelineExecutionID:       uuid.NewString(),
-		Status:                    statusSucceeded,
-		PipelineVersion:           p.Declaration.Version,
-		ExecutionMode:             p.Declaration.ExecutionMode,
-		ExecutionType:             executionTypeRollback,
-		Trigger:                   triggerTypeManualRollback,
-		RollbackTargetExecutionID: targetExecutionID,
-		StartTime:                 now,
-		LastUpdateTime:            now,
-	}
-
-	execs := b.executionsStore(region)
-	execs[pipelineName] = append(execs[pipelineName], exec)
-
-	actionExecStore := b.actionExecutionsStore(region)
-	for _, action := range stage.Actions {
-		actionExecStore[pipelineName] = append(actionExecStore[pipelineName], &ActionExecution{
-			PipelineExecutionID: exec.PipelineExecutionID,
-			ActionExecutionID:   uuid.NewString(),
-			StageName:           stage.Name,
-			ActionName:          action.Name,
-			Status:              statusSucceeded,
-			StartTime:           now,
-			LastUpdateTime:      now,
-		})
-	}
+	exec := b.newRollbackExecution(region, p, stage, targetExecutionID, triggerTypeManualRollback)
 
 	cp := *exec
 
@@ -415,69 +444,92 @@ func stageSucceededInExecution(actionExecs []*ActionExecution, stage *Stage, exe
 	return true
 }
 
-// OverrideStageCondition overrides a stage's BEFORE_ENTRY or ON_SUCCESS
-// condition result (types.ConditionType), letting a pipeline execution
-// proceed past a blocking condition. In real AWS this flips the relevant
-// StageState.{BeforeEntryConditionState,OnSuccessConditionState}
-// .LatestExecution.Status to ConditionExecutionStatusOverridden
-// ("Overridden").
-//
-// This backend cannot perform that mutation because it has no condition-rule
-// engine anywhere: StageDeclaration here has no BeforeEntry/OnFailure/
-// OnSuccess members at all (the real SDK's StageDeclaration.BeforeEntry
-// /OnFailure/OnSuccess -- BeforeEntryConditions/FailureConditions/
-// SuccessConditions, each wrapping []Condition/[]RuleDeclaration -- is
-// entirely unimplemented: CreatePipeline never parses it, and
-// StageState here has no BeforeEntryConditionState/OnSuccessConditionState/
-// OnFailureConditionState to flip in the first place). Building real
-// condition-rule evaluation (parsing stage Conditions, gating stage entry
-// on rule results, tracking per-execution ConditionState/RuleState) would be
-// a new subsystem, not a field patch, and is out of scope here -- see
-// PARITY.md for the explicit gap writeup. ListRuleExecutions (rules.go) is
-// correspondingly always empty for the same underlying reason: there is
-// never a rule execution to report because rules never run.
-//
-// Given that, this validates the pipeline, stage, and pipeline execution
-// referenced by the request all exist (real backend logic, not a stub) and
-// otherwise performs no additional mutation, which is the AWS-correct wire
-// shape for this op regardless (OverrideStageConditionOutput carries no
-// fields) -- but the *effect* AWS documents (unblocking a waiting stage) is
-// an honest no-op here because there is nothing to unblock.
+// OverrideStageCondition marks the stage's failed BEFORE_ENTRY or ON_SUCCESS condition Overridden and
+// resumes the execution past it. A condition that has not failed is ConditionNotOverridableException.
 func (b *InMemoryBackend) OverrideStageCondition(
 	ctx context.Context,
-	pipelineName, stageName, executionID string,
+	pipelineName, stageName, executionID, conditionType string,
 ) error {
-	b.mu.RLock("OverrideStageCondition")
-	defer b.mu.RUnlock()
+	b.mu.Lock("OverrideStageCondition")
+	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
 
 	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
-		return fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
+		return b.pipelineNotFound(pipelineName)
 	}
 
 	if findStage(p, stageName) == nil {
 		return fmt.Errorf("%w: stage %q not found in pipeline %q", ErrStageNotFound, stageName, pipelineName)
 	}
 
-	// gopherstack-wlab: PipelineExecutionNotFoundException is not in
-	// OverrideStageCondition's declared error set per botocore
-	// codepipeline/2015-07-09/service-2.json (PipelineNotFoundException/
-	// StageNotFoundException/ConditionNotOverridableException/
-	// NotLatestPipelineExecutionException/
-	// ConcurrentPipelineExecutionsLimitExceededException/ConflictException/
-	// ValidationException only; NOTE: this does not break errors.As for a
-	// real caller -- see undeclared_error_codes_test.go). Left unfixed: no
-	// single declared code is an obvious replacement for "this executionID
-	// doesn't exist" -- NotLatestPipelineExecutionException is the closest
-	// semantic fit, but its doc text ("the pipelineExecutionId ... is out
-	// of date") describes a stale-but-once-valid ID, not a never-existed
-	// one, and this backend cannot tell the two cases apart from AWS docs
-	// alone.
-	if findExecution(b.executionsStoreRO(region)[pipelineName], executionID) == nil {
+	exec := findExecution(b.executionsStoreRO(region)[pipelineName], executionID)
+	if exec == nil {
 		return fmt.Errorf("%w: pipeline %q execution %q", ErrExecutionNotFound, pipelineName, executionID)
 	}
 
+	run := findConditionRun(b.conditionRunsStoreRO(region)[pipelineName], executionID, stageName, conditionType)
+	if run == nil || run.Status != conditionStatusFailed {
+		return fmt.Errorf("%w: %s condition of stage %q is not failed",
+			ErrConditionNotOverridable, conditionType, stageName)
+	}
+
+	now := time.Now().UTC()
+	caller := awsmeta.CallerArn(ctx)
+	run.Status = conditionStatusOverridden
+	run.Summary = "Overridden"
+	run.LastStatusChange = now
+
+	for _, ce := range run.Conditions {
+		for _, rr := range ce.Rules {
+			rr.UpdatedBy = caller
+		}
+	}
+
+	exec.Status = statusInProgress
+	exec.StatusSummary = ""
+	b.runPipelineActions(region, p, exec)
+	exec.LastUpdateTime = now
+
 	return nil
+}
+
+// newRollbackExecution records a succeeded ROLLBACK-type execution that restores stage to targetExecutionID.
+// Callers hold b.mu.Lock.
+func (b *InMemoryBackend) newRollbackExecution(
+	region string, p *Pipeline, stage *Stage, targetExecutionID, trigger string,
+) *PipelineExecution {
+	pipelineName := p.Declaration.Name
+	now := time.Now().UTC()
+	exec := &PipelineExecution{
+		PipelineName:              pipelineName,
+		PipelineExecutionID:       uuid.NewString(),
+		Status:                    statusSucceeded,
+		PipelineVersion:           p.Declaration.Version,
+		ExecutionMode:             p.Declaration.ExecutionMode,
+		ExecutionType:             executionTypeRollback,
+		Trigger:                   trigger,
+		RollbackTargetExecutionID: targetExecutionID,
+		StartTime:                 now,
+		LastUpdateTime:            now,
+	}
+
+	execs := b.executionsStore(region)
+	execs[pipelineName] = append(execs[pipelineName], exec)
+
+	actionExecStore := b.actionExecutionsStore(region)
+	for _, action := range stage.Actions {
+		actionExecStore[pipelineName] = append(actionExecStore[pipelineName], &ActionExecution{
+			PipelineExecutionID: exec.PipelineExecutionID,
+			ActionExecutionID:   uuid.NewString(),
+			StageName:           stage.Name,
+			ActionName:          action.Name,
+			Status:              statusSucceeded,
+			StartTime:           now,
+			LastUpdateTime:      now,
+		})
+	}
+
+	return exec
 }

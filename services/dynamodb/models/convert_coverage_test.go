@@ -691,7 +691,7 @@ func TestToSDKUpdateTableInput(t *testing.T) {
 					{
 						Update: &models.UpdateGlobalSecondaryIndexAction{
 							IndexName: "ExistingGSI",
-							ProvisionedThroughput: models.ProvisionedThroughput{
+							ProvisionedThroughput: &models.ProvisionedThroughput{
 								ReadCapacityUnits:  &rcu,
 								WriteCapacityUnits: &wcu,
 							},

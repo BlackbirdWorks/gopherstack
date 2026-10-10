@@ -27,12 +27,8 @@ const (
 	acmeAccountStatusDeactivated = "DEACTIVATED"
 	acmeAccountStatusRevoked     = "REVOKED"
 
-	// acmeDomainValidationStatusValidating is the only status gopherstack ever
-	// assigns: it has no real DNS/HTTP resolver to check the prevalidation
-	// resource record against, so claiming VALID (or INVALID) here would
-	// fabricate a verification that never happened. See
-	// acme_domain_validations.go.
 	acmeDomainValidationStatusValidating = "VALIDATING"
+	acmeDomainValidationStatusValid      = "VALID"
 	acmeDomainValidationStatusDeleting   = "DELETING"
 
 	prevalidationTypeDNS = "DNS_PREVALIDATION"

@@ -27,7 +27,9 @@ func mlTaskRunKey(transformID, taskRunID string) string {
 	return transformID + "|" + taskRunID
 }
 
-func (b *InMemoryBackend) startMLTaskRunLocked(transformID string, taskType MLTaskType) (*MLTaskRun, error) {
+func (b *InMemoryBackend) startMLTaskRunLocked(
+	transformID string, taskType MLTaskType, props *MLTaskRunProperties,
+) (*MLTaskRun, error) {
 	if !b.mlTransforms.Has(transformID) {
 		return nil, fmt.Errorf("ML transform %q not found: %w", transformID, ErrNotFound)
 	}
@@ -37,6 +39,7 @@ func (b *InMemoryBackend) startMLTaskRunLocked(transformID string, taskType MLTa
 		TransformID: transformID,
 		TaskRunID:   taskRunID,
 		TaskType:    string(taskType),
+		Properties:  props,
 		Status:      stateRunning,
 		StartedOn:   float64(time.Now().Unix()),
 	}
@@ -52,31 +55,33 @@ func (b *InMemoryBackend) StartMLEvaluationTaskRun(transformID string) (*MLTaskR
 	b.mu.Lock("StartMLEvaluationTaskRun")
 	defer b.mu.Unlock()
 
-	return b.startMLTaskRunLocked(transformID, mlTaskTypeEvaluation)
+	return b.startMLTaskRunLocked(transformID, mlTaskTypeEvaluation, nil)
 }
 
 // StartMLLabelingSetGenerationTaskRun starts an ML transform labeling-set generation task run.
-func (b *InMemoryBackend) StartMLLabelingSetGenerationTaskRun(transformID string) (*MLTaskRun, error) {
+func (b *InMemoryBackend) StartMLLabelingSetGenerationTaskRun(transformID, outputPath string) (*MLTaskRun, error) {
 	b.mu.Lock("StartMLLabelingSetGenerationTaskRun")
 	defer b.mu.Unlock()
 
-	return b.startMLTaskRunLocked(transformID, mlTaskTypeLabelingSetGeneration)
+	return b.startMLTaskRunLocked(transformID, mlTaskTypeLabelingSetGeneration,
+		&MLTaskRunProperties{OutputS3Path: outputPath})
 }
 
 // StartExportLabelsTaskRun starts an ML transform export-labels task run.
-func (b *InMemoryBackend) StartExportLabelsTaskRun(transformID, _ string) (*MLTaskRun, error) {
+func (b *InMemoryBackend) StartExportLabelsTaskRun(transformID, outputPath string) (*MLTaskRun, error) {
 	b.mu.Lock("StartExportLabelsTaskRun")
 	defer b.mu.Unlock()
 
-	return b.startMLTaskRunLocked(transformID, mlTaskTypeExportLabels)
+	return b.startMLTaskRunLocked(transformID, mlTaskTypeExportLabels, &MLTaskRunProperties{OutputS3Path: outputPath})
 }
 
 // StartImportLabelsTaskRun starts an ML transform import-labels task run.
-func (b *InMemoryBackend) StartImportLabelsTaskRun(transformID, _ string) (*MLTaskRun, error) {
+func (b *InMemoryBackend) StartImportLabelsTaskRun(transformID, inputPath string, replace bool) (*MLTaskRun, error) {
 	b.mu.Lock("StartImportLabelsTaskRun")
 	defer b.mu.Unlock()
 
-	return b.startMLTaskRunLocked(transformID, mlTaskTypeImportLabels)
+	return b.startMLTaskRunLocked(transformID, mlTaskTypeImportLabels,
+		&MLTaskRunProperties{InputS3Path: inputPath, Replace: replace})
 }
 
 // GetMLTaskRun retrieves a single ML task run by transform ID and task run ID.
@@ -89,9 +94,7 @@ func (b *InMemoryBackend) GetMLTaskRun(transformID, taskRunID string) (*MLTaskRu
 		return nil, ErrMLTaskRunNotFound
 	}
 
-	cp := *run
-
-	return &cp, nil
+	return cloneMLTaskRun(run), nil
 }
 
 // GetMLTaskRuns returns all task runs for a given ML transform, newest first.
@@ -108,8 +111,7 @@ func (b *InMemoryBackend) GetMLTaskRuns(transformID string) ([]*MLTaskRun, error
 
 	for _, r := range b.mlTaskRuns.Snapshot() {
 		if k := mlTaskRunEntryKeyFn(r); strings.HasPrefix(k, prefix) {
-			cp := *r
-			out = append(out, &cp)
+			out = append(out, cloneMLTaskRun(r))
 		}
 	}
 
@@ -295,4 +297,14 @@ func (b *InMemoryBackend) DeleteMLTransform(id string) error {
 	b.mlTransforms.Delete(id)
 
 	return nil
+}
+
+func cloneMLTaskRun(r *MLTaskRun) *MLTaskRun {
+	cp := *r
+	if r.Properties != nil {
+		props := *r.Properties
+		cp.Properties = &props
+	}
+
+	return &cp
 }

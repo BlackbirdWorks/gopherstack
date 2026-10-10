@@ -74,7 +74,8 @@ func (h *S3Handler) putObjectAnnotation(
 
 	q := r.URL.Query()
 	algo, crc32p, crc32cp, sha1p, sha256p := extractAlgoAndChecksums(r)
-	crc64nvmeP := extractCRC64NVMEChecksum(r)
+	extra := extractExtraChecksums(r)
+	algo = extra.algoOrInferred(algo)
 
 	out, err := h.Backend.PutObjectAnnotation(ctx, &s3.PutObjectAnnotationInput{
 		Bucket:            aws.String(bucketName),
@@ -87,7 +88,9 @@ func (h *S3Handler) putObjectAnnotation(
 		ChecksumCRC32C:    crc32cp,
 		ChecksumSHA1:      sha1p,
 		ChecksumSHA256:    sha256p,
-		ChecksumCRC64NVME: crc64nvmeP,
+		ChecksumCRC64NVME: extra.crc64nvme,
+		ChecksumMD5:       extra.md5,
+		ChecksumSHA512:    extra.sha512,
 		ObjectIfMatch:     ptrconv.NilIfEmpty(r.Header.Get("X-Amz-Object-If-Match")),
 	})
 	if err != nil {
@@ -103,6 +106,8 @@ func (h *S3Handler) putObjectAnnotation(
 		ChecksumSHA1:      out.ChecksumSHA1,
 		ChecksumSHA256:    out.ChecksumSHA256,
 		ChecksumCRC64NVME: out.ChecksumCRC64NVME,
+		ChecksumMD5:       out.ChecksumMD5,
+		ChecksumSHA512:    out.ChecksumSHA512,
 	})
 	setObjectVersionHeader(w, out.ObjectVersionId)
 
@@ -147,6 +152,8 @@ func (h *S3Handler) getObjectAnnotation(
 		ChecksumSHA1:      out.ChecksumSHA1,
 		ChecksumSHA256:    out.ChecksumSHA256,
 		ChecksumCRC64NVME: out.ChecksumCRC64NVME,
+		ChecksumMD5:       out.ChecksumMD5,
+		ChecksumSHA512:    out.ChecksumSHA512,
 	})
 	setObjectVersionHeader(w, out.ObjectVersionId)
 

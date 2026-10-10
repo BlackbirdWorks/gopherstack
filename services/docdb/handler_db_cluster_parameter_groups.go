@@ -204,6 +204,7 @@ type xmlDBClusterParameter struct {
 	ParameterValue string `xml:"ParameterValue,omitempty"`
 	Description    string `xml:"Description,omitempty"`
 	Source         string `xml:"Source,omitempty"`
+	AllowedValues  string `xml:"AllowedValues,omitempty"`
 	ApplyType      string `xml:"ApplyType,omitempty"`
 	ApplyMethod    string `xml:"ApplyMethod,omitempty"`
 	DataType       string `xml:"DataType,omitempty"`
@@ -253,6 +254,7 @@ func toXMLDBClusterParameter(p *DBClusterParameter) xmlDBClusterParameter {
 		ParameterValue: p.ParameterValue,
 		Description:    p.Description,
 		Source:         p.Source,
+		AllowedValues:  p.AllowedValues,
 		ApplyType:      p.ApplyType,
 		ApplyMethod:    p.ApplyMethod,
 		DataType:       p.DataType,

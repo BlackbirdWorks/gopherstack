@@ -64,10 +64,14 @@ func encodeFunc(_ *sqlCtx, args []any) any {
 	return base64.StdEncoding.EncodeToString([]byte(s))
 }
 
-// decodeFunc base64-decodes; JSON results become addressable values, failures are Null.
+// decodeFunc base64-decodes or, for 'proto', decodes protobuf; JSON results become addressable values.
 func decodeFunc(c *sqlCtx, args []any) any {
 	scheme, _ := strArg(args, 1)
 	s, ok := strArg(args, 0)
+
+	if strings.EqualFold(scheme, "proto") {
+		return decodeProto(c, args)
+	}
 
 	if !ok || !strings.EqualFold(scheme, "base64") {
 		return nil
@@ -101,6 +105,16 @@ func hashFunc(newHash func() hash.Hash) funcDef {
 
 func hashFuncs() map[string]funcDef {
 	return map[string]funcDef{
+		"md2": {impl: func(_ *sqlCtx, args []any) any {
+			in, ok := strArg(args, 0)
+			if !ok {
+				return sqlUndefined{}
+			}
+
+			sum := md2Sum([]byte(in))
+
+			return hex.EncodeToString(sum[:])
+		}},
 		"md5":    hashFunc(md5.New),
 		"sha1":   hashFunc(sha1.New),
 		"sha224": hashFunc(sha256.New224),
@@ -113,6 +127,7 @@ func hashFuncs() map[string]funcDef {
 func valueFuncs() map[string]funcDef {
 	return map[string]funcDef{
 		"get":            {impl: getFunc},
+		"transform":      {since2016: true, impl: transformFunc},
 		"get_or_default": {since2016: true, impl: getOrDefaultFunc},
 		"isnull": {
 			since2016: true,
@@ -150,4 +165,40 @@ func getOrDefaultFunc(_ *sqlCtx, args []any) any {
 	}
 
 	return arg(args, 1)
+}
+
+const transformSourceArg = 2
+
+// transformFunc supports the enrichArray mode: each source element gains the enrichment object's attributes.
+func transformFunc(_ *sqlCtx, args []any) any {
+	mode, ok := arg(args, 0).(string)
+	enrich, objOK := arg(args, 1).(*sqlObject)
+	src, arrOK := arg(args, transformSourceArg).([]any)
+
+	if !ok || !strings.EqualFold(mode, "enrichArray") || !objOK || !arrOK {
+		return sqlUndefined{}
+	}
+
+	out := make([]any, 0, len(src))
+
+	for _, el := range src {
+		obj, isObj := el.(*sqlObject)
+		if !isObj {
+			return sqlUndefined{}
+		}
+
+		merged := newSQLObject()
+
+		for _, k := range obj.keys {
+			merged.set(k, obj.vals[k])
+		}
+
+		for _, k := range enrich.keys {
+			merged.set(k, enrich.vals[k])
+		}
+
+		out = append(out, merged)
+	}
+
+	return out
 }

@@ -83,7 +83,7 @@ func TestFileSystemCRUD(t *testing.T) {
 			},
 		},
 		{
-			name: "create_duplicate_token_identical_args_returns_200",
+			name: "create_duplicate_token_identical_args_returns_409",
 			ops: func(t *testing.T, h *efs.Handler) {
 				t.Helper()
 				rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
@@ -92,13 +92,12 @@ func TestFileSystemCRUD(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rec.Code)
 				firstID := parseResp(t, rec)["FileSystemId"].(string)
 
-				// Second create with same token and identical args returns existing FS with 200.
+				// Second create with the same token fails with 409 FileSystemAlreadyExists carrying the ID.
 				rec2 := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
 					"CreationToken": "dup-token",
 				})
-				assert.Equal(t, http.StatusOK, rec2.Code)
-				secondID := parseResp(t, rec2)["FileSystemId"].(string)
-				assert.Equal(t, firstID, secondID)
+				assert.Equal(t, http.StatusConflict, rec2.Code)
+				assert.Equal(t, firstID, parseResp(t, rec2)["FileSystemId"])
 			},
 		},
 		{
@@ -438,11 +437,11 @@ func TestCreationTokenIdempotency_HTTP(t *testing.T) {
 		wantSecond int
 	}{
 		{
-			name:       "identical_args_returns_200",
+			name:       "identical_args_returns_409",
 			first:      map[string]any{"CreationToken": "http-tok1"},
 			second:     map[string]any{"CreationToken": "http-tok1"},
 			wantFirst:  http.StatusCreated,
-			wantSecond: http.StatusOK,
+			wantSecond: http.StatusConflict,
 		},
 		{
 			name: "different_perf_mode_returns_409",
@@ -712,8 +711,8 @@ func TestFileSystem_CreatingToAvailableLifecycle(t *testing.T) {
 		"FS should transition to 'available' within 500ms")
 }
 
-// TestCreateFileSystem_CreationTokenIdempotency verifies identical params return 200
-// and different params return 409, matching CreationToken idempotency semantics.
+// TestCreateFileSystem_CreationTokenIdempotency verifies identical params return 409
+// like different params do.
 func TestCreateFileSystem_CreationTokenIdempotency(t *testing.T) {
 	t.Parallel()
 
@@ -724,10 +723,10 @@ func TestCreateFileSystem_CreationTokenIdempotency(t *testing.T) {
 		wantCode   int
 	}{
 		{
-			name:       "identical params → 200 idempotent success",
+			name:       "identical params → 409 conflict",
 			firstBody:  map[string]any{"CreationToken": "idem-1", "PerformanceMode": "generalPurpose"},
 			secondBody: map[string]any{"CreationToken": "idem-1", "PerformanceMode": "generalPurpose"},
-			wantCode:   http.StatusOK,
+			wantCode:   http.StatusConflict,
 		},
 		{
 			name:      "different params → 409 conflict",

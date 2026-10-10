@@ -56,7 +56,7 @@ func (b *InMemoryBackend) CreateChannelPlacementGroup(
 func (b *InMemoryBackend) channelIDsForPlacementGroup(groupID string) []string {
 	ids := []string{}
 
-	for _, ch := range b.channels.All() {
+	for _, ch := range b.liveChannels() {
 		if ch.AnywhereSettings.ChannelPlacementGroupID == groupID {
 			ids = append(ids, ch.ID)
 		}

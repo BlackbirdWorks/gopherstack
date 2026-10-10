@@ -32,6 +32,7 @@ type InMemoryBackend struct {
 	resources    *store.Table[Resource]      // key: typeName+"/"+identifier
 	requests     *store.Table[ProgressEvent] // key: requestToken
 	clientTokens map[string]clientTokenEntry // clientToken → entry (idempotency + conflict detection)
+	typeHandlers map[string]TypeHandler
 	mu           *lockmetrics.RWMutex
 	accountID    string
 	region       string
@@ -41,6 +42,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		clientTokens: make(map[string]clientTokenEntry),
+		typeHandlers: make(map[string]TypeHandler),
 		accountID:    accountID,
 		region:       region,
 		mu:           lockmetrics.New("cloudcontrol"),

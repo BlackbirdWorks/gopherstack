@@ -3,8 +3,16 @@ service: eventbridge
 sdk_module: aws-sdk-go-v2/service/eventbridge@v1.53.0
 sibling_sdk_modules: [aws-sdk-go-v2/service/pipes@v1.26.4, aws-sdk-go-v2/service/schemas@v1.37.4]  # Pipes and Schema Registry ops this Handler also implements; see schema_registry_and_pipes below
 last_audit_commit: f78c3b7c7  # 2026-09-24 leak sweep: terminal replays evicted after 1h; prior: 6020fa871
-last_audit_date: 2026-09-24
+last_audit_date: 2026-10-09
 overall: A
+                       # 2026-10-09 realism pass: wire messages no longer carry the sentinel code prefix (was
+                       # "ResourceNotFoundException: Rule x not found"); AWS wording for missing rule/bus/archive/endpoint ("Rule x
+                       # does not exist on EventBus default.", "Event bus x does not exist."); InvalidEventPatternException now says
+                       # "Event pattern is not valid. Reason: ..." with the real reason instead of always "not valid JSON"; PutRule
+                       # name and CreateEventBus name patterns; rate() grammar (singular only for 1, minute|hour|day) and "Parameter
+                       # ScheduleExpression is not valid."; PutTargets target-Id pattern and Arn format; PutEvents per-entry
+                       # MalformedDetail and missing-bus failures (was silently accepted); Tag/Untag/ListTags on a nonexistent rule or
+                       # event bus now ResourceNotFoundException.
 # 2026-08-30 wrapper-key sweep (uncommitted as of this note): type-aware
 # go/types field-usage scan (302 exported fields across all 40 *Input/*Request
 # structs, identity-matched not name-matched) flagged 2 fields with no read
@@ -113,15 +121,29 @@ families:
   archives_replays_connections_api_destinations_endpoints: {status: ok, note: "Previously 'deferred, spot-checked only'. Field-diffed this sweep against aws-sdk-go-v2/service/eventbridge's api_op_*.go Input/Output structs and types.go for Archive, Connection (+ ConnectionAuthResponseParameters/CreateConnectionAuthRequestParameters/UpdateConnectionAuthRequestParameters), ApiDestination, Endpoint (+ RoutingConfig/FailoverConfig/Primary/Secondary/EndpointEventBus), Replay, and ReplayDestination. Found and fixed real bugs: DescribeEndpoint/ListEndpoints and DescribeReplay/ListReplays response-side epoch-seconds bug, Replay missing Destination/Description, ReplayDestination missing FilterArns (an over-delivery correctness bug, not just a missing echo field), StartReplayInput request-side epoch-seconds bug. Connections and API destinations were already correct field-for-field (auth masking, all CRUD output shapes) except the KMS/private-API-connectivity extras noted per-op above and in items_still_open."}
 gaps: []
 items_still_open:
-  - "AWS/Events rule metrics are emitted; ThrottledRules, bus-level metrics (IngestionToInvocationStartLatency, PutEventsRequestSize) and ApiDestination metrics are not. (gopherstack-4m1qr)"
-  - "Cross-account event-bus PutTargets delivery (gopherstack-9iva, structural): real AWS's primary documented use of an event-bus-ARN target is routing matched events to ANOTHER AWS account's event bus (api_op_PutTargets.go doc comment; requires the target account to have granted permission via PutPermission, optionally a RoleArn for org-granted permission). This backend models a single AWS account (InMemoryBackend.accountID is fixed at construction), so there is no second account's bus state to route into -- RouteEventToBus (delivery.go) detects a target ARN whose account segment differs from b.accountID and drops it, the same as any other target ARN this backend cannot resolve, rather than erroring (PutTargets itself never validated ARNs and still doesn't -- see PutTargets note). Same-account cross-bus/cross-region routing (a rule on one bus targeting another bus this backend does host) IS implemented and delivers for real."
-  - "ECS delivery central wiring (bd gopherstack-ubum, service side FIXED this sweep, cli.go NOT touched -- out of services/eventbridge scope): delivery.go's ECSTaskRunner interface previously only passed (clusterARN, payload) to RunTask, so an ECS target delivery only ran the right task definition if the event Input/InputTransformer payload happened to carry a \"TaskDefinition\" key -- EcsParameters.TaskDefinitionArn/LaunchType/TaskCount/NetworkConfiguration set via PutTargets were validated and stored but never reached delivery. Fixed the service side with an optional-capability extension: new ECSTaskRunnerWithParams interface (RunTaskWithParams(ctx, clusterARN, *EcsParameters, payload)); deliverToECS type-asserts dt.ECS against it and prefers it when present, falling back to the base RunTask otherwise, so no existing ECSTaskRunner implementation breaks. Also found and fixed a real wire-shape gap while verifying against the pinned SDK: EcsParameters was missing the real TaskCount *int32 member (aws-sdk-go-v2/service/eventbridge/types@v1.48.4, wire key \"TaskCount\") entirely -- added. Central wiring still needed (cli.go, main-thread/future-session work): ebECSTaskRunnerAdapter in cli.go must grow a RunTaskWithParams method mapping EcsParameters onto ecsbackend.RunTaskInput (TaskDefinitionArn->TaskDefinition, LaunchType->LaunchType, TaskCount->Count, NetworkConfiguration->NetworkConfiguration, Group/PlatformVersion/PlacementConstraints/PlacementStrategy/CapacityProviderStrategy/Tags/EnableECSManagedTags/EnableExecuteCommand map 1:1 by name) for the fix to take effect end-to-end; until then, ECS delivery keeps using the legacy RunTask/payload-TaskDefinition-key path with unchanged behavior (no regression, just not yet wired to the new capability)."
-  - "Resource-policy authorization of CloudWatch Logs targets and of the DLQ queue send is not modelled; DLQ messages carry ERROR_CODE but not ERROR_MESSAGE/EXHAUSTED_RETRY_CONDITION."
+  - "Invalid-pattern Reason strings other than scalar-value, unknown matcher type and Filter-is-not-an-object (e.g. the exact wording for malformed JSON) are modeled from memory of real AWS, not pinned by the SDK."
+structural_gaps:
+  - "ThrottledRules and PutEventsApproximateThrottledCount are never emitted: the emulator applies no invocation or PutEvents throttle limits. The AWS/Events docs list no API-destination metrics."
+  - "Cross-account event-bus PutTargets delivery: the backend models a single account (InMemoryBackend.accountID), so a target bus ARN in another account cannot be resolved and is dropped. Same-account cross-bus/cross-region routing works."
 deferred:
   - "Schema registry (CreateRegistry..GetCodeBindingSource, 17 real ops -- see schema_registry_and_pipes) and Pipes (CreatePipe..UpdatePipe, 5 ops) -- these model separate AWS control planes (schemas/pipes SDK modules), not core EventBridge (events) ops; field-level wire/errors/state audit still not done this pass, only the SDK-completeness/naming check. UPDATE 2026-08-29: the pagination slice of that still-undone audit is now done -- ListRegistries/ListSchemas/SearchSchemas/ListSchemaVersions all declare real Limit/NextToken (schemas@v1.37.4) that were completely unconsulted on both the JSON-RPC (handler_schemas.go/handler_registries.go, dead for a real client but still fixed for consistency) and REST-JSON1 (handler_schemas_rest.go, the actually-reachable path) dispatch paths -- every call returned every stored item in one unbounded page regardless of Limit or the query's `limit` param. Fixed via the existing paginateSlice-equivalent (backend methods gained a `limit int` parameter, wired to paginateN); REST handlers gained schemasRESTLimit(q) to parse the `limit` query param. Field-level wire/errors/state audit for the rest of these 17+5 ops is still open. UPDATE (wrapper-key sweep): PutCodeBinding/DescribeCodeBinding/GetCodeBindingSource now field-verified too -- see their own ops: entry (a real SchemaVersion-scoping bug found and fixed)."
   - "PutPermission/RemovePermission/policy-statement JSON shape (EventBusPolicyStatement.Principal as `any` for both string and object-with-AWS-key forms) -- spot-checked only, not re-verified this sweep beyond the persistence fix. UPDATE 2026-09-24: the surrounding document shape WAS re-verified and fixed -- see 2026-09-24 Notes entry; Principal's dual string/object shape itself remains unverified."
 leaks: {status: clean, note: "Re-verified this sweep: PutEvents's async delivery goroutine (b.wg.Go) acquires a workerSem slot or aborts on svcCtx.Done() before delivering, so Close()/Shutdown() cannot leave in-flight goroutines past defaultShutdownTimeout; deliverToTargetBounded applies a per-attempt context.WithTimeout and always cancels it. The new StartReplay FilterArns plumbing (replayDeliveryPlan struct, matchedDeliveryGroupsForEntry) is a same-lock-discipline refactor of the existing buildDeliveryPlan/deliverEvents path, not a new goroutine or lock -- scheduleReplayWorker still acquires workerSem-or-aborts-on-ctx.Done() exactly as before. Scheduler (scheduler.go) and ArchiveJanitor (janitor.go) were not touched this sweep; existing leak_test.go/isolation_test.go continue to pass."}
 ---
+
+## 2026-10-09 API Gateway targets and API-destination path parameters
+
+Rule targets with an `arn:aws:execute-api:{region}:{account}:{apiId}/{stage}/{METHOD}/{path}` ARN now invoke the
+deployed stage in-process through `apigateway.Handler.InvokeStage`, the same data-plane path an HTTP stage invoke takes
+(authorizers, validators, throttling, caching, integrations). `Target.HttpParameters` is honoured as in
+`types.HttpParameters` (eventbridge@v1.53.0): `PathParameterValues` fill the `*` wildcards of the ARN path (or of an API
+destination's endpoint) in order, `HeaderParameters` and `QueryStringParameters` are added to the request, and the
+event / `Input` / `InputPath` / `InputTransformer` payload is the body. A transport error or a >=400 status fails the
+delivery (retry policy, then DLQ). With `--enforce-iam` the rule's role needs `execute-api:Invoke`. Tests:
+`TestEventBridgeAPIGatewayTarget`, `TestBuildAPIGatewayRequest`, `TestInvokeAPIDestination`.
+
+Batch targets now submit into the job queue ARN's region (`batch.WithRegion`); `TestBatchTargetsHonourRegion`.
+`TestEventBridgeCodePipelineTarget` covers the CodePipeline target end to end.
 
 ## Notes
 
@@ -1125,3 +1147,12 @@ EventSizeLimitExceeded is a per-entry ErrorCode in a PutEvents 200 body (put_eve
 ## 2026-10-05 (zeroguard omitted-vs-zero audit)
 
 Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.
+
+## 2026-10-09: Batch, CodeBuild, CodePipeline, SageMaker pipeline and Redshift Data targets
+
+Rule targets with a Batch job-queue, CodeBuild project, CodePipeline pipeline, SageMaker pipeline or Redshift cluster
+ARN were dropped with an "unsupported target" warning. They now deliver through `DeliveryTargets.{Batch,CodeBuild,
+CodePipeline,SageMakerPipeline,RedshiftData}` (delivery_services.go), wired in cli_eventbridge_job_targets_wiring.go;
+`TestEventBridgeJobTargets` drives PutEvents through the SDK and asserts the job/build/execution/statement exists.
+CodePipeline is wired the same way but has no root-level test yet. API Gateway (execute-api) and SSM RunCommand/Automation
+targets remain unsupported (no in-process execute-api invoke seam).

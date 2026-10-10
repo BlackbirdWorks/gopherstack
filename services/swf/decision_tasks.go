@@ -98,6 +98,8 @@ func (b *InMemoryBackend) PollForDecisionTask(
 		TaskToken:        task.TaskToken,
 		ScheduledEventID: task.ScheduledEventID,
 		StartedEventID:   startedEventID,
+		StartedAt:        nowEpoch(time.Now()),
+		Sticky:           task.Sticky,
 	})
 
 	histEvents := b.history[histKey]
@@ -127,7 +129,16 @@ func (b *InMemoryBackend) PollForDecisionTask(
 func (b *InMemoryBackend) RespondDecisionTaskCompleted(
 	taskToken, executionContext string,
 	decisions []Decision,
+	opts ...RespondDecisionOption,
 ) error {
+	var o DecisionResponseOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	if err := validateDuration(o.StickyScheduleToStartTimeout); err != nil {
+		return err
+	}
+
 	b.mu.Lock("RespondDecisionTaskCompleted")
 	defer b.mu.Unlock()
 
@@ -146,6 +157,10 @@ func (b *InMemoryBackend) RespondDecisionTaskCompleted(
 
 	if executionContext != "" {
 		exec.LatestExecutionContext = executionContext
+	}
+	if o.StickyTaskList != "" {
+		exec.StickyTaskList = o.StickyTaskList
+		exec.StickyScheduleToStartTimeout = o.StickyScheduleToStartTimeout
 	}
 
 	dtcEventID := b.appendHistoryEventLocked(
@@ -208,6 +223,7 @@ var decisionHandlersOnce = sync.OnceValue(func() map[string]decisionHandlerFunc 
 		"StartTimer":                             (*InMemoryBackend).handleStartTimerDecision,
 		"CancelTimer":                            (*InMemoryBackend).handleCancelTimerDecision,
 		"RecordMarker":                           (*InMemoryBackend).handleRecordMarkerDecision,
+		"ScheduleLambdaFunction":                 (*InMemoryBackend).handleScheduleLambdaFunctionDecision,
 		"StartChildWorkflowExecution":            (*InMemoryBackend).handleStartChildWorkflowExecutionDecision,
 		"SignalExternalWorkflowExecution":        (*InMemoryBackend).handleSignalExternalWorkflowExecutionDecision,
 		"RequestCancelExternalWorkflowExecution": (*InMemoryBackend).handleRequestCancelExternalWorkflowExecutionDecision,
@@ -291,27 +307,35 @@ func (b *InMemoryBackend) handleScheduleActivityTaskDecision(dc decisionCtx) {
 	if taskList == "" {
 		taskList = dc.exec.TaskList
 	}
+	timeouts := b.resolveActivityTimeoutsLocked(dc.domain, attrs)
+	scheduled := map[string]any{
+		attrDTCEventID: dc.decisionTaskCompletedEventID,
+		"activityType": map[string]any{
+			attrName:    attrs.ActivityType.Name,
+			attrVersion: attrs.ActivityType.Version,
+		},
+		"activityId": attrs.ActivityID,
+		attrInput:    attrs.Input,
+		attrTaskList: map[string]any{attrName: taskList},
+	}
+	timeouts.addTo(scheduled)
 	scheduledEventID := b.appendHistoryEventLocked(
 		dc.domain, dc.workflowID, dc.runID, "ActivityTaskScheduled", map[string]any{
-			eventAttrKey("ActivityTaskScheduled"): map[string]any{
-				attrDTCEventID: dc.decisionTaskCompletedEventID,
-				"activityType": map[string]any{
-					attrName:    attrs.ActivityType.Name,
-					attrVersion: attrs.ActivityType.Version,
-				},
-				"activityId": attrs.ActivityID,
-				attrInput:    attrs.Input,
-				attrTaskList: map[string]any{attrName: taskList},
-			},
+			eventAttrKey("ActivityTaskScheduled"): scheduled,
 		})
 	qkey := dc.domain + ":" + taskList
 	b.activityQueues[qkey] = append(b.activityQueues[qkey], &ActivityTask{
-		ActivityID:       attrs.ActivityID,
-		ActivityType:     attrs.ActivityType,
-		Input:            attrs.Input,
-		WorkflowID:       dc.workflowID,
-		RunID:            dc.exec.RunID,
-		ScheduledEventID: scheduledEventID,
+		ActivityID:             attrs.ActivityID,
+		ActivityType:           attrs.ActivityType,
+		Input:                  attrs.Input,
+		WorkflowID:             dc.workflowID,
+		RunID:                  dc.exec.RunID,
+		ScheduledEventID:       scheduledEventID,
+		ScheduledAt:            nowEpoch(time.Now()),
+		ScheduleToStartTimeout: timeouts.scheduleToStart,
+		ScheduleToCloseTimeout: timeouts.scheduleToClose,
+		StartToCloseTimeout:    timeouts.startToClose,
+		HeartbeatTimeout:       timeouts.heartbeat,
 	})
 }
 

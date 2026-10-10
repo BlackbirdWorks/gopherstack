@@ -1,7 +1,7 @@
 service: bedrock
 sdk_module: aws-sdk-go-v2/service/bedrock@v1.66.4
 last_audit_commit: d9715a7fd
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
 overall: A            # RESTORED A-->A (parity-5, 2026-07-31, follow-up pass): the
                       # dispatchDocumentOps routing bug that caused the prior A->A- downgrade
                       # is fixed and proven. Re-verified both real wire shapes against the
@@ -136,9 +136,11 @@ families:
 gaps: []
 
 items_still_open:
-  - "EvaluationJob AutomatedEvaluationConfig.CustomMetricConfig and RAGConfig's knowledgeBaseConfig/precomputedRagSourceConfig are stored verbatim as json.RawMessage, not modeled field by field: they wrap further unions plus a recursive RetrievalFilter tree (types/types.go:196, 6165-6344), and the job store never runs an evaluation, so nothing interprets them (round trip: evaluation_job_unions_test.go). Revisit if the backend starts interpreting evaluation content."
-  - "List-summary members with no domain source, not fabricated (no per-phase job status, batch record processing or capability detection modeled): EvaluationSummary.ModelIdentifiers/RagIdentifiers/CustomMetricsEvaluatorModelIdentifiers/InferenceConfigSummary; ImportedModelSummary.InstructSupported/ModelArchitecture; ModelCopyJobSummary.SourceModelName; ModelCustomizationJobSummary.StatusDetails; ModelInvocationJobSummary.ErrorRecordCount/JobExpirationTime/ProcessedRecordCount/SuccessRecordCount/TotalRecordCount; CustomModelDeploymentSummary.FailureMessage."
-  - "ClientRequestToken is not honoured on CreateAutomatedReasoningPolicyVersion/TestCase, StartAutomatedReasoningPolicyBuild/TestWorkflow, UpdateAutomatedReasoningPolicyTestCase or UpdateMarketplaceModelEndpoint, and CreateModelInvocationJob/CreateEvaluationJob replays are bounded by a 5-minute in-memory token memo. Still dropped: CreateMarketplaceModelEndpoint.AcceptEula, CreateCustomModel RoleArn/ModelSourceConfig/CustomModelDataSource, CreateAutomatedReasoningPolicyTestCase body members, ListFoundationModelAgreementOffers.OfferType. KMS ids are reported as ARNs built from the account/region (key id -> key/ARN, alias/ -> alias ARN) without any key existence check or encryption."
+  - "CreateModelInvocationJob/CreateEvaluationJob client-token replays are remembered for 5 minutes; the pinned SDK does not state how long AWS keeps a token, so the window is unverified."
+structural_gaps:
+  - "EvaluationJob AutomatedEvaluationConfig.CustomMetricConfig and RAGConfig's knowledgeBaseConfig/precomputedRagSourceConfig are stored verbatim as json.RawMessage (round trip: evaluation_job_unions_test.go): they wrap recursive unions (types/types.go:196, 6165-6344) that only an evaluation engine would interpret, and the job store never runs an evaluation."
+  - "List-summary members with no domain source (no job engines, so no per-phase status, record counts or capability detection): EvaluationSummary.ModelIdentifiers/RagIdentifiers/CustomMetricsEvaluatorModelIdentifiers/InferenceConfigSummary; ImportedModelSummary.InstructSupported/ModelArchitecture; ModelCopyJobSummary.SourceModelName; ModelCustomizationJobSummary.StatusDetails; ModelInvocationJobSummary error/processed/total record counts and JobExpirationTime; CustomModelDeploymentSummary.FailureMessage."
+  - "Write-only request members with no output member to observe: CreateMarketplaceModelEndpoint.AcceptEula, CreateCustomModel RoleArn/ModelSourceConfig/CustomModelDataSource."
 deferred: []
 # Every item previously listed here (AutomatedReasoningPolicy full wire re-verification,
 # PromptRouter, ImportedModel, FoundationModelAgreement / FoundationModelAvailability) was
@@ -175,6 +177,14 @@ leaks: {status: clean, note: "no new goroutines, tickers, or unregistered maps i
   existence check against the agent, so ListAgentResourceTags on a deleted
   agent's own ARN still returned its tags, and agentTags is persisted
   verbatim in Snapshot(). See TestAgentsHandler_DeleteAgent_ClearsTags."}
+
+## 2026-10-10 realism pass
+
+- Errors no longer repeat the code; list `nextToken` is opaque (pkgs/page) and rejected when malformed; `maxResults` outside 1..1000 is a ValidationException.
+- Import jobs completed as `Complete`, which is not in `ModelImportJobStatus`; now `Completed`.
+- Evaluation jobs complete and invocation jobs walk Submitted, Validating, Scheduled, InProgress, Completed (janitor, quarter of the delay per phase). Stop goes through `Stopping` and the janitor settles to `Stopped`; stopping a non-running customization job is a ValidationException instead of overwriting its status.
+- CreateModelCustomizationJob validates job/model names, role ARN and S3 URIs against the documented patterns. Base model IDs are not checked (fixtures use ids outside the catalog).
+- `SetJobCompletionDelay(d)` overrides the 5s dwell (0 keeps it); root wiring is not done.
 
 ## 2026-08-21 (gopherstack-hjdd): snapshot-version guard, unbumped retype
 

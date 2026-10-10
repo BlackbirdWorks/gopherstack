@@ -36,6 +36,7 @@ func TestDecisionHandlers_CoverAllDecisionTypes(t *testing.T) {
 		"RequestCancelActivityTask",
 		"RequestCancelExternalWorkflowExecution",
 		"ScheduleActivityTask",
+		"ScheduleLambdaFunction",
 		"SignalExternalWorkflowExecution",
 		"StartChildWorkflowExecution",
 		"StartTimer",

@@ -124,6 +124,7 @@ type createJobRequestXML struct {
 	Description        string              `xml:"Description"`
 	RoleArn            string              `xml:"RoleArn"`
 	Manifest           createJobXMLCapture `xml:"Manifest"`
+	ManifestGenerator  createJobXMLCapture `xml:"ManifestGenerator"`
 	Operation          createJobXMLCapture `xml:"Operation"`
 	Report             createJobXMLCapture `xml:"Report"`
 	// CreateJobInput.Tags is []types.S3Tag, serialized with the smithy
@@ -167,6 +168,10 @@ func (h *Handler) handleCreateJob(c *echo.Context) error {
 		)
 	}
 
+	if body.ManifestGenerator.Raw != "" {
+		_ = h.Backend.SetJobManifestGenerator(accountID, job.JobID, body.ManifestGenerator.Raw)
+	}
+
 	if len(body.Tags) > 0 {
 		tags := make(map[string]string, len(body.Tags))
 		for _, t := range body.Tags {
@@ -190,6 +195,7 @@ type describeJobInnerXML struct {
 
 type describeJobDescriptorXML struct {
 	Manifest             *describeJobInnerXML `xml:"Manifest,omitempty"`
+	ManifestGenerator    *describeJobInnerXML `xml:"ManifestGenerator,omitempty"`
 	Report               *describeJobInnerXML `xml:"Report,omitempty"`
 	Operation            *describeJobInnerXML `xml:"Operation,omitempty"`
 	StatusUpdateReason   string               `xml:"StatusUpdateReason,omitempty"`
@@ -233,6 +239,10 @@ func (h *Handler) handleDescribeJob(c *echo.Context) error {
 
 	if job.Manifest != "" {
 		desc.Manifest = &describeJobInnerXML{Raw: job.Manifest}
+	}
+
+	if job.ManifestGenerator != "" {
+		desc.ManifestGenerator = &describeJobInnerXML{Raw: job.ManifestGenerator}
 	}
 
 	if job.Operation != "" {

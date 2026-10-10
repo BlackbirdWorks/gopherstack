@@ -28,7 +28,7 @@ func (b *InMemoryBackend) CreateKnowledgeBase(
 	if prior := findByClientToken(b.knowledgeBases, cfg.ClientToken,
 		func(k *KnowledgeBase) string { return k.ClientToken }, func(*KnowledgeBase) bool { return true },
 	); prior != nil {
-		return kbCopy(prior), nil
+		return b.kbView(prior), nil
 	}
 
 	if _, exists := b.kbsByName[cfg.Name]; exists {
@@ -55,8 +55,9 @@ func (b *InMemoryBackend) CreateKnowledgeBase(
 	b.knowledgeBases.Put(kb)
 	b.kbsByName[cfg.Name] = id
 	b.tags[kb.KnowledgeBaseARN] = maps.Clone(cfg.Tags)
+	b.beginTransition("kb/"+id, kbStatusCreating)
 
-	return kbCopy(kb), nil
+	return b.kbView(kb), nil
 }
 
 // GetKnowledgeBase returns a knowledge base.
@@ -69,7 +70,7 @@ func (b *InMemoryBackend) GetKnowledgeBase(_ context.Context, kbID string) (*Kno
 		return nil, fmt.Errorf("%w: knowledge base %q not found", ErrNotFound, kbID)
 	}
 
-	return kbCopy(kb), nil
+	return b.kbView(kb), nil
 }
 
 // UpdateKnowledgeBase updates a knowledge base.
@@ -105,7 +106,7 @@ func (b *InMemoryBackend) UpdateKnowledgeBase(
 
 	kb.UpdatedAt = time.Now().UTC()
 
-	return kbCopy(kb), nil
+	return b.kbView(kb), nil
 }
 
 // DeleteKnowledgeBase deletes a knowledge base and cascade-cleans every
@@ -127,6 +128,7 @@ func (b *InMemoryBackend) DeleteKnowledgeBase(_ context.Context, kbID string) er
 	}
 
 	delete(b.kbsByName, kb.Name)
+	delete(b.transient, "kb/"+kbID)
 	b.knowledgeBases.Delete(kbID)
 	delete(b.tags, kb.KnowledgeBaseARN)
 	b.resourcePolicies.Delete(kb.KnowledgeBaseARN)
@@ -156,7 +158,7 @@ func (b *InMemoryBackend) ListKnowledgeBases(
 		out = append(out, &KnowledgeBaseSummary{
 			KnowledgeBaseID: kb.KnowledgeBaseID,
 			Name:            kb.Name,
-			Status:          kb.Status,
+			Status:          b.statusOf("kb/"+kb.KnowledgeBaseID, kb.Status),
 			Description:     kb.Description,
 			UpdatedAt:       kb.UpdatedAt,
 		})
@@ -194,13 +196,18 @@ func kbDocumentIdentifierKey(id KBDocumentIdentifier) (string, error) {
 
 // IngestKnowledgeBaseDocuments ingests documents into a knowledge base data source.
 func (b *InMemoryBackend) IngestKnowledgeBaseDocuments(
-	_ context.Context, kbID, dsID string, docs []KBDocument,
+	_ context.Context, kbID, dsID, clientToken string, docs []KBDocument,
 ) ([]KBDocumentDetail, error) {
 	b.mu.Lock("IngestKnowledgeBaseDocuments")
 	defer b.mu.Unlock()
 
 	if !b.dataSources.Has(dsKey(kbID, dsID)) {
 		return nil, fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
+	}
+
+	replayKey := docRequestKey("ingest", kbID, dsID, clientToken)
+	if prior, ok := b.docRequests[replayKey]; ok && clientToken != "" {
+		return slices.Clone(prior), nil
 	}
 
 	out := make([]KBDocumentDetail, 0, len(docs))
@@ -221,6 +228,8 @@ func (b *InMemoryBackend) IngestKnowledgeBaseDocuments(
 		b.kbDocuments.Put(detail)
 		out = append(out, *detail)
 	}
+
+	b.recordDocRequest(replayKey, clientToken, out)
 
 	return out, nil
 }
@@ -253,10 +262,15 @@ func (b *InMemoryBackend) GetKnowledgeBaseDocuments(
 
 // DeleteKnowledgeBaseDocuments deletes documents from a knowledge base data source.
 func (b *InMemoryBackend) DeleteKnowledgeBaseDocuments(
-	_ context.Context, kbID, dsID string, ids []KBDocumentIdentifier,
+	_ context.Context, kbID, dsID, clientToken string, ids []KBDocumentIdentifier,
 ) ([]KBDocumentDetail, error) {
 	b.mu.Lock("DeleteKnowledgeBaseDocuments")
 	defer b.mu.Unlock()
+
+	replayKey := docRequestKey("delete", kbID, dsID, clientToken)
+	if prior, ok := b.docRequests[replayKey]; ok && clientToken != "" {
+		return slices.Clone(prior), nil
+	}
 
 	out := make([]KBDocumentDetail, 0, len(ids))
 
@@ -286,6 +300,8 @@ func (b *InMemoryBackend) DeleteKnowledgeBaseDocuments(
 		d.Status = docStatusDeleting
 		out = append(out, d)
 	}
+
+	b.recordDocRequest(replayKey, clientToken, out)
 
 	return out, nil
 }

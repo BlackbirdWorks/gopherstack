@@ -73,6 +73,22 @@ func withRequestTarget(ctx context.Context, secretARN, database string) context.
 	return context.WithValue(ctx, requestTargetKey{}, requestTarget{SecretARN: secretARN, Database: database})
 }
 
+type continueAfterTimeoutKey struct{}
+
+func withContinueAfterTimeout(ctx context.Context, on bool) context.Context {
+	if !on {
+		return ctx
+	}
+
+	return context.WithValue(ctx, continueAfterTimeoutKey{}, true)
+}
+
+func continueAfterTimeout(ctx context.Context) bool {
+	on, _ := ctx.Value(continueAfterTimeoutKey{}).(bool)
+
+	return on
+}
+
 func getRequestTarget(ctx context.Context) requestTarget {
 	t, _ := ctx.Value(requestTargetKey{}).(requestTarget)
 

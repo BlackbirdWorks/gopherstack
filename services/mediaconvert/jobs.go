@@ -185,22 +185,35 @@ func (b *InMemoryBackend) CreateJobFull(
 // params, resolving the queue ARN and defaulting StatusUpdateInterval/
 // SimulateReservedQueue along the way. Caller must hold the write lock.
 func (b *InMemoryBackend) buildNewJobLocked(p jobCreateParams) (*Job, error) {
-	queueArn := ""
+	if p.priority < priorityMin || p.priority > priorityMax {
+		return nil, fmt.Errorf("%w: priority must be between %d and %d", ErrValidation, priorityMin, priorityMax)
+	}
 
 	// CreateJobTemplateInput.Queue: "The queue that jobs created from this template are assigned to".
-	if p.queue == "" && p.jobTemplate != "" {
-		if jt, ok := b.jobTemplates.Get(p.jobTemplate[strings.LastIndex(p.jobTemplate, "/")+1:]); ok {
+	if p.jobTemplate != "" {
+		jt, ok := b.jobTemplates.Get(p.jobTemplate[strings.LastIndex(p.jobTemplate, "/")+1:])
+		if !ok {
+			return nil, fmt.Errorf("%w: job template %s not found", ErrNotFound, p.jobTemplate)
+		}
+
+		if p.queue == "" {
 			p.queue = jt.Queue
 		}
 	}
 
-	if p.queue != "" {
-		resolved, err := b.resolveQueueLocked(p.queue)
-		if err != nil {
-			return nil, err
-		}
+	queueRef := p.queue
+	if queueRef == "" {
+		queueRef = defaultQueueName
+	}
 
-		queueArn = resolved.Arn
+	resolved, err := b.resolveQueueLocked(queueRef)
+	if err != nil {
+		return nil, err
+	}
+
+	queueArn := resolved.Arn
+	if p.queue == "" {
+		p.queue = queueArn
 	}
 
 	accelStatus := "NOT_APPLICABLE"

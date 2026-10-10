@@ -227,6 +227,7 @@ func TestIncreaseReplicaCount(t *testing.T) {
 				_, err := client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
 					ReplicationGroupId:          aws.String("rg-inc-rep"),
 					ReplicationGroupDescription: aws.String("test"),
+					NumCacheClusters:            aws.Int32(1),
 				})
 				require.NoError(t, err)
 			},
@@ -250,6 +251,7 @@ func TestIncreaseReplicaCount(t *testing.T) {
 
 			out, err := client.IncreaseReplicaCount(t.Context(), &elasticachesdk.IncreaseReplicaCountInput{
 				ReplicationGroupId: aws.String(tt.rgID),
+				NewReplicaCount:    aws.Int32(2),
 				ApplyImmediately:   aws.Bool(true),
 			})
 
@@ -261,6 +263,9 @@ func TestIncreaseReplicaCount(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.rgID, aws.ToString(out.ReplicationGroup.ReplicationGroupId))
+			require.Len(t, out.ReplicationGroup.NodeGroups, 1)
+			assert.Len(t, out.ReplicationGroup.NodeGroups[0].NodeGroupMembers, 3)
+			assert.Len(t, out.ReplicationGroup.MemberClusters, 3)
 		})
 	}
 }
@@ -286,6 +291,7 @@ func TestDecreaseReplicaCount(t *testing.T) {
 				_, err := client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
 					ReplicationGroupId:          aws.String("rg-dec-rep"),
 					ReplicationGroupDescription: aws.String("test"),
+					NumCacheClusters:            aws.Int32(3),
 				})
 				require.NoError(t, err)
 			},
@@ -309,6 +315,7 @@ func TestDecreaseReplicaCount(t *testing.T) {
 
 			out, err := client.DecreaseReplicaCount(t.Context(), &elasticachesdk.DecreaseReplicaCountInput{
 				ReplicationGroupId: aws.String(tt.rgID),
+				NewReplicaCount:    aws.Int32(1),
 				ApplyImmediately:   aws.Bool(true),
 			})
 
@@ -320,6 +327,8 @@ func TestDecreaseReplicaCount(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.rgID, aws.ToString(out.ReplicationGroup.ReplicationGroupId))
+			require.Len(t, out.ReplicationGroup.NodeGroups, 1)
+			assert.Len(t, out.ReplicationGroup.NodeGroups[0].NodeGroupMembers, 2)
 		})
 	}
 }
@@ -409,6 +418,7 @@ func TestHandler_TestFailoverReplicationGroup(t *testing.T) {
 				_, err := client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
 					ReplicationGroupId:          aws.String("failover-rg"),
 					ReplicationGroupDescription: aws.String("Failover RG"),
+					NumCacheClusters:            aws.Int32(2),
 				})
 				require.NoError(t, err)
 			},
@@ -443,6 +453,14 @@ func TestHandler_TestFailoverReplicationGroup(t *testing.T) {
 
 			require.NoError(t, err)
 			require.NotNil(t, out.ReplicationGroup)
+			require.Len(t, out.ReplicationGroup.NodeGroups, 1)
+
+			roles := map[string]string{}
+			for _, m := range out.ReplicationGroup.NodeGroups[0].NodeGroupMembers {
+				roles[aws.ToString(m.CacheClusterId)] = aws.ToString(m.CurrentRole)
+			}
+
+			assert.Equal(t, map[string]string{"failover-rg-001": "replica", "failover-rg-002": "primary"}, roles)
 		})
 	}
 }

@@ -85,7 +85,48 @@ func (b *InMemoryBackend) markCreatingLocked(c *Cluster) {
 // used for every read/write response that surfaces a Cluster on the wire.
 func (b *InMemoryBackend) clusterView(c *Cluster) *Cluster {
 	cp := cloneCluster(c)
-	cp.Status = overlayStatus(b.now(), c.Status, c.PendingStatus, c.AvailableAt)
+	now := b.now()
+	cp.Status = overlayStatus(now, c.Status, c.PendingStatus, c.AvailableAt)
+	cp.ReshardingProgress = reshardingProgress(c, now)
 
 	return cp
+}
+
+const (
+	statusUpdating  = "updating"
+	percentComplete = 100
+)
+
+// startReshardingLocked records an online resharding window on c when a
+// lifecycle delay is configured. Must hold b.mu.
+func (b *InMemoryBackend) startReshardingLocked(c *Cluster) {
+	until := b.pendingUntil()
+	if until.IsZero() {
+		return
+	}
+
+	c.ReshardingStartedAt = b.now()
+	c.ReshardingUntil = until
+
+	if c.PendingStatus == "" || !b.now().Before(c.AvailableAt) {
+		c.PendingStatus = statusUpdating
+		c.AvailableAt = until
+	}
+}
+
+// reshardingProgress returns the slot-migration percentage for c at now, or
+// nil when no resharding is in flight.
+func reshardingProgress(c *Cluster, now time.Time) *float64 {
+	if c.ReshardingUntil.IsZero() || !now.Before(c.ReshardingUntil) {
+		return nil
+	}
+
+	total := c.ReshardingUntil.Sub(c.ReshardingStartedAt)
+	if total <= 0 {
+		return nil
+	}
+
+	pct := float64(now.Sub(c.ReshardingStartedAt)) / float64(total) * percentComplete
+
+	return &pct
 }

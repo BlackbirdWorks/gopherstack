@@ -20,6 +20,7 @@ func (h *Handler) dispatchAssumeRoleWithWebIdentity(
 		WebIdentityToken: r.FormValue("WebIdentityToken"),
 		ProviderID:       r.FormValue("ProviderId"),
 		Policy:           r.FormValue("Policy"),
+		SourceIP:         remoteIP(r),
 	}
 
 	durationStr := r.FormValue("DurationSeconds")

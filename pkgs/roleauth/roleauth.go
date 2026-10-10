@@ -67,6 +67,8 @@ func ResourcePolicyAction(arn string) (string, bool) {
 		return "sqs:SendMessage", true
 	case "sns":
 		return "sns:Publish", true
+	case "logs":
+		return "logs:PutLogEvents", true
 	default:
 		return "", false
 	}
@@ -107,6 +109,8 @@ func TargetAction(targetARN string) (string, bool) {
 		return "ecs:RunTask", true
 	case "sagemaker":
 		return "sagemaker:StartPipelineExecution", true
+	case "execute-api":
+		return "execute-api:Invoke", true
 	case "events":
 		if strings.HasPrefix(res, "api-destination/") {
 			return "events:InvokeApiDestination", true

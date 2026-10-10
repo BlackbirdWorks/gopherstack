@@ -486,7 +486,7 @@ func TestUpdateStack_CapabilitiesUpdated(t *testing.T) {
 	updated, err := b.UpdateStack(
 		t.Context(),
 		"ucap-stack",
-		simpleTemplate,
+		modifiedTemplate,
 		nil,
 		cloudformation.StackOptions{
 			Capabilities: []string{"CAPABILITY_IAM", "CAPABILITY_AUTO_EXPAND"},
@@ -606,7 +606,7 @@ func TestStackLifecycle_CreateUpdateDelete(t *testing.T) {
 	updated, err := b.UpdateStack(
 		t.Context(),
 		"lifecycle",
-		simpleTemplate,
+		modifiedTemplate,
 		nil,
 		cloudformation.StackOptions{},
 	)
@@ -884,11 +884,13 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 	_, err = b.CreateStackInstances(t.Context(), "my-ss", accounts, nil, regions, "")
 	require.NoError(t, err)
 
+	b.WaitForStackSetOperations()
 	instances, err := b.ListStackInstances("my-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	assert.Len(t, instances.Data, 4) // 2 accounts × 2 regions
 
 	// Describe a specific instance.
+	b.WaitForStackSetOperations()
 	inst, err := b.DescribeStackInstance("my-ss", "111111111111", "us-east-1")
 	require.NoError(t, err)
 	assert.Equal(t, "CURRENT", inst.Status)
@@ -902,6 +904,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 	_, err = b.DeleteStackInstances(t.Context(), "my-ss", accounts, nil, regions, false, "")
 	require.NoError(t, err)
 
+	b.WaitForStackSetOperations()
 	remaining, err := b.ListStackInstances("my-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, remaining.Data)

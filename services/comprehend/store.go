@@ -384,7 +384,7 @@ func (b *InMemoryBackend) DeleteResource(resourceArn, resourceType string) error
 	}
 
 	if isTrainingResourceType(resource.Type) &&
-		(resource.Status == statusSubmitted || resource.Status == statusInProgress) {
+		(resource.Status == statusSubmitted || resource.Status == statusModelTraining) {
 		return fmt.Errorf(
 			"%w: resource %q cannot be deleted in status %s",
 			ErrConflict, resourceArn, resource.Status,
@@ -437,6 +437,7 @@ func (b *InMemoryBackend) GetFlywheelIteration(id string) (*FlywheelIteration, e
 	switch iteration.FlywheelIterationStatus {
 	case statusFlywheelIterationTraining:
 		iteration.FlywheelIterationStatus = statusFlywheelIterationEvaluating
+		b.createFlywheelModelLocked(iteration)
 	case statusFlywheelIterationEvaluating:
 		iteration.FlywheelIterationStatus = statusCompleted
 		iteration.EndTime = time.Now().UTC()
@@ -619,7 +620,7 @@ func (b *InMemoryBackend) StopTrainingResource(resourceArn, resourceType string)
 		return fmt.Errorf("%w: resource %q", ErrNotFound, resourceArn)
 	}
 
-	if resource.Status == statusSubmitted || resource.Status == statusInProgress {
+	if resource.Status == statusSubmitted || resource.Status == statusModelTraining {
 		resource.Status = statusStopped
 		resource.UpdatedAt = time.Now().UTC()
 	}
@@ -692,19 +693,20 @@ func activeJobUsesModel(jobs []*Job, resourceType, resourceArn string) bool {
 }
 
 // advanceTrainingResource steps a classifier/recognizer one lifecycle state
-// forward on each Describe call: SUBMITTED → IN_PROGRESS → TRAINED (or FAILED).
+// forward on each Describe call: SUBMITTED → TRAINING → TRAINED (or IN_ERROR),
+// the types.ModelStatus vocabulary.
 func advanceTrainingResource(resource *Resource) {
 	if !isTrainingResourceType(resource.Type) {
 		return
 	}
 	switch resource.Status {
 	case statusSubmitted:
-		resource.Status = statusInProgress
+		resource.Status = statusModelTraining
 		resource.UpdatedAt = time.Now().UTC()
 		resource.TrainingStartTime = resource.UpdatedAt
-	case statusInProgress:
+	case statusModelTraining:
 		if strings.Contains(strings.ToLower(resource.Name), failedMarker) {
-			resource.Status = statusFailed
+			resource.Status = statusModelInError
 		} else {
 			resource.Status = statusTrained
 		}

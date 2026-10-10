@@ -263,7 +263,7 @@ func TestPreTokenGenerationVersionedOverrides(t *testing.T) {
 				assert.Equal(t, preTokenUser, access["username"])
 				assert.NotEqual(t, "forged", access["client_id"])
 				assert.NotEqual(t, "forged", access["scope"])
-				assert.NotContains(t, access, "origin_jti")
+				assert.NotEqual(t, "forged", access["origin_jti"], "origin_jti is server-assigned")
 				assert.NotContains(t, access, "version")
 				assert.NotContains(t, access, "aud", "aud only accepted when it equals the client id")
 

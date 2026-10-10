@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -572,21 +573,21 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrNotFound):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "ResourceNotFoundException",
-			Message: err.Error(),
+			Message: errMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusNotFound, payload)
 	case errors.Is(err, ErrAlreadyExists):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "ConflictException",
-			Message: err.Error(),
+			Message: errMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusConflict, payload)
 	case errors.Is(err, ErrValidation):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ValidationException",
-			Message: err.Error(),
+			Type:    errCodeValidation,
+			Message: errMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
@@ -597,19 +598,35 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ValidationException",
-			Message: err.Error(),
+			Type:    errCodeValidation,
+			Message: errMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	default:
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "InternalServerException",
-			Message: err.Error(),
+			Message: errMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusInternalServerError, payload)
 	}
+}
+
+func errMessage(err error) string {
+	msg := err.Error()
+
+	for stripped := true; stripped; {
+		stripped = false
+
+		for _, code := range []string{errCodeValidation, "ResourceNotFoundException", "ConflictException"} {
+			if rest, ok := strings.CutPrefix(msg, code+": "); ok {
+				msg, stripped = rest, true
+			}
+		}
+	}
+
+	return msg
 }
 
 type emptyOutput struct{}
@@ -620,6 +637,45 @@ func voidOp(fn func() error) (*emptyOutput, error) {
 	}
 
 	return &emptyOutput{}, nil
+}
+
+const (
+	maxListResults    = 100
+	errCodeValidation = "ValidationException"
+)
+
+func decodePageToken(tok string) (string, error) {
+	if tok == "" {
+		return "", nil
+	}
+
+	raw, err := base64.RawURLEncoding.DecodeString(tok)
+	if err != nil || len(raw) == 0 {
+		return "", fmt.Errorf("%w: Invalid pagination token", ErrValidation)
+	}
+
+	return string(raw), nil
+}
+
+func encodePageToken(key string) string {
+	if key == "" {
+		return ""
+	}
+
+	return base64.RawURLEncoding.EncodeToString([]byte(key))
+}
+
+func checkMaxResults(s string) (int, error) {
+	if s == "" {
+		return 0, nil
+	}
+
+	n := parseMaxResults(s)
+	if n < 1 || n > maxListResults {
+		return 0, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidation, maxListResults)
+	}
+
+	return n, nil
 }
 
 // decimalBase is the base for decimal integer parsing.

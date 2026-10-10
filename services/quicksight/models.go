@@ -2,6 +2,7 @@ package quicksight
 
 import (
 	"encoding/json"
+	"regexp"
 	"time"
 )
 
@@ -312,4 +313,46 @@ type backendSnapshot struct {
 	SelfUpgradeConfig map[string]string `json:"selfUpgradeConfig"`
 
 	Version int `json:"version"`
+}
+
+var ingestionIDRE = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,128}$`)
+
+// ingestionView overlays COMPLETED on a RUNNING ingestion once ingestionDelay has elapsed since creation.
+func (b *InMemoryBackend) ingestionView(i *storedIngestion) *Ingestion {
+	v := i.toIngestion()
+	if v.IngestionStatus != statusRunning {
+		return v
+	}
+
+	if elapsed := time.Since(i.CreatedTime); elapsed >= b.ingestionDelay {
+		v.IngestionStatus = statusCompleted
+		v.IngestionTimeInSeconds = int64(b.ingestionDelay / time.Second)
+	}
+
+	return v
+}
+
+// SetIngestionDelay sets how long a manual ingestion stays RUNNING before it reports COMPLETED.
+func (b *InMemoryBackend) SetIngestionDelay(d time.Duration) {
+	b.mu.Lock("SetIngestionDelay")
+	defer b.mu.Unlock()
+
+	b.ingestionDelay = d
+}
+
+// creationStatus reports CREATION_IN_PROGRESS until creationDelay has elapsed since updated.
+func (b *InMemoryBackend) creationStatus(updated time.Time) string {
+	if b.creationDelay > 0 && time.Since(updated) < b.creationDelay {
+		return statusCreationInProgress
+	}
+
+	return statusCreationSuccessful
+}
+
+// SetCreationDelay sets how long a new dashboard, analysis or data source reports CREATION_IN_PROGRESS.
+func (b *InMemoryBackend) SetCreationDelay(d time.Duration) {
+	b.mu.Lock("SetCreationDelay")
+	defer b.mu.Unlock()
+
+	b.creationDelay = d
 }

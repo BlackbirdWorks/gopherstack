@@ -189,7 +189,7 @@ func (h *Handler) getWirelessGatewayFirmwareInformation(c *echo.Context, id stri
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"LoRaWAN": map[string]any{
+		deviceTypeLoRaWAN: map[string]any{
 			"CurrentVersion": map[string]any{
 				"PackageVersion": gw.FirmwareVersion,
 				"Model":          gw.FirmwareModel,

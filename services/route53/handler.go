@@ -189,7 +189,7 @@ func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion
 // TestExtractOperation_SDKRouteTable in handler_paths_sdk_diff_test.go can
 // exercise it directly against every real op's authoritative method+path.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	path := c.Request().URL.Path
+	path := trimTrailingSlash(c.Request().URL.Path)
 	method := c.Request().Method
 
 	if path == route53HostedZone {
@@ -622,7 +622,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 }
 
 func (h *Handler) IAMAction(r *http.Request) string {
-	path := r.URL.Path
+	path := trimTrailingSlash(r.URL.Path)
 	if !strings.HasPrefix(path, route53PathPrefix) {
 		return ""
 	}
@@ -786,13 +786,22 @@ func (h *Handler) routeNewOpsTP(c *echo.Context, path, method string) (bool, err
 	}
 }
 
+// trimTrailingSlash strips the trailing slash botocore appends (".../rrset/"); the SDK routes have none.
+func trimTrailingSlash(p string) string {
+	if len(p) > 1 {
+		return strings.TrimRight(p, "/")
+	}
+
+	return p
+}
+
 // Handler returns the Echo handler function for Route 53 requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
 
-		path := c.Request().URL.Path
+		path := trimTrailingSlash(c.Request().URL.Path)
 		method := c.Request().Method
 
 		log.DebugContext(ctx, "Route53 request", "method", method, "path", path)
@@ -953,6 +962,7 @@ var backendErrorTable = []backendErrorMapping{
 	{ErrTrafficPolicyNotFound, "NoSuchTrafficPolicy", http.StatusNotFound},
 	{ErrTrafficPolicyInstNotFound, "NoSuchTrafficPolicyInstance", http.StatusNotFound},
 	{ErrInvalidInput, "InvalidInput", http.StatusBadRequest},
+	{ErrInvalidDomainName, "InvalidDomainName", http.StatusBadRequest},
 	{ErrInvalidAction, "InvalidChangeBatch", http.StatusBadRequest},
 	{ErrChangeNotFound, "NoSuchChange", http.StatusNotFound},
 	{ErrNoSuchGeoLocation, "NoSuchGeoLocation", http.StatusNotFound},
@@ -998,7 +1008,7 @@ var backendErrorTable = []backendErrorMapping{
 func handleBackendError(c *echo.Context, err error) error {
 	for _, m := range backendErrorTable {
 		if errors.Is(err, m.sentinel) {
-			return xmlError(c, m.status, m.code, err.Error())
+			return xmlError(c, m.status, m.code, strings.TrimPrefix(err.Error(), m.sentinel.Error()+": "))
 		}
 	}
 

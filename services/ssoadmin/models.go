@@ -16,7 +16,7 @@ const (
 const (
 	identityStoreIDPrefixLen = 8
 	identityStoreIDMaxLen    = 12
-	uuidShortLen             = 8
+	resourceIDLen            = 16
 
 	// Instance/application status constants.
 	instanceStatusActive           = "ACTIVE"
@@ -126,6 +126,7 @@ type Instance struct {
 	PermissionSetsEnabled *bool             `json:"PermissionSetsEnabled,omitempty"`
 	EncryptionKeyType     string            `json:"EncryptionKeyType,omitempty"`
 	EncryptionKmsKeyArn   string            `json:"EncryptionKmsKeyArn,omitempty"`
+	PrimaryRegion         string            `json:"PrimaryRegion,omitempty"`
 	IdentityStoreID       string            `json:"IdentityStoreId"`
 	InstanceArn           string            `json:"InstanceArn"`
 	Name                  string            `json:"Name"`

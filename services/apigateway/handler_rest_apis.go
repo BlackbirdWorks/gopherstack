@@ -63,6 +63,8 @@ func (h *Handler) deleteRestAPIAction(b []byte) (int, any, error) {
 		return 0, nil, err
 	}
 
+	h.respCache.flushAPI(input.RestAPIID)
+
 	for _, d := range depls {
 		h.trieCache.Delete(d.ID)
 	}

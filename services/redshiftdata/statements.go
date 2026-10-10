@@ -43,6 +43,10 @@ func (b *InMemoryBackend) ExecuteStatement(
 	b.mu.Lock("ExecuteStatement")
 	defer b.mu.Unlock()
 
+	if err = rejectClosedSession(b.storeFor(region).statements, sessionID, time.Now()); err != nil {
+		return nil, err
+	}
+
 	hasResultSet := sqlHasResultSet(sql)
 	caller := callerFromContext(ctx)
 
@@ -117,6 +121,10 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 
 	b.mu.Lock("BatchExecuteStatement")
 	defer b.mu.Unlock()
+
+	if err = rejectClosedSession(b.storeFor(region).statements, sessionID, time.Now()); err != nil {
+		return nil, err
+	}
 
 	now := time.Now()
 

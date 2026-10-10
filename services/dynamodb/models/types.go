@@ -40,6 +40,7 @@ type CreateTableInput struct {
 	StreamSpecification       any                    `json:"StreamSpecification,omitempty"`
 	SSESpecification          *SSESpecification      `json:"SSESpecification,omitempty"`
 	OnDemandThroughput        *OnDemandThroughput    `json:"OnDemandThroughput,omitempty"`
+	WarmThroughput            *WarmThroughput        `json:"WarmThroughput,omitempty"`
 	DeletionProtectionEnabled *bool                  `json:"DeletionProtectionEnabled,omitempty"`
 	TableName                 string                 `json:"TableName"`
 	ResourcePolicy            string                 `json:"ResourcePolicy,omitempty"`
@@ -49,6 +50,7 @@ type CreateTableInput struct {
 	AttributeDefinitions      []AttributeDefinition  `json:"AttributeDefinitions"`
 	GlobalSecondaryIndexes    []GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
 	LocalSecondaryIndexes     []LocalSecondaryIndex  `json:"LocalSecondaryIndexes,omitempty"`
+	VectorIndexes             []VectorIndex          `json:"VectorIndexes,omitempty"`
 	Tags                      []Tag                  `json:"Tags,omitempty"`
 }
 
@@ -65,6 +67,21 @@ type SSESpecification struct {
 type OnDemandThroughput struct {
 	MaxReadRequestUnits  *int64 `json:"MaxReadRequestUnits,omitempty"`
 	MaxWriteRequestUnits *int64 `json:"MaxWriteRequestUnits,omitempty"`
+}
+
+// WarmThroughput is the wire format for requested warm throughput on a table
+// or global secondary index.
+type WarmThroughput struct {
+	ReadUnitsPerSecond  *int64 `json:"ReadUnitsPerSecond,omitempty"`
+	WriteUnitsPerSecond *int64 `json:"WriteUnitsPerSecond,omitempty"`
+}
+
+// WarmThroughputDescription is the wire format for a table's or global
+// secondary index's WarmThroughput description.
+type WarmThroughputDescription struct {
+	ReadUnitsPerSecond  *int64 `json:"ReadUnitsPerSecond,omitempty"`
+	WriteUnitsPerSecond *int64 `json:"WriteUnitsPerSecond,omitempty"`
+	Status              string `json:"Status,omitempty"`
 }
 
 // TableClassSummaryDescription is the wire format for TableDescription's
@@ -99,6 +116,7 @@ type TableDescription struct {
 	BillingModeSummary        *BillingModeSummaryDescription    `json:"BillingModeSummary,omitempty"`
 	SSEDescription            *SSEDescription                   `json:"SSEDescription,omitempty"`
 	OnDemandThroughput        *OnDemandThroughput               `json:"OnDemandThroughput,omitempty"`
+	WarmThroughput            *WarmThroughputDescription        `json:"WarmThroughput,omitempty"`
 	TableClassSummary         *TableClassSummaryDescription     `json:"TableClassSummary,omitempty"`
 	LatestStreamArn           string                            `json:"LatestStreamArn,omitempty"`
 	TableStatus               string                            `json:"TableStatus"`
@@ -111,7 +129,9 @@ type TableDescription struct {
 	GlobalSecondaryIndexes    []GlobalSecondaryIndexDescription `json:"GlobalSecondaryIndexes,omitempty"`
 	AttributeDefinitions      []AttributeDefinition             `json:"AttributeDefinitions"`
 	LocalSecondaryIndexes     []LocalSecondaryIndexDescription  `json:"LocalSecondaryIndexes,omitempty"`
-	Replicas                  []ReplicaDescription              `json:"Replicas,omitempty"`
+	Replicas                  []ReplicaWire                     `json:"Replicas,omitempty"`
+	GlobalTableWitnesses      []GlobalTableWitness              `json:"GlobalTableWitnesses,omitempty"`
+	VectorIndexes             []VectorIndexDescription          `json:"VectorIndexes,omitempty"`
 	KeySchema                 []KeySchemaElement                `json:"KeySchema"`
 	CreationDateTime          float64                           `json:"CreationDateTime,omitempty"`
 	TableSizeBytes            int64                             `json:"TableSizeBytes"`
@@ -120,9 +140,10 @@ type TableDescription struct {
 }
 
 type SSEDescription struct {
-	Status          string `json:"Status,omitempty"`
-	SSEType         string `json:"SSEType,omitempty"`
-	KMSMasterKeyArn string `json:"KMSMasterKeyArn,omitempty"`
+	Status                         string  `json:"Status,omitempty"`
+	SSEType                        string  `json:"SSEType,omitempty"`
+	KMSMasterKeyArn                string  `json:"KMSMasterKeyArn,omitempty"`
+	InaccessibleEncryptionDateTime float64 `json:"InaccessibleEncryptionDateTime,omitempty"`
 }
 
 // BillingModeSummaryDescription describes the billing mode of a DynamoDB table.
@@ -140,6 +161,7 @@ type ProvisionedThroughputDescription struct {
 
 type GlobalSecondaryIndex struct {
 	ProvisionedThroughput ProvisionedThroughput `json:"ProvisionedThroughput"`
+	WarmThroughput        *WarmThroughput       `json:"WarmThroughput,omitempty"`
 	IndexStatusTimer      *time.Timer           `json:"-"`
 	IndexName             string                `json:"IndexName"`
 	IndexStatus           string                `json:"IndexStatus,omitempty"`
@@ -148,6 +170,7 @@ type GlobalSecondaryIndex struct {
 }
 
 type GlobalSecondaryIndexDescription struct {
+	WarmThroughput        *WarmThroughputDescription       `json:"WarmThroughput,omitempty"`
 	IndexName             string                           `json:"IndexName"`
 	IndexArn              string                           `json:"IndexArn"`
 	IndexStatus           string                           `json:"IndexStatus"`
@@ -187,6 +210,7 @@ type ProvisionedThroughput struct {
 // UpdateTableInput is the wire-format for a DynamoDB UpdateTable request.
 type UpdateTableInput struct {
 	ProvisionedThroughput       *ProvisionedThroughput       `json:"ProvisionedThroughput,omitempty"`
+	WarmThroughput              *WarmThroughput              `json:"WarmThroughput,omitempty"`
 	StreamSpecification         *StreamSpecificationInput    `json:"StreamSpecification,omitempty"`
 	SSESpecification            *SSESpecification            `json:"SSESpecification,omitempty"`
 	DeletionProtectionEnabled   *bool                        `json:"DeletionProtectionEnabled,omitempty"`
@@ -197,6 +221,8 @@ type UpdateTableInput struct {
 	AttributeDefinitions        []AttributeDefinition        `json:"AttributeDefinitions,omitempty"`
 	GlobalSecondaryIndexUpdates []GlobalSecondaryIndexUpdate `json:"GlobalSecondaryIndexUpdates,omitempty"`
 	ReplicaUpdates              []ReplicaUpdate              `json:"ReplicaUpdates,omitempty"`
+	GlobalTableWitnessUpdates   []WitnessUpdate              `json:"GlobalTableWitnessUpdates,omitempty"`
+	VectorIndexUpdates          []VectorIndexUpdate          `json:"VectorIndexUpdates,omitempty"`
 }
 
 // ReplicaUpdate describes a create, update, or delete action for a Global Tables v2 replica.
@@ -208,19 +234,72 @@ type ReplicaUpdate struct {
 
 // CreateReplicationGroupMemberAction specifies parameters for creating a new replica.
 type CreateReplicationGroupMemberAction struct {
-	RegionName string `json:"RegionName"`
+	ProvisionedThroughputOverride *ProvisionedThroughputOverrideWire `json:"ProvisionedThroughputOverride,omitempty"`
+	OnDemandThroughputOverride    *OnDemandThroughputOverrideWire    `json:"OnDemandThroughputOverride,omitempty"`
+	KMSMasterKeyID                *string                            `json:"KMSMasterKeyId,omitempty"`
+	RegionName                    string                             `json:"RegionName"`
+	TableClassOverride            string                             `json:"TableClassOverride,omitempty"`
+	GlobalSecondaryIndexes        []ReplicaGSIWire                   `json:"GlobalSecondaryIndexes,omitempty"`
 }
 
 // UpdateReplicationGroupMemberAction specifies per-replica setting overrides.
 type UpdateReplicationGroupMemberAction struct {
-	ProvisionedReadCapacityUnits *int64 `json:"ProvisionedReadCapacityUnits,omitempty"`
-	RegionName                   string `json:"RegionName"`
-	TableClassOverride           string `json:"TableClassOverride,omitempty"`
+	ProvisionedThroughputOverride *ProvisionedThroughputOverrideWire `json:"ProvisionedThroughputOverride,omitempty"`
+	OnDemandThroughputOverride    *OnDemandThroughputOverrideWire    `json:"OnDemandThroughputOverride,omitempty"`
+	KMSMasterKeyID                *string                            `json:"KMSMasterKeyId,omitempty"`
+	RegionName                    string                             `json:"RegionName"`
+	TableClassOverride            string                             `json:"TableClassOverride,omitempty"`
+	GlobalSecondaryIndexes        []ReplicaGSIWire                   `json:"GlobalSecondaryIndexes,omitempty"`
+}
+
+// WitnessUpdate is one GlobalTableWitnessGroupUpdate (Create or Delete of a witness Region).
+type WitnessUpdate struct {
+	Create *WitnessRegionAction `json:"Create,omitempty"`
+	Delete *WitnessRegionAction `json:"Delete,omitempty"`
+}
+
+// WitnessRegionAction names the witness Region of a Create/DeleteGlobalTableWitnessGroupMemberAction.
+type WitnessRegionAction struct {
+	RegionName string `json:"RegionName"`
 }
 
 // DeleteReplicationGroupMemberAction specifies the region of the replica to delete.
 type DeleteReplicationGroupMemberAction struct {
 	RegionName string `json:"RegionName"`
+}
+
+// ReplicaWire is types.ReplicaDescription as it appears in TableDescription responses (SDK member names).
+type ReplicaWire struct {
+	OnDemandThroughputOverride    *OnDemandThroughputOverrideWire    `json:"OnDemandThroughputOverride,omitempty"`
+	ProvisionedThroughputOverride *ProvisionedThroughputOverrideWire `json:"ProvisionedThroughputOverride,omitempty"`
+	ReplicaTableClassSummary      *TableClassSummaryDescription      `json:"ReplicaTableClassSummary,omitempty"`
+	KMSMasterKeyID                string                             `json:"KMSMasterKeyId,omitempty"`
+	RegionName                    string                             `json:"RegionName,omitempty"`
+	ReplicaArn                    string                             `json:"ReplicaArn,omitempty"`
+	ReplicaStatus                 string                             `json:"ReplicaStatus,omitempty"`
+	GlobalSecondaryIndexes        []ReplicaGSIWire                   `json:"GlobalSecondaryIndexes,omitempty"`
+}
+
+// OnDemandThroughputOverrideWire is types.OnDemandThroughputOverride.
+type OnDemandThroughputOverrideWire struct {
+	MaxReadRequestUnits *int64 `json:"MaxReadRequestUnits,omitempty"`
+}
+
+// ProvisionedThroughputOverrideWire is types.ProvisionedThroughputOverride.
+type ProvisionedThroughputOverrideWire struct {
+	ReadCapacityUnits *int64 `json:"ReadCapacityUnits,omitempty"`
+}
+
+// ReplicaGSIWire is types.ReplicaGlobalSecondaryIndexDescription.
+type ReplicaGSIWire struct {
+	ProvisionedThroughputOverride *ProvisionedThroughputOverrideWire `json:"ProvisionedThroughputOverride,omitempty"`
+	IndexName                     string                             `json:"IndexName"`
+}
+
+// GlobalTableWitness is a witness Region of an MRSC global table.
+type GlobalTableWitness struct {
+	RegionName    string `json:"RegionName"`
+	WitnessStatus string `json:"WitnessStatus,omitempty"`
 }
 
 // ReplicaGSIOverride stores per-replica read-capacity override for one GSI.
@@ -231,6 +310,8 @@ type ReplicaGSIOverride struct {
 
 type ReplicaDescription struct {
 	ProvisionedReadCapacityUnits *int64               `json:"ProvisionedReadCapacityUnits,omitempty"`
+	OnDemandMaxReadRequestUnits  *int64               `json:"OnDemandMaxReadRequestUnits,omitempty"`
+	KMSMasterKeyID               string               `json:"KMSMasterKeyId,omitempty"`
 	RegionName                   string               `json:"RegionName,omitempty"`
 	ReplicaArn                   string               `json:"ReplicaArn,omitempty"`
 	ReplicaStatus                string               `json:"ReplicaStatus,omitempty"`
@@ -248,6 +329,7 @@ type GlobalSecondaryIndexUpdate struct {
 // CreateGlobalSecondaryIndexAction adds a new GSI.
 type CreateGlobalSecondaryIndexAction struct {
 	ProvisionedThroughput *ProvisionedThroughput `json:"ProvisionedThroughput,omitempty"`
+	WarmThroughput        *WarmThroughput        `json:"WarmThroughput,omitempty"`
 	IndexName             string                 `json:"IndexName"`
 	Projection            Projection             `json:"Projection"`
 	KeySchema             []KeySchemaElement     `json:"KeySchema"`
@@ -255,8 +337,9 @@ type CreateGlobalSecondaryIndexAction struct {
 
 // UpdateGlobalSecondaryIndexAction updates the throughput of an existing GSI.
 type UpdateGlobalSecondaryIndexAction struct {
-	ProvisionedThroughput ProvisionedThroughput `json:"ProvisionedThroughput"`
-	IndexName             string                `json:"IndexName"`
+	ProvisionedThroughput *ProvisionedThroughput `json:"ProvisionedThroughput,omitempty"`
+	WarmThroughput        *WarmThroughput        `json:"WarmThroughput,omitempty"`
+	IndexName             string                 `json:"IndexName"`
 }
 
 // DeleteGlobalSecondaryIndexAction removes an existing GSI.
@@ -813,6 +896,7 @@ type RestoreTableFromBackupInput struct {
 	BillingModeOverride           string                 `json:"BillingModeOverride,omitempty"`
 	GlobalSecondaryIndexOverride  []GlobalSecondaryIndex `json:"GlobalSecondaryIndexOverride,omitempty"`
 	LocalSecondaryIndexOverride   []LocalSecondaryIndex  `json:"LocalSecondaryIndexOverride,omitempty"`
+	VectorIndexOverride           []VectorIndex          `json:"VectorIndexOverride,omitempty"`
 }
 
 // RestoreTableFromBackupOutput is the wire format for RestoreTableFromBackup response.
@@ -838,6 +922,7 @@ type RestoreTableToPointInTimeInput struct {
 	BillingModeOverride           string                 `json:"BillingModeOverride,omitempty"`
 	GlobalSecondaryIndexOverride  []GlobalSecondaryIndex `json:"GlobalSecondaryIndexOverride,omitempty"`
 	LocalSecondaryIndexOverride   []LocalSecondaryIndex  `json:"LocalSecondaryIndexOverride,omitempty"`
+	VectorIndexOverride           []VectorIndex          `json:"VectorIndexOverride,omitempty"`
 	UseLatestRestorableTime       bool                   `json:"UseLatestRestorableTime,omitempty"`
 }
 

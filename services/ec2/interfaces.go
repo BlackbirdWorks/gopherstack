@@ -141,6 +141,15 @@ type Backend interface {
 	// cross-validated against the real Outposts backend when wired.
 	CreateSubnetWithOutpost(vpcID, cidr, az, outpostArn string) (*Subnet, error)
 
+	// CreateSubnetWithOptions creates a subnet from the full CreateSubnet request.
+	CreateSubnetWithOptions(p CreateSubnetParams) (*Subnet, error)
+
+	// SubnetIpv6Associations returns the IPv6 CIDR associations of a subnet.
+	SubnetIpv6Associations(subnetID string) []*SubnetCIDRAssociation
+
+	// ModifySubnetAttributes applies one ModifySubnetAttribute request.
+	ModifySubnetAttributes(subnetID string, u SubnetAttributeUpdate) error
+
 	// DeleteSubnet removes a subnet by ID.
 	DeleteSubnet(id string) error
 
@@ -354,6 +363,12 @@ type Backend interface {
 
 	// DescribeVpcEndpoints returns VPC endpoints, optionally filtered by IDs.
 	DescribeVpcEndpoints(ids []string) []*VpcEndpoint
+
+	// VpcEndpointsByServiceNetworkArn lists ServiceNetwork endpoints bound to a service network ARN.
+	VpcEndpointsByServiceNetworkArn(serviceNetworkArn string) []*VpcEndpoint
+
+	// VpcEndpointsByResourceConfigurationArn lists Resource endpoints bound to a resource configuration ARN.
+	VpcEndpointsByResourceConfigurationArn(resourceConfigurationArn string) []*VpcEndpoint
 
 	// ---- launch templates ----
 
@@ -1353,6 +1368,8 @@ type Backend interface {
 	// CreateDefaultSubnetWithOptions adds the Ipv6Native flag.
 	CreateDefaultSubnetWithOptions(az string, ipv6Native bool) (*Subnet, error)
 	AssociateSubnetCidrBlock(subnetID, ipv6CIDRBlock string) (*SubnetCIDRAssociation, error)
+	// SubnetHasIPv6Block reports whether subnetID has an associated IPv6 CIDR block.
+	SubnetHasIPv6Block(subnetID string) bool
 	DisassociateSubnetCidrBlock(associationID string) (string, error)
 	AssociateSecurityGroupVpc(sgID, vpcID string) (*SGVpcAssociationState, error)
 	DisassociateSecurityGroupVpc(sgID, vpcID string) error
@@ -1456,6 +1473,10 @@ type Backend interface {
 		maxDrainSeconds int,
 	) (*NatGateway, error)
 	AssociateNatGatewayAddress(natGatewayID string, allocationIDs []string) (*NatGateway, error)
+	// AssociateNatGatewayAddressInZone adds the AvailabilityZone regional gateways need.
+	AssociateNatGatewayAddressInZone(natGatewayID, azName, azID string, allocationIDs []string) (*NatGateway, error)
+	// CreateRegionalNatGateway creates a regional (multi-AZ) public NAT gateway.
+	CreateRegionalNatGateway(vpcID string, zones []NatGatewayZoneRequest, tags map[string]string) (*NatGateway, error)
 	AssignPrivateNatGatewayAddress(natGatewayID string, count int, ips []string) (*NatGateway, error)
 	DisableImage(imageID string) error
 	EnableImage(imageID string) error
@@ -1800,6 +1821,7 @@ type Backend interface {
 	ModifyReservedInstances(
 		reservedInstancesIDs []string,
 		targets []ReservedInstancesConfigurationTarget,
+		clientToken string,
 	) (*ReservedInstancesModification, error)
 	DeleteQueuedReservedInstances(ids []string) []QueuedPurchaseDeletionResult
 	GetReservedInstancesExchangeQuote(
@@ -2050,7 +2072,11 @@ type Backend interface {
 	EnableAllowedImagesSettings(state string) (string, error)
 	DisableAllowedImagesSettings() string
 	GetAllowedImagesSettings() *AllowedImagesSettings
-	ReplaceImageCriteriaInAllowedImagesSettings(criteria []ImageCriterion) bool
+	ReplaceImageCriteriaInAllowedImagesSettings(criteria []ImageCriterion) error
+	// EvaluateAllowedImages returns the Allowed AMIs state and per-image verdicts.
+	EvaluateAllowedImages(imageIDs []string) (string, map[string]bool)
+	// ImageWatermarksFor returns the watermarks attached to an AMI.
+	ImageWatermarksFor(imageID string) []ImageWatermarkRecord
 
 	// ---- Store / Restore Image Tasks ----
 

@@ -174,10 +174,13 @@ func applyPostChecksumFields(put *s3.PutObjectInput, fields map[string]string) {
 	put.ChecksumSHA1 = sha1p
 	put.ChecksumSHA256 = sha256p
 
-	if algo == ChecksumCRC64NVME {
-		if v := fields["x-amz-checksum-crc64nvme"]; v != "" {
-			put.ChecksumCRC64NVME = aws.String(v)
-		}
+	switch algo {
+	case ChecksumCRC64NVME:
+		put.ChecksumCRC64NVME = ptrconv.NilIfEmpty(fields["x-amz-checksum-crc64nvme"])
+	case ChecksumMD5:
+		put.ChecksumMD5 = ptrconv.NilIfEmpty(fields["x-amz-checksum-md5"])
+	case ChecksumSHA512:
+		put.ChecksumSHA512 = ptrconv.NilIfEmpty(fields["x-amz-checksum-sha512"])
 	}
 }
 

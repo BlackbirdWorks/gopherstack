@@ -17,7 +17,10 @@ func (h *Handler) EnableRegions() {
 	}
 
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
-		return NewHandler(NewInMemoryBackendForRegion(region))
+		sibling := NewInMemoryBackendForRegion(region)
+		sibling.lambda = home.lambdaInvoker()
+
+		return NewHandler(sibling)
 	})
 }
 

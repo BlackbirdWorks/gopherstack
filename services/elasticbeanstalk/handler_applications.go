@@ -126,7 +126,7 @@ func (h *Handler) handleCreateApplication(ctx context.Context, vals url.Values) 
 		CreateApplicationResult: createApplicationResult{
 			Application: toApplicationDesc(app, templateNames, nil),
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-create-app"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-create-app"),
 	}, nil
 }
 
@@ -157,7 +157,7 @@ func (h *Handler) handleDescribeApplications(ctx context.Context, vals url.Value
 	return &describeApplicationsResponse{
 		Xmlns:                      ebXMLNS,
 		DescribeApplicationsResult: describeApplicationsResult{Applications: members},
-		ResponseMetadata:           responseMetadata{RequestID: "eb-describe-apps"},
+		ResponseMetadata:           newResponseMetadata(ctx, "eb-describe-apps"),
 	}, nil
 }
 
@@ -193,7 +193,7 @@ func (h *Handler) handleUpdateApplication(ctx context.Context, vals url.Values) 
 		UpdateApplicationResult: updateApplicationResult{
 			Application: toApplicationDesc(app, templateNames, versionLabels),
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-update-app"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-update-app"),
 	}, nil
 }
 
@@ -217,7 +217,7 @@ func (h *Handler) handleDeleteApplication(ctx context.Context, vals url.Values) 
 
 	return &deleteApplicationResponse{
 		Xmlns:            ebXMLNS,
-		ResponseMetadata: responseMetadata{RequestID: "eb-delete-app"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-delete-app"),
 	}, nil
 }
 
@@ -372,6 +372,6 @@ func (h *Handler) handleUpdateApplicationResourceLifecycle(ctx context.Context, 
 			ApplicationName:         appName,
 			ResourceLifecycleConfig: *cfg,
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-update-app-lifecycle"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-update-app-lifecycle"),
 	}, nil
 }

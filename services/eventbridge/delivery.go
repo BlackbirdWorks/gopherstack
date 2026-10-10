@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -90,9 +91,16 @@ type DeliveryTargets struct {
 	CloudWatchLogs  CloudWatchLogsPublisher
 	APIDestinations APIDestinationResolver
 	EventBusRouter  EventBusRouter
-	RoleAuth        roleauth.Authorizer
-	obs             ruleObserver
-	ruleARN         string
+	APIGateway      APIGatewayInvoker
+
+	Batch             BatchJobSubmitter
+	CodeBuild         CodeBuildStarter
+	CodePipeline      CodePipelineStarter
+	SageMakerPipeline SageMakerPipelineStarter
+	RedshiftData      RedshiftDataExecutor
+	RoleAuth          roleauth.Authorizer
+	obs               ruleObserver
+	ruleARN           string
 }
 
 // EventBusRouter routes a matched event to another event bus, implementing
@@ -436,43 +444,80 @@ func deliverToTargetBounded(
 
 	if reason := authorizeTarget(target, dt); reason != "" {
 		dt.obs.failed()
-		sendToDLQ(ctx, target, envelope, dt, busDLQ, reason)
+		sendToDLQ(ctx, target, envelope, dt, busDLQ, dlqFailure{code: reason, message: dlqMessageFor(reason)})
 
 		return
 	}
 
-	eventAge := extractEventAge(envelope)
-
 	for attempt := 0; attempt <= maxAttempts; attempt++ {
-		if int(eventAge.Seconds()) > maxAgeSeconds {
+		if int(extractEventAge(envelope).Seconds()) > maxAgeSeconds {
 			dt.obs.failed()
-			sendToDLQ(ctx, target, envelope, dt, busDLQ, "MaximumEventAgeExceeded")
+			sendToDLQ(ctx, target, envelope, dt, busDLQ, dlqFailure{
+				code: dlqReasonFromTarget, message: "The event exceeded the maximum event age.",
+				exhausted: "MaximumEventAgeInSeconds", retries: attempt,
+			})
 
 			return
 		}
 
-		var delivErr bool
-		if timeout <= 0 {
-			delivErr = deliverToTarget(ctx, target, envelope, dt)
-		} else {
-			tCtx, cancel := context.WithTimeout(ctx, timeout)
-			delivErr = deliverToTarget(tCtx, target, envelope, dt)
-			cancel()
+		if !attemptDelivery(ctx, target, envelope, dt, timeout, attempt) {
+			if attempt == maxAttempts {
+				dt.obs.failed()
+				sendToDLQ(ctx, target, envelope, dt, busDLQ, dlqFailure{
+					code: dlqReasonFromTarget, message: "The target returned an error or could not be reached.",
+					exhausted: "MaximumRetryAttempts", retries: attempt,
+				})
+
+				return
+			}
+
+			waitRetryBackoff(ctx, attempt)
+
+			continue
 		}
 
-		if !delivErr {
-			return
-		}
-
-		if attempt == maxAttempts {
-			dt.obs.failed()
-			sendToDLQ(ctx, target, envelope, dt, busDLQ, "DeliveryFailure")
-
-			return
-		}
-
-		waitRetryBackoff(ctx, attempt)
+		return
 	}
+}
+
+// attemptDelivery makes one delivery attempt, publishing the attempt metrics; it reports success.
+func attemptDelivery(
+	ctx context.Context,
+	target *Target,
+	envelope map[string]any,
+	dt DeliveryTargets,
+	timeout time.Duration,
+	attempt int,
+) bool {
+	dt.obs.attempted()
+
+	if attempt == 0 {
+		dt.obs.latency("IngestionToInvocationStartLatency", extractEventAge(envelope))
+	} else {
+		dt.obs.retried()
+	}
+
+	var delivErr bool
+	if timeout <= 0 {
+		delivErr = deliverToTarget(ctx, target, envelope, dt)
+	} else {
+		tCtx, cancel := context.WithTimeout(ctx, timeout)
+		delivErr = deliverToTarget(tCtx, target, envelope, dt)
+		cancel()
+	}
+
+	if attempt == 0 {
+		dt.obs.latency("IngestionToInvocationCompleteLatency", extractEventAge(envelope))
+	}
+
+	if delivErr {
+		return false
+	}
+
+	dt.obs.succeeded()
+	dt.obs.latency("IngestionToInvocationSuccessLatency", extractEventAge(envelope))
+
+	return true
 }
 
 // waitRetryBackoff pauses before the next attempt; EventBridge retries with exponential backoff.
@@ -506,6 +551,37 @@ func extractEventAge(envelope map[string]any) time.Duration {
 	return age
 }
 
+// dlqFailure describes why an event was sent to a dead-letter queue.
+type dlqFailure struct {
+	code      string
+	message   string
+	exhausted string
+	retries   int
+}
+
+func dlqMessageFor(code string) string {
+	switch code {
+	case dlqReasonNoPermissions:
+		return "The rule's target role or the destination's resource policy does not allow the invocation."
+	case dlqReasonAssumeRole:
+		return "EventBridge could not assume the target's role."
+	default:
+		return code
+	}
+}
+
+func (f dlqFailure) attributes(ruleARN, targetARN string) map[string]string {
+	attrs := map[string]string{
+		"RULE_ARN": ruleARN, "TARGET_ARN": targetARN, "ERROR_CODE": f.code,
+		"ERROR_MESSAGE": f.message, "RETRY_ATTEMPTS": strconv.Itoa(f.retries),
+	}
+	if f.exhausted != "" {
+		attrs["EXHAUSTED_RETRY_CONDITION"] = f.exhausted
+	}
+
+	return attrs
+}
+
 // sendToDLQ sends an event to the dead-letter queue if configured.
 func sendToDLQ(
 	ctx context.Context,
@@ -513,7 +589,7 @@ func sendToDLQ(
 	envelope map[string]any,
 	dt DeliveryTargets,
 	busDLQ *DeadLetterConfig,
-	reason string,
+	failure dlqFailure,
 ) {
 	dlq := target.DeadLetterConfig
 	if dlq == nil || dlq.Arn == "" {
@@ -530,26 +606,39 @@ func sendToDLQ(
 	}
 
 	log := logger.Load(ctx)
-	payload, _ := json.Marshal(envelope)
 	dlqARN := dlq.Arn
+
+	if roleauth.AuthorizeResource(dt.RoleAuth, roleauth.PrincipalEvents, "sqs:SendMessage", dlqARN, dt.ruleARN) != nil {
+		log.WarnContext(ctx, "EventBridge: DLQ resource policy denies send", "dlq", dlqARN)
+		dt.obs.dlqSendFailed()
+
+		return
+	}
+
+	payload, _ := json.Marshal(envelope)
 
 	var err error
 	if withAttrs, ok := dt.SQS.(SQSAttributeSender); ok {
-		err = withAttrs.SendMessageWithAttributes(ctx, dlqARN, string(payload), map[string]string{
-			"RULE_ARN": dt.ruleARN, "TARGET_ARN": target.Arn, "ERROR_CODE": reason,
-		})
+		err = withAttrs.SendMessageWithAttributes(
+			ctx,
+			dlqARN,
+			string(payload),
+			failure.attributes(dt.ruleARN, target.Arn),
+		)
 	} else {
 		err = dt.SQS.SendMessageToQueue(ctx, dlqARN, string(payload))
 	}
 
 	if err != nil {
 		log.WarnContext(ctx, "EventBridge: failed to send event to DLQ",
-			"dlq", dlqARN, "reason", reason, "error", err)
+			"dlq", dlqARN, "reason", failure.code, "error", err)
+		dt.obs.dlqSendFailed()
 
 		return
 	}
 
 	dt.obs.deadLettered()
+	dt.obs.sentToDLQ()
 }
 
 func indexedRulesForEvent(
@@ -654,6 +743,8 @@ func deliverToTarget(
 		return deliverToCloudWatchLogs(ctx, dt.CloudWatchLogs, targetARN, payload)
 	case isAPIDestinationARN(targetARN):
 		return deliverToAPIDestination(ctx, dt.APIDestinations, target, payload)
+	case isAPIGatewayARN(targetARN):
+		return deliverToAPIGateway(ctx, dt.APIGateway, target, payload)
 	case isEventBusARN(targetARN):
 		// Routes the raw event, not payload: Input/InputPath/InputTransformer
 		// are target-invocation overrides and don't apply when the "target"
@@ -662,6 +753,10 @@ func deliverToTarget(
 		// unavailable when the target is a cross-account event bus).
 		return deliverToEventBus(ctx, dt.EventBusRouter, targetARN, envelope)
 	default:
+		if failed, handled := deliverToServiceTarget(ctx, target, dt, payload); handled {
+			return failed
+		}
+
 		logger.Load(ctx).
 			WarnContext(ctx, "EventBridge: unsupported target ARN type", "arn", targetARN)
 	}
@@ -973,7 +1068,7 @@ const arnSegments = 6
 // this shape.
 func parseEventBusARN(arn string) (string, string, string, bool) {
 	parts := strings.SplitN(arn, ":", arnSegments)
-	if len(parts) != arnSegments || parts[0] != "arn" || parts[2] != "events" {
+	if len(parts) != arnSegments || parts[0] != "arn" || parts[2] != servicePrefixEvents {
 		return "", "", "", false
 	}
 

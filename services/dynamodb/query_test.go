@@ -332,7 +332,7 @@ func TestQuery_SelectCount_OmitsItems(t *testing.T) {
 					TableName: tableName,
 					Item: map[string]any{
 						"pk": map[string]any{"S": "key"},
-						"sk": map[string]any{"N": strconv.Itoa(i)},
+						"sk": map[string]any{"S": strconv.Itoa(i)},
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)

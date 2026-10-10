@@ -37,6 +37,10 @@ func (b *InMemoryBackend) CreateResolverRule(
 	name, domainName, ruleType, endpointID, creatorRequestID, delegationRecord string,
 	targetIps []TargetIP,
 ) (*ResolverRule, error) {
+	if err := validateTargetIPs(targetIps); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateResolverRule")
 	defer b.mu.Unlock()
 
@@ -47,16 +51,21 @@ func (b *InMemoryBackend) CreateResolverRule(
 	}
 
 	switch ruleType {
-	case ruleTypeForward, ruleTypeSystem, ruleTypeRecursive:
+	case ruleTypeForward, ruleTypeSystem, ruleTypeRecursive, ruleTypeDelegate:
 		// valid
 	default:
 		return nil, fmt.Errorf(
-			"%w: RuleType must be %s, %s, or %s",
+			"%w: RuleType must be %s, %s, %s, or %s",
 			ErrValidation,
 			ruleTypeForward,
 			ruleTypeSystem,
 			ruleTypeRecursive,
+			ruleTypeDelegate,
 		)
+	}
+
+	if ruleType == ruleTypeDelegate && len(targetIps) > 0 {
+		return nil, fmt.Errorf("%w: DELEGATE rules must not have TargetIps", ErrValidation)
 	}
 
 	// SYSTEM and RECURSIVE rules must not have TargetIps or ResolverEndpointId.
@@ -77,7 +86,7 @@ func (b *InMemoryBackend) CreateResolverRule(
 
 	if endpointID != "" {
 		if !b.endpoints.Has(regionalKey(region, endpointID)) {
-			return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, endpointID)
+			return nil, fmt.Errorf("%w: Resolver endpoint with ID '%s' does not exist", ErrNotFound, endpointID)
 		}
 	}
 
@@ -163,7 +172,7 @@ func (b *InMemoryBackend) GetResolverRule(ctx context.Context, id string) (*Reso
 	region := getRegion(ctx, b.region)
 	r, ok := b.rules.Get(regionalKey(region, id))
 	if !ok {
-		return nil, fmt.Errorf("%w: resolver rule %s not found", ErrNotFound, id)
+		return nil, fmt.Errorf("%w: Resolver rule with ID '%s' does not exist", ErrNotFound, id)
 	}
 
 	return cloneRule(r), nil
@@ -191,7 +200,7 @@ func (b *InMemoryBackend) DeleteResolverRule(ctx context.Context, id string) err
 	region := getRegion(ctx, b.region)
 	r, ok := b.rules.Get(regionalKey(region, id))
 	if !ok {
-		return fmt.Errorf("%w: resolver rule %s not found", ErrNotFound, id)
+		return fmt.Errorf("%w: Resolver rule with ID '%s' does not exist", ErrNotFound, id)
 	}
 
 	tags := b.tagsStore(region)
@@ -312,7 +321,7 @@ func (b *InMemoryBackend) UpdateResolverRule(
 	region := getRegion(ctx, b.region)
 	r, ok := b.rules.Get(regionalKey(region, id))
 	if !ok {
-		return nil, fmt.Errorf("%w: resolver rule %s not found", ErrNotFound, id)
+		return nil, fmt.Errorf("%w: Resolver rule with ID '%s' does not exist", ErrNotFound, id)
 	}
 	if name != "" {
 		r.Name = name

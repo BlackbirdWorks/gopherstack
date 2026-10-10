@@ -89,7 +89,7 @@ func TestNotificationSignatureNotMock(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -128,7 +128,7 @@ func TestSignatureVersion1UsesSHA1Signing(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -177,7 +177,7 @@ func TestSignatureVersion2UsesSHA256Signing(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -248,7 +248,7 @@ func TestSubjectIncludedInSignature(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -322,7 +322,7 @@ func TestSigningCertURLConfigurable(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -356,7 +356,7 @@ func TestRawDeliverySkipsEnvelope(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -435,7 +435,7 @@ func TestNotificationEnvelopeFields(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -489,7 +489,7 @@ func TestNotificationURLsReflectRegion(t *testing.T) {
 			t.Parallel()
 
 			received := make(chan string, 1)
-			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				body, _ := io.ReadAll(r.Body)
 				received <- string(body)
 				w.WriteHeader(http.StatusOK)

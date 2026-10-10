@@ -23,6 +23,9 @@ var ErrContainerNotFound = errors.New("container not found")
 // ErrInvalidPort is returned when a Spec.Ports entry is not a valid [IP:]HOST:CONTAINER mapping.
 var ErrInvalidPort = errors.New("invalid port mapping")
 
+// ErrExecUnsupported is returned by Exec when the underlying client cannot run commands in a container.
+var ErrExecUnsupported = errors.New("container exec is not supported by this runtime client")
+
 // ErrPoolExhausted is returned when no warm container is available and the pool is full.
 var ErrPoolExhausted = errors.New("container pool exhausted")
 
@@ -68,6 +71,15 @@ type Spec struct {
 	Privileged bool
 }
 
+// ExecResult is the outcome of a command run inside a container.
+type ExecResult struct {
+	// Stdout and Stderr hold the demultiplexed output streams.
+	Stdout string
+	Stderr string
+	// ExitCode is the command's exit status.
+	ExitCode int
+}
+
 // PooledContainer tracks a container managed by the warm pool.
 type PooledContainer struct {
 	// LastUsed is the timestamp of the last time this container was used.
@@ -94,6 +106,9 @@ type Runtime interface {
 	CreateAndStart(ctx context.Context, spec Spec) (string, error)
 	// StopAndRemove stops and removes a container.
 	StopAndRemove(ctx context.Context, containerID string) error
+	// Exec runs cmd inside a running container and waits for it to finish.
+	// A non-zero exit status is reported in the result, not as an error.
+	Exec(ctx context.Context, containerID string, cmd []string) (ExecResult, error)
 	// AcquireWarm returns a warm container from the pool for the given image.
 	AcquireWarm(ctx context.Context, spec Spec) (*PooledContainer, error)
 	// ReleaseContainer marks a pooled container as idle.

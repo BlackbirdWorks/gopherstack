@@ -66,6 +66,14 @@ func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*Domain
 		EndpointAccessMode:                  input.EndpointAccessMode,
 		MutualTLSAuthentication:             input.MutualTLSAuthentication,
 	}
+	if input.CertificateBody != "" {
+		dn.CertificateUploadDate = &now
+	}
+
+	if endpointType == endpointTypePrivate {
+		dn.DomainNameID = randomID(apiIDLength)
+	}
+
 	b.domainNames.Put(dn)
 
 	cp := *dn
@@ -292,4 +300,28 @@ func (b *InMemoryBackend) UpdateDomainName(input UpdateDomainNameInput) (*Domain
 	cp := *d
 
 	return &cp, nil
+}
+
+const endpointTypePrivate = "PRIVATE"
+
+// CheckDomainNameID validates a request's DomainNameId against the named
+// domain: private custom domain names require it (api_op_GetDomainName.go).
+func (b *InMemoryBackend) CheckDomainNameID(name, id string) error {
+	b.mu.RLock("CheckDomainNameID")
+	defer b.mu.RUnlock()
+
+	dn, ok := b.domainNames.Get(name)
+	if !ok || dn.DomainNameID == "" {
+		return nil
+	}
+
+	if id == "" {
+		return fmt.Errorf("%w: domainNameId is required for private custom domain name %s", ErrInvalidParameter, name)
+	}
+
+	if id != dn.DomainNameID {
+		return fmt.Errorf("%w: domain name %s with id %s not found", ErrDomainNameNotFound, name, id)
+	}
+
+	return nil
 }

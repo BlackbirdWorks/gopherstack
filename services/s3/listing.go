@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"encoding/base64"
 	"sort"
 	"strings"
 	"time"
@@ -27,6 +28,7 @@ const prefixEntry = -1
 // listedVersion is the compact lock-free copy of a version that listings render.
 type listedVersion struct {
 	lastModified      time.Time
+	restoreExpiry     time.Time
 	key               string
 	etag              string
 	storageClass      string
@@ -212,6 +214,7 @@ func latestLiveSnapshot(obj *StoredObject, out *listedVersion) bool {
 		etag:              latest.ETag,
 		storageClass:      latest.StorageClass,
 		checksumAlgorithm: latest.ChecksumAlgorithm,
+		restoreExpiry:     latest.RestoreExpiry,
 		size:              latest.Size,
 	}
 
@@ -283,12 +286,15 @@ func walkDelimitedLocked(
 // listedObject holds one rendered object's pointees so a page needs one slab allocation, not one per field.
 type listedObject struct {
 	lastModified time.Time
+	restoreAt    time.Time
+	restore      types.RestoreStatus
 	owner        types.Owner
 	key          string
 	etag         string
 	ownerName    string
 	algos        [1]types.ChecksumAlgorithm
 	size         int64
+	restoreFlag  bool
 }
 
 func fillObject(slot *listedObject, latest *listedVersion) types.Object {
@@ -310,7 +316,16 @@ func fillObject(slot *listedObject, latest *listedVersion) types.Object {
 		sc = storageStandard
 	}
 
+	var restore *types.RestoreStatus
+	if !latest.restoreExpiry.IsZero() {
+		slot.restoreFlag = false
+		slot.restoreAt = latest.restoreExpiry
+		slot.restore = types.RestoreStatus{IsRestoreInProgress: &slot.restoreFlag, RestoreExpiryDate: &slot.restoreAt}
+		restore = &slot.restore
+	}
+
 	return types.Object{
+		RestoreStatus:     restore,
 		Key:               &slot.key,
 		LastModified:      &slot.lastModified,
 		ETag:              &slot.etag,
@@ -378,7 +393,12 @@ func (b *InMemoryBackend) ListObjectsV2(
 	// Re-use ListObjects logic but handle V2 specific params
 	marker := ""
 	if input.ContinuationToken != nil && *input.ContinuationToken != "" {
-		marker = *input.ContinuationToken
+		decoded, ok := decodeContinuationToken(*input.ContinuationToken)
+		if !ok {
+			return nil, ErrInvalidContinuationToken
+		}
+
+		marker = decoded
 	} else if input.StartAfter != nil && *input.StartAfter != "" {
 		marker = *input.StartAfter
 	}
@@ -399,7 +419,7 @@ func (b *InMemoryBackend) ListObjectsV2(
 
 	nextCont := ""
 	if aws.ToBool(listOut.IsTruncated) {
-		nextCont = aws.ToString(listOut.NextMarker)
+		nextCont = encodeContinuationToken(aws.ToString(listOut.NextMarker))
 	}
 
 	return &s3.ListObjectsV2Output{
@@ -421,6 +441,7 @@ func (b *InMemoryBackend) ListObjectsV2(
 // listing. It is captured under the bucket lock and processed outside it.
 type versionSnapshot struct {
 	lastModified      time.Time
+	restoreExpiry     time.Time
 	key               string
 	versionID         string
 	etag              string
@@ -538,6 +559,7 @@ func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) 
 				deleted:           v.Deleted,
 				storageClass:      sc,
 				checksumAlgorithm: string(v.ChecksumAlgorithm),
+				restoreExpiry:     v.RestoreExpiry,
 			})
 		}
 
@@ -707,7 +729,17 @@ func buildVersionPage(entries []versionListEntry, maxKeys int32) (
 		}
 
 		owner := types.Owner{ID: aws.String(gopherstackName), DisplayName: aws.String(gopherstackName)}
+
+		var restore *types.RestoreStatus
+		if !snap.restoreExpiry.IsZero() {
+			restore = &types.RestoreStatus{
+				IsRestoreInProgress: aws.Bool(false),
+				RestoreExpiryDate:   aws.Time(snap.restoreExpiry),
+			}
+		}
+
 		versions = append(versions, types.ObjectVersion{
+			RestoreStatus:     restore,
 			Key:               aws.String(snap.key),
 			VersionId:         aws.String(snap.versionID),
 			IsLatest:          aws.Bool(snap.isLatest),
@@ -768,4 +800,24 @@ func truncateVersionEntries(walk delimitedWalk, maxKeys int32) (
 	}
 
 	return versions, cpList, isTruncated, nextMarker
+}
+
+const continuationTokenPrefix = "1"
+
+func encodeContinuationToken(key string) string {
+	return continuationTokenPrefix + base64.URLEncoding.EncodeToString([]byte(key))
+}
+
+func decodeContinuationToken(token string) (string, bool) {
+	rest, ok := strings.CutPrefix(token, continuationTokenPrefix)
+	if !ok {
+		return "", false
+	}
+
+	raw, err := base64.URLEncoding.DecodeString(rest)
+	if err != nil {
+		return "", false
+	}
+
+	return string(raw), true
 }

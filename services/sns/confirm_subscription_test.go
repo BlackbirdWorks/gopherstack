@@ -22,12 +22,20 @@ func TestConfirmSubscription(t *testing.T) {
 		topicName string
 		token     string
 		subscribe bool
+		realToken bool
 	}{
 		{
 			name:      "Success",
 			topicName: "my-topic",
 			subscribe: true,
+			realToken: true,
+		},
+		{
+			name:      "WrongToken",
+			topicName: "wrong-topic",
+			subscribe: true,
 			token:     "anytoken123",
+			wantErr:   sns.ErrInvalidParameter,
 		},
 		{
 			name:      "EmptyToken",
@@ -60,7 +68,12 @@ func TestConfirmSubscription(t *testing.T) {
 				assert.NotEmpty(t, sub.SubscriptionArn)
 			}
 
-			confirmed, err := b.ConfirmSubscription(topic.TopicArn, tt.token)
+			token := tt.token
+			if tt.realToken {
+				token = sns.ConfirmationToken(sub.SubscriptionArn)
+			}
+
+			confirmed, err := b.ConfirmSubscription(topic.TopicArn, token)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 

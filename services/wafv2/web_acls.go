@@ -45,6 +45,10 @@ func (b *InMemoryBackend) CreateWebACL(
 		return nil, fmt.Errorf("%w: web ACL %q already exists in scope %s", ErrWebACLAlreadyExists, name, scope)
 	}
 
+	if err := b.checkWebACLCapacityLocked(region, rules); err != nil {
+		return nil, err
+	}
+
 	id := uuid.NewString()
 	arnStr := b.buildWebACLARN(name, id, scope, region)
 	w := &WebACL{
@@ -147,6 +151,12 @@ func (b *InMemoryBackend) UpdateWebACL(
 
 	if lockToken != "" && lockToken != w.LockToken {
 		return nil, fmt.Errorf("%w: lock token mismatch for web ACL %q", ErrOptimisticLock, id)
+	}
+
+	if rules != nil {
+		if err := b.checkWebACLCapacityLocked(region, rules); err != nil {
+			return nil, err
+		}
 	}
 
 	if description != "" {

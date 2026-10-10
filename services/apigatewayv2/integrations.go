@@ -127,6 +127,10 @@ func buildIntegration(apiID, protocolType string, input CreateIntegrationInput) 
 		return nil, err
 	}
 
+	if v := input.PayloadFormatVersion; v != "" && v != payloadFormatV1 && v != "2.0" {
+		return nil, fmt.Errorf("%w: payloadFormatVersion must be 1.0 or 2.0", ErrBadRequest)
+	}
+
 	// Apply AWS-realistic defaults.
 	payloadFmtVer := input.PayloadFormatVersion
 	if payloadFmtVer == "" && input.IntegrationType == IntegrationTypeAWSProxy {
@@ -226,17 +230,45 @@ func (b *InMemoryBackend) DeleteIntegration(apiID, integrationID string) error {
 		return ErrAPINotFound
 	}
 
-	if !b.integrations.Delete(integrationKey(apiID, integrationID)) {
+	integ, ok := b.integrations.Get(integrationKey(apiID, integrationID))
+	if !ok {
 		return ErrIntegrationNotFound
 	}
 
-	for _, ir := range slices.Clone(b.integrationResponsesByIntegration.Get(integrationKey(apiID, integrationID))) {
-		b.integrationResponses.Delete(integrationResponseKey(apiID, integrationID, ir.IntegrationResponseID))
+	if integ.APIGatewayManaged {
+		return fmt.Errorf("%w: a quick-create managed integration can't be deleted", ErrBadRequest)
+	}
+
+	b.removeIntegrationLocked(apiID, integrationID)
+	b.autoDeployLocked(apiID)
+
+	return nil
+}
+
+// PurgeIntegrations removes every integration of an API, managed ones included (ReimportApi replaces them).
+func (b *InMemoryBackend) PurgeIntegrations(apiID string) error {
+	b.mu.Lock("PurgeIntegrations")
+	defer b.mu.Unlock()
+
+	if !b.apis.Has(apiID) {
+		return ErrAPINotFound
+	}
+
+	for _, i := range slices.Clone(b.integrationsByAPI.Get(apiID)) {
+		b.removeIntegrationLocked(apiID, i.IntegrationID)
 	}
 
 	b.autoDeployLocked(apiID)
 
 	return nil
+}
+
+func (b *InMemoryBackend) removeIntegrationLocked(apiID, integrationID string) {
+	b.integrations.Delete(integrationKey(apiID, integrationID))
+
+	for _, ir := range slices.Clone(b.integrationResponsesByIntegration.Get(integrationKey(apiID, integrationID))) {
+		b.integrationResponses.Delete(integrationResponseKey(apiID, integrationID, ir.IntegrationResponseID))
+	}
 }
 
 // UpdateIntegration updates fields on an existing integration.

@@ -72,7 +72,7 @@ func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *
 	// ("ArchiveRetrieval", "InventoryRetrieval") per the AWS API spec.
 	action := normalizeJobType(req.Type)
 	if action == "" {
-		return nil, ErrValidation
+		return nil, fmt.Errorf("%w: unsupported job Type %q", ErrValidation, req.Type)
 	}
 
 	v, vaultExists := b.vaults.Get(vaultARN(accountID, region, vaultName))
@@ -150,7 +150,7 @@ func validateInitiateJobFields(
 	// archive-retrieval"); it is invalid to specify for inventory-retrieval.
 	if action == jobTypeArchiveRetrieval || action == jobTypeSelect {
 		if req.ArchiveID == "" {
-			return nil, ErrValidation
+			return nil, fmt.Errorf("%w: ArchiveId is required for %s jobs", ErrValidation, req.Type)
 		}
 
 		if _, archiveExists := v.Archives[req.ArchiveID]; !archiveExists {

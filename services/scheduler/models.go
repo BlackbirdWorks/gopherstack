@@ -30,6 +30,11 @@ const (
 
 	// Name validation limits.
 	scheduleNameMaxLen = 64
+
+	scheduleDescriptionMaxLen = 512
+	scheduleExpressionMaxLen  = 256
+	targetInputMaxLen         = 8192
+	flexibleWindowMaxMinutes  = 1440
 	// RetryPolicy field limits per AWS spec.
 	retryPolicyMinEventAge = 60
 	retryPolicyMaxEventAge = 86400

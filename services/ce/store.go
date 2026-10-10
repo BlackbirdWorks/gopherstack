@@ -2,6 +2,9 @@
 package ce
 
 import (
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
 	"slices"
 	"sort"
 	"time"
@@ -141,6 +144,7 @@ func paginateList[T any](list []T, maxResults int, nextPageToken string, keyFn f
 		return keyFn(list[i]) < keyFn(list[j])
 	})
 
+	nextPageToken = decodePageToken(nextPageToken)
 	start := 0
 	if nextPageToken != "" {
 		for i := range list {
@@ -165,7 +169,7 @@ func paginateList[T any](list []T, maxResults int, nextPageToken string, keyFn f
 
 	next := ""
 	if end < len(list) {
-		next = keyFn(list[end])
+		next = encodePageToken(keyFn(list[end]))
 	}
 
 	return page, next
@@ -181,6 +185,7 @@ func paginateList[T any](list []T, maxResults int, nextPageToken string, keyFn f
 // after it: `start = i + 1` here would silently skip that item on every
 // resumed page, dropping exactly one record per page boundary.
 func paginateOrdered[T any](list []T, maxResults int, nextPageToken string, keyFn func(T) string) ([]T, string) {
+	nextPageToken = decodePageToken(nextPageToken)
 	start := 0
 
 	if nextPageToken != "" {
@@ -204,8 +209,41 @@ func paginateOrdered[T any](list []T, maxResults int, nextPageToken string, keyF
 
 	next := ""
 	if end < len(list) {
-		next = keyFn(list[end])
+		next = encodePageToken(keyFn(list[end]))
 	}
 
 	return page, next
+}
+
+func encodePageToken(key string) string { return base64.RawURLEncoding.EncodeToString([]byte(key)) }
+
+func decodePageToken(token string) string {
+	b, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return ""
+	}
+
+	return string(b)
+}
+
+// checkPageTokens rejects any NextPageToken/NextToken in body that this service could not have issued.
+func checkPageTokens(body []byte) error {
+	var req struct {
+		NextPageToken string `json:"NextPageToken"`
+		NextToken     string `json:"NextToken"`
+	}
+
+	_ = json.Unmarshal(body, &req)
+
+	for _, tok := range []string{req.NextPageToken, req.NextToken} {
+		if tok == "" {
+			continue
+		}
+
+		if _, err := base64.RawURLEncoding.DecodeString(tok); err != nil {
+			return fmt.Errorf("%w: invalid next page token", ErrInvalidNextToken)
+		}
+	}
+
+	return nil
 }

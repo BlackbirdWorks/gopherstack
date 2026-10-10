@@ -11,11 +11,7 @@ import (
 
 // --- Events ---
 
-// eventDescType mirrors types.EventDescription. RequestId is not modeled:
-// this handler has no per-call unique request-ID generation anywhere (every
-// op's ResponseMetadata.RequestID is a fixed literal like "eb-create-app",
-// not a value that varies per call), so there is nothing distinguishing to
-// source per-event.
+// eventDescType mirrors types.EventDescription.
 type eventDescType struct {
 	ApplicationName string `xml:"ApplicationName,omitempty"`
 	EnvironmentName string `xml:"EnvironmentName,omitempty"`
@@ -23,6 +19,7 @@ type eventDescType struct {
 	TemplateName    string `xml:"TemplateName,omitempty"`
 	VersionLabel    string `xml:"VersionLabel,omitempty"`
 	EventDate       string `xml:"EventDate,omitempty"`
+	RequestID       string `xml:"RequestId,omitempty"`
 	Message         string `xml:"Message,omitempty"`
 	Severity        string `xml:"Severity,omitempty"`
 }
@@ -136,6 +133,7 @@ func toEventDesc(r *EventRecord) eventDescType {
 		TemplateName:    r.TemplateName,
 		VersionLabel:    r.VersionLabel,
 		EventDate:       r.EventDate,
+		RequestID:       r.RequestID,
 		Message:         r.Message,
 		Severity:        r.Severity,
 	}
@@ -165,6 +163,6 @@ func (h *Handler) handleDescribeEvents(ctx context.Context, vals url.Values) (an
 			Events:    pg.Data,
 			NextToken: pg.Next,
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-describe-events"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-describe-events"),
 	}, nil
 }

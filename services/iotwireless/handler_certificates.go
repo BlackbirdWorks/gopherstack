@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type associateWirelessGatewayWithCertificateRequest struct {
@@ -162,6 +164,7 @@ func (h *Handler) startWirelessDeviceImportTask(c *echo.Context) error {
 		Sidewalk        *sidewalkStartImportInfoRequest `json:"Sidewalk"`
 		DestinationName string                          `json:"DestinationName"`
 		Positioning     string                          `json:"Positioning"`
+		Tags            []tags.KV                       `json:"Tags"`
 	}
 
 	body := readStubBody(c)
@@ -174,6 +177,10 @@ func (h *Handler) startWirelessDeviceImportTask(c *echo.Context) error {
 		return writeError(c, http.StatusInternalServerError, err.Error())
 	}
 
+	if len(req.Tags) > 0 {
+		_ = h.Backend.TagResource(task.ARN, tagKVsToMap(req.Tags))
+	}
+
 	return writeJSON(c, http.StatusCreated, startWirelessDeviceImportTaskResponse{
 		Arn: task.ARN,
 		ID:  task.ID,
@@ -182,15 +189,38 @@ func (h *Handler) startWirelessDeviceImportTask(c *echo.Context) error {
 
 func (h *Handler) startSingleWirelessDeviceImportTask(c *echo.Context) error {
 	var req struct {
-		DestinationName string `json:"DestinationName"`
+		Sidewalk *struct {
+			Positioning *struct {
+				DestinationName string `json:"DestinationName"`
+			} `json:"Positioning"`
+			SidewalkManufacturingSn string `json:"SidewalkManufacturingSn"`
+		} `json:"Sidewalk"`
+		DestinationName string    `json:"DestinationName"`
+		DeviceName      string    `json:"DeviceName"`
+		Positioning     string    `json:"Positioning"`
+		Tags            []tags.KV `json:"Tags"`
 	}
 
 	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
 
-	task, err := h.Backend.StartSingleWirelessDeviceImportTask(h.AccountID, h.DefaultRegion, req.DestinationName)
+	details := SingleImportDetails{DeviceName: req.DeviceName, Positioning: req.Positioning}
+	if req.Sidewalk != nil {
+		details.SidewalkManufacturingSn = req.Sidewalk.SidewalkManufacturingSn
+		if req.Sidewalk.Positioning != nil {
+			details.SidewalkPositioningDestination = req.Sidewalk.Positioning.DestinationName
+		}
+	}
+
+	task, err := h.Backend.StartSingleWirelessDeviceImportTask(
+		h.AccountID, h.DefaultRegion, req.DestinationName, details,
+	)
 	if err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
+	}
+
+	if len(req.Tags) > 0 {
+		_ = h.Backend.TagResource(task.ARN, tagKVsToMap(req.Tags))
 	}
 
 	return writeJSON(c, http.StatusCreated, startSingleWirelessDeviceImportTaskResponse{

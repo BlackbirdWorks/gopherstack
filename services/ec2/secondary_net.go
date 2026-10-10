@@ -90,6 +90,8 @@ type SecondaryInterface struct {
 	Status                 string   `json:"status,omitempty"`
 	SecondaryInterfaceArn  string   `json:"secondaryInterfaceArn,omitempty"`
 	InstanceID             string   `json:"instanceId,omitempty"`
+	InstanceOwnerID        string   `json:"instanceOwnerId,omitempty"`
+	AttachmentID           string   `json:"attachmentId,omitempty"`
 	PrivateIpv4Addresses   []string `json:"privateIpv4Addresses,omitempty"`
 	SourceDestCheck        bool     `json:"sourceDestCheck,omitempty"`
 }
@@ -345,6 +347,16 @@ func (b *InMemoryBackend) SeedSecondaryInterface(si SecondaryInterface) (*Second
 
 	if si.OwnerID == "" {
 		si.OwnerID = b.AccountID
+	}
+
+	if si.InstanceID != "" {
+		if si.InstanceOwnerID == "" {
+			si.InstanceOwnerID = si.OwnerID
+		}
+
+		if si.AttachmentID == "" {
+			si.AttachmentID = "eni-attach-" + newHexUUID(ec2IDHexLen)
+		}
 	}
 
 	cp := si

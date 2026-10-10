@@ -270,17 +270,17 @@ func (h *Handler) routeARPBuildWorkflowCore(c *echo.Context, path, method string
 }
 
 func (h *Handler) routeARPTestCase(c *echo.Context, path, method string, body []byte) (bool, error) {
-	if ok, err := h.routeARPTestCaseCreate(c, path, method); ok {
+	if ok, err := h.routeARPTestCaseCreate(c, path, method, body); ok {
 		return true, err
 	}
 
 	return h.routeARPTestCaseItem(c, path, method, body)
 }
 
-func (h *Handler) routeARPTestCaseCreate(c *echo.Context, path, method string) (bool, error) {
+func (h *Handler) routeARPTestCaseCreate(c *echo.Context, path, method string, body []byte) (bool, error) {
 	switch {
 	case isARPTestCasesPath(path) && method == http.MethodPost:
-		return true, h.handleCreateAutomatedReasoningPolicyTestCase(c, path)
+		return true, h.handleCreateAutomatedReasoningPolicyTestCase(c, path, body)
 	case isARPTestCasesPath(path) && method == http.MethodGet:
 		return true, h.handleListARPTestCases(c, path)
 	}
@@ -433,11 +433,26 @@ func extractARPBuildWorkflowIDs(path string) (string, string) {
 
 // handleCreateAutomatedReasoningPolicyTestCase creates a test case.
 // Path: /automated-reasoning-policies/{policyArn}/test-cases.
-func (h *Handler) handleCreateAutomatedReasoningPolicyTestCase(c *echo.Context, path string) error {
+func (h *Handler) handleCreateAutomatedReasoningPolicyTestCase(c *echo.Context, path string, body []byte) error {
 	rest, _ := strings.CutPrefix(path, automatedReasoningPrefix+"/")
 	policyARN := decodePath(strings.TrimSuffix(rest, "/test-cases"))
 
-	tc, opErr := h.Backend.CreateAutomatedReasoningPolicyTestCase(policyARN)
+	in, err := parseBody[ARPTestCaseInput](body)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	tc, opErr := idemCreate(
+		h.idem, "CreateAutomatedReasoningPolicyTestCase", in.ClientRequestToken, idemFingerprint(in)+policyARN,
+		ErrAlreadyExists,
+		func(t *AutomatedReasoningPolicyTestCase) string { return t.TestCaseID },
+		func(id string) (*AutomatedReasoningPolicyTestCase, error) {
+			return h.Backend.GetAutomatedReasoningPolicyTestCase(policyARN, id)
+		},
+		func() (*AutomatedReasoningPolicyTestCase, error) {
+			return h.Backend.CreateAutomatedReasoningPolicyTestCase(policyARN, *in)
+		},
+	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
@@ -450,6 +465,7 @@ func (h *Handler) handleCreateAutomatedReasoningPolicyTestCase(c *echo.Context, 
 
 type createAutomatedReasoningPolicyVersionInput struct {
 	LastUpdatedDefinitionHash string `json:"lastUpdatedDefinitionHash"`
+	ClientRequestToken        string `json:"clientRequestToken,omitempty"`
 	Tags                      []Tag  `json:"tags,omitempty"`
 }
 
@@ -471,10 +487,14 @@ func (h *Handler) handleCreateAutomatedReasoningPolicyVersion(
 	rest, _ := strings.CutPrefix(path, automatedReasoningPrefix+"/")
 	policyARN := decodePath(strings.TrimSuffix(rest, "/versions"))
 
-	version, opErr := h.Backend.CreateAutomatedReasoningPolicyVersion(
-		policyARN,
-		in.LastUpdatedDefinitionHash,
-		in.Tags,
+	version, opErr := idemCreate(
+		h.idem, "CreateAutomatedReasoningPolicyVersion", in.ClientRequestToken, idemFingerprint(in)+policyARN,
+		ErrAlreadyExists,
+		func(v *AutomatedReasoningPolicyVersion) string { return v.PolicyArn },
+		h.Backend.GetAutomatedReasoningPolicyVersion,
+		func() (*AutomatedReasoningPolicyVersion, error) {
+			return h.Backend.CreateAutomatedReasoningPolicyVersion(policyARN, in.LastUpdatedDefinitionHash, in.Tags)
+		},
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
@@ -842,8 +862,20 @@ func (h *Handler) handleStartARPBuildWorkflow(c *echo.Context, path string, body
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	wf, err := h.Backend.StartAutomatedReasoningPolicyBuildWorkflow(
-		policyARN, buildWorkflowType, json.RawMessage(body),
+	wf, err := idemCreate(
+		h.idem, "StartAutomatedReasoningPolicyBuildWorkflow", c.Request().Header.Get("X-Amz-Client-Token"),
+		idemFingerprint(string(body))+policyARN+buildWorkflowType, ErrAlreadyExists,
+		func(w *AutomatedReasoningPolicyBuildWorkflow) string { return w.BuildWorkflowID },
+		func(id string) (*AutomatedReasoningPolicyBuildWorkflow, error) {
+			return h.Backend.GetAutomatedReasoningPolicyBuildWorkflow(policyARN, id)
+		},
+		func() (*AutomatedReasoningPolicyBuildWorkflow, error) {
+			return h.Backend.StartAutomatedReasoningPolicyBuildWorkflow(
+				policyARN,
+				buildWorkflowType,
+				json.RawMessage(body),
+			)
+		},
 	)
 	if err != nil {
 		return h.writeError(c, err)
@@ -998,9 +1030,19 @@ func (h *Handler) handleUpdateARPTestCase(c *echo.Context, path string, body []b
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	tc, err := h.Backend.UpdateAutomatedReasoningPolicyTestCase(
-		policyARN, testCaseID, in.GuardContent, in.QueryContent,
-		in.ExpectedAggregatedFindingsResult, in.ConfidenceThreshold,
+	tc, err := idemCreate(
+		h.idem, "UpdateAutomatedReasoningPolicyTestCase", in.ClientRequestToken,
+		idemFingerprint(in)+policyARN+testCaseID, ErrAlreadyExists,
+		func(t *AutomatedReasoningPolicyTestCase) string { return t.TestCaseID },
+		func(id string) (*AutomatedReasoningPolicyTestCase, error) {
+			return h.Backend.GetAutomatedReasoningPolicyTestCase(policyARN, id)
+		},
+		func() (*AutomatedReasoningPolicyTestCase, error) {
+			return h.Backend.UpdateAutomatedReasoningPolicyTestCase(
+				policyARN, testCaseID, in.GuardContent, in.QueryContent,
+				in.ExpectedAggregatedFindingsResult, in.ConfidenceThreshold,
+			)
+		},
 	)
 	if err != nil {
 		return h.writeError(c, err)
@@ -1039,13 +1081,29 @@ func (h *Handler) handleStartARPTestWorkflow(c *echo.Context, path string, body 
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	result, opErr := h.Backend.StartAutomatedReasoningPolicyTestWorkflow(policyARN, workflowID, in.TestCaseIDs)
+	started, opErr := idemCreate(
+		h.idem, "StartAutomatedReasoningPolicyTestWorkflow", in.ClientRequestToken,
+		idemFingerprint(in)+policyARN+workflowID, ErrValidation,
+		func(r *testWorkflowStart) string { return r.policyARN },
+		func(id string) (*testWorkflowStart, error) { return &testWorkflowStart{policyARN: id}, nil },
+		func() (*testWorkflowStart, error) {
+			if _, startErr := h.Backend.StartAutomatedReasoningPolicyTestWorkflow(
+				policyARN, workflowID, in.TestCaseIDs,
+			); startErr != nil {
+				return nil, startErr
+			}
+
+			return &testWorkflowStart{policyARN: policyARN}, nil
+		},
+	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
 
-	return c.JSON(http.StatusCreated, result)
+	return c.JSON(http.StatusCreated, map[string]any{keyPolicyArn: started.policyARN})
 }
+
+type testWorkflowStart struct{ policyARN string }
 
 func (h *Handler) handleGetARPTestResult(c *echo.Context, path string) error {
 	policyARN, workflowID, testCaseID := extractARPBuildWorkflowTestCaseIDs(path)

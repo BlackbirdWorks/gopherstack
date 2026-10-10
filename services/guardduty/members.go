@@ -35,7 +35,7 @@ func (b *InMemoryBackend) CreateMembers(
 		accountID, _ := acc["accountId"].(string)
 		email, _ := acc["email"].(string)
 
-		if accountID == "" {
+		if !accountIDRe.MatchString(accountID) {
 			unprocessed = append(unprocessed, map[string]any{
 				"accountId": accountID,
 				"result":    "InvalidInput",

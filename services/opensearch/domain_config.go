@@ -21,7 +21,7 @@ func (b *InMemoryBackend) CancelDomainConfigChange(
 
 	d, exists := b.domains.Get(domainName)
 	if !exists {
-		return nil, false, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, false, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	var cancelledChangeIDs []string
@@ -136,7 +136,7 @@ func (b *InMemoryBackend) UpdateDomainConfig(
 
 	d, exists := b.domains.Get(name)
 	if !exists || deleteWindowElapsed(d, b.clock()) {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, name)
 	}
 
 	if err := validateAutoTuneUpdateInput(input.AutoTuneOptions); err != nil {
@@ -175,7 +175,7 @@ func (b *InMemoryBackend) PreviewDomainConfig(
 
 	d, exists := b.domains.Get(name)
 	if !exists || deleteWindowElapsed(d, b.clock()) {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, name)
 	}
 
 	if err := validateAutoTuneUpdateInput(input.AutoTuneOptions); err != nil {

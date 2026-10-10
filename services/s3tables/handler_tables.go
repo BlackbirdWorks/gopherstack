@@ -107,6 +107,7 @@ func (h *Handler) handleGetTableEncryption(ctx context.Context, r *http.Request,
 type createTableRequest struct {
 	EncryptionConfiguration   map[string]any    `json:"encryptionConfiguration"`
 	StorageClassConfiguration map[string]any    `json:"storageClassConfiguration"`
+	Metadata                  map[string]any    `json:"metadata"`
 	Tags                      map[string]string `json:"tags"`
 	Name                      string            `json:"name"`
 	Format                    string            `json:"format"`
@@ -134,8 +135,13 @@ func (h *Handler) handleCreateTable(ctx context.Context, r *http.Request, body [
 		req.Format = "ICEBERG"
 	}
 
+	if mErr := validateTableMetadata(req.Metadata); mErr != nil {
+		return nil, mErr
+	}
+
 	table, err := h.Backend.CreateTable(bucketARN, splitNamespace(nsName), req.Name, req.Format, CreateTableOptions{
 		Encryption:   req.EncryptionConfiguration,
+		Metadata:     req.Metadata,
 		StorageClass: storageClassFromConfig(req.StorageClassConfiguration),
 		Tags:         req.Tags,
 	})

@@ -65,7 +65,7 @@ func TestLabelParameterVersion_MaxTenLabels(t *testing.T) {
 		assert.ElementsMatch(t, labels, hist.Parameters[0].Labels)
 	})
 
-	t.Run("11th label rejected as InvalidLabel", func(t *testing.T) {
+	t.Run("11th label rejected with limit error", func(t *testing.T) {
 		t.Parallel()
 
 		b := ssm.NewInMemoryBackend()
@@ -83,13 +83,11 @@ func TestLabelParameterVersion_MaxTenLabels(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Adding one more must come back as InvalidLabel.
-		out, err := b.LabelParameterVersion(context.Background(), &ssm.LabelParameterVersionInput{
+		_, err = b.LabelParameterVersion(context.Background(), &ssm.LabelParameterVersionInput{
 			Name:   "/p/overflow",
 			Labels: []string{"overflow"},
 		})
-		require.NoError(t, err)
-		assert.Equal(t, []string{"overflow"}, out.InvalidLabels)
+		require.ErrorIs(t, err, ssm.ErrParameterLabelLimitExceeded)
 
 		hist, err := b.GetParameterHistory(
 			context.Background(),

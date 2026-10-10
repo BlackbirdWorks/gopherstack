@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
 func (h *S3Handler) setCommonHeaders(w http.ResponseWriter, out objectCommonDetails) {
@@ -103,11 +104,18 @@ func (h *S3Handler) setChecksumHeaders(w http.ResponseWriter, out objectCommonDe
 		algo, val = ChecksumSHA256, *out.ChecksumSHA256
 	case out.ChecksumCRC64NVME != nil:
 		algo, val = ChecksumCRC64NVME, *out.ChecksumCRC64NVME
+	case out.ChecksumMD5 != nil:
+		algo, val = ChecksumMD5, *out.ChecksumMD5
+	case out.ChecksumSHA512 != nil:
+		algo, val = ChecksumSHA512, *out.ChecksumSHA512
 	}
 
 	if algo != "" {
 		w.Header().Set("X-Amz-Checksum-"+algo, val)
 		w.Header().Set("X-Amz-Checksum-Algorithm", algo)
+		if out.ChecksumType != "" {
+			w.Header().Set("X-Amz-Checksum-Type", out.ChecksumType)
+		}
 	}
 }
 
@@ -220,6 +228,47 @@ func extractChecksumValues(get func(string) string, algo string) (*string, *stri
 	}
 }
 
+// extraChecksums holds the checksum values PutObjectInput carries outside the
+// CRC32/CRC32C/SHA1/SHA256 quartet.
+type extraChecksums struct {
+	crc64nvme, md5, sha512 *string
+}
+
+func extractExtraChecksums(r *http.Request) extraChecksums {
+	return extraChecksums{
+		crc64nvme: extractCRC64NVMEChecksum(r),
+		md5:       extractMD5Checksum(r),
+		sha512:    extractSHA512Checksum(r),
+	}
+}
+
+// algoOrInferred returns algo, or the algorithm of the one extra checksum header
+// supplied when the request named none.
+func (e extraChecksums) algoOrInferred(algo string) string {
+	switch {
+	case algo != "":
+		return algo
+	case e.crc64nvme != nil:
+		return ChecksumCRC64NVME
+	case e.md5 != nil:
+		return ChecksumMD5
+	case e.sha512 != nil:
+		return ChecksumSHA512
+	default:
+		return ""
+	}
+}
+
+// extractMD5Checksum reads the x-amz-checksum-md5 header if present.
+func extractMD5Checksum(r *http.Request) *string {
+	return ptrconv.NilIfEmpty(r.Header.Get("X-Amz-Checksum-Md5"))
+}
+
+// extractSHA512Checksum reads the x-amz-checksum-sha512 header if present.
+func extractSHA512Checksum(r *http.Request) *string {
+	return ptrconv.NilIfEmpty(r.Header.Get("X-Amz-Checksum-Sha512"))
+}
+
 // extractCRC64NVMEChecksum reads the x-amz-checksum-crc64nvme header if present.
 func extractCRC64NVMEChecksum(r *http.Request) *string {
 	// Use the canonical header name per Go's net/http canonicalization.
@@ -272,6 +321,10 @@ func (h *S3Handler) getStoredChecksum(out objectCommonDetails) (string, string) 
 		return ChecksumSHA256, *out.ChecksumSHA256
 	case out.ChecksumCRC64NVME != nil:
 		return ChecksumCRC64NVME, *out.ChecksumCRC64NVME
+	case out.ChecksumMD5 != nil:
+		return ChecksumMD5, *out.ChecksumMD5
+	case out.ChecksumSHA512 != nil:
+		return ChecksumSHA512, *out.ChecksumSHA512
 	default:
 		return "", ""
 	}

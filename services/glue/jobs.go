@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	mrand "math/rand/v2"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -429,6 +430,7 @@ func (b *InMemoryBackend) StartJobRunWithOptions(
 		SecurityConfiguration: cmp.Or(opts.SecurityConfiguration, j.SecurityConfiguration),
 		ExecutionClass:        cmp.Or(opts.ExecutionClass, j.ExecutionClass),
 		MaintenanceWindow:     j.MaintenanceWindow,
+		PreviousRunID:         opts.PreviousRunID,
 
 		ExecutionRoleSessionPolicy: opts.ExecutionRoleSessionPolicy,
 		JobRunQueuingEnabled:       cmp.Or(opts.JobRunQueuingEnabled, j.JobRunQueuingEnabled),
@@ -478,6 +480,7 @@ func (b *InMemoryBackend) GetJobRun(jobName, runID string) (*JobRun, error) {
 		if run.ID == runID {
 			cp := *run
 			cp.Arguments = maps.Clone(run.Arguments)
+			cp.PredecessorRuns = slices.Clone(run.PredecessorRuns)
 			cp.WorkflowRunID = "" // internal-only; real JobRun has no such field
 
 			return &cp, nil
@@ -536,6 +539,7 @@ func (b *InMemoryBackend) GetJobRuns(jobName string) ([]*JobRun, error) {
 	for _, run := range src {
 		cp := *run
 		cp.Arguments = maps.Clone(run.Arguments)
+		cp.PredecessorRuns = slices.Clone(run.PredecessorRuns)
 		cp.WorkflowRunID = "" // internal-only; real JobRun has no such field
 		out = append(out, &cp)
 	}

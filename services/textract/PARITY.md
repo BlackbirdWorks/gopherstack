@@ -7,7 +7,7 @@
 service: textract
 sdk_module: aws-sdk-go-v2/service/textract@v1.43.4   # bumped from v1.41.0 pin; AdaptersConfig/HumanLoopConfig field-diffed this pass
 last_audit_commit: 49cff86c4
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
 overall: A            # 2026-08-20: wrapper-key/nested-shape sweep. Two real pattern-(a) fixes
                       # (AnalyzeIDDetections.Geometry fabricated field removed; Extraction.IdentityDocument
                       # missing field added), both latent/never-emitted in current mock data -- see the
@@ -56,10 +56,9 @@ families:
   timestamps: {status: ok, note: "FIXED — Adapter/AdapterVersion CreationTime was serialized as an RFC3339 string across GetAdapter/UpdateAdapter/ListAdapters/GetAdapterVersion/ListAdapterVersions; the awsjson1.1 protocol's unixTimestamp format requires epoch-seconds JSON numbers (confirmed via deserializers.go's smithytime.ParseEpochSeconds(f64) call sites). Now uses pkgs/awstime.Epoch throughout. DocumentJob/ExpenseJob/LendingJob.CreationTime were never wire-exposed (internal only), so unaffected."}
   pagination: {status: ok, note: "FIXED — GetExpenseAnalysis/GetLendingAnalysis accepted MaxResults/NextToken but silently ignored them (no NextToken in response, no truncation); ListAdapters/ListAdapterVersions accepted no pagination fields at all. All four now paginate via pkgs/page.New and echo NextToken, matching GetDocumentAnalysis/GetDocumentTextDetection's pre-existing PaginateBlocks pattern."}
 gaps: []
-items_still_open:
-  - "Geometry.RotationAngle (types.Geometry) was added to the Geometry struct (*float64, omitempty) for wire-shape completeness but nothing in synthetic_blocks.go ever populates it -- always nil/omitted. Harmless (matches real AWS behavior when a document has no detected rotation), flagging only so a future auditor doesn't assume it's untested/forgotten."
-  - "2026-08-20: Extraction.IdentityDocument (types.Extraction, aws-sdk-go-v2/service/textract@v1.43.4/types/types.go:613-625) was missing entirely -- gopherstack's Extraction only had LendingDocument/ExpenseDocument. Added the field (*IdentityDocument, omitempty) for wire-shape completeness, but nothing in lending_analysis.go's syntheticLendingResults() ever classifies a page as an identity document, so it stays nil/omitted, matching the RotationAngle precedent above. Real AnalyzeLending can return this when a lending package includes an ID page; gopherstack's mock lending flow always returns a fixed PAYSTUB/LendingDocument result."
+items_still_open: []
 structural_gaps:
+  - "Geometry.RotationAngle is never populated and Extraction.IdentityDocument is never returned: there is no OCR or document classifier, so no page rotation is detected and syntheticLendingResults always yields a fixed PAYSTUB/LendingDocument result."
   - "AnalyzeDocument/StartDocumentAnalysis's HumanLoopConfig-triggered activation decision (AnalyzeDocumentOutput.HumanLoopActivationOutput) cannot be computed: real AWS evaluates the referenced FlowDefinition's HumanLoopActivationConditionsConfig, a JsonPath-based rules engine over per-block confidence scores that lives in SageMaker Augmented AI, a service gopherstack does not model the condition-evaluation semantics of anywhere (SageMaker's own FlowDefinition resource is tracked, but only as a CRUD record, not as an executable condition set). Approximating activation (e.g. a fixed probability, or a made-up confidence threshold) would fabricate a business decision, not derive one from held state -- exactly the failure mode this campaign removes. What IS buildable and built this pass (gopherstack-n1bo): HumanLoopConfig's two required members (FlowDefinitionArn, HumanLoopName) are validated, InvalidParameterException on either missing; HumanLoopActivationOutput is correctly omitted (nil) rather than fabricated. (bd: gopherstack-n1bo)"
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "Full byte-for-byte Block field audit beyond the fields cross-checked this pass (BlockType, ColumnIndex, ColumnSpan, Confidence, EntityTypes, Geometry, Id, Page, Query, Relationships, RowIndex, RowSpan, SelectionStatus, Text, TextType) — spot-checked per BlockType variant (WORD/LINE/PAGE/TABLE/CELL/KEY_VALUE_SET/QUERY/QUERY_RESULT/SIGNATURE/LAYOUT_*), not exhaustively fuzzed."

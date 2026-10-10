@@ -44,7 +44,8 @@ const (
 	deleteIdentitiesMaxBatch = 60
 
 	// listIdentitiesMaxResults is the AWS-imposed upper limit on MaxResults for ListIdentities.
-	listIdentitiesMaxResults = 60
+	listIdentitiesMaxResults    = 60
+	listIdentityPoolsMaxResults = 60
 
 	// arnSplitParts is the maximum number of colon-delimited fields to split from an AWS ARN.
 	arnSplitParts = 6

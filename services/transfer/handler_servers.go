@@ -148,6 +148,10 @@ func (h *Handler) handleCreateServer(
 ) (*createServerOutput, error) {
 	tags := tagsFromList(in.Tags)
 
+	if err := validateFTPServerConfig(in.Protocols, in.EndpointType, in.IdentityProviderType); err != nil {
+		return nil, err
+	}
+
 	s, err := h.Backend.CreateServerFull(&CreateServerInput{
 		Protocols:                     in.Protocols,
 		Tags:                          tags,

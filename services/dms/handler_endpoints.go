@@ -13,15 +13,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-// engineSettingsFields lists every engine-specific settings block accepted by
-// real CreateEndpoint/ModifyEndpoint (CreateEndpointInput/ModifyEndpointInput,
-// api_op_CreateEndpoint.go:37, api_op_ModifyEndpoint.go:37,
-// databasemigrationservice@v1.66.4) that this emulator does not model: no real
-// database or broker connections exist for them to configure, and the ~300
-// fields across these 19 structs are too large to model faithfully in one
-// pass. Rather than silently drop them like encoding/json would with unknown
-// fields, presence of any of these is rejected explicitly -- see
-// errUnsupportedEndpointSettingsMsg and unsupportedFieldName.
+// engineSettingsFields holds every engine-specific settings block accepted by
+// CreateEndpoint/ModifyEndpoint (api_op_CreateEndpoint.go, databasemigrationservice@v1.66.4).
+// Blocks are stored as raw JSON and echoed back; no engine consumes them.
 type engineSettingsFields struct {
 	DmsTransferSettings        json.RawMessage `json:"DmsTransferSettings,omitempty"`
 	DocDBSettings              json.RawMessage `json:"DocDbSettings,omitempty"`
@@ -44,13 +38,11 @@ type engineSettingsFields struct {
 	TimestreamSettings         json.RawMessage `json:"TimestreamSettings,omitempty"`
 }
 
-// errUnsupportedEndpointSettingsMsg explains why CreateEndpoint/ModifyEndpoint
-// reject engine-specific settings instead of accepting-and-dropping them:
-// this emulator makes no real database/broker connections for them to
-// configure, and honoring them faithfully means modeling ~300 fields across
-// 19 heterogeneous structs, which is out of scope here.
-const errUnsupportedEndpointSettingsMsg = "engine-specific endpoint settings are not supported by this emulator; " +
-	"omit this field (EndpointType/EngineName/ServerName/Port/DatabaseName/Username/Password are honored)"
+// endpointSecretKeys are the credential members inside the engine settings
+// blocks; the real Endpoint response never echoes them.
+var endpointSecretKeys = []string{ //nolint:gochecknoglobals // immutable lookup table
+	"Password", "SaslPassword", "SslClientKeyPassword", "AsmPassword", "AuthPassword",
+}
 
 // rawIsSet reports whether a json.RawMessage field was present in the request
 // body with a non-null value.
@@ -58,57 +50,85 @@ func rawIsSet(raw json.RawMessage) bool {
 	return len(raw) > 0 && string(raw) != "null"
 }
 
-// entries pairs each settings field with its wire name, in the same order as
-// engineSettingsFields, for unsupportedFieldName to scan.
-func (f engineSettingsFields) entries() []struct {
+func (f *engineSettingsFields) entries() []struct {
+	raw  *json.RawMessage
 	name string
-	raw  json.RawMessage
 } {
 	return []struct {
+		raw  *json.RawMessage
 		name string
-		raw  json.RawMessage
 	}{
-		{"DmsTransferSettings", f.DmsTransferSettings},
-		{"DocDbSettings", f.DocDBSettings},
-		{"DynamoDbSettings", f.DynamoDBSettings},
-		{"ElasticsearchSettings", f.ElasticsearchSettings},
-		{"GcpMySQLSettings", f.GcpMySQLSettings},
-		{"IBMDb2Settings", f.IBMDb2Settings},
-		{"KafkaSettings", f.KafkaSettings},
-		{"KinesisSettings", f.KinesisSettings},
-		{"MicrosoftSQLServerSettings", f.MicrosoftSQLServerSettings},
-		{"MongoDbSettings", f.MongoDBSettings},
-		{"MySQLSettings", f.MySQLSettings},
-		{"NeptuneSettings", f.NeptuneSettings},
-		{"OracleSettings", f.OracleSettings},
-		{"PostgreSQLSettings", f.PostgreSQLSettings},
-		{"RedisSettings", f.RedisSettings},
-		{"RedshiftSettings", f.RedshiftSettings},
-		{"S3Settings", f.S3Settings},
-		{"SybaseSettings", f.SybaseSettings},
-		{"TimestreamSettings", f.TimestreamSettings},
+		{&f.DmsTransferSettings, "DmsTransferSettings"},
+		{&f.DocDBSettings, "DocDbSettings"},
+		{&f.DynamoDBSettings, "DynamoDbSettings"},
+		{&f.ElasticsearchSettings, "ElasticsearchSettings"},
+		{&f.GcpMySQLSettings, "GcpMySQLSettings"},
+		{&f.IBMDb2Settings, "IBMDb2Settings"},
+		{&f.KafkaSettings, "KafkaSettings"},
+		{&f.KinesisSettings, "KinesisSettings"},
+		{&f.MicrosoftSQLServerSettings, "MicrosoftSQLServerSettings"},
+		{&f.MongoDBSettings, "MongoDbSettings"},
+		{&f.MySQLSettings, "MySQLSettings"},
+		{&f.NeptuneSettings, "NeptuneSettings"},
+		{&f.OracleSettings, "OracleSettings"},
+		{&f.PostgreSQLSettings, "PostgreSQLSettings"},
+		{&f.RedisSettings, "RedisSettings"},
+		{&f.RedshiftSettings, "RedshiftSettings"},
+		{&f.SybaseSettings, "SybaseSettings"},
+		{&f.TimestreamSettings, "TimestreamSettings"},
 	}
 }
 
-// unsupportedFieldName returns the name of the first engine-specific settings
-// field set on the request, or "" if none were sent.
-func (f engineSettingsFields) unsupportedFieldName() string {
+// otherSettings returns the non-S3 settings blocks present on the request,
+// keyed by wire name; a block that is not a JSON object is a ValidationException.
+func (f *engineSettingsFields) otherSettings() (map[string]string, error) {
+	var out map[string]string
+
 	for _, e := range f.entries() {
-		// S3Settings is modeled (stored and echoed back verbatim -- see
-		// EndpointConnectionSettings.S3Settings) rather than rejected: unlike
-		// the other engines here, aws_dms_s3_endpoint always sends its full,
-		// provider-defaulted field set through this key, so rejecting it
-		// would make that resource type unusable.
-		if e.name == "S3Settings" {
+		if !rawIsSet(*e.raw) {
 			continue
 		}
 
-		if rawIsSet(e.raw) {
-			return e.name
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(*e.raw, &obj); err != nil {
+			return nil, fmt.Errorf("%w: %s must be an object", ErrValidation, e.name)
 		}
+
+		if out == nil {
+			out = map[string]string{}
+		}
+
+		out[e.name] = string(*e.raw)
 	}
 
-	return ""
+	return out, nil
+}
+
+// apply copies stored raw settings onto the response-side field set.
+func (f *engineSettingsFields) apply(stored map[string]string) {
+	for _, e := range f.entries() {
+		if raw := stored[e.name]; raw != "" {
+			*e.raw = redactEndpointSecrets(raw)
+		}
+	}
+}
+
+func redactEndpointSecrets(raw string) json.RawMessage {
+	var obj map[string]json.RawMessage
+	if json.Unmarshal([]byte(raw), &obj) != nil {
+		return json.RawMessage(raw)
+	}
+
+	for _, k := range endpointSecretKeys {
+		delete(obj, k)
+	}
+
+	out, err := json.Marshal(obj)
+	if err != nil {
+		return json.RawMessage(raw)
+	}
+
+	return out
 }
 
 type createEndpointInput struct {
@@ -219,8 +239,9 @@ func (h *Handler) handleCreateEndpoint(
 		return nil, fmt.Errorf("%w: invalid EngineName %q", ErrValidation, engineName)
 	}
 
-	if field := in.unsupportedFieldName(); field != "" {
-		return nil, fmt.Errorf("%w: %s %s", ErrValidation, field, errUnsupportedEndpointSettingsMsg)
+	engineSettings, err := in.otherSettings()
+	if err != nil {
+		return nil, err
 	}
 
 	sslMode := ptrconv.String(in.SslMode)
@@ -252,6 +273,7 @@ func (h *Handler) handleCreateEndpoint(
 			ExternalTableDefinition:   ptrconv.String(in.ExternalTableDefinition),
 			ResourceIdentifier:        ptrconv.String(in.ResourceIdentifier),
 			S3Settings:                string(in.S3Settings),
+			EngineSettings:            engineSettings,
 		},
 	)
 	if err != nil {
@@ -316,22 +338,22 @@ func (h *Handler) handleDeleteEndpoint(
 }
 
 type endpointJSON struct {
-	EndpointIdentifier        string          `json:"EndpointIdentifier"`
-	EndpointArn               string          `json:"EndpointArn"`
-	EndpointType              string          `json:"EndpointType"`
-	EngineName                string          `json:"EngineName"`
-	ServerName                string          `json:"ServerName,omitempty"`
-	DatabaseName              string          `json:"DatabaseName,omitempty"`
-	Username                  string          `json:"Username,omitempty"`
-	Status                    string          `json:"Status"`
-	CertificateArn            string          `json:"CertificateArn,omitempty"`
-	ExtraConnectionAttributes string          `json:"ExtraConnectionAttributes,omitempty"`
-	KmsKeyID                  string          `json:"KmsKeyId,omitempty"`
-	ServiceAccessRoleArn      string          `json:"ServiceAccessRoleArn,omitempty"`
-	SslMode                   string          `json:"SslMode"`
-	ExternalTableDefinition   string          `json:"ExternalTableDefinition,omitempty"`
-	S3Settings                json.RawMessage `json:"S3Settings,omitempty"`
-	Port                      int32           `json:"Port,omitempty"`
+	CertificateArn            string `json:"CertificateArn,omitempty"`
+	ExtraConnectionAttributes string `json:"ExtraConnectionAttributes,omitempty"`
+	EndpointType              string `json:"EndpointType"`
+	EngineName                string `json:"EngineName"`
+	ServerName                string `json:"ServerName,omitempty"`
+	DatabaseName              string `json:"DatabaseName,omitempty"`
+	EndpointArn               string `json:"EndpointArn"`
+	Username                  string `json:"Username,omitempty"`
+	EndpointIdentifier        string `json:"EndpointIdentifier"`
+	Status                    string `json:"Status"`
+	KmsKeyID                  string `json:"KmsKeyId,omitempty"`
+	ServiceAccessRoleArn      string `json:"ServiceAccessRoleArn,omitempty"`
+	SslMode                   string `json:"SslMode"`
+	ExternalTableDefinition   string `json:"ExternalTableDefinition,omitempty"`
+	engineSettingsFields
+	Port int32 `json:"Port,omitempty"`
 }
 
 func epToJSON(ep *Endpoint) endpointJSON {
@@ -356,6 +378,8 @@ func epToJSON(ep *Endpoint) endpointJSON {
 	if ep.S3Settings != "" {
 		out.S3Settings = json.RawMessage(ep.S3Settings)
 	}
+
+	out.apply(ep.EngineSettings)
 
 	return out
 }
@@ -601,8 +625,9 @@ func (h *Handler) handleModifyEndpoint(
 		return nil, fmt.Errorf("%w: invalid EngineName %q", ErrValidation, engineName)
 	}
 
-	if field := in.unsupportedFieldName(); field != "" {
-		return nil, fmt.Errorf("%w: %s %s", ErrValidation, field, errUnsupportedEndpointSettingsMsg)
+	engineSettings, err := in.otherSettings()
+	if err != nil {
+		return nil, err
 	}
 
 	sslMode := ptrconv.String(in.SslMode)
@@ -630,6 +655,7 @@ func (h *Handler) handleModifyEndpoint(
 			SslMode:                   sslMode,
 			ExternalTableDefinition:   ptrconv.String(in.ExternalTableDefinition),
 			S3Settings:                string(in.S3Settings),
+			EngineSettings:            engineSettings,
 			ExactSettings:             ptrconv.Bool(in.ExactSettings),
 			NewIdentifier:             ptrconv.String(in.EndpointIdentifier),
 		},

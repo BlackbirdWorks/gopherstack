@@ -12,6 +12,10 @@ func (b *InMemoryBackend) PutEventSelectors(
 	selectors []EventSelector,
 	advancedSelectors []AdvancedEventSelector,
 ) (*Trail, error) {
+	if err := validateEventSelectors(selectors); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("PutEventSelectors")
 	defer b.mu.Unlock()
 

@@ -120,6 +120,14 @@ func (b *InMemoryBackend) CreateDocument(
 	ctx context.Context,
 	input *CreateDocumentInput,
 ) (*CreateDocumentOutput, error) {
+	if prefix, ok := reservedDocumentPrefix(input.Name); ok {
+		return nil, fmt.Errorf(
+			"%w: document names can't start with the reserved prefix %q",
+			ErrValidationException,
+			prefix,
+		)
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("CreateDocument")
 	defer b.mu.Unlock()
@@ -384,6 +392,18 @@ func (b *InMemoryBackend) GetDocument(
 	}
 
 	return nil, ErrInvalidDocumentVersion
+}
+
+// reservedDocumentPrefix checks api_op_CreateDocument.go's Name list of reserved prefixes.
+func reservedDocumentPrefix(name string) (string, bool) {
+	lower := strings.ToLower(name)
+	for _, p := range []string{"aws", "amazon", "amzn", "AWSEC2", "AWSConfigRemediation", "AWSSupport"} {
+		if strings.HasPrefix(lower, strings.ToLower(p)) {
+			return p, true
+		}
+	}
+
+	return "", false
 }
 
 // tagFilterKeyPrefix is the DocumentKeyValuesFilter.Key prefix

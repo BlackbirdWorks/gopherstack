@@ -3,7 +3,7 @@ service: opensearch
 sdk_module: aws-sdk-go-v2/service/opensearch@v1.75.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/opensearchserverless@v1.34.4]  # AOSS ops this Handler also implements (serverlessOperations()); see families.serverless
 last_audit_commit: 0c1472972  # terraform-coverage pass: VPC-domain Endpoints[] wire fix, SAML Idp nesting fix; prior: 0fea9ecf1
-last_audit_date: 2026-09-23  # prior: 2026-09-19, gopherstack-dv4s: over-wide-response List census.
+last_audit_date: 2026-10-10  # prior: 2026-09-19, gopherstack-dv4s: over-wide-response List census.
                               # 5 tier-1 findings: 4 real gaps fixed (CreateApplication.KmsKeyArn,
                               # CreateDomain.AdvancedOptions, UpdateDomainConfig.AdvancedOptions,
                               # UpdateDirectQueryDataSource.DataSourceAccessPolicy); 1 already
@@ -477,8 +477,9 @@ families:
       was needed) but never updated this earlier note. No open gap remains here; see that sweep's
       dated section below for the fix detail.
 gaps: []
-items_still_open:
-  - "ListMigrations' MigrationSummary.Error member (real, deserializers.go) is never emitted: this backend's migration state machine (migrations.go) only ever transitions PENDING->IN_PROGRESS->SUCCEEDED, so there is no failure state to source Error from. Correct-by-absence, not fabricated; would need a real migration-failure trigger to wire up (gopherstack-dv4s, 2026-09-19)."
+items_still_open: []
+structural_gaps:
+  - "MigrationSummary.Error is never emitted: migrations always settle SUCCEEDED because the emulator has no saved-object store to migrate, so there is no real failure source."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; coarse lockmetrics.RWMutex per backend, no per-map locks introduced. This pass's DeleteDomain connection-cascade iterates Table.All() (a fresh snapshot slice per the existing convention) while deleting, same safe pattern as the pre-existing package/index/data-source cascades. New this pass: DeleteApplication now cascades data source attachments, capabilities, and migration jobs using the identical clone-then-delete pattern (Table.All()/Index.Get results are fresh/cloned slices, safe to range over while deleting)."}
 ---
@@ -1670,3 +1671,7 @@ CreateCollection and UpdateCollection store DeletionProtection, VectorOptions an
 ## 2026-10-05 (undeclared response members)
 
 ClusterConfig is now read and written as ColdStorageOptions{Enabled}; the flat ColdStorageEnabled key and ClusterConfig.BlueGreenDeploymentOptions are no longer emitted (neither is in the SDK type).
+
+## Notes (2026-10-10 realism pass)
+
+CreateDomain and UpdateDomainConfig validate InstanceType, DedicatedMasterType and WarmType shape, InstanceCount (0-80) and EBS VolumeSize (10-16384). CLI ListTags/AddTags/RemoveTags (botocore sends a trailing slash on `/2021-01-01/tags/`) were unrouted and fell through to S3; the trailing slash is now canonicalised. ListTags on an unknown ARN returns ResourceNotFoundException instead of an empty list. UpgradeDomain now checks the target against the documented upgrade paths, changes the domain's EngineVersion, and PerformCheckOnly validates without recording history or changing state. Messages drop the repeated code and use "Domain not found: <name>". Tests: domain_realism_test.go. Processing delay stays opt-in via SetProcessingDelay (no flag is wired, so domains are Active immediately).

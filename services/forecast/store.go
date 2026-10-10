@@ -104,6 +104,9 @@ func (b *InMemoryBackend) create(
 		return nil, fmt.Errorf("%w: %s %q", ErrAlreadyExists, kind, name)
 	}
 
+	stored := stripEchoOnlyFields(kind, data)
+	b.recordLineageLocked(kind, action, stored)
+
 	now := time.Now().UTC()
 	status := statusCreatePending
 	if failureMessage != "" {
@@ -113,7 +116,7 @@ func (b *InMemoryBackend) create(
 	resource := &Resource{
 		CreatedAt: now,
 		UpdatedAt: now,
-		Data:      stripEchoOnlyFields(kind, data),
+		Data:      stored,
 		ARN:       arn.Build("forecast", b.region, b.accountID, string(kind)+"/"+name),
 		Name:      name,
 		Status:    status,
@@ -142,6 +145,7 @@ func (b *InMemoryBackend) describe(kind resourceKind, nameOrARN string) (*Resour
 	}
 
 	result := cloneResource(resource)
+	b.enrichLocked(result)
 	if resource.Status == statusCreatePending {
 		resource.Status = statusActive
 		resource.UpdatedAt = time.Now().UTC()
@@ -200,7 +204,9 @@ func (b *InMemoryBackend) list(kind resourceKind) []*Resource {
 	items := b.resources[kind].All()
 	result := make([]*Resource, 0, len(items))
 	for _, resource := range items {
-		result = append(result, cloneResource(resource))
+		clone := cloneResource(resource)
+		b.enrichLocked(clone)
+		result = append(result, clone)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 
@@ -322,17 +328,16 @@ func cloneValue(value any) any {
 //
 // Tags is universal: no Describe*/List*Summary type in this SDK declares a
 // Tags member (tags are only readable via ListTagsForResource).
-// ExplainPredictor/ReferencePredictorArn are CreateAutoPredictorInput-only:
-// DescribeAutoPredictorOutput's counterparts are ExplainabilityInfo and
-// ReferencePredictorSummary (different name/shape, already-documented gaps,
-// forecast@v1.44.4 api_op_DescribeAutoPredictor.go), never these raw names.
+// ExplainPredictor is CreateAutoPredictorInput-only; DescribeAutoPredictorOutput
+// declares ExplainabilityInfo instead (forecast@v1.44.4
+// api_op_DescribeAutoPredictor.go). ReferencePredictorArn is kept for
+// enrichPredictor and never leaves the backend under that name.
 func stripEchoOnlyFields(kind resourceKind, data map[string]any) map[string]any {
 	stored := cloneMap(data)
 	delete(stored, "Tags")
 
 	if kind == kindPredictor {
 		delete(stored, "ExplainPredictor")
-		delete(stored, "ReferencePredictorArn")
 	}
 
 	return stored
@@ -421,7 +426,17 @@ func (b *InMemoryBackend) deleteTreeLocked(targetARN string) {
 // maps/slices too or it silently fails to find dependents like a
 // DatasetGroup's Predictors.
 func arnReferencedBy(r *Resource, targetARN string) bool {
-	return valueReferencesARN(r.Data, targetARN)
+	for key, value := range r.Data {
+		if key == keyReferencePredictorArn {
+			continue
+		}
+
+		if valueReferencesARN(value, targetARN) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func valueReferencesARN(v any, targetARN string) bool {

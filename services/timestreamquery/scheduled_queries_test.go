@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"maps"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -1219,7 +1220,7 @@ func TestCreateScheduledQuery_KmsKeyId(t *testing.T) {
 			h := newTestHandler()
 
 			createBody := map[string]any{
-				"Name":                           "kms-sq-" + tt.name,
+				"Name":                           "kms-sq-" + strings.ReplaceAll(tt.name, " ", "-"),
 				"QueryString":                    "SELECT 1",
 				"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123456789012:role/r",
 				"KmsKeyId":                       tt.kmsKeyID,

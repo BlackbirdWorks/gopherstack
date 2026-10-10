@@ -2,7 +2,7 @@
 service: securityhub
 sdk_module: aws-sdk-go-v2/service/securityhub@v1.75.4
 last_audit_commit: b7c35baea  # 2026-09-19 terraform-coverage sweep (guardduty-and-securityhub); prior: 75c14a90f
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
 overall: A            # parity-4: 7 new SDK ops (CSPM Connectors CRUD+List, SecurityHub V2 opt-in
                        # Feature enable/disable) implemented for real against v1.75.0, wired into
                        # existing DescribeSecurityHubV2 state; one bonus fix (DescribeSecurityHubV2's
@@ -142,16 +142,20 @@ families:
   Persistence: {status: ok, note: "Handler.Snapshot/Restore (persistence.go) delegate to InMemoryBackend.Snapshot/Restore (backend.go), which round-trips every store.Table via registry.SnapshotAll/RestoreAll (store_setup.go) plus the 5 plain-map fields (tags, findings, controlParams, productSubscriptions, orgAdminAccounts) and all scalar/pointer fields. Verified store_setup.go registers exactly the set of *store.Table fields declared on InMemoryBackend -- no orphaned or unregistered table."}
 gaps: []
 items_still_open:
-  - "CreateTicketV2.ClientToken is not replayed (no ticket lookup to replay from); GetFindingStatisticsV2/GetResourcesStatisticsV2.MaxStatisticResults is unapplied (the SDK does not say whether it caps groups or values per group); UpdateConfigurationPolicy.UpdatedReason has no read member to surface it; ListSecurityControlDefinitions.StandardsArn is unapplied (controls carry no standard mapping); BatchUpdateFindings applies no 100-finding limit or range checks."
-  - "GetFindingsV2 OCSF filter fields with no ASFF backing stay unevaluated (accepted, not applied): evidences.*, vendor_attributes.*, resources.image.*, databucket.tags, compliance.assessments.meets_criteria, class_name, and is_fix_available (FixAvailable is three-valued). vulnerabilities.cve.cvss.base_score is now evaluated (2026-10-01, TestRealClient_GetFindingsV2_CvssBaseScore)."
-  - "BatchUpdateFindingsV2 MetadataUids never resolve (ResourceNotFoundException): findings carry no OCSF metadata.uid because ingestion is ASFF-only. Same reason: ListMembers(onlyAssociated=true) needs cross-account invitation acceptance; CSPM Connector status stays PENDING/UNKNOWN (no out-of-band Azure signal); Scopes.AwsOrganizations is accepted-and-dropped (no OU tree)."
-  - "GetFindingsV2 OcsfMapFilter entries with a repeated field are combined by the CompositeFilter Operator, not V1's implicit CONTAINS-OR/NOT-AND rule; AWS docs do not say which applies, so not guessed."
-  - "GetFindingsTrendsV2.Filters and GetResourcesTrendsV2.Filters are not evaluated: trend points cover every stored finding/resource (2026-10-05 tier-2 pass)."
+  - "GetFindingStatisticsV2/GetResourcesStatisticsV2.MaxStatisticResults is range-checked (1-400) but not applied as a cap: API_GetFindingStatisticsV2.html says only \"the maximum number of results to be returned\", not whether it limits groups or values per group."
+  - "vulnerabilities.is_fix_available matches YES/NO only: neither the SDK nor API_OcsfBooleanFilter/API_CompositeFilter define how the ASFF FixAvailable value PARTIAL maps to an OCSF boolean."
+structural_gaps:
+  - "UpdateConfigurationPolicy.UpdatedReason has no read member in the SDK, so it cannot be surfaced."
+  - "ListSecurityControlDefinitions.StandardsArn is unapplied: the 3-control catalog carries no per-standard control mapping (AWS-owned catalog data)."
+  - "OCSF-only filter fields with no ASFF source (evidences.api/dst/src non-IP, vendor_attributes.*, resources.image.*, databucket.tags, compliance.assessments.*, activity_name) resolve to no value: ingestion is ASFF-only."
+  - "CSPM Connector status stays PENDING/UNKNOWN (no out-of-band Azure signal); Scopes.AwsOrganizations is accepted but not applied (no OU tree without the Organizations service)."
 deferred: []
 leaks: {status: clean, note: "no goroutines, tickers, or background loops in services/securityhub -- pure request-response over an in-memory store.Registry guarded by one lockmetrics.RWMutex. New findingHistory map (findings.go/store.go) follows the same plain-map + coarse-lock pattern as findings/tags -- every read/write path holds b.mu for the duration, no separate lock, no goroutines."}
 ---
 
 ## Notes
+
+**2026-10-07**: CreateTicketV2 honours ClientToken; BatchUpdateFindings enforces the 100-finding and 0-100 score limits; GetFindingsV2 reports metadata.uid (the store key) and BatchUpdateFindingsV2 resolves MetadataUids; OCSF filters on fields a finding has no value for now match nothing (previously ignored) and more ASFF-backed string fields are evaluated; Filters on GetFindingsTrendsV2/GetResourcesTrendsV2/GetResourcesV2 and per-rule Filters on the statistics ops are applied; ListMembers defaults OnlyAssociated=true and AcceptAdministratorInvitation moves the invited member to Enabled.
 
 - **2026-10-04 (gopherstack-qp2y)**: the eight V1 ops that declare both InvalidAccessException and
   ResourceNotFoundException (DisableSecurityHub, DescribeHub, UpdateSecurityHubConfiguration, UpdateFindings,
@@ -1457,3 +1461,8 @@ securityhub is region-isolated: Hub enablement, standards, insights, action targ
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 GetFindingsTrendsV2, GetResourcesTrendsV2 (body MaxResults/NextToken) and GetRecommendedPolicyV2 (query MaxResults/NextToken) now validate paging (`validPaging`, handler.go: negative MaxResults or a malformed token returns InvalidInputException) and the trend ops page through `paginateSlice`; the backend emits a single trend point so NextToken is never set for a first page. The eight flagged MaxResults members on DescribeProducts, DescribeStandards, DescribeStandardsControls, ListAutomationRules, ListConnectors, ListEnabledProductsForImport, ListSecurityControlDefinitions and ListStandardsControlAssociations were false positives: each handler reads them through `queryInt`. Recorded gap: GetFindingsTrendsV2.Filters and GetResourcesTrendsV2.Filters are not evaluated (trends cover every stored finding/resource). Proof: `TestRealClient_TrendOpsHonourPaging`.
+
+## 2026-10-10 (service realism pass)
+
+FIXED: StandardsSubscriptionArn is account-scoped and named after the standard (`arn:aws:securityhub:<region>:<account>:subscription/<name>/v/<ver>`); default-standard subscriptions were `subscription/default-0/v/1.0.0` and BatchEnableStandards omitted the account id, so ARN-derived lookups (aws_securityhub_standards_control) missed. BatchEnableStandards rejects an unknown StandardsArn with `InvalidInputException` (catalogue extended with CIS 3.0.0, PCI DSS 4.0.1, NIST 800-171 2.0.0, Resource Tagging) and re-enabling a READY subscription no longer resets it to PENDING. DescribeStandardsControls on an unknown subscription is `ResourceNotFoundException`. GetFindings/GetFindingsV2 reject MaxResults above 100 and a malformed NextToken (`InvalidInputException`). CreateActionTarget enforces Name <= 20 chars and an alphanumeric Id <= 20 chars. BatchImportFindings reports a finding with an invalid Severity.Label, RecordState or Workflow.Status in FailedFindings. Proof: `realism_sdk_test.go`.
+LENIENT (recorded): unknown subscription ARNs in BatchDisableStandards are still silently ignored (real response unverified); the standards-control catalogue remains two mock controls per subscription.

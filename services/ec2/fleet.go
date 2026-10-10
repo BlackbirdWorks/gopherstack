@@ -454,37 +454,60 @@ func (b *InMemoryBackend) DeleteFleets(ids []string, terminateInstances bool) []
 	var deleted []FleetDeletionResult
 
 	for _, id := range ids {
-		f, ok := b.fleets.Get(id)
-		if !ok {
-			continue
+		if res, ok := b.deleteFleetLocked(id, terminateInstances); ok {
+			deleted = append(deleted, res)
 		}
-
-		prev := f.FleetState
-
-		if terminateInstances {
-			f.FleetState = fleetStateDeletedTerminating
-
-			for _, instID := range f.InstanceIDs {
-				_, _ = b.terminateInstanceLocked(instID)
-			}
-		} else {
-			f.FleetState = fleetStateDeletedRunning
-		}
-
-		cp := *f
-		pruneExpiredTombstones(b.fleetTombstones, time.Now())
-		b.fleetTombstones[id] = tombstone[Fleet]{value: &cp, deletedAt: time.Now()}
-
-		b.fleets.Delete(id)
-		delete(b.tags, id)
-		deleted = append(deleted, FleetDeletionResult{
-			FleetID:            id,
-			PreviousFleetState: prev,
-			CurrentFleetState:  f.FleetState,
-		})
 	}
 
 	return deleted
+}
+
+// deleteFleetLocked moves a fleet to its deleted state and tombstones it. Caller must hold b.mu.
+func (b *InMemoryBackend) deleteFleetLocked(id string, terminateInstances bool) (FleetDeletionResult, bool) {
+	f, ok := b.fleets.Get(id)
+	if !ok {
+		return FleetDeletionResult{}, false
+	}
+
+	prev := f.FleetState
+
+	if terminateInstances {
+		f.FleetState = fleetStateDeletedTerminating
+
+		for _, instID := range f.InstanceIDs {
+			_, _ = b.terminateInstanceLocked(instID)
+		}
+	} else {
+		f.FleetState = fleetStateDeletedRunning
+	}
+
+	cp := *f
+	pruneExpiredTombstones(b.fleetTombstones, time.Now())
+	b.fleetTombstones[id] = tombstone[Fleet]{value: &cp, deletedAt: time.Now()}
+
+	b.fleets.Delete(id)
+	delete(b.tags, id)
+
+	return FleetDeletionResult{FleetID: id, PreviousFleetState: prev, CurrentFleetState: f.FleetState}, true
+}
+
+// expireFleets deletes fleets whose ValidUntil has passed, terminating their instances when the fleet was
+// created with TerminateInstancesWithExpiration.
+func (b *InMemoryBackend) expireFleets(now time.Time) {
+	b.mu.Lock("expireFleets")
+	defer b.mu.Unlock()
+
+	var expired []*Fleet
+
+	for _, f := range b.fleets.All() {
+		if !f.ValidUntil.IsZero() && now.After(f.ValidUntil) {
+			expired = append(expired, f)
+		}
+	}
+
+	for _, f := range expired {
+		b.deleteFleetLocked(f.FleetID, f.TerminateInstancesWithExpiration)
+	}
 }
 
 // fleetReportedStateLocked returns f's externally-visible FleetState:

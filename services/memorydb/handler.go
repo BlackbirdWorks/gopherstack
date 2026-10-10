@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -533,8 +534,21 @@ func validateTagEntries(tags []tagEntry) error {
 }
 
 // writeError writes a JSON error response using the standard AWS JSON 1.1 envelope.
+var (
+	faultTailPattern   = regexp.MustCompile(`: [A-Za-z]+(Fault|Exception)(:.*)?$`)
+	faultPrefixPattern = regexp.MustCompile(`^[A-Za-z]+(Fault|Exception): `)
+)
+
+func cleanErrorMessage(msg string) string {
+	if cut := faultTailPattern.ReplaceAllString(msg, ""); cut != "" {
+		msg = cut
+	}
+
+	return faultPrefixPattern.ReplaceAllString(msg, "")
+}
+
 func writeError(c *echo.Context, status int, errType, message string) error {
-	return c.JSON(status, errorResponse{Type: errType, Message: message})
+	return c.JSON(status, errorResponse{Type: errType, Message: cleanErrorMessage(message)})
 }
 
 // Purge implements service.Purgeable by removing all MemoryDB resources older than cutoff.

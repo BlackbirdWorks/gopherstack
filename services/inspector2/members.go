@@ -33,6 +33,8 @@ func (b *InMemoryBackend) DisassociateMember(accountID string) error {
 		return ErrMemberNotFound
 	}
 
+	delete(b.memberEnabled, accountID)
+
 	return nil
 }
 

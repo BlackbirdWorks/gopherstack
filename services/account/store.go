@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 // StorageBackend defines the interface for the account service backend.
@@ -43,6 +44,7 @@ type InMemoryBackend struct {
 	alternateContacts        *store.Table[AlternateContact]
 	contactInfo              *ContactInformation
 	mu                       *lockmetrics.RWMutex
+	work                     *worker.Group
 	accountName              string
 	primaryEmail             string
 	pendingEmail             string
@@ -63,8 +65,18 @@ const defaultPrimaryEmail = "admin@example.com"
 // backends.
 const defaultAccountName = "Test Account"
 
-// NewInMemoryBackend creates a new in-memory backend for the account service.
+// regionTransitionDelay is how long a region stays ENABLING/DISABLING and a
+// primary email update stays ACCEPTED before settling.
+const regionTransitionDelay = 100 * time.Millisecond
+
+// NewInMemoryBackend creates a backend whose timers are rooted at context.Background().
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a backend whose async transitions run
+// on a worker.Group rooted at ctx.
+func NewInMemoryBackendWithContext(ctx context.Context, accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		accountID:          accountID,
 		region:             region,
@@ -73,6 +85,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		registry:           store.NewRegistry(),
 		accountCreatedDate: time.Now().UTC(),
 		mu:                 lockmetrics.New("account"),
+		work:               worker.NewGroup(ctx, "account"),
 	}
 	registerAllTables(b)
 	b.initDefaultRegions()
@@ -116,3 +129,6 @@ func (b *InMemoryBackend) Reset() {
 	b.primaryEmailUpdateAt = time.Time{}
 	b.initDefaultRegions()
 }
+
+// Close stops pending transition timers. Safe to call more than once.
+func (b *InMemoryBackend) Close() { b.work.Stop() }

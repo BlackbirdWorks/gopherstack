@@ -31,6 +31,7 @@ func TestDescribeConformancePackStatus_State_RealClient(t *testing.T) {
 	_, err := client.PutConformancePack(t.Context(), &configservicesdk.PutConformancePackInput{
 		ConformancePackName: aws.String("state-check-pack"),
 		DeliveryS3Bucket:    aws.String("my-delivery-bucket"),
+		TemplateBody:        aws.String("Resources: {}"),
 	})
 	require.NoError(t, err)
 
@@ -51,6 +52,7 @@ func TestConformancePackARN(t *testing.T) {
 	rec := doAWSConfigRequest(t, h, "PutConformancePack", map[string]any{
 		"ConformancePackName": "test-pack",
 		"DeliveryS3Bucket":    "my-delivery-bucket",
+		"TemplateBody":        "Resources: {}",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

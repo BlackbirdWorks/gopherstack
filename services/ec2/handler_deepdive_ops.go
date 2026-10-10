@@ -12,17 +12,19 @@ import (
 
 func (h *Handler) toVpcEndpointItem(ep *VpcEndpoint, tags map[string]string) vpcEndpointItem {
 	item := vpcEndpointItem{
-		ID:                ep.ID,
-		VPCID:             ep.VPCID,
-		ServiceName:       ep.ServiceName,
-		State:             ep.State,
-		VpcEndpointType:   ep.VpcEndpointType,
-		OwnerID:           ep.OwnerID,
-		CreateTime:        ep.CreateTime.Format(time.RFC3339),
-		TagSet:            tagItemsFromMap(tags),
-		PolicyDocument:    ep.PolicyDocument,
-		ServiceRegion:     ep.ServiceRegion,
-		PrivateDNSEnabled: ep.PrivateDNSEnabled,
+		ID:                       ep.ID,
+		VPCID:                    ep.VPCID,
+		ServiceName:              ep.ServiceName,
+		ResourceConfigurationArn: ep.ResourceConfigurationArn,
+		ServiceNetworkArn:        ep.ServiceNetworkArn,
+		State:                    ep.State,
+		VpcEndpointType:          ep.VpcEndpointType,
+		OwnerID:                  ep.OwnerID,
+		CreateTime:               ep.CreateTime.Format(time.RFC3339),
+		TagSet:                   tagItemsFromMap(tags),
+		PolicyDocument:           ep.PolicyDocument,
+		ServiceRegion:            ep.ServiceRegion,
+		PrivateDNSEnabled:        ep.PrivateDNSEnabled,
 	}
 
 	item.SubnetIDs.Items = append(item.SubnetIDs.Items, ep.SubnetIDs...)
@@ -169,6 +171,9 @@ func (h *Handler) handleCreateVpcEndpoint(vals url.Values, reqID string) (any, e
 		PolicyDocument:   vals.Get("PolicyDocument"),
 		ServiceRegion:    vals.Get("ServiceRegion"),
 		SecurityGroupIDs: parseMemberList(vals, "SecurityGroupId"),
+
+		ResourceConfigurationArn: vals.Get("ResourceConfigurationArn"),
+		ServiceNetworkArn:        vals.Get("ServiceNetworkArn"),
 	}
 
 	if v := vals.Get("PrivateDnsEnabled"); v != "" {
@@ -409,21 +414,23 @@ type vpcEndpointRouteTableIDSet struct {
 }
 
 type vpcEndpointItem struct {
-	CreateTime             string                         `xml:"creationTimestamp"`
-	PolicyDocument         string                         `xml:"policyDocument,omitempty"`
-	ServiceName            string                         `xml:"serviceName"`
-	State                  string                         `xml:"state"`
-	VpcEndpointType        string                         `xml:"vpcEndpointType"`
-	OwnerID                string                         `xml:"ownerId,omitempty"`
-	VPCID                  string                         `xml:"vpcId"`
-	ServiceRegion          string                         `xml:"serviceRegion,omitempty"`
-	ID                     string                         `xml:"vpcEndpointId"`
-	TagSet                 []simpleTagItem                `xml:"tagSet>item"`
-	SubnetIDs              vpcEndpointSubnetIDSet         `xml:"subnetIdSet"`
-	PayerResponsibilitySet []payerResponsibilityEntryItem `xml:"payerResponsibilitySet>item,omitempty"`
-	RouteTableIDs          vpcEndpointRouteTableIDSet     `xml:"routeTableIdSet"`
-	GroupSet               instanceGroupSet               `xml:"groupSet"`
-	PrivateDNSEnabled      bool                           `xml:"privateDnsEnabled,omitempty"`
+	CreateTime               string                         `xml:"creationTimestamp"`
+	PolicyDocument           string                         `xml:"policyDocument,omitempty"`
+	ServiceName              string                         `xml:"serviceName,omitempty"`
+	ResourceConfigurationArn string                         `xml:"resourceConfigurationArn,omitempty"`
+	ServiceNetworkArn        string                         `xml:"serviceNetworkArn,omitempty"`
+	State                    string                         `xml:"state"`
+	VpcEndpointType          string                         `xml:"vpcEndpointType"`
+	OwnerID                  string                         `xml:"ownerId,omitempty"`
+	VPCID                    string                         `xml:"vpcId"`
+	ServiceRegion            string                         `xml:"serviceRegion,omitempty"`
+	ID                       string                         `xml:"vpcEndpointId"`
+	TagSet                   []simpleTagItem                `xml:"tagSet>item"`
+	SubnetIDs                vpcEndpointSubnetIDSet         `xml:"subnetIdSet"`
+	PayerResponsibilitySet   []payerResponsibilityEntryItem `xml:"payerResponsibilitySet>item,omitempty"`
+	RouteTableIDs            vpcEndpointRouteTableIDSet     `xml:"routeTableIdSet"`
+	GroupSet                 instanceGroupSet               `xml:"groupSet"`
+	PrivateDNSEnabled        bool                           `xml:"privateDnsEnabled,omitempty"`
 }
 
 type vpcEndpointSet struct {

@@ -744,7 +744,7 @@ func toDetailOutput(app *Application) applicationDetailOutput {
 	out := applicationDetailOutput{
 		ApplicationARN:                      app.ApplicationARN,
 		ApplicationName:                     app.ApplicationName,
-		ApplicationStatus:                   app.ApplicationStatus,
+		ApplicationStatus:                   app.effectiveStatus(),
 		RuntimeEnvironment:                  app.RuntimeEnvironment,
 		ServiceExecutionRole:                app.ServiceExecutionRole,
 		ApplicationDescription:              app.ApplicationDescription,

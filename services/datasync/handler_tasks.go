@@ -99,6 +99,14 @@ func (h *Handler) handleCreateTask(_ context.Context, in *createTaskInput) (*cre
 		return nil, err
 	}
 
+	if err := firstErr(
+		validateTaskName(in.Name),
+		validateScheduleExpression(in.Schedule),
+		validateTaskOptions(in.Options),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.SourceLocationArn == "" {
 		return nil, fmt.Errorf("%w: SourceLocationArn is required", errInvalidRequest)
 	}
@@ -140,13 +148,11 @@ type describeTaskInput struct {
 
 // describeTaskOutput covers the real DescribeTaskOutput's FK/status/settings
 // members. DestinationNetworkInterfaceArns, SourceNetworkInterfaceArns,
-// ErrorCode, ErrorDetail, and ScheduleDetails also exist on the real output
-// but are omitted here: gopherstack doesn't model ENIs or task-execution
-// failures, so they would always be empty/absent -- an honest omission
-// rather than a fabricated value.
+// ErrorCode and ErrorDetail are omitted: no ENI or task-unavailability state exists.
 type describeTaskOutput struct {
 	Options                 map[string]any      `json:"Options,omitempty"`
 	Schedule                *taskScheduleOutput `json:"Schedule,omitempty"`
+	ScheduleDetails         *scheduleDetails    `json:"ScheduleDetails,omitempty"`
 	ManifestConfig          map[string]any      `json:"ManifestConfig,omitempty"`
 	TaskReportConfig        map[string]any      `json:"TaskReportConfig,omitempty"`
 	TaskArn                 string              `json:"TaskArn"`
@@ -183,12 +189,31 @@ func (h *Handler) handleDescribeTask(_ context.Context, in *describeTaskInput) (
 		CreationTime:            t.CreationTime.Unix(),
 		Options:                 t.Options,
 		Schedule:                taskScheduleToOutput(t.Schedule),
+		ScheduleDetails:         scheduleDetailsFor(t.Schedule),
 		ManifestConfig:          t.ManifestConfig,
 		TaskReportConfig:        t.TaskReportConfig,
 		Excludes:                filterRulesToOutput(t.Excludes),
 		Includes:                filterRulesToOutput(t.Includes),
 		TaskMode:                t.TaskMode,
 	}, nil
+}
+
+type scheduleDetails struct {
+	DisabledBy       string `json:"DisabledBy,omitempty"`
+	DisabledReason   string `json:"DisabledReason,omitempty"`
+	StatusUpdateTime int64  `json:"StatusUpdateTime,omitempty"`
+}
+
+func scheduleDetailsFor(s *TaskSchedule) *scheduleDetails {
+	if s == nil || s.StatusUpdateTime.IsZero() {
+		return nil
+	}
+
+	return &scheduleDetails{
+		DisabledBy:       s.DisabledBy,
+		DisabledReason:   s.DisabledReason,
+		StatusUpdateTime: s.StatusUpdateTime.Unix(),
+	}
 }
 
 type updateTaskInput struct {
@@ -208,6 +233,14 @@ type updateTaskOutput struct{}
 func (h *Handler) handleUpdateTask(_ context.Context, in *updateTaskInput) (*updateTaskOutput, error) {
 	if in.TaskArn == "" {
 		return nil, fmt.Errorf("%w: TaskArn is required", errInvalidRequest)
+	}
+
+	if err := firstErr(
+		validateTaskName(in.Name),
+		validateScheduleExpression(in.Schedule),
+		validateTaskOptions(in.Options),
+	); err != nil {
+		return nil, err
 	}
 
 	settings := TaskSettings{
@@ -314,6 +347,10 @@ func (h *Handler) handleStartTaskExecution(
 ) (*startTaskExecutionOutput, error) {
 	if in.TaskArn == "" {
 		return nil, fmt.Errorf("%w: TaskArn is required", errInvalidRequest)
+	}
+
+	if err := validateTaskOptions(in.OverrideOptions); err != nil {
+		return nil, err
 	}
 
 	overrides := TaskExecutionOverrides{
@@ -461,6 +498,10 @@ func (h *Handler) handleUpdateTaskExecution(
 	// AWS requires the Options member on UpdateTaskExecution.
 	if len(in.Options) == 0 {
 		return nil, fmt.Errorf("%w: Options is required", errInvalidRequest)
+	}
+
+	if err := validateTaskOptions(in.Options); err != nil {
+		return nil, err
 	}
 
 	if err := h.Backend.UpdateTaskExecution(in.TaskExecutionArn, in.Options); err != nil {

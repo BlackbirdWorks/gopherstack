@@ -2,7 +2,7 @@
 service: appsync
 sdk_module: aws-sdk-go-v2/service/appsync@v1.60.0
 last_audit_commit: 0c1472972  # 2026-09-23 lakeformation-appsync-neptune-and-athena terraform coverage; prior: d522d763f
-last_audit_date: 2026-09-23  # prior: 2026-09-19
+last_audit_date: 2026-10-09
 overall: A            # 2026-09-04 (gopherstack-2yo): DeleteGraphqlApi's cascade-delete (issue #842) missed two ghost-row classes -- SourceAPIAssociation rows (either SourceAPIID or MergedAPIID matching the deleted API) and the APIAssociation/DomainName.APIID link created by AssociateApi -- both outlived the API indefinitely, so Get/ListSourceApiAssociations and GetApiAssociation kept returning associations pointing at a deleted API forever. Fixed for real (cascadeDeleteAPIAssociations); regression tests added. Also fixed: CreateApiKey's default expiry was wrong (365 days; real SDK doc says 7) and Create/UpdateApiKey's two AppSync-specific error codes (ApiKeyLimitExceededException, ApiKeyValidityOutOfBoundsException) were never actually surfaced -- both collapsed into a generic BadRequestException, and an out-of-bounds custom expiry was silently clamped into range instead of rejected. Also disclosed (not fixed, structural): GetIntrospectionSchema's format/includeDirectives were silently ignored, same missing-SDL<->JSON-converter class already disclosed for ListTypes/GetType/ListTypesByAssociation but not previously called out for this op. Grade held at A.
                       # 2026-07-24: systemic route-matcher/method bugs fixed across nearly every family; the two remaining gaps from the 2026-07-12 pass (StartSchemaMerge, Start/GetDataSourceIntrospection) are now implemented for real
                       # 2026-07-31: pkgs/sdkcheck reverse check found ExecuteGraphQL wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal data-plane scaffolding. Grade held at A: a documentation defect, not a served-client bug.
@@ -121,13 +121,13 @@ families:
   ExecuteGraphQL_auth: {status: fixed, note: "gopherstack-idv8 (2026-09-06): ExecuteGraphQL performed zero authentication -- fetched the GraphqlApi record then discarded it (_ = api), and handleGraphQL never read x-api-key/Authorization at all. Fixed for real for all five auth types (API_KEY, AWS_LAMBDA, AWS_IAM, AMAZON_COGNITO_USER_POOLS, OPENID_CONNECT), plus AdditionalAuthenticationProviders (any configured provider, primary or additional, may authorize the request). Cognito/OIDC verify RSA signature, issuer, expiry, and audience/client-id via a JWKSProvider hook wired to services/cognitoidp in cli.go (wireAppSyncCognito) -- see gaps for the narrow unwired-provider and external-issuer carve-outs, and for the still-open SigV4-secret gap. A rejected request returns HTTP 401 {\"message\":\"Unauthorized\"}, matching real AppSync's transport-level auth-failure shape."}
 gaps: []
 items_still_open:
-  - "Resolver-level PIPELINE before-mapping (RequestMappingTemplate/Code `request`) is not evaluated; stash writes and short-circuit need a full VTL/JS evaluator (gopherstack-ivwh). 2026-10-01."
-  - "The APPSYNC_JS evaluator (jseval.go) supports only a documented literal/context/util.* subset (no control flow, bindings, or util.dynamodb.*) and returns ErrUnsupportedJSCode otherwise; real resolver execution is an unmodeled subsystem. 2026-10-01."
-  - "GraphqlApi dns and wafWebAclArn, and Api wafWebAclArn, are unmodeled: no WAF association exists and the dns key set is unverified."
-  - "DataSource/Resolver/Function/ApiCache/APIType/DomainNameConfig carry a harmless extra apiId (and DataSource an extra tags) on the wire that real clients ignore. 2026-10-01."
   - "Introspection omits __Type.specifiedByURL and isOneOf, and ListTypes/GetType/ListTypesByAssociation ignore the SDL/JSON format parameter; the real per-type JSON shape is unverified. 2026-10-01."
-  - "Cognito/OIDC auth passes every request when no JWKS provider is wired (test-only; cli.go always wires it), and rejects issuers with no local signing key because external JWKS are never fetched. 2026-10-01."
   - "GetIntrospectionSchema returns an undeclared BadRequestException for an unknown format; no declared exception (GraphQLSchema/Internal/NotFound/Unauthorized) fits. 2026-10-01."
+  - "GraphqlApi dns and Api dns are unmodeled: the dns key set is unverified."
+structural_gaps:
+  - "Resolver-level PIPELINE before-mapping (RequestMappingTemplate/Code `request`) is not evaluated; stash writes and short-circuit need a full VTL/JS runtime (gopherstack-ivwh). 2026-10-01."
+  - "The APPSYNC_JS evaluator (jseval.go) supports only a documented literal/context/util.* subset (no control flow, bindings, or util.dynamodb.*) and returns ErrUnsupportedJSCode otherwise; real resolver execution needs a JS runtime. 2026-10-01."
+  - "Cognito/OIDC issuers with no local signing key are rejected because external JWKS endpoints are never fetched (no external network)."
 deferred:
   - "CloudTrail-capture chokepoint / pkgs/service integration — not audited (shared/cross-service, out of scope per this task's edit boundary)."
   - "DataSourceIntrospection real model content: gopherstack has no RDS Data API backend to introspect against, so StartDataSourceIntrospection/GetDataSourceIntrospection always complete SUCCESS with an empty models list rather than real table/column data. Wire shape, error codes (BadRequestException on missing/incomplete rdsDataApiConfig, NotFoundException on unknown introspectionId), and persisted per-ID state are all real and field-diffed against the SDK; only the introspected *content* is out of scope. Would require a services/rds (or similar) cross-service integration to fix — out of this task's services/appsync/ edit boundary."
@@ -538,3 +538,7 @@ Recorded, not fixed: UpdateResolver/UpdateFunction/UpdateDataSource describe mem
 ### 2026-10-05: PARITY burn-down pass 5 (gopherstack-9x62)
 
 DataSource now keeps the deprecated elasticsearchConfig (AMAZON_ELASTICSEARCH), and UpdateSourceApiAssociation applies sourceApiAssociationConfig.mergeType. Tests: services/appsync/dropped_members_sdk_test.go.
+
+## 2026-10-09 realism pass
+
+CreateDataSource names must match `[_A-Za-z][_0-9A-Za-z]*` (max 65). Error messages no longer repeat the code prefix. Lenient on purpose: CreateResolver does not require the named data source or schema type to exist yet (resolvers are created before data sources in many in-repo callers, and execution-time missing-data-source behaviour is tested); list nextToken values that are not offsets are still ignored. Tests: realism_validation_test.go.

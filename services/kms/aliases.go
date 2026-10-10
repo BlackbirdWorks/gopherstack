@@ -59,7 +59,8 @@ func (b *InMemoryBackend) CreateAlias(ctx context.Context, input *CreateAliasInp
 	region := getRegion(ctx, b.defaultRegion)
 
 	if b.aliasesStore(region).Has(input.AliasName) {
-		return ErrAliasAlreadyExists
+		return fmt.Errorf("%w: An alias with the name %s already exists",
+			ErrAliasAlreadyExists, gopherarn.Build("kms", region, b.accountID, input.AliasName))
 	}
 
 	// CreateAlias's deserializeOpError does not recognize InvalidArnException
@@ -96,7 +97,7 @@ func (b *InMemoryBackend) UpdateAlias(ctx context.Context, input *UpdateAliasInp
 
 	alias, exists := b.aliasesStore(region).Get(input.AliasName)
 	if !exists {
-		return ErrAliasNotFound
+		return b.aliasNotFound(region, input.AliasName)
 	}
 
 	if strings.HasPrefix(input.AliasName, awsManagedKeyAliasPrefix) {
@@ -142,7 +143,7 @@ func (b *InMemoryBackend) DeleteAlias(ctx context.Context, input *DeleteAliasInp
 
 	alias, exists := b.aliasesStore(region).Get(input.AliasName)
 	if !exists {
-		return ErrAliasNotFound
+		return b.aliasNotFound(region, input.AliasName)
 	}
 
 	if strings.HasPrefix(input.AliasName, awsManagedKeyAliasPrefix) {
@@ -233,4 +234,8 @@ func (b *InMemoryBackend) ListAliases(
 		NextMarker: nextMarker,
 		Truncated:  nextMarker != "",
 	}, nil
+}
+
+func (b *InMemoryBackend) aliasNotFound(region, name string) error {
+	return fmt.Errorf("%w: Alias %s is not found", ErrAliasNotFound, gopherarn.Build("kms", region, b.accountID, name))
 }

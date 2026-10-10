@@ -2,7 +2,9 @@ package apigateway
 
 import (
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -12,8 +14,17 @@ func (b *InMemoryBackend) CreateRestAPI(input CreateRestAPIInput) (*RestAPI, err
 		return nil, fmt.Errorf("%w: name is required", ErrInvalidParameter)
 	}
 
+	input, err := normalizeRestAPIInput(input)
+	if err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateRestAPI")
 	defer b.mu.Unlock()
+
+	if input.CloneFrom != "" && !b.restApis.Has(input.CloneFrom) {
+		return nil, fmt.Errorf("%w: Invalid API identifier specified: %s", ErrRestAPINotFound, input.CloneFrom)
+	}
 
 	id := randomID(apiIDLength)
 	backendTags := initTagsFromInput("apigw.api."+id+".tags", input.Tags)
@@ -36,6 +47,8 @@ func (b *InMemoryBackend) CreateRestAPI(input CreateRestAPIInput) (*RestAPI, err
 		APIStatus:                 statusAvailable,
 		DisableExecuteAPIEndpoint: input.DisableExecuteAPIEndpoint,
 		EndpointAccessMode:        input.EndpointAccessMode,
+		SecurityPolicy:            input.SecurityPolicy,
+		Version:                   input.Version,
 	}
 
 	root := &Resource{
@@ -49,6 +62,10 @@ func (b *InMemoryBackend) CreateRestAPI(input CreateRestAPIInput) (*RestAPI, err
 
 	b.restApis.Put(api)
 	b.resources.Put(root)
+
+	if input.CloneFrom != "" {
+		b.cloneAPIContentsLocked(input.CloneFrom, id, rootID)
+	}
 
 	cp := *api
 
@@ -192,4 +209,140 @@ func (b *InMemoryBackend) UpdateRestAPI(restAPIID string, input UpdateRestAPIInp
 	cp := *api
 
 	return &cp, nil
+}
+
+// cloneAPIContentsLocked copies srcID's resources and methods, models, authorizers,
+// request validators and gateway responses into dstID (CreateRestApi CloneFrom).
+// Deployments, stages, keys and documentation are not cloned. Callers must hold b.mu.
+func (b *InMemoryBackend) cloneAPIContentsLocked(srcID, dstID, dstRootID string) {
+	authorizerIDs := make(map[string]string)
+
+	for _, a := range b.authorizersByAPI.Get(srcID) {
+		cp := deepCopyAuthorizer(a)
+		cp.ID = randomID(resourceIDLength)
+		cp.RestAPIID = dstID
+		authorizerIDs[a.ID] = cp.ID
+		b.authorizers.Put(cp)
+	}
+
+	validatorIDs := make(map[string]string)
+
+	for _, v := range b.requestValidatorsByAPI.Get(srcID) {
+		cp := *v
+		cp.ID = randomID(resourceIDLength)
+		cp.RestAPIID = dstID
+		validatorIDs[v.ID] = cp.ID
+		b.requestValidators.Put(&cp)
+	}
+
+	for _, m := range b.modelsByAPI.Get(srcID) {
+		cp := *m
+		cp.ID = randomID(resourceIDLength)
+		cp.RestAPIID = dstID
+		b.models.Put(&cp)
+	}
+
+	for _, rt := range gatewayResponseTypes {
+		if gr, ok := b.gatewayResponses.Get(gatewayResponseKey(srcID, rt)); ok {
+			cp := deepCopyGatewayResponse(gr)
+			cp.RestAPIID = dstID
+			b.gatewayResponses.Put(cp)
+		}
+	}
+
+	b.cloneResourcesLocked(srcID, dstID, dstRootID, authorizerIDs, validatorIDs)
+	b.resourceVersions[dstID]++
+}
+
+func (b *InMemoryBackend) cloneResourcesLocked(
+	srcID, dstID, dstRootID string, authorizerIDs, validatorIDs map[string]string,
+) {
+	src := slices.Clone(b.resourcesByAPI.Get(srcID))
+	sort.Slice(src, func(i, j int) bool {
+		di, dj := strings.Count(src[i].Path, "/"), strings.Count(src[j].Path, "/")
+		if di != dj {
+			return di < dj
+		}
+
+		return src[i].Path < src[j].Path
+	})
+
+	ids := make(map[string]string, len(src))
+
+	for _, r := range src {
+		if r.ParentID == "" {
+			ids[r.ID] = dstRootID
+			b.copyMethodsInto(dstID, dstRootID, r, authorizerIDs, validatorIDs)
+
+			continue
+		}
+
+		cp := deepCopyResource(r)
+		cp.ID = randomID(resourceIDLength)
+		cp.RestAPIID = dstID
+		cp.ParentID = ids[r.ParentID]
+		ids[r.ID] = cp.ID
+
+		for _, m := range cp.ResourceMethods {
+			m.AuthorizerID = authorizerIDs[m.AuthorizerID]
+			m.RequestValidatorID = validatorIDs[m.RequestValidatorID]
+		}
+
+		b.resources.Put(&cp)
+	}
+}
+
+// copyMethodsInto copies src's methods onto the already-created destination root resource.
+func (b *InMemoryBackend) copyMethodsInto(
+	dstID, dstRootID string, src *Resource, authorizerIDs, validatorIDs map[string]string,
+) {
+	root, ok := b.resources.Get(resourceKey(dstID, dstRootID))
+	if !ok {
+		return
+	}
+
+	cp := deepCopyResource(src)
+
+	for httpMethod, m := range cp.ResourceMethods {
+		m.AuthorizerID = authorizerIDs[m.AuthorizerID]
+		m.RequestValidatorID = validatorIDs[m.RequestValidatorID]
+		root.ResourceMethods[httpMethod] = m
+	}
+
+	root.CorsConfiguration = cp.CorsConfiguration
+}
+
+// normalizeRestAPIInput validates endpoint types and API key source and fills AWS's defaults (EDGE, HEADER).
+func normalizeRestAPIInput(input CreateRestAPIInput) (CreateRestAPIInput, error) {
+	switch input.APIKeySource {
+	case "":
+		input.APIKeySource = "HEADER"
+	case "HEADER", "AUTHORIZER":
+	default:
+		return input, fmt.Errorf("%w: Invalid API Key Source specified: %s", ErrInvalidParameter, input.APIKeySource)
+	}
+
+	if input.EndpointConfiguration == nil {
+		input.EndpointConfiguration = &EndpointConfiguration{}
+	}
+
+	cfg := *input.EndpointConfiguration
+
+	for _, t := range cfg.Types {
+		if t != "EDGE" && t != "REGIONAL" && t != "PRIVATE" {
+			return input, fmt.Errorf(
+				"%w: Endpoint type %s is not valid; use EDGE, REGIONAL or PRIVATE",
+				ErrInvalidParameter,
+				t,
+			)
+		}
+	}
+
+	if len(cfg.Types) == 0 {
+		cfg.Types = []string{"EDGE"}
+	}
+
+	input.EndpointConfiguration = &cfg
+
+	return input, nil
 }

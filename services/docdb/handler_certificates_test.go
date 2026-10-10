@@ -36,6 +36,16 @@ func TestHandler_DescribeCertificates(t *testing.T) {
 			wantStatus:   http.StatusOK,
 			wantContains: "rds-ca-rsa2048-g1",
 		},
+		{
+			name: "certificate_arn",
+			vals: url.Values{
+				"Action":                {"DescribeCertificates"},
+				"Version":               {"2014-10-31"},
+				"CertificateIdentifier": {"rds-ca-2019"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "<CertificateArn>arn:aws:rds:us-east-1::cert:rds-ca-2019</CertificateArn>",
+		},
 	}
 
 	for _, tt := range tests {

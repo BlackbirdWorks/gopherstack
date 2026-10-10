@@ -29,6 +29,8 @@ type PoolSettings struct {
 	UserAttributeUpdateSettings map[string]any `json:"userAttributeUpdateSettings,omitempty"`
 	UserPoolAddOns              map[string]any `json:"userPoolAddOns,omitempty"`
 	VerificationMessageTemplate map[string]any `json:"verificationMessageTemplate,omitempty"`
+	IssuerConfiguration         map[string]any `json:"issuerConfiguration,omitempty"`
+	KeyConfiguration            map[string]any `json:"keyConfiguration,omitempty"`
 	UsernameConfiguration       map[string]any `json:"usernameConfiguration,omitempty"`
 	UserPoolTier                string         `json:"userPoolTier,omitempty"`
 	EmailVerificationMessage    string         `json:"emailVerificationMessage,omitempty"`
@@ -162,6 +164,8 @@ type poolSettingsInput struct {
 	UserAttributeUpdateSettings map[string]any `json:"UserAttributeUpdateSettings,omitempty"`
 	UserPoolAddOns              map[string]any `json:"UserPoolAddOns,omitempty"`
 	VerificationMessageTemplate map[string]any `json:"VerificationMessageTemplate,omitempty"`
+	IssuerConfiguration         map[string]any `json:"IssuerConfiguration,omitempty"`
+	KeyConfiguration            map[string]any `json:"KeyConfiguration,omitempty"`
 	UserPoolTier                string         `json:"UserPoolTier,omitempty"`
 	EmailVerificationMessage    string         `json:"EmailVerificationMessage,omitempty"`
 	EmailVerificationSubject    string         `json:"EmailVerificationSubject,omitempty"`
@@ -206,6 +210,8 @@ type userPoolDataAccurate struct {
 	UserAttributeUpdateSettings map[string]any           `json:"UserAttributeUpdateSettings,omitempty"`
 	UserPoolAddOns              map[string]any           `json:"UserPoolAddOns,omitempty"`
 	VerificationMessageTemplate map[string]any           `json:"VerificationMessageTemplate,omitempty"`
+	IssuerConfiguration         map[string]any           `json:"IssuerConfiguration,omitempty"`
+	KeyConfiguration            map[string]any           `json:"KeyConfiguration,omitempty"`
 	Policies                    userPoolPoliciesAccurate `json:"Policies"`
 	ID                          string                   `json:"Id,omitempty"`
 	Name                        string                   `json:"Name,omitempty"`

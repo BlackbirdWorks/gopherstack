@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -29,7 +30,15 @@ func checkManagedRule(rule *Rule) error {
 // validatePutRuleInput validates the rule input fields before any locking.
 func validatePutRuleInput(input PutRuleInput) error {
 	if input.Name == "" {
-		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+		return awsErrorf(ErrInvalidParameter, "Name is required")
+	}
+
+	if !ruleNamePattern.MatchString(input.Name) {
+		return fmt.Errorf(
+			"%w: 1 validation error detected: Value '%s' at 'name' failed to satisfy constraint: "+
+				"Member must satisfy regular expression pattern: [\\.\\-_A-Za-z0-9]+",
+			ErrInvalidParameter, input.Name,
+		)
 	}
 
 	const maxRuleNameLength = 64
@@ -64,13 +73,9 @@ func validatePutRuleInput(input PutRuleInput) error {
 	}
 
 	if input.ScheduleExpression != "" {
-		if _, err := parseScheduleExpression(input.ScheduleExpression); err != nil {
-			return fmt.Errorf(
-				"%w: invalid ScheduleExpression %q: %w",
-				ErrInvalidParameter,
-				input.ScheduleExpression,
-				err,
-			)
+		if _, err := parseScheduleExpression(input.ScheduleExpression); err != nil ||
+			!ruleRateUnitsValid(input.ScheduleExpression) {
+			return awsErrorf(ErrInvalidParameter, "Parameter ScheduleExpression is not valid.")
 		}
 	}
 
@@ -106,7 +111,7 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 		var err error
 		compiled, err = b.getOrCompilePattern(input.EventPattern)
 		if err != nil {
-			return nil, fmt.Errorf("%w: EventPattern is not valid JSON", ErrInvalidEventPattern)
+			return nil, invalidPatternErr(err)
 		}
 	}
 
@@ -116,7 +121,7 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 	defer b.mu.Unlock()
 
 	if !b.busesTable(region).Has(busKey) {
-		return nil, fmt.Errorf("%w: Event bus %s not found", ErrEventBusNotFound, busName)
+		return nil, awsErrorf(ErrEventBusNotFound, "Event bus %s does not exist.", busName)
 	}
 
 	state := input.State
@@ -189,12 +194,12 @@ func (b *InMemoryBackend) DeleteRuleForce(ctx context.Context, name, eventBusNam
 
 	busRules, exists := b.rulesStore(region)[busKey]
 	if !exists {
-		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
+		return awsErrorf(ErrRuleNotFound, "Rule %s does not exist on EventBus %s.", name, busKey)
 	}
 
 	rule, ruleExists := busRules.Get(name)
 	if !ruleExists {
-		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
+		return awsErrorf(ErrRuleNotFound, "Rule %s does not exist on EventBus %s.", name, busKey)
 	}
 
 	if !force {
@@ -262,12 +267,12 @@ func (b *InMemoryBackend) DescribeRule(ctx context.Context, name, eventBusName s
 
 	busRules, exists := b.rulesStore(region)[busKey]
 	if !exists {
-		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
+		return nil, awsErrorf(ErrRuleNotFound, "Rule %s does not exist on EventBus %s.", name, busKey)
 	}
 
 	rule, exists := busRules.Get(name)
 	if !exists {
-		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
+		return nil, awsErrorf(ErrRuleNotFound, "Rule %s does not exist on EventBus %s.", name, busKey)
 	}
 
 	cp := *rule
@@ -298,12 +303,12 @@ func (b *InMemoryBackend) setRuleState(ctx context.Context, name, eventBusName, 
 
 	busRules, exists := b.rulesStore(region)[busKey]
 	if !exists {
-		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
+		return awsErrorf(ErrRuleNotFound, "Rule %s does not exist on EventBus %s.", name, busKey)
 	}
 
 	rule, exists := busRules.Get(name)
 	if !exists {
-		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
+		return awsErrorf(ErrRuleNotFound, "Rule %s does not exist on EventBus %s.", name, busKey)
 	}
 
 	if err := checkManagedRule(rule); err != nil {
@@ -350,20 +355,20 @@ func (b *InMemoryBackend) TestEventPattern(
 	pattern, event string,
 ) (bool, error) {
 	if pattern == "" {
-		return false, fmt.Errorf("%w: EventPattern is required", ErrInvalidParameter)
+		return false, awsErrorf(ErrInvalidParameter, "EventPattern is required")
 	}
 
 	if event == "" {
-		return false, fmt.Errorf("%w: Event is required", ErrInvalidParameter)
+		return false, awsErrorf(ErrInvalidParameter, "Event is required")
 	}
 
 	if !isValidJSON(event) {
-		return false, fmt.Errorf("%w: Event must be valid JSON", ErrInvalidParameter)
+		return false, awsErrorf(ErrInvalidParameter, "Event must be valid JSON")
 	}
 
 	compiled, err := b.getOrCompilePattern(pattern)
 	if err != nil {
-		return false, fmt.Errorf("%w: EventPattern is not valid JSON", ErrInvalidEventPattern)
+		return false, invalidPatternErr(err)
 	}
 
 	return matchCompiledPattern(compiled, event), nil
@@ -375,3 +380,29 @@ func isValidJSON(s string) bool {
 
 	return json.Unmarshal([]byte(s), &v) == nil
 }
+
+var ruleNamePattern = regexp.MustCompile(`^[.\-_A-Za-z0-9]+$`)
+
+// ruleRateUnitsValid enforces PutRule's rate() grammar: minute|hour|day, singular
+// only for a value of 1 and plural otherwise (Scheduler accepts a wider set).
+func ruleRateUnitsValid(expr string) bool {
+	inner, ok := strings.CutPrefix(strings.TrimSpace(expr), "rate(")
+	if !ok {
+		return true
+	}
+
+	fields := strings.Fields(strings.TrimSuffix(inner, ")"))
+	if len(fields) != rateFieldCount {
+		return false
+	}
+
+	plural := fields[0] != "1"
+	switch strings.TrimSuffix(fields[1], "s") {
+	case "minute", "hour", "day":
+		return strings.HasSuffix(fields[1], "s") == plural
+	default:
+		return false
+	}
+}
+
+const rateFieldCount = 2

@@ -25,8 +25,10 @@ const challengeCustomChallenge = "CUSTOM_CHALLENGE"
 // DefineAuthChallenge with an empty round history (session: []), matching AWS's first
 // call for a fresh InitiateAuth/AdminInitiateAuth CUSTOM_AUTH request. Caller must
 // hold b.mu (authenticate does).
-func (b *InMemoryBackend) startCustomAuth(pool *UserPool, clientID string, user *User) (*AuthResult, error) {
-	return b.customAuthRound(pool, clientID, user, nil)
+func (b *InMemoryBackend) startCustomAuth(
+	pool *UserPool, clientID string, user *User, cm map[string]string,
+) (*AuthResult, error) {
+	return b.customAuthRound(pool, clientID, user, nil, cm)
 }
 
 // customAuthRound drives one iteration of the CUSTOM_AUTH state machine: it invokes
@@ -36,10 +38,10 @@ func (b *InMemoryBackend) startCustomAuth(pool *UserPool, clientID string, user 
 // MFASession/ChallengeName/ChallengeParameters shape InitiateAuth uses for any other
 // challenge type). Caller must hold b.mu.
 func (b *InMemoryBackend) customAuthRound(
-	pool *UserPool, clientID string, user *User, session []customAuthChallengeResult,
+	pool *UserPool, clientID string, user *User, session []customAuthChallengeResult, cm map[string]string,
 ) (*AuthResult, error) {
 	challengeName, issueTokens, failAuthentication, err := b.defineAuthChallenge(
-		pool, clientID, user.Username, user.Attributes, session, false,
+		pool, clientID, user.Username, user.Attributes, session, false, cm,
 	)
 	if err != nil {
 		return nil, err
@@ -54,7 +56,7 @@ func (b *InMemoryBackend) customAuthRound(
 	}
 
 	if issueTokens {
-		return b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication)
+		return b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication, cm)
 	}
 
 	if challengeName == "" {
@@ -65,7 +67,7 @@ func (b *InMemoryBackend) customAuthRound(
 	}
 
 	public, private, metadata, err := b.createAuthChallenge(
-		pool, clientID, user.Username, user.Attributes, challengeName, session,
+		pool, clientID, user.Username, user.Attributes, challengeName, session, cm,
 	)
 	if err != nil {
 		return nil, err
@@ -102,7 +104,11 @@ func (b *InMemoryBackend) customAuthRound(
 // answerCorrect is just one more entry in the session history DefineAuthChallenge sees,
 // and it alone decides whether to retry, present a new challenge, or fail (e.g. "fail
 // after 3 wrong answers").
-func (b *InMemoryBackend) RespondToCustomAuthChallenge(clientID, session, answer string) (*AuthResult, error) {
+func (b *InMemoryBackend) RespondToCustomAuthChallenge(
+	clientID, session, answer string, meta ...ClientMetadata,
+) (*AuthResult, error) {
+	cm := firstMetadata(meta)
+
 	b.mu.Lock("RespondToCustomAuthChallenge")
 	defer b.mu.Unlock()
 
@@ -139,7 +145,7 @@ func (b *InMemoryBackend) RespondToCustomAuthChallenge(clientID, session, answer
 	delete(b.mfaSessions, session)
 
 	answerCorrect, err := b.verifyCustomAuthChallenge(
-		pool, clientID, user.Username, user.Attributes, entry.CustomAuthPrivateParams, answer,
+		pool, clientID, user.Username, user.Attributes, entry.CustomAuthPrivateParams, answer, cm,
 	)
 	if err != nil {
 		return nil, err
@@ -157,5 +163,5 @@ func (b *InMemoryBackend) RespondToCustomAuthChallenge(clientID, session, answer
 		ChallengeMetadata: entry.CustomAuthChallengeMetadata,
 	})
 
-	return b.customAuthRound(pool, clientID, user, nextSession)
+	return b.customAuthRound(pool, clientID, user, nextSession, cm)
 }

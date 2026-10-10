@@ -7,7 +7,7 @@
 service: translate
 sdk_module: aws-sdk-go-v2/service/translate@v1.36.4
 last_audit_commit: 1efb1a758
-last_audit_date: 2026-08-20
+last_audit_date: 2026-10-07
 # PROVENANCE NOTE (2026-08-20): the 2026-08-20 sweep initially reported this
 # manifest's previous stamp (2d47b51d4 / 2026-07-29) as failed provenance,
 # because 2d47b51d4 is an ec2 commit that never touched services/translate/.
@@ -51,8 +51,10 @@ families:
   tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource verified against Tag{Key,Value} shape; error-code-per-op and 50-tag limit fixed"}
 gaps: []
 items_still_open:
-  - "Mock limitation (no real ML/Comprehend): SourceLanguageCode echoes 'auto' when omitted; DetectedLanguageLowConfidence/TooManyRequests/InternalServer/ServiceUnavailable/ConcurrentModification have no backend trigger (injectable via chaos, see test/integration)."
-  - "Inert encryption: EncryptionKey.Type/Id accepted unvalidated (no KMS cross-service check); TerminologyProperties.SkippedTermCount/Message, ParallelDataProperties record counts/Message and TextTranslationJobProperties.JobDetails counts never populated (no S3 document/record reading); ListLanguages LanguageName ignores DisplayLanguageCode (no i18n table). UpdateParallelData.ClientToken is not replayed (the update is naturally idempotent) and GetTerminology.TerminologyDataFormat does not change the fabricated TerminologyDataLocation."
+  - "Terminology import does not report Message and treats only empty source/target texts and blank lines as skipped (SDK doc: 'skipped'); other skip reasons AWS may apply are not specified in the pinned SDK."
+structural_gaps:
+  - "No real ML/Comprehend: SourceLanguageCode echoes 'auto' when omitted; DetectedLanguageLowConfidence/TooManyRequests/InternalServer/ServiceUnavailable/ConcurrentModification have no backend trigger (injectable via chaos, see test/integration)."
+  - "ListLanguages LanguageName ignores DisplayLanguageCode (no i18n name table); GetTerminology/GetParallelData data locations are synthetic, not pre-signed S3 URLs."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; job lifecycle advances synchronously inside DescribeTextTranslationJob and parallel-data lifecycle advances synchronously inside GetParallelData, both under the existing backend mutex, no new background state"}
 ---

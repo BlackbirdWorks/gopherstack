@@ -404,7 +404,7 @@ func TestResetDBClusterParameterGroup_RealReset(t *testing.T) {
 			"DBClusterParameterGroupName": {"reset-all-pg"},
 		})
 		require.Equal(t, http.StatusOK, afterRR.Code)
-		assert.NotContains(t, afterRR.Body.String(), "<ParameterValue>disabled</ParameterValue>",
+		assert.NotContains(t, afterRR.Body.String(), "<Source>user</Source>",
 			"ResetAllParameters=true must clear the user override back to the engine default")
 		assert.Contains(t, afterRR.Body.String(), "<ParameterValue>enabled</ParameterValue>",
 			"tls's engine default (enabled) must be visible again after reset")
@@ -744,7 +744,7 @@ func TestDescribeDBClusterParameters_SourceFilter(t *testing.T) {
 		wantNames []string
 	}{
 		{name: "user_source", source: "user", wantNames: []string{"ttl_monitor"}},
-		{name: "system_source", source: "system", wantNames: []string{"tls"}},
+		{name: "system_source", source: "system", wantNames: []string{"audit_logs", "tls"}},
 	}
 
 	for _, tt := range tests {
@@ -768,6 +768,61 @@ func TestDescribeDBClusterParameters_SourceFilter(t *testing.T) {
 				assert.Equal(t, tt.source, p.Source)
 			}
 			assert.ElementsMatch(t, tt.wantNames, names)
+		})
+	}
+}
+
+func TestModifyDBClusterParameterGroup_AllowedValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		param      string
+		value      string
+		wantBody   string
+		wantStatus int
+	}{
+		{name: "valid_tls", param: "tls", value: "disabled", wantStatus: http.StatusOK},
+		{name: "valid_audit", param: "audit_logs", value: "enabled", wantStatus: http.StatusOK},
+		{
+			name: "bad_tls", param: "tls", value: "maybe",
+			wantStatus: http.StatusBadRequest, wantBody: "InvalidParameterValue",
+		},
+		{
+			name: "bad_ttl", param: "ttl_monitor", value: "on",
+			wantStatus: http.StatusBadRequest, wantBody: "InvalidParameterValue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doRequest(t, h, url.Values{
+				"Action":                      {"CreateDBClusterParameterGroup"},
+				"Version":                     {"2014-10-31"},
+				"DBClusterParameterGroupName": {"av-pg"},
+				"DBParameterGroupFamily":      {"docdb4.0"},
+				"Description":                 {"test"},
+			})
+
+			rr := doRequest(t, h, url.Values{
+				"Action":                                {"ModifyDBClusterParameterGroup"},
+				"Version":                               {"2014-10-31"},
+				"DBClusterParameterGroupName":           {"av-pg"},
+				"Parameters.Parameter.1.ParameterName":  {tt.param},
+				"Parameters.Parameter.1.ParameterValue": {tt.value},
+			})
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantBody)
+
+			desc := doRequest(t, h, url.Values{
+				"Action":                      {"DescribeDBClusterParameters"},
+				"Version":                     {"2014-10-31"},
+				"DBClusterParameterGroupName": {"av-pg"},
+			})
+			assert.Contains(t, desc.Body.String(), "<AllowedValues>enabled,disabled</AllowedValues>")
 		})
 	}
 }

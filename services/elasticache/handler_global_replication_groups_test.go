@@ -253,7 +253,7 @@ func TestDisassociateGlobalReplicationGroup(t *testing.T) {
 			setup: func(t *testing.T, client *elasticachesdk.Client) {
 				t.Helper()
 				_, err := client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
-					ReplicationGroupId:          aws.String("rg-dis"),
+					ReplicationGroupId:          aws.String("rg-dis-primary"),
 					ReplicationGroupDescription: aws.String("test"),
 				})
 				require.NoError(t, err)
@@ -261,9 +261,15 @@ func TestDisassociateGlobalReplicationGroup(t *testing.T) {
 					t.Context(),
 					&elasticachesdk.CreateGlobalReplicationGroupInput{
 						GlobalReplicationGroupIdSuffix: aws.String("disgrg"),
-						PrimaryReplicationGroupId:      aws.String("rg-dis"),
+						PrimaryReplicationGroupId:      aws.String("rg-dis-primary"),
 					},
 				)
+				require.NoError(t, err)
+				_, err = client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
+					ReplicationGroupId:          aws.String("rg-dis"),
+					ReplicationGroupDescription: aws.String("secondary"),
+					GlobalReplicationGroupId:    aws.String("ldgnf-disgrg"),
+				})
 				require.NoError(t, err)
 			},
 		},
@@ -336,6 +342,12 @@ func TestFailoverGlobalReplicationGroup(t *testing.T) {
 					},
 				)
 				require.NoError(t, err)
+				_, err = client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
+					ReplicationGroupId:          aws.String("rg-secondary"),
+					ReplicationGroupDescription: aws.String("secondary"),
+					GlobalReplicationGroupId:    aws.String("ldgnf-fogrg"),
+				})
+				require.NoError(t, err)
 			},
 		},
 		{
@@ -359,7 +371,7 @@ func TestFailoverGlobalReplicationGroup(t *testing.T) {
 				t.Context(),
 				&elasticachesdk.FailoverGlobalReplicationGroupInput{
 					GlobalReplicationGroupId:  aws.String(tt.groupID),
-					PrimaryRegion:             aws.String("us-west-2"),
+					PrimaryRegion:             aws.String("us-east-1"),
 					PrimaryReplicationGroupId: aws.String("rg-secondary"),
 				},
 			)
@@ -746,4 +758,142 @@ func TestCreateGlobalReplicationGroup(t *testing.T) {
 			assert.Equal(t, tt.description, aws.ToString(out.GlobalReplicationGroup.GlobalReplicationGroupDescription))
 		})
 	}
+}
+
+func TestGlobalReplicationGroup_MembersAndRetainPrimary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		retainPrimary  bool
+		wantPrimaryRGs int
+	}{
+		{name: "retain_primary", retainPrimary: true, wantPrimaryRGs: 2},
+		{name: "delete_primary", retainPrimary: false, wantPrimaryRGs: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+			ctx := t.Context()
+
+			for _, id := range []string{"mem-primary", "mem-other"} {
+				_, err := client.CreateReplicationGroup(ctx, &elasticachesdk.CreateReplicationGroupInput{
+					ReplicationGroupId: aws.String(id), ReplicationGroupDescription: aws.String("d"),
+				})
+				require.NoError(t, err)
+			}
+
+			_, err := client.CreateGlobalReplicationGroup(ctx, &elasticachesdk.CreateGlobalReplicationGroupInput{
+				GlobalReplicationGroupIdSuffix: aws.String("mem"),
+				PrimaryReplicationGroupId:      aws.String("mem-primary"),
+			})
+			require.NoError(t, err)
+
+			_, err = client.CreateReplicationGroup(ctx, &elasticachesdk.CreateReplicationGroupInput{
+				ReplicationGroupId: aws.String("mem-secondary"), ReplicationGroupDescription: aws.String("d"),
+				GlobalReplicationGroupId: aws.String("ldgnf-mem"),
+			})
+			require.NoError(t, err)
+
+			plain, err := client.DescribeGlobalReplicationGroups(
+				ctx,
+				&elasticachesdk.DescribeGlobalReplicationGroupsInput{
+					GlobalReplicationGroupId: aws.String("ldgnf-mem"),
+				},
+			)
+			require.NoError(t, err)
+			assert.Empty(t, plain.GlobalReplicationGroups[0].Members)
+
+			shown, err := client.DescribeGlobalReplicationGroups(
+				ctx,
+				&elasticachesdk.DescribeGlobalReplicationGroupsInput{
+					GlobalReplicationGroupId: aws.String("ldgnf-mem"),
+					ShowMemberInfo:           aws.Bool(true),
+				},
+			)
+			require.NoError(t, err)
+
+			members := map[string]string{}
+			for _, m := range shown.GlobalReplicationGroups[0].Members {
+				members[aws.ToString(m.ReplicationGroupId)] = aws.ToString(m.Role)
+			}
+
+			assert.Equal(t, map[string]string{"mem-primary": "PRIMARY", "mem-secondary": "SECONDARY"}, members)
+
+			rgs, err := client.DescribeReplicationGroups(ctx, &elasticachesdk.DescribeReplicationGroupsInput{
+				ReplicationGroupId: aws.String("mem-secondary"),
+			})
+			require.NoError(t, err)
+			require.NotNil(t, rgs.ReplicationGroups[0].GlobalReplicationGroupInfo)
+			assert.Equal(t, "secondary",
+				aws.ToString(rgs.ReplicationGroups[0].GlobalReplicationGroupInfo.GlobalReplicationGroupMemberRole))
+
+			_, err = client.DeleteGlobalReplicationGroup(ctx, &elasticachesdk.DeleteGlobalReplicationGroupInput{
+				GlobalReplicationGroupId:      aws.String("ldgnf-mem"),
+				RetainPrimaryReplicationGroup: aws.Bool(tt.retainPrimary),
+			})
+			require.NoError(t, err)
+
+			all, err := client.DescribeReplicationGroups(ctx, &elasticachesdk.DescribeReplicationGroupsInput{})
+			require.NoError(t, err)
+
+			ids := map[string]bool{}
+			for _, rg := range all.ReplicationGroups {
+				ids[aws.ToString(rg.ReplicationGroupId)] = true
+				assert.Nil(t, rg.GlobalReplicationGroupInfo, "members are released from the global datastore")
+			}
+
+			assert.True(t, ids["mem-secondary"])
+			assert.True(t, ids["mem-other"])
+			assert.Equal(t, tt.retainPrimary, ids["mem-primary"])
+			assert.Len(t, ids, tt.wantPrimaryRGs+1)
+		})
+	}
+}
+
+func TestFailoverGlobalReplicationGroup_SwapsRoles(t *testing.T) {
+	t.Parallel()
+
+	client := newTestStack(t)
+	ctx := t.Context()
+
+	_, err := client.CreateReplicationGroup(ctx, &elasticachesdk.CreateReplicationGroupInput{
+		ReplicationGroupId: aws.String("swap-primary"), ReplicationGroupDescription: aws.String("d"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateGlobalReplicationGroup(ctx, &elasticachesdk.CreateGlobalReplicationGroupInput{
+		GlobalReplicationGroupIdSuffix: aws.String("swap"),
+		PrimaryReplicationGroupId:      aws.String("swap-primary"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateReplicationGroup(ctx, &elasticachesdk.CreateReplicationGroupInput{
+		ReplicationGroupId: aws.String("swap-secondary"), ReplicationGroupDescription: aws.String("d"),
+		GlobalReplicationGroupId: aws.String("ldgnf-swap"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.FailoverGlobalReplicationGroup(ctx, &elasticachesdk.FailoverGlobalReplicationGroupInput{
+		GlobalReplicationGroupId:  aws.String("ldgnf-swap"),
+		PrimaryRegion:             aws.String("us-east-1"),
+		PrimaryReplicationGroupId: aws.String("swap-secondary"),
+	})
+	require.NoError(t, err)
+
+	shown, err := client.DescribeGlobalReplicationGroups(ctx, &elasticachesdk.DescribeGlobalReplicationGroupsInput{
+		GlobalReplicationGroupId: aws.String("ldgnf-swap"),
+		ShowMemberInfo:           aws.Bool(true),
+	})
+	require.NoError(t, err)
+
+	members := map[string]string{}
+	for _, m := range shown.GlobalReplicationGroups[0].Members {
+		members[aws.ToString(m.ReplicationGroupId)] = aws.ToString(m.Role)
+	}
+
+	assert.Equal(t, map[string]string{"swap-primary": "SECONDARY", "swap-secondary": "PRIMARY"}, members)
 }

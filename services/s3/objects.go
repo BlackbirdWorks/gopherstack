@@ -85,6 +85,15 @@ func extractObjectChecksums(ver *StoredObjectVersion) map[string]string {
 	if ver.ChecksumCRC64NVME != nil {
 		c["ChecksumCRC64NVME"] = *ver.ChecksumCRC64NVME
 	}
+	if ver.ChecksumMD5 != nil {
+		c["ChecksumMD5"] = *ver.ChecksumMD5
+	}
+	if ver.ChecksumSHA512 != nil {
+		c["ChecksumSHA512"] = *ver.ChecksumSHA512
+	}
+	if ver.ChecksumType != "" && len(c) > 0 {
+		c["ChecksumType"] = string(ver.ChecksumType)
+	}
 
 	return c
 }
@@ -348,6 +357,8 @@ func (b *InMemoryBackend) PutObject(
 		sha1:      input.ChecksumSHA1,
 		sha256:    input.ChecksumSHA256,
 		crc64nvme: input.ChecksumCRC64NVME,
+		md5:       input.ChecksumMD5,
+		sha512:    input.ChecksumSHA512,
 	}
 
 	// When the client specifies a checksum algorithm but omits the checksum value
@@ -400,11 +411,14 @@ func (b *InMemoryBackend) PutObject(
 	return &s3.PutObjectOutput{
 		ETag:              aws.String(finalQuotedETag),
 		VersionId:         aws.String(newVersionID),
+		Size:              aws.Int64(originalSize),
 		ChecksumCRC32:     checksums.crc32,
 		ChecksumCRC32C:    checksums.crc32c,
 		ChecksumSHA1:      checksums.sha1,
 		ChecksumSHA256:    checksums.sha256,
 		ChecksumCRC64NVME: checksums.crc64nvme,
+		ChecksumMD5:       checksums.md5,
+		ChecksumSHA512:    checksums.sha512,
 	}, nil
 }
 
@@ -445,6 +459,8 @@ func buildStoredObjectVersion(
 		ChecksumSHA1:            checksums.sha1,
 		ChecksumSHA256:          checksums.sha256,
 		ChecksumCRC64NVME:       checksums.crc64nvme,
+		ChecksumMD5:             checksums.md5,
+		ChecksumSHA512:          checksums.sha512,
 		ChecksumAlgorithm:       input.ChecksumAlgorithm,
 		SSEAlgorithm:            sse.Algorithm,
 		SSEKMSKeyID:             sse.KMSKeyID,
@@ -517,6 +533,10 @@ func (b *InMemoryBackend) finalizeChecksum(
 		supplied = input.ChecksumSHA256
 	case ChecksumCRC64NVME:
 		supplied = input.ChecksumCRC64NVME
+	case ChecksumMD5:
+		supplied = input.ChecksumMD5
+	case ChecksumSHA512:
+		supplied = input.ChecksumSHA512
 	}
 
 	if supplied != nil && *supplied != "" && computedChecksumB64 != *supplied {
@@ -865,6 +885,9 @@ func buildGetObjectOutput(
 		ChecksumSHA1:              ver.ChecksumSHA1,
 		ChecksumSHA256:            ver.ChecksumSHA256,
 		ChecksumCRC64NVME:         ver.ChecksumCRC64NVME,
+		ChecksumMD5:               ver.ChecksumMD5,
+		ChecksumSHA512:            ver.ChecksumSHA512,
+		ChecksumType:              ver.ChecksumType,
 		ServerSideEncryption:      types.ServerSideEncryption(ver.SSEAlgorithm),
 		SSEKMSKeyId:               ptrconv.NilIfEmpty(ver.SSEKMSKeyID),
 		SSECustomerAlgorithm:      ptrconv.NilIfEmpty(ver.SSECAlgorithm),
@@ -1051,6 +1074,9 @@ func (b *InMemoryBackend) buildHeadObjectOutput(bucketName, key string, ver *Sto
 		ChecksumSHA1:              ver.ChecksumSHA1,
 		ChecksumSHA256:            ver.ChecksumSHA256,
 		ChecksumCRC64NVME:         ver.ChecksumCRC64NVME,
+		ChecksumMD5:               ver.ChecksumMD5,
+		ChecksumSHA512:            ver.ChecksumSHA512,
+		ChecksumType:              ver.ChecksumType,
 		StorageClass:              types.StorageClass(sc),
 		ServerSideEncryption:      types.ServerSideEncryption(ver.SSEAlgorithm),
 		SSEKMSKeyId:               ptrconv.NilIfEmpty(ver.SSEKMSKeyID),
@@ -1107,6 +1133,10 @@ func suppliedPartChecksum(input *s3.UploadPartInput, algo string) *string {
 		return input.ChecksumCRC32C
 	case ChecksumCRC64NVME:
 		return input.ChecksumCRC64NVME
+	case ChecksumMD5:
+		return input.ChecksumMD5
+	case ChecksumSHA512:
+		return input.ChecksumSHA512
 	case ChecksumSHA1:
 		return input.ChecksumSHA1
 	case ChecksumSHA256:
@@ -1125,6 +1155,10 @@ func setPartChecksum(input *s3.UploadPartInput, algo, checksum string) {
 		input.ChecksumCRC32C = cs
 	case ChecksumCRC64NVME:
 		input.ChecksumCRC64NVME = cs
+	case ChecksumMD5:
+		input.ChecksumMD5 = cs
+	case ChecksumSHA512:
+		input.ChecksumSHA512 = cs
 	case ChecksumSHA1:
 		input.ChecksumSHA1 = cs
 	case ChecksumSHA256:

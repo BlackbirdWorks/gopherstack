@@ -67,6 +67,10 @@ func (h *Handler) handleCreateAIBenchmarkJob(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if err := validateRequestShapes("CreateAIBenchmarkJob", &req); err != nil {
+		return nil, err
+	}
+
 	j, err := h.Backend.CreateAIBenchmarkJob(ctx, CreateAIBenchmarkJobOptions{
 		AIBenchmarkJobName:         req.AIBenchmarkJobName,
 		AIWorkloadConfigIdentifier: req.AIWorkloadConfigIdentifier,

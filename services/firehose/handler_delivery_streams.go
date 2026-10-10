@@ -175,6 +175,23 @@ type redshiftDestinationInput struct {
 	Username                    string                       `json:"Username"`
 }
 
+// vpcConfigurationInput mirrors types.VpcConfiguration.
+type vpcConfigurationInput struct {
+	RoleARN          string   `json:"RoleARN"`
+	SecurityGroupIDs []string `json:"SecurityGroupIds"`
+	SubnetIDs        []string `json:"SubnetIds"`
+}
+
+func (v *vpcConfigurationInput) toDescription() *VpcConfigurationDescription {
+	if v == nil {
+		return nil
+	}
+
+	return &VpcConfigurationDescription{
+		RoleARN: v.RoleARN, SecurityGroupIDs: v.SecurityGroupIDs, SubnetIDs: v.SubnetIDs,
+	}
+}
+
 // openSearchDestinationInput holds the OpenSearch destination configuration.
 // S3Configuration is the Create wire key (AmazonopensearchserviceDestinationConfiguration);
 // S3Update is the Update wire key (AmazonopensearchserviceDestinationUpdate) for the same
@@ -189,6 +206,7 @@ type openSearchDestinationInput struct {
 	S3Configuration          *s3BackupInput            `json:"S3Configuration"`
 	S3Update                 *s3BackupInput            `json:"S3Update"`
 	DocumentIDOptions        *DocumentIDOptions        `json:"DocumentIdOptions"`
+	VpcConfiguration         *vpcConfigurationInput    `json:"VpcConfiguration"`
 	DomainARN                string                    `json:"DomainARN"`
 	ClusterEndpoint          string                    `json:"ClusterEndpoint"`
 	IndexName                string                    `json:"IndexName"`
@@ -211,6 +229,7 @@ type elasticsearchDestinationInput struct {
 	S3Configuration          *s3DestinationInput       `json:"S3Configuration"`
 	S3Update                 *s3DestinationInput       `json:"S3Update"`
 	DocumentIDOptions        *DocumentIDOptions        `json:"DocumentIdOptions"`
+	VpcConfiguration         *vpcConfigurationInput    `json:"VpcConfiguration"`
 	DomainARN                string                    `json:"DomainARN"`
 	ClusterEndpoint          string                    `json:"ClusterEndpoint"`
 	IndexName                string                    `json:"IndexName"`
@@ -491,6 +510,8 @@ func buildOpenSearchDestination(os *openSearchDestinationInput) *OpenSearchDesti
 		RetryOptions:             os.RetryOptions,
 		CloudWatchLoggingOptions: os.CloudWatchLoggingOptions,
 		DocumentIDOptions:        os.DocumentIDOptions,
+
+		VpcConfigurationDescription: os.VpcConfiguration.toDescription(),
 	}
 
 	backup := os.S3Configuration
@@ -528,6 +549,8 @@ func buildElasticsearchDestination(
 		RetryOptions:             es.RetryOptions,
 		CloudWatchLoggingOptions: es.CloudWatchLoggingOptions,
 		DocumentIDOptions:        es.DocumentIDOptions,
+
+		VpcConfigurationDescription: es.VpcConfiguration.toDescription(),
 	}
 
 	// AWS models S3Configuration as the required backup destination for legacy

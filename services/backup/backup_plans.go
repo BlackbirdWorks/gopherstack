@@ -239,15 +239,8 @@ func validateRules(rules []Rule) error {
 			return fmt.Errorf("%w: duplicate rule name %q", ErrValidation, r.RuleName)
 		}
 		seen[r.RuleName] = struct{}{}
-		if r.Lifecycle != nil {
-			if r.Lifecycle.DeleteAfterDays > 0 && r.Lifecycle.MoveToColdStorageAfterDays > 0 &&
-				r.Lifecycle.DeleteAfterDays <= r.Lifecycle.MoveToColdStorageAfterDays {
-				return fmt.Errorf(
-					"%w: rule %q: DeleteAfterDays must be greater than MoveToColdStorageAfterDays",
-					ErrValidation,
-					r.RuleName,
-				)
-			}
+		if err := validateRuleSettings(r); err != nil {
+			return err
 		}
 	}
 
@@ -397,6 +390,9 @@ func (b *InMemoryBackend) CreateBackupPlanValidated(
 ) (*Plan, error) {
 	if planName == "" {
 		return nil, fmt.Errorf("%w: BackupPlanName is required", ErrValidation)
+	}
+	if err := validatePlanName("BackupPlanName", planName); err != nil {
+		return nil, err
 	}
 	if err := validateRules(rules); err != nil {
 		return nil, err

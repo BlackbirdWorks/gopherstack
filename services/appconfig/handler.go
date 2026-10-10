@@ -113,6 +113,7 @@ type Handler struct {
 	Backend      StorageBackend
 	peers        *regionpeers.Set[Handler]
 	publisherFor func(region string) DeployedConfigurationPublisher
+	readerFor    func(region string) ConfigurationContentReader
 }
 
 // NewHandler creates a new AppConfig Handler.

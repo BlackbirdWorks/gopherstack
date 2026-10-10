@@ -63,16 +63,16 @@ func (b *InMemoryBackend) deliverToSplunk(
 	records [][]byte,
 	dest *SplunkDestinationDescription,
 	streamARN string,
-) {
+) [][]byte {
 	if dest.HECEndpoint == "" {
-		return
+		return nil
 	}
 
 	hecURL := strings.TrimRight(dest.HECEndpoint, "/")
 
 	body, contentType := buildSplunkBody(records, strings.ToLower(dest.HECEndpointType))
 	if len(body) == 0 {
-		return
+		return nil
 	}
 
 	maxRetry := httpMaxRetryDuration
@@ -90,7 +90,7 @@ func (b *InMemoryBackend) deliverToSplunk(
 			logger.Load(ctx).
 				WarnContext(ctx, "firehose: failed to build Splunk HEC request", "error", reqErr, "stream", streamARN)
 
-			return
+			return records
 		}
 
 		req.Header.Set("Content-Type", contentType)
@@ -100,18 +100,18 @@ func (b *InMemoryBackend) deliverToSplunk(
 
 		resp, doErr := client.Do(req)
 		if checkHTTPDeliveryResponse(ctx, resp, doErr) {
-			return
+			return nil
 		}
 
 		if time.Now().After(deadline) {
 			logger.Load(ctx).WarnContext(ctx, "firehose: Splunk HEC delivery failed after retries",
 				"url", hecURL, "stream", streamARN)
 
-			return
+			return records
 		}
 
 		if !httpDeliveryBackoff(ctx, deadline, &backoff) {
-			return
+			return records
 		}
 	}
 }

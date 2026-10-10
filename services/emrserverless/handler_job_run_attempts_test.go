@@ -107,7 +107,7 @@ func TestHandler_ListJobRunAttempts_WithNextToken(t *testing.T) {
 	jobRunID := startJobRun(t, h, appID)
 
 	rec := doRequest(t, h, http.MethodGet,
-		"/applications/"+appID+"/jobruns/"+jobRunID+"/attempts?nextToken=0", nil)
+		"/applications/"+appID+"/jobruns/"+jobRunID+"/attempts?nextToken=MA==", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any

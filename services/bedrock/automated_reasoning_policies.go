@@ -3,10 +3,13 @@ package bedrock
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	bedrocktypes "github.com/aws/aws-sdk-go-v2/service/bedrock/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
@@ -77,6 +80,11 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicyWithOptions(
 		)
 	}
 
+	kmsARN, kmsErr := b.kmsARN(opts.KmsKeyID)
+	if kmsErr != nil {
+		return nil, kmsErr
+	}
+
 	id := b.newARPID()
 	policyARN := arn.Build("bedrock", b.region, b.accountID, "automated-reasoning-policy/"+id)
 	now := time.Now().UTC()
@@ -91,7 +99,7 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicyWithOptions(
 		DefinitionHash: fmt.Sprintf("%x", now.UnixNano()),
 		Version:        "DRAFT",
 		Tags:           copyTags(tags),
-		KmsKeyArn:      kmsKeyARN(b.region, b.accountID, opts.KmsKeyID),
+		KmsKeyArn:      kmsARN,
 	}
 	if len(opts.PolicyDefinition) > 0 {
 		policy.PolicyDefinition = opts.PolicyDefinition
@@ -140,7 +148,16 @@ func (b *InMemoryBackend) CancelAutomatedReasoningPolicyBuildWorkflow(
 // CreateAutomatedReasoningPolicyTestCase creates a test case for an Automated Reasoning policy.
 func (b *InMemoryBackend) CreateAutomatedReasoningPolicyTestCase(
 	policyARN string,
+	in ARPTestCaseInput,
 ) (*AutomatedReasoningPolicyTestCase, error) {
+	if in.GuardContent == "" {
+		return nil, fmt.Errorf("%w: guardContent is required", ErrValidation)
+	}
+
+	if err := validateARPExpectedResult(in.ExpectedAggregatedFindingsResult); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateAutomatedReasoningPolicyTestCase")
 	defer b.mu.Unlock()
 
@@ -155,10 +172,14 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicyTestCase(
 	id := b.newARPTestCaseID()
 	now := time.Now().UTC()
 	tc := &AutomatedReasoningPolicyTestCase{
-		TestCaseID: id,
-		PolicyArn:  policyARN,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		TestCaseID:                       id,
+		PolicyArn:                        policyARN,
+		GuardContent:                     in.GuardContent,
+		QueryContent:                     in.QueryContent,
+		ExpectedAggregatedFindingsResult: in.ExpectedAggregatedFindingsResult,
+		ConfidenceThreshold:              in.ConfidenceThreshold,
+		CreatedAt:                        now,
+		UpdatedAt:                        now,
 	}
 	b.arpTestCases.Put(tc)
 	cp := *tc
@@ -575,8 +596,8 @@ func (b *InMemoryBackend) UpdateAutomatedReasoningPolicyTestCase(
 		return nil, fmt.Errorf("%w: guardContent is required", ErrValidation)
 	}
 
-	if expectedResult == "" {
-		return nil, fmt.Errorf("%w: expectedAggregatedFindingsResult is required", ErrValidation)
+	if err := validateARPExpectedResult(expectedResult); err != nil {
+		return nil, err
 	}
 
 	tc.GuardContent = guardContent
@@ -926,4 +947,55 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestResults(
 	page, next := paginate(wire, maxResults, nextToken)
 
 	return page, next, nil
+}
+
+// ARPTestCaseInput is CreateAutomatedReasoningPolicyTestCase's request body.
+type ARPTestCaseInput struct {
+	ConfidenceThreshold              *float64 `json:"confidenceThreshold,omitempty"`
+	GuardContent                     string   `json:"guardContent"`
+	QueryContent                     string   `json:"queryContent,omitempty"`
+	ExpectedAggregatedFindingsResult string   `json:"expectedAggregatedFindingsResult"`
+	ClientRequestToken               string   `json:"clientRequestToken,omitempty"`
+}
+
+func validateARPExpectedResult(v string) error {
+	if v == "" {
+		return fmt.Errorf("%w: expectedAggregatedFindingsResult is required", ErrValidation)
+	}
+
+	if !slices.Contains(arpCheckResultValues(), v) {
+		return fmt.Errorf("%w: expectedAggregatedFindingsResult %q is not a valid result", ErrValidation, v)
+	}
+
+	return nil
+}
+
+func arpCheckResultValues() []string {
+	values := bedrocktypes.AutomatedReasoningCheckResult("").Values()
+	out := make([]string, 0, len(values))
+
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+
+	return out
+}
+
+// GetAutomatedReasoningPolicyVersion returns a published version by its versioned ARN.
+func (b *InMemoryBackend) GetAutomatedReasoningPolicyVersion(
+	versionedARN string,
+) (*AutomatedReasoningPolicyVersion, error) {
+	b.mu.RLock("GetAutomatedReasoningPolicyVersion")
+	defer b.mu.RUnlock()
+
+	for _, v := range b.arpVersions.All() {
+		if v.PolicyArn == versionedARN {
+			cp := *v
+			cp.Tags = copyTags(v.Tags)
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: policy version %s not found", ErrNotFound, versionedARN)
 }

@@ -1,9 +1,12 @@
 package ecs
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // ECS task-definition network modes.
@@ -17,6 +20,10 @@ const (
 // containerNamePattern matches the allowed characters in an ECS container name.
 // AWS accepts up to 255 letters (uppercase and lowercase), numbers, underscores,
 // and hyphens.
+var familyNameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,255}$`)
+
+var clusterNameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,255}$`)
+
 var containerNamePattern = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
 // validateRegisterTaskDefinition enforces the structural rules that real AWS ECS
@@ -25,6 +32,11 @@ var containerNamePattern = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 // Fargate CPU/memory pairing which AWS surfaces as a ClientException too but is
 // validated separately by validateFargateCPUMemory.
 func validateRegisterTaskDefinition(input RegisterTaskDefinitionInput) error {
+	if !familyNameRe.MatchString(input.Family) {
+		return fmt.Errorf("%w: Family contains invalid characters. Up to 255 letters (uppercase and lowercase), "+
+			"numbers, underscores, and hyphens are allowed", ErrClient)
+	}
+
 	if err := validateNetworkMode(input.NetworkMode); err != nil {
 		return err
 	}
@@ -128,6 +140,10 @@ func validateContainerDefinitions(defs []ContainerDefinition, networkMode string
 // hostPort is resolved per container instance at placement time (see
 // host_ports.go).
 func validatePortMappings(def ContainerDefinition, networkMode string) error {
+	if err := validatePortRanges(def, networkMode); err != nil {
+		return err
+	}
+
 	if networkMode != networkModeAwsvpc && networkMode != networkModeHost {
 		return nil
 	}
@@ -175,6 +191,19 @@ func validateCompatibilities(input RegisterTaskDefinitionInput) error {
 			"%w: task-level CPU and memory are required for the Fargate launch type",
 			ErrClient,
 		)
+	}
+
+	return nil
+}
+
+// validateNextToken rejects a nextToken this service did not issue.
+func validateNextToken(body []byte) error {
+	var in struct {
+		NextToken string `json:"nextToken"`
+	}
+
+	if json.Unmarshal(body, &in) == nil && in.NextToken != "" && page.ValidateToken(in.NextToken) != nil {
+		return fmt.Errorf("%w: Invalid token", ErrInvalidParameter)
 	}
 
 	return nil

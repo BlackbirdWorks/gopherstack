@@ -70,6 +70,10 @@ func (h *Handler) handleDeleteSdiSource(c *echo.Context, sdiSourceID string) err
 }
 
 func (h *Handler) handleListSdiSources(c *echo.Context) error {
+	if err := validPaging(c); err != nil {
+		return respondErr(c, err)
+	}
+
 	maxResults, nextTokenParam := paginationParams(c)
 	sources, nextToken, err := h.Backend.ListSdiSources(maxResults, nextTokenParam)
 	if err != nil {

@@ -97,13 +97,14 @@ func (h *Handler) handleListGroupResources(
 	ctx context.Context,
 	in *listGroupResourcesInput,
 ) (*listGroupResourcesOutput, error) {
-	identifiers, nextToken, err := h.Backend.ListGroupResources(
+	p, err := h.Backend.ListGroupResourcesPage(
 		ctx, in.resolvedName(), in.Filters, in.NextToken, in.MaxResults,
 	)
 	if err != nil {
 		return nil, err
 	}
 
+	identifiers := p.Identifiers
 	items := make([]listGroupResourcesItem, 0, len(identifiers))
 
 	for _, id := range identifiers {
@@ -113,7 +114,8 @@ func (h *Handler) handleListGroupResources(
 	return &listGroupResourcesOutput{
 		Resources:           items,
 		ResourceIdentifiers: identifiers,
-		NextToken:           nextToken,
+		QueryErrors:         p.Errors,
+		NextToken:           p.NextToken,
 	}, nil
 }
 

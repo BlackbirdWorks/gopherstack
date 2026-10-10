@@ -2,7 +2,6 @@ package apigateway
 
 import (
 	"fmt"
-	"net/http"
 	"sort"
 )
 
@@ -157,25 +156,4 @@ func (b *InMemoryBackend) DeleteAuthorizer(restAPIID, authorizerID string) error
 	}
 
 	return nil
-}
-
-// TestInvokeAuthorizer performs a mock test invocation of an authorizer.
-func (b *InMemoryBackend) TestInvokeAuthorizer(input TestInvokeAuthorizerInput) (*TestInvokeAuthorizerOutput, error) {
-	b.mu.RLock("TestInvokeAuthorizer")
-	defer b.mu.RUnlock()
-
-	if !b.restApis.Has(input.RestAPIID) {
-		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
-	}
-
-	if !b.authorizers.Has(authorizerKey(input.RestAPIID, input.AuthorizerID)) {
-		return nil, fmt.Errorf("%w: authorizer %s not found", ErrNotFound, input.AuthorizerID)
-	}
-
-	return &TestInvokeAuthorizerOutput{
-		PrincipalID:  "test-principal",
-		ClientStatus: http.StatusOK,
-		Latency:      1,
-		Log:          "Test authorizer invocation (mock)",
-	}, nil
 }

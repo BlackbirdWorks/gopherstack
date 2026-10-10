@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
@@ -71,6 +72,12 @@ type S3CodeFetcher interface {
 	GetObjectBytes(ctx context.Context, bucket, key string) ([]byte, error)
 }
 
+// S3VersionedCodeFetcher is the optional extension of S3CodeFetcher for functions deployed from a specific
+// S3 object version (Code.S3ObjectVersion).
+type S3VersionedCodeFetcher interface {
+	GetObjectVersionBytes(ctx context.Context, bucket, key, versionID string) ([]byte, error)
+}
+
 // CWLogsBackend is the minimum CloudWatch Logs interface needed by Lambda for log delivery.
 type CWLogsBackend interface {
 	EnsureLogGroupAndStream(groupName, streamName string) error
@@ -88,6 +95,7 @@ type InMemoryBackend struct {
 	cwLogs             CWLogsBackend
 	s3Fetcher          S3CodeFetcher
 	ecrResolver        ECRResolver
+	metrics            cwmetric.Sink
 	docker             container.Runtime
 	dnsRegistrar       DNSRegistrar
 	ctx                context.Context
@@ -162,6 +170,7 @@ type InMemoryBackend struct {
 	runtimes                 map[string]*functionRuntime
 	activeConcurrencies      map[string]int
 	asyncDelivery            AsyncDestinationDelivery
+	esmS3                    ESMS3Destination
 	accountID                string
 	region                   string
 	sigV4Secret              string

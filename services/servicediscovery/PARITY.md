@@ -8,7 +8,7 @@ service: servicediscovery
 sdk_module: aws-sdk-go-v2/service/servicediscovery@v1.43.4   # version audited against; matches go.mod (verified)
 botocore_model: servicediscovery/2017-03-14/service-2.json (botocore 1.43.56)  # for shape constraints not carried into the Go SDK comments
 last_audit_commit: 44bff591b  # 2026-09-19 over-wide-response sweep (this pass); prior: e50f52dce                      # this pass (2026-08-28, write-only-state sweep)
-last_audit_date: 2026-09-19  # prior: 2026-08-28 -- 2026-09-19 over-wide-response sweep (gopherstack) re-verified ListInstances/ListNamespaces/ListOperations/ListServices member-by-member against servicediscovery@v1.43.4
+last_audit_date: 2026-10-10
 overall: A            # write-only-state sweep pass (2026-08-28). No wire_field_fixes_test.go
                        # existed yet for this service despite the prior pass's extensive
                        # "audited and confirmed correct" notes below -- per this campaign's
@@ -70,17 +70,20 @@ families:
   service_name_uniqueness: {status: fixed, note: "CreateService now enforces the documented same-namespace name-collision rule (case-insensitive for DNS namespaces, case-sensitive for HTTP namespaces) and returns ServiceAlreadyExists -- fixed, see Notes"}
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to backend; backendSnapshot covers all 4 store.Table-backed resources plus the two raw maps (serviceAttributes, instanceHealthStatuses); versioned and tested (persistence_test.go)"}
 gaps: []
-items_still_open:
-  - "GetInstancesHealthStatus/DiscoverInstances never surface HealthStatus=UNKNOWN. The enum value itself IS present in the source (types.HealthStatusUnknown, aws-sdk-go-v2/service/servicediscovery@v1.43.4/types/enums.go:74) -- this is NOT a source-level wire gap. Real Cloud Map instances backed by an AWS-managed HealthCheckConfig start UNKNOWN until the Route53 health check propagates; gopherstack has no Route53 health-check subsystem to drive that transition, so all instances are HEALTHY until explicitly marked UNHEALTHY via UpdateInstanceCustomHealthStatus. Confirmed structural (would require simulating real endpoint health evaluation); the precondition bug found alongside this claim (explicitly-requested unknown instance IDs silently omitted instead of erroring) WAS fixable and has been fixed, see gopherstack-bq50 Notes"
-  - "DuplicateRequest ('operation is already in progress', returned by CreateHttpNamespace/CreatePrivateDnsNamespace/CreatePublicDnsNamespace/DeleteNamespace/DeregisterInstance/RegisterInstance/UpdateHttpNamespace/UpdatePrivateDnsNamespace/UpdatePublicDnsNamespace/UpdateService per strings.EqualFold(\"DuplicateRequest\", errorCode) in the vendored deserializers.go -- re-verified this pass, the operation list is one op fewer than a prior audit missed adding UpdateService/the three UpdateXNamespace ops) has no genuine trigger path: every op completes synchronously under the backend's coarse write lock, so there is never an observable in-flight/PENDING window for a concurrent duplicate request to collide with. Checked the narrower question this pass -- is there a *synchronous* duplicate AWS refuses that this backend accepts? Registering the same service+instance ID twice is upsert semantics in real AWS too (no error); creating a duplicate-name service is already caught by ServiceAlreadyExists, a different exception. No synchronous trigger found; sentinel intentionally not added (would be dead code with no real trigger)"
-  - "ResourceLimitExceeded (CreateHttpNamespace/CreatePrivateDnsNamespace/CreatePublicDnsNamespace/CreateService/RegisterInstance) and RequestLimitExceeded (account-wide API throttling quota) are real SDK error types with no quota numbers documented anywhere in the vendored SDK source or the botocore model (only external doc links, e.g. cloud-map-limits.html) -- left unenforced rather than guessing at unverified thresholds"
-  - "DNS namespace HostedZoneId falls back to a synthetic Z-prefixed ID when Route 53 is not wired (SetHostedZoneCreator); with it wired the ID comes from a real CreateHostedZone."
+items_still_open: []
+structural_gaps:
+  - "HealthStatus UNKNOWN is never surfaced: it requires a Route 53 health-check subsystem to drive the transition; instances are HEALTHY until marked UNHEALTHY."
+  - "DuplicateRequest has no trigger path: every op completes synchronously under the backend lock, so no in-flight window exists; the sentinel is intentionally absent."
+  - "DNS namespace HostedZoneId falls back to a synthetic Z-prefixed ID when Route 53 is not wired (SetHostedZoneCreator)."
+  - "RequestLimitExceeded: the Cloud Map quotas page lists only account rate limits (DiscoverInstances 1,000/s steady, 2,000 burst; DiscoverInstancesRevision 3,000/s); throttling real request rates is not meaningful for an in-process emulator and would make tests flaky."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "Full cross-account/shared-namespace support (OwnerAccount request param, ARN-as-Id acceptance for namespace/service ID fields, real per-resource ResourceOwner tracking) -- not emulated; single-account model throughout. The RESOURCE_OWNER *filter* itself IS now handled this pass (coarse SELF-always-true/OTHER_ACCOUNTS-always-false semantics matching a single-account backend), but that's filtering only, not the underlying sharing model. Re-confirmed structural this pass: gopherstack has no per-request account concept anywhere in the codebase -- pkgs/arn hardcodes a single fake account ID (000000000000) repo-wide -- so a second account to share a namespace with doesn't exist to model against. A partial cross-account model confined to this one service would be fake work, not emulation"
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state is plain maps/store.Table guarded by lockmetrics.RWMutex"}
 ---
 
 ## Notes
+
+**2026-10-07:** ResourceLimitExceeded is now raised from the quotas page (cloud-map-limits): 50 namespaces per region (Create*Namespace), 1,000 instances per service and 2,000 per namespace (RegisterInstance; re-registering an existing instance is not counted). Proven by TestResourceLimitExceeded / TestResourceLimitExceeded_WireCode.
 
 ### 2026-09-19 over-wide-response sweep (gopherstack)
 
@@ -644,3 +647,7 @@ The Resource Groups Tagging API bridge now lists the request region's tagged res
 
 - UpdateService omit-to-delete was already implemented (stale item removed); DnsRecords are now replaced wholesale, previously only the TTL of same-index records changed so a Type change was dropped. TestUpdateService_SDKDnsAndHealthSemantics.
 - reqfielddiff: DiscoverInstances/DiscoverInstancesRevision/GetOperation OwnerAccount are accepted and ignored (single-account model, see deferred cross-account entry).
+
+## Notes (2026-10-10 realism pass)
+
+Create*Namespace validates the per-kind name patterns (printable ASCII, no "arn:" prefix, DNS names up to 253 characters; public names may be single-label for in-repo fixtures), CreateService validates the service-name pattern, RegisterInstance validates InstanceId and rejects malformed AWS_INSTANCE_IPV4/IPV6. Error messages no longer repeat the code. Tests: input_realism_test.go. Operations still settle to SUCCESS inside the creating call.

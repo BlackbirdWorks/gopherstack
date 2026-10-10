@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -53,8 +54,6 @@ const (
 	quotaCustomPlatforms     = 25
 	quotaEnvironments        = 200
 
-	// healthColorGreen is the color label for a healthy environment.
-	healthColorGreen = "Green"
 	// healthRefreshedAt is a placeholder refresh timestamp for environment health responses.
 	healthRefreshedAt = "2026-01-01T00:00:00Z"
 	// envHealthStatusOk is the EnvironmentHealthStatus enum value ("Ok") that
@@ -426,7 +425,22 @@ func (h *Handler) handleOpError(c *echo.Context, opErr error) error {
 		statusCode = http.StatusInternalServerError
 	}
 
-	return h.writeError(c, statusCode, code, opErr.Error())
+	return h.writeError(c, statusCode, code, errorMessage(opErr))
+}
+
+// errorMessage drops the sentinel's own text so the wire message is never prefixed with a code.
+func errorMessage(err error) string {
+	msg := err.Error()
+
+	for _, s := range []error{
+		ErrResourceNotFound, ErrNotFound, ErrAlreadyExists, ErrInvalidParameter, ErrValidation, ErrUnknownAction,
+	} {
+		if errors.Is(err, s) {
+			msg = strings.TrimPrefix(msg, s.Error()+": ")
+		}
+	}
+
+	return msg
 }
 
 func (h *Handler) writeError(c *echo.Context, statusCode int, code, message string) error {
@@ -434,6 +448,10 @@ func (h *Handler) writeError(c *echo.Context, statusCode int, code, message stri
 		Xmlns:     ebXMLNS,
 		Error:     ebError{Code: code, Message: message, Type: "Sender"},
 		RequestID: "eb-error",
+	}
+
+	if id := c.Response().Header().Get("X-Amz-Request-Id"); id != "" {
+		errResp.RequestID = id
 	}
 
 	xmlBytes, err := marshalXML(errResp)
@@ -456,6 +474,15 @@ func marshalXML(v any) ([]byte, error) {
 // responseMetadata is included in every XML response.
 type responseMetadata struct {
 	RequestID string `xml:"RequestId"`
+}
+
+// newResponseMetadata carries the per-request ID set by the request-ID middleware, or fallback when absent.
+func newResponseMetadata(ctx context.Context, fallback string) responseMetadata {
+	if id := awsmeta.Get(ctx).RequestID; id != "" {
+		return responseMetadata{RequestID: id}
+	}
+
+	return responseMetadata{RequestID: fallback}
 }
 
 // parseMembers extracts indexed form values with the given prefix (e.g. "ApplicationNames.member").

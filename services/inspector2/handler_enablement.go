@@ -3,6 +3,8 @@ package inspector2
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
+	"slices"
 
 	"github.com/labstack/echo/v5"
 
@@ -27,7 +29,9 @@ func (h *Handler) handleToggle(c *echo.Context, enable bool) error {
 	}
 
 	var req struct {
+		ClientToken   string   `json:"clientToken"`
 		ResourceTypes []string `json:"resourceTypes"`
+		AccountIDs    []string `json:"accountIds"`
 	}
 
 	if len(body) > 0 {
@@ -39,28 +43,67 @@ func (h *Handler) handleToggle(c *echo.Context, enable bool) error {
 		}
 	}
 
-	if enable {
-		err = h.Backend.Enable(req.ResourceTypes)
-	} else {
-		err = h.Backend.Disable(req.ResourceTypes)
+	if msg := validateToggleInput(req.ResourceTypes, req.AccountIDs); msg != "" {
+		return c.JSON(http.StatusBadRequest, errorResponse(errValidation, msg))
 	}
 
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	status := h.Backend.GetStatus()
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyAccounts: []map[string]any{
-			{
-				keyAccountID:      status.AccountID,
-				keyResourceStatus: buildResourceStatus(status),
-				keyStatus:         status.Status,
-			},
-		},
-		keyFailedAccounts: []any{},
+	resp, replayErr := h.replay(opEnable, clientTokenFor(enable, req.ClientToken), req, func() (map[string]any, error) {
+		return h.toggleAccounts(req.AccountIDs, req.ResourceTypes, enable), nil
 	})
+	if replayErr != nil {
+		return h.mapError(c, replayErr)
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// clientTokenFor drops the token for Disable, whose input has no ClientToken member.
+func clientTokenFor(enable bool, token string) string {
+	if !enable {
+		return ""
+	}
+
+	return token
+}
+
+// toggleAccounts applies an Enable/Disable to each requested account; accounts that are neither the caller's nor
+// an associated member are reported in failedAccounts.
+func (h *Handler) toggleAccounts(accountIDs, resourceTypes []string, enable bool) map[string]any {
+	var outcome AccountOutcome
+
+	if enable {
+		outcome = h.Backend.EnableAccounts(accountIDs, resourceTypes)
+	} else {
+		outcome = h.Backend.DisableAccounts(accountIDs, resourceTypes)
+	}
+
+	statuses := h.Backend.GetAccountStatuses(outcome.Updated).Found
+	accounts := make([]map[string]any, 0, len(statuses))
+
+	for _, st := range statuses {
+		accounts = append(accounts, map[string]any{
+			keyAccountID:      st.AccountID,
+			keyResourceStatus: buildResourceStatus(st),
+			keyStatus:         st.Status,
+		})
+	}
+
+	return map[string]any{keyAccounts: accounts, keyFailedAccounts: failedAccounts(outcome.Unknown)}
+}
+
+// failedAccounts renders FailedAccount entries for accounts the caller cannot address.
+func failedAccounts(accountIDs []string) []map[string]any {
+	out := make([]map[string]any, 0, len(accountIDs))
+
+	for _, id := range accountIDs {
+		out = append(out, map[string]any{
+			keyAccountID:    id,
+			keyErrorCode:    "RESOURCE_NOT_FOUND",
+			keyErrorMessage: "account " + id + " is neither the calling account nor an associated member",
+		})
+	}
+
+	return out
 }
 
 // handleBatchGetAccountStatus handles POST /status/batch/get. Unlike
@@ -70,18 +113,36 @@ func (h *Handler) handleToggle(c *echo.Context, enable bool) error {
 // errorMessage), and the top-level state is itself a State object rather
 // than a bare status string.
 func (h *Handler) handleBatchGetAccountStatus(c *echo.Context) error {
-	status := h.Backend.GetStatus()
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid body"))
+	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyAccounts: []map[string]any{
-			{
-				keyAccountID:     status.AccountID,
-				keyResourceState: buildResourceState(status),
-				"state":          buildState(status.Status),
-			},
-		},
-		keyFailedAccounts: []any{},
-	})
+	var req struct {
+		AccountIDs []string `json:"accountIds"`
+	}
+
+	if len(body) > 0 {
+		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+		}
+	}
+
+	lookup := h.Backend.GetAccountStatuses(req.AccountIDs)
+	accounts := make([]map[string]any, 0, len(lookup.Found))
+
+	for _, status := range lookup.Found {
+		accounts = append(accounts, map[string]any{
+			keyAccountID:     status.AccountID,
+			keyResourceState: buildResourceState(status),
+			"state":          buildState(status.Status),
+		})
+	}
+
+	return c.JSON(
+		http.StatusOK,
+		map[string]any{keyAccounts: accounts, keyFailedAccounts: failedAccounts(lookup.Unknown)},
+	)
 }
 
 // buildState renders an Inspector2 State object: a required status alongside
@@ -257,4 +318,24 @@ func (h *Handler) handleListAccountPermissions(c *echo.Context) error {
 	)
 
 	return c.JSON(http.StatusOK, withPageToken(map[string]any{"permissions": page}, next))
+}
+
+var accountIDPattern = regexp.MustCompile(`^\d{12}$`)
+
+// validateToggleInput checks Enable/Disable's resourceTypes against the ResourceScanType enum and accountIds
+// against the 12-digit pattern.
+func validateToggleInput(resourceTypes, accountIDs []string) string {
+	for _, rt := range resourceTypes {
+		if !slices.Contains(knownResourceTypes(), rt) {
+			return "Value '" + rt + "' at 'resourceTypes' failed to satisfy constraint: not a valid ResourceScanType"
+		}
+	}
+
+	for _, id := range accountIDs {
+		if !accountIDPattern.MatchString(id) {
+			return "Value '" + id + "' at 'accountIds' failed to satisfy constraint: must be a 12-digit account ID"
+		}
+	}
+
+	return ""
 }

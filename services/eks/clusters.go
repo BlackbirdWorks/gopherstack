@@ -415,6 +415,8 @@ func (b *InMemoryBackend) deleteClusterLocked(name string) (*Cluster, error) {
 	}
 
 	for _, capa := range slices.Clone(b.capabilitiesByCluster.Get(name)) {
+		b.deleteIdcApplicationLocked(capa)
+
 		if capa.Tags != nil {
 			capa.Tags.Close()
 		}

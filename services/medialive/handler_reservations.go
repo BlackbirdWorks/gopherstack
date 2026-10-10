@@ -24,6 +24,10 @@ func toOfferingOutput(o *Offering) map[string]any {
 }
 
 func (h *Handler) handleListOfferings(c *echo.Context) error {
+	if err := validPaging(c); err != nil {
+		return respondErr(c, err)
+	}
+
 	maxResults, nextTokenParam := paginationParams(c)
 	filter := OfferingFilter{
 		Duration:         c.QueryParam("duration"),
@@ -139,6 +143,10 @@ func toReservationOutput(r *Reservation) map[string]any {
 }
 
 func (h *Handler) handleListReservations(c *echo.Context) error {
+	if err := validPaging(c); err != nil {
+		return respondErr(c, err)
+	}
+
 	maxResults, nextTokenParam := paginationParams(c)
 	filter := ReservationFilter{
 		Codec:            c.QueryParam("codec"),

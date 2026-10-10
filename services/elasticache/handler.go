@@ -382,6 +382,9 @@ const (
 // default (0, resolved downstream by pkgs/page).
 func parsePagination(form url.Values) (string, int, error) {
 	marker := form.Get("Marker")
+	if err := validateMarkerToken(marker); err != nil {
+		return "", 0, err
+	}
 
 	s := form.Get("MaxRecords")
 	if s == "" {
@@ -573,7 +576,7 @@ func xmlError(c *echo.Context, status int, code, message string) error {
 	}
 	resp.Error.Type = faultType(status)
 	resp.Error.Code = code
-	resp.Error.Message = message
+	resp.Error.Message = strings.TrimPrefix(message, code+": ")
 
 	return xmlResp(c, status, resp)
 }

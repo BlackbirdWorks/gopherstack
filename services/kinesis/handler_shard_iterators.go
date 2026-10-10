@@ -14,6 +14,7 @@ type jsonGetShardIteratorReq struct {
 	ShardID                string   `json:"ShardId"`
 	ShardIteratorType      string   `json:"ShardIteratorType"`
 	StartingSequenceNumber string   `json:"StartingSequenceNumber"`
+	DryRun                 bool     `json:"DryRun,omitempty"`
 }
 
 type jsonGetShardIteratorResp struct {
@@ -47,6 +48,7 @@ func (h *Handler) handleGetShardIterator(
 		ShardIteratorType:      req.ShardIteratorType,
 		StartingSequenceNumber: req.StartingSequenceNumber,
 		Timestamp:              ts,
+		DryRun:                 req.DryRun,
 	})
 	if err != nil {
 		return nil, err
