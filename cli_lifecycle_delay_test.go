@@ -41,9 +41,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/quicksight"
 	qstypes "github.com/aws/aws-sdk-go-v2/service/quicksight/types"
 	"github.com/aws/aws-sdk-go-v2/service/redshift"
+	"github.com/aws/aws-sdk-go-v2/service/rekognition"
+	rektypes "github.com/aws/aws-sdk-go-v2/service/rekognition/types"
 	"github.com/aws/aws-sdk-go-v2/service/route53resolver"
 	r53types "github.com/aws/aws-sdk-go-v2/service/route53resolver/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	"github.com/aws/aws-sdk-go-v2/service/transcribe"
+	trtypes "github.com/aws/aws-sdk-go-v2/service/transcribe/types"
 	"github.com/aws/aws-sdk-go-v2/service/workspaces"
 	wstypes "github.com/aws/aws-sdk-go-v2/service/workspaces/types"
 	"github.com/stretchr/testify/assert"
@@ -723,6 +727,59 @@ func lifecycleKnobs() []lifecycleKnob {
 				}
 			},
 		},
+		{
+			name: "transcribe",
+			set:  func(l *LifecycleSettings, d time.Duration) { l.Transcribe = d },
+			start: func(t *testing.T, cfg aws.Config) func() bool {
+				t.Helper()
+
+				c := transcribe.NewFromConfig(cfg)
+				_, err := c.CreateVocabulary(t.Context(), &transcribe.CreateVocabularyInput{
+					VocabularyName: aws.String("lcres"),
+					LanguageCode:   trtypes.LanguageCodeEnUs,
+					Phrases:        []string{"hello", "world"},
+				})
+				require.NoError(t, err)
+
+				return func() bool {
+					out, dErr := c.GetVocabulary(t.Context(), &transcribe.GetVocabularyInput{
+						VocabularyName: aws.String("lcres"),
+					})
+					require.NoError(t, dErr)
+
+					return out.VocabularyState == trtypes.VocabularyStatePending
+				}
+			},
+		},
+		{
+			name: "rekognition",
+			set:  func(l *LifecycleSettings, d time.Duration) { l.Rekognition = d },
+			start: func(t *testing.T, cfg aws.Config) func() bool {
+				t.Helper()
+
+				c := rekognition.NewFromConfig(cfg)
+				project, err := c.CreateProject(t.Context(), &rekognition.CreateProjectInput{
+					ProjectName: aws.String("lcres"),
+				})
+				require.NoError(t, err)
+
+				ds, err := c.CreateDataset(t.Context(), &rekognition.CreateDatasetInput{
+					ProjectArn:  project.ProjectArn,
+					DatasetType: rektypes.DatasetTypeTrain,
+				})
+				require.NoError(t, err)
+
+				return func() bool {
+					out, dErr := c.DescribeDataset(t.Context(), &rekognition.DescribeDatasetInput{
+						DatasetArn: ds.DatasetArn,
+					})
+					require.NoError(t, dErr)
+
+					return out.DatasetDescription.Status == rektypes.DatasetStatusCreateInProgress
+				}
+			},
+		},
+		iotAnalyticsLifecycleKnob(),
 		{
 			name: "dynamodb",
 			set:  func(*LifecycleSettings, time.Duration) {},

@@ -43,6 +43,8 @@ leaks: {status: clean, note: "no goroutines/timers introduced; tombstone rows ar
 
 ## Notes
 
+- **2026-10-10 realism pass**: error bodies no longer repeat the code in the message (`InvalidRequestException: ...`); shadow errors use the documented texts (`Version conflict`, `No shadow exists with name: X`, `Missing required node: state`, `Invalid version`, ...); ConflictException no longer carries a numeric `code` (the SDK decodes `code` as a string, so every 409 failed to deserialize); Publish topics with more than 8 slashes are rejected. Tests: TestErrorMessages_NoCodePrefix, TestPublish_TopicSlashLimit.
+
 - **2026-10-01 items_still_open burn-down**: removed the three RESOLVED entries (proofs: Test_Publish_DeliversThroughRealBroker, Test_SendDirectMessage_DeliversThroughRealBroker, TestBroker_ClientSubscriptionsAndSendToClient; MQTT5 property forwarding rests on mochi-mqtt's encode path, no v5 client in-repo). Fixed DeleteConnection cleanSession/preventWillMessage and GetConnection live-session fields (new MQTTPublisher.DisconnectClient/ClientSession; no persisted state added).
 
 Freeform: AWS-behavior specifics worth remembering (exact algorithms, wire quirks,

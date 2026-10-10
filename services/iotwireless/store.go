@@ -46,7 +46,8 @@ import (
 
 // InMemoryBackend is the in-memory backend for IoT Wireless.
 type InMemoryBackend struct {
-	resourceTags               map[string]map[string]string
+	gateways                   *store.Table[WirelessGateway]
+	devices                    *store.Table[WirelessDevice]
 	wirelessDeviceThings       map[string]string
 	serviceProfiles            *store.Table[ServiceProfile]
 	destinations               *store.Table[Destination]
@@ -55,15 +56,15 @@ type InMemoryBackend struct {
 	multicastGroups            *store.Table[MulticastGroup]
 	networkAnalyzerConfigs     *store.Table[NetworkAnalyzerConfig]
 	wirelessGatewayCerts       map[string]string
-	partnerAccounts            map[string]string
+	multicastGroupSessionStart map[string]time.Time
 	fuotaTaskMulticast         map[string]map[string]bool
 	fuotaTaskDevices           map[string]map[string]bool
 	multicastGroupDevices      map[string]map[string]bool
 	multicastGroupSessions     map[string]bool
 	wirelessGatewayThings      map[string]string
-	gateways                   *store.Table[WirelessGateway]
-	devices                    *store.Table[WirelessDevice]
-	multicastGroupSessionStart map[string]time.Time
+	resourceTags               map[string]map[string]string
+	mu                         *lockmetrics.RWMutex
+	partnerAccounts            map[string]string
 	logLevelsConfig            *LogLevelsConfig
 	resourceLogLevels          map[string]string
 	gatewayTasks               *store.Table[GatewayTask]
@@ -76,9 +77,9 @@ type InMemoryBackend struct {
 	resourceEventConfigs       *store.Table[ResourceEventConfigEntry]
 	eventConfigDefault         *EventConfigDoc
 	registry                   *store.Registry
-	mu                         *lockmetrics.RWMutex
 	metricConfigStatus         string
 	idem                       idempotencyCache
+	lifecycleDelay             time.Duration
 }
 
 // NewInMemoryBackend creates a new in-memory IoT Wireless backend.

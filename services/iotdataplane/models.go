@@ -19,6 +19,9 @@ const maxShadowDocumentBytes = 8 * 1024
 // object itself counts as depth 1.
 const maxShadowStateDepth = 8
 
+// maxTopicSlashes is the IoT Core quota for forward slashes in a topic.
+const maxTopicSlashes = 8
+
 // maxTopicLength is the maximum allowed MQTT topic length per AWS IoT rules.
 const maxTopicLength = 256
 

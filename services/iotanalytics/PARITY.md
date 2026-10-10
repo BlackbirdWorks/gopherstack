@@ -69,6 +69,8 @@ leaks: {status: clean, note: "no goroutines/janitors owned by this backend; svcC
 
 ## Notes
 
+- **2026-10-10 realism pass**: opt-in `SetLifecycleDelay` (`--lifecycle-iotanalytics`, default 0) holds channels, datastores and datasets in CREATING and dataset contents in CREATING before ACTIVE/SUCCEEDED (resolved lazily on read, nothing persisted); list ops reject non-integer or out-of-range `maxResults` (1-250) and undecodable `nextToken` with InvalidRequestException instead of silently ignoring them; validation messages drop the `validation error:` prefix. Tests: TestLifecycleDelay_StatusProgression, TestListPagination_InvalidParams.
+
 ### 2026-09-19 over-wide-response sweep
 
 cmd/overwidecandidates flagged all 5 List ops. ListChannels/ListDatasetContents

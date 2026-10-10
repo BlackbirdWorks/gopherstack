@@ -19,7 +19,7 @@ import (
 // handleConnections dispatches GET /_admin/connections requests.
 func (h *Handler) handleConnections(c *echo.Context) error {
 	if c.Request().Method != http.MethodGet {
-		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
+		return methodNotAllowedResponse(c)
 	}
 
 	return h.handleListConnections(c)
@@ -33,7 +33,7 @@ func (h *Handler) handleConnectionByID(c *echo.Context) error {
 	case http.MethodPost:
 		return h.handleRegisterConnection(c)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
+		return methodNotAllowedResponse(c)
 	}
 }
 
@@ -63,7 +63,7 @@ func (h *Handler) handleListConnections(c *echo.Context) error {
 func (h *Handler) handleRegisterConnection(c *echo.Context) error {
 	clientID := strings.TrimPrefix(c.Request().URL.Path, adminConnectionsPathSlash)
 	if clientID == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "clientId is required"})
+		return invalidRequestResponse(c, "clientId is required")
 	}
 
 	sourceIP := c.RealIP()
@@ -115,7 +115,7 @@ func (h *Handler) handleConnectionsWire(c *echo.Context) error {
 	default:
 		// Unreachable in practice: Handler() only routes here when
 		// connectionsWireOperation already returned a non-"" op.
-		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
+		return methodNotAllowedResponse(c)
 	}
 }
 

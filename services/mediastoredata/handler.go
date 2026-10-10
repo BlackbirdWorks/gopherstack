@@ -585,12 +585,12 @@ func parseByteRange(header string, size int64) (int64, int64, bool) {
 func (h *Handler) writeError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return writeErrorJSON(c, http.StatusNotFound, "ObjectNotFoundException", err.Error())
+		return writeErrorJSON(c, http.StatusNotFound, "ObjectNotFoundException", errMessage(err))
 	case errors.Is(err, ErrInvalidPath),
 		errors.Is(err, ErrInvalidStorageClass),
 		errors.Is(err, ErrInvalidUploadAvailability),
 		errors.Is(err, ErrObjectTooLarge):
-		return writeErrorJSON(c, http.StatusBadRequest, "ValidationException", err.Error())
+		return writeErrorJSON(c, http.StatusBadRequest, "ValidationException", errMessage(err))
 	}
 
 	return writeErrorJSON(c, http.StatusInternalServerError, "InternalServerError", err.Error())
@@ -616,4 +616,24 @@ func writeErrorJSON(c *echo.Context, status int, code, msg string) error {
 	c.Response().Header().Set("X-Amzn-Errortype", code)
 
 	return c.JSON(status, errorResponse(code, msg))
+}
+
+func wireSentinels() []error {
+	return []error{
+		ErrNotFound, ErrInvalidPath, ErrInvalidStorageClass, ErrInvalidUploadAvailability, ErrObjectTooLarge,
+	}
+}
+
+// errMessage drops the leading "<sentinel>: " that wrapping adds, so the wire
+// message does not repeat the error code.
+func errMessage(err error) string {
+	msg := err.Error()
+
+	for _, s := range wireSentinels() {
+		if errors.Is(err, s) {
+			return strings.TrimPrefix(msg, s.Error()+": ")
+		}
+	}
+
+	return msg
 }

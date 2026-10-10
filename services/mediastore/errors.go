@@ -12,6 +12,11 @@ var (
 		"container not found",
 		awserr.ErrNotFound,
 	)
+	// ErrContainerNotActive is returned for policy operations on a container that is not ACTIVE.
+	ErrContainerNotActive = awserr.New(
+		"The container must be in ACTIVE status to perform this operation",
+		awserr.ErrAlreadyExists,
+	)
 	// ErrContainerAlreadyExists is returned when a container already exists.
 	ErrContainerAlreadyExists = awserr.New(
 		"container already exists",

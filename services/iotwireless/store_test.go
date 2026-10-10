@@ -96,9 +96,9 @@ func TestInMemoryBackend_GetReturnsIsolatedCopy(t *testing.T) {
 					testAccountID,
 					testRegion,
 					"dest",
-					"",
-					"",
-					"",
+					"r",
+					"RuleName",
+					"arn:aws:iam::123456789012:role/r",
 					"",
 					map[string]string{"k": "v"},
 				)
@@ -226,7 +226,16 @@ func TestInMemoryBackend_ExportCountHelpers(t *testing.T) {
 	_, _ = b.CreateWirelessDevice(testAccountID, testRegion, "d1", "LoRaWAN", "", "", "", nil, nil, nil)
 	_, _ = b.CreateWirelessGateway(testAccountID, testRegion, "gw1", "", nil, nil)
 	_, _ = b.CreateServiceProfile(testAccountID, testRegion, "sp1", nil, nil)
-	_, _ = b.CreateDestination(testAccountID, testRegion, "dest1", "", "", "", "", nil)
+	_, _ = b.CreateDestination(
+		testAccountID,
+		testRegion,
+		"dest1",
+		"r",
+		"RuleName",
+		"arn:aws:iam::123456789012:role/r",
+		"",
+		nil,
+	)
 	_, _ = b.CreateDeviceProfile(testAccountID, testRegion, "dp1", nil, nil, nil)
 	_, _ = b.CreateFuotaTask(testAccountID, testRegion, "ft1", "", "", "", "", 0, 0, 0, nil, nil)
 

@@ -3,6 +3,7 @@ package mediastore
 import (
 	"context"
 	"regexp"
+	"time"
 )
 
 // objectGroupRE is the allowed character set for MetricPolicyRule.ObjectGroup,
@@ -58,12 +59,18 @@ func (b *InMemoryBackend) PutMetricPolicy(ctx context.Context, name string, poli
 
 	region := regionFromContext(ctx)
 
+	b.advanceContainerStates(time.Now())
+
 	b.mu.Lock("PutMetricPolicy")
 	defer b.mu.Unlock()
 
 	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
+	}
+
+	if err := requireActive(c); err != nil {
+		return err
 	}
 
 	p := policy
@@ -76,12 +83,18 @@ func (b *InMemoryBackend) PutMetricPolicy(ctx context.Context, name string, poli
 func (b *InMemoryBackend) GetMetricPolicy(ctx context.Context, name string) (MetricPolicy, error) {
 	region := regionFromContext(ctx)
 
+	b.advanceContainerStates(time.Now())
+
 	b.mu.RLock("GetMetricPolicy")
 	defer b.mu.RUnlock()
 
 	c, exists := b.getContainer(region, name)
 	if !exists {
 		return MetricPolicy{}, ErrContainerNotFound
+	}
+
+	if err := requireActive(c); err != nil {
+		return MetricPolicy{}, err
 	}
 
 	if c.MetricPolicy == nil {
@@ -95,12 +108,18 @@ func (b *InMemoryBackend) GetMetricPolicy(ctx context.Context, name string) (Met
 func (b *InMemoryBackend) DeleteMetricPolicy(ctx context.Context, name string) error {
 	region := regionFromContext(ctx)
 
+	b.advanceContainerStates(time.Now())
+
 	b.mu.Lock("DeleteMetricPolicy")
 	defer b.mu.Unlock()
 
 	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
+	}
+
+	if err := requireActive(c); err != nil {
+		return err
 	}
 
 	if c.MetricPolicy == nil {

@@ -3,6 +3,7 @@ package iotanalytics
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"strconv"
@@ -649,25 +650,31 @@ func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte) er
 }
 
 // parsePagination extracts and validates maxResults and nextToken from query params.
-// Returns clamped maxResults and the decoded cursor (name to start after).
-func parsePagination(c *echo.Context) (int, string) {
+// Returns maxResults and the decoded cursor (name to start after).
+func parsePagination(c *echo.Context) (int, string, error) {
 	maxResults := defaultMaxResults
 
 	if s := c.Request().URL.Query().Get("maxResults"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			maxResults = min(n, absoluteMaxResults)
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 || n > absoluteMaxResults {
+			return 0, "", fmt.Errorf("%w: maxResults must be between 1 and %d", ErrValidation, absoluteMaxResults)
 		}
+
+		maxResults = n
 	}
 
 	cursor := ""
 
 	if tok := c.Request().URL.Query().Get("nextToken"); tok != "" {
-		if decoded, err := base64.StdEncoding.DecodeString(tok); err == nil {
-			cursor = string(decoded)
+		decoded, err := base64.StdEncoding.DecodeString(tok)
+		if err != nil {
+			return 0, "", fmt.Errorf("%w: invalid nextToken", ErrValidation)
 		}
+
+		cursor = string(decoded)
 	}
 
-	return maxResults, cursor
+	return maxResults, cursor, nil
 }
 
 // queryBool parses a boolean query param the way the real SDK's REST-JSON
@@ -702,7 +709,9 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	}
 
 	if errors.Is(err, ErrValidation) {
-		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", err.Error())
+		msg := strings.TrimPrefix(err.Error(), ErrValidation.Error()+": ")
+
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", msg)
 	}
 
 	return h.writeError(c, http.StatusInternalServerError, "InternalFailureException", err.Error())

@@ -85,7 +85,16 @@ func TestInMemoryBackend_DeleteDestination_InUse(t *testing.T) {
 
 	bk := iotwireless.NewInMemoryBackend()
 
-	_, err := bk.CreateDestination(testAccountID, testRegion, "dest-1", "", "", "", "", nil)
+	_, err := bk.CreateDestination(
+		testAccountID,
+		testRegion,
+		"dest-1",
+		"r",
+		"RuleName",
+		"arn:aws:iam::123456789012:role/r",
+		"",
+		nil,
+	)
 	require.NoError(t, err)
 
 	_, err = bk.CreateWirelessDevice(
@@ -119,7 +128,16 @@ func TestInMemoryBackend_ListDestinations(t *testing.T) {
 			bk := iotwireless.NewInMemoryBackend()
 
 			for _, name := range tt.destNames {
-				_, err := bk.CreateDestination(testAccountID, testRegion, name, "", "", "", "", nil)
+				_, err := bk.CreateDestination(
+					testAccountID,
+					testRegion,
+					name,
+					"r",
+					"RuleName",
+					"arn:aws:iam::123456789012:role/r",
+					"",
+					nil,
+				)
 				require.NoError(t, err)
 			}
 

@@ -315,3 +315,11 @@ func copyContainer(c *Container) *Container {
 
 	return &cp
 }
+
+func requireActive(c *Container) error {
+	if c.Status != containerStatusActive {
+		return ErrContainerNotActive
+	}
+
+	return nil
+}

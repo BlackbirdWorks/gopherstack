@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"time"
 
@@ -28,8 +29,16 @@ func (b *InMemoryBackend) CreateDestination(
 	accountID, region, name, expression, expressionType, roleArn, description string,
 	tags map[string]string,
 ) (*Destination, error) {
+	if err := validateDestination(name, expression, expressionType, roleArn); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateDestination")
 	defer b.mu.Unlock()
+
+	if _, exists := b.destinations.Get(compositeKey(accountID, region, name)); exists {
+		return nil, ErrDestinationExists
+	}
 
 	arn := destinationARN(region, accountID, name)
 
@@ -156,4 +165,21 @@ func (b *InMemoryBackend) AddDestinationInternal(accountID, region string, dest 
 	cp.Region = region
 	b.destinations.Put(cp)
 	b.storeResourceTagsLocked(dest.ARN, dest.Tags)
+}
+
+var destinationNameRE = regexp.MustCompile(`^[a-zA-Z0-9:_-]{1,128}$`)
+
+func validateDestination(name, expression, expressionType, roleArn string) error {
+	switch {
+	case !destinationNameRE.MatchString(name):
+		return fmt.Errorf("%w: Name must match [a-zA-Z0-9:_-]+ and be 1-128 characters", ErrValidation)
+	case expressionType != "RuleName" && expressionType != "MqttTopic":
+		return fmt.Errorf("%w: ExpressionType must be RuleName or MqttTopic", ErrValidation)
+	case expression == "":
+		return fmt.Errorf("%w: Expression is required", ErrValidation)
+	case roleArn == "":
+		return fmt.Errorf("%w: RoleArn is required", ErrValidation)
+	}
+
+	return nil
 }

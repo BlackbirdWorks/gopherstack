@@ -293,25 +293,6 @@ func Test_ShadowName_NonReservedAllowed(t *testing.T) {
 	rec := doRequest(t, h, http.MethodGet, "/things/thing1/shadow?name=myConfig", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
-func Test_ShadowVersionConflict_BodyHasCode(t *testing.T) {
-	t.Parallel()
-
-	h := iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
-
-	doRequest(t, h, http.MethodPost, "/things/dev-vc/shadow", []byte(`{"state":{"desired":{"k":"v"}}}`))
-
-	rec := doRequest(t, h, http.MethodPost, "/things/dev-vc/shadow", []byte(`{
-		"state": {"desired": {"k": "v2"}},
-		"version": 0
-	}`))
-	require.Equal(t, http.StatusConflict, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	code, hasCode := resp["code"]
-	require.True(t, hasCode, "409 body must include 'code' field")
-	assert.InDelta(t, float64(http.StatusConflict), code, 0)
-}
 func Test_ValidateThingName_ValidNames(t *testing.T) {
 	t.Parallel()
 

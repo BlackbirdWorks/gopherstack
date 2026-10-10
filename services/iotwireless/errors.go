@@ -60,6 +60,8 @@ var (
 	// ErrDestinationInUse is returned when a destination is still referenced
 	// by a wireless device.
 	ErrDestinationInUse = errors.New("ConflictException: Destination is in use")
+	// ErrDestinationExists is returned when a destination with the name already exists.
+	ErrDestinationExists = errors.New("ConflictException: Destination already exists")
 	// ErrMulticastGroupInUse is returned when a multicast group is still
 	// associated with a FUOTA task (api_op_DeleteMulticastGroup.go: "Deletes
 	// a multicast group if it is not in use by a FUOTA task").

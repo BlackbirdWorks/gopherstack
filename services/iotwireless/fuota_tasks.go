@@ -23,6 +23,7 @@ func copyFuotaTask(ft *FuotaTask) *FuotaTask {
 	cp.Tags = make(map[string]string, len(ft.Tags))
 	maps.Copy(cp.Tags, ft.Tags)
 	cp.LoRaWAN = copyLoRaWANFuotaTask(ft.LoRaWAN)
+	cp.Status = observeFuotaStatus(ft)
 
 	return &cp
 }
@@ -262,6 +263,8 @@ func (b *InMemoryBackend) StartFuotaTask(accountID, region, id string, startTime
 	}
 
 	ft.Status = "FuotaSession_Waiting"
+	ft.startedAt = time.Now()
+	ft.stageDelay = b.lifecycleDelay
 
 	if startTime != nil {
 		ft.StartTime = startTime

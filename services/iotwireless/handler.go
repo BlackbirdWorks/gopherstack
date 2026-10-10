@@ -3,15 +3,19 @@ package iotwireless
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -467,6 +471,12 @@ func (h *Handler) homeHandler() echo.HandlerFunc {
 		}
 
 		log.DebugContext(ctx, "iotwireless request", "op", op, "resource", resource)
+
+		if method == http.MethodGet {
+			if msg := invalidPagination(c.Request().URL.Query()); msg != "" {
+				return writeError(c, http.StatusBadRequest, msg)
+			}
+		}
 
 		return h.dispatchIdempotent(c, op, resource, body, c.Request().URL.Query())
 	}
@@ -959,6 +969,7 @@ func awsErrorType(status int) string {
 // the correctly typed modeled exception. See awsErrorType.
 func writeError(c *echo.Context, status int, message string) error {
 	errType := awsErrorType(status)
+	message = errCodePrefixRE.ReplaceAllString(message, "")
 
 	c.Response().Header().Set("Content-Type", "application/json")
 	c.Response().Header().Set("X-Amzn-Errortype", errType)
@@ -1003,6 +1014,7 @@ func isConflict(err error) bool {
 	return errors.Is(err, ErrDeviceProfileInUse) ||
 		errors.Is(err, ErrServiceProfileInUse) ||
 		errors.Is(err, ErrDestinationInUse) ||
+		errors.Is(err, ErrDestinationExists) ||
 		errors.Is(err, ErrMulticastGroupInUse)
 }
 
@@ -1072,4 +1084,22 @@ func lastPathSegment(c *echo.Context) string {
 	}
 
 	return after
+}
+
+var errCodePrefixRE = regexp.MustCompile(`^[A-Za-z]+Exception: `)
+
+const maxListResults = 250
+
+func invalidPagination(q url.Values) string {
+	if raw := q.Get("maxResults"); raw != "" {
+		if n, err := strconv.Atoi(raw); err != nil || n < 0 || n > maxListResults {
+			return fmt.Sprintf("maxResults must be between 0 and %d", maxListResults)
+		}
+	}
+
+	if page.ValidateToken(q.Get("nextToken")) != nil {
+		return "invalid nextToken"
+	}
+
+	return ""
 }

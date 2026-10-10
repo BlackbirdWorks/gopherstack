@@ -10,6 +10,7 @@ import (
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockagentbackend "github.com/blackbirdworks/gopherstack/services/bedrockagent"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
+	comprehendbackend "github.com/blackbirdworks/gopherstack/services/comprehend"
 	directoryservicebackend "github.com/blackbirdworks/gopherstack/services/directoryservice"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
@@ -18,6 +19,8 @@ import (
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
 	inspector2backend "github.com/blackbirdworks/gopherstack/services/inspector2"
+	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
+	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	medialivebackend "github.com/blackbirdworks/gopherstack/services/medialive"
@@ -26,11 +29,16 @@ import (
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	pollybackend "github.com/blackbirdworks/gopherstack/services/polly"
 	quicksightbackend "github.com/blackbirdworks/gopherstack/services/quicksight"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
+	rekognitionbackend "github.com/blackbirdworks/gopherstack/services/rekognition"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
+	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
+	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
+	translatebackend "github.com/blackbirdworks/gopherstack/services/translate"
 	workspacesbackend "github.com/blackbirdworks/gopherstack/services/workspaces"
 )
 
@@ -71,6 +79,14 @@ type LifecycleSettings struct {
 	MediaLive                    time.Duration `name:"medialive"                      env:"MEDIALIVE_LIFECYCLE_DELAY"            default:"0s" help:"MediaLive channel/multiplex CREATING/STARTING/STOPPING/DELETING window."`                        //nolint:lll // config struct tags are intentionally verbose
 	FSx                          time.Duration `name:"fsx"                            env:"FSX_LIFECYCLE_DELAY"                  default:"0s" help:"FSx resource CREATING window."`                                                                  //nolint:lll // config struct tags are intentionally verbose
 	NetworkManager               time.Duration `name:"networkmanager"                 env:"NETWORKMANAGER_LIFECYCLE_DELAY"       default:"0s" help:"Network Manager PENDING/DELETING window (built-in 100ms)."`                                      //nolint:lll // config struct tags are intentionally verbose
+	Comprehend                   time.Duration `name:"comprehend"                     env:"COMPREHEND_LIFECYCLE_DELAY"           default:"0s" help:"Comprehend async job and classifier/recognizer training stage window."`                          //nolint:lll // config struct tags are intentionally verbose
+	Rekognition                  time.Duration `name:"rekognition"                    env:"REKOGNITION_LIFECYCLE_DELAY"          default:"0s" help:"Rekognition stream processor, project version and dataset transitional window."`                 //nolint:lll // config struct tags are intentionally verbose
+	Textract                     time.Duration `name:"textract"                       env:"TEXTRACT_ASYNC_JOB_DELAY"             default:"0s" help:"Textract async job IN_PROGRESS window; 0 keeps the built-in 200ms; ignores the global delay."`   //nolint:lll // config struct tags are intentionally verbose
+	Translate                    time.Duration `name:"translate"                      env:"TRANSLATE_LIFECYCLE_DELAY"            default:"0s" help:"Translate batch job and parallel data stage window."`                                            //nolint:lll // config struct tags are intentionally verbose
+	Polly                        time.Duration `name:"polly"                          env:"POLLY_LIFECYCLE_DELAY"                default:"0s" help:"Polly speech synthesis task stage window."`                                                      //nolint:lll // config struct tags are intentionally verbose
+	Transcribe                   time.Duration `name:"transcribe"                     env:"TRANSCRIBE_LIFECYCLE_DELAY"           default:"0s" help:"Transcribe job, vocabulary and language model IN_PROGRESS/PENDING window."`                      //nolint:lll // config struct tags are intentionally verbose
+	IoTAnalytics                 time.Duration `name:"iotanalytics"                   env:"IOTANALYTICS_LIFECYCLE_DELAY"         default:"0s" help:"IoT Analytics channel/datastore/dataset CREATING and dataset content CREATING window."`          //nolint:lll // config struct tags are intentionally verbose
+	IoTWireless                  time.Duration `name:"iotwireless"                    env:"IOTWIRELESS_LIFECYCLE_DELAY"          default:"0s" help:"IoT Wireless FUOTA task FuotaSession_Waiting/In_FuotaSession stage window."`                     //nolint:lll // config struct tags are intentionally verbose
 	Account                      time.Duration `name:"account"                        env:"ACCOUNT_LIFECYCLE_DELAY"              default:"0s" help:"Account region ENABLING/DISABLING window (built-in 100ms)."`                                     //nolint:lll // config struct tags are intentionally verbose
 }
 
@@ -310,6 +326,66 @@ func applyMediaLive(reg service.Registerable, l LifecycleSettings) {
 	}
 }
 
+func applyComprehend(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*comprehendbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.effective(l.Comprehend))
+	}
+}
+
+func applyRekognition(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*rekognitionbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*rekognitionbackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.Rekognition))
+		}
+	}
+}
+
+func applyTextract(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*textractbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*textractbackend.InMemoryBackend); isBk {
+			if d := l.Textract; d > 0 {
+				bk.SetAsyncJobDelay(d)
+			}
+		}
+	}
+}
+
+func applyTranslate(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*translatebackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.effective(l.Translate))
+	}
+}
+
+func applyPolly(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*pollybackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.effective(l.Polly))
+	}
+}
+
+func applyTranscribe(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*transcribebackend.Handler); ok {
+		if bk, isBk := h.Backend.(*transcribebackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.Transcribe))
+		}
+	}
+}
+
+func applyIoTAnalytics(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*iotanalyticsbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*iotanalyticsbackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.IoTAnalytics))
+		}
+	}
+}
+
+func applyIoTWireless(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*iotwirelessbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*iotwirelessbackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.IoTWireless))
+		}
+	}
+}
+
 // wireLifecycleDelays applies the configured dwell times to the already
 // initialized service backends; zero values leave services instant.
 func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSettings) {
@@ -342,6 +418,14 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSett
 		"FSx":                applyFSx,
 		"NetworkManager":     applyNetworkManager,
 		"Account":            applyAccount,
+		"IoTAnalytics":       applyIoTAnalytics,
+		"IoTWireless":        applyIoTWireless,
+		"Comprehend":         applyComprehend,
+		"Rekognition":        applyRekognition,
+		"Textract":           applyTextract,
+		"Translate":          applyTranslate,
+		"Polly":              applyPolly,
+		"Transcribe":         applyTranscribe,
 	}
 
 	for name, apply := range appliers {

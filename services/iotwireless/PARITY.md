@@ -79,6 +79,8 @@ ResourceNotFoundException (declared for the op) because no solver exists. Tests:
 
 ## Notes
 
+- **2026-10-10 realism pass**: error messages no longer repeat the code prefix; CreateDestination validates name (`[a-zA-Z0-9:_-]{1,128}`), ExpressionType, Expression and RoleArn and returns ConflictException on a duplicate name (previously overwrote); invalid `nextToken`/`maxResults` (0-250) on List ops return ValidationException; multicast session ops on an unknown group return ResourceNotFoundException; opt-in `SetLifecycleDelay` (`--lifecycle-iotwireless`) advances a started FUOTA task FuotaSession_Waiting -> In_FuotaSession -> FuotaDone. Tests: TestFuotaTask_LifecycleProgression, TestCreateDestination_ConflictAndValidation, TestListPagination_InvalidParams.
+
 Freeform: AWS-behavior specifics worth remembering, and any "looks-wrong-but-correct"
 traps so the next auditor doesn't re-flag them.
 

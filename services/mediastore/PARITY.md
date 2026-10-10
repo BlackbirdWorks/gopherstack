@@ -56,6 +56,8 @@ leaks: {status: clean, note: "No goroutines, timers, or janitors in this service
 
 ## Notes
 
+- **2026-10-10 realism pass**: policy, CORS, lifecycle, metric-policy and access-logging operations on a container that is not ACTIVE (CREATING/DELETING) now return ContainerInUseException; the 500 fallback uses the modeled `InternalServerError`. Test: TestPolicyOps_RejectedWhileCreating.
+
 - 2026-08-22, gopherstack-r80d batch 31 (required-output-member audit):
   mediastore (6 required output fields / 21 ops, 6 ops-with-required per a
   fresh `cmd/requiredoutputfields` run, cross-checked against an independent

@@ -346,6 +346,14 @@ By default resources settle instantly. Set a dwell to make Creating/Processing/P
 | `--lifecycle-fsx` | `FSX_LIFECYCLE_DELAY` | FSx file system/backup/volume/snapshot `CREATING` window. |
 | `--lifecycle-networkmanager` | `NETWORKMANAGER_LIFECYCLE_DELAY` | Network Manager `PENDING`/`DELETING` window (built-in `100ms`). |
 | `--lifecycle-account` | `ACCOUNT_LIFECYCLE_DELAY` | Account region `ENABLING`/`DISABLING` window (built-in `100ms`). |
+| `--lifecycle-comprehend` | `COMPREHEND_LIFECYCLE_DELAY` | Comprehend async job and classifier/recognizer training stage window. |
+| `--lifecycle-rekognition` | `REKOGNITION_LIFECYCLE_DELAY` | Rekognition stream processor, project version and dataset transitional window. |
+| `--lifecycle-textract` | `TEXTRACT_ASYNC_JOB_DELAY` | Textract async job `IN_PROGRESS` window (built-in `200ms`; ignores the global delay). |
+| `--lifecycle-translate` | `TRANSLATE_LIFECYCLE_DELAY` | Translate batch job and parallel data stage window. |
+| `--lifecycle-polly` | `POLLY_LIFECYCLE_DELAY` | Polly speech synthesis task stage window. |
+| `--lifecycle-transcribe` | `TRANSCRIBE_LIFECYCLE_DELAY` | Transcribe job, vocabulary and language model `IN_PROGRESS`/`PENDING` window. |
+| `--lifecycle-iotanalytics` | `IOTANALYTICS_LIFECYCLE_DELAY` | IoT Analytics channel/datastore/dataset `CREATING` and dataset content `CREATING` window. |
+| `--lifecycle-iotwireless` | `IOTWIRELESS_LIFECYCLE_DELAY` | IoT Wireless FUOTA task `FuotaSession_Waiting`/`In_FuotaSession` stage window. |
 | `--lifecycle-workspaces` | `WORKSPACES_LIFECYCLE_DELAY` | WorkSpaces `PENDING` / directory `REGISTERING` window. |
 | `--lifecycle-quicksight` | `QUICKSIGHT_CREATION_DELAY` | QuickSight dashboard/analysis/data source `CREATION_IN_PROGRESS` window. |
 | `--lifecycle-quicksight-ingestion` | `QUICKSIGHT_INGESTION_DELAY` | QuickSight manual ingestion `RUNNING` window (built-in `1s`; ignores the global delay). |

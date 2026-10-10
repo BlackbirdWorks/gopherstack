@@ -15,7 +15,7 @@ import (
 // Pagination: pageSize (primary) or maxResults (alias); default 25, max 100.
 func (h *Handler) handleListThingsWithShadows(c *echo.Context) error {
 	if c.Request().Method != http.MethodGet {
-		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
+		return methodNotAllowedResponse(c)
 	}
 
 	things := h.Backend.ListThingsWithShadows()
@@ -92,7 +92,7 @@ func (h *Handler) handleUpdateThingShadow(c *echo.Context, thingName, shadowName
 
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		tooLargeErr := fmt.Errorf("%w: shadow document exceeds %d bytes", ErrRequestTooLarge, maxShadowBodyBytes)
+		tooLargeErr := fmt.Errorf("%w: The payload exceeds the maximum size allowed", ErrRequestTooLarge)
 
 		return h.handleError(c, tooLargeErr)
 	}

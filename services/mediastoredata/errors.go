@@ -93,6 +93,9 @@ func ValidatePath(p string) error {
 	if strings.Contains(key, "..") {
 		return fmt.Errorf("%w: path cannot contain '..'", ErrInvalidPath)
 	}
+	if strings.HasPrefix(key, "/") || strings.HasSuffix(key, "/") || strings.Contains(key, "//") {
+		return fmt.Errorf("%w: path must not contain empty folder names", ErrInvalidPath)
+	}
 	if strings.ContainsRune(key, 0) {
 		return fmt.Errorf("%w: path contains null byte", ErrInvalidPath)
 	}

@@ -33,6 +33,8 @@ leaks: {status: clean, note: "no goroutines/janitors; region map lazily allocate
 
 ## Notes
 
+- **2026-10-10 realism pass**: error messages no longer repeat the code (`ObjectNotFoundException: ...`); paths with empty folder names (leading `//`, trailing `/`, `//`) are rejected instead of creating phantom empty-named folders. Test: TestErrors_SDKCodeAndMessage.
+
 - Protocol: restjson1. PutObject/GetObject/DeleteObject/DescribeObject use `/{Path+}`
   (greedy URI capture of the object path, no JSON request/response body except PutObject's
   raw byte stream and PutObject's small JSON output). ListItems is the only op with a
