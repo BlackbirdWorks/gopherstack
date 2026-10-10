@@ -3,6 +3,7 @@ package glue
 import (
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -84,6 +85,10 @@ func (b *InMemoryBackend) CreateTrigger(t Trigger, tags map[string]string) (*Tri
 	}
 
 	if err := validateTriggerActions(t.Actions); err != nil {
+		return nil, err
+	}
+
+	if err := validateTriggerTypeAndSchedule(t); err != nil {
 		return nil, err
 	}
 
@@ -327,6 +332,24 @@ func (b *InMemoryBackend) StopTrigger(name string) error {
 
 	if t.Type != triggerTypeOnDemand {
 		t.State = "DEACTIVATED"
+	}
+
+	return nil
+}
+
+var glueCronPattern = regexp.MustCompile(`^cron\(\S+( \S+){5}\)$`)
+
+// validateTriggerTypeAndSchedule enforces CreateTriggerInput's documented
+// Type enum and that a SCHEDULED trigger carries a cron(...) Schedule.
+func validateTriggerTypeAndSchedule(t Trigger) error {
+	switch t.Type {
+	case "", triggerTypeOnDemand, "CONDITIONAL", "EVENT":
+	case "SCHEDULED":
+		if !glueCronPattern.MatchString(t.Schedule) {
+			return fmt.Errorf("%w: Schedule must be a cron expression such as cron(15 12 * * ? *)", ErrValidation)
+		}
+	default:
+		return fmt.Errorf("%w: Type must be one of SCHEDULED, CONDITIONAL, ON_DEMAND, EVENT", ErrValidation)
 	}
 
 	return nil

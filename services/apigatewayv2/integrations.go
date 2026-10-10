@@ -127,6 +127,10 @@ func buildIntegration(apiID, protocolType string, input CreateIntegrationInput) 
 		return nil, err
 	}
 
+	if v := input.PayloadFormatVersion; v != "" && v != payloadFormatV1 && v != "2.0" {
+		return nil, fmt.Errorf("%w: payloadFormatVersion must be 1.0 or 2.0", ErrBadRequest)
+	}
+
 	// Apply AWS-realistic defaults.
 	payloadFmtVer := input.PayloadFormatVersion
 	if payloadFmtVer == "" && input.IntegrationType == IntegrationTypeAWSProxy {

@@ -2,8 +2,13 @@
 service: athena
 sdk_module: aws-sdk-go-v2/service/athena@v1.60.4
 last_audit_commit: 0c1472972  # 2026-09-23 lakeformation-appsync-neptune-and-athena terraform coverage; prior: d522d763f
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-09
 overall: A            # genuine wire-shape fixes found in a previously well-built, well-tested service
+                       # 2026-10-09 realism pass: error messages no longer repeat the exception name;
+                       # QueryExecutionId/NamedQueryId/session/notebook/calculation IDs are UUIDs (were 10 hex chars); SELECT against a
+                       # table absent from the catalog and loaded rows now FAILs with TABLE_NOT_FOUND (was an empty SUCCEEDED result);
+                       # GetQueryResults on a FAILED/CANCELLED query says "Query did not finish successfully. Final query state: X";
+                       # WorkGroup name pattern; WorkGroup/QueryExecution not-found wording.
                        # 2026-08-28 (gopherstack-6flj write-only-state sweep): CreateWorkGroup silently
                        # dropped Configuration.EngineConfiguration/MonitoringConfiguration entirely (no
                        # model field existed); EngineConfiguration.Classifications was missing too,

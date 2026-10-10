@@ -5,6 +5,14 @@ sibling_sdk_modules: [aws-sdk-go-v2/service/pipes@v1.26.4, aws-sdk-go-v2/service
 last_audit_commit: f78c3b7c7  # 2026-09-24 leak sweep: terminal replays evicted after 1h; prior: 6020fa871
 last_audit_date: 2026-10-09
 overall: A
+                       # 2026-10-09 realism pass: wire messages no longer carry the sentinel code prefix (was
+                       # "ResourceNotFoundException: Rule x not found"); AWS wording for missing rule/bus/archive/endpoint ("Rule x
+                       # does not exist on EventBus default.", "Event bus x does not exist."); InvalidEventPatternException now says
+                       # "Event pattern is not valid. Reason: ..." with the real reason instead of always "not valid JSON"; PutRule
+                       # name and CreateEventBus name patterns; rate() grammar (singular only for 1, minute|hour|day) and "Parameter
+                       # ScheduleExpression is not valid."; PutTargets target-Id pattern and Arn format; PutEvents per-entry
+                       # MalformedDetail and missing-bus failures (was silently accepted); Tag/Untag/ListTags on a nonexistent rule or
+                       # event bus now ResourceNotFoundException.
 # 2026-08-30 wrapper-key sweep (uncommitted as of this note): type-aware
 # go/types field-usage scan (302 exported fields across all 40 *Input/*Request
 # structs, identity-matched not name-matched) flagged 2 fields with no read
@@ -113,6 +121,7 @@ families:
   archives_replays_connections_api_destinations_endpoints: {status: ok, note: "Previously 'deferred, spot-checked only'. Field-diffed this sweep against aws-sdk-go-v2/service/eventbridge's api_op_*.go Input/Output structs and types.go for Archive, Connection (+ ConnectionAuthResponseParameters/CreateConnectionAuthRequestParameters/UpdateConnectionAuthRequestParameters), ApiDestination, Endpoint (+ RoutingConfig/FailoverConfig/Primary/Secondary/EndpointEventBus), Replay, and ReplayDestination. Found and fixed real bugs: DescribeEndpoint/ListEndpoints and DescribeReplay/ListReplays response-side epoch-seconds bug, Replay missing Destination/Description, ReplayDestination missing FilterArns (an over-delivery correctness bug, not just a missing echo field), StartReplayInput request-side epoch-seconds bug. Connections and API destinations were already correct field-for-field (auth masking, all CRUD output shapes) except the KMS/private-API-connectivity extras noted per-op above and in items_still_open."}
 gaps: []
 items_still_open:
+  - "Invalid-pattern Reason strings other than scalar-value, unknown matcher type and Filter-is-not-an-object (e.g. the exact wording for malformed JSON) are modeled from memory of real AWS, not pinned by the SDK."
 structural_gaps:
   - "ThrottledRules and PutEventsApproximateThrottledCount are never emitted: the emulator applies no invocation or PutEvents throttle limits. The AWS/Events docs list no API-destination metrics."
   - "Cross-account event-bus PutTargets delivery: the backend models a single account (InMemoryBackend.accountID), so a target bus ARN in another account cannot be resolved and is dropped. Same-account cross-bus/cross-region routing works."

@@ -292,10 +292,21 @@ type Crawler struct {
 	DatabaseName                 string                      `json:"DatabaseName"`
 	Role                         string                      `json:"Role"`
 	Name                         string                      `json:"Name"`
+	LastCrawl                    *LastCrawlInfo              `json:"LastCrawl,omitempty"`
 	Targets                      CrawlerTarget               `json:"Targets,omitzero"`
 	Classifiers                  []string                    `json:"Classifiers,omitempty"`
 	CreationTime                 float64                     `json:"CreationTime,omitempty"`
 	LastUpdated                  float64                     `json:"LastUpdated,omitempty"`
+}
+
+// LastCrawlInfo mirrors types.LastCrawlInfo on GetCrawler's Crawler.
+type LastCrawlInfo struct {
+	Status        string  `json:"Status,omitempty"`
+	ErrorMessage  string  `json:"ErrorMessage,omitempty"`
+	LogGroup      string  `json:"LogGroup,omitempty"`
+	LogStream     string  `json:"LogStream,omitempty"`
+	MessagePrefix string  `json:"MessagePrefix,omitempty"`
+	StartTime     float64 `json:"StartTime,omitempty"`
 }
 
 // CrawlHistoryEntry records a single crawl run for ListCrawls.

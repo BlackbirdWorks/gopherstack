@@ -2,6 +2,7 @@ package eventbridge
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -221,6 +222,12 @@ func (b *InMemoryBackend) putEventsLocked(
 			continue
 		}
 
+		if code, msg, ok := b.validatePutEventsTarget(region, entry); !ok {
+			results = append(results, EventResultEntry{ErrorCode: code, ErrorMessage: msg})
+
+			continue
+		}
+
 		totalBytes += entryBytes
 		eventID := uuid.New().String()
 		busName := entry.EventBusName
@@ -282,4 +289,19 @@ func putEventsEntryBytes(e EventEntry) int {
 	}
 
 	return total
+}
+
+// validatePutEventsTarget rejects an entry whose Detail is not a JSON object
+// (MalformedDetail) or whose bus does not exist (ResourceNotFoundException).
+func (b *InMemoryBackend) validatePutEventsTarget(region string, e EventEntry) (string, string, bool) {
+	var detail map[string]any
+	if err := json.Unmarshal([]byte(e.Detail), &detail); err != nil {
+		return "MalformedDetail", "Detail is malformed.", false
+	}
+
+	if e.EventBusName != "" && !b.busesTable(region).Has(ebBusKey(e.EventBusName)) {
+		return errCodeResourceNotFound, fmt.Sprintf("Event bus %s does not exist.", e.EventBusName), false
+	}
+
+	return "", "", true
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -24,7 +25,15 @@ func (b *InMemoryBackend) CreateEventBus(ctx context.Context, params CreateEvent
 	name := params.Name
 	description := params.Description
 	if name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+		return nil, awsErrorf(ErrInvalidParameter, "Name is required")
+	}
+
+	if !eventBusNamePattern.MatchString(name) {
+		return nil, fmt.Errorf(
+			"%w: 1 validation error detected: Value '%s' at 'name' failed to satisfy constraint: "+
+				"Member must satisfy regular expression pattern: [/\\.\\-_A-Za-z0-9]+",
+			ErrInvalidParameter, name,
+		)
 	}
 
 	if len(name) > maxEventBusNameLength {
@@ -60,7 +69,7 @@ func (b *InMemoryBackend) CreateEventBus(ctx context.Context, params CreateEvent
 
 	buses := b.busesTable(region)
 	if buses.Has(ebBusKey(name)) {
-		return nil, fmt.Errorf("%w: Event bus %s already exists", ErrEventBusAlreadyExists, name)
+		return nil, awsErrorf(ErrEventBusAlreadyExists, "Event bus %s already exists", name)
 	}
 
 	// Count custom buses across all regions — the AWS limit is per-account, not per-region.
@@ -111,7 +120,7 @@ func (b *InMemoryBackend) DeleteEventBus(ctx context.Context, name string) error
 	busKey := ebBusKey(name)
 	buses := b.busesTable(region)
 	if !buses.Has(busKey) {
-		return fmt.Errorf("%w: Event bus %s not found", ErrEventBusNotFound, name)
+		return awsErrorf(ErrEventBusNotFound, "Event bus %s does not exist.", name)
 	}
 
 	buses.Delete(busKey)
@@ -173,7 +182,7 @@ func (b *InMemoryBackend) DescribeEventBus(ctx context.Context, name string) (*E
 
 	bus, exists := b.busesTable(region).Get(ebBusKey(name))
 	if !exists {
-		return nil, fmt.Errorf("%w: Event bus %s not found", ErrEventBusNotFound, name)
+		return nil, awsErrorf(ErrEventBusNotFound, "Event bus %s does not exist.", name)
 	}
 
 	cp := *bus
@@ -196,7 +205,7 @@ func (b *InMemoryBackend) UpdateEventBus(ctx context.Context, input UpdateEventB
 
 	bus, exists := b.busesTable(region).Get(busKey)
 	if !exists {
-		return nil, fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
+		return nil, awsErrorf(ErrEventBusNotFound, "Event bus %s does not exist.", busName)
 	}
 
 	if input.Description != nil {
@@ -228,7 +237,7 @@ func (b *InMemoryBackend) PutPermission(ctx context.Context, input PutPermission
 	defer b.mu.Unlock()
 
 	if _, exists := b.busesTable(region).Get(busKey); !exists {
-		return fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
+		return awsErrorf(ErrEventBusNotFound, "Event bus %s does not exist.", busName)
 	}
 
 	policies := b.busePoliciesStore(region)
@@ -252,7 +261,7 @@ func (b *InMemoryBackend) PutPermission(ctx context.Context, input PutPermission
 	}
 
 	if input.StatementID == "" {
-		return fmt.Errorf("%w: StatementId is required", ErrInvalidParameter)
+		return awsErrorf(ErrInvalidParameter, "StatementId is required")
 	}
 
 	stmt := &EventBusPolicyStatement{
@@ -285,7 +294,7 @@ func (b *InMemoryBackend) RemovePermission(ctx context.Context, input RemovePerm
 	defer b.mu.Unlock()
 
 	if _, exists := b.busesTable(region).Get(busKey); !exists {
-		return fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
+		return awsErrorf(ErrEventBusNotFound, "Event bus %s does not exist.", busName)
 	}
 
 	policies := b.busePoliciesStore(region)
@@ -318,7 +327,7 @@ func (b *InMemoryBackend) GetEventBusPolicy(ctx context.Context, eventBusName st
 	defer b.mu.RUnlock()
 
 	if _, exists := b.busesTable(region).Get(busKey); !exists {
-		return "", fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
+		return "", awsErrorf(ErrEventBusNotFound, "Event bus %s does not exist.", busName)
 	}
 
 	policy := b.busePoliciesStoreRO(region)[busKey]
@@ -366,7 +375,7 @@ func (b *InMemoryBackend) PutEventBusPolicy(ctx context.Context, input PutEventB
 	defer b.mu.Unlock()
 
 	if _, exists := b.busesTable(region).Get(busKey); !exists {
-		return fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
+		return awsErrorf(ErrEventBusNotFound, "Event bus %s does not exist.", busName)
 	}
 
 	policies := b.busePoliciesStore(region)
@@ -378,7 +387,7 @@ func (b *InMemoryBackend) PutEventBusPolicy(ctx context.Context, input PutEventB
 
 	var doc eventBusPolicyDocument
 	if err := json.Unmarshal([]byte(input.Policy), &doc); err != nil {
-		return fmt.Errorf("%w: Policy must be valid JSON: %w", ErrInvalidParameter, err)
+		return fmt.Errorf("%w: policy must be valid JSON: %w", ErrInvalidParameter, err)
 	}
 
 	policy := &EventBusPolicy{Statements: make(map[string]*EventBusPolicyStatement, len(doc.Statement))}
@@ -389,3 +398,5 @@ func (b *InMemoryBackend) PutEventBusPolicy(ctx context.Context, input PutEventB
 
 	return nil
 }
+
+var eventBusNamePattern = regexp.MustCompile(`^[/.\-_A-Za-z0-9]+$`)

@@ -1,11 +1,11 @@
 package athena
 
 import (
-	"crypto/rand"
-	"encoding/binary"
 	"fmt"
 	"maps"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -14,9 +14,6 @@ import (
 )
 
 const (
-	idChars  = "abcdef0123456789"
-	idLength = 10
-
 	defaultWorkGroup = "primary"
 	awsDataCatalog   = "AwsDataCatalog"
 	millisToSeconds  = 1000.0
@@ -159,18 +156,10 @@ func (b *InMemoryBackend) seedDefaultMetadata() {
 	})
 }
 
-// randomID generates a cryptographically random 10-character hex ID.
+// randomID returns a UUID, the format Athena uses for query, named-query,
+// notebook, session and calculation IDs.
 func randomID() string {
-	b := make([]byte, idLength)
-	charCount := uint64(len(idChars))
-
-	for i := range b {
-		var v [8]byte
-		_, _ = rand.Read(v[:])
-		b[i] = idChars[binary.BigEndian.Uint64(v[:])%charCount]
-	}
-
-	return string(b)
+	return uuid.NewString()
 }
 
 // sessionAuthTokenTTL is the validity window gopherstack assigns to the

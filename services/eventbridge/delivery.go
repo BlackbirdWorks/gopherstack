@@ -1068,7 +1068,7 @@ const arnSegments = 6
 // this shape.
 func parseEventBusARN(arn string) (string, string, string, bool) {
 	parts := strings.SplitN(arn, ":", arnSegments)
-	if len(parts) != arnSegments || parts[0] != "arn" || parts[2] != "events" {
+	if len(parts) != arnSegments || parts[0] != "arn" || parts[2] != servicePrefixEvents {
 		return "", "", "", false
 	}
 

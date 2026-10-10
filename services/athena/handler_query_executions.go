@@ -196,11 +196,8 @@ func (h *Handler) handleGetQueryResults(b []byte) (any, error) {
 		return nil, err
 	}
 
-	if qe.Status.State != stateSucceeded {
-		return nil, fmt.Errorf(
-			"%w: query has not yet finished. Current state: %s",
-			ErrValidation, qe.Status.State,
-		)
+	if err = queryResultsReadyErr(qe.Status.State); err != nil {
+		return nil, err
 	}
 
 	page, err := h.Backend.GetQueryResults(
@@ -264,4 +261,17 @@ func (h *Handler) handleGetQueryResults(b []byte) (any, error) {
 	}
 
 	return resp, nil
+}
+
+// queryResultsReadyErr rejects GetQueryResults on an execution that has not
+// succeeded, with Athena's distinct wording for failed and unfinished queries.
+func queryResultsReadyErr(state string) error {
+	switch state {
+	case stateSucceeded:
+		return nil
+	case stateFailed, stateCancelled:
+		return fmt.Errorf("%w: Query did not finish successfully. Final query state: %s", ErrValidation, state)
+	default:
+		return fmt.Errorf("%w: Query has not yet finished. Current state: %s", ErrValidation, state)
+	}
 }

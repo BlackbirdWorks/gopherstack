@@ -235,6 +235,7 @@ const (
 	cfnStackType                   = "AWS::CloudFormation::Stack"
 	statusCreateInProgress         = "CREATE_IN_PROGRESS"
 	statusCreateComplete           = "CREATE_COMPLETE"
+	statusReviewInProgress         = "REVIEW_IN_PROGRESS"
 	executionStatusAvailable       = "AVAILABLE"
 	statusCreateFailed             = "CREATE_FAILED"
 	statusUpdateInProgress         = "UPDATE_IN_PROGRESS"

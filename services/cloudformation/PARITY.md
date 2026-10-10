@@ -147,8 +147,18 @@ last_audit_commit: 54869319e  # 2026-09-25 24 new resource types added: EC2
                                # StreamConsumer, the real AWS::KinesisFirehose::DeliveryStream type
                                # name, ECS CapacityProvider/ClusterCapacityProviderAssociations/
                                # TaskSet/PrimaryTaskSet); prior: 05eeb3af7
-last_audit_date: 2026-10-07  # prior: 2026-09-24 (25-type Glue/DataSync/Transfer/AppConfig/Macie/GuardDuty/AccessAnalyzer/Amplify/Batch/EFS/Redshift pass)
+last_audit_date: 2026-10-09  # prior: 2026-09-24 (25-type Glue/DataSync/Transfer/AppConfig/Macie/GuardDuty/AccessAnalyzer/Amplify/Batch/EFS/Redshift pass)
 overall: A            # This pass closed out all 4 documented gaps and independently re-verified/acted
+                       # 2026-10-09 realism pass: CreateStack/UpdateStack/CreateChangeSet/ValidateTemplate now reject a bad template
+                       # synchronously as ValidationError (JSON/YAML not well-formed, no Resources, missing Type, unresolved
+                       # Ref/DependsOn, circular dependency, missing or unknown Parameters) instead of an async CREATE_FAILED/ROLLBACK
+                       # stack; StackName pattern/length; Either Template URL or Template Body must be specified; UpdateStack "No
+                       # updates are to be performed.", stack-state check, UsePreviousValue (was silently set to empty); CREATE change
+                       # sets leave a REVIEW_IN_PROGRESS stack that ExecuteChangeSet provisions under the same StackId; ListStacks
+                       # StackStatusFilter validated; not-found wording (Stack with id X does not exist, Resource X does not exist for
+                       # stack Y, ChangeSet [X] does not exist); InsufficientCapabilities wording. Kept lenient:
+                       # unrecognised-but-well-formed resource types still create (stub path), templates with a Transform or
+                       # Fn::ForEach skip the static checks, nested/stack-set/refactor stack creation skip them too.
                        # on all 6 documented deferred items (see gaps:/deferred: below for exact
                        # disposition of each -- some fixed, some reclassified to ok after
                        # re-verification, two genuinely still deferred with reasons). It also
@@ -273,6 +283,8 @@ structural_gaps:
   - "changeset_diff.go requiresRecreation() covers a curated subset of resource types' replacement-forcing properties: CloudFormation resource property schemas are not part of aws-sdk-go-v2, so the full set cannot be derived (gopherstack-e5h)."
   - "ListResourceScanRelatedResources always returns an empty list: no cross-resource relationship graph is computed for a scan, so MaxResults/Resources have nothing to page or seed from."
 items_still_open:
+  - "Unknown resource types (well-formed AWS::Svc::Res) are accepted instead of failing with \"Unrecognized resource types\": many in-repo fixtures depend on the stub path."
+  - "CreateStack/UpdateStack complete synchronously: CREATE_IN_PROGRESS/UPDATE_IN_PROGRESS are only visible as stack events, never via DescribeStacks."
   - "Stack policy: Replacement Conditionally is treated as Update:Replace (deliberate, not an AWS-documented rule), and AWS's separate logical-ID/resource-type default-deny note is not modeled; NotAction/NotResource follow plain inversion (gopherstack-cqy3)."
   - "No nested-stack change-set or public-extension version machinery exists, so these stay unmodeled: CreateChangeSet IncludeNestedStacks (no nested-stack diff machinery), UpdateStack RetainExceptOnCreate, RollbackStack RoleARN, ActivateType MajorVersion/VersionBump/TypeNameAlias (no public extension version catalog) (gopherstack-xhu2t)."
   - "SAM transform (AWS::Serverless-2016-10-31) still unexpanded (FunctionUrlConfig and EventInvokeConfig now expand; EventInvokeConfig destinations need an explicit Destination ARN): HttpApi Auth/Domain/DefinitionBody/DefinitionUri/PropagateTags and HttpApi event Auth, Api event RequestParameters/RequestModel/ApiKeyRequired/AWS_IAM authorizers/UsagePlan/ResourcePolicy/Domain, Cognito AuthorizationScopes, ScheduleV2 DeadLetterConfig Type SQS (queue generation), SAM policy templates, Application/Connector/GraphQLApi/WebSocketApi, DeploymentPreference, StateMachine Events. All fail the stack/change set with an explicit reason, never silently dropped."

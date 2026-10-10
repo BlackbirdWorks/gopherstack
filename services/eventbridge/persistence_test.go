@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -299,6 +300,11 @@ func TestHandler_Snapshot_IncludesTags(t *testing.T) {
 			h := eventbridge.NewHandler(eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1"))
 			e := echo.New()
 
+			ruleName := tt.resourceARN[strings.LastIndex(tt.resourceARN, "/")+1:]
+			put := makeRequestWithHandler(t, h, e, "PutRule",
+				`{"Name":"`+ruleName+`","EventPattern":"{\"source\":[\"test\"]}"}`)
+			require.Equal(t, http.StatusOK, put.Code)
+
 			for k, v := range tt.tags {
 				tagBody, err := json.Marshal(map[string]any{
 					"ResourceARN": tt.resourceARN,
@@ -373,6 +379,10 @@ func TestHandler_Reset_ClearsTags(t *testing.T) {
 			h := eventbridge.NewHandler(eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1"))
 			e := echo.New()
 
+			put := makeRequestWithHandler(t, h, e, "PutRule",
+				`{"Name":"bleed-rule","EventPattern":"{\"source\":[\"test\"]}"}`)
+			require.Equal(t, http.StatusOK, put.Code)
+
 			for k, v := range tt.setupTags {
 				tagBody, err := json.Marshal(map[string]any{
 					"ResourceARN": tt.resourceARN,
@@ -385,7 +395,11 @@ func TestHandler_Reset_ClearsTags(t *testing.T) {
 
 			h.Reset()
 
-			// After reset, listing tags for the same resource should return empty.
+			// The rule is gone after reset; recreating it must not resurrect old tags.
+			put = makeRequestWithHandler(t, h, e, "PutRule",
+				`{"Name":"bleed-rule","EventPattern":"{\"source\":[\"test\"]}"}`)
+			require.Equal(t, http.StatusOK, put.Code)
+
 			listBody, err := json.Marshal(map[string]string{"ResourceARN": tt.resourceARN})
 			require.NoError(t, err)
 			rec := makeRequestWithHandler(t, h, e, "ListTagsForResource", string(listBody))

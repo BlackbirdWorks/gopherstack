@@ -486,7 +486,7 @@ func TestUpdateStack_CapabilitiesUpdated(t *testing.T) {
 	updated, err := b.UpdateStack(
 		t.Context(),
 		"ucap-stack",
-		simpleTemplate,
+		modifiedTemplate,
 		nil,
 		cloudformation.StackOptions{
 			Capabilities: []string{"CAPABILITY_IAM", "CAPABILITY_AUTO_EXPAND"},
@@ -606,7 +606,7 @@ func TestStackLifecycle_CreateUpdateDelete(t *testing.T) {
 	updated, err := b.UpdateStack(
 		t.Context(),
 		"lifecycle",
-		simpleTemplate,
+		modifiedTemplate,
 		nil,
 		cloudformation.StackOptions{},
 	)

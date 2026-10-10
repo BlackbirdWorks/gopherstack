@@ -9,10 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 66 (59 ok, 7 partial) |
 | Feature families | 3 (3 ok) |
-| Known gaps | none |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 2 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- Invalid-pattern Reason strings other than scalar-value, unknown matcher type and Filter-is-not-an-object (e.g. the exact wording for malformed JSON) are modeled from memory of real AWS, not pinned by the SDK.
 
 ### Structural gaps
 

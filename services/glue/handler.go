@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -260,14 +261,47 @@ var glueErrorCodes = []struct { //nolint:gochecknoglobals // dispatch table, ana
 	{errUnknownAction, "UnknownOperationException"},
 }
 
-func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+func (h *Handler) handleError(_ context.Context, c *echo.Context, action string, err error) error {
 	for _, entry := range glueErrorCodes {
 		if errors.Is(err, entry.sentinel) {
-			return c.JSON(http.StatusBadRequest, errorResponse(entry.code, err.Error()))
+			return c.JSON(http.StatusBadRequest, errorResponse(entry.code, wireMessage(action, entry.code, err)))
 		}
 	}
 
 	return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
+}
+
+var exceptionPrefix = regexp.MustCompile(`^(?:[A-Za-z]+Exception: )+`)
+
+func glueEntityNouns() []string {
+	return []string{
+		"Database", "Table", "Partition", "Job", "Crawler", "Trigger", "Workflow", "Connection", "Classifier",
+		"Registry", "Schema", "SecurityConfiguration", "DevEndpoint", "Blueprint", "Session",
+	}
+}
+
+// wireMessage strips the sentinel's own "<Code>: " lead; a bare sentinel gets
+// Glue's generic text ("Entity Not Found" / "<Entity> already exists.").
+func wireMessage(action, code string, err error) string {
+	msg := exceptionPrefix.ReplaceAllString(err.Error(), "")
+	if msg != "" && msg != code {
+		return msg
+	}
+
+	switch code {
+	case errEntityNotFoundCode:
+		return "Entity Not Found"
+	case ErrAlreadyExists.Error():
+		for _, noun := range glueEntityNouns() {
+			if strings.Contains(action, noun) {
+				return noun + " already exists."
+			}
+		}
+
+		return "Already exists."
+	}
+
+	return code
 }
 
 func errorResponse(code, msg string) map[string]string {

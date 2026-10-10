@@ -13840,6 +13840,7 @@
       "Crawler.DatabaseName string `json:\"DatabaseName\"`",
       "Crawler.Description string `json:\"Description,omitempty\"`",
       "Crawler.LakeFormationConfiguration *LakeFormationConfiguration `json:\"LakeFormationConfiguration,omitempty\"`",
+      "Crawler.LastCrawl *LastCrawlInfo `json:\"LastCrawl,omitempty\"`",
       "Crawler.LastUpdated float64 `json:\"LastUpdated,omitempty\"`",
       "Crawler.LineageConfiguration *LineageConfiguration `json:\"LineageConfiguration,omitempty\"`",
       "Crawler.Name string `json:\"Name\"`",
@@ -14111,6 +14112,12 @@
       "JobRun.WorkflowRunID string `json:\"workflowRunId,omitempty\"`",
       "LakeFormationConfiguration.AccountID string `json:\"AccountId,omitempty\"`",
       "LakeFormationConfiguration.UseLakeFormationCredentials bool `json:\"UseLakeFormationCredentials,omitempty\"`",
+      "LastCrawlInfo.ErrorMessage string `json:\"ErrorMessage,omitempty\"`",
+      "LastCrawlInfo.LogGroup string `json:\"LogGroup,omitempty\"`",
+      "LastCrawlInfo.LogStream string `json:\"LogStream,omitempty\"`",
+      "LastCrawlInfo.MessagePrefix string `json:\"MessagePrefix,omitempty\"`",
+      "LastCrawlInfo.StartTime float64 `json:\"StartTime,omitempty\"`",
+      "LastCrawlInfo.Status string `json:\"Status,omitempty\"`",
       "LineageConfiguration.CrawlerLineageSettings string `json:\"CrawlerLineageSettings,omitempty\"`",
       "MLTaskRun.CompletedOn float64 `json:\"CompletedOn,omitempty\"`",
       "MLTaskRun.ErrorString string `json:\"ErrorString,omitempty\"`",
@@ -24662,7 +24669,7 @@
       "xmlSnapshot.SnapshotIdentifier string `xml:\"SnapshotIdentifier\"`",
       "xmlSnapshot.SnapshotType string `xml:\"SnapshotType,omitempty\"`",
       "xmlSnapshot.Status string `xml:\"Status\"`",
-      "xmlSnapshot.Tags []svcTags.KV `xml:\"Tags>Tag,omitempty\"`"
+      "xmlSnapshot.Tags []svcTags.KV `xml:\"Tags\u003eTag,omitempty\"`"
     ],
     "version": 1
   },
@@ -28205,7 +28212,7 @@
       "TopicPermission.Label string `json:\"label\"`",
       "XMLOriginationPhone.CreatedAt *time.Time `xml:\"CreatedAt,omitempty\"`",
       "XMLOriginationPhone.Iso2CountryCode string `xml:\"Iso2CountryCode\"`",
-      "XMLOriginationPhone.NumberCapabilities []string `xml:\"NumberCapabilities>member\"`",
+      "XMLOriginationPhone.NumberCapabilities []string `xml:\"NumberCapabilities\u003emember\"`",
       "XMLOriginationPhone.PhoneNumber string `xml:\"PhoneNumber\"`",
       "XMLOriginationPhone.RouteType string `xml:\"RouteType\"`",
       "XMLOriginationPhone.Status string `xml:\"Status,omitempty\"`",

@@ -81,19 +81,23 @@ func TestHandler_TagOperations(t *testing.T) {
 			backend := eventbridge.NewInMemoryBackend()
 			handler := eventbridge.NewHandler(backend)
 
+			rec := makeRequestWithHandler(t, handler, e, "PutRule",
+				`{"Name":"my-rule","EventPattern":"{\"source\":[\"test\"]}"}`)
+			require.Equal(t, http.StatusOK, rec.Code)
+
 			if tt.setupTags != "" {
-				rec := makeRequestWithHandler(t, handler, e, "TagResource",
+				rec = makeRequestWithHandler(t, handler, e, "TagResource",
 					`{"ResourceARN":"`+resourceARN+`","Tags":`+tt.setupTags+`}`)
 				assert.Equal(t, http.StatusOK, rec.Code)
 			}
 
 			if tt.untagKeys != "" {
-				rec := makeRequestWithHandler(t, handler, e, "UntagResource",
+				rec = makeRequestWithHandler(t, handler, e, "UntagResource",
 					`{"ResourceARN":"`+resourceARN+`","TagKeys":`+tt.untagKeys+`}`)
 				assert.Equal(t, http.StatusOK, rec.Code)
 			}
 
-			rec := makeRequestWithHandler(t, handler, e, "ListTagsForResource",
+			rec = makeRequestWithHandler(t, handler, e, "ListTagsForResource",
 				`{"ResourceARN":"`+resourceARN+`"}`)
 			require.Equal(t, http.StatusOK, rec.Code)
 

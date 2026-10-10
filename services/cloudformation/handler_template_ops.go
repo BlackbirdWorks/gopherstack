@@ -176,6 +176,9 @@ func (h *Handler) handleEstimateTemplateCost(form url.Values, c *echo.Context) e
 
 func (h *Handler) handleValidateTemplate(form url.Values, c *echo.Context) error {
 	templateBody := form.Get("TemplateBody")
+	if templateBody == "" {
+		return h.xmlError(c, errCodeValidation, "Either Template URL or Template Body must be specified.")
+	}
 	summary, err := h.Backend.ValidateTemplate(templateBody)
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())

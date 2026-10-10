@@ -23,7 +23,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				stack, err := b.CreateStack(
 					t.Context(),
 					"test-stack",
-					`{"AWSTemplateFormatVersion":"2010-09-09"}`,
+					`{"Resources":{"Topic":{"Type":"AWS::SNS::Topic"}}}`,
 					nil,
 					cloudformation.StackOptions{},
 				)
@@ -103,7 +103,13 @@ func TestInMemoryBackend_SnapshotRestore_PlainMapFields(t *testing.T) {
 	require.NotEmpty(t, opID)
 	original.WaitForStackSetOperations()
 
-	stack, err := original.CreateStack(ctx, "drift-stack", `{"Resources":{}}`, nil, cloudformation.StackOptions{})
+	stack, err := original.CreateStack(
+		ctx,
+		"drift-stack",
+		`{"Resources":{"Topic":{"Type":"AWS::SNS::Topic"}}}`,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	detectionID, err := original.DetectStackDrift(stack.StackName)

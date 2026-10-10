@@ -326,7 +326,13 @@ func TestDeleteEventBus_CleansUpTags(t *testing.T) {
 	rec = makeRequestWithHandler(t, handler, e, "DeleteEventBus", `{"Name":"temp-bus"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Tags should now return empty (map entry cleaned up).
+	rec = makeRequestWithHandler(t, handler, e, "ListTagsForResource", `{"ResourceARN":"`+busARN+`"}`)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+
+	// A recreated bus starts without the old tags (map entry cleaned up).
+	rec = makeRequestWithHandler(t, handler, e, "CreateEventBus", `{"Name":"temp-bus"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
 	rec = makeRequestWithHandler(t, handler, e, "ListTagsForResource", `{"ResourceARN":"`+busARN+`"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.NotContains(t, rec.Body.String(), "owner")

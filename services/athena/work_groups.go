@@ -2,6 +2,7 @@ package athena
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"time"
 )
@@ -90,6 +91,14 @@ func (b *InMemoryBackend) CreateWorkGroup(
 		return fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 
+	if !workGroupNamePattern.MatchString(name) {
+		return fmt.Errorf(
+			"%w: 1 validation error detected: Value '%s' at 'name' failed to satisfy constraint: "+
+				"Member must satisfy regular expression pattern: [a-zA-Z0-9._-]{1,128}",
+			ErrValidation, name,
+		)
+	}
+
 	if err := validateWorkGroupState(state); err != nil {
 		return err
 	}
@@ -133,7 +142,7 @@ func (b *InMemoryBackend) GetWorkGroup(name string) (*WorkGroup, error) {
 
 	wg, ok := b.workGroups.Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: workgroup %q not found", ErrNotFound, name)
+		return nil, awsErrorf(ErrNotFound, "WorkGroup %s is not found.", name)
 	}
 
 	cp := *wg
@@ -209,7 +218,7 @@ func (b *InMemoryBackend) UpdateWorkGroup(
 
 	wg, ok := b.workGroups.Get(name)
 	if !ok {
-		return fmt.Errorf("%w: workgroup %q not found", ErrNotFound, name)
+		return awsErrorf(ErrNotFound, "WorkGroup %s is not found.", name)
 	}
 
 	if cfg != nil {
@@ -252,7 +261,7 @@ func (b *InMemoryBackend) DeleteWorkGroup(name string, recursiveDelete bool) err
 	}
 
 	if !b.workGroups.Has(name) {
-		return fmt.Errorf("%w: workgroup %q not found", ErrNotFound, name)
+		return awsErrorf(ErrNotFound, "WorkGroup %s is not found.", name)
 	}
 
 	queries := b.namedQueriesByWorkGroup.Get(name)
@@ -299,3 +308,5 @@ func (b *InMemoryBackend) notebooksInWorkGroupLocked(workGroup string) []*Notebo
 
 	return out
 }
+
+var workGroupNamePattern = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,128}$`)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -269,7 +270,7 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
-func (h *Handler) ChaosServiceName() string { return "events" }
+func (h *Handler) ChaosServiceName() string { return servicePrefixEvents }
 
 // ChaosOperations returns all operations that can be fault-injected.
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
@@ -459,7 +460,7 @@ func (h *Handler) handleError(
 	case errors.Is(reqErr, ErrEventBusNotFound),
 		errors.Is(reqErr, ErrRuleNotFound),
 		errors.Is(reqErr, ErrNotFound):
-		errType = "ResourceNotFoundException"
+		errType = errCodeResourceNotFound
 		statusCode = http.StatusNotFound
 	case errors.Is(reqErr, ErrEventBusAlreadyExists), errors.Is(reqErr, ErrAlreadyExists):
 		errType = "ResourceAlreadyExistsException"
@@ -505,7 +506,7 @@ func (h *Handler) handleError(
 
 	errResp := service.JSONErrorResponse{
 		Type:    errType,
-		Message: reqErr.Error(),
+		Message: stripExceptionPrefix(reqErr.Error()),
 	}
 
 	payload, _ := json.Marshal(errResp)
@@ -529,4 +530,16 @@ func (h *Handler) Reset() {
 	}
 
 	h.tags = make(map[string]*svcTags.Tags)
+}
+
+var exceptionPrefix = regexp.MustCompile(`^(?:[A-Za-z]+Exception: )+`)
+
+// stripExceptionPrefix drops the sentinel's own "<Code>: " lead so the wire
+// message carries only the human text.
+func stripExceptionPrefix(msg string) string {
+	if stripped := exceptionPrefix.ReplaceAllString(msg, ""); stripped != "" {
+		return stripped
+	}
+
+	return msg
 }

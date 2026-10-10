@@ -2,6 +2,7 @@ package cloudformation_test
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -85,7 +86,7 @@ func TestHandler_DescribeStacks(t *testing.T) {
 			name: "all",
 			setup: func(t *testing.T, h *cloudformation.Handler) {
 				t.Helper()
-				postForm(t, h, "Action=CreateStack&StackName=desc-all&TemplateBody=")
+				postForm(t, h, "Action=CreateStack&StackName=desc-all&TemplateBody="+simpleTemplate)
 			},
 			form:     "Action=DescribeStacks",
 			wantCode: http.StatusOK,
@@ -95,7 +96,7 @@ func TestHandler_DescribeStacks(t *testing.T) {
 			name: "by_name",
 			setup: func(t *testing.T, h *cloudformation.Handler) {
 				t.Helper()
-				postForm(t, h, "Action=CreateStack&StackName=named-stack&TemplateBody=")
+				postForm(t, h, "Action=CreateStack&StackName=named-stack&TemplateBody="+simpleTemplate)
 			},
 			form:     "Action=DescribeStacks&StackName=named-stack",
 			wantCode: http.StatusOK,
@@ -110,7 +111,7 @@ func TestHandler_DescribeStacks(t *testing.T) {
 			name: "xml_response",
 			setup: func(t *testing.T, h *cloudformation.Handler) {
 				t.Helper()
-				postForm(t, h, "Action=CreateStack&StackName=desc-xml-stack&TemplateBody=")
+				postForm(t, h, "Action=CreateStack&StackName=desc-xml-stack&TemplateBody="+simpleTemplate)
 			},
 			form:     "Action=DescribeStacks&StackName=desc-xml-stack",
 			wantCode: http.StatusOK,
@@ -169,9 +170,9 @@ func TestHandler_UpdateStack(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, h *cloudformation.Handler) {
 				t.Helper()
-				postForm(t, h, "Action=CreateStack&StackName=upd-stack&TemplateBody=")
+				postForm(t, h, "Action=CreateStack&StackName=upd-stack&TemplateBody="+simpleTemplate)
 			},
-			form:     "Action=UpdateStack&StackName=upd-stack&TemplateBody=",
+			form:     "Action=UpdateStack&StackName=upd-stack&TemplateBody=" + modifiedTemplate,
 			wantCode: http.StatusOK,
 			wantBody: "UpdateStackResponse",
 		},
@@ -215,7 +216,7 @@ func TestHandler_DeleteStack(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, h *cloudformation.Handler) {
 				t.Helper()
-				postForm(t, h, "Action=CreateStack&StackName=del-stack&TemplateBody=")
+				postForm(t, h, "Action=CreateStack&StackName=del-stack&TemplateBody="+simpleTemplate)
 			},
 			form:     "Action=DeleteStack&StackName=del-stack",
 			wantCode: http.StatusOK,
@@ -261,7 +262,7 @@ func TestHandler_ListStacks(t *testing.T) {
 			name: "all",
 			setup: func(t *testing.T, h *cloudformation.Handler) {
 				t.Helper()
-				postForm(t, h, "Action=CreateStack&StackName=ls-stack&TemplateBody=")
+				postForm(t, h, "Action=CreateStack&StackName=ls-stack&TemplateBody="+simpleTemplate)
 			},
 			form:     "Action=ListStacks",
 			wantCode: http.StatusOK,
@@ -271,7 +272,7 @@ func TestHandler_ListStacks(t *testing.T) {
 			name: "with_filter",
 			setup: func(t *testing.T, h *cloudformation.Handler) {
 				t.Helper()
-				postForm(t, h, "Action=CreateStack&StackName=filt-stack&TemplateBody=")
+				postForm(t, h, "Action=CreateStack&StackName=filt-stack&TemplateBody="+simpleTemplate)
 			},
 			form:     "Action=ListStacks&StackStatusFilter.member.1=CREATE_COMPLETE",
 			wantCode: http.StatusOK,
@@ -312,7 +313,7 @@ func TestHandler_DescribeStackEvents(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, h *cloudformation.Handler) {
 				t.Helper()
-				postForm(t, h, "Action=CreateStack&StackName=evt-stack&TemplateBody=")
+				postForm(t, h, "Action=CreateStack&StackName=evt-stack&TemplateBody="+simpleTemplate)
 			},
 			form:     "Action=DescribeStackEvents&StackName=evt-stack",
 			wantCode: http.StatusOK,
@@ -354,8 +355,9 @@ func TestHandler_DescribeStackEvents_NextToken(t *testing.T) {
 	h := newHandler()
 	postForm(t, h, "Action=CreateStack&StackName=evt-tok-stack&TemplateBody="+simpleTemplate)
 
-	for range 40 {
-		postForm(t, h, "Action=UpdateStack&StackName=evt-tok-stack&TemplateBody="+simpleTemplate)
+	for i := range 40 {
+		tmpl := strings.Replace(simpleTemplate, `"Resources"`, fmt.Sprintf(`"Description":"v%d","Resources"`, i), 1)
+		postForm(t, h, "Action=UpdateStack&StackName=evt-tok-stack&TemplateBody="+tmpl)
 	}
 
 	rec := postForm(t, h, "Action=DescribeStackEvents&StackName=evt-tok-stack")
@@ -407,7 +409,7 @@ func TestHandler_GetTemplate(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, h *cloudformation.Handler) {
 				t.Helper()
-				postForm(t, h, "Action=CreateStack&StackName=tmpl-stack&TemplateBody={}")
+				postForm(t, h, "Action=CreateStack&StackName=tmpl-stack&TemplateBody="+simpleTemplate)
 			},
 			form:     "Action=GetTemplate&StackName=tmpl-stack",
 			wantCode: http.StatusOK,

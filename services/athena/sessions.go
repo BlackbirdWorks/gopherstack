@@ -73,7 +73,7 @@ func (b *InMemoryBackend) StartSession(workGroup, description, notebookVersion s
 	defer b.mu.Unlock()
 
 	if !b.workGroups.Has(workGroup) {
-		return "", "", fmt.Errorf("%w: workgroup %q not found", ErrNotFound, workGroup)
+		return "", "", awsErrorf(ErrNotFound, "WorkGroup %s is not found.", workGroup)
 	}
 
 	if engineCfg.CoordinatorDpuSize == 0 {

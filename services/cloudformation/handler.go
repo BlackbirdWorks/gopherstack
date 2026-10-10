@@ -80,7 +80,7 @@ func (h *Handler) Name() string { return "CloudFormation" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateStack",
-		"UpdateStack",
+		opUpdateStack,
 		"DeleteStack",
 		"DescribeStacks",
 		"ListStacks",
@@ -315,6 +315,9 @@ func pageForm[T any](form url.Values, items []T) page.Page[T] {
 }
 
 func (h *Handler) dispatch(action string, form url.Values, c *echo.Context) error {
+	c.Set(ctxKeyForm, form)
+	c.Set(ctxKeyAction, action)
+
 	if err := validateFormPaging(form); err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
@@ -375,6 +378,7 @@ func (h *Handler) dispatch(action string, form url.Values, c *echo.Context) erro
 }
 
 func (h *Handler) xmlError(c *echo.Context, code, message string) error {
+	message = refineNotFoundMessage(c, message)
 	type xmlErrBody struct {
 		XMLName   xml.Name `xml:"ErrorResponse"`
 		Code      string   `xml:"Error>Code"`
@@ -436,8 +440,9 @@ func parseParams(form url.Values) []Parameter {
 			return params
 		}
 		params = append(params, Parameter{
-			ParameterKey:   key,
-			ParameterValue: form.Get(prefix + "ParameterValue"),
+			ParameterKey:     key,
+			ParameterValue:   form.Get(prefix + "ParameterValue"),
+			UsePreviousValue: form.Get(prefix+"UsePreviousValue") == boolTrue,
 		})
 	}
 }
@@ -534,7 +539,7 @@ func mapCreateStackError(err error) (string, string) {
 	case errors.Is(err, ErrStackAlreadyExists):
 		return "AlreadyExistsException", err.Error()
 	case errors.Is(err, ErrInsufficientCapabilities):
-		return "InsufficientCapabilitiesException", err.Error()
+		return "InsufficientCapabilitiesException", insufficientCapabilitiesMsg
 	default:
 		return errCodeValidation, err.Error()
 	}
@@ -543,7 +548,7 @@ func mapCreateStackError(err error) (string, string) {
 // mapUpdateStackError maps an UpdateStack backend error to the AWS error code.
 func mapUpdateStackError(err error) (string, string) {
 	if errors.Is(err, ErrInsufficientCapabilities) {
-		return "InsufficientCapabilitiesException", err.Error()
+		return "InsufficientCapabilitiesException", insufficientCapabilitiesMsg
 	}
 
 	return errCodeValidation, err.Error()
