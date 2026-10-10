@@ -32,7 +32,7 @@ jobs:
           token: ${{ env.GH_CI_TOKEN }}
 
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '24'
           cache: npm
@@ -277,7 +277,7 @@ jobs:
             ${{ steps.pkgs.outputs.pkgs }}
 
       - name: Upload Coverage Artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: unit-${{ matrix.chunk }}-coverage
           path: unit-${{ matrix.chunk }}-coverage.out
@@ -319,7 +319,7 @@ jobs:
             -ldflags="-w -s" -o bin/gopherstack-linux .
 
       - name: Upload binary
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: gopherstack-binary
           path: bin/gopherstack-linux
@@ -356,7 +356,7 @@ jobs:
           cache: true
 
       - name: Download binary
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: gopherstack-binary
           path: bin/
@@ -388,7 +388,7 @@ jobs:
             ./test/integration/...
 
       - name: Upload Coverage Artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: integration-${{ matrix.chunk }}-coverage
           path: integration-${{ matrix.chunk }}-coverage.out
@@ -438,7 +438,7 @@ jobs:
           cache: true
 
       - name: Download binary
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: gopherstack-binary
           path: bin/
@@ -509,7 +509,7 @@ jobs:
           cache: true
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '24'
           cache: 'npm'
@@ -549,7 +549,7 @@ jobs:
             ./test/e2e/...
 
       - name: Upload Coverage Artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: e2e-coverage
           path: e2e-coverage.out
@@ -576,7 +576,7 @@ jobs:
           token: ${{ env.GH_CI_TOKEN }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '24'
           cache: 'npm'
@@ -613,7 +613,7 @@ jobs:
           cache: true
 
       - name: Download All Coverage Artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: '*-coverage'
           merge-multiple: true
@@ -641,7 +641,7 @@ jobs:
 
       - name: Check Coverage Thresholds
         id: coverage
-        uses: vladopajic/go-test-coverage@f94bcf0d6b9fa5fb8b783830b22648f6c17475e2 # v2
+        uses: vladopajic/go-test-coverage@f484eec846448c97c777a26f8b58c5a69a327e12 # v2
         with:
           profile: coverage.out
           config: .testcoverage.yml
