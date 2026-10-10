@@ -152,7 +152,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
-          go-version-file: go.mod
+          go-version: '1.27'
           check-latest: true
           cache: true
 
@@ -165,7 +165,11 @@ jobs:
         run: go build -o "$RUNNER_TEMP/gopherstack" .
 
       - name: Run govulncheck and save to file
-        run: govulncheck -mode=binary -format sarif "$RUNNER_TEMP/gopherstack" > govulncheck.sarif
+        run: govulncheck -mode=binary -format sarif "$RUNNER_TEMP/gopherstack" > govulncheck-raw.sarif
+
+      # Binary mode emits identical stacks; the SARIF schema requires unique items.
+      - name: Deduplicate SARIF stacks
+        run: jq '.runs[].results[] |= (if .stacks then .stacks |= unique else . end)' govulncheck-raw.sarif > govulncheck.sarif
 
       - name: Upload govulncheck SARIF
         if: always()
