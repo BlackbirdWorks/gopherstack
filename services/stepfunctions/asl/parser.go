@@ -294,6 +294,15 @@ type ChoiceRule struct {
 
 // Parse parses an ASL state machine definition from JSON.
 func Parse(definition string) (*StateMachine, error) {
+	return parse(definition, true)
+}
+
+// ParseIsolatedState parses a definition without requiring transition targets to exist (TestState).
+func ParseIsolatedState(definition string) (*StateMachine, error) {
+	return parse(definition, false)
+}
+
+func parse(definition string, checkTransitions bool) (*StateMachine, error) {
 	var sm StateMachine
 	if err := json.Unmarshal([]byte(definition), &sm); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrParseError, err)
@@ -317,6 +326,12 @@ func Parse(definition string) (*StateMachine, error) {
 
 	if err := validateMapStates(sm.States); err != nil {
 		return nil, err
+	}
+
+	if checkTransitions {
+		if err := validateTransitions(sm.States); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := validateQueryLanguage(&sm); err != nil {

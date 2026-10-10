@@ -4,7 +4,7 @@ sdk_module: aws-sdk-go-v2/service/codebuild@v1.72.4   # version audited against
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: 0627d5d3                             # HEAD when the PRIOR manifest was written;
                                                           # this pass ran under the "no git" constraint
                                                           # and could not read/update this hash
-last_audit_date: 2026-10-07  # prior: 2026-09-04
+last_audit_date: 2026-10-09
 overall: A                # 2026-09-11 pass (gopherstack-9ckk, BuildBatch redesign): BuildBatch
                            # was previously a 7-field placeholder (see gopherstack-8mcb/-to8g class
                            # notes and bd memory) -- unmodeled capability, not a fixable field gap.
@@ -1067,3 +1067,7 @@ StartBuild, RetryBuild, StartBuildBatch, RetryBuildBatch and StartSandbox honour
 ## 2026-10-05 (input enum validation)
 
 40 request members typed as SDK enums are now checked against the SDK `Values()` and an unknown value is InvalidInputException (Create/UpdateFleet compute/environment/overflow, CreateReportGroup type, Create/UpdateWebhook buildType, DescribeCodeCoverages sortBy/sortOrder, ImportSourceCredentials, RetryBuildBatch, StartBuild/StartBuildBatch overrides, UpdateProjectVisibility, shared-resource sortBy and every List* sortOrder). Proof: `TestSDK_EnumInputValidation` (rejects an invalid value, accepts every `Values()` entry). RECORDED: StartCommandExecution type is not validated because existing tests send `COMMAND` while `types.CommandType` only lists `SHELL`; DescribeCodeCoverages sortBy/sortOrder are validated but have no effect (the op always returns an empty list).
+
+## 2026-10-09 realism pass
+
+Build IDs are `project:<uuid>`. When the janitor completes a build it records the full phase timeline (QUEUED through FINALIZING, then COMPLETED). StopBuild on a finished build returns it unchanged instead of rewriting SUCCEEDED to STOPPED. Create/UpdateProject validate the name pattern, timeouts (5-2160, queued 5-480) and environment/source/artifacts enums; StartBuild bounds timeoutInMinutesOverride. NotFound/AlreadyExists carry AWS-style messages and no code prefix. Lenient on purpose: serviceRole is not ARN-checked (fixtures use placeholders). Tests: realism_validation_test.go.

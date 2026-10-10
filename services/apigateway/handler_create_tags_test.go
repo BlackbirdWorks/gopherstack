@@ -186,14 +186,14 @@ func TestCreateOpsWithTags_RoundTrip(t *testing.T) {
 				_, err = client.CreateStage(t.Context(), &apigatewaysdk.CreateStageInput{
 					RestApiId:    api.Id,
 					DeploymentId: depl.Id,
-					StageName:    aws.String("tagged-stage"),
+					StageName:    aws.String("tagged_stage"),
 					Tags:         map[string]string{"env": "test"},
 				})
 				require.NoError(t, err)
 
 				return "arn:aws:apigateway:" + tagsRTRegion + "::/restapis/" + aws.ToString(
 					api.Id,
-				) + "/stages/tagged-stage"
+				) + "/stages/tagged_stage"
 			},
 		},
 	}

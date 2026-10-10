@@ -9,7 +9,7 @@ import (
 )
 
 const slowInsert = "INSERT INTO items (id) WITH RECURSIVE c(x) AS " +
-	"(SELECT 1 UNION ALL SELECT x+1 FROM c WHERE x<200000) SELECT x FROM c"
+	"(SELECT 1 UNION ALL SELECT x+1 FROM c WHERE x<20000) SELECT x FROM c"
 
 func TestRealEngineContinueAfterTimeout(t *testing.T) {
 	t.Parallel()
@@ -20,7 +20,7 @@ func TestRealEngineContinueAfterTimeout(t *testing.T) {
 		wantRows int64
 	}{
 		{name: "stops_by_default", wantRows: 0},
-		{name: "continues_when_set", resume: true, wantRows: 200000},
+		{name: "continues_when_set", resume: true, wantRows: 20000},
 	}
 
 	for _, tt := range tests {

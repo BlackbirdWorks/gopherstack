@@ -1009,7 +1009,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 
 	errResp := ErrorResponse{
 		Type:    errType,
-		Message: reqErr.Error(),
+		Message: strings.TrimPrefix(reqErr.Error(), errType+": "),
 	}
 
 	payload, _ := json.Marshal(errResp)

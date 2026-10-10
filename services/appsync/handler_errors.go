@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 
@@ -18,35 +19,35 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, op string, e
 	log.ErrorContext(ctx, "AppSync operation failed", "operation", op, "error", err)
 
 	if errors.Is(err, awserr.ErrNotFound) {
-		return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", err.Error()))
+		return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", cleanMessage(err)))
 	}
 
 	if errors.Is(err, awserr.ErrAlreadyExists) || errors.Is(err, awserr.ErrConflict) {
-		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", cleanMessage(err)))
 	}
 
 	if errors.Is(err, ErrAPIKeyLimitExceeded) {
-		return c.JSON(http.StatusBadRequest, errorResponse("ApiKeyLimitExceededException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("ApiKeyLimitExceededException", cleanMessage(err)))
 	}
 
 	if errors.Is(err, ErrAPIKeyValidityOutOfBounds) {
-		return c.JSON(http.StatusBadRequest, errorResponse("ApiKeyValidityOutOfBoundsException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("ApiKeyValidityOutOfBoundsException", cleanMessage(err)))
 	}
 
 	if errors.Is(err, ErrGraphQLSchemaInvalid) {
-		return c.JSON(http.StatusBadRequest, errorResponse("GraphQLSchemaException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("GraphQLSchemaException", cleanMessage(err)))
 	}
 
 	if errors.Is(err, awserr.ErrInvalidParameter) {
-		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", cleanMessage(err)))
 	}
 
 	if errors.Is(err, ErrInvalidSchema) {
-		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", cleanMessage(err)))
 	}
 
 	if errors.Is(err, ErrValidation) {
-		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", cleanMessage(err)))
 	}
 
 	return c.JSON(
@@ -88,4 +89,20 @@ func appsyncPaginate[T any](items []T, nextToken string, maxResults int) ([]T, s
 	}
 
 	return items[start:end], strconv.Itoa(end)
+}
+
+// cleanMessage drops the sentinel prefix that error wrapping adds, leaving only the message.
+func cleanMessage(err error) string {
+	msg := err.Error()
+
+	for _, sentinel := range []error{
+		ErrNotFound, ErrAlreadyExists, ErrInvalidSchema, ErrGraphQLSchemaInvalid, ErrValidation,
+		ErrUnsupportedJSCode, ErrAPIKeyLimitExceeded, ErrAPIKeyValidityOutOfBounds,
+	} {
+		if rest, ok := strings.CutPrefix(msg, sentinel.Error()+": "); ok && errors.Is(err, sentinel) {
+			return rest
+		}
+	}
+
+	return msg
 }

@@ -202,20 +202,24 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
+	respond := func(status int, errType string) error {
+		msg := strings.TrimPrefix(err.Error(), errType+": ")
+
+		return c.JSON(status, map[string]any{errFieldType: errType, errFieldMessage: msg})
+	}
+
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return c.JSON(http.StatusNotFound,
-			map[string]any{errFieldType: "ResourceNotFoundException", errFieldMessage: err.Error()})
+		return respond(http.StatusNotFound, "ResourceNotFoundException")
 	case errors.Is(err, ErrAlreadyExists):
-		return c.JSON(http.StatusBadRequest,
-			map[string]any{errFieldType: "ResourceInUseException", errFieldMessage: err.Error()})
+		return respond(http.StatusBadRequest, "ResourceInUseException")
+	case errors.Is(err, ErrConcurrentModification):
+		return respond(http.StatusBadRequest, "ConcurrentModificationException")
 	case errors.Is(err, errUnknownAction):
-		return c.JSON(http.StatusBadRequest,
-			map[string]any{errFieldType: "UnknownOperationException", errFieldMessage: err.Error()})
+		return respond(http.StatusBadRequest, "UnknownOperationException")
 	case errors.Is(err, errInvalidRequest), errors.Is(err, awserr.ErrInvalidParameter),
 		errors.Is(err, ErrValidation), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest,
-			map[string]any{errFieldType: "InvalidArgumentException", errFieldMessage: err.Error()})
+		return respond(http.StatusBadRequest, "InvalidArgumentException")
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{errFieldMessage: err.Error()})
 	}

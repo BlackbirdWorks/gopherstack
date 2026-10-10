@@ -18,6 +18,8 @@ var (
 	ErrRecordTooLarge = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
 	// ErrBatchTooLarge is returned when a PutRecordBatch request exceeds the 500-record limit.
 	ErrBatchTooLarge = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
+	// ErrConcurrentModification is returned when UpdateDestination's version id is stale.
+	ErrConcurrentModification = awserr.New("ConcurrentModificationException", awserr.ErrConflict)
 	// ErrValidation is returned for invalid input parameters.
 	ErrValidation = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
 )

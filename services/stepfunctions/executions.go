@@ -115,12 +115,8 @@ func (b *InMemoryBackend) sweepOrphanedTombstonesLocked() {
 func (b *InMemoryBackend) StartSyncExecution(
 	stateMachineArn, name, input string,
 ) (*SyncExecutionResult, error) {
-	if len(input) > maxExecutionInputBytes {
-		return nil, fmt.Errorf(
-			"%w: input exceeds %d bytes",
-			ErrInvalidExecutionInput,
-			maxExecutionInputBytes,
-		)
+	if err := validateExecutionInput(input); err != nil {
+		return nil, err
 	}
 
 	stateMachineArn, testCase, hasTestCase := splitMockTestCase(stateMachineArn)
@@ -176,8 +172,7 @@ func (b *InMemoryBackend) StartSyncExecution(
 	// execution ARN, even when StartSyncExecution was called with one.
 	baseSMArn := sm.StateMachineArn
 
-	const millisPerSecond = 1000.0
-	startDate := float64(time.Now().UnixMilli()) / millisPerSecond
+	startDate := epochNow()
 	execARN := b.execARN(baseSMArn, smName, name)
 
 	syncLimit, timeoutCause := syncExecutionLimit(parsedSM.TimeoutSeconds)
@@ -243,7 +238,7 @@ func finalizeSyncExecutionResult(
 	execErr error,
 	timeoutCause string,
 ) *SyncExecutionResult {
-	stopDate := float64(time.Now().Unix())
+	stopDate := epochNow()
 
 	syncResult := &SyncExecutionResult{
 		StartDate:       startDate,
@@ -417,8 +412,7 @@ func (b *InMemoryBackend) startExecutionLocked(
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
 	}
 
-	const millisPerSecond = 1000.0
-	now := float64(time.Now().UnixMilli()) / millisPerSecond
+	now := epochNow()
 	exec := b.initializeExecutionRecord(
 		baseSMArn, name, execArn, input, definition, now, resolved.VersionArn, resolved.AliasArn,
 	)
@@ -450,12 +444,8 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 func (b *InMemoryBackend) StartExecutionWithTrace(
 	stateMachineArn, name, input, traceHeader string,
 ) (*Execution, error) {
-	if len(input) > maxExecutionInputBytes {
-		return nil, fmt.Errorf(
-			"%w: input exceeds %d bytes",
-			ErrInvalidExecutionInput,
-			maxExecutionInputBytes,
-		)
+	if err := validateExecutionInput(input); err != nil {
+		return nil, err
 	}
 
 	if name != "" {
@@ -597,7 +587,7 @@ func executionDeadline(ctx context.Context, timeoutSeconds int) (context.Context
 
 // timeOutExecutionLocked closes a RUNNING execution as TIMED_OUT with States.Timeout.
 func (b *InMemoryBackend) timeOutExecutionLocked(exec *Execution, execARN string) {
-	now := float64(time.Now().Unix())
+	now := epochNow()
 	exec.Status = statusTimedOut
 	exec.StopDate = &now
 	exec.Error = "States.Timeout"
@@ -619,7 +609,7 @@ func (b *InMemoryBackend) finalizeExecutionRecordLocked(
 	result *asl.ExecutionResult,
 	execErr error,
 ) {
-	now := float64(time.Now().Unix())
+	now := epochNow()
 	exec.StopDate = &now
 	nextID := int64(len(exec.history) + 1)
 
@@ -684,7 +674,7 @@ func (b *InMemoryBackend) StopExecution(executionArn, errCode, cause string) err
 		return nil
 	}
 
-	now := float64(time.Now().Unix())
+	now := epochNow()
 	exec.Status = statusAborted
 	exec.StopDate = &now
 	exec.Error = errCode
@@ -783,7 +773,10 @@ func (b *InMemoryBackend) ListExecutions(
 	// single page will ever return.
 	sort.Slice(ptrs, func(i, j int) bool { return ptrs[i].StartDate > ptrs[j].StartDate })
 
-	pagePtrs, token := paginate(ptrs, nextToken, maxResults)
+	pagePtrs, token, pageErr := paginate(ptrs, nextToken, maxResults)
+	if pageErr != nil {
+		return nil, "", pageErr
+	}
 
 	// See the comment in DescribeExecution: whole-struct copies of *Execution
 	// touch history, which appendHistory writes under historyMu rather than
@@ -829,7 +822,10 @@ func (b *InMemoryBackend) ListExecutionsByMapRun(
 	// every execution attributed to this map run.
 	sort.Slice(ptrs, func(i, j int) bool { return ptrs[i].StartDate > ptrs[j].StartDate })
 
-	pagePtrs, token := paginate(ptrs, nextToken, maxResults)
+	pagePtrs, token, pageErr := paginate(ptrs, nextToken, maxResults)
+	if pageErr != nil {
+		return nil, "", pageErr
+	}
 
 	// See the comment in DescribeExecution: whole-struct copies of *Execution
 	// touch history, which appendHistory writes under historyMu rather than
@@ -916,7 +912,7 @@ func (b *InMemoryBackend) redriveExecutionLocked(executionARN string) (*redriven
 	}
 
 	// Reset the execution to RUNNING.
-	now := float64(time.Now().Unix())
+	now := epochNow()
 	b.resetExecutionForRedrive(exec, executionARN, smARN, now)
 
 	// Snapshot the (possibly-updated) definition.
@@ -1071,4 +1067,16 @@ func matchesRedriveFilter(exec *Execution, filter string) bool {
 	default:
 		return true
 	}
+}
+
+func validateExecutionInput(input string) error {
+	if len(input) > maxExecutionInputBytes {
+		return fmt.Errorf("%w: input exceeds %d bytes", ErrInvalidExecutionInput, maxExecutionInputBytes)
+	}
+
+	if input != "" && !json.Valid([]byte(input)) {
+		return fmt.Errorf("%w: input is not valid JSON", ErrInvalidExecutionInput)
+	}
+
+	return nil
 }

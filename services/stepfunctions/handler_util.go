@@ -258,7 +258,7 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 
 	smDef := fmt.Sprintf(`{"StartAt":%q,"States":%s}`, stateName, input.Definition)
 
-	sm, err := asl.Parse(smDef)
+	sm, err := asl.ParseIsolatedState(smDef)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, err)
 	}

@@ -5,7 +5,7 @@
 service: firehose
 sdk_module: aws-sdk-go-v2/service/firehose@v1.46.4
 last_audit_commit: 49cff86c4
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-09
 overall: A            # all 10 real SDK destination-configuration types now implemented; remaining gaps are documented data-movement-mechanics simplifications, not wire-shape bugs.
                       # 2026-09-06 pass (bd gopherstack-pe7x): fixed the CloudWatchLoggingOptions
                       # gap disclosed by the 2026-09-04 pass below -- delivery failures now actually
@@ -729,3 +729,7 @@ ProcessingFailed (transform.go:30) is a per-record result value in a success res
 ## 2026-10-05 (secret-leak audit)
 
 DescribeDeliveryStream no longer echoes HttpEndpointConfiguration.AccessKey: the SDK's HttpEndpointDescription has only Name and Url (types.go:1752). The key is still stored and sent as X-Amz-Firehose-Access-Key on delivery. Proof: `TestDescribeDeliveryStream_HTTPEndpointOmitsAccessKey`.
+
+## 2026-10-09 realism pass
+
+CreateDeliveryStream validates the name against `[a-zA-Z0-9_.-]{1,64}`. UpdateDestination returns ConcurrentModificationException for a stale CurrentDeliveryStreamVersionId (was InvalidArgumentException) and InvalidArgumentException for a DestinationId the stream does not have. Error messages no longer repeat the code prefix. Lenient on purpose: streams are ACTIVE immediately (no CREATING window); role/bucket ARNs in destination configs are not pattern-checked. Tests: realism_validation_test.go.

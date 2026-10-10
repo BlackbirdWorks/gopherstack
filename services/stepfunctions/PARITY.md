@@ -2,7 +2,7 @@
 service: stepfunctions
 sdk_module: aws-sdk-go-v2/service/sfn@v1.49.0
 last_audit_commit: 88924fa3b  # 2026-09-24 perf sweep: ListExecutions/ListExecutionsByMapRun sort-pointers-then-copy-page; prior: 4a7682d1e
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-09
 overall: A            # Re-audit against `43aa6d65` baseline (2026-07-11 zero-drift pass). This
                        # pass found real drift/gaps despite the "zero drift" label: two commits
                        # ("Parity 4" efc42cbc, "Go refactoring 2" 9d7e36e0) landed on
@@ -1554,3 +1554,7 @@ ListExecutions applies redriveFilter (REDRIVEN/NOT_REDRIVEN on RedriveCount; api
 ## 2026-10-05 errcodeaudit needs-review triage (gopherstack-r3pr)
 
 Removed dead ErrInvalidExecutionType (never raised) and its mapper row. TaskTokenAlreadyExists and ActivityTaskFailed come from the in-engine WaitForTaskToken path (activities.go:347,368), not from an API op, so no op deserializer applies. StateMachineVersionReferencedByAlias maps to ConflictException; TaskTokenNotFound maps to TaskDoesNotExist.
+
+## 2026-10-09 realism pass
+
+CreateStateMachine rejects transitions to missing states and Task/Pass/Wait/Parallel/Map states with neither Next nor End (InvalidDefinition); TestState keeps single-state definitions valid. Names reject whitespace, control and `<>{}[]?*"#%\^|~`$&,;:/` rather than allowing space and `/`. Malformed nextToken is InvalidToken (tokens are now opaque), a non-JSON execution input is InvalidExecutionInput, an unknown statusFilter is ValidationException. StopDate/CreationDate/UpdatedDate/history timestamps carry millisecond precision (stopDate was truncated below startDate). Error messages no longer repeat the code prefix. Lenient on purpose: StartExecution still runs to completion synchronously (no RUNNING window for fast definitions). Tests: realism_validation_test.go.

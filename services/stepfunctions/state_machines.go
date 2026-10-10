@@ -121,7 +121,7 @@ func (b *InMemoryBackend) CreateStateMachine(
 		return nil, fmt.Errorf("%w: %s", ErrStateMachineAlreadyExists, name)
 	}
 
-	now := float64(time.Now().Unix())
+	now := epochNow()
 	sm := &StateMachine{
 		CreationDate: now,
 		// AWS: "the date and time the state machine ... was updated. For a
@@ -279,7 +279,10 @@ func (b *InMemoryBackend) ListStateMachines(
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
-	sms, token := paginate(all, nextToken, maxResults)
+	sms, token, pageErr := paginate(all, nextToken, maxResults)
+	if pageErr != nil {
+		return nil, "", pageErr
+	}
 
 	return sms, token, nil
 }
@@ -359,7 +362,7 @@ func (b *InMemoryBackend) UpdateStateMachine(smARN, definition, roleArn string) 
 		sm.RoleArn = roleArn
 	}
 
-	sm.UpdatedDate = float64(time.Now().Unix())
+	sm.UpdatedDate = epochNow()
 	sm.RevisionID = newRevisionID()
 
 	return sm.UpdatedDate, sm.RevisionID, nil

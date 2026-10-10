@@ -93,7 +93,7 @@ func (b *InMemoryBackend) CreateProject(cfg ProjectConfig) (*Project, error) {
 	}
 
 	if b.projects.Has(cfg.Name) {
-		return nil, ErrAlreadyExists
+		return nil, fmt.Errorf("%w: Project already exists: %s", ErrAlreadyExists, b.buildProjectARN(cfg.Name))
 	}
 
 	tagsCopy := make(map[string]string, len(cfg.Tags))
@@ -224,7 +224,7 @@ func (b *InMemoryBackend) UpdateProject(name string, cfg ProjectConfig) (*Projec
 
 	p, ok := b.lookupByNameOrARN(name)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: Project cannot be found: %s", ErrNotFound, name)
 	}
 
 	if cfg.Description != "" {
@@ -338,7 +338,7 @@ func (b *InMemoryBackend) UpdateProjectVisibility(projectArn, visibility, resour
 
 	matches := b.projectsByARN.Get(projectArn)
 	if len(matches) == 0 {
-		return "", ErrNotFound
+		return "", fmt.Errorf("%w: Project cannot be found: %s", ErrNotFound, projectArn)
 	}
 
 	p := matches[0]
@@ -365,7 +365,7 @@ func (b *InMemoryBackend) InvalidateProjectCache(projectName string) error {
 	defer b.mu.RUnlock()
 
 	if !b.projects.Has(projectName) {
-		return ErrNotFound
+		return fmt.Errorf("%w: Project cannot be found: %s", ErrNotFound, b.buildProjectARN(projectName))
 	}
 
 	return nil

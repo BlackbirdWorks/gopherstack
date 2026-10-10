@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"slices"
 	"sort"
-	"time"
 )
 
 // aliasParentStateMachineLocked returns the state machine that owns
@@ -112,7 +111,7 @@ func (b *InMemoryBackend) CreateStateMachineAlias(
 		return nil, fmt.Errorf("%w: %s", ErrStateMachineAliasAlreadyExists, name)
 	}
 
-	now := float64(time.Now().Unix())
+	now := epochNow()
 	alias := &StateMachineAlias{
 		StateMachineAliasArn: aARN,
 		Name:                 name,
@@ -162,7 +161,7 @@ func (b *InMemoryBackend) UpdateStateMachineAlias(
 		alias.RoutingConfiguration = routing
 	}
 
-	alias.UpdatedDate = float64(time.Now().Unix())
+	alias.UpdatedDate = epochNow()
 
 	cp := *alias
 
@@ -237,7 +236,10 @@ func (b *InMemoryBackend) ListStateMachineAliases(
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
-	aliases, token := paginate(all, nextToken, maxResults)
+	aliases, token, pageErr := paginate(all, nextToken, maxResults)
+	if pageErr != nil {
+		return nil, "", pageErr
+	}
 
 	return aliases, token, nil
 }

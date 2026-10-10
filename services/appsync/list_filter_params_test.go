@@ -55,7 +55,7 @@ func TestListResolversByFunction_Pagination(t *testing.T) {
 
 	ds, err := client.CreateDataSource(ctx, &appsyncsdk.CreateDataSourceInput{
 		ApiId: apiID,
-		Name:  aws.String("ds-a"),
+		Name:  aws.String("ds_a"),
 		Type:  appsynctypes.DataSourceTypeNone,
 	})
 	require.NoError(t, err)

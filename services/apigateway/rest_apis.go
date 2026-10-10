@@ -14,6 +14,11 @@ func (b *InMemoryBackend) CreateRestAPI(input CreateRestAPIInput) (*RestAPI, err
 		return nil, fmt.Errorf("%w: name is required", ErrInvalidParameter)
 	}
 
+	input, err := normalizeRestAPIInput(input)
+	if err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateRestAPI")
 	defer b.mu.Unlock()
 
@@ -305,4 +310,39 @@ func (b *InMemoryBackend) copyMethodsInto(
 	}
 
 	root.CorsConfiguration = cp.CorsConfiguration
+}
+
+// normalizeRestAPIInput validates endpoint types and API key source and fills AWS's defaults (EDGE, HEADER).
+func normalizeRestAPIInput(input CreateRestAPIInput) (CreateRestAPIInput, error) {
+	switch input.APIKeySource {
+	case "":
+		input.APIKeySource = "HEADER"
+	case "HEADER", "AUTHORIZER":
+	default:
+		return input, fmt.Errorf("%w: Invalid API Key Source specified: %s", ErrInvalidParameter, input.APIKeySource)
+	}
+
+	if input.EndpointConfiguration == nil {
+		input.EndpointConfiguration = &EndpointConfiguration{}
+	}
+
+	cfg := *input.EndpointConfiguration
+
+	for _, t := range cfg.Types {
+		if t != "EDGE" && t != "REGIONAL" && t != "PRIVATE" {
+			return input, fmt.Errorf(
+				"%w: Endpoint type %s is not valid; use EDGE, REGIONAL or PRIVATE",
+				ErrInvalidParameter,
+				t,
+			)
+		}
+	}
+
+	if len(cfg.Types) == 0 {
+		cfg.Types = []string{"EDGE"}
+	}
+
+	input.EndpointConfiguration = &cfg
+
+	return input, nil
 }
