@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
@@ -11,13 +12,16 @@ import (
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	inspector2backend "github.com/blackbirdworks/gopherstack/services/inspector2"
+	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	quicksightbackend "github.com/blackbirdworks/gopherstack/services/quicksight"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
+	workspacesbackend "github.com/blackbirdworks/gopherstack/services/workspaces"
 )
 
 // LifecycleSettings holds the opt-in dwell times for transitional resource
@@ -25,24 +29,29 @@ import (
 // resources settle instantly unless a client-visible window is requested.
 // A per-service value of 0 falls back to Delay.
 type LifecycleSettings struct {
-	Delay                        time.Duration `name:"delay"                          env:"GOPHERSTACK_LIFECYCLE_DELAY"          default:"0s" help:"Default dwell in transitional states for every service below; 0 settles instantly."` //nolint:lll // config struct tags are intentionally verbose
-	OpenSearchProcessing         time.Duration `name:"opensearch-processing"          env:"OPENSEARCH_PROCESSING_DELAY"          default:"0s" help:"OpenSearch domain Processing window."`                                               //nolint:lll // config struct tags are intentionally verbose
-	ElastiCache                  time.Duration `name:"elasticache"                    env:"ELASTICACHE_LIFECYCLE_DELAY"          default:"0s" help:"ElastiCache creating dwell."`                                                        //nolint:lll // config struct tags are intentionally verbose
-	MemoryDB                     time.Duration `name:"memorydb"                       env:"MEMORYDB_LIFECYCLE_DELAY"             default:"0s" help:"MemoryDB cluster creating dwell."`                                                   //nolint:lll // config struct tags are intentionally verbose
-	LambdaActivation             time.Duration `name:"lambda-activation"              env:"LAMBDA_ACTIVATION_DELAY"              default:"0s" help:"Lambda function Pending window."`                                                    //nolint:lll // config struct tags are intentionally verbose
-	LambdaProvisionedConcurrency time.Duration `name:"lambda-provisioned-concurrency" env:"LAMBDA_PROVISIONED_CONCURRENCY_DELAY" default:"0s" help:"Lambda provisioned concurrency IN_PROGRESS window."`                                 //nolint:lll // config struct tags are intentionally verbose
-	ECSStart                     time.Duration `name:"ecs-start"                      env:"ECS_START_DELAY"                      default:"0s" help:"ECS per-phase task start delay."`                                                    //nolint:lll // config struct tags are intentionally verbose
-	ECSStop                      time.Duration `name:"ecs-stop"                       env:"ECS_STOP_DELAY"                       default:"0s" help:"ECS per-phase task stop delay."`                                                     //nolint:lll // config struct tags are intentionally verbose
-	MediaStore                   time.Duration `name:"mediastore"                     env:"MEDIASTORE_ACTIVATION_DELAY"          default:"0s" help:"MediaStore container CREATING/DELETING window."`                                     //nolint:lll // config struct tags are intentionally verbose
-	EFS                          time.Duration `name:"efs"                            env:"EFS_ACTIVATION_DELAY"                 default:"0s" help:"EFS file system creating window."`                                                   //nolint:lll // config struct tags are intentionally verbose
-	Redshift                     time.Duration `name:"redshift"                       env:"REDSHIFT_ACTIVATION_DELAY"            default:"0s" help:"Redshift cluster creating window."`                                                  //nolint:lll // config struct tags are intentionally verbose
-	SSMCommand                   time.Duration `name:"ssm-command"                    env:"SSM_COMMAND_EXEC_DELAY"               default:"0s" help:"SSM SendCommand InProgress window."`                                                 //nolint:lll // config struct tags are intentionally verbose
-	CloudFront                   time.Duration `name:"cloudfront"                     env:"CLOUDFRONT_DEPLOY_DELAY"              default:"0s" help:"CloudFront distribution InProgress window; 0 keeps the built-in 100ms."`             //nolint:lll // config struct tags are intentionally verbose
-	SSMAutomation                time.Duration `name:"ssm-automation"                 env:"SSM_AUTOMATION_EXEC_DELAY"            default:"0s" help:"SSM automation execution InProgress window."`                                        //nolint:lll // config struct tags are intentionally verbose
-	DocDB                        time.Duration `name:"docdb"                          env:"DOCDB_LIFECYCLE_DELAY"                default:"0s" help:"DocumentDB cluster and instance creating dwell."`                                    //nolint:lll // config struct tags are intentionally verbose
-	Neptune                      time.Duration `name:"neptune"                        env:"NEPTUNE_LIFECYCLE_DELAY"              default:"0s" help:"Neptune cluster and instance creating dwell."`                                       //nolint:lll // config struct tags are intentionally verbose
-	AWSConfig                    time.Duration `name:"awsconfig"                      env:"AWSCONFIG_LIFECYCLE_DELAY"            default:"0s" help:"AWS Config conformance pack CREATE_IN_PROGRESS window."`                             //nolint:lll // config struct tags are intentionally verbose
-	Inspector2                   time.Duration `name:"inspector2"                     env:"INSPECTOR2_LIFECYCLE_DELAY"           default:"0s" help:"Inspector2 ENABLING/DISABLING window."`                                              //nolint:lll // config struct tags are intentionally verbose
+	Delay                        time.Duration `name:"delay"                          env:"GOPHERSTACK_LIFECYCLE_DELAY"          default:"0s" help:"Default dwell in transitional states for every service below; 0 settles instantly."`             //nolint:lll // config struct tags are intentionally verbose
+	OpenSearchProcessing         time.Duration `name:"opensearch-processing"          env:"OPENSEARCH_PROCESSING_DELAY"          default:"0s" help:"OpenSearch domain Processing window."`                                                           //nolint:lll // config struct tags are intentionally verbose
+	ElastiCache                  time.Duration `name:"elasticache"                    env:"ELASTICACHE_LIFECYCLE_DELAY"          default:"0s" help:"ElastiCache creating dwell."`                                                                    //nolint:lll // config struct tags are intentionally verbose
+	MemoryDB                     time.Duration `name:"memorydb"                       env:"MEMORYDB_LIFECYCLE_DELAY"             default:"0s" help:"MemoryDB cluster creating dwell."`                                                               //nolint:lll // config struct tags are intentionally verbose
+	LambdaActivation             time.Duration `name:"lambda-activation"              env:"LAMBDA_ACTIVATION_DELAY"              default:"0s" help:"Lambda function Pending window."`                                                                //nolint:lll // config struct tags are intentionally verbose
+	LambdaProvisionedConcurrency time.Duration `name:"lambda-provisioned-concurrency" env:"LAMBDA_PROVISIONED_CONCURRENCY_DELAY" default:"0s" help:"Lambda provisioned concurrency IN_PROGRESS window."`                                             //nolint:lll // config struct tags are intentionally verbose
+	ECSStart                     time.Duration `name:"ecs-start"                      env:"ECS_START_DELAY"                      default:"0s" help:"ECS per-phase task start delay."`                                                                //nolint:lll // config struct tags are intentionally verbose
+	ECSStop                      time.Duration `name:"ecs-stop"                       env:"ECS_STOP_DELAY"                       default:"0s" help:"ECS per-phase task stop delay."`                                                                 //nolint:lll // config struct tags are intentionally verbose
+	MediaStore                   time.Duration `name:"mediastore"                     env:"MEDIASTORE_ACTIVATION_DELAY"          default:"0s" help:"MediaStore container CREATING/DELETING window."`                                                 //nolint:lll // config struct tags are intentionally verbose
+	EFS                          time.Duration `name:"efs"                            env:"EFS_ACTIVATION_DELAY"                 default:"0s" help:"EFS file system creating window."`                                                               //nolint:lll // config struct tags are intentionally verbose
+	Redshift                     time.Duration `name:"redshift"                       env:"REDSHIFT_ACTIVATION_DELAY"            default:"0s" help:"Redshift cluster creating window."`                                                              //nolint:lll // config struct tags are intentionally verbose
+	SSMCommand                   time.Duration `name:"ssm-command"                    env:"SSM_COMMAND_EXEC_DELAY"               default:"0s" help:"SSM SendCommand InProgress window."`                                                             //nolint:lll // config struct tags are intentionally verbose
+	CloudFront                   time.Duration `name:"cloudfront"                     env:"CLOUDFRONT_DEPLOY_DELAY"              default:"0s" help:"CloudFront distribution InProgress window; 0 keeps the built-in 100ms."`                         //nolint:lll // config struct tags are intentionally verbose
+	SSMAutomation                time.Duration `name:"ssm-automation"                 env:"SSM_AUTOMATION_EXEC_DELAY"            default:"0s" help:"SSM automation execution InProgress window."`                                                    //nolint:lll // config struct tags are intentionally verbose
+	DocDB                        time.Duration `name:"docdb"                          env:"DOCDB_LIFECYCLE_DELAY"                default:"0s" help:"DocumentDB cluster and instance creating dwell."`                                                //nolint:lll // config struct tags are intentionally verbose
+	Neptune                      time.Duration `name:"neptune"                        env:"NEPTUNE_LIFECYCLE_DELAY"              default:"0s" help:"Neptune cluster and instance creating dwell."`                                                   //nolint:lll // config struct tags are intentionally verbose
+	AWSConfig                    time.Duration `name:"awsconfig"                      env:"AWSCONFIG_LIFECYCLE_DELAY"            default:"0s" help:"AWS Config conformance pack CREATE_IN_PROGRESS window."`                                         //nolint:lll // config struct tags are intentionally verbose
+	Inspector2                   time.Duration `name:"inspector2"                     env:"INSPECTOR2_LIFECYCLE_DELAY"           default:"0s" help:"Inspector2 ENABLING/DISABLING window."`                                                          //nolint:lll // config struct tags are intentionally verbose
+	WorkSpaces                   time.Duration `name:"workspaces"                     env:"WORKSPACES_LIFECYCLE_DELAY"           default:"0s" help:"WorkSpaces PENDING and directory REGISTERING window."`                                           //nolint:lll // config struct tags are intentionally verbose
+	QuickSight                   time.Duration `name:"quicksight"                     env:"QUICKSIGHT_CREATION_DELAY"            default:"0s" help:"QuickSight dashboard, analysis and data source CREATION_IN_PROGRESS window."`                    //nolint:lll // config struct tags are intentionally verbose
+	AppRunner                    time.Duration `name:"apprunner"                      env:"APPRUNNER_OPERATION_DELAY"            default:"0s" help:"App Runner service OPERATION_IN_PROGRESS window after each operation."`                          //nolint:lll // config struct tags are intentionally verbose
+	KinesisAnalyticsV2           time.Duration `name:"kinesisanalyticsv2"             env:"KINESISANALYTICSV2_LIFECYCLE_DELAY"   default:"0s" help:"Managed Flink application STARTING/STOPPING/UPDATING window."`                                   //nolint:lll // config struct tags are intentionally verbose
+	QuickSightIngestion          time.Duration `name:"quicksight-ingestion"           env:"QUICKSIGHT_INGESTION_DELAY"           default:"0s" help:"QuickSight manual ingestion RUNNING window; 0 keeps the built-in 1s; ignores the global delay."` //nolint:lll // config struct tags are intentionally verbose
 }
 
 func (l LifecycleSettings) effective(specific time.Duration) time.Duration {
@@ -163,24 +172,64 @@ func applyInspector2(reg service.Registerable, l LifecycleSettings) {
 	}
 }
 
+func applyWorkSpaces(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*workspacesbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*workspacesbackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.WorkSpaces))
+		}
+	}
+}
+
+func applyAppRunner(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*apprunnerbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*apprunnerbackend.InMemoryBackend); isBk {
+			bk.SetOperationDelay(l.effective(l.AppRunner))
+		}
+	}
+}
+
+func applyKinesisAnalyticsV2(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*kinesisanalyticsv2backend.Handler); ok {
+		if bk, isBk := h.Backend.(*kinesisanalyticsv2backend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.KinesisAnalyticsV2))
+		}
+	}
+}
+
+func applyQuickSight(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*quicksightbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*quicksightbackend.InMemoryBackend); isBk {
+			bk.SetCreationDelay(l.effective(l.QuickSight))
+
+			if l.QuickSightIngestion > 0 {
+				bk.SetIngestionDelay(l.QuickSightIngestion)
+			}
+		}
+	}
+}
+
 // wireLifecycleDelays applies the configured dwell times to the already
 // initialized service backends; zero values leave services instant.
 func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSettings) {
 	appliers := map[string]lifecycleApplier{
-		"OpenSearch":  applyOpenSearch,
-		"ElastiCache": applyElastiCache,
-		"MemoryDB":    applyMemoryDB,
-		"Lambda":      applyLambda,
-		"ECS":         applyECS,
-		"MediaStore":  applyMediaStore,
-		"EFS":         applyEFS,
-		"Redshift":    applyRedshift,
-		"CloudFront":  applyCloudFront,
-		"SSM":         applySSM,
-		"DocDB":       applyDocDB,
-		"Neptune":     applyNeptune,
-		"AWSConfig":   applyAWSConfig,
-		"Inspector2":  applyInspector2,
+		"OpenSearch":         applyOpenSearch,
+		"ElastiCache":        applyElastiCache,
+		"MemoryDB":           applyMemoryDB,
+		"Lambda":             applyLambda,
+		"ECS":                applyECS,
+		"MediaStore":         applyMediaStore,
+		"EFS":                applyEFS,
+		"Redshift":           applyRedshift,
+		"CloudFront":         applyCloudFront,
+		"SSM":                applySSM,
+		"DocDB":              applyDocDB,
+		"Neptune":            applyNeptune,
+		"AWSConfig":          applyAWSConfig,
+		"Inspector2":         applyInspector2,
+		"WorkSpaces":         applyWorkSpaces,
+		"QuickSight":         applyQuickSight,
+		"AppRunner":          applyAppRunner,
+		"KinesisAnalyticsV2": applyKinesisAnalyticsV2,
 	}
 
 	for name, apply := range appliers {

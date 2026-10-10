@@ -342,6 +342,11 @@ By default resources settle instantly. Set a dwell to make Creating/Processing/P
 | `--lifecycle-neptune` | `NEPTUNE_LIFECYCLE_DELAY` | Neptune cluster/instance `creating` window. |
 | `--lifecycle-awsconfig` | `AWSCONFIG_LIFECYCLE_DELAY` | AWS Config conformance pack `CREATE_IN_PROGRESS` window. |
 | `--lifecycle-inspector2` | `INSPECTOR2_LIFECYCLE_DELAY` | Inspector2 `ENABLING`/`DISABLING` window. |
+| `--lifecycle-apprunner` | `APPRUNNER_OPERATION_DELAY` | App Runner service `OPERATION_IN_PROGRESS` window after create/update/pause/resume/deploy/delete. |
+| `--lifecycle-workspaces` | `WORKSPACES_LIFECYCLE_DELAY` | WorkSpaces `PENDING` / directory `REGISTERING` window. |
+| `--lifecycle-quicksight` | `QUICKSIGHT_CREATION_DELAY` | QuickSight dashboard/analysis/data source `CREATION_IN_PROGRESS` window. |
+| `--lifecycle-quicksight-ingestion` | `QUICKSIGHT_INGESTION_DELAY` | QuickSight manual ingestion `RUNNING` window (built-in `1s`; ignores the global delay). |
+| `--lifecycle-kinesisanalyticsv2` | `KINESISANALYTICSV2_LIFECYCLE_DELAY` | Managed Flink application `STARTING`/`STOPPING`/`UPDATING` window. |
 | `--lifecycle-cloudfront` | `CLOUDFRONT_DEPLOY_DELAY` | CloudFront distribution `InProgress` window (default `100ms`). |
 | `--lifecycle-ssm-command` / `--lifecycle-ssm-automation` | `SSM_COMMAND_EXEC_DELAY` / `SSM_AUTOMATION_EXEC_DELAY` | SendCommand / automation `InProgress` window. |
 | *(none)* | `DYNAMODB_CREATE_DELAY` | DynamoDB table `CREATING` window. |
@@ -695,14 +700,14 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Bedrock](services/bedrock/README.md) | A | 80 | 1 gap; 3 structural gaps |
-| [Bedrock Agent](services/bedrockagent/README.md) | A | 77 | 1 gap; 3 structural gaps; 2 deferred |
+| [Bedrock Agent](services/bedrockagent/README.md) | A | 77 | 2 gaps; 3 structural gaps; 2 deferred |
 | [Bedrock Runtime](services/bedrockruntime/README.md) | A | 11 | 3 gaps; 5 structural gaps |
 | [Comprehend](services/comprehend/README.md) | A | 28 | 1 gap; 1 structural gap; 1 deferred |
 | [Forecast](services/forecast/README.md) | A | 21 | 1 gap |
 | [Personalize](services/personalize/README.md) | A | 74 | clean |
 | [Polly](services/polly/README.md) | A | 10 | clean |
 | [Rekognition](services/rekognition/README.md) | A | 50 | 3 structural gaps; 3 deferred |
-| [SageMaker](services/sagemaker/README.md) | A | 69 | 1 gap; 11 structural gaps |
+| [SageMaker](services/sagemaker/README.md) | A | 69 | 2 gaps; 11 structural gaps |
 | [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 1 structural gap |
 | [Textract](services/textract/README.md) | A | 25 | 2 structural gaps; 1 deferred |
 | [Transcribe](services/transcribe/README.md) | A | 43 | 2 structural gaps |

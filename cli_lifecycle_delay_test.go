@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/apprunner"
+	apprunnertypes "github.com/aws/aws-sdk-go-v2/service/apprunner/types"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	cftypes "github.com/aws/aws-sdk-go-v2/service/cloudfront/types"
 	configservice "github.com/aws/aws-sdk-go-v2/service/configservice"
@@ -20,14 +22,20 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/elasticsearchservice"
 	"github.com/aws/aws-sdk-go-v2/service/inspector2"
 	inspector2types "github.com/aws/aws-sdk-go-v2/service/inspector2/types"
+	"github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2"
+	kav2types "github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/mediastore"
 	"github.com/aws/aws-sdk-go-v2/service/memorydb"
 	"github.com/aws/aws-sdk-go-v2/service/neptune"
 	"github.com/aws/aws-sdk-go-v2/service/opensearch"
+	"github.com/aws/aws-sdk-go-v2/service/quicksight"
+	qstypes "github.com/aws/aws-sdk-go-v2/service/quicksight/types"
 	"github.com/aws/aws-sdk-go-v2/service/redshift"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	"github.com/aws/aws-sdk-go-v2/service/workspaces"
+	wstypes "github.com/aws/aws-sdk-go-v2/service/workspaces/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -472,6 +480,112 @@ func lifecycleKnobs() []lifecycleKnob {
 			},
 		},
 		{
+			name: "apprunner",
+			set:  func(l *LifecycleSettings, d time.Duration) { l.AppRunner = d },
+			start: func(t *testing.T, cfg aws.Config) func() bool {
+				t.Helper()
+
+				c := apprunner.NewFromConfig(cfg)
+				out, err := c.CreateService(t.Context(), &apprunner.CreateServiceInput{
+					ServiceName: aws.String("lcres"),
+					SourceConfiguration: &apprunnertypes.SourceConfiguration{
+						ImageRepository: &apprunnertypes.ImageRepository{
+							ImageIdentifier:     aws.String("public.ecr.aws/x/y:1"),
+							ImageRepositoryType: apprunnertypes.ImageRepositoryTypeEcrPublic,
+						},
+					},
+				})
+				require.NoError(t, err)
+
+				return func() bool {
+					d, dErr := c.DescribeService(t.Context(), &apprunner.DescribeServiceInput{
+						ServiceArn: out.Service.ServiceArn,
+					})
+					require.NoError(t, dErr)
+
+					return d.Service.Status == apprunnertypes.ServiceStatusOperationInProgress
+				}
+			},
+		},
+		{
+			name: "kinesisanalyticsv2",
+			set:  func(l *LifecycleSettings, d time.Duration) { l.KinesisAnalyticsV2 = d },
+			start: func(t *testing.T, cfg aws.Config) func() bool {
+				t.Helper()
+
+				c := kinesisanalyticsv2.NewFromConfig(cfg)
+				_, err := c.CreateApplication(t.Context(), &kinesisanalyticsv2.CreateApplicationInput{
+					ApplicationName:      aws.String("lcres"),
+					RuntimeEnvironment:   kav2types.RuntimeEnvironmentFlink118,
+					ServiceExecutionRole: aws.String("arn:aws:iam::000000000000:role/r"),
+				})
+				require.NoError(t, err)
+				_, err = c.StartApplication(t.Context(), &kinesisanalyticsv2.StartApplicationInput{
+					ApplicationName: aws.String("lcres"),
+				})
+				require.NoError(t, err)
+
+				return func() bool {
+					out, dErr := c.DescribeApplication(t.Context(), &kinesisanalyticsv2.DescribeApplicationInput{
+						ApplicationName: aws.String("lcres"),
+					})
+					require.NoError(t, dErr)
+
+					return out.ApplicationDetail.ApplicationStatus == kav2types.ApplicationStatusStarting
+				}
+			},
+		},
+		{
+			name: "workspaces",
+			set:  func(l *LifecycleSettings, d time.Duration) { l.WorkSpaces = d },
+			start: func(t *testing.T, cfg aws.Config) func() bool {
+				t.Helper()
+
+				c := workspaces.NewFromConfig(cfg)
+				_, err := c.RegisterWorkspaceDirectory(t.Context(), &workspaces.RegisterWorkspaceDirectoryInput{
+					DirectoryId:            aws.String("d-00000000"),
+					WorkspaceDirectoryName: aws.String("lcres"),
+				})
+				require.NoError(t, err)
+
+				return func() bool {
+					out, dErr := c.DescribeWorkspaceDirectories(
+						t.Context(),
+						&workspaces.DescribeWorkspaceDirectoriesInput{},
+					)
+					require.NoError(t, dErr)
+					require.Len(t, out.Directories, 1)
+
+					return out.Directories[0].State == wstypes.WorkspaceDirectoryStateRegistering
+				}
+			},
+		},
+		{
+			name: "quicksight",
+			set:  func(l *LifecycleSettings, d time.Duration) { l.QuickSight = d },
+			start: func(t *testing.T, cfg aws.Config) func() bool {
+				t.Helper()
+
+				c := quicksight.NewFromConfig(cfg)
+				_, err := c.CreateAnalysis(t.Context(), &quicksight.CreateAnalysisInput{
+					AwsAccountId: aws.String("000000000000"),
+					AnalysisId:   aws.String("lcres"),
+					Name:         aws.String("lcres"),
+				})
+				require.NoError(t, err)
+
+				return func() bool {
+					out, dErr := c.DescribeAnalysis(t.Context(), &quicksight.DescribeAnalysisInput{
+						AwsAccountId: aws.String("000000000000"),
+						AnalysisId:   aws.String("lcres"),
+					})
+					require.NoError(t, dErr)
+
+					return out.Analysis.Status == qstypes.ResourceStatusCreationInProgress
+				}
+			},
+		},
+		{
 			name: "dynamodb",
 			set:  func(*LifecycleSettings, time.Duration) {},
 			start: func(t *testing.T, cfg aws.Config) func() bool {
@@ -674,6 +788,71 @@ func TestLifecycleDelayCloudFront(t *testing.T) {
 			}
 
 			require.Eventually(t, func() bool { return status() == "Deployed" }, 15*time.Second, 50*time.Millisecond)
+		})
+	}
+}
+
+func TestLifecycleDelayQuickSightIngestion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		life       LifecycleSettings
+		wantHeld   bool
+		wantSettle bool
+	}{
+		{name: "explicit holds", life: LifecycleSettings{QuickSightIngestion: lifecycleLongDelay}, wantHeld: true},
+		{name: "global ignored", life: LifecycleSettings{Delay: lifecycleLongDelay}, wantSettle: true},
+		{name: "short settles", life: LifecycleSettings{QuickSightIngestion: lifecycleShortDelay}, wantSettle: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := quicksight.NewFromConfig(newWiredSDKConfig(t, CLI{Lifecycle: tt.life}))
+			_, err := c.CreateDataSet(t.Context(), &quicksight.CreateDataSetInput{
+				AwsAccountId: aws.String("000000000000"),
+				DataSetId:    aws.String("lcds"),
+				Name:         aws.String("lcds"),
+				ImportMode:   qstypes.DataSetImportModeSpice,
+				PhysicalTableMap: map[string]qstypes.PhysicalTable{
+					"pt1": &qstypes.PhysicalTableMemberRelationalTable{Value: qstypes.RelationalTable{
+						DataSourceArn: aws.String("arn:aws:quicksight:us-east-1:000000000000:datasource/ds1"),
+						Name:          aws.String("table1"),
+						InputColumns: []qstypes.InputColumn{
+							{Name: aws.String("col1"), Type: qstypes.InputColumnDataTypeString},
+						},
+					}},
+				},
+			})
+			require.NoError(t, err)
+
+			_, err = c.CreateIngestion(t.Context(), &quicksight.CreateIngestionInput{
+				AwsAccountId: aws.String("000000000000"),
+				DataSetId:    aws.String("lcds"),
+				IngestionId:  aws.String("i1"),
+			})
+			require.NoError(t, err)
+
+			running := func() bool {
+				out, dErr := c.DescribeIngestion(t.Context(), &quicksight.DescribeIngestionInput{
+					AwsAccountId: aws.String("000000000000"),
+					DataSetId:    aws.String("lcds"),
+					IngestionId:  aws.String("i1"),
+				})
+				require.NoError(t, dErr)
+
+				return out.Ingestion.IngestionStatus == qstypes.IngestionStatusRunning
+			}
+
+			if tt.wantHeld {
+				assert.True(t, running())
+			}
+
+			if tt.wantSettle {
+				require.Eventually(t, func() bool { return !running() }, 15*time.Second, 50*time.Millisecond)
+			}
 		})
 	}
 }
