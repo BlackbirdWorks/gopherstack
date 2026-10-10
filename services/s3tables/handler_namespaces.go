@@ -104,10 +104,15 @@ func (h *Handler) handleListNamespaces(ctx context.Context, r *http.Request, _ [
 	bucketARN := segs[1]
 	q := r.URL.Query()
 
+	limit, limitErr := queryLimit(q, "maxNamespaces")
+	if limitErr != nil {
+		return nil, limitErr
+	}
+
 	pg, err := h.Backend.ListNamespaces(bucketARN, ListNamespacesParams{
 		Prefix:            q.Get("prefix"),
 		ContinuationToken: q.Get(keyContinuationToken),
-		MaxNamespaces:     queryInt(q, "maxNamespaces"),
+		MaxNamespaces:     limit,
 	})
 	if err != nil {
 		return nil, err

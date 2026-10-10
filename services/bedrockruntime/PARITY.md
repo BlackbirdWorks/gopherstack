@@ -7,7 +7,7 @@
 service: bedrockruntime
 sdk_module: aws-sdk-go-v2/service/bedrockruntime@v1.57.1   # unchanged this pass; re-verified against go.mod pin
 last_audit_commit: d4dc4a723
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # 2026-09-04: fixed two real bugs. (1) ListAsyncInvokes silently ignored
                       # submitTimeAfter/submitTimeBefore/sortOrder (ListAsyncInvokesInput fields,
                       # httpQuery-bound in serializers.go's
@@ -73,6 +73,8 @@ leaks: {status: clean, note: "2026-09-04: re-verified; janitor (RunJanitor/Start
 ---
 
 ## Notes
+
+**2026-10-10 (realism pass)**: Converse/ConverseStream now enforce conversation shape (starts with user, roles alternate, non-empty content, role enum), inferenceConfig bounds (maxTokens>=1, temperature/topP 0..1), toolConfig (>=1 tool, tool-name pattern, single-member toolChoice naming a declared tool); modelId must match the service-model character set. ApplyGuardrail and Converse/Invoke guardrail references are checked against the bedrock control-plane registry (lazy, per region) and return ResourceNotFoundException; resolved per call because cli.go stores handlers after Init. ListAsyncInvokes rejects maxResults outside 1..1000 and an unknown nextToken. Error messages no longer repeat the Exception code. Lenient: unknown (well-formed) model IDs and empty messages are still accepted.
 
 - **2026-10-01**: StartAsyncInvoke now rejects a missing modelInput with ValidationException (TestAsyncInvoke_MissingS3URI_Returns400/missing modelInput); the real SDK enforces it client-side, so only raw callers see this.
 

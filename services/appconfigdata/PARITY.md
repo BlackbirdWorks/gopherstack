@@ -2,7 +2,7 @@
 service: appconfigdata
 sdk_module: aws-sdk-go-v2/service/appconfigdata@v1.26.4   # version audited against
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: 0aba172b526c53ba24aaf135c063a37ba136f7f5
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # both ops re-verified field-by-field against v1.26.4's generated
                        # serializers.go/deserializers.go/types.go/errors.go/enums.go plus
                        # botocore 1.43.56's bundled service-2.json.gz -- zero new bugs found
@@ -16,6 +16,8 @@ leaks: {status: clean, note: "janitor.go SessionSweeper ticker is ctx-parented v
 ---
 
 ## Notes
+
+**2026-10-10 (realism pass)**: probed session token rotation, reused-token grace replay, poll-interval bounds (0 or 15..86400), unchanged-config empty body and unknown-identifier ResourceNotFoundException with the AWS CLI; no deviations found, no code changes.
 
 ### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
 

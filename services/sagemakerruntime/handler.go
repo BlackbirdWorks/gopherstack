@@ -160,18 +160,8 @@ func (h *Handler) homeHandler() echo.HandlerFunc {
 
 		op := pathToOperation(r.URL.Path)
 
-		if op != opInvokeEndpointAsync {
-			t := h.Backend.validateInvokeTargets(
-				r.Context(), endpointName, r.Header.Get(headerInferenceComponent),
-				r.Header.Get(headerTargetContainer), r.Header.Get(headerTargetVariant),
-			)
-			if t.errMsg != "" {
-				return c.JSON(http.StatusBadRequest, errorResponse("ValidationError", t.errMsg))
-			}
-
-			if t.variant != "" && r.Header.Get(headerTargetVariant) == "" {
-				r.Header.Set(headerTargetVariant, t.variant)
-			}
+		if msg := h.validateInvoke(r, endpointName, op); msg != "" {
+			return c.JSON(http.StatusBadRequest, errorResponse("ValidationError", msg))
 		}
 
 		switch op {
@@ -417,4 +407,30 @@ func buildEventStreamHeaders(hdrs [][2]string) []byte {
 	}
 
 	return buf[:n]
+}
+
+// validateInvoke checks header constraints and invoke targets; "" means valid. It may default
+// the TargetVariant request header from an inference component.
+func (h *Handler) validateInvoke(r *http.Request, endpointName, op string) string {
+	if msg := validateRequestHeaders(r.Header); msg != "" {
+		return msg
+	}
+
+	if op == opInvokeEndpointAsync {
+		return ""
+	}
+
+	t := h.Backend.validateInvokeTargets(
+		r.Context(), endpointName, r.Header.Get(headerInferenceComponent),
+		r.Header.Get(headerTargetContainer), r.Header.Get(headerTargetVariant),
+	)
+	if t.errMsg != "" {
+		return t.errMsg
+	}
+
+	if t.variant != "" && r.Header.Get(headerTargetVariant) == "" {
+		r.Header.Set(headerTargetVariant, t.variant)
+	}
+
+	return ""
 }

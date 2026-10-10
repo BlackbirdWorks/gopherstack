@@ -2,7 +2,7 @@
 service: sagemakerruntime
 sdk_module: aws-sdk-go-v2/service/sagemakerruntime@v1.43.4
 last_audit_commit: ab7ac08a7
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # 2026-09-18: fixed InvokeEndpointAsync.Filename (was read nowhere; now shapes the generated OutputLocation's final path segment, per its doc "generates a filename based on the inference ID"); InvocationTimeoutSeconds/RequestTTLSeconds recorded as structural (no output member, no queue to expire)
 ops:
   InvokeEndpoint: {wire: ok, errors: ok, state: ok, persist: n/a, note: "sync op; EndpointName is now validated against the wired services/sagemaker endpoint registry (existence + InService); NewSessionId's Expires= attribute now matches the SDK's RFC-3339 wire format; ClosedSessionId is now emitted when an expired session is touched. body is an opaque mock, other headers round-trip correctly"}
@@ -21,6 +21,8 @@ leaks: {status: clean, note: "sessions/asyncInvocations/invocations are all FIFO
 ---
 
 ## Notes
+
+**2026-10-10 (realism pass)**: the EndpointName/InService check never ran in a real server -- Provider.Init looked up the SageMaker handler before cli.go stored it, so the lookup stayed nil and unknown endpoints returned 200. The lookup is now resolved per call (lazyEndpointLookup). Also new: unknown TargetVariant gives ValidationError; header constraints from the service model (CustomAttributes <=1024, InferenceId <=64, InputLocation must be an s3/https URI, RequestTTLSeconds 60..21600, InvocationTimeoutSeconds 1..3600, SessionId and TargetVariant patterns) give ValidationError. Not emulated: ModelError (no model container).
 
 Protocol: restjson1. Three ops, disambiguated purely by path suffix (no
 X-Amz-Target header): `/endpoints/{EndpointName}/invocations`,

@@ -2,6 +2,7 @@ package sagemakerruntime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
@@ -39,17 +40,20 @@ func (b *InMemoryBackend) validateInvokeTargets(
 	var out invokeTargets
 
 	if component != "" {
-		if cl, isCL := lookup.(componentLookup); isCL {
-			ic, err := cl.DescribeInferenceComponent(ctx, component)
-			if err != nil || ic == nil || ic.EndpointName != endpointName ||
-				ic.InferenceComponentStatus != "InService" {
-				return invokeTargets{errMsg: fmt.Sprintf(
-					"Inference Component %s not found on endpoint %s.", component, endpointName,
-				)}
-			}
-
-			out.variant = ic.VariantName
+		msg, variant, skip := resolveComponent(ctx, lookup, endpointName, component)
+		if msg != "" {
+			return invokeTargets{errMsg: msg}
 		}
+
+		if skip {
+			return out
+		}
+
+		out.variant = variant
+	}
+
+	if targetVariant != "" && component == "" && !variantExists(ctx, lookup, endpointName, targetVariant) {
+		return invokeTargets{errMsg: fmt.Sprintf("Variant %s not found on endpoint %s.", targetVariant, endpointName)}
 	}
 
 	if container != "" && !containerExists(ctx, lookup, endpointName, container, targetVariant) {
@@ -110,4 +114,53 @@ func modelHasContainer(m *sagemaker.Model, hostname string) bool {
 	}
 
 	return false
+}
+
+// variantExists is true when the endpoint's variants cannot be resolved.
+func variantExists(ctx context.Context, lookup EndpointLookup, endpointName, variant string) bool {
+	cl, ok := lookup.(containerLookup)
+	if !ok {
+		return true
+	}
+
+	ep, err := lookup.DescribeEndpoint(ctx, endpointName)
+	if err != nil || ep == nil {
+		return true
+	}
+
+	cfg, err := cl.DescribeEndpointConfig(ctx, ep.EndpointConfigName)
+	if err != nil || cfg == nil || len(cfg.ProductionVariants) == 0 {
+		return true
+	}
+
+	for _, pv := range cfg.ProductionVariants {
+		if pv.VariantName == variant {
+			return true
+		}
+	}
+
+	return false
+}
+
+// resolveComponent looks the inference component up; skip is true when no registry is available.
+func resolveComponent(
+	ctx context.Context,
+	lookup EndpointLookup,
+	endpointName, component string,
+) (string, string, bool) {
+	cl, isCL := lookup.(componentLookup)
+	if !isCL {
+		return "", "", false
+	}
+
+	ic, err := cl.DescribeInferenceComponent(ctx, component)
+	if errors.Is(err, errEndpointLookupUnavailable) {
+		return "", "", true
+	}
+
+	if err != nil || ic == nil || ic.EndpointName != endpointName || ic.InferenceComponentStatus != "InService" {
+		return fmt.Sprintf("Inference Component %s not found on endpoint %s.", component, endpointName), "", false
+	}
+
+	return "", ic.VariantName, false
 }

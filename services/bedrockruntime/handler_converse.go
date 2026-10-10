@@ -54,6 +54,18 @@ func validateConverseConfig(req *converseRequest) string {
 		return msg
 	}
 
+	if msg := validateConverseMessages(req.Messages); msg != "" {
+		return msg
+	}
+
+	if msg := validateInferenceConfig(req.InferenceConfig); msg != "" {
+		return msg
+	}
+
+	if msg := validateToolConfig(req.ToolConfig); msg != "" {
+		return msg
+	}
+
 	return validateGuardrailConfig(req.GuardrailConfig)
 }
 
@@ -128,6 +140,10 @@ func (h *Handler) handleConverse(
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
 	}
 
+	if written, err := h.converseGuardrailMissing(c, req.GuardrailConfig); written {
+		return err
+	}
+
 	resp := buildConverseResponse(&req)
 	echoConverseConfig(resp, &req)
 
@@ -158,6 +174,10 @@ func (h *Handler) handleConverseStream(
 
 	if msg := validateConverseConfig(&req); msg != "" {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
+	}
+
+	if written, err := h.converseGuardrailMissing(c, req.GuardrailConfig); written {
+		return err
 	}
 
 	inputTokens := estimateTokensFromMessages(req.Messages, req.System)

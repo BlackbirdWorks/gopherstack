@@ -7,7 +7,7 @@
 service: s3tables
 sdk_module: aws-sdk-go-v2/service/s3tables@v1.18.4   # version audited against
 last_audit_commit: 6c5c49416
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # 2026-09-04 FIXED: two missing-precondition bugs (see Notes). DeleteTable silently
                       # accepted a stale/omitted optional versionToken and always succeeded -- real
                       # DeleteTableInput.VersionToken is optional but, when supplied, is an optimistic-
@@ -108,6 +108,8 @@ CreateTable Metadata is validated (required members and enums of IcebergMetadata
 the table (`TestCreateTable_IcebergMetadata`).
 
 ## Notes
+
+**2026-10-10 (realism pass)**: probed with the AWS CLI. Fixed: error messages repeated the code under x-amzn-errortype; list maxBuckets/maxNamespaces/maxTables outside 1..1000 were silently ignored (now BadRequestException); ListTableBuckets type outside customer|aws silently returned empty; Put*Policy accepted non-JSON; PutTableBucketEncryption accepted any sseAlgorithm (now AES256|aws:kms, kmsKeyArn required for kms); Put*MaintenanceConfiguration accepted any status (now enabled|disabled). Lenient on purpose: UpdateTableMetadataLocation accepts any s3:// .json location, not only the table warehouse (in-repo callers and fixtures use arbitrary buckets).
 
 ### 2026-09-19 (requiredoutputfields census, gopherstack-r80d): 0 findings
 

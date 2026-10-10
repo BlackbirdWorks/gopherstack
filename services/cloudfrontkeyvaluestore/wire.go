@@ -23,7 +23,7 @@ type getKeyOutput struct {
 // is a header -- only Value travels in the JSON document per
 // awsRestjson1_serializeOpDocumentPutKeyInput).
 type putKeyInput struct {
-	Value string `json:"Value"`
+	Value *string `json:"Value"`
 }
 
 // mutateKeyOutput is the shared body shape of PutKeyOutput, DeleteKeyOutput,
@@ -40,6 +40,13 @@ type keyValuePairJSON struct {
 	Value string `json:"Value"`
 }
 
+// putItemJSON is UpdateKeys' PutKeyRequestListItem as received: Key and
+// Value are both required members.
+type putItemJSON struct {
+	Key   *string `json:"Key"`
+	Value *string `json:"Value"`
+}
+
 // deleteKeyItemJSON is DeleteKeyRequestListItem -- a bare {"Key": "..."},
 // not a plain string, per awsRestjson1_serializeDocumentDeleteKeyRequestListItem.
 type deleteKeyItemJSON struct {
@@ -48,7 +55,7 @@ type deleteKeyItemJSON struct {
 
 // updateKeysInput is UpdateKeysInput's body.
 type updateKeysInput struct {
-	Puts    []keyValuePairJSON  `json:"Puts"`
+	Puts    []putItemJSON       `json:"Puts"`
 	Deletes []deleteKeyItemJSON `json:"Deletes"`
 }
 

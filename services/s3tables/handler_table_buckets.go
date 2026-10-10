@@ -95,11 +95,20 @@ func (h *Handler) handleDeleteTableBucket(ctx context.Context, r *http.Request, 
 func (h *Handler) handleListTableBuckets(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
 	q := r.URL.Query()
 
+	limit, limitErr := queryLimit(q, "maxBuckets")
+	if limitErr != nil {
+		return nil, limitErr
+	}
+
+	if tp := q.Get(keyType); tp != "" && tp != "customer" && tp != "aws" {
+		return nil, fmt.Errorf("%w: type must be customer or aws", errInvalidRequest)
+	}
+
 	pg, err := h.Backend.ListTableBuckets(ListTableBucketsParams{
 		Prefix:            q.Get("prefix"),
 		Type:              q.Get(keyType),
 		ContinuationToken: q.Get(keyContinuationToken),
-		MaxBuckets:        queryInt(q, "maxBuckets"),
+		MaxBuckets:        limit,
 	})
 	if err != nil {
 		return nil, err
@@ -190,6 +199,10 @@ func (h *Handler) handlePutTableBucketMaintenanceConfiguration(
 
 	if req.Value == nil {
 		return nil, fmt.Errorf("%w: value is required", errInvalidRequest)
+	}
+
+	if err := validateMaintenanceStatus(req.Value); err != nil {
+		return nil, err
 	}
 
 	if err := h.Backend.PutTableBucketMaintenanceConfiguration(bucketARN, maintenanceType, req.Value); err != nil {
@@ -417,6 +430,10 @@ func (h *Handler) handlePutTableBucketPolicy(ctx context.Context, r *http.Reques
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if err := validatePolicyDocument(req.ResourcePolicy); err != nil {
+		return nil, err
+	}
+
 	if err := h.Backend.PutTableBucketPolicy(bucketARN, req.ResourcePolicy); err != nil {
 		return nil, err
 	}
@@ -461,6 +478,10 @@ func (h *Handler) handlePutTableBucketEncryption(ctx context.Context, r *http.Re
 	var req putTableBucketEncryptionRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := validateEncryptionConfiguration(req.EncryptionConfiguration); err != nil {
+		return nil, err
 	}
 
 	if err := h.Backend.PutTableBucketEncryption(bucketARN, req.EncryptionConfiguration); err != nil {
