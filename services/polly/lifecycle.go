@@ -27,13 +27,17 @@ func taskStage(status string) int {
 // settleTaskLocked advances task; the caller holds the write lock.
 func (b *InMemoryBackend) settleTaskLocked(task *SpeechSynthesisTask) {
 	if b.lifecycleDelay <= 0 {
-		advanceTask(task)
+		if advanceTask(task) {
+			b.deliverTaskOutputLocked(task)
+		}
 
 		return
 	}
 
 	desired := min(int(time.Since(task.CreationTime)/b.lifecycleDelay), taskStagesToTerminal)
 	for taskStage(task.TaskStatus) < desired {
-		advanceTask(task)
+		if advanceTask(task) {
+			b.deliverTaskOutputLocked(task)
+		}
 	}
 }

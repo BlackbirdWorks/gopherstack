@@ -36,8 +36,17 @@ func resourceStage(status string) int {
 	}
 }
 
-// settleJobLocked advances job; the caller holds the write lock.
+// settleJobLocked advances job and delivers its output on completion; the caller holds the write lock.
 func (b *InMemoryBackend) settleJobLocked(job *Job) {
+	before := job.JobStatus
+	b.advanceJobStagesLocked(job)
+
+	if before != statusCompleted && job.JobStatus == statusCompleted {
+		b.deliverJobOutputLocked(job)
+	}
+}
+
+func (b *InMemoryBackend) advanceJobStagesLocked(job *Job) {
 	if b.lifecycleDelay <= 0 {
 		advanceJob(job)
 

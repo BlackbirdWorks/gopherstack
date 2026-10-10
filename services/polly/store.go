@@ -78,12 +78,14 @@ const (
 // applies here) and never survive a restart, matching real AWS throttle
 // state.
 type InMemoryBackend struct {
-	lexicons        *store.Table[Lexicon]
-	tasks           *store.Table[SpeechSynthesisTask]
-	registry        *store.Registry
+	s3Writer        S3Writer
+	appConfig       any
 	mu              *lockmetrics.RWMutex
+	lexicons        *store.Table[Lexicon]
 	nowFunc         func() time.Time
 	streamRequests  map[string][]time.Time
+	registry        *store.Registry
+	tasks           *store.Table[SpeechSynthesisTask]
 	accountID       string
 	region          string
 	voices          []Voice

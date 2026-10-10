@@ -126,10 +126,7 @@ func (h *Handler) handleGetTranscriptionJob(
 
 func buildTranscriptURI(job *TranscriptionJob) string {
 	if job.OutputBucketName != "" {
-		key := job.OutputKey
-		if key == "" {
-			key = job.JobName + ".json"
-		}
+		key := outputObjectKey(job.OutputKey, job.JobName)
 
 		return "s3://" + job.OutputBucketName + "/" + key
 	}

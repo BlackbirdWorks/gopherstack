@@ -7,7 +7,7 @@
 service: textract
 sdk_module: aws-sdk-go-v2/service/textract@v1.43.4   # bumped from v1.41.0 pin; AdaptersConfig/HumanLoopConfig field-diffed this pass
 last_audit_commit: 49cff86c4
-last_audit_date: 2026-10-10
+last_audit_date: 2026-10-07
 overall: A            # 2026-08-20: wrapper-key/nested-shape sweep. Two real pattern-(a) fixes
                       # (AnalyzeIDDetections.Geometry fabricated field removed; Extraction.IdentityDocument
                       # missing field added), both latent/never-emitted in current mock data -- see the
@@ -495,3 +495,7 @@ Clean. UpdateAdapter changes only the members present (AdapterName, Description,
 - Added `SetAsyncJobDelay` (default stays 200ms; the existing time-driven completion).
 - Empty Document (no Bytes, no S3Object) on DetectDocumentText/AnalyzeDocument/AnalyzeExpense is InvalidParameterException. JobTag, ClientRequestToken, NotificationChannel ARNs and AdapterName are pattern-validated; non-base64 NextToken is rejected on Get* and List* ops.
 - MaxResults above 1000 stays clamped, as the Get* docs state ("a maximum of 1,000 results is returned"). Error messages no longer repeat the exception code.
+
+### 2026-10-07: OutputConfig job output written to S3
+
+When `OutputConfig.S3Bucket` is set, Start{DocumentTextDetection,DocumentAnalysis,ExpenseAnalysis,LendingAnalysis} write `<S3Prefix>/<JobId>/.s3_access_check` and `<S3Prefix>/<JobId>/1` (Get*-shaped page: DocumentMetadata, Blocks/ExpenseDocuments/Results, model version) on SUCCEEDED, via `S3Writer`/`SetS3Writer` or the emulated S3 from `AppContext.Config`. Unverified: multi-page splitting into `2`, `3`... (we emit a single file) and exact `.s3_access_check` content (empty). A failed write marks the job FAILED. Adapter-version OutputConfig is unchanged.

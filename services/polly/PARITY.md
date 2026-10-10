@@ -7,7 +7,7 @@
 service: polly
 sdk_module: aws-sdk-go-v2/service/polly@v1.60.4   # version audited against
 last_audit_commit: c9523cebb
-last_audit_date: 2026-10-10
+last_audit_date: 2026-10-07
 overall: A            # two real bugs found and fixed this pass (StartSpeechSynthesisStream accepted non-generative Engine values; StartSpeechSynthesisTask shared SynthesizeSpeech's wider mp3/ogg_vorbis SampleRate set)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -666,3 +666,7 @@ GetLexicon/ListLexicons attributes are derived from the root `<lexicon>` tag onl
 - Added `SetLifecycleDelay` (default 0): synthesis tasks go scheduled, inProgress, then terminal by elapsed time, visible through ListSpeechSynthesisTasks. Default keeps advance-per-poll.
 - DescribeVoices rejects an unknown LanguageCode (derived from the SDK enum) and any NextToken (none is ever issued): InvalidNextTokenException. Error messages no longer repeat the exception code.
 - Open: completed tasks do not write audio to the S3 output URI; that needs an S3 backend hook wired from cli.go (not done here).
+
+### 2026-10-07: synthesis task output written to S3
+
+On reaching `completed`, StartSpeechSynthesisTask writes the synthesized audio (or speech-mark JSON) to `OutputS3BucketName/OutputS3KeyPrefix<TaskId>.<ext>` via `S3Writer` (`SetS3Writer`) or the emulated S3 resolved lazily from `AppContext.Config`; a failed write fails the task with `TaskStatusReason`. No writer: behaviour unchanged. Unverified: real AWS emits `OutputUri` as an https S3 URL with a `.` between prefix and TaskId; we keep the s3:// form.

@@ -125,7 +125,7 @@ func validateChannelDefinitions(defs []ChannelDefinition) error {
 			return fmt.Errorf("%w: each ChannelDefinition must have a ParticipantRole", ErrValidation)
 		}
 
-		if d.ParticipantRole != "AGENT" && d.ParticipantRole != "CUSTOMER" {
+		if d.ParticipantRole != roleAgent && d.ParticipantRole != roleCustomer {
 			return fmt.Errorf("%w: ParticipantRole %q must be AGENT or CUSTOMER", ErrValidation, d.ParticipantRole)
 		}
 
@@ -306,6 +306,11 @@ func (b *InMemoryBackend) StartCallAnalyticsJob(input *CallAnalyticsJob) (*CallA
 	job.CreationTime = now
 	job.StartTime = now
 	job.CompletionTime = now
+	if bucket, key := splitOutputLocation(job.OutputLocation, job.CallAnalyticsJobName); job.OutputLocation != "" &&
+		!b.putOutputLocked(bucket, key, synthesizeCallAnalyticsJSON(&job)) {
+		job.CallAnalyticsJobStatus = jobStatusFailed
+		job.FailureReason = outputWriteFailure
+	}
 	b.callAnalyticsJobs.Put(&job)
 	b.recordResourceTagsLocked(b.resourceARN(resourceTypeCallAnalyticsJob, job.CallAnalyticsJobName), job.Tags)
 

@@ -131,11 +131,8 @@ func (h *Handler) detectSentiment(input map[string]any) (map[string]any, error) 
 	sentiment, posScore, negScore, neuScore, mixScore := sentimentResult(posCount, negCount)
 
 	return map[string]any{
-		"Sentiment": sentiment,
-		"SentimentScore": map[string]float64{
-			"Positive": posScore, "Negative": negScore,
-			"Neutral": neuScore, "Mixed": mixScore,
-		},
+		"Sentiment":      sentiment,
+		"SentimentScore": sentimentScoreMap(posScore, negScore, neuScore, mixScore),
 	}, nil
 }
 
@@ -632,4 +629,8 @@ func (h *Handler) detectTargetedSentiment(input map[string]any) (map[string]any,
 	return map[string]any{
 		fieldEntities: entities,
 	}, nil
+}
+
+func sentimentScoreMap(pos, neg, neu, mix float64) map[string]float64 {
+	return map[string]float64{"Positive": pos, "Negative": neg, "Neutral": neu, "Mixed": mix}
 }

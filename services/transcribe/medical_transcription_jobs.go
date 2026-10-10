@@ -102,6 +102,11 @@ func (b *InMemoryBackend) StartMedicalTranscriptionJob(
 	job.CompletionTime = now
 	job.TranscriptJSON = synthesizeTranscriptJSON(input.MedicalTranscriptionJobName,
 		"Medical transcription result for "+input.MedicalTranscriptionJobName+".")
+	key := outputObjectKey(job.OutputKey, job.MedicalTranscriptionJobName)
+	if !b.putOutputLocked(job.OutputBucketName, key, job.TranscriptJSON) {
+		job.TranscriptionJobStatus = jobStatusFailed
+		job.FailureReason = outputWriteFailure
+	}
 	b.medicalTranscriptionJobs.Put(&job)
 	b.recordResourceTagsLocked(
 		b.resourceARN(resourceTypeMedicalTranscriptionJob, job.MedicalTranscriptionJobName), job.Tags,

@@ -31,16 +31,18 @@ import (
 // maps: their values are not *T (map[string]string / string), so they do not
 // fit store.Table's keyed-by-identity-value shape.
 type InMemoryBackend struct {
-	jobs             *store.Table[Job]
-	resources        *store.Table[Resource]
-	iterations       *store.Table[FlywheelIteration]
+	s3Writer         S3Writer
+	appConfig        any
+	policyRevisions  map[string]string
 	registry         *store.Registry
 	tags             map[string]map[string]string
 	policies         map[string]string
-	policyRevisions  map[string]string
+	jobs             *store.Table[Job]
 	policyCreatedAt  map[string]time.Time
 	policyModifiedAt map[string]time.Time
 	mu               *lockmetrics.RWMutex
+	iterations       *store.Table[FlywheelIteration]
+	resources        *store.Table[Resource]
 	accountID        string
 	region           string
 	lifecycleDelay   time.Duration

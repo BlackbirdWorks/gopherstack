@@ -55,6 +55,7 @@ func (b *InMemoryBackend) StartTranscriptionJob(input *TranscriptionJob) (*Trans
 		job = buildQueuedTranscriptionJob(input)
 	}
 
+	b.deliverTranscriptionOutputLocked(&job)
 	b.jobs.Put(&job)
 	b.recordResourceTagsLocked(b.resourceARN(resourceTypeTranscriptionJob, job.JobName), job.Tags)
 	cp := job
@@ -112,7 +113,7 @@ func buildCompletedTranscriptionJob(input *TranscriptionJob) TranscriptionJob {
 	return job
 }
 
-func advanceDeferredTranscriptionJob(job *TranscriptionJob) {
+func (b *InMemoryBackend) advanceDeferredTranscriptionJob(job *TranscriptionJob) {
 	switch job.JobStatus {
 	case jobStatusQueued:
 		job.JobStatus = jobStatusInProgress
@@ -130,6 +131,20 @@ func advanceDeferredTranscriptionJob(job *TranscriptionJob) {
 		completed.StartTime = job.StartTime
 		completed.CompletionTime = time.Now()
 		*job = completed
+		b.deliverTranscriptionOutputLocked(job)
+	}
+}
+
+// deliverTranscriptionOutputLocked writes a completed job's transcript; a failed write fails the job.
+func (b *InMemoryBackend) deliverTranscriptionOutputLocked(job *TranscriptionJob) {
+	if job.JobStatus != jobStatusCompleted {
+		return
+	}
+
+	key := outputObjectKey(job.OutputKey, job.JobName)
+	if !b.putOutputLocked(job.OutputBucketName, key, job.TranscriptJSON) {
+		job.JobStatus = jobStatusFailed
+		job.FailureReason = outputWriteFailure
 	}
 }
 
@@ -165,7 +180,7 @@ func (b *InMemoryBackend) GetTranscriptionJob(jobName string) (*TranscriptionJob
 		return nil, fmt.Errorf("%w: job %s not found", ErrNotFound, jobName)
 	}
 
-	advanceDeferredTranscriptionJob(job)
+	b.advanceDeferredTranscriptionJob(job)
 	cp := *job
 	b.observeTranscriptionJob(&cp)
 	cp.Tags = b.liveTagsLocked(b.resourceARN(resourceTypeTranscriptionJob, job.JobName))

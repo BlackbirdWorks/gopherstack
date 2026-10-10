@@ -7,7 +7,7 @@
 service: comprehend
 sdk_module: aws-sdk-go-v2/service/comprehend@v1.43.4
 last_audit_commit: a2084957b
-last_audit_date: 2026-10-10
+last_audit_date: 2026-10-07
 overall: A            # 2026-08-29 (later same day, wrapper-key/constraint-parameter sweep): the
                       # enum-VALUE pass below claimed Filter support was "NEW" and complete across
                       # every List*Jobs/List<Resource>s op -- it was, except ListFlywheelIterationHistory,
@@ -838,3 +838,7 @@ DetectPiiEntities no longer emits a Text member; types.PiiEntity has only BeginO
 - Added `SetLifecycleDelay` (default 0): with a delay, async jobs go SUBMITTED, IN_PROGRESS, terminal by elapsed time and are visible through List*Jobs, not only Describe; classifier/recognizer training starts at SUBMITTED, then TRAINING, then TRAINED. Default keeps advance-per-Describe and instant training.
 - JobName must match the documented pattern (1-256 chars); `[` `]` stay allowed so the `[fail]` marker works. MaxResults outside 1-500 and non-numeric NextToken return InvalidRequestException (limits confirmed against the Comprehend API reference).
 - Error messages no longer repeat the exception code (`errMessage`). Tests: `TestRealism_*` (realism_test.go).
+
+### 2026-10-07: async job output archive written to S3
+
+On COMPLETED, jobs write `<OutputDataConfig.S3Uri>/<AccountId>-<CODE>-<JobId>/output/output.tar.gz` via `S3Writer`/`SetS3Writer` or the emulated S3 from `AppContext.Config`. Archive members: `output` (JSON lines) for entities/key phrases/sentiment/PII/targeted sentiment/language/events, `predictions.jsonl` for classification, `doc-topics.csv` + `topics-terms.csv` for topics. Unverified: the CODE abbreviations (NER, KP, SENTIMENT, PII, TOPICS, CLN, TS, LANGUAGE, EVENTS) and per-line fields are from memory, and result bodies are structurally correct but empty of detected content. A failed write marks the job FAILED.

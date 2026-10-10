@@ -7,7 +7,7 @@
 service: transcribe
 sdk_module: aws-sdk-go-v2/service/transcribe@v1.64.0   # version audited against
 last_audit_commit: 7480cad08                      # HEAD after the 2026-09-19 list-summary-shapes sweep
-last_audit_date: 2026-10-10
+last_audit_date: 2026-10-07
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -560,3 +560,7 @@ Re-checked the 3 `OutputEncryptionKMSKeyId` findings (CallAnalytics, MedicalScri
 - Added `SetLifecycleDelay` (default 0): transcription, medical transcription, call analytics and scribe jobs report IN_PROGRESS (no Transcript URI, no CompletionTime), vocabularies/medical vocabularies PENDING and language models IN_PROGRESS until the delay elapses, including in List filters.
 - Vocabulary, vocabulary filter, medical vocabulary, language model and category names are pattern-validated; the three job-name errors now report the pattern instead of "is required". List Status/StateEquals/StatusEquals use the SDK enums; MaxResults above 100 and non-numeric NextToken are BadRequestException (range confirmed against the ListTranscriptionJobs API reference).
 - Kept lenient: StartMedicalTranscriptionJob without OutputBucketName (a synthetic bucket is used; in-repo tests rely on it). Error messages no longer repeat the exception code.
+
+### 2026-10-07: job output written to S3
+
+StartTranscriptionJob (immediate and deferred, on completion), StartMedicalTranscriptionJob and StartCallAnalyticsJob write the transcript JSON to `OutputBucketName/OutputKey` (a trailing `/` or empty key resolves to `<JobName>.json`, per the SDK OutputKey doc) or the `OutputLocation` URI, through `S3Writer`/`SetS3Writer` or the emulated S3 from `AppContext.Config`. Service-managed (no bucket) output is not written. A failed write fails the job. Call Analytics output uses its own schema (JobName, AccountId, JobStatus, LanguageCode, Participants, Transcript segments, ConversationCharacteristics); the exact field set was not verifiable from docs and is minimal. With `SetLifecycleDelay` the object appears at Start although the job reports IN_PROGRESS. Medical scribe, redacted-transcript and subtitle files are not written.

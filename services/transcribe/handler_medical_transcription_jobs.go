@@ -33,10 +33,7 @@ type medicalTranscriptionJobOutput struct {
 
 func buildMedicalTranscriptURI(job *MedicalTranscriptionJob) string {
 	if job.OutputBucketName != "" {
-		key := job.OutputKey
-		if key == "" {
-			key = job.MedicalTranscriptionJobName + ".json"
-		}
+		key := outputObjectKey(job.OutputKey, job.MedicalTranscriptionJobName)
 
 		return "s3://" + job.OutputBucketName + "/" + key
 	}

@@ -65,6 +65,8 @@ const clientTokenTTL = 24 * time.Hour
 type InMemoryBackend struct {
 	svcCtx                    context.Context
 	s3                        S3Backend
+	s3Writer                  S3Writer
+	appConfig                 any
 	adapterClientTokenToID    map[string]map[string]string // region → clientToken → adapterID
 	clientTokenToJobID        map[string]map[string]string // region → clientToken → jobID
 	expenseClientTokenToJobID map[string]map[string]string // region → clientToken → expense jobID
