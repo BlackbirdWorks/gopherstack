@@ -2,7 +2,7 @@
 service: elbv2
 sdk_module: aws-sdk-go-v2/service/elasticloadbalancingv2@v1.58.5   # bumped from v1.54.8 this pass (go.mod already pinned v1.58.5; PARITY.md was stale)
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0)
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-11
                               # 5 tier-1 findings real, all fixed (CreateLoadBalancer/SetSubnets
                               # .EnablePrefixForIpv6SourceNat, CreateTargetGroup.IpAddressType,
                               # SetSecurityGroups.EnforceSecurityGroupInboundRulesOnPrivateLink
@@ -85,7 +85,9 @@ families:
   load-balancer-attributes / target-group-attributes / listener-attributes (Modify/Describe): {status: partial, note: "load-balancer-attributes/listener-attributes unchanged this pass, previously verified against real AWS defaults. target-group-attributes: ModifyTargetGroupAttributes/DescribeTargetGroupAttributes wire shape and any explicitly-set key/value round-trip correctly, but CreateTargetGroup's default attribute map (target_groups.go, 5 keys: deregistration_delay.timeout_seconds/stickiness.enabled/stickiness.type/load_balancing.algorithm.type/slow_start.duration_seconds) is missing several attributes real AWS always pre-populates on DescribeTargetGroupAttributes (verified against types.TargetGroupAttribute's doc comment: proxy_protocol_v2.enabled, preserve_client_ip.enabled, stickiness.app_cookie.*, target_group_health.dns_failover.*/unhealthy_state_routing.*, target_health_state.unhealthy.*, deregistration_delay.connection_termination.enabled, load_balancing.algorithm.anomaly_mitigation, target_failover.on_deregistration/on_unhealthy, and lambda.multi_value_headers.enabled for Lambda target groups) - see deferred"}
   capacity-reservation / ip-pools / resource-policy / account-limits / ssl-policies: {status: ok, note: "unchanged this pass; verified op-by-op, all accurate"}
 gaps: []
-items_still_open: []
+items_still_open:
+  - "Kept lenient for in-repo fixtures: a target group attached to no listener reports healthy (real AWS: unused/Target.NotInUse), an ALB with subnets in one AZ is accepted, and health-check defaults stay 3/3/5 because the SDK docs and observed AWS values disagree."
+  - "LB VpcId/ZoneName from the real subnet needs cli.go to give elbEC2ResolverAdapter SubnetVPC(id) and SubnetAZ(id) (same bodies as efsEC2ResolverAdapter); until then they stay vpc-00000000 and index-derived zones."
 structural_gaps:
   - "GetTrustStoreCaCertificatesBundle/GetTrustStoreRevocationContent return an empty Location: the real value is a presigned URL to an AWS-owned copy of the bundle, which the emulator does not store. The ops still validate TrustStoreNotFound/RevocationIdNotFound."
 deferred:
@@ -573,3 +575,11 @@ Removed stale open items: ASG and ECS already register and deregister ELBv2 targ
 ## 2026-10-09 (service realism pass)
 
 Load balancer and target group ARNs now carry random 16-hex ids (were a constant), LB ARNs use app/net/gwy by type, listener and rule ARNs derive from the LB/listener ARN, and DNS names use a numeric suffix. Target group names reject underscores; LB names reject the `internal-` prefix. Bare NotFound/Duplicate errors carry AWS messages. Left open: LB state is `active` immediately (no provisioning window); Marker values are not validated.
+
+## 2026-10-11 deep realism pass (IaC flows)
+
+- Wire bug: Matcher `HttpCode` was read/written as `HTTPCode`, so a custom health-check matcher (`200-399`) from a real SDK/CLI/Terraform was dropped and always reported 200. Request key and response element are now `HttpCode` (legacy request spelling still accepted). Test: TestTargetGroupMatcherHttpCodeWire.
+- DescribeTargetHealth: instance targets on stopped/terminated EC2 instances report `unused`/`Target.InvalidState`, and every reason carries its Description (works with the existing elbEC2ResolverAdapter.InstanceStateName). Tests: TestTargetHealthFollowsInstanceState.
+- CreateLoadBalancer: repeating identical settings returns the existing balancer (documented idempotency), different settings stay DuplicateLoadBalancerName. LB VpcId and AvailabilityZones ZoneName come from the subnets when the EC2 resolver implements SubnetPlacementResolver (needs cli.go wiring: `SubnetVPC(id) string` and `SubnetAZ(id) string` on elbEC2ResolverAdapter; same bodies as efsEC2ResolverAdapter).
+- Rule conditions: unknown Field, missing values/header name/query pairs, over-long values and path patterns with illegal characters are ValidationError. LB attributes: `.enabled` keys must be true/false, idle_timeout 1-4000, client_keep_alive 60-604800; unknown keys are still accepted.
+- Kept lenient: a target group attached to no listener reports healthy instead of unused/Target.NotInUse (many in-repo tests and fixtures register targets without a listener); ALB needs two AZs is not enforced (fixtures and integration tests create both subnets in the default AZ); health-check threshold/timeout defaults stay 3/3/5 (the SDK docs and observed AWS values disagree).

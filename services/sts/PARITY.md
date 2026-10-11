@@ -2,7 +2,7 @@
 service: sts
 sdk_module: aws-sdk-go-v2/service/sts@v1.49.0   # version audited against (pinned in go.mod)
 last_audit_commit: 0c0472570  # 2026-09-24 PGO perf sweep (debounced session-eviction sweep)
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-11
 overall: A                # 2026-08-29: errcodeaudit ERROR-path sweep. 2 confident findings
                            # (handler.go:335,337 "Sender"/"Receiver"), both verified clean false
                            # positives. These are the Query-protocol XML error envelope's <Type>
@@ -604,3 +604,9 @@ Recorded, not fixed: the SDK caps root-user sessions at 3,600s (api_op_GetSessio
 ## 2026-10-09 (service realism pass)
 
 AssumeRole against an existing role whose MaxSessionDuration is unset now caps DurationSeconds at 3600 (was 43200). AssumeRole for a role not present in IAM stays permitted (emulator leniency; AWS returns AccessDenied).
+
+## 2026-10-11 deep realism pass (end-to-end IaC flows)
+
+- GetCallerIdentity resolves long-term IAM user access keys through the wired `UserLookup` (user ARN, account from the ARN; UserId via the optional `UserIDLookup`, falls back to the key id). Needs `cli.go` `iamRoleLookupAdapter` to forward `GetUserIDByAccessKeyID` for the AIDA id.
+- GetSessionToken and GetFederationToken called with temporary (session) credentials return AccessDenied ("Cannot call ... with session credentials").
+- Kept lenient: AssumeRole of an unknown same-account role still succeeds (in-repo callers/fixtures assume roles that are never created); role-chaining 1h cap and role MaxSessionDuration already enforced.

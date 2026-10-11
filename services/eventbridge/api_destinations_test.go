@@ -77,14 +77,6 @@ func TestAPIDestination_InvalidHTTPMethod(t *testing.T) {
 func TestAPIDestination_ValidHTTPMethods(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
-	_, err := b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
-		Name: "ref-conn", AuthorizationType: "BASIC",
-	})
-	require.NoError(t, err)
-
-	conn, _ := b.DescribeConnection(context.Background(), "ref-conn")
-
 	valid := []string{"GET", "HEAD", "POST", "OPTIONS", "PUT", "DELETE", "PATCH"}
 	for i, method := range valid {
 		t.Run(method, func(t *testing.T) {
@@ -92,7 +84,7 @@ func TestAPIDestination_ValidHTTPMethods(t *testing.T) {
 			bLocal := newBackend()
 			_, createErr := bLocal.CreateAPIDestination(context.Background(), eventbridge.CreateAPIDestinationInput{
 				Name:               fmt.Sprintf("dest-%d", i),
-				ConnectionArn:      conn.ConnectionArn,
+				ConnectionArn:      mustConnectionARN(t, bLocal, "ref-conn"),
 				HTTPMethod:         method,
 				InvocationEndpoint: "https://example.com/" + method,
 			})
@@ -121,12 +113,11 @@ func TestCreateAPIDestination_HTTPMethodValidation(t *testing.T) {
 		{name: "TRACE rejected", method: "TRACE", wantErr: eventbridge.ErrInvalidParameter},
 	}
 
-	connARN := "arn:aws:events:us-east-1:123:connection/test"
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := newBackend()
+			connARN := mustConnectionARN(t, b, "test")
 			_, err := b.CreateAPIDestination(context.Background(), eventbridge.CreateAPIDestinationInput{
 				Name:               "dst-" + tt.name,
 				ConnectionArn:      connARN,
@@ -224,7 +215,7 @@ func TestCreateAPIDestination_DuplicateRejected(t *testing.T) {
 	b := eventbridge.NewInMemoryBackend()
 	input := eventbridge.CreateAPIDestinationInput{
 		Name:               "my-dest",
-		ConnectionArn:      "arn:aws:events:us-east-1:123:connection/my-conn",
+		ConnectionArn:      mustConnectionARN(t, b, "my-conn"),
 		InvocationEndpoint: "https://example.com/api",
 		HTTPMethod:         "POST",
 	}
@@ -243,7 +234,7 @@ func TestCreateAPIDestination_RoundTrip(t *testing.T) {
 	b := eventbridge.NewInMemoryBackend()
 	input := eventbridge.CreateAPIDestinationInput{
 		Name:               "my-dest",
-		ConnectionArn:      "arn:aws:events:us-east-1:123:connection/my-conn",
+		ConnectionArn:      mustConnectionARN(t, b, "my-conn"),
 		InvocationEndpoint: "https://example.com/api",
 		HTTPMethod:         "POST",
 	}
@@ -274,7 +265,7 @@ func TestDeleteAPIDestination_RoundTrip(t *testing.T) {
 	b := eventbridge.NewInMemoryBackend()
 	_, err := b.CreateAPIDestination(context.Background(), eventbridge.CreateAPIDestinationInput{
 		Name:               "my-dest",
-		ConnectionArn:      "arn:aws:events:us-east-1:123:connection/c1",
+		ConnectionArn:      mustConnectionARN(t, b, "c1"),
 		InvocationEndpoint: "https://x.com",
 		HTTPMethod:         "POST",
 	})
@@ -284,4 +275,26 @@ func TestDeleteAPIDestination_RoundTrip(t *testing.T) {
 	err = b.DeleteAPIDestination(context.Background(), "my-dest")
 	require.NoError(t, err)
 	assert.Equal(t, 0, b.APIDestinationCount())
+}
+
+func mustConnectionARN(t *testing.T, b *eventbridge.InMemoryBackend, name string) string {
+	t.Helper()
+
+	conn, err := b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
+		Name: name, AuthorizationType: "API_KEY",
+	})
+	require.NoError(t, err)
+
+	return conn.ConnectionArn
+}
+
+func TestCreateAPIDestination_UnknownConnection(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	_, err := b.CreateAPIDestination(context.Background(), eventbridge.CreateAPIDestinationInput{
+		Name: "d", ConnectionArn: "arn:aws:events:us-east-1:123456789012:connection/none",
+		InvocationEndpoint: "https://example.com", HTTPMethod: "POST",
+	})
+	require.ErrorIs(t, err, eventbridge.ErrNotFound)
 }

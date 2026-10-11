@@ -75,7 +75,33 @@ func validateRequestInput(action string, vals url.Values) error {
 		return validationErr("Invalid Marker")
 	}
 
-	return nil
+	return validateTagMembers(vals)
+}
+
+// validateTagMembers rejects duplicate (case-insensitive) tag keys within one request.
+func validateTagMembers(vals url.Values) error {
+	var seen map[string]struct{}
+
+	for i := 1; ; i++ {
+		k := vals.Get(fmt.Sprintf("Tags.member.%d.Key", i))
+		if k == "" {
+			return nil
+		}
+
+		lk := strings.ToLower(k)
+		if _, dup := seen[lk]; dup {
+			return fmt.Errorf(
+				"%w: duplicate tag keys found; tag keys are case insensitive",
+				ErrInvalidInput,
+			)
+		}
+
+		if seen == nil {
+			seen = make(map[string]struct{})
+		}
+
+		seen[lk] = struct{}{}
+	}
 }
 
 func checkTagLimit(existing, add map[string]string) error {

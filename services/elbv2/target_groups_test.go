@@ -356,7 +356,7 @@ func TestModifyTargetGroupPersistsFields(t *testing.T) {
 			TargetGroups struct {
 				Members []struct {
 					Matcher struct {
-						HTTPCode string `xml:"HTTPCode"`
+						HTTPCode string `xml:"HttpCode"`
 					} `xml:"Matcher"`
 					HealthCheckProtocol        string `xml:"HealthCheckProtocol"`
 					HealthCheckPort            string `xml:"HealthCheckPort"`

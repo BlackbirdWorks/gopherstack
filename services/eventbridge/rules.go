@@ -206,6 +206,10 @@ func (b *InMemoryBackend) DeleteRuleForce(ctx context.Context, name, eventBusNam
 		if err := checkManagedRule(rule); err != nil {
 			return err
 		}
+
+		if tbl := b.targetsStore(region)[b.targetKey(eventBusName, name)]; tbl != nil && tbl.Len() > 0 {
+			return awsErrorf(ErrInvalidParameter, "Rule can't be deleted since it has targets.")
+		}
 	}
 
 	b.removeRuleFromIndex(region, busKey, rule)

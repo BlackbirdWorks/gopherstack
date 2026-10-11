@@ -82,7 +82,9 @@ func TestErrorMessage_NoCodePrefix(t *testing.T) {
 	h := newTestHandler(t)
 	mustCreateLB(t, h, "dup")
 
-	rec := doELBv2(t, h, url.Values{"Action": {"CreateLoadBalancer"}, "Name": {"dup"}})
+	rec := doELBv2(t, h, url.Values{
+		"Action": {"CreateLoadBalancer"}, "Name": {"dup"}, "Scheme": {"internal"},
+	})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "<Code>DuplicateLoadBalancerName</Code>")
 	assert.NotContains(t, rec.Body.String(), "<Message>DuplicateLoadBalancerName")

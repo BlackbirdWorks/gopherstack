@@ -454,6 +454,10 @@ func (b *InMemoryBackend) applyParamGroupUpdate(inst *DBInstance, paramGroupName
 		return fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, paramGroupName)
 	}
 
+	if inst.DBParameterGroupName != paramGroupName {
+		inst.ParameterApplyStatus = dbParameterApplyStatusPendingReboot
+	}
+
 	inst.DBParameterGroupName = paramGroupName
 
 	return nil
@@ -1123,6 +1127,7 @@ func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
 	if err != nil {
 		return nil, err
 	}
+	inst.ParameterApplyStatus = ""
 	if !handled {
 		inst.DBInstanceStatus = instanceStatusRebooting
 		b.instanceReadyAt[inst.DBInstanceIdentifier] = time.Now().Add(instanceTransitionDelay)

@@ -640,8 +640,7 @@ func (b *InMemoryBackend) postCredentialCheckDeviceLocked(
 func (b *InMemoryBackend) finishFirstFactorLocked(
 	pool *UserPool, clientID string, user *User, cm map[string]string, skipMFA bool,
 ) (*AuthResult, error) {
-	mfaConfig := pool.MfaConfiguration
-	if !skipMFA && (mfaConfig == "ON" || mfaConfig == "OPTIONAL") {
+	if !skipMFA && mfaGateApplies(pool, user) {
 		return b.newMFASession(pool, clientID, user.Username, mfaChallengeType(pool, user)), nil
 	}
 

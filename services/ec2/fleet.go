@@ -386,7 +386,7 @@ func (b *InMemoryBackend) spawnFleetMemberInstanceLocked(
 		SubnetID:     subnetID,
 		LaunchTime:   time.Now().UTC(),
 	}
-	inst.PrivateIP = b.allocPrivateIP()
+	inst.PrivateIP = b.allocPrivateIPInSubnet(subnetID)
 
 	eniID := newENIID()
 	attachID := "eni-attach-" + uuid.New().String()[:8]

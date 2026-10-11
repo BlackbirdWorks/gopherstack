@@ -23,6 +23,8 @@ func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (
 		return nil, fmt.Errorf("%w: protocolType must be HTTP or WEBSOCKET", ErrBadRequest)
 	}
 
+	input = defaultQuickCreateRouteKey(input)
+
 	if err := validateQuickCreateInput(input); err != nil {
 		return nil, err
 	}
@@ -91,6 +93,16 @@ func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (
 	cp.Tags = copyTags(api.Tags)
 
 	return &cp, nil
+}
+
+// defaultQuickCreateRouteKey fills the $default route key CreateApi documents for a quick-create
+// request that names only a target.
+func defaultQuickCreateRouteKey(input CreateAPIInput) CreateAPIInput {
+	if input.ProtocolType == protocolTypeHTTP && input.Target != "" && input.RouteKey == "" {
+		input.RouteKey = routeKeyDefault
+	}
+
+	return input
 }
 
 // validateQuickCreateInput enforces CreateApi's routeKey/target ("quick

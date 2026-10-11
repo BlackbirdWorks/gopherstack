@@ -247,6 +247,11 @@ type Backend interface {
 	// DeleteRoute removes a route from a route table by destination CIDR.
 	DeleteRoute(rtID, destCIDR string) error
 
+	// CreateRouteSpec, DeleteRouteSpec and ReplaceRouteSpec take the full destination/target set.
+	CreateRouteSpec(rtID string, spec RouteSpec) error
+	DeleteRouteSpec(rtID string, spec RouteSpec) error
+	ReplaceRouteSpec(rtID string, spec RouteSpec) error
+
 	// AssociateRouteTable associates a route table with a subnet; returns association ID.
 	AssociateRouteTable(rtID, subnetID string) (string, error)
 
@@ -257,6 +262,8 @@ type Backend interface {
 
 	// CreateNatGateway creates a NAT gateway in the given subnet.
 	CreateNatGateway(subnetID, allocationID string, tags map[string]string) (*NatGateway, error)
+	AttachLaunchVolumes(instanceID string, specs []LaunchVolumeSpec, volumeTags map[string]string) error
+	CreatePrivateNatGateway(subnetID string, tags map[string]string) (*NatGateway, error)
 
 	// DeleteNatGateway removes a NAT gateway.
 	DeleteNatGateway(id string) error
@@ -385,6 +392,7 @@ type Backend interface {
 
 	// CreateNetworkInterface creates a new ENI in the given subnet.
 	CreateNetworkInterface(subnetID, description string, interfaceType ...string) (*NetworkInterface, error)
+	CreateNetworkInterfaceWithOptions(subnetID string, opts NetworkInterfaceOptions) (*NetworkInterface, error)
 
 	// DeleteNetworkInterface removes a network interface by ID.
 	DeleteNetworkInterface(id string) error
@@ -614,6 +622,16 @@ type Backend interface {
 
 	// DeleteLaunchTemplateVersions removes specific versions from a launch template.
 	DeleteLaunchTemplateVersions(id string, versions []int64) ([]int64, error)
+
+	ResolveLaunchTemplateData(idOrName, version string) (map[string]string, error)
+	LaunchTemplateVersions(idOrName string) (*LaunchTemplate, []LaunchTemplateVersion, error)
+	AllLaunchTemplateVersions() []LaunchTemplateVersion
+	CreateLaunchTemplateWithData(name, description string, data, tags map[string]string) (*LaunchTemplate, error)
+	CreateLaunchTemplateVersionWithData(
+		idOrName, sourceVersion, description string, data map[string]string,
+	) (*LaunchTemplateVersion, error)
+	DeleteLaunchTemplateVersionsDetailed(idOrName string, versions []int64) (*LaunchTemplate, []int64, []int64, error)
+	ModifyLaunchTemplateByRef(idOrName string, defaultVersion int64) (*LaunchTemplate, error)
 
 	// GetLaunchTemplateData returns synthesized launch template data from an instance.
 	GetLaunchTemplateData(instanceID string) (*LaunchTemplate, error)

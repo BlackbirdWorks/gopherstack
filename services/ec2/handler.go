@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -706,6 +707,8 @@ var errCodeLookup = []struct {
 	{ErrRouteTableNotFound, "InvalidRouteTableID.NotFound"},
 	{ErrNatGatewayNotFound, "InvalidNatGatewayID.NotFound"},
 	{ErrRouteNotFound, "InvalidRoute.NotFound"},
+	{ErrRouteAlreadyExists, "RouteAlreadyExists"},
+	{ErrGatewayIDNotFound, "InvalidGatewayID.NotFound"},
 	{ErrAssociationNotFound, errCodeInvalidAssociationIDNotFound},
 	{ErrNetworkInterfaceNotFound, "InvalidNetworkInterfaceID.NotFound"},
 	{ErrNetworkInterfaceInUse, "InvalidNetworkInterfaceID.InUse"},
@@ -923,7 +926,7 @@ func (h *Handler) writeError(
 ) error {
 	errResp := &ec2ErrorResponse{
 		XMLName:   xml.Name{Local: "Response"},
-		Errors:    ec2ErrorsWrapper{Error: ec2Error{Code: code, Message: message}},
+		Errors:    ec2ErrorsWrapper{Error: ec2Error{Code: code, Message: awserr.StripCode(code, message)}},
 		RequestID: reqID,
 	}
 

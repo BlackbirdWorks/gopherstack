@@ -319,14 +319,33 @@ func (h *Handler) handleCreateNatGateway(vals url.Values, reqID string) (any, er
 
 	subnetID := vals.Get("SubnetId")
 	allocationID := vals.Get("AllocationId")
-
-	if subnetID == "" || allocationID == "" {
-		return nil, fmt.Errorf("%w: SubnetId and AllocationId are required", ErrInvalidParameter)
-	}
-
 	tags := parseTagSpecification(vals, "natgateway")
 
-	ngw, err := h.Backend.CreateNatGateway(subnetID, allocationID, tags)
+	var (
+		ngw *NatGateway
+		err error
+	)
+
+	switch {
+	case vals.Get("ConnectivityType") == natGatewayConnectivityTypePrivate:
+		if subnetID == "" {
+			return nil, fmt.Errorf("%w: SubnetId is required", ErrInvalidParameter)
+		}
+
+		if allocationID != "" {
+			return nil, fmt.Errorf("%w: AllocationId cannot be used with a private NAT gateway",
+				ErrInvalidParameterCombination)
+		}
+
+		ngw, err = h.Backend.CreatePrivateNatGateway(subnetID, tags)
+	default:
+		if subnetID == "" || allocationID == "" {
+			return nil, fmt.Errorf("%w: SubnetId and AllocationId are required", ErrInvalidParameter)
+		}
+
+		ngw, err = h.Backend.CreateNatGateway(subnetID, allocationID, tags)
+	}
+
 	if err != nil {
 		return nil, err
 	}

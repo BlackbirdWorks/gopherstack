@@ -17,6 +17,10 @@ const (
 	claimPrefixCognito      = "cognito:"
 	respKeyClaimsAndScope   = "claimsAndScopeOverrideDetails"
 	attrEmailVerified       = "email_verified"
+	attrPhoneVerified       = "phone_number_verified"
+	attrUpdatedAt           = "updated_at"
+	attrFamilyName          = "family_name"
+	attrGivenName           = "given_name"
 	keyGroupConfiguration   = "groupConfiguration"
 	keyGroupsToOverride     = "groupsToOverride"
 	keyIAMRolesToOverride   = "iamRolesToOverride"
@@ -302,7 +306,7 @@ func claimValueAllowed(v any, complexOK bool) bool {
 // idComplexForbidden are ID-token claims that cannot hold objects or arrays.
 func idComplexForbidden(name string) bool {
 	switch name {
-	case "phone_number_verified", attrEmailVerified, "updated_at", "address":
+	case attrPhoneVerified, attrEmailVerified, attrUpdatedAt, "address":
 		return true
 	}
 

@@ -216,6 +216,10 @@ func (b *InMemoryBackend) CreateKey(
 	}
 
 	keyID := uuid.New().String()
+	if input.MultiRegion {
+		keyID = newMultiRegionKeyID()
+	}
+
 	keyUsage := input.KeyUsage
 	keySpec := input.KeySpec
 	if keySpec == "" {

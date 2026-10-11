@@ -41,7 +41,8 @@ func compilePattern(patternJSON string) (*compiledPattern, error) {
 // isKnownMatcher reports whether key is a valid EventBridge matcher object key.
 func isKnownMatcher(key string) bool {
 	switch key {
-	case "prefix", "suffix", "exists", "numeric", "anything-but", "cidr", "wildcard", "equals-ignore-case":
+	case matcherPrefix, matcherSuffix, "exists", matcherNumeric, "anything-but", "cidr", matcherWildcard,
+		matcherEqualsIgnoreCase:
 		return true
 	}
 
@@ -127,6 +128,12 @@ func validateMatcherObject(field string, m map[string]any) error {
 			if err := validateAnythingButValue(field, val); err != nil {
 				return err
 			}
+
+			continue
+		}
+
+		if err := validateMatcherValue(field, key, val); err != nil {
+			return err
 		}
 	}
 
@@ -173,7 +180,7 @@ func validateAnythingButValue(field string, v any) error {
 // compile time instead of silently never matching.
 func validateAnythingButObject(field string, ab map[string]any) error {
 	for key := range ab {
-		if key == "numeric" || slices.Contains(anythingButStringMatcherKeys(), key) {
+		if key == matcherNumeric || slices.Contains(anythingButStringMatcherKeys(), key) {
 			continue
 		}
 
@@ -274,7 +281,15 @@ func matchObjectField(key string, patternVal any, eventData map[string]any) bool
 
 	switch pv := patternVal.(type) {
 	case map[string]any:
-		// Nested object: recurse.
+		// Nested object: recurse; an array of objects matches when any element does.
+		if elems, isArr := eventVal.([]any); isArr {
+			return slices.ContainsFunc(elems, func(e any) bool {
+				em, isMap := e.(map[string]any)
+
+				return isMap && matchObject(pv, em)
+			})
+		}
+
 		ev, ok := eventVal.(map[string]any)
 		if !ok {
 			return false
@@ -403,7 +418,7 @@ func matchStringMatcher(m map[string]any, eventVal any) bool {
 		return matchWildcard(ws, es)
 	}
 
-	if equalsIgnoreCase, ok := m["equals-ignore-case"]; ok {
+	if equalsIgnoreCase, ok := m[matcherEqualsIgnoreCase]; ok {
 		cs, csOk := equalsIgnoreCase.(string)
 		if !csOk || !esOk {
 			return false
@@ -425,7 +440,7 @@ func matchPrefixMatcher(prefix any, es string) bool {
 	case string:
 		return strings.HasPrefix(es, p)
 	case map[string]any:
-		ci, ok := p["equals-ignore-case"].(string)
+		ci, ok := p[matcherEqualsIgnoreCase].(string)
 		if !ok {
 			return false
 		}
@@ -446,7 +461,7 @@ func matchSuffixMatcher(suffix any, es string) bool {
 	case string:
 		return strings.HasSuffix(es, s)
 	case map[string]any:
-		ci, ok := s["equals-ignore-case"].(string)
+		ci, ok := s[matcherEqualsIgnoreCase].(string)
 		if !ok {
 			return false
 		}
@@ -516,7 +531,7 @@ func anySliceContains(ab []any, eventVal any) bool {
 // inside an object-form anything-but rule, shared with
 // validateAnythingButObject so the two stay in sync.
 func anythingButStringMatcherKeys() []string {
-	return []string{"prefix", "suffix", "wildcard", "equals-ignore-case"}
+	return []string{matcherPrefix, matcherSuffix, matcherWildcard, matcherEqualsIgnoreCase}
 }
 
 // matchAnythingButObject reports whether eventVal satisfies the inner matcher of an

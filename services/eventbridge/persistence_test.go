@@ -569,9 +569,10 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	b := eventbridge.NewInMemoryBackend()
 
 	// Seed all new resource types
+	connARN := mustConnectionARN(t, b, "c1")
 	_, err := b.CreateAPIDestination(context.Background(), eventbridge.CreateAPIDestinationInput{
 		Name:               "d1",
-		ConnectionArn:      "arn:aws:events:us-east-1:123:connection/c1",
+		ConnectionArn:      connARN,
 		InvocationEndpoint: "https://x.com",
 		HTTPMethod:         "POST",
 	})
@@ -580,12 +581,6 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	_, err = b.CreateArchive(context.Background(), eventbridge.CreateArchiveInput{
 		ArchiveName:    "a1",
 		EventSourceArn: "arn:aws:events:us-east-1:123:event-bus/default",
-	})
-	require.NoError(t, err)
-
-	_, err = b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
-		Name:              "c1",
-		AuthorizationType: "BASIC",
 	})
 	require.NoError(t, err)
 

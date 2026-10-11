@@ -1,9 +1,12 @@
 package elbv2
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -170,6 +173,32 @@ func subnetMappingsToAZs(region string, mappings []SubnetMapping) []Availability
 	return azs
 }
 
+// placeSubnets returns the AZs for mappings and the VPC they sit in. With an EC2 resolver that
+// implements SubnetPlacementResolver the real subnet AZ and VPC are used; otherwise AZ names are
+// synthesised and the VPC is empty.
+func (b *InMemoryBackend) placeSubnets(mappings []SubnetMapping) ([]AvailabilityZone, string) {
+	azs := subnetMappingsToAZs(b.region, mappings)
+
+	placer, ok := b.ec2Resolver.(SubnetPlacementResolver)
+	if !ok {
+		return azs, ""
+	}
+
+	vpcID := ""
+
+	for i, m := range mappings {
+		if az := placer.SubnetAZ(m.SubnetID); az != "" {
+			azs[i].ZoneName = az
+		}
+
+		if vpcID == "" {
+			vpcID = placer.SubnetVPC(m.SubnetID)
+		}
+	}
+
+	return azs, vpcID
+}
+
 // subnetsToMappings converts plain subnet ID strings into SubnetMapping values.
 func subnetsToMappings(subnets []string) []SubnetMapping {
 	out := make([]SubnetMapping, len(subnets))
@@ -203,6 +232,62 @@ func (b *InMemoryBackend) validateNetworkRefs(sgs []string, mappings []SubnetMap
 	return nil
 }
 
+// existingLBLocked returns the load balancer already named input.Name when input repeats its
+// settings, ErrLoadBalancerAlreadyExists when the settings differ, and nil, nil when the name is free.
+func (b *InMemoryBackend) existingLBLocked(lbType string, input CreateLoadBalancerInput) (*LoadBalancer, error) {
+	for _, lb := range b.loadBalancers.All() {
+		if lb.LoadBalancerName != input.Name {
+			continue
+		}
+
+		if !sameLBSettings(lb, lbType, input) {
+			return nil, ErrLoadBalancerAlreadyExists
+		}
+
+		cp := *lb
+
+		return &cp, nil
+	}
+
+	return nil, nil //nolint:nilnil // name is free
+}
+
+// sameLBSettings reports whether input describes lb exactly, in which case CreateLoadBalancer
+// returns the existing load balancer instead of DuplicateLoadBalancerName.
+func sameLBSettings(lb *LoadBalancer, lbType string, input CreateLoadBalancerInput) bool {
+	mappings := input.SubnetMappings
+	if len(mappings) == 0 {
+		mappings = subnetsToMappings(input.Subnets)
+	}
+
+	subnets := make([]string, 0, len(mappings))
+	for _, m := range mappings {
+		subnets = append(subnets, m.SubnetID)
+	}
+
+	existing := make([]string, 0, len(lb.AvailabilityZones))
+	for _, az := range lb.AvailabilityZones {
+		existing = append(existing, az.SubnetID)
+	}
+
+	scheme := cmp.Or(input.Scheme, "internet-facing")
+	ipType := cmp.Or(input.IPAddressType, ipAddressTypeIPv4)
+
+	return lb.Type == lbType && lb.Scheme == scheme && lb.IPAddressType == ipType &&
+		sameStringSet(subnets, existing) && sameStringSet(input.SecurityGroups, lb.SecurityGroups)
+}
+
+func sameStringSet(a, b []string) bool {
+	x, y := slices.Clone(a), slices.Clone(b)
+	slices.Sort(x)
+	slices.Sort(y)
+
+	return slices.Equal(slices.Compact(x), slices.Compact(y))
+}
+
+// defaultLBVpcID is the VPC reported when subnet placement cannot be resolved.
+const defaultLBVpcID = "vpc-00000000"
+
 // CreateLoadBalancer creates a new load balancer.
 func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*LoadBalancer, error) {
 	b.mu.Lock("CreateLoadBalancer")
@@ -216,15 +301,13 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		return nil, err
 	}
 
-	for _, lb := range b.loadBalancers.All() {
-		if lb.LoadBalancerName == input.Name {
-			return nil, ErrLoadBalancerAlreadyExists
-		}
-	}
-
 	lbType, err := validateLBType(input.Type)
 	if err != nil {
 		return nil, err
+	}
+
+	if existing, dupErr := b.existingLBLocked(lbType, input); existing != nil || dupErr != nil {
+		return existing, dupErr
 	}
 
 	lbID := newHexID()
@@ -273,7 +356,10 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		return nil, netErr
 	}
 
-	azs := subnetMappingsToAZs(b.region, mappings)
+	azs, vpcID := b.placeSubnets(mappings)
+	if vpcID == "" {
+		vpcID = defaultLBVpcID
+	}
 
 	lb := &LoadBalancer{
 		LoadBalancerArn:              lbArn,
@@ -287,7 +373,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		EnablePrefixForIpv6SourceNat: sourceNat,
 		IPv4IPAMPoolID:               input.IPv4IPAMPoolID,
 		CustomerOwnedIPv4Pool:        input.CustomerOwnedIPv4Pool,
-		VpcID:                        "vpc-00000000",
+		VpcID:                        vpcID,
 		AvailabilityZones:            azs,
 		SecurityGroups:               input.SecurityGroups,
 		State: LoadBalancerState{
@@ -484,6 +570,10 @@ func (b *InMemoryBackend) ModifyLoadBalancerAttributes(
 		return nil, ErrLoadBalancerNotFound
 	}
 
+	if err := validateLBAttributeValues(attrs); err != nil {
+		return nil, err
+	}
+
 	if lb.Attributes == nil {
 		lb.Attributes = make(map[string]string)
 	}
@@ -493,6 +583,51 @@ func (b *InMemoryBackend) ModifyLoadBalancerAttributes(
 	cp := *lb
 
 	return &cp, nil
+}
+
+const (
+	maxIdleTimeoutSeconds = 4000
+	maxKeepAliveSeconds   = 604800
+	minKeepAliveSeconds   = 60
+)
+
+// validateLBAttributeValues range-checks the typed attributes whose bounds are documented
+// (LoadBalancerAttribute): boolean ".enabled" keys, idle timeout 1-4000s, keep-alive 60-604800s.
+// Unknown keys are accepted unchanged.
+func validateLBAttributeValues(attrs map[string]string) error {
+	for k, v := range attrs {
+		switch {
+		case strings.HasSuffix(k, ".enabled"):
+			if v != attrValueTrue && v != attrValueFalse {
+				return fmt.Errorf("%w: '%s' is not a valid value for attribute '%s'", ErrInvalidParameter, v, k)
+			}
+		case k == "idle_timeout.timeout_seconds":
+			if err := checkIntAttrRange(k, v, 1, maxIdleTimeoutSeconds); err != nil {
+				return err
+			}
+		case k == "client_keep_alive.seconds":
+			if err := checkIntAttrRange(k, v, minKeepAliveSeconds, maxKeepAliveSeconds); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func checkIntAttrRange(key, v string, minV, maxV int) error {
+	n, err := strconv.Atoi(v)
+	if err != nil || n < minV || n > maxV {
+		return fmt.Errorf(
+			"%w: attribute '%s' must be an integer between %d and %d",
+			ErrInvalidParameter,
+			key,
+			minV,
+			maxV,
+		)
+	}
+
+	return nil
 }
 
 // SetSecurityGroups updates the security groups associated with a load balancer.
@@ -580,7 +715,13 @@ func (b *InMemoryBackend) SetSubnets(
 
 	lb.EnablePrefixForIpv6SourceNat = sourceNat
 
-	lb.AvailabilityZones = subnetMappingsToAZs(b.region, mappings)
+	azs, vpcID := b.placeSubnets(mappings)
+	lb.AvailabilityZones = azs
+
+	if vpcID != "" {
+		lb.VpcID = vpcID
+	}
+
 	cp := *lb
 
 	return &cp, nil

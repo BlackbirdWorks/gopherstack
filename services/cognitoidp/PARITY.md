@@ -2,7 +2,7 @@
 service: cognitoidp
 sdk_module: aws-sdk-go-v2/service/cognitoidentityprovider@v1.67.4
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: 5ba338ed2
-last_audit_date: 2026-10-10  # prior: 2026-09-19
+last_audit_date: 2026-10-11
 # 2026-08-30: cursor-population sweep (does every List/Describe response struct that DECLARES a
 # NextToken/PaginationToken actually SET one before the collection can exceed a page?). Enumerated
 # all 16 SDK ops whose Input/Output declare a continuation token. This service's dispatch table
@@ -1751,3 +1751,10 @@ DeviceType no longer emits DeviceStatus (SDK DeviceType has no such member).
 ## Notes (2026-10-10)
 
 PasswordPolicy.PasswordHistorySize is stored, echoed and enforced: ChangePassword, ConfirmForgotPassword and the NEW_PASSWORD_REQUIRED challenge (API and hosted login) reject a password matching the current one or the previous N-1 with PasswordHistoryPolicyViolationException (types.PasswordHistoryPolicyViolationException, cognitoidentityprovider@v1.67.4). AdminSetUserPassword archives but does not check history (unverifiable whether AWS applies it). Hashes persist in the user snapshot. Proof: `password_history_test.go`.
+
+## 2026-10-11 deep realism pass (end-to-end flows)
+
+- MFA gate: a pool with MfaConfiguration OPTIONAL only challenges users who enabled a factor (SetUserMFAPreference); it used to force MFA_SETUP on every sign-in. ON is unchanged. Applies to InitiateAuth, RespondToAuthChallenge and the hosted login. Test: TestMFAGateByPoolConfiguration.
+- Tokens: ID-token email_verified/phone_number_verified are JSON booleans, updated_at is a number, custom: attributes are included, and both tokens carry jti and event_id; access tokens carry version 2 (verified with a real JWT library against /.well-known/jwks.json). Test: TestIDTokenUserAttributeClaims.
+- ListUsers Filter rejects attributes outside the documented searchable set with InvalidParameterException (was an empty list). Test: TestListUsersFilterAttributes.
+- Verified clean end to end: USER_PASSWORD_AUTH, USER_SRP_AUTH with client-side SRP math, REFRESH_TOKEN_AUTH, GlobalSignOut revocation, AdminCreateUser + NEW_PASSWORD_REQUIRED, TOTP associate/verify/challenge, client_credentials token endpoint, scope and secret errors.

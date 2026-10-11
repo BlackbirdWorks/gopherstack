@@ -22,6 +22,10 @@ func (b *InMemoryBackend) CreateUser(userName, path, permissionsBoundary string)
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUserAlreadyExists, userName)
 	}
 
+	if err := b.requireBoundaryLocked(permissionsBoundary); err != nil {
+		return nil, err
+	}
+
 	p := normPath(path)
 	u := User{
 		UserName:            userName,
@@ -421,6 +425,10 @@ func (b *InMemoryBackend) PutUserPermissionsBoundary(userName, policyArn string)
 	u, exists := b.users.Get(userName)
 	if !exists {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	if err := b.requireBoundaryLocked(policyArn); err != nil {
+		return err
 	}
 
 	u.PermissionsBoundary = policyArn

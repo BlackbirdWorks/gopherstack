@@ -264,7 +264,7 @@ func TestPreTokenGenerationVersionedOverrides(t *testing.T) {
 				assert.NotEqual(t, "forged", access["client_id"])
 				assert.NotEqual(t, "forged", access["scope"])
 				assert.NotEqual(t, "forged", access["origin_jti"], "origin_jti is server-assigned")
-				assert.NotContains(t, access, "version")
+				assert.InDelta(t, 2, access["version"], 0, "version is server-assigned")
 				assert.NotContains(t, access, "aud", "aud only accepted when it equals the client id")
 
 				for _, k := range []string{"sub", "iat", "client_id"} {

@@ -447,7 +447,7 @@ func (b *InMemoryBackend) CreateVpc(cidr, tenancy string) (*VPC, error) {
 		Description: defaultSecurityGroupDescription,
 		VPCID:       id,
 		EgressRules: []SecurityGroupRule{
-			{Protocol: "-1", IPRange: cidrAllIPv4},
+			{ID: newSecurityGroupRuleID(), Protocol: "-1", IPRange: cidrAllIPv4},
 		},
 	})
 	b.indexSGLocked(sgID, id)

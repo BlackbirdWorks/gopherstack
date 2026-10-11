@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -65,6 +66,10 @@ func (h *Handler) applyInstanceLaunchSettings(
 		}
 
 		if len(sgIDs) > 0 {
+			if err := h.Backend.SetInstanceSecurityGroups(inst.ID, sgIDs); err != nil {
+				return err
+			}
+
 			inst.SecurityGroups = sgIDs
 		}
 	}
@@ -285,6 +290,10 @@ func securityGroupNamesFor(b Backend, instances []*Instance) map[string]string {
 }
 
 func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error) {
+	if err := h.overlayLaunchTemplate(vals); err != nil {
+		return nil, err
+	}
+
 	imageID := vals.Get("ImageId")
 	instanceType := vals.Get("InstanceType")
 	subnetID := vals.Get("SubnetId")
@@ -325,7 +334,7 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
-	if err = h.applyRunInstancesPostCreateOptions(instances, vals); err != nil {
+	if err = h.applyRunInstancesStorage(instances, vals); err != nil {
 		return nil, err
 	}
 
@@ -333,15 +342,8 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 		h.launchOnCompute(h.svcCtx, cb, c, instances, keyName, userData)
 	}
 
-	if tags := parseTagSpecification(vals, "instance"); len(tags) > 0 {
-		ids := make([]string, 0, len(instances))
-		for _, inst := range instances {
-			ids = append(ids, inst.ID)
-		}
-
-		if err = h.Backend.CreateTags(ids, tags); err != nil {
-			return nil, err
-		}
+	if err = h.tagLaunchedInstances(instances, vals); err != nil {
+		return nil, err
 	}
 
 	ids := make([]string, len(instances))
@@ -640,6 +642,8 @@ func toInstanceItem(
 
 	item := instanceItem{
 		InstanceID:            inst.ID,
+		RootDeviceName:        inst.RootDeviceName,
+		RootDeviceType:        rootDeviceTypeFor(inst),
 		ImageID:               inst.ImageID,
 		InstanceType:          inst.InstanceType,
 		StateItem:             stateItem{Code: inst.State.Code, Name: inst.State.Name},
@@ -822,6 +826,8 @@ func blockDeviceItems(atts []VolumeAttachment) []instanceBlockDeviceItem {
 }
 
 type instanceItem struct {
+	RootDeviceName            string                                 `xml:"rootDeviceName,omitempty"`
+	RootDeviceType            string                                 `xml:"rootDeviceType,omitempty"`
 	BlockDeviceMapping        *instanceBlockDeviceSet                `xml:"blockDeviceMapping,omitempty"`
 	HibernationOptions        *instanceHibernationOptionsItem        `xml:"hibernationOptions,omitempty"`
 	NetworkPerformanceOptions *instanceNetworkPerformanceOptionsItem `xml:"networkPerformanceOptions,omitempty"`
@@ -965,4 +971,139 @@ func groupReservations(instances []*Instance, items []instanceItem, ownerID stri
 	}
 
 	return reservations
+}
+
+func rootDeviceTypeFor(inst *Instance) string {
+	if inst.RootDeviceName == "" {
+		return ""
+	}
+
+	return "ebs"
+}
+
+// overlayLaunchTemplate fills RunInstances parameters the request leaves unset from the
+// referenced launch template version.
+func (h *Handler) overlayLaunchTemplate(vals url.Values) error {
+	ref := vals.Get("LaunchTemplate.LaunchTemplateId")
+	if ref == "" {
+		ref = vals.Get("LaunchTemplate.LaunchTemplateName")
+	}
+
+	if ref == "" {
+		return nil
+	}
+
+	data, err := h.Backend.ResolveLaunchTemplateData(ref, vals.Get("LaunchTemplate.Version"))
+	if err != nil {
+		return err
+	}
+
+	set := make(map[string]struct{}, len(vals))
+	for k := range vals {
+		set[ltDataGroup(k)] = struct{}{}
+	}
+
+	for k, v := range data {
+		if _, ok := set[ltDataGroup(k)]; !ok {
+			vals.Set(k, v)
+		}
+	}
+
+	if vals.Get("SubnetId") == "" {
+		vals.Set("SubnetId", vals.Get("NetworkInterface.1.SubnetId"))
+	}
+
+	if len(parseMemberList(vals, "SecurityGroupId")) == 0 {
+		niGroups := collectIndexed(vals, "NetworkInterface.1.SecurityGroupId")
+		for i, sg := range niGroups {
+			vals.Set(fmt.Sprintf("SecurityGroupId.%d", i+1), sg)
+		}
+	}
+
+	return nil
+}
+
+func collectIndexed(vals url.Values, prefix string) []string {
+	var out []string
+
+	for i := 1; ; i++ {
+		v := vals.Get(fmt.Sprintf("%s.%d", prefix, i))
+		if v == "" {
+			return out
+		}
+
+		out = append(out, v)
+	}
+}
+
+// attachLaunchVolumes creates the root and BlockDeviceMapping EBS volumes of each new instance.
+func (h *Handler) attachLaunchVolumes(instances []*Instance, vals url.Values) error {
+	var specs []LaunchVolumeSpec
+
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("BlockDeviceMapping.%d.", i)
+
+		dev := vals.Get(prefix + "DeviceName")
+		if dev == "" {
+			break
+		}
+
+		if vals.Get(prefix+"NoDevice") != "" || vals.Get(prefix+"VirtualName") != "" {
+			continue
+		}
+
+		spec := LaunchVolumeSpec{
+			DeviceName: dev,
+			VolumeType: vals.Get(prefix + "Ebs.VolumeType"),
+			SnapshotID: vals.Get(prefix + "Ebs.SnapshotId"),
+			KmsKeyID:   vals.Get(prefix + "Ebs.KmsKeyId"),
+			Encrypted:  vals.Get(prefix+"Ebs.Encrypted") == ec2BooleanTrue,
+		}
+		spec.Size, _ = strconv.Atoi(vals.Get(prefix + "Ebs.VolumeSize"))
+		spec.Iops, _ = strconv.Atoi(vals.Get(prefix + "Ebs.Iops"))
+		spec.Throughput, _ = strconv.Atoi(vals.Get(prefix + "Ebs.Throughput"))
+
+		if dot := vals.Get(prefix + "Ebs.DeleteOnTermination"); dot != "" {
+			spec.DeleteOnTermination = dot == ec2BooleanTrue
+		} else {
+			spec.DeleteOnTerminationUnset = true
+		}
+
+		specs = append(specs, spec)
+	}
+
+	volTags := parseTagSpecification(vals, "volume")
+
+	for _, inst := range instances {
+		own := make([]LaunchVolumeSpec, len(specs))
+		copy(own, specs)
+
+		if err := h.Backend.AttachLaunchVolumes(inst.ID, own, volTags); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (h *Handler) applyRunInstancesStorage(instances []*Instance, vals url.Values) error {
+	if err := h.applyRunInstancesPostCreateOptions(instances, vals); err != nil {
+		return err
+	}
+
+	return h.attachLaunchVolumes(instances, vals)
+}
+
+func (h *Handler) tagLaunchedInstances(instances []*Instance, vals url.Values) error {
+	tags := parseTagSpecification(vals, "instance")
+	if len(tags) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(instances))
+	for _, inst := range instances {
+		ids = append(ids, inst.ID)
+	}
+
+	return h.Backend.CreateTags(ids, tags)
 }

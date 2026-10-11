@@ -7,7 +7,7 @@ sdk_module: aws-sdk-go-v2/service/iam@v1.63.0   # version audited against (go.mo
   # re-verified this sweep (see items_still_open), so no live claim broke, but
   # its "already marked ok/PROVEN by sweeps 1-4" history is now stale too.
 last_audit_commit: 5892fbc9f
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-11
 overall: A   # parity-sweep (2026-09-19): implemented Role Manager (AcquireRole,
   # GetRoleTemplateVersion) and account properties (GetAccountProperties,
   # PutAccountProperties), the 4 ops added by the iam v1.63.0 SDK bump. Role
@@ -941,3 +941,12 @@ ListUserPolicies, ListRolePolicies, ListGroupPolicies, ListPolicyVersions, ListA
 ## 2026-10-09 (service realism pass)
 
 Create{User,Role,Group,Policy,InstanceProfile} validate name pattern and max length (ValidationError). Attach{User,Role,Group}Policy returns NoSuchEntity for a missing customer-managed policy (AWS-managed `arn:aws:iam::aws:policy/` ARNs accepted unverified: no catalog). Tag limit (50) enforced as LimitExceeded. CreateRole validates MaxSessionDuration and tags before creating, and defaults MaxSessionDuration to 3600. Non-token Marker returns ValidationError. Error messages no longer repeat the error code. Left lenient: trust policy statements without Principal are accepted (many in-repo fixtures omit it).
+
+## 2026-10-11 deep realism pass (end-to-end IaC flows)
+
+- Permissions boundary must exist: CreateRole/CreateUser/Put{Role,User}PermissionsBoundary reject an unknown customer-managed policy ARN with NoSuchEntity ("Scope ARN ... does not exist or is not attachable"); `arn:aws:iam::aws:policy/...` ARNs are accepted unchecked (`deep_flows_test.go`).
+- DeletePolicy with non-default versions returns DeleteConflict; Terraform/CDK must delete versions first.
+- Duplicate (case-insensitive) `Tags.member.N` keys on any request return InvalidInput.
+- Service-linked roles: canonical AWS names for well-known principals (`AWSServiceRoleForElasticLoadBalancing`, `...ForECS`, `...ForAutoScaling`), `Description` and `MaxSessionDuration` persisted, DeleteServiceLinkedRole of a missing role is NoSuchEntity (was a fake task), GetServiceLinkedRoleDeletionStatus rejects ids not issued by DeleteServiceLinkedRole.
+- `GetUserIDByAccessKeyID` added so STS GetCallerIdentity can report the IAM user's AIDA id.
+- Kept lenient: CreateServiceLinkedRole accepts any `*.amazonaws.com` principal (AWS rejects unsupported services; the supported list is not in the SDK).

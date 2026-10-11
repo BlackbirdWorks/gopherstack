@@ -14,7 +14,7 @@ import (
 // isValidTargetType returns true if the target type is a recognized ELBv2 value.
 func isValidTargetType(tt string) bool {
 	switch tt {
-	case "instance", "ip", targetTypeLambda, "alb":
+	case targetTypeInstance, "ip", targetTypeLambda, "alb":
 		return true
 	}
 

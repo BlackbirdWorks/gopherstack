@@ -36,6 +36,10 @@ func (b *InMemoryBackend) CreateRole(
 		return nil, err
 	}
 
+	if err := b.requireBoundaryLocked(permissionsBoundary); err != nil {
+		return nil, err
+	}
+
 	p := normPath(path)
 	r := Role{
 		RoleName:                 roleName,
@@ -338,6 +342,10 @@ func (b *InMemoryBackend) PutRolePermissionsBoundary(roleName, policyArn string)
 	r, exists := b.roles.Get(roleName)
 	if !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	if err := b.requireBoundaryLocked(policyArn); err != nil {
+		return err
 	}
 
 	r.PermissionsBoundary = policyArn

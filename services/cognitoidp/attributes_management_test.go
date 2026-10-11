@@ -518,7 +518,13 @@ func TestIDTokenUserAttributeClaims(t *testing.T) {
 
 	claims := decodeJWTPayload(t, idToken)
 	assert.Equal(t, "attruser@example.com", claims["email"], "email must appear in ID token")
-	assert.Equal(t, "true", claims["email_verified"], "email_verified must appear in ID token")
+	assert.Equal(t, true, claims["email_verified"], "email_verified is a JSON boolean in ID tokens")
+	assert.NotEmpty(t, claims["jti"])
+	assert.NotEmpty(t, claims["event_id"])
+
+	accessClaims := decodeJWTPayload(t, authResp["AuthenticationResult"].(map[string]any)["AccessToken"].(string))
+	assert.NotEmpty(t, accessClaims["jti"])
+	assert.InDelta(t, 2, accessClaims["version"], 0)
 }
 
 // TestParityB_AdminCreateUserSubInAttributes verifies sub appears in AdminCreateUser response.

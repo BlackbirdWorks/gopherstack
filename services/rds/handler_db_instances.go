@@ -1,6 +1,7 @@
 package rds
 
 import (
+	"cmp"
 	"encoding/xml"
 	"fmt"
 	"net/url"
@@ -365,8 +366,7 @@ func toXMLInstance(inst *DBInstance, roles []DBInstanceRole) xmlDBInstance {
 		DBInstanceStatus:                   inst.DBInstanceStatus,
 		MasterUsername:                     inst.MasterUsername,
 		DBName:                             inst.DBName,
-		Endpoint:                           inst.Endpoint,
-		Port:                               inst.Port,
+		Endpoint:                           instanceEndpoint(inst),
 		AllocatedStorage:                   inst.AllocatedStorage,
 		Iops:                               inst.Iops,
 		StorageThroughput:                  inst.StorageThroughput,
@@ -475,7 +475,10 @@ func applyXMLInstanceGroups(inst *DBInstance, result *xmlDBInstance) {
 	if inst.DBParameterGroupName != "" {
 		result.DBParameterGroups = &xmlDBParamGroupsWrapper{
 			Members: []xmlDBParamGroupStatus{
-				{DBParameterGroupName: inst.DBParameterGroupName, ParameterApplyStatus: dbParameterApplyStatusInSync},
+				{
+					DBParameterGroupName: inst.DBParameterGroupName,
+					ParameterApplyStatus: cmp.Or(inst.ParameterApplyStatus, dbParameterApplyStatusInSync),
+				},
 			},
 		}
 	}
@@ -509,6 +512,9 @@ const optionGroupMembershipStatusInSync = "in-sync"
 // group applied statically (no pending change), matching this backend's
 // always-apply-immediately parameter group model.
 const dbParameterApplyStatusInSync = "in-sync"
+
+// dbParameterApplyStatusPendingReboot is reported until the instance reboots after a parameter-group change.
+const dbParameterApplyStatusPendingReboot = "pending-reboot"
 
 type xmlOptionGroupMembership struct {
 	OptionGroupName string `xml:"OptionGroupName"`
@@ -598,6 +604,7 @@ func xmlDBInstanceRolesOrNil(roles []DBInstanceRole) *xmlDBInstanceRoleList {
 }
 
 type xmlDBInstance struct {
+	Endpoint                         *xmlEndpoint                  `xml:"Endpoint,omitempty"`
 	DBParameterGroups                *xmlDBParamGroupsWrapper      `xml:"DBParameterGroups,omitempty"`
 	VpcSecurityGroups                *xmlVpcSecurityGroupList      `xml:"VpcSecurityGroups,omitempty"`
 	DBSecurityGroups                 *xmlDBSecGroupList            `xml:"DBSecurityGroups,omitempty"`
@@ -619,7 +626,6 @@ type xmlDBInstance struct {
 	DBInstanceStatus                  string `xml:"DBInstanceStatus"`
 	MasterUsername                    string `xml:"MasterUsername"`
 	DBName                            string `xml:"DBName,omitempty"`
-	Endpoint                          string `xml:"Endpoint>Address"`
 	VpcID                             string `xml:"DBSubnetGroup>VpcId,omitempty"`
 	DBSubnetGroupName                 string `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
 	NetworkType                       string `xml:"NetworkType,omitempty"`
@@ -646,7 +652,6 @@ type xmlDBInstance struct {
 	StorageThroughput                  int `xml:"StorageThroughput,omitempty"`
 	BackupRetentionPeriod              int `xml:"BackupRetentionPeriod"`
 	MonitoringInterval                 int `xml:"MonitoringInterval,omitempty"`
-	Port                               int `xml:"Endpoint>Port"`
 	PromotionTier                      int `xml:"PromotionTier,omitempty"`
 	PerformanceInsightsRetentionPeriod int `xml:"PerformanceInsightsRetentionPeriod,omitempty"`
 
@@ -659,6 +664,20 @@ type xmlDBInstance struct {
 	MultiAZ                          bool `xml:"MultiAZ"`
 	AutoMinorVersionUpgrade          bool `xml:"AutoMinorVersionUpgrade,omitempty"`
 	MultiTenant                      bool `xml:"MultiTenant,omitempty"`
+}
+
+type xmlEndpoint struct {
+	Address string `xml:"Address"`
+	Port    int    `xml:"Port"`
+}
+
+// instanceEndpoint returns the Endpoint element, or nil while the instance has no address.
+func instanceEndpoint(inst *DBInstance) *xmlEndpoint {
+	if inst.Endpoint == "" {
+		return nil
+	}
+
+	return &xmlEndpoint{Address: inst.Endpoint, Port: inst.Port}
 }
 
 type xmlDBInstanceList struct {
@@ -869,6 +888,15 @@ func parseRestoreDBInstanceOptions(vals url.Values) DBInstanceOptions {
 		UseDefaultProcessorFeatures:      vals.Get("UseDefaultProcessorFeatures") == formTrue,
 		BackupTarget:                     vals.Get("BackupTarget"),
 		EnabledCloudwatchLogsExports:     parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member"),
+		DBInstanceClass:                  vals.Get("DBInstanceClass"),
+		DBSubnetGroupName:                vals.Get("DBSubnetGroupName"),
+		PubliclyAccessible:               vals.Get("PubliclyAccessible") == formTrue,
+		AutoMinorVersionUpgrade:          vals.Get("AutoMinorVersionUpgrade") == formTrue,
+		CopyTagsToSnapshot:               vals.Get("CopyTagsToSnapshot") == formTrue,
+		NetworkType:                      vals.Get("NetworkType"),
+		DBPortNumber:                     atoiOrZero(vals.Get("Port")),
+		Iops:                             atoiOrZero(vals.Get("Iops")),
+		StorageThroughput:                atoiOrZero(vals.Get("StorageThroughput")),
 	}
 }
 

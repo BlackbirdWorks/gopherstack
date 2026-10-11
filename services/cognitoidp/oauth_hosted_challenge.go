@@ -43,7 +43,7 @@ func (b *InMemoryBackend) hostedChallengeLocked(pool *UserPool, clientID string,
 		}
 
 		name = challengeNewPasswordRequired
-	case pool.MfaConfiguration == "ON" || pool.MfaConfiguration == "OPTIONAL":
+	case mfaGateApplies(pool, user):
 		name = mfaChallengeType(pool, user)
 		if name != challengeSMSMFA && name != challengeSoftwareTokenMFA {
 			return hostedLogin{}, errHostedChallenge

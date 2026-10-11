@@ -2,7 +2,7 @@
 service: apigatewayv2
 sdk_module: aws-sdk-go-v2/service/apigatewayv2@v1.37.4
 last_audit_commit: 22b4f068c
-last_audit_date: 2026-10-09
+last_audit_date: 2026-10-11
 overall: A            # 2026-09-11 (gopherstack-mven, required-OUTPUT-member sweep, apigatewayv2
                        # 2026-10-09 realism pass: error messages no longer repeat the exception name ("BadRequestException: ..."); 404
                        # bodies say "Invalid API identifier specified <acct>:<id>" / "Invalid <Resource> identifier specified <id>"
@@ -1086,3 +1086,13 @@ InternalServerErrorException (errors.go:30) is a generic 500 fallback; the pinne
 ## 2026-10-05 (zeroguard omitted-vs-zero pass)
 
 UpdateIntegration TimeoutInMillis is a pointer: omitted keeps the stored value, an explicit 0 is range-checked and rejected (cmd/zeroguard). PutRoutingRule is full-replace with required Priority: tool false positive. Proof: `TestUpdateIntegration_TimeoutOmittedVsZero`.
+
+## 2026-10-11 deep realism pass (data plane)
+
+- Lambda proxy responses: payload 2.0 returns any non-envelope JSON (object without statusCode, string) as a 200 JSON body; 1.0 without statusCode, a function error payload and an invalid statusCode are 500 `{"message":"Internal Server Error"}`; Content-Type defaults to application/json; multiValueHeaders (1.0) and isBase64Encoded are honoured. Previously a non-envelope object produced an empty 200.
+- Events: 1.0 carries version, resource (the route path, not "GET /path"), multiValueHeaders, multiValueQueryStringParameters and a fuller requestContext; 2.0 rawPath/http.path include the stage for named stages; greedy `{proxy+}` pathParameters have no leading slash; isBase64Encoded is always present.
+- Authorizers: requestContext.authorizer carries `jwt.claims/scopes` for JWT authorizers and `lambda` (the authorizer context) for Lambda authorizers, including cached decisions; JWT routes enforce AuthorizationScopes (403); audience also matches `client_id` (Cognito access tokens); a Cognito issuer written as `https://cognito-idp.<region>.amazonaws.com/<pool>` matches the emulator-hosted pool of the same id.
+- HTTP_PROXY: integration method ANY forwards the client method; `{id}`/`{proxy}` placeholders in the integration URI are substituted from the route's path parameters.
+- CORS: headers only for an allowed Origin; Allow-Methods/Headers/Max-Age only on preflight; credentials echo the origin. Gateway errors (404, 500) are `{"message":...}` JSON.
+- CreateApi with Target and no RouteKey creates the `$default` route (CreateApiInput.RouteKey doc). Tests: http_proxy_flows_test.go, Test_CreateAPI_QuickCreate_DefaultRouteKey.
+- Not probed: WebSocket $connect/@connections (needs a Lambda runtime; covered by existing unit tests).

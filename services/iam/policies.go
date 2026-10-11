@@ -92,6 +92,18 @@ func (b *InMemoryBackend) DeletePolicy(policyArn string) error {
 		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
 
+	total := len(b.policyVersions[policyArn])
+	if !b.deletedV1Policies[policyArn] {
+		total++
+	}
+
+	if total > 1 {
+		return fmt.Errorf(
+			"%w: policy %q has non-default versions; delete them first",
+			ErrDeleteConflict, policyArn,
+		)
+	}
+
 	b.policies.Delete(policyName)
 	delete(b.policyByARN, policyArn)
 	delete(b.policyAttachments, policyArn)
@@ -820,6 +832,18 @@ func (b *InMemoryBackend) ListPolicyVersions(policyArn string) ([]StoredPolicyVe
 
 // awsManagedPolicyPrefix marks AWS managed policies, which have no local catalog so are accepted unverified.
 const awsManagedPolicyPrefix = "arn:aws:iam::aws:policy/"
+
+func (b *InMemoryBackend) requireBoundaryLocked(policyArn string) error {
+	if policyArn == "" {
+		return nil
+	}
+
+	if err := b.requireAttachablePolicyLocked(policyArn); err != nil {
+		return fmt.Errorf("%w: scope ARN %s does not exist or is not attachable", ErrPolicyNotFound, policyArn)
+	}
+
+	return nil
+}
 
 func (b *InMemoryBackend) requireAttachablePolicyLocked(policyArn string) error {
 	if strings.HasPrefix(policyArn, awsManagedPolicyPrefix) {

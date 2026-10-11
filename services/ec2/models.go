@@ -640,6 +640,8 @@ type SecurityGroupRuleUpdate struct {
 	SecurityGroupRuleID string
 	Protocol            string
 	CIDRIPv4            string
+	CIDRIPv6            string
+	PrefixListID        string
 	ReferencedGroupID   string
 	Description         string
 	FromPort            int
@@ -751,6 +753,10 @@ type SecurityGroupRuleDetail struct {
 	GroupID             string `json:"groupID,omitempty"`
 	Protocol            string `json:"protocol,omitempty"`
 	CIDRIPv4            string `json:"cidrIpv4,omitempty"`
+	CIDRIPv6            string `json:"cidrIpv6,omitempty"`
+	PrefixListID        string `json:"prefixListId,omitempty"`
+	ReferencedGroupID   string `json:"referencedGroupId,omitempty"`
+	ReferencedGroupUser string `json:"referencedGroupUser,omitempty"`
 	Description         string `json:"description,omitempty"`
 	FromPort            int    `json:"fromPort,omitempty"`
 	ToPort              int    `json:"toPort,omitempty"`

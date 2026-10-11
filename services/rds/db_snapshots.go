@@ -1,6 +1,7 @@
 package rds
 
 import (
+	"cmp"
 	"fmt"
 	"net/url"
 	"slices"
@@ -69,6 +70,8 @@ func (b *InMemoryBackend) newManualSnapshotLocked(snapshotID string, inst *DBIns
 		StorageType:          inst.StorageType,
 		StorageEncrypted:     inst.StorageEncrypted,
 		SnapshotType:         snapshotTypeManual,
+		MasterUsername:       inst.MasterUsername,
+		DBInstanceClass:      inst.DBInstanceClass,
 		OptionGroupName:      inst.OptionGroupName,
 		PercentProgress:      percentProgressComplete,
 	}
@@ -249,6 +252,8 @@ func (b *InMemoryBackend) CopyDBSnapshot(
 		SnapshotType:         snapshotTypeManual,
 		KmsKeyID:             kmsKeyID,
 		SourceRegion:         opts.SourceRegion,
+		MasterUsername:       src.MasterUsername,
+		DBInstanceClass:      src.DBInstanceClass,
 		OptionGroupName:      src.OptionGroupName,
 		PercentProgress:      percentProgressComplete,
 	}
@@ -317,36 +322,13 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 		}
 
 		endpoint = fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
-		port := snap.Port
-		if port == 0 {
-			port = enginePort(snap.Engine)
-		}
+		port := cmp.Or(opts.DBPortNumber, snap.Port, enginePort(snap.Engine))
 
-		inst := &DBInstance{
-			MasterSecret:                     secret,
-			DBInstanceIdentifier:             id,
-			DBInstanceArn:                    b.rdsARN("db", id),
-			DbiResourceID:                    id,
-			Engine:                           snap.Engine,
-			EngineVersion:                    snap.EngineVersion,
-			DBInstanceStatus:                 instanceStatusAvailable,
-			Endpoint:                         endpoint,
-			Port:                             port,
-			AllocatedStorage:                 snap.AllocatedStorage,
-			StorageType:                      opts.StorageType,
-			StorageEncrypted:                 snap.StorageEncrypted,
-			AvailabilityZone:                 opts.AvailabilityZone,
-			MultiAZ:                          opts.MultiAZ,
-			DeletionProtection:               opts.DeletionProtection,
-			DBParameterGroupName:             opts.DBParameterGroupName,
-			OptionGroupName:                  opts.OptionGroupName,
-			IAMDatabaseAuthenticationEnabled: opts.IAMDatabaseAuthenticationEnabled,
-			UseDefaultProcessorFeatures:      opts.UseDefaultProcessorFeatures,
-			BackupTarget:                     opts.BackupTarget,
-			EnabledCloudwatchLogsExports:     opts.EnabledCloudwatchLogsExports,
-		}
+		inst := restoredInstanceFromSnapshot(id, b.rdsARN("db", id), snap, opts, secret, endpoint, port)
 		applyVpcSecurityGroups(inst, opts.VpcSecurityGroupIDs)
 		b.instances.Put(inst)
+		b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
+		b.scheduleReconcilerLocked()
 		b.publishInstanceEventLocked(id, "DB instance restored from snapshot")
 		cp := *inst
 		result = &cp
@@ -361,6 +343,46 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 	}
 
 	return result, nil
+}
+
+// restoredInstanceFromSnapshot builds the creating DBInstance a snapshot restore produces.
+func restoredInstanceFromSnapshot(
+	id, arn string, snap *DBSnapshot, opts DBInstanceOptions, secret MasterSecret, endpoint string, port int,
+) *DBInstance {
+	return &DBInstance{
+		MasterSecret:                     secret,
+		DBInstanceIdentifier:             id,
+		DBInstanceArn:                    arn,
+		DbiResourceID:                    id,
+		Engine:                           snap.Engine,
+		EngineVersion:                    snap.EngineVersion,
+		DBInstanceStatus:                 instanceStatusCreating,
+		InstanceCreateTime:               time.Now().UTC(),
+		DBInstanceClass:                  cmp.Or(opts.DBInstanceClass, snap.DBInstanceClass),
+		MasterUsername:                   snap.MasterUsername,
+		DBSubnetGroupName:                opts.DBSubnetGroupName,
+		PubliclyAccessible:               opts.PubliclyAccessible,
+		AutoMinorVersionUpgrade:          opts.AutoMinorVersionUpgrade,
+		BackupRetentionPeriod:            opts.BackupRetentionPeriod,
+		CopyTagsToSnapshot:               opts.CopyTagsToSnapshot,
+		NetworkType:                      opts.NetworkType,
+		Iops:                             opts.Iops,
+		StorageThroughput:                opts.StorageThroughput,
+		Endpoint:                         endpoint,
+		Port:                             port,
+		AllocatedStorage:                 snap.AllocatedStorage,
+		StorageType:                      opts.StorageType,
+		StorageEncrypted:                 snap.StorageEncrypted,
+		AvailabilityZone:                 opts.AvailabilityZone,
+		MultiAZ:                          opts.MultiAZ,
+		DeletionProtection:               opts.DeletionProtection,
+		DBParameterGroupName:             opts.DBParameterGroupName,
+		OptionGroupName:                  opts.OptionGroupName,
+		IAMDatabaseAuthenticationEnabled: opts.IAMDatabaseAuthenticationEnabled,
+		UseDefaultProcessorFeatures:      opts.UseDefaultProcessorFeatures,
+		BackupTarget:                     opts.BackupTarget,
+		EnabledCloudwatchLogsExports:     opts.EnabledCloudwatchLogsExports,
+	}
 }
 
 // DescribeDBSnapshotAttributes returns attributes for a DB snapshot.

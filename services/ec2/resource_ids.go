@@ -46,6 +46,7 @@ func newVolumeID() string          { return "vol-" + newHexUUID(ec2IDHexLen) }
 // ---- Networking core: VPC / subnet / security / ACL / route tables ----
 
 func newVPCID() string                           { return "vpc-" + newHexUUID(ec2IDHexLen) }
+func newSecurityGroupRuleID() string             { return "sgr-" + newHexUUID(ec2IDHexLen) }
 func newSecurityGroupID() string                 { return "sg-" + newHexUUID(ec2IDHexLen) }
 func newNetworkACLID() string                    { return "acl-" + newHexUUID(ec2IDHexLen) }
 func newRouteTableID() string                    { return "rtb-" + newHexUUID(ec2IDHexLen) }

@@ -58,10 +58,11 @@ type httpAPIEvent struct {
 	Body                  string                `json:"body,omitempty"`
 	RequestContext        httpAPIRequestContext `json:"requestContext"`
 	Cookies               []string              `json:"cookies,omitempty"`
-	IsBase64Encoded       bool                  `json:"isBase64Encoded,omitempty"`
+	IsBase64Encoded       bool                  `json:"isBase64Encoded"`
 }
 
 type httpAPIRequestContext struct {
+	Authorizer   map[string]any     `json:"authorizer,omitempty"`
 	HTTP         httpAPIHTTPContext `json:"http"`
 	AccountID    string             `json:"accountId"`
 	APIID        string             `json:"apiId"`
@@ -84,11 +85,12 @@ type httpAPIHTTPContext struct {
 
 // httpAPILambdaResponse is the response returned by a Lambda function for format 2.0.
 type httpAPILambdaResponse struct {
-	Headers         map[string]string `json:"headers,omitempty"`
-	Body            string            `json:"body,omitempty"`
-	Cookies         []string          `json:"cookies,omitempty"`
-	StatusCode      int               `json:"statusCode"`
-	IsBase64Encoded bool              `json:"isBase64Encoded,omitempty"`
+	Headers         map[string]string   `json:"headers,omitempty"`
+	MultiValueHdrs  map[string][]string `json:"multiValueHeaders,omitempty"`
+	Body            string              `json:"body,omitempty"`
+	Cookies         []string            `json:"cookies,omitempty"`
+	StatusCode      int                 `json:"statusCode"`
+	IsBase64Encoded bool                `json:"isBase64Encoded,omitempty"`
 }
 
 // handleHTTPAPIProxy implements the HTTP API data plane for API Gateway v2.
@@ -108,7 +110,7 @@ func (h *Handler) handleHTTPAPIProxy(c *echo.Context, apiID, stageName, resource
 	// Fetch API for CORS configuration.
 	api, err := h.Backend.GetAPI(apiID)
 	if err != nil {
-		return c.String(http.StatusNotFound, "Not Found")
+		return writeJSONMessage(c, http.StatusNotFound, httpAPIMessage("Not Found"))
 	}
 
 	// CORS preflight — respond immediately before route matching.
@@ -118,9 +120,8 @@ func (h *Handler) handleHTTPAPIProxy(c *echo.Context, apiID, stageName, resource
 		return nil
 	}
 
-	// Attach CORS headers to every non-preflight response.
 	if api.CorsConfiguration != nil {
-		writeCORSHeaders(c.Response(), c.Request(), api.CorsConfiguration)
+		writeCORSResponseHeaders(c.Response(), c.Request(), api.CorsConfiguration)
 	}
 
 	// Route matching against the stage's pinned deployment snapshot when one
@@ -128,12 +129,12 @@ func (h *Handler) handleHTTPAPIProxy(c *echo.Context, apiID, stageName, resource
 	// deployment was since deleted, falls back to the API's live routes.
 	routes, deployment, err := h.resolveHTTPAPIRoutes(apiID, stage)
 	if err != nil {
-		return c.String(http.StatusInternalServerError, "Internal Server Error")
+		return writeJSONMessage(c, http.StatusInternalServerError, msgInternalError)
 	}
 
 	matchedRoute, pathParams := matchHTTPAPIRoute(routes, req.Method, resourcePath)
 	if matchedRoute == nil {
-		return c.String(http.StatusNotFound, "Not Found")
+		return writeJSONMessage(c, http.StatusNotFound, httpAPIMessage("Not Found"))
 	}
 
 	c.Set(routeKeyCtxKey, matchedRoute.RouteKey)
@@ -171,7 +172,7 @@ func (h *Handler) handleHTTPAPIProxy(c *echo.Context, apiID, stageName, resource
 	case integrationTypeHTTPProxy, integrationTypeHTTPType:
 		defer h.recordIntegrationLatency(c, time.Now())
 
-		return h.forwardHTTPAPIHTTPIntegration(c, integration, stageVars)
+		return h.forwardHTTPAPIHTTPIntegration(c, integration, stageVars, pathParams)
 	default:
 		return c.String(http.StatusInternalServerError, "Unsupported integration type: "+integration.IntegrationType)
 	}
@@ -297,11 +298,18 @@ func (h *Handler) enforceRouteAuth(
 			return errRouteUnauthorized
 		}
 
-		if jwtErr := h.enforceJWTAuthorizer(c.Request(), authorizer); jwtErr != nil {
+		claims, jwtErr := h.validateJWT(c.Request(), authorizer)
+		if jwtErr != nil {
 			log.Info("apigatewayv2: JWT validation failed", "error", jwtErr)
 
 			return errRouteUnauthorized
 		}
+
+		if !routeScopesSatisfied(claims, route.AuthorizationScopes) {
+			return errRouteForbidden
+		}
+
+		setAuthorizerContext(c, jwtAuthorizerContext(claims))
 
 		return nil
 
@@ -329,30 +337,74 @@ func buildV1Payload(
 	req *http.Request,
 	apiID, stageName, routeKey, resourcePath string,
 	headers, qsp, pathParams, stageVars map[string]string,
-	body string, isBase64 bool, requestID string,
+	body string, isBase64 bool, requestID string, authorizer map[string]any,
 ) []byte {
+	now := time.Now().UTC()
+	resource := routeResource(routeKey)
+
 	event := httpAPIV1Event{
-		HTTPMethod:            req.Method,
-		Path:                  resourcePath,
-		Resource:              routeKey,
-		Headers:               headers,
-		QueryStringParameters: qsp,
-		PathParameters:        pathParams,
-		StageVariables:        stageVars,
-		Body:                  body,
-		IsBase64Encoded:       isBase64,
+		Version:                         payloadFormatV1,
+		HTTPMethod:                      req.Method,
+		Path:                            resourcePath,
+		Resource:                        resource,
+		Headers:                         headers,
+		MultiValueHeaders:               multiValueHeaders(req.Header),
+		QueryStringParameters:           qsp,
+		MultiValueQueryStringParameters: req.URL.Query(),
+		PathParameters:                  pathParams,
+		StageVariables:                  stageVars,
+		Body:                            body,
+		IsBase64Encoded:                 isBase64,
 		RequestContext: httpAPIV1RequestContext{
-			HTTPMethod:   req.Method,
-			ResourcePath: routeKey,
-			Stage:        stageName,
-			APIId:        apiID,
-			RequestID:    requestID,
+			Authorizer:       authorizer,
+			HTTPMethod:       req.Method,
+			ResourcePath:     resource,
+			Path:             resourcePath,
+			Stage:            stageName,
+			APIId:            apiID,
+			AccountID:        config.DefaultAccountID,
+			DomainName:       apiID + ".execute-api." + regionFromCtx(req.Context()) + ".amazonaws.com",
+			DomainPrefix:     apiID,
+			Protocol:         req.Proto,
+			RequestID:        requestID,
+			RequestTime:      now.Format("02/Jan/2006:15:04:05 +0000"),
+			RequestTimeEpoch: now.UnixMilli(),
+			Identity:         httpAPIV1Identity{SourceIP: realIP(req), UserAgent: req.UserAgent()},
 		},
 	}
 
 	p, _ := json.Marshal(event)
 
 	return p
+}
+
+// routeResource returns the 1.0 event's resource: the route key without its method.
+func routeResource(routeKey string) string {
+	if _, path, ok := strings.Cut(routeKey, " "); ok {
+		return path
+	}
+
+	return "/" + routeKey
+}
+
+// multiValueHeaders returns the lowercase-keyed multi-value header map of format 1.0.
+func multiValueHeaders(h http.Header) map[string][]string {
+	out := make(map[string][]string, len(h))
+	for k, vs := range h {
+		out[strings.ToLower(k)] = vs
+	}
+
+	return out
+}
+
+// eventPath prefixes resourcePath with the stage name for named stages, as the
+// default execute-api endpoint does in payload format 2.0.
+func eventPath(stageName, resourcePath string) string {
+	if stageName == "" || stageName == routeKeyDefault {
+		return resourcePath
+	}
+
+	return "/" + stageName + resourcePath
 }
 
 // buildV2Payload constructs a payload format 2.0 Lambda event and marshals it.
@@ -362,12 +414,14 @@ func buildV2Payload(
 	headers, qsp, pathParams, stageVars map[string]string,
 	cookies []string,
 	body string, isBase64 bool,
-	requestID string, now time.Time,
+	requestID string, now time.Time, authorizer map[string]any,
 ) []byte {
+	rawPath := eventPath(stageName, resourcePath)
+
 	event := httpAPIEvent{
 		Version:               payloadFormatV2,
 		RouteKey:              routeKey,
-		RawPath:               resourcePath,
+		RawPath:               rawPath,
 		RawQueryString:        req.URL.RawQuery,
 		Headers:               headers,
 		QueryStringParameters: qsp,
@@ -377,6 +431,7 @@ func buildV2Payload(
 		IsBase64Encoded:       isBase64,
 		Cookies:               cookies,
 		RequestContext: httpAPIRequestContext{
+			Authorizer:   authorizer,
 			AccountID:    config.DefaultAccountID,
 			APIID:        apiID,
 			DomainName:   apiID + ".execute-api." + regionFromCtx(req.Context()) + ".amazonaws.com",
@@ -388,7 +443,7 @@ func buildV2Payload(
 			TimeEpoch:    now.UnixMilli(),
 			HTTP: httpAPIHTTPContext{
 				Method:    req.Method,
-				Path:      resourcePath,
+				Path:      rawPath,
 				Protocol:  req.Proto,
 				SourceIP:  realIP(req),
 				UserAgent: req.UserAgent(),
@@ -452,10 +507,10 @@ func (h *Handler) invokeHTTPAPILambda(
 	switch pfv {
 	case payloadFormatV1:
 		payload = buildV1Payload(req, apiID, stageName, routeKey, resourcePath,
-			headers, qsp, pathParams, stageVars, body, isBase64, requestID)
+			headers, qsp, pathParams, stageVars, body, isBase64, requestID, authorizerContext(c))
 	default: // 2.0
 		payload = buildV2Payload(req, apiID, stageName, routeKey, resourcePath,
-			headers, qsp, pathParams, stageVars, cookies, body, isBase64, requestID, now)
+			headers, qsp, pathParams, stageVars, cookies, body, isBase64, requestID, now, authorizerContext(c))
 	}
 
 	respBytes, statusCode, invokeErr := h.lambdaInvoker.InvokeFunction(
@@ -474,65 +529,24 @@ func (h *Handler) invokeHTTPAPILambda(
 	// Lambda may return a function error via status code (200 = ok, 200 with X-Amz-Function-Error = error).
 	_ = statusCode
 
-	return writeHTTPAPILambdaResponse(c, respBytes)
-}
-
-func writeHTTPAPILambdaResponse(c *echo.Context, respBytes []byte) error {
-	var lambdaResp httpAPILambdaResponse
-
-	isJSON := json.Unmarshal(respBytes, &lambdaResp) == nil
-	if !isJSON {
-		c.Response().WriteHeader(http.StatusOK)
-		_, _ = c.Response().Write(respBytes)
-
-		return nil
-	}
-
-	for k, v := range lambdaResp.Headers {
-		c.Response().Header().Set(k, v)
-	}
-
-	for _, ck := range lambdaResp.Cookies {
-		c.Response().Header().Add("Set-Cookie", ck)
-	}
-
-	sc := lambdaResp.StatusCode
-	if sc == 0 {
-		sc = http.StatusOK
-	}
-
-	var bodyBytes []byte
-	if lambdaResp.IsBase64Encoded {
-		if decoded, decErr := base64.StdEncoding.DecodeString(lambdaResp.Body); decErr == nil {
-			bodyBytes = decoded
-		} else {
-			bodyBytes = []byte(lambdaResp.Body)
-		}
-	} else {
-		bodyBytes = []byte(lambdaResp.Body)
-	}
-
-	c.Response().WriteHeader(sc)
-	_, _ = c.Response().Write(bodyBytes)
-
-	return nil
+	return writeHTTPAPILambdaResponse(c, respBytes, pfv)
 }
 
 // forwardHTTPAPIHTTPIntegration forwards a request to an HTTP backend integration.
 func (h *Handler) forwardHTTPAPIHTTPIntegration(
 	c *echo.Context,
 	integration *Integration,
-	stageVars map[string]string,
+	stageVars, pathParams map[string]string,
 ) error {
 	if integration.IntegrationURI == "" {
 		return c.String(http.StatusInternalServerError, "Integration URI is empty")
 	}
 
 	// Substitute stage variables in URI.
-	targetURI := substituteStageVars(integration.IntegrationURI, stageVars)
+	targetURI := substitutePathParams(substituteStageVars(integration.IntegrationURI, stageVars), pathParams)
 
 	method := c.Request().Method
-	if integration.IntegrationMethod != "" {
+	if integration.IntegrationMethod != "" && !strings.EqualFold(integration.IntegrationMethod, httpMethodAny) {
 		method = integration.IntegrationMethod
 	}
 
@@ -655,7 +669,7 @@ func scoreHTTPRoutePath(routePath, requestPath string) (map[string]string, int, 
 		if strings.HasSuffix(seg, "+}") {
 			// Greedy: capture remaining segments.
 			name := seg[1 : len(seg)-2]
-			params[name] = "/" + strings.Join(reqSegs[i:], "/")
+			params[name] = strings.Join(reqSegs[i:], "/")
 
 			break
 		}
@@ -688,14 +702,14 @@ func splitHTTPPathSegs(path string) []string {
 	return strings.Split(trimmed, "/")
 }
 
-// enforceJWTAuthorizer validates the JWT token extracted from the request using
+// validateJWT validates the JWT token extracted from the request using
 // the authorizer's identity source and JwtConfiguration (issuer + audience).
 // Signature is verified against the JWKS provider when available; tokens from
 // unknown issuers are always rejected.
-func (h *Handler) enforceJWTAuthorizer(r *http.Request, auth *Authorizer) error {
+func (h *Handler) validateJWT(r *http.Request, auth *Authorizer) (jwt.MapClaims, error) {
 	tokenStr := extractJWTToken(r, auth.IdentitySource)
 	if tokenStr == "" {
-		return errNoTokenFound
+		return nil, errNoTokenFound
 	}
 
 	// Strip "Bearer " prefix (case-insensitive).
@@ -721,20 +735,30 @@ func (h *Handler) enforceJWTAuthorizer(r *http.Request, auth *Authorizer) error 
 			return nil, errNoJWKSProvider
 		}
 
+		if mc, ok := t.Claims.(jwt.MapClaims); ok {
+			if tokenIss, _ := mc["iss"].(string); tokenIss != "" && jwtIssuerMatches(tokenIss, issuer) {
+				issuer = tokenIss
+			}
+		}
+
 		return h.jwksProvider.GetJWTPublicKey(issuer, kid)
 	}
 
 	token, parseErr := jwt.Parse(tokenStr, keyfunc, jwt.WithExpirationRequired())
 	if parseErr != nil {
-		return fmt.Errorf("invalid JWT: %w", parseErr)
+		return nil, fmt.Errorf("invalid JWT: %w", parseErr)
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || !token.Valid {
-		return errInvalidJWTClaimsType
+		return nil, errInvalidJWTClaimsType
 	}
 
-	return validateJWTClaims(claims, cfg)
+	if err := validateJWTClaims(claims, cfg); err != nil {
+		return nil, err
+	}
+
+	return claims, nil
 }
 
 // validateJWTClaims checks exp, iss, and aud claims against the JwtConfiguration.
@@ -755,7 +779,7 @@ func validateJWTClaims(claims jwt.MapClaims, cfg *JwtConfiguration) error {
 	// Validate issuer if configured.
 	if cfg.Issuer != "" {
 		if issVal, hasIss := claims["iss"]; hasIss {
-			if issStr, isStr := issVal.(string); !isStr || issStr != cfg.Issuer {
+			if issStr, isStr := issVal.(string); !isStr || !jwtIssuerMatches(issStr, cfg.Issuer) {
 				return fmt.Errorf("%w: got %v, want %s", errJWTIssuerMismatch, issVal, cfg.Issuer)
 			}
 		} else {
@@ -771,6 +795,34 @@ func validateJWTClaims(claims jwt.MapClaims, cfg *JwtConfiguration) error {
 	}
 
 	return nil
+}
+
+// jwtIssuerMatches reports whether a token's iss names the configured issuer. A
+// Cognito issuer written in its real-AWS form (https://cognito-idp.<region>.amazonaws.com/<pool>)
+// also matches the emulator-hosted issuer of the same pool.
+func jwtIssuerMatches(tokenIss, cfgIss string) bool {
+	if tokenIss == cfgIss {
+		return true
+	}
+
+	tokenPool, tokenOK := cognitoPoolOfIssuer(tokenIss)
+	cfgPool, cfgOK := cognitoPoolOfIssuer(cfgIss)
+
+	return tokenOK && cfgOK && tokenPool == cfgPool
+}
+
+// cognitoPoolOfIssuer returns the "<region>_<id>" pool id when iss is shaped like
+// a Cognito issuer URL (a single path segment of that form).
+func cognitoPoolOfIssuer(iss string) (string, bool) {
+	u, err := url.Parse(iss)
+	if err != nil {
+		return "", false
+	}
+
+	pool := strings.Trim(u.Path, "/")
+	region, id, found := strings.Cut(pool, "_")
+
+	return pool, found && region != "" && id != "" && !strings.Contains(pool, "/")
 }
 
 // extractJWTToken extracts the raw token string from the request using the identity
@@ -796,6 +848,10 @@ func extractJWTToken(r *http.Request, identitySource []string) string {
 // configured audiences.
 func jwtAudienceValid(claims jwt.MapClaims, wantAud []string) bool {
 	audVal, hasAud := claims["aud"]
+	if !hasAud {
+		audVal, hasAud = claims["client_id"]
+	}
+
 	if !hasAud {
 		return false
 	}
@@ -824,52 +880,62 @@ func jwtAudienceValid(claims jwt.MapClaims, wantAud []string) bool {
 
 // writeCORSPreflight writes a 204 response with CORS headers for a preflight request.
 func writeCORSPreflight(w http.ResponseWriter, r *http.Request, cors *CorsConfiguration) {
-	writeCORSHeaders(w, r, cors)
+	if allowedCORSOrigin(r, cors) != "" {
+		writeCORSResponseHeaders(w, r, cors)
+
+		if len(cors.AllowMethods) > 0 {
+			w.Header().Set("Access-Control-Allow-Methods", strings.Join(cors.AllowMethods, ","))
+		}
+
+		if len(cors.AllowHeaders) > 0 {
+			w.Header().Set("Access-Control-Allow-Headers", strings.Join(cors.AllowHeaders, ","))
+		}
+
+		if cors.MaxAge > 0 {
+			w.Header().Set("Access-Control-Max-Age", strconv.FormatInt(int64(cors.MaxAge), 10))
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// writeCORSHeaders applies CORS response headers from the API's CorsConfiguration.
-func writeCORSHeaders(w http.ResponseWriter, r *http.Request, cors *CorsConfiguration) {
-	if cors == nil {
-		return
+// allowedCORSOrigin returns the Access-Control-Allow-Origin value for r, or "" when
+// the request has no Origin or the origin is not allowed.
+func allowedCORSOrigin(r *http.Request, cors *CorsConfiguration) string {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return ""
 	}
 
-	origin := r.Header.Get("Origin")
-
-	// Allowed origins: "*" or explicit list.
-	allowedOrigin := ""
 	for _, o := range cors.AllowOrigins {
 		if o == "*" {
-			allowedOrigin = "*"
+			if cors.AllowCredentials {
+				return origin
+			}
 
-			break
+			return "*"
 		}
 
 		if o == origin {
-			allowedOrigin = origin
-
-			break
+			return origin
 		}
 	}
 
-	if allowedOrigin != "" {
-		w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+	return ""
+}
+
+// writeCORSResponseHeaders sets the headers API Gateway adds to actual (non-preflight)
+// responses for an allowed Origin.
+func writeCORSResponseHeaders(w http.ResponseWriter, r *http.Request, cors *CorsConfiguration) {
+	allowed := allowedCORSOrigin(r, cors)
+	if allowed == "" {
+		return
 	}
 
-	if len(cors.AllowMethods) > 0 {
-		w.Header().Set("Access-Control-Allow-Methods", strings.Join(cors.AllowMethods, ","))
-	}
-
-	if len(cors.AllowHeaders) > 0 {
-		w.Header().Set("Access-Control-Allow-Headers", strings.Join(cors.AllowHeaders, ","))
-	}
+	w.Header().Set("Access-Control-Allow-Origin", allowed)
 
 	if len(cors.ExposeHeaders) > 0 {
 		w.Header().Set("Access-Control-Expose-Headers", strings.Join(cors.ExposeHeaders, ","))
-	}
-
-	if cors.MaxAge > 0 {
-		w.Header().Set("Access-Control-Max-Age", strconv.FormatInt(int64(cors.MaxAge), 10))
 	}
 
 	if cors.AllowCredentials {
@@ -935,6 +1001,21 @@ func extractHTTPAPILambdaARN(uri string) string {
 	return uri
 }
 
+// substitutePathParams replaces {name} placeholders in an HTTP integration URI with the
+// matched route's path parameters (a greedy {proxy+} param is referenced as {proxy}).
+func substitutePathParams(uri string, pathParams map[string]string) string {
+	for name, val := range pathParams {
+		segs := strings.Split(val, "/")
+		for i, seg := range segs {
+			segs[i] = url.PathEscape(seg)
+		}
+
+		uri = strings.ReplaceAll(uri, "{"+name+"}", strings.Join(segs, "/"))
+	}
+
+	return uri
+}
+
 // substituteStageVars replaces ${stageVariables.X} placeholders in s with values from stageVars.
 func substituteStageVars(s string, stageVars map[string]string) string {
 	const prefix = "${stageVariables."
@@ -990,23 +1071,39 @@ func splitHostPort(addr string) (string, string, error) {
 
 // httpAPIV1Event is a v1-format Lambda event for format version "1.0".
 type httpAPIV1Event struct {
-	QueryStringParameters map[string]string       `json:"queryStringParameters,omitempty"`
-	Headers               map[string]string       `json:"headers,omitempty"`
-	PathParameters        map[string]string       `json:"pathParameters,omitempty"`
-	StageVariables        map[string]string       `json:"stageVariables,omitempty"`
-	RequestContext        httpAPIV1RequestContext `json:"requestContext"`
-	Resource              string                  `json:"resource"`
-	Path                  string                  `json:"path"`
-	HTTPMethod            string                  `json:"httpMethod"`
-	Body                  string                  `json:"body,omitempty"`
-	IsBase64Encoded       bool                    `json:"isBase64Encoded,omitempty"`
+	QueryStringParameters           map[string]string       `json:"queryStringParameters,omitempty"`
+	MultiValueQueryStringParameters map[string][]string     `json:"multiValueQueryStringParameters,omitempty"`
+	Headers                         map[string]string       `json:"headers,omitempty"`
+	MultiValueHeaders               map[string][]string     `json:"multiValueHeaders,omitempty"`
+	PathParameters                  map[string]string       `json:"pathParameters,omitempty"`
+	StageVariables                  map[string]string       `json:"stageVariables,omitempty"`
+	Version                         string                  `json:"version,omitempty"`
+	Resource                        string                  `json:"resource"`
+	Path                            string                  `json:"path"`
+	HTTPMethod                      string                  `json:"httpMethod"`
+	Body                            string                  `json:"body,omitempty"`
+	RequestContext                  httpAPIV1RequestContext `json:"requestContext"`
+	IsBase64Encoded                 bool                    `json:"isBase64Encoded"`
+}
+
+type httpAPIV1Identity struct {
+	SourceIP  string `json:"sourceIp,omitempty"`
+	UserAgent string `json:"userAgent,omitempty"`
 }
 
 type httpAPIV1RequestContext struct {
-	Authorizer   map[string]any `json:"authorizer,omitempty"`
-	ResourcePath string         `json:"resourcePath"`
-	HTTPMethod   string         `json:"httpMethod"`
-	Stage        string         `json:"stage"`
-	APIId        string         `json:"apiId"`
-	RequestID    string         `json:"requestId,omitempty"`
+	Authorizer       map[string]any    `json:"authorizer,omitempty"`
+	Identity         httpAPIV1Identity `json:"identity,omitzero"`
+	ResourcePath     string            `json:"resourcePath"`
+	HTTPMethod       string            `json:"httpMethod"`
+	Stage            string            `json:"stage"`
+	APIId            string            `json:"apiId"`
+	AccountID        string            `json:"accountId,omitempty"`
+	DomainName       string            `json:"domainName,omitempty"`
+	DomainPrefix     string            `json:"domainPrefix,omitempty"`
+	Path             string            `json:"path,omitempty"`
+	Protocol         string            `json:"protocol,omitempty"`
+	RequestID        string            `json:"requestId,omitempty"`
+	RequestTime      string            `json:"requestTime,omitempty"`
+	RequestTimeEpoch int64             `json:"requestTimeEpoch,omitempty"`
 }

@@ -58,6 +58,19 @@ func (b *InMemoryBackend) newMFASession(pool *UserPool, clientID, username, chal
 	return result
 }
 
+// mfaGateApplies reports whether sign-in must pass an MFA challenge: always for ON, and for
+// OPTIONAL only once the user has enabled a factor via SetUserMFAPreference.
+func mfaGateApplies(pool *UserPool, user *User) bool {
+	switch pool.MfaConfiguration {
+	case "ON":
+		return true
+	case "OPTIONAL":
+		return user.PreferredMfaSetting != "" || len(user.UserMFASettingList) > 0
+	default:
+		return false
+	}
+}
+
 // mfaChallengeType returns the challenge type to use given pool config and user preference.
 // A user with no configured preference and no previously verified software token has no MFA
 // factor to challenge for at all -- real Cognito returns MFA_SETUP in that case (InitiateAuth

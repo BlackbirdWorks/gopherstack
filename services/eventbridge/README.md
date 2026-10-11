@@ -9,13 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 66 (59 ok, 7 partial) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 1 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- Kept lenient: ScheduleExpression on a custom event bus (real AWS allows it only on the default bus; test/terraform/fixtures/eventbridge/success.tf relies on it) and CreateConnection AuthParameters that do not match AuthorizationType (the SDK names no error for it).
 - Invalid-pattern Reason strings other than scalar-value, unknown matcher type and Filter-is-not-an-object (e.g. the exact wording for malformed JSON) are modeled from memory of real AWS, not pinned by the SDK.
 
 ### Structural gaps

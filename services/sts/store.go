@@ -26,6 +26,11 @@ type UserLookup interface {
 	GetUserArnByAccessKeyID(accessKeyID string) (string, error)
 }
 
+// UserIDLookup is an optional UserLookup extension that resolves the IAM user's unique ID (AIDA...).
+type UserIDLookup interface {
+	GetUserIDByAccessKeyID(accessKeyID string) (string, error)
+}
+
 // OIDCLookup is implemented by services (e.g. IAM) that can validate OIDC providers
 // for AssumeRoleWithWebIdentity.
 type OIDCLookup interface {

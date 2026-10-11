@@ -172,6 +172,7 @@ func validateResourceName(name, kind string) error {
 
 const (
 	healthStateHealthy = "healthy"
+	healthStateInitial = "initial"
 	ipAddressTypeIPv4  = "ipv4"
 	protoHTTP          = "HTTP"
 	protoHTTPS         = "HTTPS"
@@ -180,6 +181,7 @@ const (
 	lbTypeNetwork      = "network"
 	lbTypeGateway      = "gateway"
 	targetTypeLambda   = "lambda"
+	targetTypeInstance = "instance"
 	priorityDefault    = "default"
 	maxNameLength      = 32
 	minLBNameLength    = 2

@@ -2,7 +2,7 @@
 service: kms
 sdk_module: aws-sdk-go-v2/service/kms@v1.59.0
 last_audit_commit: d1ed0e39b  # 2026-09-23 (gopherstack-6u8p4): AWS-managed key lazy provisioning
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-11
 overall: A            # Full sweep of the 5 gaps/2 deferred items this file previously
                        # tracked, plus a dedicated leak hunt. Found + fixed 1 real leak
                        # (Handler.tags -- a side map keyed by KeyID, entirely outside
@@ -1003,3 +1003,10 @@ KeyMetadata no longer emits `PrimaryRegion` and `MultiRegionKeyType` directly (t
 ## 2026-10-09 (service realism pass)
 
 Encrypt rejects empty Plaintext. Decrypt of a blob KMS did not produce returns InvalidCiphertextException (was NotFoundException). Sign/Verify/GenerateMac with an algorithm incompatible with the key returns InvalidKeyUsageException (was 500 KMSInternalException). Non-numeric List* Marker returns InvalidMarkerException. NotFound, AlreadyExists, Disabled and PendingDeletion errors carry AWS-style messages without a duplicated code prefix.
+
+## 2026-10-11 deep realism pass (end-to-end IaC flows)
+
+- Multi-Region keys get `mrk-` IDs (primary and replicas); Decrypt of a ciphertext produced in another Region of the same multi-Region key falls back to the key's home-Region material (replica ids still differ from the primary's, see caveat).
+- ReplicateKey into the primary's Region or a Region that already has a replica returns AlreadyExistsException.
+- CreateGrant with a Name and identical parameters is idempotent (returns the existing GrantId/GrantToken).
+- Caveat: AWS gives a replica the same KeyId as its primary; here replica ids are distinct (`ReplicaKeyIds` bookkeeping depends on it).

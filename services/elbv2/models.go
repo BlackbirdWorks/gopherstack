@@ -97,9 +97,10 @@ type Target struct {
 
 // TargetHealthDescription describes the health state of a registered target.
 type TargetHealthDescription struct {
-	HealthState  string `json:"healthState"`
-	HealthReason string `json:"healthReason,omitempty"`
-	Target       Target `json:"target"`
+	HealthState       string `json:"healthState"`
+	HealthReason      string `json:"healthReason,omitempty"`
+	HealthDescription string `json:"healthDescription,omitempty"`
+	Target            Target `json:"target"`
 }
 
 // Action represents a listener or rule action.

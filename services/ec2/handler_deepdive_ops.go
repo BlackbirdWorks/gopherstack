@@ -135,13 +135,11 @@ func (h *Handler) handleDescribeImageUsageReports(vals url.Values, reqID string)
 }
 
 func (h *Handler) handleCreateLaunchTemplate(vals url.Values, reqID string) (any, error) {
-	dataImageID := vals.Get("LaunchTemplateData.ImageId")
-	dataInstanceType := vals.Get("LaunchTemplateData.InstanceType")
 	tags := parseTagSpecification(vals, "launch-template")
-	template, err := h.Backend.CreateLaunchTemplate(
+	template, err := h.Backend.CreateLaunchTemplateWithData(
 		vals.Get("LaunchTemplateName"),
-		dataImageID,
-		dataInstanceType,
+		vals.Get("VersionDescription"),
+		launchTemplateDataFromVals(vals),
 		tags,
 	)
 	if err != nil {

@@ -12,11 +12,13 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 // rsaKeyBits is the size of the RSA key generated for JWT signing.
@@ -308,6 +310,20 @@ func resolveTokenExpiries(p TokenParams) (time.Duration, time.Duration) {
 	return idExpiry, accessExpiry
 }
 
+// idClaimValue types the attributes real Cognito emits as non-strings in ID tokens.
+func idClaimValue(attr, val string) any {
+	switch attr {
+	case attrEmailVerified, attrPhoneVerified:
+		return val == "true"
+	case attrUpdatedAt:
+		if n, err := strconv.ParseInt(val, 10, 64); err == nil {
+			return n
+		}
+	}
+
+	return val
+}
+
 // signIDToken builds and signs the ID token claims for p.
 func (t *tokenIssuer) signIDToken(p TokenParams, now time.Time, idExpiry time.Duration) (string, error) {
 	idClaims := jwt.MapClaims{
@@ -338,16 +354,25 @@ func (t *tokenIssuer) signIDToken(p TokenParams, now time.Time, idExpiry time.Du
 
 	// Include standard user attributes in the ID token (email, phone_number, name, etc.)
 	standardAttrs := []string{
-		"email", attrEmailVerified, "phone_number", "phone_number_verified",
-		"name", "given_name", "family_name", "middle_name", "nickname",
+		attrEmail, attrEmailVerified, "phone_number", attrPhoneVerified,
+		"name", attrGivenName, attrFamilyName, "middle_name", "nickname",
 		"preferred_username", "website", "zoneinfo", "locale", "birthdate",
-		"gender", "address", "updated_at",
+		"gender", "address", attrUpdatedAt,
 	}
 	for _, attr := range standardAttrs {
 		if val, ok := p.Attributes[attr]; ok {
+			idClaims[attr] = idClaimValue(attr, val)
+		}
+	}
+
+	for attr, val := range p.Attributes {
+		if strings.HasPrefix(attr, "custom:") {
 			idClaims[attr] = val
 		}
 	}
+
+	idClaims[claimJTI] = uuid.NewString()
+	idClaims[claimEventID] = uuid.NewString()
 
 	applyClaimsOverride(idClaims, p.ClaimsToAddOrOverride, p.ClaimsToSuppress)
 	p.Overrides.applyID(idClaims)
@@ -410,6 +435,9 @@ func (t *tokenIssuer) signAccessToken(
 		claimExp:      now.Add(accessExpiry).Unix(),
 		claimAuthTime: p.AuthTime,
 		claimAuthSeq:  p.AuthSeq,
+		claimJTI:      uuid.NewString(),
+		claimEventID:  uuid.NewString(),
+		claimVersion:  clientCredentialsTokenVersion,
 	}
 	if len(p.Groups) > 0 {
 		accessClaims[claimCognitoGroups] = p.Groups

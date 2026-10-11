@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strings"
 	"sync"
 	"time"
 
@@ -148,6 +147,7 @@ type Instance struct {
 	CapacityReservationSpec CapacityReservationSpec    `json:"capacityReservationSpecification"`
 	MaintenanceOptions      InstanceMaintenanceOptions `json:"maintenanceOptions"`
 	PublicDNSName           string                     `json:"publicDNSName,omitempty"`
+	RootDeviceName          string                     `json:"rootDeviceName,omitempty"`
 	MetadataOptionsTokens   string                     `json:"metadataOptionsTokens,omitempty"`
 	MetadataOptionsState    string                     `json:"metadataOptionsState,omitempty"`
 	MonitoringState         string                     `json:"monitoringState,omitempty"`
@@ -267,10 +267,13 @@ type InstanceStateChange struct {
 // AWS's UpdateSecurityGroupRuleDescriptions* semantics of changing a rule's
 // description without it becoming a "different" rule.
 type SecurityGroupRule struct {
+	ID                 string `json:"id,omitempty"`
 	Protocol           string `json:"protocol,omitempty"`
 	IPRange            string `json:"ipRange,omitempty"`
 	SourceGroupID      string `json:"sourceGroupId,omitempty"`
 	SourceGroupOwnerID string `json:"sourceGroupOwnerId,omitempty"`
+	IPv6Range          string `json:"ipv6Range,omitempty"`
+	PrefixListID       string `json:"prefixListId,omitempty"`
 	Description        string `json:"description,omitempty"`
 	FromPort           int    `json:"fromPort,omitempty"`
 	ToPort             int    `json:"toPort,omitempty"`
@@ -1135,36 +1138,48 @@ func (b *InMemoryBackend) RunInstances(
 			EnaSupport: true,
 		}
 		inst.Placement.AvailabilityZone = availabilityZone
-		inst.PrivateIP = b.allocPrivateIP()
+		inst.PrivateIP = b.allocPrivateIPInSubnet(subnetID)
 		if mapPublicIP {
 			inst.PublicIPAddress = b.allocElasticIP()
-			inst.PublicDNSName = fmt.Sprintf("ec2-%s.compute-1.amazonaws.com",
-				strings.ReplaceAll(inst.PublicIPAddress, ".", "-"))
+			inst.PublicDNSName = publicDNSNameFor(inst.PublicIPAddress)
 		}
-		eniID := newENIID()
-		attachID := "eni-attach-" + uuid.New().String()[:8]
-		b.networkInterfaces.Put(&NetworkInterface{
-			ID:                  eniID,
-			SubnetID:            subnetID,
-			VPCID:               vpcID,
-			PrivateIP:           inst.PrivateIP,
-			InstanceID:          id,
-			AttachmentID:        attachID,
-			DeviceIndex:         0,
-			Status:              stateInUse,
-			OwnerID:             b.AccountID,
-			SourceDestCheck:     true,
-			DeleteOnTermination: true,
-		})
-		b.instances.Put(inst)
-		b.indexInstanceLocked(inst)
-		eni, _ := b.networkInterfaces.Get(eniID)
-		b.indexENILocked(eniID, eni)
-		b.indexENIByVPCLocked(eniID, eni)
+
+		b.attachLaunchENILocked(inst)
 		instances = append(instances, inst)
 	}
 
 	return instances, nil
+}
+
+// attachLaunchENILocked registers inst and gives it the primary network interface, placing both
+// in the VPC's default security group.
+func (b *InMemoryBackend) attachLaunchENILocked(inst *Instance) {
+	var launchGroups []string
+	if def := b.defaultSecurityGroupIDLocked(inst.VPCID); def != "" {
+		launchGroups = []string{def}
+		inst.SecurityGroups = launchGroups
+	}
+
+	eniID := newENIID()
+	eni := &NetworkInterface{
+		ID:                  eniID,
+		SubnetID:            inst.SubnetID,
+		VPCID:               inst.VPCID,
+		PrivateIP:           inst.PrivateIP,
+		InstanceID:          inst.ID,
+		AttachmentID:        "eni-attach-" + uuid.New().String()[:8],
+		DeviceIndex:         0,
+		Status:              stateInUse,
+		OwnerID:             b.AccountID,
+		SourceDestCheck:     true,
+		DeleteOnTermination: true,
+		SecurityGroupIDs:    launchGroups,
+	}
+	b.networkInterfaces.Put(eni)
+	b.instances.Put(inst)
+	b.indexInstanceLocked(inst)
+	b.indexENILocked(eniID, eni)
+	b.indexENIByVPCLocked(eniID, eni)
 }
 
 // findDefaultSubnetID returns the ID of the default subnet, or empty string if none.

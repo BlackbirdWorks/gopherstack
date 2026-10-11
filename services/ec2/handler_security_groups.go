@@ -348,6 +348,9 @@ func (h *Handler) handleDescribeSecurityGroupRules(vals url.Values, reqID string
 			GroupID:             r.GroupID,
 			Protocol:            r.Protocol,
 			CIDRIPv4:            r.CIDRIPv4,
+			CIDRIPv6:            r.CIDRIPv6,
+			PrefixListID:        r.PrefixListID,
+			ReferencedGroupInfo: referencedGroupInfoFor(r),
 			Description:         r.Description,
 			FromPort:            r.FromPort,
 			ToPort:              r.ToPort,
@@ -396,6 +399,8 @@ func (h *Handler) handleModifySecurityGroupRules(vals url.Values, reqID string) 
 			SecurityGroupRuleID: ruleID,
 			Protocol:            vals.Get(prefix + "SecurityGroupRule.IpProtocol"),
 			CIDRIPv4:            vals.Get(prefix + "SecurityGroupRule.CidrIpv4"),
+			CIDRIPv6:            vals.Get(prefix + "SecurityGroupRule.CidrIpv6"),
+			PrefixListID:        vals.Get(prefix + "SecurityGroupRule.PrefixListId"),
 			ReferencedGroupID:   vals.Get(prefix + "SecurityGroupRule.ReferencedGroupId"),
 			Description:         vals.Get(prefix + "SecurityGroupRule.Description"),
 			FromPort:            fromPort,
@@ -514,55 +519,49 @@ func parseIPPermissions(vals url.Values) []SecurityGroupRule {
 			break
 		}
 
-		fromPort := 0
-		toPort := 0
-
-		fromKey := fmt.Sprintf("IpPermissions.%d.FromPort", i)
-		toKey := fmt.Sprintf("IpPermissions.%d.ToPort", i)
+		base := SecurityGroupRule{Protocol: proto}
 		// Ports default to 0 if not provided or unparseable, which is correct for protocols
 		// like -1 (all traffic) where port ranges are not meaningful.
-		_, _ = fmt.Sscan(vals.Get(fromKey), &fromPort)
-		_, _ = fmt.Sscan(vals.Get(toKey), &toPort)
+		_, _ = fmt.Sscan(vals.Get(fmt.Sprintf("IpPermissions.%d.FromPort", i)), &base.FromPort)
+		_, _ = fmt.Sscan(vals.Get(fmt.Sprintf("IpPermissions.%d.ToPort", i)), &base.ToPort)
 
-		for j := 1; ; j++ {
-			cidr := vals.Get(fmt.Sprintf("IpPermissions.%d.IpRanges.%d.CidrIp", i, j))
-			if cidr == "" {
-				break
-			}
+		prefix := fmt.Sprintf("IpPermissions.%d.", i)
 
-			description := vals.Get(fmt.Sprintf("IpPermissions.%d.IpRanges.%d.Description", i, j))
-
-			rules = append(rules, SecurityGroupRule{
-				Protocol:    proto,
-				FromPort:    fromPort,
-				ToPort:      toPort,
-				IPRange:     cidr,
-				Description: description,
-			})
-		}
-
-		// Security-group source references (gap 6).
-		for j := 1; ; j++ {
-			srcGroupID := vals.Get(fmt.Sprintf("IpPermissions.%d.Groups.%d.GroupId", i, j))
-			if srcGroupID == "" {
-				break
-			}
-
-			ownerID := vals.Get(fmt.Sprintf("IpPermissions.%d.Groups.%d.UserId", i, j))
-			description := vals.Get(fmt.Sprintf("IpPermissions.%d.Groups.%d.Description", i, j))
-
-			rules = append(rules, SecurityGroupRule{
-				Protocol:           proto,
-				FromPort:           fromPort,
-				ToPort:             toPort,
-				SourceGroupID:      srcGroupID,
-				SourceGroupOwnerID: ownerID,
-				Description:        description,
-			})
-		}
+		rules = appendPermissionTargets(rules, vals, prefix+"IpRanges", "CidrIp", base,
+			func(r *SecurityGroupRule, v string) { r.IPRange = v })
+		rules = appendPermissionTargets(rules, vals, prefix+"Ipv6Ranges", "CidrIpv6", base,
+			func(r *SecurityGroupRule, v string) { r.IPv6Range = v })
+		rules = appendPermissionTargets(rules, vals, prefix+"PrefixListIds", "PrefixListId", base,
+			func(r *SecurityGroupRule, v string) { r.PrefixListID = v })
+		rules = appendPermissionTargets(rules, vals, prefix+"Groups", "GroupId", base,
+			func(r *SecurityGroupRule, v string) { r.SourceGroupID = v })
 	}
 
 	return rules
+}
+
+// appendPermissionTargets appends one rule per "<listPrefix>.N.<field>" entry, copying base and
+// letting set record the entry's value.
+func appendPermissionTargets(
+	rules []SecurityGroupRule, vals url.Values, listPrefix, field string,
+	base SecurityGroupRule, set func(*SecurityGroupRule, string),
+) []SecurityGroupRule {
+	for j := 1; ; j++ {
+		v := vals.Get(fmt.Sprintf("%s.%d.%s", listPrefix, j, field))
+		if v == "" {
+			return rules
+		}
+
+		r := base
+		r.Description = vals.Get(fmt.Sprintf("%s.%d.Description", listPrefix, j))
+		set(&r, v)
+
+		if r.SourceGroupID != "" {
+			r.SourceGroupOwnerID = vals.Get(fmt.Sprintf("%s.%d.UserId", listPrefix, j))
+		}
+
+		rules = append(rules, r)
+	}
 }
 
 // newlyAddedRuleDetails re-reads a security group's rules after an Authorize
@@ -603,6 +602,9 @@ func sgRuleDetailItemsFrom(details []*SecurityGroupRuleDetail) []sgRuleDetailIte
 			GroupID:             d.GroupID,
 			Protocol:            d.Protocol,
 			CIDRIPv4:            d.CIDRIPv4,
+			CIDRIPv6:            d.CIDRIPv6,
+			PrefixListID:        d.PrefixListID,
+			ReferencedGroupInfo: referencedGroupInfoFor(d),
 			Description:         d.Description,
 			FromPort:            d.FromPort,
 			ToPort:              d.ToPort,
@@ -680,6 +682,10 @@ func (h *Handler) handleAuthorizeSecurityGroupIngress(vals url.Values, reqID str
 		}
 	}
 
+	if len(rules) == 0 {
+		return nil, fmt.Errorf("%w: the request must contain the parameter IpPermissions", ErrMissingParameter)
+	}
+
 	if err = h.Backend.AuthorizeSecurityGroupIngress(groupID, rules); err != nil {
 		return nil, err
 	}
@@ -704,6 +710,9 @@ func (h *Handler) handleAuthorizeSecurityGroupEgress(vals url.Values, reqID stri
 	}
 
 	rules := parseIPPermissions(vals)
+	if len(rules) == 0 {
+		return nil, fmt.Errorf("%w: the request must contain the parameter IpPermissions", ErrMissingParameter)
+	}
 
 	if err := h.Backend.AuthorizeSecurityGroupEgress(groupID, rules); err != nil {
 		return nil, err
@@ -918,6 +927,16 @@ func toIPPermissionItems(rules []SecurityGroupRule) []ipPermissionItem {
 				CidrIP:      r.IPRange,
 				Description: r.Description,
 			}}
+		case r.IPv6Range != "":
+			item.IPv6Ranges = []ipv6RangeItem{{
+				CidrIPv6:    r.IPv6Range,
+				Description: r.Description,
+			}}
+		case r.PrefixListID != "":
+			item.PrefixListIDs = []prefixListIDItem{{
+				PrefixListID: r.PrefixListID,
+				Description:  r.Description,
+			}}
 		}
 
 		items = append(items, item)
@@ -937,12 +956,24 @@ type userIDGroupPairItem struct {
 	Description string `xml:"description,omitempty"`
 }
 
+type ipv6RangeItem struct {
+	CidrIPv6    string `xml:"cidrIpv6"`
+	Description string `xml:"description,omitempty"`
+}
+
+type prefixListIDItem struct {
+	PrefixListID string `xml:"prefixListId"`
+	Description  string `xml:"description,omitempty"`
+}
+
 type ipPermissionItem struct {
-	IPProtocol string                `xml:"ipProtocol"`
-	IPRanges   []ipRangeItem         `xml:"ipRanges>item,omitempty"`
-	Groups     []userIDGroupPairItem `xml:"groups>item,omitempty"`
-	FromPort   int                   `xml:"fromPort"`
-	ToPort     int                   `xml:"toPort"`
+	IPProtocol    string                `xml:"ipProtocol"`
+	IPRanges      []ipRangeItem         `xml:"ipRanges>item,omitempty"`
+	IPv6Ranges    []ipv6RangeItem       `xml:"ipv6Ranges>item,omitempty"`
+	PrefixListIDs []prefixListIDItem    `xml:"prefixListIds>item,omitempty"`
+	Groups        []userIDGroupPairItem `xml:"groups>item,omitempty"`
+	FromPort      int                   `xml:"fromPort"`
+	ToPort        int                   `xml:"toPort"`
 }
 
 type sgItem struct {
@@ -998,4 +1029,12 @@ type revokeSecurityGroupEgressResponse struct {
 	RevokedSecurityGroupRuleSet sgRuleDetailSet    `xml:"revokedSecurityGroupRuleSet"`
 	UnknownIPPermissionSet      []ipPermissionItem `xml:"unknownIpPermissionSet>item,omitempty"`
 	Return                      bool               `xml:"return"`
+}
+
+func referencedGroupInfoFor(d *SecurityGroupRuleDetail) *referencedGroupInfoItem {
+	if d.ReferencedGroupID == "" {
+		return nil
+	}
+
+	return &referencedGroupInfoItem{GroupID: d.ReferencedGroupID, UserID: d.ReferencedGroupUser}
 }

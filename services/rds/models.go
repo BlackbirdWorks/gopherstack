@@ -140,6 +140,7 @@ type DBInstance struct {
 	VpcID                              string                       `json:"vpcID"`
 	ReplicaMode                        string                       `json:"replicaMode,omitempty"`
 	DBParameterGroupName               string                       `json:"dbParameterGroupName"`
+	ParameterApplyStatus               string                       `json:"parameterApplyStatus,omitempty"`
 	OptionGroupName                    string                       `json:"optionGroupName,omitempty"`
 	ReplicaSourceDBInstanceIdentifier  string                       `json:"replicaSourceDBInstanceIdentifier"`
 	ReplicaSourceDBClusterIdentifier   string                       `json:"replicaSourceDBClusterIdentifier,omitempty"`
@@ -209,6 +210,8 @@ type DBSnapshot struct {
 	KmsKeyID             string    `json:"kmsKeyID,omitempty"`
 	SourceRegion         string    `json:"sourceRegion,omitempty"`
 	SnapshotType         string    `json:"snapshotType,omitempty"`
+	MasterUsername       string    `json:"masterUsername,omitempty"`
+	DBInstanceClass      string    `json:"dbInstanceClass,omitempty"`
 	AllocatedStorage     int       `json:"allocatedStorage"`
 	Port                 int       `json:"port"`
 	PercentProgress      int       `json:"percentProgress"`

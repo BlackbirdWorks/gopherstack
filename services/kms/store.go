@@ -9,6 +9,7 @@ import (
 	"time"
 
 	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -596,6 +597,10 @@ func (b *InMemoryBackend) requireKeyMaterial(region string, key *Key) (*keyMater
 	}
 
 	km, ok := b.keyMaterialsStore(region)[key.KeyID]
+	if (!ok || km == nil) && key.MultiRegion {
+		km, ok = b.keyMaterialsStore(extractRegionFromARN(key.Arn))[key.KeyID]
+	}
+
 	if !ok || km == nil {
 		return nil, fmt.Errorf("%w: keyID %q", ErrKeyMaterialUnavailable, key.KeyID)
 	}
@@ -736,4 +741,9 @@ func (b *InMemoryBackend) AddCustomKeyStoreInternal(ks *CustomKeyStore) {
 	defer b.mu.Unlock()
 
 	b.customKeyStoresStore(b.defaultRegion).Put(ks)
+}
+
+// newMultiRegionKeyID returns a key ID with the "mrk-" prefix AWS gives multi-Region keys.
+func newMultiRegionKeyID() string {
+	return "mrk-" + strings.ReplaceAll(uuid.New().String(), "-", "")
 }

@@ -34,9 +34,9 @@ func TestEventBridgeRegionIsolation(t *testing.T) { //nolint:paralleltest // exi
 
 	// 5. Create rule in us-east-1
 	_, err = backend.PutRule(ctxEast, PutRuleInput{
-		Name:               "rule1",
-		EventBusName:       "bus-east",
-		ScheduleExpression: "rate(1 minute)",
+		Name:         "rule1",
+		EventBusName: "bus-east",
+		EventPattern: `{"source":["app"]}`,
 	})
 	require.NoError(t, err)
 

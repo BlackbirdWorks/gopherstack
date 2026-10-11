@@ -17,6 +17,7 @@ func parseParameterMembers(vals url.Values) []DBParameter {
 		params = append(params, DBParameter{
 			ParameterName:  name,
 			ParameterValue: vals.Get(fmt.Sprintf("Parameters.Parameter.%d.ParameterValue", i)),
+			ApplyMethod:    vals.Get(fmt.Sprintf("Parameters.Parameter.%d.ApplyMethod", i)),
 		})
 	}
 }

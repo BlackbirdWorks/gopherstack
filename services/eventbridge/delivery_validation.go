@@ -35,6 +35,10 @@ const (
 // validateRedshiftDataParameters, validateRunCommandParameters/Target), and
 // enforces the RetryPolicy bounds AWS documents for PutTargets.
 func validateTargetTypeParameters(t *Target) error {
+	if err := validateTargetInputExclusive(t); err != nil {
+		return err
+	}
+
 	if t.EcsParameters != nil && t.EcsParameters.TaskDefinitionArn == "" {
 		return fmt.Errorf("%w: EcsParameters.TaskDefinitionArn is required", ErrInvalidParameter)
 	}
@@ -104,6 +108,24 @@ func validateRunCommandParameters(p *RunCommandParameters) error {
 				"%w: RunCommandParameters.RunCommandTargets[%d].Values is required", ErrInvalidParameter, i,
 			)
 		}
+	}
+
+	return nil
+}
+
+// validateTargetInputExclusive rejects a target that sets more than one of Input, InputPath and
+// InputTransformer, which all define the payload sent to the target.
+func validateTargetInputExclusive(t *Target) error {
+	set := 0
+
+	for _, present := range []bool{t.Input != "", t.InputPath != "", t.InputTransformer != nil} {
+		if present {
+			set++
+		}
+	}
+
+	if set > 1 {
+		return fmt.Errorf("%w: only one of Input, InputPath, or InputTransformer may be provided", ErrInvalidParameter)
 	}
 
 	return nil

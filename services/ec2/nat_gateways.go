@@ -11,12 +11,10 @@ import (
 // ErrNatGatewayNotFound is returned when a NAT gateway is not found.
 var ErrNatGatewayNotFound = errors.New("InvalidNatGatewayID.NotFound")
 
-// natGatewayConnectivityTypePublic is the only ConnectivityType this backend
-// creates: CreateNatGateway always requires an AllocationId (an Elastic IP),
-// which is the defining trait of a public NAT gateway in real AWS. Private
-// NAT gateways (no AllocationId, ConnectivityType=private) are not modeled —
-// see PARITY.md.
-const natGatewayConnectivityTypePublic = "public"
+const (
+	natGatewayConnectivityTypePublic  = "public"
+	natGatewayConnectivityTypePrivate = "private"
+)
 
 // natGatewayStateDeleted matches types.NatGatewayStateDeleted (ec2@v1.329.0
 // types/enums.go), the tombstone state DeleteNatGateway leaves behind.
@@ -96,6 +94,18 @@ type NatGatewayAddress struct {
 func (b *InMemoryBackend) CreateNatGateway(
 	subnetID, allocationID string, tags map[string]string,
 ) (*NatGateway, error) {
+	return b.createNatGateway(subnetID, allocationID, natGatewayConnectivityTypePublic, tags)
+}
+
+// CreatePrivateNatGateway creates a private-connectivity NAT gateway, which
+// takes no Elastic IP.
+func (b *InMemoryBackend) CreatePrivateNatGateway(subnetID string, tags map[string]string) (*NatGateway, error) {
+	return b.createNatGateway(subnetID, "", natGatewayConnectivityTypePrivate, tags)
+}
+
+func (b *InMemoryBackend) createNatGateway(
+	subnetID, allocationID, connectivity string, tags map[string]string,
+) (*NatGateway, error) {
 	b.mu.Lock("CreateNatGateway")
 	defer b.mu.Unlock()
 
@@ -104,31 +114,66 @@ func (b *InMemoryBackend) CreateNatGateway(
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
-	addr, ok := b.addresses.Get(allocationID)
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrAddressNotFound, allocationID)
-	}
-
-	id := newNATGatewayID()
 	ngw := &NatGateway{
-		ID:               id,
 		SubnetID:         subnetID,
 		VPCID:            subnet.VPCID,
 		AvailabilityZone: subnet.AvailabilityZone,
 		AvailabilityMode: natGatewayModeZonal,
-		AllocationID:     allocationID,
-		AssociationID:    newEIPAssociationID(),
-		PublicIP:         addr.PublicIP,
-		PrivateIP:        b.allocPrivateIP(),
 		State:            natGatewayStatePending,
-		ConnectivityType: natGatewayConnectivityTypePublic,
+		ConnectivityType: connectivity,
 		CreateTime:       time.Now(),
 	}
+
+	if connectivity == natGatewayConnectivityTypePublic {
+		addr, found := b.addresses.Get(allocationID)
+		if !found {
+			return nil, fmt.Errorf("%w: %s", ErrAddressNotFound, allocationID)
+		}
+
+		if owner := b.natGatewayUsingAllocationLocked(allocationID); owner != "" || addr.AssociationID != "" {
+			return nil, fmt.Errorf(
+				"%w: Elastic IP %s is already associated",
+				ErrResourceAlreadyAssociated,
+				allocationID,
+			)
+		}
+
+		ngw.AllocationID = allocationID
+		ngw.AssociationID = newEIPAssociationID()
+		ngw.PublicIP = addr.PublicIP
+	}
+
+	ngw.ID = newNATGatewayID()
+	ngw.PrivateIP = b.allocPrivateIPInSubnet(subnetID)
 	b.natGateways.Put(ngw)
 	b.indexNatGatewayLocked(ngw)
-	b.setTagsLocked(id, tags)
+	b.setTagsLocked(ngw.ID, tags)
 
 	return ngw, nil
+}
+
+// natGatewayUsingAllocationLocked returns the ID of the live NAT gateway holding the
+// Elastic IP allocation, or "" when none does.
+func (b *InMemoryBackend) natGatewayUsingAllocationLocked(allocationID string) string {
+	for _, ngw := range b.natGateways.All() {
+		if ngw.AllocationID == allocationID {
+			return ngw.ID
+		}
+
+		for _, a := range ngw.SecondaryAddresses {
+			if a.AllocationID == allocationID {
+				return ngw.ID
+			}
+		}
+
+		for _, a := range ngw.ZoneAddresses {
+			if a.AllocationID == allocationID {
+				return ngw.ID
+			}
+		}
+	}
+
+	return ""
 }
 
 // DeleteNatGateway removes a NAT Gateway and recycles every private IP it
@@ -391,7 +436,7 @@ func (b *InMemoryBackend) AssociateNatGatewayAddressInZone(
 		ngw.SecondaryAddresses = append(ngw.SecondaryAddresses, NatGatewayAddress{
 			AllocationID:  allocID,
 			AssociationID: newEIPAssociationID(),
-			PrivateIP:     b.allocPrivateIP(),
+			PrivateIP:     b.allocPrivateIPInSubnet(ngw.SubnetID),
 			PublicIP:      addr.PublicIP,
 		})
 	}
@@ -435,7 +480,7 @@ func (b *InMemoryBackend) AssignPrivateNatGatewayAddress(
 	}
 
 	for range count {
-		ngw.SecondaryPrivateIPs = append(ngw.SecondaryPrivateIPs, b.allocPrivateIP())
+		ngw.SecondaryPrivateIPs = append(ngw.SecondaryPrivateIPs, b.allocPrivateIPInSubnet(ngw.SubnetID))
 	}
 
 	return copyNatGateway(ngw), nil

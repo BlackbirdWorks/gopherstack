@@ -51,6 +51,7 @@ func validateSecurityGroupRules(existing, incoming []SecurityGroupRule) error {
 // must not affect authorize/revoke/duplicate-detection equality checks.
 func ruleKey(r SecurityGroupRule) SecurityGroupRule {
 	r.Description = ""
+	r.ID = ""
 
 	return r
 }
@@ -69,6 +70,12 @@ func validateSecurityGroupRule(rule SecurityGroupRule) error {
 	if rule.IPRange != "" {
 		if _, _, cidrErr := net.ParseCIDR(rule.IPRange); cidrErr != nil {
 			return fmt.Errorf("%w: %q is not a valid CIDR block", ErrInvalidParameter, rule.IPRange)
+		}
+	}
+
+	if rule.IPv6Range != "" {
+		if ip, _, cidrErr := net.ParseCIDR(rule.IPv6Range); cidrErr != nil || ip.To4() != nil {
+			return fmt.Errorf("%w: %q is not a valid IPv6 CIDR block", ErrInvalidParameter, rule.IPv6Range)
 		}
 	}
 

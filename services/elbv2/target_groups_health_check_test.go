@@ -82,7 +82,7 @@ func TestTargetGroupMatcherPersisted(t *testing.T) {
 				Members []struct {
 					TargetGroupArn string `xml:"TargetGroupArn"`
 					Matcher        struct {
-						HTTPCode string `xml:"HTTPCode"`
+						HTTPCode string `xml:"HttpCode"`
 					} `xml:"Matcher"`
 				} `xml:"member"`
 			} `xml:"TargetGroups"`
@@ -271,7 +271,7 @@ func TestHealthCheckDefaults(t *testing.T) {
 			TargetGroups struct {
 				Members []struct {
 					Matcher struct {
-						HTTPCode string `xml:"HTTPCode"`
+						HTTPCode string `xml:"HttpCode"`
 					} `xml:"Matcher"`
 					HealthCheckIntervalSeconds int32 `xml:"HealthCheckIntervalSeconds"`
 					HealthCheckTimeoutSeconds  int32 `xml:"HealthCheckTimeoutSeconds"`
@@ -318,7 +318,7 @@ func TestHealthCheckDefaultsCustomValues(t *testing.T) {
 			TargetGroups struct {
 				Members []struct {
 					Matcher struct {
-						HTTPCode string `xml:"HTTPCode"`
+						HTTPCode string `xml:"HttpCode"`
 					} `xml:"Matcher"`
 					HealthCheckIntervalSeconds int32 `xml:"HealthCheckIntervalSeconds"`
 					HealthCheckTimeoutSeconds  int32 `xml:"HealthCheckTimeoutSeconds"`

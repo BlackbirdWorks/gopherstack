@@ -3,6 +3,7 @@ package kms
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"slices"
 	"sort"
 	"strconv"
@@ -145,6 +146,10 @@ func (b *InMemoryBackend) CreateGrant(
 
 	if input.DryRun {
 		return nil, ErrDryRun
+	}
+
+	if existing := findIdenticalGrant(grantsForKey.byKey.Get(keyID), input); existing != nil {
+		return &CreateGrantOutput{GrantID: existing.GrantID, GrantToken: existing.GrantToken}, nil
 	}
 
 	now := time.Now()
@@ -527,4 +532,33 @@ func (b *InMemoryBackend) ListRetirableGrants(
 		NextMarker: nextMarker,
 		Truncated:  nextMarker != "",
 	}, nil
+}
+
+// findIdenticalGrant returns the named grant a retried CreateGrant with identical parameters
+// refers to (CreateGrantInput.Name: identical requests create a new grant only with a new name).
+func findIdenticalGrant(grants []*Grant, in *CreateGrantInput) *Grant {
+	if in.Name == "" {
+		return nil
+	}
+
+	for _, g := range grants {
+		if g.Name == in.Name &&
+			g.GranteePrincipal == in.GranteePrincipal &&
+			g.GranteeServicePrincipal == in.GranteeServicePrincipal &&
+			g.RetiringPrincipal == in.RetiringPrincipal &&
+			g.RetiringServicePrincipal == in.RetiringServicePrincipal &&
+			slices.Equal(sortedCopy(g.Operations), sortedCopy(in.Operations)) &&
+			reflect.DeepEqual(g.Constraints, in.Constraints) {
+			return g
+		}
+	}
+
+	return nil
+}
+
+func sortedCopy(in []string) []string {
+	out := slices.Clone(in)
+	slices.Sort(out)
+
+	return out
 }

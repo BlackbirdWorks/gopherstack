@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"strconv"
 )
@@ -334,7 +335,7 @@ func (h *Handler) handleDescribeSubnets(vals url.Values, reqID string) (any, err
 
 	items := make([]subnetItem, 0, len(subnets))
 	for _, s := range subnets {
-		items = append(items, toSubnetItem(s, h.Backend.TagsForResource(s.ID), h.Backend.SubnetIpv6Associations(s.ID)))
+		items = append(items, h.subnetItemFor(s))
 	}
 
 	return finishPaged(vals, &describeSubnetsResponse{
@@ -381,7 +382,7 @@ func (h *Handler) handleCreateSubnet(vals url.Values, reqID string) (any, error)
 	return &createSubnetResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Subnet:    toSubnetItem(s, h.Backend.TagsForResource(s.ID), h.Backend.SubnetIpv6Associations(s.ID)),
+		Subnet:    h.subnetItemFor(s),
 	}, nil
 }
 
@@ -413,6 +414,33 @@ func optionalInt(vals url.Values, key string) (int, error) {
 	}
 
 	return n, nil
+}
+
+func (h *Handler) subnetItemFor(s *Subnet) subnetItem {
+	item := toSubnetItem(s, h.Backend.TagsForResource(s.ID), h.Backend.SubnetIpv6Associations(s.ID))
+	item.AvailableIPAddressCount = h.availableSubnetIPs(s)
+
+	return item
+}
+
+const ipv4Bits = 32
+
+// availableSubnetIPs returns the subnet's free IPv4 address count, or nil for IPv6-only subnets
+// and backends that do not track usage.
+func (h *Handler) availableSubnetIPs(s *Subnet) *int {
+	counter, ok := h.Backend.(interface{ SubnetAddressesInUse(subnetID string) int })
+	if !ok {
+		return nil
+	}
+
+	prefix, err := netip.ParsePrefix(s.CIDRBlock)
+	if err != nil || !prefix.Addr().Is4() {
+		return nil
+	}
+
+	free := max(1<<(ipv4Bits-prefix.Bits())-subnetReservedHosts-counter.SubnetAddressesInUse(s.ID), 0)
+
+	return &free
 }
 
 func toSubnetItem(s *Subnet, tags map[string]string, ipv6 []*SubnetCIDRAssociation) subnetItem {
@@ -473,6 +501,7 @@ type subnetIpv6AssocItem struct {
 // subnetItem element names verified against ec2@v1.329.0 deserializers.go
 // awsEc2query_deserializeDocumentSubnet.
 type subnetItem struct {
+	AvailableIPAddressCount     *int                    `xml:"availableIpAddressCount"`
 	SubnetID                    string                  `xml:"subnetId"`
 	VPCID                       string                  `xml:"vpcId"`
 	CIDRBlock                   string                  `xml:"cidrBlock,omitempty"`
@@ -482,9 +511,9 @@ type subnetItem struct {
 	SubnetArn                   string                  `xml:"subnetArn,omitempty"`
 	State                       string                  `xml:"state"`
 	CustomerOwnedIPv4Pool       string                  `xml:"customerOwnedIpv4Pool,omitempty"`
-	PrivateDNSNameOptions       subnetPrivateDNSOptions `xml:"privateDnsNameOptionsOnLaunch"`
 	TagSet                      []simpleTagItem         `xml:"tagSet>item"`
 	Ipv6CidrBlockAssociationSet []subnetIpv6AssocItem   `xml:"ipv6CidrBlockAssociationSet>item,omitempty"`
+	PrivateDNSNameOptions       subnetPrivateDNSOptions `xml:"privateDnsNameOptionsOnLaunch"`
 	EnableLNIAtDeviceIndex      int                     `xml:"enableLniAtDeviceIndex,omitempty"`
 	MapPublicIPOnLaunch         bool                    `xml:"mapPublicIpOnLaunch"`
 	DefaultForAz                bool                    `xml:"defaultForAz"`

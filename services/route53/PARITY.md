@@ -2,7 +2,7 @@
 service: route53
 sdk_module: aws-sdk-go-v2/service/route53@v1.65.6
 last_audit_commit: 70d96e12d  # 2026-09-19 cloudfront-and-route53/15 terraform sweep
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-11
 overall: A          # 2026-09-19 required-output-member re-sweep (gopherstack-r80d follow-up):
                     # all 108 required members across 58 ops re-verified by direct code
                     # reading, including the 7 handler-layer ops with no StorageBackend
@@ -861,3 +861,9 @@ Recorded, not fixed: the pinned SDK documents `*` as the leftmost-label wildcard
 ## 2026-10-09 (service realism pass)
 
 AWS CLI/boto3 send `.../rrset/` with a trailing slash; ChangeResourceRecordSets/ListResourceRecordSets failed with InvalidInput for them. Paths are now normalised. CreateHostedZone returns InvalidDomainName for empty/over-long labels and invalid characters. Messages no longer repeat the error code. Left lenient: changes report INSYNC immediately (no PENDING window) because the data plane is consistent at once and in-repo tests assert INSYNC.
+
+## 2026-10-11 deep realism pass (end-to-end IaC flows)
+
+- ChangeResourceRecordSets validates the batch in order against a scratch copy of the zone: a second CREATE of the same record set in one batch fails the whole batch atomically (InvalidChangeBatch); CREATE-then-UPSERT/DELETE within a batch sees earlier changes.
+- Record names outside the hosted zone (including sibling suffixes like `notexample.com`) are rejected with InvalidChangeBatch.
+- Kept lenient: changes return `INSYNC` immediately (Terraform's waiter sleeps unconditionally); private zones are accepted without a VPC and with unknown VPC ids (many in-repo callers/fixtures create them that way).

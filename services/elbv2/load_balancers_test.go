@@ -45,6 +45,7 @@ func TestCreateLoadBalancer(t *testing.T) {
 				"Action":  {"CreateLoadBalancer"},
 				"Version": {"2015-12-01"},
 				"Name":    {"dup-alb"},
+				"Scheme":  {"internal"},
 			},
 			wantStatus: http.StatusBadRequest,
 		},

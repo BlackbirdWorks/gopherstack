@@ -329,8 +329,26 @@ func parseListUsersFilter(filter string) (userFilter, error) {
 
 	uf.value = strings.ReplaceAll(rest[1:len(rest)-1], `\"`, `"`)
 
+	if _, ok := filterableUserAttrs[attr]; !ok {
+		return userFilter{}, fmt.Errorf("%w: Invalid search attribute: %s", ErrInvalidParameter, attr)
+	}
+
 	return uf, nil
 }
+
+// filterableUserAttrs lists the attributes ListUsers' Filter documents as searchable.
+var filterableUserAttrs = func() map[string]struct{} { //nolint:gochecknoglobals // static lookup table
+	names := strings.Fields(
+		"username email phone_number name given_name family_name preferred_username cognito:user_status status sub",
+	)
+	set := make(map[string]struct{}, len(names))
+
+	for _, n := range names {
+		set[n] = struct{}{}
+	}
+
+	return set
+}()
 
 func (f userFilter) matches(got string) bool {
 	if f.prefix {
