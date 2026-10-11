@@ -1,6 +1,7 @@
 package cloudwatch_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -216,6 +217,7 @@ func TestCloudWatchBackend_DeleteDashboards(t *testing.T) {
 		create     []string
 		deleteName []string
 		wantCount  int
+		wantErr    bool
 	}{
 		{
 			name:       "delete existing",
@@ -224,10 +226,18 @@ func TestCloudWatchBackend_DeleteDashboards(t *testing.T) {
 			wantCount:  1,
 		},
 		{
-			name:       "delete non-existent is no-op",
+			name:       "delete non-existent fails",
 			create:     []string{"dash1"},
 			deleteName: []string{"nonexistent"},
 			wantCount:  1,
+			wantErr:    true,
+		},
+		{
+			name:       "partial miss deletes nothing",
+			create:     []string{"dash1"},
+			deleteName: []string{"dash1", "nonexistent"},
+			wantCount:  1,
+			wantErr:    true,
 		},
 		{
 			name:       "delete all",
@@ -248,7 +258,12 @@ func TestCloudWatchBackend_DeleteDashboards(t *testing.T) {
 				require.NoError(t, dashErr)
 			}
 
-			require.NoError(t, b.DeleteDashboards(tt.deleteName))
+			delErr := b.DeleteDashboards(tt.deleteName)
+			if tt.wantErr {
+				require.ErrorIs(t, delErr, cloudwatch.ErrDashboardNotFound)
+			} else {
+				require.NoError(t, delErr)
+			}
 
 			page, err := b.ListDashboards("", "")
 			require.NoError(t, err)
@@ -267,4 +282,39 @@ func TestCloudWatchBackend_GetDashboardARNs(t *testing.T) {
 	arns := b.GetDashboardARNs([]string{"my-dash", "nonexistent"})
 	require.Len(t, arns, 1)
 	assert.Contains(t, arns[0], "my-dash")
+}
+
+func TestPutDashboard_NameValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		dash    string
+		wantErr bool
+	}{
+		{name: "valid", dash: "My-Dash_01"},
+		{name: "space", dash: "bad name", wantErr: true},
+		{name: "bang", dash: "bad!", wantErr: true},
+		{name: "dot", dash: "a.b", wantErr: true},
+		{name: "too long", dash: strings.Repeat("a", 256), wantErr: true},
+		{name: "max length", dash: strings.Repeat("a", 255)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatch.NewInMemoryBackend()
+			_, err := b.PutDashboard(tt.dash, `{}`)
+
+			if tt.wantErr {
+				var valErr *cloudwatch.DashboardValidationError
+				require.ErrorAs(t, err, &valErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
 }

@@ -461,9 +461,24 @@ func (b *InMemoryBackend) DescribePatchBaselines(
 	defer b.mu.RUnlock()
 
 	baselines := b.patchBaselinesStore(region)
-	all := make([]PatchBaselineIdentity, 0, baselines.Len())
+	all := make([]PatchBaselineIdentity, 0, baselines.Len()+len(managedBaselineDefs()))
+
+	candidates := make([]PatchBaseline, 0, baselines.Len())
 	for _, blPtr := range baselines.All() {
-		bl := *blPtr
+		if patchBaselineOwnerAllowed(input.Filters, patchOwnerSelf) {
+			candidates = append(candidates, *blPtr)
+		}
+	}
+
+	if patchBaselineOwnerAllowed(input.Filters, patchOwnerAWS) {
+		for _, managed := range awsManagedPatchBaselines() {
+			if _, overridden := baselines.Get(managed.BaselineID); !overridden {
+				candidates = append(candidates, managed)
+			}
+		}
+	}
+
+	for _, bl := range candidates {
 		if !patchBaselineMatchesFilters(bl, input.Filters) {
 			continue
 		}
@@ -523,7 +538,12 @@ func (b *InMemoryBackend) GetPatchBaseline(
 
 	bl, exists := b.patchBaselinesStore(region).Get(input.BaselineID)
 	if !exists {
-		return nil, ErrPatchBaselineNotFound
+		managed, isManaged := awsManagedPatchBaseline(input.BaselineID)
+		if !isManaged {
+			return nil, ErrPatchBaselineNotFound
+		}
+
+		bl = &managed
 	}
 
 	return &GetPatchBaselineOutput{
@@ -1059,8 +1079,8 @@ func patchOperatingSystem(p Patch) string {
 		return patchOSWindows
 	case patchFamilyAmazonLinux2:
 		return "AMAZON_LINUX_2"
-	case "Ubuntu":
-		return "UBUNTU"
+	case patchFamilyUbuntu:
+		return patchOSUbuntu
 	}
 
 	return ""

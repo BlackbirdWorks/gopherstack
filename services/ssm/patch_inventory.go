@@ -126,7 +126,7 @@ func defaultPatchCatalog() []Patch {
 			ReleaseDate: UnixTimeFloat(time.Date(2024, time.March, 15, 0, 0, 0, 0, time.UTC)),
 		},
 		{
-			Name: "USN-6567-1", Product: "Ubuntu2204", ProductFamily: "Ubuntu",
+			Name: "USN-6567-1", Product: "Ubuntu2204", ProductFamily: patchFamilyUbuntu,
 			Classification: "Security", Severity: "High",
 			PatchSet:    patchSetOS,
 			ReleaseDate: UnixTimeFloat(time.Date(2024, time.January, 22, 0, 0, 0, 0, time.UTC)),

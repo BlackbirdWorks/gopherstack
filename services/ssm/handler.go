@@ -375,8 +375,13 @@ func classifySSMResourcePolicyError(reqErr error) (string, int, bool) {
 // classifySSMDocumentError handles the DeleteDocument-still-shared error,
 // split out for the same cyclop-budget reason as classifySSMResourceDataSyncError.
 func classifySSMDocumentError(reqErr error) (string, int, bool) {
-	if errors.Is(reqErr, ErrDocumentStillShared) {
+	switch {
+	case errors.Is(reqErr, ErrDocumentStillShared):
 		return "InvalidDocumentOperation", http.StatusBadRequest, true
+	case errors.Is(reqErr, ErrInvalidDocumentContent):
+		return "InvalidDocumentContent", http.StatusBadRequest, true
+	case errors.Is(reqErr, ErrDuplicateDocumentContent):
+		return "DuplicateDocumentContent", http.StatusBadRequest, true
 	}
 
 	return "", 0, false

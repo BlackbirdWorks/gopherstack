@@ -1413,3 +1413,11 @@ Fixed (typed SDK tests alarm_warmup_sdk_test.go, form_creation_tags_test.go, ano
 - Added validation: strict `NextToken` (`InvalidNextToken`) and `MaxRecords` 1-100 on DescribeAlarms/DescribeAlarmHistory/ListMetrics/GetMetricData; `StateValue`/`AlarmTypes`/`HistoryItemType`/`ScanBy` enums; `GetMetricStatistics` period (1,5,10,20,30 or multiple of 60), Statistics/ExtendedStatistics required, StartTime < EndTime, 1,440-datapoint cap; `GetMetricData` StartTime < EndTime; `PutMetricData` Unit enum, <=30 dimensions, 255-char names; `PutMetricAlarm` ComparisonOperator/Statistic/TreatMissingData enums, ExtendedStatistic pattern, Period 10/20/30/multiple of 60, name length; composite `AlarmRule` must parse (TRUE/FALSE now supported).
 - Kept lenient (strictness broke in-repo fixtures): reserved `AWS/` namespace on `PutMetricData` (internal wiring and many tests publish there), `EvaluationPeriods >= 1`, Statistic-or-ExtendedStatistic required, composite rules referencing unknown alarms.
 - Unverified wording: the `ResourceNotFound` message text for `SetAlarmState`, and the "Unable to parse AlarmRule" text, are not in the pinned SDK.
+
+## 2026-10-11 (deep realism pass)
+
+- Fixed: `X-Amz-Target` JSON (awsJson1_0, AWS CLI v1 / botocore) requests were answered in CBOR and undecodable; they now bridge through the CBOR dispatcher and return `application/x-amz-json-1.0`.
+- Fixed: `GetMetricData` ignored `ReturnData=false` on MetricStat queries; percentile/extended `Stat` (`p90`, `tm99`, ...) on a MetricStat query returned 0 (now computed from raw samples per bucket).
+- Added: compound metric math (nesting, precedence, unary minus, `^`, comparisons, `&&`/`||`, `IF`, `RUNNING_SUM`, `DIFF`, `DIFF_TIME`, `ABS`, `CEIL`, `FLOOR`, `LOG`, `LOG10`, `SUM`/`AVG`/`MIN`/`MAX`/`STDDEV` of one series); previously only `id OP id`, `id OP const` and a few functions evaluated and anything else returned an empty series.
+- Added: `PutDashboard` validates `DashboardName` (A-Za-z0-9-_, max 255; `DashboardInvalidInputError`); `DeleteDashboards` of a missing dashboard fails (`ResourceNotFound`).
+- Kept lenient: expressions that fail to parse return an empty series instead of a `ValidationError`; alarm SNS payload lacks the `Trigger` block and the action lists.

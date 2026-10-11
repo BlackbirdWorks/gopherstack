@@ -2,12 +2,15 @@ package ssm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -126,6 +129,10 @@ func (b *InMemoryBackend) CreateDocument(
 			ErrValidationException,
 			prefix,
 		)
+	}
+
+	if err := validateDocumentContent(input.DocumentType, input.DocumentFormat, input.Content); err != nil {
+		return nil, err
 	}
 
 	region := getRegion(ctx)
@@ -597,6 +604,10 @@ func (b *InMemoryBackend) UpdateDocument(
 
 	doc := *docPtr
 
+	if err := validateDocumentContent(doc.DocumentType, input.DocumentFormat, input.Content); err != nil {
+		return nil, err
+	}
+
 	// Validate DocumentVersion if provided.
 	if input.DocumentVersion != nil {
 		switch *input.DocumentVersion {
@@ -613,6 +624,10 @@ func (b *InMemoryBackend) UpdateDocument(
 				return nil, ErrDuplicateDocumentVersionName
 			}
 		}
+	}
+
+	if newHash, _ := documentHashes(input.Content); newHash == doc.Hash {
+		return nil, ErrDuplicateDocumentContent
 	}
 
 	latestVer, _ := strconv.Atoi(doc.LatestVersion)
@@ -1103,4 +1118,29 @@ func (b *InMemoryBackend) ListDocumentMetadataHistory(
 			ReviewerResponse: []DocumentReviewerResponseSource{},
 		},
 	}, nil
+}
+
+// validateDocumentContent rejects Command/Automation/Session documents whose
+// content is not a JSON or YAML object (InvalidDocumentContent).
+func validateDocumentContent(docType, format, content string) error {
+	switch docType {
+	case "", DocumentTypeCommand, "Automation", "Session":
+	default:
+		return nil
+	}
+
+	var doc map[string]any
+
+	var err error
+	if format == "YAML" {
+		err = yaml.Unmarshal([]byte(content), &doc)
+	} else {
+		err = json.Unmarshal([]byte(content), &doc)
+	}
+
+	if err != nil || doc == nil {
+		return fmt.Errorf("%w: document content must be a valid %s object", ErrInvalidDocumentContent, format)
+	}
+
+	return nil
 }

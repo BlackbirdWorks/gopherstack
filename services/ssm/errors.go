@@ -13,10 +13,12 @@ var (
 	ErrCiphertextTooShort           = errors.New("ciphertext too short")
 	ErrValidationException          = errors.New("ValidationException")
 	ErrDocumentAlreadyExists        = errors.New("DocumentAlreadyExists")
-	ErrDocumentNotFound             = errors.New("DocumentNotFound")
+	ErrDocumentNotFound             = errors.New("Document does not exist")
 	ErrInvalidDocumentVersion       = errors.New("InvalidDocumentVersion")
 	ErrDuplicateDocumentVersionName = errors.New("DuplicateDocumentVersionName")
 	ErrCommandNotFound              = errors.New("CommandNotFound")
+	ErrInvalidDocumentContent       = errors.New("InvalidDocumentContent")
+	ErrDuplicateDocumentContent     = errors.New("DuplicateDocumentContent")
 	// ErrInvalidActivationID is returned when an ActivationId doesn't match any
 	// known activation (DeleteActivation). "ActivationNotFound" is not a real
 	// AWS SSM error code — DeleteActivation's own deserializer

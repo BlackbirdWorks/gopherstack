@@ -955,7 +955,7 @@ func (b *InMemoryBackend) DescribeParameters(
 			Tier:             p.Tier,
 			AllowedPattern:   p.AllowedPattern,
 			DataType:         p.DataType,
-			Policies:         parameterPoliciesToWire(p.Policies),
+			Policies:         parameterPoliciesToWire(p.Policies, p.LastModifiedDate, time.Now()),
 			ARN:              parameterARN(region, account, p.Name),
 		})
 	}

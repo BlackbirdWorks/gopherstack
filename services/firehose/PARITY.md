@@ -733,3 +733,8 @@ DescribeDeliveryStream no longer echoes HttpEndpointConfiguration.AccessKey: the
 ## 2026-10-09 realism pass
 
 CreateDeliveryStream validates the name against `[a-zA-Z0-9_.-]{1,64}`. UpdateDestination returns ConcurrentModificationException for a stale CurrentDeliveryStreamVersionId (was InvalidArgumentException) and InvalidArgumentException for a DestinationId the stream does not have. Error messages no longer repeat the code prefix. Lenient on purpose: streams are ACTIVE immediately (no CREATING window); role/bucket ARNs in destination configs are not pattern-checked. Tests: realism_validation_test.go.
+
+## 2026-10-11 (deep realism pass)
+
+- Added: `CreateDeliveryStream` rejects a malformed S3 `BucketARN` and a `KinesisStreamAsSource` stream without `KinesisStreamSourceConfiguration` (`InvalidArgumentException`).
+- Kept lenient: S3 objects keep the `\n` record separator (real Firehose concatenates records; in-repo consumers rely on newlines); processing-failure error objects hold the raw record rather than AWS's JSON envelope.

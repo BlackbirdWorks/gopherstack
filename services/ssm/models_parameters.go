@@ -1,5 +1,7 @@
 package ssm
 
+import "time"
+
 type putParameterValidated struct {
 	dataType string
 	tier     string
@@ -204,7 +206,7 @@ func (p ParameterHistory) toParameterHistoryOutput() ParameterHistoryOutput {
 		AllowedPattern:   p.AllowedPattern,
 		DataType:         p.DataType,
 		Description:      p.Description,
-		Policies:         parameterPoliciesToWire(p.Policies),
+		Policies:         parameterPoliciesToWire(p.Policies, p.LastModifiedDate, time.Now()),
 		Labels:           p.Labels,
 		LastModifiedUser: p.LastModifiedUser,
 		LastModifiedDate: p.LastModifiedDate,

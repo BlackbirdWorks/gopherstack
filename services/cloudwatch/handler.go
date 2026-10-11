@@ -510,7 +510,15 @@ func (h *Handler) handleTargetRequest(c *echo.Context, r *http.Request) (bool, e
 
 	body, err := httputils.ReadBody(r)
 	if err != nil {
+		if isJSONTargetRequest(r) {
+			return true, writeJSONError(c, http.StatusBadRequest, "SerializationException", "cannot read body")
+		}
+
 		return true, h.cborError(c, http.StatusBadRequest, "SerializationException", "cannot read body")
+	}
+
+	if isJSONTargetRequest(r) {
+		return true, h.dispatchJSONTarget(target, body, c)
 	}
 
 	if len(body) == 0 {

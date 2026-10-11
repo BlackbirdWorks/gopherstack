@@ -10,6 +10,12 @@ import (
 )
 
 const (
+	fnSum    = "SUM"
+	fnAvg    = "AVG"
+	fnMin    = "MIN"
+	fnMax    = "MAX"
+	fnStddev = "STDDEV"
+
 	percentHundred = 100.0
 	fillArgCount   = 2
 
@@ -113,6 +119,10 @@ func evalExpression(q MetricDataQuery, resolved map[string]MetricDataResult) Met
 	}
 
 	if evalBinaryExpr(expr, resolved, &result) {
+		return result
+	}
+
+	if evalGeneralExpr(expr, resolved, &result) {
 		return result
 	}
 
@@ -233,15 +243,15 @@ func aggStddev(vals []float64) float64 {
 // Returns nil when fn is not recognised.
 func metricsAggFn(fn string) func([]float64) float64 {
 	switch fn {
-	case "SUM":
+	case fnSum:
 		return aggSum
-	case "AVG":
+	case fnAvg:
 		return aggAvg
-	case "MIN":
+	case fnMin:
 		return aggMin
-	case "MAX":
+	case fnMax:
 		return aggMax
-	case "STDDEV":
+	case fnStddev:
 		return aggStddev
 	}
 
@@ -250,7 +260,7 @@ func metricsAggFn(fn string) func([]float64) float64 {
 
 // evalMetricsAggExpr handles SUM/AVG/MIN/MAX/STDDEV(METRICS()) expressions.
 func evalMetricsAggExpr(upper string, resolved map[string]MetricDataResult, result *MetricDataResult) bool {
-	for _, fn := range []string{"SUM", "AVG", "MIN", "MAX", "STDDEV"} {
+	for _, fn := range []string{fnSum, fnAvg, fnMin, fnMax, fnStddev} {
 		if upper != fn+"(METRICS())" {
 			continue
 		}

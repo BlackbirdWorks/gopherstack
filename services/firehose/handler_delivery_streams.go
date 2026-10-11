@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -891,6 +892,10 @@ func (h *Handler) handleCreateDeliveryStream(
 		return nil, err
 	}
 
+	if err := validateSourceAndBuckets(in); err != nil {
+		return nil, err
+	}
+
 	if err := validateEncryptionConfigInput(in.DeliveryStreamEncryptionConfigurationInput); err != nil {
 		return nil, err
 	}
@@ -1178,4 +1183,31 @@ func (h *Handler) handleListDeliveryStreams(
 		DeliveryStreamNames:    names,
 		HasMoreDeliveryStreams: hasMore,
 	}, nil
+}
+
+func validateSourceAndBuckets(in *createDeliveryStreamInput) error {
+	if in.DeliveryStreamType == "KinesisStreamAsSource" && in.KinesisStreamSourceConfiguration == nil {
+		return fmt.Errorf("%w: KinesisStreamSourceConfiguration is required for a KinesisStreamAsSource stream",
+			ErrValidation)
+	}
+
+	for _, s3 := range []*s3DestinationInput{in.S3DestinationConfiguration, in.ExtendedS3DestinationConfiguration} {
+		if err := validateS3BucketARN(s3); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateS3BucketARN(s3 *s3DestinationInput) error {
+	if s3 == nil || s3.BucketARN == "" {
+		return nil
+	}
+
+	if !strings.HasPrefix(s3.BucketARN, "arn:") || !strings.Contains(s3.BucketARN, ":s3:::") {
+		return fmt.Errorf("%w: BucketARN %q is not a valid S3 bucket ARN", ErrValidation, s3.BucketARN)
+	}
+
+	return nil
 }

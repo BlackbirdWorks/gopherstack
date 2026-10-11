@@ -44,7 +44,7 @@ func validateTags(tags map[string]string) error {
 func (b *InMemoryBackend) resourceExistsLocked(arnStr string) bool {
 	parts := strings.SplitN(arnStr, ":", arnPartCount)
 	if len(parts) != arnPartCount || parts[0] != "arn" || parts[2] != "appconfig" ||
-		parts[3] != b.region || parts[4] != b.accountID {
+		parts[3] != b.region || (parts[4] != b.accountID && parts[4] != "") {
 		return false
 	}
 

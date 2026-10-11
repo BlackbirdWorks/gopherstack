@@ -320,6 +320,12 @@ func (b *InMemoryBackend) scheduleTransition(component string, steps []string, t
 
 		b.work.After(component, asyncTransitionDelay, func() {
 			b.mu.Lock("asyncTransition:" + component)
+			if winding := isWindingDownState(*target); winding && !isWindingDownState(steps[i]) {
+				b.mu.Unlock()
+
+				return
+			}
+
 			*target = steps[i]
 			b.mu.Unlock()
 
@@ -328,4 +334,15 @@ func (b *InMemoryBackend) scheduleTransition(component string, steps []string, t
 	}
 
 	schedule(0)
+}
+
+// isWindingDownState reports a delete/disassociate state; a stale creation
+// hop must never overwrite it.
+func isWindingDownState(state string) bool {
+	switch state {
+	case "deleting", "deleted", "disassociating", "disassociated", "rejected":
+		return true
+	}
+
+	return false
 }

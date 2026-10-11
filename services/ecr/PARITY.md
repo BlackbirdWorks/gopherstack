@@ -979,3 +979,10 @@ ImageReplicationStatus no longer emits failureReason (SDK has failureCode only).
 ## 2026-10-09 (service realism pass)
 
 CreateRepository validates the repositoryName pattern and 2-256 length. PutImage requires JSON imageManifest; SetRepositoryPolicy requires JSON policy text; PutLifecyclePolicy validates rule shape. TagResource enforces the 50-tag limit (TooManyTagsException). Messages no longer repeat the error code. Left lenient: Tag/Untag/ListTagsForResource accept an ARN with no repository (many in-repo callers); pagination tokens are not validated (formats vary per operation).
+
+## 2026-10-11 (deep realism pass)
+
+- Fixed: `PutImage` now derives `imageManifestMediaType` (declared, else inferred) and `imageSizeInBytes` (config + layer sizes) from the manifest; both were always empty/0.
+- Fixed: `scanOnPush` repositories (and registry SCAN_ON_PUSH/CONTINUOUS_SCAN) now scan on push, so `DescribeImages` reports `imageScanStatus` and `DescribeImageScanFindings` stops returning `ScanNotFoundException`.
+- Added: `PutImage` validates `imageTag` (`[\w][\w.-]{0,127}`); `StartImageScan` echoes the requested tag.
+- Kept lenient: `PutImage` does not require uploaded layers (`LayersNotFoundException`) because Lambda/ECS fixtures push synthetic manifests; the `/v2/` registry stays opt-in (`GOPHERSTACK_ENABLE_LOCAL_REGISTRY`).

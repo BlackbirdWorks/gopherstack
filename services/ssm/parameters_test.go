@@ -415,8 +415,54 @@ func TestDescribeParameters_PoliciesWireShape(t *testing.T) {
 	require.Len(t, out.Parameters, 1)
 	require.Len(t, out.Parameters[0].Policies, 1)
 	assert.Equal(t, "Expiration", *out.Parameters[0].Policies[0].PolicyType)
-	assert.Equal(t, "Finished", *out.Parameters[0].Policies[0].PolicyStatus)
+	assert.Equal(t, "Pending", *out.Parameters[0].Policies[0].PolicyStatus)
 	assert.Contains(t, *out.Parameters[0].Policies[0].PolicyText, "Expiration")
+}
+
+func TestDescribeParameters_PolicyStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		policy string
+		want   string
+	}{
+		{
+			name:   "future expiration",
+			policy: `[{"Type":"Expiration","Version":"1.0","Attributes":{"Timestamp":"2099-01-01T00:00:00.000Z"}}]`,
+			want:   "Pending",
+		},
+		{
+			name:   "past expiration",
+			policy: `[{"Type":"Expiration","Version":"1.0","Attributes":{"Timestamp":"2001-01-01T00:00:00.000Z"}}]`,
+			want:   "Finished",
+		},
+		{
+			name:   "no change not yet due",
+			policy: `[{"Type":"NoChangeNotification","Version":"1.0","Attributes":{"After":"20","Unit":"Days"}}]`,
+			want:   "Pending",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestSSMClient(t, ssm.NewHandler(ssm.NewInMemoryBackend()))
+
+			_, err := client.PutParameter(t.Context(), &ssmsdk.PutParameterInput{
+				Name: aws.String("/p"), Type: ssmtypes.ParameterTypeString, Value: aws.String("v"),
+				Tier: ssmtypes.ParameterTierAdvanced, Policies: aws.String(tt.policy),
+			})
+			require.NoError(t, err)
+
+			out, err := client.DescribeParameters(t.Context(), &ssmsdk.DescribeParametersInput{})
+			require.NoError(t, err)
+			require.Len(t, out.Parameters, 1)
+			require.Len(t, out.Parameters[0].Policies, 1)
+			assert.Equal(t, tt.want, aws.ToString(out.Parameters[0].Policies[0].PolicyStatus))
+		})
+	}
 }
 
 // TestGetParameterHistory_PoliciesWireShape proves ParameterHistory.Policies

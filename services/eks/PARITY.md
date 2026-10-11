@@ -1315,3 +1315,9 @@ FIXED: DescribeAddonVersions and DescribeClusterVersions honour maxResults (1-10
 - Fixed: error text no longer repeats the code; wording matches AWS ("No cluster found for name: X.", "No node group found for name: X.", "Cluster already exists with name: X", "NodeGroup already exists with name X and cluster name Y").
 - Added opt-in `InMemoryBackend.SetLifecycleDelay(d)` (0 keeps the built-in 100ms): scales every CREATING/UPDATING dwell and makes cluster/nodegroup/Fargate/addon deletes dwell in `DELETING` before disappearing. Needs root wiring (flag/env).
 - Kept lenient: >= 2 subnets in `vpcConfig` (fixtures pass one), unknown add-on names (the catalog is a subset of real add-ons), exact role ARN account-id length.
+
+## 2026-10-11 (deep realism pass)
+
+- Fixed: `certificateAuthority.data` was 8 hex chars; it is now a base64 PEM certificate so kubeconfigs and `kubectl` accept it.
+- Added: `CreateAccessEntry` requires an IAM role principal for non-STANDARD types; `AssociateIdentityProviderConfig` requires an `https://` issuerUrl (SDK doc on `OidcIdentityProviderConfigRequest.IssuerUrl`).
+- Kept lenient: no-op `UpdateClusterConfig` is accepted (the "no changes needed" error text is not in the SDK).

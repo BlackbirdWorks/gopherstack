@@ -1,6 +1,7 @@
 package eks
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -150,7 +151,7 @@ func (b *InMemoryBackend) newClusterLocked(
 		AccessConfig:             accessCfg,
 		ComputeConfig:            computeCfg,
 		StorageConfig:            storageCfg,
-		CertificateAuthority:     stableID(name + "/ca"),
+		CertificateAuthority:     placeholderCAData(name),
 		ClusterLogging:           logEntries,
 		UpgradePolicySupportType: supportType,
 		DeletionProtection:       deletionProtection,
@@ -662,4 +663,15 @@ func (b *InMemoryBackend) ListAllClusters() []*Cluster {
 	}
 
 	return list
+}
+
+// placeholderCAData is a base64 PEM certificate so kubeconfig's
+// certificate-authority-data decodes like the real cluster CA.
+func placeholderCAData(name string) string {
+	ca, err := newClusterCA(name)
+	if err != nil {
+		return ""
+	}
+
+	return base64.StdEncoding.EncodeToString(ca.certPEM)
 }

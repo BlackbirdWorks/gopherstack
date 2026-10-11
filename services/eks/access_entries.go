@@ -3,6 +3,7 @@ package eks
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -20,6 +21,11 @@ func (b *InMemoryBackend) CreateAccessEntry(
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
+	}
+
+	if entryType != "" && entryType != "STANDARD" && !strings.Contains(principalARN, ":role/") {
+		return nil, errMsgf(ErrValidation,
+			"The principalArn for an access entry of type %s must be an IAM role ARN.", entryType)
 	}
 
 	if _, ok := b.accessEntries.Get(accessEntryKey(clusterName, principalARN)); ok {

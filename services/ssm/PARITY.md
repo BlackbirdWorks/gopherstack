@@ -1654,3 +1654,11 @@ Enum-typed request members across document, automation, association, patch basel
 ## 2026-10-10 lifecycle dwell knob
 
 `--lifecycle-ssm-command` (`SSM_COMMAND_EXEC_DELAY`) and `--lifecycle-ssm-automation` (`SSM_AUTOMATION_EXEC_DELAY`) keep commands/automations `InProgress` before completing; both fall back to `--lifecycle-delay`, default `0s`. Proof: root `TestLifecycleDelayWiring/ssm_*`.
+
+## 2026-10-11 (deep realism pass)
+
+- Fixed: `ParameterInlinePolicy.PolicyStatus` is `Pending` until the policy is due, then `Finished` (was always `Finished`).
+- Added: `CreateDocument`/`UpdateDocument` reject non-object JSON/YAML content (`InvalidDocumentContent`); `UpdateDocument` with unchanged content is `DuplicateDocumentContent`; maintenance-window `Schedule` must be `cron()`/`rate()`/`at()`.
+- Fixed: AWS-owned per-OS default patch baselines (`AWS-AmazonLinux2DefaultPatchBaseline`, ...) are returned by `DescribePatchBaselines`/`GetPatchBaseline` (`OWNER` filter honoured); the provider's `aws_ssm_default_patch_baseline` reset failed with "empty result".
+- Fixed: missing-document `InvalidDocument` message contains "does not exist" (the provider's delete waiter keys on it).
+- Kept lenient: `StartAutomationExecution` accepts unknown document names (many in-repo callers); `NextExecutionTime` is a fixed offset, not parsed from the schedule.

@@ -76,9 +76,9 @@ func isValidUploadAvailability(ua string) bool {
 	return ua == "STANDARD" || ua == "STREAMING"
 }
 
-// normalizePath normalises an object path (strips leading slash).
+// normalizePath strips leading slashes: the SDK sends Path "/x" as URL "//x".
 func normalizePath(p string) string {
-	return strings.TrimPrefix(p, "/")
+	return strings.TrimLeft(p, "/")
 }
 
 // ValidatePath checks that path is a legal MediaStore object path.

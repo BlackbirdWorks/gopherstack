@@ -138,8 +138,13 @@ func (b *InMemoryBackend) StartImageScan(ctx context.Context, //nolint:revive //
 	)
 	b.imageScanFindings.Put(result)
 
+	scanned := img.ImageID
+	if imageID.ImageTag != "" {
+		scanned.ImageTag = imageID.ImageTag
+	}
+
 	return &ImageScanStartResult{
-		ImageID:        img.ImageID,
+		ImageID:        scanned,
 		RepositoryName: repositoryName,
 		RegistryID:     b.accountID,
 		Status:         result.Status,
