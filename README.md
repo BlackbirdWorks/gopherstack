@@ -586,8 +586,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [ECR](services/ecr/README.md) | A | 58 | 2 structural gaps; 2 deferred |
-| [ECS](services/ecs/README.md) | A | 65 | 4 structural gaps |
-| [EKS](services/eks/README.md) | A | 70 | 1 gap; 5 structural gaps; 1 deferred |
+| [ECS](services/ecs/README.md) | A | 65 | 5 structural gaps |
+| [EKS](services/eks/README.md) | A | 70 | 2 gaps; 5 structural gaps; 1 deferred |
 
 ### Storage
 
