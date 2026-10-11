@@ -93,6 +93,7 @@ type userSnapshot struct {
 	PasswordHash         string            `json:"passwordHash,omitempty"`
 	TemporaryPassword    string            `json:"temporaryPassword,omitempty"`
 	SRPSalt              string            `json:"srpSalt,omitempty"`
+	PasswordHistory      []string          `json:"passwordHistory,omitempty"`
 	SRPVerifier          string            `json:"srpVerifier,omitempty"`
 	Status               string            `json:"status,omitempty"`
 	ConfirmCode          string            `json:"confirmCode,omitempty"`
@@ -265,6 +266,7 @@ func buildUserSnapshot(u *User) *userSnapshot {
 		PasswordHash:         u.PasswordHash,
 		TemporaryPassword:    u.TemporaryPassword,
 		SRPSalt:              u.SRPSalt,
+		PasswordHistory:      slices.Clone(u.PasswordHistory),
 		SRPVerifier:          u.SRPVerifier,
 		Status:               u.Status,
 		ConfirmCode:          u.ConfirmCode,
@@ -692,6 +694,7 @@ func restoreUsersFromSnapshot(userSnapshots []*userSnapshot) []*User {
 			UserPoolID:           us.UserPoolID,
 			PasswordHash:         us.PasswordHash,
 			SRPSalt:              us.SRPSalt,
+			PasswordHistory:      us.PasswordHistory,
 			SRPVerifier:          us.SRPVerifier,
 			Status:               us.Status,
 			ConfirmCode:          us.ConfirmCode,

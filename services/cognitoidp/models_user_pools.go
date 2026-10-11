@@ -18,6 +18,7 @@ type PasswordPolicy struct {
 	RequireNumbers                bool `json:"RequireNumbers,omitempty"`
 	RequireSymbols                bool `json:"RequireSymbols,omitempty"`
 	TemporaryPasswordValidityDays int  `json:"TemporaryPasswordValidityDays,omitempty"`
+	PasswordHistorySize           int  `json:"PasswordHistorySize,omitempty"`
 }
 
 // PoolSettings holds the CreateUserPool/UpdateUserPool configuration blocks this backend stores
@@ -189,6 +190,7 @@ type passwordPolicyInput struct {
 	RequireNumbers                bool `json:"RequireNumbers,omitempty"`
 	RequireSymbols                bool `json:"RequireSymbols,omitempty"`
 	TemporaryPasswordValidityDays int  `json:"TemporaryPasswordValidityDays,omitempty"`
+	PasswordHistorySize           int  `json:"PasswordHistorySize,omitempty"`
 }
 
 type createUserPoolWithOptsOutput struct {
@@ -248,6 +250,7 @@ type passwordPolicyData struct {
 	RequireNumbers                bool `json:"RequireNumbers,omitempty"`
 	RequireSymbols                bool `json:"RequireSymbols,omitempty"`
 	TemporaryPasswordValidityDays int  `json:"TemporaryPasswordValidityDays,omitempty"`
+	PasswordHistorySize           int  `json:"PasswordHistorySize,omitempty"`
 }
 
 type updateUserPoolWithOptsInput struct {

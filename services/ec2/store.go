@@ -157,6 +157,7 @@ type Instance struct {
 	PublicIPAddress         string                     `json:"publicIPAddress,omitempty"`
 	SubnetID                string                     `json:"subnetID,omitempty"`
 	UserData                string                     `json:"userData,omitempty"`
+	ReservationID           string                     `json:"reservationId,omitempty"`
 	SriovNetSupport         string                     `json:"sriovNetSupport,omitempty"`
 	ProviderID              string                     `json:"providerID,omitempty"`
 	// InstanceInitiatedShutdownBehavior is "stop" (default) or "terminate".
@@ -1112,6 +1113,7 @@ func (b *InMemoryBackend) RunInstances(
 	// clamping. count is only used for the loop count below (safe).
 	//nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
 	instances := make([]*Instance, 0)
+	reservationID := newReservationID()
 
 	for i := range count {
 		id := newInstanceID()
@@ -1120,9 +1122,10 @@ func (b *InMemoryBackend) RunInstances(
 		}
 
 		inst := &Instance{
-			ID:           id,
-			ImageID:      imageID,
-			InstanceType: instanceType,
+			ID:            id,
+			ReservationID: reservationID,
+			ImageID:       imageID,
+			InstanceType:  instanceType,
 			// AWS state machine: pending → running via reconciler goroutine.
 			State:      StatePending,
 			VPCID:      vpcID,

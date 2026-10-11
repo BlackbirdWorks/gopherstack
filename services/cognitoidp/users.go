@@ -70,6 +70,7 @@ func (b *InMemoryBackend) AdminSetUserPassword(userPoolID, username, password st
 		return err
 	}
 
+	archivePassword(user)
 	user.PasswordHash = hash
 	user.TemporaryPassword = ""
 	user.SRPSalt = saltHex
@@ -664,6 +665,7 @@ func (b *InMemoryBackend) AdminSetUserPasswordFull(userPoolID, username, passwor
 		return err
 	}
 
+	archivePassword(user)
 	user.PasswordHash = hash
 	user.TemporaryPassword = ""
 	user.SRPSalt = saltHex

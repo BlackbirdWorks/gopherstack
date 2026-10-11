@@ -371,7 +371,7 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 	return &runInstancesResponse{
 		Xmlns:         ec2XMLNS,
 		RequestID:     reqID,
-		ReservationID: newReservationID(),
+		ReservationID: instanceReservationID(instances[0]),
 		OwnerID:       h.AccountID,
 		InstancesSet:  instanceItemSet{Items: items},
 	}, nil
@@ -447,14 +447,7 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 		items = append(items, item)
 	}
 
-	reservations := []reservationItem{}
-	if len(items) > 0 {
-		reservations = append(reservations, reservationItem{
-			ReservationID: newReservationID(),
-			OwnerID:       h.AccountID,
-			InstancesSet:  instanceItemSet{Items: items},
-		})
-	}
+	reservations := groupReservations(instances, items, h.AccountID)
 
 	return &describeInstancesResponse{
 		Xmlns:          ec2XMLNS,
@@ -941,4 +934,35 @@ type describeInstanceAttributeResponse struct {
 	RequestID  string   `xml:"requestId"`
 	InstanceID string   `xml:"instanceId"`
 	Attribute  namedStringAttr
+}
+
+// instanceReservationID returns the reservation an instance was launched in. Instances restored
+// from snapshots that predate the field get a stable id derived from their own.
+func instanceReservationID(inst *Instance) string {
+	if inst.ReservationID != "" {
+		return inst.ReservationID
+	}
+
+	return "r-" + strings.TrimPrefix(inst.ID, "i-")
+}
+
+// groupReservations groups items (parallel to instances) by launch reservation, in first-seen order.
+func groupReservations(instances []*Instance, items []instanceItem, ownerID string) []reservationItem {
+	reservations := []reservationItem{}
+	index := make(map[string]int, len(instances))
+
+	for i, inst := range instances {
+		rid := instanceReservationID(inst)
+
+		pos, ok := index[rid]
+		if !ok {
+			pos = len(reservations)
+			index[rid] = pos
+			reservations = append(reservations, reservationItem{ReservationID: rid, OwnerID: ownerID})
+		}
+
+		reservations[pos].InstancesSet.Items = append(reservations[pos].InstancesSet.Items, items[i])
+	}
+
+	return reservations
 }

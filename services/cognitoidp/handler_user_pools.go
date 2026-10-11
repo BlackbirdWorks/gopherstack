@@ -164,6 +164,7 @@ func poolToAccurateData(pool *UserPool) userPoolDataAccurate {
 			RequireNumbers:                pool.PasswordPolicy.RequireNumbers,
 			RequireSymbols:                pool.PasswordPolicy.RequireSymbols,
 			TemporaryPasswordValidityDays: pool.PasswordPolicy.TemporaryPasswordValidityDays,
+			PasswordHistorySize:           pool.PasswordPolicy.PasswordHistorySize,
 		}
 	} else {
 		data.Policies.PasswordPolicy = defaultPasswordPolicyData()
@@ -205,6 +206,7 @@ func (h *Handler) handleCreateUserPoolWithOpts(
 			RequireNumbers:                pp.RequireNumbers,
 			RequireSymbols:                pp.RequireSymbols,
 			TemporaryPasswordValidityDays: pp.TemporaryPasswordValidityDays,
+			PasswordHistorySize:           pp.PasswordHistorySize,
 		}
 		if err := validatePasswordPolicy(opts.PasswordPolicy); err != nil {
 			return nil, err
@@ -266,6 +268,7 @@ func (h *Handler) handleUpdateUserPoolWithOpts(
 			RequireNumbers:                pp.RequireNumbers,
 			RequireSymbols:                pp.RequireSymbols,
 			TemporaryPasswordValidityDays: pp.TemporaryPasswordValidityDays,
+			PasswordHistorySize:           pp.PasswordHistorySize,
 		}
 		if err := validatePasswordPolicy(opts.PasswordPolicy); err != nil {
 			return nil, err

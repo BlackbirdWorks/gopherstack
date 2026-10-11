@@ -2,7 +2,7 @@
 service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.329.0   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
 last_audit_commit: 5cb6665a0   # was 30db30dd8
-last_audit_date: 2026-10-07   # was 2026-09-24
+last_audit_date: 2026-10-10   # was 2026-09-24
 overall: A   # Filter.N sweep, 2026-10-01 second pass: DescribeRegions (endpoint, region-name),
              # DescribeNetworkInterfacePermissions (five network-interface-permission.*),
              # DescribeIpv6Pools, DescribeTrafficMirrorFilterRules, DescribeReplaceRootVolumeTasks,
@@ -575,7 +575,7 @@ families:
 gaps: []
 items_still_open:
   - "RunInstances accepts any syntactically valid InstanceType and any ami-prefixed ImageId: the instance-type catalog is partial and many in-repo callers launch synthetic AMIs, so unknown-but-well-formed values are not rejected."
-  - "CreateVolume goes straight to available (no creating state) and CreateVolume without Size/SnapshotId defaults to 8 GiB instead of failing; DescribeInstances reservation ids are minted per call and all instances share one reservation."
+  - "CreateVolume goes straight to available (no creating state)."
   - "Filters the pinned SDK does not define: DescribeCapacityBlocks 'tags' (doc is only \"the tags assigned\"; checked api_op_DescribeCapacityBlocks.go), DescribeInstanceEventWindows 'instance-tag' (value syntax undocumented in api_op_DescribeInstanceEventWindows.go), DescribeVpcPeeringConnections 'status-message' (no message texts in the SDK or the VPC peering lifecycle page, which names states only)."
 structural_gaps:
   - "DescribeInstanceStatus application-status.status filter and InstanceStatus.ApplicationStatus (2026-10-07): derived from live HTTP(S) health-check results; see the DescribeApplicationStatus entry below."
@@ -6285,3 +6285,7 @@ CreateSubnet now honours `AvailabilityZoneId` (resolved to a zone name; with `Av
 - RunInstances: malformed InstanceType and non-`ami-` ImageId rejected, unknown KeyName -> `InvalidKeyPair.NotFound`. CreateVolume: VolumeType enum and per-type size range checked, unparsable Size rejected. CreateSecurityGroup: `sg-` name prefix, charset and 255-char limits. CreateTags: `aws:` prefix, 128/256 char limits, >50 tags -> `TagLimitExceeded`. AllocateAddress: Domain must be vpc/standard.
 - NAT gateways now go pending -> available and deleting -> deleted via the lifecycle reconciler (waiters can observe both).
 - Error messages no longer repeat the code ("InvalidVpcID.NotFound: vpc-x"); bare-ID not-found details read "The vpc ID 'vpc-x' does not exist". Tests: input_validation_test.go, nat_gateways_test.go.
+
+## Notes (2026-10-10)
+
+CreateVolume without Size and SnapshotId now fails with MissingParameter (api_op_CreateVolume.go: "You must specify either a snapshot ID or a volume size"). RunInstances stores one reservation id per call on each instance (persisted); DescribeInstances groups by it, the RunInstances response returns it, and the `reservation-id` filter matches it. Proof: `reservations_volume_params_test.go`; describe golden files regenerated (one reservation per single-instance launch).

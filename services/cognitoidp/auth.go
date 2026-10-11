@@ -410,11 +410,16 @@ func (b *InMemoryBackend) ConfirmForgotPassword(
 		}
 	}
 
+	if histErr := checkPasswordHistory(poolPasswordPolicy(pool), user, newPassword); histErr != nil {
+		return histErr
+	}
+
 	hash, saltHex, verifierHex, err := hashAndSRP(client.UserPoolID, username, newPassword)
 	if err != nil {
 		return err
 	}
 
+	archivePassword(user)
 	user.PasswordHash = hash
 	user.TemporaryPassword = ""
 	user.SRPSalt = saltHex
@@ -460,6 +465,10 @@ func (b *InMemoryBackend) ChangePassword(accessToken, previousPassword, proposed
 		if err3 := validatePassword(pool.PasswordPolicy, proposedPassword); err3 != nil {
 			return err3
 		}
+
+		if err3 := checkPasswordHistory(pool.PasswordPolicy, u, proposedPassword); err3 != nil {
+			return err3
+		}
 	}
 
 	hash, saltHex, verifierHex, err4 := hashAndSRP(u.UserPoolID, u.Username, proposedPassword)
@@ -467,6 +476,7 @@ func (b *InMemoryBackend) ChangePassword(accessToken, previousPassword, proposed
 		return err4
 	}
 
+	archivePassword(u)
 	u.PasswordHash = hash
 	u.TemporaryPassword = ""
 	u.SRPSalt = saltHex

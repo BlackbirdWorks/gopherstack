@@ -322,7 +322,8 @@ func (b *InMemoryBackend) ListEndpoints(ctx context.Context, filter ListEndpoint
 	return paginateSlice(list, filter.NextToken, filter.MaxResults)
 }
 
-// DeleteEndpoint deletes an endpoint by name.
+// DeleteEndpoint moves an endpoint to Deleting and removes it once the dwell elapses
+// (api_op_DescribeEndpoint.go EndpointStatus: Deleting). A repeat delete of a Deleting endpoint is a no-op.
 func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteEndpoint")
 	defer b.mu.Unlock()
@@ -334,10 +335,25 @@ func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, name string) error
 		return b.couldNotFind(ErrEndpointNotFound, region, "endpoint", "endpoint/", name)
 	}
 
-	arnIdx := b.endpointARNIndexStore(region)
-	delete(arnIdx, ep.EndpointArn)
-	endpoints := b.endpointsStore(region)
-	endpoints.Delete(name)
+	if ep.EndpointStatus == statusDeleting {
+		return nil
+	}
+
+	ep.EndpointStatus = statusDeleting
+	ep.LastModifiedTime = time.Now()
+
+	b.runDelayed(b.lifecycleCtx, endpointDeletingToDeleted, func() {
+		b.mu.Lock("DeleteEndpoint.goroutine")
+		defer b.mu.Unlock()
+
+		cur, found := b.endpointsStore(region).Get(name)
+		if !found || cur.EndpointStatus != statusDeleting {
+			return
+		}
+
+		delete(b.endpointARNIndexStore(region), cur.EndpointArn)
+		b.endpointsStore(region).Delete(name)
+	})
 
 	return nil
 }

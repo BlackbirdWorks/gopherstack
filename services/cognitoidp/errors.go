@@ -21,6 +21,9 @@ var (
 	// ErrInvalidPassword is returned when the password does not meet policy requirements.
 	ErrInvalidPassword = awserr.New("InvalidPasswordException", awserr.ErrInvalidParameter)
 
+	// ErrPasswordHistoryViolation is returned when a new password matches one of the user's previous passwords.
+	ErrPasswordHistoryViolation = awserr.New("PasswordHistoryPolicyViolationException", awserr.ErrInvalidParameter)
+
 	// ErrRefreshTokenReuse is returned for a refresh token that rotation already retired.
 	ErrRefreshTokenReuse = awserr.New("RefreshTokenReuseException", awserr.ErrInvalidParameter)
 	// ErrAliasExists is returned by ConfirmSignUp when a sign-in alias already belongs to another user.

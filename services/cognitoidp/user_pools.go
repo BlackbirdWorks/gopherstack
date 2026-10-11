@@ -308,6 +308,10 @@ func validatePasswordPolicy(pp *PasswordPolicy) error {
 			ErrInvalidParameter, maxTempPwdValidDays)
 	}
 
+	if pp.PasswordHistorySize < 0 {
+		return fmt.Errorf("%w: PasswordHistorySize must not be negative", ErrInvalidParameter)
+	}
+
 	return nil
 }
 

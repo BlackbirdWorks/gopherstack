@@ -19,6 +19,7 @@ const (
 	trainingStoppingToStopped             = 150 * time.Millisecond
 	endpointCreatingToInService           = 300 * time.Millisecond
 	endpointUpdatingToInService           = 250 * time.Millisecond
+	endpointDeletingToDeleted             = 150 * time.Millisecond
 	inferenceComponentCreatingToInService = 300 * time.Millisecond
 	inferenceComponentUpdatingToInService = 250 * time.Millisecond
 	processingJobCompletionDelay          = 300 * time.Millisecond

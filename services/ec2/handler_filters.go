@@ -1178,6 +1178,8 @@ func instanceMatchesFilter(inst *Instance, filterName string, values []string, t
 		return anyEqual(inst.InstanceType, values)
 	case "key-name":
 		return anyEqual(inst.KeyName, values)
+	case "reservation-id":
+		return anyEqual(instanceReservationID(inst), values)
 	case "private-ip-address":
 		return anyEqual(inst.PrivateIP, values)
 	case "ip-address":

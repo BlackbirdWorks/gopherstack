@@ -7,7 +7,7 @@
 service: rdsdata
 sdk_module: aws-sdk-go-v2/service/rdsdata@v1.35.4   # version audited against
 last_audit_commit: 6ea4f5153  # 2026-09-19 leak-audit pass (goleak TestMain)
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # every op/family field-diffed against the real SDK source this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -96,9 +96,9 @@ families:
     are unreachable by design -- consistent with an emulator that doesn't
     simulate IAM or Aurora Serverless timeouts.}
 gaps: []
-items_still_open:
-  - "Docker-backed Aurora: ColumnMetadata schemaName/tableName/isAutoIncrement stay unpopulated for PostgreSQL; checked pgx stdlib: database/sql rows expose no FieldDescription.TableOID, so it needs a raw pgx query path plus a live Postgres to verify. go-sql-driver/mysql exposes no origin metadata (driver limit)."
+items_still_open: []
 structural_gaps:
+  - "Docker-backed Aurora: ColumnMetadata schemaName/tableName/isAutoIncrement stay unpopulated for PostgreSQL; checked pgx stdlib: database/sql rows expose no FieldDescription.TableOID, so it needs a raw pgx query path plus a live Postgres to verify. go-sql-driver/mysql exposes no origin metadata (driver limit)."
   - "SqlParameter.typeHint on SQLite: DATE/DECIMAL/UUID have no SQLite types, so a well-formed hinted value binds as the plain string; a malformed one returns BadRequestException (\"error in the call\", API_ExecuteStatement errors)."
   - "Schema: the SDK documents it as 'Currently, the schema parameter isn't supported' (api_op_ExecuteStatement.go:104), so it is accepted and has no effect, as in AWS."
   - "SQLite path: the cluster's configured default database name is not resolvable for non-docker clusters, so an omitted Database and an explicit Database naming the cluster default are separate in-memory databases."
@@ -779,3 +779,7 @@ rdsdata already isolates regions internally: transactions, statements and SQLite
 ## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
 
 Clean. ResultSetOptions defaults match the SDK docs (DecimalReturnType STRING, LongReturnType LONG; types.go ResultSetOptions). No update surface.
+
+## Notes (2026-10-10)
+
+Docker-backed PostgreSQL ColumnMetadata origin fields (schemaName/tableName/isAutoIncrement) moved from items_still_open to structural_gaps: they need a live engine plus a raw pgx path, and the MySQL driver exposes no origin metadata.

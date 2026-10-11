@@ -1,7 +1,7 @@
 service: sagemaker
 sdk_module: aws-sdk-go-v2/service/sagemaker@v1.263.2   # version audited against (parity-5)
 last_audit_commit: 356d8cfa9  # HEAD when this manifest was written
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
                        # 2026-09-20 (sagemaker-resources terraform coverage): CreateProject never
                        # populated ServiceCatalogProvisionedProductDetails -- real AWS always
                        # provisions a product on project creation, and the terraform-provider-aws
@@ -304,7 +304,6 @@ families:
 gaps: []
 
 items_still_open:
-  - "DeleteEndpoint removes the endpoint immediately; AWS shows a Deleting status first (the endpoint-deleted waiter still works)."
   - "DescribeJobSchemaVersion/ListJobSchemaVersions serve one synthetic JobConfigSchemaVersion (\"1.0\") with a generic per-JobCategory schema: checked api_op_DescribeJobSchemaVersion.go and the API reference, neither publishes per-category schema content, so there is no ground truth to model."
 structural_gaps:
   - "Presigned URL expiry (2026-10-07): ExpiresInSeconds/SessionExpirationDurationInSeconds are range-checked against the API reference but not enforced; the synthetic AuthorizedUrl is not served by anything that could expire or single-use it."
@@ -6928,3 +6927,7 @@ validated on Create/Update against a table transcribed from the pinned sagemaker
 (`shape_table.go`: required members, nested structs, lists, union members; wrong JSON type is rejected). Covered by
 `TestHandler_OpaqueConfigShapeValidation`. `ProductionVariant.ManagedInstanceScaling`/`RoutingConfig` plus CapacityReservationConfig/InstancePools are stored,
 validated and echoed (live per-pool instance counts and EC2 reservation counts are not synthesized) on DescribeEndpointConfig/DescribeEndpoint (`TestEndpointConfig_VariantScalingAndRouting`).
+
+## Notes (2026-10-10)
+
+DeleteEndpoint now moves the endpoint to Deleting and removes it after the lifecycle dwell (150ms default, SetLifecycleDelay overrides); a repeat delete while Deleting is a no-op and the endpoint-deleted waiter works. DeleteEndpointConfig stays ResourceInUse until the endpoint is gone. Proof: `endpoint_deleting_test.go`.

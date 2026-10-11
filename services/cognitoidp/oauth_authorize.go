@@ -366,6 +366,8 @@ func loginMessage(err error) string {
 		return "This account needs a sign-in step that this page does not support."
 	case errors.Is(err, ErrInvalidPassword):
 		return "The new password does not meet the password policy."
+	case errors.Is(err, ErrPasswordHistoryViolation):
+		return "The new password was used recently. Choose a different one."
 	case errors.Is(err, ErrUserNotConfirmed):
 		return "User is not confirmed."
 	default:

@@ -46,7 +46,7 @@ func (b *InMemoryBackend) RespondToNewPasswordRequired(
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
 	}
 
-	if err := setPermanentPasswordLocked(user, newPassword); err != nil {
+	if err := setPermanentPasswordLocked(pool, user, newPassword); err != nil {
 		return nil, err
 	}
 
@@ -61,12 +61,17 @@ func (b *InMemoryBackend) RespondToNewPasswordRequired(
 }
 
 // setPermanentPasswordLocked stores newPassword, confirms the user and refreshes the SRP verifier.
-func setPermanentPasswordLocked(user *User, newPassword string) error {
+func setPermanentPasswordLocked(pool *UserPool, user *User, newPassword string) error {
+	if err := checkPasswordHistory(poolPasswordPolicy(pool), user, newPassword); err != nil {
+		return err
+	}
+
 	hash, saltHex, verifierHex, err := hashAndSRP(user.UserPoolID, user.Username, newPassword)
 	if err != nil {
 		return err
 	}
 
+	archivePassword(user)
 	user.PasswordHash = hash
 	user.TemporaryPassword = ""
 	user.SRPSalt = saltHex
