@@ -363,6 +363,14 @@ By default resources settle instantly. Set a dwell to make Creating/Processing/P
 | `--lifecycle-resiliencehub` | `RESILIENCEHUB_LIFECYCLE_DELAY` | Resilience Hub assessment/import/resolution per-hop window (built-in `100ms`). |
 | `--lifecycle-databrew` | `DATABREW_LIFECYCLE_DELAY` | DataBrew job run `STARTING`-to-`SUCCEEDED` window (built-in `100ms`). |
 | `--lifecycle-mgn` | `MGN_LIFECYCLE_DELAY` | Application Migration Service replication/job/import per-hop window (built-in `100ms`). |
+| `--lifecycle-forecast` | `FORECAST_LIFECYCLE_DELAY` | Forecast resource CREATE_PENDING/CREATE_IN_PROGRESS window. |
+| `--lifecycle-networkmonitor` | `NETWORKMONITOR_LIFECYCLE_DELAY` | Network Monitor monitor and probe PENDING window. |
+| `--lifecycle-managedblockchain` | `MANAGEDBLOCKCHAIN_LIFECYCLE_DELAY` | Managed Blockchain network/member/node CREATING window. |
+| `--lifecycle-cleanrooms` | `CLEANROOMS_LIFECYCLE_DELAY` | Clean Rooms protected query and job SUBMITTED window. |
+| `--lifecycle-resourcegroups` | `RESOURCEGROUPS_LIFECYCLE_DELAY` | Resource Groups transitional window. |
+| `--lifecycle-serverlessrepo` | `SERVERLESSREPO_LIFECYCLE_DELAY` | Serverless Application Repository template PREPARING window. |
+| `--lifecycle-codeconnections` | `CODECONNECTIONS_LIFECYCLE_DELAY` | CodeConnections connection handshake and host setup PENDING window. |
+| `--lifecycle-codestarconnections` | `CODESTARCONNECTIONS_LIFECYCLE_DELAY` | CodeStar Connections connection handshake and host setup PENDING window; hosts stay PENDING when 0. |
 | `--lifecycle-docdb` | `DOCDB_LIFECYCLE_DELAY` | DocumentDB cluster/instance `creating` window. |
 | `--lifecycle-neptune` | `NEPTUNE_LIFECYCLE_DELAY` | Neptune cluster/instance `creating` window. |
 | `--lifecycle-awsconfig` | `AWSCONFIG_LIFECYCLE_DELAY` | AWS Config conformance pack `CREATE_IN_PROGRESS` window. |
