@@ -745,3 +745,14 @@ Emits AWS/DynamoDB (docs.aws.amazon.com/amazondynamodb/latest/developerguide/met
 ## 2026-10-10 realism pass: disabled streams stay readable
 
 Disabling a stream (UpdateTable `StreamEnabled=false` or `DisableStream`) now moves it to `Table.RetiredStreams` instead of dropping it: it stays in `ListStreams`/`DescribeStream` as DISABLING then DISABLED (`SetStreamDisablingDelay`, default 0) with every shard closed (`EndingSequenceNumber` set), and `GetShardIterator`/`GetRecords` read its records until the janitor drops it after 24h. Re-enabling creates a new ARN and label (never reuses a retired one). Iterators now carry their stream ARN, so an iterator taken before disabling keeps reading the old generation. UpdateTable disable also resets the live record ring and sequence (it left them behind before). Persisted via an additive `Table.RetiredStreams` field (no version bump). Tests: `TestRetiredStream_*` (streams_retired_internal_test.go). Not modeled: retention of a deleted table's stream.
+
+## 2026-10-11 deep realism pass
+
+PartiQL (regex-driven) rejected common real-world statements. Fixed in `partiql_literals.go`:
+
+- Bare table/index names (`FROM Orders`, `Orders.gsi`); `IN [..]` lists; numeric, TRUE/FALSE and NULL literals in WHERE/SET (`WHERE sk = 1`, `v > 5`, `SET v = v + 1`); `<<set>>`, `[list]` and `{map}` literals in VALUE and SET; `set_add`/`set_delete`; repeated `SET` clauses.
+- UPDATE/DELETE accept extra non-key WHERE conditions as a condition expression; UPDATE of a missing item is ConditionalCheckFailedException; `RETURNING ALL|MODIFIED OLD|NEW *` returns the item.
+- Attribute names that DynamoDB expressions reserve (`name`, `status`, ...) and double-quoted names are aliased, since PartiQL has no such restriction.
+- BatchExecuteStatement per-statement errors use the closed `BatchStatementErrorCodeEnum` (ResourceNotFound, ConditionalCheckFailed, DuplicateItem, ValidationError, ...) instead of the invented `StatementError`.
+
+Proof: `TestPartiQLDialect`, `TestBatchExecuteStatementErrorCodes`. Probed and found correct: transactions with cancellation reasons and `ALL_OLD` items, conditional updates, streams GetRecords/iterators, TTL, billing-mode switches, GSI create/delete.

@@ -820,3 +820,8 @@ Emits AWS/SNS (TopicName; sns-monitoring-using-cloudwatch.html): NumberOfMessage
 - reqfielddiff: GetSMSAttributes.Attributes and AddPermission.AWSAccountId/ActionName are member lists the handler reads (parseMemberList); TestAddPermission_MemberListsApplied. ConfirmSubscription.AuthenticateOnUnsubscribe stays disclosed.
 - Removed "HTTP/Application/SMS deliveries are not policy-checked": those targets have no resource policy to check (SQS/Lambda/Firehose are covered above), so it was not a gap.
 - Removed the "integration suite not run" deferral; it was a process note, not an open item.
+
+## 2026-10-11 deep realism pass
+
+- MessageBody-scope filter policies with nested objects (`{"detail":{"type":["a"]}}`) were rejected at Subscribe ("must be a JSON array"). Nested sub-policies are now validated recursively and matched against object (or array-of-object) body values. Proof: `TestFilterPolicy_MessageBodyNested`. Nested policies are accepted regardless of scope; under MessageAttributes scope they simply never match (lenient).
+- Probed and found correct: SQS fanout with raw and envelope delivery, attribute-scope numeric/string filters, PublishBatch id checks, subscription attributes.

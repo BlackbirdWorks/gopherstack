@@ -437,3 +437,20 @@ func (h *S3Handler) handleUpdateObjectEncryption(
 
 	w.WriteHeader(http.StatusOK)
 }
+
+// checksumHeaderCount is the number of headers checksumResponseHeaders returns.
+const checksumHeaderCount = 9
+
+// checksumResponseHeaders lists every checksum header setChecksumHeaders can emit.
+func checksumResponseHeaders() []string {
+	names := make([]string, 0, checksumHeaderCount)
+	names = append(names, "X-Amz-Checksum-Algorithm", "X-Amz-Checksum-Type")
+
+	for _, a := range []string{
+		ChecksumCRC32, ChecksumCRC32C, ChecksumSHA1, ChecksumSHA256, ChecksumCRC64NVME, ChecksumMD5, ChecksumSHA512,
+	} {
+		names = append(names, "X-Amz-Checksum-"+a)
+	}
+
+	return names
+}

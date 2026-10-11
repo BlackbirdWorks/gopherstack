@@ -87,6 +87,20 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 		}
 	}
 
+	bucket.mu.RLock("CreateMultipartUpload")
+	lockMode, lockUntil, lockHold, lockErr := objectLockRetention(
+		bucket, input.ObjectLockMode, input.ObjectLockRetainUntilDate, input.ObjectLockLegalHoldStatus, time.Now(),
+	)
+	bucket.mu.RUnlock()
+
+	if lockErr != nil {
+		return nil, lockErr
+	}
+
+	if input.ObjectLockMode == "" {
+		lockMode, lockUntil = "", time.Time{}
+	}
+
 	mpuAlgo := types.ChecksumAlgorithm(strings.ToUpper(string(input.ChecksumAlgorithm)))
 	mpuType := resolveChecksumType(mpuAlgo, input.ChecksumType)
 
@@ -118,6 +132,9 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 			CacheControl:            aws.ToString(input.CacheControl),
 			ContentLanguage:         aws.ToString(input.ContentLanguage),
 			WebsiteRedirectLocation: aws.ToString(input.WebsiteRedirectLocation),
+			ObjectLockMode:          lockMode,
+			RetainUntil:             lockUntil,
+			LegalHold:               lockHold,
 		},
 	})
 
@@ -626,6 +643,9 @@ func (b *InMemoryBackend) commitMultipartObject(
 			Expires:         expires,
 		}
 		headers.applyTo(newVersion)
+		if headers.ObjectLockMode == "" {
+			newVersion.RetentionMode, newVersion.RetainUntil = bucketDefaultRetention(bucket, time.Now())
+		}
 		assembled.applyChecksumTo(newVersion)
 
 		// Acquire obj.mu while bucket.mu is still held (the defer above releases

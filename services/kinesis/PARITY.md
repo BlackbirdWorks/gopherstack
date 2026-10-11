@@ -1128,3 +1128,8 @@ PutRecord now reads SequenceNumberForOrdering and rejects a malformed value (not
 ## 2026-10-05 (zeroguard omitted-vs-zero audit)
 
 Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.
+
+## 2026-10-11 deep realism pass
+
+- Shard `SequenceNumberRange` was `"0"` for empty or freshly split shards and shifted as the ring evicted records. Start/end are now derived from the shard's open/close time in the record sequence-number layout, so children start at a real number and closed parents end after their last record. Proof: `TestShardSequenceNumberRanges`.
+- Probed and found correct: split ordering and child shards, stream-exists waiter, PutRecord routing, ListShards filters.

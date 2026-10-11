@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -272,5 +273,23 @@ func buildPutObjectInput(
 		ChecksumMD5:       extra.md5,
 		ChecksumSHA512:    extra.sha512,
 		Tagging:           aws.String(r.Header.Get("X-Amz-Tagging")),
+
+		ObjectLockMode:            types.ObjectLockMode(r.Header.Get("X-Amz-Object-Lock-Mode")),
+		ObjectLockRetainUntilDate: parseRetainUntilHeader(r),
+		ObjectLockLegalHoldStatus: types.ObjectLockLegalHoldStatus(r.Header.Get("X-Amz-Object-Lock-Legal-Hold")),
 	}
+}
+
+func parseRetainUntilHeader(r *http.Request) *time.Time {
+	v := r.Header.Get("X-Amz-Object-Lock-Retain-Until-Date")
+	if v == "" {
+		return nil
+	}
+
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return aws.Time(time.Time{})
+	}
+
+	return &t
 }

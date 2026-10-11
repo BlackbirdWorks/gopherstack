@@ -67,58 +67,100 @@ func parseFilterPolicy(filterPolicy string) (parsedFilterPolicy, error) {
 	totalConditions := 0
 
 	for key, rawConditions := range rawPolicy {
-		var conditions []json.RawMessage
-		if err := json.Unmarshal(rawConditions, &conditions); err != nil {
-			return nil, fmt.Errorf(
-				"%w: FilterPolicy attribute %q must be a JSON array",
-				ErrInvalidParameter, key,
-			)
-		}
-
-		// The "$or" operator carries an array of nested sub-policy objects rather
-		// than scalar/operator conditions. When the AWS recognition rules are met
-		// (>=2 objects, no object using a reserved keyword as a top-level field),
-		// validate each sub-policy recursively and store the raw objects under the
-		// "$or" key for OR evaluation. Otherwise "$or" is treated as a normal
-		// attribute name, matching AWS.
-		if key == orOperatorKey && isRecognisedOrOperator(conditions) {
-			subConditions, err := validateOrSubPolicies(conditions)
-			if err != nil {
-				return nil, err
-			}
-
-			totalConditions += subConditions
-			if totalConditions > maxFilterPolicyConditions {
-				return nil, fmt.Errorf(
-					"%w: FilterPolicy exceeds %d total attribute conditions",
-					ErrInvalidParameter, maxFilterPolicyConditions,
-				)
-			}
-
-			parsed[key] = conditions
-
-			continue
-		}
-
-		totalConditions += len(conditions)
-		if totalConditions > maxFilterPolicyConditions {
-			return nil, fmt.Errorf(
-				"%w: FilterPolicy exceeds %d total attribute conditions",
-				ErrInvalidParameter, maxFilterPolicyConditions,
-			)
-		}
-
-		// Eagerly validate numeric operand shapes so that a malformed numeric
-		// condition is rejected at Subscribe/SetSubscriptionAttributes time
-		// rather than silently failing every match at evaluation.
-		if err := validateConditionShapes(key, conditions); err != nil {
+		conditions, count, err := parseFilterPolicyKey(key, rawConditions)
+		if err != nil {
 			return nil, err
+		}
+
+		totalConditions += count
+		if budgetErr := checkConditionBudget(totalConditions); budgetErr != nil {
+			return nil, budgetErr
 		}
 
 		parsed[key] = conditions
 	}
 
 	return parsed, nil
+}
+
+// nestedPolicyKey wraps a nested sub-policy (an object value in a MessageBody
+// filter policy) so it can live in the []json.RawMessage condition slot.
+const nestedPolicyKey = "$nestedPolicy"
+
+// parseFilterPolicyKey validates one top-level FilterPolicy key and returns its
+// stored conditions plus how many count toward the total-condition budget.
+func parseFilterPolicyKey(key string, rawConditions json.RawMessage) ([]json.RawMessage, int, error) {
+	if isNestedPolicyValue(rawConditions) {
+		nested, err := parseNestedFilterPolicy(key, rawConditions)
+
+		return nested, 0, err
+	}
+
+	var conditions []json.RawMessage
+	if err := json.Unmarshal(rawConditions, &conditions); err != nil {
+		return nil, 0, fmt.Errorf(
+			"%w: FilterPolicy attribute %q must be a JSON array",
+			ErrInvalidParameter, key,
+		)
+	}
+
+	// "$or" carries nested sub-policy objects, not scalar/operator conditions. When
+	// AWS's recognition rules are met (>=2 objects, none using a reserved keyword as
+	// a top-level field) each sub-policy is validated recursively; otherwise "$or"
+	// is an ordinary attribute name, matching AWS.
+	if key == orOperatorKey && isRecognisedOrOperator(conditions) {
+		subConditions, err := validateOrSubPolicies(conditions)
+
+		return conditions, subConditions, err
+	}
+
+	// Validate numeric operand shapes eagerly so a malformed condition is rejected
+	// at Subscribe/SetSubscriptionAttributes time rather than failing every match.
+	return conditions, len(conditions), validateConditionShapes(key, conditions)
+}
+
+func isNestedPolicyValue(raw json.RawMessage) bool {
+	return strings.HasPrefix(strings.TrimSpace(string(raw)), "{")
+}
+
+func checkConditionBudget(total int) error {
+	if total > maxFilterPolicyConditions {
+		return fmt.Errorf(
+			"%w: FilterPolicy exceeds %d total attribute conditions",
+			ErrInvalidParameter, maxFilterPolicyConditions,
+		)
+	}
+
+	return nil
+}
+
+func parseNestedFilterPolicy(key string, raw json.RawMessage) ([]json.RawMessage, error) {
+	if _, err := parseFilterPolicy(string(raw)); err != nil {
+		return nil, fmt.Errorf("%w (nested key %q)", err, key)
+	}
+
+	wrapped, err := json.Marshal(map[string]json.RawMessage{nestedPolicyKey: raw})
+	if err != nil {
+		return nil, fmt.Errorf("%w: FilterPolicy attribute %q: %s", ErrInvalidParameter, key, err.Error())
+	}
+
+	return []json.RawMessage{wrapped}, nil
+}
+
+// nestedSubPolicy returns the nested sub-policy JSON stored by parseNestedFilterPolicy.
+func nestedSubPolicy(conditions []json.RawMessage) (string, bool) {
+	if len(conditions) != 1 {
+		return "", false
+	}
+
+	var wrapper map[string]json.RawMessage
+	if err := json.Unmarshal(conditions[0], &wrapper); err != nil {
+		return "", false
+	}
+
+	sub, ok := wrapper[nestedPolicyKey]
+
+	return string(sub), ok
 }
 
 // orOperatorKey is the reserved field name for SNS OR-operator filter policies.

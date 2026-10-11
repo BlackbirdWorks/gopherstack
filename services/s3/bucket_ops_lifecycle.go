@@ -111,10 +111,22 @@ func validateLifecycleConfiguration(body []byte) (string, string) {
 			seen[rule.ID] = struct{}{}
 		}
 
+		if !rule.hasAction() {
+			return errInvalidRequest, "At least one action needs to be specified in a rule"
+		}
+
 		if rule.Expiration.Days != nil && *rule.Expiration.Days <= 0 {
 			return errInvalidArgument, "'Days' for Expiration action must be a positive integer"
 		}
 	}
 
 	return "", ""
+}
+
+func (r *lifecycleRule) hasAction() bool {
+	return r.Expiration.Days != nil || r.Expiration.Date != "" || r.Expiration.ExpiredObjectDeleteMarker != nil ||
+		r.NoncurrentVersionExpiration.NoncurrentDays != nil ||
+		r.NoncurrentVersionExpiration.NewerNoncurrentVersions != nil ||
+		r.AbortIncompleteMultipartUpload.DaysAfterInitiation != nil ||
+		len(r.Transitions) > 0 || len(r.NoncurrentVersionTransitions) > 0
 }

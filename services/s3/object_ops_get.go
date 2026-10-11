@@ -380,6 +380,10 @@ func (h *S3Handler) serveRange(
 func (*S3Handler) writePartialContent(
 	ctx context.Context, w http.ResponseWriter, start, end, total int64, body []byte,
 ) {
+	for _, name := range checksumResponseHeaders() {
+		w.Header().Del(name)
+	}
+
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
 	w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
 	w.WriteHeader(http.StatusPartialContent)

@@ -2,8 +2,10 @@ package dynamodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -941,11 +943,9 @@ func runOneBatchStatement(
 
 	result, err := runner.executeStatement(ctx, req)
 	if err != nil {
+		code, msg := batchStatementErrorFor(err)
 		resp := sdktypes.BatchStatementResponse{
-			Error: &sdktypes.BatchStatementError{
-				Code:    sdktypes.BatchStatementErrorCodeEnum("StatementError"),
-				Message: aws.String(err.Error()),
-			},
+			Error: &sdktypes.BatchStatementError{Code: code, Message: aws.String(msg)},
 		}
 		if tableName := extractPartiQLTableName(req.Statement); tableName != "" {
 			resp.TableName = aws.String(tableName)
@@ -965,4 +965,38 @@ func runOneBatchStatement(
 	}
 
 	return resp, result.ConsumedCapacity
+}
+
+// batchStatementErrorFor maps a statement failure onto the closed
+// BatchStatementErrorCodeEnum (dynamodb@v1.63.1 types/enums.go).
+func batchStatementErrorFor(err error) (sdktypes.BatchStatementErrorCodeEnum, string) {
+	var ddbErr *Error
+	if !errors.As(err, &ddbErr) {
+		if errors.Is(err, ErrInvalidStatement) {
+			return sdktypes.BatchStatementErrorCodeEnumValidationError, err.Error()
+		}
+
+		return sdktypes.BatchStatementErrorCodeEnumInternalServerError, err.Error()
+	}
+
+	switch {
+	case strings.Contains(ddbErr.Type, "ResourceNotFoundException"):
+		return sdktypes.BatchStatementErrorCodeEnumResourceNotFound, ddbErr.Message
+	case strings.Contains(ddbErr.Type, "ConditionalCheckFailedException"):
+		return sdktypes.BatchStatementErrorCodeEnumConditionalCheckFailed, ddbErr.Message
+	case strings.Contains(ddbErr.Type, "DuplicateItemException"):
+		return sdktypes.BatchStatementErrorCodeEnumDuplicateItem, ddbErr.Message
+	case strings.Contains(ddbErr.Type, "ValidationException"):
+		return sdktypes.BatchStatementErrorCodeEnumValidationError, ddbErr.Message
+	case strings.Contains(ddbErr.Type, "ProvisionedThroughputExceededException"):
+		return sdktypes.BatchStatementErrorCodeEnumProvisionedThroughputExceeded, ddbErr.Message
+	case strings.Contains(ddbErr.Type, "ThrottlingException"):
+		return sdktypes.BatchStatementErrorCodeEnumThrottlingError, ddbErr.Message
+	case strings.Contains(ddbErr.Type, "TransactionConflictException"):
+		return sdktypes.BatchStatementErrorCodeEnumTransactionConflict, ddbErr.Message
+	case strings.Contains(ddbErr.Type, "ItemCollectionSizeLimitExceededException"):
+		return sdktypes.BatchStatementErrorCodeEnumItemCollectionSizeLimitExceeded, ddbErr.Message
+	default:
+		return sdktypes.BatchStatementErrorCodeEnumInternalServerError, ddbErr.Message
+	}
 }

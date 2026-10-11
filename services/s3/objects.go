@@ -342,6 +342,16 @@ func (b *InMemoryBackend) PutObject(
 		return nil, err
 	}
 
+	bucket.mu.RLock("PutObject")
+	lockMode, lockUntil, lockHold, lockErr := objectLockRetention(
+		bucket, input.ObjectLockMode, input.ObjectLockRetainUntilDate, input.ObjectLockLegalHoldStatus, time.Now(),
+	)
+	bucket.mu.RUnlock()
+
+	if lockErr != nil {
+		return nil, lockErr
+	}
+
 	// 2. Prepare data and metadata outside the lock.
 	originalSize, storedData, isCompressed, etag, computedChecksumB64, err := b.prepareObjectData(
 		ctx,
@@ -388,6 +398,8 @@ func (b *InMemoryBackend) PutObject(
 	finalQuotedETag := "\"" + etag + "\""
 	newVersion := buildStoredObjectVersion(key, finalQuotedETag, encryptedData, isCompressed,
 		originalSize, input, checksums, sseFromCtx, dek, nonce)
+
+	newVersion.RetentionMode, newVersion.RetainUntil, newVersion.LegalHold = lockMode, lockUntil, lockHold
 
 	newVersionID := b.saveObjectVersion(bucket, key, newVersion)
 

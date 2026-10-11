@@ -181,6 +181,10 @@ func (h *S3Handler) copyObject(
 		StorageClass:            types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
 		ACL:                     types.ObjectCannedACL(r.Header.Get("X-Amz-Acl")),
 		ChecksumAlgorithm:       copyChecksumAlgorithm(r, srcVer),
+
+		ObjectLockMode:            types.ObjectLockMode(r.Header.Get("X-Amz-Object-Lock-Mode")),
+		ObjectLockRetainUntilDate: parseRetainUntilHeader(r),
+		ObjectLockLegalHoldStatus: types.ObjectLockLegalHoldStatus(r.Header.Get("X-Amz-Object-Lock-Legal-Hold")),
 	}
 	h.resolveCopyTagging(ctx, r, putInput, tagging, taggingReplace)
 

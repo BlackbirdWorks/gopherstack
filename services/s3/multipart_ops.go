@@ -87,6 +87,10 @@ func (h *S3Handler) createMultipartUpload(
 		SSECustomerAlgorithm:    ptrconv.NilIfEmpty(sse.SSECAlgorithm),
 		SSECustomerKeyMD5:       ptrconv.NilIfEmpty(sse.SSECKeyMD5),
 		SSECustomerKey:          ptrconv.NilIfEmpty(sse.SSECKeyB64),
+
+		ObjectLockMode:            types.ObjectLockMode(r.Header.Get("X-Amz-Object-Lock-Mode")),
+		ObjectLockRetainUntilDate: parseRetainUntilHeader(r),
+		ObjectLockLegalHoldStatus: types.ObjectLockLegalHoldStatus(r.Header.Get("X-Amz-Object-Lock-Legal-Hold")),
 	})
 	if err != nil {
 		WriteError(ctx, w, r, err)
@@ -278,6 +282,12 @@ func (h *S3Handler) completeMultipartUpload(
 	var partsReq CompleteMultipartUpload
 	if err := xml.NewDecoder(r.Body).Decode(&partsReq); err != nil {
 		WriteError(ctx, w, r, ErrInvalidArgument)
+
+		return
+	}
+
+	if err := h.enforcePutObjectPreconditions(ctx, r, bucketName, key); err != nil {
+		WriteError(ctx, w, r, err)
 
 		return
 	}

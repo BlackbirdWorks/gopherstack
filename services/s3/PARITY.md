@@ -1751,3 +1751,16 @@ Sparse-model SDK (REST-XML, errors modelled on few ops). The flagged PermanentRe
 ## 2026-10-05 errcodeaudit needs-review adjudication (gopherstack-r3pr)
 
 Sparse-model SDK. InvalidPart is documented in CompleteMultipartUpload (s3 v1.111.0 api_op_CompleteMultipartUpload.go:94). NoSuchConfiguration is the S3 code for missing analytics/inventory/metrics/intelligent-tiering configs; not in the pinned SDK, and its use for the metadata configs is unverified offline. RetentionPeriodShortened, RetentionModeDowngrade and DeleteMarker are sentinel identity strings only; the wire codes are AccessDenied/403, AccessDenied/403 and MethodNotAllowed/405 (errors.go mapper).
+
+## 2026-10-11 deep realism pass
+
+End-to-end CLI/SDK flows (cp/sync/mv, multipart, object lock, CORS, conditional writes) against a live binary found and fixed:
+
+- PutObject, CopyObject and CreateMultipartUpload ignored `x-amz-object-lock-mode`, `-retain-until-date`, `-legal-hold` and the bucket's default retention, so locked buckets never locked anything on write. Now applied at write (multipart: default retention at Complete); mode XOR date, a past date, an unknown mode, or lock headers on a non-lock bucket are rejected (InvalidArgument / InvalidRequest). Proof: `TestPutObjectLockHeaders`, `TestMultipartObjectLockHeaders`.
+- CreateBucket with object lock now enables versioning; GetObjectLockConfiguration returns `ObjectLockEnabled=Enabled` with no rule; suspending versioning on a lock bucket is 409 InvalidBucketState; PutObjectLockConfiguration enables lock on an existing versioned bucket. Proof: `TestObjectLockBucketCreation`, `TestObjectLockEnableOnExistingBucket`.
+- Ranged GetObject no longer returns the full-object `x-amz-checksum-*` headers (the CLI/SDK validators failed on them). Proof: `TestGetObjectRangeOmitsChecksum`.
+- PutObject `If-Match` on a missing key is 404 NoSuchKey; CompleteMultipartUpload honours If-Match/If-None-Match. Proof: `TestConditionalWriteMissingKeyAndMultipart`.
+- CORS `AllowedHeader` honours a single `*` wildcard (`x-amz-*`); preflight and actual responses carry `Vary`. Proof: `TestCORSPreflightHeaderWildcard`.
+- A lifecycle rule with no action is 400 InvalidRequest. Proof: `TestLifecycleRuleRequiresAction`.
+
+Kept lenient: CORS `Access-Control-Allow-Origin` echoes the origin even for a `*` rule; static website serving stays on `/_gopherstack/website/{bucket}/{key}` (no Host-based endpoint); presigned URLs are not method-bound.

@@ -597,3 +597,46 @@ func TestSNS_FilterPolicyValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestFilterPolicy_MessageBodyNested(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		policy  string
+		body    string
+		want    bool
+		wantErr bool
+	}{
+		{"nested match", `{"detail":{"type":["a"]}}`, `{"detail":{"type":"a","amt":1}}`, true, false},
+		{"nested mismatch", `{"detail":{"type":["a"]}}`, `{"detail":{"type":"b"}}`, false, false},
+		{"nested numeric", `{"detail":{"amt":[{"numeric":[">=",10]}]}}`, `{"detail":{"amt":12}}`, true, false},
+		{"nested missing object", `{"detail":{"type":["a"]}}`, `{"other":1}`, false, false},
+		{"deep nesting", `{"a":{"b":{"c":["x"]}}}`, `{"a":{"b":{"c":"x"}}}`, true, false},
+		{"array of objects", `{"items":{"sku":["s1"]}}`, `{"items":[{"sku":"s0"},{"sku":"s1"}]}`, true, false},
+		{
+			"nested with sibling",
+			`{"detail":{"type":["a"]},"src":["x"]}`,
+			`{"detail":{"type":"a"},"src":"x"}`,
+			true,
+			false,
+		},
+		{"nested invalid operator", `{"detail":{"type":[{"bogus":1}]}}`, `{}`, false, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := sns.MatchesFilterPolicyMessageBodyForTest(tt.policy, tt.body)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

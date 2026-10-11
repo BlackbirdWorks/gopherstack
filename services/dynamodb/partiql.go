@@ -128,9 +128,10 @@ const minFromMatch = 3
 // awsAwsjson10_serializeOpDocumentExecuteStatementInput), distinct from a
 // "LIMIT n" clause embedded in the Statement text itself.
 type executeStatementRequest struct {
-	Limit                  *int32                       `json:"Limit,omitempty"`
-	Statement              string                       `json:"Statement"`
-	NextToken              string                       `json:"NextToken,omitempty"`
+	Limit                  *int32 `json:"Limit,omitempty"`
+	Statement              string `json:"Statement"`
+	NextToken              string `json:"NextToken,omitempty"`
+	returnValues           types.ReturnValue
 	ReturnConsumedCapacity types.ReturnConsumedCapacity `json:"ReturnConsumedCapacity,omitempty"`
 	Parameters             []map[string]any             `json:"Parameters,omitempty"`
 	ConsistentRead         bool                         `json:"ConsistentRead,omitempty"`
@@ -273,7 +274,9 @@ func (r *partiQLRunner) executeStatement(
 	ctx context.Context,
 	req executeStatementRequest,
 ) (*executeStatementResponse, error) {
-	stmt := strings.TrimSpace(req.Statement)
+	stmt, returning := partiqlSplitReturning(strings.TrimSpace(partiqlNormalize(req.Statement)))
+	req.Statement = stmt
+	req.returnValues = types.ReturnValue(returning)
 
 	switch {
 	case partiqlExistsRe.MatchString(stmt):
@@ -488,14 +491,18 @@ func (r *partiQLRunner) executePartiQLSelect(
 	}
 
 	whereClause := partiqlExtractWhere(substituted)
-	filterExpr, eav := partiqlSubstituteLiterals(whereClause, eav)
+	filterExpr, eav, err := partiqlSubstituteLiterals(whereClause, eav)
+	if err != nil {
+		return nil, err
+	}
+
 	limit := partiqlExtractLimit(substituted)
 	// The structured Limit field (set via the SDK request, not statement text)
 	// takes precedence when present, matching real ExecuteStatementInput.Limit.
 	if req.Limit != nil && *req.Limit > 0 {
 		limit = int(*req.Limit)
 	}
-	colList := partiqlExtractColumns(substituted)
+	colList, eav := partiqlAliasNames(partiqlExtractColumns(substituted), eav)
 	scanIndexForward := partiqlExtractScanIndexForward(substituted)
 
 	// Try to use Query if the partition key (the index's own partition key,
@@ -674,7 +681,7 @@ func (r *partiQLRunner) validateBatchSelectIsFullyKeyed(
 	stmt string,
 	params []map[string]any,
 ) error {
-	substituted, eav, err := partiqlSubstituteParams(stmt, params)
+	substituted, eav, err := partiqlSubstituteParams(partiqlNormalize(stmt), params)
 	if err != nil {
 		return nil //nolint:nilerr // malformed statement; real execution surfaces its own error
 	}
@@ -685,7 +692,10 @@ func (r *partiQLRunner) validateBatchSelectIsFullyKeyed(
 	}
 
 	whereClause := partiqlExtractWhere(substituted)
-	whereClause, eav = partiqlSubstituteLiterals(whereClause, eav)
+	whereClause, eav, err = partiqlSubstituteLiterals(whereClause, eav)
+	if err != nil {
+		return nil //nolint:nilerr // malformed statement; real execution surfaces its own error
+	}
 
 	keySchema, err := r.resolveQueryKeySchema(ctx, tableName, indexName, false)
 	if err != nil {
@@ -758,10 +768,18 @@ func (r *partiQLRunner) buildQueryInput(
 		return nil, fmt.Errorf("building QueryInput EAV: %w", err)
 	}
 
-	keyCond := fmt.Sprintf("%s = %s", pkAttr, findPlaceholderForKey(whereClause, pkAttr))
+	keyCond := fmt.Sprintf("#_pk = %s", findPlaceholderForKey(whereClause, pkAttr, eav))
+	names := partiqlNamesFor(eav, filterExpr, colList)
+	if names == nil {
+		names = make(map[string]string, 1)
+	}
+
+	names["#_pk"] = pkAttr
+
 	queryInput := &dynamodb.QueryInput{
 		TableName:                 aws.String(tableName),
 		ExpressionAttributeValues: sdkEAV,
+		ExpressionAttributeNames:  names,
 		KeyConditionExpression:    aws.String(keyCond),
 		ReturnConsumedCapacity:    req.ReturnConsumedCapacity,
 	}
@@ -835,6 +853,8 @@ func (r *partiQLRunner) executeScanSelect(
 	if colList != "" && colList != "*" {
 		scanInput.ProjectionExpression = aws.String(colList)
 	}
+
+	scanInput.ExpressionAttributeNames = partiqlNamesFor(eav, filterExpr, colList)
 
 	if startKey := decodePartiQLNextToken(req.NextToken); startKey != nil {
 		scanInput.ExclusiveStartKey = startKey
@@ -915,11 +935,11 @@ func itemsToWire(items []map[string]types.AttributeValue) []map[string]any {
 	return wireItems
 }
 
-func findPlaceholderForKey(whereExpr, keyName string) string {
+func findPlaceholderForKey(whereExpr, keyName string, eav map[string]any) string {
 	conditions := partiqlSplitANDConditions(whereExpr)
 	for _, cond := range conditions {
 		attrName, placeholder, found := strings.Cut(cond, "=")
-		if found && strings.TrimSpace(attrName) == keyName {
+		if found && partiqlResolveName(strings.TrimSpace(attrName), eav) == keyName {
 			return strings.TrimSpace(placeholder)
 		}
 	}
@@ -1015,7 +1035,68 @@ type partiqlUpdateParsed struct {
 	tableName    string
 	setClause    string
 	removeClause string
+	addClause    string
+	deleteClause string
 	whereClause  string
+}
+
+func (p *partiqlUpdateParsed) updateExpression() string {
+	var parts []string
+	if p.setClause != "" {
+		parts = append(parts, "SET "+p.setClause)
+	}
+
+	if p.removeClause != "" {
+		parts = append(parts, "REMOVE "+p.removeClause)
+	}
+
+	if p.addClause != "" {
+		parts = append(parts, "ADD "+p.addClause)
+	}
+
+	if p.deleteClause != "" {
+		parts = append(parts, "DELETE "+p.deleteClause)
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func returnedItems(attrs map[string]types.AttributeValue) []map[string]any {
+	if len(attrs) == 0 {
+		return []map[string]any{}
+	}
+
+	return []map[string]any{models.FromSDKItem(attrs)}
+}
+
+// partiqlSplitKeyAndCondition separates `key = value` conjuncts on key attributes
+// from the remaining conjuncts, which become a condition expression.
+func partiqlSplitKeyAndCondition(
+	whereClause string, eav map[string]any, keyAttrs map[string]bool,
+) (map[string]any, string, error) {
+	var rest []string
+
+	var keyConds []string
+
+	for _, cond := range partiqlSplitANDConditions(whereClause) {
+		attr, placeholder, found := strings.Cut(cond, "=")
+		attr = partiqlResolveName(strings.TrimSpace(attr), eav)
+
+		if found && keyAttrs[attr] && strings.HasPrefix(strings.TrimSpace(placeholder), ":") {
+			keyConds = append(keyConds, cond)
+
+			continue
+		}
+
+		rest = append(rest, strings.TrimSpace(cond))
+	}
+
+	key, err := partiqlExtractKeyFromWhere(strings.Join(keyConds, " AND "), eav, keyAttrs)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return key, strings.Join(rest, " AND "), nil
 }
 
 // parsePartiQLUpdateClauses extracts table name, SET/REMOVE/WHERE clauses, and substitutes params.
@@ -1058,14 +1139,24 @@ func parsePartiQLUpdateClauses(req executeStatementRequest) (*partiqlUpdateParse
 	}
 
 	if setClause != "" {
-		setClause, eav = partiqlSubstituteLiterals(setClause, eav)
+		if setClause, eav, err = partiqlSubstituteLiterals(setClause, eav); err != nil {
+			return nil, err
+		}
 	}
-	whereClause, eav = partiqlSubstituteLiterals(whereClause, eav)
+
+	setClause, addClause, deleteClause := partiqlRewriteSetFunctions(setClause)
+	removeClause, eav = partiqlAliasNames(removeClause, eav)
+
+	if whereClause, eav, err = partiqlSubstituteLiterals(whereClause, eav); err != nil {
+		return nil, err
+	}
 
 	return &partiqlUpdateParsed{
 		tableName:    tableName,
 		setClause:    setClause,
 		removeClause: removeClause,
+		addClause:    addClause,
+		deleteClause: deleteClause,
 		whereClause:  whereClause,
 		eav:          eav,
 	}, nil
@@ -1091,7 +1182,7 @@ func (r *partiQLRunner) executePartiQLUpdate(
 		keyAttrs[k.AttributeName] = true
 	}
 
-	wireKey, err := partiqlExtractKeyFromWhere(parsed.whereClause, parsed.eav, keyAttrs)
+	wireKey, condExpr, err := partiqlSplitKeyAndCondition(parsed.whereClause, parsed.eav, keyAttrs)
 	if err != nil {
 		return nil, err
 	}
@@ -1101,38 +1192,43 @@ func (r *partiQLRunner) executePartiQLUpdate(
 		return nil, err
 	}
 
-	// Build combined UpdateExpression: "SET ... REMOVE ..." (each part only when present).
-	var exprParts []string
-	if parsed.setClause != "" {
-		exprParts = append(exprParts, "SET "+parsed.setClause)
+	pkDef, _ := getPKAndSK(keySchema)
+	existsCond := "attribute_exists(#__pk)"
+	if condExpr != "" {
+		existsCond += " AND (" + condExpr + ")"
 	}
-	if parsed.removeClause != "" {
-		exprParts = append(exprParts, "REMOVE "+parsed.removeClause)
-	}
-	updateExpr := strings.Join(exprParts, " ")
 
-	// Filter EAV to only values referenced in the SET clause.
-	// WHERE params were consumed by key extraction; REMOVE has no values.
-	setEAV := filterEAVByExpression(parsed.eav, parsed.setClause)
+	updateExpr := parsed.updateExpression()
 
-	sdkEAV, err := partiqlBuildSDKEAV(setEAV)
+	sdkEAV, err := partiqlBuildSDKEAV(filterEAVByExpression(parsed.eav, updateExpr+" "+condExpr))
 	if err != nil {
 		return nil, err
 	}
 
-	updateOut, updateErr := r.backend.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+	upIn := &dynamodb.UpdateItemInput{
 		TableName:                 aws.String(parsed.tableName),
 		Key:                       sdkKey,
 		UpdateExpression:          aws.String(updateExpr),
+		ConditionExpression:       aws.String(existsCond),
 		ExpressionAttributeValues: sdkEAV,
 		ReturnConsumedCapacity:    req.ReturnConsumedCapacity,
-	})
+		ReturnValues:              req.returnValues,
+	}
+
+	upIn.ExpressionAttributeNames = partiqlNamesFor(parsed.eav, updateExpr, condExpr)
+	if upIn.ExpressionAttributeNames == nil {
+		upIn.ExpressionAttributeNames = make(map[string]string, 1)
+	}
+
+	upIn.ExpressionAttributeNames["#__pk"] = pkDef.AttributeName
+
+	updateOut, updateErr := r.backend.UpdateItem(ctx, upIn)
 	if updateErr != nil {
 		return nil, updateErr
 	}
 
 	return &executeStatementResponse{
-		Items:            []map[string]any{},
+		Items:            returnedItems(updateOut.Attributes),
 		ConsumedCapacity: updateOut.ConsumedCapacity,
 	}, nil
 }
@@ -1165,7 +1261,10 @@ func (r *partiQLRunner) executePartiQLDelete(
 		return nil, fmt.Errorf("%w: DELETE requires a WHERE clause", ErrInvalidStatement)
 	}
 
-	whereClause, eav = partiqlSubstituteLiterals(whereClause, eav)
+	whereClause, eav, err = partiqlSubstituteLiterals(whereClause, eav)
+	if err != nil {
+		return nil, err
+	}
 
 	keySchema, err := r.lookupKeySchema(ctx, tableName)
 	if err != nil {
@@ -1177,7 +1276,7 @@ func (r *partiQLRunner) executePartiQLDelete(
 		keyAttrs[k.AttributeName] = true
 	}
 
-	wireKey, err := partiqlExtractKeyFromWhere(whereClause, eav, keyAttrs)
+	wireKey, condExpr, err := partiqlSplitKeyAndCondition(whereClause, eav, keyAttrs)
 	if err != nil {
 		return nil, err
 	}
@@ -1187,17 +1286,33 @@ func (r *partiQLRunner) executePartiQLDelete(
 		return nil, err
 	}
 
-	delOut, delErr := r.backend.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+	condEAV, err := partiqlBuildSDKEAV(filterEAVByExpression(eav, condExpr))
+	if err != nil {
+		return nil, err
+	}
+
+	delIn := &dynamodb.DeleteItemInput{
 		TableName:              aws.String(tableName),
 		Key:                    sdkKey,
 		ReturnConsumedCapacity: req.ReturnConsumedCapacity,
-	})
+	}
+	if req.returnValues == types.ReturnValueAllOld {
+		delIn.ReturnValues = types.ReturnValueAllOld
+	}
+
+	if condExpr != "" {
+		delIn.ConditionExpression = aws.String(condExpr)
+		delIn.ExpressionAttributeValues = condEAV
+		delIn.ExpressionAttributeNames = partiqlNamesFor(eav, condExpr)
+	}
+
+	delOut, delErr := r.backend.DeleteItem(ctx, delIn)
 	if delErr != nil {
 		return nil, delErr
 	}
 
 	return &executeStatementResponse{
-		Items:            []map[string]any{},
+		Items:            returnedItems(delOut.Attributes),
 		ConsumedCapacity: delOut.ConsumedCapacity,
 	}, nil
 }
@@ -1217,6 +1332,8 @@ func extractTableAndIndexFromStatement(statement string) (string, string, error)
 // extractPartiQLTableName returns the table name from any PartiQL DML statement.
 // Returns empty string when the statement type or table name cannot be determined.
 func extractPartiQLTableName(stmt string) string {
+	stmt = partiqlNormalize(stmt)
+
 	if m := partiqlFromRe.FindStringSubmatch(stmt); len(m) >= minRegexMatch {
 		return m[1]
 	}
@@ -1297,22 +1414,26 @@ func partiqlSubstituteParams(stmt string, params []map[string]any) (string, map[
 	return result.String(), eav, nil
 }
 
-// partiqlSubstituteLiterals replaces single-quoted string literals ('…') in expr with
-// named :_lN placeholders and adds them to eav as DynamoDB S-type wire values.
-// SQL-style escaped quotes (”) inside literals are unescaped to a single quote.
-func partiqlSubstituteLiterals(expr string, eav map[string]any) (string, map[string]any) {
+// partiqlSubstituteLiterals replaces collection, string, numeric, boolean and
+// NULL literals in expr with named placeholders and records their DynamoDB
+// wire values in eav. SQL-style escaped quotes (”) are unescaped.
+func partiqlSubstituteLiterals(expr string, eav map[string]any) (string, map[string]any, error) {
 	if expr == "" {
-		return "", eav
+		return "", eav, nil
 	}
 
 	if eav == nil {
 		eav = make(map[string]any)
 	}
 
+	expr, eav, err := partiqlSubstituteCollections(expr, eav)
+	if err != nil {
+		return "", nil, err
+	}
+
 	litIdx := len(eav) // start after any existing entries to avoid collisions
 
 	result := partiqlStringLiteralRe.ReplaceAllStringFunc(expr, func(match string) string {
-		// Strip surrounding single quotes and unescape SQL-style '' to '
 		inner := strings.ReplaceAll(match[1:len(match)-1], "''", "'")
 		key := fmt.Sprintf(":_l%d", litIdx)
 		litIdx++
@@ -1321,7 +1442,10 @@ func partiqlSubstituteLiterals(expr string, eav map[string]any) (string, map[str
 		return key
 	})
 
-	return result, eav
+	result, eav = partiqlSubstituteScalars(result, eav)
+	result, eav = partiqlAliasNames(result, eav)
+
+	return result, eav, nil
 }
 
 // partiqlExtractWhere returns the trimmed body of the WHERE clause from a
@@ -1404,7 +1528,7 @@ func partiqlExtractKeyFromWhere(
 			continue
 		}
 
-		attrName = strings.TrimSpace(attrName)
+		attrName = partiqlResolveName(strings.TrimSpace(attrName), eav)
 		placeholder = strings.TrimSpace(placeholder)
 
 		if !keyAttrs[attrName] {
@@ -1485,7 +1609,7 @@ func partiqlParseValueClause(
 		attrName := strings.Trim(strings.TrimSpace(rawKey), `'"`)
 		rawVal = strings.TrimSpace(rawVal)
 
-		wireVal, err := partiqlParseScalar(rawVal, params, paramIdx)
+		wireVal, err := parseValueToken(rawVal, params, paramIdx, nil)
 		if err != nil {
 			return nil, fmt.Errorf("attribute %q: %w", attrName, err)
 		}
@@ -1580,6 +1704,10 @@ func partiqlBuildSDKEAV(eav map[string]any) (map[string]types.AttributeValue, er
 	out := make(map[string]types.AttributeValue, len(eav))
 
 	for k, v := range eav {
+		if strings.HasPrefix(k, "#") {
+			continue
+		}
+
 		av, err := models.ToSDKAttributeValue(v)
 		if err != nil {
 			return nil, fmt.Errorf("invalid expression attribute value for %q: %w", k, err)
@@ -1610,10 +1738,24 @@ func splitTopLevelCommas(s string) []string {
 			continue
 		}
 
-		switch ch {
-		case '{', '[':
+		if strings.HasPrefix(s[i:], "<<") {
 			depth++
-		case '}', ']':
+			i += 2
+
+			continue
+		}
+
+		if strings.HasPrefix(s[i:], ">>") {
+			depth--
+			i += 2
+
+			continue
+		}
+
+		switch ch {
+		case '{', '[', '(':
+			depth++
+		case '}', ']', ')':
 			depth--
 		case ',':
 			if depth == 0 {

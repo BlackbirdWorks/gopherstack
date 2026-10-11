@@ -120,6 +120,7 @@ func (h *S3Handler) applyCORSActualResponseHeaders(
 	}
 
 	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Add("Vary", "Origin")
 	if len(rule.ExposeHeaders) > 0 {
 		w.Header().Set("Access-Control-Expose-Headers", strings.Join(rule.ExposeHeaders, ", "))
 	}
@@ -168,6 +169,7 @@ func (h *S3Handler) handleCORSPreflight(
 
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Methods", method)
+	w.Header().Set("Vary", "Origin, Access-Control-Request-Headers, Access-Control-Request-Method")
 
 	if reqHeaders != "" {
 		w.Header().Set("Access-Control-Allow-Headers", reqHeaders)
@@ -273,7 +275,7 @@ func corsHeadersMatch(allowedHeaders []string, reqHeaders string) bool {
 		matched := false
 
 		for _, ah := range allowedHeaders {
-			if ah == "*" || strings.EqualFold(ah, rh) {
+			if ah == "*" || strings.EqualFold(ah, rh) || corsOriginWildcardMatches(ah, rh) {
 				matched = true
 
 				break

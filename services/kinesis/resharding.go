@@ -166,7 +166,7 @@ func reshardTo(stream *Stream, targetCount int) {
 	// Mark all currently open shards as CLOSED (AWS semantics: old shards
 	// remain visible in DescribeStream/ListShards with CLOSED status).
 	for _, s := range oldOpenShards {
-		closeShard(s)
+		closeShard(s, now)
 	}
 
 	allShards := make([]*Shard, 0, len(stream.Shards)+targetCount)
@@ -271,16 +271,17 @@ func (b *InMemoryBackend) MergeShards(ctx context.Context, input *MergeShardsInp
 	}
 
 	mergedID := nextShardID(stream.Shards)
+	now := time.Now()
 	merged := &Shard{
 		ID:                mergedID,
 		HashKeyRangeStart: startKey.String(),
 		HashKeyRangeEnd:   endKey.String(),
-		StartedAt:         time.Now(),
+		StartedAt:         now,
 	}
 
 	// Mark parents as closed (keep them in the list)
-	closeShard(shard1)
-	closeShard(shard2)
+	closeShard(shard1, now)
+	closeShard(shard2, now)
 
 	merged.ParentShardID = input.ShardToMerge
 	merged.AdjacentParentShardID = input.AdjacentShardToMerge
@@ -367,7 +368,7 @@ func (b *InMemoryBackend) SplitShard(ctx context.Context, input *SplitShardInput
 		StartedAt:         now,
 	}
 
-	closeShard(shard)
+	closeShard(shard, now)
 
 	shard1.ParentShardID = input.ShardToSplit
 	shard2.ParentShardID = input.ShardToSplit

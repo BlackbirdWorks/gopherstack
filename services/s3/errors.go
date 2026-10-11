@@ -43,10 +43,20 @@ var (
 	// ErrObjectLockNotEnabled is InvalidBucketState: PutObjectLockConfiguration
 	// on a bucket not created with x-amz-bucket-object-lock-enabled: true.
 	ErrObjectLockNotEnabled = errors.New("InvalidBucketState")
-	ErrNoWebsiteConfig      = errors.New("NoSuchWebsiteConfiguration")
-	ErrNoEncryptionConfig   = errors.New("ServerSideEncryptionConfigurationNotFoundError")
-	ErrObjectLocked         = errors.New(errAccessDenied)
-	ErrInvalidObjectState   = errors.New("InvalidObjectState")
+	// ErrObjectLockHeadersIncomplete is returned when lock mode and retain-until date are not sent together.
+	ErrObjectLockHeadersIncomplete = errors.New("ObjectLockHeadersIncomplete")
+	// ErrRetainUntilNotFuture is returned when the retain-until date is not in the future.
+	ErrRetainUntilNotFuture = errors.New("RetainUntilNotFuture")
+	// ErrUnknownLockMode is returned when the lock mode is neither GOVERNANCE nor COMPLIANCE.
+	ErrUnknownLockMode = errors.New("UnknownLockMode")
+	// ErrBucketMissingObjectLock is returned for object lock headers sent to a bucket without object lock.
+	ErrBucketMissingObjectLock = errors.New("BucketMissingObjectLock")
+	// ErrObjectLockVersioningLocked is InvalidBucketState: versioning can't be suspended on an Object Lock bucket.
+	ErrObjectLockVersioningLocked = errors.New("InvalidBucketStateVersioningLocked")
+	ErrNoWebsiteConfig            = errors.New("NoSuchWebsiteConfiguration")
+	ErrNoEncryptionConfig         = errors.New("ServerSideEncryptionConfigurationNotFoundError")
+	ErrObjectLocked               = errors.New(errAccessDenied)
+	ErrInvalidObjectState         = errors.New("InvalidObjectState")
 	// ErrRetentionPeriodShortened is returned by PutObjectRetention when the
 	// proposed retain-until date is earlier than the object's current one and
 	// the change isn't an authorized GOVERNANCE bypass. Real S3 never allows
@@ -131,7 +141,34 @@ type s3ErrorEntry struct {
 func errorTable() []s3ErrorEntry {
 	table := append(coreErrorTable(), configErrorTable()...)
 
+	table = append(table, objectLockWriteErrorTable()...)
+
 	return append(table, annotationErrorTable()...)
+}
+
+// objectLockWriteErrorTable maps the Object Lock write-path errors.
+func objectLockWriteErrorTable() []s3ErrorEntry {
+	return []s3ErrorEntry{
+		{ErrObjectLockVersioningLocked, s3ErrorInfo{
+			"InvalidBucketState",
+			"An Object Lock configuration is present on this bucket, so the versioning state cannot be changed.",
+			http.StatusConflict,
+		}},
+		{ErrObjectLockHeadersIncomplete, s3ErrorInfo{
+			errInvalidArgument,
+			"x-amz-object-lock-retain-until-date and x-amz-object-lock-mode must both be supplied",
+			http.StatusBadRequest,
+		}},
+		{ErrRetainUntilNotFuture, s3ErrorInfo{
+			errInvalidArgument, "The retain until date must be in the future!", http.StatusBadRequest,
+		}},
+		{ErrUnknownLockMode, s3ErrorInfo{
+			errInvalidArgument, "Unknown wormMode directive.", http.StatusBadRequest,
+		}},
+		{ErrBucketMissingObjectLock, s3ErrorInfo{
+			errInvalidRequest, "Bucket is missing Object Lock Configuration", http.StatusBadRequest,
+		}},
+	}
 }
 
 // annotationErrorTable maps the Object Annotations family's typed errors to

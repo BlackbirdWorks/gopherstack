@@ -219,9 +219,9 @@ type Shard struct {
 // closeShard marks a shard CLOSED and records the closure time, keeping
 // Closed/ClosedAt in sync everywhere a shard is retired (SplitShard,
 // MergeShards, UpdateShardCount, UpdateStreamMode's mode-transition reshard).
-func closeShard(s *Shard) {
+func closeShard(s *Shard, at time.Time) {
 	s.Closed = true
-	s.ClosedAt = time.Now()
+	s.ClosedAt = at
 }
 
 // Record represents a single Kinesis data record.

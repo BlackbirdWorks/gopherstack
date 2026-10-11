@@ -103,6 +103,15 @@ func (s *Shard) shardIndex() int64 {
 	return *s.cachedIdx
 }
 
+func parseShardIndex(id string) int64 {
+	var idx int64
+	if _, err := fmt.Sscanf(id, "shardId-%d", &idx); err != nil {
+		return 0
+	}
+
+	return idx
+}
+
 // nextSequenceNumber generates a new sequence number for a shard.
 func (s *Shard) nextSequenceNumber() string {
 	s.NextSeq++
@@ -117,6 +126,22 @@ func (s *Shard) nextSequenceNumber() string {
 	buf = appendPadded(buf, strconv.AppendInt(scratch[:0], time.Now().UnixMilli(), decimalBase), seqTimestampWidth)
 	buf = appendPadded(buf, strconv.AppendInt(scratch[:0], s.shardIndex()%shardIDModulus, decimalBase), seqShardWidth)
 	buf = appendPadded(buf, strconv.AppendUint(scratch[:0], s.NextSeq, decimalBase), seqCounterWidth)
+
+	return string(buf)
+}
+
+// boundarySequenceNumber builds the shard range start/end sequence number from
+// the shard's open/close time, in the same layout as record sequence numbers.
+func boundarySequenceNumber(shardIdx int64, at time.Time, counter uint64) string {
+	const shardIDModulus = 10000
+
+	var scratch [seqCounterWidth]byte
+
+	buf := make([]byte, 0, len(seqPrefix)+seqTimestampWidth+seqShardWidth+seqCounterWidth)
+	buf = append(buf, seqPrefix...)
+	buf = appendPadded(buf, strconv.AppendInt(scratch[:0], at.UnixMilli(), decimalBase), seqTimestampWidth)
+	buf = appendPadded(buf, strconv.AppendInt(scratch[:0], shardIdx%shardIDModulus, decimalBase), seqShardWidth)
+	buf = appendPadded(buf, strconv.AppendUint(scratch[:0], counter, decimalBase), seqCounterWidth)
 
 	return string(buf)
 }
@@ -209,7 +234,9 @@ func findShard(shards []*Shard, shardID string) *Shard {
 // shardDescription builds a ShardDescription from a Shard.
 func shardDescription(s *Shard) ShardDescription {
 	seqStart := "0"
-	if s.Records.len() > 0 {
+	if !s.StartedAt.IsZero() {
+		seqStart = boundarySequenceNumber(parseShardIndex(s.ID), s.StartedAt, 0)
+	} else if s.Records.len() > 0 {
 		seqStart = s.Records.at(0).SequenceNumber
 	}
 
@@ -221,7 +248,9 @@ func shardDescription(s *Shard) ShardDescription {
 	var seqEnd string
 	if s.Closed {
 		seqEnd = "0"
-		if s.Records.len() > 0 {
+		if !s.ClosedAt.IsZero() {
+			seqEnd = boundarySequenceNumber(parseShardIndex(s.ID), s.ClosedAt, s.NextSeq+1)
+		} else if s.Records.len() > 0 {
 			seqEnd = s.Records.last().SequenceNumber
 		}
 	}
