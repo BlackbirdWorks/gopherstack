@@ -3,6 +3,7 @@ package sts
 import (
 	"context"
 	"crypto/rand"
+	"crypto/rsa"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -36,6 +37,20 @@ type UserIDLookup interface {
 type OIDCLookup interface {
 	// OIDCProviderExists returns true if an OIDC provider with the given issuer URL exists.
 	OIDCProviderExists(issuerURL string) bool
+}
+
+// OIDCClientIDLookup is an optional OIDCLookup extension that reports the
+// client-ID (audience) list registered on an OIDC provider.
+type OIDCClientIDLookup interface {
+	// OIDCProviderClientIDs returns the provider's client IDs; ok is false when no provider matches.
+	OIDCProviderClientIDs(issuerURL string) (clientIDs []string, ok bool)
+}
+
+// IssuerKeyResolver supplies the signing keys of OIDC issuers hosted inside the emulator
+// (EKS cluster issuers), so web-identity tokens can be signature-checked.
+type IssuerKeyResolver interface {
+	// OIDCIssuerKeys returns the issuer's public keys; managed is false when the emulator does not host it.
+	OIDCIssuerKeys(issuer string) (keys []*rsa.PublicKey, managed bool)
 }
 
 // AccountSettingsLookup is implemented by services (e.g. IAM) that can report
@@ -78,6 +93,8 @@ type InMemoryBackend struct {
 	roleLookup            RoleLookup
 	userLookup            UserLookup
 	oidcLookup            OIDCLookup
+	oidcClientIDs         OIDCClientIDLookup
+	issuerKeys            IssuerKeyResolver
 	accountSettingsLookup AccountSettingsLookup
 	sessions              *store.Table[SessionInfo]
 	registry              *store.Registry
@@ -187,6 +204,10 @@ func (b *InMemoryBackend) SetOIDCLookup(ol OIDCLookup) {
 	defer b.mu.Unlock()
 
 	b.oidcLookup = ol
+
+	if cl, ok := ol.(OIDCClientIDLookup); ok {
+		b.oidcClientIDs = cl
+	}
 
 	if asl, ok := ol.(AccountSettingsLookup); ok {
 		b.accountSettingsLookup = asl
@@ -481,4 +502,12 @@ func (b *InMemoryBackend) SessionCounts() (int, int) {
 	})
 
 	return active, expired
+}
+
+// SetIssuerKeyResolver wires the resolver for emulator-hosted OIDC issuers.
+func (b *InMemoryBackend) SetIssuerKeyResolver(r IssuerKeyResolver) {
+	b.mu.Lock("SetIssuerKeyResolver")
+	defer b.mu.Unlock()
+
+	b.issuerKeys = r
 }

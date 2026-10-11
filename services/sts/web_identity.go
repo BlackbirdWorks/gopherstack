@@ -115,7 +115,10 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 		)
 	}
 
-	// Validate OIDC provider when a lookup is configured.
+	if err := b.verifyManagedIssuerSignature(input.WebIdentityToken, webIdentityIssuer(input)); err != nil {
+		return nil, err
+	}
+
 	if err := b.validateOIDCProvider(input.WebIdentityToken, input.ProviderID); err != nil {
 		return nil, err
 	}
@@ -181,13 +184,25 @@ func (b *InMemoryBackend) validateOIDCProvider(token, providerID string) error {
 
 	if !ol.OIDCProviderExists(issuer) {
 		return fmt.Errorf(
-			"%w: OIDC provider for issuer %q not found in IAM",
-			ErrAccessDenied,
+			"%w: No OpenIDConnect provider found in your account for %s",
+			ErrInvalidIdentityToken,
 			issuer,
 		)
 	}
 
+	if _, ok := b.matchedClientID(token, issuer); !ok {
+		return fmt.Errorf("%w: Incorrect token audience", ErrInvalidIdentityToken)
+	}
+
 	return nil
+}
+
+func webIdentityIssuer(input *AssumeRoleWithWebIdentityInput) string {
+	if input.ProviderID != "" {
+		return input.ProviderID
+	}
+
+	return extractWebIdentityIssuer(input.WebIdentityToken)
 }
 
 // checkWebIdentityTrust evaluates the target role's trust policy against the
@@ -212,7 +227,12 @@ func (b *InMemoryBackend) checkWebIdentityTrust(input *AssumeRoleWithWebIdentity
 	host := strings.ToLower(strings.TrimPrefix(strings.TrimPrefix(issuer, "https://"), "http://"))
 	condCtx := map[string]string{}
 
-	if aud := extractWebIdentityAudience(input.WebIdentityToken); aud != "" {
+	aud, _ := b.matchedClientID(input.WebIdentityToken, issuer)
+	if aud == "" {
+		aud = extractWebIdentityAudience(input.WebIdentityToken)
+	}
+
+	if aud != "" {
 		condCtx[host+":aud"] = aud
 	}
 

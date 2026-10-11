@@ -4099,6 +4099,7 @@ func wireGovernanceIntegrations(byName map[string]service.Registerable, services
 
 	// Wire IAM → STS for ExternalId validation and MaxSessionDuration enforcement.
 	wireIAMToSTS(byName["IAM"], byName["STS"])
+	wireEKSIRSAToSTS(byName["EKS"], byName["STS"])
 
 	// Collect all services implementing FISActionProvider and register them with the FIS backend.
 	wireFISActionProviders(byName["FIS"], services)

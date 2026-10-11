@@ -273,7 +273,12 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return path == pathClusters ||
+		if isOIDCHost(c.Request().Host) {
+			return strings.HasPrefix(path, "/id/")
+		}
+
+		return isIRSAPath(path) ||
+			path == pathClusters ||
 			(strings.HasPrefix(path, pathClusters+"/") && !isDSQLVpcEndpointServiceNamePath(path)) ||
 			strings.HasPrefix(path, pathEKSTags+"arn:aws:eks:") ||
 			path == pathSubscriptions ||
@@ -493,14 +498,14 @@ func parseResourceEKSPath(method, path string) (eksRoute, bool) {
 
 // ExtractOperation extracts the EKS operation name from the REST path.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	r := parseEKSPath(c.Request().Method, c.Request().URL.Path)
+	r := routeForRequest(c.Request())
 
 	return r.operation
 }
 
 // ExtractResource extracts the primary resource identifier from the URL path.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	r := parseEKSPath(c.Request().Method, c.Request().URL.Path)
+	r := routeForRequest(c.Request())
 	if r.clusterName != "" {
 		return r.clusterName
 	}
@@ -511,6 +516,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for EKS requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if irsa := irsaPath(c.Request()); isIRSAPath(irsa) {
+			return h.serveIRSA(c, parseIRSAPath(c.Request().Method, irsa))
+		}
+
 		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
 			return p.Handler()(c)
 		}
@@ -599,4 +608,12 @@ func clientMessage(err error) string {
 	}
 
 	return msg
+}
+
+func routeForRequest(r *http.Request) eksRoute {
+	if p := irsaPath(r); isIRSAPath(p) {
+		return parseIRSAPath(r.Method, p)
+	}
+
+	return parseEKSPath(r.Method, r.URL.Path)
 }

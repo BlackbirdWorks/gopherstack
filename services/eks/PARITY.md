@@ -3,7 +3,7 @@
 service: eks
 sdk_module: aws-sdk-go-v2/service/eks@v1.98.0
 last_audit_commit: 649ebb9aa
-last_audit_date: 2026-10-09
+last_audit_date: 2026-10-11
 # ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
 # op's deserializeOpError<Op> switch (eks@v1.90.4 deserializers.go, 65 ops
 # N-of-N). Handler.handleError is one global 4-sentinel table applied to all
@@ -100,6 +100,7 @@ ops:
   ListCertificateAuthorities: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-lruaw (2026-09-11): implemented from scratch. GET /clusters/{name}/certificate-authorities, maxResults/nextToken query-param pagination via pkgs/page, matching every other GET-based List op in this service. Returns types.CertificateAuthoritySummary entries (verified against deserializers.go's awsRestjson1_deserializeDocumentCertificateAuthoritySummary), sorted by ID for deterministic responses."}
 gaps: []
 items_still_open:
+  - "EKS Pod Identity Agent credential endpoint (eks-auth AssumeRoleForPodIdentity): pod identity associations are modelled but the eks-auth SDK module is not in go.mod (which must stay unchanged), so its wire shape cannot be verified here (gopherstack-cefu7.30)."
   - "DescribeClusterVersions IncludeAll has no documented default exclusion (checked api_op_DescribeClusterVersions.go and API_DescribeClusterVersions.html), so it stays a no-op; DescribeAddonVersions owner/publisher filter values and the ConfigUpdate UpdateParam encoding are not stated by the pinned SDK or the API reference."
 structural_gaps:
   - "EksAnywhereSubscription.LicenseArns/Licenses (2026-10-07): issued by AWS licensing for a real subscription purchase; no per-license record exists to derive."
@@ -1321,3 +1322,11 @@ FIXED: DescribeAddonVersions and DescribeClusterVersions honour maxResults (1-10
 - Fixed: `certificateAuthority.data` was 8 hex chars; it is now a base64 PEM certificate so kubeconfigs and `kubectl` accept it.
 - Added: `CreateAccessEntry` requires an IAM role principal for non-STANDARD types; `AssociateIdentityProviderConfig` requires an `https://` issuerUrl (SDK doc on `OidcIdentityProviderConfigRequest.IssuerUrl`).
 - Kept lenient: no-op `UpdateClusterConfig` is accepted (the "no changes needed" error text is not in the SDK).
+
+## 2026-10-11 IRSA (gopherstack-cefu7.30)
+
+- Each cluster's `identity.oidc.issuer` is now `https://oidc.eks.<region>.amazonaws.com/id/<32 hex>` (was 16 hex) and is backed by a real RS256 signing key. The key is derived deterministically from the issuer string (`irsa_key.go`), so it survives snapshot/restore with no snapshot field or version bump. It is derivable by anyone who knows the issuer: fine for an emulator, not a secret.
+- Served on the main port, unauthenticated: `GET /_gopherstack/eks/oidc/id/<id>/.well-known/openid-configuration` and `/keys` (JWKS), plus the same under `Host: oidc.eks.<region>.amazonaws.com` at `/id/<id>/...`. Lookup spans all regions.
+- Token minting (emulator extension, not an AWS API): `POST /_gopherstack/eks/<cluster>/serviceaccount-token` with JSON `{namespace, name, audience | audiences, ttlSeconds, podName}`; defaults `sts.amazonaws.com`, 3600s. Returns `{token, issuer, expirationTimestamp}`. Claims: `iss`, `sub=system:serviceaccount:<ns>:<name>`, `aud`, `exp`, `iat`, `nbf`, `jti`, `kubernetes.io{namespace,serviceaccount{name,uid},pod{name,uid}}`.
+- STS `AssumeRoleWithWebIdentity` verifies these tokens against the issuer's keys (see `services/sts/PARITY.md`). Wired by `wireEKSIRSAToSTS` in `cli_eks_irsa.go`.
+- Tests: `irsa_test.go` (`TestMintServiceAccountToken`, `TestOIDCIssuerKeys`, `TestOIDCKeysSurviveRestore`, `TestOIDCEndpoints`, `TestOIDCRouteMatcher`) and `test/integration/eks_irsa_test.go` (SDK, `stscreds.WebIdentityRoleProvider`).

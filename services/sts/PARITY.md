@@ -610,3 +610,12 @@ AssumeRole against an existing role whose MaxSessionDuration is unset now caps D
 - GetCallerIdentity resolves long-term IAM user access keys through the wired `UserLookup` (user ARN, account from the ARN; UserId via the optional `UserIDLookup`, falls back to the key id). Needs `cli.go` `iamRoleLookupAdapter` to forward `GetUserIDByAccessKeyID` for the AIDA id.
 - GetSessionToken and GetFederationToken called with temporary (session) credentials return AccessDenied ("Cannot call ... with session credentials").
 - Kept lenient: AssumeRole of an unknown same-account role still succeeds (in-repo callers/fixtures assume roles that are never created); role-chaining 1h cap and role MaxSessionDuration already enforced.
+
+## 2026-10-11 IRSA web-identity verification (gopherstack-cefu7.30)
+
+- Tokens whose issuer an `IssuerKeyResolver` hosts (EKS cluster issuers, wired in `cli_eks_irsa.go`) are RS256-signature-checked; unknown `oidc.eks.*.amazonaws.com/id/*` issuers are rejected. Other issuers keep the permissive no-signature behavior (the emulator has no network path to fetch their JWKS).
+- The token audience must be in the IAM OIDC provider's client-ID list when that list is non-empty (`Incorrect token audience`); an unregistered provider is now `InvalidIdentityToken` ("No OpenIDConnect provider found in your account for ..."), not `AccessDenied`.
+- Trust-policy conditions `<issuer host/path>:sub` and `:aud` (StringEquals/StringLike, case-sensitive values) and the `Federated` provider ARN are evaluated as before; `:aud` is the client ID the token matched.
+- Errors: tampered/foreign signature, alg other than RS256, unknown cluster issuer, bad audience, unregistered provider -> `InvalidIdentityToken`; expired -> `ExpiredTokenException`; trust-policy mismatch -> `AccessDenied`. `IDPRejectedClaim` is still not produced (it maps to `AccessDenied`).
+- IAM: `CreateOpenIDConnectProvider` now keeps the issuer URL path in the provider ARN (`oidc-provider/<host>/<path>`), as AWS does; previously two cluster issuers collided and trust-policy Federated ARNs with a path never matched. `OIDCProviderClientIDs` feeds the audience check.
+- Tests: `web_identity_irsa_test.go` (`TestAssumeRoleWithWebIdentity_ClusterIssuer`), `services/iam/providers_oidc_arn_test.go`.

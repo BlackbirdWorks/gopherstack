@@ -139,7 +139,7 @@ func (b *InMemoryBackend) newClusterLocked(
 		OIDCIssuer: fmt.Sprintf(
 			"https://oidc.eks.%s.amazonaws.com/id/%s",
 			b.region,
-			randomHex16(),
+			randomHex32(),
 		),
 		PlatformVersion:          "eks.1",
 		AccountID:                b.accountID,

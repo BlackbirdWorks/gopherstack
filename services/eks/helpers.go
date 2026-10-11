@@ -130,3 +130,16 @@ func randomHex16() string {
 
 	return hex.EncodeToString(buf)
 }
+
+// oidcIssuerIDBytes yields the 32-hex-char id in an EKS OIDC issuer URL.
+const oidcIssuerIDBytes = 16
+
+// randomHex32 returns a random 32-character lowercase hex string for OIDC issuer IDs.
+func randomHex32() string {
+	buf := make([]byte, oidcIssuerIDBytes)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Sprintf("%032x", time.Now().UnixNano())
+	}
+
+	return hex.EncodeToString(buf)
+}

@@ -2,10 +2,12 @@ package eks
 
 import (
 	"context"
+	"crypto/rsa"
 	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
@@ -49,6 +51,7 @@ type InMemoryBackend struct {
 	baseCtx                          context.Context
 	clusterEng                       *clusterEngine
 	idcApps                          IdcApplicationManager
+	oidcKeys                         *safemap.Map[string, *rsa.PrivateKey]
 	accountID                        string
 	region                           string
 
@@ -70,6 +73,7 @@ func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemory
 		region:            region,
 		registry:          store.NewRegistry(),
 		mu:                lockmetrics.New("eks"),
+		oidcKeys:          safemap.New[string, *rsa.PrivateKey]("eks.oidc.keys"),
 		work:              worker.NewGroup(ctx, "eks"),
 		baseCtx:           ctx,
 		limits:            defaultResourceLimits(),
@@ -218,6 +222,7 @@ func (b *InMemoryBackend) Reset() {
 	// per-map make() calls this used to be (Phase 3.3 pkgs/store conversion).
 	// See registerAllTables in store_setup.go for the full list of tables.
 	b.registry.ResetAll()
+	b.oidcKeys.Clear()
 	b.reapClustersLocked()
 	b.limits = b.configuredLimits
 

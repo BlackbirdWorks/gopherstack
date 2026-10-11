@@ -20,7 +20,7 @@ DSQL	/cluster /stream /tags
 Dashboard	/dashboard
 Detective	/graph /investigations /invitation /membership /orgs /tags
 EFS	/2015-02-01
-EKS	/access-policies /addons /cluster-registrations /cluster-versions /clusters /eks-anywhere-subscriptions /tags
+EKS	/_gopherstack/eks /access-policies /addons /cluster-registrations /cluster-versions /clusters /eks-anywhere-subscriptions /id /tags
 Elasticsearch	/2015-01-01
 EmrServerless	/applications /tags
 FIS	/actions /experimentTemplates /experiments /safetyLevers /tags /targetResourceTypes

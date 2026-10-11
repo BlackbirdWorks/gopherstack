@@ -205,6 +205,16 @@ func oidcProviderHostFromURL(rawURL string) (string, error) {
 	return bare, nil
 }
 
+// oidcProviderPathFromURL returns the issuer URL's path without a trailing slash; AWS keeps it in the provider ARN.
+func oidcProviderPathFromURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+
+	return strings.TrimRight(u.Path, "/")
+}
+
 // CreateOpenIDConnectProvider creates a new IAM OIDC identity provider.
 func (b *InMemoryBackend) CreateOpenIDConnectProvider(
 	rawURL string, clientIDs, thumbprints []string,
@@ -217,7 +227,7 @@ func (b *InMemoryBackend) CreateOpenIDConnectProvider(
 		return nil, err
 	}
 
-	providerArn := arn.Build("iam", "", b.accountID, "oidc-provider/"+host)
+	providerArn := arn.Build("iam", "", b.accountID, "oidc-provider/"+host+oidcProviderPathFromURL(rawURL))
 
 	if vErr := validateThumbprints(thumbprints); vErr != nil {
 		return nil, vErr
@@ -512,4 +522,20 @@ func (b *InMemoryBackend) AddClientIDToOpenIDConnectProvider(providerArn, client
 	}
 
 	return nil
+}
+
+// OIDCProviderClientIDs returns the client IDs registered on the OIDC provider for issuerURL.
+func (b *InMemoryBackend) OIDCProviderClientIDs(issuerURL string) ([]string, bool) {
+	b.mu.RLock("OIDCProviderClientIDs")
+	defer b.mu.RUnlock()
+
+	normalised := strings.TrimRight(issuerURL, "/")
+
+	for _, p := range b.oidcProviders.All() {
+		if strings.TrimRight(p.URL, "/") == normalised {
+			return append([]string(nil), p.ClientIDList...), true
+		}
+	}
+
+	return nil, false
 }
