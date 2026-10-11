@@ -3,6 +3,7 @@ package rds
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -89,26 +91,46 @@ type EngineConfig struct {
 	SetPassword func(ctx context.Context, l EngineLogin, newPassword string) error
 	// Host is the address clients use to reach published ports; default 127.0.0.1.
 	Host string
+	// CADir persists the local CA that signs the postgres proxy certificate; empty keeps it in memory.
+	CADir string
 	// StartTimeout bounds how long a database may stay unreachable before it is marked failed.
 	StartTimeout time.Duration
 }
 
 type liveDB struct {
 	gone        chan struct{}
-	key         string
-	resourceID  string
+	proxy       atomic.Pointer[pgProxy]
+	password    string
 	kind        string
 	version     string
 	user        string
-	password    string
+	resourceID  string
 	dbName      string
 	containerID string
+	key         string
 	port        int
 	once        sync.Once
 	ready       bool
 }
 
-func (lb *liveDB) release() { lb.once.Do(func() { close(lb.gone) }) }
+func (lb *liveDB) release() {
+	lb.once.Do(func() {
+		close(lb.gone)
+
+		if p := lb.proxy.Load(); p != nil {
+			p.close()
+		}
+	})
+}
+
+// advertisedPort is the port clients connect to: the IAM-aware proxy for postgres, else the database itself.
+func (lb *liveDB) advertisedPort() int {
+	if p := lb.proxy.Load(); p != nil {
+		return p.port
+	}
+
+	return lb.port
+}
 
 // opContext returns a context cancelled when timeout elapses (if > 0) or the unit is dropped.
 func (lb *liveDB) opContext(timeout time.Duration) (context.Context, context.CancelFunc) {
@@ -129,9 +151,12 @@ func (lb *liveDB) opContext(timeout time.Duration) (context.Context, context.Can
 }
 
 type dbEngine struct {
-	units map[string]*liveDB
-	cfg   EngineConfig
-	wg    sync.WaitGroup
+	units   map[string]*liveDB
+	ca      *engineCA
+	tlsCfg  *tls.Config
+	cfg     EngineConfig
+	wg      sync.WaitGroup
+	tlsOnce sync.Once
 }
 
 // EnableEngine switches the backend to docker mode: postgres/mysql/mariadb (and Aurora) get a real container.
@@ -300,7 +325,13 @@ func (e *dbEngine) reap(lbs ...*liveDB) {
 		lb.release()
 
 		id, port := lb.containerID, lb.port
-		e.wg.Go(func() { e.remove(id, port) })
+		e.wg.Go(func() {
+			if p := lb.proxy.Load(); p != nil {
+				p.wg.Wait()
+			}
+
+			e.remove(id, port)
+		})
 	}
 }
 
@@ -403,7 +434,7 @@ func (b *InMemoryBackend) provisionInstanceLocked(inst *DBInstance, password str
 		}
 
 		if lb.ready {
-			inst.Endpoint, inst.Port = b.engine.cfg.Host, lb.port
+			inst.Endpoint, inst.Port = b.engine.cfg.Host, lb.advertisedPort()
 
 			return false
 		}
@@ -509,6 +540,14 @@ func (b *InMemoryBackend) awaitAndMark(ctx context.Context, lb *liveDB) {
 		return
 	}
 
+	if lb.kind == enginePostgres && lb.proxy.Load() == nil {
+		if err := b.startProxy(lb); err != nil {
+			b.failUnit(ctx, lb)
+
+			return
+		}
+	}
+
 	b.markUnitReady(lb)
 }
 
@@ -576,7 +615,7 @@ func (b *InMemoryBackend) markUnitReady(lb *liveDB) {
 	host := b.engine.cfg.Host
 
 	b.unitStatusesLocked(lb, func(inst *DBInstance) {
-		inst.Endpoint, inst.Port = host, lb.port
+		inst.Endpoint, inst.Port = host, lb.advertisedPort()
 
 		if transitional(inst.DBInstanceStatus) {
 			inst.DBInstanceStatus = instanceStatusAvailable
@@ -584,7 +623,7 @@ func (b *InMemoryBackend) markUnitReady(lb *liveDB) {
 			b.publishInstanceEventLocked(inst.DBInstanceIdentifier, "DB instance is now available")
 		}
 	}, func(c *DBCluster) {
-		c.Endpoint, c.ReaderEndpoint, c.Port = host, host, lb.port
+		c.Endpoint, c.ReaderEndpoint, c.Port = host, host, lb.advertisedPort()
 
 		if transitional(c.Status) {
 			c.Status = instanceStatusAvailable

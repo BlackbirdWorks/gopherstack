@@ -882,6 +882,7 @@ type InMemoryBackend struct {
 	instanceLogFiles          map[string][]DBLogFile
 	instanceLogContent        map[string]map[string]string
 	stopCh                    chan struct{}
+	iamAuth                   IAMAuthResolver
 	accountID                 string
 	region                    string
 	defaultCACertificateID    string

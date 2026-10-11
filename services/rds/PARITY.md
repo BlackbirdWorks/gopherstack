@@ -242,6 +242,7 @@ items_still_open:
   - "UNVERIFIABLE: MasterUserSecret.KmsKeyId stays empty when MasterUserSecretKmsKeyId is unset; the pinned SDK does not state the default key's shape. Changing the key on a managed secret does not re-encrypt the Secrets Manager secret."
   - "UNVERIFIABLE: DescribeEngineDefaultParameters returns an empty Parameters list and DescribeDBEngineVersions character-set/timezone catalogs exist only for oracle-ee and sqlserver-se; the pinned SDK has no per-family default-parameter table or per-version catalog to source real values from."
 structural_gaps:
+  - "IAM database authentication (token validation, TLS via a local CA) is enforced by the docker-mode proxy for PostgreSQL/Aurora PostgreSQL only; MySQL/MariaDB stay password-only because go-sql-driver exposes no raw connection to splice behind an auth-intercepting proxy. DbiResourceId equals the instance identifier, not AWS's db-XXXX form."
   - "With --rds-engine=docker, read replicas, restore-based instances, custom cluster endpoints, DBPortNumber changes and non-Postgres/MySQL/MariaDB engines stay metadata-only; restore relaunches empty containers."
   - "CopyDBClusterSnapshot/CreateDBCluster SourceRegion and PreSignedUrl: no cross-region copy."
   - "DBInstance.MaxAllocatedStorage is stored and echoed but never autoscales: no storage-usage model."
@@ -253,6 +254,7 @@ leaks: {status: fixed, note: "FOUND and FIXED this pass: DeleteDBCluster (Delete
 
 ## Notes
 
+- **2026-10-11 (RDS IAM database authentication, gopherstack-cefu7.33)**: docker-mode Postgres instances/clusters now sit behind a TLS-terminating proxy (`engine_proxy.go`, local CA in `engine_tls.go`; advertised Endpoint/Port is the proxy). A `generate-db-auth-token` password is verified (`iam_auth_token.go`): SigV4 presign re-signed with the SDK signer, service rds-db, Action=connect, expiry 1-900s, host:port and region bound to the instance, access key resolved to an IAM user or STS session, `rds-db:connect` on `arn:aws:rds-db:<region>:<acct>:dbuser:<DbiResourceId or cluster resource id>/<user>` evaluated when enforcement is on. Failures return FATAL 28000; a token on an instance without IAM auth is relayed as a password (28P01). Session runs as the token user via SET SESSION AUTHORIZATION; RESET/SET SESSION AUTHORIZATION, RESET ALL and DISCARD ALL are rewritten to a 42501 error. Needs `SetIAMAuth` and `EngineConfig.CADir` wired from cli.go. Tests: `iam_auth_internal_test.go`, `iam_auth_proxy_test.go`, Docker-gated `TestEngineDockerPostgresIAMAuth`.
 - **2026-10-11 (items_still_open burn-down)**: CreateDBCluster now returns `creating` and flips to `available`
   on the lifecycle reconciler (`TestCreateDBClusterLifecycle`; cluster ops that require `available` fail with
   InvalidDBClusterStateFault until then; docker-engine clusters already did this). Describe* MaxRecords is

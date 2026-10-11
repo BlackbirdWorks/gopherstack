@@ -10,7 +10,7 @@
 | PARITY entries audited | 52 (51 ok, 1 partial) |
 | Feature families | 28 (27 ok, 1 partial) |
 | Known gaps | 4 |
-| Structural gaps (can't be emulated) | 6 |
+| Structural gaps (can't be emulated) | 7 |
 | Deferred items | 0 |
 | Resource leaks | fixed |
 
@@ -25,6 +25,7 @@
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- IAM database authentication (token validation, TLS via a local CA) is enforced by the docker-mode proxy for PostgreSQL/Aurora PostgreSQL only; MySQL/MariaDB stay password-only because go-sql-driver exposes no raw connection to splice behind an auth-intercepting proxy. DbiResourceId equals the instance identifier, not AWS's db-XXXX form.
 - With --rds-engine=docker, read replicas, restore-based instances, custom cluster endpoints, DBPortNumber changes and non-Postgres/MySQL/MariaDB engines stay metadata-only; restore relaunches empty containers.
 - CopyDBClusterSnapshot/CreateDBCluster SourceRegion and PreSignedUrl: no cross-region copy.
 - DBInstance.MaxAllocatedStorage is stored and echoed but never autoscales: no storage-usage model.

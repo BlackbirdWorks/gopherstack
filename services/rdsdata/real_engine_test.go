@@ -44,6 +44,7 @@ type realHarness struct {
 	b      *InMemoryBackend
 	opens  *atomic.Int32
 	logins *atomic.Pointer[realLogin]
+	file   string
 }
 
 func newRealHarness(t *testing.T, resolverErr error, secrets fakeSecrets) *realHarness {
@@ -59,6 +60,7 @@ func newRealHarness(t *testing.T, resolverErr error, secrets fakeSecrets) *realH
 
 	h := &realHarness{b: b, opens: &atomic.Int32{}, logins: &atomic.Pointer[realLogin]{}}
 	file := filepath.Join(t.TempDir(), "real.db")
+	h.file = file
 
 	b.real.open = func(l realLogin) (*sql.DB, error) {
 		h.opens.Add(1)

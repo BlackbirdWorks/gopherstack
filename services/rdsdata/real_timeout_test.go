@@ -1,6 +1,7 @@
 package rdsdata //nolint:testpackage // white-box access to the real engine timeout.
 
 import (
+	"database/sql"
 	"testing"
 	"time"
 
@@ -30,11 +31,30 @@ func TestRealEngineContinueAfterTimeout(t *testing.T) {
 			h := newItemsHarness(t)
 			h.b.real.timeout = 5 * time.Millisecond
 
+			h.b.real.open = func(realLogin) (*sql.DB, error) {
+				return sql.Open("sqlite", "file:"+h.file+"?_pragma=busy_timeout(1000)")
+			}
+
+			locker, err := sql.Open("sqlite", "file:"+h.file)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = locker.Close() })
+
+			lockConn, err := locker.Conn(t.Context())
+			require.NoError(t, err)
+			_, err = lockConn.ExecContext(t.Context(), "BEGIN IMMEDIATE")
+			require.NoError(t, err)
+
 			ctx := withContinueAfterTimeout(h.ctx(t), tt.resume)
-			_, _, _, _, err := h.b.ExecuteStatement(ctx, testClusterARN, slowInsert, "")
+			_, _, _, _, err = h.b.ExecuteStatement(ctx, testClusterARN, slowInsert, "")
 			require.ErrorIs(t, err, errStatementTimeout)
 
+			_, err = lockConn.ExecContext(t.Context(), "ROLLBACK")
+			require.NoError(t, err)
+			require.NoError(t, lockConn.Close())
+
 			h.b.real.timeout = realStatementTimeout
+
+			h.b.real.wg.Wait()
 
 			if !tt.resume {
 				assert.Zero(t, h.count(t))
