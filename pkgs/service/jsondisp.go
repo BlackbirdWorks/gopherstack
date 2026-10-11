@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
@@ -19,8 +20,16 @@ type JSONErrorResponse struct {
 	Message string `json:"message"`
 }
 
-// MarshalJSON also emits "Message": schema-serde SDK clients match the modeled key case-sensitively.
+// MarshalJSON also emits "Message" (schema-serde SDK clients match the modeled
+// key case-sensitively) and drops a leading exception code from the message.
 func (r JSONErrorResponse) MarshalJSON() ([]byte, error) {
+	code := r.Type
+	if i := strings.LastIndex(code, "#"); i >= 0 {
+		code = code[i+1:]
+	}
+
+	r.Message = awserr.StripCode(code, r.Message)
+
 	return json.Marshal(struct {
 		Type       string `json:"__type"`
 		Message    string `json:"message"`

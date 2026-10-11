@@ -234,7 +234,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 	if existing, ok := b.services.Get(scopedKey(clusterName, input.ServiceName)); ok &&
 		existing.Status != statusInactive {
 		if input.ClientToken != "" && existing.ClientToken == input.ClientToken {
-			cp := *existing
+			cp := cloneServiceForSnapshot(existing)
 			cp.Tags = copyTags(b.resourceTags[resourceTagKey(existing.ServiceArn)])
 
 			return &cp, nil
@@ -271,7 +271,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		b.setResourceTagsLocked(svc.ServiceArn, input.Tags)
 	}
 
-	cp := *svc
+	cp := cloneServiceForSnapshot(svc)
 	cp.Tags = copyTags(b.resourceTags[resourceTagKey(svc.ServiceArn)])
 
 	return &cp, nil
@@ -640,7 +640,7 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 	b.addServiceRevisionLocked(svc)
 	b.syncServiceDeploymentsLocked(svc)
 
-	cp := *svc
+	cp := cloneServiceForSnapshot(svc)
 	// resourceTags (kept in sync by TagResource/UntagResource) is authoritative,
 	// not the creation-time svc.Tags snapshot -- see CreateService.
 	cp.Tags = copyTags(b.resourceTags[resourceTagKey(svc.ServiceArn)])
@@ -690,7 +690,7 @@ func (b *InMemoryBackend) DeleteService(cluster, serviceName string, force ...bo
 	// no-op, matching CloudFormation DeleteStack's treatment of an
 	// already-deleted resource rather than re-arming the drain deadline.
 	if svc.Status == statusDraining || svc.Status == statusInactive {
-		cp := *svc
+		cp := cloneServiceForSnapshot(svc)
 		cp.Tags = copyTags(b.resourceTags[resourceTagKey(svc.ServiceArn)])
 
 		return &cp, nil
@@ -726,7 +726,7 @@ func (b *InMemoryBackend) DeleteService(cluster, serviceName string, force ...bo
 	b.deleteServiceDeploymentsForServiceLocked(svc.ServiceArn)
 	b.deleteResourceTagsLocked(svc.ServiceArn)
 
-	cp := *svc
+	cp := cloneServiceForSnapshot(svc)
 	cp.Tags = tags
 
 	return &cp, nil

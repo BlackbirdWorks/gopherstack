@@ -28,6 +28,10 @@ func TestJSONErrorMessageMiddleware(t *testing.T) {
 			body: `{"__type":"X","message":"boom"}`, wantBody: `{"Message":"boom","__type":"X","message":"boom"}`,
 		},
 		{
+			name: "mirrors uppercase", contentType: "application/json", status: http.StatusNotFound,
+			body: `{"Message":"boom"}`, wantBody: `{"Message":"boom","message":"boom"}`,
+		},
+		{
 			name: "keeps existing", contentType: "application/x-amz-json-1.1", status: http.StatusBadRequest,
 			body: `{"message":"a","Message":"b"}`, wantBody: `{"message":"a","Message":"b"}`,
 		},

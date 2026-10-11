@@ -2972,19 +2972,36 @@ func (rc *ResourceCreator) createEventBridgeRule(
 	return rule.Arn, nil
 }
 
+// ruleARNWithBusParts is the "/" segment count of a custom-bus rule ARN.
+const ruleARNWithBusParts = 3
+
 func (rc *ResourceCreator) deleteEventBridgeRule(ctx context.Context, physicalID string) error {
 	if rc.backends.EventBridge == nil {
 		return nil
 	}
-	// physicalID is the rule ARN; extract name from it
+	// physicalID is arn:...:rule/[bus/]name
 	parts := strings.Split(physicalID, "/")
 	name := parts[len(parts)-1]
+	bus := defaultEventBusName
+	if len(parts) >= ruleARNWithBusParts {
+		bus = parts[len(parts)-2]
+	}
 
-	return rc.backends.EventBridge.Backend.DeleteRule(
-		ctx,
-		name,
-		defaultEventBusName,
-	)
+	targets, _, err := rc.backends.EventBridge.Backend.ListTargetsByRule(ctx, name, bus, "", 0)
+	if err != nil {
+		return fmt.Errorf("list EventBridge rule targets: %w", err)
+	}
+	if len(targets) > 0 {
+		ids := make([]string, 0, len(targets))
+		for _, t := range targets {
+			ids = append(ids, t.ID)
+		}
+		if _, err = rc.backends.EventBridge.Backend.RemoveTargets(ctx, name, bus, ids); err != nil {
+			return fmt.Errorf("remove EventBridge rule targets: %w", err)
+		}
+	}
+
+	return rc.backends.EventBridge.Backend.DeleteRule(ctx, name, bus)
 }
 
 // createStepFunctionsStateMachine creates a Step Functions state machine.

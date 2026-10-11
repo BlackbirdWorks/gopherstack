@@ -2,6 +2,7 @@ package apigateway
 
 import (
 	"encoding/base64"
+	"math"
 	"net/url"
 	"regexp"
 	"sort"
@@ -221,7 +222,7 @@ func argInt(args []any, i int) (int, bool) {
 
 	n, ok := toInt64(args[i])
 
-	return int(n), ok
+	return int(max(min(n, math.MaxInt32), math.MinInt32)), ok
 }
 
 // callVTLMethod dispatches a method call on any template value.

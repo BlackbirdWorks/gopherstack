@@ -296,13 +296,13 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.As(err, &rejectedErr):
 		return c.JSON(http.StatusBadRequest, map[string]any{
 			keyTypeField:      "RejectedRecordsException",
-			keyMessageField:   err.Error(),
+			keyMessageField:   awserr.StripCode("RejectedRecordsException", err.Error()),
 			"RejectedRecords": rejectedErr.RejectedRecords,
 		})
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "ResourceNotFoundException",
-			keyMessageField: err.Error(),
+			keyMessageField: awserr.StripCode("ResourceNotFoundException", err.Error()),
 		})
 	case errors.Is(err, awserr.ErrConflict):
 		// The awsJson1.0 protocol has no per-exception HTTP status: every client-fault
@@ -311,7 +311,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		// status code (see aws-sdk-go-v2/service/timestreamwrite deserializers.go).
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "ConflictException",
-			keyMessageField: err.Error(),
+			keyMessageField: awserr.StripCode("ConflictException", err.Error()),
 		})
 	case errors.Is(err, awserr.ErrInvalidParameter) ||
 		errors.Is(err, errInvalidRequest) ||
@@ -320,12 +320,12 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "ValidationException",
-			keyMessageField: err.Error(),
+			keyMessageField: awserr.StripCode("ValidationException", err.Error()),
 		})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			keyTypeField:    "InternalServerException",
-			keyMessageField: err.Error(),
+			keyMessageField: awserr.StripCode("InternalServerException", err.Error()),
 		})
 	}
 }

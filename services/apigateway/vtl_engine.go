@@ -376,7 +376,7 @@ func (st *vtlState) step(cur any, acc vtlAccessor) any {
 func indexValue(cur, idx any) any {
 	switch t := cur.(type) {
 	case *vtlList:
-		if i, ok := toInt64(idx); ok && i >= 0 && int(i) < len(t.items) {
+		if i, ok := toInt64(idx); ok && i >= 0 && i < int64(len(t.items)) {
 			return t.items[i]
 		}
 	case *vtlMap:

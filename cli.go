@@ -3594,6 +3594,32 @@ func (a *elbEC2ResolverAdapter) InstanceStateName(id string) (string, bool) {
 	return name, found
 }
 
+func (a *elbEC2ResolverAdapter) subnet(id string) *ec2backend.Subnet {
+	for _, b := range a.regions.handler.RegionBackends() {
+		if subnets := b.DescribeSubnets([]string{id}); len(subnets) > 0 {
+			return subnets[0]
+		}
+	}
+
+	return nil
+}
+
+func (a *elbEC2ResolverAdapter) SubnetVPC(id string) string {
+	if sn := a.subnet(id); sn != nil {
+		return sn.VPCID
+	}
+
+	return ""
+}
+
+func (a *elbEC2ResolverAdapter) SubnetAZ(id string) string {
+	if sn := a.subnet(id); sn != nil {
+		return sn.AvailabilityZone
+	}
+
+	return ""
+}
+
 // elbCertificateResolverAdapter adapts the ACM and IAM backends to the
 // elb.CertificateResolver interface. AWS accepts either an ACM or an IAM
 // server-certificate ARN for SSLCertificateId (see elb.CertificateResolver's
@@ -7443,6 +7469,11 @@ func (a *iamRoleLookupAdapter) GetRoleByArn(roleArn string) (*stsbackend.RoleMet
 // GetUserArnByAccessKeyID looks up the IAM user ARN by access key ID.
 func (a *iamRoleLookupAdapter) GetUserArnByAccessKeyID(accessKeyID string) (string, error) {
 	return a.backend.GetUserArnByAccessKeyID(accessKeyID)
+}
+
+// GetUserIDByAccessKeyID looks up the IAM user's unique ID (AIDA...) by access key ID.
+func (a *iamRoleLookupAdapter) GetUserIDByAccessKeyID(accessKeyID string) (string, error) {
+	return a.backend.GetUserIDByAccessKeyID(accessKeyID)
 }
 
 // wireSecretsManagerLambda wires the Lambda invoker into the SecretsManager handler

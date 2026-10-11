@@ -10,6 +10,7 @@ import (
 
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
+	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -763,16 +764,38 @@ func (rc *ResourceCreator) createEC2Route(
 		return logicalID + "-stub", nil
 	}
 
-	rtID := strProp(props, "RouteTableId", params, physicalIDs)
-	destCIDR := strProp(props, "DestinationCidrBlock", params, physicalIDs)
-	gatewayID := strProp(props, "GatewayId", params, physicalIDs)
-	natGatewayID := strProp(props, "NatGatewayId", params, physicalIDs)
+	str := func(k string) string { return strProp(props, k, params, physicalIDs) }
+	rtID := str("RouteTableId")
+	spec := ec2backend.RouteSpec{
+		DestinationCIDR:             str("DestinationCidrBlock"),
+		DestinationIPv6CIDR:         str("DestinationIpv6CidrBlock"),
+		DestinationPrefixListID:     str("DestinationPrefixListId"),
+		GatewayID:                   str("GatewayId"),
+		NatGatewayID:                str("NatGatewayId"),
+		InstanceID:                  str("InstanceId"),
+		NetworkInterfaceID:          str("NetworkInterfaceId"),
+		VpcPeeringConnectionID:      str("VpcPeeringConnectionId"),
+		TransitGatewayID:            str("TransitGatewayId"),
+		EgressOnlyInternetGatewayID: str("EgressOnlyInternetGatewayId"),
+		VpcEndpointID:               str("VpcEndpointId"),
+		LocalGatewayID:              str("LocalGatewayId"),
+		CarrierGatewayID:            str("CarrierGatewayId"),
+		CoreNetworkArn:              str("CoreNetworkArn"),
+	}
 
-	if err := rc.backends.EC2.Backend.CreateRoute(rtID, destCIDR, gatewayID, natGatewayID); err != nil {
+	if err := rc.backends.EC2.Backend.CreateRouteSpec(rtID, spec); err != nil {
 		return "", fmt.Errorf("create EC2 route: %w", err)
 	}
 
-	return rtID + ":" + destCIDR, nil
+	dest := spec.DestinationCIDR
+	if dest == "" {
+		dest = spec.DestinationIPv6CIDR
+	}
+	if dest == "" {
+		dest = spec.DestinationPrefixListID
+	}
+
+	return rtID + ":" + dest, nil
 }
 
 // ---- Kinesis ----

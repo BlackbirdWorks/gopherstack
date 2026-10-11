@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -24,7 +25,7 @@ func (h *Handler) writeXML(c *echo.Context, v any) error {
 // writeError writes an XML error response.
 func (h *Handler) writeError(c *echo.Context, status int, code, message string) error {
 	errResp := ErrorResponse{
-		Error:     Error{Type: "Sender", Code: code, Message: message},
+		Error:     Error{Type: "Sender", Code: code, Message: awserr.StripCode(code, message)},
 		RequestID: uuid.NewString(),
 	}
 

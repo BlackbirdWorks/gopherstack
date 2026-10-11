@@ -140,7 +140,7 @@ func (b *InMemoryBackend) planResourceUpdate(
 	oldResolved := resolvedProps(oldProps, oldParams, oldPhys)
 	newResolved := resolvedProps(res.Properties, params, phys)
 
-	keys := make(map[string]struct{}, len(oldResolved)+len(newResolved))
+	keys := make(map[string]struct{})
 	for k := range oldResolved {
 		keys[k] = struct{}{}
 	}

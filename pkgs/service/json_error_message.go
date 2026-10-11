@@ -12,8 +12,8 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// JSONErrorMessageMiddleware mirrors a lowercase "message" key in JSON error
-// bodies to "Message". Schema-serde SDK clients match the modeled key
+// JSONErrorMessageMiddleware mirrors a lone "message" or "Message" key in JSON
+// error bodies to the other casing. Schema-serde SDK clients match the modeled key
 // case-sensitively and otherwise surface an empty ErrorMessage().
 func JSONErrorMessageMiddleware() Middleware {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -97,12 +97,23 @@ func mirrorMessageKey(body []byte) []byte {
 		return body
 	}
 
-	msg, hasLower := obj["message"]
-	if _, hasUpper := obj["Message"]; !hasLower || hasUpper || len(msg) == 0 || msg[0] != '"' {
-		return body
-	}
+	lower, hasLower := obj["message"]
+	upper, hasUpper := obj["Message"]
 
-	obj["Message"] = msg
+	switch {
+	case hasLower == hasUpper:
+		return body
+	case hasLower:
+		if len(lower) == 0 || lower[0] != '"' {
+			return body
+		}
+		obj["Message"] = lower
+	default:
+		if len(upper) == 0 || upper[0] != '"' {
+			return body
+		}
+		obj["message"] = upper
+	}
 
 	out, err := json.Marshal(obj)
 	if err != nil {

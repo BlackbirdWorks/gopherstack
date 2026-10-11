@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -301,7 +302,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 
 	payload, _ := json.Marshal(ErrorResponse{
 		Type:    errorType,
-		Message: reqErr.Error(),
+		Message: awserr.StripCode(errorType, reqErr.Error()),
 	})
 
 	return c.JSONBlob(statusCode, payload)
