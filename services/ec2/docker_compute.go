@@ -190,6 +190,7 @@ func (d *DockerCompute) Launch(ctx context.Context, req LaunchRequest) (LaunchRe
 			ExposedPorts: mobynetwork.PortSet{containerSSHPort: struct{}{}},
 			Cmd:          []string{"/bin/sh", "-c", entrypoint},
 			Labels:       d.buildLabels(req),
+			Env:          containerEnv(req),
 			Hostname:     dockerHostname(req.InstanceID),
 		},
 		HostConfig:       hostCfg,
@@ -353,6 +354,17 @@ func (d *DockerCompute) buildContainerConfigs(hostPort int) (*mobycontainer.Host
 	}
 
 	return hostCfg, networkCfg
+}
+
+// imdsEndpointEnv is read by every AWS SDK and the CLI in place of 169.254.169.254.
+const imdsEndpointEnv = "AWS_EC2_METADATA_SERVICE_ENDPOINT"
+
+func containerEnv(req LaunchRequest) []string {
+	if req.MetadataEndpoint == "" {
+		return nil
+	}
+
+	return []string{imdsEndpointEnv + "=" + req.MetadataEndpoint}
 }
 
 func (d *DockerCompute) buildLabels(req LaunchRequest) map[string]string {

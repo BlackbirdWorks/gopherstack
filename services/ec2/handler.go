@@ -54,6 +54,7 @@ type Handler struct {
 	// Falls back to context.Background until StartWorker has run.
 	svcCtx    context.Context
 	peers     *regionpeers.Set[Handler]
+	imds      *imdsService
 	stop      context.CancelFunc
 	AccountID string `json:"accountID,omitempty"`
 	Region    string `json:"region,omitempty"`
@@ -62,7 +63,7 @@ type Handler struct {
 // NewHandler creates a new EC2 handler with the given backend.
 // The dispatch table is built once and cached in h.ops.
 func NewHandler(backend Backend) *Handler {
-	h := &Handler{Backend: backend, svcCtx: context.Background()}
+	h := &Handler{Backend: backend, svcCtx: context.Background(), imds: newIMDSService()}
 	h.ops = h.buildOps()
 
 	return h

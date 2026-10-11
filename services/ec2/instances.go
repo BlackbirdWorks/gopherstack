@@ -224,32 +224,32 @@ func (b *InMemoryBackend) ModifyInstanceMetadataOptions(
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
-	// Persist tokens setting on instance for DescribeInstances accuracy.
+	if err := validateMetadataOptions(MetadataOptionsInput{
+		HTTPTokens: httpTokens, HTTPEndpoint: httpEndpoint,
+		InstanceMetadataTags: instanceMetadataTags, HTTPPutHopLimit: hopLimit,
+	}); err != nil {
+		return nil, err
+	}
+
 	if httpTokens != "" {
 		inst.MetadataOptionsTokens = httpTokens
 	}
+
 	if httpEndpoint != "" {
 		inst.MetadataOptionsState = httpEndpoint
 	}
 
-	opts := &IMDSOptions{
-		HTTPTokens:              inst.MetadataOptionsTokens,
-		HTTPEndpoint:            inst.MetadataOptionsState,
-		HTTPPutResponseHopLimit: hopLimit,
-		InstanceMetadataTags:    instanceMetadataTags,
-		State:                   "applied",
-	}
-	if opts.HTTPTokens == "" {
-		opts.HTTPTokens = "optional"
-	}
-	if opts.HTTPEndpoint == "" {
-		opts.HTTPEndpoint = "enabled"
-	}
-	if opts.HTTPPutResponseHopLimit == 0 {
-		opts.HTTPPutResponseHopLimit = 1
+	if instanceMetadataTags != "" {
+		inst.MetadataTags = instanceMetadataTags
 	}
 
-	return opts, nil
+	if hopLimit != 0 {
+		inst.MetadataHopLimit = hopLimit
+	}
+
+	opts := metadataOptionsOf(inst)
+
+	return &opts, nil
 }
 
 // ---- InstanceMetadata account defaults ----

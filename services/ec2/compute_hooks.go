@@ -58,16 +58,18 @@ func (h *Handler) launchOnCompute(
 
 	for _, inst := range instances {
 		req := LaunchRequest{
-			InstanceID:    inst.ID,
-			ImageID:       inst.ImageID,
-			InstanceType:  inst.InstanceType,
-			KeyName:       keyName,
-			AuthorizedKey: authorized,
-			UserData:      userData,
+			MetadataEndpoint: h.imdsEndpointFor(ctx, inst.ID),
+			InstanceID:       inst.ID,
+			ImageID:          inst.ImageID,
+			InstanceType:     inst.InstanceType,
+			KeyName:          keyName,
+			AuthorizedKey:    authorized,
+			UserData:         userData,
 		}
 
 		res, err := c.Launch(ctx, req)
 		if err != nil {
+			h.imds.forget(inst.ID)
 			log.WarnContext(ctx, "ec2 compute launch failed", "instance", inst.ID, "error", err)
 
 			continue
@@ -85,6 +87,23 @@ func (h *Handler) launchOnCompute(
 
 		publishComputeMetadata(ctx, cb, inst)
 	}
+}
+
+// imdsEndpointFor starts the instance's metadata endpoint; empty when none is wired or it failed.
+func (h *Handler) imdsEndpointFor(ctx context.Context, instanceID string) string {
+	l := h.imds.listenerOf()
+	if l == nil {
+		return ""
+	}
+
+	endpoint, err := l.Listen(instanceID, h.IMDSHandler(instanceID))
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "ec2 imds listen failed", "instance", instanceID, "error", err)
+
+		return ""
+	}
+
+	return endpoint
 }
 
 // publishComputeMetadata registers the synthetic public DNS hostname with the

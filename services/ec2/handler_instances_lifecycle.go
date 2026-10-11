@@ -289,6 +289,27 @@ func securityGroupNamesFor(b Backend, instances []*Instance) map[string]string {
 	return names
 }
 
+// runInstancesWithMetadata validates MetadataOptions before launching so a bad value leaves no instances behind.
+func (h *Handler) runInstancesWithMetadata(
+	imageID, instanceType, subnetID string, count int, vals url.Values,
+) ([]*Instance, error) {
+	mdOpts, err := metadataOptionsFromValues(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	instances, err := h.Backend.RunInstances(imageID, instanceType, subnetID, count)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = h.Backend.ApplyLaunchMetadataOptions(instanceIDsOf(instances), mdOpts); err != nil {
+		return nil, err
+	}
+
+	return instances, nil
+}
+
 func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error) {
 	if err := h.overlayLaunchTemplate(vals); err != nil {
 		return nil, err
@@ -319,7 +340,7 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
-	instances, err := h.Backend.RunInstances(imageID, instanceType, subnetID, minCount)
+	instances, err := h.runInstancesWithMetadata(imageID, instanceType, subnetID, minCount, vals)
 	if err != nil {
 		return nil, err
 	}
@@ -515,6 +536,10 @@ func (h *Handler) handleTerminateInstances(vals url.Values, reqID string) (any, 
 		h.terminateOnCompute(h.svcCtx, cb, c, providerIDs, dnsNames)
 	}
 
+	for _, ch := range changes {
+		h.imds.forget(ch.InstanceID)
+	}
+
 	items := make([]instanceStateChangeItem, 0, len(changes))
 	for _, ch := range changes {
 		items = append(items, instanceStateChangeItem{
@@ -675,6 +700,12 @@ func toInstanceItem(
 		},
 	}
 
+	md := metadataOptionsOf(inst)
+	item.MetadataOptions = &imdsOptionsItem{
+		State: md.State, HTTPTokens: md.HTTPTokens, HTTPEndpoint: md.HTTPEndpoint,
+		InstanceMetadataTags: md.InstanceMetadataTags, HTTPPutResponseHopLimit: md.HTTPPutResponseHopLimit,
+	}
+
 	if inst.HibernationConfigured {
 		item.HibernationOptions = &instanceHibernationOptionsItem{Configured: true}
 	}
@@ -832,6 +863,7 @@ type instanceItem struct {
 	HibernationOptions        *instanceHibernationOptionsItem        `xml:"hibernationOptions,omitempty"`
 	NetworkPerformanceOptions *instanceNetworkPerformanceOptionsItem `xml:"networkPerformanceOptions,omitempty"`
 	MaintenanceOptions        *instanceMaintenanceOptionsItem        `xml:"maintenanceOptions,omitempty"`
+	MetadataOptions           *imdsOptionsItem                       `xml:"metadataOptions,omitempty"`
 	CPUOptions                *instanceCPUOptionsItem                `xml:"cpuOptions,omitempty"`
 	StateReasonItem           *stateReasonItem                       `xml:"stateReason,omitempty"`
 	IamInstanceProfile        *iamProfileSpec                        `xml:"iamInstanceProfile,omitempty"`

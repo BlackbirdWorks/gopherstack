@@ -2424,6 +2424,7 @@ func buildEchoServer(
 	e.POST("/_gopherstack/reset", buildResetHandler(services))
 	registerLocalstackDevEndpoints(e, services)
 	registerECSTaskEndpoints(e, services)
+	registerEC2IMDSEndpoints(e, services)
 	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
 	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))
 
@@ -3221,6 +3222,8 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	if cli, ok := appCtx.Config.(*CLI); ok {
 		wireLambdaRuntimeEnv(cli, byName)
 		wireECSRuntime(cli, byName)
+		wireEC2IMDS(appCtx.JanitorCtx, cli, byName)
+		wireSSMSecrets(cli, byName)
 	}
 
 	// Wire Timestream Query → Timestream Write's shared tag store, so

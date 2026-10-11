@@ -634,7 +634,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CloudFront](services/cloudfront/README.md) | A | 60 | 1 gap; 1 structural gap; 4 deferred |
 | [CloudWatch Network Monitor](services/networkmonitor/README.md) | A | 12 | 1 deferred |
 | [ELB (Classic)](services/elb/README.md) | A | 29 | 1 gap; 1 deferred |
-| [ELBv2](services/elbv2/README.md) | A | 51 | 2 gaps; 1 structural gap; 2 deferred |
+| [ELBv2](services/elbv2/README.md) | A | 51 | 2 gaps; 2 structural gaps; 2 deferred |
 | [Route 53](services/route53/README.md) | A | 67 | 3 deferred |
 | [Route 53 Resolver](services/route53resolver/README.md) | A | 72 | 1 structural gap; 1 deferred |
 | [VPC Lattice](services/vpclattice/README.md) | A | 73 | 1 gap; 3 structural gaps |

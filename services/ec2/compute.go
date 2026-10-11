@@ -46,6 +46,9 @@ type LaunchRequest struct {
 	AuthorizedKey string `json:"authorizedKey,omitempty"`
 	// UserData is the raw (already base64-decoded) user data, if any.
 	UserData string `json:"userData,omitempty"`
+	// MetadataEndpoint is the URL of this instance's metadata service, reachable from the
+	// container; empty when no listener is wired.
+	MetadataEndpoint string `json:"metadataEndpoint,omitempty"`
 }
 
 // LaunchResult is what the Compute provider returns after creating a backing

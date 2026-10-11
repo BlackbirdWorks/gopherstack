@@ -248,6 +248,9 @@ func deepCopyValue(v any) any {
 	return deepCopyItem(map[string]any{"v": v})["v"]
 }
 
+// maxVectorCapacityHint bounds the up-front vector capacity; longer vectors grow via append.
+const maxVectorCapacityHint = 4096
+
 // itemVector parses item[attr] as a list of exactly dims numbers.
 func itemVector(item map[string]any, attr string, dims int) ([]float64, bool) {
 	av, ok := item[attr].(map[string]any)
@@ -260,9 +263,9 @@ func itemVector(item map[string]any, attr string, dims int) ([]float64, bool) {
 		return nil, false
 	}
 
-	vec := make([]float64, dims)
+	vec := make([]float64, 0, min(len(list), maxVectorCapacityHint))
 
-	for i, el := range list {
+	for _, el := range list {
 		m, isMap := el.(map[string]any)
 		if !isMap {
 			return nil, false
@@ -278,7 +281,7 @@ func itemVector(item map[string]any, attr string, dims int) ([]float64, bool) {
 			return nil, false
 		}
 
-		vec[i] = f
+		vec = append(vec, f)
 	}
 
 	return vec, true

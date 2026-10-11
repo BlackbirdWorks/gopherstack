@@ -169,6 +169,7 @@ type Instance struct {
 	// StateTransitionReason mirrors AWS's legacy <reason> element (e.g.
 	// "User initiated (2016-05-...)").
 	StateTransitionReason string `json:"stateTransitionReason,omitempty"`
+	MetadataTags          string `json:"metadataTags,omitempty"`
 	ImageID               string `json:"imageID,omitempty"`
 	// OutpostArn is the real SDK's types.Instance.OutpostArn -- a top-level
 	// field, sibling to Placement (not nested under it; confirmed via
@@ -186,6 +187,7 @@ type Instance struct {
 	PrivateDNSNameOptions PrivateDNSNameOptions `json:"privateDnsNameOptions"`
 	CPUOptions            CPUOptions            `json:"cpuOptions"`
 	SSHPort               int                   `json:"sshPort,omitempty"`
+	MetadataHopLimit      int                   `json:"metadataHopLimit,omitempty"`
 	EnaSupport            bool                  `json:"enaSupport,omitempty"`
 	// DisableAPITermination / DisableAPIStop gate TerminateInstances /
 	// StopInstances respectively (ModifyInstanceAttribute-settable).

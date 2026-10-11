@@ -55,6 +55,9 @@ func validatePlatformVersion(pv string) error {
 
 const connectivityConnected = "CONNECTED"
 
+// maxTaskWorkCapacityHint bounds the up-front slice capacity; larger counts grow via append.
+const maxTaskWorkCapacityHint = 16
+
 // taskWork pairs a task with its definition for lock-free Docker API calls and
 // for collecting the final task state when building the API response.
 type taskWork struct {
@@ -321,7 +324,7 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 	td *TaskDefinition,
 	input RunTaskInput,
 ) ([]taskWork, []Failure) {
-	work := make([]taskWork, 0, count)
+	work := make([]taskWork, 0, min(count, maxTaskWorkCapacityHint))
 
 	var failures []Failure
 

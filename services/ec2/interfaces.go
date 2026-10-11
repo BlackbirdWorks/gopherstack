@@ -1411,6 +1411,7 @@ type Backend interface {
 		instanceID, httpTokens, httpEndpoint, instanceMetadataTags string,
 		hopLimit int,
 	) (*IMDSOptions, error)
+	ApplyLaunchMetadataOptions(instanceIDs []string, in MetadataOptionsInput) error
 	GetInstanceMetadataDefaults() *InstanceMetadataDefaults
 	ModifyInstanceMetadataDefaults(
 		httpTokens, httpEndpoint, instanceMetadataTags string,
