@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"hash/crc32"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -22,7 +23,7 @@ func JSONErrorMessageMiddleware() Middleware {
 				return next(c)
 			}
 
-			w := &jsonErrorMirrorWriter{ResponseWriter: resp.ResponseWriter}
+			w := &jsonErrorMirrorWriter{ResponseWriter: resp.ResponseWriter, passthrough: resp.ResponseWriter}
 			resp.ResponseWriter = w
 			err := next(c)
 			resp.ResponseWriter = w.ResponseWriter
@@ -35,9 +36,10 @@ func JSONErrorMessageMiddleware() Middleware {
 
 type jsonErrorMirrorWriter struct {
 	http.ResponseWriter
-	body      bytes.Buffer
-	status    int
-	buffering bool
+	passthrough io.Writer
+	body        bytes.Buffer
+	status      int
+	buffering   bool
 }
 
 func (w *jsonErrorMirrorWriter) WriteHeader(code int) {
@@ -65,7 +67,7 @@ func (w *jsonErrorMirrorWriter) Write(b []byte) (int, error) {
 		return w.body.Write(b)
 	}
 
-	return w.ResponseWriter.Write(b)
+	return w.passthrough.Write(b)
 }
 
 func (w *jsonErrorMirrorWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
