@@ -243,7 +243,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		return nil, fmt.Errorf("%w: service %s already exists", ErrInvalidParameter, input.ServiceName)
 	}
 
-	if err := b.validateCapacityProviderStrategyLocked(input.CapacityProviderStrategy); err != nil {
+	if err := b.validateServiceReferencesLocked(input.CapacityProviderStrategy, input.ServiceRegistries); err != nil {
 		return nil, err
 	}
 
@@ -595,10 +595,8 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 		return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, input.Service)
 	}
 
-	if len(input.CapacityProviderStrategy) > 0 {
-		if err := b.validateCapacityProviderStrategyLocked(input.CapacityProviderStrategy); err != nil {
-			return nil, err
-		}
+	if err := b.validateServiceReferencesLocked(input.CapacityProviderStrategy, input.ServiceRegistries); err != nil {
+		return nil, err
 	}
 
 	if input.DesiredCount != nil {
@@ -635,7 +633,13 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 		svc.DeploymentConfiguration = input.DeploymentConfiguration
 	}
 
+	oldRegistries := svc.ServiceRegistries
+
 	applyServiceConfigUpdates(svc, input)
+
+	if len(input.ServiceRegistries) > 0 {
+		b.moveServiceRegistrationsLocked(clusterName, svc, oldRegistries)
+	}
 
 	b.addServiceRevisionLocked(svc)
 	b.syncServiceDeploymentsLocked(svc)
@@ -722,6 +726,7 @@ func (b *InMemoryBackend) DeleteService(cluster, serviceName string, force ...bo
 	// it, matching real AWS's "still viewable" DRAINING/INACTIVE behavior.
 	svc.Status = statusDraining
 	svc.DrainDeadline = time.Now().Add(serviceDrainDelay)
+	b.deregisterServiceFromCloudMapLocked(clusterName, svc)
 	b.deleteTaskSetsForServiceLocked(svc.ServiceArn)
 	b.deleteServiceDeploymentsForServiceLocked(svc.ServiceArn)
 	b.deleteResourceTagsLocked(svc.ServiceArn)
@@ -938,6 +943,7 @@ func (b *InMemoryBackend) StopOldestServiceTask(clusterName, serviceName string)
 		syncContainerStatuses(oldest, nil)
 		b.emitTaskStateLocked(oldest)
 		b.deregisterTaskFromELBv2Locked(oldest, clusterName)
+		b.deregisterTaskFromCloudMapLocked(oldest, clusterName)
 		b.releaseTaskHostPortsLocked(clusterName, oldest)
 		delete(b.lifecycle, oldest.TaskArn)
 

@@ -119,6 +119,7 @@ func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend) {
 	defer home.mu.RUnlock()
 
 	b.elbv2Registrar = home.elbv2Registrar
+	b.cloudMap = home.cloudMap
 	b.asgResolver = home.asgResolver
 	b.alarmStates = home.alarmStates
 	b.lambdaInvoker = home.lambdaInvoker

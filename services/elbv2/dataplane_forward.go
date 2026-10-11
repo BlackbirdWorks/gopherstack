@@ -39,13 +39,22 @@ var hopByHop = []string{ //nolint:gochecknoglobals // static header set
 	"Transfer-Encoding", "Upgrade",
 }
 
+// targetTLSConfig accepts any target certificate: ALBs do not validate target certs.
+func targetTLSConfig() *tls.Config {
+	return &tls.Config{
+		//nolint:gosec // ALBs do not validate target certificates
+		InsecureSkipVerify: true,
+		VerifyConnection:   func(tls.ConnectionState) error { return nil },
+		MinVersion:         tls.VersionTLS12,
+	}
+}
+
 func newProxyClient() *http.Client {
 	return &http.Client{
 		Transport: &http.Transport{
 			DisableCompression: true,
-			//nolint:gosec // load balancers do not validate target certificates
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
+			TLSClientConfig:    targetTLSConfig(),
+			DialContext:        (&net.Dialer{Timeout: dialTimeout}).DialContext,
 		},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}

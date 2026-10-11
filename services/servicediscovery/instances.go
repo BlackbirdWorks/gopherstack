@@ -1,9 +1,12 @@
 package servicediscovery
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // RegisterInstance registers an instance to a service. If the service has a
@@ -248,14 +251,16 @@ func dnsHostname(svcName string, ns *Namespace) string {
 // route53.resyncDNSName -- because pkgs/dns.RegisterRecord only appends
 // values and never replaces or removes a single one. Caller must hold b.mu.
 func (b *InMemoryBackend) resyncServiceDNS(svc *Service) {
-	if b.dns == nil {
-		return
-	}
-
 	ns, _ := b.namespaces.Get(svc.NamespaceID)
 
 	hostname := dnsHostname(svc.Name, ns)
 	if hostname == "" {
+		return
+	}
+
+	b.syncHostedZoneRecords(svc, ns, hostname)
+
+	if b.dns == nil {
 		return
 	}
 
@@ -272,6 +277,48 @@ func (b *InMemoryBackend) resyncServiceDNS(svc *Service) {
 
 		if cname := inst.Attributes[instanceAttrCNAME]; cname != "" {
 			b.dns.RegisterRecord(hostname, "CNAME", []string{cname})
+		}
+	}
+}
+
+// syncHostedZoneRecords rebuilds, per DnsRecord type configured on svc, the matching Route 53
+// record set from the registered instances; a type with no values has its record set removed.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) syncHostedZoneRecords(svc *Service, ns *Namespace, hostname string) {
+	if b.records == nil || svc.DNSConfig == nil || ns.Properties == nil || ns.Properties.DNSProperties == nil {
+		return
+	}
+
+	zoneID := ns.Properties.DNSProperties.HostedZoneID
+	instances := b.instancesByService.Get(svc.ID)
+
+	for _, rec := range svc.DNSConfig.DNSRecords {
+		attr := recordTypeAttribute(rec.Type)
+		if attr == "" {
+			continue
+		}
+
+		var values []string
+
+		for _, inst := range instances {
+			if v := inst.Attributes[attr]; v != "" {
+				values = append(values, v)
+			}
+		}
+
+		sort.Strings(values)
+
+		var err error
+		if len(values) == 0 {
+			err = b.records.DeleteRecordSet(zoneID, hostname, rec.Type)
+		} else {
+			err = b.records.PutRecordSet(zoneID, hostname, rec.Type, rec.TTL, values)
+		}
+
+		if err != nil {
+			logger.Load(context.Background()).ErrorContext(context.Background(),
+				"servicediscovery: Route 53 record sync failed",
+				"error", err, "hostname", hostname, "type", rec.Type)
 		}
 	}
 }

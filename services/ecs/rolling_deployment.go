@@ -237,6 +237,7 @@ func (b *InMemoryBackend) stopServiceTask(clusterName, taskArn, reason string) e
 		syncContainerStatuses(task, nil)
 		b.emitTaskStateLocked(task)
 		b.deregisterTaskFromELBv2Locked(task, clusterName)
+		b.deregisterTaskFromCloudMapLocked(task, clusterName)
 		b.releaseTaskHostPortsLocked(clusterName, task)
 		delete(b.lifecycle, task.TaskArn)
 

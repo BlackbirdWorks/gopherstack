@@ -3179,6 +3179,7 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// reach/leave RUNNING, instead of Service.LoadBalancers being stored and
 	// echoed with no effect on DescribeTargetHealth.
 	wireECSELBv2(byName["ECS"], byName["ELBv2"])
+	wireECSCloudMap(byName)
 
 	// Wire CloudWatch Logs → Lambda log delivery.
 	wireLambdaCWLogs(byName["Lambda"], byName["CloudWatchLogs"])

@@ -110,7 +110,7 @@ func (h *Handler) EnableRegions() {
 
 	h.peers = regionpeers.New(h.Region, func(region string) *Handler {
 		nb := NewInMemoryBackend(h.AccountID, region)
-		nb.dns, nb.hostedZones = home.currentWiring()
+		nb.dns, nb.hostedZones, nb.records = home.currentWiring()
 
 		return NewHandler(nb)
 	})

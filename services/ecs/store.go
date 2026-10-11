@@ -78,6 +78,7 @@ type InMemoryBackend struct {
 	// reach/leave RUNNING. Nil preserves the historical behavior of
 	// Service.LoadBalancers being stored and echoed with no effect on ELBv2.
 	elbv2Registrar ELBv2TargetRegistrar
+	cloudMap       CloudMapRegistrar
 	alarmStates    AlarmStateProvider
 	lambdaInvoker  LambdaInvoker
 	events         EventPublisher

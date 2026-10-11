@@ -80,6 +80,7 @@ type InMemoryBackend struct {
 
 	dns         DNSRegistrar
 	hostedZones HostedZoneCreator
+	records     RecordSetWriter
 
 	accountID string
 	region    string
@@ -124,11 +125,19 @@ func (b *InMemoryBackend) SetHostedZoneCreator(hz HostedZoneCreator) {
 	b.mu.Unlock()
 }
 
-func (b *InMemoryBackend) currentWiring() (DNSRegistrar, HostedZoneCreator) {
+// SetRecordSetWriter wires Route 53 so DNS-namespace services keep record sets in their hosted
+// zone in step with their registered instances.
+func (b *InMemoryBackend) SetRecordSetWriter(w RecordSetWriter) {
+	b.mu.Lock("SetRecordSetWriter")
+	b.records = w
+	b.mu.Unlock()
+}
+
+func (b *InMemoryBackend) currentWiring() (DNSRegistrar, HostedZoneCreator, RecordSetWriter) {
 	b.mu.RLock("currentWiring")
 	defer b.mu.RUnlock()
 
-	return b.dns, b.hostedZones
+	return b.dns, b.hostedZones, b.records
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -329,4 +338,17 @@ func (b *InMemoryBackend) Reset() {
 	b.nsCounter = 0
 	b.svcCounter = 0
 	b.opCounter = 0
+}
+
+func recordTypeAttribute(recordType string) string {
+	switch recordType {
+	case "A":
+		return instanceAttrIPv4
+	case "AAAA":
+		return instanceAttrIPv6
+	case "CNAME":
+		return instanceAttrCNAME
+	}
+
+	return ""
 }

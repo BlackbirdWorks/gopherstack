@@ -651,3 +651,7 @@ The Resource Groups Tagging API bridge now lists the request region's tagged res
 ## Notes (2026-10-10 realism pass)
 
 Create*Namespace validates the per-kind name patterns (printable ASCII, no "arn:" prefix, DNS names up to 253 characters; public names may be single-label for in-repo fixtures), CreateService validates the service-name pattern, RegisterInstance validates InstanceId and rejects malformed AWS_INSTANCE_IPV4/IPV6. Error messages no longer repeat the code. Tests: input_realism_test.go. Operations still settle to SUCCESS inside the creating call.
+
+## Notes (2026-10-11 Route 53 record sets)
+
+With a RecordSetWriter wired (root `cli_ecs_cloudmap.go`), RegisterInstance/DeregisterInstance rebuild the namespace hosted zone's A/AAAA/CNAME record sets for each DnsRecord type configured on the service; SRV records are not written. Test: TestRecordSetWriter_FollowsInstances, TestECSServiceRegistersTasksInCloudMap.
