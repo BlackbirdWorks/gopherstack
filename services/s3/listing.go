@@ -77,15 +77,14 @@ func seekPrefixMatchesLocked(
 	afterMarker func(string) bool,
 	limit int,
 ) []*StoredObject {
-	keys := bucket.keyIndex
-	start := sort.Search(len(keys), func(i int) bool {
-		return keys[i] >= prefix && afterMarker(keys[i])
-	})
+	idx := &bucket.keyIndex
 
 	var matched []*StoredObject
 
-	for i := start; i < len(keys); i++ {
-		key := keys[i]
+	cur := idx.seek(func(k string) bool { return k >= prefix && afterMarker(k) })
+
+	for ; idx.valid(cur); cur = idx.next(cur) {
+		key := idx.key(cur)
 		if !strings.HasPrefix(key, prefix) {
 			break
 		}
@@ -235,21 +234,19 @@ func walkDelimitedLocked(
 	afterMarker func(string) bool,
 	limit int,
 ) delimitedWalk {
-	keys := bucket.keyIndex
-	i := sort.Search(len(keys), func(i int) bool {
-		return keys[i] >= prefix && afterMarker(keys[i])
-	})
+	ki := &bucket.keyIndex
+	cur := ki.seek(func(k string) bool { return k >= prefix && afterMarker(k) })
 
-	entries := make([]listObjectEntry, 0, min(limit, len(keys)-i))
+	entries := make([]listObjectEntry, 0, min(limit, ki.remaining(cur)))
 	var versions []listedVersion
 
-	for i < len(keys) && len(entries) < limit {
-		key := keys[i]
+	for ki.valid(cur) && len(entries) < limit {
+		key := ki.key(cur)
 		if !strings.HasPrefix(key, prefix) {
 			break
 		}
 
-		i++
+		cur = ki.next(cur)
 
 		obj, ok := bucket.Objects[key]
 		if !ok {
@@ -274,10 +271,7 @@ func walkDelimitedLocked(
 		cp := prefix + rest[:idx+len(delimiter)]
 		entries = append(entries, listObjectEntry{key: cp, vi: prefixEntry})
 
-		from := i
-		i = from + sort.Search(len(keys)-from, func(k int) bool {
-			return !strings.HasPrefix(keys[from+k], cp)
-		})
+		cur = ki.seekFrom(cur, func(k string) bool { return !strings.HasPrefix(k, cp) })
 	}
 
 	return delimitedWalk{entries: entries, versions: versions}
@@ -523,15 +517,13 @@ func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) 
 	bucket.mu.RLock("ListObjectVersions")
 	defer bucket.mu.RUnlock()
 
-	keys := bucket.keyIndex
-	start := sort.Search(len(keys), func(i int) bool {
-		return keys[i] >= prefix
-	})
+	idx := &bucket.keyIndex
+	start := idx.seek(func(k string) bool { return k >= prefix })
 
-	snapshots := make([]versionSnapshot, 0, len(keys)-start)
+	snapshots := make([]versionSnapshot, 0, idx.remaining(start))
 
-	for i := start; i < len(keys); i++ {
-		key := keys[i]
+	for cur := start; idx.valid(cur); cur = idx.next(cur) {
+		key := idx.key(cur)
 		if !strings.HasPrefix(key, prefix) {
 			break
 		}

@@ -26,7 +26,7 @@ type StoredBucket struct {
 	// ListObjectVersions can binary-search to a prefix/marker start point
 	// instead of scanning every key. Derived, never persisted -- see
 	// rebuildKeyIndex.
-	keyIndex                       []string
+	keyIndex                       keyIndex
 	Region                         string                          `json:"region,omitempty"`
 	WebsiteConfig                  string                          `json:"websiteConfig,omitempty"`
 	PublicAccessBlockConfig        string                          `json:"publicAccessBlockConfig,omitempty"`

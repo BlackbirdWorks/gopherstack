@@ -25,7 +25,8 @@ func BenchmarkQuery_ComplexModel(b *testing.B) {
 					":type":      map[string]any{"S": "USER_PROFILE"},
 					":orgPrefix": map[string]any{"S": "ORG#org-1#"},
 				},
-				ProjectionExpression: "sk, DeepData.Config.Theme, DeepData.Meta.Source, Tags",
+				ProjectionExpression:     "sk, DeepData.Config.Theme, DeepData.Meta.#src, Tags",
+				ExpressionAttributeNames: map[string]string{"#src": "Source"},
 			}
 			sdkInput, err := models.ToSDKQueryInput(&input)
 			require.NoError(b, err)
