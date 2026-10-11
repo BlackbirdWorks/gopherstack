@@ -1,7 +1,6 @@
 package odatatable
 
 import (
-	"net/url"
 	"sort"
 	"time"
 
@@ -15,6 +14,9 @@ import (
 // test clock, or two mutations landing in the same wall-clock tick)
 // guarantees ETag uniqueness across successive writes to the same entity --
 // see etagFor.
+// defaultQueryCap is the initial result-slice capacity floor for QueryEntities.
+const defaultQueryCap = 16
+
 const minTimestampBump = 100 * time.Nanosecond
 
 // etagTimeLayout formats a Timestamp into an Azure Table Storage-style ETag
@@ -26,7 +28,25 @@ const etagTimeLayout = "2006-01-02T15:04:05.0000000Z"
 // real Azure Table Storage uses: W/"datetime'<url-encoded RFC3339>'". Cosmos
 // DB's Table API is wire-identical, so it reuses this format too.
 func etagFor(t time.Time) string {
-	return `W/"datetime'` + url.QueryEscape(t.UTC().Format(etagTimeLayout)) + `'"`
+	var raw [len(etagTimeLayout) + 4]byte
+
+	ts := t.UTC().AppendFormat(raw[:0], etagTimeLayout)
+
+	var out [len(`W/"datetime'`) + len(etagTimeLayout) + 2*2 + len(`'"`)]byte
+
+	buf := append(out[:0], `W/"datetime'`...)
+
+	for _, c := range ts {
+		if c == ':' {
+			buf = append(buf, "%3A"...)
+
+			continue
+		}
+
+		buf = append(buf, c)
+	}
+
+	return string(append(buf, `'"`...))
 }
 
 // InMemoryBackend implements StorageBackend using an in-memory map guarded
@@ -152,6 +172,7 @@ func (b *InMemoryBackend) InsertEntity(
 		Properties:   cloneProps(props),
 	}
 	t.Entities[key] = e
+	t.sorted.Store(nil)
 
 	return b.info(e), nil
 }
@@ -187,6 +208,37 @@ func (b *InMemoryBackend) QueryEntities(table string, filter Node, top int) ([]E
 		return nil, ErrTableNotFound
 	}
 
+	entities := t.sortedEntities()
+	out := make([]EntityInfo, 0, min(len(entities), max(top, defaultQueryCap)))
+
+	for _, e := range entities {
+		if filter != nil && !EvaluateFilter(filter, EntityInfo{
+			PartitionKey: e.PartitionKey,
+			RowKey:       e.RowKey,
+			Timestamp:    e.Timestamp,
+			Properties:   e.Properties,
+		}) {
+			continue
+		}
+
+		out = append(out, b.info(e))
+
+		if top > 0 && len(out) >= top {
+			break
+		}
+	}
+
+	return out, nil
+}
+
+// sortedEntities returns the table's entities ordered by (PartitionKey,
+// RowKey). The slice is cached and shared read-only until the key set
+// changes; callers must hold at least the backend read lock.
+func (t *storedTable) sortedEntities() []*storedEntity {
+	if p := t.sorted.Load(); p != nil {
+		return *p
+	}
+
 	entities := make([]*storedEntity, 0, len(t.Entities))
 	for _, e := range t.Entities {
 		entities = append(entities, e)
@@ -200,22 +252,9 @@ func (b *InMemoryBackend) QueryEntities(table string, filter Node, top int) ([]E
 		return entities[i].RowKey < entities[j].RowKey
 	})
 
-	out := make([]EntityInfo, 0, len(entities))
+	t.sorted.Store(&entities)
 
-	for _, e := range entities {
-		info := b.info(e)
-		if filter != nil && !EvaluateFilter(filter, info) {
-			continue
-		}
-
-		out = append(out, info)
-
-		if top > 0 && len(out) >= top {
-			break
-		}
-	}
-
-	return out, nil
+	return entities
 }
 
 // checkIfMatch validates ifMatch against an entity's current existence/ETag,
@@ -299,6 +338,7 @@ func (b *InMemoryBackend) ReplaceEntity(
 	if !exists {
 		e = &storedEntity{PartitionKey: partitionKey, RowKey: rowKey}
 		t.Entities[key] = e
+		t.sorted.Store(nil)
 	}
 
 	e.Timestamp = b.bumpTimestamp(e, exists)
@@ -332,6 +372,7 @@ func (b *InMemoryBackend) MergeEntity(
 	if !exists {
 		e = &storedEntity{PartitionKey: partitionKey, RowKey: rowKey, Properties: make(map[string]EntityProperty)}
 		t.Entities[key] = e
+		t.sorted.Store(nil)
 	}
 
 	e.Timestamp = b.bumpTimestamp(e, exists)
@@ -372,6 +413,7 @@ func (b *InMemoryBackend) DeleteEntity(table, partitionKey, rowKey, ifMatch stri
 	}
 
 	delete(t.Entities, key)
+	t.sorted.Store(nil)
 
 	return nil
 }

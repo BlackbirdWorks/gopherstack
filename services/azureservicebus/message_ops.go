@@ -21,7 +21,7 @@ func (b *InMemoryBackend) Send(ref EntityRef, msg NewMessage) (MessageInfo, erro
 		}
 
 		stored := b.newStoredMessageLocked(msg, q.Config, now)
-		q.Messages = append(q.Messages, stored)
+		q.appendLive(stored)
 		q.broadcastLocked()
 
 		return stored.info(), nil
@@ -34,7 +34,7 @@ func (b *InMemoryBackend) Send(ref EntityRef, msg NewMessage) (MessageInfo, erro
 		}
 
 		stored := b.newStoredMessageLocked(msg, cfg, now)
-		mq.Messages = append(mq.Messages, stored)
+		mq.appendLive(stored)
 		mq.broadcastLocked()
 
 		return stored.info(), nil
@@ -50,7 +50,7 @@ func (b *InMemoryBackend) Send(ref EntityRef, msg NewMessage) (MessageInfo, erro
 
 	for i, sub := range sortedSubscriptions(t) {
 		stored := b.newStoredMessageLocked(msg, t.Config, now)
-		sub.Messages = append(sub.Messages, stored)
+		sub.appendLive(stored)
 		sub.broadcastLocked()
 
 		if i == 0 {
@@ -222,9 +222,18 @@ func (b *InMemoryBackend) peekLockOnce(
 
 	now := b.now()
 	list := mq.liveList(deadLetter)
+	start, hs := mq.beginScan(now, deadLetter)
 
-	for _, msg := range list {
-		if msg.isExpired(now) || msg.isLocked(now) {
+	for i := start; i < len(list); i++ {
+		msg := list[i]
+
+		if msg.isExpired(now) {
+			continue
+		}
+
+		if msg.isLocked(now) {
+			hs.note(msg.LockedUntil)
+
 			continue
 		}
 
@@ -232,7 +241,16 @@ func (b *InMemoryBackend) peekLockOnce(
 		msg.LockToken = b.idFunc()
 		msg.LockedUntil = now.Add(lockDuration)
 
+		if !deadLetter {
+			hs.note(msg.LockedUntil)
+			mq.setHint(i+1, now, hs)
+		}
+
 		return msg.info(), nil, nil
+	}
+
+	if !deadLetter {
+		mq.setHint(len(list), now, hs)
 	}
 
 	mq.ensureNotifyLocked()
@@ -253,7 +271,7 @@ func (b *InMemoryBackend) Complete(ref EntityRef, deadLetter bool, messageID, lo
 
 	now := b.now()
 
-	idx, msg, err := findLockedMessageLocked(mq.liveList(deadLetter), messageID, now)
+	idx, msg, err := mq.findLocked(deadLetter, messageID, now)
 	if err != nil {
 		return err
 	}
@@ -289,7 +307,7 @@ func (b *InMemoryBackend) Abandon(ref EntityRef, deadLetter bool, messageID, loc
 
 	now := b.now()
 
-	idx, msg, err := findLockedMessageLocked(mq.liveList(deadLetter), messageID, now)
+	idx, msg, err := mq.findLocked(deadLetter, messageID, now)
 	if err != nil {
 		return err
 	}
@@ -300,6 +318,10 @@ func (b *InMemoryBackend) Abandon(ref EntityRef, deadLetter bool, messageID, loc
 
 	msg.LockToken = ""
 	msg.LockedUntil = time.Time{}
+
+	if !deadLetter {
+		mq.idx.hintEnd = min(mq.idx.hintEnd, idx)
+	}
 
 	if !deadLetter && msg.DeliveryCount >= cfg.maxDeliveryCount() {
 		mq.removeAt(false, idx)
@@ -324,12 +346,27 @@ func (mq *messageQueue) liveList(deadLetter bool) []*storedMessage {
 // removeAt removes the message at index idx from the selected slice.
 func (mq *messageQueue) removeAt(deadLetter bool, idx int) {
 	if deadLetter {
-		mq.DeadLetter = append(mq.DeadLetter[:idx], mq.DeadLetter[idx+1:]...)
+		last := len(mq.DeadLetter) - 1
+		copy(mq.DeadLetter[idx:], mq.DeadLetter[idx+1:])
+		mq.DeadLetter[last] = nil
+		mq.DeadLetter = mq.DeadLetter[:last]
 
 		return
 	}
 
-	mq.Messages = append(mq.Messages[:idx], mq.Messages[idx+1:]...)
+	msg := mq.Messages[idx]
+	last := len(mq.Messages) - 1
+	copy(mq.Messages[idx:], mq.Messages[idx+1:])
+	mq.Messages[last] = nil
+	mq.Messages = mq.Messages[:last]
+
+	if mq.idx.byID[msg.MessageID] == msg {
+		delete(mq.idx.byID, msg.MessageID)
+	}
+
+	if idx < mq.idx.hintEnd {
+		mq.idx.hintEnd--
+	}
 }
 
 // findLockedMessageLocked resolves a message by ID within list, as of now, requiring

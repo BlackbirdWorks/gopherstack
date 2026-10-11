@@ -454,26 +454,7 @@ func (h *Handler) listBlobs(c *echo.Context, container string) error {
 			"The specified container does not exist.")
 	}
 
-	result := enumerationResults{
-		ServiceEndpoint: h.serviceEndpoint(),
-		ContainerName:   container,
-		Blobs:           &blobsList{Blob: make([]blobEntry, 0, len(blobs))},
-	}
-
-	for _, bi := range blobs {
-		result.Blobs.Blob = append(result.Blobs.Blob, blobEntry{
-			Name: bi.Name,
-			Properties: blobProperties{
-				LastModified:  bi.LastModified.Format(http.TimeFormat),
-				Etag:          bi.ETag,
-				ContentLength: bi.ContentLength,
-				ContentType:   bi.ContentType,
-				BlobType:      blockBlobType,
-			},
-		})
-	}
-
-	return h.writeXML(c, http.StatusOK, result)
+	return c.XMLBlob(http.StatusOK, encodeBlobList(h.serviceEndpoint(), container, blobs))
 }
 
 // handleBlobLevel dispatches the blob-scoped operations by HTTP method (and,

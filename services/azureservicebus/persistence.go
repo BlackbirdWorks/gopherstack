@@ -97,11 +97,13 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 func reinitNotifyChannelsLocked(queues map[string]*storedQueue, topics map[string]*storedTopic) {
 	for _, q := range queues {
 		q.messageQueue.ensureNotifyLocked()
+		q.messageQueue.reindexLive()
 	}
 
 	for _, t := range topics {
 		for _, sub := range t.Subscriptions {
 			sub.messageQueue.ensureNotifyLocked()
+			sub.messageQueue.reindexLive()
 		}
 	}
 }

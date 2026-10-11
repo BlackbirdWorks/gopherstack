@@ -90,9 +90,7 @@ func (h *Handler) putMessage(c *echo.Context, queue string) error {
 		return h.writeQueueNotFoundError(c)
 	}
 
-	return h.writeXML(c, http.StatusCreated, queueMessagesList{
-		Messages: []queueMessageXML{messageXML(info, true, false)},
-	})
+	return c.XMLBlob(http.StatusCreated, encodeMessagesList([]queueMessageXML{messageXML(info, true, false)}))
 }
 
 func (h *Handler) getMessages(c *echo.Context, queue string) error {
@@ -121,7 +119,7 @@ func (h *Handler) getMessages(c *echo.Context, queue string) error {
 		entries = append(entries, messageXML(info, true, true))
 	}
 
-	return h.writeXML(c, http.StatusOK, queueMessagesList{Messages: entries})
+	return c.XMLBlob(http.StatusOK, encodeMessagesList(entries))
 }
 
 func (h *Handler) peekMessages(c *echo.Context, queue string) error {
@@ -140,7 +138,7 @@ func (h *Handler) peekMessages(c *echo.Context, queue string) error {
 		entries = append(entries, messageXML(info, false, true))
 	}
 
-	return h.writeXML(c, http.StatusOK, queueMessagesList{Messages: entries})
+	return c.XMLBlob(http.StatusOK, encodeMessagesList(entries))
 }
 
 // writeMessagesListError maps a Get/Peek Messages backend error to the

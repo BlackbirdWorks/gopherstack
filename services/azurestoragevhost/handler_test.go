@@ -97,6 +97,9 @@ func TestHandler_UnrecognizedHostIs400(t *testing.T) {
 		{"unknown service label", "gopherstackm8data.file.localhost:10010"},
 		{"empty account", ".blob.localhost:10010"},
 		{"bare host", "localhost:10010"},
+		{"two labels only", "gopherstackm8data.blob"},
+		{"empty host", ""},
+		{"empty service label", "gopherstackm8data..localhost"},
 	}
 
 	for _, tt := range tests {
@@ -137,6 +140,13 @@ func TestHandler_ExtractOperationAndResource(t *testing.T) {
 
 	assert.Equal(t, "VHostBlob", h.ExtractOperation(c))
 	assert.Equal(t, testAccount, h.ExtractResource(c))
+
+	req.Host = testAccount + ".TaBlE.localhost:10010"
+	assert.Equal(t, "VHostTable", h.ExtractOperation(c))
+	assert.Equal(t, testAccount, h.ExtractResource(c))
+
+	req.Host = testAccount + ".queue."
+	assert.Equal(t, "VHostQueue", h.ExtractOperation(c))
 }
 
 func TestHandler_MatchPriorityAndRouteMatcher(t *testing.T) {
