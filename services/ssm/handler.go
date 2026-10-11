@@ -329,6 +329,8 @@ func classifySSMError(reqErr error) (string, int) {
 		return "InvalidCommandId", statusCode
 	case errors.Is(reqErr, ErrValidationException):
 		return "ValidationException", statusCode
+	case errors.Is(reqErr, ErrSecretAccessDenied):
+		return "AccessDeniedException", statusCode
 	case errors.Is(reqErr, ErrHierarchyLevelLimitExceeded):
 		return "HierarchyLevelLimitExceededException", statusCode
 	case errors.Is(reqErr, ErrParameterMaxVersionLimitExceeded):

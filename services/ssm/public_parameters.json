@@ -1,0 +1,922 @@
+{
+ "parameters": [
+  {
+   "name": "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64",
+   "value": "ami-0d761479256225605"
+  },
+  {
+   "name": "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64",
+   "value": "ami-0f713cec7ef8c2ed1"
+  },
+  {
+   "name": "/aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-arm64",
+   "value": "ami-012ac7cd906ff79e4"
+  },
+  {
+   "name": "/aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64",
+   "value": "ami-0e66287a6f64d09e5"
+  },
+  {
+   "name": "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-arm64-gp2",
+   "value": "ami-0aa0d966352c076f2"
+  },
+  {
+   "name": "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2",
+   "value": "ami-0c55b159cbfafe1f0"
+  },
+  {
+   "name": "/aws/service/ami-amazon-linux-latest/amzn2-ami-kernel-5.10-hvm-arm64-gp2",
+   "value": "ami-02fa41501ee2dbe98"
+  },
+  {
+   "name": "/aws/service/ami-amazon-linux-latest/amzn2-ami-kernel-5.10-hvm-x86_64-gp2",
+   "value": "ami-0ad0780a5c6bae931"
+  },
+  {
+   "name": "/aws/service/ami-windows-latest/Windows_Server-2016-English-Full-Base",
+   "value": "ami-07fa6e20713d5bbf9"
+  },
+  {
+   "name": "/aws/service/ami-windows-latest/Windows_Server-2019-English-Full-Base",
+   "value": "ami-029f9997141abe243"
+  },
+  {
+   "name": "/aws/service/ami-windows-latest/Windows_Server-2022-English-Core-Base",
+   "value": "ami-006d4b36f4a60ca5f"
+  },
+  {
+   "name": "/aws/service/ami-windows-latest/Windows_Server-2022-English-Full-Base",
+   "value": "ami-09d3b3274b6c5d4aa"
+  },
+  {
+   "name": "/aws/service/ami-windows-latest/Windows_Server-2025-English-Full-Base",
+   "value": "ami-03dfa776c79e64915"
+  },
+  {
+   "name": "/aws/service/bottlerocket/aws-ecs-1/arm64/latest/image_id",
+   "value": "ami-0ef740f4805e7b007"
+  },
+  {
+   "name": "/aws/service/bottlerocket/aws-ecs-1/arm64/latest/image_version",
+   "value": "1.26.0-a1b2c3d4"
+  },
+  {
+   "name": "/aws/service/bottlerocket/aws-ecs-1/x86_64/latest/image_id",
+   "value": "ami-0a66ee52e0b6c6cdb"
+  },
+  {
+   "name": "/aws/service/bottlerocket/aws-ecs-1/x86_64/latest/image_version",
+   "value": "1.26.0-a1b2c3d4"
+  },
+  {
+   "name": "/aws/service/bottlerocket/aws-k8s-1.30/arm64/latest/image_id",
+   "value": "ami-0c4062fb18eafe99a"
+  },
+  {
+   "name": "/aws/service/bottlerocket/aws-k8s-1.30/arm64/latest/image_version",
+   "value": "1.26.0-a1b2c3d4"
+  },
+  {
+   "name": "/aws/service/bottlerocket/aws-k8s-1.30/x86_64/latest/image_id",
+   "value": "ami-01625ad2a5be54233"
+  },
+  {
+   "name": "/aws/service/bottlerocket/aws-k8s-1.30/x86_64/latest/image_version",
+   "value": "1.26.0-a1b2c3d4"
+  },
+  {
+   "name": "/aws/service/bottlerocket/aws-k8s-1.31/arm64/latest/image_id",
+   "value": "ami-038846ab014f5a783"
+  },
+  {
+   "name": "/aws/service/bottlerocket/aws-k8s-1.31/arm64/latest/image_version",
+   "value": "1.26.0-a1b2c3d4"
+  },
+  {
+   "name": "/aws/service/bottlerocket/aws-k8s-1.31/x86_64/latest/image_id",
+   "value": "ami-0e1bc505b96239262"
+  },
+  {
+   "name": "/aws/service/bottlerocket/aws-k8s-1.31/x86_64/latest/image_version",
+   "value": "1.26.0-a1b2c3d4"
+  },
+  {
+   "name": "/aws/service/bottlerocket/aws-k8s-1.32/arm64/latest/image_id",
+   "value": "ami-01d57e90f6d42b1e0"
+  },
+  {
+   "name": "/aws/service/bottlerocket/aws-k8s-1.32/arm64/latest/image_version",
+   "value": "1.26.0-a1b2c3d4"
+  },
+  {
+   "name": "/aws/service/bottlerocket/aws-k8s-1.32/x86_64/latest/image_id",
+   "value": "ami-0ecf6eac7f2835b1d"
+  },
+  {
+   "name": "/aws/service/bottlerocket/aws-k8s-1.32/x86_64/latest/image_version",
+   "value": "1.26.0-a1b2c3d4"
+  },
+  {
+   "name": "/aws/service/canonical/ubuntu/server/20.04/stable/current/amd64/hvm/ebs-gp2/ami-id",
+   "value": "ami-057f486f0e508831b"
+  },
+  {
+   "name": "/aws/service/canonical/ubuntu/server/20.04/stable/current/arm64/hvm/ebs-gp2/ami-id",
+   "value": "ami-0772212b6c6aa24c4"
+  },
+  {
+   "name": "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id",
+   "value": "ami-0eb260c4d5475b901"
+  },
+  {
+   "name": "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp3/ami-id",
+   "value": "ami-06f4ad9548c59db32"
+  },
+  {
+   "name": "/aws/service/canonical/ubuntu/server/22.04/stable/current/arm64/hvm/ebs-gp2/ami-id",
+   "value": "ami-02ad62eb38bf6f140"
+  },
+  {
+   "name": "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp2/ami-id",
+   "value": "ami-0663e6754638bbff3"
+  },
+  {
+   "name": "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id",
+   "value": "ami-03dad1982e716eefd"
+  },
+  {
+   "name": "/aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp2/ami-id",
+   "value": "ami-0f7d407cafed29db8"
+  },
+  {
+   "name": "/aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id",
+   "value": "ami-030fa048780deae84"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2/arm64/recommended",
+   "value": "{\"ecs_agent_version\":\"1.89.0\",\"ecs_runtime_version\":\"Docker version 25.0.8\",\"image_id\":\"ami-05a45e02b22d3dc17\",\"image_name\":\"amzn2-ami-ecs-hvm-2.0.20260101-arm64-ebs\",\"image_version\":\"20260101\",\"os\":\"Amazon Linux 2\",\"schema_version\":1,\"source_image_name\":\"amzn2-ami-hvm-2.0.20260101-arm64-ebs\"}"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2/arm64/recommended/ecs_agent_version",
+   "value": "1.89.0"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2/arm64/recommended/image_id",
+   "value": "ami-05a45e02b22d3dc17"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2/arm64/recommended/image_name",
+   "value": "amzn2-ami-ecs-hvm-2.0.20260101-arm64-ebs"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2/arm64/recommended/os",
+   "value": "Amazon Linux 2"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2/kernel-5.10/recommended",
+   "value": "{\"ecs_agent_version\":\"1.89.0\",\"ecs_runtime_version\":\"Docker version 25.0.8\",\"image_id\":\"ami-0bf441d4e14a6f335\",\"image_name\":\"amzn2-ami-ecs-kernel-5.10-hvm-2.0.20260101-x86_64-ebs\",\"image_version\":\"20260101\",\"os\":\"Amazon Linux 2\",\"schema_version\":1,\"source_image_name\":\"amzn2-ami-kernel-5.10-hvm-2.0.20260101-x86_64-ebs\"}"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2/kernel-5.10/recommended/ecs_agent_version",
+   "value": "1.89.0"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2/kernel-5.10/recommended/image_id",
+   "value": "ami-0bf441d4e14a6f335"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2/kernel-5.10/recommended/image_name",
+   "value": "amzn2-ami-ecs-kernel-5.10-hvm-2.0.20260101-x86_64-ebs"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2/kernel-5.10/recommended/os",
+   "value": "Amazon Linux 2"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2/recommended",
+   "value": "{\"ecs_agent_version\":\"1.89.0\",\"ecs_runtime_version\":\"Docker version 25.0.8\",\"image_id\":\"ami-044b24a5e624f890d\",\"image_name\":\"amzn2-ami-ecs-hvm-2.0.20260101-x86_64-ebs\",\"image_version\":\"20260101\",\"os\":\"Amazon Linux 2\",\"schema_version\":1,\"source_image_name\":\"amzn2-ami-hvm-2.0.20260101-x86_64-ebs\"}"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2/recommended/ecs_agent_version",
+   "value": "1.89.0"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id",
+   "value": "ami-044b24a5e624f890d"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_name",
+   "value": "amzn2-ami-ecs-hvm-2.0.20260101-x86_64-ebs"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2/recommended/os",
+   "value": "Amazon Linux 2"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2023/arm64/recommended",
+   "value": "{\"ecs_agent_version\":\"1.89.0\",\"ecs_runtime_version\":\"Docker version 25.0.8\",\"image_id\":\"ami-04e934871fef181a3\",\"image_name\":\"al2023-ami-ecs-hvm-2023.0.20260101-kernel-6.1-arm64\",\"image_version\":\"20260101\",\"os\":\"Amazon Linux 2023\",\"schema_version\":1,\"source_image_name\":\"al2023-ami-hvm-2023.0.20260101-kernel-6.1-arm64\"}"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2023/arm64/recommended/ecs_agent_version",
+   "value": "1.89.0"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2023/arm64/recommended/image_id",
+   "value": "ami-04e934871fef181a3"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2023/arm64/recommended/image_name",
+   "value": "al2023-ami-ecs-hvm-2023.0.20260101-kernel-6.1-arm64"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2023/arm64/recommended/os",
+   "value": "Amazon Linux 2023"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2023/recommended",
+   "value": "{\"ecs_agent_version\":\"1.89.0\",\"ecs_runtime_version\":\"Docker version 25.0.8\",\"image_id\":\"ami-0ee26b1d2c4433d12\",\"image_name\":\"al2023-ami-ecs-hvm-2023.0.20260101-kernel-6.1-x86_64\",\"image_version\":\"20260101\",\"os\":\"Amazon Linux 2023\",\"schema_version\":1,\"source_image_name\":\"al2023-ami-hvm-2023.0.20260101-kernel-6.1-x86_64\"}"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/ecs_agent_version",
+   "value": "1.89.0"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/image_id",
+   "value": "ami-0ee26b1d2c4433d12"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/image_name",
+   "value": "al2023-ami-ecs-hvm-2023.0.20260101-kernel-6.1-x86_64"
+  },
+  {
+   "name": "/aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/os",
+   "value": "Amazon Linux 2023"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2-arm64/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-044904bd2a79763a7\",\"image_name\":\"amazon-eks-node-1.28-amazon-linux-2-arm64-v20260101\",\"release_version\":\"1.28.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2-arm64/recommended/image_id",
+   "value": "ami-044904bd2a79763a7"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2-arm64/recommended/image_name",
+   "value": "amazon-eks-node-1.28-amazon-linux-2-arm64-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2-arm64/recommended/release_version",
+   "value": "1.28.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2-gpu/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-0756b4eb9507938c2\",\"image_name\":\"amazon-eks-node-1.28-amazon-linux-2-gpu-v20260101\",\"release_version\":\"1.28.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2-gpu/recommended/image_id",
+   "value": "ami-0756b4eb9507938c2"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2-gpu/recommended/image_name",
+   "value": "amazon-eks-node-1.28-amazon-linux-2-gpu-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2-gpu/recommended/release_version",
+   "value": "1.28.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-0fd95386f860283d7\",\"image_name\":\"amazon-eks-node-1.28-amazon-linux-2-v20260101\",\"release_version\":\"1.28.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2/recommended/image_id",
+   "value": "ami-0fd95386f860283d7"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2/recommended/image_name",
+   "value": "amazon-eks-node-1.28-amazon-linux-2-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2/recommended/release_version",
+   "value": "1.28.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2023/arm64/standard/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-07cee3acd5a0b8ce6\",\"image_name\":\"amazon-eks-node-1.28-al2023-arm64-v20260101\",\"release_version\":\"1.28.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2023/arm64/standard/recommended/image_id",
+   "value": "ami-07cee3acd5a0b8ce6"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2023/arm64/standard/recommended/image_name",
+   "value": "amazon-eks-node-1.28-al2023-arm64-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2023/arm64/standard/recommended/release_version",
+   "value": "1.28.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2023/x86_64/standard/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-0526dbb21ac324235\",\"image_name\":\"amazon-eks-node-1.28-al2023-x86_64-v20260101\",\"release_version\":\"1.28.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2023/x86_64/standard/recommended/image_id",
+   "value": "ami-0526dbb21ac324235"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2023/x86_64/standard/recommended/image_name",
+   "value": "amazon-eks-node-1.28-al2023-x86_64-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.28/amazon-linux-2023/x86_64/standard/recommended/release_version",
+   "value": "1.28.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2-arm64/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-0c10e336ffcf152fc\",\"image_name\":\"amazon-eks-node-1.29-amazon-linux-2-arm64-v20260101\",\"release_version\":\"1.29.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2-arm64/recommended/image_id",
+   "value": "ami-0c10e336ffcf152fc"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2-arm64/recommended/image_name",
+   "value": "amazon-eks-node-1.29-amazon-linux-2-arm64-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2-arm64/recommended/release_version",
+   "value": "1.29.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2-gpu/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-0a5f5b9f36bd95142\",\"image_name\":\"amazon-eks-node-1.29-amazon-linux-2-gpu-v20260101\",\"release_version\":\"1.29.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2-gpu/recommended/image_id",
+   "value": "ami-0a5f5b9f36bd95142"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2-gpu/recommended/image_name",
+   "value": "amazon-eks-node-1.29-amazon-linux-2-gpu-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2-gpu/recommended/release_version",
+   "value": "1.29.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-0536323db358bf9a2\",\"image_name\":\"amazon-eks-node-1.29-amazon-linux-2-v20260101\",\"release_version\":\"1.29.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2/recommended/image_id",
+   "value": "ami-0536323db358bf9a2"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2/recommended/image_name",
+   "value": "amazon-eks-node-1.29-amazon-linux-2-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2/recommended/release_version",
+   "value": "1.29.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2023/arm64/standard/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-036b4d4add3dd7c8d\",\"image_name\":\"amazon-eks-node-1.29-al2023-arm64-v20260101\",\"release_version\":\"1.29.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2023/arm64/standard/recommended/image_id",
+   "value": "ami-036b4d4add3dd7c8d"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2023/arm64/standard/recommended/image_name",
+   "value": "amazon-eks-node-1.29-al2023-arm64-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2023/arm64/standard/recommended/release_version",
+   "value": "1.29.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2023/x86_64/standard/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-00472713bc478611e\",\"image_name\":\"amazon-eks-node-1.29-al2023-x86_64-v20260101\",\"release_version\":\"1.29.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2023/x86_64/standard/recommended/image_id",
+   "value": "ami-00472713bc478611e"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2023/x86_64/standard/recommended/image_name",
+   "value": "amazon-eks-node-1.29-al2023-x86_64-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.29/amazon-linux-2023/x86_64/standard/recommended/release_version",
+   "value": "1.29.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2-arm64/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-0e9609af5b5871240\",\"image_name\":\"amazon-eks-node-1.30-amazon-linux-2-arm64-v20260101\",\"release_version\":\"1.30.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2-arm64/recommended/image_id",
+   "value": "ami-0e9609af5b5871240"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2-arm64/recommended/image_name",
+   "value": "amazon-eks-node-1.30-amazon-linux-2-arm64-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2-arm64/recommended/release_version",
+   "value": "1.30.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2-gpu/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-0b662af5df45d366b\",\"image_name\":\"amazon-eks-node-1.30-amazon-linux-2-gpu-v20260101\",\"release_version\":\"1.30.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2-gpu/recommended/image_id",
+   "value": "ami-0b662af5df45d366b"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2-gpu/recommended/image_name",
+   "value": "amazon-eks-node-1.30-amazon-linux-2-gpu-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2-gpu/recommended/release_version",
+   "value": "1.30.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-02d32a8013dc10914\",\"image_name\":\"amazon-eks-node-1.30-amazon-linux-2-v20260101\",\"release_version\":\"1.30.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2/recommended/image_id",
+   "value": "ami-02d32a8013dc10914"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2/recommended/image_name",
+   "value": "amazon-eks-node-1.30-amazon-linux-2-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2/recommended/release_version",
+   "value": "1.30.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2023/arm64/standard/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-00899968de2db7bc9\",\"image_name\":\"amazon-eks-node-1.30-al2023-arm64-v20260101\",\"release_version\":\"1.30.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2023/arm64/standard/recommended/image_id",
+   "value": "ami-00899968de2db7bc9"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2023/arm64/standard/recommended/image_name",
+   "value": "amazon-eks-node-1.30-al2023-arm64-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2023/arm64/standard/recommended/release_version",
+   "value": "1.30.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2023/x86_64/standard/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-045158f5b6df2762f\",\"image_name\":\"amazon-eks-node-1.30-al2023-x86_64-v20260101\",\"release_version\":\"1.30.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2023/x86_64/standard/recommended/image_id",
+   "value": "ami-045158f5b6df2762f"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2023/x86_64/standard/recommended/image_name",
+   "value": "amazon-eks-node-1.30-al2023-x86_64-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.30/amazon-linux-2023/x86_64/standard/recommended/release_version",
+   "value": "1.30.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2-arm64/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-0958db9f209496d65\",\"image_name\":\"amazon-eks-node-1.31-amazon-linux-2-arm64-v20260101\",\"release_version\":\"1.31.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2-arm64/recommended/image_id",
+   "value": "ami-0958db9f209496d65"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2-arm64/recommended/image_name",
+   "value": "amazon-eks-node-1.31-amazon-linux-2-arm64-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2-arm64/recommended/release_version",
+   "value": "1.31.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2-gpu/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-04268b63724a88e0b\",\"image_name\":\"amazon-eks-node-1.31-amazon-linux-2-gpu-v20260101\",\"release_version\":\"1.31.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2-gpu/recommended/image_id",
+   "value": "ami-04268b63724a88e0b"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2-gpu/recommended/image_name",
+   "value": "amazon-eks-node-1.31-amazon-linux-2-gpu-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2-gpu/recommended/release_version",
+   "value": "1.31.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-03308f0cdc5696d64\",\"image_name\":\"amazon-eks-node-1.31-amazon-linux-2-v20260101\",\"release_version\":\"1.31.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2/recommended/image_id",
+   "value": "ami-03308f0cdc5696d64"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2/recommended/image_name",
+   "value": "amazon-eks-node-1.31-amazon-linux-2-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2/recommended/release_version",
+   "value": "1.31.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2023/arm64/standard/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-0fffa2535c71b5823\",\"image_name\":\"amazon-eks-node-1.31-al2023-arm64-v20260101\",\"release_version\":\"1.31.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2023/arm64/standard/recommended/image_id",
+   "value": "ami-0fffa2535c71b5823"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2023/arm64/standard/recommended/image_name",
+   "value": "amazon-eks-node-1.31-al2023-arm64-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2023/arm64/standard/recommended/release_version",
+   "value": "1.31.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2023/x86_64/standard/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-06a917325c1a1716e\",\"image_name\":\"amazon-eks-node-1.31-al2023-x86_64-v20260101\",\"release_version\":\"1.31.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2023/x86_64/standard/recommended/image_id",
+   "value": "ami-06a917325c1a1716e"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2023/x86_64/standard/recommended/image_name",
+   "value": "amazon-eks-node-1.31-al2023-x86_64-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.31/amazon-linux-2023/x86_64/standard/recommended/release_version",
+   "value": "1.31.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2-arm64/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-0a66d2cf88f4bdea8\",\"image_name\":\"amazon-eks-node-1.32-amazon-linux-2-arm64-v20260101\",\"release_version\":\"1.32.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2-arm64/recommended/image_id",
+   "value": "ami-0a66d2cf88f4bdea8"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2-arm64/recommended/image_name",
+   "value": "amazon-eks-node-1.32-amazon-linux-2-arm64-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2-arm64/recommended/release_version",
+   "value": "1.32.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2-gpu/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-0e31d9c87b2285748\",\"image_name\":\"amazon-eks-node-1.32-amazon-linux-2-gpu-v20260101\",\"release_version\":\"1.32.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2-gpu/recommended/image_id",
+   "value": "ami-0e31d9c87b2285748"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2-gpu/recommended/image_name",
+   "value": "amazon-eks-node-1.32-amazon-linux-2-gpu-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2-gpu/recommended/release_version",
+   "value": "1.32.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-0b8442e34b53286aa\",\"image_name\":\"amazon-eks-node-1.32-amazon-linux-2-v20260101\",\"release_version\":\"1.32.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2/recommended/image_id",
+   "value": "ami-0b8442e34b53286aa"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2/recommended/image_name",
+   "value": "amazon-eks-node-1.32-amazon-linux-2-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2/recommended/release_version",
+   "value": "1.32.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2023/arm64/standard/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-06fb74d1948e572ad\",\"image_name\":\"amazon-eks-node-1.32-al2023-arm64-v20260101\",\"release_version\":\"1.32.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2023/arm64/standard/recommended/image_id",
+   "value": "ami-06fb74d1948e572ad"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2023/arm64/standard/recommended/image_name",
+   "value": "amazon-eks-node-1.32-al2023-arm64-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2023/arm64/standard/recommended/release_version",
+   "value": "1.32.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2023/x86_64/standard/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-080d4e40a1c886316\",\"image_name\":\"amazon-eks-node-1.32-al2023-x86_64-v20260101\",\"release_version\":\"1.32.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2023/x86_64/standard/recommended/image_id",
+   "value": "ami-080d4e40a1c886316"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2023/x86_64/standard/recommended/image_name",
+   "value": "amazon-eks-node-1.32-al2023-x86_64-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.32/amazon-linux-2023/x86_64/standard/recommended/release_version",
+   "value": "1.32.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2-arm64/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-07e87f60e82f2d020\",\"image_name\":\"amazon-eks-node-1.33-amazon-linux-2-arm64-v20260101\",\"release_version\":\"1.33.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2-arm64/recommended/image_id",
+   "value": "ami-07e87f60e82f2d020"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2-arm64/recommended/image_name",
+   "value": "amazon-eks-node-1.33-amazon-linux-2-arm64-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2-arm64/recommended/release_version",
+   "value": "1.33.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2-gpu/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-05cf2e661e76f6a85\",\"image_name\":\"amazon-eks-node-1.33-amazon-linux-2-gpu-v20260101\",\"release_version\":\"1.33.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2-gpu/recommended/image_id",
+   "value": "ami-05cf2e661e76f6a85"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2-gpu/recommended/image_name",
+   "value": "amazon-eks-node-1.33-amazon-linux-2-gpu-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2-gpu/recommended/release_version",
+   "value": "1.33.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-0bb46607b6772395c\",\"image_name\":\"amazon-eks-node-1.33-amazon-linux-2-v20260101\",\"release_version\":\"1.33.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2/recommended/image_id",
+   "value": "ami-0bb46607b6772395c"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2/recommended/image_name",
+   "value": "amazon-eks-node-1.33-amazon-linux-2-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2/recommended/release_version",
+   "value": "1.33.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2023/arm64/standard/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-0fd79a6c2178dbb24\",\"image_name\":\"amazon-eks-node-1.33-al2023-arm64-v20260101\",\"release_version\":\"1.33.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2023/arm64/standard/recommended/image_id",
+   "value": "ami-0fd79a6c2178dbb24"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2023/arm64/standard/recommended/image_name",
+   "value": "amazon-eks-node-1.33-al2023-arm64-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2023/arm64/standard/recommended/release_version",
+   "value": "1.33.0-20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2023/x86_64/standard/recommended",
+   "value": "{\"schema_version\":\"1\",\"image_id\":\"ami-0277f73ec6cb10c9a\",\"image_name\":\"amazon-eks-node-1.33-al2023-x86_64-v20260101\",\"release_version\":\"1.33.0-20260101\"}"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2023/x86_64/standard/recommended/image_id",
+   "value": "ami-0277f73ec6cb10c9a"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2023/x86_64/standard/recommended/image_name",
+   "value": "amazon-eks-node-1.33-al2023-x86_64-v20260101"
+  },
+  {
+   "name": "/aws/service/eks/optimized-ami/1.33/amazon-linux-2023/x86_64/standard/recommended/release_version",
+   "value": "1.33.0-20260101"
+  }
+ ],
+ "regions": [
+  {
+   "name": "us-east-1",
+   "longName": "US East (N. Virginia)"
+  },
+  {
+   "name": "us-east-2",
+   "longName": "US East (Ohio)"
+  },
+  {
+   "name": "us-west-1",
+   "longName": "US West (N. California)"
+  },
+  {
+   "name": "us-west-2",
+   "longName": "US West (Oregon)"
+  },
+  {
+   "name": "af-south-1",
+   "longName": "Africa (Cape Town)"
+  },
+  {
+   "name": "ap-east-1",
+   "longName": "Asia Pacific (Hong Kong)"
+  },
+  {
+   "name": "ap-east-2",
+   "longName": "Asia Pacific (Taipei)"
+  },
+  {
+   "name": "ap-northeast-1",
+   "longName": "Asia Pacific (Tokyo)"
+  },
+  {
+   "name": "ap-northeast-2",
+   "longName": "Asia Pacific (Seoul)"
+  },
+  {
+   "name": "ap-northeast-3",
+   "longName": "Asia Pacific (Osaka)"
+  },
+  {
+   "name": "ap-south-1",
+   "longName": "Asia Pacific (Mumbai)"
+  },
+  {
+   "name": "ap-south-2",
+   "longName": "Asia Pacific (Hyderabad)"
+  },
+  {
+   "name": "ap-southeast-1",
+   "longName": "Asia Pacific (Singapore)"
+  },
+  {
+   "name": "ap-southeast-2",
+   "longName": "Asia Pacific (Sydney)"
+  },
+  {
+   "name": "ap-southeast-3",
+   "longName": "Asia Pacific (Jakarta)"
+  },
+  {
+   "name": "ap-southeast-4",
+   "longName": "Asia Pacific (Melbourne)"
+  },
+  {
+   "name": "ap-southeast-5",
+   "longName": "Asia Pacific (Malaysia)"
+  },
+  {
+   "name": "ap-southeast-6",
+   "longName": "Asia Pacific (New Zealand)"
+  },
+  {
+   "name": "ap-southeast-7",
+   "longName": "Asia Pacific (Thailand)"
+  },
+  {
+   "name": "ca-central-1",
+   "longName": "Canada (Central)"
+  },
+  {
+   "name": "ca-west-1",
+   "longName": "Canada West (Calgary)"
+  },
+  {
+   "name": "eu-central-1",
+   "longName": "Europe (Frankfurt)"
+  },
+  {
+   "name": "eu-central-2",
+   "longName": "Europe (Zurich)"
+  },
+  {
+   "name": "eu-north-1",
+   "longName": "Europe (Stockholm)"
+  },
+  {
+   "name": "eu-south-1",
+   "longName": "Europe (Milan)"
+  },
+  {
+   "name": "eu-south-2",
+   "longName": "Europe (Spain)"
+  },
+  {
+   "name": "eu-west-1",
+   "longName": "Europe (Ireland)"
+  },
+  {
+   "name": "eu-west-2",
+   "longName": "Europe (London)"
+  },
+  {
+   "name": "eu-west-3",
+   "longName": "Europe (Paris)"
+  },
+  {
+   "name": "il-central-1",
+   "longName": "Israel (Tel Aviv)"
+  },
+  {
+   "name": "me-central-1",
+   "longName": "Middle East (UAE)"
+  },
+  {
+   "name": "me-south-1",
+   "longName": "Middle East (Bahrain)"
+  },
+  {
+   "name": "mx-central-1",
+   "longName": "Mexico (Central)"
+  },
+  {
+   "name": "sa-east-1",
+   "longName": "South America (Sao Paulo)"
+  }
+ ],
+ "services": [
+  "acm",
+  "apigateway",
+  "athena",
+  "autoscaling",
+  "backup",
+  "batch",
+  "cloudformation",
+  "cloudfront",
+  "cloudtrail",
+  "cloudwatch",
+  "codebuild",
+  "codecommit",
+  "codepipeline",
+  "cognito-idp",
+  "config",
+  "dynamodb",
+  "ec2",
+  "ecr",
+  "ecs",
+  "eks",
+  "elasticache",
+  "elasticloadbalancing",
+  "elasticmapreduce",
+  "es",
+  "events",
+  "firehose",
+  "glue",
+  "iam",
+  "kinesis",
+  "kms",
+  "lambda",
+  "logs",
+  "organizations",
+  "rds",
+  "redshift",
+  "route53",
+  "s3",
+  "sagemaker",
+  "secretsmanager",
+  "ses",
+  "sns",
+  "sqs",
+  "ssm",
+  "states",
+  "sts",
+  "xray"
+ ]
+}

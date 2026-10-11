@@ -7,7 +7,7 @@
 service: ssm
 sdk_module: aws-sdk-go-v2/service/ssm@v1.77.0
 last_audit_commit: a72029cb1  # 2026-09-24 automation-execution/CancelMaintenanceWindowExecution sweep
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-11
 overall: A                 # cursor-population sweep (2026-08-29, fix/wrapper-key-sweep-rds-cloudwatch-sqs-sns):
                             # audited every List/Describe/Get op that declares a real NextToken (53 of
                             # 80 ops, from the pinned SDK Output structs directly, not by grep) for the
@@ -391,7 +391,7 @@ structural_gaps:
   - "CreateMaintenanceWindow/UpdateMaintenanceWindow StartDate/EndDate/ScheduleTimezone/ScheduleOffset are stored but not evaluated: no real scheduler (schedule/executions are one synthetic always-on execution)."
   - "ListResourceDataSync ResourceDataSyncItem.LastSuccessfulSyncTime/LastSyncStatusMessage/SyncLastModifiedTime and SyncSource.State: a sync never completes (no sync engine), so there is no real event to source them from."
   - "Commands have no per-plugin execution model (a document runs as one unit): CommandPlugins/PluginName/ResponseCode, ListCommandInvocations Details, DocumentHash/DocumentHashType, and AlarmConfiguration/CloudWatchOutputConfig/NotificationConfig/TriggeredAlarms (no alarm/notification infra) stay unmodeled."
-  - "GetParameter* SourceResult (advanced-parameter source resolution) has no backing source-resolution engine."
+  - "GetParameter* SourceResult for aws:ec2:image advanced parameters has no source-resolution engine (SourceResult is populated only for /aws/reference/secretsmanager/ references)."
   - "DocumentDescription review-approval workflow (ApprovedVersion/PendingReviewVersion/ReviewInformation/ReviewStatus) and Category/CategoryEnum: no review state machine; GetDocument AttachmentsContent needs a real S3-backed object store."
   - "Association AlarmConfiguration/TriggeredAlarms (no CloudWatch alarm infra), TargetLocations/TargetMaps (multi-account targeting), ScheduleOffset/LastExecutionDate/LastSuccessfulExecutionDate (no cron scheduler; associations run on demand)."
   - "StartAutomationExecution AlarmConfiguration/TargetLocations/TargetMaps/TargetParameterName/Targets (no multi-target fan-out); SendAutomationSignal Payload unused since steps go straight to Success."
@@ -419,6 +419,8 @@ leaks: {status: clean, note: "Janitor (janitor.go) is the only background gorout
 ---
 
 ## Notes
+
+**2026-10-11 public parameters + Secrets Manager references:** `/aws/service/*` is a read-only catalog embedded from `public_parameters.json` (AMI aliases, ecs/eks/bottlerocket/windows/ubuntu AMIs, global-infrastructure regions/services); never persisted. Served by GetParameter(s)/GetParametersByPath; DescribeParameters lists it only when a Name/Path filter targets `/aws/service`. Put fails on the reserved `aws` prefix, Delete returns ParameterNotFound. `/aws/reference/secretsmanager/<id>[:version-id|:stage]` resolves lazily via `SetSecretResolver` (SecureString, Version 0, SourceResult = GetSecretValue JSON, requires WithDecryption). AMI ids for families EC2 does not seed yet need matching images in services/ec2. Service-per-region availability in global-infrastructure is the same set for every region.
 
 **2026-10-09 realism pass:** LabelParameterVersion validates label syntax (1-100 chars, no leading digit, no `aws`/`ssm` prefix -> `InvalidLabels`), returns `ParameterVersionNotFound` for an unknown version and `ParameterVersionLabelLimitExceeded` above 10 labels (previously reported as InvalidLabels); GetParameters rejects more than 10 names. Left alone as unverifiable from the SDK: PutParameter Type change on overwrite, empty Value, and GetParametersByPath path syntax errors.
 

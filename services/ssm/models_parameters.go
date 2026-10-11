@@ -53,6 +53,8 @@ type Parameter struct {
 	LastModifiedUser string  `json:"LastModifiedUser,omitempty"`
 	LastModifiedDate float64 `json:"LastModifiedDate"`
 	Version          int64   `json:"Version"`
+	// Public marks catalog parameters under /aws/service; never persisted.
+	Public bool `json:"-"`
 }
 
 // PutParameterInput represents the request payload for PutParameter.
@@ -88,10 +90,8 @@ type GetParameterInput struct {
 // Description/KeyID/Tier/AllowedPattern/Policies/Tags for persistence and
 // DescribeParameters-style metadata. None of those six have a counterpart
 // on this narrower Get*-family wire shape and were previously fabricated on
-// it (Parameter was reused directly as the wire type). SourceResult (real,
-// populated only for aws:ssm:parameter/aws:ec2:image "advanced parameter"
-// source resolution) is deliberately not modeled -- this backend has no
-// source-resolution engine to derive it from, see PARITY.md gaps.
+// it (Parameter was reused directly as the wire type). SourceResult carries
+// the raw Secrets Manager response for /aws/reference/secretsmanager/ names.
 type ParameterOutput struct {
 	Name             string  `json:"Name"`
 	Type             string  `json:"Type"`
@@ -99,6 +99,7 @@ type ParameterOutput struct {
 	ARN              string  `json:"ARN,omitempty"`
 	DataType         string  `json:"DataType,omitempty"`
 	Selector         string  `json:"Selector,omitempty"`
+	SourceResult     string  `json:"SourceResult,omitempty"`
 	LastModifiedDate float64 `json:"LastModifiedDate"`
 	Version          int64   `json:"Version"`
 }

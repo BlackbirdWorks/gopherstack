@@ -2,6 +2,7 @@ package ssm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -517,6 +518,14 @@ func (b *InMemoryBackend) GetParameter(
 	region := getRegion(ctx)
 	account := awsmeta.Account(ctx)
 
+	if out, handled, err := b.getCatalogParameter(ctx, input.Name, input.WithDecryption); handled {
+		if err != nil {
+			return nil, err
+		}
+
+		return &GetParameterOutput{Parameter: out}, nil
+	}
+
 	baseName, selector := splitParameterSelector(input.Name)
 
 	b.mu.RLock("GetParameter")
@@ -561,46 +570,82 @@ func (b *InMemoryBackend) GetParameters(
 		)
 	}
 
-	b.mu.RLock("GetParameters")
-	defer b.mu.RUnlock()
-
 	output := &GetParametersOutput{
 		Parameters:        make([]ParameterOutput, 0, len(input.Names)),
 		InvalidParameters: make([]string, 0, len(input.Names)),
 	}
 
-	for _, name := range input.Names {
-		baseName, selector := splitParameterSelector(name)
+	catalog := make(map[int]catalogResult, len(input.Names))
 
-		param, err := b.resolveParameterSelector(region, baseName, selector)
-		if err != nil {
-			// Unknown name, missing version, or unresolvable label all become
-			// invalid parameters in GetParameters (AWS does not fail the call).
+	for i, name := range input.Names {
+		out, handled, err := b.getCatalogParameter(ctx, name, input.WithDecryption)
+		if !handled {
+			continue
+		}
+
+		if err != nil && !errors.Is(err, ErrParameterNotFound) && !errors.Is(err, ErrParameterVersionNotFound) {
+			return nil, err
+		}
+
+		catalog[i] = catalogResult{out: out, ok: err == nil}
+	}
+
+	b.mu.RLock("GetParameters")
+	defer b.mu.RUnlock()
+
+	for i, name := range input.Names {
+		if res, ok := catalog[i]; ok {
+			if res.ok {
+				output.Parameters = append(output.Parameters, res.out)
+			} else {
+				output.InvalidParameters = append(output.InvalidParameters, name)
+			}
+
+			continue
+		}
+
+		param, ok := b.getStoredParameterLocked(region, account, name, input.WithDecryption)
+		if !ok {
+			// Unknown name, missing version, unresolvable label or failed
+			// decryption all become invalid parameters (AWS does not fail the call).
 			output.InvalidParameters = append(output.InvalidParameters, name)
 
 			continue
 		}
 
-		// Decrypt SecureString if WithDecryption is true
-		if input.WithDecryption && param.Type == SecureStringType {
-			decrypted, derr := b.decryptSSMValue(param.KeyID, param.Value)
-			if derr != nil {
-				// If decryption fails, add to invalid parameters
-				output.InvalidParameters = append(output.InvalidParameters, name)
-
-				continue
-			}
-			param.Value = decrypted
-		}
-
-		param.ARN = parameterARN(region, account, baseName)
-		if selector != "" {
-			param.Selector = ":" + selector
-		}
-		output.Parameters = append(output.Parameters, param.toParameterOutput())
+		output.Parameters = append(output.Parameters, param)
 	}
 
 	return output, nil
+}
+
+// getStoredParameterLocked resolves one stored parameter (with optional
+// version/label selector) to its wire form. Caller must hold the read lock.
+func (b *InMemoryBackend) getStoredParameterLocked(
+	region, account, name string, withDecryption bool,
+) (ParameterOutput, bool) {
+	baseName, selector := splitParameterSelector(name)
+
+	param, err := b.resolveParameterSelector(region, baseName, selector)
+	if err != nil {
+		return ParameterOutput{}, false
+	}
+
+	if withDecryption && param.Type == SecureStringType {
+		decrypted, derr := b.decryptSSMValue(param.KeyID, param.Value)
+		if derr != nil {
+			return ParameterOutput{}, false
+		}
+
+		param.Value = decrypted
+	}
+
+	param.ARN = parameterARN(region, account, baseName)
+	if selector != "" {
+		param.Selector = ":" + selector
+	}
+
+	return param.toParameterOutput(), true
 }
 
 // DeleteParameter deletes a single parameter.
@@ -860,7 +905,9 @@ func (b *InMemoryBackend) decryptParamsSlice(
 				p.Value = decrypted
 			}
 		}
-		p.ARN = parameterARN(region, account, p.Name)
+		if !p.Public {
+			p.ARN = parameterARN(region, account, p.Name)
+		}
 		result = append(result, p.toParameterOutput())
 	}
 
@@ -889,6 +936,11 @@ func (b *InMemoryBackend) GetParametersByPath(
 		input.Recursive,
 		input.ParameterFilters,
 	)
+
+	if public := publicParametersByPath(path, region, input.Recursive, input.ParameterFilters); len(public) > 0 {
+		matched = append(matched, public...)
+		slices.SortFunc(matched, func(a, b *Parameter) int { return strings.Compare(a.Name, b.Name) })
+	}
 
 	startIdx := parseNextToken(input.NextToken)
 
@@ -958,6 +1010,10 @@ func (b *InMemoryBackend) DescribeParameters(
 			Policies:         parameterPoliciesToWire(p.Policies, p.LastModifiedDate, time.Now()),
 			ARN:              parameterARN(region, account, p.Name),
 		})
+	}
+
+	if filtersTargetPublicParameters(input.ParameterFilters) {
+		all = append(all, publicParameterMetadata(region)...)
 	}
 
 	all, err := filterParameterMetadata(all, input)

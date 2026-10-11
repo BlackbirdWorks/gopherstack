@@ -51,6 +51,7 @@ type InMemoryBackend struct {
 	kms                         KMSEncryptor
 	gcm                         cipher.AEAD
 	parameterPolicyNotifier     ParameterPolicyNotifier
+	secrets                     SecretResolver
 	registry                    *store.Registry
 	parameters                  map[string]*store.Table[Parameter]
 	maintenanceWindows          map[string]*store.Table[MaintenanceWindow]
