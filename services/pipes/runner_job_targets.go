@@ -28,17 +28,18 @@ type PipeECSRunner interface {
 
 // JobTargets holds the compute/query-style pipe target invokers.
 type JobTargets struct {
-	Batch     PipeBatchSubmitter
-	SageMaker PipeSageMakerStarter
-	Redshift  PipeRedshiftExecutor
-	ECS       PipeECSRunner
+	Batch      PipeBatchSubmitter
+	SageMaker  PipeSageMakerStarter
+	Redshift   PipeRedshiftExecutor
+	ECS        PipeECSRunner
+	Timestream PipeTimestreamWriter
 }
 
 // SetJobTargets installs the Batch, SageMaker pipeline, Redshift Data and ECS target invokers.
 func (r *Runner) SetJobTargets(j JobTargets) { r.jobs = j }
 
-// dispatchJobTarget routes Batch, SageMaker, Redshift and ECS targets. handled is false for any other ARN.
-func (r *Runner) dispatchJobTarget(ctx context.Context, p *Pipe) (bool, error) {
+// dispatchJobTarget routes Batch, SageMaker, Redshift, ECS and Timestream targets. handled is false for any other ARN.
+func (r *Runner) dispatchJobTarget(ctx context.Context, p *Pipe, payload []byte) (bool, error) {
 	t := p.Target
 	tp := p.TargetParameters
 
@@ -76,6 +77,8 @@ func (r *Runner) dispatchJobTarget(ctx context.Context, p *Pipe) (bool, error) {
 		}
 
 		return true, r.jobs.Redshift.ExecuteRedshiftStatement(ctx, t, rp)
+	case strings.HasPrefix(t, "arn:aws:timestream:"):
+		return true, r.invokeTimestreamTarget(ctx, p, payload)
 	case strings.HasPrefix(t, "arn:aws:ecs:"):
 		if r.jobs.ECS == nil {
 			return true, fmt.Errorf("%w: ecs target %q", ErrTargetInvokerUnwired, t)

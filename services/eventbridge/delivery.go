@@ -98,6 +98,9 @@ type DeliveryTargets struct {
 	CodePipeline      CodePipelineStarter
 	SageMakerPipeline SageMakerPipelineStarter
 	RedshiftData      RedshiftDataExecutor
+	SSMCommand        SSMCommandSender
+	SSMAutomation     SSMAutomationStarter
+	AppSync           AppSyncExecutor
 	RoleAuth          roleauth.Authorizer
 	obs               ruleObserver
 	ruleARN           string

@@ -162,5 +162,7 @@ func wireEventBridgeJobTargets(byName map[string]service.Registerable) {
 				dt.RedshiftData = &ebRedshiftDataAdapter{backend: bk}
 			}
 		}
+
+		wireEventBridgeSSMAppSync(dt, byName)
 	})
 }

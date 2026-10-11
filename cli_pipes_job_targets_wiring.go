@@ -166,5 +166,7 @@ func wirePipesJobTargets(byName map[string]service.Registerable) {
 		}
 	}
 
+	wirePipesTimestream(&jobs, byName)
+
 	pipesH.GetRunner().SetJobTargets(jobs)
 }

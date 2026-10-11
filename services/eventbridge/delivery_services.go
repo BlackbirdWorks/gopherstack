@@ -79,7 +79,7 @@ func deliverToServiceTarget(
 		return logTargetErr(ctx, "Redshift", arn, err), true
 	}
 
-	return false, false
+	return deliverToOpsTarget(ctx, target, dt, payload)
 }
 
 func logTargetErr(ctx context.Context, kind, arn string, err error) bool {

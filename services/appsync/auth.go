@@ -43,6 +43,10 @@ type GraphQLAuth struct {
 	Request   *http.Request
 	APIKey    string // x-api-key header
 	AuthToken string // Authorization header, verbatim
+	// ServiceInvoked marks an in-process call from an AWS service acting under
+	// an IAM role (EventBridge targets support AWS_IAM APIs only); it satisfies
+	// AWS_IAM authorization without a signed request.
+	ServiceInvoked bool
 }
 
 // lambdaAuthorizerEvent is the event AppSync sends to a Lambda authorizer.
@@ -169,7 +173,7 @@ func (b *InMemoryBackend) checkAuthProvider(
 	case AuthTypeLambda:
 		return b.checkLambdaAuth(ctx, apiID, cfg.LambdaCfg, query, operationName, variables, auth.AuthToken)
 	case AuthTypeIAM:
-		return b.checkIAMAuth(auth.Request)
+		return auth.ServiceInvoked || b.checkIAMAuth(auth.Request)
 	case AuthTypeCognito:
 		return b.checkCognitoAuth(auth.AuthToken, cfg.UserPoolID, cfg.ClientIDRegex)
 	case AuthTypeOIDC:

@@ -3,7 +3,7 @@ service: eventbridge
 sdk_module: aws-sdk-go-v2/service/eventbridge@v1.53.0
 sibling_sdk_modules: [aws-sdk-go-v2/service/pipes@v1.26.4, aws-sdk-go-v2/service/schemas@v1.37.4]  # Pipes and Schema Registry ops this Handler also implements; see schema_registry_and_pipes below
 last_audit_commit: f78c3b7c7  # 2026-09-24 leak sweep: terminal replays evicted after 1h; prior: 6020fa871
-last_audit_date: 2026-10-09
+last_audit_date: 2026-10-11
 overall: A
                        # 2026-10-09 realism pass: wire messages no longer carry the sentinel code prefix (was
                        # "ResourceNotFoundException: Rule x not found"); AWS wording for missing rule/bus/archive/endpoint ("Rule x
@@ -123,6 +123,7 @@ gaps: []
 items_still_open:
   - "Invalid-pattern Reason strings other than scalar-value, unknown matcher type and Filter-is-not-an-object (e.g. the exact wording for malformed JSON) are modeled from memory of real AWS, not pinned by the SDK."
 structural_gaps:
+  - "Inspector is not a deliverable rule target: the current EventBridge targets guide no longer lists it, Inspector Classic (assessment templates) is retired, and the repo has no classic backend; Inspector2 has no StartAssessmentRun-style API. Such ARNs log 'unsupported target ARN type'."
   - "ThrottledRules and PutEventsApproximateThrottledCount are never emitted: the emulator applies no invocation or PutEvents throttle limits. The AWS/Events docs list no API-destination metrics."
   - "Cross-account event-bus PutTargets delivery: the backend models a single account (InMemoryBackend.accountID), so a target bus ARN in another account cannot be resolved and is dropped. Same-account cross-bus/cross-region routing works."
 deferred:
@@ -1154,5 +1155,26 @@ Rule targets with a Batch job-queue, CodeBuild project, CodePipeline pipeline, S
 ARN were dropped with an "unsupported target" warning. They now deliver through `DeliveryTargets.{Batch,CodeBuild,
 CodePipeline,SageMakerPipeline,RedshiftData}` (delivery_services.go), wired in cli_eventbridge_job_targets_wiring.go;
 `TestEventBridgeJobTargets` drives PutEvents through the SDK and asserts the job/build/execution/statement exists.
-CodePipeline is wired the same way but has no root-level test yet. API Gateway (execute-api) and SSM RunCommand/Automation
-targets remain unsupported (no in-process execute-api invoke seam).
+CodePipeline is wired the same way but has no root-level test yet. API Gateway (execute-api) targets are delivered
+in-process; SSM Run Command / Automation and AppSync targets are delivered as of 2026-10-11 (see that section).
+
+## 2026-10-11: SSM Run Command, SSM Automation and AppSync targets
+
+`deliverToServiceTarget` (delivery_services.go) now routes `arn:aws:ssm:...:document/<name>` to SendCommand,
+`arn:aws:ssm:...:automation-definition/<name>:<version>` to StartAutomationExecution and `arn:aws:appsync:...:apis/<id>`
+to a GraphQL execution (delivery_ssm_appsync.go); adapters in cli_interconnect_ssm_appsync_timestream.go resolve the
+sibling backend per call and honour the ARN region. Failures return true so the existing retry/DLQ path applies.
+
+Mappings (docs: eb-targets "Systems Manager Run Command as a target", target-appsync):
+- Run Command: `RunCommandParameters.RunCommandTargets` -> SendCommand `Targets`; the document is the ARN's
+  `document/<name>` unless the target Input carries `DocumentName`; `Input.DocumentVersion` and `Input.Parameters`
+  (string or string-list values) map to the same SendCommand fields. A target without RunCommandParameters fails delivery.
+- Automation: assumption, the docs do not define the Input shape: the payload object (or its `Parameters` object when
+  present) is the parameter map; non-string/list values are dropped. Name and version come from the ARN.
+- AppSync: `AppSyncParameters.GraphQLOperation` is executed with the payload (after InputTransformer) as the variables
+  object, under the new `GraphQLAuth.ServiceInvoked` flag. As in AWS, only AWS_IAM APIs accept it; API_KEY/Cognito/OIDC/Lambda
+  APIs fail delivery with Unauthorized. Role-based IAM enforcement for these three targets is not applied.
+
+Tests: TestEventBridgeSSMAndAppSyncTargets (run_command, run_command_document_in_input, automation, appsync) and
+TestEventBridgeSSMAndAppSyncTargetFailures (DLQ) at the repo root; TestBuildSSMRequests, TestBuildSSMAutomationRequest.
+SSM Automation for an unknown document still succeeds in the SSM backend (synthetic step), so no DLQ case exists for it.

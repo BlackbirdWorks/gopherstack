@@ -604,7 +604,7 @@ func (r *Runner) dispatchTarget(ctx context.Context, p *Pipe, payload []byte) er
 		return r.invokeFirehoseTarget(ctx, p, payload)
 	}
 
-	if handled, err := r.dispatchJobTarget(ctx, p); handled {
+	if handled, err := r.dispatchJobTarget(ctx, p, payload); handled {
 		return err
 	}
 
