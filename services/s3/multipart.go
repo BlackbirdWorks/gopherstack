@@ -368,7 +368,7 @@ func (b *InMemoryBackend) claimMultipartUpload(bucketName, uploadID string) erro
 			upload.closed = true
 		}()
 
-		b.uploads.Delete(uploadID)
+		b.deleteUploadLocked(uploadID)
 	}()
 
 	return err
@@ -706,7 +706,7 @@ func (b *InMemoryBackend) AbortMultipartUpload(
 			upload.closed = true
 		}()
 
-		b.uploads.Delete(uploadID)
+		b.deleteUploadLocked(uploadID)
 	}()
 
 	if err != nil {

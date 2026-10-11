@@ -234,9 +234,25 @@ func extractAlgoAndChecksums(r *http.Request) (string, *string, *string, *string
 		algo = strings.ToUpper(r.Header.Get("X-Amz-Sdk-Checksum-Algorithm"))
 	}
 
+	if algo == "" {
+		algo = inferHeaderChecksumAlgo(r.Header)
+	}
+
 	crc32, crc32c, sha1, sha256 := extractChecksumPointers(r.Header, algo)
 
 	return algo, crc32, crc32c, sha1, sha256
+}
+
+// inferHeaderChecksumAlgo returns the algorithm implied by a lone x-amz-checksum-*
+// value header; the SDK's default CRC32 upload sends no algorithm header.
+func inferHeaderChecksumAlgo(h http.Header) string {
+	for _, algo := range []string{ChecksumCRC32, ChecksumCRC32C, ChecksumSHA1, ChecksumSHA256} {
+		if h.Get("X-Amz-Checksum-"+algo) != "" {
+			return algo
+		}
+	}
+
+	return ""
 }
 
 // buildPutObjectInput assembles an s3.PutObjectInput from the HTTP request fields.

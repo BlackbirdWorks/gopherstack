@@ -315,8 +315,18 @@ func (b *InMemoryBackend) purgeUploadsForBucketLocked(bucketName string) {
 	}
 
 	for _, id := range uploadIDs {
-		b.uploads.Delete(id)
+		b.deleteUploadLocked(id)
 	}
+}
+
+// deleteUploadLocked removes an upload and releases its lockmetrics series.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) deleteUploadLocked(uploadID string) {
+	if u, ok := b.uploads.Get(uploadID); ok {
+		u.mu.Close()
+	}
+
+	b.uploads.Delete(uploadID)
 }
 
 // purgeBucketLocked removes a single bucket and its associated data from the
@@ -371,6 +381,10 @@ func (b *InMemoryBackend) Reset() {
 			obj.mu.Close()
 		}
 		bucket.mu.Close()
+	}
+
+	for _, u := range b.uploads.All() {
+		u.mu.Close()
 	}
 
 	b.registry.ResetAll()
