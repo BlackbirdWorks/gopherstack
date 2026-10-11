@@ -358,6 +358,8 @@ By default resources settle instantly. Set a dwell to make Creating/Processing/P
 | `--lifecycle-macie2` | `MACIE2_LIFECYCLE_DELAY` | Macie one-time classification job `RUNNING` window before `COMPLETE` (built-in `5s`). |
 | `--lifecycle-detective` | `DETECTIVE_LIFECYCLE_DELAY` | Detective investigation `RUNNING` window before `SUCCESSFUL`. |
 | `--lifecycle-eks` | `EKS_LIFECYCLE_DELAY` | EKS transitional-state window (built-in `100ms`). |
+| `--lifecycle-cloudcontrol` | `CLOUDCONTROL_OPERATION_DELAY` | Cloud Control Create/Update/DeleteResource `IN_PROGRESS` window. |
+| `--lifecycle-mediapackage` | `MEDIAPACKAGE_HARVEST_JOB_DELAY` | MediaPackage harvest job `IN_PROGRESS` window (built-in `1s`). |
 | `--lifecycle-mwaa` | `MWAA_LIFECYCLE_DELAY` | MWAA environment `CREATING`/`UPDATING`/`DELETING` window. |
 | `--lifecycle-omics` | `OMICS_LIFECYCLE_DELAY` | HealthOmics workflow/store/share/run and import/export/activation job per-hop window. |
 | `--lifecycle-resiliencehub` | `RESILIENCEHUB_LIFECYCLE_DELAY` | Resilience Hub assessment/import/resolution per-hop window (built-in `100ms`). |

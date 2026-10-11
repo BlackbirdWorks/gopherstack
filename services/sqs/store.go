@@ -57,12 +57,21 @@ type InMemoryBackend struct {
 	recentlyDeleted map[string]time.Time
 	accountID       string
 	region          string
+	defaultEndpoint string
 }
 
 // queueTableKey is the [store.Table] key function for b.queues, deriving the
 // same (region, name) composite key that queueKey builds from raw input.
 func queueTableKey(q *Queue) string {
 	return queueKey(q.Region, q.Name)
+}
+
+// SetDefaultEndpoint sets the host used in queue URLs when a request carries none (in-process callers).
+func (b *InMemoryBackend) SetDefaultEndpoint(endpoint string) {
+	b.mu.Lock("SetDefaultEndpoint")
+	defer b.mu.Unlock()
+
+	b.defaultEndpoint = endpoint
 }
 
 // SetMetricEmitter sets the emitter used to forward SQS operation metrics to CloudWatch.

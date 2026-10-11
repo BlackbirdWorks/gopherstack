@@ -14,6 +14,7 @@ import (
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockagentbackend "github.com/blackbirdworks/gopherstack/services/bedrockagent"
 	cleanroomsbackend "github.com/blackbirdworks/gopherstack/services/cleanrooms"
+	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
@@ -42,6 +43,7 @@ import (
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	medialivebackend "github.com/blackbirdworks/gopherstack/services/medialive"
+	mediapackagebackend "github.com/blackbirdworks/gopherstack/services/mediapackage"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mgnbackend "github.com/blackbirdworks/gopherstack/services/mgn"
@@ -153,6 +155,8 @@ type LifecycleSettings struct {
 	ServerlessRepo               time.Duration `name:"serverlessrepo"                 env:"SERVERLESSREPO_LIFECYCLE_DELAY"       default:"0s" help:"Serverless Application Repository template PREPARING window."`                                        //nolint:lll // config struct tags are intentionally verbose
 	CodeConnections              time.Duration `name:"codeconnections"                env:"CODECONNECTIONS_LIFECYCLE_DELAY"      default:"0s" help:"CodeConnections connection handshake and host setup PENDING window."`                                 //nolint:lll // config struct tags are intentionally verbose
 	CodeStarConnections          time.Duration `name:"codestarconnections"            env:"CODESTARCONNECTIONS_LIFECYCLE_DELAY"  default:"0s" help:"CodeStar Connections connection handshake and host setup PENDING window; hosts stay PENDING when 0."` //nolint:lll // config struct tags are intentionally verbose
+	CloudControl                 time.Duration `name:"cloudcontrol"                   env:"CLOUDCONTROL_OPERATION_DELAY"         default:"0s" help:"Cloud Control Create/Update/DeleteResource IN_PROGRESS window."`                                      //nolint:lll // config struct tags are intentionally verbose
+	MediaPackage                 time.Duration `name:"mediapackage"                   env:"MEDIAPACKAGE_HARVEST_JOB_DELAY"       default:"0s" help:"MediaPackage harvest job IN_PROGRESS window; 0 keeps the built-in 1s."`                               //nolint:lll // config struct tags are intentionally verbose
 	EKS                          time.Duration `name:"eks"                            env:"EKS_LIFECYCLE_DELAY"                  default:"0s" help:"EKS transitional-state window (built-in 100ms)."`                                                     //nolint:lll // config struct tags are intentionally verbose
 }
 
@@ -419,6 +423,22 @@ func applyEKS(reg service.Registerable, l LifecycleSettings) {
 	if h, ok := reg.(*eksbackend.Handler); ok {
 		if d := l.effective(l.EKS); d > 0 {
 			h.Backend.SetLifecycleDelay(d)
+		}
+	}
+}
+
+func applyCloudControl(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*cloudcontrolbackend.Handler); ok {
+		h.Backend.SetOperationDelay(l.effective(l.CloudControl))
+	}
+}
+
+func applyMediaPackage(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*mediapackagebackend.Handler); ok {
+		if bk, isBk := h.Backend.(*mediapackagebackend.InMemoryBackend); isBk {
+			if d := l.effective(l.MediaPackage); d > 0 {
+				bk.SetHarvestJobDuration(d)
+			}
 		}
 	}
 }
@@ -751,6 +771,8 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSett
 		"Pinpoint":            applyPinpoint,
 		"Autoscaling":         applyAutoscaling,
 		"EKS":                 applyEKS,
+		"CloudControl":        applyCloudControl,
+		"MediaPackage":        applyMediaPackage,
 		"CloudFront":          applyCloudFront,
 		"SSM":                 applySSM,
 		"DocDB":               applyDocDB,

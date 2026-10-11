@@ -158,7 +158,12 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		scheme = "http"
 	}
 
-	queueURL := scheme + "://" + input.Endpoint + "/" + b.accountID + "/" + input.QueueName
+	endpoint := input.Endpoint
+	if endpoint == "" {
+		endpoint = b.defaultEndpoint
+	}
+
+	queueURL := scheme + "://" + endpoint + "/" + b.accountID + "/" + input.QueueName
 
 	tagName := "sqs.queue." + input.QueueName + ".tags"
 
