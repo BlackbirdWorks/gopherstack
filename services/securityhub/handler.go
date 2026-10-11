@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -451,6 +452,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
+		if httputils.SignedForOtherService(c.Request(), securityHubServiceName) {
+			return false
+		}
+
 		// Unambiguous SecurityHub-only paths. /accounts is exact-match only:
 		// the real API (EnableSecurityHub, DisableSecurityHub, DescribeHub,
 		// UpdateSecurityHubConfiguration) never binds anything under
@@ -475,11 +480,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	}
 }
 
-// isSecurityHubRequest checks the Authorization header for the securityhub signing service.
+// isSecurityHubRequest reports whether the SigV4 scope names securityhub.
 func isSecurityHubRequest(c *echo.Context) bool {
-	auth := c.Request().Header.Get("Authorization")
-
-	return strings.Contains(auth, "/"+securityHubServiceName+"/")
+	return httputils.ExtractServiceFromRequest(c.Request()) == securityHubServiceName
 }
 
 // MatchPriority returns the routing priority.

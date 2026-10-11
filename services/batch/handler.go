@@ -19,6 +19,7 @@ import (
 )
 
 const (
+	batchSigningName = "batch"
 	// opListTagsForResource, opTagResource, and opUntagResource name the three
 	// tag operations shared by the main Handler's GetSupportedOperations/
 	// ExtractOperation and TagsRouter's GetSupportedOperations (tags_route.go).
@@ -169,6 +170,10 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
+
+		if httputils.SignedForOtherService(c.Request(), batchSigningName) {
+			return false
+		}
 
 		if strings.HasPrefix(path, tagsPrefix) {
 			return isBatchTagPath(path)

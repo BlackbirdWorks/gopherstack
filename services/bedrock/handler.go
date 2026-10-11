@@ -22,6 +22,7 @@ import (
 )
 
 const (
+	bedrockSigningName          = "bedrock"
 	guardrailsPrefix            = "/guardrails"
 	foundationModelsPrefix      = "/foundation-models"
 	provisionedModelThroughput  = "/provisioned-model-throughput"
@@ -374,6 +375,10 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 // RouteMatcher returns a function that matches Bedrock requests.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
+		if httputils.SignedForOtherService(c.Request(), bedrockSigningName) {
+			return false
+		}
+
 		return matchBedrockPath(c.Request().URL.Path)
 	}
 }

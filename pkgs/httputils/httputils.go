@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -575,6 +576,14 @@ func ScopedPrefixMatch(r *http.Request, path, prefix, serviceName string) bool {
 	scope := ExtractServiceFromRequest(r)
 
 	return scope == "" || scope == serviceName
+}
+
+// SignedForOtherService reports whether r carries a SigV4 scope naming a
+// service outside names. Unsigned requests report false.
+func SignedForOtherService(r *http.Request, names ...string) bool {
+	scope := ExtractServiceFromRequest(r)
+
+	return scope != "" && !slices.Contains(names, scope)
 }
 
 func isAllowedHeaderSpecial(c rune) bool {

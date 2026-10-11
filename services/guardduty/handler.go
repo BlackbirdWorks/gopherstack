@@ -308,6 +308,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
+		if httputils.SignedForOtherService(c.Request(), guardDutyService) {
+			return false
+		}
+
 		return strings.HasPrefix(path, "/"+pathDetector) ||
 			isGuardDutyTagsPath(path) ||
 			isGuardDutyAdminPath(path, c.Request().Method, httputils.ExtractServiceFromRequest(c.Request())) ||

@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -140,6 +141,10 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 // RouteMatcher returns a function that matches AWS Backup REST requests.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
+		if httputils.SignedForOtherService(c.Request(), backupSigningName) {
+			return false
+		}
+
 		return matchesBackupPath(c.Request().URL.Path)
 	}
 }
@@ -702,3 +707,5 @@ func splitPlanSel(resource string) (string, string, bool) {
 }
 
 // --- Recovery point handlers ---
+
+const backupSigningName = "backup"

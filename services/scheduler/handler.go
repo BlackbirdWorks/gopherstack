@@ -42,6 +42,7 @@ const (
 
 const (
 	schedulerTargetPrefix    = "AWSScheduler."
+	schedulerSigningName     = "scheduler"
 	schedulerPathSegment     = "schedules"
 	scheduleGroupPathSegment = "schedule-groups"
 	schedulerTagsPathSegment = "tags"
@@ -216,7 +217,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		if strings.HasPrefix(path, "/"+schedulerPathSegment) ||
 			strings.HasPrefix(path, "/"+scheduleGroupPathSegment) {
-			return true
+			return !httputils.SignedForOtherService(c.Request(), schedulerSigningName)
 		}
 
 		// Only claim /tags/{ResourceArn} when the ARN is a scheduler-owned resource.

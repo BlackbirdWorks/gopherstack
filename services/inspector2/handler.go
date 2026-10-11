@@ -191,6 +191,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
+		if httputils.SignedForOtherService(c.Request(), inspector2ServiceName) {
+			return false
+		}
+
 		if path == pathEnable || path == pathDisable {
 			return true
 		}
@@ -211,11 +215,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	}
 }
 
-// isInspector2Request checks the Authorization header for the inspector2 signing service.
+// isInspector2Request reports whether the SigV4 scope names inspector2.
 func isInspector2Request(c *echo.Context) bool {
-	auth := c.Request().Header.Get("Authorization")
-
-	return strings.Contains(auth, "/"+inspector2ServiceName+"/")
+	return httputils.ExtractServiceFromRequest(c.Request()) == inspector2ServiceName
 }
 
 // MatchPriority returns the routing priority.
