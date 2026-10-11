@@ -154,6 +154,12 @@ func validateCreateTopicAttrs(name string, attrs map[string]string) error {
 		)
 	}
 
+	if v, ok := attrs[attrMaximumMessageSize]; ok {
+		if err := validateMaximumMessageSize(v); err != nil {
+			return err
+		}
+	}
+
 	// Validate KmsMasterKeyId format if present (alias name, alias ARN, key ID, or key ARN).
 	if v := attrs["KmsMasterKeyId"]; v != "" {
 		if err := validateKmsMasterKeyID(v); err != nil {

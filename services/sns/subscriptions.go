@@ -133,7 +133,7 @@ func (b *InMemoryBackend) SubscribeWithAttributes(
 func (b *InMemoryBackend) subscribe(
 	topicArn, protocol, endpoint, filterPolicy string,
 ) (*Subscription, bool, string, error) {
-	if err := validateSubscribeEndpoint(protocol, endpoint); err != nil {
+	if err := b.screenEndpoint(protocol, endpoint); err != nil {
 		return nil, false, "", err
 	}
 
@@ -164,8 +164,8 @@ func (b *InMemoryBackend) subscribe(
 		}
 	}
 
-	if len(topicSubs) >= b.subscriptionLimitPerTopic {
-		return nil, false, "", ErrSubscriptionLimitExceeded
+	if err := b.checkTopicAdmits(topic, topicSubs, protocol); err != nil {
+		return nil, false, "", err
 	}
 
 	if filterPolicy != "" {

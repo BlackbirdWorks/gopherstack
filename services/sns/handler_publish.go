@@ -219,21 +219,21 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 
 	// AWS SNS PublishBatch returns a top-level NotFoundException when the topic
 	// does not exist, rather than per-entry failures. Pre-check topic existence.
-	if _, err := h.Backend.GetTopicAttributes(topicArn); err != nil {
+	topicAttrs, err := h.Backend.GetTopicAttributes(topicArn)
+	if err != nil {
 		return h.handleBackendError(c, err)
 	}
 
-	// AWS rejects PublishBatch when the combined message bodies exceed the
-	// 256 KiB per-request limit (BatchRequestTooLong).
+	// AWS rejects PublishBatch when the combined entries (bodies plus message
+	// attributes) exceed the topic's size limit (BatchRequestTooLong).
 	totalBytes := 0
 	for _, entry := range entries {
-		totalBytes += len(entry.message)
+		totalBytes += publishPayloadSize(entry.message, entry.attrs)
 	}
 
-	if totalBytes > maxMessageSizeBytes {
+	if limit := topicMessageLimit(topicAttrs); totalBytes > limit {
 		return h.writeError(c, http.StatusBadRequest, "BatchRequestTooLong",
-			fmt.Sprintf("Batch requests cannot be longer than %d bytes; got %d.",
-				maxMessageSizeBytes, totalBytes))
+			fmt.Sprintf("Batch requests cannot be longer than %d bytes; got %d.", limit, totalBytes))
 	}
 
 	successful := make([]XMLPublishBatchSuccessEntry, 0, len(entries))

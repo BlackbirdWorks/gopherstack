@@ -678,6 +678,7 @@ type InMemoryBackend struct {
 	// via SetSubscriptionLimitPerTopicForTest so tests can exercise the limit
 	// without creating millions of subscriptions.
 	subscriptionLimitPerTopic int
+	allowLinkLocal            atomic.Bool
 }
 
 // httpDelivery holds the endpoint and message body for an HTTP/HTTPS delivery.

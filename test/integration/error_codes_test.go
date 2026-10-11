@@ -445,7 +445,7 @@ func TestIntegration_ErrorCodes_SQS(t *testing.T) {
 			},
 		},
 		{
-			name: "MessageNotInflight_ChangeMessageVisibility",
+			name: "ReceiptHandleIsInvalid_ChangeMessageVisibility",
 			operation: func(t *testing.T) error {
 				t.Helper()
 				qName := "inflight-queue-" + uuid.NewString()[:8]
@@ -466,8 +466,8 @@ func TestIntegration_ErrorCodes_SQS(t *testing.T) {
 			check: func(t *testing.T, err error) {
 				t.Helper()
 				require.Error(t, err)
-				var notInflight *sqstypes.MessageNotInflight
-				assert.ErrorAs(t, err, &notInflight, "expected MessageNotInflight")
+				var invalid *sqstypes.ReceiptHandleIsInvalid
+				assert.ErrorAs(t, err, &invalid, "expected ReceiptHandleIsInvalid")
 			},
 		},
 	}

@@ -39,6 +39,7 @@ type InMemoryBackend struct {
 	queues         *store.Table[Queue]
 	moveTasks      *store.Table[moveTaskState]
 	snsUnsubscribe func()
+	handles        *receiptHandleCodec
 	roleAuth       roleauth.Authorizer
 	janitorStop    chan struct{}
 	mu             *lockmetrics.RWMutex
@@ -172,6 +173,7 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		svcCtx:          svcCtx,
 		recentlyDeleted: make(map[string]time.Time),
 		nowFunc:         time.Now,
+		handles:         newReceiptHandleCodec(),
 	}
 
 	b.queues = store.Register(b.registry, "queues", store.New(queueTableKey))

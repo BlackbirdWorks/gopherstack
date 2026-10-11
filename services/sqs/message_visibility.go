@@ -4,8 +4,6 @@ import (
 	"sort"
 	"strconv"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // resolveVisibilityTimeout returns the effective visibility timeout for a receive operation.
@@ -161,7 +159,7 @@ func pickVisibleMessages(
 	maxMessages, vt int,
 	now time.Time,
 	cutoff time.Time,
-	accountID string,
+	rc receiveCtx,
 ) []*Message {
 	// nolint:prealloc,nolintlint // capacity tainted by user input — satisfies CodeQL
 	result := make([]*Message, 0)
@@ -184,7 +182,7 @@ func pickVisibleMessages(
 		}
 
 		if maxMessages > 0 && len(result) < maxMessages && !now.Before(msg.VisibleAt) {
-			enqueueReceivedMessage(q, msg, blockedGroups, now, vt, accountID)
+			enqueueReceivedMessage(q, msg, blockedGroups, now, vt, rc)
 			result = append(result, msg)
 
 			continue
@@ -203,6 +201,12 @@ func pickVisibleMessages(
 	return result
 }
 
+// receiveCtx carries per-receive backend state into the queue-locked pick path.
+type receiveCtx struct {
+	codec     *receiptHandleCodec
+	accountID string
+}
+
 // enqueueReceivedMessage stamps msg with a receipt handle, increments counters, registers it
 // as in-flight on q, and marks its FIFO group as blocked. Caller must hold q.mu.
 func enqueueReceivedMessage(
@@ -211,12 +215,12 @@ func enqueueReceivedMessage(
 	blockedGroups map[string]bool,
 	now time.Time,
 	vt int,
-	accountID string,
+	rc receiveCtx,
 ) {
 	q.receiveGeneration++
-	receipt := msg.MessageID + ":" + strconv.FormatUint(q.receiveGeneration, 10) + ":" + uuid.NewString()
-	msg.ReceiptHandle = receipt
 	msg.ApproximateReceiveCount++
+	receipt := rc.codec.issue(q, msg.MessageID, msg.ApproximateReceiveCount)
+	msg.ReceiptHandle = receipt
 	msg.Attributes[attrApproxReceiveCount] = strconv.Itoa(msg.ApproximateReceiveCount)
 
 	if msg.ApproximateFirstReceiveTimestamp == 0 {
@@ -225,7 +229,7 @@ func enqueueReceivedMessage(
 			msg.ApproximateFirstReceiveTimestamp,
 			10,
 		)
-		msg.Attributes[attrSenderID] = accountID
+		msg.Attributes[attrSenderID] = rc.accountID
 	}
 
 	inf := &InFlightMessage{
@@ -251,7 +255,7 @@ func tryFastPickMessages(
 	maxMessages, vt int,
 	now time.Time,
 	cutoff time.Time,
-	accountID string,
+	rc receiveCtx,
 ) ([]*Message, bool) {
 	if maxMessages <= 0 || len(q.messages) == 0 {
 		return nil, false
@@ -277,7 +281,7 @@ func tryFastPickMessages(
 	result := make([]*Message, n)
 	for i := range n {
 		msg := q.messages[i]
-		enqueueReceivedMessage(q, msg, blockedGroups, now, vt, accountID)
+		enqueueReceivedMessage(q, msg, blockedGroups, now, vt, rc)
 		result[i] = msg
 		q.messages[i] = nil
 	}
@@ -289,7 +293,7 @@ func tryFastPickMessages(
 
 func prepareAndPickMessages(
 	q *Queue,
-	accountID string,
+	rc receiveCtx,
 	maxMessages, vt int,
 	now time.Time,
 ) []*Message {
@@ -310,10 +314,10 @@ func prepareAndPickMessages(
 	}
 
 	var result []*Message
-	if fastResult, ok := tryFastPickMessages(q, blockedGroups, maxMessages, vt, now, cutoff, accountID); ok {
+	if fastResult, ok := tryFastPickMessages(q, blockedGroups, maxMessages, vt, now, cutoff, rc); ok {
 		result = fastResult
 	} else {
-		result = pickVisibleMessages(q, blockedGroups, maxMessages, vt, now, cutoff, accountID)
+		result = pickVisibleMessages(q, blockedGroups, maxMessages, vt, now, cutoff, rc)
 	}
 
 	// Recompute delayedCount only when delayed messages are known to exist (#59).
@@ -348,32 +352,31 @@ func (b *InMemoryBackend) ChangeMessageVisibility(input *ChangeMessageVisibility
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	return changeVisibility(q, input.ReceiptHandle, input.VisibilityTimeout, b.now())
+	return changeVisibility(q, b.handles, input.ReceiptHandle, input.VisibilityTimeout, b.now())
 }
 
 // changeVisibility updates the VisibleAt time for an in-flight message by receipt handle.
 // When visibilityTimeout is 0 the message is immediately returned to the visible queue,
 // matching the AWS behaviour where a zero timeout makes a message immediately available.
 // Caller must hold q.mu.
-func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int, now time.Time) error {
-	// Use inFlightByHandle for lookup; fall back to linear scan if map not populated
-	// (e.g., restored from snapshot before #56 was applied).
-	inf, found := q.inFlightByHandle[receiptHandle]
-	if !found {
-		// Fallback: linear scan for compatibility with snapshots that predate #56.
-		for _, candidate := range q.inFlightMessages {
-			if candidate.ReceiptHandle == receiptHandle {
-				inf = candidate
-				found = true
+func changeVisibility(
+	q *Queue,
+	codec *receiptHandleCodec,
+	receiptHandle string,
+	visibilityTimeout int,
+	now time.Time,
+) error {
+	inf, _, status := codec.lookup(q, receiptHandle)
 
-				break
-			}
-		}
-	}
-
-	if !found {
+	switch status {
+	case handleCurrent:
+	case handleNotInflight:
 		return ErrMessageNotInflight
+	default:
+		return ErrReceiptHandleInvalid
 	}
+
+	receiptHandle = inf.ReceiptHandle
 
 	if visibilityTimeout == 0 {
 		// Move back to the visible queue immediately.
@@ -439,13 +442,9 @@ func (b *InMemoryBackend) ChangeMessageVisibilityBatch(
 			continue
 		}
 
-		if err := changeVisibility(q, entry.ReceiptHandle, entry.VisibilityTimeout, now); err != nil {
-			out.Failed = append(out.Failed, BatchErrorEntry{
-				ID:          entry.ID,
-				Code:        "MessageNotInflight",
-				Message:     err.Error(),
-				SenderFault: true,
-			})
+		if err := changeVisibility(q, b.handles, entry.ReceiptHandle, entry.VisibilityTimeout, now); err != nil {
+			f := batchFailure(entry.ID, err)
+			out.Failed = append(out.Failed, BatchErrorEntry(f))
 		} else {
 			out.Successful = append(out.Successful, BatchResultEntry{ID: entry.ID})
 		}

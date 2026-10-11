@@ -2,6 +2,7 @@ package sqs
 
 import (
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -156,7 +157,7 @@ func sendMessageLocked(
 
 		storeDedup(
 			q, input.MessageGroupID, input.MessageDeduplicationID,
-			sha256Body, q.Attributes[attrContentBasedDeduplication], msgID, now,
+			sha256Body, q.Attributes[attrContentBasedDeduplication], msgID, seqNum, now,
 		)
 	}
 
@@ -519,7 +520,7 @@ func (b *InMemoryBackend) receiveOnce(
 	}
 
 	vt := resolveVisibilityTimeout(input.VisibilityTimeout, q)
-	msgs := prepareAndPickMessages(q, b.accountID, maxMessages, vt, now)
+	msgs := prepareAndPickMessages(q, receiveCtx{codec: b.handles, accountID: b.accountID}, maxMessages, vt, now)
 
 	// Cache the result for FIFO ReceiveRequestAttemptID deduplication.
 	if q.IsFIFO && input.ReceiveRequestAttemptID != "" && len(msgs) > 0 {
@@ -568,22 +569,39 @@ func (b *InMemoryBackend) DeleteMessage(input *DeleteMessageInput) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	// #56: O(1) lookup via receipt-handle index.
-	inf, found := q.inFlightByHandle[input.ReceiptHandle]
-	if !found {
+	return b.deleteByHandle(q, input.ReceiptHandle, true)
+}
+
+// deleteByHandle removes the message named by handle: the in-flight copy, or a
+// visible copy whose visibility timeout lapsed. A superseded handle succeeds
+// without deleting (api_op_DeleteMessage.go). Caller must hold q.mu.
+func (b *InMemoryBackend) deleteByHandle(q *Queue, handle string, checkThroughput bool) error {
+	inf, id, status := b.handles.lookup(q, handle)
+	if status == handleInvalid {
 		return ErrReceiptHandleInvalid
 	}
 
-	if q.IsFIFO {
+	if status == handleStale {
+		return nil
+	}
+
+	if inf == nil {
+		if removeVisibleMessage(q, id) {
+			b.emitCount(q, "NumberOfMessagesDeleted", 1)
+		}
+
+		return nil
+	}
+
+	if checkThroughput && q.IsFIFO {
 		scopeKey := fifoThroughputScopeKey(q, inf.Msg.MessageGroupID)
 		if err := checkFIFOThroughput(q, fifoMethodDelete, scopeKey, 1, b.now()); err != nil {
 			return err
 		}
 	}
 
-	delete(q.inFlightByHandle, input.ReceiptHandle)
+	delete(q.inFlightByHandle, inf.ReceiptHandle)
 	removeInFlight(q, inf)
-
 	b.emitCount(q, "NumberOfMessagesDeleted", 1)
 
 	return nil
@@ -663,12 +681,7 @@ func processSendMessageBatchEntries(
 
 	for i, entry := range input.Entries {
 		if throttled[i] {
-			out.Failed = append(out.Failed, BatchResultErrorEntry{
-				ID:          entry.ID,
-				Code:        ErrRequestThrottled.Error(),
-				Message:     ErrRequestThrottled.Error(),
-				SenderFault: true,
-			})
+			out.Failed = append(out.Failed, batchFailure(entry.ID, ErrRequestThrottled))
 
 			continue
 		}
@@ -685,12 +698,7 @@ func processSendMessageBatchEntries(
 			MessageSystemAttributes: entry.MessageSystemAttributes,
 		}, p.md5Body, p.sha256Body, p.md5Attrs, p.md5SysAttrs, p.msgID, false, now)
 		if err != nil {
-			out.Failed = append(out.Failed, BatchResultErrorEntry{
-				ID:          entry.ID,
-				Code:        err.Error(),
-				Message:     err.Error(),
-				SenderFault: true,
-			})
+			out.Failed = append(out.Failed, batchFailure(entry.ID, err))
 
 			continue
 		}
@@ -833,31 +841,16 @@ func (b *InMemoryBackend) DeleteMessageBatch(
 
 	for i, entry := range input.Entries {
 		if throttled[i] {
-			out.Failed = append(out.Failed, BatchResultErrorEntry{
-				ID:          entry.ID,
-				Code:        ErrRequestThrottled.Error(),
-				Message:     ErrRequestThrottled.Error(),
-				SenderFault: true,
-			})
+			out.Failed = append(out.Failed, batchFailure(entry.ID, ErrRequestThrottled))
 
 			continue
 		}
 
-		inf, found := q.inFlightByHandle[entry.ReceiptHandle]
-		if !found {
-			out.Failed = append(out.Failed, BatchResultErrorEntry{
-				ID:          entry.ID,
-				Code:        ErrReceiptHandleInvalid.Error(),
-				Message:     ErrReceiptHandleInvalid.Error(),
-				SenderFault: true,
-			})
+		if err := b.deleteByHandle(q, entry.ReceiptHandle, false); err != nil {
+			out.Failed = append(out.Failed, batchFailure(entry.ID, err))
 
 			continue
 		}
-
-		delete(q.inFlightByHandle, entry.ReceiptHandle)
-		removeInFlight(q, inf)
-		b.emitCount(q, "NumberOfMessagesDeleted", 1)
 
 		out.Successful = append(out.Successful, DeleteMessageBatchResultEntry{ID: entry.ID})
 	}
@@ -967,4 +960,15 @@ func validateMessageChars(input *SendMessageInput) error {
 	}
 
 	return nil
+}
+
+// batchFailure builds a failed batch entry whose Message describes the error
+// rather than repeating its code.
+func batchFailure(id string, err error) BatchResultErrorEntry {
+	_, msg, status := errorDetails(err)
+	if status >= http.StatusInternalServerError {
+		msg = err.Error()
+	}
+
+	return BatchResultErrorEntry{ID: id, Code: err.Error(), Message: msg, SenderFault: true}
 }
