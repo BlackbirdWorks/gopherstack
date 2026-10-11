@@ -38,11 +38,12 @@ type Handler struct {
 	Backend       StorageBackend
 	dispatchTable map[string]dispatchFunc
 	peers         *regionpeers.Set[Handler]
+	dp            *dataPlane
 }
 
 // NewHandler creates a new ELBv2 handler.
 func NewHandler(backend StorageBackend) *Handler {
-	h := &Handler{Backend: backend}
+	h := &Handler{Backend: backend, dp: newDataPlane()}
 	h.dispatchTable = h.buildDispatchTable()
 
 	return h
@@ -137,6 +138,10 @@ func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		r := c.Request()
+		if h.isDataPlaneRequest(r) {
+			return true
+		}
+
 		if r.Method != http.MethodPost {
 			return false
 		}
@@ -175,6 +180,10 @@ func (h *Handler) MatchPriority() int { return service.PriorityFormStandard }
 
 // ExtractOperation extracts the ELBv2 action from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
+	if h.isDataPlaneRequest(c.Request()) {
+		return operationDataPlane
+	}
+
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return unknownOp
@@ -195,6 +204,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource extracts the primary resource identifier from the request.
 func (h *Handler) ExtractResource(c *echo.Context) string {
+	if h.isDataPlaneRequest(c.Request()) {
+		return ""
+	}
+
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return ""
@@ -215,6 +228,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for ELBv2 operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if h.isDataPlaneRequest(c.Request()) {
+			return h.serveDataPlane(c)
+		}
+
 		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
 			return p.Handler()(c)
 		}

@@ -8,9 +8,9 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 51 (50 ok, 1 partial) |
-| Feature families | 8 (7 ok, 1 partial) |
+| Feature families | 9 (8 ok, 1 partial) |
 | Known gaps | 2 |
-| Structural gaps (can't be emulated) | 1 |
+| Structural gaps (can't be emulated) | 2 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
@@ -23,12 +23,13 @@
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- Data plane has no real listener sockets or TLS: HTTPS listeners are served as plain HTTP on the emulator port (X-Forwarded-Proto reports the listener protocol), the client address is the TCP peer of the emulator, and HTTP/2, gRPC and WebSocket upgrades are not proxied.
 - GetTrustStoreCaCertificatesBundle/GetTrustStoreRevocationContent return an empty Location: the real value is a presigned URL to an AWS-owned copy of the bundle, which the emulator does not store. The ops still validate TrustStoreNotFound/RevocationIdNotFound.
 
 ### Deferred
 
 - TargetHealth.AnomalyDetection and AdministrativeOverride are never returned: no anomaly-mitigation or zonal-shift subsystem exists to source them, and the default values AWS reports when idle are unverified.
-- authenticate-cognito, authenticate-oidc and jwt-validation actions are stored and echoed (including AuthenticationRequestExtraParams and JwtValidationConfig) but never executed: no Cognito/OIDC redirect flow and no JWKS fetch or token validation exists.
+- authenticate-cognito, authenticate-oidc and jwt-validation actions are stored and echoed (including AuthenticationRequestExtraParams and JwtValidationConfig); the data plane answers 501 for them rather than executing them: no Cognito/OIDC redirect flow and no JWKS fetch or token validation exists.
 
 ## More
 

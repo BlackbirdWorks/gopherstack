@@ -176,11 +176,14 @@ func (b *InMemoryBackend) removeDrainedTargets(drained []drainedTarget) {
 // probeTargetHTTP performs a real HTTP health check against the target.
 // Returns healthStateHealthy on 2xx, "unhealthy" otherwise. Falls back to healthStateHealthy on unreachable targets.
 func probeTargetHTTP(tg *TargetGroup, targetKey string) string {
-	id, _, _ := strings.Cut(targetKey, ":")
+	id, targetPort, _ := strings.Cut(targetKey, ":")
 
 	port := tg.HealthCheckPort
 	if port == "" || port == "traffic-port" {
 		port = strconv.Itoa(int(tg.Port))
+		if n, err := strconv.Atoi(targetPort); err == nil && n > 0 {
+			port = targetPort
+		}
 	}
 
 	path := tg.HealthCheckPath

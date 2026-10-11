@@ -3945,6 +3945,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	wireECSAutoScaling(byName)
 	wireECSDeploymentHooks(byName)
 	wireSWFLambda(byName)
+	wireELBv2DataPlane(byName)
 	wireWorkMailDirectory(byName)
 	wireAppSyncWAF(byName)
 	wireAWSConfigTemplates(byName)
