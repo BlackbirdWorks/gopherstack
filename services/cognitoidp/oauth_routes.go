@@ -41,6 +41,8 @@ func (h *Handler) oauthOp(r *http.Request) string {
 		return oauthAPIOp(r)
 	case pathOAuthAuthorize, pathLogin, pathLogout:
 		return oauthBrowserOp(r)
+	case pathOAuthIDPResponse:
+		return methodOp(r, http.MethodGet, opOAuthIDPResponse)
 	case rootDiscoveryPath, rootJWKSPath:
 		return h.rootWellKnownOp(r)
 	}
@@ -150,6 +152,8 @@ func (h *Handler) handleOAuth(c *echo.Context, op string) error {
 		return h.handleOAuthUserInfo(c)
 	case opOAuthAuthorize:
 		return h.handleOAuthAuthorize(c)
+	case opOAuthIDPResponse:
+		return h.handleIDPResponse(c)
 	case opHostedLogin:
 		return h.handleHostedLogin(c)
 	case opHostedLogout:

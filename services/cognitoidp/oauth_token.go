@@ -153,7 +153,7 @@ func (h *Handler) handleOAuthToken(c *echo.Context) error {
 	var resp map[string]any
 
 	switch form.Get("grant_type") {
-	case "authorization_code":
+	case grantAuthCode:
 		resp, oerr = h.grantAuthorizationCode(client, form)
 	case "refresh_token":
 		resp, oerr = h.grantRefreshToken(client, form)

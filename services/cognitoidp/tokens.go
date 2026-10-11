@@ -115,7 +115,7 @@ func (t *tokenIssuer) JWKS() JWKSResponse {
 			E:   e,
 			Kid: t.keyID,
 			Use: "sig",
-			Alg: "RS256",
+			Alg: algRS256,
 		}},
 	}
 }
@@ -368,6 +368,13 @@ func (t *tokenIssuer) signIDToken(p TokenParams, now time.Time, idExpiry time.Du
 	for attr, val := range p.Attributes {
 		if strings.HasPrefix(attr, "custom:") {
 			idClaims[attr] = val
+		}
+	}
+
+	if raw := p.Attributes[attrIdentities]; raw != "" {
+		var identities []any
+		if json.Unmarshal([]byte(raw), &identities) == nil {
+			idClaims[attrIdentities] = identities
 		}
 	}
 

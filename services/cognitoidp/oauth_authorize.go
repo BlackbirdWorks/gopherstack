@@ -270,6 +270,10 @@ func (h *Handler) handleOAuthAuthorize(c *echo.Context) error {
 		return fail.respond(c)
 	}
 
+	if name, ident, ok := federationTarget(q); ok {
+		return h.startFederation(c, req, name, ident)
+	}
+
 	none, login := promptFlags(q)
 	if !login {
 		if username, ok := h.sessionUser(c, req); ok {

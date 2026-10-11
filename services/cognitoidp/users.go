@@ -375,7 +375,7 @@ func userMatchesFilter(u *User, f userFilter) bool {
 		}
 
 		return f.matches(status)
-	case "sub":
+	case claimSub:
 		return f.matches(u.Sub)
 	default:
 		attrVal, exists := u.Attributes[f.attr]

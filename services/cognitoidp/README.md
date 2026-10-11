@@ -27,7 +27,7 @@ These do not block an A grade — no implementation could produce real data here
 - AnalyticsMetadata, ContextData and UserContextData are accepted and ignored: no risk engine or Pinpoint analytics consumes them.
 - Pool SmsConfiguration, VerificationMessageTemplate and UserPoolAddOns are stored and echoed only: no SMS/email delivery pipeline or threat-protection engine exists.
 - SetUICustomization stores ImageFile but ImageUrl is a CloudFront-hosted URL; no CDN exists to host it.
-- OAuth2 federated IdP redirect needs an external identity provider reachable over the network.
+- SAML, Google, Facebook, LoginWithAmazon and SignInWithApple federation: config is stored but sign-in needs XML-signature validation or the providers' live endpoints; only OIDC providers federate (oauth_federation.go).
 
 ## More
 

@@ -72,6 +72,7 @@ type InMemoryBackend struct {
 	usersBySub                    *store.Index[User]
 	refreshTokens                 map[string]*refreshTokenEntry
 	authCodes                     map[string]*authCodeEntry
+	idpStates                     map[string]*idpState
 	hostedSessions                map[string]*hostedSession
 	refreshTokensByClient         map[string]map[string]struct{}
 	refreshTokensByUser           map[string]map[string]struct{}
@@ -121,6 +122,7 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		registry:              store.NewRegistry(),
 		refreshTokens:         make(map[string]*refreshTokenEntry),
 		authCodes:             make(map[string]*authCodeEntry),
+		idpStates:             make(map[string]*idpState),
 		hostedSessions:        make(map[string]*hostedSession),
 		refreshTokensByClient: make(map[string]map[string]struct{}),
 		refreshTokensByUser:   make(map[string]map[string]struct{}),
@@ -157,6 +159,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.refreshTokens = make(map[string]*refreshTokenEntry)
 	b.authCodes = make(map[string]*authCodeEntry)
+	b.idpStates = make(map[string]*idpState)
 	b.hostedSessions = make(map[string]*hostedSession)
 	b.refreshTokensByClient = make(map[string]map[string]struct{})
 	b.refreshTokensByUser = make(map[string]map[string]struct{})
