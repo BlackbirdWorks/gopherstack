@@ -162,6 +162,8 @@ func (b *InMemoryBackend) advanceStopLocked(
 	lc.nextAt = now.Add(b.stopDelay)
 
 	if next != statusStopped {
+		b.emitTaskStateLocked(task)
+
 		return false
 	}
 
@@ -174,6 +176,7 @@ func (b *InMemoryBackend) advanceStopLocked(
 	}
 
 	syncContainerStatuses(task, nil)
+	b.emitTaskStateLocked(task)
 
 	if b.runner != nil {
 		*toStopRunner = append(*toStopRunner, task)
@@ -195,11 +198,13 @@ func (b *InMemoryBackend) advanceStartLocked(task *Task, lc *taskLifecycle, now 
 		task.LastStatus = statusPending
 		lc.phase = statusPending
 		lc.nextAt = now.Add(b.startDelay)
+		b.emitTaskStateLocked(task)
 
 		return false
 	default:
 		task.LastStatus = statusRunning
 		syncContainerStatuses(task, nil)
+		b.emitTaskStateLocked(task)
 
 		if c, _ := b.clusters.Get(lc.clusterName); c != nil {
 			c.PendingTasksCount--

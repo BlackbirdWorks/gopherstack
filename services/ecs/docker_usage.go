@@ -81,3 +81,20 @@ func (r *realDockerRunner) TaskUsage(ctx context.Context, taskArn string) (float
 
 	return cpuUnits, memoryBytes, sampled
 }
+
+// ContainerStatsJSON returns one raw Docker stats sample for containerID.
+func (r *realDockerRunner) ContainerStatsJSON(ctx context.Context, containerID string) (json.RawMessage, error) {
+	body, err := r.cli.ContainerStats(ctx, containerID)
+	if err != nil {
+		return nil, err
+	}
+
+	defer body.Close()
+
+	var raw json.RawMessage
+	if decErr := json.NewDecoder(body).Decode(&raw); decErr != nil {
+		return nil, decErr
+	}
+
+	return raw, nil
+}

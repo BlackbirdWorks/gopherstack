@@ -59,6 +59,10 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 		r.SetTaskCompletionHandler(backend.markTaskStoppedByContainerExit)
 	}
 
+	if r, ok := runner.(taskEnvRunner); ok {
+		r.SetTaskEnvProvider(backend.containerRuntimeEnv)
+	}
+
 	reconciler := NewReconciler(backend)
 	janitor := NewJanitor(backend, 0)
 

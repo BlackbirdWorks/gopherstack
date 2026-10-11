@@ -105,6 +105,7 @@ type realDockerRunner struct {
 	cli               dockerClient
 	cwLogs            CWLogsBackend
 	completionHandler func(taskArn, containerName string, exitCode int)
+	taskEnv           func(task *Task, containerName string) []string
 	svcCtx            context.Context
 	logWG             sync.WaitGroup
 	waitWG            sync.WaitGroup
@@ -138,6 +139,26 @@ func (r *realDockerRunner) SetTaskCompletionHandler(fn func(taskArn, containerNa
 	defer r.mu.Unlock()
 
 	r.completionHandler = fn
+}
+
+// SetTaskEnvProvider wires the ECS runtime environment injected into every container this runner creates.
+func (r *realDockerRunner) SetTaskEnvProvider(fn func(task *Task, containerName string) []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.taskEnv = fn
+}
+
+func (r *realDockerRunner) runtimeEnv(task *Task, containerName string) []string {
+	r.mu.Lock()
+	fn := r.taskEnv
+	r.mu.Unlock()
+
+	if fn == nil {
+		return nil
+	}
+
+	return fn(task, containerName)
 }
 
 func (r *realDockerRunner) taskCompletionHandler() func(taskArn, containerName string, exitCode int) {
@@ -285,7 +306,7 @@ func (r *realDockerRunner) createContainer(
 	cd ContainerDefinition,
 ) (string, error) {
 	portBindings, exposedPorts := buildPortMappings(cd.PortMappings)
-	env := buildEnv(cd.Environment)
+	env := append(r.runtimeEnv(task, cd.Name), buildEnv(cd.Environment)...)
 
 	resp, err := r.cli.ContainerCreate(
 		ctx,

@@ -936,6 +936,7 @@ func (b *InMemoryBackend) StopOldestServiceTask(clusterName, serviceName string)
 		oldest.StoppedAt = &now
 		oldest.StoppedReason = "service scale-in"
 		syncContainerStatuses(oldest, nil)
+		b.emitTaskStateLocked(oldest)
 		b.deregisterTaskFromELBv2Locked(oldest, clusterName)
 		b.releaseTaskHostPortsLocked(clusterName, oldest)
 		delete(b.lifecycle, oldest.TaskArn)

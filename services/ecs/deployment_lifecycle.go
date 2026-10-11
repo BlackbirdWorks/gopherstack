@@ -485,6 +485,8 @@ func (b *InMemoryBackend) completeDeploymentLifecycleLocked(svc *Service, sd *Se
 			d.RolloutState == deploymentRolloutStateInProgress {
 			d.RolloutState = deploymentRolloutStateCompleted
 			d.RolloutStateReason = "ECS deployment ecs-svc completed."
+			d.completionEmitted = true
+			b.emitDeploymentStateLocked(svc, d.ID, eventDeploymentCompleted, d.RolloutStateReason)
 		}
 	}
 }
@@ -509,6 +511,7 @@ func (b *InMemoryBackend) failDeploymentLifecycleLocked(
 		if serviceDeploymentArnFor(svc, svc.Deployments[i].ID) == sd.ServiceDeploymentArn {
 			svc.Deployments[i].RolloutState = deploymentRolloutStateFailed
 			svc.Deployments[i].RolloutStateReason = reason
+			b.emitDeploymentStateLocked(svc, svc.Deployments[i].ID, eventDeploymentFailed, reason)
 		}
 	}
 }
@@ -543,6 +546,7 @@ func (b *InMemoryBackend) checkAlarmsLocked(svc *Service, sd *ServiceDeployment,
 		if serviceDeploymentArnFor(svc, svc.Deployments[i].ID) == sd.ServiceDeploymentArn {
 			svc.Deployments[i].RolloutState = deploymentRolloutStateFailed
 			svc.Deployments[i].RolloutStateReason = reason
+			b.emitDeploymentStateLocked(svc, svc.Deployments[i].ID, eventDeploymentFailed, reason)
 		}
 	}
 

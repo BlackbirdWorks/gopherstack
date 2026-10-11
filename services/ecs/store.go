@@ -80,6 +80,9 @@ type InMemoryBackend struct {
 	elbv2Registrar ELBv2TargetRegistrar
 	alarmStates    AlarmStateProvider
 	lambdaInvoker  LambdaInvoker
+	events         EventPublisher
+	credIssuer     RoleCredentialIssuer
+	endpointURL    string
 	hooksInFlight  map[string]struct{}
 	asgResolver    AutoScalingGroupResolver
 	metrics        cwmetric.Sink

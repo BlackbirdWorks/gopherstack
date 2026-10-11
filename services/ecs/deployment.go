@@ -140,6 +140,7 @@ func (b *InMemoryBackend) evaluateCircuitBreakerLocked(svc *Service) {
 	b.addServiceEventLocked(svc, fmt.Sprintf(
 		"(service %s) (deployment %s) deployment failed: tasks failed to start.", svc.ServiceName, dep.ID,
 	))
+	b.emitDeploymentStateLocked(svc, dep.ID, eventDeploymentFailed, dep.RolloutStateReason)
 
 	if circuitBreakerRollback(svc) {
 		b.rollbackServiceLocked(svc)

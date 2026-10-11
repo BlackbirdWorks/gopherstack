@@ -49,6 +49,10 @@ func (h *Handler) buildPeer(ctx context.Context, home *InMemoryBackend, region s
 		r.SetTaskCompletionHandler(nb.markTaskStoppedByContainerExit)
 	}
 
+	if r, ok := runner.(taskEnvRunner); ok {
+		r.SetTaskEnvProvider(nb.containerRuntimeEnv)
+	}
+
 	cwl := home.currentCWLogs()
 	if h.cwLogsFor != nil {
 		cwl = h.cwLogsFor(region)
@@ -118,6 +122,9 @@ func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend) {
 	b.asgResolver = home.asgResolver
 	b.alarmStates = home.alarmStates
 	b.lambdaInvoker = home.lambdaInvoker
+	b.events = home.events
+	b.credIssuer = home.credIssuer
+	b.endpointURL = home.endpointURL
 	b.metrics.Set(home.metrics.Emitter())
 	b.stopDelay = home.stopDelay
 	b.startDelay = home.startDelay

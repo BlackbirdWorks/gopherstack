@@ -194,6 +194,7 @@ func (b *InMemoryBackend) applyPendingTransition(task *Task) {
 
 	if task.LastStatus == statusProvisioning {
 		task.LastStatus = statusPending
+		b.emitTaskStateLocked(task)
 	}
 }
 
@@ -226,9 +227,11 @@ func (b *InMemoryBackend) applyNoRunnerTransition(task *Task, clusterName string
 
 	// Pass through PENDING (resource provisioning complete, container starting).
 	task.LastStatus = statusPending
+	b.emitTaskStateLocked(task)
 	// Immediately advance to RUNNING since there is no real container to wait for.
 	task.LastStatus = statusRunning
 	syncContainerStatuses(task, nil)
+	b.emitTaskStateLocked(task)
 
 	if c, _ := b.clusters.Get(clusterName); c != nil {
 		c.PendingTasksCount--
@@ -270,6 +273,7 @@ func (b *InMemoryBackend) applyRunnerTransition(task *Task, clusterName string, 
 		task.LastStatus = statusRunning
 		b.applyRuntimeContainerIDs(task)
 		syncContainerStatuses(task, nil)
+		b.emitTaskStateLocked(task)
 
 		if c, _ := b.clusters.Get(clusterName); c != nil {
 			c.PendingTasksCount--
@@ -290,6 +294,7 @@ func (b *InMemoryBackend) applyRunnerTransition(task *Task, clusterName string, 
 	task.StoppedReason = fmt.Sprintf("container start failed: %v", runErr)
 	exitCode := 1
 	syncContainerStatuses(task, &exitCode)
+	b.emitTaskStateLocked(task)
 
 	if c, _ := b.clusters.Get(clusterName); c != nil {
 		c.PendingTasksCount--
@@ -355,6 +360,7 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 		applyHostPortBindings(task, hostPortBindings)
 
 		b.tasks.Put(task)
+		b.emitTaskStateLocked(task)
 		work = append(work, taskWork{task: task, td: td})
 
 		// Increment the cached pending counter on the cluster.
@@ -598,6 +604,7 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 		// task is actually in an active state.
 		if b.stopDelay > 0 && isStoppableStatus(prevStatus) {
 			task.LastStatus = statusDeactivating
+			b.emitTaskStateLocked(task)
 			b.lifecycle[taskArn] = &taskLifecycle{
 				clusterName: clusterName,
 				kind:        lifecycleKindStop,
@@ -619,6 +626,11 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 		task.LastStatus = statusStopped
 		task.StoppedAt = &now
 		syncContainerStatuses(task, nil)
+
+		if prevStatus != statusStopped {
+			b.emitTaskStateLocked(task)
+		}
+
 		b.deregisterTaskFromELBv2Locked(task, clusterName)
 		b.releaseTaskHostPortsLocked(clusterName, task)
 		delete(b.lifecycle, taskArn)
@@ -709,6 +721,7 @@ func (b *InMemoryBackend) markTaskStoppedByContainerExit(taskArn, containerName 
 
 		syncContainerStatuses(task, nil)
 		setContainerExitCode(task, containerName, exitCode)
+		b.emitTaskStateLocked(task)
 
 		if c, _ := b.clusters.Get(clusterName); c != nil {
 			switch prevStatus {
@@ -873,6 +886,7 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, []Failure, er
 			t := b.newStartedTaskLocked(clusterName, clusterArn, ciArn, td, input)
 
 			b.tasks.Put(t)
+			b.emitTaskStateLocked(t)
 			tasks = append(tasks, *t)
 		}
 	}()

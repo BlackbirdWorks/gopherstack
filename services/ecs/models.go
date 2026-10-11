@@ -186,6 +186,8 @@ type Deployment struct {
 	PendingCount       int      `json:"pendingCount"`
 	RunningCount       int      `json:"runningCount"`
 	FailedTasks        int      `json:"failedTasks"`
+
+	completionEmitted bool
 }
 
 // ServiceRevision describes the workload configuration captured by a single
@@ -986,6 +988,7 @@ type Task struct {
 	Attachments          []TaskAttachment `json:"attachments,omitempty"`
 	Containers           []Container      `json:"containers,omitempty"`
 	EnableExecuteCommand bool             `json:"enableExecuteCommand,omitempty"`
+	version              int64
 }
 
 // CreateClusterInput holds input for CreateCluster.

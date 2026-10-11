@@ -74,6 +74,10 @@ func (b *InMemoryBackend) recordServiceDeploymentLocked(svc *Service, dep *Deplo
 
 	prev, hadPrev := b.serviceDeployments.Get(depArn)
 
+	if !hadPrev && sd.Status == serviceDeploymentStatusInProgress {
+		b.emitDeploymentStateLocked(svc, dep.ID, eventDeploymentInProgress, "")
+	}
+
 	switch {
 	case hadPrev && prev.LifecycleStage != "":
 		carryLifecycle(sd, prev)
@@ -231,6 +235,8 @@ func (b *InMemoryBackend) rollbackServiceDeploymentLocked(sd *ServiceDeployment,
 	if idx := primaryDeploymentIndex(svc); idx >= 0 {
 		svc.Deployments[idx].RolloutState = deploymentRolloutStateFailed
 		svc.Deployments[idx].RolloutStateReason = "Service deployment rolled back by StopServiceDeployment."
+		b.emitDeploymentStateLocked(svc, svc.Deployments[idx].ID, eventDeploymentFailed,
+			svc.Deployments[idx].RolloutStateReason)
 	}
 
 	b.rollbackServiceLocked(svc)

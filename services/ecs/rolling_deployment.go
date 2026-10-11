@@ -199,6 +199,11 @@ func (b *InMemoryBackend) pruneSettledDeployments(clusterName, serviceName strin
 		svc,
 		fmt.Sprintf("(service %s) (deployment %s) deployment completed.", serviceName, kept[0].ID),
 	)
+
+	if d := &svc.Deployments[0]; !d.completionEmitted {
+		d.completionEmitted = true
+		b.emitDeploymentStateLocked(svc, d.ID, eventDeploymentCompleted, "")
+	}
 }
 
 // stopServiceTask stops one service task by ARN, releasing its resources.
@@ -230,6 +235,7 @@ func (b *InMemoryBackend) stopServiceTask(clusterName, taskArn, reason string) e
 		task.StoppedAt = &now
 		task.StoppedReason = reason
 		syncContainerStatuses(task, nil)
+		b.emitTaskStateLocked(task)
 		b.deregisterTaskFromELBv2Locked(task, clusterName)
 		b.releaseTaskHostPortsLocked(clusterName, task)
 		delete(b.lifecycle, task.TaskArn)
@@ -318,6 +324,13 @@ func (b *InMemoryBackend) reportSteadyState(clusterName, serviceName string) {
 
 	b.addServiceEventLocked(svc, fmt.Sprintf("(service %s) has reached a steady state.", serviceName))
 	svc.steadyReported = true
+
+	if d := &svc.Deployments[0]; !d.completionEmitted {
+		d.completionEmitted = true
+		b.emitDeploymentStateLocked(svc, d.ID, eventDeploymentCompleted, "")
+	}
+
+	b.emitServiceActionLocked(svc, eventServiceSteadyState)
 }
 
 func taskListMessage(serviceName, verb string, taskARNs []string) string {

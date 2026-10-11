@@ -33,6 +33,7 @@ var (
 type fakeDockerClient struct {
 	containerLogs          map[string][]byte
 	stats                  map[string]string
+	envs                   [][]string
 	waitResult             chan dockertypes.WaitResponse
 	startErrOnID           string
 	stopErrOnID            string
@@ -55,7 +56,7 @@ func (f *fakeDockerClient) ImagePull(_ context.Context, _ string, _ dockerimage.
 
 func (f *fakeDockerClient) ContainerCreate(
 	_ context.Context,
-	_ *dockertypes.Config,
+	cfg *dockertypes.Config,
 	_ *dockertypes.HostConfig,
 	_ *dockernetwork.NetworkingConfig,
 	_ *ocispec.Platform,
@@ -64,6 +65,7 @@ func (f *fakeDockerClient) ContainerCreate(
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	f.envs = append(f.envs, append([]string(nil), cfg.Env...))
 	f.nextID++
 	id := fmt.Sprintf("%s%02d", strings.Repeat("a", 12), f.nextID)
 
