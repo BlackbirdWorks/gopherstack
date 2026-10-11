@@ -243,20 +243,30 @@ const (
 type Handler struct {
 	Backend         *InMemoryBackend
 	kvsImportReader S3ObjectReader
+	dp              *dataPlane
 }
 
 // NewHandler creates a new CloudFront handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend, dp: newDataPlane()}
+	backend.cacheHook = h.dp.cache.invalidate
+
+	return h
 }
 
 // Reset clears all backend state.
-func (h *Handler) Reset() { h.Backend.Reset() }
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+	h.dp.cache.clear()
+}
 
 // Shutdown stops the backend's invalidation reconciler and distribution
 // timers so no goroutine outlives the service. Invoked on server shutdown
 // via service.Shutdowner.
-func (h *Handler) Shutdown(_ context.Context) { h.Backend.Close() }
+func (h *Handler) Shutdown(_ context.Context) {
+	h.Backend.Close()
+	h.dp.cache.close()
+}
 
 var _ service.Shutdowner = (*Handler)(nil)
 
@@ -476,7 +486,7 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 // RouteMatcher returns a function that matches AWS CloudFront REST requests.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().URL.Path, cfPathPrefix)
+		return strings.HasPrefix(c.Request().URL.Path, cfPathPrefix) || h.isDataPlaneRequest(c.Request())
 	}
 }
 
@@ -502,6 +512,10 @@ func cfResourceParam(c *echo.Context) string {
 
 // ExtractOperation extracts the CloudFront operation name from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
+	if h.isDataPlaneRequest(c.Request()) {
+		return operationDataPlane
+	}
+
 	op, _ := parseCFPath(
 		c.Request().Method,
 		c.Request().URL.Path,
@@ -514,6 +528,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource extracts the primary resource identifier from the URL path.
 func (h *Handler) ExtractResource(c *echo.Context) string {
+	if h.isDataPlaneRequest(c.Request()) {
+		return ""
+	}
+
 	_, res := parseCFPath(
 		c.Request().Method,
 		c.Request().URL.Path,
@@ -549,6 +567,10 @@ func xmlResp(c *echo.Context, status int, body string) error {
 // Handler returns the Echo handler function for CloudFront requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if h.isDataPlaneRequest(c.Request()) {
+			return h.serveDataPlane(c)
+		}
+
 		log := logger.Load(c.Request().Context())
 		operation, resource := parseCFPath(
 			c.Request().Method,

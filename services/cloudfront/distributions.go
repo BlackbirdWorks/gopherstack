@@ -281,6 +281,10 @@ func (b *InMemoryBackend) DeleteDistribution(id string) error {
 	delete(b.monitoringSubscriptions, id)
 	b.deindexDistributionConfig(id)
 
+	if b.cacheHook != nil {
+		b.cacheHook(id, nil)
+	}
+
 	return nil
 }
 

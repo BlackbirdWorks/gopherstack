@@ -3911,6 +3911,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	wireDynamoDBKMS(byName["DynamoDB"], byName["KMS"])
 	wireS3TablesS3(byName["S3tables"], byName["S3"])
 	wireCloudFrontKVSImport(byName["CloudFront"], byName["S3"])
+	wireCloudFrontDataPlane(byName)
 
 	// Wire MGN → S3 so StartImport reads its caller-supplied S3 object and
 	// actually creates SourceServers.

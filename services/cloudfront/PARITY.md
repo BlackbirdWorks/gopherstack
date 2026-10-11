@@ -237,8 +237,12 @@ gaps:
   #    fixed. See the CreateDistribution/CopyDistribution/CreateStreamingDistribution/
   #    CreateCloudFrontOriginAccessIdentity op rows above for the exact behavior each has now.
 items_still_open:
+  - "Data plane unverified against real AWS: disabled distribution answers 403, redirect-to-https answers 301 (GET/HEAD) or 307 (other methods), POST to an S3 origin answers 403, and non-trailing-wildcard aliases are not matched."
   - "AnycastIPList.AnycastIps are always IPv4-formatted whatever IpAddressType says: the pinned SDK documents no ipv6 or dualstack address count, so the dualstack shape is unverifiable."
 structural_gaps:
+  - "CloudFront Functions (viewer-request/response), Lambda@Edge and field-level encryption are not executed on the data plane: the repo vendors no JavaScript engine and edge Lambda needs a regional edge runtime."
+  - "Viewer TLS is not terminated here: https is inferred from X-Forwarded-Proto/CloudFront-Forwarded-Proto or a TLS listener, so viewer certificates and SNI are not modelled."
+  - "Real edge-location behaviour (multi-POP caches, origin shield, regional edge caches, Range-request caching, ErrorCachingMinTTL, origin failover groups, WAF, real-time logs) is not emulated."
   - "ManagedCertificateRequest: ValidationTokenHost is stored and reflected by GetManagedCertificateDetails, but the certificate itself needs real ACM DNS/HTTP validation, which no emulator performs."
 deferred:
   - "Distribution status InProgress->Deployed transition timer: FIXED this pass (gopherstack-k3fi) for Distribution specifically -- see UpdateDistribution's op row above. The other 5 resource kinds with their own InProgress/Deployed-shaped status semantics (DistributionTenant, StreamingDistribution, ConnectionGroup/ConnectionFunction, AnycastIPList, TrustStore) still persist InProgress indefinitely; still deferred, now for a narrower, more honest reason -- extending the same worker.Group timer to each is straightforward but out of this pass's scope, not blocked on anything."
@@ -1745,3 +1749,13 @@ Key value store data-plane writes (PutKVSValue, DeleteKVSValue, UpdateKVSValues)
 ## 2026-10-10 lifecycle dwell knob
 
 `--lifecycle-cloudfront` (`CLOUDFRONT_DEPLOY_DELAY`, or `--lifecycle-delay`) overrides the 100ms InProgress -> Deployed dwell via `SetDistributionDeployDelay`; unset keeps 100ms. Proof: root `TestLifecycleDelayCloudFront`.
+
+## Viewer data plane (gopherstack-cefu7.27)
+
+Distributions serve viewer requests (services/cloudfront/dataplane*.go), copying the elbv2 data-plane pattern:
+
+- Routes: path-style `/_gopherstack/cloudfront/<id-or-domain>/<path>`, or Host `<id>.cloudfront.net`, `<id>.cloudfront.localhost[:port]` or any configured alias.
+- Flow: PathPattern precedence then default behavior; ViewerProtocolPolicy; AllowedMethods (403); signed URLs/cookies for TrustedKeyGroups; DefaultRootObject on `/`; cache lookup; origin fetch; CustomErrorResponses; response headers policy; X-Cache, Via, X-Amz-Cf-Id, X-Amz-Cf-Pop.
+- Origins: S3 in-process via `SetS3Backend` (OAC/OAI evaluated as the CloudFront principal against the bucket policy with aws:SourceArn; no OAC/OAI means public-read semantics; a missing key is 403 without s3:ListBucket, 404 with it); S3 website endpoints (index/error document); custom HTTP origins with ports, protocol policy, origin path, custom headers and cache/origin-request-policy header, cookie and query forwarding; ALB origins via the elbv2 data plane (`SetALBForwarder`).
+- Cache: byte-bounded LRU (64 MiB default, `SetCacheLimit`), min/default/max TTL with Cache-Control, purged by CreateInvalidation (wildcards), DeleteDistribution and Reset.
+- Wiring: `cli_cloudfront_dataplane.go`, resolved at request time.

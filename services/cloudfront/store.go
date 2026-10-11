@@ -78,6 +78,7 @@ func generateIDWithPrefix(prefix string) string {
 // own; b.mu (below) remains the single coarse lock guarding every table exactly
 // as it guarded the raw maps it replaces.
 type InMemoryBackend struct {
+	cacheHook                         func(distID string, patterns []string)
 	distributions                     *store.Table[Distribution]
 	distributionARNs                  map[string]string          // ARN → distribution ID (O(1) tag lookups)
 	distributionCallerRefs            map[string]string          // CallerReference → distribution ID (idempotency)

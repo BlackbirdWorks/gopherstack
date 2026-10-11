@@ -83,6 +83,10 @@ func (b *InMemoryBackend) CreateInvalidation(
 	}
 	b.invalidations.Put(inv)
 
+	if b.cacheHook != nil {
+		b.cacheHook(distributionID, append([]string{}, paths...))
+	}
+
 	if b.invalidationReadyAt[distributionID] == nil {
 		b.invalidationReadyAt[distributionID] = make(map[string]time.Time)
 	}

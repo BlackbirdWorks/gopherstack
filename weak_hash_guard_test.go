@@ -40,7 +40,8 @@ func allowedWeakHashFiles() map[string]string {
 		// is defined as the hex-encoded MD5 checksum of the plugin file, so the
 		// emulator must compute MD5 over the S3 object to report it. Integrity
 		// checksum echoed on the wire, never a credential.
-		"services/kafkaconnect/cross_service.go": "MSK Connect FileMd5 parity, verified",
+		"services/kafkaconnect/cross_service.go":   "MSK Connect FileMd5 parity, verified",
+		"services/cloudfront/dataplane_signing.go": "CloudFront signed URLs and cookies are RSA-SHA1, verified",
 
 		// Pre-existing at the time this guard was added, and NOT individually
 		// audited. Each is presumed an AWS-protocol requirement -- S3 ETags are
