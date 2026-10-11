@@ -76,7 +76,7 @@ last_audit_commit: 22b4f068c   # bumped 2026-09-20 (wafclassic-and-directconnect
 # and broke every real `tofu apply`. Fixed: a hosted connection (any with a non-empty
 # ParentConnectionID/LagID/InterconnectID) now also matches on its own ConnectionID.
 # TestDescribeHostedConnections_ByOwnID added (hosted_connections_test.go).
-last_audit_date: 2026-10-08  # 2026-10-07: endpoint identity (AwsDevice/AwsDeviceV2/AwsLogicalDeviceId, one endpoint per location, endpoint_device.go) and VirtualGatewayRegion now populated; AssociateConnectionWithLag enforces same-endpoint; MacSecSecretCreator hook added. Older notes below saying these were never populated are history.   # was 2026-09-11
+last_audit_date: 2026-10-11  # 2026-10-07: endpoint identity (AwsDevice/AwsDeviceV2/AwsLogicalDeviceId, one endpoint per location, endpoint_device.go) and VirtualGatewayRegion now populated; AssociateConnectionWithLag enforces same-endpoint; MacSecSecretCreator hook added. Older notes below saying these were never populated are history.   # was 2026-09-11
 overall: A   # test/integration/directconnect_test.go passes for real (make build-linux && go test
 # -race -run TestIntegration_DirectConnect ./test/integration/...); every gap that could produce
 # real data is closed (cross-service EC2 validation, pkgs/arn.BuildGlobal for dx-gateway, pkgs/page
@@ -912,3 +912,12 @@ MaxResults above 100 is capped at 100 ("only 100 results are returned", api_op_D
 ## 2026-10-05 (gopherstack-uox6 pass 10, value semantics)
 
 Round trips clean. Recorded, unchanged: UpdateLag cannot set MinimumLinks to 0 because the SDK field is a non-pointer int32 and omits zero on the wire.
+
+## Notes
+
+**2026-10-11 (realism pass)**: CreateConnection/CreateLag reject bandwidths outside 1/10/100/400Gbps;
+CreateDirectConnectGateway rejects ASNs outside 64512-65534 / 4200000000-4294967294; VIF VLAN must be 1-4094
+and the duplicate-VLAN message names the VLAN (it printed the VIF name); DescribeConnections/DescribeLags with
+an unknown id return DirectConnectClientException "Could not find Connection/Lag with ID: ..." (the text the
+Terraform provider matches) instead of an empty list; LAG child connections now progress requested -> pending
+-> available instead of sticking at requested.

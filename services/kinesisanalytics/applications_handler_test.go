@@ -75,7 +75,7 @@ func TestHandler_DescribeApplication(t *testing.T) {
 		{
 			name:       "not found for missing application",
 			input:      map[string]any{"ApplicationName": "missing"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -120,7 +120,7 @@ func TestHandler_DeleteApplication(t *testing.T) {
 			setup: func(_ *kinesisanalytics.InMemoryBackend) map[string]any {
 				return map[string]any{"ApplicationName": "ghost", "CreateTimestamp": float64(1234567890)}
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -266,7 +266,7 @@ func TestHandler_StartStopApplication(t *testing.T) {
 			name:       "start not found",
 			op:         "StartApplication",
 			input:      map[string]any{"ApplicationName": "ghost"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -297,7 +297,7 @@ func TestHandler_StopApplication_NotFound(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doRequest(t, h, "StopApplication", map[string]any{"ApplicationName": "ghost"})
 
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestPersistenceSnapshotRestore verifies that Snapshot/Restore round-trips

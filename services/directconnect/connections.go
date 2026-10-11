@@ -36,6 +36,10 @@ func (b *InMemoryBackend) CreateConnection(req *createConnectionRequest) (*Conne
 		return nil, clientError("bandwidth, connectionName, and location are required")
 	}
 
+	if !isDedicatedBandwidth(req.Bandwidth) {
+		return nil, clientError("Invalid bandwidth " + req.Bandwidth + dedicatedBandwidthHint)
+	}
+
 	if err := validateNewTags(tagWireKeys(req.Tags)); err != nil {
 		return nil, err
 	}

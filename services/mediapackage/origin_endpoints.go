@@ -92,8 +92,11 @@ func (b *InMemoryBackend) CreateOriginEndpoint(
 	}
 
 	if manifestName == "" {
-		manifestName = id
+		manifestName = defaultManifestName
 	}
+
+	startoverWindowSeconds = max(startoverWindowSeconds, 0)
+	timeDelaySeconds = max(timeDelaySeconds, 0)
 
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
@@ -102,17 +105,12 @@ func (b *InMemoryBackend) CreateOriginEndpoint(
 	copy(wl, whitelist)
 
 	ep := &storedOriginEndpoint{
-		ARN:          b.buildOriginEndpointARN(id),
-		ChannelID:    channelID,
-		ID:           id,
-		Description:  description,
-		ManifestName: manifestName,
-		URL: fmt.Sprintf(
-			"https://cf.mediapackage.%s.amazonaws.com/out/v1/%s/%s.m3u8",
-			b.region,
-			id,
-			manifestName,
-		),
+		ARN:                    b.buildOriginEndpointARN(id),
+		ChannelID:              channelID,
+		ID:                     id,
+		Description:            description,
+		ManifestName:           manifestName,
+		URL:                    b.originEndpointURL(id, manifestName),
 		Origination:            origination,
 		CreatedAt:              time.Now().UTC().Format(time.RFC3339),
 		StartoverWindowSeconds: startoverWindowSeconds,
@@ -175,6 +173,7 @@ func (b *InMemoryBackend) UpdateOriginEndpoint(
 
 	if manifestName != "" {
 		ep.ManifestName = manifestName
+		ep.URL = b.originEndpointURL(id, manifestName)
 	}
 
 	if origination != "" {
@@ -259,4 +258,8 @@ func (b *InMemoryBackend) ListOriginEndpoints(
 	}
 
 	return endpoints, p.Next, nil
+}
+
+func (b *InMemoryBackend) originEndpointURL(id, manifestName string) string {
+	return fmt.Sprintf("https://cf.mediapackage.%s.amazonaws.com/out/v1/%s/%s.m3u8", b.region, id, manifestName)
 }

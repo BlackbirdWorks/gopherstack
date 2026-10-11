@@ -2,7 +2,7 @@
 service: kinesisanalytics
 sdk_module: aws-sdk-go-v2/service/kinesisanalytics@v1.33.4
 last_audit_commit: 49cff86c4
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-11
 overall: A            # real fixes found: deleted three gopherstack-invented surfaces
                        # (ServiceExecutionRole/RuntimeEnvironment fields, five non-real
                        # ApplicationStatus constants, InputUpdate.InputStartingPositionConfiguration),
@@ -41,6 +41,11 @@ leaks: {status: clean, note: "launchTransition/DeleteApplication background goro
 ---
 
 ## Notes
+
+**2026-10-11 (realism pass)**: error messages drop the duplicated code prefix and fall back to the API
+reference descriptions; ResourceNotFoundException is HTTP 400 (was 404); ListApplications with an
+ExclusiveStartApplicationName that does not exist now continues after that name lexicographically (it returned
+the whole list). Status progression (READY/STARTING/RUNNING/STOPPING) and version ids were re-probed clean.
 
 Protocol: **awsjson1.1**, single POST endpoint, `X-Amz-Target: KinesisAnalytics_20150814.<Op>`
 dispatch (verified against handler.go's `kinesisanalyticsTargetPrefix` -- correctly uses the

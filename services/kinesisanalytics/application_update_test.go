@@ -114,7 +114,7 @@ func TestHandler_UpdateApplication(t *testing.T) {
 		{
 			name:       "not found for missing application",
 			input:      map[string]any{"ApplicationName": "ghost", "CurrentApplicationVersionId": 1},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "version mismatch returns error",

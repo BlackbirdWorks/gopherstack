@@ -22,11 +22,10 @@ func TestHandlerReset(t *testing.T) {
 
 	h.Reset()
 
-	out, err := client.DescribeConnections(ctx, &directconnectsdk.DescribeConnectionsInput{
+	_, err := client.DescribeConnections(ctx, &directconnectsdk.DescribeConnectionsInput{
 		ConnectionId: created.ConnectionId,
 	})
-	require.NoError(t, err)
-	require.Empty(t, out.Connections)
+	require.ErrorContains(t, err, "Could not find Connection with ID")
 }
 
 // TestRoundTripConnectionLifecycle drives CreateConnection through the real

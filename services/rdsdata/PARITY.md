@@ -7,7 +7,7 @@
 service: rdsdata
 sdk_module: aws-sdk-go-v2/service/rdsdata@v1.35.4   # version audited against
 last_audit_commit: 6ea4f5153  # 2026-09-19 leak-audit pass (goleak TestMain)
-last_audit_date: 2026-10-10
+last_audit_date: 2026-10-11
 overall: A            # every op/family field-diffed against the real SDK source this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -120,6 +120,11 @@ leaks: {status: clean, note: >
 ---
 
 ## Notes
+
+**2026-10-11 (realism pass)**: TransactionNotFoundException is HTTP 404 (API reference) and its message no
+longer repeats the code. Kept lenient: statements the SQLite engine rejects (e.g. a missing table) still return
+an empty success because many in-repo callers and fixtures run DML against tables they never created
+(TestEngine_LenientFallbackOnError); the Docker-backed engine does return real BadRequest/DatabaseError.
 
 **generatedFields (fixed this pass).** Previously always an empty array for
 both ExecuteStatement and BatchExecuteStatement (flagged but left as a

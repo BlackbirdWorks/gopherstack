@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -264,6 +265,10 @@ func writeInternalServerError(c *echo.Context) error {
 	return c.JSONBlob(http.StatusInternalServerError, payload)
 }
 
+func stripCode(err error, code string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(err.Error(), code), ": ")
+}
+
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
@@ -278,14 +283,14 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrTransactionNotFound):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "TransactionNotFoundException",
-			keyMessageField: err.Error(),
+			keyMessageField: stripCode(err, "TransactionNotFoundException"),
 		})
 
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return c.JSONBlob(http.StatusNotFound, payload)
 	case errIsValidation(err):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "BadRequestException",
-			keyMessageField: err.Error(),
+			keyMessageField: stripCode(err, "BadRequestException"),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)

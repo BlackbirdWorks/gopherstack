@@ -7,7 +7,7 @@
 service: cloudcontrol
 sdk_module: aws-sdk-go-v2/service/cloudcontrol@v1.32.4
 last_audit_commit: d79e0612c
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-11
 overall: A            # wrapper-key/nested-shape sweep (2026-08-20): zero bugs found, real-SDK round-trip test added
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -37,6 +37,14 @@ leaks: {status: clean, note: "no goroutines/timers/janitors; InMemoryBackend is 
 ---
 
 ## Notes
+
+**2026-10-11 (realism pass)**: error messages no longer repeat the exception code and use real
+wording ("Resource of type 'T' with identifier 'I' was not found"; delegated types no longer leak
+nested SDK text); a malformed ListResources NextToken is an InvalidRequestException. New opt-in
+`SetOperationDelay(d)` (default 0): Create/Update/DeleteResource report IN_PROGRESS with RetryAfter and no
+ResourceModel until d elapses, evaluated lazily on read; CancelResourceRequest works while IN_PROGRESS.
+Cancel does not roll back the already-applied mutation. ListResourceRequests keeps lenient bad-token handling
+(the op declares no errors). Known: SQS QueueUrl identifiers have an empty host (cli wiring).
 
 **2026-09-18 (gopherstack-xhu2t reqfielddiff tier-1)**:
 

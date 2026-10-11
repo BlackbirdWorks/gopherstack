@@ -3,9 +3,9 @@ package cloudcontrol
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -54,7 +54,7 @@ func (b *InMemoryBackend) recordDelegatedEvent(
 
 	token := uuid.NewString()
 	event := &ProgressEvent{
-		EventTime:       unixEpochTime{time.Now()},
+		EventTime:       unixEpochTime{b.clock()},
 		TypeName:        typeName,
 		Identifier:      identifier,
 		RequestToken:    token,
@@ -62,10 +62,11 @@ func (b *InMemoryBackend) recordDelegatedEvent(
 		OperationStatus: opStatusSuccess,
 		ResourceModel:   model,
 	}
+	b.settle(event)
 	b.requests.Put(event)
 	b.rememberClientToken(clientToken, token, fingerprint)
 
-	return copyEvent(event)
+	return b.present(event)
 }
 
 func (b *InMemoryBackend) replayedEvent(clientToken, fingerprint string) (*ProgressEvent, bool, error) {
@@ -126,7 +127,7 @@ func (b *InMemoryBackend) GetResourceContext(ctx context.Context, typeName, iden
 
 	model, err := b.readModel(ctx, h, identifier)
 	if err != nil {
-		return nil, err
+		return nil, mapMissing(err, typeName, identifier)
 	}
 
 	return &Resource{TypeName: typeName, Identifier: identifier, Properties: model}, nil
@@ -148,7 +149,7 @@ func (b *InMemoryBackend) DeleteResourceContext(
 	}
 
 	if err := h.Delete(ctx, identifier); err != nil {
-		return nil, err
+		return nil, mapMissing(err, typeName, identifier)
 	}
 
 	return b.recordDelegatedEvent("DELETE", typeName, identifier, "", clientToken, fingerprint), nil
@@ -171,7 +172,7 @@ func (b *InMemoryBackend) UpdateResourceContext(
 
 	current, err := h.Read(ctx, identifier)
 	if err != nil {
-		return nil, err
+		return nil, mapMissing(err, typeName, identifier)
 	}
 
 	currentJSON, err := marshalModel(current)
@@ -207,9 +208,17 @@ func (b *InMemoryBackend) ListResourcesContext(
 ) ([]*Resource, string, error) {
 	h := b.typeHandler(typeName)
 	if h == nil {
+		if tokErr := page.ValidateToken(nextToken); tokErr != nil {
+			return nil, "", errInvalidNextToken
+		}
+
 		out, token := b.ListResources(typeName, maxResults, nextToken, resourceModel)
 
 		return out, token, nil
+	}
+
+	if tokErr := page.ValidateToken(nextToken); tokErr != nil {
+		return nil, "", errInvalidNextToken
 	}
 
 	modelFilter, validFilter := parseModelFilter(resourceModel)
@@ -250,4 +259,14 @@ func parseModelFilter(resourceModel string) (map[string]any, bool) {
 	var filter map[string]any
 
 	return filter, json.Unmarshal([]byte(resourceModel), &filter) == nil
+}
+
+var errInvalidNextToken = fmt.Errorf("%w: NextToken is not valid", ErrValidation)
+
+func mapMissing(err error, typeName, identifier string) error {
+	if errors.Is(err, ErrNotFound) {
+		return notFoundError(typeName, identifier)
+	}
+
+	return err
 }

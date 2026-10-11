@@ -234,7 +234,7 @@ func TestErrorTypes(t *testing.T) {
 			name:     "describe missing app returns ResourceNotFoundException",
 			action:   "DescribeApplication",
 			body:     map[string]any{"ApplicationName": "no-such-app"},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 			wantType: "ResourceNotFoundException",
 		},
 		{

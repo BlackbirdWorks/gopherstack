@@ -37,6 +37,10 @@ func (b *InMemoryBackend) createLag(req *createLagRequest, withConnections bool)
 		return nil, clientError("connectionsBandwidth, lagName, and location are required")
 	}
 
+	if !isDedicatedBandwidth(req.ConnectionsBandwidth) {
+		return nil, clientError("Invalid connectionsBandwidth " + req.ConnectionsBandwidth + dedicatedBandwidthHint)
+	}
+
 	if withConnections {
 		if req.NumberOfConnections < 1 {
 			return nil, clientError("numberOfConnections must be at least 1")
@@ -90,7 +94,7 @@ func (b *InMemoryBackend) createLag(req *createLagRequest, withConnections bool)
 			ct := tags.New("directconnect.connection." + cid + ".tags")
 			ct.Merge(tagWireToMap(req.ChildConnectionTags))
 
-			b.connections.Put(&Connection{
+			child := &Connection{
 				ConnectionID:    cid,
 				ConnectionName:  req.LagName + "-" + cid,
 				ConnectionState: ConnectionStateRequested,
@@ -101,7 +105,10 @@ func (b *InMemoryBackend) createLag(req *createLagRequest, withConnections bool)
 				OwnerAccount:    b.accountID,
 				ProviderName:    req.ProviderName,
 				Tags:            ct,
-			})
+			}
+			b.connections.Put(child)
+			b.scheduleTransition(
+				"connection:"+cid, []string{ConnectionStatePending, ConnectionStateAvailable}, &child.ConnectionState)
 		}
 	}
 

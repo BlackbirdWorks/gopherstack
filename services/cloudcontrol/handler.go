@@ -147,22 +147,46 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	switch {
 	case errors.Is(err, ErrClientTokenConflict):
-		return c.JSONBlob(http.StatusBadRequest, marshalError("ClientTokenConflictException", err.Error()))
+		return ccError(c, http.StatusBadRequest, "ClientTokenConflictException", err,
+			"The specified client token has already been used in another resource request.")
 	case errors.Is(err, ErrRequestTokenNotFound):
-		return c.JSONBlob(http.StatusBadRequest, marshalError("RequestTokenNotFoundException", err.Error()))
+		return ccError(c, http.StatusBadRequest, "RequestTokenNotFoundException", err,
+			"Cannot find the specified request token.")
 	case errors.Is(err, ErrConcurrentModification):
-		return c.JSONBlob(http.StatusInternalServerError, marshalError("ConcurrentModificationException", err.Error()))
+		return ccError(c, http.StatusInternalServerError, "ConcurrentModificationException", err,
+			"The resource request is not in a state that can be cancelled.")
 	case errors.Is(err, ErrNotFound):
-		return c.JSONBlob(http.StatusBadRequest, marshalError("ResourceNotFoundException", err.Error()))
+		return ccError(c, http.StatusBadRequest, "ResourceNotFoundException", err,
+			"The specified resource was not found.")
 	case errors.Is(err, ErrAlreadyExists):
-		return c.JSONBlob(http.StatusBadRequest, marshalError("AlreadyExistsException", err.Error()))
+		return ccError(c, http.StatusBadRequest, "AlreadyExistsException", err,
+			"The specified resource already exists.")
 	case errors.Is(err, ErrValidation):
-		return c.JSONBlob(http.StatusBadRequest, marshalError("InvalidRequestException", err.Error()))
+		return ccError(c, http.StatusBadRequest, "InvalidRequestException", err,
+			"The request is invalid.")
 	case errors.Is(err, errUnknownAction), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSONBlob(http.StatusBadRequest, marshalError("InvalidRequestException", err.Error()))
+		return ccError(c, http.StatusBadRequest, "InvalidRequestException", err, "The request is invalid.")
 	default:
-		return c.JSONBlob(http.StatusInternalServerError, marshalError("ServiceInternalErrorException", err.Error()))
+		return ccError(c, http.StatusInternalServerError, "ServiceInternalErrorException", err,
+			"An internal error occurred.")
 	}
+}
+
+// ccError writes the error envelope with err's message minus the leading
+// "<code>: " the sentinels contribute, or fallback when nothing else is left.
+func ccError(c *echo.Context, status int, code string, err error, fallback string) error {
+	msg := strings.TrimPrefix(err.Error(), code)
+	msg = strings.TrimPrefix(msg, ": ")
+
+	if msg == "" || msg == code {
+		msg = fallback
+	}
+
+	return c.JSONBlob(status, marshalError(code, msg))
+}
+
+func notFoundError(typeName, identifier string) error {
+	return fmt.Errorf("%w: Resource of type '%s' with identifier '%s' was not found", ErrNotFound, typeName, identifier)
 }
 
 // --- CreateResource ---

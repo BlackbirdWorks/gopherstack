@@ -16,6 +16,10 @@ func (b *InMemoryBackend) CreateDirectConnectGateway(
 		return nil, clientError("directConnectGatewayName is required")
 	}
 
+	if req.AmazonSideAsn != nil && !validAmazonSideAsn(*req.AmazonSideAsn) {
+		return nil, clientError("amazonSideAsn must be in the range 64512 to 65534 or 4200000000 to 4294967294")
+	}
+
 	b.mu.Lock("CreateDirectConnectGateway")
 	defer b.mu.Unlock()
 

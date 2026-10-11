@@ -613,7 +613,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Neptune](services/neptune/README.md) | A | — | 13 families; 1 gap; 2 structural gaps; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
-| [RDS](services/rds/README.md) | A | 52 | 5 gaps; 6 structural gaps |
+| [RDS](services/rds/README.md) | A | 52 | 4 gaps; 6 structural gaps |
 | [RDS Data](services/rdsdata/README.md) | A | 6 | 4 structural gaps |
 | [Redshift](services/redshift/README.md) | A | 9 | 5 gaps; 4 structural gaps |
 | [Redshift Data](services/redshiftdata/README.md) | A | 12 | 3 structural gaps; 1 deferred |
@@ -643,8 +643,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Amazon MQ](services/mq/README.md) | A | 25 | 2 structural gaps; 1 deferred |
 | [AppSync](services/appsync/README.md) | A | 74 | 3 gaps; 3 structural gaps; 2 deferred |
-| [EventBridge](services/eventbridge/README.md) | A | 66 | 1 gap; 2 structural gaps; 2 deferred |
-| [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 gap; 1 structural gap |
+| [EventBridge](services/eventbridge/README.md) | A | 66 | 1 gap; 3 structural gaps; 2 deferred |
+| [EventBridge Pipes](services/pipes/README.md) | A | 10 | 2 structural gaps |
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
 | [Pinpoint](services/pinpoint/README.md) | A | 51 | 2 structural gaps; 3 deferred |
 | [SES](services/ses/README.md) | A | 71 | 4 structural gaps; 1 deferred |
