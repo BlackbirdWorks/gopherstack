@@ -101,6 +101,8 @@ func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend) {
 
 	b.s3Fetcher = home.s3Fetcher
 	b.ecrResolver = home.ecrResolver
+	b.credIssuer = home.credIssuer
+	b.endpointURL = home.endpointURL
 	b.dnsRegistrar = home.dnsRegistrar
 	b.asyncDelivery = home.asyncDelivery
 	b.esmS3 = home.esmS3

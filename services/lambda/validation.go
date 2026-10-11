@@ -31,15 +31,6 @@ const (
 	maxAliasNameLength         = 128
 )
 
-func isReservedEnvKey(k string) bool {
-	switch k {
-	case "_HANDLER", "_X_AMZN_TRACE_ID", "AWS_DEFAULT_REGION", "AWS_REGION":
-		return true
-	}
-
-	return false
-}
-
 func constraintMessage(value, field, pattern string) string {
 	return fmt.Sprintf(
 		"1 validation error detected: Value '%s' at '%s' failed to satisfy constraint: "+

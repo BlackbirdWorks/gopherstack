@@ -37,6 +37,7 @@ type functionRuntime struct {
 	mu           *lockmetrics.RWMutex
 	zipDir       string
 	hotFP        string
+	credsExpire  time.Time
 	containerID  string
 	layerDirs    []string
 	port         int
@@ -246,7 +247,9 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 	rt.port = port
 	rt.started = true
 
-	zipDir, layerDirs, containerID, hotFP, containerErr := b.startRuntimeContainer(ctx, fn, port)
+	env, credsExpire := b.buildContainerEnv(ctx, fn, port)
+
+	zipDir, layerDirs, containerID, hotFP, containerErr := b.startRuntimeContainer(ctx, fn, env)
 	if containerErr != nil {
 		// handleContainerStartFailure receives rt.mu already locked and releases
 		// it itself once its cleanup completes, before doing further b.mu work.
@@ -262,6 +265,7 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 	rt.layerDirs = layerDirs
 	rt.containerID = containerID
 	rt.hotFP = hotFP
+	rt.credsExpire = credsExpire
 	rt.hotCheckedAt = time.Now()
 
 	return srv, nil
@@ -271,14 +275,14 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 func (b *InMemoryBackend) startRuntimeContainer(
 	ctx context.Context,
 	fn *FunctionConfiguration,
-	port int,
+	env []string,
 ) (string, []string, string, string, error) {
 	hotFP, err := b.hotReloadFingerprintFor(fn)
 	if err != nil {
 		return "", nil, "", "", fmt.Errorf("%w: %w", ErrLambdaUnavailable, err)
 	}
 
-	zipDir, layerDirs, containerID, err := b.startContainer(ctx, fn, port)
+	zipDir, layerDirs, containerID, err := b.startContainer(ctx, fn, env)
 
 	return zipDir, layerDirs, containerID, hotFP, err
 }
@@ -627,27 +631,8 @@ func extractZipFile(destDir string, f *zip.File) error {
 func (b *InMemoryBackend) startContainer(
 	ctx context.Context,
 	fn *FunctionConfiguration,
-	runtimePort int,
+	env []string,
 ) (string, []string, string, error) {
-	env := []string{
-		fmt.Sprintf("AWS_LAMBDA_RUNTIME_API=%s:%d", b.settings.DockerHost, runtimePort),
-		"AWS_DEFAULT_REGION=" + b.region,
-		"AWS_REGION=" + b.region,
-		"AWS_LAMBDA_FUNCTION_NAME=" + fn.FunctionName,
-		fmt.Sprintf("AWS_LAMBDA_FUNCTION_MEMORY_SIZE=%d", fn.MemorySize),
-		fmt.Sprintf("AWS_LAMBDA_FUNCTION_TIMEOUT=%d", fn.Timeout),
-	}
-
-	if fn.Handler != "" {
-		env = append(env, "AWS_LAMBDA_FUNCTION_HANDLER="+fn.Handler)
-	}
-
-	if fn.Environment != nil {
-		for k, v := range fn.Environment.Variables {
-			env = append(env, fmt.Sprintf("%s=%s", k, v))
-		}
-	}
-
 	// Extract layer zips and prepare the /opt mount for both Zip and Image functions.
 	layerMount, layerDirs, layerErr := b.prepareLayerMount(fn)
 	if layerErr != nil {

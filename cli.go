@@ -3217,6 +3217,10 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// instead of accepted unconditionally.
 	wireLambdaECR(byName["Lambda"], byName["ECR"])
 
+	if cli, ok := appCtx.Config.(*CLI); ok {
+		wireLambdaRuntimeEnv(cli, byName)
+	}
+
 	// Wire Timestream Query → Timestream Write's shared tag store, so
 	// CreateScheduledQuery's Tags reach TagResource/ListTagsForResource --
 	// timestreamquery's own RouteMatcher defers those ops to TimestreamWrite

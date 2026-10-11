@@ -95,6 +95,8 @@ type InMemoryBackend struct {
 	cwLogs             CWLogsBackend
 	s3Fetcher          S3CodeFetcher
 	ecrResolver        ECRResolver
+	credIssuer         RoleCredentialIssuer
+	endpointURL        string
 	metrics            cwmetric.Sink
 	docker             container.Runtime
 	dnsRegistrar       DNSRegistrar

@@ -179,6 +179,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	}
 
 	b.recycleStaleHotReloadRuntime(fn)
+	b.recycleExpiringCredentialRuntime(fn)
 
 	srv, srvErr := b.getOrCreateRuntime(ctx, fn)
 	if srvErr != nil {
@@ -191,6 +192,8 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 
 		return nil, "", "", http.StatusInternalServerError, srvErr
 	}
+
+	srv.traceActive.Store(tracingActive(fn))
 
 	timeout := time.Duration(fn.Timeout) * time.Second
 	if timeout <= 0 {

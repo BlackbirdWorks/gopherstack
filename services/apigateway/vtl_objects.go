@@ -222,7 +222,16 @@ func argInt(args []any, i int) (int, bool) {
 
 	n, ok := toInt64(args[i])
 
-	return int(max(min(n, math.MaxInt32), math.MinInt32)), ok
+	v, err := strconv.ParseInt(strconv.FormatInt(n, 10), 10, 32)
+	if err != nil {
+		if n < 0 {
+			v = math.MinInt32
+		} else {
+			v = math.MaxInt32
+		}
+	}
+
+	return int(v), ok
 }
 
 // callVTLMethod dispatches a method call on any template value.
