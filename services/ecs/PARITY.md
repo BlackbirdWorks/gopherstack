@@ -1275,3 +1275,7 @@ CreateCluster validates the name pattern; RegisterTaskDefinition validates the f
 ## 2026-10-10 lifecycle dwell knob
 
 `--lifecycle-ecs-start` (`ECS_START_DELAY`) and `--lifecycle-ecs-stop` (`ECS_STOP_DELAY`) fall back to `--lifecycle-delay`, default `0s`. The start pipeline now also applies with the default no-op runner, and DescribeTasks/ListTasks advance due phases instead of waiting for the 5s reconciler tick. Proof: root `TestLifecycleDelayWiring/ecs_*`.
+
+## 2026-10-11 deep realism pass
+
+Rolling deployments are now real: tasks carry startedBy = their deployment id, UpdateService (new task definition or forceNewDeployment) starts replacement tasks and stops superseded ones within MaximumPercent/MinimumHealthyPercent, then drops the superseded deployment (previously old tasks ran forever and services-stable never succeeded). Per-deployment running/pending counts follow the owning deployment. DescribeServices returns events (started/stopped tasks, steady state, deployment completed/failed; in memory, not persisted). Left out: BLUE_GREEN/LINEAR/CANARY keep their existing lifecycle model; a rollback to a task definition reuses no old tasks.

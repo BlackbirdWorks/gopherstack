@@ -736,6 +736,7 @@ func (b *InMemoryBackend) UpdateStack(
 	// needs the OLD template's own dependency graph to delete resources dropped
 	// from the new one in reverse dependency order.
 	oldTemplateBody := stack.TemplateBody
+	oldParams := slices.Clone(stack.Parameters)
 
 	now := time.Now()
 	stack.LastUpdatedTime = &now
@@ -765,7 +766,7 @@ func (b *InMemoryBackend) UpdateStack(
 		cfnStackType, statusUpdateInProgress, reasonUserInitiated,
 	)
 
-	if !b.applyTemplateToStack(ctx, stack, opts.DisableValidation, opts.ResourceTypes, oldTemplateBody) {
+	if !b.applyTemplateToStack(ctx, stack, opts.DisableValidation, opts.ResourceTypes, oldTemplateBody, oldParams) {
 		return stack, nil
 	}
 
@@ -853,7 +854,8 @@ func (b *InMemoryBackend) parseAndValidateUpdateTemplate(
 }
 
 func (b *InMemoryBackend) applyTemplateToStack(
-	ctx context.Context, stack *Stack, disableValidation bool, resourceTypes []string, oldTemplateBody string,
+	ctx context.Context, stack *Stack, disableValidation bool, resourceTypes []string,
+	oldTemplateBody string, oldParams []Parameter,
 ) bool {
 	if stack.TemplateBody == "" {
 		return true
@@ -869,6 +871,8 @@ func (b *InMemoryBackend) applyTemplateToStack(
 	for logicalID, res := range b.resources[stack.StackID] {
 		physicalIDs[logicalID] = res.PhysicalID
 	}
+
+	uc := newUpdateContext(oldTemplateBody, oldParams, physicalIDs)
 
 	// Side channel for property-time Fn::GetAtt during update -- see the
 	// matching block in provisionResources and physIDResourceTypeKey.
@@ -888,7 +892,7 @@ func (b *InMemoryBackend) applyTemplateToStack(
 		return false
 	}
 
-	if !b.updateResources(ctx, stack, tmpl, resolvedParams, physicalIDs, oldTemplateBody) {
+	if !b.updateResources(ctx, stack, tmpl, resolvedParams, physicalIDs, oldTemplateBody, uc) {
 		return false
 	}
 
@@ -942,6 +946,7 @@ func (b *InMemoryBackend) updateResources(
 	resolvedParams map[string]string,
 	physicalIDs map[string]string,
 	oldTemplateBody string,
+	uc *updateContext,
 ) bool {
 	// Snapshot pre-update state for rollback.
 	prevResources := make(map[string]*StackResource, len(b.resources[stack.StackID]))
@@ -957,39 +962,13 @@ func (b *InMemoryBackend) updateResources(
 		return false
 	}
 
-	var created []string
+	pass := &updatePass{uc: uc, params: resolvedParams, phys: physicalIDs}
 
 	for _, logicalID := range ordered {
-		res := tmpl.Resources[logicalID]
-		existing, exists := b.resources[stack.StackID][logicalID]
-		if !exists {
-			physicalID, cerr := b.createUpdateResource(
-				ctx,
-				stack,
-				logicalID,
-				res,
-				resolvedParams,
-				physicalIDs,
-			)
-			if cerr != nil {
-				b.rollbackUpdateResources(ctx, stack, prevResources, created)
-				if stack.StackStatus != statusUpdateRollbackFailed {
-					stack.StackStatusReason = fmt.Sprintf("resource %s: %v", logicalID, cerr)
-				}
-
-				return false
-			}
-
-			physicalIDs[logicalID] = physicalID
-			created = append(created, logicalID)
-
-			continue
-		}
-
-		if uerr := b.updateExistingResource(ctx, stack, logicalID, res, existing); uerr != nil {
-			b.rollbackUpdateResources(ctx, stack, prevResources, created)
+		if err := b.applyResourceUpdate(ctx, stack, tmpl.Resources[logicalID], logicalID, pass); err != nil {
+			b.rollbackUpdateResources(ctx, stack, prevResources, pass.created)
 			if stack.StackStatus != statusUpdateRollbackFailed {
-				stack.StackStatusReason = fmt.Sprintf("resource %s update: %v", logicalID, uerr)
+				stack.StackStatusReason = err.Error()
 			}
 
 			return false
@@ -1007,6 +986,12 @@ func (b *InMemoryBackend) updateResources(
 
 		return false
 	}
+
+	b.addEvent(
+		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
+		cfnStackType, statusUpdateCleanupProgress, "",
+	)
+	b.cleanupReplacedResources(ctx, stack, pass.replaced)
 
 	return true
 }
@@ -1065,60 +1050,6 @@ func (b *InMemoryBackend) createUpdateResource(
 	)
 
 	return physicalID, nil
-}
-
-// updateExistingResource processes an existing resource during a stack update.
-// For CFN extensibility types it sends an Update event to the backing Lambda/SNS.
-func (b *InMemoryBackend) updateExistingResource(
-	ctx context.Context,
-	stack *Stack,
-	logicalID string,
-	res TemplateResource,
-	existing *StackResource,
-) error {
-	if isCFNExtensibilityType(res.Type) {
-		b.addEvent(
-			stack.StackID,
-			stack.StackName,
-			logicalID,
-			existing.PhysicalID,
-			res.Type,
-			statusUpdateInProgress,
-			"",
-		)
-		uerr := b.creator.Update(
-			ctx,
-			logicalID,
-			res.Type,
-			existing.PhysicalID,
-			res.Properties,
-			existing.Properties,
-		)
-		if uerr != nil {
-			b.addEvent(
-				stack.StackID, stack.StackName, logicalID,
-				existing.PhysicalID, res.Type, statusUpdateFailed, uerr.Error(),
-			)
-
-			return uerr
-		}
-
-		existing.Properties = res.Properties
-	}
-
-	existing.Status = statusUpdateComplete
-	existing.Timestamp = time.Now()
-	b.addEvent(
-		stack.StackID,
-		stack.StackName,
-		logicalID,
-		existing.PhysicalID,
-		res.Type,
-		statusUpdateComplete,
-		"",
-	)
-
-	return nil
 }
 
 // deleteStaleResources removes logical IDs present in the stack but absent

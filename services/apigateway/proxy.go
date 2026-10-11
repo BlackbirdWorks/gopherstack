@@ -98,10 +98,11 @@ const ctxKeyClaims ctxKey = 1
 
 // LambdaProxyResponse is the response format from a Lambda proxy function.
 type LambdaProxyResponse struct {
-	Headers         map[string]string `json:"headers,omitempty"`
-	Body            string            `json:"body,omitempty"`
-	StatusCode      int               `json:"statusCode"`
-	IsBase64Encoded bool              `json:"isBase64Encoded,omitempty"`
+	Headers           map[string]string   `json:"headers,omitempty"`
+	MultiValueHeaders map[string][]string `json:"multiValueHeaders,omitempty"`
+	Body              string              `json:"body,omitempty"`
+	StatusCode        int                 `json:"statusCode"`
+	IsBase64Encoded   bool                `json:"isBase64Encoded,omitempty"`
 }
 
 // BuildProxyEvent converts an incoming HTTP request to a Lambda proxy event.
@@ -459,6 +460,8 @@ func (h *Handler) dispatchIntegration(
 		integration = &resolved
 	}
 
+	r = r.WithContext(context.WithValue(r.Context(), pathParamsKey{}, pathParams))
+
 	switch integration.Type {
 	case "AWS_PROXY":
 		h.handleAWSProxy(ctx, w, r, apiID, stageName, resource, integration, pathParams)
@@ -467,7 +470,7 @@ func (h *Handler) dispatchIntegration(
 	case "HTTP", "HTTP_PROXY":
 		h.handleHTTPProxy(ctx, w, r, integration)
 	case IntegrationTypeMock:
-		h.handleMockIntegration(w, integration)
+		h.handleMockIntegration(ctx, w, r, apiID, stageName, resource, stageVars, integration)
 	default:
 		http.Error(w, "Unsupported or unknown integration type for stage URL", http.StatusNotImplemented)
 	}

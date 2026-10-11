@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -277,6 +278,24 @@ func finalizeSyncExecutionResult(
 	return syncResult
 }
 
+func (b *InMemoryBackend) executionStartedEvent(exec *Execution, now float64) *HistoryEvent {
+	details := &ExecutionStartedEventDetails{
+		Input:                  exec.Input,
+		InputDetails:           &HistoryEventExecutionDataDetails{},
+		StateMachineAliasArn:   exec.StateMachineAliasArn,
+		StateMachineVersionArn: exec.StateMachineVersionArn,
+	}
+
+	if sm, ok := b.stateMachines.Get(exec.StateMachineArn); ok {
+		details.RoleArn = sm.RoleArn
+	}
+
+	return &HistoryEvent{
+		Timestamp: now, Type: "ExecutionStarted", ID: executionStartedEventID, PreviousEventID: 0,
+		ExecutionStartedEventDetails: details,
+	}
+}
+
 func (b *InMemoryBackend) initializeExecutionRecord(
 	smArn, name, execArn, input, def string, now float64, versionArn, aliasArn string,
 ) *Execution {
@@ -292,10 +311,8 @@ func (b *InMemoryBackend) initializeExecutionRecord(
 		InputDetails:           &CloudWatchEventsExecutionDataDetails{Included: true},
 		RedriveStatus:          redriveStatusNotRedrivable,
 		RedriveStatusReason:    redriveStatusReasonRunning,
-		history: []*HistoryEvent{
-			{Timestamp: now, Type: "ExecutionStarted", ID: executionStartedEventID, PreviousEventID: 0},
-		},
 	}
+	exec.history = []*HistoryEvent{b.executionStartedEvent(exec, now)}
 	// Put also inserts exec into the executionsByStateMachine index, replacing
 	// the former manual b.smExecutions[smArn] append.
 	b.executions.Put(exec)
@@ -600,6 +617,7 @@ func (b *InMemoryBackend) timeOutExecutionLocked(exec *Execution, execARN string
 	nextID := int64(len(exec.history) + 1)
 	exec.history = append(exec.history, &HistoryEvent{
 		Timestamp: now, Type: "ExecutionTimedOut", ID: nextID, PreviousEventID: nextID - 1,
+		ExecutionTimedOutEventDetails: &ExecutionErrorEventDetails{Error: exec.Error, Cause: exec.Cause},
 	})
 }
 
@@ -623,6 +641,7 @@ func (b *InMemoryBackend) finalizeExecutionRecordLocked(
 		b.emitExecutionEnded(exec.StateMachineArn, exec.Status, exec.StartDate, now)
 		exec.history = append(exec.history, &HistoryEvent{
 			Timestamp: now, Type: "ExecutionFailed", ID: nextID, PreviousEventID: nextID - 1,
+			ExecutionFailedEventDetails: &ExecutionErrorEventDetails{Error: exec.Error, Cause: exec.Cause},
 		})
 
 		return
@@ -639,6 +658,7 @@ func (b *InMemoryBackend) finalizeExecutionRecordLocked(
 		b.emitExecutionEnded(exec.StateMachineArn, exec.Status, exec.StartDate, now)
 		exec.history = append(exec.history, &HistoryEvent{
 			Timestamp: now, Type: "ExecutionFailed", ID: nextID, PreviousEventID: nextID - 1,
+			ExecutionFailedEventDetails: &ExecutionErrorEventDetails{Error: exec.Error, Cause: exec.Cause},
 		})
 
 		return
@@ -655,6 +675,9 @@ func (b *InMemoryBackend) finalizeExecutionRecordLocked(
 	b.emitExecutionEnded(exec.StateMachineArn, exec.Status, exec.StartDate, now)
 	exec.history = append(exec.history, &HistoryEvent{
 		Timestamp: now, Type: "ExecutionSucceeded", ID: nextID, PreviousEventID: nextID - 1,
+		ExecutionSucceededEventDetails: &ExecutionSucceededEventDetails{
+			Output: exec.Output, OutputDetails: &HistoryEventExecutionDataDetails{},
+		},
 	})
 }
 
@@ -694,6 +717,7 @@ func (b *InMemoryBackend) StopExecution(executionArn, errCode, cause string) err
 	nextID := int64(len(exec.history) + 1)
 	exec.history = append(exec.history, &HistoryEvent{
 		Timestamp: now, Type: "ExecutionAborted", ID: nextID, PreviousEventID: nextID - 1,
+		ExecutionAbortedEventDetails: &ExecutionErrorEventDetails{Error: errCode, Cause: cause},
 	})
 
 	return nil
@@ -855,9 +879,36 @@ func (b *InMemoryBackend) resetExecutionForRedrive(exec *Execution, executionARN
 	exec.OutputDetails = nil
 	b.removeFromStatusBucket(smARN, oldStatus, executionARN)
 	b.addToStatusBucket(smARN, statusRunning, executionARN)
-	exec.history = []*HistoryEvent{
-		{Timestamp: now, Type: "ExecutionStarted", ID: executionStartedEventID, PreviousEventID: 0},
+	nextID := int64(len(exec.history) + 1)
+	exec.history = append(exec.history, &HistoryEvent{
+		Timestamp: now, Type: "ExecutionRedriven", ID: nextID, PreviousEventID: nextID - 1,
+		ExecutionRedrivenEventDetails: &ExecutionRedrivenEventDetails{RedriveCount: exec.RedriveCount},
+	})
+}
+
+// redriveResumePoint finds the top-level state a failed execution stopped in and
+// the input it was entered with, so a redrive continues there instead of
+// re-running states that already succeeded.
+func redriveResumePoint(exec *Execution, sm *asl.StateMachine) (string, string) {
+	for _, ev := range slices.Backward(exec.history) {
+		d := ev.StateEnteredEventDetails
+		if d == nil {
+			continue
+		}
+
+		if _, ok := sm.States[d.Name]; !ok {
+			continue
+		}
+
+		input := d.Input
+		if input == "" {
+			input = "null"
+		}
+
+		return d.Name, input
 	}
+
+	return "", ""
 }
 
 // redrivenExecution carries the state produced under lock by redriveExecutionLocked
@@ -909,6 +960,13 @@ func (b *InMemoryBackend) redriveExecutionLocked(executionARN string) (*redriven
 	parsedSM, parseErr := sm.parseDefinition()
 	if parseErr != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
+	}
+
+	if resumeState, resumeInput := redriveResumePoint(exec, parsedSM); resumeState != "" {
+		resumed := *parsedSM
+		resumed.StartAt = resumeState
+		parsedSM = &resumed
+		originalInput = resumeInput
 	}
 
 	// Reset the execution to RUNNING.

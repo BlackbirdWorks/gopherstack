@@ -2674,3 +2674,7 @@ FIXED: CreateChangeSet Tags/NotificationARNs/RoleARN/RollbackConfiguration are s
 ## 2026-10-05 (undeclared response members)
 
 DescribeChangeSet no longer emits ChangeSetType, DescribeType drops TypeVersionStatus/VersionId, and GetTemplateSummary drops AllowedPattern/ConstraintDescription and moves AllowedValues under ParameterConstraints (cloudformation SDK ParameterDeclaration).
+
+## 2026-10-11 deep realism pass
+
+UpdateStack used to leave existing resources untouched (only custom resources were updated). Now each existing resource is compared with the old template under old and new parameter values: unchanged resources emit no events; changes to a replacement-forcing property (changeset_diff.go table) create the new resource, delete the old one after the update (honouring UpdateReplacePolicy Retain/Snapshot) with AWS's replacement events and UPDATE_COMPLETE_CLEANUP_IN_PROGRESS, and a fixed custom name that would collide fails with "cannot update a stack when a custom-named resource requires replacing". In-place updaters exist for AWS::Lambda::Function, AWS::SQS::Queue and AWS::StepFunctions::StateMachine; other types keep the old behaviour (status only). SQS queues now apply DelaySeconds, ReceiveMessageWaitTimeSeconds, MaximumMessageSize and RedrivePolicy on create. Left out: in-place updates are not reverted on rollback; nested-stack updates.

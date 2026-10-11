@@ -165,7 +165,9 @@ type TemplateResource struct {
 	Properties     map[string]any `json:"Properties"     yaml:"Properties"`
 	Type           string         `json:"Type"           yaml:"Type"`
 	DeletionPolicy string         `json:"DeletionPolicy" yaml:"DeletionPolicy"`
-	DependsOn      []string       `json:"-"              yaml:"-"`
+	// UpdateReplacePolicy governs the OLD physical resource when an update replaces it.
+	UpdateReplacePolicy string   `json:"UpdateReplacePolicy" yaml:"UpdateReplacePolicy"`
+	DependsOn           []string `json:"-"                   yaml:"-"`
 }
 
 // UnmarshalJSON implements [json.Unmarshaler] for TemplateResource so that
@@ -176,12 +178,16 @@ func (r *TemplateResource) UnmarshalJSON(data []byte) error {
 		Properties     map[string]any `json:"Properties"`
 		Type           string         `json:"Type"`
 		DeletionPolicy string         `json:"DeletionPolicy"`
+
+		UpdateReplacePolicy string `json:"UpdateReplacePolicy"`
 	}
 
 	var p plain
 	if err := json.Unmarshal(data, &p); err != nil {
 		return err
 	}
+
+	r.UpdateReplacePolicy = p.UpdateReplacePolicy
 
 	r.Type = p.Type
 	r.Properties = p.Properties
@@ -198,12 +204,16 @@ func (r *TemplateResource) UnmarshalYAML(unmarshal func(any) error) error {
 		Properties     map[string]any `yaml:"Properties"`
 		Type           string         `yaml:"Type"`
 		DeletionPolicy string         `yaml:"DeletionPolicy"`
+
+		UpdateReplacePolicy string `yaml:"UpdateReplacePolicy"`
 	}
 
 	var p plain
 	if err := unmarshal(&p); err != nil {
 		return err
 	}
+
+	r.UpdateReplacePolicy = p.UpdateReplacePolicy
 
 	r.Type = p.Type
 	r.Properties = p.Properties

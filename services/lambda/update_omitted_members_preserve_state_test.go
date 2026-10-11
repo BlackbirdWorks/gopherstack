@@ -237,8 +237,9 @@ func TestUpdateEventSourceMapping_PreservesOmittedBatchSize(t *testing.T) {
 	assert.Equal(t, int32(7), aws.ToInt32(preserved.BatchSize), "omitted BatchSize must survive")
 
 	changed, err := client.UpdateEventSourceMapping(t.Context(), &lambdasdk.UpdateEventSourceMappingInput{
-		UUID:      esm.UUID,
-		BatchSize: aws.Int32(42),
+		UUID:                           esm.UUID,
+		BatchSize:                      aws.Int32(42),
+		MaximumBatchingWindowInSeconds: aws.Int32(1),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int32(42), aws.ToInt32(changed.BatchSize))

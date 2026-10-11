@@ -67,6 +67,10 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "failed to read request")
 	}
 
+	if rejectNonJSONPayload(h, c, body) {
+		return nil
+	}
+
 	if body == nil {
 		body = []byte("{}")
 	}
@@ -99,12 +103,12 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 		c.Response().Header().Set("X-Amz-Log-Result", logResult)
 	}
 
-	if statusCode == http.StatusNoContent {
-		return c.NoContent(http.StatusNoContent)
-	}
+	return writeInvokeResult(c, result, functionError, statusCode)
+}
 
-	if statusCode == http.StatusAccepted {
-		return c.NoContent(http.StatusAccepted)
+func writeInvokeResult(c *echo.Context, result []byte, functionError string, statusCode int) error {
+	if statusCode == http.StatusNoContent || statusCode == http.StatusAccepted {
+		return c.NoContent(statusCode)
 	}
 
 	if len(result) > 0 {
@@ -122,6 +126,17 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 	}
 
 	return c.NoContent(http.StatusOK)
+}
+
+func rejectNonJSONPayload(h *Handler, c *echo.Context, body []byte) bool {
+	if len(body) == 0 || json.Valid(body) {
+		return false
+	}
+
+	_ = h.writeError(c, http.StatusBadRequest, "InvalidRequestContentException",
+		"Could not parse request body into json: Could not parse payload into json")
+
+	return true
 }
 
 // beginDurableInvoke starts or reuses handleInvoke's durable execution (if

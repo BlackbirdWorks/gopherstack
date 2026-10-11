@@ -557,6 +557,7 @@ type serviceView struct {
 	PlacementConstraints          []placementConstraintView    `json:"placementConstraints,omitempty"`
 	PlacementStrategy             []placementStrategyView      `json:"placementStrategy,omitempty"`
 	Deployments                   []deploymentView             `json:"deployments,omitempty"`
+	Events                        []serviceEventView           `json:"events,omitempty"`
 	Tags                          []Tag                        `json:"tags,omitempty"`
 	LoadBalancers                 []loadBalancerView           `json:"loadBalancers"`
 	CreatedAt                     float64                      `json:"createdAt"`
@@ -617,6 +618,12 @@ func toServiceView(s Service) serviceView {
 		v.PlacementStrategy = append(v.PlacementStrategy, placementStrategyView(ps))
 	}
 
+	for _, ev := range s.Events {
+		v.Events = append(v.Events, serviceEventView{
+			ID: ev.ID, Message: ev.Message, CreatedAt: float64(ev.CreatedAt.UnixMilli()) / millisPerSecond,
+		})
+	}
+
 	for _, d := range s.Deployments {
 		dv := toDeploymentView(d)
 		if d.Status == deploymentStatusPrimary {
@@ -627,6 +634,14 @@ func toServiceView(s Service) serviceView {
 	}
 
 	return v
+}
+
+const millisPerSecond = 1000
+
+type serviceEventView struct {
+	ID        string  `json:"id"`
+	Message   string  `json:"message"`
+	CreatedAt float64 `json:"createdAt"`
 }
 
 // deploymentView is the handler view of a service deployment record.

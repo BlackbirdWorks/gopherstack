@@ -439,19 +439,17 @@ func (b *InMemoryBackend) enrichService(s *Service, clusterName string) Service 
 	running := 0
 	pending := 0
 
-	// Per-deployment counters keyed by task definition ARN.
-	deplRunning := make(map[string]int, len(s.Deployments))
-	deplPending := make(map[string]int, len(s.Deployments))
+	var liveTasks []*Task
 
 	for _, t := range b.tasksByCluster.Get(clusterName) {
 		if t.Group == "service:"+s.ServiceName {
 			switch t.LastStatus {
 			case statusRunning:
 				running++
-				deplRunning[t.TaskDefinitionArn]++
+				liveTasks = append(liveTasks, t)
 			case statusPending, statusProvisioning:
 				pending++
-				deplPending[t.TaskDefinitionArn]++
+				liveTasks = append(liveTasks, t)
 			}
 		}
 	}
@@ -464,8 +462,19 @@ func (b *InMemoryBackend) enrichService(s *Service, clusterName string) Service 
 	deployments := make([]Deployment, len(s.Deployments))
 
 	for i, d := range s.Deployments {
-		d.RunningCount = deplRunning[d.TaskDefinition]
-		d.PendingCount = deplPending[d.TaskDefinition]
+		d.RunningCount, d.PendingCount = 0, 0
+
+		for _, t := range liveTasks {
+			if !deploymentOwnsTask(s.Deployments, i, t) {
+				continue
+			}
+
+			if t.LastStatus == statusRunning {
+				d.RunningCount++
+			} else {
+				d.PendingCount++
+			}
+		}
 
 		if d.Status == deploymentStatusPrimary &&
 			d.RolloutState == deploymentRolloutStateInProgress &&
@@ -749,6 +758,7 @@ func (b *InMemoryBackend) getServicesForReconciler() []serviceSnapshot {
 			clusterName: ref.cluster,
 			service:     cloneServiceForSnapshot(svc),
 			running:     counts["service:"+ref.name],
+			rolling:     b.rollingPlanLocked(ref.cluster, svc),
 		})
 	}
 
@@ -786,6 +796,7 @@ func cloneServiceForSnapshot(svc *Service) Service {
 // serviceSnapshot is a point-in-time copy of a service for the reconciler.
 type serviceSnapshot struct {
 	clusterName string
+	rolling     rollingPlan
 	service     Service
 	running     int
 }
@@ -814,6 +825,14 @@ func (b *InMemoryBackend) CountRunningTasksForService(clusterName, serviceName s
 func (b *InMemoryBackend) StartTaskForService(
 	clusterName, serviceName, taskDefinitionArn string,
 ) error {
+	_, err := b.startServiceTask(clusterName, serviceName, taskDefinitionArn)
+
+	return err
+}
+
+func (b *InMemoryBackend) startServiceTask(
+	clusterName, serviceName, taskDefinitionArn string,
+) (string, error) {
 	// Snapshot service config without holding the lock during RunTask.
 	var svcPropagateTags string
 	var svcTags []Tag
@@ -822,12 +841,17 @@ func (b *InMemoryBackend) StartTaskForService(
 	var svcLaunchType string
 	var svcPlacementConstraints []PlacementConstraint
 	var svcPlacementStrategy []PlacementStrategy
+	var startedBy string
 
 	func() {
 		b.mu.RLock("StartTaskForService-svcSnap")
 		defer b.mu.RUnlock()
 
 		if svc, found := b.services.Get(scopedKey(clusterName, serviceName)); found {
+			if idx := primaryDeploymentIndex(svc); idx >= 0 {
+				startedBy = svc.Deployments[idx].ID
+			}
+
 			svcPropagateTags = svc.PropagateTags
 			// resourceTags (kept in sync by TagResource/UntagResource) is
 			// authoritative, not the creation-time svc.Tags snapshot -- see
@@ -849,6 +873,7 @@ func (b *InMemoryBackend) StartTaskForService(
 		TaskDefinition:          taskDefinitionArn,
 		Count:                   1,
 		Group:                   "service:" + serviceName,
+		StartedBy:               startedBy,
 		LaunchType:              svcLaunchType,
 		PropagateTags:           svcPropagateTags,
 		serviceNameForTags:      serviceName,
@@ -860,19 +885,23 @@ func (b *InMemoryBackend) StartTaskForService(
 		PlacementStrategy:       svcPlacementStrategy,
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Count==1 above, so RunTask returns either one task or one placement
 	// failure (see createTaskEntriesLocked), never both.
 	if len(tasks) == 0 && len(failures) > 0 {
-		return fmt.Errorf(
+		return "", fmt.Errorf(
 			"%w for service %s: %s: %s",
 			errTaskPlacementFailed, serviceName, failures[0].Reason, failures[0].Detail,
 		)
 	}
 
-	return nil
+	if len(tasks) == 0 {
+		return "", nil
+	}
+
+	return tasks[0].TaskArn, nil
 }
 
 // StopOldestServiceTask stops the oldest running task for a service.
@@ -937,6 +966,10 @@ func (b *InMemoryBackend) StopOldestServiceTask(clusterName, serviceName string)
 
 		b.taskProtections.Delete(taskArn)
 		b.unindexTaskFromInstance(clusterName, instanceArn, taskArn)
+
+		if svc, ok := b.services.Get(scopedKey(clusterName, serviceName)); ok {
+			b.addServiceEventLocked(svc, taskListMessage(serviceName, "stopped", []string{taskArn}))
+		}
 	}()
 
 	return nil

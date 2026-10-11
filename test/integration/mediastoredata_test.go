@@ -44,13 +44,13 @@ func TestIntegration_MediaStoreData_ObjectLifecycle(t *testing.T) {
 	}{
 		{
 			name:        "video_object",
-			objectPath:  "/videos/test-clip.mp4",
+			objectPath:  "videos/test-clip.mp4",
 			body:        []byte("video content data"),
 			contentType: "video/mp4",
 		},
 		{
 			name:        "audio_object",
-			objectPath:  "/audio/test-song.mp3",
+			objectPath:  "audio/test-song.mp3",
 			body:        []byte("audio content data"),
 			contentType: "audio/mpeg",
 		},

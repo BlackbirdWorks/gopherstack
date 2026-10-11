@@ -83,12 +83,7 @@ func (h *Handler) handleGenericAWSServiceIntegration(
 		return
 	}
 
-	body, status := h.applyResponseTemplateMatching(
-		resp.Body, strconv.Itoa(resp.Status), resp.Status, integration, vtlCtx.RequestID,
-	)
-	body = maybeCompressResponse(w, r, body, h.minCompressSize(apiID, stageName))
-	w.Header().Set("Content-Type", contentTypeJSON)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(status)
-	_, _ = w.Write(body)
+	out := h.applyResponseTemplateMatching(resp.Body, strconv.Itoa(resp.Status), resp.Status, integration, vtlCtx)
+
+	h.writeIntegrationOutcome(w, r, apiID, stageName, out, resp.Body)
 }

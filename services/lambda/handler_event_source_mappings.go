@@ -109,12 +109,8 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 			ParallelizationFactor:               req.ParallelizationFactor,
 			BisectBatchOnFunctionError:          req.BisectBatchOnFunctionError,
 		})
-		if errors.Is(err, ErrInvalidParameterValue) {
-			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
-		}
-
 		if err != nil {
-			return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+			return h.writeESMCreateError(c, err)
 		}
 
 		h.tagESM(m, req.Tags)
@@ -123,6 +119,17 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 	}
 
 	return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+}
+
+func (h *Handler) writeESMCreateError(c *echo.Context, err error) error {
+	switch {
+	case errors.Is(err, ErrInvalidParameterValue):
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+	case errors.Is(err, ErrESMAlreadyExists):
+		return h.writeError(c, http.StatusConflict, "ResourceConflictException", err.Error())
+	}
+
+	return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
 }
 
 // handleListESMs handles GET /2015-03-31/event-source-mappings/.

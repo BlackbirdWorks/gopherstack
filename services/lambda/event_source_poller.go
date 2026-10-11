@@ -849,7 +849,7 @@ func (p *EventSourcePoller) resumePendingStream(ctx context.Context, m *EventSou
 // batchItemFailures list, only messages NOT in that list are deleted; the failed
 // ones remain in the queue and become visible again after their visibility timeout.
 func (p *EventSourcePoller) processSQSMapping(ctx context.Context, m *EventSourceMapping, reader SQSReader) {
-	msgs, err := reader.ReceiveMessagesLocal(m.EventSourceARN, m.BatchSize)
+	msgs, err := receiveSQSMessages(reader, m.EventSourceARN, m.BatchSize)
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "esm sqs: failed to receive messages",
 			"queue", m.EventSourceARN, "error", err)
@@ -901,6 +901,36 @@ func (p *EventSourcePoller) processSQSMapping(ctx context.Context, m *EventSourc
 	}
 
 	p.esmCount(m, esmMetricDeleted, deleted)
+}
+
+// sqsReceiveLimit is SQS's per-call MaxNumberOfMessages ceiling.
+const sqsReceiveLimit = 10
+
+// receiveSQSMessages gathers up to want messages, issuing ReceiveMessage calls of at most
+// sqsReceiveLimit each, since SQS rejects larger MaxNumberOfMessages.
+func receiveSQSMessages(reader SQSReader, queueARN string, want int) ([]*SQSMessage, error) {
+	var all []*SQSMessage
+
+	for len(all) < want {
+		n := min(sqsReceiveLimit, want-len(all))
+
+		msgs, err := reader.ReceiveMessagesLocal(queueARN, n)
+		if err != nil {
+			if len(all) > 0 {
+				return all, nil
+			}
+
+			return nil, err
+		}
+
+		all = append(all, msgs...)
+
+		if len(msgs) < n {
+			break
+		}
+	}
+
+	return all, nil
 }
 
 // deliverSQSBatch invokes the function for a batch of SQS messages, honoring

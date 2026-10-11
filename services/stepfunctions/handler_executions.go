@@ -349,6 +349,16 @@ func stripHistoryEventExecutionData(events []HistoryEvent) []HistoryEvent {
 			d.Output = ""
 			e.TaskSubmittedEventDetails = &d
 		}
+		if e.ExecutionStartedEventDetails != nil {
+			d := *e.ExecutionStartedEventDetails
+			d.Input = ""
+			e.ExecutionStartedEventDetails = &d
+		}
+		if e.ExecutionSucceededEventDetails != nil {
+			d := *e.ExecutionSucceededEventDetails
+			d.Output = ""
+			e.ExecutionSucceededEventDetails = &d
+		}
 		if e.TaskSucceededEventDetails != nil {
 			d := *e.TaskSucceededEventDetails
 			d.Output = ""

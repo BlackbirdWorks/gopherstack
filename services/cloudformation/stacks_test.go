@@ -795,10 +795,9 @@ func TestBackend_DescribeStackEvents_Pagination(t *testing.T) {
 	_, err := b.CreateStack(t.Context(), "evt-page-stack", simpleTemplate, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
 
-	// Each successful UpdateStack on an unchanged plain resource emits 3
-	// events (stack UPDATE_IN_PROGRESS, resource UPDATE_COMPLETE, stack
-	// UPDATE_COMPLETE), so 40 updates comfortably exceeds one default page.
-	for i := range 40 {
+	// Each successful UpdateStack that changes no resource emits 3 stack events
+	// (UPDATE_IN_PROGRESS, CLEANUP, UPDATE_COMPLETE), so 80 updates exceed one default page.
+	for i := range 80 {
 		tmpl := strings.Replace(simpleTemplate, `"Resources"`, fmt.Sprintf(`"Description":"v%d","Resources"`, i), 1)
 		_, uerr := b.UpdateStack(t.Context(), "evt-page-stack", tmpl, nil, cloudformation.StackOptions{})
 		require.NoError(t, uerr)

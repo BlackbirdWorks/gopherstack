@@ -77,6 +77,9 @@ func TestIntegration_IoT_ThingLifecycle(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 
+				typeResp := iotRequest(t, http.MethodPost, "/thing-types/SensorType", map[string]any{})
+				typeResp.Body.Close()
+
 				resp := iotRequest(t, http.MethodPost, "/things/"+thingName, map[string]any{
 					"thingTypeName": "SensorType",
 					"attributePayload": map[string]any{

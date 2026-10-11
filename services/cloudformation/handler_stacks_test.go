@@ -355,7 +355,7 @@ func TestHandler_DescribeStackEvents_NextToken(t *testing.T) {
 	h := newHandler()
 	postForm(t, h, "Action=CreateStack&StackName=evt-tok-stack&TemplateBody="+simpleTemplate)
 
-	for i := range 40 {
+	for i := range 80 {
 		tmpl := strings.Replace(simpleTemplate, `"Resources"`, fmt.Sprintf(`"Description":"v%d","Resources"`, i), 1)
 		postForm(t, h, "Action=UpdateStack&StackName=evt-tok-stack&TemplateBody="+tmpl)
 	}

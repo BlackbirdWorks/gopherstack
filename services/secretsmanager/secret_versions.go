@@ -177,7 +177,7 @@ func (b *InMemoryBackend) PutSecretValue(
 	}
 
 	// Idempotency: if the version ID already exists with identical content, return it.
-	if existing, ok := secret.Versions[versionID]; ok {
+	if existing, ok := secret.Versions[versionID]; ok && !isRotationPlaceholder(secret, existing) {
 		matched, err := b.matchesExistingVersion(ctx, existing, input.SecretString, input.SecretBinary)
 		if err != nil {
 			return nil, err
@@ -752,3 +752,12 @@ func removeLabel(labels []string, label string) []string {
 
 	return newLabels
 }
+
+// isRotationPlaceholder reports whether v is the AWSPENDING version RotateSecret pre-created for the
+// rotation Lambda's createSecret step to fill in.
+func isRotationPlaceholder(secret *Secret, v *SecretVersion) bool {
+	return secret.RotationLambdaARN != "" && len(v.StagingLabels) == 1 &&
+		v.StagingLabels[0] == stagingLabelPendingRotation
+}
+
+const stagingLabelPendingRotation = "AWSPENDING"

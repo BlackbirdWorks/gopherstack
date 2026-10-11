@@ -2706,13 +2706,7 @@ func (rc *ResourceCreator) createSQSQueue(
 	if queueName == "" {
 		queueName = logicalID
 	}
-	attrs := map[string]string{}
-	if vt := strProp(props, "VisibilityTimeout", params, physicalIDs); vt != "" {
-		attrs["VisibilityTimeout"] = vt
-	}
-	if mrt := strProp(props, "MessageRetentionPeriod", params, physicalIDs); mrt != "" {
-		attrs["MessageRetentionPeriod"] = mrt
-	}
+	attrs := sqsAttributesFromProps(props, params, physicalIDs)
 	if isFIFO, _ := props["FifoQueue"].(bool); isFIFO {
 		queueName = strings.TrimSuffix(queueName, ".fifo") + ".fifo"
 		attrs["FifoQueue"] = boolTrue

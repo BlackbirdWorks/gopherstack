@@ -271,9 +271,14 @@ func TestLambda_Alias_RoutingConfig(t *testing.T) {
 				FunctionName: fnName,
 			}))
 
+			for range 2 {
+				_, pubErr := backend.PublishVersion(fnName, "")
+				require.NoError(t, pubErr)
+			}
+
 			alias, err := backend.CreateAlias(fnName, &lambda.CreateAliasInput{
 				Name:            tt.aliasName,
-				FunctionVersion: "$LATEST",
+				FunctionVersion: "1",
 				RoutingConfig:   tt.routingConfig,
 			})
 			require.NoError(t, err)

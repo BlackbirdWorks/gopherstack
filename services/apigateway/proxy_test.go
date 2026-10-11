@@ -50,7 +50,7 @@ type captureInvoker struct {
 func (c *captureInvoker) InvokeFunction(_ context.Context, _, _ string, payload []byte) ([]byte, int, error) {
 	*c.capture = payload
 
-	return payload, http.StatusOK, nil
+	return []byte(`{"statusCode":200,"body":"ok"}`), http.StatusOK, nil
 }
 
 // setupProxyAPIViaHandler creates a full API setup using HTTP handler calls.
@@ -166,7 +166,7 @@ func TestHandleAWSProxy(t *testing.T) {
 			setupInvoker: func(h *apigateway.Handler) {
 				h.SetLambdaInvoker(&proxyMockInvoker{returnError: errFunctionError})
 			},
-			wantStatus: http.StatusInternalServerError,
+			wantStatus: http.StatusBadGateway,
 		},
 		{
 			name:         "no_lambda_invoker",
@@ -205,8 +205,38 @@ func TestHandleAWSProxy(t *testing.T) {
 			setupInvoker: func(h *apigateway.Handler) {
 				h.SetLambdaInvoker(&proxyMockInvoker{response: []byte(`not json`)})
 			},
-			wantStatus: http.StatusOK,
-			wantBody:   "not json",
+			wantStatus: http.StatusBadGateway,
+			wantBody:   "{\"message\":\"Internal server error\"}\n",
+		},
+		{
+			name: "missing_status_code",
+			path: "/items",
+			body: `{}`,
+			setupInvoker: func(h *apigateway.Handler) {
+				h.SetLambdaInvoker(&proxyMockInvoker{response: []byte(`{"ok":true}`)})
+			},
+			wantStatus: http.StatusBadGateway,
+			wantBody:   "{\"message\":\"Internal server error\"}\n",
+		},
+		{
+			name: "string_status_code",
+			path: "/items",
+			body: `{}`,
+			setupInvoker: func(h *apigateway.Handler) {
+				h.SetLambdaInvoker(&proxyMockInvoker{response: []byte(`{"statusCode":"201","body":"made"}`)})
+			},
+			wantStatus: http.StatusCreated,
+			wantBody:   "made",
+		},
+		{
+			name: "non_string_body",
+			path: "/items",
+			body: `{}`,
+			setupInvoker: func(h *apigateway.Handler) {
+				h.SetLambdaInvoker(&proxyMockInvoker{response: []byte(`{"statusCode":200,"body":{"a":1}}`)})
+			},
+			wantStatus: http.StatusBadGateway,
+			wantBody:   "{\"message\":\"Internal server error\"}\n",
 		},
 	}
 

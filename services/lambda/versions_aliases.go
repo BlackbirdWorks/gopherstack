@@ -1,6 +1,7 @@
 package lambda
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"sort"
@@ -179,6 +180,10 @@ func (b *InMemoryBackend) CreateAlias(
 		}
 	}
 
+	if err := b.validateRoutingConfig(name, input.FunctionVersion, input.RoutingConfig); err != nil {
+		return nil, err
+	}
+
 	if _, exists := b.aliases.Get(aliasKey(name, input.Name)); exists {
 		return nil, ErrAliasAlreadyExists
 	}
@@ -195,6 +200,40 @@ func (b *InMemoryBackend) CreateAlias(
 	b.aliases.Put(alias)
 
 	return cloneAlias(alias), nil
+}
+
+// validateRoutingConfig rejects weighted routing that AWS refuses: a $LATEST
+// primary, unknown or primary-equal additional versions, weights outside [0,1].
+func (b *InMemoryBackend) validateRoutingConfig(name, primary string, rc *AliasRoutingConfig) error {
+	if rc == nil || len(rc.AdditionalVersionWeights) == 0 {
+		return nil
+	}
+
+	if primary == versionLatest {
+		return fmt.Errorf(
+			"%w: weighted routing is not supported on an alias pointing to $LATEST", ErrInvalidParameterValue,
+		)
+	}
+
+	for version, weight := range rc.AdditionalVersionWeights {
+		if weight < 0 || weight > 1 {
+			return fmt.Errorf("%w: additional version weight must be between 0.0 and 1.0", ErrInvalidParameterValue)
+		}
+
+		if version == primary || version == versionLatest {
+			return fmt.Errorf(
+				"%w: additional version %s is not a valid routing target",
+				ErrInvalidParameterValue,
+				version,
+			)
+		}
+
+		if !versionInList(b.versions[name], version) {
+			return ErrVersionNotFound
+		}
+	}
+
+	return nil
 }
 
 // cloneAlias stops a caller from racing UpdateAlias, which mutates alias's
@@ -270,13 +309,26 @@ func (b *InMemoryBackend) UpdateAlias(
 		return nil, ErrPreconditionFailed
 	}
 
+	primary := alias.FunctionVersion
+
 	if input.FunctionVersion != nil {
 		if *input.FunctionVersion != versionLatest && !versionInList(b.versions[name], *input.FunctionVersion) {
 			return nil, ErrVersionNotFound
 		}
 
-		alias.FunctionVersion = *input.FunctionVersion
+		primary = *input.FunctionVersion
 	}
+
+	routing := alias.RoutingConfig
+	if input.RoutingConfig != nil {
+		routing = input.RoutingConfig
+	}
+
+	if err := b.validateRoutingConfig(name, primary, routing); err != nil {
+		return nil, err
+	}
+
+	alias.FunctionVersion = primary
 
 	if input.Description != nil {
 		alias.Description = *input.Description

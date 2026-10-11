@@ -902,7 +902,8 @@ type MonitoringConfiguration struct {
 
 // Service represents an ECS service.
 type Service struct {
-	CreatedAt time.Time `json:"createdAt"`
+	Events    []ServiceEvent `json:"-"`
+	CreatedAt time.Time      `json:"createdAt"`
 	// DrainDeadline is when a Status of DRAINING resolves to INACTIVE,
 	// lazily applied by sweepServiceTransitionsLocked. Zero when Status is
 	// not DRAINING.
@@ -941,6 +942,14 @@ type Service struct {
 	RunningCount                  int                            `json:"runningCount"`
 	EnableExecuteCommand          bool                           `json:"enableExecuteCommand,omitempty"`
 	EnableECSManagedTags          bool                           `json:"enableECSManagedTags,omitempty"`
+	steadyReported                bool
+}
+
+// ServiceEvent is one DescribeServices event message.
+type ServiceEvent struct {
+	CreatedAt time.Time
+	ID        string
+	Message   string
 }
 
 // Task represents an ECS task.

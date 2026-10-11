@@ -1372,3 +1372,7 @@ CreateFunction/UpdateFunctionConfiguration now enforce FunctionName and Role pat
 ## 2026-10-10 lifecycle dwell knob
 
 `--lifecycle-lambda-activation` (`LAMBDA_ACTIVATION_DELAY`) and `--lifecycle-lambda-provisioned-concurrency` (`LAMBDA_PROVISIONED_CONCURRENCY_DELAY`) make functions report `Pending` and provisioned concurrency `IN_PROGRESS` before settling; both fall back to `--lifecycle-delay`, default `0s`. Proof: root `TestLifecycleDelayWiring/lambda_*`.
+
+## 2026-10-11 deep realism pass
+
+CreateAlias/UpdateAlias validate weighted routing (unknown additional version -> ResourceNotFound; weight outside 0..1, primary equal to additional, or $LATEST primary -> InvalidParameterValue). PutFunctionConcurrency keeps the account's 100 unreserved executions (InvalidParameterValue). Invoke rejects a non-JSON payload with InvalidRequestContentException. CreateEventSourceMapping: SQS default BatchSize is 10, BatchSize above 10000 (10 for FIFO) or SQS standard above 10 without a batching window is rejected, a duplicate function+source is ResourceConflictException, StateTransitionReason is USER_INITIATED. The SQS poller now reads in chunks of at most 10 (SQS rejects larger MaxNumberOfMessages, so batch sizes above 10 never polled). Left lenient: mapping creation does not verify the source exists.

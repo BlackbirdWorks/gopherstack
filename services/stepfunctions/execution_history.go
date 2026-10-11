@@ -117,6 +117,35 @@ func (r *historyRecorder) RecordStateEntered(execARN, stateName, stateType strin
 	})
 }
 
+func (r *historyRecorder) RecordCompositeStarted(execARN, stateType string, length int) {
+	ev := &HistoryEvent{Timestamp: epochNow(), Type: stateType + "StateStarted"}
+	if stateType == stateTypeMap {
+		ev.MapStateStartedEventDetails = &MapStateStartedEventDetails{Length: length}
+	}
+
+	r.backend.appendHistory(execARN, ev)
+}
+
+func (r *historyRecorder) RecordCompositeEnded(execARN, stateType, outcome string) {
+	r.backend.appendHistory(execARN, &HistoryEvent{Timestamp: epochNow(), Type: stateType + "State" + outcome})
+}
+
+func (r *historyRecorder) RecordMapIteration(execARN, stateName string, index int, outcome string) {
+	ev := &HistoryEvent{Timestamp: epochNow(), Type: "MapIteration" + outcome}
+	details := &MapIterationEventDetails{Name: stateName, Index: index}
+
+	switch outcome {
+	case "Started":
+		ev.MapIterationStartedEventDetails = details
+	case "Succeeded":
+		ev.MapIterationSucceededEventDetails = details
+	default:
+		ev.MapIterationFailedEventDetails = details
+	}
+
+	r.backend.appendHistory(execARN, ev)
+}
+
 func (r *historyRecorder) RecordStateExited(execARN, stateName, stateType string, output any) {
 	r.backend.appendHistory(execARN, &HistoryEvent{
 		Timestamp: epochNow(),

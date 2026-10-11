@@ -135,17 +135,64 @@ type Execution struct {
 
 // HistoryEvent represents a single event in execution history.
 type HistoryEvent struct {
-	StateEnteredEventDetails  *StateEnteredEventDetails  `json:"stateEnteredEventDetails,omitempty"`
-	StateExitedEventDetails   *StateExitedEventDetails   `json:"stateExitedEventDetails,omitempty"`
-	TaskScheduledEventDetails *TaskScheduledEventDetails `json:"taskScheduledEventDetails,omitempty"`
-	TaskStartedEventDetails   *TaskStartedEventDetails   `json:"taskStartedEventDetails,omitempty"`
-	TaskSubmittedEventDetails *TaskSubmittedEventDetails `json:"taskSubmittedEventDetails,omitempty"`
-	TaskSucceededEventDetails *TaskSucceededEventDetails `json:"taskSucceededEventDetails,omitempty"`
-	TaskFailedEventDetails    *TaskFailedEventDetails    `json:"taskFailedEventDetails,omitempty"`
-	Type                      string                     `json:"type"` // e.g. "ExecutionStarted", "ExecutionSucceeded"
-	Timestamp                 float64                    `json:"timestamp"`
-	ID                        int64                      `json:"id"`
-	PreviousEventID           int64                      `json:"previousEventId"`
+	ExecutionStartedEventDetails      *ExecutionStartedEventDetails   `json:"executionStartedEventDetails,omitempty"`
+	ExecutionSucceededEventDetails    *ExecutionSucceededEventDetails `json:"executionSucceededEventDetails,omitempty"`
+	ExecutionFailedEventDetails       *ExecutionErrorEventDetails     `json:"executionFailedEventDetails,omitempty"`
+	ExecutionAbortedEventDetails      *ExecutionErrorEventDetails     `json:"executionAbortedEventDetails,omitempty"`
+	ExecutionTimedOutEventDetails     *ExecutionErrorEventDetails     `json:"executionTimedOutEventDetails,omitempty"`
+	ExecutionRedrivenEventDetails     *ExecutionRedrivenEventDetails  `json:"executionRedrivenEventDetails,omitempty"`
+	StateEnteredEventDetails          *StateEnteredEventDetails       `json:"stateEnteredEventDetails,omitempty"`
+	StateExitedEventDetails           *StateExitedEventDetails        `json:"stateExitedEventDetails,omitempty"`
+	TaskScheduledEventDetails         *TaskScheduledEventDetails      `json:"taskScheduledEventDetails,omitempty"`
+	TaskStartedEventDetails           *TaskStartedEventDetails        `json:"taskStartedEventDetails,omitempty"`
+	TaskSubmittedEventDetails         *TaskSubmittedEventDetails      `json:"taskSubmittedEventDetails,omitempty"`
+	TaskSucceededEventDetails         *TaskSucceededEventDetails      `json:"taskSucceededEventDetails,omitempty"`
+	TaskFailedEventDetails            *TaskFailedEventDetails         `json:"taskFailedEventDetails,omitempty"`
+	MapStateStartedEventDetails       *MapStateStartedEventDetails    `json:"mapStateStartedEventDetails,omitempty"`
+	MapIterationStartedEventDetails   *MapIterationEventDetails       `json:"mapIterationStartedEventDetails,omitempty"`
+	MapIterationSucceededEventDetails *MapIterationEventDetails       `json:"mapIterationSucceededEventDetails,omitempty"`
+	MapIterationFailedEventDetails    *MapIterationEventDetails       `json:"mapIterationFailedEventDetails,omitempty"`
+	Type                              string                          `json:"type"`
+	Timestamp                         float64                         `json:"timestamp"`
+	ID                                int64                           `json:"id"`
+	PreviousEventID                   int64                           `json:"previousEventId"`
+}
+
+// ExecutionStartedEventDetails holds details for the ExecutionStarted event.
+type ExecutionStartedEventDetails struct {
+	InputDetails           *HistoryEventExecutionDataDetails `json:"inputDetails,omitempty"`
+	Input                  string                            `json:"input"`
+	RoleArn                string                            `json:"roleArn,omitempty"`
+	StateMachineAliasArn   string                            `json:"stateMachineAliasArn,omitempty"`
+	StateMachineVersionArn string                            `json:"stateMachineVersionArn,omitempty"`
+}
+
+// ExecutionSucceededEventDetails holds details for the ExecutionSucceeded event.
+type ExecutionSucceededEventDetails struct {
+	OutputDetails *HistoryEventExecutionDataDetails `json:"outputDetails,omitempty"`
+	Output        string                            `json:"output"`
+}
+
+// ExecutionErrorEventDetails holds the error/cause of a failed, aborted or timed-out execution.
+type ExecutionErrorEventDetails struct {
+	Error string `json:"error,omitempty"`
+	Cause string `json:"cause,omitempty"`
+}
+
+// ExecutionRedrivenEventDetails holds details for the ExecutionRedriven event.
+type ExecutionRedrivenEventDetails struct {
+	RedriveCount int `json:"redriveCount"`
+}
+
+// MapStateStartedEventDetails holds the iteration count of a started Map state.
+type MapStateStartedEventDetails struct {
+	Length int `json:"length"`
+}
+
+// MapIterationEventDetails identifies one Map iteration in a history event.
+type MapIterationEventDetails struct {
+	Name  string `json:"name,omitempty"`
+	Index int    `json:"index"`
 }
 
 // StateEnteredEventDetails holds details for state-entered events.
