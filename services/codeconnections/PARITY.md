@@ -7,7 +7,7 @@
 service: codeconnections
 sdk_module: aws-sdk-go-v2/service/codeconnections@v1.13.4   # unchanged this pass; still the go.mod pin
 last_audit_commit: bb9dd1e99                      # HEAD at the start of this pass (gopherstack-2y2); this pass's changes are uncommitted working-tree changes on top
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # true-parity pass: closed every gaps/deferred item from the prior audit, plus new
                        # wire/error-shape bugs found while field-diffing. 2026-08-19 pass found and fixed
                        # 3 additional wrapper-key/nested-shape wire bugs (GetHost x4 fields, ListHosts Tags, GetConnection+ListConnections Tags) that the prior A grade had missed entirely -- see ops notes below and the 2026-08-19 section in Notes. Grade restored to A only because all three are now fixed and proven by hand-revert; the prior A was not honest at the time it was written.
@@ -451,3 +451,12 @@ GetSyncBlockerSummary/UpdateSyncBlocker. No `items_still_open` changes; no
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 codeconnections already region-isolated: same-named resources in two regions stay separate and each region lists only its own. No code change. Proof: `TestRegionIsolation/codeconnections`.
+
+## 2026-10-10 realism pass
+
+- ConnectionName is capped at 32 and host Name at 64 characters (a 40-char connection name was accepted); ProviderEndpoint <= 512; tag key/value/count limits enforced on create and TagResource (LimitExceededException above 200).
+- CreateConnection with only HostArn now works and inherits the host's provider type; with neither ProviderType nor HostArn it is InvalidInputException.
+- List* MaxResults outside 0-100 and malformed NextToken are rejected (were ignored).
+- Bare ResourceNotFoundException messages (empty before) now say "Resource not found. Verify the resource ARN and try again."; other messages drop the repeated code.
+- Opt-in `SetConnectionHandshakeDelay(d)` / `SetHostSetupDelay(d)` (default 0) keep connections/hosts PENDING before AVAILABLE. Needs wiring in cli_lifecycle.go.
+- Kept lenient: GetConnection/GetHost do not pattern-check ARNs; ProviderEndpoint is not required to be a URL.

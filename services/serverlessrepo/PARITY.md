@@ -2,7 +2,7 @@
 service: serverlessrepo
 sdk_module: aws-sdk-go-v2/service/serverlessapplicationrepository@v1.33.4
 last_audit_commit: af89d3e6f
-last_audit_date: 2026-08-20
+last_audit_date: 2026-10-10
 overall: A            # zero known gaps; every op field-diffed against real serializers/deserializers/model this pass
 ops:
   CreateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "201 Created via errHTTP201 sentinel; optionally creates the first version in the same call when semanticVersion + one of sourceCodeUrl/sourceCodeArchiveUrl/templateUrl are given, matching real API behavior. FIXED 2026-08-20: top-level sourceCodeUrl leaked onto the response root -- see Notes"}
@@ -333,3 +333,13 @@ serverlessrepo is region-isolated: applications, versions and policies live per 
 ## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
 
 Clean. UpdateApplication keeps omitted Description/Author/HomePageUrl/Labels (an explicit empty Labels list clears them), GetApplication returns the latest version, PutApplicationPolicy replaces the statement set. Proof: `TestApplication_PartialUpdateKeepsOmittedFields`.
+
+## 2026-10-10 realism pass
+
+- semanticVersion is validated against full semver 2.0 (was a `\d+.\d+.\d+` prefix match, so `1.2.3garbage` passed); versions sort by semver precedence (was string order: `1.10.0` < `1.2.0`).
+- maxItems outside 1-100 is BadRequestException (was silently defaulted); nextToken is opaque base64 and malformed tokens are BadRequestException.
+- CreateCloudFormationTemplate/ChangeSet reject a semanticVersion the application does not have (NotFound / BadRequest per each op's modeled errors); stackName/changeSetName follow `[a-zA-Z][-a-zA-Z0-9]*` (128).
+- PutApplicationPolicy principals must be 12-digit account IDs or `*`.
+- Opt-in `SetTemplatePrepareDelay(d)` (default 0) keeps new templates PREPARING before ACTIVE. Needs wiring in cli_lifecycle.go.
+- Error messages drop the repeated exception code and are sentence-cased; empty sourceCodeUrl/sourceCodeArchiveUrl are omitted instead of emitted as "".
+- Kept lenient: SpdxLicenseId is not checked against the SPDX list; ParameterOverrides/NotificationArns on change sets are accepted but not modeled (no readback op).

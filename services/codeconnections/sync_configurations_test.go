@@ -163,7 +163,7 @@ func TestCreateSyncConfigurationEnumValidation(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			connArn := createConn(t, h, "enum-conn-"+tt.name, "GitHub")
+			connArn := createConn(t, h, "enum-conn", "GitHub")
 			linkID := createRepositoryLink(t, h, connArn, "my-org", "enum-repo-"+tt.name)
 
 			body := map[string]any{
@@ -208,7 +208,7 @@ func TestUpdateSyncConfigurationEnumValidation(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			connArn := createConn(t, h, "upd-enum-conn-"+tt.field+tt.value, "GitHub")
+			connArn := createConn(t, h, "upd-enum-conn", "GitHub")
 			linkID := createRepositoryLink(t, h, connArn, "my-org", "upd-enum-repo-"+tt.field+tt.value)
 
 			createRec := doJSON(t, h, "CreateSyncConfiguration", map[string]any{

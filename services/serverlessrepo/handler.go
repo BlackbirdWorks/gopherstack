@@ -2,6 +2,7 @@ package serverlessrepo
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 
@@ -417,14 +420,14 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		// json.Marshal on map[string]string never returns an error; _ is intentional.
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "NotFoundException",
-			keyMessageField: err.Error(),
+			keyMessageField: wireMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusNotFound, payload)
 	case errors.Is(err, awserr.ErrConflict):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ConflictException",
-			keyMessageField: err.Error(),
+			keyMessageField: wireMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusConflict, payload)
@@ -435,7 +438,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		errors.As(err, &typeErr):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "BadRequestException",
-			keyMessageField: err.Error(),
+			keyMessageField: wireMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
@@ -448,7 +451,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		// smithy.GenericAPIError on the client side.
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "InternalServerErrorException",
-			keyMessageField: err.Error(),
+			keyMessageField: wireMessage(err),
 		})
 
 		return c.JSONBlob(http.StatusInternalServerError, payload)
@@ -532,17 +535,50 @@ func isoTimestamp(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
-// parseMaxItems parses the maxItems query parameter, returning defaultVal when the parameter
-// is empty or invalid (non-positive). The returned value is always at least 1.
-func parseMaxItems(raw string, defaultVal int) int {
-	if raw == "" {
-		return defaultVal
+// pageParams reads maxItems (1-100) and the opaque base64 nextToken from the query string.
+func pageParams(req *http.Request) (string, int, error) {
+	q := req.URL.Query()
+	maxItems := maxItemsDefault
+
+	if raw := q.Get("maxItems"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > maxItemsDefault {
+			return "", 0, fmt.Errorf("%w: maxItems must be between 1 and %d", errInvalidRequest, maxItemsDefault)
+		}
+
+		maxItems = n
 	}
 
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
-		return defaultVal
+	token := q.Get("nextToken")
+	if token == "" {
+		return "", maxItems, nil
 	}
 
-	return n
+	raw, err := base64.StdEncoding.DecodeString(token)
+	if err != nil || len(raw) == 0 {
+		return "", 0, fmt.Errorf("%w: nextToken is not valid", errInvalidRequest)
+	}
+
+	return string(raw), maxItems, nil
+}
+
+func encodePageToken(cursor string) string {
+	return base64.StdEncoding.EncodeToString([]byte(cursor))
+}
+
+// wireMessage drops the leading "<ExceptionType>: " added by the sentinel wrap and
+// sentence-cases the remainder.
+func wireMessage(err error) string {
+	msg := err.Error()
+	if head, rest, ok := strings.Cut(msg, ": "); ok && strings.HasSuffix(head, "Exception") {
+		msg = rest
+	}
+
+	if msg == "" {
+		return msg
+	}
+
+	r, size := utf8.DecodeRuneInString(msg)
+
+	return string(unicode.ToUpper(r)) + msg[size:]
 }

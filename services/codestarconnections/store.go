@@ -4,6 +4,7 @@ package codestarconnections
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -75,8 +76,13 @@ type InMemoryBackend struct {
 	syncBlockers           *store.Table[SyncBlocker]
 	syncBlockersByResource *store.Index[SyncBlocker]
 
+	createdAt map[string]time.Time
+
 	accountID     string
 	defaultRegion string
+
+	connectionHandshakeDelay time.Duration
+	hostSetupDelay           time.Duration
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
@@ -106,6 +112,7 @@ func (b *InMemoryBackend) Reset() {
 	b.repositorySyncStatuses.Reset()
 	b.resourceSyncStatuses.Reset()
 	b.syncBlockers.Reset()
+	clear(b.createdAt)
 }
 
 // Region returns the default region for this backend instance.

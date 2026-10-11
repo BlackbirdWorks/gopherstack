@@ -163,7 +163,7 @@ func (b *InMemoryBackend) ListApplicationVersions(appName string) ([]*Applicatio
 	// is required for the deterministic-by-semanticVersion result this
 	// method has always returned.
 	sort.Slice(list, func(i, j int) bool {
-		return list[i].SemanticVersion < list[j].SemanticVersion
+		return compareSemver(list[i].SemanticVersion, list[j].SemanticVersion) < 0
 	})
 
 	return list, nil

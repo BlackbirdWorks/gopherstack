@@ -81,6 +81,7 @@ func (b *InMemoryBackend) CreateConnection(
 		Tags:             tagsCopy,
 	}
 	b.connections.Put(conn)
+	b.stampCreated(connArn)
 
 	cp := *conn
 	cp.Tags = make(map[string]string, len(conn.Tags))
@@ -100,6 +101,7 @@ func (b *InMemoryBackend) GetConnection(_ context.Context, connectionArn string)
 	}
 
 	cp := *conn
+	cp.ConnectionStatus = b.connectionStatus(conn)
 	cp.Tags = make(map[string]string, len(conn.Tags))
 	maps.Copy(cp.Tags, conn.Tags)
 
@@ -126,6 +128,7 @@ func (b *InMemoryBackend) ListConnections(ctx context.Context, providerTypeFilte
 		}
 
 		cp := *conn
+		cp.ConnectionStatus = b.connectionStatus(conn)
 		cp.Tags = make(map[string]string, len(conn.Tags))
 		maps.Copy(cp.Tags, conn.Tags)
 		result = append(result, &cp)
@@ -157,6 +160,7 @@ func (b *InMemoryBackend) DeleteConnection(_ context.Context, connectionArn stri
 	}
 
 	b.connections.Delete(connectionArn)
+	delete(b.createdAt, connectionArn)
 
 	return nil
 }

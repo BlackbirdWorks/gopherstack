@@ -85,12 +85,12 @@ func TestGroupResources_NotFound(t *testing.T) {
 func TestGroupResources_InvalidARNReturnsFailed(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
+	tests := []struct {
 		name          string
+		wantErrCode   string
 		arns          []string
 		wantSucceeded int
 		wantFailed    int
-		wantErrCode   string
 	}{
 		{
 			name:          "valid_arns_only",

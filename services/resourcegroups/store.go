@@ -3,6 +3,7 @@ package resourcegroups
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -53,21 +54,24 @@ func getRegion(ctx context.Context, defaultRegion string) string {
 // store.Table to key on, so there is nothing to convert -- each is persisted
 // here directly instead (see persistence.go).
 type InMemoryBackend struct {
-	groups               *store.Table[Group]
-	groupsByRegion       *store.Index[Group]
-	groupsByARN          *store.Index[Group]
-	tagSyncTasks         *store.Table[TagSyncTask]
+	accountSettingsAt    time.Time
+	source               ResourceSource
+	groupingStatuses     map[string]map[string][]GroupingStatusItem
+	mu                   *lockmetrics.RWMutex
 	tagSyncTasksByRegion *store.Index[TagSyncTask]
 	registry             *store.Registry
 	groupConfigurations  map[string]map[string][]GroupConfigurationItem
-	groupResources       map[string]map[string][]string // region → group name → []resourceARN
-	groupingStatuses     map[string]map[string][]GroupingStatusItem
-	mu                   *lockmetrics.RWMutex
-	source               ResourceSource
+	groupResources       map[string]map[string][]string
+	groups               *store.Table[Group]
+	tagSyncTasks         *store.Table[TagSyncTask]
+	groupsByARN          *store.Index[Group]
+	pendingConfigs       map[string]pendingConfig
+	groupsByRegion       *store.Index[Group]
 	accountSettings      AccountSettings
 	accountID            string
 	region               string
-	taskIDCounter        int64 // monotonically incremented for unique task ARNs
+	lifecycleDelay       time.Duration
+	taskIDCounter        int64
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -76,6 +80,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		groupConfigurations: make(map[string]map[string][]GroupConfigurationItem),
 		groupResources:      make(map[string]map[string][]string),
 		groupingStatuses:    make(map[string]map[string][]GroupingStatusItem),
+		pendingConfigs:      make(map[string]pendingConfig),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("resourcegroups"),
@@ -211,11 +216,11 @@ func resolveGroupName(nameOrARN string) string {
 // If maxResults is 0, all items are returned. If nextToken is empty, results start from the beginning.
 func paginate[T any](list []T, keyFn func(T) string, nextToken string, maxResults int) ([]T, string) {
 	if nextToken != "" {
-		start := 0
+		start := len(list)
 
 		for i, item := range list {
-			if keyFn(item) == nextToken {
-				start = i + 1
+			if keyFn(item) > nextToken {
+				start = i
 
 				break
 			}

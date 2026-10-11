@@ -210,7 +210,12 @@ func (h *Handler) handleListSyncConfigurations(
 		items[i] = syncConfigToItem(cfg)
 	}
 
-	p := page.New(items, in.NextToken, in.MaxResults, defaultCSCMaxResults)
+	token, limit, pageErr := pageArgs(in.NextToken, in.MaxResults)
+	if pageErr != nil {
+		return nil, pageErr
+	}
+
+	p := page.New(items, token, limit, defaultCSCMaxResults)
 
 	return &listSyncConfigurationsOutput{SyncConfigurations: p.Data, NextToken: p.Next}, nil
 }

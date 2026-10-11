@@ -19,12 +19,21 @@ func (b *InMemoryBackend) CreateHost(
 	vpcConfig *VpcConfiguration,
 	tags map[string]string,
 ) (*Host, error) {
-	if name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	if err := validateResourceName(name, "Name", maxHostNameLen); err != nil {
+		return nil, err
 	}
 
 	if providerEndpoint == "" {
 		return nil, fmt.Errorf("%w: ProviderEndpoint is required", ErrValidation)
+	}
+
+	if len(providerEndpoint) > maxProviderEndpointLen {
+		return nil, fmt.Errorf("%w: ProviderEndpoint must not exceed %d characters",
+			ErrValidation, maxProviderEndpointLen)
+	}
+
+	if err := validateTags(tags); err != nil {
+		return nil, err
 	}
 
 	if providerType == "" || !validProviderTypes()[providerType] {
@@ -54,7 +63,7 @@ func (b *InMemoryBackend) CreateHost(
 		HostArn:          hostArn,
 		ProviderType:     providerType,
 		ProviderEndpoint: providerEndpoint,
-		Status:           "AVAILABLE",
+		Status:           statusAvailable,
 		VpcConfiguration: vpcConfig,
 		Tags:             tagsCopy,
 		CreatedAt:        time.Now().UTC(),
@@ -63,6 +72,7 @@ func (b *InMemoryBackend) CreateHost(
 	b.hosts.Put(host)
 
 	cp := *host
+	cp.Status = b.hostStatus(host)
 	cp.Tags = make(map[string]string, len(host.Tags))
 	maps.Copy(cp.Tags, host.Tags)
 
@@ -82,18 +92,11 @@ func (b *InMemoryBackend) GetHost(ctx context.Context, hostArn string) (*Host, e
 	}
 
 	cp := *host
+	cp.Status = b.hostStatus(host)
 	cp.Tags = make(map[string]string, len(host.Tags))
 	maps.Copy(cp.Tags, host.Tags)
 
 	return &cp, nil
-}
-
-// hostExistsLocked returns true if a host with hostArn exists in region.
-// Must be called with at least an RLock held.
-func (b *InMemoryBackend) hostExistsLocked(region, hostArn string) bool {
-	_, ok := b.hosts.Get(hostArn)
-
-	return ok && regionFromARN(hostArn) == region
 }
 
 // connectionHasReferenceToHostLocked returns true if any connection in region
@@ -151,6 +154,7 @@ func (b *InMemoryBackend) ListHosts(ctx context.Context) []*Host {
 
 	for _, host := range hs {
 		cp := *host
+		cp.Status = b.hostStatus(host)
 		cp.Tags = make(map[string]string, len(host.Tags))
 		maps.Copy(cp.Tags, host.Tags)
 		result = append(result, &cp)

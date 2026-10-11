@@ -104,8 +104,10 @@ func (h *Handler) handleListApplicationVersions(req *http.Request) ([]byte, erro
 	// at the first version strictly greater than the token. An unresolvable
 	// token (e.g. stale/forged) then resumes past everything already served
 	// instead of restarting at page one.
-	nextToken := req.URL.Query().Get("nextToken")
-	maxItems := parseMaxItems(req.URL.Query().Get("maxItems"), maxItemsDefault)
+	nextToken, maxItems, pageErr := pageParams(req)
+	if pageErr != nil {
+		return nil, pageErr
+	}
 
 	start := 0
 
@@ -113,7 +115,7 @@ func (h *Handler) handleListApplicationVersions(req *http.Request) ([]byte, erro
 		start = len(versions)
 
 		for i, v := range versions {
-			if v.SemanticVersion > nextToken {
+			if compareSemver(v.SemanticVersion, nextToken) > 0 {
 				start = i
 
 				break
@@ -134,18 +136,22 @@ func (h *Handler) handleListApplicationVersions(req *http.Request) ([]byte, erro
 		// It deliberately does NOT include resourcesSupported (that field only exists on the
 		// full Version shape returned by GetApplication/CreateApplication/
 		// CreateApplicationVersion) -- do not add it back here.
-		summaries = append(summaries, map[string]any{
+		summary := map[string]any{
 			keyApplicationID:   v.ApplicationID,
 			keySemanticVersion: v.SemanticVersion,
-			"sourceCodeUrl":    v.SourceCodeURL,
 			keyCreationTime:    isoTimestamp(v.CreationTime),
-		})
+		}
+		if v.SourceCodeURL != "" {
+			summary["sourceCodeUrl"] = v.SourceCodeURL
+		}
+
+		summaries = append(summaries, summary)
 	}
 
 	resp := map[string]any{"versions": summaries}
 
 	if end < len(versions) {
-		resp["nextToken"] = versions[end-1].SemanticVersion
+		resp["nextToken"] = encodePageToken(versions[end-1].SemanticVersion)
 	}
 
 	return json.Marshal(resp)
@@ -153,15 +159,22 @@ func (h *Handler) handleListApplicationVersions(req *http.Request) ([]byte, erro
 
 // toVersionResponse converts an ApplicationVersion to a map matching the AWS SAR Version shape.
 func toVersionResponse(v *ApplicationVersion) map[string]any {
-	return map[string]any{
+	resp := map[string]any{
 		keyApplicationID:       v.ApplicationID,
 		keySemanticVersion:     v.SemanticVersion,
-		"sourceCodeUrl":        v.SourceCodeURL,
-		"sourceCodeArchiveUrl": v.SourceCodeArchiveURL,
 		keyTemplateURL:         v.TemplateURL,
 		keyCreationTime:        isoTimestamp(v.CreationTime),
 		"parameterDefinitions": v.ParameterDefinitions,
 		"requiredCapabilities": v.RequiredCapabilities,
 		"resourcesSupported":   v.ResourcesSupported,
 	}
+	if v.SourceCodeURL != "" {
+		resp["sourceCodeUrl"] = v.SourceCodeURL
+	}
+
+	if v.SourceCodeArchiveURL != "" {
+		resp["sourceCodeArchiveUrl"] = v.SourceCodeArchiveURL
+	}
+
+	return resp
 }

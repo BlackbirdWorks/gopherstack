@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 
@@ -262,7 +264,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	payload, marshalErr := json.Marshal(service.JSONErrorResponse{
 		Type:    errType,
-		Message: err.Error(),
+		Message: wireMessage(err, errType),
 	})
 	if marshalErr != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")
@@ -303,4 +305,22 @@ func tagsFromArray(entries []tagEntry) map[string]string {
 	}
 
 	return m
+}
+
+// wireMessage drops the leading "<ExceptionType>: " the sentinel wrap adds and
+// sentence-cases the rest; a bare sentinel gets a default description.
+func wireMessage(err error, errType string) string {
+	msg := strings.TrimPrefix(err.Error(), errType+": ")
+	if msg == errType || msg == "" {
+		return defaultMessages[errType]
+	}
+
+	r, size := utf8.DecodeRuneInString(msg)
+
+	return string(unicode.ToUpper(r)) + msg[size:]
+}
+
+var defaultMessages = map[string]string{ //nolint:gochecknoglobals // static lookup
+	"ResourceNotFoundException": "Resource not found. Verify the resource ARN and try again.",
+	"InvalidInputException":     "The input is invalid.",
 }

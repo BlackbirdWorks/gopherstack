@@ -110,7 +110,12 @@ func (h *Handler) handleListConnections(
 		views[i] = connectionToView(c)
 	}
 
-	p := page.New(views, in.NextToken, in.MaxResults, defaultCSCMaxResults)
+	token, limit, pageErr := pageArgs(in.NextToken, in.MaxResults)
+	if pageErr != nil {
+		return nil, pageErr
+	}
+
+	p := page.New(views, token, limit, defaultCSCMaxResults)
 
 	return &listConnectionsOutput{Connections: p.Data, NextToken: p.Next}, nil
 }

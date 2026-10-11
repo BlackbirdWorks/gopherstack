@@ -7,7 +7,7 @@
 service: codestarconnections
 sdk_module: aws-sdk-go-v2/service/codestarconnections@v1.38.4   # unchanged this pass; still the go.mod pin
 last_audit_commit: e0dfee4c0                       # HEAD at the start of this pass (gopherstack-42j/5k45); this pass's changes are uncommitted working-tree changes on top
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 # 2026-08-19 re-audit (gopherstack-6flj wrapper-key/nested-shape sweep): all 27 ops
 # re-verified field-by-field against the LIVE awsjson1.0 deserializers in
 # codestarconnections@v1.38.4. Zero bugs, no code changed. last_audit_commit above is
@@ -423,3 +423,10 @@ GetSyncBlockerSummary/UpdateSyncBlocker. No `items_still_open` changes; no
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 codestarconnections already region-isolated: same-named resources in two regions stay separate and each region lists only its own. No code change. Proof: `TestRegionIsolation/codestarconnections`.
+
+## 2026-10-10 realism pass
+
+- List* MaxResults outside 0-100 and malformed NextToken are rejected (were ignored).
+- Error messages drop the repeated exception code and are sentence-cased.
+- Opt-in `SetConnectionHandshakeDelay(d)` keeps new connections PENDING for d; `SetHostSetupDelay(d)` moves hosts PENDING -> AVAILABLE after d (default 0: hosts stay PENDING as before, since only the console completes host setup). Status progression state is transient (not persisted). Needs wiring in cli_lifecycle.go.
+- Name/tag/endpoint limits were already enforced here; codeconnections now matches.

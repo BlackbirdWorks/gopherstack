@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sort"
 	"time"
 )
 
@@ -297,9 +298,13 @@ func (b *InMemoryBackend) ListGroupingStatuses(
 		}
 	}
 
-	page, token := paginate(out, func(s GroupingStatusItem) string {
+	statusKey := func(s GroupingStatusItem) string {
 		return s.ResourceArn + "|" + s.Action + "|" + s.UpdatedAt.Format(time.RFC3339Nano)
-	}, nextToken, maxResults)
+	}
+
+	sort.SliceStable(out, func(i, j int) bool { return statusKey(out[i]) < statusKey(out[j]) })
+
+	page, token := paginate(out, statusKey, nextToken, maxResults)
 
 	return page, token, nil
 }

@@ -88,6 +88,7 @@ func (b *InMemoryBackend) CreateHost(
 		Tags:             tagsCopy,
 	}
 	b.hosts.Put(host)
+	b.stampCreated(hostArn)
 
 	cp := *host
 	cp.Tags = make(map[string]string, len(host.Tags))
@@ -107,6 +108,7 @@ func (b *InMemoryBackend) GetHost(_ context.Context, hostArn string) (*Host, err
 	}
 
 	cp := *host
+	cp.Status = b.hostStatus(host)
 	cp.Tags = make(map[string]string, len(host.Tags))
 	maps.Copy(cp.Tags, host.Tags)
 
@@ -125,6 +127,7 @@ func (b *InMemoryBackend) ListHosts(ctx context.Context) []*Host {
 
 	for _, host := range hs {
 		cp := *host
+		cp.Status = b.hostStatus(host)
 		cp.Tags = make(map[string]string, len(host.Tags))
 		maps.Copy(cp.Tags, host.Tags)
 		result = append(result, &cp)
@@ -162,6 +165,7 @@ func (b *InMemoryBackend) DeleteHost(ctx context.Context, hostArn string) error 
 	}
 
 	b.hosts.Delete(hostArn)
+	delete(b.createdAt, hostArn)
 
 	return nil
 }

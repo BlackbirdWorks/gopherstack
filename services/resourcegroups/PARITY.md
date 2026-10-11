@@ -2,7 +2,7 @@
 service: resourcegroups
 sdk_module: aws-sdk-go-v2/service/resourcegroups@v1.36.4
 last_audit_commit: e13b41148   # 2026-09-24 terraform-coverage sweep; prior: 4ad783e5c
-last_audit_date: 2026-10-07   # prior: 2026-09-20
+last_audit_date: 2026-10-10   # prior: 2026-09-20
 overall: A            # 2026-09-24 (codeartifact-timestream-and-messaging terraform coverage): a real client
                       # (terraform-provider-aws) panics with a nil pointer dereference
                       # creating a Configuration-type aws_resourcegroups_group, because
@@ -532,3 +532,14 @@ changes; no `snapshot_inventory.json` change; no version bump.
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
 resourcegroups already isolates regions internally: groups and their configuration are keyed per region. Proof: `TestRegionIsolation/resourcegroups`; no sibling handlers needed.
+
+## 2026-10-10 realism pass
+
+Probed with a built binary and the AWS CLI/SDK.
+
+- ListGroups `maxResults`/`nextToken` travel in the query string (serializers.go:1129-1134) and were silently dropped; now merged into the request, so SDK paginators actually page.
+- Pagination: MaxResults outside 1-50 and non-base64 NextToken are BadRequestException; tokens are opaque base64; a cursor whose item was deleted resumes after its position instead of restarting.
+- Error messages no longer repeat the exception code ("NotFoundException: group x not found" -> "Group x not found").
+- ResourceQuery.Query shape: must be a JSON object; TAG_FILTERS_1_0 TagFilters need a non-empty Key and ResourceTypeFilters must be `AWS::Service::Type` or `AWS::AllSupported`; CLOUDFORMATION_STACK_1_0 requires StackIdentifier. Group name pattern no longer accepts U+2212.
+- Opt-in `SetLifecycleDelay(d)` (default 0): PutGroupConfiguration/CreateGroup keep GroupConfiguration.Status UPDATING (old Configuration, ProposedConfiguration) and UpdateAccountSettings keeps GroupLifecycleEventsStatus IN_PROGRESS for d. Needs wiring in cli_lifecycle.go.
+- Kept lenient: unknown members inside Query JSON, StackIdentifier not required to be an ARN (in-repo callers use stack names), MaxResults range 1-50 assumed for all list ops (documented for ListGroups).

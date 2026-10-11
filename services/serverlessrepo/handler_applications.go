@@ -248,6 +248,11 @@ func (h *Handler) handleGetApplication(req *http.Request) ([]byte, error) {
 }
 
 func (h *Handler) handleListApplications(req *http.Request) ([]byte, error) {
+	nextToken, maxItems, pageErr := pageParams(req)
+	if pageErr != nil {
+		return nil, pageErr
+	}
+
 	apps := h.Backend.ListApplications()
 
 	// Apply pagination: nextToken is treated as the last-seen application
@@ -256,9 +261,6 @@ func (h *Handler) handleListApplications(req *http.Request) ([]byte, error) {
 	// this is a threshold search -- resuming at the first app strictly
 	// greater than the token. A deleted or forged token then resumes past
 	// everything already served instead of restarting at page one.
-	nextToken := req.URL.Query().Get("nextToken")
-	maxItems := parseMaxItems(req.URL.Query().Get("maxItems"), maxItemsDefault)
-
 	start := 0
 
 	if nextToken != "" {
@@ -295,7 +297,7 @@ func (h *Handler) handleListApplications(req *http.Request) ([]byte, error) {
 	resp := map[string]any{"applications": summaries}
 
 	if end < len(apps) {
-		resp["nextToken"] = apps[end-1].Name
+		resp["nextToken"] = encodePageToken(apps[end-1].Name)
 	}
 
 	return json.Marshal(resp)

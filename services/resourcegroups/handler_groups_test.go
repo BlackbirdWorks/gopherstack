@@ -134,9 +134,9 @@ func TestCreateGroup_NameValidation(t *testing.T) {
 func TestCreateGroup_MutualExclusivity(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // field order optimized for readability
-		name     string
+	tests := []struct {
 		body     map[string]any
+		name     string
 		wantCode int
 	}{
 		{

@@ -2,7 +2,7 @@
 service: apigatewaymanagementapi
 sdk_module: aws-sdk-go-v2/service/apigatewaymanagementapi@v1.32.4
 last_audit_commit: f16ac0367
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-10
 overall: A            # zero-bug wrapper-key/nested-shape sweep this pass; re-verified every op field-by-field against the pinned SDK source, added a real-SDK-client wire round-trip test (previously only raw-HTTP unit tests existed)
 ops:
   PostToConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified 2026-08-20 against aws-sdk-go-v2/service/apigatewaymanagementapi@v1.32.4: Input{ConnectionId *string (api_op_PostToConnection.go:32), Data []byte (api_op_PostToConnection.go:37)}/Output{} (empty) match; ConnectionId is a URI path param (serializers.go:224 awsRestjson1_serializeOpHttpBindingsPostToConnectionInput), Data is the raw httpPayload body (serializers.go: input.Data streamed directly as the request body, Content-Type: application/octet-stream) -- not a JSON field. Method POST /@connections/{ConnectionId} (serializers.go:183,186). Error set ForbiddenException/GoneException/LimitExceededException/PayloadTooLargeException matches awsRestjson1_deserializeOpErrorPostToConnection (deserializers.go:347). full downstream buffer returns LimitExceededException (429); PayloadTooLargeException (413) carries X-Amzn-Errortype header + __type body field. New this pass: TestAPIGwMgmt_SDKRoundTrip_PayloadTooLarge, TestAPIGwMgmt_SDKRoundTrip_LimitExceeded, TestAPIGwMgmt_SDKRoundTrip (wire_sdk_roundtrip_test.go) drive this op through the real aws-sdk-go-v2 client over pkgs/service's router."}
@@ -228,3 +228,8 @@ apigatewaymanagementapi is region-isolated: a WebSocket connection is reachable 
 ## 2026-10-05 (gopherstack-uox6 pass 13, value semantics)
 
 Inapplicable (value semantics). PostToConnection/GetConnection/DeleteConnection are data-plane with no Update surface and no SDK-documented filter or default.
+
+## 2026-10-10 realism pass
+
+- GoneException/LimitExceededException/PayloadTooLargeException bodies use the real wording from the SDK type docs and no longer carry a non-modeled `connectionId` member.
+- Checked and unchanged: PostToConnection 128KB limit, GoneException after DeleteConnection/janitor prune, GetConnection identity/connectedAt/lastActiveAt shape.

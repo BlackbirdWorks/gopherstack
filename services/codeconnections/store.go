@@ -3,6 +3,7 @@ package codeconnections
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -87,6 +88,9 @@ type InMemoryBackend struct {
 
 	accountID     string
 	defaultRegion string
+
+	connectionHandshakeDelay time.Duration
+	hostSetupDelay           time.Duration
 }
 
 // NewInMemoryBackend creates a new in-memory CodeConnections backend.
