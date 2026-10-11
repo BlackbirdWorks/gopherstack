@@ -12,6 +12,7 @@ import (
 	"hash"
 	"math/rand/v2"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -385,9 +386,7 @@ func intrinsicArrayPartition(args []any) (any, error) {
 	for i := 0; i < len(arr); i += size {
 		end := min(i+size, len(arr))
 
-		chunk := make([]any, end-i)
-		copy(chunk, arr[i:end])
-		chunks = append(chunks, chunk)
+		chunks = append(chunks, slices.Clone(arr[i:end]))
 	}
 
 	return chunks, nil

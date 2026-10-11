@@ -209,7 +209,7 @@ func (b *InMemoryBackend) QueryEntities(table string, filter Node, top int) ([]E
 	}
 
 	entities := t.sortedEntities()
-	out := make([]EntityInfo, 0, min(len(entities), max(top, defaultQueryCap)))
+	out := make([]EntityInfo, 0, min(len(entities), defaultQueryCap))
 
 	for _, e := range entities {
 		if filter != nil && !EvaluateFilter(filter, EntityInfo{
