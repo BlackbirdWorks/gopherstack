@@ -69,7 +69,11 @@ func (b *InMemoryBackend) CreateDBCluster(
 
 	cluster := b.newDBCluster(id, engine, masterUser, dbName, paramGroupName, port, serverlessV2Cfg, opts)
 	cluster.MasterSecret = secret
-	b.provisionClusterLocked(cluster, opts.MasterUserPassword)
+	if !b.provisionClusterLocked(cluster, opts.MasterUserPassword) {
+		cluster.Status = instanceStatusCreating
+		b.clusterReadyAt[id] = time.Now().Add(instanceTransitionDelay)
+		b.scheduleReconcilerLocked()
+	}
 
 	b.clusters.Put(cluster)
 

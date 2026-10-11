@@ -2,6 +2,7 @@ package rds_test
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -317,12 +318,24 @@ func TestDescribeDBClusterSnapshots_Filters(t *testing.T) {
 	t.Run("MaxRecords paginates the result", func(t *testing.T) {
 		t.Parallel()
 
-		rec := postRDSForm(t, h, "Action=DescribeDBClusterSnapshots&Version=2014-10-31&MaxRecords=1")
+		ph := newRDSHandler(t)
+		postRDSForm(t, ph,
+			"Action=CreateDBCluster&Version=2014-10-31"+
+				"&DBClusterIdentifier=page-csnap-clu&Engine=aurora-mysql"+
+				"&MasterUsername=admin&MasterUserPassword=password123")
+		for i := range 21 {
+			rec := postRDSForm(t, ph, fmt.Sprintf(
+				"Action=CreateDBClusterSnapshot&Version=2014-10-31"+
+					"&DBClusterSnapshotIdentifier=page-csnap-%02d&DBClusterIdentifier=page-csnap-clu", i))
+			require.Equal(t, http.StatusOK, rec.Code)
+		}
+
+		rec := postRDSForm(t, ph, "Action=DescribeDBClusterSnapshots&Version=2014-10-31&MaxRecords=20")
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp describeResp
 		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Len(t, resp.Result.DBClusterSnapshots.Members, 1)
+		assert.Len(t, resp.Result.DBClusterSnapshots.Members, 20)
 		assert.NotEmpty(t, resp.Result.Marker)
 	})
 }

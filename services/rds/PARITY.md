@@ -6,7 +6,7 @@
 service: rds
 sdk_module: aws-sdk-go-v2/service/rds@v1.124.1
 last_audit_commit: 68761ba3a
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-11
 overall: A              # RESTORED A->A (gopherstack-vhw2 strict-phantom-check pass, 2026-08-05):
                        # both defects behind the 2026-07-31 A->A- downgrade (recorded verbatim
                        # below) are resolved, and nothing new was found in their place.
@@ -237,8 +237,7 @@ gaps: []
   # - [FIXED, prior pass] CreateDBShardGroup/DeleteDBShardGroup/ModifyDBShardGroup/RebootDBShardGroup and CreateIntegration/DeleteIntegration/ModifyIntegration and CreateCustomDBEngineVersion/DeleteCustomDBEngineVersion/ModifyCustomDBEngineVersion (10 ops total) previously wrapped their response fields one XML level too deep (e.g. `<CreateDBShardGroupResult><DBShardGroup><DBShardGroupIdentifier>...`) when the real aws-sdk-go-v2 output for all 10 is a FLAT shape with no such wrapper (`<CreateDBShardGroupResult><DBShardGroupIdentifier>...`) — see Notes. A real aws-sdk-go-v2 client's query-XML deserializer only looks for named fields as direct children of the `<XxxResult>` element, so every field on these 10 ops (including the identifier needed to address the resource in a follow-up call) previously came back empty/zero to a real SDK client, even though the emulator's backend state was correct.
   # - [FIXED, prior pass] CreateCustomDBEngineVersion/ModifyCustomDBEngineVersion additionally serialized the description field under the wrong element name (`DatabaseInstallationFilesS3BucketName` instead of `DBEngineVersionDescription`) — see Notes.
 items_still_open:
-  - "CreateDBCluster returns the cluster as available at once (CreateDBInstance already goes creating->available): in-repo unit, integration and Terraform callers assume it, so cluster creating state is not simulated."
-  - "CreateDBInstance without MasterUserPassword (and without ManageMasterUserPassword) is accepted, EngineVersion values outside the small built-in catalog are accepted, and MaxRecords below 20 is accepted: stricter checks break in-repo callers."
+  - "UNVERIFIABLE: CreateDBInstance without MasterUserPassword (and without ManageMasterUserPassword) is accepted and EngineVersion values outside the small built-in catalog are accepted: the pinned SDK does not mark the password required and ships no engine-version catalog to check against."
   - "UNVERIFIABLE (gopherstack-1jkv): two different roles added to a cluster with FeatureName omitted on both coexist; the pinned SDK documents no collision rule."
   - "UNVERIFIABLE: MasterUserSecret.KmsKeyId stays empty when MasterUserSecretKmsKeyId is unset; the pinned SDK does not state the default key's shape. Changing the key on a managed secret does not re-encrypt the Secrets Manager secret."
   - "UNVERIFIABLE: DescribeEngineDefaultParameters returns an empty Parameters list and DescribeDBEngineVersions character-set/timezone catalogs exist only for oracle-ee and sqlserver-se; the pinned SDK has no per-family default-parameter table or per-version catalog to source real values from."
@@ -253,6 +252,13 @@ deferred: []
 leaks: {status: fixed, note: "FOUND and FIXED this pass: DeleteDBCluster (DeleteDBClusterWithOptions in db_clusters.go) removed the cluster itself but did NOT cascade-delete its custom DB cluster endpoints or their tags — DescribeDBClusterEndpoints kept returning ghost rows pointing at a deleted cluster forever, and b.clusterEndpoints only ever shrank via an explicit DeleteDBClusterEndpoint call, so the map grew unboundedly across create/delete cycles in any long-running client (exactly the 'no ghost map rows after delete — cascade-clean instances/endpoints on cluster delete' invariant this audit was scoped to check). Fixed by adding deleteClusterEndpointsLocked (db_clusters.go), called from DeleteDBClusterWithOptions under the existing b.mu write lock, alongside the pre-existing tags/fisFailoverFaults/clusterRoles cleanup. Regression tests: TestDeleteDBCluster_CascadeDeletesClusterEndpoints (cluster_endpoints_test.go, verifies via DescribeDBClusterEndpoints) and a new cluster_endpoint_cascade_via_cluster_delete case added to the existing TestRDSBackend_TagsCleanedUpOnDelete table (tags_test.go). Separately re-verified this pass and still clean: the single reconciler goroutine (lifecycle.go:scheduleReconcilerLocked) is per-backend, started lazily, and exits its own loop once both instanceReadyAt and clusterReadyAt are empty (ticker.Stop() deferred); the two FIS fault-injection goroutines in fault_injection.go/handler_db_clusters.go are ctx-bound (one blocks on ctx.Done(), the other races a time.Timer against ctx.Done(), both Stop()/cleanup correctly). No time.Sleep/context.Background()-rooted unbounded goroutine patterns found in non-test files."}
 
 ## Notes
+
+- **2026-10-11 (items_still_open burn-down)**: CreateDBCluster now returns `creating` and flips to `available`
+  on the lifecycle reconciler (`TestCreateDBClusterLifecycle`; cluster ops that require `available` fail with
+  InvalidDBClusterStateFault until then; docker-engine clusters already did this). Describe* MaxRecords is
+  validated against each op's documented range (20..100; Orderable 20..1000; ServerlessV2 1..200; ops whose
+  SDK docs give no range stay >0; `TestRDSHandler_DescribeMaxRecordsBounds`). In-repo callers that paged with
+  MaxRecords below 20 now seed 21+ items; static catalogs smaller than a page assert no Marker.
 
 - **2026-10-07 (items_still_open burn-down)**: FailoverGlobalCluster/SwitchoverGlobalCluster now move the
   writer role to the target member (DBClusterNotFound for an unknown cluster, InvalidGlobalClusterState for
@@ -1865,4 +1871,4 @@ OptimizedWritesEnabled (DBInstance, DBCluster), StorageOptimized and GlobalClust
 - CreateDBInstance: DBInstanceClass must look like `db.<family>.<size>` (or `db.serverless`); CreateDBInstance/CreateDBCluster MasterUserPassword 8-41 (mysql/mariadb/aurora-mysql), 8-30 (oracle) or 8-128 chars, no `/ " @`; DBClusterIdentifier uses the same letter/hyphen rules as instances. Omitted EngineVersion now reports the catalog default (not in docker engine mode, whose image default differs).
 - Describe* `Marker` that is not a token this service issued -> `InvalidParameterValue` instead of silently restarting the list.
 - Error Message no longer repeats the code prefix. Tests: input_validation_test.go.
-- Kept lenient (see items_still_open): cluster creating state, missing password, engine-version catalog, MaxRecords floor.
+- Kept lenient (see items_still_open): missing password, engine-version catalog. (Cluster creating state and the MaxRecords floor were enforced 2026-10-11.)

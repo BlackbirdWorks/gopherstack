@@ -142,7 +142,8 @@ func (b *InMemoryBackend) reconcileInstancesLocked() {
 
 	for id, readyAt := range b.clusterReadyAt {
 		if !readyAt.IsZero() && now.After(readyAt) {
-			if c, ok := b.clusters.Get(normalizeID(id)); ok && c.Status == "rebooting" {
+			c, ok := b.clusters.Get(normalizeID(id))
+			if ok && (c.Status == instanceStatusRebooting || c.Status == instanceStatusCreating) {
 				c.Status = instanceStatusAvailable
 				b.publishClusterEventLocked(id, "DB cluster is now available")
 			}

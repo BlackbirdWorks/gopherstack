@@ -58,6 +58,7 @@ func TestDBCluster_FailoverUpdatesState(t *testing.T) {
 		rds.DBClusterOptions{},
 	)
 	require.NoError(t, err)
+	rds.FlushClusterLifecycle(b)
 
 	result, err := b.FailoverDBCluster("failover-cluster", "")
 	require.NoError(t, err)
@@ -79,6 +80,7 @@ func TestDBCluster_RebootTransitions(t *testing.T) {
 		rds.DBClusterOptions{},
 	)
 	require.NoError(t, err)
+	rds.FlushClusterLifecycle(b)
 
 	result, err := b.RebootDBCluster("reboot-cluster")
 	require.NoError(t, err)
@@ -118,6 +120,7 @@ func TestDBCluster_HTTP_Modify(t *testing.T) {
 		"MasterUsername":      {"admin"},
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
+	rds.FlushClusterLifecycle(h.Backend)
 
 	rec = postRDSForm(t, h, url.Values{
 		"Action":              {"ModifyDBCluster"},
@@ -582,6 +585,7 @@ func TestFailoverDBCluster(t *testing.T) {
 					rds.DBClusterOptions{},
 				)
 				require.NoError(t, err)
+				rds.FlushClusterLifecycle(b)
 			}
 			if tt.name == "wrong status" {
 				_, err := b.CreateDBCluster(
@@ -595,6 +599,7 @@ func TestFailoverDBCluster(t *testing.T) {
 					rds.DBClusterOptions{},
 				)
 				require.NoError(t, err)
+				rds.FlushClusterLifecycle(b)
 				_, err = b.StopDBCluster(tt.clusterID)
 				require.NoError(t, err)
 			}
@@ -622,6 +627,7 @@ func TestFailoverDBCluster_PromotesTarget(t *testing.T) {
 	b := newTestBackend(t)
 	_, err := b.CreateDBCluster("fo-cluster", "aurora-mysql", "admin", "", "", 0, nil, rds.DBClusterOptions{})
 	require.NoError(t, err)
+	rds.FlushClusterLifecycle(b)
 
 	_, err = b.CreateDBInstance("fo-writer", "aurora-mysql", "db.r5.large", "", "", "", 20,
 		rds.DBInstanceOptions{DBClusterIdentifier: "fo-cluster"})

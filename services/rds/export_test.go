@@ -28,7 +28,7 @@ func FlushClusterLifecycle(b *InMemoryBackend) {
 	defer b.mu.Unlock()
 
 	for _, c := range b.clusters.All() {
-		if c.Status == "rebooting" {
+		if c.Status == "rebooting" || c.Status == "creating" {
 			c.Status = instanceStatusAvailable
 		}
 

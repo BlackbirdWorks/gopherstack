@@ -418,14 +418,16 @@ func (b *InMemoryBackend) provisionInstanceLocked(inst *DBInstance, password str
 }
 
 // provisionClusterLocked starts the single real engine backing a cluster; the cluster stays creating until it is up.
-func (b *InMemoryBackend) provisionClusterLocked(c *DBCluster, password string) {
+func (b *InMemoryBackend) provisionClusterLocked(c *DBCluster, password string) bool {
 	if b.engine == nil || engineKind(c.Engine) == "" {
-		return
+		return false
 	}
 
 	c.Status = instanceStatusCreating
 	b.launchUnitLocked(unitKeyForCluster(c.DBClusterIdentifier), c.DBClusterIdentifier,
 		c.Engine, c.EngineVersion, c.MasterUsername, password, c.DatabaseName)
+
+	return true
 }
 
 func (b *InMemoryBackend) runUnit(lb *liveDB) {

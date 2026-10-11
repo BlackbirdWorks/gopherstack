@@ -11,81 +11,70 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	describeMinPage = 20
+	describeSeeded  = describeMinPage + 1
+)
+
 func TestRDSHandler_DescribePagination(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setupBodies   []string
-		name          string
-		action        string
-		wantFirstPage []string
-		wantSecond    []string
+		create  func(id string) string
+		name    string
+		action  string
+		prefix  string
+		prelude []string
 	}{
 		{
 			name:   "instances pagination",
 			action: "DescribeDBInstances",
-			setupBodies: []string{
-				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=db-03",
-				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=db-01",
-				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=db-02",
+			prefix: "db-",
+			create: func(id string) string {
+				return "Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=" + id
 			},
-			wantFirstPage: []string{"db-01", "db-02"},
-			wantSecond:    []string{"db-03"},
 		},
 		{
 			name:   "snapshots pagination",
 			action: "DescribeDBSnapshots",
-			setupBodies: []string{
+			prefix: "snap-",
+			prelude: []string{
 				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=snap-db",
-				"Action=CreateDBSnapshot&Version=2014-10-31&DBSnapshotIdentifier=snap-03&DBInstanceIdentifier=snap-db",
-				"Action=CreateDBSnapshot&Version=2014-10-31&DBSnapshotIdentifier=snap-01&DBInstanceIdentifier=snap-db",
-				"Action=CreateDBSnapshot&Version=2014-10-31&DBSnapshotIdentifier=snap-02&DBInstanceIdentifier=snap-db",
 			},
-			wantFirstPage: []string{"snap-01", "snap-02"},
-			wantSecond:    []string{"snap-03"},
+			create: func(id string) string {
+				return "Action=CreateDBSnapshot&Version=2014-10-31&DBSnapshotIdentifier=" + id +
+					"&DBInstanceIdentifier=snap-db"
+			},
 		},
 		{
 			name:   "clusters pagination",
 			action: "DescribeDBClusters",
-			setupBodies: []string{
-				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=cluster-03&Engine=aurora-postgresql",
-				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=cluster-01&Engine=aurora-postgresql",
-				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=cluster-02&Engine=aurora-postgresql",
+			prefix: "cluster-",
+			create: func(id string) string {
+				return "Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=" + id +
+					"&Engine=aurora-postgresql"
 			},
-			wantFirstPage: []string{"cluster-01", "cluster-02"},
-			wantSecond:    []string{"cluster-03"},
 		},
 		{
 			name:   "subnet groups pagination",
 			action: "DescribeDBSubnetGroups",
-			setupBodies: []string{
-				"Action=CreateDBSubnetGroup&Version=2014-10-31&DBSubnetGroupName=subnet-03",
-				"Action=CreateDBSubnetGroup&Version=2014-10-31&DBSubnetGroupName=subnet-01",
-				"Action=CreateDBSubnetGroup&Version=2014-10-31&DBSubnetGroupName=subnet-02",
+			prefix: "subnet-",
+			create: func(id string) string {
+				return "Action=CreateDBSubnetGroup&Version=2014-10-31&DBSubnetGroupName=" + id
 			},
-			wantFirstPage: []string{"subnet-01", "subnet-02"},
-			wantSecond:    []string{"subnet-03"},
 		},
 		{
-			// Regression test for a missing-pagination gap: real AWS's
-			// DescribeDBClusterSnapshotsOutput/DescribeEventsOutput both
-			// carry a Marker field, but this emulator previously returned
-			// every cluster snapshot / event unpaginated regardless of
-			// MaxRecords.
 			name:   "cluster snapshots pagination",
 			action: "DescribeDBClusterSnapshots",
-			setupBodies: []string{
+			prefix: "csnap-",
+			prelude: []string{
 				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=page-clu" +
 					"&Engine=aurora-postgresql&MasterUsername=admin&MasterUserPassword=password123",
-				"Action=CreateDBClusterSnapshot&Version=2014-10-31" +
-					"&DBClusterSnapshotIdentifier=csnap-03&DBClusterIdentifier=page-clu",
-				"Action=CreateDBClusterSnapshot&Version=2014-10-31" +
-					"&DBClusterSnapshotIdentifier=csnap-01&DBClusterIdentifier=page-clu",
-				"Action=CreateDBClusterSnapshot&Version=2014-10-31" +
-					"&DBClusterSnapshotIdentifier=csnap-02&DBClusterIdentifier=page-clu",
 			},
-			wantFirstPage: []string{"csnap-01", "csnap-02"},
-			wantSecond:    []string{"csnap-03"},
+			create: func(id string) string {
+				return "Action=CreateDBClusterSnapshot&Version=2014-10-31" +
+					"&DBClusterSnapshotIdentifier=" + id + "&DBClusterIdentifier=page-clu"
+			},
 		},
 	}
 
@@ -94,38 +83,38 @@ func TestRDSHandler_DescribePagination(t *testing.T) {
 			t.Parallel()
 
 			h := newRDSHandler(t)
-			for _, setupBody := range tt.setupBodies {
-				rec := postRDSForm(t, h, setupBody)
+			for _, body := range tt.prelude {
+				require.Equal(t, http.StatusOK, postRDSForm(t, h, body).Code)
+			}
+			for i := describeSeeded; i >= 1; i-- {
+				rec := postRDSForm(t, h, tt.create(fmt.Sprintf("%s%02d", tt.prefix, i)))
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
-			firstReq := fmt.Sprintf("Action=%s&Version=2014-10-31&MaxRecords=2", tt.action)
+			firstReq := fmt.Sprintf("Action=%s&Version=2014-10-31&MaxRecords=%d", tt.action, describeMinPage)
 			firstPage := postRDSForm(t, h, firstReq)
 			require.Equal(t, http.StatusOK, firstPage.Code)
 
 			firstBody := firstPage.Body.String()
-			for _, id := range tt.wantFirstPage {
-				assert.Contains(t, firstBody, id)
-			}
-			for _, id := range tt.wantSecond {
-				assert.NotContains(t, firstBody, id)
-			}
+			assert.Contains(t, firstBody, fmt.Sprintf("%s%02d<", tt.prefix, 1))
+			assert.Contains(t, firstBody, fmt.Sprintf("%s%02d<", tt.prefix, describeMinPage))
+			assert.NotContains(t, firstBody, fmt.Sprintf("%s%02d<", tt.prefix, describeSeeded))
 
 			marker := extractXMLMarker(firstBody)
 			require.NotEmpty(t, marker)
 
 			secondReq := fmt.Sprintf(
-				"Action=%s&Version=2014-10-31&MaxRecords=2&Marker=%s",
+				"Action=%s&Version=2014-10-31&MaxRecords=%d&Marker=%s",
 				tt.action,
+				describeMinPage,
 				url.QueryEscape(marker),
 			)
 			secondPage := postRDSForm(t, h, secondReq)
 			require.Equal(t, http.StatusOK, secondPage.Code)
 
 			secondBody := secondPage.Body.String()
-			for _, id := range tt.wantSecond {
-				assert.Contains(t, secondBody, id)
-			}
+			assert.Contains(t, secondBody, fmt.Sprintf("%s%02d<", tt.prefix, describeSeeded))
+			assert.NotContains(t, secondBody, fmt.Sprintf("%s%02d<", tt.prefix, 1))
 			assert.NotContains(t, secondBody, "<Marker>")
 		})
 	}
@@ -140,6 +129,8 @@ func TestRDSHandler_DescribePagination_InvalidMaxRecords(t *testing.T) {
 	}{
 		{name: "non numeric", maxRecord: "abc"},
 		{name: "zero", maxRecord: "0"},
+		{name: "below minimum", maxRecord: "19"},
+		{name: "above maximum", maxRecord: "101"},
 	}
 
 	for _, tt := range tests {
@@ -167,21 +158,27 @@ func TestRDSHandler_DescribeEventsPagination(t *testing.T) {
 	t.Parallel()
 
 	h := newRDSHandler(t)
-	for _, id := range []string{"evt-db-1", "evt-db-2", "evt-db-3"} {
-		rec := postRDSForm(t, h,
-			"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier="+id+"&Engine=postgres")
+	for i := range describeSeeded {
+		rec := postRDSForm(
+			t,
+			h,
+			fmt.Sprintf(
+				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=evt-db-%02d&Engine=postgres",
+				i,
+			),
+		)
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
-	firstPage := postRDSForm(t, h, "Action=DescribeEvents&Version=2014-10-31&MaxRecords=2")
+	firstPage := postRDSForm(t, h, "Action=DescribeEvents&Version=2014-10-31&MaxRecords=20")
 	require.Equal(t, http.StatusOK, firstPage.Code)
 
 	firstBody := firstPage.Body.String()
 	marker := extractXMLMarker(firstBody)
-	require.NotEmpty(t, marker, "first page of 3 events with MaxRecords=2 must return a Marker")
+	require.NotEmpty(t, marker, "first page of 21 events with MaxRecords=20 must return a Marker")
 
 	secondPage := postRDSForm(t, h, fmt.Sprintf(
-		"Action=DescribeEvents&Version=2014-10-31&MaxRecords=2&Marker=%s",
+		"Action=DescribeEvents&Version=2014-10-31&MaxRecords=20&Marker=%s",
 		url.QueryEscape(marker),
 	))
 	require.Equal(t, http.StatusOK, secondPage.Code)
@@ -195,4 +192,50 @@ func extractXMLMarker(body string) string {
 	}
 
 	return match[1]
+}
+
+func TestRDSHandler_DescribeMaxRecordsBounds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		action     string
+		extra      string
+		maxRecords int
+		wantOK     bool
+	}{
+		{name: "instances at minimum", action: "DescribeDBInstances", maxRecords: 20, wantOK: true},
+		{name: "instances at maximum", action: "DescribeDBInstances", maxRecords: 100, wantOK: true},
+		{name: "instances below minimum", action: "DescribeDBInstances", maxRecords: 19},
+		{name: "instances above maximum", action: "DescribeDBInstances", maxRecords: 101},
+		{
+			name: "orderable above 100", action: "DescribeOrderableDBInstanceOptions",
+			extra: "&Engine=postgres", maxRecords: 1000, wantOK: true,
+		},
+		{
+			name: "orderable above 1000", action: "DescribeOrderableDBInstanceOptions",
+			extra: "&Engine=postgres", maxRecords: 1001,
+		},
+		{name: "serverless v2 minimum 1", action: "DescribeServerlessV2PlatformVersions", maxRecords: 1, wantOK: true},
+		{name: "serverless v2 above 200", action: "DescribeServerlessV2PlatformVersions", maxRecords: 201},
+		{name: "tenant databases undocumented", action: "DescribeTenantDatabases", maxRecords: 1, wantOK: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newRDSHandler(t)
+			rec := postRDSForm(t, h, fmt.Sprintf(
+				"Action=%s&Version=2014-10-31&MaxRecords=%d%s", tt.action, tt.maxRecords, tt.extra))
+			if tt.wantOK {
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				return
+			}
+
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+		})
+	}
 }

@@ -179,6 +179,7 @@ func testClusterLifecycleRealClient(t *testing.T) {
 		"slice8-cluster", "aurora-mysql", "admin", "mydb", "", 3306, nil, rds.DBClusterOptions{},
 	)
 	require.NoError(t, err)
+	waitForClusterStatus(t, backend, "slice8-cluster", "available")
 
 	modifyOut, err := client.ModifyDBCluster(ctx, &rdssdk.ModifyDBClusterInput{
 		DBClusterIdentifier:   aws.String("slice8-cluster"),
