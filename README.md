@@ -606,7 +606,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
 | [RDS](services/rds/README.md) | A | 52 | 5 gaps; 6 structural gaps |
-| [RDS Data](services/rdsdata/README.md) | A | 6 | 1 gap; 3 structural gaps |
+| [RDS Data](services/rdsdata/README.md) | A | 6 | 4 structural gaps |
 | [Redshift](services/redshift/README.md) | A | 9 | 5 gaps; 4 structural gaps |
 | [Redshift Data](services/redshiftdata/README.md) | A | 12 | 3 structural gaps; 1 deferred |
 | [Timestream Query](services/timestreamquery/README.md) | A | 12 | 3 structural gaps; 1 deferred |
@@ -691,7 +691,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 1 structural gap; 4 deferred |
-| [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 5 gaps; 4 structural gaps |
+| [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 4 gaps; 4 structural gaps |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 1 gap; 2 structural gaps; 1 deferred |
 | [IAM](services/iam/README.md) | A | 38 | 2 gaps; 4 structural gaps |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 1 gap; 5 structural gaps; 1 deferred |
@@ -750,7 +750,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Personalize](services/personalize/README.md) | A | 74 | clean |
 | [Polly](services/polly/README.md) | A | 10 | clean |
 | [Rekognition](services/rekognition/README.md) | A | 50 | 3 structural gaps; 3 deferred |
-| [SageMaker](services/sagemaker/README.md) | A | 69 | 2 gaps; 11 structural gaps |
+| [SageMaker](services/sagemaker/README.md) | A | 69 | 1 gap; 11 structural gaps |
 | [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 1 structural gap |
 | [Textract](services/textract/README.md) | A | 25 | 2 structural gaps; 1 deferred |
 | [Transcribe](services/transcribe/README.md) | A | 43 | 2 structural gaps |
