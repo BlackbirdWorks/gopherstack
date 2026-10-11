@@ -431,7 +431,7 @@ func TestIAMHandler_PermissionBoundaries(t *testing.T) {
 			action: "PutUserPermissionsBoundary",
 			params: map[string]string{
 				"UserName":            "alice",
-				"PermissionsBoundary": "arn:aws:iam::aws:policy/Boundary",
+				"PermissionsBoundary": "arn:aws:iam::aws:policy/PowerUserAccess",
 			},
 			wantCode:    http.StatusOK,
 			wantContain: "PutUserPermissionsBoundaryResponse",
@@ -439,7 +439,7 @@ func TestIAMHandler_PermissionBoundaries(t *testing.T) {
 		{
 			name: "DeleteUserPermissionsBoundary",
 			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreateUser("alice", "/", "arn:aws:iam::aws:policy/Boundary")
+				_, _ = b.CreateUser("alice", "/", "arn:aws:iam::aws:policy/PowerUserAccess")
 			},
 			action:      "DeleteUserPermissionsBoundary",
 			params:      map[string]string{"UserName": "alice"},
@@ -454,7 +454,7 @@ func TestIAMHandler_PermissionBoundaries(t *testing.T) {
 			action: "PutRolePermissionsBoundary",
 			params: map[string]string{
 				"RoleName":            "MyRole",
-				"PermissionsBoundary": "arn:aws:iam::aws:policy/Boundary",
+				"PermissionsBoundary": "arn:aws:iam::aws:policy/PowerUserAccess",
 			},
 			wantCode:    http.StatusOK,
 			wantContain: "PutRolePermissionsBoundaryResponse",
@@ -462,7 +462,7 @@ func TestIAMHandler_PermissionBoundaries(t *testing.T) {
 		{
 			name: "DeleteRolePermissionsBoundary",
 			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreateRole("MyRole", "/", "{}", "arn:aws:iam::aws:policy/Boundary")
+				_, _ = b.CreateRole("MyRole", "/", "{}", "arn:aws:iam::aws:policy/PowerUserAccess")
 			},
 			action:      "DeleteRolePermissionsBoundary",
 			params:      map[string]string{"RoleName": "MyRole"},
@@ -503,7 +503,7 @@ func TestIAMHandler_CreateUserWithPermissionsBoundary(t *testing.T) {
 			name: "WithPermissionsBoundary",
 			params: map[string]string{
 				"UserName":            "alice",
-				"PermissionsBoundary": "arn:aws:iam::aws:policy/Boundary",
+				"PermissionsBoundary": "arn:aws:iam::aws:policy/PowerUserAccess",
 			},
 			wantBoundaryPresent: true,
 		},
@@ -536,7 +536,7 @@ func TestIAMHandler_CreateUserWithPermissionsBoundary(t *testing.T) {
 				require.NotNil(t, resp.CreateUserResult.User.PermissionsBoundary)
 				assert.Equal(
 					t,
-					"arn:aws:iam::aws:policy/Boundary",
+					"arn:aws:iam::aws:policy/PowerUserAccess",
 					resp.CreateUserResult.User.PermissionsBoundary.PermissionsBoundaryArn,
 				)
 				assert.Equal(t, "Policy", resp.CreateUserResult.User.PermissionsBoundary.PermissionsBoundaryType)
@@ -559,7 +559,7 @@ func TestIAMHandler_CreateRoleWithPermissionsBoundary(t *testing.T) {
 			name: "WithPermissionsBoundary",
 			params: map[string]string{
 				"RoleName":            "BoundedRole",
-				"PermissionsBoundary": "arn:aws:iam::aws:policy/Boundary",
+				"PermissionsBoundary": "arn:aws:iam::aws:policy/PowerUserAccess",
 			},
 			wantBoundaryPresent: true,
 		},
@@ -592,7 +592,7 @@ func TestIAMHandler_CreateRoleWithPermissionsBoundary(t *testing.T) {
 				require.NotNil(t, resp.CreateRoleResult.Role.PermissionsBoundary)
 				assert.Equal(
 					t,
-					"arn:aws:iam::aws:policy/Boundary",
+					"arn:aws:iam::aws:policy/PowerUserAccess",
 					resp.CreateRoleResult.Role.PermissionsBoundary.PermissionsBoundaryArn,
 				)
 			} else {

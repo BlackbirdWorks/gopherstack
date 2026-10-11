@@ -55,6 +55,10 @@ func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) 
 
 // DeletePolicy deletes an IAM policy by ARN.
 func (b *InMemoryBackend) DeletePolicy(policyArn string) error {
+	if err := rejectAWSManagedMutation(policyArn); err != nil {
+		return err
+	}
+
 	b.mu.Lock("DeletePolicy")
 	defer b.mu.Unlock()
 
@@ -329,6 +333,10 @@ func (b *InMemoryBackend) GetPolicyVersion(
 		return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
 
+	if isAWSManagedPolicyARN(policyArn) {
+		return awsManagedVersion(policy, versionID)
+	}
+
 	for _, version := range b.policyVersions[policyArn] {
 		if version.VersionID != versionID {
 			continue
@@ -381,6 +389,10 @@ func (b *InMemoryBackend) purgePoliciesLocked(cutoff time.Time) {
 
 // SetDefaultPolicyVersion sets the specified version as the default for the managed policy.
 func (b *InMemoryBackend) SetDefaultPolicyVersion(policyArn, versionID string) error {
+	if err := rejectAWSManagedMutation(policyArn); err != nil {
+		return err
+	}
+
 	b.mu.Lock("SetDefaultPolicyVersion")
 	defer b.mu.Unlock()
 
@@ -440,6 +452,10 @@ func (b *InMemoryBackend) SetDefaultPolicyVersion(policyArn, versionID string) e
 
 // DeletePolicyVersion deletes a non-default version of the managed policy.
 func (b *InMemoryBackend) DeletePolicyVersion(policyArn, versionID string) error {
+	if err := rejectAWSManagedMutation(policyArn); err != nil {
+		return err
+	}
+
 	b.mu.Lock("DeletePolicyVersion")
 	defer b.mu.Unlock()
 
@@ -609,6 +625,10 @@ func simulateCustomPolicyOne(
 
 // TagPolicy merges the given key-value pairs into the policy's Tags field.
 func (b *InMemoryBackend) TagPolicy(policyArn string, tags map[string]string) error {
+	if err := rejectAWSManagedMutation(policyArn); err != nil {
+		return err
+	}
+
 	b.mu.Lock("TagPolicy")
 	defer b.mu.Unlock()
 
@@ -638,6 +658,10 @@ func (b *InMemoryBackend) TagPolicy(policyArn string, tags map[string]string) er
 
 // UntagPolicy removes the given keys from the policy's Tags field.
 func (b *InMemoryBackend) UntagPolicy(policyArn string, keys []string) error {
+	if err := rejectAWSManagedMutation(policyArn); err != nil {
+		return err
+	}
+
 	b.mu.Lock("UntagPolicy")
 	defer b.mu.Unlock()
 
@@ -707,12 +731,7 @@ func (b *InMemoryBackend) boundaryDocForRole(roleName string) string {
 // policyDocByARNLocked returns the current policy document for a managed policy ARN.
 // Caller must hold b.mu read-locked.
 func (b *InMemoryBackend) policyDocByARNLocked(policyArn string) string {
-	polName, exists := b.policyByARN[policyArn]
-	if !exists {
-		return ""
-	}
-
-	p, exists := b.policies.Get(polName)
+	p, exists := b.getPolicyByARNLocked(policyArn)
 	if !exists {
 		return ""
 	}
@@ -726,6 +745,10 @@ func (b *InMemoryBackend) policyDocByARNLocked(policyArn string) string {
 func (b *InMemoryBackend) CreatePolicyVersion(
 	policyArn, policyDocument string, setAsDefault bool,
 ) (*StoredPolicyVersion, error) {
+	if err := rejectAWSManagedMutation(policyArn); err != nil {
+		return nil, err
+	}
+
 	if policyDocument == "" {
 		return nil, fmt.Errorf("%w: policy document must not be empty", ErrMalformedPolicyDocument)
 	}
@@ -806,6 +829,12 @@ func (b *InMemoryBackend) ListPolicyVersions(policyArn string) ([]StoredPolicyVe
 		return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
 
+	if isAWSManagedPolicyARN(policyArn) {
+		v, _ := awsManagedVersion(policy, policy.DefaultVersionID)
+
+		return []StoredPolicyVersion{*v}, nil
+	}
+
 	storedVersions := b.policyVersions[policyArn]
 	isV1Default := true
 	for _, storedVersion := range storedVersions {
@@ -830,7 +859,7 @@ func (b *InMemoryBackend) ListPolicyVersions(policyArn string) ([]StoredPolicyVe
 	return append(versions, storedVersions...), nil
 }
 
-// awsManagedPolicyPrefix marks AWS managed policies, which have no local catalog so are accepted unverified.
+// awsManagedPolicyPrefix is the ARN prefix of AWS managed policies (seeded in aws_managed.go).
 const awsManagedPolicyPrefix = "arn:aws:iam::aws:policy/"
 
 func (b *InMemoryBackend) requireBoundaryLocked(policyArn string) error {
@@ -846,13 +875,22 @@ func (b *InMemoryBackend) requireBoundaryLocked(policyArn string) error {
 }
 
 func (b *InMemoryBackend) requireAttachablePolicyLocked(policyArn string) error {
-	if strings.HasPrefix(policyArn, awsManagedPolicyPrefix) {
-		return nil
-	}
-
 	if _, ok := b.getPolicyByARNLocked(policyArn); !ok {
 		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
 
 	return nil
+}
+
+func awsManagedVersion(policy Policy, versionID string) (*StoredPolicyVersion, error) {
+	if versionID != policy.DefaultVersionID {
+		return nil, fmt.Errorf("%w: policy version %q not found", ErrPolicyNotFound, versionID)
+	}
+
+	return &StoredPolicyVersion{
+		VersionID:        policy.DefaultVersionID,
+		PolicyDocument:   policy.PolicyDocument,
+		IsDefaultVersion: true,
+		CreateDate:       policy.UpdateDate,
+	}, nil
 }

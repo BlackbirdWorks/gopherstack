@@ -268,11 +268,11 @@ func TestIAMHandler_PolicyDispatch(t *testing.T) {
 			action: "DetachRolePolicy",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateRole("detach-role", "/", "{}", "")
-				_ = b.AttachRolePolicy("detach-role", "arn:aws:iam::aws:policy/Policy1")
+				_ = b.AttachRolePolicy("detach-role", "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess")
 			},
 			params: map[string]string{
 				"RoleName":  "detach-role",
-				"PolicyArn": "arn:aws:iam::aws:policy/Policy1",
+				"PolicyArn": "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess",
 			},
 			wantCode:    http.StatusOK,
 			wantContain: "DetachRolePolicyResponse",
@@ -282,7 +282,7 @@ func TestIAMHandler_PolicyDispatch(t *testing.T) {
 			action: "ListAttachedRolePolicies",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateRole("list-role", "/", "{}", "")
-				_ = b.AttachRolePolicy("list-role", "arn:aws:iam::aws:policy/Policy1")
+				_ = b.AttachRolePolicy("list-role", "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess")
 			},
 			params:      map[string]string{"RoleName": "list-role"},
 			wantCode:    http.StatusOK,
@@ -318,7 +318,7 @@ func TestIAMHandler_PolicyDispatch(t *testing.T) {
 			action: "ListAttachedUserPolicies",
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateUser("policy-user", "/", "")
-				_ = b.AttachUserPolicy("policy-user", "arn:aws:iam::aws:policy/ReadOnly")
+				_ = b.AttachUserPolicy("policy-user", "arn:aws:iam::aws:policy/ReadOnlyAccess")
 			},
 			params:      map[string]string{"UserName": "policy-user"},
 			wantCode:    http.StatusOK,
@@ -534,7 +534,7 @@ func TestIAMHandler_Policies(t *testing.T) {
 		h, b := newTestHandler(t)
 		_, _ = b.CreatePolicy("PolicyA", "/", "")
 
-		req := iamRequest("ListPolicies", nil)
+		req := iamRequest("ListPolicies", map[string]string{"Scope": "Local"})
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 

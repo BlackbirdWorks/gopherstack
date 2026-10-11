@@ -609,6 +609,7 @@ const codeInvalidInput = "InvalidInput"
 const (
 	codeNoSuchEntity        = "NoSuchEntity"
 	codeEntityAlreadyExists = "EntityAlreadyExists"
+	codeAccessDenied        = "AccessDenied"
 )
 
 // iamErrorMapping associates a backend sentinel error with the AWS error
@@ -643,6 +644,7 @@ var iamErrorMappings = []iamErrorMapping{
 	{ErrSAMLProviderAlreadyExists, codeEntityAlreadyExists, http.StatusConflict},
 	{ErrOIDCProviderAlreadyExists, codeEntityAlreadyExists, http.StatusConflict},
 	{ErrLoginProfileAlreadyExists, codeEntityAlreadyExists, http.StatusConflict},
+	{ErrAWSManagedPolicyImmutable, codeAccessDenied, http.StatusForbidden},
 	{ErrDeleteConflict, "DeleteConflict", http.StatusConflict},
 	{ErrLimitExceeded, "LimitExceeded", http.StatusConflict},
 	{ErrMalformedPolicyDocument, "MalformedPolicyDocument", http.StatusBadRequest},

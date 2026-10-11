@@ -908,7 +908,7 @@ func TestInMemoryBackend_PermissionsBoundaries(t *testing.T) {
 				_, _ = b.CreateUser("alice", "/", "")
 			},
 			action:       "put_user",
-			wantBoundary: "arn:aws:iam::aws:policy/Boundary",
+			wantBoundary: "arn:aws:iam::aws:policy/PowerUserAccess",
 		},
 		{
 			name:    "PutUserPermissionsBoundary_UserNotFound",
@@ -919,7 +919,7 @@ func TestInMemoryBackend_PermissionsBoundaries(t *testing.T) {
 		{
 			name: "DeleteUserPermissionsBoundary",
 			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreateUser("alice", "/", "arn:aws:iam::aws:policy/Boundary")
+				_, _ = b.CreateUser("alice", "/", "arn:aws:iam::aws:policy/PowerUserAccess")
 			},
 			action: "delete_user",
 		},
@@ -929,7 +929,7 @@ func TestInMemoryBackend_PermissionsBoundaries(t *testing.T) {
 				_, _ = b.CreateRole("MyRole", "/", "{}", "")
 			},
 			action:       "put_role",
-			wantBoundary: "arn:aws:iam::aws:policy/Boundary",
+			wantBoundary: "arn:aws:iam::aws:policy/PowerUserAccess",
 		},
 		{
 			name:    "PutRolePermissionsBoundary_RoleNotFound",
@@ -940,7 +940,7 @@ func TestInMemoryBackend_PermissionsBoundaries(t *testing.T) {
 		{
 			name: "DeleteRolePermissionsBoundary",
 			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreateRole("MyRole", "/", "{}", "arn:aws:iam::aws:policy/Boundary")
+				_, _ = b.CreateRole("MyRole", "/", "{}", "arn:aws:iam::aws:policy/PowerUserAccess")
 			},
 			action: "delete_role",
 		},
@@ -963,7 +963,7 @@ func TestInMemoryBackend_PermissionsBoundaries(t *testing.T) {
 				assert.Equal(t, tt.wantBoundary, u.PermissionsBoundary)
 
 			case "put_user_notfound":
-				err := b.PutUserPermissionsBoundary("nobody", "arn:aws:iam::aws:policy/Boundary")
+				err := b.PutUserPermissionsBoundary("nobody", "arn:aws:iam::aws:policy/PowerUserAccess")
 				require.ErrorIs(t, err, tt.wantErr)
 
 			case "delete_user":
@@ -983,7 +983,7 @@ func TestInMemoryBackend_PermissionsBoundaries(t *testing.T) {
 				assert.Equal(t, tt.wantBoundary, r.PermissionsBoundary)
 
 			case "put_role_notfound":
-				err := b.PutRolePermissionsBoundary("Ghost", "arn:aws:iam::aws:policy/Boundary")
+				err := b.PutRolePermissionsBoundary("Ghost", "arn:aws:iam::aws:policy/PowerUserAccess")
 				require.ErrorIs(t, err, tt.wantErr)
 
 			case "delete_role":

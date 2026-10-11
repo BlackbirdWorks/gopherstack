@@ -304,6 +304,7 @@ type StorageBackend interface {
 	ListAllUsers() []User
 	ListAllRoles() []Role
 	ListAllPolicies() []Policy
+	ListAWSManagedPolicies() []Policy
 	ListAllGroups() []Group
 	ListAllAccessKeys() []AccessKey
 	ListAllInstanceProfiles() []InstanceProfile
@@ -540,7 +541,7 @@ func firstKey(values map[string]struct{}) string {
 func (b *InMemoryBackend) getPolicyByARNLocked(policyArn string) (Policy, bool) {
 	policyName, exists := b.policyByARN[policyArn]
 	if !exists {
-		return Policy{}, false
+		return b.awsManagedPolicyLocked(policyArn)
 	}
 
 	pol, exists := b.policies.Get(policyName)

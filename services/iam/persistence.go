@@ -159,11 +159,8 @@ func (b *InMemoryBackend) restoreSnapshotLocked(ctx context.Context, snap *backe
 	} else {
 		b.roleByARN = make(map[string]string)
 	}
-	if snap.PolicyAttachments != nil {
-		b.policyAttachments = snap.PolicyAttachments
-	} else {
-		b.policyAttachments = make(map[string]policyAttachmentRefs)
-	}
+	// policyAttachments has only unexported fields, so the snapshot copy is
+	// always empty; rebuildIndexesLocked already derived it from the attach maps.
 	if snap.DeletedV1Policies != nil {
 		b.deletedV1Policies = snap.DeletedV1Policies
 	} else {

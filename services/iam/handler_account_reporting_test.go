@@ -687,8 +687,8 @@ func TestGetAccountAuthorizationDetails_PermissionsBoundaryAndTags_RealClient(t 
 	h, _ := newTestHandler(t)
 	client := newTestIAMClient(t, h)
 
-	const boundaryArn1 = "arn:aws:iam::aws:policy/user-boundary"
-	const boundaryArn2 = "arn:aws:iam::aws:policy/role-boundary"
+	const boundaryArn1 = "arn:aws:iam::aws:policy/IAMReadOnlyAccess"
+	const boundaryArn2 = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
 
 	_, err := client.CreateUser(t.Context(), &iamsdk.CreateUserInput{
 		UserName:            aws.String("gaad-user-1"),

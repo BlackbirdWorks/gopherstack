@@ -45,6 +45,8 @@ var (
 	ErrInvalidAuthenticationCode = errors.New("InvalidAuthenticationCode")
 	// ErrInvalidInput is returned when an input parameter is invalid.
 	ErrInvalidInput = errors.New("InvalidInput")
+	// ErrAWSManagedPolicyImmutable is returned when a write targets an AWS managed policy.
+	ErrAWSManagedPolicyImmutable = errors.New("AccessDenied")
 	// ErrLoginProfileNotFound is returned when a requested login profile does not exist.
 	ErrLoginProfileNotFound = errors.New("NoSuchEntity: login profile")
 	// ErrLoginProfileAlreadyExists is returned when creating a login profile that already exists.
