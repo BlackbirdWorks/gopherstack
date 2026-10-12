@@ -98,6 +98,7 @@ const (
 	actionProviderCodeBuild  = "CodeBuild"
 	actionProviderLambda     = "Lambda"
 	actionProviderCodeDeploy = "CodeDeploy"
+	actionProviderS3         = "S3"
 
 	// configKeyProjectName, configKeyFunctionName, configKeyApplicationName,
 	// and configKeyDeploymentGroupName are the Action.Configuration keys
@@ -174,6 +175,7 @@ type InMemoryBackend struct {
 	codeBuildBackend  CodeBuildStarter
 	lambdaBackend     LambdaInvoker
 	codeDeployBackend CodeDeployStarter
+	artifactS3        ArtifactS3
 	mu                *lockmetrics.RWMutex
 	accountID         string
 	region            string
@@ -207,6 +209,15 @@ func (b *InMemoryBackend) SetCodeBuildBackend(codeBuild CodeBuildStarter) {
 	defer b.mu.Unlock()
 
 	b.codeBuildBackend = codeBuild
+}
+
+// SetArtifactS3 wires S3 so Source/S3 and Deploy/S3 actions move real objects
+// and the pipeline artifact store is materialised.
+func (b *InMemoryBackend) SetArtifactS3(s ArtifactS3) {
+	b.mu.Lock("SetArtifactS3")
+	defer b.mu.Unlock()
+
+	b.artifactS3 = s
 }
 
 // SetLambdaBackend wires Lambda so an Invoke/Lambda action's FunctionName is

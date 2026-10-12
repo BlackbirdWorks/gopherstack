@@ -221,7 +221,11 @@ func (b *InMemoryBackend) runOneAction(
 
 		b.queueActionJobLocked(region, pipelineName, ae, action, "")
 	case isBuiltinAction(action, actionProviderCodeBuild) && b.codeBuildBackend != nil:
-		ae.Status = b.runCodeBuildAction(b.regionContext(region), action)
+		b.runCodeBuildAction(b.regionContext(region), b.pipelineOf(region, pipelineName), executionID, action, ae)
+	case b.artifactS3 != nil && isS3SourceAction(action):
+		b.runS3SourceAction(b.regionContext(region), b.pipelineOf(region, pipelineName), executionID, action, ae)
+	case b.artifactS3 != nil && isS3DeployAction(action):
+		b.runS3DeployAction(b.regionContext(region), b.pipelineOf(region, pipelineName), executionID, action, ae)
 	case isBuiltinAction(action, actionProviderLambda) && b.lambdaBackend != nil:
 		ae.Status = b.runLambdaAction(b.regionContext(region), action)
 	case isBuiltinAction(action, actionProviderCodeDeploy) && b.codeDeployBackend != nil:
@@ -239,26 +243,6 @@ func (b *InMemoryBackend) runOneAction(
 // custom or third-party action type that happens to share the same category.
 func isBuiltinAction(action Action, provider string) bool {
 	return action.ActionTypeID.Owner == actionOwnerAWS && action.ActionTypeID.Provider == provider
-}
-
-// runCodeBuildAction starts a build for a Build/CodeBuild action's
-// configured ProjectName. A missing ProjectName is left to succeed
-// (nothing to call); a project StartBuild can't find fails the action,
-// matching real AWS's StartBuild ResourceNotFoundException. The emulator's
-// CodeBuild backend always eventually completes an accepted build (see
-// codebuild's janitor), so acceptance alone is this synchronous engine's
-// success signal -- it does not wait for the build to finish.
-func (b *InMemoryBackend) runCodeBuildAction(ctx context.Context, action Action) string {
-	projectName := action.Configuration[configKeyProjectName]
-	if projectName == "" {
-		return statusSucceeded
-	}
-
-	if err := b.codeBuildBackend.StartBuild(ctx, projectName); err != nil {
-		return statusFailed
-	}
-
-	return statusSucceeded
 }
 
 // runLambdaAction synchronously invokes an Invoke/Lambda action's configured

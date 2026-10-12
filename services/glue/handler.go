@@ -51,6 +51,7 @@ func (h *Handler) EnableRegions(ctx context.Context) {
 		nb := NewInMemoryBackend(home.accountID, region)
 		nb.limits, nb.configuredLimits = home.configuredLimits, home.configuredLimits
 		nb.ramShareCreator = home.currentResourceShareCreator()
+		nb.crawlerS3 = home.currentCrawlerS3()
 		nb.StartReconciler(ctx)
 
 		return NewHandler(nb)

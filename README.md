@@ -376,6 +376,7 @@ By default resources settle instantly. Set a dwell to make Creating/Processing/P
 | `--lifecycle-codestarconnections` | `CODESTARCONNECTIONS_LIFECYCLE_DELAY` | CodeStar Connections connection handshake and host setup PENDING window; hosts stay PENDING when 0. |
 | `--lifecycle-docdb` | `DOCDB_LIFECYCLE_DELAY` | DocumentDB cluster/instance `creating` window. |
 | `--lifecycle-neptune` | `NEPTUNE_LIFECYCLE_DELAY` | Neptune cluster/instance `creating` window. |
+| `--lifecycle-kafka` | `KAFKA_LIFECYCLE_DELAY` | MSK cluster `CREATING`/`UPDATING` window. |
 | `--lifecycle-awsconfig` | `AWSCONFIG_LIFECYCLE_DELAY` | AWS Config conformance pack `CREATE_IN_PROGRESS` window. |
 | `--lifecycle-inspector2` | `INSPECTOR2_LIFECYCLE_DELAY` | Inspector2 `ENABLING`/`DISABLING` window. |
 | `--lifecycle-apprunner` | `APPRUNNER_OPERATION_DELAY` | App Runner service `OPERATION_IN_PROGRESS` window after create/update/pause/resume/deploy/delete. |
@@ -746,7 +747,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CodeCommit](services/codecommit/README.md) | A | 79 | 1 gap; 1 structural gap |
 | [CodeConnections](services/codeconnections/README.md) | A | 27 | 1 gap |
 | [CodeDeploy](services/codedeploy/README.md) | A | 47 | 3 structural gaps; 1 deferred |
-| [CodePipeline](services/codepipeline/README.md) | A | 22 | 3 gaps; 6 structural gaps; 1 deferred |
+| [CodePipeline](services/codepipeline/README.md) | A | 22 | 3 gaps; 7 structural gaps; 1 deferred |
 | [CodeStar Connections](services/codestarconnections/README.md) | A | 27 | 1 gap; 2 structural gaps |
 | [Serverless Application Repository](services/serverlessrepo/README.md) | A | 14 | clean |
 | [X-Ray](services/xray/README.md) | A | 38 | 2 gaps; 6 structural gaps; 1 deferred |

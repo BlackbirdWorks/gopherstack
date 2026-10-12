@@ -4020,9 +4020,15 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// actually reach their backend, instead of every non-Approval action
 	// being marked Succeeded unconditionally with no cross-service call at
 	// all (gopherstack-cb9l).
+	wireCodePipelineBackends(byName)
+	wireGlueS3(byName["Glue"], byName["S3"])
+}
+
+func wireCodePipelineBackends(byName map[string]service.Registerable) {
 	wireCodePipelineCodeBuild(byName["CodePipeline"], byName["CodeBuild"])
 	wireCodePipelineLambda(byName["CodePipeline"], byName["Lambda"])
 	wireCodePipelineCodeDeploy(byName["CodePipeline"], byName["CodeDeploy"])
+	wireCodePipelineS3(byName["CodePipeline"], byName["S3"])
 }
 
 // wireAppConfigDeployments wires the AppConfigData backend as AppConfig's
@@ -6972,6 +6978,76 @@ func (a *codepipelineCodeBuildAdapter) StartBuild(ctx context.Context, projectNa
 	_, err := a.handler.BackendFor(awsmeta.Region(ctx)).StartBuild(projectName, codebuildbackend.StartBuildConfig{})
 
 	return err
+}
+
+func (a *codepipelineCodeBuildAdapter) RunBuild(
+	ctx context.Context, req codepipelinebackend.BuildRequest,
+) (string, error) {
+	build, err := a.handler.BackendFor(awsmeta.Region(ctx)).
+		StartBuild(req.ProjectName, codebuildbackend.StartBuildConfig{
+			SourceLocationOverride: req.SourceLocation,
+			BuildspecOverride:      req.BuildspecOverride,
+		})
+	if err != nil {
+		return "", err
+	}
+
+	return build.ID, nil
+}
+
+func (a *codepipelineCodeBuildAdapter) BuildStatus(ctx context.Context, buildID string) (string, error) {
+	builds, _ := a.handler.BackendFor(awsmeta.Region(ctx)).BatchGetBuilds([]string{buildID})
+	if len(builds) == 0 {
+		return "", fmt.Errorf("%w: build %s not found", codebuildbackend.ErrNotFound, buildID)
+	}
+
+	return builds[0].BuildStatus, nil
+}
+
+// wireCodePipelineS3 gives CodePipeline S3 for Source/S3 and Deploy/S3 actions and the
+// artifact store. s3.InMemoryBackend satisfies codepipeline.ArtifactS3 directly.
+func wireCodePipelineS3(codepipelineReg, s3Reg service.Registerable) {
+	cpH, ok := codepipelineReg.(*codepipelinebackend.Handler)
+	if !ok {
+		return
+	}
+
+	s3H, s3Ok := s3Reg.(*s3backend.S3Handler)
+	if !s3Ok {
+		return
+	}
+
+	s3Bk, s3BkOk := s3H.Backend.(*s3backend.InMemoryBackend)
+	if !s3BkOk {
+		return
+	}
+
+	cpH.Backend.SetArtifactS3(s3Bk)
+}
+
+// wireGlueS3 lets Glue crawlers infer table schemas and partitions from S3 objects.
+func wireGlueS3(glueReg, s3Reg service.Registerable) {
+	glueH, ok := glueReg.(*gluebackend.Handler)
+	if !ok {
+		return
+	}
+
+	glueBk, bkOk := glueH.Backend.(*gluebackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	s3H, s3Ok := s3Reg.(*s3backend.S3Handler)
+	if !s3Ok {
+		return
+	}
+
+	s3Bk, s3BkOk := s3H.Backend.(*s3backend.InMemoryBackend)
+	if !s3BkOk {
+		return
+	}
+
+	glueBk.SetS3Backend(s3Bk)
 }
 
 // wireCodePipelineLambda connects the CodePipeline backend to Lambda so an

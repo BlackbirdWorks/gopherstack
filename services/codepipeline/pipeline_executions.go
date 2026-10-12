@@ -12,6 +12,7 @@ func (b *InMemoryBackend) GetPipelineExecution(
 	ctx context.Context,
 	pipelineName, executionID string,
 ) (*PipelineExecution, error) {
+	b.reconcileBuildActions(ctx)
 	b.mu.RLock("GetPipelineExecution")
 	defer b.mu.RUnlock()
 
@@ -37,6 +38,7 @@ func (b *InMemoryBackend) ListPipelineExecutions(
 	ctx context.Context,
 	pipelineName string,
 ) ([]PipelineExecution, error) {
+	b.reconcileBuildActions(ctx)
 	b.mu.RLock("ListPipelineExecutions")
 	defer b.mu.RUnlock()
 
@@ -63,6 +65,7 @@ func (b *InMemoryBackend) ListActionExecutions(
 	ctx context.Context,
 	pipelineName, pipelineExecutionID string,
 ) ([]map[string]any, error) {
+	b.reconcileBuildActions(ctx)
 	b.mu.RLock("ListActionExecutions")
 	defer b.mu.RUnlock()
 

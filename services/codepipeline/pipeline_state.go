@@ -132,6 +132,7 @@ func pipelineHasStage(p *Pipeline, stageName string) bool {
 
 // GetPipelineState returns the current state of each stage in a pipeline.
 func (b *InMemoryBackend) GetPipelineState(ctx context.Context, pipelineName string) ([]StageState, error) {
+	b.reconcileBuildActions(ctx)
 	b.mu.RLock("GetPipelineState")
 	defer b.mu.RUnlock()
 

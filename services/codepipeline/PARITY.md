@@ -7,7 +7,7 @@
 service: codepipeline
 sdk_module: aws-sdk-go-v2/service/codepipeline@v1.54.0   # version audited against
 last_audit_commit: d4dc4a723
-last_audit_date: 2026-10-10
+last_audit_date: 2026-10-12
 overall: A            # 2026-09-08 (gopherstack-wlab) re-audit of the same 7 findings, using
 # botocore codepipeline/2015-07-09/service-2.json as the declared-error-set oracle (its per-op
 # "errors" lists are IDENTICAL to what gopherstack-3djp cited from codepipeline@v1.49.4's
@@ -148,7 +148,8 @@ structural_gaps:
   - "JobData/ThirdPartyJobData omit ArtifactCredentials, InputArtifacts, OutputArtifacts and EncryptionKey: no artifact store or STS exists to issue them."
   - "ListDeployActionExecutionTargets returns empty: no real deploy targets exist behind Deploy actions."
   - "ListWebhookItem.ErrorCode/ErrorMessage are never set: webhook registration against a third party cannot fail in an emulator."
-  - "Built-in action providers other than Build/CodeBuild, Invoke/Lambda and Deploy/CodeDeploy (S3, ECR, CodeCommit, ...) always Succeed in runOneAction: no real source/deploy targets. Custom-owner actions are real: a Queued job is created for the worker (PollForJobs/Put*JobResult)."
+  - "Built-in action providers other than Build/CodeBuild, Invoke/Lambda, Deploy/CodeDeploy and Source/Deploy S3 (ECR, CodeCommit, ...) always Succeed in runOneAction: no real source/deploy targets. Custom-owner actions are real: a Queued job is created for the worker (PollForJobs/Put*JobResult)."
+  - "Build/CodeBuild waits for the real build status, but the emulated build runs no buildspec: the primary input artifact is passed through unchanged as every output artifact, and exported variables are not produced. Source/S3 and Deploy/S3 move real objects when the S3 seam is wired (cli.go wireCodePipelineS3); the artifact store key is derived from pipeline, artifact name and execution ID. A missing source object fails the action with ConfigurationError (code chosen from the FailureType enum; the docs name none)."
 deferred:
   - "Subsystem-gated work: see items_still_open."
 leaks: {status: clean, note: "DeletePipeline now cascade-clears executionsStore, actionExecutionsStore, AND actionRevisionsStore (the last one is new this pass) for the deleted pipeline name; StopPipelineExecution now abandons+clears the token of any action execution left InProgress on a pending approval gate rather than leaving it silently unresolved forever; no goroutines/janitors in this service"}

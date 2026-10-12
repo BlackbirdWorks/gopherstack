@@ -37,6 +37,7 @@ import (
 	inspector2backend "github.com/blackbirdworks/gopherstack/services/inspector2"
 	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
+	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kafkaconnectbackend "github.com/blackbirdworks/gopherstack/services/kafkaconnect"
 	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -98,6 +99,7 @@ type LifecycleSettings struct {
 	SSMAutomation                time.Duration `name:"ssm-automation"                 env:"SSM_AUTOMATION_EXEC_DELAY"            default:"0s" help:"SSM automation execution InProgress window."`                                                         //nolint:lll // config struct tags are intentionally verbose
 	DocDB                        time.Duration `name:"docdb"                          env:"DOCDB_LIFECYCLE_DELAY"                default:"0s" help:"DocumentDB cluster and instance creating dwell."`                                                     //nolint:lll // config struct tags are intentionally verbose
 	Neptune                      time.Duration `name:"neptune"                        env:"NEPTUNE_LIFECYCLE_DELAY"              default:"0s" help:"Neptune cluster and instance creating dwell."`                                                        //nolint:lll // config struct tags are intentionally verbose
+	Kafka                        time.Duration `name:"kafka"                          env:"KAFKA_LIFECYCLE_DELAY"                default:"0s" help:"MSK cluster creating and update window."`                                                             //nolint:lll // config struct tags are intentionally verbose
 	AWSConfig                    time.Duration `name:"awsconfig"                      env:"AWSCONFIG_LIFECYCLE_DELAY"            default:"0s" help:"AWS Config conformance pack CREATE_IN_PROGRESS window."`                                              //nolint:lll // config struct tags are intentionally verbose
 	Inspector2                   time.Duration `name:"inspector2"                     env:"INSPECTOR2_LIFECYCLE_DELAY"           default:"0s" help:"Inspector2 ENABLING/DISABLING window."`                                                               //nolint:lll // config struct tags are intentionally verbose
 	WorkSpaces                   time.Duration `name:"workspaces"                     env:"WORKSPACES_LIFECYCLE_DELAY"           default:"0s" help:"WorkSpaces PENDING and directory REGISTERING window."`                                                //nolint:lll // config struct tags are intentionally verbose
@@ -473,6 +475,14 @@ func applyNeptune(reg service.Registerable, l LifecycleSettings) {
 	}
 }
 
+func applyKafka(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*kafkabackend.Handler); ok {
+		if bk, isBk := h.Backend.(*kafkabackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.Kafka))
+		}
+	}
+}
+
 func applyAWSConfig(reg service.Registerable, l LifecycleSettings) {
 	if h, ok := reg.(*awsconfigbackend.Handler); ok {
 		h.Backend.SetLifecycleDelay(l.effective(l.AWSConfig))
@@ -781,6 +791,7 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSett
 		"SSM":                 applySSM,
 		"DocDB":               applyDocDB,
 		"Neptune":             applyNeptune,
+		"Kafka":               applyKafka,
 		"AWSConfig":           applyAWSConfig,
 		"Inspector2":          applyInspector2,
 		"WorkSpaces":          applyWorkSpaces,

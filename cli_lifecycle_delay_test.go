@@ -29,6 +29,8 @@ import (
 	fsxtypes "github.com/aws/aws-sdk-go-v2/service/fsx/types"
 	"github.com/aws/aws-sdk-go-v2/service/inspector2"
 	inspector2types "github.com/aws/aws-sdk-go-v2/service/inspector2/types"
+	"github.com/aws/aws-sdk-go-v2/service/kafka"
+	kafkatypes "github.com/aws/aws-sdk-go-v2/service/kafka/types"
 	"github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2"
 	kav2types "github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
@@ -261,6 +263,33 @@ func baseLifecycleKnobs() []lifecycleKnob {
 					require.Len(t, out.DBClusters, 1)
 
 					return aws.ToString(out.DBClusters[0].Status) == "creating"
+				}
+			},
+		},
+		{
+			name: "kafka",
+			set:  func(l *LifecycleSettings, d time.Duration) { l.Kafka = d },
+			start: func(t *testing.T, cfg aws.Config) func() bool {
+				t.Helper()
+
+				c := kafka.NewFromConfig(cfg)
+				brokers := int32(3)
+				out, err := c.CreateCluster(t.Context(), &kafka.CreateClusterInput{
+					ClusterName:         aws.String("lcres"),
+					KafkaVersion:        aws.String("3.5.1"),
+					NumberOfBrokerNodes: &brokers,
+					BrokerNodeGroupInfo: &kafkatypes.BrokerNodeGroupInfo{
+						ClientSubnets: []string{"subnet-00000000"},
+						InstanceType:  aws.String("kafka.m5.large"),
+					},
+				})
+				require.NoError(t, err)
+
+				return func() bool {
+					d, dErr := c.DescribeCluster(t.Context(), &kafka.DescribeClusterInput{ClusterArn: out.ClusterArn})
+					require.NoError(t, dErr)
+
+					return d.ClusterInfo.State == kafkatypes.ClusterStateCreating
 				}
 			},
 		},

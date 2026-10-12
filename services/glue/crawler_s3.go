@@ -52,6 +52,13 @@ func (b *InMemoryBackend) SetS3Backend(s CrawlerS3) {
 	b.crawlerS3 = s
 }
 
+func (b *InMemoryBackend) currentCrawlerS3() CrawlerS3 {
+	b.mu.RLock("currentCrawlerS3")
+	defer b.mu.RUnlock()
+
+	return b.crawlerS3
+}
+
 type crawlFile struct {
 	key  string
 	dirs []string
