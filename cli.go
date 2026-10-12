@@ -2426,6 +2426,7 @@ func buildEchoServer(
 	registerLocalstackDevEndpoints(e, services)
 	registerECSTaskEndpoints(e, services)
 	registerEC2IMDSEndpoints(e, services)
+	registerEC2NetworkEndpoints(e, services)
 	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
 	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))
 

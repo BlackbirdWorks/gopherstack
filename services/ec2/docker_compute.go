@@ -81,6 +81,7 @@ type dockerAPI interface {
 type DockerCompute struct {
 	api   dockerAPI
 	ports *sshPortPool
+	nets  *netRegistry
 	cfg   DockerComputeConfig
 }
 
@@ -112,7 +113,7 @@ func newDockerComputeWithAPI(api dockerAPI, cfg DockerComputeConfig) *DockerComp
 		cfg.SSHHostIP = defaultSSHHostIP
 	}
 
-	return &DockerCompute{api: api, cfg: cfg, ports: &sshPortPool{used: make(map[int]struct{})}}
+	return &DockerCompute{api: api, cfg: cfg, ports: &sshPortPool{used: make(map[int]struct{})}, nets: newNetRegistry()}
 }
 
 // Ping verifies the Docker daemon is reachable.
@@ -152,6 +153,7 @@ const (
 var (
 	errInspectTimeout    = errors.New("docker compute: container did not get an IP in time")
 	errSSHPortRangeEmpty = errors.New("docker compute: no free ssh host port in configured range")
+	errNetworkInUse      = errors.New("docker compute: vpc network still in use")
 )
 
 // containerSSHPort is the in-container TCP port sshd listens on.
@@ -182,12 +184,19 @@ func (d *DockerCompute) Launch(ctx context.Context, req LaunchRequest) (LaunchRe
 		return LaunchResult{}, err
 	}
 
+	vn, hasNet, netErr := d.vpcNetworkFor(ctx, req.VPCID, req.VPCCIDR)
+	if netErr != nil {
+		d.releaseSSHPort(hostPort)
+
+		return LaunchResult{}, netErr
+	}
+
 	entrypoint := buildEntrypointScript(req.AuthorizedKey, req.UserData)
-	hostCfg, networkCfg := d.buildContainerConfigs(hostPort)
+	hostCfg, networkCfg, exposed := d.buildContainerConfigs(hostPort, req, vn, hasNet)
 	createOpts := mobyclient.ContainerCreateOptions{
 		Config: &mobycontainer.Config{
 			Image:        d.cfg.Image,
-			ExposedPorts: mobynetwork.PortSet{containerSSHPort: struct{}{}},
+			ExposedPorts: exposed,
 			Cmd:          []string{"/bin/sh", "-c", entrypoint},
 			Labels:       d.buildLabels(req),
 			Env:          containerEnv(req),
@@ -211,7 +220,12 @@ func (d *DockerCompute) Launch(ctx context.Context, req LaunchRequest) (LaunchRe
 		return LaunchResult{}, fmt.Errorf("container start: %w", startErr)
 	}
 
-	privateIP, mappedPort, inspectErr := d.waitForRunning(ctx, resp.ID)
+	preferred := d.cfg.Network
+	if hasNet {
+		preferred = vn.name
+	}
+
+	got, inspectErr := d.waitForRunning(ctx, resp.ID, preferred)
 	if inspectErr != nil {
 		d.cleanupAfterFailure(ctx, resp.ID, hostPort)
 
@@ -219,18 +233,20 @@ func (d *DockerCompute) Launch(ctx context.Context, req LaunchRequest) (LaunchRe
 	}
 
 	resolvedPort := hostPort
-	if mappedPort != 0 {
-		resolvedPort = mappedPort
+	if got.sshPort != 0 {
+		resolvedPort = got.sshPort
 	}
 
 	return LaunchResult{
 		ProviderID: resp.ID,
-		PrivateIP:  privateIP,
+		PrivateIP:  got.ip,
 		// PublicIPAddress is set to the host SSHHostIP so the demo can ssh
 		// into the container via the published port.
 		PublicIPAddress: d.cfg.SSHHostIP,
 		PublicDNSName:   syntheticPublicDNS(req.InstanceID, d.cfg.Region),
 		SSHPort:         resolvedPort,
+		NetworkNote:     vn.note,
+		PublishedPorts:  got.published,
 	}, nil
 }
 
@@ -325,13 +341,26 @@ func (d *DockerCompute) ensureImage(ctx context.Context) error {
 	return nil
 }
 
-func (d *DockerCompute) buildContainerConfigs(hostPort int) (*mobycontainer.HostConfig, *mobynetwork.NetworkingConfig) {
+func (d *DockerCompute) buildContainerConfigs(
+	hostPort int, req LaunchRequest, vn vpcNetwork, hasNet bool,
+) (*mobycontainer.HostConfig, *mobynetwork.NetworkingConfig, mobynetwork.PortSet) {
 	portBindings := mobynetwork.PortMap{}
+	exposed := mobynetwork.PortSet{containerSSHPort: struct{}{}}
 
 	if hostPort > 0 {
 		portBindings[containerSSHPort] = []mobynetwork.PortBinding{
 			{HostIP: parseHostIP(d.cfg.SSHHostIP), HostPort: strconv.Itoa(hostPort)},
 		}
+	}
+
+	for _, spec := range req.PublishPorts {
+		key, err := spec.key()
+		if err != nil || key == containerSSHPort {
+			continue
+		}
+
+		exposed[key] = struct{}{}
+		portBindings[key] = []mobynetwork.PortBinding{{HostIP: parseHostIP(publishHostIP)}}
 	}
 
 	hostCfg := &mobycontainer.HostConfig{
@@ -340,20 +369,27 @@ func (d *DockerCompute) buildContainerConfigs(hostPort int) (*mobycontainer.Host
 		RestartPolicy: mobycontainer.RestartPolicy{Name: "no"},
 	}
 
-	if d.cfg.Network != "" {
-		hostCfg.NetworkMode = mobycontainer.NetworkMode(d.cfg.Network)
+	netName := d.cfg.Network
+	if hasNet {
+		netName = vn.name
 	}
 
-	var networkCfg *mobynetwork.NetworkingConfig
-	if d.cfg.Network != "" {
-		networkCfg = &mobynetwork.NetworkingConfig{
-			EndpointsConfig: map[string]*mobynetwork.EndpointSettings{
-				d.cfg.Network: {},
-			},
+	if netName == "" {
+		return hostCfg, nil, exposed
+	}
+
+	hostCfg.NetworkMode = mobycontainer.NetworkMode(netName)
+	ep := &mobynetwork.EndpointSettings{}
+
+	if hasNet && vn.static {
+		if ip, err := netip.ParseAddr(req.PrivateIP); err == nil && ip.Is4() {
+			ep.IPAMConfig = &mobynetwork.EndpointIPAMConfig{IPv4Address: ip}
 		}
 	}
 
-	return hostCfg, networkCfg
+	return hostCfg, &mobynetwork.NetworkingConfig{
+		EndpointsConfig: map[string]*mobynetwork.EndpointSettings{netName: ep},
+	}, exposed
 }
 
 // imdsEndpointEnv is read by every AWS SDK and the CLI in place of 169.254.169.254.
@@ -382,22 +418,27 @@ func (d *DockerCompute) buildLabels(req LaunchRequest) map[string]string {
 	return labels
 }
 
-// waitForRunning polls ContainerInspect until the container is running and an
-// IP address is assigned, returning the discovered private IP and the host
-// port mapped to sshd.
-func (d *DockerCompute) waitForRunning(ctx context.Context, containerID string) (string, int, error) {
+// inspected is what waitForRunning learns about a started container.
+type inspected struct {
+	ip        string
+	published []PublishedPort
+	sshPort   int
+}
+
+// waitForRunning polls ContainerInspect until the container is running and an IP address is assigned.
+func (d *DockerCompute) waitForRunning(ctx context.Context, containerID, preferred string) (inspected, error) {
 	timer := time.NewTimer(inspectRetryDelay)
 	defer timer.Stop()
 
 	for range inspectMaxRetries {
 		res, err := d.api.ContainerInspect(ctx, containerID, mobyclient.ContainerInspectOptions{})
 		if err != nil {
-			return "", 0, fmt.Errorf("container inspect: %w", err)
+			return inspected{}, fmt.Errorf("container inspect: %w", err)
 		}
 
-		ip, port := extractInspectAddrs(res.Container, d.cfg.Network)
+		ip, port := extractInspectAddrs(res.Container, preferred)
 		if ip != "" {
-			return ip, port, nil
+			return inspected{ip: ip, sshPort: port, published: publishedOf(res.Container)}, nil
 		}
 
 		if !timer.Stop() {
@@ -410,12 +451,20 @@ func (d *DockerCompute) waitForRunning(ctx context.Context, containerID string) 
 
 		select {
 		case <-ctx.Done():
-			return "", 0, fmt.Errorf("container inspect: %w", ctx.Err())
+			return inspected{}, fmt.Errorf("container inspect: %w", ctx.Err())
 		case <-timer.C:
 		}
 	}
 
-	return "", 0, errInspectTimeout
+	return inspected{}, errInspectTimeout
+}
+
+func publishedOf(c mobycontainer.InspectResponse) []PublishedPort {
+	if c.NetworkSettings == nil {
+		return nil
+	}
+
+	return publishedFrom(c.NetworkSettings.Ports)
 }
 
 // extractInspectAddrs pulls the relevant network info from an inspect result.

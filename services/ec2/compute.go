@@ -49,11 +49,34 @@ type LaunchRequest struct {
 	// MetadataEndpoint is the URL of this instance's metadata service, reachable from the
 	// container; empty when no listener is wired.
 	MetadataEndpoint string `json:"metadataEndpoint,omitempty"`
+	// VPCID and VPCCIDR identify the VPC network the instance joins.
+	VPCID   string `json:"vpcID,omitempty"`
+	VPCCIDR string `json:"vpcCIDR,omitempty"`
+	// PrivateIP is the address allocated from the instance's subnet.
+	PrivateIP string `json:"privateIP,omitempty"`
+	// PublishPorts are the ports the instance's security groups open to the world.
+	PublishPorts []PortSpec `json:"publishPorts,omitempty"`
+}
+
+// PortSpec is a container port to publish on the host.
+type PortSpec struct {
+	Protocol string `json:"protocol"`
+	Port     int    `json:"port"`
+}
+
+// PublishedPort is a container port reachable on the host.
+type PublishedPort struct {
+	Protocol      string `json:"protocol"`
+	HostIP        string `json:"hostIp"`
+	ContainerPort int    `json:"containerPort"`
+	HostPort      int    `json:"hostPort"`
 }
 
 // LaunchResult is what the Compute provider returns after creating a backing
 // resource. Empty string fields are ignored (in-memory defaults are kept).
 type LaunchResult struct {
+	// NetworkNote reports a VPC addressing mismatch (empty when the VPC CIDR was honoured).
+	NetworkNote string `json:"networkNote,omitempty"`
 	// ProviderID is the provider-specific opaque identifier (Docker container ID).
 	ProviderID string `json:"providerID,omitempty"`
 	// PrivateIP overrides the in-memory allocated private IP.
@@ -62,6 +85,8 @@ type LaunchResult struct {
 	PublicIPAddress string `json:"publicIPAddress,omitempty"`
 	// PublicDNSName overrides the in-memory generated public DNS name, if any.
 	PublicDNSName string `json:"publicDNSName,omitempty"`
+	// PublishedPorts are the security-group ports mapped to the host.
+	PublishedPorts []PublishedPort `json:"publishedPorts,omitempty"`
 	// SSHPort is the host TCP port that maps to the container's sshd. 0 means
 	// no host-side mapping was configured.
 	SSHPort int `json:"sshPort,omitempty"`

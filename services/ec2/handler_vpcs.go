@@ -477,6 +477,8 @@ func (h *Handler) handleDeleteVpc(vals url.Values, reqID string) (any, error) {
 		return nil, err
 	}
 
+	h.removeVPCNetwork(id)
+
 	return &deleteVpcResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,

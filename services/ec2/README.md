@@ -9,7 +9,7 @@
 | --- | --- |
 | Feature families | 22 (22 ok) |
 | Known gaps | 3 |
-| Structural gaps (can't be emulated) | 16 |
+| Structural gaps (can't be emulated) | 18 |
 | Deferred items | 5 |
 | Resource leaks | ok |
 
@@ -36,6 +36,8 @@ These do not block an A grade — no implementation could produce real data here
 - StartNetworkInsightsAnalysis.FilterOutArns (2026-10-05): no path-analysis engine exists to consume it.
 - AWS/EC2 utilisation metrics (2026-10-07): CPUUtilization/Network*/Disk* are emitted only when the Compute provider implements UsageReporter (DockerCompute does); instances without a runtime have no utilisation to report.
 - Filter.N leftovers with no backing data: GetCoipPoolUsage (no per-address usage), DescribeOutpostLags service-link-VIF family (Outpost hardware), DescribeElasticGpus (retired, always empty); DescribeVpcEncryptionControls documents no filter names.
+- Security-group traffic enforcement between docker-backed instances (2026-10-11, gopherstack-cefu7.29): filtering intra-VPC traffic per security group needs iptables/nftables or NET_ADMIN in the container or host root; Docker user-defined bridges offer no per-endpoint policy API. SG rules therefore only drive host port publishing, never packet filtering, and no enforcement flag exists.
+- Republishing ports on a running docker instance (2026-10-11, gopherstack-cefu7.29): Docker cannot change port bindings of an existing container, so Authorize/RevokeSecurityGroupIngress affect only instances launched afterwards (stop/start keeps the original bindings).
 - Recycle Bin (ListVolumes/Snapshots/ImagesInRecycleBin, Restore*FromRecycleBin): retention rules belong to the rbin service, which is not emulated, so deletes are always permanent.
 - CancelImportTask: ImportImage/ImportSnapshot complete synchronously because no async import pipeline exists, so the happy path is unreachable.
 - reqfielddiff remainder with nothing observable to read it: ModifyCapacityReservation.Accept, DescribeReservedInstancesOfferings.MaxInstanceCount, GetConsoleOutput.Latest, CreateImage.NoReboot, ImportImage/ImportSnapshot.RoleName, GetIpam* StartTime/EndTime/MaxResults, ProvisionByoipCidr.PubliclyAdvertisable, DescribeInstanceTypes.IncludeUnsupportedInRegion, StopInstances.Force/SkipOsShutdown, TerminateInstances.SkipOsShutdown, CreateDefaultSubnet.Ipv6Native (no VPC IPv6 blocks), ModifyInstanceAttribute.BlockDeviceMappings NoDevice/VirtualName, ProvisionIpamPoolCidr.VerificationMethod, CreateReplaceRootVolumeTask.VolumeInitializationRate, CreateMacSystemIntegrityProtectionModificationTask.MacCredentials, CreateSnapshot(s)/CreateImage Location. resolve:ssm: aliases resolve only parameters in the SSM backend (AWS public /aws/service/* parameters belong to ssm). Disassociate/UnassignPrivateNatGatewayAddress skip AWS's 350s default drain on purpose: Terraform waiters expect immediate release.

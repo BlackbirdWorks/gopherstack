@@ -87,7 +87,7 @@ func validateSecurityGroupRule(rule SecurityGroupRule) error {
 // or a numeric IP protocol number (0-255). It returns an error for anything else.
 func validateProtocol(proto string) (bool, error) {
 	switch proto {
-	case "tcp", "udp", "6", "17":
+	case protoTCP, protoUDP, "6", "17":
 		return true, nil
 	case "icmp", "icmpv6", "1", "58":
 		return false, nil
