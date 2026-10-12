@@ -3479,7 +3479,7 @@
       "JobAttempt.StartedAt *int64 `json:\"startedAt,omitempty\"`",
       "JobAttempt.StatusReason string `json:\"statusReason,omitempty\"`",
       "JobAttempt.StoppedAt *int64 `json:\"stoppedAt,omitempty\"`",
-      "JobAttemptContainer.ExitCode int32 `json:\"exitCode,omitempty\"`",
+      "JobAttemptContainer.ExitCode *int32 `json:\"exitCode,omitempty\"`",
       "JobAttemptContainer.LogStreamName string `json:\"logStreamName,omitempty\"`",
       "JobAttemptContainer.Reason string `json:\"reason,omitempty\"`",
       "JobDefinition.ConsumableResourceProperties *ConsumableResourceProperties `json:\"consumableResourceProperties,omitempty\"`",

@@ -280,6 +280,10 @@ func (j *Janitor) getJobsToAdvance() ([]advanceKey, []advanceKey) {
 
 // nextJobAdvance returns the transition job is due for, if any.
 func (j *Janitor) nextJobAdvance(job *Job) (advanceKey, bool) {
+	if j.Backend.execOwnsLocked(job) {
+		return advanceKey{}, false
+	}
+
 	if isArrayParent(job) {
 		return advanceKey{job.region, job.JobID, jobAdvanceArraySync}, !isTerminalJobStatus(job.Status)
 	}
@@ -375,6 +379,8 @@ func (j *Janitor) dependencyTarget(job *Job, dep JobDependency) (*Job, bool) {
 
 func (j *Janitor) advanceJobs(_ context.Context) {
 	now := time.Now().UnixMilli()
+
+	j.Backend.DispatchJobs()
 
 	toAdvance, toAdvanceSvc := j.getJobsToAdvance()
 	if len(toAdvance) == 0 && len(toAdvanceSvc) == 0 {

@@ -195,6 +195,8 @@ type InMemoryBackend struct {
 	crsByARN   map[string]string
 	ceToQueues map[string]map[string]struct{}
 
+	exec *execState
+
 	region    string
 	accountID string
 }
@@ -209,6 +211,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		crsByARN:        make(map[string]string),
 		ceToQueues:      make(map[string]map[string]struct{}),
 		mu:              lockmetrics.New("batch"),
+		exec:            newExecState(),
 		accountID:       accountID,
 		region:          region,
 	}

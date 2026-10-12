@@ -538,9 +538,9 @@ type ContainerOverrides struct {
 
 // JobAttemptContainer holds per-attempt container execution details.
 type JobAttemptContainer struct {
+	ExitCode      *int32 `json:"exitCode,omitempty"`
 	LogStreamName string `json:"logStreamName,omitempty"`
 	Reason        string `json:"reason,omitempty"`
-	ExitCode      int32  `json:"exitCode,omitempty"`
 }
 
 // JobAttempt holds per-attempt lifecycle and result information.

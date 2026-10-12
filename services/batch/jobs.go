@@ -297,6 +297,8 @@ func (b *InMemoryBackend) SubmitJob(
 		b.spawnArrayChildrenLocked(j)
 	}
 
+	b.kickDispatchLocked()
+
 	cp := *j
 	cp.Tags = tagsCloneOrEmpty(j.Tags)
 
@@ -681,7 +683,29 @@ func (b *InMemoryBackend) buildJobContainerDetail(region string, j *Job) *Contai
 		cd.LogStreamName = fmt.Sprintf("%s/default/%s", jd.JobDefinitionName, j.JobID)
 	}
 
+	applyAttemptDetail(cd, j)
+
 	return cd
+}
+
+// applyAttemptDetail overlays the latest recorded attempt's log stream, exit code and reason.
+func applyAttemptDetail(cd *ContainerDetail, j *Job) {
+	if len(j.Attempts) == 0 || j.Attempts[len(j.Attempts)-1].Container == nil {
+		return
+	}
+
+	c := j.Attempts[len(j.Attempts)-1].Container
+
+	if c.LogStreamName != "" {
+		cd.LogStreamName = c.LogStreamName
+	}
+
+	if c.ExitCode != nil {
+		code := *c.ExitCode
+		cd.ExitCode = &code
+	}
+
+	cd.Reason = c.Reason
 }
 
 // applyContainerOverrides merges SubmitJob's ContainerOverrides onto a
@@ -760,6 +784,8 @@ func (b *InMemoryBackend) TerminateJob(ctx context.Context, idOrARN, reason stri
 		c.StoppedAt = &now
 		c.IsTerminated = true
 	})
+
+	b.terminateRunsLocked(j, reason, now)
 
 	return nil
 }

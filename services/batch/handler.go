@@ -92,6 +92,13 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		go h.janitor.Run(ctx)
 	}
 
+	if h.Backend.ExecutionEnabled() {
+		go func() {
+			<-ctx.Done()
+			h.Backend.StopExecution()
+		}()
+	}
+
 	return nil
 }
 
