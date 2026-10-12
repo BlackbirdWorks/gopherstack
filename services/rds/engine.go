@@ -100,6 +100,7 @@ type EngineConfig struct {
 type liveDB struct {
 	gone        chan struct{}
 	proxy       atomic.Pointer[pgProxy]
+	fwd         atomic.Pointer[tcpForwarder]
 	password    string
 	kind        string
 	version     string
@@ -111,6 +112,7 @@ type liveDB struct {
 	port        int
 	once        sync.Once
 	ready       bool
+	paused      bool
 }
 
 func (lb *liveDB) release() {
@@ -120,13 +122,24 @@ func (lb *liveDB) release() {
 		if p := lb.proxy.Load(); p != nil {
 			p.close()
 		}
+
+		if f := lb.fwd.Load(); f != nil {
+			f.close()
+		}
 	})
 }
+
+// observable reports whether client connections pass through a proxy that counts them.
+func (lb *liveDB) observable() bool { return lb.proxy.Load() != nil || lb.fwd.Load() != nil }
 
 // advertisedPort is the port clients connect to: the IAM-aware proxy for postgres, else the database itself.
 func (lb *liveDB) advertisedPort() int {
 	if p := lb.proxy.Load(); p != nil {
 		return p.port
+	}
+
+	if f := lb.fwd.Load(); f != nil {
+		return f.port
 	}
 
 	return lb.port
@@ -328,6 +341,10 @@ func (e *dbEngine) reap(lbs ...*liveDB) {
 		e.wg.Go(func() {
 			if p := lb.proxy.Load(); p != nil {
 				p.wg.Wait()
+			}
+
+			if f := lb.fwd.Load(); f != nil {
+				f.wg.Wait()
 			}
 
 			e.remove(id, port)
@@ -548,6 +565,14 @@ func (b *InMemoryBackend) awaitAndMark(ctx context.Context, lb *liveDB) {
 		}
 	}
 
+	if lb.kind != enginePostgres && b.wantsForwarder(lb) && lb.fwd.Load() == nil {
+		if err := b.startForwarder(lb); err != nil {
+			b.failUnit(ctx, lb)
+
+			return
+		}
+	}
+
 	b.markUnitReady(lb)
 }
 
@@ -674,6 +699,7 @@ func (b *InMemoryBackend) Close() {
 	b.mu.Unlock()
 
 	b.reconcilerWG.Wait()
+	b.pauseWG.Wait()
 
 	if e == nil {
 		return
@@ -688,5 +714,12 @@ func (b *InMemoryBackend) Close() {
 
 // Shutdown removes every database container; a no-op when already closed.
 func (h *Handler) Shutdown(_ context.Context) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for _, bk := range h.backends {
+		bk.Close()
+	}
+
 	h.Backend.Close()
 }

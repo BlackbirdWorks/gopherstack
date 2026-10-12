@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -276,6 +277,10 @@ type OptionGroup struct {
 type ServerlessV2ScalingConfiguration struct {
 	MinCapacity float64 `json:"minCapacity"`
 	MaxCapacity float64 `json:"maxCapacity"`
+	// SecondsUntilAutoPause is the idle time before pausing; set only while MinCapacity is 0.
+	SecondsUntilAutoPause int32 `json:"secondsUntilAutoPause,omitempty"`
+	// MinCapacityOmitted marks a modify request that did not carry MinCapacity.
+	MinCapacityOmitted bool `json:"-"`
 }
 
 // DBCluster represents an Aurora-style RDS cluster.
@@ -342,6 +347,9 @@ type DBCluster struct {
 	EnableGlobalWriteForwarding      bool `json:"enableGlobalWriteForwarding,omitempty"`
 	EnableLocalWriteForwarding       bool `json:"enableLocalWriteForwarding,omitempty"`
 	PerformanceInsightsEnabled       bool `json:"performanceInsightsEnabled,omitempty"`
+
+	// AutoPaused is runtime-only: the Aurora Serverless v2 instances are currently paused.
+	AutoPaused bool `json:"-"`
 
 	// ActivityStreamEngineNativeAuditFieldsIncluded gets its own group: at 46
 	// chars it's by far the longest field name here, and gofmt aligns every
@@ -836,9 +844,11 @@ type DBClusterOptions struct {
 
 // InMemoryBackend is the in-memory store for RDS resources.
 type InMemoryBackend struct {
-	engine                    *dbEngine
+	metrics                   cwmetric.Sink
 	dnsRegistrar              DNSRegistrar
 	secrets                   SecretsStore
+	engine                    *dbEngine
+	pause                     map[string]*pauseTracker
 	registry                  *store.Registry
 	snapshotAttributes        *store.Table[DBSnapshotAttributesResult]
 	reservedInstances         *store.Table[ReservedDBInstance]
@@ -887,7 +897,10 @@ type InMemoryBackend struct {
 	region                    string
 	defaultCACertificateID    string
 	events                    []Event
+	autoPause                 AutoPauseConfig
+	pauseWG                   sync.WaitGroup
 	reconcilerWG              sync.WaitGroup
+	pauseRunning              bool
 	reconcilerRunning         bool
 	closed                    bool
 }

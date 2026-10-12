@@ -23,7 +23,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	serverlessV2Cfg *ServerlessV2ScalingConfiguration,
 	opts DBClusterOptions,
 ) (*DBCluster, error) {
-	if err := validateCreateDBClusterInput(id, engine, opts); err != nil {
+	if err := validateCreateDBClusterInput(id, engine, serverlessV2Cfg, opts); err != nil {
 		return nil, err
 	}
 	b.mu.Lock("CreateDBCluster")
@@ -98,7 +98,11 @@ func (b *InMemoryBackend) CreateDBCluster(
 	return &cp, nil
 }
 
-func validateCreateDBClusterInput(id, engine string, opts DBClusterOptions) error {
+func validateCreateDBClusterInput(
+	id, engine string,
+	scaling *ServerlessV2ScalingConfiguration,
+	opts DBClusterOptions,
+) error {
 	if id == "" {
 		return fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
 	}
@@ -106,6 +110,9 @@ func validateCreateDBClusterInput(id, engine string, opts DBClusterOptions) erro
 		return err
 	}
 	if err := validateDBClusterEngine(engine); err != nil {
+		return err
+	}
+	if err := validateServerlessV2Scaling(scaling); err != nil {
 		return err
 	}
 	if err := ValidateStorageTypeForCluster(opts.StorageType); err != nil {
@@ -147,8 +154,13 @@ func (b *InMemoryBackend) newDBCluster(
 	if networkType == "" {
 		networkType = "IPV4"
 	}
+	if serverlessV2Cfg != nil {
+		scaling := *serverlessV2Cfg
+		normalizeServerlessV2Scaling(&scaling)
+		serverlessV2Cfg = &scaling
+	}
 
-	return &DBCluster{
+	cluster := &DBCluster{
 		ClusterCreateTime:                  time.Now().UTC(),
 		DBClusterIdentifier:                id,
 		DBClusterArn:                       b.rdsARN("cluster", id),
@@ -198,6 +210,11 @@ func (b *InMemoryBackend) newDBCluster(
 		PerformanceInsightsEnabled:         opts.PerformanceInsightsEnabled,
 		HTTPEndpointEnabled:                opts.EnableHTTPEndpoint,
 	}
+	if autoPauseConfigured(cluster) {
+		b.scheduleAutoPauseLocked()
+	}
+
+	return cluster
 }
 
 // DescribeDBClusters returns clusters. If id is non-empty, returns only that cluster.
@@ -393,6 +410,7 @@ func (b *InMemoryBackend) DeleteDBClusterWithOptions(
 	b.clusters.Delete(normalizeID(id))
 	b.leaveGlobalClustersLocked(cp.DBClusterArn)
 	b.dropUnitLocked(unitKeyForCluster(canonicalID))
+	delete(b.pause, normalizeID(canonicalID))
 	delete(b.tags, b.rdsARN("cluster", canonicalID))
 	delete(b.fisFailoverFaults, canonicalID)
 	delete(b.clusterRoles, canonicalID)
@@ -564,6 +582,10 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	if err := guardClusterMajorUpgrade(cluster, opts); err != nil {
 		return nil, err
 	}
+	scaling, err := mergeServerlessV2Update(cluster, opts.ServerlessV2Scaling)
+	if err != nil {
+		return nil, err
+	}
 	secret, err := b.updateMasterSecret(
 		cluster.MasterSecret,
 		"cluster",
@@ -575,6 +597,7 @@ func (b *InMemoryBackend) ModifyDBCluster(
 		return nil, err
 	}
 	cluster.MasterSecret = secret
+	b.applyServerlessV2Update(cluster, scaling)
 	applyDBClusterOpts(cluster, paramGroupName, opts)
 	if opts.DBInstanceParameterGroupName != "" {
 		cluster.DBInstanceParameterGroupName = opts.DBInstanceParameterGroupName
@@ -721,6 +744,9 @@ func (b *InMemoryBackend) putRestoredClusterLocked(
 ) (*DBCluster, error) {
 	if opts.DBSubnetGroupName != "" && !b.subnetGroups.Has(opts.DBSubnetGroupName) {
 		return nil, fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, opts.DBSubnetGroupName)
+	}
+	if err := validateServerlessV2Scaling(opts.ServerlessV2Scaling); err != nil {
+		return nil, err
 	}
 	cluster := b.newDBCluster(
 		clusterID, engine, masterUser, opts.DatabaseName, opts.DBClusterParameterGroupName,

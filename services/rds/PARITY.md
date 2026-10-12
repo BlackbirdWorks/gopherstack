@@ -195,6 +195,17 @@ ops:
 families:
   db_instance_lifecycle: {status: ok, note: "creating->available->modifying/deleting state machine via instanceReadyAt + self-terminating reconciler goroutine (backend.go scheduleReconcilerLocked); verified transitions, DeletionProtection guard, already-deleting guard"}
   db_cluster_lifecycle: {status: ok, note: "cluster members, reader/writer endpoint synthesis, ServerlessV2ScalingConfiguration, start/stop/failover/reboot all mutate real state"}
+  serverless_v2_auto_pause: {status: ok, note: >
+    MinCapacity 0 enables auto-pause (SecondsUntilAutoPause 300..86400, default 300, shown only while
+    MinCapacity is 0; MinCapacity/MaxCapacity 0.5 steps within 0..256, min <= max, validated on
+    Create/Modify/Restore; ModifyDBCluster now applies the scaling range). Idle clusters (no proxy-counted
+    connection, no Data API call with HttpEndpointEnabled, not global/proxy-targeted, all members
+    db.serverless) stop their docker container and resume on the next connection or Data API call, which
+    returns DatabaseResumingException first (rdsdata@v1.35.4 types/errors.go). Status stays available
+    (Aurora docs); pause/resume emit the RDS-EVENT-0370/0372/0373/0374 messages and paused instances
+    publish zero ServerlessDatabaseCapacity/ACUUtilization/CPUUtilization. Knobs: RDS_AUTO_PAUSE_DISABLED,
+    RDS_AUTO_PAUSE_IDLE_SCALE, RDS_AUTO_PAUSE_RESUME_DELAY. MySQL-family clusters get a counting TCP
+    forwarder only when MinCapacity was 0 at start; enabling auto-pause later needs a cluster restart.}
   snapshots_manual_automated: {status: ok, note: "CreateDBSnapshot/CopyDBSnapshot/Delete/Describe/Restore all real; SnapshotType manual vs automated distinguished; final-snapshot-on-delete gap fixed this pass (see Notes)"}
   parameter_groups: {status: ok, note: "apply-method immediate vs pending-reboot honored in ModifyDBParameterGroup/ApplyPendingMaintenanceAction path; Reset/Copy real"}
   ApplyPendingMaintenanceAction: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "FIXED this pass (gopherstack-u90v): handler only read ResourceIdentifier/ApplyAction; OptInType is required (rds@v1.124.1 api_op_ApplyPendingMaintenanceAction.go:53-63, three legal values -- immediate/next-maintenance/undo-opt-in, from the field's own doc comment since it's an untyped *string on the real SDK, not a generated enum). Now required and validated against that enum (InvalidParameterValue if absent or unrecognized -- this op's own deserializeOpError switch has only InvalidDBClusterStateFault/InvalidDBInstanceState/ResourceNotFoundFault, none of which fit a missing-parameter case, so this uses the same ErrInvalidParameter/\"InvalidParameterValue\" convention already used elsewhere in this handler for query-parameter validation). OptInType's actual immediate/next-window/undo semantics remain unimplemented: this backend has no mechanism anywhere that generates a real pending maintenance action for any resource (DescribePendingMaintenanceActions is hardcoded to return none), so there is no real state for OptInType to act on -- rejecting invalid values instead of silently accepting them is judged more faithful than fabricating apply/schedule behavior with nothing to schedule against, consistent with the equivalent elasticache fix earlier this session. Lowest severity of this pass's five fixes, as flagged in the originating issue."}

@@ -57,6 +57,8 @@ func (h *Handler) getHandlerForRegion(region string) *Handler {
 	if h.secretsStore != nil {
 		backend.SetSecretsStore(h.secretsStore)
 	}
+	backend.SetAutoPause(h.Backend.AutoPause())
+	backend.SetMetricEmitter(h.Backend.metrics.Emitter())
 	h.backends[region] = backend
 	handler := &Handler{Backend: backend}
 	h.handlers[region] = handler

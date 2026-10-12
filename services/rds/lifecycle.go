@@ -13,6 +13,7 @@ import (
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		registry:                  store.NewRegistry(),
+		pause:                     make(map[string]*pauseTracker),
 		instanceReadyAt:           make(map[string]time.Time),
 		tags:                      make(map[string][]Tag),
 		clusterRoles:              make(map[string][]DBClusterRole),
@@ -85,6 +86,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.dropAllUnitsLocked()
+	b.pause = make(map[string]*pauseTracker)
 	b.registry.ResetAll()
 	b.instanceReadyAt = make(map[string]time.Time)
 	b.tags = make(map[string][]Tag)

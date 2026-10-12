@@ -137,6 +137,10 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 		return nil, parseErr
 	}
 
+	if err = requireServerlessV2Members(serverlessV2Cfg); err != nil {
+		return nil, err
+	}
+
 	if err = validateMasterPassword(engine, vals.Get("MasterUserPassword")); err != nil {
 		return nil, err
 	}
@@ -295,6 +299,13 @@ func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 		// semantics; changing that default would break those pinned tests).
 		ApplyImmediately: vals.Get("ApplyImmediately") == formTrue,
 	}
+
+	scaling, err := parseServerlessV2ScalingConfig(vals)
+	if err != nil && !errors.Is(err, ErrNoServerlessV2Config) {
+		return nil, err
+	}
+
+	opts.ServerlessV2Scaling = scaling
 
 	cluster, err := h.Backend.ModifyDBCluster(id, paramGroupName, opts)
 	if err != nil {
@@ -506,8 +517,9 @@ func applyXMLClusterOptionalScalars(x *xmlDBCluster, c *DBCluster) {
 
 	if c.ServerlessV2ScalingConfig != nil {
 		x.ServerlessV2ScalingConfiguration = &xmlServerlessV2ScalingConfiguration{
-			MinCapacity: c.ServerlessV2ScalingConfig.MinCapacity,
-			MaxCapacity: c.ServerlessV2ScalingConfig.MaxCapacity,
+			MinCapacity:           c.ServerlessV2ScalingConfig.MinCapacity,
+			MaxCapacity:           c.ServerlessV2ScalingConfig.MaxCapacity,
+			SecondsUntilAutoPause: c.ServerlessV2ScalingConfig.SecondsUntilAutoPause,
 		}
 	}
 
@@ -566,41 +578,64 @@ func applyXMLClusterOptionalLists(x *xmlDBCluster, c *DBCluster, roles []DBClust
 }
 
 // parseServerlessV2ScalingConfig parses ServerlessV2ScalingConfiguration from request form values.
-// Returns nil when neither field is present in the request.
+// Returns ErrNoServerlessV2Config when no member is present in the request.
 func parseServerlessV2ScalingConfig(vals url.Values) (*ServerlessV2ScalingConfiguration, error) {
-	rawMin := vals.Get("ServerlessV2ScalingConfiguration.MinCapacity")
-	rawMax := vals.Get("ServerlessV2ScalingConfiguration.MaxCapacity")
-	if rawMin == "" && rawMax == "" {
+	const prefix = "ServerlessV2ScalingConfiguration."
+
+	rawMin, rawMax, rawSecs := vals.Get(prefix+"MinCapacity"), vals.Get(prefix+"MaxCapacity"),
+		vals.Get(prefix+"SecondsUntilAutoPause")
+	if rawMin == "" && rawMax == "" && rawSecs == "" {
 		return nil, ErrNoServerlessV2Config
 	}
-	cfg := &ServerlessV2ScalingConfiguration{}
-	if rawMin != "" {
-		v, err := strconv.ParseFloat(rawMin, 64)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"%w: invalid ServerlessV2ScalingConfiguration.MinCapacity %q",
-				ErrInvalidParameter, rawMin,
-			)
+
+	cfg := &ServerlessV2ScalingConfiguration{MinCapacityOmitted: rawMin == ""}
+
+	for _, f := range []struct {
+		dst *float64
+		raw string
+		key string
+	}{
+		{&cfg.MinCapacity, rawMin, "MinCapacity"},
+		{&cfg.MaxCapacity, rawMax, "MaxCapacity"},
+	} {
+		if f.raw == "" {
+			continue
 		}
-		cfg.MinCapacity = v
+
+		v, err := strconv.ParseFloat(f.raw, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid %s%s %q", ErrInvalidParameter, prefix, f.key, f.raw)
+		}
+
+		*f.dst = v
 	}
-	if rawMax != "" {
-		v, err := strconv.ParseFloat(rawMax, 64)
+
+	if rawSecs != "" {
+		v, err := strconv.ParseInt(rawSecs, 10, 32)
 		if err != nil {
-			return nil, fmt.Errorf(
-				"%w: invalid ServerlessV2ScalingConfiguration.MaxCapacity %q",
-				ErrInvalidParameter, rawMax,
-			)
+			return nil, fmt.Errorf("%w: invalid %sSecondsUntilAutoPause %q", ErrInvalidParameter, prefix, rawSecs)
 		}
-		cfg.MaxCapacity = v
+
+		cfg.SecondsUntilAutoPause = int32(v)
 	}
 
 	return cfg, nil
 }
 
+// requireServerlessV2Members rejects a create-time scaling configuration missing MinCapacity or MaxCapacity.
+func requireServerlessV2Members(cfg *ServerlessV2ScalingConfiguration) error {
+	if cfg != nil && (cfg.MinCapacityOmitted || cfg.MaxCapacity == 0) {
+		return fmt.Errorf("%w: ServerlessV2ScalingConfiguration requires both MinCapacity and MaxCapacity",
+			ErrInvalidParameter)
+	}
+
+	return nil
+}
+
 type xmlServerlessV2ScalingConfiguration struct {
-	MinCapacity float64 `xml:"MinCapacity"`
-	MaxCapacity float64 `xml:"MaxCapacity"`
+	MinCapacity           float64 `xml:"MinCapacity"`
+	MaxCapacity           float64 `xml:"MaxCapacity"`
+	SecondsUntilAutoPause int32   `xml:"SecondsUntilAutoPause,omitempty"`
 }
 
 // xmlServerlessV2Ref is a type alias to keep struct field definitions within line-length limits.

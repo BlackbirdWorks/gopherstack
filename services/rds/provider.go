@@ -69,6 +69,7 @@ func enableDockerEngine(ctx *service.AppContext, backend *InMemoryBackend) {
 		caDir = cc.GetRDSCADir()
 	}
 
+	backend.SetAutoPause(AutoPauseConfigFromEnv())
 	backend.EnableEngine(EngineConfig{
 		Runtime: er, Ports: ctx.PortAlloc, Host: os.Getenv("RDS_DB_HOST"), CADir: caDir,
 	})

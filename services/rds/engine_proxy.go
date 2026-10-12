@@ -307,6 +307,13 @@ func (p *pgProxy) forwardCancel(m *pgproto3.CancelRequest) {
 func (p *pgProxy) serve(raw net.Conn) {
 	defer func() { _ = raw.Close() }()
 
+	release, ok := p.be.beginConn(p.lb)
+	if !ok {
+		return
+	}
+
+	defer release()
+
 	_ = raw.SetDeadline(time.Now().Add(proxyHandshakeTimeout))
 
 	c, start, err := p.startup(raw)

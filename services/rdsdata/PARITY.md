@@ -18,6 +18,9 @@ ops:
     INSERTs) are all implemented for real this pass -- see Notes.
     continueAfterTimeout is accepted on the wire as a documented no-op (no
     statement timeouts exist to continue past).}
+  AutoPauseResume: {wire: ok, errors: ok, state: ok, persist: n/a, note: >
+    A call on an auto-paused Aurora Serverless v2 cluster starts its resume and fails with
+    DatabaseResumingException (400); statements inside held transactions count as cluster activity.}
   BatchExecuteStatement: {wire: ok, errors: ok, state: ok, persist: ok, note: >
     One UpdateResult per parameter set; transaction id validated before any
     engine execution. GeneratedFields now populated per parameter set using
