@@ -2386,6 +2386,7 @@ func wireDNSRegistrars(cli *CLI, dnsSrv *gopherDNS.Server) {
 	wireElastiCacheDNS(cli.elasticacheHandler, dnsSrv)
 	wireEC2DNS(cli.ec2Handler, dnsSrv)
 	wireServiceDiscoveryDNS(cli.servicediscoveryHandler, dnsSrv)
+	wireRoute53ResolverDNS(cli.route53resolverHandler, dnsSrv)
 }
 
 // buildEchoServer creates and configures the Echo HTTP server.

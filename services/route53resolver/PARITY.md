@@ -2,7 +2,7 @@
 service: route53resolver
 sdk_module: aws-sdk-go-v2/service/route53resolver@v1.53.0
 last_audit_commit: 1940758f8
-last_audit_date: 2026-10-10
+last_audit_date: 2026-10-11
                        # 2026-08-30: pagination-tie sweep (does a name-sorted List op lose or
                        # duplicate a record at a page boundary when two records tie on the sort
                        # key?). All 13 backend List* methods (endpoints, rules, firewall rule
@@ -192,7 +192,11 @@ families:
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to InMemoryBackend, which uses store.Registry.SnapshotAll/RestoreAll across all 13 store.Table-backed resources plus the 4 plain maps (tags, 3 policy stores); versioned (route53resolverSnapshotVersion) with clean-discard on mismatch"}
   dns-firewall-advanced: {status: ok, note: "FIXED THIS PASS (gopherstack-3sgl): DnsThreatProtection/FirewallThreatProtectionId/FirewallDomainRedirectionAction (field-diffed against CreateFirewallRuleInput/UpdateFirewallRuleInput/DeleteFirewallRuleInput/types.FirewallRule in aws-sdk-go-v2/service/route53resolver@v1.48.0) are now modeled for the DnsThreatProtection match source. CreateFirewallRule enforces DnsThreatProtection/FirewallDomainListId mutual exclusivity (per CreateFirewallRuleInput's doc comment: 'they are mutually exclusive') and validates DnsThreatProtection against its closed enum (DGA/DNS_TUNNELING/DICTIONARY_DGA, matching types.DnsThreatProtection -- the same enum ListFirewallRuleTypes already sources its catalog from, so it can't drift). A DnsThreatProtection rule has no domain list, so it gets a system-generated FirewallThreatProtectionId and is identified on Update/Delete by (FirewallRuleGroupId, FirewallThreatProtectionId) instead of (FirewallRuleGroupId, FirewallDomainListId) -- verified against api_op_{Update,Delete}FirewallRule.go's doc comment ('Identify the rule using either FirewallDomainListId ... or FirewallThreatProtectionId ... together with FirewallRuleGroupId'). FirewallDomainRedirectionAction (INSPECT_REDIRECTION_DOMAIN/TRUST_REDIRECTION_DOMAIN) is accepted on domain-list rules, defaults to the real API's documented INSPECT_REDIRECTION_DOMAIN, and is updatable. Batch{Create,Update,Delete}FirewallRule automatically inherit all of this since their entries are typed as the exact same input structs the singular ops use (createFirewallRuleInput/updateFirewallRuleInput/deleteFirewallRuleInput) -- no separate batch-only wiring was needed. NOT implemented: the FirewallRuleType tagged union (FirewallAdvancedContentCategory/FirewallAdvancedThreatCategory/PartnerThreatProtection) -- see gaps, unchanged from the prior pass's reasoning (no closed SDK enum to source values from). FIXED THIS PASS (parity-5): ConfidenceThreshold -- required at creation for a DnsThreatProtection rule, closed LOW/MEDIUM/HIGH enum on both Create and Update -- was previously accepted unvalidated; now enforced, see CreateFirewallRule/UpdateFirewallRule ops notes."}
 gaps: []
-items_still_open: []
+items_still_open:
+  - "Embedded DNS query-log destinations: only CloudWatch Logs log groups are written; S3 and Firehose destinations are accepted but receive nothing."
+  - "Embedded DNS forwarding speaks Do53 (UDP, TCP on truncation) only; DoH targets are skipped, and outbound-endpoint ENIs are not the query source."
+  - "DNS Firewall Advanced rules (DnsThreatProtection) are not evaluated by the embedded DNS; only domain-list rules are."
+  - "Docker-launched resources are not auto-pointed at the embedded DNS; a query maps to a VPC only when its source address is an EC2 ENI/instance private IP or inside a subnet CIDR."
 structural_gaps:
   - "CreateFirewallRule/UpdateFirewallRule FirewallAdvancedContentCategory/FirewallAdvancedThreatCategory/PartnerThreatProtection: the values are per-account catalogs (AWS-managed categories, AWS Marketplace partner subscriptions) that ListFirewallRuleTypes enumerates; this emulator has neither, so its catalog is empty and these are rejected."
 deferred:
@@ -950,3 +954,29 @@ route53resolver already keys its resources by region; same-named resources in tw
 - Resolver endpoints report CREATING (and UPDATING after update / IP association changes) and rule associations CREATING until a deadline (`SetLifecycleDelay`, `--lifecycle-route53resolver`, default 0 = instant); DeleteResolverEndpoint, DeleteResolverRule and DisassociateResolverRule now return the resource with status DELETING instead of an empty body (`TestRealism_Lifecycle`).
 - Error bodies carry the text under both `message` and `Message`: route53resolver v1.53 deserializes only the modeled `Message`, so every error previously reached SDK clients with an empty message. The code prefix is removed and not-found wording is "Resolver endpoint with ID 'x' does not exist".
 - Endpoint IPs and rule target IPs must be valid IPv4 (IPv6 for Ipv6 members): InvalidParameterException.
+
+## 2026-10-11 (gopherstack-cefu7.37) embedded DNS applies Resolver config
+
+`pkgs/dns` gained an `Interceptor` hook; `NewDNSResolver` (dns_resolver.go) is installed on it by
+cli_route53resolver_dns.go. Per query, in order:
+
+1. **VPC context**: source address -> VPC via EC2 ENI and instance private IPs, then subnet CIDRs,
+   across every region backend (`VPCLocator`, overridable with `SetVPCLocator`). No match -> the
+   static records answer untouched. There is no per-VPC listener.
+2. **DNS Firewall**: associated groups (status COMPLETE) by association priority, rules by rule
+   priority, domain-list rules only. BLOCK answers NODATA/NXDOMAIN/OVERRIDE (CNAME); ALLOW ends
+   evaluation; ALERT records the hit. Applies to private-zone names too.
+3. **Resolution**: the most specific (label count) of the VPC's associated rules and associated
+   private hosted zones wins; a rule wins a tie. FORWARD rules send to TargetIps in random order
+   with failover (default port 53), SERVFAIL when none answer; names the emulator itself serves
+   are never forwarded unless a private zone of the same specificity shadows them. SYSTEM and
+   RECURSIVE rules fall back to private zones, then the static records. Private zones answer
+   authoritatively (records / NODATA / NXDOMAIN) via the route53 backend.
+4. **Query logging**: configs associated with the VPC whose destination is a CloudWatch Logs log
+   group get one JSON record per query in stream `<vpc-id>`.
+
+Route53 and CloudWatch Logs backends are resolved at query time through `appConfig`
+(`GetRoute53Handler`, `GetCloudWatchLogsHandler`), never captured in `Provider.Init`. The rule-over-
+zone tie-break and "firewall applies to private zones" follow the task brief, not verified AWS docs.
+Tests: dns_resolver_test.go, dns_resolver_zone_firewall_test.go, dns_resolver_log_test.go,
+dns_resolver_server_test.go (fake in-test upstream DNS server).
