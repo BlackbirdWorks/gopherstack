@@ -22,7 +22,7 @@ const (
 
 // isTerminalJob reports whether the given backup job state is terminal.
 func isTerminalJob(state string) bool {
-	return state == statusCompleted || state == "FAILED" || state == "EXPIRED" || state == "ABORTED"
+	return state == statusCompleted || state == statusFailed || state == "EXPIRED" || state == "ABORTED"
 }
 
 // Janitor is the Backup background worker that evicts completed backup jobs
@@ -74,25 +74,23 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 	j.sweepCompletedJobs(ctx)
 }
 
-// advanceCreatedJobs completes backup jobs still in the CREATED state, moving
-// them to COMPLETED and materializing a recovery point. Real AWS Backup jobs
-// transition asynchronously (CREATED -> RUNNING -> COMPLETED); the emulator
-// models that by completing them on the next janitor tick instead of leaving
-// them stuck in CREATED forever (StartBackupJob itself must stay synchronous
-// so callers immediately observe CREATED, matching AWS's StartBackupJob
-// response).
+// advanceCreatedJobs moves CREATED backup jobs to RUNNING and completes the jobs that were already
+// RUNNING at the start of the sweep, so a job is observable in each state for one janitor interval.
 func (j *Janitor) advanceCreatedJobs(ctx context.Context) {
-	var toComplete []string
+	var toRun, toComplete []string
 
 	j.Backend.mu.RLock("BackupJanitorAdvanceJobsLock")
 	for _, job := range j.Backend.jobs.All() {
-		if job.State == statusCreated {
+		switch job.State {
+		case statusCreated:
+			toRun = append(toRun, job.BackupJobID)
+		case statusRunning:
 			toComplete = append(toComplete, job.BackupJobID)
 		}
 	}
 	j.Backend.mu.RUnlock()
 
-	if len(toComplete) == 0 {
+	if len(toRun)+len(toComplete) == 0 {
 		return
 	}
 
@@ -100,11 +98,15 @@ func (j *Janitor) advanceCreatedJobs(ctx context.Context) {
 		_ = j.Backend.CompleteBackupJob(id)
 	}
 
+	for _, id := range toRun {
+		_ = j.Backend.RunBackupJob(id)
+	}
+
 	telemetry.RecordWorkerTask(backupWorkerServiceName, jobAdvanceComponent, "success")
-	telemetry.RecordWorkerItems(backupWorkerServiceName, jobAdvanceComponent, len(toComplete))
+	telemetry.RecordWorkerItems(backupWorkerServiceName, jobAdvanceComponent, len(toRun)+len(toComplete))
 
 	logger.Load(ctx).InfoContext(
-		ctx, "Backup janitor: backup jobs completed", "count", len(toComplete),
+		ctx, "Backup janitor: backup jobs advanced", "running", len(toRun), "completed", len(toComplete),
 	)
 }
 

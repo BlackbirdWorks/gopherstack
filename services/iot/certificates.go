@@ -14,14 +14,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-// fakePEM is a minimal fake PEM certificate returned by CreateCertificateFromCsr and RegisterCertificate.
-const fakePEM = `-----BEGIN CERTIFICATE-----
-MIICpDCCAYwCCQDU+pQ4pHgSpDANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls
-b2NhbGhvc3QwHhcNMjMwMTAxMDAwMDAwWhcNMjQwMTAxMDAwMDAwWjAUMRIwEAYD
-VQQDDAlsb2NhbGhvc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC7
-o4qne60TB3wolFl6qADvFVMZUDCwJJlFBMDkajIxpQFNbBgxDuAQFV8AAAAAAA==
------END CERTIFICATE-----`
-
 // certIDHexLen is the number of bytes (half the hex char count) for a certificate ID.
 const certIDHexLen = 32 // produces a 64-char hex string
 
@@ -127,9 +119,17 @@ func (b *InMemoryBackend) AddCACertificateInternal(c CACertificate) {
 
 // newCertificate creates a new Certificate with a random 64-hex-char ID.
 func (b *InMemoryBackend) newCertificate(pem, status, mode string) *Certificate {
-	certID := randomHex()
-	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("cert/%s", certID))
 	now := time.Now()
+	notBefore, notAfter := now, now.Add(certValidityPeriod)
+
+	certID, x509Cert, parsed := certificateIDFor(pem)
+	if parsed {
+		notBefore, notAfter = x509Cert.NotBefore, x509Cert.NotAfter
+	} else {
+		certID = randomHex()
+	}
+
+	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("cert/%s", certID))
 
 	return &Certificate{
 		CertificateID:     certID,
@@ -138,8 +138,8 @@ func (b *InMemoryBackend) newCertificate(pem, status, mode string) *Certificate 
 		PEM:               pem,
 		CreatedAt:         now,
 		LastModifiedAt:    now,
-		ValidityNotBefore: now,
-		ValidityNotAfter:  now.Add(certValidityPeriod),
+		ValidityNotBefore: notBefore,
+		ValidityNotAfter:  notAfter,
 		OwnedBy:           b.accountID,
 		GenerationID:      uuid.NewString(),
 		CertificateMode:   mode,
@@ -157,10 +157,32 @@ func (b *InMemoryBackend) CreateCertificateFromCsr(input *CreateCertificateFromC
 		status = certStatusActive
 	}
 
-	cert := b.newCertificate(fakePEM, status, certModeDefault)
-	b.certificates.Put(cert)
+	certPEM, ok := b.certificateFromCSR(input.CertificateSigningRequest)
+	if !ok {
+		var err error
+
+		if certPEM, _, _, err = b.generateKeyAndCertificate(); err != nil {
+			return nil, err
+		}
+	}
+
+	cert := b.newCertificate(certPEM, status, certModeDefault)
+	if err := b.putNewCertificateLocked(cert); err != nil {
+		return nil, err
+	}
 
 	return cert, nil
+}
+
+// putNewCertificateLocked stores cert, rejecting a certificate that is already registered.
+func (b *InMemoryBackend) putNewCertificateLocked(cert *Certificate) error {
+	if b.certificates.Has(cert.CertificateID) {
+		return fmt.Errorf("%w: certificate %s is already registered", ErrAlreadyExists, cert.CertificateID)
+	}
+
+	b.certificates.Put(cert)
+
+	return nil
 }
 
 // RegisterCertificate registers a certificate.
@@ -176,18 +198,21 @@ func (b *InMemoryBackend) RegisterCertificate(input *RegisterCertificateInput) (
 		status = certStatusInactive
 	}
 
-	pem := input.CertificatePem
-	if pem == "" {
-		pem = fakePEM
+	pem, err := b.certificatePEMOrIssued(input.CertificatePem)
+	if err != nil {
+		return nil, err
 	}
 
-	if err := verifySignedByCA(pem, input.CACertificatePem); err != nil {
-		return nil, err
+	if vErr := verifySignedByCA(pem, input.CACertificatePem); vErr != nil {
+		return nil, vErr
 	}
 
 	cert := b.newCertificate(pem, status, certModeDefault)
 	cert.CACertificateID = b.caCertificateIDByPEMLocked(input.CACertificatePem)
-	b.certificates.Put(cert)
+
+	if pErr := b.putNewCertificateLocked(cert); pErr != nil {
+		return nil, pErr
+	}
 
 	return cert, nil
 }
@@ -204,15 +229,28 @@ func (b *InMemoryBackend) RegisterCertificateWithoutCA(input *RegisterCertificat
 		status = certStatusInactive
 	}
 
-	pem := input.CertificatePem
-	if pem == "" {
-		pem = fakePEM
+	pem, err := b.certificatePEMOrIssued(input.CertificatePem)
+	if err != nil {
+		return nil, err
 	}
 
 	cert := b.newCertificate(pem, status, certModeSNIOnly)
-	b.certificates.Put(cert)
+	if pErr := b.putNewCertificateLocked(cert); pErr != nil {
+		return nil, pErr
+	}
 
 	return cert, nil
+}
+
+// certificatePEMOrIssued returns supplied, or a freshly issued certificate when the caller sent none.
+func (b *InMemoryBackend) certificatePEMOrIssued(supplied string) (string, error) {
+	if supplied != "" {
+		return supplied, nil
+	}
+
+	certPEM, _, _, err := b.generateKeyAndCertificate()
+
+	return certPEM, err
 }
 
 // DescribeCertificate returns a Certificate by ID.
@@ -521,7 +559,15 @@ func (b *InMemoryBackend) RegisterCACertificate(
 		}
 	}
 
-	id := uuid.NewString()[:12]
+	id, _, derived := certificateIDFor(pem)
+	if !derived {
+		id = randomHex()
+	}
+
+	if b.caCertificates.Has(id) {
+		return nil, fmt.Errorf("%w: CA certificate %s is already registered", ErrAlreadyExists, id)
+	}
+
 	now := float64(time.Now().Unix())
 	ca := &CACertificate{
 		CertificateID:      id,
@@ -618,12 +664,9 @@ func (b *InMemoryBackend) DeleteCACertificate(id string) error {
 	if !b.caCertificates.Has(id) {
 		return fmt.Errorf("CA certificate %q not found: %w", id, ErrResourceNotFound)
 	}
+	ca, _ := b.caCertificates.Get(id)
 	b.caCertificates.Delete(id)
-	// resourceTags[ca.CertificateARN] is intentionally left: id is
-	// uuid.NewString()[:12] (RegisterCACertificate), fresh every call
-	// regardless of PEM content, so no re-register can ever land on this
-	// ARN again -- unlike the name-keyed resources, there's no observable
-	// leak to clean up here.
+	delete(b.resourceTags, ca.CertificateARN)
 
 	return nil
 }
@@ -679,15 +722,25 @@ func (b *InMemoryBackend) CreateProvisioningClaim(
 		)
 	}
 
-	cert := b.newCertificate(fakePEM, certStatusPendingActivation, certModeDefault)
+	certPEM, publicKey, privateKey, err := b.generateKeyAndCertificate()
+	if err != nil {
+		return nil, time.Time{}, "", "", err
+	}
+
+	cert := b.newCertificate(certPEM, certStatusPendingActivation, certModeDefault)
 	b.certificates.Put(cert)
 	cp := *cert
 
-	return &cp, time.Now().Add(provisioningClaimTTL), fakePublicKey, fakePrivateKey, nil
+	return &cp, time.Now().Add(provisioningClaimTTL), publicKey, privateKey, nil
 }
 
-// CreateKeysAndCertificate creates a new certificate with generated fake keys.
+// CreateKeysAndCertificate generates an RSA key pair and a certificate issued for it.
 func (b *InMemoryBackend) CreateKeysAndCertificate(setAsActive bool) (*Certificate, string, string, error) {
+	certPEM, publicKey, privateKey, err := b.generateKeyAndCertificate()
+	if err != nil {
+		return nil, "", "", err
+	}
+
 	b.mu.Lock("CreateKeysAndCertificate")
 	defer b.mu.Unlock()
 
@@ -695,11 +748,12 @@ func (b *InMemoryBackend) CreateKeysAndCertificate(setAsActive bool) (*Certifica
 	if setAsActive {
 		status = certStatusActive
 	}
-	cert := b.newCertificate(fakePEM, status, certModeDefault)
+
+	cert := b.newCertificate(certPEM, status, certModeDefault)
 	b.certificates.Put(cert)
 	cp := *cert
 
-	return &cp, fakePublicKey, fakePrivateKey, nil
+	return &cp, publicKey, privateKey, nil
 }
 
 // TransferCertificate initiates a certificate transfer to another account.
@@ -747,17 +801,6 @@ func (b *InMemoryBackend) RejectCertificateTransfer(certID, rejectReason string)
 
 	return nil
 }
-
-const fakePublicKey = `-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2a2rwplBQLzHPZe5TNJG
-pECOsDSZBBFKpbD+mBBpMBWMdQwCgYIKoZIzj0EAwIDSQADRgIhANXBFB+AAAAA
------END PUBLIC KEY-----`
-
-//nolint:gosec // fakePrivateKey is a test-only placeholder, not a real credential
-const fakePrivateKey = `-----BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEA2a2rwplBQLzHPZe5TNJGpECOsDSZBBFKpbD+mBBpMBWMdQwC
-gYIKoZIzj0EAwIDSQADRgIhANXBFB+AAAAA
------END RSA PRIVATE KEY-----`
 
 // OutgoingCertificate describes a certificate pending transfer to another
 // AWS account.

@@ -15,6 +15,7 @@ const msgInvalidPattern = "You provided a value that does not match the required
 func errorDetails() map[error]errorDetail {
 	out := lookupErrorDetails()
 	maps.Copy(out, constraintErrorDetails())
+	maps.Copy(out, delegatedAdminErrorDetails())
 
 	return out
 }
@@ -158,6 +159,23 @@ func constraintErrorDetails() map[error]errorDetail {
 		ErrCannotCloseManagementAccount: {
 			message: "You can't close the management account of an organization.",
 			reason:  "CANNOT_CLOSE_MANAGEMENT_ACCOUNT",
+		},
+	}
+}
+
+func delegatedAdminErrorDetails() map[error]errorDetail {
+	return map[error]errorDetail{
+		ErrCannotRegisterManagementAsDelegatedAdmin: {
+			message: "You can designate only a member account as a delegated administrator.",
+			reason:  "CANNOT_REGISTER_MASTER_AS_DELEGATED_ADMINISTRATOR",
+		},
+		ErrCannotRegisterSuspendedAsDelegatedAdmin: {
+			message: "You cannot register a suspended account as a delegated administrator.",
+			reason:  "CANNOT_REGISTER_SUSPENDED_ACCOUNT_AS_DELEGATED_ADMINISTRATOR",
+		},
+		ErrPolicyTypeNotAvailable: {
+			message: "You can't use the specified policy type with the feature set currently enabled for this " +
+				"organization. For example, you can enable SCPs only after you enable all features in the organization.",
 		},
 	}
 }

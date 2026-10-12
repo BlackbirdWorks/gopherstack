@@ -78,6 +78,7 @@ func (h *Handler) handleDescribeBackupJob(c *echo.Context, jobID string) error {
 	setOptionalStr(resp, "RecoveryPointArn", j.RecoveryPointArn)
 	setOptionalStr(resp, "PercentDone", j.PercentDone)
 	setOptionalStr(resp, "MessageCategory", j.MessageCategory)
+	setOptionalStr(resp, "StatusMessage", j.StatusMessage)
 	setOptionalStr(resp, "ParentJobId", j.ParentJobID)
 	setOptionalStr(resp, "CompositeMemberIdentifier", j.CompositeMemberIdentifier)
 	if len(j.BackupOptions) > 0 {
@@ -146,6 +147,7 @@ func (h *Handler) handleListBackupJobs(c *echo.Context) error {
 		setOptionalStr(item, "ParentJobId", j.ParentJobID)
 		setOptionalStr(item, "RecoveryPointArn", j.RecoveryPointArn)
 		setOptionalStr(item, "MessageCategory", j.MessageCategory)
+		setOptionalStr(item, "StatusMessage", j.StatusMessage)
 		if j.CompletionTime != nil {
 			item["CompletionDate"] = epochSeconds(*j.CompletionTime)
 		}

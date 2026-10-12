@@ -87,6 +87,10 @@ func (b *InMemoryBackend) AcceptHandshake(handshakeID string) (*Handshake, error
 	h.StateChangedAt = time.Now()
 	b.syncResponsibilityTransferStatusLocked(h)
 
+	if h.Action == handshakeActionEnableFeatures && b.org != nil {
+		b.org.FeatureSet = featureSetAll
+	}
+
 	if h.Action == handshakeActionInvite && b.org != nil {
 		for _, r := range h.Resources {
 			if r.Type == targetTypeAccount {

@@ -7,7 +7,7 @@
 service: organizations
 sdk_module: aws-sdk-go-v2/service/organizations@v1.53.5
 last_audit_commit: f78c3b7c7  # 2026-09-24 leak sweep: terminal handshakes evicted after 30d; prior: 5c20d9fd7
-last_audit_date: 2026-10-10
+last_audit_date: 2026-10-12
 # 2026-10-10 realism pass (AWS CLI/SDK probes): error bodies had empty messages -> real wording + Reason on
 # ConstraintViolation/InvalidInput; ListX paging validated on all 20 list ops (MaxResults 1-20, INVALID_NEXT_TOKEN);
 # duplicate CreateAccount email -> FAILED/EMAIL_ALREADY_EXISTS status (was InvalidInput); ParentNotFoundException
@@ -159,6 +159,22 @@ leaks: {status: clean, note: "no goroutines, timers, or background janitors in t
 ---
 
 ## Notes
+
+### 2026-10-12 (deep realism pass)
+
+End-to-end CLI/SDK flows (org, OUs, accounts, SCP attach/detach, delegated admins, handshakes, close) turned up three
+deviations, each with a typed-client regression test (feature_set_flows_test.go):
+- RegisterDelegatedAdministrator on the management account returned a bare InvalidInputException; it is now
+  ConstraintViolationException CANNOT_REGISTER_MASTER_AS_DELEGATED_ADMINISTRATOR, and a PENDING_CLOSURE/SUSPENDED
+  account gets CANNOT_REGISTER_SUSPENDED_ACCOUNT_AS_DELEGATED_ADMINISTRATOR.
+- EnablePolicyType succeeded on a CONSOLIDATED_BILLING organization; it now returns
+  PolicyTypeNotAvailableForOrganizationException until all features are enabled, and accepting the
+  ENABLE_ALL_FEATURES handshake flips the organization's FeatureSet to ALL.
+- The organization resource policy Id was the fixed `p-rp-default`, which violates the SDK pattern
+  `^rp-[0-9a-zA-Z_]{4,128}$`; it is now `rp-<org suffix>`.
+
+Lenient on purpose: CreateAccount still completes SUCCEEDED synchronously (callers, including CloudFormation and
+in-repo fixtures, read AccountId straight from the response); the IN_PROGRESS to SUCCEEDED transition is not modeled.
 
 ### 2026-10-01 EffectivePolicyType validation
 

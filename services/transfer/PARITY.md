@@ -7,7 +7,7 @@
 service: transfer
 sdk_module: aws-sdk-go-v2/service/transfer@v1.75.4   # version audited against (go.mod)
 last_audit_commit: 1940758f8
-last_audit_date: 2026-10-07                          # requiredoutputfields census: all 69 required output
+last_audit_date: 2026-10-12                          # requiredoutputfields census: all 69 required output
                                                        # members across 51 ops checked, all always populated
                                                        # on the success path; see 2026-09-19 Notes entry.
                                                        # 2026-09-18: reqfielddiff tier-1 request-field audit: 5 tier-1
@@ -68,12 +68,30 @@ families:
 gaps: []
 items_still_open: []
 structural_gaps:
+  - "No SFTP/FTP/FTPS/AS2 listener exists: servers, users, keys and workflows are control-plane records, so a managed workflow never runs on upload and HomeDirectory mappings are never exercised by a real client."
   - "StartFileTransfer.CustomHttpHeaders is accepted but cannot be applied: the emulator never sends AS2 messages and no SDK output (ListFileTransferResults) echoes request headers."
 deferred: []
 leaks: {status: clean, note: "Shutdown(ctx) stops the backend's worker (StartServer/StopServer async-transition timer) via Backend.Close(); no goroutine or timer outlives the service. leak_test.go / leak_main_test.go already cover this. No new goroutines/tickers were introduced this pass."}
 ---
 
 ## Notes
+
+### 2026-10-12 (deep realism pass)
+
+Server, user, key, workflow and connector flows turned up four deviations (user_and_idp_validation_test.go,
+resource_id_shape_test.go):
+- Resource IDs other than servers were `<prefix><uuid[:20]>` with hyphens (`w-2ba81091-9fd4-4a58-9`), violating the SDK
+  patterns (`w-[a-z0-9]{17}`, `c-`/`p-`/`a-`/`cert-`/`webapp-`/`hostkey-`/`key-` + 17 hex, UUID execution IDs) that
+  terraform-provider-aws checks on workflow_id; all IDs now come from one generator.
+- CreateServer accepted API_GATEWAY / AWS_DIRECTORY_SERVICE / AWS_LAMBDA without the IdentityProviderDetails member the
+  SDK docs make mandatory (Url / DirectoryId / Function), and SERVICE_MANAGED with details; both now return
+  InvalidRequestException.
+- CreateUser/UpdateUser accepted LOGICAL without mappings, mappings without LOGICAL, and HomeDirectory together with
+  mappings (the CreateUserInput docs forbid each).
+- DescribeUser/ListUsers emitted `HomeDirectory: ""` for LOGICAL users; the member is omitted now.
+
+Lenient on purpose: the user Role ARN and HomeDirectory target are not resolved against IAM/S3 (CreateUser accepts a
+role that does not exist), and server state transitions complete after a fixed 100ms rather than modeling real startup time.
 
 ### 2026-09-20: transferfamily-and-msk Terraform coverage -- 3 real Server bugs found
 

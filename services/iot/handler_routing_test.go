@@ -284,6 +284,13 @@ func TestHandler_NewOperations(t *testing.T) {
 			body: map[string]any{
 				"target": "arn:aws:iot:us-east-1:000000000000:cert/xyz",
 			},
+			setup: func(t *testing.T, b *iot.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreatePolicy(&iot.CreatePolicyInput{
+					PolicyName: "my-policy", PolicyDocument: `{"Version":"2012-10-17","Statement":[]}`,
+				})
+				require.NoError(t, err)
+			},
 			wantStatus:   http.StatusOK,
 			wantOp:       "AttachPolicy",
 			wantResource: "my-policy",
@@ -312,6 +319,9 @@ func TestHandler_NewOperations(t *testing.T) {
 			body:   nil,
 			headers: map[string]string{
 				"x-amzn-principal": "arn:aws:iot:us-east-1:000000000000:cert/certid",
+			},
+			setup: func(_ *testing.T, b *iot.InMemoryBackend) {
+				b.AddThingInternal(iot.Thing{ThingName: "my-thing"})
 			},
 			wantStatus:   http.StatusOK,
 			wantOp:       "AttachThingPrincipal",

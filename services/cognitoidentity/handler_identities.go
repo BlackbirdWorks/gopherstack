@@ -162,7 +162,6 @@ type lookupDeveloperIdentityInput struct {
 	IdentityPoolID          string `json:"IdentityPoolId"`
 	IdentityID              string `json:"IdentityId"`
 	DeveloperUserIdentifier string `json:"DeveloperUserIdentifier"`
-	DeveloperProviderName   string `json:"DeveloperProviderName"`
 	MaxResults              int    `json:"MaxResults"`
 }
 
@@ -181,7 +180,7 @@ func (h *Handler) handleLookupDeveloperIdentity(
 		in.IdentityPoolID,
 		in.IdentityID,
 		in.DeveloperUserIdentifier,
-		in.DeveloperProviderName,
+		"",
 	)
 	if err != nil {
 		return nil, err

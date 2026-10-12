@@ -7,8 +7,6 @@ import (
 	"maps"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // DeleteCertificate removes a certificate by ID.
@@ -87,7 +85,7 @@ func (b *InMemoryBackend) ImportCertificateFull(in *ImportCertificateInput) (*Ce
 		serial = cert.SerialNumber.String()
 	}
 
-	certID := "cert-" + uuid.NewString()[:20]
+	certID := newResourceID("cert-")
 
 	now := time.Now()
 	if notBefore.IsZero() {

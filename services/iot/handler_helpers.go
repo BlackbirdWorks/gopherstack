@@ -74,6 +74,9 @@ func writeIoTError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrMalformedPolicy):
 
 		return c.JSON(http.StatusBadRequest, awsErrBody{"MalformedPolicyException", publicMessage(err)})
+	case errors.Is(err, ErrInvalidQuery):
+
+		return c.JSON(http.StatusBadRequest, awsErrBody{"InvalidQueryException", publicMessage(err)})
 	case errors.Is(err, ErrSQLParse):
 
 		return c.JSON(http.StatusBadRequest, awsErrBody{"SqlParseException", publicMessage(err)})
@@ -97,6 +100,9 @@ func writeIoTError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrVersionsLimitExceeded):
 
 		return c.JSON(http.StatusConflict, awsErrBody{"VersionsLimitExceededException", publicMessage(err)})
+	case errors.Is(err, ErrTerminalState):
+
+		return c.JSON(http.StatusGone, awsErrBody{"TerminalStateException", publicMessage(err)})
 	case errors.Is(err, ErrInvalidStateTransition):
 
 		return c.JSON(http.StatusConflict, awsErrBody{"InvalidStateTransitionException", publicMessage(err)})

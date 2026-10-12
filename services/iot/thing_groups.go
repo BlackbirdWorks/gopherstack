@@ -206,9 +206,40 @@ func (b *InMemoryBackend) ListThingsInThingGroup(input *ListThingsInThingGroupIn
 		return nil, fmt.Errorf("%w: %s", ErrThingGroupNotFound, input.ThingGroupName)
 	}
 
-	members := b.thingGroupMembers[input.ThingGroupName]
-	out := make([]string, len(members))
-	copy(out, members)
+	out := slices.Clone(b.thingGroupMembers[input.ThingGroupName])
+	if out == nil {
+		out = []string{}
+	}
+
+	if !input.Recursive {
+		return out, nil
+	}
+
+	queue := []string{input.ThingGroupName}
+	for len(queue) > 0 {
+		parent := queue[0]
+		queue = queue[1:]
+
+		var children []string
+
+		for _, tg := range b.thingGroups.All() {
+			if tg.ParentGroupName == parent {
+				children = append(children, tg.ThingGroupName)
+			}
+		}
+
+		slices.Sort(children)
+
+		for _, child := range children {
+			queue = append(queue, child)
+
+			for _, member := range b.thingGroupMembers[child] {
+				if !slices.Contains(out, member) {
+					out = append(out, member)
+				}
+			}
+		}
+	}
 
 	return out, nil
 }

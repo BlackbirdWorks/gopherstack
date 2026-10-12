@@ -127,7 +127,7 @@ type userView struct {
 	PosixProfile          *posixProfileView           `json:"PosixProfile,omitempty"`
 	Arn                   string                      `json:"Arn"`
 	UserName              string                      `json:"UserName"`
-	HomeDir               string                      `json:"HomeDirectory"`
+	HomeDir               string                      `json:"HomeDirectory,omitempty"`
 	Role                  string                      `json:"Role"`
 	HomeDirectoryType     string                      `json:"HomeDirectoryType,omitempty"`
 	Policy                string                      `json:"Policy,omitempty"`
@@ -184,7 +184,7 @@ type listUsersInput struct {
 type userListItem struct {
 	Arn               string `json:"Arn"`
 	UserName          string `json:"UserName"`
-	HomeDir           string `json:"HomeDirectory"`
+	HomeDir           string `json:"HomeDirectory,omitempty"`
 	Role              string `json:"Role"`
 	HomeDirectoryType string `json:"HomeDirectoryType,omitempty"`
 	SSHPublicKeyCount int    `json:"SshPublicKeyCount"`

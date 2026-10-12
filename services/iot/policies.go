@@ -85,6 +85,10 @@ func (b *InMemoryBackend) AttachPolicy(input *AttachPolicyInput) error {
 	b.mu.Lock("AttachPolicy")
 	defer b.mu.Unlock()
 
+	if !b.policies.Has(input.PolicyName) {
+		return fmt.Errorf("%w: %s", ErrPolicyNotFound, input.PolicyName)
+	}
+
 	b.policyTargets[input.PolicyName] = appendUnique(b.policyTargets[input.PolicyName], input.Target)
 
 	return nil

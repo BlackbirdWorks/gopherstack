@@ -45,6 +45,9 @@ func TestServer_DefaultsAndPartialProtocolDetailsUpdate(t *testing.T) {
 			if !tc.wantNilPD {
 				in.EndpointType = types.EndpointTypeVpc
 				in.IdentityProviderType = types.IdentityProviderTypeAwsLambda
+				in.IdentityProviderDetails = &types.IdentityProviderDetails{
+					Function: aws.String("arn:aws:lambda:us-east-1:123456789012:function:auth"),
+				}
 				in.Certificate = aws.String("arn:aws:acm:us-east-1:123456789012:certificate/x")
 			}
 

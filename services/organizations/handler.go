@@ -303,8 +303,17 @@ func getErrorTable() map[error]awserr.APIError {
 			Code:       "DuplicateOrganizationalUnitException",
 			HTTPStatus: http.StatusBadRequest,
 		},
-		ErrTargetNotFound:       {Code: "TargetNotFoundException", HTTPStatus: http.StatusBadRequest},
-		ErrServiceNotEnabled:    {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
+		ErrTargetNotFound:    {Code: "TargetNotFoundException", HTTPStatus: http.StatusBadRequest},
+		ErrServiceNotEnabled: {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
+		ErrCannotRegisterManagementAsDelegatedAdmin: {
+			Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest,
+		},
+		ErrCannotRegisterSuspendedAsDelegatedAdmin: {
+			Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest,
+		},
+		ErrPolicyTypeNotAvailable: {
+			Code: "PolicyTypeNotAvailableForOrganizationException", HTTPStatus: http.StatusBadRequest,
+		},
 		ErrPolicyInUse:          {Code: "PolicyInUseException", HTTPStatus: http.StatusBadRequest},
 		ErrOrganizationNotEmpty: {Code: "OrganizationNotEmptyException", HTTPStatus: http.StatusBadRequest},
 		ErrDuplicateHandshake:   {Code: "DuplicateHandshakeException", HTTPStatus: http.StatusBadRequest},

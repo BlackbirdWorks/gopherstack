@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
-
-	"github.com/google/uuid"
 )
 
 // ListSSHPublicKeys returns all SSH public keys for a user on a server.
@@ -85,7 +83,7 @@ func (b *InMemoryBackend) ImportSSHPublicKey(
 		)
 	}
 
-	keyID := "key-" + uuid.NewString()[:8]
+	keyID := newResourceID("key-")
 	fingerprint, keyType := computeSSHKeyFingerprintAndType(sshPublicKeyBody)
 
 	k := &SSHPublicKey{

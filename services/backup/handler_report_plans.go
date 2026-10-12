@@ -309,9 +309,7 @@ func (h *Handler) dispatchReportJobOps(
 
 		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"ReportJobs": items}, next))
 	case opStartReportJob:
-		job := h.Backend.StartReportJob(route.resource)
-
-		return true, c.JSON(http.StatusOK, map[string]any{keyReportJobID: job.ReportJobID})
+		return true, h.handleStartReportJob(c, route.resource)
 	case opDescribeScanJob:
 		job, err := h.Backend.DescribeScanJob(route.resource)
 		if err != nil {
@@ -493,4 +491,14 @@ func validateStartScanJobParams(
 	default:
 		return ""
 	}
+}
+
+func (h *Handler) handleStartReportJob(c *echo.Context, planName string) error {
+	if _, err := h.Backend.DescribeReportPlan(planName); err != nil {
+		return h.handleError(c, err)
+	}
+
+	job := h.Backend.StartReportJob(planName)
+
+	return c.JSON(http.StatusOK, map[string]any{keyReportJobID: job.ReportJobID})
 }

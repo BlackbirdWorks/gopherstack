@@ -241,17 +241,22 @@ func (b *InMemoryBackend) SearchIndex(input *SearchIndexInput) (*SearchIndexOutp
 		indexName = indexNameThings
 	}
 
+	node, err := compileQuery(input.QueryString)
+	if err != nil {
+		return nil, err
+	}
+
 	switch indexName {
 	case indexNameThings:
-		return b.searchThingsIndex(input), nil
+		return b.searchThingsIndex(input, node), nil
 	case indexNameThingGroups:
-		return b.searchThingGroupsIndex(input), nil
+		return b.searchThingGroupsIndex(input, node), nil
 	default:
 		return nil, fmt.Errorf("%w: unknown index %q", ErrValidation, indexName)
 	}
 }
 
-func (b *InMemoryBackend) searchThingsIndex(input *SearchIndexInput) *SearchIndexOutput {
+func (b *InMemoryBackend) searchThingsIndex(input *SearchIndexInput, node queryNode) *SearchIndexOutput {
 	b.mu.RLock("searchThingsIndex")
 	defer b.mu.RUnlock()
 
@@ -261,7 +266,7 @@ func (b *InMemoryBackend) searchThingsIndex(input *SearchIndexInput) *SearchInde
 		t := v
 		groups := append([]string(nil), b.thingThingGroups[t.ThingName]...)
 
-		if !matchesThingQuery(t, groups, input.QueryString) {
+		if !node.eval(thingQueryEnv(t, groups)) {
 			continue
 		}
 
@@ -279,7 +284,7 @@ func (b *InMemoryBackend) searchThingsIndex(input *SearchIndexInput) *SearchInde
 	return &SearchIndexOutput{Things: page, NextToken: nextToken}
 }
 
-func (b *InMemoryBackend) searchThingGroupsIndex(input *SearchIndexInput) *SearchIndexOutput {
+func (b *InMemoryBackend) searchThingGroupsIndex(input *SearchIndexInput, node queryNode) *SearchIndexOutput {
 	b.mu.RLock("searchThingGroupsIndex")
 	defer b.mu.RUnlock()
 
@@ -287,7 +292,7 @@ func (b *InMemoryBackend) searchThingGroupsIndex(input *SearchIndexInput) *Searc
 
 	for _, v := range b.thingGroups.Snapshot() {
 		g := v
-		if !matchesThingGroupQuery(g, input.QueryString) {
+		if !node.eval(thingGroupQueryEnv(g)) {
 			continue
 		}
 
@@ -422,45 +427,30 @@ func searchStartOffset(nextToken string) int {
 	return n
 }
 
-// matchesThingQuery reports whether a Thing (with its resolved group names)
-// satisfies every whitespace-separated term of queryString. An empty
-// queryString matches every Thing.
-func matchesThingQuery(t *Thing, groupNames []string, queryString string) bool {
-	terms := strings.Fields(queryString)
-	if len(terms) == 0 {
-		return true
-	}
+// thingQueryEnv exposes a Thing's indexed fields to a compiled query.
+func thingQueryEnv(t *Thing, groupNames []string) queryEnv {
+	return queryEnv{
+		values: func(field string) ([]string, bool) {
+			switch {
+			case strings.EqualFold(field, keyThingName):
+				return []string{t.ThingName}, true
+			case strings.EqualFold(field, "thingId"):
+				return []string{t.ThingID}, true
+			case strings.EqualFold(field, "thingTypeName"):
+				return []string{t.ThingTypeName}, t.ThingTypeName != ""
+			case strings.EqualFold(field, "billingGroupName"):
+				return []string{t.BillingGroupName}, t.BillingGroupName != ""
+			case strings.EqualFold(field, "thingGroupNames"):
+				return groupNames, len(groupNames) > 0
+			case strings.HasPrefix(field, "attributes."):
+				v, ok := t.Attributes[strings.TrimPrefix(field, "attributes.")]
 
-	for _, term := range terms {
-		if !matchThingTerm(t, groupNames, term) {
-			return false
-		}
-	}
+				return []string{v}, ok
+			}
 
-	return true
-}
-
-func matchThingTerm(t *Thing, groupNames []string, term string) bool {
-	key, value, hasKey := strings.Cut(term, ":")
-	if !hasKey {
-		return thingContainsSubstring(t, groupNames, term)
-	}
-
-	switch {
-	case key == keyThingName:
-		return strings.EqualFold(t.ThingName, value)
-	case key == "thingTypeName":
-		return strings.EqualFold(t.ThingTypeName, value)
-	case key == "thingGroupNames":
-		return containsFold(groupNames, value)
-	case strings.HasPrefix(key, "attributes."):
-		attrName := strings.TrimPrefix(key, "attributes.")
-		av, ok := t.Attributes[attrName]
-
-		return ok && strings.EqualFold(av, value)
-	default:
-		// Unknown key prefix: fall back to a substring match on the raw term.
-		return thingContainsSubstring(t, groupNames, term)
+			return nil, false
+		},
+		bare: func(term string) bool { return thingContainsSubstring(t, groupNames, term) },
 	}
 }
 
@@ -487,42 +477,26 @@ func thingContainsSubstring(t *Thing, groupNames []string, needle string) bool {
 	return false
 }
 
-// matchesThingGroupQuery reports whether a ThingGroup satisfies every
-// whitespace-separated term of queryString. An empty queryString matches
-// every ThingGroup.
-func matchesThingGroupQuery(g *ThingGroup, queryString string) bool {
-	terms := strings.Fields(queryString)
-	if len(terms) == 0 {
-		return true
-	}
+// thingGroupQueryEnv exposes a ThingGroup's indexed fields to a compiled query.
+func thingGroupQueryEnv(g *ThingGroup) queryEnv {
+	return queryEnv{
+		values: func(field string) ([]string, bool) {
+			switch {
+			case strings.EqualFold(field, keyThingGroupName):
+				return []string{g.ThingGroupName}, true
+			case strings.EqualFold(field, "thingGroupId"):
+				return []string{g.ThingGroupID}, true
+			case strings.EqualFold(field, "parentGroupNames"):
+				return []string{g.ParentGroupName}, g.ParentGroupName != ""
+			case strings.HasPrefix(field, "attributes."):
+				v, ok := g.Attributes[strings.TrimPrefix(field, "attributes.")]
 
-	for _, term := range terms {
-		if !matchThingGroupTerm(g, term) {
-			return false
-		}
-	}
+				return []string{v}, ok
+			}
 
-	return true
-}
-
-func matchThingGroupTerm(g *ThingGroup, term string) bool {
-	key, value, hasKey := strings.Cut(term, ":")
-	if !hasKey {
-		return thingGroupContainsSubstring(g, term)
-	}
-
-	switch {
-	case key == keyThingGroupName:
-		return strings.EqualFold(g.ThingGroupName, value)
-	case key == "parentGroupNames":
-		return strings.EqualFold(g.ParentGroupName, value)
-	case strings.HasPrefix(key, "attributes."):
-		attrName := strings.TrimPrefix(key, "attributes.")
-		av, ok := g.Attributes[attrName]
-
-		return ok && strings.EqualFold(av, value)
-	default:
-		return thingGroupContainsSubstring(g, term)
+			return nil, false
+		},
+		bare: func(term string) bool { return thingGroupContainsSubstring(g, term) },
 	}
 }
 
@@ -543,24 +517,14 @@ func thingGroupContainsSubstring(g *ThingGroup, needle string) bool {
 	return false
 }
 
-func containsFold(list []string, v string) bool {
-	for _, item := range list {
-		if strings.EqualFold(item, v) {
-			return true
-		}
-	}
-
-	return false
-}
-
 // matchedThings returns the Things (and their resolved group names) that
 // satisfy queryString. Callers must hold at least a read lock.
-func (b *InMemoryBackend) matchedThings(queryString string) []*Thing {
+func (b *InMemoryBackend) matchedThings(node queryNode) []*Thing {
 	out := make([]*Thing, 0, b.things.Len())
 
 	for _, v := range b.things.Snapshot() {
 		t := v
-		if matchesThingQuery(t, b.thingThingGroups[t.ThingName], queryString) {
+		if node.eval(thingQueryEnv(t, b.thingThingGroups[t.ThingName])) {
 			out = append(out, t)
 		}
 	}
@@ -592,12 +556,12 @@ func aggregationFieldValue(t *Thing, field string) (string, bool) {
 
 // matchedThingGroups returns the ThingGroups (AWS_ThingGroups index) that
 // satisfy queryString. Callers must hold at least a read lock.
-func (b *InMemoryBackend) matchedThingGroups(queryString string) []*ThingGroup {
+func (b *InMemoryBackend) matchedThingGroups(node queryNode) []*ThingGroup {
 	out := make([]*ThingGroup, 0, b.thingGroups.Len())
 
 	for _, v := range b.thingGroups.Snapshot() {
 		g := v
-		if matchesThingGroupQuery(g, queryString) {
+		if node.eval(thingGroupQueryEnv(g)) {
 			out = append(out, g)
 		}
 	}
@@ -667,12 +631,17 @@ func (b *InMemoryBackend) GetCardinality(input *AggregationInput) (int64, error)
 		return 0, fmt.Errorf("%w: aggregationField is required", ErrValidation)
 	}
 
+	node, err := compileQuery(input.QueryString)
+	if err != nil {
+		return 0, err
+	}
+
 	b.mu.RLock("GetCardinality")
 	defer b.mu.RUnlock()
 
 	seen := make(map[string]struct{})
 
-	for _, t := range b.matchedThings(input.QueryString) {
+	for _, t := range b.matchedThings(node) {
 		if v, ok := aggregationFieldValue(t, input.AggregationField); ok {
 			seen[v] = struct{}{}
 		}
@@ -688,8 +657,13 @@ func (b *InMemoryBackend) GetCardinality(input *AggregationInput) (int64, error)
 // declared on AggregationInput but never read, so a caller aggregating
 // AWS_ThingGroups silently got Things-index results instead.
 func (b *InMemoryBackend) GetStatistics(input *AggregationInput) (*Statistics, error) {
-	if input == nil || input.AggregationField == "" {
-		return nil, fmt.Errorf("%w: aggregationField is required", ErrValidation)
+	if input == nil {
+		input = &AggregationInput{}
+	}
+
+	node, err := compileQuery(input.QueryString)
+	if err != nil {
+		return nil, err
 	}
 
 	b.mu.RLock("GetStatistics")
@@ -702,11 +676,19 @@ func (b *InMemoryBackend) GetStatistics(input *AggregationInput) (*Statistics, e
 
 	switch indexName {
 	case indexNameThings:
-		return computeStatistics(numericFieldValues(b.matchedThings(input.QueryString), input.AggregationField)), nil
+		things := b.matchedThings(node)
+		if input.AggregationField == "" {
+			return &Statistics{Count: int64(len(things))}, nil
+		}
+
+		return computeStatistics(numericFieldValues(things, input.AggregationField)), nil
 	case indexNameThingGroups:
-		return computeStatistics(
-			numericFieldValuesGroups(b.matchedThingGroups(input.QueryString), input.AggregationField),
-		), nil
+		groups := b.matchedThingGroups(node)
+		if input.AggregationField == "" {
+			return &Statistics{Count: int64(len(groups))}, nil
+		}
+
+		return computeStatistics(numericFieldValuesGroups(groups, input.AggregationField)), nil
 	default:
 		return nil, fmt.Errorf("%w: unknown index %q", ErrValidation, indexName)
 	}
@@ -761,10 +743,15 @@ func (b *InMemoryBackend) GetPercentiles(input *PercentilesInput) ([]PercentileV
 		return nil, fmt.Errorf("%w: aggregationField is required", ErrValidation)
 	}
 
+	node, err := compileQuery(input.QueryString)
+	if err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("GetPercentiles")
 	defer b.mu.RUnlock()
 
-	values := numericFieldValues(b.matchedThings(input.QueryString), input.AggregationField)
+	values := numericFieldValues(b.matchedThings(node), input.AggregationField)
 	sort.Float64s(values)
 
 	percents := input.Percents
@@ -815,12 +802,17 @@ func (b *InMemoryBackend) GetBucketsAggregation(input *BucketsAggregationInput) 
 		maxBuckets = maxBucketsLimit
 	}
 
+	node, err := compileQuery(input.QueryString)
+	if err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("GetBucketsAggregation")
 	defer b.mu.RUnlock()
 
 	counts := make(map[string]int64)
 
-	for _, t := range b.matchedThings(input.QueryString) {
+	for _, t := range b.matchedThings(node) {
 		if v, ok := aggregationFieldValue(t, input.AggregationField); ok {
 			counts[v]++
 		}

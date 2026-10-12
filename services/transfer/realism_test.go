@@ -127,6 +127,9 @@ func TestFTPServerRequirements(t *testing.T) {
 			name: "ftp vpc lambda",
 			req: map[string]any{
 				"Protocols": []string{"FTP"}, "EndpointType": "VPC", "IdentityProviderType": "AWS_LAMBDA",
+				"IdentityProviderDetails": map[string]string{
+					"Function": "arn:aws:lambda:us-east-1:123456789012:function:auth",
+				},
 			},
 			wantOK: true,
 		},

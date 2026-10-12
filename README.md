@@ -595,7 +595,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Backup](services/backup/README.md) | A | 66 | 3 structural gaps |
+| [Backup](services/backup/README.md) | A | 66 | 1 gap; 3 structural gaps |
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
 | [EFS](services/efs/README.md) | A | 31 | 4 gaps; 1 deferred |
 | [FSx](services/fsx/README.md) | A | — | 13 families; 2 structural gaps |
@@ -702,7 +702,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 1 structural gap; 4 deferred |
+| [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 2 gaps; 1 structural gap; 4 deferred |
 | [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 4 gaps; 4 structural gaps |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 1 gap; 2 structural gaps; 1 deferred |
 | [IAM](services/iam/README.md) | A | 38 | 2 gaps; 4 structural gaps |
@@ -786,7 +786,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [IoT Analytics](services/iotanalytics/README.md) | A | 34 | 1 gap; 1 structural gap |
-| [IoT Core](services/iot/README.md) | A | 88 | 6 gaps; 5 structural gaps |
+| [IoT Core](services/iot/README.md) | A | 88 | 9 gaps; 5 structural gaps |
 | [IoT Data Plane](services/iotdataplane/README.md) | A | 11 | 1 structural gap; 1 deferred |
 | [IoT Wireless](services/iotwireless/README.md) | A | 21 | 2 structural gaps |
 
@@ -796,7 +796,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [DataSync](services/datasync/README.md) | A | 53 | 2 gaps; 3 structural gaps; 1 deferred |
 | [Database Migration Service](services/dms/README.md) | A | 97 | 3 gaps; 3 structural gaps |
-| [Transfer Family](services/transfer/README.md) | A | — | 20 families; 1 structural gap |
+| [Transfer Family](services/transfer/README.md) | A | — | 20 families; 2 structural gaps |
 
 ### Azure
 

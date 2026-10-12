@@ -232,6 +232,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return p.Handler()(c)
 		}
 
+		if isJobsDataRequest(c.Request()) {
+			return h.handleJobsData(c)
+		}
+
 		log := logger.Load(c.Request().Context())
 		op := resolveOperation(c.Request().URL.Path, c.Request().Method)
 

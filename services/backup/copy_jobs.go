@@ -82,6 +82,15 @@ func (b *InMemoryBackend) ListCopyJobSummaries(f JobSummaryFilter) []map[string]
 func (b *InMemoryBackend) StartCopyJob(
 	recoveryPointArn, sourceVaultName, destVaultArn, iamRoleArn string,
 ) (*CopyJob, error) {
+	return b.StartCopyJobWithLifecycle(recoveryPointArn, sourceVaultName, destVaultArn, iamRoleArn, nil)
+}
+
+// StartCopyJobWithLifecycle is StartCopyJob with the request's Lifecycle. A lifecycle that breaks the
+// destination vault's lock retention bounds FAILS the copy job and creates no recovery point.
+func (b *InMemoryBackend) StartCopyJobWithLifecycle(
+	recoveryPointArn, sourceVaultName, destVaultArn, iamRoleArn string,
+	lifecycle *Lifecycle,
+) (*CopyJob, error) {
 	b.mu.Lock("StartCopyJob")
 	defer b.mu.Unlock()
 
@@ -141,6 +150,14 @@ func (b *InMemoryBackend) StartCopyJob(
 	b.copyJobs.Put(job)
 
 	if destVault != nil {
+		if msg := b.vaultRetentionViolation(destVault, lifecycle); msg != "" {
+			job.State = statusFailed
+			job.StatusMessage = msg
+			job.DestinationRecoveryPointArn = ""
+
+			return job, nil
+		}
+
 		destRP := &RecoveryPoint{
 			RecoveryPointArn:     destRPArn,
 			BackupVaultName:      destVaultName,
@@ -154,6 +171,8 @@ func (b *InMemoryBackend) StartCopyJob(
 			CompletionDate:       &now,
 			IsEncrypted:          destVault.EncryptionKeyArn != "",
 			EncryptionKeyArn:     destVault.EncryptionKeyArn,
+			Lifecycle:            lifecycle,
+			CalculatedLifecycle:  calculateLifecycle(lifecycle, now),
 		}
 		b.recoveryPoints.Put(destRP)
 		destVault.NumberOfRecoveryPoints++

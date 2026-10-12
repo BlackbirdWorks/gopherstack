@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"strings"
 	"time"
 )
 
@@ -40,9 +41,15 @@ func (b *InMemoryBackend) GetCredentialsForIdentity(
 		)
 	}
 
+	if pool, poolOK := b.poolGet(region, identity.IdentityPoolID); poolOK {
+		if err := validateLoginTokens(pool, logins, time.Now()); err != nil {
+			return nil, err
+		}
+	}
+
 	for provider, token := range logins {
 		stored, exists := identity.Logins[provider]
-		if !exists || stored != token {
+		if !exists || (stored != token && !sameLogin(stored, token)) {
 			return nil, fmt.Errorf(
 				"%w: login token for provider %q does not match",
 				ErrNotAuthorized,
@@ -77,7 +84,7 @@ func (b *InMemoryBackend) GetCredentialsForIdentity(
 	}
 
 	return &Credentials{
-		AccessKeyID:     "ASIA" + keyID,
+		AccessKeyID:     "ASIA" + strings.ToUpper(keyID),
 		SecretAccessKey: secretKey,
 		SessionToken:    sessionToken,
 		Expiration:      expiry,

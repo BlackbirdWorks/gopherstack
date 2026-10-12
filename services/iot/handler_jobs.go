@@ -366,7 +366,7 @@ func (h *Handler) handleDescribeJobExecution(c *echo.Context) error {
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"execution": h.toJobExecutionWire(exec)})
+	return c.JSON(http.StatusOK, map[string]any{keyExecution: h.toJobExecutionWire(exec)})
 }
 
 func (h *Handler) handleCancelJobExecution(c *echo.Context) error {

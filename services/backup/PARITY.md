@@ -2,7 +2,7 @@
 service: backup
 sdk_module: aws-sdk-go-v2/service/backup@v1.64.0
 last_audit_commit: b7c35baea  # 2026-09-19 terraform-coverage sweep (ssm-and-backup); prior: 4a7682d1e
-last_audit_date: 2026-10-07  # prior: 2026-09-19
+last_audit_date: 2026-10-12  # prior: 2026-09-19
 overall: A            # all 4 prior gaps closed with real fixes + tests; all 4 prior deferred items field-diffed and closed; a service-wide error-code/HTTP-status bug found and fixed (see notes) + gopherstack-21my (per-item field sweep: copy-job-summary AccountId, recovery-point StorageClass leak, backup-vault list lock/creator fields, protected-resource last-vault/recovery-point ARNs)
                       # 2026-09-19 (parity-sweep, notImplemented closure): implemented the 6 backup
                       # access point ops (BackupAccessPoint family added in backup@v1.64.0), previously
@@ -184,7 +184,8 @@ gaps: []
   # (unknown keys are ignored by every real deserializer), left as a minor
   # cleanup item rather than touched this pass.
 residual_gaps: []
-items_still_open: []
+items_still_open:
+  - "Report jobs complete instantly and write nothing to the report plan's S3 delivery channel: the SDK documents only the key path (<prefix>/Backup/<region>/<year>/<month>/<day>/<report-name>), not the CSV/JSON columns, so any content would be invented."
 structural_gaps:
   - "MPA session approval, GuardDuty malware scanning (PITR results, ScanActions/ScanSettings), the search-index subsystem and cross-account logically-air-gapped vaults are external systems with no emulator counterpart."
   - "CreatedBy on scan jobs and recovery points: plans never run on a schedule here, so every recovery point comes from an on-demand job with no plan or rule lineage (ByBackupPlanId likewise matches nothing)."
@@ -200,6 +201,23 @@ leaks: {status: clean, note: "Janitor's advanceCreatedJobs takes the backend RLo
 ---
 
 ## Notes
+
+### 2026-10-12 (deep realism pass)
+
+On-demand backup, restore, copy and report flows were driven end to end; fixes, each with a typed-client test
+(backup_job_flow_test.go, report_plan_flow_test.go):
+- Backup jobs now pass CREATED -> RUNNING -> COMPLETED across two janitor sweeps (previously CREATED jumped straight to
+  COMPLETED); RUNNING is observable for one interval.
+- ResourceType was empty unless the (non-SDK) request body carried it; it is now derived from the resource ARN
+  (DynamoDB, S3, EBS, EC2, RDS, Aurora, EFS, FSx, ...), and recovery points carry ResourceName.
+- Vault lock retention was never enforced. Per PutBackupVaultLockConfiguration's docs a backup or copy job whose
+  lifecycle is shorter than MinRetentionDays or longer than MaxRetentionDays (no DeleteAfterDays counts as indefinite)
+  now FAILS with a StatusMessage and creates no recovery point; StartCopyJob gained the Lifecycle input it ignored.
+- StartReportJob accepted an unknown report plan; it now returns ResourceNotFoundException. CreateReportPlan rejects
+  ReportTemplate values outside the five documented templates.
+
+Lenient on purpose: restore and copy jobs still complete synchronously (nothing polls for an intermediate state), and
+restored resources are not materialised (the DynamoDB/S3/EC2 backends would need to be handed to Backup from cli.go).
 
 ### 2026-10-01 (items_still_open burn-down)
 

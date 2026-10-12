@@ -75,6 +75,10 @@ func (b *InMemoryBackend) CreateUserFull(in *CreateUserInput) (*User, error) {
 		}
 	}
 
+	if err := validateHomeDirectory(in.HomeDir, homeDirectoryType, in.HomeDirectoryMappings); err != nil {
+		return nil, err
+	}
+
 	merged := make(map[string]string, len(in.Tags))
 	maps.Copy(merged, in.Tags)
 
@@ -216,6 +220,14 @@ func (b *InMemoryBackend) UpdateUserFull(in *UpdateUserInput) (*User, error) {
 		)
 	}
 
+	if err := validateHomeDirectory(
+		cmpPtr(in.HomeDir, u.HomeDir),
+		cmpStr(in.SetHomeDirectoryType && in.HomeDirectoryType != "", in.HomeDirectoryType, u.HomeDirectoryType),
+		cmpMappings(in.SetHomeDirectoryMappings, in.HomeDirectoryMappings, u.HomeDirectoryMappings),
+	); err != nil {
+		return nil, err
+	}
+
 	if in.HomeDir != nil {
 		u.HomeDir = *in.HomeDir
 	}
@@ -250,6 +262,45 @@ func (b *InMemoryBackend) UpdateUserFull(in *UpdateUserInput) (*User, error) {
 	}
 
 	return cloneUser(u), nil
+}
+
+func cmpPtr(p *string, cur string) string {
+	if p != nil {
+		return *p
+	}
+
+	return cur
+}
+
+func cmpStr(set bool, v, cur string) string {
+	if set {
+		return v
+	}
+
+	return cur
+}
+
+func cmpMappings(set bool, v, cur []HomeDirectoryMapEntry) []HomeDirectoryMapEntry {
+	if set {
+		return v
+	}
+
+	return cur
+}
+
+// validateHomeDirectory enforces the CreateUserInput rules: LOGICAL needs mappings, mappings need
+// LOGICAL, and a user cannot carry both HomeDirectory and HomeDirectoryMappings.
+func validateHomeDirectory(homeDir, homeDirType string, mappings []HomeDirectoryMapEntry) error {
+	switch {
+	case homeDirType == homeDirectoryTypeLogical && len(mappings) == 0:
+		return fmt.Errorf("%w: HomeDirectoryMappings is required when HomeDirectoryType is LOGICAL", ErrValidation)
+	case homeDirType != homeDirectoryTypeLogical && len(mappings) > 0:
+		return fmt.Errorf("%w: HomeDirectoryMappings requires HomeDirectoryType LOGICAL", ErrValidation)
+	case homeDir != "" && len(mappings) > 0:
+		return fmt.Errorf("%w: HomeDirectory and HomeDirectoryMappings cannot both be set", ErrValidation)
+	}
+
+	return nil
 }
 
 var userNameRe = regexp.MustCompile(`^[\w][\w@.-]{2,99}$`)
