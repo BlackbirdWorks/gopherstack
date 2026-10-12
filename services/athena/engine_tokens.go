@@ -216,10 +216,10 @@ func matchParen(toks []token, open int) int {
 	return -1
 }
 
-// splitTokens splits toks on the punctuation sep at parenthesis depth zero
+// splitCommas splits toks on commas at parenthesis depth zero
 // (angle brackets are not tracked, so callers split column lists on commas that
 // are not inside type parameters).
-func splitTokens(toks []token, sep string) [][]token {
+func splitCommas(toks []token) [][]token {
 	var (
 		parts [][]token
 		cur   []token
@@ -241,7 +241,7 @@ func splitTokens(toks []token, sep string) [][]token {
 			}
 		}
 
-		if depth == 0 && angle == 0 && t.isPunct(sep) {
+		if depth == 0 && angle == 0 && t.isPunct(",") {
 			parts = append(parts, cur)
 			cur = nil
 

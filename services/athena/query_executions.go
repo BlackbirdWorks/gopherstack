@@ -60,6 +60,10 @@ func (b *InMemoryBackend) StartQueryExecution(
 		if planned && !planOutcome.failed {
 			qe.Status.State = stateQueued
 			qe.Status.CompletionDateTime = 0
+
+			if plan.write != nil {
+				plan.write.bind(id, rc.OutputLocation)
+			}
 		}
 
 		if m := wg.Configuration.ManagedResults; m != nil && m.Enabled {

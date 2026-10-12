@@ -116,7 +116,7 @@ func typeText(toks []token) string {
 func parseColumnTokens(toks []token) []Column {
 	var cols []Column
 
-	for _, part := range splitTokens(toks, ",") {
+	for _, part := range splitCommas(toks) {
 		if len(part) == 0 {
 			continue
 		}
@@ -142,7 +142,7 @@ func parseColumnTokens(toks []token) []Column {
 func parseProps(toks []token) map[string]string {
 	props := map[string]string{}
 
-	for _, part := range splitTokens(toks, ",") {
+	for _, part := range splitCommas(toks) {
 		if len(part) == 3 && part[0].kind == tkString && part[1].isPunct("=") && part[2].kind == tkString {
 			props[stringLiteral(part[0])] = stringLiteral(part[2])
 		}

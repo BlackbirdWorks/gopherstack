@@ -28,6 +28,7 @@ type planTable struct {
 type enginePlan struct {
 	get    S3Getter
 	list   S3Lister
+	write  *writePlan
 	sql    string
 	tables []*planTable
 }
@@ -49,13 +50,16 @@ func normalizeCatalog(c string) string {
 	return c
 }
 
-// planEngineQuery translates a SELECT over Glue tables with S3 locations. It
-// returns planned=false when the statement should take the legacy in-memory path.
+// planEngineQuery translates a SELECT over Glue tables with S3 locations, or
+// a CTAS/INSERT/UNLOAD whose source is such a SELECT. It returns planned=false
+// when the statement should take the legacy in-memory path.
 func (b *InMemoryBackend) planEngineQuery(
 	query string, qctx QueryExecutionContext,
 ) (*enginePlan, statementOutcome, bool) {
 	upper := strings.ToUpper(strings.TrimSpace(query))
-	if !hasKeyword(upper, "SELECT") && !hasKeyword(upper, "WITH") {
+	isRead := hasKeyword(upper, "SELECT") || hasKeyword(upper, "WITH")
+
+	if !isRead && !hasKeyword(upper, "CREATE") && !hasKeyword(upper, "INSERT") && !hasKeyword(upper, "UNLOAD") {
 		return nil, stmtOK(), false
 	}
 
@@ -67,6 +71,32 @@ func (b *InMemoryBackend) planEngineQuery(
 		return nil, stmtOK(), false
 	}
 
+	if !isRead {
+		return b.planWrite(query, qctx, cat, get, list)
+	}
+
+	plan, unresolved, err := b.buildPlan(query, qctx, cat, get, list)
+	if err != nil {
+		return nil, stmtFail(athenaErrTypeSyntax, "SYNTAX_ERROR: %s", err.Error()), true
+	}
+
+	if len(plan.tables) == 0 {
+		return nil, stmtOK(), false
+	}
+
+	if len(unresolved) > 0 {
+		return nil, stmtFail(athenaErrTypeEntityMiss,
+			"TABLE_NOT_FOUND: line 1:15: Table '%s' does not exist", unresolved[0]), true
+	}
+
+	return plan, stmtOK(), true
+}
+
+// buildPlan translates one SELECT and resolves its Glue-backed tables.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) buildPlan(
+	query string, qctx QueryExecutionContext, cat GlueTableCatalog, get S3Getter, list S3Lister,
+) (*enginePlan, []string, error) {
 	plan := &enginePlan{get: get, list: list}
 	seen := map[string]*planTable{}
 
@@ -108,21 +138,12 @@ func (b *InMemoryBackend) planEngineQuery(
 
 	sqlText, unresolved, err := translateSQL(query, resolve)
 	if err != nil {
-		return nil, stmtFail(athenaErrTypeSyntax, "SYNTAX_ERROR: %s", err.Error()), true
-	}
-
-	if len(plan.tables) == 0 {
-		return nil, stmtOK(), false
-	}
-
-	if len(unresolved) > 0 {
-		return nil, stmtFail(athenaErrTypeEntityMiss,
-			"TABLE_NOT_FOUND: line 1:15: Table '%s' does not exist", unresolved[0]), true
+		return nil, nil, err
 	}
 
 	plan.sql = sqlText
 
-	return plan, stmtOK(), true
+	return plan, unresolved, nil
 }
 
 func execAll(ctx context.Context, conn *sql.Conn, stmts ...string) error {
@@ -153,6 +174,13 @@ func (p *enginePlan) run(ctx context.Context, limits EngineLimits) (*sqlResult, 
 	}
 	defer func() { _ = conn.Close() }()
 
+	if p.write != nil {
+		out, skip := p.write.precheck(ctx)
+		if out.failed || skip {
+			return &sqlResult{}, 0, out
+		}
+	}
+
 	loader := &tableLoader{get: p.get, list: p.list, limits: limits}
 
 	if err = p.load(ctx, conn, loader); err != nil {
@@ -166,6 +194,12 @@ func (p *enginePlan) run(ctx context.Context, limits EngineLimits) (*sqlResult, 
 	res, err := readResult(ctx, conn, p.sql, limits)
 	if err != nil {
 		return nil, loader.scanned, engineFailure(err)
+	}
+
+	if p.write != nil {
+		out := p.write.apply(ctx, res, limits)
+
+		return &sqlResult{}, loader.scanned, out
 	}
 
 	return res, loader.scanned, stmtOK()
@@ -344,19 +378,54 @@ func athenaTypeOfDecl(decl string) string {
 	d := strings.ToUpper(decl)
 
 	switch base := typeBase(d); base {
-	case "VARCHAR", "":
+	case declVarchar, "":
 		return typeVarchar
 	case sqlInteger:
 		return typeInteger
-	case "DATE_TEXT":
+	case declDateText:
 		return typeDate
-	case "TIMESTAMP_TEXT":
+	case declTimestampText:
 		return typeTimestamp
 	case "DECIMAL":
 		return typeDecimal
 	default:
 		return strings.ToLower(base)
 	}
+}
+
+// glueTypeOfDecl maps a SQLite column declaration to the Glue type a CTAS
+// table registers; "" means the type is inferred from the first value.
+func glueTypeOfDecl(decl string) string {
+	d := strings.ToUpper(decl)
+
+	switch base := typeBase(d); base {
+	case "":
+		return ""
+	case declVarchar:
+		return columnTypeString
+	case sqlInteger:
+		return typeInt
+	case declDateText:
+		return typeDate
+	case declTimestampText:
+		return typeTimestamp
+	case "DECIMAL":
+		if strings.Contains(d, "(") {
+			return strings.ToLower(strings.ReplaceAll(d, " ", ""))
+		}
+
+		return "decimal(10,0)"
+	default:
+		return strings.ToLower(base)
+	}
+}
+
+func glueTypeOfAthena(typ string) string {
+	if typ == typeVarchar {
+		return columnTypeString
+	}
+
+	return typ
 }
 
 func decimalScale(decl string) int {
@@ -458,6 +527,7 @@ func newResultBuilder(rows *sql.Rows, limits EngineLimits) (*resultBuilder, erro
 		rb.decls[i] = ctypes[i].DatabaseTypeName()
 		rb.res.columns[i] = sqlColumn{
 			name: resultColName(names[i], rb.decls[i], i), typ: athenaTypeOfDecl(rb.decls[i]),
+			glue: glueTypeOfDecl(rb.decls[i]),
 		}
 		rb.inferred[i] = rb.decls[i] == ""
 	}
@@ -472,10 +542,21 @@ func (rb *resultBuilder) add(values []any) error {
 
 	row := make([]string, len(values))
 
+	var nulls []bool
+
 	for i, v := range values {
 		if rb.inferred[i] && v != nil {
 			rb.res.columns[i].typ = inferType(v)
+			rb.res.columns[i].glue = glueTypeOfAthena(rb.res.columns[i].typ)
 			rb.inferred[i] = false
+		}
+
+		if v == nil {
+			if nulls == nil {
+				nulls = make([]bool, len(values))
+			}
+
+			nulls[i] = true
 		}
 
 		row[i] = formatCell(v, rb.decls[i])
@@ -487,6 +568,7 @@ func (rb *resultBuilder) add(values []any) error {
 	}
 
 	rb.res.rows = append(rb.res.rows, row)
+	rb.res.nulls = append(rb.res.nulls, nulls)
 
 	return nil
 }
@@ -495,6 +577,7 @@ func (rb *resultBuilder) finish() *sqlResult {
 	for i := range rb.res.columns {
 		if rb.inferred[i] {
 			rb.res.columns[i].typ = typeVarchar
+			rb.res.columns[i].glue = columnTypeString
 		}
 	}
 

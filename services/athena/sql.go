@@ -10,11 +10,17 @@ import (
 type sqlResult struct {
 	columns []sqlColumn
 	rows    [][]string // each element is a row of string-encoded values
+	nulls   [][]bool   // parallel to rows when set; a nil entry means no NULL in that row
 }
 
 type sqlColumn struct {
 	name string
 	typ  string
+	glue string
+}
+
+func (r *sqlResult) isNull(row, col int) bool {
+	return row < len(r.nulls) && col < len(r.nulls[row]) && r.nulls[row][col]
 }
 
 // sqlResultPage is a paginated slice of a sqlResult.
@@ -22,6 +28,7 @@ type sqlResultPage struct {
 	NextToken string
 	Columns   []sqlColumn
 	Rows      [][]string
+	Nulls     [][]bool
 }
 
 // InsertRows loads test data into a table for SQL execution.
@@ -213,6 +220,10 @@ func (b *InMemoryBackend) GetQueryResults(id, nextToken string, maxResults int) 
 		Rows:    res.rows[offset:end],
 	}
 
+	if res.nulls != nil {
+		page.Nulls = res.nulls[offset:end]
+	}
+
 	if end < len(res.rows) {
 		page.NextToken = strconv.Itoa(end)
 	}
@@ -329,10 +340,10 @@ func anyToString(v any) string {
 		return strconv.FormatFloat(t, 'f', -1, 64)
 	case bool:
 		if t {
-			return "true"
+			return strTrue
 		}
 
-		return "false"
+		return strFalse
 	default:
 		return fmt.Sprintf("%v", v)
 	}

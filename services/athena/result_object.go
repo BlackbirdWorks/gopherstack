@@ -121,19 +121,30 @@ func resultCSV(result *sqlResult) []byte {
 		header[i] = c.name
 	}
 
-	writeQuotedRow(&buf, header)
+	writeQuotedRow(&buf, header, nil)
 
-	for _, row := range result.rows {
-		writeQuotedRow(&buf, row)
+	for i, row := range result.rows {
+		var nulls []bool
+		if i < len(result.nulls) {
+			nulls = result.nulls[i]
+		}
+
+		writeQuotedRow(&buf, row, nulls)
 	}
 
 	return buf.Bytes()
 }
 
-func writeQuotedRow(buf *bytes.Buffer, fields []string) {
+// writeQuotedRow quotes every field except SQL NULLs, which are left empty
+// and unquoted so they stay distinguishable from "".
+func writeQuotedRow(buf *bytes.Buffer, fields []string, nulls []bool) {
 	for i, f := range fields {
 		if i > 0 {
 			buf.WriteByte(',')
+		}
+
+		if i < len(nulls) && nulls[i] {
+			continue
 		}
 
 		buf.WriteByte('"')

@@ -238,13 +238,7 @@ func (h *Handler) handleGetQueryResults(b []byte) (any, error) {
 		rows = append(rows, map[string]any{"Data": header})
 	}
 
-	for _, row := range page.Rows {
-		data := make([]map[string]any, 0, len(row))
-		for _, cell := range row {
-			data = append(data, map[string]any{"VarCharValue": cell})
-		}
-		rows = append(rows, map[string]any{"Data": data})
-	}
+	rows = append(rows, datumRows(page)...)
 
 	resp := map[string]any{
 		"ResultSet": map[string]any{
@@ -274,4 +268,27 @@ func queryResultsReadyErr(state string) error {
 	default:
 		return fmt.Errorf("%w: Query has not yet finished. Current state: %s", ErrValidation, state)
 	}
+}
+
+// datumRows renders data rows; a SQL NULL is a Datum with no VarCharValue.
+func datumRows(page *sqlResultPage) []map[string]any {
+	rows := make([]map[string]any, 0, len(page.Rows))
+
+	for r, row := range page.Rows {
+		data := make([]map[string]any, 0, len(row))
+
+		for c, cell := range row {
+			if r < len(page.Nulls) && c < len(page.Nulls[r]) && page.Nulls[r][c] {
+				data = append(data, map[string]any{})
+
+				continue
+			}
+
+			data = append(data, map[string]any{"VarCharValue": cell})
+		}
+
+		rows = append(rows, map[string]any{"Data": data})
+	}
+
+	return rows
 }

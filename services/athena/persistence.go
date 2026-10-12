@@ -115,6 +115,7 @@ type sqlColumnSnapshot struct {
 type sqlResultSnapshot struct {
 	Columns []sqlColumnSnapshot `json:"columns"`
 	Rows    [][]string          `json:"rows"`
+	Nulls   [][]bool            `json:"nulls,omitempty"`
 }
 
 // snapshotQueryResults converts the live queryResults map into its
@@ -141,7 +142,7 @@ func snapshotQueryResults(m map[string]*sqlResult) map[string]*sqlResultSnapshot
 		rows := make([][]string, len(res.rows))
 		copy(rows, res.rows)
 
-		out[id] = &sqlResultSnapshot{Columns: cols, Rows: rows}
+		out[id] = &sqlResultSnapshot{Columns: cols, Rows: rows, Nulls: res.nulls}
 	}
 
 	return out
@@ -161,7 +162,7 @@ func restoreQueryResults(m map[string]*sqlResultSnapshot) map[string]*sqlResult 
 			cols[i] = sqlColumn{name: c.Name, typ: c.Typ}
 		}
 
-		out[id] = &sqlResult{columns: cols, rows: snap.Rows}
+		out[id] = &sqlResult{columns: cols, rows: snap.Rows, nulls: snap.Nulls}
 	}
 
 	return out

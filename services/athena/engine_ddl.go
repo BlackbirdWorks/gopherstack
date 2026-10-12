@@ -311,7 +311,7 @@ func (b *InMemoryBackend) execAlterAddPartition(
 func partitionFromSpec(def *GlueTableDef, inner []token) (GluePartitionDef, error) {
 	vals := map[string]string{}
 
-	for _, kv := range splitTokens(inner, ",") {
+	for _, kv := range splitCommas(inner) {
 		sig := significant(kv)
 		if len(sig) != 3 || !sig[1].isPunct("=") {
 			return GluePartitionDef{}, &syntaxError{fmt.Sprintf("line 1:1: invalid partition spec %q", joinTokens(kv))}

@@ -2312,6 +2312,7 @@
       "sqlColumnSnapshot.Name string `json:\"name\"`",
       "sqlColumnSnapshot.Typ string `json:\"typ\"`",
       "sqlResultSnapshot.Columns []sqlColumnSnapshot `json:\"columns\"`",
+      "sqlResultSnapshot.Nulls [][]bool `json:\"nulls,omitempty\"`",
       "sqlResultSnapshot.Rows [][]string `json:\"rows\"`",
       "tableMetadataSnapshot.Catalog string `json:\"catalog\"`",
       "tableMetadataSnapshot.Database string `json:\"database\"`",

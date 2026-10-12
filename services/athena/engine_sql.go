@@ -401,7 +401,7 @@ func typeBase(typ string) string {
 
 func sqliteCastType(base, full string) string {
 	switch base {
-	case typeVarchar, "char", "string":
+	case typeVarchar, "char", columnTypeString:
 		return "TEXT"
 	case typeTinyint, typeSmallint, typeInteger, typeInt, typeBigint, typeBoolean:
 		return sqlInteger

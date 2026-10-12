@@ -189,11 +189,11 @@ func sqliteDecl(glueType string) string {
 
 		return "DECIMAL(10,0)"
 	case typeDate:
-		return "DATE_TEXT"
+		return declDateText
 	case typeTimestamp:
-		return "TIMESTAMP_TEXT"
+		return declTimestampText
 	default:
-		return "VARCHAR"
+		return declVarchar
 	}
 }
 
@@ -217,9 +217,9 @@ func convertValue(raw string, k colKind, nullToken bool) any {
 		return nil
 	case kindBool:
 		switch strings.ToLower(strings.TrimSpace(raw)) {
-		case "true":
+		case strTrue:
 			return int64(1)
-		case "false":
+		case strFalse:
 			return int64(0)
 		default:
 			return nil

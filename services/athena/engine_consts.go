@@ -17,6 +17,12 @@ const (
 	typeNumeric   = "numeric"
 	sqlInteger    = "INTEGER"
 
+	declDateText      = "DATE_TEXT"
+	declTimestampText = "TIMESTAMP_TEXT"
+	declVarchar       = "VARCHAR"
+	strTrue           = "true"
+	strFalse          = "false"
+
 	unitSecond  = "second"
 	unitMinute  = "minute"
 	unitHour    = "hour"

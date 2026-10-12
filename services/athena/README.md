@@ -22,11 +22,11 @@
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- Parquet, ORC and Avro tables cannot be queried: no columnar reader is available (no new dependencies), so SELECT fails with NOT_SUPPORTED. SQL is SQLite semantics behind a Presto/Trino translation layer, not Trino: UNNEST, ARRAY/MAP/ROW types, lambda functions, approx_percentile and other Trino-only syntax fail as SYNTAX_ERROR; CTAS/INSERT/UNLOAD into Glue tables do not write S3 data; NULL cells in GetQueryResults surface as empty strings; partition projection is ignored.
+- Parquet, ORC and Avro tables cannot be queried: no columnar reader is available (no new dependencies), so SELECT fails with NOT_SUPPORTED. SQL is SQLite semantics behind a Presto/Trino translation layer, not Trino: UNNEST, ARRAY/MAP/ROW types, lambda functions, approx_percentile and other Trino-only syntax fail as SYNTAX_ERROR; CTAS/INSERT/UNLOAD cannot write Parquet/ORC/Avro (FAILED NOT_SUPPORTED, so a CTAS without format= fails as Athena's default is PARQUET) or compression other than GZIP; partition projection is ignored.
 - DeleteDataCatalogInput.DeleteCatalogOnly has no effect: a FEDERATED catalog's CFN Stack/Lambda/Glue Connection resources are not simulated.
 - WorkGroup.IdentityCenterApplicationArn is never set: the IAM Identity Center application AWS provisions for an Identity Center workgroup does not exist here.
 - WorkGroup on GetDatabase/ListDatabases/GetTableMetadata/ListTableMetadata/GetDataCatalog/ListDataCatalogs is accepted and ignored: it only matters for IAM Identity Center-enabled Glue catalogs, which do not exist here.
-- StartCalculationExecution.CalculationConfiguration (deprecated CodeBlock) is unobservable (no Spark engine, no output echoes it); GetQueryResults QueryResultType=DATA_MANIFEST is unmodeled because CTAS/UNLOAD/INSERT result files and manifests are never written.
+- StartCalculationExecution.CalculationConfiguration (deprecated CodeBlock) is unobservable (no Spark engine, no output echoes it); GetQueryResults QueryResultType=DATA_MANIFEST is unmodeled because the UNLOAD/CTAS/INSERT data manifest is never written.
 - StartQueryExecution.EngineConfiguration is validated (classification and min/max-dpu-count) but cannot change anything: query execution is never routed through Capacity Reservation DPU accounting.
 
 ### Deferred
