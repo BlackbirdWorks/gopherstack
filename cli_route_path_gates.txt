@@ -59,5 +59,7 @@ SESv2	/v2
 SageMakerRuntime	/endpoints
 SecurityHub	/accounts /actionTargets /administrator /aggregatorv2 /associations /automationrules /configurationPolicy /connectors /findingAggregator /findingHistory /findings /hubv2 /insights /invitations /master /members /organization /productSubscriptions /products /recommendedPolicyV2 /resourcesTrendsv2 /resourcesv2 /securityControl /standards /tags /ticketsv2
 ServerlessRepo	/applications
+SSOOIDC	/client /device_authorization /token
+SSOPortal	/assignment /federation /logout
 VPCLattice	/accesslogsubscriptions /authpolicy /domainverifications /resourceconfigurations /resourceendpointassociations /resourcegateways /resourcepolicy /servicenetworkresourceassociations /servicenetworks /servicenetworkvpcassociations /servicenetworkvpcendpointassociations /services /tags /targetgroups
 Xray	/CancelTraceRetrieval /CreateGroup /CreateSamplingRule /DeleteGroup /DeleteResourcePolicy /DeleteSamplingRule /EncryptionConfig /GetGroup /GetIndexingRules /GetRetrievedTracesGraph /GetSamplingRules /GetTraceSegmentDestination /Groups /Insight /ListResourcePolicies /ListRetrievedTraces /ListTagsForResource /PutEncryptionConfig /PutResourcePolicy /SamplingStatisticSummaries /SamplingTargets /ServiceGraph /StartTraceRetrieval /TagResource /TelemetryRecords /TimeSeriesServiceStatistics /TraceGraph /TraceSegments /TraceSummaries /Traces /UntagResource /UpdateGroup /UpdateIndexingRule /UpdateSamplingRule /UpdateTraceSegmentDestination

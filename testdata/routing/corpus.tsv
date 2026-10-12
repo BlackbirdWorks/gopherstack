@@ -14541,26 +14541,26 @@ POST	localhost:4566	/	ssm	application/x-amz-json-1.1	AmazonSSM.UpdatePatchBaseli
 POST	localhost:4566	/	ssm	application/x-amz-json-1.1	AmazonSSM.UpdateResourceDataSync	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssm#1.0.0	SSM	SSM
 POST	localhost:4566	/	ssm	application/x-amz-json-1.1	AmazonSSM.UpdateServiceSetting	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssm#1.0.0	SSM	SSM
 POST	localhost:4566	/	ssm	application/x-amz-json-1.1	AmazonSSM.ValidateCloudConnector	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssm#1.0.0	SSM	SSM
-GET	localhost:4566	/federation/credentials	awsssoportal				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	localhost:4566	/federation/credentials	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	awsssoportal.us-east-1.amazonaws.com	/federation/credentials	awsssoportal				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	localhost:4566	/federation/credentials?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fawsssoportal%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	localhost:4566	/federation/credentials						S3	S3
-GET	localhost:4566	/assignment/roles	awsssoportal				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	localhost:4566	/assignment/roles	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	awsssoportal.us-east-1.amazonaws.com	/assignment/roles	awsssoportal				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	localhost:4566	/assignment/roles?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fawsssoportal%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	localhost:4566	/assignment/roles						S3	S3
-GET	localhost:4566	/assignment/accounts	awsssoportal				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	localhost:4566	/assignment/accounts	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	awsssoportal.us-east-1.amazonaws.com	/assignment/accounts	awsssoportal				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	localhost:4566	/assignment/accounts?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fawsssoportal%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	localhost:4566	/assignment/accounts						S3	S3
-POST	localhost:4566	/logout	awsssoportal				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-POST	localhost:4566	/logout	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-POST	awsssoportal.us-east-1.amazonaws.com	/logout	awsssoportal				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-POST	localhost:4566	/logout?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fawsssoportal%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-POST	localhost:4566	/logout						S3	S3
+GET	localhost:4566	/federation/credentials	awsssoportal				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+GET	localhost:4566	/federation/credentials	execute-api				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
+GET	awsssoportal.us-east-1.amazonaws.com	/federation/credentials	awsssoportal				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+GET	localhost:4566	/federation/credentials?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fawsssoportal%2Faws4_request&X-Amz-Signature=00					X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+GET	localhost:4566	/federation/credentials					X-Amz-Sso_bearer_token:token	SSOPortal	SSOPortal
+GET	localhost:4566	/assignment/roles	awsssoportal				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+GET	localhost:4566	/assignment/roles	execute-api				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
+GET	awsssoportal.us-east-1.amazonaws.com	/assignment/roles	awsssoportal				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+GET	localhost:4566	/assignment/roles?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fawsssoportal%2Faws4_request&X-Amz-Signature=00					X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+GET	localhost:4566	/assignment/roles					X-Amz-Sso_bearer_token:token	SSOPortal	SSOPortal
+GET	localhost:4566	/assignment/accounts	awsssoportal				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+GET	localhost:4566	/assignment/accounts	execute-api				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
+GET	awsssoportal.us-east-1.amazonaws.com	/assignment/accounts	awsssoportal				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+GET	localhost:4566	/assignment/accounts?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fawsssoportal%2Faws4_request&X-Amz-Signature=00					X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+GET	localhost:4566	/assignment/accounts					X-Amz-Sso_bearer_token:token	SSOPortal	SSOPortal
+POST	localhost:4566	/logout	awsssoportal				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+POST	localhost:4566	/logout	execute-api				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
+POST	awsssoportal.us-east-1.amazonaws.com	/logout	awsssoportal				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+POST	localhost:4566	/logout?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fawsssoportal%2Faws4_request&X-Amz-Signature=00					X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+POST	localhost:4566	/logout					X-Amz-Sso_bearer_token:token	SSOPortal	SSOPortal
 POST	localhost:4566	/	sso	application/x-amz-json-1.1	SWBExternalService.AddRegion	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssoadmin#1.0.0	SsoAdmin	SsoAdmin
 POST	localhost:4566	/		application/x-amz-json-1.1	SWBExternalService.AddRegion	{}		SsoAdmin	SsoAdmin
 POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	SWBExternalService.AddRegion	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssoadmin#1.0.0	SsoAdmin	SsoAdmin
@@ -14672,26 +14672,26 @@ POST	localhost:4566	/	sso	application/x-amz-json-1.1	SWBExternalService.UpdateIn
 POST	localhost:4566	/	sso	application/x-amz-json-1.1	SWBExternalService.UpdateInstanceAccessControlAttributeConfiguration	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssoadmin#1.0.0	SsoAdmin	SsoAdmin
 POST	localhost:4566	/	sso	application/x-amz-json-1.1	SWBExternalService.UpdatePermissionSet	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssoadmin#1.0.0	SsoAdmin	SsoAdmin
 POST	localhost:4566	/	sso	application/x-amz-json-1.1	SWBExternalService.UpdateTrustedTokenIssuer	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssoadmin#1.0.0	SsoAdmin	SsoAdmin
-POST	localhost:4566	/token	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
+POST	localhost:4566	/token	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	SSOOIDC	SSOOIDC
 POST	localhost:4566	/token	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
-POST	sso-oauth.us-east-1.amazonaws.com	/token	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
+POST	sso-oauth.us-east-1.amazonaws.com	/token	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	SSOOIDC	SSOOIDC
 POST	localhost:4566	/token?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsso-oauth%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
-POST	localhost:4566	/token						S3	S3
-POST	localhost:4566	/token?aws_iam=t	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
+POST	localhost:4566	/token						SSOOIDC	SSOOIDC
+POST	localhost:4566	/token?aws_iam=t	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	SSOOIDC	SSOOIDC
 POST	localhost:4566	/token?aws_iam=t	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
-POST	sso-oauth.us-east-1.amazonaws.com	/token?aws_iam=t	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
+POST	sso-oauth.us-east-1.amazonaws.com	/token?aws_iam=t	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	SSOOIDC	SSOOIDC
 POST	localhost:4566	/token?aws_iam=t&X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsso-oauth%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
-POST	localhost:4566	/token?aws_iam=t						S3	S3
-POST	localhost:4566	/client/register	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
+POST	localhost:4566	/token?aws_iam=t						SSOOIDC	SSOOIDC
+POST	localhost:4566	/client/register	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	SSOOIDC	SSOOIDC
 POST	localhost:4566	/client/register	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
-POST	sso-oauth.us-east-1.amazonaws.com	/client/register	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
+POST	sso-oauth.us-east-1.amazonaws.com	/client/register	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	SSOOIDC	SSOOIDC
 POST	localhost:4566	/client/register?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsso-oauth%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
-POST	localhost:4566	/client/register						S3	S3
-POST	localhost:4566	/device_authorization	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
+POST	localhost:4566	/client/register						SSOOIDC	SSOOIDC
+POST	localhost:4566	/device_authorization	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	SSOOIDC	SSOOIDC
 POST	localhost:4566	/device_authorization	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
-POST	sso-oauth.us-east-1.amazonaws.com	/device_authorization	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
+POST	sso-oauth.us-east-1.amazonaws.com	/device_authorization	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	SSOOIDC	SSOOIDC
 POST	localhost:4566	/device_authorization?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsso-oauth%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
-POST	localhost:4566	/device_authorization						S3	S3
+POST	localhost:4566	/device_authorization						SSOOIDC	SSOOIDC
 POST	localhost:4566	/	sts	application/x-www-form-urlencoded		Action=AssumeRole&Version=2011-06-15	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sts#1.0.0	STS	STS
 POST	localhost:4566	/		application/x-www-form-urlencoded		Action=AssumeRole&Version=2011-06-15		STS	STS
 GET	localhost:4566	/?Action=AssumeRole&Version=2011-06-15	sts				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sts#1.0.0	S3	S3

@@ -71,7 +71,7 @@ func categoryGroups() []categoryGroup {
 		}},
 		{"Identity & Access", []string{
 			"accessanalyzer", "cognitoidentity", "cognitoidp", "directoryservice",
-			"iam", "identitystore", "rolesanywhere", "ssoadmin", "sts",
+			"iam", "identitystore", "rolesanywhere", "sso", "ssoadmin", "ssooidc", "sts",
 		}},
 		{"Management & Governance", []string{
 			"account", "appconfig", "appconfigdata", "applicationautoscaling",
@@ -306,7 +306,9 @@ func displayNamesD() map[string]string {
 		"sns":                 "SNS",
 		"sqs":                 "SQS",
 		"ssm":                 "Systems Manager",
+		"sso":                 "IAM Identity Center Portal",
 		"ssoadmin":            "IAM Identity Center (SSO)",
+		"ssooidc":             "IAM Identity Center OIDC",
 		"stepfunctions":       "Step Functions",
 		"sts":                 "STS",
 		"support":             "Support",

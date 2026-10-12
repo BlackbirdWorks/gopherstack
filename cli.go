@@ -221,7 +221,9 @@ import (
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
+	ssobackend "github.com/blackbirdworks/gopherstack/services/sso"
 	ssoadminbackend "github.com/blackbirdworks/gopherstack/services/ssoadmin"
+	ssooidcbackend "github.com/blackbirdworks/gopherstack/services/ssooidc"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
@@ -2426,6 +2428,7 @@ func buildEchoServer(
 	registerLocalstackDevEndpoints(e, services)
 	registerECSTaskEndpoints(e, services)
 	registerEC2IMDSEndpoints(e, services)
+	registerSSOEndpoints(e, services)
 	registerEC2NetworkEndpoints(e, services)
 	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
 	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))
@@ -3953,6 +3956,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	wireDirectConnectMacSecSecrets(byName)
 	wireMQResourceShares(byName)
 	wireEKSIdcApplications(byName)
+	wireSSO(byName)
 	wireMediaStoreDataContainers(byName)
 	wireECSAutoScaling(byName)
 	wireECSDeploymentHooks(byName)
@@ -4334,6 +4338,8 @@ func getMostRecentServiceProviders() []service.Provider {
 		&serverlessrepobackend.Provider{},
 		&shieldbackend.Provider{},
 		&ssoadminbackend.Provider{},
+		&ssooidcbackend.Provider{},
+		&ssobackend.Provider{},
 		&textractbackend.Provider{},
 		&comprehendbackend.Provider{},
 		&timestreamwritebackend.Provider{},

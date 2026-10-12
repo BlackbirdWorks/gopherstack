@@ -706,6 +706,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [IAM](services/iam/README.md) | A | 38 | 2 gaps; 4 structural gaps |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 1 gap; 5 structural gaps; 1 deferred |
 | [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 56 | 1 gap |
+| [IAM Identity Center OIDC](services/ssooidc/README.md) | B | 4 | 1 gap; 1 structural gap |
+| [IAM Identity Center Portal](services/sso/README.md) | B | 4 | 2 gaps; 1 structural gap |
 | [IAM Roles Anywhere](services/rolesanywhere/README.md) | A | 30 | 1 gap; 2 structural gaps |
 | [Identity Store](services/identitystore/README.md) | A | 19 | 2 gaps; 1 deferred |
 | [STS](services/sts/README.md) | A | 11 | 1 structural gap; 1 deferred |

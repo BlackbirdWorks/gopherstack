@@ -346,6 +346,7 @@ func errorProbeUnreachable() map[string]string {
 		"RDSData":                 "path-routed REST, no probe-safe ops",
 		"SageMaker":               "unknown-action probe only; ops dispatch on target prefix",
 		"SageMakerRuntime":        "path-routed REST",
+		"SSOOIDC":                 "path-routed REST, no probe-safe ops",
 	}
 }
 
