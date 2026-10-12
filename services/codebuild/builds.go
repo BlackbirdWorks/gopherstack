@@ -2,6 +2,7 @@ package codebuild
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -573,7 +574,7 @@ func recordSuccessfulPhases(build *Build, now float64) {
 			PhaseStatus:       buildStatusSucceeded,
 			StartTime:         begin,
 			EndTime:           end,
-			DurationInSeconds: end - begin,
+			DurationInSeconds: math.Trunc(end - begin),
 		})
 	}
 
