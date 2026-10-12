@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"net/http"
 	nhpprof "net/http/pprof"
@@ -3067,6 +3068,7 @@ func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable
 	// destinations to SNS, so bounce/complaint/delivery outcomes are
 	// actually published instead of silently validated-and-stored.
 	wireSESSNS(byName["SES"], byName["SNS"])
+	wireSESv2SNS(byName["SESv2"], byName["SNS"])
 
 	// Wire AWS Config's DeliverConfigSnapshot to S3 (and SNS, when a
 	// delivery channel has a topic configured) so snapshot delivery is real.
@@ -3874,6 +3876,11 @@ func wireCWLogsMetricEmitters(byName map[string]service.Registerable) {
 	wireCWInsightRuleLogs(byName["CloudWatchLogs"], byName["CloudWatch"])
 }
 
+func wireSSOAndRedshiftData(byName map[string]service.Registerable) {
+	wireSSO(byName)
+	wireRedshiftServerlessData(byName)
+}
+
 // wireStorageAndSecretsIntegrations wires Firehose delivery, DynamoDB→S3
 // import/export, MGN→S3 import, SageMaker→S3 pipeline definitions,
 // SecretsManager's Lambda rotation invoker and KMS encryption, and IoT rule
@@ -3956,7 +3963,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	wireDirectConnectMacSecSecrets(byName)
 	wireMQResourceShares(byName)
 	wireEKSIdcApplications(byName)
-	wireSSO(byName)
+	wireSSOAndRedshiftData(byName)
 	wireMediaStoreDataContainers(byName)
 	wireECSAutoScaling(byName)
 	wireECSDeploymentHooks(byName)
@@ -5087,6 +5094,32 @@ func wireSESSNS(sesReg, snsReg service.Registerable) {
 	}
 
 	sesBk, sesBkOk := sesH.Backend.(*sesbackend.InMemoryBackend)
+	if !sesBkOk {
+		return
+	}
+
+	snsH, snsOk := snsReg.(*snsbackend.Handler)
+	if !snsOk {
+		return
+	}
+
+	snsBk, snsBkOk := snsH.Backend.(*snsbackend.InMemoryBackend)
+	if !snsBkOk {
+		return
+	}
+
+	sesBk.SetSNSPublisher(&sesSNSPublisherAdapter{backend: snsBk})
+}
+
+// wireSESv2SNS connects the SESv2 backend to SNS so configuration-set SNS
+// event destinations receive Send and Delivery events on SendEmail.
+func wireSESv2SNS(sesReg, snsReg service.Registerable) {
+	sesH, ok := sesReg.(*sesv2backend.Handler)
+	if !ok {
+		return
+	}
+
+	sesBk, sesBkOk := sesH.Backend.(*sesv2backend.InMemoryBackend)
 	if !sesBkOk {
 		return
 	}
@@ -7674,11 +7707,7 @@ func (a *dynamoDBAdapter) GetItemRaw(
 		Key:       sdkKey,
 	})
 	if err != nil {
-		return nil, err
-	}
-
-	if len(out.Item) == 0 {
-		return map[string]any{}, nil
+		return nil, appsyncDDBError(err)
 	}
 
 	return ddbmodels.FromSDKItem(out.Item), nil
@@ -7688,18 +7717,319 @@ func (a *dynamoDBAdapter) PutItemRaw(
 	ctx context.Context,
 	tableName string,
 	item map[string]any,
+	cond *appsyncbackend.DDBExpression,
 ) error {
 	sdkItem, err := ddbmodels.ToSDKItem(item)
 	if err != nil {
 		return fmt.Errorf("appsync ddb adapter: marshal item: %w", err)
 	}
 
-	_, err = a.db.PutItem(ctx, &dynamodb.PutItemInput{
-		TableName: &tableName,
-		Item:      sdkItem,
-	})
+	in := &dynamodb.PutItemInput{TableName: &tableName, Item: sdkItem}
+	if cond != nil {
+		if in.ConditionExpression, in.ExpressionAttributeNames, in.ExpressionAttributeValues, err =
+			appsyncExpr(cond); err != nil {
+			return err
+		}
+	}
 
-	return err
+	_, err = a.db.PutItem(ctx, in)
+
+	return appsyncDDBError(err)
+}
+
+func (a *dynamoDBAdapter) UpdateItemRaw(
+	ctx context.Context,
+	tableName string,
+	key map[string]any,
+	update appsyncbackend.DDBExpression,
+	cond *appsyncbackend.DDBExpression,
+) (map[string]any, error) {
+	sdkKey, err := ddbmodels.ToSDKItem(key)
+	if err != nil {
+		return nil, fmt.Errorf("appsync ddb adapter: marshal key: %w", err)
+	}
+
+	in := &dynamodb.UpdateItemInput{
+		TableName: &tableName, Key: sdkKey, ReturnValues: ddbsdktypes.ReturnValueAllNew,
+	}
+
+	names, values := maps.Clone(update.Names), maps.Clone(update.Values)
+	if names == nil {
+		names = map[string]string{}
+	}
+
+	if values == nil {
+		values = map[string]any{}
+	}
+
+	in.UpdateExpression = &update.Expression
+
+	if cond != nil {
+		in.ConditionExpression = &cond.Expression
+
+		maps.Copy(names, cond.Names)
+		maps.Copy(values, cond.Values)
+	}
+
+	if len(names) > 0 {
+		in.ExpressionAttributeNames = names
+	}
+
+	if len(values) > 0 {
+		if in.ExpressionAttributeValues, err = ddbmodels.ToSDKItem(values); err != nil {
+			return nil, fmt.Errorf("appsync ddb adapter: marshal values: %w", err)
+		}
+	}
+
+	out, err := a.db.UpdateItem(ctx, in)
+	if err != nil {
+		return nil, appsyncDDBError(err)
+	}
+
+	return ddbmodels.FromSDKItem(out.Attributes), nil
+}
+
+func (a *dynamoDBAdapter) DeleteItemRaw(
+	ctx context.Context,
+	tableName string,
+	key map[string]any,
+	cond *appsyncbackend.DDBExpression,
+) (map[string]any, error) {
+	sdkKey, err := ddbmodels.ToSDKItem(key)
+	if err != nil {
+		return nil, fmt.Errorf("appsync ddb adapter: marshal key: %w", err)
+	}
+
+	in := &dynamodb.DeleteItemInput{TableName: &tableName, Key: sdkKey, ReturnValues: ddbsdktypes.ReturnValueAllOld}
+	if cond != nil {
+		if in.ConditionExpression, in.ExpressionAttributeNames, in.ExpressionAttributeValues, err =
+			appsyncExpr(cond); err != nil {
+			return nil, err
+		}
+	}
+
+	out, err := a.db.DeleteItem(ctx, in)
+	if err != nil {
+		return nil, appsyncDDBError(err)
+	}
+
+	return ddbmodels.FromSDKItem(out.Attributes), nil
+}
+
+func (a *dynamoDBAdapter) QueryRaw(ctx context.Context, q *appsyncbackend.DDBQuery) (*appsyncbackend.DDBPage, error) {
+	in := &dynamodb.QueryInput{
+		TableName:        &q.Table,
+		Limit:            &q.Limit,
+		ConsistentRead:   &q.Consistent,
+		ScanIndexForward: aws.Bool(!q.Descending),
+	}
+
+	if q.Index != "" {
+		in.IndexName = &q.Index
+	}
+
+	in.KeyConditionExpression = &q.KeyCondition
+
+	if q.Filter != "" {
+		in.FilterExpression = &q.Filter
+	}
+
+	var err error
+
+	in.ExpressionAttributeNames, in.ExpressionAttributeValues, in.ExclusiveStartKey, err = appsyncQueryArgs(q)
+	if err != nil {
+		return nil, err
+	}
+
+	out, err := a.db.Query(ctx, in)
+	if err != nil {
+		return nil, appsyncDDBError(err)
+	}
+
+	return appsyncPage(out.Items, out.LastEvaluatedKey, out.ScannedCount), nil
+}
+
+func (a *dynamoDBAdapter) ScanRaw(ctx context.Context, q *appsyncbackend.DDBQuery) (*appsyncbackend.DDBPage, error) {
+	in := &dynamodb.ScanInput{TableName: &q.Table, Limit: &q.Limit, ConsistentRead: &q.Consistent}
+	if q.Index != "" {
+		in.IndexName = &q.Index
+	}
+
+	if q.Filter != "" {
+		in.FilterExpression = &q.Filter
+	}
+
+	var err error
+
+	in.ExpressionAttributeNames, in.ExpressionAttributeValues, in.ExclusiveStartKey, err = appsyncQueryArgs(q)
+	if err != nil {
+		return nil, err
+	}
+
+	out, err := a.db.Scan(ctx, in)
+	if err != nil {
+		return nil, appsyncDDBError(err)
+	}
+
+	return appsyncPage(out.Items, out.LastEvaluatedKey, out.ScannedCount), nil
+}
+
+func (a *dynamoDBAdapter) BatchGetItemRaw(
+	ctx context.Context,
+	keys map[string][]map[string]any,
+) (map[string][]map[string]any, error) {
+	req := make(map[string]ddbsdktypes.KeysAndAttributes, len(keys))
+
+	for table, list := range keys {
+		sdkKeys := make([]map[string]ddbsdktypes.AttributeValue, len(list))
+
+		for i, k := range list {
+			sk, err := ddbmodels.ToSDKItem(k)
+			if err != nil {
+				return nil, fmt.Errorf("appsync ddb adapter: marshal key: %w", err)
+			}
+
+			sdkKeys[i] = sk
+		}
+
+		req[table] = ddbsdktypes.KeysAndAttributes{Keys: sdkKeys}
+	}
+
+	out, err := a.db.BatchGetItem(ctx, &dynamodb.BatchGetItemInput{RequestItems: req})
+	if err != nil {
+		return nil, appsyncDDBError(err)
+	}
+
+	res := make(map[string][]map[string]any, len(out.Responses))
+	for table, items := range out.Responses {
+		for _, it := range items {
+			res[table] = append(res[table], ddbmodels.FromSDKItem(it))
+		}
+	}
+
+	return res, nil
+}
+
+func (a *dynamoDBAdapter) BatchWriteItemRaw(
+	ctx context.Context,
+	writes map[string][]appsyncbackend.DDBWrite,
+) error {
+	req := make(map[string][]ddbsdktypes.WriteRequest, len(writes))
+
+	for table, list := range writes {
+		for _, w := range list {
+			if w.Item != nil {
+				item, err := ddbmodels.ToSDKItem(w.Item)
+				if err != nil {
+					return fmt.Errorf("appsync ddb adapter: marshal item: %w", err)
+				}
+
+				req[table] = append(
+					req[table],
+					ddbsdktypes.WriteRequest{PutRequest: &ddbsdktypes.PutRequest{Item: item}},
+				)
+
+				continue
+			}
+
+			key, err := ddbmodels.ToSDKItem(w.Key)
+			if err != nil {
+				return fmt.Errorf("appsync ddb adapter: marshal key: %w", err)
+			}
+
+			req[table] = append(
+				req[table],
+				ddbsdktypes.WriteRequest{DeleteRequest: &ddbsdktypes.DeleteRequest{Key: key}},
+			)
+		}
+	}
+
+	out, err := a.db.BatchWriteItem(ctx, &dynamodb.BatchWriteItemInput{RequestItems: req})
+	if err != nil {
+		return appsyncDDBError(err)
+	}
+
+	if len(out.UnprocessedItems) > 0 {
+		return &appsyncbackend.DynamoDBError{
+			Code: "ProvisionedThroughputExceededException", Message: "batch write left unprocessed items",
+		}
+	}
+
+	return nil
+}
+
+func appsyncExpr(
+	c *appsyncbackend.DDBExpression,
+) (*string, map[string]string, map[string]ddbsdktypes.AttributeValue, error) {
+	var values map[string]ddbsdktypes.AttributeValue
+
+	if len(c.Values) > 0 {
+		var err error
+		if values, err = ddbmodels.ToSDKItem(c.Values); err != nil {
+			return nil, nil, nil, fmt.Errorf("appsync ddb adapter: marshal values: %w", err)
+		}
+	}
+
+	return &c.Expression, c.Names, values, nil
+}
+
+func appsyncQueryArgs(
+	q *appsyncbackend.DDBQuery,
+) (map[string]string, map[string]ddbsdktypes.AttributeValue, map[string]ddbsdktypes.AttributeValue, error) {
+	var values, start map[string]ddbsdktypes.AttributeValue
+
+	var err error
+
+	if len(q.Values) > 0 {
+		if values, err = ddbmodels.ToSDKItem(q.Values); err != nil {
+			return nil, nil, nil, fmt.Errorf("appsync ddb adapter: marshal values: %w", err)
+		}
+	}
+
+	if len(q.StartKey) > 0 {
+		if start, err = ddbmodels.ToSDKItem(q.StartKey); err != nil {
+			return nil, nil, nil, fmt.Errorf("appsync ddb adapter: marshal start key: %w", err)
+		}
+	}
+
+	var names map[string]string
+	if len(q.Names) > 0 {
+		names = q.Names
+	}
+
+	return names, values, start, nil
+}
+
+func appsyncPage(
+	items []map[string]ddbsdktypes.AttributeValue,
+	last map[string]ddbsdktypes.AttributeValue,
+	scanned int32,
+) *appsyncbackend.DDBPage {
+	page := &appsyncbackend.DDBPage{ScannedCount: int(scanned)}
+	for _, it := range items {
+		page.Items = append(page.Items, ddbmodels.FromSDKItem(it))
+	}
+
+	if len(last) > 0 {
+		page.LastKey = ddbmodels.FromSDKItem(last)
+	}
+
+	return page
+}
+
+// appsyncDDBError maps a DynamoDB wire error to the typed error AppSync reports.
+func appsyncDDBError(err error) error {
+	var wireErr *ddbbackend.Error
+	if !errors.As(err, &wireErr) {
+		return err
+	}
+
+	code := wireErr.Type
+	if i := strings.LastIndex(code, "#"); i >= 0 {
+		code = code[i+1:]
+	}
+
+	return &appsyncbackend.DynamoDBError{Code: code, Message: wireErr.Message}
 }
 
 func (d *iotRuleDispatcher) InvokeLambda(

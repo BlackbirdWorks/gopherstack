@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -68,11 +69,12 @@ var (
 
 // Handler is the HTTP handler for the AWS Redshift Data API.
 type Handler struct {
-	Backend   StorageBackend
-	janitor   *Janitor
-	idem      *idempotency.Memo
-	AccountID string
-	Region    string
+	Backend    StorageBackend
+	janitor    *Janitor
+	idem       *idempotency.Memo
+	workgroups atomic.Pointer[resolverHolder]
+	AccountID  string
+	Region     string
 }
 
 // regionFromRequest resolves the AWS region for a request from its SigV4

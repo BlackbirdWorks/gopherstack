@@ -164,7 +164,7 @@ func (h *Handler) handleGraphQL(ctx context.Context, c *echo.Context, apiID stri
 		}
 
 		return c.JSON(http.StatusOK, graphqlResponse{
-			Errors: []graphqlError{{Message: execErr.Error()}},
+			Errors: []graphqlError{newGraphQLError(execErr)},
 		})
 	}
 

@@ -33,6 +33,10 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if err := h.checkWorkgroup(ctx, req.WorkgroupName); err != nil {
+		return nil, err
+	}
+
 	if err := validateWaitTimeSeconds(req.WaitTimeSeconds); err != nil {
 		return nil, err
 	}
@@ -115,6 +119,10 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := h.checkWorkgroup(ctx, req.WorkgroupName); err != nil {
+		return nil, err
 	}
 
 	if err := validateWaitTimeSeconds(req.WaitTimeSeconds); err != nil {

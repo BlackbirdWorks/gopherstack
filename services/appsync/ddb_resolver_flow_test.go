@@ -13,6 +13,7 @@ import (
 )
 
 type idKeyedDDB struct {
+	appsync.DynamoDBBackend
 	items map[string]map[string]any
 	mu    sync.Mutex
 }
@@ -35,7 +36,7 @@ func (d *idKeyedDDB) GetItemRaw(_ context.Context, _ string, key map[string]any)
 	return map[string]any{}, nil
 }
 
-func (d *idKeyedDDB) PutItemRaw(_ context.Context, _ string, item map[string]any) error {
+func (d *idKeyedDDB) PutItemRaw(_ context.Context, _ string, item map[string]any, _ *appsync.DDBExpression) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 

@@ -101,7 +101,7 @@ func ddbPutItem(request map[string]any) map[string]any {
 		return item
 	}
 
-	item := make(map[string]any, len(key)+len(attrs))
+	item := make(map[string]any)
 	maps.Copy(item, key)
 	maps.Copy(item, attrs)
 

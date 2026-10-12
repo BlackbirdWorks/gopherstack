@@ -654,7 +654,15 @@ func pluginView(inv CommandInvocation, name string) (CommandInvocation, bool, er
 }
 
 func clampInt32(n int) int32 {
-	return int32(max(math.MinInt32, min(math.MaxInt32, n)))
+	if n > math.MaxInt32 {
+		return math.MaxInt32
+	}
+
+	if n < math.MinInt32 {
+		return math.MinInt32
+	}
+
+	return int32(n)
 }
 
 type renderedOutput struct {

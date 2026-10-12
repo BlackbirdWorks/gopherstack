@@ -124,6 +124,7 @@ type LifecycleSettings struct {
 	IoTWireless                  time.Duration `name:"iotwireless"                    env:"IOTWIRELESS_LIFECYCLE_DELAY"          default:"0s" help:"IoT Wireless FUOTA task FuotaSession_Waiting/In_FuotaSession stage window."`                          //nolint:lll // config struct tags are intentionally verbose
 	Account                      time.Duration `name:"account"                        env:"ACCOUNT_LIFECYCLE_DELAY"              default:"0s" help:"Account region ENABLING/DISABLING window (built-in 100ms)."`                                          //nolint:lll // config struct tags are intentionally verbose
 	RedshiftData                 time.Duration `name:"redshiftdata"                   env:"REDSHIFTDATA_LIFECYCLE_DELAY"         default:"0s" help:"Redshift Data statement SUBMITTED/STARTED window before FINISHED."`                                   //nolint:lll // config struct tags are intentionally verbose
+	RedshiftServerless           time.Duration `name:"redshiftserverless"             env:"REDSHIFTSERVERLESS_LIFECYCLE_DELAY"   default:"0s" help:"Redshift Serverless workgroup CREATING/MODIFYING/DELETING and namespace MODIFYING/DELETING window."`  //nolint:lll // config struct tags are intentionally verbose
 	DAX                          time.Duration `name:"dax"                            env:"DAX_LIFECYCLE_DELAY"                  default:"0s" help:"DAX cluster and node creating/modifying/deleting window (built-in 1s)."`                              //nolint:lll // config struct tags are intentionally verbose
 	Pinpoint                     time.Duration `name:"pinpoint"                       env:"PINPOINT_LIFECYCLE_DELAY"             default:"0s" help:"Pinpoint export/import job CREATED/PROCESSING window before COMPLETED."`                              //nolint:lll // config struct tags are intentionally verbose
 	Autoscaling                  time.Duration `name:"autoscaling"                    env:"AUTOSCALING_LAUNCH_DELAY"             default:"0s" help:"Auto Scaling instance Pending window before InService."`                                              //nolint:lll // config struct tags are intentionally verbose
@@ -738,15 +739,18 @@ func applyCodeStarConnections(reg service.Registerable, l LifecycleSettings) {
 // initialized service backends; zero values leave services instant.
 func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSettings) {
 	appliers := map[string]lifecycleApplier{
-		"OpenSearch":          applyOpenSearch,
-		"ElastiCache":         applyElastiCache,
-		"MemoryDB":            applyMemoryDB,
-		"Lambda":              applyLambda,
-		"ECS":                 applyECS,
-		"MediaStore":          applyMediaStore,
-		"EFS":                 applyEFS,
-		"Redshift":            applyRedshift,
-		"RedshiftData":        applyRedshiftData,
+		"OpenSearch":   applyOpenSearch,
+		"ElastiCache":  applyElastiCache,
+		"MemoryDB":     applyMemoryDB,
+		"Lambda":       applyLambda,
+		"ECS":          applyECS,
+		"MediaStore":   applyMediaStore,
+		"EFS":          applyEFS,
+		"Redshift":     applyRedshift,
+		"RedshiftData": applyRedshiftData,
+		"RedshiftServerless": func(r service.Registerable, l LifecycleSettings) {
+			applyRedshiftServerless(r, l.effective(l.RedshiftServerless))
+		},
 		"DAX":                 applyDAX,
 		"VPCLattice":          applyVPCLattice,
 		"KafkaConnect":        applyKafkaConnect,

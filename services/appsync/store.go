@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/binary"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -24,12 +25,70 @@ type JWKSProvider interface {
 	GetJWTPublicKey(issuerURL, kid string) (*rsa.PublicKey, error)
 }
 
-// DynamoDBBackend is the minimal DynamoDB interface needed for DynamoDB resolvers.
+// DDBExpression is a DynamoDB expression with its placeholder substitutions;
+// Values are wire-form attribute values ({"S":"x"}).
+type DDBExpression struct {
+	Names      map[string]string
+	Values     map[string]any
+	Expression string
+}
+
+// DDBQuery is a Query or Scan request; Values are wire-form attribute values.
+type DDBQuery struct {
+	Names        map[string]string
+	Values       map[string]any
+	StartKey     map[string]any
+	Table        string
+	Index        string
+	KeyCondition string
+	Filter       string
+	Limit        int32
+	Descending   bool
+	Consistent   bool
+}
+
+// DDBPage is one Query or Scan page; items and LastKey are in wire form.
+type DDBPage struct {
+	LastKey      map[string]any
+	Items        []map[string]any
+	ScannedCount int
+}
+
+// DDBWrite is one BatchWriteItem entry: a put (Item) or a delete (Key).
+type DDBWrite struct {
+	Item map[string]any
+	Key  map[string]any
+}
+
+// DynamoDBError is a DynamoDB service error surfaced to the resolver; Code is
+// the bare error code (e.g. "ConditionalCheckFailedException").
+type DynamoDBError struct {
+	Code    string
+	Message string
+}
+
+func (e *DynamoDBError) Error() string {
+	return fmt.Sprintf("%s (Service: AmazonDynamoDBv2; Status Code: 400; Error Code: %s)", e.Message, e.Code)
+}
+
+// DynamoDBBackend is the DynamoDB interface needed for DynamoDB resolvers.
+// Items and keys are wire-form ({"S":"x"}) maps.
 type DynamoDBBackend interface {
-	// GetItemRaw executes a DynamoDB GetItem and returns raw JSON bytes.
 	GetItemRaw(ctx context.Context, tableName string, key map[string]any) (map[string]any, error)
-	// PutItemRaw executes a DynamoDB PutItem with the given item.
-	PutItemRaw(ctx context.Context, tableName string, item map[string]any) error
+	PutItemRaw(ctx context.Context, tableName string, item map[string]any, cond *DDBExpression) error
+	// UpdateItemRaw returns the item as it is after the update.
+	UpdateItemRaw(
+		ctx context.Context, tableName string, key map[string]any, update DDBExpression, cond *DDBExpression,
+	) (map[string]any, error)
+	// DeleteItemRaw returns the deleted item, or an empty map when none existed.
+	DeleteItemRaw(
+		ctx context.Context, tableName string, key map[string]any, cond *DDBExpression,
+	) (map[string]any, error)
+	QueryRaw(ctx context.Context, q *DDBQuery) (*DDBPage, error)
+	ScanRaw(ctx context.Context, q *DDBQuery) (*DDBPage, error)
+	// BatchGetItemRaw returns the items found per table, in no particular order.
+	BatchGetItemRaw(ctx context.Context, keys map[string][]map[string]any) (map[string][]map[string]any, error)
+	BatchWriteItemRaw(ctx context.Context, writes map[string][]DDBWrite) error
 }
 
 // StorageBackend defines the interface for AppSync storage operations.

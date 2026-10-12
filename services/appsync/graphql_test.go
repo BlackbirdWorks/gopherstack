@@ -476,7 +476,7 @@ func TestInMemoryBackend_ExecuteGraphQL_DynamoDBResolver_UnsupportedOperation(t 
 	_, _ = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
 		FieldName:              "getItem",
 		DataSourceName:         "DDBDataSource",
-		RequestMappingTemplate: `{"operation": "Scan"}`,
+		RequestMappingTemplate: `{"operation": "Sync"}`,
 	})
 
 	_, err := b.ExecuteGraphQL(t.Context(), api.APIID, `query { getItem(id: "1") }`, "", nil, auth)

@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-func (h *Handler) handleListDatabases(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleListDatabases(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Database          string `json:"Database"`
 		WorkgroupName     string `json:"WorkgroupName"`
@@ -19,6 +19,10 @@ func (h *Handler) handleListDatabases(_ context.Context, body []byte) ([]byte, e
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := h.checkWorkgroup(ctx, req.WorkgroupName); err != nil {
+		return nil, err
 	}
 
 	if req.Database == "" {
@@ -39,7 +43,7 @@ func (h *Handler) handleListDatabases(_ context.Context, body []byte) ([]byte, e
 	return json.Marshal(resp)
 }
 
-func (h *Handler) handleListSchemas(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleListSchemas(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Database          string `json:"Database"`
 		WorkgroupName     string `json:"WorkgroupName"`
@@ -60,6 +64,10 @@ func (h *Handler) handleListSchemas(_ context.Context, body []byte) ([]byte, err
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := h.checkWorkgroup(ctx, req.WorkgroupName); err != nil {
+		return nil, err
 	}
 
 	if req.Database == "" {

@@ -38,6 +38,16 @@ const (
 	leakRegions         = 30
 )
 
+// skipLeakInShort keeps the minutes-long -race leak suite out of the sharded
+// -short unit run; the dedicated `leak-test` target and CI job run it.
+func skipLeakInShort(t *testing.T) {
+	t.Helper()
+
+	if testing.Short() {
+		t.Skip("leak suite runs via `make leak-test`")
+	}
+}
+
 type leakSnapshot struct {
 	goroutines int
 	heapAlloc  uint64
@@ -173,6 +183,8 @@ func leakDDB(env *leakEnv) *sdkdynamodb.Client {
 
 //nolint:paralleltest // measures process-wide heap and goroutine counts
 func TestLeakS3(t *testing.T) {
+	skipLeakInShort(t)
+
 	budget := leakBudget{heapBytes: 1 << 20, heapObjs: 10_000, series: 40}
 	ctx := context.Background()
 	payload := bytes.Repeat([]byte("l"), 8<<10)
@@ -424,6 +436,8 @@ func leakKey(i int) map[string]ddbtypes.AttributeValue {
 
 //nolint:paralleltest // measures process-wide heap and goroutine counts
 func TestLeakDynamoDB(t *testing.T) {
+	skipLeakInShort(t)
+
 	budget := leakBudget{heapBytes: 1 << 20, heapObjs: 10_000, series: 40}
 	ctx := context.Background()
 
@@ -618,6 +632,8 @@ func TestLeakDynamoDB(t *testing.T) {
 
 //nolint:paralleltest // measures process-wide heap and goroutine counts
 func TestLeakDynamoDBStreamsRead(t *testing.T) {
+	skipLeakInShort(t)
+
 	ctx := context.Background()
 	env := newLeakEnv(t)
 	c := leakDDB(env)
@@ -654,6 +670,8 @@ func TestLeakDynamoDBStreamsRead(t *testing.T) {
 
 //nolint:paralleltest // measures process-wide heap and goroutine counts
 func TestLeakMiddlewareCardinality(t *testing.T) {
+	skipLeakInShort(t)
+
 	ctx := context.Background()
 	env := newLeakEnv(t)
 	s3c := leakS3(env)

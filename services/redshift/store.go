@@ -109,6 +109,7 @@ type InMemoryBackend struct {
 	// TableRestoreRequestID; intentionally never persisted, same rationale as
 	// clusterTransitions.
 	tableRestoreReadyAt     map[string]time.Time
+	slPending               map[string]*slTransition
 	mu                      *lockmetrics.RWMutex
 	reconcileStop           chan struct{}
 	region                  string
@@ -126,6 +127,7 @@ type InMemoryBackend struct {
 	slReservationIdx        sortedStringIndex
 	reconcileWG             sync.WaitGroup
 	clusterActivationDelay  time.Duration
+	slLifecycleDelay        time.Duration
 	reconcileInterval       time.Duration
 	reconcileMu             sync.Mutex
 	reconcileOn             bool
@@ -139,6 +141,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		snapshotCopyConfigs: make(map[string]*SnapshotCopyConfig),
 		clusterTransitions:  make(map[string]*clusterTransition),
 		tableRestoreReadyAt: make(map[string]time.Time),
+		slPending:           make(map[string]*slTransition),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("redshift"),
@@ -165,6 +168,7 @@ func (b *InMemoryBackend) Reset() {
 	b.snapshotCopyConfigs = make(map[string]*SnapshotCopyConfig)
 	b.clusterTransitions = make(map[string]*clusterTransition)
 	b.tableRestoreReadyAt = make(map[string]time.Time)
+	b.slPending = make(map[string]*slTransition)
 	b.resetServerlessIndexes()
 }
 
