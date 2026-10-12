@@ -289,6 +289,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.queryResults = restoreQueryResults(snap.QueryResults)
+	b.failInterruptedExecutionsLocked()
 
 	if snap.TableData == nil {
 		snap.TableData = make(map[string][]map[string]any)
@@ -377,4 +378,18 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 		func(p *Handler, d []byte) error { return p.Restore(ctx, d) },
 		(*Handler).closePeer,
 	)
+}
+
+// failInterruptedExecutionsLocked fails executions that were QUEUED or RUNNING
+// when the snapshot was taken: their engine goroutine does not survive a restart.
+func (b *InMemoryBackend) failInterruptedExecutionsLocked() {
+	for _, qe := range b.queryExecutions.All() {
+		if isTerminalExecution(qe.Status.State) {
+			continue
+		}
+
+		qe.Status.State = stateFailed
+		qe.Status.StateChangeReason = "Query was interrupted by a restart"
+		qe.Status.CompletionDateTime = nowSeconds()
+	}
 }

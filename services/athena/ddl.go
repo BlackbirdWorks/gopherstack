@@ -64,6 +64,10 @@ func (b *InMemoryBackend) executeStatement(
 	trimmed := strings.TrimSpace(query)
 	upper := strings.ToUpper(trimmed)
 
+	if res, out, handled := b.execCatalogStatement(trimmed, ctx); handled {
+		return res, out
+	}
+
 	switch {
 	case hasKeyword(upper, "SELECT"), hasKeyword(upper, "WITH"):
 		if out := b.missingSelectTable(trimmed, ctx); out.failed {

@@ -661,7 +661,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Athena](services/athena/README.md) | A | 25 | 1 gap; 5 structural gaps; 1 deferred |
+| [Athena](services/athena/README.md) | A | 26 | 1 gap; 6 structural gaps; 1 deferred |
 | [Clean Rooms](services/cleanrooms/README.md) | A | — | 17 families; 5 structural gaps |
 | [EMR](services/emr/README.md) | A | 65 | 7 structural gaps |
 | [EMR Serverless](services/emrserverless/README.md) | A | 22 | 1 structural gap |

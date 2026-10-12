@@ -27,6 +27,8 @@ func (b *InMemoryBackend) StartQueryExecution(
 		workGroup = defaultWorkGroup
 	}
 
+	plan, planOutcome, planned := b.planEngineQuery(query, ctx)
+
 	var id string
 
 	var startErr error
@@ -55,6 +57,10 @@ func (b *InMemoryBackend) StartQueryExecution(
 
 		id = randomID()
 		qe := newQueryExecution(id, query, workGroup, ctx, rc, execParams, reuseCfg, reused)
+		if planned && !planOutcome.failed {
+			qe.Status.State = stateQueued
+			qe.Status.CompletionDateTime = 0
+		}
 
 		if m := wg.Configuration.ManagedResults; m != nil && m.Enabled {
 			cp := *m
@@ -66,6 +72,20 @@ func (b *InMemoryBackend) StartQueryExecution(
 
 	if startErr != nil {
 		return "", startErr
+	}
+
+	if planned && !planOutcome.failed {
+		b.startEngineQuery(id, plan)
+
+		return id, nil
+	}
+
+	if planned {
+		b.mu.Lock("StartQueryExecution-planFailed")
+		b.finalizeExecution(id, nil, planOutcome)
+		b.mu.Unlock()
+
+		return id, nil
 	}
 
 	// Execute the statement outside the write-lock. executeStatement acquires
@@ -288,6 +308,8 @@ func (b *InMemoryBackend) StopQueryExecution(id string) error {
 	}
 
 	qe.Status.State = stateCancelled
+	qe.Status.CompletionDateTime = nowSeconds()
+	b.cancelEngineQuery(id)
 
 	return nil
 }
