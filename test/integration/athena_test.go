@@ -167,7 +167,10 @@ func TestIntegration_Athena_DDLAndDMLQueryLifecycle(t *testing.T) {
 		listOut, lerr := s3Client.ListObjectsV2(cleanupCtx, &s3.ListObjectsV2Input{Bucket: aws.String(bucket)})
 		if lerr == nil {
 			for _, obj := range listOut.Contents {
-				_, _ = s3Client.DeleteObject(cleanupCtx, &s3.DeleteObjectInput{Bucket: aws.String(bucket), Key: obj.Key})
+				_, _ = s3Client.DeleteObject(
+					cleanupCtx,
+					&s3.DeleteObjectInput{Bucket: aws.String(bucket), Key: obj.Key},
+				)
 			}
 		}
 
