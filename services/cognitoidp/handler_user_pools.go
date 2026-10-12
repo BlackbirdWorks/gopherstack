@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // poolToData converts a UserPool to the userPoolData wire format.
@@ -183,7 +184,11 @@ func (h *Handler) handleCreateUserPoolWithOpts(
 	_ context.Context,
 	in *createUserPoolWithOptsInput,
 ) (*createUserPoolWithOptsOutput, error) {
+	pinnedID, poolTags := tags.PinnedIDFromMap(in.UserPoolTags)
+	in.UserPoolTags = poolTags
+
 	opts := UserPoolOptions{
+		PinnedPoolID:           pinnedID,
 		AutoVerifiedAttributes: in.AutoVerifiedAttributes,
 		LambdaConfig:           in.LambdaConfig,
 		EmailConfiguration:     in.EmailConfiguration,
@@ -282,6 +287,10 @@ func (h *Handler) handleUpdateUserPoolWithOpts(
 		if err := validateSignInPolicy(opts.SignInPolicy); err != nil {
 			return nil, err
 		}
+	}
+
+	if err := rejectPinnedIDTag(in.UserPoolTags); err != nil {
+		return nil, err
 	}
 
 	if err := h.Backend.UpdateUserPoolWithOpts(in.UserPoolID, in.MfaConfiguration, opts); err != nil {

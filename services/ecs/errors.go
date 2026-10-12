@@ -28,6 +28,8 @@ var (
 	// ErrNotFound/ErrAlreadyExists/ErrInvalidParameter kinds to 400; the wire
 	// code is still the real SDK's ResourceInUseException.
 	ErrCapacityProviderInUse = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
+	// ErrTaskIDInUse is returned when a gopherstack:id tag pins an already-used task ID.
+	ErrTaskIDInUse = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
 	// ErrClusterContainsServices is returned by DeleteCluster when the cluster
 	// still has services; they must be deleted first.
 	ErrClusterContainsServices = awserr.New("ClusterContainsServicesException", awserr.ErrInvalidParameter)

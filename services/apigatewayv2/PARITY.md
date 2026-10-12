@@ -1096,3 +1096,7 @@ UpdateIntegration TimeoutInMillis is a pointer: omitted keeps the stored value, 
 - CORS: headers only for an allowed Origin; Allow-Methods/Headers/Max-Age only on preflight; credentials echo the origin. Gateway errors (404, 500) are `{"message":...}` JSON.
 - CreateApi with Target and no RouteKey creates the `$default` route (CreateApiInput.RouteKey doc). Tests: http_proxy_flows_test.go, Test_CreateAPI_QuickCreate_DefaultRouteKey.
 - Not probed: WebSocket $connect/@connections (needs a Lambda runtime; covered by existing unit tests).
+
+## 2026-10-11 reserved ID-pinning tag (gopherstack-cefu7.23)
+
+`CreateApi` honours the emulator-only `gopherstack:id` tag to pin the API ID (10 lowercase alphanumerics). The tag is consumed, never stored or listed; a malformed ID returns `BadRequestException`, a reused ID `ConflictException` (409), and `TagResource` rejects the key. See docs/pinned-ids.md.

@@ -82,6 +82,7 @@ type UserPoolOptions struct {
 	SignInPolicy           *SignInPolicy     `json:"signInPolicy,omitempty"`
 	Settings               PoolSettings      `json:"settings,omitzero"`
 	PoolName               string            `json:"poolName,omitempty"`
+	PinnedPoolID           string            `json:"-"`
 	DeletionProtection     string            `json:"deletionProtection,omitempty"`
 	MfaConfiguration       string            `json:"mfaConfiguration,omitempty"`
 	AutoVerifiedAttributes []string          `json:"autoVerifiedAttributes,omitempty"`

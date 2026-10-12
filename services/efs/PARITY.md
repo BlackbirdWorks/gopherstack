@@ -666,3 +666,7 @@ UnsupportedOperation (handler.go:492) is the unknown-route fallback, matched by 
 ## 2026-10-10 lifecycle dwell knob
 
 `--lifecycle-efs` (`EFS_ACTIVATION_DELAY`, falls back to `--lifecycle-delay`, default `0s`) is passed to `SetFileSystemActivationDelay`, so file systems report `creating` before `available`. Proof: root `TestLifecycleDelayWiring/efs`.
+
+## 2026-10-11 reserved ID-pinning tag (gopherstack-cefu7.23)
+
+`CreateFileSystem` honours the emulator-only `gopherstack:id` tag to pin the file system ID (`fs-` plus 8 to 40 lowercase hex digits). The tag is consumed, never stored or listed; a malformed ID returns `ValidationException`, a reused ID `FileSystemAlreadyExists`, and `TagResource` rejects the key. See docs/pinned-ids.md.

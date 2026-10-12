@@ -3229,6 +3229,7 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 		wireECSRuntime(cli, byName)
 		wireBatchExec(cli, byName)
 		wireEC2IMDS(appCtx.JanitorCtx, cli, byName)
+		wireLinkLocal(appCtx.JanitorCtx, cli, byName)
 		wireSSMSecrets(cli, byName)
 		wireSSMRunCommand(cli, byName)
 	}

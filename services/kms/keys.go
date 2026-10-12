@@ -3,6 +3,7 @@ package kms
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	gopherarn "github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // validateKeySpecUsage returns an error when keySpec and keyUsage are incompatible.
@@ -215,9 +217,9 @@ func (b *InMemoryBackend) CreateKey(
 		return nil, ErrMalformedPolicyDocument
 	}
 
-	keyID := uuid.New().String()
-	if input.MultiRegion {
-		keyID = newMultiRegionKeyID()
+	keyID, idErr := b.resolveNewKeyID(region, input)
+	if idErr != nil {
+		return nil, idErr
 	}
 
 	keyUsage := input.KeyUsage
@@ -872,4 +874,36 @@ func (b *InMemoryBackend) GetKeyLastUsage(
 	}
 
 	return out, nil
+}
+
+var (
+	keyIDPattern   = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	mrKeyIDPattern = regexp.MustCompile(`^mrk-[0-9a-f]{32}$`)
+)
+
+// resolveNewKeyID returns the pinned key ID when the create-time tag supplied
+// one, else a fresh random ID. Callers hold b.mu.
+func (b *InMemoryBackend) resolveNewKeyID(region string, input *CreateKeyInput) (string, error) {
+	if input.PinnedKeyID == "" {
+		if input.MultiRegion {
+			return newMultiRegionKeyID(), nil
+		}
+
+		return uuid.New().String(), nil
+	}
+
+	re, format := keyIDPattern, "a lowercase UUID"
+	if input.MultiRegion {
+		re, format = mrKeyIDPattern, "mrk- followed by 32 lowercase hex digits"
+	}
+
+	if err := tags.ValidatePinnedID(input.PinnedKeyID, re, format); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrValidation, err)
+	}
+
+	if b.keysStore(region).Has(input.PinnedKeyID) {
+		return "", fmt.Errorf("%w: key %q already exists", ErrAliasAlreadyExists, input.PinnedKeyID)
+	}
+
+	return input.PinnedKeyID, nil
 }

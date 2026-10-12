@@ -1761,3 +1761,7 @@ PasswordPolicy.PasswordHistorySize is stored, echoed and enforced: ChangePasswor
 - Tokens: ID-token email_verified/phone_number_verified are JSON booleans, updated_at is a number, custom: attributes are included, and both tokens carry jti and event_id; access tokens carry version 2 (verified with a real JWT library against /.well-known/jwks.json). Test: TestIDTokenUserAttributeClaims.
 - ListUsers Filter rejects attributes outside the documented searchable set with InvalidParameterException (was an empty list). Test: TestListUsersFilterAttributes.
 - Verified clean end to end: USER_PASSWORD_AUTH, USER_SRP_AUTH with client-side SRP math, REFRESH_TOKEN_AUTH, GlobalSignOut revocation, AdminCreateUser + NEW_PASSWORD_REQUIRED, TOTP associate/verify/challenge, client_credentials token endpoint, scope and secret errors.
+
+## 2026-10-11 reserved ID-pinning tag (gopherstack-cefu7.23)
+
+`CreateUserPool` honours the emulator-only `gopherstack:id` entry in `UserPoolTags` to pin the pool ID (`<region>_<alphanumerics>`). The tag is consumed, never stored or listed; a malformed or already-used ID returns `InvalidParameterException` (Cognito declares no pool-exists error), and `TagResource`/`UpdateUserPool` reject the key. See docs/pinned-ids.md.

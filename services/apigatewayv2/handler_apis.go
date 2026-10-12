@@ -15,6 +15,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 func extractAPIsOp(path, method string) string {
@@ -106,9 +107,15 @@ func (h *Handler) handleCreateAPI(c *echo.Context) error {
 		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
+	input.PinnedID, input.Tags = tags.PinnedIDFromMap(input.Tags)
+
 	api, err := h.Backend.CreateAPI(c.Request().Context(), input)
 	if err != nil {
 		log.Error("apigatewayv2: create api failed", "error", err)
+
+		if errors.Is(err, ErrAlreadyExists) {
+			return writeErr(c, http.StatusConflict, err.Error())
+		}
 
 		if errors.Is(err, ErrBadRequest) {
 			return writeErr(c, http.StatusBadRequest, err.Error())

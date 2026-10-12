@@ -169,6 +169,7 @@ type CreateKeyInput struct {
 	Origin                         string `json:"Origin,omitempty"`
 	Policy                         string `json:"Policy,omitempty"`
 	Region                         string `json:"-"`
+	PinnedKeyID                    string `json:"-"`
 	CustomKeyStoreID               string `json:"CustomKeyStoreId,omitempty"`
 	XksKeyID                       string `json:"XksKeyId,omitempty"`
 	Tags                           []Tag  `json:"Tags,omitempty"`

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"regexp"
 	"sort"
 	"time"
 
@@ -200,6 +201,25 @@ func (b *InMemoryBackend) CreateFileSystem(
 	}
 
 	id := "fs-" + uuid.NewString()[:8]
+
+	if req.PinnedID != "" {
+		if err = tags.ValidatePinnedID(
+			req.PinnedID,
+			fileSystemIDPattern,
+			"fs- followed by 8 to 40 lowercase hex digits",
+		); err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrValidation, err)
+		}
+
+		if existing, ok := b.fileSystems.Get(regionKey(region, req.PinnedID)); ok {
+			cp := *existing
+
+			return &cp, fmt.Errorf("%w: file system %q already exists", ErrAlreadyExists, req.PinnedID)
+		}
+
+		id = req.PinnedID
+	}
+
 	fsARN := arn.Build("elasticfilesystem", region, b.accountID, "file-system/"+id)
 	t := tags.New("efs.filesystem." + id + ".tags")
 
@@ -507,3 +527,5 @@ func (b *InMemoryBackend) AddFileSystemInternal(fs *FileSystem) {
 	b.fileSystems.Put(fs)
 	b.fileSystemsByARN.Put(fs)
 }
+
+var fileSystemIDPattern = regexp.MustCompile(`^fs-[0-9a-f]{8,40}$`)

@@ -3,12 +3,14 @@ package apigatewayv2
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 func extractTagsOp(path, method string) string {
@@ -75,6 +77,11 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
 	var input tagResourceInput
 	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
 		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
+	}
+
+	if _, ok := input.Tags[tags.PinnedIDKey]; ok {
+		return writeErr(c, http.StatusBadRequest,
+			fmt.Sprintf("tag %q is only valid on CreateApi", tags.PinnedIDKey))
 	}
 
 	if err := h.Backend.TagResource(resourceARN, input.Tags); err != nil {

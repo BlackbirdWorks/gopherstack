@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	tagspkg "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // validDescribeTagsFilters is the set of filter names accepted by DescribeTags.
@@ -130,6 +132,14 @@ func (h *Handler) handleCreateTags(vals url.Values, reqID string) (any, error) {
 
 	if err := validateTags(tags); err != nil {
 		return nil, err
+	}
+
+	if _, reserved := tags[tagspkg.PinnedIDKey]; reserved {
+		return nil, fmt.Errorf(
+			"%w: tag %q is only valid in a create-time TagSpecification",
+			ErrInvalidParameter,
+			tagspkg.PinnedIDKey,
+		)
 	}
 
 	if err := h.Backend.CreateTags(resourceIDs, tags); err != nil {

@@ -4,8 +4,11 @@ import (
 	"cmp"
 	"fmt"
 	"net/url"
+	"regexp"
 	"slices"
 	"time"
+
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // normalizeDBInstanceDefaults fills in empty/zero values with AWS defaults.
@@ -82,9 +85,9 @@ func (b *InMemoryBackend) createDBInstanceLocked(
 	defer b.mu.Unlock()
 
 	b.reconcileInstancesLocked()
-
-	if _, exists := b.instances.Get(normalizeID(id)); exists {
-		return nil, fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
+	dbiResourceID, err := b.checkNewInstanceLocked(id, opts.PinnedDbiResourceID)
+	if err != nil {
+		return nil, err
 	}
 
 	dbSGs, err := b.dbSecurityGroupMembershipsLocked(opts.DBSecurityGroupNames)
@@ -108,7 +111,7 @@ func (b *InMemoryBackend) createDBInstanceLocked(
 		InstanceCreateTime:                 time.Now().UTC(),
 		DBInstanceIdentifier:               id,
 		DBInstanceArn:                      b.rdsARN("db", id),
-		DbiResourceID:                      id,
+		DbiResourceID:                      dbiResourceID,
 		DBInstanceClass:                    instanceClass,
 		DBClusterIdentifier:                opts.DBClusterIdentifier,
 		Engine:                             engine,
@@ -1387,4 +1390,38 @@ func applyReplicaOverrides(replica, inherited *DBInstance, opts DBInstanceOption
 func applyCreateNetworkOpts(inst *DBInstance, opts DBInstanceOptions) {
 	inst.NetworkType = cmp.Or(opts.NetworkType, networkTypeIPv4)
 	inst.MaxAllocatedStorage = opts.MaxAllocatedStorage
+}
+
+var dbiResourceIDPattern = regexp.MustCompile(`^db-[A-Z0-9]{26}$`)
+
+// checkNewInstanceLocked rejects an existing identifier and returns the instance's DbiResourceId.
+func (b *InMemoryBackend) checkNewInstanceLocked(id, pinned string) (string, error) {
+	if _, exists := b.instances.Get(normalizeID(id)); exists {
+		return "", fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
+	}
+
+	return b.resolveDbiResourceIDLocked(id, pinned)
+}
+
+// resolveDbiResourceIDLocked returns the pinned DbiResourceId, or the instance identifier when unpinned.
+func (b *InMemoryBackend) resolveDbiResourceIDLocked(id, pinned string) (string, error) {
+	if pinned == "" {
+		return id, nil
+	}
+
+	if err := svcTags.ValidatePinnedID(
+		pinned,
+		dbiResourceIDPattern,
+		"db- followed by 26 uppercase alphanumerics",
+	); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrInvalidParameter, err)
+	}
+
+	for _, other := range b.instances.All() {
+		if other.DbiResourceID == pinned {
+			return "", fmt.Errorf("%w: DbiResourceId %s already in use", ErrInstanceAlreadyExists, pinned)
+		}
+	}
+
+	return pinned, nil
 }

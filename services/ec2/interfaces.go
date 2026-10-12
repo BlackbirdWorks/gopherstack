@@ -11,6 +11,8 @@ type Backend interface {
 
 	// RunInstances creates one or more EC2 instance stubs.
 	RunInstances(imageID, instanceType, subnetID string, count int) ([]*Instance, error)
+	// RunInstancesWithID is RunInstances with an optional pinned instance ID (count must be 1).
+	RunInstancesWithID(pinnedID, imageID, instanceType, subnetID string, count int) ([]*Instance, error)
 
 	// SetInstanceAttribute persists a modifiable attribute on an instance.
 	// Attribute names match EC2 ModifyInstanceAttribute keys (e.g. "userData", "instanceType").
@@ -86,6 +88,8 @@ type Backend interface {
 
 	// CreateSecurityGroup creates a security group and returns it.
 	CreateSecurityGroup(name, description, vpcID string) (*SecurityGroup, error)
+	// CreateSecurityGroupWithID is CreateSecurityGroup with an optional pinned group ID.
+	CreateSecurityGroupWithID(pinnedID, name, description, vpcID string) (*SecurityGroup, error)
 
 	// DeleteSecurityGroup removes a security group by ID.
 	DeleteSecurityGroup(id string) error
@@ -124,6 +128,8 @@ type Backend interface {
 
 	// CreateVpc creates a new VPC with the given CIDR block.
 	CreateVpc(cidr, tenancy string) (*VPC, error)
+	// CreateVpcWithID is CreateVpc with an optional pinned VPC ID.
+	CreateVpcWithID(pinnedID, cidr, tenancy string) (*VPC, error)
 	VpcTenancy(vpcID string) string
 
 	// DeleteVpc removes a VPC by ID.

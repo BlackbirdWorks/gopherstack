@@ -3,10 +3,13 @@ package apigatewayv2
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // CreateAPI creates a new HTTP API.
@@ -57,7 +60,11 @@ func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (
 		}
 	}
 
-	id := randomID()
+	id, idErr := b.newAPIID(input.PinnedID)
+	if idErr != nil {
+		return nil, idErr
+	}
+
 	api := API{
 		APIID:                    id,
 		Name:                     input.Name,
@@ -663,4 +670,23 @@ func jwtSecurityScheme(a *Authorizer) map[string]any {
 		"flows":                          map[string]any{},
 		"x-amazon-apigateway-authorizer": ext,
 	}
+}
+
+var apiIDPattern = regexp.MustCompile(`^[a-z0-9]{10}$`)
+
+// newAPIID returns the pinned API ID when set, else a random one. Callers hold b.mu.
+func (b *InMemoryBackend) newAPIID(pinned string) (string, error) {
+	if pinned == "" {
+		return randomID(), nil
+	}
+
+	if err := tags.ValidatePinnedID(pinned, apiIDPattern, "10 lowercase alphanumeric characters"); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	if b.apis.Has(pinned) {
+		return "", fmt.Errorf("%w: API %q already exists", ErrAlreadyExists, pinned)
+	}
+
+	return pinned, nil
 }

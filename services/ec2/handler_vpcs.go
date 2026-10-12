@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	tagspkg "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type createDefaultVpcResponse struct {
@@ -448,7 +450,7 @@ func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
 		return nil, err
 	}
 
-	v, err := h.Backend.CreateVpc(cidr, tenancy)
+	v, err := h.Backend.CreateVpcWithID(tagspkg.PinnedIDFromTagSpecs(vals, resourceTypeVPC), cidr, tenancy)
 	if err != nil {
 		return nil, err
 	}

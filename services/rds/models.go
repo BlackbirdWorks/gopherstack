@@ -729,6 +729,7 @@ type DBInstanceAutomatedBackup struct {
 
 // DBInstanceOptions holds optional fields for CreateDBInstance and ModifyDBInstance.
 type DBInstanceOptions struct {
+	PinnedDbiResourceID          string
 	SourceDBClusterIdentifier    string
 	DBClusterIdentifier          string
 	AutomationMode               string

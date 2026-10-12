@@ -844,6 +844,7 @@ type CreateRestAPIInput struct {
 	EndpointConfiguration     *EndpointConfiguration `json:"endpointConfiguration,omitempty"`
 	Tags                      *tags.Tags             `json:"tags,omitempty"`
 	Name                      string                 `json:"name"`
+	PinnedID                  string                 `json:"-"`
 	CloneFrom                 string                 `json:"cloneFrom,omitempty"`
 	Description               string                 `json:"description,omitempty"`
 	Policy                    string                 `json:"policy,omitempty"`

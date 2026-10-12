@@ -700,6 +700,13 @@ func (b *InMemoryBackend) DescribeSecurityGroups(ids []string) []*SecurityGroup 
 func (b *InMemoryBackend) CreateSecurityGroup(
 	name, description, vpcID string,
 ) (*SecurityGroup, error) {
+	return b.CreateSecurityGroupWithID("", name, description, vpcID)
+}
+
+// CreateSecurityGroupWithID is CreateSecurityGroup with an optional pinned group ID.
+func (b *InMemoryBackend) CreateSecurityGroupWithID(
+	pinnedID, name, description, vpcID string,
+) (*SecurityGroup, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: GroupName is required", ErrInvalidParameter)
 	}
@@ -725,6 +732,18 @@ func (b *InMemoryBackend) CreateSecurityGroup(
 	}
 
 	id := newSecurityGroupID()
+	if pinnedID != "" {
+		if err := validatePinnedEC2ID(pinnedID, "sg-"); err != nil {
+			return nil, err
+		}
+
+		if _, exists := b.securityGroups.Get(pinnedID); exists {
+			return nil, fmt.Errorf("%w: security group %s already exists", ErrDuplicateSGName, pinnedID)
+		}
+
+		id = pinnedID
+	}
+
 	sg := &SecurityGroup{
 		ID:          id,
 		Name:        name,

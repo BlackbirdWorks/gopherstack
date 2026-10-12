@@ -4,6 +4,8 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+
+	tagspkg "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // associateSGVpcResponse matches AssociateSecurityGroupVpcOutput
@@ -824,7 +826,9 @@ func (h *Handler) handleCreateSecurityGroup(vals url.Values, reqID string) (any,
 		return nil, err
 	}
 
-	sg, err := h.Backend.CreateSecurityGroup(name, desc, vpcID)
+	sg, err := h.Backend.CreateSecurityGroupWithID(
+		tagspkg.PinnedIDFromTagSpecs(vals, "security-group"), name, desc, vpcID,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -75,7 +75,7 @@ func parseScriptSteps(content, format string, params map[string][]string) ([]scr
 		return nil, false
 	}
 
-	vals := make(map[string][]string, len(doc.Parameters)+len(params))
+	vals := make(map[string][]string)
 
 	for name, p := range doc.Parameters {
 		if p.Default != nil {

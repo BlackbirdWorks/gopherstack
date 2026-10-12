@@ -25,6 +25,7 @@ const (
 
 // CreateSubnetParams are the CreateSubnet request members.
 type CreateSubnetParams struct {
+	PinnedID           string
 	VPCID              string
 	CIDRBlock          string
 	AvailabilityZone   string
@@ -91,7 +92,10 @@ func (b *InMemoryBackend) CreateSubnetWithOptions(p CreateSubnetParams) (*Subnet
 		return nil, err
 	}
 
-	id := newSubnetID()
+	id, err := b.newSubnetIDLocked(p.PinnedID)
+	if err != nil {
+		return nil, err
+	}
 
 	cidr, v4Alloc, err := b.subnetIPv4CIDRLocked(vpc, p)
 	if err != nil {
@@ -564,4 +568,20 @@ func (u SubnetAttributeUpdate) applyLNI(s *Subnet) error {
 	}
 
 	return nil
+}
+
+func (b *InMemoryBackend) newSubnetIDLocked(pinned string) (string, error) {
+	if pinned == "" {
+		return newSubnetID(), nil
+	}
+
+	if err := validatePinnedEC2ID(pinned, "subnet-"); err != nil {
+		return "", err
+	}
+
+	if _, exists := b.subnets.Get(pinned); exists {
+		return "", errPinnedIDInUse(pinned)
+	}
+
+	return pinned, nil
 }

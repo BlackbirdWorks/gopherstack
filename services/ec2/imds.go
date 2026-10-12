@@ -72,18 +72,20 @@ type imdsCredEntry struct {
 
 // imdsService is shared by a home handler and its region siblings.
 type imdsService struct {
-	platform IMDSPlatform
-	listener IMDSListener
-	tokens   map[string]map[string]time.Time
-	creds    map[string]imdsCredEntry
-	mu       *lockmetrics.RWMutex
+	platform  IMDSPlatform
+	listener  IMDSListener
+	tokens    map[string]map[string]time.Time
+	linkLocal *linkLocalState
+	creds     map[string]imdsCredEntry
+	mu        *lockmetrics.RWMutex
 }
 
 func newIMDSService() *imdsService {
 	return &imdsService{
-		mu:     lockmetrics.New("ec2.imds"),
-		tokens: map[string]map[string]time.Time{},
-		creds:  map[string]imdsCredEntry{},
+		mu:        lockmetrics.New("ec2.imds"),
+		tokens:    map[string]map[string]time.Time{},
+		creds:     map[string]imdsCredEntry{},
+		linkLocal: &linkLocalState{},
 	}
 }
 
@@ -235,6 +237,13 @@ func (h *Handler) ServeIMDS(c *echo.Context) error {
 	r := c.Request().Clone(c.Request().Context())
 	r.URL.Path = "/" + c.Param("*")
 	r.URL.RawPath = ""
+
+	if c.Param("instance") == imdsLinkLocalInstance {
+		h.serveLinkLocalIMDS(c.Response(), r)
+
+		return nil
+	}
+
 	h.serveIMDS(c.Response(), r, c.Param("instance"))
 
 	return nil

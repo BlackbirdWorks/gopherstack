@@ -7,6 +7,8 @@ import (
 	"net/netip"
 	"net/url"
 	"strconv"
+
+	tagspkg "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type createDefaultSubnetResponse struct {
@@ -357,6 +359,7 @@ func (h *Handler) handleCreateSubnet(vals url.Values, reqID string) (any, error)
 	}
 
 	s, err := h.Backend.CreateSubnetWithOptions(CreateSubnetParams{
+		PinnedID:           tagspkg.PinnedIDFromTagSpecs(vals, "subnet"),
 		VPCID:              vals.Get("VpcId"),
 		CIDRBlock:          vals.Get("CidrBlock"),
 		AvailabilityZone:   vals.Get("AvailabilityZone"),

@@ -1759,3 +1759,7 @@ Distributions serve viewer requests (services/cloudfront/dataplane*.go), copying
 - Origins: S3 in-process via `SetS3Backend` (OAC/OAI evaluated as the CloudFront principal against the bucket policy with aws:SourceArn; no OAC/OAI means public-read semantics; a missing key is 403 without s3:ListBucket, 404 with it); S3 website endpoints (index/error document); custom HTTP origins with ports, protocol policy, origin path, custom headers and cache/origin-request-policy header, cookie and query forwarding; ALB origins via the elbv2 data plane (`SetALBForwarder`).
 - Cache: byte-bounded LRU (64 MiB default, `SetCacheLimit`), min/default/max TTL with Cache-Control, purged by CreateInvalidation (wildcards), DeleteDistribution and Reset.
 - Wiring: `cli_cloudfront_dataplane.go`, resolved at request time.
+
+## 2026-10-11 reserved ID-pinning tag (gopherstack-cefu7.23)
+
+`CreateDistributionWithTags` honours the emulator-only `gopherstack:id` tag to pin the distribution ID (`E` plus 13 uppercase alphanumerics). The tag is consumed, never stored or listed; a malformed ID returns `InvalidArgument`, a reused ID `DistributionAlreadyExists`, and `TagResource` rejects the key. See docs/pinned-ids.md.

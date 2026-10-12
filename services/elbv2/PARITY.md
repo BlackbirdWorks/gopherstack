@@ -597,3 +597,7 @@ Targets: only healthy targets receive traffic, failing open to every non-drainin
 Not modelled: least_outstanding_requests and weighted-random routing algorithms, stickiness inside ForwardConfig (the model does not store TargetGroupStickinessConfig), app_cookie stickiness, preserve_host_header toggling, deregistration-delay connection draining of in-flight requests.
 
 Fixed on the way: the HTTP health probe always hit the target group port instead of the registered target's own port when HealthCheckPort is traffic-port, so a target registered on a non-default port was always reported healthy.
+
+## 2026-10-11 reserved ID-pinning tag (gopherstack-cefu7.23)
+
+`CreateLoadBalancer` honours the emulator-only `gopherstack:id` tag to pin the ARN suffix (16 lowercase hex digits). The tag is consumed, never stored or listed; a malformed ID returns `ValidationError`, a reused ID `DuplicateLoadBalancerName`, and `AddTags` rejects the key. See docs/pinned-ids.md.

@@ -3,6 +3,8 @@ package ecs
 import (
 	"context"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // ----- Task handlers -----
@@ -49,7 +51,10 @@ type runTaskOutput struct {
 }
 
 func (h *Handler) handleRunTask(_ context.Context, in *runTaskInput) (*runTaskOutput, error) {
+	pinnedID, runTags := tags.PinnedIDFromList(in.Tags, func(t Tag) (string, string) { return t.Key, t.Value })
+
 	tasks, failures, err := h.Backend.RunTask(RunTaskInput{
+		PinnedTaskID:             pinnedID,
 		Cluster:                  in.Cluster,
 		TaskDefinition:           in.TaskDefinition,
 		Count:                    in.Count,
@@ -59,7 +64,7 @@ func (h *Handler) handleRunTask(_ context.Context, in *runTaskInput) (*runTaskOu
 		PlatformVersion:          in.PlatformVersion,
 		PropagateTags:            in.PropagateTags,
 		EnableECSManagedTags:     in.EnableECSManagedTags,
-		Tags:                     in.Tags,
+		Tags:                     runTags,
 		PlacementConstraints:     toPlacementConstraints(in.PlacementConstraints),
 		PlacementStrategy:        toPlacementStrategies(in.PlacementStrategy),
 		CapacityProviderStrategy: toCPStrategyItems(in.CapacityProviderStrategy),

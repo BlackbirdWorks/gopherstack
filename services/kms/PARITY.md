@@ -1010,3 +1010,7 @@ Encrypt rejects empty Plaintext. Decrypt of a blob KMS did not produce returns I
 - ReplicateKey into the primary's Region or a Region that already has a replica returns AlreadyExistsException.
 - CreateGrant with a Name and identical parameters is idempotent (returns the existing GrantId/GrantToken).
 - Caveat: AWS gives a replica the same KeyId as its primary; here replica ids are distinct (`ReplicaKeyIds` bookkeeping depends on it).
+
+## 2026-10-11 reserved ID-pinning tag (gopherstack-cefu7.23)
+
+`CreateKey` honours the emulator-only `gopherstack:id` tag to pin the KeyId (lowercase UUID, or `mrk-` plus 32 hex for multi-Region keys). The tag is consumed, never stored or listed; a malformed ID returns `ValidationException`, a reused ID `AlreadyExistsException`, and `TagResource` rejects the key with `TagException`. See docs/pinned-ids.md.

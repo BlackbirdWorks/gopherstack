@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	tagspkg "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // ---- action handlers ----
@@ -298,7 +299,9 @@ func (h *Handler) runInstancesWithMetadata(
 		return nil, err
 	}
 
-	instances, err := h.Backend.RunInstances(imageID, instanceType, subnetID, count)
+	pinnedID := tagspkg.PinnedIDFromTagSpecs(vals, "instance")
+
+	instances, err := h.Backend.RunInstancesWithID(pinnedID, imageID, instanceType, subnetID, count)
 	if err != nil {
 		return nil, err
 	}

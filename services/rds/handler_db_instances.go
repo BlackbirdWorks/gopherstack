@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // parseDBInstanceIntParams parses numeric form parameters for CreateDBInstance/ModifyDBInstance.
@@ -104,6 +106,7 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 	logExports := parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member")
 
 	opts := DBInstanceOptions{
+		PinnedDbiResourceID:                pinnedDbiResourceID(vals),
 		MasterSecretRequest:                parseMasterSecretRequest(vals),
 		MasterUserPassword:                 vals.Get("MasterUserPassword"),
 		EngineVersion:                      vals.Get("EngineVersion"),
@@ -1029,4 +1032,10 @@ func rejectRestoreTimeConflict(vals url.Values, timeKey string) error {
 	}
 
 	return nil
+}
+
+func pinnedDbiResourceID(vals url.Values) string {
+	id, _ := svcTags.PinnedIDFromList(parseTagEntries(vals), func(t Tag) (string, string) { return t.Key, t.Value })
+
+	return id
 }

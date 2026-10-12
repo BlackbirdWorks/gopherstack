@@ -100,6 +100,7 @@ type CreateSecretInput struct {
 	ClientRequestToken          string          `json:"ClientRequestToken,omitempty"`
 	KmsKeyID                    string          `json:"KmsKeyId,omitempty"`
 	Region                      string          `json:"-"`
+	PinnedSuffix                string          `json:"-"`
 	Type                        string          `json:"Type,omitempty"`
 	SecretBinary                []byte          `json:"SecretBinary,omitempty"`
 	Tags                        []Tag           `json:"Tags,omitempty"`

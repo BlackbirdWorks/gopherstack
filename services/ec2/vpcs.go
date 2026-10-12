@@ -421,6 +421,11 @@ func (b *InMemoryBackend) DescribeVpcs(ids []string) []*VPC {
 // network ACL is not stored here -- DescribeNetworkAcls derives it per-VPC
 // instead (do not add a stored duplicate).
 func (b *InMemoryBackend) CreateVpc(cidr, tenancy string) (*VPC, error) {
+	return b.CreateVpcWithID("", cidr, tenancy)
+}
+
+// CreateVpcWithID is CreateVpc with an optional pinned VPC ID (empty means generate one).
+func (b *InMemoryBackend) CreateVpcWithID(pinnedID, cidr, tenancy string) (*VPC, error) {
 	if cidr == "" {
 		return nil, fmt.Errorf("%w: CidrBlock is required", ErrInvalidParameter)
 	}
@@ -432,6 +437,18 @@ func (b *InMemoryBackend) CreateVpc(cidr, tenancy string) (*VPC, error) {
 	// rejected within a VPC (subnets, AssociateVpcCidrBlock) or for
 	// operations that route between VPCs (peering, TGW routes).
 	id := newVPCID()
+	if pinnedID != "" {
+		if err := validatePinnedEC2ID(pinnedID, "vpc-"); err != nil {
+			return nil, err
+		}
+
+		if _, exists := b.vpcs.Get(pinnedID); exists {
+			return nil, errPinnedIDInUse(pinnedID)
+		}
+
+		id = pinnedID
+	}
+
 	v := &VPC{
 		ID:            id,
 		CIDRBlock:     cidr,

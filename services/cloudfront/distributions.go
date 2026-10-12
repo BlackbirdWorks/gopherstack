@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // overrideRawConfigEnabled rewrites the raw DistributionConfig XML's top-level
@@ -122,6 +124,15 @@ func (b *InMemoryBackend) CreateDistribution(
 	enabled bool,
 	rawConfig []byte,
 ) (*Distribution, error) {
+	return b.CreateDistributionWithID("", callerRef, comment, enabled, rawConfig)
+}
+
+// CreateDistributionWithID is CreateDistribution with an optional pinned distribution ID.
+func (b *InMemoryBackend) CreateDistributionWithID(
+	pinnedID, callerRef, comment string,
+	enabled bool,
+	rawConfig []byte,
+) (*Distribution, error) {
 	b.mu.Lock("CreateDistribution")
 	defer b.mu.Unlock()
 
@@ -141,6 +152,23 @@ func (b *InMemoryBackend) CreateDistribution(
 	}
 
 	id := generateIDWithPrefix("E")
+
+	if pinnedID != "" {
+		if err := tags.ValidatePinnedID(
+			pinnedID,
+			distributionIDPattern,
+			"E followed by 13 uppercase alphanumerics",
+		); err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrValidation, err)
+		}
+
+		if b.distributions.Has(pinnedID) {
+			return nil, fmt.Errorf("%w: distribution %q already exists", ErrDistributionAlreadyExists, pinnedID)
+		}
+
+		id = pinnedID
+	}
+
 	d := &Distribution{
 		ID:               id,
 		ARN:              b.distributionARN(id),
@@ -645,3 +673,5 @@ func (b *InMemoryBackend) ListDistributionsByRealtimeLogConfigARN(arn string) []
 
 	return b.distributionsByConfigSearch(arn)
 }
+
+var distributionIDPattern = regexp.MustCompile(`^E[A-Z0-9]{13}$`)

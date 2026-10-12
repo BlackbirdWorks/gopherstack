@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -293,15 +294,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 	b.mu.Lock("CreateLoadBalancer")
 	defer b.mu.Unlock()
 
-	if input.Name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
-	}
-
-	if err := validateLBName(input.Name); err != nil {
-		return nil, err
-	}
-
-	lbType, err := validateLBType(input.Type)
+	lbType, err := validateCreateLBInput(input)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +303,11 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		return existing, dupErr
 	}
 
-	lbID := newHexID()
+	lbID, err := b.resolveLBID(input.PinnedID)
+	if err != nil {
+		return nil, err
+	}
+
 	lbArn := b.lbARN(input.Name, lbType, lbID)
 
 	scheme := input.Scheme
@@ -783,4 +780,37 @@ func (b *InMemoryBackend) ModifyIPPools(
 	cp := *lb
 
 	return &cp, nil
+}
+
+var lbIDPattern = regexp.MustCompile(`^[0-9a-f]{16}$`)
+
+// resolveLBID returns the pinned load balancer ARN suffix when set, else a random one. Callers hold b.mu.
+func (b *InMemoryBackend) resolveLBID(pinned string) (string, error) {
+	if pinned == "" {
+		return newHexID(), nil
+	}
+
+	if err := tags.ValidatePinnedID(pinned, lbIDPattern, "16 lowercase hex digits"); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrInvalidParameter, err)
+	}
+
+	for _, existing := range b.loadBalancers.All() {
+		if strings.HasSuffix(existing.LoadBalancerArn, "/"+pinned) {
+			return "", fmt.Errorf("%w: load balancer ID %q already in use", ErrLoadBalancerAlreadyExists, pinned)
+		}
+	}
+
+	return pinned, nil
+}
+
+func validateCreateLBInput(input CreateLoadBalancerInput) (string, error) {
+	if input.Name == "" {
+		return "", fmt.Errorf("%w: Name is required", ErrInvalidParameter)
+	}
+
+	if err := validateLBName(input.Name); err != nil {
+		return "", err
+	}
+
+	return validateLBType(input.Type)
 }

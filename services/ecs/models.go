@@ -1080,6 +1080,7 @@ type UpdateServiceInput struct {
 
 // RunTaskInput holds input for RunTask.
 type RunTaskInput struct {
+	PinnedTaskID             string                `json:"-"`
 	Overrides                *TaskOverride         `json:"overrides,omitempty"`
 	NetworkConfiguration     *NetworkConfiguration `json:"networkConfiguration,omitempty"`
 	Cluster                  string                `json:"cluster,omitempty"`

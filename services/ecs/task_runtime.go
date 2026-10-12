@@ -14,6 +14,9 @@ const (
 
 	credentialsPathPrefix = "/_gopherstack/ecs/credentials/" //nolint:gosec // URL path, not a credential
 	metadataPathPrefix    = "/_gopherstack/ecs/metadata/"
+
+	// LinkLocalHost is the address real ECS serves task credentials and metadata on.
+	LinkLocalHost = "169.254.170.2"
 )
 
 // ErrTaskCredentialsUnavailable is returned when a task has no role or no issuer is wired.
@@ -30,6 +33,42 @@ type RoleCredentials struct {
 // RoleCredentialIssuer mints task-role credentials for a task container.
 type RoleCredentialIssuer interface {
 	IssueTaskCredentials(roleArn, sessionName string) (RoleCredentials, error)
+}
+
+// LinkLocal makes LinkLocalHost reachable from task containers.
+type LinkLocal interface {
+	Active(ctx context.Context) bool
+	Attach(ctx context.Context, containerID, owner string) error
+}
+
+// SetLinkLocal routes task credentials and metadata through LinkLocalHost when l is active.
+func (b *InMemoryBackend) SetLinkLocal(l LinkLocal) {
+	b.mu.Lock("SetLinkLocal")
+	defer b.mu.Unlock()
+
+	b.linkLocal = l
+}
+
+func (b *InMemoryBackend) activeLinkLocal() LinkLocal {
+	b.mu.RLock("activeLinkLocal")
+	l := b.linkLocal
+	b.mu.RUnlock()
+
+	if l == nil || !l.Active(context.Background()) {
+		return nil
+	}
+
+	return l
+}
+
+// attachLinkLocal joins a freshly created task container to the link-local network.
+func (b *InMemoryBackend) attachLinkLocal(ctx context.Context, containerID string) error {
+	l := b.activeLinkLocal()
+	if l == nil {
+		return nil
+	}
+
+	return l.Attach(ctx, containerID, "")
 }
 
 // TaskServicePrincipal is the service principal a task role must trust.
@@ -65,6 +104,11 @@ type taskEnvRunner interface {
 	SetTaskEnvProvider(fn func(task *Task, containerName string) []string)
 }
 
+// containerAttachRunner is implemented by runners that can join created containers to extra networks.
+type containerAttachRunner interface {
+	SetContainerAttacher(fn func(ctx context.Context, containerID string) error)
+}
+
 func executionEnvFor(launchType string) string {
 	if launchType == launchTypeFargate {
 		return "AWS_ECS_FARGATE"
@@ -94,14 +138,24 @@ func (b *InMemoryBackend) containerRuntimeEnv(task *Task, containerName string) 
 
 	base := strings.TrimSuffix(endpoint, "/")
 	taskID := taskIDFromARN(task.TaskArn)
+	metaBase := base
+
+	linkLocal := b.activeLinkLocal() != nil
+	if linkLocal {
+		metaBase = "http://" + LinkLocalHost
+	}
 
 	env = append(env,
 		"AWS_ENDPOINT_URL="+base,
-		"ECS_CONTAINER_METADATA_URI_V4="+base+metadataPathPrefix+taskID+"/"+containerName,
+		"ECS_CONTAINER_METADATA_URI_V4="+metaBase+metadataPathPrefix+taskID+"/"+containerName,
 	)
 
 	if issuer != nil && task.TaskRoleArn != "" {
-		env = append(env, "AWS_CONTAINER_CREDENTIALS_FULL_URI="+base+credentialsPathPrefix+taskID)
+		if linkLocal {
+			env = append(env, "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI="+credentialsPathPrefix+taskID)
+		} else {
+			env = append(env, "AWS_CONTAINER_CREDENTIALS_FULL_URI="+base+credentialsPathPrefix+taskID)
+		}
 	}
 
 	return env

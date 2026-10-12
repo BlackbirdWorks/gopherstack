@@ -2,6 +2,7 @@ package cognitoidp
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // deletionProtectionActive is the UserPool.DeletionProtection value that makes
@@ -380,7 +382,11 @@ func (b *InMemoryBackend) CreateUserPoolWithOpts(name string, opts UserPoolOptio
 	b.mu.Lock("CreateUserPoolWithOpts")
 	defer b.mu.Unlock()
 
-	poolID := b.region + "_" + randomAlphanumeric(poolIDSuffixLen)
+	poolID, err := b.newPoolID(opts.PinnedPoolID)
+	if err != nil {
+		return nil, err
+	}
+
 	issuerURL := fmt.Sprintf("%s/%s", b.endpoint, poolID)
 
 	issuer, err := newTokenIssuer(issuerURL)
@@ -535,4 +541,22 @@ func (b *InMemoryBackend) GetUserPoolMfaConfigFull(userPoolID string) (*UserPool
 	cp := *cfg
 
 	return &cp, nil
+}
+
+// newPoolID returns the pinned pool ID when set, else a random one. Callers hold b.mu.
+func (b *InMemoryBackend) newPoolID(pinned string) (string, error) {
+	if pinned == "" {
+		return b.region + "_" + randomAlphanumeric(poolIDSuffixLen), nil
+	}
+
+	re := regexp.MustCompile("^" + regexp.QuoteMeta(b.region) + "_[0-9a-zA-Z]+$")
+	if err := tags.ValidatePinnedID(pinned, re, b.region+"_<alphanumeric>"); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrInvalidParameter, err)
+	}
+
+	if _, exists := b.pools.Get(pinned); exists {
+		return "", fmt.Errorf("%w: user pool %q already exists", ErrInvalidParameter, pinned)
+	}
+
+	return pinned, nil
 }

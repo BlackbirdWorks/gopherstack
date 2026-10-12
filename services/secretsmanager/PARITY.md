@@ -381,3 +381,7 @@ fields changed, no `snapshot_inventory.json` rows, no version bump.
 ## 2026-10-05 (zeroguard omitted-vs-zero pass)
 
 PutSecretValue, UpdateSecret and UpdateSecretVersionStage reject an explicit empty ClientRequestToken, RotationToken, SecretString, MoveToVersionId or RemoveFromVersionId (min-length members, previously treated as omitted) via a presence probe in `explicit_empty.go` (cmd/zeroguard). SecretId/VersionStage/ResourcePolicy rows are required members already validated: tool false positives. Proof: `TestUpdateSecret_OmittedVsExplicitEmpty`, `TestPutSecretValue_ExplicitEmptyMembersRejected`, `TestUpdateSecretVersionStage_ExplicitEmptyVersionIDsRejected`.
+
+## 2026-10-11 reserved ID-pinning tag (gopherstack-cefu7.23)
+
+`CreateSecret` honours the emulator-only `gopherstack:id` tag to pin the 6-character ARN suffix (alphanumerics). The tag is consumed, never stored or listed; a malformed suffix returns `InvalidParameterException` and `TagResource` rejects the key. A reused suffix under a different name is not a conflict (the ARNs differ); a reused name is the usual `ResourceExistsException`. See docs/pinned-ids.md.

@@ -1892,3 +1892,7 @@ OptimizedWritesEnabled (DBInstance, DBCluster), StorageOptimized and GlobalClust
 - RestoreDBInstanceFromDBSnapshot: the restored instance keeps MasterUsername and DBInstanceClass (snapshot now records both; DBSnapshot.MasterUsername is on the wire), honours DBInstanceClass, DBSubnetGroupName, Port, PubliclyAccessible, AutoMinorVersionUpgrade, Iops, StorageThroughput, CopyTagsToSnapshot and NetworkType, and starts in `creating` before becoming available. Test: TestRestoreFromSnapshotKeepsSourceIdentity.
 - Parameter groups: ModifyDBParameterGroup now reads ApplyMethod (it was dropped, so everything was pending-reboot) and rejects invalid values; attaching a different group via ModifyDBInstance or changing a pending-reboot parameter reports ParameterApplyStatus `pending-reboot` until RebootDBInstance. Test: TestParameterGroupPendingReboot.
 - Kept as is: ApplyImmediately=false still shows PendingModifiedValues only during the modifying window and applies them when it ends (existing tests pin it); CreateDBInstance without AllocatedStorage still defaults.
+
+## 2026-10-11 reserved ID-pinning tag (gopherstack-cefu7.23)
+
+`CreateDBInstance` honours the emulator-only `gopherstack:id` tag to pin `DbiResourceId` (`db-` plus 26 uppercase alphanumerics; unpinned instances keep using the identifier). The tag is dropped from every Create* op, so it is never stored or listed; a malformed ID returns `InvalidParameterValue`, a reused ID `DBInstanceAlreadyExists`, and `AddTagsToResource` rejects the key. See docs/pinned-ids.md.

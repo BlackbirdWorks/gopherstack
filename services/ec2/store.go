@@ -23,16 +23,18 @@ var (
 	ErrVPCNotFound               = errors.New("InvalidVpcID.NotFound")
 	ErrSubnetNotFound            = errors.New("InvalidSubnetID.NotFound")
 	ErrInvalidParameter          = errors.New("InvalidParameterValue")
-	ErrDuplicateSGName           = errors.New("InvalidGroup.Duplicate")
-	ErrInvalidInstanceState      = errors.New("IncorrectInstanceState")
-	ErrUnsupportedHibernation    = errors.New("UnsupportedHibernationConfiguration")
-	ErrDefaultSubnetExists       = errors.New("DefaultSubnetAlreadyExistsInAvailabilityZone")
-	ErrSpotFleetNotFound         = errors.New("InvalidSpotFleetRequestId.NotFound")
-	ErrSubnetCIDRConflict        = errors.New("InvalidSubnet.Conflict")
-	ErrSubnetRange               = errors.New("InvalidSubnet.Range")
-	ErrVpcCIDRRange              = errors.New("InvalidVpc.Range")
-	ErrDryRunOperation           = errors.New("request would have succeeded, but DryRun flag is set")
-	ErrDuplicatePermission       = errors.New("InvalidPermission.Duplicate")
+	// ErrResourceIDInUse is returned when a gopherstack:id tag pins an ID that already exists.
+	ErrResourceIDInUse        = errors.New("InvalidParameterValue")
+	ErrDuplicateSGName        = errors.New("InvalidGroup.Duplicate")
+	ErrInvalidInstanceState   = errors.New("IncorrectInstanceState")
+	ErrUnsupportedHibernation = errors.New("UnsupportedHibernationConfiguration")
+	ErrDefaultSubnetExists    = errors.New("DefaultSubnetAlreadyExistsInAvailabilityZone")
+	ErrSpotFleetNotFound      = errors.New("InvalidSpotFleetRequestId.NotFound")
+	ErrSubnetCIDRConflict     = errors.New("InvalidSubnet.Conflict")
+	ErrSubnetRange            = errors.New("InvalidSubnet.Range")
+	ErrVpcCIDRRange           = errors.New("InvalidVpc.Range")
+	ErrDryRunOperation        = errors.New("request would have succeeded, but DryRun flag is set")
+	ErrDuplicatePermission    = errors.New("InvalidPermission.Duplicate")
 
 	// ErrDependencyViolation is returned when an operation cannot complete
 	// because another resource still depends on the target resource.
@@ -1062,6 +1064,14 @@ func (b *InMemoryBackend) RunInstances(
 	imageID, instanceType, subnetID string,
 	count int,
 ) ([]*Instance, error) {
+	return b.RunInstancesWithID("", imageID, instanceType, subnetID, count)
+}
+
+// RunInstancesWithID is RunInstances with an optional pinned instance ID, valid only for a single instance.
+func (b *InMemoryBackend) RunInstancesWithID(
+	pinnedID, imageID, instanceType, subnetID string,
+	count int,
+) ([]*Instance, error) {
 	if imageID == "" {
 		return nil, fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
 	}
@@ -1073,6 +1083,10 @@ func (b *InMemoryBackend) RunInstances(
 
 	b.mu.Lock("RunInstances")
 	defer b.mu.Unlock()
+
+	if err = b.checkPinnedInstanceLocked(pinnedID, count); err != nil {
+		return nil, err
+	}
 
 	if err = b.checkImageLaunchAllowedLocked(imageID); err != nil {
 		return nil, err
@@ -1102,10 +1116,12 @@ func (b *InMemoryBackend) RunInstances(
 	// before creating any instance, using pre-minted IDs, so a rejected
 	// batch (Outpost gone, insufficient capacity) never creates an
 	// ec2.Instance at all -- matches real RunInstances failing atomically.
-	var instanceIDs []string
-	if outpostArn != "" {
-		instanceIDs = newOutpostReservedInstanceIDs(count)
+	instanceIDs := newOutpostReservedInstanceIDs(count)
+	if pinnedID != "" {
+		instanceIDs[0] = pinnedID
+	}
 
+	if outpostArn != "" {
 		if outpostsBk, ok := b.outpostsBackend(); ok {
 			if capErr := outpostsBk.ConsumeCapacity(outpostArn, instanceType, b.AccountID, instanceIDs); capErr != nil {
 				return nil, translateOutpostsCapacityErr(capErr)
@@ -1121,10 +1137,7 @@ func (b *InMemoryBackend) RunInstances(
 	reservationID := newReservationID()
 
 	for i := range count {
-		id := newInstanceID()
-		if len(instanceIDs) > 0 {
-			id = instanceIDs[i]
-		}
+		id := instanceIDs[i]
 
 		inst := &Instance{
 			ID:            id,

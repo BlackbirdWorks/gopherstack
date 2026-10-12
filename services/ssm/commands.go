@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"sort"
@@ -652,6 +653,10 @@ func pluginView(inv CommandInvocation, name string) (CommandInvocation, bool, er
 	return inv, false, ErrInvalidPluginName
 }
 
+func clampInt32(n int) int32 {
+	return int32(max(math.MinInt32, min(math.MaxInt32, n)))
+}
+
 type renderedOutput struct {
 	stdout string
 	stderr string
@@ -677,7 +682,7 @@ func buildInvocations(
 			pendingStdout:     out.stdout,
 			pendingStderr:     out.stderr,
 			finalStatus:       out.status,
-			ResponseCode:      int32(out.code), // #nosec G115 -- parsed from a script exit statement
+			ResponseCode:      clampInt32(out.code),
 		}
 		if job != nil && job.hasTarget(instanceID) {
 			inv.direct, inv.ResponseCode = true, responseCodeNotRun

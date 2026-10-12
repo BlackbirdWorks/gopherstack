@@ -84,6 +84,7 @@ type InMemoryBackend struct {
 	events         EventPublisher
 	credIssuer     RoleCredentialIssuer
 	endpointURL    string
+	linkLocal      LinkLocal
 	hooksInFlight  map[string]struct{}
 	asgResolver    AutoScalingGroupResolver
 	metrics        cwmetric.Sink

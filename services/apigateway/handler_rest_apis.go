@@ -3,6 +3,8 @@ package apigateway
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type createRestAPIInput = CreateRestAPIInput
@@ -40,6 +42,13 @@ func (h *Handler) createRestAPIAction(b []byte) (int, any, error) {
 	if err := json.Unmarshal(b, &input); err != nil {
 		return 0, nil, err
 	}
+	if input.Tags != nil {
+		if id, ok := input.Tags.Get(tags.PinnedIDKey); ok {
+			input.PinnedID = id
+			input.Tags.Delete(tags.PinnedIDKey)
+		}
+	}
+
 	api, err := h.Backend.CreateRestAPI(input)
 	if err != nil {
 		return 0, nil, err

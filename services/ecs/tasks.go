@@ -2,12 +2,14 @@ package ecs
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -103,6 +105,12 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, []Failure, error)
 
 		td, err := b.findTaskDefinitionLocked(input.TaskDefinition)
 		if err != nil {
+			ferr = err
+
+			return
+		}
+
+		if err = b.validatePinnedTaskIDLocked(clusterName, input.PinnedTaskID, count); err != nil {
 			ferr = err
 
 			return
@@ -384,7 +392,12 @@ func newTaskEntryLocked(
 	td *TaskDefinition,
 	input RunTaskInput,
 ) *Task {
-	taskArn := fmt.Sprintf("arn:aws:ecs:%s:%s:task/%s/%s", region, accountID, clusterName, uuid.NewString())
+	taskID := uuid.NewString()
+	if input.PinnedTaskID != "" {
+		taskID = input.PinnedTaskID
+	}
+
+	taskArn := fmt.Sprintf("arn:aws:ecs:%s:%s:task/%s/%s", region, accountID, clusterName, taskID)
 	now := time.Now()
 
 	// Resolve the effective task IAM role: per-run override takes precedence.
@@ -1165,4 +1178,28 @@ func firstRequestedSubnet(nc *NetworkConfiguration) string {
 	}
 
 	return nc.AwsvpcConfiguration.Subnets[0]
+}
+
+var taskIDPattern = regexp.MustCompile(`^[0-9a-f]{8}(?:-?[0-9a-f]{4}){3}-?[0-9a-f]{12}$`)
+
+// validatePinnedTaskIDLocked checks a pinned task ID is well formed, unused, and for a single task.
+func (b *InMemoryBackend) validatePinnedTaskIDLocked(clusterName, pinned string, count int) error {
+	if pinned == "" {
+		return nil
+	}
+
+	if count != 1 {
+		return fmt.Errorf("%w: %s can only pin the ID of a single task", ErrInvalidParameter, tags.PinnedIDKey)
+	}
+
+	if err := tags.ValidatePinnedID(pinned, taskIDPattern, "a 32 hex digit task ID"); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidParameter, err)
+	}
+
+	arnStr := fmt.Sprintf("arn:aws:ecs:%s:%s:task/%s/%s", b.region, b.accountID, clusterName, pinned)
+	if b.tasks.Has(arnStr) {
+		return fmt.Errorf("%w: task %q already exists", ErrTaskIDInUse, pinned)
+	}
+
+	return nil
 }

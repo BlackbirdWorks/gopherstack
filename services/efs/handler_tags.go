@@ -7,6 +7,8 @@ import (
 	"strconv"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type tagResourceBody struct {
@@ -20,6 +22,13 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceID string, body []b
 	}
 
 	kv := tagsFromEntries(in.Tags)
+	if _, ok := kv[tags.PinnedIDKey]; ok {
+		return h.handleError(
+			c,
+			fmt.Errorf("%w: tag %q is only valid on CreateFileSystem", ErrValidation, tags.PinnedIDKey),
+		)
+	}
+
 	if err := h.Backend.TagResource(h.contextWithRegion(c), resourceID, kv); err != nil {
 		return h.handleError(c, err)
 	}

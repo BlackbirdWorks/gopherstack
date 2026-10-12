@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type createFileSystemBody struct {
@@ -30,7 +32,10 @@ func (h *Handler) handleCreateFileSystem(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "CreationToken is required"))
 	}
 
+	pinnedID, fsTags := tags.PinnedIDFromList(in.Tags, func(t tagEntry) (string, string) { return t.Key, t.Value })
+
 	req := CreateFileSystemRequest{
+		PinnedID:                 pinnedID,
 		CreationToken:            in.CreationToken,
 		PerformanceMode:          in.PerformanceMode,
 		ThroughputMode:           in.ThroughputMode,
@@ -39,7 +44,7 @@ func (h *Handler) handleCreateFileSystem(c *echo.Context, body []byte) error {
 		ProvisionedThroughputMib: in.ProvisionedThroughputMib,
 		Encrypted:                in.Encrypted,
 		Backup:                   in.Backup,
-		Tags:                     tagsFromEntries(in.Tags),
+		Tags:                     tagsFromEntries(fsTags),
 	}
 
 	fs, err := h.Backend.CreateFileSystem(h.contextWithRegion(c), req)

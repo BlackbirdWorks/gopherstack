@@ -205,7 +205,7 @@ func (b *InMemoryBackend) createSecret(ctx context.Context, input *CreateSecretI
 		return b.createSecretNameCollision(ctx, region, existing, input)
 	}
 
-	suffix, err := generateRandomSuffix()
+	suffix, err := resolveARNSuffix(input.PinnedSuffix)
 	if err != nil {
 		return nil, err
 	}
@@ -1043,4 +1043,18 @@ func searchWords(text string) []string {
 	flush()
 
 	return words
+}
+
+var arnSuffixPattern = regexp.MustCompile(`^[A-Za-z0-9]{6}$`)
+
+func resolveARNSuffix(pinned string) (string, error) {
+	if pinned == "" {
+		return generateRandomSuffix()
+	}
+
+	if err := tags.ValidatePinnedID(pinned, arnSuffixPattern, "6 alphanumeric characters"); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrInvalidParameter, err)
+	}
+
+	return pinned, nil
 }

@@ -2,10 +2,13 @@ package apigateway
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // CreateRestAPI creates a new REST API and its root resource.
@@ -26,7 +29,11 @@ func (b *InMemoryBackend) CreateRestAPI(input CreateRestAPIInput) (*RestAPI, err
 		return nil, fmt.Errorf("%w: Invalid API identifier specified: %s", ErrRestAPINotFound, input.CloneFrom)
 	}
 
-	id := randomID(apiIDLength)
+	id, err := b.newRestAPIID(input.PinnedID)
+	if err != nil {
+		return nil, err
+	}
+
 	backendTags := initTagsFromInput("apigw.api."+id+".tags", input.Tags)
 	rootID := randomID(resourceIDLength)
 
@@ -345,4 +352,23 @@ func normalizeRestAPIInput(input CreateRestAPIInput) (CreateRestAPIInput, error)
 	input.EndpointConfiguration = &cfg
 
 	return input, nil
+}
+
+var restAPIIDPattern = regexp.MustCompile(`^[a-z0-9]{10}$`)
+
+// newRestAPIID returns the pinned REST API ID when set, else a random one. Callers hold b.mu.
+func (b *InMemoryBackend) newRestAPIID(pinned string) (string, error) {
+	if pinned == "" {
+		return randomID(apiIDLength), nil
+	}
+
+	if err := tags.ValidatePinnedID(pinned, restAPIIDPattern, "10 lowercase alphanumeric characters"); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrInvalidParameter, err)
+	}
+
+	if b.restApis.Has(pinned) {
+		return "", fmt.Errorf("%w: REST API %q already exists", ErrAlreadyExists, pinned)
+	}
+
+	return pinned, nil
 }

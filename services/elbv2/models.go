@@ -327,6 +327,7 @@ type TrustStore struct {
 // CreateLoadBalancerInput holds the parameters for creating a load balancer.
 type CreateLoadBalancerInput struct {
 	Name                         string
+	PinnedID                     string
 	Scheme                       string
 	Type                         string
 	IPAddressType                string

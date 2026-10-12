@@ -106,6 +106,7 @@ type realDockerRunner struct {
 	cwLogs            CWLogsBackend
 	completionHandler func(taskArn, containerName string, exitCode int)
 	taskEnv           func(task *Task, containerName string) []string
+	attach            func(ctx context.Context, containerID string) error
 	svcCtx            context.Context
 	logWG             sync.WaitGroup
 	waitWG            sync.WaitGroup
@@ -147,6 +148,26 @@ func (r *realDockerRunner) SetTaskEnvProvider(fn func(task *Task, containerName 
 	defer r.mu.Unlock()
 
 	r.taskEnv = fn
+}
+
+// SetContainerAttacher wires the hook that runs on each created container before it starts.
+func (r *realDockerRunner) SetContainerAttacher(fn func(ctx context.Context, containerID string) error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.attach = fn
+}
+
+func (r *realDockerRunner) attachContainer(ctx context.Context, containerID string) error {
+	r.mu.Lock()
+	fn := r.attach
+	r.mu.Unlock()
+
+	if fn == nil {
+		return nil
+	}
+
+	return fn(ctx, containerID)
 }
 
 func (r *realDockerRunner) runtimeEnv(task *Task, containerName string) []string {
@@ -328,6 +349,12 @@ func (r *realDockerRunner) createContainer(
 	)
 	if err != nil {
 		return "", fmt.Errorf("create container for %s: %w", cd.Image, err)
+	}
+
+	if attachErr := r.attachContainer(ctx, resp.ID); attachErr != nil {
+		_ = r.cli.ContainerRemove(ctx, resp.ID, dockertypes.RemoveOptions{Force: true})
+
+		return "", fmt.Errorf("attach container %s to link-local network: %w", resp.ID, attachErr)
 	}
 
 	return resp.ID, nil

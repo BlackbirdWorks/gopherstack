@@ -16,6 +16,7 @@ import (
 	mobynetwork "github.com/moby/moby/api/types/network"
 	mobyclient "github.com/moby/moby/client"
 
+	"github.com/blackbirdworks/gopherstack/internal/linklocal"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -82,6 +83,7 @@ type DockerCompute struct {
 	api   dockerAPI
 	ports *sshPortPool
 	nets  *netRegistry
+	ll    *linkLocalState
 	cfg   DockerComputeConfig
 }
 
@@ -113,7 +115,13 @@ func newDockerComputeWithAPI(api dockerAPI, cfg DockerComputeConfig) *DockerComp
 		cfg.SSHHostIP = defaultSSHHostIP
 	}
 
-	return &DockerCompute{api: api, cfg: cfg, ports: &sshPortPool{used: make(map[int]struct{})}, nets: newNetRegistry()}
+	return &DockerCompute{
+		api:   api,
+		cfg:   cfg,
+		ports: &sshPortPool{used: make(map[int]struct{})},
+		nets:  newNetRegistry(),
+		ll:    &linkLocalState{},
+	}
 }
 
 // Ping verifies the Docker daemon is reachable.
@@ -191,6 +199,11 @@ func (d *DockerCompute) Launch(ctx context.Context, req LaunchRequest) (LaunchRe
 		return LaunchResult{}, netErr
 	}
 
+	ll := d.activeLinkLocal(ctx)
+	if ll != nil {
+		req.MetadataEndpoint = ""
+	}
+
 	entrypoint := buildEntrypointScript(req.AuthorizedKey, req.UserData)
 	hostCfg, networkCfg, exposed := d.buildContainerConfigs(hostPort, req, vn, hasNet)
 	createOpts := mobyclient.ContainerCreateOptions{
@@ -212,6 +225,14 @@ func (d *DockerCompute) Launch(ctx context.Context, req LaunchRequest) (LaunchRe
 		d.releaseSSHPort(hostPort)
 
 		return LaunchResult{}, fmt.Errorf("container create: %w", createErr)
+	}
+
+	if ll != nil {
+		if attachErr := ll.Attach(ctx, resp.ID, req.InstanceID); attachErr != nil {
+			d.cleanupAfterFailure(ctx, resp.ID, hostPort)
+
+			return LaunchResult{}, fmt.Errorf("link-local attach: %w", attachErr)
+		}
 	}
 
 	if _, startErr := d.api.ContainerStart(ctx, resp.ID, mobyclient.ContainerStartOptions{}); startErr != nil {
@@ -289,6 +310,7 @@ func (d *DockerCompute) Terminate(ctx context.Context, instanceID, providerID st
 	}
 
 	d.releaseProviderPort(ctx, providerID)
+	d.releaseLinkLocal(providerID)
 
 	return nil
 }
@@ -484,7 +506,11 @@ func pickNetworkIP(networks map[string]*mobynetwork.EndpointSettings, preferred 
 		}
 	}
 
-	for _, ep := range networks {
+	for name, ep := range networks {
+		if strings.HasPrefix(name, linklocal.NetworkPrefix) {
+			continue
+		}
+
 		if ep != nil && ep.IPAddress.IsValid() {
 			return ep.IPAddress.String()
 		}

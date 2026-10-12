@@ -21,6 +21,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	tagspkg "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -696,6 +697,7 @@ var errCodeLookup = []struct {
 	{ErrVPCNotFound, "InvalidVpcID.NotFound"},
 	{ErrSubnetNotFound, "InvalidSubnetID.NotFound"},
 	{ErrDuplicateSGName, "InvalidGroup.Duplicate"},
+	{ErrResourceIDInUse, errCodeInvalidParameterValue},
 	{ErrKeyPairNotFound, "InvalidKeyPair.NotFound"},
 	{ErrDuplicateKeyPairName, "InvalidKeyPair.Duplicate"},
 	{ErrVolumeNotFound, "InvalidVolume.NotFound"},
@@ -1108,6 +1110,10 @@ func parseTagSpecification(vals url.Values, resourceType string) map[string]stri
 			key := vals.Get(fmt.Sprintf("TagSpecification.%d.Tag.%d.Key", i, j))
 			if key == "" {
 				break
+			}
+
+			if tagspkg.IsPinnedIDKey(key) {
+				continue
 			}
 
 			tags[key] = vals.Get(fmt.Sprintf("TagSpecification.%d.Tag.%d.Value", i, j))

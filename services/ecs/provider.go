@@ -63,6 +63,10 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 		r.SetTaskEnvProvider(backend.containerRuntimeEnv)
 	}
 
+	if r, ok := runner.(containerAttachRunner); ok {
+		r.SetContainerAttacher(backend.attachLinkLocal)
+	}
+
 	reconciler := NewReconciler(backend)
 	janitor := NewJanitor(backend, 0)
 
