@@ -2,10 +2,14 @@ package integration_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	athenasdk "github.com/aws/aws-sdk-go-v2/service/athena"
 	athenatypes "github.com/aws/aws-sdk-go-v2/service/athena/types"
+	gluesdk "github.com/aws/aws-sdk-go-v2/service/glue"
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -115,28 +119,38 @@ func TestIntegration_Athena_WorkGroupAndNamedQueryLifecycle(t *testing.T) {
 }
 
 // TestIntegration_Athena_DDLAndDMLQueryLifecycle exercises the SQL engine beyond
-// SELECT via the AWS SDK: a CREATE TABLE (DDL) mutates the catalog, an INSERT
-// (DML) writes rows, and a subsequent SELECT returns those rows through
-// GetQueryResults. Mirrors the query-execution flow that terraform-provider-aws
-// drives against real Athena.
+// SELECT via the AWS SDK: a CREATE EXTERNAL TABLE over an S3 location (DDL)
+// registers a Glue table, an INSERT (DML) writes rows to S3, and a SELECT
+// returns them through GetQueryResults. Queries run asynchronously, so each
+// is polled to a terminal state as with real Athena.
 func TestIntegration_Athena_DDLAndDMLQueryLifecycle(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
 	client := createAthenaClient(t)
+	glueClient := createGlueClient(t)
+	s3Client := createS3Client(t)
 	ctx := t.Context()
 
 	const (
-		workGroup    = "it-athena-ddl-wg"
-		database     = "default"
-		outputBucket = "s3://it-athena-ddl-results/"
+		workGroup = "it-athena-ddl-wg"
+		database  = "it_athena_ddl_db"
+		bucket    = "it-athena-ddl-data"
 	)
 
-	_, err := client.CreateWorkGroup(ctx, &athenasdk.CreateWorkGroupInput{
+	_, err := s3Client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+
+	_, err = glueClient.CreateDatabase(ctx, &gluesdk.CreateDatabaseInput{
+		DatabaseInput: &gluetypes.DatabaseInput{Name: aws.String(database)},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateWorkGroup(ctx, &athenasdk.CreateWorkGroupInput{
 		Name: aws.String(workGroup),
 		Configuration: &athenatypes.WorkGroupConfiguration{
 			ResultConfiguration: &athenatypes.ResultConfiguration{
-				OutputLocation: aws.String(outputBucket),
+				OutputLocation: aws.String("s3://" + bucket + "/results/"),
 			},
 		},
 	})
@@ -147,7 +161,19 @@ func TestIntegration_Athena_DDLAndDMLQueryLifecycle(t *testing.T) {
 		defer cancel()
 
 		_, _ = client.DeleteWorkGroup(cleanupCtx, &athenasdk.DeleteWorkGroupInput{
-			WorkGroup: aws.String(workGroup),
+			WorkGroup:             aws.String(workGroup),
+			RecursiveDeleteOption: aws.Bool(true),
+		})
+		listOut, lerr := s3Client.ListObjectsV2(cleanupCtx, &s3.ListObjectsV2Input{Bucket: aws.String(bucket)})
+		if lerr == nil {
+			for _, obj := range listOut.Contents {
+				_, _ = s3Client.DeleteObject(cleanupCtx, &s3.DeleteObjectInput{Bucket: aws.String(bucket), Key: obj.Key})
+			}
+		}
+
+		_, _ = s3Client.DeleteBucket(cleanupCtx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+		_, _ = glueClient.DeleteDatabase(cleanupCtx, &gluesdk.DeleteDatabaseInput{
+			Name: aws.String(database),
 		})
 	})
 
@@ -167,24 +193,34 @@ func TestIntegration_Athena_DDLAndDMLQueryLifecycle(t *testing.T) {
 		id := aws.ToString(startOut.QueryExecutionId)
 		require.NotEmpty(t, id)
 
-		getOut, gerr := client.GetQueryExecution(ctx, &athenasdk.GetQueryExecutionInput{
-			QueryExecutionId: aws.String(id),
-		})
-		require.NoError(t, gerr)
-		require.NotNil(t, getOut.QueryExecution)
-		require.Equal(t, athenatypes.QueryExecutionStateSucceeded,
-			getOut.QueryExecution.Status.State, "query %q should succeed", sql)
+		var last *athenatypes.QueryExecutionStatus
+
+		require.Eventually(t, func() bool {
+			getOut, gerr := client.GetQueryExecution(ctx, &athenasdk.GetQueryExecutionInput{
+				QueryExecutionId: aws.String(id),
+			})
+			if gerr != nil || getOut.QueryExecution == nil {
+				return false
+			}
+
+			last = getOut.QueryExecution.Status
+
+			return last.State != athenatypes.QueryExecutionStateQueued &&
+				last.State != athenatypes.QueryExecutionStateRunning
+		}, 30*time.Second, 50*time.Millisecond, "query %q should reach a terminal state", sql)
+
+		require.Equal(t, athenatypes.QueryExecutionStateSucceeded, last.State,
+			"query %q should succeed: %s", sql, aws.ToString(last.StateChangeReason))
 
 		return id
 	}
 
-	// DDL: create a table.
-	runQuery("CREATE EXTERNAL TABLE it_events (id bigint, label string)")
+	runQuery("CREATE EXTERNAL TABLE it_events (id bigint, label string) " +
+		"ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' " +
+		"LOCATION 's3://" + bucket + "/events/'")
 
-	// DML: insert rows.
 	runQuery("INSERT INTO it_events VALUES (1, 'alpha'), (2, 'beta')")
 
-	// SELECT the inserted rows and read them via GetQueryResults.
 	selectID := runQuery("SELECT id, label FROM it_events")
 
 	resultsOut, err := client.GetQueryResults(ctx, &athenasdk.GetQueryResultsInput{
