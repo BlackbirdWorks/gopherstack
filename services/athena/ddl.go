@@ -289,6 +289,10 @@ func (b *InMemoryBackend) execCreateTable(query string, ctx QueryExecutionContex
 		return stmtFail(athenaErrTypeSyntax, "line 1:1: could not parse CREATE TABLE statement")
 	}
 
+	if upper := strings.ToUpper(query); hasKeyword(upper, "CREATE EXTERNAL TABLE") && !hasLocationClause(upper) {
+		return stmtFail(athenaErrTypeSyntax, "External tables must specify a LOCATION clause")
+	}
+
 	catalog, database, table := resolveTableRef(name, ctx)
 
 	b.mu.Lock("execCreateTable")
@@ -471,4 +475,9 @@ func (b *InMemoryBackend) ensureDatabaseLocked(catalog, database string) {
 	if !b.databases.Has(key) {
 		b.databases.Put(&Database{Catalog: catalog, Name: database})
 	}
+}
+
+// hasLocationClause reports whether an uppercased CREATE statement carries a LOCATION clause.
+func hasLocationClause(upper string) bool {
+	return slices.Contains(strings.Fields(upper), "LOCATION")
 }

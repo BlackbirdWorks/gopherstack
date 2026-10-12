@@ -124,6 +124,8 @@ type InMemoryBackend struct {
 	metricEmitter cwmetric.Emitter
 	ctx           context.Context
 	workerSem     chan struct{}
+	// metricFilterHits records filters that matched since the last default-value sweep.
+	metricFilterHits map[string]struct{}
 
 	// registry holds every persisted resource table; Snapshot/Restore drive it
 	// via registry.SnapshotAll()/RestoreAll() (see persistence.go).
