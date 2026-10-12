@@ -54,7 +54,7 @@ func TestMediaConvertDashboard(t *testing.T) {
 	assert.Contains(t, content, "e2e-test-queue")
 }
 
-// TestMediaConvertDashboard_Empty verifies the MediaConvert dashboard empty state renders correctly.
+// TestMediaConvertDashboard_Empty verifies the MediaConvert dashboard lists the SYSTEM Default queue on a fresh stack.
 func TestMediaConvertDashboard_Empty(t *testing.T) {
 	stack := newStack(t)
 
@@ -83,7 +83,13 @@ func TestMediaConvertDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	err = page.Locator("text=Default").First().WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(60000),
+	})
+	require.NoError(t, err)
+
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No queues found")
+	assert.Contains(t, content, "Default")
+	assert.NotContains(t, content, "No queues found")
 }
