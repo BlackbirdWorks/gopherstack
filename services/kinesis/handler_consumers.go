@@ -319,6 +319,14 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 		return err
 	}
 
+	started := time.Now()
+	defer h.subscriptions.add(req.ConsumerARN, activeSubscription{
+		shardID:   req.ShardID,
+		position:  sp.Type,
+		startedAt: started,
+		expiresAt: started.Add(h.subscribeToShardStreamDuration),
+	})()
+
 	return h.runSubscribeToShardStream(ctx, c, req, sp, flusher, canFlush)
 }
 

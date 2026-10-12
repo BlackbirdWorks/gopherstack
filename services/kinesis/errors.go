@@ -37,6 +37,7 @@ var (
 	ErrUnknownAction          = errors.New("UnknownOperationException")
 	ErrDryRunOperation        = errors.New(errCodeDryRun)
 	ErrShardIteratorExpired   = errors.New("ExpiredIteratorException")
+	ErrExpiredNextToken       = errors.New("ExpiredNextTokenException")
 	ErrConsumerNotFound       = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	ErrConsumerAlreadyExists  = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
 	ErrResourcePolicyNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)

@@ -413,12 +413,12 @@ func resolveShardFilter(input *ListShardsInput, stream *Stream, now time.Time) (
 // ListShards pagination: ExclusiveStartShardID takes priority, then NextToken
 // (a resumed page), then -- only on a first page with no cursor yet --
 // AFTER_SHARD_ID's own ShardId plays the same exclusive-start role.
-func resolveListShardsStartCursor(input *ListShardsInput) string {
+func resolveListShardsStartCursor(input *ListShardsInput, tokenCursor string) string {
 	if input.ExclusiveStartShardID != "" {
 		return input.ExclusiveStartShardID
 	}
-	if input.NextToken != "" {
-		return input.NextToken
+	if tokenCursor != "" {
+		return tokenCursor
 	}
 	if input.ShardFilterShardID != "" &&
 		(input.ShardFilterType == shardFilterAfterShardID || input.ShardFilter == shardFilterAfterShardID) {
@@ -468,10 +468,26 @@ func filterShards(
 // ListShards returns the shards for a stream.
 func (b *InMemoryBackend) ListShards(ctx context.Context, input *ListShardsInput) (*ListShardsOutput, error) {
 	region := getRegion(ctx, b.region)
+	now := b.nowFunc()
+	streamName := input.StreamName
+
+	var token pageToken
+	if input.NextToken != "" {
+		var err error
+		if token, err = decodePageToken(pageTokenKindShards, input.NextToken, now); err != nil {
+			return nil, err
+		}
+
+		if streamName != "" && streamName != token.Stream {
+			return nil, ErrInvalidArgument
+		}
+
+		streamName = token.Stream
+	}
 
 	b.mu.RLock("ListShards")
 
-	stream, exists := b.streams.Get(streamKey(region, input.StreamName))
+	stream, exists := b.streams.Get(streamKey(region, streamName))
 	if !exists {
 		b.mu.RUnlock()
 
@@ -481,16 +497,20 @@ func (b *InMemoryBackend) ListShards(ctx context.Context, input *ListShardsInput
 	b.mu.RUnlock()
 	defer stream.mu.RUnlock()
 
+	if input.NextToken != "" && !token.matchesStream(stream) {
+		return nil, ErrInvalidArgument
+	}
+
 	if ts := input.StreamCreationTime; ts != nil && ts.Unix() != stream.CreatedAt.Unix() {
 		return nil, ErrStreamNotFound
 	}
 
-	includeAll, predicate, err := resolveShardFilter(input, stream, b.nowFunc())
+	includeAll, predicate, err := resolveShardFilter(input, stream, now)
 	if err != nil {
 		return nil, err
 	}
 
-	startShardID := resolveListShardsStartCursor(input)
+	startShardID := resolveListShardsStartCursor(input, token.Cursor)
 	result := filterShards(stream.Shards, startShardID, includeAll, predicate)
 
 	// Apply MaxResults pagination. AWS documents a default AND max of 1000
@@ -504,7 +524,7 @@ func (b *InMemoryBackend) ListShards(ctx context.Context, input *ListShardsInput
 	}
 
 	if maxResults < len(result) {
-		nextToken := result[maxResults-1].ShardID
+		nextToken := encodePageToken(pageTokenKindShards, stream, result[maxResults-1].ShardID, now)
 
 		return &ListShardsOutput{Shards: result[:maxResults], NextToken: nextToken}, nil
 	}
