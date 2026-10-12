@@ -29,6 +29,12 @@ func (b *InMemoryBackend) createCrawlerTablesLocked(c *Crawler) int {
 	created := 0
 
 	for _, s3t := range c.Targets.S3Targets {
+		if b.crawlerS3 != nil {
+			created += b.crawlS3TargetLocked(c, s3t)
+
+			continue
+		}
+
 		path := strings.TrimPrefix(s3t.Path, "s3://")
 		// Extract prefix after bucket name.
 		var prefix string

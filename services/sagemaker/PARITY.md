@@ -6931,3 +6931,7 @@ validated and echoed (live per-pool instance counts and EC2 reservation counts a
 ## Notes (2026-10-10)
 
 DeleteEndpoint now moves the endpoint to Deleting and removes it after the lifecycle dwell (150ms default, SetLifecycleDelay overrides); a repeat delete while Deleting is a no-op and the endpoint-deleted waiter works. DeleteEndpointConfig stays ResourceInUse until the endpoint is gone. Proof: `endpoint_deleting_test.go`.
+
+## 2026-10-12 (deep realism pass)
+
+An unspecified ProductionVariant.InitialVariantWeight now defaults to 1.0 (sagemaker@v1.263.2 types.go:18228), so DescribeEndpoint reports DesiredWeight 1 instead of 0; an explicit 0 is kept (`TestEndpointConfig_VariantWeightDefaultsToOne`). Training S3ModelArtifacts is `<S3OutputPath>/<job>/output/model.tar.gz`, not `<S3OutputPath>/output/...` (`TestCreateTrainingJob_ModelArtifactsRequiredWhileInProgress`). DescribeNotebookInstance Url is `<name>.notebook.<region>.sagemaker.aws` instead of a host built from the ARN (`TestNotebookInstance_UrlHost`). Pipeline executions list one step per step of the pipeline definition, Executing until the execution succeeds or is stopped (`TestPipelineExecution_StepsFollowDefinition`). Not changed: ModelApprovalStatus stays empty when omitted at CreateModelPackage (AWS default not determinable from the SDK).

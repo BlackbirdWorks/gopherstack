@@ -885,3 +885,7 @@ ClientException is a sentinel text only; handler.go:343-346 writes InvalidReques
 ## 2026-10-05 (secret-leak audit)
 
 KerberosAttributes passwords (KdcAdminPassword, ADDomainJoinPassword, CrossRealmTrustPrincipalPassword) are no longer echoed on DescribeCluster or written to snapshots (`KerberosAttributes.MarshalJSON`); nothing reads them back. The shared SDK type marks KdcAdminPassword required on input, but AWS does not return it on Describe (the Terraform provider preserves it from config for the same reason) -- this is a recollection, not SDK-verified. Proof: `TestDescribeCluster_KerberosAttributesOmitPasswords`.
+
+## 2026-10-12 (deep realism pass)
+
+Steps now run one at a time: PENDING, then RUNNING for a second, then COMPLETED, each starting when its predecessor ends; a WAITING cluster reads RUNNING while a step executes (`TestStepLifecycle_SequentialRunning`). CancelSteps accepts RUNNING steps (`TestCancelStep_RunningStep`). TerminateJobFlows settles steps: PENDING -> CANCELLED, RUNNING -> INTERRUPTED, finished steps keep COMPLETED, and a terminated cluster's steps no longer complete afterwards. AutoTerminate and idle-timeout termination are also applied on DescribeCluster/ListClusters rather than only on the one-minute janitor tick (`TestTerminate_SettlesStepsAndAutoTerminatesOnRead`). Still lenient: clusters go straight to WAITING (no STARTING/BOOTSTRAPPING phase) because many in-repo callers add steps or start sessions immediately after RunJobFlow. EMR Serverless lives in services/emrserverless and was not part of this pass.

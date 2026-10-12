@@ -129,6 +129,37 @@ type ProductionVariant struct {
 	EnableSSMAccess                             bool                  `json:"EnableSSMAccess,omitempty"`
 }
 
+// defaultVariantWeight is the documented default for an unspecified
+// ProductionVariant.InitialVariantWeight (sagemaker@v1.263.2 types.go:18228).
+const defaultVariantWeight = 1.0
+
+// UnmarshalJSON defaults an absent InitialVariantWeight to 1.0 while keeping an
+// explicit 0.
+func (pv *ProductionVariant) UnmarshalJSON(data []byte) error {
+	type plain ProductionVariant
+
+	aux := plain{InitialVariantWeight: defaultVariantWeight}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	*pv = ProductionVariant(aux)
+
+	return nil
+}
+
+// MarshalJSON always emits InitialVariantWeight so an explicit 0 survives a
+// round trip now that an absent value decodes to 1.0.
+func (pv ProductionVariant) MarshalJSON() ([]byte, error) {
+	type plain ProductionVariant
+
+	return json.Marshal(struct {
+		plain
+
+		InitialVariantWeight float64 `json:"InitialVariantWeight"`
+	}{plain: plain(pv), InitialVariantWeight: pv.InitialVariantWeight})
+}
+
 // DataCaptureConfig specifies real-time data capture for an endpoint config.
 // CaptureOptions/InitialSamplingPercentage/DestinationS3Uri are all "This
 // member is required" (validateDataCaptureConfig, validators.go) --

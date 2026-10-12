@@ -152,11 +152,7 @@ func (b *InMemoryBackend) ListSteps(
 	stateSet := buildStateSet(stepStates)
 	idSet := buildStringSet(stepIDs)
 
-	steps := make([]Step, len(cluster.steps))
-	for i, s := range cluster.steps {
-		steps[i] = s
-		steps[i].Status = effectiveStepStatus(s.Status)
-	}
+	steps := effectiveSteps(cluster.steps)
 
 	filtered := filterSteps(steps, stateSet, idSet)
 
@@ -242,12 +238,9 @@ func (b *InMemoryBackend) DescribeStep(ctx context.Context, clusterID, stepID st
 		return nil, notValidErr("Cluster", clusterID)
 	}
 
-	for _, s := range cluster.steps {
+	for _, s := range effectiveSteps(cluster.steps) {
 		if s.ID == stepID {
-			cp := s
-			cp.Status = effectiveStepStatus(s.Status)
-
-			return &cp, nil
+			return &s, nil
 		}
 	}
 
@@ -273,10 +266,12 @@ func (b *InMemoryBackend) CancelSteps(
 	idSet := buildStringSet(stepIDs)
 	results := make([]*CancelStepsInfo, 0, len(stepIDs))
 
+	live := effectiveSteps(cluster.steps)
+
 	for i := range cluster.steps {
 		s := &cluster.steps[i]
 		if idSet == nil || idSet[s.ID] {
-			results = append(results, cancelStep(s))
+			results = append(results, cancelStepAt(s, live[i].Status))
 		}
 	}
 
@@ -284,18 +279,25 @@ func (b *InMemoryBackend) CancelSteps(
 }
 
 // cancelStep cancels a single step in place if it is still (effectively)
-// PENDING, and reports the outcome using the real CancelStepsRequestStatus
-// enum -- SUBMITTED (the cancellation was accepted) or FAILED (the step is
-// no longer cancellable, e.g. already COMPLETED or CANCELLED). AWS's actual
-// enum has only these two values; this backend previously returned the
-// non-existent "SUCCESS"/"QUEUED" strings.
+// PENDING or RUNNING and reports the outcome using the real
+// CancelStepsRequestStatus enum: SUBMITTED, or FAILED when the step is no
+// longer cancellable (cancelled or finished).
 func cancelStep(s *Step) *CancelStepsInfo {
-	if effectiveStepStatus(s.Status).State != StepStatePending {
+	return cancelStepAt(s, effectiveStepStatus(s.Status))
+}
+
+func cancelStepAt(s *Step, live StepStatus) *CancelStepsInfo {
+	if live.State != StepStatePending && live.State != StepStateRunning {
 		return &CancelStepsInfo{
 			StepID: s.ID,
 			Status: cancelStepsStatusFailed,
 			Reason: "Step is not in a state to be cancelled",
 		}
+	}
+
+	if live.State == StepStateRunning {
+		s.Status.Timeline.StartDateTime = live.Timeline.StartDateTime
+		s.Status.Timeline.EndDateTime = awstime.Epoch(time.Now())
 	}
 
 	s.Status.State = StepStateCancelled

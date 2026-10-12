@@ -17,9 +17,9 @@ func clusterIdleSince(c *Cluster) (time.Time, bool) {
 
 	since := timelineSeconds(c.Status.Timeline, timelineKeyReady)
 
-	for _, s := range c.steps {
-		st := effectiveStepStatus(s.Status)
-		if st.State == StepStatePending {
+	for _, s := range effectiveSteps(c.steps) {
+		st := s.Status
+		if st.State == StepStatePending || st.State == StepStateRunning {
 			return time.Time{}, false
 		}
 

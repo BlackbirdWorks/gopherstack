@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -102,6 +103,10 @@ func (b *InMemoryBackend) RetryPipelineExecution(
 	}
 	b.pipelineExecutionsStore(region).Put(newExec)
 
+	if p, found := b.findPipelineByARNLocked(region, pe.PipelineArn); found {
+		b.seedPipelineExecutionStepsLocked(region, newArn, p.PipelineDefinition, now)
+	}
+
 	// Transition to Succeeded after a short delay.
 	b.runDelayed(b.lifecycleCtx, retryTransitionDelay, func() {
 		b.mu.Lock("RetryPipelineExecution.goroutine")
@@ -110,6 +115,7 @@ func (b *InMemoryBackend) RetryPipelineExecution(
 		if exec, exists := b.pipelineExecutionsStore(region).Get(newArn); exists &&
 			exec.PipelineExecutionStatus == pipelineStatusExecuting {
 			exec.PipelineExecutionStatus = pipelineStatusSucceeded
+			b.finishPipelineExecutionStepsLocked(region, newArn, stepStatusSucceeded, time.Now())
 		}
 	})
 
@@ -146,6 +152,7 @@ func (b *InMemoryBackend) StopPipelineExecution(ctx context.Context, execArn str
 
 		if exec, exists := b.pipelineExecutionsStore(region).Get(execArn); exists {
 			exec.PipelineExecutionStatus = pipelineStatusStopped
+			b.finishPipelineExecutionStepsLocked(region, execArn, pipelineStatusStopped, time.Now())
 		}
 	})
 
@@ -264,4 +271,52 @@ func (b *InMemoryBackend) ListPipelineExecutionSteps(
 	})
 
 	return paginateSlice(list, params.NextToken, params.MaxResults)
+}
+
+type definedPipelineStep struct {
+	Name string `json:"Name"`
+	Type string `json:"Type"`
+}
+
+// pipelineDefinitionSteps reads the top-level steps of a pipeline definition
+// document; an unparsable or empty definition yields none.
+func pipelineDefinitionSteps(definition string) []definedPipelineStep {
+	var doc struct {
+		Steps []definedPipelineStep `json:"Steps"`
+	}
+
+	if json.Unmarshal([]byte(definition), &doc) != nil {
+		return nil
+	}
+
+	return doc.Steps
+}
+
+// seedPipelineExecutionStepsLocked records one Executing step per step of the
+// pipeline definition. Must be called with b.mu held.
+func (b *InMemoryBackend) seedPipelineExecutionStepsLocked(region, execArn, definition string, now time.Time) {
+	for i, st := range pipelineDefinitionSteps(definition) {
+		if st.Name == "" {
+			continue
+		}
+
+		b.pipelineExecStepsStore(region).Put(&PipelineExecutionStep{
+			StartTime:    now.Add(time.Duration(i) * time.Millisecond),
+			StepName:     st.Name,
+			StepType:     st.Type,
+			StepStatus:   pipelineStatusExecuting,
+			ExecutionArn: execArn,
+		})
+	}
+}
+
+// finishPipelineExecutionStepsLocked settles every still-Executing step of an
+// execution to status. Must be called with b.mu held.
+func (b *InMemoryBackend) finishPipelineExecutionStepsLocked(region, execArn, status string, now time.Time) {
+	for _, step := range b.pipelineExecStepsStore(region).All() {
+		if step.ExecutionArn == execArn && step.StepStatus == pipelineStatusExecuting {
+			step.StepStatus = status
+			step.EndTime = now
+		}
+	}
 }

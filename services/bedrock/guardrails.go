@@ -182,11 +182,55 @@ func (b *InMemoryBackend) ListGuardrails(
 			CreatedAt:            g.CreatedAt,
 			UpdatedAt:            g.UpdatedAt,
 		})
+
+		if guardrailIdentifier != "" {
+			list = append(list, b.guardrailVersionSummariesLocked(g)...)
+		}
 	}
 
-	sort.Slice(list, func(i, j int) bool { return list[i].GuardrailID < list[j].GuardrailID })
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].GuardrailID != list[j].GuardrailID {
+			return list[i].GuardrailID < list[j].GuardrailID
+		}
+
+		return guardrailVersionOrdinal(list[i].Version) < guardrailVersionOrdinal(list[j].Version)
+	})
 
 	return paginate(list, maxResults, nextToken)
+}
+
+// guardrailVersionSummariesLocked lists the numbered versions of g, for the
+// ListGuardrails call that names a guardrail. Caller holds b.mu.
+func (b *InMemoryBackend) guardrailVersionSummariesLocked(g *Guardrail) []*GuardrailSummary {
+	var out []*GuardrailSummary
+
+	for _, gv := range b.guardrailVersions.All() {
+		if gv.GuardrailID != g.GuardrailID {
+			continue
+		}
+
+		out = append(out, &GuardrailSummary{
+			GuardrailID: gv.GuardrailID,
+			Arn:         gv.GuardrailArn,
+			Name:        gv.Name,
+			Description: gv.Description,
+			Status:      g.Status,
+			Version:     gv.Version,
+			CreatedAt:   gv.CreatedAt,
+			UpdatedAt:   gv.CreatedAt,
+		})
+	}
+
+	return out
+}
+
+func guardrailVersionOrdinal(version string) int {
+	n, err := strconv.Atoi(version)
+	if err != nil {
+		return 0
+	}
+
+	return n
 }
 
 // UpdateGuardrail updates a guardrail's name, description, messaging, and policies.

@@ -375,6 +375,7 @@ func (b *InMemoryBackend) StartPipelineExecution(ctx context.Context, pipelineNa
 		StartTime:               time.Now(),
 	}
 	b.pipelineExecutionsStore(region).Put(pe)
+	b.seedPipelineExecutionStepsLocked(region, execArn, p.PipelineDefinition, pe.StartTime)
 
 	b.runDelayed(b.lifecycleCtx, startTransitionDelay, func() {
 		b.mu.Lock("StartPipelineExecution.goroutine")
@@ -383,6 +384,7 @@ func (b *InMemoryBackend) StartPipelineExecution(ctx context.Context, pipelineNa
 		if exec, exists := b.pipelineExecutionsStore(region).Get(execArn); exists &&
 			exec.PipelineExecutionStatus == pipelineStatusExecuting {
 			exec.PipelineExecutionStatus = pipelineStatusSucceeded
+			b.finishPipelineExecutionStepsLocked(region, execArn, stepStatusSucceeded, time.Now())
 		}
 	})
 
@@ -628,6 +630,7 @@ func (b *InMemoryBackend) StartPipelineExecutionFull(
 	}
 	b.pipelineExecutionsStore(region).Put(pe)
 	b.recordPipelineExecutionOnLatestVersionLocked(region, opts.PipelineName, execArn)
+	b.seedPipelineExecutionStepsLocked(region, execArn, p.PipelineDefinition, pe.StartTime)
 
 	b.runDelayed(b.lifecycleCtx, startTransitionDelay, func() {
 		b.mu.Lock("StartPipelineExecutionFull.goroutine")
@@ -636,6 +639,7 @@ func (b *InMemoryBackend) StartPipelineExecutionFull(
 		if exec, exists := b.pipelineExecutionsStore(region).Get(execArn); exists &&
 			exec.PipelineExecutionStatus == pipelineStatusExecuting {
 			exec.PipelineExecutionStatus = pipelineStatusSucceeded
+			b.finishPipelineExecutionStepsLocked(region, execArn, stepStatusSucceeded, time.Now())
 		}
 	})
 

@@ -236,11 +236,12 @@ type Channel struct {
 // InProgress, so this must be computed synchronously at Create, not only on
 // completion.
 func modelArtifactsFromTrainingOutputDataConfig(oc OutputDataConfig, name string) *ModelArtifacts {
-	if oc.S3OutputPath == "" {
-		return &ModelArtifacts{S3ModelArtifacts: "s3://" + name + "-output/output/model.tar.gz"}
+	base := strings.TrimSuffix(oc.S3OutputPath, "/")
+	if base == "" {
+		base = "s3://" + name + "-output"
 	}
 
-	return &ModelArtifacts{S3ModelArtifacts: oc.S3OutputPath + "/output/model.tar.gz"}
+	return &ModelArtifacts{S3ModelArtifacts: base + "/" + name + "/output/model.tar.gz"}
 }
 
 // OutputDataConfig specifies where training output is stored.

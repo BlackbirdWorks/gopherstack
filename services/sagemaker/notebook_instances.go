@@ -102,7 +102,7 @@ func (b *InMemoryBackend) CreateNotebookInstance(
 	nb := &NotebookInstance{
 		NotebookInstanceName:   name,
 		NotebookInstanceArn:    nbARN,
-		URL:                    notebookInstanceURL(nbARN),
+		URL:                    notebookInstanceHost(nbARN),
 		NotebookInstanceStatus: notebookStatusPending,
 		InstanceType:           instanceType,
 		RoleArn:                roleArn,
@@ -354,7 +354,20 @@ func (b *InMemoryBackend) UpdateNotebookInstance(ctx context.Context, name, inst
 // by CreatePresignedNotebookInstanceURL as the base it would otherwise
 // presign.
 func notebookInstanceURL(nbARN string) string {
-	return "https://" + nbARN + ".notebook.sagemaker.aws/lab"
+	return "https://" + notebookInstanceHost(nbARN) + "/lab"
+}
+
+const arnPartCount = 6
+
+// notebookInstanceHost derives "<name>.notebook.<region>.sagemaker.aws" from
+// the instance ARN; DescribeNotebookInstance reports the host without scheme.
+func notebookInstanceHost(nbARN string) string {
+	parts := strings.SplitN(nbARN, ":", arnPartCount)
+	if len(parts) < arnPartCount {
+		return nbARN + ".notebook.sagemaker.aws"
+	}
+
+	return strings.TrimPrefix(parts[5], "notebook-instance/") + ".notebook." + parts[3] + ".sagemaker.aws"
 }
 
 // CreatePresignedNotebookInstanceURL returns a presigned URL for a notebook instance.
@@ -876,7 +889,7 @@ func (b *InMemoryBackend) CreateNotebookInstanceFull(
 	nb := &NotebookInstance{
 		NotebookInstanceName:                  opts.Name,
 		NotebookInstanceArn:                   nbARN,
-		URL:                                   notebookInstanceURL(nbARN),
+		URL:                                   notebookInstanceHost(nbARN),
 		NotebookInstanceStatus:                "Pending",
 		InstanceType:                          opts.InstanceType,
 		RoleArn:                               opts.RoleArn,

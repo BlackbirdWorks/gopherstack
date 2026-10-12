@@ -27138,6 +27138,8 @@
       "ProductionVariant.ServerlessConfig *ServerlessConfig `json:\"ServerlessConfig,omitempty\"`",
       "ProductionVariant.VariantName string `json:\"VariantName\"`",
       "ProductionVariant.VolumeSizeInGB int32 `json:\"VolumeSizeInGB,omitempty\"`",
+      "ProductionVariant.{MarshalJSON}",
+      "ProductionVariant.{UnmarshalJSON}",
       "ProductionVariantStatus.StartTime float64 `json:\"StartTime,omitempty\"`",
       "ProductionVariantStatus.Status string `json:\"Status\"`",
       "ProductionVariantStatus.StatusMessage string `json:\"StatusMessage,omitempty\"`",

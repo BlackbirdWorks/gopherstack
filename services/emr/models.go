@@ -34,9 +34,11 @@ const (
 	StateStarting      = "STARTING"
 	StateBootstrapping = "BOOTSTRAPPING"
 
-	StepStatePending   = "PENDING"
-	StepStateCompleted = "COMPLETED"
-	StepStateCancelled = "CANCELLED"
+	StepStatePending     = "PENDING"
+	StepStateCompleted   = "COMPLETED"
+	StepStateRunning     = "RUNNING"
+	StepStateInterrupted = "INTERRUPTED"
+	StepStateCancelled   = "CANCELLED"
 
 	// SessionStateSubmitted and its siblings below mirror the real
 	// SessionState enum (aws-sdk-go-v2/service/emr/types/enums.go) verbatim:
@@ -77,7 +79,9 @@ const (
 	// gopherstack has no real workload to run, so it simulates near-instant
 	// completion instead of leaving steps parked in PENDING forever, which
 	// would hang a real client's StepComplete waiter (min poll interval 30s).
-	stepCompletionDelay = 3 * time.Second
+	stepStartDelay      = time.Second
+	stepRunDuration     = time.Second
+	stepCompletionDelay = stepStartDelay + stepRunDuration
 
 	listClustersPageSize         = 50
 	listSecConfigsPageSize       = 50

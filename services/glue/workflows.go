@@ -341,6 +341,8 @@ func (b *InMemoryBackend) StartWorkflowRun(name string) (*WorkflowRun, error) {
 // StartWorkflowRunWithProperties starts a run whose properties are the
 // workflow's DefaultRunProperties overlaid with the request's RunProperties.
 func (b *InMemoryBackend) StartWorkflowRunWithProperties(name string, props map[string]string) (*WorkflowRun, error) {
+	b.advanceStates(time.Now())
+
 	var fires []entryTriggerFire
 
 	run, err := func() (*WorkflowRun, error) {
@@ -518,4 +520,53 @@ func (b *InMemoryBackend) WorkflowRunGraph(workflowName string) *WorkflowGraph {
 	defer b.mu.RUnlock()
 
 	return b.workflowGraphLocked(workflowName)
+}
+
+// settleWorkflowRunsLocked completes every RUNNING workflow run whose job runs
+// and crawls have all reached a terminal state. Must be called with b.mu held.
+func (b *InMemoryBackend) settleWorkflowRunsLocked(now time.Time) {
+	for _, runs := range b.workflowRuns {
+		for _, r := range runs {
+			if r.Status != stateRunning {
+				continue
+			}
+
+			if total, active := b.workflowRunActionsLocked(r.RunID); total > 0 && !active {
+				r.Status = stateCompleted
+				r.CompletedOn = float64(now.Unix())
+			}
+		}
+	}
+}
+
+func (b *InMemoryBackend) workflowRunActionsLocked(runID string) (int, bool) {
+	total, active := 0, false
+
+	for _, runs := range b.jobRuns {
+		for _, r := range runs {
+			if r.WorkflowRunID != runID {
+				continue
+			}
+
+			total++
+
+			switch r.JobRunState {
+			case stateSucceeded, stateFailed, stateStopped, stateTimeout, stateError:
+			default:
+				active = true
+			}
+		}
+	}
+
+	for _, hist := range b.crawlHistory {
+		for _, e := range hist {
+			if e.WorkflowRunID == runID {
+				total++
+
+				active = active || e.State == stateRunning
+			}
+		}
+	}
+
+	return total, active
 }

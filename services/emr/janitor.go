@@ -127,29 +127,7 @@ func (j *Janitor) sweepTerminatedClusters(ctx context.Context) {
 func (j *Janitor) sweepAutoTerminate(ctx context.Context) {
 	j.Backend.mu.Lock("sweepAutoTerminate")
 
-	var terminated []string
-
-	now := time.Now()
-
-	for _, c := range j.Backend.clusters.Snapshot() {
-		alreadyTerminal := c.Status.State == StateTerminated || c.Status.State == StateTerminatedWithErrors
-		if alreadyTerminal {
-			continue
-		}
-
-		message := "Steps completed"
-		if !c.AutoTerminate || !allStepsTerminal(c.steps) {
-			if !idleTimeoutElapsed(c, now) {
-				continue
-			}
-
-			message = stateChangeMessageIdleTimeout
-		}
-
-		if err := terminateSingle(c, c.ID, stateChangeReasonAllStepsCompleted, message); err == nil {
-			terminated = append(terminated, c.ID)
-		}
-	}
+	terminated := j.Backend.terminateFinishedClustersLocked(time.Now())
 
 	j.Backend.mu.Unlock()
 

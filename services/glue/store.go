@@ -205,6 +205,7 @@ type InMemoryBackend struct {
 	// CREATED_FROM_POLICY share (SetResourceShareCreator, wired in cli.go like
 	// awsconfig's SetSNSPublisher). Nil in tests that construct a bare backend.
 	ramShareCreator ResourceShareCreator
+	crawlerS3       CrawlerS3
 
 	// lifecycle reconciler timers
 	jobRunReadyAt      map[string]map[string]time.Time // jobName → runID → readyAt for STARTING→RUNNING

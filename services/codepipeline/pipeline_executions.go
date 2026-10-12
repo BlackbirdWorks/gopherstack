@@ -74,6 +74,12 @@ func (b *InMemoryBackend) ListActionExecutions(
 
 	stored := b.actionExecutionsStoreRO(region)[pipelineName]
 	out := make([]map[string]any, 0, len(stored))
+	execs := b.executionsStoreRO(region)[pipelineName]
+
+	var declared *Pipeline
+	if p, ok := b.pipelines.Get(regionKey(region, pipelineName)); ok {
+		declared = p
+	}
 
 	// Iterate in reverse so the most recent execution appears first.
 	for _, ae := range slices.Backward(stored) {
@@ -89,6 +95,16 @@ func (b *InMemoryBackend) ListActionExecutions(
 			"startTime":            float64(ae.StartTime.Unix()),
 			"lastUpdateTime":       float64(ae.LastUpdateTime.Unix()),
 			keyStatus:              ae.Status,
+		}
+
+		if exec := findExecution(execs, ae.PipelineExecutionID); exec != nil {
+			item["pipelineVersion"] = exec.PipelineVersion
+		}
+
+		if declared != nil {
+			if input := actionExecutionInput(declared, ae, region); input != nil {
+				item["input"] = input
+			}
 		}
 
 		if output := actionExecutionOutput(ae); output != nil {
@@ -182,6 +198,49 @@ func hasActionExecution(execs []*ActionExecution, executionID string) bool {
 	}
 
 	return false
+}
+
+// actionExecutionInput renders ActionExecutionDetail.input from the action's
+// declaration, or nil when the pipeline no longer declares the action.
+func actionExecutionInput(p *Pipeline, ae *ActionExecution, region string) map[string]any {
+	stage := findStage(p, ae.StageName)
+	if stage == nil {
+		return nil
+	}
+
+	action := findAction(stage, ae.ActionName)
+	if action == nil {
+		return nil
+	}
+
+	actionRegion := action.Region
+	if actionRegion == "" {
+		actionRegion = region
+	}
+
+	input := map[string]any{
+		"actionTypeId": map[string]any{
+			keyCategory: action.ActionTypeID.Category,
+			keyOwner:    action.ActionTypeID.Owner,
+			keyProvider: action.ActionTypeID.Provider,
+			keyVersion:  action.ActionTypeID.Version,
+		},
+		"region": actionRegion,
+	}
+
+	if len(action.Configuration) > 0 {
+		input["configuration"] = action.Configuration
+	}
+
+	if action.RoleArn != "" {
+		input["roleArn"] = action.RoleArn
+	}
+
+	if action.Namespace != "" {
+		input["namespace"] = action.Namespace
+	}
+
+	return input
 }
 
 // actionExecutionOutput renders ActionExecutionDetail.output (executionResult

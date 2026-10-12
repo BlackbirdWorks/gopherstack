@@ -1213,3 +1213,7 @@ FIXED: ListGuardrails, ListInferenceProfiles, ListMarketplaceModelEndpoints, Lis
 ## 2026-10-05 (undeclared response members)
 
 GetCustomModel, GetGuardrail and GetModelCustomizationJob no longer emit tags (read them via ListTagsForResource), and marketplace endpoint outputs drop endpointName.
+
+## 2026-10-12 (deep realism pass)
+
+ListGuardrails with a guardrailIdentifier (ID or ARN) lists the DRAFT and every numbered version, as the SDK doc states (`TestListGuardrails_IdentifierListsAllVersions`). GetModelCustomizationJob returns endTime once the job is terminal (`TestGetModelCustomizationJob_EndTimeOnCompletion`). The foundation-model catalogue stays at the five seeded models. bedrock-agent lives in services/bedrockagent and was not part of this pass.

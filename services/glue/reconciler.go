@@ -57,7 +57,7 @@ func advanceRunningJobRun(run *JobRun, doneMap, timeoutMap map[string]time.Time,
 	case succeeds:
 		run.JobRunState = stateSucceeded
 		run.CompletedOn = float64(now.Unix())
-		run.ExecutionTime = int(jobSucceededDelay.Seconds())
+		run.ExecutionTime = max(1, int(run.CompletedOn-run.StartedOn))
 	default:
 		return
 	}
@@ -151,6 +151,7 @@ func (b *InMemoryBackend) reconcileLocked(now time.Time) {
 	}
 
 	b.reconcileSessionsLocked(now)
+	b.settleWorkflowRunsLocked(now)
 
 	b.pruneOrphanJobRunTimersLocked()
 }

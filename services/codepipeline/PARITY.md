@@ -652,3 +652,7 @@ StartPipelineExecution honours ClientRequestToken (the SDK auto-fills it, so a r
 ## Notes (2026-10-10 realism pass)
 
 GetPipelineState now returns stage-level latestExecution ({pipelineExecutionId, status} derived from the stage's newest action executions) and a default enabled inboundTransitionState on every non-first stage. List* NextToken is an opaque base64 token and a malformed one returns InvalidNextTokenException. PipelineNotFoundException reads "Account '<id>' does not have a pipeline with name '<name>'"; messages no longer repeat the exception code. Tests: state_and_errors_realism_test.go. StartPipelineExecution still runs the whole pipeline synchronously, so executions are never observed InProgress except when gated by an approval or disabled transition.
+
+## 2026-10-12 (deep realism pass)
+
+ListActionExecutions returns each action's `input` (actionTypeId, configuration, region, roleArn, namespace) from the pipeline declaration and the execution's pipelineVersion (`TestListActionExecutions_InputAndVersion`). Still open, needing cli.go wiring: Source/S3 and Deploy/S3 actions do not touch S3 (no revision ids, no artifacts written), and Build/CodeBuild succeeds on StartBuild acceptance instead of waiting for the build's final status; both need a status-returning CodeBuild seam and an S3 seam passed in from cli.go.
