@@ -11553,6 +11553,7 @@ func setupChaosAndRegistry(
 	wireSchedulerUniversalTargets(e, services, cli.GetGlobalConfig().GetRegion(), cli.EnforceIAM)
 	wireCloudControlHandlers(e, services)
 	wireServiceRoleAuthorizer(services, cli.EnforceIAM)
+	wireRDSIAMAuth(e, services, cli.EnforceIAM)
 
 	return nil
 }

@@ -16,6 +16,11 @@ type EngineModeConfig interface {
 	GetRDSEngine() string
 }
 
+// EngineCADirConfig locates the directory that persists the docker-mode local CA; empty keeps it in memory.
+type EngineCADirConfig interface {
+	GetRDSCADir() string
+}
+
 // Provider implements service.Provider for RDS.
 type Provider struct{}
 
@@ -59,5 +64,12 @@ func enableDockerEngine(ctx *service.AppContext, backend *InMemoryBackend) {
 	}
 
 	silenceDriverLogs()
-	backend.EnableEngine(EngineConfig{Runtime: er, Ports: ctx.PortAlloc, Host: os.Getenv("RDS_DB_HOST")})
+	var caDir string
+	if cc, isCA := ctx.Config.(EngineCADirConfig); isCA {
+		caDir = cc.GetRDSCADir()
+	}
+
+	backend.EnableEngine(EngineConfig{
+		Runtime: er, Ports: ctx.PortAlloc, Host: os.Getenv("RDS_DB_HOST"), CADir: caDir,
+	})
 }
