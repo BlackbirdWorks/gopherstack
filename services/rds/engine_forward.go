@@ -71,17 +71,23 @@ func (b *InMemoryBackend) startForwarder(lb *liveDB) error {
 	}
 
 	f := &tcpForwarder{be: b, lb: lb, ln: ln, port: port}
+	f.wg.Add(1)
 	lb.fwd.Store(f)
 
 	select {
 	case <-lb.gone:
 		f.close()
+		f.wg.Done()
 
 		return nil
 	default:
 	}
 
-	f.wg.Go(f.acceptLoop)
+	go func() {
+		defer f.wg.Done()
+
+		f.acceptLoop()
+	}()
 
 	return nil
 }

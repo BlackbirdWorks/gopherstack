@@ -130,17 +130,23 @@ func (b *InMemoryBackend) startProxy(lb *liveDB) error {
 	}
 
 	p := &pgProxy{be: b, lb: lb, ln: ln, port: port, tlsCfg: e.serverTLS()}
+	p.wg.Add(1)
 	lb.proxy.Store(p)
 
 	select {
 	case <-lb.gone:
 		p.close()
+		p.wg.Done()
 
 		return nil
 	default:
 	}
 
-	p.wg.Go(p.acceptLoop)
+	go func() {
+		defer p.wg.Done()
+
+		p.acceptLoop()
+	}()
 
 	return nil
 }
