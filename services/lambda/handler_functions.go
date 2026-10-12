@@ -350,6 +350,10 @@ func (h *Handler) validateCreateFunction(c *echo.Context, input *CreateFunctionI
 		return false
 	}
 
+	if !h.validateFileSystemConfigsInput(c, input.FileSystemConfigs, input.VpcConfig) {
+		return false
+	}
+
 	if input.PackageType != PackageTypeZip || input.Code.ZipFile != nil {
 		return true
 	}
@@ -796,7 +800,7 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 		return nil
 	}
 
-	if !h.validateDurableRuntimeUpdate(c, fn, &input) {
+	if !h.validateUpdateAgainstCurrent(c, fn, &input) {
 		return nil
 	}
 

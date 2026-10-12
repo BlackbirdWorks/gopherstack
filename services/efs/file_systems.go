@@ -350,6 +350,7 @@ func (b *InMemoryBackend) DeleteFileSystem(ctx context.Context, fileSystemID str
 	delete(b.lifecycleStore(region), fileSystemID)
 	delete(b.backupStore(region), fileSystemID)
 	delete(b.fsPolicyStore(region), fileSystemID)
+	b.removeFileSystemStorageLocked(region, fileSystemID)
 
 	return nil
 }

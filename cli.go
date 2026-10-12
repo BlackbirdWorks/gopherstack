@@ -3222,6 +3222,7 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 
 	if cli, ok := appCtx.Config.(*CLI); ok {
 		wireLambdaRuntimeEnv(cli, byName)
+		wireLambdaEFS(cli, byName)
 		wireECSRuntime(cli, byName)
 		wireEC2IMDS(appCtx.JanitorCtx, cli, byName)
 		wireSSMSecrets(cli, byName)

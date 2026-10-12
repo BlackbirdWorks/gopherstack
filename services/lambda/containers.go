@@ -646,6 +646,11 @@ func (b *InMemoryBackend) startContainer(
 		return zipDir, layerDirs, containerID, err
 	}
 
+	efsBinds, efsErr := b.efsMountBinds(fn)
+	if efsErr != nil {
+		return "", layerDirs, "", efsErr
+	}
+
 	spec := container.Spec{
 		Image: fn.ImageURI,
 		Name:  fmt.Sprintf("gopherstack-lambda-%s-%s", fn.FunctionName, uuid.New().String()[:8]),
@@ -655,6 +660,8 @@ func (b *InMemoryBackend) startContainer(
 	if layerMount != "" {
 		spec.Mounts = append(spec.Mounts, layerMount)
 	}
+
+	spec.Mounts = append(spec.Mounts, efsBinds...)
 
 	containerID, err := b.docker.CreateAndStart(ctx, spec)
 
@@ -755,10 +762,17 @@ func (b *InMemoryBackend) createZipContainer(
 	env []string,
 	layerMount string,
 ) (string, error) {
+	efsBinds, efsErr := b.efsMountBinds(fn)
+	if efsErr != nil {
+		return "", efsErr
+	}
+
 	mounts := []string{codeDir + ":/var/task:ro"}
 	if layerMount != "" {
 		mounts = append(mounts, layerMount)
 	}
+
+	mounts = append(mounts, efsBinds...)
 
 	spec := container.Spec{
 		Image:  baseImage,

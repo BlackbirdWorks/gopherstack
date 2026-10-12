@@ -73,6 +73,7 @@ families:
   ReplicationConfiguration: {status: ok, note: "pagination implemented + Destination timestamp typing/population fixed this pass -- previously deferred, now closed for real; 2026-08-21 required-output Region fix, see below"}
   AccountPreferences: {status: ok}
 gaps: []
+# 2026-10-11: file systems are backed by host directories (SetStorageRoot; temp dir when unset) so Lambda can mount access points; DeleteFileSystem removes the directory.
 items_still_open:
   - "File systems and mount targets report available at once (the creating dwell is opt-in via the activation delay, off by default): in-repo integration and root tests create mount targets straight after CreateFileSystem."
   - "DeleteFileSystem rejects (FileSystemInUse) while access points exist; API_DeleteFileSystem documents FileSystemInUse only for mount targets and replication, and nothing documents access points, so this may be an over-restriction (tested in TestDeleteFileSystem_RequiresEmptyState)."
