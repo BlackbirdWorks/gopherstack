@@ -124,7 +124,7 @@ func (b *InMemoryBackend) RotateSecret(
 	b.mu.Lock("RotateSecret")
 	defer b.mu.Unlock()
 
-	id := resolveSecretID(input.SecretID)
+	id := b.resolveName(region, input.SecretID)
 
 	secret, lookupErr := b.resolvePrimaryOnlySecretLocked(region, input.SecretID, id)
 	if lookupErr != nil {
@@ -302,7 +302,7 @@ func (b *InMemoryBackend) BeginRotationTestProbe(
 	b.mu.Lock("BeginRotationTestProbe")
 	defer b.mu.Unlock()
 
-	id := resolveSecretID(secretID)
+	id := b.resolveName(region, secretID)
 
 	secret, ok := b.secretGet(region, id)
 	if !ok {
@@ -324,7 +324,7 @@ func (b *InMemoryBackend) FinishRotation(ctx context.Context, secretID, versionI
 	b.mu.Lock("FinishRotation")
 	defer b.mu.Unlock()
 
-	id := resolveSecretID(secretID)
+	id := b.resolveName(region, secretID)
 	secret, ok := b.secretGet(region, id)
 
 	if !ok || secret.DeletedDate != nil {
@@ -344,7 +344,7 @@ func (b *InMemoryBackend) AbortRotation(ctx context.Context, secretID, versionID
 	b.mu.Lock("AbortRotation")
 	defer b.mu.Unlock()
 
-	id := resolveSecretID(secretID)
+	id := b.resolveName(region, secretID)
 	secret, ok := b.secretGet(region, id)
 
 	if !ok || secret.DeletedDate != nil {
@@ -553,7 +553,7 @@ func (b *InMemoryBackend) CancelRotateSecret(
 	b.mu.Lock("CancelRotateSecret")
 	defer b.mu.Unlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, ok := b.secretGet(region, name)
 	if !ok {

@@ -191,23 +191,37 @@ func (b *InMemoryBackend) replicationConfigsStoreRO(region string) map[string][]
 	return b.replicationConfigs[region]
 }
 
-// resolveSecretID resolves a name or ARN to the internal key (name).
-func resolveSecretID(secretID string) string {
-	if strings.HasPrefix(secretID, "arn:aws:secretsmanager:") {
-		// Extract name from ARN: arn:aws:secretsmanager:region:account:secret:name-suffix
-		parts := strings.Split(secretID, ":")
-		if len(parts) >= arnMinParts {
-			nameWithSuffix := parts[arnNameIndex]
-			// Remove the trailing -XXXXXX suffix
-			if len(nameWithSuffix) > arnSuffixLen {
-				return nameWithSuffix[:len(nameWithSuffix)-arnSuffixLen]
-			}
+// resolveName maps a secret name, partial ARN (no suffix) or full ARN to the
+// stored name. An ARN that does not match the stored secret resolves to a key
+// that can never exist.
+func (b *InMemoryBackend) resolveName(region, secretID string) string {
+	if !strings.HasPrefix(secretID, "arn:aws:secretsmanager:") {
+		return secretID
+	}
 
-			return nameWithSuffix
+	parts := strings.Split(secretID, ":")
+	if len(parts) < arnMinParts {
+		return secretID
+	}
+
+	nameWithSuffix := parts[arnNameIndex]
+
+	if s, ok := b.secretGet(region, nameWithSuffix); ok && isPartialARNOf(s, secretID) {
+		return nameWithSuffix
+	}
+
+	if len(nameWithSuffix) > arnSuffixLen {
+		name := nameWithSuffix[:len(nameWithSuffix)-arnSuffixLen]
+		if s, ok := b.secretGet(region, name); ok && s.ARN == secretID {
+			return name
 		}
 	}
 
-	return secretID
+	return "\x00" + secretID
+}
+
+func isPartialARNOf(s *Secret, partial string) bool {
+	return len(s.ARN) == len(partial)+arnSuffixLen && strings.HasPrefix(s.ARN, partial+"-")
 }
 
 // validateMaxResults returns an error when MaxResults is outside [1, limit].

@@ -31,15 +31,15 @@ const DefaultKMSKeyAlias = "alias/aws/secretsmanager"
 var (
 	// ErrKMSEncryptionFailed wraps an error returned by the wired KMSEncryptor
 	// while sealing a secret value.
-	ErrKMSEncryptionFailed = errors.New("InvalidRequestException")
+	ErrKMSEncryptionFailed = errors.New("EncryptionFailure")
 	// ErrKMSDecryptionFailed wraps an error returned by the wired KMSEncryptor
 	// while opening a sealed secret value.
-	ErrKMSDecryptionFailed = errors.New("InvalidRequestException")
+	ErrKMSDecryptionFailed = errors.New(errCodeDecryptionFailure)
 	// ErrKMSNotConfigured is returned when a stored secret version was sealed
 	// via KMS (Ciphertext is set) but no KMSEncryptor is currently wired to
 	// decrypt it -- e.g. a snapshot was restored into a backend that never
 	// called SetKMSEncryptor.
-	ErrKMSNotConfigured = errors.New("InvalidRequestException: secret value was encrypted with KMS" +
+	ErrKMSNotConfigured = errors.New(errCodeDecryptionFailure + ": secret value was encrypted with KMS" +
 		" but no KMS backend is wired")
 )
 

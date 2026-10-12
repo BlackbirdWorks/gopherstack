@@ -59,6 +59,7 @@ type graphqlError struct {
 // executeGraphQL parses and executes the GraphQL query.
 func executeGraphQL(
 	ctx context.Context,
+	apiID string,
 	backend *InMemoryBackend,
 	schema *Schema,
 	resolvers map[string]*Resolver,
@@ -75,10 +76,7 @@ func executeGraphQL(
 	gqlSchema := schema.parsedSchema
 	if gqlSchema == nil {
 		var schemaErr error
-		gqlSchema, schemaErr = gqlparser.LoadSchema(&ast.Source{
-			Name:  "schema.graphql",
-			Input: schema.SDL,
-		})
+		gqlSchema, schemaErr = loadAppSyncSchema(schema.SDL)
 		if schemaErr != nil {
 			return nil, fmt.Errorf("invalid schema: %w", schemaErr)
 		}
@@ -110,6 +108,8 @@ func executeGraphQL(
 	if err != nil {
 		return nil, err
 	}
+
+	backend.publishMutation(apiID, op, result)
 
 	return result, nil
 }
@@ -178,7 +178,7 @@ func executeSelectionSet(
 			return nil, fmt.Errorf("error resolving %s.%s: %w", parentTypeName, field.Name, err)
 		}
 
-		result[field.Alias] = val
+		result[field.Alias] = projectSelection(val, field.SelectionSet)
 	}
 
 	return result, nil
@@ -561,18 +561,19 @@ func invokeDynamoDBDataSource(
 	switch operation {
 	case "GetItem":
 		key, _ := request["key"].(map[string]any)
-		result, err = backend.ddbBackend.GetItemRaw(ctx, ds.DynamoDBConfig.TableName, key)
-	case "PutItem":
-		item, _ := request["item"].(map[string]any)
-		if item == nil {
-			// Fall back to "key" for templates that use the key as the item.
-			item, _ = request["key"].(map[string]any)
+
+		var item map[string]any
+		if item, err = backend.ddbBackend.GetItemRaw(ctx, ds.DynamoDBConfig.TableName, key); err == nil &&
+			len(item) > 0 {
+			result = ddbPlainItem(item)
 		}
+	case "PutItem":
+		item := ddbPutItem(request)
 
 		err = backend.ddbBackend.PutItemRaw(ctx, ds.DynamoDBConfig.TableName, item)
 
 		if err == nil {
-			result = item
+			result = ddbPlainItem(item)
 		}
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedDynamoDBOp, operation)
@@ -600,6 +601,12 @@ func invokeNoneDataSource(mu mappingUnit, args map[string]any, prevResult any) (
 
 	if !ok {
 		reqResult = args
+	}
+
+	if m, isMap := reqResult.(map[string]any); isMap {
+		if payload, has := m["payload"]; has {
+			reqResult = payload
+		}
 	}
 
 	return evalResponseMapping(mu, args, reqResult)
@@ -679,7 +686,7 @@ func (b *InMemoryBackend) ExecuteGraphQL(
 	}
 
 	return executeGraphQL(
-		ctx, b, schema, resolversCopy, datasourcesCopy, functionsCopy, query, operationName, variables,
+		ctx, apiID, b, schema, resolversCopy, datasourcesCopy, functionsCopy, query, operationName, variables,
 	)
 }
 

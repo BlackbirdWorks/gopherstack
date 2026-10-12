@@ -271,6 +271,10 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errorType = "PublicPolicyException"
 	case errors.Is(reqErr, ErrSecretAlreadyExists):
 		errorType = "ResourceExistsException"
+	case errors.Is(reqErr, ErrKMSEncryptionFailed):
+		errorType = "EncryptionFailure"
+	case errors.Is(reqErr, ErrKMSDecryptionFailed), errors.Is(reqErr, ErrKMSNotConfigured):
+		errorType = errCodeDecryptionFailure
 	case errors.Is(reqErr, ErrSecretDeleted), errors.Is(reqErr, ErrRotationStrategyRequired),
 		errors.Is(reqErr, ErrReplicaAlreadyExists), errors.Is(reqErr, ErrReplicaNotWritable):
 		errorType = "InvalidRequestException"

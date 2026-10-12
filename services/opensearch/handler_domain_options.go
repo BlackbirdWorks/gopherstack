@@ -1,6 +1,7 @@
 package opensearch
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 
@@ -9,19 +10,42 @@ import (
 
 // domainClusterConfig holds the cluster configuration request parameters for a domain.
 type domainClusterConfig struct {
-	ZoneAwarenessConfig        *zoneAwarenessConfigJSON        `json:"ZoneAwarenessConfig,omitempty"`
+	present                    map[string]struct{}
 	BlueGreenDeploymentOptions *blueGreenDeploymentOptionsJSON `json:"BlueGreenDeploymentOptions,omitempty"`
 	ColdStorageOptions         *coldStorageOptionsJSON         `json:"ColdStorageOptions,omitempty"`
+	ZoneAwarenessConfig        *zoneAwarenessConfigJSON        `json:"ZoneAwarenessConfig,omitempty"`
 	InstanceType               string                          `json:"InstanceType"`
 	DedicatedMasterType        string                          `json:"DedicatedMasterType,omitempty"`
 	WarmType                   string                          `json:"WarmType,omitempty"`
 	InstanceCount              int                             `json:"InstanceCount"`
-	DedicatedMasterCount       int                             `json:"DedicatedMasterCount,omitempty"`
 	WarmCount                  int                             `json:"WarmCount,omitempty"`
+	DedicatedMasterCount       int                             `json:"DedicatedMasterCount,omitempty"`
 	DedicatedMasterEnabled     bool                            `json:"DedicatedMasterEnabled,omitempty"`
 	ZoneAwarenessEnabled       bool                            `json:"ZoneAwarenessEnabled,omitempty"`
 	WarmEnabled                bool                            `json:"WarmEnabled,omitempty"`
 	MultiAZWithStandbyEnabled  bool                            `json:"MultiAZWithStandbyEnabled,omitempty"`
+}
+
+type domainClusterConfigAlias domainClusterConfig
+
+// UnmarshalJSON records which members the request set, so UpdateDomainConfig can
+// leave omitted ones unchanged.
+func (cc *domainClusterConfig) UnmarshalJSON(data []byte) error {
+	if err := json.Unmarshal(data, (*domainClusterConfigAlias)(cc)); err != nil {
+		return err
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	cc.present = make(map[string]struct{}, len(raw))
+	for k := range raw {
+		cc.present[k] = struct{}{}
+	}
+
+	return nil
 }
 
 // zoneAwarenessConfigJSON holds zone awareness config in JSON.
@@ -398,6 +422,7 @@ func applyReqToUpdateInput(req *domainJSON) UpdateDomainConfigInput {
 	if req.ClusterConfig != nil {
 		cc := parseClusterConfigFromReq(req.ClusterConfig)
 		input.ClusterConfig = &cc
+		input.ClusterConfigFields = req.ClusterConfig.present
 	}
 	if req.EBSOptions != nil {
 		input.EBSOptions = &EBSOptions{

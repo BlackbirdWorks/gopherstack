@@ -8,7 +8,7 @@ service: ses
 sdk_module: aws-sdk-go-v2/service/ses@v1.37.4   # version audited against (query-XML, 2010-12-01); verified == go.mod this pass
 last_audit_commit: bfdb308be                      # HEAD at audit time (2026-09-19, terraform-coverage
                        # sweep iot-and-ses: VerifyDomainDkim DkimEnabled default fix); prior b1905140e
-last_audit_date: 2026-10-10
+last_audit_date: 2026-10-12
                        # (ListTemplates default page size, DescribeConfigurationSet attribute gating,
                        # ListCustomVerificationEmailTemplates + ListReceiptRuleSets pagination never
                        # plumbed through the call chain at all) -- see the four rows' notes.
@@ -137,6 +137,8 @@ leaks: {status: clean, note: "janitor sweep uses pkgs/worker.Group ticker with p
 ---
 
 ## Notes
+
+**2026-10-12 deep realism pass:** `Template.HtmlPart` (the SDK wire key) was read as `Template.HTMLPart`, so CreateTemplate/UpdateTemplate silently dropped the HTML body; friendly-from sources (`Alice <a@example.com>`, also SendRawEmail's From header) failed identity verification (now compared on the bare address); configuration-set SNS event destinations published a lowercase `eventType`, no `Send` event, and no `mail.tags`/`sendingAccountId` (now `Send`/`Delivery`/`Bounce`/`Complaint` per the SES developer guide event examples). Tests: deep_flows_sdk_test.go. Lenient: the sandbox rule that recipients must be verified is not enforced (would reject most in-repo senders); a missing template variable renders the literal `{{var}}` rather than a MissingRenderingAttribute failure; CloudWatch/Firehose/EventBridge destinations are not delivered in v1.
 
 - 2026-10-01: receipt actions now round-trip WorkmailAction, ConnectAction, LambdaAction.InvocationType, SNSAction.Encoding and S3Action.IamRoleArn/KmsKeyArn (previously dropped).
 

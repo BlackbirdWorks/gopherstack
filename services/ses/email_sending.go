@@ -289,14 +289,14 @@ func (b *InMemoryBackend) sendEmailLocked(in SendEmailInput) (string, Email, ses
 		return "", Email{}, sesNotificationTargets{}, err
 	}
 
-	if !b.isVerifiedLocked(in.From) {
+	if !b.isVerifiedLocked(bareAddress(in.From)) {
 		return "", Email{}, sesNotificationTargets{}, fmt.Errorf(
 			"%w: Email address is not verified. The following identities failed the check in region %s: %s",
 			ErrMessageRejected, strings.ToUpper(b.region), in.From,
 		)
 	}
 
-	if err := b.checkMailFromLocked(in.From); err != nil {
+	if err := b.checkMailFromLocked(bareAddress(in.From)); err != nil {
 		return "", Email{}, sesNotificationTargets{}, err
 	}
 
@@ -325,7 +325,7 @@ func (b *InMemoryBackend) sendEmailLocked(in SendEmailInput) (string, Email, ses
 	}
 	b.appendEmailLocked(email)
 
-	targets := b.collectNotificationTargetsLocked(in.From, in.ConfigurationSetName, bounced, complained)
+	targets := b.collectNotificationTargetsLocked(bareAddress(in.From), in.ConfigurationSetName, bounced, complained)
 
 	return msgID, email, targets, nil
 }
@@ -393,14 +393,14 @@ func (b *InMemoryBackend) sendTemplatedEmailLocked(
 		}
 	}
 
-	if !b.isVerifiedLocked(in.From) {
+	if !b.isVerifiedLocked(bareAddress(in.From)) {
 		return "", Email{}, sesNotificationTargets{}, fmt.Errorf(
 			"%w: Email address is not verified. The following identities failed the check in region %s: %s",
 			ErrMessageRejected, strings.ToUpper(b.region), in.From,
 		)
 	}
 
-	if sendErr := b.checkMailFromLocked(in.From); sendErr != nil {
+	if sendErr := b.checkMailFromLocked(bareAddress(in.From)); sendErr != nil {
 		return "", Email{}, sesNotificationTargets{}, sendErr
 	}
 
@@ -434,7 +434,7 @@ func (b *InMemoryBackend) sendTemplatedEmailLocked(
 	}
 	b.appendEmailLocked(email)
 
-	targets := b.collectNotificationTargetsLocked(in.From, in.ConfigurationSetName, bounced, complained)
+	targets := b.collectNotificationTargetsLocked(bareAddress(in.From), in.ConfigurationSetName, bounced, complained)
 
 	return msgID, email, targets, nil
 }
@@ -513,7 +513,7 @@ func (b *InMemoryBackend) SendBounce(
 	b.mu.Lock("SendBounce")
 	defer b.mu.Unlock()
 
-	if !b.isVerifiedLocked(bounceSender) {
+	if !b.isVerifiedLocked(bareAddress(bounceSender)) {
 		return "", fmt.Errorf(
 			"%w: Email address is not verified. The following identities failed the check in region %s: %s",
 			ErrMessageRejected, strings.ToUpper(b.region), bounceSender,

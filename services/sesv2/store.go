@@ -66,6 +66,7 @@ type InMemoryBackend struct {
 	accountDetails                 *AccountDetails
 	mu                             *lockmetrics.RWMutex
 	region                         string
+	snsPublisher                   SNSPublisher
 	accountID                      string
 	emails                         []Email
 	deliverabilityDashboardEnabled bool
@@ -102,6 +103,14 @@ func NewInMemoryBackendWithConfig(cfg *config.GlobalConfig) *InMemoryBackend {
 	}
 
 	return b
+}
+
+// SetSNSPublisher wires SNS delivery for configuration-set SNS event destinations.
+func (b *InMemoryBackend) SetSNSPublisher(pub SNSPublisher) {
+	b.mu.Lock("SetSNSPublisher")
+	defer b.mu.Unlock()
+
+	b.snsPublisher = pub
 }
 
 // Region returns the backend's AWS region.

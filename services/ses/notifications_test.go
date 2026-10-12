@@ -28,7 +28,7 @@ func (m *mockSESSNSPublisher) PublishToTopic(topicARN, message string) error {
 // TestSendEmail_PublishesToEventDestinationSNSTopic covers the
 // configuration-set event-destination path (gopherstack-y6rv): a bounce
 // outcome must publish to every enabled event destination whose
-// MatchingEventTypes includes "bounce", using the doc-sourced "eventType"
+// MatchingEventTypes includes "bounce", using the doc-sourced "eventType" (capitalized)
 // top-level field name (event publishing, not identity notifications).
 func TestSendEmail_PublishesToEventDestinationSNSTopic(t *testing.T) {
 	t.Parallel()
@@ -57,7 +57,7 @@ func TestSendEmail_PublishesToEventDestinationSNSTopic(t *testing.T) {
 
 	require.Len(t, pub.calls, 1)
 	assert.Equal(t, "arn:aws:sns:us-east-1:123456789012:bounce-topic", pub.calls[0].topicARN)
-	assert.Contains(t, pub.calls[0].message, `"eventType":"bounce"`)
+	assert.Contains(t, pub.calls[0].message, `"eventType":"Bounce"`)
 	assert.Contains(t, pub.calls[0].message, `"bounceType":"Permanent"`)
 }
 

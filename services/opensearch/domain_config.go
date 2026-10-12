@@ -41,7 +41,7 @@ func (b *InMemoryBackend) CancelDomainConfigChange(
 
 func applyClusterConfig(d *Domain, input UpdateDomainConfigInput) {
 	if input.ClusterConfig != nil {
-		d.ClusterConfig = *input.ClusterConfig
+		d.ClusterConfig = mergeClusterConfig(d.ClusterConfig, *input.ClusterConfig, input.ClusterConfigFields)
 	}
 
 	if input.EngineVersion != "" {
@@ -224,4 +224,72 @@ func (b *InMemoryBackend) PutDefaultApplicationSetting(
 	}
 
 	return b.defaultApplicationArn, nil
+}
+
+// mergeClusterConfig overlays the members named in fields onto cur; a nil
+// fields replaces cur entirely.
+func mergeClusterConfig(cur, in ClusterConfig, fields map[string]struct{}) ClusterConfig {
+	if fields == nil {
+		return in
+	}
+
+	has := func(k string) bool {
+		_, ok := fields[k]
+
+		return ok
+	}
+
+	if has("InstanceType") {
+		cur.InstanceType = in.InstanceType
+	}
+
+	if has("InstanceCount") {
+		cur.InstanceCount = in.InstanceCount
+	}
+
+	if has("DedicatedMasterEnabled") {
+		cur.DedicatedMasterEnabled = in.DedicatedMasterEnabled
+	}
+
+	if has("DedicatedMasterType") {
+		cur.DedicatedMasterType = in.DedicatedMasterType
+	}
+
+	if has("DedicatedMasterCount") {
+		cur.DedicatedMasterCount = in.DedicatedMasterCount
+	}
+
+	if has("ZoneAwarenessEnabled") {
+		cur.ZoneAwarenessEnabled = in.ZoneAwarenessEnabled
+	}
+
+	if has("ZoneAwarenessConfig") {
+		cur.ZoneAwarenessConfig = in.ZoneAwarenessConfig
+	}
+
+	if has("WarmEnabled") {
+		cur.WarmEnabled = in.WarmEnabled
+	}
+
+	if has("WarmType") {
+		cur.WarmType = in.WarmType
+	}
+
+	if has("WarmCount") {
+		cur.WarmCount = in.WarmCount
+	}
+
+	if has("ColdStorageOptions") {
+		cur.ColdStorageEnabled = in.ColdStorageEnabled
+	}
+
+	if has("MultiAZWithStandbyEnabled") {
+		cur.MultiAZWithStandbyEnabled = in.MultiAZWithStandbyEnabled
+	}
+
+	if has("BlueGreenDeploymentOptions") {
+		cur.BlueGreenDeploymentOptions = in.BlueGreenDeploymentOptions
+	}
+
+	return cur
 }

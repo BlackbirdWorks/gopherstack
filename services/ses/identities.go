@@ -3,6 +3,7 @@ package ses
 import (
 	"encoding/json"
 	"fmt"
+	"net/mail"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
@@ -131,6 +132,16 @@ func (b *InMemoryBackend) resolveVerifiedIdentityLocked(from string) (*IdentityR
 	}
 
 	return nil, false
+}
+
+// bareAddress strips a friendly-from display name ("Alice <a@example.com>"),
+// returning s unchanged when it is not a parseable address.
+func bareAddress(s string) string {
+	if a, err := mail.ParseAddress(s); err == nil {
+		return a.Address
+	}
+
+	return s
 }
 
 // isVerifiedLocked reports whether the sender address is authorised to send.

@@ -2,7 +2,7 @@
 service: appsync
 sdk_module: aws-sdk-go-v2/service/appsync@v1.60.0
 last_audit_commit: 0c1472972  # 2026-09-23 lakeformation-appsync-neptune-and-athena terraform coverage; prior: d522d763f
-last_audit_date: 2026-10-11
+last_audit_date: 2026-10-12
 overall: A            # 2026-09-04 (gopherstack-2yo): DeleteGraphqlApi's cascade-delete (issue #842) missed two ghost-row classes -- SourceAPIAssociation rows (either SourceAPIID or MergedAPIID matching the deleted API) and the APIAssociation/DomainName.APIID link created by AssociateApi -- both outlived the API indefinitely, so Get/ListSourceApiAssociations and GetApiAssociation kept returning associations pointing at a deleted API forever. Fixed for real (cascadeDeleteAPIAssociations); regression tests added. Also fixed: CreateApiKey's default expiry was wrong (365 days; real SDK doc says 7) and Create/UpdateApiKey's two AppSync-specific error codes (ApiKeyLimitExceededException, ApiKeyValidityOutOfBoundsException) were never actually surfaced -- both collapsed into a generic BadRequestException, and an out-of-bounds custom expiry was silently clamped into range instead of rejected. Also disclosed (not fixed, structural): GetIntrospectionSchema's format/includeDirectives were silently ignored, same missing-SDL<->JSON-converter class already disclosed for ListTypes/GetType/ListTypesByAssociation but not previously called out for this op. Grade held at A.
                       # 2026-07-24: systemic route-matcher/method bugs fixed across nearly every family; the two remaining gaps from the 2026-07-12 pass (StartSchemaMerge, Start/GetDataSourceIntrospection) are now implemented for real
                       # 2026-07-31: pkgs/sdkcheck reverse check found ExecuteGraphQL wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal data-plane scaffolding. Grade held at A: a documentation defect, not a served-client bug.
@@ -135,6 +135,8 @@ leaks: {status: bugs found, note: "janitor.go's background goroutine already tak
 ---
 
 ## Notes
+
+**2026-10-12 deep realism pass:** schemas using AppSync's implicit scalars (`AWSDateTime`, `AWSJSON`, ...) or directives (`@aws_subscribe`, `@aws_iam`, `@aws_cognito_user_pools`, `@aws_api_key`, `@aws_oidc`, `@aws_lambda`, `@aws_auth`, `@aws_publish`) were rejected as undefined (schema_prelude.go); resolver results were returned unprojected (every member, no aliases, no `__typename`) instead of by selection set; DynamoDB resolvers returned typed AttributeValue JSON (`{"S":"1"}`) instead of plain JSON, PutItem ignored `attributeValues` (key + attributeValues now written) and a missing GetItem returned `{}` instead of null; NONE data sources passed the whole request object as `$ctx.result` instead of its `payload`. New: GraphQL subscriptions over the real-time protocol (`GET /v1/apis/{id}/graphql/realtime`, `graphql-ws` subprotocol: connection_init/connection_ack/ka, start/start_ack, data, stop/complete, error) fed by `@aws_subscribe` mutations with argument filtering; `uris.REALTIME` now advertises that ws:// URL. Tests: deep_flows_sdk_test.go, ddb_resolver_flow_test.go, realtime_test.go. Lenient/open: DynamoDB resolvers support only GetItem/PutItem (Query/Scan/UpdateItem/DeleteItem/Batch need DynamoDBBackend methods wired in cli.go's dynamoDBAdapter); nested-type field resolvers are not executed; the realtime endpoint is path-based (no `appsync-realtime-api` host) and sends one `ka` after connect only.
 
 ### 2026-10-01 items_still_open burn-down
 

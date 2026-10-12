@@ -715,7 +715,7 @@ func TestValidateResourcePolicy_HTTP_SecretExists(t *testing.T) {
 
 	// validPolicy is a minimal well-formed IAM policy JSON string.
 	const validPolicy = `{"Version":"2012-10-17","Statement":[{` +
-		`"Effect":"Allow","Principal":{"AWS":"*"},` +
+		`"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::123456789012:root"},` +
 		`"Action":"secretsmanager:GetSecretValue","Resource":"*"}]}`
 	body, _ := json.Marshal(map[string]string{
 		"SecretId":       "validate-test",

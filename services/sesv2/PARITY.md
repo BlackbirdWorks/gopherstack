@@ -8,7 +8,7 @@ structural_gaps:
 service: sesv2
 sdk_module: aws-sdk-go-v2/service/sesv2@v1.66.4   # version audited against (bumped from v1.60.1; 2 new ops appeared: PutAccountPricingAttributes, PutTenantSuppressionAttributes)
 last_audit_commit: ed6ef1a53                      # HEAD after the 2026-09-18 invented-field census (acceptguard)
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-12
 overall: A            # route-matcher rewrite + wire-shape DTOs; this pass implemented the 2 new v1.66.0 ops and fixed a previously-mis-graded GetAccount wire-shape bug found while wiring PutAccountPricingAttributes in (see "This pass (2026-07-25)")
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -336,6 +336,8 @@ discarded. Leaves genuinely inert where there's no backend engine behind them
 itself) -- documented per-field in the `ops:` notes, not silently dropped.
 
 ## Notes
+
+**2026-10-12 deep realism pass:** friendly-from `FromEmailAddress` ("Bob <b@example.com>") failed identity verification (now bare address); configuration-set SNS event destinations were stored but never delivered, SendEmail now publishes `Send`/`Delivery` events (SES event-publishing JSON) through the new `SetSNSPublisher` (cli.go must call `sesv2Bk.SetSNSPublisher(&sesSNSPublisherAdapter{backend: snsBk})` -- same adapter as SES v1). Tests: deep_flows_sdk_test.go. Not delivered: CloudWatch/Firehose/EventBridge destinations, Bounce/Complaint outcomes, suppression-list drop; sandbox recipient verification is not enforced (lenient, would reject most in-repo senders).
 
 ### 2026-10-05 (gopherstack-fb5ao): secret-echo audit
 

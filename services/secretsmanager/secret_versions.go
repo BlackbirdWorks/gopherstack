@@ -61,7 +61,7 @@ func (b *InMemoryBackend) GetSecretValue(
 	b.mu.Lock("GetSecretValue")
 	defer b.mu.Unlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, exists := b.secretGet(region, name)
 	if !exists {
@@ -164,7 +164,7 @@ func (b *InMemoryBackend) PutSecretValue(
 	b.mu.Lock("PutSecretValue")
 	defer b.mu.Unlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, lookupErr := b.resolvePrimaryOnlySecretLocked(region, input.SecretID, name)
 	if lookupErr != nil {
@@ -338,7 +338,7 @@ func (b *InMemoryBackend) ListSecretVersionIDs(
 	b.mu.RLock("ListSecretVersionIDs")
 	defer b.mu.RUnlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, exists := b.secretGet(region, name)
 	if !exists {
@@ -464,7 +464,7 @@ func (b *InMemoryBackend) batchGetByIDList(
 	accessDay := UnixTimeFloat(b.now().UTC().Truncate(hoursPerDay * time.Hour))
 
 	for _, id := range ids {
-		name := resolveSecretID(id)
+		name := b.resolveName(region, id)
 
 		secret, ok := b.secretGet(region, name)
 		if !ok {
@@ -501,7 +501,7 @@ func (b *InMemoryBackend) batchGetByIDList(
 		entry, err := b.secretVersionEntry(ctx, secret, ver)
 		if err != nil {
 			out.Errors = append(out.Errors, APIErrorType{
-				ErrorCode: "DecryptionFailure",
+				ErrorCode: errCodeDecryptionFailure,
 				Message:   err.Error(),
 				SecretID:  id,
 			})
@@ -540,7 +540,7 @@ func (b *InMemoryBackend) batchGetByFilter(
 		entry, err := b.secretVersionEntry(ctx, secret, ver)
 		if err != nil {
 			out.Errors = append(out.Errors, APIErrorType{
-				ErrorCode: "DecryptionFailure",
+				ErrorCode: errCodeDecryptionFailure,
 				Message:   err.Error(),
 				SecretID:  secret.Name,
 			})
@@ -628,7 +628,7 @@ func (b *InMemoryBackend) UpdateSecretVersionStage(
 	b.mu.Lock("UpdateSecretVersionStage")
 	defer b.mu.Unlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, ok := b.secretGet(region, name)
 	if !ok {

@@ -205,6 +205,10 @@ func (b *InMemoryBackend) createSecret(ctx context.Context, input *CreateSecretI
 		return b.createSecretNameCollision(ctx, region, existing, input)
 	}
 
+	if err := validateReplicaRegions(region, input.AddReplicaRegions); err != nil {
+		return nil, err
+	}
+
 	suffix, err := resolveARNSuffix(input.PinnedSuffix)
 	if err != nil {
 		return nil, err
@@ -354,7 +358,7 @@ func (b *InMemoryBackend) DeleteSecret(ctx context.Context, input *DeleteSecretI
 	b.mu.Lock("DeleteSecret")
 	defer b.mu.Unlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, exists := b.secretGet(region, name)
 	if !exists {
@@ -706,7 +710,7 @@ func (b *InMemoryBackend) DescribeSecret(
 	b.mu.RLock(opDescribeSecret)
 	defer b.mu.RUnlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, exists := b.secretGet(region, name)
 	if !exists {
@@ -761,7 +765,7 @@ func (b *InMemoryBackend) UpdateSecret(ctx context.Context, input *UpdateSecretI
 	b.mu.Lock("UpdateSecret")
 	defer b.mu.Unlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, exists := b.secretGet(region, name)
 	if !exists {
@@ -877,7 +881,7 @@ func (b *InMemoryBackend) RestoreSecret(ctx context.Context, input *RestoreSecre
 	b.mu.Lock("RestoreSecret")
 	defer b.mu.Unlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, exists := b.secretGet(region, name)
 	if !exists {

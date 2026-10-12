@@ -61,3 +61,5 @@ var (
 	// v1.44.4 deserializers.go).
 	ErrReplicaNotWritable = errors.New("InvalidRequestException")
 )
+
+const errCodeDecryptionFailure = "DecryptionFailure"

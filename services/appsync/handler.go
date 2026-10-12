@@ -1091,6 +1091,10 @@ func (h *Handler) handleAPIResource(ctx context.Context, c *echo.Context, segs [
 	case pathSegTypes:
 		return h.handleTypes(ctx, c, apiID, segs)
 	case pathSegGraphQL:
+		if len(segs) == rtSegsRealtime && segs[4] == "realtime" {
+			return h.handleRealtime(ctx, c, apiID)
+		}
+
 		return h.handleGraphQL(ctx, c, apiID)
 	case pathSegAPIKeys:
 		return h.handleAPIKeys(ctx, c, apiID, segs)

@@ -2,7 +2,7 @@
 service: secretsmanager
 sdk_module: aws-sdk-go-v2/service/secretsmanager@v1.48.0
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0)
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-12
 overall: A            # 2026-08-30 pass: two real filter bugs found and fixed, both in the shared
                        # anyMatchPrefix/secretMatchesFilter path ListSecrets and BatchGetSecretValue
                        # both use. (1) types.Filter.Values' documented "!"-negation prefix ("You can
@@ -90,6 +90,8 @@ leaks: {status: fixed, note: "Found a real data race: ListSecrets/ListSecretVers
 ---
 
 ## Notes
+
+**2026-10-12 deep realism pass:** PutSecretValue/UpdateSecret/UpdateSecretVersionStage rejected any body carrying a non-string member (`VersionStages` -> 500 `json: cannot unmarshal array`), breaking the rotation AWSPENDING flow (explicit_empty.go probe now `RawMessage`); ReplicateSecretToRegions/CreateSecret accepted the primary's own Region (turning the primary into its own "replica", so DeleteSecret skipped the recovery window) and malformed Regions, now InvalidRequest/InvalidParameter; partial ARNs (no suffix) of names longer than 7 chars and ARNs with a wrong suffix/account/Region resolved to the wrong secret (`resolveName`); `BlockPublicPolicy` defaulted to true against the SDK doc "By default, public policies aren't blocked", the wildcard check was a substring match (missed principal lists, blocked `Deny`/conditioned statements), and ValidateResourcePolicy ignored the documented broad-access check (validation-error CheckName `PublicPolicyCheck` is unverified); KMS encrypt/decrypt failures surfaced as 500 InternalServiceError, now `EncryptionFailure`/`DecryptionFailure`. Tests: deep_flows_sdk_test.go. Lenient: Lambda rotation steps run synchronously inside RotateSecret (real AWS is async), so a failing Lambda surfaces as InternalServiceError.
 
 **2026-10-09 realism pass:** PutSecretValue reusing a ClientRequestToken with different content is `ResourceExistsException` (it previously overwrote the stored version); ListSecrets/ListSecretVersionIds/BatchGetSecretValue reject a malformed NextToken with `InvalidNextTokenException`.
 

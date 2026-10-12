@@ -204,10 +204,11 @@ type InMemoryBackend struct {
 	registry               *store.Registry
 	apis                   *store.Table[GraphqlAPI]
 	schemas                *store.Table[Schema]
-	datasources            *store.Table[DataSource]      // key: apiID#name
-	datasourcesByAPI       *store.Index[DataSource]      // apiID → datasources
-	resolvers              *store.Table[Resolver]        // key: apiID#TypeName.FieldName
-	resolversByAPI         *store.Index[Resolver]        // apiID → resolvers
+	datasources            *store.Table[DataSource] // key: apiID#name
+	datasourcesByAPI       *store.Index[DataSource] // apiID → datasources
+	resolvers              *store.Table[Resolver]   // key: apiID#TypeName.FieldName
+	resolversByAPI         *store.Index[Resolver]   // apiID → resolvers
+	rtSubs                 map[string]map[*rtSub]struct{}
 	apiKeys                map[string]map[string]*APIKey // apiID → keyID → key (raw; see store_setup.go)
 	apiCaches              *store.Table[APICache]
 	functions              *store.Table[Function] // key: apiID#functionID

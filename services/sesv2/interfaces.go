@@ -7,6 +7,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+// SNSPublisher publishes a message to an SNS topic by ARN; wired in cli.go.
+type SNSPublisher interface {
+	PublishToTopic(topicARN, message string) error
+}
+
 // StorageBackend is the interface for sesv2 storage operations.
 type StorageBackend interface {
 	// Core identity ops

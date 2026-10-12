@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
+	"slices"
 )
 
 // GetResourcePolicy retrieves the resource-based policy for a secret.
@@ -16,7 +16,7 @@ func (b *InMemoryBackend) GetResourcePolicy(
 	b.mu.RLock(opGetResourcePolicy)
 	defer b.mu.RUnlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, ok := b.secretGet(region, name)
 	if !ok {
@@ -49,7 +49,7 @@ func (b *InMemoryBackend) PutResourcePolicy(
 	b.mu.Lock("PutResourcePolicy")
 	defer b.mu.Unlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, ok := b.secretGet(region, name)
 	if !ok {
@@ -64,17 +64,8 @@ func (b *InMemoryBackend) PutResourcePolicy(
 		return nil, ErrMalformedPolicyDocument
 	}
 
-	blockPublic := true
-	if input.BlockPublicPolicy != nil {
-		blockPublic = *input.BlockPublicPolicy
-	}
-	if blockPublic {
-		s := strings.ReplaceAll(input.ResourcePolicy, " ", "")
-		s = strings.ReplaceAll(s, "\n", "")
-		s = strings.ReplaceAll(s, "\t", "")
-		if strings.Contains(s, `"Principal":"*"`) || strings.Contains(s, `"Principal":{"AWS":"*"}`) {
-			return nil, ErrPublicPolicyException
-		}
+	if input.BlockPublicPolicy != nil && *input.BlockPublicPolicy && policyAllowsPublicAccess(input.ResourcePolicy) {
+		return nil, ErrPublicPolicyException
 	}
 
 	b.resourcePoliciesStore(region)[name] = input.ResourcePolicy
@@ -94,7 +85,7 @@ func (b *InMemoryBackend) DeleteResourcePolicy(
 	b.mu.Lock("DeleteResourcePolicy")
 	defer b.mu.Unlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, ok := b.secretGet(region, name)
 	if !ok {
@@ -130,13 +121,19 @@ func (b *InMemoryBackend) ValidateResourcePolicy(
 		b.mu.RLock(opValidateResourcePolicy)
 		defer b.mu.RUnlock()
 
-		name := resolveSecretID(input.SecretID)
+		name := b.resolveName(region, input.SecretID)
 		if !b.secretHas(region, name) {
 			return nil, ErrSecretNotFound
 		}
 	}
 
 	errs := validateResourcePolicyDocument(input.ResourcePolicy)
+	if len(errs) == 0 && policyAllowsPublicAccess(input.ResourcePolicy) {
+		errs = append(errs, PolicyValidationException{
+			CheckName:    "PublicPolicyCheck",
+			ErrorMessage: "The resource policy allows broad access to the secret through a wildcard principal.",
+		})
+	}
 
 	return &ValidateResourcePolicyOutput{
 		PolicyValidationPassed: len(errs) == 0,
@@ -172,4 +169,64 @@ func validateResourcePolicyDocument(policyStr string) []PolicyValidationExceptio
 	}
 
 	return errs
+}
+
+type policyStatement struct {
+	Effect    string          `json:"Effect"`
+	Principal json.RawMessage `json:"Principal"`
+	Condition json.RawMessage `json:"Condition"`
+}
+
+// policyAllowsPublicAccess reports whether an unconditioned Allow statement
+// grants a wildcard principal.
+func policyAllowsPublicAccess(policyStr string) bool {
+	var doc struct {
+		Statement json.RawMessage `json:"Statement"`
+	}
+	if json.Unmarshal([]byte(policyStr), &doc) != nil {
+		return false
+	}
+
+	var stmts []policyStatement
+	if json.Unmarshal(doc.Statement, &stmts) != nil {
+		var one policyStatement
+		if json.Unmarshal(doc.Statement, &one) != nil {
+			return false
+		}
+
+		stmts = []policyStatement{one}
+	}
+
+	for _, st := range stmts {
+		if st.Effect == "Allow" && len(st.Condition) == 0 && principalIsWildcard(st.Principal) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func principalIsWildcard(raw json.RawMessage) bool {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s == "*"
+	}
+
+	var m map[string]json.RawMessage
+	if json.Unmarshal(raw, &m) != nil {
+		return false
+	}
+
+	aws, ok := m["AWS"]
+	if !ok {
+		return false
+	}
+
+	if json.Unmarshal(aws, &s) == nil {
+		return s == "*"
+	}
+
+	var list []string
+
+	return json.Unmarshal(aws, &list) == nil && slices.Contains(list, "*")
 }

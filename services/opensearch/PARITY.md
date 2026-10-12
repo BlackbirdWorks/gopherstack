@@ -3,7 +3,7 @@ service: opensearch
 sdk_module: aws-sdk-go-v2/service/opensearch@v1.75.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/opensearchserverless@v1.34.4]  # AOSS ops this Handler also implements (serverlessOperations()); see families.serverless
 last_audit_commit: 0c1472972  # terraform-coverage pass: VPC-domain Endpoints[] wire fix, SAML Idp nesting fix; prior: 0fea9ecf1
-last_audit_date: 2026-10-10  # prior: 2026-09-19, gopherstack-dv4s: over-wide-response List census.
+last_audit_date: 2026-10-12  # prior: 2026-09-19, gopherstack-dv4s: over-wide-response List census.
                               # 5 tier-1 findings: 4 real gaps fixed (CreateApplication.KmsKeyArn,
                               # CreateDomain.AdvancedOptions, UpdateDomainConfig.AdvancedOptions,
                               # UpdateDirectQueryDataSource.DataSourceAccessPolicy); 1 already
@@ -485,6 +485,8 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; coarse loc
 ---
 
 ## Notes
+
+**2026-10-12 deep realism pass:** UpdateDomainConfig replaced the whole ClusterConfig, so `--cluster-config InstanceCount=2` blanked InstanceType and reset every omitted flag; omitted members now keep their value (`mergeClusterConfig`, request-presence tracked in `domainClusterConfig.UnmarshalJSON`). Test: update_cluster_config_merge_test.go. Open/structural: the domain endpoint does not serve the real OpenSearch REST API (only the non-SDK `{domain}/index/...` convenience routes), and EBSOptions/other sub-objects of UpdateDomainConfig are still replaced wholesale.
 
 ### 2026-09-23: terraform coverage sweep
 

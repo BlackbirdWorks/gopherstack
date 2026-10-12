@@ -8,13 +8,13 @@ import (
 // rejectExplicitEmpty fails when any named member is present as "": the SDK
 // models them as *string with a min length, so omitted keeps and "" is invalid.
 func rejectExplicitEmpty(data []byte, op string, members ...string) error {
-	var probe map[string]*string
+	var probe map[string]json.RawMessage
 	if err := json.Unmarshal(data, &probe); err != nil {
 		return err
 	}
 
 	for _, m := range members {
-		if v := probe[m]; v != nil && *v == "" {
+		if string(probe[m]) == `""` {
 			return fmt.Errorf("%w: %s %s must not be empty", ErrInvalidParameter, op, m)
 		}
 	}
