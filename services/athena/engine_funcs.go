@@ -4,6 +4,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -161,7 +162,7 @@ func udfDateAdd(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 	n, nok := toInt(args[1])
 	t, ok := parseTS(args[2])
 
-	if !ok || !nok {
+	if !ok || !nok || n > math.MaxInt32 || n < math.MinInt32 {
 		return sqlNull(), nil
 	}
 

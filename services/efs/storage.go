@@ -60,7 +60,7 @@ func (b *InMemoryBackend) fileSystemDirLocked(region, fsID string) (string, erro
 		return "", err
 	}
 
-	return filepath.Join(root, region, fsID), nil
+	return filepath.Clean(filepath.Join(root, region, fsID)), nil
 }
 
 func (b *InMemoryBackend) removeFileSystemStorageLocked(region, fsID string) {
@@ -68,7 +68,12 @@ func (b *InMemoryBackend) removeFileSystemStorageLocked(region, fsID string) {
 		return
 	}
 
-	_ = os.RemoveAll(filepath.Join(b.storageRoot, region, fsID))
+	root := filepath.Clean(b.storageRoot)
+	target := filepath.Clean(filepath.Join(root, region, fsID))
+
+	if strings.HasPrefix(target, root+string(os.PathSeparator)) {
+		_ = os.RemoveAll(target)
+	}
 }
 
 func (b *InMemoryBackend) lookupAccessPointByARNLocked(accessPointARN string) (*AccessPoint, string, error) {
@@ -103,6 +108,10 @@ func (b *InMemoryBackend) ResolveAccessPointMount(accessPointARN string) (Access
 		return AccessPointMount{}, err
 	}
 
+	if !strings.HasPrefix(fsDir, filepath.Clean(b.storageRoot)+string(os.PathSeparator)) {
+		return AccessPointMount{}, fmt.Errorf("%w: %s", ErrInvalidAccessPoint, accessPointARN)
+	}
+
 	if mkErr := os.MkdirAll(fsDir, storageDirPerm); mkErr != nil {
 		return AccessPointMount{}, fmt.Errorf("create file system dir: %w", mkErr)
 	}
@@ -131,6 +140,9 @@ func ensureRootDirectory(fsDir string, rd *RootDirectory) (string, error) {
 	}
 
 	dir := filepath.Join(fsDir, filepath.FromSlash(path.Clean("/"+rd.Path)))
+	if !strings.HasPrefix(dir, filepath.Clean(fsDir)+string(os.PathSeparator)) {
+		return "", fmt.Errorf("%w: %s", ErrInvalidAccessPoint, rd.Path)
+	}
 
 	if _, err := os.Stat(dir); err == nil {
 		return dir, nil

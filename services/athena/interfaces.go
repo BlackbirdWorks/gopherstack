@@ -99,7 +99,7 @@ type StorageBackend interface {
 		reuseCfg *ResultReuseConfiguration,
 	) (string, error)
 	GetQueryExecution(id string) (*QueryExecution, error)
-	GetQueryResults(id, nextToken string, maxResults int) (*sqlResultPage, error)
+	GetQueryResults(id, nextToken string, maxResults int) (*SQLResultPage, error)
 	ListQueryExecutions(workGroup string) ([]string, error)
 	StopQueryExecution(id string) error
 	BatchGetQueryExecution(ids []string) ([]QueryExecution, []UnprocessedQueryExecutionID)

@@ -271,7 +271,7 @@ func queryResultsReadyErr(state string) error {
 }
 
 // datumRows renders data rows; a SQL NULL is a Datum with no VarCharValue.
-func datumRows(page *sqlResultPage) []map[string]any {
+func datumRows(page *SQLResultPage) []map[string]any {
 	rows := make([]map[string]any, 0, len(page.Rows))
 
 	for r, row := range page.Rows {

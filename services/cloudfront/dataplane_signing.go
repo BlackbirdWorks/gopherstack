@@ -189,17 +189,42 @@ func (h *Handler) verifySigned(v *viewerReq, d *Distribution, beh *dpBehavior) b
 	}
 
 	for _, u := range candidateURLs(v, d) {
-		canned, _ := json.Marshal(u)
-		doc := `{"Statement":[{"Resource":` + string(
-			canned,
-		) + `,"Condition":{"DateLessThan":{"AWS:EpochTime":` + p.expires + `}}}]}`
+		doc, mErr := cannedPolicyDoc(u, exp)
+		if mErr != nil {
+			continue
+		}
 
-		if rsaSHA1Verify(key, []byte(doc), sig) {
+		if rsaSHA1Verify(key, doc, sig) {
 			return true
 		}
 	}
 
 	return false
+}
+
+type cannedPolicy struct {
+	Statement []cannedStatement `json:"Statement"`
+}
+
+type cannedStatement struct {
+	Resource  string          `json:"Resource"`
+	Condition cannedCondition `json:"Condition"`
+}
+
+type cannedCondition struct {
+	DateLessThan cannedEpoch `json:"DateLessThan"`
+}
+
+type cannedEpoch struct {
+	EpochTime int64 `json:"AWS:EpochTime"`
+}
+
+// cannedPolicyDoc renders the compact canned policy CloudFront signs.
+func cannedPolicyDoc(resource string, expires int64) ([]byte, error) {
+	return json.Marshal(cannedPolicy{Statement: []cannedStatement{{
+		Resource:  resource,
+		Condition: cannedCondition{DateLessThan: cannedEpoch{EpochTime: expires}},
+	}}})
 }
 
 func rsaSHA1Verify(key *rsa.PublicKey, doc, sig []byte) bool {

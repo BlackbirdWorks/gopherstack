@@ -23,8 +23,8 @@ func (r *sqlResult) isNull(row, col int) bool {
 	return row < len(r.nulls) && col < len(r.nulls[row]) && r.nulls[row][col]
 }
 
-// sqlResultPage is a paginated slice of a sqlResult.
-type sqlResultPage struct {
+// SQLResultPage is a paginated slice of a sqlResult.
+type SQLResultPage struct {
 	NextToken string
 	Columns   []sqlColumn
 	Rows      [][]string
@@ -184,14 +184,14 @@ func applyPredicateAndProject(rawRows []map[string]any, selected []sqlColumn, pr
 // GetQueryResults returns a paginated result page for a query execution.
 // nextToken is a decimal-encoded row offset; empty string means start from 0.
 // maxResults = 0 means "use default page size (1000)".
-func (b *InMemoryBackend) GetQueryResults(id, nextToken string, maxResults int) (*sqlResultPage, error) {
+func (b *InMemoryBackend) GetQueryResults(id, nextToken string, maxResults int) (*SQLResultPage, error) {
 	b.mu.RLock("GetQueryResults-lookup")
 	res, ok := b.queryResults[id]
 	b.mu.RUnlock()
 
 	if !ok {
 		// execution exists but has no stored result → empty
-		return &sqlResultPage{}, nil
+		return &SQLResultPage{}, nil
 	}
 
 	if maxResults <= 0 || maxResults > athenaMaxQueryResultsPageSize {
@@ -210,12 +210,12 @@ func (b *InMemoryBackend) GetQueryResults(id, nextToken string, maxResults int) 
 	}
 
 	if offset >= len(res.rows) {
-		return &sqlResultPage{Columns: res.columns}, nil
+		return &SQLResultPage{Columns: res.columns}, nil
 	}
 
 	end := min(offset+maxResults, len(res.rows))
 
-	page := &sqlResultPage{
+	page := &SQLResultPage{
 		Columns: res.columns,
 		Rows:    res.rows[offset:end],
 	}

@@ -30,9 +30,8 @@ func newOriginClient() *http.Client {
 		Transport: &http.Transport{
 			DisableCompression: true,
 			DisableKeepAlives:  true,
-			//nolint:gosec // origins are developer-run endpoints with self-signed certificates
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			DialContext:     (&net.Dialer{Timeout: originDialTimeout}).DialContext,
+			TLSClientConfig:    &tls.Config{MinVersion: tls.VersionTLS12},
+			DialContext:        (&net.Dialer{Timeout: originDialTimeout}).DialContext,
 		},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}

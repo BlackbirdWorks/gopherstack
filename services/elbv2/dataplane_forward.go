@@ -44,7 +44,6 @@ func targetTLSConfig() *tls.Config {
 	return &tls.Config{
 		//nolint:gosec // ALBs do not validate target certificates
 		InsecureSkipVerify: true,
-		VerifyConnection:   func(tls.ConnectionState) error { return nil },
 		MinVersion:         tls.VersionTLS12,
 	}
 }
