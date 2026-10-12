@@ -65,18 +65,22 @@ func (b *InMemoryBackend) registerDefaultDocuments(region string) {
 			name:    "AWS-RunShellScript",
 			docType: DocumentTypeCommand,
 			content: `{"schemaVersion":"2.2","description":"Run shell script",` +
-				`"parameters":{"commands":{"type":"StringList"}},` +
+				`"parameters":{"commands":{"type":"StringList"},"workingDirectory":{"type":"String","default":""},` +
+				`"executionTimeout":{"type":"String","default":"3600"}},` +
 				`"mainSteps":[{"action":"aws:runShellScript","name":"runShellScript",` +
-				`"inputs":{"commands":["{{ commands }}"]}}]}`,
+				`"inputs":{"timeoutSeconds":"{{ executionTimeout }}","workingDirectory":"{{ workingDirectory }}",` +
+				`"runCommand":"{{ commands }}"}}]}`,
 			platform: []string{"Linux"},
 		},
 		{
 			name:    "AWS-RunPowerShellScript",
 			docType: DocumentTypeCommand,
 			content: `{"schemaVersion":"2.2","description":"Run PowerShell script",` +
-				`"parameters":{"commands":{"type":"StringList"}},` +
+				`"parameters":{"commands":{"type":"StringList"},"workingDirectory":{"type":"String","default":""},` +
+				`"executionTimeout":{"type":"String","default":"3600"}},` +
 				`"mainSteps":[{"action":"aws:runPowerShellScript","name":"runPowerShellScript",` +
-				`"inputs":{"commands":["{{ commands }}"]}}]}`,
+				`"inputs":{"timeoutSeconds":"{{ executionTimeout }}","workingDirectory":"{{ workingDirectory }}",` +
+				`"runCommand":"{{ commands }}"}}]}`,
 			platform: []string{"Windows"},
 		},
 	}
@@ -1132,7 +1136,7 @@ func validateDocumentContent(docType, format, content string) error {
 	var doc map[string]any
 
 	var err error
-	if format == "YAML" {
+	if format == documentFormatYAML {
 		err = yaml.Unmarshal([]byte(content), &doc)
 	} else {
 		err = json.Unmarshal([]byte(content), &doc)

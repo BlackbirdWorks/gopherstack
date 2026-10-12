@@ -390,7 +390,7 @@ structural_gaps:
   - "ValidateCloudConnector cannot make a real outbound Azure call; ValidationFindings derive from the stored Configuration."
   - "CreateMaintenanceWindow/UpdateMaintenanceWindow StartDate/EndDate/ScheduleTimezone/ScheduleOffset are stored but not evaluated: no real scheduler (schedule/executions are one synthetic always-on execution)."
   - "ListResourceDataSync ResourceDataSyncItem.LastSuccessfulSyncTime/LastSyncStatusMessage/SyncLastModifiedTime and SyncSource.State: a sync never completes (no sync engine), so there is no real event to source them from."
-  - "Commands have no per-plugin execution model (a document runs as one unit): CommandPlugins/PluginName/ResponseCode, ListCommandInvocations Details, DocumentHash/DocumentHashType, and AlarmConfiguration/CloudWatchOutputConfig/NotificationConfig/TriggeredAlarms (no alarm/notification infra) stay unmodeled."
+  - "Commands to targets that are not running docker-backed EC2 instances with an instance profile (hybrid activations, in-memory EC2) stay simulated from echo/exit statements; DocumentHash/DocumentHashType, AlarmConfiguration/NotificationConfig/TriggeredAlarms stay unmodeled (no alarm/notification infra); an external-agent ec2messages polling flow is not implemented."
   - "GetParameter* SourceResult for aws:ec2:image advanced parameters has no source-resolution engine (SourceResult is populated only for /aws/reference/secretsmanager/ references)."
   - "DocumentDescription review-approval workflow (ApprovedVersion/PendingReviewVersion/ReviewInformation/ReviewStatus) and Category/CategoryEnum: no review state machine; GetDocument AttachmentsContent needs a real S3-backed object store."
   - "Association AlarmConfiguration/TriggeredAlarms (no CloudWatch alarm infra), TargetLocations/TargetMaps (multi-account targeting), ScheduleOffset/LastExecutionDate/LastSuccessfulExecutionDate (no cron scheduler; associations run on demand)."
@@ -1664,3 +1664,12 @@ Enum-typed request members across document, automation, association, patch basel
 - Fixed: AWS-owned per-OS default patch baselines (`AWS-AmazonLinux2DefaultPatchBaseline`, ...) are returned by `DescribePatchBaselines`/`GetPatchBaseline` (`OWNER` filter honoured); the provider's `aws_ssm_default_patch_baseline` reset failed with "empty result".
 - Fixed: missing-document `InvalidDocument` message contains "does not exist" (the provider's delete waiter keys on it).
 - Kept lenient: `StartAutomationExecution` accepts unknown document names (many in-repo callers); `NextExecutionTime` is a fixed offset, not parsed from the schedule.
+
+## 2026-10-11 (Run Command direct execution)
+
+- `SendCommand` on running docker-backed EC2 instances with an instance profile runs the document's `aws:runShellScript`/`aws:runPowerShellScript` steps via `docker exec` (script written to a temp file, run with `sh`; PowerShell needs `pwsh` in the image). Wired by `SetCommandRunner` (root `cli_ssm_runcommand.go`, only with the docker EC2 provider); siblings (EC2, S3, CloudWatch Logs) are resolved per call.
+- Exit 0 is `Success`; non-zero is `Failed` with `ResponseCode`; the step's `executionTimeout` (default 3600s) gives `TimedOut`/`ExecutionTimedOut`; `CancelCommand` kills the process and gives `Cancelled`. `MaxConcurrency` (default 50) and `MaxErrors` (default 0, stop once errors exceed it) are honoured; skipped targets are `Cancelled`/`Terminated`; the command is `Failed`/`Incomplete` when some, but not more than `MaxErrors`, targets fail.
+- Output: the first 24000 characters of stdout and 8000 of stderr (from the pinned SDK docs); `CommandPlugin.Output` is cut at 2500 (API reference, not in the SDK). Full output goes to `OutputS3BucketName` at `<prefix>/<CommandId>/<InstanceId>/awsrunShellScript/0.awsrunShellScript/stdout|stderr` and, with `CloudWatchOutputConfig`, to log group `/aws/ssm/<DocumentName>` stream `<CommandId>/<InstanceId>/aws-runShellScript/stdout|stderr`. The S3 layout and log names come from public AWS posts, not the SDK.
+- `Targets` with `tag:<key>` resolve against those instances; `DescribeInstanceInformation` lists them as online `EC2Instance` nodes.
+- Not restored: a restart leaves in-flight direct invocations `InProgress`, and per-plugin raw output is not persisted.
+

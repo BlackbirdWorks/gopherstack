@@ -389,21 +389,43 @@ func (b *InMemoryBackend) DescribeInstanceInformation(
 	input *DescribeInstanceInformationInput,
 ) (*DescribeInstanceInformationOutputFull, error) {
 	region := getRegion(ctx)
+
+	var containers []ManagedContainer
+	if r := b.commandRunner(); r != nil && r.Instances != nil {
+		containers = r.Instances.ContainerInstances(region, nil)
+		sort.Slice(containers, func(a, c int) bool { return containers[a].InstanceID < containers[c].InstanceID })
+	}
+
 	b.mu.RLock("DescribeInstanceInformation")
 	defer b.mu.RUnlock()
 
 	activations := b.activationsStore(region)
-	list := make([]InstanceInformation, 0, activations.Len())
+	candidates := make([]InstanceInformation, 0, activations.Len()+len(containers))
 
 	for _, act := range activations.All() {
-		info := InstanceInformation{
+		candidates = append(candidates, InstanceInformation{
 			InstanceID:       act.ActivationID,
-			PingStatus:       "Online",
+			PingStatus:       pingStatusOnline,
 			AgentVersion:     defaultAgentVersionSSM,
 			PlatformType:     platformTypeLinux,
 			RegistrationDate: act.CreatedDate,
-		}
+		})
+	}
 
+	for _, c := range containers {
+		candidates = append(candidates, InstanceInformation{
+			InstanceID:       c.InstanceID,
+			PingStatus:       pingStatusOnline,
+			AgentVersion:     defaultAgentVersionSSM,
+			PlatformType:     platformTypeLinux,
+			ResourceType:     "EC2Instance",
+			RegistrationDate: UnixTimeFloat(c.RegisteredAt),
+		})
+	}
+
+	list := make([]InstanceInformation, 0, len(candidates))
+
+	for _, info := range candidates {
 		matched := true
 
 		for _, f := range input.Filters {

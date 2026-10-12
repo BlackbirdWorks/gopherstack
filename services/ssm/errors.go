@@ -17,6 +17,7 @@ var (
 	ErrInvalidDocumentVersion       = errors.New("InvalidDocumentVersion")
 	ErrDuplicateDocumentVersionName = errors.New("DuplicateDocumentVersionName")
 	ErrCommandNotFound              = errors.New("CommandNotFound")
+	ErrInvalidPluginName            = errors.New("InvalidPluginName")
 	ErrInvalidDocumentContent       = errors.New("InvalidDocumentContent")
 	ErrDuplicateDocumentContent     = errors.New("DuplicateDocumentContent")
 	// ErrInvalidActivationID is returned when an ActivationId doesn't match any

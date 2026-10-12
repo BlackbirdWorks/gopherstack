@@ -3228,6 +3228,7 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 		wireBatchExec(cli, byName)
 		wireEC2IMDS(appCtx.JanitorCtx, cli, byName)
 		wireSSMSecrets(cli, byName)
+		wireSSMRunCommand(cli, byName)
 	}
 
 	// Wire Timestream Query → Timestream Write's shared tag store, so

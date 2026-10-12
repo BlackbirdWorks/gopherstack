@@ -472,6 +472,14 @@ func classifySSMParameterValidationError(reqErr error) (string, int, bool) {
 // group of sentinels it handles, or ("", 0, false) otherwise.
 type ssmErrorClassifier func(error) (string, int, bool)
 
+func classifySSMCommandError(reqErr error) (string, int, bool) {
+	if errors.Is(reqErr, ErrInvalidPluginName) {
+		return "InvalidPluginName", http.StatusBadRequest, true
+	}
+
+	return "", 0, false
+}
+
 func classifySSMErrorExtended(reqErr error) (string, int) {
 	statusCode := http.StatusBadRequest
 
@@ -488,6 +496,7 @@ func classifySSMErrorExtended(reqErr error) (string, int) {
 		classifySSMMiscNotFoundError,
 		classifySSMResourceIdentityError,
 		classifySSMPagingError,
+		classifySSMCommandError,
 	}
 
 	for _, classify := range classifiers {

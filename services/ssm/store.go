@@ -14,6 +14,8 @@ import (
 
 const (
 	documentFormatJSON = "JSON"
+	documentFormatYAML = "YAML"
+	pingStatusOnline   = "Online"
 	statusActive       = "Active"
 )
 const (
@@ -52,6 +54,8 @@ type InMemoryBackend struct {
 	gcm                         cipher.AEAD
 	parameterPolicyNotifier     ParameterPolicyNotifier
 	secrets                     SecretResolver
+	runner                      *CommandRunner
+	execCancels                 map[string]context.CancelFunc
 	registry                    *store.Registry
 	parameters                  map[string]*store.Table[Parameter]
 	maintenanceWindows          map[string]*store.Table[MaintenanceWindow]
@@ -102,6 +106,7 @@ type InMemoryBackend struct {
 	commandExecDelaySecs        float64
 	commandExpirySecs           float64
 	commandHistoryRetentionSecs float64
+	execMu                      sync.Mutex
 	tableMu                     sync.Mutex
 }
 
