@@ -3,14 +3,16 @@ package neptune
 import "errors"
 
 var (
-	ErrClusterNotFound                    = errors.New("DBClusterNotFound")
-	ErrClusterAlreadyExists               = errors.New("DBClusterAlreadyExists")
-	ErrInstanceNotFound                   = errors.New("DBInstanceNotFound")
-	ErrInstanceAlreadyExists              = errors.New("DBInstanceAlreadyExists")
-	ErrSubnetGroupNotFound                = errors.New("DBSubnetGroupNotFound")
-	ErrSubnetGroupAlreadyExists           = errors.New("DBSubnetGroupAlreadyExists")
-	ErrSubnetGroupInUse                   = errors.New("InvalidDBSubnetGroupStateFault")
-	ErrClusterParameterGroupNotFound      = errors.New("DBClusterParameterGroupNotFound")
+	ErrClusterNotFound               = errors.New("DBClusterNotFound")
+	ErrClusterAlreadyExists          = errors.New("DBClusterAlreadyExists")
+	ErrInstanceNotFound              = errors.New("DBInstanceNotFound")
+	ErrInstanceAlreadyExists         = errors.New("DBInstanceAlreadyExists")
+	ErrSubnetGroupNotFound           = errors.New("DBSubnetGroupNotFound")
+	ErrSubnetGroupAlreadyExists      = errors.New("DBSubnetGroupAlreadyExists")
+	ErrSubnetGroupInUse              = errors.New("InvalidDBSubnetGroupStateFault")
+	ErrClusterParameterGroupNotFound = errors.New("DBClusterParameterGroupNotFound")
+	// ErrClusterParameterGroupRefNotFound is the fault CreateDBCluster/ModifyDBCluster raise for a bad group name.
+	ErrClusterParameterGroupRefNotFound   = errors.New("DBClusterParameterGroupRefNotFound")
 	ErrClusterParameterGroupAlreadyExists = errors.New("DBClusterParameterGroupAlreadyExists")
 	ErrClusterSnapshotNotFound            = errors.New("DBClusterSnapshotNotFound")
 	ErrClusterSnapshotAlreadyExists       = errors.New("DBClusterSnapshotAlreadyExists")

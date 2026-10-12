@@ -93,6 +93,7 @@ func (b *InMemoryBackend) clusterView(c *Cluster) *Cluster {
 }
 
 const (
+	statusDeleting  = "deleting"
 	statusUpdating  = "updating"
 	percentComplete = 100
 )
@@ -129,4 +130,26 @@ func reshardingProgress(c *Cluster, now time.Time) *float64 {
 	pct := float64(now.Sub(c.ReshardingStartedAt)) / float64(total) * percentComplete
 
 	return &pct
+}
+
+// startUpdatingLocked reports "updating" until the lifecycle delay elapses. Must hold b.mu.
+func (b *InMemoryBackend) startUpdatingLocked(c *Cluster) {
+	until := b.pendingUntil()
+	if until.IsZero() {
+		return
+	}
+
+	if c.PendingStatus == "" || !b.now().Before(c.AvailableAt) {
+		c.PendingStatus = statusUpdating
+		c.AvailableAt = until
+	}
+}
+
+// deletingView returns c as a DeleteCluster response: always "deleting".
+func (b *InMemoryBackend) deletingView(c *Cluster) *Cluster {
+	cp := b.clusterView(c)
+	cp.Status = statusDeleting
+	cp.ReshardingProgress = nil
+
+	return cp
 }

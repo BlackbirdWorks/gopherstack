@@ -1,6 +1,7 @@
 package neptune
 
 import (
+	"cmp"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -397,7 +398,12 @@ func parseServerlessV2ScalingConfig(vals url.Values) (*ServerlessV2ScalingConfig
 func toXMLCluster(c *DBCluster) xmlDBCluster {
 	memberItems := make([]xmlDBClusterMember, 0, len(c.DBClusterMembers))
 	for _, m := range c.DBClusterMembers {
-		memberItems = append(memberItems, xmlDBClusterMember(m))
+		memberItems = append(memberItems, xmlDBClusterMember{
+			DBInstanceIdentifier: m.DBInstanceIdentifier,
+			IsClusterWriter:      m.IsClusterWriter,
+			ParameterGroupStatus: cmp.Or(m.ParameterGroupStatus, parameterApplyInSync),
+			PromotionTier:        m.PromotionTier,
+		})
 	}
 	azItems := make([]string, 0, len(c.AvailabilityZones))
 	azItems = append(azItems, c.AvailabilityZones...)
@@ -463,6 +469,8 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 
 type xmlDBClusterMember struct {
 	DBInstanceIdentifier string `xml:"DBInstanceIdentifier"`
+	ParameterGroupStatus string `xml:"DBClusterParameterGroupStatus"`
+	PromotionTier        int    `xml:"PromotionTier"`
 	IsClusterWriter      bool   `xml:"IsClusterWriter"`
 }
 

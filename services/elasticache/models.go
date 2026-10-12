@@ -63,6 +63,7 @@ type Cluster struct {
 
 // ClusterSettings are the optional CreateCacheCluster/ModifyCacheCluster members applied after the cluster exists.
 type ClusterSettings struct {
+	EngineVersion             string
 	AutoMinorVersionUpgrade   *bool
 	NotificationTopicArn      string
 	NotificationTopicStatus   string

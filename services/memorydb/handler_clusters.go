@@ -224,7 +224,7 @@ func toClusterObject(c *Cluster, showShards bool) clusterObject {
 
 	var shards []shardObject
 	if showShards {
-		shards = buildShards(c.Name, c.NumShards, c.NumReplicasPerShard, c.Port, region)
+		shards = buildShards(c.Name, c.NumShards, c.NumReplicasPerShard, c.Port, region, c.CreatedAt)
 	}
 
 	sgs := make([]securityGroupMembership, 0, len(c.SecurityGroupIDs))
@@ -315,7 +315,9 @@ func shardName(clusterName string, index int) string {
 }
 
 // buildShards constructs a slice of shardObjects with evenly-distributed slots and nodes.
-func buildShards(clusterName string, numShards, numReplicas, port int32, region string) []shardObject {
+func buildShards(
+	clusterName string, numShards, numReplicas, port int32, region string, created time.Time,
+) []shardObject {
 	zones := []string{region + "a", region + "b", region + "c"}
 	ranges := shardSlotRanges(numShards)
 	shards := make([]shardObject, 0) //nolint:prealloc // no capacity hint: CodeQL flags user-derived sizes
@@ -329,7 +331,7 @@ func buildShards(clusterName string, numShards, numReplicas, port int32, region 
 				Name:             nodeName,
 				Status:           clusterStatusAvailable,
 				AvailabilityZone: zones[ni%len(zones)],
-				CreateTime:       float64(time.Now().Unix()),
+				CreateTime:       float64(created.Unix()),
 				Endpoint: &endpointObject{
 					Address: nodeName + ".memorydb." + region + ".amazonaws.com",
 					Port:    port,

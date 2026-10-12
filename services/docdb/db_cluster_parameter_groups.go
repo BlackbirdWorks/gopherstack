@@ -124,6 +124,13 @@ func (b *InMemoryBackend) ModifyDBClusterParameterGroup(
 	}
 
 	maps.Copy(pg.Parameters, parameters)
+	if hasStaticClusterParameter(parameters) {
+		for _, c := range b.clustersInRegion(region) {
+			if c.DBClusterParameterGroupName == name {
+				b.markClusterPendingRebootLocked(region, c.DBClusterIdentifier)
+			}
+		}
+	}
 
 	cp := *pg
 	cp.Tags = copyTags(pg.Tags)
@@ -220,12 +227,14 @@ func (b *InMemoryBackend) DescribeDBClusterParameters(
 
 // applyMethodForType returns the real AWS ApplyMethod (types.ApplyMethod:
 // "immediate" or "pending-reboot") a parameter's ApplyType implies: a
-// "static" parameter always requires a DB instance reboot to take effect,
+// paramApplyTypeStatic parameter always requires a DB instance reboot to take effect,
 // while a "dynamic" one applies immediately -- see ResetDBClusterParameterGroup's
 // own doc comment ("dynamic parameters are updated immediately and static
 // parameters are set to pending-reboot").
+const paramApplyTypeStatic = "static"
+
 func applyMethodForType(applyType string) string {
-	if applyType == "static" {
+	if applyType == paramApplyTypeStatic {
 		return "pending-reboot"
 	}
 
@@ -256,8 +265,8 @@ func clusterParameterDefaults() []DBClusterParameter {
 			Description:    "Config to enable/disable TLS",
 			AllowedValues:  "disabled,enabled",
 			Source:         paramSourceSystem,
-			ApplyType:      "static",
-			ApplyMethod:    applyMethodForType("static"),
+			ApplyType:      paramApplyTypeStatic,
+			ApplyMethod:    applyMethodForType(paramApplyTypeStatic),
 			DataType:       paramTypeStr,
 			IsModifiable:   true,
 		},
@@ -347,3 +356,47 @@ func validateClusterParameterValues(parameters map[string]string) error {
 }
 
 const paramSourceSystem = "system"
+
+func hasStaticClusterParameter(changed map[string]string) bool {
+	for _, p := range clusterParameterDefaults() {
+		if _, ok := changed[p.ParameterName]; ok && p.ApplyType == paramApplyTypeStatic {
+			return true
+		}
+	}
+
+	return false
+}
+
+// markClusterPendingRebootLocked flags every member instance of the cluster as needing a reboot.
+func (b *InMemoryBackend) markClusterPendingRebootLocked(region, clusterID string) {
+	for _, inst := range b.instancesInRegion(region) {
+		if inst.DBClusterIdentifier == clusterID {
+			inst.ParameterPendingReboot = true
+		}
+	}
+}
+
+func parameterGroupStatus(inst *DBInstance) string {
+	if inst.ParameterPendingReboot {
+		return "pending-reboot"
+	}
+
+	return "in-sync"
+}
+
+// checkClusterParameterGroup rejects names that are neither a built-in default nor a created group.
+func (b *InMemoryBackend) checkClusterParameterGroup(region, name string) error {
+	if name == "" || strings.HasPrefix(name, "default.docdb") || b.clusterParameterGroupHas(region, name) {
+		return nil
+	}
+
+	return fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupRefNotFound, name)
+}
+
+func (b *InMemoryBackend) resolveClusterParameterGroup(region, name, engineVersion string) (string, error) {
+	if name == "" {
+		name = defaultParamGroupName(engineVersion)
+	}
+
+	return name, b.checkClusterParameterGroup(region, name)
+}

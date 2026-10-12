@@ -21,7 +21,7 @@ func (b *InMemoryBackend) readyAtLocked() time.Time {
 }
 
 func observedStatus(status string, readyAt time.Time) string {
-	if !readyAt.IsZero() && time.Now().Before(readyAt) {
+	if status != statusDeleting && !readyAt.IsZero() && time.Now().Before(readyAt) {
 		return statusCreating
 	}
 

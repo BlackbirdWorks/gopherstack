@@ -18,14 +18,16 @@ import "github.com/blackbirdworks/gopherstack/pkgs/awserr"
 // smithy.GenericAPIError, so real callers doing errors.As against the typed
 // fault (e.g. *types.DBInstanceNotFoundFault) silently stop matching.
 var (
-	ErrClusterNotFound                    = awserr.New("DBClusterNotFoundFault", awserr.ErrNotFound)
-	ErrClusterAlreadyExists               = awserr.New("DBClusterAlreadyExistsFault", awserr.ErrAlreadyExists)
-	ErrInstanceNotFound                   = awserr.New("DBInstanceNotFound", awserr.ErrNotFound)
-	ErrInstanceAlreadyExists              = awserr.New("DBInstanceAlreadyExists", awserr.ErrAlreadyExists)
-	ErrSubnetGroupNotFound                = awserr.New("DBSubnetGroupNotFoundFault", awserr.ErrNotFound)
-	ErrSubnetGroupAlreadyExists           = awserr.New("DBSubnetGroupAlreadyExists", awserr.ErrAlreadyExists)
-	ErrSubnetGroupInUse                   = awserr.New("InvalidDBSubnetGroupStateFault", awserr.ErrInvalidParameter)
-	ErrClusterParameterGroupNotFound      = awserr.New("DBParameterGroupNotFound", awserr.ErrNotFound)
+	ErrClusterNotFound               = awserr.New("DBClusterNotFoundFault", awserr.ErrNotFound)
+	ErrClusterAlreadyExists          = awserr.New("DBClusterAlreadyExistsFault", awserr.ErrAlreadyExists)
+	ErrInstanceNotFound              = awserr.New("DBInstanceNotFound", awserr.ErrNotFound)
+	ErrInstanceAlreadyExists         = awserr.New("DBInstanceAlreadyExists", awserr.ErrAlreadyExists)
+	ErrSubnetGroupNotFound           = awserr.New("DBSubnetGroupNotFoundFault", awserr.ErrNotFound)
+	ErrSubnetGroupAlreadyExists      = awserr.New("DBSubnetGroupAlreadyExists", awserr.ErrAlreadyExists)
+	ErrSubnetGroupInUse              = awserr.New("InvalidDBSubnetGroupStateFault", awserr.ErrInvalidParameter)
+	ErrClusterParameterGroupNotFound = awserr.New("DBParameterGroupNotFound", awserr.ErrNotFound)
+	// ErrClusterParameterGroupRefNotFound is the code CreateDBCluster/ModifyDBCluster declare for a bad group name.
+	ErrClusterParameterGroupRefNotFound   = awserr.New("DBClusterParameterGroupNotFound", awserr.ErrNotFound)
 	ErrClusterParameterGroupAlreadyExists = awserr.New(
 		"DBParameterGroupAlreadyExists",
 		awserr.ErrAlreadyExists,

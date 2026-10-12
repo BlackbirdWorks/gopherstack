@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
@@ -138,6 +139,9 @@ func (b *InMemoryBackend) CreateDBCluster(
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, id)
 	}
 	if err = b.checkNetworkType(region, opts.NetworkType, opts.DBSubnetGroupName); err != nil {
+		return nil, err
+	}
+	if err = b.checkClusterParameterGroupRef(region, paramGroupName); err != nil {
 		return nil, err
 	}
 	cluster := b.buildNewCluster(region, id, paramGroupName, port, backupRetention, opts)
@@ -364,6 +368,8 @@ func (b *InMemoryBackend) DeleteDBCluster(
 		)
 	}
 	cp := cloneCluster(c)
+	cp.Status = statusDeleting
+	cp.readyAt = time.Time{}
 	// Create a final snapshot when requested.
 	if !opts.SkipFinalSnapshot && opts.FinalDBSnapshotIdentifier != "" {
 		if !b.clusterSnapshotHas(region, opts.FinalDBSnapshotIdentifier) {
@@ -469,7 +475,13 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	if err := checkMajorVersionUpgrade(c.EngineVersion, opts.EngineVersion, opts.AllowMajorVersionUpgrade); err != nil {
 		return nil, err
 	}
+	if err := b.checkClusterParameterGroupRef(region, paramGroupName); err != nil {
+		return nil, err
+	}
 	if paramGroupName != "" {
+		if paramGroupName != c.DBClusterParameterGroupName {
+			b.markClusterPendingRebootLocked(region, c)
+		}
 		c.DBClusterParameterGroupName = paramGroupName
 	}
 	c.EnabledCloudwatchLogsExports = applyLogTypes(

@@ -2,7 +2,7 @@
 service: elasticache
 sdk_module: aws-sdk-go-v2/service/elasticache@v1.56.4
 last_audit_commit: 221e362fa                    # gopherstack-8haq fix commit
-last_audit_date: 2026-10-07  # 2026-10-07: replication groups own member clusters, node groups, endpoints and roles; Memcached node scaling; global datastore members
+last_audit_date: 2026-10-12  # 2026-10-07: replication groups own member clusters, node groups, endpoints and roles; Memcached node scaling; global datastore members
 overall: A            # 2026-09-08 (gopherstack-8haq, P1): xmlError/xmlResp return nil after a
                        # successful write (handler.go), so any helper that rejects a request via
                        # xmlError and returns that value hands nil back to a caller doing
@@ -913,3 +913,9 @@ ReplicationGroup no longer emits CacheParameterGroupName/PreferredMaintenanceWin
 ## 2026-10-10 lifecycle dwell knob
 
 `--lifecycle-elasticache` (`ELASTICACHE_LIFECYCLE_DELAY`, falls back to `--lifecycle-delay`, default `0s`) is passed to `SetLifecycleDelay`, so clusters report `creating` before `available`. Proof: root `TestLifecycleDelayWiring/elasticache`.
+
+## 2026-10-12 deep realism pass
+
+CreateCacheCluster honours EngineVersion (resolved against the catalog: `6.2` -> `6.2.6`; unknown -> InvalidParameterValue) instead of always using the default. Cache clusters report `CacheParameterGroup` with the default group for the engine/version when none is named, plus `ParameterApplyStatus: in-sync` and `CacheNodeIdsToReboot`. Node group status follows the replication group (`creating`/`modifying`/`deleting`). CreateGlobalReplicationGroup requires an existing PrimaryReplicationGroupId (ReplicationGroupNotFoundFault); the backend method stays lenient for internal callers. Tests: replication_flow_sdk_test.go, handler_global_replication_groups_test.go.
+
+Left lenient on purpose: CreateUserGroup without a `default` user (DefaultUserRequired exists in the SDK, but test/terraform/fixtures/caching-messaging-comprehensive builds a group from a single non-default user); `pending-reboot` ParameterApplyStatus and ChangeType per parameter (the SDK enumerates ChangeType but not which parameters require a reboot).

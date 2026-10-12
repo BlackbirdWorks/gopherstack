@@ -2,7 +2,7 @@
 service: kafka
 sdk_module: aws-sdk-go-v2/service/kafka@v1.57.2
 last_audit_commit: 7480cad08
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-12
 overall: A            # topic/replicator field-name/shape gaps closed; two prior "ok" families had a real wire bug each, now fixed
                        # 2026-08-21 (gopherstack-1vv2): fixed UpdateReplicationInfo wholesale-
                        # replacing stored TopicReplication with the narrower Update payload,
@@ -716,3 +716,9 @@ UpdateConfiguration creates a new revision (LatestRevision, ListConfigurationRev
 ## 2026-10-10 realism pass
 
 Bare NotFound/Conflict errors now carry a descriptive message; cluster names (1-64, alnum/-/_), Kafka version format and `kafka.`/`express.` instance types are validated; maxResults must be 1..100; node ARNs are `broker/<name>/<uuid>/<id>`. Left lenient: broker-count vs subnet-count multiple (many fixtures), Kafka version catalog membership, and invalid nextToken restarting at page one (asserted by existing tests). Proof: `TestSDK_CreateClusterValidation`, `TestSDK_ErrorMessagesAreDescriptive`, `TestSDK_ListNodesARNShape`, `TestSDK_ListClustersMaxResultsBounds`.
+
+## 2026-10-12 deep realism pass
+
+GetBootstrapBrokers returns one `b-N.<name>.<id>.c2.kafka.<region>.amazonaws.com:<port>` entry per broker (follows UpdateBrokerCount) and honours EncryptionInTransit.ClientBroker (default TLS: no plaintext string; TLS_PLAINTEXT: both); serverless clusters return only `BootstrapBrokerStringSaslIam`. Batch(Dis)AssociateScramSecret echo `clusterArn`. New `SetLifecycleDelay`/`SetClock`: with a non-zero delay a new cluster reports CREATING and every update operation reports UPDATE_IN_PROGRESS + cluster UPDATING (ActiveOperationArn set) before UPDATE_COMPLETE; default `0s` is unchanged. Wiring needed in cli_lifecycle.go: a `Kafka` LifecycleSettings field and `bk.SetLifecycleDelay(l.effective(l.Kafka))` for `*kafkabackend.InMemoryBackend`. Tests: bootstrap_brokers_flow_test.go, lifecycle_flow_sdk_test.go, scram_flow_sdk_test.go.
+
+Not verifiable from the pinned SDK (left lenient): UpdateBrokerCount decreases, per-secret `UnprocessedScramSecrets` error codes / `AmazonMSK_` prefix and existence checks, rejecting updates while UPDATING, configuration property validation.

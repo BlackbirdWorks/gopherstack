@@ -107,7 +107,20 @@ func clusterAccess() lifecycleAccess[Cluster] {
 func replicationGroupAccess() lifecycleAccess[ReplicationGroup] {
 	return lifecycleAccess[ReplicationGroup]{
 		get: func(r *ReplicationGroup) (string, string, time.Time) { return r.Status, r.PendingStatus, r.AvailableAt },
-		set: func(r *ReplicationGroup, s string) { r.Status = s },
+		set: setReplicationGroupStatus,
+	}
+}
+
+// setReplicationGroupStatus sets the group status; node groups follow it while the group is in transition.
+func setReplicationGroupStatus(r *ReplicationGroup, s string) {
+	r.Status = s
+	if s == statusAvailable {
+		return
+	}
+
+	r.NodeGroups = cloneNodeGroups(r.NodeGroups)
+	for i := range r.NodeGroups {
+		r.NodeGroups[i].Status = s
 	}
 }
 
@@ -192,8 +205,8 @@ func (b *InMemoryBackend) clusterView(c *Cluster) *Cluster {
 // replicationGroupView returns a copy of rg with its observable status.
 func (b *InMemoryBackend) replicationGroupView(rg *ReplicationGroup) *ReplicationGroup {
 	cp := *rg
-	cp.Status = overlayStatus(b.now(), rg.Status, rg.PendingStatus, rg.AvailableAt)
 	cp.NodeGroups = cloneNodeGroups(rg.NodeGroups)
+	setReplicationGroupStatus(&cp, overlayStatus(b.now(), rg.Status, rg.PendingStatus, rg.AvailableAt))
 
 	return &cp
 }

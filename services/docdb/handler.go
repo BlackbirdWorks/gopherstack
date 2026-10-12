@@ -390,6 +390,7 @@ func docdbErrorCode(opErr error) string {
 		ErrSubnetGroupAlreadyExists,
 		ErrSubnetGroupInUse,
 		ErrClusterParameterGroupNotFound,
+		ErrClusterParameterGroupRefNotFound,
 		ErrClusterParameterGroupAlreadyExists,
 		ErrParameterGroupInUse,
 		ErrClusterSnapshotNotFound,

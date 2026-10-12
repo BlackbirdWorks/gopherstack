@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -293,8 +294,8 @@ func TestKafka_GetBootstrapBrokers(t *testing.T) {
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.NotEmpty(t, resp["bootstrapBrokerString"])
-				assert.NotEmpty(t, resp["bootstrapBrokerStringTls"])
+				assert.Empty(t, resp["bootstrapBrokerString"], "default ClientBroker is TLS: no plaintext listener")
+				assert.Len(t, strings.Split(resp["bootstrapBrokerStringTls"].(string), ","), 3)
 			}
 		})
 	}

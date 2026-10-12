@@ -1,6 +1,7 @@
 package elasticache
 
 import (
+	"cmp"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -65,36 +66,57 @@ type securityGroupsXML struct {
 	Member []securityGroupMembershipXML `xml:"member"`
 }
 
+// cacheParameterGroupStatusXML is CacheParameterGroupStatus.
+type cacheParameterGroupStatusXML struct {
+	CacheParameterGroupName string               `xml:"CacheParameterGroupName"`
+	ParameterApplyStatus    string               `xml:"ParameterApplyStatus"`
+	CacheNodeIDsToReboot    cacheNodeIDsToReboot `xml:"CacheNodeIdsToReboot"`
+}
+
+type cacheNodeIDsToReboot struct {
+	IDs []string `xml:"CacheNodeId"`
+}
+
+func cacheParameterGroupFor(cl *Cluster) cacheParameterGroupStatusXML {
+	return cacheParameterGroupStatusXML{
+		CacheParameterGroupName: cmp.Or(
+			cl.CacheParameterGroupName,
+			defaultParameterGroupName(cl.Engine, cl.EngineVersion),
+		),
+		ParameterApplyStatus: "in-sync",
+	}
+}
+
 // cacheClusterXML is the XML representation of a cache cluster.
 type cacheClusterXML struct {
-	AutoMinorVersionUpgrade    *bool                  `xml:"AutoMinorVersionUpgrade,omitempty"`
-	NotificationConfiguration  *notificationConfigXML `xml:"NotificationConfiguration,omitempty"`
-	SecurityGroups             *securityGroupsXML     `xml:"SecurityGroups,omitempty"`
-	LogDeliveryConfigurations  *logDeliveryConfigsXML `xml:"LogDeliveryConfigurations,omitempty"`
-	NetworkType                string                 `xml:"NetworkType,omitempty"`
-	IPDiscovery                string                 `xml:"IpDiscovery,omitempty"`
-	CacheParameterGroupName    string                 `xml:"CacheParameterGroup>CacheParameterGroupName,omitempty"`
-	PreferredMaintenanceWindow string                 `xml:"PreferredMaintenanceWindow,omitempty"`
-	CacheNodeType              string                 `xml:"CacheNodeType"`
-	CacheSubnetGroupName       string                 `xml:"CacheSubnetGroupName,omitempty"`
-	PreferredOutpostArn        string                 `xml:"PreferredOutpostArn,omitempty"`
-	ConfigurationEndpoint      *cacheEndpoint         `xml:"ConfigurationEndpoint,omitempty"`
-	Engine                     string                 `xml:"Engine"`
-	EngineVersion              string                 `xml:"EngineVersion"`
-	ARN                        string                 `xml:"ARN"`
-	CacheClusterStatus         string                 `xml:"CacheClusterStatus"`
-	CreatedAt                  string                 `xml:"CacheClusterCreateTime,omitempty"`
-	CacheClusterID             string                 `xml:"CacheClusterId"`
-	ReplicationGroupID         string                 `xml:"ReplicationGroupId,omitempty"`
-	SnapshotWindow             string                 `xml:"SnapshotWindow,omitempty"`
-	PreferredAvailabilityZone  string                 `xml:"PreferredAvailabilityZone,omitempty"`
-	CacheNodes                 cacheNodes             `xml:"CacheNodes"`
-	CacheSecurityGroups        cacheSecurityGroupsXML `xml:"CacheSecurityGroups"`
-	NumCacheNodes              int                    `xml:"NumCacheNodes"`
-	SnapshotRetentionLimit     int                    `xml:"SnapshotRetentionLimit,omitempty"`
-	TransitEncryptionEnabled   bool                   `xml:"TransitEncryptionEnabled"`
-	AtRestEncryptionEnabled    bool                   `xml:"AtRestEncryptionEnabled"`
-	AuthTokenEnabled           bool                   `xml:"AuthTokenEnabled"`
+	AutoMinorVersionUpgrade    *bool                        `xml:"AutoMinorVersionUpgrade,omitempty"`
+	NotificationConfiguration  *notificationConfigXML       `xml:"NotificationConfiguration,omitempty"`
+	SecurityGroups             *securityGroupsXML           `xml:"SecurityGroups,omitempty"`
+	LogDeliveryConfigurations  *logDeliveryConfigsXML       `xml:"LogDeliveryConfigurations,omitempty"`
+	NetworkType                string                       `xml:"NetworkType,omitempty"`
+	IPDiscovery                string                       `xml:"IpDiscovery,omitempty"`
+	CacheParameterGroup        cacheParameterGroupStatusXML `xml:"CacheParameterGroup"`
+	PreferredMaintenanceWindow string                       `xml:"PreferredMaintenanceWindow,omitempty"`
+	CacheNodeType              string                       `xml:"CacheNodeType"`
+	CacheSubnetGroupName       string                       `xml:"CacheSubnetGroupName,omitempty"`
+	PreferredOutpostArn        string                       `xml:"PreferredOutpostArn,omitempty"`
+	ConfigurationEndpoint      *cacheEndpoint               `xml:"ConfigurationEndpoint,omitempty"`
+	Engine                     string                       `xml:"Engine"`
+	EngineVersion              string                       `xml:"EngineVersion"`
+	ARN                        string                       `xml:"ARN"`
+	CacheClusterStatus         string                       `xml:"CacheClusterStatus"`
+	CreatedAt                  string                       `xml:"CacheClusterCreateTime,omitempty"`
+	CacheClusterID             string                       `xml:"CacheClusterId"`
+	ReplicationGroupID         string                       `xml:"ReplicationGroupId,omitempty"`
+	SnapshotWindow             string                       `xml:"SnapshotWindow,omitempty"`
+	PreferredAvailabilityZone  string                       `xml:"PreferredAvailabilityZone,omitempty"`
+	CacheNodes                 cacheNodes                   `xml:"CacheNodes"`
+	CacheSecurityGroups        cacheSecurityGroupsXML       `xml:"CacheSecurityGroups"`
+	NumCacheNodes              int                          `xml:"NumCacheNodes"`
+	SnapshotRetentionLimit     int                          `xml:"SnapshotRetentionLimit,omitempty"`
+	TransitEncryptionEnabled   bool                         `xml:"TransitEncryptionEnabled"`
+	AtRestEncryptionEnabled    bool                         `xml:"AtRestEncryptionEnabled"`
+	AuthTokenEnabled           bool                         `xml:"AuthTokenEnabled"`
 }
 
 // parseNumCacheNodes parses NumCacheNodes, falling back to def when unset or
@@ -115,6 +137,7 @@ func parseNumCacheNodes(form url.Values, def int) int {
 
 // clusterCreatePlan is CreateCacheCluster's validated request.
 type clusterCreatePlan struct {
+	engineVersion string
 	engine        string
 	nodeType      string
 	params        clusterCreateParams
@@ -148,6 +171,13 @@ func (h *Handler) planClusterCreate(
 		status, code, _ := paramErrorCode(paramErr)
 
 		return plan, false, xmlError(c, status, code, paramErr.Error())
+	}
+
+	var verErr error
+
+	plan.engineVersion, verErr = resolveEngineVersion(plan.engine, form.Get("EngineVersion"))
+	if verErr != nil {
+		return plan, false, xmlError(c, http.StatusBadRequest, "InvalidParameterValue", verErr.Error())
 	}
 
 	// A nonexistent ReplicationGroupId is rejected before creating anything:
@@ -223,7 +253,10 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 		return h.attachErrorResponse(c, rgErr)
 	}
 
-	settled, setErr := h.Backend.ApplyClusterSettings(ctx, id, clusterSettingsFromForm(form))
+	settings := clusterSettingsFromForm(form)
+	settings.EngineVersion = plan.engineVersion
+
+	settled, setErr := h.Backend.ApplyClusterSettings(ctx, id, settings)
 	if setErr != nil {
 		if errors.Is(setErr, ErrCacheSecurityGroupNotFound) {
 			return xmlError(c, http.StatusNotFound, "CacheSecurityGroupNotFound", "Cache security group not found")
@@ -611,7 +644,7 @@ func clusterToXML(cl *Cluster, status string) cacheClusterXML {
 		EngineVersion:              cl.EngineVersion,
 		NumCacheNodes:              n,
 		ARN:                        cl.ARN,
-		CacheParameterGroupName:    cl.CacheParameterGroupName,
+		CacheParameterGroup:        cacheParameterGroupFor(cl),
 		ReplicationGroupID:         cl.ReplicationGroupID,
 		PreferredMaintenanceWindow: cl.PreferredMaintenanceWindow,
 		SnapshotWindow:             cl.SnapshotWindow,

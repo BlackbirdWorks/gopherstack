@@ -76,6 +76,8 @@ type DBClusterDeleteOptions struct {
 // DBClusterMember represents a single DB instance member of a Neptune cluster.
 type DBClusterMember struct {
 	DBInstanceIdentifier string `json:"DBInstanceIdentifier"`
+	ParameterGroupStatus string `json:"DBClusterParameterGroupStatus,omitempty"`
+	PromotionTier        int    `json:"PromotionTier,omitempty"`
 	IsClusterWriter      bool   `json:"IsClusterWriter"`
 }
 
@@ -165,6 +167,7 @@ type DBInstance struct {
 	MultiAZ                         bool     `json:"MultiAZ"`
 	PubliclyAccessible              bool     `json:"PubliclyAccessible"`
 	DeletionProtection              bool     `json:"DeletionProtection"`
+	ParameterPendingReboot          bool     `json:"ParameterPendingReboot,omitempty"`
 }
 
 // DBInstanceCreateOptions holds optional fields for CreateDBInstance.

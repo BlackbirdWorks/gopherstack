@@ -194,20 +194,20 @@ func validateClusterBounds(d *clusterDefaults) error {
 }
 
 // applySnapshotRestoreConfig overrides cluster defaults from a source snapshot config.
-func applySnapshotRestoreConfig(d *clusterDefaults, snap *Snapshot) {
-	if snap.ClusterConfiguration.EngineVersion != "" {
+func applySnapshotRestoreConfig(d *clusterDefaults, snap *Snapshot, req *createClusterRequest) {
+	if snap.ClusterConfiguration.EngineVersion != "" && req.EngineVersion == "" {
 		d.engineVersion = snap.ClusterConfiguration.EngineVersion
 	}
 
-	if snap.ClusterConfiguration.NodeType != "" {
+	if snap.ClusterConfiguration.NodeType != "" && req.NodeType == "" {
 		d.nodeType = snap.ClusterConfiguration.NodeType
 	}
 
-	if snap.ClusterConfiguration.NumShards > 0 {
+	if snap.ClusterConfiguration.NumShards > 0 && req.NumShards == nil {
 		d.numShards = snap.ClusterConfiguration.NumShards
 	}
 
-	if snap.ClusterConfiguration.Port > 0 {
+	if snap.ClusterConfiguration.Port > 0 && req.Port == nil {
 		d.port = snap.ClusterConfiguration.Port
 	}
 }
@@ -254,7 +254,9 @@ func applyClusterNetworkDefaults(c *Cluster, req *createClusterRequest) {
 }
 
 // CreateCluster creates a new MemoryDB cluster.
-func buildCluster(region, clusterARN, aclName string, req *createClusterRequest, d clusterDefaults) *Cluster {
+func buildCluster(
+	region, clusterARN, aclName string, req *createClusterRequest, d clusterDefaults, now time.Time,
+) *Cluster {
 	c := &Cluster{
 		Name:                    req.ClusterName,
 		ARN:                     clusterARN,
@@ -275,7 +277,7 @@ func buildCluster(region, clusterARN, aclName string, req *createClusterRequest,
 		TLSEnabled:              d.tlsEnabled,
 		Status:                  clusterStatusAvailable,
 		Tags:                    tagsFromSlice(req.Tags),
-		CreatedAt:               time.Now(),
+		CreatedAt:               now,
 		Region:                  region,
 		SecurityGroupIDs:        req.SecurityGroupIDs,
 		AutoMinorVersionUpgrade: req.AutoMinorVersionUpgrade == nil || *req.AutoMinorVersionUpgrade,
@@ -337,7 +339,7 @@ func (b *InMemoryBackend) CreateCluster(ctx context.Context, req *createClusterR
 	}
 
 	if restoreSnap != nil {
-		applySnapshotRestoreConfig(&d, restoreSnap)
+		applySnapshotRestoreConfig(&d, restoreSnap, req)
 	}
 
 	if errMW := validateMaintenanceWindow(req.MaintenanceWindow); errMW != nil {
@@ -348,7 +350,7 @@ func (b *InMemoryBackend) CreateCluster(ctx context.Context, req *createClusterR
 	}
 
 	clusterARN := arn.Build("memorydb", region, b.accountID, "cluster/"+req.ClusterName)
-	c := buildCluster(region, clusterARN, aclName, req, d)
+	c := buildCluster(region, clusterARN, aclName, req, d, b.now())
 	b.markCreatingLocked(c)
 
 	b.clustersStore(region).Put(c)
@@ -419,7 +421,7 @@ func (b *InMemoryBackend) DeleteCluster(ctx context.Context, name string) (*Clus
 		Message:    "Cluster " + name + " deleted",
 	})
 
-	return b.clusterView(c), nil
+	return b.deletingView(c), nil
 }
 
 // DeleteClusterWithSnapshot removes a cluster, first creating a snapshot with the given name.
@@ -438,6 +440,10 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 	}
 
 	if snapshotName != "" {
+		if _, exists := b.snapshotsStore(region).Get(snapshotName); exists {
+			return nil, ErrSnapshotAlreadyExists
+		}
+
 		snapshotARN := arn.Build("memorydb", region, b.accountID, "snapshot/"+snapshotName)
 		s := &Snapshot{
 			Name:                 snapshotName,
@@ -464,7 +470,7 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 		Message:    "Cluster " + clusterName + " deleted",
 	})
 
-	return b.clusterView(c), nil
+	return b.deletingView(c), nil
 }
 
 // applyClusterStringUpdates applies non-nil string field updates from req to c.
@@ -577,6 +583,17 @@ func applyClusterUpdates(c *Cluster, req *updateClusterRequest) {
 	}
 }
 
+// clusterSpecChanged reports whether req alters compute, engine or replica topology.
+func clusterSpecChanged(c *Cluster, req *updateClusterRequest) bool {
+	rc := req.ReplicaConfiguration
+
+	return (req.NodeType != "" && req.NodeType != c.NodeType) ||
+		(req.EngineVersion != "" && req.EngineVersion != c.EngineVersion) ||
+		(req.Engine != "" && req.Engine != c.Engine) ||
+		(req.ParameterGroupName != "" && req.ParameterGroupName != c.ParameterGroupName) ||
+		(rc != nil && rc.ReplicaCount != nil && *rc.ReplicaCount != c.NumReplicasPerShard)
+}
+
 // setShardCountLocked applies a new shard count and opens a resharding window
 // when it changes. Must hold b.mu.
 func (b *InMemoryBackend) setShardCountLocked(c *Cluster, shards int32) {
@@ -618,7 +635,12 @@ func (b *InMemoryBackend) UpdateCluster(ctx context.Context, req *updateClusterR
 		}
 	}
 
+	changed := clusterSpecChanged(c, req)
 	applyClusterUpdates(c, req)
+
+	if changed {
+		b.startUpdatingLocked(c)
+	}
 
 	if sc := req.ShardConfiguration; sc != nil && sc.ShardCount != nil {
 		b.setShardCountLocked(c, *sc.ShardCount)

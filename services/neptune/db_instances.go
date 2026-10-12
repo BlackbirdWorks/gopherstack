@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
@@ -172,6 +173,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 			cl.DBClusterMembers = append(cl.DBClusterMembers, DBClusterMember{
 				DBInstanceIdentifier: id,
 				IsClusterWriter:      isWriter,
+				PromotionTier:        opts.PromotionTier,
 			})
 		}
 	}
@@ -258,6 +260,8 @@ func (b *InMemoryBackend) DeleteDBInstance(
 		)
 	}
 	cp := *inst
+	cp.DBInstanceStatus = statusDeleting
+	cp.readyAt = time.Time{}
 	b.instanceDelete(region, id)
 	delete(b.tagsStore(region), b.instanceARN(region, id))
 	if cp.DBClusterIdentifier != "" {
@@ -334,6 +338,9 @@ func applyDBInstanceModifications(inst *DBInstance, instanceClass string, opts D
 		inst.DBInstanceClass = instanceClass
 	}
 	if opts.DBParameterGroupName != "" {
+		if opts.DBParameterGroupName != inst.DBParameterGroupName {
+			inst.ParameterPendingReboot = true
+		}
 		inst.DBParameterGroupName = opts.DBParameterGroupName
 	}
 	if opts.PreferredMaintenanceWindow != "" {
@@ -394,6 +401,7 @@ func (b *InMemoryBackend) RebootDBInstance(ctx context.Context, id string) (*DBI
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
+	b.clearPendingRebootLocked(region, inst)
 	cp := *inst
 
 	return &cp, nil

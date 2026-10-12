@@ -14,9 +14,11 @@ import (
 )
 
 // builtinParameterGroupFamilies returns the well-known default parameter group families.
+const defaultRedis7Group = "default.redis7"
+
 func builtinParameterGroupFamilies() []struct{ family, name string } {
 	return []struct{ family, name string }{
-		{familyRedis7, "default.redis7"},
+		{familyRedis7, defaultRedis7Group},
 		{"redis6.x", "default.redis6.x"},
 		{"redis5.0", "default.redis5.0"},
 		{"redis4.0", "default.redis4.0"},
@@ -505,4 +507,37 @@ func builtinRedisPersistenceParameters() []CacheParameter {
 			IsModifiable:  true,
 		},
 	}
+}
+
+// defaultParameterGroupName is the built-in group a cluster uses when none was named.
+func defaultParameterGroupName(engine, version string) string {
+	major, rest, _ := strings.Cut(version, ".")
+
+	switch engine {
+	case engineMemcached:
+		if strings.HasPrefix(rest, "5") {
+			return "default.memcached1.5"
+		}
+
+		return "default.memcached1.6"
+	case engineValkey:
+		return "default.valkey" + major
+	}
+
+	switch major {
+	case "7":
+		return defaultRedis7Group
+	case "6":
+		return "default.redis6.x"
+	case "5":
+		return "default.redis5.0"
+	case "4":
+		return "default.redis4.0"
+	case "3":
+		return "default.redis3.2"
+	case "2":
+		return "default.redis2.8"
+	}
+
+	return defaultRedis7Group
 }

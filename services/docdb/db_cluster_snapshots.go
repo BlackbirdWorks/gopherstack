@@ -3,6 +3,7 @@ package docdb
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 )
@@ -29,30 +30,8 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 	snapArn := b.clusterSnapshotARN(region, snapshotID)
-	azs := make([]string, len(c.AvailabilityZones))
-	copy(azs, c.AvailabilityZones)
-	snap := &DBClusterSnapshot{
-		region:                      region,
-		DBClusterSnapshotIdentifier: snapshotID,
-		DBClusterIdentifier:         clusterID,
-		Engine:                      c.Engine,
-		Status:                      statusAvailable,
-		EngineVersion:               c.EngineVersion,
-		StorageEncrypted:            c.StorageEncrypted,
-		SnapshotType:                "manual",
-		PercentProgress:             snapshotPercentageComplete,
-		SnapshotCreateTime:          time.Now().UTC().Format(time.RFC3339),
-		ClusterCreateTime:           c.ClusterCreateTime,
-		KmsKeyID:                    c.KmsKeyID,
-		MasterUsername:              c.MasterUsername,
-		Port:                        c.Port,
-		AvailabilityZones:           azs,
-		DBClusterArn:                b.clusterARN(region, clusterID),
-		DBClusterSnapshotArn:        snapArn,
-		StorageType:                 c.StorageType,
-		VpcID:                       b.subnetGroupVpcID(region, c.DBSubnetGroupName),
-		Tags:                        copyTags(tags),
-	}
+	snap := b.snapshotOfCluster(region, snapshotID, c)
+	snap.Tags = copyTags(tags)
 	b.clusterSnapshotPut(snap)
 	if len(tags) > 0 {
 		b.tagsStore(region)[snapArn] = tagsFromMap(tags)
@@ -342,4 +321,30 @@ func (b *InMemoryBackend) ModifyDBClusterSnapshotAttribute(
 	b.snapshotAttributesPut(result)
 
 	return copySnapshotAttributesResult(result), nil
+}
+
+// snapshotOfCluster builds a manual snapshot capturing c's restorable configuration.
+func (b *InMemoryBackend) snapshotOfCluster(region, snapshotID string, c *DBCluster) *DBClusterSnapshot {
+	return &DBClusterSnapshot{
+		region:                      region,
+		DBClusterSnapshotIdentifier: snapshotID,
+		DBClusterIdentifier:         c.DBClusterIdentifier,
+		Engine:                      c.Engine,
+		Status:                      statusAvailable,
+		EngineVersion:               c.EngineVersion,
+		StorageEncrypted:            c.StorageEncrypted,
+		SnapshotType:                "manual",
+		PercentProgress:             snapshotPercentageComplete,
+		SnapshotCreateTime:          time.Now().UTC().Format(time.RFC3339),
+		ClusterCreateTime:           c.ClusterCreateTime,
+		KmsKeyID:                    c.KmsKeyID,
+		MasterUsername:              c.MasterUsername,
+		Port:                        c.Port,
+		AvailabilityZones:           slices.Clone(c.AvailabilityZones),
+		DBClusterArn:                b.clusterARN(region, c.DBClusterIdentifier),
+		DBClusterSnapshotArn:        b.clusterSnapshotARN(region, snapshotID),
+		StorageType:                 c.StorageType,
+		VpcID:                       b.subnetGroupVpcID(region, c.DBSubnetGroupName),
+		Tags:                        map[string]string{},
+	}
 }

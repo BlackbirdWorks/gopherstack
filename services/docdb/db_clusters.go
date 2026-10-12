@@ -118,14 +118,11 @@ func (b *InMemoryBackend) CreateDBCluster(
 	if err := b.checkNetworkType(region, extras.NetworkType, subnetGroupName); err != nil {
 		return nil, err
 	}
-	if engine == "" {
-		engine = docDBEngine
-	}
-	if engineVersion == "" {
-		engineVersion = defaultEngineVersion
-	}
-	if paramGroupName == "" {
-		paramGroupName = defaultParamGroupName(engineVersion)
+	engine = cmp.Or(engine, docDBEngine)
+	engineVersion = cmp.Or(engineVersion, defaultEngineVersion)
+	paramGroupName, err := b.resolveClusterParameterGroup(region, paramGroupName, engineVersion)
+	if err != nil {
+		return nil, err
 	}
 	port, backupRetentionPeriod = clusterNumericDefaults(port, backupRetentionPeriod)
 	preferredBackupWindow = cmp.Or(preferredBackupWindow, defaultBackupWindow)
@@ -137,7 +134,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	copy(azs, availabilityZones)
 
 	kmsKeyID, storageType, vpcSecurityGroupIDs, enabledCloudwatchLogsExports := extractCreateDBClusterOpts(opts)
-	storageType, err := validateStorageType(storageType)
+	storageType, err = validateStorageType(storageType)
 	if err != nil {
 		return nil, err
 	}
@@ -240,6 +237,7 @@ func (b *InMemoryBackend) DeleteDBCluster(
 	}
 
 	cp := copyCluster(c)
+	cp.Status = statusDeleting
 
 	// Create a final snapshot if requested.
 	if !opts.SkipFinalSnapshot && opts.FinalDBSnapshotIdentifier != "" {
@@ -251,21 +249,7 @@ func (b *InMemoryBackend) DeleteDBCluster(
 				snapID,
 			)
 		}
-		snap := &DBClusterSnapshot{
-			region:                      region,
-			DBClusterSnapshotIdentifier: snapID,
-			DBClusterIdentifier:         id,
-			Engine:                      c.Engine,
-			Status:                      statusAvailable,
-			EngineVersion:               c.EngineVersion,
-			StorageEncrypted:            c.StorageEncrypted,
-			SnapshotType:                "manual",
-			PercentProgress:             snapshotPercentageComplete,
-			SnapshotCreateTime:          time.Now().UTC().Format(time.RFC3339),
-			DBClusterArn:                b.clusterARN(region, id),
-			StorageType:                 c.StorageType,
-			VpcID:                       b.subnetGroupVpcID(region, c.DBSubnetGroupName),
-		}
+		snap := b.snapshotOfCluster(region, snapID, c)
 		b.clusterSnapshotPut(snap)
 	}
 
@@ -299,7 +283,13 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	if err := b.checkModifyClusterOpts(region, id, c, opts); err != nil {
 		return nil, err
 	}
+	if err := b.checkClusterParameterGroup(region, paramGroupName); err != nil {
+		return nil, err
+	}
 	if paramGroupName != "" {
+		if paramGroupName != c.DBClusterParameterGroupName {
+			b.markClusterPendingRebootLocked(region, id)
+		}
 		c.DBClusterParameterGroupName = paramGroupName
 	}
 	if deletionProtection != nil {
@@ -636,7 +626,9 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 		DBSubnetGroupName:           subnetGroupName,
 		Endpoint:                    endpoint,
 		ReaderEndpoint:              readerEndpoint,
-		Port:                        defaultDocDBPort,
+		Port:                        cmp.Or(snap.Port, defaultDocDBPort),
+		MasterUsername:              snap.MasterUsername,
+		KmsKeyID:                    snap.KmsKeyID,
 		DBClusterArn:                clusterArn,
 		EngineVersion:               engineVersion,
 		StorageEncrypted:            snap.StorageEncrypted,

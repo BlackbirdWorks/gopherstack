@@ -2,7 +2,7 @@
 service: memorydb
 sdk_module: aws-sdk-go-v2/service/memorydb@v1.36.4
 last_audit_commit: b4c2391e7
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-12
 overall: A            # 2026-08-15 (gopherstack-6flj): wrapper-key/nested-shape sweep of all 18 L+D+G ops
                        # (scripted key extraction against deserializers.go/serializers.go for all 18
                        # ops + every reachable nested type). Top-level wrapper keys were mostly clean,
@@ -625,3 +625,7 @@ UpdateMultiRegionCluster now applies ShardConfiguration.ShardCount to the multi-
 ## 2026-10-10 realism pass
 
 Error messages no longer repeat the fault code. CreateUser validates passwords (16-128 chars, 1-2, no `/ " @`, required for password auth) and access-string syntax; CreateACL rejects unknown users; parameter group family and snapshot names are validated; clusters default ParameterGroupName to `default.memorydb-<engine><major>`. CreateSubnetGroup with no subnets stays accepted (many fixtures). Proof: `TestSDK_CreateUserValidation`, `TestSDK_ResourceNameAndReferenceValidation`, `TestSDK_ClusterDefaultParameterGroup`.
+
+## 2026-10-12 deep realism pass
+
+DeleteCluster returns `Status: deleting`. Node `CreateTime` is the cluster's creation time instead of the current time on every describe. CreateCluster from SnapshotName keeps an explicit NodeType/EngineVersion/NumShards/Port from the request. UpdateCluster changes to node type, replica count, engine or parameter group report `updating` for the lifecycle delay (as resharding already did). DeleteCluster with FinalSnapshotName rejects an existing snapshot name (SnapshotAlreadyExistsFault) before deleting. Tests: cluster_flow_sdk_test.go.

@@ -306,11 +306,9 @@ func neptuneErrorCode(opErr error) string {
 	// fault for its own CRUD ops -- CreateDBClusterParameterGroup,
 	// DeleteDBClusterParameterGroup, ModifyDBClusterParameterGroup, and
 	// ResetDBClusterParameterGroup all reuse the plain (non-cluster)
-	// "DBParameterGroupAlreadyExists"/"DBParameterGroupNotFound" codes. (A
-	// "DBClusterParameterGroupNotFound" fault does exist in the model, but
-	// only for other ops referencing a cluster's parameter group by name --
-	// e.g. CreateDBCluster/ModifyDBCluster/RestoreDBCluster* -- which this
-	// backend does not validate, so it never needs that code.)
+	// "DBParameterGroupAlreadyExists"/"DBParameterGroupNotFound" codes.
+	// CreateDBCluster/ModifyDBCluster name a missing group with
+	// "DBClusterParameterGroupNotFound" (ErrClusterParameterGroupRefNotFound).
 	mappings := []errorMapping{
 		{ErrClusterNotFound, "DBClusterNotFoundFault"},
 		{ErrClusterAlreadyExists, "DBClusterAlreadyExistsFault"},
@@ -320,6 +318,7 @@ func neptuneErrorCode(opErr error) string {
 		{ErrSubnetGroupAlreadyExists, "DBSubnetGroupAlreadyExists"},
 		{ErrSubnetGroupInUse, "InvalidDBSubnetGroupStateFault"},
 		{ErrClusterParameterGroupNotFound, "DBParameterGroupNotFound"},
+		{ErrClusterParameterGroupRefNotFound, "DBClusterParameterGroupNotFound"},
 		{ErrClusterParameterGroupAlreadyExists, "DBParameterGroupAlreadyExists"},
 		{ErrClusterSnapshotNotFound, "DBClusterSnapshotNotFoundFault"},
 		{ErrClusterSnapshotAlreadyExists, "DBClusterSnapshotAlreadyExistsFault"},

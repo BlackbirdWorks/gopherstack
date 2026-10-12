@@ -77,7 +77,7 @@ func (h *Handler) handleDescribeDBClusters(ctx context.Context, vals url.Values)
 		for _, m := range instMembers {
 			xmlMembers = append(xmlMembers, xmlDBClusterMember{
 				DBInstanceIdentifier:          m.DBInstanceIdentifier,
-				DBClusterParameterGroupStatus: "in-sync",
+				DBClusterParameterGroupStatus: m.ParameterGroupStatus,
 				PromotionTier:                 m.PromotionTier,
 				IsClusterWriter:               m.IsClusterWriter,
 			})

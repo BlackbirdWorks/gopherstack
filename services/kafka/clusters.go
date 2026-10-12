@@ -103,6 +103,10 @@ func (b *InMemoryBackend) CreateCluster(
 		ci := *createOpts.ConfigurationInfo
 		cluster.ConfigurationInfo = &ci
 	}
+	if b.lifecycleDelay > 0 {
+		cluster.pendingState = ClusterStateCreating
+		cluster.readyAt = b.now().Add(b.lifecycleDelay)
+	}
 	b.clusters.Put(cluster)
 	b.launchBrokerLocked(clusterArn, name)
 
@@ -164,14 +168,15 @@ func (b *InMemoryBackend) DescribeCluster(_ context.Context, clusterArn string) 
 		return nil, ErrNotFound
 	}
 
-	if _, managed := b.managedBrokerLocked(clusterArn); !managed && c.State == ClusterStateCreating {
+	if _, managed := b.managedBrokerLocked(clusterArn); !managed && b.lifecycleDelay <= 0 &&
+		c.State == ClusterStateCreating {
 		c.pollCount++
 		if c.pollCount >= 1 {
 			c.State = ClusterStateActive
 		}
 	}
 
-	return cloneCluster(c), nil
+	return b.viewCluster(c), nil
 }
 
 // ListClusters returns all MSK clusters in the request's region sorted by name.
@@ -184,7 +189,7 @@ func (b *InMemoryBackend) ListClusters(ctx context.Context) []*Cluster {
 	clusters := b.clustersByRegion.Get(region)
 	out := make([]*Cluster, 0, len(clusters))
 	for _, c := range clusters {
-		out = append(out, cloneCluster(c))
+		out = append(out, b.viewCluster(c))
 	}
 
 	slices.SortFunc(out, func(a, b *Cluster) int {

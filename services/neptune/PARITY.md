@@ -7,7 +7,7 @@
 service: neptune
 sdk_module: aws-sdk-go-v2/service/neptune@v1.48.4
 last_audit_commit: 0c1472972  # 2026-09-24 lakeformation-appsync-neptune-and-athena terraform coverage; prior: 064cc837d
-last_audit_date: 2026-10-07  # prior: 2026-09-17
+last_audit_date: 2026-10-12  # prior: 2026-09-17
 overall: A            # every previously-open gap this pass either genuinely fixed or re-verified as correct-as-is
                       # 2026-09-11 (gopherstack-jd33, both follow-up items closed): (1) the parameter
                       # catalog's "8-parameter representative approximation" deferred note is retired --
@@ -966,3 +966,7 @@ DBCluster no longer emits EngineMode or MasterUserManagedSecret; neither exists 
 ## 2026-10-10 realism pass
 
 Same message/pagination/lifecycle changes as DocDB. CreateDBCluster rejects Engine other than neptune; DBInstanceClass and DBSubnetGroupName are validated; DbClusterResourceId is now random and instances carry DbiResourceId. DeleteDBCluster still cascades to instances (the backend forbids deleting a cluster's last instance, so rejecting would make clusters undeletable). `SetLifecycleDelay` needs root wiring. Proof: `TestSDK_CreateValidation`, `TestSDK_ResourceIDsAndNotFound`, `TestSDK_DescribePagination`, `TestSDK_CreateReportsCreatingUntilDelay`.
+
+## 2026-10-12 deep realism pass
+
+DeleteDBCluster/DeleteDBInstance return `deleting`. DBInstance reports `DBParameterGroups` with the group name (default `default.neptune1.3`) and `ParameterApplyStatus` (the empty `<DBParameterGroup/>` element is gone); `DBClusterMembers` carry `DBClusterParameterGroupStatus` and `PromotionTier`. A static parameter change on a cluster/instance parameter group, or switching a cluster/instance group, sets `pending-reboot` until RebootDBInstance. CreateDBCluster/ModifyDBCluster reject an unknown DBClusterParameterGroupName with `DBClusterParameterGroupNotFound`. No Gremlin/SPARQL endpoint is backed here; `neptune-graph` is not a service in this repo. Tests: param_reboot_flow_sdk_test.go.

@@ -226,6 +226,7 @@ type DBInstance struct {
 	PubliclyAccessible           bool              `json:"publiclyAccessible"`
 	CopyTagsToSnapshot           bool              `json:"copyTagsToSnapshot"`
 	PerformanceInsightsEnabled   bool              `json:"performanceInsightsEnabled"`
+	ParameterPendingReboot       bool              `json:"parameterPendingReboot,omitempty"`
 }
 
 type DBSubnetGroup struct {
@@ -494,6 +495,7 @@ type CreateDBInstanceOptions struct {
 // DBClusterMemberEntry represents an instance that is a member of a DB cluster.
 type DBClusterMemberEntry struct {
 	DBInstanceIdentifier string
+	ParameterGroupStatus string
 	PromotionTier        int
 	IsClusterWriter      bool
 }

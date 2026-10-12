@@ -2,7 +2,12 @@ package neptune
 
 import "time"
 
-const statusCreating = "creating"
+const (
+	statusCreating              = "creating"
+	statusDeleting              = "deleting"
+	parameterApplyInSync        = "in-sync"
+	parameterApplyPendingReboot = "pending-reboot"
+)
 
 // SetLifecycleDelay sets how long newly created clusters and instances report
 // "creating" before "available". Zero (the default) settles instantly.
@@ -21,7 +26,7 @@ func (b *InMemoryBackend) readyAtLocked() time.Time {
 }
 
 func observedStatus(status string, readyAt time.Time) string {
-	if !readyAt.IsZero() && time.Now().Before(readyAt) {
+	if status != statusDeleting && !readyAt.IsZero() && time.Now().Before(readyAt) {
 		return statusCreating
 	}
 

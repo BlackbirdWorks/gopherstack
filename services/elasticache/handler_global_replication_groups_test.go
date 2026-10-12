@@ -10,14 +10,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func createPrimaryRG(t *testing.T, client *elasticachesdk.Client, id string) {
+	t.Helper()
+
+	_, err := client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
+		ReplicationGroupId:          aws.String(id),
+		ReplicationGroupDescription: aws.String("primary"),
+	})
+	require.NoError(t, err)
+}
+
 func TestHandler_CreateGlobalReplicationGroup_NodeGroupCountTracked(t *testing.T) {
 	t.Parallel()
 
 	client := newTestStack(t)
+	createPrimaryRG(t, client, "nodecount-primary")
 
 	_, err := client.CreateGlobalReplicationGroup(t.Context(), &elasticachesdk.CreateGlobalReplicationGroupInput{
 		GlobalReplicationGroupIdSuffix: aws.String("nodecount-grg"),
-		PrimaryReplicationGroupId:      aws.String(""),
+		PrimaryReplicationGroupId:      aws.String("nodecount-primary"),
 	})
 	require.NoError(t, err)
 
@@ -37,10 +48,11 @@ func TestHandler_IncreaseNodeGroupsInGRG_UpdatesCount(t *testing.T) {
 	t.Parallel()
 
 	client := newTestStack(t)
+	createPrimaryRG(t, client, "inc-ng-primary")
 
 	_, err := client.CreateGlobalReplicationGroup(t.Context(), &elasticachesdk.CreateGlobalReplicationGroupInput{
 		GlobalReplicationGroupIdSuffix: aws.String("inc-ng"),
-		PrimaryReplicationGroupId:      aws.String(""),
+		PrimaryReplicationGroupId:      aws.String("inc-ng-primary"),
 	})
 	require.NoError(t, err)
 
@@ -701,18 +713,26 @@ func TestCreateGlobalReplicationGroup(t *testing.T) {
 			},
 		},
 		{
-			name:        "success_without_primary",
+			name:        "missing_primary",
 			suffix:      "standalone-group",
 			description: "Standalone global RG",
 			primaryRGID: "nonexistent-primary",
+			wantErr:     true,
+		},
+		{
+			name:        "empty_primary",
+			suffix:      "empty-primary-group",
+			description: "No primary",
+			wantErr:     true,
 		},
 		{
 			name:        "duplicate",
 			suffix:      "dup-group",
 			description: "First",
-			primaryRGID: "",
+			primaryRGID: "primary-rg",
 			setup: func(t *testing.T, client *elasticachesdk.Client) {
 				t.Helper()
+				createPrimaryRG(t, client, "primary-rg")
 				_, err := client.CreateGlobalReplicationGroup(
 					t.Context(),
 					&elasticachesdk.CreateGlobalReplicationGroupInput{

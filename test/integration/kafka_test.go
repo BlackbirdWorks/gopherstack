@@ -69,7 +69,7 @@ func TestIntegration_Kafka_ClusterLifecycle(t *testing.T) {
 		ClusterArn: aws.String(clusterArn),
 	})
 	require.NoError(t, err, "GetBootstrapBrokers should succeed")
-	assert.NotEmpty(t, aws.ToString(brokersOut.BootstrapBrokerString))
+	assert.NotEmpty(t, aws.ToString(brokersOut.BootstrapBrokerStringTls))
 
 	// List clusters.
 	listOut, err := client.ListClusters(t.Context(), &kafkasvc.ListClustersInput{

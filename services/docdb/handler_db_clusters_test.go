@@ -106,6 +106,16 @@ func TestHandler_ClusterOperations(t *testing.T) {
 	}{
 		{
 			name: "modify_cluster",
+			setup: func(t *testing.T, h *docdb.Handler) {
+				t.Helper()
+				doRequest(t, h, url.Values{
+					"Action":                      {"CreateDBClusterParameterGroup"},
+					"Version":                     {"2014-10-31"},
+					"DBClusterParameterGroupName": {"new-param-group"},
+					"DBParameterGroupFamily":      {"docdb4.0"},
+					"Description":                 {"d"},
+				})
+			},
 			vals: url.Values{
 				"Action":                      {"ModifyDBCluster"},
 				"Version":                     {"2014-10-31"},

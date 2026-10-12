@@ -598,6 +598,10 @@ func (b *InMemoryBackend) ApplyClusterSettings(
 		return nil, ErrClusterNotFound
 	}
 
+	if settings.EngineVersion != "" {
+		c.EngineVersion = settings.EngineVersion
+	}
+
 	if len(settings.CacheSecurityGroupNames) > 0 {
 		sgStore := b.cacheSecurityGroupsStoreRO(region)
 		for _, name := range settings.CacheSecurityGroupNames {

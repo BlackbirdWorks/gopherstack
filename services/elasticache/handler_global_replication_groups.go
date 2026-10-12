@@ -69,6 +69,18 @@ func (h *Handler) createGlobalReplicationGroup(ctx context.Context, c *echo.Cont
 	description := form.Get("GlobalReplicationGroupDescription")
 	primaryReplicationGroupID := form.Get("PrimaryReplicationGroupId")
 
+	if primaryReplicationGroupID == "" {
+		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "PrimaryReplicationGroupId is required")
+	}
+
+	if _, descErr := h.Backend.DescribeReplicationGroups(ctx, primaryReplicationGroupID, "", 0); descErr != nil {
+		if errors.Is(descErr, ErrReplicationGroupNotFound) {
+			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
+		}
+
+		return xmlError(c, http.StatusInternalServerError, "InternalFailure", descErr.Error())
+	}
+
 	grg, err := h.Backend.CreateGlobalReplicationGroup(ctx, suffix, description, primaryReplicationGroupID)
 	if err != nil {
 		if errors.Is(err, ErrGlobalReplicationGroupExists) {
