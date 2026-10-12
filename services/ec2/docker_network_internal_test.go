@@ -3,7 +3,9 @@ package ec2
 import (
 	"errors"
 	"net/netip"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -145,8 +147,15 @@ func mappedPorts(hc *mobycontainer.HostConfig) mobynetwork.PortMap {
 		return out
 	}
 
-	for port, bindings := range hc.PortBindings {
-		for _, b := range bindings {
+	ports := make([]mobynetwork.Port, 0, len(hc.PortBindings))
+	for port := range hc.PortBindings {
+		ports = append(ports, port)
+	}
+
+	slices.SortFunc(ports, func(a, b mobynetwork.Port) int { return strings.Compare(a.String(), b.String()) })
+
+	for _, port := range ports {
+		for _, b := range hc.PortBindings[port] {
 			next++
 			out[port] = append(out[port], mobynetwork.PortBinding{HostIP: b.HostIP, HostPort: strconv.Itoa(next)})
 		}

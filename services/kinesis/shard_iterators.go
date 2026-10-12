@@ -18,7 +18,7 @@ func encodeIterator(it *ShardIterator) (string, error) {
 }
 
 // decodeIterator decodes a base64 JSON shard iterator token.
-func decodeIterator(token string) (*ShardIterator, error) {
+func decodeIterator(token string, now time.Time) (*ShardIterator, error) {
 	data, err := base64.StdEncoding.DecodeString(token)
 	if err != nil {
 		return nil, ErrShardIteratorExpired
@@ -29,7 +29,7 @@ func decodeIterator(token string) (*ShardIterator, error) {
 		return nil, ErrShardIteratorExpired
 	}
 
-	if !it.CreatedAt.IsZero() && time.Since(it.CreatedAt) > iteratorTTL {
+	if !it.CreatedAt.IsZero() && now.Sub(it.CreatedAt) > iteratorTTL {
 		return nil, ErrShardIteratorExpired
 	}
 

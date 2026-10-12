@@ -245,7 +245,7 @@ func (b *InMemoryBackend) PutRecords(ctx context.Context, input *PutRecordsInput
 // not from ctx, so an iterator issued for one region always reads that region's
 // records even if the GetRecords call carries a different ctx region.
 func (b *InMemoryBackend) GetRecords(ctx context.Context, input *GetRecordsInput) (*GetRecordsOutput, error) {
-	it, err := decodeIterator(input.ShardIterator)
+	it, err := decodeIterator(input.ShardIterator, b.nowFunc())
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +318,7 @@ func (b *InMemoryBackend) GetRecords(ctx context.Context, input *GetRecordsInput
 		ShardID:    it.ShardID,
 		Region:     region,
 		Position:   actualEnd,
-		CreatedAt:  time.Now(),
+		CreatedAt:  b.nowFunc(),
 	}
 
 	nextToken, childShards, err := nextIteratorAndChildShards(stream.Shards, shard, newIt, actualEnd)

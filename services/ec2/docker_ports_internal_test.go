@@ -84,7 +84,8 @@ func TestDockerComputePublishesPorts(t *testing.T) {
 	assert.Equal(t, "udp", res.PublishedPorts[0].Protocol)
 	assert.Equal(t, 53, res.PublishedPorts[0].ContainerPort)
 	assert.Equal(t, 8080, res.PublishedPorts[1].ContainerPort)
-	assert.Positive(t, res.PublishedPorts[1].HostPort)
+	assert.Equal(t, 40001, res.PublishedPorts[0].HostPort)
+	assert.Equal(t, 40002, res.PublishedPorts[1].HostPort)
 	assert.Equal(t, "127.0.0.1", res.PublishedPorts[1].HostIP)
 
 	got, err := dc.PublishedPorts(t.Context(), "ctr-1")
