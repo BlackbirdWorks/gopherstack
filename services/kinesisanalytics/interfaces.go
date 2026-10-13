@@ -26,3 +26,8 @@ type KinesisStreamReader interface {
 type S3ObjectReader interface {
 	GetObject(ctx context.Context, input *sdk_s3.GetObjectInput) (*sdk_s3.GetObjectOutput, error)
 }
+
+// FirehoseSampleReader returns recently ingested records of a delivery stream (ARN or name).
+type FirehoseSampleReader interface {
+	SampleRecords(streamRef string, limit int) ([][]byte, error)
+}

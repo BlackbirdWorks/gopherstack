@@ -14,12 +14,12 @@ func TestRule_CRUD(t *testing.T) {
 	h := newTestHandler(t)
 
 	// setup
-	recSvc := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svc-r"})
+	recSvc := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svcx-r"})
 	require.Equal(t, http.StatusCreated, recSvc.Code)
 	svcID, _ := parseBody(t, recSvc)["id"].(string)
 
 	recL := doRequest(t, h, http.MethodPost, "/services/"+svcID+"/listeners", map[string]any{
-		"name":     "l1",
+		"name":     "lis1",
 		"protocol": "HTTP",
 		"defaultAction": map[string]any{
 			"fixedResponse": map[string]any{"statusCode": 404},
@@ -143,12 +143,12 @@ func TestUpdateRule_RejectsDefaultRule(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
-	recSvc := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svc-default-rule"})
+	recSvc := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svcx-default-rule"})
 	require.Equal(t, http.StatusCreated, recSvc.Code)
 	svcID, _ := parseBody(t, recSvc)["id"].(string)
 
 	recL := doRequest(t, h, http.MethodPost, "/services/"+svcID+"/listeners", map[string]any{
-		"name":     "l1",
+		"name":     "lis1",
 		"protocol": "HTTP",
 		"defaultAction": map[string]any{
 			"fixedResponse": map[string]any{"statusCode": 404},
@@ -219,7 +219,7 @@ func TestBatchUpdateRule(t *testing.T) {
 	h := newTestHandler(t)
 
 	// setup
-	recSvc := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svc-bu"})
+	recSvc := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svcx-bu"})
 	require.Equal(t, http.StatusCreated, recSvc.Code)
 	svcID, _ := parseBody(t, recSvc)["id"].(string)
 
@@ -239,7 +239,7 @@ func TestBatchUpdateRule(t *testing.T) {
 		http.MethodPost,
 		"/services/"+svcID+"/listeners/"+listenerID+"/rules",
 		map[string]any{
-			"name":     "r1",
+			"name":     "rul1",
 			"priority": 10,
 			"action":   map[string]any{"fixedResponse": map[string]any{"statusCode": 200}},
 		},
@@ -277,12 +277,12 @@ func TestBatchUpdateRuleFailureUsesFailureCodeFailureMessageKeys(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	recSvc := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svc-batch-fail-keys"})
+	recSvc := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svcx-batch-fail-keys"})
 	require.Equal(t, http.StatusCreated, recSvc.Code)
 	svcID, _ := parseBody(t, recSvc)["id"].(string)
 
 	recL := doRequest(t, h, http.MethodPost, "/services/"+svcID+"/listeners", map[string]any{
-		"name":     "l1",
+		"name":     "lis1",
 		"protocol": "HTTP",
 		"defaultAction": map[string]any{
 			"fixedResponse": map[string]any{"statusCode": 404},
@@ -322,12 +322,12 @@ func TestRuleSummaryIncludesTimestamps(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	recSvc := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svc-rule-summary-ts"})
+	recSvc := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svcx-rule-summary-ts"})
 	require.Equal(t, http.StatusCreated, recSvc.Code)
 	svcID, _ := parseBody(t, recSvc)["id"].(string)
 
 	recL := doRequest(t, h, http.MethodPost, "/services/"+svcID+"/listeners", map[string]any{
-		"name":     "l1",
+		"name":     "lis1",
 		"protocol": "HTTP",
 		"defaultAction": map[string]any{
 			"fixedResponse": map[string]any{"statusCode": 404},

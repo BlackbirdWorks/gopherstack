@@ -37,6 +37,7 @@ type functionRuntime struct {
 	mu           *lockmetrics.RWMutex
 	zipDir       string
 	hotFP        string
+	credsExpire  time.Time
 	containerID  string
 	layerDirs    []string
 	port         int
@@ -246,7 +247,9 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 	rt.port = port
 	rt.started = true
 
-	zipDir, layerDirs, containerID, hotFP, containerErr := b.startRuntimeContainer(ctx, fn, port)
+	env, credsExpire := b.buildContainerEnv(ctx, fn, port)
+
+	zipDir, layerDirs, containerID, hotFP, containerErr := b.startRuntimeContainer(ctx, fn, env)
 	if containerErr != nil {
 		// handleContainerStartFailure receives rt.mu already locked and releases
 		// it itself once its cleanup completes, before doing further b.mu work.
@@ -262,6 +265,7 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 	rt.layerDirs = layerDirs
 	rt.containerID = containerID
 	rt.hotFP = hotFP
+	rt.credsExpire = credsExpire
 	rt.hotCheckedAt = time.Now()
 
 	return srv, nil
@@ -271,14 +275,14 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 func (b *InMemoryBackend) startRuntimeContainer(
 	ctx context.Context,
 	fn *FunctionConfiguration,
-	port int,
+	env []string,
 ) (string, []string, string, string, error) {
 	hotFP, err := b.hotReloadFingerprintFor(fn)
 	if err != nil {
 		return "", nil, "", "", fmt.Errorf("%w: %w", ErrLambdaUnavailable, err)
 	}
 
-	zipDir, layerDirs, containerID, err := b.startContainer(ctx, fn, port)
+	zipDir, layerDirs, containerID, err := b.startContainer(ctx, fn, env)
 
 	return zipDir, layerDirs, containerID, hotFP, err
 }
@@ -627,27 +631,8 @@ func extractZipFile(destDir string, f *zip.File) error {
 func (b *InMemoryBackend) startContainer(
 	ctx context.Context,
 	fn *FunctionConfiguration,
-	runtimePort int,
+	env []string,
 ) (string, []string, string, error) {
-	env := []string{
-		fmt.Sprintf("AWS_LAMBDA_RUNTIME_API=%s:%d", b.settings.DockerHost, runtimePort),
-		"AWS_DEFAULT_REGION=" + b.region,
-		"AWS_REGION=" + b.region,
-		"AWS_LAMBDA_FUNCTION_NAME=" + fn.FunctionName,
-		fmt.Sprintf("AWS_LAMBDA_FUNCTION_MEMORY_SIZE=%d", fn.MemorySize),
-		fmt.Sprintf("AWS_LAMBDA_FUNCTION_TIMEOUT=%d", fn.Timeout),
-	}
-
-	if fn.Handler != "" {
-		env = append(env, "AWS_LAMBDA_FUNCTION_HANDLER="+fn.Handler)
-	}
-
-	if fn.Environment != nil {
-		for k, v := range fn.Environment.Variables {
-			env = append(env, fmt.Sprintf("%s=%s", k, v))
-		}
-	}
-
 	// Extract layer zips and prepare the /opt mount for both Zip and Image functions.
 	layerMount, layerDirs, layerErr := b.prepareLayerMount(fn)
 	if layerErr != nil {
@@ -661,6 +646,11 @@ func (b *InMemoryBackend) startContainer(
 		return zipDir, layerDirs, containerID, err
 	}
 
+	efsBinds, efsErr := b.efsMountBinds(fn)
+	if efsErr != nil {
+		return "", layerDirs, "", efsErr
+	}
+
 	spec := container.Spec{
 		Image: fn.ImageURI,
 		Name:  fmt.Sprintf("gopherstack-lambda-%s-%s", fn.FunctionName, uuid.New().String()[:8]),
@@ -670,6 +660,8 @@ func (b *InMemoryBackend) startContainer(
 	if layerMount != "" {
 		spec.Mounts = append(spec.Mounts, layerMount)
 	}
+
+	spec.Mounts = append(spec.Mounts, efsBinds...)
 
 	containerID, err := b.docker.CreateAndStart(ctx, spec)
 
@@ -708,7 +700,7 @@ func (b *InMemoryBackend) startZipContainer(
 
 		var fetchErr error
 
-		zipData, fetchErr = b.s3Fetcher.GetObjectBytes(ctx, fn.S3BucketCode, fn.S3KeyCode)
+		zipData, fetchErr = b.fetchS3Code(ctx, fn)
 		if fetchErr != nil {
 			return "", "", fmt.Errorf(
 				"%w: failed to fetch zip from S3: %w",
@@ -770,10 +762,17 @@ func (b *InMemoryBackend) createZipContainer(
 	env []string,
 	layerMount string,
 ) (string, error) {
+	efsBinds, efsErr := b.efsMountBinds(fn)
+	if efsErr != nil {
+		return "", efsErr
+	}
+
 	mounts := []string{codeDir + ":/var/task:ro"}
 	if layerMount != "" {
 		mounts = append(mounts, layerMount)
 	}
+
+	mounts = append(mounts, efsBinds...)
 
 	spec := container.Spec{
 		Image:  baseImage,
@@ -891,4 +890,18 @@ func extractZipIntoDir(dir string, zipData []byte) error {
 	}
 
 	return nil
+}
+
+// fetchS3Code reads the function's S3 deployment package, at S3ObjectVersionCode when one was given.
+func (b *InMemoryBackend) fetchS3Code(ctx context.Context, fn *FunctionConfiguration) ([]byte, error) {
+	if fn.S3ObjectVersionCode == "" {
+		return b.s3Fetcher.GetObjectBytes(ctx, fn.S3BucketCode, fn.S3KeyCode)
+	}
+
+	versioned, ok := b.s3Fetcher.(S3VersionedCodeFetcher)
+	if !ok {
+		return nil, fmt.Errorf("%w: S3 fetcher cannot read object versions", ErrLambdaUnavailable)
+	}
+
+	return versioned.GetObjectVersionBytes(ctx, fn.S3BucketCode, fn.S3KeyCode, fn.S3ObjectVersionCode)
 }

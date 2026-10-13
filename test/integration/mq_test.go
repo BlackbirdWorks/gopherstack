@@ -59,11 +59,16 @@ func TestIntegration_MQ_BrokerLifecycle(t *testing.T) {
 			client := createMQClient(t)
 			brokerName := shortUniqueName(tt.brokerName)
 
+			engineVersion := "5.15.14"
+			if tt.engineType == "RABBITMQ" {
+				engineVersion = "3.13"
+			}
+
 			// Create broker.
 			createOut, err := client.CreateBroker(ctx, &mqsdk.CreateBrokerInput{
 				BrokerName:         aws.String(brokerName),
 				EngineType:         mqtypes.EngineType(tt.engineType),
-				EngineVersion:      aws.String("5.15.14"),
+				EngineVersion:      aws.String(engineVersion),
 				HostInstanceType:   aws.String("mq.m5.large"),
 				DeploymentMode:     mqtypes.DeploymentModeSingleInstance,
 				PubliclyAccessible: aws.Bool(false),

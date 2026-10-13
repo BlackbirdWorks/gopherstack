@@ -86,6 +86,10 @@ func (h *Handler) handleListApps(_ context.Context, r *http.Request, _ []byte) (
 		reverseOrder:           q.Get("reverseOrder") == queryValueTrue,
 	}
 
+	if err := validatePage(q.Get("nextToken"), queryMaxResults(q)); err != nil {
+		return nil, err
+	}
+
 	p := h.Backend.ListApps(f, q.Get("nextToken"), queryMaxResults(q))
 
 	resp := listAppsResponse{AppSummaries: make([]appSummaryWire, 0, len(p.Data)), NextToken: p.Next}
@@ -144,6 +148,10 @@ func (h *Handler) handleListAppVersions(_ context.Context, _ *http.Request, body
 		MaxResults int32    `json:"maxResults,omitempty"`
 	}
 	if err := decodeJSONBody(body, &req); err != nil {
+		return nil, err
+	}
+
+	if err := validatePage(req.NextToken, int(req.MaxResults)); err != nil {
 		return nil, err
 	}
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -19,6 +20,7 @@ import (
 // (aws-sdk-go-v2/service/fsx@v1.68.4/types/types.go), and it is a required
 // response member (gopherstack-r80d).
 type storedBackup struct {
+	ReadyAt      time.Time         `json:"readyAt,omitzero"`
 	CreationTime time.Time         `json:"creationTime"`
 	Tags         map[string]string `json:"tags"`
 	FileSystem   *storedFileSystem `json:"fileSystem,omitempty"`
@@ -56,7 +58,7 @@ func (b *storedBackup) toBackup(fallbackFS *storedFileSystem) *Backup {
 		BackupID:     b.BackupID,
 		BackupType:   b.BackupType,
 		CreationTime: epochTime(b.CreationTime),
-		Lifecycle:    b.Lifecycle,
+		Lifecycle:    renderLifecycle(b.Lifecycle, b.ReadyAt),
 		ResourceARN:  b.ResourceARN,
 		Tags:         tagsMapToSlice(b.Tags),
 	}
@@ -82,9 +84,10 @@ func (b *storedBackup) toBackup(fallbackFS *storedFileSystem) *Backup {
 
 // createBackupInput holds parameters for CreateBackup.
 type createBackupInput struct {
-	FileSystemID string `json:"FileSystemId,omitempty"`
-	VolumeID     string `json:"VolumeId,omitempty"`
-	Tags         []Tag  `json:"Tags,omitempty"`
+	FileSystemID       string `json:"FileSystemId,omitempty"`
+	VolumeID           string `json:"VolumeId,omitempty"`
+	ClientRequestToken string `json:"ClientRequestToken,omitempty"`
+	Tags               []Tag  `json:"Tags,omitempty"`
 }
 
 // cloneStoredVolume deep-copies v so a backup snapshot never aliases the live volume row.
@@ -134,6 +137,15 @@ func (b *InMemoryBackend) CreateBackup(input *createBackupInput) (*Backup, error
 	b.mu.Lock("CreateBackup")
 	defer b.mu.Unlock()
 
+	fp, replayID, err := b.replayTokenLocked("CreateBackup", input.ClientRequestToken, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if existing, ok := b.backups.Get(replayID); ok {
+		return existing.toBackup(existing.FileSystem), nil
+	}
+
 	fs, vol, err := b.resolveBackupSourceLocked(input)
 	if err != nil {
 		return nil, err
@@ -150,6 +162,7 @@ func (b *InMemoryBackend) CreateBackup(input *createBackupInput) (*Backup, error
 		BackupType:   backupTypeUserInitiated,
 		CreationTime: now,
 		Lifecycle:    lifecycleAvailable,
+		ReadyAt:      b.readyAt(),
 		ResourceARN:  arn,
 		Tags:         tags,
 		FileSystemID: fs.FileSystemID,
@@ -162,6 +175,7 @@ func (b *InMemoryBackend) CreateBackup(input *createBackupInput) (*Backup, error
 
 	b.backups.Put(bk)
 	b.tags[arn] = tags
+	b.recordTokenLocked("CreateBackup", input.ClientRequestToken, fp, id)
 
 	return bk.toBackup(fs), nil
 }
@@ -302,10 +316,13 @@ func (b *InMemoryBackend) DeleteBackup(backupID string) error {
 
 // copyBackupInput holds parameters for CopyBackup.
 type copyBackupInput struct {
-	SourceBackupID string `json:"SourceBackupId"`
-	KmsKeyID       string `json:"KmsKeyId,omitempty"`
-	Tags           []Tag  `json:"Tags,omitempty"`
-	CopyTags       bool   `json:"CopyTags,omitempty"`
+	sourceBackup       *storedBackup
+	SourceBackupID     string `json:"SourceBackupId"`
+	SourceRegion       string `json:"SourceRegion,omitempty"`
+	KmsKeyID           string `json:"KmsKeyId,omitempty"`
+	ClientRequestToken string `json:"ClientRequestToken,omitempty"`
+	Tags               []Tag  `json:"Tags,omitempty"`
+	CopyTags           bool   `json:"CopyTags,omitempty"`
 }
 
 // CopyBackup creates a copy of an existing backup.
@@ -317,9 +334,23 @@ func (b *InMemoryBackend) CopyBackup(input *copyBackupInput) (*Backup, error) {
 	b.mu.Lock("CopyBackup")
 	defer b.mu.Unlock()
 
-	src, ok := b.backups.Get(input.SourceBackupID)
-	if !ok {
-		return nil, ErrBackupNotFound
+	fp, replayID, err := b.replayTokenLocked("CopyBackup", input.ClientRequestToken, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if existing, ok := b.backups.Get(replayID); ok {
+		return existing.toBackup(existing.FileSystem), nil
+	}
+
+	src := input.sourceBackup
+
+	if src == nil {
+		var ok bool
+
+		if src, ok = b.backups.Get(backupIDFromARN(input.SourceBackupID)); !ok {
+			return nil, ErrBackupNotFound
+		}
 	}
 
 	id := newFSxBackupID()
@@ -365,6 +396,7 @@ func (b *InMemoryBackend) CopyBackup(input *copyBackupInput) (*Backup, error) {
 		BackupType:   src.BackupType,
 		CreationTime: now,
 		Lifecycle:    lifecycleAvailable,
+		ReadyAt:      b.readyAt(),
 		ResourceARN:  arn,
 		Tags:         tags,
 		FileSystemID: src.FileSystemID,
@@ -378,10 +410,40 @@ func (b *InMemoryBackend) CopyBackup(input *copyBackupInput) (*Backup, error) {
 
 	b.backups.Put(bk)
 	b.tags[arn] = tags
+	b.recordTokenLocked("CopyBackup", input.ClientRequestToken, fp, id)
 
 	return bk.toBackup(fs), nil
 }
 
 func (b *InMemoryBackend) backupARN(id string) string {
 	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("backup/%s", id))
+}
+
+func (b *InMemoryBackend) cloneBackup(backupID string) (*storedBackup, error) {
+	b.mu.RLock("cloneBackup")
+	defer b.mu.RUnlock()
+
+	src, ok := b.backups.Get(backupIDFromARN(backupID))
+	if !ok {
+		return nil, ErrBackupNotFound
+	}
+
+	clone := *src
+	clone.Tags = maps.Clone(src.Tags)
+	clone.FileSystem = cloneStoredFileSystem(src.FileSystem)
+
+	if src.Volume != nil {
+		clone.Volume = cloneStoredVolume(src.Volume)
+	}
+
+	return &clone, nil
+}
+
+// backupIDFromARN accepts a bare backup ID or a backup ARN.
+func backupIDFromARN(v string) string {
+	if _, id, found := strings.Cut(v, "backup/"); found {
+		return id
+	}
+
+	return v
 }

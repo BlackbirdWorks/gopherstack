@@ -181,6 +181,10 @@ func (h *S3Handler) copyObject(
 		StorageClass:            types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
 		ACL:                     types.ObjectCannedACL(r.Header.Get("X-Amz-Acl")),
 		ChecksumAlgorithm:       copyChecksumAlgorithm(r, srcVer),
+
+		ObjectLockMode:            types.ObjectLockMode(r.Header.Get("X-Amz-Object-Lock-Mode")),
+		ObjectLockRetainUntilDate: parseRetainUntilHeader(r),
+		ObjectLockLegalHoldStatus: types.ObjectLockLegalHoldStatus(r.Header.Get("X-Amz-Object-Lock-Legal-Hold")),
 	}
 	h.resolveCopyTagging(ctx, r, putInput, tagging, taggingReplace)
 
@@ -307,6 +311,8 @@ func (h *S3Handler) writeCopyResponse(
 		ChecksumCRC32:     aws.ToString(destVer.ChecksumCRC32),
 		ChecksumCRC32C:    aws.ToString(destVer.ChecksumCRC32C),
 		ChecksumCRC64NVME: aws.ToString(destVer.ChecksumCRC64NVME),
+		ChecksumMD5:       aws.ToString(destVer.ChecksumMD5),
+		ChecksumSHA512:    aws.ToString(destVer.ChecksumSHA512),
 		ChecksumSHA1:      aws.ToString(destVer.ChecksumSHA1),
 		ChecksumSHA256:    aws.ToString(destVer.ChecksumSHA256),
 	})
@@ -334,6 +340,10 @@ func copyChecksumAlgorithm(r *http.Request, srcVer *s3.GetObjectOutput) types.Ch
 		return types.ChecksumAlgorithmSha256
 	case srcVer.ChecksumCRC64NVME != nil:
 		return types.ChecksumAlgorithmCrc64nvme
+	case srcVer.ChecksumMD5 != nil:
+		return types.ChecksumAlgorithmMd5
+	case srcVer.ChecksumSHA512 != nil:
+		return types.ChecksumAlgorithmSha512
 	default:
 		return ""
 	}

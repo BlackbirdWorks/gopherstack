@@ -58,17 +58,21 @@ func TestEndpointPassword_StoredButNeverOnWire(t *testing.T) {
 	assert.Equal(t, "n3wpass", list2[0].Password, "ModifyEndpoint must persist the new Password")
 }
 
-// TestEndpoint_EngineSettingsRejected locks gopherstack-z79q: CreateEndpoint/
-// ModifyEndpoint accept ~18 heterogeneous engine-specific settings blocks
-// (MySQLSettings, OracleSettings, ...) that this emulator does not model.
-// Rather than silently drop them (the pre-fix behavior -- encoding/json
-// ignores unknown fields), sending any of them must be rejected with a 400
-// ValidationException naming the field, not accepted as if honored.
-// S3Settings is excluded from this table: unlike these, it is genuinely
-// modeled (see TestEndpoint_S3SettingsStoredAndEchoed) because
-// aws_dms_s3_endpoint always sends it fully populated with no way to omit
-// it, unlike a user-opted-in *_settings block on aws_dms_endpoint.
-func TestEndpoint_EngineSettingsRejected(t *testing.T) {
+func describeEndpointByID(t *testing.T, h *dms.Handler, id string) map[string]any {
+	t.Helper()
+
+	rec := doDMS(t, h, "DescribeEndpoints", map[string]any{
+		"Filters": []map[string]any{{"Name": "endpoint-id", "Values": []string{id}}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	eps := parseJSON(t, rec)["Endpoints"].([]any)
+	require.Len(t, eps, 1)
+
+	return eps[0].(map[string]any)
+}
+
+func TestEndpoint_EngineSettingsRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -100,50 +104,61 @@ func TestEndpoint_EngineSettingsRejected(t *testing.T) {
 			t.Parallel()
 
 			h := newTestDMSHandler()
+			id := "settings-ep-" + tc.name
 
 			createRec := doDMS(t, h, "CreateEndpoint", map[string]any{
-				"EndpointIdentifier": "settings-ep-" + tc.name,
+				"EndpointIdentifier": id,
 				"EndpointType":       "source",
 				"EngineName":         "mysql",
-				tc.field:             map[string]any{"Username": "ignored"},
+				tc.field:             map[string]any{"DatabaseName": "db1", "Password": "hunter2"},
 			})
-			require.Equal(t, http.StatusBadRequest, createRec.Code)
-			createBody := parseJSON(t, createRec)
-			assert.Equal(t, "ValidationException", createBody["__type"])
-			msg, _ := createBody["message"].(string)
-			assert.Contains(t, msg, tc.field)
+			require.Equal(t, http.StatusOK, createRec.Code)
 
-			// The endpoint must not have been created.
-			list, err := h.Backend.DescribeEndpoints(
-				t.Context(),
-				dms.NewIdentifierFilter("endpoint-id", "settings-ep-"+tc.name),
-			)
-			require.NoError(t, err)
-			assert.Empty(t, list)
+			created := parseJSON(t, createRec)["Endpoint"].(map[string]any)
+			block, ok := created[tc.field].(map[string]any)
+			require.True(t, ok, "%s must be echoed on create", tc.field)
+			assert.Equal(t, "db1", block["DatabaseName"])
+			assert.NotContains(t, block, "Password", "credentials must not be echoed")
 
-			// ModifyEndpoint rejects the same field on an existing endpoint.
-			h.Backend.AddEndpointInternal("existing-"+tc.name, "source", "mysql")
-			descRec := doDMS(t, h, "DescribeEndpoints", map[string]any{
-				"Filters": []map[string]any{
-					{"Name": "endpoint-id", "Values": []string{"existing-" + tc.name}},
-				},
-			})
-			require.Equal(t, http.StatusOK, descRec.Code)
-			eps := parseJSON(t, descRec)["Endpoints"].([]any)
-			require.Len(t, eps, 1)
-			epArn := eps[0].(map[string]any)["EndpointArn"].(string)
+			ep := describeEndpointByID(t, h, id)
+			block, ok = ep[tc.field].(map[string]any)
+			require.True(t, ok, "%s must round-trip through DescribeEndpoints", tc.field)
+			assert.Equal(t, "db1", block["DatabaseName"])
 
+			arn := ep["EndpointArn"].(string)
 			modRec := doDMS(t, h, "ModifyEndpoint", map[string]any{
-				"EndpointArn": epArn,
-				tc.field:      map[string]any{"Username": "ignored"},
+				"EndpointArn": arn,
+				tc.field:      map[string]any{"Port": 3307},
 			})
-			require.Equal(t, http.StatusBadRequest, modRec.Code)
-			modBody := parseJSON(t, modRec)
-			assert.Equal(t, "ValidationException", modBody["__type"])
-			modMsg, _ := modBody["message"].(string)
-			assert.Contains(t, modMsg, tc.field)
+			require.Equal(t, http.StatusOK, modRec.Code)
+
+			block = describeEndpointByID(t, h, id)[tc.field].(map[string]any)
+			assert.Equal(t, "db1", block["DatabaseName"], "merge keeps existing members")
+			assert.InDelta(t, 3307, block["Port"], 0)
+
+			exactRec := doDMS(t, h, "ModifyEndpoint", map[string]any{
+				"EndpointArn":   arn,
+				"ExactSettings": true,
+			})
+			require.Equal(t, http.StatusOK, exactRec.Code)
+			assert.NotContains(t, describeEndpointByID(t, h, id), tc.field, "exact replace drops unspecified blocks")
 		})
 	}
+}
+
+func TestEndpoint_EngineSettingsNotObject(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+
+	rec := doDMS(t, h, "CreateEndpoint", map[string]any{
+		"EndpointIdentifier": "bad-settings-ep",
+		"EndpointType":       "source",
+		"EngineName":         "mysql",
+		"MySQLSettings":      "not-an-object",
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "ValidationException", parseJSON(t, rec)["__type"])
 }
 
 // TestEndpoint_EngineSettingsNullAccepted asserts an explicit JSON null for an
@@ -164,10 +179,7 @@ func TestEndpoint_EngineSettingsNullAccepted(t *testing.T) {
 }
 
 // TestEndpoint_S3SettingsStoredAndEchoed asserts S3Settings is stored
-// verbatim and echoed back on describe: aws_dms_s3_endpoint always sends its
-// full, provider-defaulted field set through this key (unlike the other
-// engine settings blocks in TestEndpoint_EngineSettingsRejected), so
-// rejecting it would make that resource type impossible to create.
+// verbatim and echoed back on describe.
 func TestEndpoint_S3SettingsStoredAndEchoed(t *testing.T) {
 	t.Parallel()
 

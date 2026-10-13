@@ -58,6 +58,8 @@ type Subscription struct {
 	FilterPolicy        string `json:"filterPolicy,omitempty"`
 	RawMessageDelivery  bool   `json:"rawMessageDelivery,omitempty"`
 	PendingConfirmation bool   `json:"pendingConfirmation"`
+	// AuthenticateOnUnsubscribe rejects Unsubscribe calls that carry no AWS signature.
+	AuthenticateOnUnsubscribe bool `json:"authenticateOnUnsubscribe,omitempty"`
 }
 
 // Message represents a published SNS message.
@@ -676,6 +678,7 @@ type InMemoryBackend struct {
 	// via SetSubscriptionLimitPerTopicForTest so tests can exercise the limit
 	// without creating millions of subscriptions.
 	subscriptionLimitPerTopic int
+	allowLinkLocal            atomic.Bool
 }
 
 // httpDelivery holds the endpoint and message body for an HTTP/HTTPS delivery.

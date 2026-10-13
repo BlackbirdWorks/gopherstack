@@ -145,6 +145,10 @@ func (h *Handler) handleListLanguageModels(
 	_ context.Context,
 	in *listLanguageModelsInput,
 ) (*listLanguageModelsOutput, error) {
+	if err := validateModelListRequest(in.StatusEquals, in.NextToken, in.MaxResults); err != nil {
+		return nil, err
+	}
+
 	models, nextToken := h.Backend.ListLanguageModels(in.StatusEquals, in.NameContains, in.NextToken, in.MaxResults)
 
 	result := make([]languageModelOutput, 0, len(models))

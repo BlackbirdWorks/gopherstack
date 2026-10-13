@@ -117,14 +117,17 @@ func (h *Handler) handleGetThirdPartyJobDetails(
 		JobDetails: map[string]any{
 			keyJobID: job.ID,
 			keyNonce: job.Nonce,
-			"data":   jobDataResponse{ActionTypeID: job.ActionTypeID},
+			"data":   h.Backend.jobData(job),
 		},
 	}, nil
 }
 
 type putThirdPartyJobSuccessResultInput struct {
-	JobID       string `json:"jobId"`
-	ClientToken string `json:"clientToken"`
+	CurrentRevision   *currentRevisionInput  `json:"currentRevision"`
+	ExecutionDetails  *executionDetailsInput `json:"executionDetails"`
+	JobID             string                 `json:"jobId"`
+	ClientToken       string                 `json:"clientToken"`
+	ContinuationToken string                 `json:"continuationToken"`
 }
 
 func (h *Handler) handlePutThirdPartyJobSuccessResult(
@@ -139,15 +142,19 @@ func (h *Handler) handlePutThirdPartyJobSuccessResult(
 		return nil, fmt.Errorf("%w: clientToken is required", errInvalidRequest)
 	}
 
-	return &emptyOut{}, h.Backend.PutThirdPartyJobSuccessResult(ctx, in.JobID, in.ClientToken)
+	return &emptyOut{}, h.Backend.PutThirdPartyJobSuccessResultWith(
+		ctx, in.JobID, in.ClientToken,
+		buildJobSuccess(in.CurrentRevision, in.ExecutionDetails, nil, in.ContinuationToken),
+	)
 }
 
 type putThirdPartyJobFailureResultInput struct {
 	JobID          string `json:"jobId"`
 	ClientToken    string `json:"clientToken"`
 	FailureDetails struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
+		Message             string `json:"message"`
+		Type                string `json:"type"`
+		ExternalExecutionID string `json:"externalExecutionId"`
 	} `json:"failureDetails"`
 }
 
@@ -163,11 +170,8 @@ func (h *Handler) handlePutThirdPartyJobFailureResult(
 		return nil, fmt.Errorf("%w: clientToken is required", errInvalidRequest)
 	}
 
-	return &emptyOut{}, h.Backend.PutThirdPartyJobFailureResult(
-		ctx,
-		in.JobID,
-		in.ClientToken,
-		in.FailureDetails.Message,
-		in.FailureDetails.Type,
-	)
+	return &emptyOut{}, h.Backend.PutThirdPartyJobFailureResultWith(ctx, in.JobID, in.ClientToken, JobFailure{
+		Message: in.FailureDetails.Message, Type: in.FailureDetails.Type,
+		ExternalExecutionID: in.FailureDetails.ExternalExecutionID,
+	})
 }

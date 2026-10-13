@@ -7,7 +7,7 @@
 service: appmesh
 sdk_module: aws-sdk-go-v2/service/appmesh@v1.38.4
 last_audit_commit: a83673c4a
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
 overall: A            # zero wire bugs this pass (2026-08-19); every single-resource CRUD op's flat
                        # (unwrapped) body reconfirmed correct against the SDK's actually
                        # invoked per-op deserializer, not the dead OpDocument helper.
@@ -69,12 +69,24 @@ families:
   virtualgateway_and_gatewayroute_crud: {status: ok, note: "gateway route paths correctly use singular /virtualGateway/{name}/gatewayRoutes"}
   tags: {status: ok}
 gaps: []
-items_still_open:
-  - "2026-09-07 (gopherstack-jxsz): meshOwner is now read and enforced on all 31 ops that carry it (30 sub-resource CRUD/List ops + DescribeMesh — verified count via aws-sdk-go-v2/service/appmesh@v1.38.4, grep -l MeshOwner api_op_*.go). gopherstack still has no AWS RAM cross-account mesh-sharing model — one InMemoryBackend is always exactly one account (provider.go/store.go), so no mesh can ever really be owned by a different account. Given that, a meshOwner naming any account other than the caller's own is rejected with ForbiddenException (declared on every op touched — see errors row below) via a single Handler.checkMeshOwner helper wired at 7 call sites (the 6 sub-resource dispatch functions, which each already funnel every Create/Describe/Update/Delete/List of that resource type through one entry point, plus handleDescribeMesh). meshOwner omitted, or equal to the caller's own account, is the documented default and is unchanged. This makes ResourceMetadata.MeshOwner/.ResourceOwner honest rather than fixed: they are still always the caller's account, but that is now the *only reachable* value, not a value nobody checked — the CreateVirtualNodeInput-family doc comment (aws-sdk-go-v2/service/appmesh@v1.38.4/api_op_CreateVirtualNode.go) explicitly requires 'the account that you specify must share the mesh with your account before you can create the resource in the service mesh', and Describe/Update/Delete/List's doc comment implies the same via 'it's the ID of the account that shared the mesh with your account' — since nothing is ever shared here, rejecting is the faithful behavior, not echoing the client-supplied value into the response (which would fabricate a cross-account story). What remains structurally divergent and NOT fixed: genuine cross-account shared-mesh access (a caller legitimately operating on a mesh owned by a different, real account) cannot be exercised at all — that requires a second-account resource-visibility/RAM-sharing model this backend has nowhere. Not adjacent-fixable without inventing that model."
-  - "RouteSpec/VirtualNodeSpec/VirtualGatewaySpec/GatewayRouteSpec remain opaque json.RawMessage with no structural validation. Sized this pass by reading every reachable sub-shape in aws-sdk-go-v2/service/appmesh@v1.38.4/types/types.go (199 type declarations total): VirtualNodeSpec fans out through Listener (PortMapping, VirtualNodeConnectionPool union, HealthCheckPolicy, OutlierDetection, ListenerTimeout union, ListenerTls with ACM/File/SDS certificate variants and validation-context variants), Backends (VirtualServiceBackend with ClientPolicy/TLS), BackendDefaults, Logging (AccessLog file/stream variants), and ServiceDiscovery (DNS/AWSCloudMap variants). RouteSpec fans out through GrpcRoute/HttpRoute/Http2Route/TcpRoute, each with its own Action(WeightedTargets)/Match(headers/metadata/path/query variants)/RetryPolicy/Timeout. VirtualGatewaySpec and GatewayRouteSpec mirror the same listener/matcher depth. This is 4-5+ levels deep with multiple smithy union types per branch — too large to model to full field depth in one pass per the no-stub/model-faithfully-or-leave-it rule. Left as wire-compatible passthrough (whatever the client sends round-trips unchanged)."
+items_still_open: []
+structural_gaps:
+  - "meshOwner naming a different account is rejected with ForbiddenException: cross-account shared-mesh access needs a second-account RAM sharing model, and one backend is always exactly one account."
 deferred: []              # nothing consciously left un-audited this pass
 leaks: {status: clean, note: "single coarse lockmetrics.RWMutex per backend (matches pkgs-catalog.md convention); no goroutines, timers, or janitors in this service"}
 ---
+
+## 2026-10-07 items_still_open burn-down
+
+VirtualNodeSpec, RouteSpec, VirtualGatewaySpec and GatewayRouteSpec are now validated by
+`spec_schema.go` (required members, union exactly-one, enums, port 1-65535, weight 0-100) against
+aws-sdk-go-v2/service/appmesh@v1.38.4 types; unknown members still pass through. Test:
+`TestBackend_DeepSpecValidation`. meshOwner moved to structural_gaps.
+
+## 2026-10-10 realism pass
+
+List nextToken is now opaque (base64url of the cursor); malformed tokens and `limit` outside 1-100 return
+BadRequestException; over-long names report a length error instead of "is required" (`TestRequestRealism_Errors`).
 
 ## Notes
 
@@ -308,8 +320,9 @@ this file rested on the drift; `sdk_module` corrected to `v1.38.4`.
    verified to pass with no error against the pre-fix code before the validators were
    added.
 
-   **Stopped here.** `VirtualNodeSpec`, `RouteSpec`, `VirtualGatewaySpec`, and
-   `GatewayRouteSpec` remain opaque `json.RawMessage` passthrough — each fans out 4-5+
+   **Stopped here (superseded 2026-10-07: spec_schema.go now validates these four).**
+   `VirtualNodeSpec`, `RouteSpec`, `VirtualGatewaySpec`, and
+   `GatewayRouteSpec` were opaque `json.RawMessage` passthrough — each fans out 4-5+
    levels deep through multiple smithy union types (listener connection-pool/timeout
    variants, TLS certificate-source and validation-context variants, HTTP/gRPC/TCP
    route match+action+retry+timeout shapes, access-log file/stream variants, service
@@ -436,11 +449,8 @@ already-well-covered REST surface (38 ops, 7 resource families, no
 List-op filtering/ordering complexity), not evidence that no further sweep
 is needed (per this campaign's own "nineteen for nineteen" standing rule,
 a clean pass is recorded honestly rather than a bug being manufactured to
-match a quota). **Not reached this pass:** the opaque
-`RouteSpec`/`VirtualNodeSpec`/`VirtualGatewaySpec`/`GatewayRouteSpec`
-`json.RawMessage` passthrough fields (see `gaps` above -- structural, sized
-and explicitly deferred by the 2026-08-10 sweep, not re-examined here) and
-the `meshOwner` cross-account gap (also `gaps`, unchanged). No files in
+match a quota). **Not reached this pass:** the deep spec validation (done
+2026-10-07, see below) and the `meshOwner` cross-account gap (structural_gaps). No files in
 this service were modified this pass; only this note was added.
 
 ## 2026-08-29 pagination-helper arithmetic sweep (wrapper-key-sweep campaign)

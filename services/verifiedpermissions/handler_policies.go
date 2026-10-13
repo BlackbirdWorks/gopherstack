@@ -432,6 +432,10 @@ func (h *Handler) handleListPolicies(_ context.Context, in *listPoliciesInput) (
 
 	filter := buildListPoliciesFilter(in.Filter)
 
+	if lerr := validateListParams(in.NextToken, in.MaxResults); lerr != nil {
+		return nil, lerr
+	}
+
 	maxResults := in.MaxResults
 	if maxResults <= 0 {
 		maxResults = defaultListPageSize

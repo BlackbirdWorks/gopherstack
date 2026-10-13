@@ -58,12 +58,11 @@ func TestBackend_CreateDeleteProtectionGroup(t *testing.T) {
 			pattern:     "ALL",
 		},
 		{
-			name:         "success with members",
-			groupID:      "grp-2",
-			aggregation:  "SUM",
-			pattern:      "ARBITRARY",
-			resourceType: "ELASTIC_IP_ALLOCATION",
-			members:      []string{"arn:aws:ec2:us-east-1:123:eip/eipalloc-1"},
+			name:        "success with members",
+			groupID:     "grp-2",
+			aggregation: "SUM",
+			pattern:     "ARBITRARY",
+			members:     []string{"arn:aws:ec2:us-east-1:123:eip/eipalloc-1"},
 		},
 		{
 			name:        "missing id",

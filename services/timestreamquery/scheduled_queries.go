@@ -2,6 +2,7 @@ package timestreamquery
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"maps"
 	"regexp"
@@ -472,8 +473,9 @@ func listScheduledQueriesPaged(
 
 	start := 0
 	if nextToken != "" {
+		name := decodeScheduledQueryToken(nextToken)
 		for i, sq := range sorted {
-			if sq.Name == nextToken {
+			if sq.Name == name {
 				start = i
 
 				break
@@ -484,7 +486,7 @@ func listScheduledQueriesPaged(
 	end := start + int(maxResults)
 	var outNextToken string
 	if end < len(sorted) {
-		outNextToken = sorted[end].Name
+		outNextToken = base64.RawURLEncoding.EncodeToString([]byte(sorted[end].Name))
 	} else {
 		end = len(sorted)
 	}
@@ -495,4 +497,45 @@ func listScheduledQueriesPaged(
 	}
 
 	return ListScheduledQueriesResult{Items: items, NextToken: outNextToken}
+}
+
+func decodeScheduledQueryToken(token string) string {
+	b, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return ""
+	}
+
+	return string(b)
+}
+
+func validateScheduledQueryPaging(token string, maxResults int32) error {
+	if maxResults < 0 || maxResults > maxScheduledQueryPage {
+		return fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidation, maxScheduledQueryPage)
+	}
+
+	if token != "" {
+		if _, err := base64.RawURLEncoding.DecodeString(token); err != nil {
+			return fmt.Errorf("%w: invalid NextToken", ErrValidation)
+		}
+	}
+
+	return nil
+}
+
+const (
+	maxScheduledQueryPage = 1000
+	maxScheduledQueryName = 64
+)
+
+var scheduledQueryNameRE = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+
+func validateScheduledQueryName(name string) error {
+	if len(name) > maxScheduledQueryName || !scheduledQueryNameRE.MatchString(name) {
+		return fmt.Errorf(
+			"%w: Name %q must be 1-%d characters of letters, digits, '_', '.' or '-'",
+			ErrValidation, name, maxScheduledQueryName,
+		)
+	}
+
+	return nil
 }

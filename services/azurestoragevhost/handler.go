@@ -214,17 +214,23 @@ func (h *Handler) handlerFor(svc string) (StorageHandler, error) {
 // request that reaches this dedicated, single-purpose listener at all is
 // presumptively meant for it.
 func accountAndServiceFromHost(host string) (string, string, bool) {
-	parts := strings.SplitN(host, ".", 3) //nolint:mnd // 3: account, service label, remainder
-	if len(parts) != 3 || parts[0] == "" {
+	account, rest, ok := strings.Cut(host, ".")
+	if !ok || account == "" {
 		return "", "", false
 	}
 
-	svc := strings.ToLower(parts[1])
-	if svc != blobServiceLabel && svc != queueServiceLabel && svc != tableServiceLabel {
+	label, _, ok := strings.Cut(rest, ".")
+	if !ok {
 		return "", "", false
 	}
 
-	return parts[0], svc, true
+	for _, svc := range [...]string{blobServiceLabel, queueServiceLabel, tableServiceLabel} {
+		if strings.EqualFold(label, svc) {
+			return account, svc, true
+		}
+	}
+
+	return "", "", false
 }
 
 // Reset is a no-op: this listener owns no state of its own to clear (see

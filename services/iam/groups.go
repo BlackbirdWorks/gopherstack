@@ -160,6 +160,10 @@ func (b *InMemoryBackend) AttachGroupPolicy(groupName, policyArn string) error {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
+	if err := b.requireAttachablePolicyLocked(policyArn); err != nil {
+		return err
+	}
+
 	if slices.Contains(b.groupPolicies[groupName], policyArn) {
 		return nil // already attached
 	}

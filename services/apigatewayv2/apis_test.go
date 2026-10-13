@@ -436,6 +436,24 @@ func Test_CreateAPI_QuickCreate(t *testing.T) {
 	}
 }
 
+// Test_CreateAPI_QuickCreate_DefaultRouteKey: CreateApi's RouteKey doc says an
+// omitted routeKey creates the $default catch-all route.
+func Test_CreateAPI_QuickCreate_DefaultRouteKey(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+		Name: "api", ProtocolType: "HTTP", Target: "https://example.com/backend",
+	})
+	require.NoError(t, err)
+
+	routes, err := b.GetRoutes(api.APIID)
+	require.NoError(t, err)
+	require.Len(t, routes, 1)
+	assert.Equal(t, "$default", routes[0].RouteKey)
+}
+
 // Test_CreateAPI_QuickCreate_Validation covers the input-validation edge
 // cases for the routeKey+target shortcut: AWS requires both fields together
 // and only supports them for HTTP APIs.
@@ -449,7 +467,6 @@ func Test_CreateAPI_QuickCreate_Validation(t *testing.T) {
 		target       string
 	}{
 		{name: "route_key_without_target", protocolType: "HTTP", routeKey: "GET /", target: ""},
-		{name: "target_without_route_key", protocolType: "HTTP", routeKey: "", target: "https://example.com"},
 		{
 			name: "websocket_rejects_quick_create", protocolType: "WEBSOCKET",
 			routeKey: "$default", target: "https://example.com",

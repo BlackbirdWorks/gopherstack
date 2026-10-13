@@ -3,6 +3,7 @@ package mediapackage
 import (
 	"maps"
 	"slices"
+	"time"
 )
 
 type storedIngestEndpoint struct {
@@ -164,6 +165,7 @@ type storedS3Destination struct {
 }
 
 type storedHarvestJob struct {
+	CompletesAt      time.Time            `json:"completesAt,omitzero"`
 	S3Destination    *storedS3Destination `json:"s3Destination"`
 	ARN              string               `json:"arn"`
 	ChannelID        string               `json:"channelId"`
@@ -175,7 +177,12 @@ type storedHarvestJob struct {
 	Status           string               `json:"status"`
 }
 
-func (j *storedHarvestJob) toHarvestJob() *HarvestJob {
+func (j *storedHarvestJob) toHarvestJob(now time.Time) *HarvestJob {
+	status := j.Status
+	if status == harvestJobStatusInProgress && !now.Before(j.CompletesAt) {
+		status = harvestJobStatusSucceeded
+	}
+
 	var dest *S3Destination
 	if j.S3Destination != nil {
 		dest = &S3Destination{
@@ -194,6 +201,6 @@ func (j *storedHarvestJob) toHarvestJob() *HarvestJob {
 		OriginEndpointID: j.OriginEndpointID,
 		S3Destination:    dest,
 		StartTime:        j.StartTime,
-		Status:           j.Status,
+		Status:           status,
 	}
 }

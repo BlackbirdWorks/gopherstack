@@ -279,9 +279,25 @@ func (h *Handler) handleResetImageAttribute(vals url.Values, reqID string) (any,
 
 func (h *Handler) handleDescribeInstanceImageMetadata(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "InstanceId")
-	items := applyInstanceImageMetadataFilters(
-		h.Backend.DescribeInstanceImageMetadata(ids), parseEC2Filters(vals), h.Backend,
-	)
+	filters := parseEC2Filters(vals)
+	allowedFilter, hasAllowedFilter := filters["image-allowed"]
+	delete(filters, "image-allowed")
+
+	items := applyInstanceImageMetadataFilters(h.Backend.DescribeInstanceImageMetadata(ids), filters, h.Backend)
+
+	imageIDs := make([]string, 0, len(items))
+	for _, it := range items {
+		imageIDs = append(imageIDs, it.ImageID)
+	}
+
+	allowedState, verdicts := h.Backend.EvaluateAllowedImages(imageIDs)
+	if hasAllowedFilter {
+		items = slices.DeleteFunc(items, func(it InstanceImageMetadataItem) bool {
+			allowed := imageAllowedWire(allowedState, verdicts, it.ImageID)
+
+			return !matchesImageAllowedFilter(allowedState, allowed, allowedFilter)
+		})
+	}
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {
@@ -293,10 +309,10 @@ func (h *Handler) handleDescribeInstanceImageMetadata(vals url.Values, reqID str
 
 	resp := &describeInstanceImageMetadataResponse{RequestID: reqID, NextToken: nextToken}
 	for _, item := range items {
-		resp.InstanceImageMetadataSet.Items = append(
-			resp.InstanceImageMetadataSet.Items,
-			toInstanceImageMetadataItem(item, h.Backend.TagsForResource(item.InstanceID)),
-		)
+		wire := toInstanceImageMetadataItem(item, h.Backend.TagsForResource(item.InstanceID))
+		wire.ImageMetadata.ImageAllowed = imageAllowedWire(allowedState, verdicts, item.ImageID)
+		wire.ImageMetadata.ImageWatermarkSet = toImageWatermarkItems(h.Backend.ImageWatermarksFor(item.ImageID))
+		resp.InstanceImageMetadataSet.Items = append(resp.InstanceImageMetadataSet.Items, wire)
 	}
 
 	return resp, nil
@@ -1158,6 +1174,53 @@ type amiItem struct {
 	RootDeviceName            string                         `xml:"rootDeviceName,omitempty"`
 	BlockDeviceMapping        []amiBlockDeviceMappingItem    `xml:"blockDeviceMapping>item,omitempty"`
 	TagSet                    []simpleTagItem                `xml:"tagSet>item,omitempty"`
+	ImageAllowed              *bool                          `xml:"imageAllowed,omitempty"`
+	CreationDate              string                         `xml:"creationDate,omitempty"`
+	ProductCodes              []productCodeItem              `xml:"productCodes>item,omitempty"`
+	ImageWatermarkSet         []imageWatermarkItem           `xml:"imageWatermarkSet>item,omitempty"`
+}
+
+type productCodeItem struct {
+	ProductCodeID string `xml:"productCode"`
+	Type          string `xml:"type"`
+}
+
+type imageWatermarkItem struct {
+	SourceImageCreationTime string `xml:"sourceImageCreationTime,omitempty"`
+	SourceImageID           string `xml:"sourceImageId,omitempty"`
+	SourceImageRegion       string `xml:"sourceImageRegion,omitempty"`
+	WatermarkCreationTime   string `xml:"watermarkCreationTime,omitempty"`
+	WatermarkKey            string `xml:"watermarkKey,omitempty"`
+}
+
+func toProductCodeItems(codes []string) []productCodeItem {
+	out := make([]productCodeItem, 0, len(codes))
+	for _, c := range codes {
+		out = append(out, productCodeItem{ProductCodeID: c, Type: productCodeTypeMarketplace})
+	}
+
+	return out
+}
+
+func toImageWatermarkItems(records []ImageWatermarkRecord) []imageWatermarkItem {
+	out := make([]imageWatermarkItem, 0, len(records))
+
+	for _, r := range records {
+		item := imageWatermarkItem{
+			SourceImageID: r.SourceImageID, SourceImageRegion: r.SourceImageRegion, WatermarkKey: r.WatermarkKey,
+		}
+		if !r.SourceImageCreationTime.IsZero() {
+			item.SourceImageCreationTime = r.SourceImageCreationTime.UTC().Format(timeLayoutISO)
+		}
+
+		if !r.WatermarkCreationTime.IsZero() {
+			item.WatermarkCreationTime = r.WatermarkCreationTime.UTC().Format(timeLayoutISO)
+		}
+
+		out = append(out, item)
+	}
+
+	return out
 }
 
 // toAMIBlockDeviceMappingItems converts stored block device mappings to their
@@ -1372,6 +1435,52 @@ func filterImagesByOwner(idFiltered []*AMIStub, owners []string, accountID strin
 	return visible
 }
 
+func (h *Handler) toAMIItem(a *AMIStub, deprecation map[string]string, state string, verdicts map[string]bool) amiItem {
+	st := a.State
+	if st == "" {
+		st = stateAvailable
+	}
+
+	ownerID, ownerAlias := a.OwnerID, ""
+	if knownImageOwnerAliases[a.OwnerID] {
+		ownerID, ownerAlias = "", a.OwnerID
+	}
+
+	item := amiItem{
+		ImageID:            a.ImageID,
+		Name:               a.Name,
+		Description:        a.Description,
+		Architecture:       a.Architecture,
+		Platform:           a.Platform,
+		State:              st,
+		RootDeviceName:     a.RootDeviceName,
+		OwnerID:            ownerID,
+		OwnerAlias:         ownerAlias,
+		ImdsSupport:        a.ImdsSupport,
+		VirtualizationType: a.VirtualizationType,
+		DeprecationTime:    deprecation[a.ImageID],
+		TagSet:             tagItemsFromMap(h.Backend.TagsForResource(a.ImageID)),
+		InstanceTypeSpecification: toInstanceTypeSpecificationItem(
+			h.Backend.GetImageInstanceTypeSpecification(a.ImageID),
+		),
+		BlockDeviceMapping: toAMIBlockDeviceMappingItems(a.BlockDeviceMappings),
+		SriovNetSupport:    a.SriovNetSupport,
+		ImageAllowed:       imageAllowedWire(state, verdicts, a.ImageID),
+		ProductCodes:       toProductCodeItems(a.ProductCodes),
+		ImageWatermarkSet:  toImageWatermarkItems(h.Backend.ImageWatermarksFor(a.ImageID)),
+	}
+
+	if !a.CreationTime.IsZero() {
+		item.CreationDate = a.CreationTime.UTC().Format(timeLayoutISO)
+	}
+
+	if a.EnaSupportSet {
+		item.EnaSupport = &a.EnaSupport
+	}
+
+	return item
+}
+
 func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, error) {
 	amis := h.Backend.DescribeImages()
 	requested := collectRequestedImageIDs(vals)
@@ -1394,6 +1503,12 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 	}
 
 	filters := parseEC2Filters(vals)
+
+	idFiltered, allowedState, verdicts, err := h.applyAllowedImages(idFiltered, requested, filters)
+	if err != nil {
+		return nil, err
+	}
+
 	idFiltered = applyImageFilters(idFiltered, filters, h.Backend)
 	idFiltered = filterVisibleImages(idFiltered, requested, vals.Get("IncludeDisabled") == ec2BooleanTrue)
 
@@ -1404,40 +1519,7 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 
 	filtered := make([]amiItem, 0, len(idFiltered))
 	for _, a := range idFiltered {
-		st := a.State
-		if st == "" {
-			st = stateAvailable
-		}
-
-		ownerID, ownerAlias := a.OwnerID, ""
-		if knownImageOwnerAliases[a.OwnerID] {
-			ownerID, ownerAlias = "", a.OwnerID
-		}
-
-		filtered = append(filtered, amiItem{
-			ImageID:            a.ImageID,
-			Name:               a.Name,
-			Description:        a.Description,
-			Architecture:       a.Architecture,
-			Platform:           a.Platform,
-			State:              st,
-			RootDeviceName:     a.RootDeviceName,
-			OwnerID:            ownerID,
-			OwnerAlias:         ownerAlias,
-			ImdsSupport:        a.ImdsSupport,
-			VirtualizationType: a.VirtualizationType,
-			DeprecationTime:    deprecation[a.ImageID],
-			TagSet:             tagItemsFromMap(h.Backend.TagsForResource(a.ImageID)),
-			InstanceTypeSpecification: toInstanceTypeSpecificationItem(
-				h.Backend.GetImageInstanceTypeSpecification(a.ImageID),
-			),
-			BlockDeviceMapping: toAMIBlockDeviceMappingItems(a.BlockDeviceMappings),
-			SriovNetSupport:    a.SriovNetSupport,
-		})
-
-		if a.EnaSupportSet {
-			filtered[len(filtered)-1].EnaSupport = &a.EnaSupport
-		}
+		filtered = append(filtered, h.toAMIItem(a, deprecation, allowedState, verdicts))
 	}
 
 	maxResults, offset, err := parseImagesPagination(vals)

@@ -192,10 +192,13 @@ type capacityBlockExtensionItem struct {
 	CapacityBlockExtensionOfferingID    string `xml:"capacityBlockExtensionOfferingId,omitempty"`
 	CapacityReservationID               string `xml:"capacityReservationId,omitempty"`
 	AvailabilityZone                    string `xml:"availabilityZone,omitempty"`
+	AvailabilityZoneID                  string `xml:"availabilityZoneId,omitempty"`
+	InstanceType                        string `xml:"instanceType,omitempty"`
 	CapacityBlockExtensionStatus        string `xml:"capacityBlockExtensionStatus,omitempty"`
 	CapacityBlockExtensionStartDate     string `xml:"capacityBlockExtensionStartDate,omitempty"`
 	CapacityBlockExtensionEndDate       string `xml:"capacityBlockExtensionEndDate,omitempty"`
 	CapacityBlockExtensionPurchaseDate  string `xml:"capacityBlockExtensionPurchaseDate,omitempty"`
+	InstanceCount                       int32  `xml:"instanceCount,omitempty"`
 	CapacityBlockExtensionDurationHours int32  `xml:"capacityBlockExtensionDurationHours,omitempty"`
 }
 
@@ -204,6 +207,9 @@ func toCapacityBlockExtensionItem(e *CapacityBlockExtension) capacityBlockExtens
 		CapacityBlockExtensionOfferingID:    e.CapacityBlockExtensionOfferingID,
 		CapacityReservationID:               e.CapacityReservationID,
 		AvailabilityZone:                    e.AvailabilityZone,
+		AvailabilityZoneID:                  availabilityZoneID(e.AvailabilityZone),
+		InstanceType:                        e.InstanceType,
+		InstanceCount:                       e.InstanceCount,
 		CapacityBlockExtensionStatus:        e.CapacityBlockExtensionStatus,
 		CapacityBlockExtensionStartDate:     e.CapacityBlockExtensionStartDate.Format(time.RFC3339),
 		CapacityBlockExtensionEndDate:       e.CapacityBlockExtensionEndDate.Format(time.RFC3339),

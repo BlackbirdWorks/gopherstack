@@ -518,10 +518,11 @@ func (b *InMemoryBackend) CreateImageBuilder(
 		AppstreamAgentVersion: opts.AppstreamAgentVersion,
 	}
 	b.imageBuilders.Put(ib)
+	b.beginTransition(builderKey(name), imageBuilderStatePending)
 	b.tags[arn] = storedTags
 	b.applyInitialSoftware(name, opts.SoftwaresToInstall, opts.SoftwaresToUninstall)
 
-	return ib.toImageBuilder(), nil
+	return b.builderView(ib), nil
 }
 
 func cmpOr(a, b string) string {
@@ -567,7 +568,8 @@ func (b *InMemoryBackend) DeleteImageBuilder(name string) (*ImageBuilder, error)
 		return nil, ErrNotFound
 	}
 
-	deleted := ib.toImageBuilder()
+	deleted := b.builderView(ib)
+	delete(b.transitions, builderKey(name))
 
 	delete(b.tags, ib.Arn)
 	b.imageBuilders.Delete(name)
@@ -590,7 +592,7 @@ func (b *InMemoryBackend) DescribeImageBuilders(names []string) ([]*ImageBuilder
 				return nil, ErrNotFound
 			}
 
-			result = append(result, ib.toImageBuilder())
+			result = append(result, b.builderView(ib))
 		}
 
 		return result, nil
@@ -598,7 +600,7 @@ func (b *InMemoryBackend) DescribeImageBuilders(names []string) ([]*ImageBuilder
 
 	result := make([]*ImageBuilder, 0, b.imageBuilders.Len())
 	for _, ib := range b.imageBuilders.All() {
-		result = append(result, ib.toImageBuilder())
+		result = append(result, b.builderView(ib))
 	}
 
 	return result, nil
@@ -618,11 +620,12 @@ func (b *InMemoryBackend) StartImageBuilder(
 		return ErrNotFound
 	}
 
-	if ib.State == imageBuilderStateRunning {
+	if b.effectiveState(builderKey(name), ib.State) != imageBuilderStateStopped {
 		return ErrFleetNotStopped
 	}
 
 	ib.State = imageBuilderStateRunning
+	b.beginTransition(builderKey(name), imageBuilderStatePending)
 
 	if appstreamAgentVersion != "" {
 		ib.AppstreamAgentVersion = appstreamAgentVersion
@@ -644,9 +647,13 @@ func (b *InMemoryBackend) StopImageBuilder(name string) (*ImageBuilder, error) {
 		return nil, ErrNotFound
 	}
 
+	if ib.State == imageBuilderStateRunning {
+		b.beginTransition(builderKey(name), imageBuilderStateStopping)
+	}
+
 	ib.State = imageBuilderStateStopped
 
-	return ib.toImageBuilder(), nil
+	return b.builderView(ib), nil
 }
 
 // CreateImageBuilderStreamingURL returns a streaming URL for an image builder

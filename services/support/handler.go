@@ -243,7 +243,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 
 	payload, marshalErr := json.Marshal(service.JSONErrorResponse{
 		Type:    errType,
-		Message: err.Error(),
+		Message: errorMessage(errType, err),
 	})
 	if marshalErr != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")
@@ -303,4 +303,21 @@ func nonZeroTimePointer(value time.Time) *time.Time {
 	}
 
 	return &value
+}
+
+// errorMessage drops the redundant "<Code>: " prefix wrapped sentinels carry.
+func errorMessage(errType string, err error) string {
+	msg := err.Error()
+
+	for _, sentinel := range []error{
+		ErrNotFound, ErrAttachmentNotFound, ErrValidation, ErrAttachmentSetNotFound, ErrAttachmentSetExpired,
+		ErrAttachmentSetSizeLimitExceeded, ErrAttachmentLimitExceeded, ErrCaseCreationLimitExceeded,
+		ErrDescribeAttachmentLimitExceeded,
+	} {
+		if errors.Is(err, sentinel) {
+			msg = strings.TrimPrefix(msg, sentinel.Error()+": ")
+		}
+	}
+
+	return strings.TrimPrefix(msg, errType+": ")
 }

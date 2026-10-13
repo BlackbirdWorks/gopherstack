@@ -298,6 +298,12 @@ func Test_SDKRoundTrip_StopDeployment_StatusEnum(t *testing.T) {
 		ApplicationName:     aws.String("rt-stop-app"),
 		DeploymentGroupName: aws.String("rt-stop-dg"),
 		ServiceRoleArn:      aws.String("arn:aws:iam::000000000000:role/role"),
+		DeploymentStyle:     &types.DeploymentStyle{DeploymentType: types.DeploymentTypeBlueGreen},
+		BlueGreenDeploymentConfiguration: &types.BlueGreenDeploymentConfiguration{
+			DeploymentReadyOption: &types.DeploymentReadyOption{
+				ActionOnTimeout: types.DeploymentReadyActionStopDeployment,
+			},
+		},
 	})
 	require.NoError(t, err)
 

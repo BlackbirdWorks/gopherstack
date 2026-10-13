@@ -135,7 +135,7 @@ func TestVoiceTemplate_FullFieldSet(t *testing.T) {
 		map[string]any{"VoiceId": "Matthew", "LanguageCode": "en-GB"})
 	require.Equal(t, http.StatusAccepted, updateRec.Code)
 
-	getRec2 := doPinpointRequest(t, h, http.MethodGet, "/v1/templates/"+templateName+"/voice", nil)
+	getRec2 := doPinpointRequest(t, h, http.MethodGet, "/v1/templates/"+templateName+"/voice?version=2", nil)
 	require.Equal(t, http.StatusOK, getRec2.Code)
 
 	var gr2 map[string]any

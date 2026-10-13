@@ -32,6 +32,10 @@ func (h *Handler) handleCreateSpace(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if err := validateRequestShapes("CreateSpace", &req); err != nil {
+		return nil, err
+	}
+
 	if req.DomainID == "" {
 		return nil, fmt.Errorf("%w: DomainID is required", errInvalidRequest)
 	}
@@ -159,6 +163,10 @@ func (h *Handler) handleUpdateSpace(ctx context.Context, body []byte) ([]byte, e
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := validateRequestShapes("UpdateSpace", &req); err != nil {
+		return nil, err
 	}
 
 	if req.DomainID == "" {

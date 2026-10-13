@@ -9,6 +9,10 @@ import (
 var (
 	ErrRouteTableNotFound = errors.New("InvalidRouteTableID.NotFound")
 	ErrRouteNotFound      = errors.New("InvalidRoute.NotFound")
+	// ErrRouteAlreadyExists is CreateRoute's error for a destination already in the table.
+	ErrRouteAlreadyExists = errors.New("RouteAlreadyExists")
+	// ErrGatewayIDNotFound is CreateRoute/ReplaceRoute's error for an unknown GatewayId.
+	ErrGatewayIDNotFound = errors.New("InvalidGatewayID.NotFound")
 )
 
 // routeGatewayLocal is the fixed GatewayId AWS assigns to a route table's
@@ -16,12 +20,47 @@ var (
 // "the local route to its default target ( local )").
 const routeGatewayLocal = "local"
 
+const (
+	routeOriginCreateRouteTable = "CreateRouteTable"
+	routeOriginCreateRoute      = "CreateRoute"
+)
+
 // Route represents a route table entry.
 type Route struct {
-	DestinationCIDR string `json:"destinationCIDR,omitempty"`
-	GatewayID       string `json:"gatewayID,omitempty"`
-	NatGatewayID    string `json:"natGatewayID,omitempty"`
-	State           string `json:"state,omitempty"`
+	DestinationCIDR             string `json:"destinationCIDR,omitempty"`
+	GatewayID                   string `json:"gatewayID,omitempty"`
+	NatGatewayID                string `json:"natGatewayID,omitempty"`
+	State                       string `json:"state,omitempty"`
+	DestinationIPv6CIDR         string `json:"destinationIPv6CIDR,omitempty"`
+	DestinationPrefixListID     string `json:"destinationPrefixListID,omitempty"`
+	InstanceID                  string `json:"instanceID,omitempty"`
+	NetworkInterfaceID          string `json:"networkInterfaceID,omitempty"`
+	VpcPeeringConnectionID      string `json:"vpcPeeringConnectionID,omitempty"`
+	TransitGatewayID            string `json:"transitGatewayID,omitempty"`
+	EgressOnlyInternetGatewayID string `json:"egressOnlyInternetGatewayID,omitempty"`
+	LocalGatewayID              string `json:"localGatewayID,omitempty"`
+	CarrierGatewayID            string `json:"carrierGatewayID,omitempty"`
+	CoreNetworkArn              string `json:"coreNetworkArn,omitempty"`
+	Origin                      string `json:"origin,omitempty"`
+}
+
+// RouteSpec carries the destination and target of CreateRoute/ReplaceRoute/DeleteRoute.
+type RouteSpec struct {
+	DestinationCIDR             string
+	DestinationIPv6CIDR         string
+	DestinationPrefixListID     string
+	GatewayID                   string
+	NatGatewayID                string
+	InstanceID                  string
+	NetworkInterfaceID          string
+	VpcPeeringConnectionID      string
+	TransitGatewayID            string
+	EgressOnlyInternetGatewayID string
+	VpcEndpointID               string
+	LocalGatewayID              string
+	CarrierGatewayID            string
+	CoreNetworkArn              string
+	LocalTarget                 bool
 }
 
 // RouteAssociation represents an association between a route table and a
@@ -53,15 +92,23 @@ func (b *InMemoryBackend) CreateRouteTable(vpcID string) (*RouteTable, error) {
 	b.mu.Lock("CreateRouteTable")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcs.Get(vpcID); !ok {
+	vpc, ok := b.vpcs.Get(vpcID)
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
 	id := newRouteTableID()
 	rt := &RouteTable{
-		ID:           id,
-		VPCID:        vpcID,
-		Routes:       []Route{},
+		ID:    id,
+		VPCID: vpcID,
+		Routes: []Route{
+			{
+				DestinationCIDR: vpc.CIDRBlock,
+				GatewayID:       routeGatewayLocal,
+				State:           stateActive,
+				Origin:          routeOriginCreateRouteTable,
+			},
+		},
 		Associations: []RouteAssociation{},
 	}
 	b.routeTables.Put(rt)
@@ -142,43 +189,14 @@ func (b *InMemoryBackend) DescribeRouteTables(ids []string) ([]*RouteTable, erro
 
 // CreateRoute adds a route to a route table.
 func (b *InMemoryBackend) CreateRoute(rtID, destCIDR, gatewayID, natGatewayID string) error {
-	b.mu.Lock("CreateRoute")
-	defer b.mu.Unlock()
-
-	rt, ok := b.routeTables.Get(rtID)
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrRouteTableNotFound, rtID)
-	}
-
-	rt.Routes = append(rt.Routes, Route{
-		DestinationCIDR: destCIDR,
-		GatewayID:       gatewayID,
-		NatGatewayID:    natGatewayID,
-		State:           stateActive,
+	return b.CreateRouteSpec(rtID, RouteSpec{
+		DestinationCIDR: destCIDR, GatewayID: gatewayID, NatGatewayID: natGatewayID,
 	})
-
-	return nil
 }
 
 // DeleteRoute removes a route from a route table by destination CIDR.
 func (b *InMemoryBackend) DeleteRoute(rtID, destCIDR string) error {
-	b.mu.Lock("DeleteRoute")
-	defer b.mu.Unlock()
-
-	rt, ok := b.routeTables.Get(rtID)
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrRouteTableNotFound, rtID)
-	}
-
-	for i, r := range rt.Routes {
-		if r.DestinationCIDR == destCIDR {
-			rt.Routes = append(rt.Routes[:i], rt.Routes[i+1:]...)
-
-			return nil
-		}
-	}
-
-	return fmt.Errorf("%w: no route with destination %s in %s", ErrRouteNotFound, destCIDR, rtID)
+	return b.DeleteRouteSpec(rtID, RouteSpec{DestinationCIDR: destCIDR})
 }
 
 // AssociateRouteTable associates a route table with a subnet.
@@ -230,46 +248,13 @@ func (b *InMemoryBackend) DisassociateRouteTable(assocID string) error {
 	return fmt.Errorf("%w: %s", ErrAssociationNotFound, assocID)
 }
 
-// ReplaceRoute replaces an existing route in a route table.
-// ReplaceRoute replaces the target of an existing route. localTarget is an
-// optional trailing arg (api_op_ReplaceRoute.go's LocalTarget: "Specifies
-// whether to reset the local route to its default target (local)") -- when
-// true, it overrides gatewayID/natGatewayID and resets the route to the
-// implicit "local" target.
+// ReplaceRoute replaces the target of an existing route. localTarget resets the route to
+// the implicit local target (api_op_ReplaceRoute.go LocalTarget).
 func (b *InMemoryBackend) ReplaceRoute(rtID, destCIDR, gatewayID, natGatewayID string, localTarget ...bool) error {
-	if rtID == "" || destCIDR == "" {
-		return fmt.Errorf(
-			"%w: RouteTableId and DestinationCidrBlock are required",
-			ErrInvalidParameter,
-		)
-	}
-
-	b.mu.Lock("ReplaceRoute")
-	defer b.mu.Unlock()
-
-	rt, ok := b.routeTables.Get(rtID)
-	if !ok {
-		return fmt.Errorf("%w: route table %s not found", ErrInvalidParameter, rtID)
-	}
-
-	if len(localTarget) > 0 && localTarget[0] {
-		gatewayID, natGatewayID = "local", ""
-	}
-
-	for i, route := range rt.Routes {
-		if route.DestinationCIDR == destCIDR {
-			rt.Routes[i] = Route{
-				DestinationCIDR: destCIDR,
-				GatewayID:       gatewayID,
-				NatGatewayID:    natGatewayID,
-				State:           stateActive,
-			}
-
-			return nil
-		}
-	}
-
-	return fmt.Errorf("%w: route %s not found in %s", ErrInvalidParameter, destCIDR, rtID)
+	return b.ReplaceRouteSpec(rtID, RouteSpec{
+		DestinationCIDR: destCIDR, GatewayID: gatewayID, NatGatewayID: natGatewayID,
+		LocalTarget: len(localTarget) > 0 && localTarget[0],
+	})
 }
 
 // ---- RegisterInstanceEventNotificationAttributes ----

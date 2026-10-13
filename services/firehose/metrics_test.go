@@ -3,6 +3,8 @@ package firehose_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 
@@ -191,4 +193,88 @@ func TestStagingDestinations_RoleAuthorization(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestFirehoseMetrics_RequestBackupAndFreshness(t *testing.T) {
+	t.Parallel()
+
+	rec := newMetricRecorder()
+	b := firehose.NewInMemoryBackend("000000000000", flushRegion)
+	b.SetS3Backend(&mockS3Storer{})
+	b.SetMetricEmitter(rec)
+
+	_, err := b.CreateDeliveryStream(t.Context(), firehose.CreateDeliveryStreamInput{
+		Name: "req-stream",
+		S3Destination: &firehose.S3DestinationDescription{
+			BucketARN:    "arn:aws:s3:::req-bucket",
+			S3BackupMode: "Enabled",
+			S3BackupDescription: &firehose.S3BackupDescription{
+				BucketARN: "arn:aws:s3:::backup-bucket",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, b.PutRecord(t.Context(), "req-stream", []byte("abcd")))
+	_, err = b.PutRecordBatch(t.Context(), "req-stream", [][]byte{[]byte("12"), []byte("345")})
+	require.NoError(t, err)
+	b.FlushAll(t.Context())
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+
+	want := map[string]float64{
+		"AWS/Firehose/IncomingPutRequests":     2,
+		"AWS/Firehose/PutRecord.Requests":      1,
+		"AWS/Firehose/PutRecord.Bytes":         4,
+		"AWS/Firehose/PutRecordBatch.Requests": 1,
+		"AWS/Firehose/PutRecordBatch.Records":  2,
+		"AWS/Firehose/PutRecordBatch.Bytes":    5,
+		"AWS/Firehose/BackupToS3.Success":      1,
+		"AWS/Firehose/BackupToS3.Records":      3,
+		"AWS/Firehose/BackupToS3.Bytes":        9,
+	}
+	for name, v := range want {
+		assert.InDelta(t, v, rec.sums[name], 0, name)
+	}
+
+	for _, name := range []string{
+		"PutRecord.Latency", "PutRecordBatch.Latency", "DeliveryToS3.DataFreshness", "BackupToS3.DataFreshness",
+	} {
+		assert.Contains(t, rec.sums, "AWS/Firehose/"+name)
+	}
+
+	assert.Equal(t, "Milliseconds", rec.unit["AWS/Firehose/PutRecord.Latency"])
+	assert.Equal(t, "Seconds", rec.unit["AWS/Firehose/DeliveryToS3.DataFreshness"])
+}
+
+func TestFirehoseMetrics_SplunkDelivery(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	rec := newMetricRecorder()
+	b := firehose.NewInMemoryBackend("000000000000", flushRegion)
+	b.SetMetricEmitter(rec)
+
+	_, err := b.CreateDeliveryStream(t.Context(), firehose.CreateDeliveryStreamInput{
+		Name:              "splunk-metrics",
+		SplunkDestination: &firehose.SplunkDestinationDescription{HECEndpoint: srv.URL, HECToken: "t"},
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutRecordBatch(t.Context(), "splunk-metrics", [][]byte{[]byte("ab"), []byte("cde")})
+	require.NoError(t, err)
+	b.FlushAll(t.Context())
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+
+	assert.InDelta(t, 2, rec.sums["AWS/Firehose/DeliveryToSplunk.Success"], 0)
+	assert.InDelta(t, 2, rec.sums["AWS/Firehose/DeliveryToSplunk.Records"], 0)
+	assert.InDelta(t, 5, rec.sums["AWS/Firehose/DeliveryToSplunk.Bytes"], 0)
+	assert.Contains(t, rec.sums, "AWS/Firehose/DeliveryToSplunk.DataFreshness")
 }

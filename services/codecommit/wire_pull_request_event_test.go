@@ -26,6 +26,10 @@ func TestDescribePullRequestEvents_EventDateDecodesAsEpoch(t *testing.T) {
 	h := codecommit.NewHandler(b)
 	client := newTestCodeCommitClient(t, h)
 
+	_, err := b.CreateRepository("repo", "", "", nil)
+	require.NoError(t, err)
+	seedBackendFeatureBranch(t, b, "repo")
+
 	pr, err := b.CreatePullRequest("Test PR", "", "", []codecommit.PullRequestTarget{
 		{RepositoryName: "repo", SourceReference: "refs/heads/feature"},
 	})

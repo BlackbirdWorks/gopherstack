@@ -86,16 +86,9 @@ func (b *InMemoryBackend) ListPolicyGenerations(
 		return result[i].JobID < result[j].JobID
 	})
 
-	start := 0
-
-	if nextToken != "" {
-		for i, pg := range result {
-			if pg.JobID == nextToken {
-				start = i
-
-				break
-			}
-		}
+	start, tokErr := pageStart(len(result), nextToken, func(i int) string { return result[i].JobID })
+	if tokErr != nil {
+		return nil, "", tokErr
 	}
 
 	result = result[start:]

@@ -1,6 +1,10 @@
 package ecrpublic
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+)
 
 // GetRepositoryPolicy returns the repository's resource policy text.
 func (b *InMemoryBackend) GetRepositoryPolicy(registryID, name string) (string, error) {
@@ -25,6 +29,12 @@ func (b *InMemoryBackend) GetRepositoryPolicy(registryID, name string) (string, 
 
 // SetRepositoryPolicy sets or replaces the repository's resource policy text.
 func (b *InMemoryBackend) SetRepositoryPolicy(registryID, name, policyText string) (string, error) {
+	if !json.Valid([]byte(policyText)) || !strings.HasPrefix(strings.TrimSpace(policyText), "{") {
+		return "", fmt.Errorf(
+			"%w: Invalid parameter at 'PolicyText' failed to satisfy constraint: 'Invalid repository policy provided'",
+			ErrInvalidParameter)
+	}
+
 	b.mu.Lock("SetRepositoryPolicy")
 	defer b.mu.Unlock()
 

@@ -34,11 +34,19 @@ func NewJanitor(backend *InMemoryBackend, _ Settings) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
+	j.Start(ctx)()
+}
+
+// Start launches the ticker goroutines before returning; the returned func
+// blocks until ctx ends and the group has stopped.
+func (j *Janitor) Start(ctx context.Context) func() {
 	g := worker.NewGroup(ctx, lambdaWorkerService)
 	g.Ticker(runtimeJanitorName, j.Interval, j.TaskTimeout, j.sweep)
 
-	<-ctx.Done()
-	g.Stop()
+	return func() {
+		<-ctx.Done()
+		g.Stop()
+	}
 }
 
 // sweep runs one full janitor pass: evict idle runtimes and health-check ESMs.

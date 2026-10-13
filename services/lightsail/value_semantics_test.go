@@ -41,11 +41,11 @@ func TestInstance_DefaultsAndMetadataOptionsUpdate(t *testing.T) {
 			c := newTestClient(t)
 			_, err := c.CreateInstances(t.Context(), &lightsailsdk.CreateInstancesInput{
 				AvailabilityZone: aws.String("us-east-1a"), BlueprintId: aws.String("amazon_linux_2023"),
-				BundleId: aws.String("nano_3_0"), InstanceNames: []string{"i"},
+				BundleId: aws.String("nano_3_0"), InstanceNames: []string{"inst"},
 			})
 			require.NoError(t, err)
 
-			name := aws.String("i")
+			name := aws.String("inst")
 
 			if tc.fromSnapshot {
 				_, err = c.CreateInstanceSnapshot(t.Context(), &lightsailsdk.CreateInstanceSnapshotInput{

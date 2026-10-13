@@ -27,8 +27,16 @@ func (b *InMemoryBackend) CreateWorkerConfiguration(
 	accountID, region, name, description, propertiesFileContent string,
 	tags map[string]string,
 ) (*WorkerConfiguration, error) {
-	if name == "" || propertiesFileContent == "" {
+	if propertiesFileContent == "" {
 		return nil, ErrValidation
+	}
+
+	if err := validateResourceName("worker configuration", name); err != nil {
+		return nil, err
+	}
+
+	if err := validatePropertiesFile(propertiesFileContent); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateWorkerConfiguration")
@@ -125,7 +133,7 @@ func (b *InMemoryBackend) DeleteWorkerConfiguration(workerConfigurationArn strin
 
 	if w.State != deletingState {
 		w.State = deletingState
-		w.PendingUntil = time.Now().UTC().Add(deletionDelay)
+		w.PendingUntil = time.Now().UTC().Add(b.deletionDelay())
 	}
 
 	return w.clone(), nil

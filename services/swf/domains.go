@@ -5,8 +5,8 @@ import "fmt"
 // RegisterDomain registers a new SWF domain with the given retention period.
 // retention must be "0"-"90" or "NONE" (empty defaults to "NONE").
 func (b *InMemoryBackend) RegisterDomain(name, description, retention string) error {
-	if name == "" {
-		return fmt.Errorf("%w: name is required", ErrValidation)
+	if err := validateName("name", name, maxNameLength); err != nil {
+		return err
 	}
 	if retention == "" {
 		retention = retentionNone

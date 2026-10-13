@@ -3,6 +3,8 @@ package ecs
 import (
 	"context"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // ----- Task handlers -----
@@ -49,7 +51,10 @@ type runTaskOutput struct {
 }
 
 func (h *Handler) handleRunTask(_ context.Context, in *runTaskInput) (*runTaskOutput, error) {
+	pinnedID, runTags := tags.PinnedIDFromList(in.Tags, func(t Tag) (string, string) { return t.Key, t.Value })
+
 	tasks, failures, err := h.Backend.RunTask(RunTaskInput{
+		PinnedTaskID:             pinnedID,
 		Cluster:                  in.Cluster,
 		TaskDefinition:           in.TaskDefinition,
 		Count:                    in.Count,
@@ -59,7 +64,7 @@ func (h *Handler) handleRunTask(_ context.Context, in *runTaskInput) (*runTaskOu
 		PlatformVersion:          in.PlatformVersion,
 		PropagateTags:            in.PropagateTags,
 		EnableECSManagedTags:     in.EnableECSManagedTags,
-		Tags:                     in.Tags,
+		Tags:                     runTags,
 		PlacementConstraints:     toPlacementConstraints(in.PlacementConstraints),
 		PlacementStrategy:        toPlacementStrategies(in.PlacementStrategy),
 		CapacityProviderStrategy: toCPStrategyItems(in.CapacityProviderStrategy),
@@ -147,6 +152,7 @@ type listTasksInput struct {
 	ContainerInstance string `json:"containerInstance,omitempty"`
 	Family            string `json:"family,omitempty"`
 	ServiceName       string `json:"serviceName,omitempty"`
+	DaemonName        string `json:"daemonName,omitempty"`
 	DesiredStatus     string `json:"desiredStatus,omitempty"`
 	LaunchType        string `json:"launchType,omitempty"`
 	StartedBy         string `json:"startedBy,omitempty"`
@@ -168,7 +174,7 @@ var errStartedByExclusive = fmt.Errorf(
 
 func (h *Handler) handleListTasks(_ context.Context, in *listTasksInput) (*listTasksOutput, error) {
 	if in.StartedBy != "" && (in.ContainerInstance != "" || in.Family != "" ||
-		in.ServiceName != "" || in.DesiredStatus != "" || in.LaunchType != "") {
+		in.ServiceName != "" || in.DaemonName != "" || in.DesiredStatus != "" || in.LaunchType != "") {
 		return nil, errStartedByExclusive
 	}
 
@@ -177,6 +183,7 @@ func (h *Handler) handleListTasks(_ context.Context, in *listTasksInput) (*listT
 		ContainerInstance: in.ContainerInstance,
 		Family:            in.Family,
 		ServiceName:       in.ServiceName,
+		DaemonName:        in.DaemonName,
 		DesiredStatus:     in.DesiredStatus,
 		LaunchType:        in.LaunchType,
 		StartedBy:         in.StartedBy,

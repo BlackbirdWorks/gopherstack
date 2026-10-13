@@ -195,7 +195,7 @@ func TestHandler_CRL_DuplicateNameAllowed(t *testing.T) {
 			h := newTestHandler(t)
 			body := map[string]any{
 				"name":           "dup-crl-http",
-				"trustAnchorArn": "arn:aws:ta",
+				"trustAnchorArn": "arn:aws:rolesanywhere:us-east-1:123456789012:trust-anchor/ta",
 				"crlData":        "ZmFrZS1jcmwtZGF0YQ==",
 			}
 			rec1 := doREST(t, h, http.MethodPost, "/crls", body)

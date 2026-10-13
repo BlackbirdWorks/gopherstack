@@ -132,18 +132,28 @@ type CachePolicy struct {
 // runs on the connection path for a connection group. Like CloudFront Functions, a connection
 // function starts life in the DEVELOPMENT stage and is promoted to LIVE via PublishConnectionFunction.
 type ConnectionFunction struct {
-	Tags             map[string]string `json:"tags,omitempty"`
-	ID               string            `json:"id"`
-	ARN              string            `json:"arn"`
-	Name             string            `json:"name"`
-	Comment          string            `json:"comment,omitempty"`
-	Runtime          string            `json:"runtime"`
-	Stage            string            `json:"stage"`
-	Status           string            `json:"status"`
-	ETag             string            `json:"eTag"`
-	CreatedTime      string            `json:"createdTime,omitempty"`
-	LastModifiedTime string            `json:"lastModifiedTime,omitempty"`
-	FunctionCode     []byte            `json:"functionCode,omitempty"`
+	Live             *ConnectionFunctionLive `json:"live,omitempty"`
+	Tags             map[string]string       `json:"tags,omitempty"`
+	ID               string                  `json:"id"`
+	ARN              string                  `json:"arn"`
+	Name             string                  `json:"name"`
+	Comment          string                  `json:"comment,omitempty"`
+	Runtime          string                  `json:"runtime"`
+	Stage            string                  `json:"stage"`
+	Status           string                  `json:"status"`
+	ETag             string                  `json:"eTag"`
+	CreatedTime      string                  `json:"createdTime,omitempty"`
+	LastModifiedTime string                  `json:"lastModifiedTime,omitempty"`
+	FunctionCode     []byte                  `json:"functionCode,omitempty"`
+}
+
+// ConnectionFunctionLive is the published (LIVE stage) snapshot of a ConnectionFunction.
+type ConnectionFunctionLive struct {
+	Comment          string `json:"comment,omitempty"`
+	Runtime          string `json:"runtime"`
+	ETag             string `json:"eTag"`
+	LastModifiedTime string `json:"lastModifiedTime"`
+	FunctionCode     []byte `json:"functionCode,omitempty"`
 }
 
 // ConnectionGroup represents a CloudFront connection group: routing configuration (an Anycast
@@ -280,6 +290,7 @@ type ResponseHeadersPolicy struct {
 
 // Function represents a CloudFront Function.
 type Function struct {
+	Live             *FunctionLive     `json:"live,omitempty"`
 	Tags             map[string]string `json:"tags,omitempty"`
 	Name             string            `json:"name"`
 	Comment          string            `json:"comment,omitempty"`
@@ -290,6 +301,16 @@ type Function struct {
 	ARN              string            `json:"arn"`
 	CreatedTime      string            `json:"createdTime"`
 	LastModifiedTime string            `json:"lastModifiedTime"`
+}
+
+// FunctionLive is the published (LIVE stage) snapshot of a Function, which outlives later
+// UpdateFunction calls on the DEVELOPMENT stage.
+type FunctionLive struct {
+	Comment          string `json:"comment,omitempty"`
+	Runtime          string `json:"runtime"`
+	FunctionCode     string `json:"functionCode"`
+	ETag             string `json:"eTag"`
+	LastModifiedTime string `json:"lastModifiedTime"`
 }
 
 // ORPHeadersConfig controls which request headers are forwarded to the origin.
@@ -473,22 +494,36 @@ type KVSItem struct {
 
 // DistributionTenant represents a CloudFront distribution tenant.
 type DistributionTenant struct {
-	Customizations    map[string]any    `json:"Customizations,omitempty"`
-	Parameters        map[string]string `json:"Parameters,omitempty"`
-	Tags              map[string]string `json:"Tags,omitempty"`
-	Name              string            `json:"Name,omitempty"`
-	ARN               string            `json:"Arn"`
-	DistributionID    string            `json:"DistributionId"`
-	ID                string            `json:"Id"`
-	Domain            string            `json:"Domain"`
-	ConnectionGroupID string            `json:"ConnectionGroupId,omitempty"`
-	Status            string            `json:"Status"`
-	CreationTime      string            `json:"CreationTime,omitempty"`
-	LastModifiedTime  string            `json:"LastModifiedTime,omitempty"`
-	ETag              string            `json:"-"`
-	Domains           []string          `json:"Domains,omitempty"`
-	Enabled           bool              `json:"Enabled"`
+	ManagedCertificateRequest *ManagedCertificateRequest `json:"ManagedCertificateRequest,omitempty"`
+	Customizations            map[string]any             `json:"Customizations,omitempty"`
+	Parameters                map[string]string          `json:"Parameters,omitempty"`
+	Tags                      map[string]string          `json:"Tags,omitempty"`
+	Name                      string                     `json:"Name,omitempty"`
+	ARN                       string                     `json:"Arn"`
+	DistributionID            string                     `json:"DistributionId"`
+	ID                        string                     `json:"Id"`
+	Domain                    string                     `json:"Domain"`
+	ConnectionGroupID         string                     `json:"ConnectionGroupId,omitempty"`
+	Status                    string                     `json:"Status"`
+	CreationTime              string                     `json:"CreationTime,omitempty"`
+	LastModifiedTime          string                     `json:"LastModifiedTime,omitempty"`
+	ETag                      string                     `json:"-"`
+	Domains                   []string                   `json:"Domains,omitempty"`
+	Enabled                   bool                       `json:"Enabled"`
 }
+
+// ManagedCertificateRequest is the CloudFront-managed ACM certificate request carried by
+// Create/UpdateDistributionTenant.
+type ManagedCertificateRequest struct {
+	ValidationTokenHost                      string `json:"ValidationTokenHost,omitempty"`
+	PrimaryDomainName                        string `json:"PrimaryDomainName,omitempty"`
+	CertificateTransparencyLoggingPreference string `json:"CertificateTransparencyLoggingPreference,omitempty"`
+}
+
+const (
+	validationTokenHostCloudFront = "cloudfront"
+	validationTokenHostSelfHosted = "self-hosted"
+)
 
 // DomainConflict describes an existing resource that already claims a domain.
 type DomainConflict struct {
@@ -528,12 +563,13 @@ func (r DomainAssociationResult) ResourceID() string {
 // A zero-value field is left unchanged; Domains and Enabled require an explicit non-empty /
 // non-nil value to take effect.
 type DistributionTenantUpdate struct {
-	Customizations    map[string]any
-	Parameters        map[string]string
-	DistributionID    string
-	Enabled           *bool
-	ConnectionGroupID string
-	Domains           []string
+	ManagedCertificateRequest *ManagedCertificateRequest
+	Customizations            map[string]any
+	Parameters                map[string]string
+	DistributionID            string
+	Enabled                   *bool
+	ConnectionGroupID         string
+	Domains                   []string
 }
 
 // TrustStoreCACertificatesBundleSource models CaCertificatesBundleSource's sole real member,

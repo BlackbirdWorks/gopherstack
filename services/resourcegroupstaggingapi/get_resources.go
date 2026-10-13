@@ -195,6 +195,20 @@ func validateGetResourcesInput(input *GetResourcesInput) error {
 		}
 	}
 
+	return validatePageSizes(input)
+}
+
+// validatePageSizes range-checks ResourcesPerPage and TagsPerPage.
+func validatePageSizes(input *GetResourcesInput) error {
+	if input.ResourcesPerPage != nil {
+		if rpp := *input.ResourcesPerPage; rpp < 1 || rpp > int32(maxResourcesPerPage) {
+			return fmt.Errorf(
+				"%w: ResourcesPerPage must be between 1 and %d",
+				ErrValidation, maxResourcesPerPage,
+			)
+		}
+	}
+
 	if input.TagsPerPage != nil {
 		tpp := *input.TagsPerPage
 		if tpp < int32(minTagsPerPage) || tpp > int32(maxTagsPerPage) {

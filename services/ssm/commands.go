@@ -1,8 +1,10 @@
 package ssm
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"sort"
@@ -88,6 +90,13 @@ func (b *InMemoryBackend) SendCommand(
 	}
 
 	region := getRegion(ctx)
+	runner := b.commandRunner()
+
+	var containers []ManagedContainer
+	if runner != nil && runner.Instances != nil {
+		containers = runner.Instances.ContainerInstances(region, nil)
+	}
+
 	b.mu.Lock("SendCommand")
 	defer b.mu.Unlock()
 
@@ -108,39 +117,21 @@ func (b *InMemoryBackend) SendCommand(
 	// provide one or more managed node IDs in the call"). A Targets-only
 	// caller -- the pattern AWS documents as required for at-scale sends --
 	// must still get real invocations, not zero.
-	resolvedInstanceIDs := mergeUniqueInstanceIDs(input.InstanceIDs, commandTargetInstanceIDs(input.Targets))
+	resolvedInstanceIDs := mergeUniqueInstanceIDs(
+		input.InstanceIDs,
+		commandTargetInstanceIDs(input.Targets, containers),
+	)
 
-	timeoutSecs := input.TimeoutSeconds
-	if timeoutSecs == 0 {
-		timeoutSecs = 3600
-	}
-
-	// Start in Pending state; transition through InProgress to Success so callers
-	// that snapshot state between transitions observe correct intermediate values.
-	cmd := Command{
-		CommandID:          cmdID,
-		DocumentName:       input.DocumentName,
-		DocumentVersion:    input.DocumentVersion,
-		Parameters:         input.Parameters,
-		Status:             commandStatusPending,
-		StatusDetails:      commandStatusPending,
-		RequestedDateTime:  now,
-		ExpiresAfter:       now + b.commandExpirySecs,
-		InstanceIDs:        input.InstanceIDs,
-		Targets:            input.Targets,
-		Comment:            input.Comment,
-		TimeoutSeconds:     timeoutSecs,
-		OutputS3BucketName: input.OutputS3BucketName,
-		OutputS3KeyPrefix:  input.OutputS3KeyPrefix,
-		OutputS3Region:     input.OutputS3Region,
-		ServiceRole:        input.ServiceRoleArn,
-		MaxConcurrency:     input.MaxConcurrency,
-		MaxErrors:          input.MaxErrors,
-	}
+	cmd := newCommandRecord(cmdID, input, now, now+b.commandExpirySecs)
 
 	b.commandsStore(region).Put(&cmd)
 
-	stdout, stderr, finalStatus := renderCommandOutput(input.DocumentName, input.Parameters)
+	job := b.planDirectJob(region, runner, containers, input, resolvedInstanceIDs)
+	if job != nil {
+		job.cmdID = cmdID
+	}
+
+	stdout, stderr, finalStatus, exitCode := renderCommandOutput(input.DocumentName, input.Parameters)
 
 	if input.DocumentName == docRunPatchBaseline {
 		for _, instanceID := range resolvedInstanceIDs {
@@ -148,23 +139,8 @@ func (b *InMemoryBackend) SendCommand(
 		}
 	}
 
-	invocations := make([]CommandInvocation, 0, len(resolvedInstanceIDs))
-	for _, instanceID := range resolvedInstanceIDs {
-		inv := CommandInvocation{
-			CommandID:         cmdID,
-			InstanceID:        instanceID,
-			DocumentName:      input.DocumentName,
-			DocumentVersion:   input.DocumentVersion,
-			Status:            commandStatusPending,
-			StatusDetails:     commandStatusPending,
-			RequestedDateTime: now,
-			Comment:           input.Comment,
-			pendingStdout:     stdout,
-			pendingStderr:     stderr,
-			finalStatus:       finalStatus,
-		}
-		invocations = append(invocations, inv)
-	}
+	rendered := renderedOutput{stdout: stdout, stderr: stderr, status: finalStatus, code: exitCode}
+	invocations := buildInvocations(cmdID, input, resolvedInstanceIDs, now, rendered, job)
 	if b.commandInvocations[region] == nil {
 		b.commandInvocations[region] = make(map[string][]CommandInvocation)
 	}
@@ -175,6 +151,10 @@ func (b *InMemoryBackend) SendCommand(
 	// synchronously (revealing output); otherwise it stays InProgress and is
 	// lazily completed by reads once b.commandExecDelaySecs has elapsed.
 	b.setCommandStatus(region, cmdID, commandStatusInProgress)
+
+	if job != nil {
+		go b.runDirectJob(job)
+	}
 
 	if b.commandExecDelaySecs <= 0 {
 		b.completeCommand(region, cmdID)
@@ -193,15 +173,24 @@ func (b *InMemoryBackend) SendCommand(
 	return &SendCommandOutput{Command: finalCmd}, nil
 }
 
-// commandTargetInstanceIDs flattens a SendCommand Targets list into instance
-// IDs, treating every target's Values as literal node IDs regardless of Key
-// -- the same simplification buildAssocExecTargets (associations.go) already
-// makes for AssociationTarget, kept consistent here rather than adding
-// tag-based resolution this backend has no matching infra for.
-func commandTargetInstanceIDs(targets []CommandTarget) []string {
+// commandTargetInstanceIDs flattens a SendCommand Targets list into instance IDs. "tag:<key>" targets
+// select running managed containers carrying that tag value; any other key's Values are literal IDs.
+func commandTargetInstanceIDs(targets []CommandTarget, containers []ManagedContainer) []string {
 	ids := make([]string, 0, len(targets))
+
 	for _, t := range targets {
-		ids = append(ids, t.Values...)
+		tagKey, isTag := strings.CutPrefix(t.Key, "tag:")
+		if !isTag || containers == nil {
+			ids = append(ids, t.Values...)
+
+			continue
+		}
+
+		for _, c := range containers {
+			if v, ok := c.Tags[tagKey]; ok && slices.Contains(t.Values, v) {
+				ids = append(ids, c.InstanceID)
+			}
+		}
 	}
 
 	return ids
@@ -266,6 +255,10 @@ func (b *InMemoryBackend) setCommandStatus(region, cmdID, status string) {
 	invs := invStore[cmdID]
 
 	for i := range invs {
+		if invs[i].direct {
+			continue
+		}
+
 		invs[i].Status = status
 		invs[i].StatusDetails = status
 	}
@@ -292,8 +285,15 @@ func (b *InMemoryBackend) completeCommand(region, cmdID string) {
 
 	overall := commandStatusSuccess
 	completionTime := UnixTimeFloat(time.Now())
+	hasDirect := false
 
 	for i := range invs {
+		if invs[i].direct {
+			hasDirect = true
+
+			continue
+		}
+
 		final := invs[i].finalStatus
 		if final == "" {
 			final = commandStatusSuccess
@@ -304,6 +304,7 @@ func (b *InMemoryBackend) completeCommand(region, cmdID string) {
 		invs[i].StandardOutputContent = invs[i].pendingStdout
 		invs[i].StandardErrorContent = invs[i].pendingStderr
 		invs[i].executionEndUnix = completionTime
+		invs[i].startedUnix = invs[i].RequestedDateTime
 
 		if final != commandStatusSuccess {
 			overall = final
@@ -311,6 +312,14 @@ func (b *InMemoryBackend) completeCommand(region, cmdID string) {
 	}
 
 	invStore[cmdID] = invs
+
+	if hasDirect {
+		cmd.completeAfter = 0
+		cmdTable.Put(&cmd)
+		b.settleCommandLocked(region, cmdID)
+
+		return
+	}
 
 	cmd.Status = overall
 	cmd.StatusDetails = overall
@@ -468,7 +477,8 @@ func (b *InMemoryBackend) GetCommandInvocation(
 	b.mu.Lock("GetCommandInvocation")
 	defer b.mu.Unlock()
 
-	if !b.commandsStore(region).Has(input.CommandID) {
+	cmdPtr, found := b.commandsStore(region).Get(input.CommandID)
+	if !found {
 		return nil, ErrCommandNotFound
 	}
 
@@ -476,7 +486,15 @@ func (b *InMemoryBackend) GetCommandInvocation(
 
 	for _, inv := range b.commandInvocationsStore(region)[input.CommandID] {
 		if inv.InstanceID == input.InstanceID {
+			if p, ok, err := pluginView(inv, input.PluginName); err != nil {
+				return nil, err
+			} else if ok {
+				inv = p
+			}
+
 			out := &GetCommandInvocationOutput{
+				ResponseCode:           inv.ResponseCode,
+				CloudWatchOutputConfig: cmdPtr.CloudWatchOutputConfig,
 				CommandID:              input.CommandID,
 				InstanceID:             input.InstanceID,
 				DocumentName:           inv.DocumentName,
@@ -489,7 +507,7 @@ func (b *InMemoryBackend) GetCommandInvocation(
 				StandardOutputURL:      inv.StandardOutputURL,
 				StandardErrorURL:       inv.StandardErrorURL,
 				Comment:                inv.Comment,
-				ExecutionStartDateTime: formatCommandTime(inv.RequestedDateTime),
+				ExecutionStartDateTime: formatCommandTime(cmp.Or(inv.startedUnix, inv.RequestedDateTime)),
 			}
 			if inv.executionEndUnix != 0 {
 				out.ExecutionEndDateTime = formatCommandTime(inv.executionEndUnix)
@@ -513,21 +531,7 @@ func (b *InMemoryBackend) ListCommandInvocations(
 
 	b.materializeCommandsLocked(region, UnixTimeFloat(timeNow()))
 
-	all := make([]CommandInvocation, 0, len(b.commandInvocationsStore(region)))
-	for cmdID, invs := range b.commandInvocationsStore(region) {
-		if input.CommandID != "" && cmdID != input.CommandID {
-			continue
-		}
-		for _, inv := range invs {
-			if input.InstanceID != "" && inv.InstanceID != input.InstanceID {
-				continue
-			}
-			if !matchesCommandFilters(inv.Status, inv.DocumentName, inv.RequestedDateTime, input.Filters) {
-				continue
-			}
-			all = append(all, inv)
-		}
-	}
+	all := collectInvocations(b.commandInvocationsStore(region), input)
 
 	sort.Slice(all, func(i, j int) bool {
 		if all[i].CommandID != all[j].CommandID {
@@ -596,8 +600,13 @@ func (b *InMemoryBackend) CancelCommand(
 			continue
 		}
 
+		if invs[i].direct && invs[i].Status != commandStatusPending && invs[i].Status != commandStatusInProgress {
+			continue
+		}
+
 		invs[i].Status = commandStatusCancelled
 		invs[i].StatusDetails = commandStatusCancelled
+		b.cancelExec(execKey(region, input.CommandID, invs[i].InstanceID))
 	}
 
 	invStore[input.CommandID] = invs
@@ -619,4 +628,134 @@ func (b *InMemoryBackend) CancelCommand(
 // package.
 func formatCommandTime(unixSeconds float64) string {
 	return time.Unix(int64(unixSeconds), 0).UTC().Format(time.RFC3339)
+}
+
+// pluginView returns the invocation narrowed to the named plugin; ok is false when the
+// invocation has no per-plugin results. A name matching no plugin is InvalidPluginName.
+func pluginView(inv CommandInvocation, name string) (CommandInvocation, bool, error) {
+	if len(inv.CommandPlugins) == 0 || name == "" {
+		return inv, false, nil
+	}
+
+	for _, p := range inv.CommandPlugins {
+		if p.Name != name {
+			continue
+		}
+
+		inv.Status, inv.StatusDetails, inv.ResponseCode = p.Status, p.StatusDetails, p.ResponseCode
+		inv.StandardOutputContent = truncateChars(p.stdout, stdoutLimitChars)
+		inv.StandardErrorContent = truncateChars(p.stderr, stderrLimitChars)
+		inv.StandardOutputURL, inv.StandardErrorURL = p.StandardOutputURL, p.StandardErrorURL
+
+		return inv, true, nil
+	}
+
+	return inv, false, ErrInvalidPluginName
+}
+
+func clampInt32(n int) int32 {
+	if n > math.MaxInt32 {
+		return math.MaxInt32
+	}
+
+	if n < math.MinInt32 {
+		return math.MinInt32
+	}
+
+	return int32(n)
+}
+
+type renderedOutput struct {
+	stdout string
+	stderr string
+	status string
+	code   int
+}
+
+func buildInvocations(
+	cmdID string, input *SendCommandInput, ids []string, now float64, out renderedOutput, job *directJob,
+) []CommandInvocation {
+	invocations := make([]CommandInvocation, 0, len(ids))
+
+	for _, instanceID := range ids {
+		inv := CommandInvocation{
+			CommandID:         cmdID,
+			InstanceID:        instanceID,
+			DocumentName:      input.DocumentName,
+			DocumentVersion:   input.DocumentVersion,
+			Status:            commandStatusPending,
+			StatusDetails:     commandStatusPending,
+			RequestedDateTime: now,
+			Comment:           input.Comment,
+			pendingStdout:     out.stdout,
+			pendingStderr:     out.stderr,
+			finalStatus:       out.status,
+			ResponseCode:      clampInt32(out.code),
+		}
+		if job != nil && job.hasTarget(instanceID) {
+			inv.direct, inv.ResponseCode = true, responseCodeNotRun
+		}
+
+		invocations = append(invocations, inv)
+	}
+
+	return invocations
+}
+
+// collectInvocations returns the invocations matching the ListCommandInvocations request.
+func collectInvocations(all map[string][]CommandInvocation, input *ListCommandInvocationsInput) []CommandInvocation {
+	out := make([]CommandInvocation, 0, len(all))
+
+	for cmdID, invs := range all {
+		if input.CommandID != "" && cmdID != input.CommandID {
+			continue
+		}
+
+		for _, inv := range invs {
+			if input.InstanceID != "" && inv.InstanceID != input.InstanceID {
+				continue
+			}
+
+			if !matchesCommandFilters(inv.Status, inv.DocumentName, inv.RequestedDateTime, input.Filters) {
+				continue
+			}
+
+			if !input.Details {
+				inv.CommandPlugins = nil
+			}
+
+			out = append(out, inv)
+		}
+	}
+
+	return out
+}
+
+func newCommandRecord(cmdID string, input *SendCommandInput, now, expires float64) Command {
+	timeoutSecs := input.TimeoutSeconds
+	if timeoutSecs == 0 {
+		timeoutSecs = 3600
+	}
+
+	return Command{
+		CommandID:              cmdID,
+		DocumentName:           input.DocumentName,
+		DocumentVersion:        input.DocumentVersion,
+		Parameters:             input.Parameters,
+		Status:                 commandStatusPending,
+		StatusDetails:          commandStatusPending,
+		RequestedDateTime:      now,
+		ExpiresAfter:           expires,
+		InstanceIDs:            input.InstanceIDs,
+		Targets:                input.Targets,
+		Comment:                input.Comment,
+		TimeoutSeconds:         timeoutSecs,
+		OutputS3BucketName:     input.OutputS3BucketName,
+		OutputS3KeyPrefix:      input.OutputS3KeyPrefix,
+		OutputS3Region:         input.OutputS3Region,
+		ServiceRole:            input.ServiceRoleArn,
+		MaxConcurrency:         input.MaxConcurrency,
+		MaxErrors:              input.MaxErrors,
+		CloudWatchOutputConfig: input.CloudWatchOutputConfig,
+	}
 }

@@ -29,68 +29,49 @@ import (
 // values are map[string]string, not *T, so there is nothing for store.Table
 // to key on. It is persisted directly (see persistence.go).
 type InMemoryBackend struct {
-	registry *store.Registry
-
-	collaborations *store.Table[Collaboration]
-	memberships    *store.Table[Membership]
-
-	configuredTables *store.Table[ConfiguredTable]
-
-	ctAnalysisRules        *store.Table[ConfiguredTableAnalysisRule]
-	ctAnalysisRulesByTable *store.Index[ConfiguredTableAnalysisRule]
-
-	ctAssociations             *store.Table[ConfiguredTableAssociation]
-	ctAssociationsByMembership *store.Index[ConfiguredTableAssociation]
-
-	ctaAnalysisRules              *store.Table[ConfiguredTableAssociationAnalysisRule]
-	ctaAnalysisRulesByAssociation *store.Index[ConfiguredTableAssociationAnalysisRule]
-
-	analysisTemplates             *store.Table[AnalysisTemplate]
-	analysisTemplatesByMembership *store.Index[AnalysisTemplate]
-
-	privacyBudgetTemplates             *store.Table[PrivacyBudgetTemplate]
-	privacyBudgetTemplatesByMembership *store.Index[PrivacyBudgetTemplate]
-
-	idMappingTables             *store.Table[IDMappingTable]
-	idMappingTablesByMembership *store.Index[IDMappingTable]
-
+	glue                                GlueTableReader
+	changeRequests                      *store.Table[CollaborationChangeRequest]
+	schemas                             *store.Table[Schema]
+	schemasByCollaboration              *store.Index[Schema]
+	ctAnalysisRules                     *store.Table[ConfiguredTableAnalysisRule]
+	ctAnalysisRulesByTable              *store.Index[ConfiguredTableAnalysisRule]
+	ctAssociations                      *store.Table[ConfiguredTableAssociation]
+	ctAssociationsByMembership          *store.Index[ConfiguredTableAssociation]
+	ctaAnalysisRules                    *store.Table[ConfiguredTableAssociationAnalysisRule]
+	ctaAnalysisRulesByAssociation       *store.Index[ConfiguredTableAssociationAnalysisRule]
+	analysisTemplates                   *store.Table[AnalysisTemplate]
+	analysisTemplatesByMembership       *store.Index[AnalysisTemplate]
+	privacyBudgetTemplates              *store.Table[PrivacyBudgetTemplate]
+	privacyBudgetTemplatesByMembership  *store.Index[PrivacyBudgetTemplate]
+	idMappingTables                     *store.Table[IDMappingTable]
+	idMappingTablesByMembership         *store.Index[IDMappingTable]
 	idNamespaceAssociations             *store.Table[IDNamespaceAssociation]
 	idNamespaceAssociationsByMembership *store.Index[IDNamespaceAssociation]
-
-	camaAssociations             *store.Table[ConfiguredAudienceModelAssociation]
-	camaAssociationsByMembership *store.Index[ConfiguredAudienceModelAssociation]
-
-	changeRequests                *store.Table[CollaborationChangeRequest]
-	changeRequestsByCollaboration *store.Index[CollaborationChangeRequest]
-
-	schemas                *store.Table[Schema]
-	schemasByCollaboration *store.Index[Schema]
-
-	schemaAnalysisRules *store.Table[SchemaAnalysisRule]
-
-	protectedQueries             *store.Table[ProtectedQuery]
-	protectedQueriesByMembership *store.Index[ProtectedQuery]
-
-	protectedJobs             *store.Table[ProtectedJob]
-	protectedJobsByMembership *store.Index[ProtectedJob]
-
-	intermediateTables             *store.Table[IntermediateTable]
-	intermediateTablesByMembership *store.Index[IntermediateTable]
-
-	intermediateTableVersions        *store.Table[IntermediateTableVersionSummary]
-	intermediateTableVersionsByTable *store.Index[IntermediateTableVersionSummary]
-
-	itAnalysisRules        *store.Table[IntermediateTableAnalysisRule]
-	itAnalysisRulesByTable *store.Index[IntermediateTableAnalysisRule]
-
-	tagsByArn map[string]map[string]string
-
-	nowFn func() float64
-	mu    *lockmetrics.RWMutex
-
-	accountID string
-	region    string
-	muNow     sync.Mutex
+	camaAssociations                    *store.Table[ConfiguredAudienceModelAssociation]
+	camaAssociationsByMembership        *store.Index[ConfiguredAudienceModelAssociation]
+	registry                            *store.Registry
+	memberships                         *store.Table[Membership]
+	changeRequestsByCollaboration       *store.Index[CollaborationChangeRequest]
+	configuredTables                    *store.Table[ConfiguredTable]
+	schemaAnalysisRules                 *store.Table[SchemaAnalysisRule]
+	collaborations                      *store.Table[Collaboration]
+	protectedQueries                    *store.Table[ProtectedQuery]
+	protectedQueriesByMembership        *store.Index[ProtectedQuery]
+	protectedJobs                       *store.Table[ProtectedJob]
+	protectedJobsByMembership           *store.Index[ProtectedJob]
+	intermediateTables                  *store.Table[IntermediateTable]
+	intermediateTablesByMembership      *store.Index[IntermediateTable]
+	intermediateTableVersions           *store.Table[IntermediateTableVersionSummary]
+	intermediateTableVersionsByTable    *store.Index[IntermediateTableVersionSummary]
+	itAnalysisRules                     *store.Table[IntermediateTableAnalysisRule]
+	itAnalysisRulesByTable              *store.Index[IntermediateTableAnalysisRule]
+	tagsByArn                           map[string]map[string]string
+	nowFn                               func() float64
+	mu                                  *lockmetrics.RWMutex
+	accountID                           string
+	region                              string
+	workDelay                           time.Duration
+	muNow                               sync.Mutex
 }
 
 // NewInMemoryBackendWithContext creates a backend tied to svcCtx (ignored; no lifecycle goroutines).

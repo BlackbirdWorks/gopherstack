@@ -185,7 +185,7 @@ func (b *InMemoryBackend) RegisterTransitGateway(
 	b.transitGatewayRegistrations.Put(r)
 
 	key := transitGatewayRegistrationKey(globalNetworkID, transitGatewayArn)
-	b.work.After("TransitGatewayRegistrationAvailable", asyncTransitionDelay, func() {
+	b.work.After("TransitGatewayRegistrationAvailable", b.transitionDelay, func() {
 		b.mu.Lock("TransitGatewayRegistrationAvailable-async")
 		defer b.mu.Unlock()
 

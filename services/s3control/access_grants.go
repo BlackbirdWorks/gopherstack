@@ -471,21 +471,6 @@ func (b *InMemoryBackend) ListAccessGrantsLocations(accountID string) []*AccessG
 	return out
 }
 
-// GetDataAccess returns a presigned URL for accessing data via access grants.
-func (b *InMemoryBackend) GetDataAccess(accountID, target, permission string) (string, error) {
-	b.mu.RLock("GetDataAccess")
-	defer b.mu.RUnlock()
-
-	// Verify the instance exists
-	if !b.accessGrantsInstances.Has(accountID) {
-		return "", awserr.New("AccessGrantsInstanceNotExistsError", awserr.ErrNotFound)
-	}
-	_ = target
-	_ = permission
-
-	return "https://s3.amazonaws.com/presigned-mock-url", nil
-}
-
 // ---- Seed helpers for testing ----
 
 // AddAccessGrantsInstanceInternal creates an access grants instance directly, for seeding test data.

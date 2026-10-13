@@ -46,6 +46,7 @@ func (b *InMemoryBackend) CreateImageWithLocation(
 		RootDeviceName: "/dev/xvda",
 		State:          stateAvailable,
 		OwnerID:        b.AccountID,
+		CreationTime:   time.Now().UTC(),
 	}
 	b.images.Put(image)
 
@@ -207,10 +208,12 @@ func (b *InMemoryBackend) CreateVpcEndpoint(
 // declare+echo fields, added as a trailing variadic struct to stay
 // back-compatible with existing call sites.
 type VpcEndpointCreateOptions struct {
-	PolicyDocument    string
-	ServiceRegion     string
-	PrivateDNSEnabled *bool
-	SecurityGroupIDs  []string
+	PrivateDNSEnabled        *bool
+	PolicyDocument           string
+	ServiceRegion            string
+	ResourceConfigurationArn string
+	ServiceNetworkArn        string
+	SecurityGroupIDs         []string
 }
 
 // CreateVpcEndpointWithRouteTableIDs creates a VPC endpoint with optional route table associations.
@@ -223,12 +226,17 @@ func (b *InMemoryBackend) CreateVpcEndpointWithRouteTableIDs(
 		return nil, fmt.Errorf("%w: VpcId is required", ErrInvalidParameter)
 	}
 
-	if serviceName == "" {
-		return nil, fmt.Errorf("%w: ServiceName is required", ErrInvalidParameter)
-	}
-
 	if endpointType == "" {
 		endpointType = vpcEndpointTypeInterface
+	}
+
+	o := VpcEndpointCreateOptions{}
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+
+	if err := validateVpcEndpointTarget(endpointType, serviceName, o); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateVpcEndpoint")
@@ -260,11 +268,6 @@ func (b *InMemoryBackend) CreateVpcEndpointWithRouteTableIDs(
 		}
 	}
 
-	o := VpcEndpointCreateOptions{}
-	if len(opts) > 0 {
-		o = opts[0]
-	}
-
 	// api_op_CreateVpcEndpoint.go PrivateDnsEnabled: "(Interface endpoint) ...";
 	// no documented default value stated for gateway endpoints, which don't
 	// support it at all -- only default true for interface endpoints.
@@ -292,6 +295,9 @@ func (b *InMemoryBackend) CreateVpcEndpointWithRouteTableIDs(
 		ServiceRegion:     serviceRegion,
 		SecurityGroupIDs:  append([]string(nil), o.SecurityGroupIDs...),
 		PrivateDNSEnabled: privateDNSEnabled,
+
+		ResourceConfigurationArn: o.ResourceConfigurationArn,
+		ServiceNetworkArn:        o.ServiceNetworkArn,
 	}
 	b.vpcEndpoints.Put(endpoint)
 	cp := *endpoint

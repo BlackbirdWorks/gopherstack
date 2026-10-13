@@ -10,6 +10,9 @@ import (
 // versionLatest is the sentinel qualifier for the live function configuration.
 const versionLatest = "$LATEST"
 
+// versionLatestPublished is the version a capacity-provider function's unqualified invoke resolves to.
+const versionLatestPublished = "$LATEST.PUBLISHED"
+
 // globalRand is used for non-security random choices (e.g. weighted alias routing).
 //
 //nolint:gochecknoglobals // intentional package-level RNG for weighted routing
@@ -82,6 +85,12 @@ func functionNameAndQualifierFromARN(name string) (string, string) {
 // Returns the resolved function config.
 func (b *InMemoryBackend) resolveQualifier(name, qualifier string) (*FunctionConfiguration, error) {
 	name = extractFunctionName(name)
+	if qualifier == "" {
+		if fn := b.latestPublishedFor(name); fn != nil {
+			return fn, nil
+		}
+	}
+
 	if qualifier == "" || qualifier == versionLatest {
 		return b.GetFunction(name)
 	}
@@ -202,4 +211,22 @@ func resolvePermissionTarget(functionName, qualifier string) (string, string) {
 	}
 
 	return name, qualifier
+}
+
+// latestPublishedFor returns the $LATEST.PUBLISHED snapshot an unqualified invoke of a capacity-provider function
+// resolves to, or nil when the function has none.
+func (b *InMemoryBackend) latestPublishedFor(name string) *FunctionConfiguration {
+	b.mu.RLock("latestPublishedFor")
+	defer b.mu.RUnlock()
+
+	fn, ok := b.functions.Get(name)
+	if !ok || fn.CapacityProviderConfig == nil {
+		return nil
+	}
+
+	if v := b.versionIndex[name][versionLatestPublished]; v != nil {
+		return versionToFn(v)
+	}
+
+	return nil
 }

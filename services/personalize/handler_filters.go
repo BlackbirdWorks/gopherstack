@@ -68,7 +68,7 @@ func filterToMap(f *Filter) map[string]any {
 		keyName:                f.Name,
 		keyDatasetGroupArn:     f.DatasetGroupArn,
 		"filterExpression":     f.FilterExpression,
-		keyStatus:              f.Status,
+		keyStatus:              f.lc.resourceStatus(f.Status, f.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(f.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(f.LastUpdatedDateTime),
 	}
@@ -83,7 +83,7 @@ func filterSummaryToMap(f *Filter) map[string]any {
 		keyFilterArn:           f.FilterArn,
 		keyName:                f.Name,
 		keyDatasetGroupArn:     f.DatasetGroupArn,
-		keyStatus:              f.Status,
+		keyStatus:              f.lc.resourceStatus(f.Status, f.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(f.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(f.LastUpdatedDateTime),
 	}

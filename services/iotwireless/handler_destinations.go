@@ -45,7 +45,7 @@ func (h *Handler) createDestination(c *echo.Context, body []byte) error {
 		req.Name, req.Expression, req.ExpressionType, req.RoleArn, req.Description, tagKVsToMap(req.Tags),
 	)
 	if err != nil {
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	return writeJSON(c, http.StatusCreated, destinationEntry{

@@ -47,6 +47,8 @@ type StateMachine struct {
 	Comment         string            `json:"Comment,omitempty"`
 	StartAt         string            `json:"StartAt"`
 	QueryLanguage   string            `json:"QueryLanguage,omitempty"`
+	// TimeoutSeconds caps a top-level execution; nested branches never carry it.
+	TimeoutSeconds int `json:"TimeoutSeconds,omitempty"`
 }
 
 // ItemBatcher configures batching for a Map state's Distributed Map.
@@ -89,9 +91,8 @@ type ItemReader struct {
 // Transformation ("NONE" default, or "LOAD_AND_FLATTEN") only applies to the
 // s3:listObjectsV2 Resource: LOAD_AND_FLATTEN reads and decodes each listed
 // object's content (per InputType) instead of returning object metadata.
-// ManifestType ("S3_INVENTORY" or "ATHENA_DATA", only ATHENA_DATA unsupported
-// -- see PARITY.md) or InputType "MANIFEST" treats the fetched object as an
-// S3 Inventory manifest.json listing CSV data files.
+// ManifestType "ATHENA_DATA" treats the object as an Athena UNLOAD manifest of s3 URIs;
+// "S3_INVENTORY" or InputType "MANIFEST" as an S3 Inventory manifest.json.
 // (AWS docs: input-output-itemreader.html).
 type ReaderConfig struct {
 	InputType         string   `json:"InputType,omitempty"`
@@ -293,6 +294,15 @@ type ChoiceRule struct {
 
 // Parse parses an ASL state machine definition from JSON.
 func Parse(definition string) (*StateMachine, error) {
+	return parse(definition, true)
+}
+
+// ParseIsolatedState parses a definition without requiring transition targets to exist (TestState).
+func ParseIsolatedState(definition string) (*StateMachine, error) {
+	return parse(definition, false)
+}
+
+func parse(definition string, checkTransitions bool) (*StateMachine, error) {
 	var sm StateMachine
 	if err := json.Unmarshal([]byte(definition), &sm); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrParseError, err)
@@ -318,8 +328,18 @@ func Parse(definition string) (*StateMachine, error) {
 		return nil, err
 	}
 
+	if checkTransitions {
+		if err := validateTransitions(sm.States); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := validateQueryLanguage(&sm); err != nil {
 		return nil, err
+	}
+
+	if sm.TimeoutSeconds < 0 {
+		return nil, fmt.Errorf("%w: TimeoutSeconds must be a positive integer", ErrParseError)
 	}
 
 	return &sm, nil

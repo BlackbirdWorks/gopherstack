@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -139,6 +141,10 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 // RouteMatcher returns a function that matches AWS Backup REST requests.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
+		if httputils.SignedForOtherService(c.Request(), backupSigningName) {
+			return false
+		}
+
 		return matchesBackupPath(c.Request().URL.Path)
 	}
 }
@@ -171,6 +177,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		route := parseBackupPath(c.Request().Method, c.Request().URL.Path)
 
 		log.Debug("backup request", "operation", route.operation, "resource", route.resource)
+
+		if err := validatePageSize(c.Request().URL.Query()); err != nil {
+			return h.handleError(c, err)
+		}
 
 		var body []byte
 		if c.Request().Body != nil {
@@ -651,8 +661,10 @@ func missingOrInvalidParamCode(err error) string {
 	return "InvalidParameterValueException"
 }
 
+var errCodePrefix = regexp.MustCompile(`^[A-Za-z]+Exception: `)
+
 func errResp(code, msg string) map[string]string {
-	return map[string]string{"code": code, "message": msg}
+	return map[string]string{"code": code, "message": errCodePrefix.ReplaceAllString(msg, "")}
 }
 
 // epochSeconds returns the Unix epoch timestamp as a float64 for JSON serialization.
@@ -695,3 +707,5 @@ func splitPlanSel(resource string) (string, string, bool) {
 }
 
 // --- Recovery point handlers ---
+
+const backupSigningName = "backup"

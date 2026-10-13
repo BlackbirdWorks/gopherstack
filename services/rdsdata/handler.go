@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -264,6 +265,10 @@ func writeInternalServerError(c *echo.Context) error {
 	return c.JSONBlob(http.StatusInternalServerError, payload)
 }
 
+func stripCode(err error, code string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(err.Error(), code), ": ")
+}
+
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
@@ -278,14 +283,14 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrTransactionNotFound):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "TransactionNotFoundException",
-			keyMessageField: err.Error(),
+			keyMessageField: stripCode(err, "TransactionNotFoundException"),
 		})
 
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return c.JSONBlob(http.StatusNotFound, payload)
 	case errIsValidation(err):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "BadRequestException",
-			keyMessageField: err.Error(),
+			keyMessageField: stripCode(err, "BadRequestException"),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
@@ -308,6 +313,13 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		})
 	}
 }
+
+// maxResponseBytes is the documented 1 MB ExecuteStatement response cap (api_op_ExecuteStatement.go:18).
+const (
+	maxResponseBytes = 1 << 20
+	// maxFormattedRecordsBytes is the documented 10 MB formattedRecords cap (API_ExecuteStatement.html).
+	maxFormattedRecordsBytes = 10 << 20
+)
 
 type executeStatementRequest struct {
 	ResultSetOptions      *resultSetOptionsRequest `json:"resultSetOptions"`
@@ -426,7 +438,7 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	ctx = withRequestTarget(ctx, req.SecretArn, req.Database)
+	ctx = withContinueAfterTimeout(withRequestTarget(ctx, req.SecretArn, req.Database), req.ContinueAfterTimeout)
 
 	if req.ResultSetOptions != nil {
 		ctx = context.WithValue(ctx, resultSetOptionsContextKey{}, resultSetOptions{
@@ -445,6 +457,13 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		generatedFields = []Field{}
 	}
 
+	return marshalExecuteResponse(&req, records, columns, updated, generatedFields)
+}
+
+// marshalExecuteResponse shapes the ExecuteStatement response and enforces the 1 MB response cap.
+func marshalExecuteResponse(
+	req *executeStatementRequest, records [][]Field, columns []ColumnMetadata, updated int64, generatedFields []Field,
+) ([]byte, error) {
 	// Use a map so columnMetadata/records/formattedRecords can be
 	// conditionally included, matching real AWS response shaping.
 	resp := map[string]any{
@@ -470,7 +489,25 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		}
 	}
 
-	return json.Marshal(resp)
+	out, err := json.Marshal(resp)
+	if err != nil {
+		return nil, fmt.Errorf("marshal response: %w", err)
+	}
+
+	if limit := responseLimit(req); len(out) > limit {
+		return nil, errUnsupportedResult("Database response exceeded size limit")
+	}
+
+	return out, nil
+}
+
+// responseLimit returns the 1 MB binary cap, or the 10 MB formattedRecords cap for JSON results.
+func responseLimit(req *executeStatementRequest) int {
+	if req.FormatRecordsAs == formatRecordsAsJSON && isQuery(req.SQL) {
+		return maxFormattedRecordsBytes
+	}
+
+	return maxResponseBytes
 }
 
 // formatRecordsAsJSONString renders records as the JSON string real AWS
@@ -689,6 +726,8 @@ func (h *Handler) handleExecuteSQL(ctx context.Context, body []byte) ([]byte, er
 	); err != nil {
 		return nil, err
 	}
+
+	ctx = withRequestTarget(ctx, req.AwsSecretStoreArn, req.Database)
 
 	results, err := h.Backend.ExecuteSQL(ctx, req.DBClusterOrInstanceArn, req.SQLStatements)
 	if err != nil {

@@ -142,7 +142,7 @@ func (b *InMemoryBackend) StartSession(ctx context.Context, params StartSessionP
 
 	cluster, ok := b.clusterGet(region, params.ClusterID)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, params.ClusterID)
+		return nil, notValidErr("Cluster", params.ClusterID)
 	}
 
 	if !sessionCanStart(cluster.Status.State) {
@@ -194,7 +194,7 @@ func (b *InMemoryBackend) GetSession(ctx context.Context, clusterID, sessionID s
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return nil, notValidErr("Cluster", clusterID)
 	}
 
 	idx := findSessionIndex(cluster, sessionID)
@@ -224,7 +224,7 @@ func (b *InMemoryBackend) ListSessions(
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return nil, "", notValidErr("Cluster", clusterID)
 	}
 
 	stateSet := buildStateSet(states)
@@ -274,7 +274,7 @@ func (b *InMemoryBackend) TerminateSession(ctx context.Context, clusterID, sessi
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return nil, notValidErr("Cluster", clusterID)
 	}
 
 	idx := findSessionIndex(cluster, sessionID)
@@ -324,7 +324,7 @@ func (b *InMemoryBackend) GetSessionEndpoint(
 
 	cluster, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+		return nil, notValidErr("Cluster", clusterID)
 	}
 
 	if findSessionIndex(cluster, sessionID) < 0 {

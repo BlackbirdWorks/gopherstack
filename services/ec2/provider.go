@@ -72,6 +72,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 				"error", pingErr)
 		}
 
+		if pruned := dc.PruneIdleNetworks(svcCtx); len(pruned) > 0 && ctx.Logger != nil {
+			ctx.Logger.Info("ec2 removed idle vpc networks", "networks", pruned)
+		}
+
 		backend.WithCompute(dc)
 	}
 

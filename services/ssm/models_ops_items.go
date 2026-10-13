@@ -43,9 +43,7 @@ type DescribeOpsItemsOutput struct {
 }
 
 // OpsItemSummary is a lightweight OpsItem listing entry (real
-// types.OpsItemSummary, types.go:4600). CreatedBy/LastModifiedBy are real
-// members not modeled -- no caller-identity/SigV4-principal infra to derive
-// a real IAM ARN from, same disclosed-gap class as ServiceSetting.LastModifiedUser.
+// types.OpsItemSummary, types.go:4600).
 // There is no Version or OpsItemArn member on the real type at all, unlike
 // the full OpsItem (OpsItemOutput.Version/.OpsItemArn).
 type OpsItemSummary struct {
@@ -61,6 +59,8 @@ type OpsItemSummary struct {
 	OpsItemType      string                      `json:"OpsItemType,omitempty"`
 	Category         string                      `json:"Category,omitempty"`
 	Severity         string                      `json:"Severity,omitempty"`
+	CreatedBy        string                      `json:"CreatedBy,omitempty"`
+	LastModifiedBy   string                      `json:"LastModifiedBy,omitempty"`
 	CreatedTime      float64                     `json:"CreatedTime"`
 	LastModifiedTime float64                     `json:"LastModifiedTime,omitempty"`
 	Priority         int32                       `json:"Priority,omitempty"`
@@ -81,9 +81,7 @@ type GetOpsItemOutput struct {
 // types.OpsItemSummary) -- neither has an AccountId member at all (it exists
 // only on CreateOpsItemInput, a create-time-only attribution field this
 // backend tracks internally for DescribeOpsItems' AccountId filter key but
-// never returns on the wire). CreatedBy/LastModifiedBy are real members not
-// modeled -- no caller-identity/SigV4-principal infra to derive a real IAM
-// ARN from, same disclosed-gap class as ServiceSetting.LastModifiedUser.
+// never returns on the wire).
 func opsItemToOutput(item OpsItem) OpsItemOutput {
 	return OpsItemOutput{
 		OperationalData:  item.OperationalData,
@@ -106,6 +104,8 @@ func opsItemToOutput(item OpsItem) OpsItemOutput {
 		CreatedTime:      item.CreatedTime,
 		Priority:         item.Priority,
 		Version:          item.Version,
+		CreatedBy:        item.CreatedBy,
+		LastModifiedBy:   item.LastModifiedBy,
 	}
 }
 
@@ -126,6 +126,8 @@ type OpsItemOutput struct {
 	OpsItemType      string                      `json:"OpsItemType,omitempty"`
 	Title            string                      `json:"Title"`
 	Version          string                      `json:"Version,omitempty"`
+	CreatedBy        string                      `json:"CreatedBy,omitempty"`
+	LastModifiedBy   string                      `json:"LastModifiedBy,omitempty"`
 	RelatedOpsItems  []RelatedOpsItemRef         `json:"RelatedOpsItems,omitempty"`
 	Notifications    []OpsItemNotification       `json:"Notifications,omitempty"`
 	LastModifiedTime float64                     `json:"LastModifiedTime"`
@@ -259,6 +261,8 @@ type OpsItem struct {
 	AccountID        string                      `json:"AccountId,omitempty"`
 	Title            string                      `json:"Title"`
 	Version          string                      `json:"Version,omitempty"`
+	CreatedBy        string                      `json:"CreatedBy,omitempty"`
+	LastModifiedBy   string                      `json:"LastModifiedBy,omitempty"`
 	RelatedOpsItems  []RelatedOpsItemRef         `json:"RelatedOpsItems,omitempty"`
 	Notifications    []OpsItemNotification       `json:"Notifications,omitempty"`
 	LastModifiedTime float64                     `json:"LastModifiedTime"`
@@ -266,18 +270,30 @@ type OpsItem struct {
 	Priority         int32                       `json:"Priority,omitempty"`
 }
 
-// OpsItemRelatedItem represents an item related to an OpsItem, field-diffed
-// against types.OpsItemRelatedItemSummary (ssm@v1.77.0). CreatedBy/
-// LastModifiedBy/LastModifiedTime are not modeled -- no caller-identity
-// infra (same disclosed gap as ServiceSetting.LastModifiedUser) and no
-// update path exists for a related item once associated.
+// OpsItemIdentity is types.OpsItemIdentity, the {Arn} wrapper the real
+// summary types use for CreatedBy/LastModifiedBy.
+type OpsItemIdentity struct {
+	Arn string `json:"Arn"`
+}
+
+func opsItemIdentity(arn string) *OpsItemIdentity {
+	if arn == "" {
+		return nil
+	}
+
+	return &OpsItemIdentity{Arn: arn}
+}
+
+// OpsItemRelatedItem is types.OpsItemRelatedItemSummary. LastModifiedTime is
+// unmodeled: a related item has no update path, so it would only repeat CreatedTime.
 type OpsItemRelatedItem struct {
-	AssociationID   string  `json:"AssociationId"`
-	AssociationType string  `json:"AssociationType"`
-	OpsItemID       string  `json:"OpsItemId,omitempty"`
-	ResourceType    string  `json:"ResourceType"`
-	ResourceURI     string  `json:"ResourceUri"`
-	CreatedTime     float64 `json:"CreatedTime,omitempty"`
+	CreatedBy       *OpsItemIdentity `json:"CreatedBy,omitempty"`
+	AssociationID   string           `json:"AssociationId"`
+	AssociationType string           `json:"AssociationType"`
+	OpsItemID       string           `json:"OpsItemId,omitempty"`
+	ResourceType    string           `json:"ResourceType"`
+	ResourceURI     string           `json:"ResourceUri"`
+	CreatedTime     float64          `json:"CreatedTime,omitempty"`
 }
 
 // CreateOpsItemInput is the request payload for CreateOpsItem.
@@ -329,6 +345,7 @@ type OpsMetadata struct {
 	Metadata         map[string]MetadataValue `json:"Metadata,omitempty"`
 	OpsMetadataArn   string                   `json:"OpsMetadataArn"`
 	ResourceID       string                   `json:"ResourceId"`
+	LastModifiedUser string                   `json:"LastModifiedUser,omitempty"`
 	CreationDate     float64                  `json:"CreationDate"`
 	LastModifiedDate float64                  `json:"LastModifiedDate"`
 }
@@ -368,11 +385,10 @@ type OpsSummaryValue struct {
 // internal OpsMetadata record, it has no Metadata field at all -- that map
 // is Get/CreateOpsMetadata-only (see GetOpsMetadataOutput's own doc
 // comment); embedding the full record here would leak it onto the wire.
-// LastModifiedUser is not modeled -- no caller-identity infra, same
-// disclosed gap as ServiceSetting.LastModifiedUser.
 type OpsMetadataListItem struct {
 	OpsMetadataArn   string  `json:"OpsMetadataArn"`
 	ResourceID       string  `json:"ResourceId"`
+	LastModifiedUser string  `json:"LastModifiedUser,omitempty"`
 	CreationDate     float64 `json:"CreationDate"`
 	LastModifiedDate float64 `json:"LastModifiedDate"`
 }
@@ -413,11 +429,12 @@ type ListOpsItemEventsInput struct {
 
 // OpsItemEventSummary is a summary of an OpsItem event.
 type OpsItemEventSummary struct {
-	OpsItemID   string  `json:"OpsItemId,omitempty"`
-	EventID     string  `json:"EventId,omitempty"`
-	Source      string  `json:"Source,omitempty"`
-	Detail      string  `json:"Detail,omitempty"`
-	CreatedTime float64 `json:"CreatedTime,omitempty"`
+	CreatedBy   *OpsItemIdentity `json:"CreatedBy,omitempty"`
+	OpsItemID   string           `json:"OpsItemId,omitempty"`
+	EventID     string           `json:"EventId,omitempty"`
+	Source      string           `json:"Source,omitempty"`
+	Detail      string           `json:"Detail,omitempty"`
+	CreatedTime float64          `json:"CreatedTime,omitempty"`
 }
 
 // ListOpsItemEventsOutput is the response payload.

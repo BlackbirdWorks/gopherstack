@@ -6,7 +6,24 @@ import (
 )
 
 type batchGetBlueprintsInput struct {
-	Names []string `json:"Names"`
+	IncludeBlueprint     *bool    `json:"IncludeBlueprint,omitempty"`
+	IncludeParameterSpec *bool    `json:"IncludeParameterSpec,omitempty"`
+	Names                []string `json:"Names"`
+}
+
+// blueprintView drops BlueprintLocation and ParameterSpec when the request
+// explicitly set IncludeBlueprint / IncludeParameterSpec to false.
+func blueprintView(bp *Blueprint, includeBlueprint, includeParameterSpec *bool) *Blueprint {
+	cp := *bp
+	if includeBlueprint != nil && !*includeBlueprint {
+		cp.BlueprintLocation = ""
+	}
+
+	if includeParameterSpec != nil && !*includeParameterSpec {
+		cp.ParameterSpec = ""
+	}
+
+	return &cp
 }
 
 type batchGetBlueprintsOutput struct {
@@ -19,6 +36,9 @@ func (h *Handler) handleBatchGetBlueprints(
 	in *batchGetBlueprintsInput,
 ) (*batchGetBlueprintsOutput, error) {
 	found, missing := h.Backend.BatchGetBlueprints(in.Names)
+	for i, bp := range found {
+		found[i] = blueprintView(bp, in.IncludeBlueprint, in.IncludeParameterSpec)
+	}
 
 	return &batchGetBlueprintsOutput{Blueprints: found, MissingBlueprints: missing}, nil
 }
@@ -70,7 +90,9 @@ func (h *Handler) handleDeleteBlueprint(
 
 // getBlueprintInput holds input for GetBlueprint.
 type getBlueprintInput struct {
-	Name string `json:"Name"`
+	IncludeBlueprint     *bool  `json:"IncludeBlueprint,omitempty"`
+	IncludeParameterSpec *bool  `json:"IncludeParameterSpec,omitempty"`
+	Name                 string `json:"Name"`
 }
 
 // getBlueprintOutput holds the result for GetBlueprint.
@@ -87,7 +109,7 @@ func (h *Handler) handleGetBlueprint(
 		return nil, fmt.Errorf("blueprint %q not found: %w", in.Name, ErrNotFound)
 	}
 
-	return &getBlueprintOutput{Blueprint: found[0]}, nil
+	return &getBlueprintOutput{Blueprint: blueprintView(found[0], in.IncludeBlueprint, in.IncludeParameterSpec)}, nil
 }
 
 // getBlueprintRunInput holds input for GetBlueprintRun.

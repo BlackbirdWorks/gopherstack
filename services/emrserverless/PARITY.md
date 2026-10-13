@@ -2,7 +2,7 @@
 service: emrserverless
 sdk_module: aws-sdk-go-v2/service/emrserverless@v1.44.4
 last_audit_commit: 44bff591b  # 2026-09-19 over-wide-response sweep (this pass); prior: a2084957b  # 2026-09-18 (gopherstack-xhu2t): reqfielddiff tier-1 pass; prior value cfa41e2b0 was gopherstack-420's state-machine/precondition sweep commit
-last_audit_date: 2026-09-19  # prior: 2026-09-18 -- 2026-09-19 over-wide-response sweep (gopherstack) re-verified ListApplications/ListJobRunAttempts/ListJobRuns/ListSessions member-by-member against emrserverless@v1.44.4
+last_audit_date: 2026-10-10  # prior: 2026-09-18 -- 2026-09-19 over-wide-response sweep (gopherstack) re-verified ListApplications/ListJobRunAttempts/ListJobRuns/ListSessions member-by-member against emrserverless@v1.44.4
 overall: A
 ops:
   CreateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "config sub-object allowlist extended to cover every types.CreateApplicationInput sub-object (added identityCenterConfiguration/diskEncryptionConfiguration/jobLevelCostAllocationConfiguration/schedulerConfiguration -- previously silently dropped); clientToken idempotency retained from prior pass"}
@@ -34,13 +34,18 @@ families:
   session_family: {status: fixed, note: "fully field-diffed against types.Session/SessionSummary and every session op's Input/Output shape in the SDK module; optional resource-usage fields (billedResourceUtilization/totalResourceUtilization/totalExecutionDurationSeconds/idleSince/networkConfiguration) are intentionally omitted since this backend does not simulate real resource billing, matching the same documented omission already accepted for JobRun/Application. This pass (gopherstack-tuh5): that field-diff covered presence of required fields but not absence of extras -- ListSessions was in fact leaking 5 Get-only members (see ops); a dedicated sessionSummaryToMap now scopes it correctly"}
   list_summary_shape: {status: fixed, note: "gopherstack-tuh5: ListApplications/ListJobRuns/ListSessions each reused their Get sibling's full converter (applicationToMap/jobRunToMap/sessionToMap) unscoped. Two prior audit entries (ListApplications, ListSessions) had verified only that each Summary type's required fields were present, and recorded wire: ok on that basis -- a correct check of one direction (presence) presented as a complete wire verdict; the other direction (absence of extras) was never checked, and gopherstack is a wire emulator seen by raw HTTP/non-SDK callers, not only SDK clients that happen to discard unrecognised keys. All three now have a dedicated *SummaryToMap converter built by reading that op's own types.*Summary struct and deserializer individually rather than assumed from a sibling; regression coverage in handler_list_summary_test.go asserts on the raw JSON body, not through an SDK client, which cannot observe this class of bug. codeartifact's sibling sweep in the same pass found a second bug class (a Summary member emitted under the wrong wire key, silently dropped by real deserializers) not present in emrserverless -- checked for here and not found: applicationSummaryToMap/jobRunSummaryToMap/sessionSummaryToMap key every field under the same name its own deserializer recognises."}
 gaps: []
-items_still_open:
-  - "Job runs never leave SUBMITTED (or CANCELLED via CancelJobRun): the backend runs no job execution or scheduler, so PENDING/SCHEDULED/RUNNING/SUCCESS/FAILED/CANCELLING/QUEUED are declared but unreachable. CancelJobRun accepts shutdownGracePeriodInSeconds but cancels at once, as there is no running job to wind down."
+items_still_open: []
+structural_gaps:
+  - "Job runs never run Spark/Hive code, so FAILED/QUEUED are unreachable (GetJobRun walks PENDING/SCHEDULED/RUNNING/SUCCESS) and CancelJobRun has no running job to wind down for shutdownGracePeriodInSeconds; real job execution is outside an emulator."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; sessionTokens/applicationTokens/jobRunTokens are plain in-memory maps cleaned up on DeleteApplication and full Reset(), and persisted/restored alongside the store.Table-backed resources -- no unbounded growth path found. Re-verified this pass: no new goroutines/tickers were introduced by the field additions."}
 ---
 
 ## Notes
+
+### 2026-10-10 realism pass
+Probed with the AWS CLI. Fixed: error messages drop the doubled code prefix; application names enforce `[A-Za-z0-9._/#-]{1,64}`; pagination tokens are opaque and bad tokens rejected with ValidationException; GetJobRun now walks SUBMITTED, PENDING, SCHEDULED, RUNNING, SUCCESS (one phase per call, no clock) and CancelJobRun on SUCCESS is rejected. Tests: `request_validation_test.go`.
+Kept lenient: duplicate application names still conflict (AWS behaviour unverified); applications are CREATED then STARTED without CREATING/STARTING phases.
 
 ### 2026-09-19 over-wide-response sweep (gopherstack)
 

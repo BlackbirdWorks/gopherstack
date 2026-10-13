@@ -333,6 +333,10 @@ func (b *InMemoryBackend) UpdateDataSetPermissions(
 func (b *InMemoryBackend) CreateIngestion(
 	accountID, dataSetID, ingestionID, ingestionType string,
 ) (*Ingestion, error) {
+	if !ingestionIDRE.MatchString(ingestionID) {
+		return nil, fmt.Errorf("%w: IngestionId must match [a-zA-Z0-9-_]+ and be 1-128 characters", ErrValidation)
+	}
+
 	if ingestionType != "" && ingestionType != ingestionRequestIncremental && ingestionType != ingestionRequestFull {
 		return nil, fmt.Errorf("%w: IngestionType must be INCREMENTAL_REFRESH or FULL_REFRESH", ErrValidation)
 	}
@@ -377,7 +381,7 @@ func (b *InMemoryBackend) DescribeIngestion(accountID, dataSetID, ingestionID st
 		return nil, ErrIngestionNotFound
 	}
 
-	return ing.toIngestion(), nil
+	return b.ingestionView(ing), nil
 }
 
 // CancelIngestion cancels an ongoing ingestion. Real AWS only supports
@@ -396,7 +400,7 @@ func (b *InMemoryBackend) CancelIngestion(accountID, dataSetID, ingestionID stri
 		return ErrIngestionNotFound
 	}
 
-	if isTerminalIngestionStatus(ing.IngestionStatus) {
+	if isTerminalIngestionStatus(b.ingestionView(ing).IngestionStatus) {
 		return ErrIngestionNotCancellable
 	}
 
@@ -431,35 +435,16 @@ func (b *InMemoryBackend) ListIngestions(
 			all = append(all, ing)
 		}
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].IngestionID < all[j].IngestionID })
+	sort.Slice(all, func(i, j int) bool { return all[i].CreatedTime.After(all[j].CreatedTime) })
 
-	if maxResults <= 0 || maxResults > defaultMaxResults {
-		maxResults = defaultMaxResults
+	pageItems, next, err := pageSliceStrict(all, maxResults, nextToken)
+	if err != nil {
+		return nil, "", err
 	}
 
-	start := 0
-	if nextToken != "" {
-		start = len(all)
-		for i, ing := range all {
-			if ing.IngestionID == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := start + int(maxResults)
-	var next string
-	if end < len(all) {
-		next = all[end].IngestionID
-	} else {
-		end = len(all)
-	}
-
-	result := make([]*Ingestion, 0, end-start)
-	for _, ing := range all[start:end] {
-		result = append(result, ing.toIngestion())
+	result := make([]*Ingestion, 0, len(pageItems))
+	for _, ing := range pageItems {
+		result = append(result, b.ingestionView(ing))
 	}
 
 	return result, next, nil

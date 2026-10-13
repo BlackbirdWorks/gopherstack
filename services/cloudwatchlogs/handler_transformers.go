@@ -48,19 +48,18 @@ func (h *Handler) handleGetTransformer(
 			return nil, err
 		}
 
-		// creationTime/lastModifiedTime are real GetTransformerOutput members
-		// (api_op_GetTransformer.go) the backend already tracks as
-		// Transformer.CreatedAt but never emitted. The backend only ever
-		// upserts a transformer wholesale (PutTransformer overwrites
-		// CreatedAt on every call), so it has no separate first-created
-		// timestamp; CreatedAt stands in for both.
-		ts := t.CreatedAt.UnixMilli()
+		created := t.CreatedAt.UnixMilli()
+		modified := created
+
+		if !t.LastModifiedAt.IsZero() {
+			modified = t.LastModifiedAt.UnixMilli()
+		}
 
 		return map[string]any{
 			completenessKeyLogGroupIdentifier: t.LogGroupIdentifier,
 			"transformerConfig":               t.Processors,
-			"creationTime":                    ts,
-			"lastModifiedTime":                ts,
+			"creationTime":                    created,
+			"lastModifiedTime":                modified,
 		}, nil
 	}
 

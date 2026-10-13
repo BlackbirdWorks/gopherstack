@@ -16,6 +16,10 @@ func (b *InMemoryBackend) CreateThingType(input *CreateThingTypeInput) (*ThingTy
 		return nil, fmt.Errorf("%w: ThingTypeName is required", ErrValidation)
 	}
 
+	if err := validateEntityName("ThingTypeName", input.ThingTypeName); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateThingType")
 	defer b.mu.Unlock()
 
@@ -70,6 +74,29 @@ func (b *InMemoryBackend) ListThingTypes() []*ThingType {
 	return out
 }
 
+// checkAssignableThingTypeLocked rejects a missing thing type and a deprecated one ("You can not associate new
+// things with deprecated thing type"). An empty name means no type.
+func (b *InMemoryBackend) checkAssignableThingTypeLocked(name string) error {
+	if name == "" {
+		return nil
+	}
+
+	tt, ok := b.thingTypes.Get(name)
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrThingTypeNotFound, name)
+	}
+
+	if tt.Deprecated {
+		return fmt.Errorf(
+			"%w: thing type %q is deprecated and cannot be associated with new things",
+			ErrValidation,
+			name,
+		)
+	}
+
+	return nil
+}
+
 // DeprecateThingType marks a thing type as deprecated (or un-deprecates it).
 func (b *InMemoryBackend) DeprecateThingType(input *DeprecateThingTypeInput) error {
 	b.mu.Lock("DeprecateThingType")
@@ -103,6 +130,12 @@ func (b *InMemoryBackend) DeleteThingType(thingTypeName string) error {
 
 	if !tt.Deprecated {
 		return fmt.Errorf("%w: thing type %q must be deprecated before deletion", ErrValidation, thingTypeName)
+	}
+
+	for _, t := range b.things.All() {
+		if t.ThingTypeName == thingTypeName {
+			return fmt.Errorf("%w: thing type %q still has things associated with it", ErrValidation, thingTypeName)
+		}
 	}
 
 	b.thingTypes.Delete(thingTypeName)

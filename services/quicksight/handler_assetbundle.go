@@ -1,6 +1,7 @@
 package quicksight
 
 import (
+	"maps"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -218,6 +219,24 @@ func (h *Handler) handleListAssetBundleExportJobs(c *echo.Context) error {
 
 // ---- Asset bundle import jobs ----
 
+func importJobOverrides(body map[string]any) map[string]any {
+	var out map[string]any
+
+	for _, k := range []string{
+		"OverrideParameters", "OverridePermissions", "OverrideTags", "OverrideValidationStrategy",
+	} {
+		if v, ok := body[k]; ok && v != nil {
+			if out == nil {
+				out = map[string]any{}
+			}
+
+			out[k] = v
+		}
+	}
+
+	return out
+}
+
 func importJobToMap(job *AssetBundleImportJob) map[string]any {
 	return map[string]any{
 		keyAssetBundleImportJobID: job.JobID,
@@ -253,6 +272,7 @@ func (h *Handler) handleStartAssetBundleImportJob(c *echo.Context) error {
 		accountID,
 		strField(body, keyAssetBundleImportJobID),
 		strField(body, keyFailureAction),
+		importJobOverrides(body),
 	)
 	if err != nil {
 		return httpErr(c, err)
@@ -277,6 +297,7 @@ func (h *Handler) handleDescribeAssetBundleImportJob(c *echo.Context) error {
 	}
 
 	resp := importJobToMap(job)
+	maps.Copy(resp, job.Overrides)
 	resp[keyRequestID] = reqIDPlaceholder
 	resp[keyStatus] = http.StatusOK
 

@@ -104,7 +104,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(
 	lb.Tags.Merge(userTags)
 	b.loadBalancers.Put(lb)
 
-	b.work.After("LoadBalancerActive", asyncTransitionDelay, func() {
+	b.work.After("LoadBalancerActive", b.transitionDelay(), func() {
 		b.mu.Lock("LoadBalancer-async-active")
 		defer b.mu.Unlock()
 
@@ -200,7 +200,7 @@ func (b *InMemoryBackend) AttachInstancesToLoadBalancer(name string, instanceNam
 		lb.InstanceHealth[in] = instanceHealth{State: InstanceHealthInitial, Reason: "Lb.RegistrationInProgress"}
 	}
 
-	b.work.After("LoadBalancerInstanceHealthy", asyncTransitionDelay, func() {
+	b.work.After("LoadBalancerInstanceHealthy", b.transitionDelay(), func() {
 		b.mu.Lock("LoadBalancer-async-health")
 		defer b.mu.Unlock()
 
@@ -362,7 +362,7 @@ func (b *InMemoryBackend) CreateLoadBalancerTLSCertificate(
 	cert.Tags.Merge(userTags)
 	b.lbTLSCertificates.Put(cert)
 
-	b.work.After("LBTLSCertIssued", asyncTransitionDelay, func() {
+	b.work.After("LBTLSCertIssued", b.transitionDelay(), func() {
 		b.mu.Lock("LBTLSCert-async-issued")
 		defer b.mu.Unlock()
 

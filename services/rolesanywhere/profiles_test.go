@@ -150,7 +150,7 @@ func TestCreateProfile_RoleArnsRequired(t *testing.T) {
 			b := newBackend(t)
 			_, err := b.CreateProfile(
 				context.Background(),
-				t.Name(),
+				testName(t),
 				tt.roleArns,
 				nil,
 				nil,

@@ -92,7 +92,7 @@ func (b *InMemoryBackend) CreateActivity(ctx context.Context, name string) (*Act
 	a := &Activity{
 		Name:         name,
 		ActivityArn:  actARN,
-		CreationDate: float64(time.Now().Unix()),
+		CreationDate: epochNow(),
 	}
 	b.activities.Put(a)
 	actIdx[name] = actARN
@@ -205,7 +205,10 @@ func (b *InMemoryBackend) ListActivities(
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
-	acts, token := paginate(all, nextToken, maxResults)
+	acts, token, pageErr := paginate(all, nextToken, maxResults)
+	if pageErr != nil {
+		return nil, "", pageErr
+	}
 
 	return acts, token, nil
 }

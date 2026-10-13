@@ -85,7 +85,7 @@ func TestQuickSight_DataSources(t *testing.T) {
 				t.Helper()
 				assert.Contains(t, body["Arn"], "arn:aws:quicksight:us-east-1:000000000000:datasource/ds1")
 				assert.Equal(t, "ds1", body["DataSourceId"])
-				assert.Equal(t, "CREATION_SUCCESSFUL", body["CreationStatus"])
+				assert.Equal(t, "CREATION_IN_PROGRESS", body["CreationStatus"])
 			},
 		},
 		{

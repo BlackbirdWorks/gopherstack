@@ -80,6 +80,7 @@ type StorageBackend interface {
 		target HandshakeParty, params TransferResponsibilityParams,
 	) (*Handshake, error)
 	LeaveOrganization() error
+	LeaveOrganizationAs(accountID string) error
 	ListHandshakesForAccount(actionTypeFilter string) ([]*Handshake, error)
 	ListHandshakesForOrganization(actionTypeFilter string) ([]*Handshake, error)
 	ListInboundResponsibilityTransfers(transferType, id string) ([]*ResponsibilityTransfer, error)

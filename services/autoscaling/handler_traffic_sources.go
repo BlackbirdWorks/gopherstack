@@ -3,8 +3,6 @@ package autoscaling
 import (
 	"encoding/xml"
 	"net/url"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // defaultTSMaxRecords is DescribeTrafficSources's documented max page size
@@ -49,7 +47,10 @@ func (h *Handler) handleDescribeTrafficSources(vals url.Values) (any, error) {
 		}
 	}
 
-	p := page.New(sources, vals.Get("NextToken"), maxRecords, defaultTSMaxRecords)
+	p, pageErr := newPage(vals, sources, maxRecords, defaultTSMaxRecords)
+	if pageErr != nil {
+		return nil, pageErr
+	}
 
 	members := make([]xmlTrafficSourceState, 0, len(p.Data))
 	for _, s := range p.Data {

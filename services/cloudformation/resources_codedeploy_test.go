@@ -1,6 +1,7 @@
 package cloudformation_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -134,7 +135,12 @@ func TestCreateStack_CodeDeployNilBackend(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			outputs := createStackAndGetOutputs(t, client, "codedeploy-nil-"+tt.name, tt.tmpl)
+			outputs := createStackAndGetOutputs(
+				t,
+				client,
+				"codedeploy-nil-"+strings.ReplaceAll(tt.name, "_", "-"),
+				tt.tmpl,
+			)
 			assert.NotEmpty(t, outputs["Id"])
 		})
 	}

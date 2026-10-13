@@ -105,7 +105,7 @@ func TestCreateApplication_MissingAuthor(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Contains(t, resp["message"], "author is required")
+	assert.Contains(t, resp["message"], "Author is required")
 }
 
 func TestCreateApplication_MissingDescription(t *testing.T) {
@@ -120,7 +120,7 @@ func TestCreateApplication_MissingDescription(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Contains(t, resp["message"], "description is required")
+	assert.Contains(t, resp["message"], "Description is required")
 }
 
 func TestCreateApplication_WithLabels(t *testing.T) {

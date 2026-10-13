@@ -133,16 +133,20 @@ func TestElasticsearchHandler_UpgradeAndSoftwareUpdate_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
-	createTestDomainName(t, h, "upgrade-state-domain")
+	mk := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain", map[string]any{
+		"DomainName": "upgrade-state-domain", "ElasticsearchVersion": "7.4",
+	})
+	mk.Body.Close()
+	require.Equal(t, http.StatusOK, mk.StatusCode)
 
 	resp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/upgradeDomain", map[string]any{
-		"DomainName": "upgrade-state-domain", "TargetVersion": "7.11",
+		"DomainName": "upgrade-state-domain", "TargetVersion": "7.10",
 	})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
 	resp = doRequest(t, h, http.MethodGet, "/2015-01-01/es/domain/upgrade-state-domain", nil)
-	assert.Equal(t, "7.11", readJSONBody(t, resp)["DomainStatus"].(map[string]any)["ElasticsearchVersion"])
+	assert.Equal(t, "7.10", readJSONBody(t, resp)["DomainStatus"].(map[string]any)["ElasticsearchVersion"])
 
 	resp = doRequest(t, h, http.MethodPost, "/2015-01-01/es/serviceSoftwareUpdate/start", map[string]any{
 		"DomainName": "missing-domain",

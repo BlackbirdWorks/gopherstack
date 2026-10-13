@@ -32,7 +32,7 @@ func TestBackend_ListRegions_EmptyResult(t *testing.T) {
 
 	b := account.NewInMemoryBackend("000000000000", "us-east-1")
 
-	regions, next, err := b.ListRegions([]account.RegionOptStatus{account.RegionOptStatusDisabled}, 0, "")
+	regions, next, err := b.ListRegions([]account.RegionOptStatus{account.RegionOptStatusEnabling}, 0, "")
 	require.NoError(t, err)
 	assert.Empty(t, regions)
 	assert.Empty(t, next)

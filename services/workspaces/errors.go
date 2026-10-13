@@ -1,6 +1,9 @@
 package workspaces
 
 import (
+	"errors"
+	"strings"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -85,3 +88,55 @@ var (
 	errAddInNotFound       = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	errAccountLinkNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 )
+
+type sentinelMessage struct {
+	err error
+	msg string
+}
+
+func sentinelMessages() []sentinelMessage {
+	return []sentinelMessage{
+		{ErrWorkspaceNotFound, "The specified WorkSpace cannot be found."},
+		{errDirectoryNotFound, "The specified directory is not registered."},
+		{errDirectoryAlreadyRegistered, "The specified directory is already registered."},
+		{errDirectoryHasWorkspaces, "The directory still has WorkSpaces registered to it; terminate them first."},
+		{errIpGroupNotFound, "The specified IP access control group cannot be found."},
+		{errBundleNotFound, "The specified bundle cannot be found."},
+		{errImageNotFound, "The specified image cannot be found."},
+		{errConnAliasNotFound, "The specified connection alias cannot be found."},
+		{errIPGroupAssociatedWithDirectory, "The IP access control group is still associated with a directory."},
+		{errBundleInUse, "The bundle is still in use by a WorkSpace."},
+		{errImageInUse, "The image is still referenced by a bundle."},
+		{errConnAliasInUse, "The connection alias is still shared or associated with a directory."},
+		{errPoolNotFound, "The specified WorkSpaces pool cannot be found."},
+		{errPoolSessionNotFound, "The specified pool session cannot be found."},
+		{errAddInNotFound, "The specified Connect client add-in cannot be found."},
+		{errAccountLinkNotFound, "The specified account link cannot be found."},
+	}
+}
+
+// errMessage turns a bare-code sentinel into a human-readable message.
+func errMessage(err error) string {
+	msg := err.Error()
+	for _, code := range []string{
+		errResourceNotFound, errInvalidParameterValues, errResourceAlreadyExists, errInvalidResourceState,
+	} {
+		if rest, ok := strings.CutPrefix(msg, code+": "); ok {
+			return rest
+		}
+	}
+
+	switch msg {
+	case errResourceNotFound, errInvalidParameterValues, errResourceAlreadyExists, errInvalidResourceState:
+	default:
+		return msg
+	}
+
+	for _, m := range sentinelMessages() {
+		if errors.Is(err, m.err) {
+			return m.msg
+		}
+	}
+
+	return msg
+}

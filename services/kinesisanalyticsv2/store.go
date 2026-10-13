@@ -53,17 +53,18 @@ const kav2DefaultPageSize = 50
 // doc and .claude/memories/pkgs-catalog.md. Neither was persisted before
 // this conversion and neither is persisted after it (see persistence.go).
 type InMemoryBackend struct {
+	registry             *store.Registry
 	applications         *store.Table[Application]
 	applicationsByRegion *store.Index[Application]
 	applicationsByARN    *store.Index[Application]
 	snapshots            *store.Table[Snapshot]
 	snapshotsByApp       *store.Index[Snapshot]
-	registry             *store.Registry
-	operations           map[string]map[string][]*ApplicationOperation // region → applicationName → []Operation
-	versions             map[string]map[string][]*Application          // region → applicationName → []version
+	operations           map[string]map[string][]*ApplicationOperation
+	versions             map[string]map[string][]*Application
 	mu                   *lockmetrics.RWMutex
 	accountID            string
 	defaultRegion        string
+	lifecycleDelay       time.Duration
 	nextID               int64
 }
 
@@ -80,6 +81,27 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	registerAllTables(b)
 
 	return b
+}
+
+// SetLifecycleDelay sets how long Start, Stop and Update report STARTING, STOPPING and
+// UPDATING before settling; the default 0 settles instantly.
+func (b *InMemoryBackend) SetLifecycleDelay(d time.Duration) {
+	b.mu.Lock("SetLifecycleDelay")
+	defer b.mu.Unlock()
+
+	b.lifecycleDelay = d
+}
+
+// beginTransition opens a transitional-status window on app; callers hold b.mu.
+func (b *InMemoryBackend) beginTransition(app *Application, status string) {
+	if b.lifecycleDelay <= 0 {
+		app.transitionalStatus = ""
+
+		return
+	}
+
+	app.transitionalStatus = status
+	app.transitionUntil = time.Now().Add(b.lifecycleDelay)
 }
 
 // Region returns the backend default region.

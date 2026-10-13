@@ -123,6 +123,10 @@ func (b *InMemoryBackend) CreateSourceLocation(
 		return nil, fmt.Errorf("%w: SourceLocationName required", ErrInvalidParameter)
 	}
 
+	if err := validateResourceName("SourceLocationName", name); err != nil {
+		return nil, err
+	}
+
 	if baseURL == "" {
 		return nil, fmt.Errorf("%w: HttpConfiguration.BaseUrl required", ErrInvalidParameter)
 	}

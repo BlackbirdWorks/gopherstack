@@ -21,6 +21,9 @@ import (
 // incompatible snapshot is.
 const elasticsearchSnapshotVersion = 1
 
+// packageAssociationDetails is region -> package ID -> domain name -> association.
+type packageAssociationDetails = map[string]map[string]map[string]PackageAssociation
+
 // regionalDTO wraps a region-nested resource for JSON round-tripping through
 // store.Registry. It is shared by every converted resource collection here
 // (Domain, Package, InboundConnection, OutboundConnection, VpcEndpoint,
@@ -93,14 +96,15 @@ func buildPersistenceDTORegistry() persistenceDTOTables {
 // snapshot from an incompatible (older or newer) build of this backend as
 // though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables              map[string]json.RawMessage     `json:"tables"`
-	PackagesByName      map[string]map[string]string   `json:"packagesByName"`
-	PackageAssociations map[string]map[string][]string `json:"packageAssociations"`
-	VpcAccess           map[string]map[string][]string `json:"vpcAccess"`
-	AccountID           string                         `json:"accountID"`
-	Region              string                         `json:"region"`
-	NextID              int                            `json:"nextID"`
-	Version             int                            `json:"version"`
+	Tables                    map[string]json.RawMessage     `json:"tables"`
+	PackagesByName            map[string]map[string]string   `json:"packagesByName"`
+	PackageAssociations       map[string]map[string][]string `json:"packageAssociations"`
+	PackageAssociationDetails packageAssociationDetails      `json:"packageAssociationDetails,omitempty"`
+	VpcAccess                 map[string]map[string][]string `json:"vpcAccess"`
+	AccountID                 string                         `json:"accountID"`
+	Region                    string                         `json:"region"`
+	NextID                    int                            `json:"nextID"`
+	Version                   int                            `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON. It implements
@@ -125,14 +129,15 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:             elasticsearchSnapshotVersion,
-		Tables:              tables,
-		PackagesByName:      b.packagesByName,
-		PackageAssociations: b.packageAssociations,
-		VpcAccess:           b.vpcAccess,
-		AccountID:           b.accountID,
-		Region:              b.region,
-		NextID:              b.nextID,
+		Version:                   elasticsearchSnapshotVersion,
+		Tables:                    tables,
+		PackagesByName:            b.packagesByName,
+		PackageAssociations:       b.packageAssociations,
+		PackageAssociationDetails: b.packageAssociationMeta,
+		VpcAccess:                 b.vpcAccess,
+		AccountID:                 b.accountID,
+		Region:                    b.region,
+		NextID:                    b.nextID,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "elasticsearch", snap)
@@ -199,6 +204,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.arnIndex = make(map[string]map[string]string)
 		b.packagesByName = make(map[string]map[string]string)
 		b.packageAssociations = make(map[string]map[string][]string)
+		b.packageAssociationMeta = make(map[string]map[string]map[string]PackageAssociation)
 		b.vpcAccess = make(map[string]map[string][]string)
 		b.nextID = 0
 
@@ -298,6 +304,11 @@ func (b *InMemoryBackend) restoreRawMaps(snap *backendSnapshot) {
 	b.packageAssociations = snap.PackageAssociations
 	if b.packageAssociations == nil {
 		b.packageAssociations = make(map[string]map[string][]string)
+	}
+
+	b.packageAssociationMeta = snap.PackageAssociationDetails
+	if b.packageAssociationMeta == nil {
+		b.packageAssociationMeta = make(map[string]map[string]map[string]PackageAssociation)
 	}
 
 	b.vpcAccess = snap.VpcAccess

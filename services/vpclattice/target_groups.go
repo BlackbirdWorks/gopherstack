@@ -32,12 +32,14 @@ func (b *InMemoryBackend) CreateTargetGroup(
 	config *TargetGroupConfig,
 	tags map[string]string,
 ) (*TargetGroup, error) {
-	if name == "" {
-		return nil, ErrInvalidParameter
+	if err := validateName("target group", name, idPrefixTargetGroup, maxTargetGroupName); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateTargetGroup")
 	defer b.mu.Unlock()
+
+	b.settleLocked()
 
 	if len(b.tgsByName.Get(name)) > 0 {
 		return nil, ErrAlreadyExists
@@ -50,12 +52,14 @@ func (b *InMemoryBackend) CreateTargetGroup(
 	region := b.regionFor(ctx)
 	tgARN := arn.Build(arnService, region, b.accountID, resourceTargetGroup+"/"+id)
 
+	until := b.pendingUntil()
 	tg := &storedTargetGroup{
 		ARN:           tgARN,
 		ID:            id,
 		Name:          name,
 		Type:          tgType,
-		Status:        tgStatusActive,
+		Status:        createStatus(until),
+		StatusUntil:   until,
 		Config:        config,
 		Tags:          copyTags(tags),
 		CreatedAt:     now,
@@ -72,8 +76,10 @@ func (b *InMemoryBackend) CreateTargetGroup(
 
 // GetTargetGroup returns a target group.
 func (b *InMemoryBackend) GetTargetGroup(tgID string) (*TargetGroup, error) {
-	b.mu.RLock("GetTargetGroup")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetTargetGroup")
+	defer b.mu.Unlock()
+
+	b.settleLocked()
 
 	id, ok := b.resolveTargetGroupID(tgID)
 	if !ok {
@@ -92,6 +98,8 @@ func (b *InMemoryBackend) UpdateTargetGroup(
 ) (*TargetGroup, error) {
 	b.mu.Lock("UpdateTargetGroup")
 	defer b.mu.Unlock()
+
+	b.settleLocked()
 
 	id, ok := b.resolveTargetGroupID(tgID)
 	if !ok {
@@ -122,6 +130,8 @@ func (b *InMemoryBackend) DeleteTargetGroup(tgID string) error {
 	b.mu.Lock("DeleteTargetGroup")
 	defer b.mu.Unlock()
 
+	b.settleLocked()
+
 	id, ok := b.resolveTargetGroupID(tgID)
 	if !ok {
 		return ErrNotFound
@@ -133,11 +143,22 @@ func (b *InMemoryBackend) DeleteTargetGroup(tgID string) error {
 		return ErrDependencyConflict
 	}
 
-	b.targetGroups.Delete(id)
-	delete(b.targets, id)
-	delete(b.tags, tg.ARN)
+	if until := b.pendingUntil(); !until.IsZero() {
+		tg.Status, tg.StatusUntil = statusDeleteInProgress, until
+		tg.LastUpdatedAt = time.Now().UTC()
+
+		return nil
+	}
+
+	b.removeTargetGroupLocked(tg)
 
 	return nil
+}
+
+func (b *InMemoryBackend) removeTargetGroupLocked(tg *storedTargetGroup) {
+	b.targetGroups.Delete(tg.ID)
+	delete(b.targets, tg.ID)
+	delete(b.tags, tg.ARN)
 }
 
 // targetGroupInUse reports whether any listener rule forwards to the given
@@ -172,8 +193,10 @@ func (b *InMemoryBackend) ListTargetGroups(
 	maxResults int32,
 	nextToken string,
 ) ([]*TargetGroupSummary, string, error) {
-	b.mu.RLock("ListTargetGroups")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListTargetGroups")
+	defer b.mu.Unlock()
+
+	b.settleLocked()
 
 	region := b.regionFor(ctx)
 	all := make([]*TargetGroupSummary, 0, b.targetGroups.Len())

@@ -15,15 +15,15 @@ const (
 	distTransitionTick = 10 * time.Millisecond
 )
 
-// waitForDistributionStatus polls GetDistribution until it reports want.
-func waitForDistributionStatus(t *testing.T, b *cloudfront.InMemoryBackend, distID, want string) {
+// waitForDistributionDeployed polls GetDistribution until the distribution is Deployed.
+func waitForDistributionDeployed(t *testing.T, b *cloudfront.InMemoryBackend, distID string) {
 	t.Helper()
 
 	require.Eventually(t, func() bool {
 		d, err := b.GetDistribution(distID)
 
-		return err == nil && d.Status == want
-	}, distTransitionWait, distTransitionTick, "distribution never reached status %s", want)
+		return err == nil && d.Status == "Deployed"
+	}, distTransitionWait, distTransitionTick, "distribution never reached Deployed")
 }
 
 // TestDistributionStatusTransition covers UpdateDistribution's async
@@ -42,7 +42,7 @@ func TestDistributionStatusTransition(t *testing.T) {
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend, distID string) {
 				t.Helper()
 
-				waitForDistributionStatus(t, b, distID, "Deployed")
+				waitForDistributionDeployed(t, b, distID)
 			},
 		},
 		{
@@ -61,7 +61,7 @@ func TestDistributionStatusTransition(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, "InProgress", d.Status, "restore should preserve the in-flight InProgress status")
 
-				waitForDistributionStatus(t, restored, distID, "Deployed")
+				waitForDistributionDeployed(t, restored, distID)
 			},
 		},
 	}
@@ -75,7 +75,8 @@ func TestDistributionStatusTransition(t *testing.T) {
 			callerRef := "ref-transition-" + tt.name
 			d, err := b.CreateDistribution(callerRef, "orig", true, minimalDistConfig(callerRef, "orig", true))
 			require.NoError(t, err)
-			require.Equal(t, "Deployed", d.Status)
+			require.Equal(t, "InProgress", d.Status, "CreateDistribution returns the real InProgress status")
+			waitForDistributionDeployed(t, b, d.ID)
 
 			upd, err := b.UpdateDistribution(d.ID, "updated", true, minimalDistConfig(callerRef, "updated", true))
 			require.NoError(t, err)

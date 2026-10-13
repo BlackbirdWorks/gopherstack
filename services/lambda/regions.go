@@ -101,13 +101,20 @@ func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend) {
 
 	b.s3Fetcher = home.s3Fetcher
 	b.ecrResolver = home.ecrResolver
+	b.credIssuer = home.credIssuer
+	b.endpointURL = home.endpointURL
 	b.dnsRegistrar = home.dnsRegistrar
 	b.asyncDelivery = home.asyncDelivery
+	b.esmS3 = home.esmS3
 	b.sigV4Secret = home.sigV4Secret
 	b.activationDelay = home.activationDelay
 	b.pcActivationDelay = home.pcActivationDelay
 	b.regionBackend = home.regionBackend
 	b.cwLogs = home.cwLogs
+
+	if e := home.metrics.Emitter(); e != nil {
+		b.metrics.Set(e)
+	}
 
 	if r, ok := home.cwLogs.(regionalCWLogs); ok {
 		b.cwLogs = r.ForRegion(b.region)
@@ -150,7 +157,9 @@ func (b *InMemoryBackend) startWorkers(ctx context.Context) {
 			return
 		}
 
-		go NewJanitor(b, b.settings).Run(jctx)
+		wait := NewJanitor(b, b.settings).Start(jctx)
+
+		go wait()
 	})
 }
 

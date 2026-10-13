@@ -1,6 +1,7 @@
 package appsync
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -347,23 +348,24 @@ type GraphqlAPI struct {
 // shadow the embedded fields and, with omitempty, drop the keys.
 type wireGraphqlAPI struct {
 	*GraphqlAPI
-	Region    *struct{} `json:"region,omitempty"`
-	CreatedAt *struct{} `json:"createdAt,omitempty"`
-	UpdatedAt *struct{} `json:"updatedAt,omitempty"`
+	Region       *struct{} `json:"region,omitempty"`
+	CreatedAt    *struct{} `json:"createdAt,omitempty"`
+	UpdatedAt    *struct{} `json:"updatedAt,omitempty"`
+	WafWebACLArn string    `json:"wafWebAclArn,omitempty"`
 }
 
-func toWireGraphqlAPI(api *GraphqlAPI) *wireGraphqlAPI {
+func (h *Handler) toWireGraphqlAPI(ctx context.Context, api *GraphqlAPI) *wireGraphqlAPI {
 	if api == nil {
 		return nil
 	}
 
-	return &wireGraphqlAPI{GraphqlAPI: api}
+	return &wireGraphqlAPI{GraphqlAPI: api, WafWebACLArn: h.webACLARN(ctx, api.ARN)}
 }
 
-func toWireGraphqlAPIs(apis []*GraphqlAPI) []*wireGraphqlAPI {
+func (h *Handler) toWireGraphqlAPIs(ctx context.Context, apis []*GraphqlAPI) []*wireGraphqlAPI {
 	out := make([]*wireGraphqlAPI, len(apis))
 	for i, api := range apis {
-		out[i] = toWireGraphqlAPI(api)
+		out[i] = h.toWireGraphqlAPI(ctx, api)
 	}
 
 	return out
@@ -588,17 +590,15 @@ type EventConfig struct {
 
 // API represents an AppSync Event API.
 type API struct {
-	Tags        map[string]string `json:"tags,omitempty"`
-	DNS         map[string]string `json:"dns,omitempty"`
-	EventConfig *EventConfig      `json:"eventConfig,omitempty"`
-	Name        string            `json:"name"`
-	APIID       string            `json:"apiId"`
-	// ARN's wire key is "apiArn", not "arn" -- verified against the real
-	// deserializer (appsync@v1.56.4 deserializers.go:12050), which is the only
-	// field name real clients recognize to discover an Event API's ARN.
-	ARN          string  `json:"apiArn"`
-	OwnerContact string  `json:"ownerContact,omitempty"`
-	Created      float64 `json:"created,omitempty"` // epoch seconds
+	Tags         map[string]string `json:"tags,omitempty"`
+	DNS          map[string]string `json:"dns,omitempty"`
+	EventConfig  *EventConfig      `json:"eventConfig,omitempty"`
+	Name         string            `json:"name"`
+	APIID        string            `json:"apiId"`
+	ARN          string            `json:"apiArn"`
+	OwnerContact string            `json:"ownerContact,omitempty"`
+	WafWebACLArn string            `json:"wafWebAclArn,omitempty"`
+	Created      float64           `json:"created,omitempty"`
 }
 
 // Integration is the data source integration for an event handler.

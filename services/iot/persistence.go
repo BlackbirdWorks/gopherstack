@@ -38,6 +38,7 @@ type backendSnapshot struct {
 	Tables                          map[string]json.RawMessage                    `json:"tables"`
 	AuditTasks                      map[string]string                             `json:"auditTasks"`
 	ClientRequestTokens             map[string]string                             `json:"clientRequestTokens,omitempty"`
+	OpReplay                        []string                                      `json:"opReplay,omitempty"`
 	MetricValues                    map[string][]*MetricDatapoint                 `json:"metricValues"`
 	CertificateTransfers            map[string]string                             `json:"certificateTransfers"`
 	ThingBillingGroups              map[string]string                             `json:"thingBillingGroups"`
@@ -141,6 +142,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		AuditMitigationTasks:   copyStringMap(b.auditMitigationTasks),
 		AuditTasks:             copyStringMap(b.auditTasks),
 		ClientRequestTokens:    copyStringMap(b.clientRequestTokens),
+		OpReplay:               b.opReplay.snapshot(),
 
 		ThingIndexingConfiguration:      thingIndexingConfig,
 		ThingGroupIndexingConfiguration: thingGroupIndexingConfig,
@@ -239,6 +241,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.auditMitigationTasks = copyStringMap(snap.AuditMitigationTasks)
 	b.auditTasks = copyStringMap(snap.AuditTasks)
 	b.clientRequestTokens = copyStringMap(snap.ClientRequestTokens)
+	b.opReplay.restore(snap.OpReplay)
 
 	if snap.ThingIndexingConfiguration != nil {
 		b.thingIndexingConfig = cloneThingIndexingConfiguration(snap.ThingIndexingConfiguration)

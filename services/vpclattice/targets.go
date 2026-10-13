@@ -16,13 +16,24 @@ func (b *InMemoryBackend) RegisterTargets(
 	b.mu.Lock("RegisterTargets")
 	defer b.mu.Unlock()
 
+	b.settleLocked()
+
 	id, ok := b.resolveTargetGroupID(tgID)
 	if !ok {
 		return nil, ErrNotFound
 	}
 
+	for _, t := range targets {
+		if t.Port != 0 {
+			if err := validatePort(t.Port); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	failures := make([]*TargetFailure, 0)
 	existing := b.targets[id]
+	until := b.pendingUntil()
 
 	for _, t := range targets {
 		// check for duplicate
@@ -46,10 +57,16 @@ func (b *InMemoryBackend) RegisterTargets(
 			continue
 		}
 
+		status := targetStatusHealthy
+		if !until.IsZero() {
+			status = targetStatusInitial
+		}
+
 		existing = append(existing, &storedTarget{
-			ID:     t.ID,
-			Port:   t.Port,
-			Status: targetStatusHealthy,
+			ID:          t.ID,
+			Port:        t.Port,
+			Status:      status,
+			StatusUntil: until,
 		})
 	}
 
@@ -126,6 +143,8 @@ func (b *InMemoryBackend) DeregisterTargets(
 	b.mu.Lock("DeregisterTargets")
 	defer b.mu.Unlock()
 
+	b.settleLocked()
+
 	id, ok := b.resolveTargetGroupID(tgID)
 	if !ok {
 		return nil, ErrNotFound
@@ -133,6 +152,19 @@ func (b *InMemoryBackend) DeregisterTargets(
 
 	existing := b.targets[id]
 	failures := missingTargetFailures(existing, targets)
+
+	if until := b.pendingUntil(); !until.IsZero() {
+		for _, e := range existing {
+			for _, t := range targets {
+				if targetMatches(e, t) {
+					e.Status, e.StatusUntil = targetStatusDraining, until
+				}
+			}
+		}
+
+		return failures, nil
+	}
+
 	b.targets[id] = remainingTargets(existing, targets)
 
 	return failures, nil
@@ -146,8 +178,10 @@ func (b *InMemoryBackend) ListTargets(
 	maxResults int32,
 	nextToken string,
 ) ([]*TargetSummary, string, error) {
-	b.mu.RLock("ListTargets")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListTargets")
+	defer b.mu.Unlock()
+
+	b.settleLocked()
 
 	id, ok := b.resolveTargetGroupID(tgID)
 	if !ok {

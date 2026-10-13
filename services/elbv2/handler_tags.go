@@ -4,6 +4,8 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 func (h *Handler) handleAddTags(vals url.Values) (any, error) {
@@ -13,6 +15,12 @@ func (h *Handler) handleAddTags(vals url.Values) (any, error) {
 	}
 
 	kvs := parseTagKVs(vals)
+
+	for _, kv := range kvs {
+		if tags.IsPinnedIDKey(kv.Key) {
+			return nil, fmt.Errorf("%w: tag %q is only valid on CreateLoadBalancer", ErrInvalidParameter, kv.Key)
+		}
+	}
 
 	if err := h.Backend.AddTags(resourceArns, kvs); err != nil {
 		return nil, err

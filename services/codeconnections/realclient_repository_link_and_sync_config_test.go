@@ -257,6 +257,7 @@ func TestRealClient_RepositoryLinkAndSyncConfig(t *testing.T) {
 			blocker, err := h.Backend.CreateSyncBlocker(
 				ctx, "slice25-resource", string(codeconnectionstypes.SyncConfigurationTypeCfnStackSync),
 				"AUTOMATED", "conflicting change",
+				codeconnections.SyncBlockerContext{Key: "Branch", Value: "develop"},
 			)
 			require.NoError(t, err)
 
@@ -270,6 +271,9 @@ func TestRealClient_RepositoryLinkAndSyncConfig(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, summary.SyncBlockerSummary.LatestBlockers, 1)
 			assert.Equal(t, blocker.ID, aws.ToString(summary.SyncBlockerSummary.LatestBlockers[0].Id))
+			require.Len(t, summary.SyncBlockerSummary.LatestBlockers[0].Contexts, 1)
+			assert.Equal(t, "Branch", aws.ToString(summary.SyncBlockerSummary.LatestBlockers[0].Contexts[0].Key))
+			assert.Equal(t, "develop", aws.ToString(summary.SyncBlockerSummary.LatestBlockers[0].Contexts[0].Value))
 
 			resolved, err := client.UpdateSyncBlocker(ctx, &codeconnectionssdk.UpdateSyncBlockerInput{
 				Id:             aws.String(blocker.ID),

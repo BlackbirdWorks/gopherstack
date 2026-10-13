@@ -3,6 +3,7 @@ package ec2
 import (
 	"errors"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 
@@ -86,10 +87,34 @@ func (b *InMemoryBackend) DescribeNetworkInterfaces(ids []string) []*NetworkInte
 
 // ---- network interface full CRUD ----
 
+// NetworkInterfaceOptions are the optional CreateNetworkInterface inputs.
+type NetworkInterfaceOptions struct {
+	Description      string
+	InterfaceType    string
+	PrivateIP        string
+	SecondaryIPs     []string
+	SecurityGroupIDs []string
+	SecondaryCount   int
+}
+
 // CreateNetworkInterface creates a new ENI in the given subnet.
 func (b *InMemoryBackend) CreateNetworkInterface(
 	subnetID, description string,
 	interfaceType ...string,
+) (*NetworkInterface, error) {
+	opts := NetworkInterfaceOptions{Description: description}
+	if len(interfaceType) > 0 {
+		opts.InterfaceType = interfaceType[0]
+	}
+
+	return b.CreateNetworkInterfaceWithOptions(subnetID, opts)
+}
+
+// CreateNetworkInterfaceWithOptions creates a new ENI honouring the optional private IPs and
+// security groups; with no groups the VPC's default security group applies.
+func (b *InMemoryBackend) CreateNetworkInterfaceWithOptions(
+	subnetID string,
+	opts NetworkInterfaceOptions,
 ) (*NetworkInterface, error) {
 	if subnetID == "" {
 		return nil, fmt.Errorf("%w: SubnetId is required", ErrInvalidParameter)
@@ -103,28 +128,111 @@ func (b *InMemoryBackend) CreateNetworkInterface(
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
+	groups, err := b.resolveENIGroupsLocked(sub.VPCID, opts.SecurityGroupIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	primary, err := b.claimPrivateIPLocked(sub, opts.PrivateIP)
+	if err != nil {
+		return nil, err
+	}
+
 	ifaceType := "interface" // api_op_CreateNetworkInterface.go: "The default is interface."
-	if len(interfaceType) > 0 && interfaceType[0] != "" {
-		ifaceType = interfaceType[0]
+	if opts.InterfaceType != "" {
+		ifaceType = opts.InterfaceType
 	}
 
 	id := newENIID()
 	eni := &NetworkInterface{
-		ID:              id,
-		SubnetID:        subnetID,
-		VPCID:           sub.VPCID,
-		PrivateIP:       b.allocPrivateIP(),
-		Description:     description,
-		Status:          stateAvailable,
-		OwnerID:         b.AccountID,
-		SourceDestCheck: true,
-		InterfaceType:   ifaceType,
+		ID:               id,
+		SubnetID:         subnetID,
+		VPCID:            sub.VPCID,
+		PrivateIP:        primary,
+		Description:      opts.Description,
+		Status:           stateAvailable,
+		OwnerID:          b.AccountID,
+		SourceDestCheck:  true,
+		InterfaceType:    ifaceType,
+		SecurityGroupIDs: groups,
 	}
 	b.networkInterfaces.Put(eni)
+
+	for _, ip := range opts.SecondaryIPs {
+		claimed, claimErr := b.claimPrivateIPLocked(sub, ip)
+		if claimErr != nil {
+			b.networkInterfaces.Delete(id)
+
+			return nil, claimErr
+		}
+
+		eni.SecondaryPrivateIPs = append(eni.SecondaryPrivateIPs, claimed)
+	}
+
+	for range opts.SecondaryCount {
+		eni.SecondaryPrivateIPs = append(eni.SecondaryPrivateIPs, b.allocPrivateIPInSubnet(subnetID))
+	}
+
 	b.indexENILocked(id, eni)
 	b.indexENIByVPCLocked(id, eni)
 
 	return eni, nil
+}
+
+func (b *InMemoryBackend) resolveENIGroupsLocked(vpcID string, ids []string) ([]string, error) {
+	if len(ids) == 0 {
+		if def := b.defaultSecurityGroupIDLocked(vpcID); def != "" {
+			return []string{def}, nil
+		}
+
+		return nil, nil
+	}
+
+	for _, id := range ids {
+		sg, ok := b.securityGroups.Get(id)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, id)
+		}
+
+		if sg.VPCID != vpcID {
+			return nil, fmt.Errorf("%w: security group %s and subnet belong to different networks",
+				ErrInvalidParameter, id)
+		}
+	}
+
+	return append([]string(nil), ids...), nil
+}
+
+func (b *InMemoryBackend) defaultSecurityGroupIDLocked(vpcID string) string {
+	for sgID := range b.sgIDsByVPC[vpcID] {
+		if sg, ok := b.securityGroups.Get(sgID); ok && sg.Name == defaultSecurityGroupName {
+			return sgID
+		}
+	}
+
+	return ""
+}
+
+// claimPrivateIPLocked validates a requested address against the subnet and returns it, or
+// allocates the next free one when ip is empty.
+func (b *InMemoryBackend) claimPrivateIPLocked(sub *Subnet, ip string) (string, error) {
+	if ip == "" {
+		return b.allocPrivateIPInSubnet(subnetsKeyFn(sub)), nil
+	}
+
+	parsed := net.ParseIP(ip)
+	_, ipNet, cidrErr := net.ParseCIDR(sub.CIDRBlock)
+
+	if parsed == nil || parsed.To4() == nil || cidrErr != nil || !ipNet.Contains(parsed) {
+		return "", fmt.Errorf("%w: address %s does not fall within the subnet's address range",
+			ErrInvalidParameter, ip)
+	}
+
+	if b.usedPrivateIPsLocked(subnetsKeyFn(sub))[ip] {
+		return "", fmt.Errorf("%w: address %s is in use", ErrAddressInUse, ip)
+	}
+
+	return ip, nil
 }
 
 // DeleteNetworkInterface removes a network interface by ID.
@@ -263,7 +371,7 @@ func (b *InMemoryBackend) AssignPrivateIPAddresses(eniID string, count int, ips 
 
 	assigned := make([]string, 0, count)
 	for range count {
-		ip := b.allocPrivateIP()
+		ip := b.allocPrivateIPInSubnet(eni.SubnetID)
 		eni.SecondaryPrivateIPs = append(eni.SecondaryPrivateIPs, ip)
 		assigned = append(assigned, ip)
 	}
@@ -620,6 +728,20 @@ func (b *InMemoryBackend) detachVolumesAndEIPsLocked(instanceID string) {
 		if addr.InstanceID == instanceID {
 			addr.AssociationID = ""
 			addr.InstanceID = ""
+			addr.NetworkInterfaceID = ""
+			addr.PrivateIP = ""
 		}
 	}
+}
+
+// SubnetAddressesInUse counts the private IPv4 addresses instances, network interfaces and NAT
+// gateways hold in a subnet.
+func (b *InMemoryBackend) SubnetAddressesInUse(subnetID string) int {
+	b.mu.RLock("SubnetAddressesInUse")
+	defer b.mu.RUnlock()
+
+	used := b.usedPrivateIPsLocked(subnetID)
+	delete(used, "")
+
+	return len(used)
 }

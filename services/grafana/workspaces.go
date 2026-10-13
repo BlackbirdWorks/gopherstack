@@ -58,6 +58,20 @@ func validateCreateWorkspaceRequest(req *createWorkspaceRequest) error {
 		return err
 	}
 
+	if err := validateWorkspaceName(req.WorkspaceName); err != nil {
+		return err
+	}
+
+	if err := validateEnumList("workspaceDataSources", req.WorkspaceDataSources, validDataSources); err != nil {
+		return err
+	}
+
+	if err := validateEnumList(
+		"workspaceNotificationDestinations", req.WorkspaceNotificationDestinations, validNotificationDestinations,
+	); err != nil {
+		return err
+	}
+
 	if req.AccountAccessType == AccountAccessTypeOrganization && len(req.WorkspaceOrganizationalUnits) == 0 {
 		return validationError("workspaceOrganizationalUnits is required when accountAccessType is ORGANIZATION")
 	}
@@ -181,7 +195,7 @@ func (b *InMemoryBackend) CreateWorkspace(req *createWorkspaceRequest) (*Workspa
 // workspace still has fromStatus when the timer fires (a subsequent
 // operation may have already moved it on).
 func (b *InMemoryBackend) scheduleWorkspaceTransition(id, fromStatus string) {
-	b.work.After(chaosTransitionOp, workspaceTransitionDelay, func() {
+	b.work.After(chaosTransitionOp, b.transitionDelay(), func() {
 		b.mu.Lock("WorkspaceTransition-async")
 		defer b.mu.Unlock()
 

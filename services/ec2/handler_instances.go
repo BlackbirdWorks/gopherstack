@@ -916,6 +916,7 @@ type instanceStatusItem struct {
 	InstanceState  stateItem             `xml:"instanceState"`
 	SystemStatus   instanceStatusDetails `xml:"systemStatus"`
 	InstanceStatus instanceStatusDetails `xml:"instanceStatus"`
+	AttachedEbs    instanceStatusDetails `xml:"attachedEbsStatus"`
 }
 
 type instanceStatusSet struct {
@@ -1057,6 +1058,7 @@ func (h *Handler) handleDescribeInstanceStatus(vals url.Values, reqID string) (a
 			InstanceState:  stateItem{Code: inst.State.Code, Name: inst.State.Name},
 			SystemStatus:   health,
 			InstanceStatus: health,
+			AttachedEbs:    health,
 		})
 	}
 

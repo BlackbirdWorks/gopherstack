@@ -229,7 +229,7 @@ func (b *InMemoryBackend) GetRemainingFreeTrialDays(detectorID string, accountID
 
 		accounts = append(accounts, map[string]any{
 			keyAccountIDField: id,
-			keyFeatures:       freeTrialFeatures(m.UpdatedAt),
+			keyFeatures:       freeTrialFeatures(m),
 		})
 	}
 
@@ -239,15 +239,41 @@ func (b *InMemoryBackend) GetRemainingFreeTrialDays(detectorID string, accountID
 	}, nil
 }
 
-func freeTrialFeatures(since time.Time) []map[string]any {
-	remaining := freeTrialDaysRemaining(since)
-	out := make([]map[string]any, 0, len(freeTrialBaseFeatures))
+func freeTrialFeatures(m *Member) []map[string]any {
+	out := make([]map[string]any, 0, len(freeTrialBaseFeatures)+len(m.Features))
 
 	for _, name := range freeTrialBaseFeatures {
-		out = append(out, map[string]any{keyName: name, "freeTrialDaysRemaining": remaining})
+		out = append(out, map[string]any{keyName: name, "freeTrialDaysRemaining": freeTrialDaysRemaining(m.UpdatedAt)})
+	}
+
+	for _, f := range m.Features {
+		if f.Status != statusEnabled || !freeTrialOptionalFeatures[f.Name] {
+			continue
+		}
+
+		out = append(
+			out,
+			map[string]any{keyName: f.Name, "freeTrialDaysRemaining": freeTrialDaysRemaining(f.UpdatedAt)},
+		)
 	}
 
 	return out
+}
+
+// freeTrialOptionalFeatures are the toggleable features that appear in
+// types.FreeTrialFeatureResult.
+//
+//nolint:gochecknoglobals // static lookup table
+var freeTrialOptionalFeatures = map[string]bool{
+	"S3_DATA_EVENTS":             true,
+	"EKS_AUDIT_LOGS":             true,
+	"EBS_MALWARE_PROTECTION":     true,
+	"RDS_LOGIN_EVENTS":           true,
+	"LAMBDA_NETWORK_LOGS":        true,
+	"EKS_RUNTIME_MONITORING":     true,
+	"EC2_RUNTIME_MONITORING":     true,
+	"FARGATE_RUNTIME_MONITORING": true,
+	"AI_PROTECTION":              true,
 }
 
 func freeTrialDaysRemaining(since time.Time) int32 {

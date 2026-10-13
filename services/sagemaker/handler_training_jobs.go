@@ -63,6 +63,10 @@ func (h *Handler) handleCreateTrainingJobFull(ctx context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: OutputDataConfig.S3OutputPath is required", errInvalidRequest)
 	}
 
+	if err := validateTrainingJobRequest(&req); err != nil {
+		return nil, err
+	}
+
 	metrics := make([]MetricDefinition, len(req.AlgorithmSpecification.MetricDefinitions))
 	for i, md := range req.AlgorithmSpecification.MetricDefinitions {
 		metrics[i] = MetricDefinition{Name: md.Name, Regex: md.Regex}

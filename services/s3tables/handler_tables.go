@@ -107,6 +107,7 @@ func (h *Handler) handleGetTableEncryption(ctx context.Context, r *http.Request,
 type createTableRequest struct {
 	EncryptionConfiguration   map[string]any    `json:"encryptionConfiguration"`
 	StorageClassConfiguration map[string]any    `json:"storageClassConfiguration"`
+	Metadata                  map[string]any    `json:"metadata"`
 	Tags                      map[string]string `json:"tags"`
 	Name                      string            `json:"name"`
 	Format                    string            `json:"format"`
@@ -134,8 +135,13 @@ func (h *Handler) handleCreateTable(ctx context.Context, r *http.Request, body [
 		req.Format = "ICEBERG"
 	}
 
+	if mErr := validateTableMetadata(req.Metadata); mErr != nil {
+		return nil, mErr
+	}
+
 	table, err := h.Backend.CreateTable(bucketARN, splitNamespace(nsName), req.Name, req.Format, CreateTableOptions{
 		Encryption:   req.EncryptionConfiguration,
+		Metadata:     req.Metadata,
 		StorageClass: storageClassFromConfig(req.StorageClassConfiguration),
 		Tags:         req.Tags,
 	})
@@ -240,10 +246,15 @@ func (h *Handler) handleListTables(ctx context.Context, r *http.Request, _ []byt
 	q := r.URL.Query()
 	namespace := q.Get(keyNamespace)
 
+	limit, limitErr := queryLimit(q, "maxTables")
+	if limitErr != nil {
+		return nil, limitErr
+	}
+
 	pg, err := h.Backend.ListTables(bucketARN, namespace, ListTablesParams{
 		Prefix:            q.Get("prefix"),
 		ContinuationToken: q.Get(keyContinuationToken),
-		MaxTables:         queryInt(q, "maxTables"),
+		MaxTables:         limit,
 	})
 	if err != nil {
 		return nil, err
@@ -444,6 +455,10 @@ func (h *Handler) handlePutTableMaintenanceConfiguration(
 		return nil, fmt.Errorf("%w: value is required", errInvalidRequest)
 	}
 
+	if err := validateMaintenanceStatus(req.Value); err != nil {
+		return nil, err
+	}
+
 	if err := h.Backend.PutTableMaintenanceConfiguration(
 		bucketARN,
 		splitNamespace(nsName),
@@ -506,6 +521,10 @@ func (h *Handler) handlePutTablePolicy(ctx context.Context, r *http.Request, bod
 	var req putTablePolicyRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := validatePolicyDocument(req.ResourcePolicy); err != nil {
+		return nil, err
 	}
 
 	if err := h.Backend.PutTablePolicy(bucketARN, splitNamespace(nsName), name, req.ResourcePolicy); err != nil {

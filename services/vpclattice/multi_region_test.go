@@ -149,7 +149,7 @@ func TestHandler_MultiRegionPersistence(t *testing.T) {
 			createOne(t, src, mrHome, "home")
 
 			if tc.remote {
-				createOne(t, src, "eu-west-1", "eu")
+				createOne(t, src, "eu-west-1", "eux")
 			}
 
 			snap := src.Snapshot(context.Background())
@@ -164,7 +164,7 @@ func TestHandler_MultiRegionPersistence(t *testing.T) {
 			assert.Equal(t, []string{"home"}, names(t, dst, mrHome))
 
 			if tc.remote {
-				assert.Equal(t, []string{"eu"}, names(t, dst, "eu-west-1"))
+				assert.Equal(t, []string{"eux"}, names(t, dst, "eu-west-1"))
 			} else {
 				assert.Empty(t, names(t, dst, "eu-west-1"))
 			}

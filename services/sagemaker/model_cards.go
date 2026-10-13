@@ -36,14 +36,14 @@ type ModelCardSecurityConfig struct {
 // ModelCard represents a SageMaker model card.
 // ModelCard represents a SageMaker model card.
 //
-// CreatedBy (types.UserContext) is "This member is required" on
-// DescribeModelCardOutput but is disclosed absent, not fabricated -- this
-// backend has no IAM-identity model to honestly derive it from, the same
-// class of gap as ModelPackageGroup.CreatedBy (model_packages.go).
+// CreatedBy/LastModifiedBy are required on DescribeModelCardOutput; IamIdentity
+// is documented for model package groups/packages/projects only, so they are {}.
 type ModelCard struct {
 	CreationTime     time.Time                `json:"CreationTime"`
 	LastModifiedTime time.Time                `json:"LastModifiedTime"`
 	SecurityConfig   *ModelCardSecurityConfig `json:"SecurityConfig,omitempty"`
+	CreatedBy        *UserContext             `json:"CreatedBy,omitempty"`
+	LastModifiedBy   *UserContext             `json:"LastModifiedBy,omitempty"`
 	Tags             map[string]string        `json:"Tags,omitempty"`
 	ModelCardName    string                   `json:"ModelCardName"`
 	ModelCardArn     string                   `json:"ModelCardArn"`
@@ -58,6 +58,8 @@ type ModelCard struct {
 func cloneModelCard(c *ModelCard) *ModelCard {
 	cp := *c
 	cp.Tags = maps.Clone(c.Tags)
+	cp.CreatedBy = cloneUserContext(c.CreatedBy)
+	cp.LastModifiedBy = cloneUserContext(c.LastModifiedBy)
 
 	if c.SecurityConfig != nil {
 		sc := *c.SecurityConfig
@@ -155,6 +157,8 @@ func (b *InMemoryBackend) CreateModelCard(ctx context.Context, opts CreateModelC
 		Tags:             mergeTags(nil, opts.Tags),
 		CreationTime:     now,
 		LastModifiedTime: now,
+		CreatedBy:        &UserContext{},
+		LastModifiedBy:   &UserContext{},
 	}
 	store.Put(c)
 

@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"maps"
 	"net/http"
+	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -150,54 +153,74 @@ func TestProjectVersion_Lifecycle(t *testing.T) { //nolint:paralleltest // exist
 // ResourceInUseException -- DeleteProjectVersionInput's own doc comment
 // (api_op_DeleteProjectVersion.go): "You can't delete a project version if
 // it is running or if it is training.".
-func TestProjectVersion_DeleteWhileTrainingOrRunning_Rejected(t *testing.T) { //nolint:paralleltest // stateful
-	h := newTestHandler(t)
+func TestProjectVersion_StateTransitions(t *testing.T) {
+	t.Parallel()
 
-	rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "in-use-proj"})
-	require.Equal(t, http.StatusOK, rec.Code)
+	const delay = time.Minute
 
-	var projResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
-	projectARN := projResp["ProjectArn"].(string)
+	synctest.Test(t, func(t *testing.T) {
+		backend := rekognition.NewInMemoryBackend("000000000000", "us-east-1")
+		backend.SetLifecycleDelay(delay)
+		h := rekognition.NewHandler(backend)
 
-	rec = doRequest(t, h, "CreateProjectVersion", map[string]any{
-		"ProjectArn":   projectARN,
-		"VersionName":  "v1",
-		"OutputConfig": map[string]any{"S3Bucket": "my-bucket"},
+		rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "in-use-proj"})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var projResp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+		projectARN := projResp["ProjectArn"].(string)
+
+		rec = doRequest(t, h, "CreateProjectVersion", map[string]any{
+			"ProjectArn":   projectARN,
+			"VersionName":  "v1",
+			"OutputConfig": map[string]any{"S3Bucket": "my-bucket"},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var verResp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verResp))
+		versionARN := verResp["ProjectVersionArn"].(string)
+
+		status := func() string {
+			out := doRequest(t, h, "DescribeProjectVersions", map[string]any{"ProjectArn": projectARN})
+			var m map[string]any
+			require.NoError(t, json.Unmarshal(out.Body.Bytes(), &m))
+
+			return m["ProjectVersionDescriptions"].([]any)[0].(map[string]any)["Status"].(string)
+		}
+		errType := func(action string, body map[string]any) string {
+			out := doRequest(t, h, action, body)
+			require.Equal(t, http.StatusBadRequest, out.Code)
+			var m map[string]any
+			require.NoError(t, json.Unmarshal(out.Body.Bytes(), &m))
+
+			return m["__type"].(string)
+		}
+		arnBody := map[string]any{"ProjectVersionArn": versionARN, "MinInferenceUnits": 1}
+
+		assert.Equal(t, "TRAINING_IN_PROGRESS", status())
+		assert.Equal(t, "ResourceInUseException", errType("DeleteProjectVersion", arnBody))
+		assert.Equal(t, "ResourceNotReadyException", errType("StartProjectVersion", arnBody))
+
+		time.Sleep(delay)
+		assert.Equal(t, "TRAINING_COMPLETED", status())
+
+		require.Equal(t, http.StatusOK, doRequest(t, h, "StartProjectVersion", arnBody).Code)
+		assert.Equal(t, "STARTING", status())
+		assert.Equal(t, "ResourceInUseException", errType("DeleteProjectVersion", arnBody))
+		assert.Equal(t, "ResourceInUseException", errType("StartProjectVersion", arnBody))
+
+		time.Sleep(delay)
+		assert.Equal(t, "RUNNING", status())
+		assert.Equal(t, "ResourceInUseException", errType("DeleteProjectVersion", arnBody))
+
+		require.Equal(t, http.StatusOK, doRequest(t, h, "StopProjectVersion", arnBody).Code)
+		assert.Equal(t, "STOPPING", status())
+
+		time.Sleep(delay)
+		assert.Equal(t, "STOPPED", status())
+		assert.Equal(t, http.StatusOK, doRequest(t, h, "DeleteProjectVersion", arnBody).Code)
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var verResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verResp))
-	versionARN := verResp["ProjectVersionArn"].(string)
-
-	// Freshly created -> TRAINING_IN_PROGRESS -> delete rejected.
-	rec = doRequest(t, h, "DeleteProjectVersion", map[string]any{"ProjectVersionArn": versionARN})
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-
-	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "ResourceInUseException", errResp["__type"])
-
-	// RUNNING -> delete rejected.
-	rec = doRequest(t, h, "StartProjectVersion", map[string]any{
-		"ProjectVersionArn": versionARN,
-		"MinInferenceUnits": 1,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	rec = doRequest(t, h, "DeleteProjectVersion", map[string]any{"ProjectVersionArn": versionARN})
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "ResourceInUseException", errResp["__type"])
-
-	// STOPPED -> delete allowed.
-	rec = doRequest(t, h, "StopProjectVersion", map[string]any{"ProjectVersionArn": versionARN})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	rec = doRequest(t, h, "DeleteProjectVersion", map[string]any{"ProjectVersionArn": versionARN})
-	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 // ---------------------------------------------------------------------------
@@ -475,7 +498,12 @@ func TestCreateProjectVersion_TrainingTestingDataMustBothBeSpecified(t *testing.
 
 			h := newTestHandler(t)
 
-			rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "cross-validate-proj-" + tc.name})
+			rec := doRequest(
+				t,
+				h,
+				"CreateProject",
+				map[string]any{"ProjectName": "cross-validate-proj-" + strings.ReplaceAll(tc.name, " ", "-")},
+			)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var projResp map[string]any

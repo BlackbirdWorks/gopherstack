@@ -19,6 +19,7 @@ const (
 	trainingStoppingToStopped             = 150 * time.Millisecond
 	endpointCreatingToInService           = 300 * time.Millisecond
 	endpointUpdatingToInService           = 250 * time.Millisecond
+	endpointDeletingToDeleted             = 150 * time.Millisecond
 	inferenceComponentCreatingToInService = 300 * time.Millisecond
 	inferenceComponentUpdatingToInService = 250 * time.Millisecond
 	processingJobCompletionDelay          = 300 * time.Millisecond
@@ -104,6 +105,12 @@ func (b *InMemoryBackend) resetLifecycleContext() {
 	b.lifecycleCancel = cancel
 }
 
+// SetLifecycleDelay overrides the dwell time of every simulated state
+// transition; 0 (the default) keeps the built-in per-resource timings.
+func (b *InMemoryBackend) SetLifecycleDelay(d time.Duration) {
+	b.lifecycleDelay.Store(int64(d))
+}
+
 // runDelayed runs fn after delay unless ctx is cancelled first (via Reset,
 // Restore, or Shutdown, all of which cancel the lifecycle context). The goroutine
 // is tracked by b.wg so Shutdown can wait for in-flight transitions to drain. fn is
@@ -113,6 +120,10 @@ func (b *InMemoryBackend) resetLifecycleContext() {
 // caller — typically while holding b.mu — so a concurrent Reset that swaps
 // b.lifecycleCtx cannot race this goroutine's select.
 func (b *InMemoryBackend) runDelayed(ctx context.Context, delay time.Duration, fn func()) {
+	if d := time.Duration(b.lifecycleDelay.Load()); d > 0 {
+		delay = d
+	}
+
 	b.wg.Go(func() {
 		timer := time.NewTimer(delay)
 		defer timer.Stop()

@@ -69,7 +69,9 @@ func TestHandler_PublishMetrics(t *testing.T) {
 
 			if tt.seed {
 				seedRec := doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, map[string]any{
-					"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+					"DagS3Path":            "dags/",
+					"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/r",
+					"SourceBucketArn":      "arn:aws:s3:::b",
 					"NetworkConfiguration": networkConfigBody(),
 				})
 				require.Equal(t, http.StatusOK, seedRec.Code)
@@ -133,7 +135,9 @@ func TestHandler_PublishMetrics_BackendState(t *testing.T) {
 	h := newHandlerForTest(t)
 
 	seedRec := doMWAARequest(t, h, http.MethodPut, "/environments/metrics-env", map[string]any{
-		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"DagS3Path":            "dags/",
+		"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/r",
+		"SourceBucketArn":      "arn:aws:s3:::b",
 		"NetworkConfiguration": networkConfigBody(),
 	})
 	require.Equal(t, http.StatusOK, seedRec.Code)
@@ -170,7 +174,9 @@ func TestHTTP_MetricsPublish_BackendState(t *testing.T) {
 
 	h := newHandlerForTest(t)
 	doMWAARequest(t, h, http.MethodPut, "/environments/http-metrics-full", map[string]any{
-		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"DagS3Path":            "dags/",
+		"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/r",
+		"SourceBucketArn":      "arn:aws:s3:::b",
 		"NetworkConfiguration": networkConfigBody(),
 	})
 

@@ -6,8 +6,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 )
 
-// AWS/EC2 StatusCheckFailed* (InstanceId): UserGuide/viewing_metrics_with_cloudwatch.html.
-// Utilisation metrics are not emitted: no instance runtime produces them.
+// AWS/EC2 StatusCheckFailed* and utilisation metrics (InstanceId): UserGuide/viewing_metrics_with_cloudwatch.html.
+// Utilisation metrics are emitted only when the Compute provider reports usage (see EmitUsageMetrics).
 const (
 	ec2MetricNamespace        = "AWS/EC2"
 	ec2UnitCount              = "Count"

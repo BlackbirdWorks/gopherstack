@@ -244,7 +244,7 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, serverCerts.Data, 1)
 
-	require.NoError(t, fresh.AcceptDelegationRequest(delegation.DelegationID))
+	require.NoError(t, fresh.AcceptDelegationRequest(delegation.DelegationID, ""))
 
 	// ---- Verify raw (un-converted) relation/index state survived ----
 	aliases := fresh.ListAccountAliases()
@@ -354,7 +354,7 @@ func TestPolicyVersionPersistenceRoundTrip(t *testing.T) {
 		PolicyTemplateArn:   "arn:aws:iam::aws:policy/ReadOnlyAccess",
 	})
 	require.NoError(t, err)
-	require.NoError(t, b.AcceptDelegationRequest(req.DelegationID))
+	require.NoError(t, b.AcceptDelegationRequest(req.DelegationID, ""))
 
 	// Snapshot and restore.
 	snap := b.Snapshot(t.Context())

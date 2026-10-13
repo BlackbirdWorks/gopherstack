@@ -20,15 +20,14 @@ var (
 	ErrExperimentInUse = awserr.New("ResourceInUse", awserr.ErrConflict)
 )
 
-// Experiment represents a SageMaker Experiment. CreatedBy/LastModifiedBy
-// (types.UserContext) and Source (types.ExperimentSource) are disclosed
-// absent -- this service models no caller-identity concept, and experiments
-// here are always created directly rather than derived from another
-// resource (e.g. a Pipeline execution).
+// Experiment represents a SageMaker Experiment. Source (types.ExperimentSource)
+// is absent: experiments here are always created directly.
 type Experiment struct {
 	CreationTime     time.Time         `json:"CreationTime"`
 	LastModifiedTime time.Time         `json:"LastModifiedTime"`
 	Tags             map[string]string `json:"Tags,omitempty"`
+	CreatedBy        *UserContext      `json:"CreatedBy,omitempty"`
+	LastModifiedBy   *UserContext      `json:"LastModifiedBy,omitempty"`
 	ExperimentName   string            `json:"ExperimentName"`
 	ExperimentArn    string            `json:"ExperimentArn"`
 	DisplayName      string            `json:"DisplayName,omitempty"`
@@ -38,6 +37,8 @@ type Experiment struct {
 func cloneExperiment(e *Experiment) *Experiment {
 	cp := *e
 	cp.Tags = maps.Clone(e.Tags)
+	cp.CreatedBy = cloneUserContext(e.CreatedBy)
+	cp.LastModifiedBy = cloneUserContext(e.LastModifiedBy)
 
 	return &cp
 }
@@ -67,6 +68,8 @@ func (b *InMemoryBackend) CreateExperiment(
 		Description:      description,
 		CreationTime:     now,
 		LastModifiedTime: now,
+		CreatedBy:        optionalCallerUserContext(ctx),
+		LastModifiedBy:   optionalCallerUserContext(ctx),
 		Tags:             mergeTags(nil, tags),
 	}
 	b.experimentsStore(region).Put(e)
@@ -74,9 +77,7 @@ func (b *InMemoryBackend) CreateExperiment(
 	return cloneExperiment(e), nil
 }
 
-// DescribeExperiment returns an experiment by name. CreatedBy/LastModifiedBy
-// and Source are absent from the response -- see the disclosure on
-// [Experiment] above.
+// DescribeExperiment returns an experiment by name.
 func (b *InMemoryBackend) DescribeExperiment(ctx context.Context, name string) (*Experiment, error) {
 	b.mu.RLock("DescribeExperiment")
 	defer b.mu.RUnlock()
@@ -204,6 +205,7 @@ func (b *InMemoryBackend) UpdateExperiment(
 		e.Description = *description
 	}
 	e.LastModifiedTime = time.Now()
+	e.LastModifiedBy = optionalCallerUserContext(ctx)
 
 	return cloneExperiment(e), nil
 }

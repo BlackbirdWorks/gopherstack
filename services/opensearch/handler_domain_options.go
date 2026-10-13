@@ -1,22 +1,51 @@
 package opensearch
 
-import "github.com/blackbirdworks/gopherstack/pkgs/awstime"
+import (
+	"encoding/json"
+	"fmt"
+	"regexp"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+)
 
 // domainClusterConfig holds the cluster configuration request parameters for a domain.
 type domainClusterConfig struct {
-	ZoneAwarenessConfig        *zoneAwarenessConfigJSON        `json:"ZoneAwarenessConfig,omitempty"`
+	present                    map[string]struct{}
 	BlueGreenDeploymentOptions *blueGreenDeploymentOptionsJSON `json:"BlueGreenDeploymentOptions,omitempty"`
 	ColdStorageOptions         *coldStorageOptionsJSON         `json:"ColdStorageOptions,omitempty"`
+	ZoneAwarenessConfig        *zoneAwarenessConfigJSON        `json:"ZoneAwarenessConfig,omitempty"`
 	InstanceType               string                          `json:"InstanceType"`
 	DedicatedMasterType        string                          `json:"DedicatedMasterType,omitempty"`
 	WarmType                   string                          `json:"WarmType,omitempty"`
 	InstanceCount              int                             `json:"InstanceCount"`
-	DedicatedMasterCount       int                             `json:"DedicatedMasterCount,omitempty"`
 	WarmCount                  int                             `json:"WarmCount,omitempty"`
+	DedicatedMasterCount       int                             `json:"DedicatedMasterCount,omitempty"`
 	DedicatedMasterEnabled     bool                            `json:"DedicatedMasterEnabled,omitempty"`
 	ZoneAwarenessEnabled       bool                            `json:"ZoneAwarenessEnabled,omitempty"`
 	WarmEnabled                bool                            `json:"WarmEnabled,omitempty"`
 	MultiAZWithStandbyEnabled  bool                            `json:"MultiAZWithStandbyEnabled,omitempty"`
+}
+
+type domainClusterConfigAlias domainClusterConfig
+
+// UnmarshalJSON records which members the request set, so UpdateDomainConfig can
+// leave omitted ones unchanged.
+func (cc *domainClusterConfig) UnmarshalJSON(data []byte) error {
+	if err := json.Unmarshal(data, (*domainClusterConfigAlias)(cc)); err != nil {
+		return err
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	cc.present = make(map[string]struct{}, len(raw))
+	for k := range raw {
+		cc.present[k] = struct{}{}
+	}
+
+	return nil
 }
 
 // zoneAwarenessConfigJSON holds zone awareness config in JSON.
@@ -393,6 +422,7 @@ func applyReqToUpdateInput(req *domainJSON) UpdateDomainConfigInput {
 	if req.ClusterConfig != nil {
 		cc := parseClusterConfigFromReq(req.ClusterConfig)
 		input.ClusterConfig = &cc
+		input.ClusterConfigFields = req.ClusterConfig.present
 	}
 	if req.EBSOptions != nil {
 		input.EBSOptions = &EBSOptions{
@@ -586,4 +616,45 @@ func toOffPeakWindowOptionsJSON(opts *OffPeakWindowOptions) *offPeakWindowOption
 	}
 
 	return out
+}
+
+var instanceTypePattern = regexp.MustCompile(`^[a-z0-9]+\.[a-z0-9]+\.(search|elasticsearch)$`)
+
+const (
+	maxDomainInstanceCount = 80
+	minEBSVolumeSize       = 10
+	maxEBSVolumeSize       = 16384
+)
+
+func validateInstanceTypeName(field, v string) error {
+	if v != "" && !instanceTypePattern.MatchString(v) {
+		return fmt.Errorf("%w: %s %q is not a valid instance type", ErrValidation, field, v)
+	}
+
+	return nil
+}
+
+// validateDomainOptions checks the cluster and EBS members shared by CreateDomain and UpdateDomainConfig.
+func validateDomainOptions(req *domainJSON) error {
+	if cc := req.ClusterConfig; cc != nil {
+		for field, v := range map[string]string{
+			"InstanceType": cc.InstanceType, "DedicatedMasterType": cc.DedicatedMasterType, "WarmType": cc.WarmType,
+		} {
+			if err := validateInstanceTypeName(field, v); err != nil {
+				return err
+			}
+		}
+
+		if cc.InstanceCount < 0 || cc.InstanceCount > maxDomainInstanceCount {
+			return fmt.Errorf("%w: InstanceCount must be between 1 and %d", ErrValidation, maxDomainInstanceCount)
+		}
+	}
+
+	if eb := req.EBSOptions; eb != nil && eb.EBSEnabled && eb.VolumeSize != 0 &&
+		(eb.VolumeSize < minEBSVolumeSize || eb.VolumeSize > maxEBSVolumeSize) {
+		return fmt.Errorf("%w: EBS VolumeSize must be between %d and %d GiB",
+			ErrValidation, minEBSVolumeSize, maxEBSVolumeSize)
+	}
+
+	return nil
 }

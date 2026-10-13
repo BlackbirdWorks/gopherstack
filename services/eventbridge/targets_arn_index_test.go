@@ -84,7 +84,12 @@ func TestEBTargetsByARNIndexConsistency(t *testing.T) {
 		require.Equal(t, 1, b.TargetsByARNCount(arnTestRegion, arnTestARN2))
 
 		err = b.DeleteRule(context.Background(), arnTestRuleName, arnTestBusName)
+		require.ErrorIs(t, err, eventbridge.ErrInvalidParameter, "a rule with targets cannot be deleted")
+
+		_, err = b.RemoveTargets(context.Background(), arnTestRuleName, arnTestBusName,
+			[]string{arnTestTargetID, arnTestTargetID2})
 		require.NoError(t, err)
+		require.NoError(t, b.DeleteRule(context.Background(), arnTestRuleName, arnTestBusName))
 
 		ok, msg := b.ARNIndexConsistent()
 		require.True(t, ok, "index inconsistent after DeleteRule: %s", msg)

@@ -19,8 +19,37 @@ type handleCreateGroupInput struct {
 }
 
 type groupConfigurationBody struct {
-	Status        string                   `json:"Status,omitempty"`
-	Configuration []GroupConfigurationItem `json:"Configuration,omitempty"`
+	Status                string                   `json:"Status,omitempty"`
+	Configuration         []GroupConfigurationItem `json:"Configuration,omitempty"`
+	ProposedConfiguration []GroupConfigurationItem `json:"ProposedConfiguration,omitempty"`
+}
+
+type configurationStateReader interface {
+	GroupConfigurationState(ctx context.Context, nameOrARN string) (string, []GroupConfigurationItem)
+}
+
+func (h *Handler) configurationBody(
+	ctx context.Context,
+	name string,
+	items []GroupConfigurationItem,
+) *groupConfigurationBody {
+	body := &groupConfigurationBody{Configuration: items}
+	if len(items) == 0 {
+		return body
+	}
+
+	body.Status = configStatusUpdateComplete
+
+	if r, ok := h.Backend.(configurationStateReader); ok {
+		status, previous := r.GroupConfigurationState(ctx, name)
+		if status == configStatusUpdating {
+			body.Status = status
+			body.Configuration = previous
+			body.ProposedConfiguration = items
+		}
+	}
+
+	return body
 }
 
 // createGroupOutput mirrors CreateGroupOutput: Tags is a top-level sibling of
@@ -53,10 +82,7 @@ func (h *Handler) handleCreateGroup(ctx context.Context, in *handleCreateGroupIn
 	}
 
 	if len(in.Configuration) > 0 {
-		out.GroupConfiguration = &groupConfigurationBody{
-			Configuration: in.Configuration,
-			Status:        "UPDATE_COMPLETE",
-		}
+		out.GroupConfiguration = h.configurationBody(ctx, g.Name, in.Configuration)
 	}
 
 	return out, nil
@@ -77,9 +103,9 @@ func (h *Handler) handleDeleteGroup(ctx context.Context, in *groupNameInput) (*d
 	return &deleteGroupOutput{Group: groupBodyFromGroup(g)}, nil
 }
 
-type listGroupsInput struct { //nolint:govet // fieldalignment: readability over micro-optimization
-	Filters    []ListGroupsFilter `json:"Filters"`
+type listGroupsInput struct {
 	NextToken  string             `json:"NextToken"`
+	Filters    []ListGroupsFilter `json:"Filters"`
 	MaxResults int                `json:"MaxResults"`
 }
 
@@ -101,14 +127,19 @@ type listGroupsGroupOutput struct {
 	Criticality int    `json:"Criticality,omitempty"`
 }
 
-type listGroupsOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
+type listGroupsOutput struct {
+	NextToken        string                      `json:"NextToken,omitempty"`
 	Groups           []listGroupsGroupOutput     `json:"Groups"`
 	GroupIdentifiers []listGroupIdentifierOutput `json:"GroupIdentifiers"`
-	NextToken        string                      `json:"NextToken,omitempty"`
 }
 
 func (h *Handler) handleListGroups(ctx context.Context, in *listGroupsInput) (*listGroupsOutput, error) {
-	groups, nextToken := h.Backend.ListGroups(ctx, in.Filters, in.NextToken, in.MaxResults)
+	cursor, err := parsePage(in.NextToken, in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	groups, nextToken := h.Backend.ListGroups(ctx, in.Filters, cursor, in.MaxResults)
 	identifiers := make([]listGroupIdentifierOutput, 0, len(groups))
 	groupsList := make([]listGroupsGroupOutput, 0, len(groups))
 
@@ -131,7 +162,11 @@ func (h *Handler) handleListGroups(ctx context.Context, in *listGroupsInput) (*l
 		})
 	}
 
-	return &listGroupsOutput{Groups: groupsList, GroupIdentifiers: identifiers, NextToken: nextToken}, nil
+	return &listGroupsOutput{
+		Groups:           groupsList,
+		GroupIdentifiers: identifiers,
+		NextToken:        encodePageToken(nextToken),
+	}, nil
 }
 
 // getGroupBody is the AWS-accurate wire shape of types.Group: it deliberately
@@ -229,12 +264,7 @@ func (h *Handler) handleGetGroupConfiguration(
 		return nil, err
 	}
 
-	body := &groupConfigurationBody{Configuration: items}
-	if len(items) > 0 {
-		body.Status = "UPDATE_COMPLETE"
-	}
-
-	return &getGroupConfigurationOutput{GroupConfiguration: body}, nil
+	return &getGroupConfigurationOutput{GroupConfiguration: h.configurationBody(ctx, g.Name, items)}, nil
 }
 
 type updateGroupInput struct {

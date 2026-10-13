@@ -19,6 +19,7 @@ import (
 )
 
 const (
+	batchSigningName = "batch"
 	// opListTagsForResource, opTagResource, and opUntagResource name the three
 	// tag operations shared by the main Handler's GetSupportedOperations/
 	// ExtractOperation and TagsRouter's GetSupportedOperations (tags_route.go).
@@ -89,6 +90,13 @@ func (h *Handler) WithJanitor(
 func (h *Handler) StartWorker(ctx context.Context) error {
 	if h.janitor != nil {
 		go h.janitor.Run(ctx)
+	}
+
+	if h.Backend.ExecutionEnabled() {
+		go func() {
+			<-ctx.Done()
+			h.Backend.StopExecution()
+		}()
 	}
 
 	return nil
@@ -169,6 +177,10 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
+
+		if httputils.SignedForOtherService(c.Request(), batchSigningName) {
+			return false
+		}
 
 		if strings.HasPrefix(path, tagsPrefix) {
 			return isBatchTagPath(path)
@@ -307,6 +319,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			)
 		}
 
+		if tokErr := checkNextToken(body); tokErr != nil {
+			return h.writeError(c, tokErr)
+		}
+
 		result, opErr := fn(ctx, body)
 		if opErr != nil {
 			return h.writeError(c, opErr)
@@ -405,9 +421,9 @@ func (h *Handler) handleTags(ctx context.Context, c *echo.Context, log *slog.Log
 func (h *Handler) writeError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrAlreadyExists), errors.Is(err, ErrValidation):
-		return c.JSON(http.StatusBadRequest, errorResponse("ClientException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("ClientException", publicMessage(err)))
 	default:
-		return c.JSON(http.StatusInternalServerError, errorResponse("ServerException", err.Error()))
+		return c.JSON(http.StatusInternalServerError, errorResponse("ServerException", publicMessage(err)))
 	}
 }
 

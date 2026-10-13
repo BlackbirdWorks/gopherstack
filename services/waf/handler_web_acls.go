@@ -15,6 +15,10 @@ func (h *Handler) opCreateWebACL(body []byte) (any, error) {
 		return nil, err
 	}
 
+	if err := validateCreateNames(in.Name, in.MetricName); err != nil {
+		return nil, err
+	}
+
 	acl, err := h.Backend.CreateWebACL(in.Name, in.MetricName, in.DefaultAction, in.ChangeToken, tagsToMap(in.Tags))
 	if err != nil {
 		return nil, err
@@ -87,8 +91,12 @@ func (h *Handler) opListWebACLs(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	page, next := paginate(h.Backend.ListWebACLs(), in.NextMarker, in.Limit,
+	page, next, err := paginate(h.Backend.ListWebACLs(), in.NextMarker, in.Limit,
 		func(s WebACLSummary) string { return s.WebACLId })
+	if err != nil {
+		return nil, err
+	}
+
 	result := map[string]any{"WebACLs": page}
 	if next != "" {
 		result["NextMarker"] = next

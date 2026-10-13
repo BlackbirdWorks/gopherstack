@@ -2,6 +2,7 @@ package backup_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/backup"
@@ -72,7 +73,7 @@ func TestValidateRules(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := b.CreateBackupPlanValidated("plan-"+tc.name, tc.rules, nil, nil)
+			_, err := b.CreateBackupPlanValidated("plan-"+strings.ReplaceAll(tc.name, " ", "-"), tc.rules, nil, nil)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("wantErr=%v got=%v err=%v", tc.wantErr, err != nil, err)
 			}

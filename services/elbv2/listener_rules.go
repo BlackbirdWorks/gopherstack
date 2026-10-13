@@ -72,6 +72,10 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 		return nil, err
 	}
 
+	if err := validateRuleConditions(input.Conditions); err != nil {
+		return nil, err
+	}
+
 	// Validate and check for duplicate priority.
 	if input.Priority != "" && input.Priority != priorityDefault {
 		p, parseErr := strconv.ParseInt(input.Priority, 10, 32)
@@ -94,7 +98,7 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 	}
 
 	b.ruleCounter++
-	ruleArn := b.ruleARN(input.ListenerArn, strconv.Itoa(b.ruleCounter))
+	ruleArn := b.ruleARN(input.ListenerArn, newHexID())
 
 	t := tags.New("elbv2.rule." + ruleArn + ".tags")
 	for _, kv := range input.Tags {
@@ -249,7 +253,13 @@ func (b *InMemoryBackend) ModifyRule(
 		if err := b.validateForwardTargetGroupsExist(actions); err != nil {
 			return nil, err
 		}
+	}
 
+	if err := validateRuleConditions(conditions); err != nil {
+		return nil, err
+	}
+
+	if len(actions) > 0 {
 		rule.Actions = actions
 	}
 

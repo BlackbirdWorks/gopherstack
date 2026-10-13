@@ -107,6 +107,10 @@ func (h *Handler) handleDeleteInputSecurityGroup(c *echo.Context, groupID string
 }
 
 func (h *Handler) handleListInputSecurityGroups(c *echo.Context) error {
+	if err := validPaging(c); err != nil {
+		return respondErr(c, err)
+	}
+
 	maxResults, nextTokenParam := paginationParams(c)
 	summaries, nextToken, err := h.Backend.ListInputSecurityGroups(maxResults, nextTokenParam)
 	if err != nil {

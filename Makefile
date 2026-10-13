@@ -1,4 +1,4 @@
-.PHONY: build build-check ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-changed lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs check-pins bd-audit parity-lint cfn-attrs-gen cfn-attrs-spec-refresh
+.PHONY: build build-check ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-changed lint-fix test leak-test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs check-pins bd-audit parity-lint cfn-attrs-gen cfn-attrs-spec-refresh
 
 BINARY_NAME=gopherstack
 VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
@@ -154,6 +154,9 @@ lint-fix: install-deps ui-lint-fix ui-fmt-fix
 
 test:
 	go tool gotestsum --format pkgname -- -race -shuffle on -short ./...
+
+leak-test:
+	go tool gotestsum --format pkgname -- -race -count=1 -timeout 20m -run TestLeak .
 
 integration-test: build-linux
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m ./test/integration/...

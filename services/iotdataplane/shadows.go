@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
@@ -32,7 +33,7 @@ func validateThingName(name string) error {
 // Maximum length is 64 characters per AWS documentation.
 func validateClientToken(token string) error {
 	if len(token) > maxClientTokenLength {
-		return fmt.Errorf("%w: clientToken exceeds %d characters", ErrValidation, maxClientTokenLength)
+		return fmt.Errorf("%w: Invalid clientToken", ErrValidation)
 	}
 
 	return nil
@@ -75,16 +76,16 @@ func validateShadowName(name string) error {
 // validateShadowDocument checks that doc is a non-empty JSON object.
 func validateShadowDocument(doc []byte) error {
 	if len(doc) == 0 {
-		return fmt.Errorf("%w: shadow document must not be empty", ErrValidation)
+		return fmt.Errorf("%w: Invalid JSON", ErrValidation)
 	}
 
 	if len(doc) > maxShadowDocumentBytes {
-		return fmt.Errorf("%w: shadow document exceeds %d bytes", ErrRequestTooLarge, maxShadowDocumentBytes)
+		return fmt.Errorf("%w: The payload exceeds the maximum size allowed", ErrRequestTooLarge)
 	}
 
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(doc, &obj); err != nil || obj == nil {
-		return fmt.Errorf("%w: shadow document must be a valid JSON object", ErrValidation)
+		return fmt.Errorf("%w: Invalid JSON", ErrValidation)
 	}
 
 	return nil
@@ -292,7 +293,7 @@ func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) ([]byte, 
 
 	entry, ok := b.shadows.Get(shadowKey(thingName, shadowName))
 	if !ok || entry.deleted {
-		return nil, fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
+		return nil, shadowNotFound(thingName, shadowName)
 	}
 
 	return buildShadowResponse(entry, "")
@@ -311,21 +312,32 @@ type shadowUpdateInput struct {
 func parseShadowUpdateDoc(document []byte) (*shadowUpdateInput, error) {
 	// Outer document uses RawMessage for State so we can detect absent vs null.
 	var outer struct {
-		Version     *int            `json:"version,omitempty"`
+		Version     json.RawMessage `json:"version,omitempty"`
 		ClientToken string          `json:"clientToken,omitempty"`
 		State       json.RawMessage `json:"state"`
 	}
 
 	if err := json.Unmarshal(document, &outer); err != nil {
-		return nil, fmt.Errorf("%w: invalid JSON document", ErrValidation)
+		return nil, fmt.Errorf("%w: Invalid JSON", ErrValidation)
+	}
+
+	var version *int
+
+	if len(outer.Version) > 0 && !isJSONNull(outer.Version) {
+		var v int
+		if err := json.Unmarshal(outer.Version, &v); err != nil {
+			return nil, fmt.Errorf("%w: Invalid version", ErrValidation)
+		}
+
+		version = &v
 	}
 
 	if len(outer.State) == 0 {
-		return nil, fmt.Errorf("%w: missing required field: state", ErrValidation)
+		return nil, fmt.Errorf("%w: Missing required node: state", ErrValidation)
 	}
 
 	if isJSONNull(outer.State) {
-		return nil, fmt.Errorf("%w: state must be a JSON object, not null", ErrValidation)
+		return nil, fmt.Errorf("%w: State node must be an object", ErrValidation)
 	}
 
 	if err := validateClientToken(outer.ClientToken); err != nil {
@@ -338,14 +350,14 @@ func parseShadowUpdateDoc(document []byte) (*shadowUpdateInput, error) {
 	}
 
 	if err := json.Unmarshal(outer.State, &stateDoc); err != nil {
-		return nil, fmt.Errorf("%w: state must be a valid JSON object", ErrValidation)
+		return nil, fmt.Errorf("%w: State node must be an object", ErrValidation)
 	}
 
 	return &shadowUpdateInput{
 		StateDesired:  stateDoc.Desired,
 		StateReported: stateDoc.Reported,
 		ClientToken:   outer.ClientToken,
-		Version:       outer.Version,
+		Version:       version,
 	}, nil
 }
 
@@ -380,7 +392,7 @@ func jsonValueDepth(v any) int {
 func validateShadowStateDepth(raw json.RawMessage, sectionName string) error {
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
-		return fmt.Errorf("%w: state.%s must be a valid JSON object", ErrValidation, sectionName)
+		return fmt.Errorf("%w: %s node must be an object", ErrValidation, sectionLabel(sectionName))
 	}
 
 	if depth := jsonValueDepth(v); depth > maxShadowStateDepth {
@@ -414,7 +426,7 @@ func applyShadowStateSection(
 
 	var patch map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &patch); err != nil {
-		return nil, nil, fmt.Errorf("%w: state.%s must be a JSON object", ErrValidation, sectionName)
+		return nil, nil, fmt.Errorf("%w: %s node must be an object", ErrValidation, sectionLabel(sectionName))
 	}
 
 	return mergeStateFields(existing, patch), updateMetaFields(existingMeta, patch, ts), nil
@@ -507,7 +519,7 @@ func checkVersionConflict(requestVersion *int, current *shadowEntry) error {
 	}
 
 	if *requestVersion != currentVersion {
-		return fmt.Errorf("%w: expected %d, got %d", ErrVersionConflict, currentVersion, *requestVersion)
+		return fmt.Errorf("%w: Version conflict", ErrVersionConflict)
 	}
 
 	return nil
@@ -543,7 +555,7 @@ func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) ([]byt
 
 	entry, ok := b.shadows.Get(key)
 	if !ok || entry.deleted {
-		return nil, fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
+		return nil, shadowNotFound(thingName, shadowName)
 	}
 
 	payload, err := json.Marshal(map[string]any{
@@ -638,4 +650,21 @@ func (b *InMemoryBackend) AddShadowInternal(thingName, shadowName string, docume
 	}
 
 	b.shadows.Put(entry)
+}
+
+func shadowNotFound(thingName, shadowName string) error {
+	name := shadowName
+	if name == "" {
+		name = thingName
+	}
+
+	return fmt.Errorf("%w: No shadow exists with name: %s", ErrShadowNotFound, name)
+}
+
+func sectionLabel(section string) string {
+	if section == "" {
+		return section
+	}
+
+	return strings.ToUpper(section[:1]) + section[1:]
 }

@@ -54,15 +54,42 @@ type liveCollector struct {
 	holdSeconds      *prometheus.HistogramVec
 	activeWriters    *prometheus.GaugeVec
 	activeReaders    *prometheus.GaugeVec
+	nameRefs         map[string]int
 	// allMutexes follows; sync.Map contains internal pointers so the GC scan
 	// still extends into it, but placing it after the Desc pointers is optimal.
 	allMutexes sync.Map // map[*RWMutex]struct{}
+	// nameRefsMu guards nameRefs, which counts live mutexes per name so Close
+	// only sweeps the shared series once the last holder of a name is gone.
+	nameRefsMu sync.Mutex
+}
+
+func (c *liveCollector) acquireName(name string) {
+	c.nameRefsMu.Lock()
+	c.nameRefs[name]++
+	c.nameRefsMu.Unlock()
+}
+
+// releaseName reports whether name has no live mutexes left.
+func (c *liveCollector) releaseName(name string, first bool) bool {
+	c.nameRefsMu.Lock()
+	defer c.nameRefsMu.Unlock()
+
+	if first {
+		if c.nameRefs[name] > 1 {
+			c.nameRefs[name]--
+		} else {
+			delete(c.nameRefs, name)
+		}
+	}
+
+	return c.nameRefs[name] == 0
 }
 
 func newLiveCollector() *liveCollector {
 	buckets := []float64{.000001, .00001, .0001, .001, .01, .1, 1, 10}
 
 	return &liveCollector{
+		nameRefs: make(map[string]int),
 		writeHeldDesc: prometheus.NewDesc(
 			"gopherstack_lock_write_held_seconds",
 			"Live duration in seconds that the write lock is currently held (emitted only while held). "+
@@ -254,6 +281,7 @@ type RWMutex struct {
 	writeOpCache sync.Map
 	readOpCache  sync.Map
 	name         string
+	closed       atomic.Bool
 	writeStart   atomic.Int64 // unix nanoseconds; 0 when write lock is not held
 	mu           sync.RWMutex
 	// writeWaiters and readWaiters count goroutines currently blocked
@@ -330,6 +358,7 @@ func New(name string) *RWMutex {
 	m.writeOp.Store("")
 
 	coll.allMutexes.Store(m, struct{}{})
+	coll.acquireName(name)
 
 	// Pre-curry the activeReaders gauge to this lock's name so RLock/RUnlock
 	// avoid a label hash lookup on every call.
@@ -350,6 +379,15 @@ func (m *RWMutex) Close() {
 	}
 	coll := sharedCollector()
 	coll.allMutexes.Delete(m)
+
+	if !coll.releaseName(m.name, m.closed.CompareAndSwap(false, true)) {
+		m.writeOpCache.Clear()
+		m.readOpCache.Clear()
+		m.writeMetricsCur.Store(nil)
+		m.activeReadersLock.Store(nil)
+
+		return
+	}
 
 	// Remove all label-value combinations for this lock name from every metric
 	// family. Because "operation" is dynamic we use DeletePartialMatch to sweep

@@ -385,14 +385,20 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		errors.Is(err, ErrCrlNotFound),
 		errors.Is(err, ErrSubjectNotFound),
 		errors.Is(err, ErrResourceNotFound):
-		return c.JSON(http.StatusNotFound, errBody("ResourceNotFoundException", err.Error()))
+		return c.JSON(
+			http.StatusNotFound,
+			errBody("ResourceNotFoundException", publicMessage(err, "ResourceNotFoundException")),
+		)
 	case errors.Is(err, ErrTooManyTags):
-		return c.JSON(http.StatusBadRequest, errBody("TooManyTagsException", err.Error()))
+		return c.JSON(
+			http.StatusBadRequest,
+			errBody("TooManyTagsException", publicMessage(err, "TooManyTagsException")),
+		)
 	case errors.Is(err, ErrValidation):
-		return c.JSON(http.StatusBadRequest, errBody("ValidationException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errBody("ValidationException", publicMessage(err, "ValidationException")))
 	}
 
-	return c.JSON(http.StatusInternalServerError, errBody("InternalFailure", err.Error()))
+	return c.JSON(http.StatusInternalServerError, errBody("InternalFailure", publicMessage(err, "InternalFailure")))
 }
 
 // ---- routing ----

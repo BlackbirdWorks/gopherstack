@@ -100,6 +100,7 @@ func (b *InMemoryBackend) CreateBucket(
 		// correctly partition general-purpose vs. directory buckets.
 		IsDirectoryBucket:       isDirectoryBucket,
 		ObjectLockEnabled:       aws.ToBool(input.ObjectLockEnabledForBucket),
+		Versioning:              initialVersioning(aws.ToBool(input.ObjectLockEnabledForBucket)),
 		OwnershipControlsConfig: ownershipControls,
 		OwnerAccountID:          awsmeta.Account(ctx),
 	})
@@ -107,6 +108,14 @@ func (b *InMemoryBackend) CreateBucket(
 	return &s3.CreateBucketOutput{
 		Location: aws.String("/" + bucketName),
 	}, nil
+}
+
+func initialVersioning(objectLock bool) types.BucketVersioningStatus {
+	if objectLock {
+		return types.BucketVersioningStatusEnabled
+	}
+
+	return ""
 }
 
 func (b *InMemoryBackend) DeleteBucket(

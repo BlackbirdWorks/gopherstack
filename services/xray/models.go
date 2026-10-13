@@ -249,6 +249,7 @@ type UnprocessedStatisticsResult struct {
 }
 
 type serviceNode struct {
+	respTimes     map[float64]int32
 	Name          string
 	Type          string
 	ReferenceID   int

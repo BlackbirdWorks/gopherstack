@@ -220,6 +220,8 @@ type Ingestion struct {
 	IngestionStatus string
 	RequestType     string
 	RequestSource   string
+
+	IngestionTimeInSeconds int64
 }
 
 // Dashboard represents a QuickSight dashboard.
@@ -637,6 +639,7 @@ type AssetBundleExportExtras struct {
 // AssetBundleImportJob represents an asynchronous asset-bundle import job.
 type AssetBundleImportJob struct {
 	CreatedTime   time.Time
+	Overrides     map[string]any
 	JobID         string
 	Arn           string
 	Status        string

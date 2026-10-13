@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -33,81 +33,53 @@ func permissionOrgEntityKey(orgID, entityID string) string { return orgID + "|" 
 
 // InMemoryBackend stores WorkMail state in memory.
 type InMemoryBackend struct {
-	// registry holds the "clean" tables only (organizations, globalAliases,
-	// issuedTokens): each already carries a real, wire-visible-or-otherwise
-	// unhidden identity field, so registry.SnapshotAll/RestoreAll can
-	// round-trip them directly. Every org-nested / composite-keyed table
-	// below hides at least one field (orgID, and for permissions also
-	// entityID) that plain JSON marshaling would silently drop, so those are
-	// deliberately NOT on this registry -- see store_setup.go's
-	// registerAllTables doc and persistence.go's DTO registry.
-	registry      *store.Registry
-	organizations *store.Table[Organization]
-	orgsByAlias   map[string]string
-
-	users        *store.Table[User]
-	usersByOrg   *store.Index[User]
-	usersByEmail map[string]map[string]string
-
-	groups        *store.Table[Group]
-	groupsByOrg   *store.Index[Group]
-	groupsByEmail map[string]map[string]string
-	groupMembers  map[string]map[string]map[string]bool
-
-	resources        *store.Table[Resource]
-	resourcesByOrg   *store.Index[Resource]
-	resourcesByEmail map[string]map[string]string
-
-	mailboxQuotas map[string]map[string]int32
-	tags          map[string][]Tag
-	delegates     map[string]map[string]map[string]bool
-
-	impersonation      *store.Table[ImpersonationRole]
-	impersonationByOrg *store.Index[ImpersonationRole]
-
-	aliases       map[string]map[string][]string
-	globalAliases *store.Table[trackedAlias]
-
-	permissions            *store.Table[Permission]
-	permissionsByOrgEntity *store.Index[Permission]
-
-	mailDomains      *store.Table[MailDomain]
-	mailDomainsByOrg *store.Index[MailDomain]
-
-	accessRules      *store.Table[AccessControlRule]
-	accessRulesByOrg *store.Index[AccessControlRule]
-
-	availabilityConfigs      *store.Table[AvailabilityConfiguration]
-	availabilityConfigsByOrg *store.Index[AvailabilityConfiguration]
-
-	mobileDeviceRules      *store.Table[MobileDeviceAccessRule]
-	mobileDeviceRulesByOrg *store.Index[MobileDeviceAccessRule]
-
-	// mobileDeviceOverrides is keyed by orgID -> "userID:deviceID" (see
-	// mobileOverrideKey), composited via orgKey into the flat table below.
+	directories                DirectoryDeleter
+	permissionsByOrgEntity     *store.Index[Permission]
+	delegates                  map[string]map[string]map[string]bool
+	organizations              *store.Table[Organization]
+	users                      *store.Table[User]
+	usersByOrg                 *store.Index[User]
+	usersByEmail               map[string]map[string]string
+	groups                     *store.Table[Group]
+	groupsByOrg                *store.Index[Group]
+	groupsByEmail              map[string]map[string]string
+	groupMembers               map[string]map[string]map[string]bool
+	resources                  *store.Table[Resource]
+	resourcesByOrg             *store.Index[Resource]
+	resourcesByEmail           map[string]map[string]string
+	mailboxQuotas              map[string]map[string]int32
+	tags                       map[string][]Tag
+	mailDomainsByOrg           *store.Index[MailDomain]
+	impersonation              *store.Table[ImpersonationRole]
+	impersonationByOrg         *store.Index[ImpersonationRole]
+	aliases                    map[string]map[string][]string
+	globalAliases              *store.Table[trackedAlias]
+	permissions                *store.Table[Permission]
+	registry                   *store.Registry
+	orgsByAlias                map[string]string
+	mailDomains                *store.Table[MailDomain]
+	idpConfig                  *store.Table[IdentityProviderConfiguration]
+	accessRulesByOrg           *store.Index[AccessControlRule]
+	availabilityConfigs        *store.Table[AvailabilityConfiguration]
+	availabilityConfigsByOrg   *store.Index[AvailabilityConfiguration]
+	mobileDeviceRules          *store.Table[MobileDeviceAccessRule]
+	mobileDeviceRulesByOrg     *store.Index[MobileDeviceAccessRule]
 	mobileDeviceOverrides      *store.Table[MobileDeviceAccessOverride]
 	mobileDeviceOverridesByOrg *store.Index[MobileDeviceAccessOverride]
-
-	emailMonitoring *store.Table[EmailMonitoringConfiguration]
-	inboundDmarc    map[string]bool
-
-	retentionPolicies *store.Table[RetentionPolicy]
-
-	exportJobs      *store.Table[MailboxExportJob]
-	exportJobsByOrg *store.Index[MailboxExportJob]
-
-	identityCenterApps map[string]string // ARN -> name
-
-	idpConfig *store.Table[IdentityProviderConfiguration]
-
-	personalTokens      *store.Table[PersonalAccessToken]
-	personalTokensByOrg *store.Index[PersonalAccessToken]
-
-	issuedTokens *store.Table[issuedImpersonationToken]
-
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	emailMonitoring            *store.Table[EmailMonitoringConfiguration]
+	inboundDmarc               map[string]bool
+	retentionPolicies          *store.Table[RetentionPolicy]
+	exportJobs                 *store.Table[MailboxExportJob]
+	exportJobsByOrg            *store.Index[MailboxExportJob]
+	identityCenterApps         map[string]string
+	accessRules                *store.Table[AccessControlRule]
+	personalTokens             *store.Table[PersonalAccessToken]
+	personalTokensByOrg        *store.Index[PersonalAccessToken]
+	issuedTokens               *store.Table[issuedImpersonationToken]
+	mu                         *lockmetrics.RWMutex
+	accountID                  string
+	region                     string
+	lifecycleDelay             time.Duration
 }
 
 // NewInMemoryBackend creates a new in-memory WorkMail backend.
@@ -314,14 +286,12 @@ func paginate[T any](items []T, maxResults int32, nextToken string) ([]T, string
 	}
 
 	start := 0
-	if nextToken != "" {
-		if idx, err := strconv.Atoi(nextToken); err == nil && idx > 0 && idx < len(items) {
-			start = idx
-		}
+	if idx, err := decodePageToken(nextToken); err == nil && idx > 0 && idx < len(items) {
+		start = idx
 	}
 
 	if maxResults <= 0 {
-		maxResults = 100
+		maxResults = defaultPageSize
 	}
 
 	end := start + int(maxResults)
@@ -329,5 +299,5 @@ func paginate[T any](items []T, maxResults int32, nextToken string) ([]T, string
 		return items[start:], ""
 	}
 
-	return items[start:end], strconv.Itoa(end)
+	return items[start:end], encodePageToken(end)
 }

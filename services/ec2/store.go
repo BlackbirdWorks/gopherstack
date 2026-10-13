@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strings"
 	"sync"
 	"time"
 
@@ -24,15 +23,18 @@ var (
 	ErrVPCNotFound               = errors.New("InvalidVpcID.NotFound")
 	ErrSubnetNotFound            = errors.New("InvalidSubnetID.NotFound")
 	ErrInvalidParameter          = errors.New("InvalidParameterValue")
-	ErrDuplicateSGName           = errors.New("InvalidGroup.Duplicate")
-	ErrInvalidInstanceState      = errors.New("IncorrectInstanceState")
-	ErrUnsupportedHibernation    = errors.New("UnsupportedHibernationConfiguration")
-	ErrDefaultSubnetExists       = errors.New("DefaultSubnetAlreadyExistsInAvailabilityZone")
-	ErrSpotFleetNotFound         = errors.New("InvalidSpotFleetRequestId.NotFound")
-	ErrSubnetCIDRConflict        = errors.New("InvalidSubnet.Conflict")
-	ErrVpcCIDRRange              = errors.New("InvalidVpc.Range")
-	ErrDryRunOperation           = errors.New("request would have succeeded, but DryRun flag is set")
-	ErrDuplicatePermission       = errors.New("InvalidPermission.Duplicate")
+	// ErrResourceIDInUse is returned when a gopherstack:id tag pins an ID that already exists.
+	ErrResourceIDInUse        = errors.New("InvalidParameterValue")
+	ErrDuplicateSGName        = errors.New("InvalidGroup.Duplicate")
+	ErrInvalidInstanceState   = errors.New("IncorrectInstanceState")
+	ErrUnsupportedHibernation = errors.New("UnsupportedHibernationConfiguration")
+	ErrDefaultSubnetExists    = errors.New("DefaultSubnetAlreadyExistsInAvailabilityZone")
+	ErrSpotFleetNotFound      = errors.New("InvalidSpotFleetRequestId.NotFound")
+	ErrSubnetCIDRConflict     = errors.New("InvalidSubnet.Conflict")
+	ErrSubnetRange            = errors.New("InvalidSubnet.Range")
+	ErrVpcCIDRRange           = errors.New("InvalidVpc.Range")
+	ErrDryRunOperation        = errors.New("request would have succeeded, but DryRun flag is set")
+	ErrDuplicatePermission    = errors.New("InvalidPermission.Duplicate")
 
 	// ErrDependencyViolation is returned when an operation cannot complete
 	// because another resource still depends on the target resource.
@@ -84,19 +86,18 @@ const (
 	// and other resources that are not currently in use.
 	stateAvailable = "available"
 
-	stateInUse                         = "in-use"
-	stateCancelled                     = "cancelled"
-	vpcEndpointTypeInterface           = "Interface"
-	vpcEndpointTypeGatewayLoadBalancer = "GatewayLoadBalancer"
-	resourceTypeVPC                    = "vpc"
-	resourceTypeSnapshot               = "snapshot"
-	resourceTypeENI                    = "network-interface"
-	vpcDefaultName                     = "vpc-default"
-	dhcpOptionsDefaultID               = "dopt-default"
-	routeTableDefaultID                = "rtb-default"
-	archX8664                          = "x86_64"
-	resourceTypeFISInstance            = "aws:ec2:instance"
-	ec2BooleanFalse                    = "false"
+	stateInUse               = "in-use"
+	stateCancelled           = "cancelled"
+	vpcEndpointTypeInterface = "Interface"
+	resourceTypeVPC          = "vpc"
+	resourceTypeSnapshot     = "snapshot"
+	resourceTypeENI          = "network-interface"
+	vpcDefaultName           = "vpc-default"
+	dhcpOptionsDefaultID     = "dopt-default"
+	routeTableDefaultID      = "rtb-default"
+	archX8664                = "x86_64"
+	resourceTypeFISInstance  = "aws:ec2:instance"
+	ec2BooleanFalse          = "false"
 
 	// stateActive is the "active" state string used by peering connections,
 	// capacity reservations, and spot instance requests.
@@ -148,6 +149,7 @@ type Instance struct {
 	CapacityReservationSpec CapacityReservationSpec    `json:"capacityReservationSpecification"`
 	MaintenanceOptions      InstanceMaintenanceOptions `json:"maintenanceOptions"`
 	PublicDNSName           string                     `json:"publicDNSName,omitempty"`
+	RootDeviceName          string                     `json:"rootDeviceName,omitempty"`
 	MetadataOptionsTokens   string                     `json:"metadataOptionsTokens,omitempty"`
 	MetadataOptionsState    string                     `json:"metadataOptionsState,omitempty"`
 	MonitoringState         string                     `json:"monitoringState,omitempty"`
@@ -157,6 +159,7 @@ type Instance struct {
 	PublicIPAddress         string                     `json:"publicIPAddress,omitempty"`
 	SubnetID                string                     `json:"subnetID,omitempty"`
 	UserData                string                     `json:"userData,omitempty"`
+	ReservationID           string                     `json:"reservationId,omitempty"`
 	SriovNetSupport         string                     `json:"sriovNetSupport,omitempty"`
 	ProviderID              string                     `json:"providerID,omitempty"`
 	// InstanceInitiatedShutdownBehavior is "stop" (default) or "terminate".
@@ -168,6 +171,7 @@ type Instance struct {
 	// StateTransitionReason mirrors AWS's legacy <reason> element (e.g.
 	// "User initiated (2016-05-...)").
 	StateTransitionReason string `json:"stateTransitionReason,omitempty"`
+	MetadataTags          string `json:"metadataTags,omitempty"`
 	ImageID               string `json:"imageID,omitempty"`
 	// OutpostArn is the real SDK's types.Instance.OutpostArn -- a top-level
 	// field, sibling to Placement (not nested under it; confirmed via
@@ -185,6 +189,7 @@ type Instance struct {
 	PrivateDNSNameOptions PrivateDNSNameOptions `json:"privateDnsNameOptions"`
 	CPUOptions            CPUOptions            `json:"cpuOptions"`
 	SSHPort               int                   `json:"sshPort,omitempty"`
+	MetadataHopLimit      int                   `json:"metadataHopLimit,omitempty"`
 	EnaSupport            bool                  `json:"enaSupport,omitempty"`
 	// DisableAPITermination / DisableAPIStop gate TerminateInstances /
 	// StopInstances respectively (ModifyInstanceAttribute-settable).
@@ -214,26 +219,22 @@ type LaunchTemplate struct {
 
 // VpcEndpoint represents an EC2 VPC endpoint.
 type VpcEndpoint struct {
-	CreateTime      time.Time `json:"createTime"`
-	ID              string    `json:"id,omitempty"`
-	VPCID           string    `json:"vpcID,omitempty"`
-	ServiceName     string    `json:"serviceName,omitempty"`
-	State           string    `json:"state,omitempty"`
-	VpcEndpointType string    `json:"vpcEndpointType,omitempty"`
-	OwnerID         string    `json:"ownerID,omitempty"`
-	SubnetIDs       []string  `json:"subnetIDs,omitempty"`
-	RouteTableIDs   []string  `json:"routeTableIDs,omitempty"`
-	// PayerResponsibilities holds the payer-responsibility settings set via
-	// ModifyVpcEndpointPayerResponsibility. Empty until first modified.
-	PayerResponsibilities []PayerResponsibilityEntry `json:"payerResponsibilities,omitempty"`
-	// PolicyDocument/PrivateDNSEnabled/SecurityGroupIDs/ServiceRegion are
-	// CreateVpcEndpoint declare+echo fields; this backend has no PrivateLink
-	// DNS-entry generation or security-group traffic enforcement to apply
-	// them against (see vpc_endpoints PARITY.md note).
-	PolicyDocument    string   `json:"policyDocument,omitempty"`
-	ServiceRegion     string   `json:"serviceRegion,omitempty"`
-	SecurityGroupIDs  []string `json:"securityGroupIDs,omitempty"`
-	PrivateDNSEnabled bool     `json:"privateDnsEnabled,omitempty"`
+	CreateTime               time.Time                  `json:"createTime"`
+	ServiceRegion            string                     `json:"serviceRegion,omitempty"`
+	ID                       string                     `json:"id,omitempty"`
+	VPCID                    string                     `json:"vpcID,omitempty"`
+	ServiceName              string                     `json:"serviceName,omitempty"`
+	State                    string                     `json:"state,omitempty"`
+	VpcEndpointType          string                     `json:"vpcEndpointType,omitempty"`
+	OwnerID                  string                     `json:"ownerID,omitempty"`
+	ServiceNetworkArn        string                     `json:"serviceNetworkArn,omitempty"`
+	ResourceConfigurationArn string                     `json:"resourceConfigurationArn,omitempty"`
+	PolicyDocument           string                     `json:"policyDocument,omitempty"`
+	RouteTableIDs            []string                   `json:"routeTableIDs,omitempty"`
+	SecurityGroupIDs         []string                   `json:"securityGroupIDs,omitempty"`
+	PayerResponsibilities    []PayerResponsibilityEntry `json:"payerResponsibilities,omitempty"`
+	SubnetIDs                []string                   `json:"subnetIDs,omitempty"`
+	PrivateDNSEnabled        bool                       `json:"privateDnsEnabled,omitempty"`
 }
 
 // PayerResponsibilityEntry records who is billed for a VPC endpoint's usage,
@@ -270,10 +271,13 @@ type InstanceStateChange struct {
 // AWS's UpdateSecurityGroupRuleDescriptions* semantics of changing a rule's
 // description without it becoming a "different" rule.
 type SecurityGroupRule struct {
+	ID                 string `json:"id,omitempty"`
 	Protocol           string `json:"protocol,omitempty"`
 	IPRange            string `json:"ipRange,omitempty"`
 	SourceGroupID      string `json:"sourceGroupId,omitempty"`
 	SourceGroupOwnerID string `json:"sourceGroupOwnerId,omitempty"`
+	IPv6Range          string `json:"ipv6Range,omitempty"`
+	PrefixListID       string `json:"prefixListId,omitempty"`
 	Description        string `json:"description,omitempty"`
 	FromPort           int    `json:"fromPort,omitempty"`
 	ToPort             int    `json:"toPort,omitempty"`
@@ -314,17 +318,27 @@ type Subnet struct {
 	// CreateSubnetWithOutpost and cross-validated against the real
 	// services/outposts backend (cross_service.go) when wired. Empty for a
 	// normal (non-Outpost) subnet.
-	OutpostArn          string `json:"outpostArn,omitempty"`
-	Arn                 string `json:"arn,omitempty"`
-	IsDefault           bool   `json:"isDefault,omitempty"`
-	MapPublicIPOnLaunch bool   `json:"mapPublicIpOnLaunch,omitempty"`
+	OutpostArn             string `json:"outpostArn,omitempty"`
+	Arn                    string `json:"arn,omitempty"`
+	CustomerOwnedIPv4Pool  string `json:"customerOwnedIpv4Pool,omitempty"`
+	PrivateDNSHostnameType string `json:"privateDnsHostnameType,omitempty"`
+	EnableLNIAtDeviceIndex int    `json:"enableLniAtDeviceIndex,omitempty"`
+	IsDefault              bool   `json:"isDefault,omitempty"`
+	MapPublicIPOnLaunch    bool   `json:"mapPublicIpOnLaunch,omitempty"`
 	// Ipv6Native marks an IPv6-only subnet (no IPv4 CIDR block).
-	Ipv6Native bool `json:"ipv6Native,omitempty"`
+	Ipv6Native                      bool `json:"ipv6Native,omitempty"`
+	EnableDNS64                     bool `json:"enableDns64,omitempty"`
+	AssignIPv6AddressOnCreation     bool `json:"assignIpv6AddressOnCreation,omitempty"`
+	MapCustomerOwnedIPOnLaunch      bool `json:"mapCustomerOwnedIpOnLaunch,omitempty"`
+	EnableResourceNameDNSARecord    bool `json:"enableResourceNameDnsARecord,omitempty"`
+	EnableResourceNameDNSAAAARecord bool `json:"enableResourceNameDnsAAAARecord,omitempty"`
 }
 
 // InMemoryBackend is the in-memory store for EC2 resources.
 type InMemoryBackend struct {
 	metrics      cwmetric.Sink
+	lastUsage    map[string]InstanceUsage
+	usageMu      *lockmetrics.RWMutex
 	compute      Compute
 	dnsRegistrar DNSRegistrar
 	// appConfig is the service.AppContext.Config value Provider.Init
@@ -587,6 +601,7 @@ type InMemoryBackend struct {
 	// account-level managed resource visibility.
 	tgwClientVpnAttachments            *store.Table[TransitGatewayClientVpnAttachment]
 	imageWatermarks                    map[string][]string
+	imageWatermarkTimes                map[string]map[string]time.Time
 	accountVpcEncryptionControl        *AccountVpcEncryptionControl
 	applicationStatusChecks            *store.Table[ApplicationStatusCheck]
 	applicationStatusCheckAssociations *store.Table[ApplicationStatusCheckAssociation]
@@ -740,6 +755,7 @@ func initBatch6Maps(b *InMemoryBackend) {
 // under the funlen limit, matching initVpcConfigMaps/initCapacityFamilyMaps.
 func initParity4Maps(b *InMemoryBackend) {
 	b.imageWatermarks = make(map[string][]string)
+	b.imageWatermarkTimes = make(map[string]map[string]time.Time)
 	b.accountVpcEncryptionControl = &AccountVpcEncryptionControl{
 		Mode:      accountVpcEncryptionControlModeUnmanaged,
 		State:     accountVpcEncryptionControlStateDefault,
@@ -754,6 +770,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b.AccountID = accountID
 	b.Region = region
 	b.mu = lockmetrics.New("ec2")
+	b.usageMu = lockmetrics.New("ec2.usage")
 	b.lifecycleStop = make(chan struct{})
 	b.initDefaults()
 
@@ -910,6 +927,7 @@ func (b *InMemoryBackend) StartLifecycleReconciler(ctx context.Context) {
 					b.reconcileInstanceLifecycle()
 				case <-statusTicker.C:
 					b.EmitStatusCheckMetrics()
+					b.EmitUsageMetrics(ctx)
 				}
 			}
 		}()
@@ -929,6 +947,8 @@ func (b *InMemoryBackend) StopLifecycleReconciler() {
 // Performance: takes a cheap read-lock pass first to bail early when nothing is
 // transitional, avoiding a write-lock acquisition on every 50ms tick.
 func (b *InMemoryBackend) reconcileInstanceLifecycle() {
+	b.expireFleets(time.Now())
+
 	// Fast path: read-lock to detect any transitional instance.
 	b.mu.RLock("reconcileInstanceLifecycle-check")
 	hasTransitional := false
@@ -941,6 +961,8 @@ func (b *InMemoryBackend) reconcileInstanceLifecycle() {
 			break
 		}
 	}
+
+	hasTransitional = hasTransitional || b.natGatewaysTransitionalLocked()
 	b.mu.RUnlock()
 
 	if !hasTransitional {
@@ -961,6 +983,8 @@ func (b *InMemoryBackend) reconcileInstanceLifecycle() {
 			inst.State = StateTerminated
 		}
 	}
+
+	b.advanceNatGatewaysLocked()
 }
 
 // initDefaults pre-populates a default VPC, subnet, and security group.
@@ -1040,6 +1064,14 @@ func (b *InMemoryBackend) RunInstances(
 	imageID, instanceType, subnetID string,
 	count int,
 ) ([]*Instance, error) {
+	return b.RunInstancesWithID("", imageID, instanceType, subnetID, count)
+}
+
+// RunInstancesWithID is RunInstances with an optional pinned instance ID, valid only for a single instance.
+func (b *InMemoryBackend) RunInstancesWithID(
+	pinnedID, imageID, instanceType, subnetID string,
+	count int,
+) ([]*Instance, error) {
 	if imageID == "" {
 		return nil, fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
 	}
@@ -1051,6 +1083,14 @@ func (b *InMemoryBackend) RunInstances(
 
 	b.mu.Lock("RunInstances")
 	defer b.mu.Unlock()
+
+	if err = b.checkPinnedInstanceLocked(pinnedID, count); err != nil {
+		return nil, err
+	}
+
+	if err = b.checkImageLaunchAllowedLocked(imageID); err != nil {
+		return nil, err
+	}
 
 	if subnetID == "" {
 		subnetID = b.findDefaultSubnetID()
@@ -1076,10 +1116,12 @@ func (b *InMemoryBackend) RunInstances(
 	// before creating any instance, using pre-minted IDs, so a rejected
 	// batch (Outpost gone, insufficient capacity) never creates an
 	// ec2.Instance at all -- matches real RunInstances failing atomically.
-	var instanceIDs []string
-	if outpostArn != "" {
-		instanceIDs = newOutpostReservedInstanceIDs(count)
+	instanceIDs := newOutpostReservedInstanceIDs(count)
+	if pinnedID != "" {
+		instanceIDs[0] = pinnedID
+	}
 
+	if outpostArn != "" {
 		if outpostsBk, ok := b.outpostsBackend(); ok {
 			if capErr := outpostsBk.ConsumeCapacity(outpostArn, instanceType, b.AccountID, instanceIDs); capErr != nil {
 				return nil, translateOutpostsCapacityErr(capErr)
@@ -1092,17 +1134,16 @@ func (b *InMemoryBackend) RunInstances(
 	// clamping. count is only used for the loop count below (safe).
 	//nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
 	instances := make([]*Instance, 0)
+	reservationID := newReservationID()
 
 	for i := range count {
-		id := newInstanceID()
-		if len(instanceIDs) > 0 {
-			id = instanceIDs[i]
-		}
+		id := instanceIDs[i]
 
 		inst := &Instance{
-			ID:           id,
-			ImageID:      imageID,
-			InstanceType: instanceType,
+			ID:            id,
+			ReservationID: reservationID,
+			ImageID:       imageID,
+			InstanceType:  instanceType,
 			// AWS state machine: pending → running via reconciler goroutine.
 			State:      StatePending,
 			VPCID:      vpcID,
@@ -1112,36 +1153,48 @@ func (b *InMemoryBackend) RunInstances(
 			EnaSupport: true,
 		}
 		inst.Placement.AvailabilityZone = availabilityZone
-		inst.PrivateIP = b.allocPrivateIP()
+		inst.PrivateIP = b.allocPrivateIPInSubnet(subnetID)
 		if mapPublicIP {
 			inst.PublicIPAddress = b.allocElasticIP()
-			inst.PublicDNSName = fmt.Sprintf("ec2-%s.compute-1.amazonaws.com",
-				strings.ReplaceAll(inst.PublicIPAddress, ".", "-"))
+			inst.PublicDNSName = publicDNSNameFor(inst.PublicIPAddress)
 		}
-		eniID := newENIID()
-		attachID := "eni-attach-" + uuid.New().String()[:8]
-		b.networkInterfaces.Put(&NetworkInterface{
-			ID:                  eniID,
-			SubnetID:            subnetID,
-			VPCID:               vpcID,
-			PrivateIP:           inst.PrivateIP,
-			InstanceID:          id,
-			AttachmentID:        attachID,
-			DeviceIndex:         0,
-			Status:              stateInUse,
-			OwnerID:             b.AccountID,
-			SourceDestCheck:     true,
-			DeleteOnTermination: true,
-		})
-		b.instances.Put(inst)
-		b.indexInstanceLocked(inst)
-		eni, _ := b.networkInterfaces.Get(eniID)
-		b.indexENILocked(eniID, eni)
-		b.indexENIByVPCLocked(eniID, eni)
+
+		b.attachLaunchENILocked(inst)
 		instances = append(instances, inst)
 	}
 
 	return instances, nil
+}
+
+// attachLaunchENILocked registers inst and gives it the primary network interface, placing both
+// in the VPC's default security group.
+func (b *InMemoryBackend) attachLaunchENILocked(inst *Instance) {
+	var launchGroups []string
+	if def := b.defaultSecurityGroupIDLocked(inst.VPCID); def != "" {
+		launchGroups = []string{def}
+		inst.SecurityGroups = launchGroups
+	}
+
+	eniID := newENIID()
+	eni := &NetworkInterface{
+		ID:                  eniID,
+		SubnetID:            inst.SubnetID,
+		VPCID:               inst.VPCID,
+		PrivateIP:           inst.PrivateIP,
+		InstanceID:          inst.ID,
+		AttachmentID:        "eni-attach-" + uuid.New().String()[:8],
+		DeviceIndex:         0,
+		Status:              stateInUse,
+		OwnerID:             b.AccountID,
+		SourceDestCheck:     true,
+		DeleteOnTermination: true,
+		SecurityGroupIDs:    launchGroups,
+	}
+	b.networkInterfaces.Put(eni)
+	b.instances.Put(inst)
+	b.indexInstanceLocked(inst)
+	b.indexENILocked(eniID, eni)
+	b.indexENIByVPCLocked(eniID, eni)
 }
 
 // findDefaultSubnetID returns the ID of the default subnet, or empty string if none.

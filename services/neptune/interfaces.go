@@ -187,6 +187,7 @@ type StorageBackend interface {
 	FailoverGlobalCluster(
 		ctx context.Context,
 		globalClusterID, targetDBClusterID string,
+		allowDataLoss bool,
 	) (*GlobalCluster, error)
 	ModifyGlobalCluster(
 		ctx context.Context, globalClusterID string, opts GlobalClusterModifyOptions,

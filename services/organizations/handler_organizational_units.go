@@ -195,12 +195,9 @@ func (h *Handler) handleListOrganizationalUnitsForParent(c *echo.Context, body [
 		objs = append(objs, toOUObject(ou))
 	}
 
-	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
-
-	return c.JSON(
-		http.StatusOK,
-		listOrganizationalUnitsForParentResponse{OrganizationalUnits: p.Data, NextToken: p.Next},
-	)
+	return pageResponse(h, c, objs, req.NextToken, req.MaxResults, func(p page.Page[ouObject]) any {
+		return listOrganizationalUnitsForParentResponse{OrganizationalUnits: p.Data, NextToken: p.Next}
+	})
 }
 
 func (h *Handler) handleListAccountsForParent(c *echo.Context, body []byte) error {
@@ -219,9 +216,9 @@ func (h *Handler) handleListAccountsForParent(c *echo.Context, body []byte) erro
 		objs = append(objs, toAccountObject(a))
 	}
 
-	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
-
-	return c.JSON(http.StatusOK, listAccountsForParentResponse{Accounts: p.Data, NextToken: p.Next})
+	return pageResponse(h, c, objs, req.NextToken, req.MaxResults, func(p page.Page[accountObject]) any {
+		return listAccountsForParentResponse{Accounts: p.Data, NextToken: p.Next}
+	})
 }
 
 func (h *Handler) handleListParents(c *echo.Context, body []byte) error {
@@ -230,8 +227,8 @@ func (h *Handler) handleListParents(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	if rejected, err := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
-		return err
+	if rejected, pErr := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return pErr
 	}
 
 	parents, err := h.Backend.ListParents(req.ChildID)
@@ -253,6 +250,10 @@ func (h *Handler) handleListChildren(c *echo.Context, body []byte) error {
 	children, err := h.Backend.ListChildren(req.ParentID, req.ChildType)
 	if err != nil {
 		return h.handleBackendError(c, err)
+	}
+
+	if rejected, pErr := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return pErr
 	}
 
 	p := page.New(children, req.NextToken, req.MaxResults, defaultMaxResults)

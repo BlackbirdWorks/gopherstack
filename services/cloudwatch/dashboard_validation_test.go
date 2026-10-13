@@ -112,7 +112,7 @@ func TestBackend_PutDashboard_BodyValidation(t *testing.T) {
 
 			b := cloudwatch.NewInMemoryBackend()
 
-			messages, err := b.PutDashboard("dash-"+strings.ReplaceAll(tt.name, " ", "-"), tt.body)
+			messages, err := b.PutDashboard(dashName(tt.name), tt.body)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -131,7 +131,7 @@ func TestBackend_PutDashboard_BodyValidation(t *testing.T) {
 					tt.wantErrPath, valErr.Messages)
 
 				// The dashboard must not have been persisted.
-				_, _, getErr := b.GetDashboard("dash-" + strings.ReplaceAll(tt.name, " ", "-"))
+				_, _, getErr := b.GetDashboard(dashName(tt.name))
 				assert.Error(t, getErr)
 
 				return
@@ -144,7 +144,7 @@ func TestBackend_PutDashboard_BodyValidation(t *testing.T) {
 			}
 
 			// The dashboard must have been persisted regardless of warnings.
-			_, body, getErr := b.GetDashboard("dash-" + strings.ReplaceAll(tt.name, " ", "-"))
+			_, body, getErr := b.GetDashboard(dashName(tt.name))
 			require.NoError(t, getErr)
 			assert.Equal(t, tt.body, body)
 		})
@@ -242,4 +242,14 @@ func TestCBOR_PutDashboard_ValidBodyWithWarning(t *testing.T) {
 	msgs, ok := resp["DashboardValidationMessages"].(cbor.List)
 	require.True(t, ok)
 	assert.NotEmpty(t, msgs)
+}
+
+func dashName(testName string) string {
+	return "dash-" + strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			return r
+		}
+
+		return '-'
+	}, testName)
 }

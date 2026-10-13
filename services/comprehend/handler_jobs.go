@@ -20,7 +20,7 @@ import (
 func asyncJobSpecs() map[string]jobSpec {
 	return map[string]jobSpec{
 		"DocumentClassificationJob": {
-			jobType:                  "document-classification-job",
+			jobType:                  jobTypeClassification,
 			objectField:              "DocumentClassificationJobProperties",
 			listField:                "DocumentClassificationJobPropertiesList",
 			hasDocumentClassifierArn: true,
@@ -30,7 +30,7 @@ func asyncJobSpecs() map[string]jobSpec {
 			noStop:                   true, // no real StopDocumentClassificationJob op
 		},
 		"EntitiesDetectionJob": {
-			jobType:                "entities-detection-job",
+			jobType:                jobTypeEntities,
 			objectField:            "EntitiesDetectionJobProperties",
 			listField:              "EntitiesDetectionJobPropertiesList",
 			hasEntityRecognizerArn: true,
@@ -40,7 +40,7 @@ func asyncJobSpecs() map[string]jobSpec {
 			hasVpcConfig:           true,
 		},
 		"KeyPhrasesDetectionJob": {
-			jobType:           "key-phrases-detection-job",
+			jobType:           jobTypeKeyPhrases,
 			objectField:       "KeyPhrasesDetectionJobProperties",
 			listField:         "KeyPhrasesDetectionJobPropertiesList",
 			hasLanguageCode:   true,
@@ -48,7 +48,7 @@ func asyncJobSpecs() map[string]jobSpec {
 			hasVpcConfig:      true,
 		},
 		"SentimentDetectionJob": {
-			jobType:           "sentiment-detection-job",
+			jobType:           jobTypeSentiment,
 			objectField:       "SentimentDetectionJobProperties",
 			listField:         "SentimentDetectionJobPropertiesList",
 			hasLanguageCode:   true,
@@ -56,14 +56,14 @@ func asyncJobSpecs() map[string]jobSpec {
 			hasVpcConfig:      true,
 		},
 		"PiiEntitiesDetectionJob": {
-			jobType:         "pii-entities-detection-job",
+			jobType:         jobTypePII,
 			objectField:     "PiiEntitiesDetectionJobProperties",
 			listField:       "PiiEntitiesDetectionJobPropertiesList",
 			hasLanguageCode: true,
 			hasPiiMode:      true,
 		},
 		"TopicsDetectionJob": {
-			jobType:           "topics-detection-job",
+			jobType:           jobTypeTopics,
 			objectField:       "TopicsDetectionJobProperties",
 			listField:         "TopicsDetectionJobPropertiesList",
 			hasVolumeKmsKeyID: true,
@@ -72,7 +72,7 @@ func asyncJobSpecs() map[string]jobSpec {
 			noStop:            true, // no real StopTopicsDetectionJob op
 		},
 		"TargetedSentimentDetectionJob": {
-			jobType:           "targeted-sentiment-detection-job",
+			jobType:           jobTypeTargetedSentiment,
 			objectField:       "TargetedSentimentDetectionJobProperties",
 			listField:         "TargetedSentimentDetectionJobPropertiesList",
 			hasLanguageCode:   true,
@@ -80,14 +80,14 @@ func asyncJobSpecs() map[string]jobSpec {
 			hasVpcConfig:      true,
 		},
 		"DominantLanguageDetectionJob": {
-			jobType:           "dominant-language-detection-job",
+			jobType:           jobTypeLanguage,
 			objectField:       "DominantLanguageDetectionJobProperties",
 			listField:         "DominantLanguageDetectionJobPropertiesList",
 			hasVolumeKmsKeyID: true,
 			hasVpcConfig:      true,
 		},
 		"EventsDetectionJob": {
-			jobType:             "events-detection-job",
+			jobType:             jobTypeEvents,
 			objectField:         "EventsDetectionJobProperties",
 			listField:           "EventsDetectionJobPropertiesList",
 			hasLanguageCode:     true,
@@ -98,6 +98,10 @@ func asyncJobSpecs() map[string]jobSpec {
 
 func (h *Handler) startJob(spec jobSpec) operation {
 	return func(input map[string]any) (map[string]any, error) {
+		if err := validateNestedConfigs(input); err != nil {
+			return nil, err
+		}
+
 		job, err := h.Backend.StartJob(spec.jobType, stringValue(input, "JobName", ""), input, inputTags(input))
 		if err != nil {
 			return nil, err
@@ -130,7 +134,11 @@ func (h *Handler) listJobs(spec jobSpec) operation {
 			items = append(items, jobMap(job, spec))
 		}
 
-		tok, maxResults := paginationParams(input)
+		tok, maxResults, pageErr := paginationParams(input)
+		if pageErr != nil {
+			return nil, pageErr
+		}
+
 		page, nextTok := comprehendPaginate(items, tok, maxResults)
 		out := map[string]any{spec.listField: page}
 		if nextTok != "" {

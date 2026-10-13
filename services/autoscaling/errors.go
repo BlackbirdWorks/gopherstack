@@ -15,6 +15,8 @@ var (
 	ErrUnknownAction = errors.New("InvalidAction")
 	// ErrInvalidParameter is returned when a request parameter is invalid.
 	ErrInvalidParameter = errors.New("ValidationError")
+	// ErrInvalidNextToken is returned when a NextToken was not issued by this service.
+	ErrInvalidNextToken = errors.New("InvalidNextToken")
 	// ErrActiveInstanceRefreshNotFound is returned when no active instance refresh exists.
 	ErrActiveInstanceRefreshNotFound = errors.New("ActiveInstanceRefreshNotFound")
 	// ErrLifecycleHookNotFound is returned when the specified lifecycle hook does not exist.

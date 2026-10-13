@@ -30,8 +30,8 @@ func validateVocabularyPhrases(phrases []string) error {
 
 // CreateVocabulary creates a new custom vocabulary.
 func (b *InMemoryBackend) CreateVocabulary(input *Vocabulary) (*Vocabulary, error) {
-	if input.VocabularyName == "" {
-		return nil, fmt.Errorf("%w: VocabularyName is required", ErrValidation)
+	if err := validateResourceName("VocabularyName", input.VocabularyName); err != nil {
+		return nil, err
 	}
 
 	if err := validateLanguageCode(input.LanguageCode); err != nil {
@@ -66,6 +66,7 @@ func (b *InMemoryBackend) CreateVocabulary(input *Vocabulary) (*Vocabulary, erro
 	b.recordResourceTagsLocked(b.resourceARN(resourceTypeVocabulary, v.VocabularyName), v.Tags)
 
 	cp := v
+	b.observeVocabulary(&cp)
 
 	return &cp, nil
 }
@@ -90,6 +91,7 @@ func (b *InMemoryBackend) GetVocabulary(vocabularyName string) (*Vocabulary, err
 	}
 
 	cp := *v
+	b.observeVocabulary(&cp)
 
 	return &cp, nil
 }
@@ -124,6 +126,7 @@ func (b *InMemoryBackend) UpdateVocabulary(
 	v.LastModifiedTime = time.Now()
 
 	cp := *v
+	b.observeVocabulary(&cp)
 
 	return &cp, nil
 }
@@ -156,9 +159,12 @@ func (b *InMemoryBackend) ListVocabularies(
 
 	all := make([]Vocabulary, 0, b.vocabularies.Len())
 	for _, v := range b.vocabularies.All() {
-		stateMatches := stateFilter == "" || v.VocabularyState == stateFilter
-		if stateMatches && matchesNameContains(v.VocabularyName, nameContains) {
-			all = append(all, *v)
+		cp := *v
+		b.observeVocabulary(&cp)
+
+		if (stateFilter == "" || cp.VocabularyState == stateFilter) &&
+			matchesNameContains(v.VocabularyName, nameContains) {
+			all = append(all, cp)
 		}
 	}
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -28,6 +30,10 @@ func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]b
 	tags, err := h.Backend.ListTagsForResource(in.ResourceARN)
 	if err != nil {
 		return nil, err
+	}
+
+	if tokErr := checkNextToken(in.NextToken); tokErr != nil {
+		return nil, tokErr
 	}
 
 	pg := page.New(tags, in.NextToken, 0, defaultTagsPageSize)
@@ -62,6 +68,10 @@ func (h *Handler) handleTagResource(_ context.Context, body []byte) ([]byte, err
 
 	if in.ResourceARN == "" {
 		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
+	}
+
+	if err := validateTagList(in.Tags); err != nil {
+		return nil, err
 	}
 
 	if err := h.Backend.TagResource(in.ResourceARN, tagsToMap(in.Tags)); err != nil {
@@ -108,8 +118,34 @@ func tagsToMap(in []tagWire) map[string]string {
 	return tags
 }
 
-// checkCreateTags rejects an over-limit tag list before the resource exists.
+const (
+	maxTagKeyLen   = 128
+	maxTagValueLen = 256
+	reservedPrefix = "aws:"
+)
+
+// validateTagList enforces the TagResource documented key/value limits and the reserved aws: prefix.
+func validateTagList(in []tagWire) error {
+	for _, t := range in {
+		switch {
+		case t.Key == "" || utf8.RuneCountInString(t.Key) > maxTagKeyLen:
+			return fmt.Errorf("%w: tag key must be 1-%d characters", errInvalidRequest, maxTagKeyLen)
+		case utf8.RuneCountInString(t.Value) > maxTagValueLen:
+			return fmt.Errorf("%w: tag value must be at most %d characters", errInvalidRequest, maxTagValueLen)
+		case strings.HasPrefix(strings.ToLower(t.Key), reservedPrefix):
+			return fmt.Errorf("%w: tag keys may not start with %q", errInvalidRequest, reservedPrefix)
+		}
+	}
+
+	return nil
+}
+
+// checkCreateTags rejects an invalid or over-limit tag list before the resource exists.
 func checkCreateTags(in []tagWire) error {
+	if err := validateTagList(in); err != nil {
+		return err
+	}
+
 	if n := len(tagsToMap(in)); n > maxTagsPerResource {
 		return fmt.Errorf("%w: at most %d tags allowed, got %d", ErrTooManyTags, maxTagsPerResource, n)
 	}
@@ -123,4 +159,13 @@ func (h *Handler) applyCreateTags(arn string, in []tagWire) error {
 	}
 
 	return h.Backend.TagResource(arn, tagsToMap(in))
+}
+
+// checkNextToken rejects a NextToken this service did not issue.
+func checkNextToken(token string) error {
+	if page.ValidateToken(token) != nil {
+		return fmt.Errorf("%w: invalid NextToken", errInvalidRequest)
+	}
+
+	return nil
 }

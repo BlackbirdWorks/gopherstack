@@ -38,6 +38,22 @@ func validateAddTagsKVs(kvs []tags.KV) error {
 	return nil
 }
 
+const maxTagsPerLB = 10
+
+// validateInitialTags checks CreateLoadBalancer's Tags before the load balancer
+// exists, so a bad tag set can't leave a half-created one behind.
+func validateInitialTags(kvs []tags.KV) error {
+	if err := validateAddTagsKVs(kvs); err != nil {
+		return err
+	}
+
+	if len(kvs) > maxTagsPerLB {
+		return fmt.Errorf("%w: cannot have more than %d tags on a load balancer", ErrTooManyTags, maxTagsPerLB)
+	}
+
+	return nil
+}
+
 // AddTags adds or updates tags on one or more load balancers.
 func (b *InMemoryBackend) AddTags(ctx context.Context, names []string, kvs []tags.KV) error {
 	if err := validateAddTagsKVs(kvs); err != nil {
@@ -48,8 +64,6 @@ func (b *InMemoryBackend) AddTags(ctx context.Context, names []string, kvs []tag
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-
-	const maxTagsPerLB = 10
 
 	for _, name := range names {
 		lb, ok := b.lbs.Get(lbTableKey(region, name))

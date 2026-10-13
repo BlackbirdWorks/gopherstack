@@ -102,3 +102,31 @@ func TestRWMutex_CloseDuringHeldRLockTolerated(t *testing.T) {
 	// the Inc that landed on the deleted series, so it nets negative here.
 	assert.InDelta(t, -1, active[0].GetGauge().GetValue(), 0)
 }
+
+func TestRWMutex_CloseKeepsSeriesSharedByLiveMutex(t *testing.T) {
+	t.Parallel()
+
+	name := "close.shared." + t.Name()
+	a, b := lockmetrics.New(name), lockmetrics.New(name)
+
+	t.Cleanup(b.Close)
+
+	a.Lock("op")
+	a.Unlock()
+	b.Lock("op")
+	b.Unlock()
+	a.Close()
+
+	mfs, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+
+	held := seriesFor(mfs, "gopherstack_lock_hold_seconds", name)
+	require.Len(t, held, 1, "closing one mutex must not drop series a live same-name mutex still uses")
+	assert.EqualValues(t, 2, held[0].GetHistogram().GetSampleCount())
+
+	b.Close()
+
+	mfs, err = prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+	assert.Empty(t, seriesFor(mfs, "gopherstack_lock_hold_seconds", name), "last Close sweeps the series")
+}

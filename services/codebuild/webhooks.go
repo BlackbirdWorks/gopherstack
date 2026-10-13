@@ -1,6 +1,7 @@
 package codebuild
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,11 +38,11 @@ func (b *InMemoryBackend) CreateWebhook(
 
 	p, ok := b.projects.Get(projectName)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: Project cannot be found: %s", ErrNotFound, b.buildProjectARN(projectName))
 	}
 
 	if b.webhooks.Has(projectName) {
-		return nil, ErrAlreadyExists
+		return nil, fmt.Errorf("%w: Webhook already exists for project: %s", ErrAlreadyExists, projectName)
 	}
 
 	now := float64(time.Now().Unix())
@@ -74,7 +75,7 @@ func (b *InMemoryBackend) DeleteWebhook(projectName string) error {
 	defer b.mu.Unlock()
 
 	if !b.webhooks.Delete(projectName) {
-		return ErrNotFound
+		return fmt.Errorf("%w: Webhook cannot be found for project: %s", ErrNotFound, projectName)
 	}
 
 	if p, ok := b.projects.Get(projectName); ok {
@@ -95,7 +96,7 @@ func (b *InMemoryBackend) UpdateWebhook(
 
 	w, ok := b.webhooks.Get(projectName)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: Webhook cannot be found for project: %s", ErrNotFound, projectName)
 	}
 
 	w.BranchFilter = branchFilter

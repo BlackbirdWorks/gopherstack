@@ -88,7 +88,7 @@ func (h *Handler) handleCreateBrand(c *echo.Context) error {
 	brand, err := h.Backend.CreateBrand(accountID, brandID, mapField(body, keyBrandDefinition), tagsFromBody(body))
 	if err != nil {
 		if errors.Is(err, ErrBrandAlreadyExists) {
-			return writeError(c, http.StatusConflict, errResourceExistsCode, err.Error())
+			return writeError(c, http.StatusConflict, errResourceExistsCode, errMessage(err))
 		}
 
 		return httpErr(c, err)

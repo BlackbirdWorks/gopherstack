@@ -30,6 +30,8 @@ const (
 	fileSystemTypeOpenZFS          = "OPENZFS"
 	lustreDeploymentTypeScratch1   = "SCRATCH_1"
 	windowsDeploymentTypeSingleAZ1 = "SINGLE_AZ_1"
+	windowsDeploymentTypeMultiAZ1  = "MULTI_AZ_1"
+	ontapDeploymentTypeMultiAZ1    = "MULTI_AZ_1"
 	lustreMountNameLen             = 8
 
 	// defaultAutomaticBackupRetentionDays is the real-AWS default backup
@@ -90,32 +92,24 @@ const (
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	mu *lockmetrics.RWMutex
-	// registry holds every store.Table-backed resource field so their
-	// Reset/Snapshot/Restore collapse to one call each -- see
-	// store_setup.go's file doc comment for why every table here is
-	// "clean" (registered directly, no DTO-registry needed).
+	fileCaches             *store.Table[storedFileCache]
+	storageVirtualMachines *store.Table[storedStorageVirtualMachine]
+	fileSystems            *store.Table[storedFileSystem]
+	backups                *store.Table[storedBackup]
+	tags                   map[string]map[string]string
+	aliases                map[string][]string
+	dataRepositoryAssocs   *store.Table[storedDataRepositoryAssoc]
+	dataRepositoryTasks    *store.Table[storedDataRepositoryTask]
 	registry               *store.Registry
-	fileSystems            *store.Table[storedFileSystem]            // fileSystemID → fs
-	backups                *store.Table[storedBackup]                // backupID → backup
-	tags                   map[string]map[string]string              // resourceARN → tags
-	aliases                map[string][]string                       // fileSystemID → []alias name
-	dataRepositoryAssocs   *store.Table[storedDataRepositoryAssoc]   // associationID → assoc
-	dataRepositoryTasks    *store.Table[storedDataRepositoryTask]    // taskID → task
-	fileCaches             *store.Table[storedFileCache]             // fileCacheID → cache
-	snapshots              *store.Table[storedSnapshot]              // snapshotID → snapshot
-	storageVirtualMachines *store.Table[storedStorageVirtualMachine] // svmID → svm
-	volumes                *store.Table[storedVolume]                // volumeID → volume
-	s3AccessPoints         *store.Table[storedS3AccessPoint]         // name → access point
-	// createFileSystemTokens dedups CreateFileSystem calls by ClientRequestToken.
-	// It's a plain map (not store.Table/safemap) because the check-then-set
-	// against it must be atomic with the fileSystems table write it guards
-	// (a cross-map invariant), so it's protected by the same coarse b.mu as
-	// every other backend map, per this service's existing locking pattern.
+	mu                     *lockmetrics.RWMutex
+	snapshots              *store.Table[storedSnapshot]
+	volumes                *store.Table[storedVolume]
+	s3AccessPoints         *store.Table[storedS3AccessPoint]
 	createFileSystemTokens map[string]fsCreateTokenEntry
 	sharedVpcEnabled       string
 	accountID              string
 	region                 string
+	lifecycleDelay         time.Duration
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
@@ -249,4 +243,36 @@ func paginate(n, maxResults int, nextToken string, keyFn func(int) string) (int,
 	}
 
 	return start, end, next
+}
+
+// SetLifecycleDelay sets how long new file systems, backups, volumes, snapshots, caches, storage
+// virtual machines and associations report CREATING before AVAILABLE. Zero (the default) settles
+// instantly; a negative value is ignored.
+func (b *InMemoryBackend) SetLifecycleDelay(d time.Duration) {
+	if d < 0 {
+		return
+	}
+
+	b.mu.Lock("SetLifecycleDelay")
+	defer b.mu.Unlock()
+
+	b.lifecycleDelay = d
+}
+
+// readyAt returns when a resource created now settles; zero means immediately. Caller holds b.mu.
+func (b *InMemoryBackend) readyAt() time.Time {
+	if b.lifecycleDelay <= 0 {
+		return time.Time{}
+	}
+
+	return time.Now().Add(b.lifecycleDelay)
+}
+
+// renderLifecycle reports CREATING until readyAt, otherwise the stored lifecycle.
+func renderLifecycle(stored string, readyAt time.Time) string {
+	if !readyAt.IsZero() && time.Now().Before(readyAt) {
+		return "CREATING"
+	}
+
+	return stored
 }

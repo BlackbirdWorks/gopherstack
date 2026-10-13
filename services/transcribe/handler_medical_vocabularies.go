@@ -174,6 +174,10 @@ func (h *Handler) handleListMedicalVocabularies(
 	_ context.Context,
 	in *listMedicalVocabulariesInput,
 ) (*listMedicalVocabulariesOutput, error) {
+	if err := validateVocabularyListRequest(in.StateEquals, in.NextToken, in.MaxResults); err != nil {
+		return nil, err
+	}
+
 	vocabs, nextToken := h.Backend.ListMedicalVocabularies(in.StateEquals, in.NameContains, in.NextToken, in.MaxResults)
 
 	result := make([]medicalVocabularySummary, 0, len(vocabs))

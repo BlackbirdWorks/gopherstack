@@ -45,31 +45,54 @@ func ExecuteQuery(query string, params []QueryParameter, docs []DocumentInfo) ([
 		return nil, err
 	}
 
+	rows := make(mapRows, len(docs))
+	for i, doc := range docs {
+		rows[i] = documentAsMap(doc)
+	}
+
+	return executeStatement(stmt, params, rows), nil
+}
+
+// queryRows is the row source executeStatement runs a parsed statement
+// against: row(i) is a cheap view used for WHERE/ORDER BY/projection, and
+// full(i) materializes the complete response row.
+type queryRows interface {
+	count() int
+	row(i int) sqlRow
+	full(i int) map[string]any
+}
+
+type mapRows []map[string]any
+
+func (r mapRows) count() int                { return len(r) }
+func (r mapRows) row(i int) sqlRow          { return sqlRow{m: r[i]} }
+func (r mapRows) full(i int) map[string]any { return r[i] }
+
+func executeStatement(stmt *sqlSelectStmt, params []QueryParameter, rs queryRows) []map[string]any {
 	paramValues := make(map[string]any, len(params))
 	for _, p := range params {
 		paramValues[p.Name] = p.Value
 	}
 
-	rows := make([]map[string]any, 0, len(docs))
+	n := rs.count()
+	idx := make([]int, 0, n)
 
-	for _, doc := range docs {
-		row := documentAsMap(doc)
-
+	for i := range n {
 		// Only a definite sqlTrue counts as a match: both sqlFalse and
 		// sqlUndefined exclude the row (see this file's top doc comment on
 		// three-valued logic).
-		if stmt.where != nil && evalSQLNode(stmt.where, row, paramValues) != sqlTrue {
+		if stmt.where != nil && evalSQLNode(stmt.where, rs.row(i), paramValues) != sqlTrue {
 			continue
 		}
 
-		rows = append(rows, row)
+		idx = append(idx, i)
 	}
 
-	sortRows(rows, stmt.orderBy)
+	sortRows(idx, rs, stmt.orderBy)
 
-	rows = applyOffsetAndLimit(rows, stmt)
+	idx = applyOffsetAndLimit(idx, stmt)
 
-	return projectRows(rows, stmt), nil
+	return projectRows(idx, rs, stmt)
 }
 
 // applyOffsetAndLimit applies TOP or OFFSET/LIMIT (mutually exclusive in
@@ -77,7 +100,7 @@ func ExecuteQuery(query string, params []QueryParameter, docs []DocumentInfo) ([
 // OFFSET/LIMIT and ignores TOP -- an ambiguous case with no real-world
 // occurrence worth erroring over) to the already-filtered, already-sorted
 // row set.
-func applyOffsetAndLimit(rows []map[string]any, stmt *sqlSelectStmt) []map[string]any {
+func applyOffsetAndLimit(rows []int, stmt *sqlSelectStmt) []int {
 	if stmt.hasOffset || stmt.hasLimit {
 		offset := min(stmt.offset, len(rows))
 
@@ -97,17 +120,21 @@ func applyOffsetAndLimit(rows []map[string]any, stmt *sqlSelectStmt) []map[strin
 	return rows
 }
 
-// projectRows applies stmt's SELECT list to rows: SELECT * returns rows
-// unchanged; an explicit projection list rebuilds each row with only the
-// requested paths, under their (possibly AS-aliased) output keys.
-func projectRows(rows []map[string]any, stmt *sqlSelectStmt) []map[string]any {
-	if stmt.isStar {
-		return rows
-	}
+// projectRows applies stmt's SELECT list to the selected rows: SELECT *
+// returns each full row unchanged; an explicit projection list rebuilds each
+// row with only the requested paths, under their (possibly AS-aliased)
+// output keys.
+func projectRows(idx []int, rs queryRows, stmt *sqlSelectStmt) []map[string]any {
+	out := make([]map[string]any, len(idx))
 
-	out := make([]map[string]any, len(rows))
+	for i, ri := range idx {
+		if stmt.isStar {
+			out[i] = rs.full(ri)
 
-	for i, row := range rows {
+			continue
+		}
+
+		row := rs.row(ri)
 		projected := make(map[string]any, len(stmt.projections))
 
 		for _, proj := range stmt.projections {
@@ -126,34 +153,55 @@ func projectRows(rows []map[string]any, stmt *sqlSelectStmt) []map[string]any {
 // tie on the first key falls through to the next). A row missing a sort
 // key's field sorts before one that has it, so ordering is total and
 // deterministic even against heterogeneous documents.
-func sortRows(rows []map[string]any, orderKeys []sqlOrderKey) {
-	if len(orderKeys) == 0 {
+func sortRows(idx []int, rs queryRows, orderKeys []sqlOrderKey) {
+	if len(orderKeys) == 0 || len(idx) < 2 {
 		return
 	}
 
-	sort.SliceStable(rows, func(i, j int) bool {
-		return rowLess(rows[i], rows[j], orderKeys)
-	})
-}
-
-func rowLess(a, b map[string]any, orderKeys []sqlOrderKey) bool {
-	for _, key := range orderKeys {
-		av, aok := resolvePath(a, key.path)
-		bv, bok := resolvePath(b, key.path)
-
-		cmp, ok := compareOrdered(av, aok, bv, bok)
-		if !ok || cmp == 0 {
-			continue
-		}
-
-		if key.desc {
-			return cmp > 0
-		}
-
-		return cmp < 0
+	type keyVal struct {
+		v  any
+		ok bool
 	}
 
-	return false
+	nk := len(orderKeys)
+	keys := make([]keyVal, len(idx)*nk)
+	pos := make([]int, len(idx))
+
+	for i, ri := range idx {
+		pos[i] = i
+
+		row := rs.row(ri)
+		for k, key := range orderKeys {
+			v, ok := resolvePath(row, key.path)
+			keys[i*nk+k] = keyVal{v: v, ok: ok}
+		}
+	}
+
+	sort.SliceStable(pos, func(i, j int) bool {
+		for k, key := range orderKeys {
+			a, b := keys[pos[i]*nk+k], keys[pos[j]*nk+k]
+
+			cmp, ok := compareOrdered(a.v, a.ok, b.v, b.ok)
+			if !ok || cmp == 0 {
+				continue
+			}
+
+			if key.desc {
+				return cmp > 0
+			}
+
+			return cmp < 0
+		}
+
+		return false
+	})
+
+	sorted := make([]int, len(idx))
+	for i, p := range pos {
+		sorted[i] = idx[p]
+	}
+
+	copy(idx, sorted)
 }
 
 // compareOrdered compares two ORDER BY key values, returning ok=false when
@@ -204,10 +252,17 @@ func compareValuesOrdered(a, b any) (int, bool) {
 // row["a"].(map[string]any)["b"]), mirroring store.go's
 // extractPartitionKeyValue. An empty path (a bare alias reference, e.g.
 // "SELECT c FROM c") resolves to the whole row.
-func resolvePath(row map[string]any, path []string) (any, bool) {
-	var cur any = row
+func resolvePath(row sqlRow, path []string) (any, bool) {
+	if len(path) == 0 {
+		return row.full(), true
+	}
 
-	for _, seg := range path {
+	cur, found := row.lookup(path[0])
+	if !found {
+		return nil, false
+	}
+
+	for _, seg := range path[1:] {
 		m, ok := cur.(map[string]any)
 		if !ok {
 			return nil, false
@@ -296,7 +351,7 @@ func triNot(a sqlTriState) sqlTriState {
 // evalSQLNode evaluates node against row under Cosmos SQL's three-valued
 // logic, resolving @param references against paramValues. Never panics --
 // see this file's top doc comment.
-func evalSQLNode(node sqlNode, row map[string]any, paramValues map[string]any) sqlTriState {
+func evalSQLNode(node sqlNode, row sqlRow, paramValues map[string]any) sqlTriState {
 	switch n := node.(type) {
 	case *sqlAndNode:
 		return triAnd(evalSQLNode(n.left, row, paramValues), evalSQLNode(n.right, row, paramValues))
@@ -319,7 +374,7 @@ func evalSQLNode(node sqlNode, row map[string]any, paramValues map[string]any) s
 // matching real Cosmos SQL, where undefined is neither "null" nor
 // meaningfully "not null" for what these operators test. Only a resolved,
 // non-nil value makes "IS NOT NULL" true.
-func evalSQLIsNull(n *sqlIsNullNode, row map[string]any, paramValues map[string]any) sqlTriState {
+func evalSQLIsNull(n *sqlIsNullNode, row sqlRow, paramValues map[string]any) sqlTriState {
 	v, ok := resolveSQLOperand(n.operand, row, paramValues)
 	if !ok {
 		return sqlFalse
@@ -342,7 +397,7 @@ func evalSQLIsNull(n *sqlIsNullNode, row map[string]any, paramValues map[string]
 // replicate every nuance of real Cosmos's type-coercion rules, only the
 // undefined-propagation behavior the review that added this function was
 // actually about.
-func evalSQLComparison(n *sqlCmpNode, row map[string]any, paramValues map[string]any) sqlTriState {
+func evalSQLComparison(n *sqlCmpNode, row sqlRow, paramValues map[string]any) sqlTriState {
 	left, leftOK := resolveSQLOperand(n.left, row, paramValues)
 	right, rightOK := resolveSQLOperand(n.right, row, paramValues)
 
@@ -359,7 +414,7 @@ func evalSQLComparison(n *sqlCmpNode, row map[string]any, paramValues map[string
 // carried as json.Number (parsed from their raw source text) rather than
 // float64, so a literal like 9007199254740993 compares exactly against a
 // stored value of the same magnitude -- see compareValues/compareJSONNumbers.
-func resolveSQLOperand(op sqlOperand, row map[string]any, paramValues map[string]any) (any, bool) {
+func resolveSQLOperand(op sqlOperand, row sqlRow, paramValues map[string]any) (any, bool) {
 	switch op.kind {
 	case sqlOperandPath:
 		return resolvePath(row, op.path)
@@ -367,10 +422,8 @@ func resolveSQLOperand(op sqlOperand, row map[string]any, paramValues map[string
 		v, ok := paramValues[op.paramName]
 
 		return v, ok
-	case sqlOperandString:
-		return op.strVal, true
-	case sqlOperandNumber:
-		return json.Number(op.numLit), true
+	case sqlOperandString, sqlOperandNumber:
+		return op.lit, true
 	case sqlOperandBool:
 		return op.boolVal, true
 	case sqlOperandNull:

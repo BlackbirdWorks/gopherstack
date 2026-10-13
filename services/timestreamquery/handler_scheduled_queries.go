@@ -145,8 +145,16 @@ func (h *Handler) handleCreateScheduledQuery(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 
+	if err := validateScheduledQueryName(req.Name); err != nil {
+		return nil, err
+	}
+
 	if req.QueryString == "" {
 		return nil, fmt.Errorf("%w: QueryString is required", ErrValidation)
+	}
+
+	if err := validateQuerySyntax(req.QueryString); err != nil {
+		return nil, err
 	}
 
 	if req.ScheduledQueryExecutionRoleArn == "" {
@@ -283,6 +291,10 @@ func (h *Handler) handleListScheduledQueries(ctx context.Context, body []byte) (
 	}
 	if len(body) > 0 {
 		_ = json.Unmarshal(body, &req)
+	}
+
+	if err := validateScheduledQueryPaging(req.NextToken, req.MaxResults); err != nil {
+		return nil, err
 	}
 
 	result := h.Backend.ListScheduledQueriesEnriched(ctx, req.NextToken, req.MaxResults)

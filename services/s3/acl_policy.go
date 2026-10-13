@@ -158,7 +158,7 @@ var _ = errACLPolicyBlocked
 //   - If-None-Match: "*"      → fail if the object already exists ("create only").
 //   - If-Match: "<etag>"      → fail if the current object's ETag != <etag>.
 //   - If-None-Match: "<etag>" → fail if the current object's ETag == <etag>.
-//   - No object exists        → any If-Match (other than absent) fails;
+//   - No object exists        → any If-Match fails with NoSuchKey (404);
 //     If-None-Match always passes.
 func (h *S3Handler) enforcePutObjectPreconditions(
 	ctx context.Context, r *http.Request, bucketName, key string,
@@ -192,7 +192,11 @@ func evaluatePutPreconditions(ifMatch, ifNoneMatch, currentETag string, objectEx
 	}
 
 	if ifMatch != "" {
-		if !objectExists || currentETag != ifMatch {
+		if !objectExists {
+			return ErrNoSuchKey
+		}
+
+		if currentETag != ifMatch {
 			return ErrPreconditionFailed
 		}
 	}

@@ -469,7 +469,31 @@ func sqsErrorDetails(err error) (errorEntry, bool) {
 		return e, true
 	}
 
+	if e, ok := sqsMessageContentErrorDetails(err); ok {
+		return e, true
+	}
+
 	return sqsPermMoveErrorDetails(err)
+}
+
+func sqsMessageContentErrorDetails(err error) (errorEntry, bool) {
+	switch {
+	case errors.Is(err, ErrMessageTooLarge):
+		return errorEntry{
+			errTypeInvalidParameterValue,
+			"One or more parameters are invalid. Reason: Message must be shorter than the queue's MaximumMessageSize bytes.",
+			http.StatusBadRequest,
+		}, true
+	case errors.Is(err, ErrInvalidMessageContents):
+		return errorEntry{
+			"com.amazonaws.sqs#InvalidMessageContents",
+			"Invalid characters found. Valid unicode characters are #x9 | #xA | #xD | #x20 to #xD7FF | " +
+				"#xE000 to #xFFFD | #x10000 to #x10FFFF",
+			http.StatusBadRequest,
+		}, true
+	default:
+		return errorEntry{}, false
+	}
 }
 
 // sqsCoreErrorDetails handles the core queue/message sentinel errors.
@@ -540,14 +564,6 @@ func sqsCoreErrorDetails(err error) (errorEntry, bool) {
 			errorEntry{
 				"com.amazonaws.sqs#InvalidAttributeValue",
 				"Invalid attribute value.",
-				badReq,
-			},
-		},
-		{
-			ErrMessageTooLarge,
-			errorEntry{
-				"com.amazonaws.sqs#InvalidMessageContents",
-				"The message exceeds the maximum message size.",
 				badReq,
 			},
 		},

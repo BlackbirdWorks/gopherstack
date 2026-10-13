@@ -4,7 +4,7 @@ sdk_module: aws-sdk-go-v2/service/opsworks@v1.31.0   # now a real go.mod depende
                                                        # slices; STALE as of 2026-09-12, this used
                                                        # to say "not a go.mod dependency").
 last_audit_commit: 5c20d9fd7
-last_audit_date: 2026-09-24
+last_audit_date: 2026-10-10
 # gopherstack-6flj/21my re-sweep (2026-08-29): spot-checked filter/sort-drop risk
 # on the ops most exposed to it (DescribeCommands' CommandIds/DeploymentId/
 # InstanceId, DescribeDeployments' DeploymentIds/AppId/StackId,
@@ -21,7 +21,7 @@ overall: A            # A: SDK-driven test/integration suite TestIntegration_Ops
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "now validates all 4 required members (Name/Region/DefaultInstanceProfileArn/ServiceRoleArn); wire no longer emits invented 'Status' field; now also accepts+echoes VpcId/Attributes/ConfigurationManager/ChefConfiguration (gopherstack-4uhx) -- rest of the optional surface (AgentVersion, CustomCookbooksSource, CustomJson, DefaultAvailabilityZone, DefaultOs, DefaultRootDeviceType, DefaultSshKeyName, DefaultSubnetId, HostnameTheme, UseCustomCookbooks, UseOpsworksSecurityGroups) remains unmodeled, see deferred"}
+  CreateStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "now validates all 4 required members (Name/Region/DefaultInstanceProfileArn/ServiceRoleArn); wire no longer emits invented 'Status' field; now also accepts+echoes VpcId/Attributes/ConfigurationManager/ChefConfiguration (gopherstack-4uhx)"}
   DescribeStacks: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateStack: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-07 (gopherstack-bael): missing delete precondition -- api_op_DeleteStack.go: \"You must first delete all instances, layers, and apps or deregister registered instances.\" Previously cascaded unconditionally; now returns ValidationException while any instance, layer, or app remains. Deployments/permissions/volumes/RDS/ECS associations (none of which carry a documented precondition) still cascade once that guard clears."}
@@ -65,17 +65,25 @@ families:
   Misc: {status: fixed, note: "GrantAccess/DescribeServiceErrors(always empty, correct)/DescribeRaidArrays(always empty, correct)/DescribeOperatingSystems(static list) all match AWS's actual mostly-static/deprecated-service behavior. GetHostnameSuggestion FIXED 2026-08-08 (see gaps-closed note below) -- was entirely unaudited by the previous pass despite being in GetSupportedOperations. DescribeStackProvisioningParameters FIXED 2026-08-15 (gopherstack-6flj): the real, dedicated top-level AgentInstallerUrl member was also being duplicated under a fabricated 'AgentInstallerUrl' key inside the free-form Parameters map, which no real response ever carries -- Parameters is now returned empty (honest: this backend tracks none of AWS's real internal agent-bootstrap keys) rather than containing an invented one. FIXED 2026-08-30: DescribeAgentVersions's static list is real AWS behavior, but its ConfigurationManager filter was dropped entirely -- see ops family note above."}
 gaps: []
 items_still_open:
-  - "Layer DefaultRecipes and DefaultSecurityGroupNames are never returned: they are an AWS-internal per-layer-type catalog this emulator cannot source. Layer settings (CustomRecipes, VolumeConfigurations, CloudWatchLogsConfiguration, LifecycleEventConfiguration) round-trip verbatim without validation."
-  - "ElasticLoadBalancer responses omit AvailabilityZones/Ec2InstanceIds/SubnetIds/VpcId -- all real, optional types.ElasticLoadBalancer members, but this backend's ElasticLoadBalancer domain struct has no VPC/subnet/EC2-instance concept at all to source them from (only ElasticLoadBalancerName/Region/DNSName/StackID/LayerID are tracked). Structural, same class as the App/Layer/Instance optional-surface gaps below, not fixed this pass (gopherstack-6flj)."
-  - "RdsDbInstance responses still omit Engine and MissingOnRds (DbPassword is now fixed, see ops.RdsDbInstance -- gopherstack-4uhx). Both remaining fields are real (optional) members of types.RdsDbInstance, but neither has a source: Engine is not a RegisterRdsDbInstance input member at all (nothing to derive it from without inventing a value), and MissingOnRds requires simulated drift detection against a real RDS instance's existence, which is a cross-service concern this package has no model for (this backend does not talk to services/rds). Both are genuinely structural, not a scope choice -- modeling them would require either fabricating data (banned) or wiring opsworks to query the rds service backend by ARN, which is out of services/opsworks's bounds."
-  - "FIXED 2026-08-23 (batch14): AssignVolume's required VolumeId member (RegisterVolume's own required StackId was fixed in gopherstack-4uhx, see families.Volume) is now pre-validated for emptiness -- an empty VolumeId now returns ValidationException instead of falling through to the volume-lookup's ResourceNotFoundException. Confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_AssignVolume.go / validateOpAssignVolumeInput (VolumeId required, InstanceId not). TestAssignVolumeValidation (volumes_test.go), hand-reverted to confirm it fails with 404 ResourceNotFoundException pre-fix."
-  - "Error responses (handleError, all branches) are sent with Content-Type: application/json rather than application/x-amz-json-1.1, unlike success responses which correctly get the awsjson1.1 content type from service.HandleTarget. Confirmed harmless for a real aws-sdk-go-v2 client -- deserializers.go's awsAwsjson11_deserializeOpError* functions key off the X-Amzn-ErrorType header and the body's __type/message fields, never Content-Type -- but it's still a wire divergence from a real server. This is a repo-wide pattern (shared by roughly half the awsjson1.1 services grepped, not opsworks-specific), so left unfixed here as out of this pass's bounded scope."
+  - "Layer DefaultRecipes and DefaultSecurityGroupNames are never returned: the SDK documents only the shape (types.go:1263/1268) and AWS retired OpsWorks Stacks, so docs.aws.amazon.com/opsworks API_Layer and user-guide pages now return 404 and the per-layer-type values cannot be sourced. Layer settings round-trip verbatim without validation."
+structural_gaps:
+  - "ElasticLoadBalancer.Ec2InstanceIds is never returned: instances carry no EC2 instance id (no EC2 backing)."
+  - "RdsDbInstance.Engine is not a RegisterRdsDbInstance input, and MissingOnRds needs drift detection against a real RDS instance (cross-service, out of this package)."
 deferred:                 # consciously not audited/implemented this pass (scope)
-  - "CreateStack/CloneStack/UpdateStack CustomCookbooksSource/UseCustomCookbooks (would mean fetching from a git/svn/s3/http repository, no model for that here) and CreateInstance BlockDeviceMappings are unmodeled."
+  - "CreateInstance BlockDeviceMappings are unmodeled."
 leaks: {status: clean, note: "No goroutines, timers, or background schedulers in this package — every op is synchronous, so there is nothing to leak. Confirmed no time.AfterFunc/go func/Ticker usage anywhere in services/opsworks/."}
 ---
 
 ## Notes
+
+## 2026-10-10 realism pass
+
+- ResourceNotFoundException is now HTTP 400 (it was 404) and messages name the missing resource type instead of repeating the code.
+- Opt-in `SetLifecycleDelay` (default 0): StartInstance walks requested, pending, booting, running_setup before online; StopInstance reports stopping (delete is refused until stopped); deployments and commands report running until the delay passes. Stack summaries count the transitional states.
+- CreateStack/CloneStack/UpdateStack now store and return CustomCookbooksSource (Password/SshKey masked as `*****FILTERED*****`) and UseCustomCookbooks; CreateStack validates Region, instance-profile and service-role ARNs and the source type (git, svn, archive, s3).
+- Layer Shortname (max 32, `[A-Za-z0-9_.-]`) and instance Hostname (max 63, letters/digits/hyphen) are validated.
+
+**2026-10-07**: DescribeElasticLoadBalancers now derives VpcId (stack), SubnetIds and AvailabilityZones (layer instances); error responses now carry `application/x-amz-json-1.1`.
 
 **2026-09-24** (organizations-and-appstream): fixed DescribeInstances omitting ReportedOs
 (nil-pointer-crashed terraform-provider-aws's resourceInstanceRead) and

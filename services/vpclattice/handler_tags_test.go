@@ -15,7 +15,7 @@ func TestTagging(t *testing.T) {
 
 	// create a service to tag
 	recSvc := doRequest(t, h, http.MethodPost, "/services", map[string]any{
-		"name": "svc-tag",
+		"name": "svcx-tag",
 		"tags": map[string]any{"env": "dev"},
 	})
 	require.Equal(t, http.StatusCreated, recSvc.Code)

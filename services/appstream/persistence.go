@@ -130,6 +130,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // path. Callers must hold b.mu.Lock.
 func (b *InMemoryBackend) resetRawMaps() {
 	b.associations = make(map[string]map[string]bool)
+	b.transitions = nil
 	b.tags = make(map[string]map[string]string)
 	b.appBlockBuilderAssoc = make(map[string]map[string]bool)
 	b.appFleetAssoc = make(map[string]map[string]bool)

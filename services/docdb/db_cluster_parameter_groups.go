@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
+	"strings"
 )
 
 func (b *InMemoryBackend) CreateDBClusterParameterGroup(
@@ -117,7 +119,18 @@ func (b *InMemoryBackend) ModifyDBClusterParameterGroup(
 		pg.Parameters = make(map[string]string)
 	}
 
+	if err := validateClusterParameterValues(parameters); err != nil {
+		return nil, err
+	}
+
 	maps.Copy(pg.Parameters, parameters)
+	if hasStaticClusterParameter(parameters) {
+		for _, c := range b.clustersInRegion(region) {
+			if c.DBClusterParameterGroupName == name {
+				b.markClusterPendingRebootLocked(region, c.DBClusterIdentifier)
+			}
+		}
+	}
 
 	cp := *pg
 	cp.Tags = copyTags(pg.Tags)
@@ -214,12 +227,14 @@ func (b *InMemoryBackend) DescribeDBClusterParameters(
 
 // applyMethodForType returns the real AWS ApplyMethod (types.ApplyMethod:
 // "immediate" or "pending-reboot") a parameter's ApplyType implies: a
-// "static" parameter always requires a DB instance reboot to take effect,
+// paramApplyTypeStatic parameter always requires a DB instance reboot to take effect,
 // while a "dynamic" one applies immediately -- see ResetDBClusterParameterGroup's
 // own doc comment ("dynamic parameters are updated immediately and static
 // parameters are set to pending-reboot").
+const paramApplyTypeStatic = "static"
+
 func applyMethodForType(applyType string) string {
-	if applyType == "static" {
+	if applyType == paramApplyTypeStatic {
 		return "pending-reboot"
 	}
 
@@ -234,20 +249,33 @@ func applyMethodForType(applyType string) string {
 func clusterParameterDefaults() []DBClusterParameter {
 	return []DBClusterParameter{
 		{
+			ParameterName:  "audit_logs",
+			ParameterValue: "disabled",
+			Description:    "Enables auditing on cluster.",
+			AllowedValues:  "enabled,disabled",
+			Source:         paramSourceSystem,
+			ApplyType:      "dynamic",
+			ApplyMethod:    applyMethodForType("dynamic"),
+			DataType:       paramTypeStr,
+			IsModifiable:   true,
+		},
+		{
 			ParameterName:  "tls",
 			ParameterValue: paramEnabled,
-			Description:    "Specifies the TLS setting",
-			Source:         "system",
-			ApplyType:      "static",
-			ApplyMethod:    applyMethodForType("static"),
+			Description:    "Config to enable/disable TLS",
+			AllowedValues:  "disabled,enabled",
+			Source:         paramSourceSystem,
+			ApplyType:      paramApplyTypeStatic,
+			ApplyMethod:    applyMethodForType(paramApplyTypeStatic),
 			DataType:       paramTypeStr,
 			IsModifiable:   true,
 		},
 		{
 			ParameterName:  "ttl_monitor",
 			ParameterValue: paramEnabled,
-			Description:    "Specifies the TTL monitor setting",
-			Source:         "system",
+			Description:    "Enables TTL Monitoring",
+			AllowedValues:  "disabled,enabled",
+			Source:         paramSourceSystem,
 			ApplyType:      "dynamic",
 			ApplyMethod:    applyMethodForType("dynamic"),
 			DataType:       paramTypeStr,
@@ -305,4 +333,70 @@ func (b *InMemoryBackend) ResetDBClusterParameterGroup(
 	cp.Parameters = maps.Clone(pg.Parameters)
 
 	return &cp, nil
+}
+
+// validateClusterParameterValues rejects values outside a catalog parameter's AllowedValues list
+// (InvalidParameterValue, docs.aws.amazon.com/documentdb CommonErrors).
+func validateClusterParameterValues(parameters map[string]string) error {
+	for _, def := range clusterParameterDefaults() {
+		v, ok := parameters[def.ParameterName]
+		if !ok || def.AllowedValues == "" {
+			continue
+		}
+
+		if !slices.Contains(strings.Split(def.AllowedValues, ","), v) {
+			return fmt.Errorf(
+				"%w: %q is not a valid value for parameter %s (allowed: %s)",
+				ErrInvalidParameter, v, def.ParameterName, def.AllowedValues,
+			)
+		}
+	}
+
+	return nil
+}
+
+const paramSourceSystem = "system"
+
+func hasStaticClusterParameter(changed map[string]string) bool {
+	for _, p := range clusterParameterDefaults() {
+		if _, ok := changed[p.ParameterName]; ok && p.ApplyType == paramApplyTypeStatic {
+			return true
+		}
+	}
+
+	return false
+}
+
+// markClusterPendingRebootLocked flags every member instance of the cluster as needing a reboot.
+func (b *InMemoryBackend) markClusterPendingRebootLocked(region, clusterID string) {
+	for _, inst := range b.instancesInRegion(region) {
+		if inst.DBClusterIdentifier == clusterID {
+			inst.ParameterPendingReboot = true
+		}
+	}
+}
+
+func parameterGroupStatus(inst *DBInstance) string {
+	if inst.ParameterPendingReboot {
+		return "pending-reboot"
+	}
+
+	return "in-sync"
+}
+
+// checkClusterParameterGroup rejects names that are neither a built-in default nor a created group.
+func (b *InMemoryBackend) checkClusterParameterGroup(region, name string) error {
+	if name == "" || strings.HasPrefix(name, "default.docdb") || b.clusterParameterGroupHas(region, name) {
+		return nil
+	}
+
+	return fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupRefNotFound, name)
+}
+
+func (b *InMemoryBackend) resolveClusterParameterGroup(region, name, engineVersion string) (string, error) {
+	if name == "" {
+		name = defaultParamGroupName(engineVersion)
+	}
+
+	return name, b.checkClusterParameterGroup(region, name)
 }

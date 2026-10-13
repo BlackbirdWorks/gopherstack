@@ -3,6 +3,7 @@ package elbv2_test
 import (
 	"fmt"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -164,7 +165,7 @@ func TestAuditELBv2_TGAttributes_ModifyDeregistrationDelay(t *testing.T) {
 			t.Parallel()
 
 			h := auditHandler(t)
-			tgArn := auditCreateTG(t, h, "mod-delay-"+tc.name)
+			tgArn := auditCreateTG(t, h, "mod-delay-"+strings.ReplaceAll(tc.name, "_", "-"))
 
 			auditDo(t, h, url.Values{
 				"Action":                    {"ModifyTargetGroupAttributes"},

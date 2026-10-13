@@ -32,6 +32,7 @@ type queueSnapshot struct {
 	Tags                *tags.Tags                       `json:"tags,omitempty"`
 	Permissions         map[string]*QueuePermissionEntry `json:"permissions,omitempty"`
 	DeduplicationMsgIDs map[string]string                `json:"deduplicationMsgIDs"`
+	DeduplicationSeqs   map[string]string                `json:"deduplicationSeqs,omitempty"`
 	Name                string                           `json:"name"`
 	URL                 string                           `json:"url"`
 	Region              string                           `json:"region,omitempty"`
@@ -124,6 +125,7 @@ func marshalQueuesLocked(queues []*Queue) (json.RawMessage, error) {
 			Messages:              q.messages,
 			InFlightMessages:      q.inFlightMessages,
 			DeduplicationMsgIDs:   q.deduplicationMsgIDs,
+			DeduplicationSeqs:     q.deduplicationSeqs,
 			Name:                  q.Name,
 			URL:                   q.URL,
 			Region:                q.Region,
@@ -377,6 +379,7 @@ func restoreQueueFromSnapshot(qs *queueSnapshot, region string, now time.Time) *
 		inFlightMessages:    qs.InFlightMessages,
 		inFlightByHandle:    inFlightByHandle,
 		deduplicationMsgIDs: qs.DeduplicationMsgIDs,
+		deduplicationSeqs:   qs.DeduplicationSeqs,
 		Name:                qs.Name,
 		URL:                 qs.URL,
 		Region:              region,

@@ -12,3 +12,26 @@ package lambda
 type ECRResolver interface {
 	ResolveImage(imageURI string) bool
 }
+
+// EFSMount is the host directory backing an EFS access point, plus its POSIX identity.
+type EFSMount struct {
+	HostDir string
+	UID     int64
+	GID     int64
+}
+
+// EFSResolver lets this backend validate FileSystemConfigs against services/efs
+// and obtain the host directory to bind-mount. Wired by cli_lambda_efs.go; the
+// EFS backend is resolved at call time.
+type EFSResolver interface {
+	// CheckAccessPoint verifies the access point exists and its file system has
+	// a mount target in a VPC reachable from subnetIDs.
+	CheckAccessPoint(accessPointARN string, subnetIDs []string) error
+	ResolveMount(accessPointARN string) (EFSMount, error)
+}
+
+// FileSystemConfigChecker is implemented by backends that can validate
+// FileSystemConfigs against EFS.
+type FileSystemConfigChecker interface {
+	CheckFileSystemConfigs(cfgs []*FileSystemConfig, subnetIDs []string) error
+}

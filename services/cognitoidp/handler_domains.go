@@ -20,7 +20,12 @@ func (h *Handler) handleCreateUserPoolDomainFull(
 		mlv = *in.ManagedLoginVersion
 	}
 
-	d, err := h.Backend.CreateUserPoolDomainFull(in.UserPoolID, in.Domain, certArn, mlv)
+	route, err := routingFromJSON(in.Routing)
+	if err != nil {
+		return nil, err
+	}
+
+	d, err := h.Backend.CreateUserPoolDomainFull(in.UserPoolID, in.Domain, certArn, mlv, route)
 	if err != nil {
 		return nil, err
 	}
@@ -35,6 +40,7 @@ func (h *Handler) handleCreateUserPoolDomainFull(
 	return &createUserPoolDomainFullOutput{
 		CloudFrontDomain:    cfDomain,
 		ManagedLoginVersion: &d.ManagedLoginVersion,
+		Routing:             routingToJSON(d.Routing),
 	}, nil
 }
 
@@ -52,7 +58,12 @@ func (h *Handler) handleUpdateUserPoolDomainFull(
 		mlv = *in.ManagedLoginVersion
 	}
 
-	d, err := h.Backend.UpdateUserPoolDomainFull(in.UserPoolID, in.Domain, certArn, mlv)
+	route, err := routingFromJSON(in.Routing)
+	if err != nil {
+		return nil, err
+	}
+
+	d, err := h.Backend.UpdateUserPoolDomainFull(in.UserPoolID, in.Domain, certArn, mlv, route)
 	if err != nil {
 		return nil, err
 	}
@@ -60,6 +71,7 @@ func (h *Handler) handleUpdateUserPoolDomainFull(
 	return &updateUserPoolDomainFullOutput{
 		CloudFrontDomain:    d.CloudFrontDistribution,
 		ManagedLoginVersion: &d.ManagedLoginVersion,
+		Routing:             routingToJSON(d.Routing),
 	}, nil
 }
 
@@ -92,6 +104,7 @@ func (h *Handler) handleDescribeUserPoolDomain(
 		CloudFrontDistribution: d.CloudFrontDistribution,
 		S3Bucket:               d.S3Bucket,
 		ManagedLoginVersion:    &d.ManagedLoginVersion,
+		Routing:                routingToJSON(d.Routing),
 	}
 
 	// AWS only echoes CustomDomainConfig back for a custom domain (one with an ACM

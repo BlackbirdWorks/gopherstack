@@ -41,6 +41,8 @@ const (
 	keyAddonVersion           = "addonVersion"
 	typeUpgradeReadiness      = "UPGRADE_READINESS"
 	typeVersionUpdate         = "VersionUpdate"
+	typeConfigUpdate          = "ConfigUpdate"
+	paramVersion              = "Version"
 	connectorActivationWindow = 24 * time.Hour
 )
 
@@ -50,6 +52,7 @@ const (
 	statusFailed     = "FAILED"
 	statusDegraded   = "DEGRADED"
 	statusDeleting   = "DELETING"
+	statusUpdating   = "UPDATING"
 	statusSuccessful = "Successful"
 )
 
@@ -676,16 +679,23 @@ type Update struct {
 // with no published formula, so nothing is fabricated in its place (see
 // PARITY.md gaps).
 type CertificateAuthority struct {
-	CreatedAt          time.Time  `json:"createdAt"`
-	NotBefore          time.Time  `json:"notBefore"`
-	NotAfter           time.Time  `json:"notAfter"`
-	ActivatedAt        *time.Time `json:"activatedAt,omitempty"`
-	ID                 string     `json:"id"`
-	ClusterName        string     `json:"clusterName"`
-	Data               string     `json:"data"`
-	CreatedBy          string     `json:"createdBy"`
-	ActivatedBy        string     `json:"activatedBy,omitempty"`
-	DistributionStatus string     `json:"distributionStatus"`
-	SigningStatus      string     `json:"signingStatus"`
-	RollbackAvailable  bool       `json:"rollbackAvailable"`
+	ScheduledEvents    *CertificateAuthorityScheduledEvents `json:"-"`
+	CreatedAt          time.Time                            `json:"createdAt"`
+	NotBefore          time.Time                            `json:"notBefore"`
+	NotAfter           time.Time                            `json:"notAfter"`
+	ActivatedAt        *time.Time                           `json:"activatedAt,omitempty"`
+	ID                 string                               `json:"id"`
+	ClusterName        string                               `json:"clusterName"`
+	Data               string                               `json:"data"`
+	CreatedBy          string                               `json:"createdBy"`
+	ActivatedBy        string                               `json:"activatedBy,omitempty"`
+	DistributionStatus string                               `json:"distributionStatus"`
+	SigningStatus      string                               `json:"signingStatus"`
+	RollbackAvailable  bool                                 `json:"rollbackAvailable"`
+}
+
+// CertificateAuthorityScheduledEvents mirrors types.CertificateAuthorityScheduledEvents.
+type CertificateAuthorityScheduledEvents struct {
+	FirstAutoActivation time.Time
+	FinalAutoActivation time.Time
 }

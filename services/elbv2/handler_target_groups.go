@@ -70,7 +70,7 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 		HealthCheckPort:     vals.Get("HealthCheckPort"),
 		HealthCheckPath:     vals.Get("HealthCheckPath"),
 		Matcher: Matcher{
-			HTTPCode: vals.Get("Matcher.HTTPCode"),
+			HTTPCode: matcherHTTPCode(vals),
 			GrpcCode: vals.Get("Matcher.GrpcCode"),
 		},
 		HealthCheckIntervalSeconds: hcInterval,
@@ -212,7 +212,7 @@ func (h *Handler) handleModifyTargetGroup(vals url.Values) (any, error) {
 		HealthCheckPort:     formStringPtr(vals, "HealthCheckPort"),
 		HealthCheckPath:     formStringPtr(vals, "HealthCheckPath"),
 		Matcher: Matcher{
-			HTTPCode: vals.Get("Matcher.HTTPCode"),
+			HTTPCode: matcherHTTPCode(vals),
 			GrpcCode: vals.Get("Matcher.GrpcCode"),
 		},
 		HealthCheckEnabled:         hcEnabled,
@@ -476,4 +476,14 @@ func sortedTGAttributes(m map[string]string) []xmlTGAttribute {
 	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 
 	return out
+}
+
+// matcherHTTPCode reads Matcher.HttpCode (the SDK's wire key), accepting the legacy
+// Matcher.HTTPCode spelling this emulator used to require.
+func matcherHTTPCode(vals url.Values) string {
+	if v := vals.Get("Matcher.HttpCode"); v != "" {
+		return v
+	}
+
+	return vals.Get("Matcher.HTTPCode")
 }

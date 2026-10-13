@@ -518,7 +518,7 @@ func TestHandler_Tags_AllResources(t *testing.T) {
 					"AccessString": "on ~*",
 					"AuthenticationMode": map[string]any{
 						"Type":      "password",
-						"Passwords": []string{"pass1"},
+						"Passwords": []string{"pass1-long-enough-1"},
 					},
 					"Tags": []map[string]any{{"Key": "Env", "Value": "prod"}},
 				})

@@ -167,6 +167,10 @@ func (h *Handler) handleInvokeModel(
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
 	}
 
+	if written, err := h.invokeGuardrailMissing(c); written {
+		return err
+	}
+
 	resp := mockInvokeModelResponse(modelID)
 
 	out, err := json.Marshal(resp)
@@ -214,6 +218,10 @@ func (h *Handler) handleInvokeModelWithResponseStream(
 
 	if msg := validateInvokeHeaders(c.Request()); msg != "" {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
+	}
+
+	if written, err := h.invokeGuardrailMissing(c); written {
+		return err
 	}
 
 	resp := mockInvokeModelResponse(modelID)

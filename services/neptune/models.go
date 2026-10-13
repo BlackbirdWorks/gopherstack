@@ -1,5 +1,7 @@
 package neptune
 
+import "time"
+
 // ServerlessV2ScalingConfiguration holds Neptune Serverless v2 capacity settings.
 type ServerlessV2ScalingConfiguration struct {
 	MinCapacity float64 `json:"minCapacity"`
@@ -74,6 +76,8 @@ type DBClusterDeleteOptions struct {
 // DBClusterMember represents a single DB instance member of a Neptune cluster.
 type DBClusterMember struct {
 	DBInstanceIdentifier string `json:"DBInstanceIdentifier"`
+	ParameterGroupStatus string `json:"DBClusterParameterGroupStatus,omitempty"`
+	PromotionTier        int    `json:"PromotionTier,omitempty"`
 	IsClusterWriter      bool   `json:"IsClusterWriter"`
 }
 
@@ -88,6 +92,7 @@ type DBCluster struct {
 	// by marshaling DBCluster directly), but persistence.go must carry it
 	// through a DTO explicitly since json.Marshal never sees unexported fields.
 	region                          string
+	readyAt                         time.Time
 	ServerlessV2ScalingConfig       *ServerlessV2ScalingConfiguration `json:"ServerlessV2ScalingConfiguration,omitempty"`
 	MasterUserManagedSecret         *MasterUserManagedSecret          `json:"MasterUserManagedSecret,omitempty"`
 	KmsKeyID                        string                            `json:"KmsKeyID"`
@@ -131,6 +136,7 @@ type DBInstance struct {
 	AvailabilityZone                string `json:"AvailabilityZone"`
 	Endpoint                        string `json:"Endpoint"`
 	DBInstanceArn                   string `json:"DBInstanceArn"`
+	DbiResourceID                   string `json:"DbiResourceId,omitempty"`
 	DBClusterIdentifier             string `json:"DBClusterIdentifier"`
 	DBInstanceClass                 string `json:"DBInstanceClass"`
 	Engine                          string `json:"Engine"`
@@ -145,6 +151,7 @@ type DBInstance struct {
 	PreferredBackupWindow           string `json:"PreferredBackupWindow"`
 	DBInstanceIdentifier            string `json:"DBInstanceIdentifier"`
 	region                          string
+	readyAt                         time.Time
 	NetworkType                     string   `json:"NetworkType,omitempty"`
 	VpcSecurityGroupIDs             []string `json:"VpcSecurityGroupIDs,omitempty"`
 	DBSecurityGroups                []string `json:"DBSecurityGroups,omitempty"`
@@ -160,6 +167,7 @@ type DBInstance struct {
 	MultiAZ                         bool     `json:"MultiAZ"`
 	PubliclyAccessible              bool     `json:"PubliclyAccessible"`
 	DeletionProtection              bool     `json:"DeletionProtection"`
+	ParameterPendingReboot          bool     `json:"ParameterPendingReboot,omitempty"`
 }
 
 // DBInstanceCreateOptions holds optional fields for CreateDBInstance.
@@ -260,12 +268,7 @@ type DBSubnetGroup struct {
 	VpcID                    string   `json:"VpcID"`
 	Status                   string   `json:"Status"`
 	SubnetIDs                []string `json:"SubnetIDs"`
-	// SupportedNetworkTypes is real AWS's derived set of IPV4/DUAL values a
-	// group supports, computed server-side from each subnet's IPv4/IPv6 CIDR
-	// blocks (neptune@v1.48.4 types/types.go:945). This backend tracks
-	// subnets only as opaque ID strings (no CIDR data), so it has no basis to
-	// compute a real value; left permanently empty rather than inventing a
-	// capability list (never populated -- see PARITY.md).
+	// SupportedNetworkTypes is derived from EC2 subnets on read and never stored.
 	SupportedNetworkTypes []string `json:"SupportedNetworkTypes,omitempty"`
 }
 
@@ -366,12 +369,13 @@ type EventSubscription struct {
 
 // GlobalCluster represents a Neptune global cluster.
 type GlobalCluster struct {
-	GlobalClusterIdentifier string `json:"GlobalClusterIdentifier"`
-	GlobalClusterArn        string `json:"GlobalClusterArn"`
-	GlobalClusterResourceID string `json:"GlobalClusterResourceId"`
-	Status                  string `json:"Status"`
-	Engine                  string `json:"Engine"`
-	EngineVersion           string `json:"EngineVersion"`
+	FailoverState           *GlobalClusterFailoverState `json:"-"`
+	GlobalClusterIdentifier string                      `json:"GlobalClusterIdentifier"`
+	GlobalClusterArn        string                      `json:"GlobalClusterArn"`
+	GlobalClusterResourceID string                      `json:"GlobalClusterResourceId"`
+	Status                  string                      `json:"Status"`
+	Engine                  string                      `json:"Engine"`
+	EngineVersion           string                      `json:"EngineVersion"`
 	// DatabaseName is the initial database name supplied to
 	// CreateGlobalCluster. Real GlobalCluster.DatabaseName
 	// (neptune@v1.48.4 types/types.go:1166) had zero grep hits anywhere in
@@ -383,6 +387,20 @@ type GlobalCluster struct {
 	StorageEncrypted     bool                  `json:"StorageEncrypted"`
 	DeletionProtection   bool                  `json:"DeletionProtection"`
 }
+
+// GlobalClusterFailoverState is the transient FailoverState reported on a
+// switchover/failover response; it is never persisted.
+type GlobalClusterFailoverState struct {
+	Status            string
+	FromDBClusterARN  string
+	ToDBClusterARN    string
+	IsDataLossAllowed bool
+}
+
+const (
+	failoverStatusFailingOver   = "failing-over"
+	failoverStatusSwitchingOver = "switching-over"
+)
 
 // GlobalClusterCreateOptions holds optional fields for CreateGlobalCluster.
 // EngineVersion and StorageEncrypted apply only when no source cluster is given.

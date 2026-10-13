@@ -347,9 +347,10 @@ func TestRealClient_BucketConfigAndObjectOps(t *testing.T) {
 					LifecycleConfiguration: &types.BucketLifecycleConfiguration{
 						Rules: []types.LifecycleRule{
 							{
-								ID:     aws.String("rule-1"),
-								Status: types.ExpirationStatusEnabled,
-								Filter: &types.LifecycleRuleFilter{Prefix: aws.String("")},
+								ID:         aws.String("rule-1"),
+								Status:     types.ExpirationStatusEnabled,
+								Filter:     &types.LifecycleRuleFilter{Prefix: aws.String("")},
+								Expiration: &types.LifecycleExpiration{Days: aws.Int32(7)},
 							},
 						},
 					},

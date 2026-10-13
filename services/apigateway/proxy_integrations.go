@@ -7,8 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -50,16 +53,16 @@ func (h *Handler) handleAWSProxy(
 	if invokeErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: Lambda invocation failed",
 			"uri", integration.URI, "error", invokeErr)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		writeInternalServerError(w, http.StatusBadGateway)
 
 		return
 	}
 
-	// Parse Lambda response.
-	var lambdaResp LambdaProxyResponse
-	if parseErr := json.Unmarshal(respBytes, &lambdaResp); parseErr != nil {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(respBytes)
+	lambdaResp, parseErr := parseLambdaProxyResponse(respBytes)
+	if parseErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: Malformed Lambda proxy response",
+			"uri", integration.URI, "error", parseErr)
+		writeInternalServerError(w, http.StatusBadGateway)
 
 		return
 	}
@@ -69,10 +72,17 @@ func (h *Handler) handleAWSProxy(
 	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 
-	statusCode := lambdaResp.StatusCode
-	if statusCode == 0 {
-		statusCode = http.StatusOK
+	for k, vs := range lambdaResp.MultiValueHeaders {
+		for i, v := range vs {
+			if i == 0 {
+				w.Header().Set(k, v)
+			} else {
+				w.Header().Add(k, v)
+			}
+		}
 	}
+
+	statusCode := lambdaResp.StatusCode
 
 	var bodyBytes []byte
 	if lambdaResp.IsBase64Encoded {
@@ -124,6 +134,14 @@ func (h *Handler) handleAWSIntegration(
 	integration *Integration,
 ) {
 	region, service, kind, spec := awsIntegrationTarget(integration.URI)
+	if h.canInvokeAWSService(service, kind, spec) {
+		h.handleGenericAWSServiceIntegration(
+			ctx, w, r, apiID, stageName, resource, stageVars, integration, region, service, kind, spec,
+		)
+
+		return
+	}
+
 	if h.canDispatchToTarget(service, kind, spec) {
 		h.handleAWSServiceIntegration(
 			ctx, w, r, apiID, stageName, resource, stageVars, integration, region, service, spec,
@@ -161,13 +179,87 @@ func (h *Handler) handleAWSIntegration(
 	}
 
 	// Apply response mapping template using status-code pattern matching.
-	responseBody, statusCode := h.applyResponseTemplate(respBytes, integration, vtlCtx.RequestID)
+	out := h.applyResponseTemplate(respBytes, integration, vtlCtx)
 
-	responseBody = maybeCompressResponse(w, r, responseBody, h.minCompressSize(apiID, stageName))
-	w.Header().Set("Content-Type", contentTypeJSON)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(statusCode)
-	_, _ = w.Write(responseBody) //nolint:gosec // local emulation: response passthrough is intentional
+	h.writeIntegrationOutcome(w, r, apiID, stageName, out, respBytes)
+}
+
+// errUnsupportedMediaType is returned when the passthrough behavior rejects a request whose
+// Content-Type has no mapping template.
+var errUnsupportedMediaType = errors.New("unsupported media type")
+
+type pathParamsKey struct{}
+
+func requestPathParams(r *http.Request) map[string]string {
+	pp, _ := r.Context().Value(pathParamsKey{}).(map[string]string)
+
+	return pp
+}
+
+func firstValues(in map[string][]string) map[string]string {
+	out := make(map[string]string, len(in))
+
+	for k, vs := range in {
+		if len(vs) > 0 {
+			out[k] = vs[0]
+		}
+	}
+
+	return out
+}
+
+// newVTLContext builds the $context/$input view of an incoming execute-api request.
+func newVTLContext(
+	r *http.Request, apiID, stageName string, resource *Resource, stageVars map[string]string, body []byte,
+) VTLContext {
+	resourcePath := "/"
+	if resource != nil && resource.Path != "" {
+		resourcePath = resource.Path
+	}
+
+	return VTLContext{
+		Body:           string(body),
+		RequestID:      r.Header.Get("X-Amzn-Requestid"),
+		HTTPMethod:     r.Method,
+		ResourcePath:   resourcePath,
+		Path:           r.URL.Path,
+		Stage:          stageName,
+		APIID:          apiID,
+		DomainName:     r.Host,
+		SourceIP:       realClientIP(r),
+		UserAgent:      r.Header.Get("User-Agent"),
+		StageVariables: stageVars,
+		Headers:        firstValues(r.Header),
+		QueryParams:    firstValues(r.URL.Query()),
+		PathParams:     requestPathParams(r),
+	}
+}
+
+// requestTemplate returns the mapping template for r's Content-Type. found is false when none applies.
+func requestTemplate(r *http.Request, integration *Integration) (string, bool) {
+	ct := contentTypeJSON
+
+	if raw := r.Header.Get(headerContentType); raw != "" {
+		if mt, _, err := mime.ParseMediaType(raw); err == nil {
+			ct = mt
+		}
+	}
+
+	tpl, ok := integration.RequestTemplates[ct]
+
+	return tpl, ok
+}
+
+// passthroughAllowed applies PassthroughBehavior to a request with no matching template.
+func passthroughAllowed(integration *Integration) bool {
+	switch integration.PassthroughBehavior {
+	case "NEVER":
+		return false
+	case "WHEN_NO_TEMPLATES":
+		return len(integration.RequestTemplates) == 0
+	}
+
+	return true
 }
 
 // buildAWSIntegrationPayload reads the request body, builds the VTL request context,
@@ -186,31 +278,27 @@ func (h *Handler) buildAWSIntegrationPayload(
 		return nil, VTLContext{}, readErr
 	}
 
-	resourcePath := "/"
-	if resource != nil && resource.Path != "" {
-		resourcePath = resource.Path
+	vtlCtx := newVTLContext(r, apiID, stageName, resource, stageVars, rawBody)
+
+	tpl, found := requestTemplate(r, integration)
+	if !found {
+		if !passthroughAllowed(integration) {
+			return nil, vtlCtx, errUnsupportedMediaType
+		}
+
+		return rawBody, vtlCtx, nil
 	}
 
-	vtlCtx := VTLContext{
-		Body:           string(rawBody),
-		RequestID:      r.Header.Get("X-Amzn-Requestid"),
-		HTTPMethod:     r.Method,
-		ResourcePath:   resourcePath,
-		Path:           r.URL.Path,
-		Stage:          stageName,
-		APIID:          apiID,
-		SourceIP:       realClientIP(r),
-		UserAgent:      r.Header.Get("User-Agent"),
-		StageVariables: stageVars,
+	if tpl == "" {
+		return rawBody, vtlCtx, nil
 	}
 
-	// Apply request mapping template (content-type "application/json" is standard).
-	payload := rawBody
-	if tpl, ok := integration.RequestTemplates[contentTypeJSON]; ok && tpl != "" {
-		payload = []byte(RenderTemplate(tpl, vtlCtx))
+	rendered, err := RenderTemplateStrict(tpl, vtlCtx)
+	if err != nil {
+		return nil, vtlCtx, err
 	}
 
-	return payload, vtlCtx, nil
+	return []byte(rendered), vtlCtx, nil
 }
 
 // writeAWSIntegrationReadError writes the appropriate error response for a
@@ -218,6 +306,15 @@ func (h *Handler) buildAWSIntegrationPayload(
 func writeAWSIntegrationReadError(ctx context.Context, w http.ResponseWriter, readErr error) {
 	if _, ok := errors.AsType[*http.MaxBytesError](readErr); ok {
 		http.Error(w, "Request entity too large", http.StatusRequestEntityTooLarge)
+
+		return
+	}
+
+	if errors.Is(readErr, errUnsupportedMediaType) {
+		w.Header().Set(headerContentType, contentTypeJSON)
+		w.Header().Set("X-Amzn-Errortype", "UnsupportedMediaTypeException")
+		w.WriteHeader(http.StatusUnsupportedMediaType)
+		_ = json.NewEncoder(w).Encode(map[string]string{jsonMessageKey: "Unsupported Media Type"})
 
 		return
 	}
@@ -266,12 +363,9 @@ func (h *Handler) handleAWSServiceIntegration(
 		return
 	}
 
-	responseBody, statusCode := h.applyResponseTemplate([]byte("{}"), integration, vtlCtx.RequestID)
-	responseBody = maybeCompressResponse(w, r, responseBody, h.minCompressSize(apiID, stageName))
-	w.Header().Set("Content-Type", contentTypeJSON)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(statusCode)
-	_, _ = w.Write(responseBody)
+	out := h.applyResponseTemplate([]byte("{}"), integration, vtlCtx)
+
+	h.writeIntegrationOutcome(w, r, apiID, stageName, out, []byte("{}"))
 }
 
 // sqsQueuePathSegments is the expected segment count of the path-style sqs
@@ -345,7 +439,7 @@ func awsIntegrationTarget(uri string) (string, string, string, string) {
 		return region, service, "", ""
 	}
 
-	if kind == "action" {
+	if kind == awsKindAction {
 		action, _, _ := strings.Cut(rest, "&")
 
 		return region, service, kind, action
@@ -358,9 +452,9 @@ func awsIntegrationTarget(uri string) (string, string, string, string) {
 // names a wired non-Lambda target this handler can dispatch to.
 func (h *Handler) canDispatchToTarget(service, kind, spec string) bool {
 	switch {
-	case service == "sqs" && kind == "path" && h.sqsSender != nil:
+	case service == "sqs" && kind == awsKindPath && h.sqsSender != nil:
 		return sqsQueuePathValid(spec)
-	case service == "sns" && kind == "action" && spec == "Publish" && h.snsPublisher != nil:
+	case service == "sns" && kind == awsKindAction && spec == "Publish" && h.snsPublisher != nil:
 		return true
 	default:
 		return false
@@ -375,19 +469,37 @@ func sqsQueuePathValid(spec string) bool {
 	return len(segments) == sqsQueuePathSegments && segments[0] != "" && segments[1] != ""
 }
 
+// integrationOutcome is the selected integration response with its rendered body.
+type integrationOutcome struct {
+	ir     *IntegrationResponse
+	body   []byte
+	status int
+}
+
 // applyResponseTemplate selects the best-matching integration response by status code pattern
 // (using regex selectionPattern), applies VTL response template and contentHandling conversion,
 // and returns the rendered body and HTTP status code. Falls back to the raw response bytes and 200 if no match.
-func (h *Handler) applyResponseTemplate(respBytes []byte, integration *Integration, requestID string) ([]byte, int) {
+func (h *Handler) applyResponseTemplate(
+	respBytes []byte, integration *Integration, base VTLContext,
+) integrationOutcome {
+	return h.applyResponseTemplateMatching(respBytes, string(respBytes), http.StatusOK, integration, base)
+}
+
+// applyResponseTemplateMatching is applyResponseTemplate with an explicit selection
+// key (the body for Lambda, the backend status code for other AWS services) and the
+// status returned when no integration response applies.
+func (h *Handler) applyResponseTemplateMatching(
+	respBytes []byte, matchKey string, fallbackStatus int, integration *Integration, base VTLContext,
+) integrationOutcome {
 	if integration.IntegrationResponses == nil {
-		return respBytes, http.StatusOK
+		return integrationOutcome{body: respBytes, status: fallbackStatus}
 	}
 
 	// Try to find a matching integration response by selectionPattern (regex) against respBytes.
 	// If no pattern matches, fall back to the "default" or "200" entry.
-	ir := h.matchIntegrationResponse(integration.IntegrationResponses, string(respBytes))
+	ir := h.matchIntegrationResponse(integration.IntegrationResponses, matchKey)
 	if ir == nil {
-		return respBytes, http.StatusOK
+		return integrationOutcome{body: respBytes, status: fallbackStatus}
 	}
 
 	statusCode := http.StatusOK
@@ -399,16 +511,21 @@ func (h *Handler) applyResponseTemplate(respBytes []byte, integration *Integrati
 	tpl, ok := ir.ResponseTemplates[contentTypeJSON]
 
 	if ok && tpl != "" {
-		respVTLCtx := VTLContext{
-			Body:      string(respBytes),
-			RequestID: requestID,
+		base.Body = string(respBytes)
+
+		rendered, err := RenderTemplateStrict(tpl, base)
+		if err != nil {
+			return integrationOutcome{
+				body: []byte(`{"message":"Internal server error"}`), status: http.StatusInternalServerError,
+			}
 		}
-		body = []byte(RenderTemplate(tpl, respVTLCtx))
+
+		body = []byte(rendered)
 	}
 
 	body = applyContentHandling(body, ir.ContentHandling)
 
-	return body, statusCode
+	return integrationOutcome{body: body, status: statusCode, ir: ir}
 }
 
 // applyContentHandling converts body bytes according to the AWS contentHandling setting.
@@ -445,7 +562,15 @@ func (h *Handler) matchIntegrationResponse(
 ) *IntegrationResponse {
 	var defaultEntry *IntegrationResponse
 
-	for _, ir := range responses {
+	keys := make([]string, 0, len(responses))
+	for k := range responses {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		ir := responses[k]
 		if ir == nil {
 			continue
 		}
@@ -632,43 +757,41 @@ func (h *Handler) handleHTTPProxy(
 	_, _ = io.Copy(w, resp.Body)
 }
 
-// handleMockIntegration returns a static response configured on the integration.
-// It evaluates the first integrationResponse entry keyed by its status code.
-// If no integrationResponses are configured, it defaults to HTTP 200 with an empty body.
-func (h *Handler) handleMockIntegration(w http.ResponseWriter, integration *Integration) {
-	statusCode, body, ir := mockResponseWithIR(integration)
+// handleMockIntegration serves a MOCK integration: the request template (if any) renders to a
+// document whose statusCode picks the integration response, whose template then renders against
+// that document.
+func (h *Handler) handleMockIntegration(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	apiID, stageName string,
+	resource *Resource,
+	stageVars map[string]string,
+	integration *Integration,
+) {
+	payload, vtlCtx, readErr := h.buildAWSIntegrationPayload(w, r, apiID, stageName, resource, stageVars, integration)
+	if readErr != nil {
+		writeAWSIntegrationReadError(ctx, w, readErr)
 
-	w.Header().Set("Content-Type", contentTypeJSON)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-
-	// Apply ResponseParameters from IntegrationResponse as response headers.
-	if ir != nil {
-		applyIntegrationResponseParams(w, ir.ResponseParameters)
+		return
 	}
 
-	w.WriteHeader(statusCode)
-	_, _ = w.Write([]byte(body))
-}
+	statusKey := "200"
 
-// mockResponseWithIR resolves the status code, body, and integration response for a MOCK integration.
-func mockResponseWithIR(integration *Integration) (int, string, *IntegrationResponse) {
-	statusCode := http.StatusOK
-
-	ir := mockIntegrationResponse(integration)
-	if ir == nil {
-		return statusCode, "", nil
+	if root, err := parseOrderedJSON(string(payload)); err == nil {
+		if m, ok := root.(*vtlMap); ok {
+			if code, found := m.get("statusCode"); found {
+				statusKey = javaString(code)
+			}
+		}
 	}
 
-	if sc := parseStatusCode(ir.StatusCode); sc > 0 {
-		statusCode = sc
+	out := h.applyResponseTemplateMatching(payload, statusKey, http.StatusOK, integration, vtlCtx)
+	if out.ir == nil {
+		out.body = nil
 	}
 
-	body := ""
-	if ir.ResponseTemplates != nil {
-		body = ir.ResponseTemplates["application/json"]
-	}
-
-	return statusCode, body, ir
+	h.writeIntegrationOutcome(w, r, apiID, stageName, out, payload)
 }
 
 // applyIntegrationResponseParams applies integration response parameter mappings as HTTP response headers.
@@ -711,24 +834,6 @@ func resolveResponseParamSource(src string) string {
 	}
 
 	return src
-}
-
-// mockIntegrationResponse returns the "200" integration response, if configured.
-func mockIntegrationResponse(integration *Integration) *IntegrationResponse {
-	if integration.IntegrationResponses == nil {
-		return nil
-	}
-
-	if ir, ok := integration.IntegrationResponses["200"]; ok && ir != nil {
-		return ir
-	}
-
-	// Imported OpenAPI documents key the catch-all response "default".
-	if ir, ok := integration.IntegrationResponses["default"]; ok && ir != nil {
-		return ir
-	}
-
-	return nil
 }
 
 // parseStatusCode converts a status-code string to an int; returns 0 on error.
@@ -870,4 +975,135 @@ func resolveRequestParamSource(r *http.Request, src string) string {
 	}
 
 	return ""
+}
+
+// writeInternalServerError writes execute-api's generic 5xx body.
+func writeInternalServerError(w http.ResponseWriter, status int) {
+	w.Header().Set(headerContentType, "application/json")
+	w.Header().Set("X-Amzn-Errortype", "InternalServerErrorException")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{jsonMessageKey: "Internal server error"})
+}
+
+var errMalformedProxyResponse = errors.New("malformed Lambda proxy response")
+
+const (
+	minHTTPStatus = 100
+	maxHTTPStatus = 599
+)
+
+// parseLambdaProxyResponse validates a Lambda proxy integration response the
+// way execute-api does: a JSON object with an integer statusCode, and
+// string-valued headers and body.
+func parseLambdaProxyResponse(raw []byte) (*LambdaProxyResponse, error) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil || obj == nil {
+		return nil, errMalformedProxyResponse
+	}
+
+	var resp LambdaProxyResponse
+
+	code, ok := obj["statusCode"]
+	if !ok {
+		return nil, errMalformedProxyResponse
+	}
+
+	var n json.Number
+	if err := json.Unmarshal(code, &n); err != nil {
+		var str string
+		if json.Unmarshal(code, &str) != nil {
+			return nil, errMalformedProxyResponse
+		}
+
+		n = json.Number(str)
+	}
+
+	status, err := strconv.Atoi(n.String())
+	if err != nil || status < minHTTPStatus || status > maxHTTPStatus {
+		return nil, errMalformedProxyResponse
+	}
+
+	resp.StatusCode = status
+
+	if err = decodeProxyField(obj, "headers", &resp.Headers); err != nil {
+		return nil, err
+	}
+
+	if err = decodeProxyField(obj, "multiValueHeaders", &resp.MultiValueHeaders); err != nil {
+		return nil, err
+	}
+
+	if err = decodeProxyField(obj, "body", &resp.Body); err != nil {
+		return nil, err
+	}
+
+	if err = decodeProxyField(obj, "isBase64Encoded", &resp.IsBase64Encoded); err != nil {
+		return nil, err
+	}
+
+	return &resp, nil
+}
+
+func decodeProxyField(obj map[string]json.RawMessage, key string, dst any) error {
+	raw, ok := obj[key]
+	if !ok || string(raw) == jsonNull {
+		return nil
+	}
+
+	if err := json.Unmarshal(raw, dst); err != nil {
+		return errMalformedProxyResponse
+	}
+
+	return nil
+}
+
+// writeIntegrationOutcome writes a selected integration response, applying its header mappings.
+func (h *Handler) writeIntegrationOutcome(
+	w http.ResponseWriter, r *http.Request, apiID, stageName string,
+	out integrationOutcome, backendBody []byte,
+) {
+	body := maybeCompressResponse(w, r, out.body, h.minCompressSize(apiID, stageName))
+	w.Header().Set("Content-Type", contentTypeJSON)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	if out.ir != nil {
+		applyResponseParamMappings(w, out.ir.ResponseParameters, backendBody)
+	}
+
+	w.WriteHeader(out.status)
+	_, _ = w.Write(body)
+}
+
+// applyResponseParamMappings sets method response headers from an integration response's
+// responseParameters, resolving integration.response.body.<path>
+// against the backend response and 'literal' values as constants.
+func applyResponseParamMappings(w http.ResponseWriter, params map[string]string, body []byte) {
+	const (
+		methodRespPrefix = "method.response.header."
+		bodySrcPrefix    = "integration.response.body"
+	)
+
+	for dest, src := range params {
+		if !strings.HasPrefix(dest, methodRespPrefix) {
+			continue
+		}
+
+		name := dest[len(methodRespPrefix):]
+
+		var value string
+
+		switch {
+		case strings.HasPrefix(src, bodySrcPrefix):
+			if root, err := parseOrderedJSON(string(body)); err == nil {
+				path := "$" + strings.TrimPrefix(src, bodySrcPrefix)
+				value = javaString(evalJSONPath(root, path))
+			}
+		default:
+			value = resolveResponseParamSource(src)
+		}
+
+		if name != "" && value != "" {
+			w.Header().Set(name, value)
+		}
+	}
 }

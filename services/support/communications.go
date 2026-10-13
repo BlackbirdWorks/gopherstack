@@ -22,7 +22,7 @@ func (b *InMemoryBackend) AddCommunicationToCase(caseID, body, attachmentSetID s
 	}
 
 	if !b.cases.Has(caseID) {
-		return fmt.Errorf("%w: %s", ErrNotFound, caseID)
+		return fmt.Errorf("%w: case %s not found", ErrNotFound, caseID)
 	}
 
 	comm := Communication{
@@ -44,7 +44,7 @@ func (b *InMemoryBackend) DescribeCommunications(caseID string) ([]Communication
 	defer b.mu.RUnlock()
 
 	if !b.cases.Has(caseID) {
-		return nil, fmt.Errorf("%w: %s", ErrNotFound, caseID)
+		return nil, fmt.Errorf("%w: case %s not found", ErrNotFound, caseID)
 	}
 
 	comms := b.communications[caseID]
@@ -73,7 +73,7 @@ func (b *InMemoryBackend) AddCommunicationWithOptions(in AddCommunicationOptions
 
 	cs, ok := b.cases.Get(in.CaseID)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrNotFound, in.CaseID)
+		return fmt.Errorf("%w: case %s not found", ErrNotFound, in.CaseID)
 	}
 	attachments, err := b.consumeAttachmentSetLocked(in.AttachmentSetID)
 	if err != nil {
@@ -99,7 +99,7 @@ func (b *InMemoryBackend) DescribeCommunicationsWithOptions(
 	defer b.mu.RUnlock()
 
 	if !b.cases.Has(in.CaseID) {
-		return nil, "", fmt.Errorf("%w: %s", ErrNotFound, in.CaseID)
+		return nil, "", fmt.Errorf("%w: case %s not found", ErrNotFound, in.CaseID)
 	}
 	comms := make([]Communication, 0, len(b.communications[in.CaseID]))
 	for _, comm := range b.communications[in.CaseID] {
@@ -132,7 +132,7 @@ func validateCommunication(in AddCommunicationOptions) error {
 		return fmt.Errorf("%w: too many ccEmailAddresses", ErrValidation)
 	}
 
-	return nil
+	return validateCCEmails(in.CCEmails)
 }
 
 func newCommunication(

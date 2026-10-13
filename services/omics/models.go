@@ -144,47 +144,49 @@ type SequenceStoreFilter struct {
 
 // ReadSetMetadata holds metadata for a read set.
 type ReadSetMetadata struct {
-	CreationTime    time.Time         `json:"creationTime"`
-	UpdateTime      time.Time         `json:"updateTime"`
-	Files           map[string]any    `json:"files,omitempty"`
-	Tags            map[string]string `json:"tags"`
-	Arn             string            `json:"arn"`
-	ID              string            `json:"id"`
-	SequenceStoreID string            `json:"sequenceStoreId"`
-	Name            string            `json:"name"`
-	Description     string            `json:"description"`
-	StatusMessage   string            `json:"statusMessage,omitempty"`
-	Status          string            `json:"status"`
-	// FileType is the real GetReadSetMetadataOutput/ReadSetListItem wire key
-	// ("fileType") -- confirmed against the SDK deserializer. It was
-	// previously (incorrectly) serialized as "sequenceType", a key that
-	// doesn't exist anywhere in the real API surface.
-	FileType     string `json:"fileType"`
-	SubjectID    string `json:"subjectId"`
-	SampleID     string `json:"sampleId"`
-	ReferenceARN string `json:"referenceArn"`
+	CreationTime        time.Time                   `json:"creationTime"`
+	UpdateTime          time.Time                   `json:"updateTime"`
+	Files               map[string]any              `json:"files,omitempty"`
+	Tags                map[string]string           `json:"tags"`
+	SequenceInformation *ReadSetSequenceInformation `json:"sequenceInformation,omitempty"`
+	Description         string                      `json:"description"`
+	SequenceStoreID     string                      `json:"sequenceStoreId"`
+	Name                string                      `json:"name"`
+	ID                  string                      `json:"id"`
+	StatusMessage       string                      `json:"statusMessage,omitempty"`
+	Status              string                      `json:"status"`
+	FileType            string                      `json:"fileType"`
+	SubjectID           string                      `json:"subjectId"`
+	SampleID            string                      `json:"sampleId"`
+	ReferenceARN        string                      `json:"referenceArn"`
+	CreationType        string                      `json:"creationType,omitempty"`
+	Arn                 string                      `json:"arn"`
+}
+
+// ReadSetSequenceInformation is types.SequenceInformation limited to what the creating
+// request supplied; read and base counts need the file body, which imports never read.
+type ReadSetSequenceInformation struct {
+	GeneratedFrom string `json:"generatedFrom,omitempty"`
 }
 
 // ReadSetSummary is the real ListReadSetsOutput element shape
 // (types.ReadSetListItem, omics@v1.49.5 types.go) -- narrower than
 // GetReadSetMetadataOutput: no files, tags or updateTime.
-//
-// creationType/etag/sequenceInformation are real ReadSetListItem members
-// this backend has no source for (not tracked anywhere at read-set creation)
-// -- see PARITY.md items_still_open.
 type ReadSetSummary struct {
-	CreationTime    time.Time `json:"creationTime"`
-	Arn             string    `json:"arn"`
-	ID              string    `json:"id"`
-	SequenceStoreID string    `json:"sequenceStoreId"`
-	Name            string    `json:"name,omitempty"`
-	Description     string    `json:"description,omitempty"`
-	FileType        string    `json:"fileType"`
-	Status          string    `json:"status"`
-	StatusMessage   string    `json:"statusMessage,omitempty"`
-	SubjectID       string    `json:"subjectId,omitempty"`
-	SampleID        string    `json:"sampleId,omitempty"`
-	ReferenceARN    string    `json:"referenceArn,omitempty"`
+	CreationType        string                      `json:"creationType,omitempty"`
+	SequenceInformation *ReadSetSequenceInformation `json:"sequenceInformation,omitempty"`
+	CreationTime        time.Time                   `json:"creationTime"`
+	Arn                 string                      `json:"arn"`
+	ID                  string                      `json:"id"`
+	SequenceStoreID     string                      `json:"sequenceStoreId"`
+	Name                string                      `json:"name,omitempty"`
+	Description         string                      `json:"description,omitempty"`
+	FileType            string                      `json:"fileType"`
+	Status              string                      `json:"status"`
+	StatusMessage       string                      `json:"statusMessage,omitempty"`
+	SubjectID           string                      `json:"subjectId,omitempty"`
+	SampleID            string                      `json:"sampleId,omitempty"`
+	ReferenceARN        string                      `json:"referenceArn,omitempty"`
 }
 
 // ReadSetFilter is filter criteria for listing read sets.
@@ -253,11 +255,12 @@ type ReadSetImportJobSource struct {
 		Source1 string `json:"source1"`
 		Source2 string `json:"source2,omitempty"`
 	} `json:"sourceFiles"`
-	SubjectID    string `json:"subjectId"`
-	SampleID     string `json:"sampleId"`
-	ReferenceARN string `json:"referenceArn"`
-	Name         string `json:"name"`
-	Description  string `json:"description"`
+	SubjectID     string `json:"subjectId"`
+	SampleID      string `json:"sampleId"`
+	ReferenceARN  string `json:"referenceArn"`
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	GeneratedFrom string `json:"generatedFrom,omitempty"`
 }
 
 // ReadSetImportJob represents a read set import job.
@@ -471,17 +474,15 @@ type RunSummary struct {
 // RunInBatchSummary is the real ListRunsInBatchOutput element shape
 // (types.RunBatchListItem, omics@v1.49.5 types.go) -- a much narrower shape
 // than GetRunOutput/Run: only the run's identity plus its batch submission
-// outcome. Every run in this backend's ListRunsInBatch result set was
-// submitted successfully (StartRunBatch never creates a Run row for a
-// failed submission -- see RunBatch.SubmissionFailureCount's doc comment),
-// so SubmissionStatus is always the real SUCCESS enum value and the failure
-// fields stay empty.
+// outcome. A failed submission has no Run row, so it carries only the
+// run setting ID, FAILED and a message.
 type RunInBatchSummary struct {
-	RunArn           string `json:"runArn,omitempty"`
-	RunID            string `json:"runId,omitempty"`
-	RunUUID          string `json:"runInternalUuid,omitempty"`
-	RunSettingID     string `json:"runSettingId,omitempty"`
-	SubmissionStatus string `json:"submissionStatus,omitempty"`
+	RunArn                   string `json:"runArn,omitempty"`
+	RunID                    string `json:"runId,omitempty"`
+	RunUUID                  string `json:"runInternalUuid,omitempty"`
+	RunSettingID             string `json:"runSettingId,omitempty"`
+	SubmissionStatus         string `json:"submissionStatus,omitempty"`
+	SubmissionFailureMessage string `json:"submissionFailureMessage,omitempty"`
 }
 
 // StartRunInput holds input for StartRun (real StartRunInput fields this
@@ -489,6 +490,8 @@ type RunInBatchSummary struct {
 // counterpart -- they're set internally by StartRunBatch's constituent-run
 // creation, never by a direct StartRun caller.
 type StartRunInput struct {
+	ConfigurationName   string
+	RunID               string
 	StorageCapacity     *int
 	Priority            *int32
 	EngineSettings      any
@@ -1158,39 +1161,38 @@ type RunCacheSummary struct {
 // backend creates/completes them synchronously and a stored, independently-updated
 // counter would drift from the real Run rows it's meant to summarize).
 type RunBatch struct {
-	Defaults      *DefaultRunSetting `json:"defaultRunSetting,omitempty"`
-	CreationTime  time.Time          `json:"creationTime"`
-	SubmittedTime time.Time          `json:"submittedTime,omitzero"`
-	ProcessedTime time.Time          `json:"processedTime,omitzero"`
-	Tags          map[string]string  `json:"tags"`
-	Arn           string             `json:"arn"`
-	ID            string             `json:"id"`
-	UUID          string             `json:"uuid"`
-	Name          string             `json:"name,omitempty"`
-	WorkflowID    string             `json:"workflowId"`
-	RoleARN       string             `json:"roleArn"`
-	RunGroupID    string             `json:"runGroupId,omitempty"`
-	OutputURI     string             `json:"outputUri,omitempty"`
-	Status        string             `json:"status"`
-	// TotalRuns is the number of constituent runs requested at submission time
-	// (len(InlineSettings)). SubmissionSuccessCount/SubmissionFailureCount and
-	// DeletedRunCount are one-time/monotonic outcomes of synchronous events
-	// (submission at StartRunBatch, deletion at DeleteRunsInBatch) and are stored
-	// directly rather than derived, since the Run rows they summarize either never
-	// existed (failed submissions) or are removed entirely (deleted runs) -- there is
-	// nothing left to recompute them from later. The remaining RunSummary counts
-	// (pending/running/completed/cancelled/failed) change as runs progress and are
-	// computed live from surviving Run rows by summarizeRunBatchLocked instead.
+	CreationTime           time.Time              `json:"creationTime"`
+	SubmittedTime          time.Time              `json:"submittedTime,omitzero"`
+	ProcessedTime          time.Time              `json:"processedTime,omitzero"`
+	Defaults               *DefaultRunSetting     `json:"defaultRunSetting,omitempty"`
+	Tags                   map[string]string      `json:"tags"`
+	Name                   string                 `json:"name,omitempty"`
+	OutputURI              string                 `json:"outputUri,omitempty"`
+	UUID                   string                 `json:"uuid"`
+	Arn                    string                 `json:"arn"`
+	WorkflowID             string                 `json:"workflowId"`
+	RoleARN                string                 `json:"roleArn"`
+	RunGroupID             string                 `json:"runGroupId,omitempty"`
+	ID                     string                 `json:"id"`
+	Status                 string                 `json:"status"`
+	FailedSubmissions      []RunSubmissionFailure `json:"failedSubmissions,omitempty"`
 	TotalRuns              int32
 	SubmissionSuccessCount int32
 	SubmissionFailureCount int32
 	DeletedRunCount        int32
 }
 
+// RunSubmissionFailure records one inline setting StartRunBatch could not turn into a run.
+type RunSubmissionFailure struct {
+	RunSettingID string `json:"runSettingId,omitempty"`
+	Message      string `json:"message"`
+}
+
 // DefaultRunSetting is the shared configuration StartRunBatch applies to every run in
-// the batch (real types.DefaultRunSetting). ConfigurationName and OutputBucketOwnerId
-// are accepted on the wire but not stored -- see PARITY.md items_still_open.
+// the batch (real types.DefaultRunSetting).
 type DefaultRunSetting struct {
+	ConfigurationName   string
+	OutputBucketOwnerID string
 	Priority            *int32
 	StorageCapacity     *int
 	EngineSettings      any
@@ -1218,13 +1220,14 @@ type DefaultRunSetting struct {
 // types.InlineSetting). Overrides Name/OutputURI/Priority/RunTags from
 // DefaultRunSetting when set; RunSettingID is required and has no default.
 type InlineRunSetting struct {
-	RunTags        map[string]string
-	Parameters     map[string]any
-	EngineSettings any
-	Priority       *int32
-	RunSettingID   string
-	Name           string
-	OutputURI      string
+	OutputBucketOwnerID string
+	RunTags             map[string]string
+	Parameters          map[string]any
+	EngineSettings      any
+	Priority            *int32
+	RunSettingID        string
+	Name                string
+	OutputURI           string
 }
 
 // RunBatchFilter is filter criteria for listing run batches (ListBatch).

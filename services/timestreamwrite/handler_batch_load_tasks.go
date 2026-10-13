@@ -451,6 +451,10 @@ func (h *Handler) handleListBatchLoadTasks(
 	_ context.Context,
 	in *listBatchLoadTasksInput,
 ) (*listBatchLoadTasksOutput, error) {
+	if err := validatePaging(in.NextToken, in.MaxResults); err != nil {
+		return nil, err
+	}
+
 	tasks := h.Backend.ListBatchLoadTasks(in.TaskStatus)
 	pg := page.New(tasks, in.NextToken, in.MaxResults, defaultTimestreamMaxResults)
 	views := make([]batchLoadTaskSummaryView, 0, len(pg.Data))

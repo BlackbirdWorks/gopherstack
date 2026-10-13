@@ -450,3 +450,34 @@ func TestIntegration_SSM_StartAutomationExecution(t *testing.T) {
 	assert.NotEmpty(t, getResp.AutomationExecution.StepExecutions,
 		"automation must populate step executions")
 }
+
+func TestIntegration_SSM_PublicParameters(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+
+	tests := []struct {
+		name  string
+		param string
+	}{
+		{name: "al2023", param: "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"},
+		{name: "ecs", param: "/aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id"},
+		{name: "eks", param: "/aws/service/eks/optimized-ami/1.31/amazon-linux-2/recommended/image_id"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			out, err := client.GetParameter(t.Context(), &ssm.GetParameterInput{Name: aws.String(tc.param)})
+			require.NoError(t, err)
+			assert.Regexp(t, `^ami-[0-9a-f]+$`, aws.ToString(out.Parameter.Value))
+		})
+	}
+
+	byPath, err := client.GetParametersByPath(t.Context(), &ssm.GetParametersByPathInput{
+		Path: aws.String("/aws/service/global-infrastructure/regions"),
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, byPath.Parameters)
+}

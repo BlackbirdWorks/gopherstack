@@ -157,43 +157,29 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	msg := wireMessage(err)
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
 	case errors.Is(err, ErrNotFound):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ResourceNotFoundException",
-			Message: err.Error(),
-		})
+		payload := errorPayload("ResourceNotFoundException", msg)
 
 		return c.JSONBlob(http.StatusNotFound, payload)
 	case errors.Is(err, ErrAlreadyExists):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ResourceExistsException",
-			Message: err.Error(),
-		})
+		payload := errorPayload("ResourceExistsException", msg)
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrInvalidParameter):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "InvalidParameterException",
-			Message: err.Error(),
-		})
+		payload := errorPayload("InvalidParameterException", msg)
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrValidation):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "InvalidRequestException",
-			Message: err.Error(),
-		})
+		payload := errorPayload("InvalidRequestException", msg)
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrBatchValidation):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ValidationException",
-			Message: err.Error(),
-		})
+		payload := errorPayload("ValidationException", msg)
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	// route53resolver@v1.48.4 splits its bad-request vocabulary by resource
@@ -203,19 +189,29 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	// left untyped rather than guessing which family reached this path.
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: msg})
 	default:
 		// InternalServiceErrorException is modeled on all 72 operations
 		// (verified by scanning every awsAwsjson11_deserializeOpError* switch),
 		// so it is a safe blanket fallback regardless of which operation reached
 		// this path.
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "InternalServiceErrorException",
-			Message: err.Error(),
-		})
+		payload := errorPayload("InternalServiceErrorException", msg)
 
 		return c.JSONBlob(http.StatusInternalServerError, payload)
 	}
+}
+
+// wireMessage drops the leading sentinel code so the message never repeats the error code.
+func wireMessage(err error) string {
+	msg := err.Error()
+
+	for _, s := range []error{ErrNotFound, ErrAlreadyExists, ErrValidation, ErrInvalidParameter, ErrBatchValidation} {
+		if errors.Is(err, s) {
+			return strings.TrimPrefix(msg, s.Error()+": ")
+		}
+	}
+
+	return msg
 }
 
 // requireResourceID validates that a ResourceId path/body parameter was
@@ -308,4 +304,12 @@ func updateSimpleConfig[TConfig, TOutput any](
 	}
 
 	return toOutput(cfg), nil
+}
+
+// errorPayload carries the message under both casings: schema-driven SDK deserializers
+// (route53resolver v1.53+) only match the modeled member name "Message".
+func errorPayload(errType, msg string) []byte {
+	payload, _ := json.Marshal(map[string]string{"__type": errType, "message": msg, "Message": msg})
+
+	return payload
 }

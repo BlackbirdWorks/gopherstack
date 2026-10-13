@@ -233,7 +233,7 @@ func seedARP(t *testing.T, b *bedrock.InMemoryBackend) bedrockSeed {
 		wf, err = b.StartAutomatedReasoningPolicyBuildWorkflow(p.PolicyArn, "INGEST_CONTENT", nil)
 		require.NoError(t, err)
 
-		_, err = b.CreateAutomatedReasoningPolicyTestCase(p.PolicyArn)
+		_, err = b.CreateAutomatedReasoningPolicyTestCase(p.PolicyArn, validARPTestCase())
 		require.NoError(t, err)
 	}
 

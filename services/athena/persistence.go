@@ -115,6 +115,7 @@ type sqlColumnSnapshot struct {
 type sqlResultSnapshot struct {
 	Columns []sqlColumnSnapshot `json:"columns"`
 	Rows    [][]string          `json:"rows"`
+	Nulls   [][]bool            `json:"nulls,omitempty"`
 }
 
 // snapshotQueryResults converts the live queryResults map into its
@@ -141,7 +142,7 @@ func snapshotQueryResults(m map[string]*sqlResult) map[string]*sqlResultSnapshot
 		rows := make([][]string, len(res.rows))
 		copy(rows, res.rows)
 
-		out[id] = &sqlResultSnapshot{Columns: cols, Rows: rows}
+		out[id] = &sqlResultSnapshot{Columns: cols, Rows: rows, Nulls: res.nulls}
 	}
 
 	return out
@@ -161,7 +162,7 @@ func restoreQueryResults(m map[string]*sqlResultSnapshot) map[string]*sqlResult 
 			cols[i] = sqlColumn{name: c.Name, typ: c.Typ}
 		}
 
-		out[id] = &sqlResult{columns: cols, rows: snap.Rows}
+		out[id] = &sqlResult{columns: cols, rows: snap.Rows, nulls: snap.Nulls}
 	}
 
 	return out
@@ -289,6 +290,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.queryResults = restoreQueryResults(snap.QueryResults)
+	b.failInterruptedExecutionsLocked()
 
 	if snap.TableData == nil {
 		snap.TableData = make(map[string][]map[string]any)
@@ -377,4 +379,18 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 		func(p *Handler, d []byte) error { return p.Restore(ctx, d) },
 		(*Handler).closePeer,
 	)
+}
+
+// failInterruptedExecutionsLocked fails executions that were QUEUED or RUNNING
+// when the snapshot was taken: their engine goroutine does not survive a restart.
+func (b *InMemoryBackend) failInterruptedExecutionsLocked() {
+	for _, qe := range b.queryExecutions.All() {
+		if isTerminalExecution(qe.Status.State) {
+			continue
+		}
+
+		qe.Status.State = stateFailed
+		qe.Status.StateChangeReason = "Query was interrupted by a restart"
+		qe.Status.CompletionDateTime = nowSeconds()
+	}
 }

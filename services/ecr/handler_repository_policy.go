@@ -15,6 +15,10 @@ func (h *Handler) handleGetRepositoryPolicy(
 	ctx context.Context,
 	in *repositoryPolicyInput,
 ) (*RepositoryPolicyResult, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	return h.Backend.GetRepositoryPolicy(ctx, in.RepositoryName)
 }
 
@@ -22,6 +26,14 @@ func (h *Handler) handleSetRepositoryPolicy(
 	ctx context.Context,
 	in *repositoryPolicyInput,
 ) (*RepositoryPolicyResult, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
+	if err := validateRepositoryPolicyText(in.PolicyText); err != nil {
+		return nil, err
+	}
+
 	return h.Backend.SetRepositoryPolicy(ctx, in.RepositoryName, in.PolicyText)
 }
 
@@ -29,5 +41,9 @@ func (h *Handler) handleDeleteRepositoryPolicy(
 	ctx context.Context,
 	in *repositoryPolicyInput,
 ) (*RepositoryPolicyResult, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	return h.Backend.DeleteRepositoryPolicy(ctx, in.RepositoryName)
 }

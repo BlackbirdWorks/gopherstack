@@ -58,7 +58,8 @@ var (
 	ErrServerlessCacheNotAvailable        = errors.New("serverless cache is not in the available state")
 	ErrGlobalReplicationGroupNotAvailable = errors.New("global replication group is not in the available state")
 	ErrClusterInReplicationGroup          = errors.New(
-		"cannot delete a cache cluster that is the last member of a replication group",
+		"cannot delete a cache cluster that is the primary of, or the last member of, a replication group, " +
+			"or that belongs to a Multi-AZ or cluster mode enabled group",
 	)
 )
 
@@ -111,3 +112,14 @@ var (
 // ----------------------------------------
 // New model types
 // ----------------------------------------
+
+// Parameter-validation sentinels. Wrap with fmt.Errorf("%w: detail", ...) and
+// map to the wire fault with paramErrorCode.
+var (
+	ErrInvalidParameterValue       = errors.New("InvalidParameterValue")
+	ErrInvalidParameterCombination = errors.New("InvalidParameterCombination")
+	ErrNodeGroupNotFound           = errors.New("NodeGroupNotFoundFault")
+	ErrNoOperation                 = errors.New("NoOperationFault")
+	ErrNodeGroupsQuotaExceeded     = errors.New("NodeGroupsPerReplicationGroupQuotaExceeded")
+	ErrNodeQuotaForClusterExceeded = errors.New("NodeQuotaForClusterExceeded")
+)

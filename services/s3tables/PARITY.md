@@ -7,7 +7,7 @@
 service: s3tables
 sdk_module: aws-sdk-go-v2/service/s3tables@v1.18.4   # version audited against
 last_audit_commit: 6c5c49416
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-10
 overall: A            # 2026-09-04 FIXED: two missing-precondition bugs (see Notes). DeleteTable silently
                       # accepted a stale/omitted optional versionToken and always succeeded -- real
                       # DeleteTableInput.VersionToken is optional but, when supplied, is an optimistic-
@@ -99,11 +99,17 @@ families:
   naming-rules: {status: ok, note: "FIXED this pass (gopherstack-spp4): CreateTableBucket/CreateNamespace/CreateTable now enforce real S3 Tables naming rules (validation.go), field-diffed against https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-tables-buckets-naming.html -- bucket names: 3-63 chars, lowercase+digits+hyphens only, must begin/end with letter or number, no underscore/period, reserved prefix denylist (xn--, sthree-, amzn-s3-demo-, aws) and reserved suffix denylist (-s3alias, --ol-s3, --x-s3, --table-s3); namespace/table names: 1-255 chars, lowercase+digits+underscores ONLY (no hyphens/periods), must begin with letter or number, namespace additionally rejects the reserved 'aws' prefix (table names do not have this restriction). Real error: BadRequestException (new ErrInvalidBucketName/ErrInvalidName sentinels), matching the exception type actually present in types/errors.go (there is no dedicated naming-violation exception). This was previously blocked on a test-fixture migration (~10+ files used hyphenated namespace/table names and underscore-containing bucket-name suffixes derived from t.Name()) -- that migration was done this pass rather than deferred again: every hyphenated namespace/table literal across handler_namespaces_test.go, handler_table_maintenance_test.go, handler_tables_test.go, persistence_test.go, tables_test.go, table_buckets_test.go, and test/integration/s3tables_test.go was renamed to the real underscore-only convention, and every bucket name built from a table-test case's name now runs through a new bucketSuffix() helper (lowercases + swaps '_' for '-') in handler_test.go. New table tests: TestBackend_CreateTableBucket_NameValidation, TestBackend_CreateNamespace_NameValidation, TestBackend_CreateTable_NameValidation."}
 gaps: []
 items_still_open:
-  - CreateTable's Metadata field (Iceberg schema at creation) is accepted by the real API but not parsed/stored by this emulator; no read path currently exposes table schema, so this was left deferred rather than half-wired (bd: TODO -- file if schema support becomes a priority). gopherstack-u8my: the real API added a second schema form since v1.14.3, IcebergMetadata.SchemaV2 (nested/complex Iceberg types via SchemaV2Field/document.Interface, alongside the pre-existing primitive-only Schema) -- same gap, now two unparsed shapes instead of one; CreateTableInput's Schema also went from required to optional (exactly one of Schema/SchemaV2), which is moot here since gopherstack's createTableRequest never required or read either one.
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in InMemoryBackend's store.Table/map fields guarded by lockmetrics.RWMutex, snapshotted via Handler.Snapshot/Restore delegation to InMemoryBackend"}
 ---
 
+## 2026-10-07 items_still_open burn-down
+
+CreateTable Metadata is validated (required members and enums of IcebergMetadata and children) and stored on
+the table (`TestCreateTable_IcebergMetadata`).
+
 ## Notes
+
+**2026-10-10 (realism pass)**: probed with the AWS CLI. Fixed: error messages repeated the code under x-amzn-errortype; list maxBuckets/maxNamespaces/maxTables outside 1..1000 were silently ignored (now BadRequestException); ListTableBuckets type outside customer|aws silently returned empty; Put*Policy accepted non-JSON; PutTableBucketEncryption accepted any sseAlgorithm (now AES256|aws:kms, kmsKeyArn required for kms); Put*MaintenanceConfiguration accepted any status (now enabled|disabled). Lenient on purpose: UpdateTableMetadataLocation accepts any s3:// .json location, not only the table warehouse (in-repo callers and fixtures use arbitrary buckets).
 
 ### 2026-09-19 (requiredoutputfields census, gopherstack-r80d): 0 findings
 

@@ -12,6 +12,7 @@ import (
 type batchCreatePartitionInput struct {
 	DatabaseName       string           `json:"DatabaseName"`
 	TableName          string           `json:"TableName"`
+	CatalogID          string           `json:"CatalogId,omitempty"`
 	PartitionInputList []PartitionInput `json:"PartitionInputList"`
 }
 
@@ -26,6 +27,10 @@ func (h *Handler) handleBatchCreatePartition(
 ) (*batchCreatePartitionOutput, error) {
 	if len(in.PartitionInputList) > maxBatchCreatePartitions {
 		return nil, fmt.Errorf("%w: too many partitions: maximum is %d", ErrValidation, maxBatchCreatePartitions)
+	}
+
+	if err := h.requireTableCatalog(in.DatabaseName, in.TableName, in.CatalogID); err != nil {
+		return nil, err
 	}
 
 	created, errs := h.Backend.BatchCreatePartition(in.DatabaseName, in.TableName, in.PartitionInputList)
@@ -169,6 +174,7 @@ type batchUpdatePartitionEntry struct {
 type batchUpdatePartitionInput struct {
 	DatabaseName string                      `json:"DatabaseName"`
 	TableName    string                      `json:"TableName"`
+	CatalogID    string                      `json:"CatalogId,omitempty"`
 	Entries      []batchUpdatePartitionEntry `json:"Entries"`
 }
 
@@ -187,6 +193,10 @@ func (h *Handler) handleBatchUpdatePartition(
 	_ context.Context,
 	in *batchUpdatePartitionInput,
 ) (*batchUpdatePartitionOutput, error) {
+	if err := h.requireTableCatalog(in.DatabaseName, in.TableName, in.CatalogID); err != nil {
+		return nil, err
+	}
+
 	errs := make([]batchUpdatePartitionError, 0, len(in.Entries))
 
 	for _, entry := range in.Entries {
@@ -211,6 +221,7 @@ func (h *Handler) handleBatchUpdatePartition(
 type createPartitionInput struct {
 	DatabaseName   string         `json:"DatabaseName"`
 	TableName      string         `json:"TableName"`
+	CatalogID      string         `json:"CatalogId,omitempty"`
 	PartitionInput PartitionInput `json:"PartitionInput"`
 }
 
@@ -218,6 +229,10 @@ func (h *Handler) handleCreatePartition(
 	_ context.Context,
 	in *createPartitionInput,
 ) (*emptyOutput, error) {
+	if err := h.requireTableCatalog(in.DatabaseName, in.TableName, in.CatalogID); err != nil {
+		return nil, err
+	}
+
 	_, errs := h.Backend.BatchCreatePartition(
 		in.DatabaseName,
 		in.TableName,
@@ -299,12 +314,43 @@ const maxGetPartitionsResults = 1000
 
 // getPartitionsInput holds input for GetPartitions.
 type getPartitionsInput struct {
-	DatabaseName string `json:"DatabaseName"`
-	TableName    string `json:"TableName"`
-	Expression   string `json:"Expression,omitempty"`
-	MaxResults   *int32 `json:"MaxResults,omitempty"`
-	NextToken    string `json:"NextToken,omitempty"`
-	CatalogID    string `json:"CatalogId,omitempty"`
+	MaxResults          *int32            `json:"MaxResults,omitempty"`
+	Segment             *partitionSegment `json:"Segment,omitempty"`
+	DatabaseName        string            `json:"DatabaseName"`
+	TableName           string            `json:"TableName"`
+	Expression          string            `json:"Expression,omitempty"`
+	NextToken           string            `json:"NextToken,omitempty"`
+	CatalogID           string            `json:"CatalogId,omitempty"`
+	ExcludeColumnSchema bool              `json:"ExcludeColumnSchema,omitempty"`
+}
+
+type partitionSegment struct {
+	TotalSegments *int32 `json:"TotalSegments"`
+	SegmentNumber int32  `json:"SegmentNumber"`
+}
+
+// apply keeps the partitions whose index falls in this segment.
+func (s *partitionSegment) apply(partitions []*Partition) ([]*Partition, error) {
+	if s == nil {
+		return partitions, nil
+	}
+
+	if s.TotalSegments == nil || *s.TotalSegments < 1 || s.SegmentNumber < 0 || s.SegmentNumber >= *s.TotalSegments {
+		return nil, fmt.Errorf(
+			"%w: Segment requires TotalSegments >= 1 and 0 <= SegmentNumber < TotalSegments", ErrValidation,
+		)
+	}
+
+	total, number := int(*s.TotalSegments), int(s.SegmentNumber)
+	out := make([]*Partition, 0, len(partitions)/total+1)
+
+	for i, p := range partitions {
+		if i%total == number {
+			out = append(out, p)
+		}
+	}
+
+	return out, nil
 }
 
 // getPartitionsOutput holds the result for GetPartitions.
@@ -339,12 +385,23 @@ func (h *Handler) handleGetPartitions(
 		}
 	}
 
+	partitions, err = in.Segment.apply(partitions)
+	if err != nil {
+		return nil, err
+	}
+
 	limit := maxGetPartitionsResults
 	if in.MaxResults != nil {
 		limit = int(*in.MaxResults)
 	}
 
 	page, next := paginateSlice(partitions, in.NextToken, limit)
+
+	if in.ExcludeColumnSchema {
+		for _, p := range page {
+			p.StorageDescriptor.Columns = nil
+		}
+	}
 
 	return &getPartitionsOutput{Partitions: page, NextToken: next}, nil
 }
@@ -538,4 +595,19 @@ func (h *Handler) handleUpdatePartition(
 	}
 
 	return &emptyOutput{}, nil
+}
+
+// requireTableCatalog returns ErrNotFound when the table lives in a different
+// catalog than the one named; a missing table is left to the operation itself.
+func (h *Handler) requireTableCatalog(database, table, catalogID string) error {
+	if catalogID == "" {
+		return nil
+	}
+
+	tbl, err := h.Backend.GetTable(database, table)
+	if err == nil && catalogIDMismatch(catalogID, tbl.CatalogID) {
+		return fmt.Errorf("table %q not found in catalog %q: %w", table, catalogID, ErrNotFound)
+	}
+
+	return nil
 }

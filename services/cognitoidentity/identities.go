@@ -39,6 +39,10 @@ func (b *InMemoryBackend) GetID(
 		)
 	}
 
+	if err := validateLoginTokens(pool, logins, time.Now()); err != nil {
+		return nil, err
+	}
+
 	// AWS GetId matches an existing identity if any of the provided (provider, token) pairs
 	// already appear in the identity's logins. On a match the identity is updated with any
 	// new login providers from the current request (provider-account linking).
@@ -317,8 +321,13 @@ func (b *InMemoryBackend) LookupDeveloperIdentity(
 	b.mu.RLock("LookupDeveloperIdentity")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.poolGet(region, poolID); !ok {
+	pool, poolOK := b.poolGet(region, poolID)
+	if !poolOK {
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
+	}
+
+	if developerProviderName == "" {
+		developerProviderName = pool.DeveloperProviderName
 	}
 
 	var byID *Identity
@@ -399,21 +408,11 @@ func reconcileLookupMatch(byID, byDeveloperID *Identity) (*Identity, error) {
 // A developer login key is non-standard (not a well-known provider prefix).
 // The result is always sorted for deterministic output.
 func developerLoginsFrom(logins map[string]string, developerProviderName string) []string {
-	ids := make([]string, 0, len(logins))
+	ids := make([]string, 0, 1)
 
-	if developerProviderName != "" {
-		if v, ok := logins[developerProviderName]; ok {
-			ids = append(ids, v)
-		}
-
-		return ids
-	}
-
-	for _, v := range logins {
+	if v, ok := logins[developerProviderName]; ok && developerProviderName != "" {
 		ids = append(ids, v)
 	}
-
-	slices.Sort(ids)
 
 	return ids
 }
@@ -535,7 +534,7 @@ func (b *InMemoryBackend) UnlinkIdentity(
 			)
 		}
 
-		if identityToken != loginToken {
+		if identityToken != loginToken && !sameLogin(identityToken, loginToken) {
 			return fmt.Errorf(
 				"%w: invalid login token for provider %q",
 				ErrNotAuthorized,
@@ -647,7 +646,7 @@ func filterAndSortIdentities(src []*Identity, hideDisabled bool) []*Identity {
 // requested login providers is already linked to it.
 func anyLoginMatches(stored, req map[string]string) bool {
 	for provider, token := range req {
-		if stored[provider] == token {
+		if stored[provider] == token || sameLogin(stored[provider], token) {
 			return true
 		}
 	}

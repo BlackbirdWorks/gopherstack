@@ -62,7 +62,7 @@ func (b *InMemoryBackend) CreateOAI(callerRef, comment string) (*OriginAccessIde
 		return &cp, nil
 	}
 
-	id := generateID()
+	id := generateIDWithPrefix("E")
 	oai := &OriginAccessIdentity{
 		ID:                id,
 		ARN:               b.oaiARN(id),
@@ -166,7 +166,7 @@ func (b *InMemoryBackend) CreateOriginAccessControl(
 		)
 	}
 
-	id := generateID()
+	id := generateIDWithPrefix("E")
 	oac := &OriginAccessControl{
 		ID:              id,
 		Name:            name,

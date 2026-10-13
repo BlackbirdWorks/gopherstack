@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -53,6 +54,7 @@ func (b *InMemoryBackend) CreateOpsItem(
 	b.mu.Lock("CreateOpsItem")
 	defer b.mu.Unlock()
 
+	caller := awsmeta.CallerArn(ctx)
 	opsItemID := opsItemIDPrefix + uuid.NewString()
 	opsItemArn := arn.Build("ssm", region, defaultAccountID, fmt.Sprintf("opsitem/%s", opsItemID))
 	now := UnixTimeFloat(time.Now())
@@ -79,6 +81,8 @@ func (b *InMemoryBackend) CreateOpsItem(
 		PlannedEndTime:   input.PlannedEndTime,
 		RelatedOpsItems:  append([]RelatedOpsItemRef(nil), input.RelatedOpsItems...),
 		Version:          "1",
+		CreatedBy:        caller,
+		LastModifiedBy:   caller,
 	}
 
 	b.opsItemsStore(region).Put(&item)
@@ -88,6 +92,7 @@ func (b *InMemoryBackend) CreateOpsItem(
 		EventID:     "event-create-" + opsItemID,
 		Source:      input.Source,
 		CreatedTime: now,
+		CreatedBy:   opsItemIdentity(caller),
 	})
 
 	if len(input.Tags) > 0 {
@@ -137,6 +142,7 @@ func (b *InMemoryBackend) AssociateOpsItemRelatedItem(
 		ResourceType:    input.ResourceType,
 		ResourceURI:     input.ResourceURI,
 		CreatedTime:     UnixTimeFloat(time.Now()),
+		CreatedBy:       opsItemIdentity(awsmeta.CallerArn(ctx)),
 	}
 
 	if b.opsItemRelatedItems[region] == nil {
@@ -183,6 +189,7 @@ func (b *InMemoryBackend) CreateOpsMetadata(
 		Metadata:         input.Metadata,
 		CreationDate:     now,
 		LastModifiedDate: now,
+		LastModifiedUser: awsmeta.CallerArn(ctx),
 	}
 
 	b.opsMetadataStore(region).Put(&meta)
@@ -269,6 +276,7 @@ func (b *InMemoryBackend) ListOpsMetadata(
 				ResourceID:       m.ResourceID,
 				CreationDate:     m.CreationDate,
 				LastModifiedDate: m.LastModifiedDate,
+				LastModifiedUser: m.LastModifiedUser,
 			})
 		}
 	}
@@ -360,6 +368,8 @@ func (b *InMemoryBackend) DescribeOpsItems(
 			CreatedTime:      item.CreatedTime,
 			LastModifiedTime: item.LastModifiedTime,
 			Priority:         item.Priority,
+			CreatedBy:        item.CreatedBy,
+			LastModifiedBy:   item.LastModifiedBy,
 		})
 	}
 
@@ -555,6 +565,7 @@ func (b *InMemoryBackend) UpdateOpsItem(
 	applyOpsItemChangeManagerUpdates(&item, input)
 
 	item.LastModifiedTime = UnixTimeFloat(timeNow())
+	item.LastModifiedBy = awsmeta.CallerArn(ctx)
 	item.Version = strconv.Itoa(nextOpsItemVersion(item.Version))
 	items.Put(&item)
 
@@ -564,6 +575,7 @@ func (b *InMemoryBackend) UpdateOpsItem(
 		EventID:     "event-update-" + input.OpsItemID,
 		Source:      item.Source,
 		CreatedTime: item.LastModifiedTime,
+		CreatedBy:   opsItemIdentity(item.LastModifiedBy),
 	})
 
 	return &UpdateOpsItemOutput{}, nil
@@ -599,6 +611,7 @@ func (b *InMemoryBackend) UpdateOpsMetadata(
 	}
 
 	meta.LastModifiedDate = UnixTimeFloat(timeNow())
+	meta.LastModifiedUser = awsmeta.CallerArn(ctx)
 	opsMetadata.Put(&meta)
 
 	return &UpdateOpsMetadataOutput{OpsMetadataArn: input.OpsMetadataArn}, nil

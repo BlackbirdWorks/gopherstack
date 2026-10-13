@@ -142,12 +142,50 @@ func TestHandler_ResourcePosition_UpdateAndGet(t *testing.T) {
 	}
 }
 
-func TestHandler_GetPositionEstimate_ReturnsOK(t *testing.T) {
+func TestHandler_GetPositionEstimate(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandlerHTTP()
-	rec := doIoTWRequest(t, h, http.MethodPost, "/position-estimate", `{}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{name: "valid_ip_no_solver", body: `{"Ip":{"IpAddress":"192.0.2.1"}}`, wantStatus: http.StatusNotFound},
+		{
+			name:       "valid_wifi_no_solver",
+			body:       `{"WiFiAccessPoints":[{"MacAddress":"00:11:22:33:44:55","Rss":-50}]}`,
+			wantStatus: http.StatusNotFound,
+		},
+		{name: "valid_gnss_no_solver", body: `{"Gnss":{"Payload":"8b00"}}`, wantStatus: http.StatusNotFound},
+		{name: "bad_ip", body: `{"Ip":{"IpAddress":"not-an-ip"}}`, wantStatus: http.StatusBadRequest},
+		{name: "bad_gnss_payload", body: `{"Gnss":{"Payload":"zz"}}`, wantStatus: http.StatusBadRequest},
+		{
+			name:       "bad_mac",
+			body:       `{"WiFiAccessPoints":[{"MacAddress":"nope","Rss":-50}]}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "wifi_missing_rss",
+			body:       `{"WiFiAccessPoints":[{"MacAddress":"00:11:22:33:44:55"}]}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandlerHTTP()
+			rec := doIoTWRequest(t, h, http.MethodPost, "/position-estimate", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			assert.NotEqual(
+				t,
+				"application/octet-stream",
+				rec.Header().Get("Content-Type"),
+				"no GeoJSON payload is fabricated",
+			)
+		})
+	}
 }
 
 func TestHandler_PositionConfiguration(t *testing.T) {

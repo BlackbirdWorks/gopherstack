@@ -160,7 +160,7 @@ func (b *InMemoryBackend) GetDeploymentConfig(name string) (*DeploymentConfig, e
 
 	cfg, ok := b.deploymentConfigs.Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: deployment config %s not found", ErrDeploymentConfigNotFound, name)
+		return nil, fmt.Errorf("%w: Deployment configuration %s not found", ErrDeploymentConfigNotFound, name)
 	}
 
 	cp := *cfg
@@ -199,7 +199,7 @@ func (b *InMemoryBackend) DeleteDeploymentConfig(name string) error {
 		// description is generic, not evidence this case reuses it; idempotent-success
 		// is equally plausible. Do NOT "fix" this by guessing; needs real evidence
 		// (gopherstack-3pz8).
-		return fmt.Errorf("%w: deployment config %s not found", ErrDeploymentConfigNotFound, name)
+		return fmt.Errorf("%w: Deployment configuration %s not found", ErrDeploymentConfigNotFound, name)
 	}
 
 	if cfg.IsDefault {

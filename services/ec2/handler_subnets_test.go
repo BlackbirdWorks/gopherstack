@@ -104,9 +104,8 @@ func TestHandlerModifySubnetAttribute(t *testing.T) {
 		"&MapPublicIpOnLaunch.Value=true")
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// Default branch (no MapPublicIpOnLaunch.Value).
 	rec = postForm(t, h, "Action=ModifySubnetAttribute&Version=2016-11-15&SubnetId="+subnet.ID)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestHandlerNetworkACLHandlers covers handleDeleteNetworkACL, handleCreateNetworkACLEntry,

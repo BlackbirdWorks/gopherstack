@@ -51,7 +51,7 @@ func TestHandler_AddApplicationCloudWatchLoggingOption(t *testing.T) {
 					"RoleARN":      "arn:aws:iam::000000000000:role/r",
 				},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "version mismatch",
@@ -144,7 +144,7 @@ func TestHandler_DeleteApplicationCloudWatchLoggingOption(t *testing.T) {
 					"CloudWatchLoggingOptionId":   optID,
 				}
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

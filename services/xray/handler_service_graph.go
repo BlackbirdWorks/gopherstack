@@ -37,6 +37,10 @@ func (h *Handler) handleGetServiceGraph(_ context.Context, body []byte) ([]byte,
 		filterExpr,
 	)
 
+	if tokErr := checkNextToken(in.NextToken); tokErr != nil {
+		return nil, tokErr
+	}
+
 	pg := page.New(services, in.NextToken, 0, defaultServiceGraphPageSize)
 
 	return json.Marshal(map[string]any{
@@ -90,6 +94,10 @@ func (h *Handler) handleGetTimeSeriesServiceStatistics(_ context.Context, body [
 		filterExpr,
 	)
 
+	if tokErr := checkNextToken(in.NextToken); tokErr != nil {
+		return nil, tokErr
+	}
+
 	pg := page.New(stats, in.NextToken, 0, defaultTimeSeriesPageSize)
 
 	return json.Marshal(map[string]any{
@@ -117,6 +125,10 @@ func (h *Handler) handleGetTraceGraph(_ context.Context, body []byte) ([]byte, e
 	}
 
 	services := h.Backend.GetTraceGraph(in.TraceIDs)
+
+	if tokErr := checkNextToken(in.NextToken); tokErr != nil {
+		return nil, tokErr
+	}
 
 	pg := page.New(services, in.NextToken, 0, defaultServiceGraphPageSize)
 

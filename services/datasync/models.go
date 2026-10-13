@@ -300,8 +300,11 @@ func fromStoredFilterRules(rules []storedFilterRule) []FilterRule {
 
 // storedTaskSchedule mirrors TaskSchedule for JSON persistence.
 type storedTaskSchedule struct {
-	ScheduleExpression string `json:"scheduleExpression"`
-	Status             string `json:"status,omitempty"`
+	StatusUpdateTime   time.Time `json:"statusUpdateTime,omitzero"`
+	ScheduleExpression string    `json:"scheduleExpression"`
+	Status             string    `json:"status,omitempty"`
+	DisabledBy         string    `json:"disabledBy,omitempty"`
+	DisabledReason     string    `json:"disabledReason,omitempty"`
 }
 
 // storedTask holds a task with all fields.
@@ -348,6 +351,9 @@ func (t *storedTask) toTask() Task {
 		task.Schedule = &TaskSchedule{
 			ScheduleExpression: t.Schedule.ScheduleExpression,
 			Status:             t.Schedule.Status,
+			DisabledBy:         t.Schedule.DisabledBy,
+			DisabledReason:     t.Schedule.DisabledReason,
+			StatusUpdateTime:   t.Schedule.StatusUpdateTime,
 		}
 	}
 

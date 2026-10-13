@@ -283,13 +283,18 @@ func checkDedup(
 		// and speeding up subsequent lookups.
 		delete(q.DeduplicationIDs, key)
 		delete(q.deduplicationMsgIDs, key)
+		delete(q.deduplicationSeqs, key)
 
 		return nil, false
 	}
 
 	origMsgID := q.deduplicationMsgIDs[key]
 
-	return &SendMessageOutput{MessageID: origMsgID, MD5OfBody: md5Body}, true
+	return &SendMessageOutput{
+		MessageID:      origMsgID,
+		MD5OfBody:      md5Body,
+		SequenceNumber: q.deduplicationSeqs[key],
+	}, true
 }
 
 // maxDedupEntriesPerQueue caps the per-queue deduplication maps to bound memory
@@ -304,7 +309,7 @@ const maxDedupEntriesPerQueue = 100_000
 // is enabled (AWS spec uses SHA-256, not MD5, for content-based dedup IDs).
 func storeDedup(
 	q *Queue,
-	groupID, dedupID, bodyHash, contentBasedDedup, msgID string,
+	groupID, dedupID, bodyHash, contentBasedDedup, msgID, seqNum string,
 	now time.Time,
 ) {
 	effectiveID := dedupID
@@ -323,6 +328,12 @@ func storeDedup(
 	key := dedupKey(q, groupID, effectiveID)
 	q.DeduplicationIDs[key] = now.Add(deduplicationWindowSecs * time.Second)
 	q.deduplicationMsgIDs[key] = msgID
+
+	if q.deduplicationSeqs == nil {
+		q.deduplicationSeqs = make(map[string]string)
+	}
+
+	q.deduplicationSeqs[key] = seqNum
 }
 
 // evictOldestDedup removes up to n entries with the earliest expiry times.
@@ -342,6 +353,7 @@ func evictOldestDedup(q *Queue, n int) {
 		}
 		delete(q.DeduplicationIDs, oldestKey)
 		delete(q.deduplicationMsgIDs, oldestKey)
+		delete(q.deduplicationSeqs, oldestKey)
 	}
 }
 
@@ -351,6 +363,7 @@ func pruneDedup(q *Queue, now time.Time) {
 		if !now.Before(expiry) {
 			delete(q.DeduplicationIDs, k)
 			delete(q.deduplicationMsgIDs, k)
+			delete(q.deduplicationSeqs, k)
 		}
 	}
 }

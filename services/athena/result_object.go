@@ -3,7 +3,7 @@ package athena
 import (
 	"bytes"
 	"context"
-	"encoding/csv"
+	"encoding/json"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -56,6 +56,33 @@ func (b *InMemoryBackend) writeResultObject(id string, rc ResultConfiguration, r
 	}
 
 	_, _ = b.s3.PutObject(context.Background(), input)
+
+	if len(result.columns) == 0 {
+		return
+	}
+
+	meta := *input
+	meta.Key = aws.String(key + ".metadata")
+	meta.Body = bytes.NewReader(resultMetadata(result))
+	_, _ = b.s3.PutObject(context.Background(), &meta)
+}
+
+// resultMetadata serialises the column names and types of a result set; AWS's
+// own .metadata layout is binary and undocumented, so this is JSON.
+func resultMetadata(result *sqlResult) []byte {
+	type col struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+	}
+
+	cols := make([]col, len(result.columns))
+	for i, c := range result.columns {
+		cols[i] = col{Name: c.name, Type: c.typ}
+	}
+
+	out, _ := json.Marshal(map[string]any{"columns": cols})
+
+	return out
 }
 
 // resultObjectKey splits an "s3://bucket/prefix" OutputLocation into a bucket
@@ -79,28 +106,51 @@ func resultObjectKey(outputLocation, id string) (string, string, bool) {
 	return bucket, prefix + id + ".csv", true
 }
 
-// resultCSV serializes a query result to CSV: a header row of column names,
-// then one row per result row. A nil result (e.g. a DDL statement with no
-// result set) still produces a valid, empty CSV.
+// resultCSV serializes a query result as Athena does: every field quoted, a
+// header row of column names, then one row per result row. A nil result
+// still produces a valid, empty CSV.
 func resultCSV(result *sqlResult) []byte {
 	var buf bytes.Buffer
 
-	w := csv.NewWriter(&buf)
-
-	if result != nil {
-		header := make([]string, len(result.columns))
-		for i, c := range result.columns {
-			header[i] = c.name
-		}
-
-		_ = w.Write(header)
-
-		for _, row := range result.rows {
-			_ = w.Write(row)
-		}
+	if result == nil {
+		return buf.Bytes()
 	}
 
-	w.Flush()
+	header := make([]string, len(result.columns))
+	for i, c := range result.columns {
+		header[i] = c.name
+	}
+
+	writeQuotedRow(&buf, header, nil)
+
+	for i, row := range result.rows {
+		var nulls []bool
+		if i < len(result.nulls) {
+			nulls = result.nulls[i]
+		}
+
+		writeQuotedRow(&buf, row, nulls)
+	}
 
 	return buf.Bytes()
+}
+
+// writeQuotedRow quotes every field except SQL NULLs, which are left empty
+// and unquoted so they stay distinguishable from "".
+func writeQuotedRow(buf *bytes.Buffer, fields []string, nulls []bool) {
+	for i, f := range fields {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+
+		if i < len(nulls) && nulls[i] {
+			continue
+		}
+
+		buf.WriteByte('"')
+		buf.WriteString(strings.ReplaceAll(f, `"`, `""`))
+		buf.WriteByte('"')
+	}
+
+	buf.WriteByte('\n')
 }

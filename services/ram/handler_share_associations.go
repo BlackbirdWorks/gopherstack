@@ -54,6 +54,10 @@ func (h *Handler) handleAssociateResourceShare(_ context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: resourceShareArn is required", errInvalidRequest)
 	}
 
+	if err := validatePrincipals(req.Principals); err != nil {
+		return nil, err
+	}
+
 	associations, err := h.Backend.AssociateResourceShare(
 		req.ResourceShareArn,
 		req.Principals,
@@ -154,6 +158,10 @@ func (h *Handler) handleGetResourceShareAssociations(
 
 	if req.AssociationType == "" {
 		return nil, fmt.Errorf("%w: associationType is required", errInvalidRequest)
+	}
+
+	if err := validateAssociationType(req.AssociationType); err != nil {
+		return nil, err
 	}
 
 	associations := h.Backend.GetResourceShareAssociations(

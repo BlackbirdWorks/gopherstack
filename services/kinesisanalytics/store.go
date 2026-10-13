@@ -136,18 +136,19 @@ type StorageBackend interface {
 // map[region]map[arn]*Application reverse index) -- see store_setup.go for
 // the full rationale.
 type InMemoryBackend struct {
-	svcCtx        context.Context
-	apps          *store.Table[Application]
-	appsByRegion  *store.Index[Application]
-	appsByARN     *store.Index[Application]
-	registry      *store.Registry
-	cancelFuncs   map[string]context.CancelFunc
-	kinesisReader KinesisStreamReader
-	s3Reader      S3ObjectReader
-	mu            *lockmetrics.RWMutex
-	defaultRegion string
-	accountID     string
-	nextID        int64
+	svcCtx         context.Context
+	apps           *store.Table[Application]
+	appsByRegion   *store.Index[Application]
+	appsByARN      *store.Index[Application]
+	registry       *store.Registry
+	cancelFuncs    map[string]context.CancelFunc
+	kinesisReader  KinesisStreamReader
+	firehoseReader FirehoseSampleReader
+	s3Reader       S3ObjectReader
+	mu             *lockmetrics.RWMutex
+	defaultRegion  string
+	accountID      string
+	nextID         int64
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
@@ -225,6 +226,14 @@ func (b *InMemoryBackend) SetKinesisStreamReader(r KinesisStreamReader) {
 	b.mu.Lock("SetKinesisStreamReader")
 	defer b.mu.Unlock()
 	b.kinesisReader = r
+}
+
+// SetFirehoseSampleReader wires the Firehose backend DiscoverInputSchema samples records from
+// when ResourceARN names a delivery stream.
+func (b *InMemoryBackend) SetFirehoseSampleReader(r FirehoseSampleReader) {
+	b.mu.Lock("SetFirehoseSampleReader")
+	defer b.mu.Unlock()
+	b.firehoseReader = r
 }
 
 // SetS3ObjectReader wires the S3 backend DiscoverInputSchema samples object content from when

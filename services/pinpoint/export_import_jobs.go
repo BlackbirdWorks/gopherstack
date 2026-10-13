@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -15,6 +16,10 @@ func (b *InMemoryBackend) CreateExportJob(
 	region, accountID, appID string,
 	req createExportJobRequest,
 ) (*ExportJob, error) {
+	if err := validateJobLocation("S3UrlPrefix", req.S3UrlPrefix, ""); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateExportJob")
 	defer b.mu.Unlock()
 
@@ -26,14 +31,15 @@ func (b *InMemoryBackend) CreateExportJob(
 	jobARN := arn.Build("mobiletargeting", region, accountID, fmt.Sprintf("apps/%s/jobs/export/%s", appID, id))
 
 	j := &ExportJob{
-		ARN:           jobARN,
-		ApplicationID: appID,
-		SegmentID:     req.SegmentID,
-		ID:            id,
-		RoleArn:       req.RoleArn,
-		S3UrlPrefix:   req.S3UrlPrefix,
-		JobStatus:     jobStatusCreated,
-		CreationDate:  nowRFC3339(),
+		ARN:            jobARN,
+		ApplicationID:  appID,
+		SegmentID:      req.SegmentID,
+		ID:             id,
+		RoleArn:        req.RoleArn,
+		S3UrlPrefix:    req.S3UrlPrefix,
+		SegmentVersion: req.SegmentVersion,
+		JobStatus:      jobStatusCreated,
+		CreationDate:   nowRFC3339(),
 	}
 
 	b.exportJobs.Put(j)
@@ -50,6 +56,14 @@ func (b *InMemoryBackend) CreateImportJob(
 	region, accountID, appID string,
 	req createImportJobRequest,
 ) (*ImportJob, error) {
+	if req.Format == "" {
+		return nil, badRequest("Format is required")
+	}
+
+	if err := validateJobLocation("S3Url", req.S3Url, req.Format); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateImportJob")
 	defer b.mu.Unlock()
 
@@ -62,14 +76,17 @@ func (b *InMemoryBackend) CreateImportJob(
 	now := nowRFC3339()
 
 	j := &ImportJob{
-		ARN:           jobARN,
-		ApplicationID: appID,
-		ID:            id,
-		RoleArn:       req.RoleArn,
-		S3Url:         req.S3Url,
-		Format:        req.Format,
-		JobStatus:     jobStatusCreated,
-		CreationDate:  now,
+		ARN:               jobARN,
+		ApplicationID:     appID,
+		ID:                id,
+		RoleArn:           req.RoleArn,
+		S3Url:             req.S3Url,
+		Format:            req.Format,
+		JobStatus:         jobStatusCreated,
+		CreationDate:      now,
+		ExternalID:        req.ExternalID,
+		DefineSegment:     req.DefineSegment,
+		RegisterEndpoints: req.RegisterEndpoints,
 	}
 
 	b.importJobs.Put(j)
@@ -125,9 +142,7 @@ func (b *InMemoryBackend) GetExportJob(appID, jobID string) (*ExportJob, error) 
 		return nil, ErrAppNotFound
 	}
 
-	cp := *j
-
-	return &cp, nil
+	return b.settleExportJob(j, time.Now()), nil
 }
 
 // GetExportJobs returns all export jobs for an app.
@@ -139,8 +154,7 @@ func (b *InMemoryBackend) GetExportJobs(appID string) ([]*ExportJob, error) {
 
 	for _, j := range b.exportJobs.All() {
 		if j.ApplicationID == appID {
-			cp := *j
-			jobs = append(jobs, &cp)
+			jobs = append(jobs, b.settleExportJob(j, time.Now()))
 		}
 	}
 
@@ -159,9 +173,7 @@ func (b *InMemoryBackend) GetImportJob(appID, jobID string) (*ImportJob, error) 
 		return nil, ErrAppNotFound
 	}
 
-	cp := *j
-
-	return &cp, nil
+	return b.settleImportJob(j, time.Now()), nil
 }
 
 // GetImportJobs returns all import jobs for an app.
@@ -173,8 +185,7 @@ func (b *InMemoryBackend) GetImportJobs(appID string) ([]*ImportJob, error) {
 
 	for _, j := range b.importJobs.All() {
 		if j.ApplicationID == appID {
-			cp := *j
-			jobs = append(jobs, &cp)
+			jobs = append(jobs, b.settleImportJob(j, time.Now()))
 		}
 	}
 
@@ -202,8 +213,7 @@ func (b *InMemoryBackend) GetSegmentImportJobs(appID, segmentID string) ([]*Impo
 
 	for _, j := range b.importJobs.All() {
 		if j.ApplicationID == appID && j.SegmentID == segmentID {
-			cp := *j
-			jobs = append(jobs, &cp)
+			jobs = append(jobs, b.settleImportJob(j, time.Now()))
 		}
 	}
 

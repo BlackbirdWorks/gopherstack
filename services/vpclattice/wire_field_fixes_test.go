@@ -28,7 +28,7 @@ func TestAccessLogSubscription_ServiceNetworkLogType(t *testing.T) {
 
 	svc, err := client.CreateService(
 		ctx,
-		&vpclatticesdk.CreateServiceInput{Name: aws.String("svc-als")},
+		&vpclatticesdk.CreateServiceInput{Name: aws.String("svcx-als")},
 	)
 	require.NoError(t, err)
 
@@ -79,7 +79,7 @@ func TestListAccessLogSubscriptions_LastUpdatedAt(t *testing.T) {
 
 	svc, err := client.CreateService(
 		ctx,
-		&vpclatticesdk.CreateServiceInput{Name: aws.String("svc-als-lastupdated")},
+		&vpclatticesdk.CreateServiceInput{Name: aws.String("svcx-als-lastupdated")},
 	)
 	require.NoError(t, err)
 
@@ -120,13 +120,13 @@ func TestRule_PathMatchWireKeyAndCaseSensitive(t *testing.T) {
 
 	svc, err := client.CreateService(
 		ctx,
-		&vpclatticesdk.CreateServiceInput{Name: aws.String("svc-rulematch")},
+		&vpclatticesdk.CreateServiceInput{Name: aws.String("svcx-rulematch")},
 	)
 	require.NoError(t, err)
 
 	listener, err := client.CreateListener(ctx, &vpclatticesdk.CreateListenerInput{
 		ServiceIdentifier: svc.Id,
-		Name:              aws.String("l1"),
+		Name:              aws.String("lis1"),
 		Protocol:          vpclatticetypes.ListenerProtocolHttp,
 		DefaultAction: &vpclatticetypes.RuleActionMemberFixedResponse{
 			Value: vpclatticetypes.FixedResponseAction{StatusCode: aws.Int32(404)},
@@ -137,7 +137,7 @@ func TestRule_PathMatchWireKeyAndCaseSensitive(t *testing.T) {
 	rule, err := client.CreateRule(ctx, &vpclatticesdk.CreateRuleInput{
 		ServiceIdentifier:  svc.Id,
 		ListenerIdentifier: listener.Id,
-		Name:               aws.String("r1"),
+		Name:               aws.String("rul1"),
 		Priority:           aws.Int32(5),
 		Action: &vpclatticetypes.RuleActionMemberFixedResponse{
 			Value: vpclatticetypes.FixedResponseAction{StatusCode: aws.Int32(404)},
@@ -200,7 +200,7 @@ func TestListServiceNetworks_AssociationCounts(t *testing.T) {
 
 	svc, err := client.CreateService(
 		ctx,
-		&vpclatticesdk.CreateServiceInput{Name: aws.String("svc-counts")},
+		&vpclatticesdk.CreateServiceInput{Name: aws.String("svcx-counts")},
 	)
 	require.NoError(t, err)
 
@@ -258,7 +258,7 @@ func TestListServices_LastUpdatedAt(t *testing.T) {
 
 	_, err := client.CreateService(
 		ctx,
-		&vpclatticesdk.CreateServiceInput{Name: aws.String("svc-lastupdated")},
+		&vpclatticesdk.CreateServiceInput{Name: aws.String("svcx-lastupdated")},
 	)
 	require.NoError(t, err)
 
@@ -282,7 +282,7 @@ func TestTargetGroup_HealthCheck_ProtocolVersionAndMatcher(t *testing.T) {
 	ctx := t.Context()
 
 	created, err := client.CreateTargetGroup(ctx, &vpclatticesdk.CreateTargetGroupInput{
-		Name: aws.String("tg-healthcheck"),
+		Name: aws.String("tgx-healthcheck"),
 		Type: vpclatticetypes.TargetGroupTypeInstance,
 		Config: &vpclatticetypes.TargetGroupConfig{
 			Port:          aws.Int32(80),

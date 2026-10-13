@@ -114,20 +114,12 @@ func TestHandler_CancelMulticastGroupSession(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		multicastGroupID string
-		wantStatus       int
+		name       string
+		create     bool
+		wantStatus int
 	}{
-		{
-			name:             "cancel_existing_session",
-			multicastGroupID: "multicast-group-session-01",
-			wantStatus:       http.StatusNoContent,
-		},
-		{
-			name:             "cancel_nonexistent_session_is_idempotent",
-			multicastGroupID: "nonexistent-group",
-			wantStatus:       http.StatusNoContent,
-		},
+		{name: "cancel_without_session_is_idempotent", create: true, wantStatus: http.StatusNoContent},
+		{name: "cancel_unknown_group", create: false, wantStatus: http.StatusNotFound},
 	}
 
 	for _, tt := range tests {
@@ -135,7 +127,16 @@ func TestHandler_CancelMulticastGroupSession(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandlerHTTP()
-			rec := doIoTWRequest(t, h, http.MethodDelete, "/multicast-groups/"+tt.multicastGroupID+"/session", "")
+			id := "nonexistent-group"
+
+			if tt.create {
+				rec := doIoTWRequest(t, h, http.MethodPost, "/multicast-groups", `{"Name":"mg"}`)
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				id, _ = resp["Id"].(string)
+			}
+
+			rec := doIoTWRequest(t, h, http.MethodDelete, "/multicast-groups/"+id+"/session", "")
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}

@@ -273,7 +273,12 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return path == pathClusters ||
+		if isOIDCHost(c.Request().Host) {
+			return strings.HasPrefix(path, "/id/")
+		}
+
+		return isIRSAPath(path) ||
+			path == pathClusters ||
 			(strings.HasPrefix(path, pathClusters+"/") && !isDSQLVpcEndpointServiceNamePath(path)) ||
 			strings.HasPrefix(path, pathEKSTags+"arn:aws:eks:") ||
 			path == pathSubscriptions ||
@@ -493,14 +498,14 @@ func parseResourceEKSPath(method, path string) (eksRoute, bool) {
 
 // ExtractOperation extracts the EKS operation name from the REST path.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	r := parseEKSPath(c.Request().Method, c.Request().URL.Path)
+	r := routeForRequest(c.Request())
 
 	return r.operation
 }
 
 // ExtractResource extracts the primary resource identifier from the URL path.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	r := parseEKSPath(c.Request().Method, c.Request().URL.Path)
+	r := routeForRequest(c.Request())
 	if r.clusterName != "" {
 		return r.clusterName
 	}
@@ -511,6 +516,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for EKS requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if irsa := irsaPath(c.Request()); isIRSAPath(irsa) {
+			return h.serveIRSA(c, parseIRSAPath(c.Request().Method, irsa))
+		}
+
 		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
 			return p.Handler()(c)
 		}
@@ -537,6 +546,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 // dispatcher reports whether it handled the operation so the chain can stop
 // at the first match.
 func (h *Handler) dispatch(c *echo.Context, route eksRoute, body []byte) error {
+	if err := validateListQuery(c); err != nil {
+		return h.handleError(c, err)
+	}
+
 	dispatchers := []func(*echo.Context, eksRoute, []byte) (bool, error){
 		h.dispatchClusterOps,
 		h.dispatchTagOps,
@@ -563,22 +576,44 @@ func (h *Handler) dispatch(c *echo.Context, route eksRoute, body []byte) error {
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
+	msg := clientMessage(err)
+
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
+		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", msg))
 	case errors.Is(err, ErrAlreadyExists):
-		return c.JSON(http.StatusConflict, errResp("ResourceInUseException", err.Error()))
+		return c.JSON(http.StatusConflict, errResp("ResourceInUseException", msg))
 	case errors.Is(err, ErrValidation):
-		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", msg))
 	case errors.Is(err, ErrInvalidRequest):
-		return c.JSON(http.StatusBadRequest, errResp("InvalidRequestException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidRequestException", msg))
 	case errors.Is(err, ErrResourceLimitExceeded):
-		return c.JSON(http.StatusBadRequest, errResp("ResourceLimitExceededException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("ResourceLimitExceededException", msg))
 	default:
-		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", err.Error()))
+		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", msg))
 	}
 }
 
 func errResp(code, msg string) map[string]string {
 	return map[string]string{"code": code, "message": msg}
+}
+
+// clientMessage drops the "<ExceptionName>: " prefix sentinel wrapping adds to messages.
+func clientMessage(err error) string {
+	msg := err.Error()
+	name, rest, ok := strings.Cut(msg, ": ")
+
+	if ok && strings.HasSuffix(name, "Exception") && !strings.Contains(name, " ") {
+		return rest
+	}
+
+	return msg
+}
+
+func routeForRequest(r *http.Request) eksRoute {
+	if p := irsaPath(r); isIRSAPath(p) {
+		return parseIRSAPath(r.Method, p)
+	}
+
+	return parseEKSPath(r.Method, r.URL.Path)
 }

@@ -441,7 +441,7 @@ func TestHandler_ReplicationTaskCRUD(t *testing.T) {
 				assert.Equal(t, http.StatusOK, startRec.Code)
 				startResp := parseJSON(t, startRec)
 				rt := startResp["ReplicationTask"].(map[string]any)
-				assert.Equal(t, "running", rt["Status"])
+				assert.Equal(t, "starting", rt["Status"])
 
 				stopRec := doDMS(t, h, "StopReplicationTask", map[string]any{
 					"ReplicationTaskArn": taskArn,

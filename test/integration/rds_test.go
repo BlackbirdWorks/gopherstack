@@ -163,7 +163,14 @@ func TestSDK_RDS_DBCluster_Aurora(t *testing.T) {
 	require.NotNil(t, createOut.DBCluster)
 	assert.Equal(t, clusterID, aws.ToString(createOut.DBCluster.DBClusterIdentifier))
 	assert.Equal(t, "aurora-postgresql", aws.ToString(createOut.DBCluster.Engine))
-	assert.Equal(t, "available", aws.ToString(createOut.DBCluster.Status))
+	assert.Equal(t, "creating", aws.ToString(createOut.DBCluster.Status))
+
+	clusterWaiter := rdssdk.NewDBClusterAvailableWaiter(client, func(o *rdssdk.DBClusterAvailableWaiterOptions) {
+		o.MinDelay = 100 * time.Millisecond
+	})
+	require.NoError(t, clusterWaiter.Wait(ctx, &rdssdk.DescribeDBClustersInput{
+		DBClusterIdentifier: aws.String(clusterID),
+	}, 10*time.Second), "DBClusterAvailableWaiter should succeed")
 
 	// DescribeDBClusters
 	descOut, err := client.DescribeDBClusters(ctx, &rdssdk.DescribeDBClustersInput{

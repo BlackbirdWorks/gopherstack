@@ -114,7 +114,7 @@ func (b *InMemoryBackend) applyHealthResults(results []healthResult) {
 
 		for i := range tg.Targets {
 			if targetHealthKey(tg.Targets[i].ID, tg.Targets[i].Port) == r.key {
-				if tg.Targets[i].HealthState == "initial" {
+				if tg.Targets[i].HealthState == healthStateInitial {
 					tg.Targets[i].HealthState = r.state
 					tg.Targets[i].HealthReason = ""
 				}
@@ -176,11 +176,14 @@ func (b *InMemoryBackend) removeDrainedTargets(drained []drainedTarget) {
 // probeTargetHTTP performs a real HTTP health check against the target.
 // Returns healthStateHealthy on 2xx, "unhealthy" otherwise. Falls back to healthStateHealthy on unreachable targets.
 func probeTargetHTTP(tg *TargetGroup, targetKey string) string {
-	id, _, _ := strings.Cut(targetKey, ":")
+	id, targetPort, _ := strings.Cut(targetKey, ":")
 
 	port := tg.HealthCheckPort
 	if port == "" || port == "traffic-port" {
 		port = strconv.Itoa(int(tg.Port))
+		if n, err := strconv.Atoi(targetPort); err == nil && n > 0 {
+			port = targetPort
+		}
 	}
 
 	path := tg.HealthCheckPath
@@ -228,7 +231,7 @@ func (b *InMemoryBackend) RegisterTargets(tgArn string, targets []Target) error 
 		key := targetHealthKey(t.ID, t.Port)
 		if !existing[key] {
 			if t.HealthState == "" {
-				t.HealthState = "initial"
+				t.HealthState = healthStateInitial
 				t.HealthReason = "Elb.InitialHealthChecking"
 
 				if b.targetReadyAt[tgArn] == nil {
@@ -300,20 +303,84 @@ func (b *InMemoryBackend) DescribeTargetHealth(tgArn string) ([]TargetHealthDesc
 	}
 
 	result := make([]TargetHealthDescription, len(tg.Targets))
+
 	for i, t := range tg.Targets {
 		state := t.HealthState
 		if state == "" {
 			state = healthStateHealthy
 		}
 
+		reason := t.HealthReason
+		detail := ""
+
+		if state == healthStateInitial || state == healthStateHealthy {
+			state, reason, detail = b.effectiveTargetHealthLocked(tg, t, state, reason)
+		}
+
 		result[i] = TargetHealthDescription{
-			Target:       t,
-			HealthState:  state,
-			HealthReason: t.HealthReason,
+			Target:            t,
+			HealthState:       state,
+			HealthReason:      reason,
+			HealthDescription: healthDescriptionFor(reason, detail),
 		}
 	}
 
 	return result, nil
+}
+
+const (
+	reasonNotInUse      = "Target.NotInUse"
+	reasonInvalidState  = "Target.InvalidState"
+	reasonNotRegistered = "Target.NotRegistered"
+	reasonInitial       = "Elb.InitialHealthChecking"
+	reasonFailedChecks  = "Target.FailedHealthChecks"
+	healthStateUnused   = "unused"
+)
+
+// effectiveTargetHealthLocked downgrades an instance target to unused when its EC2 instance is
+// stopped or terminated. A target group attached to no listener still reports healthy rather than
+// Target.NotInUse, which many in-repo fixtures rely on. Caller must hold b.mu.
+func (b *InMemoryBackend) effectiveTargetHealthLocked(
+	tg *TargetGroup, t Target, state, reason string,
+) (string, string, string) {
+	if tg.TargetType == targetTypeInstance {
+		if r, ok := b.ec2Resolver.(InstanceStateResolver); ok {
+			if name, found := r.InstanceStateName(t.ID); found && instanceNotServing(name) {
+				return healthStateUnused, reasonInvalidState, name
+			}
+		}
+	}
+
+	return state, reason, ""
+}
+
+func instanceNotServing(state string) bool {
+	switch state {
+	case "stopped", "stopping", "terminated", "shutting-down":
+		return true
+	default:
+		return false
+	}
+}
+
+// healthDescriptionFor returns the TargetHealth.Description AWS pairs with each reason code.
+func healthDescriptionFor(reason, detail string) string {
+	switch reason {
+	case reasonNotInUse:
+		return "Target group is not configured to receive traffic from the load balancer"
+	case reasonInvalidState:
+		return "Target is in the " + detail + " state"
+	case reasonNotRegistered:
+		return "Target is not registered to the target group"
+	case reasonInitial:
+		return "Initial health checks in progress"
+	case reasonFailedChecks:
+		return "Health checks failed"
+	case targetDrainingReason:
+		return "Target deregistration is in progress"
+	default:
+		return ""
+	}
 }
 
 // SetTargetHealthState overrides the health state for a specific target in a target group.

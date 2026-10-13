@@ -186,6 +186,8 @@ type Deployment struct {
 	PendingCount       int      `json:"pendingCount"`
 	RunningCount       int      `json:"runningCount"`
 	FailedTasks        int      `json:"failedTasks"`
+
+	completionEmitted bool
 }
 
 // ServiceRevision describes the workload configuration captured by a single
@@ -398,14 +400,50 @@ type Attribute struct {
 
 // ServiceDeployment represents an ECS service deployment.
 type ServiceDeployment struct {
+	Alarms                   *ServiceDeploymentAlarms `json:"alarms,omitempty"`
+	circuitBreaker           *ServiceDeploymentCircuitBreaker
+	StartedAt                *time.Time                 `json:"startedAt,omitempty"`
+	StoppedAt                *time.Time                 `json:"stoppedAt,omitempty"`
+	FinishedAt               *time.Time                 `json:"finishedAt,omitempty"`
+	Rollback                 *ServiceDeploymentRollback `json:"rollback,omitempty"`
+	UpdatedAt                *time.Time                 `json:"updatedAt,omitempty"`
+	deploymentConfiguration  *DeploymentConfiguration
 	CreatedAt                *time.Time `json:"createdAt,omitempty"`
-	UpdatedAt                *time.Time `json:"updatedAt,omitempty"`
-	ServiceDeploymentArn     string     `json:"serviceDeploymentArn"`
-	ClusterArn               string     `json:"clusterArn"`
-	ServiceArn               string     `json:"serviceArn"`
-	Status                   string     `json:"status"`
-	StatusReason             string     `json:"statusReason,omitempty"`
-	TargetServiceRevisionArn string     `json:"targetServiceRevisionArn,omitempty"`
+	BakeStartedAt            *time.Time `json:"bakeStartedAt,omitempty"`
+	targetRevision           *ServiceRevisionSummary
+	ClusterArn               string `json:"clusterArn"`
+	Status                   string `json:"status"`
+	StatusReason             string `json:"statusReason,omitempty"`
+	TargetServiceRevisionArn string `json:"targetServiceRevisionArn,omitempty"`
+	LifecycleStage           string `json:"lifecycleStage,omitempty"`
+	ServiceArn               string `json:"serviceArn"`
+	ServiceDeploymentArn     string `json:"serviceDeploymentArn"`
+	sourceRevisions          []ServiceRevisionSummary
+	LifecycleHookDetails     []LifecycleHookDetail `json:"lifecycleHookDetails,omitempty"`
+	LifecycleCursor          int                   `json:"lifecycleCursor,omitempty"`
+	LifecycleEntered         bool                  `json:"lifecycleEntered,omitempty"`
+}
+
+// ServiceDeploymentRollback mirrors types.Rollback.
+type ServiceDeploymentRollback struct {
+	StartedAt          *time.Time `json:"startedAt,omitempty"`
+	Reason             string     `json:"reason,omitempty"`
+	ServiceRevisionArn string     `json:"serviceRevisionArn,omitempty"`
+}
+
+// ServiceDeploymentCircuitBreaker mirrors types.ServiceDeploymentCircuitBreaker.
+type ServiceDeploymentCircuitBreaker struct {
+	Status       string
+	FailureCount int
+	Threshold    int
+}
+
+// ServiceRevisionSummary mirrors the counts of types.ServiceRevisionSummary.
+type ServiceRevisionSummary struct {
+	Arn                string
+	PendingTaskCount   int
+	RequestedTaskCount int
+	RunningTaskCount   int
 }
 
 // ExpressGatewayServiceNetworkConfiguration is the VPC network configuration
@@ -599,6 +637,58 @@ type DeploymentConfiguration struct {
 	DeploymentCircuitBreaker *DeploymentCircuitBreaker `json:"deploymentCircuitBreaker,omitempty"`
 	MinimumHealthyPercent    *int                      `json:"minimumHealthyPercent,omitempty"`
 	MaximumPercent           *int                      `json:"maximumPercent,omitempty"`
+	Alarms                   *DeploymentAlarms         `json:"alarms,omitempty"`
+	BakeTimeInMinutes        *int                      `json:"bakeTimeInMinutes,omitempty"`
+	CanaryConfiguration      *CanaryConfiguration      `json:"canaryConfiguration,omitempty"`
+	LinearConfiguration      *LinearConfiguration      `json:"linearConfiguration,omitempty"`
+	Strategy                 string                    `json:"strategy,omitempty"`
+	LifecycleHooks           []DeploymentLifecycleHook `json:"lifecycleHooks,omitempty"`
+}
+
+// CanaryConfiguration mirrors types.CanaryConfiguration.
+type CanaryConfiguration struct {
+	CanaryBakeTimeInMinutes *int     `json:"canaryBakeTimeInMinutes,omitempty"`
+	CanaryPercent           *float64 `json:"canaryPercent,omitempty"`
+}
+
+// LinearConfiguration mirrors types.LinearConfiguration.
+type LinearConfiguration struct {
+	StepBakeTimeInMinutes *int     `json:"stepBakeTimeInMinutes,omitempty"`
+	StepPercent           *float64 `json:"stepPercent,omitempty"`
+}
+
+// DeploymentLifecycleHook mirrors types.DeploymentLifecycleHook.
+type DeploymentLifecycleHook struct {
+	HookDetails          any                             `json:"hookDetails,omitempty"`
+	TimeoutConfiguration *DeploymentLifecycleHookTimeout `json:"timeoutConfiguration,omitempty"`
+	HookTargetArn        string                          `json:"hookTargetArn,omitempty"`
+	RoleArn              string                          `json:"roleArn,omitempty"`
+	TargetType           string                          `json:"targetType,omitempty"`
+	LifecycleStages      []string                        `json:"lifecycleStages,omitempty"`
+}
+
+// DeploymentLifecycleHookTimeout mirrors types.DeploymentLifecycleHookTimeoutConfiguration.
+type DeploymentLifecycleHookTimeout struct {
+	TimeoutInMinutes *int   `json:"timeoutInMinutes,omitempty"`
+	Action           string `json:"action,omitempty"`
+}
+
+// LifecycleHookDetail mirrors types.DeploymentLifecycleHookDetail; Stage is internal.
+type LifecycleHookDetail struct {
+	ExpiresAt     *time.Time `json:"expiresAt,omitempty"`
+	HookID        string     `json:"hookId"`
+	Status        string     `json:"status"`
+	TargetArn     string     `json:"targetArn,omitempty"`
+	TargetType    string     `json:"targetType,omitempty"`
+	TimeoutAction string     `json:"timeoutAction,omitempty"`
+	Stage         string     `json:"stage,omitempty"`
+}
+
+// ServiceDeploymentAlarms mirrors types.ServiceDeploymentAlarms.
+type ServiceDeploymentAlarms struct {
+	Status              string   `json:"status"`
+	AlarmNames          []string `json:"alarmNames,omitempty"`
+	TriggeredAlarmNames []string `json:"triggeredAlarmNames,omitempty"`
 }
 
 const (
@@ -814,7 +904,8 @@ type MonitoringConfiguration struct {
 
 // Service represents an ECS service.
 type Service struct {
-	CreatedAt time.Time `json:"createdAt"`
+	Events    []ServiceEvent `json:"-"`
+	CreatedAt time.Time      `json:"createdAt"`
 	// DrainDeadline is when a Status of DRAINING resolves to INACTIVE,
 	// lazily applied by sweepServiceTransitionsLocked. Zero when Status is
 	// not DRAINING.
@@ -853,6 +944,14 @@ type Service struct {
 	RunningCount                  int                            `json:"runningCount"`
 	EnableExecuteCommand          bool                           `json:"enableExecuteCommand,omitempty"`
 	EnableECSManagedTags          bool                           `json:"enableECSManagedTags,omitempty"`
+	steadyReported                bool
+}
+
+// ServiceEvent is one DescribeServices event message.
+type ServiceEvent struct {
+	CreatedAt time.Time
+	ID        string
+	Message   string
 }
 
 // Task represents an ECS task.
@@ -889,6 +988,7 @@ type Task struct {
 	Attachments          []TaskAttachment `json:"attachments,omitempty"`
 	Containers           []Container      `json:"containers,omitempty"`
 	EnableExecuteCommand bool             `json:"enableExecuteCommand,omitempty"`
+	version              int64
 }
 
 // CreateClusterInput holds input for CreateCluster.
@@ -980,6 +1080,7 @@ type UpdateServiceInput struct {
 
 // RunTaskInput holds input for RunTask.
 type RunTaskInput struct {
+	PinnedTaskID             string                `json:"-"`
 	Overrides                *TaskOverride         `json:"overrides,omitempty"`
 	NetworkConfiguration     *NetworkConfiguration `json:"networkConfiguration,omitempty"`
 	Cluster                  string                `json:"cluster,omitempty"`

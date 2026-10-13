@@ -3,7 +3,7 @@ service: cloudfront
 sdk_module: aws-sdk-go-v2/service/cloudfront@v1.67.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/cloudfrontkeyvaluestore@v1.15.4]  # KeyValueStore data-plane ops (GetKey/PutKey/DeleteKey/ListKeys/UpdateKeys/DescribeKeyValueStore) now live in services/cloudfrontkeyvaluestore (gopherstack-4ara, 2026-08-13) -- see that service's own PARITY.md
 last_audit_commit: 70d96e12d  # 2026-09-19 cloudfront-and-route53/15 terraform sweep (gopherstack-101r)
-last_audit_date: 2026-09-19  # prior: 2026-09-18  # gopherstack-7185: response shapes of Create/Delete/Modify ops
+last_audit_date: 2026-10-07
                               # swept (the class prior passes only checked for List/Describe).
                               # 2 bugs found (DeleteVpcOrigin empty envelope, UpdateDomainAssociation
                               # wrong output key). See DeleteVpcOrigin/UpdateDomainAssociation op rows.
@@ -237,8 +237,13 @@ gaps:
   #    fixed. See the CreateDistribution/CopyDistribution/CreateStreamingDistribution/
   #    CreateCloudFrontOriginAccessIdentity op rows above for the exact behavior each has now.
 items_still_open:
-  - "CreateDistributionTenant/UpdateDistributionTenant ManagedCertificateRequest is not applied: managed certificates need ACM validation this emulator does not run, so GetManagedCertificateDetails keeps its deterministic ARN. CreateKeyValueStore ImportSource is not applied: the import needs an S3 GetObject path no cloudfront hook exposes."
-  - "GetFunction/DescribeFunction and the connection-function equivalents ignore Stage: a function is one record whose Status flips DEVELOPMENT to LIVE on publish, so the LIVE snapshot that outlives a later UpdateFunction is not kept. AnycastIPList.AnycastIps are always IPv4-formatted whatever IpAddressType says, since the SDK documents no ipv6 or dualstack address count."
+  - "Data plane unverified against real AWS: disabled distribution answers 403, redirect-to-https answers 301 (GET/HEAD) or 307 (other methods), POST to an S3 origin answers 403, and non-trailing-wildcard aliases are not matched."
+  - "AnycastIPList.AnycastIps are always IPv4-formatted whatever IpAddressType says: the pinned SDK documents no ipv6 or dualstack address count, so the dualstack shape is unverifiable."
+structural_gaps:
+  - "CloudFront Functions (viewer-request/response), Lambda@Edge and field-level encryption are not executed on the data plane: the repo vendors no JavaScript engine and edge Lambda needs a regional edge runtime."
+  - "Viewer TLS is not terminated here: https is inferred from X-Forwarded-Proto/CloudFront-Forwarded-Proto or a TLS listener, so viewer certificates and SNI are not modelled."
+  - "Real edge-location behaviour (multi-POP caches, origin shield, regional edge caches, Range-request caching, ErrorCachingMinTTL, origin failover groups, WAF, real-time logs) is not emulated."
+  - "ManagedCertificateRequest: ValidationTokenHost is stored and reflected by GetManagedCertificateDetails, but the certificate itself needs real ACM DNS/HTTP validation, which no emulator performs."
 deferred:
   - "Distribution status InProgress->Deployed transition timer: FIXED this pass (gopherstack-k3fi) for Distribution specifically -- see UpdateDistribution's op row above. The other 5 resource kinds with their own InProgress/Deployed-shaped status semantics (DistributionTenant, StreamingDistribution, ConnectionGroup/ConnectionFunction, AnycastIPList, TrustStore) still persist InProgress indefinitely; still deferred, now for a narrower, more honest reason -- extending the same worker.Group timer to each is straightforward but out of this pass's scope, not blocked on anything."
   - "Full per-op audit of DistributionConfig nested shape correctness (Origins/OriginGroups/CacheBehaviors/ViewerCertificate/Restrictions field-by-field) beyond the Quantity/Items validation and the pre-existing minimal-parse (RawConfig) model. This pass verified the specific sub-fields needed for the InUse-guard fixes (S3OriginConfig.OriginAccessIdentity path format, Origin.OriginAccessControlId, TrustedKeyGroups.Items) are correct, but a full field-by-field audit of the rest of DistributionConfig's ~60 nested types was not attempted -- RawConfig storage design predates this pass and was not restructured."
@@ -246,6 +251,15 @@ deferred:
   - "2026-08-29 filter/pagination audit: ~20 List ops (see the header note above for the full list) hardcode MaxItems/Quantity and never apply Marker/MaxItems truncation or emit a NextMarker, unlike the ops fixed this pass and the handful already using paginateByMarkerID (ListDistributions, ListFunctions, ListInvalidations*, ListAnycastIPLists, ListDistributionTenantsByCustomization). Left unfixed: the fix is mechanical (route each through paginateByMarkerID/paginateByMarkerValue) but the volume (~20 handlers, each needing its own before/after real-SDK pagination test) was out of this pass's budget after the higher-value never-honoured-filter bugs. The ListDistributionsBy* family (11 ops) additionally has per-op output shape questions (DistributionIdList vs DistributionList vs DistributionIdOwnerList -- confirmed heterogeneous by reading 3 of the 11 Output structs) that a mechanical pagination patch alone would not resolve; that family needs a dedicated wire-shape read of each op's own Output/deserializer before touching its pagination, not a copy of the fix used elsewhere in this pass."
 leaks: {status: clean, note: "runInvalidationReconciler goroutine has a proper stopCh + Close() lifecycle; no unbounded maps found. This pass added b.work (*pkgs/worker.Group), the mgn/outposts-style scheduled-timer idiom used by scheduleDistributionDeployed -- Close() now also calls b.work.Stop(), which cancels every pending timer and joins its goroutines, so nothing outlives the backend. seedManagedPoliciesLocked (prior pass) does no allocation beyond the fixed ~20-entry seed tables and is called only at construction/Reset/Restore, never per-request."}
 ---
+
+## 2026-10-07 items_still_open burn-down
+
+Get/DescribeFunction and Get/DescribeConnectionFunction honour Stage: Publish snapshots a LIVE copy that
+survives later UpdateFunction (`TestFunctionStage_LiveSnapshotSurvivesUpdate`); LIVE before any publish is
+NoSuchFunctionExists; ListFunctions/ListConnectionFunctions Stage filters use the same views.
+Create/UpdateDistributionTenant store ManagedCertificateRequest and GetManagedCertificateDetails reflects
+its ValidationTokenHost (`TestManagedCertificateRequest_TokenHost`); the cached details are dropped on
+tenant update/delete.
 
 ## Notes
 
@@ -1722,3 +1736,30 @@ CreateCachePolicy/UpdateCachePolicy apply the documented TTL defaults when omitt
 ## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
 
 Key value store data-plane writes (PutKVSValue, DeleteKVSValue, UpdateKVSValues) now set the store's LastModifiedTime; see services/cloudfrontkeyvaluestore/PARITY.md (gopherstack-uox6 pass 12).
+
+## 2026-10-10 (realism pass)
+
+- CreateDistribution returns `InProgress` and settles to `Deployed` through the same async hop UpdateDistribution uses (`TestDistributionCreatesAsInProgress`); waiters are unaffected.
+- CNAMEAlreadyExists (409) when a DistributionConfig alias (case-insensitive) is already used by another distribution, on create and update (`TestCNAMEConflicts`, `TestUpdateKeepsOwnCNAME`).
+- Distribution, streaming distribution, OAI/OAC, invalidation and public-key IDs carry the real `E`/`I`/`K` prefix (`TestResourceIDShapes`).
+- DeleteDistribution/UpdateDistribution: missing If-Match is InvalidIfMatchVersion (400), stale is PreconditionFailed (412) (`TestDistributionIfMatchSemantics`).
+- MaxItems that is not a positive integer is InvalidArgument (`TestListMaxItemsValidation`); error messages no longer repeat the code (`TestErrorMessageOmitsCode`).
+- Kept lenient: required DistributionConfig members (Origins, DefaultCacheBehavior) and the alias-needs-certificate rule are not enforced because most in-repo fixtures post minimal configs; non-Distribution kinds (tenants, streaming, connection groups) still report Deployed immediately.
+
+## 2026-10-10 lifecycle dwell knob
+
+`--lifecycle-cloudfront` (`CLOUDFRONT_DEPLOY_DELAY`, or `--lifecycle-delay`) overrides the 100ms InProgress -> Deployed dwell via `SetDistributionDeployDelay`; unset keeps 100ms. Proof: root `TestLifecycleDelayCloudFront`.
+
+## Viewer data plane (gopherstack-cefu7.27)
+
+Distributions serve viewer requests (services/cloudfront/dataplane*.go), copying the elbv2 data-plane pattern:
+
+- Routes: path-style `/_gopherstack/cloudfront/<id-or-domain>/<path>`, or Host `<id>.cloudfront.net`, `<id>.cloudfront.localhost[:port]` or any configured alias.
+- Flow: PathPattern precedence then default behavior; ViewerProtocolPolicy; AllowedMethods (403); signed URLs/cookies for TrustedKeyGroups; DefaultRootObject on `/`; cache lookup; origin fetch; CustomErrorResponses; response headers policy; X-Cache, Via, X-Amz-Cf-Id, X-Amz-Cf-Pop.
+- Origins: S3 in-process via `SetS3Backend` (OAC/OAI evaluated as the CloudFront principal against the bucket policy with aws:SourceArn; no OAC/OAI means public-read semantics; a missing key is 403 without s3:ListBucket, 404 with it); S3 website endpoints (index/error document); custom HTTP origins with ports, protocol policy, origin path, custom headers and cache/origin-request-policy header, cookie and query forwarding; ALB origins via the elbv2 data plane (`SetALBForwarder`).
+- Cache: byte-bounded LRU (64 MiB default, `SetCacheLimit`), min/default/max TTL with Cache-Control, purged by CreateInvalidation (wildcards), DeleteDistribution and Reset.
+- Wiring: `cli_cloudfront_dataplane.go`, resolved at request time.
+
+## 2026-10-11 reserved ID-pinning tag (gopherstack-cefu7.23)
+
+`CreateDistributionWithTags` honours the emulator-only `gopherstack:id` tag to pin the distribution ID (`E` plus 13 uppercase alphanumerics). The tag is consumed, never stored or listed; a malformed ID returns `InvalidArgument`, a reused ID `DistributionAlreadyExists`, and `TagResource` rejects the key. See docs/pinned-ids.md.

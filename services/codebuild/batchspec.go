@@ -9,8 +9,7 @@ import (
 
 // batchNode is one resolved node of a buildspec `batch:` section: a
 // build-list or build-graph entry (see the CodeBuild "Batch build buildspec
-// reference"). build-matrix is recognized but rejected with a clear error
-// (see PARITY.md); no other batch type is recognized.
+// reference"), including the nodes a build-matrix expands to.
 type batchNode struct {
 	Env           *batchNodeEnv
 	Identifier    string
@@ -43,9 +42,9 @@ type batchSpecFile struct {
 }
 
 type batchSectionYAML struct {
-	BuildMatrix map[string]any  `yaml:"build-matrix"`
-	BuildList   []batchNodeYAML `yaml:"build-list"`
-	BuildGraph  []batchNodeYAML `yaml:"build-graph"`
+	BuildMatrix *batchMatrixYAML `yaml:"build-matrix"`
+	BuildList   []batchNodeYAML  `yaml:"build-list"`
+	BuildGraph  []batchNodeYAML  `yaml:"build-graph"`
 }
 
 type batchNodeYAML struct {
@@ -109,7 +108,7 @@ func selectBatchNodes(sec batchSectionYAML) ([]batchNodeYAML, error) {
 		present++
 	}
 
-	if len(sec.BuildMatrix) > 0 {
+	if sec.BuildMatrix != nil {
 		present++
 	}
 
@@ -121,8 +120,8 @@ func selectBatchNodes(sec batchSectionYAML) ([]batchNodeYAML, error) {
 			"%w: a batch definition may declare only one of build-list, build-graph, or build-matrix",
 			ErrValidation,
 		)
-	case len(sec.BuildMatrix) > 0:
-		return nil, fmt.Errorf("%w: build-matrix batch definitions are not supported by this emulator", ErrValidation)
+	case sec.BuildMatrix != nil:
+		return expandBatchMatrix(*sec.BuildMatrix)
 	case len(sec.BuildList) > 0:
 		return sec.BuildList, nil
 	default:

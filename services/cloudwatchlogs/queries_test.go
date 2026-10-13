@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -698,6 +699,40 @@ func TestCloudWatchLogsBackend_ListLogGroupsForQuery(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantGroups, groups)
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_QueryUserIdentity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		arn  string
+		want string
+	}{
+		{name: "caller", arn: "arn:aws:iam::123456789012:user/alice", want: "arn:aws:iam::123456789012:user/alice"},
+		{name: "unresolved", arn: "", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			ctx := context.Background()
+			if tt.arn != "" {
+				ctx = awsmeta.Set(ctx, &awsmeta.Metadata{Principal: &awsmeta.Principal{Arn: tt.arn}})
+			}
+
+			info, err := b.StartQuery(ctx, "qid-1", "fields @message", []string{"/g"}, 0, 0)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, info.UserIdentity)
+
+			got, _, err := b.DescribeQueries("", "", "", "", 0)
+			require.NoError(t, err)
+			require.Len(t, got, 1)
+			assert.Equal(t, tt.want, got[0].UserIdentity)
 		})
 	}
 }

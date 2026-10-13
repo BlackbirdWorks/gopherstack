@@ -2,10 +2,12 @@ package omics
 
 import (
 	"context"
+	"encoding/base64"
 	"maps"
 	"slices"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 
@@ -35,6 +37,12 @@ const (
 	statusRunning   = "RUNNING"
 	statusCancelled = "CANCELLED"
 	statusPending   = "PENDING"
+
+	creationTypeImport = "IMPORT"
+	creationTypeUpload = "UPLOAD"
+
+	submissionStatusSuccess = "SUCCESS"
+	submissionStatusFailed  = "FAILED"
 
 	// statusProcessed and statusRunsDeleted are RunBatch-only BatchStatus
 	// values (real AWS BatchStatus has no "COMPLETED" member -- the
@@ -134,36 +142,30 @@ var (
 // hand-applied here. It shaves 8 pointer-bytes of padding off the struct;
 // do not reorder without re-checking on a scratch copy.
 type InMemoryBackend struct {
-	referenceImportJobs *store.Table[ReferenceImportJob]
-	readSets            *store.Table[ReadSetMetadata]
-
-	mu       *lockmetrics.RWMutex
-	registry *store.Registry
-
-	referenceStores      *store.Table[ReferenceStore]
-	sequenceStores       *store.Table[SequenceStore]
-	runGroups            *store.Table[RunGroup]
-	runs                 *store.Table[Run]
-	workflows            *store.Table[Workflow]
-	annotationStores     *store.Table[AnnotationStore]
-	annotationImportJobs *store.Table[AnnotationImportJob]
-	variantStores        *store.Table[VariantStore]
-	variantImportJobs    *store.Table[VariantImportJob]
-	shares               *store.Table[Share]
-	runCaches            *store.Table[RunCache]
-	runBatches           *store.Table[RunBatch]
-	configurations       *store.Table[Configuration]
-
-	referenceImportJobsByStore *store.Index[ReferenceImportJob]
-	references                 *store.Table[ReferenceMetadata]
-	referencesByStore          *store.Index[ReferenceMetadata]
-
-	// Left-raw maps: non-*V values or order-sensitive, ineligible for store.Table.
-	tags           map[string]map[string]string
-	referenceBytes map[string]map[string][]byte
-
-	s3AccessPolicies *store.Table[S3AccessPolicy]
-
+	referenceBytes               map[string]map[string][]byte
+	referenceImportJobs          *store.Table[ReferenceImportJob]
+	readSets                     *store.Table[ReadSetMetadata]
+	mu                           *lockmetrics.RWMutex
+	registry                     *store.Registry
+	referenceStores              *store.Table[ReferenceStore]
+	sequenceStores               *store.Table[SequenceStore]
+	runGroups                    *store.Table[RunGroup]
+	runs                         *store.Table[Run]
+	workflows                    *store.Table[Workflow]
+	annotationStores             *store.Table[AnnotationStore]
+	annotationImportJobs         *store.Table[AnnotationImportJob]
+	variantStores                *store.Table[VariantStore]
+	variantImportJobs            *store.Table[VariantImportJob]
+	shares                       *store.Table[Share]
+	runCaches                    *store.Table[RunCache]
+	runBatches                   *store.Table[RunBatch]
+	configurations               *store.Table[Configuration]
+	referenceImportJobsByStore   *store.Index[ReferenceImportJob]
+	references                   *store.Table[ReferenceMetadata]
+	readSetBytes                 map[string]map[string][]byte
+	referencesByStore            *store.Index[ReferenceMetadata]
+	tags                         map[string]map[string]string
+	s3AccessPolicies             *store.Table[S3AccessPolicy]
 	readSetsByStore              *store.Index[ReadSetMetadata]
 	readSetActivationJobs        *store.Table[ReadSetActivationJob]
 	readSetActivationJobsByStore *store.Index[ReadSetActivationJob]
@@ -173,22 +175,17 @@ type InMemoryBackend struct {
 	readSetImportJobsByStore     *store.Index[ReadSetImportJob]
 	multipartUploads             *store.Table[MultipartReadSetUpload]
 	multipartUploadsByStore      *store.Index[MultipartReadSetUpload]
-
-	runTasks      *store.Table[RunTask]
-	runTasksByRun *store.Index[RunTask]
-
-	workflowVersions           *store.Table[WorkflowVersion]
-	workflowVersionsByWorkflow *store.Index[WorkflowVersion]
-
-	annotationVersions        *store.Table[AnnotationStoreVersion]
-	annotationVersionsByStore *store.Index[AnnotationStoreVersion]
-
-	uploadParts    map[string]map[string][]*ReadSetUploadPart
-	uploadPartData map[string]map[string]map[string]map[int][]byte
-	readSetBytes   map[string]map[string][]byte
-
-	accountID     string
-	defaultRegion string
+	runTasks                     *store.Table[RunTask]
+	runTasksByRun                *store.Index[RunTask]
+	workflowVersions             *store.Table[WorkflowVersion]
+	workflowVersionsByWorkflow   *store.Index[WorkflowVersion]
+	annotationVersions           *store.Table[AnnotationStoreVersion]
+	annotationVersionsByStore    *store.Index[AnnotationStoreVersion]
+	uploadParts                  map[string]map[string][]*ReadSetUploadPart
+	uploadPartData               map[string]map[string]map[string]map[int][]byte
+	accountID                    string
+	defaultRegion                string
+	lifecycleNanos               atomic.Int64
 }
 
 // parentKey builds the composite store.Table primary key ("parent|id") shared
@@ -396,6 +393,35 @@ func paginateStrings(ids []string, nextToken string, maxResults int) ([]string, 
 	return page, outToken
 }
 
+// paginateOpaque is paginateStrings with the continuation token wrapped in an opaque envelope.
+func paginateOpaque(ids []string, nextToken string, maxResults int) ([]string, string) {
+	if id, ok := decodePageToken(nextToken); ok {
+		nextToken = id
+	}
+
+	page, out := paginateStrings(ids, nextToken, maxResults)
+	if out != "" {
+		out = encodePageToken(out)
+	}
+
+	return page, out
+}
+
+const pageTokenPrefix = "omics:"
+
+func encodePageToken(id string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(pageTokenPrefix + id))
+}
+
+func decodePageToken(token string) (string, bool) {
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil || !strings.HasPrefix(string(raw), pageTokenPrefix) {
+		return "", false
+	}
+
+	return strings.TrimPrefix(string(raw), pageTokenPrefix), true
+}
+
 // paginatedCopies sorts ids, paginates them via paginateStrings, then
 // re-fetches and shallow-copies each page member via get. It is the shared
 // tail of every List* operation below: collect candidate IDs (from a
@@ -409,7 +435,7 @@ func paginatedCopies[T any](
 	get func(string) (*T, bool),
 ) ([]*T, string) {
 	sort.Strings(ids)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
+	page, outToken := paginateOpaque(ids, nextToken, maxResults)
 
 	result := make([]*T, 0, len(page))
 

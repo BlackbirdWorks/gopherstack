@@ -264,6 +264,9 @@ func (b *InMemoryBackend) ModifyVpcAttribute(vpcID, attribute string, value bool
 	}
 }
 
+// peeringRequestTTL is how long a pending-acceptance peering request stays open before it expires.
+const peeringRequestTTL = 7 * 24 * time.Hour
+
 // createVpcPeeringConnectionLocal creates a new pending VPC peering connection.
 func (b *InMemoryBackend) createVpcPeeringConnectionLocal(
 	requesterVPCID, accepterVPCID, peerOwnerID, peerRegion string,
@@ -275,7 +278,8 @@ func (b *InMemoryBackend) createVpcPeeringConnectionLocal(
 	b.mu.Lock("CreateVpcPeeringConnection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcs.Get(requesterVPCID); !ok {
+	requesterVPC, ok := b.vpcs.Get(requesterVPCID)
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, requesterVPCID)
 	}
 
@@ -294,8 +298,15 @@ func (b *InMemoryBackend) createVpcPeeringConnectionLocal(
 		AccepterOwnerID:        peerOwnerID,
 		AccepterRegion:         peerRegion,
 		RequesterRegion:        b.Region,
+		RequesterOwnerID:       b.AccountID,
+		RequesterCidrBlock:     requesterVPC.CIDRBlock,
 		State:                  "pending-acceptance",
+		ExpirationTime:         time.Now().Add(peeringRequestTTL),
 	}
+	if accepterVPC, found := b.vpcs.Get(accepterVPCID); found {
+		pc.AccepterCidrBlock = accepterVPC.CIDRBlock
+	}
+
 	b.vpcPeeringConnections.Put(pc)
 
 	cp := *pc
@@ -410,6 +421,11 @@ func (b *InMemoryBackend) DescribeVpcs(ids []string) []*VPC {
 // network ACL is not stored here -- DescribeNetworkAcls derives it per-VPC
 // instead (do not add a stored duplicate).
 func (b *InMemoryBackend) CreateVpc(cidr, tenancy string) (*VPC, error) {
+	return b.CreateVpcWithID("", cidr, tenancy)
+}
+
+// CreateVpcWithID is CreateVpc with an optional pinned VPC ID (empty means generate one).
+func (b *InMemoryBackend) CreateVpcWithID(pinnedID, cidr, tenancy string) (*VPC, error) {
 	if cidr == "" {
 		return nil, fmt.Errorf("%w: CidrBlock is required", ErrInvalidParameter)
 	}
@@ -421,6 +437,18 @@ func (b *InMemoryBackend) CreateVpc(cidr, tenancy string) (*VPC, error) {
 	// rejected within a VPC (subnets, AssociateVpcCidrBlock) or for
 	// operations that route between VPCs (peering, TGW routes).
 	id := newVPCID()
+	if pinnedID != "" {
+		if err := validatePinnedEC2ID(pinnedID, "vpc-"); err != nil {
+			return nil, err
+		}
+
+		if _, exists := b.vpcs.Get(pinnedID); exists {
+			return nil, errPinnedIDInUse(pinnedID)
+		}
+
+		id = pinnedID
+	}
+
 	v := &VPC{
 		ID:            id,
 		CIDRBlock:     cidr,
@@ -436,7 +464,7 @@ func (b *InMemoryBackend) CreateVpc(cidr, tenancy string) (*VPC, error) {
 		Description: defaultSecurityGroupDescription,
 		VPCID:       id,
 		EgressRules: []SecurityGroupRule{
-			{Protocol: "-1", IPRange: cidrAllIPv4},
+			{ID: newSecurityGroupRuleID(), Protocol: "-1", IPRange: cidrAllIPv4},
 		},
 	})
 	b.indexSGLocked(sgID, id)

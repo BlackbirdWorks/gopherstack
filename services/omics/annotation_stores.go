@@ -46,6 +46,14 @@ func (b *InMemoryBackend) CreateAnnotationStore(
 	as.StoreArn = arn.Build("omics", b.defaultRegion, b.accountID, "annotationStore/"+name)
 	b.annotationStores.Put(as)
 
+	if b.timedLifecycle() {
+		b.afterHops(1, func() {
+			if s, ok := b.annotationStores.Get(name); ok && s.Status == statusCreating {
+				s.Status = statusActive
+			}
+		})
+	}
+
 	if tags != nil {
 		b.tags[as.StoreArn] = copyTags(tags)
 	}
@@ -96,7 +104,7 @@ func (b *InMemoryBackend) GetAnnotationStore(name string) (*AnnotationStore, err
 
 	if as.Status == statusCreating {
 		as.pollCount++
-		if as.pollCount >= 1 {
+		if as.pollCount >= 1 && !b.timedLifecycle() {
 			as.Status = statusActive
 		}
 	}
@@ -245,7 +253,7 @@ func (b *InMemoryBackend) StartAnnotationImportJob(
 	}
 
 	now := time.Now().UTC()
-	status := statusCompleted
+	status := b.jobInitialStatus()
 	job := &AnnotationImportJob{
 		ID:                   newID(),
 		DestinationName:      destinationName,
@@ -257,10 +265,28 @@ func (b *InMemoryBackend) StartAnnotationImportJob(
 		VersionName:          versionName,
 		Status:               status,
 		CreationTime:         now,
-		CompletionTime:       &now,
 		UpdateTime:           now,
 	}
+	if !b.timedLifecycle() {
+		job.CompletionTime = &now
+	}
+
 	b.annotationImportJobs.Put(job)
+	jobID, items0 := job.ID, items
+	b.scheduleJob(
+		func(t time.Time) {
+			if j, ok := b.annotationImportJobs.Get(jobID); ok {
+				j.Status, j.UpdateTime = statusInProgress, t
+				j.Items = annotationImportItemDetails(items0, statusInProgress)
+			}
+		},
+		func(t time.Time) {
+			if j, ok := b.annotationImportJobs.Get(jobID); ok {
+				j.Status, j.UpdateTime, j.CompletionTime = statusCompleted, t, &t
+				j.Items = annotationImportItemDetails(items0, statusCompleted)
+			}
+		},
+	)
 
 	result := *job
 

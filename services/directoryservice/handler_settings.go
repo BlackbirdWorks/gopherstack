@@ -184,6 +184,9 @@ func (h *Handler) handleDescribeSettings(c *echo.Context) error {
 			"RequestStatus":       s.Status,
 			"LastUpdatedDateTime": awstime.Epoch(s.LastUpdatedDateTime), //nolint:goconst // existing issue.
 		}
+		if len(s.RegionStatuses) > 0 {
+			entry["RequestDetailedStatus"] = s.RegionStatuses
+		}
 		if !s.LastRequestedTime.IsZero() {
 			entry["LastRequestedDateTime"] = awstime.Epoch(s.LastRequestedTime)
 		}

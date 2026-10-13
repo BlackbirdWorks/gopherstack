@@ -11,6 +11,14 @@ func (b *InMemoryBackend) CreateSite(req *createSiteRequest) (*Site, error) {
 		return nil, validationError("Name is required")
 	}
 
+	if err := validateSiteFields(req.Name, req.Description, req.Notes); err != nil {
+		return nil, err
+	}
+
+	if err := validateRackProperties(fromRackPropsWire(req.RackPhysicalProperties)); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateSite")
 	defer b.mu.Unlock()
 
@@ -95,6 +103,10 @@ func (b *InMemoryBackend) GetSite(idOrARN string) (*Site, error) {
 
 // UpdateSite applies a partial update to the Site identified by idOrARN.
 func (b *InMemoryBackend) UpdateSite(idOrARN string, req *updateSiteRequest) (*Site, error) {
+	if err := validateSiteFields(req.Name, req.Description, req.Notes); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateSite")
 	defer b.mu.Unlock()
 
@@ -326,6 +338,10 @@ func (b *InMemoryBackend) UpdateSiteRackPhysicalProperties(
 	idOrARN string,
 	patch *RackPhysicalProperties,
 ) (*Site, error) {
+	if err := validateRackProperties(patch); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateSiteRackPhysicalProperties")
 	defer b.mu.Unlock()
 

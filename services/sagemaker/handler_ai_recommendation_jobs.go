@@ -71,6 +71,10 @@ func (h *Handler) handleCreateAIRecommendationJob(ctx context.Context, body []by
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if err := validateRequestShapes("CreateAIRecommendationJob", &req); err != nil {
+		return nil, err
+	}
+
 	j, err := h.Backend.CreateAIRecommendationJob(ctx, CreateAIRecommendationJobOptions{
 		AIRecommendationJobName:    req.AIRecommendationJobName,
 		AIWorkloadConfigIdentifier: req.AIWorkloadConfigIdentifier,

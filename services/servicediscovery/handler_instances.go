@@ -29,7 +29,15 @@ func (h *Handler) handleRegisterInstance(_ context.Context, body []byte) ([]byte
 		return nil, fmt.Errorf("%w: InstanceId is required", errInvalidRequest)
 	}
 
+	if err := validateInstanceID(req.InstanceID); err != nil {
+		return nil, err
+	}
+
 	if err := validateInstanceAttributes(req.Attributes); err != nil {
+		return nil, err
+	}
+
+	if err := validateInstanceAddresses(req.Attributes); err != nil {
 		return nil, err
 	}
 

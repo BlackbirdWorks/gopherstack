@@ -673,7 +673,7 @@ func TestRunInstances_MinMaxCountValidation(t *testing.T) {
 
 // ---- Gap E: AssociateAddress NetworkInterfaceId support ----
 
-func TestRunInstances_NoSecurityGroups_GroupSetEmpty(t *testing.T) {
+func TestRunInstances_NoSecurityGroups_DefaultGroup(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -689,8 +689,8 @@ func TestRunInstances_NoSecurityGroups_GroupSetEmpty(t *testing.T) {
 
 	resp, err := ec2.ExportDispatch(h, vals)
 	require.NoError(t, err)
-	// No SGs specified — groupSet should have no groupId items.
-	assert.NotContains(t, resp, "<groupId>")
+	// No SGs specified: the VPC's default group applies, as in real AWS.
+	assert.Contains(t, resp, "<groupName>default</groupName>")
 }
 
 // ---- Gap G: DescribeInstances filter combined with instance IDs ----

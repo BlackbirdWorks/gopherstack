@@ -139,8 +139,7 @@ func (s *notificationSigner) signWithVersion(canonical, version string) string {
 // message per the AWS SNS message-signing specification. Fields are included
 // in alphabetical order; Subject is omitted when empty.
 func canonicalNotificationString(msgID, topicARN, subject, message, timestamp string) string {
-	type field struct{ k, v string }
-	fields := []field{
+	fields := []signedField{
 		{"Message", message},
 		{"MessageId", msgID},
 		{"Timestamp", timestamp},
@@ -148,9 +147,15 @@ func canonicalNotificationString(msgID, topicARN, subject, message, timestamp st
 		{"Type", messageTypeNotification},
 	}
 	if subject != "" {
-		fields = append(fields, field{"Subject", subject})
+		fields = append(fields, signedField{"Subject", subject})
 	}
 
+	return canonicalString(fields)
+}
+
+type signedField struct{ k, v string }
+
+func canonicalString(fields []signedField) string {
 	sort.Slice(fields, func(i, j int) bool { return fields[i].k < fields[j].k })
 
 	var sb strings.Builder

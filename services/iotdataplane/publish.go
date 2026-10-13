@@ -146,6 +146,10 @@ func validateTopic(topic string) error {
 		return fmt.Errorf("%w: topic must not contain wildcards (# or +)", ErrValidation)
 	}
 
+	if strings.Count(topic, "/") > maxTopicSlashes {
+		return fmt.Errorf("%w: topic must not contain more than %d forward slashes", ErrValidation, maxTopicSlashes)
+	}
+
 	segments := strings.Split(topic, "/")
 
 	// Reject empty topic levels (consecutive slashes or leading/trailing slash).

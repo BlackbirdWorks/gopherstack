@@ -13,6 +13,7 @@ import (
 // three fields, so this one struct doubles as the wire shape for every
 // glossary read/write response (see handler_glossaries.go).
 type Glossary struct {
+	ClientToken string `json:"-"`
 	ID          string `json:"Id"`
 	Name        string `json:"Name"`
 	Description string `json:"Description,omitempty"`
@@ -22,6 +23,7 @@ type Glossary struct {
 // against CreateGlossaryTermOutput/GetGlossaryTermOutput/
 // UpdateGlossaryTermOutput, which share exactly these five fields.
 type GlossaryTerm struct {
+	ClientToken      string `json:"-"`
 	ID               string `json:"Id"`
 	GlossaryID       string `json:"GlossaryId"`
 	Name             string `json:"Name"`
@@ -52,6 +54,12 @@ func cloneGlossaryTerm(t *GlossaryTerm) *GlossaryTerm {
 
 // CreateGlossary creates a new business glossary.
 func (b *InMemoryBackend) CreateGlossary(name, description string) (*Glossary, error) {
+	return b.CreateGlossaryWithToken(name, description, "")
+}
+
+// CreateGlossaryWithToken is CreateGlossary with an idempotency ClientToken: a
+// repeated token returns the glossary it first created.
+func (b *InMemoryBackend) CreateGlossaryWithToken(name, description, clientToken string) (*Glossary, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
@@ -59,7 +67,17 @@ func (b *InMemoryBackend) CreateGlossary(name, description string) (*Glossary, e
 	b.mu.Lock("CreateGlossary")
 	defer b.mu.Unlock()
 
-	g := &Glossary{ID: "gls-" + uuid.NewString()[:8], Name: name, Description: description}
+	if clientToken != "" {
+		for _, existing := range b.glossaries.All() {
+			if existing.ClientToken == clientToken {
+				return cloneGlossary(existing), nil
+			}
+		}
+	}
+
+	g := &Glossary{
+		ID: "gls-" + uuid.NewString()[:8], Name: name, Description: description, ClientToken: clientToken,
+	}
 	b.glossaries.Put(g)
 
 	return cloneGlossary(g), nil
@@ -143,6 +161,14 @@ func (b *InMemoryBackend) ListGlossaries() []*Glossary {
 
 // CreateGlossaryTerm creates a term within an existing glossary.
 func (b *InMemoryBackend) CreateGlossaryTerm(glossaryID, name, shortDesc, longDesc string) (*GlossaryTerm, error) {
+	return b.CreateGlossaryTermWithToken(glossaryID, name, shortDesc, longDesc, "")
+}
+
+// CreateGlossaryTermWithToken is CreateGlossaryTerm with an idempotency
+// ClientToken: a repeated token returns the term it first created.
+func (b *InMemoryBackend) CreateGlossaryTermWithToken(
+	glossaryID, name, shortDesc, longDesc, clientToken string,
+) (*GlossaryTerm, error) {
 	if glossaryID == "" {
 		return nil, fmt.Errorf("%w: GlossaryIdentifier is required", ErrValidation)
 	}
@@ -157,7 +183,16 @@ func (b *InMemoryBackend) CreateGlossaryTerm(glossaryID, name, shortDesc, longDe
 		return nil, fmt.Errorf("glossary %q not found: %w", glossaryID, ErrNotFound)
 	}
 
+	if clientToken != "" {
+		for _, existing := range b.glossaryTerms.All() {
+			if existing.ClientToken == clientToken {
+				return cloneGlossaryTerm(existing), nil
+			}
+		}
+	}
+
 	t := &GlossaryTerm{
+		ClientToken:      clientToken,
 		ID:               "term-" + uuid.NewString()[:8],
 		GlossaryID:       glossaryID,
 		Name:             name,

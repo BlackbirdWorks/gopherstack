@@ -1,14 +1,16 @@
 package sns
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 func (h *Handler) handleSubscribe(c *echo.Context) error {
@@ -45,24 +47,11 @@ func (h *Handler) handleSubscribe(c *echo.Context) error {
 
 	filterPolicy := extractFilterPolicy(c.Request().Form)
 
-	sub, err := h.Backend.Subscribe(topicArn, protocol, endpoint, filterPolicy)
+	sub, err := h.Backend.SubscribeWithAttributes(
+		topicArn, protocol, endpoint, filterPolicy, extractFormAttributes(c), requestBaseURL(c.Request()),
+	)
 	if err != nil {
 		return h.handleBackendError(c, err)
-	}
-
-	// Apply subscription attributes passed at subscribe time (e.g. RawMessageDelivery, RedrivePolicy).
-	attrs := extractFormAttributes(c)
-	ctx := c.Request().Context()
-	log := logger.Load(ctx)
-
-	for k, v := range attrs {
-		if k == attrFilterPolicy {
-			continue // already handled by Subscribe
-		}
-
-		if setErr := h.Backend.SetSubscriptionAttributes(sub.SubscriptionArn, k, v); setErr != nil {
-			log.WarnContext(ctx, "failed to set subscription attribute", "attr", k, "error", setErr)
-		}
 	}
 
 	// AWS: when ReturnSubscriptionArn is true, always return the real ARN
@@ -90,7 +79,7 @@ func (h *Handler) handleUnsubscribe(c *echo.Context) error {
 		)
 	}
 
-	if err := h.Backend.Unsubscribe(subscriptionArn); err != nil {
+	if err := h.Backend.UnsubscribeAs(subscriptionArn, callerAccount(c.Request().Context())); err != nil {
 		return h.handleBackendError(c, err)
 	}
 
@@ -111,7 +100,9 @@ func (h *Handler) handleConfirmSubscription(c *echo.Context) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "Token is required")
 	}
 
-	sub, err := h.Backend.ConfirmSubscription(topicArn, token)
+	authOnUnsubscribe, _ := strconv.ParseBool(c.Request().FormValue("AuthenticateOnUnsubscribe"))
+
+	sub, err := h.Backend.ConfirmSubscriptionWith(topicArn, token, authOnUnsubscribe)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -206,4 +197,22 @@ func (h *Handler) handleSetSubscriptionAttributes(c *echo.Context) error {
 	return h.writeXML(c, SetSubscriptionAttributesResponse{
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	})
+}
+
+// callerAccount is the account of the signed caller, or "" for an unsigned request.
+func callerAccount(ctx context.Context) string {
+	if awsmeta.CallerArn(ctx) == "" {
+		return ""
+	}
+
+	return awsmeta.Account(ctx)
+}
+
+func requestBaseURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+
+	return scheme + "://" + r.Host
 }

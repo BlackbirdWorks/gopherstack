@@ -960,7 +960,7 @@ func TestHandler_AdvancedPromptOptimizationJobLifecycle(t *testing.T) {
 					"/advanced-prompt-optimization-jobs/"+url.PathEscape(jobARN), nil)
 				var getOut map[string]any
 				mustUnmarshal(t, getRec, &getOut)
-				assert.Equal(t, "Stopped", getOut["jobStatus"])
+				assert.Equal(t, "Stopping", getOut["jobStatus"])
 			},
 		},
 		{

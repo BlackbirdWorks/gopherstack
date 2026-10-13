@@ -2,6 +2,8 @@ package serverlessrepo
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,6 +14,8 @@ import (
 const (
 	// templateStatusActive is the status of an active CloudFormation template.
 	templateStatusActive = "ACTIVE"
+	// templateStatusPreparing is the status of a template still being built.
+	templateStatusPreparing = "PREPARING"
 	// templateExpirationHours is the number of hours before a template expires.
 	templateExpirationHours = 1
 )
@@ -43,6 +47,11 @@ func (b *InMemoryBackend) CreateCloudFormationTemplate(
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
 	}
 
+	resolvedVersion, versionErr := b.resolveVersionLocked(appName, semanticVersion, ErrTemplateNotFound)
+	if versionErr != nil {
+		return nil, versionErr
+	}
+
 	now := time.Now()
 	// TemplateId is a bare UUID (confirmed pattern on CreateCloudFormationTemplateOutput,
 	// aws-sdk-go-v2/service/serverlessapplicationrepository), not appName-prefixed.
@@ -51,7 +60,7 @@ func (b *InMemoryBackend) CreateCloudFormationTemplate(
 		ApplicationID:   app.ApplicationID,
 		TemplateID:      templateID,
 		AppName:         appName,
-		SemanticVersion: semanticVersion,
+		SemanticVersion: resolvedVersion,
 		Status:          templateStatusActive,
 		CreationTime:    now,
 		ExpirationTime:  now.Add(templateExpirationHours * time.Hour),
@@ -63,7 +72,47 @@ func (b *InMemoryBackend) CreateCloudFormationTemplate(
 	}
 	b.cfTemplates.Put(t)
 
-	return cloneTemplate(t), nil
+	return b.templateView(t), nil
+}
+
+// SetTemplatePrepareDelay keeps new CloudFormation templates in PREPARING for d
+// (default 0: immediately ACTIVE).
+func (b *InMemoryBackend) SetTemplatePrepareDelay(d time.Duration) {
+	b.mu.Lock("SetTemplatePrepareDelay")
+	defer b.mu.Unlock()
+
+	b.templatePrepareDelay = d
+}
+
+func (b *InMemoryBackend) templateView(t *CloudFormationTemplate) *CloudFormationTemplate {
+	cp := cloneTemplate(t)
+	if cp.Status == templateStatusActive && b.templatePrepareDelay > 0 &&
+		time.Since(cp.CreationTime) < b.templatePrepareDelay {
+		cp.Status = templateStatusPreparing
+	}
+
+	return cp
+}
+
+// resolveVersionLocked checks that a requested semantic version exists for the application.
+func (b *InMemoryBackend) resolveVersionLocked(
+	appName, semanticVersion string,
+	notFound error,
+) (string, error) {
+	if semanticVersion == "" {
+		return "", nil
+	}
+
+	if !isValidSemanticVersion(semanticVersion) {
+		return "", fmt.Errorf("%w: semanticVersion must be a valid semantic version (e.g. 1.0.0)", ErrValidation)
+	}
+
+	if !b.appVersions.Has(versionKey(appName, semanticVersion)) {
+		return "", fmt.Errorf(
+			"%w: could not find version %q for application %q", notFound, semanticVersion, appName)
+	}
+
+	return semanticVersion, nil
 }
 
 // GetCloudFormationTemplate returns a CloudFormation template by application name and template ID.
@@ -85,7 +134,7 @@ func (b *InMemoryBackend) GetCloudFormationTemplate(appName, templateID string) 
 		)
 	}
 
-	return cloneTemplate(t), nil
+	return b.templateView(t), nil
 }
 
 // CreateCloudFormationChangeSet creates a new CloudFormation change set for an application.
@@ -121,6 +170,15 @@ func (b *InMemoryBackend) CreateCloudFormationChangeSetWithOptions(
 		// (deserializers.go awsRestjson1_deserializeOpErrorCreateCloudFormationChangeSet):
 		// an unknown ApplicationId is a BadRequestException, not a 404.
 		return nil, fmt.Errorf("%w: could not find application %q", ErrValidation, appName)
+	}
+
+	if nameErr := validateStackNames(stackName, changeSetName); nameErr != nil {
+		return nil, nameErr
+	}
+
+	resolvedVersion, versionErr := b.resolveVersionLocked(appName, semanticVersion, ErrValidation)
+	if versionErr != nil {
+		return nil, versionErr
 	}
 
 	for _, capability := range opts.Capabilities {
@@ -171,7 +229,7 @@ func (b *InMemoryBackend) CreateCloudFormationChangeSetWithOptions(
 		ApplicationID:   app.ApplicationID,
 		ChangeSetID:     changeSetID,
 		AppName:         appName,
-		SemanticVersion: semanticVersion,
+		SemanticVersion: resolvedVersion,
 		StackID:         stackID,
 		Capabilities:    cloneStringSlice(opts.Capabilities),
 		Tags:            cloneTags(opts.Tags),
@@ -179,6 +237,25 @@ func (b *InMemoryBackend) CreateCloudFormationChangeSetWithOptions(
 	b.cfChangeSets.Put(cloneChangeSet(cs))
 
 	return cloneChangeSet(cs), nil
+}
+
+var stackNameRe = regexp.MustCompile(`^[a-zA-Z][-a-zA-Z0-9]*$`)
+
+const stackNameMaxLen = 128
+
+func validateStackNames(stackName, changeSetName string) error {
+	validStack := stackNameRe.MatchString(stackName) || strings.HasPrefix(stackName, "arn:")
+	if len(stackName) > stackNameMaxLen || !validStack {
+		return fmt.Errorf("%w: stackName must match [a-zA-Z][-a-zA-Z0-9]* and be at most %d characters",
+			ErrValidation, stackNameMaxLen)
+	}
+
+	if changeSetName != "" && (len(changeSetName) > stackNameMaxLen || !stackNameRe.MatchString(changeSetName)) {
+		return fmt.Errorf("%w: changeSetName must match [a-zA-Z][-a-zA-Z0-9]* and be at most %d characters",
+			ErrValidation, stackNameMaxLen)
+	}
+
+	return nil
 }
 
 func isValidCapability(capability string) bool {

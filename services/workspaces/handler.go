@@ -100,13 +100,13 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return c.JSON(http.StatusNotFound, errBody(errResourceNotFound, err.Error()))
+		return c.JSON(http.StatusNotFound, errBody(errResourceNotFound, errMessage(err)))
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, err.Error()))
+		return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, errMessage(err)))
 	case errors.Is(err, awserr.ErrAlreadyExists):
-		return c.JSON(http.StatusBadRequest, errBody(errResourceAlreadyExists, err.Error()))
+		return c.JSON(http.StatusBadRequest, errBody(errResourceAlreadyExists, errMessage(err)))
 	case errors.Is(err, awserr.ErrConflict):
-		return c.JSON(http.StatusBadRequest, errBody(errInvalidResourceState, err.Error()))
+		return c.JSON(http.StatusBadRequest, errBody(errInvalidResourceState, errMessage(err)))
 	default:
 		return c.JSON(
 			http.StatusInternalServerError,

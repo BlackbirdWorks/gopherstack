@@ -134,13 +134,14 @@ func selectContainerInstance(
 	constraints []PlacementConstraint,
 	strategies []PlacementStrategy,
 	serviceName string,
+	skip map[string]bool,
 ) string {
 	// Collect eligible instances (ACTIVE + not violating constraints).
 	eligible := make([]string, 0, len(instances))
 
 	for _, ci := range instances {
 		arn := ci.ContainerInstanceArn
-		if ci.Status != statusActive {
+		if ci.Status != statusActive || skip[arn] {
 			continue
 		}
 

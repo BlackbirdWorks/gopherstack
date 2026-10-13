@@ -614,3 +614,51 @@ func TestCertificateAuthority_Describe_ViaRawREST(t *testing.T) {
 	assert.NotEmpty(t, descCA["data"])
 	assert.Contains(t, descCA, "validity")
 }
+
+func TestCertificateAuthority_ScheduledEvents(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	mustCreateClusterNoVpc(t, b, "ca-sched")
+
+	waitStatus := func(id, field, want string) {
+		require.Eventually(t, func() bool {
+			got, err := b.DescribeCertificateAuthority("ca-sched", id)
+			if err != nil {
+				return false
+			}
+
+			if field == "dist" {
+				return got.DistributionStatus == want
+			}
+
+			return got.SigningStatus == want
+		}, 2*time.Second, 10*time.Millisecond)
+	}
+
+	first, _, err := b.CreateCertificateAuthority("ca-sched")
+	require.NoError(t, err)
+	waitStatus(first.ID, "dist", "COMPLETE")
+
+	pending, err := b.DescribeCertificateAuthority("ca-sched", first.ID)
+	require.NoError(t, err)
+	assert.Nil(t, pending.ScheduledEvents, "no outgoing CA yet")
+
+	_, _, err = b.ActivateCertificateAuthority("ca-sched", first.ID)
+	require.NoError(t, err)
+	waitStatus(first.ID, "sign", "IN_USE")
+
+	successor, _, err := b.CreateCertificateAuthority("ca-sched")
+	require.NoError(t, err)
+	waitStatus(successor.ID, "dist", "COMPLETE")
+
+	got, err := b.DescribeCertificateAuthority("ca-sched", successor.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.ScheduledEvents)
+
+	outgoing, err := b.DescribeCertificateAuthority("ca-sched", first.ID)
+	require.NoError(t, err)
+	assert.Nil(t, outgoing.ScheduledEvents)
+	assert.True(t, got.ScheduledEvents.FirstAutoActivation.Equal(outgoing.NotAfter.AddDate(0, -6, 0)))
+	assert.True(t, got.ScheduledEvents.FinalAutoActivation.Equal(outgoing.NotAfter.AddDate(0, 0, -45)))
+}

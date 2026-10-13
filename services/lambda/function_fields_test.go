@@ -241,8 +241,9 @@ func TestFileSystemConfigs_CreateAndGet(t *testing.T) {
 		"PackageType":"Image",
 		"Code":{"ImageUri":"ecr/x:latest"},
 		"Role":"arn:aws:iam:::role/r",
-		"FileSystemConfigs":[{"Arn":"arn:aws:elasticfilesystem:us-east-1:123:access-point/fsap-abc",` +
-		`"LocalMountPath":"/mnt/data"}]
+		"FileSystemConfigs":[{"Arn":"arn:aws:elasticfilesystem:us-east-1:000000000000:access-point/fsap-abc",` +
+		`"LocalMountPath":"/mnt/data"}],
+		"VpcConfig":{"SubnetIds":["subnet-1"],"SecurityGroupIds":["sg-1"]}
 	}`
 	rec := auditCreateFunction(t, h, body)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
@@ -250,7 +251,8 @@ func TestFileSystemConfigs_CreateAndGet(t *testing.T) {
 	var fn lambda.FunctionConfiguration
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
 	require.Len(t, fn.FileSystemConfigs, 1)
-	assert.Equal(t, "arn:aws:elasticfilesystem:us-east-1:123:access-point/fsap-abc", fn.FileSystemConfigs[0].Arn)
+	assert.Equal(t, "arn:aws:elasticfilesystem:us-east-1:000000000000:access-point/fsap-abc",
+		fn.FileSystemConfigs[0].Arn)
 	assert.Equal(t, "/mnt/data", fn.FileSystemConfigs[0].LocalMountPath)
 }
 
@@ -261,7 +263,8 @@ func TestFileSystemConfigs_Update(t *testing.T) {
 	rec := auditCreateFunction(t, h, baseImageFn("efs-update-fn"))
 	require.Equal(t, http.StatusCreated, rec.Code)
 
-	body := `{"FileSystemConfigs":[{"Arn":"arn:aws:elasticfilesystem:us-east-1:123:access-point/fsap-new",` +
+	body := `{"VpcConfig":{"SubnetIds":["subnet-1"],"SecurityGroupIds":["sg-1"]},` +
+		`"FileSystemConfigs":[{"Arn":"arn:aws:elasticfilesystem:us-east-1:000000000000:access-point/fsap-a1",` +
 		`"LocalMountPath":"/mnt/new"}]}`
 	rec2 := auditUpdateConfig(t, h, "efs-update-fn", body)
 	require.Equal(t, http.StatusOK, rec2.Code)
@@ -912,7 +915,7 @@ func TestAllNewFields_PersistInGetConfiguration(t *testing.T) {
 		"Role":"arn:aws:iam:::role/r",
 		"VpcConfig":{"SubnetIds":["subnet-1"],"SecurityGroupIds":["sg-1"]},
 		"TracingConfig":{"Mode":"Active"},
-		"FileSystemConfigs":[{"Arn":"arn:aws:elasticfilesystem:us-east-1:123:access-point/fsap-1",` +
+		"FileSystemConfigs":[{"Arn":"arn:aws:elasticfilesystem:us-east-1:000000000000:access-point/fsap-a1",` +
 		`"LocalMountPath":"/mnt/efs"}],
 		"DeadLetterConfig":{"TargetArn":"arn:aws:sqs:us-east-1:123:dlq"},
 		"EphemeralStorage":{"Size":1024},

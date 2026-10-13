@@ -906,7 +906,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// Verify every family actually round-tripped.
 	gotDomain, err := fresh.DescribeDomain(domain.Name)
 	require.NoError(t, err)
-	assert.Equal(t, domain.EngineVersion, gotDomain.EngineVersion)
+	assert.Equal(t, "OpenSearch_2.15", gotDomain.EngineVersion)
 
 	dataSources, err := fresh.ListDataSources(domain.Name)
 	require.NoError(t, err)

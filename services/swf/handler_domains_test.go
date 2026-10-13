@@ -210,7 +210,7 @@ func TestHandler_UndeprecateDomain(t *testing.T) {
 		{
 			name:     "not_found",
 			body:     map[string]any{"name": "missing"},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "already_registered",

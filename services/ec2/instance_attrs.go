@@ -738,6 +738,10 @@ func (b *InMemoryBackend) SetInstanceSecurityGroups(instanceID string, groupIDs 
 
 	inst.SecurityGroups = groupIDs
 
+	if eni := b.primaryNetworkInterfaceLocked(instanceID); eni != nil {
+		eni.SecurityGroupIDs = append([]string(nil), groupIDs...)
+	}
+
 	return nil
 }
 

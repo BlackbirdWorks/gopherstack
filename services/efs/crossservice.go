@@ -16,4 +16,6 @@ type EC2Resolver interface {
 	SubnetExists(id string) bool
 	SubnetVPC(id string) string
 	SubnetAZ(id string) string
+	// SubnetFreeAddresses returns the subnet's unused IPv4 addresses, or -1 when it cannot be determined.
+	SubnetFreeAddresses(id string) int
 }

@@ -106,7 +106,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	require.NoError(t, original.CreateSampleFindings(detectorID, []string{"Sample:Type"}))
+	require.NoError(t, original.CreateSampleFindings(detectorID, []string{"Recon:EC2/PortProbeUnprotectedPort"}))
 	findingIDs, _, err := original.ListFindings(detectorID, guardduty.FindingsQuery{})
 	require.NoError(t, err)
 	require.Len(t, findingIDs, 1)

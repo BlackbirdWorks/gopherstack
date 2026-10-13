@@ -168,3 +168,85 @@ func TestProvider_WiresSageMakerEndpointLookup(t *testing.T) {
 	rec = doRequest(t, h, http.MethodPost, "/endpoints/wired-endpoint/invocations")
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
+
+type lateSageMakerConfig struct {
+	handler **sagemaker.Handler
+}
+
+func (f lateSageMakerConfig) GetSageMakerHandler() service.Registerable {
+	if *f.handler == nil {
+		return nil
+	}
+
+	return *f.handler
+}
+
+func TestProvider_EndpointLookupResolvesAfterInit(t *testing.T) {
+	t.Parallel()
+
+	var sm *sagemaker.Handler
+
+	p := &sagemakerruntime.Provider{}
+	reg, err := p.Init(&service.AppContext{Config: lateSageMakerConfig{handler: &sm}})
+	require.NoError(t, err)
+
+	h, ok := reg.(*sagemakerruntime.Handler)
+	require.True(t, ok)
+
+	rec := doRequest(t, h, http.MethodPost, "/endpoints/ghost/invocations")
+	assert.Equal(t, http.StatusOK, rec.Code, "no registry yet: accept")
+
+	sm = sagemaker.NewHandler(sagemaker.NewInMemoryBackend("000000000000", "us-east-1"))
+
+	rec = doRequest(t, h, http.MethodPost, "/endpoints/ghost/invocations")
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "registry set after Init must be consulted")
+}
+
+func TestProvider_RejectsUnknownTargetVariant(t *testing.T) {
+	t.Parallel()
+
+	smBackend := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
+	p := &sagemakerruntime.Provider{}
+	reg, err := p.Init(&service.AppContext{
+		Config: fakeSageMakerHandlerConfig{handler: sagemaker.NewHandler(smBackend)},
+	})
+	require.NoError(t, err)
+
+	h, ok := reg.(*sagemakerruntime.Handler)
+	require.True(t, ok)
+
+	_, err = smBackend.CreateEndpointConfig(t.Context(), "cfg", []sagemaker.ProductionVariant{{
+		VariantName: "AllTraffic", InstanceType: "ml.m5.large", InitialInstanceCount: 1, InitialVariantWeight: 1,
+	}}, nil)
+	require.NoError(t, err)
+
+	_, err = smBackend.CreateEndpointFSM(t.Context(), sagemaker.CreateEndpointOptions{
+		Name: "ep", EndpointConfigName: "cfg",
+	})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		ep, descErr := smBackend.DescribeEndpoint(t.Context(), "ep")
+
+		return descErr == nil && ep.EndpointStatus == "InService"
+	}, 2*time.Second, 10*time.Millisecond)
+
+	tests := []struct {
+		variant  string
+		name     string
+		wantCode int
+	}{
+		{name: "known", variant: "AllTraffic", wantCode: http.StatusOK},
+		{name: "unknown", variant: "Nope", wantCode: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequestWithHeaders(t, h, http.MethodPost, "/endpoints/ep/invocations", nil,
+				map[string]string{"X-Amzn-Sagemaker-Target-Variant": tt.variant})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}

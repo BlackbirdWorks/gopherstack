@@ -654,7 +654,7 @@ func TestInsights_UnknownVersion_NoFabricatedInsights(t *testing.T) {
 
 	_, err := client.CreateCluster(ctx, &ekssdk.CreateClusterInput{
 		Name:               aws.String("unknown-version-cluster"),
-		Version:            aws.String("1.4"),
+		Version:            aws.String("1.40"),
 		RoleArn:            aws.String("arn:aws:iam::123456789012:role/eks"),
 		ResourcesVpcConfig: &ekstypes.VpcConfigRequest{},
 	})

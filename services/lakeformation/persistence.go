@@ -99,6 +99,7 @@ type backendSnapshot struct {
 	Queries                map[string]string             `json:"queries,omitempty"`
 	TableStorageOptimizers map[string][]StorageOptimizer `json:"tableStorageOptimizers,omitempty"`
 	DataLakeSettings       *DataLakeSettings             `json:"dataLakeSettings"`
+	CatalogSettings        map[string]*DataLakeSettings  `json:"catalogSettings,omitempty"`
 	Permissions            []*PermissionEntry            `json:"permissions"`
 	LakeFormationOptIns    []*LFOptIn                    `json:"lakeFormationOptIns"`
 	Version                int                           `json:"version"`
@@ -175,6 +176,7 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 		Version:                lakeformationSnapshotVersion,
 		Tables:                 tables,
 		DataLakeSettings:       copyDataLakeSettings(b.dataLakeSettings),
+		CatalogSettings:        b.catalogSettingsCopy(),
 		ResourceLFTags:         resourceLFTags,
 		Queries:                queries,
 		TableStorageOptimizers: tableStorageOptimizers,
@@ -215,6 +217,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.resetTablesLocked()
 		b.dataLakeSettings = &DataLakeSettings{}
+		b.catalogSettings = make(map[string]*DataLakeSettings)
 		b.resourceLFTags = make(map[string][]LFTagPair)
 		b.queries = make(map[string]string)
 		b.tableStorageOptimizers = make(map[string][]StorageOptimizer)
@@ -235,6 +238,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.dataLakeSettings = snap.DataLakeSettings
 	if b.dataLakeSettings == nil {
 		b.dataLakeSettings = &DataLakeSettings{}
+	}
+
+	b.catalogSettings = snap.CatalogSettings
+	if b.catalogSettings == nil {
+		b.catalogSettings = make(map[string]*DataLakeSettings)
 	}
 
 	b.resourceLFTags = snap.ResourceLFTags
@@ -300,4 +308,17 @@ func (b *InMemoryBackend) rebuildPermissionsMapLocked() {
 	for _, p := range b.permissionsList {
 		b.permissionsMap.Put(p)
 	}
+}
+
+func (b *InMemoryBackend) catalogSettingsCopy() map[string]*DataLakeSettings {
+	if len(b.catalogSettings) == 0 {
+		return nil
+	}
+
+	out := make(map[string]*DataLakeSettings, len(b.catalogSettings))
+	for k, v := range b.catalogSettings {
+		out[k] = copyDataLakeSettings(v)
+	}
+
+	return out
 }

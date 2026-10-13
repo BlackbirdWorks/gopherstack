@@ -71,6 +71,8 @@ type Runner struct {
 	kinesis     KinesisRecordPutter
 	sageMaker   SageMakerPipelineStarter
 	ecsRunner   ECSTaskRunner
+	extra       DeliveryTargets
+	universal   UniversalTargetInvoker
 	auth        roleauth.Authorizer
 	lastFiredAt map[string]time.Time
 	// invalidExprWarned tracks schedule keys that have already logged an unparseable
@@ -518,6 +520,10 @@ func (r *Runner) dispatchTarget(ctx context.Context, s *Schedule, payload []byte
 	case strings.HasPrefix(targetARN, "arn:aws:ecs:"):
 		return r.invokeECSTarget(ctx, s, log)
 	default:
+		if handled, err := r.invokeExtraTarget(ctx, s, payload); handled {
+			return err
+		}
+
 		log.WarnContext(ctx, "scheduler: unsupported target ARN", "target", targetARN, "schedule", s.Name)
 
 		return nil

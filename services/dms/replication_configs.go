@@ -3,6 +3,7 @@ package dms
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -181,12 +182,20 @@ func (b *InMemoryBackend) findReplicationConfig(ctx context.Context, arnOrID str
 	return nil
 }
 
+// StartReplicationCDC carries StartReplicationInput's CDC window, echoed on the Replication.
+type StartReplicationCDC struct {
+	StartTime     *time.Time
+	StartPosition string
+	StopPosition  string
+}
+
 // StartReplication starts (or resumes) the DMS Serverless replication
 // associated with a replication config. Real AWS rejects starting a
 // replication that is already running.
 func (b *InMemoryBackend) StartReplication(
 	ctx context.Context,
 	replicationConfigArn, startReplicationType string,
+	cdc StartReplicationCDC,
 ) (*ReplicationConfig, error) {
 	b.mu.Lock("StartReplication")
 	defer b.mu.Unlock()
@@ -206,6 +215,9 @@ func (b *InMemoryBackend) StartReplication(
 
 	rc.Status = statusRunning
 	rc.StartReplicationType = startReplicationType
+	rc.CdcStartPosition = cdc.StartPosition
+	rc.CdcStartTime = cdc.StartTime
+	rc.CdcStopPosition = cdc.StopPosition
 	cp := *rc
 
 	return &cp, nil

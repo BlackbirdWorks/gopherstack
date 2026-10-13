@@ -28,8 +28,16 @@ func (b *InMemoryBackend) ImportCrl(
 	enabled bool,
 	tags []TagEntry,
 ) (*Crl, error) {
-	if name == "" || len(crlData) == 0 || trustAnchorArn == "" {
-		return nil, ErrValidation
+	if err := validateResourceName(name); err != nil {
+		return nil, err
+	}
+
+	if len(crlData) == 0 || trustAnchorArn == "" {
+		return nil, invalid("crlData and trustAnchorArn are required")
+	}
+
+	if err := validateCrlInput(crlData, trustAnchorArn); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("ImportCrl")
@@ -95,6 +103,16 @@ func (b *InMemoryBackend) ListCrls(ctx context.Context, pageToken string, maxRes
 
 // UpdateCrl updates a CRL's name and/or data.
 func (b *InMemoryBackend) UpdateCrl(ctx context.Context, id, name string, crlData []byte) (*Crl, error) {
+	if name != "" {
+		if err := validateResourceName(name); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := validateCrlInput(crlData, ""); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateCrl")
 	defer b.mu.Unlock()
 

@@ -12,7 +12,11 @@ import (
 
 func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 	resourceArn := c.Request().FormValue("ResourceArn")
-	tags := h.Backend.GetTopicTags(resourceArn)
+	tags, err := h.Backend.ListTopicTagsByARN(resourceArn)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
 	tagList := make([]svcTags.KV, 0, len(tags))
 	for k, v := range tags {
 		tagList = append(tagList, svcTags.KV{Key: k, Value: v})
@@ -51,7 +55,9 @@ func parseSNSTagKeysFromForm(c *echo.Context) []string {
 func (h *Handler) handleTagResource(c *echo.Context) error {
 	resourceArn := c.Request().FormValue("ResourceArn")
 	kv := parseSNSTagsFromForm(c)
-	h.Backend.SetTopicTags(resourceArn, svcTags.FromMap("sns."+resourceArn+".tags.input", kv))
+	if err := h.Backend.TagTopicByARN(resourceArn, kv); err != nil {
+		return h.handleBackendError(c, err)
+	}
 
 	return h.writeXML(
 		c,
@@ -70,7 +76,9 @@ func (h *Handler) handleTagResource(c *echo.Context) error {
 func (h *Handler) handleUntagResource(c *echo.Context) error {
 	resourceArn := c.Request().FormValue("ResourceArn")
 	keys := parseSNSTagKeysFromForm(c)
-	h.Backend.RemoveTopicTags(resourceArn, keys)
+	if err := h.Backend.UntagTopicByARN(resourceArn, keys); err != nil {
+		return h.handleBackendError(c, err)
+	}
 
 	return h.writeXML(
 		c,

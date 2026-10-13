@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -485,6 +486,12 @@ func (h *Handler) writeError(c *echo.Context, err error) error {
 	}
 }
 
+var exceptionPrefixRe = regexp.MustCompile(`[A-Za-z]+Exception: `)
+
 func errorResponse(code, msg string) map[string]string {
+	if out := exceptionPrefixRe.ReplaceAllString(msg, ""); out != "" {
+		msg = out
+	}
+
 	return map[string]string{"__type": code, "message": msg}
 }

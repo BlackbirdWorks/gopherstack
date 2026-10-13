@@ -43,7 +43,7 @@ func TestHandler_SignalWorkflowExecution_RequiresSignalName(t *testing.T) {
 				"workflowId": "wf-1",
 				"signalName": "my-signal",
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 

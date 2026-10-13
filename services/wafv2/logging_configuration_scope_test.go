@@ -29,7 +29,7 @@ func TestLoggingConfiguration_LogScopeSelectsDistinctConfig(t *testing.T) {
 	_, putErr := client.PutLoggingConfiguration(ctx, &wafv2sdk.PutLoggingConfigurationInput{
 		LoggingConfiguration: &types.LoggingConfiguration{
 			ResourceArn:           aws.String(resourceARN),
-			LogDestinationConfigs: []string{"arn:aws:s3:::log-bucket"},
+			LogDestinationConfigs: []string{"arn:aws:s3:::aws-waf-logs-bucket"},
 			LogScope:              types.LogScopeCustomer,
 		},
 	})
@@ -94,7 +94,7 @@ func TestLoggingConfiguration_InvalidLogTypeRejected(t *testing.T) {
 	_, putErr := client.PutLoggingConfiguration(ctx, &wafv2sdk.PutLoggingConfigurationInput{
 		LoggingConfiguration: &types.LoggingConfiguration{
 			ResourceArn:           aws.String(resourceARN),
-			LogDestinationConfigs: []string{"arn:aws:s3:::log-bucket"},
+			LogDestinationConfigs: []string{"arn:aws:s3:::aws-waf-logs-bucket"},
 		},
 	})
 	require.NoError(t, putErr)

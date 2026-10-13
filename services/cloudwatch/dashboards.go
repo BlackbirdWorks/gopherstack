@@ -36,6 +36,12 @@ func (b *InMemoryBackend) PutDashboard(name, body string) ([]DashboardValidation
 		return nil, ErrDashboardNameRequired
 	}
 
+	if msg := validateDashboardName(name); msg != "" {
+		return nil, &DashboardValidationError{Messages: []DashboardValidationMessage{
+			{DataPath: "/DashboardName", Message: msg, IsError: true},
+		}}
+	}
+
 	messages := validateDashboardBody(body)
 	if dashboardValidationHasErrors(messages) {
 		return nil, &DashboardValidationError{Messages: messages}
@@ -90,10 +96,16 @@ func (b *InMemoryBackend) ListDashboards(
 	return page.New(result, nextToken, 0, cwDefaultListDashboardsLimit), nil
 }
 
-// DeleteDashboards removes the named dashboards. Names that do not exist are silently ignored.
+// DeleteDashboards removes the named dashboards; a missing name fails the whole call.
 func (b *InMemoryBackend) DeleteDashboards(names []string) error {
 	b.mu.Lock("DeleteDashboards")
 	defer b.mu.Unlock()
+
+	for _, name := range names {
+		if !b.dashboards.Has(name) {
+			return fmt.Errorf("%w: %s", ErrDashboardNotFound, name)
+		}
+	}
 
 	for _, name := range names {
 		b.dashboards.Delete(name)
@@ -127,4 +139,21 @@ func (b *InMemoryBackend) GetDashboardARNs(names []string) []string {
 	}
 
 	return arns
+}
+
+const maxDashboardNameLen = 255
+
+func validateDashboardName(name string) string {
+	if len(name) > maxDashboardNameLen {
+		return "DashboardName must be at most 255 characters"
+	}
+
+	for _, r := range name {
+		ok := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_'
+		if !ok {
+			return "DashboardName contains invalid characters; valid characters are A-Z, a-z, 0-9, \"-\", and \"_\""
+		}
+	}
+
+	return ""
 }

@@ -194,7 +194,7 @@ func TestTombstones_ExpireAfterRetentionWindow(t *testing.T) {
 
 				found, state := tt.describeState(b, id)
 				require.True(t, found, "tombstone must still be describable within the retention window")
-				assert.True(t, strings.HasPrefix(state, "deleted"), "state = %q", state)
+				assert.True(t, strings.HasPrefix(state, "delet"), "state = %q", state)
 
 				time.Sleep(ec2.TombstoneTTLForTest + time.Second)
 

@@ -10,24 +10,25 @@ import (
 
 // storedWorkspace holds a workspace with all persisted fields.
 type storedWorkspace struct {
-	Properties                  *WorkspaceProperties         `json:"properties,omitempty"`
-	Tags                        map[string]string            `json:"tags"`
-	DataReplicationSettings     *DataReplicationSettings     `json:"dataReplicationSettings,omitempty"`
-	VolumeEncryptionKey         string                       `json:"volumeEncryptionKey,omitempty"`
-	State                       string                       `json:"state"`
-	DataReplication             string                       `json:"dataReplication,omitempty"`
-	WorkspaceID                 string                       `json:"workspaceId"`
-	WorkspaceName               string                       `json:"workspaceName,omitempty"`
-	DirectoryID                 string                       `json:"directoryId"`
-	UserName                    string                       `json:"userName"`
-	IPAddress                   string                       `json:"ipAddress,omitempty"`
-	BundleID                    string                       `json:"bundleId"`
-	PrimaryWorkspaceID          string                       `json:"primaryWorkspaceId,omitempty"`
-	ComputerName                string                       `json:"computerName"`
-	SubnetID                    string                       `json:"subnetId"`
-	Region                      string                       `json:"region"`
-	ErrorCode                   string                       `json:"errorCode"`
-	ErrorMessage                string                       `json:"errorMessage"`
+	Properties                  *WorkspaceProperties     `json:"properties,omitempty"`
+	Tags                        map[string]string        `json:"tags"`
+	DataReplicationSettings     *DataReplicationSettings `json:"dataReplicationSettings,omitempty"`
+	VolumeEncryptionKey         string                   `json:"volumeEncryptionKey,omitempty"`
+	State                       string                   `json:"state"`
+	DataReplication             string                   `json:"dataReplication,omitempty"`
+	WorkspaceID                 string                   `json:"workspaceId"`
+	WorkspaceName               string                   `json:"workspaceName,omitempty"`
+	DirectoryID                 string                   `json:"directoryId"`
+	UserName                    string                   `json:"userName"`
+	IPAddress                   string                   `json:"ipAddress,omitempty"`
+	BundleID                    string                   `json:"bundleId"`
+	PrimaryWorkspaceID          string                   `json:"primaryWorkspaceId,omitempty"`
+	ComputerName                string                   `json:"computerName"`
+	SubnetID                    string                   `json:"subnetId"`
+	Region                      string                   `json:"region"`
+	ErrorCode                   string                   `json:"errorCode"`
+	ErrorMessage                string                   `json:"errorMessage"`
+	pendingUntil                time.Time
 	StandbyWorkspacesProperties []StandbyWorkspaceProperties `json:"standbyWorkspacesProperties,omitempty"`
 	RelatedWorkspaces           []RelatedWorkspace           `json:"relatedWorkspaces,omitempty"`
 	ModificationStates          []ModificationState          `json:"modificationStates,omitempty"`
@@ -47,33 +48,36 @@ type storedWorkspace struct {
 // comments below and persistence.go's doc comment for which of these were
 // persisted before this refactor and remain so.
 type InMemoryBackend struct {
-	applications      *store.Table[storedApplication]
-	images            *store.Table[storedImage]
-	workspaces        *store.Table[storedWorkspace]
-	ipGroups          *store.Table[storedIpGroup]
-	connAliases       *store.Table[storedConnAlias]
-	customBundles     *store.Table[storedCustomBundle]
-	accountLinks      *store.Table[storedAccountLink]
-	pools             *store.Table[storedPool]
-	poolSessions      *store.Table[storedPoolSession]
-	connectAddIns     *store.Table[storedConnectAddIn]
-	registry          *store.Registry
-	clientBranding    *store.Table[storedClientBranding]
-	imagePermissions  map[string]map[string]bool
-	dirSettings       *store.Table[storedDirSettings]
-	tags              map[string]map[string]string
-	directoryIpGroups map[string]map[string]struct{} //nolint:revive,staticcheck // existing issue.
-	mu                *lockmetrics.RWMutex
-	clientProperties  map[string]storedClientProps
-	appAssociations   map[string]map[string]*storedAppAssociation
-	idem              *idempotency.Memo
+	applications        *store.Table[storedApplication]
+	images              *store.Table[storedImage]
+	workspaces          *store.Table[storedWorkspace]
+	ipGroups            *store.Table[storedIpGroup]
+	connAliases         *store.Table[storedConnAlias]
+	customBundles       *store.Table[storedCustomBundle]
+	accountLinks        *store.Table[storedAccountLink]
+	pools               *store.Table[storedPool]
+	poolSessions        *store.Table[storedPoolSession]
+	connectAddIns       *store.Table[storedConnectAddIn]
+	registry            *store.Registry
+	clientBranding      *store.Table[storedClientBranding]
+	imagePermissions    map[string]map[string]bool
+	dirSettings         *store.Table[storedDirSettings]
+	tags                map[string]map[string]string
+	directoryIpGroups   map[string]map[string]struct{} //nolint:revive,staticcheck // existing issue.
+	mu                  *lockmetrics.RWMutex
+	clientProperties    map[string]storedClientProps
+	appAssociations     map[string]map[string]*storedAppAssociation
+	idem                *idempotency.Memo
+	clock               func() time.Time
+	dirRegisteringUntil map[string]time.Time
 	// appConfig is service.AppContext.Config, captured for lazy sibling-service
 	// lookup (the Directory Service backend) -- see cross_service.go.
 	appConfig            any
 	accountConfig        storedAccountConfig
-	accountID            string
 	region               string
+	accountID            string
 	accountModifications []AccountModification
+	lifecycleDelay       time.Duration
 	counter              int
 }
 

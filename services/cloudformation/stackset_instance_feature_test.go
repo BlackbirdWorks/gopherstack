@@ -52,6 +52,7 @@ func TestStackInstance_StackIDAssigned(t *testing.T) {
 			_, err = b.CreateStackInstances(t.Context(), "inst-test-ss", tc.accounts, nil, tc.regions, "")
 			require.NoError(t, err)
 
+			b.WaitForStackSetOperations()
 			instances, err := b.ListStackInstances("inst-test-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 			require.NoError(t, err)
 			assert.Len(t, instances.Data, tc.wantLen)
@@ -83,6 +84,7 @@ func TestStackInstance_NoDuplicates(t *testing.T) {
 	_, err = b.CreateStackInstances(t.Context(), "dedup-ss", []string{"111111111111"}, nil, []string{"us-east-1"}, "")
 	require.NoError(t, err)
 
+	b.WaitForStackSetOperations()
 	instances, err := b.ListStackInstances("dedup-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	assert.Len(t, instances.Data, 1, "expected no duplicate instances")
@@ -127,10 +129,12 @@ func TestStackSetOperationResults(t *testing.T) {
 			require.NoError(t, err)
 
 			// Get the operation ID from ListStackSetOperations.
+			b.WaitForStackSetOperations()
 			opsPage, err := b.ListStackSetOperations("op-results-ss", 0, "")
 			require.NoError(t, err)
 			require.NotEmpty(t, opsPage.Data)
 
+			b.WaitForStackSetOperations()
 			results, err := b.ListStackSetOperationResults(
 				"op-results-ss",
 				opsPage.Data[0].OperationID,
@@ -204,6 +208,7 @@ func TestDescribeStackInstance_Fields(t *testing.T) {
 	_, err = b.CreateStackInstances(t.Context(), "field-ss", []string{"123456789012"}, nil, []string{"us-east-1"}, "")
 	require.NoError(t, err)
 
+	b.WaitForStackSetOperations()
 	inst, err := b.DescribeStackInstance("field-ss", "123456789012", "us-east-1")
 	require.NoError(t, err)
 
@@ -240,6 +245,7 @@ func TestListStackSetOperations_SortedByCreationTime(t *testing.T) {
 	_, _, err = b.UpdateStackSet("sort-ops-ss", "", simpleTemplate, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
 
+	b.WaitForStackSetOperations()
 	opsPage2, err := b.ListStackSetOperations("sort-ops-ss", 0, "")
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(opsPage2.Data), 3, "expected at least 3 operations")
@@ -305,6 +311,7 @@ func TestDeleteStackInstances_Selective(t *testing.T) {
 			)
 			require.NoError(t, err)
 
+			b.WaitForStackSetOperations()
 			remaining, err := b.ListStackInstances("del-sel-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 			require.NoError(t, err)
 			assert.Len(t, remaining.Data, tc.wantRemaining)

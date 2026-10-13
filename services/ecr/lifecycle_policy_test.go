@@ -51,9 +51,10 @@ func TestPutLifecyclePolicy_HTTP(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "creates_policy",
-			repoName:   "policy-repo",
-			policy:     `{"rules":[{"rulePriority":1,"description":"test"}]}`,
+			name:     "creates_policy",
+			repoName: "policy-repo",
+			policy: `{"rules":[{"rulePriority":1,"description":"test","action":{"type":"expire"},` +
+				`"selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":5}}]}`,
 			wantStatus: http.StatusOK,
 		},
 		{

@@ -76,6 +76,10 @@ func (b *InMemoryBackend) CreateVodSource(
 		return nil, fmt.Errorf("%w: VodSourceName required", ErrInvalidParameter)
 	}
 
+	if err := validateResourceName("VodSourceName", vodSourceName); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateVodSource")
 	defer b.mu.Unlock()
 

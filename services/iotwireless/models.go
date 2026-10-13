@@ -107,36 +107,28 @@ type DeviceProfile struct {
 
 // FuotaTask represents a Firmware Update Over the Air (FUOTA) task.
 type FuotaTask struct {
-	CreatedAt time.Time         `json:"createdAt"`
+	CreatedAt time.Time `json:"createdAt"`
+	startedAt time.Time
 	Tags      map[string]string `json:"tags,omitempty"`
-	// LoRaWAN holds the create/update-shape LoRaWANFuotaTask; GetFuotaTask
-	// converts it to LoRaWANFuotaTaskGetInfo via loRaWANFuotaTaskGetInfoFrom
-	// (lorawan_types.go).
+	// LoRaWAN is the create/update-shape config; GetFuotaTask converts it via loRaWANFuotaTaskGetInfoFrom.
 	LoRaWAN *LoRaWANFuotaTask `json:"loRaWAN,omitempty"`
-	// StartTime is set by StartFuotaTask from StartFuotaTaskInput.LoRaWAN.StartTime
-	// (types.LoRaWANStartFuotaTask, types.go:1202); nil until then.
+	// StartTime is set by StartFuotaTask from StartFuotaTaskInput.LoRaWAN.StartTime.
 	StartTime           *time.Time `json:"startTime,omitempty"`
-	Name                string     `json:"name"`
-	ID                  string     `json:"id"`
-	ARN                 string     `json:"arn"`
-	Description         string     `json:"description,omitempty"`
 	FirmwareUpdateImage string     `json:"firmwareUpdateImage,omitempty"`
+	AccountID           string     `json:"-"`
+	Description         string     `json:"description,omitempty"`
+	ID                  string     `json:"id"`
 	FirmwareUpdateRole  string     `json:"firmwareUpdateRole,omitempty"`
-	// Descriptor is the base64-encoded firmware metadata blob.
-	Descriptor string `json:"descriptor,omitempty"`
-	// Status tracks the FUOTA task lifecycle (Pending, FuotaSession_Waiting,
-	// In_FuotaSession, FuotaDone, Delete_Waiting), matching
-	// types.FuotaTaskStatus. Set to "Pending" at creation and advanced by
-	// StartFuotaTask; previously this was fabricated by overwriting
-	// FirmwareUpdateRole, corrupting that field -- see StartFuotaTask.
-	Status string `json:"status,omitempty"`
-	// AccountID and Region exist purely for store.Table's keyFn; see the
-	// identical comment on WirelessDevice above.
-	AccountID          string `json:"-"`
+	Descriptor          string     `json:"descriptor,omitempty"`
+	// Status is a types.FuotaTaskStatus value: Pending at creation, advanced by StartFuotaTask.
+	Status             string `json:"status,omitempty"`
+	ARN                string `json:"arn"`
 	Region             string `json:"-"`
-	FragmentIntervalMS int32  `json:"fragmentIntervalMs,omitempty"`
-	FragmentSizeBytes  int32  `json:"fragmentSizeBytes,omitempty"`
-	RedundancyPercent  int32  `json:"redundancyPercent,omitempty"`
+	Name               string `json:"name"`
+	stageDelay         time.Duration
+	FragmentSizeBytes  int32 `json:"fragmentSizeBytes,omitempty"`
+	RedundancyPercent  int32 `json:"redundancyPercent,omitempty"`
+	FragmentIntervalMS int32 `json:"fragmentIntervalMs,omitempty"`
 }
 
 // MulticastGroup represents an IoT Wireless multicast group.
@@ -201,12 +193,24 @@ type WirelessDeviceImportTask struct {
 
 // SingleWirelessDeviceImportTask represents an IoT Wireless single-device import task.
 type SingleWirelessDeviceImportTask struct {
-	CreatedAt        time.Time `json:"createdAt"`
-	ID               string    `json:"id"`
-	ARN              string    `json:"arn"`
-	WirelessDeviceID string    `json:"wirelessDeviceId"`
-	DestinationName  string    `json:"destinationName"`
-	Status           string    `json:"status"`
+	CreatedAt                      time.Time `json:"createdAt"`
+	ID                             string    `json:"id"`
+	ARN                            string    `json:"arn"`
+	WirelessDeviceID               string    `json:"wirelessDeviceId"`
+	DestinationName                string    `json:"destinationName"`
+	Status                         string    `json:"status"`
+	DeviceName                     string    `json:"deviceName,omitempty"`
+	Positioning                    string    `json:"positioning,omitempty"`
+	SidewalkManufacturingSn        string    `json:"sidewalkManufacturingSn,omitempty"`
+	SidewalkPositioningDestination string    `json:"sidewalkPositioningDestination,omitempty"`
+}
+
+// SingleImportDetails carries the optional StartSingleWirelessDeviceImportTask members.
+type SingleImportDetails struct {
+	DeviceName                     string
+	Positioning                    string
+	SidewalkManufacturingSn        string
+	SidewalkPositioningDestination string
 }
 
 // PositionConfigEntry represents a stored position configuration for a

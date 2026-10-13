@@ -2,10 +2,13 @@ package iot
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base32"
 	"fmt"
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,7 +29,9 @@ type RuleDispatcher interface {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
+	issuer                     certIssuer
 	dispatcher                 RuleDispatcher
+	serverCertChecker          ServerCertificateChecker
 	roleAuth                   roleauth.Authorizer
 	targets                    *ActionTargets
 	resourceTags               map[string]map[string]string
@@ -41,6 +46,7 @@ type InMemoryBackend struct {
 	auditMitigationTasks       map[string]string
 	auditTasks                 map[string]string
 	clientRequestTokens        map[string]string
+	opReplay                   *opReplayCache
 	thingGroupMembers          map[string][]string
 	policyVersions             map[string][]*PolicyVersion
 	provTemplateVersions       map[string][]*ProvisioningTemplateVersion
@@ -131,6 +137,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		auditMitigationTasks:   make(map[string]string),
 		auditTasks:             make(map[string]string),
 		clientRequestTokens:    make(map[string]string),
+		opReplay:               newOpReplayCache(),
 		thingGroupMembers:      make(map[string][]string),
 		policyVersions:         make(map[string][]*PolicyVersion),
 		provTemplateVersions:   make(map[string][]*ProvisioningTemplateVersion),
@@ -196,6 +203,7 @@ func (b *InMemoryBackend) Reset() {
 	b.auditMitigationTasks = make(map[string]string)
 	b.auditTasks = make(map[string]string)
 	b.clientRequestTokens = make(map[string]string)
+	b.opReplay.reset()
 	b.thingGroupMembers = make(map[string][]string)
 	b.policyVersions = make(map[string][]*PolicyVersion)
 	b.provTemplateVersions = make(map[string][]*ProvisioningTemplateVersion)
@@ -338,11 +346,19 @@ func (b *InMemoryBackend) CreateThing(input *CreateThingInput) (*CreateThingOutp
 		return nil, fmt.Errorf("%w: ThingName is required", ErrValidation)
 	}
 
+	if err := validateEntityName("ThingName", input.ThingName); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateThing")
 	defer b.mu.Unlock()
 
 	if b.things.Has(input.ThingName) {
 		return nil, fmt.Errorf("%w: thing %q already exists", ErrAlreadyExists, input.ThingName)
+	}
+
+	if err := b.checkAssignableThingTypeLocked(input.ThingTypeName); err != nil {
+		return nil, err
 	}
 
 	attrs := make(map[string]string)
@@ -456,11 +472,39 @@ func appendUnique(items []string, v string) []string {
 	return append(items, v)
 }
 
-// DescribeEndpoint returns the MQTT broker endpoint address.
-func (b *InMemoryBackend) DescribeEndpoint(_ string) (*DescribeEndpointOutput, error) {
-	return &DescribeEndpointOutput{
-		EndpointAddress: fmt.Sprintf("mqtt.%s.amazonaws.com", b.region),
-	}, nil
+// DescribeEndpoint returns the account's stable per-type endpoint address (identifier.iot.region.amazonaws.com).
+func (b *InMemoryBackend) DescribeEndpoint(endpointType string) (*DescribeEndpointOutput, error) {
+	id := endpointIdentifier(b.accountID, b.region)
+
+	var host string
+
+	switch endpointType {
+	case "", "iot:Data":
+		host = id + ".iot." + b.region + ".amazonaws.com"
+	case "iot:Data-ATS":
+		host = id + "-ats.iot." + b.region + ".amazonaws.com"
+	case "iot:CredentialProvider":
+		host = id + ".credentials.iot." + b.region + ".amazonaws.com"
+	case "iot:Jobs":
+		host = id + ".jobs.iot." + b.region + ".amazonaws.com"
+	default:
+		return nil, fmt.Errorf(
+			"%w: EndpointType must be iot:Data, iot:Data-ATS, iot:CredentialProvider or iot:Jobs, got %q",
+			ErrValidation, endpointType,
+		)
+	}
+
+	return &DescribeEndpointOutput{EndpointAddress: host}, nil
+}
+
+const endpointIDLen = 14
+
+// endpointIdentifier derives the account's endpoint prefix: 14 lowercase alphanumerics.
+func endpointIdentifier(accountID, region string) string {
+	sum := sha256.Sum256([]byte("iot-endpoint|" + accountID + "|" + region))
+	enc := strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:]))
+
+	return enc[:endpointIDLen]
 }
 
 // AcceptCertificateTransfer accepts a pending certificate transfer, moving
@@ -519,6 +563,10 @@ func (b *InMemoryBackend) AttachThingPrincipal(input *AttachThingPrincipalInput)
 	b.mu.Lock("AttachThingPrincipal")
 	defer b.mu.Unlock()
 
+	if !b.things.Has(input.ThingName) {
+		return fmt.Errorf("%w: %s", ErrThingNotFound, input.ThingName)
+	}
+
 	b.thingPrincipals[input.ThingName] = appendUnique(b.thingPrincipals[input.ThingName], input.Principal)
 
 	principalType := input.ThingPrincipalType
@@ -556,6 +604,12 @@ func (b *InMemoryBackend) UpdateThing(input *UpdateThingInput) error {
 		t.ThingTypeName = ""
 		t.ThingType = ""
 	} else if input.ThingTypeName != nil && *input.ThingTypeName != "" {
+		if *input.ThingTypeName != t.ThingTypeName {
+			if err := b.checkAssignableThingTypeLocked(*input.ThingTypeName); err != nil {
+				return err
+			}
+		}
+
 		t.ThingTypeName = *input.ThingTypeName
 		t.ThingType = *input.ThingTypeName
 	}

@@ -88,6 +88,7 @@ type AccountWithRestoreAccess struct {
 
 // Snapshot represents a Redshift cluster snapshot.
 type Snapshot struct {
+	Tags                          map[string]string          `json:"tags,omitempty"`
 	SnapshotCreateTime            time.Time                  `json:"snapshotCreateTime"`
 	SnapshotIdentifier            string                     `json:"snapshotIdentifier"`
 	ClusterIdentifier             string                     `json:"clusterIdentifier"`
@@ -297,11 +298,12 @@ type Integration struct {
 
 // IdcApplication represents a Redshift IDC application.
 type IdcApplication struct {
-	IdcApplicationArn  string `json:"redshiftIdcApplicationArn"`
-	IdcApplicationName string `json:"redshiftIdcApplicationName"`
-	IdcInstanceArn     string `json:"idcInstanceArn"`
-	IdcDisplayName     string `json:"idcDisplayName"`
-	IamRoleArn         string `json:"iamRoleArn"`
+	Tags               map[string]string `json:"tags,omitempty"`
+	IdcApplicationArn  string            `json:"redshiftIdcApplicationArn"`
+	IdcApplicationName string            `json:"redshiftIdcApplicationName"`
+	IdcInstanceArn     string            `json:"idcInstanceArn"`
+	IdcDisplayName     string            `json:"idcDisplayName"`
+	IamRoleArn         string            `json:"iamRoleArn"`
 	// ApplicationType mirrors types.ApplicationType ("None" or "Lakehouse"); it is
 	// set only on create -- real ModifyRedshiftIdcApplicationInput has no field
 	// for it (confirmed against aws-sdk-go-v2/service/redshift@v1.65.4/serializers.go
@@ -310,6 +312,7 @@ type IdcApplication struct {
 	IdentityNamespace         string                  `json:"identityNamespace,omitempty"`
 	AuthorizedTokenIssuerList []AuthorizedTokenIssuer `json:"authorizedTokenIssuerList,omitempty"`
 	SsoTagKeys                []string                `json:"ssoTagKeys,omitempty"`
+	ServiceIntegrations       []ServiceIntegration    `json:"serviceIntegrations,omitempty"`
 }
 
 // AuthorizedTokenIssuer is a trusted token issuer of an IDC application.

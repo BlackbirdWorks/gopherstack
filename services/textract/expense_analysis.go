@@ -148,6 +148,7 @@ func (b *InMemoryBackend) StartExpenseAnalysisWithOptions(
 
 		if b.asyncJobDelay == 0 {
 			job.JobStatus = jobStatusSucceeded
+			b.deliverExpenseJobLocked(job)
 			result = cloneExpenseJob(job)
 			done = true
 
@@ -167,6 +168,7 @@ func (b *InMemoryBackend) StartExpenseAnalysisWithOptions(
 
 		if j, ok := b.expenseJobs.Get(key); ok {
 			j.JobStatus = jobStatusSucceeded
+			b.deliverExpenseJobLocked(j)
 		}
 	})
 

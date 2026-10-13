@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"sync/atomic"
 	"time"
 )
 
@@ -381,6 +382,7 @@ type storedEntity struct {
 // storedTable is the backend's internal representation of a table.
 type storedTable struct {
 	Entities map[entityCompositeKey]*storedEntity
+	sorted   atomic.Pointer[[]*storedEntity]
 	Name     string
 }
 

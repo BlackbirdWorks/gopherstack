@@ -83,7 +83,13 @@ func newFullyPopulatedBackend(t *testing.T) (*workmail.InMemoryBackend, string) 
 	require.NoError(t, b.PutRetentionPolicy(orgID, "", "policy1", "desc", nil))
 
 	_, err = b.StartMailboxExportJob(
-		orgID, user.UserID, "desc", "arn:aws:iam::000000000000:role/export", "", "bucket", "prefix",
+		orgID,
+		user.UserID,
+		"desc",
+		"arn:aws:iam::000000000000:role/export",
+		"arn:aws:kms:us-east-1:000000000000:key/k1",
+		"bucket",
+		"prefix",
 	)
 	require.NoError(t, err)
 

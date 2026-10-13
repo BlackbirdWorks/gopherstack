@@ -15,6 +15,7 @@ type InMemoryBackend struct {
 	svcCtx             context.Context
 	mu                 *lockmetrics.RWMutex
 	registry           *store.Registry
+	guardrailLookup    GuardrailLookup
 	asyncInvokes       *store.Table[AsyncInvoke]
 	tokenIndex         map[string]string
 	accountID          string

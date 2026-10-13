@@ -97,9 +97,10 @@ type Target struct {
 
 // TargetHealthDescription describes the health state of a registered target.
 type TargetHealthDescription struct {
-	HealthState  string `json:"healthState"`
-	HealthReason string `json:"healthReason,omitempty"`
-	Target       Target `json:"target"`
+	HealthState       string `json:"healthState"`
+	HealthReason      string `json:"healthReason,omitempty"`
+	HealthDescription string `json:"healthDescription,omitempty"`
+	Target            Target `json:"target"`
 }
 
 // Action represents a listener or rule action.
@@ -326,6 +327,7 @@ type TrustStore struct {
 // CreateLoadBalancerInput holds the parameters for creating a load balancer.
 type CreateLoadBalancerInput struct {
 	Name                         string
+	PinnedID                     string
 	Scheme                       string
 	Type                         string
 	IPAddressType                string

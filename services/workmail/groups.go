@@ -31,8 +31,8 @@ func (b *InMemoryBackend) CreateGroup(orgID, name string, hidden bool) (*Group, 
 		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	if err := validateEntityName("group", name, maxGroupNameLen); err != nil {
+		return nil, err
 	}
 
 	for _, g := range b.groupsByOrg.Get(orgID) {
@@ -66,7 +66,7 @@ func (b *InMemoryBackend) DescribeGroup(orgID, entityID string) (*Group, error) 
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	g := b.findGroup(orgID, entityID)
 	if g == nil {
@@ -82,7 +82,7 @@ func (b *InMemoryBackend) UpdateGroup(orgID, entityID string, hidden bool) error
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	g := b.findGroup(orgID, entityID)
 	if g == nil {
@@ -148,7 +148,7 @@ func (b *InMemoryBackend) ListGroups(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, "", fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, "", fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	gs := make([]*GroupSummary, 0, len(b.groupsByOrg.Get(orgID)))
@@ -197,7 +197,7 @@ func (b *InMemoryBackend) AssociateMemberToGroup(orgID, groupID, memberID string
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	g := b.findGroup(orgID, groupID)
 	if g == nil {
@@ -223,7 +223,7 @@ func (b *InMemoryBackend) DisassociateMemberFromGroup(orgID, groupID, memberID s
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	g := b.findGroup(orgID, groupID)
 	if g == nil {
@@ -249,7 +249,7 @@ func (b *InMemoryBackend) ListGroupMembers(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, "", fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, "", fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	g := b.findGroup(orgID, groupID)
 	if g == nil {
@@ -292,7 +292,7 @@ func (b *InMemoryBackend) ListGroupsForEntity(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, "", fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, "", fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	gs := make([]*GroupSummary, 0)

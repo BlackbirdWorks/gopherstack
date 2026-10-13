@@ -1,6 +1,7 @@
 package neptune
 
 import (
+	"cmp"
 	"context"
 	"encoding/xml"
 	"fmt"
@@ -439,27 +440,31 @@ func (h *Handler) toXMLInstance(ctx context.Context, inst *DBInstance) xmlDBInst
 	}
 
 	return xmlDBInstance{
-		DBInstanceIdentifier:            inst.DBInstanceIdentifier,
-		DBInstanceArn:                   inst.DBInstanceArn,
-		DBClusterIdentifier:             inst.DBClusterIdentifier,
-		DBInstanceClass:                 inst.DBInstanceClass,
-		Engine:                          inst.Engine,
-		EngineVersion:                   inst.EngineVersion,
-		DBInstanceStatus:                inst.DBInstanceStatus,
-		InstanceCreateTime:              inst.InstanceCreateTime,
-		Endpoint:                        inst.Endpoint,
-		DBSubnetGroup:                   h.xmlInstanceSubnetGroup(ctx, inst.DBSubnetGroupName),
-		NetworkType:                     inst.NetworkType,
-		Port:                            inst.Port,
-		DBInstancePort:                  inst.Port,
-		StorageEncrypted:                inst.StorageEncrypted,
-		AutoMinorVersionUpgrade:         inst.AutoMinorVersionUpgrade,
-		MultiAZ:                         inst.MultiAZ,
-		PubliclyAccessible:              inst.PubliclyAccessible,
-		PreferredMaintenanceWindow:      inst.PreferredMaintenanceWindow,
-		PreferredBackupWindow:           inst.PreferredBackupWindow,
-		AvailabilityZone:                inst.AvailabilityZone,
-		DBParameterGroupName:            inst.DBParameterGroupName,
+		DBInstanceIdentifier:       inst.DBInstanceIdentifier,
+		DBInstanceArn:              inst.DBInstanceArn,
+		DbiResourceID:              inst.DbiResourceID,
+		DBClusterIdentifier:        inst.DBClusterIdentifier,
+		DBInstanceClass:            inst.DBInstanceClass,
+		Engine:                     inst.Engine,
+		EngineVersion:              inst.EngineVersion,
+		DBInstanceStatus:           observedStatus(inst.DBInstanceStatus, inst.readyAt),
+		InstanceCreateTime:         inst.InstanceCreateTime,
+		Endpoint:                   inst.Endpoint,
+		DBSubnetGroup:              h.xmlInstanceSubnetGroup(ctx, inst.DBSubnetGroupName),
+		NetworkType:                inst.NetworkType,
+		Port:                       inst.Port,
+		DBInstancePort:             inst.Port,
+		StorageEncrypted:           inst.StorageEncrypted,
+		AutoMinorVersionUpgrade:    inst.AutoMinorVersionUpgrade,
+		MultiAZ:                    inst.MultiAZ,
+		PubliclyAccessible:         inst.PubliclyAccessible,
+		PreferredMaintenanceWindow: inst.PreferredMaintenanceWindow,
+		PreferredBackupWindow:      inst.PreferredBackupWindow,
+		AvailabilityZone:           inst.AvailabilityZone,
+		DBParameterGroups: xmlDBParameterGroupStatusList{Members: []xmlDBParameterGroupStatus{{
+			DBParameterGroupName: cmp.Or(inst.DBParameterGroupName, pgFamilyDefaultNeptune13),
+			ParameterApplyStatus: instanceParameterApplyStatus(inst),
+		}}},
 		CopyTagsToSnapshot:              inst.CopyTagsToSnapshot,
 		EnableIAMDatabaseAuthentication: inst.EnableIAMDatabaseAuthentication,
 		PromotionTier:                   inst.PromotionTier,
@@ -505,11 +510,12 @@ type xmlDBInstance struct {
 	Endpoint                        string                            `xml:"Endpoint>Address,omitempty"`
 	MonitoringRoleArn               string                            `xml:"MonitoringRoleArn,omitempty"`
 	CACertificateIdentifier         string                            `xml:"CACertificateIdentifier,omitempty"`
-	DBParameterGroupName            string                            `xml:"DBParameterGroups>DBParameterGroup>DBParameterGroupName,omitempty"` //nolint:lll // nested query-protocol tag path, cannot be shortened
+	DBParameterGroups               xmlDBParameterGroupStatusList     `xml:"DBParameterGroups"`
 	PreferredMaintenanceWindow      string                            `xml:"PreferredMaintenanceWindow,omitempty"`
 	PreferredBackupWindow           string                            `xml:"PreferredBackupWindow,omitempty"`
 	DBInstanceIdentifier            string                            `xml:"DBInstanceIdentifier"`
 	DBInstanceArn                   string                            `xml:"DBInstanceArn,omitempty"`
+	DbiResourceID                   string                            `xml:"DbiResourceId,omitempty"`
 	VpcSecurityGroups               xmlVpcSecurityGroupMembershipList `xml:"VpcSecurityGroups,omitempty"`
 	DBSecurityGroups                xmlDBSecurityGroupMembershipList  `xml:"DBSecurityGroups,omitempty"`
 	PromotionTier                   int                               `xml:"PromotionTier,omitempty"`
@@ -738,3 +744,20 @@ func (h *Handler) dispatchDBInstanceAction(
 }
 
 func matchesOptional(want, got string) bool { return want == "" || want == got }
+
+type xmlDBParameterGroupStatus struct {
+	DBParameterGroupName string `xml:"DBParameterGroupName"`
+	ParameterApplyStatus string `xml:"ParameterApplyStatus"`
+}
+
+type xmlDBParameterGroupStatusList struct {
+	Members []xmlDBParameterGroupStatus `xml:"DBParameterGroup"`
+}
+
+func instanceParameterApplyStatus(inst *DBInstance) string {
+	if inst.ParameterPendingReboot {
+		return parameterApplyPendingReboot
+	}
+
+	return parameterApplyInSync
+}

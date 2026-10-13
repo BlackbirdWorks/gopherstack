@@ -12,6 +12,7 @@ import (
 	"hash"
 	"math/rand/v2"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -78,10 +79,6 @@ func evaluateIntrinsicFunction(expr string, input any) (any, error) {
 	}
 
 	if r, dispErr := evalExtraIntrinsic(fnName, args); !errors.Is(dispErr, errIntrinsicNotHandled) {
-		return r, dispErr
-	}
-
-	if r, dispErr := evalParityIntrinsic(fnName, args); !errors.Is(dispErr, errIntrinsicNotHandled) {
 		return r, dispErr
 	}
 
@@ -365,15 +362,31 @@ func intrinsicArrayPartition(args []any) (any, error) {
 		return nil, ErrStatesArrayPartitionSizeNotPositive
 	}
 
-	size := int(sizeF)
-	chunks := make([]any, 0, (len(arr)+size-1)/size)
+	if len(arr) == 0 {
+		return []any{}, nil
+	}
+
+	size := 1
+	if sizeF >= float64(len(arr)) {
+		size = len(arr)
+	} else if sizeF > 1 {
+		size = int(sizeF)
+	}
+
+	if size > len(arr) {
+		size = len(arr)
+	}
+
+	if size < 1 {
+		size = 1
+	}
+
+	chunks := make([]any, 0)
 
 	for i := 0; i < len(arr); i += size {
 		end := min(i+size, len(arr))
 
-		chunk := make([]any, end-i)
-		copy(chunk, arr[i:end])
-		chunks = append(chunks, chunk)
+		chunks = append(chunks, slices.Clone(arr[i:end]))
 	}
 
 	return chunks, nil

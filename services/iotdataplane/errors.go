@@ -39,3 +39,11 @@ var ErrRequestTooLarge = errors.New("RequestEntityTooLargeException")
 
 // ErrConnectionExists is returned when trying to register a clientID that is already connected.
 var ErrConnectionExists = errors.New("connection already exists")
+
+// ErrDeliveryTimeout is returned when SendDirectMessage's confirmation (PUBACK) does not arrive in time.
+// Wire error code "GatewayTimeoutException", HTTP 504 (SendDirectMessageInput.Confirmation doc).
+var ErrDeliveryTimeout = errors.New("GatewayTimeoutException")
+
+// ErrUnsupportedDocumentEncoding is returned for a non-UTF-8 shadow document. Wire code
+// "UnsupportedDocumentEncodingException", HTTP 415 (IoT developer guide, Device Shadow error messages).
+var ErrUnsupportedDocumentEncoding = errors.New("unsupported documented encoding; supported encoding is UTF-8")

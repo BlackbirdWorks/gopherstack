@@ -23,24 +23,25 @@ type environmentTierType struct {
 }
 
 type environmentDescType struct {
-	ApplicationName   string              `xml:"ApplicationName"`
-	EnvironmentName   string              `xml:"EnvironmentName"`
-	EnvironmentID     string              `xml:"EnvironmentId"`
-	EnvironmentArn    string              `xml:"EnvironmentArn"`
-	Description       string              `xml:"Description,omitempty"`
-	SolutionStackName string              `xml:"SolutionStackName"`
-	PlatformArn       string              `xml:"PlatformArn,omitempty"`
-	TemplateName      string              `xml:"TemplateName,omitempty"`
-	VersionLabel      string              `xml:"VersionLabel,omitempty"`
-	OperationsRole    string              `xml:"OperationsRole,omitempty"`
-	DateCreated       string              `xml:"DateCreated,omitempty"`
-	DateUpdated       string              `xml:"DateUpdated,omitempty"`
-	Status            string              `xml:"Status"`
-	Health            string              `xml:"Health"`
-	HealthStatus      string              `xml:"HealthStatus"`
-	Tier              environmentTierType `xml:"Tier"`
-	CNAME             string              `xml:"CNAME"`
-	EndpointURL       string              `xml:"EndpointURL"`
+	ApplicationName   string                `xml:"ApplicationName"`
+	EnvironmentName   string                `xml:"EnvironmentName"`
+	EnvironmentID     string                `xml:"EnvironmentId"`
+	EnvironmentArn    string                `xml:"EnvironmentArn"`
+	Description       string                `xml:"Description,omitempty"`
+	SolutionStackName string                `xml:"SolutionStackName"`
+	PlatformArn       string                `xml:"PlatformArn,omitempty"`
+	TemplateName      string                `xml:"TemplateName,omitempty"`
+	VersionLabel      string                `xml:"VersionLabel,omitempty"`
+	OperationsRole    string                `xml:"OperationsRole,omitempty"`
+	DateCreated       string                `xml:"DateCreated,omitempty"`
+	DateUpdated       string                `xml:"DateUpdated,omitempty"`
+	Status            string                `xml:"Status"`
+	Health            string                `xml:"Health"`
+	HealthStatus      string                `xml:"HealthStatus"`
+	Tier              environmentTierType   `xml:"Tier"`
+	CNAME             string                `xml:"CNAME"`
+	EndpointURL       string                `xml:"EndpointURL"`
+	EnvironmentLinks  []environmentLinkType `xml:"EnvironmentLinks>member"`
 	// AbortableOperationInProgress is a real *bool member on every real
 	// EnvironmentDescription response; this backend applies environment
 	// updates synchronously (see configDeploymentStatusDeployed's doc
@@ -50,6 +51,20 @@ type environmentDescType struct {
 	// and dereferencing a nil pointer (the result of never emitting this
 	// element at all) panics where real AWS would give a safe `false`.
 	AbortableOperationInProgress bool `xml:"AbortableOperationInProgress"`
+}
+
+type environmentLinkType struct {
+	LinkName        string `xml:"LinkName"`
+	EnvironmentName string `xml:"EnvironmentName"`
+}
+
+func toEnvironmentLinks(links []EnvironmentLink) []environmentLinkType {
+	out := make([]environmentLinkType, 0, len(links))
+	for _, l := range links {
+		out = append(out, environmentLinkType(l))
+	}
+
+	return out
 }
 
 func toEnvironmentDesc(env *Environment) environmentDescType {
@@ -92,7 +107,7 @@ func toEnvironmentDesc(env *Environment) environmentDescType {
 		DateUpdated:       env.DateUpdated,
 		Status:            env.Status,
 		Health:            env.Health,
-		HealthStatus:      envHealthStatusOk,
+		HealthStatus:      healthStatusFor(env.Status),
 		Tier: environmentTierType{
 			Name:    tierName,
 			Type:    tierType,
@@ -100,6 +115,7 @@ func toEnvironmentDesc(env *Environment) environmentDescType {
 		},
 		CNAME:                        cname,
 		EndpointURL:                  cname,
+		EnvironmentLinks:             toEnvironmentLinks(env.EnvironmentLinks),
 		AbortableOperationInProgress: false,
 	}
 }
@@ -175,7 +191,7 @@ func (h *Handler) handleCreateEnvironment(ctx context.Context, vals url.Values) 
 	return &createEnvironmentResponse{
 		Xmlns:                   ebXMLNS,
 		CreateEnvironmentResult: toEnvironmentDesc(env),
-		ResponseMetadata:        responseMetadata{RequestID: "eb-create-env"},
+		ResponseMetadata:        newResponseMetadata(ctx, "eb-create-env"),
 	}, nil
 }
 
@@ -251,7 +267,7 @@ func (h *Handler) handleDescribeEnvironments(ctx context.Context, vals url.Value
 			Environments: members,
 			NextToken:    pg.Next,
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-describe-envs"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-describe-envs"),
 	}, nil
 }
 
@@ -306,7 +322,7 @@ func (h *Handler) handleUpdateEnvironment(ctx context.Context, vals url.Values) 
 	return &updateEnvironmentResponse{
 		Xmlns:                   ebXMLNS,
 		UpdateEnvironmentResult: toEnvironmentDesc(env),
-		ResponseMetadata:        responseMetadata{RequestID: "eb-update-env"},
+		ResponseMetadata:        newResponseMetadata(ctx, "eb-update-env"),
 	}, nil
 }
 
@@ -350,7 +366,7 @@ func (h *Handler) handleTerminateEnvironment(ctx context.Context, vals url.Value
 	return &terminateEnvironmentResponse{
 		Xmlns:                      ebXMLNS,
 		TerminateEnvironmentResult: toEnvironmentDesc(env),
-		ResponseMetadata:           responseMetadata{RequestID: "eb-terminate-env"},
+		ResponseMetadata:           newResponseMetadata(ctx, "eb-terminate-env"),
 	}, nil
 }
 
@@ -478,7 +494,7 @@ func (h *Handler) handleDescribeEnvironmentResources(ctx context.Context, vals u
 		DescribeEnvironmentResourcesResult: describeEnvironmentResourcesResult{
 			EnvironmentResources: resources,
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-describe-env-resources"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-describe-env-resources"),
 	}, nil
 }
 
@@ -500,7 +516,7 @@ func (h *Handler) handleRestartAppServer(ctx context.Context, vals url.Values) (
 
 	return &restartAppServerResponse{
 		Xmlns:            ebXMLNS,
-		ResponseMetadata: responseMetadata{RequestID: "eb-restart-app-server"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-restart-app-server"),
 	}, nil
 }
 
@@ -520,7 +536,7 @@ func (h *Handler) handleRebuildEnvironment(ctx context.Context, vals url.Values)
 
 	return &rebuildEnvironmentResponse{
 		Xmlns:            ebXMLNS,
-		ResponseMetadata: responseMetadata{RequestID: "eb-rebuild-environment"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-rebuild-environment"),
 	}, nil
 }
 
@@ -539,7 +555,7 @@ func (h *Handler) handleAbortEnvironmentUpdate(ctx context.Context, vals url.Val
 
 	return &abortEnvironmentUpdateResponse{
 		Xmlns:            ebXMLNS,
-		ResponseMetadata: responseMetadata{RequestID: "eb-abort-env-update"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-abort-env-update"),
 	}, nil
 }
 
@@ -568,7 +584,7 @@ func (h *Handler) handleAssociateEnvironmentOperationsRole(ctx context.Context, 
 
 	return &associateEnvironmentOperationsRoleResponse{
 		Xmlns:            ebXMLNS,
-		ResponseMetadata: responseMetadata{RequestID: "eb-assoc-ops-role"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-assoc-ops-role"),
 	}, nil
 }
 
@@ -601,7 +617,7 @@ func (h *Handler) handleCheckDNSAvailability(ctx context.Context, vals url.Value
 			Available:           available,
 			FullyQualifiedCNAME: fqcname,
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-check-dns"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-check-dns"),
 	}, nil
 }
 
@@ -625,7 +641,14 @@ func (h *Handler) handleComposeEnvironments(ctx context.Context, vals url.Values
 		return nil, fmt.Errorf("%w: ApplicationName is required", ErrInvalidParameter)
 	}
 
-	envs := h.Backend.ComposeEnvironments(ctx, appName)
+	envs, err := h.Backend.ComposeEnvironments(ctx, ComposeEnvironmentsParams{
+		ApplicationName: appName,
+		GroupName:       vals.Get("GroupName"),
+		VersionLabels:   parseMembers(vals, "VersionLabels.member"),
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	members := make([]environmentDescType, 0, len(envs))
 
@@ -636,7 +659,7 @@ func (h *Handler) handleComposeEnvironments(ctx context.Context, vals url.Values
 	return &composeEnvironmentsResponse{
 		Xmlns:                     ebXMLNS,
 		ComposeEnvironmentsResult: composeEnvironmentsResult{Environments: members},
-		ResponseMetadata:          responseMetadata{RequestID: "eb-compose-envs"},
+		ResponseMetadata:          newResponseMetadata(ctx, "eb-compose-envs"),
 	}, nil
 }
 
@@ -679,7 +702,7 @@ func (h *Handler) handleDescribeEnvironmentHealth(ctx context.Context, vals url.
 	// which is NOT a member of the real EnvironmentHealthStatus enum -- see
 	// envHealthStatusOk's doc comment. status is the real EnvironmentStatus
 	// value ("Ready") and is correct as-is.
-	_, status, err := h.Backend.DescribeEnvironmentHealth(ctx, envName)
+	color, status, err := h.Backend.DescribeEnvironmentHealth(ctx, envName)
 	if err != nil {
 		return nil, err
 	}
@@ -697,7 +720,7 @@ func (h *Handler) handleDescribeEnvironmentHealth(ctx context.Context, vals url.
 	wants := func(attr string) bool { return wantsAll || slices.Contains(attrs, attr) }
 
 	if wants("HealthStatus") {
-		result.HealthStatus = envHealthStatusOk
+		result.HealthStatus = healthStatusFor(status)
 	}
 
 	if wants("Status") {
@@ -705,7 +728,7 @@ func (h *Handler) handleDescribeEnvironmentHealth(ctx context.Context, vals url.
 	}
 
 	if wants("Color") {
-		result.Color = healthColorGreen
+		result.Color = color
 	}
 
 	if wants("RefreshedAt") {
@@ -715,7 +738,7 @@ func (h *Handler) handleDescribeEnvironmentHealth(ctx context.Context, vals url.
 	return &describeEnvironmentHealthResponse{
 		Xmlns:                           ebXMLNS,
 		DescribeEnvironmentHealthResult: result,
-		ResponseMetadata:                responseMetadata{RequestID: "eb-describe-env-health"},
+		ResponseMetadata:                newResponseMetadata(ctx, "eb-describe-env-health"),
 	}, nil
 }
 
@@ -738,7 +761,7 @@ func (h *Handler) handleDisassociateEnvironmentOperationsRole(ctx context.Contex
 
 	return &disassociateEnvironmentOperationsRoleResponse{
 		Xmlns:            ebXMLNS,
-		ResponseMetadata: responseMetadata{RequestID: "eb-disassoc-ops-role"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-disassoc-ops-role"),
 	}, nil
 }
 
@@ -765,13 +788,13 @@ var availableSolutionStacks = []string{ //nolint:gochecknoglobals // package-lev
 	"64bit Amazon Linux 2023 v4.3.0 running Docker",
 }
 
-func (h *Handler) handleListAvailableSolutionStacks(_ context.Context, _ url.Values) (any, error) {
+func (h *Handler) handleListAvailableSolutionStacks(ctx context.Context, _ url.Values) (any, error) {
 	return &listAvailableSolutionStacksResponse{
 		Xmlns: ebXMLNS,
 		ListAvailableSolutionStacksResult: listAvailableSolutionStacksResult{
 			SolutionStacks: availableSolutionStacks,
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-list-solution-stacks"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-list-solution-stacks"),
 	}, nil
 }
 
@@ -810,7 +833,7 @@ func (h *Handler) handleRequestEnvironmentInfo(ctx context.Context, vals url.Val
 
 	return &requestEnvironmentInfoResponse{
 		Xmlns:            ebXMLNS,
-		ResponseMetadata: responseMetadata{RequestID: "eb-request-env-info"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-request-env-info"),
 	}, nil
 }
 
@@ -850,7 +873,7 @@ func (h *Handler) handleRetrieveEnvironmentInfo(ctx context.Context, vals url.Va
 		RetrieveEnvironmentInfoResult: retrieveEnvironmentInfoResult{
 			EnvironmentInfo: []environmentInfoDescription{},
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-retrieve-env-info"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-retrieve-env-info"),
 	}, nil
 }
 
@@ -905,6 +928,17 @@ func (h *Handler) handleSwapEnvironmentCNAMEs(ctx context.Context, vals url.Valu
 
 	return &swapEnvironmentCNAMEsResponse{
 		Xmlns:            ebXMLNS,
-		ResponseMetadata: responseMetadata{RequestID: "eb-swap-cnames"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-swap-cnames"),
 	}, nil
+}
+
+func healthStatusFor(status string) string {
+	switch status {
+	case envStatusLaunching:
+		return "Pending"
+	case envStatusTerminating, envStatusTerminated:
+		return "Unknown"
+	default:
+		return envHealthStatusOk
+	}
 }

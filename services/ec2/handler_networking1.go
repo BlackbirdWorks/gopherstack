@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"strconv"
 	"time"
@@ -164,16 +165,14 @@ type modifyLaunchTemplateResponse struct {
 }
 
 type launchTemplateVersionItem struct {
-	LaunchTemplateData struct {
-		ImageID      string `xml:"imageId"`
-		InstanceType string `xml:"instanceType"`
-	} `xml:"launchTemplateData"`
-	LaunchTemplateID   string `xml:"launchTemplateId"`
-	LaunchTemplateName string `xml:"launchTemplateName"`
-	CreatedBy          string `xml:"createdBy"`
-	CreateTime         string `xml:"createTime"`
-	VersionNumber      int64  `xml:"versionNumber"`
-	DefaultVersion     bool   `xml:"defaultVersion"`
+	VersionDescription string    `xml:"versionDescription,omitempty"`
+	LaunchTemplateID   string    `xml:"launchTemplateId"`
+	LaunchTemplateName string    `xml:"launchTemplateName"`
+	CreatedBy          string    `xml:"createdBy"`
+	CreateTime         string    `xml:"createTime"`
+	LaunchTemplateData ltDataXML `xml:"launchTemplateData"`
+	VersionNumber      int64     `xml:"versionNumber"`
+	DefaultVersion     bool      `xml:"defaultVersion"`
 }
 
 type createLaunchTemplateVersionResponse struct {
@@ -188,6 +187,14 @@ type deletedLaunchTemplateVersionItem struct {
 	VersionNumber      int64  `xml:"versionNumber"`
 }
 
+type failedLaunchTemplateVersionItem struct {
+	LaunchTemplateID   string `xml:"launchTemplateId"`
+	LaunchTemplateName string `xml:"launchTemplateName"`
+	Code               string `xml:"responseError>code"`
+	Message            string `xml:"responseError>message"`
+	VersionNumber      int64  `xml:"versionNumber"`
+}
+
 type deleteLaunchTemplateVersionsResponse struct {
 	XMLName                                   xml.Name `xml:"DeleteLaunchTemplateVersionsResponse"`
 	RequestID                                 string   `xml:"requestId"`
@@ -195,7 +202,7 @@ type deleteLaunchTemplateVersionsResponse struct {
 		Items []deletedLaunchTemplateVersionItem `xml:"item"`
 	} `xml:"successfullyDeletedLaunchTemplateVersionSet"`
 	UnsuccessfullyDeletedLaunchTemplateVersions struct {
-		Items []struct{} `xml:"item"`
+		Items []failedLaunchTemplateVersionItem `xml:"item"`
 	} `xml:"unsuccessfullyDeletedLaunchTemplateVersionSet"`
 }
 
@@ -499,7 +506,7 @@ func (h *Handler) handleDeleteDhcpOptions(vals url.Values, reqID string) (any, e
 // never actually changed.
 func (h *Handler) handleModifyLaunchTemplate(vals url.Values, reqID string) (any, error) {
 	defaultVersion, _ := strconv.ParseInt(vals.Get("SetDefaultVersion"), 10, 64)
-	lt, err := h.Backend.ModifyLaunchTemplate(vals.Get("LaunchTemplateId"), defaultVersion)
+	lt, err := h.Backend.ModifyLaunchTemplateByRef(h.launchTemplateRef(vals), defaultVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -519,36 +526,19 @@ func (h *Handler) handleModifyLaunchTemplate(vals url.Values, reqID string) (any
 }
 
 func (h *Handler) handleCreateLaunchTemplateVersion(vals url.Values, reqID string) (any, error) {
-	ltID := vals.Get("LaunchTemplateId")
-	if ltID == "" {
-		ltID = vals.Get("LaunchTemplateName")
-	}
-
-	ver, err := h.Backend.CreateLaunchTemplateVersion(
-		ltID,
-		vals.Get("LaunchTemplateData.ImageId"),
-		vals.Get("LaunchTemplateData.InstanceType"),
+	ver, err := h.Backend.CreateLaunchTemplateVersionWithData(
+		h.launchTemplateRef(vals),
 		vals.Get("SourceVersion"),
+		vals.Get("VersionDescription"),
+		launchTemplateDataFromVals(vals),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	item := launchTemplateVersionItem{
-		LaunchTemplateID:   ver.LaunchTemplateID,
-		LaunchTemplateName: ver.LaunchTemplateName,
-		CreatedBy:          ver.CreatedBy,
-		VersionNumber:      ver.VersionNumber,
-		DefaultVersion:     ver.DefaultVersion,
-		CreateTime:         ver.CreateTime.Format(time.RFC3339),
-	}
-	item.LaunchTemplateData.ImageID = ver.ImageID
-	item.LaunchTemplateData.InstanceType = ver.InstanceType
-
-	if vals.Get("ResolveAlias") == ec2BooleanTrue {
-		if item.LaunchTemplateData.ImageID, err = h.Backend.ResolveSSMImageAlias(ver.ImageID); err != nil {
-			return nil, err
-		}
+	item, err := h.launchTemplateVersionItemFor(*ver, vals.Get("ResolveAlias") == ec2BooleanTrue)
+	if err != nil {
+		return nil, err
 	}
 
 	return &createLaunchTemplateVersionResponse{
@@ -557,27 +547,59 @@ func (h *Handler) handleCreateLaunchTemplateVersion(vals url.Values, reqID strin
 	}, nil
 }
 
+func (h *Handler) launchTemplateVersionItemFor(
+	v LaunchTemplateVersion,
+	resolveAlias bool,
+) (launchTemplateVersionItem, error) {
+	data := v.effectiveData()
+
+	if resolveAlias && data["ImageId"] != "" {
+		resolved, err := h.Backend.ResolveSSMImageAlias(data["ImageId"])
+		if err != nil {
+			return launchTemplateVersionItem{}, err
+		}
+
+		data["ImageId"] = resolved
+	}
+
+	return launchTemplateVersionItem{
+		LaunchTemplateData: renderLaunchTemplateData(data),
+		LaunchTemplateID:   v.LaunchTemplateID,
+		LaunchTemplateName: v.LaunchTemplateName,
+		CreatedBy:          v.CreatedBy,
+		CreateTime:         v.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
+		VersionDescription: v.Description,
+		VersionNumber:      v.VersionNumber,
+		DefaultVersion:     v.DefaultVersion,
+	}, nil
+}
+
+// launchTemplateRef returns LaunchTemplateId, falling back to LaunchTemplateName.
+func (h *Handler) launchTemplateRef(vals url.Values) string {
+	if id := vals.Get("LaunchTemplateId"); id != "" {
+		return id
+	}
+
+	return vals.Get("LaunchTemplateName")
+}
+
 func (h *Handler) handleDeleteLaunchTemplateVersions(vals url.Values, reqID string) (any, error) {
-	ltID := vals.Get("LaunchTemplateId")
 	versionStrs := parseMemberList(vals, "LaunchTemplateVersion")
 
 	versions := make([]int64, 0, len(versionStrs))
 
 	for _, s := range versionStrs {
 		v, err := strconv.ParseInt(s, 10, 64)
-		if err == nil {
-			versions = append(versions, v)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid launch template version %q", ErrInvalidParameter, s)
 		}
+
+		versions = append(versions, v)
 	}
 
-	deleted, err := h.Backend.DeleteLaunchTemplateVersions(ltID, versions)
+	lt, deleted, missing, err := h.Backend.DeleteLaunchTemplateVersionsDetailed(h.launchTemplateRef(vals), versions)
 	if err != nil {
 		return nil, err
-	}
-
-	ltName := ""
-	if lts, ltErr := h.Backend.DescribeLaunchTemplateVersions(ltID); ltErr == nil && len(lts) > 0 {
-		ltName = lts[0].Name
 	}
 
 	resp := &deleteLaunchTemplateVersionsResponse{RequestID: reqID}
@@ -585,7 +607,18 @@ func (h *Handler) handleDeleteLaunchTemplateVersions(vals url.Values, reqID stri
 	for _, v := range deleted {
 		resp.SuccessfullyDeletedLaunchTemplateVersions.Items = append(
 			resp.SuccessfullyDeletedLaunchTemplateVersions.Items,
-			deletedLaunchTemplateVersionItem{LaunchTemplateID: ltID, LaunchTemplateName: ltName, VersionNumber: v},
+			deletedLaunchTemplateVersionItem{LaunchTemplateID: lt.ID, LaunchTemplateName: lt.Name, VersionNumber: v},
+		)
+	}
+
+	for _, v := range missing {
+		resp.UnsuccessfullyDeletedLaunchTemplateVersions.Items = append(
+			resp.UnsuccessfullyDeletedLaunchTemplateVersions.Items,
+			failedLaunchTemplateVersionItem{
+				LaunchTemplateID: lt.ID, LaunchTemplateName: lt.Name, VersionNumber: v,
+				Code:    "launchTemplateVersionDoesNotExist",
+				Message: fmt.Sprintf("Version %d of launch template %s does not exist", v, lt.ID),
+			},
 		)
 	}
 

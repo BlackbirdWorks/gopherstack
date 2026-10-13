@@ -16,6 +16,10 @@ func (h *Handler) opCreateRateBasedRule(body []byte) (any, error) {
 		return nil, err
 	}
 
+	if err := validateCreateNames(in.Name, in.MetricName); err != nil {
+		return nil, err
+	}
+
 	rule, err := h.Backend.CreateRateBasedRule(
 		in.Name, in.MetricName, in.RateKey, in.RateLimit, in.ChangeToken, tagsToMap(in.Tags),
 	)
@@ -90,8 +94,12 @@ func (h *Handler) opListRateBasedRules(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	page, next := paginate(h.Backend.ListRateBasedRules(), in.NextMarker, in.Limit,
+	page, next, err := paginate(h.Backend.ListRateBasedRules(), in.NextMarker, in.Limit,
 		func(s RateBasedRuleSummary) string { return s.RuleId })
+	if err != nil {
+		return nil, err
+	}
+
 	result := map[string]any{"Rules": page}
 	if next != "" {
 		result["NextMarker"] = next

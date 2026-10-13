@@ -73,7 +73,11 @@ func TestNatGatewayOperations(t *testing.T) {
 				ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID, nil)
 				require.NoError(t, err)
 				assert.NotEmpty(t, ngw.ID)
-				assert.Equal(t, "available", ngw.State)
+				assert.Equal(t, "pending", ngw.State)
+				b.TickLifecycleForTest()
+				got := b.DescribeNatGateways([]string{ngw.ID})
+				require.Len(t, got, 1)
+				assert.Equal(t, "available", got[0].State)
 				assert.NotEmpty(t, ngw.PublicIP)
 				assert.NotEmpty(t, ngw.PrivateIP)
 
@@ -104,6 +108,10 @@ func TestNatGatewayOperations(t *testing.T) {
 				require.NoError(t, err)
 				ngws := b.DescribeNatGateways([]string{ngw.ID})
 				require.Len(t, ngws, 1, "a by-ID describe should still find the deleted gateway as a tombstone")
+				assert.Equal(t, "deleting", ngws[0].State)
+				b.TickLifecycleForTest()
+				ngws = b.DescribeNatGateways([]string{ngw.ID})
+				require.Len(t, ngws, 1)
 				assert.Equal(t, "deleted", ngws[0].State)
 
 				for _, live := range b.DescribeNatGateways(nil) {

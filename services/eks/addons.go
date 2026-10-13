@@ -66,7 +66,7 @@ func (b *InMemoryBackend) CreateAddon(
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	if _, ok := b.addons.Get(addonKey(clusterName, addonName)); ok {
@@ -123,7 +123,7 @@ func (b *InMemoryBackend) CreateAddon(
 	b.addons.Put(addon)
 	b.replaceAddonPodIdentityAssociationsLocked(clusterName, addon, podIdentityAssociations)
 
-	b.work.After("AddonTransition", addonTransitionDelay, func() {
+	b.work.After("AddonTransition", b.dwell(addonTransitionDelay), func() {
 		b.mu.Lock("CreateAddon-async")
 		defer b.mu.Unlock()
 
@@ -147,16 +147,20 @@ func (b *InMemoryBackend) DeleteAddon(clusterName, addonName string, preserve bo
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	addon, ok := b.addons.Get(addonKey(clusterName, addonName))
 	if !ok {
-		return nil, fmt.Errorf("%w: addon %s not found in cluster %s", ErrNotFound, addonName, clusterName)
+		return nil, fmt.Errorf("%w: No addon: %s found in cluster: %s", ErrNotFound, addonName, clusterName)
 	}
 
 	if !preserve {
 		b.replaceAddonPodIdentityAssociationsLocked(clusterName, addon, nil)
+	}
+
+	if b.deferDeletes() {
+		return b.beginAddonDeleteLocked(addon), nil
 	}
 
 	cp := *addon
@@ -177,12 +181,12 @@ func (b *InMemoryBackend) DescribeAddon(clusterName, addonName string) (*Addon, 
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	addon, ok := b.addons.Get(addonKey(clusterName, addonName))
 	if !ok {
-		return nil, fmt.Errorf("%w: addon %s not found in cluster %s", ErrNotFound, addonName, clusterName)
+		return nil, fmt.Errorf("%w: No addon: %s found in cluster: %s", ErrNotFound, addonName, clusterName)
 	}
 
 	cp := *addon
@@ -196,7 +200,7 @@ func (b *InMemoryBackend) ListAddons(clusterName string) ([]string, error) {
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	items := b.addonsByCluster.Get(clusterName)
@@ -225,12 +229,12 @@ func (b *InMemoryBackend) UpdateAddon(
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	addon, ok := b.addons.Get(addonKey(clusterName, addonName))
 	if !ok {
-		return nil, fmt.Errorf("%w: addon %s not found in cluster %s", ErrNotFound, addonName, clusterName)
+		return nil, fmt.Errorf("%w: No addon: %s found in cluster: %s", ErrNotFound, addonName, clusterName)
 	}
 
 	if resolveConflicts != "" && !isValidResolveConflicts(resolveConflicts) {

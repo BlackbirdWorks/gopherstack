@@ -31,6 +31,10 @@ func (h *Handler) handleCreateHTTPNamespace(_ context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
+	if err := validateNamespaceName("http", req.Name); err != nil {
+		return nil, err
+	}
+
 	if err := validateTags(req.Tags); err != nil {
 		return nil, err
 	}
@@ -62,6 +66,10 @@ func (h *Handler) handleCreatePrivateDNSNamespace(_ context.Context, body []byte
 
 	if req.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if err := validateNamespaceName("private", req.Name); err != nil {
+		return nil, err
 	}
 
 	if err := validateTags(req.Tags); err != nil {
@@ -99,6 +107,10 @@ func (h *Handler) handleCreatePublicDNSNamespace(_ context.Context, body []byte)
 
 	if req.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if err := validateNamespaceName("public", req.Name); err != nil {
+		return nil, err
 	}
 
 	if err := validateTags(req.Tags); err != nil {

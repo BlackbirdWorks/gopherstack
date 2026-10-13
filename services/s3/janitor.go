@@ -220,7 +220,7 @@ func (j *Janitor) cleanupDefaultMultipart(_ context.Context) {
 	defer b.mu.Unlock()
 
 	for _, uploadID := range expired {
-		b.uploads.Delete(uploadID)
+		b.deleteUploadLocked(uploadID)
 	}
 }
 
@@ -328,6 +328,6 @@ func (j *Janitor) abortStaleMultipartUploads(bucketName string, cfg *lifecycleCo
 	}
 
 	for _, uploadID := range stale {
-		b.uploads.Delete(uploadID)
+		b.deleteUploadLocked(uploadID)
 	}
 }

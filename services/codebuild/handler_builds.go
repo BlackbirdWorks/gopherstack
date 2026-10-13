@@ -69,6 +69,11 @@ func (h *Handler) handleStartBuild(
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
 
+	if t := in.TimeoutInMinutesOverride; t != 0 && (t < minBuildTimeoutMinutes || t > maxBuildTimeoutMinutes) {
+		return nil, fmt.Errorf("%w: timeoutInMinutesOverride must be between %d and %d",
+			ErrValidation, minBuildTimeoutMinutes, maxBuildTimeoutMinutes)
+	}
+
 	build, err := h.Backend.StartBuild(in.ProjectName, StartBuildConfig{
 		EnvVarsOverride:                  in.EnvironmentVariablesOverride,
 		BuildspecOverride:                in.BuildspecOverride,

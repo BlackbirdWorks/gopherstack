@@ -174,6 +174,7 @@ func (b *InMemoryBackend) checkSAMLTrust(input *AssumeRoleWithSAMLInput) error {
 	return evaluateAssumeRoleTrust(meta.TrustPolicy, trustEval{
 		action:       actionAssumeRoleWithSAML,
 		federatedArn: input.PrincipalArn,
+		conditionCtx: withSourceIP(map[string]string{}, input.SourceIP),
 	})
 }
 

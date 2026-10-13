@@ -24,6 +24,17 @@ func (b *InMemoryBackend) CreateDeploymentStrategy(
 		return nil, fmt.Errorf("%w: Name is required", ErrBadRequest)
 	}
 
+	growthType, replicateTo, err := validateStrategyParams(
+		deploymentDuration,
+		bakeTime,
+		growthFactor,
+		growthType,
+		replicateTo,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	if len(b.deploymentStrategiesByName.Get(name)) > 0 {
 		return nil, fmt.Errorf(
 			"%w: deployment strategy with name %q already exists",
@@ -104,6 +115,7 @@ func (b *InMemoryBackend) UpdateDeploymentStrategy(
 	description *string,
 	deploymentDuration, bakeTime int32,
 	growthFactor float32,
+	growthType *string,
 ) (*DeploymentStrategy, error) {
 	b.mu.Lock("UpdateDeploymentStrategy")
 	defer b.mu.Unlock()
@@ -117,7 +129,19 @@ func (b *InMemoryBackend) UpdateDeploymentStrategy(
 		)
 	}
 
+	gt := existing.GrowthType
+	if growthType != nil {
+		gt = *growthType
+	}
+
+	gt, _, err := validateStrategyParams(deploymentDuration, bakeTime, growthFactor, gt, "")
+	if err != nil {
+		return nil, err
+	}
+
 	updated := *existing
+	updated.GrowthType = gt
+
 	if name != "" {
 		updated.Name = name
 	}
@@ -180,4 +204,53 @@ func deploymentStrategyToOutput(d DeploymentStrategy) deploymentStrategyOutput {
 		GrowthFactor:                d.GrowthFactor,
 		FinalBakeTimeInMinutes:      d.FinalBakeTimeInMinutes,
 	}
+}
+
+const (
+	maxStrategyMinutes = 1440
+	minGrowthFactor    = 1
+	maxGrowthFactor    = 100
+	growthTypeLinear   = "LINEAR"
+	growthTypeExp      = "EXPONENTIAL"
+	replicateNone      = "NONE"
+	replicateSSMDoc    = "SSM_DOCUMENT"
+)
+
+// validateStrategyParams range-checks a deployment strategy and returns GrowthType/ReplicateTo with defaults applied.
+func validateStrategyParams(
+	duration, bake int32,
+	growthFactor float32,
+	growthType, replicateTo string,
+) (string, string, error) {
+	switch {
+	case duration < 0 || duration > maxStrategyMinutes:
+		return "", "", fmt.Errorf("%w: DeploymentDurationInMinutes must be 0-%d", ErrBadRequest, maxStrategyMinutes)
+	case bake < 0 || bake > maxStrategyMinutes:
+		return "", "", fmt.Errorf("%w: FinalBakeTimeInMinutes must be 0-%d", ErrBadRequest, maxStrategyMinutes)
+	case growthFactor < minGrowthFactor || growthFactor > maxGrowthFactor:
+		return "", "", fmt.Errorf(
+			"%w: GrowthFactor must be between %d and %d",
+			ErrBadRequest,
+			minGrowthFactor,
+			maxGrowthFactor,
+		)
+	}
+
+	switch growthType {
+	case "":
+		growthType = growthTypeLinear
+	case growthTypeLinear, growthTypeExp:
+	default:
+		return "", "", fmt.Errorf("%w: GrowthType must be LINEAR or EXPONENTIAL", ErrBadRequest)
+	}
+
+	switch replicateTo {
+	case "":
+		replicateTo = replicateNone
+	case replicateNone, replicateSSMDoc:
+	default:
+		return "", "", fmt.Errorf("%w: ReplicateTo must be NONE or SSM_DOCUMENT", ErrBadRequest)
+	}
+
+	return growthType, replicateTo, nil
 }

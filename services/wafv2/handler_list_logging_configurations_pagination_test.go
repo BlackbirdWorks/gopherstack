@@ -33,7 +33,7 @@ func TestListLoggingConfigurations_SDKRoundTrip_Pagination(t *testing.T) {
 		_, err := client.PutLoggingConfiguration(t.Context(), &wafv2sdk.PutLoggingConfigurationInput{
 			LoggingConfiguration: &types.LoggingConfiguration{
 				ResourceArn:           aws.String(resourceARN),
-				LogDestinationConfigs: []string{"arn:aws:s3:::log-bucket"},
+				LogDestinationConfigs: []string{"arn:aws:s3:::aws-waf-logs-bucket"},
 			},
 		})
 		require.NoError(t, err)

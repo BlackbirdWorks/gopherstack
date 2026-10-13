@@ -16,7 +16,7 @@ func TestListener_CRUD(t *testing.T) {
 	h := newTestHandler(t)
 
 	// create service
-	recSvc := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svc-l"})
+	recSvc := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svcx-l"})
 	require.Equal(t, http.StatusCreated, recSvc.Code)
 	svcID, _ := parseBody(t, recSvc)["id"].(string)
 

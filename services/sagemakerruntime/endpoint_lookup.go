@@ -2,6 +2,7 @@ package sagemakerruntime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
@@ -12,6 +13,8 @@ import (
 // importing the sagemaker types package) because it is the only value this
 // package needs to compare against.
 const endpointStatusInService = "InService"
+
+var errEndpointLookupUnavailable = errors.New("sagemaker endpoint registry unavailable")
 
 // EndpointLookup is the minimal read surface into services/sagemaker's
 // endpoint registry needed to validate an EndpointName (and its InService
@@ -62,6 +65,10 @@ func (b *InMemoryBackend) validateEndpoint(ctx context.Context, endpointName str
 	}
 
 	ep, err := lookup.DescribeEndpoint(ctx, endpointName)
+	if errors.Is(err, errEndpointLookupUnavailable) {
+		return "", true
+	}
+
 	if err != nil || ep == nil || ep.EndpointStatus != endpointStatusInService {
 		return fmt.Sprintf("Endpoint %s of account %s not found.", endpointName, accountID), false
 	}

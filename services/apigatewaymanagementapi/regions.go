@@ -45,7 +45,9 @@ func (h *Handler) startJanitor(ctx context.Context) {
 	janitor := NewJanitor(h.Backend, 0, 0)
 	janitor.TaskTimeout = h.taskTimeout
 
-	go janitor.Run(jctx)
+	wait := janitor.Start(jctx)
+
+	go wait()
 }
 
 func (h *Handler) stopWorkers() {

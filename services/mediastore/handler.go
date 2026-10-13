@@ -656,7 +656,7 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
 	default:
 
-		return writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return writeError(c, http.StatusInternalServerError, "InternalServerError", err.Error())
 	}
 }
 

@@ -35,6 +35,17 @@ func (h *S3Handler) putBucketCORS(
 		return
 	}
 
+	if msg := validateCORSRules(cfg.Rules); msg != "" {
+		code := errMalformedXML
+		if strings.HasPrefix(msg, "Found unsupported") {
+			code = "InvalidRequest"
+		}
+
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{Code: code, Message: msg}, http.StatusBadRequest)
+
+		return
+	}
+
 	err = h.Backend.PutBucketCORS(ctx, bucket, string(body))
 	if err != nil {
 		WriteError(ctx, w, r, err)
@@ -109,6 +120,7 @@ func (h *S3Handler) applyCORSActualResponseHeaders(
 	}
 
 	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Add("Vary", "Origin")
 	if len(rule.ExposeHeaders) > 0 {
 		w.Header().Set("Access-Control-Expose-Headers", strings.Join(rule.ExposeHeaders, ", "))
 	}
@@ -157,6 +169,7 @@ func (h *S3Handler) handleCORSPreflight(
 
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Methods", method)
+	w.Header().Set("Vary", "Origin, Access-Control-Request-Headers, Access-Control-Request-Method")
 
 	if reqHeaders != "" {
 		w.Header().Set("Access-Control-Allow-Headers", reqHeaders)
@@ -262,7 +275,7 @@ func corsHeadersMatch(allowedHeaders []string, reqHeaders string) bool {
 		matched := false
 
 		for _, ah := range allowedHeaders {
-			if ah == "*" || strings.EqualFold(ah, rh) {
+			if ah == "*" || strings.EqualFold(ah, rh) || corsOriginWildcardMatches(ah, rh) {
 				matched = true
 
 				break
@@ -275,4 +288,29 @@ func corsHeadersMatch(allowedHeaders []string, reqHeaders string) bool {
 	}
 
 	return true
+}
+
+const maxCORSRules = 100
+
+// validateCORSRules returns an S3-style error message for an invalid rule set, or "".
+func validateCORSRules(rules []CORSRule) string {
+	if len(rules) == 0 || len(rules) > maxCORSRules {
+		return errMalformedXMLMsg
+	}
+
+	for _, rule := range rules {
+		if len(rule.AllowedOrigins) == 0 || len(rule.AllowedMethods) == 0 {
+			return errMalformedXMLMsg
+		}
+
+		for _, m := range rule.AllowedMethods {
+			switch m {
+			case http.MethodGet, http.MethodPut, http.MethodPost, http.MethodDelete, http.MethodHead:
+			default:
+				return "Found unsupported HTTP method in CORS config. Unsupported method is '" + m + "'"
+			}
+		}
+	}
+
+	return ""
 }

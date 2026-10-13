@@ -326,20 +326,21 @@ func validateChange(c Change) error {
 	return nil
 }
 
-// deriveChangeTypes computes the required-on-response types.Change.Types
-// field from a change's specification, since a real client never supplies it
-// (see validateChange). This backend doesn't track prior member ability
-// state to distinguish grant-vs-revoke, so a MEMBER change is always
-// reported as an add, optionally paired with the results-ability grant its
-// memberAbilities imply.
-func deriveChangeTypes(c Change) []string {
+// deriveChangeTypes computes the required-on-response types.Change.Types from
+// the specification: an unknown account is an ADD_MEMBER, a known one is a
+// modification of its abilities, reported as the grants/revokes that differ.
+func deriveChangeTypes(collab *Collaboration, c Change) []string {
 	switch c.SpecificationType {
 	case changeSpecTypeMember:
-		types := []string{"ADD_MEMBER"}
-		for _, a := range c.Specification.Member.MemberAbilities {
-			if a == "CAN_RECEIVE_RESULTS" {
-				types = append(types, "GRANT_RECEIVE_RESULTS_ABILITY")
+		spec := c.Specification.Member
+		for _, m := range collab.Members {
+			if m.AccountID == spec.AccountID {
+				return deriveAbilityChangeTypes(m, spec)
 			}
+		}
+		types := []string{"ADD_MEMBER"}
+		if contains(spec.MemberAbilities, "CAN_RECEIVE_RESULTS") {
+			types = append(types, "GRANT_RECEIVE_RESULTS_ABILITY")
 		}
 
 		return types
@@ -348,6 +349,33 @@ func deriveChangeTypes(c Change) []string {
 	default:
 		return nil
 	}
+}
+
+func deriveAbilityChangeTypes(m *MemberSummary, spec *MemberChangeSpecification) []string {
+	types := []string{}
+	had := contains(m.Abilities, "CAN_RECEIVE_RESULTS")
+	want := contains(spec.MemberAbilities, "CAN_RECEIVE_RESULTS")
+	switch {
+	case want && !had:
+		types = append(types, "GRANT_RECEIVE_RESULTS_ABILITY")
+	case had && !want:
+		types = append(types, "REVOKE_RECEIVE_RESULTS_ABILITY")
+	}
+	if spec.MLMemberAbilities == nil {
+		return types
+	}
+	var current []string
+	if m.MLAbilities != nil {
+		current = m.MLAbilities.CustomMLMemberAbilities
+	}
+	for _, mc := range mlAbilityChangeTypes() {
+		specHas := contains(spec.MLMemberAbilities.CustomMLMemberAbilities, mc.ability)
+		if specHas == mc.grant && specHas != contains(current, mc.ability) {
+			types = append(types, mc.changeType)
+		}
+	}
+
+	return types
 }
 
 func (b *InMemoryBackend) CreateCollaborationChangeRequest(
@@ -360,18 +388,20 @@ func (b *InMemoryBackend) CreateCollaborationChangeRequest(
 		return nil, ErrValidation
 	}
 
-	for i, c := range changes {
+	for _, c := range changes {
 		if err := validateChange(c); err != nil {
 			return nil, err
-		}
-		if len(c.Types) == 0 {
-			changes[i].Types = deriveChangeTypes(c)
 		}
 	}
 
 	collab, ok := b.collaborations.Get(collaborationID)
 	if !ok {
 		return nil, ErrNotFound
+	}
+	for i, c := range changes {
+		if len(c.Types) == 0 {
+			changes[i].Types = deriveChangeTypes(collab, c)
+		}
 	}
 	id := uuid.NewString()
 	ts := b.now()
@@ -475,6 +505,62 @@ func (b *InMemoryBackend) applyMemberChangeLocked(collab *Collaboration, c Chang
 	revoke := contains(c.Types, "REVOKE_RECEIVE_RESULTS_ABILITY")
 	if grant || revoke {
 		b.applyReceiveResultsAbilityChangeLocked(collab, spec.AccountID, grant)
+	}
+	b.applyMLAbilityChangesLocked(collab, spec.AccountID, c.Types)
+}
+
+type mlAbilityChange struct {
+	changeType string
+	ability    string
+	grant      bool
+}
+
+func mlAbilityChangeTypes() []mlAbilityChange {
+	return []mlAbilityChange{
+		{"GRANT_CAN_RECEIVE_MODEL_OUTPUT", abilityReceiveModelOutput, true},
+		{"REVOKE_CAN_RECEIVE_MODEL_OUTPUT", abilityReceiveModelOutput, false},
+		{"GRANT_CAN_RECEIVE_INFERENCE_OUTPUT", abilityReceiveInferenceOutput, true},
+		{"REVOKE_CAN_RECEIVE_INFERENCE_OUTPUT", abilityReceiveInferenceOutput, false},
+	}
+}
+
+func (b *InMemoryBackend) applyMLAbilityChangesLocked(collab *Collaboration, accountID string, types []string) {
+	var member *MemberSummary
+	for _, m := range collab.Members {
+		if m.AccountID == accountID {
+			member = m
+
+			break
+		}
+	}
+	if member == nil {
+		return
+	}
+	changed := false
+	for _, mc := range mlAbilityChangeTypes() {
+		if !contains(types, mc.changeType) {
+			continue
+		}
+		changed = true
+		if member.MLAbilities == nil {
+			member.MLAbilities = &MLMemberAbilities{CustomMLMemberAbilities: []string{}}
+		}
+		abilities := member.MLAbilities.CustomMLMemberAbilities
+		if mc.grant && !contains(abilities, mc.ability) {
+			abilities = append(abilities, mc.ability)
+		} else if !mc.grant {
+			abilities = slices.DeleteFunc(abilities, func(a string) bool { return a == mc.ability })
+		}
+		member.MLAbilities.CustomMLMemberAbilities = abilities
+	}
+	if !changed {
+		return
+	}
+	ts := b.now()
+	member.UpdateTime = ts
+	if mem, found := b.memberships.Get(member.MembershipID); found && member.MembershipID != "" {
+		mem.MLMemberAbilities = cloneMLAbilities(member.MLAbilities)
+		mem.UpdateTime = ts
 	}
 }
 

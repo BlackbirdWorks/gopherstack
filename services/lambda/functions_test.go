@@ -162,7 +162,7 @@ func TestUpdateConfig_FileSystem(t *testing.T) {
 	createFunctionForTest(t, h, "fs-fn")
 
 	fsCfgBody := `{"FileSystemConfigs":[{"Arn":"arn:aws:elasticfilesystem:us-east-1:000000000000:access-point/fsap-abc",` +
-		`"LocalMountPath":"/mnt/data"}]}`
+		`"LocalMountPath":"/mnt/data"}],"VpcConfig":{"SubnetIds":["subnet-1"],"SecurityGroupIds":["sg-1"]}}`
 	updRec := callInMemoryHandler(t, h, http.MethodPut,
 		"/2015-03-31/functions/fs-fn/configuration", fsCfgBody)
 	require.Equal(t, http.StatusOK, updRec.Code)

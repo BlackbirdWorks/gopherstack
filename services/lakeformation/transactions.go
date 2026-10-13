@@ -215,7 +215,7 @@ func (b *InMemoryBackend) ListTransactions(
 	all := make([]*Transaction, 0, b.transactions.Len())
 
 	for _, info := range b.transactions.All() {
-		if statusFilter != "" && statusFilter != "ALL" {
+		if statusFilter != "" && statusFilter != permissionAll {
 			if statusFilter == "COMPLETED" {
 				// COMPLETED means both COMMITTED and ABORTED.
 				if info.Status != transactionStatusCommitted && info.Status != transactionStatusAborted {

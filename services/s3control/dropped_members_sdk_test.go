@@ -186,3 +186,53 @@ func TestSDK_ListAccessPointsForDirectoryBucketsFilter(t *testing.T) {
 		})
 	}
 }
+
+func TestSDK_CreateJobManifestGeneratorRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		source string
+	}{
+		{name: "source bucket", source: "arn:aws:s3:::src-bucket"},
+		{name: "other bucket", source: "arn:aws:s3:::other-bucket"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestS3ControlClient(t, newTestHandler())
+
+			created, err := client.CreateJob(t.Context(), &s3csdk.CreateJobInput{
+				AccountId:          aws.String(createTagsTestAccountID),
+				ClientRequestToken: aws.String("token-mg"),
+				ManifestGenerator: &types.JobManifestGeneratorMemberS3JobManifestGenerator{
+					Value: types.S3JobManifestGenerator{
+						EnableManifestOutput: false,
+						SourceBucket:         aws.String(tc.source),
+					},
+				},
+				Operation: &types.JobOperation{
+					LambdaInvoke: &types.LambdaInvokeOperation{
+						FunctionArn: aws.String("arn:aws:lambda:us-east-1:123456789012:function:f"),
+					},
+				},
+				Priority: aws.Int32(1),
+				Report:   &types.JobReport{Enabled: false},
+				RoleArn:  aws.String("arn:aws:iam::123456789012:role/batch-ops"),
+			})
+			require.NoError(t, err)
+
+			desc, err := client.DescribeJob(t.Context(), &s3csdk.DescribeJobInput{
+				AccountId: aws.String(createTagsTestAccountID),
+				JobId:     created.JobId,
+			})
+			require.NoError(t, err)
+
+			gen, ok := desc.Job.ManifestGenerator.(*types.JobManifestGeneratorMemberS3JobManifestGenerator)
+			require.True(t, ok, "ManifestGenerator must be echoed on DescribeJob")
+			assert.Equal(t, tc.source, aws.ToString(gen.Value.SourceBucket))
+		})
+	}
+}

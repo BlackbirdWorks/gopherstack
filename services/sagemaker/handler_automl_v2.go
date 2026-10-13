@@ -42,6 +42,10 @@ func (h *Handler) handleCreateAutoMLJobV2(ctx context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if err := validateRequestShapes("CreateAutoMLJobV2", &req); err != nil {
+		return nil, err
+	}
+
 	if req.AutoMLJobName == "" {
 		return nil, fmt.Errorf("%w: AutoMLJobName is required", errInvalidRequest)
 	}

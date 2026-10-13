@@ -299,7 +299,7 @@ func TestInMemoryBackend_ResetRestoresDefaultDocuments(t *testing.T) {
 
 	_, err = b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 		Name:    "MyUserDoc",
-		Content: "--- user",
+		Content: `{"schemaVersion":"2.2"}`,
 	})
 	require.NoError(t, err)
 
@@ -331,7 +331,7 @@ func TestInMemoryBackend_DocumentVersionCap(t *testing.T) {
 
 	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
 		Name:    "CapTestDoc",
-		Content: "--- init",
+		Content: `{"schemaVersion":"2.2"}`,
 	})
 	require.NoError(t, err)
 
@@ -340,7 +340,7 @@ func TestInMemoryBackend_DocumentVersionCap(t *testing.T) {
 	for i := range total {
 		_, err = b.UpdateDocument(context.TODO(), &ssm.UpdateDocumentInput{
 			Name:    "CapTestDoc",
-			Content: fmt.Sprintf("--- version: %d", i),
+			Content: fmt.Sprintf(`{"schemaVersion":"2.2","description":"v%d"}`, i),
 		})
 		require.NoError(t, err)
 	}

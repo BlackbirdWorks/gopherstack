@@ -15,7 +15,7 @@ import (
 
 // resourceNameRegex matches valid Amazon Forecast resource names:
 // only alphanumeric characters, underscores, and hyphens are allowed.
-var resourceNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+var resourceNameRegex = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*$`)
 
 // InMemoryBackend stores Amazon Forecast state with concurrency-safe transitions.
 type InMemoryBackend struct {
@@ -27,6 +27,7 @@ type InMemoryBackend struct {
 	mu          *lockmetrics.RWMutex
 	accountID   string
 	region      string
+	createDelay time.Duration
 }
 
 // NewInMemoryBackend returns a stateful Amazon Forecast backend.
@@ -104,6 +105,9 @@ func (b *InMemoryBackend) create(
 		return nil, fmt.Errorf("%w: %s %q", ErrAlreadyExists, kind, name)
 	}
 
+	stored := stripEchoOnlyFields(kind, data)
+	b.recordLineageLocked(kind, action, stored)
+
 	now := time.Now().UTC()
 	status := statusCreatePending
 	if failureMessage != "" {
@@ -113,7 +117,7 @@ func (b *InMemoryBackend) create(
 	resource := &Resource{
 		CreatedAt: now,
 		UpdatedAt: now,
-		Data:      stripEchoOnlyFields(kind, data),
+		Data:      stored,
 		ARN:       arn.Build("forecast", b.region, b.accountID, string(kind)+"/"+name),
 		Name:      name,
 		Status:    status,
@@ -141,13 +145,49 @@ func (b *InMemoryBackend) describe(kind resourceKind, nameOrARN string) (*Resour
 		return nil, fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
 	}
 
+	b.settleLocked(resource)
 	result := cloneResource(resource)
-	if resource.Status == statusCreatePending {
+	b.enrichLocked(result)
+	if b.createDelay <= 0 && resource.Status == statusCreatePending {
 		resource.Status = statusActive
 		resource.UpdatedAt = time.Now().UTC()
 	}
 
 	return result, nil
+}
+
+// SetCreateDelay keeps new resources in CREATE_PENDING then CREATE_IN_PROGRESS
+// for d before they turn ACTIVE (default 0: ACTIVE on the second Describe).
+func (b *InMemoryBackend) SetCreateDelay(d time.Duration) {
+	b.mu.Lock("SetCreateDelay")
+	defer b.mu.Unlock()
+
+	b.createDelay = d
+}
+
+func (b *InMemoryBackend) statusAt(r *Resource, now time.Time) string {
+	if b.createDelay <= 0 || (r.Status != statusCreatePending && r.Status != statusCreateInProgress) {
+		return r.Status
+	}
+
+	age := now.Sub(r.CreatedAt)
+
+	switch {
+	case age >= b.createDelay:
+		return statusActive
+	case age >= b.createDelay/2:
+		return statusCreateInProgress
+	default:
+		return statusCreatePending
+	}
+}
+
+func (b *InMemoryBackend) settleLocked(r *Resource) {
+	now := time.Now().UTC()
+	if status := b.statusAt(r, now); status != r.Status {
+		r.Status = status
+		r.UpdatedAt = now
+	}
 }
 
 func (b *InMemoryBackend) update(kind resourceKind, nameOrARN string, data map[string]any) (*Resource, error) {
@@ -181,6 +221,8 @@ func (b *InMemoryBackend) delete(kind resourceKind, nameOrARN string) error {
 		return fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
 	}
 
+	b.settleLocked(resource)
+
 	if err := validateDeletableLocked(resource); err != nil {
 		return err
 	}
@@ -197,10 +239,14 @@ func (b *InMemoryBackend) list(kind resourceKind) []*Resource {
 	b.mu.RLock("list")
 	defer b.mu.RUnlock()
 
+	now := time.Now().UTC()
 	items := b.resources[kind].All()
 	result := make([]*Resource, 0, len(items))
 	for _, resource := range items {
-		result = append(result, cloneResource(resource))
+		clone := cloneResource(resource)
+		clone.Status = b.statusAt(resource, now)
+		b.enrichLocked(clone)
+		result = append(result, clone)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 
@@ -322,17 +368,16 @@ func cloneValue(value any) any {
 //
 // Tags is universal: no Describe*/List*Summary type in this SDK declares a
 // Tags member (tags are only readable via ListTagsForResource).
-// ExplainPredictor/ReferencePredictorArn are CreateAutoPredictorInput-only:
-// DescribeAutoPredictorOutput's counterparts are ExplainabilityInfo and
-// ReferencePredictorSummary (different name/shape, already-documented gaps,
-// forecast@v1.44.4 api_op_DescribeAutoPredictor.go), never these raw names.
+// ExplainPredictor is CreateAutoPredictorInput-only; DescribeAutoPredictorOutput
+// declares ExplainabilityInfo instead (forecast@v1.44.4
+// api_op_DescribeAutoPredictor.go). ReferencePredictorArn is kept for
+// enrichPredictor and never leaves the backend under that name.
 func stripEchoOnlyFields(kind resourceKind, data map[string]any) map[string]any {
 	stored := cloneMap(data)
 	delete(stored, "Tags")
 
 	if kind == kindPredictor {
 		delete(stored, "ExplainPredictor")
-		delete(stored, "ReferencePredictorArn")
 	}
 
 	return stored
@@ -421,7 +466,17 @@ func (b *InMemoryBackend) deleteTreeLocked(targetARN string) {
 // maps/slices too or it silently fails to find dependents like a
 // DatasetGroup's Predictors.
 func arnReferencedBy(r *Resource, targetARN string) bool {
-	return valueReferencesARN(r.Data, targetARN)
+	for key, value := range r.Data {
+		if key == keyReferencePredictorArn {
+			continue
+		}
+
+		if valueReferencesARN(value, targetARN) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func valueReferencesARN(v any, targetARN string) bool {

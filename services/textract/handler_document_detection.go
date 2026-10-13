@@ -18,6 +18,14 @@ func (h *Handler) handleDetectDocumentText(
 	ctx context.Context,
 	in *documentInput,
 ) (*detectDocumentTextResponse, error) {
+	if err := validateDocumentPresent(
+		in.Document.S3Object.Bucket,
+		in.Document.S3Object.Name,
+		in.Document.Bytes,
+	); err != nil {
+		return nil, err
+	}
+
 	if err := h.checkS3Object(ctx, in.Document.S3Object.Bucket, in.Document.S3Object.Name); err != nil {
 		return nil, err
 	}
@@ -39,6 +47,10 @@ func (h *Handler) handleStartDocumentTextDetection(
 	ctx context.Context,
 	in *asyncInput,
 ) (*startJobResponse, error) {
+	if err := validateStartOptions(in.JobTag, in.ClientRequestToken, in.NotificationChannel); err != nil {
+		return nil, err
+	}
+
 	uri, err := h.resolveDocumentLocation(ctx, in.DocumentLocation.S3Object.Bucket, in.DocumentLocation.S3Object.Name)
 	if err != nil {
 		return nil, err
@@ -83,6 +95,10 @@ func (h *Handler) handleGetDocumentTextDetection(
 	ctx context.Context,
 	in *getJobInput,
 ) (*getDocumentTextDetectionResponse, error) {
+	if err := validateNextToken(in.NextToken); err != nil {
+		return nil, err
+	}
+
 	if in.JobID == "" {
 		return nil, fmt.Errorf("%w: JobID is required", errInvalidRequest)
 	}

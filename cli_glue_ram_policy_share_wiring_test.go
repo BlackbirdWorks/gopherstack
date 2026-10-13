@@ -66,6 +66,12 @@ func TestInitializeServices_GlueRAMPolicyShareWiring(t *testing.T) {
 	require.Equal(t, "CREATED_FROM_POLICY", shares[0].FeatureSet)
 	require.Equal(t, "000000000000", shares[0].OwningAccountID)
 
+	perms := ramH.Backend.ListResourceSharePermissions(shares[0].ARN)
+	require.Len(t, perms, 1)
+
+	_, err = ramH.Backend.PromotePermissionCreatedFromPolicy(perms[0].Permission.ARN, "promoted")
+	require.NoError(t, err)
+
 	_, err = ramH.Backend.PromoteResourceShareCreatedFromPolicy(shares[0].ARN)
 	require.NoError(t, err)
 

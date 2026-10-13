@@ -305,3 +305,37 @@ func TestResolveItemsFromReaderS3Error(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+func TestIntrinsics_UndocumentedFunctionsRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		expr string
+	}{
+		{name: "string_concat", expr: "States.StringConcat('a', 'b')"},
+		{name: "string_length", expr: "States.StringLength('abc')"},
+		{name: "string_to_lower", expr: "States.StringToLower('A')"},
+		{name: "string_to_upper", expr: "States.StringToUpper('a')"},
+		{name: "string_index", expr: "States.StringIndex('abc', 'b')"},
+		{name: "array_slice", expr: "States.ArraySlice(States.Array(1, 2), 0, 1)"},
+		{name: "array_flatten", expr: "States.ArrayFlatten(States.Array(1))"},
+		{name: "array_reverse", expr: "States.ArrayReverse(States.Array(1))"},
+		{name: "array_sort", expr: "States.ArraySort(States.Array(1))"},
+		{name: "math_subtract", expr: "States.MathSubtract(2, 1)"},
+		{name: "math_multiply", expr: "States.MathMultiply(2, 1)"},
+		{name: "math_divide", expr: "States.MathDivide(2, 1)"},
+		{name: "math_mod", expr: "States.MathMod(2, 1)"},
+		{name: "math_min", expr: "States.MathMin(2, 1)"},
+		{name: "math_max", expr: "States.MathMax(2, 1)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := asl.EvaluateIntrinsicFunction(tt.expr, nil)
+			require.ErrorIs(t, err, asl.ErrUnknownIntrinsicFunction)
+		})
+	}
+}

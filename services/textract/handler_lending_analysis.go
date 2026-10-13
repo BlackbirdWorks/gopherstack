@@ -35,6 +35,10 @@ func (h *Handler) handleGetLendingAnalysis(
 	ctx context.Context,
 	in *getLendingAnalysisInput,
 ) (*getLendingAnalysisResponse, error) {
+	if err := validateNextToken(in.NextToken); err != nil {
+		return nil, err
+	}
+
 	if in.JobID == "" {
 		return nil, fmt.Errorf("%w: JobID is required", errInvalidRequest)
 	}
@@ -119,6 +123,10 @@ func (h *Handler) handleStartLendingAnalysis(
 	ctx context.Context,
 	in *startLendingAnalysisInput,
 ) (*startJobResponse, error) {
+	if err := validateStartOptions(in.JobTag, in.ClientRequestToken, in.NotificationChannel); err != nil {
+		return nil, err
+	}
+
 	uri, err := h.resolveDocumentLocation(ctx, in.DocumentLocation.S3Object.Bucket, in.DocumentLocation.S3Object.Name)
 	if err != nil {
 		return nil, err

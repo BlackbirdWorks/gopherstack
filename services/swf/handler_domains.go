@@ -105,6 +105,9 @@ type handleListDomainsInput struct {
 }
 
 func (h *Handler) handleListDomains(_ context.Context, in *handleListDomainsInput) (*listDomainsOutput, error) {
+	if err := requireRegistrationStatus(in.RegistrationStatus); err != nil {
+		return nil, err
+	}
 	domains, err := h.Backend.ListDomains(in.RegistrationStatus)
 	if err != nil {
 		return nil, err
@@ -116,6 +119,10 @@ func (h *Handler) handleListDomains(_ context.Context, in *handleListDomainsInpu
 
 		return domains[i].Name < domains[j].Name
 	})
+	if pageErr := validatePageParams(in.NextPageToken, in.MaximumPageSize); pageErr != nil {
+		return nil, pageErr
+	}
+
 	domains, nextPageToken := applyPageTokenSlice(domains, in.NextPageToken, in.MaximumPageSize)
 	infos := make([]domainInfoOutput, len(domains))
 	for i, d := range domains {

@@ -2,6 +2,7 @@ package mq
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -113,6 +114,10 @@ func (h *Handler) handleListUsers(c *echo.Context, brokerID string) error {
 
 	// Use opaque index-based tokens so the page boundary is stable regardless
 	// of insertions or deletions between requests, matching ListBrokers.
+	if tokErr := page.ValidateToken(nextToken); tokErr != nil {
+		return h.writeError(c, fmt.Errorf("%w: invalid nextToken", ErrValidation))
+	}
+
 	pg := page.New(users, nextToken, maxResults, mqUsersDefaultPageSize)
 
 	resp := map[string]any{

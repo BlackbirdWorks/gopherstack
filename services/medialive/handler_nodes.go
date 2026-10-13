@@ -178,6 +178,10 @@ func (h *Handler) handleDeleteNode(c *echo.Context, resource string) error {
 }
 
 func (h *Handler) handleListNodes(c *echo.Context, clusterID string) error {
+	if err := validPaging(c); err != nil {
+		return respondErr(c, err)
+	}
+
 	maxResults, nextTokenParam := paginationParams(c)
 	summaries, nextToken, err := h.Backend.ListNodes(clusterID, maxResults, nextTokenParam)
 	if err != nil {

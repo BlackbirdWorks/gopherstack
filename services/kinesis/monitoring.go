@@ -1,6 +1,10 @@
 package kinesis
 
-import "context"
+import (
+	"context"
+	"slices"
+	"strings"
+)
 
 // uniqueStrings returns a deduplicated copy of ss, preserving order.
 func uniqueStrings(ss []string) []string {
@@ -35,11 +39,54 @@ func removeStrings(ss, remove []string) []string {
 	return out
 }
 
+func shardLevelMetricNames() []string {
+	return []string{
+		"IncomingBytes", "IncomingRecords", "OutgoingBytes", "OutgoingRecords",
+		"WriteProvisionedThroughputExceeded", "ReadProvisionedThroughputExceeded", "IteratorAgeMilliseconds",
+	}
+}
+
+// expandShardLevelMetrics validates metric names and expands ALL into the concrete metric list.
+func expandShardLevelMetrics(metrics []string) ([]string, error) {
+	if len(metrics) == 0 {
+		return nil, newValidationError(
+			"Value '[]' at 'shardLevelMetrics' failed to satisfy constraint: Member must have length greater than or equal to 1",
+		)
+	}
+
+	out := make([]string, 0, len(metrics))
+
+	for _, m := range metrics {
+		if m == "ALL" {
+			out = append(out, shardLevelMetricNames()...)
+
+			continue
+		}
+
+		if !slices.Contains(shardLevelMetricNames(), m) {
+			return nil, newValidationError(
+				"Value '[%s]' at 'shardLevelMetrics' failed to satisfy constraint: "+
+					"Member must satisfy enum value set: [ALL, %s]",
+				m, strings.Join(shardLevelMetricNames(), ", "),
+			)
+		}
+
+		out = append(out, m)
+	}
+
+	return uniqueStrings(out), nil
+}
+
 // EnableEnhancedMonitoring adds shard-level metrics to a stream.
 func (b *InMemoryBackend) EnableEnhancedMonitoring(
 	ctx context.Context,
 	input *EnableEnhancedMonitoringInput,
 ) (*EnableEnhancedMonitoringOutput, error) {
+	metrics, err := expandShardLevelMetrics(input.ShardLevelMetrics)
+	if err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("EnableEnhancedMonitoring")
@@ -55,9 +102,9 @@ func (b *InMemoryBackend) EnableEnhancedMonitoring(
 	current := make([]string, len(stream.EnhancedMonitoring))
 	copy(current, stream.EnhancedMonitoring)
 
-	combined := make([]string, 0, len(current)+len(input.ShardLevelMetrics))
+	combined := make([]string, 0, len(current)+len(metrics))
 	combined = append(combined, current...)
-	combined = append(combined, input.ShardLevelMetrics...)
+	combined = append(combined, metrics...)
 	desired := uniqueStrings(combined)
 	stream.EnhancedMonitoring = desired
 
@@ -74,6 +121,11 @@ func (b *InMemoryBackend) DisableEnhancedMonitoring(
 	ctx context.Context,
 	input *DisableEnhancedMonitoringInput,
 ) (*DisableEnhancedMonitoringOutput, error) {
+	metrics, err := expandShardLevelMetrics(input.ShardLevelMetrics)
+	if err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("DisableEnhancedMonitoring")
@@ -89,7 +141,7 @@ func (b *InMemoryBackend) DisableEnhancedMonitoring(
 	current := make([]string, len(stream.EnhancedMonitoring))
 	copy(current, stream.EnhancedMonitoring)
 
-	desired := removeStrings(current, input.ShardLevelMetrics)
+	desired := removeStrings(current, metrics)
 	stream.EnhancedMonitoring = desired
 
 	return &DisableEnhancedMonitoringOutput{

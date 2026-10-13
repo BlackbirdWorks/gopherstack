@@ -111,6 +111,10 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		return nil, err
 	}
 
+	if input.Attributes[attrFifoQueue] == attrValTrue && !strings.HasSuffix(input.QueueName, fifoSuffix) {
+		return nil, ErrInvalidQueueName
+	}
+
 	if !fifoThroughputPairingValid(nil, input.Attributes) {
 		return nil, ErrInvalidAttribute
 	}
@@ -154,7 +158,12 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		scheme = "http"
 	}
 
-	queueURL := scheme + "://" + input.Endpoint + "/" + b.accountID + "/" + input.QueueName
+	endpoint := input.Endpoint
+	if endpoint == "" {
+		endpoint = b.defaultEndpoint
+	}
+
+	queueURL := scheme + "://" + endpoint + "/" + b.accountID + "/" + input.QueueName
 
 	tagName := "sqs.queue." + input.QueueName + ".tags"
 
@@ -168,6 +177,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		Permissions:         make(map[string]*QueuePermissionEntry),
 		DeduplicationIDs:    make(map[string]time.Time),
 		deduplicationMsgIDs: make(map[string]string),
+		deduplicationSeqs:   make(map[string]string),
 		notify:              make(chan struct{}),
 		inFlightByHandle:    make(map[string]*InFlightMessage),
 	}
@@ -280,20 +290,20 @@ func (b *InMemoryBackend) GetQueueURL(input *GetQueueURLInput) (*GetQueueURLOutp
 // PurgeQueue removes all messages from a queue without deleting it.
 // AWS enforces a 60-second cooldown between PurgeQueue calls on the same queue.
 func (b *InMemoryBackend) PurgeQueue(input *PurgeQueueInput) error {
-	b.mu.Lock("PurgeQueue")
-	defer b.mu.Unlock()
+	b.mu.RLock("PurgeQueue")
+	q, ok := b.lookupQueueByName(input.Region, queueNameFromInput(input.QueueURL))
+	b.mu.RUnlock()
 
-	name := queueNameFromInput(input.QueueURL)
-
-	q, ok := b.lookupQueueByName(input.Region, name)
 	if !ok {
 		return ErrQueueNotFound
 	}
 
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
 	now := b.now()
 
 	// AWS enforces a 60-second cooldown between PurgeQueue calls on the same queue.
-	// b.mu is already held (write-locked above), so this read is safe.
 	if !q.lastPurgedAt.IsZero() && now.Sub(q.lastPurgedAt) < purgeCooldownSecs*time.Second {
 		return ErrPurgeQueueInProgress
 	}
@@ -309,6 +319,7 @@ func (b *InMemoryBackend) PurgeQueue(input *PurgeQueueInput) error {
 	if q.IsFIFO {
 		q.DeduplicationIDs = make(map[string]time.Time)
 		q.deduplicationMsgIDs = make(map[string]string)
+		q.deduplicationSeqs = make(map[string]string)
 	}
 
 	return nil

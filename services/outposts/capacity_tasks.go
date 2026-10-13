@@ -179,7 +179,7 @@ func (e *InstancesToExclude) clone() *InstancesToExclude {
 // InstanceTypeCapacities), so no running instance can ever legitimately
 // block a task -- see PARITY.md.
 func (b *InMemoryBackend) scheduleCapacityTaskCompletion(id string) {
-	b.work.After("CapacityTaskInProgress", capacityTaskTransitionDelay, func() {
+	b.work.After("CapacityTaskInProgress", b.capacityTaskDelay(), func() {
 		b.mu.Lock("CapacityTaskInProgress-async")
 		advanced := b.advanceCapacityTaskStatusLocked(id, CapacityTaskStatusRequested, CapacityTaskStatusInProgress)
 		b.mu.Unlock()
@@ -193,7 +193,7 @@ func (b *InMemoryBackend) scheduleCapacityTaskCompletion(id string) {
 }
 
 func (b *InMemoryBackend) scheduleCapacityTaskCompletionFinal(id string) {
-	b.work.After("CapacityTaskCompletion", capacityTaskTransitionDelay, func() {
+	b.work.After("CapacityTaskCompletion", b.capacityTaskDelay(), func() {
 		b.mu.Lock("CapacityTaskCompletion-async")
 		defer b.mu.Unlock()
 
@@ -242,7 +242,7 @@ func (b *InMemoryBackend) advanceCapacityTaskStatusLocked(id, fromStatus, toStat
 // CANCELLATION_IN_PROGRESS -> CANCELLED hop for capacity task id -- see
 // CancelCapacityTask.
 func (b *InMemoryBackend) scheduleCapacityTaskCancellation(id string) {
-	b.work.After("CapacityTaskCancelled", capacityTaskTransitionDelay, func() {
+	b.work.After("CapacityTaskCancelled", b.capacityTaskDelay(), func() {
 		b.mu.Lock("CapacityTaskCancelled-async")
 		defer b.mu.Unlock()
 

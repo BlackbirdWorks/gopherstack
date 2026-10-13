@@ -17,11 +17,17 @@ func (b *InMemoryBackend) CreateStream(
 	}
 
 	if dataRetentionInHours < minDataRetention || dataRetentionInHours > maxDataRetention {
-		return nil, ErrValidation
+		return nil, invalid("Value '%d' at 'dataRetentionInHours' failed to satisfy constraint: Member must have "+
+			"value between %d and %d", dataRetentionInHours, minDataRetention, maxDataRetention)
 	}
 
-	if err := validateTags(tags); err != nil {
-		return nil, err
+	for _, err := range []error{
+		validateMediaType(mediaType), validateDeviceName(deviceName), validateKmsKeyID(kmsKeyID),
+		validateStorageTier(defaultStorageTier), validateTags(tags),
+	} {
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	b.mu.Lock("CreateStream")
@@ -89,6 +95,10 @@ func (b *InMemoryBackend) ListStreams(
 		op, value = condition.ComparisonOperator, condition.ComparisonValue
 	}
 
+	if err := validateListArgs(nextToken, maxResults, maxListStreamsMax, op); err != nil {
+		return nil, "", err
+	}
+
 	data, next := listByName(b.streams.All(), func(s *Stream) string { return s.Name }, (*Stream).clone,
 		op, value, nextToken, maxResults, defaultListStreamsLimit)
 
@@ -105,6 +115,14 @@ func (b *InMemoryBackend) UpdateStream(name, streamARN, currentVersion, deviceNa
 	s, err := b.resolveStreamLocked(name, streamARN)
 	if err != nil {
 		return err
+	}
+
+	for _, verr := range []error{
+		validateCurrentVersion(currentVersion), validateDeviceName(deviceName), validateMediaType(mediaType),
+	} {
+		if verr != nil {
+			return verr
+		}
 	}
 
 	if s.Version != currentVersion {
@@ -165,8 +183,17 @@ func (b *InMemoryBackend) UpdateDataRetention(
 		return err
 	}
 
+	if verr := validateCurrentVersion(currentVersion); verr != nil {
+		return verr
+	}
+
 	if s.Version != currentVersion {
 		return ErrVersionMismatch
+	}
+
+	if changeInHours < 1 {
+		return invalid("Value '%d' at 'dataRetentionChangeInHours' failed to satisfy constraint: Member must "+
+			"have value greater than or equal to 1", changeInHours)
 	}
 
 	next := s.DataRetentionInHours
@@ -177,11 +204,13 @@ func (b *InMemoryBackend) UpdateDataRetention(
 	case operationDecreaseDataRetention:
 		next -= changeInHours
 	default:
-		return ErrValidation
+		return invalid("Value '%s' at 'operation' failed to satisfy constraint: Member must satisfy enum "+
+			"value set: [INCREASE_DATA_RETENTION, DECREASE_DATA_RETENTION]", operation)
 	}
 
 	if next < minDataRetention || next > maxDataRetention {
-		return ErrValidation
+		return invalid("The resulting data retention of %d hours is outside the range %d to %d",
+			next, minDataRetention, maxDataRetention)
 	}
 
 	s.DataRetentionInHours = next

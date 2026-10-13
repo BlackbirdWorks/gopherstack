@@ -316,11 +316,11 @@ func TestDelegationRequest_Backend(t *testing.T) {
 			assert.NotEmpty(t, req.DelegationID)
 
 			// Accept
-			err = b.AcceptDelegationRequest(req.DelegationID)
+			err = b.AcceptDelegationRequest(req.DelegationID, "")
 			require.NoError(t, err)
 
 			// Associate
-			err = b.AssociateDelegationRequest(req.DelegationID)
+			err = b.AssociateDelegationRequest(req.DelegationID, "", "")
 			require.NoError(t, err)
 		})
 	}
@@ -330,7 +330,7 @@ func TestAcceptDelegationRequest_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := iam.NewInMemoryBackend()
-	err := b.AcceptDelegationRequest("non-existent-id")
+	err := b.AcceptDelegationRequest("non-existent-id", "")
 	require.Error(t, err)
 }
 
@@ -338,7 +338,7 @@ func TestAssociateDelegationRequest_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := iam.NewInMemoryBackend()
-	err := b.AssociateDelegationRequest("non-existent-id")
+	err := b.AssociateDelegationRequest("non-existent-id", "", "")
 	require.Error(t, err)
 }
 

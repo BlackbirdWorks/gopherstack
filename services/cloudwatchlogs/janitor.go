@@ -13,6 +13,7 @@ const (
 	defaultJanitorInterval = time.Minute
 	cwlWorkerService       = "cloudwatchlogs"
 	retentionSweeperName   = "RetentionSweeper"
+	metricDefaultsName     = "MetricFilterDefaults"
 )
 
 // Janitor is the CloudWatch Logs background worker that enforces retention policies
@@ -40,6 +41,9 @@ func NewJanitor(backend *InMemoryBackend, interval time.Duration) *Janitor {
 func (j *Janitor) Run(ctx context.Context) {
 	g := worker.NewGroup(ctx, cwlWorkerService)
 	g.Ticker(retentionSweeperName, j.Interval, j.TaskTimeout, j.sweepRetention)
+	g.Ticker(metricDefaultsName, j.Interval, j.TaskTimeout, func(context.Context) {
+		j.Backend.EmitMetricFilterDefaults()
+	})
 
 	<-ctx.Done()
 	g.Stop()

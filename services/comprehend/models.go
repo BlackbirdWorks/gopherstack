@@ -12,6 +12,9 @@ const (
 	statusStopped       = "STOPPED"
 	statusTrained       = "TRAINED"
 
+	statusModelTraining = "TRAINING"
+	statusModelInError  = "IN_ERROR"
+
 	// statusActive is types.FlywheelStatusActive -- a freshly created
 	// Flywheel's steady-state value (types/enums.go:352-360). It is NOT a
 	// valid types.EndpointStatus value (see statusEndpointInService).
@@ -29,6 +32,9 @@ const (
 	// above, which FlywheelIterationStatus does not share.
 	statusFlywheelIterationTraining   = "TRAINING"
 	statusFlywheelIterationEvaluating = "EVALUATING"
+
+	piiTypeEmail = "EMAIL"
+	piiTypeSSN   = "SSN"
 
 	defaultLanguageCode          = "en"
 	defaultScore                 = 0.99
@@ -50,19 +56,20 @@ type Tag struct {
 type Job struct {
 	SubmitTime            time.Time
 	EndTime               time.Time
+	stopRequestedAt       time.Time
 	Configuration         map[string]any
 	OutputDataConfig      map[string]any
 	InputDataConfig       map[string]any
-	FailureReason         string
-	DocumentClassifierArn string
-	LanguageCode          string
+	JobArn                string
+	EntityRecognizerArn   string
 	JobType               string
 	JobName               string
-	JobArn                string
+	DocumentClassifierArn string
 	DataAccessRoleArn     string
 	JobStatus             string
-	EntityRecognizerArn   string
+	LanguageCode          string
 	JobID                 string
+	FailureReason         string
 	TargetEventTypes      []string
 	polls                 int
 	stopRequested         bool

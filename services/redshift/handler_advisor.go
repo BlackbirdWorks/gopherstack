@@ -162,7 +162,7 @@ func validNodeConfigActionType(actionType string) bool {
 func nodeConfigurationOptions(actionType, baseNodeType string) []nodeConfigOptionXML {
 	target := baseNodeType
 	if target == "" || isLegacyNodeType(target) {
-		target = "ra3.xlplus"
+		target = nodeTypeRA3XLPlus
 	}
 
 	mode := ""

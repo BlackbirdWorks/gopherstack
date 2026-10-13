@@ -714,7 +714,10 @@ func TestRealClient_ReplicationAndMigrationManagement(t *testing.T) {
 				StartReplicationTaskType: types.StartReplicationTaskTypeValueStartReplication,
 			})
 			require.NoError(t, err)
-			assert.Equal(t, "running", aws.ToString(startOut.ReplicationTask.Status))
+			assert.Equal(t, "starting", aws.ToString(startOut.ReplicationTask.Status))
+
+			_, err = client.DescribeReplicationTasks(t.Context(), &dmssdk.DescribeReplicationTasksInput{})
+			require.NoError(t, err)
 
 			reloadOut, err := client.ReloadTables(t.Context(), &dmssdk.ReloadTablesInput{
 				ReplicationTaskArn: aws.String(taskArn),

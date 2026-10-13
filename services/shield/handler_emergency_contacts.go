@@ -40,6 +40,10 @@ func (h *Handler) handleAssociateProactiveEngagementDetails(body []byte) error {
 			)
 		}
 
+		if err := validateEmergencyContact(EmergencyContact(c)); err != nil {
+			return err
+		}
+
 		contacts = append(contacts, EmergencyContact(c))
 	}
 

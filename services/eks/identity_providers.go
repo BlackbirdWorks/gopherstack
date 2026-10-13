@@ -5,6 +5,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -28,7 +30,7 @@ func (b *InMemoryBackend) AssociateIdentityProviderConfig(
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	if _, ok := b.identityProviderConfigs.Get(identityProviderConfigKey(clusterName, name)); ok {
@@ -66,7 +68,7 @@ func (b *InMemoryBackend) AssociateIdentityProviderConfig(
 	// in this backend ever advanced Status past CREATING -- no ticker, no
 	// later call -- while sibling cluster/addon/nodegroup resources in this
 	// same service transition correctly.
-	b.work.After("IdentityProviderTransition", identityProviderTransitionDelay, func() {
+	b.work.After("IdentityProviderTransition", b.dwell(identityProviderTransitionDelay), func() {
 		b.mu.Lock("AssociateIdentityProviderConfig-async")
 		defer b.mu.Unlock()
 
@@ -77,7 +79,7 @@ func (b *InMemoryBackend) AssociateIdentityProviderConfig(
 	})
 
 	u := &Update{
-		ID:          stableID(clusterName + "/idp-update/" + name + "/" + time.Now().String()),
+		ID:          uuid.NewString(),
 		ClusterName: clusterName,
 		Status:      statusInProgress,
 		Type:        opAssociateIdentityProviderConfig,
@@ -98,7 +100,7 @@ func (b *InMemoryBackend) DescribeIdentityProviderConfig(clusterName, name strin
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	cfg, ok := b.identityProviderConfigs.Get(identityProviderConfigKey(clusterName, name))
@@ -122,7 +124,7 @@ func (b *InMemoryBackend) ListIdentityProviderConfigs(clusterName string) ([]map
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	configs := b.identityProviderConfigsByCluster.Get(clusterName)
@@ -146,7 +148,7 @@ func (b *InMemoryBackend) DisassociateIdentityProviderConfig(clusterName, name s
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	cfg, ok := b.identityProviderConfigs.Get(identityProviderConfigKey(clusterName, name))
@@ -166,7 +168,7 @@ func (b *InMemoryBackend) DisassociateIdentityProviderConfig(clusterName, name s
 	b.identityProviderConfigs.Delete(identityProviderConfigKey(clusterName, name))
 
 	u := &Update{
-		ID:          stableID(clusterName + "/idp-disassociate/" + name + "/" + time.Now().String()),
+		ID:          uuid.NewString(),
 		ClusterName: clusterName,
 		Status:      statusInProgress,
 		Type:        opDisassociateIdentityProviderConfig,

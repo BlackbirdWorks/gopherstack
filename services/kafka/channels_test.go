@@ -61,8 +61,9 @@ func TestCreateChannel(t *testing.T) {
 		t.Parallel()
 
 		b := newTestBackend(t)
-		cl := b.AddClusterInternal("my-cluster", "3.6.0")
+		cl := b.AddExpressClusterInternal("my-cluster", "3.6.0")
 		s3Dest, topics := s3ChannelFixtures()
+		topics = withTopic(b, cl, topics)
 
 		ch, err := b.CreateChannel(
 			context.Background(), cl.ClusterArn, "my-channel", topics, nil, nil, s3Dest, nil, nil,
@@ -71,7 +72,7 @@ func TestCreateChannel(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "my-channel", ch.ChannelName)
 		assert.Equal(t, kafka.ChannelDestinationTypeS3, ch.DestinationType)
-		assert.Equal(t, kafka.ChannelStatusActive, ch.Status)
+		assert.Equal(t, kafka.ChannelStatusCreating, ch.Status)
 		assert.NotEmpty(t, ch.ChannelArn)
 		assert.NotEmpty(t, ch.ClusterOperationArn)
 	})
@@ -80,8 +81,9 @@ func TestCreateChannel(t *testing.T) {
 		t.Parallel()
 
 		b := newTestBackend(t)
-		cl := b.AddClusterInternal("my-cluster", "3.6.0")
+		cl := b.AddExpressClusterInternal("my-cluster", "3.6.0")
 		icebergDest, topics := icebergChannelFixtures()
+		topics = withTopic(b, cl, topics)
 
 		ch, err := b.CreateChannel(
 			context.Background(), cl.ClusterArn, "my-channel", topics, nil, icebergDest, nil, nil, nil,
@@ -110,8 +112,9 @@ func TestCreateChannel(t *testing.T) {
 		t.Parallel()
 
 		b := newTestBackend(t)
-		cl := b.AddClusterInternal("my-cluster", "3.6.0")
+		cl := b.AddExpressClusterInternal("my-cluster", "3.6.0")
 		s3Dest, topics := s3ChannelFixtures()
+		topics = withTopic(b, cl, topics)
 
 		_, err := b.CreateChannel(
 			context.Background(), cl.ClusterArn, "my-channel", topics, nil, nil, s3Dest, nil, nil,
@@ -128,8 +131,9 @@ func TestCreateChannel(t *testing.T) {
 		t.Parallel()
 
 		b := newTestBackend(t)
-		cl := b.AddClusterInternal("my-cluster", "3.6.0")
+		cl := b.AddExpressClusterInternal("my-cluster", "3.6.0")
 		s3Dest, topics := s3ChannelFixtures()
+		topics = withTopic(b, cl, topics)
 
 		_, err := b.CreateChannel(context.Background(), cl.ClusterArn, "", topics, nil, nil, s3Dest, nil, nil)
 		require.ErrorIs(t, err, kafka.ErrValidation)
@@ -139,7 +143,7 @@ func TestCreateChannel(t *testing.T) {
 		t.Parallel()
 
 		b := newTestBackend(t)
-		cl := b.AddClusterInternal("my-cluster", "3.6.0")
+		cl := b.AddExpressClusterInternal("my-cluster", "3.6.0")
 		s3Dest, _ := s3ChannelFixtures()
 
 		_, err := b.CreateChannel(
@@ -152,8 +156,9 @@ func TestCreateChannel(t *testing.T) {
 		t.Parallel()
 
 		b := newTestBackend(t)
-		cl := b.AddClusterInternal("my-cluster", "3.6.0")
+		cl := b.AddExpressClusterInternal("my-cluster", "3.6.0")
 		_, topics := s3ChannelFixtures()
+		topics = withTopic(b, cl, topics)
 
 		_, err := b.CreateChannel(
 			context.Background(), cl.ClusterArn, "my-channel", topics, nil, nil, nil, nil, nil,
@@ -165,8 +170,9 @@ func TestCreateChannel(t *testing.T) {
 		t.Parallel()
 
 		b := newTestBackend(t)
-		cl := b.AddClusterInternal("my-cluster", "3.6.0")
+		cl := b.AddExpressClusterInternal("my-cluster", "3.6.0")
 		s3Dest, topics := s3ChannelFixtures()
+		topics = withTopic(b, cl, topics)
 		icebergDest, _ := icebergChannelFixtures()
 
 		_, err := b.CreateChannel(
@@ -179,8 +185,9 @@ func TestCreateChannel(t *testing.T) {
 		t.Parallel()
 
 		b := newTestBackend(t)
-		cl := b.AddClusterInternal("my-cluster", "3.6.0")
+		cl := b.AddExpressClusterInternal("my-cluster", "3.6.0")
 		_, topics := s3ChannelFixtures()
+		topics = withTopic(b, cl, topics)
 
 		invalid := &kafka.S3DestinationConfiguration{
 			DeadLetterQueueS3:       &kafka.DeadLetterQueueS3{BucketArn: "arn:aws:s3:::dlq-bucket"},
@@ -197,8 +204,9 @@ func TestCreateChannel(t *testing.T) {
 		t.Parallel()
 
 		b := newTestBackend(t)
-		cl := b.AddClusterInternal("my-cluster", "3.6.0")
+		cl := b.AddExpressClusterInternal("my-cluster", "3.6.0")
 		_, topics := s3ChannelFixtures()
+		topics = withTopic(b, cl, topics)
 
 		invalid := &kafka.IcebergDestinationConfiguration{
 			AppendOnly:              true,
@@ -218,7 +226,7 @@ func TestCreateChannel(t *testing.T) {
 		t.Parallel()
 
 		b := newTestBackend(t)
-		cl := b.AddClusterInternal("my-cluster", "3.6.0")
+		cl := b.AddExpressClusterInternal("my-cluster", "3.6.0")
 		s3Dest, _ := s3ChannelFixtures()
 
 		badTopics := []kafka.TopicConfiguration{
@@ -237,8 +245,9 @@ func TestChannelLifecycle(t *testing.T) {
 
 	ctx := context.Background()
 	b := newTestBackend(t)
-	cl := b.AddClusterInternal("my-cluster", "3.6.0")
+	cl := b.AddExpressClusterInternal("my-cluster", "3.6.0")
 	s3Dest, topics := s3ChannelFixtures()
+	topics = withTopic(b, cl, topics)
 
 	created, err := b.CreateChannel(ctx, cl.ClusterArn, "my-channel", topics, nil, nil, s3Dest, nil, nil)
 	require.NoError(t, err)
@@ -294,7 +303,7 @@ func TestDescribeChannel_NotFound(t *testing.T) {
 
 	ctx := context.Background()
 	b := newTestBackend(t)
-	cl := b.AddClusterInternal("my-cluster", "3.6.0")
+	cl := b.AddExpressClusterInternal("my-cluster", "3.6.0")
 
 	_, err := b.DescribeChannel(ctx, cl.ClusterArn, "arn:aws:kafka:us-east-1:000000000000:channel/x/y/nonexistent")
 	require.ErrorIs(t, err, kafka.ErrNotFound)
@@ -305,9 +314,10 @@ func TestDescribeChannel_WrongClusterScope(t *testing.T) {
 
 	ctx := context.Background()
 	b := newTestBackend(t)
-	cl1 := b.AddClusterInternal("cluster-1", "3.6.0")
-	cl2 := b.AddClusterInternal("cluster-2", "3.6.0")
+	cl1 := b.AddExpressClusterInternal("cluster-1", "3.6.0")
+	cl2 := b.AddExpressClusterInternal("cluster-2", "3.6.0")
 	s3Dest, topics := s3ChannelFixtures()
+	topics = withTopic(b, cl1, topics)
 
 	ch, err := b.CreateChannel(ctx, cl1.ClusterArn, "my-channel", topics, nil, nil, s3Dest, nil, nil)
 	require.NoError(t, err)
@@ -342,8 +352,9 @@ func TestUpdateChannel_DestinationTypeMismatch(t *testing.T) {
 
 	ctx := context.Background()
 	b := newTestBackend(t)
-	cl := b.AddClusterInternal("my-cluster", "3.6.0")
+	cl := b.AddExpressClusterInternal("my-cluster", "3.6.0")
 	s3Dest, topics := s3ChannelFixtures()
+	topics = withTopic(b, cl, topics)
 
 	ch, err := b.CreateChannel(ctx, cl.ClusterArn, "my-channel", topics, nil, nil, s3Dest, nil, nil)
 	require.NoError(t, err)
@@ -361,8 +372,9 @@ func TestUpdateChannel_RequiresExactlyOneDestinationUpdate(t *testing.T) {
 
 	ctx := context.Background()
 	b := newTestBackend(t)
-	cl := b.AddClusterInternal("my-cluster", "3.6.0")
+	cl := b.AddExpressClusterInternal("my-cluster", "3.6.0")
 	s3Dest, topics := s3ChannelFixtures()
+	topics = withTopic(b, cl, topics)
 
 	ch, err := b.CreateChannel(ctx, cl.ClusterArn, "my-channel", topics, nil, nil, s3Dest, nil, nil)
 	require.NoError(t, err)
@@ -383,7 +395,7 @@ func TestDeleteChannel_NotFound(t *testing.T) {
 
 	ctx := context.Background()
 	b := newTestBackend(t)
-	cl := b.AddClusterInternal("my-cluster", "3.6.0")
+	cl := b.AddExpressClusterInternal("my-cluster", "3.6.0")
 
 	_, err := b.DeleteChannel(ctx, cl.ClusterArn, "arn:aws:kafka:us-east-1:000000000000:channel/x/y/nonexistent")
 	require.ErrorIs(t, err, kafka.ErrNotFound)
@@ -394,8 +406,9 @@ func TestChannel_TagResourceLifecycle(t *testing.T) {
 
 	ctx := context.Background()
 	b := newTestBackend(t)
-	cl := b.AddClusterInternal("my-cluster", "3.6.0")
+	cl := b.AddExpressClusterInternal("my-cluster", "3.6.0")
 	s3Dest, topics := s3ChannelFixtures()
+	topics = withTopic(b, cl, topics)
 
 	ch, err := b.CreateChannel(
 		ctx, cl.ClusterArn, "my-channel", topics, nil, nil, s3Dest, nil, map[string]string{"env": "prod"},
@@ -432,11 +445,12 @@ func TestChannel_SnapshotRestoreRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	original := kafka.NewInMemoryBackend(testAccountID, testRegion)
 	cl, err := original.CreateCluster(
-		ctx, "chan-persist", "3.6.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil,
+		ctx, "chan-persist", "3.6.0", 3, kafka.BrokerNodeGroupInfo{InstanceType: "express.m7g.large"}, nil, nil,
 	)
 	require.NoError(t, err)
 
 	s3Dest, topics := s3ChannelFixtures()
+	topics = withTopic(original, cl, topics)
 	created, err := original.CreateChannel(
 		ctx, cl.ClusterArn, "persist-channel", topics, nil, nil, s3Dest, nil, map[string]string{"env": "prod"},
 	)
@@ -463,4 +477,148 @@ func TestChannel_SnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, created.ChannelArn, list[0].ChannelArn)
+}
+
+func TestChannelLifecycleStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		act        func(t *testing.T, b *kafka.InMemoryBackend, clusterArn, channelArn string)
+		name       string
+		wantStatus string
+		wantGone   bool
+	}{
+		{
+			name:       "create settles on describe",
+			act:        func(*testing.T, *kafka.InMemoryBackend, string, string) {},
+			wantStatus: kafka.ChannelStatusActive,
+		},
+		{
+			name: "update settles on describe",
+			act: func(t *testing.T, b *kafka.InMemoryBackend, clusterArn, channelArn string) {
+				t.Helper()
+
+				_, err := b.DescribeChannel(context.Background(), clusterArn, channelArn)
+				require.NoError(t, err)
+
+				up, err := b.UpdateChannel(context.Background(), clusterArn, channelArn, nil,
+					&kafka.S3DestinationUpdate{DataFreshnessInSeconds: 120})
+				require.NoError(t, err)
+				assert.Equal(t, kafka.ChannelStatusUpdating, up.Status)
+				assert.NotEmpty(t, up.ClusterOperationArn)
+			},
+			wantStatus: kafka.ChannelStatusActive,
+		},
+		{
+			name: "delete finishes on describe",
+			act: func(t *testing.T, b *kafka.InMemoryBackend, clusterArn, channelArn string) {
+				t.Helper()
+
+				_, err := b.DeleteChannel(context.Background(), clusterArn, channelArn)
+				require.NoError(t, err)
+			},
+			wantGone: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			cl := b.AddExpressClusterInternal("my-cluster", "3.6.0")
+			s3Dest, topics := s3ChannelFixtures()
+			topics = withTopic(b, cl, topics)
+
+			ch, err := b.CreateChannel(context.Background(), cl.ClusterArn, "c1", topics, nil, nil, s3Dest, nil, nil)
+			require.NoError(t, err)
+			assert.Equal(t, kafka.ChannelStatusCreating, ch.Status)
+
+			tt.act(t, b, cl.ClusterArn, ch.ChannelArn)
+
+			got, err := b.DescribeChannel(context.Background(), cl.ClusterArn, ch.ChannelArn)
+			if tt.wantGone {
+				require.ErrorIs(t, err, kafka.ErrNotFound)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, got.Status)
+			assert.Empty(t, got.ClusterOperationArn)
+		})
+	}
+}
+
+// withTopic seeds the topic on cl and points the single topic configuration at it.
+func withTopic(
+	b *kafka.InMemoryBackend, cl *kafka.Cluster, topics []kafka.TopicConfiguration,
+) []kafka.TopicConfiguration {
+	topics[0].TopicArn = b.AddTopicInternal(cl.ClusterArn, "my-topic").TopicArn
+
+	return topics
+}
+
+func TestCreateChannel_SourceValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		setup   func(b *kafka.InMemoryBackend) (clusterArn, topicArn string)
+		name    string
+	}{
+		{
+			name: "standard_cluster", wantErr: kafka.ErrValidation,
+			setup: func(b *kafka.InMemoryBackend) (string, string) {
+				cl := b.AddClusterInternal("std", "3.6.0")
+
+				return cl.ClusterArn, b.AddTopicInternal(cl.ClusterArn, "t").TopicArn
+			},
+		},
+		{
+			name: "missing_topic", wantErr: kafka.ErrNotFound,
+			setup: func(b *kafka.InMemoryBackend) (string, string) {
+				cl := b.AddExpressClusterInternal("exp", "3.6.0")
+
+				return cl.ClusterArn, "arn:aws:kafka:us-east-1:000000000000:topic/exp/uuid/nope"
+			},
+		},
+		{
+			name: "topic_of_other_cluster", wantErr: kafka.ErrNotFound,
+			setup: func(b *kafka.InMemoryBackend) (string, string) {
+				cl := b.AddExpressClusterInternal("exp", "3.6.0")
+				other := b.AddExpressClusterInternal("other", "3.6.0")
+
+				return cl.ClusterArn, b.AddTopicInternal(other.ClusterArn, "t").TopicArn
+			},
+		},
+		{
+			name: "express_with_topic",
+			setup: func(b *kafka.InMemoryBackend) (string, string) {
+				cl := b.AddExpressClusterInternal("exp", "3.6.0")
+
+				return cl.ClusterArn, b.AddTopicInternal(cl.ClusterArn, "t").TopicArn
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			clusterArn, topicArn := tt.setup(b)
+			s3Dest, topics := s3ChannelFixtures()
+			topics[0].TopicArn = topicArn
+
+			_, err := b.CreateChannel(context.Background(), clusterArn, "ch", topics, nil, nil, s3Dest, nil, nil)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
 }

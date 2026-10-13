@@ -210,11 +210,8 @@ func (b *InMemoryBackend) PutMetricData(
 	data []MetricDatum,
 ) error {
 	if len(data) > cwMaxMetricDataPerRequest {
-		return fmt.Errorf(
-			"%w: PutMetricData accepts at most %d MetricDatum entries per request",
-			ErrValidation,
-			cwMaxMetricDataPerRequest,
-		)
+		return apiErrorf(ErrValidation,
+			"The collection MetricData must not have a size greater than %d.", cwMaxMetricDataPerRequest)
 	}
 
 	var matchingStreams []string
@@ -814,6 +811,10 @@ func (b *InMemoryBackend) ListMetrics(
 		)
 	}
 
+	if err := checkPageToken(nextToken); err != nil {
+		return page.Page[Metric]{}, err
+	}
+
 	b.mu.RLock("ListMetrics")
 	defer b.mu.RUnlock()
 
@@ -894,6 +895,10 @@ func validMetricTimestamp(ts, now time.Time) bool {
 // This must be called before the handler normalizes the datum (before
 // Count/Sum/Min/Max are derived from Value for single-value points).
 func validateMetricDatum(d MetricDatum, now time.Time) error {
+	if err := validateDatumIdentity(d); err != nil {
+		return err
+	}
+
 	if !validMetricTimestamp(d.Timestamp, now) {
 		return fmt.Errorf("%w: MetricName=%s", ErrMetricTimestampOutOfRange, d.MetricName)
 	}

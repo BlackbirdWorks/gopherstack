@@ -5,8 +5,6 @@ import (
 	"maps"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // AgreementCreateExtras holds optional CreateAgreement fields that don't fit
@@ -112,7 +110,7 @@ func (b *InMemoryBackend) CreateAgreementFull(
 		return nil, err
 	}
 
-	agreementID := "a-" + uuid.NewString()[:20]
+	agreementID := newResourceID("a-")
 
 	merged := make(map[string]string, len(tags))
 	maps.Copy(merged, tags)

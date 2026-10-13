@@ -57,8 +57,8 @@ func validateMedicalScribeSettings(
 
 // StartMedicalScribeJob creates a new Medical Scribe job.
 func (b *InMemoryBackend) StartMedicalScribeJob(input *MedicalScribeJob) (*MedicalScribeJob, error) {
-	if err := validateJobName(input.MedicalScribeJobName); err != nil {
-		return nil, fmt.Errorf("%w: MedicalScribeJobName is required", ErrValidation)
+	if err := validateResourceName("MedicalScribeJobName", input.MedicalScribeJobName); err != nil {
+		return nil, err
 	}
 
 	if input.DataAccessRoleArn == "" {
@@ -94,6 +94,7 @@ func (b *InMemoryBackend) StartMedicalScribeJob(input *MedicalScribeJob) (*Medic
 	b.recordResourceTagsLocked(b.resourceARN(resourceTypeMedicalScribeJob, job.MedicalScribeJobName), job.Tags)
 
 	cp := job
+	b.observeMedicalScribeJob(&cp)
 
 	return &cp, nil
 }
@@ -109,6 +110,7 @@ func (b *InMemoryBackend) GetMedicalScribeJob(jobName string) (*MedicalScribeJob
 	}
 
 	cp := *job
+	b.observeMedicalScribeJob(&cp)
 	cp.Tags = b.liveTagsLocked(b.resourceARN(resourceTypeMedicalScribeJob, jobName))
 
 	return &cp, nil
@@ -124,9 +126,12 @@ func (b *InMemoryBackend) ListMedicalScribeJobs(
 
 	all := make([]MedicalScribeJob, 0, b.medicalScribeJobs.Len())
 	for _, j := range b.medicalScribeJobs.All() {
-		if (statusFilter == "" || j.MedicalScribeJobStatus == statusFilter) &&
+		cp := *j
+		b.observeMedicalScribeJob(&cp)
+
+		if (statusFilter == "" || cp.MedicalScribeJobStatus == statusFilter) &&
 			matchesNameContains(j.MedicalScribeJobName, nameContains) {
-			all = append(all, *j)
+			all = append(all, cp)
 		}
 	}
 

@@ -2,7 +2,7 @@
 service: kafka
 sdk_module: aws-sdk-go-v2/service/kafka@v1.57.2
 last_audit_commit: 7480cad08
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-12
 overall: A            # topic/replicator field-name/shape gaps closed; two prior "ok" families had a real wire bug each, now fixed
                        # 2026-08-21 (gopherstack-1vv2): fixed UpdateReplicationInfo wholesale-
                        # replacing stored TopicReplication with the narrower Update payload,
@@ -115,40 +115,9 @@ gaps: []
   #   - ClientVpcConnection.Owner is populated from the backend's own AccountID as
   #     a best-effort placeholder; gopherstack has no cross-account VPC-connection
   #     ownership model to draw a different value from.
-items_still_open:
-  - "Docker engine (--kafka-engine=docker) runs ONE plaintext single-node KRaft broker per provisioned cluster (NumberOfBrokerNodes>1 still reports one broker); serverless clusters, TLS/SASL/IAM listeners and the MSK Topic API (CreateTopic etc. stay metadata, real topics are created via the Kafka protocol) are not backed by the broker."
-  - "UpdateReplicationInfo SourceKafkaClusterId/TargetKafkaClusterId are not matched: replication flows are keyed by cluster ARN, and Kafka cluster IDs of non-MSK clusters are not modeled."
-  - "MSK Connect (CreateConnector/CreateCustomPlugin/CreateWorkerConfiguration and
-    the rest of the kafkaconnect API, e.g. Terraform's aws_mskconnect_connector/
-    _custom_plugin/_worker_configuration) is not implemented at all -- it is a
-    structurally distinct AWS service/endpoint (kafkaconnect, not kafka) with no
-    services/kafkaconnect directory in this repo and no route registered for any
-    of its ops. 2026-09-20 (transferfamily-and-msk Terraform coverage pass): confirmed via
-    grep that no such service exists before attempting any fixture; left out of
-    that pass's fixture rather than fabricating a stub. Implementing it is a new
-    service, not a fix to this one."
-  - "Channel Create/Update/Delete are immediate (no CREATING/UPDATING/DELETING
-    polling window) -- same documented simplification as Topic.Status (see
-    below): the real API exposes a ClusterOperationArn/polling protocol this
-    in-memory emulator has no async execution to model, so Channel.Status goes
-    straight to ACTIVE and ClusterOperationArn is populated only on the
-    mutating call's own response, never on the persisted record (matching what
-    a real client would observe once the real async operation has already
-    completed by the time it calls Describe)."
-  - "CreateChannel does not restrict channel creation to MSK Express clusters,
-    even though CreateChannel's doc comment says a channel streams from 'an
-    Amazon MSK Express cluster topic'. gopherstack's Cluster model has no
-    Express-vs-standard-broker-type distinction anywhere else in this service,
-    and the SDK's client-side validators.go does not enforce it either (it can
-    only be a server-side rule), so modeling this specific restriction here
-    would mean inventing a cluster-type check found nowhere else in the
-    codebase rather than verifying one against the SDK."
-  - "CreateChannel does not verify that TopicConfigurationList[].TopicArn
-    references a topic that actually exists in this backend. The real
-    service's behavior here is unverifiable from the client SDK alone (no
-    client-side check exists in validators.go), so enforcing an invented rule
-    risks fabricating unproven behavior; the ARN is accepted, stored, and
-    echoed back verbatim instead."
+items_still_open: []
+structural_gaps:
+  - "Docker engine (--kafka-engine=docker) runs ONE plaintext single-node KRaft broker per provisioned cluster; serverless clusters, TLS/SASL/IAM listeners and the MSK Topic API metadata are not backed by a real multi-broker cluster."
 deferred: []
   # Both prior deferred items are now resolved:
   #   - GetBootstrapBrokers: field-diffed against deserializers.go this pass (see
@@ -743,3 +712,13 @@ ListNodes, ListKafkaVersions, ListScramSecrets, ListVpcConnections, ListClientVp
 ## 2026-10-05 (gopherstack-uox6 pass 5, value semantics)
 
 UpdateConfiguration creates a new revision (LatestRevision, ListConfigurationRevisions and DescribeConfigurationRevision keep history); CreateCluster stores EnhancedMonitoring DEFAULT and BrokerAZDistribution DEFAULT when omitted (types.BrokerNodeGroupInfo).
+
+## 2026-10-10 realism pass
+
+Bare NotFound/Conflict errors now carry a descriptive message; cluster names (1-64, alnum/-/_), Kafka version format and `kafka.`/`express.` instance types are validated; maxResults must be 1..100; node ARNs are `broker/<name>/<uuid>/<id>`. Left lenient: broker-count vs subnet-count multiple (many fixtures), Kafka version catalog membership, and invalid nextToken restarting at page one (asserted by existing tests). Proof: `TestSDK_CreateClusterValidation`, `TestSDK_ErrorMessagesAreDescriptive`, `TestSDK_ListNodesARNShape`, `TestSDK_ListClustersMaxResultsBounds`.
+
+## 2026-10-12 deep realism pass
+
+GetBootstrapBrokers returns one `b-N.<name>.<id>.c2.kafka.<region>.amazonaws.com:<port>` entry per broker (follows UpdateBrokerCount) and honours EncryptionInTransit.ClientBroker (default TLS: no plaintext string; TLS_PLAINTEXT: both); serverless clusters return only `BootstrapBrokerStringSaslIam`. Batch(Dis)AssociateScramSecret echo `clusterArn`. New `SetLifecycleDelay`/`SetClock`: with a non-zero delay a new cluster reports CREATING and every update operation reports UPDATE_IN_PROGRESS + cluster UPDATING (ActiveOperationArn set) before UPDATE_COMPLETE; default `0s` is unchanged. Wiring needed in cli_lifecycle.go: a `Kafka` LifecycleSettings field and `bk.SetLifecycleDelay(l.effective(l.Kafka))` for `*kafkabackend.InMemoryBackend`. Tests: bootstrap_brokers_flow_test.go, lifecycle_flow_sdk_test.go, scram_flow_sdk_test.go.
+
+Not verifiable from the pinned SDK (left lenient): UpdateBrokerCount decreases, per-secret `UnprocessedScramSecrets` error codes / `AmazonMSK_` prefix and existence checks, rejecting updates while UPDATING, configuration property validation.

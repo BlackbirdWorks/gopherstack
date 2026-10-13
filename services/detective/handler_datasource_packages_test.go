@@ -38,7 +38,7 @@ func TestDetective_Datasources(t *testing.T) { //nolint:paralleltest // existing
 		wantCode int
 	}{
 		{
-			name:     "ListDatasourcePackages empty graph returns empty map",
+			name:     "ListDatasourcePackages new graph has detective core started",
 			method:   http.MethodPost,
 			path:     "/graph/datasources/list",
 			body:     map[string]any{"GraphArn": graphArn},
@@ -49,7 +49,8 @@ func TestDetective_Datasources(t *testing.T) { //nolint:paralleltest // existing
 				require.NoError(t, json.Unmarshal(body, &resp))
 				pkgs, ok := resp["DatasourcePackages"].(map[string]any)
 				require.True(t, ok)
-				assert.Empty(t, pkgs)
+				assert.Contains(t, pkgs, "DETECTIVE_CORE")
+				assert.Len(t, pkgs, 1)
 			},
 		},
 		{
@@ -120,10 +121,14 @@ func TestDetective_Datasources(t *testing.T) { //nolint:paralleltest // existing
 			},
 		},
 		{
-			name:     "BatchGetMembershipDatasources unknown graph returns unprocessed",
-			method:   http.MethodPost,
-			path:     "/membership/datasources/get",
-			body:     map[string]any{"GraphArns": []string{"arn:aws:detective:us-east-1:000000000000:graph:notexist"}},
+			name:   "BatchGetMembershipDatasources unknown graph returns unprocessed",
+			method: http.MethodPost,
+			path:   "/membership/datasources/get",
+			body: map[string]any{
+				"GraphArns": []string{
+					missingGraphARN,
+				},
+			},
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
@@ -135,10 +140,12 @@ func TestDetective_Datasources(t *testing.T) { //nolint:paralleltest // existing
 			},
 		},
 		{
-			name:     "ListDatasourcePackages unknown graph returns 404",
-			method:   http.MethodPost,
-			path:     "/graph/datasources/list",
-			body:     map[string]any{"GraphArn": "arn:aws:detective:us-east-1:000000000000:graph:notexist"},
+			name:   "ListDatasourcePackages unknown graph returns 404",
+			method: http.MethodPost,
+			path:   "/graph/datasources/list",
+			body: map[string]any{
+				"GraphArn": missingGraphARN,
+			},
 			wantCode: http.StatusNotFound,
 		},
 		{
@@ -146,7 +153,7 @@ func TestDetective_Datasources(t *testing.T) { //nolint:paralleltest // existing
 			method: http.MethodPost,
 			path:   "/graph/datasources/update",
 			body: map[string]any{
-				"GraphArn":           "arn:aws:detective:us-east-1:000000000000:graph:notexist",
+				"GraphArn":           missingGraphARN,
 				"DatasourcePackages": []string{"DETECTIVE_CORE"},
 			},
 			wantCode: http.StatusNotFound,
@@ -156,7 +163,7 @@ func TestDetective_Datasources(t *testing.T) { //nolint:paralleltest // existing
 			method: http.MethodPost,
 			path:   "/graph/datasources/get",
 			body: map[string]any{
-				"GraphArn":   "arn:aws:detective:us-east-1:000000000000:graph:notexist",
+				"GraphArn":   missingGraphARN,
 				"AccountIds": []string{"111111111111"},
 			},
 			wantCode: http.StatusNotFound,

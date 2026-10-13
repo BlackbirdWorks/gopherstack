@@ -16,12 +16,17 @@ func (b *InMemoryBackend) UpdateDomainConfig(ctx context.Context, name string, c
 
 	d, exists := b.domainGet(region, name)
 	if !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, name)
+	}
+
+	if err := validateConfigUpdate(d, cfg); err != nil {
+		return nil, err
 	}
 
 	if applyDomainConfigUpdate(d, cfg) {
 		d.ConfigUpdatedAt = time.Now()
 		d.ConfigVersion++
+		b.beginProcessing(d, dpsModifying)
 	}
 
 	return domainCopy(d), nil
@@ -149,7 +154,7 @@ func (b *InMemoryBackend) CancelDomainConfigChange(ctx context.Context, domainNa
 
 	d, exists := b.domainGet(region, domainName)
 	if !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	return domainCopy(d), nil
@@ -162,7 +167,7 @@ func (b *InMemoryBackend) DescribeDomainAutoTunes(ctx context.Context, domainNam
 	defer b.mu.RUnlock()
 
 	if _, exists := b.domainGet(region, domainName); !exists {
-		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	return nil
@@ -174,8 +179,9 @@ const maxChangeProgressHistory = 100
 
 // ChangeProgress is one configuration change of a domain.
 type ChangeProgress struct {
-	StartTime time.Time
-	ChangeID  string
+	StartTime  time.Time
+	ChangeID   string
+	InProgress bool
 }
 
 // changeIDForVersion derives the stable ChangeId of a domain's configuration
@@ -187,7 +193,7 @@ func changeIDForVersion(region string, d *Domain, version int) string {
 }
 
 // DescribeDomainChangeProgress returns the change named by changeID, or the
-// latest when empty; changes apply synchronously so all are complete.
+// latest when empty; only the latest can still be in its processing window.
 func (b *InMemoryBackend) DescribeDomainChangeProgress(
 	ctx context.Context, domainName, changeID string,
 ) (*ChangeProgress, error) {
@@ -197,13 +203,15 @@ func (b *InMemoryBackend) DescribeDomainChangeProgress(
 
 	d, exists := b.domainGet(region, domainName)
 	if !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	latest := ChangeProgress{ChangeID: changeIDForVersion(region, d, d.ConfigVersion), StartTime: d.CreatedAt}
 	if !d.ConfigUpdatedAt.IsZero() {
 		latest.StartTime = d.ConfigUpdatedAt
 	}
+
+	latest.InProgress, _ = domainProcessing(d, b.clock())
 
 	if changeID == "" || changeID == latest.ChangeID {
 		return &latest, nil

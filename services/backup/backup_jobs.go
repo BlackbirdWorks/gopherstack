@@ -67,6 +67,14 @@ func (b *InMemoryBackend) StartBackupJobFromInput(in StartBackupJobInput) (*Job,
 		return nil, fmt.Errorf("%w: IamRoleArn is required", ErrValidation)
 	}
 
+	if err := validateArnValue("ResourceArn", resourceArn); err != nil {
+		return nil, err
+	}
+
+	if err := validateArnValue("IamRoleArn", iamRoleArn); err != nil {
+		return nil, err
+	}
+
 	if err := b.resourceExistsLocked(resourceArn); err != nil {
 		return nil, err
 	}
@@ -74,6 +82,10 @@ func (b *InMemoryBackend) StartBackupJobFromInput(in StartBackupJobInput) (*Job,
 	vault, ok := b.vaults.Get(vaultName)
 	if !ok {
 		return nil, fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
+
+	if resourceType == "" {
+		resourceType = resourceTypeFromARN(resourceArn)
 	}
 
 	jobID := uuid.NewString()
@@ -207,32 +219,22 @@ func (b *InMemoryBackend) StopBackupJob(jobID string) error {
 	return nil
 }
 
-// ListBackupJobSummaries returns a summary of backup jobs by resource type and status.
+// ListBackupJobSummaries counts backup jobs per aggregation window, resource type, state and message category.
 func (b *InMemoryBackend) ListBackupJobSummaries(f JobSummaryFilter) []map[string]any {
 	b.mu.RLock("ListBackupJobSummaries")
 	defer b.mu.RUnlock()
 
-	// Group by state.
-	counts := make(map[string]int)
-	for _, j := range b.jobs.All() {
-		if f.matches(b.summaryAccount(j.AccountID), j.ResourceType, j.State, j.MessageCategory) {
-			counts[j.State]++
-		}
-	}
+	all := b.jobs.All()
+	jobs := make([]summaryJob, 0, len(all))
 
-	summaries := make([]map[string]any, 0, len(counts))
-	for status, count := range counts {
-		summaries = append(summaries, map[string]any{
-			keyState:         status,
-			keySummaryCount:  count,
-			keySummaryRegion: b.region,
-			keyAccountID:     b.accountID,
+	for _, j := range all {
+		jobs = append(jobs, summaryJob{
+			at: j.CreationTime, account: b.summaryAccount(j.AccountID), resourceType: j.ResourceType,
+			state: j.State, messageCategory: j.MessageCategory,
 		})
 	}
 
-	sortSummaries(summaries)
-
-	return summaries
+	return b.buildSummaries(f, jobs, summaryShape{messageCategory: true})
 }
 
 // ListBackupJobsFilter contains optional filter parameters for listing backup jobs.
@@ -308,8 +310,50 @@ func (b *InMemoryBackend) ListBackupJobsFiltered(f ListBackupJobsFilter) ([]*Job
 
 // ---- ListRecoveryPoints filtering + pagination ----
 
-// CompleteBackupJob transitions a job from CREATED to COMPLETED and creates a recovery point.
-// This models AWS's asynchronous job completion in a synchronous way for the emulator.
+// RunBackupJob moves a CREATED job to RUNNING.
+func (b *InMemoryBackend) RunBackupJob(jobID string) error {
+	b.mu.Lock("RunBackupJob")
+	defer b.mu.Unlock()
+
+	job, ok := b.jobs.Get(jobID)
+	if !ok {
+		return fmt.Errorf("%w: backup job %s not found", ErrNotFound, jobID)
+	}
+
+	if job.State == statusCreated {
+		job.State = statusRunning
+	}
+
+	return nil
+}
+
+// vaultRetentionViolation reports why a job lifecycle breaks the vault lock's retention bounds ("" if it fits).
+// A missing DeleteAfterDays means indefinite retention, which only a vault without a maximum accepts.
+func (b *InMemoryBackend) vaultRetentionViolation(vault *Vault, lc *Lifecycle) string {
+	minDays, maxDays := vault.MinRetentionDays, vault.MaxRetentionDays
+	if cfg, ok := b.vaultLockConfigs.Get(vault.BackupVaultName); ok {
+		minDays, maxDays = cfg.MinRetentionDays, cfg.MaxRetentionDays
+	}
+
+	var days int64
+	if lc != nil {
+		days = lc.DeleteAfterDays
+	}
+
+	switch {
+	case days > 0 && minDays > 0 && days < minDays:
+		return fmt.Sprintf("retention of %d days is shorter than the %d-day minimum of vault %s",
+			days, minDays, vault.BackupVaultName)
+	case maxDays > 0 && (days == 0 || days > maxDays):
+		return fmt.Sprintf("retention exceeds the %d-day maximum of vault %s", maxDays, vault.BackupVaultName)
+	}
+
+	return ""
+}
+
+// CompleteBackupJob finishes a CREATED or RUNNING job and creates its recovery point. A job whose
+// lifecycle breaks the destination vault's lock retention bounds FAILS instead, as the
+// PutBackupVaultLockConfiguration docs describe.
 func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 	b.mu.Lock("CompleteBackupJob")
 	defer b.mu.Unlock()
@@ -318,11 +362,22 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 	if !ok {
 		return fmt.Errorf("%w: backup job %s not found", ErrNotFound, jobID)
 	}
-	if job.State != statusCreated {
+	if job.State != statusCreated && job.State != statusRunning {
 		return nil // already done
 	}
 
 	now := time.Now().UTC()
+
+	if vault, found := b.vaults.Get(job.BackupVaultName); found {
+		if msg := b.vaultRetentionViolation(vault, job.Lifecycle); msg != "" {
+			job.State = statusFailed
+			job.CompletionTime = &now
+			job.StatusMessage = msg
+
+			return nil
+		}
+	}
+
 	job.State = statusCompleted
 	job.CompletionTime = &now
 	job.PercentDone = "100.0"
@@ -341,6 +396,7 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 	}
 
 	rp := &RecoveryPoint{
+		ResourceName:        resourceNameFromARN(job.ResourceArn),
 		RecoveryPointArn:    rpArn,
 		BackupVaultName:     job.BackupVaultName,
 		BackupVaultArn:      vault.BackupVaultArn,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -121,7 +122,7 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 
 // paginate returns a window of items starting after nextMarker, limited to limit items,
 // and the next page marker (last returned item's key), or "" if no more pages.
-func paginate[T any](items []T, nextMarker string, limit int, keyFn func(T) string) ([]T, string) {
+func paginate[T any](items []T, nextMarker string, limit int, keyFn func(T) string) ([]T, string, error) {
 	const defaultLimit = 100
 	if limit <= 0 {
 		limit = defaultLimit
@@ -129,21 +130,28 @@ func paginate[T any](items []T, nextMarker string, limit int, keyFn func(T) stri
 
 	start := 0
 	if nextMarker != "" {
+		found := false
+
 		for i, item := range items {
 			if keyFn(item) == nextMarker {
 				start = i + 1
+				found = true
 
 				break
 			}
+		}
+
+		if !found {
+			return nil, "", fmt.Errorf("%w: NextMarker is not valid", ErrInvalidParameter)
 		}
 	}
 	items = items[start:]
 
 	if len(items) > limit {
-		return items[:limit], keyFn(items[limit-1])
+		return items[:limit], keyFn(items[limit-1]), nil
 	}
 
-	return items, ""
+	return items, "", nil
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
@@ -165,7 +173,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		code, status = errInvalidOperation, http.StatusBadRequest
 	}
 
-	return c.JSON(status, service.JSONErrorResponse{Type: code, Message: err.Error()})
+	return c.JSON(status, service.JSONErrorResponse{Type: code, Message: wireMessage(code, err)})
 }
 
 func (h *Handler) buildOps() map[string]func([]byte) (any, error) {

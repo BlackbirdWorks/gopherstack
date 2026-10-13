@@ -283,7 +283,7 @@ func TestInMemoryDB_BatchExecuteStatement(t *testing.T) {
 				},
 			},
 			wantLen:     1,
-			wantErrCode: "StatementError",
+			wantErrCode: "ValidationError",
 		},
 		{
 			name:  "multiple_statements_mixed",

@@ -344,6 +344,10 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
 
+	if err := validateNextToken(body); err != nil {
+		return nil, err
+	}
+
 	result, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
@@ -371,14 +375,14 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 		return c.JSON(
 			http.StatusBadRequest,
-			map[string]string{keyTypeField: code, keyMessageField: err.Error()},
+			map[string]string{keyTypeField: code, keyMessageField: strings.TrimPrefix(err.Error(), code+": ")},
 		)
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		code := errorCode(err)
 
 		return c.JSON(
 			http.StatusBadRequest,
-			map[string]string{keyTypeField: code, keyMessageField: err.Error()},
+			map[string]string{keyTypeField: code, keyMessageField: strings.TrimPrefix(err.Error(), code+": ")},
 		)
 	case errors.Is(err, errUnknownAction):
 		return c.JSON(
@@ -395,7 +399,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 		return c.JSON(
 			http.StatusBadRequest,
-			map[string]string{keyTypeField: code, keyMessageField: err.Error()},
+			map[string]string{keyTypeField: code, keyMessageField: strings.TrimPrefix(err.Error(), code+": ")},
 		)
 	default:
 		return c.JSON(

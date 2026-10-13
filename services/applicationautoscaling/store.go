@@ -29,39 +29,19 @@ const maxForecastWindow = 14 * 24 * time.Hour
 
 // InMemoryBackend stores Application Auto Scaling state in memory.
 type InMemoryBackend struct {
-	// registry holds every store.Table-backed resource field so their
-	// Reset/Snapshot/Restore collapse to one call each -- see
-	// store_setup.go's file doc comment.
-	registry        *store.Registry
-	scalableTargets *store.Table[ScalableTarget]
-	// targetsByARN is a secondary index over scalableTargets grouping by ARN,
-	// answering the "target for resource ARN X" lookups TagResource,
-	// ListTagsForResource, and UntagResource need. It replaces the previous
-	// map[string]string targetARNIndex reverse-lookup map.
-	targetsByARN    *store.Index[ScalableTarget]
-	scalingPolicies *store.Table[ScalingPolicy]
-	// policiesByName is a secondary index over scalingPolicies grouping by
-	// the (serviceNamespace,resourceId,scalableDimension,policyName)
-	// composite key built by policyNameKey. It replaces the previous
-	// map[string]string policyNameIndex reverse-lookup map.
-	policiesByName   *store.Index[ScalingPolicy]
-	scheduledActions *store.Table[ScheduledAction]
-	// actionsByName is a secondary index over scheduledActions grouping by
-	// the (serviceNamespace,resourceId,scalableDimension,scheduledActionName)
-	// composite key built by actionNameKey. It replaces the previous
-	// map[string]string actionNameIndex reverse-lookup map.
-	actionsByName *store.Index[ScheduledAction]
-	mu            *lockmetrics.RWMutex
-	accountID     string
-	region        string
-	// appConfig is the service.AppContext.Config value from Provider.Init,
-	// used to reach the DynamoDB backend lazily -- see cross_service.go.
-	appConfig any
-	// scalingActivities is append-order-sensitive: DescribeScalingActivities
-	// returns entries most-recent-first via slices.Backward over this exact
-	// slice. store.Table has no defined insertion order (see pkgs/store's
-	// package doc), so this is intentionally left as a raw slice rather than
-	// converted.
+	startedAt         time.Time
+	appConfig         any
+	actionsByName     *store.Index[ScheduledAction]
+	scalingPolicies   *store.Table[ScalingPolicy]
+	policiesByName    *store.Index[ScalingPolicy]
+	scheduledActions  *store.Table[ScheduledAction]
+	registry          *store.Registry
+	mu                *lockmetrics.RWMutex
+	targetsByARN      *store.Index[ScalableTarget]
+	lastFired         map[string]time.Time
+	scalableTargets   *store.Table[ScalableTarget]
+	accountID         string
+	region            string
 	scalingActivities []*ScalingActivity
 }
 
@@ -72,6 +52,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID: accountID,
 		region:    region,
 		mu:        lockmetrics.New("applicationautoscaling"),
+		lastFired: make(map[string]time.Time),
+		startedAt: time.Now().UTC(),
 	}
 	registerAllTables(b)
 

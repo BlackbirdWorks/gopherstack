@@ -248,6 +248,14 @@ func (h *Handler) handleCreateLifecyclePolicy(c *echo.Context, body []byte) erro
 		return c.JSON(http.StatusBadRequest, errBody(errInvalidRequest, "invalid request body"))
 	}
 
+	if err := validateSettableState(req.State); err != nil {
+		return h.mapError(c, err)
+	}
+
+	if err := validatePolicyDetails(req.PolicyDetails, req.DefaultPolicy); err != nil {
+		return h.mapError(c, err)
+	}
+
 	defaultFields := defaultPolicyFields{
 		DefaultPolicy:          req.DefaultPolicy,
 		CopyTags:               req.CopyTags,
@@ -332,7 +340,7 @@ func (h *Handler) handleGetLifecyclePolicy(c *echo.Context, policyID string) err
 	}
 
 	policyDetails := map[string]any{
-		"PolicyType": "EBS_SNAPSHOT_MANAGEMENT",
+		"PolicyType": policyTypeEBSSnapshot,
 	}
 	if policy.PolicyDetails != nil {
 		policyDetails = policy.PolicyDetails
@@ -371,6 +379,14 @@ func (h *Handler) handleUpdateLifecyclePolicy(c *echo.Context, policyID string, 
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, errBody(errInvalidRequest, "invalid request body"))
+	}
+
+	if err := validateSettableState(req.State); err != nil {
+		return h.mapError(c, err)
+	}
+
+	if err := validatePolicyDetails(req.PolicyDetails, ""); err != nil {
+		return h.mapError(c, err)
 	}
 
 	// UpdateLifecyclePolicyInput has no DefaultPolicy member (the policy
@@ -431,14 +447,31 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 func (h *Handler) mapError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return c.JSON(http.StatusNotFound, errBody(errResourceNotFound, err.Error()))
+		return c.JSON(http.StatusNotFound, errBody(errResourceNotFound, errText(err, errResourceNotFound)))
 	case errors.Is(err, ErrLimitExceeded):
-		return c.JSON(http.StatusBadRequest, errBody(errLimitExceeded, err.Error()))
+		return c.JSON(http.StatusBadRequest, errBody(errLimitExceeded, errText(err, errLimitExceeded)))
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return c.JSON(http.StatusBadRequest, errBody(errInvalidRequest, err.Error()))
+		return c.JSON(http.StatusBadRequest, errBody(errInvalidRequest, errText(err, errInvalidRequest)))
 	default:
 		return c.JSON(http.StatusInternalServerError, errBody("InternalServerException", err.Error()))
 	}
+}
+
+// errText drops a duplicated "<code>: " prefix; a bare code becomes a sentence.
+func errText(err error, code string) string {
+	msg := strings.TrimPrefix(err.Error(), code+": ")
+	if msg != code {
+		return msg
+	}
+
+	switch code {
+	case errResourceNotFound:
+		return "The specified policy does not exist."
+	case errLimitExceeded:
+		return "The request would exceed the policy quota for this Region."
+	}
+
+	return "The request is invalid."
 }
 
 func errBody(code, msg string) map[string]string {

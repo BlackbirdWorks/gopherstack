@@ -216,10 +216,7 @@ func (h *Handler) handleStopMlflowTrackingServer(ctx context.Context, body []byt
 // createPresignedMlflowTrackingServerURLInput is
 // CreatePresignedMlflowTrackingServerUrl's request shape
 // (api_op_CreatePresignedMlflowTrackingServerUrl.go:30-46).
-// ExpiresInSeconds/SessionExpirationDurationInSeconds are modeled for wire
-// visibility but disclosed no-op: this backend generates presigned URLs with
-// no TTL enforcement mechanism anywhere in the service (grepped repo-wide),
-// the same structural gap as hub.go's PresignedUrlAccessConfig.
+// ExpiresInSeconds/SessionExpirationDurationInSeconds are range-checked but not encoded in the URL.
 type createPresignedMlflowTrackingServerURLInput struct {
 	ExpiresInSeconds                   *int32 `json:"ExpiresInSeconds,omitempty"`
 	SessionExpirationDurationInSeconds *int32 `json:"SessionExpirationDurationInSeconds,omitempty"`
@@ -235,6 +232,10 @@ func (h *Handler) handleCreatePresignedMlflowTrackingServerURL(ctx context.Conte
 
 	if req.TrackingServerName == "" {
 		return nil, fmt.Errorf("%w: TrackingServerName is required", errInvalidRequest)
+	}
+
+	if err := validatePresignedDurations(req.ExpiresInSeconds, req.SessionExpirationDurationInSeconds); err != nil {
+		return nil, err
 	}
 
 	url, err := h.Backend.CreatePresignedMlflowTrackingServerURL(ctx, req.TrackingServerName)
@@ -463,9 +464,7 @@ func (h *Handler) handleListMlflowApps(ctx context.Context, body []byte) ([]byte
 
 // createPresignedMlflowAppURLInput is CreatePresignedMlflowAppUrl's request
 // shape (api_op_CreatePresignedMlflowAppUrl.go:30-47). ExpiresInSeconds/
-// SessionExpirationDurationInSeconds are modeled for wire visibility but
-// disclosed no-op — same reasoning as
-// createPresignedMlflowTrackingServerURLInput above.
+// SessionExpirationDurationInSeconds are range-checked but not encoded in the URL.
 type createPresignedMlflowAppURLInput struct {
 	ExpiresInSeconds                   *int32 `json:"ExpiresInSeconds,omitempty"`
 	SessionExpirationDurationInSeconds *int32 `json:"SessionExpirationDurationInSeconds,omitempty"`
@@ -481,6 +480,10 @@ func (h *Handler) handleCreatePresignedMlflowAppURL(ctx context.Context, body []
 
 	if req.Arn == "" {
 		return nil, fmt.Errorf("%w: Arn is required", errInvalidRequest)
+	}
+
+	if err := validatePresignedDurations(req.ExpiresInSeconds, req.SessionExpirationDurationInSeconds); err != nil {
+		return nil, err
 	}
 
 	url, err := h.Backend.CreatePresignedMlflowAppURL(ctx, req.Arn)

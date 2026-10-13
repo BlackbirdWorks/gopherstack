@@ -40,7 +40,7 @@ func (h *Handler) handleListTags(w http.ResponseWriter, r *http.Request) {
 
 	tags, err := h.Backend.ListTags(domainARN)
 	if err != nil {
-		h.writeJSON(r, w, &listTagsOutput{TagList: []svcTags.KV{}})
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 
 		return
 	}

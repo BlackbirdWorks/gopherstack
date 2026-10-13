@@ -14,7 +14,7 @@ import (
 // RespondToNewPasswordRequired allows a user in FORCE_CHANGE_PASSWORD status to set a
 // permanent password and receive tokens. The session token is from authenticate().
 func (b *InMemoryBackend) RespondToNewPasswordRequired(
-	clientID, session, newPassword string,
+	clientID, session, newPassword string, meta ...ClientMetadata,
 ) (*TokenResult, error) {
 	b.mu.Lock("RespondToNewPasswordRequired")
 	defer b.mu.Unlock()
@@ -46,13 +46,13 @@ func (b *InMemoryBackend) RespondToNewPasswordRequired(
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
 	}
 
-	if err := setPermanentPasswordLocked(user, newPassword); err != nil {
+	if err := setPermanentPasswordLocked(pool, user, newPassword); err != nil {
 		return nil, err
 	}
 
 	delete(b.mfaSessions, session)
 
-	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenNewPasswordFlow)
+	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenNewPasswordFlow, firstMetadata(meta))
 	if err != nil {
 		return nil, err
 	}
@@ -61,12 +61,17 @@ func (b *InMemoryBackend) RespondToNewPasswordRequired(
 }
 
 // setPermanentPasswordLocked stores newPassword, confirms the user and refreshes the SRP verifier.
-func setPermanentPasswordLocked(user *User, newPassword string) error {
+func setPermanentPasswordLocked(pool *UserPool, user *User, newPassword string) error {
+	if err := checkPasswordHistory(poolPasswordPolicy(pool), user, newPassword); err != nil {
+		return err
+	}
+
 	hash, saltHex, verifierHex, err := hashAndSRP(user.UserPoolID, user.Username, newPassword)
 	if err != nil {
 		return err
 	}
 
+	archivePassword(user)
 	user.PasswordHash = hash
 	user.TemporaryPassword = ""
 	user.SRPSalt = saltHex
@@ -85,7 +90,7 @@ func setPermanentPasswordLocked(user *User, newPassword string) error {
 // On success this runs the same FORCE_CHANGE_PASSWORD/MFA gate any other credential
 // check runs, so it may return a further challenge rather than tokens.
 func (b *InMemoryBackend) RespondToSRPChallenge(
-	clientID, session string, challengeResponses map[string]string,
+	clientID, session string, challengeResponses map[string]string, meta ...ClientMetadata,
 ) (*AuthResult, error) {
 	b.mu.Lock("RespondToSRPChallenge")
 	defer b.mu.Unlock()
@@ -125,13 +130,27 @@ func (b *InMemoryBackend) RespondToSRPChallenge(
 
 	delete(b.mfaSessions, session)
 
-	return b.postCredentialCheckLocked(pool, clientID, user)
+	return b.postCredentialCheckDeviceLocked(
+		pool,
+		clientID,
+		user,
+		firstMetadata(meta),
+		challengeResponses[deviceKeyParam],
+	)
 }
 
 // verifySRPPasswordClaim checks a client's PASSWORD_CLAIM_SECRET_BLOCK/
 // PASSWORD_CLAIM_SIGNATURE/TIMESTAMP against the server-side SRP session state stored
 // in entry, matching CognitoUser.js's authenticateUserDefaultAuth computation exactly.
 func verifySRPPasswordClaim(entry *mfaSessionEntry, user *User, challengeResponses map[string]string) error {
+	return verifySRPClaim(entry, user.SRPVerifier, srpPoolName(entry.PoolID), entry.Username, challengeResponses)
+}
+
+// verifySRPClaim is verifySRPPasswordClaim for any SRP verifier: user sign-in signs with the
+// pool name and username, device sign-in with the device group key and device key.
+func verifySRPClaim(
+	entry *mfaSessionEntry, verifierHex, poolName, signedName string, challengeResponses map[string]string,
+) error {
 	secretBlockB64 := challengeResponses["PASSWORD_CLAIM_SECRET_BLOCK"]
 	if secretBlockB64 == "" || secretBlockB64 != entry.SRPSecretBlock {
 		return fmt.Errorf("%w: PASSWORD_CLAIM_SECRET_BLOCK mismatch", ErrNotAuthorized)
@@ -155,7 +174,7 @@ func verifySRPPasswordClaim(entry *mfaSessionEntry, user *User, challengeRespons
 	aPub, aOK := new(big.Int).SetString(entry.SRPA, hexBase)
 	bPriv, bOK := new(big.Int).SetString(entry.SRPb, hexBase)
 	bPub, bpOK := new(big.Int).SetString(entry.SRPB, hexBase)
-	verifier, vOK := new(big.Int).SetString(user.SRPVerifier, hexBase)
+	verifier, vOK := new(big.Int).SetString(verifierHex, hexBase)
 
 	if !aOK || !bOK || !bpOK || !vOK {
 		return fmt.Errorf("%w: corrupt SRP session state", ErrNotAuthorized)
@@ -169,8 +188,7 @@ func verifySRPPasswordClaim(entry *mfaSessionEntry, user *User, challengeRespons
 	s := srpServerS(aPub, verifier, u, bPriv)
 	hkdfKey := srpHKDF(s, u)
 
-	poolName := srpPoolName(entry.PoolID)
-	expectedSig := srpComputeSignature(hkdfKey, poolName, entry.Username, secretBlock, timestamp)
+	expectedSig := srpComputeSignature(hkdfKey, poolName, signedName, secretBlock, timestamp)
 
 	if !hmac.Equal(expectedSig, providedSig) {
 		return fmt.Errorf("%w: incorrect username or password", ErrNotAuthorized)

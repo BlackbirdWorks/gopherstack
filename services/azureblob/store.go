@@ -111,7 +111,8 @@ func (b *InMemoryBackend) PutBlob(container, blob string, data []byte, contentTy
 	return stored.info(), nil
 }
 
-// GetBlob returns a blob's metadata and full body. Returns ErrContainerNotFound
+// GetBlob returns a blob's metadata and full body; the slice is immutable
+// backend storage and must not be modified. Returns ErrContainerNotFound
 // or ErrBlobNotFound as appropriate.
 func (b *InMemoryBackend) GetBlob(container, blob string) (BlobInfo, []byte, error) {
 	b.mu.RLock("GetBlob")
@@ -122,7 +123,7 @@ func (b *InMemoryBackend) GetBlob(container, blob string) (BlobInfo, []byte, err
 		return BlobInfo{}, nil, err
 	}
 
-	return stored.info(), append([]byte(nil), stored.Data...), nil
+	return stored.info(), stored.Data, nil
 }
 
 // HeadBlob returns a blob's metadata without its body. Returns

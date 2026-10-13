@@ -1,6 +1,10 @@
 package codepipeline
 
-import "github.com/blackbirdworks/gopherstack/pkgs/awserr"
+import (
+	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+)
 
 var (
 	// ErrNotFound is returned when a pipeline resource does not exist.
@@ -15,6 +19,8 @@ var (
 	ErrJobNotFound = awserr.New("JobNotFoundException", awserr.ErrNotFound)
 	// ErrWebhookNotFound is returned when a requested webhook does not exist.
 	ErrWebhookNotFound = awserr.New("WebhookNotFoundException", awserr.ErrNotFound)
+	// ErrInvalidNextToken is returned for a malformed pagination token.
+	ErrInvalidNextToken = awserr.New("InvalidNextTokenException", awserr.ErrInvalidParameter)
 	// ErrValidation is returned when request input fails validation.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 	// ErrConflict is returned on optimistic-concurrency version mismatch.
@@ -49,6 +55,11 @@ var (
 	// ErrActionExecutionNotFound is returned when ListDeployActionExecutionTargets'
 	// ActionExecutionId does not match any recorded action execution.
 	ErrActionExecutionNotFound = awserr.New("ActionExecutionNotFoundException", awserr.ErrNotFound)
+	// ErrInvalidJobState is returned when a job result targets a job that is
+	// already complete or whose action execution is no longer in progress.
+	ErrInvalidJobState = awserr.New("InvalidJobStateException", awserr.ErrInvalidParameter)
+	// ErrConditionNotOverridable is returned when OverrideStageCondition targets a condition that has not failed.
+	ErrConditionNotOverridable = awserr.New("ConditionNotOverridableException", awserr.ErrInvalidParameter)
 	// ErrInvalidClientToken is returned when a third-party job operation's
 	// clientToken does not match the ClientId issued for that job by
 	// PollForThirdPartyJobs.
@@ -56,3 +67,7 @@ var (
 )
 
 const errTypeValidation = "ValidationException"
+
+func (b *InMemoryBackend) pipelineNotFound(name string) error {
+	return fmt.Errorf("%w: Account '%s' does not have a pipeline with name '%s'", ErrNotFound, b.accountID, name)
+}

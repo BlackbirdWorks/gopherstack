@@ -25,6 +25,10 @@ func (h *Handler) handleCreateAlgorithm(ctx context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if err := validateRequestShapes("CreateAlgorithm", &req); err != nil {
+		return nil, err
+	}
+
 	if req.AlgorithmName == "" {
 		return nil, fmt.Errorf("%w: AlgorithmName is required", errInvalidRequest)
 	}

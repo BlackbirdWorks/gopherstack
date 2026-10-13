@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
@@ -17,6 +18,23 @@ import (
 type JSONErrorResponse struct {
 	Type    string `json:"__type"`
 	Message string `json:"message"`
+}
+
+// MarshalJSON also emits "Message" (schema-serde SDK clients match the modeled
+// key case-sensitively) and drops a leading exception code from the message.
+func (r JSONErrorResponse) MarshalJSON() ([]byte, error) {
+	code := r.Type
+	if i := strings.LastIndex(code, "#"); i >= 0 {
+		code = code[i+1:]
+	}
+
+	r.Message = awserr.StripCode(code, r.Message)
+
+	return json.Marshal(struct {
+		Type       string `json:"__type"`
+		Message    string `json:"message"`
+		MessageCap string `json:"Message"`
+	}{r.Type, r.Message, r.Message})
 }
 
 // DispatchFunc is the signature for service-specific action dispatch functions.
@@ -95,15 +113,11 @@ func HandleTarget(
 			"UnknownOperationException", "Missing X-Amz-Target")
 	}
 
-	parts := strings.Split(target, ".")
-
-	const targetParts = 2
-	if len(parts) != targetParts {
+	_, action, found := strings.CutLast(target, ".")
+	if !found || action == "" {
 		return writeDispatchError(c, contentType, http.StatusBadRequest,
 			"UnknownOperationException", "Invalid X-Amz-Target")
 	}
-
-	action := parts[1]
 
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {

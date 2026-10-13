@@ -57,7 +57,7 @@ func advanceRunningJobRun(run *JobRun, doneMap, timeoutMap map[string]time.Time,
 	case succeeds:
 		run.JobRunState = stateSucceeded
 		run.CompletedOn = float64(now.Unix())
-		run.ExecutionTime = int(jobSucceededDelay.Seconds())
+		run.ExecutionTime = max(1, int(run.CompletedOn-run.StartedOn))
 	default:
 		return
 	}
@@ -105,7 +105,9 @@ func (b *InMemoryBackend) reconcileLocked(now time.Time) {
 		stopMap := b.jobRunStopAt[jobName]
 
 		for _, run := range runs {
+			prev := run.JobRunState
 			advanceJobRunState(run, readyMap, doneMap, timeoutMap, stopMap, now)
+			b.recordJobCompletionLocked(run, prev)
 		}
 	}
 
@@ -121,10 +123,14 @@ func (b *InMemoryBackend) reconcileLocked(now time.Time) {
 				c.LastUpdated = float64(now.Unix())
 				created := b.createCrawlerTablesLocked(c)
 				b.finishCrawlHistoryLocked(name, "COMPLETED", created, now)
+				b.setLastCrawlLocked(c, "SUCCEEDED")
+				b.recordCrawlCompletionLocked(name, "SUCCEEDED")
 			} else if ok && c.State == stateStopping {
 				c.State = stateReady
 				c.LastUpdated = float64(now.Unix())
 				b.finishCrawlHistoryLocked(name, "STOPPED", 0, now)
+				b.setLastCrawlLocked(c, "CANCELLED")
+				b.recordCrawlCompletionLocked(name, "CANCELLED")
 			}
 
 			delete(b.crawlerReadyAt, name)
@@ -145,6 +151,7 @@ func (b *InMemoryBackend) reconcileLocked(now time.Time) {
 	}
 
 	b.reconcileSessionsLocked(now)
+	b.settleWorkflowRunsLocked(now)
 
 	b.pruneOrphanJobRunTimersLocked()
 }
@@ -281,12 +288,21 @@ func (b *InMemoryBackend) advanceStates(now time.Time) {
 		return
 	}
 
-	b.mu.Lock("advanceStates.apply")
-	defer b.mu.Unlock()
+	events := func() []runCompletion {
+		b.mu.Lock("advanceStates.apply")
+		defer b.mu.Unlock()
 
-	// reconcileLocked re-checks each timer against now, so it is idempotent when a
-	// lazy read and the reconciler race to advance the same resource.
-	b.reconcileLocked(now)
+		// reconcileLocked re-checks each timer against now, so it is idempotent when a
+		// lazy read and the reconciler race to advance the same resource.
+		b.reconcileLocked(now)
+
+		ev := b.triggerEvents
+		b.triggerEvents = nil
+
+		return ev
+	}()
+
+	b.dispatchTriggerEvents(events)
 }
 
 // StartReconciler starts the managed background reconciler that advances Glue job-run

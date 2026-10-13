@@ -34,7 +34,7 @@ func (b *InMemoryBackend) ValidateInsightEntity(entityType, entityValue string) 
 
 		d, exists := b.domains.Get(entityValue)
 		if !exists || deleteWindowElapsed(d, b.clock()) {
-			return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, entityValue)
+			return fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, entityValue)
 		}
 
 		return nil

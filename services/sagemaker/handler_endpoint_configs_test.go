@@ -3,6 +3,7 @@ package sagemaker_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -194,6 +195,12 @@ func TestHandler_DeleteEndpointConfig_AfterEndpointDeleted(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, h.Backend.DeleteEndpoint(context.Background(), "ep-freed"))
+
+	require.Eventually(t, func() bool {
+		_, descErr := h.Backend.DescribeEndpoint(context.Background(), "ep-freed")
+
+		return errors.Is(descErr, sagemaker.ErrEndpointNotFound)
+	}, 5*time.Second, 10*time.Millisecond)
 
 	rec := doSageMakerRequest(t, h, "DeleteEndpointConfig", map[string]any{"EndpointConfigName": "ec-freed"})
 	assert.Equal(t, http.StatusOK, rec.Code)

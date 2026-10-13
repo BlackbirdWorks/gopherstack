@@ -3,8 +3,6 @@ package pinpoint
 import (
 	"fmt"
 	"sort"
-	"strconv"
-	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
@@ -54,6 +52,7 @@ func (b *InMemoryBackend) CreateEmailTemplate(
 
 	// Track template version history.
 	versionKey := templateName + "/EMAIL"
+	b.templateActiveVersion[versionKey] = "1"
 	b.templateVersionHistory[versionKey] = []templateVersionItem{
 		{TemplateName: templateName, TemplateType: ChannelTypeEmail, TemplateVersion: "1"},
 	}
@@ -95,6 +94,7 @@ func (b *InMemoryBackend) CreateInAppTemplate(
 
 	// Track template version history.
 	versionKey := templateName + "/INAPP"
+	b.templateActiveVersion[versionKey] = "1"
 	b.templateVersionHistory[versionKey] = []templateVersionItem{
 		{TemplateName: templateName, TemplateType: templateTypeINAPP, TemplateVersion: "1"},
 	}
@@ -140,6 +140,7 @@ func (b *InMemoryBackend) CreatePushTemplate(
 
 	// Track template version history.
 	versionKey := templateName + "/PUSH"
+	b.templateActiveVersion[versionKey] = "1"
 	b.templateVersionHistory[versionKey] = []templateVersionItem{
 		{TemplateName: templateName, TemplateType: templateTypePUSH, TemplateVersion: "1"},
 	}
@@ -181,6 +182,7 @@ func (b *InMemoryBackend) CreateSmsTemplate(
 
 	// Track template version history.
 	versionKey := templateName + "/SMS"
+	b.templateActiveVersion[versionKey] = "1"
 	b.templateVersionHistory[versionKey] = []templateVersionItem{
 		{TemplateName: templateName, TemplateType: ChannelTypeSMS, TemplateVersion: "1"},
 	}
@@ -292,6 +294,7 @@ func (b *InMemoryBackend) CreateVoiceTemplate(
 
 	// Track template version history.
 	versionKey := templateName + "/VOICE"
+	b.templateActiveVersion[versionKey] = "1"
 	b.templateVersionHistory[versionKey] = []templateVersionItem{
 		{TemplateName: templateName, TemplateType: ChannelTypeVoice, TemplateVersion: "1"},
 	}
@@ -331,6 +334,17 @@ func (b *InMemoryBackend) UpdateVoiceTemplate(
 		return nil, ErrAppNotFound
 	}
 
+	nextVersion, err := b.nextTemplateVersionLocked(
+		templateName,
+		ChannelTypeVoice,
+		req.Version,
+		req.CreateNewVersion,
+		t,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	if req.Body != "" {
 		t.Body = req.Body
 	}
@@ -355,8 +369,6 @@ func (b *InMemoryBackend) UpdateVoiceTemplate(
 		t.Tags = nonNilTagsCopy(req.Tags)
 	}
 
-	nextVersion := b.nextTemplateVersionLocked(templateName, ChannelTypeVoice, req.CreateNewVersion, t.Version)
-
 	t.LastModifiedDate = nowRFC3339()
 	t.Version = nextVersion
 
@@ -378,7 +390,7 @@ func (b *InMemoryBackend) DeleteVoiceTemplate(templateName string) (*VoiceTempla
 
 	b.voiceTemplates.Delete(templateName)
 	delete(b.arnIndex, t.ARN)
-	delete(b.templateVersionHistory, templateName+"/"+ChannelTypeVoice)
+	b.dropTemplateVersionsLocked(templateName + "/" + ChannelTypeVoice)
 
 	cp := *t
 	cp.Tags = nonNilTagsCopy(t.Tags)
@@ -477,7 +489,16 @@ func (b *InMemoryBackend) UpdateEmailTemplate(
 		return nil, ErrAppNotFound
 	}
 
-	nextVersion := b.nextTemplateVersionLocked(templateName, ChannelTypeEmail, req.CreateNewVersion, t.Version)
+	nextVersion, err := b.nextTemplateVersionLocked(
+		templateName,
+		ChannelTypeEmail,
+		req.Version,
+		req.CreateNewVersion,
+		t,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	if req.Subject != "" {
 		t.Subject = req.Subject
@@ -521,7 +542,7 @@ func (b *InMemoryBackend) DeleteEmailTemplate(templateName string) (*EmailTempla
 
 	b.emailTemplates.Delete(templateName)
 	delete(b.arnIndex, t.ARN)
-	delete(b.templateVersionHistory, templateName+"/"+ChannelTypeEmail)
+	b.dropTemplateVersionsLocked(templateName + "/" + ChannelTypeEmail)
 
 	return cloneEmailTemplate(t), nil
 }
@@ -552,7 +573,16 @@ func (b *InMemoryBackend) UpdateInAppTemplate(
 		return nil, ErrAppNotFound
 	}
 
-	nextVersion := b.nextTemplateVersionLocked(templateName, templateTypeINAPP, req.CreateNewVersion, t.Version)
+	nextVersion, err := b.nextTemplateVersionLocked(
+		templateName,
+		templateTypeINAPP,
+		req.Version,
+		req.CreateNewVersion,
+		t,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	if len(req.Content) > 0 {
 		t.Content = cloneContentSlice(req.Content)
@@ -588,7 +618,7 @@ func (b *InMemoryBackend) DeleteInAppTemplate(templateName string) (*InAppTempla
 
 	b.inAppTemplates.Delete(templateName)
 	delete(b.arnIndex, t.ARN)
-	delete(b.templateVersionHistory, templateName+"/"+templateTypeINAPP)
+	b.dropTemplateVersionsLocked(templateName + "/" + templateTypeINAPP)
 
 	return cloneInAppTemplate(t), nil
 }
@@ -619,7 +649,16 @@ func (b *InMemoryBackend) UpdatePushTemplate(
 		return nil, ErrAppNotFound
 	}
 
-	nextVersion := b.nextTemplateVersionLocked(templateName, templateTypePUSH, req.CreateNewVersion, t.Version)
+	nextVersion, err := b.nextTemplateVersionLocked(
+		templateName,
+		templateTypePUSH,
+		req.Version,
+		req.CreateNewVersion,
+		t,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	applyPushTemplateUpdate(t, req)
 
@@ -679,7 +718,7 @@ func (b *InMemoryBackend) DeletePushTemplate(templateName string) (*PushTemplate
 
 	b.pushTemplates.Delete(templateName)
 	delete(b.arnIndex, t.ARN)
-	delete(b.templateVersionHistory, templateName+"/"+templateTypePUSH)
+	b.dropTemplateVersionsLocked(templateName + "/" + templateTypePUSH)
 
 	return clonePushTemplate(t), nil
 }
@@ -710,7 +749,10 @@ func (b *InMemoryBackend) UpdateSmsTemplate(
 		return nil, ErrAppNotFound
 	}
 
-	nextVersion := b.nextTemplateVersionLocked(templateName, ChannelTypeSMS, req.CreateNewVersion, t.Version)
+	nextVersion, err := b.nextTemplateVersionLocked(templateName, ChannelTypeSMS, req.Version, req.CreateNewVersion, t)
+	if err != nil {
+		return nil, err
+	}
 
 	if req.Body != "" {
 		t.Body = req.Body
@@ -746,78 +788,7 @@ func (b *InMemoryBackend) DeleteSmsTemplate(templateName string) (*SmsTemplate, 
 
 	b.smsTemplates.Delete(templateName)
 	delete(b.arnIndex, t.ARN)
-	delete(b.templateVersionHistory, templateName+"/"+ChannelTypeSMS)
+	b.dropTemplateVersionsLocked(templateName + "/" + ChannelTypeSMS)
 
 	return cloneSmsTemplate(t), nil
-}
-
-// ListTemplateVersions returns stored version history for a template.
-func (b *InMemoryBackend) ListTemplateVersions(
-	templateName, templateType string,
-) ([]*templateVersionItem, error) {
-	b.mu.RLock("ListTemplateVersions")
-	defer b.mu.RUnlock()
-
-	// Normalise the template type key to uppercase for storage lookup.
-	typeUpper := strings.ToUpper(templateType)
-	versionKey := templateName + "/" + typeUpper
-
-	history := b.templateVersionHistory[versionKey]
-	if len(history) == 0 {
-		return nil, ErrAppNotFound
-	}
-
-	result := make([]*templateVersionItem, len(history))
-	for i := range history {
-		cp := history[i]
-		result[i] = &cp
-	}
-
-	return result, nil
-}
-
-// UpdateTemplateActiveVersion updates the active version to the latest for the given template.
-func (b *InMemoryBackend) UpdateTemplateActiveVersion(templateName, templateType string) error {
-	b.mu.Lock("UpdateTemplateActiveVersion")
-	defer b.mu.Unlock()
-
-	typeUpper := strings.ToUpper(templateType)
-	versionKey := templateName + "/" + typeUpper
-
-	history := b.templateVersionHistory[versionKey]
-	if len(history) == 0 {
-		return nil
-	}
-
-	// Mark the latest version as active (stored in version history last entry).
-	// No-op needed: the last entry in history IS the active version.
-	// This method exists for API compatibility.
-	_ = history[len(history)-1]
-
-	return nil
-}
-
-// nextTemplateVersionLocked returns the version an update lands on: the current one
-// (overwritten in place) unless createNewVersion appends a new history entry.
-func (b *InMemoryBackend) nextTemplateVersionLocked(
-	templateName, templateType string,
-	createNewVersion bool,
-	current string,
-) string {
-	if !createNewVersion {
-		return current
-	}
-
-	versionKey := templateName + "/" + templateType
-	nextVersion := strconv.Itoa(len(b.templateVersionHistory[versionKey]) + 1)
-	b.templateVersionHistory[versionKey] = append(
-		b.templateVersionHistory[versionKey],
-		templateVersionItem{TemplateName: templateName, TemplateType: templateType, TemplateVersion: nextVersion},
-	)
-
-	if h := b.templateVersionHistory[versionKey]; len(h) > maxTemplateVersions {
-		b.templateVersionHistory[versionKey] = h[len(h)-maxTemplateVersions:]
-	}
-
-	return nextVersion
 }

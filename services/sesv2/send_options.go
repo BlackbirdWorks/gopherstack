@@ -18,6 +18,10 @@ type SendOptions struct {
 	ConfigurationSetName           string                 `json:"configurationSetName,omitempty"`
 	TenantName                     string                 `json:"tenantName,omitempty"`
 	FeedbackForwardingEmailAddress string                 `json:"feedbackForwardingEmailAddress,omitempty"`
+
+	EndpointID                                string `json:"-"`
+	FromEmailAddressIdentityArn               string `json:"-"`
+	FeedbackForwardingEmailAddressIdentityArn string `json:"-"`
 }
 
 // validateSendOptions checks that every referenced resource exists and, for a tenant, is associated with it.
@@ -27,8 +31,12 @@ func (b *InMemoryBackend) validateSendOptions(from, templateName string, o SendO
 
 	if o.ConfigurationSetName != "" {
 		if _, ok := b.configurationSets.Get(o.ConfigurationSetName); !ok {
-			return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, o.ConfigurationSetName)
+			return configSetMissing(o.ConfigurationSetName)
 		}
+	}
+
+	if err := b.validateSendReferencesLocked(o); err != nil {
+		return err
 	}
 
 	if lm := o.ListManagement; lm != nil {
@@ -103,4 +111,60 @@ func storedTemplateName(t *bulkEmailTemplate) string {
 	}
 
 	return t.TemplateName
+}
+
+// validateSendReferencesLocked checks the multi-region EndpointId and the
+// sending-authorization identity ARNs. ARNs of other accounts are accepted:
+// their policies live outside this single-account emulator.
+func (b *InMemoryBackend) validateSendReferencesLocked(o SendOptions) error {
+	if o.EndpointID != "" && !b.hasMultiRegionEndpointIDLocked(o.EndpointID) {
+		return fmt.Errorf("%w: multi-region endpoint %s not found", ErrNotFound, o.EndpointID)
+	}
+
+	for _, identityARN := range []string{o.FromEmailAddressIdentityArn, o.FeedbackForwardingEmailAddressIdentityArn} {
+		if identityARN == "" {
+			continue
+		}
+
+		if err := b.checkIdentityARNLocked(identityARN); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) hasMultiRegionEndpointIDLocked(id string) bool {
+	for _, ep := range b.multiRegionEndpoints {
+		if mapString(ep, keyEndpointID) == id {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (b *InMemoryBackend) checkIdentityARNLocked(identityARN string) error {
+	const arnParts = 6
+
+	parts := strings.SplitN(identityARN, ":", arnParts)
+	name, isIdentity := "", false
+
+	if len(parts) == arnParts && parts[0] == "arn" && parts[2] == "ses" {
+		name, isIdentity = strings.CutPrefix(parts[5], "identity/")
+	}
+
+	if !isIdentity || name == "" {
+		return fmt.Errorf("%w: %q is not an SES identity ARN", ErrInvalidInput, identityARN)
+	}
+
+	if parts[4] != b.accountID {
+		return nil
+	}
+
+	if _, ok := b.identities.Get(name); !ok {
+		return identityMissing(name)
+	}
+
+	return nil
 }

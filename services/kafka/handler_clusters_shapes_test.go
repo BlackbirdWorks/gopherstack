@@ -697,8 +697,8 @@ func TestGetBootstrapBrokers_Variants(t *testing.T) {
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-			assert.NotEmpty(t, resp["bootstrapBrokerString"], "plaintext broker string always present")
-			assert.NotEmpty(t, resp["bootstrapBrokerStringTls"], "TLS broker string always present")
+			assert.Empty(t, resp["bootstrapBrokerString"], "default ClientBroker is TLS: no plaintext listener")
+			assert.NotEmpty(t, resp["bootstrapBrokerStringTls"], "TLS broker string present for the default mode")
 
 			if tt.wantSCRAM {
 				assert.NotEmpty(t, resp["bootstrapBrokerStringSaslScram"], "SCRAM broker string should be present")

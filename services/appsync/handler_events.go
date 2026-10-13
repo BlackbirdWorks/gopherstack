@@ -82,7 +82,7 @@ func (h *Handler) createAPI(ctx context.Context, c *echo.Context) error {
 		return h.handleError(ctx, c, "CreateApi", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{keyAPI: api})
+	return c.JSON(http.StatusCreated, map[string]any{keyAPI: h.withWebACL(ctx, api)})
 }
 
 // getAPI handles GET /v2/apis/{apiId}.
@@ -92,7 +92,7 @@ func (h *Handler) getAPI(ctx context.Context, c *echo.Context, apiID string) err
 		return h.handleError(ctx, c, "GetApi", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyAPI: api})
+	return c.JSON(http.StatusOK, map[string]any{keyAPI: h.withWebACL(ctx, api)})
 }
 
 // listAPIs handles GET /v2/apis.
@@ -108,7 +108,7 @@ func (h *Handler) listAPIs(ctx context.Context, c *echo.Context) error {
 
 	// The real AWS SDK response wraps the list in "apis", not "items".
 	page, tok := appsyncPaginate(apis, nextToken, maxResults)
-	out := map[string]any{"apis": page}
+	out := map[string]any{"apis": h.withWebACLs(ctx, page)}
 	if tok != "" {
 		out["nextToken"] = tok
 	}
@@ -147,5 +147,5 @@ func (h *Handler) updateAPI(ctx context.Context, c *echo.Context, apiID string) 
 		return h.handleError(ctx, c, "UpdateApi", updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyAPI: api})
+	return c.JSON(http.StatusOK, map[string]any{keyAPI: h.withWebACL(ctx, api)})
 }

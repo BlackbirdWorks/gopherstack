@@ -201,7 +201,7 @@ func TestListStateMachines(t *testing.T) {
 		{
 			// nextToken beyond size returns empty
 			name:      "EmptyToken",
-			token:     "999",
+			token:     "c2ZuLXBhZ2U6OTk5",
 			wantCount: 0,
 		},
 	}
@@ -506,9 +506,9 @@ func TestBackend_ValidateName_StateMachine(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:    "name_with_space_allowed",
+			name:    "name_with_space_invalid",
 			smName:  "my sm",
-			wantErr: nil,
+			wantErr: stepfunctions.ErrInvalidName,
 		},
 		{
 			name:    "empty_name_invalid",

@@ -78,6 +78,10 @@ func (h *Handler) handleCreateReplicationInstance(
 		return nil, fmt.Errorf("%w: ReplicationInstanceClass is required", ErrValidation)
 	}
 
+	if err := validateReplicationInstanceInput(identifier, class, ptrInt32(in.AllocatedStorage)); err != nil {
+		return nil, err
+	}
+
 	kv := tagsToMap(in.Tags)
 	ri, err := h.Backend.CreateReplicationInstance(
 		ctx,

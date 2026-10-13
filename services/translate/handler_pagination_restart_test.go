@@ -74,7 +74,7 @@ func TestListParallelData_Pagination_DeletedMidPage(t *testing.T) {
 	for _, name := range []string{"pd-a", "pd-b", "pd-c", "pd-d", "pd-e"} {
 		rec := doRequest(t, h, "CreateParallelData", map[string]any{
 			"Name":               name,
-			"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f.tmx", "Format": "TMX"},
+			"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f.tmx", "Format": "TMX"},
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
@@ -124,8 +124,8 @@ func TestListTextTranslationJobs_Pagination_StaleTokenDoesNotRestart(t *testing.
 			"SourceLanguageCode":  "en",
 			"TargetLanguageCodes": []string{"fr"},
 			"DataAccessRoleArn":   "arn:aws:iam::000000000000:role/TranslateRole",
-			"InputDataConfig":     map[string]any{"S3Uri": "s3://b/i/", "ContentType": "text/plain"},
-			"OutputDataConfig":    map[string]any{"S3Uri": "s3://b/o/"},
+			"InputDataConfig":     map[string]any{"S3Uri": "s3://bkt/i/", "ContentType": "text/plain"},
+			"OutputDataConfig":    map[string]any{"S3Uri": "s3://bkt/o/"},
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 	}

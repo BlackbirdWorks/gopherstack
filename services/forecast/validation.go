@@ -215,6 +215,14 @@ func (b *InMemoryBackend) validateCreateFieldsLocked(kind resourceKind, action s
 		return err
 	}
 
+	if err := validateS3Paths(data); err != nil {
+		return err
+	}
+
+	if err := validateShapeFields(kind, data); err != nil {
+		return err
+	}
+
 	if kind == kindPredictor {
 		if err := b.validatePredictorFieldsLocked(data); err != nil {
 			return err
@@ -434,4 +442,115 @@ func validateDeletableLocked(resource *Resource) error {
 		"%w: %s %q has status %s and cannot be deleted yet",
 		ErrResourceInUse, resource.Kind, resource.Name, resource.Status,
 	)
+}
+
+var s3PathRe = regexp.MustCompile(`^s3://[a-z0-9].+$`)
+
+// validateS3Paths enforces the S3Path shape (min 7, max 4096, ^s3://[a-z0-9].+$,
+// botocore forecast service-2.json) on DataSource/Destination S3Config.Path.
+// An empty path is left to createFailureMessage (CREATE_FAILED).
+func validateS3Paths(data map[string]any) error {
+	for _, key := range []string{"DataSource", "Destination"} {
+		parent, _ := data[key].(map[string]any)
+		cfg, _ := parent["S3Config"].(map[string]any)
+		path := stringValue(cfg["Path"])
+
+		if path == "" {
+			continue
+		}
+
+		if len(path) > maxS3PathLen || !s3PathRe.MatchString(path) {
+			return fmt.Errorf("%w: %s.S3Config.Path %q must match ^s3://[a-z0-9].+$", ErrValidation, key, path)
+		}
+	}
+
+	return nil
+}
+
+const maxS3PathLen = 4096
+
+var forecastTypeRe = regexp.MustCompile(`(^0?\.\d\d?$|^mean$)`)
+
+const (
+	minBacktestWindows = 1
+	maxBacktestWindows = 5
+)
+
+//nolint:gochecknoglobals // static declarative table
+var (
+	validAttributeTypes = map[string]bool{
+		"string": true, "integer": true, "float": true, "timestamp": true, "geolocation": true,
+	}
+	validDataFormats = map[string]bool{"CSV": true, "PARQUET": true}
+)
+
+// validateShapeFields applies the botocore forecast service-2.json member
+// constraints (ForecastType pattern, Format, AttributeType enums) and the
+// documented frequency / backtest-window limits.
+func validateShapeFields(kind resourceKind, data map[string]any) error {
+	switch kind {
+	case kindPredictor:
+		return validatePredictorShape(data)
+	case kindDataset:
+		return validateSchemaAttributes(data)
+	case kindDatasetImportJob:
+		return validateOptionalEnumField("Format", data, validDataFormats)
+	default:
+		return nil
+	}
+}
+
+func validateSchemaAttributes(data map[string]any) error {
+	schema, _ := data["Schema"].(map[string]any)
+	attrs, _ := schema["Attributes"].([]any)
+
+	if len(attrs) == 0 || len(attrs) > 100 {
+		return fmt.Errorf("%w: Schema.Attributes must contain 1 to 100 attributes", ErrValidation)
+	}
+
+	for _, a := range attrs {
+		attr, _ := a.(map[string]any)
+		if typ := stringValue(attr["AttributeType"]); !validAttributeTypes[typ] {
+			return fmt.Errorf(
+				"%w: Schema attribute type %q is not a recognized Amazon Forecast value",
+				ErrValidation,
+				typ,
+			)
+		}
+	}
+
+	return nil
+}
+
+func validatePredictorShape(data map[string]any) error {
+	freq := stringValue(data["ForecastFrequency"])
+	if cfg, ok := data["FeaturizationConfig"].(map[string]any); ok && freq == "" {
+		freq = stringValue(cfg["ForecastFrequency"])
+	}
+
+	if freq != "" && !dataFrequencyPattern.MatchString(freq) {
+		return fmt.Errorf("%w: ForecastFrequency %q must be an optional interval followed by Y, M, W, D, H, or min",
+			ErrValidation, freq)
+	}
+
+	if types, ok := data["ForecastTypes"].([]any); ok {
+		if len(types) == 0 || len(types) > 20 {
+			return fmt.Errorf("%w: ForecastTypes must contain 1 to 20 entries", ErrValidation)
+		}
+
+		for _, v := range types {
+			if s, _ := v.(string); !forecastTypeRe.MatchString(s) {
+				return fmt.Errorf("%w: ForecastType %q must be mean or a quantile such as 0.50", ErrValidation, s)
+			}
+		}
+	}
+
+	if ev, ok := data["EvaluationParameters"].(map[string]any); ok {
+		if n, isNum := ev["NumberOfBacktestWindows"].(float64); isNum &&
+			(n < minBacktestWindows || n > maxBacktestWindows) {
+			return fmt.Errorf("%w: NumberOfBacktestWindows must be between 1 and 5", ErrValidation)
+		}
+	}
+
+	return nil
 }

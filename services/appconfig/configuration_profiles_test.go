@@ -425,9 +425,8 @@ func TestBackend_DeleteExperimentDefinition_DestroyCascadesRunsAndTags(t *testin
 	_, err = b.GetExperimentRun(appID, def.ID, run.Run)
 	require.Error(t, err, "DESTROY must remove runs scoped to the definition")
 
-	tagsAfter, err := b.ListTagsForResource(runArn)
-	require.NoError(t, err)
-	assert.Empty(t, tagsAfter, "DESTROY must remove tags scoped to deleted runs")
+	_, err = b.ListTagsForResource(runArn)
+	require.ErrorIs(t, err, appconfig.ErrApplicationNotFound, "DESTROY must remove tags scoped to deleted runs")
 }
 
 func TestBackend_GetConfigurationProfile_NotFound(t *testing.T) {

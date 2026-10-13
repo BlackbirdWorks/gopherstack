@@ -5,8 +5,8 @@ func (b *InMemoryBackend) DescribeOrganizationConfiguration(graphARN string) (bo
 	b.mu.RLock("DescribeOrganizationConfiguration")
 	defer b.mu.RUnlock()
 
-	if !b.graphs.Has(graphARN) {
-		return false, ErrGraphNotFound
+	if err := b.requireGraphLocked(graphARN); err != nil {
+		return false, err
 	}
 
 	return b.orgConfigs[graphARN], nil
@@ -17,8 +17,8 @@ func (b *InMemoryBackend) UpdateOrganizationConfiguration(graphARN string, autoE
 	b.mu.Lock("UpdateOrganizationConfiguration")
 	defer b.mu.Unlock()
 
-	if !b.graphs.Has(graphARN) {
-		return ErrGraphNotFound
+	if err := b.requireGraphLocked(graphARN); err != nil {
+		return err
 	}
 
 	b.orgConfigs[graphARN] = autoEnable

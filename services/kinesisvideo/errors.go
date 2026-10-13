@@ -15,6 +15,9 @@ var (
 	ErrVersionMismatch = awserr.New("version mismatch", awserr.ErrConflict)
 	// ErrValidation is returned when request input fails validation.
 	ErrValidation = awserr.New("invalid argument", awserr.ErrInvalidParameter)
+	// ErrTagLimit is returned when a resource would exceed 50 tags.
+	ErrTagLimit = awserr.New("You have exceeded the limit of tags that you can associate with the resource. "+
+		"A Kinesis video stream can support up to 50 tags.", awserr.ErrInvalidParameter)
 	// ErrEdgeConfigNotFound is returned when a stream has no edge configuration.
 	ErrEdgeConfigNotFound = awserr.New("stream edge configuration not found", awserr.ErrNotFound)
 	// ErrNoDataRetention is returned when an operation needs a stream with a non-zero data retention.

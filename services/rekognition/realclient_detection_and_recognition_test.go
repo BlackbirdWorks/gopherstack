@@ -637,7 +637,7 @@ func TestRealClient_DetectionAndRecognition(t *testing.T) {
 					DatasetArn: aws.String(trainARN),
 				})
 				require.NoError(t, err)
-				assert.Equal(t, "UPDATE_IN_PROGRESS", string(described.DatasetDescription.Status))
+				assert.Equal(t, "UPDATE_COMPLETE", string(described.DatasetDescription.Status))
 
 				// DeleteDataset on a distinct, never-distributed dataset (trainARN
 				// above is mid-UPDATE_IN_PROGRESS from DistributeDatasetEntries and

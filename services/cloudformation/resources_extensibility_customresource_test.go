@@ -161,7 +161,7 @@ func TestResourceCreator_CustomResource_ResponseURL_RoundTrip(t *testing.T) {
 		}
 
 		body, _ := json.Marshal(resp)
-		client := &http.Client{Timeout: 5 * time.Second}
+		client := &http.Client{}
 		putReq, _ := http.NewRequestWithContext(t.Context(), http.MethodPut, url,
 			newBytesReader(body))
 		putReq.ContentLength = int64(len(body))
@@ -169,8 +169,8 @@ func TestResourceCreator_CustomResource_ResponseURL_RoundTrip(t *testing.T) {
 		res, err := client.Do(putReq)
 		require.NoError(t, err)
 		res.Body.Close()
-	case <-time.After(10 * time.Second):
-		t.Fatal("timed out waiting for ResponseURL")
+	case <-t.Context().Done():
+		t.Fatal("test context done waiting for ResponseURL")
 	}
 
 	// Collect the Create result.
@@ -178,8 +178,8 @@ func TestResourceCreator_CustomResource_ResponseURL_RoundTrip(t *testing.T) {
 	case result := <-resultCh:
 		require.NoError(t, result.err)
 		assert.Equal(t, "my-widget-phys-001", result.physID)
-	case <-time.After(10 * time.Second):
-		t.Fatal("timed out waiting for Create result")
+	case <-t.Context().Done():
+		t.Fatal("test context done waiting for Create result")
 	}
 }
 
@@ -364,22 +364,22 @@ func TestResourceCreator_CustomResource_FAILEDResponse(t *testing.T) {
 			"PhysicalResourceId": "failing-resource-001",
 		}
 		body, _ := json.Marshal(resp)
-		client := &http.Client{Timeout: 5 * time.Second}
+		client := &http.Client{}
 		req, _ := http.NewRequestWithContext(t.Context(), http.MethodPut, url, newBytesReader(body))
 		req.ContentLength = int64(len(body))
 		res, err := client.Do(req)
 		require.NoError(t, err)
 		res.Body.Close()
-	case <-time.After(10 * time.Second):
-		t.Fatal("timed out waiting for ResponseURL")
+	case <-t.Context().Done():
+		t.Fatal("test context done waiting for ResponseURL")
 	}
 
 	select {
 	case result := <-resultCh:
 		require.Error(t, result.err, "FAILED response should return error")
 		assert.Contains(t, result.err.Error(), "bad-data is not allowed")
-	case <-time.After(10 * time.Second):
-		t.Fatal("timed out waiting for Create result")
+	case <-t.Context().Done():
+		t.Fatal("test context done waiting for Create result")
 	}
 }
 
@@ -460,14 +460,14 @@ func TestStack_CustomResource_GetAtt_DataOutputs(t *testing.T) {
 			},
 		}
 		body, _ := json.Marshal(resp)
-		client := &http.Client{Timeout: 5 * time.Second}
+		client := &http.Client{}
 		req, _ := http.NewRequestWithContext(t.Context(), http.MethodPut, url, newBytesReader(body))
 		req.ContentLength = int64(len(body))
 		res, err := client.Do(req)
 		require.NoError(t, err)
 		res.Body.Close()
-	case <-time.After(10 * time.Second):
-		t.Fatal("timed out waiting for ResponseURL")
+	case <-t.Context().Done():
+		t.Fatal("test context done waiting for ResponseURL")
 	}
 
 	select {

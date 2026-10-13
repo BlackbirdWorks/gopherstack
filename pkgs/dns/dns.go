@@ -67,8 +67,9 @@ type dnsEntry struct {
 // Server is an embedded DNS server that answers A queries for registered
 // synthetic hostnames with a fixed IP address.
 type Server struct {
-	names   map[string]struct{}
-	records map[string][]*dnsEntry // per-record typed values (RegisterRecord)
+	interceptor Interceptor
+	names       map[string]struct{}
+	records     map[string][]*dnsEntry // per-record typed values (RegisterRecord)
 
 	udpServer *dns.Server
 	tcpServer *dns.Server
@@ -284,13 +285,44 @@ func (s *Server) Stop() error {
 
 // handleQuery is the DNS handler that answers A/CNAME/AAAA queries for registered names.
 func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
+	msg := s.respond(w, r)
+
+	if werr := w.WriteMsg(msg); werr != nil {
+		if s.cfg.Logger != nil {
+			s.cfg.Logger.Warn("dns: write response failed", "error", werr)
+		}
+	}
+}
+
+func (s *Server) respond(w dns.ResponseWriter, r *dns.Msg) *dns.Msg {
+	s.mu.RLock("respond")
+	ic := s.interceptor
+	s.mu.RUnlock()
+
+	if ic == nil {
+		return s.localAnswer(r)
+	}
+
+	resp := ic.Intercept(w.RemoteAddr(), r, func() *dns.Msg { return s.localAnswer(r) })
+	if resp == nil {
+		return s.localAnswer(r)
+	}
+
+	resp.Id = r.Id
+	resp.Question = r.Question
+	resp.Response = true
+
+	return resp
+}
+
+func (s *Server) localAnswer(r *dns.Msg) *dns.Msg {
 	msg := new(dns.Msg)
 	msg.SetReply(r)
 	msg.Authoritative = true
 	msg.RecursionAvailable = false
 
-	// Common resolver behavior: only process the first question to avoid
-	// inconsistent Rcode/answer combinations for multi-question messages.
+	// Only the first question is processed so multi-question messages cannot
+	// produce inconsistent Rcode/answer combinations.
 	if len(r.Question) > 0 {
 		q := r.Question[0]
 		name := strings.ToLower(q.Name)
@@ -308,15 +340,11 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		case dns.TypeAAAA:
 			s.handleAAAAQuery(msg, q, entries)
 		default:
-			// For other query types, return NOERROR with empty answer (NODATA).
+			// Other query types: NOERROR with an empty answer (NODATA).
 		}
 	}
 
-	if werr := w.WriteMsg(msg); werr != nil {
-		if s.cfg.Logger != nil {
-			s.cfg.Logger.Warn("dns: write response failed", "error", werr)
-		}
-	}
+	return msg
 }
 
 func (s *Server) handleAQuery(msg *dns.Msg, q dns.Question, entries []*dnsEntry, inNames bool) {

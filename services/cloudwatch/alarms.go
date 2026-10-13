@@ -54,29 +54,13 @@ func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 	if alarm.AlarmArn == "" {
 		alarm.AlarmArn = arn.Build("cloudwatch", b.region, b.accountID, "alarm:"+alarm.AlarmName)
 	}
-	if alarm.StateValue == "" {
-		alarm.StateValue = alarmStateInsufficientData
-	}
 	now := time.Now().UTC()
 	if alarm.CreatedAt.IsZero() {
 		alarm.CreatedAt = now
 	}
-	// Preserve the state-transitioned timestamp from an existing alarm if the state did not change.
-	// PutMetricAlarm reconfigures the alarm but does not itself evaluate metric
-	// state, so StateUpdatedTimestamp -- which tracks state evaluation/SetAlarmState
-	// activity, not config edits -- is seeded once on creation and preserved
-	// across config-only updates.
-	if existing, ok := b.alarms.Get(alarm.AlarmName); ok {
-		if existing.StateValue == alarm.StateValue {
-			alarm.StateTransitionedTimestamp = existing.StateTransitionedTimestamp
-		} else {
-			alarm.StateTransitionedTimestamp = now
-		}
-		alarm.StateUpdatedTimestamp = existing.StateUpdatedTimestamp
-	} else {
-		alarm.StateTransitionedTimestamp = now
-		alarm.StateUpdatedTimestamp = now
-	}
+
+	existing, hadExisting := b.alarms.Get(alarm.AlarmName)
+	seedAlarmState(alarm, existing, hadExisting, now)
 	alarm.AlarmConfigurationUpdatedTimestamp = now
 
 	cp := *alarm
@@ -90,6 +74,33 @@ func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 	b.appendHistory(alarm.AlarmName, "MetricAlarm", histType, historySummary, "")
 
 	return nil
+}
+
+// seedAlarmState carries an updated alarm's evaluated state over from existing (PutMetricAlarm leaves
+// state unchanged on update) and seeds a new alarm as INSUFFICIENT_DATA.
+func seedAlarmState(alarm, existing *MetricAlarm, hadExisting bool, now time.Time) {
+	switch {
+	case hadExisting && alarm.StateValue == "":
+		alarm.StateValue = existing.StateValue
+		alarm.StateReason = existing.StateReason
+		alarm.StateReasonData = existing.StateReasonData
+		alarm.StateTransitionedTimestamp = existing.StateTransitionedTimestamp
+		alarm.StateUpdatedTimestamp = existing.StateUpdatedTimestamp
+		alarm.CreatedAt = existing.CreatedAt
+	case hadExisting:
+		alarm.StateTransitionedTimestamp = now
+		if existing.StateValue == alarm.StateValue {
+			alarm.StateTransitionedTimestamp = existing.StateTransitionedTimestamp
+		}
+		alarm.StateUpdatedTimestamp = existing.StateUpdatedTimestamp
+	default:
+		if alarm.StateValue == "" {
+			alarm.StateValue = alarmStateInsufficientData
+			alarm.StateReason = "Unchecked: Initial alarm creation"
+		}
+		alarm.StateTransitionedTimestamp = now
+		alarm.StateUpdatedTimestamp = now
+	}
 }
 
 // validateAlarmExtras checks EvaluateLowSampleCountPercentile and WarmUpConfiguration.
@@ -142,6 +153,10 @@ func (b *InMemoryBackend) DescribeAlarms(
 	maxRecords int,
 	actionPrefix, childrenOfAlarmName, parentsOfAlarmName string,
 ) (page.Page[MetricAlarm], page.Page[CompositeAlarm], page.Page[LogAlarm], error) {
+	if err := validateDescribeAlarmsInput(alarmTypes, stateValue, nextToken, maxRecords); err != nil {
+		return page.Page[MetricAlarm]{}, page.Page[CompositeAlarm]{}, page.Page[LogAlarm]{}, err
+	}
+
 	if err := validateAlarmFamilyFilter(
 		alarmNames, alarmTypes, alarmNamePrefix, actionPrefix, stateValue,
 		childrenOfAlarmName, parentsOfAlarmName,
@@ -192,6 +207,34 @@ func (b *InMemoryBackend) DescribeAlarms(
 		page.Page[CompositeAlarm]{Data: compositeSlice, Next: next},
 		page.Page[LogAlarm]{Data: logSlice, Next: next},
 		nil
+}
+
+func validateDescribeAlarmsInput(alarmTypes []string, stateValue, nextToken string, maxRecords int) error {
+	if err := checkPageToken(nextToken); err != nil {
+		return err
+	}
+
+	if err := checkMaxRecords("maxRecords", maxRecords, cwDefaultDescribeAlarmsLimit); err != nil {
+		return err
+	}
+
+	if err := checkEnum(
+		"stateValue",
+		stateValue,
+		alarmStateOK,
+		alarmStateAlarm,
+		alarmStateInsufficientData,
+	); err != nil {
+		return err
+	}
+
+	for _, t := range alarmTypes {
+		if err := checkEnum("alarmTypes", t, "CompositeAlarm", "MetricAlarm", alarmTypeLogAlarm); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // validateAlarmFamilyFilter enforces DescribeAlarmsInput's documented

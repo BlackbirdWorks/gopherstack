@@ -247,22 +247,23 @@ func TestHandler_Stage_Conditions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		onFailure  *codepipeline.Condition
+		onFailure  *codepipeline.FailureConditions
 		name       string
 		wantStatus int
 	}{
 		{
 			name: "OnFailure condition persists",
-			onFailure: &codepipeline.Condition{
+			onFailure: &codepipeline.FailureConditions{
 				Result: "ROLLBACK",
-				Rules: []codepipeline.Rule{
-					{
+				Conditions: []codepipeline.Condition{{
+					Result: "ROLLBACK",
+					Rules: []codepipeline.Rule{{
 						Name: "DeploymentSafetyRule",
 						RuleTypeID: codepipeline.ActionTypeID{
 							Category: "Rule", Owner: "AWS", Provider: "DeploymentSafety", Version: "1",
 						},
-					},
-				},
+					}},
+				}},
 			},
 			wantStatus: http.StatusOK,
 		},

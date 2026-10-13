@@ -433,6 +433,7 @@ type SchemaSummary struct {
 // type's wire shape is currently unreachable in practice either way.
 type SchemaAnalysisRule struct {
 	Policy                  map[string]any `json:"policy,omitempty"`
+	CollaborationPolicy     map[string]any `json:"collaborationPolicy,omitempty"`
 	CollaborationArn        string         `json:"collaborationArn"`
 	CollaborationIdentifier string         `json:"-"`
 	CollaborationID         string         `json:"collaborationId"`
@@ -460,13 +461,14 @@ type ProtectedQuery struct {
 }
 
 type ProtectedQuerySummary struct {
-	QueryComputePayerAccountID string  `json:"queryComputePayerAccountId,omitempty"`
-	ID                         string  `json:"id"`
-	MembershipIdentifier       string  `json:"-"`
-	MembershipArn              string  `json:"membershipArn"`
-	Status                     string  `json:"status"`
-	MembershipID               string  `json:"membershipId"`
-	CreateTime                 float64 `json:"createTime,omitempty"`
+	QueryComputePayerAccountID string                  `json:"queryComputePayerAccountId,omitempty"`
+	ID                         string                  `json:"id"`
+	MembershipIdentifier       string                  `json:"-"`
+	MembershipArn              string                  `json:"membershipArn"`
+	Status                     string                  `json:"status"`
+	MembershipID               string                  `json:"membershipId"`
+	ReceiverConfigurations     []receiverConfiguration `json:"receiverConfigurations"`
+	CreateTime                 float64                 `json:"createTime,omitempty"`
 }
 
 // ProtectedJob is the Start/GetProtectedJob wire shape.
@@ -487,14 +489,14 @@ type ProtectedJob struct {
 }
 
 type ProtectedJobSummary struct {
-	JobComputePayerAccountID string  `json:"jobComputePayerAccountId,omitempty"`
-	ID                       string  `json:"id"`
-	MembershipIdentifier     string  `json:"-"`
-	MembershipArn            string  `json:"membershipArn"`
-	Status                   string  `json:"status"`
-	Type                     string  `json:"type"`
-	MembershipID             string  `json:"membershipId"`
-	CreateTime               float64 `json:"createTime,omitempty"`
+	JobComputePayerAccountID string                  `json:"jobComputePayerAccountId,omitempty"`
+	ID                       string                  `json:"id"`
+	MembershipIdentifier     string                  `json:"-"`
+	MembershipArn            string                  `json:"membershipArn"`
+	Status                   string                  `json:"status"`
+	MembershipID             string                  `json:"membershipId"`
+	ReceiverConfigurations   []receiverConfiguration `json:"receiverConfigurations"`
+	CreateTime               float64                 `json:"createTime,omitempty"`
 }
 
 // PrivacyBudgetTemplate is the wire shape for CreatePrivacyBudgetTemplate/Get/

@@ -50,7 +50,7 @@ func (b *InMemoryBackend) CreateStream(clusterIdentifier string, in CreateStream
 		Format:            in.Format,
 		Ordering:          in.Ordering,
 		CreationTime:      now,
-		PendingUntil:      now.Add(streamActivationDelay),
+		PendingUntil:      now.Add(b.dwell(streamActivationDelay)),
 		Target:            &target,
 		Tags:              tags,
 	}
@@ -106,7 +106,7 @@ func (b *InMemoryBackend) DeleteStream(clusterIdentifier, streamIdentifier strin
 
 	if s.Status != streamStatusDeleting {
 		s.Status = streamStatusDeleting
-		s.PendingUntil = time.Now().UTC().Add(streamDeletionDelay)
+		s.PendingUntil = time.Now().UTC().Add(b.dwell(streamDeletionDelay))
 	}
 
 	return s.clone(), nil

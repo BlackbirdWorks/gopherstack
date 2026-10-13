@@ -2,6 +2,7 @@ package apigateway
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -71,6 +72,12 @@ func (b *InMemoryBackend) CreateResource(restAPIID, parentID, pathPart string) (
 		return nil, fmt.Errorf("%w: pathPart is required", ErrInvalidParameter)
 	}
 
+	if !validPathPart(pathPart) {
+		return nil, fmt.Errorf(
+			"%w: Resource's path part only allow a-zA-Z0-9._-:+ and curly braces at the beginning and the end "+
+				"and an optional plus sign before the closing brace", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("CreateResource")
 	defer b.mu.Unlock()
 
@@ -81,6 +88,13 @@ func (b *InMemoryBackend) CreateResource(restAPIID, parentID, pathPart string) (
 	parent, ok := b.resources.Get(resourceKey(restAPIID, parentID))
 	if !ok {
 		return nil, fmt.Errorf("%w: parent resource %s not found", ErrResourceNotFound, parentID)
+	}
+
+	for _, sib := range b.resourcesByAPI.Get(restAPIID) {
+		if sib.ParentID == parentID && sib.PathPart == pathPart {
+			return nil, fmt.Errorf(
+				"%w: Another resource with the same parent already has this name: %s", ErrAlreadyExists, pathPart)
+		}
 	}
 
 	path := computePath(parent.Path, pathPart)
@@ -221,3 +235,7 @@ func (b *InMemoryBackend) recomputeDescendantPaths(restAPIID string, res *Resour
 		b.recomputeDescendantPaths(restAPIID, child)
 	}
 }
+
+var pathPartPattern = regexp.MustCompile(`^([a-zA-Z0-9._:-]+|\{[a-zA-Z0-9._:-]+\+?\})$`)
+
+func validPathPart(part string) bool { return pathPartPattern.MatchString(part) }

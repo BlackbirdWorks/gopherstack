@@ -26,6 +26,8 @@ const (
 type ShardIteratorEntry struct {
 	ExpiresAt time.Time
 	TableName string
+	// StreamARN pins the iterator to one stream generation; empty for legacy tokens.
+	StreamARN string
 	// Region is the table's region; empty for tokens without one (home region).
 	Region   string
 	StartSeq int64
@@ -85,6 +87,14 @@ func (s *ShardIteratorStore) Put(tableName string, startSeq int64) (string, erro
 // PutWithEnd stores an iterator entry for a table in region, carrying the owning
 // shard's ending sequence number (0 for an open shard), and returns the opaque token.
 func (s *ShardIteratorStore) PutWithEnd(tableName, region string, startSeq, endSeq int64) (string, error) {
+	return s.PutForStream(tableName, region, "", startSeq, endSeq)
+}
+
+// PutForStream is PutWithEnd for an iterator pinned to streamARN.
+func (s *ShardIteratorStore) PutForStream(
+	tableName, region, streamARN string,
+	startSeq, endSeq int64,
+) (string, error) {
 	token, err := generateOpaqueToken()
 	if err != nil {
 		return "", err
@@ -111,6 +121,7 @@ func (s *ShardIteratorStore) PutWithEnd(tableName, region string, startSeq, endS
 		s.entries[token] = &ShardIteratorEntry{
 			TableName: tableName,
 			Region:    region,
+			StreamARN: streamARN,
 			StartSeq:  startSeq,
 			EndSeq:    endSeq,
 			ExpiresAt: now.Add(shardIteratorTTL),

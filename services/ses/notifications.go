@@ -17,10 +17,12 @@ import (
 // data for (headers, sourceArn, sourceIp, sendingAccountId, callerIdentity)
 // are omitted rather than fabricated.
 type sesNotificationMail struct {
-	Timestamp   string   `json:"timestamp"`
-	MessageID   string   `json:"messageId"`
-	Source      string   `json:"source"`
-	Destination []string `json:"destination"`
+	Tags             map[string][]string `json:"tags,omitempty"`
+	Timestamp        string              `json:"timestamp"`
+	MessageID        string              `json:"messageId"`
+	Source           string              `json:"source"`
+	SendingAccountID string              `json:"sendingAccountId,omitempty"`
+	Destination      []string            `json:"destination"`
 }
 
 // sesBouncedRecipient is one entry of a bounce object's "bouncedRecipients"
@@ -77,10 +79,15 @@ func buildSESNotificationPayload(
 	bounce *sesBounceDetail,
 	complaint *sesComplaintDetail,
 	delivery *sesDeliveryDetail,
+	send bool,
 ) []byte {
 	data := map[string]any{
 		topFieldName: topFieldValue,
 		"mail":       mail,
+	}
+
+	if send {
+		data["send"] = struct{}{}
 	}
 
 	switch {
@@ -107,6 +114,7 @@ type sesNotificationTargets struct {
 	notifType     string
 	identityTopic string
 	destTopics    []string
+	sendTopics    []string
 }
 
 // collectNotificationTargetsLocked determines this send's outcome (Bounce or
@@ -152,8 +160,16 @@ func (b *InMemoryBackend) collectNotificationTargetsLocked(
 	eventType := strings.ToLower(t.notifType)
 
 	for _, d := range b.eventDestinationsByConfigSet.Get(configSetName) {
-		if d.Enabled && d.SNSTopicARN != "" && slices.Contains(d.MatchingEventTypes, eventType) {
+		if !d.Enabled || d.SNSTopicARN == "" {
+			continue
+		}
+
+		if slices.Contains(d.MatchingEventTypes, eventType) {
 			t.destTopics = append(t.destTopics, d.SNSTopicARN)
+		}
+
+		if slices.Contains(d.MatchingEventTypes, "send") {
+			t.sendTopics = append(t.sendTopics, d.SNSTopicARN)
 		}
 	}
 
@@ -167,7 +183,7 @@ func (b *InMemoryBackend) collectNotificationTargetsLocked(
 // configured -- an unwired SES backend must behave exactly as before this
 // feature existed. The caller must NOT hold b.mu.
 func (b *InMemoryBackend) publishEmailNotifications(email Email, t sesNotificationTargets) {
-	if t.publisher == nil || (t.identityTopic == "" && len(t.destTopics) == 0) {
+	if t.publisher == nil || (t.identityTopic == "" && len(t.destTopics) == 0 && len(t.sendTopics) == 0) {
 		return
 	}
 
@@ -215,16 +231,44 @@ func (b *InMemoryBackend) publishEmailNotifications(email Email, t sesNotificati
 	}
 
 	if t.identityTopic != "" {
-		payload := buildSESNotificationPayload("notificationType", t.notifType, mail, bounce, complaint, delivery)
+		payload := buildSESNotificationPayload(
+			"notificationType", t.notifType, mail, bounce, complaint, delivery, false,
+		)
 		_ = t.publisher.PublishToTopic(t.identityTopic, string(payload))
+	}
+
+	eventMail := mail
+	eventMail.SendingAccountID = b.accountID
+	eventMail.Tags = eventTags(email)
+
+	if len(t.sendTopics) > 0 {
+		sendPayload := buildSESNotificationPayload("eventType", "Send", eventMail, nil, nil, nil, true)
+		for _, topic := range t.sendTopics {
+			_ = t.publisher.PublishToTopic(topic, string(sendPayload))
+		}
 	}
 
 	if len(t.destTopics) > 0 {
 		eventPayload := buildSESNotificationPayload(
-			"eventType", strings.ToLower(t.notifType), mail, bounce, complaint, delivery,
+			"eventType", t.notifType, eventMail, bounce, complaint, delivery, false,
 		)
 		for _, topic := range t.destTopics {
 			_ = t.publisher.PublishToTopic(topic, string(eventPayload))
 		}
 	}
+}
+
+// eventTags builds the event-publishing "mail.tags" map: message tags plus
+// ses:configuration-set.
+func eventTags(email Email) map[string][]string {
+	tags := make(map[string][]string, len(email.Tags)+1)
+	for _, tg := range email.Tags {
+		tags[tg.Name] = append(tags[tg.Name], tg.Value)
+	}
+
+	if email.ConfigurationSetName != "" {
+		tags["ses:configuration-set"] = []string{email.ConfigurationSetName}
+	}
+
+	return tags
 }

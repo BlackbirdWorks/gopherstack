@@ -14,7 +14,7 @@ func TestAccessLogSubscription_CRUD(t *testing.T) {
 	h := newTestHandler(t)
 
 	// create service for resource
-	recSvc := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svc-als"})
+	recSvc := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svcx-als"})
 	require.Equal(t, http.StatusCreated, recSvc.Code)
 	svcID, _ := parseBody(t, recSvc)["id"].(string)
 

@@ -1,6 +1,10 @@
 package databrew
 
-import "github.com/blackbirdworks/gopherstack/pkgs/awserr"
+import (
+	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+)
 
 // AWS restjson1 exception type names, shared between the top-level
 // handleError mapping and any op that needs to embed one directly in a
@@ -23,3 +27,11 @@ var (
 	// resource state, e.g. deleting a resource still referenced by another.
 	ErrConflict = awserr.New(errCodeConflict, awserr.ErrConflict)
 )
+
+func notFoundErr(kind, name string) error {
+	return fmt.Errorf("%w: %s %s not found", ErrNotFound, kind, name)
+}
+
+func existsErr(kind, name string) error {
+	return fmt.Errorf("%w: %s %s already exists", ErrAlreadyExists, kind, name)
+}

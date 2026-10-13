@@ -35,7 +35,7 @@ func TestListMonitorEvaluations_FilterAndPaging(t *testing.T) {
 			h := newHandler()
 			client := newTestForecastClient(t, h)
 			mon, err := client.CreateMonitor(t.Context(), &forecastsdk.CreateMonitorInput{
-				MonitorName: aws.String("ev-mon"), ResourceArn: aws.String(createPredictor(t, h)),
+				MonitorName: aws.String("ev_mon"), ResourceArn: aws.String(createPredictor(t, h)),
 			})
 			require.NoError(t, err)
 

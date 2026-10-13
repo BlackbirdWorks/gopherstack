@@ -42,14 +42,16 @@ type createEmailTemplateRequest struct {
 	Subject              string            `json:"Subject,omitempty"`
 	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
 	TextPart             string            `json:"TextPart,omitempty"`
+	Version              string            `json:"-"`
 	CreateNewVersion     bool              `json:"-"`
 }
 
 // createExportJobRequest is the request body for CreateExportJob.
 type createExportJobRequest struct {
-	SegmentID   string `json:"SegmentId,omitempty"`
-	RoleArn     string `json:"RoleArn"`
-	S3UrlPrefix string `json:"S3UrlPrefix"`
+	SegmentID      string `json:"SegmentId,omitempty"`
+	RoleArn        string `json:"RoleArn"`
+	S3UrlPrefix    string `json:"S3UrlPrefix"`
+	SegmentVersion int    `json:"SegmentVersion,omitempty"`
 }
 
 // createImportJobRequest is the request body for CreateImportJob.
@@ -58,6 +60,10 @@ type createImportJobRequest struct {
 	Format      string `json:"Format"`
 	S3Url       string `json:"S3Url"`
 	SegmentName string `json:"SegmentName,omitempty"`
+	ExternalID  string `json:"ExternalId,omitempty"`
+
+	DefineSegment     bool `json:"DefineSegment,omitempty"`
+	RegisterEndpoints bool `json:"RegisterEndpoints,omitempty"`
 }
 
 // createInAppTemplateRequest is the request body for CreateInAppTemplate.
@@ -66,25 +72,27 @@ type createInAppTemplateRequest struct {
 	CustomConfig        map[string]string `json:"CustomConfig,omitempty"`
 	Layout              string            `json:"Layout,omitempty"`
 	TemplateDescription string            `json:"TemplateDescription,omitempty"`
+	Version             string            `json:"-"`
 	Content             []map[string]any  `json:"Content,omitempty"`
 	CreateNewVersion    bool              `json:"-"`
 }
 
 // createJourneyRequest is the request body for CreateJourney.
 type createJourneyRequest struct {
-	Activities             map[string]map[string]any `json:"Activities,omitempty"`
-	StartCondition         map[string]any            `json:"StartCondition,omitempty"`
+	ClosedDays             map[string]any            `json:"ClosedDays,omitempty"`
 	Schedule               map[string]any            `json:"Schedule,omitempty"`
 	Limits                 map[string]any            `json:"Limits,omitempty"`
 	QuietTime              map[string]any            `json:"QuietTime,omitempty"`
 	OpenHours              map[string]any            `json:"OpenHours,omitempty"`
-	ClosedDays             map[string]any            `json:"ClosedDays,omitempty"`
+	Activities             map[string]map[string]any `json:"Activities,omitempty"`
+	StartCondition         map[string]any            `json:"StartCondition,omitempty"`
 	Name                   string                    `json:"Name"`
 	StartActivity          string                    `json:"StartActivity,omitempty"`
 	RefreshFrequency       string                    `json:"RefreshFrequency,omitempty"`
-	LocalTime              bool                      `json:"LocalTime,omitempty"`
-	WaitForQuietTime       bool                      `json:"WaitForQuietTime,omitempty"`
+	State                  string                    `json:"State,omitempty"`
 	RefreshOnSegmentUpdate bool                      `json:"RefreshOnSegmentUpdate,omitempty"`
+	WaitForQuietTime       bool                      `json:"WaitForQuietTime,omitempty"`
+	LocalTime              bool                      `json:"LocalTime,omitempty"`
 }
 
 // createPushTemplateRequest is the request body for CreatePushTemplate.
@@ -102,6 +110,7 @@ type createPushTemplateRequest struct {
 	DefaultSubstitutions string            `json:"DefaultSubstitutions,omitempty"`
 	RecommenderID        string            `json:"RecommenderId,omitempty"`
 	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
+	Version              string            `json:"-"`
 	CreateNewVersion     bool              `json:"-"`
 }
 
@@ -136,6 +145,7 @@ type createSmsTemplateRequest struct {
 	RecommenderID        string            `json:"RecommenderId,omitempty"`
 	Tags                 map[string]string `json:"tags,omitempty"`
 	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
+	Version              string            `json:"-"`
 	CreateNewVersion     bool              `json:"-"`
 }
 
@@ -200,12 +210,17 @@ type exportJobDefinition struct {
 // types.ExportJobResponse and the deserializer's case list) -- a prior
 // version fabricated one.
 type exportJobResponse struct {
-	ApplicationID string              `json:"ApplicationId"`
-	ID            string              `json:"Id"`
-	JobStatus     string              `json:"JobStatus"`
-	Type          string              `json:"Type"`
-	CreationDate  string              `json:"CreationDate,omitempty"`
-	Definition    exportJobDefinition `json:"Definition"`
+	TotalPieces     *int                `json:"TotalPieces,omitempty"`
+	CompletedPieces *int                `json:"CompletedPieces,omitempty"`
+	TotalProcessed  *int                `json:"TotalProcessed,omitempty"`
+	TotalFailures   *int                `json:"TotalFailures,omitempty"`
+	ApplicationID   string              `json:"ApplicationId"`
+	ID              string              `json:"Id"`
+	JobStatus       string              `json:"JobStatus"`
+	Type            string              `json:"Type"`
+	CreationDate    string              `json:"CreationDate,omitempty"`
+	CompletionDate  string              `json:"CompletionDate,omitempty"`
+	Definition      exportJobDefinition `json:"Definition"`
 }
 
 // importJobDefinition is the nested Definition sub-object of
@@ -216,17 +231,26 @@ type importJobDefinition struct {
 	S3Url     string `json:"S3Url,omitempty"`
 	Format    string `json:"Format,omitempty"`
 	SegmentID string `json:"SegmentId,omitempty"`
+
+	ExternalID        string `json:"ExternalId,omitempty"`
+	DefineSegment     bool   `json:"DefineSegment"`
+	RegisterEndpoints bool   `json:"RegisterEndpoints"`
 }
 
 // importJobResponse is the JSON wire format of ImportJobResponse. No
 // top-level Arn member on the real type, same as exportJobResponse.
 type importJobResponse struct {
-	ApplicationID string              `json:"ApplicationId"`
-	ID            string              `json:"Id"`
-	Definition    importJobDefinition `json:"Definition"`
-	JobStatus     string              `json:"JobStatus"`
-	Type          string              `json:"Type"`
-	CreationDate  string              `json:"CreationDate,omitempty"`
+	TotalPieces     *int                `json:"TotalPieces,omitempty"`
+	CompletedPieces *int                `json:"CompletedPieces,omitempty"`
+	TotalProcessed  *int                `json:"TotalProcessed,omitempty"`
+	TotalFailures   *int                `json:"TotalFailures,omitempty"`
+	ApplicationID   string              `json:"ApplicationId"`
+	ID              string              `json:"Id"`
+	JobStatus       string              `json:"JobStatus"`
+	Type            string              `json:"Type"`
+	CreationDate    string              `json:"CreationDate,omitempty"`
+	CompletionDate  string              `json:"CompletionDate,omitempty"`
+	Definition      importJobDefinition `json:"Definition"`
 }
 
 // journeyResponse is the JSON wire format of JourneyResponse.
@@ -334,6 +358,7 @@ type createVoiceTemplateRequest struct {
 	LanguageCode         string            `json:"LanguageCode,omitempty"`
 	TemplateDescription  string            `json:"TemplateDescription,omitempty"`
 	VoiceID              string            `json:"VoiceId,omitempty"`
+	Version              string            `json:"-"`
 	CreateNewVersion     bool              `json:"-"`
 }
 
@@ -556,9 +581,13 @@ type templateListItem struct {
 
 // templateVersionItem is one entry in the ListTemplateVersions response.
 type templateVersionItem struct {
-	TemplateName    string `json:"TemplateName"`
-	TemplateType    string `json:"TemplateType"`
-	TemplateVersion string `json:"Version"`
+	TemplateName         string `json:"TemplateName"`
+	TemplateType         string `json:"TemplateType"`
+	TemplateVersion      string `json:"Version"`
+	CreationDate         string `json:"CreationDate,omitempty"`
+	LastModifiedDate     string `json:"LastModifiedDate,omitempty"`
+	DefaultSubstitutions string `json:"DefaultSubstitutions,omitempty"`
+	TemplateDescription  string `json:"TemplateDescription,omitempty"`
 }
 
 // endpointUser response embeds user info in endpoint responses.

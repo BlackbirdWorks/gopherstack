@@ -27,6 +27,8 @@ type fakeDockerAPI struct {
 	createErr   error
 	startErr    error
 	pingErr     error
+	statsErr    error
+	statsJSON   string
 	containerIP string
 	containerID string
 	pulled      []string
@@ -133,6 +135,16 @@ func (f *fakeDockerAPI) Ping(
 	_ context.Context, _ mobyclient.PingOptions,
 ) (mobyclient.PingResult, error) {
 	return mobyclient.PingResult{}, f.pingErr
+}
+
+func (f *fakeDockerAPI) ContainerStats(
+	_ context.Context, _ string, _ mobyclient.ContainerStatsOptions,
+) (mobyclient.ContainerStatsResult, error) {
+	if f.statsErr != nil {
+		return mobyclient.ContainerStatsResult{}, f.statsErr
+	}
+
+	return mobyclient.ContainerStatsResult{Body: io.NopCloser(strings.NewReader(f.statsJSON))}, nil
 }
 
 func (f *fakeDockerAPI) Close() error { return nil }

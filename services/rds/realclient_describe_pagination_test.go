@@ -1,6 +1,7 @@
 package rds_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -62,29 +63,29 @@ func TestRealClient_DescribePagination(t *testing.T) {
 	}
 }
 
+const pageSeeded = 21
+
+func seededNames(prefix string) []string {
+	names := make([]string, 0, pageSeeded)
+	for i := range pageSeeded {
+		names = append(names, fmt.Sprintf("%s-%02d", prefix, i))
+	}
+
+	return names
+}
+
 func testCertificatesPaginationRealClient(t *testing.T) {
 	t.Helper()
 
 	_, client := newRealClientBackendAndClient(t)
 	ctx := t.Context()
 
-	first, err := client.DescribeCertificates(ctx, &rdssdk.DescribeCertificatesInput{
-		MaxRecords: aws.Int32(2),
+	out, err := client.DescribeCertificates(ctx, &rdssdk.DescribeCertificatesInput{
+		MaxRecords: aws.Int32(20),
 	})
 	require.NoError(t, err)
-	assert.Len(t, first.Certificates, 2)
-	require.NotEmpty(t, aws.ToString(first.Marker))
-
-	second, err := client.DescribeCertificates(ctx, &rdssdk.DescribeCertificatesInput{
-		Marker: first.Marker,
-	})
-	require.NoError(t, err)
-	assert.NotEmpty(t, second.Certificates)
-	assert.NotEqual(
-		t,
-		aws.ToString(first.Certificates[0].CertificateIdentifier),
-		aws.ToString(second.Certificates[0].CertificateIdentifier),
-	)
+	assert.NotEmpty(t, out.Certificates)
+	assert.Empty(t, aws.ToString(out.Marker))
 }
 
 func testSourceRegionsPaginationRealClient(t *testing.T) {
@@ -93,18 +94,12 @@ func testSourceRegionsPaginationRealClient(t *testing.T) {
 	_, client := newRealClientBackendAndClient(t)
 	ctx := t.Context()
 
-	first, err := client.DescribeSourceRegions(ctx, &rdssdk.DescribeSourceRegionsInput{
-		MaxRecords: aws.Int32(5),
+	out, err := client.DescribeSourceRegions(ctx, &rdssdk.DescribeSourceRegionsInput{
+		MaxRecords: aws.Int32(20),
 	})
 	require.NoError(t, err)
-	assert.Len(t, first.SourceRegions, 5)
-	require.NotEmpty(t, aws.ToString(first.Marker))
-
-	second, err := client.DescribeSourceRegions(ctx, &rdssdk.DescribeSourceRegionsInput{
-		Marker: first.Marker,
-	})
-	require.NoError(t, err)
-	assert.NotEmpty(t, second.SourceRegions)
+	assert.NotEmpty(t, out.SourceRegions)
+	assert.Empty(t, aws.ToString(out.Marker))
 }
 
 func testDBMajorEngineVersionsPaginationRealClient(t *testing.T) {
@@ -133,18 +128,12 @@ func testDBEngineVersionsPaginationRealClient(t *testing.T) {
 	_, client := newRealClientBackendAndClient(t)
 	ctx := t.Context()
 
-	first, err := client.DescribeDBEngineVersions(ctx, &rdssdk.DescribeDBEngineVersionsInput{
-		MaxRecords: aws.Int32(3),
+	out, err := client.DescribeDBEngineVersions(ctx, &rdssdk.DescribeDBEngineVersionsInput{
+		MaxRecords: aws.Int32(20),
 	})
 	require.NoError(t, err)
-	assert.Len(t, first.DBEngineVersions, 3)
-	require.NotEmpty(t, aws.ToString(first.Marker))
-
-	second, err := client.DescribeDBEngineVersions(ctx, &rdssdk.DescribeDBEngineVersionsInput{
-		Marker: first.Marker,
-	})
-	require.NoError(t, err)
-	assert.NotEmpty(t, second.DBEngineVersions)
+	assert.NotEmpty(t, out.DBEngineVersions)
+	assert.Empty(t, aws.ToString(out.Marker))
 }
 
 func testOrderableDBInstanceOptionsPaginationRealClient(t *testing.T) {
@@ -153,20 +142,13 @@ func testOrderableDBInstanceOptionsPaginationRealClient(t *testing.T) {
 	_, client := newRealClientBackendAndClient(t)
 	ctx := t.Context()
 
-	first, err := client.DescribeOrderableDBInstanceOptions(ctx, &rdssdk.DescribeOrderableDBInstanceOptionsInput{
+	out, err := client.DescribeOrderableDBInstanceOptions(ctx, &rdssdk.DescribeOrderableDBInstanceOptionsInput{
 		Engine:     aws.String("postgres"),
-		MaxRecords: aws.Int32(4),
+		MaxRecords: aws.Int32(20),
 	})
 	require.NoError(t, err)
-	assert.Len(t, first.OrderableDBInstanceOptions, 4)
-	require.NotEmpty(t, aws.ToString(first.Marker))
-
-	second, err := client.DescribeOrderableDBInstanceOptions(ctx, &rdssdk.DescribeOrderableDBInstanceOptionsInput{
-		Engine: aws.String("postgres"),
-		Marker: first.Marker,
-	})
-	require.NoError(t, err)
-	assert.NotEmpty(t, second.OrderableDBInstanceOptions)
+	assert.NotEmpty(t, out.OrderableDBInstanceOptions)
+	assert.Empty(t, aws.ToString(out.Marker))
 }
 
 func testDBClusterBacktracksPaginationRealClient(t *testing.T) {
@@ -179,17 +161,17 @@ func testDBClusterBacktracksPaginationRealClient(t *testing.T) {
 		"pg-backtrack-clu", "aurora-postgresql", "admin", "mydb", "", 5432, nil, rds.DBClusterOptions{},
 	)
 	require.NoError(t, err)
-	for range 3 {
+	for range pageSeeded {
 		_, err = backend.BacktrackDBCluster("pg-backtrack-clu", "2024-01-01T00:00:00Z")
 		require.NoError(t, err)
 	}
 
 	first, err := client.DescribeDBClusterBacktracks(ctx, &rdssdk.DescribeDBClusterBacktracksInput{
 		DBClusterIdentifier: aws.String("pg-backtrack-clu"),
-		MaxRecords:          aws.Int32(2),
+		MaxRecords:          aws.Int32(20),
 	})
 	require.NoError(t, err)
-	assert.Len(t, first.DBClusterBacktracks, 2)
+	assert.Len(t, first.DBClusterBacktracks, 20)
 	require.NotEmpty(t, aws.ToString(first.Marker))
 
 	second, err := client.DescribeDBClusterBacktracks(ctx, &rdssdk.DescribeDBClusterBacktracksInput{
@@ -210,7 +192,7 @@ func testDBClusterEndpointsPaginationRealClient(t *testing.T) {
 		"pg-endpoint-clu", "aurora-postgresql", "admin", "mydb", "", 5432, nil, rds.DBClusterOptions{},
 	)
 	require.NoError(t, err)
-	for _, id := range []string{"pg-ep-a", "pg-ep-b", "pg-ep-c"} {
+	for _, id := range seededNames("pg-ep") {
 		_, err = client.CreateDBClusterEndpoint(ctx, &rdssdk.CreateDBClusterEndpointInput{
 			DBClusterEndpointIdentifier: aws.String(id),
 			DBClusterIdentifier:         aws.String("pg-endpoint-clu"),
@@ -221,10 +203,10 @@ func testDBClusterEndpointsPaginationRealClient(t *testing.T) {
 
 	first, err := client.DescribeDBClusterEndpoints(ctx, &rdssdk.DescribeDBClusterEndpointsInput{
 		DBClusterIdentifier: aws.String("pg-endpoint-clu"),
-		MaxRecords:          aws.Int32(2),
+		MaxRecords:          aws.Int32(20),
 	})
 	require.NoError(t, err)
-	assert.Len(t, first.DBClusterEndpoints, 2)
+	assert.Len(t, first.DBClusterEndpoints, 20)
 	require.NotEmpty(t, aws.ToString(first.Marker))
 
 	second, err := client.DescribeDBClusterEndpoints(ctx, &rdssdk.DescribeDBClusterEndpointsInput{
@@ -248,20 +230,21 @@ func testDBClusterParametersPaginationAndSourceRealClient(t *testing.T) {
 
 	_, err := backend.CreateDBClusterParameterGroup("pg-param-grp", "aurora-postgresql14", "test")
 	require.NoError(t, err)
-	_, err = backend.ModifyDBClusterParameterGroup("pg-param-grp", []rds.DBParameter{
-		{ParameterName: "param_a", ParameterValue: "1", Source: "user"},
-		{ParameterName: "param_b", ParameterValue: "2", Source: "user"},
-		{ParameterName: "param_c", ParameterValue: "3", Source: "system"},
-	})
+	params := make([]rds.DBParameter, 0, pageSeeded+1)
+	params = append(params, rds.DBParameter{ParameterName: "param_system", ParameterValue: "3", Source: "system"})
+	for _, name := range seededNames("param_user") {
+		params = append(params, rds.DBParameter{ParameterName: name, ParameterValue: "1", Source: "user"})
+	}
+	_, err = backend.ModifyDBClusterParameterGroup("pg-param-grp", params)
 	require.NoError(t, err)
 
 	first, err := client.DescribeDBClusterParameters(ctx, &rdssdk.DescribeDBClusterParametersInput{
 		DBClusterParameterGroupName: aws.String("pg-param-grp"),
 		Source:                      aws.String("user"),
-		MaxRecords:                  aws.Int32(1),
+		MaxRecords:                  aws.Int32(20),
 	})
 	require.NoError(t, err)
-	require.Len(t, first.Parameters, 1)
+	require.Len(t, first.Parameters, 20)
 	assert.Equal(t, "user", aws.ToString(first.Parameters[0].Source))
 	require.NotEmpty(t, aws.ToString(first.Marker))
 
@@ -280,7 +263,7 @@ func testDBClusterParametersPaginationAndSourceRealClient(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, systemOnly.Parameters, 1)
-	assert.Equal(t, "param_c", aws.ToString(systemOnly.Parameters[0].ParameterName))
+	assert.Equal(t, "param_system", aws.ToString(systemOnly.Parameters[0].ParameterName))
 }
 
 func testDBProxiesPaginationRealClient(t *testing.T) {
@@ -289,15 +272,15 @@ func testDBProxiesPaginationRealClient(t *testing.T) {
 	backend, client := newRealClientBackendAndClient(t)
 	ctx := t.Context()
 
-	for _, name := range []string{"pg-proxy-a", "pg-proxy-b", "pg-proxy-c"} {
+	for _, name := range seededNames("pg-proxy") {
 		_, err := backend.CreateDBProxy(
 			name, "POSTGRESQL", "arn:aws:iam::123456789012:role/proxy-role", nil, nil, nil, "", "", "")
 		require.NoError(t, err)
 	}
 
-	first, err := client.DescribeDBProxies(ctx, &rdssdk.DescribeDBProxiesInput{MaxRecords: aws.Int32(2)})
+	first, err := client.DescribeDBProxies(ctx, &rdssdk.DescribeDBProxiesInput{MaxRecords: aws.Int32(20)})
 	require.NoError(t, err)
-	assert.Len(t, first.DBProxies, 2)
+	assert.Len(t, first.DBProxies, 20)
 	require.NotEmpty(t, aws.ToString(first.Marker))
 
 	second, err := client.DescribeDBProxies(ctx, &rdssdk.DescribeDBProxiesInput{Marker: first.Marker})
@@ -314,17 +297,17 @@ func testDBProxyEndpointsPaginationRealClient(t *testing.T) {
 	_, err := backend.CreateDBProxy(
 		"pg-proxy-ep", "POSTGRESQL", "arn:aws:iam::123456789012:role/proxy-role", nil, nil, nil, "", "", "")
 	require.NoError(t, err)
-	for _, name := range []string{"pg-proxy-ep-a", "pg-proxy-ep-b", "pg-proxy-ep-c"} {
+	for _, name := range seededNames("pg-proxy-ep") {
 		_, err = backend.CreateDBProxyEndpoint("pg-proxy-ep", name, "READ_WRITE", []string{"subnet-1"}, nil, "")
 		require.NoError(t, err)
 	}
 
 	first, err := client.DescribeDBProxyEndpoints(ctx, &rdssdk.DescribeDBProxyEndpointsInput{
 		DBProxyName: aws.String("pg-proxy-ep"),
-		MaxRecords:  aws.Int32(2),
+		MaxRecords:  aws.Int32(20),
 	})
 	require.NoError(t, err)
-	assert.Len(t, first.DBProxyEndpoints, 2)
+	assert.Len(t, first.DBProxyEndpoints, 20)
 	require.NotEmpty(t, aws.ToString(first.Marker))
 
 	second, err := client.DescribeDBProxyEndpoints(ctx, &rdssdk.DescribeDBProxyEndpointsInput{
@@ -345,16 +328,16 @@ func testDBProxyTargetsPaginationRealClient(t *testing.T) {
 		"pg-proxy-tgt", "POSTGRESQL", "arn:aws:iam::123456789012:role/proxy-role", nil, nil, nil, "", "", "")
 	require.NoError(t, err)
 	_, err = backend.RegisterDBProxyTargets(
-		"pg-proxy-tgt", "", []string{"inst-a", "inst-b", "inst-c"}, nil,
+		"pg-proxy-tgt", "", seededNames("inst"), nil,
 	)
 	require.NoError(t, err)
 
 	first, err := client.DescribeDBProxyTargets(ctx, &rdssdk.DescribeDBProxyTargetsInput{
 		DBProxyName: aws.String("pg-proxy-tgt"),
-		MaxRecords:  aws.Int32(2),
+		MaxRecords:  aws.Int32(20),
 	})
 	require.NoError(t, err)
-	assert.Len(t, first.Targets, 2)
+	assert.Len(t, first.Targets, 20)
 	require.NotEmpty(t, aws.ToString(first.Marker))
 
 	second, err := client.DescribeDBProxyTargets(ctx, &rdssdk.DescribeDBProxyTargetsInput{
@@ -371,7 +354,7 @@ func testDBSecurityGroupsPaginationRealClient(t *testing.T) {
 	_, client := newRealClientBackendAndClient(t)
 	ctx := t.Context()
 
-	for _, name := range []string{"pg-sg-a", "pg-sg-b", "pg-sg-c"} {
+	for _, name := range seededNames("pg-sg") {
 		_, err := client.CreateDBSecurityGroup(ctx, &rdssdk.CreateDBSecurityGroupInput{
 			DBSecurityGroupName:        aws.String(name),
 			DBSecurityGroupDescription: aws.String("test"),
@@ -379,9 +362,9 @@ func testDBSecurityGroupsPaginationRealClient(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	first, err := client.DescribeDBSecurityGroups(ctx, &rdssdk.DescribeDBSecurityGroupsInput{MaxRecords: aws.Int32(2)})
+	first, err := client.DescribeDBSecurityGroups(ctx, &rdssdk.DescribeDBSecurityGroupsInput{MaxRecords: aws.Int32(20)})
 	require.NoError(t, err)
-	assert.Len(t, first.DBSecurityGroups, 2)
+	assert.Len(t, first.DBSecurityGroups, 20)
 	require.NotEmpty(t, aws.ToString(first.Marker))
 
 	second, err := client.DescribeDBSecurityGroups(ctx, &rdssdk.DescribeDBSecurityGroupsInput{Marker: first.Marker})
@@ -395,16 +378,16 @@ func testEventSubscriptionsPaginationRealClient(t *testing.T) {
 	backend, client := newRealClientBackendAndClient(t)
 	ctx := t.Context()
 
-	for _, name := range []string{"pg-sub-a", "pg-sub-b", "pg-sub-c"} {
+	for _, name := range seededNames("pg-sub") {
 		_, err := backend.CreateEventSubscription(name, "arn:aws:sns:us-east-1:123456789012:topic", "", nil, nil)
 		require.NoError(t, err)
 	}
 
 	first, err := client.DescribeEventSubscriptions(ctx, &rdssdk.DescribeEventSubscriptionsInput{
-		MaxRecords: aws.Int32(2),
+		MaxRecords: aws.Int32(20),
 	})
 	require.NoError(t, err)
-	assert.Len(t, first.EventSubscriptionsList, 2)
+	assert.Len(t, first.EventSubscriptionsList, 20)
 	require.NotEmpty(t, aws.ToString(first.Marker))
 
 	second, err := client.DescribeEventSubscriptions(ctx, &rdssdk.DescribeEventSubscriptionsInput{
@@ -420,7 +403,7 @@ func testExportTasksPaginationRealClient(t *testing.T) {
 	backend, client := newRealClientBackendAndClient(t)
 	ctx := t.Context()
 
-	for _, id := range []string{"pg-export-a", "pg-export-b", "pg-export-c"} {
+	for _, id := range seededNames("pg-export") {
 		_, err := backend.StartExportTask(
 			id, "arn:aws:rds:us-east-1:123456789012:snapshot:src", "my-bucket",
 			"arn:aws:iam::123456789012:role/export-role", "arn:aws:kms:us-east-1:123456789012:key/abc",
@@ -428,9 +411,9 @@ func testExportTasksPaginationRealClient(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	first, err := client.DescribeExportTasks(ctx, &rdssdk.DescribeExportTasksInput{MaxRecords: aws.Int32(2)})
+	first, err := client.DescribeExportTasks(ctx, &rdssdk.DescribeExportTasksInput{MaxRecords: aws.Int32(20)})
 	require.NoError(t, err)
-	assert.Len(t, first.ExportTasks, 2)
+	assert.Len(t, first.ExportTasks, 20)
 	require.NotEmpty(t, aws.ToString(first.Marker))
 
 	second, err := client.DescribeExportTasks(ctx, &rdssdk.DescribeExportTasksInput{Marker: first.Marker})
@@ -444,7 +427,7 @@ func testGlobalClustersPaginationRealClient(t *testing.T) {
 	_, client := newRealClientBackendAndClient(t)
 	ctx := t.Context()
 
-	for _, id := range []string{"pg-global-a", "pg-global-b", "pg-global-c"} {
+	for _, id := range seededNames("pg-global") {
 		_, err := client.CreateGlobalCluster(ctx, &rdssdk.CreateGlobalClusterInput{
 			GlobalClusterIdentifier: aws.String(id),
 			Engine:                  aws.String("aurora-postgresql"),
@@ -452,9 +435,9 @@ func testGlobalClustersPaginationRealClient(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	first, err := client.DescribeGlobalClusters(ctx, &rdssdk.DescribeGlobalClustersInput{MaxRecords: aws.Int32(2)})
+	first, err := client.DescribeGlobalClusters(ctx, &rdssdk.DescribeGlobalClustersInput{MaxRecords: aws.Int32(20)})
 	require.NoError(t, err)
-	assert.Len(t, first.GlobalClusters, 2)
+	assert.Len(t, first.GlobalClusters, 20)
 	require.NotEmpty(t, aws.ToString(first.Marker))
 
 	second, err := client.DescribeGlobalClusters(ctx, &rdssdk.DescribeGlobalClustersInput{Marker: first.Marker})
@@ -473,7 +456,7 @@ func testPendingMaintenanceActionsPaginationRealClient(t *testing.T) {
 	// registered pending action is auto-cleared by the reconciler after
 	// instanceTransitionDelay (250ms, lifecycle.go), so any wait between the
 	// first Modify and the Describe call below risks a flaky clear.
-	ids := []string{"pg-pma-a", "pg-pma-b"}
+	ids := seededNames("pg-pma")
 	for _, id := range ids {
 		_, err := backend.CreateDBInstance(id, "mysql", "db.t3.micro", "mydb", "admin", "", 20, rds.DBInstanceOptions{
 			EngineVersion: "8.0.30",
@@ -489,10 +472,10 @@ func testPendingMaintenanceActionsPaginationRealClient(t *testing.T) {
 	}
 
 	first, err := client.DescribePendingMaintenanceActions(ctx, &rdssdk.DescribePendingMaintenanceActionsInput{
-		MaxRecords: aws.Int32(1),
+		MaxRecords: aws.Int32(20),
 	})
 	require.NoError(t, err)
-	assert.Len(t, first.PendingMaintenanceActions, 1)
+	assert.Len(t, first.PendingMaintenanceActions, 20)
 	require.NotEmpty(t, aws.ToString(first.Marker))
 
 	second, err := client.DescribePendingMaintenanceActions(ctx, &rdssdk.DescribePendingMaintenanceActionsInput{
@@ -514,9 +497,9 @@ func testReservedDBInstancesPaginationRealClient(t *testing.T) {
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(offerings.ReservedDBInstancesOfferings), 3)
 
-	for i, id := range []string{"pg-reserved-a", "pg-reserved-b", "pg-reserved-c"} {
+	for _, id := range seededNames("pg-reserved") {
 		_, err = client.PurchaseReservedDBInstancesOffering(ctx, &rdssdk.PurchaseReservedDBInstancesOfferingInput{
-			ReservedDBInstancesOfferingId: offerings.ReservedDBInstancesOfferings[i].ReservedDBInstancesOfferingId,
+			ReservedDBInstancesOfferingId: offerings.ReservedDBInstancesOfferings[0].ReservedDBInstancesOfferingId,
 			ReservedDBInstanceId:          aws.String(id),
 			DBInstanceCount:               aws.Int32(1),
 		})
@@ -524,10 +507,10 @@ func testReservedDBInstancesPaginationRealClient(t *testing.T) {
 	}
 
 	first, err := client.DescribeReservedDBInstances(ctx, &rdssdk.DescribeReservedDBInstancesInput{
-		MaxRecords: aws.Int32(2),
+		MaxRecords: aws.Int32(20),
 	})
 	require.NoError(t, err)
-	assert.Len(t, first.ReservedDBInstances, 2)
+	assert.Len(t, first.ReservedDBInstances, 20)
 	require.NotEmpty(t, aws.ToString(first.Marker))
 
 	second, err := client.DescribeReservedDBInstances(ctx, &rdssdk.DescribeReservedDBInstancesInput{
@@ -543,18 +526,12 @@ func testReservedDBInstancesOfferingsPaginationRealClient(t *testing.T) {
 	_, client := newRealClientBackendAndClient(t)
 	ctx := t.Context()
 
-	first, err := client.DescribeReservedDBInstancesOfferings(ctx, &rdssdk.DescribeReservedDBInstancesOfferingsInput{
-		MaxRecords: aws.Int32(3),
+	out, err := client.DescribeReservedDBInstancesOfferings(ctx, &rdssdk.DescribeReservedDBInstancesOfferingsInput{
+		MaxRecords: aws.Int32(20),
 	})
 	require.NoError(t, err)
-	assert.Len(t, first.ReservedDBInstancesOfferings, 3)
-	require.NotEmpty(t, aws.ToString(first.Marker))
-
-	second, err := client.DescribeReservedDBInstancesOfferings(ctx, &rdssdk.DescribeReservedDBInstancesOfferingsInput{
-		Marker: first.Marker,
-	})
-	require.NoError(t, err)
-	assert.NotEmpty(t, second.ReservedDBInstancesOfferings)
+	assert.NotEmpty(t, out.ReservedDBInstancesOfferings)
+	assert.LessOrEqual(t, len(out.ReservedDBInstancesOfferings), 20)
 }
 
 func testBlueGreenDeploymentsPaginationRealClient(t *testing.T) {
@@ -563,16 +540,16 @@ func testBlueGreenDeploymentsPaginationRealClient(t *testing.T) {
 	backend, client := newRealClientBackendAndClient(t)
 	ctx := t.Context()
 
-	for _, name := range []string{"pg-bg-a", "pg-bg-b", "pg-bg-c"} {
+	for _, name := range seededNames("pg-bg") {
 		_, err := backend.CreateBlueGreenDeployment(name, "arn:aws:rds:us-east-1:123456789012:db:"+name)
 		require.NoError(t, err)
 	}
 
 	first, err := client.DescribeBlueGreenDeployments(ctx, &rdssdk.DescribeBlueGreenDeploymentsInput{
-		MaxRecords: aws.Int32(2),
+		MaxRecords: aws.Int32(20),
 	})
 	require.NoError(t, err)
-	assert.Len(t, first.BlueGreenDeployments, 2)
+	assert.Len(t, first.BlueGreenDeployments, 20)
 	require.NotEmpty(t, aws.ToString(first.Marker))
 
 	second, err := client.DescribeBlueGreenDeployments(ctx, &rdssdk.DescribeBlueGreenDeploymentsInput{

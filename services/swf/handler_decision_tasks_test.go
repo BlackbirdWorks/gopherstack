@@ -47,6 +47,7 @@ func TestHandler_PollForDecisionTask_NoFlatWorkflowID(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
+	require.NoError(t, b.RegisterDomain("dom", "", "1"))
 	b.EnqueueDecisionTaskInternal("dom", "decisions", "wf-1", "run-1")
 	h := swf.NewHandler(b)
 

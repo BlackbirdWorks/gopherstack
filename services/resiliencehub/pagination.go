@@ -11,10 +11,12 @@ type assessmentPageRequest struct {
 	MaxResults    int32  `json:"maxResults,omitempty"`
 }
 
+const maxPageResults = 100
+
 // validatePage rejects a negative maxResults or a malformed nextToken.
 func validatePage(nextToken string, maxResults int) error {
-	if maxResults < 0 {
-		return validationError("maxResults must be positive")
+	if maxResults < 0 || maxResults > maxPageResults {
+		return validationError("maxResults must be between 1 and 100")
 	}
 
 	if page.ValidateToken(nextToken) != nil {

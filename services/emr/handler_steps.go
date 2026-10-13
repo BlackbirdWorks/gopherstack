@@ -20,7 +20,10 @@ type listStepsOutput struct {
 }
 
 func (h *Handler) handleListSteps(ctx context.Context, in *listStepsInput) (*listStepsOutput, error) {
-	steps, nextMarker := h.Backend.ListSteps(ctx, in.ClusterID, in.StepStates, in.StepIDs, in.Marker)
+	steps, nextMarker, err := h.Backend.ListSteps(ctx, in.ClusterID, in.StepStates, in.StepIDs, in.Marker)
+	if err != nil {
+		return nil, err
+	}
 
 	return &listStepsOutput{Steps: steps, Marker: nextMarker}, nil
 }

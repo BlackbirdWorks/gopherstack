@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -246,17 +247,17 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		code = http.StatusBadRequest
 		errType = "ValidationException"
 	case errors.Is(err, ErrNotFound):
-		code = http.StatusNotFound
+		code = http.StatusBadRequest
 		errType = "UnknownResourceFault"
 	case errors.Is(err, ErrOperationNotPermitted):
-		code = http.StatusForbidden
+		code = http.StatusBadRequest
 		errType = "OperationNotPermittedFault"
 	case errors.Is(err, errInvalidRequest), errors.Is(err, ErrUnknownOperation),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		code = http.StatusBadRequest
 	}
 
-	resp := map[string]string{"message": err.Error()}
+	resp := map[string]string{"message": strings.TrimPrefix(err.Error(), errType+": ")}
 	if errType != "" {
 		resp["__type"] = errType
 	}
@@ -272,4 +273,26 @@ func applyPageTokenSlice[T any](items []T, nextPageToken string, maximumPageSize
 	p := page.New(items, nextPageToken, maximumPageSize, defaultSWFMaxPageSize)
 
 	return p.Data, p.Next
+}
+
+const maxSWFPageSize = 1000
+
+func validatePageParams(token string, size int) error {
+	if size < 0 || size > maxSWFPageSize {
+		return fmt.Errorf("%w: maximumPageSize must be between 0 and %d", ErrValidation, maxSWFPageSize)
+	}
+
+	if err := page.ValidateToken(token); err != nil {
+		return fmt.Errorf("%w: invalid nextPageToken", ErrValidation)
+	}
+
+	return nil
+}
+
+func (h *Handler) requireDomainAndTaskList(domain, taskList string) error {
+	if err := validateName("taskList name", taskList, maxNameLength); err != nil {
+		return err
+	}
+
+	return h.Backend.RequireDomain(domain)
 }

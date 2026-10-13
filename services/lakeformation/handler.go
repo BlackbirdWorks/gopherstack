@@ -169,8 +169,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"RegisterResource",
 		"RemoveLFTagsFromResource",
 		"RevokePermissions",
-		"SearchDatabasesByLFTags",
-		"SearchTablesByLFTags",
+		opSearchDatabasesByLFTags,
+		opSearchTablesByLFTags,
 		"StartQueryPlanning",
 		"StartTransaction",
 		"UpdateDataCellsFilter",
@@ -310,8 +310,8 @@ func (h *Handler) buildOps() map[string]func(context.Context, *echo.Context, []b
 		"GetWorkUnitResults":                               h.handleGetWorkUnitResults,
 		"GetWorkUnits":                                     h.handleGetWorkUnits,
 		"ListTableStorageOptimizers":                       h.handleListTableStorageOptimizers,
-		"SearchDatabasesByLFTags":                          h.handleSearchDatabasesByLFTags,
-		"SearchTablesByLFTags":                             h.handleSearchTablesByLFTags,
+		opSearchDatabasesByLFTags:                          h.handleSearchDatabasesByLFTags,
+		opSearchTablesByLFTags:                             h.handleSearchTablesByLFTags,
 		"StartQueryPlanning":                               h.handleStartQueryPlanning,
 		"UpdateDataCellsFilter":                            h.handleUpdateDataCellsFilter,
 		"UpdateLFTagExpression":                            h.handleUpdateLFTagExpression,
@@ -327,13 +327,19 @@ func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op string, body
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "unknown operation: "+op)
 	}
 
+	if err := validatePagination(op, body); err != nil {
+		return h.handleError(c, err)
+	}
+
 	return fn(ctx, c, body)
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrValidation):
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+		msg := strings.TrimSuffix(err.Error(), ": "+ErrValidation.Error())
+
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", msg)
 	case errors.Is(err, awserr.ErrNotFound):
 		return h.writeError(c, http.StatusNotFound, "EntityNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):

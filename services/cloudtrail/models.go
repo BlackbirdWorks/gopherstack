@@ -204,6 +204,7 @@ type Query struct {
 	DeliveryS3URI         string                `json:"deliveryS3Uri,omitempty"`
 	ErrorMessage          string                `json:"errorMessage,omitempty"`
 	QueryAlias            string                `json:"queryAlias,omitempty"`
+	RefreshID             string                `json:"refreshId,omitempty"`
 	EventDataStoreOwnerID string                `json:"eventDataStoreOwnerId,omitempty"`
 	DeliveryStatus        string                `json:"deliveryStatus,omitempty"`
 	QueryParameters       []string              `json:"queryParameters,omitempty"`

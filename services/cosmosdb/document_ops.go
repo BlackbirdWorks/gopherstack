@@ -282,22 +282,19 @@ func (h *Handler) queryDocuments(c *echo.Context, dbID, collID string) error {
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", "The input is not valid JSON.")
 	}
 
-	infos, listErr := h.Backend.ListDocuments(dbID, collID)
+	results, execErr := h.runQuery(dbID, collID, req)
 
 	switch {
-	case listErr == nil:
-	case errors.Is(listErr, ErrDatabaseNotFound):
+	case execErr == nil:
+	case errors.Is(execErr, ErrDatabaseNotFound):
 		return h.writeDatabaseNotFoundError(c)
-	case errors.Is(listErr, ErrContainerNotFound):
+	case errors.Is(execErr, ErrContainerNotFound):
 		return h.writeContainerNotFoundError(c)
-	default:
-		return h.writeError(c, http.StatusInternalServerError, "InternalError", listErr.Error())
-	}
-
-	results, execErr := ExecuteQuery(req.Query, req.Parameters, infos)
-	if execErr != nil {
+	case errors.Is(execErr, ErrQueryParse), errors.Is(execErr, ErrQueryTooDeep):
 		return h.writeError(c, http.StatusBadRequest, "BadRequest",
 			fmt.Sprintf("The SQL query text is invalid or has one or more syntax errors: %s", execErr.Error()))
+	default:
+		return h.writeError(c, http.StatusInternalServerError, "InternalError", execErr.Error())
 	}
 
 	return h.writeJSON(c, http.StatusOK,
@@ -316,4 +313,21 @@ func (h *Handler) encodeDocument(info DocumentInfo) map[string]any {
 // the corresponding Cosmos error code/status.
 func (h *Handler) writeDocumentNotFoundError(c *echo.Context) error {
 	return h.writeError(c, http.StatusNotFound, "NotFound", "Resource Not Found")
+}
+
+// runQuery uses the backend's direct query path when it has one, otherwise
+// ListDocuments plus ExecuteQuery.
+func (h *Handler) runQuery(dbID, collID string, req queryRequestBody) ([]map[string]any, error) {
+	if q, ok := h.Backend.(interface {
+		QueryDocuments(dbID, containerID, query string, params []QueryParameter) ([]map[string]any, error)
+	}); ok {
+		return q.QueryDocuments(dbID, collID, req.Query, req.Parameters)
+	}
+
+	infos, err := h.Backend.ListDocuments(dbID, collID)
+	if err != nil {
+		return nil, err
+	}
+
+	return ExecuteQuery(req.Query, req.Parameters, infos)
 }

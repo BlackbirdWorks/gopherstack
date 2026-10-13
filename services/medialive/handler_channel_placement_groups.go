@@ -81,6 +81,10 @@ func (h *Handler) handleDeleteChannelPlacementGroup(c *echo.Context, resource st
 }
 
 func (h *Handler) handleListChannelPlacementGroups(c *echo.Context, clusterID string) error {
+	if err := validPaging(c); err != nil {
+		return respondErr(c, err)
+	}
+
 	maxResults, nextTokenParam := paginationParams(c)
 	groups, nextToken, err := h.Backend.ListChannelPlacementGroups(clusterID, maxResults, nextTokenParam)
 	if err != nil {

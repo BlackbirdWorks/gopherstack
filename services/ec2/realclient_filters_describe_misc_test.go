@@ -210,11 +210,11 @@ func TestRealClient_DescribeReservedInstancesModificationsFilters(t *testing.T) 
 	require.NoError(t, err)
 	m1, err := b.ModifyReservedInstances([]string{ri1.ReservedInstancesID}, []ec2.ReservedInstancesConfigurationTarget{
 		{InstanceType: "t3.large", AvailabilityZone: "us-east-1b", InstanceCount: 2},
-	})
+	}, "")
 	require.NoError(t, err)
 	m2, err := b.ModifyReservedInstances([]string{ri2.ReservedInstancesID}, []ec2.ReservedInstancesConfigurationTarget{
 		{InstanceType: "t3.small", AvailabilityZone: "us-east-1c", InstanceCount: 5},
-	})
+	}, "")
 	require.NoError(t, err)
 
 	id1, id2 := m1.ReservedInstancesModificationID, m2.ReservedInstancesModificationID

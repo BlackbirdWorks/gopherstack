@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -78,6 +79,10 @@ func (b *InMemoryBackend) CreateMaintenanceWindow(
 
 	if input.Schedule == "" {
 		return nil, fmt.Errorf("%w: Schedule is required", ErrValidationException)
+	}
+
+	if err := validateMaintenanceWindowSchedule(input.Schedule); err != nil {
+		return nil, err
 	}
 
 	const (
@@ -1026,6 +1031,12 @@ func (b *InMemoryBackend) UpdateMaintenanceWindow(
 
 	mw := *mwPtr
 
+	if input.Schedule != nil {
+		if err := validateMaintenanceWindowSchedule(*input.Schedule); err != nil {
+			return nil, err
+		}
+	}
+
 	if input.Name != nil {
 		mw.Name = *input.Name
 	}
@@ -1441,4 +1452,14 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 		TaskInvocationParameters: cloneTaskInvocationParameters(task.TaskInvocationParameters),
 		TaskParameters:           cloneTaskParameters(task.TaskParameters),
 	}, nil
+}
+
+func validateMaintenanceWindowSchedule(schedule string) error {
+	for _, p := range []string{"cron(", "rate(", "at("} {
+		if strings.HasPrefix(schedule, p) && strings.HasSuffix(schedule, ")") {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: Schedule must be a cron(), rate() or at() expression", ErrValidationException)
 }

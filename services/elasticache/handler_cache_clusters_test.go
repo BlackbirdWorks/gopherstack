@@ -297,7 +297,7 @@ func TestDeleteCacheCluster_FinalSnapshotIdentifier(t *testing.T) {
 			t.Parallel()
 
 			client := newTestStack(t)
-			clusterID := "fsi-" + tt.name
+			clusterID := "fsi-" + strings.ReplaceAll(tt.name, "_", "-")
 
 			_, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
 				CacheClusterId: aws.String(clusterID),
@@ -1451,12 +1451,34 @@ func TestCreateCacheCluster_ReplicationGroupId_AttachesAndProtectsFromDelete(t *
 	require.Len(t, described.CacheClusters, 1)
 	assert.Equal(t, "rg-attach-target", aws.ToString(described.CacheClusters[0].ReplicationGroupId))
 
+	rgs, err := client.DescribeReplicationGroups(t.Context(), &elasticachesdk.DescribeReplicationGroupsInput{
+		ReplicationGroupId: aws.String("rg-attach-target"),
+	})
+	require.NoError(t, err)
+	require.Len(t, rgs.ReplicationGroups, 1)
+	assert.ElementsMatch(
+		t,
+		[]string{"rg-attach-target-001", "rg-attach-replica"},
+		rgs.ReplicationGroups[0].MemberClusters,
+	)
+
+	_, err = client.DeleteCacheCluster(t.Context(), &elasticachesdk.DeleteCacheClusterInput{
+		CacheClusterId: aws.String("rg-attach-target-001"),
+	})
+	require.Error(t, err, "deleting the primary node of a replication group must be refused")
+	requireFault[elasticachetypes.InvalidCacheClusterStateFault](t, err)
+	requireHTTPStatus(t, err, http.StatusBadRequest)
+
 	_, err = client.DeleteCacheCluster(t.Context(), &elasticachesdk.DeleteCacheClusterInput{
 		CacheClusterId: aws.String("rg-attach-replica"),
 	})
-	require.Error(t, err, "deleting the last real-API-attached RG member must be refused")
-	requireFault[elasticachetypes.InvalidCacheClusterStateFault](t, err)
-	requireHTTPStatus(t, err, http.StatusBadRequest)
+	require.NoError(t, err, "a replica of a non-Multi-AZ group can be deleted")
+
+	rgs, err = client.DescribeReplicationGroups(t.Context(), &elasticachesdk.DescribeReplicationGroupsInput{
+		ReplicationGroupId: aws.String("rg-attach-target"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"rg-attach-target-001"}, rgs.ReplicationGroups[0].MemberClusters)
 }
 
 // TestCreateCacheCluster_ReplicationGroupId_NotFound pins the modeled

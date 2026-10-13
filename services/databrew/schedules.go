@@ -2,11 +2,13 @@ package databrew
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 func (b *InMemoryBackend) scheduleARN(region, name string) string {
@@ -24,16 +26,17 @@ func (b *InMemoryBackend) CreateSchedule(
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
 	if name == "" {
-		return nil, ErrValidation
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 	t := b.schedulesTable(region)
 	if t.Has(name) {
-		return nil, ErrAlreadyExists
+		return nil, existsErr("Schedule", name)
 	}
 	sc := &Schedule{
 		Name: name, Arn: b.scheduleARN(region, name), JobNames: append([]string(nil), jobNames...),
 		CronExpression: cron, Tags: maps.Clone(tags), AccountID: b.accountID,
 		CreateDate: float64(time.Now().Unix()), LastModifiedDate: float64(time.Now().Unix()),
+		CreatedBy: awsmeta.CallerArn(ctx), LastModifiedBy: awsmeta.CallerArn(ctx),
 	}
 	t.Put(sc)
 
@@ -46,7 +49,7 @@ func (b *InMemoryBackend) DescribeSchedule(ctx context.Context, name string) (*S
 	region := getRegion(ctx, b.defaultRegion)
 	sc, ok := b.schedulesTable(region).Get(name)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, notFoundErr("Schedule", name)
 	}
 	cp := *sc
 	cp.Tags = maps.Clone(sc.Tags)
@@ -104,13 +107,14 @@ func (b *InMemoryBackend) UpdateSchedule(
 	region := getRegion(ctx, b.defaultRegion)
 	sc, ok := b.schedulesTable(region).Get(name)
 	if !ok {
-		return ErrNotFound
+		return notFoundErr("Schedule", name)
 	}
 	if len(jobNames) > 0 {
 		sc.JobNames = jobNames
 	}
 	sc.CronExpression = cron
 	sc.LastModifiedDate = float64(time.Now().Unix())
+	stampModifiedBy(ctx, &sc.LastModifiedBy)
 
 	return nil
 }
@@ -120,7 +124,7 @@ func (b *InMemoryBackend) DeleteSchedule(ctx context.Context, name string) error
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
 	if !b.schedulesTable(region).Delete(name) {
-		return ErrNotFound
+		return notFoundErr("Schedule", name)
 	}
 
 	return nil

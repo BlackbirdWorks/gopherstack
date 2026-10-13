@@ -4,15 +4,14 @@ import (
 	"encoding/xml"
 	"net/url"
 	"slices"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func (h *Handler) handleDescribeScalingActivities(vals url.Values) (any, error) {
 	groupName := vals.Get("AutoScalingGroupName")
 	statuses := scalingActivityStatusFilters(vals)
 
-	activities, err := h.Backend.DescribeScalingActivities(groupName, statuses)
+	activities, err := h.Backend.DescribeScalingActivitiesFor(
+		groupName, statuses, vals.Get("IncludeDeletedGroups") == formValueTrue)
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +29,10 @@ func (h *Handler) handleDescribeScalingActivities(vals url.Values) (any, error) 
 		}
 	}
 
-	p := page.New(activities, vals.Get("NextToken"), maxRecords, defaultActivitiesMaxRecords)
+	p, pageErr := newPage(vals, activities, maxRecords, defaultActivitiesMaxRecords)
+	if pageErr != nil {
+		return nil, pageErr
+	}
 
 	members := make([]xmlScalingActivity, 0, len(p.Data))
 	for i := range p.Data {

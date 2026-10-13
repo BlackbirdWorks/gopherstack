@@ -21,7 +21,7 @@ func TestCloudFormationDashboard(t *testing.T) {
 	_, err := stack.CloudFormationHandler.Backend.CreateStack(
 		context.Background(),
 		"e2e-test-stack",
-		`{"AWSTemplateFormatVersion":"2010-09-09","Resources":{}}`,
+		`{"AWSTemplateFormatVersion":"2010-09-09","Resources":{"Topic":{"Type":"AWS::SNS::Topic"}}}`,
 		nil,
 		cloudformation.StackOptions{},
 	)

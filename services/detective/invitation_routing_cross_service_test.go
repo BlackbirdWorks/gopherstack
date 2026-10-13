@@ -122,7 +122,9 @@ func TestInvitationRouting_CrossServiceIsolation(t *testing.T) {
 				client := newInvitationRoutingDetectiveClient(t, srv.URL)
 
 				_, err := client.AcceptInvitation(t.Context(), &detectivesdk.AcceptInvitationInput{
-					GraphArn: aws.String("arn:aws:detective:us-east-1:000000000000:graph:nonexistent"),
+					GraphArn: aws.String(
+						missingGraphARN,
+					),
 				})
 				require.Error(t, err, "accepting an invitation to an unknown graph must fail")
 

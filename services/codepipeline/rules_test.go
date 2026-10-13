@@ -37,13 +37,13 @@ func TestListRuleExecutions_KnownAndUnknownPipeline(t *testing.T) {
 
 	b := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.ListRuleExecutions(context.Background(), "missing")
+	_, err := b.ListRuleExecutions(context.Background(), "missing", "")
 	require.Error(t, err)
 
 	_, err = b.CreatePipeline(context.Background(), samplePipeline("re-pipeline"), nil)
 	require.NoError(t, err)
 
-	items, err := b.ListRuleExecutions(context.Background(), "re-pipeline")
+	items, err := b.ListRuleExecutions(context.Background(), "re-pipeline", "")
 	require.NoError(t, err)
 	assert.Empty(t, items)
 }

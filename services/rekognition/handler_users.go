@@ -50,6 +50,10 @@ func (h *Handler) handleCreateUser(_ context.Context, req *createUserReq) (*stru
 		return nil, fmt.Errorf("%w: UserId is required", ErrValidation)
 	}
 
+	if err := validateUserLikeID("UserId", req.UserId, maxUserIDLen); err != nil {
+		return nil, err
+	}
+
 	return withIdempotency(h, "CreateUser", req.ClientRequestToken, req.CollectionId+"|"+req.UserId,
 		func() (*struct{}, error) {
 			if err := h.Backend.CreateUser(req.CollectionId, req.UserId); err != nil {

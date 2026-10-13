@@ -41,8 +41,8 @@ func (b *InMemoryBackend) CreateServiceNetworkWithSharing(
 	tags map[string]string,
 	sharing *SharingConfig,
 ) (*ServiceNetwork, error) {
-	if name == "" {
-		return nil, ErrInvalidParameter
+	if err := validateName("service network", name, "", maxNetworkNameLen); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateServiceNetwork")

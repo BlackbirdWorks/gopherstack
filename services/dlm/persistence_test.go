@@ -288,7 +288,7 @@ func TestPersistence_VersionMismatch(t *testing.T) {
 					nil,
 				)
 				require.NoError(t, createErr)
-				assert.Equal(t, "policy-0000000000000001", next.PolicyID)
+				assert.Equal(t, "policy-00000000000000001", next.PolicyID)
 			}
 		})
 	}

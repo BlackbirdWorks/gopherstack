@@ -72,6 +72,9 @@ func (h *Handler) handleCreateProjectVersion(
 		return nil, fmt.Errorf("%w: VersionName is required", ErrValidation)
 	}
 
+	if err := validateName("VersionName", req.VersionName); err != nil {
+		return nil, err
+	}
 	// OutputConfig is a required CreateProjectVersionInput member (verified
 	// against validateOpCreateProjectVersionInput, validators.go).
 	if req.OutputConfig == nil {

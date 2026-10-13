@@ -292,10 +292,21 @@ type Crawler struct {
 	DatabaseName                 string                      `json:"DatabaseName"`
 	Role                         string                      `json:"Role"`
 	Name                         string                      `json:"Name"`
+	LastCrawl                    *LastCrawlInfo              `json:"LastCrawl,omitempty"`
 	Targets                      CrawlerTarget               `json:"Targets,omitzero"`
 	Classifiers                  []string                    `json:"Classifiers,omitempty"`
 	CreationTime                 float64                     `json:"CreationTime,omitempty"`
 	LastUpdated                  float64                     `json:"LastUpdated,omitempty"`
+}
+
+// LastCrawlInfo mirrors types.LastCrawlInfo on GetCrawler's Crawler.
+type LastCrawlInfo struct {
+	Status        string  `json:"Status,omitempty"`
+	ErrorMessage  string  `json:"ErrorMessage,omitempty"`
+	LogGroup      string  `json:"LogGroup,omitempty"`
+	LogStream     string  `json:"LogStream,omitempty"`
+	MessagePrefix string  `json:"MessagePrefix,omitempty"`
+	StartTime     float64 `json:"StartTime,omitempty"`
 }
 
 // CrawlHistoryEntry records a single crawl run for ListCrawls.
@@ -308,9 +319,11 @@ type CrawlHistoryEntry struct {
 	// field (aws-sdk-go-v2/service/glue@v1.152.0 types.go:2815-2836,2916-2946), so
 	// this is internal-only: it persists (handleListCrawls' crawlHistoryOut DTO
 	// copies fields explicitly and never includes it, so it never reaches the wire).
-	WorkflowRunID string  `json:"workflowRunId,omitempty"`
-	StartTime     float64 `json:"StartTime,omitempty"`
-	EndTime       float64 `json:"EndTime,omitempty"`
+	WorkflowRunID string `json:"workflowRunId,omitempty"`
+	// TriggerName is internal-only, like WorkflowRunID: the trigger that started this crawl.
+	TriggerName string  `json:"triggerName,omitempty"`
+	StartTime   float64 `json:"StartTime,omitempty"`
+	EndTime     float64 `json:"EndTime,omitempty"`
 }
 
 // ConnectionsList holds connections for a Glue job.
@@ -559,6 +572,7 @@ type JobRun struct {
 	SecurityConfiguration string            `json:"SecurityConfiguration,omitempty"`
 	ExecutionClass        string            `json:"ExecutionClass,omitempty"`
 	MaintenanceWindow     string            `json:"MaintenanceWindow,omitempty"`
+	PreviousRunID         string            `json:"PreviousRunId,omitempty"`
 	// ExecutionRoleSessionPolicy is the inline session policy given at StartJobRun.
 	ExecutionRoleSessionPolicy string `json:"ExecutionRoleSessionPolicy,omitempty"`
 	// JobRunQueuingEnabled is inherited from the job definition.
@@ -570,7 +584,10 @@ type JobRun struct {
 	// WorkflowRunStatistics. Real AWS's JobRun has no such field, so this is
 	// internal-only: it persists but GetJobRun/GetJobRuns strip it before
 	// returning, since those embed *JobRun directly in the wire response.
-	WorkflowRunID        string               `json:"workflowRunId,omitempty"`
+	WorkflowRunID string `json:"workflowRunId,omitempty"`
+	// PredecessorRuns are the job runs whose completion satisfied the conditional
+	// trigger that started this run; GetJobRun returns them only on request.
+	PredecessorRuns      []Predecessor        `json:"PredecessorRuns,omitempty"`
 	StartedOn            float64              `json:"StartedOn,omitempty"`
 	CompletedOn          float64              `json:"CompletedOn,omitempty"`
 	MaxCapacity          float64              `json:"MaxCapacity,omitempty"`
@@ -580,9 +597,16 @@ type JobRun struct {
 	NotificationProperty NotificationProperty `json:"NotificationProperty,omitzero"`
 }
 
+// Predecessor mirrors types.Predecessor.
+type Predecessor struct {
+	JobName string `json:"JobName"`
+	RunID   string `json:"RunId"`
+}
+
 // StartJobRunOptions carries the optional per-run overrides AWS's
 // StartJobRunRequest supports beyond JobName/Arguments.
 type StartJobRunOptions struct {
+	PreviousRunID              string
 	NotificationProperty       *NotificationProperty
 	JobRunQueuingEnabled       *bool
 	ExecutionClass             string
@@ -768,12 +792,18 @@ type BlueprintRun struct {
 
 // DQRuleRecommendationRun represents a data quality rule recommendation run.
 type DQRuleRecommendationRun struct {
-	RecommendationRunID string  `json:"RecommendationRunId"`
-	DataSourceS3Path    string  `json:"DataSourceS3Path,omitempty"`
-	Status              string  `json:"Status"`
-	StartedOn           float64 `json:"StartedOn,omitempty"`
-	NumberOfWorkers     int32   `json:"NumberOfWorkers,omitempty"`
-	Timeout             int32   `json:"Timeout,omitempty"`
+	GlueTable                        *GlueTable `json:"GlueTable,omitempty"`
+	RecommendationRunID              string     `json:"RecommendationRunId"`
+	DataSourceS3Path                 string     `json:"DataSourceS3Path,omitempty"`
+	Status                           string     `json:"Status"`
+	Role                             string     `json:"Role,omitempty"`
+	CreatedRulesetName               string     `json:"CreatedRulesetName,omitempty"`
+	DataQualitySecurityConfiguration string     `json:"DataQualitySecurityConfiguration,omitempty"`
+	CustomLogGroupPrefix             string     `json:"CustomLogGroupPrefix,omitempty"`
+	ClientToken                      string     `json:"ClientToken,omitempty"`
+	StartedOn                        float64    `json:"StartedOn,omitempty"`
+	NumberOfWorkers                  int32      `json:"NumberOfWorkers,omitempty"`
+	Timeout                          int32      `json:"Timeout,omitempty"`
 }
 
 // ColumnStatisticsTaskSettings represents column statistics task settings.
@@ -978,17 +1008,25 @@ type MLTaskType string
 
 // MLTaskRun represents a single ML transform task run.
 type MLTaskRun struct {
-	Properties     map[string]string `json:"Properties,omitempty"`
-	TransformID    string            `json:"TransformId"`
-	TaskRunID      string            `json:"TaskRunId"`
-	TaskType       string            `json:"TaskType"`
-	Status         string            `json:"Status"`
-	ErrorString    string            `json:"ErrorString,omitempty"`
-	LogGroupName   string            `json:"LogGroupName,omitempty"`
-	StartedOn      float64           `json:"StartedOn,omitempty"`
-	CompletedOn    float64           `json:"CompletedOn,omitempty"`
-	LastModifiedOn float64           `json:"LastModifiedOn,omitempty"`
-	ExecutionTime  int               `json:"ExecutionTime,omitempty"`
+	Properties     *MLTaskRunProperties `json:"Properties,omitempty"`
+	TransformID    string               `json:"TransformId"`
+	TaskRunID      string               `json:"TaskRunId"`
+	TaskType       string               `json:"TaskType"`
+	Status         string               `json:"Status"`
+	ErrorString    string               `json:"ErrorString,omitempty"`
+	LogGroupName   string               `json:"LogGroupName,omitempty"`
+	StartedOn      float64              `json:"StartedOn,omitempty"`
+	CompletedOn    float64              `json:"CompletedOn,omitempty"`
+	LastModifiedOn float64              `json:"LastModifiedOn,omitempty"`
+	ExecutionTime  int                  `json:"ExecutionTime,omitempty"`
+}
+
+// MLTaskRunProperties holds the start-time inputs that GetMLTaskRuns reports
+// under TaskRunProperties' per-task-type sub-structures.
+type MLTaskRunProperties struct {
+	OutputS3Path string `json:"OutputS3Path,omitempty"`
+	InputS3Path  string `json:"InputS3Path,omitempty"`
+	Replace      bool   `json:"Replace,omitempty"`
 }
 
 // ResourceURI holds a URI for a UDF resource.
@@ -1060,6 +1098,7 @@ type SessionCommand struct {
 
 // Session represents a Glue interactive session.
 type Session struct {
+	Tags                  map[string]string `json:"-"`
 	DefaultArguments      map[string]string `json:"DefaultArguments,omitempty"`
 	Command               SessionCommand    `json:"Command,omitzero"`
 	Status                string            `json:"Status"`
@@ -1253,9 +1292,11 @@ type MLTransformOptions struct {
 // CatalogEntry represents a named AWS Glue catalog.
 type CatalogEntry struct {
 	Parameters  map[string]string `json:"Parameters,omitzero"`
+	Tags        map[string]string `json:"-"`
 	CatalogID   string            `json:"CatalogId"`
 	Name        string            `json:"Name"`
 	Description string            `json:"Description,omitempty"`
+	ResourceArn string            `json:"ResourceArn,omitempty"`
 	CreateTime  float64           `json:"CreateTime,omitempty"`
 }
 

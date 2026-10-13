@@ -92,6 +92,7 @@ func toXMLSnapshot(snap *DBSnapshot) xmlDBSnapshot {
 		PercentProgress:      snap.PercentProgress,
 		CopyTagsToSnapshot:   snap.CopyTagsToSnapshot,
 		Encrypted:            snap.StorageEncrypted,
+		MasterUsername:       snap.MasterUsername,
 	}
 }
 
@@ -108,6 +109,7 @@ type xmlDBSnapshot struct {
 	KmsKeyID             string `xml:"KmsKeyId,omitempty"`
 	SourceRegion         string `xml:"SourceRegion,omitempty"`
 	SnapshotType         string `xml:"SnapshotType,omitempty"`
+	MasterUsername       string `xml:"MasterUsername,omitempty"`
 	SnapshotCreateTime   string `xml:"SnapshotCreateTime,omitempty"`
 	AllocatedStorage     int    `xml:"AllocatedStorage,omitempty"`
 	Port                 int    `xml:"Port,omitempty"`

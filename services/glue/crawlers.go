@@ -29,6 +29,12 @@ func (b *InMemoryBackend) createCrawlerTablesLocked(c *Crawler) int {
 	created := 0
 
 	for _, s3t := range c.Targets.S3Targets {
+		if b.crawlerS3 != nil {
+			created += b.crawlS3TargetLocked(c, s3t)
+
+			continue
+		}
+
 		path := strings.TrimPrefix(s3t.Path, "s3://")
 		// Extract prefix after bucket name.
 		var prefix string
@@ -66,6 +72,11 @@ func cloneCrawler(c *Crawler) *Crawler {
 	cp.Tags = maps.Clone(c.Tags)
 	cp.Classifiers = append([]string(nil), c.Classifiers...)
 	cp.Targets = cloneCrawlerTarget(c.Targets)
+
+	if c.LastCrawl != nil {
+		v := *c.LastCrawl
+		cp.LastCrawl = &v
+	}
 
 	if c.SchemaChangePolicy != nil {
 		v := *c.SchemaChangePolicy
@@ -627,4 +638,22 @@ func (b *InMemoryBackend) GetCrawlerMetrics(crawlerNames []string) []*CrawlerMet
 	}
 
 	return out
+}
+
+// setLastCrawlLocked records the just-finished crawl on c.LastCrawl. Must be
+// called with b.mu held.
+func (b *InMemoryBackend) setLastCrawlLocked(c *Crawler, status string) {
+	hist := b.crawlHistory[c.Name]
+	if len(hist) == 0 {
+		return
+	}
+
+	last := hist[len(hist)-1]
+	c.LastCrawl = &LastCrawlInfo{
+		Status:        status,
+		StartTime:     last.StartTime,
+		LogGroup:      "/aws-glue/crawlers",
+		LogStream:     c.Name,
+		MessagePrefix: last.CrawlID,
+	}
 }

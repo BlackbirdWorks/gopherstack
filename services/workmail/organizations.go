@@ -32,14 +32,19 @@ func (b *InMemoryBackend) CreateOrganizationWithDirectory(
 	b.mu.Lock("CreateOrganization")
 	defer b.mu.Unlock()
 
-	if alias == "" {
-		return nil, fmt.Errorf("%w: Alias is required", ErrValidation)
+	if err := validateAlias(alias); err != nil {
+		return nil, err
+	}
+	for _, d := range domains {
+		if err := validateDomainName(d); err != nil {
+			return nil, err
+		}
 	}
 	if _, exists := b.orgsByAlias[alias]; exists {
 		return nil, fmt.Errorf("%w: organization with alias %q already exists", ErrNameUnavailable, alias)
 	}
 
-	orgID := "m-" + strings.ReplaceAll(newID(), "-", "")[:20]
+	orgID := "m-" + strings.ReplaceAll(newID(), "-", "")
 	if directoryID == "" {
 		directoryID = "d-" + strings.ReplaceAll(newID(), "-", "")[:10]
 	}
@@ -77,9 +82,6 @@ func (b *InMemoryBackend) CreateOrganizationWithDirectory(
 	})
 
 	for _, d := range domains {
-		if d == "" {
-			continue
-		}
 		b.mailDomains.Put(&MailDomain{
 			DomainName:                  d,
 			IsDefault:                   false,
@@ -104,7 +106,7 @@ func (b *InMemoryBackend) DescribeOrganization(orgID string) (*Organization, err
 		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
-	return org, nil
+	return b.orgView(org), nil
 }
 
 // DeleteOrganization removes a WorkMail organization and every collection
@@ -117,13 +119,19 @@ func (b *InMemoryBackend) DescribeOrganization(orgID string) (*Organization, err
 // retentionPolicies, exportJobs, identityCenterApps, idpConfig,
 // personalTokens, and issuedTokens are deliberately left untouched, matching
 // prior behavior.
-func (b *InMemoryBackend) DeleteOrganization(orgID string, _ bool) error {
+func (b *InMemoryBackend) DeleteOrganization(orgID string, deleteDirectory bool) error {
 	b.mu.Lock("DeleteOrganization")
 	defer b.mu.Unlock()
 
 	org, ok := b.organizations.Get(orgID)
 	if !ok {
 		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
+	}
+
+	if deleteDirectory && b.directories != nil {
+		if err := b.directories.DeleteDirectory(org.Region, org.DirectoryID); err != nil {
+			return fmt.Errorf("delete directory %s: %w", org.DirectoryID, err)
+		}
 	}
 
 	delete(b.orgsByAlias, org.Alias)
@@ -181,6 +189,7 @@ func (b *InMemoryBackend) ListOrganizations(
 
 	orgs := make([]*OrgSummary, 0, b.organizations.Len())
 	for _, o := range b.organizations.All() {
+		o = b.orgView(o)
 		if o.Region != "" && requestRegion != "" && o.Region != requestRegion {
 			continue
 		}

@@ -235,6 +235,7 @@ func (b *InMemoryBackend) putGenericResource(id ResourceID, body map[string]any)
 	}
 
 	b.resources[key] = res
+	b.byType.Store(nil)
 
 	return res.Body(), !existed, nil
 }
@@ -261,48 +262,53 @@ func (b *InMemoryBackend) deleteGenericResource(id ResourceID) error {
 	}
 
 	delete(b.resources, key)
+	b.byType.Store(nil)
 
 	return nil
 }
 
 func (b *InMemoryBackend) listGenericResources(id ResourceID) []map[string]any {
 	b.mu.RLock("listGenericResources")
-	defer b.mu.RUnlock()
 
-	leafType := id.LeafType()
+	bucket := b.typeIndex()[typeIndexKey(id.SubscriptionID, id.Namespace, id.LeafType())]
+	rgKey := resourceGroupKey(id.ResourceGroup)
 
-	var out []map[string]any
-
-	for _, res := range b.resources {
-		if !sameSubscriptionNamespaceType(res.ID, id, leafType) {
-			continue
-		}
-
-		if id.ResourceGroup != "" && resourceGroupKey(res.ID.ResourceGroup) != resourceGroupKey(id.ResourceGroup) {
-			continue
-		}
-
-		out = append(out, res.Body())
+	type entry struct {
+		res *Resource
+		id  string
 	}
 
-	sort.Slice(out, func(i, j int) bool {
-		return stringField(out[i], "id") < stringField(out[j], "id")
-	})
+	entries := make([]entry, 0, len(bucket))
+
+	for _, res := range bucket {
+		if id.ResourceGroup != "" && resourceGroupKey(res.ID.ResourceGroup) != rgKey {
+			continue
+		}
+
+		entries = append(entries, entry{res: res, id: res.ID.ARMID()})
+	}
+
+	b.mu.RUnlock()
+
+	sort.Slice(entries, func(i, j int) bool { return entries[i].id < entries[j].id })
+
+	var out []map[string]any
+	if len(entries) > 0 {
+		out = make([]map[string]any, 0, len(entries))
+	}
+
+	for _, e := range entries {
+		out = append(out, e.res.Body())
+	}
 
 	return out
 }
 
-// stringField safely reads a string field from a wire response body map,
-// returning "" if absent or not a string -- avoids an unchecked type
+// nameField safely reads the "name" string field from a wire response body
+// map, returning "" if absent or not a string -- avoids an unchecked type
 // assertion in sort comparators.
-func stringField(body map[string]any, key string) string {
-	s, _ := body[key].(string)
+func nameField(body map[string]any) string {
+	s, _ := body[fieldName].(string)
 
 	return s
-}
-
-func sameSubscriptionNamespaceType(res, want ResourceID, leafType string) bool {
-	return res.SubscriptionID == want.SubscriptionID &&
-		strings.EqualFold(res.Namespace, want.Namespace) &&
-		strings.EqualFold(res.LeafType(), leafType)
 }

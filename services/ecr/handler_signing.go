@@ -77,6 +77,10 @@ func (h *Handler) handleDescribeImageSigningStatus(
 	ctx context.Context,
 	in *imageInput,
 ) (*describeImageSigningStatusOutput, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	result, err := h.Backend.DescribeImageSigningStatus(ctx, in.RepositoryName, in.ImageID)
 	if err != nil {
 		return nil, err

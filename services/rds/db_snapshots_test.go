@@ -710,7 +710,15 @@ func TestRDSBackend_RestoreDBInstanceFromDBSnapshot(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.instanceID, inst.DBInstanceIdentifier)
-			assert.Equal(t, "available", inst.DBInstanceStatus)
+			assert.Equal(t, "creating", inst.DBInstanceStatus)
+			assert.Equal(t, "admin", inst.MasterUsername)
+			assert.Equal(t, "db.t3.micro", inst.DBInstanceClass)
+
+			require.Eventually(t, func() bool {
+				got, descErr := b.DescribeDBInstances(tt.instanceID)
+
+				return descErr == nil && len(got) == 1 && got[0].DBInstanceStatus == "available"
+			}, 5*time.Second, 20*time.Millisecond)
 		})
 	}
 }

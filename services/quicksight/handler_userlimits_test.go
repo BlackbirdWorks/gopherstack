@@ -59,6 +59,7 @@ func TestRealClient_BatchDescribeUserLimits(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, types.LimitSourceSystemDefault, agentLimit.Source)
 	assert.Equal(t, types.LimitUnitHours, agentLimit.LimitUnit)
+	assert.Equal(t, int64(8), aws.ToInt64(agentLimit.LimitValue))
 
 	require.Len(t, out.Errors, 1)
 	assert.Equal(t, "no-such-user", aws.ToString(out.Errors[0].UserName))
@@ -102,13 +103,20 @@ func TestRealClient_BatchDescribeUserLimits_EnterpriseEdition(t *testing.T) {
 
 	out, err := client.BatchDescribeUserLimits(ctx, &quicksightsdk.BatchDescribeUserLimitsInput{
 		AccountId:     aws.String(appTestAccountID),
-		ResourceTypes: []types.ResourceType{types.ResourceTypeIndexStorage},
+		ResourceTypes: []types.ResourceType{types.ResourceTypeIndexStorage, types.ResourceTypeAgentHours},
 		Users: []types.UserLimitsEntry{
 			{Namespace: aws.String("default"), UserName: aws.String("bob")},
 		},
 	})
 	require.NoError(t, err)
 	require.Len(t, out.UserLimits, 1)
-	require.Len(t, out.UserLimits[0].EffectiveLimits, 1)
-	assert.Equal(t, int64(50), aws.ToInt64(out.UserLimits[0].EffectiveLimits[0].LimitValue))
+	require.Len(t, out.UserLimits[0].EffectiveLimits, 2)
+
+	got := map[types.ResourceType]int64{}
+	for _, l := range out.UserLimits[0].EffectiveLimits {
+		got[l.ResourceType] = aws.ToInt64(l.LimitValue)
+	}
+
+	assert.Equal(t, int64(50), got[types.ResourceTypeIndexStorage])
+	assert.Equal(t, int64(18), got[types.ResourceTypeAgentHours])
 }

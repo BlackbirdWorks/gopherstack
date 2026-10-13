@@ -2,6 +2,7 @@ package apigatewayv2
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"time"
 )
@@ -17,6 +18,14 @@ func (b *InMemoryBackend) CreateStage(apiID string, input CreateStageInput) (*St
 
 	if input.StageName == "" {
 		return nil, fmt.Errorf("%w: stageName is required", ErrBadRequest)
+	}
+
+	if !stageNamePattern.MatchString(input.StageName) || len(input.StageName) > maxStageNameLength {
+		return nil, fmt.Errorf(
+			"%w: Stage names can contain only alphanumeric characters, hyphens, and underscores, "+
+				"or be $default (maximum length %d)",
+			ErrBadRequest, maxStageNameLength,
+		)
 	}
 
 	if b.stages.Has(stageKey(apiID, input.StageName)) {
@@ -216,3 +225,7 @@ func (b *InMemoryBackend) DeleteRouteSettings(apiID, stageName, routeKey string)
 
 	return nil
 }
+
+const maxStageNameLength = 128
+
+var stageNamePattern = regexp.MustCompile(`^(?:[a-zA-Z0-9_-]+|\$default)$`)

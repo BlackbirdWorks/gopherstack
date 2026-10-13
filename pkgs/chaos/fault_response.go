@@ -12,6 +12,8 @@ type faultResponse struct {
 	// Type is the error code (__type matches the AWS JSON error envelope convention).
 	Type    string `json:"__type"`
 	Message string `json:"message"`
+	// MessageCap: schema-serde SDK clients match the modeled "Message" key case-sensitively.
+	MessageCap string `json:"Message"`
 }
 
 // respondWithFault writes the fault HTTP response and short-circuits the handler chain.
@@ -27,8 +29,9 @@ func respondWithFault(c *echo.Context, fe FaultError) error {
 	}
 
 	body, err := json.Marshal(faultResponse{
-		Type:    code,
-		Message: "Fault injected by Gopherstack Chaos API",
+		Type:       code,
+		Message:    "Fault injected by Gopherstack Chaos API",
+		MessageCap: "Fault injected by Gopherstack Chaos API",
 	})
 	if err != nil {
 		return c.String(statusCode, code)

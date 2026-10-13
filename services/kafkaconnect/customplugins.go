@@ -25,8 +25,12 @@ func (b *InMemoryBackend) CreateCustomPlugin(
 	accountID, region, name, description, contentType, bucketArn, fileKey, objectVersion string,
 	tags map[string]string,
 ) (*CustomPlugin, error) {
-	if name == "" || contentType == "" || bucketArn == "" || fileKey == "" {
+	if contentType == "" || bucketArn == "" || fileKey == "" {
 		return nil, ErrValidation
+	}
+
+	if err := validateResourceName("custom plugin", name); err != nil {
+		return nil, err
 	}
 
 	obj, s3Wired := b.readPluginObject(bucketArn, fileKey, objectVersion)
@@ -48,7 +52,7 @@ func (b *InMemoryBackend) CreateCustomPlugin(
 		ARN:           customPluginARN(region, accountID, name),
 		Description:   description,
 		State:         customPluginStateCreating,
-		PendingUntil:  time.Now().UTC().Add(provisionDelay),
+		PendingUntil:  time.Now().UTC().Add(b.provisionDelay()),
 		ContentType:   contentType,
 		BucketArn:     bucketArn,
 		FileKey:       fileKey,
@@ -132,7 +136,7 @@ func (b *InMemoryBackend) DeleteCustomPlugin(customPluginArn string) (*CustomPlu
 
 	if p.State != deletingState {
 		p.State = deletingState
-		p.PendingUntil = time.Now().UTC().Add(deletionDelay)
+		p.PendingUntil = time.Now().UTC().Add(b.deletionDelay())
 	}
 
 	return p.clone(), nil

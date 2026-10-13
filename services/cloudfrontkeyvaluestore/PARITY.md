@@ -2,7 +2,7 @@
 service: cloudfrontkeyvaluestore
 sdk_module: aws-sdk-go-v2/service/cloudfrontkeyvaluestore@v1.15.4
 last_audit_commit: de1f49c7c
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-10
 overall: A            # A: SDK-driven test/integration suite TestIntegration_CloudFrontKeyValueStore_KeyLifecycle
                        # (test/integration/cloudfrontkeyvaluestore_test.go) + every buildable gap closed.
 ops:
@@ -22,6 +22,8 @@ leaks: {status: clean, note: "Handler owns no goroutines, janitors, or independe
 ---
 
 ## Notes
+
+**2026-10-10 (realism pass)**: error messages leaked services/cloudfront backend codes (NoSuchDistribution, PreconditionFailed); now stripped. PutKey/UpdateKeys no longer accept a missing Value/Key (required members, ValidationException); ListKeys rejects a malformed NextToken instead of restarting from page one.
 
 **2026-09-18**: added `test/integration/cloudfrontkeyvaluestore_test.go`
 (`TestIntegration_CloudFrontKeyValueStore_KeyLifecycle`), the Docker-backed

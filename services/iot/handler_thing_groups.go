@@ -281,7 +281,10 @@ func (h *Handler) handleListThingsInThingGroup(c *echo.Context) error {
 	after := strings.TrimPrefix(c.Request().URL.Path, "/thing-groups/")
 	thingGroupName := strings.TrimSuffix(after, "/things")
 	things, err := h.Backend.ListThingsInThingGroup(
-		&ListThingsInThingGroupInput{ThingGroupName: thingGroupName},
+		&ListThingsInThingGroupInput{
+			ThingGroupName: thingGroupName,
+			Recursive:      c.QueryParam("recursive") == "true",
+		},
 	)
 	if err != nil {
 		return h.handleError(c, err)

@@ -2,7 +2,7 @@
 service: secretsmanager
 sdk_module: aws-sdk-go-v2/service/secretsmanager@v1.48.0
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0)
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-12
 overall: A            # 2026-08-30 pass: two real filter bugs found and fixed, both in the shared
                        # anyMatchPrefix/secretMatchesFilter path ListSecrets and BatchGetSecretValue
                        # both use. (1) types.Filter.Values' documented "!"-negation prefix ("You can
@@ -80,10 +80,9 @@ families:
   persistence: {status: ok, note: "Snapshot/Restore round-trips all fields including json:\"-\" internal fields via secretSnapshot; Tags.Close() called on replace to avoid Prometheus registry leaks; rotation scheduler re-armed on restore when RotationEnabled"}
   concurrency-locking: {status: fixed, note: "see leaks — RLock-guarded reads were lazily mutating the coarse per-region maps; fixed with non-mutating *StoreRO accessors"}
 gaps: []
-items_still_open:
-  - Filter key "all" is documented to break the value into words (types.Filter.Key); the word-matching rule is unspecified, so whole-value prefix matching is kept.
-  - PutSecretValueInput.RotationToken is a cross-account rotation identity token with no session/trust engine to validate it against.
-  - OwningService and managed (service-owned) rotation need a managed-service model; no input can set them, so they stay unset.
+items_still_open: []
+structural_gaps:
+  - "PutSecretValueInput.RotationToken is a cross-account/assumed-role rotation identity token with no session or trust engine to validate it against."
 deferred:
   - Managed rotation (AWS-service-owned secrets, e.g. RDS-managed rotation) — out of scope, not modeled at all
   - Cross-account resource-policy principal evaluation beyond the wildcard-principal BlockPublicPolicy heuristic
@@ -91,6 +90,12 @@ leaks: {status: fixed, note: "Found a real data race: ListSecrets/ListSecretVers
 ---
 
 ## Notes
+
+**2026-10-12 deep realism pass:** PutSecretValue/UpdateSecret/UpdateSecretVersionStage rejected any body carrying a non-string member (`VersionStages` -> 500 `json: cannot unmarshal array`), breaking the rotation AWSPENDING flow (explicit_empty.go probe now `RawMessage`); ReplicateSecretToRegions/CreateSecret accepted the primary's own Region (turning the primary into its own "replica", so DeleteSecret skipped the recovery window) and malformed Regions, now InvalidRequest/InvalidParameter; partial ARNs (no suffix) of names longer than 7 chars and ARNs with a wrong suffix/account/Region resolved to the wrong secret (`resolveName`); `BlockPublicPolicy` defaulted to true against the SDK doc "By default, public policies aren't blocked", the wildcard check was a substring match (missed principal lists, blocked `Deny`/conditioned statements), and ValidateResourcePolicy ignored the documented broad-access check (validation-error CheckName `PublicPolicyCheck` is unverified); KMS encrypt/decrypt failures surfaced as 500 InternalServiceError, now `EncryptionFailure`/`DecryptionFailure`. Tests: deep_flows_sdk_test.go. Lenient: Lambda rotation steps run synchronously inside RotateSecret (real AWS is async), so a failing Lambda surfaces as InternalServiceError.
+
+**2026-10-09 realism pass:** PutSecretValue reusing a ClientRequestToken with different content is `ResourceExistsException` (it previously overwrote the stored version); ListSecrets/ListSecretVersionIds/BatchGetSecretValue reject a malformed NextToken with `InvalidNextTokenException`.
+
+**2026-10-07:** the `all` filter key now follows the "Find secrets" user guide: each value is split into words (punctuation, lower-to-upper and letter/digit changes), matched case-insensitively as a word prefix against words in name, description, tag keys and tag values; any word may match and `!` negates (TestListSecrets_FilterAllWords). Prefix-on-word, not equality, keeps the earlier prefix behaviour.
 
 - **2026-10-04 (gopherstack-zurl)**: re-verified at HEAD. CreateSecret.ForceOverwriteReplicaSecret is
   fully modelled: replicas are real secrets in the sibling region store and a same-named foreign secret
@@ -378,3 +383,7 @@ fields changed, no `snapshot_inventory.json` rows, no version bump.
 ## 2026-10-05 (zeroguard omitted-vs-zero pass)
 
 PutSecretValue, UpdateSecret and UpdateSecretVersionStage reject an explicit empty ClientRequestToken, RotationToken, SecretString, MoveToVersionId or RemoveFromVersionId (min-length members, previously treated as omitted) via a presence probe in `explicit_empty.go` (cmd/zeroguard). SecretId/VersionStage/ResourcePolicy rows are required members already validated: tool false positives. Proof: `TestUpdateSecret_OmittedVsExplicitEmpty`, `TestPutSecretValue_ExplicitEmptyMembersRejected`, `TestUpdateSecretVersionStage_ExplicitEmptyVersionIDsRejected`.
+
+## 2026-10-11 reserved ID-pinning tag (gopherstack-cefu7.23)
+
+`CreateSecret` honours the emulator-only `gopherstack:id` tag to pin the 6-character ARN suffix (alphanumerics). The tag is consumed, never stored or listed; a malformed suffix returns `InvalidParameterException` and `TagResource` rejects the key. A reused suffix under a different name is not a conflict (the ARNs differ); a reused name is the usual `ResourceExistsException`. See docs/pinned-ids.md.

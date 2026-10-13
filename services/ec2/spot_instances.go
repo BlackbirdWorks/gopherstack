@@ -107,7 +107,7 @@ func (b *InMemoryBackend) RequestSpotInstances(
 			VPCID:        vpcID,
 			SubnetID:     subnetID,
 			LaunchTime:   time.Now(),
-			PrivateIP:    b.allocPrivateIP(),
+			PrivateIP:    b.allocPrivateIPInSubnet(subnetID),
 		}
 		b.instances.Put(inst)
 

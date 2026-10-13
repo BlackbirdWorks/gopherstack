@@ -74,7 +74,7 @@ func (b *InMemoryBackend) DescribeModel(ctx context.Context, name string) (*Mode
 
 	m, ok := b.modelsStoreRO(region).Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: could not find model %q", ErrModelNotFound, name)
+		return nil, b.couldNotFind(ErrModelNotFound, region, "model", "model/", name)
 	}
 
 	return cloneModel(m), nil
@@ -109,7 +109,7 @@ func (b *InMemoryBackend) DeleteModel(ctx context.Context, name string) error {
 
 	m, ok := models.Get(name)
 	if !ok {
-		return fmt.Errorf("%w: could not find model %q", ErrModelNotFound, name)
+		return b.couldNotFind(ErrModelNotFound, region, "model", "model/", name)
 	}
 
 	arnIndex := b.modelARNIndexStore(region)
@@ -135,7 +135,7 @@ func (b *InMemoryBackend) SetModelExtras(
 
 	m, ok := b.modelsStore(region).Get(name)
 	if !ok {
-		return fmt.Errorf("%w: could not find model %q", ErrModelNotFound, name)
+		return b.couldNotFind(ErrModelNotFound, region, "model", "model/", name)
 	}
 
 	if vpcConfig != nil {

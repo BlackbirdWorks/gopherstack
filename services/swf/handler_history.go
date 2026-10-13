@@ -21,6 +21,14 @@ func (h *Handler) handleGetWorkflowExecutionHistory(
 	_ context.Context,
 	in *handleGetWorkflowExecutionHistoryInput,
 ) (*getWorkflowExecutionHistoryOutput, error) {
+	if err := validatePageParams(in.NextPageToken, in.MaximumPageSize); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.RequireExecution(in.Domain, in.Execution.WorkflowID, in.Execution.RunID); err != nil {
+		return nil, err
+	}
+
 	events, nextPageToken := h.Backend.GetWorkflowExecutionHistory(
 		in.Domain, in.Execution.WorkflowID, in.Execution.RunID,
 		in.MaximumPageSize, in.NextPageToken, in.ReverseOrder,

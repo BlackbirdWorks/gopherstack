@@ -87,6 +87,7 @@ type SubnetCIDRAssociation struct {
 	AssociationID string `json:"associationID,omitempty"`
 	IPv6CIDRBlock string `json:"ipv6CidrBlock,omitempty"`
 	State         string `json:"state,omitempty"`
+	IPSource      string `json:"ipSource,omitempty"`
 }
 
 // Image state constants (formerly batch2 constants).
@@ -639,6 +640,8 @@ type SecurityGroupRuleUpdate struct {
 	SecurityGroupRuleID string
 	Protocol            string
 	CIDRIPv4            string
+	CIDRIPv6            string
+	PrefixListID        string
 	ReferencedGroupID   string
 	Description         string
 	FromPort            int
@@ -660,9 +663,13 @@ type PriceScheduleEntry struct {
 // ReservedInstancesModification holds a reserved instances modification.
 
 type ReservedInstancesModification struct {
-	ReservedInstancesModificationID string `json:"reservedInstancesModificationId,omitempty"`
-	Status                          string `json:"status,omitempty"`
-	StatusMessage                   string `json:"statusMessage,omitempty"`
+	CreateDate                      time.Time `json:"createDate"`
+	EffectiveDate                   time.Time `json:"effectiveDate"`
+	UpdateDate                      time.Time `json:"updateDate"`
+	ClientToken                     string    `json:"clientToken,omitempty"`
+	ReservedInstancesModificationID string    `json:"reservedInstancesModificationId,omitempty"`
+	Status                          string    `json:"status,omitempty"`
+	StatusMessage                   string    `json:"statusMessage,omitempty"`
 	ReservedInstancesIDs            []string
 	ModificationResults             []ReservedInstancesModificationResult
 }
@@ -746,6 +753,10 @@ type SecurityGroupRuleDetail struct {
 	GroupID             string `json:"groupID,omitempty"`
 	Protocol            string `json:"protocol,omitempty"`
 	CIDRIPv4            string `json:"cidrIpv4,omitempty"`
+	CIDRIPv6            string `json:"cidrIpv6,omitempty"`
+	PrefixListID        string `json:"prefixListId,omitempty"`
+	ReferencedGroupID   string `json:"referencedGroupId,omitempty"`
+	ReferencedGroupUser string `json:"referencedGroupUser,omitempty"`
 	Description         string `json:"description,omitempty"`
 	FromPort            int    `json:"fromPort,omitempty"`
 	ToPort              int    `json:"toPort,omitempty"`

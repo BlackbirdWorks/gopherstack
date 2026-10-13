@@ -264,7 +264,7 @@ func TestRealClient_DomainLifecycleAndVPCEndpoints(t *testing.T) {
 
 			_, err := client.CreateElasticsearchDomain(ctx, &elasticsearchsdk.CreateElasticsearchDomainInput{
 				DomainName:           aws.String("s35-lifecycle-domain"),
-				ElasticsearchVersion: aws.String("7.10"),
+				ElasticsearchVersion: aws.String("7.7"),
 			})
 			require.NoError(t, err)
 

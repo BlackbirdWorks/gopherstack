@@ -109,7 +109,7 @@ func TestGetParallelData(t *testing.T) {
 			if tc.preload {
 				rec := doRequest(t, h, "CreateParallelData", map[string]any{
 					"Name":               "pd-1",
-					"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f.tmx", "Format": "TMX"},
+					"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f.tmx", "Format": "TMX"},
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
@@ -127,7 +127,7 @@ func TestDeleteParallelData(t *testing.T) {
 
 	rec := doRequest(t, h, "CreateParallelData", map[string]any{
 		"Name":               "pd-del",
-		"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f.tmx", "Format": "TMX"},
+		"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f.tmx", "Format": "TMX"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -146,7 +146,7 @@ func TestListParallelData(t *testing.T) {
 	for _, name := range []string{"pd-a", "pd-b", "pd-c"} {
 		rec := doRequest(t, h, "CreateParallelData", map[string]any{
 			"Name":               name,
-			"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f.tmx", "Format": "TMX"},
+			"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f.tmx", "Format": "TMX"},
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
@@ -166,7 +166,7 @@ func TestUpdateParallelData(t *testing.T) {
 
 	rec := doRequest(t, h, "CreateParallelData", map[string]any{
 		"Name":               "pd-update",
-		"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f.tmx", "Format": "TMX"},
+		"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f.tmx", "Format": "TMX"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -177,7 +177,7 @@ func TestUpdateParallelData(t *testing.T) {
 	rec = doRequest(t, h, "UpdateParallelData", map[string]any{
 		"Name":               "pd-update",
 		"Description":        "updated description",
-		"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f2.tmx", "Format": "TMX"},
+		"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f2.tmx", "Format": "TMX"},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -195,7 +195,7 @@ func TestListParallelData_Pagination(t *testing.T) {
 	for i := range 4 {
 		rec := doRequest(t, h, "CreateParallelData", map[string]any{
 			"Name":               "pd-" + string(rune('a'+i)),
-			"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f.tmx", "Format": "TMX"},
+			"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f.tmx", "Format": "TMX"},
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
@@ -227,7 +227,7 @@ func TestGetParallelData_DataLocationField(t *testing.T) {
 
 	rec := doRequest(t, h, "CreateParallelData", map[string]any{
 		"Name":               "loc-pd",
-		"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f.tmx", "Format": "TMX"},
+		"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f.tmx", "Format": "TMX"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -250,7 +250,7 @@ func TestUpdateParallelData_NotFound(t *testing.T) {
 
 	rec := doRequest(t, h, "UpdateParallelData", map[string]any{
 		"Name":               "nonexistent-pd",
-		"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f.tmx", "Format": "TMX"},
+		"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f.tmx", "Format": "TMX"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
@@ -273,7 +273,7 @@ func TestCreateParallelData_DuplicateNameReturnsConflictException(t *testing.T) 
 
 	body := map[string]any{
 		"Name":               "conflict-check-pd",
-		"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f.tmx", "Format": "TMX"},
+		"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f.tmx", "Format": "TMX"},
 	}
 
 	rec := doRequest(t, h, "CreateParallelData", body)
@@ -302,7 +302,7 @@ func TestGetParallelData_AdvancesCreatingToActive(t *testing.T) {
 
 	createRec := doRequest(t, h, "CreateParallelData", map[string]any{
 		"Name":               "advance-pd",
-		"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f.tmx", "Format": "TMX"},
+		"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f.tmx", "Format": "TMX"},
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 	assert.Equal(t, "CREATING", unmarshalJSON(t, createRec.Body.Bytes())["Status"])
@@ -331,7 +331,7 @@ func TestListParallelData_DoesNotAdvance(t *testing.T) {
 
 	doRequest(t, h, "CreateParallelData", map[string]any{
 		"Name":               "list-no-advance-pd",
-		"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f.tmx", "Format": "TMX"},
+		"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f.tmx", "Format": "TMX"},
 	})
 
 	for range 3 {
@@ -358,14 +358,14 @@ func TestUpdateParallelData_AdvancesUpdatingToActive(t *testing.T) {
 
 	doRequest(t, h, "CreateParallelData", map[string]any{
 		"Name":               "update-advance-pd",
-		"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f.tmx", "Format": "TMX"},
+		"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f.tmx", "Format": "TMX"},
 	})
 	// Advance CREATING -> ACTIVE before updating.
 	doRequest(t, h, "GetParallelData", map[string]any{"Name": "update-advance-pd"})
 
 	updateRec := doRequest(t, h, "UpdateParallelData", map[string]any{
 		"Name":               "update-advance-pd",
-		"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f2.tmx", "Format": "TMX"},
+		"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f2.tmx", "Format": "TMX"},
 	})
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
@@ -406,7 +406,7 @@ func TestUpdateParallelData_ConcurrentModification(t *testing.T) {
 				doRequest(t, h, "GetParallelData", map[string]any{"Name": name})
 				rec := doRequest(t, h, "UpdateParallelData", map[string]any{
 					"Name":               name,
-					"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/mid.tmx", "Format": "TMX"},
+					"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/mid.tmx", "Format": "TMX"},
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			},
@@ -422,7 +422,7 @@ func TestUpdateParallelData_ConcurrentModification(t *testing.T) {
 
 			createRec := doRequest(t, h, "CreateParallelData", map[string]any{
 				"Name":               name,
-				"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f.tmx", "Format": "TMX"},
+				"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f.tmx", "Format": "TMX"},
 			})
 			require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -430,7 +430,7 @@ func TestUpdateParallelData_ConcurrentModification(t *testing.T) {
 
 			rec := doRequest(t, h, "UpdateParallelData", map[string]any{
 				"Name":               name,
-				"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f2.tmx", "Format": "TMX"},
+				"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f2.tmx", "Format": "TMX"},
 			})
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
@@ -464,7 +464,7 @@ func TestCreateParallelData_FormatValidation(t *testing.T) {
 			h := newTestHandler(t)
 			rec := doRequest(t, h, "CreateParallelData", map[string]any{
 				"Name":               "format-test-pd-" + tt.name,
-				"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f", "Format": tt.format},
+				"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f", "Format": tt.format},
 			})
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
@@ -488,7 +488,7 @@ func TestCreateParallelData_TooManyTagsRejected(t *testing.T) {
 
 	rec := doRequest(t, h, "CreateParallelData", map[string]any{
 		"Name":               "many-tags-pd",
-		"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f.tmx", "Format": "TMX"},
+		"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f.tmx", "Format": "TMX"},
 		"Tags":               tags,
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)

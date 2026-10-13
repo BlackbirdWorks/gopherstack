@@ -89,7 +89,7 @@ func TestExecuteStatement_DDLAndDML(t *testing.T) {
 		},
 		{
 			name:      "create_table_with_columns",
-			query:     "CREATE EXTERNAL TABLE events (id bigint, name string, amount decimal(10,2))",
+			query:     "CREATE TABLE events (id bigint, name string, amount decimal(10,2))",
 			wantState: "SUCCEEDED",
 			verify: func(t *testing.T, b *athena.InMemoryBackend) {
 				t.Helper()
@@ -101,6 +101,15 @@ func TestExecuteStatement_DDLAndDML(t *testing.T) {
 				assert.Equal(t, "bigint", tm.Columns[0].Type)
 				assert.Equal(t, "amount", tm.Columns[2].Name)
 				assert.Equal(t, "decimal(10,2)", tm.Columns[2].Type)
+			},
+		},
+		{
+			name:      "create_external_table_without_location_fails",
+			query:     "CREATE EXTERNAL TABLE events (id bigint, name string)",
+			wantState: "FAILED",
+			verify: func(t *testing.T, b *athena.InMemoryBackend) {
+				t.Helper()
+				assert.False(t, b.HasTable(testCatalog, testDatabase, "events"))
 			},
 		},
 		{

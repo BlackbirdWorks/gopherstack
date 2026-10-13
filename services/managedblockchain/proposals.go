@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -91,7 +89,7 @@ func (b *InMemoryBackend) CreateProposal(
 
 	now := time.Now().UTC()
 	expiry := now.Add(proposalExpirationHours * time.Hour)
-	proposalID := uuid.NewString()
+	proposalID := newResourceID("p-")
 
 	t := make(map[string]string)
 	maps.Copy(t, tags)
@@ -201,7 +199,7 @@ func (b *InMemoryBackend) AddProposalInternal(region, accountID, networkID, memb
 
 	now := time.Now().UTC()
 	expiry := now.Add(proposalExpirationHours * time.Hour)
-	proposalID := uuid.NewString()
+	proposalID := newResourceID("p-")
 
 	var memberName string
 
@@ -332,7 +330,7 @@ func (b *InMemoryBackend) applyVoteThresholdLocked(network *Network, proposal *P
 	switch comparator {
 	case "GREATER_THAN":
 		yesApproved = yesPercent > threshold
-	case "GREATER_THAN_OR_EQUAL_TO":
+	case comparatorGTE:
 		yesApproved = yesPercent >= threshold
 	default:
 		yesApproved = yesPercent > threshold
@@ -344,7 +342,7 @@ func (b *InMemoryBackend) applyVoteThresholdLocked(network *Network, proposal *P
 	var requiredYes float64
 
 	switch comparator {
-	case "GREATER_THAN_OR_EQUAL_TO":
+	case comparatorGTE:
 		requiredYes = threshold / percentBase * float64(totalMembers)
 		// ceil for fractional required votes
 		if requiredYes != float64(int(requiredYes)) {
@@ -389,7 +387,7 @@ func (b *InMemoryBackend) executeProposalActionsLocked(network *Network, proposa
 	region, accountID := arnRegionAccount(network.Arn)
 
 	for _, inv := range proposal.Actions.Invitations {
-		invitationID := uuid.NewString()
+		invitationID := newResourceID("in-")
 
 		netSummary := &InvitationNetworkSummary{
 			ID:               network.ID,

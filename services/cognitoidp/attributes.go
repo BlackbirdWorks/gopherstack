@@ -2,7 +2,6 @@ package cognitoidp
 
 import (
 	"fmt"
-	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -15,46 +14,16 @@ const (
 
 // UpdateUserAttributes updates the attributes of an authenticated user.
 func (b *InMemoryBackend) UpdateUserAttributes(accessToken string, attributes map[string]string) error {
-	b.mu.Lock("UpdateUserAttributes")
-	defer b.mu.Unlock()
+	_, err := b.UpdateUserAttributesWithDelivery(accessToken, attributes)
 
-	u, err := b.findUserByAccessTokenLocked(accessToken)
-	if err != nil {
-		return err
-	}
-
-	if u.Attributes == nil {
-		u.Attributes = make(map[string]string)
-	}
-
-	maps.Copy(u.Attributes, attributes)
-	u.UpdatedAt = time.Now()
-
-	return nil
+	return err
 }
 
 // AdminUpdateUserAttributes updates attributes for a user in a pool.
 func (b *InMemoryBackend) AdminUpdateUserAttributes(userPoolID, username string, attributes map[string]string) error {
-	b.mu.Lock("AdminUpdateUserAttributes")
-	defer b.mu.Unlock()
+	_, err := b.AdminUpdateUserAttributesWithDelivery(userPoolID, username, attributes)
 
-	if _, ok := b.pools.Get(userPoolID); !ok {
-		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
-	}
-
-	u, ok := b.users.Get(userKey(userPoolID, username))
-	if !ok {
-		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
-	}
-
-	if u.Attributes == nil {
-		u.Attributes = make(map[string]string)
-	}
-
-	maps.Copy(u.Attributes, attributes)
-	u.UpdatedAt = time.Now()
-
-	return nil
+	return err
 }
 
 // AddCustomAttributes adds custom attribute definitions to a user pool schema.
@@ -267,6 +236,10 @@ func (b *InMemoryBackend) VerifyUserAttributeWithCode(accessToken, attributeName
 	}
 
 	delete(b.attrVerificationCodes, key)
+
+	if entry.PendingValue != "" {
+		user.Attributes[attributeName] = entry.PendingValue
+	}
 
 	// Mark attribute as verified.
 	user.Attributes[attributeName+"_verified"] = attrVerifiedTrue

@@ -53,7 +53,7 @@ func (b *InMemoryBackend) CreateWorkflow(
 	b.mu.Lock("CreateWorkflow")
 	defer b.mu.Unlock()
 
-	workflowID := "w-" + uuid.NewString()[:20]
+	workflowID := newResourceID("w-")
 
 	merged := make(map[string]string, len(tags))
 	maps.Copy(merged, tags)
@@ -189,7 +189,7 @@ func (b *InMemoryBackend) CreateExecution(workflowID string) (*Execution, error)
 		return nil, fmt.Errorf("%w: workflow %s not found", ErrWorkflowNotFound, workflowID)
 	}
 
-	executionID := "exec-" + uuid.NewString()[:8]
+	executionID := uuid.NewString()
 
 	e := &Execution{
 		ExecutionID: executionID,

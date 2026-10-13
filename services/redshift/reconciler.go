@@ -10,6 +10,10 @@ const (
 	clusterStatusCreating  = "creating"
 	clusterStatusDeleting  = "deleting"
 	clusterStatusModifying = "modifying"
+	clusterStatusPausing   = "pausing"
+	clusterStatusPaused    = "paused"
+	clusterStatusResuming  = "resuming"
+	clusterStatusResizing  = "resizing"
 
 	// defaultReconcileInterval is how often the background reconciler wakes to
 	// advance due cluster-state transitions when no explicit interval is set.

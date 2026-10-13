@@ -15,8 +15,14 @@ func (b *InMemoryBackend) CreateSignalingChannel(
 		return nil, err
 	}
 
-	if err := validateTags(tags); err != nil {
-		return nil, err
+	validations := []error{
+		validateChannelType(channelType), validateMessageTTL(messageTTLSeconds), validateTags(tags),
+	}
+
+	for _, err := range validations {
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if channelType == "" {
@@ -89,6 +95,10 @@ func (b *InMemoryBackend) ListSignalingChannels(
 		op, value = condition.ComparisonOperator, condition.ComparisonValue
 	}
 
+	if err := validateListArgs(nextToken, maxResults, maxListChannelsMax, op); err != nil {
+		return nil, "", err
+	}
+
 	data, next := listByName(b.channels.All(), func(c *Channel) string { return c.Name }, (*Channel).clone,
 		op, value, nextToken, maxResults, defaultListChannelsLimit)
 
@@ -108,11 +118,19 @@ func (b *InMemoryBackend) UpdateSignalingChannel(channelARN, currentVersion stri
 		return err
 	}
 
+	if verr := validateCurrentVersion(currentVersion); verr != nil {
+		return verr
+	}
+
 	if c.Version != currentVersion {
 		return ErrVersionMismatch
 	}
 
 	if messageTTLSeconds != nil {
+		if verr := validateMessageTTL(*messageTTLSeconds); verr != nil {
+			return verr
+		}
+
 		c.MessageTTLSeconds = *messageTTLSeconds
 	}
 

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -24,6 +25,7 @@ type Reconciler struct {
 	backend  *InMemoryBackend
 	sems     map[string]chan struct{} // per-cluster launch semaphore
 	semMu    sync.Mutex
+	sampling atomic.Bool
 	interval time.Duration
 }
 
@@ -99,6 +101,8 @@ func (r *Reconciler) reconcile(ctx context.Context, log *slog.Logger) {
 	// Advance any tasks that are moving through observable intermediate
 	// lifecycle states (stop/start pipelines) before reconciling desired counts.
 	r.backend.stepTaskLifecycle(time.Now())
+	r.backend.stopELBUnhealthyTasks(ctx)
+	r.sampleUtilization(ctx)
 
 	snapshots := r.backend.getServicesForReconciler()
 
@@ -148,6 +152,18 @@ func (r *Reconciler) reconcileService(
 	running := snap.running
 	desired := svc.DesiredCount
 
+	if usesRollingReplacement(&svc) {
+		if plan := snap.rolling; plan.staleLive > 0 && !primaryDeploymentFailed(&svc) {
+			r.rollForward(ctx, log, snap, plan)
+
+			return nil
+		}
+
+		if len(svc.Deployments) > 1 {
+			r.backend.pruneSettledDeployments(snap.clusterName, svc.ServiceName)
+		}
+	}
+
 	// A deployment whose circuit breaker has tripped to FAILED without rolling
 	// back is halted: AWS stops launching replacement tasks for it. Skip scale-up
 	// so the reconciler does not relaunch the failing task definition forever.
@@ -166,6 +182,8 @@ func (r *Reconciler) reconcileService(
 		r.scaleUp(ctx, log, snap, running, desired)
 	case running > desired:
 		return r.scaleDown(ctx, log, snap, running, desired)
+	default:
+		r.backend.reportSteadyState(snap.clusterName, svc.ServiceName)
 	}
 
 	return nil
@@ -181,7 +199,6 @@ func (r *Reconciler) scaleUp(
 	running, desired int,
 ) {
 	svc := snap.service
-	toStart := desired - running
 
 	log.DebugContext(
 		ctx, "ECS reconciler: starting tasks",
@@ -189,12 +206,35 @@ func (r *Reconciler) scaleUp(
 		"service", svc.ServiceName,
 		"desired", desired,
 		"running", running,
-		"toStart", toStart,
+		"toStart", desired-running,
 	)
 
+	r.launchTasks(ctx, log, snap, desired-running)
+}
+
+// launchTasks starts count tasks for the service, bounded by the per-cluster semaphore.
+func (r *Reconciler) launchTasks(
+	ctx context.Context,
+	log *slog.Logger,
+	snap serviceSnapshot,
+	toStart int,
+) {
+	svc := snap.service
 	sem := r.clusterSem(snap.clusterName)
 
-	var wg sync.WaitGroup
+	var (
+		wg      sync.WaitGroup
+		startMu sync.Mutex
+		started []string
+	)
+
+	defer func() {
+		if len(started) > 0 {
+			r.backend.recordServiceEvent(
+				snap.clusterName, svc.ServiceName, taskListMessage(svc.ServiceName, "started", started),
+			)
+		}
+	}()
 
 	for range toStart {
 		select {
@@ -215,9 +255,15 @@ func (r *Reconciler) scaleUp(
 		wg.Go(func() {
 			defer func() { <-sem }()
 
-			err := r.backend.StartTaskForService(
+			taskArn, err := r.backend.startServiceTask(
 				snap.clusterName, svc.ServiceName, svc.TaskDefinition,
 			)
+			if err == nil && taskArn != "" {
+				startMu.Lock()
+				started = append(started, taskArn)
+				startMu.Unlock()
+			}
+
 			if err != nil {
 				log.WarnContext(
 					ctx, "ECS reconciler: StartTaskForService failed",

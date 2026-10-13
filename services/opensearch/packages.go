@@ -29,7 +29,7 @@ func (b *InMemoryBackend) AssociatePackage(
 	}
 
 	if !b.domains.Has(domainName) {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	b.addPackageAssociation(packageID, domainName)
@@ -96,7 +96,7 @@ func (b *InMemoryBackend) AssociatePackages(
 	defer b.mu.Unlock()
 
 	if !b.domains.Has(domainName) {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	results := make([]DomainPackageDetails, 0, len(packageIDs))
@@ -383,7 +383,7 @@ func (b *InMemoryBackend) DissociatePackage(
 	defer b.mu.Unlock()
 
 	if !b.domains.Has(domainName) {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	pkg, _ := b.packages.Get(packageID)
@@ -417,7 +417,7 @@ func (b *InMemoryBackend) DissociatePackages(
 	defer b.mu.Unlock()
 
 	if !b.domains.Has(domainName) {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	results := make([]DomainPackageDetails, 0, len(packageIDs))

@@ -852,3 +852,52 @@ func TestCancelJob_DescriptionAndTerminalStateGuard(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code,
 		"canceling an already-CANCELED job must return InvalidRequestException, got: %s", rec.Body.String())
 }
+
+func TestHandler_ListJobsNamespaceFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		query     string
+		wantJobID []string
+	}{
+		{name: "no_filter", query: "", wantJobID: []string{"j-a", "j-b"}},
+		{name: "match", query: "?namespaceId=ns1", wantJobID: []string{"j-a"}},
+		{name: "no_match", query: "?namespaceId=other", wantJobID: []string{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			for _, c := range []map[string]any{
+				{"jobId": "j-a", "namespaceId": "ns1"},
+				{"jobId": "j-b"},
+			} {
+				c["targets"] = []string{"arn:aws:iot:us-east-1:000000000000:thing/t"}
+				c["document"] = `{"op":"x"}`
+				rec := doRequest(t, h, http.MethodPut, "/jobs/"+c["jobId"].(string), c)
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			}
+
+			rec := doRequest(t, h, http.MethodGet, "/jobs"+tt.query, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+			var out struct {
+				Jobs []struct {
+					JobID string `json:"jobId"`
+				} `json:"jobs"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			got := make([]string, 0, len(out.Jobs))
+			for _, j := range out.Jobs {
+				got = append(got, j.JobID)
+			}
+			assert.ElementsMatch(t, tt.wantJobID, got)
+
+			rec = doRequest(t, h, http.MethodGet, "/jobs/j-a", nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Body.String(), `"namespaceId":"ns1"`)
+		})
+	}
+}

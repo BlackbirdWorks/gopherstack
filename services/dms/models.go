@@ -221,34 +221,31 @@ type ReplicationInstance struct {
 // Password is accepted on CreateEndpoint/ModifyEndpoint and stored here, but
 // (matching the real Endpoint wire type, which has no Password field) it is
 // never put on the wire by any Describe/Create/Modify response -- see
-// endpointJSON in handler_endpoints.go. Engine-specific nested settings
-// (MySQLSettings, PostgreSQLSettings, S3Settings, ...) are deliberately not
-// modeled and are rejected with ValidationException if sent -- see
-// engineSettingsFields in handler_endpoints.go and PARITY.md.
+// endpointJSON in handler_endpoints.go. Engine-specific settings blocks are
+// stored as raw JSON (S3Settings, EngineSettings) and echoed back.
 type Endpoint struct {
-	CreationTime              time.Time  `json:"creationTime"`
-	Tags                      *tags.Tags `json:"-"`
-	EndpointIdentifier        string     `json:"endpointIdentifier"`
-	EndpointArn               string     `json:"endpointArn"`
-	EndpointType              string     `json:"endpointType"`
-	EngineName                string     `json:"engineName"`
-	ServerName                string     `json:"serverName,omitempty"`
-	DatabaseName              string     `json:"databaseName,omitempty"`
-	Username                  string     `json:"username,omitempty"`
-	Password                  string     `json:"password,omitempty"`
-	Status                    string     `json:"status"`
-	AccountID                 string     `json:"accountId"`
-	Region                    string     `json:"region"`
-	CertificateArn            string     `json:"certificateArn,omitempty"`
-	ExtraConnectionAttributes string     `json:"extraConnectionAttributes,omitempty"`
-	KmsKeyID                  string     `json:"kmsKeyId,omitempty"`
-	ServiceAccessRoleArn      string     `json:"serviceAccessRoleArn,omitempty"`
-	SslMode                   string     `json:"sslMode,omitempty"`
-	ExternalTableDefinition   string     `json:"externalTableDefinition,omitempty"`
-	// S3Settings is the raw S3Settings JSON object, stored verbatim -- see
-	// EndpointConnectionSettings.S3Settings in endpoints.go.
-	S3Settings string `json:"s3Settings,omitempty"`
-	Port       int32  `json:"port,omitempty"`
+	CreationTime              time.Time         `json:"creationTime"`
+	Tags                      *tags.Tags        `json:"-"`
+	EngineSettings            map[string]string `json:"engineSettings,omitempty"`
+	Status                    string            `json:"status"`
+	Region                    string            `json:"region"`
+	EngineName                string            `json:"engineName"`
+	ServerName                string            `json:"serverName,omitempty"`
+	DatabaseName              string            `json:"databaseName,omitempty"`
+	Username                  string            `json:"username,omitempty"`
+	Password                  string            `json:"password,omitempty"`
+	EndpointArn               string            `json:"endpointArn"`
+	AccountID                 string            `json:"accountId"`
+	EndpointType              string            `json:"endpointType"`
+	CertificateArn            string            `json:"certificateArn,omitempty"`
+	ExtraConnectionAttributes string            `json:"extraConnectionAttributes,omitempty"`
+	KmsKeyID                  string            `json:"kmsKeyId,omitempty"`
+	ServiceAccessRoleArn      string            `json:"serviceAccessRoleArn,omitempty"`
+	SslMode                   string            `json:"sslMode,omitempty"`
+	ExternalTableDefinition   string            `json:"externalTableDefinition,omitempty"`
+	S3Settings                string            `json:"s3Settings,omitempty"`
+	EndpointIdentifier        string            `json:"endpointIdentifier"`
+	Port                      int32             `json:"port,omitempty"`
 }
 
 // ReplicationTask represents an AWS DMS replication task.
@@ -388,6 +385,10 @@ type ReplicationConfig struct {
 	// most recent StartReplication call (start-replication, resume-processing,
 	// or reload-target), echoed back on the Replication resource.
 	StartReplicationType string
+	// CdcStartTime/CdcStartPosition/CdcStopPosition record the CDC window of the most recent StartReplication.
+	CdcStartTime     *time.Time `json:",omitempty"`
+	CdcStartPosition string     `json:",omitempty"`
+	CdcStopPosition  string     `json:",omitempty"`
 }
 
 // ComputeConfig mirrors types.ComputeConfig (types.go:190) -- configuration

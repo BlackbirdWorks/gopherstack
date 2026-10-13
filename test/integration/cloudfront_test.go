@@ -65,7 +65,7 @@ func TestIntegration_CloudFront_DistributionLifecycle(t *testing.T) {
 
 	distID := aws.ToString(createOut.Distribution.Id)
 	require.NotEmpty(t, distID)
-	assert.Equal(t, "Deployed", aws.ToString(createOut.Distribution.Status))
+	assert.Equal(t, "InProgress", aws.ToString(createOut.Distribution.Status))
 
 	t.Cleanup(func() {
 		cleanupCtx, cancel := cleanupContext(t)
@@ -165,7 +165,7 @@ func TestIntegration_CloudFront_DistributionStatusTransition(t *testing.T) {
 	})
 	require.NoError(t, err)
 	distID := aws.ToString(createOut.Distribution.Id)
-	require.Equal(t, "Deployed", aws.ToString(createOut.Distribution.Status))
+	require.Equal(t, "InProgress", aws.ToString(createOut.Distribution.Status))
 
 	t.Cleanup(func() {
 		cleanupCtx, cancel := cleanupContext(t)

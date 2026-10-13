@@ -693,7 +693,7 @@ func TestExportCountHelpers(t *testing.T) {
 	b.CreateAccessPointForObjectLambda("a1", "olap1")
 	assert.Equal(t, 1, s3control.ObjectLambdaAccessPointCount(b))
 
-	b.CreateBucket("a1", "outpost-bucket")
+	b.CreateBucket("a1", "", "outpost-bucket")
 	assert.Equal(t, 1, s3control.OutpostsBucketCount(b))
 
 	b.CreateMultiRegionAccessPoint("a1", "mrap1", "token1")

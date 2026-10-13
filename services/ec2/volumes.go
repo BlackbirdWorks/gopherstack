@@ -505,6 +505,8 @@ func (b *InMemoryBackend) CreateVolume(
 ) (*Volume, error) {
 	if az == "" {
 		az = b.Region + "a"
+	} else if err := b.validateZoneName(az); err != nil {
+		return nil, err
 	}
 
 	if volType == "" {

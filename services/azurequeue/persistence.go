@@ -93,6 +93,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 				return fmt.Errorf("%w: index %d in queue %q", ErrSnapshotMessageNull, i, name)
 			}
 		}
+
+		q.reindex()
 	}
 
 	b.queues = snap.Queues

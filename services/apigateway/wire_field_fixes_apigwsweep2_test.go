@@ -71,7 +71,11 @@ func TestUpdateUsage_WireKeyValues_RealClient(t *testing.T) {
 func TestTestInvokeAuthorizer_Shape_RealClient(t *testing.T) {
 	t.Parallel()
 
-	client := newTestAPIGatewayClient(t, apigateway.NewHandler(apigateway.NewInMemoryBackend()))
+	h := apigateway.NewHandler(apigateway.NewInMemoryBackend())
+	h.SetLambdaInvoker(&captureAuthInvoker{response: []byte(
+		`{"principalId":"user-1","context":{"tier":"gold"},"policyDocument":{"Statement":[` +
+			`{"Action":"execute-api:Invoke","Effect":"Allow","Resource":"*"}]}}`)})
+	client := newTestAPIGatewayClient(t, h)
 
 	api, err := client.CreateRestApi(t.Context(), &apigwsdk.CreateRestApiInput{Name: aws.String("authz-shape-api")})
 	require.NoError(t, err)
@@ -82,10 +86,11 @@ func TestTestInvokeAuthorizer_Shape_RealClient(t *testing.T) {
 	require.NoError(t, err)
 
 	out, err := client.TestInvokeAuthorizer(t.Context(), &apigwsdk.TestInvokeAuthorizerInput{
-		RestApiId: api.Id, AuthorizerId: authz.Id,
+		RestApiId: api.Id, AuthorizerId: authz.Id, Headers: map[string]string{"Authorization": "tok"},
 	})
 	require.NoError(t, err, "real client must be able to deserialize TestInvokeAuthorizerOutput")
-	assert.Equal(t, "test-principal", aws.ToString(out.PrincipalId))
+	assert.Equal(t, "user-1", aws.ToString(out.PrincipalId))
+	assert.Equal(t, []string{"gold"}, out.Authorization["tier"])
 }
 
 // TestTestInvokeMethod_MultiValueHeaders_RealClient drives TestInvokeMethod

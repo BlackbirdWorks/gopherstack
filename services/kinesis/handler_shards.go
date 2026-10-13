@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -17,11 +16,11 @@ type jsonShardFilter struct {
 type jsonListShardsReq struct {
 	ShardFilter           *jsonShardFilter `json:"ShardFilter,omitempty"`
 	StreamCreationTime    *float64         `json:"StreamCreationTimestamp,omitempty"`
+	MaxResults            *int             `json:"MaxResults"`
 	StreamName            string           `json:"StreamName"`
 	StreamARN             string           `json:"StreamARN"`
 	NextToken             string           `json:"NextToken"`
 	ExclusiveStartShardID string           `json:"ExclusiveStartShardId,omitempty"`
-	MaxResults            int              `json:"MaxResults"`
 }
 
 type jsonShardDescription struct {
@@ -47,6 +46,11 @@ type jsonListShardsResp struct {
 	Shards    []jsonShardDescription `json:"Shards"`
 }
 
+const (
+	minListShardsMaxResults = 1
+	maxListShardsMaxResults = 10000
+)
+
 func epochSecondsToTime(sec *float64) *time.Time {
 	if sec == nil {
 		return nil
@@ -67,31 +71,22 @@ func (h *Handler) handleListShards(
 		return nil, ErrInvalidArgument
 	}
 
-	// AWS rejects requests where NextToken is combined with StreamName,
-	// StreamARN, ExclusiveStartShardID, or ShardFilter — the token already
-	// encodes stream context.
 	if req.NextToken != "" &&
 		(req.StreamName != "" || req.StreamARN != "" || req.ExclusiveStartShardID != "" || req.ShardFilter != nil ||
 			req.StreamCreationTime != nil) {
-		return nil, ErrValidation
+		return nil, ErrInvalidArgument
 	}
 
-	// Decode the opaque NextToken to extract embedded stream name and shard cursor.
-	// Our token format is "streamName|shardId", base64-free since neither component
-	// contains "|".  When StreamName is present (first page), no decoding is needed.
+	if req.MaxResults != nil &&
+		(*req.MaxResults < minListShardsMaxResults || *req.MaxResults > maxListShardsMaxResults) {
+		return nil, ErrInvalidArgument
+	}
+
 	streamName, ctx := resolveStreamNameAndRegion(ctx, req.StreamName, req.StreamARN, h.defaultRegion())
-	backendNextToken := ""
-	if req.NextToken != "" {
-		const tokenParts = 2
-		parts := strings.SplitN(req.NextToken, "|", tokenParts)
-		if len(parts) == tokenParts {
-			streamName = parts[0]
-			backendNextToken = parts[1]
-		} else {
-			// Legacy token: plain shard ID (pre-encoding).  Callers on first page
-			// always provide StreamName, so this path only fires for stale tokens.
-			backendNextToken = req.NextToken
-		}
+
+	var maxResults int
+	if req.MaxResults != nil {
+		maxResults = *req.MaxResults
 	}
 
 	var shardFilterType, shardFilterShardID string
@@ -106,8 +101,8 @@ func (h *Handler) handleListShards(
 	out, err := h.Backend.ListShards(ctx, &ListShardsInput{
 		StreamCreationTime:    streamCreationTime,
 		StreamName:            streamName,
-		NextToken:             backendNextToken,
-		MaxResults:            req.MaxResults,
+		NextToken:             req.NextToken,
+		MaxResults:            maxResults,
 		ExclusiveStartShardID: req.ExclusiveStartShardID,
 		ShardFilter:           shardFilterType,
 		ShardFilterType:       shardFilterType,
@@ -136,11 +131,5 @@ func (h *Handler) handleListShards(
 		})
 	}
 
-	// Encode stream name into the NextToken so callers can paginate without re-specifying StreamName.
-	encodedNextToken := ""
-	if out.NextToken != "" {
-		encodedNextToken = streamName + "|" + out.NextToken
-	}
-
-	return jsonListShardsResp{Shards: shards, NextToken: encodedNextToken}, nil
+	return jsonListShardsResp{Shards: shards, NextToken: out.NextToken}, nil
 }

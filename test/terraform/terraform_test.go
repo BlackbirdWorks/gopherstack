@@ -6371,7 +6371,7 @@ func TestTerraform_ServiceDiscovery(t *testing.T) {
 }
 
 // TestTerraform_SageMakerRuntime verifies that the SageMaker Runtime service is reachable
-// and endpoint invocations succeed via the SDK directly (no Terraform-managed resources).
+// and invoking a Terraform-created InService endpoint succeeds.
 func TestTerraform_SageMakerRuntime(t *testing.T) {
 	t.Parallel()
 

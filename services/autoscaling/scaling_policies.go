@@ -8,9 +8,15 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	adjustmentChange        = "ChangeInCapacity"
+	adjustmentExactCapacity = "ExactCapacity"
+	adjustmentPercentChange = "PercentChangeInCapacity"
+)
+
 // DescribeAdjustmentTypes returns the supported scaling adjustment types.
 func (b *InMemoryBackend) DescribeAdjustmentTypes() ([]string, error) {
-	return []string{"ChangeInCapacity", "ExactCapacity", "PercentChangeInCapacity"}, nil
+	return []string{adjustmentChange, adjustmentExactCapacity, adjustmentPercentChange}, nil
 }
 
 // ExecutePolicy executes a scaling policy on the ASG.
@@ -65,9 +71,9 @@ func (b *InMemoryBackend) ExecutePolicy(input ExecutePolicyInput) error {
 	var newDesired int32
 
 	switch policy.AdjustmentType {
-	case "ExactCapacity":
+	case adjustmentExactCapacity:
 		newDesired = scalingAdjustment
-	case "PercentChangeInCapacity":
+	case adjustmentPercentChange:
 		pct := float64(g.DesiredCapacity) * float64(scalingAdjustment) / percentDivisor
 		delta := int32(pct)
 		newDesired = g.DesiredCapacity + delta
@@ -79,6 +85,11 @@ func (b *InMemoryBackend) ExecutePolicy(input ExecutePolicyInput) error {
 	newDesired = min(newDesired, maxDesiredCapacity)
 
 	if g.DesiredCapacity != newDesired {
+		before, oldDesired := instanceIDSet(g), g.DesiredCapacity
+		defer func() {
+			b.recordCapacityActivities(g, before, oldDesired, "a user request executed policy "+input.PolicyName)
+		}()
+
 		// Route through applyDesiredCapacityChange (shared with SetDesiredCapacity)
 		// so ExecutePolicy also respects SuspendedProcesses, scale-in protection,
 		// instanceIndex bookkeeping, and launch-hook gating instead of duplicating
@@ -112,6 +123,10 @@ func (b *InMemoryBackend) PutScalingPolicy(input ScalingPolicyInput) (*ScalingPo
 
 	if !b.groups.Has(input.AutoScalingGroupName) {
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
+	}
+
+	if err := validatePolicyEnums(input); err != nil {
+		return nil, err
 	}
 
 	arn := "arn:aws:autoscaling:" + b.region + ":" + b.accountID + ":scalingPolicy:" +
@@ -257,4 +272,22 @@ func (b *InMemoryBackend) DescribePolicies(
 	})
 
 	return result, nil
+}
+
+func validatePolicyEnums(input ScalingPolicyInput) error {
+	switch input.PolicyType {
+	case "", "SimpleScaling", "StepScaling", "TargetTrackingScaling", "PredictiveScaling":
+	default:
+		return fmt.Errorf("%w: PolicyType %q must be SimpleScaling, StepScaling, TargetTrackingScaling or "+
+			"PredictiveScaling", ErrInvalidParameter, input.PolicyType)
+	}
+
+	switch input.AdjustmentType {
+	case "", adjustmentChange, adjustmentExactCapacity, adjustmentPercentChange:
+	default:
+		return fmt.Errorf("%w: AdjustmentType %q must be ChangeInCapacity, ExactCapacity or PercentChangeInCapacity",
+			ErrInvalidParameter, input.AdjustmentType)
+	}
+
+	return nil
 }

@@ -53,6 +53,7 @@ type InMemoryBackend struct {
 	baseCtx              context.Context
 	accountID            string
 	region               string
+	lifecycleDelay       time.Duration
 	nextServiceAccountID uint64
 	nextTokenID          uint64
 }

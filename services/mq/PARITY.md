@@ -1,7 +1,7 @@
 service: mq
 sdk_module: aws-sdk-go-v2/service/mq@v1.39.4   # audited against; go.mod pins this version
 last_audit_commit: d4dc4a723
-last_audit_date: 2026-09-18
+last_audit_date: 2026-10-10
 overall: A                # genuine fixes found (reboot-gated staging, persistence data loss, missing pagination/fields, wrapper-key/nested-shape sweep this pass)
 
 # 2026-09-12 (gopherstack-n3zi): drove the 13 typed-coverage-blind
@@ -111,10 +111,9 @@ families:
 gaps: []
 
 items_still_open:
-  - "2026-08-29 sweep: `go run ./cmd/acceptguard` flagged handler_configurations.go's createConfigurationInput reading a 'Description' JSON field on CreateConfiguration -- confirmed against serializers.go's awsRestjson1_serializeOpDocumentCreateConfigurationInput that the real CreateConfigurationInput NEVER serializes a description key (only authenticationStrategy/engineType/engineVersion/name/tags). Verdict: harmless, not fixed -- a real SDK client can never populate this field on Create (it will always decode as \"\"), which exactly matches real AWS's own behavior (Configuration.Description starts empty on Create and is set via UpdateConfiguration, which gopherstack already supports correctly). Pre-existing, not introduced this pass; left as-is rather than removed since gopherstack's own internal Go backend API and non-SDK/raw test callers use the same positional description parameter for convenience."
-  - "DescribeSharedResources (now callable via aws-sdk-go-v2/service/mq@v1.39.4, the pinned version) always returns an empty sharedResources list: this backend does not model AWS RAM cross-account resource sharing, so there is no real state to report against. This is an honest empty result, not a stub -- BrokerId is still validated against real broker state. UpdateBrokerInput/Output.resourceShareArns (2026-08-29) is accept-and-echo only for the same reason -- there is no real resource-share state for it to affect."
-  - "2026-08-29: DescribeBrokerOutput.pendingStorageSize/UpdateBrokerOutput.storageSize semantics assume storage size behaves like EngineVersion/HostInstanceType (stage-then-promote-on-reboot); the pinned SDK's doc text for these fields is terse enough that this is a best-effort interpretation, not a confirmed AWS behavior (real EBS/EFS volume resize is likely asynchronous and NOT reboot-gated in the live service). Flagged for a future pass with access to real AWS behavior to confirm or correct."
-  - "Docker engine (--mq-engine=docker, 2026-10-03): endpoints are plaintext only (amqp://, tcp:// OpenWire, stomp://, mqtt:// -- no TLS, so no amqps/ssl/+ssl forms), multi-AZ deployment modes run one container and report one broker instance, ActiveMQ AMQP/WSS ports and the ActiveMQ web console are not published, and only the first CreateBroker user is configured: CreateUser/UpdateUser/DeleteUser and broker configurations are not applied to the running container."
+structural_gaps:
+  - "Docker engine (--mq-engine=docker): endpoints are plaintext only (no amqps/ssl/+ssl forms) and ActiveMQ AMQP/WSS ports and the web console are not published, since the emulator terminates no TLS."
+  - "Docker engine: multi-AZ deployment modes run one container and report one broker instance."
 deferred:
   - "Full CRDR (cross-region data replication) simulation: Promote/DataReplicationMetadata population when dataReplicationMode=CRDR is not modeled beyond accepting/echoing the mode string, seeding DataReplicationMetadata.DataReplicationCounterpart from CreateBroker's dataReplicationPrimaryBrokerArn, and (2026-09-12) requiring/flipping DataReplicationRole REPLICA->PRIMARY on Promote -- no data actually moves between a simulated pair, and the counterpart broker's own role is not updated in tandem (this backend has no bidirectional pairing state to update it through). Considered explicitly this pass (gopherstack-7wz5) and ruled out of scope: a half-modelled cross-region replication state machine (pairing brokers, propagating data, promote semantics) would report a state no client could rely on, which is worse than the current honest non-implementation. User.ReplicationUser is now accepted/echoed (see CreateUser/UpdateUser/DescribeUser above) but its CRDR *effects* (actual replication) remain part of this same deferred surface. 2026-08-20 wrapper-key sweep fixed the WIRE SHAPE of what is emitted (DataReplicationCounterpart is now the real nested {brokerId, region} object, parsed best-effort from the given ARN since there is no real cross-region broker to look up) without expanding the deferred simulation itself -- see CreateBroker's note."
 
@@ -217,3 +216,11 @@ Amazon MQ is region-isolated: each non-home region gets a lazily built sibling `
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 
 `DescribeSharedResources.MaxResults` stays recorded: the op is structurally always empty (no AWS RAM sharing state), so there is nothing to page.
+
+## 2026-10-09 -- docker ActiveMQ reconfiguration on reboot
+
+`pkgs/container.Runtime` gained `Exec`. A docker-backed ActiveMQ broker (users and configuration are ActiveMQ-only in the MQ API) now applies its configuration revision once it is up, and on RebootBroker applies the promoted users (`simpleAuthenticationPlugin`, console users via `users.properties`/`groups.properties`) and configuration (`activemq.xml`) then restarts the container; the broker stays REBOOT_IN_PROGRESS until it is reachable again. Proof: `TestDockerBrokerReboot_AppliesUsersAndConfiguration`, `TestDockerBrokerReboot_ExecFailureStillPromotes`; verified by hand against the real `apache/activemq-classic:5.18.7` image.
+
+## Notes (2026-10-10 realism pass)
+
+CreateBroker rejects an unsupported engineVersion (ActiveMQ 5.15-5.19, RabbitMQ 3.8-3.13, any patch), a malformed hostInstanceType (also on UpdateBroker) and ActiveMQ user passwords that break the 12-250 character / 4 unique / no `,:=` rules. ListBrokers, ListUsers, ListConfigurations, ListConfigurationRevisions, DescribeBrokerEngineTypes and DescribeBrokerInstanceOptions return BadRequestException for a malformed nextToken. Messages no longer repeat the exception code. Tests: create_broker_input_realism_test.go. In stub mode a broker is RUNNING immediately (CREATION_IN_PROGRESS only with the docker engine); no flag is wired for a stub-mode delay.

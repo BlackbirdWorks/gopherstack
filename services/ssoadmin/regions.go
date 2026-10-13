@@ -1,6 +1,28 @@
 package ssoadmin
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
+
+// primaryRegionOf returns the region an instance was created in; instances
+// restored from a snapshot that predates the field belong to this backend's region.
+func (b *InMemoryBackend) primaryRegionOf(inst *Instance) string {
+	if inst.PrimaryRegion != "" {
+		return inst.PrimaryRegion
+	}
+
+	return b.region
+}
+
+func (b *InMemoryBackend) primaryRegionMetadata(inst *Instance) RegionMetadata {
+	return RegionMetadata{
+		RegionName:      b.primaryRegionOf(inst),
+		Status:          regionStatusActive,
+		AddedDate:       inst.CreatedDate,
+		IsPrimaryRegion: true,
+	}
+}
 
 // AddRegion adds a region to an SSO instance, simulating the asynchronous
 // replication workflow AWS documents (status starts ADDING, transitions to
@@ -10,8 +32,12 @@ func (b *InMemoryBackend) AddRegion(instanceArn, regionName string) (string, err
 	b.mu.Lock("AddRegion")
 	defer b.mu.Unlock()
 
-	if !b.instances.Has(instanceArn) {
+	inst, ok := b.instances.Get(instanceArn)
+	if !ok {
 		return "", ErrInstanceNotFound
+	}
+	if regionName == b.primaryRegionOf(inst) {
+		return regionStatusActive, nil
 	}
 	for _, r := range b.instanceRegions[instanceArn] {
 		if r.RegionName == regionName {
@@ -36,8 +62,12 @@ func (b *InMemoryBackend) RemoveRegion(instanceArn, regionName string) (string, 
 	b.mu.Lock("RemoveRegion")
 	defer b.mu.Unlock()
 
-	if !b.instances.Has(instanceArn) {
+	inst, ok := b.instances.Get(instanceArn)
+	if !ok {
 		return "", ErrInstanceNotFound
+	}
+	if regionName == b.primaryRegionOf(inst) {
+		return "", fmt.Errorf("%w: the primary Region cannot be removed", ErrValidation)
 	}
 	regions := b.instanceRegions[instanceArn]
 	for i := range regions {
@@ -59,7 +89,8 @@ func (b *InMemoryBackend) ListRegions(instanceArn string) ([]RegionMetadata, err
 	b.mu.Lock("ListRegions")
 	defer b.mu.Unlock()
 
-	if !b.instances.Has(instanceArn) {
+	inst, ok := b.instances.Get(instanceArn)
+	if !ok {
 		return nil, ErrInstanceNotFound
 	}
 
@@ -77,8 +108,9 @@ func (b *InMemoryBackend) ListRegions(instanceArn string) ([]RegionMetadata, err
 	}
 	b.instanceRegions[instanceArn] = kept
 
-	result := make([]RegionMetadata, len(kept))
-	copy(result, kept)
+	result := make([]RegionMetadata, 0, len(kept)+1)
+	result = append(result, b.primaryRegionMetadata(inst))
+	result = append(result, kept...)
 
 	return result, nil
 }
@@ -91,8 +123,15 @@ func (b *InMemoryBackend) DescribeRegion(instanceArn, regionName string) (*Regio
 	b.mu.Lock("DescribeRegion")
 	defer b.mu.Unlock()
 
-	if !b.instances.Has(instanceArn) {
+	inst, ok := b.instances.Get(instanceArn)
+	if !ok {
 		return nil, ErrInstanceNotFound
+	}
+
+	if regionName == b.primaryRegionOf(inst) {
+		md := b.primaryRegionMetadata(inst)
+
+		return &md, nil
 	}
 
 	regions := b.instanceRegions[instanceArn]

@@ -72,7 +72,7 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 	defer b.mu.Unlock()
 
 	if !isValidStreamName(input.StreamName) {
-		return ErrValidation
+		return invalidStreamNameError(input.StreamName)
 	}
 
 	if _, err := b.resolveStreamTransitionLocked(region, input.StreamName); err == nil {
@@ -358,4 +358,12 @@ func (b *InMemoryBackend) ListStreams(ctx context.Context, input *ListStreamsInp
 		HasMoreStreams:  hasMore,
 		NextToken:       nextToken,
 	}, nil
+}
+
+func invalidStreamNameError(name string) error {
+	return newValidationError(
+		"Value '%s' at 'streamName' failed to satisfy constraint: "+
+			"Member must satisfy regular expression pattern: [a-zA-Z0-9_.-]+ and have length between 1 and 128",
+		name,
+	)
 }

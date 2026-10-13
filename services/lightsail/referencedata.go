@@ -473,7 +473,7 @@ func (b *InMemoryBackend) GetRegions() []RegionSeed {
 // paginateGeneric applies pkgs/page's opaque-token pagination to items.
 func paginateGeneric[T any](items []T, token string) (page.Page[T], error) {
 	if err := page.ValidateToken(token); err != nil {
-		return page.Page[T]{}, validationError(err.Error())
+		return page.Page[T]{}, validationError("Invalid pageToken")
 	}
 
 	return page.New(items, token, 0, defaultPageLimit), nil

@@ -30,7 +30,7 @@ func (b *InMemoryBackend) CreatePodIdentityAssociation(
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	if n := len(b.podIdentityAssociationsByCluster.Get(clusterName)); n >= b.limits.podIdentityAssocsPerCluster {
@@ -77,7 +77,7 @@ func (b *InMemoryBackend) DeletePodIdentityAssociation(
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	assoc, ok := b.podIdentityAssociations.Get(podIdentityAssociationKey(clusterName, associationID))
@@ -109,7 +109,7 @@ func (b *InMemoryBackend) DescribePodIdentityAssociation(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	assoc, ok := b.podIdentityAssociations.Get(podIdentityAssociationKey(clusterName, associationID))
@@ -133,7 +133,7 @@ func (b *InMemoryBackend) ListPodIdentityAssociations(clusterName string) ([]*Po
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	items := b.podIdentityAssociationsByCluster.Get(clusterName)
@@ -168,7 +168,7 @@ func (b *InMemoryBackend) UpdatePodIdentityAssociation(
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	assoc, ok := b.podIdentityAssociations.Get(podIdentityAssociationKey(clusterName, associationID))

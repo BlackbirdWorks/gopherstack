@@ -3,11 +3,13 @@ package cloudfront
 import (
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // handleTagAPIError maps TagResource/UntagResource errors. Both ops' own
@@ -64,14 +66,21 @@ func (h *Handler) handleTagResource(c *echo.Context) error {
 		return h.handleError(c, qErr)
 	}
 
-	var tags tagsXML
-	if xmlErr := xml.Unmarshal(body, &tags); xmlErr != nil {
+	var parsed tagsXML
+	if xmlErr := xml.Unmarshal(body, &parsed); xmlErr != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid Tags XML"))
 	}
 
-	kv := make(map[string]string, len(tags.Items))
-	for _, t := range tags.Items {
+	kv := make(map[string]string, len(parsed.Items))
+	for _, t := range parsed.Items {
 		kv[t.Key] = t.Value
+	}
+
+	if _, ok := kv[tags.PinnedIDKey]; ok {
+		return h.handleError(
+			c,
+			fmt.Errorf("%w: tag %q is only valid on CreateDistributionWithTags", ErrValidation, tags.PinnedIDKey),
+		)
 	}
 
 	if tagErr := h.Backend.TagResource(resourceARN, kv); tagErr != nil {

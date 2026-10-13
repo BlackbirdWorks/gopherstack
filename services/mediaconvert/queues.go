@@ -17,6 +17,28 @@ func (b *InMemoryBackend) AddQueueInternal(q *Queue) {
 	b.queues.Put(q)
 }
 
+// ensureDefaultQueueLocked seeds the account's built-in Default queue; real accounts always have it.
+func (b *InMemoryBackend) ensureDefaultQueueLocked() {
+	if b.queues.Has(defaultQueueName) {
+		return
+	}
+
+	now := epochSeconds(time.Now())
+	q := &Queue{
+		Arn:         arn.Build("mediaconvert", b.region, b.accountID, "queues/"+defaultQueueName),
+		Name:        defaultQueueName,
+		Description: "Default queue",
+		PricingPlan: pricingPlanOnDemand,
+		Status:      statusActive,
+		Type:        presetSystem,
+		Tags:        map[string]string{},
+		CreatedAt:   now,
+		LastUpdated: now,
+	}
+	b.queues.Put(q)
+	b.initQueueCounterLocked(q.Arn)
+}
+
 // CreateQueue creates a new MediaConvert queue.
 func (b *InMemoryBackend) CreateQueue(
 	name, description, pricingPlan, status string,
@@ -224,6 +246,11 @@ func (b *InMemoryBackend) DeleteQueue(name string) error {
 	if !ok {
 		return fmt.Errorf("%w: queue %s not found", ErrNotFound, name)
 	}
+
+	if q.Type == presetSystem {
+		return fmt.Errorf("%w: the %s queue cannot be deleted", ErrValidation, name)
+	}
+
 	delete(b.tags, q.Arn)
 	b.queueCounters.Delete(q.Arn)
 	b.queues.Delete(name) // also removes q from the queuesByArn index

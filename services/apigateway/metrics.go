@@ -82,6 +82,14 @@ type proxyObs struct {
 	resource    string
 	integration time.Duration
 	integrated  bool
+	cacheActive bool
+	cacheHit    bool
+}
+
+func (o *proxyObs) setCache(hit bool) {
+	if o != nil {
+		o.cacheActive, o.cacheHit = true, hit
+	}
 }
 
 func (o *proxyObs) setStage(s *Stage) {
@@ -146,6 +154,11 @@ func (h *Handler) emitProxyMetrics(apiID, httpMethod string, status int, o *prox
 
 		if o.integrated {
 			put("IntegrationLatency", apigwUnitMillis, millis(o.integration))
+		}
+
+		if o.cacheActive {
+			put("CacheHitCount", apigwUnitCount, boolFloat(o.cacheHit))
+			put("CacheMissCount", apigwUnitCount, boolFloat(!o.cacheHit))
 		}
 	}
 }

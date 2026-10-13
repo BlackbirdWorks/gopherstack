@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -22,7 +21,7 @@ func TestSNSHTTPDelivery(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -117,7 +116,7 @@ func TestSNSHTTPDelivery_Robustness(t *testing.T) {
 			t.Parallel()
 
 			h, received := tt.serverFn()
-			ts := httptest.NewServer(h)
+			ts := newNotificationServer(h)
 			defer ts.Close()
 
 			b := sns.NewInMemoryBackend()
@@ -238,7 +237,7 @@ func TestHTTPDeliveryFailureSendsToDLQ(t *testing.T) {
 			t.Parallel()
 
 			// HTTP server that returns the configured status.
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			srv := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tt.serverStatus)
 			}))
 			t.Cleanup(srv.Close)
@@ -255,7 +254,7 @@ func TestHTTPDeliveryFailureSendsToDLQ(t *testing.T) {
 			require.NoError(t, err)
 
 			// HTTP subscriptions start pending — confirm before delivery.
-			_, err = b.ConfirmSubscription(topic.TopicArn, "any-token")
+			_, err = b.ConfirmSubscription(topic.TopicArn, sns.ConfirmationToken(sub.SubscriptionArn))
 			require.NoError(t, err)
 
 			redrivePolicy, _ := json.Marshal(map[string]string{
@@ -288,7 +287,7 @@ func TestHTTPDeliveryFailureSendsToDLQ(t *testing.T) {
 func TestHTTPDeliveryFailureNoSQSSenderNoError(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	t.Cleanup(srv.Close)
@@ -299,10 +298,10 @@ func TestHTTPDeliveryFailureNoSQSSenderNoError(t *testing.T) {
 	topic, err := b.CreateTopic("no-sender-topic", nil)
 	require.NoError(t, err)
 
-	_, err = b.Subscribe(topic.TopicArn, "http", srv.URL, "")
+	sub, err := b.Subscribe(topic.TopicArn, "http", srv.URL, "")
 	require.NoError(t, err)
 
-	_, err = b.ConfirmSubscription(topic.TopicArn, "any-token")
+	_, err = b.ConfirmSubscription(topic.TopicArn, sns.ConfirmationToken(sub.SubscriptionArn))
 	require.NoError(t, err)
 
 	_, err = b.Publish(topic.TopicArn, "msg", "", "", nil)
@@ -319,7 +318,7 @@ func TestGoroutineContextCancellationDrains(t *testing.T) {
 	// Use a slow HTTP server to keep delivery slots occupied so the extra goroutines
 	// block on the semaphore, exercising the context-cancel escape path.
 	slow := make(chan struct{})
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-slow:
 		case <-r.Context().Done():
@@ -377,7 +376,7 @@ func TestHTTPSSubscriptionDelivery(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -404,4 +403,6 @@ func TestHTTPSSubscriptionDelivery(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("HTTPS delivery did not arrive")
 	}
+
+	sns.WaitDeliveriesForTest(b)
 }

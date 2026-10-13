@@ -59,7 +59,7 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, input *TagResourceInp
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	id := resolveSecretID(input.SecretID)
+	id := b.resolveName(region, input.SecretID)
 	secret, ok := b.secretGet(region, id)
 	if !ok {
 		return ErrSecretNotFound
@@ -105,7 +105,7 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, input *UntagResourc
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	id := resolveSecretID(input.SecretID)
+	id := b.resolveName(region, input.SecretID)
 	secret, ok := b.secretGet(region, id)
 	if !ok {
 		return ErrSecretNotFound
@@ -152,7 +152,7 @@ func (b *InMemoryBackend) TagSecretByARN(_ context.Context, secretARN string, ne
 	b.mu.Lock("TagSecretByARN")
 	defer b.mu.Unlock()
 
-	name := resolveSecretID(secretARN)
+	name := b.resolveName(region, secretARN)
 
 	secret, ok := b.secretGet(region, name)
 	if !ok {
@@ -175,7 +175,7 @@ func (b *InMemoryBackend) UntagSecretByARN(_ context.Context, secretARN string, 
 	b.mu.Lock("UntagSecretByARN")
 	defer b.mu.Unlock()
 
-	name := resolveSecretID(secretARN)
+	name := b.resolveName(region, secretARN)
 
 	secret, ok := b.secretGet(region, name)
 	if !ok {

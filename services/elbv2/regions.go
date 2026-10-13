@@ -15,7 +15,10 @@ func (h *Handler) EnableRegions() {
 		nb := NewInMemoryBackend(home.accountID, region)
 		nb.inheritWiring(home)
 
-		return NewHandler(nb)
+		ph := NewHandler(nb)
+		ph.dp = h.dp
+
+		return ph
 	})
 }
 

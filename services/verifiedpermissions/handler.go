@@ -219,6 +219,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	message := stripCodePrefix(err.Error())
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
@@ -226,38 +227,50 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "ResourceNotFoundException",
-			keyMessageField: err.Error(),
+			keyMessageField: message,
 		})
 	case errors.Is(err, ErrPolicyStoreDeletionProtected):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "InvalidStateException",
-			keyMessageField: err.Error(),
+			keyMessageField: message,
 		})
 	case errors.Is(err, awserr.ErrConflict):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "ConflictException",
-			keyMessageField: err.Error(),
+			keyMessageField: message,
 		})
 	case errors.Is(err, errUnknownAction):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "UnknownOperationException",
-			keyMessageField: err.Error(),
+			keyMessageField: message,
 		})
 	case errors.Is(err, ErrTooManyTags):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "TooManyTagsException",
-			keyMessageField: err.Error(),
+			keyMessageField: message,
 		})
 	case errors.Is(err, awserr.ErrInvalidParameter), errors.Is(err, errInvalidRequest),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "ValidationException",
-			keyMessageField: err.Error(),
+			keyMessageField: message,
 		})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			keyTypeField:    "InternalServerException",
-			keyMessageField: err.Error(),
+			keyMessageField: message,
 		})
 	}
+}
+
+// stripCodePrefix drops the leading "<Code>: " that the wrapped sentinels put
+// on every message, since the code already travels in __type.
+func stripCodePrefix(msg string) string {
+	for _, code := range []string{
+		"ValidationException", "ResourceNotFoundException", "ConflictException", "InvalidStateException",
+	} {
+		msg = strings.TrimPrefix(msg, code+": ")
+	}
+
+	return msg
 }

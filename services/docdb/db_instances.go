@@ -14,8 +14,8 @@ func (b *InMemoryBackend) CreateDBInstance(
 	tags map[string]string,
 	opts *CreateDBInstanceOptions,
 ) (*DBInstance, error) {
-	if id == "" {
-		return nil, fmt.Errorf("%w: DBInstanceIdentifier is required", ErrInvalidParameter)
+	if err := validateInstanceNaming(id, instanceClass, engine); err != nil {
+		return nil, err
 	}
 	if promotionTier < 0 || promotionTier > maxPromotionTier {
 		return nil, fmt.Errorf(
@@ -72,6 +72,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 	}
 
 	inst := &DBInstance{
+		readyAt:                     b.readyAtLocked(),
 		DbiResourceID:               newResourceID("db-"),
 		region:                      region,
 		DBInstanceIdentifier:        id,
@@ -140,6 +141,7 @@ func (b *InMemoryBackend) GetClusterMembers(ctx context.Context, clusterID strin
 		if inst.DBClusterIdentifier == clusterID {
 			members = append(members, DBClusterMemberEntry{
 				DBInstanceIdentifier: inst.DBInstanceIdentifier,
+				ParameterGroupStatus: parameterGroupStatus(inst),
 				PromotionTier:        inst.PromotionTier,
 			})
 		}
@@ -179,6 +181,7 @@ func (b *InMemoryBackend) DeleteDBInstance(ctx context.Context, id string) (*DBI
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
 	cp := copyInstance(inst)
+	cp.DBInstanceStatus = statusDeleting
 	b.instanceDelete(region, id)
 	delete(b.tagsStore(region), b.instanceARN(region, id))
 	b.recordEvent(region, id, sourceTypeDBInstance, cp.DBInstanceArn, "DB instance deleted", eventCatDelete)
@@ -248,6 +251,7 @@ func (b *InMemoryBackend) RebootDBInstance(ctx context.Context, id string) (*DBI
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
+	inst.ParameterPendingReboot = false
 
 	return copyInstance(inst), nil
 }

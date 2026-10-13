@@ -82,7 +82,7 @@ func (b *InMemoryBackend) resourceLocationLocked(resourceType string) ResourceLo
 // back a clone, so the timer must mutate the table's own live pointer, not
 // a caller-visible copy.
 func (b *InMemoryBackend) scheduleOperationSuccessLocked(id string) {
-	b.work.After("OperationTransition", asyncTransitionDelay, func() {
+	b.work.After("OperationTransition", b.transitionDelay(), func() {
 		b.mu.Lock("Operation-async-success")
 		defer b.mu.Unlock()
 

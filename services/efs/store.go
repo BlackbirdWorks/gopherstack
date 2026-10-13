@@ -138,6 +138,7 @@ type InMemoryBackend struct {
 	// services/ec2 backend -- see EC2Resolver's doc comment (crossservice.go).
 	// nil by default (unwired), which leaves subnet placement unvalidated.
 	ec2Resolver EC2Resolver
+	storageRoot string
 	accountID   string
 	region      string
 	// fsActivationDelay controls how long CreateFileSystem waits before transitioning

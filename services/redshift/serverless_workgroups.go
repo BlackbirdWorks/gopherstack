@@ -20,8 +20,21 @@ import (
 func (b *InMemoryBackend) CreateWorkgroup(
 	workgroupName, namespaceName string, p WorkgroupParams, tags map[string]string,
 ) (*Workgroup, error) {
+	if err := slValidName("workgroupName", workgroupName); err != nil {
+		return nil, err
+	}
+
+	if err := slValidName("namespaceName", namespaceName); err != nil {
+		return nil, err
+	}
+
+	if err := slValidateWorkgroupParams(p); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateWorkgroup")
 	defer b.mu.Unlock()
+	b.settleServerlessLocked(time.Now())
 
 	if _, ok := b.slWorkgroups.Get(workgroupName); ok {
 		return nil, fmt.Errorf(
@@ -78,6 +91,7 @@ func (b *InMemoryBackend) CreateWorkgroup(
 		SubnetIDs:        cloneStrings(p.SubnetIDs),
 		SecurityGroupIDs: cloneStrings(p.SecurityGroupIDs),
 	}
+	wg.Status = b.slBeginLocked(slKindWorkgroup, workgroupName, slStatusCreating, slStatusAvailable, false)
 	b.slWorkgroups.Put(wg)
 	b.slWorkgroupIdx.insert(workgroupName)
 	b.putServerlessTagsLocked(wgArn, tags)
@@ -88,8 +102,9 @@ func (b *InMemoryBackend) CreateWorkgroup(
 
 // GetWorkgroup returns a Redshift Serverless workgroup by name.
 func (b *InMemoryBackend) GetWorkgroup(workgroupName string) (*Workgroup, error) {
-	b.mu.RLock("GetWorkgroup")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetWorkgroup")
+	defer b.mu.Unlock()
+	b.settleServerlessLocked(time.Now())
 
 	wg, ok := b.slWorkgroups.Get(workgroupName)
 	if !ok {
@@ -107,8 +122,9 @@ func (b *InMemoryBackend) GetWorkgroup(workgroupName string) (*Workgroup, error)
 // ownerAccount that doesn't match b.accountID matches nothing -- same
 // rationale as GetServerlessSnapshot's ownerAccount filter.
 func (b *InMemoryBackend) ListWorkgroups(ownerAccount string, maxResults int, nextToken string) ([]*Workgroup, string) {
-	b.mu.RLock("ListWorkgroups")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListWorkgroups")
+	defer b.mu.Unlock()
+	b.settleServerlessLocked(time.Now())
 
 	if ownerAccount != "" && ownerAccount != b.accountID {
 		return []*Workgroup{}, ""
@@ -148,12 +164,21 @@ func (b *InMemoryBackend) ListWorkgroups(ownerAccount string, maxResults int, ne
 
 // UpdateWorkgroup updates a Redshift Serverless workgroup.
 func (b *InMemoryBackend) UpdateWorkgroup(workgroupName string, p WorkgroupParams) (*Workgroup, error) {
+	if err := slValidateWorkgroupParams(p); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateWorkgroup")
 	defer b.mu.Unlock()
+	b.settleServerlessLocked(time.Now())
 
 	wg, ok := b.slWorkgroups.Get(workgroupName)
 	if !ok {
 		return nil, fmt.Errorf("%w: workgroup %q not found", ErrWorkgroupNotFound, workgroupName)
+	}
+
+	if wg.Status != slStatusAvailable {
+		return nil, slBusy("workgroup", workgroupName)
 	}
 
 	if p.BaseCapacity > 0 {
@@ -196,6 +221,7 @@ func (b *InMemoryBackend) UpdateWorkgroup(workgroupName string, p WorkgroupParam
 	wg.EnhancedVpcRouting = p.EnhancedVpcRouting
 	wg.ExtraComputeForAutomaticOptimization = p.ExtraComputeForAutomaticOptimization
 	wg.PubliclyAccessible = p.PubliclyAccessible
+	wg.Status = b.slBeginLocked(slKindWorkgroup, workgroupName, slStatusModifying, slStatusAvailable, false)
 
 	return cloneWorkgroup(wg), nil
 }
@@ -204,13 +230,26 @@ func (b *InMemoryBackend) UpdateWorkgroup(workgroupName string, p WorkgroupParam
 func (b *InMemoryBackend) DeleteWorkgroup(workgroupName string) (*Workgroup, error) {
 	b.mu.Lock("DeleteWorkgroup")
 	defer b.mu.Unlock()
+	b.settleServerlessLocked(time.Now())
 
 	wg, ok := b.slWorkgroups.Get(workgroupName)
 	if !ok {
 		return nil, fmt.Errorf("%w: workgroup %q not found", ErrWorkgroupNotFound, workgroupName)
 	}
 
+	if wg.Status != slStatusAvailable {
+		return nil, slBusy("workgroup", workgroupName)
+	}
+
 	cp := cloneWorkgroup(wg)
+	cp.Status = slStatusDeleting
+
+	if b.slLifecycleDelay > 0 {
+		wg.Status = b.slBeginLocked(slKindWorkgroup, workgroupName, slStatusDeleting, "", true)
+
+		return cp, nil
+	}
+
 	b.slWorkgroups.Delete(workgroupName)
 	b.slWorkgroupIdx.remove(workgroupName)
 

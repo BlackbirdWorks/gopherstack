@@ -304,6 +304,62 @@ func (b *InMemoryBackend) GetConnectionFunction(idOrName string) (*ConnectionFun
 	return b.copyConnectionFunction(fn), nil
 }
 
+// connectionFunctionAtStage returns fn as seen at stage: "" is the current record, DEVELOPMENT
+// the working copy, LIVE the last published snapshot (false when never published).
+func connectionFunctionAtStage(fn *ConnectionFunction, stage string) (*ConnectionFunction, bool) {
+	cp := *fn
+	cp.FunctionCode = append([]byte(nil), fn.FunctionCode...)
+
+	switch stage {
+	case "":
+		return &cp, true
+	case functionStageDevelopment:
+		cp.Stage = functionStageDevelopment
+
+		return &cp, true
+	case functionStageLive:
+		live := fn.Live
+		if live == nil {
+			if fn.Stage != functionStageLive {
+				return nil, false
+			}
+
+			return &cp, true
+		}
+
+		cp.Comment, cp.Runtime = live.Comment, live.Runtime
+		cp.FunctionCode = append([]byte(nil), live.FunctionCode...)
+		cp.ETag, cp.LastModifiedTime, cp.Stage = live.ETag, live.LastModifiedTime, functionStageLive
+
+		return &cp, true
+	}
+
+	return nil, false
+}
+
+// GetConnectionFunctionAtStage returns a connection function as seen at the given stage.
+func (b *InMemoryBackend) GetConnectionFunctionAtStage(idOrName, stage string) (*ConnectionFunction, error) {
+	if !validFunctionStage(stage) {
+		return nil, fmt.Errorf("%w: Stage must be DEVELOPMENT or LIVE, got %q", ErrValidation, stage)
+	}
+
+	b.mu.RLock("GetConnectionFunctionAtStage")
+	defer b.mu.RUnlock()
+
+	fn, _ := b.resolveConnectionFunction(idOrName)
+	if fn == nil {
+		return nil, fmt.Errorf("%w: connection function %s not found", ErrConnectionFunctionNotFound, idOrName)
+	}
+
+	view, ok := connectionFunctionAtStage(fn, stage)
+	if !ok {
+		return nil, fmt.Errorf("%w: connection function %s has no %s stage",
+			ErrConnectionFunctionNotFound, idOrName, stage)
+	}
+
+	return view, nil
+}
+
 // ListConnectionFunctions returns all connection functions sorted by name, with ID as a
 // tiebreaker: names are not unique (CreateConnectionFunctionWithCode), and the Marker
 // cursor in handleListConnectionFunctions needs a unique key per item to avoid dropping
@@ -390,6 +446,13 @@ func (b *InMemoryBackend) PublishConnectionFunction(idOrName string) (*Connectio
 	fn.Stage = functionStageLive
 	fn.ETag = uuid.NewString()
 	fn.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+	fn.Live = &ConnectionFunctionLive{
+		Comment:          fn.Comment,
+		Runtime:          fn.Runtime,
+		FunctionCode:     append([]byte(nil), fn.FunctionCode...),
+		ETag:             fn.ETag,
+		LastModifiedTime: fn.LastModifiedTime,
+	}
 
 	return b.copyConnectionFunction(fn), nil
 }

@@ -51,12 +51,14 @@ func (b *InMemoryBackend) CreateCertificate(
 		Status: CertificateStatusPendingValidation, CreatedAt: now, NotBefore: now,
 		NotAfter:                now.AddDate(0, certificateValidityMonths, 0),
 		SubjectAlternativeNames: append([]string{domainName}, sans...),
+		SupportCode:             newSupportCode(),
+		DomainValidationRecords: newValidationRecords(domainName, sans),
 		Tags:                    tags.New("lightsail.certificate." + name + ".tags"),
 	}
 	cert.Tags.Merge(userTags)
 	b.certificates.Put(cert)
 
-	b.work.After("CertificateIssued", asyncTransitionDelay, func() {
+	b.work.After("CertificateIssued", b.transitionDelay(), func() {
 		b.mu.Lock("Certificate-async-issued")
 		defer b.mu.Unlock()
 
@@ -64,6 +66,10 @@ func (b *InMemoryBackend) CreateCertificate(
 			c.Status == CertificateStatusPendingValidation {
 			c.Status = CertificateStatusIssued
 			c.IssuedAt = nowUTC()
+
+			for i := range c.DomainValidationRecords {
+				c.DomainValidationRecords[i].ValidationStatus = certificateValidationSuccess
+			}
 		}
 	})
 
@@ -131,10 +137,57 @@ func (b *InMemoryBackend) GetCertificates(
 			continue
 		}
 
-		out = append(out, c.clone())
+		cp := c.clone()
+		cp.InUseResourceCount = b.certificateInUseCountLocked(c.Name)
+		out = append(out, cp)
 	}
 
 	return paginateGeneric(out, token)
+}
+
+// certificateInUseCountLocked counts the distributions and container services
+// using the named certificate. Caller must hold b.mu.
+func (b *InMemoryBackend) certificateInUseCountLocked(name string) int32 {
+	var n int32
+
+	for _, d := range b.distributions.All() {
+		if d.CertificateName == name {
+			n++
+		}
+	}
+
+	for _, cs := range b.containerServices.All() {
+		if _, ok := cs.PublicDomainNames[name]; ok {
+			n++
+		}
+	}
+
+	return n
+}
+
+// newValidationRecords builds one DNS (CNAME) validation record per distinct
+// domain in the request, the way ACM does for DNS validation.
+func newValidationRecords(domainName string, sans []string) []CertificateValidationRecord {
+	seen := map[string]bool{}
+	records := make([]CertificateValidationRecord, 0, 1+len(sans))
+
+	for _, d := range append([]string{domainName}, sans...) {
+		if seen[d] {
+			continue
+		}
+
+		seen[d] = true
+
+		records = append(records, CertificateValidationRecord{
+			DomainName:       d,
+			RecordName:       "_" + randomHex() + "." + d + ".",
+			RecordType:       "CNAME",
+			RecordValue:      "_" + randomHex() + ".acm-validations.aws.",
+			ValidationStatus: CertificateStatusPendingValidation,
+		})
+	}
+
+	return records
 }
 
 // resolveDistributionOrigin validates that originName names a real Instance,
@@ -233,7 +286,7 @@ func (b *InMemoryBackend) CreateDistribution(req CreateDistributionRequest) ([]O
 	dist.Tags.Merge(req.Tags)
 	b.distributions.Put(dist)
 
-	b.work.After("DistributionDeployed", asyncTransitionDelay, func() {
+	b.work.After("DistributionDeployed", b.transitionDelay(), func() {
 		b.mu.Lock("Distribution-async-deployed")
 		defer b.mu.Unlock()
 

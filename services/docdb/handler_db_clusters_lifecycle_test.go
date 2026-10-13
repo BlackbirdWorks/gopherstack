@@ -546,7 +546,7 @@ func TestPagination_Clusters(t *testing.T) {
 		{
 			name:        "page_2_with_marker",
 			maxRecords:  "2",
-			marker:      "2",
+			marker:      "b2Zmc2V0OjI",
 			wantCount:   2,
 			wantHasMore: true,
 		},

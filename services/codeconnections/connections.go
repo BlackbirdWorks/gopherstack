@@ -17,12 +17,20 @@ func (b *InMemoryBackend) CreateConnection(
 	name, providerType, hostArn string,
 	tags map[string]string,
 ) (*Connection, error) {
-	if name == "" {
-		return nil, fmt.Errorf("%w: ConnectionName is required", ErrValidation)
+	if err := validateResourceName(name, "ConnectionName", maxConnectionNameLen); err != nil {
+		return nil, err
 	}
 
-	if providerType == "" || !validProviderTypes()[providerType] {
+	if providerType == "" && hostArn == "" {
+		return nil, fmt.Errorf("%w: ProviderType or HostArn is required", ErrValidation)
+	}
+
+	if providerType != "" && !validProviderTypes()[providerType] {
 		return nil, fmt.Errorf("%w: invalid ProviderType %q", ErrValidation, providerType)
+	}
+
+	if err := validateTags(tags); err != nil {
+		return nil, err
 	}
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -44,8 +52,15 @@ func (b *InMemoryBackend) CreateConnection(
 	// host that does not exist in the caller's region maps to
 	// ResourceNotFoundException, the same real type GetHost/DeleteHost use
 	// for a missing host.
-	if hostArn != "" && !b.hostExistsLocked(region, hostArn) {
-		return nil, fmt.Errorf("%w: host %q does not exist", ErrNotFound, hostArn)
+	if hostArn != "" {
+		host, ok := b.hosts.Get(hostArn)
+		if !ok || regionFromARN(hostArn) != region {
+			return nil, fmt.Errorf("%w: host %q does not exist", ErrNotFound, hostArn)
+		}
+
+		if providerType == "" {
+			providerType = host.ProviderType
+		}
 	}
 
 	id := uuid.NewString()
@@ -59,7 +74,7 @@ func (b *InMemoryBackend) CreateConnection(
 		ConnectionArn:  connectionArn,
 		ProviderType:   providerType,
 		HostArn:        hostArn,
-		Status:         "AVAILABLE",
+		Status:         statusAvailable,
 		OwnerAccountID: b.accountID,
 		Tags:           tagsCopy,
 		CreatedAt:      time.Now().UTC(),
@@ -68,6 +83,7 @@ func (b *InMemoryBackend) CreateConnection(
 	b.connections.Put(conn)
 
 	cp := *conn
+	cp.Status = b.connectionStatus(conn)
 	cp.Tags = make(map[string]string, len(conn.Tags))
 	maps.Copy(cp.Tags, conn.Tags)
 
@@ -92,6 +108,7 @@ func (b *InMemoryBackend) GetConnection(
 	}
 
 	cp := *conn
+	cp.Status = b.connectionStatus(conn)
 	cp.Tags = make(map[string]string, len(conn.Tags))
 	maps.Copy(cp.Tags, conn.Tags)
 
@@ -121,6 +138,7 @@ func (b *InMemoryBackend) ListConnections(
 		}
 
 		cp := *conn
+		cp.Status = b.connectionStatus(conn)
 		cp.Tags = make(map[string]string, len(conn.Tags))
 		maps.Copy(cp.Tags, conn.Tags)
 		result = append(result, &cp)

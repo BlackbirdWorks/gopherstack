@@ -98,6 +98,10 @@ func (h *Handler) handleListAPIKeys(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if err := validatePageParams(req.Limit, req.NextMarker); err != nil {
+		return nil, err
+	}
+
 	keys := h.Backend.ListAPIKeys(ctx, req.Scope)
 
 	// Apply pagination.

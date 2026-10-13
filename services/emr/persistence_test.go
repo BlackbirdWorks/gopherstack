@@ -153,7 +153,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Len(t, fleets, 1)
 	assert.Equal(t, "fleet-1", fleets[0].Name)
 
-	steps, _ := fresh.ListSteps(t.Context(), cluster.ID, nil, nil, "")
+	steps, _, _ := fresh.ListSteps(t.Context(), cluster.ID, nil, nil, "")
 	require.Len(t, steps, 1)
 	assert.Equal(t, "step-1", steps[0].Name)
 
@@ -292,5 +292,5 @@ func TestInMemoryBackend_SnapshotRestore_RegionIsolation(t *testing.T) {
 	// same-named/ID resources in different regions apart.
 	_, err = fresh.DescribeCluster(ctxWest, eastCluster.ID)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
+	assert.Contains(t, err.Error(), "is not valid")
 }

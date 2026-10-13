@@ -722,7 +722,7 @@ func (p *ServiceBusProvider) List(_ context.Context, id ResourceID) ([]map[strin
 	}
 
 	sort.Slice(out, func(i, j int) bool {
-		return stringField(out[i], fieldName) < stringField(out[j], fieldName)
+		return nameField(out[i]) < nameField(out[j])
 	})
 
 	return out, nil

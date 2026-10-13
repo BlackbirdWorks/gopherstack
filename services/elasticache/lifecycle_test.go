@@ -691,6 +691,7 @@ func TestStateGuardRejectsMutationWhilePending(t *testing.T) {
 			name: "global_replication_group_modify",
 			create: func(t *testing.T, client *elasticachesdk.Client) {
 				t.Helper()
+				createPrimaryRG(t, client, "primary")
 				_, err := client.CreateGlobalReplicationGroup(
 					t.Context(),
 					&elasticachesdk.CreateGlobalReplicationGroupInput{

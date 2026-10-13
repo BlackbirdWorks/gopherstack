@@ -1,7 +1,11 @@
 package elasticache
 
 import (
+	"cmp"
 	"context"
+	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -111,4 +115,62 @@ func (b *InMemoryBackend) DescribeCacheEngineVersions(
 	}
 
 	return page.New(filtered, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+}
+
+// resolveEngineVersion maps a requested EngineVersion ("7.1", "6.x", "1.6.17") to a
+// catalogued full version; empty stays empty (the engine default applies).
+func resolveEngineVersion(engine, requested string) (string, error) {
+	if requested == "" {
+		return "", nil
+	}
+
+	if engine == "" {
+		engine = engineRedis
+	}
+
+	want := strings.TrimRight(strings.TrimSuffix(requested, "x"), ".")
+	best := ""
+
+	for _, v := range builtinCacheEngineVersions() {
+		if v.Engine != engine {
+			continue
+		}
+
+		if v.EngineVersion == requested {
+			return requested, nil
+		}
+
+		if (v.EngineVersion == want || strings.HasPrefix(v.EngineVersion, want+".")) &&
+			(best == "" || compareVersions(v.EngineVersion, best) > 0) {
+			best = v.EngineVersion
+		}
+	}
+
+	if best == "" {
+		return "", fmt.Errorf("%w: invalid engine version %q for %s", ErrInvalidParameterValue, requested, engine)
+	}
+
+	return best, nil
+}
+
+func compareVersions(a, b string) int {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+
+	for i := range max(len(as), len(bs)) {
+		var x, y int
+
+		if i < len(as) {
+			x, _ = strconv.Atoi(as[i])
+		}
+
+		if i < len(bs) {
+			y, _ = strconv.Atoi(bs[i])
+		}
+
+		if x != y {
+			return cmp.Compare(x, y)
+		}
+	}
+
+	return 0
 }

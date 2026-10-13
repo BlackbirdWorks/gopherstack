@@ -790,7 +790,7 @@ func parseMutualAuthentication(vals url.Values) *MutualAuthentication {
 
 // xmlMatcher serialises Matcher for XML responses.
 type xmlMatcher struct {
-	HTTPCode string `xml:"HTTPCode,omitempty"`
+	HTTPCode string `xml:"HttpCode,omitempty"`
 	GrpcCode string `xml:"GrpcCode,omitempty"`
 }
 

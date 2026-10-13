@@ -213,6 +213,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleError(c, fmt.Errorf("%w: %s %s", errUnknownPath, c.Request().Method, c.Request().URL.Path))
 		}
 
+		if valErr := validateRequest(c.Request(), body); valErr != nil {
+			return h.handleError(c, valErr)
+		}
+
 		result, dispErr := entry.fn(ctx, c.Request(), params, body)
 		if dispErr != nil {
 			log.ErrorContext(ctx, "networkmanager: operation failed", "op", entry.op, "error", dispErr)

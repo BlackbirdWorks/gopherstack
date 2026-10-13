@@ -118,9 +118,10 @@ func TestAPIGateway_GetSdk_HeadersNotBody_RealClient(t *testing.T) {
 	var rawContentType string
 
 	out, err := client.GetSdk(t.Context(), &apigatewaysdk.GetSdkInput{
-		RestApiId: aws.String(api.ID),
-		StageName: aws.String("prod"),
-		SdkType:   aws.String("java"),
+		RestApiId:  aws.String(api.ID),
+		StageName:  aws.String("prod"),
+		SdkType:    aws.String("java"),
+		Parameters: map[string]string{"serviceName": "svc", "javaPackageName": "com.example"},
 	}, captureRawResponseHeader("Content-Type", &rawContentType))
 	require.NoError(t, err)
 	require.NotNil(t, out)

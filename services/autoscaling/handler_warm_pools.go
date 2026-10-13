@@ -4,8 +4,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func (h *Handler) handlePutWarmPool(vals url.Values) (any, error) {
@@ -76,7 +74,10 @@ func (h *Handler) handleDescribeWarmPool(vals url.Values) (any, error) {
 	}
 
 	instances := make([]xmlWarmPoolInstance, 0)
-	p := page.New(instances, vals.Get("NextToken"), maxRecords, defaultWPMaxRecords)
+	p, pageErr := newPage(vals, instances, maxRecords, defaultWPMaxRecords)
+	if pageErr != nil {
+		return nil, pageErr
+	}
 
 	xmlWP := xmlWarmPoolConfiguration{
 		MinSize:                  wp.MinSize,

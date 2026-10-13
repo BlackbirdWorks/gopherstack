@@ -236,6 +236,7 @@ func (b *InMemoryBackend) DescribeReservedInstancesModifications(ids []string) [
 func (b *InMemoryBackend) ModifyReservedInstances(
 	ids []string,
 	targets []ReservedInstancesConfigurationTarget,
+	clientToken string,
 ) (*ReservedInstancesModification, error) {
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("%w: ReservedInstancesIds is required", ErrInvalidParameter)
@@ -248,20 +249,37 @@ func (b *InMemoryBackend) ModifyReservedInstances(
 	b.mu.Lock("ModifyReservedInstances")
 	defer b.mu.Unlock()
 
-	for _, riID := range ids {
-		if _, ok := b.reservedInstances.Get(riID); !ok {
-			return nil, fmt.Errorf("%w: %s", ErrReservedInstancesNotFound, riID)
+	if clientToken != "" {
+		for _, existing := range b.reservedInstancesModifications.All() {
+			if existing.ClientToken == clientToken {
+				cp := *existing
+
+				return &cp, nil
+			}
 		}
 	}
 
-	results := make([]ReservedInstancesModificationResult, 0, len(targets))
-	for _, t := range targets {
-		results = append(results, ReservedInstancesModificationResult{TargetConfiguration: t})
+	sources := make([]*ReservedInstance, 0, len(ids))
+
+	for _, riID := range ids {
+		ri, ok := b.reservedInstances.Get(riID)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", ErrReservedInstancesNotFound, riID)
+		}
+
+		sources = append(sources, ri)
 	}
 
+	results := b.mintModifiedReservedInstances(sources, targets)
+
+	now := time.Now().UTC()
 	id := "rimod-" + uuid.New().String()[:8]
 	m := &ReservedInstancesModification{
 		ReservedInstancesModificationID: id,
+		ClientToken:                     clientToken,
+		CreateDate:                      now,
+		EffectiveDate:                   now,
+		UpdateDate:                      now,
 		Status:                          "fulfilled",
 		StatusMessage:                   "Modification fulfilled",
 		ReservedInstancesIDs:            append([]string(nil), ids...),
@@ -272,6 +290,44 @@ func (b *InMemoryBackend) ModifyReservedInstances(
 	cp := *m
 
 	return &cp, nil
+}
+
+// reservedInstanceStateRetired is the state of a Reserved Instance consumed by a modification.
+const reservedInstanceStateRetired = "retired"
+
+// mintModifiedReservedInstances retires the source reservations and creates one active reservation per
+// target configuration, inheriting term and pricing from the first source. Caller must hold b.mu.
+func (b *InMemoryBackend) mintModifiedReservedInstances(
+	sources []*ReservedInstance, targets []ReservedInstancesConfigurationTarget,
+) []ReservedInstancesModificationResult {
+	results := make([]ReservedInstancesModificationResult, 0, len(targets))
+	base := *sources[0]
+
+	for _, src := range sources {
+		src.State = reservedInstanceStateRetired
+	}
+
+	for _, t := range targets {
+		minted := base
+		minted.ReservedInstancesID = "r-" + uuid.New().String()[:8]
+		minted.State = SpotFleetStateActive
+		minted.InstanceCount = t.InstanceCount
+
+		if t.AvailabilityZone != "" {
+			minted.AvailabilityZone = t.AvailabilityZone
+		}
+
+		if t.InstanceType != "" {
+			minted.InstanceType = t.InstanceType
+		}
+
+		b.reservedInstances.Put(&minted)
+		results = append(results, ReservedInstancesModificationResult{
+			ReservedInstancesID: minted.ReservedInstancesID, TargetConfiguration: t,
+		})
+	}
+
+	return results
 }
 
 // reservedInstanceStateQueued is the real ReservedInstanceState enum value

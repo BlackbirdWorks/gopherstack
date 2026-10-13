@@ -9,15 +9,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-var pipeNameRE = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+var pipeNameRE = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
 
-func validateCreatePipeInput(in CreatePipeInput) error {
-	if err := validatePipeName(in.Name); err != nil {
-		return err
-	}
-	if err := validateDesiredState(in.DesiredState); err != nil {
-		return err
-	}
+func validateCreateRequired(in CreatePipeInput) error {
 	if in.Source == "" {
 		return fmt.Errorf("%w: Source is required", ErrValidation)
 	}
@@ -26,6 +20,23 @@ func validateCreatePipeInput(in CreatePipeInput) error {
 	}
 	if in.RoleARN == "" {
 		return fmt.Errorf("%w: RoleArn is required", ErrValidation)
+	}
+	if err := validateTargetAndRole(in.Target, in.RoleARN); err != nil {
+		return err
+	}
+
+	return validateDescription(in.Description)
+}
+
+func validateCreatePipeInput(in CreatePipeInput) error {
+	if err := validatePipeName(in.Name); err != nil {
+		return err
+	}
+	if err := validateDesiredState(in.DesiredState); err != nil {
+		return err
+	}
+	if err := validateCreateRequired(in); err != nil {
+		return err
 	}
 	if err := validateTags(in.Tags); err != nil {
 		return err
@@ -163,29 +174,42 @@ func applyUpdateFields(p *Pipe, in UpdatePipeInput) {
 	}
 }
 
-func (b *InMemoryBackend) UpdatePipe(ctx context.Context, name string, in UpdatePipeInput) (*Pipe, error) {
+func validateUpdateInput(in UpdatePipeInput) error {
+	if in.Description != nil {
+		if err := validateDescription(*in.Description); err != nil {
+			return err
+		}
+	}
+	if arnService(in.RoleARN) != "iam" {
+		return fmt.Errorf("%w: RoleArn %q is not a valid IAM role ARN", ErrValidation, in.RoleARN)
+	}
+	if in.Target != nil && arnService(*in.Target) == "" {
+		return fmt.Errorf("%w: Target %q is not a valid ARN", ErrValidation, *in.Target)
+	}
 	if err := validateDesiredState(in.DesiredState); err != nil {
-		return nil, err
+		return err
 	}
 	if err := validateSourceBatchSize(in.SourceParameters); err != nil {
-		return nil, err
+		return err
 	}
 	if err := validateUpdateSourceRequiredFields(in.SourceParameters); err != nil {
-		return nil, err
+		return err
 	}
 	if in.SourceParameters != nil {
 		if err := validateFilterCriteria(in.SourceParameters.FilterCriteria); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if err := validateTargetRequiredFields(in.TargetParameters); err != nil {
-		return nil, err
+		return err
 	}
-	if err := validateLogConfigurationRequiredFields(in.LogConfiguration); err != nil {
+
+	return validateLogConfigurationRequiredFields(in.LogConfiguration)
+}
+
+func (b *InMemoryBackend) UpdatePipe(ctx context.Context, name string, in UpdatePipeInput) (*Pipe, error) {
+	if err := validateUpdateInput(in); err != nil {
 		return nil, err
-	}
-	if in.RoleARN == "" {
-		return nil, fmt.Errorf("%w: RoleArn is required", ErrValidation)
 	}
 
 	b.mu.Lock("UpdatePipe")
@@ -399,7 +423,7 @@ func validatePipeName(name string) error {
 	}
 	if !pipeNameRE.MatchString(name) {
 		return fmt.Errorf(
-			"%w: pipe name %q contains invalid characters (allowed: a-z, A-Z, 0-9, -, _)",
+			"%w: pipe name %q contains invalid characters (allowed: a-z, A-Z, 0-9, -, _, .)",
 			ErrValidation,
 			name,
 		)

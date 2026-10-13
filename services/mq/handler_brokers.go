@@ -62,6 +62,14 @@ func (h *Handler) handleCreateBroker(c *echo.Context, body []byte) error {
 		})
 	}
 
+	if in.EngineType == EngineTypeActiveMQ {
+		for _, u := range users {
+			if err := validateActiveMQPassword(u.Password); err != nil {
+				return h.writeError(c, err)
+			}
+		}
+	}
+
 	br, err := h.Backend.CreateBrokerWithOptions(
 		in.BrokerName,
 		in.DeploymentMode,
@@ -125,6 +133,10 @@ func (h *Handler) handleListBrokers(c *echo.Context) error {
 
 	// Use opaque index-based tokens so the page boundary is stable regardless
 	// of insertions or deletions between requests. AWS uses opaque cursors too.
+	if tokErr := page.ValidateToken(nextToken); tokErr != nil {
+		return h.writeError(c, fmt.Errorf("%w: invalid nextToken", ErrValidation))
+	}
+
 	pg := page.New(brokers, nextToken, maxResults, mqDefaultPageSize)
 
 	summaries := make([]brokerSummary, 0, len(pg.Data))
@@ -364,13 +376,7 @@ func (h *Handler) handleRebootBroker(c *echo.Context, brokerID string) error {
 	return c.NoContent(http.StatusOK)
 }
 
-// handleDescribeSharedResources returns the resources shared to a broker via
-// AWS RAM. This backend does not model RAM resource sharing (see
-// InMemoryBackend.DescribeSharedResources), so a valid broker always yields
-// an empty (non-null) sharedResources list -- there is nothing to paginate,
-// so maxResults has no effect, but nextToken is still validated: a malformed
-// token is rejected rather than silently ignored, matching every other
-// paginated op in this package.
+// handleDescribeSharedResources validates nextToken; the list is not paginated, so maxResults has no effect.
 func (h *Handler) handleDescribeSharedResources(c *echo.Context, brokerID string) error {
 	resources, err := h.Backend.DescribeSharedResources(brokerID)
 	if err != nil {
@@ -499,6 +505,10 @@ func (h *Handler) handleDescribeBrokerEngineTypes(c *echo.Context) error {
 	types := h.Backend.DescribeBrokerEngineTypes(engineType)
 
 	maxResults, nextToken := mqPaginationParams(c)
+	if tokErr := page.ValidateToken(nextToken); tokErr != nil {
+		return h.writeError(c, fmt.Errorf("%w: invalid nextToken", ErrValidation))
+	}
+
 	pg := page.New(types, nextToken, maxResults, mqDefaultPageSize)
 
 	resp := map[string]any{"brokerEngineTypes": pg.Data}
@@ -518,6 +528,10 @@ func (h *Handler) handleDescribeBrokerInstanceOptions(c *echo.Context) error {
 	opts := h.Backend.DescribeBrokerInstanceOptions(engineType, hostInstanceType, storageType)
 
 	maxResults, nextToken := mqPaginationParams(c)
+	if tokErr := page.ValidateToken(nextToken); tokErr != nil {
+		return h.writeError(c, fmt.Errorf("%w: invalid nextToken", ErrValidation))
+	}
+
 	pg := page.New(opts, nextToken, maxResults, mqDefaultPageSize)
 
 	resp := map[string]any{"brokerInstanceOptions": pg.Data}

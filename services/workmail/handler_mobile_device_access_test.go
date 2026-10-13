@@ -277,14 +277,14 @@ func TestMobileDeviceAccessOverrideErrors(t *testing.T) {
 			action:    "GetMobileDeviceAccessOverride",
 			body:      `{"OrganizationId":"org-123456789012","UserId":"nope","DeviceId":"dev-nope"}`,
 			wantCode:  http.StatusBadRequest,
-			wantError: "EntityNotFoundException",
+			wantError: "OrganizationNotFoundException",
 		},
 		{
 			name:      "delete nonexistent override",
 			action:    "DeleteMobileDeviceAccessOverride",
 			body:      `{"OrganizationId":"org-123456789012","UserId":"nope","DeviceId":"dev-nope"}`,
 			wantCode:  http.StatusBadRequest,
-			wantError: "EntityNotFoundException",
+			wantError: "OrganizationNotFoundException",
 		},
 	}
 

@@ -28,6 +28,10 @@ func (h *Handler) handleBatchDeleteImage(
 	ctx context.Context,
 	in *batchDeleteImageInput,
 ) (*batchDeleteImageOutput, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	deleted, failures, err := h.Backend.BatchDeleteImage(ctx, in.RepositoryName, in.ImageIDs)
 	if err != nil {
 		return nil, err
@@ -86,6 +90,10 @@ func (h *Handler) handleBatchGetImage(
 	ctx context.Context,
 	in *batchGetImageInput,
 ) (*batchGetImageOutput, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	imgs, failures, err := h.Backend.BatchGetImage(ctx, in.RepositoryName, in.ImageIDs)
 	if err != nil {
 		return nil, err
@@ -364,6 +372,10 @@ func (h *Handler) handleListImages(
 	ctx context.Context,
 	in *listImagesInput,
 ) (*listImagesOutput, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	tagStatusFilter := ""
 	imageStatusFilter := ""
 
@@ -435,6 +447,14 @@ type putImageOutput struct {
 }
 
 func (h *Handler) handlePutImage(ctx context.Context, in *putImageInput) (*putImageOutput, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
+	if err := validateJSONObject("imageManifest", in.ImageManifest); err != nil {
+		return nil, err
+	}
+
 	// AWS validates a caller-supplied imageDigest against the digest it computes
 	// from the manifest and rejects a mismatch with ImageDigestDoesNotMatchException,
 	// independent of any backend state (this is pure request validation).
@@ -489,6 +509,10 @@ func (h *Handler) handlePutImageTagMutability(
 	ctx context.Context,
 	in *putImageTagMutabilityInput,
 ) (*putImageTagMutabilityOutput, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	filters := make(
 		[]ImageTagMutabilityExclusionFilter,
 		0,
@@ -611,6 +635,10 @@ func (h *Handler) handleUpdateImageStorageClass(
 	ctx context.Context,
 	in *updateImageStorageClassInput,
 ) (*ImageStorageClassResult, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	return h.Backend.UpdateImageStorageClass(
 		ctx,
 		in.RepositoryName,

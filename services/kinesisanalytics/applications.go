@@ -453,7 +453,7 @@ func (b *InMemoryBackend) CreateApplication(
 	}
 
 	if b.apps.Has(applicationKey(region, name)) {
-		return nil, ErrAlreadyExists
+		return nil, fmt.Errorf("%w: application %s already exists", ErrAlreadyExists, name)
 	}
 
 	now := time.Now().UTC()
@@ -605,19 +605,7 @@ func (b *InMemoryBackend) ListApplications(
 	})
 
 	if exclusiveStart != "" {
-		idx := -1
-
-		for i, a := range all {
-			if a.ApplicationName == exclusiveStart {
-				idx = i
-
-				break
-			}
-		}
-
-		if idx >= 0 {
-			all = all[idx+1:]
-		}
+		all = all[sort.Search(len(all), func(i int) bool { return all[i].ApplicationName > exclusiveStart }):]
 	}
 
 	if len(all) > limit {

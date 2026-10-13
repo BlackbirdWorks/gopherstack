@@ -58,6 +58,19 @@ func (b *InMemoryBackend) newMFASession(pool *UserPool, clientID, username, chal
 	return result
 }
 
+// mfaGateApplies reports whether sign-in must pass an MFA challenge: always for ON, and for
+// OPTIONAL only once the user has enabled a factor via SetUserMFAPreference.
+func mfaGateApplies(pool *UserPool, user *User) bool {
+	switch pool.MfaConfiguration {
+	case "ON":
+		return true
+	case "OPTIONAL":
+		return user.PreferredMfaSetting != "" || len(user.UserMFASettingList) > 0
+	default:
+		return false
+	}
+}
+
 // mfaChallengeType returns the challenge type to use given pool config and user preference.
 // A user with no configured preference and no previously verified software token has no MFA
 // factor to challenge for at all -- real Cognito returns MFA_SETUP in that case (InitiateAuth
@@ -82,7 +95,9 @@ func mfaChallengeType(_ *UserPool, user *User) string {
 // generated when the challenge session was created (see newMFASession). A wrong code
 // returns CodeMismatchException without consuming the session, so the caller may retry
 // until the session expires — matching real Cognito.
-func (b *InMemoryBackend) RespondToMFAChallenge(clientID, session, code string) (*TokenResult, error) {
+func (b *InMemoryBackend) RespondToMFAChallenge(
+	clientID, session, code string, meta ...ClientMetadata,
+) (*TokenResult, error) {
 	b.mu.Lock("RespondToMFAChallenge")
 	defer b.mu.Unlock()
 
@@ -129,7 +144,7 @@ func (b *InMemoryBackend) RespondToMFAChallenge(clientID, session, code string) 
 	// Consume the session (one-time use).
 	delete(b.mfaSessions, session)
 
-	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication)
+	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication, firstMetadata(meta))
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +319,9 @@ func (b *InMemoryBackend) VerifySoftwareToken(accessToken, session, userCode str
 // via AssociateSoftwareToken/VerifySoftwareToken first. On success it records
 // SOFTWARE_TOKEN_MFA as the user's MFA preference (the only factor this backend's MFA_SETUP
 // path can establish) and issues tokens.
-func (b *InMemoryBackend) RespondToMFASetupChallenge(clientID, session string) (*TokenResult, error) {
+func (b *InMemoryBackend) RespondToMFASetupChallenge(
+	clientID, session string, meta ...ClientMetadata,
+) (*TokenResult, error) {
 	b.mu.Lock("RespondToMFASetupChallenge")
 	defer b.mu.Unlock()
 
@@ -350,7 +367,7 @@ func (b *InMemoryBackend) RespondToMFASetupChallenge(clientID, session string) (
 
 	delete(b.mfaSessions, session)
 
-	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication)
+	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication, firstMetadata(meta))
 	if err != nil {
 		return nil, err
 	}

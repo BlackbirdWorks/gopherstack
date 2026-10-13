@@ -43,6 +43,11 @@ func (b *InMemoryBackend) CreateModelCopyJobWithKey(
 	b.mu.Lock("CreateModelCopyJob")
 	defer b.mu.Unlock()
 
+	kmsARN, kmsErr := b.kmsARN(modelKmsKeyID)
+	if kmsErr != nil {
+		return nil, kmsErr
+	}
+
 	b.copyJobCounter++
 	id := fmt.Sprintf("mcj-%07d", b.copyJobCounter)
 	jobARN := arn.Build("bedrock", b.region, b.accountID, "model-copy-job/"+id)
@@ -54,7 +59,7 @@ func (b *InMemoryBackend) CreateModelCopyJobWithKey(
 		SourceModelArn:       sourceModelARN,
 		TargetModelArn:       targetModelARN,
 		TargetModelName:      targetModelName,
-		TargetModelKmsKeyArn: kmsKeyARN(b.region, b.accountID, modelKmsKeyID),
+		TargetModelKmsKeyArn: kmsARN,
 		Status:               statusInProgress,
 		CreationTime:         now,
 		LastModifiedTime:     now,
@@ -177,7 +182,7 @@ func (b *InMemoryBackend) AdvanceCopyImportJobStatuses(minAge time.Duration) int
 	for _, job := range b.modelImportJobs.All() {
 		if job.Status == statusInProgress && now.Sub(job.CreationTime) >= minAge {
 			endTime := now
-			job.Status = "Complete"
+			job.Status = statusCompleted
 			job.LastModifiedTime = now
 			job.EndTime = &endTime
 			advanced++

@@ -64,6 +64,9 @@ func (b *InMemoryBackend) realRoute(
 			return realCall{}, false, nil
 		}
 
+		// Counts the statement as cluster activity; the result is irrelevant to a held transaction.
+		_, _ = re.resolver.DataAPITarget(resourceARN)
+
 		if !b.touchRealTx(region, txID) {
 			return realCall{}, true, errTxNotFound(txID)
 		}

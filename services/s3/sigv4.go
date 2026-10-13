@@ -155,6 +155,13 @@ func (h *S3Handler) resolveSigningSecret(
 		return "", false
 	}
 
+	if h.Backend.ExpressSessionReadOnly(scope.accessKeyID) && r.Method != http.MethodGet &&
+		r.Method != http.MethodHead {
+		WriteError(ctx, w, r, ErrAccessDenied)
+
+		return "", false
+	}
+
 	return secret, true
 }
 

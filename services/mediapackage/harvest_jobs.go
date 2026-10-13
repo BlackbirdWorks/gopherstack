@@ -81,10 +81,11 @@ func (b *InMemoryBackend) CreateHarvestJob(
 		StartTime: startTime,
 		Status:    harvestJobStatusInProgress,
 	}
+	job.CompletesAt = b.now().Add(b.harvestDuration)
 
 	b.harvestJobs.Put(job)
 
-	return job.toHarvestJob(), nil
+	return job.toHarvestJob(b.now()), nil
 }
 
 // DescribeHarvestJob returns a harvest job by ID.
@@ -97,7 +98,7 @@ func (b *InMemoryBackend) DescribeHarvestJob(id string) (*HarvestJob, error) {
 		return nil, fmt.Errorf("%w: harvest job %q not found", ErrNotFound, id)
 	}
 
-	return job.toHarvestJob(), nil
+	return job.toHarvestJob(b.now()), nil
 }
 
 // ListHarvestJobs returns a paginated list of harvest jobs, optionally filtered by channel or status.
@@ -128,7 +129,7 @@ func (b *InMemoryBackend) ListHarvestJobs(
 
 	jobs := make([]*HarvestJob, 0, len(p.Data))
 	for _, job := range p.Data {
-		jobs = append(jobs, job.toHarvestJob())
+		jobs = append(jobs, job.toHarvestJob(b.now()))
 	}
 
 	return jobs, p.Next, nil

@@ -127,9 +127,10 @@ func (h *Handler) handleDescribeTargetHealth(vals url.Values) (any, error) {
 				filtered = append(filtered, registered)
 			} else {
 				filtered = append(filtered, TargetHealthDescription{
-					Target:       rt,
-					HealthState:  "unused",
-					HealthReason: "Target.NotRegistered",
+					Target:            rt,
+					HealthState:       healthStateUnused,
+					HealthReason:      reasonNotRegistered,
+					HealthDescription: healthDescriptionFor(reasonNotRegistered, ""),
 				})
 			}
 		}
@@ -153,8 +154,9 @@ func (h *Handler) handleDescribeTargetHealth(vals url.Values) (any, error) {
 				QuicServerID:     t.Target.QuicServerID,
 			},
 			TargetHealth: xmlTargetHealth{
-				State:  t.HealthState,
-				Reason: t.HealthReason,
+				State:       t.HealthState,
+				Reason:      t.HealthReason,
+				Description: t.HealthDescription,
 			},
 		}
 

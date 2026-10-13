@@ -753,10 +753,8 @@ func basepathSpec(specBasePath string) string {
 
 // TestImportAPI_Basepath_RouteKeyTransforms proves the route key each
 // basepath mode produces for a spec whose declared base path is "/v1", and
-// for a spec with no declared base path at all. "split" is documented
-// (applyOpenAPIToAPI) as unimplemented -- api_op_ImportApi.go:37-41 names it
-// as a valid value but does not define its transformation -- so it is
-// expected to behave like "ignore" here, not like "prepend".
+// for a spec with no declared base path at all. "split" drops the top-most
+// base-path segment (api-gateway-import-api-basePath.html).
 func TestImportAPI_Basepath_RouteKeyTransforms(t *testing.T) {
 	t.Parallel()
 
@@ -774,6 +772,8 @@ func TestImportAPI_Basepath_RouteKeyTransforms(t *testing.T) {
 		{name: "prepend_without_basepath", basepath: "prepend", specBasePath: "", wantRouteKey: "GET /pets"},
 		{name: "split_with_basepath", basepath: "split", specBasePath: "/v1", wantRouteKey: "GET /pets"},
 		{name: "split_without_basepath", basepath: "split", specBasePath: "", wantRouteKey: "GET /pets"},
+		{name: "split_multi_segment", basepath: "split", specBasePath: "/a/b/c", wantRouteKey: "GET /b/c/pets"},
+		{name: "prepend_multi_segment", basepath: "prepend", specBasePath: "/a/b/c", wantRouteKey: "GET /a/b/c/pets"},
 	}
 
 	for _, tt := range tests {
@@ -822,6 +822,7 @@ func TestReimportAPI_Basepath_RouteKeyTransforms(t *testing.T) {
 		{name: "prepend_with_basepath", basepath: "prepend", specBasePath: "/v1", wantRouteKey: "GET /v1/pets"},
 		{name: "prepend_without_basepath", basepath: "prepend", specBasePath: "", wantRouteKey: "GET /pets"},
 		{name: "split_with_basepath", basepath: "split", specBasePath: "/v1", wantRouteKey: "GET /pets"},
+		{name: "split_multi_segment", basepath: "split", specBasePath: "/a/b", wantRouteKey: "GET /b/pets"},
 	}
 
 	for _, tt := range tests {
@@ -848,6 +849,58 @@ func TestReimportAPI_Basepath_RouteKeyTransforms(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &routes))
 			require.Len(t, routes.Items, 1)
 			assert.Equal(t, tt.wantRouteKey, routes.Items[0].RouteKey)
+		})
+	}
+}
+
+func TestImportAPI_FailOnWarnings(t *testing.T) {
+	t.Parallel()
+
+	spec := func(integrationType string) string {
+		return `{"openapi":"3.0.1","info":{"title":"w"},"paths":{"/pets":{"get":{"x-amazon-apigateway-integration":` +
+			`{"type":"` + integrationType + `","httpMethod":"POST","uri":"arn:aws:lambda:us-east-1:123456789012:function:f",` +
+			`"payloadFormatVersion":"1.0"}}}}}`
+	}
+
+	tests := []struct {
+		name            string
+		integrationType string
+		query           string
+		wantStatus      int
+		wantAPIs        int
+	}{
+		{
+			name:            "warning fails import",
+			integrationType: "aws",
+			query:           "?failOnWarnings=true",
+			wantStatus:      http.StatusBadRequest,
+		},
+		{name: "warning ignored by default", integrationType: "aws", wantStatus: http.StatusCreated, wantAPIs: 1},
+		{
+			name:            "proxy has no warning",
+			integrationType: "aws_proxy",
+			query:           "?failOnWarnings=true",
+			wantStatus:      http.StatusCreated,
+			wantAPIs:        1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rr := doRequest(t, h, http.MethodPut, "/v2/apis"+tt.query, map[string]any{"body": spec(tt.integrationType)})
+			assert.Equal(t, tt.wantStatus, rr.Code)
+
+			rr = doRequest(t, h, http.MethodGet, "/v2/apis", nil)
+			require.Equal(t, http.StatusOK, rr.Code)
+
+			var apis struct {
+				Items []apigatewayv2.API `json:"items"`
+			}
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &apis))
+			assert.Len(t, apis.Items, tt.wantAPIs)
 		})
 	}
 }

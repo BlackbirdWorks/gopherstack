@@ -33,7 +33,7 @@ func (b *InMemoryBackend) StartResourceGroupingRecommendationTask(appArn string)
 // scheduleGroupingTask transitions a grouping task Pending -> Success. No
 // recommendations are ever generated (see PARITY.md).
 func (b *InMemoryBackend) scheduleGroupingTask(groupingID string) {
-	b.work.After("GroupingTask", asyncTransitionDelay, func() {
+	b.work.After("GroupingTask", b.transitionDelay(), func() {
 		b.mu.Lock("GroupingTask-async")
 		defer b.mu.Unlock()
 

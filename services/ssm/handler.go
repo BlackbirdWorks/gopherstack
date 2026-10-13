@@ -311,6 +311,8 @@ func classifySSMError(reqErr error) (string, int) {
 	switch {
 	case errors.Is(reqErr, ErrParameterVersionNotFound):
 		return "ParameterVersionNotFound", statusCode
+	case errors.Is(reqErr, ErrParameterLabelLimitExceeded):
+		return "ParameterVersionLabelLimitExceeded", statusCode
 	case errors.Is(reqErr, ErrParameterNotFound):
 		return "ParameterNotFound", statusCode
 	case errors.Is(reqErr, ErrParameterAlreadyExists):
@@ -327,6 +329,8 @@ func classifySSMError(reqErr error) (string, int) {
 		return "InvalidCommandId", statusCode
 	case errors.Is(reqErr, ErrValidationException):
 		return "ValidationException", statusCode
+	case errors.Is(reqErr, ErrSecretAccessDenied):
+		return "AccessDeniedException", statusCode
 	case errors.Is(reqErr, ErrHierarchyLevelLimitExceeded):
 		return "HierarchyLevelLimitExceededException", statusCode
 	case errors.Is(reqErr, ErrParameterMaxVersionLimitExceeded):
@@ -373,8 +377,13 @@ func classifySSMResourcePolicyError(reqErr error) (string, int, bool) {
 // classifySSMDocumentError handles the DeleteDocument-still-shared error,
 // split out for the same cyclop-budget reason as classifySSMResourceDataSyncError.
 func classifySSMDocumentError(reqErr error) (string, int, bool) {
-	if errors.Is(reqErr, ErrDocumentStillShared) {
+	switch {
+	case errors.Is(reqErr, ErrDocumentStillShared):
 		return "InvalidDocumentOperation", http.StatusBadRequest, true
+	case errors.Is(reqErr, ErrInvalidDocumentContent):
+		return "InvalidDocumentContent", http.StatusBadRequest, true
+	case errors.Is(reqErr, ErrDuplicateDocumentContent):
+		return "DuplicateDocumentContent", http.StatusBadRequest, true
 	}
 
 	return "", 0, false
@@ -432,6 +441,10 @@ func classifySSMResourceIdentityError(reqErr error) (string, int, bool) {
 		return "InvalidActivationId", statusCode, true
 	case errors.Is(reqErr, ErrInvalidResourceID):
 		return "InvalidResourceId", statusCode, true
+	case errors.Is(reqErr, ErrInvalidTypeName):
+		return "InvalidTypeNameException", statusCode, true
+	case errors.Is(reqErr, ErrUnsupportedInventorySchemaVersion):
+		return "UnsupportedInventorySchemaVersionException", statusCode, true
 	default:
 		return "", 0, false
 	}
@@ -459,6 +472,14 @@ func classifySSMParameterValidationError(reqErr error) (string, int, bool) {
 // group of sentinels it handles, or ("", 0, false) otherwise.
 type ssmErrorClassifier func(error) (string, int, bool)
 
+func classifySSMCommandError(reqErr error) (string, int, bool) {
+	if errors.Is(reqErr, ErrInvalidPluginName) {
+		return "InvalidPluginName", http.StatusBadRequest, true
+	}
+
+	return "", 0, false
+}
+
 func classifySSMErrorExtended(reqErr error) (string, int) {
 	statusCode := http.StatusBadRequest
 
@@ -475,6 +496,7 @@ func classifySSMErrorExtended(reqErr error) (string, int) {
 		classifySSMMiscNotFoundError,
 		classifySSMResourceIdentityError,
 		classifySSMPagingError,
+		classifySSMCommandError,
 	}
 
 	for _, classify := range classifiers {

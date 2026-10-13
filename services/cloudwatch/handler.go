@@ -196,7 +196,9 @@ func (h *Handler) startJanitor(ctx context.Context) {
 		return
 	}
 
-	go NewJanitor(bk).Run(jctx)
+	wait := NewJanitor(bk).Start(jctx)
+
+	go wait()
 }
 
 func (h *Handler) stopJanitor() {
@@ -508,7 +510,15 @@ func (h *Handler) handleTargetRequest(c *echo.Context, r *http.Request) (bool, e
 
 	body, err := httputils.ReadBody(r)
 	if err != nil {
+		if isJSONTargetRequest(r) {
+			return true, writeJSONError(c, http.StatusBadRequest, "SerializationException", "cannot read body")
+		}
+
 		return true, h.cborError(c, http.StatusBadRequest, "SerializationException", "cannot read body")
+	}
+
+	if isJSONTargetRequest(r) {
+		return true, h.dispatchJSONTarget(target, body, c)
 	}
 
 	if len(body) == 0 {
@@ -758,10 +768,19 @@ func (h *Handler) handleUntagResource(form url.Values, c *echo.Context) error {
 	return writeXML(c, untagResourceResp{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }
 
+func faultType(status int) string {
+	if status >= http.StatusInternalServerError {
+		return "Receiver"
+	}
+
+	return "Sender"
+}
+
 // xmlError writes an XML error response.
 func (h *Handler) xmlError(c *echo.Context, status int, code, message string) error {
 	type xmlErrorBody struct {
 		XMLName   xml.Name `xml:"ErrorResponse"`
+		Type      string   `xml:"Error>Type"`
 		Code      string   `xml:"Error>Code"`
 		Message   string   `xml:"Error>Message"`
 		RequestID string   `xml:"RequestId"`
@@ -770,7 +789,14 @@ func (h *Handler) xmlError(c *echo.Context, status int, code, message string) er
 	w.Header().Set("Content-Type", "text/xml")
 	w.WriteHeader(status)
 	enc := xml.NewEncoder(w)
-	_ = enc.Encode(xmlErrorBody{Code: code, Message: message, RequestID: uuid.New().String()})
+	_ = enc.Encode(
+		xmlErrorBody{
+			Type:      faultType(status),
+			Code:      code,
+			Message:   stripCodePrefix(message),
+			RequestID: uuid.New().String(),
+		},
+	)
 
 	return nil
 }

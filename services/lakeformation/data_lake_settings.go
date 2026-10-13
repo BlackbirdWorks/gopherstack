@@ -22,6 +22,27 @@ func (b *InMemoryBackend) PutDataLakeSettings(settings *DataLakeSettings) {
 	b.dataLakeSettings = copyDataLakeSettings(settings)
 }
 
+// GetDataLakeSettingsForCatalog returns the settings of a catalog other than
+// the caller's own; a catalog nothing was put to reads as empty settings.
+func (b *InMemoryBackend) GetDataLakeSettingsForCatalog(catalogID string) *DataLakeSettings {
+	b.mu.RLock("GetDataLakeSettings")
+	defer b.mu.RUnlock()
+
+	if s, ok := b.catalogSettings[catalogID]; ok {
+		return copyDataLakeSettings(s)
+	}
+
+	return &DataLakeSettings{}
+}
+
+// PutDataLakeSettingsForCatalog replaces the settings of a catalog other than the caller's own.
+func (b *InMemoryBackend) PutDataLakeSettingsForCatalog(catalogID string, settings *DataLakeSettings) {
+	b.mu.Lock("PutDataLakeSettings")
+	defer b.mu.Unlock()
+
+	b.catalogSettings[catalogID] = copyDataLakeSettings(settings)
+}
+
 // copyDataLakeSettings returns a deep copy of the DataLakeSettings.
 func copyDataLakeSettings(s *DataLakeSettings) *DataLakeSettings {
 	if s == nil {

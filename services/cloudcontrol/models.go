@@ -7,6 +7,7 @@ import (
 
 const (
 	opStatusSuccess        = "SUCCESS"
+	opStatusInProgress     = "IN_PROGRESS"
 	opStatusCancelComplete = "CANCEL_COMPLETE"
 )
 
@@ -46,6 +47,7 @@ type Resource struct {
 
 // ProgressEvent represents the status of a CloudControl resource operation.
 type ProgressEvent struct {
+	settleAt time.Time
 	// EventTime and RetryAfter are epoch-seconds numbers on the wire, per the
 	// real SDK's awsAwsjson10_deserializeDocumentProgressEvent (ParseEpochSeconds),
 	// not ISO8601 strings. RetryAfter uses a pointer wrapper since it is unset

@@ -87,6 +87,7 @@ func (h *Handler) handleCreateAutoScalingGroup(vals url.Values) (any, error) {
 
 	input := CreateAutoScalingGroupInput{
 		AutoScalingGroupName:             name,
+		InstanceID:                       vals.Get("InstanceId"),
 		ServiceLinkedRoleARN:             vals.Get("ServiceLinkedRoleARN"),
 		LaunchConfigurationName:          lcName,
 		LaunchTemplate:                   lt,
@@ -106,6 +107,7 @@ func (h *Handler) handleCreateAutoScalingGroup(vals url.Values) (any, error) {
 		NewInstancesProtectedFromScaleIn: vals.Get("NewInstancesProtectedFromScaleIn") == formValueTrue,
 		CapacityRebalance:                vals.Get("CapacityRebalance") == formValueTrue,
 		AvailabilityZones:                azs,
+		AvailabilityZoneIDs:              parseMembers(vals, "AvailabilityZoneIds.member"),
 		LoadBalancerNames:                lbNames,
 		TargetGroupARNs:                  targetGroupARNs,
 		TrafficSources:                   trafficSources,
@@ -119,6 +121,10 @@ func (h *Handler) handleCreateAutoScalingGroup(vals url.Values) (any, error) {
 		InstanceLifecyclePolicy:          parseInstanceLifecyclePolicy(vals),
 		InstanceMaintenancePolicy:        parseInstanceMaintenancePolicy(vals),
 		SkipZonalShiftValidation:         vals.Get("SkipZonalShiftValidation") == formValueTrue,
+	}
+
+	if err = h.requireLaunchConfiguration(input); err != nil {
+		return nil, err
 	}
 
 	_, createErr := h.Backend.CreateAutoScalingGroup(input)
@@ -163,15 +169,17 @@ func (h *Handler) handleDescribeAutoScalingGroups(vals url.Values) (any, error) 
 	// Apply NextToken cursor (base64-encoded last group name)
 	nextToken := vals.Get("NextToken")
 	if nextToken != "" {
-		if decoded, decErr := base64.StdEncoding.DecodeString(nextToken); decErr == nil {
-			lastName := string(decoded)
-			// Skip groups up to and including lastName
-			for i, g := range groups {
-				if g.AutoScalingGroupName == lastName {
-					groups = groups[i+1:]
+		decoded, decErr := base64.StdEncoding.DecodeString(nextToken)
+		if decErr != nil {
+			return nil, ErrInvalidNextToken
+		}
 
-					break
-				}
+		lastName := string(decoded)
+		for i, g := range groups {
+			if g.AutoScalingGroupName == lastName {
+				groups = groups[i+1:]
+
+				break
 			}
 		}
 	}
@@ -217,6 +225,7 @@ func (h *Handler) handleUpdateAutoScalingGroup(vals url.Values) (any, error) {
 		DesiredCapacityType:              formStringOrNil(vals, "DesiredCapacityType"),
 		DeletionProtection:               vals.Get("DeletionProtection"),
 		AvailabilityZones:                parseMembers(vals, "AvailabilityZones.member"),
+		AvailabilityZoneIDs:              parseMembers(vals, "AvailabilityZoneIds.member"),
 		TerminationPolicies:              parseMembers(vals, "TerminationPolicies.member"),
 		LaunchTemplate:                   parseLaunchTemplate(vals, "LaunchTemplate"),
 		MixedInstancesPolicy:             parseMixedInstancesPolicy(vals),
@@ -407,6 +416,7 @@ func buildXMLGroupLists(g *AutoScalingGroup) xmlGroupLists {
 		instances = append(instances, xmlInstance{
 			InstanceID:              inst.InstanceID,
 			AvailabilityZone:        inst.AvailabilityZone,
+			AvailabilityZoneID:      availabilityZoneID(inst.AvailabilityZone),
 			LifecycleState:          inst.LifecycleState,
 			HealthStatus:            inst.HealthStatus,
 			InstanceType:            inst.InstanceType,
@@ -499,6 +509,7 @@ func toXMLGroup(g *AutoScalingGroup) xmlAutoScalingGroup {
 		CreatedTime:                      g.CreatedTime.UTC().Format(time.RFC3339),
 		Status:                           g.Status,
 		AvailabilityZones:                lists.AvailabilityZones,
+		AvailabilityZoneIDs:              zoneIDList(g.AvailabilityZones),
 		LoadBalancerNames:                lists.LoadBalancerNames,
 		TargetGroupARNs:                  lists.TargetGroupARNs,
 		TrafficSources:                   lists.TrafficSources,
@@ -773,6 +784,7 @@ type xmlTagList struct {
 type xmlInstance struct {
 	InstanceID              string `xml:"InstanceId"`
 	AvailabilityZone        string `xml:"AvailabilityZone"`
+	AvailabilityZoneID      string `xml:"AvailabilityZoneId,omitempty"`
 	LifecycleState          string `xml:"LifecycleState"`
 	HealthStatus            string `xml:"HealthStatus"`
 	InstanceType            string `xml:"InstanceType,omitempty"`
@@ -965,6 +977,7 @@ type xmlAutoScalingGroup struct {
 	CapacityReservationSpecification *xmlCapacityReservationSpec      `xml:"CapacityReservationSpecification,omitempty"`
 	InstanceLifecyclePolicy          *xmlInstanceLifecyclePolicy      `xml:"InstanceLifecyclePolicy,omitempty"`
 	InstanceMaintenancePolicy        *xmlInstanceMaintenancePolicy    `xml:"InstanceMaintenancePolicy,omitempty"`
+	AvailabilityZoneIDs              *xmlStringValueList              `xml:"AvailabilityZoneIds,omitempty"`
 	AutoScalingGroupARN              string                           `xml:"AutoScalingGroupARN"`
 	Status                           string                           `xml:"Status,omitempty"`
 	CreatedTime                      string                           `xml:"CreatedTime"`
@@ -1661,4 +1674,24 @@ type resumeProcessesResponse struct {
 	XMLName          xml.Name            `xml:"ResumeProcessesResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// requireLaunchConfiguration rejects a wire request naming a launch configuration that does not
+// exist; in-process callers (CloudFormation) create the group directly and are not checked.
+func (h *Handler) requireLaunchConfiguration(input CreateAutoScalingGroupInput) error {
+	name := input.LaunchConfigurationName
+	if name == "" || input.LaunchTemplate != nil || input.MixedInstancesPolicy != nil {
+		return nil
+	}
+
+	lcs, err := h.Backend.DescribeLaunchConfigurations([]string{name})
+	if err != nil {
+		return err
+	}
+
+	if len(lcs) == 0 {
+		return fmt.Errorf("%w: %q", ErrLaunchConfigurationNotFound, name)
+	}
+
+	return nil
 }

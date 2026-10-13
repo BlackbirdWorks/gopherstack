@@ -68,24 +68,24 @@ func TestRouteTableOperations(t *testing.T) {
 			case "create_route":
 				rt, err := b.CreateRouteTable("vpc-default")
 				require.NoError(t, err)
-				err = b.CreateRoute(rt.ID, "0.0.0.0/0", "igw-123", "")
+				err = b.CreateRoute(rt.ID, "0.0.0.0/0", attachedIGW(t, b), "")
 				require.NoError(t, err)
 				rts, err := b.DescribeRouteTables([]string{rt.ID})
 				require.NoError(t, err)
 				require.Len(t, rts, 1)
-				assert.Len(t, rts[0].Routes, 1)
+				assert.Len(t, rts[0].Routes, 2)
 
 			case "delete_route":
 				rt, err := b.CreateRouteTable("vpc-default")
 				require.NoError(t, err)
-				err = b.CreateRoute(rt.ID, "0.0.0.0/0", "igw-123", "")
+				err = b.CreateRoute(rt.ID, "0.0.0.0/0", attachedIGW(t, b), "")
 				require.NoError(t, err)
 				err = b.DeleteRoute(rt.ID, "0.0.0.0/0")
 				require.NoError(t, err)
 				rts, err := b.DescribeRouteTables([]string{rt.ID})
 				require.NoError(t, err)
 				require.Len(t, rts, 1)
-				assert.Empty(t, rts[0].Routes)
+				assert.Len(t, rts[0].Routes, 1)
 
 			case "delete_route_not_found":
 				rt, err := b.CreateRouteTable("vpc-default")

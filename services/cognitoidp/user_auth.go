@@ -115,9 +115,9 @@ func userCanUseFirstFactor(user *User, factor string) bool {
 // either negotiate (SELECT_CHALLENGE) or jump straight to the caller's PREFERRED_CHALLENGE.
 // Caller must hold the write lock.
 func (b *InMemoryBackend) initiateUserAuthLocked(
-	pool *UserPool, clientID, username, preferredChallenge string, user *User,
+	pool *UserPool, clientID, username, preferredChallenge string, user *User, cm map[string]string,
 ) (*AuthResult, error) {
-	if err := b.precheckAuthLocked(pool, clientID, authFlowUserAuth, user); err != nil {
+	if err := b.precheckAuthLocked(pool, clientID, authFlowUserAuth, user, cm); err != nil {
 		return nil, err
 	}
 
@@ -144,7 +144,9 @@ func (b *InMemoryBackend) initiateUserAuthLocked(
 }
 
 // InitiateUserAuth begins USER_AUTH choice-based authentication for a non-admin caller.
-func (b *InMemoryBackend) InitiateUserAuth(clientID, username, preferredChallenge string) (*AuthResult, error) {
+func (b *InMemoryBackend) InitiateUserAuth(
+	clientID, username, preferredChallenge string, meta ...ClientMetadata,
+) (*AuthResult, error) {
 	b.mu.Lock("InitiateUserAuth")
 	defer b.mu.Unlock()
 
@@ -158,18 +160,20 @@ func (b *InMemoryBackend) InitiateUserAuth(clientID, username, preferredChalleng
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
 	}
 
+	username = b.resolveLoginNameLocked(pool, username)
+
 	user, ok := b.users.Get(userKey(client.UserPoolID, username))
 	if !ok {
 		return nil, unknownUserAuthError(client, username)
 	}
 
-	return b.initiateUserAuthLocked(pool, clientID, username, preferredChallenge, user)
+	return b.initiateUserAuthLocked(pool, clientID, username, preferredChallenge, user, firstMetadata(meta))
 }
 
 // AdminInitiateUserAuth is AdminInitiateAuth's USER_AUTH entry point: same negotiation as
 // InitiateUserAuth, but resolves the pool directly by ID like every other Admin* auth op.
 func (b *InMemoryBackend) AdminInitiateUserAuth(
-	userPoolID, clientID, username, preferredChallenge string,
+	userPoolID, clientID, username, preferredChallenge string, meta ...ClientMetadata,
 ) (*AuthResult, error) {
 	b.mu.Lock("AdminInitiateUserAuth")
 	defer b.mu.Unlock()
@@ -184,12 +188,14 @@ func (b *InMemoryBackend) AdminInitiateUserAuth(
 		return nil, fmt.Errorf("%w: client %q not found in pool %q", ErrClientNotFound, clientID, userPoolID)
 	}
 
+	username = b.resolveLoginNameLocked(pool, username)
+
 	user, ok := b.users.Get(userKey(userPoolID, username))
 	if !ok {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
-	return b.initiateUserAuthLocked(pool, clientID, username, preferredChallenge, user)
+	return b.initiateUserAuthLocked(pool, clientID, username, preferredChallenge, user, firstMetadata(meta))
 }
 
 // newSelectChallengeSession stores a pending SELECT_CHALLENGE round and returns the
@@ -296,7 +302,7 @@ func (b *InMemoryBackend) RespondToSelectChallenge(clientID, session, answer str
 // rather than issuing tokens directly the way RespondToMFAChallenge does for a second-factor
 // MFA round.
 func (b *InMemoryBackend) RespondToFirstFactorChallenge(
-	clientID, session string, challengeResponses map[string]string,
+	clientID, session string, challengeResponses map[string]string, meta ...ClientMetadata,
 ) (*AuthResult, error) {
 	b.mu.Lock("RespondToFirstFactorChallenge")
 	defer b.mu.Unlock()
@@ -332,7 +338,7 @@ func (b *InMemoryBackend) RespondToFirstFactorChallenge(
 
 	delete(b.mfaSessions, session)
 
-	return b.postCredentialCheckLocked(pool, clientID, user)
+	return b.postCredentialCheckLocked(pool, clientID, user, firstMetadata(meta))
 }
 
 // verifyFirstFactorResponse checks challengeResponses against entry.ChallengeType: PASSWORD

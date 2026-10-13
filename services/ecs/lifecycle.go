@@ -162,6 +162,8 @@ func (b *InMemoryBackend) advanceStopLocked(
 	lc.nextAt = now.Add(b.stopDelay)
 
 	if next != statusStopped {
+		b.emitTaskStateLocked(task)
+
 		return false
 	}
 
@@ -174,6 +176,7 @@ func (b *InMemoryBackend) advanceStopLocked(
 	}
 
 	syncContainerStatuses(task, nil)
+	b.emitTaskStateLocked(task)
 
 	if b.runner != nil {
 		*toStopRunner = append(*toStopRunner, task)
@@ -182,6 +185,7 @@ func (b *InMemoryBackend) advanceStopLocked(
 	b.unindexTaskFromInstance(lc.clusterName, task.ContainerInstanceArn, task.TaskArn)
 	b.taskProtections.Delete(task.TaskArn)
 	b.deregisterTaskFromELBv2Locked(task, lc.clusterName)
+	b.deregisterTaskFromCloudMapLocked(task, lc.clusterName)
 	b.releaseTaskHostPortsLocked(lc.clusterName, task)
 
 	return true
@@ -195,11 +199,13 @@ func (b *InMemoryBackend) advanceStartLocked(task *Task, lc *taskLifecycle, now 
 		task.LastStatus = statusPending
 		lc.phase = statusPending
 		lc.nextAt = now.Add(b.startDelay)
+		b.emitTaskStateLocked(task)
 
 		return false
 	default:
 		task.LastStatus = statusRunning
 		syncContainerStatuses(task, nil)
+		b.emitTaskStateLocked(task)
 
 		if c, _ := b.clusters.Get(lc.clusterName); c != nil {
 			c.PendingTasksCount--
@@ -207,6 +213,7 @@ func (b *InMemoryBackend) advanceStartLocked(task *Task, lc *taskLifecycle, now 
 		}
 
 		b.registerTaskWithELBv2Locked(task, lc.clusterName)
+		b.registerTaskWithCloudMapLocked(task, lc.clusterName)
 
 		return true
 	}

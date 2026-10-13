@@ -36,6 +36,7 @@ type Backend interface {
 	UpdateService(input UpdateServiceInput) (*Service, error)
 	DeleteService(cluster, serviceName string, force ...bool) (*Service, error)
 	ListServices(cluster, launchType, schedulingStrategy string) ([]string, error)
+	ExpressServicesInCluster(cluster string, names []string) []Service
 
 	// Tasks
 
@@ -146,7 +147,7 @@ type Backend interface {
 		serviceDeploymentArns []string,
 	) ([]ServiceDeployment, []Failure, error)
 	ListServiceDeployments(cluster, service string) ([]ServiceDeployment, error)
-	StopServiceDeployment(serviceDeploymentArn string) (*ServiceDeployment, error)
+	StopServiceDeployment(serviceDeploymentArn, stopType string) (*ServiceDeployment, error)
 	ContinueServiceDeployment(serviceDeploymentArn, hookID, action string) (*ServiceDeployment, error)
 
 	// Express gateway services

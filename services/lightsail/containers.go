@@ -65,7 +65,7 @@ func (b *InMemoryBackend) scheduleContainerServiceSteps(
 	schedule = func(i int) {
 		if i >= len(steps) {
 			if onDone != nil {
-				b.work.After("ContainerServiceStepsDone", asyncTransitionDelay, func() {
+				b.work.After("ContainerServiceStepsDone", b.transitionDelay(), func() {
 					onDone(name)
 				})
 			}
@@ -73,7 +73,7 @@ func (b *InMemoryBackend) scheduleContainerServiceSteps(
 			return
 		}
 
-		b.work.After("ContainerServiceTransition", asyncTransitionDelay, func() {
+		b.work.After("ContainerServiceTransition", b.transitionDelay(), func() {
 			b.mu.Lock("ContainerService-async-transition")
 
 			if cs, ok := b.containerServices.Get(name); ok {

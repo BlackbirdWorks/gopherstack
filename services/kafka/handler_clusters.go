@@ -477,7 +477,7 @@ func (h *Handler) handleGetBootstrapBrokers(
 		}
 	}
 
-	return c.JSON(http.StatusOK, bootstrapBrokersFor(cluster))
+	return c.JSON(http.StatusOK, bootstrapBrokersFor(cluster, regionFromARN(clusterArn, "")))
 }
 
 // managedBootstrapper is implemented by backends that run real brokers.
@@ -490,11 +490,26 @@ func managedBrokersFor(servers []string) getBootstrapBrokersOutput {
 	return getBootstrapBrokersOutput{BootstrapBrokerString: strings.Join(servers, ",")}
 }
 
-// bootstrapBrokersFor builds the bootstrap broker response based on cluster auth settings.
-func bootstrapBrokersFor(cl *Cluster) getBootstrapBrokersOutput {
-	out := getBootstrapBrokersOutput{
-		BootstrapBrokerString:    "localhost:9092",
-		BootstrapBrokerStringTLS: "localhost:9094",
+// bootstrapBrokersFor builds the bootstrap broker response from the cluster's
+// broker count, client-broker encryption mode and auth settings.
+func bootstrapBrokersFor(cl *Cluster, region string) getBootstrapBrokersOutput {
+	var out getBootstrapBrokersOutput
+
+	if cl.ClusterType == ClusterTypeServerless {
+		out.BootstrapBrokerStringSaslIam = serverlessBootstrap(cl, region)
+
+		return out
+	}
+
+	b := brokerHosts{cl: cl, region: region}
+	mode := clientBrokerMode(cl)
+
+	if mode == clientBrokerPlaintext || mode == clientBrokerTLSPlaintext {
+		out.BootstrapBrokerString = b.list("", portPlaintext)
+	}
+
+	if mode == clientBrokerTLS || mode == clientBrokerTLSPlaintext {
+		out.BootstrapBrokerStringTLS = b.list("", portTLS)
 	}
 
 	auth := cl.ClientAuthentication
@@ -502,36 +517,91 @@ func bootstrapBrokersFor(cl *Cluster) getBootstrapBrokersOutput {
 		return out
 	}
 
-	addSaslBrokers(auth.Sasl, &out)
+	addSaslBrokers(b, auth.Sasl, &out)
 
 	ci := cl.BrokerNodeGroupInfo.ConnectivityInfo
 	if ci == nil {
 		return out
 	}
 
-	addPublicBrokers(auth, ci.PublicAccess, &out)
-	addVpcConnectivityBrokers(ci.VpcConnectivity, &out)
+	addPublicBrokers(b, auth, ci.PublicAccess, &out)
+	addVpcConnectivityBrokers(b, ci.VpcConnectivity, &out)
 
 	return out
 }
 
+const (
+	clientBrokerTLS          = "TLS"
+	clientBrokerPlaintext    = "PLAINTEXT"
+	clientBrokerTLSPlaintext = "TLS_PLAINTEXT"
+
+	portPlaintext = 9092
+	portTLS       = 9094
+	portScram     = 9096
+	portIam       = 9098
+
+	publicPortOffset = 100
+	vpcPortOffset    = 200
+	dnsIDLen         = 6
+)
+
+// clientBrokerMode returns the in-transit client-broker mode; AWS defaults to TLS.
+func clientBrokerMode(cl *Cluster) string {
+	if cl.EncryptionInfo != nil && cl.EncryptionInfo.EncryptionInTransit != nil &&
+		cl.EncryptionInfo.EncryptionInTransit.ClientBroker != "" {
+		return cl.EncryptionInfo.EncryptionInTransit.ClientBroker
+	}
+
+	return clientBrokerTLS
+}
+
+// brokerHosts renders MSK-style broker DNS names (b-N.<name>.<id>.c2.kafka.<region>.amazonaws.com).
+type brokerHosts struct {
+	cl     *Cluster
+	region string
+}
+
+func clusterDNSID(clusterArn string) string {
+	id := strings.ReplaceAll(clusterArn[strings.LastIndex(clusterArn, "/")+1:], "-", "")
+
+	return id[:min(dnsIDLen, len(id))]
+}
+
+// list returns one host:port per broker; infix is "-public" for public-access names.
+func (b brokerHosts) list(infix string, port int) string {
+	hosts := make([]string, 0, b.cl.NumberOfBrokerNodes)
+	id := clusterDNSID(b.cl.ClusterArn)
+
+	for i := int32(1); i <= b.cl.NumberOfBrokerNodes; i++ {
+		hosts = append(hosts, fmt.Sprintf("b-%d%s.%s.%s.c2.kafka.%s.amazonaws.com:%d",
+			i, infix, b.cl.ClusterName, id, b.region, port))
+	}
+
+	return strings.Join(hosts, ",")
+}
+
+func serverlessBootstrap(cl *Cluster, region string) string {
+	return fmt.Sprintf("boot-%s.c2.kafka-serverless.%s.amazonaws.com:%d", clusterDNSID(cl.ClusterArn), region, portIam)
+}
+
 // addSaslBrokers populates SASL broker endpoints when SASL authentication is configured.
-func addSaslBrokers(sasl *SaslSettings, out *getBootstrapBrokersOutput) {
+func addSaslBrokers(b brokerHosts, sasl *SaslSettings, out *getBootstrapBrokersOutput) {
 	if sasl == nil {
 		return
 	}
 
 	if sasl.Scram != nil && sasl.Scram.Enabled {
-		out.BootstrapBrokerStringSaslScram = "localhost:9096"
+		out.BootstrapBrokerStringSaslScram = b.list("", portScram)
 	}
 
 	if sasl.Iam != nil && sasl.Iam.Enabled {
-		out.BootstrapBrokerStringSaslIam = "localhost:9098"
+		out.BootstrapBrokerStringSaslIam = b.list("", portIam)
 	}
 }
 
 // addPublicBrokers populates public access broker endpoints when public access is enabled.
 func addPublicBrokers(
+	b brokerHosts,
 	auth *ClientAuthentication,
 	pa *PublicAccess,
 	out *getBootstrapBrokersOutput,
@@ -540,23 +610,23 @@ func addPublicBrokers(
 		return
 	}
 
-	out.BootstrapBrokerStringTLSPublic = "localhost:9194"
+	out.BootstrapBrokerStringTLSPublic = b.list("-public", portTLS+publicPortOffset)
 
 	if auth.Sasl == nil {
 		return
 	}
 
 	if auth.Sasl.Scram != nil && auth.Sasl.Scram.Enabled {
-		out.BootstrapBrokerStringSaslScramPublic = "localhost:9196"
+		out.BootstrapBrokerStringSaslScramPublic = b.list("-public", portScram+publicPortOffset)
 	}
 
 	if auth.Sasl.Iam != nil && auth.Sasl.Iam.Enabled {
-		out.BootstrapBrokerStringSaslIamPublic = "localhost:9198"
+		out.BootstrapBrokerStringSaslIamPublic = b.list("-public", portIam+publicPortOffset)
 	}
 }
 
 // addVpcConnectivityBrokers populates VPC connectivity broker endpoints.
-func addVpcConnectivityBrokers(vc *VpcConnectivity, out *getBootstrapBrokersOutput) {
+func addVpcConnectivityBrokers(b brokerHosts, vc *VpcConnectivity, out *getBootstrapBrokersOutput) {
 	if vc == nil || vc.ClientAuthentication == nil {
 		return
 	}
@@ -564,7 +634,7 @@ func addVpcConnectivityBrokers(vc *VpcConnectivity, out *getBootstrapBrokersOutp
 	vca := vc.ClientAuthentication
 
 	if vca.TLS != nil && vca.TLS.Enabled {
-		out.BootstrapBrokerStringVpcConnectivityTLS = "localhost:9294"
+		out.BootstrapBrokerStringVpcConnectivityTLS = b.list("-vpc", portTLS+vpcPortOffset)
 	}
 
 	if vca.Sasl == nil {
@@ -572,11 +642,11 @@ func addVpcConnectivityBrokers(vc *VpcConnectivity, out *getBootstrapBrokersOutp
 	}
 
 	if vca.Sasl.Scram != nil && vca.Sasl.Scram.Enabled {
-		out.BootstrapBrokerStringVpcConnectivityScram = "localhost:9296"
+		out.BootstrapBrokerStringVpcConnectivityScram = b.list("-vpc", portScram+vpcPortOffset)
 	}
 
 	if vca.Sasl.Iam != nil && vca.Sasl.Iam.Enabled {
-		out.BootstrapBrokerStringVpcConnectivityIam = "localhost:9298"
+		out.BootstrapBrokerStringVpcConnectivityIam = b.list("-vpc", portIam+vpcPortOffset)
 	}
 }
 

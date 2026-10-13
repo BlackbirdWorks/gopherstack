@@ -17,7 +17,7 @@ func TestMonitors_EvaluationsAndErrors(t *testing.T) {
 	h := newHandler()
 	predictorARN := createPredictor(t, h)
 	_, created := request(t, h, "CreateMonitor", map[string]any{
-		"MonitorName": "monitor-evaluations", "ResourceArn": predictorARN,
+		"MonitorName": "monitor_evaluations", "ResourceArn": predictorARN,
 	})
 	code, response := request(t, h, "ListMonitorEvaluations", map[string]any{"MonitorArn": created["MonitorArn"]})
 	require.Equal(t, http.StatusOK, code)
@@ -40,7 +40,7 @@ func TestMonitors_Evaluations(t *testing.T) {
 	predictorARN := createPredictor(t, h)
 
 	code, created := request(t, h, "CreateMonitor", map[string]any{
-		"MonitorName": "eval-monitor",
+		"MonitorName": "eval_monitor",
 		"ResourceArn": predictorARN,
 	})
 	require.Equal(t, http.StatusOK, code)

@@ -264,7 +264,7 @@ func (b *InMemoryBackend) GetBucketStatistics(_ string) (map[string]any, error) 
 	var sizeInBytes int64
 
 	permCounts := map[string]int64{"PUBLIC": 0, "NOT_PUBLIC": 0, "UNKNOWN": 0}
-	encCounts := map[string]int64{"AES256": 0, "aws:kms": 0, "NONE": 0}
+	encCounts := map[string]int64{"AES256": 0, "aws:kms": 0, valueNone: 0}
 
 	for _, bkt := range buckets {
 		classifiableObjectCount += bkt.ClassifiableObjectCount
@@ -287,7 +287,7 @@ func (b *InMemoryBackend) GetBucketStatistics(_ string) (map[string]any, error) 
 		case "aws:kms":
 			encCounts["aws:kms"]++
 		default:
-			encCounts["NONE"]++
+			encCounts[valueNone]++
 		}
 	}
 

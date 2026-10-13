@@ -150,6 +150,10 @@ func (h *Handler) handleDeletePullThroughCacheRule(
 	ctx context.Context,
 	in *deletePullThroughCacheRuleInput,
 ) (*deletePullThroughCacheRuleOutput, error) {
+	if err := h.checkRegistryForRule(in.RegistryID, in.EcrRepositoryPrefix); err != nil {
+		return nil, err
+	}
+
 	rule, err := h.Backend.DeletePullThroughCacheRule(ctx, in.EcrRepositoryPrefix)
 	if err != nil {
 		return nil, err
@@ -174,6 +178,10 @@ func (h *Handler) handleUpdatePullThroughCacheRule(
 	ctx context.Context,
 	in *updatePullThroughCacheRuleInput,
 ) (*createPullThroughCacheRuleOutput, error) {
+	if err := h.checkRegistryForRule(in.RegistryID, in.EcrRepositoryPrefix); err != nil {
+		return nil, err
+	}
+
 	rule, err := h.Backend.UpdatePullThroughCacheRule(
 		ctx,
 		in.EcrRepositoryPrefix,
@@ -206,5 +214,9 @@ func (h *Handler) handleValidatePullThroughCacheRule(
 	ctx context.Context,
 	in *validatePullThroughCacheRuleInput,
 ) (*ValidatePullThroughCacheRuleResult, error) {
+	if err := h.checkRegistryForRule(in.RegistryID, in.EcrRepositoryPrefix); err != nil {
+		return nil, err
+	}
+
 	return h.Backend.ValidatePullThroughCacheRule(ctx, in.EcrRepositoryPrefix)
 }

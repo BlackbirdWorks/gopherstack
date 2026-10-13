@@ -14,12 +14,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	tagspkg "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -53,6 +55,7 @@ type Handler struct {
 	// Falls back to context.Background until StartWorker has run.
 	svcCtx    context.Context
 	peers     *regionpeers.Set[Handler]
+	imds      *imdsService
 	stop      context.CancelFunc
 	AccountID string `json:"accountID,omitempty"`
 	Region    string `json:"region,omitempty"`
@@ -61,7 +64,7 @@ type Handler struct {
 // NewHandler creates a new EC2 handler with the given backend.
 // The dispatch table is built once and cached in h.ops.
 func NewHandler(backend Backend) *Handler {
-	h := &Handler{Backend: backend, svcCtx: context.Background()}
+	h := &Handler{Backend: backend, svcCtx: context.Background(), imds: newIMDSService()}
 	h.ops = h.buildOps()
 
 	return h
@@ -694,6 +697,7 @@ var errCodeLookup = []struct {
 	{ErrVPCNotFound, "InvalidVpcID.NotFound"},
 	{ErrSubnetNotFound, "InvalidSubnetID.NotFound"},
 	{ErrDuplicateSGName, "InvalidGroup.Duplicate"},
+	{ErrResourceIDInUse, errCodeInvalidParameterValue},
 	{ErrKeyPairNotFound, "InvalidKeyPair.NotFound"},
 	{ErrDuplicateKeyPairName, "InvalidKeyPair.Duplicate"},
 	{ErrVolumeNotFound, "InvalidVolume.NotFound"},
@@ -706,6 +710,8 @@ var errCodeLookup = []struct {
 	{ErrRouteTableNotFound, "InvalidRouteTableID.NotFound"},
 	{ErrNatGatewayNotFound, "InvalidNatGatewayID.NotFound"},
 	{ErrRouteNotFound, "InvalidRoute.NotFound"},
+	{ErrRouteAlreadyExists, "RouteAlreadyExists"},
+	{ErrGatewayIDNotFound, "InvalidGatewayID.NotFound"},
 	{ErrAssociationNotFound, errCodeInvalidAssociationIDNotFound},
 	{ErrNetworkInterfaceNotFound, "InvalidNetworkInterfaceID.NotFound"},
 	{ErrNetworkInterfaceInUse, "InvalidNetworkInterfaceID.InUse"},
@@ -728,7 +734,14 @@ var errCodeLookup = []struct {
 	{ErrHostNotFound, "InvalidHostID.NotFound"},
 	{ErrInstanceEventWindowNotFound, "InvalidInstanceEventWindowId.NotFound"},
 	{ErrSubnetCIDRConflict, "InvalidSubnet.Conflict"},
+	{ErrSubnetRange, "InvalidSubnet.Range"},
 	{ErrVpcCIDRRange, "InvalidVpc.Range"},
+	{ErrInvalidVpcRange, "InvalidVpcRange"},
+	{ErrInvalidZone, "InvalidZone.NotFound"},
+	{ErrTagLimitExceeded, "TagLimitExceeded"},
+	{ErrMalformedVPCID, "InvalidVpcID.Malformed"},
+	{ErrMalformedInstanceID, "InvalidInstanceID.Malformed"},
+	{ErrMalformedAMIID, "InvalidAMIID.Malformed"},
 	{ErrClientVpnEndpointNotFound, "InvalidClientVpnEndpointId.NotFound"},
 	{ErrTrafficMirrorFilterNotFound, "InvalidTrafficMirrorFilterId.NotFound"},
 	{ErrTrafficMirrorFilterRuleNotFound, "InvalidTrafficMirrorFilterRuleId.NotFound"},
@@ -905,7 +918,7 @@ func (h *Handler) handleOpError(c *echo.Context, reqID, action string, opErr err
 			Error("EC2 internal error", "error", opErr, "action", action)
 	}
 
-	return h.writeError(c, reqID, statusCode, code, opErr.Error())
+	return h.writeError(c, reqID, statusCode, code, errorMessage(code, opErr.Error()))
 }
 
 func (h *Handler) writeError(
@@ -916,7 +929,7 @@ func (h *Handler) writeError(
 ) error {
 	errResp := &ec2ErrorResponse{
 		XMLName:   xml.Name{Local: "Response"},
-		Errors:    ec2ErrorsWrapper{Error: ec2Error{Code: code, Message: message}},
+		Errors:    ec2ErrorsWrapper{Error: ec2Error{Code: code, Message: awserr.StripCode(code, message)}},
 		RequestID: reqID,
 	}
 
@@ -1097,6 +1110,10 @@ func parseTagSpecification(vals url.Values, resourceType string) map[string]stri
 			key := vals.Get(fmt.Sprintf("TagSpecification.%d.Tag.%d.Key", i, j))
 			if key == "" {
 				break
+			}
+
+			if tagspkg.IsPinnedIDKey(key) {
+				continue
 			}
 
 			tags[key] = vals.Get(fmt.Sprintf("TagSpecification.%d.Tag.%d.Value", i, j))

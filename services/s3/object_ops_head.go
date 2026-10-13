@@ -22,6 +22,11 @@ func (h *S3Handler) headObject(
 ) {
 	h.setOperation(ctx, "HeadObject")
 
+	bucketName, handled := h.routeObjectLambda(ctx, w, r, bucketName, key, objectLambdaActionHeadObject)
+	if handled {
+		return
+	}
+
 	if err := validateExpectedBucketOwner(r); err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -123,6 +128,9 @@ func (h *S3Handler) writeHeadObjectResponse(
 		ChecksumSHA1:              out.ChecksumSHA1,
 		ChecksumSHA256:            out.ChecksumSHA256,
 		ChecksumCRC64NVME:         out.ChecksumCRC64NVME,
+		ChecksumMD5:               out.ChecksumMD5,
+		ChecksumSHA512:            out.ChecksumSHA512,
+		ChecksumType:              string(out.ChecksumType),
 		SSEAlgorithm:              string(out.ServerSideEncryption),
 		SSEKMSKeyID:               aws.ToString(out.SSEKMSKeyId),
 		SSECAlgorithm:             aws.ToString(out.SSECustomerAlgorithm),
@@ -181,6 +189,8 @@ type objectPartElem struct {
 	ChecksumCRC32     string `xml:"ChecksumCRC32,omitempty"`
 	ChecksumCRC32C    string `xml:"ChecksumCRC32C,omitempty"`
 	ChecksumCRC64NVME string `xml:"ChecksumCRC64NVME,omitempty"`
+	ChecksumMD5       string `xml:"ChecksumMD5,omitempty"`
+	ChecksumSHA512    string `xml:"ChecksumSHA512,omitempty"`
 	ChecksumSHA1      string `xml:"ChecksumSHA1,omitempty"`
 	ChecksumSHA256    string `xml:"ChecksumSHA256,omitempty"`
 	PartNumber        int32  `xml:"PartNumber"`
@@ -191,8 +201,11 @@ type attrsChecksumElem struct {
 	ChecksumCRC32     string `xml:"ChecksumCRC32,omitempty"`
 	ChecksumCRC32C    string `xml:"ChecksumCRC32C,omitempty"`
 	ChecksumCRC64NVME string `xml:"ChecksumCRC64NVME,omitempty"`
+	ChecksumMD5       string `xml:"ChecksumMD5,omitempty"`
+	ChecksumSHA512    string `xml:"ChecksumSHA512,omitempty"`
 	ChecksumSHA1      string `xml:"ChecksumSHA1,omitempty"`
 	ChecksumSHA256    string `xml:"ChecksumSHA256,omitempty"`
+	ChecksumType      string `xml:"ChecksumType,omitempty"`
 }
 
 func buildAttrsChecksumElem(checksum map[string]string) *attrsChecksumElem {
@@ -204,8 +217,11 @@ func buildAttrsChecksumElem(checksum map[string]string) *attrsChecksumElem {
 		ChecksumCRC32:     checksum["ChecksumCRC32"],
 		ChecksumCRC32C:    checksum["ChecksumCRC32C"],
 		ChecksumCRC64NVME: checksum["ChecksumCRC64NVME"],
+		ChecksumMD5:       checksum["ChecksumMD5"],
+		ChecksumSHA512:    checksum["ChecksumSHA512"],
 		ChecksumSHA1:      checksum["ChecksumSHA1"],
 		ChecksumSHA256:    checksum["ChecksumSHA256"],
+		ChecksumType:      checksum["ChecksumType"],
 	}
 }
 
@@ -243,6 +259,12 @@ func buildObjectPartElem(p StoredObjectPart) objectPartElem {
 	}
 	if p.ChecksumCRC64NVME != nil {
 		pe.ChecksumCRC64NVME = *p.ChecksumCRC64NVME
+	}
+	if p.ChecksumMD5 != nil {
+		pe.ChecksumMD5 = *p.ChecksumMD5
+	}
+	if p.ChecksumSHA512 != nil {
+		pe.ChecksumSHA512 = *p.ChecksumSHA512
 	}
 	if p.ChecksumSHA1 != nil {
 		pe.ChecksumSHA1 = *p.ChecksumSHA1

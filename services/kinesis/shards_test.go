@@ -66,7 +66,7 @@ func TestListShards_NextTokenStreamNameMutuallyExclusive(t *testing.T) {
 				Type string `json:"__type"`
 			}
 			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errResp))
-			assert.Equal(t, "ValidationException", errResp.Type)
+			assert.Equal(t, "InvalidArgumentException", errResp.Type)
 		})
 	}
 }

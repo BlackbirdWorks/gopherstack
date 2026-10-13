@@ -489,6 +489,12 @@ func (h *Handler) handleDescribePipeline(ctx context.Context, body []byte) ([]by
 	if !lastRunTime.IsZero() {
 		resp["LastRunTime"] = epochSeconds(lastRunTime)
 	}
+	if p.CreatedBy != nil {
+		resp["CreatedBy"] = p.CreatedBy
+	}
+	if p.LastModifiedBy != nil {
+		resp["LastModifiedBy"] = p.LastModifiedBy
+	}
 
 	if version != nil {
 		if version.PipelineVersionDescription != "" {

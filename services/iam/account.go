@@ -496,6 +496,7 @@ func (b *InMemoryBackend) CreateDelegationRequest(in CreateDelegationRequestInpu
 	req := DelegationRequest{
 		DelegationID:         delegationID,
 		TargetAccountID:      in.OwnerAccountID,
+		RequestorID:          in.RequestorID,
 		Status:               initialStatus,
 		CreateDate:           time.Now().UTC(),
 		Description:          in.Description,
@@ -539,13 +540,11 @@ func (b *InMemoryBackend) GetDelegationRequest(delegationID string) (*Delegation
 	return req, nil
 }
 
-// ListDelegationRequests returns a paginated list of all stored delegation
-// requests. Real ListDelegationRequestsInput also carries an optional OwnerId
-// filter, but gopherstack has no caller-identity plumbing to ever populate a
-// request's owner identity (same disclosed gap as AssociateDelegationRequest
-// above), so no stored request would ever match a real OwnerId and the
-// filter is not applied here.
-func (b *InMemoryBackend) ListDelegationRequests(marker string, maxItems int) (page.Page[DelegationRequest], error) {
+// ListDelegationRequests returns a paginated list of stored delegation requests,
+// restricted to those owned by ownerID when it is non-empty.
+func (b *InMemoryBackend) ListDelegationRequests(
+	marker string, maxItems int, ownerID string,
+) (page.Page[DelegationRequest], error) {
 	b.mu.RLock("ListDelegationRequests")
 	defer b.mu.RUnlock()
 
@@ -553,7 +552,9 @@ func (b *InMemoryBackend) ListDelegationRequests(marker string, maxItems int) (p
 	reqs := make([]DelegationRequest, 0, len(all))
 
 	for _, req := range all {
-		reqs = append(reqs, *req)
+		if ownerID == "" || req.OwnerID == ownerID {
+			reqs = append(reqs, *req)
+		}
 	}
 
 	sort.Slice(reqs, func(i, j int) bool { return reqs[i].DelegationID < reqs[j].DelegationID })
@@ -563,7 +564,7 @@ func (b *InMemoryBackend) ListDelegationRequests(marker string, maxItems int) (p
 
 // AcceptDelegationRequest accepts a delegation request, granting the
 // requested temporary access.
-func (b *InMemoryBackend) AcceptDelegationRequest(delegationID string) error {
+func (b *InMemoryBackend) AcceptDelegationRequest(delegationID, approverARN string) error {
 	b.mu.Lock("AcceptDelegationRequest")
 	defer b.mu.Unlock()
 
@@ -573,25 +574,30 @@ func (b *InMemoryBackend) AcceptDelegationRequest(delegationID string) error {
 	}
 
 	req.Status = "ACCEPTED"
+	req.ApproverID = approverARN
 	b.delegationRequests.Put(req)
 
 	return nil
 }
 
-// AssociateDelegationRequest associates a delegation request with the
-// current identity. The real AssociateDelegationRequestInput carries only
-// DelegationRequestId (api_op_AssociateDelegationRequest.go) -- there is no
-// PolicyArn on the wire, so this does not take or store one. gopherstack has
-// no caller-identity plumbing to honestly populate the real ownerId/
-// ownerAccount side effect, so this validates the request exists and stops
-// there, same as AcceptDelegationRequest's precondition-enforcement gap.
-func (b *InMemoryBackend) AssociateDelegationRequest(delegationID string) error {
+// AssociateDelegationRequest stores the caller's ARN as the request's ownerId and, when the request named no
+// owner account at creation, the caller's account as its owner account
+// (api_op_AssociateDelegationRequest.go).
+func (b *InMemoryBackend) AssociateDelegationRequest(delegationID, callerARN, callerAccount string) error {
 	b.mu.Lock("AssociateDelegationRequest")
 	defer b.mu.Unlock()
 
-	if _, exists := b.delegationRequests.Get(delegationID); !exists {
+	req, exists := b.delegationRequests.Get(delegationID)
+	if !exists {
 		return fmt.Errorf("%w: %s", ErrDelegationRequestNotFound, delegationID)
 	}
+
+	req.OwnerID = callerARN
+	if req.TargetAccountID == "" {
+		req.TargetAccountID = callerAccount
+	}
+
+	b.delegationRequests.Put(req)
 
 	return nil
 }

@@ -52,6 +52,7 @@ func (b *InMemoryBackend) RegisterContainerInstanceWithDetails(
 	}
 
 	b.containerInstances.Put(ci)
+	b.emitContainerInstanceStateLocked(ci)
 
 	if len(details.Tags) > 0 {
 		b.setResourceTagsLocked(instanceArn, details.Tags)
@@ -117,6 +118,7 @@ func (b *InMemoryBackend) DeregisterContainerInstance(
 	ci.Status = statusInactive
 	ci.InactiveAt = now
 	ci.Version++
+	b.emitContainerInstanceStateLocked(ci)
 	b.deleteResourceTagsLocked(ci.ContainerInstanceArn)
 
 	cp := *ci
@@ -323,6 +325,7 @@ func (b *InMemoryBackend) UpdateContainerInstancesState(
 
 		ci.Status = status
 		ci.Version++
+		b.emitContainerInstanceStateLocked(ci)
 
 		cp := *ci
 		out = append(out, cp)

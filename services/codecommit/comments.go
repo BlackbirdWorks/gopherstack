@@ -50,7 +50,7 @@ func (b *InMemoryBackend) PostComment(cc CommentContext, content string) (*Comme
 
 	checkRepo := cc.PullRequestID == "" || cc.RepoName != ""
 	if checkRepo && !b.repositories.Has(cc.RepoName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, cc.RepoName)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, cc.RepoName)
 	}
 
 	now := time.Now().UTC()
@@ -130,7 +130,7 @@ func (b *InMemoryBackend) GetCommentsForComparedCommit(
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repoName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, repoName)
 	}
 
 	return b.collectCommentsLocked(func(c *Comment) bool {

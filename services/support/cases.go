@@ -97,7 +97,9 @@ func (b *InMemoryBackend) DescribeCases(caseIDs []string, includeResolvedCases b
 				continue
 			}
 
-			out = append(out, *c)
+			cp := *c
+			cp.Status = b.effectiveCaseStatus(c)
+			out = append(out, cp)
 		}
 
 		return out
@@ -111,7 +113,9 @@ func (b *InMemoryBackend) DescribeCases(caseIDs []string, includeResolvedCases b
 			continue
 		}
 
-		out = append(out, *c)
+		cp := *c
+		cp.Status = b.effectiveCaseStatus(c)
+		out = append(out, cp)
 	}
 
 	return out
@@ -126,7 +130,7 @@ func (b *InMemoryBackend) ResolveCase(caseID string) (*Case, error) {
 
 	c, ok := b.cases.Get(caseID)
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrNotFound, caseID)
+		return nil, fmt.Errorf("%w: case %s not found", ErrNotFound, caseID)
 	}
 
 	if c.Status != caseStatusResolved {
@@ -240,7 +244,7 @@ func (b *InMemoryBackend) DescribeCasesWithOptions(in DescribeCasesOptions) ([]C
 	// exist must error, not be silently dropped from the results.
 	for _, id := range in.CaseIDs {
 		if !b.cases.Has(id) {
-			return nil, "", fmt.Errorf("%w: %s", ErrNotFound, id)
+			return nil, "", fmt.Errorf("%w: case %s not found", ErrNotFound, id)
 		}
 	}
 
@@ -249,6 +253,7 @@ func (b *InMemoryBackend) DescribeCasesWithOptions(in DescribeCasesOptions) ([]C
 	for _, cs := range all {
 		if matchCase(cs, in) {
 			cp := *cs
+			cp.Status = b.effectiveCaseStatus(cs)
 			cp.CCEmails = append([]string(nil), cs.CCEmails...)
 			cases = append(cases, cp)
 		}
@@ -274,9 +279,9 @@ func (b *InMemoryBackend) ResolveCaseWithStatus(caseID string) (string, *Case, e
 
 	cs, ok := b.cases.Get(caseID)
 	if !ok {
-		return "", nil, fmt.Errorf("%w: %s", ErrNotFound, caseID)
+		return "", nil, fmt.Errorf("%w: case %s not found", ErrNotFound, caseID)
 	}
-	initialStatus := cs.Status
+	initialStatus := b.effectiveCaseStatus(cs)
 	if cs.Status != caseStatusResolved {
 		now := time.Now()
 		cs.Status = caseStatusResolved
@@ -305,7 +310,7 @@ func validateCreateCase(in CreateCaseOptions) error {
 		return fmt.Errorf("%w: invalid severityCode", ErrValidation)
 	}
 
-	return nil
+	return validateCCEmails(in.CCEmails)
 }
 
 func validIssueType(value string) bool {

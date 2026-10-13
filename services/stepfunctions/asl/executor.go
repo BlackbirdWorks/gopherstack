@@ -267,6 +267,74 @@ type HistoryRecorder interface {
 	RecordTaskFailed(executionARN, stateName, resource, errCode, cause string)
 }
 
+// TaskLifecycleRecorder is an optional HistoryRecorder extension that records
+// TaskStarted (before each attempt) and TaskSubmitted (after a .sync or
+// .waitForTaskToken job is submitted, with the submit response as output).
+type TaskLifecycleRecorder interface {
+	RecordTaskStarted(executionARN, stateName, resource string)
+	RecordTaskSubmitted(executionARN, stateName, resource string, output any)
+}
+
+// TaskMetricsRecorder is an optional HistoryRecorder extension told the timing and
+// outcome of every non-mocked Task attempt (err is nil on success).
+type TaskMetricsRecorder interface {
+	RecordTaskAttempt(executionARN, resource string, scheduledAt, startedAt, endedAt time.Time, err error)
+}
+
+// CompositeLifecycleRecorder is an optional HistoryRecorder extension that
+// records the Parallel/Map "Started" and "Succeeded"/"Failed" events and Map
+// iteration events. outcome is "Succeeded" or "Failed".
+type CompositeLifecycleRecorder interface {
+	RecordCompositeStarted(executionARN, stateType string, length int)
+	RecordCompositeEnded(executionARN, stateType, outcome string)
+	RecordMapIteration(executionARN, stateName string, index int, outcome string)
+}
+
+const (
+	outcomeStarted   = "Started"
+	outcomeSucceeded = "Succeeded"
+	outcomeFailed    = "Failed"
+)
+
+func (e *Executor) compositeRecorder() CompositeLifecycleRecorder {
+	if e.history == nil {
+		return nil
+	}
+
+	rec, _ := e.history.(CompositeLifecycleRecorder)
+
+	return rec
+}
+
+func (e *Executor) withCompositeLifecycle(
+	executionARN, stateType string, length int, body func() (any, error),
+) (any, error) {
+	rec := e.compositeRecorder()
+	if rec == nil {
+		return body()
+	}
+
+	rec.RecordCompositeStarted(executionARN, stateType, length)
+
+	out, err := body()
+	if err != nil {
+		rec.RecordCompositeEnded(executionARN, stateType, outcomeFailed)
+	} else {
+		rec.RecordCompositeEnded(executionARN, stateType, outcomeSucceeded)
+	}
+
+	return out, err
+}
+
+type taskSubmitHookKey struct{}
+
+// markTaskSubmitted reports a job submission to the hook executeTask installed, if any.
+func markTaskSubmitted(ctx context.Context, output any) {
+	if hook, ok := ctx.Value(taskSubmitHookKey{}).(func(any)); ok {
+		hook(output)
+	}
+}
+
 // MapRunNotifier receives callbacks when Map state runs start and end.
 // Implement this to track Map state execution in a backend.
 type MapRunNotifier interface {
@@ -407,6 +475,7 @@ type Executor struct {
 	contextOverride      map[string]any
 	execMeta             executionMeta
 	branchName           string
+	currentMapState      string
 	lastNext             string
 	caughtErr            string
 	caughtCause          string
@@ -1076,7 +1145,9 @@ func (e *Executor) executeTask(
 	for {
 		result, mocked, taskErr := e.mock.invoke(stateName)
 		if !mocked {
-			result, taskErr = e.runTaskAttempt(ctx, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds)
+			result, taskErr = e.attemptWithMetrics(
+				ctx, executionARN, stateName, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds,
+			)
 		}
 		if taskErr == nil {
 			e.recordTaskSucceeded(executionARN, stateName, state.Resource, result)
@@ -1084,23 +1155,19 @@ func (e *Executor) executeTask(
 			return state.Next, result, nil
 		}
 
-		if errors.Is(taskErr, context.DeadlineExceeded) {
-			taskErr = ErrStatesTimeout
-		} else if errors.Is(taskErr, context.Canceled) {
-			// External cancellation: propagate immediately without retrying.
-			return "", nil, taskErr
+		retry, effErr, fatal := e.afterTaskFailure(ctx, executionARN, stateName, state, taskFailure{
+			err: taskErr, input: input, attempts: retryAttempts,
+			timeoutSeconds: timeoutSeconds, heartbeatSeconds: heartbeatSeconds,
+		})
+		if fatal != nil {
+			return "", nil, fatal
 		}
 
-		retried, retryErr := e.retryState(ctx, state, retryAttempts, taskErr)
-		if retryErr != nil {
-			if !errors.Is(retryErr, ErrStatesTimeout) {
-				return "", nil, retryErr
-			}
-
-			taskErr = ErrStatesTimeout
-		} else if retried {
+		if retry {
 			continue
 		}
+
+		taskErr = effErr
 
 		if next, out, matched, catchErr := e.checkCatchers(
 			executionARN, stateName, state, pathInput, taskErr,
@@ -1115,6 +1182,111 @@ func (e *Executor) executeTask(
 
 		return "", nil, uncaughtTaskFailure(taskErr)
 	}
+}
+
+type taskFailure struct {
+	err              error
+	input            any
+	attempts         []int
+	timeoutSeconds   int
+	heartbeatSeconds int
+}
+
+// afterTaskFailure applies the Retry policy to a failed attempt. It reports whether to
+// run another attempt, the error to carry on with, and a non-nil fatal error that
+// aborts the state immediately.
+func (e *Executor) afterTaskFailure(
+	ctx context.Context, executionARN, stateName string, state *State, f taskFailure,
+) (bool, error, error) {
+	taskErr := f.err
+
+	if errors.Is(taskErr, context.DeadlineExceeded) {
+		taskErr = ErrStatesTimeout
+	} else if errors.Is(taskErr, context.Canceled) {
+		// External cancellation: propagate immediately without retrying.
+		return false, taskErr, taskErr
+	}
+
+	retried, retryErr := e.retryState(ctx, state, f.attempts, taskErr)
+	if retryErr != nil {
+		if !errors.Is(retryErr, ErrStatesTimeout) {
+			return false, taskErr, retryErr
+		}
+
+		return false, ErrStatesTimeout, nil
+	}
+
+	if !retried {
+		return false, taskErr, nil
+	}
+
+	e.recordTaskFailed(
+		executionARN, stateName, state.Resource,
+		stepFunctionsErrorCode(taskErr), stepFunctionsErrorCause(taskErr),
+	)
+
+	if e.history != nil {
+		e.history.RecordTaskScheduled(
+			executionARN, stateName, state.Resource, f.input, f.timeoutSeconds, f.heartbeatSeconds,
+		)
+	}
+
+	return true, taskErr, nil
+}
+
+// attemptWithLifecycle records TaskStarted/TaskSubmitted around one attempt when
+// the history recorder supports them.
+func (e *Executor) attemptWithLifecycle(
+	ctx context.Context,
+	executionARN, stateName string,
+	state *State,
+	input any,
+	waitForTaskToken bool,
+	timeoutSeconds, heartbeatSeconds int,
+) (any, error) {
+	lifecycle, _ := e.history.(TaskLifecycleRecorder)
+	if lifecycle == nil {
+		return e.runTaskAttempt(ctx, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds)
+	}
+
+	lifecycle.RecordTaskStarted(executionARN, stateName, state.Resource)
+
+	submitted := false
+	attemptCtx := context.WithValue(ctx, taskSubmitHookKey{}, func(out any) {
+		if !submitted {
+			submitted = true
+			lifecycle.RecordTaskSubmitted(executionARN, stateName, state.Resource, out)
+		}
+	})
+
+	result, err := e.runTaskAttempt(attemptCtx, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds)
+	if err == nil && !submitted && isSyncPattern(state.Resource) {
+		lifecycle.RecordTaskSubmitted(executionARN, stateName, state.Resource, result)
+	}
+
+	return result, err
+}
+
+// attemptWithMetrics runs one lifecycle-recorded Task attempt and reports its timing and outcome.
+func (e *Executor) attemptWithMetrics(
+	ctx context.Context,
+	executionARN, stateName string,
+	state *State,
+	input any,
+	waitForTaskToken bool,
+	timeoutSeconds, heartbeatSeconds int,
+) (any, error) {
+	scheduledAt := time.Now()
+
+	result, err := e.attemptWithLifecycle(
+		ctx, executionARN, stateName, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds,
+	)
+
+	if mr, ok := e.history.(TaskMetricsRecorder); ok {
+		mr.RecordTaskAttempt(executionARN, state.Resource, scheduledAt, scheduledAt, time.Now(), err)
+	}
+
+	return result, err
 }
 
 // runTaskAttempt invokes a single Task attempt under its own TimeoutSeconds
@@ -1169,6 +1341,7 @@ func (e *Executor) invokeTaskAttempt(
 	if invokeErr != nil {
 		return nil, invokeErr
 	}
+	markTaskSubmitted(ctx, invokeResult)
 
 	callbackOutput, err := e.callback.WaitForTaskToken(ctx, taskToken, heartbeatSeconds)
 	if err != nil {
@@ -1710,6 +1883,10 @@ func (e *Executor) invokeECSTask(ctx context.Context, state *State, input any) (
 			return nil, err
 		}
 
+		if isSyncPattern(state.Resource) {
+			markTaskSubmitted(ctx, result)
+		}
+
 		if !isSyncPattern(state.Resource) || e.ecsSyncWaiter == nil {
 			return result, nil
 		}
@@ -1783,6 +1960,10 @@ func (e *Executor) invokeGlueTask(ctx context.Context, state *State, input any) 
 		}
 
 		result := map[string]any{"JobRunId": runID}
+
+		if isSyncPattern(state.Resource) {
+			markTaskSubmitted(ctx, result)
+		}
 
 		if !isSyncPattern(state.Resource) || e.glueSyncWaiter == nil {
 			return result, nil
@@ -1951,31 +2132,37 @@ func (e *Executor) executeParallel(
 ) (string, any, error) {
 	return e.executeWithStateRetryAndCatch(ctx, executionARN, stateName, state, input,
 		func(ctx context.Context) (any, error) {
-			results := make([]any, len(state.Branches))
-			errs := make([]error, len(state.Branches))
+			if mockOut, mocked, mockErr := e.mock.invoke(stateName); mocked {
+				return mockOut, mockErr
+			}
 
-			var wg sync.WaitGroup
-			for i, branch := range state.Branches {
-				if ctx.Err() != nil {
-					return nil, ctx.Err()
+			return e.withCompositeLifecycle(executionARN, "Parallel", len(state.Branches), func() (any, error) {
+				results := make([]any, len(state.Branches))
+				errs := make([]error, len(state.Branches))
+
+				var wg sync.WaitGroup
+				for i, branch := range state.Branches {
+					if ctx.Err() != nil {
+						return nil, ctx.Err()
+					}
+
+					wg.Go(func() { e.runParallelBranch(ctx, executionARN, branch, input, results, errs, i) })
 				}
 
-				wg.Go(func() { e.runParallelBranch(ctx, executionARN, branch, input, results, errs, i) })
-			}
+				wg.Wait()
 
-			wg.Wait()
-
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-
-			for _, branchErr := range errs {
-				if branchErr != nil {
-					return nil, branchErr
+				if err := ctx.Err(); err != nil {
+					return nil, err
 				}
-			}
 
-			return results, nil
+				for _, branchErr := range errs {
+					if branchErr != nil {
+						return nil, branchErr
+					}
+				}
+
+				return results, nil
+			})
 		},
 	)
 }
@@ -2093,6 +2280,10 @@ func (e *Executor) executeMap(
 
 	return e.executeWithStateRetryAndCatch(ctx, executionARN, stateName, state, input,
 		func(ctx context.Context) (any, error) {
+			if mockOut, mocked, mockErr := e.mock.invoke(stateName); mocked {
+				return mockOut, mockErr
+			}
+
 			items, err := e.resolveMapItems(ctx, state, pathInput)
 			if err != nil {
 				return nil, err
@@ -2118,10 +2309,14 @@ func (e *Executor) executeMap(
 					return nil, wrapErr
 				}
 
-				return e.runMapItemsAndFinalize(ctx, executionARN, stateName, iterator, state, pathInput, batched)
+				return e.withCompositeLifecycle(executionARN, "Map", len(batched), func() (any, error) {
+					return e.runMapItemsAndFinalize(ctx, executionARN, stateName, iterator, state, pathInput, batched)
+				})
 			}
 
-			return e.runMapItemsAndFinalize(ctx, executionARN, stateName, iterator, state, pathInput, items)
+			return e.withCompositeLifecycle(executionARN, "Map", len(items), func() (any, error) {
+				return e.runMapItemsAndFinalize(ctx, executionARN, stateName, iterator, state, pathInput, items)
+			})
 		},
 	)
 }
@@ -2179,6 +2374,7 @@ func (e *Executor) runMapItemsAndFinalize(
 			concurrency,
 		)
 	} else {
+		e.currentMapState = stateName
 		e.runMapTasks(ctx, executionARN, iterator, items, results, errs, concurrency)
 	}
 
@@ -2366,9 +2562,15 @@ func (e *Executor) runMapItem(
 ) {
 	exec := e.newMapItemExecutor(iterator, idx, it)
 
+	rec := e.compositeRecorder()
+	if rec != nil {
+		rec.RecordMapIteration(executionARN, e.currentMapState, idx, outcomeStarted)
+	}
+
 	res, execErr := exec.Execute(ctx, executionARN, marshalInput(it))
 	if execErr != nil {
 		errs[idx] = execErr
+		recordMapIterationEnd(rec, executionARN, e.currentMapState, idx, false)
 
 		return
 	}
@@ -2380,11 +2582,26 @@ func (e *Executor) runMapItem(
 	// instead of silently producing a nil result for the failed item.
 	if res.Failed {
 		errs[idx] = &FailError{ErrCode: res.Error, Cause: res.Cause}
+		recordMapIterationEnd(rec, executionARN, e.currentMapState, idx, false)
 
 		return
 	}
 
 	results[idx] = res.Output
+	recordMapIterationEnd(rec, executionARN, e.currentMapState, idx, true)
+}
+
+func recordMapIterationEnd(rec CompositeLifecycleRecorder, executionARN, stateName string, idx int, ok bool) {
+	if rec == nil {
+		return
+	}
+
+	outcome := outcomeFailed
+	if ok {
+		outcome = outcomeSucceeded
+	}
+
+	rec.RecordMapIteration(executionARN, stateName, idx, outcome)
 }
 
 func (e *Executor) getMapIterator(state *State) (*StateMachine, error) {
@@ -2410,12 +2627,6 @@ var ErrS3ListReaderNotConfigured = errors.New("S3 list reader not configured for
 // ErrItemReaderUnsupportedResource is returned for an ItemReader.Resource
 // this emulator doesn't recognize.
 var ErrItemReaderUnsupportedResource = errors.New("ItemReader: unsupported Resource")
-
-// ErrAthenaManifestUnsupported is returned for ReaderConfig.ManifestType
-// ATHENA_DATA, which this emulator doesn't implement -- see PARITY.md.
-var ErrAthenaManifestUnsupported = errors.New(
-	"ItemReader: ManifestType ATHENA_DATA is not supported by this emulator",
-)
 
 // ErrParquetUnsupported is returned for InputType PARQUET, which this
 // emulator doesn't decode (no pure-Go Parquet reader dependency) -- see PARITY.md.
@@ -2635,7 +2846,7 @@ type s3InventoryManifest struct {
 }
 
 // resolveManifestItems dispatches on ManifestType (S3_INVENTORY, the only
-// InputType=MANIFEST target has ever meant, or ATHENA_DATA, unsupported).
+// InputType=MANIFEST target has ever meant, or ATHENA_DATA).
 func (e *Executor) resolveManifestItems(
 	ctx context.Context,
 	bucket string,
@@ -2651,10 +2862,57 @@ func (e *Executor) resolveManifestItems(
 	case "S3_INVENTORY":
 		return e.resolveS3InventoryManifest(ctx, bucket, manifestData, cfg)
 	case "ATHENA_DATA":
-		return nil, ErrAthenaManifestUnsupported
+		return e.resolveAthenaManifest(ctx, manifestData, cfg)
 	default:
 		return nil, fmt.Errorf("%w: unsupported ManifestType %q", ErrItemReaderInvalidData, cfg.ManifestType)
 	}
+}
+
+// resolveAthenaManifest reads an Athena UNLOAD manifest (one s3://bucket/key per line),
+// then decodes each listed data file per InputType (CSV or JSONL; AWS docs:
+// input-output-itemreader.html "Athena manifest").
+func (e *Executor) resolveAthenaManifest(ctx context.Context, manifestData []byte, cfg *ReaderConfig) ([]any, error) {
+	switch strings.ToUpper(cfg.InputType) {
+	case "CSV", "JSONL", "PARQUET":
+	default:
+		return nil, fmt.Errorf("%w: ATHENA_DATA requires InputType CSV, JSONL or PARQUET", ErrItemReaderInvalidData)
+	}
+
+	var items []any
+
+	for line := range strings.SplitSeq(string(manifestData), "\n") {
+		uri := strings.Trim(strings.TrimSpace(line), `"`)
+		if uri == "" {
+			continue
+		}
+
+		rest, ok := strings.CutPrefix(uri, "s3://")
+		bucket, key, hasKey := strings.Cut(rest, "/")
+
+		if !ok || bucket == "" || !hasKey || key == "" {
+			return nil, fmt.Errorf("%w: Athena manifest entry %q is not an s3:// URI", ErrItemReaderInvalidData, uri)
+		}
+
+		data, err := e.s3.GetObjectBytes(ctx, bucket, key)
+		if err != nil {
+			return nil, fmt.Errorf("ItemReader Athena data file %q: %w", uri, err)
+		}
+
+		if strings.HasSuffix(strings.ToLower(key), ".gz") {
+			if data, err = gunzipBytes(data); err != nil {
+				return nil, fmt.Errorf("%w: gunzip %q: %w", ErrItemReaderInvalidData, uri, err)
+			}
+		}
+
+		fileItems, err := decodeReaderItems(data, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("ItemReader Athena data file %q: %w", uri, err)
+		}
+
+		items = append(items, fileItems...)
+	}
+
+	return items, nil
 }
 
 // resolveS3InventoryManifest reads an S3 Inventory manifest.json, then reads

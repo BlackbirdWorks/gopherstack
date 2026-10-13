@@ -20,7 +20,7 @@ func TestGetServiceLinkedRoleDeletionStatus(t *testing.T) {
 	h, _ := newTestHandler(t)
 
 	rec := callIAM(t, h, "GetServiceLinkedRoleDeletionStatus", map[string]string{
-		"DeletionTaskId": "task-123",
+		"DeletionTaskId": "task/AWSServiceRoleForX/req-123",
 	})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 

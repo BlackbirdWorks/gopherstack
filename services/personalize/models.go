@@ -13,6 +13,7 @@ type DatasetGroup struct {
 	RoleArn             string
 	FailureReason       string
 	Status              string
+	lc                  lifecycle
 }
 
 // Dataset stores an Amazon Personalize dataset.
@@ -25,6 +26,7 @@ type Dataset struct {
 	Name                string
 	DatasetType         string
 	Status              string
+	lc                  lifecycle
 }
 
 // Schema stores an Amazon Personalize schema.
@@ -54,6 +56,7 @@ type Solution struct {
 	PerformHPO               bool
 	PerformAutoTraining      bool
 	PerformIncrementalUpdate bool
+	lc                       lifecycle
 }
 
 // SolutionVersion stores a trained Amazon Personalize solution version.
@@ -80,6 +83,7 @@ type SolutionVersion struct {
 	PerformAutoML            bool
 	PerformHPO               bool
 	PerformIncrementalUpdate bool
+	lc                       lifecycle
 }
 
 // Campaign stores an Amazon Personalize campaign.
@@ -93,6 +97,7 @@ type Campaign struct {
 	Name                 string
 	Status               string
 	MinProvisionedTPS    int32
+	lc                   lifecycle
 }
 
 // DatasetImportJob stores an async dataset import job.
@@ -107,6 +112,7 @@ type DatasetImportJob struct {
 	RoleArn                       string
 	Status                        string
 	ImportMode                    string
+	lc                            lifecycle
 }
 
 // DatasetExportJob stores an async dataset export job.
@@ -120,6 +126,7 @@ type DatasetExportJob struct {
 	RoleArn             string
 	Status              string
 	IngestionMode       string
+	lc                  lifecycle
 }
 
 // BatchInferenceJob stores an async batch inference job.
@@ -138,6 +145,7 @@ type BatchInferenceJob struct {
 	BatchInferenceJobMode   string
 	FilterArn               string `json:",omitempty"`
 	NumResults              int32  `json:",omitempty"`
+	lc                      lifecycle
 }
 
 // JobExtras carries the optional Create*Job members beyond the common job fields.
@@ -161,6 +169,7 @@ type BatchSegmentJob struct {
 	Status              string
 	FilterArn           string `json:",omitempty"`
 	NumResults          int32  `json:",omitempty"`
+	lc                  lifecycle
 }
 
 // EventTracker stores an Amazon Personalize event tracker.
@@ -172,6 +181,7 @@ type EventTracker struct {
 	Name                string
 	TrackingID          string
 	Status              string
+	lc                  lifecycle
 }
 
 // Filter stores an Amazon Personalize filter.
@@ -183,6 +193,7 @@ type Filter struct {
 	Name                string
 	FilterExpression    string
 	Status              string
+	lc                  lifecycle
 }
 
 // Recommender stores an Amazon Personalize recommender.
@@ -197,6 +208,7 @@ type Recommender struct {
 	Name                               string
 	Status                             string
 	MinRecommendationRequestsPerSecond int32
+	lc                                 lifecycle
 }
 
 // recommenderModelMetrics returns deterministic, ARN-derived evaluation
@@ -234,6 +246,7 @@ type MetricAttribution struct {
 	Name                 string
 	Status               string
 	Metrics              []MetricAttribute
+	lc                   lifecycle
 }
 
 // DataDeletionJob stores an async data deletion job.
@@ -247,4 +260,5 @@ type DataDeletionJob struct {
 	RoleArn             string
 	Status              string
 	NumDeleted          int32
+	lc                  lifecycle
 }

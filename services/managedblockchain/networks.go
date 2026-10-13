@@ -6,8 +6,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -85,9 +83,13 @@ func (b *InMemoryBackend) CreateNetwork(
 		}
 	}
 
+	if fabricEdition != "" && b.networksWithOwnedMemberLocked(fabricEdition) >= maxNetworksPerEdition {
+		return nil, nil, ErrResourceLimitExceeded
+	}
+
 	now := time.Now().UTC()
-	networkID := uuid.NewString()
-	memberID := uuid.NewString()
+	networkID := newResourceID("n-")
+	memberID := newResourceID("m-")
 
 	fw := framework
 	if fw == "" {
@@ -109,7 +111,7 @@ func (b *InMemoryBackend) CreateNetwork(
 		Description:            description,
 		Framework:              fw,
 		FrameworkVersion:       fwv,
-		Status:                 networkStatusAvailable,
+		Status:                 b.initialStatus(),
 		CreationDate:           &now,
 		Tags:                   t,
 		VotingPolicy:           cloneVotingPolicy(votingPolicy),
@@ -129,7 +131,7 @@ func (b *InMemoryBackend) CreateNetwork(
 		Name:                memberName,
 		Description:         memberDescription,
 		NetworkID:           networkID,
-		Status:              memberStatusAvailable,
+		Status:              b.initialStatus(),
 		CreationDate:        &now,
 		Tags:                mt,
 		IsOwned:             true,
@@ -140,7 +142,7 @@ func (b *InMemoryBackend) CreateNetwork(
 	b.members.Put(member)
 	b.arnToResource[member.Arn] = member
 
-	return cloneNetwork(network), cloneMember(member), nil
+	return b.viewNetwork(network), b.viewMember(member), nil
 }
 
 // cloneVotingPolicy returns a deep copy of a VotingPolicy.
@@ -182,6 +184,11 @@ func cloneNetworkFrameworkAttributes(fa *NetworkFrameworkAttributesState) *Netwo
 		cp.Fabric = &fabric
 	}
 
+	if fa.Ethereum != nil {
+		eth := *fa.Ethereum
+		cp.Ethereum = &eth
+	}
+
 	return cp
 }
 
@@ -208,7 +215,7 @@ func (b *InMemoryBackend) GetNetwork(networkID string) (*Network, error) {
 		return nil, ErrNetworkNotFound
 	}
 
-	return cloneNetwork(network), nil
+	return b.viewNetwork(network), nil
 }
 
 // ListNetworks returns all networks, optionally filtered.
@@ -227,11 +234,11 @@ func (b *InMemoryBackend) ListNetworks(filter ListNetworksFilter) ([]*Network, e
 			continue
 		}
 
-		if filter.Status != "" && n.Status != filter.Status {
+		if filter.Status != "" && b.settledStatus(n.Status, n.CreationDate) != filter.Status {
 			continue
 		}
 
-		all = append(all, cloneNetwork(n))
+		all = append(all, b.viewNetwork(n))
 	}
 
 	sort.Slice(all, func(i, j int) bool {
@@ -247,7 +254,7 @@ func (b *InMemoryBackend) AddNetworkInternal(region, accountID, name string) *Ne
 	defer b.mu.Unlock()
 
 	now := time.Now().UTC()
-	networkID := uuid.NewString()
+	networkID := newResourceID("n-")
 
 	network := &Network{
 		ID:                     networkID,

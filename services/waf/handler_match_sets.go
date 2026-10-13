@@ -22,6 +22,10 @@ func (h *Handler) opCreateByteMatchSet(body []byte) (any, error) {
 		return nil, err
 	}
 
+	if err := validateCreateNames(in.Name, ""); err != nil {
+		return nil, err
+	}
+
 	bms, err := h.Backend.CreateByteMatchSet(in.Name, in.ChangeToken)
 	if err != nil {
 		return nil, err
@@ -93,8 +97,12 @@ func (h *Handler) opListByteMatchSets(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	page, next := paginate(h.Backend.ListByteMatchSets(), in.NextMarker, in.Limit,
+	page, next, err := paginate(h.Backend.ListByteMatchSets(), in.NextMarker, in.Limit,
 		func(s ByteMatchSetSummary) string { return s.ByteMatchSetId })
+	if err != nil {
+		return nil, err
+	}
+
 	result := map[string]any{"ByteMatchSets": page}
 	if next != "" {
 		result["NextMarker"] = next
@@ -112,6 +120,10 @@ func (h *Handler) opCreateSizeConstraintSet(body []byte) (any, error) {
 	}
 
 	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	if err := validateCreateNames(in.Name, ""); err != nil {
 		return nil, err
 	}
 
@@ -187,8 +199,12 @@ func (h *Handler) opListSizeConstraintSets(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	page, next := paginate(h.Backend.ListSizeConstraintSets(), in.NextMarker, in.Limit,
+	page, next, err := paginate(h.Backend.ListSizeConstraintSets(), in.NextMarker, in.Limit,
 		func(s SizeConstraintSetSummary) string { return s.SizeConstraintSetId })
+	if err != nil {
+		return nil, err
+	}
+
 	result := map[string]any{"SizeConstraintSets": page}
 	if next != "" {
 		result["NextMarker"] = next
@@ -207,6 +223,10 @@ func (h *Handler) opCreateSqlInjectionMatchSet(body []byte) (any, error) {
 	}
 
 	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	if err := validateCreateNames(in.Name, ""); err != nil {
 		return nil, err
 	}
 
@@ -286,8 +306,12 @@ func (h *Handler) opListSqlInjectionMatchSets(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	page, next := paginate(h.Backend.ListSqlInjectionMatchSets(), in.NextMarker, in.Limit,
+	page, next, err := paginate(h.Backend.ListSqlInjectionMatchSets(), in.NextMarker, in.Limit,
 		func(s SqlInjectionMatchSetSummary) string { return s.SqlInjectionMatchSetId })
+	if err != nil {
+		return nil, err
+	}
+
 	result := map[string]any{"SqlInjectionMatchSets": page}
 	if next != "" {
 		result["NextMarker"] = next
@@ -306,6 +330,10 @@ func (h *Handler) opCreateXssMatchSet(body []byte) (any, error) {
 	}
 
 	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	if err := validateCreateNames(in.Name, ""); err != nil {
 		return nil, err
 	}
 
@@ -384,8 +412,12 @@ func (h *Handler) opListXssMatchSets(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	page, next := paginate(h.Backend.ListXssMatchSets(), in.NextMarker, in.Limit,
+	page, next, err := paginate(h.Backend.ListXssMatchSets(), in.NextMarker, in.Limit,
 		func(s XssMatchSetSummary) string { return s.XssMatchSetId })
+	if err != nil {
+		return nil, err
+	}
+
 	result := map[string]any{"XssMatchSets": page}
 	if next != "" {
 		result["NextMarker"] = next
@@ -403,6 +435,10 @@ func (h *Handler) opCreateGeoMatchSet(body []byte) (any, error) {
 	}
 
 	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	if err := validateCreateNames(in.Name, ""); err != nil {
 		return nil, err
 	}
 
@@ -477,8 +513,12 @@ func (h *Handler) opListGeoMatchSets(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	page, next := paginate(h.Backend.ListGeoMatchSets(), in.NextMarker, in.Limit,
+	page, next, err := paginate(h.Backend.ListGeoMatchSets(), in.NextMarker, in.Limit,
 		func(s GeoMatchSetSummary) string { return s.GeoMatchSetId })
+	if err != nil {
+		return nil, err
+	}
+
 	result := map[string]any{"GeoMatchSets": page}
 	if next != "" {
 		result["NextMarker"] = next
@@ -496,6 +536,10 @@ func (h *Handler) opCreateRegexPatternSet(body []byte) (any, error) {
 	}
 
 	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	if err := validateCreateNames(in.Name, ""); err != nil {
 		return nil, err
 	}
 
@@ -570,8 +614,12 @@ func (h *Handler) opListRegexPatternSets(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	page, next := paginate(h.Backend.ListRegexPatternSets(), in.NextMarker, in.Limit,
+	page, next, err := paginate(h.Backend.ListRegexPatternSets(), in.NextMarker, in.Limit,
 		func(s RegexPatternSetSummary) string { return s.RegexPatternSetId })
+	if err != nil {
+		return nil, err
+	}
+
 	result := map[string]any{"RegexPatternSets": page}
 	if next != "" {
 		result["NextMarker"] = next
@@ -589,6 +637,10 @@ func (h *Handler) opCreateRegexMatchSet(body []byte) (any, error) {
 	}
 
 	if err := unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
+	if err := validateCreateNames(in.Name, ""); err != nil {
 		return nil, err
 	}
 
@@ -663,8 +715,12 @@ func (h *Handler) opListRegexMatchSets(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	page, next := paginate(h.Backend.ListRegexMatchSets(), in.NextMarker, in.Limit,
+	page, next, err := paginate(h.Backend.ListRegexMatchSets(), in.NextMarker, in.Limit,
 		func(s RegexMatchSetSummary) string { return s.RegexMatchSetId })
+	if err != nil {
+		return nil, err
+	}
+
 	result := map[string]any{"RegexMatchSets": page}
 	if next != "" {
 		result["NextMarker"] = next

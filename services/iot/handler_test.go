@@ -459,7 +459,8 @@ func TestAttachThingPrincipal_Header(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, _ := newRefHandler()
+			h, b := newRefHandler()
+			b.AddThingInternal(iot.Thing{ThingName: "my-thing"})
 			rec := doRefRequest(t, h, http.MethodPut, "/things/my-thing/principals", nil,
 				map[string]string{"x-amzn-principal": tt.principal})
 			assert.Equal(t, tt.wantCode, rec.Code)

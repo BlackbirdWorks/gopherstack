@@ -30,7 +30,7 @@ type describeAccountAttributesResponse struct {
 	DescribeAccountAttributesResult describeAccountAttributesResult `xml:"DescribeAccountAttributesResult"`
 }
 
-func (h *Handler) handleDescribeAccountAttributes(_ context.Context, _ url.Values) (any, error) {
+func (h *Handler) handleDescribeAccountAttributes(ctx context.Context, _ url.Values) (any, error) {
 	return &describeAccountAttributesResponse{
 		Xmlns: ebXMLNS,
 		DescribeAccountAttributesResult: describeAccountAttributesResult{
@@ -42,6 +42,6 @@ func (h *Handler) handleDescribeAccountAttributes(_ context.Context, _ url.Value
 				EnvironmentQuota:           resourceQuota{Maximum: quotaEnvironments},
 			},
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-describe-account-attrs"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-describe-account-attrs"),
 	}, nil
 }

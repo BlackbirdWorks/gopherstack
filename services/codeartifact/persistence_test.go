@@ -80,6 +80,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	domain, err := original.CreateDomain(ctx, "domain-1", "", map[string]string{"env": "test"})
 	require.NoError(t, err)
 
+	_, err = original.CreateRepository(ctx, "domain-1", "upstream-1", "", nil, nil)
+	require.NoError(t, err)
+
 	repo, err := original.CreateRepository(
 		ctx,
 		"domain-1",
@@ -222,6 +225,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// indexes and hidden region/domainName/repoName fields on the restored
 	// values rebuilt correctly, not just the primary lookup).
 	_, err = fresh.DeleteRepository(ctx, "domain-1", "repo-1")
+	require.NoError(t, err)
+	_, err = fresh.DeleteRepository(ctx, "domain-1", "upstream-1")
 	require.NoError(t, err)
 	_, err = fresh.DeleteDomain(ctx, "domain-1")
 	require.NoError(t, err)

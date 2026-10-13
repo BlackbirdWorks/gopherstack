@@ -66,7 +66,7 @@ func TestHandler_AddApplicationInput(t *testing.T) {
 					},
 				},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			// AWS models Input.InputSchema as a required member (validated server-side via
@@ -234,7 +234,7 @@ func TestHandler_AddApplicationInputProcessingConfiguration(t *testing.T) {
 					},
 				}
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			// AWS requires InputProcessingConfiguration.InputLambdaProcessor whenever
@@ -367,7 +367,7 @@ func TestHandler_DeleteApplicationInputProcessingConfiguration(t *testing.T) {
 					"InputId":                     inputID,
 				}
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

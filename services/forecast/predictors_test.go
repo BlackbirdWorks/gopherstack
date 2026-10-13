@@ -16,7 +16,7 @@ func TestPredictors_FieldShapes(t *testing.T) {
 	h := newHandler()
 
 	code, created := request(t, h, "CreatePredictor", map[string]any{
-		"PredictorName":       "audit-predictor",
+		"PredictorName":       "audit_predictor",
 		"ForecastHorizon":     30,
 		"PerformAutoML":       true,
 		"PerformHPO":          true,
@@ -31,7 +31,7 @@ func TestPredictors_FieldShapes(t *testing.T) {
 	request(t, h, "DescribePredictor", map[string]any{"PredictorArn": arn})
 	code, m := request(t, h, "DescribePredictor", map[string]any{"PredictorArn": arn})
 	require.Equal(t, http.StatusOK, code)
-	assert.Equal(t, "audit-predictor", m["PredictorName"])
+	assert.Equal(t, "audit_predictor", m["PredictorName"])
 	assert.Equal(t, "ACTIVE", m["Status"])
 	assert.Equal(t, true, m["PerformAutoML"])
 }
@@ -44,7 +44,7 @@ func TestPredictors_AutoPredictor(t *testing.T) {
 	h := newHandler()
 
 	code, created := request(t, h, "CreateAutoPredictor", map[string]any{
-		"PredictorName":   "auto-pred",
+		"PredictorName":   "auto_pred",
 		"ForecastHorizon": 14,
 	})
 	require.Equal(t, http.StatusOK, code)
@@ -66,7 +66,7 @@ func TestPredictors_StopResume(t *testing.T) {
 	h := newHandler()
 
 	code, created := request(t, h, "CreatePredictor", map[string]any{
-		"PredictorName": "sr-predictor", "ForecastHorizon": 5,
+		"PredictorName": "sr_predictor", "ForecastHorizon": 5,
 		"InputDataConfig":     map[string]any{"DatasetGroupArn": createDatasetGroup(t, h)},
 		"FeaturizationConfig": map[string]any{},
 	})

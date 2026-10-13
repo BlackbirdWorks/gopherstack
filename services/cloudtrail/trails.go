@@ -37,6 +37,10 @@ func (b *InMemoryBackend) CreateTrail(
 	kv map[string]string,
 	isOrganizationTrail bool,
 ) (*Trail, error) {
+	if err := validateTrailName(name); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateTrail")
 	defer b.mu.Unlock()
 

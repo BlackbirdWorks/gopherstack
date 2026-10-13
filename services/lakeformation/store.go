@@ -9,6 +9,7 @@ import (
 // InMemoryBackend is the in-memory backend for Lake Formation.
 type InMemoryBackend struct {
 	dataLakeSettings       *DataLakeSettings
+	catalogSettings        map[string]*DataLakeSettings
 	resourceLFTags         map[string][]LFTagPair
 	lfTags                 *store.Table[LFTag]
 	transactions           *store.Table[transactionInfo]
@@ -32,6 +33,7 @@ var _ StorageBackend = (*InMemoryBackend)(nil)
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
 		dataLakeSettings:       &DataLakeSettings{},
+		catalogSettings:        make(map[string]*DataLakeSettings),
 		permissionsList:        make([]*PermissionEntry, 0),
 		lakeFormationOptIns:    make([]*LFOptIn, 0),
 		resourceLFTags:         make(map[string][]LFTagPair),
@@ -54,6 +56,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.resetTablesLocked()
 	b.dataLakeSettings = &DataLakeSettings{}
+	b.catalogSettings = make(map[string]*DataLakeSettings)
 	b.permissionsList = make([]*PermissionEntry, 0)
 	b.lakeFormationOptIns = make([]*LFOptIn, 0)
 	b.resourceLFTags = make(map[string][]LFTagPair)

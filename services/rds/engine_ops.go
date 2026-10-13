@@ -18,6 +18,7 @@ const (
 // runUnitOpLocked starts a background container stop/start/restart for lb; the caller sets the resource status.
 func (b *InMemoryBackend) runUnitOpLocked(lb *liveDB, op unitOp) {
 	lb.ready = false
+	b.cancelPauseLocked(lb)
 	id := lb.containerID
 
 	b.engine.wg.Go(func() { b.execUnitOp(lb, id, op) })
@@ -154,10 +155,15 @@ func (b *InMemoryBackend) applyMasterPassword(key, newPassword string, stateErr 
 	}
 
 	ready := lb != nil && lb.ready
+	paused := lb != nil && lb.paused
 	b.mu.RUnlock()
 
 	if lb == nil {
 		return nil
+	}
+
+	if paused {
+		b.wakeUnit(lb)
 	}
 
 	if !ready {

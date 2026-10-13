@@ -35,6 +35,8 @@ type KafkaRecord struct {
 	Value         []byte
 	Headers       []KafkaHeader
 	Offset        int64
+	// HighWatermark is the partition's log end offset when the record was fetched; 0 when unknown.
+	HighWatermark int64
 	Partition     int32
 }
 

@@ -69,6 +69,7 @@ func (b *InMemoryBackend) AddAssociation(
 		AssociationType: associationType,
 		AssociationArn:  assocARN,
 		CreationTime:    time.Now(),
+		CreatedBy:       optionalCallerUserContext(ctx),
 		Tags:            mergeTags(nil, tags),
 	}
 	assocStore.Put(a)

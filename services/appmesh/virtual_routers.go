@@ -148,6 +148,9 @@ func (b *InMemoryBackend) ListVirtualRouters(
 func (b *InMemoryBackend) CreateRoute(
 	meshName, virtualRouterName, routeName string, spec json.RawMessage, tags map[string]string,
 ) (*Route, error) {
+	if err := b.schemas.validate("routeSpec", spec); err != nil {
+		return nil, err
+	}
 	b.mu.Lock("CreateRoute")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
@@ -198,6 +201,9 @@ func (b *InMemoryBackend) UpdateRoute(
 	meshName, virtualRouterName, routeName string,
 	spec json.RawMessage,
 ) (*Route, error) {
+	if err := b.schemas.validate("routeSpec", spec); err != nil {
+		return nil, err
+	}
 	b.mu.Lock("UpdateRoute")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {

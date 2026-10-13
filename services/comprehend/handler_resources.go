@@ -74,6 +74,10 @@ func resourceSpecs() map[string]resourceSpec {
 
 func (h *Handler) createResource(spec resourceSpec) operation {
 	return func(input map[string]any) (map[string]any, error) {
+		if err := validateNestedConfigs(input); err != nil {
+			return nil, err
+		}
+
 		resource, err := h.Backend.CreateResource(
 			spec.resourceType, stringValue(input, spec.nameField, ""), stringValue(input, "VersionName", ""),
 			input, inputTags(input),
@@ -109,7 +113,11 @@ func (h *Handler) listResources(spec resourceSpec) operation {
 			items = append(items, resourceMap(resource, spec))
 		}
 
-		tok, maxResults := paginationParams(input)
+		tok, maxResults, pageErr := paginationParams(input)
+		if pageErr != nil {
+			return nil, pageErr
+		}
+
 		page, nextTok := comprehendPaginate(items, tok, maxResults)
 		out := map[string]any{spec.listField: page}
 		if nextTok != "" {
@@ -487,7 +495,11 @@ func resourceSummaries(resources []*Resource, nameField string) []map[string]any
 func (h *Handler) listDocumentClassifierSummaries(input map[string]any) (map[string]any, error) {
 	items := resourceSummaries(h.Backend.ListResources(resourceTypeDocClassifier), "DocumentClassifierName")
 
-	tok, maxResults := paginationParams(input)
+	tok, maxResults, pageErr := paginationParams(input)
+	if pageErr != nil {
+		return nil, pageErr
+	}
+
 	page, nextTok := comprehendPaginate(items, tok, maxResults)
 	out := map[string]any{"DocumentClassifierSummariesList": page}
 	if nextTok != "" {
@@ -500,7 +512,11 @@ func (h *Handler) listDocumentClassifierSummaries(input map[string]any) (map[str
 func (h *Handler) listEntityRecognizerSummaries(input map[string]any) (map[string]any, error) {
 	items := resourceSummaries(h.Backend.ListResources(resourceTypeEntityRecognizer), "RecognizerName")
 
-	tok, maxResults := paginationParams(input)
+	tok, maxResults, pageErr := paginationParams(input)
+	if pageErr != nil {
+		return nil, pageErr
+	}
+
 	page, nextTok := comprehendPaginate(items, tok, maxResults)
 	out := map[string]any{"EntityRecognizerSummariesList": page}
 	if nextTok != "" {

@@ -61,6 +61,7 @@ func (h *Handler) handleListRecoveryPointsByBackupVault(c *echo.Context, vaultNa
 		}
 		setOptionalStr(item, "ResourceArn", rp.ResourceArn)
 		setOptionalStr(item, "ResourceType", rp.ResourceType)
+		setOptionalStr(item, "ResourceName", rp.ResourceName)
 		setOptionalStr(item, "IamRoleArn", rp.IAMRoleArn)
 		setOptionalStr(item, "ParentRecoveryPointArn", rp.ParentRecoveryPointArn)
 		if rp.BackupSizeInBytes > 0 {
@@ -116,6 +117,7 @@ func (h *Handler) handleDescribeRecoveryPoint(c *echo.Context, resource string) 
 	if rp.ResourceType != "" {
 		resp["ResourceType"] = rp.ResourceType
 	}
+	setOptionalStr(resp, "ResourceName", rp.ResourceName)
 	if rp.IAMRoleArn != "" {
 		resp["IamRoleArn"] = rp.IAMRoleArn
 	}

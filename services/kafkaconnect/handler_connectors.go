@@ -92,6 +92,10 @@ func (h *Handler) handleDescribeConnector(c *echo.Context, connectorArn string) 
 
 func (h *Handler) handleListConnectors(c *echo.Context) error {
 	q := c.Request().URL.Query()
+	if err := ValidateListParams(q.Get("nextToken"), q.Get("maxResults")); err != nil {
+		return h.writeBackendError(c, err)
+	}
+
 	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
 	connectors, next, err := h.Backend.ListConnectors(q.Get("connectorNamePrefix"), q.Get("nextToken"), maxResults)
@@ -166,6 +170,10 @@ func (h *Handler) handleDescribeConnectorOperation(c *echo.Context, operationArn
 
 func (h *Handler) handleListConnectorOperations(c *echo.Context, connectorArn string) error {
 	q := c.Request().URL.Query()
+	if err := ValidateListParams(q.Get("nextToken"), q.Get("maxResults")); err != nil {
+		return h.writeBackendError(c, err)
+	}
+
 	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
 	ops, next, err := h.Backend.ListConnectorOperations(connectorArn, q.Get("nextToken"), maxResults)

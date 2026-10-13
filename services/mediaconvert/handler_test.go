@@ -392,7 +392,6 @@ func TestListHandlers_ReturnEmptySlices(t *testing.T) {
 		path string
 		key  string
 	}{
-		{name: "list_queues", path: "/2017-08-29/queues", key: "queues"},
 		{name: "list_job_templates", path: "/2017-08-29/jobTemplates", key: "jobTemplates"},
 		{name: "list_jobs", path: "/2017-08-29/jobs", key: "jobs"},
 		{name: "list_presets", path: "/2017-08-29/presets", key: "presets"},

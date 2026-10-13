@@ -282,7 +282,7 @@ func validateEmbedLifetime(minutes int64) error {
 	if minutes < minEmbedSessionMinutes || minutes > maxEmbedSessionMinutes {
 		return fmt.Errorf(
 			"%w: SessionLifetimeInMinutes must be between %d and %d",
-			ErrValidation, minEmbedSessionMinutes, maxEmbedSessionMinutes,
+			ErrSessionLifetimeInvalid, minEmbedSessionMinutes, maxEmbedSessionMinutes,
 		)
 	}
 

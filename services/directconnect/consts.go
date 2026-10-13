@@ -228,3 +228,30 @@ const (
 	resourceTaggable    = "resource"
 	resourceVifTest     = "virtual interface test"
 )
+
+const dedicatedBandwidthHint = ": valid values are 1Gbps, 10Gbps, 100Gbps, 400Gbps"
+
+func isDedicatedBandwidth(v string) bool {
+	switch v {
+	case bandwidth1Gbps, bandwidth10Gbps, bandwidth100Gbps, bandwidth400Gbps:
+		return true
+	default:
+		return false
+	}
+}
+
+const (
+	privateAsnMin   int64 = 64512
+	privateAsnMax   int64 = 65534
+	privateAsn32Min int64 = 4200000000
+	privateAsn32Max int64 = 4294967294
+)
+
+func validAmazonSideAsn(asn int64) bool {
+	return (asn >= privateAsnMin && asn <= privateAsnMax) || (asn >= privateAsn32Min && asn <= privateAsn32Max)
+}
+
+const (
+	minVlan int32 = 1
+	maxVlan int32 = 4094
+)

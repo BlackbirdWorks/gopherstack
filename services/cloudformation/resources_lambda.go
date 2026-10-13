@@ -219,20 +219,46 @@ func (rc *ResourceCreator) createLambdaEventInvokeConfig(
 		return logicalID + "-stub", nil
 	}
 	functionName := strProp(props, "FunctionName", params, physicalIDs)
-	input := &lambdabackend.PutFunctionEventInvokeConfigInput{}
-	if v := intProp(props, "MaximumRetryAttempts"); v >= 0 {
-		retries := v
+	qualifier := strProp(props, "Qualifier", params, physicalIDs)
+	if qualifier == "$LATEST" {
+		qualifier = ""
+	}
+	input := &lambdabackend.PutFunctionEventInvokeConfigInput{DestinationConfig: lambdaDestinationConfig(props)}
+	if _, has := props["MaximumRetryAttempts"]; has {
+		retries := intProp(props, "MaximumRetryAttempts")
 		input.MaximumRetryAttempts = &retries
 	}
 	if v := intProp(props, "MaximumEventAgeInSeconds"); v > 0 {
 		age := v
 		input.MaximumEventAgeInSeconds = &age
 	}
-	if _, err := imb.PutFunctionEventInvokeConfig(functionName, input); err != nil {
+	if _, err := imb.PutFunctionEventInvokeConfigQualified(functionName, qualifier, input); err != nil {
 		return "", fmt.Errorf("create Lambda event invoke config %s: %w", functionName, err)
 	}
+	if qualifier == "" {
+		return functionName, nil
+	}
 
-	return functionName, nil
+	return functionName + "|" + qualifier, nil
+}
+
+func lambdaDestinationConfig(props map[string]any) *lambdabackend.DestinationConfig {
+	dc, ok := props["DestinationConfig"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	pick := func(key string) *lambdabackend.Destination {
+		m, isMap := dc[key].(map[string]any)
+		if !isMap {
+			return nil
+		}
+		dest, _ := m["Destination"].(string)
+
+		return &lambdabackend.Destination{Destination: dest}
+	}
+
+	return &lambdabackend.DestinationConfig{OnSuccess: pick("OnSuccess"), OnFailure: pick("OnFailure")}
 }
 
 func (rc *ResourceCreator) deleteLambdaEventInvokeConfig(physicalID string) error {
@@ -244,7 +270,9 @@ func (rc *ResourceCreator) deleteLambdaEventInvokeConfig(physicalID string) erro
 		return nil
 	}
 
-	return imb.DeleteFunctionEventInvokeConfig(physicalID)
+	name, qualifier, _ := strings.Cut(physicalID, "|")
+
+	return imb.DeleteFunctionEventInvokeConfigQualified(name, qualifier)
 }
 
 func (rc *ResourceCreator) createLambdaURL(
@@ -269,16 +297,9 @@ func (rc *ResourceCreator) createLambdaURL(
 		authType = "AWS_IAM"
 	}
 	invokeMode := strProp(props, "InvokeMode", params, physicalIDs)
-	var cors *lambdabackend.FunctionURLCors
-	if corsMap, ok2 := props["Cors"].(map[string]any); ok2 {
-		cors = &lambdabackend.FunctionURLCors{}
-		if origins, ok3 := corsMap["AllowOrigins"].([]any); ok3 {
-			for _, o := range origins {
-				cors.AllowOrigins = append(cors.AllowOrigins, fmt.Sprintf("%v", o))
-			}
-		}
-	}
-	cfg, err := imb.CreateFunctionURLConfig(ctx, functionName, authType, cors, invokeMode)
+	cors := lambdaURLCors(props)
+	qualifier := strProp(props, "Qualifier", params, physicalIDs)
+	cfg, err := imb.CreateFunctionURLConfigQualified(ctx, functionName, qualifier, authType, cors, invokeMode)
 	if err != nil {
 		return "", fmt.Errorf("create Lambda function URL %s: %w", functionName, err)
 	}
@@ -295,5 +316,39 @@ func (rc *ResourceCreator) deleteLambdaURL(physicalID string) error {
 		return nil
 	}
 
-	return imb.DeleteFunctionURLConfig(physicalID)
+	_, nameAndQualifier, _ := strings.Cut(physicalID, ":function:")
+	if nameAndQualifier == "" {
+		nameAndQualifier = physicalID
+	}
+	name, qualifier, _ := strings.Cut(nameAndQualifier, ":")
+
+	return imb.DeleteFunctionURLConfigQualified(name, qualifier)
+}
+
+func lambdaURLCors(props map[string]any) *lambdabackend.FunctionURLCors {
+	m, ok := props["Cors"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	strs := func(key string) []string {
+		list := asList(m[key])
+		out := make([]string, 0, len(list))
+		for _, v := range list {
+			out = append(out, fmt.Sprintf("%v", v))
+		}
+
+		return out
+	}
+
+	allowCreds, _ := m["AllowCredentials"].(bool)
+
+	return &lambdabackend.FunctionURLCors{
+		AllowOrigins:     strs("AllowOrigins"),
+		AllowMethods:     strs("AllowMethods"),
+		AllowHeaders:     strs("AllowHeaders"),
+		ExposeHeaders:    strs("ExposeHeaders"),
+		MaxAge:           int(int64Val(m["MaxAge"])),
+		AllowCredentials: allowCreds,
+	}
 }

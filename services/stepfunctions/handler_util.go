@@ -106,6 +106,7 @@ type testStateMock struct {
 		Error *string `json:"error,omitempty"`
 		Cause *string `json:"cause,omitempty"`
 	} `json:"errorOutput,omitempty"`
+	FieldValidationMode string `json:"fieldValidationMode,omitempty"`
 }
 
 type testStateConfiguration struct {
@@ -114,6 +115,12 @@ type testStateConfiguration struct {
 
 // testStateMockRun turns a TestState mock into a one-shot MockRun for stateName.
 func testStateMockRun(m *testStateMock, stateName string) (*asl.MockRun, error) {
+	switch m.FieldValidationMode {
+	case "", "STRICT", "PRESENT", "NONE":
+	default:
+		return nil, fmt.Errorf("%w: invalid mock fieldValidationMode %q", ErrValidation, m.FieldValidationMode)
+	}
+
 	if (m.Result == nil) == (m.ErrorOutput == nil) {
 		return nil, fmt.Errorf("%w: mock needs exactly one of result or errorOutput", ErrValidation)
 	}
@@ -251,7 +258,7 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 
 	smDef := fmt.Sprintf(`{"StartAt":%q,"States":%s}`, stateName, input.Definition)
 
-	sm, err := asl.Parse(smDef)
+	sm, err := asl.ParseIsolatedState(smDef)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, err)
 	}
@@ -348,8 +355,8 @@ func configureTestStateExecutor(
 
 	_ = json.Unmarshal(rawState, &typed)
 
-	if typed.Type != stateTypeTask {
-		return fmt.Errorf("%w: mock is supported for Task states only", ErrValidation)
+	if typed.Type != stateTypeTask && typed.Type != stateTypeMap && typed.Type != stateTypeParallel {
+		return fmt.Errorf("%w: mock is supported for Task, Map and Parallel states only", ErrValidation)
 	}
 
 	run, err := testStateMockRun(input.Mock, stateName)

@@ -55,6 +55,10 @@ func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) 
 
 // DeletePolicy deletes an IAM policy by ARN.
 func (b *InMemoryBackend) DeletePolicy(policyArn string) error {
+	if err := rejectAWSManagedMutation(policyArn); err != nil {
+		return err
+	}
+
 	b.mu.Lock("DeletePolicy")
 	defer b.mu.Unlock()
 
@@ -90,6 +94,18 @@ func (b *InMemoryBackend) DeletePolicy(policyArn string) error {
 	policyName, exists := b.policyByARN[policyArn]
 	if !exists {
 		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+	}
+
+	total := len(b.policyVersions[policyArn])
+	if !b.deletedV1Policies[policyArn] {
+		total++
+	}
+
+	if total > 1 {
+		return fmt.Errorf(
+			"%w: policy %q has non-default versions; delete them first",
+			ErrDeleteConflict, policyArn,
+		)
 	}
 
 	b.policies.Delete(policyName)
@@ -190,6 +206,10 @@ func (b *InMemoryBackend) AttachUserPolicy(userName, policyArn string) error {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
+	if err := b.requireAttachablePolicyLocked(policyArn); err != nil {
+		return err
+	}
+
 	if slices.Contains(b.userPolicies[userName], policyArn) {
 		return nil // already attached
 	}
@@ -229,6 +249,10 @@ func (b *InMemoryBackend) AttachRolePolicy(roleName, policyArn string) error {
 
 	if _, exists := b.roles.Get(roleName); !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	if err := b.requireAttachablePolicyLocked(policyArn); err != nil {
+		return err
 	}
 
 	if slices.Contains(b.rolePolicies[roleName], policyArn) {
@@ -309,6 +333,10 @@ func (b *InMemoryBackend) GetPolicyVersion(
 		return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
 
+	if isAWSManagedPolicyARN(policyArn) {
+		return awsManagedVersion(policy, versionID)
+	}
+
 	for _, version := range b.policyVersions[policyArn] {
 		if version.VersionID != versionID {
 			continue
@@ -361,6 +389,10 @@ func (b *InMemoryBackend) purgePoliciesLocked(cutoff time.Time) {
 
 // SetDefaultPolicyVersion sets the specified version as the default for the managed policy.
 func (b *InMemoryBackend) SetDefaultPolicyVersion(policyArn, versionID string) error {
+	if err := rejectAWSManagedMutation(policyArn); err != nil {
+		return err
+	}
+
 	b.mu.Lock("SetDefaultPolicyVersion")
 	defer b.mu.Unlock()
 
@@ -420,6 +452,10 @@ func (b *InMemoryBackend) SetDefaultPolicyVersion(policyArn, versionID string) e
 
 // DeletePolicyVersion deletes a non-default version of the managed policy.
 func (b *InMemoryBackend) DeletePolicyVersion(policyArn, versionID string) error {
+	if err := rejectAWSManagedMutation(policyArn); err != nil {
+		return err
+	}
+
 	b.mu.Lock("DeletePolicyVersion")
 	defer b.mu.Unlock()
 
@@ -589,6 +625,10 @@ func simulateCustomPolicyOne(
 
 // TagPolicy merges the given key-value pairs into the policy's Tags field.
 func (b *InMemoryBackend) TagPolicy(policyArn string, tags map[string]string) error {
+	if err := rejectAWSManagedMutation(policyArn); err != nil {
+		return err
+	}
+
 	b.mu.Lock("TagPolicy")
 	defer b.mu.Unlock()
 
@@ -600,6 +640,10 @@ func (b *InMemoryBackend) TagPolicy(policyArn string, tags map[string]string) er
 	p, exists := b.policies.Get(polName)
 	if !exists {
 		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+	}
+
+	if err := checkTagLimit(p.Tags, tags); err != nil {
+		return err
 	}
 
 	if p.Tags == nil {
@@ -614,6 +658,10 @@ func (b *InMemoryBackend) TagPolicy(policyArn string, tags map[string]string) er
 
 // UntagPolicy removes the given keys from the policy's Tags field.
 func (b *InMemoryBackend) UntagPolicy(policyArn string, keys []string) error {
+	if err := rejectAWSManagedMutation(policyArn); err != nil {
+		return err
+	}
+
 	b.mu.Lock("UntagPolicy")
 	defer b.mu.Unlock()
 
@@ -683,12 +731,7 @@ func (b *InMemoryBackend) boundaryDocForRole(roleName string) string {
 // policyDocByARNLocked returns the current policy document for a managed policy ARN.
 // Caller must hold b.mu read-locked.
 func (b *InMemoryBackend) policyDocByARNLocked(policyArn string) string {
-	polName, exists := b.policyByARN[policyArn]
-	if !exists {
-		return ""
-	}
-
-	p, exists := b.policies.Get(polName)
+	p, exists := b.getPolicyByARNLocked(policyArn)
 	if !exists {
 		return ""
 	}
@@ -702,6 +745,10 @@ func (b *InMemoryBackend) policyDocByARNLocked(policyArn string) string {
 func (b *InMemoryBackend) CreatePolicyVersion(
 	policyArn, policyDocument string, setAsDefault bool,
 ) (*StoredPolicyVersion, error) {
+	if err := rejectAWSManagedMutation(policyArn); err != nil {
+		return nil, err
+	}
+
 	if policyDocument == "" {
 		return nil, fmt.Errorf("%w: policy document must not be empty", ErrMalformedPolicyDocument)
 	}
@@ -782,6 +829,12 @@ func (b *InMemoryBackend) ListPolicyVersions(policyArn string) ([]StoredPolicyVe
 		return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
 
+	if isAWSManagedPolicyARN(policyArn) {
+		v, _ := awsManagedVersion(policy, policy.DefaultVersionID)
+
+		return []StoredPolicyVersion{*v}, nil
+	}
+
 	storedVersions := b.policyVersions[policyArn]
 	isV1Default := true
 	for _, storedVersion := range storedVersions {
@@ -804,4 +857,40 @@ func (b *InMemoryBackend) ListPolicyVersions(policyArn string) ([]StoredPolicyVe
 	}
 
 	return append(versions, storedVersions...), nil
+}
+
+// awsManagedPolicyPrefix is the ARN prefix of AWS managed policies (seeded in aws_managed.go).
+const awsManagedPolicyPrefix = "arn:aws:iam::aws:policy/"
+
+func (b *InMemoryBackend) requireBoundaryLocked(policyArn string) error {
+	if policyArn == "" {
+		return nil
+	}
+
+	if err := b.requireAttachablePolicyLocked(policyArn); err != nil {
+		return fmt.Errorf("%w: scope ARN %s does not exist or is not attachable", ErrPolicyNotFound, policyArn)
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) requireAttachablePolicyLocked(policyArn string) error {
+	if _, ok := b.getPolicyByARNLocked(policyArn); !ok {
+		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+	}
+
+	return nil
+}
+
+func awsManagedVersion(policy Policy, versionID string) (*StoredPolicyVersion, error) {
+	if versionID != policy.DefaultVersionID {
+		return nil, fmt.Errorf("%w: policy version %q not found", ErrPolicyNotFound, versionID)
+	}
+
+	return &StoredPolicyVersion{
+		VersionID:        policy.DefaultVersionID,
+		PolicyDocument:   policy.PolicyDocument,
+		IsDefaultVersion: true,
+		CreateDate:       policy.UpdateDate,
+	}, nil
 }

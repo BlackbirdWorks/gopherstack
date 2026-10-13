@@ -13,7 +13,8 @@ import (
 //   - $context.result / $ctx.result / $context.result.key → resolver result
 //   - $context.prev.result / $ctx.prev.result / $context.prev.result.key → the
 //     previous pipeline function's result (PIPELINE resolvers only; see
-//     renderVTLWithPrev)
+//     renderVTLFull)
+//   - $context.source / $ctx.source[.key] → the parent object of a nested field
 //   - $util.toJson(expr) → JSON-encode the expression
 //   - #return(expr) → shorthand return with expression
 //   - $util.dynamodb.toDynamoDBJson($ctx.args.key) → wrap in DynamoDB format
@@ -21,17 +22,16 @@ import (
 //
 // Unsupported constructs are passed through unchanged.
 func renderVTL(tmpl string, args map[string]any, result any) (string, error) {
-	return renderVTLWithPrev(tmpl, args, result, nil)
+	return renderVTLFull(tmpl, vtlContext{args: args, result: result})
 }
 
-// renderVTLWithPrev is renderVTL plus prev, the previous pipeline function's
-// result (types.AppSyncRuntime's $ctx.prev.result) -- used only by a
-// PIPELINE resolver/function's RequestMappingTemplate. See
-// graphql.go's evalRequestMapping.
-func renderVTLWithPrev(tmpl string, args map[string]any, result, prev any) (string, error) {
+// renderVTLFull renders tmpl against vc: prev is the previous pipeline
+// function's result ($ctx.prev.result) and source the parent object of a
+// nested field resolver ($ctx.source).
+func renderVTLFull(tmpl string, vc vtlContext) (string, error) {
 	if tmpl == "" {
-		if result != nil {
-			b, err := json.Marshal(result)
+		if vc.result != nil {
+			b, err := json.Marshal(vc.result)
 			if err != nil {
 				return "{}", err
 			}
@@ -42,8 +42,6 @@ func renderVTLWithPrev(tmpl string, args map[string]any, result, prev any) (stri
 		return "{}", nil
 	}
 
-	vc := &vtlContext{args: args, result: result, prev: prev}
-
 	return vc.render(tmpl)
 }
 
@@ -51,6 +49,7 @@ type vtlContext struct {
 	args   map[string]any
 	result any
 	prev   any
+	source any
 }
 
 const (
@@ -77,12 +76,17 @@ var (
 	reContextPrevResultDot = regexp.MustCompile(`\$(?:context\.prev\.result|ctx\.prev\.result)\.(\w+)`)
 	// reContextPrevResult matches $context.prev.result or $ctx.prev.result (bare).
 	reContextPrevResult = regexp.MustCompile(`\$(?:context\.prev\.result|ctx\.prev\.result)\b`)
+	// reContextResultPath matches $context.result.a.b or $ctx.result.a.b.
+	reContextResultPath = regexp.MustCompile(`\$(?:context|ctx)\.result((?:\.\w+)+)`)
+	// reContextSourcePath matches $context.source[.a.b] or $ctx.source[.a.b].
+	reContextSourcePath = regexp.MustCompile(`\$(?:context|ctx)\.source((?:\.\w+)*)`)
 )
 
 func (vc *vtlContext) render(tmpl string) (string, error) {
 	tmpl = vc.expandReturn(tmpl)
 	tmpl = vc.expandUtilToJSON(tmpl)
 	tmpl = vc.expandDynamoDBJSON(tmpl)
+	tmpl = vc.expandContextSource(tmpl)
 	tmpl = vc.expandContextPrevResultDot(tmpl)
 	tmpl = vc.expandContextPrevResult(tmpl)
 	tmpl = vc.expandContextResultDot(tmpl)
@@ -91,6 +95,72 @@ func (vc *vtlContext) render(tmpl string) (string, error) {
 	tmpl = vc.expandContextArgs(tmpl)
 
 	return strings.TrimSpace(tmpl), nil
+}
+
+// expandContextSource expands $ctx.source and $ctx.source.a.b paths.
+func (vc *vtlContext) expandContextSource(tmpl string) string {
+	return reContextSourcePath.ReplaceAllStringFunc(tmpl, func(match string) string {
+		sub := reContextSourcePath.FindStringSubmatch(match)
+		v := vc.sourcePath(sub[1])
+
+		if sub[1] == "" {
+			b, err := json.Marshal(v)
+			if err != nil {
+				return vtlNull
+			}
+
+			return string(b)
+		}
+
+		switch t := v.(type) {
+		case nil:
+			return vtlNull
+		case map[string]any, []any:
+			b, _ := json.Marshal(t)
+
+			return string(b)
+		default:
+			return fmt.Sprintf("%v", t)
+		}
+	})
+}
+
+func isPathExpr(re *regexp.Regexp, expr string) bool {
+	return re.FindString(expr) == expr
+}
+
+// pathExpr evaluates $ctx.result.a.b and $ctx.source[.a.b] expressions.
+func (vc *vtlContext) pathExpr(expr string) any {
+	if sub := reContextResultPath.FindStringSubmatch(expr); sub != nil && sub[0] == expr {
+		return walkPath(vc.result, sub[1])
+	}
+
+	return vc.sourcePath(reContextSourcePath.FindStringSubmatch(expr)[1])
+}
+
+// sourcePath walks a ".a.b" path below $ctx.source.
+func (vc *vtlContext) sourcePath(path string) any {
+	return walkPath(vc.source, path)
+}
+
+// walkPath walks a ".a.b" path below root; a missing step yields nil.
+func walkPath(root any, path string) any {
+	cur := root
+
+	for seg := range strings.SplitSeq(strings.TrimPrefix(path, "."), ".") {
+		if seg == "" {
+			continue
+		}
+
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return nil
+		}
+
+		cur = m[seg]
+	}
+
+	return cur
 }
 
 // expandContextPrevResultDot expands $context.prev.result.key / $ctx.prev.result.key.
@@ -246,6 +316,9 @@ func (vc *vtlContext) resolveExpr(expr string) any {
 
 	case expr == "$context.prev.result" || expr == "$ctx.prev.result":
 		return vc.prev
+
+	case isPathExpr(reContextResultPath, expr) || isPathExpr(reContextSourcePath, expr):
+		return vc.pathExpr(expr)
 
 	case strings.HasPrefix(expr, "$context.arguments.") || strings.HasPrefix(expr, "$ctx.args."):
 		var key string

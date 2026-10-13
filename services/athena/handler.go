@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -56,6 +57,7 @@ func (h *Handler) EnableRegions(ctx context.Context) {
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
 		nb := NewInMemoryBackend(region, home.accountID)
 		nb.s3 = home.s3
+		nb.limits = home.limits
 
 		if h.glueFor != nil {
 			nb.glueSource = h.glueFor(region)
@@ -381,7 +383,7 @@ func (h *Handler) handleError(
 
 	errResp := service.JSONErrorResponse{
 		Type:    errorType,
-		Message: reqErr.Error(),
+		Message: stripExceptionPrefix(reqErr.Error()),
 	}
 
 	payload, _ := json.Marshal(errResp)
@@ -401,4 +403,16 @@ func tagsFromSlice(tags []Tag) map[string]string {
 	}
 
 	return m
+}
+
+var exceptionPrefix = regexp.MustCompile(`^(?:[A-Za-z]+Exception: )+`)
+
+// stripExceptionPrefix drops the sentinel's own "<Code>: " lead so the wire
+// message carries only the human text.
+func stripExceptionPrefix(msg string) string {
+	if stripped := exceptionPrefix.ReplaceAllString(msg, ""); stripped != "" {
+		return stripped
+	}
+
+	return msg
 }

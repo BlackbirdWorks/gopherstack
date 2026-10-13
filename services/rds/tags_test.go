@@ -167,7 +167,7 @@ func TestRDSBackend_TagsCleanedUpOnDelete(t *testing.T) {
 				postRDSForm(t, h,
 					"Action=CreateDBCluster&Version=2014-10-31"+
 						"&DBClusterIdentifier=tag-cluster&Engine=aurora-postgresql"+
-						"&MasterUsername=admin&MasterUserPassword=pass")
+						"&MasterUsername=admin&MasterUserPassword=password")
 				postRDSForm(t, h, "Action=AddTagsToResource&Version=2014-10-31"+
 					"&ResourceName=arn:aws:rds:us-east-1:000000000000:cluster:tag-cluster"+
 					"&Tags.Tag.1.Key=k&Tags.Tag.1.Value=v")
@@ -184,7 +184,7 @@ func TestRDSBackend_TagsCleanedUpOnDelete(t *testing.T) {
 				postRDSForm(t, h,
 					"Action=CreateDBCluster&Version=2014-10-31"+
 						"&DBClusterIdentifier=csnap-cluster&Engine=aurora-postgresql"+
-						"&MasterUsername=admin&MasterUserPassword=pass")
+						"&MasterUsername=admin&MasterUserPassword=password")
 				postRDSForm(t, h,
 					"Action=CreateDBClusterSnapshot&Version=2014-10-31"+
 						"&DBClusterSnapshotIdentifier=tag-csnap"+
@@ -205,7 +205,7 @@ func TestRDSBackend_TagsCleanedUpOnDelete(t *testing.T) {
 				postRDSForm(t, h,
 					"Action=CreateDBCluster&Version=2014-10-31"+
 						"&DBClusterIdentifier=ep-cluster&Engine=aurora-postgresql"+
-						"&MasterUsername=admin&MasterUserPassword=pass")
+						"&MasterUsername=admin&MasterUserPassword=password")
 				postRDSForm(t, h,
 					"Action=CreateDBClusterEndpoint&Version=2014-10-31"+
 						"&DBClusterEndpointIdentifier=tag-ep"+
@@ -231,7 +231,7 @@ func TestRDSBackend_TagsCleanedUpOnDelete(t *testing.T) {
 				postRDSForm(t, h,
 					"Action=CreateDBCluster&Version=2014-10-31"+
 						"&DBClusterIdentifier=cascade-ep-cluster&Engine=aurora-postgresql"+
-						"&MasterUsername=admin&MasterUserPassword=pass")
+						"&MasterUsername=admin&MasterUserPassword=password")
 				postRDSForm(t, h,
 					"Action=CreateDBClusterEndpoint&Version=2014-10-31"+
 						"&DBClusterEndpointIdentifier=cascade-ep"+

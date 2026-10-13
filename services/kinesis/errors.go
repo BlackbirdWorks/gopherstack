@@ -17,6 +17,8 @@ var errRateExceeded = errors.New("rate exceeded for shard")
 var ErrValidation = errors.New("kinesis: validation error")
 
 // Sentinel errors for Kinesis operations.
+const errCodeDryRun = "DryRunOperationException"
+
 var (
 	ErrStreamNotFound      = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	ErrStreamAlreadyExists = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
@@ -33,7 +35,9 @@ var (
 	ErrStreamNotActive        = awserr.New("ResourceInUseException", awserr.ErrConflict)
 	ErrInvalidArgument        = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
 	ErrUnknownAction          = errors.New("UnknownOperationException")
+	ErrDryRunOperation        = errors.New(errCodeDryRun)
 	ErrShardIteratorExpired   = errors.New("ExpiredIteratorException")
+	ErrExpiredNextToken       = errors.New("ExpiredNextTokenException")
 	ErrConsumerNotFound       = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	ErrConsumerAlreadyExists  = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
 	ErrResourcePolicyNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
@@ -97,3 +101,13 @@ var ErrShardCountScaling = errors.New(
 	"UpdateShardCount cannot scale by more than double or less than half " +
 		"of the current shard count within a single call",
 )
+
+type validationError struct{ msg string }
+
+func (e *validationError) Error() string { return e.msg }
+
+func (e *validationError) Is(target error) bool { return target == ErrValidation }
+
+func newValidationError(format string, args ...any) error {
+	return &validationError{msg: "1 validation error detected: " + fmt.Sprintf(format, args...)}
+}

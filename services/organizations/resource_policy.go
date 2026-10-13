@@ -1,5 +1,7 @@
 package organizations
 
+import "strings"
+
 // maxResourcePolicyContentLength is the ResourcePolicyContent shape's max
 // (botocore 1.43.56, data/organizations/2016-11-28/service-2.json.gz),
 // matching the "Maximum size of the resource-based delegation policy" row of
@@ -62,7 +64,7 @@ func (b *InMemoryBackend) PutResourcePolicy(content string, tags []Tag) (*Resour
 		return nil, ErrPolicyContentLimitExceeded
 	}
 
-	rpID := "p-rp-default"
+	rpID := resourcePolicyID(b.org.ID)
 	creating := b.resourcePolicy == nil
 
 	if creating {
@@ -91,4 +93,9 @@ func (b *InMemoryBackend) PutResourcePolicy(content string, tags []Tag) (*Resour
 	cp := *rp
 
 	return &cp, nil
+}
+
+// resourcePolicyID derives the organization's single resource policy ID (pattern ^rp-[0-9a-zA-Z_]{4,128}$).
+func resourcePolicyID(orgID string) string {
+	return "rp-" + strings.TrimPrefix(orgID, "o-")
 }

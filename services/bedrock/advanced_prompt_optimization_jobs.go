@@ -210,7 +210,7 @@ func (b *InMemoryBackend) StopAdvancedPromptOptimizationJob(idOrARN string) erro
 		)
 	}
 
-	j.JobStatus = statusStopped
+	j.JobStatus = statusStopping
 	j.LastModifiedTime = time.Now().UTC()
 
 	return nil

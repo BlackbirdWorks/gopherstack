@@ -1,7 +1,6 @@
 package mediaconvert
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -24,14 +23,12 @@ type jobEngineVersion struct {
 
 func (h *Handler) handleListVersions(c *echo.Context) error {
 	q := c.Request().URL.Query()
-	if page.ValidateToken(q.Get("nextToken")) != nil {
-		return h.writeError(c, fmt.Errorf("%w: invalid nextToken", ErrValidation))
+	token, maxResults, err := listPageArgs(q)
+	if err != nil {
+		return h.writeError(c, err)
 	}
 
-	pg := page.New(
-		[]jobEngineVersion{{Version: "2017-08-29"}},
-		q.Get("nextToken"), parseMaxResults(q.Get("maxResults")), defaultListPageSize,
-	)
+	pg := page.New([]jobEngineVersion{{Version: "2017-08-29"}}, token, maxResults, defaultListPageSize)
 
 	return c.JSON(http.StatusOK, listVersionsOutput{Versions: pg.Data, NextToken: pg.Next})
 }

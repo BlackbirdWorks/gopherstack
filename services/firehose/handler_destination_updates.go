@@ -88,6 +88,7 @@ func (h *Handler) handleUpdateDestination(
 // defaults, so omitted members survive the merge in applyDestinationUpdate.
 func buildUpdateDestinationInput(in *updateDestinationInput, rawS3 *s3DestinationInput) UpdateDestinationInput {
 	update := UpdateDestinationInput{
+		DestinationID:            in.DestinationID,
 		S3Destination:            buildS3DestinationDescription(rawS3),
 		HTTPEndpointDestination:  buildHTTPEndpointDestination(in.HTTPEndpointDestinationUpdate),
 		RedshiftDestination:      buildRedshiftDestination(in.RedshiftDestinationUpdate),

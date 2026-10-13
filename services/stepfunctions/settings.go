@@ -16,6 +16,8 @@ type Settings struct {
 
 const (
 	defaultExecutionRetention = 24 * time.Hour
+	// closedExecNameReservation is how long AWS keeps a closed execution's name reserved.
+	closedExecNameReservation = 90 * 24 * time.Hour
 	defaultJanitorInterval    = 1 * time.Minute
 	defaultTaskTokenTTL       = 1 * time.Hour
 )

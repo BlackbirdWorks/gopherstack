@@ -324,6 +324,7 @@ type InstanceInformation struct {
 	PingStatus       string  `json:"PingStatus"`
 	AgentVersion     string  `json:"AgentVersion"`
 	PlatformType     string  `json:"PlatformType"`
+	ResourceType     string  `json:"ResourceType,omitempty"`
 	RegistrationDate float64 `json:"RegistrationDate"`
 }
 

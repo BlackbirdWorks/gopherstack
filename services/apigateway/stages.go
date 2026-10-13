@@ -73,6 +73,10 @@ func (b *InMemoryBackend) CreateStage(input CreateStageInput) (*Stage, error) {
 		return nil, fmt.Errorf("%w: stageName is required", ErrInvalidParameter)
 	}
 
+	if !validStageName(input.StageName) {
+		return nil, fmt.Errorf("%w: Stage name only allows a-zA-Z0-9_", ErrInvalidParameter)
+	}
+
 	if input.DeploymentID == "" {
 		return nil, fmt.Errorf("%w: deploymentId is required", ErrInvalidParameter)
 	}
@@ -192,4 +196,20 @@ func cacheClusterStatusFor(enabled bool) string {
 	}
 
 	return "NOT_AVAILABLE"
+}
+
+const maxStageNameLength = 128
+
+func validStageName(name string) bool {
+	if len(name) > maxStageNameLength {
+		return false
+	}
+
+	for _, r := range name {
+		if r != '_' && (r < '0' || r > '9') && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') {
+			return false
+		}
+	}
+
+	return true
 }

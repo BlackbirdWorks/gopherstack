@@ -140,7 +140,7 @@ func (o *Order) clone() *Order {
 // cancelled, or restored from a snapshot mid-flight with no pending timer)
 // silently stops advancing the chain rather than forcing a transition.
 func (b *InMemoryBackend) scheduleOrderCompletion(id string) {
-	b.work.After("OrderInProgress", orderTransitionDelay, func() {
+	b.work.After("OrderInProgress", b.orderDelay(), func() {
 		b.mu.Lock("OrderInProgress-async")
 		advanced := b.advanceOrderStatusLocked(id, OrderStatusPreparing, OrderStatusInProgress, LineItemStatusBuilding)
 		b.mu.Unlock()
@@ -154,7 +154,7 @@ func (b *InMemoryBackend) scheduleOrderCompletion(id string) {
 }
 
 func (b *InMemoryBackend) scheduleOrderDelivery(id string) {
-	b.work.After("OrderDelivered", orderTransitionDelay, func() {
+	b.work.After("OrderDelivered", b.orderDelay(), func() {
 		b.mu.Lock("OrderDelivered-async")
 		advanced := b.advanceOrderStatusLocked(id, OrderStatusInProgress, OrderStatusDelivered, LineItemStatusDelivered)
 		b.mu.Unlock()
@@ -168,7 +168,7 @@ func (b *InMemoryBackend) scheduleOrderDelivery(id string) {
 }
 
 func (b *InMemoryBackend) scheduleOrderCompletionFinal(id string) {
-	b.work.After("OrderCompleted", orderTransitionDelay, func() {
+	b.work.After("OrderCompleted", b.orderDelay(), func() {
 		b.mu.Lock("OrderCompleted-async")
 		defer b.mu.Unlock()
 

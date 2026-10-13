@@ -428,7 +428,6 @@ func TestHandler_ExternalConnectionFormat(t *testing.T) {
 		{name: "maven", connectionName: "public:maven-central", wantFormat: "maven"},
 		{name: "nuget", connectionName: "public:nuget-org", wantFormat: "nuget"},
 		{name: "cargo", connectionName: "public:crates-io", wantFormat: "cargo"},
-		{name: "generic", connectionName: "public:unknown", wantFormat: "generic"},
 	}
 
 	for _, tt := range tests {

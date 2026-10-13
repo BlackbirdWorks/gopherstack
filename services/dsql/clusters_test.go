@@ -109,7 +109,10 @@ func TestGetCluster_NotFound(t *testing.T) {
 
 	client := newTestClient(t, newTestHandler())
 
-	_, err := client.GetCluster(t.Context(), &dsqlsdk.GetClusterInput{Identifier: aws.String("does-not-exist")})
+	_, err := client.GetCluster(
+		t.Context(),
+		&dsqlsdk.GetClusterInput{Identifier: aws.String("aaaaaaaaaaaaaaaaaaaaaaaaaa")},
+	)
 	require.Error(t, err)
 	assertAPIErrorCode(t, err, "ResourceNotFoundException")
 }
@@ -159,7 +162,10 @@ func TestUpdateCluster_NotFound(t *testing.T) {
 
 	client := newTestClient(t, newTestHandler())
 
-	_, err := client.UpdateCluster(t.Context(), &dsqlsdk.UpdateClusterInput{Identifier: aws.String("nope")})
+	_, err := client.UpdateCluster(
+		t.Context(),
+		&dsqlsdk.UpdateClusterInput{Identifier: aws.String("aaaaaaaaaaaaaaaaaaaaaaaaaa")},
+	)
 	require.Error(t, err)
 	assertAPIErrorCode(t, err, "ResourceNotFoundException")
 }
@@ -225,7 +231,7 @@ func TestGetVpcEndpointServiceName_NotFound(t *testing.T) {
 	client := newTestClient(t, newTestHandler())
 
 	_, err := client.GetVpcEndpointServiceName(t.Context(), &dsqlsdk.GetVpcEndpointServiceNameInput{
-		Identifier: aws.String("nope"),
+		Identifier: aws.String("aaaaaaaaaaaaaaaaaaaaaaaaaa"),
 	})
 	require.Error(t, err)
 	assertAPIErrorCode(t, err, "ResourceNotFoundException")

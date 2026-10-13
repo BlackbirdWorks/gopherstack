@@ -15,6 +15,13 @@ func (b *InMemoryBackend) CreateConfigurationSet(name string) error {
 		return fmt.Errorf("%w: ConfigurationSetName is required", ErrInvalidParameter)
 	}
 
+	if !validConfigurationSetName(name) {
+		return fmt.Errorf(
+			"%w: name must be 1-64 ASCII letters, numbers, underscores or hyphens",
+			ErrInvalidConfigurationSet,
+		)
+	}
+
 	b.mu.Lock("CreateConfigurationSet")
 	defer b.mu.Unlock()
 
@@ -247,4 +254,21 @@ func (b *InMemoryBackend) UpdateConfigurationSetTrackingOptions(configSetName, c
 	b.trackingOptions.Put(&TrackingOptions{ConfigSetName: configSetName, CustomRedirectDomain: customRedirectDomain})
 
 	return nil
+}
+
+const maxConfigurationSetNameLen = 64
+
+func validConfigurationSetName(name string) bool {
+	if len(name) > maxConfigurationSetNameLen {
+		return false
+	}
+
+	for _, r := range name {
+		ok := r == '_' || r == '-' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z'
+		if !ok {
+			return false
+		}
+	}
+
+	return true
 }

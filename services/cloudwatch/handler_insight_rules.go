@@ -49,13 +49,14 @@ func buildInsightRuleFailResult(failures []InsightRuleFailure) insightRuleFailRe
 
 // insightRuleXML is the XML representation of an InsightRule.
 type insightRuleXML struct {
-	CreatedAt   string `xml:"CreatedAt,omitempty"`
-	Name        string `xml:"Name"`
-	State       string `xml:"State"`
-	Schema      string `xml:"Schema,omitempty"`
-	Definition  string `xml:"Definition,omitempty"`
-	Arn         string `xml:"RuleArn,omitempty"`
-	ManagedRule bool   `xml:"ManagedRule"`
+	CreatedAt              string `xml:"CreatedAt,omitempty"`
+	Name                   string `xml:"Name"`
+	State                  string `xml:"State"`
+	Schema                 string `xml:"Schema,omitempty"`
+	Definition             string `xml:"Definition,omitempty"`
+	Arn                    string `xml:"RuleArn,omitempty"`
+	ManagedRule            bool   `xml:"ManagedRule"`
+	ApplyOnTransformedLogs bool   `xml:"ApplyOnTransformedLogs"`
 }
 
 func (h *Handler) handlePutInsightRule(form url.Values, c *echo.Context) error {
@@ -91,6 +92,8 @@ func (h *Handler) putInsightRule(ruleName string, form url.Values, c *echo.Conte
 		Name:       ruleName,
 		Definition: definition,
 		State:      form.Get("RuleState"),
+
+		ApplyOnTransformedLogs: form.Get("ApplyOnTransformedLogs") == "true",
 	}); err != nil {
 		if errors.Is(err, ErrValidation) {
 			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
@@ -178,6 +181,8 @@ func (h *Handler) handleDescribeInsightRules(form url.Values, c *echo.Context) e
 			ManagedRule: r.ManagedRule,
 			Arn:         r.Arn,
 			CreatedAt:   formatTimeOmitZero(r.CreatedAt),
+
+			ApplyOnTransformedLogs: r.ApplyOnTransformedLogs,
 		})
 	}
 

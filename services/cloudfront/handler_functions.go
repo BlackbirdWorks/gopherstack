@@ -115,7 +115,7 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 // so a real client's FunctionCode always decoded as XML metadata bytes
 // instead of the actual function source.
 func (h *Handler) handleGetFunction(c *echo.Context, name string) error {
-	fn, err := h.Backend.GetFunction(name)
+	fn, err := h.Backend.GetFunctionAtStage(name, c.QueryParam("Stage"))
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -126,7 +126,7 @@ func (h *Handler) handleGetFunction(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleDescribeFunction(c *echo.Context, name string) error {
-	fn, err := h.Backend.GetFunction(name)
+	fn, err := h.Backend.GetFunctionAtStage(name, c.QueryParam("Stage"))
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -142,7 +142,15 @@ func (h *Handler) handleListFunctions(c *echo.Context) error {
 	// Stage is a real query-bound filter (cloudfront@v1.67.4 serializers.go:
 	// awsRestxml_serializeOpHttpBindingsListFunctionsInput), DEVELOPMENT or LIVE.
 	if stage := c.QueryParam("Stage"); stage != "" {
-		fns = filterSlice(fns, func(fn *Function) bool { return fn.Status == stage })
+		staged := make([]*Function, 0, len(fns))
+
+		for _, fn := range fns {
+			if view, ok := functionAtStage(fn, stage); ok {
+				staged = append(staged, view)
+			}
+		}
+
+		fns = staged
 	}
 
 	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(

@@ -88,7 +88,7 @@ func TestCreateTrail_BucketValidation(t *testing.T) {
 			b.SetS3Backend(&fakeS3{buckets: map[string]bool{"good-bucket": true}})
 
 			trail, err := b.CreateTrail(
-				"t1",
+				"trail-1",
 				tt.bucket,
 				"",
 				"",
@@ -126,15 +126,15 @@ func TestUpdateTrail_BucketValidation(t *testing.T) {
 	b := cloudtrail.NewInMemoryBackend("123456789012", config.DefaultRegion)
 	b.SetS3Backend(&fakeS3{buckets: map[string]bool{"good-bucket": true}})
 
-	_, err := b.CreateTrail("t1", "good-bucket", "", "", "", "", "", false, false, false, nil, false)
+	_, err := b.CreateTrail("trail-1", "good-bucket", "", "", "", "", "", false, false, false, nil, false)
 	require.NoError(t, err)
 
-	updated, err := b.UpdateTrail("t1", "missing-bucket", "", "", "", "", "", nil, nil, nil, nil)
+	updated, err := b.UpdateTrail("trail-1", "missing-bucket", "", "", "", "", "", nil, nil, nil, nil)
 	require.Error(t, err)
 	require.ErrorIs(t, err, cloudtrail.ErrS3BucketNotFound)
 	assert.Nil(t, updated)
 
-	trail, err := b.GetTrail("t1")
+	trail, err := b.GetTrail("trail-1")
 	require.NoError(t, err)
 	assert.Equal(
 		t,
@@ -155,7 +155,7 @@ func TestCreateTrail_UnwiredS3StaysPermissive(t *testing.T) {
 	b := cloudtrail.NewInMemoryBackend("123456789012", config.DefaultRegion)
 
 	trail, err := b.CreateTrail(
-		"t1",
+		"trail-1",
 		"nonexistent-bucket",
 		"",
 		"",
@@ -177,10 +177,10 @@ func TestUpdateTrail_UnwiredS3StaysPermissive(t *testing.T) {
 
 	b := cloudtrail.NewInMemoryBackend("123456789012", config.DefaultRegion)
 
-	_, err := b.CreateTrail("t1", "bucket-a", "", "", "", "", "", false, false, false, nil, false)
+	_, err := b.CreateTrail("trail-1", "bucket-a", "", "", "", "", "", false, false, false, nil, false)
 	require.NoError(t, err)
 
-	updated, err := b.UpdateTrail("t1", "nonexistent-bucket", "", "", "", "", "", nil, nil, nil, nil)
+	updated, err := b.UpdateTrail("trail-1", "nonexistent-bucket", "", "", "", "", "", nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "nonexistent-bucket", updated.S3BucketName)
 }
@@ -220,9 +220,9 @@ func TestRecordManagementEvent_DeliversLogFileToS3(t *testing.T) {
 	fake := &fakeS3{buckets: map[string]bool{"good-bucket": true}}
 	b.SetS3Backend(fake)
 
-	_, err := b.CreateTrail("t1", "good-bucket", "", "", "", "", "", false, false, false, nil, false)
+	_, err := b.CreateTrail("trail-1", "good-bucket", "", "", "", "", "", false, false, false, nil, false)
 	require.NoError(t, err)
-	require.NoError(t, b.StartLogging("t1"))
+	require.NoError(t, b.StartLogging("trail-1"))
 
 	b.RecordManagementEvent(service.CloudTrailEventInput{
 		EventName:   "CreateBucket",
@@ -267,7 +267,7 @@ func TestRecordManagementEvent_TrailNotLogging_NoDelivery(t *testing.T) {
 	fake := &fakeS3{buckets: map[string]bool{"good-bucket": true}}
 	b.SetS3Backend(fake)
 
-	_, err := b.CreateTrail("t1", "good-bucket", "", "", "", "", "", false, false, false, nil, false)
+	_, err := b.CreateTrail("trail-1", "good-bucket", "", "", "", "", "", false, false, false, nil, false)
 	require.NoError(t, err)
 
 	b.RecordManagementEvent(
@@ -286,9 +286,9 @@ func TestRecordManagementEvent_UnwiredS3StaysPermissive(t *testing.T) {
 
 	b := cloudtrail.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := b.CreateTrail("t1", "good-bucket", "", "", "", "", "", false, false, false, nil, false)
+	_, err := b.CreateTrail("trail-1", "good-bucket", "", "", "", "", "", false, false, false, nil, false)
 	require.NoError(t, err)
-	require.NoError(t, b.StartLogging("t1"))
+	require.NoError(t, b.StartLogging("trail-1"))
 
 	require.NotPanics(t, func() {
 		b.RecordManagementEvent(

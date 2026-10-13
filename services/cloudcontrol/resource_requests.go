@@ -3,7 +3,6 @@ package cloudcontrol
 import (
 	"slices"
 	"sort"
-	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -22,7 +21,7 @@ func (b *InMemoryBackend) GetResourceRequestStatus(requestToken string) (*Progre
 		return nil, ErrRequestTokenNotFound
 	}
 
-	return copyEvent(event), nil
+	return b.present(event), nil
 }
 
 // CancelResourceRequest cancels the request identified by requestToken.
@@ -39,12 +38,12 @@ func (b *InMemoryBackend) CancelResourceRequest(requestToken string) (*ProgressE
 		return nil, ErrRequestTokenNotFound
 	}
 
-	if event.OperationStatus != "IN_PROGRESS" {
+	if b.present(event).OperationStatus != opStatusInProgress {
 		return nil, ErrConcurrentModification
 	}
 
 	cancelled := &ProgressEvent{
-		EventTime:       unixEpochTime{time.Now()},
+		EventTime:       unixEpochTime{b.clock()},
 		TypeName:        event.TypeName,
 		Identifier:      event.Identifier,
 		RequestToken:    requestToken,
@@ -103,8 +102,9 @@ func (b *InMemoryBackend) ListResourceRequests(
 	var out []*ProgressEvent
 
 	b.requests.Range(func(event *ProgressEvent) bool {
-		if eventMatchesFilter(event, filter) {
-			out = append(out, event)
+		view := b.present(event)
+		if eventMatchesFilter(view, filter) {
+			out = append(out, view)
 		}
 
 		return true
@@ -117,13 +117,7 @@ func (b *InMemoryBackend) ListResourceRequests(
 
 	pg := page.New(out, nextToken, maxResults, defaultListResourceRequestsMaxResults)
 
-	// Deep-copy the page items so callers cannot mutate backend state.
-	result := make([]*ProgressEvent, len(pg.Data))
-	for i, e := range pg.Data {
-		result[i] = copyEvent(e)
-	}
-
-	return result, pg.Next, nil
+	return pg.Data, pg.Next, nil
 }
 
 // copyEvent returns a shallow copy of a ProgressEvent so callers cannot mutate backend state.

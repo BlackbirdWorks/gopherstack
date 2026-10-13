@@ -44,6 +44,28 @@ func encodeMetricDataToken(c metricDataCursor) string {
 	return base64.StdEncoding.EncodeToString(raw)
 }
 
+func validateMetricDataWindow(startTime, endTime time.Time, nextToken string) error {
+	if !startTime.Before(endTime) {
+		return apiErrorf(ErrValidation, "The parameter StartTime must be less than the parameter EndTime.")
+	}
+
+	if nextToken == "" {
+		return nil
+	}
+
+	raw, err := base64.StdEncoding.DecodeString(nextToken)
+	if err != nil {
+		return ErrInvalidNextToken
+	}
+
+	var c metricDataCursor
+	if err = json.Unmarshal(raw, &c); err != nil || c.ResultIndex < 0 || c.PointOffset < 0 {
+		return ErrInvalidNextToken
+	}
+
+	return nil
+}
+
 // decodeMetricDataToken decodes an opaque GetMetricData NextToken. A malformed or
 // empty token resolves to the start of the result set.
 func decodeMetricDataToken(token string) metricDataCursor {
@@ -129,6 +151,10 @@ func (b *InMemoryBackend) GetMetricDataPaged(
 	scanBy, nextToken string,
 	maxDatapoints int,
 ) (GetMetricDataPage, error) {
+	if err := validateMetricDataWindow(startTime, endTime, nextToken); err != nil {
+		return GetMetricDataPage{}, err
+	}
+
 	if maxDatapoints <= 0 {
 		maxDatapoints = defaultMaxDatapoints
 	}
@@ -313,7 +339,7 @@ func (b *InMemoryBackend) resolveMetricDataQueries(
 		// we cannot distinguish "not set" from "set false" without a pointer. We treat false as
 		// "return data" for MetricStat queries, consistent with AWS SDK defaults.
 		// For expression queries, ReturnData=false suppresses output.
-		if q.Expression != "" && !q.ReturnData {
+		if !q.ReturnData {
 			continue
 		}
 		if descending && len(r.Timestamps) > 1 {
@@ -374,16 +400,30 @@ func (b *InMemoryBackend) resolveMetricStat(
 	buckets := populateBuckets(all, startTime, endTime, period)
 
 	statSet := map[string]bool{stat: true}
+	extended := !isStandardStat(stat)
+
+	var rawBuckets map[int64][]float64
+	if extended {
+		rawBuckets = collectRawBuckets(all, startTime, endTime, period)
+	}
+
 	var timestamps []time.Time
 	var values []float64
 
-	for _, bk := range buckets {
+	for idx, bk := range buckets {
 		if bk.count == 0 {
 			continue
 		}
 
 		dp := buildDatapoint(bk, statSet)
 		v := statValue(dp, stat)
+
+		if extended {
+			raw := rawBuckets[idx]
+			sort.Float64s(raw)
+			v, _ = computeExtendedStat(raw, stat)
+		}
+
 		timestamps = append(timestamps, dp.Timestamp)
 		values = append(values, v)
 	}
@@ -560,4 +600,13 @@ func extractExprDeps(expr string, known map[string]bool) []string {
 	}
 
 	return deps
+}
+
+func isStandardStat(stat string) bool {
+	switch stat {
+	case statSum, widgetDefaultStat, statMinimum, orderByMaximum, statSampleCount, "Min", "Max":
+		return true
+	}
+
+	return false
 }

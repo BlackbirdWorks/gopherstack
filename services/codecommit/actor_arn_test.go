@@ -60,6 +60,9 @@ func doRequestAsActor(
 func createTestPRForActorArn(t *testing.T, h *codecommit.Handler) (string, string) {
 	t.Helper()
 
+	setupRepoAndBranch(t, h, "repo")
+	createBranchFromMain(t, h, "repo", "feature")
+
 	rec := doRequest(t, h, "CreatePullRequest", map[string]any{
 		"title": "actor arn test PR",
 		"targets": []map[string]any{

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -164,7 +165,18 @@ var openSearchPathPrefixes = []string{
 }
 
 // isOpenSearchPath returns true when the given path belongs to the OpenSearch service.
+// canonicalTagsPath maps botocore's trailing-slash tag paths onto the SDK's.
+func canonicalTagsPath(path string) string {
+	if path == openSearchTagsPath+"/" || path == openSearchTagsRemoval+"/" {
+		return strings.TrimSuffix(path, "/")
+	}
+
+	return path
+}
+
 func isOpenSearchPath(path string) bool {
+	path = canonicalTagsPath(path)
+
 	if path == openSearchTagsPath || path == openSearchTagsRemoval {
 		return true
 	}
@@ -209,6 +221,8 @@ func (h *Handler) Reset() {
 
 // ServeHTTP implements [http.Handler] for the OpenSearch service.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = canonicalTagsPath(r.URL.Path)
+
 	if h.handleTagRoutes(w, r) {
 		return
 	}
@@ -450,6 +464,12 @@ func (h *Handler) handleConfigPostRoute(w http.ResponseWriter, r *http.Request, 
 		_ = json.Unmarshal(body, &req)
 	}
 
+	if vErr := validateDomainOptions(&req); vErr != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", vErr.Error())
+
+		return
+	}
+
 	input := applyReqToUpdateInput(&req)
 
 	if req.DryRun {
@@ -521,6 +541,17 @@ type errorResponseJSON struct {
 	Message string `json:"message"`
 }
 
+var exceptionPrefixRe = regexp.MustCompile(`[A-Za-z]+Exception: `)
+
+// stripExceptionPrefixes drops the "<Code>: " sentinel text that error wrapping leaves in messages.
+func stripExceptionPrefixes(msg string) string {
+	if out := exceptionPrefixRe.ReplaceAllString(msg, ""); out != "" {
+		return out
+	}
+
+	return msg
+}
+
 func (h *Handler) writeError(
 	r *http.Request,
 	w http.ResponseWriter,
@@ -528,6 +559,7 @@ func (h *Handler) writeError(
 	code, message string,
 ) {
 	ctx := r.Context()
+	message = stripExceptionPrefixes(message)
 	logger.Load(ctx).ErrorContext(r.Context(), "opensearch error", "code", code, "message", message)
 	w.Header().Set("X-Amzn-Errortype", code)
 	httputils.WriteJSON(ctx, w, status, errorResponseJSON{Message: message})

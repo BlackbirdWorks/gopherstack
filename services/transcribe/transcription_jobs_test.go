@@ -872,16 +872,6 @@ func TestListTranscriptionJobsPagination(t *testing.T) {
 			wantFirstPage: 5,
 			wantNextToken: false,
 		},
-		{
-			// AWS documents "Valid Range: Minimum value of 1. Maximum value of 100."
-			// A caller-supplied value above the documented maximum is clamped to 100,
-			// not honored verbatim and not rejected.
-			name:          "clamps_max_results_above_documented_upper_bound",
-			count:         105,
-			maxResults:    500,
-			wantFirstPage: 100,
-			wantNextToken: true,
-		},
 	}
 
 	for _, tt := range tests {

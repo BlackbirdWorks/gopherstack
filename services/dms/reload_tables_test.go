@@ -89,6 +89,7 @@ func TestReloadTables(t *testing.T) {
 
 		startRec := doDMS(t, h, "StartReplicationTask", map[string]any{"ReplicationTaskArn": taskArn})
 		require.Equal(t, http.StatusOK, startRec.Code)
+		require.Equal(t, http.StatusOK, doDMS(t, h, "DescribeReplicationTasks", map[string]any{}).Code)
 
 		rec := doDMS(t, h, "ReloadTables", map[string]any{
 			"ReplicationTaskArn": taskArn,

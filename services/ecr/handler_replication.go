@@ -37,6 +37,10 @@ func (h *Handler) handleDescribeImageReplicationStatus(
 	ctx context.Context,
 	in *imageInput,
 ) (*describeImageReplicationStatusOutput, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	result, err := h.Backend.DescribeImageReplicationStatus(ctx, in.RepositoryName, in.ImageID)
 	if err != nil {
 		return nil, err

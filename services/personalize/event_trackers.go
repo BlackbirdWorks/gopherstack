@@ -17,8 +17,8 @@ func (b *InMemoryBackend) CreateEventTracker(
 	b.mu.Lock("CreateEventTracker")
 	defer b.mu.Unlock()
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	if err := validateName("name", name); err != nil {
+		return nil, err
 	}
 	if b.eventTrackers.Has(name) {
 		return nil, fmt.Errorf("%w: event tracker %q already exists", ErrAlreadyExists, name)
@@ -34,6 +34,7 @@ func (b *InMemoryBackend) CreateEventTracker(
 		DatasetGroupArn:     datasetGroupArn,
 		TrackingID:          uuid.New().String(),
 		Status:              statusActive,
+		lc:                  b.lifecycle(),
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 	}

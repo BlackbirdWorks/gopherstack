@@ -23,8 +23,13 @@ func (b *InMemoryBackend) CreateNamespace(p CreateNamespaceParams) (*Namespace, 
 	_ = p.AdminUserPassword         // credential: intentionally never persisted, see doc comment above
 	_ = p.RedshiftIdcApplicationArn // intentionally never persisted, see doc comment above
 
+	if err := slValidName("namespaceName", p.NamespaceName); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateNamespace")
 	defer b.mu.Unlock()
+	b.settleServerlessLocked(time.Now())
 
 	if _, ok := b.slNamespaces.Get(p.NamespaceName); ok {
 		return nil, fmt.Errorf(
@@ -74,8 +79,9 @@ func (b *InMemoryBackend) CreateNamespace(p CreateNamespaceParams) (*Namespace, 
 
 // GetNamespace returns a Redshift Serverless namespace by name.
 func (b *InMemoryBackend) GetNamespace(namespaceName string) (*Namespace, error) {
-	b.mu.RLock("GetNamespace")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetNamespace")
+	defer b.mu.Unlock()
+	b.settleServerlessLocked(time.Now())
 
 	ns, ok := b.slNamespaces.Get(namespaceName)
 	if !ok {
@@ -87,8 +93,9 @@ func (b *InMemoryBackend) GetNamespace(namespaceName string) (*Namespace, error)
 
 // ListNamespaces returns all namespaces with pagination.
 func (b *InMemoryBackend) ListNamespaces(maxResults int, nextToken string) ([]*Namespace, string) {
-	b.mu.RLock("ListNamespaces")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListNamespaces")
+	defer b.mu.Unlock()
+	b.settleServerlessLocked(time.Now())
 
 	// Iterate the pre-sorted index so results are ordered without re-sorting.
 	keys := b.slNamespaceIdx.ordered()
@@ -131,10 +138,15 @@ func (b *InMemoryBackend) UpdateNamespace(namespaceName string, p UpdateNamespac
 
 	b.mu.Lock("UpdateNamespace")
 	defer b.mu.Unlock()
+	b.settleServerlessLocked(time.Now())
 
 	ns, ok := b.slNamespaces.Get(namespaceName)
 	if !ok {
 		return nil, fmt.Errorf("%w: namespace %q not found", ErrNamespaceNotFound, namespaceName)
+	}
+
+	if ns.Status != slStatusAvailable {
+		return nil, slBusy("namespace", namespaceName)
 	}
 
 	if p.AdminUsername != "" {
@@ -164,6 +176,8 @@ func (b *InMemoryBackend) UpdateNamespace(namespaceName string, p UpdateNamespac
 	if p.ManageAdminPassword != nil {
 		b.applyManageAdminPassword(ns, namespaceName, p, *p.ManageAdminPassword)
 	}
+
+	ns.Status = b.slBeginLocked(slKindNamespace, namespaceName, slStatusModifying, slStatusAvailable, false)
 
 	return cloneNamespace(ns), nil
 }
@@ -205,10 +219,15 @@ func (b *InMemoryBackend) DeleteNamespace(
 ) (*Namespace, error) {
 	b.mu.Lock("DeleteNamespace")
 	defer b.mu.Unlock()
+	b.settleServerlessLocked(time.Now())
 
 	ns, ok := b.slNamespaces.Get(namespaceName)
 	if !ok {
 		return nil, fmt.Errorf("%w: namespace %q not found", ErrNamespaceNotFound, namespaceName)
+	}
+
+	if ns.Status != slStatusAvailable {
+		return nil, slBusy("namespace", namespaceName)
 	}
 
 	if finalSnapshotName != "" {
@@ -236,6 +255,14 @@ func (b *InMemoryBackend) DeleteNamespace(
 	}
 
 	cp := cloneNamespace(ns)
+	cp.Status = slStatusDeleting
+
+	if b.slLifecycleDelay > 0 {
+		ns.Status = b.slBeginLocked(slKindNamespace, namespaceName, slStatusDeleting, "", true)
+
+		return cp, nil
+	}
+
 	b.slNamespaces.Delete(namespaceName)
 	b.slNamespaceIdx.remove(namespaceName)
 

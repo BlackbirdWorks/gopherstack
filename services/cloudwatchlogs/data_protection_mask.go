@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 )
@@ -29,6 +30,8 @@ func unmaskRequested(ctx context.Context) bool {
 type maskRule struct {
 	re    *regexp.Regexp
 	valid func(string) bool
+	// group, when non-zero, masks only that submatch (keyword context stays visible).
+	group int
 }
 
 // maskPolicy is one parsed data protection policy; it masks events ingested at or after since.
@@ -64,12 +67,43 @@ const (
 
 // managedMaskRules is the subset of AWS managed data identifiers this emulator can detect.
 func managedMaskRules() map[string]maskRule {
-	return map[string]maskRule{
+	rules := map[string]maskRule{
 		"EmailAddress": {re: regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`)},
 		"IpAddress": {re: regexp.MustCompile(
 			`\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b`)},
 		"CreditCardNumber": {re: regexp.MustCompile(`\b(?:\d[ -]?){12,18}\d\b`), valid: luhnValid},
+		"CreditCardExpiration": {
+			re: regexp.MustCompile(`(?i)\b(?:exp(?:iry|iration)?(?:\s*date)?|valid\s*thru)\W{0,3}` +
+				`((?:0[1-9]|1[0-2])\s*[/-]\s*(?:\d{4}|\d{2}))\b`),
+			group: 1,
+		},
+		"CreditCardSecurityCode": {
+			re:    regexp.MustCompile(`(?i)\b(?:cvv2?|cvc2?|csc|security\s*code)\W{0,3}(\d{3,4})\b`),
+			group: 1,
+		},
+		"AwsSecretKey": {
+			re: regexp.MustCompile(
+				`(?i)(?:aws_?secret_?(?:access_?)?key|secret_?access_?key)["']?\s*[:=]\s*["']?([A-Za-z0-9/+=]{40})\b`),
+			group: 1,
+		},
+		"OpenSshPrivateKey": privateKeyRule("OPENSSH PRIVATE KEY"),
+		"PkcsPrivateKey":    privateKeyRule(`(?:RSA |EC |ENCRYPTED )?PRIVATE KEY`),
+		"PgpPrivateKey":     privateKeyRule("PGP PRIVATE KEY BLOCK"),
+		"PuttyPrivateKey": {re: regexp.MustCompile(
+			`(?s)PuTTY-User-Key-File-\d+:.*?Private-Lines:\s*\d+\s+(?:[A-Za-z0-9+/=]+\s*)+`)},
+		"Ssn-US": {re: regexp.MustCompile(`\b(?:00[1-9]|0[1-9]\d|[1-5]\d\d|6[0-57-9]\d|66[0-5]|6[67]\d|[78][0-8]\d)-` +
+			`(?:0[1-9]|[1-9]\d)-(?:000[1-9]|00[1-9]\d|0[1-9]\d\d|[1-9]\d{3})\b`)},
 	}
+
+	maps.Copy(rules, formatManagedMaskRules())
+
+	rules["OpenSSHPrivateKey"] = rules["OpenSshPrivateKey"]
+
+	return rules
+}
+
+func privateKeyRule(label string) maskRule {
+	return maskRule{re: regexp.MustCompile(`(?s)-----BEGIN ` + label + `-----.*?-----END ` + label + `-----`)}
 }
 
 func luhnValid(s string) bool {
@@ -186,17 +220,33 @@ func (m *dataMasker) mask(msg string, ingestionTime int64) string {
 		}
 
 		for _, r := range pol.rules {
-			msg = r.re.ReplaceAllStringFunc(msg, func(match string) string {
-				if r.valid != nil && !r.valid(match) {
-					return match
-				}
-
-				return strings.Repeat("*", len([]rune(match)))
-			})
+			msg = r.apply(msg)
 		}
 	}
 
 	return msg
+}
+
+func (r maskRule) apply(msg string) string {
+	var out strings.Builder
+
+	last := 0
+
+	for _, loc := range r.re.FindAllStringSubmatchIndex(msg, -1) {
+		start, end := loc[2*r.group], loc[2*r.group+1]
+		if start < 0 || (r.valid != nil && !r.valid(msg[start:end])) {
+			continue
+		}
+
+		out.WriteString(msg[last:start])
+		out.WriteString(strings.Repeat("*", len([]rune(msg[start:end]))))
+
+		last = end
+	}
+
+	out.WriteString(msg[last:])
+
+	return out.String()
 }
 
 // validateDataProtectionDocument rejects a policy that is not JSON or has an uncompilable custom regex.

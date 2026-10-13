@@ -23,6 +23,10 @@ func (b *InMemoryBackend) CreateCampaign(
 	region, accountID, appID string,
 	req createCampaignRequest,
 ) (*Campaign, error) {
+	if err := validateCampaignSchedule(req.Schedule); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateCampaign")
 	defer b.mu.Unlock()
 
@@ -213,6 +217,10 @@ func (b *InMemoryBackend) UpdateCampaign(
 	appID, campaignID string,
 	req updateCampaignRequest,
 ) (*Campaign, error) {
+	if err := validateCampaignSchedule(req.Schedule); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateCampaign")
 	defer b.mu.Unlock()
 

@@ -141,12 +141,7 @@ func (b *InMemoryBackend) DescribeInstanceHealth(
 				)
 			}
 
-			result = append(result, InstanceState{
-				InstanceID:  inst.InstanceID,
-				State:       "InService",
-				ReasonCode:  notApplicable,
-				Description: notApplicable,
-			})
+			result = append(result, b.instanceHealthLocked(inst.InstanceID))
 		}
 
 		return result, nil
@@ -155,12 +150,7 @@ func (b *InMemoryBackend) DescribeInstanceHealth(
 	// Return all registered instances as InService.
 	result := make([]InstanceState, 0, len(lb.Instances))
 	for _, inst := range lb.Instances {
-		result = append(result, InstanceState{
-			InstanceID:  inst.InstanceID,
-			State:       "InService",
-			ReasonCode:  notApplicable,
-			Description: notApplicable,
-		})
+		result = append(result, b.instanceHealthLocked(inst.InstanceID))
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -168,4 +158,38 @@ func (b *InMemoryBackend) DescribeInstanceHealth(
 	})
 
 	return result, nil
+}
+
+// instanceHealthLocked derives an instance's ELB health from its EC2 state;
+// callers hold b.mu.
+func (b *InMemoryBackend) instanceHealthLocked(id string) InstanceState {
+	inService := InstanceState{
+		InstanceID:  id,
+		State:       "InService",
+		ReasonCode:  notApplicable,
+		Description: notApplicable,
+	}
+	if b.ec2Resolver == nil {
+		return inService
+	}
+
+	name, found := b.ec2Resolver.InstanceStateName(id)
+	if !found {
+		return InstanceState{InstanceID: id, State: "Unknown", ReasonCode: notApplicable, Description: notApplicable}
+	}
+
+	var desc string
+
+	switch name {
+	case "running":
+		return inService
+	case "pending":
+		desc = "Instance is in pending state."
+	case "stopping", "stopped":
+		desc = "Instance is in stopped state."
+	default:
+		desc = "Instance is in terminated state."
+	}
+
+	return InstanceState{InstanceID: id, State: "OutOfService", ReasonCode: "Instance", Description: desc}
 }
