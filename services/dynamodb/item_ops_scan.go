@@ -540,7 +540,7 @@ func (db *InMemoryDB) scanCandidates(
 	presorted bool,
 ) ([]map[string]any, []int) {
 	if presorted && snap.ttlAttr == "" && aws.ToInt32(input.TotalSegments) <= 1 {
-		start := locateAfterStartKey(snap, input.ExclusiveStartKey, pkDef, skDef)
+		start := locateAfterStartKey(snap.items, input.ExclusiveStartKey, pkDef, skDef, snap.keySchema, snap.attrDefs)
 		if snap.sizes != nil {
 			return snap.items[start:], snap.sizes[start:]
 		}
@@ -567,63 +567,55 @@ func (db *InMemoryDB) scanCandidates(
 	// Apply parallel-scan segment filter (Segment / TotalSegments).
 	candidate = applySegmentFilter(candidate, input, pkDef)
 
-	// Apply ExclusiveStartKey: skip items up to and including the start-key item.
-	candidate = applyExclusiveStartKey(
-		candidate,
-		input.ExclusiveStartKey,
-		pkDef,
-		skDef,
-		snap.keySchema,
-	)
+	candidate = candidate[locateAfterStartKey(
+		candidate, input.ExclusiveStartKey, pkDef, skDef, snap.keySchema, snap.attrDefs,
+	):]
 
 	return candidate, nil
 }
 
-// locateAfterStartKey returns the index just past the ExclusiveStartKey item in the sorted
-// snapshot (0 when absent or unmatched), using binary search with a linear fallback.
+// locateAfterStartKey returns the index of the first item after ExclusiveStartKey in the
+// key-sorted items. The key is a position, so a deleted key's item resumes at the next item.
+// On ties (GSI/LSI) it skips past the matching item, or past all ties when none matches.
 func locateAfterStartKey(
-	snap scanView,
+	items []map[string]any,
 	startKey map[string]types.AttributeValue,
 	pkDef, skDef models.KeySchemaElement,
+	tableKeySchema []models.KeySchemaElement,
+	attrDefs []models.AttributeDefinition,
 ) int {
 	if len(startKey) == 0 {
 		return 0
 	}
 
 	wireKey := models.FromSDKItem(startKey)
-	tablePKDef, tableSKDef := getPKAndSK(snap.keySchema)
-	pkType := getAttributeType(snap.attrDefs, pkDef.AttributeName, "S")
+	tablePKDef, tableSKDef := getPKAndSK(tableKeySchema)
+	pkType := getAttributeType(attrDefs, pkDef.AttributeName, "S")
 
 	var skType string
 	if skDef.AttributeName != "" {
-		skType = getAttributeType(snap.attrDefs, skDef.AttributeName, "S")
+		skType = getAttributeType(attrDefs, skDef.AttributeName, "S")
 	}
 
 	hasSK := skDef.AttributeName != ""
 	target := populateScanSortEntry(wireKey, pkDef, skDef, pkType, skType)
-
-	idx, _ := slices.BinarySearchFunc(snap.items, target, func(item map[string]any, t scanSortEntry) int {
+	compare := func(item map[string]any) int {
 		return compareScanSortEntries(
-			populateScanSortEntry(item, pkDef, skDef, pkType, skType),
-			t,
-			pkType,
-			skType,
-			hasSK,
+			populateScanSortEntry(item, pkDef, skDef, pkType, skType), target, pkType, skType, hasSK,
 		)
+	}
+
+	idx, _ := slices.BinarySearchFunc(items, target, func(item map[string]any, _ scanSortEntry) int {
+		return compare(item)
 	})
 
-	matches := func(i int) bool {
-		return i >= 0 && i < len(snap.items) &&
-			itemMatchesStartKeyMap(snap.items[i], wireKey, pkDef, skDef, tablePKDef, tableSKDef)
+	for ; idx < len(items) && compare(items[idx]) == 0; idx++ {
+		if itemMatchesStartKeyMap(items[idx], wireKey, pkDef, skDef, tablePKDef, tableSKDef) {
+			return idx + 1
+		}
 	}
 
-	if matches(idx) && !matches(idx-1) {
-		return idx + 1
-	}
-
-	rest := applyExclusiveStartKey(snap.items, startKey, pkDef, skDef, snap.keySchema)
-
-	return len(snap.items) - len(rest)
+	return idx
 }
 
 // scanPage iterates candidate items up to 1MB or limit, applying filter and projection.
@@ -869,28 +861,6 @@ func isItemInIndex(
 	}
 
 	return true
-}
-
-func applyExclusiveStartKey(
-	candidate []map[string]any,
-	exclusiveStartKey map[string]types.AttributeValue,
-	pkDef, skDef models.KeySchemaElement,
-	tableKeySchema []models.KeySchemaElement,
-) []map[string]any {
-	if len(exclusiveStartKey) == 0 {
-		return candidate
-	}
-
-	startKey := models.FromSDKItem(exclusiveStartKey)
-	tablePKDef, tableSKDef := getPKAndSK(tableKeySchema)
-
-	for i, item := range candidate {
-		if itemMatchesStartKeyMap(item, startKey, pkDef, skDef, tablePKDef, tableSKDef) {
-			return candidate[i+1:]
-		}
-	}
-
-	return candidate
 }
 
 // maxParallelScanSegments is the upper bound on TotalSegments for parallel Scan.
