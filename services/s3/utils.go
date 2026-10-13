@@ -1,6 +1,8 @@
 package s3
 
 import (
+	"bytes"
+	"context"
 	"crypto/md5"  //nolint:gosec // S3 checksum algorithm, not a security use of MD5
 	"crypto/sha1" //nolint:gosec // SHA1 required for S3 checksum compatibility
 	"crypto/sha256"
@@ -8,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"hash/crc32"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -131,4 +134,64 @@ func queryParam(r *http.Request, name string) string {
 	}
 
 	return r.URL.Query().Get(name)
+}
+
+// decodeContentMD5 returns ErrInvalidDigest unless header is base64 of a 16-byte MD5.
+func decodeContentMD5(header string) ([]byte, error) {
+	decoded, err := base64.StdEncoding.DecodeString(header)
+	if err != nil || len(decoded) != md5.Size {
+		return nil, ErrInvalidDigest
+	}
+
+	return decoded, nil
+}
+
+// contentMD5FromContext returns the decoded Content-MD5 stored by the handler, if any.
+func contentMD5FromContext(ctx context.Context) ([]byte, error) {
+	header, ok := ctx.Value(md5Key).(string)
+	if !ok || header == "" {
+		return nil, nil
+	}
+
+	return decodeContentMD5(header)
+}
+
+// withContentMD5 validates the Content-MD5 header format and stashes it on ctx for the backend.
+func withContentMD5(ctx context.Context, r *http.Request) (context.Context, error) {
+	header := r.Header.Get("Content-MD5")
+	if header == "" {
+		return ctx, nil
+	}
+
+	if _, err := decodeContentMD5(header); err != nil {
+		return ctx, err
+	}
+
+	return context.WithValue(ctx, md5Key, header), nil
+}
+
+// verifyBodyContentMD5 checks Content-MD5 against the request body and restores the body.
+func verifyBodyContentMD5(r *http.Request) error {
+	header := r.Header.Get("Content-MD5")
+	if header == "" {
+		return nil
+	}
+
+	want, err := decodeContentMD5(header)
+	if err != nil {
+		return err
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return err
+	}
+
+	r.Body = io.NopCloser(bytes.NewReader(body))
+
+	if sum := md5.Sum(body); !bytes.Equal(sum[:], want) { //nolint:gosec // Content-MD5 is MD5 by spec
+		return ErrBadChecksum
+	}
+
+	return nil
 }
