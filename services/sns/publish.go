@@ -65,13 +65,13 @@ func (b *InMemoryBackend) collectPublishTargets(
 		// scope "MessageAttributes" (or unset) evaluates against message attributes.
 		if sub.FilterPolicyScope == "MessageBody" {
 			if !matchesFilterPolicyMessageBody(sub.parsedFilterPolicy, msg) {
-				out.filteredOut.record(false, true)
+				out.filteredOut.record(classifyBodyRejection(msg))
 
 				continue
 			}
 		} else {
 			if !matchesParsedFilterPolicy(sub.parsedFilterPolicy, attrs) {
-				out.filteredOut.record(len(attrs) == 0, false)
+				out.filteredOut.record(classifyAttributeRejection(attrs))
 
 				continue
 			}
@@ -184,6 +184,24 @@ func parsePerProtocolMessages(message, messageStructure string) map[string]strin
 	return pm
 }
 
+// publishPayloadSize is the body plus every attribute name, type and value.
+func publishPayloadSize(message string, attrs map[string]MessageAttribute) int {
+	total := len(message)
+	for name, a := range attrs {
+		total += len(name) + len(a.DataType) + len(a.StringValue)
+	}
+
+	return total
+}
+
+func checkPublishSize(message string, attrs map[string]MessageAttribute, limit int) error {
+	if publishPayloadSize(message, attrs) > limit {
+		return fmt.Errorf("%w: Message size exceeds SNS limit of %d bytes", ErrInvalidParameter, limit)
+	}
+
+	return nil
+}
+
 // validatePublishMessage checks message size, subject format, structure, and
 // attribute constraints before any backend lock is acquired.
 func validatePublishMessage(
@@ -192,17 +210,8 @@ func validatePublishMessage(
 ) error {
 	// AWS SNS counts the message body plus every attribute name + type + value
 	// toward the 256 KiB cap.
-	totalSize := len(message)
-	for name, a := range attrs {
-		totalSize += len(name) + len(a.DataType) + len(a.StringValue)
-	}
-
-	if totalSize > maxMessageSizeBytes {
-		return fmt.Errorf(
-			"%w: Message size exceeds SNS limit of %d bytes",
-			ErrInvalidParameter,
-			maxMessageSizeBytes,
-		)
+	if err := checkPublishSize(message, attrs, maxTopicMessageSizeBytes); err != nil {
+		return err
 	}
 
 	// AWS SNS rejects subjects longer than 100 characters or containing non-ASCII
@@ -320,6 +329,7 @@ func (b *InMemoryBackend) buildPublishedEvent(
 		Signature:        sn.signature,
 		SignatureVersion: sigVersion,
 		SigningCertURL:   sn.certURL,
+		ReportDelivery:   func(_ string, ok bool) { b.emitDeliveryOutcome(topicArn, ok) },
 	}
 }
 
@@ -417,6 +427,10 @@ func (b *InMemoryBackend) Publish(
 		if !exists {
 			pubErr = ErrTopicNotFound
 
+			return
+		}
+
+		if pubErr = checkPublishSize(message, attrs, topicMessageLimit(topic.Attributes)); pubErr != nil {
 			return
 		}
 

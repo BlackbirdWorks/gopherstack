@@ -17,7 +17,7 @@ func (h *Handler) getIteration(input map[string]any) (map[string]any, error) {
 		return nil, err
 	}
 
-	return map[string]any{"FlywheelIterationProperties": iterationMap(iteration)}, nil
+	return map[string]any{"FlywheelIterationProperties": h.iterationMap(iteration)}, nil
 }
 
 func (h *Handler) listIterations(input map[string]any) (map[string]any, error) {
@@ -28,10 +28,14 @@ func (h *Handler) listIterations(input map[string]any) (map[string]any, error) {
 		if !matchesIterationFilter(iteration, filter) {
 			continue
 		}
-		items = append(items, iterationMap(iteration))
+		items = append(items, h.iterationMap(iteration))
 	}
 
-	tok, maxResults := paginationParams(input)
+	tok, maxResults, pageErr := paginationParams(input)
+	if pageErr != nil {
+		return nil, pageErr
+	}
+
 	page, nextTok := comprehendPaginate(items, tok, maxResults)
 	out := map[string]any{"FlywheelIterationPropertiesList": page}
 	if nextTok != "" {
@@ -63,8 +67,8 @@ func matchesIterationFilter(iteration *FlywheelIteration, filter map[string]any)
 	return true
 }
 
-func iterationMap(iteration *FlywheelIteration) map[string]any {
-	return map[string]any{
+func (h *Handler) iterationMap(iteration *FlywheelIteration) map[string]any {
+	out := map[string]any{
 		fieldFlywheelARN:      iteration.FlywheelArn,
 		"FlywheelIterationId": iteration.FlywheelIterationID,
 		"Status":              iteration.FlywheelIterationStatus,
@@ -72,4 +76,16 @@ func iterationMap(iteration *FlywheelIteration) map[string]any {
 		"EndTime":             awstime.Epoch(iteration.EndTime),
 		"Message":             iteration.Message,
 	}
+
+	if modelArn := h.Backend.IterationModelArn(iteration); modelArn != "" {
+		out["TrainedModelArn"] = modelArn
+		out["EvaluatedModelArn"] = modelArn
+		out["TrainedModelMetrics"] = flywheelModelMetrics()
+
+		if iteration.FlywheelIterationStatus == statusCompleted {
+			out["EvaluatedModelMetrics"] = flywheelModelMetrics()
+		}
+	}
+
+	return out
 }

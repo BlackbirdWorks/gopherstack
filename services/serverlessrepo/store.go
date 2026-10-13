@@ -1,6 +1,8 @@
 package serverlessrepo
 
 import (
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -41,6 +43,8 @@ type InMemoryBackend struct {
 	mu              *lockmetrics.RWMutex
 	accountID       string
 	region          string
+
+	templatePrepareDelay time.Duration
 }
 
 // NewInMemoryBackend creates a new in-memory Serverless Application Repository backend.

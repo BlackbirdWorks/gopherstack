@@ -45,7 +45,7 @@ func (b *InMemoryBackend) CreateClientVpnEndpointWithOptions(
 
 	transportProtocol := opts.TransportProtocol
 	if transportProtocol == "" {
-		transportProtocol = "udp"
+		transportProtocol = protoUDP
 	}
 
 	vpnPort := opts.VpnPort

@@ -604,6 +604,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return err
 		}
 
+		if method == http.MethodGet && !h.validateMarkerParam(c) {
+			return nil
+		}
+
 		rest := normalizeFunctionPath(path)
 
 		for _, route := range routes {

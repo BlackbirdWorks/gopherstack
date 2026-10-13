@@ -39,6 +39,8 @@ func (h *Handler) handleCreateWorkflow(c *echo.Context) error {
 		DefinitionURI     string                            `json:"definitionUri"`
 		StorageType       string                            `json:"storageType"`
 		ReadmeMarkdown    string                            `json:"readmeMarkdown"`
+		ReadmeURI         string                            `json:"readmeUri"`
+		RegistryMapURI    string                            `json:"containerRegistryMapUri"`
 		ReadmePath        string                            `json:"readmePath"`
 		BucketOwnerID     string                            `json:"workflowBucketOwnerId"`
 		RequestID         string                            `json:"requestId"`
@@ -51,10 +53,22 @@ func (h *Handler) handleCreateWorkflow(c *echo.Context) error {
 		return err
 	}
 
+	ctx := c.Request().Context()
+
+	readme, err := h.readmeFromURI(ctx, req.ReadmeMarkdown, req.ReadmeURI)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
+	registryMap, err := h.registryMapFromURI(ctx, req.ContainerRegistry, req.RegistryMapURI)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	in := CreateWorkflowInput{
 		Accelerators:         req.Accelerators,
 		Main:                 req.Main,
-		ContainerRegistryMap: req.ContainerRegistry,
+		ContainerRegistryMap: registryMap,
 		Name:                 req.Name,
 		Description:          req.Description,
 		DefinitionZip:        string(req.DefinitionZip),
@@ -65,7 +79,7 @@ func (h *Handler) handleCreateWorkflow(c *echo.Context) error {
 		ParameterTemplate:    toWorkflowParameterTemplate(req.ParameterTemplate),
 		Tags:                 req.Tags,
 
-		ReadmeMarkdown:        req.ReadmeMarkdown,
+		ReadmeMarkdown:        readme,
 		ReadmePath:            req.ReadmePath,
 		WorkflowBucketOwnerID: req.BucketOwnerID,
 	}
@@ -99,6 +113,10 @@ func (h *Handler) handleDeleteWorkflow(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleGetWorkflow(c *echo.Context, id string) error {
+	if err := h.Backend.CheckWorkflowAccess(id, c.QueryParam("type"), c.QueryParam("workflowOwnerId")); err != nil {
+		return h.mapError(c, err)
+	}
+
 	wf, err := h.Backend.GetWorkflow(id)
 	if err != nil {
 		return h.mapError(c, err)
@@ -108,7 +126,11 @@ func (h *Handler) handleGetWorkflow(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListWorkflows(c *echo.Context) error {
-	maxResults, nextToken := paginationQueryParams(c)
+	maxResults, nextToken, err := paginationQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	q := c.Request().URL.Query()
 	filter := &WorkflowFilter{Name: q.Get("name"), Type: q.Get("type")}
 	workflows, next, err := h.Backend.ListWorkflows(filter, maxResults, nextToken)
@@ -170,6 +192,8 @@ func (h *Handler) handleCreateWorkflowVersion(c *echo.Context, workflowID string
 		StorageType       string                            `json:"storageType"`
 		DefinitionURI     string                            `json:"definitionUri"`
 		ReadmeMarkdown    string                            `json:"readmeMarkdown"`
+		ReadmeURI         string                            `json:"readmeUri"`
+		RegistryMapURI    string                            `json:"containerRegistryMapUri"`
 		ReadmePath        string                            `json:"readmePath"`
 		BucketOwnerID     string                            `json:"workflowBucketOwnerId"`
 		RequestID         string                            `json:"requestId"`
@@ -182,11 +206,23 @@ func (h *Handler) handleCreateWorkflowVersion(c *echo.Context, workflowID string
 		return err
 	}
 
+	ctx := c.Request().Context()
+
+	readme, err := h.readmeFromURI(ctx, req.ReadmeMarkdown, req.ReadmeURI)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
+	registryMap, err := h.registryMapFromURI(ctx, req.ContainerRegistry, req.RegistryMapURI)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	in := CreateWorkflowVersionInput{
 		Accelerators:         req.Accelerators,
 		Main:                 req.Main,
 		Engine:               req.Engine,
-		ContainerRegistryMap: req.ContainerRegistry,
+		ContainerRegistryMap: registryMap,
 		WorkflowID:           workflowID,
 		VersionName:          req.VersionName,
 		Description:          req.Description,
@@ -196,7 +232,7 @@ func (h *Handler) handleCreateWorkflowVersion(c *echo.Context, workflowID string
 		Tags:                 req.Tags,
 
 		DefinitionURI:         req.DefinitionURI,
-		ReadmeMarkdown:        req.ReadmeMarkdown,
+		ReadmeMarkdown:        readme,
 		ReadmePath:            req.ReadmePath,
 		WorkflowBucketOwnerID: req.BucketOwnerID,
 	}
@@ -235,6 +271,12 @@ func (h *Handler) handleDeleteWorkflowVersion(
 }
 
 func (h *Handler) handleGetWorkflowVersion(c *echo.Context, workflowID, versionName string) error {
+	if err := h.Backend.CheckWorkflowAccess(
+		workflowID, c.QueryParam("type"), c.QueryParam("workflowOwnerId"),
+	); err != nil {
+		return h.mapError(c, err)
+	}
+
 	wv, err := h.Backend.GetWorkflowVersion(workflowID, versionName)
 	if err != nil {
 		return h.mapError(c, err)
@@ -244,7 +286,11 @@ func (h *Handler) handleGetWorkflowVersion(c *echo.Context, workflowID, versionN
 }
 
 func (h *Handler) handleListWorkflowVersions(c *echo.Context, workflowID string) error {
-	maxResults, nextToken := paginationQueryParams(c)
+	maxResults, nextToken, err := paginationQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	filter := &WorkflowVersionFilter{Type: c.QueryParam("type")}
 	versions, next, err := h.Backend.ListWorkflowVersions(workflowID, filter, maxResults, nextToken)
 

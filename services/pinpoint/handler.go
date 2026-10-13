@@ -505,8 +505,10 @@ func (h *Handler) tryAppExtSubPath(c *echo.Context, appID, subPath string) (bool
 
 // writeErrorResponse writes a JSON error response in the Pinpoint REST API format.
 func writeErrorResponse(c *echo.Context, statusCode int, errorType, message string) error {
+	message = strings.TrimPrefix(message, errorType+": ")
 	httputils.WriteJSON(c.Request().Context(), c.Response(), statusCode, map[string]string{
 		"message": message,
+		"Message": message,
 		"__type":  errorType,
 	})
 
@@ -541,6 +543,8 @@ func (h *Handler) handleCreateNamedAppResource(c *echo.Context, appID string, cr
 			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "Name is required")
 		case errors.Is(creationErr, awserr.ErrNotFound):
 			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", creationErr.Error())
+		case errors.Is(creationErr, ErrValidation):
+			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", creationErr.Error())
 		default:
 			return writeErrorResponse(
 				c,
@@ -690,6 +694,10 @@ func unmarshalBody(c *echo.Context, dst any) bool {
 func writeNotFoundOrInternal(c *echo.Context, err error) error {
 	if errors.Is(err, awserr.ErrNotFound) {
 		return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", err.Error())
+	}
+
+	if errors.Is(err, ErrValidation) {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", err.Error())
 	}
 
 	return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())

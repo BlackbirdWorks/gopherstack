@@ -226,11 +226,11 @@ type StorageBackend interface {
 
 	// Delegation Requests
 	CreateDelegationRequest(req CreateDelegationRequestInput) (*DelegationRequest, error)
-	AcceptDelegationRequest(delegationID string) error
-	AssociateDelegationRequest(delegationID string) error
+	AcceptDelegationRequest(delegationID, approverARN string) error
+	AssociateDelegationRequest(delegationID, callerARN, callerAccount string) error
 	DelegationRequestExists(delegationID string) bool
 	GetDelegationRequest(delegationID string) (*DelegationRequest, error)
-	ListDelegationRequests(marker string, maxItems int) (page.Page[DelegationRequest], error)
+	ListDelegationRequests(marker string, maxItems int, ownerID string) (page.Page[DelegationRequest], error)
 	RejectDelegationRequest(delegationID, notes string) error
 	SendDelegationToken(delegationID string) error
 	UpdateDelegationRequest(delegationID, notes string) error
@@ -304,6 +304,7 @@ type StorageBackend interface {
 	ListAllUsers() []User
 	ListAllRoles() []Role
 	ListAllPolicies() []Policy
+	ListAWSManagedPolicies() []Policy
 	ListAllGroups() []Group
 	ListAllAccessKeys() []AccessKey
 	ListAllInstanceProfiles() []InstanceProfile
@@ -540,7 +541,7 @@ func firstKey(values map[string]struct{}) string {
 func (b *InMemoryBackend) getPolicyByARNLocked(policyArn string) (Policy, bool) {
 	policyName, exists := b.policyByARN[policyArn]
 	if !exists {
-		return Policy{}, false
+		return b.awsManagedPolicyLocked(policyArn)
 	}
 
 	pol, exists := b.policies.Get(policyName)

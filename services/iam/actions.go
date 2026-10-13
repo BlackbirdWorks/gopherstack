@@ -242,9 +242,14 @@ func ExtractTargetOrFormIAMAction(r *http.Request) string {
 // targetToIAMAction converts an X-Amz-Target header value to an IAM action string.
 // e.g., "DynamoDB_20120810.GetItem" → "dynamodb:GetItem".
 func targetToIAMAction(target string) string {
-	before, operation, found := strings.Cut(target, ".")
-	if !found || operation == "" {
+	i := strings.LastIndexByte(target, '.')
+	if i < 0 || i == len(target)-1 {
 		return ""
+	}
+
+	before, operation := target[:i], target[i+1:]
+	if j := strings.LastIndexByte(before, '.'); j >= 0 {
+		before = before[j+1:]
 	}
 
 	if iamPrefix, ok := targetServiceMap[before]; ok {

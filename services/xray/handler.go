@@ -480,6 +480,8 @@ func conflictExceptionName(err error) string {
 // errors.go): CreateSamplingRule models no InvalidSamplingRuleException.
 func invalidParameterExceptionName(err error) string {
 	switch {
+	case errors.Is(err, ErrLockoutPrevention):
+		return "LockoutPreventionException"
 	case errors.Is(err, ErrMalformedPolicyDocument):
 		return "MalformedPolicyDocumentException"
 	case errors.Is(err, ErrTooManyPolicies):

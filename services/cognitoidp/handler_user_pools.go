@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // poolToData converts a UserPool to the userPoolData wire format.
@@ -100,6 +101,8 @@ func (in poolSettingsInput) toSettings() PoolSettings {
 		UserAttributeUpdateSettings: maps.Clone(in.UserAttributeUpdateSettings),
 		UserPoolAddOns:              maps.Clone(in.UserPoolAddOns),
 		VerificationMessageTemplate: maps.Clone(in.VerificationMessageTemplate),
+		IssuerConfiguration:         maps.Clone(in.IssuerConfiguration),
+		KeyConfiguration:            maps.Clone(in.KeyConfiguration),
 		UserPoolTier:                in.UserPoolTier,
 		EmailVerificationMessage:    in.EmailVerificationMessage,
 		EmailVerificationSubject:    in.EmailVerificationSubject,
@@ -141,6 +144,8 @@ func poolToAccurateData(pool *UserPool) userPoolDataAccurate {
 		UserAttributeUpdateSettings: pool.Settings.UserAttributeUpdateSettings,
 		UserPoolAddOns:              pool.Settings.UserPoolAddOns,
 		VerificationMessageTemplate: pool.Settings.VerificationMessageTemplate,
+		IssuerConfiguration:         pool.Settings.IssuerConfiguration,
+		KeyConfiguration:            pool.Settings.KeyConfiguration,
 		UserPoolTier:                pool.Settings.UserPoolTier,
 		EmailVerificationMessage:    pool.Settings.EmailVerificationMessage,
 		EmailVerificationSubject:    pool.Settings.EmailVerificationSubject,
@@ -160,6 +165,7 @@ func poolToAccurateData(pool *UserPool) userPoolDataAccurate {
 			RequireNumbers:                pool.PasswordPolicy.RequireNumbers,
 			RequireSymbols:                pool.PasswordPolicy.RequireSymbols,
 			TemporaryPasswordValidityDays: pool.PasswordPolicy.TemporaryPasswordValidityDays,
+			PasswordHistorySize:           pool.PasswordPolicy.PasswordHistorySize,
 		}
 	} else {
 		data.Policies.PasswordPolicy = defaultPasswordPolicyData()
@@ -178,7 +184,11 @@ func (h *Handler) handleCreateUserPoolWithOpts(
 	_ context.Context,
 	in *createUserPoolWithOptsInput,
 ) (*createUserPoolWithOptsOutput, error) {
+	pinnedID, poolTags := tags.PinnedIDFromMap(in.UserPoolTags)
+	in.UserPoolTags = poolTags
+
 	opts := UserPoolOptions{
+		PinnedPoolID:           pinnedID,
 		AutoVerifiedAttributes: in.AutoVerifiedAttributes,
 		LambdaConfig:           in.LambdaConfig,
 		EmailConfiguration:     in.EmailConfiguration,
@@ -201,9 +211,21 @@ func (h *Handler) handleCreateUserPoolWithOpts(
 			RequireNumbers:                pp.RequireNumbers,
 			RequireSymbols:                pp.RequireSymbols,
 			TemporaryPasswordValidityDays: pp.TemporaryPasswordValidityDays,
+			PasswordHistorySize:           pp.PasswordHistorySize,
 		}
 		if err := validatePasswordPolicy(opts.PasswordPolicy); err != nil {
 			return nil, err
+		}
+	}
+
+	if opts.PasswordPolicy == nil {
+		opts.PasswordPolicy = &PasswordPolicy{
+			MinimumLength:                 defaultPasswordMinLength,
+			RequireUppercase:              true,
+			RequireLowercase:              true,
+			RequireNumbers:                true,
+			RequireSymbols:                true,
+			TemporaryPasswordValidityDays: defaultTempPasswordValidDays,
 		}
 	}
 
@@ -251,6 +273,7 @@ func (h *Handler) handleUpdateUserPoolWithOpts(
 			RequireNumbers:                pp.RequireNumbers,
 			RequireSymbols:                pp.RequireSymbols,
 			TemporaryPasswordValidityDays: pp.TemporaryPasswordValidityDays,
+			PasswordHistorySize:           pp.PasswordHistorySize,
 		}
 		if err := validatePasswordPolicy(opts.PasswordPolicy); err != nil {
 			return nil, err
@@ -264,6 +287,10 @@ func (h *Handler) handleUpdateUserPoolWithOpts(
 		if err := validateSignInPolicy(opts.SignInPolicy); err != nil {
 			return nil, err
 		}
+	}
+
+	if err := rejectPinnedIDTag(in.UserPoolTags); err != nil {
+		return nil, err
 	}
 
 	if err := h.Backend.UpdateUserPoolWithOpts(in.UserPoolID, in.MfaConfiguration, opts); err != nil {

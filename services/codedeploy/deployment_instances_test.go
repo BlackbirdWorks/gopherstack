@@ -19,16 +19,21 @@ import (
 func serverDeployWithMatchedInstances(t *testing.T, h *codedeploy.Handler) (string, []string) {
 	t.Helper()
 
+	return serverDeployWithGroup(t, h, codedeploy.DeploymentGroupInput{})
+}
+
+func serverDeployWithGroup(
+	t *testing.T, h *codedeploy.Handler, base codedeploy.DeploymentGroupInput,
+) (string, []string) {
+	t.Helper()
+
 	b := h.Backend
 	_, err := b.CreateApplication("my-app", "Server", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateDeploymentGroup("my-app", "my-dg", codedeploy.DeploymentGroupInput{
-		ServiceRoleArn: "arn:aws:iam::000000000000:role/role",
-		OnPremisesInstanceTagFilters: []codedeploy.TagFilter{
-			{Key: "env", Value: "prod", Type: "EQUALS"},
-		},
-	}, nil)
+	base.ServiceRoleArn = "arn:aws:iam::000000000000:role/role"
+	base.OnPremisesInstanceTagFilters = []codedeploy.TagFilter{{Key: "env", Value: "prod", Type: "EQUALS"}}
+	_, err = b.CreateDeploymentGroup("my-app", "my-dg", base, nil)
 	require.NoError(t, err)
 
 	err = b.RegisterOnPremisesInstance("i-match-1", "", "arn:aws:iam::000000000000:user/u1")
@@ -434,7 +439,7 @@ func TestDeploymentTargets_StatusTracksDeploymentStatus(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	deployID, matched := serverDeployWithMatchedInstances(t, h)
+	deployID, matched := serverDeployWithGroup(t, h, readyWaitGroupInput())
 
 	require.NoError(t, h.Backend.StopDeployment(deployID))
 

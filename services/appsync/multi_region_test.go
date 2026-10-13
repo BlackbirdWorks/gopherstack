@@ -195,6 +195,7 @@ func TestHandler_MultiRegionLegacyRestore(t *testing.T) {
 }
 
 type regionRecorder struct {
+	appsync.DynamoDBBackend
 	regions []string
 	mu      sync.Mutex
 }
@@ -218,7 +219,7 @@ func (r *regionRecorder) GetItemRaw(ctx context.Context, _ string, _ map[string]
 	return map[string]any{}, nil
 }
 
-func (r *regionRecorder) PutItemRaw(ctx context.Context, _ string, _ map[string]any) error {
+func (r *regionRecorder) PutItemRaw(ctx context.Context, _ string, _ map[string]any, _ *appsync.DDBExpression) error {
 	r.record(ctx)
 
 	return nil

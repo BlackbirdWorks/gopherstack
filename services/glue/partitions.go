@@ -77,7 +77,8 @@ func (b *InMemoryBackend) BatchCreatePartition(
 	// unchecked, so CreatePartition/BatchCreatePartition against a nonexistent
 	// database/table silently "succeeded" and stored orphaned partitions with no
 	// owning table — a disguised stub.
-	if !b.tables.Has(tableKey(dbName, tableName)) {
+	tbl, tblOK := b.tables.Get(tableKey(dbName, tableName))
+	if !tblOK {
 		for _, input := range inputs {
 			errs = append(errs, PartitionError{
 				PartitionValues: input.Values,
@@ -95,6 +96,21 @@ func (b *InMemoryBackend) BatchCreatePartition(
 	existing := len(b.partitionsByTable.Get(tableKey(dbName, tableName)))
 
 	for _, input := range inputs {
+		if len(tbl.PartitionKeys) > 0 && len(input.Values) != len(tbl.PartitionKeys) {
+			errs = append(errs, PartitionError{
+				PartitionValues: input.Values,
+				ErrorDetail: ErrorDetail{
+					ErrorCode: "InvalidInputException",
+					ErrorMessage: fmt.Sprintf(
+						"partition has %d values but table %s.%s has %d partition keys",
+						len(input.Values), dbName, tableName, len(tbl.PartitionKeys),
+					),
+				},
+			})
+
+			continue
+		}
+
 		key := partitionKey(dbName, tableName, input.Values)
 		if b.partitions.Has(key) {
 			errs = append(errs, PartitionError{

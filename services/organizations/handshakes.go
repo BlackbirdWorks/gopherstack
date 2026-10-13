@@ -87,6 +87,10 @@ func (b *InMemoryBackend) AcceptHandshake(handshakeID string) (*Handshake, error
 	h.StateChangedAt = time.Now()
 	b.syncResponsibilityTransferStatusLocked(h)
 
+	if h.Action == handshakeActionEnableFeatures && b.org != nil {
+		b.org.FeatureSet = featureSetAll
+	}
+
 	if h.Action == handshakeActionInvite && b.org != nil {
 		for _, r := range h.Resources {
 			if r.Type == targetTypeAccount {
@@ -426,6 +430,20 @@ func (b *InMemoryBackend) InviteAccountToOrganization(
 	b.handshakes.Put(h)
 
 	return copyHandshake(h), nil
+}
+
+// LeaveOrganizationAs lets a member account leave; the management account still gets
+// MasterCannotLeaveOrganizationException.
+func (b *InMemoryBackend) LeaveOrganizationAs(accountID string) error {
+	b.mu.RLock("LeaveOrganizationAs")
+	member := b.org != nil && accountID != "" && accountID != b.org.MasterAccountID && b.accounts.Has(accountID)
+	b.mu.RUnlock()
+
+	if !member {
+		return b.LeaveOrganization()
+	}
+
+	return b.RemoveAccountFromOrganization(accountID)
 }
 
 // LeaveOrganization is callable only from a member account (SDK doc comment

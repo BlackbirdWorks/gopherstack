@@ -431,9 +431,30 @@ func (h *Handler) handleCreateNetworkInterface(vals url.Values, reqID string) (a
 		return nil, fmt.Errorf("%w: SubnetId is required", ErrInvalidParameter)
 	}
 
-	description := vals.Get("Description")
+	opts := NetworkInterfaceOptions{
+		Description:      vals.Get("Description"),
+		InterfaceType:    vals.Get("InterfaceType"),
+		PrivateIP:        vals.Get("PrivateIpAddress"),
+		SecurityGroupIDs: parseMemberList(vals, "SecurityGroupId"),
+	}
+	opts.SecondaryCount, _ = strconv.Atoi(vals.Get("SecondaryPrivateIpAddressCount"))
 
-	eni, err := h.Backend.CreateNetworkInterface(subnetID, description, vals.Get("InterfaceType"))
+	for i := 1; ; i++ {
+		ip := vals.Get(fmt.Sprintf("PrivateIpAddresses.%d.PrivateIpAddress", i))
+		if ip == "" {
+			break
+		}
+
+		if vals.Get(fmt.Sprintf("PrivateIpAddresses.%d.Primary", i)) == ec2BooleanTrue && opts.PrivateIP == "" {
+			opts.PrivateIP = ip
+
+			continue
+		}
+
+		opts.SecondaryIPs = append(opts.SecondaryIPs, ip)
+	}
+
+	eni, err := h.Backend.CreateNetworkInterfaceWithOptions(subnetID, opts)
 	if err != nil {
 		return nil, err
 	}

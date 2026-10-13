@@ -47,8 +47,11 @@ func (h *Handler) handleStartADAssessment(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
-	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
+	if (req.DirectoryID == "") == (req.AssessmentConfiguration == nil) {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterException", "exactly one of DirectoryId or AssessmentConfiguration is required"),
+		)
 	}
 
 	cfg, cfgErr := parseAssessmentConfiguration(req.AssessmentConfiguration)
@@ -206,10 +209,13 @@ func (h *Handler) handleDescribeADAssessment(c *echo.Context) error {
 func assessmentSummaryWire(a *ADAssessmentInfo) map[string]any {
 	wire := map[string]any{
 		"AssessmentId": a.AssessmentID,
-		keyDirectoryID: a.DirectoryID,
 		keyStatus:      a.Status,
 		"ReportType":   a.AssessType,
 		keyStartTime:   awstime.Epoch(a.StartTime),
+	}
+
+	if a.DirectoryID != "" {
+		wire[keyDirectoryID] = a.DirectoryID
 	}
 
 	if len(a.CustomerDNSIPs) > 0 {

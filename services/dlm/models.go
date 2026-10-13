@@ -80,7 +80,7 @@ func policyDetailsPolicyType(details map[string]any) string {
 		return pt
 	}
 
-	return "EBS_SNAPSHOT_MANAGEMENT"
+	return policyTypeEBSSnapshot
 }
 
 // policyDetailsIsDefaultPolicy reports whether details belongs to a default

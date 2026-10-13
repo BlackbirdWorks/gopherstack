@@ -3,9 +3,10 @@ package forecast
 import "time"
 
 const (
-	statusCreatePending = "CREATE_PENDING"
-	statusActive        = "ACTIVE"
-	statusCreateFailed  = "CREATE_FAILED"
+	statusCreatePending    = "CREATE_PENDING"
+	statusCreateInProgress = "CREATE_IN_PROGRESS"
+	statusActive           = "ACTIVE"
+	statusCreateFailed     = "CREATE_FAILED"
 	// statusStopped is the emulator's convention for a resource that
 	// StopResource has transitioned (see UpdateResourceStatus in store.go).
 	// Real Amazon Forecast models this per-kind as ACTIVE_STOPPED/
@@ -24,7 +25,7 @@ const fieldPredictorArn = "PredictorArn"
 
 // maxResourceNameLen is the maximum number of characters allowed in any Amazon
 // Forecast resource name (DatasetName, PredictorName, etc.).
-const maxResourceNameLen = 256
+const maxResourceNameLen = 63
 
 type resourceKind string
 

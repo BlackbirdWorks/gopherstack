@@ -90,7 +90,7 @@ func (b *InMemoryBackend) GetEmailTemplate(name string) (*EmailTemplate, error) 
 
 	t, ok := b.emailTemplates.Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: email template %s not found", ErrNotFound, name)
+		return nil, templateMissing(name)
 	}
 
 	cp := *t
@@ -105,7 +105,7 @@ func (b *InMemoryBackend) DeleteEmailTemplate(name string) error {
 	defer b.mu.Unlock()
 
 	if !b.emailTemplates.Has(name) {
-		return fmt.Errorf("%w: email template %s not found", ErrNotFound, name)
+		return templateMissing(name)
 	}
 
 	b.emailTemplates.Delete(name)
@@ -121,7 +121,7 @@ func (b *InMemoryBackend) UpdateEmailTemplate(name string, content *EmailTemplat
 
 	t, ok := b.emailTemplates.Get(name)
 	if !ok {
-		return fmt.Errorf("%w: email template %s not found", ErrNotFound, name)
+		return templateMissing(name)
 	}
 
 	if content != nil {
@@ -160,7 +160,7 @@ func (b *InMemoryBackend) TestRenderEmailTemplate(name, templateData string) (st
 
 	t, ok := b.emailTemplates.Get(name)
 	if !ok {
-		return "", fmt.Errorf("%w: email template %s not found", ErrNotFound, name)
+		return "", templateMissing(name)
 	}
 
 	vars, err := parseTemplateVars(templateData)

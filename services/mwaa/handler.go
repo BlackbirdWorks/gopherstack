@@ -398,6 +398,8 @@ func (h *Handler) dispatchMetrics(c *echo.Context, path string) error {
 
 // writeErrorResponse writes a JSON error response in the MWAA REST API format.
 func writeErrorResponse(c *echo.Context, statusCode int, errorType, message string) error {
+	message = strings.TrimPrefix(strings.TrimPrefix(message, errorType+": "), "invalid parameter: ")
+
 	httputils.WriteJSON(c.Request().Context(), c.Response(), statusCode, map[string]string{
 		"message": message,
 		"__type":  errorType,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -98,6 +99,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.lastFired = make(map[string]time.Time)
+	b.startedAt = time.Now().UTC()
 
 	return nil
 }

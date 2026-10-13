@@ -9,17 +9,26 @@ type searchResourcesInput struct {
 	MaxResults    int            `json:"MaxResults"`
 }
 
-type searchResourcesOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
+type searchResourcesOutput struct {
+	NextToken           string               `json:"NextToken,omitempty"`
 	ResourceIdentifiers []ResourceIdentifier `json:"ResourceIdentifiers"`
 	QueryErrors         []queryErrorWire     `json:"QueryErrors,omitempty"`
-	NextToken           string               `json:"NextToken,omitempty"`
 }
 
 func (h *Handler) handleSearchResources(ctx context.Context, in *searchResourcesInput) (*searchResourcesOutput, error) {
-	identifiers, nextToken, err := h.Backend.SearchResources(ctx, in.ResourceQuery, in.NextToken, in.MaxResults)
+	cursor, err := parsePage(in.NextToken, in.MaxResults)
 	if err != nil {
 		return nil, err
 	}
 
-	return &searchResourcesOutput{ResourceIdentifiers: identifiers, NextToken: nextToken}, nil
+	p, err := h.Backend.SearchResourcesPage(ctx, in.ResourceQuery, cursor, in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return &searchResourcesOutput{
+		ResourceIdentifiers: p.Identifiers,
+		QueryErrors:         p.Errors,
+		NextToken:           encodePageToken(p.NextToken),
+	}, nil
 }

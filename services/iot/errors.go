@@ -15,6 +15,11 @@ var (
 	// ErrValidation is returned when an input fails validation.
 	ErrValidation = errors.New("validation error")
 
+	// ErrCertificateValidation is returned when a certificate is not signed by the supplied CA.
+	ErrCertificateValidation = errors.New("certificate validation failed")
+	// ErrInvalidQuery is returned for a malformed fleet-indexing query string.
+	ErrInvalidQuery = errors.New("invalid query")
+
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = errors.New("resource already exists")
 
@@ -29,6 +34,9 @@ var (
 
 	// ErrVersionsLimitExceeded is returned when a policy already has the maximum allowed versions.
 	ErrVersionsLimitExceeded = errors.New("versions limit exceeded")
+
+	// ErrTerminalState is returned when a device updates a job execution that already finished.
+	ErrTerminalState = errors.New("terminal state")
 
 	// ErrInvalidStateTransition is returned when a state-changing operation
 	// (e.g. CancelJobExecution on an IN_PROGRESS execution without force)

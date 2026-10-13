@@ -273,6 +273,10 @@ func (h *Handler) handleListExecutions(b []byte) (any, error) {
 		return nil, err
 	}
 
+	if err := validateStatusFilter(input.StatusFilter); err != nil {
+		return nil, err
+	}
+
 	var (
 		execs []Execution
 		next  string
@@ -345,6 +349,16 @@ func stripHistoryEventExecutionData(events []HistoryEvent) []HistoryEvent {
 			d.Output = ""
 			e.TaskSubmittedEventDetails = &d
 		}
+		if e.ExecutionStartedEventDetails != nil {
+			d := *e.ExecutionStartedEventDetails
+			d.Input = ""
+			e.ExecutionStartedEventDetails = &d
+		}
+		if e.ExecutionSucceededEventDetails != nil {
+			d := *e.ExecutionSucceededEventDetails
+			d.Output = ""
+			e.ExecutionSucceededEventDetails = &d
+		}
 		if e.TaskSucceededEventDetails != nil {
 			d := *e.TaskSucceededEventDetails
 			d.Output = ""
@@ -354,4 +368,13 @@ func stripHistoryEventExecutionData(events []HistoryEvent) []HistoryEvent {
 	}
 
 	return out
+}
+
+func validateStatusFilter(status string) error {
+	switch status {
+	case "", statusRunning, stateSucceeded, statusFailed, statusTimedOut, statusAborted, "PENDING_REDRIVE":
+		return nil
+	}
+
+	return fmt.Errorf("%w: statusFilter %q is not a valid execution status", ErrValidation, status)
 }

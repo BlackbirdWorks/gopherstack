@@ -18,6 +18,9 @@ const iamAccessAllow = "ALLOW"
 var (
 	errAccountNameRequired = errors.New("AccountName is required")
 	errEmailRequired       = errors.New("email is required")
+	errAccountNameInvalid  = errors.New("account name must be 1-50 printable ASCII characters")
+	errEmailInvalid        = errors.New("email must be 6-64 characters and a valid email address")
+	errRoleNameInvalid     = errors.New("roleName must be 1-64 characters matching [\\w+=,.@-]")
 	errInvalidIamAccess    = errors.New("IamUserAccessToBilling must be ALLOW or DENY")
 )
 
@@ -177,6 +180,10 @@ func (h *Handler) handleListAccounts(c *echo.Context, body []byte) error {
 		objs = append(objs, toAccountObject(a))
 	}
 
+	if rejected, pErr := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return pErr
+	}
+
 	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
 
 	return c.JSON(http.StatusOK, listAccountsResponse{Accounts: p.Data, NextToken: p.Next})
@@ -196,8 +203,20 @@ func (h *Handler) validateCreateAccountInput(
 		return "", "", errAccountNameRequired
 	}
 
+	if !validateAccountName(accountName) {
+		return "", "", errAccountNameInvalid
+	}
+
 	if email == "" {
 		return "", "", errEmailRequired
+	}
+
+	if !validateEmail(email) {
+		return "", "", errEmailInvalid
+	}
+
+	if roleName != "" && !validateRoleName(roleName) {
+		return "", "", errRoleNameInvalid
 	}
 
 	// Default RoleName.
@@ -345,6 +364,10 @@ func (h *Handler) handleListCreateAccountStatus(c *echo.Context, body []byte) er
 		objs = append(objs, *s)
 	}
 
+	if rejected, pErr := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return pErr
+	}
+
 	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
 
 	return c.JSON(http.StatusOK, listCreateAccountStatusResponse{CreateAccountStatuses: p.Data, NextToken: p.Next})
@@ -360,8 +383,8 @@ func (h *Handler) handleListAccountsWithInvalidEffectivePolicy(c *echo.Context, 
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "PolicyType is required")
 	}
 
-	if rejected, err := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
-		return err
+	if rejected, pErr := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return pErr
 	}
 
 	accounts, err := h.Backend.ListAccountsWithInvalidEffectivePolicy(req.PolicyType)

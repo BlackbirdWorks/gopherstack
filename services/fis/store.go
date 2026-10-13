@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"maps"
 	"math/big"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -150,6 +151,7 @@ type InMemoryBackend struct {
 	// (gopherstack-x842, gopherstack-9939). Nil (the default) leaves stop
 	// conditions validated and stored but otherwise inert.
 	alarmSubscriber                AlarmStateSubscriber
+	targetResolver                 TargetResolver
 	experimentsByArn               *store.Index[Experiment]
 	faultStore                     *chaos.FaultStore
 	registry                       *store.Registry
@@ -165,6 +167,7 @@ type InMemoryBackend struct {
 	region                         string
 	accountID                      string
 	actionProviders                []service.FISActionProvider
+	lifecycleStep                  atomic.Int64
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a background service context.

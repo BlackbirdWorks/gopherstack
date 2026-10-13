@@ -128,9 +128,7 @@ func functionsKeyFn(v *FunctionConfiguration) string { return v.FunctionName }
 // (buildURLARN, an unqualified "function:name" ARN) and never mutated, so
 // parsing the function name back out of it is a pure, stable derivation.
 func functionURLConfigsKeyFn(v *FunctionURLConfig) string {
-	name, _ := functionNameAndQualifierFromARN(v.FunctionArn)
-
-	return name
+	return urlConfigKey(functionNameAndQualifierFromARN(v.FunctionArn))
 }
 
 // eventSourceMappingsKeyFn is the store.Table key function for

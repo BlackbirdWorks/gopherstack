@@ -3,10 +3,10 @@ package emrserverless
 import (
 	"crypto/rand"
 	"encoding/binary"
-	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -138,12 +138,7 @@ func newID() string {
 func emrPaginate[T any](all []*T, nextToken string, maxResults int) ([]*T, string) {
 	const defaultLimit = 100
 
-	startIdx := 0
-	if nextToken != "" {
-		if idx, err := strconv.Atoi(nextToken); err == nil && idx >= 0 {
-			startIdx = idx
-		}
-	}
+	startIdx := page.DecodeToken(nextToken)
 
 	if startIdx >= len(all) {
 		return []*T{}, ""
@@ -158,7 +153,7 @@ func emrPaginate[T any](all []*T, nextToken string, maxResults int) ([]*T, strin
 
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = page.EncodeToken(end)
 	} else {
 		end = len(all)
 	}

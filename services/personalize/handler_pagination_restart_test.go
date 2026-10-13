@@ -34,7 +34,12 @@ func TestPersonalize_ListCampaigns_Pagination_DeletedMidPage(t *testing.T) {
 	require.True(t, ok)
 	require.NotEmpty(t, nextToken)
 
-	rec = personalizeDo(t, h, "DeleteCampaign", map[string]any{"campaignArn": nextToken})
+	page1, _ := resp1["campaigns"].([]any)
+	require.Len(t, page1, 2)
+	lastArn, _ := page1[1].(map[string]any)["campaignArn"].(string)
+	require.NotEmpty(t, lastArn)
+
+	rec = personalizeDo(t, h, "DeleteCampaign", map[string]any{"campaignArn": lastArn})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = personalizeDo(t, h, "ListCampaigns", map[string]any{
@@ -56,6 +61,8 @@ func TestPersonalize_ListCampaigns_Pagination_DeletedMidPage(t *testing.T) {
 	}
 
 	assert.False(t, restarted, "cursor must not restart pagination at page one after its item is deleted")
+	require.NotEmpty(t, page2)
+	assert.Equal(t, "camp-c", page2[0].(map[string]any)["name"])
 }
 
 // TestPersonalize_ListRecipes_Pagination_StaleTokenDoesNotRestart proves that
@@ -82,7 +89,7 @@ func TestPersonalize_ListRecipes_Pagination_StaleTokenDoesNotRestart(t *testing.
 
 	rec = personalizeDo(t, h, "ListRecipes", map[string]any{
 		"maxResults": float64(3),
-		"nextToken":  "arn:aws:personalize:::recipe/does-not-exist",
+		"nextToken":  "cHoxOmFybjphd3M6cGVyc29uYWxpemU6OjpyZWNpcGUvYXdzLWhybm4tbWV0YWRhdGEtenp6",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

@@ -3,6 +3,7 @@ package s3tables
 import (
 	"maps"
 	"strings"
+	"sync/atomic"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -48,6 +49,7 @@ const (
 
 // InMemoryBackend is an in-memory store for S3 Tables resources.
 type InMemoryBackend struct {
+	metadataWriter atomic.Pointer[MetadataWriter]
 	// registry holds every store.Table below that has no field hidden from
 	// plain JSON marshaling -- see store_setup.go's file doc comment.
 	registry *store.Registry

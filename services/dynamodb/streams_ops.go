@@ -103,6 +103,7 @@ func (db *InMemoryDB) enableStreamFieldsLocked(
 	table.mu.Lock("EnableStream")
 	defer table.mu.Unlock()
 
+	now = table.nextStreamCreatedAt(now)
 	table.StreamsEnabled = true
 	table.StreamViewType = viewType
 	table.StreamCreatedAt = now
@@ -143,6 +144,7 @@ func disableStreamFieldsLocked(table *Table) string {
 	defer table.mu.Unlock()
 
 	oldARN := table.StreamARN
+	table.retireStreamLocked(time.Now().UTC())
 	table.StreamsEnabled = false
 	table.StreamARN = ""
 	table.StreamViewType = ""
@@ -169,6 +171,10 @@ func (db *InMemoryDB) DescribeStream(
 
 	found := db.findTableByStreamARNRLocked(streamARN)
 	if found == nil {
+		if tbl, rs, ok := db.findRetiredStream(streamARN); ok {
+			return db.describeRetiredStream(tbl, rs, input)
+		}
+
 		return nil, NewResourceNotFoundException(
 			"stream not found: " + streamARN,
 		)
@@ -340,6 +346,10 @@ func (db *InMemoryDB) GetShardIterator(
 
 	found := db.findTableByStreamARNRLocked(streamARN)
 	if found == nil {
+		if tbl, rs, ok := db.findRetiredStream(streamARN); ok {
+			return db.getShardIteratorRetired(tbl, rs, input)
+		}
+
 		return nil, NewResourceNotFoundException(
 			"stream not found: " + streamARN,
 		)
@@ -360,7 +370,13 @@ func (db *InMemoryDB) GetShardIterator(
 
 	// Carry the shard's ending sequence (0 for an open shard) so GetRecords can
 	// return a nil NextShardIterator once a closed shard is fully drained.
-	token, err := db.iteratorStore.PutWithEnd(found.Name, streamARNRegion(streamARN), startSeq, shardEndSeq)
+	token, err := db.iteratorStore.PutForStream(
+		found.Name,
+		streamARNRegion(streamARN),
+		streamARN,
+		startSeq,
+		shardEndSeq,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("create shard iterator: %w", err)
 	}
@@ -511,6 +527,10 @@ func (db *InMemoryDB) GetRecords(
 		}
 	}
 
+	if entry.StreamARN != "" && streamARNOfRLocked(table) != entry.StreamARN {
+		return db.getRecordsFromRetired(ctx, table, entry, limit)
+	}
+
 	trimSeq, currentSeq, tail, head := streamRecordsSnapshotRLocked(table)
 
 	// If the requested start is before the trim horizon, the data has been evicted.
@@ -525,6 +545,7 @@ func (db *InMemoryDB) GetRecords(
 	records, nextSeq := collectStreamRecords(tail, head, startSeq, limit, currentSeq, region)
 
 	telemetry.RecordStreamEvents("dynamodb", len(records))
+	db.emitStreamReturned(region, table, records)
 
 	// A closed (split) shard that has been fully drained returns a nil
 	// NextShardIterator so consumers know to advance to the child shard. AWS
@@ -538,7 +559,7 @@ func (db *InMemoryDB) GetRecords(
 
 	// Generate the next opaque iterator for continued reading, preserving the
 	// owning shard's end sequence so the terminal state above is reachable.
-	nextToken, tokenErr := db.iteratorStore.PutWithEnd(tableName, entry.Region, nextSeq, endSeq)
+	nextToken, tokenErr := db.iteratorStore.PutForStream(tableName, entry.Region, entry.StreamARN, nextSeq, endSeq)
 	if tokenErr != nil {
 		return nil, fmt.Errorf("create next shard iterator: %w", tokenErr)
 	}
@@ -598,6 +619,7 @@ func (db *InMemoryDB) ListStreams(
 	}
 
 	collected := db.collectEnabledStreams(requestRegion, filterTable)
+	collected = append(collected, db.collectRetiredStreams(requestRegion, filterTable)...)
 
 	// Sort by ARN for stable pagination.
 	sortStreamListEntries(collected)
@@ -784,35 +806,7 @@ func describeStreamSnapshot(
 	found.mu.RLock("DescribeStream")
 	defer found.mu.RUnlock()
 
-	shardSlice := found.StreamShards
-
-	if childShardsParentID != nil {
-		shardSlice = filterChildShards(shardSlice, *childShardsParentID)
-	}
-
-	if exclusiveStart != "" {
-		foundStart := false
-		for i, s := range shardSlice {
-			if s.ShardID == exclusiveStart {
-				shardSlice = shardSlice[i+1:]
-				foundStart = true
-
-				break
-			}
-		}
-		if !foundStart {
-			shardSlice = nil
-		}
-	}
-
-	var lastEvaluatedShardID *string
-	if len(shardSlice) > limit {
-		lastEvaluatedShardID = aws.String(shardSlice[limit-1].ShardID)
-		shardSlice = shardSlice[:limit]
-	}
-
-	shards := make([]StreamShard, len(shardSlice))
-	copy(shards, shardSlice)
+	shards, lastEvaluatedShardID := pageShards(found.StreamShards, exclusiveStart, limit, childShardsParentID)
 
 	return found.Name, found.StreamViewType, found.KeySchema, found.StreamCreatedAt, shards, lastEvaluatedShardID
 }
@@ -879,4 +873,49 @@ func appendMatchingRecords(
 	}
 
 	return records, nextSeq
+}
+
+// pageShards applies the CHILD_SHARDS filter, then ExclusiveStartShardId and
+// limit pagination, returning a copy of the page.
+func pageShards(all []StreamShard, exclusiveStart string, limit int, childParent *string) ([]StreamShard, *string) {
+	shardSlice := all
+
+	if childParent != nil {
+		shardSlice = filterChildShards(shardSlice, *childParent)
+	}
+
+	if exclusiveStart != "" {
+		foundStart := false
+
+		for i, s := range shardSlice {
+			if s.ShardID == exclusiveStart {
+				shardSlice = shardSlice[i+1:]
+				foundStart = true
+
+				break
+			}
+		}
+
+		if !foundStart {
+			shardSlice = nil
+		}
+	}
+
+	var lastEvaluated *string
+	if len(shardSlice) > limit {
+		lastEvaluated = aws.String(shardSlice[limit-1].ShardID)
+		shardSlice = shardSlice[:limit]
+	}
+
+	out := make([]StreamShard, len(shardSlice))
+	copy(out, shardSlice)
+
+	return out, lastEvaluated
+}
+
+func streamARNOfRLocked(t *Table) string {
+	t.mu.RLock("GetRecords.streamARN")
+	defer t.mu.RUnlock()
+
+	return t.StreamARN
 }

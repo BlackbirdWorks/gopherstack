@@ -38,6 +38,9 @@ type stringAttributeConstraintsJSON struct {
 type attrVerificationEntry struct {
 	ExpiresAt time.Time `json:"expiresAt"`
 	Code      string    `json:"code,omitempty"`
+	// PendingValue is the new email/phone held until the code is verified
+	// (UserAttributeUpdateSettings.AttributesRequireVerificationBeforeUpdate).
+	PendingValue string `json:"pendingValue,omitempty"`
 }
 
 type attributeType struct {
@@ -46,16 +49,20 @@ type attributeType struct {
 }
 
 type updateUserAttributesInput struct {
-	AccessToken    string          `json:"AccessToken,omitempty"`
-	UserAttributes []attributeType `json:"UserAttributes,omitempty"`
+	ClientMetadata map[string]string `json:"ClientMetadata,omitempty"`
+	AccessToken    string            `json:"AccessToken,omitempty"`
+	UserAttributes []attributeType   `json:"UserAttributes,omitempty"`
 }
 
-type updateUserAttributesOutput struct{}
+type updateUserAttributesOutput struct {
+	CodeDeliveryDetailsList []map[string]string `json:"CodeDeliveryDetailsList,omitempty"`
+}
 
 type adminUpdateUserAttributesInput struct {
-	UserPoolID     string          `json:"UserPoolId,omitempty"`
-	Username       string          `json:"Username,omitempty"`
-	UserAttributes []attributeType `json:"UserAttributes,omitempty"`
+	ClientMetadata map[string]string `json:"ClientMetadata,omitempty"`
+	UserPoolID     string            `json:"UserPoolId,omitempty"`
+	Username       string            `json:"Username,omitempty"`
+	UserAttributes []attributeType   `json:"UserAttributes,omitempty"`
 }
 
 type adminUpdateUserAttributesOutput struct{}
@@ -83,8 +90,9 @@ type deleteUserAttributesInput struct {
 type deleteUserAttributesOutput struct{}
 
 type getUserAttributeVerifCodeFullInput struct {
-	AccessToken   string `json:"AccessToken,omitempty"`
-	AttributeName string `json:"AttributeName,omitempty"`
+	ClientMetadata map[string]string `json:"ClientMetadata,omitempty"`
+	AccessToken    string            `json:"AccessToken,omitempty"`
+	AttributeName  string            `json:"AttributeName,omitempty"`
 }
 
 type getUserAttributeVerifCodeFullOutput struct {

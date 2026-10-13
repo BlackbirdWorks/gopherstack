@@ -57,7 +57,7 @@ func (b *InMemoryBackend) ExportSnapshot(sourceSnapshotName string) ([]Operation
 	}
 	b.exportSnapshotRecords.Put(rec)
 
-	b.work.After("ExportSnapshotComplete", asyncTransitionDelay, func() {
+	b.work.After("ExportSnapshotComplete", b.transitionDelay(), func() {
 		b.mu.Lock("ExportSnapshot-async-complete")
 		defer b.mu.Unlock()
 
@@ -136,7 +136,7 @@ func (b *InMemoryBackend) CreateCloudFormationStack(instances []InstanceEntry) (
 	b.cfnStackRecords.Put(rec)
 
 	if rec.State == RecordStateStarted {
-		b.work.After("CloudFormationStackComplete", asyncTransitionDelay, func() {
+		b.work.After("CloudFormationStackComplete", b.transitionDelay(), func() {
 			b.mu.Lock("CloudFormationStack-async-complete")
 			defer b.mu.Unlock()
 

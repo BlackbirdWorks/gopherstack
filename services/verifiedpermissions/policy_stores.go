@@ -5,9 +5,12 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // policyStoreARN builds the ARN for a policy store.
@@ -20,6 +23,7 @@ func clonePolicyStore(ps *PolicyStore) *PolicyStore {
 	cp := *ps
 	cp.Tags = make(map[string]string, len(ps.Tags))
 	maps.Copy(cp.Tags, ps.Tags)
+	cp.KMSEncryptionCtx = maps.Clone(ps.KMSEncryptionCtx)
 
 	return &cp
 }
@@ -35,10 +39,35 @@ func (b *InMemoryBackend) CreatePolicyStore(
 	tags map[string]string,
 	validationMode, deletionProtection, clientToken string,
 ) (*PolicyStore, error) {
+	return b.CreatePolicyStoreEncrypted(description, tags, validationMode, deletionProtection, clientToken, nil)
+}
+
+// kmsKeyArn maps a KMS key ID, alias or ARN to the full ARN, as CreatePolicyStore documents.
+func (b *InMemoryBackend) kmsKeyArn(key string) string {
+	switch {
+	case strings.HasPrefix(key, "arn:"):
+		return key
+	case strings.HasPrefix(key, "alias/"):
+		return arn.Build("kms", b.region, b.accountID, key)
+	default:
+		return arn.Build("kms", b.region, b.accountID, "key/"+key)
+	}
+}
+
+// CreatePolicyStoreEncrypted is CreatePolicyStore with an optional customer-managed KMS configuration.
+func (b *InMemoryBackend) CreatePolicyStoreEncrypted(
+	description string,
+	tags map[string]string,
+	validationMode, deletionProtection, clientToken string,
+	enc *PolicyStoreEncryption,
+) (*PolicyStore, error) {
 	b.mu.Lock("CreatePolicyStore")
 	defer b.mu.Unlock()
 
 	fingerprint := description + "\x00" + validationMode + "\x00" + deletionProtection + "\x00" + tagsFingerprint(tags)
+	if enc != nil {
+		fingerprint += "\x00" + enc.Key + "\x00" + tagsFingerprint(enc.Context)
+	}
 
 	existingID, err := b.checkClientToken("CreatePolicyStore", clientToken, fingerprint)
 	if err != nil {
@@ -77,6 +106,11 @@ func (b *InMemoryBackend) CreatePolicyStore(
 		ValidationMode:     validationMode,
 		DeletionProtection: deletionProtection,
 	}
+	if enc != nil {
+		ps.KMSKeyArn = b.kmsKeyArn(enc.Key)
+		ps.KMSEncryptionCtx = maps.Clone(enc.Context)
+	}
+
 	b.policyStores.Put(ps)
 	b.arnIndex[ps.Arn] = arnKindPolicyStore + ":" + id
 	if len(merged) > 0 {

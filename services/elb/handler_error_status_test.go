@@ -117,6 +117,7 @@ func TestErrorHTTPStatus(t *testing.T) {
 				_, err := client.CreateLoadBalancer(t.Context(), input)
 				require.NoError(t, err)
 
+				input.Listeners[0].InstancePort = aws.Int32(9090)
 				_, err = client.CreateLoadBalancer(t.Context(), input)
 
 				return err

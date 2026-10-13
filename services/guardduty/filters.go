@@ -1,12 +1,42 @@
 package guardduty
 
 import (
+	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"time"
 )
 
-const filterActionArchive = "ARCHIVE"
+const (
+	filterActionArchive = "ARCHIVE"
+	filterActionNoop    = "NOOP"
+
+	minFilterRank = 1
+	maxFilterRank = 100
+)
+
+var (
+	findingTypeRe = regexp.MustCompile(
+		`^[A-Za-z]+:[A-Za-z0-9]+/[A-Za-z0-9_.!-]+$`,
+	)
+	accountIDRe = regexp.MustCompile(
+		`^\d{12}$`,
+	)
+)
+
+// validateFilterActionAndRank applies the FilterAction enum and the documented rank range (api_op_CreateFilter.go).
+func validateFilterActionAndRank(action string, rank int32) error {
+	if action != "" && action != filterActionArchive && action != filterActionNoop {
+		return fmt.Errorf("%w: invalid filter action %q", ErrValidation, action)
+	}
+
+	if rank != 0 && (rank < minFilterRank || rank > maxFilterRank) {
+		return fmt.Errorf("%w: filter rank must be between %d and %d", ErrValidation, minFilterRank, maxFilterRank)
+	}
+
+	return nil
+}
 
 // matchesArchiveFilter reports whether any of detectorID's ARCHIVE-action
 // filters match f. CreateFilter's Action ("the action that is to be applied
@@ -31,6 +61,10 @@ func (b *InMemoryBackend) CreateFilter(
 	findingCriteria map[string]any,
 	tags map[string]string,
 ) (*Filter, error) {
+	if err := validateFilterActionAndRank(action, rank); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateFilter")
 	defer b.mu.Unlock()
 
@@ -88,6 +122,10 @@ func (b *InMemoryBackend) UpdateFilter(
 	rank int32,
 	findingCriteria map[string]any,
 ) (*Filter, error) {
+	if err := validateFilterActionAndRank(action, rank); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateFilter")
 	defer b.mu.Unlock()
 

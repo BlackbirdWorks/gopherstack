@@ -175,11 +175,11 @@ func TestSnapshotRestore_FullStateRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = b.CreateExportJob(region, accountID, app.ID,
-		pinpoint.ExportedCreateExportJobRequest{RoleArn: "role-1"})
+		pinpoint.ExportedCreateExportJobRequest{RoleArn: "role-1", S3UrlPrefix: "s3://bucket/prefix"})
 	require.NoError(t, err)
 
 	_, err = b.CreateImportJob(region, accountID, app.ID,
-		pinpoint.ExportedCreateImportJobRequest{RoleArn: "role-1", S3Url: "s3://bucket/key"})
+		pinpoint.ExportedCreateImportJobRequest{RoleArn: "role-1", S3Url: "s3://bucket/key", Format: "CSV"})
 	require.NoError(t, err)
 
 	_, err = b.CreateRecommenderConfiguration(pinpoint.ExportedCreateRecommenderConfigRequest{

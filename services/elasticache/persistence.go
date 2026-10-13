@@ -28,28 +28,29 @@ const elasticacheSnapshotVersion = 1
 // preserved as-is here rather than "fixed" as part of this mechanical
 // datalayer swap.
 type clusterSnapshot struct {
-	Tags                       *tags.Tags          `json:"tags,omitempty"`
-	AutoMinorVersionUpgrade    *bool               `json:"autoMinorVersionUpgrade,omitempty"`
 	CreatedAt                  time.Time           `json:"createdAt"`
-	ClusterID                  string              `json:"clusterID"`
-	Engine                     string              `json:"engine"`
-	EngineVersion              string              `json:"engineVersion"`
+	AutoMinorVersionUpgrade    *bool               `json:"autoMinorVersionUpgrade,omitempty"`
+	Tags                       *tags.Tags          `json:"tags,omitempty"`
+	PreferredMaintenanceWindow string              `json:"preferredMaintenanceWindow,omitempty"`
+	NotificationTopicStatus    string              `json:"notificationTopicStatus,omitempty"`
 	Status                     string              `json:"status"`
 	Endpoint                   string              `json:"endpoint"`
 	NodeType                   string              `json:"nodeType"`
 	ARN                        string              `json:"arn"`
 	CacheParameterGroupName    string              `json:"cacheParameterGroupName,omitempty"`
-	PreferredMaintenanceWindow string              `json:"preferredMaintenanceWindow,omitempty"`
+	ClusterID                  string              `json:"clusterID"`
 	SnapshotWindow             string              `json:"snapshotWindow,omitempty"`
-	NotificationTopicArn       string              `json:"notificationTopicArn,omitempty"`
-	NotificationTopicStatus    string              `json:"notificationTopicStatus,omitempty"`
+	EngineVersion              string              `json:"engineVersion"`
 	NetworkType                string              `json:"networkType,omitempty"`
 	IPDiscovery                string              `json:"ipDiscovery,omitempty"`
-	SecurityGroupIDs           []string            `json:"securityGroupIds,omitempty"`
-	CacheSecurityGroupNames    []string            `json:"cacheSecurityGroupNames,omitempty"`
+	Engine                     string              `json:"engine"`
+	NotificationTopicArn       string              `json:"notificationTopicArn,omitempty"`
 	LogDeliveryConfigurations  []LogDeliveryConfig `json:"logDeliveryConfigurations,omitempty"`
-	Port                       int                 `json:"port"`
-	NumCacheNodes              int                 `json:"numCacheNodes"`
+	CacheSecurityGroupNames    []string            `json:"cacheSecurityGroupNames,omitempty"`
+	SecurityGroupIDs           []string            `json:"securityGroupIds,omitempty"`
+	clusterGroupState
+	Port          int `json:"port"`
+	NumCacheNodes int `json:"numCacheNodes"`
 }
 
 // backendSnapshot is the top-level on-disk shape for the ElastiCache backend.
@@ -120,6 +121,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 		for i, c := range items {
 			snaps[i] = &clusterSnapshot{
+				clusterGroupState:          groupStateOf(c),
 				CreatedAt:                  c.CreatedAt,
 				Tags:                       c.Tags,
 				ClusterID:                  c.ClusterID,
@@ -216,6 +218,7 @@ func restoreClusterRegion(items []*clusterSnapshot) []*Cluster {
 			CacheSecurityGroupNames:    cs.CacheSecurityGroupNames,
 			LogDeliveryConfigurations:  cs.LogDeliveryConfigurations,
 		}
+		cs.applyTo(out[i])
 	}
 
 	return out
@@ -358,4 +361,61 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	}
 
 	return nil
+}
+
+// clusterGroupState is the placement, encryption and replication group link of a cluster.
+type clusterGroupState struct {
+	PreferredOutpostArn        string   `json:"preferredOutpostArn,omitempty"`
+	ReplicationGroupID         string   `json:"replicationGroupId,omitempty"`
+	SubnetGroupName            string   `json:"subnetGroupName,omitempty"`
+	AuthToken                  string   `json:"authToken,omitempty"`
+	TransitEncryptionMode      string   `json:"transitEncryptionMode,omitempty"`
+	KmsKeyID                   string   `json:"kmsKeyId,omitempty"`
+	PreferredAvailabilityZone  string   `json:"preferredAvailabilityZone,omitempty"`
+	AZMode                     string   `json:"azMode,omitempty"`
+	CacheNodeAZs               []string `json:"cacheNodeAzs,omitempty"`
+	CacheNodeIDs               []string `json:"cacheNodeIds,omitempty"`
+	PreferredAvailabilityZones []string `json:"preferredAvailabilityZones,omitempty"`
+	SnapshotRetentionLimit     int      `json:"snapshotRetentionLimit,omitempty"`
+	TransitEncryptionEnabled   bool     `json:"transitEncryptionEnabled,omitempty"`
+	AtRestEncryptionEnabled    bool     `json:"atRestEncryptionEnabled,omitempty"`
+	AuthTokenEnabled           bool     `json:"authTokenEnabled,omitempty"`
+}
+
+func groupStateOf(c *Cluster) clusterGroupState {
+	return clusterGroupState{
+		PreferredOutpostArn:        c.PreferredOutpostArn,
+		ReplicationGroupID:         c.ReplicationGroupID,
+		SubnetGroupName:            c.SubnetGroupName,
+		AuthToken:                  c.AuthToken,
+		TransitEncryptionMode:      c.TransitEncryptionMode,
+		KmsKeyID:                   c.KmsKeyID,
+		PreferredAvailabilityZone:  c.PreferredAvailabilityZone,
+		AZMode:                     c.AZMode,
+		CacheNodeAZs:               c.CacheNodeAZs,
+		CacheNodeIDs:               c.CacheNodeIDs,
+		PreferredAvailabilityZones: c.PreferredAvailabilityZones,
+		SnapshotRetentionLimit:     c.SnapshotRetentionLimit,
+		TransitEncryptionEnabled:   c.TransitEncryptionEnabled,
+		AtRestEncryptionEnabled:    c.AtRestEncryptionEnabled,
+		AuthTokenEnabled:           c.AuthTokenEnabled,
+	}
+}
+
+func (g clusterGroupState) applyTo(c *Cluster) {
+	c.PreferredOutpostArn = g.PreferredOutpostArn
+	c.ReplicationGroupID = g.ReplicationGroupID
+	c.SubnetGroupName = g.SubnetGroupName
+	c.AuthToken = g.AuthToken
+	c.TransitEncryptionMode = g.TransitEncryptionMode
+	c.KmsKeyID = g.KmsKeyID
+	c.PreferredAvailabilityZone = g.PreferredAvailabilityZone
+	c.AZMode = g.AZMode
+	c.CacheNodeAZs = g.CacheNodeAZs
+	c.CacheNodeIDs = g.CacheNodeIDs
+	c.PreferredAvailabilityZones = g.PreferredAvailabilityZones
+	c.SnapshotRetentionLimit = g.SnapshotRetentionLimit
+	c.TransitEncryptionEnabled = g.TransitEncryptionEnabled
+	c.AtRestEncryptionEnabled = g.AtRestEncryptionEnabled
+	c.AuthTokenEnabled = g.AuthTokenEnabled
 }

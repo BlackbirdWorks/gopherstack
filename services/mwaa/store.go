@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"strings"
+	"sync/atomic"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -51,6 +52,8 @@ const (
 	// gopherstack previously used the fabricated "UPDATE_ROLLING_BACK" (the
 	// real value is "ROLLING_BACK") and an invented "ERROR" status not in the
 	// real enum at all.
+	lastUpdatePending         = "PENDING"
+	lastUpdateSuccess         = "SUCCESS"
 	envStatusAvailable        = "AVAILABLE"
 	envStatusCreating         = "CREATING"
 	envStatusCreatingSnapshot = "CREATING_SNAPSHOT"
@@ -119,21 +122,15 @@ var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	// environments is a flat store.Table keyed by the composite "region|name"
-	// string (see regionKey below), replacing the old map[string]map[string]*Environment
-	// nesting (outer key = region). environmentsByRegion and environmentsByARN
-	// are companion secondary indexes -- see store_setup.go.
 	environments         *store.Table[Environment]
 	environmentsByRegion *store.Index[Environment]
 	environmentsByARN    *store.Index[Environment]
 	registry             *store.Registry
-	// metrics remains a plain nested map (region → env name → metrics): its
-	// values are bare []MetricDatum slices with no identity of their own, so
-	// it is not a candidate for store.Table -- see store_setup.go.
-	metrics   map[string]map[string][]MetricDatum
-	mu        *lockmetrics.RWMutex
-	region    string
-	accountID string
+	metrics              map[string]map[string][]MetricDatum
+	mu                   *lockmetrics.RWMutex
+	region               string
+	accountID            string
+	transitionNanos      atomic.Int64
 }
 
 // NewInMemoryBackend creates a new MWAA in-memory backend.

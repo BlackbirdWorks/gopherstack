@@ -29,6 +29,7 @@ func (h *Handler) handleDescribeCertificates(ctx context.Context, vals url.Value
 type xmlCertificate struct {
 	CertificateIdentifier string `xml:"CertificateIdentifier"`
 	CertificateType       string `xml:"CertificateType"`
+	CertificateArn        string `xml:"CertificateArn,omitempty"`
 	Thumbprint            string `xml:"Thumbprint,omitempty"`
 	ValidFrom             string `xml:"ValidFrom,omitempty"`
 	ValidTill             string `xml:"ValidTill,omitempty"`
@@ -53,6 +54,7 @@ func toXMLCertificate(c *Certificate) xmlCertificate {
 	return xmlCertificate{
 		CertificateIdentifier: c.CertificateIdentifier,
 		CertificateType:       c.CertificateType,
+		CertificateArn:        c.CertificateArn,
 		Thumbprint:            c.Thumbprint,
 		ValidFrom:             c.ValidFrom,
 		ValidTill:             c.ValidTill,

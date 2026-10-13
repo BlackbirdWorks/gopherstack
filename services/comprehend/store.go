@@ -31,18 +31,21 @@ import (
 // maps: their values are not *T (map[string]string / string), so they do not
 // fit store.Table's keyed-by-identity-value shape.
 type InMemoryBackend struct {
-	jobs             *store.Table[Job]
-	resources        *store.Table[Resource]
-	iterations       *store.Table[FlywheelIteration]
+	s3Writer         S3Writer
+	appConfig        any
+	policyRevisions  map[string]string
 	registry         *store.Registry
 	tags             map[string]map[string]string
 	policies         map[string]string
-	policyRevisions  map[string]string
+	jobs             *store.Table[Job]
 	policyCreatedAt  map[string]time.Time
 	policyModifiedAt map[string]time.Time
 	mu               *lockmetrics.RWMutex
+	iterations       *store.Table[FlywheelIteration]
+	resources        *store.Table[Resource]
 	accountID        string
 	region           string
+	lifecycleDelay   time.Duration
 }
 
 // NewInMemoryBackend creates a configured Comprehend backend.
@@ -88,6 +91,9 @@ func (b *InMemoryBackend) Reset() {
 func (b *InMemoryBackend) StartJob(jobType, name string, values map[string]any, tags []Tag) (*Job, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("%w: JobName is required", ErrValidation)
+	}
+	if err := validateJobName(name); err != nil {
+		return nil, err
 	}
 	if len(tags) > maxTagsPerResource {
 		return nil, fmt.Errorf(
@@ -143,7 +149,7 @@ func (b *InMemoryBackend) DescribeJob(id, jobType string) (*Job, error) {
 		return nil, fmt.Errorf("%w: job %q", ErrJobNotFound, id)
 	}
 
-	advanceJob(job)
+	b.settleJobLocked(job)
 
 	return cloneJob(job), nil
 }
@@ -163,6 +169,7 @@ func (b *InMemoryBackend) StopJob(id, jobType string) (*Job, error) {
 	case statusSubmitted, statusInProgress:
 		job.JobStatus = statusStopRequested
 		job.stopRequested = true
+		job.stopRequestedAt = time.Now().UTC()
 	default:
 		return nil, fmt.Errorf("%w: job %q cannot be stopped in status %s", ErrValidation, id, job.JobStatus)
 	}
@@ -172,13 +179,16 @@ func (b *InMemoryBackend) StopJob(id, jobType string) (*Job, error) {
 
 // ListJobs returns jobs for one operation family in stable submission order.
 func (b *InMemoryBackend) ListJobs(jobType string) []*Job {
-	b.mu.RLock("ListJobs")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListJobs")
+	defer b.mu.Unlock()
 
 	all := b.jobs.All()
 	out := make([]*Job, 0, len(all))
 	for _, job := range all {
 		if job.JobType == jobType {
+			if b.lifecycleDelay > 0 {
+				b.settleJobLocked(job)
+			}
 			out = append(out, cloneJob(job))
 		}
 	}
@@ -262,7 +272,7 @@ func (b *InMemoryBackend) CreateResource(
 		Name:          name,
 		Arn:           resourceArn,
 		Type:          resourceType,
-		Status:        initialResourceStatus(resourceType),
+		Status:        b.initialResourceStatus(resourceType),
 		VersionName:   versionName,
 		ModelArn:      stringValue(values, "ModelArn", ""),
 		FlywheelArn:   stringValue(values, fieldFlywheelARN, ""),
@@ -325,7 +335,7 @@ func (b *InMemoryBackend) GetResource(resourceArn, resourceType string) (*Resour
 		return nil, fmt.Errorf("%w: resource %q", ErrNotFound, resourceArn)
 	}
 
-	advanceTrainingResource(resource)
+	b.settleResourceLocked(resource)
 
 	return cloneResource(resource), nil
 }
@@ -342,7 +352,7 @@ func (b *InMemoryBackend) ListResources(resourceType string) []*Resource {
 	out := make([]*Resource, 0, len(all))
 	for _, resource := range all {
 		if resource.Type == resourceType {
-			advanceTrainingResource(resource)
+			b.settleResourceLocked(resource)
 			out = append(out, cloneResource(resource))
 		}
 	}
@@ -384,7 +394,7 @@ func (b *InMemoryBackend) DeleteResource(resourceArn, resourceType string) error
 	}
 
 	if isTrainingResourceType(resource.Type) &&
-		(resource.Status == statusSubmitted || resource.Status == statusInProgress) {
+		(resource.Status == statusSubmitted || resource.Status == statusModelTraining) {
 		return fmt.Errorf(
 			"%w: resource %q cannot be deleted in status %s",
 			ErrConflict, resourceArn, resource.Status,
@@ -437,6 +447,7 @@ func (b *InMemoryBackend) GetFlywheelIteration(id string) (*FlywheelIteration, e
 	switch iteration.FlywheelIterationStatus {
 	case statusFlywheelIterationTraining:
 		iteration.FlywheelIterationStatus = statusFlywheelIterationEvaluating
+		b.createFlywheelModelLocked(iteration)
 	case statusFlywheelIterationEvaluating:
 		iteration.FlywheelIterationStatus = statusCompleted
 		iteration.EndTime = time.Now().UTC()
@@ -619,7 +630,7 @@ func (b *InMemoryBackend) StopTrainingResource(resourceArn, resourceType string)
 		return fmt.Errorf("%w: resource %q", ErrNotFound, resourceArn)
 	}
 
-	if resource.Status == statusSubmitted || resource.Status == statusInProgress {
+	if resource.Status == statusSubmitted || resource.Status == statusModelTraining {
 		resource.Status = statusStopped
 		resource.UpdatedAt = time.Now().UTC()
 	}
@@ -634,6 +645,14 @@ func (b *InMemoryBackend) resourceARN(resourceType, name, version string) string
 	}
 
 	return arn.Build("comprehend", b.region, b.accountID, resource)
+}
+
+func (b *InMemoryBackend) initialResourceStatus(resourceType string) string {
+	if b.lifecycleDelay > 0 && isTrainingResourceType(resourceType) {
+		return statusSubmitted
+	}
+
+	return initialResourceStatus(resourceType)
 }
 
 func initialResourceStatus(resourceType string) string {
@@ -692,19 +711,20 @@ func activeJobUsesModel(jobs []*Job, resourceType, resourceArn string) bool {
 }
 
 // advanceTrainingResource steps a classifier/recognizer one lifecycle state
-// forward on each Describe call: SUBMITTED → IN_PROGRESS → TRAINED (or FAILED).
+// forward on each Describe call: SUBMITTED → TRAINING → TRAINED (or IN_ERROR),
+// the types.ModelStatus vocabulary.
 func advanceTrainingResource(resource *Resource) {
 	if !isTrainingResourceType(resource.Type) {
 		return
 	}
 	switch resource.Status {
 	case statusSubmitted:
-		resource.Status = statusInProgress
+		resource.Status = statusModelTraining
 		resource.UpdatedAt = time.Now().UTC()
 		resource.TrainingStartTime = resource.UpdatedAt
-	case statusInProgress:
+	case statusModelTraining:
 		if strings.Contains(strings.ToLower(resource.Name), failedMarker) {
-			resource.Status = statusFailed
+			resource.Status = statusModelInError
 		} else {
 			resource.Status = statusTrained
 		}

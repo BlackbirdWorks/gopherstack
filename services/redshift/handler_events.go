@@ -4,9 +4,12 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
+
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -331,16 +334,17 @@ func (h *Handler) handleDescribeEventCategories(vals url.Values) (any, error) {
 // ---- EventSubscription XML types ----
 
 type xmlEventSubscription struct {
-	SubscriptionCreationTime string   `xml:"SubscriptionCreationTime,omitempty"`
-	CustSubscriptionID       string   `xml:"CustSubscriptionId"`
-	CustomerAwsID            string   `xml:"CustomerAwsId,omitempty"`
-	SnsTopicArn              string   `xml:"SnsTopicArn"`
-	Status                   string   `xml:"Status"`
-	SourceType               string   `xml:"SourceType,omitempty"`
-	Severity                 string   `xml:"Severity,omitempty"`
-	SourceIDs                []string `xml:"SourceIdsList>SourceId,omitempty"`
-	EventCategories          []string `xml:"EventCategoriesList>EventCategory,omitempty"`
-	Enabled                  bool     `xml:"Enabled"`
+	SubscriptionCreationTime string       `xml:"SubscriptionCreationTime,omitempty"`
+	CustSubscriptionID       string       `xml:"CustSubscriptionId"`
+	CustomerAwsID            string       `xml:"CustomerAwsId,omitempty"`
+	SnsTopicArn              string       `xml:"SnsTopicArn"`
+	Status                   string       `xml:"Status"`
+	SourceType               string       `xml:"SourceType,omitempty"`
+	Severity                 string       `xml:"Severity,omitempty"`
+	SourceIDs                []string     `xml:"SourceIdsList>SourceId,omitempty"`
+	EventCategories          []string     `xml:"EventCategoriesList>EventCategory,omitempty"`
+	Tags                     []svcTags.KV `xml:"Tags>Tag,omitempty"`
+	Enabled                  bool         `xml:"Enabled"`
 }
 
 type xmlEventSubscriptionList struct {
@@ -358,6 +362,7 @@ func eventSubscriptionToXML(sub *EventSubscription) xmlEventSubscription {
 		SourceIDs:          sub.SourceIDs,
 		EventCategories:    sub.EventCategories,
 		Enabled:            sub.Enabled,
+		Tags:               tagMapToKVList(sub.Tags),
 	}
 
 	if !sub.SubscriptionCreated.IsZero() {
@@ -384,6 +389,8 @@ func (h *Handler) handleCreateEventSubscription(vals url.Values) (any, error) {
 	eventCategories := parseStringList(vals, "EventCategories.EventCategory.")
 	enabled := vals.Get("Enabled") != valFalse
 
+	tags := parseRedshiftTags(vals)
+
 	sub, err := h.Backend.CreateEventSubscription(
 		subscriptionName, snsTopicArn, sourceType, severity,
 		sourceIDs, eventCategories, enabled,
@@ -391,6 +398,12 @@ func (h *Handler) handleCreateEventSubscription(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if err = h.Backend.TagNewResource(tagTypeEventSubscription, subscriptionName, tags); err != nil {
+		return nil, err
+	}
+
+	sub.Tags = tags
 
 	return &createEventSubscriptionResponse{
 		Xmlns:             redshiftXMLNS,
@@ -426,9 +439,20 @@ type describeEventSubscriptionsResponse struct {
 
 func (h *Handler) handleDescribeEventSubscriptions(vals url.Values) (any, error) {
 	subscriptionName := vals.Get("SubscriptionName")
+	tagKeys := parseRedshiftTagKeysAt(vals, "TagKeys.TagKey.")
+	tagValues := parseRedshiftTagKeysAt(vals, "TagValues.TagValue.")
 
 	return describePaginated(vals,
-		func() ([]EventSubscription, error) { return h.Backend.DescribeEventSubscriptions(subscriptionName) },
+		func() ([]EventSubscription, error) {
+			subs, err := h.Backend.DescribeEventSubscriptions(subscriptionName)
+			if err != nil {
+				return nil, err
+			}
+
+			return slices.DeleteFunc(subs, func(s EventSubscription) bool {
+				return !anyTagMatchesFilter(s.Tags, tagKeys, tagValues)
+			}), nil
+		},
 		eventSubscriptionToXML,
 		func(s xmlEventSubscription) string { return s.CustSubscriptionID },
 		func(members []xmlEventSubscription, marker string) any {

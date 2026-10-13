@@ -26,16 +26,16 @@ func TestScheduler(t *testing.T) {
 			name: "fires_rate_rule",
 			rule: eventbridge.PutRuleInput{
 				Name:               "sched-rule",
-				ScheduleExpression: "rate(1 second)",
+				ScheduleExpression: "rate(1 minute)",
 				State:              "ENABLED",
 			},
-			ctxTimeout: 5 * time.Second,
+			ctxTimeout: 5 * time.Minute,
 			runAsync:   true,
 			check: func(t *testing.T, backend *eventbridge.InMemoryBackend) {
 				t.Helper()
-				// Advance past the 1-second rate period so the scheduler's
+				// Advance past the 1-minute rate period so the scheduler's
 				// 50ms ticker fires it at least once, then let delivery settle.
-				time.Sleep(1100 * time.Millisecond)
+				time.Sleep(61 * time.Second)
 				synctest.Wait()
 
 				var fired bool

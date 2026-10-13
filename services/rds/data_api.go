@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/services/rdsdata"
 )
@@ -43,12 +44,18 @@ func (b *InMemoryBackend) DisableHTTPEndpoint(resourceARN string) error {
 // DataAPITarget resolves the real engine behind a docker-backed cluster for the RDS Data API;
 // rdsdata.ErrNotRealCluster means the cluster has none and the SQLite engine serves it.
 func (b *InMemoryBackend) DataAPITarget(resourceARN string) (rdsdata.RealTarget, error) {
-	b.mu.RLock("DataAPITarget")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DataAPITarget")
+	defer b.mu.Unlock()
 
 	for _, c := range b.clusters.All() {
 		if c.DBClusterIdentifier != resourceARN && b.rdsARN("cluster", c.DBClusterIdentifier) != resourceARN {
 			continue
+		}
+
+		if c.HTTPEndpointEnabled {
+			if err := b.dataAPIActivityLocked(c); err != nil {
+				return rdsdata.RealTarget{}, err
+			}
 		}
 
 		lb := b.clusterUnitLocked(c.DBClusterIdentifier)
@@ -77,4 +84,23 @@ func (b *InMemoryBackend) DataAPITarget(resourceARN string) (rdsdata.RealTarget,
 	}
 
 	return rdsdata.RealTarget{}, rdsdata.ErrNotRealCluster
+}
+
+// dataAPIActivityLocked records a Data API call as activity and starts a resume when the cluster is paused;
+// the call itself is refused with DatabaseResumingException until the resume finishes.
+func (b *InMemoryBackend) dataAPIActivityLocked(c *DBCluster) error {
+	if !autoPauseConfigured(c) {
+		return nil
+	}
+
+	t := b.trackerLocked(c.DBClusterIdentifier)
+	t.lastActive = time.Now()
+
+	if !t.paused {
+		return nil
+	}
+
+	_ = b.wakeClusterLocked(c.DBClusterIdentifier)
+
+	return rdsdata.ErrDatabaseResuming
 }

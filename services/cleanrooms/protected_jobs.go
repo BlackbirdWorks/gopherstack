@@ -45,9 +45,17 @@ func (b *InMemoryBackend) StartProtectedJob(
 // observe forward progress. Callers must hold b.mu (write lock).
 func (b *InMemoryBackend) advanceProtectedJobsLocked() {
 	b.protectedJobs.Range(func(j *ProtectedJob) bool {
-		if !isTerminalProtectedJobStatus(j.Status) {
+		if isTerminalProtectedJobStatus(j.Status) {
+			return true
+		}
+
+		switch b.workStageLocked(j.CreateTime) {
+		case workDone:
 			j.Status = protectedJobStatusSuccess
 			j.Statistics = map[string]any{"totalDurationInMillis": mockDurationMillis}
+		case workRunning:
+			j.Status = statusStarted
+		case workQueued:
 		}
 
 		return true
@@ -80,16 +88,7 @@ func (b *InMemoryBackend) ListProtectedJobs(
 		if status != "" && j.Status != status {
 			continue
 		}
-		items = append(items, &ProtectedJobSummary{
-			ID:                       j.ID,
-			MembershipIdentifier:     j.MembershipIdentifier,
-			MembershipArn:            j.MembershipArn,
-			Status:                   j.Status,
-			Type:                     j.Type,
-			JobComputePayerAccountID: j.JobComputePayerAccountID,
-			CreateTime:               j.CreateTime,
-			MembershipID:             j.MembershipID,
-		})
+		items = append(items, j.summary(b.accountID))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	page, next := paginate(items, maxResults, nextToken)
@@ -105,6 +104,10 @@ func (b *InMemoryBackend) UpdateProtectedJob(
 	j, ok := b.protectedJobs.Get(membershipKey(membershipID, jobID))
 	if !ok {
 		return nil, ErrNotFound
+	}
+
+	if b.workDelay > 0 {
+		b.advanceProtectedJobsLocked()
 	}
 	// UpdateProtectedJob's only valid TargetStatus is CANCELLED, and AWS
 	// rejects cancelling a job that has already reached a terminal status
@@ -125,5 +128,18 @@ func isTerminalProtectedJobStatus(status string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func (j *ProtectedJob) summary(selfAccount string) *ProtectedJobSummary {
+	return &ProtectedJobSummary{
+		ID:                       j.ID,
+		MembershipIdentifier:     j.MembershipIdentifier,
+		MembershipArn:            j.MembershipArn,
+		Status:                   j.Status,
+		ReceiverConfigurations:   receiverConfigurations(j.ResultConfiguration, selfAccount),
+		JobComputePayerAccountID: j.JobComputePayerAccountID,
+		CreateTime:               j.CreateTime,
+		MembershipID:             j.MembershipID,
 	}
 }

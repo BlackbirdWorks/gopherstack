@@ -1,6 +1,7 @@
 package s3tables
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -124,6 +125,48 @@ func validateNamespaceParts(namespace []string) error {
 				ErrInvalidName, part, namespaceReservedPrefix,
 			)
 		}
+	}
+
+	return nil
+}
+
+// validatePolicyDocument rejects a resource policy that is not a JSON object.
+func validatePolicyDocument(policy string) error {
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(policy), &doc); err != nil || doc == nil {
+		return fmt.Errorf("%w: resourcePolicy must be a valid JSON policy document", errInvalidRequest)
+	}
+
+	return nil
+}
+
+// validateEncryptionConfiguration checks sseAlgorithm against types.SSEAlgorithm.
+func validateEncryptionConfiguration(cfg map[string]any) error {
+	algo, _ := cfg["sseAlgorithm"].(string)
+
+	switch algo {
+	case "AES256":
+		return nil
+	case "aws:kms":
+		if key, _ := cfg["kmsKeyArn"].(string); key == "" {
+			return fmt.Errorf("%w: kmsKeyArn is required when sseAlgorithm is aws:kms", errInvalidRequest)
+		}
+
+		return nil
+	default:
+		return fmt.Errorf("%w: sseAlgorithm must be AES256 or aws:kms", errInvalidRequest)
+	}
+}
+
+// validateMaintenanceStatus checks a maintenance value's status against types.MaintenanceStatus.
+func validateMaintenanceStatus(value map[string]any) error {
+	status, present := value["status"]
+	if !present {
+		return nil
+	}
+
+	if s, _ := status.(string); s != "enabled" && s != "disabled" {
+		return fmt.Errorf("%w: status must be enabled or disabled", errInvalidRequest)
 	}
 
 	return nil

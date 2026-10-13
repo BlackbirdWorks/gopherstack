@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/google/uuid"
 )
@@ -132,11 +131,14 @@ func (h *Handler) handleListProjects(ctx context.Context, body []byte) ([]byte, 
 		NextToken  string `json:"NextToken"`
 	}
 	_ = json.Unmarshal(body, &req)
-	maxResults, _ := strconv.Atoi(req.MaxResults)
+	maxResults, token, err := listParams(req.MaxResults, req.NextToken)
+	if err != nil {
+		return nil, err
+	}
 
-	projects, next := h.Backend.ListProjects(ctx, maxResults, req.NextToken)
+	projects, next := h.Backend.ListProjects(ctx, maxResults, token)
 
-	return json.Marshal(map[string]any{"Projects": projects, nextTokenKey: next})
+	return marshalPage("Projects", projects, next)
 }
 
 func (h *Handler) handleUpdateProject(ctx context.Context, body []byte) ([]byte, error) {

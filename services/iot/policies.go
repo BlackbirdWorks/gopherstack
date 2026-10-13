@@ -18,6 +18,14 @@ func (b *InMemoryBackend) CreatePolicy(input *CreatePolicyInput) (*CreatePolicyO
 		return nil, fmt.Errorf("%w: PolicyName is required", ErrValidation)
 	}
 
+	if err := validatePolicyName(input.PolicyName); err != nil {
+		return nil, err
+	}
+
+	if err := validatePolicyDocument(input.PolicyDocument); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreatePolicy")
 	defer b.mu.Unlock()
 
@@ -76,6 +84,10 @@ func (b *InMemoryBackend) AttachPrincipalPolicy(input *AttachPrincipalPolicyInpu
 func (b *InMemoryBackend) AttachPolicy(input *AttachPolicyInput) error {
 	b.mu.Lock("AttachPolicy")
 	defer b.mu.Unlock()
+
+	if !b.policies.Has(input.PolicyName) {
+		return fmt.Errorf("%w: %s", ErrPolicyNotFound, input.PolicyName)
+	}
 
 	b.policyTargets[input.PolicyName] = appendUnique(b.policyTargets[input.PolicyName], input.Target)
 

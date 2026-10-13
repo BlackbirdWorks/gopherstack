@@ -370,9 +370,10 @@ func TestCreateSchedule_ScheduleExpression_Validation(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
-			name:     "cron_valid_day_of_week_last_offset_accepted",
+			name:     "cron_day_of_week_last_offset_rejected",
 			expr:     "cron(0 12 ? * L-1 *)",
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
 		},
 		{
 			name:     "cron_valid_list_containing_last_day_accepted",

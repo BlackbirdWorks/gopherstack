@@ -91,7 +91,9 @@ func TestHandler_InvokeRestApi(t *testing.T) {
 
 			if tt.seed {
 				seedRec := doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, map[string]any{
-					"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+					"DagS3Path":            "dags/",
+					"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/r",
+					"SourceBucketArn":      "arn:aws:s3:::b",
 					"NetworkConfiguration": networkConfigBody(),
 				})
 				require.Equal(t, http.StatusOK, seedRec.Code)
@@ -175,7 +177,9 @@ func TestInvokeRestApi_HTTP_Variations(t *testing.T) {
 
 			h := newHandlerForTest(t)
 			doMWAARequest(t, h, http.MethodPut, "/environments/http-restapi-env", map[string]any{
-				"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+				"DagS3Path":            "dags/",
+				"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/r",
+				"SourceBucketArn":      "arn:aws:s3:::b",
 				"NetworkConfiguration": networkConfigBody(),
 			})
 			doMWAARequest(t, h, http.MethodGet, "/environments/http-restapi-env", nil) // promote CREATING → AVAILABLE

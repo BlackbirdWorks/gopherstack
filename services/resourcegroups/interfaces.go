@@ -74,6 +74,16 @@ type StorageBackend interface {
 		maxResults int,
 	) ([]ResourceIdentifier, string, error)
 
+	// SearchResourcesPage and ListGroupResourcesPage additionally return QueryErrors.
+	SearchResourcesPage(ctx context.Context, q *ResourceQuery, nextToken string, maxResults int) (QueryPage, error)
+	ListGroupResourcesPage(
+		ctx context.Context,
+		nameOrARN string,
+		filters []ListGroupResourcesFilter,
+		nextToken string,
+		maxResults int,
+	) (QueryPage, error)
+
 	// Tag-sync tasks.
 	StartTagSyncTask(
 		ctx context.Context,

@@ -61,7 +61,9 @@ type SdkExport struct {
 // (reusing the same generator as GetExport) plus a README describing the
 // requested SDK type — real API configuration, packaged in the correct
 // wire/container format, rather than a fabricated empty blob.
-func (b *InMemoryBackend) GetSdk(restAPIID, stageName, sdkType string) (*SdkExport, error) {
+func (b *InMemoryBackend) GetSdk(
+	restAPIID, stageName, sdkType string, params map[string]string,
+) (*SdkExport, error) {
 	b.mu.RLock("GetSdk")
 	defer b.mu.RUnlock()
 
@@ -78,7 +80,11 @@ func (b *InMemoryBackend) GetSdk(restAPIID, stageName, sdkType string) (*SdkExpo
 		return nil, fmt.Errorf("%w: unsupported sdkType %q", ErrInvalidParameter, sdkType)
 	}
 
-	ctx := exportContext{b: b, restAPIID: restAPIID, apiName: api.Name}
+	if err := validateSdkParameters(sdkType, params); err != nil {
+		return nil, err
+	}
+
+	ctx := exportContext{b: b, restAPIID: restAPIID, apiName: api.Name, opts: ExportOptions{Integrations: true}}
 	spec := buildOAS30Export(ctx, stageName)
 
 	specJSON, err := json.MarshalIndent(spec, "", "  ")
@@ -129,4 +135,38 @@ func buildZipArchive(files map[string][]byte) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+const sdkParamClassPrefix = "classPrefix"
+
+// sdkRequiredParameters lists the query parameters GetSdk documents as required per sdkType
+// (api_op_GetSdk.go, Parameters).
+var sdkRequiredParameters = map[string][]string{ //nolint:gochecknoglobals // immutable lookup table
+	"objectivec": {sdkParamClassPrefix},
+	"swift":      {sdkParamClassPrefix},
+	"android":    {"groupId", "artifactId", "artifactVersion", "invokerPackage"},
+	"java":       {"serviceName", "javaPackageName"},
+}
+
+// SdkParameterNames is every query parameter GetSdk reads.
+func SdkParameterNames() []string {
+	return []string{
+		sdkParamClassPrefix,
+		"groupId",
+		"artifactId",
+		"artifactVersion",
+		"invokerPackage",
+		"serviceName",
+		"javaPackageName",
+	}
+}
+
+func validateSdkParameters(sdkType string, params map[string]string) error {
+	for _, name := range sdkRequiredParameters[sdkType] {
+		if params[name] == "" {
+			return fmt.Errorf("%w: parameter %q is required for sdkType %q", ErrInvalidParameter, name, sdkType)
+		}
+	}
+
+	return nil
 }

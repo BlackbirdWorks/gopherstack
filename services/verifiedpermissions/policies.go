@@ -99,6 +99,10 @@ func (b *InMemoryBackend) CreatePolicy(policyStoreID string, params CreatePolicy
 		if statementErr := parseCedarStatement(params.Statement); statementErr != nil {
 			return nil, statementErr
 		}
+
+		if validateErr := b.validateStaticPolicyLocked(policyStoreID, params.Statement); validateErr != nil {
+			return nil, validateErr
+		}
 	}
 
 	if params.PolicyType == policyTypeTemplateLinked {
@@ -281,6 +285,10 @@ func (b *InMemoryBackend) UpdatePolicy(policyStoreID, policyID string, params Up
 
 	if params.Statement != "" {
 		if err := parseCedarStatement(params.Statement); err != nil {
+			return nil, err
+		}
+
+		if err := b.validateStaticPolicyLocked(policyStoreID, params.Statement); err != nil {
 			return nil, err
 		}
 

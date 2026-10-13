@@ -264,9 +264,15 @@ func TestWAF_Delete_ClearsTags(t *testing.T) {
 			tc.delete(t, h, token, id)
 
 			rec = wafDo(t, h, "ListTagsForResource", map[string]any{"ResourceARN": resourceARN})
-			require.Equal(t, http.StatusOK, rec.Code)
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-			assert.Empty(t, listResp["TagInfoForResource"].(map[string]any)["TagList"])
+			require.Equal(t, http.StatusBadRequest, rec.Code, "a deleted resource no longer exists")
+			assert.Contains(t, rec.Body.String(), "WAFNonexistentItemException")
+
+			tagged, ok := h.Backend.(interface{ TaggedResources() []waf.TaggedEntry })
+			require.True(t, ok)
+
+			for _, e := range tagged.TaggedResources() {
+				assert.NotEqual(t, resourceARN, e.ARN, "tags must not outlive the resource")
+			}
 
 			// Deleting one resource must not disturb another's tags.
 			rec = wafDo(t, h, "ListTagsForResource", map[string]any{"ResourceARN": otherARN})

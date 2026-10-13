@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 )
 
 func parseScheduleOp(method, name string) string {
@@ -101,11 +100,14 @@ func (h *Handler) handleListSchedules(ctx context.Context, body []byte) ([]byte,
 		JobName    string `json:"JobName"`
 	}
 	_ = json.Unmarshal(body, &req)
-	maxResults, _ := strconv.Atoi(req.MaxResults)
+	maxResults, token, err := listParams(req.MaxResults, req.NextToken)
+	if err != nil {
+		return nil, err
+	}
 
-	schedules, next := h.Backend.ListSchedules(ctx, maxResults, req.NextToken, req.JobName)
+	schedules, next := h.Backend.ListSchedules(ctx, maxResults, token, req.JobName)
 
-	return json.Marshal(map[string]any{"Schedules": schedules, nextTokenKey: next})
+	return marshalPage("Schedules", schedules, next)
 }
 
 func (h *Handler) handleUpdateSchedule(ctx context.Context, body []byte) ([]byte, error) {

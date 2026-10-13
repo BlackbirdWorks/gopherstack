@@ -81,7 +81,7 @@ func TestDeleteMultiplex_EvictedAfterTTL(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		b := medialive.NewInMemoryBackend("000000000000", "us-east-1")
 
-		m, err := b.CreateMultiplex("evict-mux", []string{"us-east-1a"}, medialive.MultiplexSettings{
+		m, err := b.CreateMultiplex("evict-mux", []string{"us-east-1a", "us-east-1b"}, medialive.MultiplexSettings{
 			TransportStreamID: 1,
 		}, nil)
 		require.NoError(t, err)
@@ -112,7 +112,7 @@ func TestDeleteMultiplex_KeptWithinTTL(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		b := medialive.NewInMemoryBackend("000000000000", "us-east-1")
 
-		m, err := b.CreateMultiplex("keep-mux", []string{"us-east-1a"}, medialive.MultiplexSettings{
+		m, err := b.CreateMultiplex("keep-mux", []string{"us-east-1a", "us-east-1b"}, medialive.MultiplexSettings{
 			TransportStreamID: 1,
 		}, nil)
 		require.NoError(t, err)

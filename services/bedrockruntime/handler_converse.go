@@ -20,6 +20,7 @@ type converseContent struct {
 
 // converseRequest represents the parsed Converse request body.
 type converseRequest struct {
+	RequestMetadata   map[string]string      `json:"requestMetadata,omitempty"`
 	ServiceTier       *serviceTierBody       `json:"serviceTier,omitempty"`
 	PerformanceConfig *performanceConfigBody `json:"performanceConfig,omitempty"`
 	Messages          []converseMessage      `json:"messages"`
@@ -49,7 +50,23 @@ func validateConverseConfig(req *converseRequest) string {
 		return "performanceConfig.latency must be one of standard, optimized"
 	}
 
-	return ""
+	if msg := validateRequestMetadata(req.RequestMetadata); msg != "" {
+		return msg
+	}
+
+	if msg := validateConverseMessages(req.Messages); msg != "" {
+		return msg
+	}
+
+	if msg := validateInferenceConfig(req.InferenceConfig); msg != "" {
+		return msg
+	}
+
+	if msg := validateToolConfig(req.ToolConfig); msg != "" {
+		return msg
+	}
+
+	return validateGuardrailConfig(req.GuardrailConfig)
 }
 
 // echoConverseConfig reflects the requested tier and latency on the response;
@@ -123,6 +140,10 @@ func (h *Handler) handleConverse(
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
 	}
 
+	if written, err := h.converseGuardrailMissing(c, req.GuardrailConfig); written {
+		return err
+	}
+
 	resp := buildConverseResponse(&req)
 	echoConverseConfig(resp, &req)
 
@@ -153,6 +174,10 @@ func (h *Handler) handleConverseStream(
 
 	if msg := validateConverseConfig(&req); msg != "" {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
+	}
+
+	if written, err := h.converseGuardrailMissing(c, req.GuardrailConfig); written {
+		return err
 	}
 
 	inputTokens := estimateTokensFromMessages(req.Messages, req.System)

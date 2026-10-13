@@ -42,6 +42,14 @@ func (h *Handler) handleListRecommendationTemplates(_ context.Context, r *http.R
 		statuses: q["status"], reverseOrder: q.Get("reverseOrder") == queryValueTrue,
 	}
 
+	if err := validatePage(q.Get("nextToken"), queryMaxResults(q)); err != nil {
+		return nil, err
+	}
+
+	if err := validateEnumValues("status", f.statuses, statusEnum); err != nil {
+		return nil, err
+	}
+
 	p := h.Backend.ListRecommendationTemplates(f, q.Get("nextToken"), queryMaxResults(q))
 
 	resp := listRecommendationTemplatesResponse{

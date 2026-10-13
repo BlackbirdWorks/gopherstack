@@ -130,6 +130,8 @@ type AssumeRoleInput struct {
 	// both; checked against any aws:MultiFactorAuthPresent trust-policy condition.
 	SerialNumber string
 	TokenCode    string
+	// SourceIP is the request peer address, exposed as aws:SourceIp.
+	SourceIP string
 	// CallerArn is the resolved ARN of the calling principal (e.g. an assumed-role
 	// ARN during role chaining). When set, the target role's trust policy is
 	// evaluated against it; when empty, trust-policy Principal evaluation is
@@ -344,6 +346,7 @@ type AssumeRoleWithWebIdentityInput struct {
 	WebIdentityToken string
 	ProviderID       string
 	Policy           string
+	SourceIP         string
 	PolicyArns       []string
 	DurationSeconds  int32
 }
@@ -359,6 +362,7 @@ type AssumeRoleWithSAMLInput struct {
 	PrincipalArn    string
 	SAMLAssertion   string
 	Policy          string
+	SourceIP        string
 	PolicyArns      []string
 	DurationSeconds int32
 }

@@ -1,7 +1,6 @@
 package securityhub
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -42,15 +41,10 @@ func (b *InMemoryBackend) EnableHub(
 	}
 
 	if enableDefaultStandards {
-		for i, std := range knownStandards {
+		for _, std := range knownStandards {
 			if std.EnabledByDefault {
 				b.standardsSeq++
-				subArn := fmt.Sprintf(
-					"arn:aws:securityhub:%s:%s:subscription/%s/v/1.0.0",
-					b.region,
-					b.accountID,
-					fmt.Sprintf("default-%d", i),
-				)
+				subArn := b.standardsSubscriptionArn(std.StandardsArn)
 				b.standardsSubscriptions.Put(&StandardsSubscription{
 					StandardsSubscriptionArn: subArn,
 					StandardsArn:             std.StandardsArn,

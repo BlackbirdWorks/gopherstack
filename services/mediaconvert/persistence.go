@@ -214,6 +214,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.rebuildCountersLocked()
 	}
 
+	b.ensureDefaultQueueLocked()
+
 	return nil
 }
 

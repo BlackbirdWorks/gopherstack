@@ -82,7 +82,7 @@ func (h *Handler) handlePutCompositeAlarm(form url.Values, c *echo.Context) erro
 		InsufficientDataActions: parseMemberList(form, "InsufficientDataActions."),
 	}
 	if err := h.Backend.PutCompositeAlarm(alarm); err != nil {
-		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return h.xmlBackendError(c, err)
 	}
 
 	h.applyFormCreationTags(form, alarm.AlarmArn)

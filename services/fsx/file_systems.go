@@ -24,35 +24,38 @@ import (
 // so one field backs the corresponding member on whichever *Configuration
 // block toFileSystem() populates for this FileSystemType.
 type storedFileSystem struct {
-	CreationTime                  time.Time         `json:"creationTime"`
-	Tags                          map[string]string `json:"tags"`
-	PreferredSubnetID             string            `json:"preferredSubnetId,omitempty"`
-	DeploymentType                string            `json:"deploymentType,omitempty"`
-	FileSystemTypeVersion         string            `json:"fileSystemTypeVersion,omitempty"`
-	Lifecycle                     string            `json:"lifecycle"`
-	ResourceARN                   string            `json:"resourceArn"`
-	DNSName                       string            `json:"dnsName,omitempty"`
-	KmsKeyID                      string            `json:"kmsKeyId,omitempty"`
-	StorageType                   string            `json:"storageType,omitempty"`
-	VpcID                         string            `json:"vpcId,omitempty"`
-	OwnerID                       string            `json:"ownerId,omitempty"`
-	DailyAutomaticBackupStartTime string            `json:"dailyAutomaticBackupStartTime,omitempty"`
-	MountName                     string            `json:"mountName,omitempty"`
-	ActiveDirectoryID             string            `json:"activeDirectoryId,omitempty"`
-	FileSystemType                string            `json:"fileSystemType"`
-	FileSystemID                  string            `json:"fileSystemId"`
-	NetworkType                   string            `json:"networkType,omitempty"`
-	RootVolumeID                  string            `json:"rootVolumeId,omitempty"`
-	WeeklyMaintenanceStartTime    string            `json:"weeklyMaintenanceStartTime,omitempty"`
-	NetworkInterfaceIDs           []string          `json:"networkInterfaceIds,omitempty"`
-	SubnetIDs                     []string          `json:"subnetIds,omitempty"`
-	AutomaticBackupRetentionDays  int32             `json:"automaticBackupRetentionDays,omitempty"`
-	ThroughputCapacity            int32             `json:"throughputCapacity,omitempty"`
-	ThroughputCapacityPerHAPair   int32             `json:"throughputCapacityPerHAPair,omitempty"`
-	StorageCapacityGiB            int32             `json:"storageCapacity,omitempty"`
-	HAPairs                       int32             `json:"haPairs,omitempty"`
-	CopyTagsToBackups             bool              `json:"copyTagsToBackups,omitempty"`
-	CopyTagsToVolumes             bool              `json:"copyTagsToVolumes,omitempty"`
+	ReadyAt                       time.Time           `json:"readyAt,omitzero"`
+	CreationTime                  time.Time           `json:"creationTime"`
+	Tags                          map[string]string   `json:"tags"`
+	Lustre                        *storedLustreExtras `json:"lustre,omitempty"`
+	SelfManagedAD                 *SelfManagedADAttrs `json:"selfManagedAd,omitempty"`
+	DNSName                       string              `json:"dnsName,omitempty"`
+	FileSystemID                  string              `json:"fileSystemId"`
+	ResourceARN                   string              `json:"resourceArn"`
+	FileSystemTypeVersion         string              `json:"fileSystemTypeVersion,omitempty"`
+	KmsKeyID                      string              `json:"kmsKeyId,omitempty"`
+	StorageType                   string              `json:"storageType,omitempty"`
+	VpcID                         string              `json:"vpcId,omitempty"`
+	OwnerID                       string              `json:"ownerId,omitempty"`
+	DailyAutomaticBackupStartTime string              `json:"dailyAutomaticBackupStartTime,omitempty"`
+	MountName                     string              `json:"mountName,omitempty"`
+	ActiveDirectoryID             string              `json:"activeDirectoryId,omitempty"`
+	DeploymentType                string              `json:"deploymentType,omitempty"`
+	FileSystemType                string              `json:"fileSystemType"`
+	Lifecycle                     string              `json:"lifecycle"`
+	NetworkType                   string              `json:"networkType,omitempty"`
+	RootVolumeID                  string              `json:"rootVolumeId,omitempty"`
+	WeeklyMaintenanceStartTime    string              `json:"weeklyMaintenanceStartTime,omitempty"`
+	PreferredSubnetID             string              `json:"preferredSubnetId,omitempty"`
+	SubnetIDs                     []string            `json:"subnetIds,omitempty"`
+	NetworkInterfaceIDs           []string            `json:"networkInterfaceIds,omitempty"`
+	AutomaticBackupRetentionDays  int32               `json:"automaticBackupRetentionDays,omitempty"`
+	ThroughputCapacity            int32               `json:"throughputCapacity,omitempty"`
+	ThroughputCapacityPerHAPair   int32               `json:"throughputCapacityPerHAPair,omitempty"`
+	StorageCapacityGiB            int32               `json:"storageCapacity,omitempty"`
+	HAPairs                       int32               `json:"haPairs,omitempty"`
+	CopyTagsToBackups             bool                `json:"copyTagsToBackups,omitempty"`
+	CopyTagsToVolumes             bool                `json:"copyTagsToVolumes,omitempty"`
 }
 
 func (s *storedFileSystem) toFileSystem() *FileSystem {
@@ -62,7 +65,7 @@ func (s *storedFileSystem) toFileSystem() *FileSystem {
 		FileSystemID:          s.FileSystemID,
 		FileSystemType:        s.FileSystemType,
 		FileSystemTypeVersion: s.FileSystemTypeVersion,
-		Lifecycle:             s.Lifecycle,
+		Lifecycle:             renderLifecycle(s.Lifecycle, s.ReadyAt),
 		ResourceARN:           s.ResourceARN,
 		DNSName:               s.DNSName,
 		KmsKeyID:              s.KmsKeyID,
@@ -99,13 +102,35 @@ func (s *storedFileSystem) toFileSystem() *FileSystem {
 // steady-state member) is the closest accurate value -- not the fabricated
 // "DISABLED" this used to send.
 func (s *storedFileSystem) toLustreConfiguration() *LustreConfiguration {
-	return &LustreConfiguration{
+	cfg := &LustreConfiguration{
 		DeploymentType: s.DeploymentType,
 		MountName:      s.MountName,
 		DataRepositoryConfiguration: &DataRepositoryConfiguration{
 			Lifecycle: lifecycleAvailable,
 		},
+		WeeklyMaintenanceStartTime:    s.WeeklyMaintenanceStartTime,
+		DailyAutomaticBackupStartTime: s.DailyAutomaticBackupStartTime,
+		AutomaticBackupRetentionDays:  s.AutomaticBackupRetentionDays,
+		CopyTagsToBackups:             s.CopyTagsToBackups,
+		ThroughputCapacity:            s.ThroughputCapacity,
 	}
+
+	if x := s.Lustre; x != nil {
+		cfg.DataCompressionType = x.DataCompressionType
+		cfg.DriveCacheType = x.DriveCacheType
+		cfg.PerUnitStorageThroughput = x.PerUnitStorageThroughput
+		cfg.EfaEnabled = x.EfaEnabled
+		cfg.RootSquashConfiguration = x.RootSquashConfiguration
+		cfg.DataReadCacheConfiguration = x.DataReadCacheConfiguration
+		cfg.MetadataConfiguration = x.MetadataConfiguration
+		cfg.LogConfiguration = x.LogConfiguration
+		cfg.DataRepositoryConfiguration.AutoImportPolicy = x.AutoImportPolicy
+		cfg.DataRepositoryConfiguration.ImportPath = x.ImportPath
+		cfg.DataRepositoryConfiguration.ExportPath = x.ExportPath
+		cfg.DataRepositoryConfiguration.ImportedFileChunkSize = x.ImportedFileChunkSize
+	}
+
+	return cfg
 }
 
 func (s *storedFileSystem) toWindowsConfiguration() *WindowsConfiguration {
@@ -119,6 +144,7 @@ func (s *storedFileSystem) toWindowsConfiguration() *WindowsConfiguration {
 		AutomaticBackupRetentionDays:  s.AutomaticBackupRetentionDays,
 		ThroughputCapacity:            s.ThroughputCapacity,
 		CopyTagsToBackups:             s.CopyTagsToBackups,
+		SelfManagedAD:                 cloneSelfManagedAD(s.SelfManagedAD),
 	}
 }
 
@@ -171,27 +197,19 @@ type createFileSystemInput struct {
 	StorageCapacityGiB    int32                       `json:"StorageCapacity,omitempty"`
 }
 
-// createLustreConfiguration mirrors the CreateFileSystemLustreConfiguration
-// block sent by the AWS provider for Lustre file systems.
-type createLustreConfiguration struct {
-	MetadataConfiguration *struct {
-		Mode string `json:"Mode,omitempty"`
-	} `json:"MetadataConfiguration,omitempty"`
-	DeploymentType string `json:"DeploymentType,omitempty"`
-}
-
 // createWindowsConfiguration mirrors CreateFileSystemWindowsConfiguration.
 // ThroughputCapacity is a required member on the real SDK type.
 type createWindowsConfiguration struct {
-	ActiveDirectoryID             string   `json:"ActiveDirectoryId,omitempty"`
-	DailyAutomaticBackupStartTime string   `json:"DailyAutomaticBackupStartTime,omitempty"`
-	DeploymentType                string   `json:"DeploymentType,omitempty"`
-	PreferredSubnetID             string   `json:"PreferredSubnetId,omitempty"`
-	WeeklyMaintenanceStartTime    string   `json:"WeeklyMaintenanceStartTime,omitempty"`
-	Aliases                       []string `json:"Aliases,omitempty"`
-	AutomaticBackupRetentionDays  int32    `json:"AutomaticBackupRetentionDays,omitempty"`
-	ThroughputCapacity            int32    `json:"ThroughputCapacity,omitempty"`
-	CopyTagsToBackups             bool     `json:"CopyTagsToBackups,omitempty"`
+	SelfManagedAD                 *selfManagedADInput `json:"SelfManagedActiveDirectoryConfiguration,omitempty"`
+	ActiveDirectoryID             string              `json:"ActiveDirectoryId,omitempty"`
+	DailyAutomaticBackupStartTime string              `json:"DailyAutomaticBackupStartTime,omitempty"`
+	DeploymentType                string              `json:"DeploymentType,omitempty"`
+	PreferredSubnetID             string              `json:"PreferredSubnetId,omitempty"`
+	WeeklyMaintenanceStartTime    string              `json:"WeeklyMaintenanceStartTime,omitempty"`
+	Aliases                       []string            `json:"Aliases,omitempty"`
+	AutomaticBackupRetentionDays  int32               `json:"AutomaticBackupRetentionDays,omitempty"`
+	ThroughputCapacity            int32               `json:"ThroughputCapacity,omitempty"`
+	CopyTagsToBackups             bool                `json:"CopyTagsToBackups,omitempty"`
 }
 
 // createOntapConfiguration mirrors CreateFileSystemOntapConfiguration.
@@ -279,28 +297,10 @@ func defaultLustreVersion(deploymentType string, cfg *createLustreConfiguration)
 	switch {
 	case deploymentType != "PERSISTENT_2":
 		return "2.10"
-	case cfg != nil && cfg.MetadataConfiguration != nil && cfg.MetadataConfiguration.Mode != "":
+	case cfg != nil && metadataMode(cfg.MetadataConfiguration) != "":
 		return "2.15"
 	default:
 		return "2.12"
-	}
-}
-
-// applyLustreConfig sets the Lustre-specific fields on fs. LustreConfiguration
-// is optional on the real CreateFileSystemInput; an absent block (or an
-// absent DeploymentType within it) defaults to SCRATCH_1, matching real AWS.
-func applyLustreConfig(fs *storedFileSystem, cfg *createLustreConfiguration) {
-	fs.MountName = generateLustreMountName()
-	if cfg != nil {
-		fs.DeploymentType = cfg.DeploymentType
-	}
-
-	if fs.DeploymentType == "" {
-		fs.DeploymentType = lustreDeploymentTypeScratch1
-	}
-
-	if fs.FileSystemTypeVersion == "" {
-		fs.FileSystemTypeVersion = defaultLustreVersion(fs.DeploymentType, cfg)
 	}
 }
 
@@ -316,6 +316,17 @@ func applyWindowsConfig(fs *storedFileSystem, cfg *createWindowsConfiguration) e
 		return fmt.Errorf("%w: WindowsConfiguration.ThroughputCapacity is required", ErrValidation)
 	}
 
+	if cfg.ActiveDirectoryID != "" && cfg.SelfManagedAD != nil {
+		return fmt.Errorf(
+			"%w: ActiveDirectoryId and SelfManagedActiveDirectoryConfiguration are mutually exclusive", ErrValidation,
+		)
+	}
+
+	if err := validateSelfManagedAD(cfg.SelfManagedAD, true); err != nil {
+		return err
+	}
+
+	fs.SelfManagedAD = mergeSelfManagedAD(nil, cfg.SelfManagedAD)
 	fs.ActiveDirectoryID = cfg.ActiveDirectoryID
 	fs.DailyAutomaticBackupStartTime = cfg.DailyAutomaticBackupStartTime
 	fs.DeploymentType = cfg.DeploymentType
@@ -352,6 +363,10 @@ func applyOntapConfig(fs *storedFileSystem, cfg *createOntapConfiguration) error
 		return fmt.Errorf(
 			"%w: OntapConfiguration.ThroughputCapacity or ThroughputCapacityPerHAPair is required", ErrValidation,
 		)
+	}
+
+	if err := validateOntapHA(cfg); err != nil {
+		return err
 	}
 
 	fs.DailyAutomaticBackupStartTime = cfg.DailyAutomaticBackupStartTime
@@ -417,9 +432,8 @@ func applyFileSystemTypeConfig(fs *storedFileSystem, input *createFileSystemInpu
 	switch fs.FileSystemType {
 	case fileSystemTypeLustre:
 		fs.FileSystemTypeVersion = input.FileSystemTypeVersion
-		applyLustreConfig(fs, input.LustreConfiguration)
 
-		return nil
+		return applyLustreConfig(fs, input.LustreConfiguration)
 	case fileSystemTypeWindows:
 		return applyWindowsConfig(fs, input.WindowsConfiguration)
 	case fileSystemTypeONTAP:
@@ -531,6 +545,10 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 		)
 	}
 
+	if err := validateStorageBounds(input); err != nil {
+		return nil, err
+	}
+
 	if err := validateCreateTags(input.Tags); err != nil {
 		return nil, err
 	}
@@ -570,6 +588,7 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 		FileSystemID:        id,
 		FileSystemType:      input.FileSystemType,
 		Lifecycle:           lifecycleAvailable,
+		ReadyAt:             b.readyAt(),
 		ResourceARN:         arn,
 		DNSName:             fmt.Sprintf("%s.fsx.%s.amazonaws.com", id, b.region),
 		StorageCapacityGiB:  input.StorageCapacityGiB,
@@ -790,6 +809,7 @@ func (b *InMemoryBackend) takeFinalBackupLocked(
 		BackupType:   backupTypeUserInitiated,
 		CreationTime: time.Now().UTC(),
 		Lifecycle:    lifecycleAvailable,
+		ReadyAt:      b.readyAt(),
 		ResourceARN:  arn,
 		Tags:         tags,
 		FileSystemID: fs.FileSystemID,
@@ -902,10 +922,11 @@ func (b *InMemoryBackend) cascadeDeleteFileSystemChildrenLocked(fileSystemID str
 
 // updateWindowsConfiguration mirrors UpdateFileSystemWindowsConfiguration.
 type updateWindowsConfiguration struct {
-	DailyAutomaticBackupStartTime string `json:"DailyAutomaticBackupStartTime,omitempty"`
-	WeeklyMaintenanceStartTime    string `json:"WeeklyMaintenanceStartTime,omitempty"`
-	AutomaticBackupRetentionDays  int32  `json:"AutomaticBackupRetentionDays,omitempty"`
-	ThroughputCapacity            int32  `json:"ThroughputCapacity,omitempty"`
+	SelfManagedAD                 *selfManagedADInput `json:"SelfManagedActiveDirectoryConfiguration,omitempty"`
+	DailyAutomaticBackupStartTime string              `json:"DailyAutomaticBackupStartTime,omitempty"`
+	WeeklyMaintenanceStartTime    string              `json:"WeeklyMaintenanceStartTime,omitempty"`
+	AutomaticBackupRetentionDays  int32               `json:"AutomaticBackupRetentionDays,omitempty"`
+	ThroughputCapacity            int32               `json:"ThroughputCapacity,omitempty"`
 }
 
 // updateOntapConfiguration mirrors UpdateFileSystemOntapConfiguration.
@@ -931,7 +952,9 @@ type updateFileSystemInput struct {
 	WindowsConfiguration *updateWindowsConfiguration `json:"WindowsConfiguration,omitempty"`
 	OntapConfiguration   *updateOntapConfiguration   `json:"OntapConfiguration,omitempty"`
 	OpenZFSConfiguration *updateOpenZFSConfiguration `json:"OpenZFSConfiguration,omitempty"`
+	LustreConfiguration  *updateLustreConfiguration  `json:"LustreConfiguration,omitempty"`
 	FileSystemID         string                      `json:"FileSystemId"`
+	StorageType          string                      `json:"StorageType,omitempty"`
 	StorageCapacityGiB   int32                       `json:"StorageCapacity,omitempty"`
 }
 
@@ -950,6 +973,8 @@ func applyWindowsUpdate(fs *storedFileSystem, cfg *updateWindowsConfiguration) {
 	if cfg.WeeklyMaintenanceStartTime != "" {
 		fs.WeeklyMaintenanceStartTime = cfg.WeeklyMaintenanceStartTime
 	}
+
+	fs.SelfManagedAD = mergeSelfManagedAD(fs.SelfManagedAD, cfg.SelfManagedAD)
 
 	if cfg.AutomaticBackupRetentionDays > 0 {
 		fs.AutomaticBackupRetentionDays = cfg.AutomaticBackupRetentionDays
@@ -1012,12 +1037,45 @@ func applyOpenZFSUpdate(fs *storedFileSystem, cfg *updateOpenZFSConfiguration) {
 
 // UpdateFileSystem updates a file system's configuration.
 func (b *InMemoryBackend) UpdateFileSystem(input *updateFileSystemInput) (*FileSystem, error) {
+	if input.WindowsConfiguration != nil {
+		if err := validateSelfManagedAD(
+			input.WindowsConfiguration.SelfManagedAD,
+			false,
+		); err != nil {
+			return nil, err
+		}
+	}
+
 	b.mu.Lock("UpdateFileSystem")
 	defer b.mu.Unlock()
 
 	fs, ok := b.fileSystems.Get(input.FileSystemID)
 	if !ok {
 		return nil, ErrFileSystemNotFound
+	}
+
+	switch input.StorageType {
+	case "":
+	case storageTypeSSD, storageTypeHDD, storageTypeIntelligentTiered:
+		fs.StorageType = input.StorageType
+	default:
+		return nil, fmt.Errorf(
+			"%w: StorageType %q must be SSD, HDD or INTELLIGENT_TIERING",
+			ErrValidation,
+			input.StorageType,
+		)
+	}
+
+	if input.StorageCapacityGiB > 0 {
+		if err := validateStorageCapacityUpdate(fs, input.StorageCapacityGiB); err != nil {
+			return nil, err
+		}
+	}
+
+	if fs.FileSystemType == fileSystemTypeLustre {
+		if err := applyLustreUpdate(fs, input.LustreConfiguration); err != nil {
+			return nil, err
+		}
 	}
 
 	if input.StorageCapacityGiB > 0 {
@@ -1049,6 +1107,7 @@ func (b *InMemoryBackend) UpdateFileSystem(input *updateFileSystemInput) (*FileS
 type createFileSystemFromBackupInput struct {
 	FileSystemType        string   `json:"FileSystemType,omitempty"`
 	BackupID              string   `json:"BackupId"`
+	ClientRequestToken    string   `json:"ClientRequestToken,omitempty"`
 	FileSystemTypeVersion string   `json:"FileSystemTypeVersion,omitempty"`
 	StorageType           string   `json:"StorageType,omitempty"`
 	VpcID                 string   `json:"VpcId,omitempty"`
@@ -1069,6 +1128,7 @@ type createFileSystemFromBackupInput struct {
 func copyFileSystemTypeConfig(dst, src *storedFileSystem) {
 	dst.DeploymentType = src.DeploymentType
 	dst.ActiveDirectoryID = src.ActiveDirectoryID
+	dst.SelfManagedAD = cloneSelfManagedAD(src.SelfManagedAD)
 	dst.PreferredSubnetID = src.PreferredSubnetID
 	dst.DailyAutomaticBackupStartTime = src.DailyAutomaticBackupStartTime
 	dst.WeeklyMaintenanceStartTime = src.WeeklyMaintenanceStartTime
@@ -1138,12 +1198,25 @@ func (b *InMemoryBackend) CreateFileSystemFromBackup(input *createFileSystemFrom
 		return nil, err
 	}
 
+	if len(input.SubnetIDs) == 0 {
+		return nil, fmt.Errorf("%w: SubnetIds is required", ErrValidation)
+	}
+
 	if err := validateSecurityGroupIDs(input.SecurityGroupIDs); err != nil {
 		return nil, err
 	}
 
 	b.mu.Lock("CreateFileSystemFromBackup")
 	defer b.mu.Unlock()
+
+	fp, replayID, err := b.replayTokenLocked("CreateFileSystemFromBackup", input.ClientRequestToken, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if existing, ok := b.fileSystems.Get(replayID); ok {
+		return existing.toFileSystem(), nil
+	}
 
 	src, ok := b.backups.Get(input.BackupID)
 	if !ok {
@@ -1166,6 +1239,7 @@ func (b *InMemoryBackend) CreateFileSystemFromBackup(input *createFileSystemFrom
 		FileSystemType:        fsType,
 		FileSystemTypeVersion: fields.fsTypeVersion,
 		Lifecycle:             lifecycleAvailable,
+		ReadyAt:               b.readyAt(),
 		ResourceARN:           arn,
 		DNSName:               fmt.Sprintf("%s.fsx.%s.amazonaws.com", id, b.region),
 		StorageCapacityGiB:    fields.capacity,
@@ -1194,6 +1268,7 @@ func (b *InMemoryBackend) CreateFileSystemFromBackup(input *createFileSystemFrom
 
 	b.fileSystems.Put(fs)
 	b.tags[arn] = tags
+	b.recordTokenLocked("CreateFileSystemFromBackup", input.ClientRequestToken, fp, id)
 
 	return fs.toFileSystem(), nil
 }
@@ -1207,9 +1282,18 @@ func (b *InMemoryBackend) fsARN(id string) string {
 // ---------------------------------------------------------------------------
 
 // AssociateFileSystemAliases adds DNS aliases to a file system.
-func (b *InMemoryBackend) AssociateFileSystemAliases(fileSystemID string, aliases []string) ([]FileSystemAlias, error) {
+func (b *InMemoryBackend) AssociateFileSystemAliases(
+	input *associateFileSystemAliasesInput,
+) ([]FileSystemAlias, error) {
+	fileSystemID, aliases := input.FileSystemID, input.Aliases
+
 	b.mu.Lock("AssociateFileSystemAliases")
 	defer b.mu.Unlock()
+
+	fp, _, err := b.replayTokenLocked("AssociateFileSystemAliases", input.ClientRequestToken, input)
+	if err != nil {
+		return nil, err
+	}
 
 	if !b.fileSystems.Has(fileSystemID) {
 		return nil, ErrFileSystemNotFound
@@ -1226,6 +1310,8 @@ func (b *InMemoryBackend) AssociateFileSystemAliases(fileSystemID string, aliase
 			existing[a] = struct{}{}
 		}
 	}
+
+	b.recordTokenLocked("AssociateFileSystemAliases", input.ClientRequestToken, fp, fileSystemID)
 
 	return aliasesToPublic(b.aliases[fileSystemID], "AVAILABLE"), nil
 }
@@ -1357,5 +1443,48 @@ func validateCreateNetworkAndVersion(input *createFileSystemInput) error {
 		return err
 	}
 
+	if err := validateSubnetCount(input); err != nil {
+		return err
+	}
+
 	return validateSecurityGroupIDs(input.SecurityGroupIDs)
+}
+
+// expectedSubnetCount returns the subnet count the CreateFileSystemInput.SubnetIds
+// docs mandate for the request's type and deployment, or 0 when unspecified.
+const multiAZSubnetCount = 2
+
+func expectedSubnetCount(input *createFileSystemInput) int {
+	switch input.FileSystemType {
+	case fileSystemTypeLustre:
+		return 1
+	case fileSystemTypeWindows:
+		if input.WindowsConfiguration != nil &&
+			input.WindowsConfiguration.DeploymentType == windowsDeploymentTypeMultiAZ1 {
+			return multiAZSubnetCount
+		}
+
+		return 1
+	case fileSystemTypeONTAP:
+		if input.OntapConfiguration != nil && input.OntapConfiguration.DeploymentType == ontapDeploymentTypeMultiAZ1 {
+			return multiAZSubnetCount
+		}
+	}
+
+	return 0
+}
+
+func validateSubnetCount(input *createFileSystemInput) error {
+	if len(input.SubnetIDs) == 0 {
+		return fmt.Errorf("%w: SubnetIds is required", ErrValidation)
+	}
+
+	if want := expectedSubnetCount(input); want > 0 && len(input.SubnetIDs) != want {
+		return fmt.Errorf(
+			"%w: %s %s requires exactly %d subnet ID(s), got %d",
+			ErrValidation, input.FileSystemType, "SubnetIds", want, len(input.SubnetIDs),
+		)
+	}
+
+	return nil
 }

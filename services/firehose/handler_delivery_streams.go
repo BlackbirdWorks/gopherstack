@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -175,6 +176,23 @@ type redshiftDestinationInput struct {
 	Username                    string                       `json:"Username"`
 }
 
+// vpcConfigurationInput mirrors types.VpcConfiguration.
+type vpcConfigurationInput struct {
+	RoleARN          string   `json:"RoleARN"`
+	SecurityGroupIDs []string `json:"SecurityGroupIds"`
+	SubnetIDs        []string `json:"SubnetIds"`
+}
+
+func (v *vpcConfigurationInput) toDescription() *VpcConfigurationDescription {
+	if v == nil {
+		return nil
+	}
+
+	return &VpcConfigurationDescription{
+		RoleARN: v.RoleARN, SecurityGroupIDs: v.SecurityGroupIDs, SubnetIDs: v.SubnetIDs,
+	}
+}
+
 // openSearchDestinationInput holds the OpenSearch destination configuration.
 // S3Configuration is the Create wire key (AmazonopensearchserviceDestinationConfiguration);
 // S3Update is the Update wire key (AmazonopensearchserviceDestinationUpdate) for the same
@@ -189,6 +207,7 @@ type openSearchDestinationInput struct {
 	S3Configuration          *s3BackupInput            `json:"S3Configuration"`
 	S3Update                 *s3BackupInput            `json:"S3Update"`
 	DocumentIDOptions        *DocumentIDOptions        `json:"DocumentIdOptions"`
+	VpcConfiguration         *vpcConfigurationInput    `json:"VpcConfiguration"`
 	DomainARN                string                    `json:"DomainARN"`
 	ClusterEndpoint          string                    `json:"ClusterEndpoint"`
 	IndexName                string                    `json:"IndexName"`
@@ -211,6 +230,7 @@ type elasticsearchDestinationInput struct {
 	S3Configuration          *s3DestinationInput       `json:"S3Configuration"`
 	S3Update                 *s3DestinationInput       `json:"S3Update"`
 	DocumentIDOptions        *DocumentIDOptions        `json:"DocumentIdOptions"`
+	VpcConfiguration         *vpcConfigurationInput    `json:"VpcConfiguration"`
 	DomainARN                string                    `json:"DomainARN"`
 	ClusterEndpoint          string                    `json:"ClusterEndpoint"`
 	IndexName                string                    `json:"IndexName"`
@@ -491,6 +511,8 @@ func buildOpenSearchDestination(os *openSearchDestinationInput) *OpenSearchDesti
 		RetryOptions:             os.RetryOptions,
 		CloudWatchLoggingOptions: os.CloudWatchLoggingOptions,
 		DocumentIDOptions:        os.DocumentIDOptions,
+
+		VpcConfigurationDescription: os.VpcConfiguration.toDescription(),
 	}
 
 	backup := os.S3Configuration
@@ -528,6 +550,8 @@ func buildElasticsearchDestination(
 		RetryOptions:             es.RetryOptions,
 		CloudWatchLoggingOptions: es.CloudWatchLoggingOptions,
 		DocumentIDOptions:        es.DocumentIDOptions,
+
+		VpcConfigurationDescription: es.VpcConfiguration.toDescription(),
 	}
 
 	// AWS models S3Configuration as the required backup destination for legacy
@@ -868,6 +892,10 @@ func (h *Handler) handleCreateDeliveryStream(
 		return nil, err
 	}
 
+	if err := validateSourceAndBuckets(in); err != nil {
+		return nil, err
+	}
+
 	if err := validateEncryptionConfigInput(in.DeliveryStreamEncryptionConfigurationInput); err != nil {
 		return nil, err
 	}
@@ -1155,4 +1183,31 @@ func (h *Handler) handleListDeliveryStreams(
 		DeliveryStreamNames:    names,
 		HasMoreDeliveryStreams: hasMore,
 	}, nil
+}
+
+func validateSourceAndBuckets(in *createDeliveryStreamInput) error {
+	if in.DeliveryStreamType == "KinesisStreamAsSource" && in.KinesisStreamSourceConfiguration == nil {
+		return fmt.Errorf("%w: KinesisStreamSourceConfiguration is required for a KinesisStreamAsSource stream",
+			ErrValidation)
+	}
+
+	for _, s3 := range []*s3DestinationInput{in.S3DestinationConfiguration, in.ExtendedS3DestinationConfiguration} {
+		if err := validateS3BucketARN(s3); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateS3BucketARN(s3 *s3DestinationInput) error {
+	if s3 == nil || s3.BucketARN == "" {
+		return nil
+	}
+
+	if !strings.HasPrefix(s3.BucketARN, "arn:") || !strings.Contains(s3.BucketARN, ":s3:::") {
+		return fmt.Errorf("%w: BucketARN %q is not a valid S3 bucket ARN", ErrValidation, s3.BucketARN)
+	}
+
+	return nil
 }

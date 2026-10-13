@@ -26,8 +26,16 @@ const networkTypeIPv4 = "IPV4"
 
 // CreateConnector creates a connector in CREATING; it settles to RUNNING after provisionDelay.
 func (b *InMemoryBackend) CreateConnector(accountID, region string, spec ConnectorSpec) (*Connector, error) {
-	if spec.Name == "" {
-		return nil, ErrValidation
+	if err := validateResourceName("connector", spec.Name); err != nil {
+		return nil, err
+	}
+
+	if err := validateCapacity(spec.Capacity); err != nil {
+		return nil, err
+	}
+
+	if err := validateRoleARN(spec.ServiceExecutionRoleArn); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateConnector")
@@ -60,7 +68,7 @@ func (b *InMemoryBackend) CreateConnector(accountID, region string, spec Connect
 		ARN:                              connectorARN(region, accountID, spec.Name),
 		Description:                      spec.Description,
 		State:                            connectorStateCreating,
-		PendingUntil:                     now.Add(provisionDelay),
+		PendingUntil:                     now.Add(b.provisionDelay()),
 		CurrentVersion:                   newVersion(),
 		CreationTime:                     now,
 		ConnectorConfiguration:           cfg,
@@ -135,6 +143,12 @@ func (b *InMemoryBackend) UpdateConnector(
 		return nil, nil, ErrValidation
 	}
 
+	if update.Capacity != nil {
+		if err := validateCapacity(*update.Capacity); err != nil {
+			return nil, nil, err
+		}
+	}
+
 	b.mu.Lock("UpdateConnector")
 	defer b.mu.Unlock()
 
@@ -187,7 +201,7 @@ func (b *InMemoryBackend) UpdateConnector(
 	}
 
 	c.State = connectorStateUpdating
-	c.PendingUntil = now.Add(provisionDelay)
+	c.PendingUntil = now.Add(b.provisionDelay())
 	c.CurrentVersion = newVersion()
 
 	b.connectorOperations.Put(op)
@@ -214,7 +228,7 @@ func (b *InMemoryBackend) DeleteConnector(connectorArn, currentVersion string) (
 
 	if c.State != deletingState {
 		c.State = deletingState
-		c.PendingUntil = time.Now().UTC().Add(deletionDelay)
+		c.PendingUntil = time.Now().UTC().Add(b.deletionDelay())
 	}
 
 	return c.clone(), nil
@@ -249,7 +263,7 @@ func (b *InMemoryBackend) RestartConnector(connectorArn string, _ bool) (*Connec
 	}
 
 	c.State = connectorStateRestarting
-	c.PendingUntil = now.Add(provisionDelay)
+	c.PendingUntil = now.Add(b.provisionDelay())
 
 	b.connectorOperations.Put(op)
 

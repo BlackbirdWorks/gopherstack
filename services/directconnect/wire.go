@@ -155,6 +155,7 @@ type associatedGatewayWire struct {
 type connectionWire struct {
 	LoaIssueTime                     *float64               `json:"loaIssueTime,omitempty"`
 	RateLimiterStatus                *rateLimiterStatusWire `json:"rateLimiterStatus,omitempty"`
+	AwsDevice                        string                 `json:"awsDevice,omitempty"`
 	AwsDeviceV2                      string                 `json:"awsDeviceV2,omitempty"`
 	AwsLogicalDeviceID               string                 `json:"awsLogicalDeviceId,omitempty"`
 	Bandwidth                        string                 `json:"bandwidth,omitempty"`
@@ -181,6 +182,7 @@ type connectionWire struct {
 // lagWire mirrors types.Lag.
 type lagWire struct {
 	RateLimiterStatus       *rateLimiterStatusWire `json:"rateLimiterStatus,omitempty"`
+	AwsDevice               string                 `json:"awsDevice,omitempty"`
 	AwsDeviceV2             string                 `json:"awsDeviceV2,omitempty"`
 	AwsLogicalDeviceID      string                 `json:"awsLogicalDeviceId,omitempty"`
 	Connections             []connectionWire       `json:"connections,omitempty"`
@@ -206,6 +208,7 @@ type lagWire struct {
 // interconnectWire mirrors types.Interconnect.
 type interconnectWire struct {
 	LoaIssueTime         *float64        `json:"loaIssueTime,omitempty"`
+	AwsDevice            string          `json:"awsDevice,omitempty"`
 	AwsDeviceV2          string          `json:"awsDeviceV2,omitempty"`
 	AwsLogicalDeviceID   string          `json:"awsLogicalDeviceId,omitempty"`
 	Bandwidth            string          `json:"bandwidth,omitempty"`
@@ -300,6 +303,7 @@ type gatewayAssociationWire struct {
 	StateChangeError                      string                  `json:"stateChangeError,omitempty"`
 	VirtualGatewayID                      string                  `json:"virtualGatewayId,omitempty"`
 	VirtualGatewayOwnerAccount            string                  `json:"virtualGatewayOwnerAccount,omitempty"`
+	VirtualGatewayRegion                  string                  `json:"virtualGatewayRegion,omitempty"`
 	AllowedPrefixesToDirectConnectGateway []routeFilterPrefixWire `json:"allowedPrefixesToDirectConnectGateway,omitempty"`
 }
 

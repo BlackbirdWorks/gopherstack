@@ -255,6 +255,10 @@ func (h *Handler) handleListCallAnalyticsJobs(
 	_ context.Context,
 	in *listCallAnalyticsJobsInput,
 ) (*listCallAnalyticsJobsOutput, error) {
+	if err := validateCallAnalyticsJobListRequest(in.Status, in.NextToken, in.MaxResults); err != nil {
+		return nil, err
+	}
+
 	jobs, nextToken := h.Backend.ListCallAnalyticsJobs(in.Status, in.JobNameContains, in.NextToken, in.MaxResults)
 
 	summaries := make([]callAnalyticsJobSummary, 0, len(jobs))
@@ -357,6 +361,10 @@ func (h *Handler) handleListCallAnalyticsCategories(
 	_ context.Context,
 	in *listCallAnalyticsCategoriesInput,
 ) (*listCallAnalyticsCategoriesOutput, error) {
+	if err := validateListPage(in.NextToken, in.MaxResults); err != nil {
+		return nil, err
+	}
+
 	cats, nextToken := h.Backend.ListCallAnalyticsCategories(in.NextToken, in.MaxResults)
 
 	result := make([]callAnalyticsCategoryProperties, 0, len(cats))

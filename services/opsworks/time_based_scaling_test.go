@@ -45,13 +45,13 @@ func TestTimeBasedAutoScaling(t *testing.T) {
 			},
 		},
 		{
-			name: "SetTimeBasedAutoScaling on nonexistent instance returns 404",
+			name: "SetTimeBasedAutoScaling on nonexistent instance returns ResourceNotFoundException",
 			check: func(t *testing.T, h *opsworks.Handler) {
 				t.Helper()
 				rec := doTarget(t, h, "SetTimeBasedAutoScaling", map[string]any{
 					"InstanceId": "nonexistent",
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}

@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // ImportHostKey imports a host key onto a server.
@@ -22,7 +20,7 @@ func (b *InMemoryBackend) ImportHostKey(
 		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
 
-	hostKeyID := "hostkey-" + uuid.NewString()[:8]
+	hostKeyID := newResourceID("hostkey-")
 
 	merged := make(map[string]string, len(tags))
 	maps.Copy(merged, tags)

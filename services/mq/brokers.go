@@ -5,6 +5,7 @@ import (
 	"hash/fnv"
 	"maps"
 	"net"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -198,6 +199,37 @@ func validateCreateBrokerRequest(
 	return nil
 }
 
+var (
+	hostInstanceTypeRe = regexp.MustCompile(`^mq\.[a-z0-9]+\.[a-z0-9]+$`)
+	activeMQVersionRe  = regexp.MustCompile(`^5\.(1[5-9])(\.\d+)?$`)
+	rabbitMQVersionRe  = regexp.MustCompile(`^3\.(8|9|1[0-3])(\.\d+)?$`)
+)
+
+// validateBrokerCreateMembers checks engineVersion (supported minor lines, any patch) and hostInstanceType.
+// Empty values take their defaults later.
+func validateBrokerCreateMembers(engineType, engineVersion, hostInstanceType string) error {
+	if engineVersion != "" {
+		re := activeMQVersionRe
+		if engineType == EngineTypeRabbitMQ {
+			re = rabbitMQVersionRe
+		}
+
+		if !re.MatchString(engineVersion) {
+			return fmt.Errorf("%w: engineVersion %q is not supported for %s", ErrValidation, engineVersion, engineType)
+		}
+	}
+
+	if hostInstanceType != "" && !hostInstanceTypeRe.MatchString(hostInstanceType) {
+		return fmt.Errorf(
+			"%w: hostInstanceType %q is not a valid broker instance type",
+			ErrValidation,
+			hostInstanceType,
+		)
+	}
+
+	return nil
+}
+
 // CreateBroker creates a new Amazon MQ broker (compatibility wrapper).
 func (b *InMemoryBackend) CreateBroker(
 	name, deploymentMode, engineType, engineVersion, hostInstanceType string,
@@ -228,6 +260,10 @@ func (b *InMemoryBackend) CreateBrokerWithOptions(
 	opts *CreateBrokerOptions,
 ) (*Broker, error) {
 	if err := validateCreateBrokerRequest(name, deploymentMode, engineType, securityGroups, tags, opts); err != nil {
+		return nil, err
+	}
+
+	if err := validateBrokerCreateMembers(engineType, engineVersion, hostInstanceType); err != nil {
 		return nil, err
 	}
 
@@ -493,7 +529,7 @@ func (b *InMemoryBackend) DescribeBroker(brokerID string) (*Broker, error) {
 	}
 
 	cp := b.copyBroker(br)
-	promoteBrokerReboot(br)
+	b.promoteReboot(br)
 
 	return cp, nil
 }
@@ -515,7 +551,7 @@ func (b *InMemoryBackend) ListBrokers() []*Broker {
 		}
 
 		list = append(list, b.copyBroker(br))
-		promoteBrokerReboot(br)
+		b.promoteReboot(br)
 	}
 
 	sort.Slice(list, func(i, j int) bool { return list[i].BrokerName < list[j].BrokerName })
@@ -602,6 +638,11 @@ func promotePendingScalarFields(br *Broker) {
 	if br.PendingStorageSize != 0 {
 		br.StorageSize = br.PendingStorageSize
 		br.PendingStorageSize = 0
+	}
+
+	if br.PendingResourceShareArns != nil {
+		br.ResourceShareArns = br.PendingResourceShareArns
+		br.PendingResourceShareArns = nil
 	}
 }
 
@@ -755,6 +796,14 @@ func (b *InMemoryBackend) UpdateBrokerWithOptions(
 		return nil, err
 	}
 
+	if hostInstanceType != "" && !hostInstanceTypeRe.MatchString(hostInstanceType) {
+		return nil, fmt.Errorf(
+			"%w: hostInstanceType %q is not a valid broker instance type",
+			ErrValidation,
+			hostInstanceType,
+		)
+	}
+
 	b.mu.Lock("UpdateBroker")
 	defer b.mu.Unlock()
 
@@ -902,6 +951,10 @@ func (b *InMemoryBackend) copyBroker(br *Broker) *Broker {
 
 	if len(br.PendingResourceShareArns) > 0 {
 		cp.PendingResourceShareArns = append([]string{}, br.PendingResourceShareArns...)
+	}
+
+	if len(br.ResourceShareArns) > 0 {
+		cp.ResourceShareArns = append([]string{}, br.ResourceShareArns...)
 	}
 
 	cp.BrokerInstances = append([]BrokerInstance{}, br.BrokerInstances...)
@@ -1057,19 +1110,61 @@ func (b *InMemoryBackend) Promote(brokerID, mode string) (*Broker, error) {
 	return b.copyBroker(br), nil
 }
 
-// DescribeSharedResources returns the resources shared to a broker via AWS
-// Resource Access Manager (e.g. cross-account VPC subnets or configurations
-// shared through a RAM resource share). This backend does not model RAM
-// resource sharing, so it never fabricates a shared resource entry: the
-// broker ID is validated against real backend state exactly like
-// DescribeBroker, and a valid broker honestly reports zero shared resources.
+// DescribeSharedResources lists each RAM resource share applied to the broker (UpdateBroker
+// resourceShareArns, live after reboot) and the resources it grants. A share RAM cannot find is
+// reported with SHARE_NOT_FOUND. Without a RAM resolver nothing can be verified, so the list is empty.
 func (b *InMemoryBackend) DescribeSharedResources(brokerID string) ([]SharedResource, error) {
 	b.mu.RLock("DescribeSharedResources")
 	defer b.mu.RUnlock()
 
-	if br := b.lookupBroker(brokerID); br == nil {
+	br := b.lookupBroker(brokerID)
+	if br == nil {
 		return nil, fmt.Errorf("%w: broker %s not found", ErrNotFound, brokerID)
 	}
 
-	return []SharedResource{}, nil
+	out := []SharedResource{}
+	if b.shares == nil {
+		return out, nil
+	}
+
+	for _, shareARN := range br.ResourceShareArns {
+		resources, found := b.shares.ResourceShareResources(shareARN)
+		if !found {
+			out = append(out, SharedResource{
+				ResourceArn:       shareARN,
+				Type:              sharedResourceTypeShare,
+				Status:            sharedResourceStatusError,
+				ResourceShareArns: []string{shareARN},
+				Error: &SharedResourceError{
+					Code:    sharedResourceErrShareNotFound,
+					Message: "resource share not found",
+				},
+			})
+
+			continue
+		}
+
+		out = append(out, SharedResource{
+			ResourceArn: shareARN, Type: sharedResourceTypeShare, Status: sharedResourceStatusAvailable,
+			ResourceShareArns: []string{shareARN},
+		})
+
+		for _, arn := range resources {
+			out = append(out, SharedResource{
+				ResourceArn: arn, Type: sharedResourceTypeResource, Status: sharedResourceStatusAvailable,
+				ResourceShareArns: []string{shareARN},
+			})
+		}
+	}
+
+	return out, nil
+}
+
+// promoteReboot is promoteBrokerReboot, deferred while a live broker container is still being reconfigured.
+func (b *InMemoryBackend) promoteReboot(br *Broker) {
+	if lb, ok := b.liveBrokerLocked(br.BrokerID); ok && lb.applying {
+		return
+	}
+
+	promoteBrokerReboot(br)
 }

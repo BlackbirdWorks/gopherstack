@@ -348,7 +348,7 @@ func TestHandler_DescribeIntegrations_Pagination(t *testing.T) {
 	t.Parallel()
 	h := newRDSHandler(t)
 
-	for i := range 5 {
+	for i := range 21 {
 		rec := postRDSForm(t, h, fmt.Sprintf(
 			"Action=CreateIntegration&Version=2014-10-31"+
 				"&IntegrationName=intg-%02d&SourceArn=src&TargetArn=tgt", i,
@@ -356,7 +356,7 @@ func TestHandler_DescribeIntegrations_Pagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
-	rec := postRDSForm(t, h, "Action=DescribeIntegrations&Version=2014-10-31&MaxRecords=2")
+	rec := postRDSForm(t, h, "Action=DescribeIntegrations&Version=2014-10-31&MaxRecords=20")
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Marker")
 }

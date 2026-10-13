@@ -11,7 +11,7 @@ var (
 	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 	// ErrTagSyncTaskNotFound is returned when a tag-sync task is not found.
 	ErrTagSyncTaskNotFound = awserr.New(
-		"NotFoundException: tag-sync task not found",
+		"NotFoundException",
 		awserr.ErrNotFound,
 	)
 )

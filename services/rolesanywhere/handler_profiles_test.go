@@ -274,7 +274,7 @@ func TestHandler_CreateProfile_EnabledFieldHonored(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			body := map[string]any{"name": t.Name(), "roleArns": []string{}}
+			body := map[string]any{"name": testName(t), "roleArns": []string{}}
 
 			if tt.enabled != nil {
 				body["enabled"] = tt.enabled

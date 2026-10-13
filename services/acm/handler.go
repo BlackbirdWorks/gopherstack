@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -336,13 +337,24 @@ var acmErrorCodeTable = []struct {
 func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) error {
 	for _, entry := range acmErrorCodeTable {
 		if errors.Is(opErr, entry.err) {
-			return h.writeJSONError(c, http.StatusBadRequest, entry.code, opErr.Error())
+			return h.writeJSONError(c, http.StatusBadRequest, entry.code, stripExceptionPrefixes(opErr.Error()))
 		}
 	}
 
 	logger.Load(c.Request().Context()).Error("ACM internal error", "error", opErr, "action", action)
 
 	return h.writeJSONError(c, http.StatusInternalServerError, "InternalFailure", opErr.Error())
+}
+
+var exceptionPrefixRe = regexp.MustCompile(`[A-Za-z]+Exception: `)
+
+// stripExceptionPrefixes drops the "<Code>: " sentinel text that error wrapping leaves in messages.
+func stripExceptionPrefixes(msg string) string {
+	if out := exceptionPrefixRe.ReplaceAllString(msg, ""); out != "" {
+		return out
+	}
+
+	return msg
 }
 
 func (h *Handler) writeJSONError(c *echo.Context, statusCode int, code, message string) error {

@@ -1,6 +1,7 @@
 package glacier
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"sort"
@@ -24,7 +25,7 @@ func (b *InMemoryBackend) CreateVault(accountID, region, vaultName string) (*Vau
 	defer b.mu.Unlock()
 
 	if vaultName == "" {
-		return nil, ErrValidation
+		return nil, fmt.Errorf("%w: vault name is required", ErrValidation)
 	}
 
 	vArn := vaultARN(accountID, region, vaultName)

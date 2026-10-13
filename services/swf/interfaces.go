@@ -39,6 +39,8 @@ type StorageBackend interface {
 	StartWorkflowExecution(input StartWorkflowExecutionInput) (*WorkflowExecution, error)
 	TerminateWorkflowExecution(domain, workflowID, runID, reason, details, childPolicyOverride string) error
 	DescribeWorkflowExecution(domain, workflowID, runID string) (*WorkflowExecution, error)
+	RequireDomain(domain string) error
+	RequireExecution(domain, workflowID, runID string) error
 	GetWorkflowExecutionHistory(
 		domain, workflowID, runID string,
 		maxPageSize int,
@@ -58,11 +60,13 @@ type StorageBackend interface {
 		nextPageToken string,
 		startAtPreviousStartedEvent bool,
 	) *DecisionTask
-	RecordActivityTaskHeartbeat(taskToken string) (bool, error)
+	RecordActivityTaskHeartbeat(taskToken, details string) (bool, error)
 	RespondActivityTaskCanceled(taskToken, details string) error
 	RespondActivityTaskCompleted(taskToken, result string) error
 	RespondActivityTaskFailed(taskToken, reason, details string) error
-	RespondDecisionTaskCompleted(taskToken, executionContext string, decisions []Decision) error
+	RespondDecisionTaskCompleted(
+		taskToken, executionContext string, decisions []Decision, opts ...RespondDecisionOption,
+	) error
 
 	// Resource tagging
 	ListTagsForResource(resourceARN string) (map[string]string, error)

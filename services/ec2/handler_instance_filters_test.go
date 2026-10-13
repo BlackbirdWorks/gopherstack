@@ -201,6 +201,11 @@ func TestDescribeInstances_FilterByKeyName(t *testing.T) {
 
 	h := newTestHandler()
 
+	_, err := ec2.ExportDispatch(h, url.Values{
+		"Action": {"CreateKeyPair"}, "Version": {"2016-11-15"}, "KeyName": {"my-key"},
+	})
+	require.NoError(t, err)
+
 	vals1 := url.Values{
 		"Action":       {"RunInstances"},
 		"Version":      {"2016-11-15"},

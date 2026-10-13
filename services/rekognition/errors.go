@@ -6,14 +6,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
-const (
-	errResourceNotFound      = "ResourceNotFoundException"
-	errConflictException     = "ConflictException"
-	errResourceInUse         = "ResourceInUseException"
-	errValidation            = "ValidationException"
-	errResourceAlreadyExists = "ResourceAlreadyExistsException"
-)
-
 var (
 	// ErrNameInUse is a sentinel for Create* operations whose Name/Arn is
 	// already taken by a resource type that the real AWS API reports as
@@ -38,53 +30,59 @@ var (
 	ErrUserConflict = errors.New("user already exists")
 
 	// ErrCollectionNotFound is returned when a collection does not exist.
-	ErrCollectionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	ErrCollectionNotFound = awserr.New("The specified collection does not exist", awserr.ErrNotFound)
 	// ErrCollectionAlreadyExists is returned when a collection already exists.
-	ErrCollectionAlreadyExists = awserr.New(errConflictException, awserr.ErrAlreadyExists)
+	ErrCollectionAlreadyExists = awserr.New("The specified collection already exists", awserr.ErrAlreadyExists)
 	// ErrStreamProcessorNotFound is returned when a stream processor does not exist.
-	ErrStreamProcessorNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	ErrStreamProcessorNotFound = awserr.New("The specified stream processor does not exist", awserr.ErrNotFound)
 	// ErrStreamProcessorAlreadyExists is returned when a stream processor already
 	// exists. Maps to ResourceInUseException, not ResourceAlreadyExistsException.
-	ErrStreamProcessorAlreadyExists = awserr.New(errResourceInUse, ErrNameInUse)
+	ErrStreamProcessorAlreadyExists = awserr.New("A stream processor with this name already exists", ErrNameInUse)
+	// ErrStreamProcessorInUse is returned when starting a stream processor that is already started.
+	ErrStreamProcessorInUse = awserr.New("The stream processor is already running", ErrNameInUse)
 	// ErrFaceNotFound is returned when a face does not exist in a collection.
-	ErrFaceNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	ErrFaceNotFound = awserr.New("The specified face does not exist in the collection", awserr.ErrNotFound)
 	// ErrValidation is returned on invalid input.
-	ErrValidation = awserr.New(errValidation, awserr.ErrInvalidParameter)
+	ErrValidation = awserr.New("invalid parameter", awserr.ErrInvalidParameter)
+	// ErrInvalidPaginationToken is returned when a NextToken does not resolve.
+	ErrInvalidPaginationToken = errors.New("the pagination token is invalid")
+	// ErrNotReady is returned when an operation needs a resource that is not yet usable.
+	ErrNotReady = errors.New("the resource is not ready")
 	// ErrUnknownOperation is returned when the requested operation is not implemented.
 	ErrUnknownOperation = errors.New("unknown operation")
 
 	// ErrProjectNotFound is returned when a project does not exist.
-	ErrProjectNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	ErrProjectNotFound = awserr.New("The specified project does not exist", awserr.ErrNotFound)
 	// ErrProjectAlreadyExists is returned when a project name is already in
 	// use. Maps to ResourceInUseException (not ResourceAlreadyExistsException
 	// -- see ErrNameInUse).
-	ErrProjectAlreadyExists = awserr.New(errResourceInUse, ErrNameInUse)
+	ErrProjectAlreadyExists = awserr.New("A project with this name already exists", ErrNameInUse)
 	// ErrProjectVersionNotFound is returned when a project version does not exist.
-	ErrProjectVersionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	ErrProjectVersionNotFound = awserr.New("The specified project version does not exist", awserr.ErrNotFound)
 	// ErrProjectVersionAlreadyExists is returned when a project version name
 	// is already in use. Maps to ResourceInUseException (see ErrNameInUse).
-	ErrProjectVersionAlreadyExists = awserr.New(errResourceInUse, ErrNameInUse)
+	ErrProjectVersionAlreadyExists = awserr.New("A project version with this name already exists", ErrNameInUse)
 	// ErrDatasetNotFound is returned when a dataset does not exist.
-	ErrDatasetNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	ErrDatasetNotFound = awserr.New("The specified dataset does not exist", awserr.ErrNotFound)
 	// ErrDatasetAlreadyExists is returned when CreateDataset is called for a
 	// project that already has a dataset of the requested DatasetType.
 	// Maps to ResourceAlreadyExistsException, same exception type as
 	// CreateCollection (verified against aws-sdk-go-v2/service/rekognition's
 	// CreateDataset error deserializer switch -- see ErrNameInUse's doc
 	// comment for why this varies per Create* op).
-	ErrDatasetAlreadyExists = awserr.New(errResourceAlreadyExists, awserr.ErrAlreadyExists)
+	ErrDatasetAlreadyExists = awserr.New("The project already has a dataset of this type", awserr.ErrAlreadyExists)
 	// ErrUserNotFound is returned when a user does not exist.
-	ErrUserNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	ErrUserNotFound = awserr.New("The specified user does not exist in the collection", awserr.ErrNotFound)
 	// ErrUserAlreadyExists is returned when a UserId is already registered
 	// in the collection. Maps to ConflictException (not
 	// ResourceAlreadyExistsException -- see ErrUserConflict).
-	ErrUserAlreadyExists = awserr.New(errConflictException, ErrUserConflict)
+	ErrUserAlreadyExists = awserr.New("A user with this UserId already exists in the collection", ErrUserConflict)
 	// ErrLivenessSessionNotFound is returned when a liveness session does not exist.
-	ErrLivenessSessionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	ErrLivenessSessionNotFound = awserr.New("The specified liveness session does not exist", awserr.ErrNotFound)
 	// ErrAsyncJobNotFound is returned when an async job does not exist.
-	ErrAsyncJobNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	ErrAsyncJobNotFound = awserr.New("The specified job does not exist", awserr.ErrNotFound)
 	// ErrMediaAnalysisJobNotFound is returned when a media analysis job does not exist.
-	ErrMediaAnalysisJobNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	ErrMediaAnalysisJobNotFound = awserr.New("The specified media analysis job does not exist", awserr.ErrNotFound)
 	// ErrInvalidS3Object is returned when an Image/Video/Input references an
 	// S3Object the wired S3 backend cannot find. Real AWS reports this as
 	// InvalidS3ObjectException (rekognition@v1.54.4 types/errors.go:344):
@@ -96,16 +94,16 @@ var (
 	// project that still has project versions. DeleteProject's own doc
 	// comment (api_op_DeleteProject.go): "To delete a project you must
 	// first delete all models or adapters associated with the project.".
-	ErrProjectHasVersions = awserr.New(errResourceInUse, ErrNameInUse)
+	ErrProjectHasVersions = awserr.New("The project still has project versions; delete them first", ErrNameInUse)
 	// ErrProjectVersionInUse is returned when DeleteProjectVersion is called
 	// on a version that is running or training. DeleteProjectVersion's own
 	// doc comment (api_op_DeleteProjectVersion.go): "You can't delete a
 	// project version if it is running or if it is training.".
-	ErrProjectVersionInUse = awserr.New(errResourceInUse, ErrNameInUse)
+	ErrProjectVersionInUse = awserr.New("The project version is running or training", ErrNameInUse)
 	// ErrDatasetInUse is returned when DeleteDataset is called on a dataset
 	// that is creating or updating. DeleteDataset's own doc comment
 	// (api_op_DeleteDataset.go): "You can't delete a dataset while it is
 	// creating (Status = CREATE_IN_PROGRESS) or if the dataset is updating
 	// (Status = UPDATE_IN_PROGRESS).".
-	ErrDatasetInUse = awserr.New(errResourceInUse, ErrNameInUse)
+	ErrDatasetInUse = awserr.New("The dataset is being created or updated", ErrNameInUse)
 )

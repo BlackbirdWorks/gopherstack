@@ -33,6 +33,10 @@ func (b *InMemoryBackend) CreateCluster(
 		return nil, fmt.Errorf("numberOfBrokerNodes must be at least 1: %w", ErrValidation)
 	}
 
+	if err := validateCreateClusterInput(name, kafkaVersion, brokerInfo.InstanceType); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx, b.region)
 
 	var evicted *liveBroker
@@ -99,6 +103,10 @@ func (b *InMemoryBackend) CreateCluster(
 		ci := *createOpts.ConfigurationInfo
 		cluster.ConfigurationInfo = &ci
 	}
+	if b.lifecycleDelay > 0 {
+		cluster.pendingState = ClusterStateCreating
+		cluster.readyAt = b.now().Add(b.lifecycleDelay)
+	}
 	b.clusters.Put(cluster)
 	b.launchBrokerLocked(clusterArn, name)
 
@@ -114,6 +122,10 @@ func (b *InMemoryBackend) CreateServerlessCluster(
 ) (*Cluster, error) {
 	if name == "" {
 		return nil, fmt.Errorf("clusterName is required: %w", ErrValidation)
+	}
+
+	if err := validateClusterName(name); err != nil {
+		return nil, err
 	}
 
 	region := getRegion(ctx, b.region)
@@ -156,14 +168,15 @@ func (b *InMemoryBackend) DescribeCluster(_ context.Context, clusterArn string) 
 		return nil, ErrNotFound
 	}
 
-	if _, managed := b.managedBrokerLocked(clusterArn); !managed && c.State == ClusterStateCreating {
+	if _, managed := b.managedBrokerLocked(clusterArn); !managed && b.lifecycleDelay <= 0 &&
+		c.State == ClusterStateCreating {
 		c.pollCount++
 		if c.pollCount >= 1 {
 			c.State = ClusterStateActive
 		}
 	}
 
-	return cloneCluster(c), nil
+	return b.viewCluster(c), nil
 }
 
 // ListClusters returns all MSK clusters in the request's region sorted by name.
@@ -176,7 +189,7 @@ func (b *InMemoryBackend) ListClusters(ctx context.Context) []*Cluster {
 	clusters := b.clustersByRegion.Get(region)
 	out := make([]*Cluster, 0, len(clusters))
 	for _, c := range clusters {
-		out = append(out, cloneCluster(c))
+		out = append(out, b.viewCluster(c))
 	}
 
 	slices.SortFunc(out, func(a, b *Cluster) int {
@@ -257,6 +270,19 @@ func (b *InMemoryBackend) AddClusterInternal(name, kafkaVersion string) *Cluster
 	b.clusters.Put(cluster)
 
 	return cloneCluster(cluster)
+}
+
+// AddExpressClusterInternal adds an ACTIVE provisioned cluster with Express brokers directly (seed helper for tests).
+func (b *InMemoryBackend) AddExpressClusterInternal(name, kafkaVersion string) *Cluster {
+	cl := b.AddClusterInternal(name, kafkaVersion)
+
+	b.mu.Lock("AddExpressClusterInternal")
+	defer b.mu.Unlock()
+
+	stored, _ := b.clusters.Get(cl.ClusterArn)
+	stored.BrokerNodeGroupInfo.InstanceType = expressInstanceTypePrefix + "m7g.large"
+
+	return cloneCluster(stored)
 }
 
 // cloneCluster creates a deep copy of a cluster.

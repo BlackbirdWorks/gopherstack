@@ -22,12 +22,8 @@ type Handler struct {
 	ops           map[string]kinesisDispatchFn
 	DefaultRegion string
 	AccountID     string
-	// subscribeToShardStreamDuration/PollInterval/HeartbeatInterval control
-	// handleSubscribeToShardHTTP's cadence (handler_consumers.go). Defaulted
-	// in NewHandler to the documented/inferred values; overridable via
-	// WithSubscribeToShardTiming (tests use short values so a synchronous
-	// httptest.ResponseRecorder call, or a full stream.Events() drain,
-	// completes quickly instead of waiting out the real 5-minute window).
+	subscriptions subscriptionTracker
+	// subscribeToShard* set the SubscribeToShard stream cadence; tests shorten them via WithSubscribeToShardTiming.
 	subscribeToShardStreamDuration    time.Duration
 	subscribeToShardPollInterval      time.Duration
 	subscribeToShardHeartbeatInterval time.Duration
@@ -460,6 +456,10 @@ func errorDetails(err error) (string, string, int) {
 		return errCodeThroughputExceeded,
 			"Rate exceeded for shard.",
 			http.StatusBadRequest
+	case errors.Is(err, ErrDryRunOperation):
+		return errCodeDryRun,
+			"The request would have succeeded, but the DryRun parameter was specified.",
+			http.StatusBadRequest
 	case errors.Is(err, ErrTagLimitExceeded):
 		return "LimitExceededException",
 			"Tag limit exceeded. A stream can have at most 50 tags.",
@@ -479,6 +479,10 @@ func errorDetails(err error) (string, string, int) {
 	case errors.Is(err, ErrShardIteratorExpired):
 		return "ExpiredIteratorException",
 			"The shard iterator has expired.",
+			http.StatusBadRequest
+	case errors.Is(err, ErrExpiredNextToken):
+		return "ExpiredNextTokenException",
+			"The pagination token passed to the operation is expired.",
 			http.StatusBadRequest
 	case errors.Is(err, ErrUnknownAction):
 		return "UnknownOperationException",

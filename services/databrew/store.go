@@ -4,6 +4,7 @@ package databrew
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -35,37 +36,22 @@ func getRegion(ctx context.Context, defaultRegion string) string {
 // pkgs/store conversion (see store_setup.go's package doc for why jobRuns is
 // NOT converted). Callers must hold b.mu while accessing any of them.
 type InMemoryBackend struct {
-	svcCtx    context.Context
-	schedules map[string]*store.Table[Schedule]
-	projects  map[string]*store.Table[Project]
-	jobs      map[string]*store.Table[Job]
-	// jobRuns holds one map[jobName][]*JobRun per region. It is left as a
-	// plain (non-store.Table) map: each job's run history is an
-	// ORDER-SENSITIVE slice (chronological append order; ListJobRuns reverses
-	// it), and store.Table/store.Index do not preserve insertion order — see
-	// pkgs/store's package doc and .claude/memories on this rollout.
-	jobRuns map[string]map[string][]*JobRun
-	// recipeVersions holds one map[recipeName][]*Recipe (published version
-	// snapshots, oldest first) per region, for the same reason jobRuns is a
-	// plain map: PublishRecipe APPENDS a new numbered snapshot, and
-	// ListRecipeVersions/DescribeRecipe(RecipeVersion=LATEST_PUBLISHED) need
-	// the highest (most recently appended) entry -- an order-sensitive
-	// operation store.Table/store.Index can't express. The "recipes" table
-	// itself (b.recipes) holds only the LATEST_WORKING draft, one row per
-	// recipe name; see recipes.go.
+	svcCtx         context.Context
+	rulesets       map[string]*store.Table[Ruleset]
+	recipes        map[string]*store.Table[Recipe]
+	projects       map[string]*store.Table[Project]
+	jobs           map[string]*store.Table[Job]
+	jobRuns        map[string]map[string][]*JobRun
 	recipeVersions map[string]map[string][]*Recipe
-	// registry is the lifecycle registry for every *store.Table this backend
-	// owns; Reset/Snapshot/Restore drive it via ResetAll/SnapshotAll/RestoreAll
-	// instead of hand-written per-map boilerplate. See store_setup.go.
-	registry      *store.Registry
-	rulesets      map[string]*store.Table[Ruleset]
-	datasets      map[string]*store.Table[Dataset]
-	mu            *lockmetrics.RWMutex
-	recipes       map[string]*store.Table[Recipe]
-	cancel        context.CancelFunc
-	accountID     string
-	defaultRegion string
-	wg            sync.WaitGroup
+	schedules      map[string]*store.Table[Schedule]
+	datasets       map[string]*store.Table[Dataset]
+	registry       *store.Registry
+	mu             *lockmetrics.RWMutex
+	cancel         context.CancelFunc
+	accountID      string
+	defaultRegion  string
+	wg             sync.WaitGroup
+	runDelayNanos  atomic.Int64
 }
 
 // NewInMemoryBackend creates a new in-memory DataBrew backend with a background

@@ -22,7 +22,7 @@ func (b *InMemoryBackend) CreateMember(accountID, email string, tags map[string]
 	now := time.Now().UTC()
 	b.members.Put(&Member{
 		AccountID:              accountID,
-		Arn:                    arn.Build("macie2", b.region, accountID, ""),
+		Arn:                    arn.Build("macie2", b.region, b.accountID, "member/"+accountID),
 		AdministratorAccountID: b.accountID,
 		Email:                  email,
 		MasteredBy:             b.accountID,

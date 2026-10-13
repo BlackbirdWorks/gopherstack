@@ -21,18 +21,20 @@ type createCatalogInput struct {
 		Parameters  map[string]string `json:"Parameters,omitzero"`
 		Description string            `json:"Description,omitempty"`
 	} `json:"CatalogInput"`
-	Name string `json:"Name"`
+	Tags map[string]string `json:"Tags,omitempty"`
+	Name string            `json:"Name"`
 }
 
 func (h *Handler) handleCreateCatalog(
 	_ context.Context,
 	in *createCatalogInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.CreateCatalog(
+	return &emptyOutput{}, h.Backend.CreateCatalogWithTags(
 		in.Name,
 		in.Name,
 		in.CatalogInput.Description,
 		in.CatalogInput.Parameters,
+		in.Tags,
 	)
 }
 

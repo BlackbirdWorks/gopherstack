@@ -68,16 +68,18 @@ func cloneBoolPtr(p *bool) *bool {
 // storedAssetBundleImportJob is the persisted representation of one asset-bundle
 // import job, keyed by JobId.
 type storedAssetBundleImportJob struct {
-	CreatedTime   time.Time `json:"createdTime"`
-	JobID         string    `json:"jobId"`
-	Arn           string    `json:"arn"`
-	Status        string    `json:"status"`
-	FailureAction string    `json:"failureAction"`
+	CreatedTime   time.Time      `json:"createdTime"`
+	Overrides     map[string]any `json:"overrides,omitempty"`
+	JobID         string         `json:"jobId"`
+	Arn           string         `json:"arn"`
+	Status        string         `json:"status"`
+	FailureAction string         `json:"failureAction"`
 }
 
 func (j *storedAssetBundleImportJob) toAssetBundleImportJob() *AssetBundleImportJob {
 	return &AssetBundleImportJob{
 		CreatedTime:   j.CreatedTime,
+		Overrides:     maps.Clone(j.Overrides),
 		JobID:         j.JobID,
 		Arn:           j.Arn,
 		Status:        j.Status,
@@ -197,6 +199,7 @@ func (b *InMemoryBackend) ListAssetBundleExportJobs(
 
 func (b *InMemoryBackend) StartAssetBundleImportJob(
 	_, jobID, failureAction string,
+	overrides map[string]any,
 ) (*AssetBundleImportJob, error) {
 	if jobID == "" {
 		return nil, ErrValidation
@@ -215,6 +218,7 @@ func (b *InMemoryBackend) StartAssetBundleImportJob(
 		Arn:           b.buildARN("asset-bundle-import-job", jobID),
 		Status:        assetBundleJobStatusQueued,
 		FailureAction: failureAction,
+		Overrides:     maps.Clone(overrides),
 	}
 	b.assetBundleImportJobs.Put(job)
 

@@ -60,7 +60,7 @@ func TestProtocolValidationPerLBType(t *testing.T) {
 			require.Len(t, lbResp.Result.LoadBalancers.Members, 1)
 			lbArn := lbResp.Result.LoadBalancers.Members[0].LoadBalancerArn
 
-			tgArn := mustCreateTG(t, h, "proto-val-tg-"+tt.name)
+			tgArn := mustCreateTG(t, h, "proto-val-tg-"+strings.ReplaceAll(tt.name, "_", "-"))
 
 			listenerVals := url.Values{
 				"Action":                                 {"CreateListener"},
@@ -322,8 +322,21 @@ func TestCreateLB_DuplicateName(t *testing.T) {
 		"Action":  {"CreateLoadBalancer"},
 		"Version": {"2015-12-01"},
 		"Name":    {"dup-lb-batch1"},
+		"Scheme":  {"internal"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestCreateLB_IdenticalSettingsIdempotent: CreateLoadBalancer is documented idempotent for
+// identical settings and returns the existing load balancer.
+func TestCreateLB_IdenticalSettingsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	h := newBatch1Handler(t)
+	first := b1CreateLB(t, h, "idem-lb")
+	second := b1CreateLB(t, h, "idem-lb")
+
+	assert.Equal(t, first, second)
 }
 
 func TestNLB_DNS_Format(t *testing.T) {

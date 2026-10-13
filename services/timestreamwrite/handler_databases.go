@@ -104,6 +104,10 @@ func (h *Handler) handleListDatabases(
 	_ context.Context,
 	in *listDatabasesInput,
 ) (*listDatabasesOutput, error) {
+	if err := validatePaging(in.NextToken, in.MaxResults); err != nil {
+		return nil, err
+	}
+
 	dbs := h.Backend.ListDatabases()
 	pg := page.New(dbs, in.NextToken, in.MaxResults, defaultTimestreamMaxResults)
 	views := make([]databaseView, 0, len(pg.Data))

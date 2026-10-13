@@ -214,6 +214,7 @@ func runVPCAndNetworkExtras(t *testing.T, backend *ec2.InMemoryBackend, client *
 	require.NoError(t, err)
 	igw, err := backend.CreateInternetGateway()
 	require.NoError(t, err)
+	require.NoError(t, backend.AttachInternetGateway(igw.ID, vpc.ID))
 	require.NoError(t, backend.CreateRoute(rt.ID, "0.0.0.0/0", igw.ID, ""))
 
 	_, err = client.ReplaceRoute(t.Context(), &ec2sdk.ReplaceRouteInput{

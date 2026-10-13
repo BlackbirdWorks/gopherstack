@@ -1,6 +1,9 @@
 package batch
 
 import (
+	"context"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -29,6 +32,14 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	backend := NewInMemoryBackend(accountID, region)
+
+	if settings.ExecuteJobs {
+		if runner, err := NewDockerContainerRunner(); err != nil {
+			logger.Load(context.Background()).Warn("batch: container execution disabled", "error", err)
+		} else {
+			backend.SetContainerRunner(runner)
+		}
+	}
 	handler := NewHandler(backend)
 	handler.WithJanitor(
 		settings.JanitorInterval,

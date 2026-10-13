@@ -187,7 +187,7 @@ func (b *InMemoryBackend) GetDeploymentTarget(deploymentID, targetID string) (*D
 
 	d, ok := b.deployments.Get(deploymentID)
 	if !ok {
-		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
+		return nil, fmt.Errorf("%w: Deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
 
 	for _, t := range b.deploymentTargets(d) {
@@ -212,7 +212,7 @@ func (b *InMemoryBackend) ListDeploymentTargets(deploymentID string, filter Targ
 
 	d, ok := b.deployments.Get(deploymentID)
 	if !ok {
-		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
+		return nil, fmt.Errorf("%w: Deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
 
 	targets := b.deploymentTargets(d)
@@ -252,7 +252,7 @@ func (b *InMemoryBackend) BatchGetDeploymentTargets(
 
 	d, ok := b.deployments.Get(deploymentID)
 	if !ok {
-		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
+		return nil, fmt.Errorf("%w: Deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
 
 	byID := make(map[string]*DeploymentTargetRecord)
@@ -282,7 +282,7 @@ func (b *InMemoryBackend) ListDeploymentInstances(deploymentID string, filter In
 
 	d, ok := b.deployments.Get(deploymentID)
 	if !ok {
-		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
+		return nil, fmt.Errorf("%w: Deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
 
 	dg, ok := b.deploymentGroups.Get(dgKey(d.ApplicationName, d.DeploymentGroupName))
@@ -320,7 +320,7 @@ func (b *InMemoryBackend) GetDeploymentInstance(deploymentID, instanceID string)
 
 	d, ok := b.deployments.Get(deploymentID)
 	if !ok {
-		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
+		return nil, fmt.Errorf("%w: Deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
 
 	for _, t := range b.deploymentTargets(d) {
@@ -346,7 +346,7 @@ func (b *InMemoryBackend) BatchGetDeploymentInstances(
 
 	d, ok := b.deployments.Get(deploymentID)
 	if !ok {
-		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
+		return nil, fmt.Errorf("%w: Deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
 
 	byID := make(map[string]*DeploymentTargetRecord)

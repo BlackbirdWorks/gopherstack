@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -619,7 +620,7 @@ func TestHandler_Pagination(t *testing.T) {
 				t,
 				h,
 				http.MethodGet,
-				listPath+"?maxResults="+string(rune('0'+tt.maxResults)),
+				listPath+"?maxResults="+strconv.Itoa(tt.maxResults),
 				nil,
 			)
 			assert.Equal(t, http.StatusOK, rec.Code)

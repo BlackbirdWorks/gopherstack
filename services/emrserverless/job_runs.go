@@ -144,8 +144,8 @@ func (b *InMemoryBackend) jobRunForToken(applicationID, clientToken string) *Job
 // ListJobRunAttempts), so the only attempt that ever exists is 0, the job
 // run's own current state.
 func (b *InMemoryBackend) GetJobRun(applicationID, jobRunID string, attempt *int32) (*JobRun, error) {
-	b.mu.RLock("GetJobRun")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetJobRun")
+	defer b.mu.Unlock()
 
 	if !b.applications.Has(applicationID) {
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, applicationID)
@@ -160,7 +160,30 @@ func (b *InMemoryBackend) GetJobRun(applicationID, jobRunID string, attempt *int
 		return nil, fmt.Errorf("%w: attempt %d not found for job run %s", ErrNotFound, *attempt, jobRunID)
 	}
 
-	return cloneJobRun(jr), nil
+	out := cloneJobRun(jr)
+
+	if next, advancing := nextJobRunPhase(jr.State); advancing {
+		jr.State = next
+		jr.UpdatedAt = time.Now().UTC()
+	}
+
+	return out, nil
+}
+
+// nextJobRunPhase returns the state following a non-terminal job run state.
+func nextJobRunPhase(state string) (string, bool) {
+	switch state {
+	case JobRunStateSubmitted:
+		return JobRunStatePending, true
+	case JobRunStatePending:
+		return JobRunStateScheduled, true
+	case JobRunStateScheduled:
+		return JobRunStateRunning, true
+	case JobRunStateRunning:
+		return JobRunStateSuccess, true
+	default:
+		return "", false
+	}
 }
 
 // JobRunFilter holds ListJobRuns' optional filters; the creation bounds are inclusive and an

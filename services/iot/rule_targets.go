@@ -82,6 +82,7 @@ type ActionTargets struct {
 	DynamoReader  DynamoItemReader
 	Secrets       SecretReader
 	Shadows       ShadowReader
+	Descriptors   DescriptorReader
 	Lambda        LambdaRequester
 	Credentials   RoleCredentialIssuer
 }

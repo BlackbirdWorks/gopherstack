@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	tagspkg "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // ---- action handlers ----
@@ -65,6 +67,10 @@ func (h *Handler) applyInstanceLaunchSettings(
 		}
 
 		if len(sgIDs) > 0 {
+			if err := h.Backend.SetInstanceSecurityGroups(inst.ID, sgIDs); err != nil {
+				return err
+			}
+
 			inst.SecurityGroups = sgIDs
 		}
 	}
@@ -284,7 +290,34 @@ func securityGroupNamesFor(b Backend, instances []*Instance) map[string]string {
 	return names
 }
 
+// runInstancesWithMetadata validates MetadataOptions before launching so a bad value leaves no instances behind.
+func (h *Handler) runInstancesWithMetadata(
+	imageID, instanceType, subnetID string, count int, vals url.Values,
+) ([]*Instance, error) {
+	mdOpts, err := metadataOptionsFromValues(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	pinnedID := tagspkg.PinnedIDFromTagSpecs(vals, "instance")
+
+	instances, err := h.Backend.RunInstancesWithID(pinnedID, imageID, instanceType, subnetID, count)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = h.Backend.ApplyLaunchMetadataOptions(instanceIDsOf(instances), mdOpts); err != nil {
+		return nil, err
+	}
+
+	return instances, nil
+}
+
 func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error) {
+	if err := h.overlayLaunchTemplate(vals); err != nil {
+		return nil, err
+	}
+
 	imageID := vals.Get("ImageId")
 	instanceType := vals.Get("InstanceType")
 	subnetID := vals.Get("SubnetId")
@@ -294,7 +327,7 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 	shutdownBehavior := vals.Get("InstanceInitiatedShutdownBehavior")
 	ebsOptimized := vals.Get("EbsOptimized")
 
-	if err := validateUserData(userData); err != nil {
+	if err := h.validateRunInstancesInput(imageID, instanceType, keyName, userData); err != nil {
 		return nil, err
 	}
 
@@ -310,7 +343,7 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
-	instances, err := h.Backend.RunInstances(imageID, instanceType, subnetID, minCount)
+	instances, err := h.runInstancesWithMetadata(imageID, instanceType, subnetID, minCount, vals)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +358,7 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
-	if err = h.applyRunInstancesPostCreateOptions(instances, vals); err != nil {
+	if err = h.applyRunInstancesStorage(instances, vals); err != nil {
 		return nil, err
 	}
 
@@ -333,15 +366,8 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 		h.launchOnCompute(h.svcCtx, cb, c, instances, keyName, userData)
 	}
 
-	if tags := parseTagSpecification(vals, "instance"); len(tags) > 0 {
-		ids := make([]string, 0, len(instances))
-		for _, inst := range instances {
-			ids = append(ids, inst.ID)
-		}
-
-		if err = h.Backend.CreateTags(ids, tags); err != nil {
-			return nil, err
-		}
+	if err = h.tagLaunchedInstances(instances, vals); err != nil {
+		return nil, err
 	}
 
 	ids := make([]string, len(instances))
@@ -371,7 +397,7 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 	return &runInstancesResponse{
 		Xmlns:         ec2XMLNS,
 		RequestID:     reqID,
-		ReservationID: newReservationID(),
+		ReservationID: instanceReservationID(instances[0]),
 		OwnerID:       h.AccountID,
 		InstancesSet:  instanceItemSet{Items: items},
 	}, nil
@@ -385,6 +411,9 @@ const describeInstancesMinResults = 5
 
 func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "InstanceId")
+	if err := h.requireInstancesExist(ids); err != nil {
+		return nil, err
+	}
 
 	// Parse named EC2 filters: Filter.N.Name / Filter.N.Value.M
 	filters := parseEC2Filters(vals)
@@ -444,16 +473,12 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 		items = append(items, item)
 	}
 
-	reservation := reservationItem{
-		ReservationID: newReservationID(),
-		OwnerID:       h.AccountID,
-		InstancesSet:  instanceItemSet{Items: items},
-	}
+	reservations := groupReservations(instances, items, h.AccountID)
 
 	return &describeInstancesResponse{
 		Xmlns:          ec2XMLNS,
 		RequestID:      reqID,
-		ReservationSet: reservationSet{Items: []reservationItem{reservation}},
+		ReservationSet: reservationSet{Items: reservations},
 		NextToken:      nextToken,
 	}, nil
 }
@@ -512,6 +537,10 @@ func (h *Handler) handleTerminateInstances(vals url.Values, reqID string) (any, 
 
 	if c != nil {
 		h.terminateOnCompute(h.svcCtx, cb, c, providerIDs, dnsNames)
+	}
+
+	for _, ch := range changes {
+		h.imds.forget(ch.InstanceID)
 	}
 
 	items := make([]instanceStateChangeItem, 0, len(changes))
@@ -641,6 +670,8 @@ func toInstanceItem(
 
 	item := instanceItem{
 		InstanceID:            inst.ID,
+		RootDeviceName:        inst.RootDeviceName,
+		RootDeviceType:        rootDeviceTypeFor(inst),
 		ImageID:               inst.ImageID,
 		InstanceType:          inst.InstanceType,
 		StateItem:             stateItem{Code: inst.State.Code, Name: inst.State.Name},
@@ -670,6 +701,12 @@ func toInstanceItem(
 			HostResourceGroupArn: inst.Placement.HostResourceGroupArn,
 			PartitionNumber:      inst.Placement.PartitionNumber,
 		},
+	}
+
+	md := metadataOptionsOf(inst)
+	item.MetadataOptions = &imdsOptionsItem{
+		State: md.State, HTTPTokens: md.HTTPTokens, HTTPEndpoint: md.HTTPEndpoint,
+		InstanceMetadataTags: md.InstanceMetadataTags, HTTPPutResponseHopLimit: md.HTTPPutResponseHopLimit,
 	}
 
 	if inst.HibernationConfigured {
@@ -823,10 +860,13 @@ func blockDeviceItems(atts []VolumeAttachment) []instanceBlockDeviceItem {
 }
 
 type instanceItem struct {
+	RootDeviceName            string                                 `xml:"rootDeviceName,omitempty"`
+	RootDeviceType            string                                 `xml:"rootDeviceType,omitempty"`
 	BlockDeviceMapping        *instanceBlockDeviceSet                `xml:"blockDeviceMapping,omitempty"`
 	HibernationOptions        *instanceHibernationOptionsItem        `xml:"hibernationOptions,omitempty"`
 	NetworkPerformanceOptions *instanceNetworkPerformanceOptionsItem `xml:"networkPerformanceOptions,omitempty"`
 	MaintenanceOptions        *instanceMaintenanceOptionsItem        `xml:"maintenanceOptions,omitempty"`
+	MetadataOptions           *imdsOptionsItem                       `xml:"metadataOptions,omitempty"`
 	CPUOptions                *instanceCPUOptionsItem                `xml:"cpuOptions,omitempty"`
 	StateReasonItem           *stateReasonItem                       `xml:"stateReason,omitempty"`
 	IamInstanceProfile        *iamProfileSpec                        `xml:"iamInstanceProfile,omitempty"`
@@ -935,4 +975,170 @@ type describeInstanceAttributeResponse struct {
 	RequestID  string   `xml:"requestId"`
 	InstanceID string   `xml:"instanceId"`
 	Attribute  namedStringAttr
+}
+
+// instanceReservationID returns the reservation an instance was launched in. Instances restored
+// from snapshots that predate the field get a stable id derived from their own.
+func instanceReservationID(inst *Instance) string {
+	if inst.ReservationID != "" {
+		return inst.ReservationID
+	}
+
+	return "r-" + strings.TrimPrefix(inst.ID, "i-")
+}
+
+// groupReservations groups items (parallel to instances) by launch reservation, in first-seen order.
+func groupReservations(instances []*Instance, items []instanceItem, ownerID string) []reservationItem {
+	reservations := []reservationItem{}
+	index := make(map[string]int, len(instances))
+
+	for i, inst := range instances {
+		rid := instanceReservationID(inst)
+
+		pos, ok := index[rid]
+		if !ok {
+			pos = len(reservations)
+			index[rid] = pos
+			reservations = append(reservations, reservationItem{ReservationID: rid, OwnerID: ownerID})
+		}
+
+		reservations[pos].InstancesSet.Items = append(reservations[pos].InstancesSet.Items, items[i])
+	}
+
+	return reservations
+}
+
+func rootDeviceTypeFor(inst *Instance) string {
+	if inst.RootDeviceName == "" {
+		return ""
+	}
+
+	return "ebs"
+}
+
+// overlayLaunchTemplate fills RunInstances parameters the request leaves unset from the
+// referenced launch template version.
+func (h *Handler) overlayLaunchTemplate(vals url.Values) error {
+	ref := vals.Get("LaunchTemplate.LaunchTemplateId")
+	if ref == "" {
+		ref = vals.Get("LaunchTemplate.LaunchTemplateName")
+	}
+
+	if ref == "" {
+		return nil
+	}
+
+	data, err := h.Backend.ResolveLaunchTemplateData(ref, vals.Get("LaunchTemplate.Version"))
+	if err != nil {
+		return err
+	}
+
+	set := make(map[string]struct{}, len(vals))
+	for k := range vals {
+		set[ltDataGroup(k)] = struct{}{}
+	}
+
+	for k, v := range data {
+		if _, ok := set[ltDataGroup(k)]; !ok {
+			vals.Set(k, v)
+		}
+	}
+
+	if vals.Get("SubnetId") == "" {
+		vals.Set("SubnetId", vals.Get("NetworkInterface.1.SubnetId"))
+	}
+
+	if len(parseMemberList(vals, "SecurityGroupId")) == 0 {
+		niGroups := collectIndexed(vals, "NetworkInterface.1.SecurityGroupId")
+		for i, sg := range niGroups {
+			vals.Set(fmt.Sprintf("SecurityGroupId.%d", i+1), sg)
+		}
+	}
+
+	return nil
+}
+
+func collectIndexed(vals url.Values, prefix string) []string {
+	var out []string
+
+	for i := 1; ; i++ {
+		v := vals.Get(fmt.Sprintf("%s.%d", prefix, i))
+		if v == "" {
+			return out
+		}
+
+		out = append(out, v)
+	}
+}
+
+// attachLaunchVolumes creates the root and BlockDeviceMapping EBS volumes of each new instance.
+func (h *Handler) attachLaunchVolumes(instances []*Instance, vals url.Values) error {
+	var specs []LaunchVolumeSpec
+
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("BlockDeviceMapping.%d.", i)
+
+		dev := vals.Get(prefix + "DeviceName")
+		if dev == "" {
+			break
+		}
+
+		if vals.Get(prefix+"NoDevice") != "" || vals.Get(prefix+"VirtualName") != "" {
+			continue
+		}
+
+		spec := LaunchVolumeSpec{
+			DeviceName: dev,
+			VolumeType: vals.Get(prefix + "Ebs.VolumeType"),
+			SnapshotID: vals.Get(prefix + "Ebs.SnapshotId"),
+			KmsKeyID:   vals.Get(prefix + "Ebs.KmsKeyId"),
+			Encrypted:  vals.Get(prefix+"Ebs.Encrypted") == ec2BooleanTrue,
+		}
+		spec.Size, _ = strconv.Atoi(vals.Get(prefix + "Ebs.VolumeSize"))
+		spec.Iops, _ = strconv.Atoi(vals.Get(prefix + "Ebs.Iops"))
+		spec.Throughput, _ = strconv.Atoi(vals.Get(prefix + "Ebs.Throughput"))
+
+		if dot := vals.Get(prefix + "Ebs.DeleteOnTermination"); dot != "" {
+			spec.DeleteOnTermination = dot == ec2BooleanTrue
+		} else {
+			spec.DeleteOnTerminationUnset = true
+		}
+
+		specs = append(specs, spec)
+	}
+
+	volTags := parseTagSpecification(vals, "volume")
+
+	for _, inst := range instances {
+		own := make([]LaunchVolumeSpec, len(specs))
+		copy(own, specs)
+
+		if err := h.Backend.AttachLaunchVolumes(inst.ID, own, volTags); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (h *Handler) applyRunInstancesStorage(instances []*Instance, vals url.Values) error {
+	if err := h.applyRunInstancesPostCreateOptions(instances, vals); err != nil {
+		return err
+	}
+
+	return h.attachLaunchVolumes(instances, vals)
+}
+
+func (h *Handler) tagLaunchedInstances(instances []*Instance, vals url.Values) error {
+	tags := parseTagSpecification(vals, "instance")
+	if len(tags) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(instances))
+	for _, inst := range instances {
+		ids = append(ids, inst.ID)
+	}
+
+	return h.Backend.CreateTags(ids, tags)
 }

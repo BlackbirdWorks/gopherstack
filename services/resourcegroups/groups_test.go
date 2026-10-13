@@ -307,10 +307,10 @@ func TestListGroups_Pagination(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	tests := []struct { //nolint:govet // field order optimized for readability
+	tests := []struct {
 		name       string
-		maxResults int
 		wantNames  []string
+		maxResults int
 		wantMore   bool
 	}{
 		{

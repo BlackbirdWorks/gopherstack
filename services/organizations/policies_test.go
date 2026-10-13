@@ -204,14 +204,10 @@ func TestPolicyTypes(t *testing.T) {
 		t.Run(pt, func(t *testing.T) {
 			t.Parallel()
 
-			// CONSOLIDATED_BILLING seeds the same default FullAWSAccess SCP as
-			// ALL but leaves every policy type disabled on root (SDK doc:
-			// "no policy types are enabled by default"), so EnablePolicyType
-			// below always starts from a genuinely disabled state -- SCP
-			// included, since ALL auto-enables it (gopherstack-inmm).
+			// Policy types need ALL features; ALL also auto-enables SCP.
 			b := newTestBackend()
 
-			_, orgRoot, err := b.CreateOrganization("CONSOLIDATED_BILLING")
+			_, orgRoot, err := b.CreateOrganization("ALL")
 			require.NoError(t, err)
 
 			rootID := orgRoot.ID
@@ -231,12 +227,17 @@ func TestPolicyTypes(t *testing.T) {
 			require.NoError(t, err, "ListPolicies")
 			assert.Len(t, listed, wantListed)
 
-			_, err = b.EnablePolicyType(rootID, pt)
-			require.NoError(t, err, "EnablePolicyType")
+			if pt == "SERVICE_CONTROL_POLICY" {
+				_, err = b.EnablePolicyType(rootID, pt)
+				require.ErrorIs(t, err, organizations.ErrPolicyTypeAlreadyEnabled)
+			} else {
+				_, err = b.EnablePolicyType(rootID, pt)
+				require.NoError(t, err, "EnablePolicyType")
 
-			root, err := b.DisablePolicyType(rootID, pt)
-			require.NoError(t, err, "DisablePolicyType")
-			assert.Empty(t, root.PolicyTypes)
+				root, dErr := b.DisablePolicyType(rootID, pt)
+				require.NoError(t, dErr, "DisablePolicyType")
+				assert.Len(t, root.PolicyTypes, 1)
+			}
 
 			err = b.DeletePolicy(p.PolicySummary.ID)
 			require.NoError(t, err, "DeletePolicy")

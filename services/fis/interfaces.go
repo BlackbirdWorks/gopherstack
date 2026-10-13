@@ -94,4 +94,7 @@ type StorageBackend interface {
 	// SetAlarmStateSubscriber registers the CloudWatch alarm-state-change hook
 	// that drives "aws:cloudwatch:alarm" stop conditions.
 	SetAlarmStateSubscriber(sub AlarmStateSubscriber)
+
+	// SetTargetResolver registers the collaborator that resolves tag-selected targets to ARNs.
+	SetTargetResolver(r TargetResolver)
 }

@@ -51,6 +51,10 @@ func (h *Handler) handlePollForActivityTask(
 	_ context.Context,
 	in *handlePollForActivityTaskInput,
 ) (*pollForActivityTaskOutput, error) {
+	if err := h.requireDomainAndTaskList(in.Domain, in.TaskList.Name); err != nil {
+		return nil, err
+	}
+
 	task := h.Backend.PollForActivityTask(in.Domain, in.TaskList.Name)
 	if task == nil {
 		return &pollForActivityTaskOutput{}, nil
@@ -86,12 +90,9 @@ func (h *Handler) handleRecordActivityTaskHeartbeat(
 	_ context.Context,
 	in *handleRecordActivityTaskHeartbeatInput,
 ) (*recordActivityTaskHeartbeatOutput, error) {
-	cancelRequested, err := h.Backend.RecordActivityTaskHeartbeat(in.TaskToken)
+	cancelRequested, err := h.Backend.RecordActivityTaskHeartbeat(in.TaskToken, in.Details)
 	if err != nil {
-		// Unknown token: per AWS, return cancelRequested:false rather than error
-		// for heartbeats on tokens that may have expired.
-		//nolint:nilerr // AWS returns false for unknown tokens, not an error
-		return &recordActivityTaskHeartbeatOutput{CancelRequested: false}, nil
+		return nil, err
 	}
 
 	return &recordActivityTaskHeartbeatOutput{CancelRequested: cancelRequested}, nil

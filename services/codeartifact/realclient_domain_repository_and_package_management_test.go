@@ -169,7 +169,7 @@ func TestRealClient_DomainRepositoryAndPackageManagement(t *testing.T) {
 				Domain: aws.String("dom-pg"),
 			})
 			require.NoError(t, err)
-			require.Len(t, listOut.PackageGroups, 1)
+			require.Len(t, listOut.PackageGroups, 2)
 
 			_, err = client.CreatePackageGroup(ctx, &casdk.CreatePackageGroupInput{
 				Domain:       aws.String("dom-pg"),
@@ -205,7 +205,14 @@ func TestRealClient_DomainRepositoryAndPackageManagement(t *testing.T) {
 				Domain: aws.String("dom-pg"),
 			})
 			require.NoError(t, err)
-			assert.Len(t, listOut2.PackageGroups, 1)
+			assert.Len(t, listOut2.PackageGroups, 2)
+
+			_, err = client.DeletePackageGroup(ctx, &casdk.DeletePackageGroupInput{
+				Domain:       aws.String("dom-pg"),
+				PackageGroup: aws.String("/*"),
+			})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "ValidationException")
 		}},
 		{name: "associated_packages", run: func(t *testing.T) {
 			t.Helper()

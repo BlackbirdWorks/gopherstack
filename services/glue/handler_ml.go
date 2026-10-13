@@ -289,7 +289,7 @@ func (h *Handler) handleGetMLTaskRuns(
 
 	result := make([]any, 0, len(page))
 	for _, r := range page {
-		result = append(result, r)
+		result = append(result, toMLTaskRunWire(r))
 	}
 
 	return &getMLTaskRunsOutput{TaskRuns: result, NextToken: next}, nil
@@ -536,8 +536,9 @@ func (h *Handler) handleStartExportLabelsTaskRun(
 
 // startImportLabelsTaskRunInput holds input for StartImportLabelsTaskRun.
 type startImportLabelsTaskRunInput struct {
-	TransformID string `json:"TransformId"`
-	InputS3Path string `json:"InputS3Path,omitempty"`
+	TransformID      string `json:"TransformId"`
+	InputS3Path      string `json:"InputS3Path,omitempty"`
+	ReplaceAllLabels bool   `json:"ReplaceAllLabels,omitempty"`
 }
 
 // startImportLabelsTaskRunOutput holds the result for StartImportLabelsTaskRun.
@@ -553,7 +554,7 @@ func (h *Handler) handleStartImportLabelsTaskRun(
 		return &startImportLabelsTaskRunOutput{TaskRunID: ""}, nil
 	}
 
-	run, err := h.Backend.StartImportLabelsTaskRun(in.TransformID, in.InputS3Path)
+	run, err := h.Backend.StartImportLabelsTaskRun(in.TransformID, in.InputS3Path, in.ReplaceAllLabels)
 	if err != nil {
 		return nil, err
 	}
@@ -589,7 +590,8 @@ func (h *Handler) handleStartMLEvaluationTaskRun(
 
 // startMLLabelingSetGenerationTaskRunInput holds input for StartMLLabelingSetGenerationTaskRun.
 type startMLLabelingSetGenerationTaskRunInput struct {
-	TransformID string `json:"TransformId"`
+	TransformID  string `json:"TransformId"`
+	OutputS3Path string `json:"OutputS3Path,omitempty"`
 }
 
 // startMLLabelingSetGenerationTaskRunOutput holds the result for StartMLLabelingSetGenerationTaskRun.
@@ -605,7 +607,7 @@ func (h *Handler) handleStartMLLabelingSetGenerationTaskRun(
 		return &startMLLabelingSetGenerationTaskRunOutput{TaskRunID: ""}, nil
 	}
 
-	run, err := h.Backend.StartMLLabelingSetGenerationTaskRun(in.TransformID)
+	run, err := h.Backend.StartMLLabelingSetGenerationTaskRun(in.TransformID, in.OutputS3Path)
 	if err != nil {
 		return nil, err
 	}
@@ -662,4 +664,58 @@ func (h *Handler) handleUpdateMLTransform(
 	}
 
 	return &updateMLTransformOutput{TransformID: in.TransformID}, nil
+}
+
+type mlTaskRunWire struct {
+	Properties     *mlTaskRunPropertiesWire `json:"Properties,omitempty"`
+	TransformID    string                   `json:"TransformId"`
+	TaskRunID      string                   `json:"TaskRunId"`
+	Status         string                   `json:"Status"`
+	ErrorString    string                   `json:"ErrorString,omitempty"`
+	LogGroupName   string                   `json:"LogGroupName,omitempty"`
+	StartedOn      float64                  `json:"StartedOn,omitempty"`
+	CompletedOn    float64                  `json:"CompletedOn,omitempty"`
+	LastModifiedOn float64                  `json:"LastModifiedOn,omitempty"`
+	ExecutionTime  int                      `json:"ExecutionTime,omitempty"`
+}
+
+type mlTaskRunPropertiesWire struct {
+	Export   *struct{ OutputS3Path string } `json:"ExportLabelsTaskRunProperties,omitempty"`
+	Import   *importLabelsPropsWire         `json:"ImportLabelsTaskRunProperties,omitempty"`
+	Labeling *struct{ OutputS3Path string } `json:"LabelingSetGenerationTaskRunProperties,omitempty"`
+	TaskType string                         `json:"TaskType"`
+}
+
+type importLabelsPropsWire struct {
+	InputS3Path string `json:"InputS3Path"`
+	Replace     bool   `json:"Replace"`
+}
+
+func toMLTaskRunWire(r *MLTaskRun) *mlTaskRunWire {
+	props := &mlTaskRunPropertiesWire{TaskType: r.TaskType}
+
+	if p := r.Properties; p != nil {
+		switch MLTaskType(r.TaskType) {
+		case mlTaskTypeExportLabels:
+			props.Export = &struct{ OutputS3Path string }{p.OutputS3Path}
+		case mlTaskTypeImportLabels:
+			props.Import = &importLabelsPropsWire{InputS3Path: p.InputS3Path, Replace: p.Replace}
+		case mlTaskTypeLabelingSetGeneration:
+			props.Labeling = &struct{ OutputS3Path string }{p.OutputS3Path}
+		default:
+		}
+	}
+
+	return &mlTaskRunWire{
+		Properties:     props,
+		TransformID:    r.TransformID,
+		TaskRunID:      r.TaskRunID,
+		Status:         r.Status,
+		ErrorString:    r.ErrorString,
+		LogGroupName:   r.LogGroupName,
+		StartedOn:      r.StartedOn,
+		CompletedOn:    r.CompletedOn,
+		LastModifiedOn: r.LastModifiedOn,
+		ExecutionTime:  r.ExecutionTime,
+	}
 }

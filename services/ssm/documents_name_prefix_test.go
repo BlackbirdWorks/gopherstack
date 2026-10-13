@@ -48,3 +48,41 @@ func TestListDocuments_NameFilterIsPrefix(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateDocument_ReservedNamePrefix(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		docName string
+		wantErr bool
+	}{
+		{name: "aws", docName: "aws-custom", wantErr: true},
+		{name: "aws_upper", docName: "AWS-Custom", wantErr: true},
+		{name: "amazon", docName: "amazon-doc", wantErr: true},
+		{name: "amzn", docName: "amzn-doc", wantErr: true},
+		{name: "awsec2", docName: "AWSEC2-x", wantErr: true},
+		{name: "config_remediation", docName: "AWSConfigRemediation-x", wantErr: true},
+		{name: "support", docName: "AWSSupport-x", wantErr: true},
+		{name: "ok", docName: "my-doc", wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := newTestSSMClient(t, ssm.NewHandler(ssm.NewInMemoryBackend()))
+			_, err := c.CreateDocument(t.Context(), &ssmsdk.CreateDocumentInput{
+				Name:    aws.String(tt.docName),
+				Content: aws.String(`{"schemaVersion":"2.2","mainSteps":[]}`),
+			})
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "ValidationException")
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}

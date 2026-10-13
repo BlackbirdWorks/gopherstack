@@ -98,10 +98,10 @@ func parseAPIGWDomainNamesDepth3(method string, segs []string) (string, map[stri
 func (h *Handler) domainNameActions() map[string]actionFn {
 	return map[string]actionFn{
 		opCreateDomainName: h.createDomainNameAction,
-		opGetDomainName:    h.getDomainNameAction,
+		opGetDomainName:    h.withDomainNameID(h.getDomainNameAction),
 		opGetDomainNames:   h.getDomainNamesAction,
-		opDeleteDomainName: h.deleteDomainNameAction,
-		opUpdateDomainName: h.updateDomainNameAction,
+		opDeleteDomainName: h.withDomainNameID(h.deleteDomainNameAction),
+		opUpdateDomainName: h.withDomainNameID(h.updateDomainNameAction),
 	}
 }
 
@@ -256,4 +256,23 @@ func (h *Handler) domainNameAccessAssociationActions() map[string]actionFn {
 type domainNameAccessAssociationsView struct {
 	Position string                        `json:"position,omitempty"`
 	Items    []DomainNameAccessAssociation `json:"item"`
+}
+
+// withDomainNameID rejects requests whose domainNameId does not match the (private) domain they address.
+func (h *Handler) withDomainNameID(fn actionFn) actionFn {
+	return func(b []byte) (int, any, error) {
+		var ref struct {
+			DomainName   string `json:"domainName"`
+			DomainNameID string `json:"domainNameId"`
+		}
+		if err := json.Unmarshal(b, &ref); err != nil {
+			return 0, nil, err
+		}
+
+		if err := h.Backend.CheckDomainNameID(ref.DomainName, ref.DomainNameID); err != nil {
+			return 0, nil, err
+		}
+
+		return fn(b)
+	}
 }

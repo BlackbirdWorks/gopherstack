@@ -259,7 +259,7 @@ func TestStartAutomationExecution_CompletesWithSteps(t *testing.T) {
 		{
 			name:       "synthetic_step_for_unknown_doc",
 			docContent: "",
-			wantSteps:  []string{"AWS-Doc"},
+			wantSteps:  []string{"My-Doc"},
 		},
 		{
 			name: "steps_extracted_from_document",
@@ -277,7 +277,7 @@ func TestStartAutomationExecution_CompletesWithSteps(t *testing.T) {
 			b := ssm.NewInMemoryBackend()
 			ctx := context.TODO()
 
-			docName := "AWS-Doc"
+			docName := "My-Doc"
 			if tt.docContent != "" {
 				_, err := b.CreateDocument(ctx, &ssm.CreateDocumentInput{
 					Name:         docName,

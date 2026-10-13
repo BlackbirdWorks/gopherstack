@@ -606,6 +606,10 @@ func (b *InMemoryBackend) PublishPackageVersion(
 	status := resolvePublishStatus(existingStatus, ok, unfinished)
 
 	if !ok {
+		if err := b.checkPublishAllowed(region, domainName, repoName, format, namespace, name); err != nil {
+			return nil, err
+		}
+
 		pv = &PackageVersion{
 			DomainName:  domainName,
 			Repository:  repoName,

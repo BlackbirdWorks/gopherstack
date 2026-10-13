@@ -121,9 +121,13 @@ func TestBackend_DeleteExtension_LastVersionRemovesExtensionAndTags(t *testing.T
 	_, err = b.GetExtension(ext.ID, 0)
 	require.Error(t, err, "extension must be gone once its last version is deleted")
 
-	tags, err := b.ListTagsForResource(ext.Arn)
-	require.NoError(t, err)
-	assert.Empty(t, tags, "tags must not survive the extension they were attached to")
+	_, err = b.ListTagsForResource(ext.Arn)
+	require.ErrorIs(
+		t,
+		err,
+		appconfig.ErrApplicationNotFound,
+		"tags must not survive the extension they were attached to",
+	)
 }
 
 // TestBackend_DeleteExtension_ConflictWhenAssociated verifies that deleting

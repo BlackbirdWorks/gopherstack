@@ -3,6 +3,7 @@ package codedeploy
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -21,7 +22,7 @@ func (b *InMemoryBackend) CreateDeploymentGroup(
 
 	app, ok := b.applications.Get(appName)
 	if !ok {
-		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
+		return nil, fmt.Errorf("%w: No application found for name: %s", ErrNotFound, appName)
 	}
 
 	if b.deploymentGroups.Has(dgKey(appName, dgName)) {
@@ -29,6 +30,10 @@ func (b *InMemoryBackend) CreateDeploymentGroup(
 	}
 
 	if err := validateDeploymentGroupTagFilters(input); err != nil {
+		return nil, err
+	}
+
+	if err := b.validateDeploymentGroupInput(dgName, input); err != nil {
 		return nil, err
 	}
 
@@ -82,7 +87,7 @@ func (b *InMemoryBackend) GetDeploymentGroup(appName, dgName string) (*Deploymen
 
 	dg, ok := b.deploymentGroups.Get(dgKey(appName, dgName))
 	if !ok {
-		return nil, fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
+		return nil, fmt.Errorf("%w: Deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
 	}
 
 	cp := *dg
@@ -100,17 +105,21 @@ func (b *InMemoryBackend) UpdateDeploymentGroup(
 	defer b.mu.Unlock()
 
 	if !b.applications.Has(appName) {
-		return false, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
+		return false, fmt.Errorf("%w: No application found for name: %s", ErrNotFound, appName)
 	}
 
 	oldKey := dgKey(appName, currentDGName)
 
 	dg, ok := b.deploymentGroups.Get(oldKey)
 	if !ok {
-		return false, fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, currentDGName)
+		return false, fmt.Errorf("%w: Deployment group %s not found", ErrDeploymentGroupNotFound, currentDGName)
 	}
 
 	if err := validateDeploymentGroupTagFilters(input); err != nil {
+		return false, err
+	}
+
+	if err := b.validateDeploymentGroupInput(newDGName, input); err != nil {
 		return false, err
 	}
 
@@ -205,7 +214,7 @@ func (b *InMemoryBackend) ListDeploymentGroups(appName string) ([]string, error)
 	defer b.mu.RUnlock()
 
 	if !b.applications.Has(appName) {
-		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
+		return nil, fmt.Errorf("%w: No application found for name: %s", ErrNotFound, appName)
 	}
 
 	entries := b.deploymentGroupsByApp.Get(appName)
@@ -225,7 +234,7 @@ func (b *InMemoryBackend) ListDeploymentGroupDetails(appName string) ([]*Deploym
 	defer b.mu.RUnlock()
 
 	if !b.applications.Has(appName) {
-		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
+		return nil, fmt.Errorf("%w: No application found for name: %s", ErrNotFound, appName)
 	}
 
 	entries := b.deploymentGroupsByApp.Get(appName)
@@ -250,14 +259,14 @@ func (b *InMemoryBackend) DeleteDeploymentGroup(appName, dgName string) error {
 		// the one below are provably wrong here, but idempotent-success vs. a
 		// different code is unconfirmed. Do NOT "fix" this by guessing; needs real
 		// evidence (gopherstack-3pz8).
-		return fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
+		return fmt.Errorf("%w: No application found for name: %s", ErrNotFound, appName)
 	}
 
 	key := dgKey(appName, dgName)
 
 	dg, ok := b.deploymentGroups.Get(key)
 	if !ok {
-		return fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
+		return fmt.Errorf("%w: Deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
 	}
 
 	dg.Tags.Close()
@@ -273,7 +282,7 @@ func (b *InMemoryBackend) BatchGetDeploymentGroups(appName string, dgNames []str
 	defer b.mu.RUnlock()
 
 	if !b.applications.Has(appName) {
-		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
+		return nil, fmt.Errorf("%w: No application found for name: %s", ErrNotFound, appName)
 	}
 
 	result := make([]*DeploymentGroup, 0, len(dgNames))
@@ -309,4 +318,38 @@ func (b *InMemoryBackend) AddDeploymentGroupInternal(dg *DeploymentGroup) {
 // DeploymentGroupARN builds an ARN for a CodeDeploy deployment group.
 func (b *InMemoryBackend) DeploymentGroupARN(appName, dgName string) string {
 	return arn.Build("codedeploy", b.region, b.accountID, "deploymentgroup:"+appName+"/"+dgName)
+}
+
+const maxCodeDeployNameLength = 100
+
+// validateDeploymentGroupInput checks the role, deployment config, style and name members. Callers hold b.mu.
+func (b *InMemoryBackend) validateDeploymentGroupInput(name string, input DeploymentGroupInput) error {
+	if len(name) > maxCodeDeployNameLength {
+		return fmt.Errorf("%w: deployment group name must be 1-%d characters",
+			ErrInvalidDeploymentGroupName, maxCodeDeployNameLength)
+	}
+
+	if input.ServiceRoleArn != "" && !strings.HasPrefix(input.ServiceRoleArn, "arn:") {
+		return fmt.Errorf("%w: %q is not a valid IAM role ARN", ErrInvalidRole, input.ServiceRoleArn)
+	}
+
+	if cfg := input.DeploymentConfigName; cfg != "" && !b.deploymentConfigs.Has(cfg) {
+		return fmt.Errorf("%w: Deployment configuration %s not found", ErrDeploymentConfigNotFound, cfg)
+	}
+
+	if ds := input.DeploymentStyle; ds != nil {
+		switch ds.DeploymentType {
+		case "", "IN_PLACE", "BLUE_GREEN":
+		default:
+			return fmt.Errorf("%w: invalid deploymentType %q", ErrInvalidDeploymentStyle, ds.DeploymentType)
+		}
+
+		switch ds.DeploymentOption {
+		case "", "WITH_TRAFFIC_CONTROL", "WITHOUT_TRAFFIC_CONTROL":
+		default:
+			return fmt.Errorf("%w: invalid deploymentOption %q", ErrInvalidDeploymentStyle, ds.DeploymentOption)
+		}
+	}
+
+	return nil
 }

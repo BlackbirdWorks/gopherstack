@@ -12,6 +12,8 @@ const (
 	maxRepositoryNameLen = 205
 	minRepositoryNameLen = 2
 	maxTagsPerResource   = 50
+	maxTagKeyLen         = 128
+	maxTagValueLen       = 256
 )
 
 // repositoryNameRE matches AWS's public repository naming rule: lowercase
@@ -33,9 +35,13 @@ func validateTags(tags map[string]string) error {
 		return fmt.Errorf("%w: a resource can have a maximum of %d tags", ErrTooManyTags, maxTagsPerResource)
 	}
 
-	for k := range tags {
-		if k == "" {
-			return fmt.Errorf("%w: tag key must not be empty", ErrInvalidTagParameter)
+	for k, v := range tags {
+		if k == "" || len(k) > maxTagKeyLen {
+			return fmt.Errorf("%w: tag key must be between 1 and %d characters", ErrInvalidTagParameter, maxTagKeyLen)
+		}
+
+		if len(v) > maxTagValueLen {
+			return fmt.Errorf("%w: tag value must be at most %d characters", ErrInvalidTagParameter, maxTagValueLen)
 		}
 	}
 
@@ -47,6 +53,10 @@ func (b *InMemoryBackend) CreateRepository(
 	name string, catalogData *CatalogData, tags map[string]string,
 ) (*Repository, error) {
 	if err := validateRepositoryName(name); err != nil {
+		return nil, err
+	}
+
+	if err := validateCatalogData(catalogData); err != nil {
 		return nil, err
 	}
 

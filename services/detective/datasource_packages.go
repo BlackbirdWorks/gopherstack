@@ -13,7 +13,7 @@ import (
 // so a package name outside this set must be rejected, not silently
 // persisted as if it were a real package.
 var validDatasourcePackages = map[string]bool{ //nolint:gochecknoglobals // static enum lookup table, never mutated.
-	"DETECTIVE_CORE":           true,
+	datasourceDetectiveCore:    true,
 	"EKS_AUDIT":                true,
 	"ASFF_SECURITYHUB_FINDING": true,
 }
@@ -27,8 +27,8 @@ func (b *InMemoryBackend) ListDatasourcePackages(
 	b.mu.RLock("ListDatasourcePackages")
 	defer b.mu.RUnlock()
 
-	if !b.graphs.Has(graphARN) {
-		return nil, "", ErrGraphNotFound
+	if err := b.requireGraphLocked(graphARN); err != nil {
+		return nil, "", err
 	}
 
 	pkgMap := b.datasources[graphARN]
@@ -43,9 +43,9 @@ func (b *InMemoryBackend) ListDatasourcePackages(
 		start = len(keys)
 	}
 
-	limit := int(maxResults)
-	if limit <= 0 || limit > maxDatasourcesPerPage {
-		limit = maxDatasourcesPerPage
+	limit, err := pageLimit(maxResults, maxDatasourcesPerPage)
+	if err != nil {
+		return nil, "", err
 	}
 
 	end := min(start+limit, len(keys))
@@ -77,8 +77,8 @@ func (b *InMemoryBackend) UpdateDatasourcePackages(graphARN string, packages []s
 	b.mu.Lock("UpdateDatasourcePackages")
 	defer b.mu.Unlock()
 
-	if !b.graphs.Has(graphARN) {
-		return ErrGraphNotFound
+	if err := b.requireGraphLocked(graphARN); err != nil {
+		return err
 	}
 
 	if b.datasources[graphARN] == nil {
@@ -124,8 +124,8 @@ func (b *InMemoryBackend) BatchGetGraphMemberDatasources(
 	b.mu.RLock("BatchGetGraphMemberDatasources")
 	defer b.mu.RUnlock()
 
-	if !b.graphs.Has(graphARN) {
-		return nil, nil, ErrGraphNotFound
+	if err := b.requireGraphLocked(graphARN); err != nil {
+		return nil, nil, err
 	}
 
 	var results []MembershipDatasources

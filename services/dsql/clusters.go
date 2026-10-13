@@ -23,6 +23,12 @@ func (b *InMemoryBackend) CreateCluster(accountID, region string, in CreateClust
 		return nil, err
 	}
 
+	if in.Policy != "" {
+		if err := validatePolicyDocument(in.Policy); err != nil {
+			return nil, err
+		}
+	}
+
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
@@ -48,7 +54,7 @@ func (b *InMemoryBackend) CreateCluster(accountID, region string, in CreateClust
 		Region:                    region,
 		Status:                    statusCreating,
 		CreationTime:              now,
-		PendingUntil:              now.Add(clusterActivationDelay),
+		PendingUntil:              now.Add(b.dwell(clusterActivationDelay)),
 		KmsEncryptionKey:          in.KmsEncryptionKey,
 		DeletionProtectionEnabled: in.DeletionProtectionEnabled,
 		MultiRegion:               in.MultiRegion.clone(),
@@ -154,7 +160,7 @@ func (b *InMemoryBackend) UpdateCluster(identifier string, in UpdateClusterInput
 
 	now := time.Now().UTC()
 	c.Status = statusUpdating
-	c.PendingUntil = now.Add(clusterActivationDelay)
+	c.PendingUntil = now.Add(b.dwell(clusterActivationDelay))
 	b.activatePeersLocked(c, c.PendingUntil)
 
 	return c.clone(), nil
@@ -178,7 +184,7 @@ func (b *InMemoryBackend) DeleteCluster(identifier string) (*Cluster, error) {
 
 	now := time.Now().UTC()
 	c.Status = statusDeleting
-	c.PendingUntil = now.Add(clusterDeletionDelay)
+	c.PendingUntil = now.Add(b.dwell(clusterDeletionDelay))
 	b.unlinkPeersLocked(c)
 
 	return c.clone(), nil

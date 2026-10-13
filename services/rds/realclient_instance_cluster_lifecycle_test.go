@@ -179,6 +179,7 @@ func testClusterLifecycleRealClient(t *testing.T) {
 		"slice8-cluster", "aurora-mysql", "admin", "mydb", "", 3306, nil, rds.DBClusterOptions{},
 	)
 	require.NoError(t, err)
+	waitForClusterStatus(t, backend, "slice8-cluster", "available")
 
 	modifyOut, err := client.ModifyDBCluster(ctx, &rdssdk.ModifyDBClusterInput{
 		DBClusterIdentifier:   aws.String("slice8-cluster"),
@@ -510,6 +511,10 @@ func testGlobalClusterBlueGreenRealClient(t *testing.T) {
 		"slice8-globalcluster",
 		aws.ToString(removeOut.GlobalCluster.GlobalClusterIdentifier),
 	)
+
+	_, err = backend.CreateDBCluster("slice8-target", "aurora-mysql", "admin", "", "", 3306, nil,
+		rds.DBClusterOptions{GlobalClusterIdentifier: "slice8-globalcluster"})
+	require.NoError(t, err)
 
 	failoverOut, err := client.FailoverGlobalCluster(ctx, &rdssdk.FailoverGlobalClusterInput{
 		GlobalClusterIdentifier: aws.String("slice8-globalcluster"),

@@ -34,5 +34,9 @@ func (h *Handler) dispatchGetFederationToken(r *http.Request) (*GetFederationTok
 		input.DurationSeconds = int32(d)
 	}
 
+	if err := h.rejectSessionCaller(r, "GetFederationToken"); err != nil {
+		return nil, err
+	}
+
 	return h.Backend.GetFederationToken(input)
 }

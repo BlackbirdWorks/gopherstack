@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // identityCenterTokenExpiryMinutes is the validity window for a generated IdentityCenter auth token.
@@ -26,6 +28,8 @@ type redshiftIdcAppXML struct {
 
 	AuthorizedTokenIssuerList []xmlAuthorizedTokenIssuer `xml:"AuthorizedTokenIssuerList>member,omitempty"`
 	SsoTagKeys                []string                   `xml:"SsoTagKeys>TagKey,omitempty"`
+	ServiceIntegrations       []xmlServiceIntegration    `xml:"ServiceIntegrations>member,omitempty"`
+	Tags                      []svcTags.KV               `xml:"Tags>Tag,omitempty"`
 }
 
 type xmlAuthorizedTokenIssuer struct {
@@ -53,12 +57,18 @@ func parseAuthorizedTokenIssuers(vals url.Values) []AuthorizedTokenIssuer {
 	return out
 }
 
-func parseIdcApplicationExtras(vals url.Values) IdcApplicationExtras {
+func parseIdcApplicationExtras(vals url.Values) (IdcApplicationExtras, error) {
+	integrations, err := parseServiceIntegrations(vals)
+	if err != nil {
+		return IdcApplicationExtras{}, err
+	}
+
 	return IdcApplicationExtras{
 		IdentityNamespace:         vals.Get("IdentityNamespace"),
 		AuthorizedTokenIssuerList: parseAuthorizedTokenIssuers(vals),
 		SsoTagKeys:                parseStringList(vals, "SsoTagKeys.TagKey."),
-	}
+		ServiceIntegrations:       integrations,
+	}, nil
 }
 
 func idcAppToXML(app *IdcApplication) redshiftIdcAppXML {
@@ -71,12 +81,14 @@ func idcAppToXML(app *IdcApplication) redshiftIdcAppXML {
 		IdentityNamespace:         app.IdentityNamespace,
 		AuthorizedTokenIssuerList: issuers,
 		SsoTagKeys:                app.SsoTagKeys,
+		ServiceIntegrations:       serviceIntegrationsToXML(app.ServiceIntegrations),
 		IdcApplicationArn:         app.IdcApplicationArn,
 		IdcApplicationName:        app.IdcApplicationName,
 		IdcInstanceArn:            app.IdcInstanceArn,
 		IdcDisplayName:            app.IdcDisplayName,
 		IamRoleArn:                app.IamRoleArn,
 		ApplicationType:           app.ApplicationType,
+		Tags:                      tagMapToKVList(app.Tags),
 	}
 }
 
@@ -96,17 +108,31 @@ type createIdcApplicationResponse struct {
 // aws-sdk-go-v2 clients send the application name as RedshiftIdcApplicationName
 // (confirmed against CreateRedshiftIdcApplicationInput), not IdcApplicationName.
 func (h *Handler) handleCreateIdcApplication(vals url.Values) (any, error) {
+	tags := parseRedshiftTags(vals)
+	appName := vals.Get("RedshiftIdcApplicationName")
+
+	extras, err := parseIdcApplicationExtras(vals)
+	if err != nil {
+		return nil, err
+	}
+
 	app, err := h.Backend.CreateIdcApplication(
-		vals.Get("RedshiftIdcApplicationName"),
+		appName,
 		vals.Get("IdcInstanceArn"),
 		vals.Get("IdcDisplayName"),
 		vals.Get("IamRoleArn"),
 		vals.Get("ApplicationType"),
-		parseIdcApplicationExtras(vals),
+		extras,
 	)
 	if err != nil {
 		return nil, err
 	}
+
+	if err = h.Backend.TagNewResource(tagTypeIdcApplication, appName, tags); err != nil {
+		return nil, err
+	}
+
+	app.Tags = tags
 
 	return &createIdcApplicationResponse{
 		Xmlns:  redshiftXMLNS,
@@ -174,11 +200,16 @@ type modifyIdcApplicationResponse struct {
 // send the lookup key as RedshiftIdcApplicationArn (confirmed against
 // ModifyRedshiftIdcApplicationInput), not IdcApplicationArn.
 func (h *Handler) handleModifyIdcApplication(vals url.Values) (any, error) {
+	extras, err := parseIdcApplicationExtras(vals)
+	if err != nil {
+		return nil, err
+	}
+
 	app, err := h.Backend.ModifyIdcApplication(
 		vals.Get("RedshiftIdcApplicationArn"),
 		vals.Get("IdcDisplayName"),
 		vals.Get("IamRoleArn"),
-		parseIdcApplicationExtras(vals),
+		extras,
 	)
 	if err != nil {
 		return nil, err

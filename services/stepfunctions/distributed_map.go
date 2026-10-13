@@ -123,8 +123,7 @@ func (b *InMemoryBackend) runDistributedMapChild(
 	input := marshalDistributedMapInput(item)
 	itemCount := distributedMapItemCount(item)
 
-	const millisPerSecond = 1000.0
-	now := float64(time.Now().UnixMilli()) / millisPerSecond
+	now := epochNow()
 
 	b.mu.Lock("runDistributedMapChild.create")
 	b.mapChildSeq++

@@ -107,12 +107,37 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, newUnknownOpError(action)
 	}
 
+	if err := h.precheck(action, body); err != nil {
+		return nil, err
+	}
+
 	result, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(result)
+}
+
+func (h *Handler) precheck(action string, body []byte) error {
+	if err := validatePageParams(body); err != nil {
+		return err
+	}
+
+	if action == "DescribeOrganization" || action == "ListOrganizations" || action == "CreateOrganization" {
+		return nil
+	}
+
+	orgID := organizationIDOf(body)
+	if orgID == "" {
+		return nil
+	}
+
+	if bk, ok := h.Backend.(*InMemoryBackend); ok {
+		return bk.requireActiveOrg(orgID)
+	}
+
+	return nil
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
@@ -146,11 +171,15 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		code, status = "MailDomainStateException", http.StatusBadRequest
 	case errors.Is(err, ErrEntityState):
 		code, status = "EntityStateException", http.StatusBadRequest
+	case errors.Is(err, ErrOrganizationState):
+		code, status = "OrganizationStateException", http.StatusBadRequest
 	case isUnknownOp(err):
 		code, status = "InvalidParameterException", http.StatusBadRequest
 	}
 
-	payload, marshalErr := json.Marshal(service.JSONErrorResponse{Type: code, Message: err.Error()})
+	payload, marshalErr := json.Marshal(
+		service.JSONErrorResponse{Type: code, Message: strings.TrimPrefix(err.Error(), code+": ")},
+	)
 	if marshalErr != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}

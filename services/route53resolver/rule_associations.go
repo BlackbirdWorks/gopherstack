@@ -19,7 +19,7 @@ func (b *InMemoryBackend) AssociateResolverRule(
 	region := getRegion(ctx, b.region)
 
 	if !b.rules.Has(regionalKey(region, resolverRuleID)) {
-		return nil, fmt.Errorf("%w: resolver rule %s not found", ErrNotFound, resolverRuleID)
+		return nil, fmt.Errorf("%w: Resolver rule with ID '%s' does not exist", ErrNotFound, resolverRuleID)
 	}
 
 	// AssociateResolverRule models ResourceExistsException ("The resource that
@@ -47,10 +47,10 @@ func (b *InMemoryBackend) AssociateResolverRule(
 		Status:         statusComplete,
 		Region:         region,
 	}
+	assoc.creatingUntil = b.transitionDeadline()
 	b.ruleAssociations.Put(assoc)
-	cp := *assoc
 
-	return &cp, nil
+	return b.assocView(assoc), nil
 }
 
 // GetResolverRuleAssociation retrieves a rule association by ID.
@@ -63,9 +63,8 @@ func (b *InMemoryBackend) GetResolverRuleAssociation(ctx context.Context, id str
 	if !ok {
 		return nil, fmt.Errorf("%w: resolver rule association %s not found", ErrNotFound, id)
 	}
-	cp := *assoc
 
-	return &cp, nil
+	return b.assocView(assoc), nil
 }
 
 // DisassociateResolverRule removes a resolver rule association, looked up by
@@ -87,6 +86,7 @@ func (b *InMemoryBackend) DisassociateResolverRule(
 		}
 
 		cp := *assoc
+		cp.Status = statusDeleting
 		b.ruleAssociations.Delete(regionalKey(region, assoc.ID))
 
 		return &cp, nil
@@ -109,8 +109,7 @@ func (b *InMemoryBackend) ListResolverRuleAssociations(ctx context.Context) []*R
 	regionAssocs := b.ruleAssociationsByRegion.Get(region)
 	list := make([]*ResolverRuleAssociation, 0, len(regionAssocs))
 	for _, a := range regionAssocs {
-		cp := *a
-		list = append(list, &cp)
+		list = append(list, b.assocView(a))
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
 

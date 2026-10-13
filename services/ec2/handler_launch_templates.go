@@ -3,7 +3,6 @@ package ec2
 import (
 	"encoding/xml"
 	"net/url"
-	"slices"
 	"strconv"
 	"time"
 )
@@ -36,21 +35,6 @@ func (h *Handler) handleDeleteLaunchTemplate(vals url.Values, reqID string) (any
 // backend only ever stores one version snapshot per template, so Versions/
 // MinVersion/MaxVersion are applied against that single item rather than a
 // real multi-version history (which this mock does not model).
-// launchTemplateIDFor resolves LaunchTemplateId, falling back to LaunchTemplateName.
-func (h *Handler) launchTemplateIDFor(vals url.Values) string {
-	if id := vals.Get("LaunchTemplateId"); id != "" {
-		return id
-	}
-
-	if name := vals.Get("LaunchTemplateName"); name != "" {
-		if matches := h.Backend.DescribeLaunchTemplates([]string{name}); len(matches) > 0 {
-			return matches[0].ID
-		}
-	}
-
-	return ""
-}
-
 func parseVersionBound(raw string) (int64, bool) {
 	if raw == "" {
 		return 0, false
@@ -62,47 +46,42 @@ func parseVersionBound(raw string) (int64, bool) {
 }
 
 func (h *Handler) handleDescribeLaunchTemplateVersions(vals url.Values, reqID string) (any, error) {
-	versions, err := h.Backend.DescribeLaunchTemplateVersions(h.launchTemplateIDFor(vals))
-	if err != nil {
-		return nil, err
+	var versions []LaunchTemplateVersion
+
+	if ref := h.launchTemplateRef(vals); ref != "" {
+		var err error
+
+		if _, versions, err = h.Backend.LaunchTemplateVersions(ref); err != nil {
+			return nil, err
+		}
+	} else {
+		versions = h.Backend.AllLaunchTemplateVersions()
 	}
 
-	requestedVersions := parseMemberList(vals, "LaunchTemplateVersion")
+	requested := parseMemberList(vals, "LaunchTemplateVersion")
 	minVersion, hasMin := parseVersionBound(vals.Get("MinVersion"))
 	maxVersion, hasMax := parseVersionBound(vals.Get("MaxVersion"))
-
 	resolveAlias := vals.Get("ResolveAlias") == ec2BooleanTrue
 
+	var latest int64
+	for _, v := range versions {
+		latest = max(latest, v.VersionNumber)
+	}
+
 	items := make([]launchTemplateVersionItem, 0, len(versions))
-	for _, lt := range versions {
-		if len(requestedVersions) > 0 &&
-			!slices.Contains(requestedVersions, strconv.FormatInt(lt.LatestVersionNumber, 10)) {
+
+	for _, v := range versions {
+		if len(requested) > 0 && !launchTemplateVersionRequested(requested, v, latest) {
 			continue
 		}
 
-		if hasMin && lt.LatestVersionNumber < minVersion {
+		if (hasMin && v.VersionNumber < minVersion) || (hasMax && v.VersionNumber > maxVersion) {
 			continue
 		}
 
-		if hasMax && lt.LatestVersionNumber > maxVersion {
-			continue
-		}
-
-		item := launchTemplateVersionItem{
-			LaunchTemplateID:   lt.ID,
-			LaunchTemplateName: lt.Name,
-			CreatedBy:          lt.CreatedBy,
-			CreateTime:         lt.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
-			VersionNumber:      lt.LatestVersionNumber,
-			DefaultVersion:     lt.DefaultVersionNumber == lt.LatestVersionNumber,
-		}
-		item.LaunchTemplateData.ImageID = lt.ImageID
-		item.LaunchTemplateData.InstanceType = lt.InstanceType
-
-		if resolveAlias {
-			if item.LaunchTemplateData.ImageID, err = h.Backend.ResolveSSMImageAlias(lt.ImageID); err != nil {
-				return nil, err
-			}
+		item, err := h.launchTemplateVersionItemFor(v, resolveAlias)
+		if err != nil {
+			return nil, err
 		}
 
 		items = append(items, item)
@@ -115,6 +94,27 @@ func (h *Handler) handleDescribeLaunchTemplateVersions(vals url.Values, reqID st
 		RequestID: reqID,
 		Versions:  launchTemplateVersionSet{Items: items},
 	}, describeOpts{spec: specLaunchTemplates()})
+}
+
+func launchTemplateVersionRequested(requested []string, v LaunchTemplateVersion, latest int64) bool {
+	for _, r := range requested {
+		switch r {
+		case launchTemplateVersionLatest:
+			if v.VersionNumber == latest {
+				return true
+			}
+		case launchTemplateVersionDefault:
+			if v.DefaultVersion {
+				return true
+			}
+		default:
+			if r == strconv.FormatInt(v.VersionNumber, 10) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // ---- VPC endpoint delete handler ----

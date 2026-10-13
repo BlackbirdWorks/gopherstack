@@ -28,6 +28,9 @@ func (h *Handler) handleCreateEndpointFSM(ctx context.Context, body []byte) ([]b
 	if req.EndpointName == "" {
 		return nil, fmt.Errorf("%w: EndpointName is required", errInvalidRequest)
 	}
+	if err := validateResourceName("EndpointName", req.EndpointName); err != nil {
+		return nil, err
+	}
 	if req.EndpointConfigName == "" {
 		return nil, fmt.Errorf("%w: EndpointConfigName is required", errInvalidRequest)
 	}

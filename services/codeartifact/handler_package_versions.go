@@ -136,10 +136,25 @@ func packageVersionOutcomesToWire(
 
 	failedList := make(map[string]any, len(failed))
 	for v, code := range failed {
-		failedList[v] = map[string]any{"errorCode": code}
+		failedList[v] = map[string]any{"errorCode": code, "errorMessage": packageVersionErrorMessage(code, v)}
 	}
 
 	return successList, failedList
+}
+
+func packageVersionErrorMessage(code, version string) string {
+	switch code {
+	case packageVersionErrorNotFound:
+		return "package version " + version + " was not found"
+	case packageVersionErrorAlreadyExists:
+		return "package version " + version + " already exists in the destination repository"
+	case packageVersionErrorMismatchedRev:
+		return "the revision of package version " + version + " does not match the expected revision"
+	case packageVersionErrorMismatchedStatus:
+		return "the status of package version " + version + " does not match the expected status"
+	default:
+		return "package version " + version + " could not be processed: " + code
+	}
 }
 
 type deletePackageVersionsBody struct {

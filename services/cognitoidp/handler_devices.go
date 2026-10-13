@@ -95,7 +95,8 @@ func (h *Handler) handleAdminUpdateDeviceStatus(
 }
 
 func (h *Handler) handleConfirmDevice(_ context.Context, in *confirmDeviceInput) (*confirmDeviceOutput, error) {
-	_, necessary, err := h.Backend.ConfirmDevice(in.AccessToken, in.DeviceKey, in.DeviceName)
+	_, necessary, err := h.Backend.ConfirmDeviceWithVerifier(
+		in.AccessToken, in.DeviceKey, in.DeviceName, in.DeviceSecretVerifierConfig)
 	if err != nil {
 		return nil, err
 	}

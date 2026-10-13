@@ -48,6 +48,15 @@ func (b *InMemoryBackend) newManualClusterSnapshotLocked(snapshotID string, clus
 		SnapshotType:                snapshotTypeManual,
 		PercentProgress:             percentProgressComplete,
 		StorageEncrypted:            cluster.StorageEncrypted,
+		KmsKeyID:                    cluster.KmsKeyID,
+		ClusterCreateTime:           cluster.ClusterCreateTime,
+		MasterUsername:              cluster.MasterUsername,
+		StorageType:                 cluster.StorageType,
+		Port:                        cluster.Port,
+		AllocatedStorage:            cluster.AllocatedStorage,
+		Iops:                        cluster.Iops,
+		BackupRetentionPeriod:       cluster.BackupRetentionPeriod,
+		IAMDatabaseAuthEnabled:      cluster.IAMDatabaseAuthenticationEnabled,
 	}
 }
 
@@ -222,6 +231,14 @@ func (b *InMemoryBackend) CopyDBClusterSnapshotWithKMS(
 		KmsKeyID:                    cmp.Or(kmsKeyID, source.KmsKeyID),
 		CopyTagsToSnapshot:          copyTags,
 		SourceDBClusterSnapshotArn:  source.DBClusterSnapshotArn,
+		ClusterCreateTime:           source.ClusterCreateTime,
+		MasterUsername:              source.MasterUsername,
+		StorageType:                 source.StorageType,
+		Port:                        source.Port,
+		AllocatedStorage:            source.AllocatedStorage,
+		Iops:                        source.Iops,
+		BackupRetentionPeriod:       source.BackupRetentionPeriod,
+		IAMDatabaseAuthEnabled:      source.IAMDatabaseAuthEnabled,
 	}
 	b.clusterSnapshots.Put(snap)
 	if copyTags {

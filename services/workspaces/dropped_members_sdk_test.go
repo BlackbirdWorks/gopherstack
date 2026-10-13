@@ -101,6 +101,11 @@ func TestRegisterWorkspaceDirectory_RegistrationMembersRoundTrip(t *testing.T) {
 				t.Helper()
 				require.NotNil(t, d.IDCConfig)
 				assert.Equal(t, "arn:aws:sso:::instance/ssoins-1", aws.ToString(d.IDCConfig.InstanceArn))
+				assert.Regexp(
+					t,
+					`^arn:aws:sso::\d{12}:application/ssoins-1/apl-[0-9a-f]+$`,
+					aws.ToString(d.IDCConfig.ApplicationArn),
+				)
 				assert.Equal(t, types.UserIdentityTypeAwsIamIdentityCenter, d.UserIdentityType)
 				assert.Equal(t, types.WorkspaceDirectoryTypeAwsIamIdentityCenter, d.DirectoryType)
 			},
@@ -731,7 +736,7 @@ func TestSnapshotRestore_KeepsDirectoryClientAndImageState(t *testing.T) {
 			name: "image permissions",
 			seed: func(t *testing.T, b *workspaces.InMemoryBackend) {
 				t.Helper()
-				id, err := b.ImportWorkspaceImage("ami-1", "img", "d", "BYOL_REGULAR", nil)
+				id, err := b.ImportWorkspaceImage("ami-1", "img", "d", "BYOL_REGULAR", nil, nil)
 				require.NoError(t, err)
 				require.NoError(t, b.UpdateWorkspaceImagePermission(id, "111111111111", true))
 			},

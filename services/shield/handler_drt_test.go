@@ -25,7 +25,7 @@ func TestHandler_AssociateDRTLogBucket(t *testing.T) {
 			name: "success",
 			setup: func(h *shield.Handler) {
 				require.NoError(t, h.Backend.CreateSubscription())
-				require.NoError(t, h.Backend.AssociateDRTRole("arn:aws:iam::123:role/DRTRole"))
+				require.NoError(t, h.Backend.AssociateDRTRole("arn:aws:iam::123456789012:role/DRTRole"))
 			},
 			body:       map[string]any{"LogBucket": "my-shield-logs"},
 			wantStatus: http.StatusOK,
@@ -130,12 +130,12 @@ func TestHandler_DescribeDRTAccess(t *testing.T) {
 			name: "with role and bucket",
 			setup: func(h *shield.Handler) {
 				require.NoError(t, h.Backend.CreateSubscription())
-				require.NoError(t, h.Backend.AssociateDRTRole("arn:aws:iam::123:role/DRTRole"))
+				require.NoError(t, h.Backend.AssociateDRTRole("arn:aws:iam::123456789012:role/DRTRole"))
 				require.NoError(t, h.Backend.AssociateDRTLogBucket("my-logs-bucket"))
 			},
 			wantStatus:  http.StatusOK,
 			wantBuckets: 1,
-			wantRoleArn: "arn:aws:iam::123:role/DRTRole",
+			wantRoleArn: "arn:aws:iam::123456789012:role/DRTRole",
 		},
 	}
 
@@ -168,7 +168,7 @@ func TestHandler_DisassociateDRTLogBucket(t *testing.T) {
 
 	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b.CreateSubscription())
-	require.NoError(t, b.AssociateDRTRole("arn:aws:iam::123:role/DRTRole"))
+	require.NoError(t, b.AssociateDRTRole("arn:aws:iam::123456789012:role/DRTRole"))
 	require.NoError(t, b.AssociateDRTLogBucket("my-bucket"))
 
 	h := shield.NewHandler(b)
@@ -182,7 +182,7 @@ func TestHandler_DisassociateDRTRole(t *testing.T) {
 
 	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b.CreateSubscription())
-	require.NoError(t, b.AssociateDRTRole("arn:aws:iam::123:role/DRTRole"))
+	require.NoError(t, b.AssociateDRTRole("arn:aws:iam::123456789012:role/DRTRole"))
 
 	h := shield.NewHandler(b)
 	rec := doShieldRequest(t, h, "DisassociateDRTRole", nil)

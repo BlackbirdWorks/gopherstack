@@ -281,18 +281,18 @@ func TestRegisterDeregisterInstance(t *testing.T) {
 				rec = doTarget(t, h, "DescribeInstances", map[string]any{
 					"InstanceIds": []string{instanceID},
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
-			name: "RegisterInstance on nonexistent stack returns 404",
+			name: "RegisterInstance on nonexistent stack returns ResourceNotFoundException",
 			check: func(t *testing.T, h *opsworks.Handler) {
 				t.Helper()
 				rec := doTarget(t, h, "RegisterInstance", map[string]any{
 					"StackId":  "nonexistent",
 					"Hostname": "host",
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -402,7 +402,7 @@ func TestAssignUnassignInstance(t *testing.T) {
 			},
 		},
 		{
-			name: "AssignInstance with nonexistent layer returns 404",
+			name: "AssignInstance with nonexistent layer returns ResourceNotFoundException",
 			check: func(t *testing.T, h *opsworks.Handler) {
 				t.Helper()
 				stackID := createTestStack(t, h)
@@ -418,7 +418,7 @@ func TestAssignUnassignInstance(t *testing.T) {
 					"InstanceId": instanceID,
 					"LayerIds":   []string{"nonexistent-layer"},
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{

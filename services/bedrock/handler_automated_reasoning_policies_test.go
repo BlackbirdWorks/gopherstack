@@ -120,7 +120,7 @@ func TestHandler_CancelAutomatedReasoningPolicyBuildWorkflow( //nolint:parallelt
 
 			path := fmt.Sprintf("/automated-reasoning-policies/%s/build-workflows/%s/cancel",
 				url.PathEscape(policyARN), workflowID)
-			rec := doRequest(t, h, http.MethodPost, path, nil)
+			rec := doRequest(t, h, http.MethodPost, path, arpTestCaseBody)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -160,7 +160,7 @@ func TestHandler_CreateAutomatedReasoningPolicyTestCase( //nolint:paralleltest /
 			}
 
 			path := fmt.Sprintf("/automated-reasoning-policies/%s/test-cases", url.PathEscape(policyARN))
-			rec := doRequest(t, h, http.MethodPost, path, nil)
+			rec := doRequest(t, h, http.MethodPost, path, arpTestCaseBody)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusCreated {
@@ -511,7 +511,7 @@ func TestAccuracy_ARP_TestCaseRoundTrip(t *testing.T) {
 	tcRec := doRequest(
 		t, h, http.MethodPost,
 		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases",
-		map[string]any{"input": "Is 2 + 2 = 4?"},
+		arpTestCaseBody,
 	)
 	require.Equal(t, http.StatusCreated, tcRec.Code)
 
@@ -708,7 +708,7 @@ func TestHandler_DeleteAutomatedReasoningPolicy_ResourceInUse(t *testing.T) {
 			name: "test case blocks delete without force",
 			setup: func(t *testing.T, b *bedrock.InMemoryBackend, policyARN string) {
 				t.Helper()
-				_, err := b.CreateAutomatedReasoningPolicyTestCase(policyARN)
+				_, err := b.CreateAutomatedReasoningPolicyTestCase(policyARN, validARPTestCase())
 				require.NoError(t, err)
 			},
 			wantStatus: http.StatusConflict,
@@ -717,7 +717,7 @@ func TestHandler_DeleteAutomatedReasoningPolicy_ResourceInUse(t *testing.T) {
 			name: "test case does not block delete with force",
 			setup: func(t *testing.T, b *bedrock.InMemoryBackend, policyARN string) {
 				t.Helper()
-				_, err := b.CreateAutomatedReasoningPolicyTestCase(policyARN)
+				_, err := b.CreateAutomatedReasoningPolicyTestCase(policyARN, validARPTestCase())
 				require.NoError(t, err)
 			},
 			force:      true,
@@ -878,7 +878,7 @@ func TestHandler_GetListDeleteARPTestCase(t *testing.T) {
 	policyARN := created["policyArn"].(string)
 
 	recTC := doRequest(t, h, http.MethodPost,
-		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", nil)
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", arpTestCaseBody)
 	require.Equal(t, http.StatusCreated, recTC.Code)
 
 	var tc map[string]any
@@ -937,7 +937,7 @@ func TestAccuracy_ARPTestCase_UpdateAppliesContent(t *testing.T) {
 	policyARN := created["policyArn"].(string)
 
 	recTC := doRequest(t, h, http.MethodPost,
-		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", nil)
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", arpTestCaseBody)
 	require.Equal(t, http.StatusCreated, recTC.Code)
 
 	var tc map[string]any
@@ -986,7 +986,7 @@ func TestAccuracy_ARPTestCase_UpdateRequiresGuardContent(t *testing.T) {
 	policyARN := created["policyArn"].(string)
 
 	recTC := doRequest(t, h, http.MethodPost,
-		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", nil)
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", arpTestCaseBody)
 	require.Equal(t, http.StatusCreated, recTC.Code)
 
 	var tc map[string]any
@@ -1025,7 +1025,7 @@ func TestAccuracy_ARP_UpdateOpsRejectOldPUTMethod(t *testing.T) {
 	policyARN := out["policyArn"].(string)
 
 	tcRec := doRequest(t, h, http.MethodPost,
-		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", nil)
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", arpTestCaseBody)
 	require.Equal(t, http.StatusCreated, tcRec.Code)
 
 	var tcOut map[string]any
@@ -1137,7 +1137,7 @@ func TestAccuracy_ARP_BuildWorkflowScopedSubResources(t *testing.T) {
 			wf := h.Backend.AddBuildWorkflowForTest(policyARN)
 
 			tcRec := doRequest(t, h, http.MethodPost,
-				"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", nil)
+				"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", arpTestCaseBody)
 			require.Equal(t, http.StatusCreated, tcRec.Code)
 
 			var tc map[string]any
@@ -1253,7 +1253,7 @@ func TestAccuracy_ARP_OldInventedSubResourcePathsGone(t *testing.T) {
 	policyARN := created["policyArn"].(string)
 
 	tcRec := doRequest(t, h, http.MethodPost,
-		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", nil)
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", arpTestCaseBody)
 	require.Equal(t, http.StatusCreated, tcRec.Code)
 
 	var tc map[string]any

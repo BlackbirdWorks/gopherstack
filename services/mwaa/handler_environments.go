@@ -58,7 +58,10 @@ func (h *Handler) handleUpdateEnvironment(c *echo.Context, name string) error {
 
 func (h *Handler) handleListEnvironments(c *echo.Context) error {
 	q := c.Request().URL.Query()
-	nextToken := q.Get("NextToken")
+	nextToken, ok := decodeListToken(q.Get("NextToken"))
+	if !ok {
+		return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", "Invalid NextToken")
+	}
 
 	pageSize := 0
 	if v := q.Get("MaxResults"); v != "" {
@@ -82,7 +85,7 @@ func (h *Handler) handleListEnvironments(c *echo.Context) error {
 
 	resp := map[string]any{"Environments": names}
 	if outToken != "" {
-		resp["NextToken"] = outToken
+		resp["NextToken"] = encodeListToken(outToken)
 	}
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)

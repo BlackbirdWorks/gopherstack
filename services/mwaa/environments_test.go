@@ -357,8 +357,8 @@ func TestBackend_UpdateEnvironment_MinMaxValidation(t *testing.T) {
 				"env-update",
 				&mwaa.ExportedCreateEnvironmentRequest{
 					DagS3Path:            "dags/",
-					ExecutionRoleArn:     "arn:r",
-					SourceBucketArn:      "arn:b",
+					ExecutionRoleArn:     "arn:aws:iam::123456789012:role/r",
+					SourceBucketArn:      "arn:aws:s3:::b",
 					NetworkConfiguration: testNetworkConfig(),
 				},
 			)
@@ -546,8 +546,8 @@ func TestHandler_CreateEnvironment_InvalidJSON(t *testing.T) {
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			_, err := b.CreateEnvironment(context.Background(), "env-err", &mwaa.ExportedCreateEnvironmentRequest{
 				DagS3Path:            "dags/",
-				ExecutionRoleArn:     "arn:r",
-				SourceBucketArn:      "arn:b",
+				ExecutionRoleArn:     "arn:aws:iam::123456789012:role/r",
+				SourceBucketArn:      "arn:aws:s3:::b",
 				NetworkConfiguration: testNetworkConfig(),
 				MinWorkers:           5,
 				MaxWorkers:           3,

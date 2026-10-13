@@ -20,8 +20,8 @@ func createTestJob(t *testing.T, h *translate.Handler) string {
 		"SourceLanguageCode":  "en",
 		"TargetLanguageCodes": []string{"fr"},
 		"DataAccessRoleArn":   "arn:aws:iam::000000000000:role/TranslateRole",
-		"InputDataConfig":     map[string]any{"S3Uri": "s3://b/i/", "ContentType": "text/plain"},
-		"OutputDataConfig":    map[string]any{"S3Uri": "s3://b/o/"},
+		"InputDataConfig":     map[string]any{"S3Uri": "s3://bkt/i/", "ContentType": "text/plain"},
+		"OutputDataConfig":    map[string]any{"S3Uri": "s3://bkt/o/"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -63,8 +63,8 @@ func TestDescribeTextTranslationJob(t *testing.T) {
 		"SourceLanguageCode":  "en",
 		"TargetLanguageCodes": []string{"es"},
 		"DataAccessRoleArn":   "arn:aws:iam::000000000000:role/TranslateRole",
-		"InputDataConfig":     map[string]any{"S3Uri": "s3://b/i/", "ContentType": "text/plain"},
-		"OutputDataConfig":    map[string]any{"S3Uri": "s3://b/o/"},
+		"InputDataConfig":     map[string]any{"S3Uri": "s3://bkt/i/", "ContentType": "text/plain"},
+		"OutputDataConfig":    map[string]any{"S3Uri": "s3://bkt/o/"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -90,8 +90,8 @@ func TestStopTextTranslationJob(t *testing.T) {
 		"SourceLanguageCode":  "en",
 		"TargetLanguageCodes": []string{"fr"},
 		"DataAccessRoleArn":   "arn:aws:iam::000000000000:role/TranslateRole",
-		"InputDataConfig":     map[string]any{"S3Uri": "s3://b/i/", "ContentType": "text/plain"},
-		"OutputDataConfig":    map[string]any{"S3Uri": "s3://b/o/"},
+		"InputDataConfig":     map[string]any{"S3Uri": "s3://bkt/i/", "ContentType": "text/plain"},
+		"OutputDataConfig":    map[string]any{"S3Uri": "s3://bkt/o/"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -115,8 +115,8 @@ func TestListTextTranslationJobs(t *testing.T) {
 			"SourceLanguageCode":  "en",
 			"TargetLanguageCodes": []string{"fr"},
 			"DataAccessRoleArn":   "arn:aws:iam::000000000000:role/TranslateRole",
-			"InputDataConfig":     map[string]any{"S3Uri": "s3://b/i/", "ContentType": "text/plain"},
-			"OutputDataConfig":    map[string]any{"S3Uri": "s3://b/o/"},
+			"InputDataConfig":     map[string]any{"S3Uri": "s3://bkt/i/", "ContentType": "text/plain"},
+			"OutputDataConfig":    map[string]any{"S3Uri": "s3://bkt/o/"},
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
@@ -236,7 +236,7 @@ func TestDescribeTextTranslationJob_TerminologyAndParallelDataFields(t *testing.
 
 	pdRec := doRequest(t, h, "CreateParallelData", map[string]any{
 		"Name":               "my-pd",
-		"ParallelDataConfig": map[string]any{"S3Uri": "s3://b/f.tmx", "Format": "TMX"},
+		"ParallelDataConfig": map[string]any{"S3Uri": "s3://bkt/f.tmx", "Format": "TMX"},
 	})
 	require.Equal(t, http.StatusOK, pdRec.Code)
 
@@ -245,8 +245,8 @@ func TestDescribeTextTranslationJob_TerminologyAndParallelDataFields(t *testing.
 		"SourceLanguageCode":  "en",
 		"TargetLanguageCodes": []string{"fr"},
 		"DataAccessRoleArn":   "arn:aws:iam::000000000000:role/TranslateRole",
-		"InputDataConfig":     map[string]any{"S3Uri": "s3://b/i/", "ContentType": "text/plain"},
-		"OutputDataConfig":    map[string]any{"S3Uri": "s3://b/o/"},
+		"InputDataConfig":     map[string]any{"S3Uri": "s3://bkt/i/", "ContentType": "text/plain"},
+		"OutputDataConfig":    map[string]any{"S3Uri": "s3://bkt/o/"},
 		"TerminologyNames":    []string{"my-term"},
 		"ParallelDataNames":   []string{"my-pd"},
 	})
@@ -297,8 +297,8 @@ func TestStartTextTranslationJob_UnknownTerminologyRejected(t *testing.T) {
 				"SourceLanguageCode":  "en",
 				"TargetLanguageCodes": []string{"fr"},
 				"DataAccessRoleArn":   "arn:aws:iam::000000000000:role/r",
-				"InputDataConfig":     map[string]any{"S3Uri": "s3://b/i/", "ContentType": "text/plain"},
-				"OutputDataConfig":    map[string]any{"S3Uri": "s3://b/o/"},
+				"InputDataConfig":     map[string]any{"S3Uri": "s3://bkt/i/", "ContentType": "text/plain"},
+				"OutputDataConfig":    map[string]any{"S3Uri": "s3://bkt/o/"},
 			}
 			maps.Copy(body, tt.body)
 
@@ -326,8 +326,8 @@ func TestStartTextTranslationJob_RequiredFieldsValidated(t *testing.T) {
 			"SourceLanguageCode":  "en",
 			"TargetLanguageCodes": []string{"fr"},
 			"DataAccessRoleArn":   "arn:aws:iam::000000000000:role/r",
-			"InputDataConfig":     map[string]any{"S3Uri": "s3://b/i/", "ContentType": "text/plain"},
-			"OutputDataConfig":    map[string]any{"S3Uri": "s3://b/o/"},
+			"InputDataConfig":     map[string]any{"S3Uri": "s3://bkt/i/", "ContentType": "text/plain"},
+			"OutputDataConfig":    map[string]any{"S3Uri": "s3://bkt/o/"},
 		}
 	}
 
@@ -399,8 +399,8 @@ func TestStartTextTranslationJob_UnsupportedLanguagePairRejected(t *testing.T) {
 				"SourceLanguageCode":  "en",
 				"TargetLanguageCodes": []string{"fr"},
 				"DataAccessRoleArn":   "arn:aws:iam::000000000000:role/r",
-				"InputDataConfig":     map[string]any{"S3Uri": "s3://b/i/", "ContentType": "text/plain"},
-				"OutputDataConfig":    map[string]any{"S3Uri": "s3://b/o/"},
+				"InputDataConfig":     map[string]any{"S3Uri": "s3://bkt/i/", "ContentType": "text/plain"},
+				"OutputDataConfig":    map[string]any{"S3Uri": "s3://bkt/o/"},
 			}
 			maps.Copy(body, tt.body)
 
@@ -429,8 +429,8 @@ func TestListTextTranslationJobs_StatusFilter(t *testing.T) {
 			"SourceLanguageCode":  "en",
 			"TargetLanguageCodes": []string{"fr"},
 			"DataAccessRoleArn":   "arn:aws:iam::000000000000:role/TranslateRole",
-			"InputDataConfig":     map[string]any{"S3Uri": "s3://b/i/", "ContentType": "text/plain"},
-			"OutputDataConfig":    map[string]any{"S3Uri": "s3://b/o/"},
+			"InputDataConfig":     map[string]any{"S3Uri": "s3://bkt/i/", "ContentType": "text/plain"},
+			"OutputDataConfig":    map[string]any{"S3Uri": "s3://bkt/o/"},
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
@@ -564,10 +564,10 @@ func TestListTextTranslationJobs_StatusFilterMinCount(t *testing.T) {
 			"TargetLanguageCodes": []string{"es"},
 			"DataAccessRoleArn":   "arn:aws:iam::000000000000:role/r",
 			"InputDataConfig": map[string]any{
-				"S3Uri":       "s3://b/i/",
+				"S3Uri":       "s3://bkt/i/",
 				"ContentType": "text/plain",
 			},
-			"OutputDataConfig": map[string]any{"S3Uri": "s3://b/o/"},
+			"OutputDataConfig": map[string]any{"S3Uri": "s3://bkt/o/"},
 		}
 	}
 

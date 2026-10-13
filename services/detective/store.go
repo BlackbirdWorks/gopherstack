@@ -59,20 +59,21 @@ func validateEmail(email string) bool {
 // store_setup.go); tags, datasources, and orgConfigs remain plain maps since
 // their values are not *T; orgAdmins remains a plain order-sensitive slice.
 type InMemoryBackend struct {
-	members               *store.Table[storedMember]
-	mu                    *lockmetrics.RWMutex
+	investigationsByGraph *store.Index[storedInvestigation]
+	orgConfigs            map[string]bool
 	registry              *store.Registry
 	graphs                *store.Table[storedGraph]
 	membersByGraph        *store.Index[storedMember]
 	investigations        *store.Table[storedInvestigation]
-	investigationsByGraph *store.Index[storedInvestigation]
-	tags                  map[string]map[string]string
+	mu                    *lockmetrics.RWMutex
 	datasources           map[string]map[string]string
+	members               *store.Table[storedMember]
 	datasourceChangedAt   map[string]map[string]time.Time
-	orgConfigs            map[string]bool
+	tags                  map[string]map[string]string
 	accountID             string
 	region                string
 	orgAdmins             []*storedOrgAdmin
+	lifecycleDelay        time.Duration
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.

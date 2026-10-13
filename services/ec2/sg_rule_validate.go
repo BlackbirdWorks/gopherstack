@@ -51,6 +51,7 @@ func validateSecurityGroupRules(existing, incoming []SecurityGroupRule) error {
 // must not affect authorize/revoke/duplicate-detection equality checks.
 func ruleKey(r SecurityGroupRule) SecurityGroupRule {
 	r.Description = ""
+	r.ID = ""
 
 	return r
 }
@@ -72,6 +73,12 @@ func validateSecurityGroupRule(rule SecurityGroupRule) error {
 		}
 	}
 
+	if rule.IPv6Range != "" {
+		if ip, _, cidrErr := net.ParseCIDR(rule.IPv6Range); cidrErr != nil || ip.To4() != nil {
+			return fmt.Errorf("%w: %q is not a valid IPv6 CIDR block", ErrInvalidParameter, rule.IPv6Range)
+		}
+	}
+
 	return nil
 }
 
@@ -80,7 +87,7 @@ func validateSecurityGroupRule(rule SecurityGroupRule) error {
 // or a numeric IP protocol number (0-255). It returns an error for anything else.
 func validateProtocol(proto string) (bool, error) {
 	switch proto {
-	case "tcp", "udp", "6", "17":
+	case protoTCP, protoUDP, "6", "17":
 		return true, nil
 	case "icmp", "icmpv6", "1", "58":
 		return false, nil

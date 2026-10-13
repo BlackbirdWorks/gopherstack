@@ -5,6 +5,11 @@ import (
 	"strings"
 )
 
+// namespaced returns prefix plus the form botocore clients send, which prepends "com.amazonaws.<ns>".
+func namespaced(ns, prefix string) []string {
+	return []string{prefix, "com.amazonaws." + ns + prefix}
+}
+
 // routeTargetGates maps each service to the X-Amz-Target prefixes its RouteMatcher requires;
 // TestRouteTargetGatesHold proves the matchers return false outside them.
 func routeTargetGates() map[string][]string {
@@ -17,14 +22,14 @@ func routeTargetGates() map[string][]string {
 		"Athena":                   {"AmazonAthena"},
 		"Ce":                       {"AWSInsightsIndexService."},
 		"CloudControl":             {"CloudApiService."},
-		"CloudTrail":               {"CloudTrail_20131101."},
+		"CloudTrail":               namespaced("cloudtrail.v20131101.", "CloudTrail_20131101."),
 		"CloudWatchLogs":           {"Logs_20140328."},
 		"CodeBuild":                {"CodeBuild_20161006."},
 		"CodeCommit":               {"CodeCommit_20150413."},
-		"CodeConnections":          {"CodeConnections_20231201."},
+		"CodeConnections":          namespaced("codeconnections.", "CodeConnections_20231201."),
 		"CodeDeploy":               {"CodeDeploy_20141006."},
 		"CodePipeline":             {"CodePipeline_20150709."},
-		"CodeStarConnections":      {"CodeStar_connections_20191201."},
+		"CodeStarConnections":      namespaced("codestar.connections.", "CodeStar_connections_20191201."),
 		"CognitoIdentity":          {"AWSCognitoIdentityService."},
 		"Comprehend":               {"Comprehend_20171127."},
 		"DAX":                      {"AmazonDAXV3."},

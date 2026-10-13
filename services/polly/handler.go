@@ -598,6 +598,7 @@ func (h *Handler) describeVoices(c *echo.Context) error {
 		Engine:                         c.QueryParam(queryEngine),
 		LanguageCode:                   c.QueryParam(queryLanguageCode),
 		Gender:                         c.QueryParam(queryGender),
+		NextToken:                      c.QueryParam(queryNextToken),
 		IncludeAdditionalLanguageCodes: include,
 	})
 	if err != nil {
@@ -676,11 +677,11 @@ var onceErrorTable = sync.OnceValue(func() []pollyErrorEntry {
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	for _, entry := range onceErrorTable() {
 		if errors.Is(err, entry.sentinel) {
-			return writeError(c, entry.status, entry.typ, err.Error())
+			return writeError(c, entry.status, entry.typ, errMessage(err))
 		}
 	}
 
-	return writeError(c, http.StatusInternalServerError, "ServiceFailureException", err.Error())
+	return writeError(c, http.StatusInternalServerError, "ServiceFailureException", errMessage(err))
 }
 
 func writeError(c *echo.Context, code int, typ, message string) error {

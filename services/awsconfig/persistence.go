@@ -196,6 +196,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.registry.ResetAll()
 		b.remediationExecutions.Reset()
 		b.ruleEvaluations = make(map[string]string)
+		b.ruleActivity = make(map[string]*ruleActivity)
+		b.packTransitions = make(map[string]packTransition)
 		b.resourceHistory = make(map[string][]ResourceConfigItem)
 		b.resourceTags = make(map[string][]Tag)
 		b.remediationExceptions = make(map[string][]RemediationException)

@@ -162,7 +162,7 @@ func (b *InMemoryBackend) signAndStoreCertificateLocked(
 		return nil, fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
 
-	if ca.Status != caStatusActive {
+	if ca.currentStatus() != caStatusActive {
 		return nil, fmt.Errorf("%w: CA %s is not ACTIVE", ErrInvalidState, caARN)
 	}
 

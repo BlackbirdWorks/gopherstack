@@ -49,6 +49,10 @@ func (b *InMemoryBackend) CreateAPIDestination(ctx context.Context,
 		)
 	}
 
+	if !b.connectionArnExistsLocked(region, input.ConnectionArn) {
+		return nil, fmt.Errorf("%w: connection %s does not exist", ErrNotFound, input.ConnectionArn)
+	}
+
 	now := time.Now()
 	dst := &APIDestination{
 		APIDestinationArn:            b.apiDestinationARN(input.Name),
@@ -382,4 +386,15 @@ func arnResourceName(a, resourceType string) string {
 	}
 
 	return rest
+}
+
+// connectionArnExistsLocked reports whether a connection with arn exists in region. Caller holds b.mu.
+func (b *InMemoryBackend) connectionArnExistsLocked(region, arn string) bool {
+	for _, c := range b.connectionsTable(region).All() {
+		if c.ConnectionArn == arn {
+			return true
+		}
+	}
+
+	return false
 }

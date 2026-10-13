@@ -22,7 +22,7 @@ func (b *InMemoryBackend) CreateAlias(orgID, entityID, alias string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	if ta, exists := b.globalAliases.Get(alias); exists && ta.OrgID == orgID {
@@ -57,7 +57,7 @@ func (b *InMemoryBackend) DeleteAlias(orgID, entityID, alias string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	var actualID string
@@ -101,7 +101,7 @@ func (b *InMemoryBackend) ListAliases(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, "", fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, "", fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	var actualID string

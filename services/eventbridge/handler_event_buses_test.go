@@ -132,15 +132,15 @@ func TestCreateEventBus_TagsPersisted(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		tags     map[string]any
 		wantTags map[string]string
 		name     string
 		busName  string
+		tags     []map[string]string
 	}{
 		{
 			name:    "tags supplied at creation are stored",
 			busName: "tagged-bus",
-			tags:    map[string]any{"env": "prod", "team": "platform"},
+			tags:    []map[string]string{{"Key": "env", "Value": "prod"}, {"Key": "team", "Value": "platform"}},
 			wantTags: map[string]string{
 				"env":  "prod",
 				"team": "platform",
@@ -326,7 +326,13 @@ func TestDeleteEventBus_CleansUpTags(t *testing.T) {
 	rec = makeRequestWithHandler(t, handler, e, "DeleteEventBus", `{"Name":"temp-bus"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Tags should now return empty (map entry cleaned up).
+	rec = makeRequestWithHandler(t, handler, e, "ListTagsForResource", `{"ResourceARN":"`+busARN+`"}`)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+
+	// A recreated bus starts without the old tags (map entry cleaned up).
+	rec = makeRequestWithHandler(t, handler, e, "CreateEventBus", `{"Name":"temp-bus"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
 	rec = makeRequestWithHandler(t, handler, e, "ListTagsForResource", `{"ResourceARN":"`+busARN+`"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.NotContains(t, rec.Body.String(), "owner")

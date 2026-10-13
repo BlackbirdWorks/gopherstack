@@ -69,6 +69,10 @@ func (h *Handler) handleCreateProtection(ctx context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
+	if err := validateProtectionName(req.Name); err != nil {
+		return nil, err
+	}
+
 	if err := validateProtectedResourceARN(req.ResourceArn); err != nil {
 		return nil, err
 	}

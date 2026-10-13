@@ -1,9 +1,12 @@
 package codecommit
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 func (h *Handler) handlePutFile(body []byte) (any, error) {
@@ -93,33 +96,62 @@ func (h *Handler) handleGetFolder(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
-	fileObjs, err := h.Backend.GetFolderFiles(req.RepositoryName, req.CommitSpecifier, req.FolderPath)
+	view, err := h.Backend.GetFolderView(req.RepositoryName, req.CommitSpecifier, req.FolderPath)
 	if err != nil {
 		return nil, err
 	}
 
-	files := make([]map[string]any, 0, len(fileObjs))
-	for _, f := range fileObjs {
+	folder := strings.Trim(req.FolderPath, "/")
+	files := make([]map[string]any, 0, len(view.Files))
+
+	for _, f := range view.Files {
 		fileMode := f.FileMode
 		if fileMode == "" {
 			fileMode = fileModeNormal
 		}
+
 		files = append(files, map[string]any{
 			keyAbsolutePath: f.FilePath,
-			"relativePath":  f.FilePath,
+			"relativePath":  strings.TrimPrefix(strings.TrimPrefix(f.FilePath, folder), "/"),
 			keyBlobID:       f.BlobID,
 			keyFileMode:     fileMode,
 		})
 	}
 
-	return map[string]any{
-		"commitId":      req.CommitSpecifier,
-		"folderPath":    req.FolderPath,
+	subFolders := make([]map[string]any, 0, len(view.SubFolders))
+
+	for _, sub := range view.SubFolders {
+		subFolders = append(subFolders, map[string]any{
+			keyAbsolutePath: sub,
+			"relativePath":  strings.TrimPrefix(strings.TrimPrefix(sub, folder), "/"),
+			"treeId":        folderTreeID(view.CommitID, sub),
+		})
+	}
+
+	folderPath := req.FolderPath
+	if folderPath == "" {
+		folderPath = "/"
+	}
+
+	out := map[string]any{
+		"folderPath":    folderPath,
 		"files":         files,
-		"subFolders":    []any{},
+		"subFolders":    subFolders,
 		"subModules":    []any{},
 		"symbolicLinks": []any{},
-	}, nil
+	}
+	if view.CommitID != "" {
+		out["commitId"] = view.CommitID
+		out["treeId"] = folderTreeID(view.CommitID, folder)
+	}
+
+	return out, nil
+}
+
+func folderTreeID(commitID, path string) string {
+	sum := sha256.Sum256([]byte(commitID + "\x00" + path))
+
+	return hex.EncodeToString(sum[:20])
 }
 
 func (h *Handler) handleDeleteFile(body []byte) (any, error) {

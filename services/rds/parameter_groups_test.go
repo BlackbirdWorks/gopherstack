@@ -22,7 +22,7 @@ func TestHandler_DescribeDBParameterGroups_Pagination(t *testing.T) {
 	t.Parallel()
 	h := newRDSHandler(t)
 
-	const total = 5
+	const total = 25
 	for i := range total {
 		rec := postRDSForm(t, h, fmt.Sprintf(
 			"Action=CreateDBParameterGroup&Version=2014-10-31"+
@@ -32,8 +32,8 @@ func TestHandler_DescribeDBParameterGroups_Pagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
-	// First page: MaxRecords=2 must return a Marker.
-	rec := postRDSForm(t, h, "Action=DescribeDBParameterGroups&Version=2014-10-31&MaxRecords=2")
+	// First page: MaxRecords=20 must return a Marker.
+	rec := postRDSForm(t, h, "Action=DescribeDBParameterGroups&Version=2014-10-31&MaxRecords=20")
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	type pgResp struct {
@@ -48,7 +48,7 @@ func TestHandler_DescribeDBParameterGroups_Pagination(t *testing.T) {
 	pages := 0
 
 	for {
-		q := "Action=DescribeDBParameterGroups&Version=2014-10-31&MaxRecords=2"
+		q := "Action=DescribeDBParameterGroups&Version=2014-10-31&MaxRecords=20"
 		if marker != "" {
 			q += "&Marker=" + marker
 		}
@@ -58,7 +58,7 @@ func TestHandler_DescribeDBParameterGroups_Pagination(t *testing.T) {
 
 		var resp pgResp
 		require.NoError(t, xml.Unmarshal(pageRec.Body.Bytes(), &resp))
-		require.LessOrEqual(t, len(resp.Groups), 2)
+		require.LessOrEqual(t, len(resp.Groups), 20)
 
 		for _, g := range resp.Groups {
 			seen[g.Name]++

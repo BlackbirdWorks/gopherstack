@@ -750,11 +750,13 @@ func paginationParams(c *echo.Context) (int, string) {
 	return n, c.QueryParam("nextToken")
 }
 
+const maxPageSize = 1000
+
 // validPaging reports whether the query's maxResults is numeric and positive and nextToken well-formed.
 func validPaging(c *echo.Context) error {
 	if s := c.QueryParam("maxResults"); s != "" {
-		if n, err := strconv.Atoi(s); err != nil || n < 1 {
-			return fmt.Errorf("%w: maxResults must be a positive integer", ErrInvalidParameter)
+		if n, err := strconv.Atoi(s); err != nil || n < 1 || n > maxPageSize {
+			return fmt.Errorf("%w: maxResults must be between 1 and %d", ErrInvalidParameter, maxPageSize)
 		}
 	}
 

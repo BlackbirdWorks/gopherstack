@@ -143,7 +143,7 @@ func toMacSecKeyWire(ks []*MacSecKey) []macSecKeyWire {
 	return out
 }
 
-func toBGPPeerWire(ps []*BGPPeer) []bgpPeerWire {
+func toBGPPeerWire(ps []*BGPPeer, location string) []bgpPeerWire {
 	if len(ps) == 0 {
 		return nil
 	}
@@ -162,8 +162,8 @@ func toBGPPeerWire(ps []*BGPPeer) []bgpPeerWire {
 			Asn:                asn,
 			AsnLong:            asnLong,
 			AuthKey:            p.AuthKey,
-			AwsDeviceV2:        p.AwsDeviceV2,
-			AwsLogicalDeviceID: p.AwsLogicalDeviceID,
+			AwsDeviceV2:        endpointDevice(p.AwsDeviceV2, location),
+			AwsLogicalDeviceID: endpointDevice(p.AwsLogicalDeviceID, location),
 			BgpPeerID:          p.BgpPeerID,
 			BgpPeerState:       p.BgpPeerState,
 			BgpStatus:          p.BgpStatus,
@@ -193,8 +193,9 @@ func toConnectionWire(c *Connection) connectionWire {
 	return connectionWire{
 		LoaIssueTime:                     epochPtr(c.LoaIssueTime),
 		RateLimiterStatus:                toRateLimiterStatusWire(c.RateLimiterStatus),
-		AwsDeviceV2:                      c.AwsDeviceV2,
-		AwsLogicalDeviceID:               c.AwsLogicalDeviceID,
+		AwsDevice:                        endpointDevice(c.AwsDeviceV2, c.Location),
+		AwsDeviceV2:                      endpointDevice(c.AwsDeviceV2, c.Location),
+		AwsLogicalDeviceID:               endpointDevice(c.AwsLogicalDeviceID, c.Location),
 		Bandwidth:                        c.Bandwidth,
 		ConnectionID:                     c.ConnectionID,
 		ConnectionName:                   c.ConnectionName,
@@ -228,8 +229,9 @@ func toLagWire(l *Lag, members []*Connection) lagWire {
 
 	return lagWire{
 		RateLimiterStatus:       toRateLimiterStatusWire(l.RateLimiterStatus),
-		AwsDeviceV2:             l.AwsDeviceV2,
-		AwsLogicalDeviceID:      l.AwsLogicalDeviceID,
+		AwsDevice:               endpointDevice(l.AwsDeviceV2, l.Location),
+		AwsDeviceV2:             endpointDevice(l.AwsDeviceV2, l.Location),
+		AwsLogicalDeviceID:      endpointDevice(l.AwsLogicalDeviceID, l.Location),
 		Connections:             conns,
 		ConnectionsBandwidth:    l.ConnectionsBandwidth,
 		EncryptionMode:          l.EncryptionMode,
@@ -253,8 +255,9 @@ func toLagWire(l *Lag, members []*Connection) lagWire {
 
 func toInterconnectWire(i *Interconnect) interconnectWire {
 	return interconnectWire{
-		AwsDeviceV2:          i.AwsDeviceV2,
-		AwsLogicalDeviceID:   i.AwsLogicalDeviceID,
+		AwsDevice:            endpointDevice(i.AwsDeviceV2, i.Location),
+		AwsDeviceV2:          endpointDevice(i.AwsDeviceV2, i.Location),
+		AwsLogicalDeviceID:   endpointDevice(i.AwsLogicalDeviceID, i.Location),
 		Bandwidth:            i.Bandwidth,
 		EncryptionMode:       i.EncryptionMode,
 		HasLogicalRedundancy: i.HasLogicalRedundancy,
@@ -294,9 +297,9 @@ func toVirtualInterfaceWire(v *VirtualInterface, amazonSideAsn *int64) virtualIn
 		AddressFamily:          v.AddressFamily,
 		AmazonAddress:          v.AmazonAddress,
 		AuthKey:                v.AuthKey,
-		AwsDeviceV2:            v.AwsDeviceV2,
-		AwsLogicalDeviceID:     v.AwsLogicalDeviceID,
-		BgpPeers:               toBGPPeerWire(v.BgpPeers),
+		AwsDeviceV2:            endpointDevice(v.AwsDeviceV2, v.Location),
+		AwsLogicalDeviceID:     endpointDevice(v.AwsLogicalDeviceID, v.Location),
+		BgpPeers:               toBGPPeerWire(v.BgpPeers, v.Location),
 		ConnectionID:           v.ConnectionID,
 		CustomerAddress:        v.CustomerAddress,
 		CustomerRouterConfig:   v.CustomerRouterConfig,
@@ -362,6 +365,7 @@ func toAssociationWire(a *GatewayAssociation) gatewayAssociationWire {
 	if a.GatewayType == GatewayTypeVirtualPrivateGateway {
 		w.VirtualGatewayID = a.GatewayID
 		w.VirtualGatewayOwnerAccount = a.GatewayOwnerAccount
+		w.VirtualGatewayRegion = a.GatewayRegion
 	}
 
 	return w

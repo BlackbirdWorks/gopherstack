@@ -32,7 +32,7 @@ func TestHandler_RestoreVersionMismatch(t *testing.T) {
 
 	h := newHandler()
 	_, created := request(t, h, "CreateDatasetGroup", map[string]any{
-		"DatasetGroupName": "seed-group", "Domain": "RETAIL",
+		"DatasetGroupName": "seed_group", "Domain": "RETAIL",
 	})
 	require.NotEmpty(t, created["DatasetGroupArn"])
 
@@ -53,7 +53,7 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 
 	h := newHandler()
 	_, created := request(t, h, "CreateDatasetGroup", map[string]any{
-		"DatasetGroupName": "delegate-group", "Domain": "RETAIL",
+		"DatasetGroupName": "delegate_group", "Domain": "RETAIL",
 	})
 	groupARN := created["DatasetGroupArn"].(string)
 
@@ -64,7 +64,7 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	_, described := request(t, h2, "DescribeDatasetGroup", map[string]any{"DatasetGroupArn": groupARN})
-	assert.Equal(t, "delegate-group", described["DatasetGroupName"])
+	assert.Equal(t, "delegate_group", described["DatasetGroupName"])
 }
 
 // TestInMemoryBackend_SnapshotRestore_FullState exercises a Snapshot->Restore
@@ -81,36 +81,36 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	h := newHandler()
 
 	_, dg := request(t, h, "CreateDatasetGroup", map[string]any{
-		"DatasetGroupName": "full-group", "Domain": "RETAIL",
+		"DatasetGroupName": "full_group", "Domain": "RETAIL",
 	})
 	dgARN := dg["DatasetGroupArn"].(string)
 
 	_, ds := request(t, h, "CreateDataset", map[string]any{
-		"DatasetName": "full-dataset", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES",
-		"DataFrequency": "D", "Schema": map[string]any{"Attributes": []any{}},
+		"DatasetName": "full_dataset", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES",
+		"DataFrequency": "D", "Schema": testSchema(),
 	})
 	dsARN := ds["DatasetArn"].(string)
 
 	_, dij := request(t, h, "CreateDatasetImportJob", map[string]any{
-		"DatasetImportJobName": "full-import", "DatasetArn": dsARN,
+		"DatasetImportJobName": "full_import", "DatasetArn": dsARN,
 		"DataSource": map[string]any{"S3Config": map[string]any{"Path": "s3://bucket/train.csv"}},
 	})
 	dijARN := dij["DatasetImportJobArn"].(string)
 
 	_, pred := request(t, h, "CreatePredictor", map[string]any{
-		"PredictorName": "full-predictor", "ForecastHorizon": 14,
+		"PredictorName": "full_predictor", "ForecastHorizon": 14,
 		"InputDataConfig":     map[string]any{"DatasetGroupArn": dgARN},
 		"FeaturizationConfig": map[string]any{},
 	})
 	predARN := pred["PredictorArn"].(string)
 
 	_, fc := request(t, h, "CreateForecast", map[string]any{
-		"ForecastName": "full-forecast", "PredictorArn": predARN,
+		"ForecastName": "full_forecast", "PredictorArn": predARN,
 	})
 	fcARN := fc["ForecastArn"].(string)
 
 	_, mon := request(t, h, "CreateMonitor", map[string]any{
-		"MonitorName": "full-monitor", "ResourceArn": predARN,
+		"MonitorName": "full_monitor", "ResourceArn": predARN,
 	})
 	monARN := mon["MonitorArn"].(string)
 
@@ -137,16 +137,16 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "ACTIVE", group["Status"])
 
 	_, dataset := request(t, fresh, "DescribeDataset", map[string]any{"DatasetArn": dsARN})
-	assert.Equal(t, "full-dataset", dataset["DatasetName"])
+	assert.Equal(t, "full_dataset", dataset["DatasetName"])
 
 	_, importJob := request(t, fresh, "DescribeDatasetImportJob", map[string]any{"DatasetImportJobArn": dijARN})
-	assert.Equal(t, "full-import", importJob["DatasetImportJobName"])
+	assert.Equal(t, "full_import", importJob["DatasetImportJobName"])
 
 	_, predictor := request(t, fresh, "DescribePredictor", map[string]any{"PredictorArn": predARN})
-	assert.Equal(t, "full-predictor", predictor["PredictorName"])
+	assert.Equal(t, "full_predictor", predictor["PredictorName"])
 
 	_, forecastResource := request(t, fresh, "DescribeForecast", map[string]any{"ForecastArn": fcARN})
-	assert.Equal(t, "full-forecast", forecastResource["ForecastName"])
+	assert.Equal(t, "full_forecast", forecastResource["ForecastName"])
 
 	// evaluations (raw map) round-trips.
 	code, evalResp := request(t, fresh, "ListMonitorEvaluations", map[string]any{"MonitorArn": monARN})

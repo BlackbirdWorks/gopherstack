@@ -183,6 +183,7 @@ type Queue struct {
 	lastPurgedAt        time.Time
 	notify              chan struct{}
 	deduplicationMsgIDs map[string]string
+	deduplicationSeqs   map[string]string
 	Attributes          map[string]string
 	Permissions         map[string]*QueuePermissionEntry
 	// fifoThroughput holds one budget window per (API method, scope); see fifo.go.

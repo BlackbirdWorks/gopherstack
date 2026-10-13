@@ -192,6 +192,12 @@ func (h *Handler) testInvokeMethod(input TestInvokeMethodInput) (*TestInvokeMeth
 		return nil, fmt.Errorf("%w: resource %s", ErrResourceNotFound, input.ResourceID)
 	}
 
+	if input.ClientCertificateID != "" {
+		if _, certErr := h.Backend.GetClientCertificate(input.ClientCertificateID); certErr != nil {
+			return nil, certErr
+		}
+	}
+
 	integration, err := h.Backend.GetIntegration(input.RestAPIID, input.ResourceID, input.HTTPMethod)
 	if err != nil {
 		integration, _ = h.Backend.GetIntegration(input.RestAPIID, input.ResourceID, "ANY")
@@ -279,14 +285,19 @@ func (h *Handler) invokeLambdaTestMethod(
 		}
 	}
 
-	event, buildErr := BuildProxyEvent(syntheticReq, input.RestAPIID, "test-invoke", resource.Path, rawPath, nil)
+	event, buildErr := BuildProxyEvent(
+		syntheticReq, input.RestAPIID, "test-invoke", resource.Path, rawPath,
+		pathParametersFor(resource, syntheticReq.URL.Path),
+	)
 	if buildErr != nil {
 		return nil, fmt.Errorf("test invoke: failed to build proxy event: %w", buildErr)
 	}
 
+	event.StageVariables = input.StageVariables
+
 	payload, _ := json.Marshal(event)
 
-	lambdaFn := ExtractLambdaFunctionName(integration.URI)
+	lambdaFn := ExtractLambdaFunctionName(interpolateStageVars(integration.URI, input.StageVariables))
 	respBytes, _, invokeErr := h.lambda.InvokeFunction(context.Background(), lambdaFn, "RequestResponse", payload)
 
 	return lambdaTestOutput(respBytes, invokeErr), nil

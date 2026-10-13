@@ -2,6 +2,7 @@ package awsconfig
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -14,6 +15,10 @@ func aggregationAuthKey(accountID, region string) string {
 
 // PutAggregationAuthorization creates or updates an aggregation authorization.
 func (b *InMemoryBackend) PutAggregationAuthorization(accountID, region string, tags []Tag) error {
+	if !accountIDRe.MatchString(accountID) {
+		return fmt.Errorf("%w: AuthorizedAccountId must be a 12-digit account ID", ErrInvalidParameterValue)
+	}
+
 	b.mu.Lock("PutAggregationAuthorization")
 	defer b.mu.Unlock()
 
@@ -101,6 +106,10 @@ func (b *InMemoryBackend) PutConfigurationAggregator(
 ) error {
 	if name == "" {
 		return fmt.Errorf("%w: ConfigurationAggregatorName is required", ErrInvalidParameterValue)
+	}
+
+	if err := validateAggregatorSources(name, accountSources, orgSource); err != nil {
+		return err
 	}
 
 	b.mu.Lock("PutConfigurationAggregator")
@@ -377,6 +386,43 @@ func (b *InMemoryBackend) DeletePendingAggregationRequest(accountID, region stri
 	defer b.mu.Unlock()
 
 	b.aggregationAuths.Delete(aggregationAuthKey(accountID, region))
+
+	return nil
+}
+
+var (
+	accountIDRe      = regexp.MustCompile(`^\d{12}$`)
+	aggregatorNameRe = regexp.MustCompile(`^[\w\-]+$`)
+)
+
+const maxAggregatorNameLen = 256
+
+func validateAggregatorSources(
+	name string,
+	accountSources []AccountAggregationSource,
+	org *OrganizationAggregationSource,
+) error {
+	if len(name) > maxAggregatorNameLen || !aggregatorNameRe.MatchString(name) {
+		return fmt.Errorf("%w: ConfigurationAggregatorName must match [\\w\\-]+ and be at most %d characters",
+			ErrValidation, maxAggregatorNameLen)
+	}
+
+	if len(accountSources) > 0 && org != nil {
+		return fmt.Errorf("%w: specify either AccountAggregationSources or OrganizationAggregationSource, not both",
+			ErrInvalidParameterValue)
+	}
+
+	for _, src := range accountSources {
+		for _, id := range src.AccountIDs {
+			if !accountIDRe.MatchString(id) {
+				return fmt.Errorf("%w: invalid account ID %q", ErrInvalidParameterValue, id)
+			}
+		}
+
+		if src.AllAwsRegions && len(src.AwsRegions) > 0 {
+			return fmt.Errorf("%w: AllAwsRegions and AwsRegions are mutually exclusive", ErrInvalidParameterValue)
+		}
+	}
 
 	return nil
 }

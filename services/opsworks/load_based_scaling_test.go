@@ -48,13 +48,13 @@ func TestLoadBasedAutoScaling(t *testing.T) {
 			},
 		},
 		{
-			name: "SetLoadBasedAutoScaling on nonexistent layer returns 404",
+			name: "SetLoadBasedAutoScaling on nonexistent layer returns ResourceNotFoundException",
 			check: func(t *testing.T, h *opsworks.Handler) {
 				t.Helper()
 				rec := doTarget(t, h, "SetLoadBasedAutoScaling", map[string]any{
 					"LayerId": "nonexistent",
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}

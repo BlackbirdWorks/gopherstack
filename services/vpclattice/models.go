@@ -8,17 +8,18 @@ import (
 type storedService struct {
 	CreatedAt          time.Time         `json:"createdAt"`
 	LastUpdatedAt      time.Time         `json:"lastUpdatedAt"`
+	StatusUntil        time.Time         `json:"statusUntil,omitzero"`
 	Tags               map[string]string `json:"tags"`
-	ARN                string            `json:"arn"`
-	ID                 string            `json:"id"`
-	Name               string            `json:"name"`
 	AuthType           string            `json:"authType"`
+	Name               string            `json:"name"`
+	ID                 string            `json:"id"`
 	CertificateArn     string            `json:"certificateArn"`
 	CustomDomainName   string            `json:"customDomainName"`
 	DNSName            string            `json:"dnsName"`
 	HostedZoneID       string            `json:"hostedZoneId"`
 	Status             string            `json:"status"`
 	Region             string            `json:"region"`
+	ARN                string            `json:"arn"`
 	IdleTimeoutSeconds int32             `json:"idleTimeoutSeconds,omitempty"`
 }
 
@@ -103,21 +104,22 @@ func (s *storedServiceNetwork) toSummary() *ServiceNetworkSummary {
 // storedSNSA holds a service network service association.
 type storedSNSA struct {
 	CreatedAt          time.Time         `json:"createdAt"`
+	StatusUntil        time.Time         `json:"statusUntil,omitzero"`
 	Tags               map[string]string `json:"tags"`
-	ARN                string            `json:"arn"`
-	ID                 string            `json:"id"`
-	ServiceARN         string            `json:"serviceArn"`
+	ServiceNetworkID   string            `json:"serviceNetworkId"`
+	Status             string            `json:"status"`
 	ServiceID          string            `json:"serviceId"`
 	ServiceName        string            `json:"serviceName"`
 	ServiceNetworkARN  string            `json:"serviceNetworkArn"`
-	ServiceNetworkID   string            `json:"serviceNetworkId"`
+	ID                 string            `json:"id"`
 	ServiceNetworkName string            `json:"serviceNetworkName"`
-	Status             string            `json:"status"`
+	ServiceARN         string            `json:"serviceArn"`
 	CreatedBy          string            `json:"createdBy"`
 	CustomDomainName   string            `json:"customDomainName"`
 	DNSName            string            `json:"dnsName"`
 	HostedZoneID       string            `json:"hostedZoneId"`
 	Region             string            `json:"region"`
+	ARN                string            `json:"arn"`
 }
 
 func (s *storedSNSA) toAssociation() *ServiceNetworkServiceAssociation {
@@ -162,17 +164,18 @@ func (s *storedSNSA) toSummary() *ServiceNetworkServiceAssociationSummary {
 type storedSNVA struct {
 	CreatedAt          time.Time         `json:"createdAt"`
 	LastUpdatedAt      time.Time         `json:"lastUpdatedAt"`
+	StatusUntil        time.Time         `json:"statusUntil,omitzero"`
 	Tags               map[string]string `json:"tags"`
 	DNSOptions         *DNSOptions       `json:"dnsOptions"`
-	ServiceNetworkName string            `json:"serviceNetworkName"`
-	ARN                string            `json:"arn"`
+	ServiceNetworkARN  string            `json:"serviceNetworkArn"`
 	ID                 string            `json:"id"`
 	VpcID              string            `json:"vpcId"`
-	ServiceNetworkARN  string            `json:"serviceNetworkArn"`
+	ARN                string            `json:"arn"`
 	ServiceNetworkID   string            `json:"serviceNetworkId"`
 	Status             string            `json:"status"`
 	CreatedBy          string            `json:"createdBy"`
 	Region             string            `json:"region"`
+	ServiceNetworkName string            `json:"serviceNetworkName"`
 	SecurityGroupIDs   []string          `json:"securityGroupIds"`
 	PrivateDNSEnabled  bool              `json:"privateDnsEnabled"`
 }
@@ -303,6 +306,7 @@ func (r *storedRule) toSummary() *RuleSummary {
 type storedTargetGroup struct {
 	CreatedAt     time.Time          `json:"createdAt"`
 	LastUpdatedAt time.Time          `json:"lastUpdatedAt"`
+	StatusUntil   time.Time          `json:"statusUntil,omitzero"`
 	Tags          map[string]string  `json:"tags"`
 	Config        *TargetGroupConfig `json:"config"`
 	ARN           string             `json:"arn"`
@@ -357,9 +361,10 @@ func (tg *storedTargetGroup) toSummary() *TargetGroupSummary {
 
 // storedTarget holds a registered target.
 type storedTarget struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
-	Port   int32  `json:"port"`
+	StatusUntil time.Time `json:"statusUntil,omitzero"`
+	ID          string    `json:"id"`
+	Status      string    `json:"status"`
+	Port        int32     `json:"port"`
 }
 
 // storedALS holds an access log subscription.
@@ -518,17 +523,19 @@ type storedSNRA struct {
 	CreatedAt                 time.Time         `json:"createdAt"`
 	LastUpdatedAt             time.Time         `json:"lastUpdatedAt"`
 	Tags                      map[string]string `json:"tags"`
-	ARN                       string            `json:"arn"`
-	ID                        string            `json:"id"`
+	ServiceNetworkARN         string            `json:"serviceNetworkArn"`
+	ServiceNetworkName        string            `json:"serviceNetworkName"`
 	ResourceConfigurationARN  string            `json:"resourceConfigurationArn"`
 	ResourceConfigurationID   string            `json:"resourceConfigurationId"`
 	ResourceConfigurationName string            `json:"resourceConfigurationName"`
-	ServiceNetworkARN         string            `json:"serviceNetworkArn"`
+	ARN                       string            `json:"arn"`
 	ServiceNetworkID          string            `json:"serviceNetworkId"`
-	ServiceNetworkName        string            `json:"serviceNetworkName"`
+	ID                        string            `json:"id"`
 	Status                    string            `json:"status"`
 	CreatedBy                 string            `json:"createdBy"`
 	Region                    string            `json:"region"`
+	PrivateDNSHostedZoneID    string            `json:"privateDnsHostedZoneId"`
+	PrivateDNSDomain          string            `json:"privateDnsDomain"`
 	PrivateDNSEnabled         bool              `json:"privateDnsEnabled"`
 }
 
@@ -545,6 +552,8 @@ func (s *storedSNRA) toAssociation() *ServiceNetworkResourceAssociation {
 		Status:                    s.Status,
 		CreatedBy:                 s.CreatedBy,
 		PrivateDNSEnabled:         s.PrivateDNSEnabled,
+		PrivateDNSDomain:          s.PrivateDNSDomain,
+		PrivateDNSHostedZoneID:    s.PrivateDNSHostedZoneID,
 		CreatedAt:                 s.CreatedAt,
 		LastUpdatedAt:             s.LastUpdatedAt,
 	}
@@ -563,6 +572,8 @@ func (s *storedSNRA) toSummary() *ServiceNetworkResourceAssociationSummary {
 		Status:                    s.Status,
 		CreatedBy:                 s.CreatedBy,
 		PrivateDNSEnabled:         s.PrivateDNSEnabled,
+		PrivateDNSDomain:          s.PrivateDNSDomain,
+		PrivateDNSHostedZoneID:    s.PrivateDNSHostedZoneID,
 		CreatedAt:                 s.CreatedAt,
 	}
 }

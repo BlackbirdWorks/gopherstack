@@ -117,7 +117,7 @@ func (b *InMemoryBackend) ListDeviceProfiles(accountID, region, deviceProfileTyp
 // types.DeviceProfileType ("LoRaWAN" or "Sidewalk").
 func deviceProfileMatchesType(dp *DeviceProfile, deviceProfileType string) bool {
 	switch deviceProfileType {
-	case "LoRaWAN":
+	case deviceTypeLoRaWAN:
 		return dp.LoRaWAN != nil
 	case "Sidewalk":
 		return dp.Sidewalk != nil

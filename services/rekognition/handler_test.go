@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -20,6 +21,14 @@ const faceModelVersion = "7.0"
 func newTestHandler(t *testing.T) *rekognition.Handler {
 	t.Helper()
 	backend := rekognition.NewInMemoryBackend("000000000000", "us-east-1")
+
+	return rekognition.NewHandler(backend)
+}
+
+func newSlowHandler(t *testing.T) *rekognition.Handler {
+	t.Helper()
+	backend := rekognition.NewInMemoryBackend("000000000000", "us-east-1")
+	backend.SetLifecycleDelay(time.Hour)
 
 	return rekognition.NewHandler(backend)
 }

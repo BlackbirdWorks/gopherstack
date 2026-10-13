@@ -3,7 +3,7 @@ service: iot
 sdk_module: aws-sdk-go-v2/service/iot@v1.83.0
 sibling_sdk_modules: [aws-sdk-go-v2/service/iotdataplane@v1.35.0]  # device-shadow ops (Get/Update/DeleteThingShadow, ListNamedShadowsForThing); see device_shadows family
 last_audit_commit: 22b4f068c  # 2026-09-20 RouteMatcher collision fix; prior: bfdb308be (iot-and-ses)
-last_audit_date: 2026-09-20
+last_audit_date: 2026-10-12
 overall: A            # 2026-08-29 (wrapper-key-sweep, constraint-not-honoured class): pagination/
                        # filter/sort constraints across the certificate, policy, authorizer,
                        # role-alias, stream, and audit-suppression families were never read or
@@ -290,16 +290,20 @@ gaps: []
   # bugs on the same two ops plus ListTargetsForSecurityProfile).
 items_still_open:
   - "ClientRequestToken idempotency is not honored for CreateCustomMetric/CreateDimension: the pinned SDK docs contradict each other (CreateCustomMetric: a different token on an existing name errors; CreateDimension: the same token errors) and name no exception type, so any replay semantics would be invented. CreateAuditSuppression/StartAuditMitigationActionsTask/StartDetectMitigationActionsTask now reject a reused token (2026-10-04)."
-  - "DeleteOTAUpdate.DeleteStream is not honored: CreateOTAUpdate never creates an OTA-owned stream (needs a real OTA stream pipeline). ForceDeleteAWSJob is honored against the real AFR_OTA-<id> job (2026-10-04); the non-terminal-job rejection uses InvalidRequestException, a code the pinned SDK does not document for this case."
-  - "Needs an unmodeled device fleet (no job agent, no StartCommandExecution, no connection tracking): GetThingConnectivityData IncludeSocketInformation and socket fields; Job CompletedAt/IsConcurrent/ThingGroupId on ListJobs/DescribeJob (jobs never reach COMPLETED); CommandExecution StartedAt/CompletedAt; TopicRuleDestination StatusReason (no failure path)."
-  - "Rule actions timestream, kafka, location, openSearch, iotEvents, iotSiteWise, influxDB are stored verbatim but not executed (no data-plane backend). The http action runs but not enableBatching/batchConfig (the action fails with an error rather than sending singly). Kinesis, Firehose, S3, SNS and Step Functions deliveries use the home-region backend; DynamoDB, CloudWatch and CloudWatch Logs honour the rule's region. errorAction envelope omits cloudwatchTraceId and clientId."
-  - "Rule SQL engine gaps: md2(), transform(), decode(...,'proto'), get_thing_shadow reads the single region-agnostic shadow store, get_secret is not cached for 15 minutes, principal() is always Undefined (no certificate/IAM identity reaches the broker), MQTT5 properties (get_mqtt_property, get_user_properties) are Undefined for MQTT 3.1.1 publishers; Int/Int division returns a Decimal when inexact; unaliased non-field SELECT items are keyed by their source text; a bare unaliased @variable is keyed by its source text."
-  - "ClientToken replay is honoured for CreatePackage, CreatePackageVersion and CreateCertificateProvider (a token held by another resource is a ConflictException, an assumption). UpdatePackage, DeletePackage, UpdatePackageVersion, DeletePackageVersion, UpdatePackageConfiguration, AssociateSbomWithPackageVersion and DisassociateSbomFromPackageVersion accept ClientToken but do not replay: replaying a delete needs a bounded token cache that outlives the resource."
-  - "DescribeJob.BeforeSubstitution and GetJobDocument.BeforeSubstitution have no effect: documents are stored verbatim and there is no ${aws:iot:s3-presigned-url} substitution engine."
-  - "GetCommandExecution.IncludeResult and ListCommandExecutions.CompletedTimeFilter have nothing to act on: executions never receive a result or a completion time (no device fleet)."
-  - "GetV2LoggingOptions.Verbose has no effect: event-based logging configurations (the event types Verbose lists) are not modeled. ListMetricValues.DimensionName and DimensionValueOperator are not applied: stored datapoints carry no dimension. TestInvokeAuthorizer.HttpContext and TlsContext are not forwarded: no authorizer Lambda is invoked."
-  - "CreateDomainConfiguration.ServerCertificateArns and ValidationCertificateArn are not stored: the ServerCertificates summary needs a VALID/INVALID status from validating the ACM certificate, which iot cannot do. ListJobs.NamespaceId is not applied: jobs do not record their namespace."
-  - "Assumptions from memory, not the SDK docs: ListThingGroups.Recursive defaults to false when parentGroup is set, ListTopicRules.Topic matches the rule topic pattern exactly, and RegisterCertificate.CaCertificatePem links the certificate to a registered CA by PEM equality only (no signature check)."
+  - "Rule SQL engine gaps (transform() modes, get_secret caching and MQTT3.1.1 Undefined user properties were checked against the SQL reference and are correct, not gaps): decode(...,'proto') emits field names as declared in the .proto (protojson UseProtoNames) and reads the descriptor from S3 without role authorization (the SQL reference documents neither); principal() is always Undefined (the broker has no TLS or SigV4 identity; the SQL reference gives cert thumbprint / IAM userId); Int/Int division returns a Decimal when inexact while the operator table says Int (unverifiable which the service does); unaliased non-field SELECT items and a bare @variable are keyed by their source text (key naming is not documented)."
+  - "ClientToken replay is honoured for CreatePackage, CreatePackageVersion and CreateCertificateProvider (a token held by another resource is a ConflictException, an assumption); UpdatePackage, DeletePackage, UpdatePackageVersion, DeletePackageVersion, UpdatePackageConfiguration and DisassociateSbomFromPackageVersion replay as a no-op success via a 4096-entry cache that is persisted in the snapshot (AssociateSbomWithPackageVersion is already idempotent)."
+  - "DescribeJob.BeforeSubstitution and GetJobDocument.BeforeSubstitution have no effect: documents are stored verbatim; the SDK and API reference only say 'before and after the substitution parameters have been resolved' and define neither the grammar nor the resolved value (a presigned URL signed with the job role), so any substitution would be invented."
+  - "GetV2LoggingOptions.Verbose has no effect: the SDK output has no event-type list and no enum of logging event types exists, so any list would be invented."
+  - "Assumptions the SDK and API reference (checked ListThingGroups, ListTopicRules) do not state: ListThingGroups.Recursive defaults to false when parentGroup is set, and ListTopicRules.Topic matches the rule topic pattern exactly. RegisterCertificate verifies the device certificate signature against CaCertificatePem when both are real X.509 PEMs (CertificateValidationException), and links the CA by PEM equality."
+  - "Job MQTT topics ($aws/things/{thing}/jobs/...) are not served by the broker, and the MQTT broker listens on a fixed port 1883; devices drive jobs through the iot-jobs-data HTTP API (GetPendingJobExecutions, StartNextPendingJobExecution, DescribeJobExecution, UpdateJobExecution). StartCommandExecution on that plane is not implemented."
+  - "Policy documents only need to be a JSON object (MalformedPolicyException otherwise): dozens of in-repo fixtures use `{}` or omit Statement, so Statement/Effect/Action structure is not validated."
+  - "CreateCertificateFromCsr issues a certificate for the CSR's public key; an unparseable CSR (the in-repo fixtures pass strings like `csr-data`) is accepted and gets a certificate for a fresh throwaway key. RegisterCertificate with a non-PEM body keeps a random certificate ID instead of the DER digest."
+structural_gaps:
+  - "ListMetricValues.DimensionName and DimensionValueOperator are not applied: no device reports metrics, datapoints are only seeded internally and carry no dimension."
+  - "DeleteOTAUpdate.DeleteStream is not honored: CreateOTAUpdate never creates an OTA-owned stream (needs a real OTA stream pipeline); ForceDeleteAWSJob is honored."
+  - "Device-fleet-dependent fields (no StartCommandExecution or connection tracking): GetThingConnectivityData IncludeSocketInformation, Job IsConcurrent/ThingGroupId, CommandExecution StartedAt/CompletedAt, TopicRuleDestination StatusReason, GetCommandExecution.IncludeResult and ListCommandExecutions.CompletedTimeFilter."
+  - "Rule actions timestream, kafka, location, openSearch, iotEvents, iotSiteWise, influxDB are stored verbatim but not executed (no data-plane backend); http enableBatching/batchConfig and errorAction cloudwatchTraceId/clientId are not modeled."
+  - "TestInvokeAuthorizer.HttpContext and TlsContext are not forwarded: no authorizer Lambda is invoked."
 deferred: []
   # gopherstack-srzb (job_and_jobtemplate + device_defender consolidated tracking issue) and
   # the security_profiles item that superseded it as pass #3's sole open item are both closed
@@ -308,6 +312,36 @@ leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the 
 ---
 
 ## Notes
+
+### 2026-10-12 (deep realism pass)
+
+Things, groups, certificates, policies, jobs, fleet indexing and endpoints were driven end to end with the AWS CLI;
+fixes below each have a typed-client test.
+- CreateKeysAndCertificate / CreateCertificateFromCsr / CreateProvisioningClaim / RegisterThing returned one constant,
+  unparseable PEM and fake keys for every certificate. They now issue an X.509 certificate from an AWS-IoT-style issuer
+  for a generated RSA key (or the CSR's key), the private key is a real PKCS#1 PEM matching the certificate, the
+  CertificateId is the SHA-256 of the DER (as is the CA certificate ID, which used to be 12 uuid characters), validity
+  comes from the certificate, and registering the same certificate twice is ResourceAlreadyExistsException
+  (certificate_issuance_test.go).
+- SearchIndex and the aggregation APIs split the query on whitespace and compared terms literally, so `thingName:dev*`
+  matched nothing. A Lucene-subset parser now supports wildcards, AND/OR/NOT, `-`, parentheses, field groups, ranges and
+  comparisons, and a malformed query is InvalidQueryException; GetStatistics no longer requires AggregationField (count only
+  when omitted) (indexing_query_flow_test.go).
+- ListThingsInThingGroup ignored `recursive` (thing_group_membership_flow_test.go).
+- DescribeEndpoint returned `mqtt.<region>.amazonaws.com` for every type; it now returns the documented
+  `<id>[-ats].iot.<region>.amazonaws.com`, credentials and jobs forms, stable per account, and rejects unknown types
+  (endpoint_flow_test.go).
+- There was no device-side Jobs data plane: the iot-jobs-data calls fell through to "unknown operation", so executions
+  never left QUEUED and jobs never completed. GetPendingJobExecutions, StartNextPendingJobExecution,
+  DescribeJobExecution and UpdateJobExecution are served when the request is signed for iot-jobs-data (TerminalState
+  410, version mismatch InvalidStateTransition 409); a SNAPSHOT job becomes COMPLETED with CompletedAt once every
+  execution finished, CONTINUOUS jobs never do, and TargetSelection defaults to SNAPSHOT (jobs_data_plane_test.go).
+- Deprecated thing types could still be assigned by CreateThing/UpdateThing, UpdateThing accepted an unknown type, and
+  DeleteThingType ignored attached things (thing_type_lifecycle_test.go).
+- AttachPolicy and AttachThingPrincipal accepted a missing policy / thing (attach_validation_test.go).
+
+The topic-rule actions were not re-driven against a probe server (the broker's fixed port 1883 collided with the
+developer's running server); the root cli_iot_rule_* tests cover SQS, Lambda, S3, DynamoDB, Kinesis and republish delivery.
 
 ## 2026-10-03: HTTP action, Basic Ingest, service-calling SQL functions
 
@@ -2428,3 +2462,17 @@ RECORDED: ListCommandExecutions CompletedTimeFilter is ignored; executions carry
 ## 2026-10-05 (zeroguard omitted-vs-zero pass)
 
 UpdateThing, UpdateThingGroup, UpdateDynamicThingGroup and UpdateFleetMetric decode expectedVersion as *int64 (explicit 0 now conflicts with version >= 1, omitted skips the check); UpdateFleetMetric period is *int32, omitted keeps and an explicit value outside 60..86400 in steps of 60 is rejected (cmd/zeroguard). Proof: `TestUpdateThing_ExpectedVersionOmittedVsZero`, `TestUpdateThingGroup_ExpectedVersionOmittedVsZero`, `TestUpdateFleetMetric_PeriodAndVersionOmittedVsZero`.
+
+## 2026-10-07: md2, transform, token replay, broker lifecycle
+
+- md2() is RFC 1319 (vectors in `TestSQLFunctions`); transform('enrichArray', obj, arr) merges obj into each element object, any other mode or a non-object element is Undefined (merge precedence on key clash is an assumption).
+- Replayed package mutation tokens: `TestPackageMutationTokenReplay`.
+- The broker now implements `iotdataplane.ConnectionNotifier` (session established/closed, with CLIENT_INITIATED_DISCONNECT, SERVER_INITIATED_DISCONNECT, MQTT_KEEP_ALIVE_TIMEOUT, CONNECTION_LOST, CLIENT_ERROR, UNKNOWN; a taken-over session reports nothing) and `iotdataplane.AckingPublisher` (QoS 1 write, PUBACK observed via OnPacketRead). Proof: `TestBroker_ReportsLifecycleToDataPlane`, `TestBroker_SendDirectMessageAwaitAck`.
+
+## 2026-10-10 (realism pass)
+
+- Thing, thing type and thing group names must match `[a-zA-Z0-9:_-]+` (max 128); policy names `[\w+=,.@-]+` (`TestEntityNameValidation`). CreateThing with an unknown ThingTypeName is ResourceNotFoundException (`TestCreateThingUnknownType`).
+- CreatePolicy with a non-JSON document is MalformedPolicyException (`TestPolicyValidation`).
+- A non-numeric/negative nextToken or marker, or a non-positive maxResults/pageSize, is InvalidRequestException on every list (`TestPaginationQueryValidation`).
+- Error messages no longer repeat the sentinel text (`TestErrorMessagesOmitSentinelText`).
+- Kept lenient: CreateJob does not require its target things to exist, and list page tokens remain integer offsets, not opaque.

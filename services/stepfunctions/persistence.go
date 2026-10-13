@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -131,7 +130,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 			cp.Status = "TIMED_OUT"
 
 			if cp.StopDate == nil {
-				now := float64(time.Now().Unix())
+				now := epochNow()
 				cp.StopDate = &now
 			}
 		}
@@ -164,7 +163,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 			cp.Status = statusFailed
 
 			if cp.StopDate == nil {
-				now := float64(time.Now().Unix())
+				now := epochNow()
 				cp.StopDate = &now
 			}
 		}

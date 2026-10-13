@@ -47,6 +47,7 @@ func TestHandler_LookupDeveloperIdentity(t *testing.T) {
 				createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
 					"IdentityPoolName":               "lookup-pool",
 					"AllowUnauthenticatedIdentities": true,
+					"DeveloperProviderName":          "developer.example.com",
 				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -74,13 +75,11 @@ func TestHandler_LookupDeveloperIdentity(t *testing.T) {
 				body = map[string]any{
 					"IdentityPoolId":          poolID,
 					"DeveloperUserIdentifier": "user-001",
-					"DeveloperProviderName":   "developer.example.com",
 				}
 			case "lookup_by_identity_id":
 				body = map[string]any{
-					"IdentityPoolId":        poolID,
-					"IdentityId":            identityID,
-					"DeveloperProviderName": "developer.example.com",
+					"IdentityPoolId": poolID,
+					"IdentityId":     identityID,
 				}
 			case "no_identifier_provided":
 				createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{

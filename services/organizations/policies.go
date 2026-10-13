@@ -317,6 +317,10 @@ func (b *InMemoryBackend) EnablePolicyType(rootID, policyType string) (*Root, er
 		return nil, ErrInvalidInput
 	}
 
+	if b.org.FeatureSet != featureSetAll {
+		return nil, ErrPolicyTypeNotAvailable
+	}
+
 	for _, pt := range b.root.PolicyTypes {
 		if pt.Type == policyType && pt.Status == policyStatusEnabled {
 			return nil, ErrPolicyTypeAlreadyEnabled

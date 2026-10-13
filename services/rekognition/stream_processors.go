@@ -102,28 +102,32 @@ func (b *InMemoryBackend) DeleteStreamProcessor(name string) error {
 
 // DescribeStreamProcessor returns details about a stream processor.
 func (b *InMemoryBackend) DescribeStreamProcessor(name string) (*StreamProcessor, error) {
-	b.mu.RLock("DescribeStreamProcessor")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeStreamProcessor")
+	defer b.mu.Unlock()
 
 	p, exists := b.streamProcessors.Get(name)
 	if !exists {
 		return nil, ErrStreamProcessorNotFound
 	}
 
+	b.settleStreamProcessorLocked(p)
+
 	return p.toStreamProcessor(), nil
 }
 
 // ListStreamProcessors returns a paginated list of stream processors.
 func (b *InMemoryBackend) ListStreamProcessors(maxResults int32, nextToken string) ([]*StreamProcessor, string, error) {
-	b.mu.RLock("ListStreamProcessors")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListStreamProcessors")
+	defer b.mu.Unlock()
 
-	result, outToken := paginateTable(
+	for _, p := range b.streamProcessors.All() {
+		b.settleStreamProcessorLocked(p)
+	}
+
+	return paginateTable(
 		b.streamProcessors, maxResults, maxStreamProcessorsPerPage, nextToken,
 		streamProcessorKeyFn, (*storedStreamProcessor).toStreamProcessor,
 	)
-
-	return result, outToken, nil
 }
 
 // StartStreamProcessor starts a stream processor.
@@ -136,7 +140,15 @@ func (b *InMemoryBackend) StartStreamProcessor(name string) error {
 		return ErrStreamProcessorNotFound
 	}
 
-	p.Status = processorRunning
+	b.settleStreamProcessorLocked(p)
+
+	if p.Status == processorRunning || p.Status == statusStarting {
+		return ErrStreamProcessorInUse
+	}
+
+	p.Status = statusStarting
+	p.statusSince = time.Now()
+	b.settleStreamProcessorLocked(p)
 
 	return nil
 }
@@ -151,7 +163,13 @@ func (b *InMemoryBackend) StopStreamProcessor(name string) error {
 		return ErrStreamProcessorNotFound
 	}
 
-	p.Status = processorStopped
+	b.settleStreamProcessorLocked(p)
+
+	if p.Status == processorRunning || p.Status == statusStarting {
+		p.Status = statusStopping
+		p.statusSince = time.Now()
+		b.settleStreamProcessorLocked(p)
+	}
 
 	return nil
 }

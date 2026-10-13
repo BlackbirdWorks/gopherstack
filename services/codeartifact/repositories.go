@@ -27,11 +27,25 @@ func (b *InMemoryBackend) CreateRepository(
 ) (*Repository, error) {
 	region := getRegion(ctx, b.region)
 
+	if err := ValidateRepositoryName(repoName); err != nil {
+		return nil, err
+	}
+
+	if err := validateDescription(description); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateRepository")
 	defer b.mu.Unlock()
 
 	if !b.domains.Has(regionKey(region, domainName)) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
+	}
+
+	for _, up := range upstreams {
+		if !b.repositories.Has(regionKey(region, repoKey(domainName, up))) {
+			return nil, fmt.Errorf("%w: repository %s not found in domain %s", ErrNotFound, up, domainName)
+		}
 	}
 
 	key := repoKey(domainName, repoName)
@@ -196,7 +210,7 @@ func externalConnectionFormat(connectionName string) string {
 	case "public:crates-io":
 		return "cargo"
 	default:
-		return "generic"
+		return packageFormatGeneric
 	}
 }
 
@@ -206,6 +220,10 @@ func (b *InMemoryBackend) AssociateExternalConnection(
 	domainName, repoName, connectionName string,
 ) (*Repository, error) {
 	region := getRegion(ctx, b.region)
+
+	if err := validateExternalConnectionName(connectionName); err != nil {
+		return nil, err
+	}
 
 	b.mu.Lock("AssociateExternalConnection")
 	defer b.mu.Unlock()

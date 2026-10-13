@@ -32,6 +32,9 @@ var (
 	// ErrMalformedCSR is returned when a certificate signing request fails
 	// to decode/parse, matching MalformedCSRException (IssueCertificate).
 	ErrMalformedCSR = errors.New("MalformedCSRException")
+	// ErrInvalidNextToken is returned for a malformed pagination token
+	// (ListCertificateAuthorities, ListPermissions).
+	ErrInvalidNextToken = errors.New("InvalidNextTokenException")
 	// ErrInvalidState is returned when the CA is in an invalid state for the operation.
 	ErrInvalidState = errors.New("InvalidStateException")
 	// ErrPermissionNotFound is returned when a CA permission is not found.

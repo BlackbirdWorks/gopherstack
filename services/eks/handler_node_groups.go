@@ -219,9 +219,32 @@ const (
 )
 
 type scalingConfigJSON struct {
-	DesiredSize int32 `json:"desiredSize"`
-	MinSize     int32 `json:"minSize"`
-	MaxSize     int32 `json:"maxSize"`
+	DesiredSize *int32 `json:"desiredSize"`
+	MinSize     *int32 `json:"minSize"`
+	MaxSize     *int32 `json:"maxSize"`
+}
+
+// resolve fills each omitted member with its documented default.
+func (c *scalingConfigJSON) resolve() (int32, int32, int32) {
+	desired, minSize, maxSize := int32(defaultNodegroupDesired), int32(defaultNodegroupMin), int32(defaultNodegroupMax)
+
+	if c == nil {
+		return desired, minSize, maxSize
+	}
+
+	if c.DesiredSize != nil {
+		desired = *c.DesiredSize
+	}
+
+	if c.MinSize != nil {
+		minSize = *c.MinSize
+	}
+
+	if c.MaxSize != nil {
+		maxSize = *c.MaxSize
+	}
+
+	return desired, minSize, maxSize
 }
 
 type nodegroupTaintJSON struct {
@@ -323,21 +346,14 @@ func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, bod
 		}
 	}
 
-	scaling := scalingConfigJSON{
-		DesiredSize: defaultNodegroupDesired,
-		MinSize:     defaultNodegroupMin,
-		MaxSize:     defaultNodegroupMax,
-	}
-	if in.ScalingConfig != nil {
-		scaling = *in.ScalingConfig
-	}
+	desiredSize, minSize, maxSize := in.ScalingConfig.resolve()
 
 	return h.withIdempotency(c, opCreateNodegroup, in.ClientRequestToken, body, func() (int, any, error) {
 		ng, err := h.Backend.CreateNodegroup(
 			clusterName, in.NodegroupName, in.NodeRole,
 			in.AMIType, in.CapacityType, in.Version, in.ReleaseVersion,
 			in.InstanceTypes,
-			scaling.DesiredSize, scaling.MinSize, scaling.MaxSize,
+			desiredSize, minSize, maxSize,
 			NodegroupInput{
 				Labels:         in.Labels,
 				RemoteAccess:   remoteAccess,
@@ -475,11 +491,11 @@ func (h *Handler) handleUpdateNodegroupConfig(
 
 		now := time.Now().UTC()
 		u := &Update{
-			ID:            uuid.NewString()[:8],
+			ID:            uuid.NewString(),
 			ClusterName:   clusterName,
 			NodegroupName: nodegroupName,
 			Status:        statusInProgress,
-			Type:          "ConfigUpdate",
+			Type:          typeConfigUpdate,
 			CreatedAt:     now,
 		}
 		h.Backend.StoreUpdate(u)

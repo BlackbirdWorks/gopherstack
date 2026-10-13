@@ -83,7 +83,7 @@ func TestBackend_StartMLLabelingSetGenerationTaskRun(t *testing.T) {
 		b := newTestBackendForML(t)
 		transformID := createMLTransformDirect(t, b, "label-transform")
 
-		run, err := b.StartMLLabelingSetGenerationTaskRun(transformID)
+		run, err := b.StartMLLabelingSetGenerationTaskRun(transformID, "s3://bucket/out")
 		require.NoError(t, err)
 		assert.NotEmpty(t, run.TaskRunID)
 		assert.Equal(t, "LABELING_SET_GENERATION", run.TaskType)
@@ -109,7 +109,7 @@ func TestBackend_StartExportImportLabels(t *testing.T) {
 		{
 			name: "import_labels",
 			fn: func(b *glue.InMemoryBackend, id, path string) (*glue.MLTaskRun, error) {
-				return b.StartImportLabelsTaskRun(id, path)
+				return b.StartImportLabelsTaskRun(id, path, false)
 			},
 			wantTaskType: "IMPORT_LABELS",
 		},
@@ -337,7 +337,7 @@ func TestBackend_MLTaskRunCount(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, glue.MLTaskRunCount(b))
 
-	_, err = b.StartMLLabelingSetGenerationTaskRun(id1)
+	_, err = b.StartMLLabelingSetGenerationTaskRun(id1, "s3://bucket/out")
 	require.NoError(t, err)
 	assert.Equal(t, 2, glue.MLTaskRunCount(b))
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 func (h *Handler) handleCreateLoadBalancer(vals url.Values) (any, error) {
@@ -15,12 +17,15 @@ func (h *Handler) handleCreateLoadBalancer(vals url.Values) (any, error) {
 
 	subnets := parseMembers(vals, "Subnets.member")
 	sgs := parseMembers(vals, "SecurityGroups.member")
-	tagKVs := parseTagKVs(vals)
+	pinnedID, tagKVs := tags.PinnedIDFromList(parseTagKVs(vals), func(kv tags.KV) (string, string) {
+		return kv.Key, kv.Value
+	})
 
 	subnetMappings := parseSubnetMappings(vals)
 
 	lb, err := h.Backend.CreateLoadBalancer(CreateLoadBalancerInput{
 		Name:                         name,
+		PinnedID:                     pinnedID,
 		Scheme:                       vals.Get("Scheme"),
 		Type:                         vals.Get("Type"),
 		IPAddressType:                vals.Get("IpAddressType"),

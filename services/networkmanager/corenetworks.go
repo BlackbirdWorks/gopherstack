@@ -466,7 +466,7 @@ func (b *InMemoryBackend) ExecuteCoreNetworkChangeSet(coreNetworkID string, poli
 
 	v.ChangeSetState = changeSetStateExecuting
 
-	b.work.After("CoreNetworkChangeSetExecuted", asyncTransitionDelay, func() {
+	b.work.After("CoreNetworkChangeSetExecuted", b.transitionDelay, func() {
 		b.mu.Lock("CoreNetworkChangeSetExecuted-async")
 		defer b.mu.Unlock()
 

@@ -7,15 +7,13 @@ import (
 
 // --- BatchInferenceJob ---
 
-// requireJobName rejects an empty batch/async job name, matching the
-// "jobName is required" validation shared by every Create*Job op in this
-// file.
-func requireJobName(jobName string) error {
-	if jobName == "" {
-		return fmt.Errorf("%w: jobName is required", ErrValidation)
+// requireJob validates the name and role shared by every async job.
+func requireJob(jobName, roleArn string) error {
+	if err := validateName("jobName", jobName); err != nil {
+		return err
 	}
 
-	return nil
+	return validateRoleArn(roleArn)
 }
 
 // requireSolutionVersion FK-validates that solutionVersionArn resolves to a
@@ -49,7 +47,7 @@ func (b *InMemoryBackend) CreateBatchInferenceJob(
 	b.mu.Lock("CreateBatchInferenceJob")
 	defer b.mu.Unlock()
 
-	if err := requireJobName(jobName); err != nil {
+	if err := requireJob(jobName, roleArn); err != nil {
 		return nil, err
 	}
 	if err := b.requireSolutionVersion(solutionVersionArn); err != nil {
@@ -81,6 +79,7 @@ func (b *InMemoryBackend) CreateBatchInferenceJob(
 		JobInput:                jobInput,
 		JobOutput:               jobOutput,
 		Status:                  statusActive,
+		lc:                      b.lifecycle(),
 		CreationDateTime:        now,
 		LastUpdatedDateTime:     now,
 		BatchInferenceJobMode:   jobMode,
@@ -141,7 +140,7 @@ func (b *InMemoryBackend) CreateBatchSegmentJob(
 	b.mu.Lock("CreateBatchSegmentJob")
 	defer b.mu.Unlock()
 
-	if err := requireJobName(jobName); err != nil {
+	if err := requireJob(jobName, roleArn); err != nil {
 		return nil, err
 	}
 	if err := b.requireSolutionVersion(solutionVersionArn); err != nil {
@@ -162,6 +161,7 @@ func (b *InMemoryBackend) CreateBatchSegmentJob(
 		JobInput:            jobInput,
 		JobOutput:           jobOutput,
 		Status:              statusActive,
+		lc:                  b.lifecycle(),
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 		NumResults:          numResults,

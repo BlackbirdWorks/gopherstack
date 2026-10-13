@@ -15,14 +15,12 @@ import (
 // (AcmeEndpointArn), cascade-deleted with it -- see DeleteAcmeEndpoint in
 // acme_endpoints.go.
 //
-// Status is always VALIDATING: gopherstack has no real DNS resolver to check
-// the synthesized ResourceRecord against, so it never claims VALID (a
-// verification that never actually happened) or INVALID. This mirrors the
-// task's explicit instruction not to fabricate a validated state -- see
-// PARITY.md's gaps entry for this family.
+// Status reads VALIDATING until ValidAt, then VALID, mirroring the timed
+// certificate auto-validation (no real DNS resolver exists to check the record).
 type AcmeDomainValidation struct {
 	CreatedAt         time.Time       `json:"createdAt"`
 	UpdatedAt         time.Time       `json:"updatedAt"`
+	ValidAt           time.Time       `json:"validAt,omitzero"`
 	ResourceRecord    *ResourceRecord `json:"resourceRecord,omitempty"`
 	ARN               string          `json:"arn"`
 	Region            string          `json:"region"`
@@ -48,6 +46,10 @@ func copyAcmeDomainValidation(v *AcmeDomainValidation) AcmeDomainValidation {
 	if v.ResourceRecord != nil {
 		rr := *v.ResourceRecord
 		cp.ResourceRecord = &rr
+	}
+
+	if v.Status == acmeDomainValidationStatusValidating && !v.ValidAt.IsZero() && !time.Now().Before(v.ValidAt) {
+		cp.Status = acmeDomainValidationStatusValid
 	}
 
 	return cp
@@ -222,6 +224,7 @@ func (b *InMemoryBackend) CreateAcmeDomainValidation(
 		ResourceRecord:    record,
 		CreatedAt:         now,
 		UpdatedAt:         now,
+		ValidAt:           now.Add(b.getAutoValidateDelayLocked()),
 		IdempotencyToken:  p.IdempotencyToken,
 	}
 	b.domainValidations.Put(dv)
@@ -269,8 +272,7 @@ func (b *InMemoryBackend) ListAcmeDomainValidations(
 
 // UpdateAcmeDomainValidation replaces an existing domain validation's
 // prevalidation options (the only field the real API allows updating),
-// regenerating its DNS resource record. Status is left at VALIDATING for the
-// same reason CreateAcmeDomainValidation never sets anything else.
+// regenerating its DNS resource record and restarting validation.
 func (b *InMemoryBackend) UpdateAcmeDomainValidation(
 	ctx context.Context, dvARN string, dns *DNSPrevalidationParams,
 ) error {
@@ -301,6 +303,8 @@ func (b *InMemoryBackend) UpdateAcmeDomainValidation(
 		dv.DomainScopeWild = dns.DomainScopeWild
 		dv.HostedZoneID = dns.HostedZoneID
 		dv.ResourceRecord = record
+		dv.Status = acmeDomainValidationStatusValidating
+		dv.ValidAt = time.Now().UTC().Add(b.getAutoValidateDelayLocked())
 	}
 
 	dv.UpdatedAt = time.Now().UTC()

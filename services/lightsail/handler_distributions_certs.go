@@ -560,22 +560,57 @@ type certificateWire struct {
 	Tags              []tagWire              `json:"tags,omitempty"`
 }
 
+type certificateRecordWire struct {
+	ResourceRecord   *certificateResourceRecordWire `json:"resourceRecord,omitempty"`
+	DomainName       string                         `json:"domainName,omitempty"`
+	ValidationStatus string                         `json:"validationStatus,omitempty"`
+}
+
+type certificateResourceRecordWire struct {
+	Name  string `json:"name,omitempty"`
+	Type  string `json:"type,omitempty"`
+	Value string `json:"value,omitempty"`
+}
+
 type certificateDetailWire struct {
-	CreatedAt               *float64  `json:"createdAt,omitempty"`
-	DomainName              string    `json:"domainName,omitempty"`
-	IssuedAt                *float64  `json:"issuedAt,omitempty"`
-	Name                    string    `json:"name,omitempty"`
-	NotAfter                *float64  `json:"notAfter,omitempty"`
-	NotBefore               *float64  `json:"notBefore,omitempty"`
-	Status                  string    `json:"status,omitempty"`
-	SubjectAlternativeNames []string  `json:"subjectAlternativeNames,omitempty"`
-	Tags                    []tagWire `json:"tags,omitempty"`
+	CreatedAt               *float64                `json:"createdAt,omitempty"`
+	IssuedAt                *float64                `json:"issuedAt,omitempty"`
+	NotAfter                *float64                `json:"notAfter,omitempty"`
+	NotBefore               *float64                `json:"notBefore,omitempty"`
+	SupportCode             string                  `json:"supportCode,omitempty"`
+	DomainName              string                  `json:"domainName,omitempty"`
+	Name                    string                  `json:"name,omitempty"`
+	Status                  string                  `json:"status,omitempty"`
+	DomainValidationRecords []certificateRecordWire `json:"domainValidationRecords,omitempty"`
+	SubjectAlternativeNames []string                `json:"subjectAlternativeNames,omitempty"`
+	Tags                    []tagWire               `json:"tags,omitempty"`
+	InUseResourceCount      int32                   `json:"inUseResourceCount"`
+}
+
+func recordsToWire(records []CertificateValidationRecord) []certificateRecordWire {
+	out := make([]certificateRecordWire, len(records))
+	for i, r := range records {
+		out[i] = certificateRecordWire{
+			DomainName:       r.DomainName,
+			ValidationStatus: r.ValidationStatus,
+			ResourceRecord: &certificateResourceRecordWire{
+				Name:  r.RecordName,
+				Type:  r.RecordType,
+				Value: r.RecordValue,
+			},
+		}
+	}
+
+	return out
 }
 
 func certificateToWire(c *Certificate) certificateWire {
 	return certificateWire{
 		Arn: c.Arn, DomainName: c.DomainName, CertificateName: c.Name, Tags: mapFromTags(c.Tags),
 		CertificateDetail: &certificateDetailWire{
+			DomainValidationRecords: recordsToWire(c.DomainValidationRecords),
+			SupportCode:             c.SupportCode,
+			InUseResourceCount:      c.InUseResourceCount,
 			CreatedAt: epochPtr(
 				c.CreatedAt,
 			), DomainName: c.DomainName, IssuedAt: epochPtr(c.IssuedAt),

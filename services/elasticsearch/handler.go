@@ -515,6 +515,7 @@ type errorResponseJSON struct {
 
 func (h *Handler) writeError(r *http.Request, w http.ResponseWriter, status int, code, message string) {
 	ctx := r.Context()
+	message = strings.TrimPrefix(message, code+": ")
 	logger.Load(ctx).ErrorContext(r.Context(), "elasticsearch error", "code", code, "message", message)
 	w.Header().Set("x-amzn-ErrorType", code)
 	httputils.WriteJSON(ctx, w, status, errorResponseJSON{Message: message})

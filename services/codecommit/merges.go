@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // MergePullRequestOptions carries the optional author/message fields of the
@@ -127,7 +125,7 @@ func (b *InMemoryBackend) applyPullRequestMerge(
 
 	if option == mergeOptionFastForward {
 		meta.MergeCommitID = source
-		b.branches.Put(&Branch{BranchName: destBranch, CommitID: source, RepositoryName: t.RepositoryName})
+		b.putBranchLocked(&Branch{BranchName: destBranch, CommitID: source, RepositoryName: t.RepositoryName})
 		b.syncFilesToCommitLocked(t.RepositoryName, source)
 
 		return meta
@@ -300,7 +298,7 @@ func (b *InMemoryBackend) mergeBranches(
 	defer b.mu.Unlock()
 
 	if !b.repositories.Has(repoName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, repoName)
 	}
 
 	sourceID, err := b.resolveCommitSpecifier(repoName, sourceSpecifier)
@@ -363,8 +361,8 @@ func (b *InMemoryBackend) newMergeCommitLocked(
 	}
 
 	commit := &Commit{
-		CommitID:       uuid.NewString(),
-		TreeID:         uuid.NewString(),
+		CommitID:       newObjectID(),
+		TreeID:         newObjectID(),
 		Message:        message,
 		AuthorName:     author,
 		AuthorEmail:    email,
@@ -383,7 +381,7 @@ func (b *InMemoryBackend) newMergeCommitLocked(
 // advanceBranchLocked points branch at the merge commit and brings the file
 // view and per-file history in line with its tree.
 func (b *InMemoryBackend) advanceBranchLocked(repo, branch string, commit *Commit, before map[string]TreeEntry) {
-	b.branches.Put(&Branch{BranchName: branch, CommitID: commit.CommitID, RepositoryName: repo})
+	b.putBranchLocked(&Branch{BranchName: branch, CommitID: commit.CommitID, RepositoryName: repo})
 	b.recordTreeHistoryLocked(repo, commit.CommitID, before, commit.Tree)
 	b.syncFilesToTreeLocked(repo, commit.CommitID, commit.Tree)
 }
@@ -404,7 +402,7 @@ func (b *InMemoryBackend) MergeBranchesByFastForward(
 	defer b.mu.Unlock()
 
 	if !b.repositories.Has(repoName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, repoName)
 	}
 
 	sourceCommitID, err := b.resolveCommitSpecifier(repoName, sourceRef)
@@ -419,7 +417,7 @@ func (b *InMemoryBackend) MergeBranchesByFastForward(
 	if branch == "" {
 		branch = destinationRef
 	}
-	b.branches.Put(&Branch{
+	b.putBranchLocked(&Branch{
 		BranchName:     branch,
 		CommitID:       sourceCommitID,
 		RepositoryName: repoName,

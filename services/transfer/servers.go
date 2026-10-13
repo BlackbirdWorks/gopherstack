@@ -6,10 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"sort"
-	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // CreateServerInput holds all optional fields for CreateServer.
@@ -81,6 +78,40 @@ func validateAndDefaultIdentityProviderType(t string) (string, error) {
 			ErrValidation, t,
 		)
 	}
+}
+
+// validateIdentityProviderDetails enforces CreateServerInput.IdentityProviderDetails: each custom
+// provider type needs its locator member, and SERVICE_MANAGED takes no details.
+func validateIdentityProviderDetails(providerType string, d *IdentityProviderDetails) error {
+	var missing string
+
+	switch providerType {
+	case identityProviderAPIGateway:
+		if d == nil || d.URL == "" {
+			missing = "Url"
+		}
+	case identityProviderDirectoryService:
+		if d == nil || d.DirectoryID == "" {
+			missing = "DirectoryId"
+		}
+	case identityProviderLambda:
+		if d == nil || d.Function == "" {
+			missing = "Function"
+		}
+	default:
+		if d != nil && *d != (IdentityProviderDetails{}) {
+			return fmt.Errorf("%w: IdentityProviderDetails cannot be specified for SERVICE_MANAGED", ErrValidation)
+		}
+	}
+
+	if missing != "" {
+		return fmt.Errorf(
+			"%w: IdentityProviderDetails.%s is required when IdentityProviderType is %s",
+			ErrValidation, missing, providerType,
+		)
+	}
+
+	return nil
 }
 
 // validateAndDefaultDomain validates and defaults the domain.
@@ -202,7 +233,7 @@ func (b *InMemoryBackend) CreateServerFull(in *CreateServerInput) (*Server, erro
 	// exact shape (regexp on every aws_transfer_user/_access/etc. server_id
 	// argument) and rejects a UUID-with-hyphens id outright. Found via an
 	// actual Terraform apply of aws_transfer_user.
-	serverID := "s-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:17]
+	serverID := newResourceID("s-")
 
 	protocols, err := validateAndDefaultServerProtocols(in.Protocols)
 	if err != nil {
@@ -212,6 +243,10 @@ func (b *InMemoryBackend) CreateServerFull(in *CreateServerInput) (*Server, erro
 	identityProviderType, err := validateAndDefaultIdentityProviderType(in.IdentityProviderType)
 	if err != nil {
 		return nil, err
+	}
+
+	if idpErr := validateIdentityProviderDetails(identityProviderType, in.IdentityProviderDetails); idpErr != nil {
+		return nil, idpErr
 	}
 
 	domain, err := validateAndDefaultDomain(in.Domain)
@@ -609,4 +644,33 @@ func (b *InMemoryBackend) AddServerInternal(serverID string) {
 		AccountID: b.accountID,
 		Region:    b.region,
 	})
+}
+
+// validateFTPServerConfig applies the CreateServer Protocols rule: FTP and FTPS need
+// a VPC endpoint and a non-SERVICE_MANAGED identity provider.
+func validateFTPServerConfig(protocols []string, endpointType, identityProviderType string) error {
+	if endpointType == "" {
+		endpointType = endpointTypePublic
+	}
+
+	if identityProviderType == "" {
+		identityProviderType = "SERVICE_MANAGED"
+	}
+
+	if !slices.Contains(protocols, "FTP") && !slices.Contains(protocols, "FTPS") {
+		return nil
+	}
+
+	if endpointType == endpointTypePublic {
+		return fmt.Errorf("%w: FTP and FTPS require EndpointType VPC", ErrValidation)
+	}
+
+	if identityProviderType == "SERVICE_MANAGED" {
+		return fmt.Errorf(
+			"%w: FTP and FTPS require IdentityProviderType AWS_DIRECTORY_SERVICE, AWS_LAMBDA or API_GATEWAY",
+			ErrValidation,
+		)
+	}
+
+	return nil
 }

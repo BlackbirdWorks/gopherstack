@@ -66,7 +66,10 @@ func (h *Handler) handleListShares(c *echo.Context) error {
 		return err
 	}
 
-	maxResults, nextToken := listQueryParams(c)
+	maxResults, nextToken, err := listQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
 
 	shares, next, err := h.Backend.ListShares(req.ResourceOwner, req.Filter, maxResults, nextToken)
 	if err != nil {

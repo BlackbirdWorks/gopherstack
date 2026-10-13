@@ -24,6 +24,18 @@ func (b *InMemoryBackend) CreateClassificationJob(
 	b.mu.Lock("CreateClassificationJob")
 	defer b.mu.Unlock()
 
+	if clientToken != "" {
+		for _, j := range b.classificationJobs.All() {
+			if j.ClientToken == clientToken {
+				return j.JobID, j.Arn, nil
+			}
+		}
+	}
+
+	if err := b.jobReferencesExistLocked(allowListIDs, customDataIdentifierIDs); err != nil {
+		return "", "", err
+	}
+
 	id := uuid.New().String()
 	jobArn := arn.Build("macie2", b.region, b.accountID, fmt.Sprintf("classification-job/%s", id))
 	now := time.Now().UTC()
@@ -34,7 +46,7 @@ func (b *InMemoryBackend) CreateClassificationJob(
 	}
 
 	if managedDataIdentifierSelector == "" {
-		managedDataIdentifierSelector = "RECOMMENDED"
+		managedDataIdentifierSelector = valueRecommended
 	}
 
 	pct := samplingPercentage
@@ -61,7 +73,7 @@ func (b *InMemoryBackend) CreateClassificationJob(
 		InitialRun:                    initialRun,
 		ClientToken:                   clientToken,
 		LastRunTime:                   &now,
-		LastRunErrorStatus:            &JobLastRunErrorStatus{Code: "NONE"},
+		LastRunErrorStatus:            &JobLastRunErrorStatus{Code: valueNone},
 		Statistics:                    &JobStatistics{NumberOfRuns: 1},
 	})
 
@@ -74,13 +86,15 @@ func (b *InMemoryBackend) CreateClassificationJob(
 
 // DescribeClassificationJob returns a classification job by ID.
 func (b *InMemoryBackend) DescribeClassificationJob(jobID string) (*ClassificationJob, error) {
-	b.mu.RLock("DescribeClassificationJob")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeClassificationJob")
+	defer b.mu.Unlock()
 
 	job, ok := b.classificationJobs.Get(jobID)
 	if !ok {
 		return nil, ErrClassificationJobNotFound
 	}
+
+	b.settleJobLocked(job, time.Now())
 
 	cp := *job
 	cp.Tags = maps.Clone(job.Tags)
@@ -153,6 +167,13 @@ func sortJobSummaries(result []*ClassificationJobSummary, sortBy *ListJobsSortCr
 func (b *InMemoryBackend) ListClassificationJobs(
 	filterCriteria map[string]any, sortBy *ListJobsSortCriteria, maxResults int, nextToken string,
 ) ([]*ClassificationJobSummary, string, error) {
+	b.mu.Lock("SettleClassificationJobs")
+	now := time.Now()
+	for _, job := range b.classificationJobs.All() {
+		b.settleJobLocked(job, now)
+	}
+	b.mu.Unlock()
+
 	return listPaginated(
 		b, "ListClassificationJobs", b.classificationJobs.All,
 		func(job *ClassificationJob) (*ClassificationJobSummary, bool) {
@@ -291,6 +312,8 @@ func (b *InMemoryBackend) UpdateClassificationJob(jobID, status string) error {
 	if !ok {
 		return ErrClassificationJobNotFound
 	}
+
+	b.settleJobLocked(job, time.Now())
 
 	allowedFrom, recognized := validJobStatusTransitions[status]
 	if !recognized {

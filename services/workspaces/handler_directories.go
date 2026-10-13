@@ -77,7 +77,8 @@ type entraConfigResp struct {
 }
 
 type idcConfigResp struct {
-	InstanceArn string `json:"InstanceArn"`
+	ApplicationArn string `json:"ApplicationArn,omitempty"`
+	InstanceArn    string `json:"InstanceArn"`
 }
 
 // certBasedAuthPropsResp mirrors types.CertificateBasedAuthProperties.
@@ -212,7 +213,7 @@ func toIDCConfigResp(c *DirectoryIDCConfig) *idcConfigResp {
 		return nil
 	}
 
-	return &idcConfigResp{InstanceArn: c.InstanceArn}
+	return &idcConfigResp{ApplicationArn: c.ApplicationArn, InstanceArn: c.InstanceArn}
 }
 
 func (h *Handler) handleDescribeWorkspaceDirectories(
@@ -321,7 +322,7 @@ func (h *Handler) handleRegisterWorkspaceDirectory(
 		return nil, err
 	}
 
-	return &registerWorkspaceDirectoryOutput{DirectoryId: id, State: stateRegistered}, nil
+	return &registerWorkspaceDirectoryOutput{DirectoryId: id, State: stateRegistering}, nil
 }
 
 type deregisterWorkspaceDirectoryInput struct {

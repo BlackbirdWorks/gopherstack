@@ -148,7 +148,7 @@ func TestHandler_CommitTransaction(t *testing.T) {
 				"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
 				"transactionId": "txn-does-not-exist",
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 	}
 
@@ -226,7 +226,7 @@ func TestHandler_RollbackTransaction(t *testing.T) {
 				"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
 				"transactionId": "txn-does-not-exist",
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 	}
 
@@ -370,7 +370,7 @@ func TestHandler_CommitAfterRollback_Fails(t *testing.T) {
 		"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
 		"transactionId": txID,
 	})
-	assert.Equal(t, http.StatusBadRequest, commitRec.Code)
+	assert.Equal(t, http.StatusNotFound, commitRec.Code)
 }
 
 // TestHandler_CommitThenReuse verifies that a committed transaction cannot
@@ -417,7 +417,7 @@ func TestHandler_CommitThenReuse(t *testing.T) {
 				"sql":           "SELECT 1",
 				"transactionId": txID,
 			})
-			assert.Equal(t, http.StatusBadRequest, rec.Code,
+			assert.Equal(t, http.StatusNotFound, rec.Code,
 				"path %s: reusing committed txID must fail", tt.path)
 
 			var errResp map[string]any
@@ -441,12 +441,12 @@ func TestHandler_ExecuteAfterTransactionClose(t *testing.T) {
 		{
 			name:       "commit_then_execute_fails",
 			closeWith:  "/CommitTransaction",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "rollback_then_execute_fails",
 			closeWith:  "/RollbackTransaction",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 	}
 
@@ -605,7 +605,7 @@ func TestHandler_TransactionNotFoundErrorType(t *testing.T) {
 			}
 
 			rec := doRDSDataRequest(t, h, tt.path, body)
-			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
 
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -626,7 +626,7 @@ func TestHandler_TransactionNotFoundErrorShape(t *testing.T) {
 		"transactionId": "txn-nonexistent",
 	})
 
-	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, http.StatusNotFound, rec.Code)
 
 	var errResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))

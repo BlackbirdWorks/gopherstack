@@ -41,6 +41,12 @@ const (
 
 	// maxDomainLength is the maximum length of a domain name per RFC 1035 / AWS ACM constraints.
 	maxDomainLength = 253
+	// maxListItems is the documented upper bound on ListCertificates MaxItems.
+	maxListItems = 1000
+	// maxCommonNameLength is the RFC 5280 limit on the primary DomainName.
+	maxCommonNameLength = 64
+	// maxIdempotencyTokenLength is RequestCertificate.IdempotencyToken's documented maximum.
+	maxIdempotencyTokenLength = 32
 	// maxDomainLabelLength is the maximum length of a single DNS label (component between dots).
 	maxDomainLabelLength = 63
 

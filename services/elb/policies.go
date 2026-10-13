@@ -397,6 +397,13 @@ func (b *InMemoryBackend) DescribeLoadBalancerPolicies(
 	}
 
 	lbPolicies := b.policiesByLB.Get(lbTableKey(region, name))
+
+	for _, n := range policyNames {
+		if !slices.ContainsFunc(lbPolicies, func(p *LoadBalancerPolicy) bool { return p.PolicyName == n }) {
+			return nil, fmt.Errorf("%w: %q", ErrPolicyNotFound, n)
+		}
+	}
+
 	result := make([]LoadBalancerPolicy, 0, len(lbPolicies))
 	for _, p := range lbPolicies {
 		if len(filterNames) > 0 && !filterNames[p.PolicyName] {

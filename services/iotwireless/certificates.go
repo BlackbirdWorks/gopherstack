@@ -125,6 +125,7 @@ func (b *InMemoryBackend) StartWirelessDeviceImportTask(
 // StartSingleWirelessDeviceImportTask creates a single wireless device import task.
 func (b *InMemoryBackend) StartSingleWirelessDeviceImportTask(
 	accountID, region, destinationName string,
+	details ...SingleImportDetails,
 ) (*SingleWirelessDeviceImportTask, error) {
 	b.mu.Lock("StartSingleWirelessDeviceImportTask")
 	defer b.mu.Unlock()
@@ -142,6 +143,14 @@ func (b *InMemoryBackend) StartSingleWirelessDeviceImportTask(
 		CreatedAt:        time.Now(),
 	}
 
+	if len(details) > 0 {
+		d := details[0]
+		task.DeviceName = d.DeviceName
+		task.Positioning = d.Positioning
+		task.SidewalkManufacturingSn = d.SidewalkManufacturingSn
+		task.SidewalkPositioningDestination = d.SidewalkPositioningDestination
+	}
+
 	b.singleImportTasks.Put(task)
 
 	return copySingleImportTask(task), nil
@@ -154,6 +163,10 @@ func (b *InMemoryBackend) GetWirelessDeviceImportTask(id string) (*WirelessDevic
 
 	task, ok := b.importTasks.Get(id)
 	if !ok {
+		if single, found := b.singleImportTasks.Get(id); found {
+			return singleAsImportTask(single), nil
+		}
+
 		return nil, ErrImportTaskNotFound
 	}
 
@@ -165,7 +178,7 @@ func (b *InMemoryBackend) DeleteWirelessDeviceImportTask(id string) error {
 	b.mu.Lock("DeleteWirelessDeviceImportTask")
 	defer b.mu.Unlock()
 
-	if !b.importTasks.Delete(id) {
+	if !b.importTasks.Delete(id) && !b.singleImportTasks.Delete(id) {
 		return ErrImportTaskNotFound
 	}
 
@@ -205,4 +218,16 @@ func (b *InMemoryBackend) ListWirelessDeviceImportTasks() []*WirelessDeviceImpor
 	}
 
 	return result
+}
+
+func singleAsImportTask(s *SingleWirelessDeviceImportTask) *WirelessDeviceImportTask {
+	return &WirelessDeviceImportTask{
+		ID:                             s.ID,
+		ARN:                            s.ARN,
+		DestinationName:                s.DestinationName,
+		Status:                         s.Status,
+		CreatedAt:                      s.CreatedAt,
+		Positioning:                    s.Positioning,
+		SidewalkPositioningDestination: s.SidewalkPositioningDestination,
+	}
 }

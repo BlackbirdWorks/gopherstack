@@ -1,6 +1,7 @@
 package fsx_test
 
 import (
+	"encoding/base64"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -63,7 +64,10 @@ func TestDescribeVolumes_SDKRoundTrip_StaleCursorResumesPastDeletedItem(t *testi
 	// Delete the volume the cursor points at before the next page is
 	// fetched -- exactly the retention-sweep/deletion trigger described for
 	// this bug class.
-	_, err = client.DeleteVolume(t.Context(), &fsxsdk.DeleteVolumeInput{VolumeId: aws.String(staleToken)})
+	cursorKey, err := base64.RawURLEncoding.DecodeString(staleToken)
+	require.NoError(t, err)
+
+	_, err = client.DeleteVolume(t.Context(), &fsxsdk.DeleteVolumeInput{VolumeId: aws.String(string(cursorKey))})
 	require.NoError(t, err)
 
 	page2, err := client.DescribeVolumes(t.Context(), &fsxsdk.DescribeVolumesInput{
@@ -79,6 +83,6 @@ func TestDescribeVolumes_SDKRoundTrip_StaleCursorResumesPastDeletedItem(t *testi
 
 	assert.NotContains(t, page2IDs, firstSeenID,
 		"a stale cursor must not re-return page1's item -- that means pagination reset to page one")
-	assert.NotContains(t, page2IDs, staleToken, "the deleted volume itself must not reappear")
+	assert.NotContains(t, page2IDs, string(cursorKey), "the deleted volume itself must not reappear")
 	assert.Len(t, page2IDs, 1, "exactly one surviving volume remains after the deleted one")
 }

@@ -109,6 +109,7 @@ type ExecutedStatement struct {
 	SQL           string `json:"sql"`
 	ResourceARN   string `json:"resourceArn"`
 	TransactionID string `json:"transactionId,omitempty"`
+	Database      string `json:"database,omitempty"`
 }
 
 // SQLParameter represents a named parameter for a SQL statement.

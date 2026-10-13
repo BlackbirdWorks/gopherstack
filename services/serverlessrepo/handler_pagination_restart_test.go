@@ -1,6 +1,7 @@
 package serverlessrepo_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -34,7 +35,9 @@ func TestListApplications_Pagination_DeletedMidPage(t *testing.T) {
 	require.True(t, ok)
 	require.NotEmpty(t, nextToken)
 
-	require.NoError(t, h.Backend.DeleteApplication(nextToken))
+	decoded, decErr := base64.StdEncoding.DecodeString(nextToken)
+	require.NoError(t, decErr)
+	require.NoError(t, h.Backend.DeleteApplication(string(decoded)))
 
 	rec = doServerlessRepoRequest(t, h, http.MethodGet, "/applications?maxItems=2&nextToken="+nextToken, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -87,7 +90,7 @@ func TestListApplicationVersions_Pagination_StaleTokenDoesNotRestart(t *testing.
 
 	rec2 := doServerlessRepoRequest(
 		t, h, http.MethodGet,
-		"/applications/stale-app/versions?maxItems=2&nextToken=99.99.99",
+		"/applications/stale-app/versions?maxItems=2&nextToken="+base64.StdEncoding.EncodeToString([]byte("99.99.99")),
 		nil,
 	)
 	require.Equal(t, http.StatusOK, rec2.Code)
@@ -146,7 +149,8 @@ func TestListApplicationDependencies_Pagination_StaleTokenDoesNotRestart(t *test
 
 	rec2 := doServerlessRepoRequest(t, h, http.MethodGet,
 		"/applications/dep-app/dependencies?semanticVersion=1.0.0&maxItems=2&nextToken="+
-			"arn:aws:serverlessrepo:us-east-1:000000000000:applications/does-not-exist", nil)
+			base64.StdEncoding.EncodeToString(
+				[]byte("arn:aws:serverlessrepo:us-east-1:000000000000:applications/does-not-exist")), nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var r2 map[string]any

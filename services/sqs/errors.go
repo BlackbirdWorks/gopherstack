@@ -18,6 +18,7 @@ var (
 	ErrBatchEntryIDsNotDistinct = errors.New("AWS.SimpleQueueService.BatchEntryIdsNotDistinct")
 	ErrUnknownAction            = errors.New("InvalidAction")
 	ErrMessageTooLarge          = errors.New("MessageTooLarge")
+	ErrInvalidMessageContents   = errors.New("InvalidMessageContents")
 	ErrInvalidWaitTime          = errors.New("InvalidParameterValue")
 	ErrInvalidVisibilityTimeout = errors.New("InvalidParameterValue.VisibilityTimeout")
 	ErrMissingMessageGroupID    = errors.New("InvalidParameterValue.MissingMessageGroupID")

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 )
 
@@ -268,11 +267,14 @@ func (h *Handler) handleListJobs(ctx context.Context, body []byte) ([]byte, erro
 		ProjectName string `json:"ProjectName"`
 	}
 	_ = json.Unmarshal(body, &req)
-	maxResults, _ := strconv.Atoi(req.MaxResults)
+	maxResults, token, err := listParams(req.MaxResults, req.NextToken)
+	if err != nil {
+		return nil, err
+	}
 
-	jobs, next := h.Backend.ListJobs(ctx, maxResults, req.NextToken, req.DatasetName, req.ProjectName)
+	jobs, next := h.Backend.ListJobs(ctx, maxResults, token, req.DatasetName, req.ProjectName)
 
-	return json.Marshal(map[string]any{"Jobs": jobs, nextTokenKey: next})
+	return marshalPage("Jobs", jobs, next)
 }
 
 // handleUpdateProfileJob handles UpdateProfileJob, whose wire field for the
@@ -387,14 +389,17 @@ func (h *Handler) handleListJobRuns(ctx context.Context, body []byte) ([]byte, e
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	maxResults, _ := strconv.Atoi(req.MaxResults)
-
-	runs, next, err := h.Backend.ListJobRuns(ctx, req.Name, maxResults, req.NextToken)
+	maxResults, token, err := listParams(req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"JobRuns": runs, nextTokenKey: next})
+	runs, next, err := h.Backend.ListJobRuns(ctx, req.Name, maxResults, token)
+	if err != nil {
+		return nil, err
+	}
+
+	return marshalPage("JobRuns", runs, next)
 }
 
 func (h *Handler) handleDescribeJobRun(ctx context.Context, body []byte) ([]byte, error) {

@@ -823,6 +823,7 @@ func TestListStackSetOperations_TiedCreatedAtPageWalk(t *testing.T) {
 
 		token := ""
 		for range total/pageSize + 2 {
+			b.WaitForStackSetOperations()
 			p, err := b.ListStackSetOperations("my-stack-set", 0, token)
 			require.NoError(t, err)
 

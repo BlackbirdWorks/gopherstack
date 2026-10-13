@@ -34,6 +34,7 @@ func cloneChannel(c *Channel) *Channel {
 	maps.Copy(cp.Tags, c.Tags)
 	cp.Storage = cloneChannelStorage(c.Storage)
 	cp.RetentionPeriod = cloneRetentionPeriod(c.RetentionPeriod)
+	cp.Status = observeStatus(c.Status, statusActive, c.readyAt)
 
 	return &cp
 }
@@ -76,7 +77,8 @@ func (b *InMemoryBackend) CreateChannel(
 	c := &Channel{
 		Name:            name,
 		ARN:             arn,
-		Status:          statusActive,
+		Status:          b.createStatus(),
+		readyAt:         b.readyAt(),
 		CreationTime:    now,
 		LastUpdate:      now,
 		Tags:            make(map[string]string),

@@ -190,6 +190,7 @@ func (h *Handler) execute(action string, spec operationSpec, input map[string]an
 		}
 
 		output := resourceOutput(spec, resource)
+		trimDescribeOnly(action, output)
 		if spec.kind == kindMonitor {
 			if eval, ok := h.Backend.latestMonitorEvaluation(resource.ARN); ok {
 				output["LastEvaluationState"] = eval.EvaluationState
@@ -226,9 +227,9 @@ func (h *Handler) dispatchListMonitorEvaluations(input map[string]any) ([]byte, 
 		return nil, err
 	}
 
-	maxResults := 0
-	if mr, ok := input["MaxResults"].(float64); ok {
-		maxResults = int(mr)
+	maxResults, err := parseMaxResults(input)
+	if err != nil {
+		return nil, err
 	}
 	nextToken, _ := input["NextToken"].(string)
 
@@ -437,13 +438,13 @@ func summaryOutput(spec operationSpec, resource *Resource) map[string]any {
 }
 
 func listOutput(spec operationSpec, resources []*Resource, input map[string]any) (map[string]any, error) {
-	maxResults := 0
-	if mr, ok := input["MaxResults"].(float64); ok {
-		maxResults = int(mr)
+	maxResults, err := parseMaxResults(input)
+	if err != nil {
+		return nil, err
 	}
 	nextToken, _ := input["NextToken"].(string)
 
-	if err := page.ValidateToken(nextToken); err != nil {
+	if tokenErr := page.ValidateToken(nextToken); tokenErr != nil {
 		return nil, fmt.Errorf("%w: NextToken %q is not valid", ErrInvalidNextToken, nextToken)
 	}
 
@@ -499,16 +500,9 @@ func filtersFromInput(input map[string]any) []resourceFilter {
 // resource.Status, a Key matching the operation's own ARN field reads
 // resource.ARN, and any other Key is looked up directly in resource.Data
 // under that name -- covering every Filter Key the real Forecast List ops
-// declare except two structural gaps left unfiltered (not silently
-// mismatched): ListForecasts/ListPredictors's "DatasetGroupArn" (the
-// predictor's DatasetGroupArn lives nested under InputDataConfig/DataConfig
-// and is never recorded top-level -- see addCRUD's Predictor registration
-// comment) and ListExplainabilityExports's "ResourceArn" (the create
-// request's own field is ExplainabilityArn, not ResourceArn -- no data
-// exists under the literal filter Key name). A filter whose Key cannot be
-// resolved is left unapplied rather than treated as never matching, so an
-// unfixable filter degrades to "not yet honoured" instead of "always
-// empty".
+// declare except ListExplainabilityExports's "ResourceArn", whose referent is
+// ambiguous (the export input carries ExplainabilityArn) and so is left
+// unapplied rather than treated as never matching.
 func applyFilters(spec operationSpec, resources []*Resource, filters []resourceFilter) []*Resource {
 	if len(filters) == 0 {
 		return resources
@@ -606,7 +600,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		code, errType = http.StatusInternalServerError, "InternalServerException"
 	}
 
-	payload, marshalErr := json.Marshal(map[string]string{"__type": errType, "message": err.Error()})
+	payload, marshalErr := json.Marshal(map[string]string{"__type": errType, "message": publicMessage(err, errType)})
 	if marshalErr != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
@@ -682,14 +676,7 @@ func registerDataOperations(operations map[string]operationSpec) {
 	)
 	addCRUD(
 		operations, "Predictor", kindPredictor, "PredictorName", fieldPredictorArn, "Predictors", false,
-		// PredictorSummary also declares DatasetGroupArn, IsAutoPredictor and
-		// ReferencePredictorSummary, but none has a backend field to source it
-		// from: CreatePredictor's DatasetGroupArn lives nested under
-		// InputDataConfig (not top-level), CreateAutoPredictor's under
-		// DataConfig, and IsAutoPredictor/ReferencePredictorSummary are never
-		// recorded at all. Left absent rather than fabricated; a separate,
-		// pre-existing missing-field gap, not this issue's over-wide class.
-		nil, true, true,
+		[]string{keyDatasetGroupArn, keyIsAutoPredictor, keyReferenceSummary}, true, true,
 	)
 }
 
@@ -708,7 +695,7 @@ func registerForecastingOperations(operations map[string]operationSpec) {
 	)
 	addCRUD(
 		operations, "Forecast", kindForecast, "ForecastName", fieldForecastArn, "Forecasts", false,
-		[]string{"PredictorArn"}, true, true,
+		[]string{"PredictorArn", keyDatasetGroupArn, keyCreatedUsingAuto}, true, true,
 	)
 	addCRUD(
 		operations,
@@ -832,3 +819,18 @@ func plural(base string) string {
 		return base + "s"
 	}
 }
+
+func parseMaxResults(input map[string]any) (int, error) {
+	mr, ok := input["MaxResults"].(float64)
+	if !ok {
+		return 0, nil
+	}
+
+	if mr < 1 || mr > maxListResults {
+		return 0, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidation, maxListResults)
+	}
+
+	return int(mr), nil
+}
+
+const maxListResults = 100

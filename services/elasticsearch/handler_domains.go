@@ -257,6 +257,7 @@ type domainStatusJSON struct {
 	Processing                  bool                               `json:"Processing"`
 	Created                     bool                               `json:"Created"`
 	Deleted                     bool                               `json:"Deleted"`
+	UpgradeProcessing           bool                               `json:"UpgradeProcessing"`
 }
 
 // ebsOptionsJSON is the JSON representation of EBS options.
@@ -354,7 +355,7 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeJSON(r, w, domainStatusWrapJSON{
-		DomainStatus: domainStatusToJSON(domain),
+		DomainStatus: h.domainStatusToJSON(domain),
 	})
 }
 
@@ -488,7 +489,7 @@ func (h *Handler) handleDescribeDomain(w http.ResponseWriter, r *http.Request, n
 	}
 
 	h.writeJSON(r, w, domainStatusWrapJSON{
-		DomainStatus: domainStatusToJSON(domain),
+		DomainStatus: h.domainStatusToJSON(domain),
 	})
 }
 
@@ -505,7 +506,7 @@ func (h *Handler) handleDeleteDomain(w http.ResponseWriter, r *http.Request, nam
 	}
 
 	h.writeJSON(r, w, domainStatusWrapJSON{
-		DomainStatus: domainStatusToJSON(domain),
+		DomainStatus: h.domainStatusToJSON(domain),
 	})
 }
 
@@ -583,7 +584,7 @@ func (h *Handler) handleDescribeElasticsearchDomains(w http.ResponseWriter, r *h
 			continue
 		}
 
-		list = append(list, domainStatusToJSON(d))
+		list = append(list, h.domainStatusToJSON(d))
 	}
 
 	// AWS always emits both arrays (never null), even when empty.
@@ -923,6 +924,19 @@ func toDeploymentStrategyOptionsJSON(d *DeploymentStrategyOptions) *deploymentSt
 	return &deploymentStrategyOptionsJSON{DeploymentStrategy: d.DeploymentStrategy}
 }
 
+// vpcDerivedInfoJSON is toVPCDerivedInfoJSON plus the VPCId and
+// AvailabilityZones resolved from the domain's subnets.
+func (h *Handler) vpcDerivedInfoJSON(d *Domain) *vpcDerivedInfoJSON {
+	out := toVPCDerivedInfoJSON(d.VPCOptions)
+	if out == nil {
+		return nil
+	}
+
+	out.VPCId, out.AvailabilityZones = h.Backend.vpcDerivedInfo(d.region, d.VPCOptions)
+
+	return out
+}
+
 // toVPCDerivedInfoJSON converts a backend VPCOptions to the response-shape
 // VPCDerivedInfo, or nil if the domain was never placed in a VPC.
 func toVPCDerivedInfoJSON(v *VPCOptions) *vpcDerivedInfoJSON {
@@ -951,7 +965,8 @@ func toLogPublishingOptionsJSON(opts map[string]LogPublishingOption) map[string]
 	return out
 }
 
-func domainStatusToJSON(d *Domain) domainStatusJSON {
+func (h *Handler) domainStatusToJSON(d *Domain) domainStatusJSON {
+	processing, dps := domainProcessing(d, h.Backend.Now())
 	advOpts := d.AdvancedOptions
 	if advOpts == nil {
 		advOpts = map[string]string{}
@@ -963,9 +978,11 @@ func domainStatusToJSON(d *Domain) domainStatusJSON {
 		ARN:                    d.ARN,
 		ElasticsearchVersion:   d.ElasticsearchVersion,
 		Endpoint:               d.Endpoint,
-		Processing:             false,
+		Processing:             processing,
+		UpgradeProcessing:      processing && dps == dpsUpgrading,
 		Created:                true,
-		DomainProcessingStatus: statusActiveCap,
+		Deleted:                d.Deleted,
+		DomainProcessingStatus: dps,
 		AccessPolicies:         d.AccessPolicies,
 		AdvancedOptions:        advOpts,
 		EBSOptions: ebsOptionsJSON{
@@ -980,7 +997,7 @@ func domainStatusToJSON(d *Domain) domainStatusJSON {
 		AdvancedSecurityOptions:    toAdvancedSecurityOptionsJSON(d.AdvancedSecurityOptions),
 		AutoTuneOptions:            toAutoTuneOptionsJSON(d.AutoTuneOptions),
 		DeploymentStrategyOptions:  toDeploymentStrategyOptionsJSON(d.DeploymentStrategyOptions),
-		VPCOptions:                 toVPCDerivedInfoJSON(d.VPCOptions),
+		VPCOptions:                 h.vpcDerivedInfoJSON(d),
 		LogPublishingOptions:       toLogPublishingOptionsJSON(d.LogPublishingOptions),
 		SnapshotOptions: domainSnapshotOptions{
 			AutomatedSnapshotStartHour: d.SnapshotOptions.AutomatedSnapshotStartHour,

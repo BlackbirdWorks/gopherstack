@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -54,8 +55,8 @@ func regionFromARN(resourceARN, defaultRegion string) string {
 // an existing ARN need no region resolution at all. See store_setup.go for
 // the full table/index registration and the rationale for each one.
 type InMemoryBackend struct {
-	registry                   *store.Registry
-	clusters                   *store.Table[Cluster]
+	vpcConnectionsByCluster    *store.Index[VpcConnection]
+	clusterPolicyVersions      map[string]string
 	clustersByRegion           *store.Index[Cluster]
 	clustersByName             *store.Index[Cluster]
 	configurations             *store.Table[Configuration]
@@ -66,18 +67,20 @@ type InMemoryBackend struct {
 	topicsByCluster            *store.Index[Topic]
 	vpcConnections             *store.Table[VpcConnection]
 	vpcConnectionsByRegion     *store.Index[VpcConnection]
-	vpcConnectionsByCluster    *store.Index[VpcConnection]
-	clusterOperations          *store.Table[ClusterOperation]
-	clusterOperationsByCluster *store.Index[ClusterOperation]
+	clusters                   *store.Table[Cluster]
+	clock                      func() time.Time
+	clusterPolicies            map[string]string
 	channels                   *store.Table[Channel]
 	channelsByCluster          *store.Index[Channel]
-	scramSecrets               map[string][]string // clusterArn → []secretArn (raw: slice-valued, not *T)
-	clusterPolicies            map[string]string   // clusterArn → policy document (raw: string-valued, not *T)
-	clusterPolicyVersions      map[string]string   // clusterArn → policy version token
+	scramSecrets               map[string][]string
+	clusterOperationsByCluster *store.Index[ClusterOperation]
+	registry                   *store.Registry
 	engine                     *brokerEngine
 	mu                         *lockmetrics.RWMutex
-	accountID                  string
+	clusterOperations          *store.Table[ClusterOperation]
 	region                     string
+	accountID                  string
+	lifecycleDelay             time.Duration
 }
 
 // NewInMemoryBackend creates a new in-memory MSK backend.
@@ -176,7 +179,7 @@ func (b *InMemoryBackend) nodeARN(region, clusterArn string, brokerID int32) str
 		"kafka",
 		region,
 		b.accountID,
-		fmt.Sprintf("broker/%s/%d", clusterArn, brokerID),
+		fmt.Sprintf("broker/%s/%d", clusterArnSuffix(clusterArn), brokerID),
 	)
 }
 
@@ -287,4 +290,12 @@ func nonNilTagsCopy(tags map[string]string) map[string]string {
 	}
 
 	return maps.Clone(tags)
+}
+
+func clusterArnSuffix(clusterArn string) string {
+	if _, rest, ok := strings.Cut(clusterArn, ":cluster/"); ok {
+		return rest
+	}
+
+	return clusterArn
 }

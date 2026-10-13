@@ -105,6 +105,13 @@ type HostedZoneCreator interface {
 	CreateHostedZone(name, callerRef, comment string, private bool, vpcID, vpcRegion string) (string, error)
 }
 
+// RecordSetWriter maintains a DNS namespace's record sets in its Route 53 hosted zone, wired via
+// SetRecordSetWriter. PutRecordSet replaces the whole record set; DeleteRecordSet is idempotent.
+type RecordSetWriter interface {
+	PutRecordSet(zoneID, name, recordType string, ttl int64, values []string) error
+	DeleteRecordSet(zoneID, name, recordType string) error
+}
+
 // DiscoveredInstance is the richer per-instance response for DiscoverInstances.
 type DiscoveredInstance struct {
 	Attributes    map[string]string

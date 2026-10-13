@@ -76,14 +76,22 @@ type createNetworkACLResponse struct {
 }
 
 type sgRuleDetailItem struct {
-	SecurityGroupRuleID string `xml:"securityGroupRuleId"`
-	GroupID             string `xml:"groupId"`
-	Protocol            string `xml:"ipProtocol"`
-	CIDRIPv4            string `xml:"cidrIpv4,omitempty"`
-	Description         string `xml:"description,omitempty"`
-	FromPort            int    `xml:"fromPort"`
-	ToPort              int    `xml:"toPort"`
-	IsEgress            bool   `xml:"isEgress"`
+	SecurityGroupRuleID string                   `xml:"securityGroupRuleId"`
+	GroupID             string                   `xml:"groupId"`
+	Protocol            string                   `xml:"ipProtocol"`
+	CIDRIPv4            string                   `xml:"cidrIpv4,omitempty"`
+	CIDRIPv6            string                   `xml:"cidrIpv6,omitempty"`
+	PrefixListID        string                   `xml:"prefixListId,omitempty"`
+	ReferencedGroupInfo *referencedGroupInfoItem `xml:"referencedGroupInfo,omitempty"`
+	Description         string                   `xml:"description,omitempty"`
+	FromPort            int                      `xml:"fromPort"`
+	ToPort              int                      `xml:"toPort"`
+	IsEgress            bool                     `xml:"isEgress"`
+}
+
+type referencedGroupInfoItem struct {
+	GroupID string `xml:"groupId"`
+	UserID  string `xml:"userId,omitempty"`
 }
 
 type sgRuleDetailSet struct {

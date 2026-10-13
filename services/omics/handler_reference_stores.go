@@ -59,7 +59,10 @@ func (h *Handler) handleListReferenceStores(c *echo.Context) error {
 		return err
 	}
 
-	maxResults, nextToken := listQueryParams(c)
+	maxResults, nextToken, err := listQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
 
 	stores, next, err := h.Backend.ListReferenceStores(req.Filter, maxResults, nextToken)
 	if err != nil {
@@ -112,7 +115,10 @@ func (h *Handler) handleListReferences(c *echo.Context, storeID string) error {
 		return err
 	}
 
-	maxResults, nextToken := listQueryParams(c)
+	maxResults, nextToken, err := listQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
 
 	refs, next, err := h.Backend.ListReferences(storeID, req.Filter, maxResults, nextToken)
 	if err != nil {
@@ -172,7 +178,10 @@ func (h *Handler) handleListReferenceImportJobs(c *echo.Context, storeID string)
 		return err
 	}
 
-	maxResults, nextToken := listQueryParams(c)
+	maxResults, nextToken, err := listQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
 
 	jobs, next, err := h.Backend.ListReferenceImportJobs(storeID, req.Filter, maxResults, nextToken)
 	if err != nil {

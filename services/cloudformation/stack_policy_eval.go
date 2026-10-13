@@ -24,17 +24,10 @@ import (
 // ("When you create a stack, all update actions are allowed on all
 // resources").
 //
-// NOT implemented, disclosed rather than approximated: NotAction and
-// NotResource. AWS's own docs warn these don't reliably protect resources:
-// "AWS CloudFormation evaluates stack policies against both the logical
-// resource ID and the resource type independently. A default denial blocks
-// an update only when both evaluations result in a denied status" -- a
-// two-axis evaluation model distinct from ordinary statement matching, which
-// AWS itself advises against relying on ("Always use an explicit Deny
-// statement to protect resources"). Statements using NotAction/NotResource
-// are parsed but never match here, so they contribute neither Allow nor
-// Deny -- fail toward "policy behaves as if that statement weren't there"
-// rather than fabricating the two-axis semantics.
+// NotAction and NotResource invert their positive counterparts: the
+// statement applies when the action/resource matches none of the listed
+// patterns. AWS's separate default-deny-on-both-axes note is not modeled; use
+// explicit Deny statements, as the docs advise.
 //
 // Principal is required by AWS's syntax but only the wildcard "*" is a valid
 // value, so it carries no information for a single-account emulator; it is
@@ -48,6 +41,9 @@ type stackPolicyStatement struct {
 	Effect    string                `json:"Effect"`
 	Action    stackPolicyStringSet  `json:"Action"`
 	Resource  stackPolicyStringSet  `json:"Resource"`
+
+	NotAction   stackPolicyStringSet `json:"NotAction"`
+	NotResource stackPolicyStringSet `json:"NotResource"`
 }
 
 type stackPolicyCondition struct {
@@ -135,10 +131,10 @@ func evaluateStackPolicy(policy, logicalID, resourceType, action string) (bool, 
 }
 
 func (s stackPolicyStatement) appliesTo(resourceTarget, resourceType, action string) bool {
-	if !matchesAny(s.Action, action) {
+	if !matchesPositiveOrNot(s.Action, s.NotAction, action) {
 		return false
 	}
-	if !matchesAny(s.Resource, resourceTarget) {
+	if !matchesPositiveOrNot(s.Resource, s.NotResource, resourceTarget) {
 		return false
 	}
 	if s.Condition != nil && !s.Condition.matchesResourceType(resourceType) {
@@ -159,6 +155,14 @@ func (c stackPolicyCondition) matchesResourceType(resourceType string) bool {
 	}
 
 	return false
+}
+
+func matchesPositiveOrNot(positive, negated stackPolicyStringSet, target string) bool {
+	if len(negated) > 0 {
+		return !matchesAny(negated, target)
+	}
+
+	return matchesAny(positive, target)
 }
 
 func matchesAny(patterns stackPolicyStringSet, target string) bool {

@@ -476,10 +476,10 @@ func TestBadJSONRequest(t *testing.T) {
 func TestErrorShapes(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // field order optimized for readability
+	tests := []struct {
+		body     map[string]any
 		name     string
 		op       string
-		body     map[string]any
 		wantCode int
 	}{
 		{

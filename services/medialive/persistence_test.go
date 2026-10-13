@@ -97,7 +97,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, original.TransferInputDevice("device-1", "999999999999", "us-east-1", "transfer me"))
 
 	multiplex, err := original.CreateMultiplex(
-		"mux-1", []string{"us-west-2a"}, medialive.MultiplexSettings{TransportStreamBitrate: 1000000}, nil,
+		"mux-1",
+		[]string{"us-west-2a", "us-west-2b"},
+		medialive.MultiplexSettings{TransportStreamBitrate: 1000000},
+		nil,
 	)
 	require.NoError(t, err)
 

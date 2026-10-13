@@ -1,7 +1,6 @@
 package cloudwatch
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/aws/smithy-go/encoding/cbor"
@@ -59,12 +58,12 @@ func (h *Handler) cborPutMetricAlarm(input cbor.Map, c *echo.Context) error {
 		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}
 
-	if err := h.Backend.PutMetricAlarm(alarm); err != nil {
-		if errors.Is(err, ErrValidation) {
-			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
-		}
+	if err := validateMetricAlarmRequest(alarm); err != nil {
+		return h.cborBackendError(c, err)
+	}
 
-		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	if err := h.Backend.PutMetricAlarm(alarm); err != nil {
+		return h.cborBackendError(c, err)
 	}
 
 	h.applyCreationTags(input, alarm.AlarmArn)
@@ -95,11 +94,7 @@ func (h *Handler) cborDescribeAlarms(input cbor.Map, c *echo.Context) error {
 		parentsOfAlarmName,
 	)
 	if err != nil {
-		if errors.Is(err, ErrValidation) {
-			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
-		}
-
-		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return h.cborBackendError(c, err)
 	}
 
 	alarmList := make(cbor.List, 0, len(metricPage.Data))
@@ -402,7 +397,7 @@ func (h *Handler) cborSetAlarmState(input cbor.Map, c *echo.Context) error {
 		cborStr(input, "StateReason"),
 		cborStr(input, "StateReasonData"),
 	); err != nil {
-		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+		return h.setAlarmStateError(c, alarmName, err, true)
 	}
 
 	return writeCBOR(c, cbor.Map{})

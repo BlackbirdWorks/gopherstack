@@ -155,12 +155,6 @@ func validateCronPart(spec cronFieldSpec, part string) error {
 // validateCronWildcardToken recognizes the L/W/# tokens AWS documents for
 // day-of-month and day-of-week. It reports handled=true when part matched one of
 // these shapes, along with any validation error for that shape.
-//
-// This emulator's matcher (matchesCronPart in schedule_expression.go) does not
-// implement L/W/# matching semantics, so a schedule using one still never fires --
-// a pre-existing gap noted in 4f588177c's PARITY notes, unchanged by this pass.
-// These are accepted here rather than rejected because AWS documents them as legal:
-// rejecting real AWS syntax is the worse bug class this pass was warned against.
 func validateCronWildcardToken(spec cronFieldSpec, part string) (bool, error) {
 	if part == "L" {
 		if !spec.allowL {
@@ -170,7 +164,7 @@ func validateCronWildcardToken(spec cronFieldSpec, part string) (bool, error) {
 		return true, nil
 	}
 
-	if spec.allowL {
+	if spec.allowL && spec.allowW {
 		if handled, err := validateCronLOffsetToken(spec, part); handled {
 			return true, err
 		}
@@ -204,8 +198,7 @@ func validateCronWildcardToken(spec cronFieldSpec, part string) (bool, error) {
 // (schedule-types.html) nor the legacy EventBridge cron doc
 // (eb-scheduled-rule-pattern.html, fetched 2026-08-11) confirms or rules out this
 // form in either day-of-month or day-of-week -- both document only bare "L".
-// Accepted per under-enforcement bias rather than guessed-and-rejected; like the
-// other L/W/# forms, matching semantics for it remain unimplemented.
+// Accepted per under-enforcement bias rather than guessed-and-rejected.
 func validateCronLOffsetToken(spec cronFieldSpec, part string) (bool, error) {
 	offset, ok := strings.CutPrefix(part, "L-")
 	if !ok {

@@ -104,6 +104,7 @@ func cloneDatastore(d *Datastore) *Datastore {
 	cp.RetentionPeriod = cloneRetentionPeriod(d.RetentionPeriod)
 	cp.FileFormatConfiguration = cloneFileFormatConfiguration(d.FileFormatConfiguration)
 	cp.Partitions = cloneDatastorePartitions(d.Partitions)
+	cp.Status = observeStatus(d.Status, statusActive, d.readyAt)
 
 	return &cp
 }
@@ -163,7 +164,8 @@ func (b *InMemoryBackend) CreateDatastore(
 	d := &Datastore{
 		Name:                    name,
 		ARN:                     arn,
-		Status:                  statusActive,
+		Status:                  b.createStatus(),
+		readyAt:                 b.readyAt(),
 		CreationTime:            now,
 		LastUpdate:              now,
 		Tags:                    make(map[string]string),

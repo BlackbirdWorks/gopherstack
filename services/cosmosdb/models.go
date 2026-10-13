@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"strconv"
+	"sync/atomic"
 	"time"
 )
 
@@ -53,6 +55,11 @@ func fakeRID(name string) string {
 // services/azuretable/store.go's identical constant and rationale: it
 // guarantees ETag uniqueness across successive writes to the same document
 // even when nowFunc returns the same instant twice in a row.
+const (
+	hexBase       = 16
+	etagHexDigits = 16
+)
+
 const minTimestampBump = 100 * time.Nanosecond
 
 // etagFor derives an ETag from a document's Timestamp, in the quoted-string
@@ -63,7 +70,24 @@ const minTimestampBump = 100 * time.Nanosecond
 // value, since real SDKs never parse it -- they only echo back what the
 // server returned via If-Match.
 func etagFor(t time.Time) string {
-	return fmt.Sprintf("%q", fmt.Sprintf("%016x", t.UnixNano()))
+	ns := t.UnixNano()
+	if ns < 0 {
+		return fmt.Sprintf("%q", fmt.Sprintf("%016x", ns))
+	}
+
+	var digits [etagHexDigits]byte
+
+	d := strconv.AppendInt(digits[:0], ns, hexBase)
+	out := make([]byte, 0, etagHexDigits+2) //nolint:mnd // opening and closing quote
+	out = append(out, '"')
+
+	for range etagHexDigits - len(d) {
+		out = append(out, '0')
+	}
+
+	out = append(out, d...)
+
+	return string(append(out, '"'))
 }
 
 // DatabaseInfo is a read-only snapshot of a database, returned by the
@@ -113,6 +137,7 @@ type storedDatabase struct {
 // storedContainer is the backend's internal representation of a container.
 type storedContainer struct {
 	Documents        map[documentCompositeKey]*storedDocument
+	sorted           atomic.Pointer[[]*storedDocument]
 	ID               string
 	PartitionKeyPath string
 }
@@ -383,4 +408,35 @@ func documentAsMap(info DocumentInfo) map[string]any {
 	m[sysPropAttachments] = "attachments/"
 
 	return m
+}
+
+// copyStoredValue deep-copies a value from a stored body. Stored bodies only
+// hold what a UseNumber JSON decode produces, so the common case is a direct
+// walk; anything else takes the JSON round-trip so results stay identical.
+func copyStoredValue(v any) any {
+	switch t := v.(type) {
+	case nil, string, bool, json.Number:
+		return t
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, e := range t {
+			out[k] = copyStoredValue(e)
+		}
+
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, e := range t {
+			out[i] = copyStoredValue(e)
+		}
+
+		return out
+	default:
+		copied, err := deepCopyJSONValue(v)
+		if err != nil {
+			return map[string]any{}
+		}
+
+		return copied
+	}
 }

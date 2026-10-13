@@ -60,6 +60,7 @@ func (b *InMemoryBackend) CreateSession(
 
 		SecurityConfiguration: opts.SecurityConfiguration,
 		NumberOfWorkers:       opts.NumberOfWorkers,
+		Tags:                  maps.Clone(opts.Tags),
 	}
 	b.sessions.Put(s)
 	b.sessionStatements[id] = nil

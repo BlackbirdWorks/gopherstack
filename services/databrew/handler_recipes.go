@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 )
 
@@ -112,14 +111,23 @@ func (h *Handler) dispatchRecipe(
 func (h *Handler) handleCreateRecipe(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags        map[string]string `json:"Tags"`
+		Steps       *[]RecipeStep     `json:"Steps"`
 		Name        string            `json:"Name"`
 		Description string            `json:"Description"`
-		Steps       []RecipeStep      `json:"Steps"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	r, err := h.Backend.CreateRecipe(ctx, req.Name, req.Description, req.Steps, req.Tags)
+
+	if req.Steps == nil {
+		return nil, fmt.Errorf("%w: Steps is required", ErrValidation)
+	}
+
+	if err := validateRecipeStepMembers(*req.Steps); err != nil {
+		return nil, err
+	}
+
+	r, err := h.Backend.CreateRecipe(ctx, req.Name, req.Description, *req.Steps, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -150,11 +158,14 @@ func (h *Handler) handleListRecipes(ctx context.Context, body []byte) ([]byte, e
 		RecipeVersion string `json:"RecipeVersion"`
 	}
 	_ = json.Unmarshal(body, &req)
-	maxResults, _ := strconv.Atoi(req.MaxResults)
+	maxResults, token, err := listParams(req.MaxResults, req.NextToken)
+	if err != nil {
+		return nil, err
+	}
 
-	recipes, next := h.Backend.ListRecipes(ctx, maxResults, req.NextToken, req.RecipeVersion)
+	recipes, next := h.Backend.ListRecipes(ctx, maxResults, token, req.RecipeVersion)
 
-	return json.Marshal(map[string]any{"Recipes": recipes, nextTokenKey: next})
+	return marshalPage("Recipes", recipes, next)
 }
 
 func (h *Handler) handlePublishRecipe(ctx context.Context, body []byte) ([]byte, error) {
@@ -181,6 +192,10 @@ func (h *Handler) handleUpdateRecipe(ctx context.Context, body []byte) ([]byte, 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
+	if err := validateRecipeStepMembers(req.Steps); err != nil {
+		return nil, err
+	}
+
 	if err := h.Backend.UpdateRecipe(ctx, req.Name, req.Description, req.Steps); err != nil {
 		return nil, err
 	}
@@ -242,12 +257,15 @@ func (h *Handler) handleListRecipeVersions(ctx context.Context, body []byte) ([]
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	maxResults, _ := strconv.Atoi(req.MaxResults)
-
-	recipes, next, err := h.Backend.ListRecipeVersions(ctx, req.Name, maxResults, req.NextToken)
+	maxResults, token, err := listParams(req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"Recipes": recipes, nextTokenKey: next})
+	recipes, next, err := h.Backend.ListRecipeVersions(ctx, req.Name, maxResults, token)
+	if err != nil {
+		return nil, err
+	}
+
+	return marshalPage("Recipes", recipes, next)
 }

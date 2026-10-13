@@ -4,22 +4,16 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 )
 
 const (
 	// statusSessionAvailable is the AVAILABLE status for a Redshift Data API session
 	// (open and ready to run a SQL statement).
 	statusSessionAvailable = "AVAILABLE"
-	// statusSessionBusy is the BUSY status for a session (currently running a SQL
-	// statement). This backend can never observe a session in this state: statements
-	// complete synchronously within the ExecuteStatement/BatchExecuteStatement call
-	// that creates them (see statements.go), so no statement is ever mid-flight when
-	// ListSessions runs (documented in PARITY.md gaps).
+	// statusSessionBusy marks a session with an unfinished statement.
 	statusSessionBusy = "BUSY"
-	// statusSessionClosed is the CLOSED status for a session that can no longer run
-	// SQL statements. This backend has no session-close operation and does not track
-	// SessionKeepAliveSeconds expiry (see SessionData's doc comment in models.go), so
-	// a derived session is never reported as CLOSED either.
+	// statusSessionClosed is reported once a session's TTL has passed.
 	statusSessionClosed = "CLOSED"
 
 	// defaultListSessionsResults is the default page size for ListSessions when
@@ -29,6 +23,8 @@ const (
 	// ValidationException is enforced here -- only a default page size, matching
 	// this package's other List* conventions.
 	defaultListSessionsResults = 100
+
+	maxSessionLifetime = 24 * time.Hour
 )
 
 // ValidateListSessionsRequest enforces the mutual-exclusivity constraints documented
@@ -70,8 +66,10 @@ func (b *InMemoryBackend) ListSessions(
 ) ([]*SessionData, string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.RLock("ListSessions")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListSessions")
+	defer b.mu.Unlock()
+
+	b.settleStatements(time.Now())
 
 	store := b.storeForRead(region)
 	if store == nil {
@@ -87,7 +85,7 @@ func (b *InMemoryBackend) ListSessions(
 		}
 	}
 
-	sessions := groupSessions(visible)
+	sessions := groupSessions(visible, time.Now())
 
 	result := make([]*SessionData, 0, len(sessions))
 
@@ -125,11 +123,12 @@ func (b *InMemoryBackend) ListSessions(
 }
 
 // groupSessions derives one SessionData per distinct non-empty Statement.SessionID,
-// taking the connection target (ClusterIdentifier/WorkgroupName/Database/DBUser) from
-// the most recently updated statement in the group, CreatedAt as the earliest statement
-// CreatedAt in the group, and UpdatedAt as the latest. Caller must hold b.mu (read or
-// write).
-func groupSessions(statements map[string]*Statement) []*SessionData {
+// taking the connection target from the most recently updated statement, CreatedAt
+// as the earliest statement CreatedAt and UpdatedAt as the latest. A session's TTL is
+// the last statement's UpdatedAt plus its SessionKeepAliveSeconds, capped at 24h after
+// creation (api_op_ExecuteStatement.go: "After 24 hours, the session is forced
+// closed"); it is CLOSED once now reaches the TTL. Caller must hold b.mu.
+func groupSessions(statements map[string]*Statement, now time.Time) []*SessionData {
 	grouped := make(map[string]*SessionData)
 
 	for _, stmt := range statements {
@@ -139,20 +138,18 @@ func groupSessions(statements map[string]*Statement) []*SessionData {
 
 		sess, ok := grouped[stmt.SessionID]
 		if !ok {
-			sess = &SessionData{
-				SessionID: stmt.SessionID,
-				CreatedAt: stmt.CreatedAt,
-				// This mock always completes statements synchronously to a
-				// terminal state (see statements.go), so a session is never
-				// observed BUSY or CLOSED -- see the statusSessionBusy/
-				// statusSessionClosed doc comments.
-				Status: statusSessionAvailable,
-			}
+			sess = &SessionData{SessionID: stmt.SessionID, CreatedAt: stmt.CreatedAt}
 			grouped[stmt.SessionID] = sess
 		}
 
+		sess.trackOpenStatement(stmt)
+
 		if stmt.CreatedAt.Before(sess.CreatedAt) {
 			sess.CreatedAt = stmt.CreatedAt
+		}
+
+		if stmt.SessionKeepAliveSeconds > sess.AliveSeconds {
+			sess.AliveSeconds = stmt.SessionKeepAliveSeconds
 		}
 
 		if stmt.UpdatedAt.After(sess.UpdatedAt) {
@@ -165,11 +162,60 @@ func groupSessions(statements map[string]*Statement) []*SessionData {
 	}
 
 	result := make([]*SessionData, 0, len(grouped))
+
 	for _, sess := range grouped {
+		sess.TTL = sess.CreatedAt.Add(maxSessionLifetime)
+		if sess.AliveSeconds > 0 {
+			sess.TTL = minTime(sess.TTL, sess.UpdatedAt.Add(time.Duration(sess.AliveSeconds)*time.Second))
+		}
+
+		sess.settleStatus(now)
+
 		result = append(result, sess)
 	}
 
 	return result
+}
+
+func minTime(a, b time.Time) time.Time {
+	if b.Before(a) {
+		return b
+	}
+
+	return a
+}
+
+// rejectClosedSession returns ErrValidation when sessionID names a session whose TTL
+// has passed. Caller must hold b.mu.
+func rejectClosedSession(statements map[string]*Statement, sessionID string, now time.Time) error {
+	if sessionID == "" {
+		return nil
+	}
+
+	for _, sess := range groupSessions(statements, now) {
+		if sess.SessionID == sessionID && sess.Status == statusSessionClosed {
+			return fmt.Errorf("%w: session %s is closed", ErrValidation, sessionID)
+		}
+	}
+
+	return nil
+}
+
+// SetStatementSessionKeepAlive records the SessionKeepAliveSeconds a request supplied
+// on the statement it created, so its session can expire.
+func (b *InMemoryBackend) SetStatementSessionKeepAlive(ctx context.Context, id string, seconds int32) {
+	if seconds <= 0 {
+		return
+	}
+
+	region := getRegion(ctx, b.defaultRegion)
+
+	b.mu.Lock("SetStatementSessionKeepAlive")
+	defer b.mu.Unlock()
+
+	if stmt, ok := b.storeFor(region).statements[id]; ok {
+		stmt.SessionKeepAliveSeconds = seconds
+	}
 }
 
 // sessionMatchesFilter reports whether sess satisfies every set field of filter.
@@ -219,4 +265,25 @@ func sessionPageStart(sessions []*SessionData, nextToken string) (int, error) {
 	}
 
 	return 0, fmt.Errorf("%w: invalid NextToken", ErrValidation)
+}
+
+// trackOpenStatement records the oldest unfinished statement as the session's current one.
+func (s *SessionData) trackOpenStatement(stmt *Statement) {
+	if isOpenStatus(stmt.Status) && (s.CurrentStatementID == "" || stmt.CreatedAt.Before(s.currentCreatedAt)) {
+		s.CurrentStatementID = stmt.ID
+		s.currentCreatedAt = stmt.CreatedAt
+	}
+}
+
+// settleStatus derives AVAILABLE, BUSY or CLOSED from the TTL and the current statement.
+func (s *SessionData) settleStatus(now time.Time) {
+	switch {
+	case !now.Before(s.TTL):
+		s.Status = statusSessionClosed
+		s.CurrentStatementID = ""
+	case s.CurrentStatementID != "":
+		s.Status = statusSessionBusy
+	default:
+		s.Status = statusSessionAvailable
+	}
 }

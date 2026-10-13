@@ -2,9 +2,12 @@ package iotwireless
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
-	"time"
+	"net/netip"
 
 	"github.com/labstack/echo/v5"
 )
@@ -148,34 +151,56 @@ func (h *Handler) listPositionConfigurations(c *echo.Context) error {
 	})
 }
 
-// getPositionEstimateRequest reads Timestamp, the only GetPositionEstimateInput
-// field this handler needs: iotwireless@v1.59.4 serializers.go:4339-4342 sends
-// it as an unixTimestamp (epoch seconds, JSON number) body field.
-type getPositionEstimateRequest struct {
-	Timestamp *float64 `json:"Timestamp"`
+type wifiAccessPointRequest struct {
+	Rss        *int32 `json:"Rss"`
+	MacAddress string `json:"MacAddress"`
 }
 
+type getPositionEstimateRequest struct {
+	Gnss *struct {
+		Payload string `json:"Payload"`
+	} `json:"Gnss"`
+	IP *struct {
+		IPAddress string `json:"IpAddress"`
+	} `json:"Ip"`
+	WiFiAccessPoints []wifiAccessPointRequest `json:"WiFiAccessPoints"`
+}
+
+// getPositionEstimate validates the measurement inputs, then reports that no position can be resolved:
+// real estimates come from third-party solvers (HERE, MaxMind, LoRa Cloud) that cannot run here, and the
+// inputs carry no coordinates to derive one from, so no position is fabricated.
 func (h *Handler) getPositionEstimate(c *echo.Context) error {
 	var req getPositionEstimateRequest
 
-	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(readStubBody(c), &req)
 
-	ts := time.Now().UTC()
-	if req.Timestamp != nil {
-		sec := int64(*req.Timestamp)
-		nsec := int64((*req.Timestamp - float64(sec)) * float64(time.Second))
-		ts = time.Unix(sec, nsec).UTC()
+	if err := validatePositionEstimate(&req); err != nil {
+		return handleError(c, err)
 	}
 
-	geoJSON := geoJSONPointPayload([]float64{0, 0}, map[string]any{
-		"timestamp": ts.Format(time.RFC3339),
-	})
+	return handleError(c, ErrNoPositionSolver)
+}
 
-	// GeoJsonPayload is an httpPayload member on the output too
-	// (deserializers.go:7445-7461 assigns the whole response body to it), so
-	// the body must be the raw GeoJSON bytes, not a JSON-wrapped envelope.
-	return c.Blob(http.StatusOK, "application/octet-stream", geoJSON)
+func validatePositionEstimate(req *getPositionEstimateRequest) error {
+	if req.IP != nil {
+		if _, err := netip.ParseAddr(req.IP.IPAddress); err != nil {
+			return fmt.Errorf("%w: Ip.IpAddress %q is not a valid IP address", ErrValidation, req.IP.IPAddress)
+		}
+	}
+
+	if req.Gnss != nil {
+		if _, err := hex.DecodeString(req.Gnss.Payload); err != nil || req.Gnss.Payload == "" {
+			return fmt.Errorf("%w: Gnss.Payload must be a hexadecimal NAV message", ErrValidation)
+		}
+	}
+
+	for _, ap := range req.WiFiAccessPoints {
+		if _, err := net.ParseMAC(ap.MacAddress); err != nil || ap.Rss == nil {
+			return fmt.Errorf("%w: WiFiAccessPoints require a valid MacAddress and Rss", ErrValidation)
+		}
+	}
+
+	return nil
 }
 
 // getResourcePosition echoes back the raw GeoJSON payload most recently
@@ -211,28 +236,4 @@ func (h *Handler) updateResourcePosition(c *echo.Context, id string) error {
 	})
 
 	return stubNoContent(c)
-}
-
-// geoJSONPointPayload builds a GeoJSON Point Feature payload for the given
-// coordinates, matching the wire shape AWS returns for GeoJsonPayload fields.
-func geoJSONPointPayload(coords []float64, properties map[string]any) []byte {
-	if properties == nil {
-		properties = map[string]any{}
-	}
-
-	payload := map[string]any{
-		"type": "Feature",
-		"geometry": map[string]any{
-			"type":        "Point",
-			"coordinates": coords,
-		},
-		"properties": properties,
-	}
-
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return []byte("{}")
-	}
-
-	return b
 }

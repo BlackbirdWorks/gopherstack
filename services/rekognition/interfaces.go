@@ -431,11 +431,13 @@ type StartAsyncJobParams struct {
 	JobType            string
 	ClientRequestToken string
 	CollectionID       string
-	JobTag             string
-	VideoS3Bucket      string
-	VideoS3Name        string
-	VideoS3Version     string
-	SegmentTypes       []string
+	// NotificationTopicARN, when set, completes the job at start and publishes the completion message.
+	NotificationTopicARN string
+	JobTag               string
+	VideoS3Bucket        string
+	VideoS3Name          string
+	VideoS3Version       string
+	SegmentTypes         []string
 }
 
 // MediaAnalysisJob represents a Rekognition media analysis job.

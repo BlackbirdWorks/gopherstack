@@ -14,12 +14,12 @@ const testInstanceIDKey = "InstanceId.1"
 // stubCompute records calls and returns canned LaunchResults so the
 // handler/backend wiring can be exercised without a real Docker daemon.
 type stubCompute struct {
-	launchErr      error
-	result         LaunchResult
 	launchCalls    []LaunchRequest
 	terminateCalls []string
 	startCalls     []string
 	stopCalls      []string
+	launchErr      error
+	result         LaunchResult
 }
 
 func (s *stubCompute) Launch(_ context.Context, req LaunchRequest) (LaunchResult, error) {

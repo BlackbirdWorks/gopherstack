@@ -5,6 +5,8 @@ import (
 	"encoding/xml"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -1164,7 +1166,7 @@ func TestDBCluster_HasResourceIdAndCreateTime(t *testing.T) {
 			clusterID: "res-cluster",
 			wantContains: []string{
 				"DbClusterResourceId",
-				"cluster-res-cluster",
+				"<DbClusterResourceId>cluster-",
 				"ClusterCreateTime",
 			},
 		},
@@ -1225,14 +1227,8 @@ func Test_FailoverDBCluster(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rr.Code)
 		body := rr.Body.String()
-		assert.Contains(
-			t, body,
-			"<DBInstanceIdentifier>fo-reader</DBInstanceIdentifier><IsClusterWriter>true</IsClusterWriter>",
-		)
-		assert.Contains(
-			t, body,
-			"<DBInstanceIdentifier>fo-writer</DBInstanceIdentifier><IsClusterWriter>false</IsClusterWriter>",
-		)
+		assert.True(t, memberIsWriter(body, "fo-reader", true))
+		assert.True(t, memberIsWriter(body, "fo-writer", false))
 	})
 
 	t.Run("honors explicit target instance", func(t *testing.T) {
@@ -1251,14 +1247,8 @@ func Test_FailoverDBCluster(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rr.Code)
 		body := rr.Body.String()
-		assert.Contains(
-			t, body,
-			"<DBInstanceIdentifier>fo-target-b</DBInstanceIdentifier><IsClusterWriter>true</IsClusterWriter>",
-		)
-		assert.Contains(
-			t, body,
-			"<DBInstanceIdentifier>fo-target-a</DBInstanceIdentifier><IsClusterWriter>false</IsClusterWriter>",
-		)
+		assert.True(t, memberIsWriter(body, "fo-target-b", true))
+		assert.True(t, memberIsWriter(body, "fo-target-a", false))
 	})
 
 	t.Run("invalid target instance errors", func(t *testing.T) {
@@ -1290,4 +1280,12 @@ func Test_FailoverDBCluster(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rr.Code)
 		assert.Contains(t, rr.Body.String(), "DBClusterNotFoundFault")
 	})
+}
+
+// memberIsWriter reports the IsClusterWriter flag of the named DBClusterMember, ignoring element order.
+func memberIsWriter(body, id string, want bool) bool {
+	m := regexp.MustCompile(`<DBClusterMember><DBInstanceIdentifier>` + regexp.QuoteMeta(id) +
+		`</DBInstanceIdentifier>.*?</DBClusterMember>`).FindString(body)
+
+	return strings.Contains(m, "<IsClusterWriter>"+strconv.FormatBool(want)+"</IsClusterWriter>")
 }

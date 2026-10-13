@@ -94,6 +94,17 @@ func (b *InMemoryBackend) ModifyDBParameterGroup(name string, params []DBParamet
 		return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
 	}
 	for _, p := range params {
+		switch p.ApplyMethod {
+		case "", applyMethodImmediate, dbParameterApplyStatusPendingReboot:
+			continue
+		default:
+			return nil, fmt.Errorf("%w: ApplyMethod %q is not valid, use immediate or pending-reboot",
+				ErrInvalidParameter, p.ApplyMethod)
+		}
+	}
+
+	needsReboot := false
+	for _, p := range params {
 		if p.Source == "" {
 			p.Source = "user"
 		}
@@ -101,6 +112,10 @@ func (b *InMemoryBackend) ModifyDBParameterGroup(name string, params []DBParamet
 			p.ApplyMethod = "pending-reboot"
 		}
 		pg.Parameters[p.ParameterName] = p
+		needsReboot = needsReboot || p.ApplyMethod == dbParameterApplyStatusPendingReboot
+	}
+	if needsReboot {
+		b.markParameterGroupPendingRebootLocked(pg.DBParameterGroupName)
 	}
 	cp := copyDBParameterGroup(pg)
 
@@ -226,3 +241,14 @@ func (b *InMemoryBackend) CopyDBParameterGroup(
 func (b *InMemoryBackend) DescribeEngineDefaultParameters(_ string) []DBParameter {
 	return []DBParameter{}
 }
+
+// markParameterGroupPendingRebootLocked flags every instance using groupName as awaiting a reboot.
+func (b *InMemoryBackend) markParameterGroupPendingRebootLocked(groupName string) {
+	for _, inst := range b.instances.All() {
+		if normalizeID(inst.DBParameterGroupName) == normalizeID(groupName) {
+			inst.ParameterApplyStatus = dbParameterApplyStatusPendingReboot
+		}
+	}
+}
+
+const applyMethodImmediate = "immediate"

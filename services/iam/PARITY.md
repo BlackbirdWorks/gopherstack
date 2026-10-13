@@ -7,7 +7,7 @@ sdk_module: aws-sdk-go-v2/service/iam@v1.63.0   # version audited against (go.mo
   # re-verified this sweep (see items_still_open), so no live claim broke, but
   # its "already marked ok/PROVEN by sweeps 1-4" history is now stale too.
 last_audit_commit: 5892fbc9f
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-11
 overall: A   # parity-sweep (2026-09-19): implemented Role Manager (AcquireRole,
   # GetRoleTemplateVersion) and account properties (GetAccountProperties,
   # PutAccountProperties), the 4 ops added by the iam v1.63.0 SDK bump. Role
@@ -98,6 +98,7 @@ families:
   policies:      {status: ok, note: managed+inline, versions, default version; PolicyXML has Tags field; DeletePolicy attachment check pre-existing and correct}
   access_keys:   {status: ok, note: create/rotate/status, secret only on create; DeleteUser no longer cascade-deletes keys (see ops)}
   providers:     {status: ok, note: SAML/OIDC CRUD, server certificates, login profile, password policy; tag-leak on delete/rename fixed this sweep}
+  AWSManagedPolicyCatalog: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-10-11 (gopherstack-cefu7.22): 60 AWS managed policies seeded from data/aws_managed_policies.json (go:embed, parsed once, never persisted, so snapshots carry only attachments). GetPolicy/GetPolicyVersion/ListPolicyVersions return the policy with its path, DefaultVersionId and document; AttachmentCount tracks real attachments. ListPolicies honors Scope (default All as in api_op_ListPolicies.go; was Local), OnlyAttached, PathPrefix, PolicyUsageFilter and paging. Attaching an unknown aws-managed ARN returns NoSuchEntity. CreatePolicyVersion/DeletePolicy/SetDefaultPolicyVersion/DeletePolicyVersion/TagPolicy/UntagPolicy on them return AccessDenied (403); the AccessDenied code is from AWS CLI behaviour, not the SDK's declared errors. Enforcement, GetPoliciesFor*, SimulatePrincipalPolicy and permissions boundaries evaluate the catalog documents. GetAccountAuthorizationDetails returns only attached AWS managed policies (from memory of AWS behaviour, not SDK-verifiable). Documents flagged approximate=true in the data file are the documented action sets, not byte-exact copies; version ids, dates and derived policy ids drift in real AWS. Also fixed: policyAttachments (unexported fields) restored as empty from snapshots, losing AttachmentCount, ListEntitiesForPolicy and DeletePolicy conflicts after restart. Tests: aws_managed_test.go."}
   role_manager: {status: ok, note: "NEW 2026-09-19 (parity-sweep): AcquireRole/GetRoleTemplateVersion (role_templates.go, handler_role_templates.go, models_role_templates.go). Role templates are never originated by this backend -- the pinned SDK has no Create/Put/List op for them at all -- so they exist only via the AddRoleTemplateVersionInternal seam. AcquireRole reuses the same role-creation validation this service's CreateRole already applies (validateTrustPolicyPrincipal, JSON validity, validateIdentityPolicyDocument for inline policies) and the same permissive AttachRolePolicy semantics for managed policies -- no check loosened, no check invented. See ops.AcquireRole/GetRoleTemplateVersion for wire/behavior detail."}
   account_properties: {status: ok, note: "NEW 2026-09-19 (parity-sweep): GetAccountProperties/PutAccountProperties (account_properties.go, handler_account_properties.go). Namespace/PropertyName key-format validation and same-namespace-per-request validation are both real, structurally documented AWS constraints (PutAccountProperties doc) and enforced in full; per-property value typing (e.g. 'boolean properties expect true or false') is NOT enforced -- AWS does not publish the namespace/property/type registry needed to check it honestly, disclosed rather than guessed."}
 ops:
@@ -106,7 +107,7 @@ ops:
   ListRoleTags/ListPolicyTags/ListUserTags/ListInstanceProfileTags/ListMFADeviceTags/ListSAMLProviderTags/ListOpenIDConnectProviderTags/ListServerCertificateTags: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED (sweep 12, order-bug pattern hunt), first PARITY.md entry for this class. All 8 of IAM's List*Tags operations document 'The returned list of tags is sorted by tag key' (e.g. api_op_ListRoleTags.go:14) verbatim, but built their response by ranging a map[string]string with no sort -- raw Go map order, wrong per the doc and nondeterministic run to run. tagsMapToKV (handler_tags.go) already claimed 'sorted' in its own doc comment while not sorting; fixed to actually sort by key and routed every one of these 8 ops through it (resourceTagDispatch's generic List<kind>Tags closure and handler_mfa.go's ListMFADeviceTags closure previously duplicated the same unsorted logic inline instead of calling it). Proven by TestListTags_SortedByKey (handler_create_tags_test.go), a real-SDK-client round trip covering all 8 resource kinds with 3 out-of-order tag keys."}
   UpdateAccountPasswordPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-21 (gopherstack-c8ge, Scope A audit): singleton with no Create op, checked for the Update-vs-previous-Update merge bug. CONFIRMED CORRECT AS WHOLESALE REPLACE, not a bug: real UpdateAccountPasswordPolicyInput's own doc comment (api_op_UpdateAccountPasswordPolicy.go) states plainly 'This operation does not support partial updates. No parameters are required, but if you do not specify a parameter, that parameter's value reverts to its default value.' The existing b.passwordPolicy = &pp full-struct assignment already matches this documented contract exactly; no change made."}
   ListInstanceProfilesForRole: {wire: ok, errors: ok, state: ok, persist: ok, note: real backend-wired (fixed sweep 3)}
-  GetAccountAuthorizationDetails: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (sweep 6): Marker/MaxItems/Filter now honored — Filter (User/Role/Group/LocalManagedPolicy/AWSManagedPolicy) restricts which of the 4 lists are populated (this mock has no AWS-managed-policy catalog, so AWSManagedPolicy always yields none); Marker/MaxItems paginate the combined Users+Groups+Roles+Policies sequence in XML field order, matching AWS's single Marker/MaxItems pair spanning all four lists. IsTruncated/Marker now populated in the response instead of always false/empty."}
+  GetAccountAuthorizationDetails: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (sweep 6): Marker/MaxItems/Filter now honored — Filter (User/Role/Group/LocalManagedPolicy/AWSManagedPolicy) restricts which of the 4 lists are populated (AWSManagedPolicy yields the seeded catalog policies that are attached to an entity); Marker/MaxItems paginate the combined Users+Groups+Roles+Policies sequence in XML field order, matching AWS's single Marker/MaxItems pair spanning all four lists. IsTruncated/Marker now populated in the response instead of always false/empty."}
   GetRole/GetRolePolicy/GetUserPolicy/GetGroupPolicy/GetPolicyVersion: {wire: ok, note: policy documents percent-encoded (RFC 3986) at wire boundary; stored plain}
   DeleteUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (sweep 5): previously cascade-deleted access keys/login profile/group membership instead of rejecting, diverging from real AWS (DeleteUser API doc: caller must remove password, access keys, signing cert, SSH key, service-specific creds, MFA device, inline policies, attached policies, group memberships FIRST or the call fails). Now returns DeleteConflict for every one of those 9 dependency kinds, in AWS's documented order, matching real behavior exactly. SSH-key/MFA checks read comprehensiveBackend before taking b.mu per the existing no-nested-lock convention."}
   DeleteRole: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (sweep 5): added the missing instance-profile-attachment DeleteConflict check documented by the real DeleteRole API (inline/attached-policy checks already existed). Previously a role attached to an instance profile could be deleted, leaving a ghost role-name string in InstanceProfile.Roles."}
@@ -144,20 +145,14 @@ invented_ops_removed:
   - "TagGroup / UntagGroup / ListGroupTags: not real IAM actions — Group is not a taggable resource type in real AWS (aws-sdk-go-v2/service/iam/types.Group has no Tags field, no api_op_{Tag,Untag,ListGroupTags}.go exist). Deleted the fabricated backend methods (InMemoryBackend.TagGroup/UntagGroup), the StorageBackend interface methods, the dispatch entries, the Group.Tags / GroupXML.Tags model fields, and the 4 tests that exercised them."
 gaps: []
 leaks: {status: clean, note: "persistence leaks clean (unchanged); 2 leak classes found+fixed sweep 5 — see DeleteUser/DeleteRole/DeleteGroup/DeleteInstanceProfile ghost-row entries and the Handler-level tag leak entry above. go test -race passes."}
+structural_gaps:
+  - "OrganizationsDecisionDetail (2026-10-07): needs the SCP hierarchy of the caller's account; services/iam holds no Organizations model and the simulate ops take no SCP wiring."
+  - "aws_iam_security_token_service_preferences: terraform provider v5.100.0 Put-then-Read singleton trips a Terraform Core state-consistency check (external tooling, gopherstack-101r); the op itself is wire-verified."
+  - "Role templates: the pinned SDK has no Create/Put/List op, so AddRoleTemplateVersionInternal is the only seam; AWS publishes no per-property value registry, so property values are untyped."
+  - "Access advisor Granularity=ACTION_LEVEL: needs real per-action usage tracking; emulating it would fabricate data."
 items_still_open:
-  - "aws_iam_security_token_service_preferences (2026-09-24): dropped from the iam-detective-and-s3-replication
-    terraform fixture; provider v5.100.0's Put-then-Read singleton pattern trips a Terraform Core state-consistency
-    check (same as ecr's registry scanning config, gopherstack-101r). External tooling issue; the op is wire-verified."
-  - "Role manager/account properties (2026-09-19): no per-property value typing (AWS publishes no registry),
-    AcquireRole's List join format is undocumented, and role templates have no Create/Put/List op in the pinned SDK
-    (AddRoleTemplateVersionInternal is the only seam). Disclosed choices, see families.role_manager."
-  - "Policy simulation: MissingContextValues is produced (2026-10-05); MatchedStatements is not -- Statement.Start/EndPosition
-    line/column convention and SourcePolicyType mapping are not documented in the pinned SDK, so need AWS evidence.
-    OrganizationsDecisionDetail needs an SCP model (no organizations link). Top-level EvalResourceName stays '*'
-    (no per-action ARN-template catalogue)."
-  - "Access advisor: Granularity=ACTION_LEVEL needs per-action usage tracking this backend lacks (would fabricate data).
-    ListDelegationRequests OwnerId filter and DelegationRequest ApproverId/OwnerId/RequestorId need caller-identity
-    plumbing to record request owners."
+  - "AcquireRole ReplacementValues with several Values: neither api_op_AcquireRole.go, API_ReplacementValueEntry.html nor the role-template user guide says how a multi-value parameter is substituted into the template (checked 2026-10-07)."
+  - "SimulateCustomPolicy/SimulatePrincipalPolicy MatchedStatements are not emitted: the API reference examples contradict each other on SourcePolicyType (\"Resource Policy\" vs the SDK enum \"resource\") and report Line 1 positions for multi-line input, so the Start/EndPosition and SourcePolicyType conventions cannot be derived. Top-level EvalResourceName stays '*'."
 ---
 
 ## Notes
@@ -513,6 +508,7 @@ match in place.
 **Structural, not fixed**: real IAM's `Scope=AWS` would return the ~1000+
 real AWS managed policies gopherstack does not model; disclosed above,
 not a bug to fix without a modelling decision outside this pass's scope.
+Superseded 2026-10-11: the catalog is now seeded (AWSManagedPolicyCatalog).
 
 **PARITY.md accuracy note**: this file had no prior per-op entry claiming
 `ListPolicies`'/`ListUsers`' filters were verified, so nothing here
@@ -943,3 +939,16 @@ ServiceSpecificCredentialMetadata `ExpirationDate`/`ServiceCredentialAlias`
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 ListUserPolicies, ListRolePolicies, ListGroupPolicies, ListPolicyVersions, ListAccountAliases, ListInstanceProfilesForRole, GetGroup (Users), ListUserTags, ListRoleTags, ListPolicyTags, ListMFADeviceTags, SimulateCustomPolicy and SimulatePrincipalPolicy now honour Marker/MaxItems and emit Marker/IsTruncated (`pageForm`, handler_paging.go; each op's Input declares both, e.g. api_op_ListUserPolicies.go). Proof: `TestListOps_HonourMaxItemsAndMarker`. GetOrganizationsAccessReport.MaxItems and GetServiceLastAccessedDetailsWithEntities.MaxItems stay unconsulted: both always return an empty AccessDetails/EntityDetailsList, so there is nothing to page (the access-report model itself is a separate gap).
+
+## 2026-10-09 (service realism pass)
+
+Create{User,Role,Group,Policy,InstanceProfile} validate name pattern and max length (ValidationError). Attach{User,Role,Group}Policy returns NoSuchEntity for a missing customer-managed policy (AWS-managed `arn:aws:iam::aws:policy/` ARNs are now checked against the seeded catalog, see 2026-10-11 catalog entry). Tag limit (50) enforced as LimitExceeded. CreateRole validates MaxSessionDuration and tags before creating, and defaults MaxSessionDuration to 3600. Non-token Marker returns ValidationError. Error messages no longer repeat the error code. Left lenient: trust policy statements without Principal are accepted (many in-repo fixtures omit it).
+
+## 2026-10-11 deep realism pass (end-to-end IaC flows)
+
+- Permissions boundary must exist: CreateRole/CreateUser/Put{Role,User}PermissionsBoundary reject an unknown customer-managed policy ARN with NoSuchEntity ("Scope ARN ... does not exist or is not attachable"); `arn:aws:iam::aws:policy/...` ARNs are accepted unchecked (`deep_flows_test.go`).
+- DeletePolicy with non-default versions returns DeleteConflict; Terraform/CDK must delete versions first.
+- Duplicate (case-insensitive) `Tags.member.N` keys on any request return InvalidInput.
+- Service-linked roles: canonical AWS names for well-known principals (`AWSServiceRoleForElasticLoadBalancing`, `...ForECS`, `...ForAutoScaling`), `Description` and `MaxSessionDuration` persisted, DeleteServiceLinkedRole of a missing role is NoSuchEntity (was a fake task), GetServiceLinkedRoleDeletionStatus rejects ids not issued by DeleteServiceLinkedRole.
+- `GetUserIDByAccessKeyID` added so STS GetCallerIdentity can report the IAM user's AIDA id.
+- Kept lenient: CreateServiceLinkedRole accepts any `*.amazonaws.com` principal (AWS rejects unsupported services; the supported list is not in the SDK).

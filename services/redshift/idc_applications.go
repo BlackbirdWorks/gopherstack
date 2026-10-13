@@ -2,6 +2,7 @@ package redshift
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 )
 
@@ -10,6 +11,7 @@ type IdcApplicationExtras struct {
 	IdentityNamespace         string
 	AuthorizedTokenIssuerList []AuthorizedTokenIssuer
 	SsoTagKeys                []string
+	ServiceIntegrations       []ServiceIntegration
 }
 
 // CreateIdcApplication creates a new Redshift IDC application.
@@ -40,10 +42,11 @@ func (b *InMemoryBackend) CreateIdcApplication(
 		IdentityNamespace:         extras.IdentityNamespace,
 		AuthorizedTokenIssuerList: slices.Clone(extras.AuthorizedTokenIssuerList),
 		SsoTagKeys:                slices.Clone(extras.SsoTagKeys),
+		ServiceIntegrations:       slices.Clone(extras.ServiceIntegrations),
 	}
 	b.idcApplications.Put(app)
 
-	cp := *app
+	cp := cloneIdcApp(app)
 
 	return &cp, nil
 }
@@ -76,7 +79,7 @@ func (b *InMemoryBackend) DescribeIdcApplications(appArn string) ([]IdcApplicati
 	if appArn != "" {
 		for _, app := range b.idcApplications.All() {
 			if app.IdcApplicationArn == appArn {
-				cp := *app
+				cp := cloneIdcApp(app)
 
 				return []IdcApplication{cp}, nil
 			}
@@ -88,7 +91,7 @@ func (b *InMemoryBackend) DescribeIdcApplications(appArn string) ([]IdcApplicati
 	result := make([]IdcApplication, 0, b.idcApplications.Len())
 
 	for _, app := range b.idcApplications.All() {
-		result = append(result, *app)
+		result = append(result, cloneIdcApp(app))
 	}
 
 	return result, nil
@@ -107,27 +110,42 @@ func (b *InMemoryBackend) ModifyIdcApplication(
 
 	for _, app := range b.idcApplications.All() {
 		if app.IdcApplicationArn == appArn {
-			if idcDisplayName != "" {
-				app.IdcDisplayName = idcDisplayName
-			}
+			applyIdcModify(app, idcDisplayName, iamRoleArn, extras)
 
-			if iamRoleArn != "" {
-				app.IamRoleArn = iamRoleArn
-			}
-
-			if extras.IdentityNamespace != "" {
-				app.IdentityNamespace = extras.IdentityNamespace
-			}
-
-			if extras.AuthorizedTokenIssuerList != nil {
-				app.AuthorizedTokenIssuerList = slices.Clone(extras.AuthorizedTokenIssuerList)
-			}
-
-			cp := *app
+			cp := cloneIdcApp(app)
 
 			return &cp, nil
 		}
 	}
 
 	return nil, fmt.Errorf("%w: application %s not found", ErrIdcApplicationNotFound, appArn)
+}
+
+func cloneIdcApp(app *IdcApplication) IdcApplication {
+	cp := *app
+	cp.Tags = maps.Clone(app.Tags)
+
+	return cp
+}
+
+func applyIdcModify(app *IdcApplication, idcDisplayName, iamRoleArn string, extras IdcApplicationExtras) {
+	if idcDisplayName != "" {
+		app.IdcDisplayName = idcDisplayName
+	}
+
+	if iamRoleArn != "" {
+		app.IamRoleArn = iamRoleArn
+	}
+
+	if extras.IdentityNamespace != "" {
+		app.IdentityNamespace = extras.IdentityNamespace
+	}
+
+	if extras.AuthorizedTokenIssuerList != nil {
+		app.AuthorizedTokenIssuerList = slices.Clone(extras.AuthorizedTokenIssuerList)
+	}
+
+	if extras.ServiceIntegrations != nil {
+		app.ServiceIntegrations = slices.Clone(extras.ServiceIntegrations)
+	}
 }

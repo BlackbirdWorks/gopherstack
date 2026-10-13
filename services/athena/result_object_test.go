@@ -3,6 +3,7 @@ package athena_test
 import (
 	"context"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,6 +19,7 @@ import (
 type fakeS3Storer struct {
 	bucket string
 	key    string
+	keys   []string
 	sse    string
 	body   []byte
 	calls  int
@@ -25,6 +27,12 @@ type fakeS3Storer struct {
 
 func (f *fakeS3Storer) PutObject(_ context.Context, input *sdk_s3.PutObjectInput) (*sdk_s3.PutObjectOutput, error) {
 	f.calls++
+	f.keys = append(f.keys, *input.Key)
+
+	if strings.HasSuffix(*input.Key, ".metadata") {
+		return &sdk_s3.PutObjectOutput{}, nil
+	}
+
 	f.bucket = *input.Bucket
 	f.key = *input.Key
 	f.sse = string(input.ServerSideEncryption)
@@ -73,12 +81,13 @@ func TestStartQueryExecution_WritesResultObjectToWiredS3(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "SUCCEEDED", qe.Status.State)
 
-	require.Equal(t, 1, s3.calls)
+	require.Equal(t, 2, s3.calls)
+	assert.Equal(t, []string{"results/" + id + ".csv", "results/" + id + ".csv.metadata"}, s3.keys)
 	assert.Equal(t, "my-bucket", s3.bucket)
 	assert.Equal(t, "results/"+id+".csv", s3.key)
 	assert.Equal(t, "AES256", s3.sse)
-	assert.Contains(t, string(s3.body), "id,value")
-	assert.Contains(t, string(s3.body), "1,a")
+	assert.Contains(t, string(s3.body), `"id","value"`)
+	assert.Contains(t, string(s3.body), `"1","a"`)
 }
 
 // TestStartQueryExecution_UnwiredS3StaysPermissive proves the unwired path

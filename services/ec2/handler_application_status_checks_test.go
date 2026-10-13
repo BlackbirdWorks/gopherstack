@@ -3,6 +3,7 @@ package ec2_test
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -261,4 +262,47 @@ func TestApplicationStatusChecksHandler_TagAssociation(t *testing.T) {
 	))
 	require.Equal(t, http.StatusOK, statusRec.Code)
 	assert.Contains(t, statusRec.Body.String(), "<status>insufficient-data</status>")
+}
+
+func TestApplicationStatusCheckSuppression_InstanceIDLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		action string
+		count  int
+		want   int
+	}{
+		{name: "enable_at_limit", action: "EnableApplicationStatusCheckSuppression", count: 100, want: http.StatusOK},
+		{
+			name: "enable_over_limit", action: "EnableApplicationStatusCheckSuppression",
+			count: 101, want: http.StatusBadRequest,
+		},
+		{name: "disable_at_limit", action: "DisableApplicationStatusCheckSuppression", count: 100, want: http.StatusOK},
+		{
+			name: "disable_over_limit", action: "DisableApplicationStatusCheckSuppression",
+			count: 101, want: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			var body strings.Builder
+			body.WriteString("Action=" + tt.action + "&Version=2016-11-15")
+
+			for i := 1; i <= tt.count; i++ {
+				fmt.Fprintf(&body, "&InstanceId.%d=i-%017d", i, i)
+			}
+
+			rec := postForm(t, h, body.String())
+			assert.Equal(t, tt.want, rec.Code)
+
+			if tt.want != http.StatusOK {
+				assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+			}
+		})
+	}
 }

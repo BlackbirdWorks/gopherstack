@@ -113,6 +113,7 @@ type Handler struct {
 	Backend      StorageBackend
 	peers        *regionpeers.Set[Handler]
 	publisherFor func(region string) DeployedConfigurationPublisher
+	readerFor    func(region string) ConfigurationContentReader
 }
 
 // NewHandler creates a new AppConfig Handler.
@@ -1028,7 +1029,9 @@ const amznErrorTypeHeader = "X-Amzn-Errortype"
 func notFoundResponse(c *echo.Context, err error) error {
 	c.Response().Header().Set(amznErrorTypeHeader, "ResourceNotFoundException")
 
-	return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: err.Error()})
+	msg := awserr.StripCode("ResourceNotFoundException", err.Error())
+
+	return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: msg})
 }
 
 // deletionProtectionCheckHeader is where DeleteEnvironmentInput/
@@ -1072,13 +1075,19 @@ func rejectInvalidDeletionProtectionCheck(c *echo.Context) (bool, error) {
 func badRequestResponse(c *echo.Context, err error) error {
 	c.Response().Header().Set(amznErrorTypeHeader, "BadRequestException")
 
-	return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
+	return c.JSON(
+		http.StatusBadRequest,
+		map[string]string{keyMessageField: awserr.StripCode("BadRequestException", err.Error())},
+	)
 }
 
 func conflictResponse(c *echo.Context, err error) error {
 	c.Response().Header().Set(amznErrorTypeHeader, "ConflictException")
 
-	return c.JSON(http.StatusConflict, map[string]string{keyMessageField: err.Error()})
+	return c.JSON(
+		http.StatusConflict,
+		map[string]string{keyMessageField: awserr.StripCode("ConflictException", err.Error())},
+	)
 }
 
 // payloadTooLargeResponse is only valid on operations that model
@@ -1094,7 +1103,10 @@ func payloadTooLargeResponse(c *echo.Context, err error) error {
 func internalServerErrorResponse(c *echo.Context, err error) error {
 	c.Response().Header().Set(amznErrorTypeHeader, "InternalServerException")
 
-	return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+	return c.JSON(
+		http.StatusInternalServerError,
+		map[string]string{keyMessageField: awserr.StripCode("InternalServerException", err.Error())},
+	)
 }
 
 // appConfigPaginationParams reads the next_token and max_results query parameters.

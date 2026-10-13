@@ -183,6 +183,7 @@ type Job struct {
 	RecoveryPointArn          string            `json:"recoveryPointArn,omitempty"`
 	PercentDone               string            `json:"percentDone,omitempty"`
 	MessageCategory           string            `json:"messageCategory,omitempty"`
+	StatusMessage             string            `json:"statusMessage,omitempty"`
 	ParentJobID               string            `json:"parentJobId,omitempty"`
 	CompositeMemberIdentifier string            `json:"compositeMemberIdentifier,omitempty"`
 	BytesTransferred          int64             `json:"bytesTransferred,omitempty"`
@@ -391,6 +392,7 @@ type RecoveryPoint struct {
 	BackupVaultArn            string               `json:"backupVaultArn"`
 	ResourceArn               string               `json:"resourceArn,omitempty"`
 	ResourceType              string               `json:"resourceType,omitempty"`
+	ResourceName              string               `json:"resourceName,omitempty"`
 	IAMRoleArn                string               `json:"iamRoleArn,omitempty"`
 	Status                    string               `json:"status"`
 	StorageClass              string               `json:"storageClass,omitempty"`
@@ -414,6 +416,7 @@ type CopyJob struct {
 	ResourceArn                 string     `json:"resourceArn,omitempty"`
 	ResourceType                string     `json:"resourceType,omitempty"`
 	IAMRoleArn                  string     `json:"iamRoleArn,omitempty"`
+	StatusMessage               string     `json:"statusMessage,omitempty"`
 	State                       string     `json:"state"`
 	AccountID                   string     `json:"accountId"`
 	Region                      string     `json:"region"`

@@ -390,36 +390,49 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 
 		return c.JSON(http.StatusNotFound, map[string]string{
 			keyError:   "ResourceNotFoundException",
-			keyMessage: err.Error(),
+			keyMessage: errMessage(err),
 		})
 	case errors.Is(err, ErrVersionConflict), errors.Is(err, ErrConnectionExists):
 		c.Response().Header().Set(amznErrorTypeHeader, "ConflictException")
 
-		return c.JSON(http.StatusConflict, map[string]any{
-			"code":     http.StatusConflict,
+		return c.JSON(http.StatusConflict, map[string]string{
 			keyError:   "ConflictException",
-			keyMessage: err.Error(),
+			keyMessage: errMessage(err),
 		})
 	case errors.Is(err, ErrRequestTooLarge):
 		c.Response().Header().Set(amznErrorTypeHeader, "RequestEntityTooLargeException")
 
 		return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{
 			keyError:   "RequestEntityTooLargeException",
-			keyMessage: err.Error(),
+			keyMessage: errMessage(err),
+		})
+	case errors.Is(err, ErrUnsupportedDocumentEncoding):
+		c.Response().Header().Set(amznErrorTypeHeader, "UnsupportedDocumentEncodingException")
+
+		return c.JSON(http.StatusUnsupportedMediaType, map[string]string{
+			keyError:   "UnsupportedDocumentEncodingException",
+			keyMessage: errMessage(err),
+		})
+	case errors.Is(err, ErrDeliveryTimeout):
+		c.Response().Header().Set(amznErrorTypeHeader, "GatewayTimeoutException")
+
+		return c.JSON(http.StatusGatewayTimeout, map[string]string{
+			keyError:   "GatewayTimeoutException",
+			keyMessage: errMessage(err),
 		})
 	case errors.Is(err, ErrValidation):
 		c.Response().Header().Set(amznErrorTypeHeader, "InvalidRequestException")
 
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyError:   "InvalidRequestException",
-			keyMessage: err.Error(),
+			keyMessage: errMessage(err),
 		})
 	default:
 		c.Response().Header().Set(amznErrorTypeHeader, "InternalFailureException")
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			keyError:   "InternalFailureException",
-			keyMessage: err.Error(),
+			keyMessage: errMessage(err),
 		})
 	}
 }
@@ -431,7 +444,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 func methodNotAllowedResponse(c *echo.Context) error {
 	c.Response().Header().Set(amznErrorTypeHeader, errMethodNotAllowed)
 
-	return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
+	return c.JSON(http.StatusMethodNotAllowed, map[string]string{
+		keyError:   errMethodNotAllowed,
+		keyMessage: "Method not allowed",
+	})
 }
 
 // invalidRequestResponse writes the wire-accurate response for a malformed
@@ -441,7 +457,10 @@ func methodNotAllowedResponse(c *echo.Context) error {
 func invalidRequestResponse(c *echo.Context, message string) error {
 	c.Response().Header().Set(amznErrorTypeHeader, "InvalidRequestException")
 
-	return c.JSON(http.StatusBadRequest, map[string]string{keyError: message})
+	return c.JSON(http.StatusBadRequest, map[string]string{
+		keyError:   "InvalidRequestException",
+		keyMessage: message,
+	})
 }
 
 // Handler returns the Echo handler function for IoT Data Plane operations.
@@ -521,4 +540,25 @@ func findCursorIndex(items []string, cursor string) int {
 	}
 
 	return 0
+}
+
+func wireSentinels() []error {
+	return []error{
+		ErrShadowNotFound, ErrRetainedMessageNotFound, ErrConnectionNotFound, ErrVersionConflict,
+		ErrRequestTooLarge, ErrUnsupportedDocumentEncoding, ErrDeliveryTimeout, ErrValidation,
+	}
+}
+
+// errMessage drops the leading "<sentinel>: " that wrapping adds, so the wire
+// message does not repeat the error code.
+func errMessage(err error) string {
+	msg := err.Error()
+
+	for _, s := range wireSentinels() {
+		if errors.Is(err, s) {
+			return strings.TrimPrefix(msg, s.Error()+": ")
+		}
+	}
+
+	return msg
 }

@@ -1,11 +1,17 @@
 package resourcegroups
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 
@@ -309,12 +315,49 @@ func (h *Handler) handleREST(ctx context.Context, c *echo.Context, action string
 		return h.handleError(ctx, c, action, err)
 	}
 
+	if action == opListGroups {
+		if body, err = mergeListGroupsQuery(body, c.Request().URL.Query()); err != nil {
+			return h.handleError(ctx, c, action, err)
+		}
+	}
+
 	response, dispErr := h.dispatch(ctx, action, body)
 	if dispErr != nil {
 		return h.handleError(ctx, c, action, dispErr)
 	}
 
 	return c.JSONBlob(http.StatusOK, response)
+}
+
+// mergeListGroupsQuery folds the maxResults/nextToken query-string members of ListGroups
+// (restjson HTTP bindings, serializers.go:1129-1134) into the JSON body.
+func mergeListGroupsQuery(body []byte, q url.Values) ([]byte, error) {
+	maxStr, token := q.Get("maxResults"), q.Get("nextToken")
+	if maxStr == "" && token == "" {
+		return body, nil
+	}
+
+	doc := map[string]any{}
+	if len(bytes.TrimSpace(body)) > 0 {
+		if err := json.Unmarshal(body, &doc); err != nil {
+			return nil, err
+		}
+	}
+
+	if maxStr != "" {
+		n, err := strconv.Atoi(maxStr)
+		if err != nil {
+			return nil, fmt.Errorf("%w: maxResults must be an integer", ErrValidation)
+		}
+
+		doc["MaxResults"] = n
+	}
+
+	if token != "" {
+		doc["NextToken"] = token
+	}
+
+	return json.Marshal(doc)
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
@@ -365,5 +408,18 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	c.Response().Header().Set(amznErrorTypeHeader, wireType)
 
-	return c.JSON(code, map[string]string{"message": err.Error()})
+	return c.JSON(code, map[string]string{"message": wireMessage(err, wireType)})
+}
+
+// wireMessage drops the leading "<ExceptionType>: " that the sentinel wrap adds so the
+// code is not repeated in the message, and sentence-cases what is left.
+func wireMessage(err error, wireType string) string {
+	msg := strings.TrimPrefix(err.Error(), wireType+": ")
+	if msg == "" {
+		return msg
+	}
+
+	r, size := utf8.DecodeRuneInString(msg)
+
+	return string(unicode.ToUpper(r)) + msg[size:]
 }

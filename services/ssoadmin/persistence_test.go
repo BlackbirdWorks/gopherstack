@@ -95,8 +95,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	regions, err := fresh.ListRegions(instanceArn)
 	require.NoError(t, err)
-	require.Len(t, regions, 1)
-	assert.Equal(t, "us-west-2", regions[0].RegionName)
+	require.Len(t, regions, 2)
+	assert.True(t, regions[0].IsPrimaryRegion)
+	assert.Equal(t, "us-west-2", regions[1].RegionName)
 
 	// Permission set + attachments.
 	restoredPS, err := fresh.DescribePermissionSet(instanceArn, psArn)

@@ -18,6 +18,7 @@ func (h *Handler) dispatchAssumeRole(r *http.Request) (*AssumeRoleResponse, erro
 		SourceIdentity:  r.FormValue("SourceIdentity"),
 		SerialNumber:    r.FormValue("SerialNumber"),
 		TokenCode:       r.FormValue("TokenCode"),
+		SourceIP:        remoteIP(r),
 	}
 
 	durationStr := r.FormValue("DurationSeconds")

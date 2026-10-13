@@ -218,7 +218,7 @@ func isKnownTopicAttribute(name string) bool {
 	// operations' documented Attributes list in the SNS API reference).
 	case "DeliveryPolicy", "DisplayName", "FifoTopic", "ContentBasedDeduplication",
 		"KmsMasterKeyId", "Policy", "TracingConfig", "FifoThroughputScope",
-		"ArchivePolicy", "SignatureVersion":
+		"ArchivePolicy", "SignatureVersion", attrMaximumMessageSize:
 		return true
 	// HTTP/HTTPS delivery status logging.
 	case "HTTPSuccessFeedbackRoleArn",
@@ -282,6 +282,12 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 		return err
 	}
 
+	if attrName == attrMaximumMessageSize {
+		if err := checkLargeTopicRaise(attrValue, b.subscriptionsByTopic.Get(topicArn)); err != nil {
+			return err
+		}
+	}
+
 	// When clearing EffectiveDeliveryPolicy derived from DeliveryPolicy, reset it.
 	if attrName == "DeliveryPolicy" {
 		if attrValue == "" {
@@ -340,6 +346,82 @@ func validateTopicAttributeValue(topic *Topic, attrName, attrValue string) error
 	case "KmsMasterKeyId":
 		if attrValue != "" {
 			return validateKmsMasterKeyID(attrValue)
+		}
+	case attrMaximumMessageSize:
+		return validateMaximumMessageSize(attrValue)
+	}
+
+	return nil
+}
+
+// validateMaximumMessageSize validates a MaximumMessageSize value (1024-1048576 bytes).
+func validateMaximumMessageSize(v string) error {
+	n, err := strconv.Atoi(v)
+	if err != nil || n < minTopicMessageSizeBytes || n > maxTopicMessageSizeBytes {
+		return fmt.Errorf(
+			"%w: Invalid parameter: MaximumMessageSize must be between %d and %d",
+			ErrInvalidParameter, minTopicMessageSizeBytes, maxTopicMessageSizeBytes,
+		)
+	}
+
+	return nil
+}
+
+func checkLargeTopicRaise(value string, subs []*Subscription) error {
+	if n, err := strconv.Atoi(value); err != nil || n <= maxMessageSizeBytes {
+		return nil //nolint:nilerr // value already validated
+	}
+
+	return checkLargeMessageSubscriptions(subs)
+}
+
+func (b *InMemoryBackend) checkTopicAdmits(topic *Topic, subs []*Subscription, protocol string) error {
+	if len(subs) >= b.subscriptionLimitPerTopic {
+		return ErrSubscriptionLimitExceeded
+	}
+
+	return checkLargeTopicAccepts(topic, subs, protocol)
+}
+
+// checkLargeTopicAccepts rejects a new subscription a large-message topic cannot carry.
+func checkLargeTopicAccepts(topic *Topic, subs []*Subscription, protocol string) error {
+	if topicMessageLimit(topic.Attributes) <= maxMessageSizeBytes {
+		return nil
+	}
+
+	return checkLargeMessageSubscriptions(
+		append(append([]*Subscription(nil), subs...), &Subscription{Protocol: protocol}),
+	)
+}
+
+// topicMessageLimit returns the effective publish size limit for a topic.
+func topicMessageLimit(attrs map[string]string) int {
+	if n, err := strconv.Atoi(attrs[attrMaximumMessageSize]); err == nil && n >= minTopicMessageSizeBytes {
+		return n
+	}
+
+	return maxMessageSizeBytes
+}
+
+func largeMessageProtocol(protocol string) bool {
+	return protocol == protocolSQS || protocol == protocolLambda || protocol == protocolFirehose
+}
+
+// checkLargeMessageSubscriptions enforces the requirements for a topic limit above 256 KiB.
+func checkLargeMessageSubscriptions(subs []*Subscription) error {
+	if len(subs) > maxLargeMessageSubscriptions {
+		return fmt.Errorf(
+			"%w: Invalid parameter: MaximumMessageSize above %d requires at most %d subscriptions",
+			ErrInvalidParameter, maxMessageSizeBytes, maxLargeMessageSubscriptions,
+		)
+	}
+
+	for _, s := range subs {
+		if !largeMessageProtocol(s.Protocol) {
+			return fmt.Errorf(
+				"%w: Invalid parameter: MaximumMessageSize above %d requires SQS, Firehose or Lambda subscriptions",
+				ErrInvalidParameter, maxMessageSizeBytes,
+			)
 		}
 	}
 

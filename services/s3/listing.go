@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"encoding/base64"
 	"sort"
 	"strings"
 	"time"
@@ -27,6 +28,7 @@ const prefixEntry = -1
 // listedVersion is the compact lock-free copy of a version that listings render.
 type listedVersion struct {
 	lastModified      time.Time
+	restoreExpiry     time.Time
 	key               string
 	etag              string
 	storageClass      string
@@ -75,15 +77,14 @@ func seekPrefixMatchesLocked(
 	afterMarker func(string) bool,
 	limit int,
 ) []*StoredObject {
-	keys := bucket.keyIndex
-	start := sort.Search(len(keys), func(i int) bool {
-		return keys[i] >= prefix && afterMarker(keys[i])
-	})
+	idx := &bucket.keyIndex
 
 	var matched []*StoredObject
 
-	for i := start; i < len(keys); i++ {
-		key := keys[i]
+	cur := idx.seek(func(k string) bool { return k >= prefix && afterMarker(k) })
+
+	for ; idx.valid(cur); cur = idx.next(cur) {
+		key := idx.key(cur)
 		if !strings.HasPrefix(key, prefix) {
 			break
 		}
@@ -212,6 +213,7 @@ func latestLiveSnapshot(obj *StoredObject, out *listedVersion) bool {
 		etag:              latest.ETag,
 		storageClass:      latest.StorageClass,
 		checksumAlgorithm: latest.ChecksumAlgorithm,
+		restoreExpiry:     latest.RestoreExpiry,
 		size:              latest.Size,
 	}
 
@@ -232,21 +234,19 @@ func walkDelimitedLocked(
 	afterMarker func(string) bool,
 	limit int,
 ) delimitedWalk {
-	keys := bucket.keyIndex
-	i := sort.Search(len(keys), func(i int) bool {
-		return keys[i] >= prefix && afterMarker(keys[i])
-	})
+	ki := &bucket.keyIndex
+	cur := ki.seek(func(k string) bool { return k >= prefix && afterMarker(k) })
 
-	entries := make([]listObjectEntry, 0, min(limit, len(keys)-i))
+	entries := make([]listObjectEntry, 0, min(limit, ki.remaining(cur)))
 	var versions []listedVersion
 
-	for i < len(keys) && len(entries) < limit {
-		key := keys[i]
+	for ki.valid(cur) && len(entries) < limit {
+		key := ki.key(cur)
 		if !strings.HasPrefix(key, prefix) {
 			break
 		}
 
-		i++
+		cur = ki.next(cur)
 
 		obj, ok := bucket.Objects[key]
 		if !ok {
@@ -271,10 +271,7 @@ func walkDelimitedLocked(
 		cp := prefix + rest[:idx+len(delimiter)]
 		entries = append(entries, listObjectEntry{key: cp, vi: prefixEntry})
 
-		from := i
-		i = from + sort.Search(len(keys)-from, func(k int) bool {
-			return !strings.HasPrefix(keys[from+k], cp)
-		})
+		cur = ki.seekFrom(cur, func(k string) bool { return !strings.HasPrefix(k, cp) })
 	}
 
 	return delimitedWalk{entries: entries, versions: versions}
@@ -283,12 +280,15 @@ func walkDelimitedLocked(
 // listedObject holds one rendered object's pointees so a page needs one slab allocation, not one per field.
 type listedObject struct {
 	lastModified time.Time
+	restoreAt    time.Time
+	restore      types.RestoreStatus
 	owner        types.Owner
 	key          string
 	etag         string
 	ownerName    string
 	algos        [1]types.ChecksumAlgorithm
 	size         int64
+	restoreFlag  bool
 }
 
 func fillObject(slot *listedObject, latest *listedVersion) types.Object {
@@ -310,7 +310,16 @@ func fillObject(slot *listedObject, latest *listedVersion) types.Object {
 		sc = storageStandard
 	}
 
+	var restore *types.RestoreStatus
+	if !latest.restoreExpiry.IsZero() {
+		slot.restoreFlag = false
+		slot.restoreAt = latest.restoreExpiry
+		slot.restore = types.RestoreStatus{IsRestoreInProgress: &slot.restoreFlag, RestoreExpiryDate: &slot.restoreAt}
+		restore = &slot.restore
+	}
+
 	return types.Object{
+		RestoreStatus:     restore,
 		Key:               &slot.key,
 		LastModified:      &slot.lastModified,
 		ETag:              &slot.etag,
@@ -378,7 +387,12 @@ func (b *InMemoryBackend) ListObjectsV2(
 	// Re-use ListObjects logic but handle V2 specific params
 	marker := ""
 	if input.ContinuationToken != nil && *input.ContinuationToken != "" {
-		marker = *input.ContinuationToken
+		decoded, ok := decodeContinuationToken(*input.ContinuationToken)
+		if !ok {
+			return nil, ErrInvalidContinuationToken
+		}
+
+		marker = decoded
 	} else if input.StartAfter != nil && *input.StartAfter != "" {
 		marker = *input.StartAfter
 	}
@@ -399,7 +413,7 @@ func (b *InMemoryBackend) ListObjectsV2(
 
 	nextCont := ""
 	if aws.ToBool(listOut.IsTruncated) {
-		nextCont = aws.ToString(listOut.NextMarker)
+		nextCont = encodeContinuationToken(aws.ToString(listOut.NextMarker))
 	}
 
 	return &s3.ListObjectsV2Output{
@@ -421,6 +435,7 @@ func (b *InMemoryBackend) ListObjectsV2(
 // listing. It is captured under the bucket lock and processed outside it.
 type versionSnapshot struct {
 	lastModified      time.Time
+	restoreExpiry     time.Time
 	key               string
 	versionID         string
 	etag              string
@@ -502,15 +517,13 @@ func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) 
 	bucket.mu.RLock("ListObjectVersions")
 	defer bucket.mu.RUnlock()
 
-	keys := bucket.keyIndex
-	start := sort.Search(len(keys), func(i int) bool {
-		return keys[i] >= prefix
-	})
+	idx := &bucket.keyIndex
+	start := idx.seek(func(k string) bool { return k >= prefix })
 
-	snapshots := make([]versionSnapshot, 0, len(keys)-start)
+	snapshots := make([]versionSnapshot, 0, idx.remaining(start))
 
-	for i := start; i < len(keys); i++ {
-		key := keys[i]
+	for cur := start; idx.valid(cur); cur = idx.next(cur) {
+		key := idx.key(cur)
 		if !strings.HasPrefix(key, prefix) {
 			break
 		}
@@ -538,6 +551,7 @@ func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) 
 				deleted:           v.Deleted,
 				storageClass:      sc,
 				checksumAlgorithm: string(v.ChecksumAlgorithm),
+				restoreExpiry:     v.RestoreExpiry,
 			})
 		}
 
@@ -707,7 +721,17 @@ func buildVersionPage(entries []versionListEntry, maxKeys int32) (
 		}
 
 		owner := types.Owner{ID: aws.String(gopherstackName), DisplayName: aws.String(gopherstackName)}
+
+		var restore *types.RestoreStatus
+		if !snap.restoreExpiry.IsZero() {
+			restore = &types.RestoreStatus{
+				IsRestoreInProgress: aws.Bool(false),
+				RestoreExpiryDate:   aws.Time(snap.restoreExpiry),
+			}
+		}
+
 		versions = append(versions, types.ObjectVersion{
+			RestoreStatus:     restore,
 			Key:               aws.String(snap.key),
 			VersionId:         aws.String(snap.versionID),
 			IsLatest:          aws.Bool(snap.isLatest),
@@ -768,4 +792,24 @@ func truncateVersionEntries(walk delimitedWalk, maxKeys int32) (
 	}
 
 	return versions, cpList, isTruncated, nextMarker
+}
+
+const continuationTokenPrefix = "1"
+
+func encodeContinuationToken(key string) string {
+	return continuationTokenPrefix + base64.URLEncoding.EncodeToString([]byte(key))
+}
+
+func decodeContinuationToken(token string) (string, bool) {
+	rest, ok := strings.CutPrefix(token, continuationTokenPrefix)
+	if !ok {
+		return "", false
+	}
+
+	raw, err := base64.URLEncoding.DecodeString(rest)
+	if err != nil {
+		return "", false
+	}
+
+	return string(raw), true
 }

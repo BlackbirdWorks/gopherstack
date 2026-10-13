@@ -55,3 +55,56 @@ func TestLookupDeveloperIdentity_CrossPoolIdentityID_RealClient(t *testing.T) {
 	var nf *sdktypes.ResourceNotFoundException
 	assert.ErrorAs(t, err, &nf, "want ResourceNotFoundException, got %T: %v", err, err)
 }
+
+func TestLookupDeveloperIdentity_ByDeveloperUserIdentifier_RealClient(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		lookupUser   string
+		wantNotFound bool
+	}{
+		{name: "known_user", lookupUser: "dev-user-42"},
+		{name: "unknown_user", lookupUser: "someone-else", wantNotFound: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestHandlerAndClient(t)
+			ctx := t.Context()
+
+			pool, err := client.CreateIdentityPool(ctx, &cognitoidentitysdk.CreateIdentityPoolInput{
+				IdentityPoolName:               aws.String("dev-lookup"),
+				AllowUnauthenticatedIdentities: true,
+				DeveloperProviderName:          aws.String("login.dev"),
+			})
+			require.NoError(t, err)
+
+			token, err := client.GetOpenIdTokenForDeveloperIdentity(
+				ctx, &cognitoidentitysdk.GetOpenIdTokenForDeveloperIdentityInput{
+					IdentityPoolId: pool.IdentityPoolId,
+					Logins:         map[string]string{"login.dev": "dev-user-42"},
+				},
+			)
+			require.NoError(t, err)
+
+			out, err := client.LookupDeveloperIdentity(ctx, &cognitoidentitysdk.LookupDeveloperIdentityInput{
+				IdentityPoolId:          pool.IdentityPoolId,
+				DeveloperUserIdentifier: aws.String(tt.lookupUser),
+			})
+
+			if tt.wantNotFound {
+				var nf *sdktypes.ResourceNotFoundException
+				require.ErrorAs(t, err, &nf)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, aws.ToString(token.IdentityId), aws.ToString(out.IdentityId))
+			assert.Equal(t, []string{"dev-user-42"}, out.DeveloperUserIdentifierList)
+		})
+	}
+}

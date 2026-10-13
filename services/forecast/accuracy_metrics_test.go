@@ -28,7 +28,7 @@ func TestGetAccuracyMetrics_Populated(t *testing.T) {
 	h := newHandler()
 
 	code, created := request(t, h, "CreatePredictor", map[string]any{
-		"PredictorName":       "acc-pred",
+		"PredictorName":       "acc_pred",
 		"ForecastHorizon":     7,
 		"ForecastTypes":       []any{"0.1", "0.5", "0.9"},
 		"InputDataConfig":     map[string]any{"DatasetGroupArn": createDatasetGroup(t, h)},
@@ -79,7 +79,7 @@ func TestGetAccuracyMetrics_Deterministic(t *testing.T) {
 	h := newHandler()
 
 	code, created := request(t, h, "CreatePredictor", map[string]any{
-		"PredictorName": "det-pred", "ForecastHorizon": 7,
+		"PredictorName": "det_pred", "ForecastHorizon": 7,
 		"InputDataConfig":     map[string]any{"DatasetGroupArn": createDatasetGroup(t, h)},
 		"FeaturizationConfig": map[string]any{},
 	})
@@ -102,7 +102,7 @@ func TestGetAccuracyMetrics_ResultsAndNotFound(t *testing.T) {
 	h := newHandler()
 
 	code, created := request(t, h, "CreatePredictor", map[string]any{
-		"PredictorName": "metrics-predictor", "ForecastHorizon": 7,
+		"PredictorName": "metrics_predictor", "ForecastHorizon": 7,
 		"InputDataConfig":     map[string]any{"DatasetGroupArn": createDatasetGroup(t, h)},
 		"FeaturizationConfig": map[string]any{},
 	})

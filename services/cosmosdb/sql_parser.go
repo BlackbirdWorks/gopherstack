@@ -1,6 +1,7 @@
 package cosmosdb
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 )
@@ -89,6 +90,7 @@ const (
 // sqlOperand is either a document-field path reference, a query-parameter
 // reference, or a typed literal value.
 type sqlOperand struct {
+	lit       any
 	paramName string
 	strVal    string
 	numLit    string
@@ -682,11 +684,11 @@ func (p *sqlParser) parseOperand() (sqlOperand, error) {
 	case sqlTokString:
 		p.advance()
 
-		return sqlOperand{kind: sqlOperandString, strVal: tok.lit}, nil
+		return sqlOperand{kind: sqlOperandString, strVal: tok.lit, lit: tok.lit}, nil
 	case sqlTokNumber:
 		p.advance()
 
-		return sqlOperand{kind: sqlOperandNumber, numLit: tok.lit}, nil
+		return sqlOperand{kind: sqlOperandNumber, numLit: tok.lit, lit: json.Number(tok.lit)}, nil
 	case sqlTokTrue, sqlTokFalse:
 		p.advance()
 

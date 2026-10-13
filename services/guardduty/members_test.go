@@ -237,7 +237,7 @@ func TestMemberBatchOps_UnknownDetector_NotFound(t *testing.T) {
 
 			h := newTestHandler(t)
 			rec := doRequest(t, h, tt.method, tt.path, tt.body)
-			assert.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 		})
 	}
 }

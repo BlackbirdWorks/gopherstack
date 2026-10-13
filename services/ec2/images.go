@@ -17,8 +17,12 @@ import (
 // imageOwnerId -- see handler_images.go's knownImageOwnerAliases).
 const imageOwnerAliasAmazon = "amazon"
 
+const productCodeTypeMarketplace = "marketplace"
+
 // AMIStub is a static image entry.
 type AMIStub struct {
+	CreationTime        time.Time                 `json:"creationTime,omitzero"`
+	BlockDeviceMappings []ImageBlockDeviceMapping `json:"blockDeviceMappings,omitempty"`
 	State               string                    `json:"state,omitempty"`
 	VirtualizationType  string                    `json:"virtualizationType,omitempty"`
 	Description         string                    `json:"description,omitempty"`
@@ -31,7 +35,7 @@ type AMIStub struct {
 	ImdsSupport         string                    `json:"imdsSupport,omitempty"`
 	SourceImageID       string                    `json:"sourceImageID,omitempty"`
 	SriovNetSupport     string                    `json:"sriovNetSupport,omitempty"`
-	BlockDeviceMappings []ImageBlockDeviceMapping `json:"blockDeviceMappings,omitempty"`
+	ProductCodes        []string                  `json:"productCodes,omitempty"`
 	EnaSupport          bool                      `json:"enaSupport,omitempty"`
 	EnaSupportSet       bool                      `json:"enaSupportSet,omitempty"`
 }
@@ -66,7 +70,7 @@ var stubAMIs = []AMIStub{
 		Name:           "amzn2-ami-hvm",
 		Description:    "Amazon Linux 2 (x86_64)",
 		Architecture:   archX8664,
-		RootDeviceName: "/dev/xvda",
+		RootDeviceName: defaultRootDeviceName,
 		OwnerID:        imageOwnerAliasAmazon,
 	},
 	{
@@ -74,7 +78,7 @@ var stubAMIs = []AMIStub{
 		Name:           "ubuntu-22.04-lts",
 		Description:    "Ubuntu 22.04 LTS (x86_64)",
 		Architecture:   archX8664,
-		RootDeviceName: "/dev/sda1",
+		RootDeviceName: rootDeviceSda1,
 		OwnerID:        imageOwnerAliasAmazon,
 	},
 	{
@@ -82,8 +86,8 @@ var stubAMIs = []AMIStub{
 		Name:           "windows-server-2022",
 		Description:    "Windows Server 2022",
 		Architecture:   archX8664,
-		Platform:       "windows",
-		RootDeviceName: "/dev/sda1",
+		Platform:       platformWindows,
+		RootDeviceName: rootDeviceSda1,
 		OwnerID:        imageOwnerAliasAmazon,
 	},
 }
@@ -96,8 +100,9 @@ func (b *InMemoryBackend) DescribeImages() []AMIStub {
 	b.mu.RLock("DescribeImages")
 	defer b.mu.RUnlock()
 
-	images := make([]AMIStub, 0, len(stubAMIs)+b.images.Len())
+	images := make([]AMIStub, 0, len(stubAMIs)+len(publicCatalogAMIs)+b.images.Len())
 	images = append(images, stubAMIs...)
+	images = append(images, publicCatalogAMIs...)
 	for _, img := range b.images.All() {
 		cp := *img
 		cp.BlockDeviceMappings = slices.Clone(img.BlockDeviceMappings)
@@ -369,7 +374,8 @@ func (b *InMemoryBackend) GetImageLaunchPermission(imageID string) ([]string, bo
 		// The seeded public catalog (stubAMIs, owned by "amazon") is public
 		// by definition and was never individually shared -- default to
 		// public rather than reporting a catalog AMI as private.
-		if img := b.lookupImageLocked(imageID); img != nil && knownImageOwnerAliases[img.OwnerID] {
+		img := b.lookupImageLocked(imageID)
+		if img != nil && (knownImageOwnerAliases[img.OwnerID] || isPublicCatalogImage(imageID)) {
 			public = true
 		}
 	}
@@ -441,8 +447,15 @@ func (b *InMemoryBackend) DescribeInstanceImageMetadata(
 		}
 
 		var imageName string
+
+		imageOwner := b.AccountID
+
 		if img := b.lookupImageLocked(inst.ImageID); img != nil {
 			imageName = img.Name
+
+			if img.OwnerID != "" {
+				imageOwner = img.OwnerID
+			}
 		}
 
 		az := inst.Placement.AvailabilityZone
@@ -457,7 +470,7 @@ func (b *InMemoryBackend) DescribeInstanceImageMetadata(
 			ImageID:          inst.ImageID,
 			ImageName:        imageName,
 			ImageState:       imageState,
-			ImageOwnerID:     b.AccountID,
+			ImageOwnerID:     imageOwner,
 			AvailabilityZone: az,
 			ZoneID:           zoneID,
 			InstanceType:     inst.InstanceType,
@@ -489,6 +502,8 @@ func (b *InMemoryBackend) RegisterImage(name, description, architecture string) 
 		Description:  description,
 		Architecture: architecture,
 		OwnerID:      b.AccountID,
+
+		CreationTime: time.Now().UTC(),
 	}
 	if img.Architecture == "" {
 		img.Architecture = archX8664
@@ -884,6 +899,7 @@ func (b *InMemoryBackend) CopyImageEncrypted(
 		RootDeviceName: src.RootDeviceName,
 		SourceImageID:  src.ImageID,
 		OwnerID:        b.AccountID,
+		CreationTime:   time.Now().UTC(),
 	}
 	newImage.BlockDeviceMappings = b.copyImageMappingsLocked(src.BlockDeviceMappings, encrypted, kmsKeyID, remoteSnaps)
 	b.images.Put(newImage)
@@ -965,6 +981,7 @@ func (b *InMemoryBackend) DeregisterImageDeleteSnapshots(
 	delete(b.imageDeregistrationProtection, imageID)
 	delete(b.fastLaunchImages, imageID)
 	delete(b.imageWatermarks, imageID)
+	delete(b.imageWatermarkTimes, imageID)
 	delete(b.imageLaunchPermissions, imageID)
 	delete(b.imageLaunchPermissionPublic, imageID)
 
@@ -1032,7 +1049,7 @@ func (b *InMemoryBackend) lookupImageLocked(imageID string) *AMIStub {
 		return existing
 	}
 
-	for _, a := range stubAMIs {
+	for _, a := range slices.Concat(stubAMIs, publicCatalogAMIs) {
 		if a.ImageID == imageID {
 			cp := a
 
@@ -1041,6 +1058,10 @@ func (b *InMemoryBackend) lookupImageLocked(imageID string) *AMIStub {
 	}
 
 	return nil
+}
+
+func isPublicCatalogImage(imageID string) bool {
+	return slices.ContainsFunc(publicCatalogAMIs, func(a AMIStub) bool { return a.ImageID == imageID })
 }
 
 // CancelImageLaunchPermission removes the launch permission entry for an AMI,

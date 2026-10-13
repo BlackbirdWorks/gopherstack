@@ -35,6 +35,10 @@ func (h *Handler) handleCreateCollection(_ context.Context, req *createCollectio
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
 
+	if err := validateName("CollectionId", req.CollectionID); err != nil {
+		return nil, err
+	}
+
 	coll, err := h.Backend.CreateCollection(req.CollectionID, req.Tags)
 	if err != nil {
 		return nil, err

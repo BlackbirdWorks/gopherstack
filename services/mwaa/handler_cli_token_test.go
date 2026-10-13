@@ -107,7 +107,9 @@ func TestCliToken_HTTP_ResponseStructure(t *testing.T) {
 
 	h := newHandlerForTest(t)
 	doMWAARequest(t, h, http.MethodPut, "/environments/jwt-http-env", map[string]any{
-		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"DagS3Path":            "dags/",
+		"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/r",
+		"SourceBucketArn":      "arn:aws:s3:::b",
 		"NetworkConfiguration": networkConfigBody(),
 	})
 	doMWAARequest(t, h, http.MethodGet, "/environments/jwt-http-env", nil) // promote CREATING → AVAILABLE
@@ -130,7 +132,9 @@ func TestHTTP_TokensIncludeWebServerHostname(t *testing.T) {
 
 	h := newHandlerForTest(t)
 	doMWAARequest(t, h, http.MethodPut, "/environments/http-token-hostname", map[string]any{
-		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"DagS3Path":            "dags/",
+		"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/r",
+		"SourceBucketArn":      "arn:aws:s3:::b",
 		"NetworkConfiguration": networkConfigBody(),
 	})
 	doMWAARequest(t, h, http.MethodGet, "/environments/http-token-hostname", nil) // promote CREATING → AVAILABLE

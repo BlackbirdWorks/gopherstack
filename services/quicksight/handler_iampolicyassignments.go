@@ -96,7 +96,7 @@ func (h *Handler) handleCreateIAMPolicyAssignment(c *echo.Context) error {
 	)
 	if err != nil {
 		if errors.Is(err, ErrIAMPolicyAssignmentAlreadyExists) {
-			return writeError(c, http.StatusConflict, errResourceExistsCode, err.Error())
+			return writeError(c, http.StatusConflict, errResourceExistsCode, errMessage(err))
 		}
 
 		return httpErr(c, err)

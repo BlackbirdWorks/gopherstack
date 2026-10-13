@@ -20,6 +20,8 @@ const (
 	datasourceIngestStateStopped  = "STOPPED"
 	datasourceIngestStateDisabled = "DISABLED"
 
+	datasourceDetectiveCore = "DETECTIVE_CORE"
+
 	entityTypeIAMRole = "IAM_ROLE"
 	entityTypeIAMUser = "IAM_USER"
 

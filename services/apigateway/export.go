@@ -23,7 +23,9 @@ const (
 
 // GetExport generates an OpenAPI 2.0 (Swagger) or OAS 3.0 export of the REST API.
 // exportType "oas30" produces OpenAPI 3.0.1; any other value produces Swagger 2.0.
-func (b *InMemoryBackend) GetExport(restAPIID, stageName, exportType string) (map[string]any, error) {
+func (b *InMemoryBackend) GetExport(
+	restAPIID, stageName, exportType string, opts ExportOptions,
+) (map[string]any, error) {
 	b.mu.RLock("GetExport")
 	defer b.mu.RUnlock()
 
@@ -31,13 +33,56 @@ func (b *InMemoryBackend) GetExport(restAPIID, stageName, exportType string) (ma
 	if !ok {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	ctx := exportContext{b: b, restAPIID: restAPIID, apiName: api.Name}
 
-	if exportType == "oas30" {
+	if exportType != exportTypeOAS30 && exportType != exportTypeSwagger {
+		return nil, fmt.Errorf(
+			"%w: exportType must be %q or %q",
+			ErrInvalidParameter,
+			exportTypeOAS30,
+			exportTypeSwagger,
+		)
+	}
+
+	if !b.stages.Has(stageKey(restAPIID, stageName)) {
+		return nil, fmt.Errorf("%w: Invalid stage identifier specified", ErrStageNotFound)
+	}
+
+	ctx := exportContext{b: b, restAPIID: restAPIID, apiName: api.Name, opts: opts}
+
+	if exportType == exportTypeOAS30 {
 		return buildOAS30Export(ctx, stageName), nil
 	}
 
 	return buildSwagger20Export(ctx, stageName), nil
+}
+
+const (
+	exportTypeAPIKey  = "apiKey"
+	exportTypeOAS30   = "oas30"
+	exportTypeSwagger = "swagger"
+)
+
+// ExportOptions are GetExport's "extensions" query parameter selections.
+type ExportOptions struct {
+	Integrations bool
+	Authorizers  bool
+}
+
+// ParseExportExtensions reads the comma-separated "extensions" parameter value
+// (api_op_GetExport.go: integrations|apigateway, authorizers, postman).
+func ParseExportExtensions(value string) ExportOptions {
+	var o ExportOptions
+
+	for part := range strings.SplitSeq(value, ",") {
+		switch strings.TrimSpace(part) {
+		case "integrations", "apigateway":
+			o.Integrations = true
+		case apiGWSegAuthorizers:
+			o.Authorizers = true
+		}
+	}
+
+	return o
 }
 
 // exportContext carries the read-only context buildSwagger20Export/buildOAS30Export
@@ -50,6 +95,7 @@ type exportContext struct {
 	b         *InMemoryBackend
 	restAPIID string
 	apiName   string
+	opts      ExportOptions
 }
 
 // buildSwagger20Export constructs a Swagger 2.0 export document.
@@ -58,11 +104,13 @@ func buildSwagger20Export(ctx exportContext, stageName string) map[string]any {
 
 	secDefs := map[string]any{
 		exportKeyAPIKey: map[string]any{
-			exportKeyType: "apiKey",
+			exportKeyType: exportTypeAPIKey,
 			keyAPIName:    "x-api-key",
 			"in":          paramLocationHeader,
 		},
 	}
+
+	ctx.addAuthorizerSchemes(secDefs)
 
 	return map[string]any{
 		"swagger":             "2.0",
@@ -77,15 +125,16 @@ func buildSwagger20Export(ctx exportContext, stageName string) map[string]any {
 func buildOAS30Export(ctx exportContext, stageName string) map[string]any {
 	paths := buildExportPaths(ctx, true)
 
-	components := map[string]any{
-		"securitySchemes": map[string]any{
-			exportKeyAPIKey: map[string]any{
-				exportKeyType: "apiKey",
-				keyAPIName:    "x-api-key",
-				"in":          paramLocationHeader,
-			},
+	schemes := map[string]any{
+		exportKeyAPIKey: map[string]any{
+			exportKeyType: exportTypeAPIKey,
+			keyAPIName:    "x-api-key",
+			"in":          paramLocationHeader,
 		},
 	}
+	ctx.addAuthorizerSchemes(schemes)
+
+	components := map[string]any{"securitySchemes": schemes}
 
 	// Include model schemas in components.
 	models := ctx.b.modelsByAPI.Get(ctx.restAPIID)
@@ -115,7 +164,7 @@ func buildExportPaths(ctx exportContext, oas30 bool) map[string]any {
 	paths := make(map[string]any)
 
 	for _, res := range ctx.b.resourcesByAPI.Get(ctx.restAPIID) {
-		if res.Path == "/" || len(res.ResourceMethods) == 0 {
+		if len(res.ResourceMethods) == 0 {
 			continue
 		}
 
@@ -143,13 +192,13 @@ func buildExportOperation(ctx exportContext, method *Method, oas30 bool) map[str
 	op := make(map[string]any)
 	op["responses"] = buildExportResponses(ctx, method, oas30)
 	buildExportRequestBody(op, ctx, method, oas30)
-	buildExportSecurity(op, method)
+	buildExportSecurity(op, ctx, method)
 
 	if method.OperationName != "" {
 		op["operationId"] = method.OperationName
 	}
 
-	if method.MethodIntegration != nil {
+	if method.MethodIntegration != nil && ctx.opts.Integrations {
 		op["x-amazon-apigateway-integration"] = buildExportIntegration(method.MethodIntegration)
 	}
 
@@ -222,12 +271,20 @@ func buildExportRequestBody(op map[string]any, ctx exportContext, method *Method
 }
 
 // buildExportSecurity adds the security requirement to an operation when API key or authorizer is configured.
-func buildExportSecurity(op map[string]any, method *Method) {
+func buildExportSecurity(op map[string]any, ctx exportContext, method *Method) {
 	if method.AuthorizerID != "" {
 		scheme := "lambda_authorizer"
 		if method.AuthorizationType == AuthTypeCognitoUserPool {
 			scheme = "cognito"
 		}
+
+		if a, ok := ctx.b.authorizers.Get(
+			authorizerKey(ctx.restAPIID, method.AuthorizerID),
+		); ok &&
+			ctx.opts.Authorizers {
+			scheme = a.Name
+		}
+
 		op["security"] = []map[string]any{{scheme: []string{}}}
 
 		return
@@ -300,4 +357,62 @@ func buildModelRef(ctx exportContext, modelName string, oas30 bool) map[string]a
 	}
 
 	return map[string]any{exportKeyType: exportKeyObject, exportKeyDescription: m.Description}
+}
+
+// addAuthorizerSchemes adds one security scheme per authorizer, carrying the
+// x-amazon-apigateway-authorizer extension, when the export asked for it.
+func (c exportContext) addAuthorizerSchemes(schemes map[string]any) {
+	if !c.opts.Authorizers {
+		return
+	}
+
+	for _, a := range c.b.authorizersByAPI.Get(c.restAPIID) {
+		schemes[a.Name] = authorizerScheme(a)
+	}
+}
+
+func authorizerScheme(a *Authorizer) map[string]any {
+	header := strings.TrimPrefix(a.IdentitySource, "method.request.header.")
+	if header == "" || header == a.IdentitySource {
+		header = "Authorization"
+	}
+
+	ext := map[string]any{exportKeyType: strings.ToLower(a.Type)}
+
+	if a.AuthorizerURI != "" {
+		ext["authorizerUri"] = a.AuthorizerURI
+	}
+
+	if a.AuthorizerCredentials != "" {
+		ext["authorizerCredentials"] = a.AuthorizerCredentials
+	}
+
+	if a.IdentitySource != "" {
+		ext["identitySource"] = a.IdentitySource
+	}
+
+	if a.IdentityValidationExpression != "" {
+		ext["identityValidationExpression"] = a.IdentityValidationExpression
+	}
+
+	if len(a.ProviderARNs) > 0 {
+		ext["providerARNs"] = a.ProviderARNs
+	}
+
+	if a.AuthorizerResultTTLInSeconds > 0 {
+		ext["authorizerResultTtlInSeconds"] = a.AuthorizerResultTTLInSeconds
+	}
+
+	scheme := map[string]any{
+		exportKeyType:                    exportTypeAPIKey,
+		keyAPIName:                       header,
+		"in":                             paramLocationHeader,
+		"x-amazon-apigateway-authorizer": ext,
+	}
+
+	if a.AuthType != "" {
+		scheme["x-amazon-apigateway-authtype"] = a.AuthType
+	}
+
+	return scheme
 }

@@ -364,6 +364,8 @@ type addressItem struct {
 	AssociationID string          `xml:"associationId,omitempty"`
 	PublicIP      string          `xml:"publicIp"`
 	InstanceID    string          `xml:"instanceId,omitempty"`
+	NetworkIfID   string          `xml:"networkInterfaceId,omitempty"`
+	PrivateIP     string          `xml:"privateIpAddress,omitempty"`
 	Domain        string          `xml:"domain"`
 	TagSet        []simpleTagItem `xml:"tagSet>item"`
 }
@@ -411,6 +413,10 @@ type releaseAddressResponse struct {
 }
 
 func (h *Handler) handleAllocateAddress(vals url.Values, reqID string) (any, error) {
+	if err := validateAddressDomain(vals.Get("Domain")); err != nil {
+		return nil, err
+	}
+
 	addr, err := h.Backend.AllocateAddress()
 	if err != nil {
 		return nil, err
@@ -536,6 +542,8 @@ func (h *Handler) handleDescribeAddresses(vals url.Values, reqID string) (any, e
 			AssociationID: addr.AssociationID,
 			PublicIP:      addr.PublicIP,
 			InstanceID:    addr.InstanceID,
+			NetworkIfID:   addr.NetworkInterfaceID,
+			PrivateIP:     addr.PrivateIP,
 			Domain:        resourceTypeVPC,
 			TagSet:        tagItemsFromMap(h.Backend.TagsForResource(addr.AllocationID)),
 		})

@@ -181,6 +181,7 @@ func (b *InMemoryBackend) CreateConfiguredTableAnalysisRule(
 	if !contains(ct.AnalysisRuleTypes, analysisRuleType) {
 		ct.AnalysisRuleTypes = append(ct.AnalysisRuleTypes, analysisRuleType)
 	}
+	b.syncTableSchemasLocked(configuredTableID)
 
 	return rule, nil
 }
@@ -210,6 +211,7 @@ func (b *InMemoryBackend) UpdateConfiguredTableAnalysisRule(
 	}
 	rule.Policy = policy
 	rule.UpdateTime = b.now()
+	b.syncTableSchemasLocked(configuredTableID)
 
 	return rule, nil
 }
@@ -225,6 +227,7 @@ func (b *InMemoryBackend) DeleteConfiguredTableAnalysisRule(
 	if ct, ctOK := b.configuredTables.Get(configuredTableID); ctOK {
 		ct.AnalysisRuleTypes = removeFrom(ct.AnalysisRuleTypes, analysisRuleType)
 	}
+	b.syncTableSchemasLocked(configuredTableID)
 
 	return nil
 }

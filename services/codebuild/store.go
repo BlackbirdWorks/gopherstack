@@ -89,5 +89,5 @@ func (b *InMemoryBackend) Reset() {
 }
 
 func randomID() string {
-	return uuid.NewString()[:8]
+	return uuid.NewString()
 }

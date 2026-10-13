@@ -155,7 +155,7 @@ func (h *Handler) jsonListTagsForCertificate(ctx context.Context, body []byte) (
 	}
 
 	if !h.Backend.CertExists(ctx, input.CertificateArn) {
-		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, input.CertificateArn)
+		return nil, fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, input.CertificateArn)
 	}
 
 	return &listTagsForCertificateOutput{Tags: h.getTags(input.CertificateArn)}, nil
@@ -172,7 +172,7 @@ func (h *Handler) jsonAddTagsToCertificate(ctx context.Context, body []byte) (an
 	}
 
 	if !h.Backend.CertExists(ctx, input.CertificateArn) {
-		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, input.CertificateArn)
+		return nil, fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, input.CertificateArn)
 	}
 
 	kv := make(map[string]string, len(input.Tags))
@@ -197,7 +197,7 @@ func (h *Handler) jsonRemoveTagsFromCertificate(ctx context.Context, body []byte
 	}
 
 	if !h.Backend.CertExists(ctx, input.CertificateArn) {
-		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, input.CertificateArn)
+		return nil, fmt.Errorf("%w: Could not find certificate %s", ErrCertNotFound, input.CertificateArn)
 	}
 
 	keys := make([]string, 0, len(input.Tags))

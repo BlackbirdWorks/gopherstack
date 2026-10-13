@@ -74,6 +74,11 @@ func (h *Handler) handleCreateLoadBalancer(ctx context.Context, vals url.Values)
 		return nil, err
 	}
 
+	initialTags := parseTagKVs(vals, "Tags.member")
+	if tagErr := validateInitialTags(initialTags); tagErr != nil {
+		return nil, tagErr
+	}
+
 	azs := parseMembers(vals, "AvailabilityZones.member")
 	sgs := parseMembers(vals, "SecurityGroups.member")
 	subnets := parseMembers(vals, "Subnets.member")
@@ -92,7 +97,7 @@ func (h *Handler) handleCreateLoadBalancer(ctx context.Context, vals url.Values)
 	}
 
 	// AWS allows passing initial Tags at CreateLoadBalancer time.
-	if initialTags := parseTagKVs(vals, "Tags.member"); len(initialTags) > 0 {
+	if len(initialTags) > 0 {
 		if tagErr := h.Backend.AddTags(ctx, []string{name}, initialTags); tagErr != nil {
 			return nil, tagErr
 		}
@@ -137,9 +142,12 @@ func (h *Handler) handleDescribeLoadBalancers(ctx context.Context, vals url.Valu
 	pageSize := maxPageSize
 
 	if ps := vals.Get("PageSize"); ps != "" {
-		if n, parseErr := strconv.Atoi(ps); parseErr == nil && n > 0 && n <= maxPageSize {
-			pageSize = n
+		n, parseErr := strconv.Atoi(ps)
+		if parseErr != nil || n < 1 || n > maxPageSize {
+			return nil, fmt.Errorf("%w: PageSize must be between 1 and %d", ErrInvalidParameter, maxPageSize)
 		}
+
+		pageSize = n
 	}
 
 	marker := vals.Get("Marker")
@@ -148,7 +156,7 @@ func (h *Handler) handleDescribeLoadBalancers(ctx context.Context, vals url.Valu
 	if marker != "" {
 		offset, decErr := decodePageMarker(marker)
 		if decErr != nil {
-			return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, decErr.Error())
+			return nil, decErr
 		}
 
 		startIdx = offset
@@ -206,7 +214,7 @@ func (h *Handler) handleDescribeAccountLimits(ctx context.Context, vals url.Valu
 	if marker := vals.Get("Marker"); marker != "" {
 		offset, decErr := decodePageMarker(marker)
 		if decErr != nil {
-			return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, decErr.Error())
+			return nil, decErr
 		}
 
 		startIdx = offset
@@ -251,12 +259,12 @@ func encodePageMarker(offset int) string {
 func decodePageMarker(marker string) (int, error) {
 	b, err := base64.StdEncoding.DecodeString(marker)
 	if err != nil {
-		return 0, fmt.Errorf("invalid Marker: %w", err)
+		return 0, fmt.Errorf("%w: invalid Marker %q", ErrInvalidParameter, marker)
 	}
 
 	n, err := strconv.Atoi(string(b))
 	if err != nil {
-		return 0, fmt.Errorf("invalid Marker payload: %w", err)
+		return 0, fmt.Errorf("%w: invalid Marker %q", ErrInvalidParameter, marker)
 	}
 
 	if n < 0 {

@@ -2,6 +2,9 @@ package sns
 
 import (
 	"fmt"
+	"maps"
+	"strings"
+	"unicode/utf8"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -61,17 +64,49 @@ func (b *InMemoryBackend) TaggedTopics() []TaggedTopicInfo {
 	return result
 }
 
+const (
+	maxTopicTags      = 50
+	maxTagKeyLength   = 128
+	maxTagValueLength = 256
+)
+
+func validateTagInput(tags map[string]string) error {
+	for k, v := range tags {
+		if k == "" || utf8.RuneCountInString(k) > maxTagKeyLength ||
+			utf8.RuneCountInString(v) > maxTagValueLength || strings.HasPrefix(strings.ToLower(k), "aws:") {
+			return fmt.Errorf("%w: Invalid parameter: Tags", ErrInvalidParameter)
+		}
+	}
+
+	if len(tags) > maxTopicTags {
+		return ErrTagLimitExceeded
+	}
+
+	return nil
+}
+
 // TagTopicByARN applies tags to the SNS topic identified by its ARN.
 func (b *InMemoryBackend) TagTopicByARN(topicARN string, newTags map[string]string) error {
+	if err := validateTagInput(newTags); err != nil {
+		return err
+	}
+
 	b.mu.Lock("TagTopicByARN")
 	defer b.mu.Unlock()
 
 	if !b.topics.Has(topicARN) {
-		return fmt.Errorf("%w: topic %s", ErrTopicNotFound, topicARN)
+		return fmt.Errorf("%w: topic %s", ErrResourceNotFound, topicARN)
 	}
 
 	if b.topicTags[topicARN] == nil {
 		b.topicTags[topicARN] = svcTags.New("sns." + topicARN + ".tags")
+	}
+
+	merged := b.topicTags[topicARN].Clone()
+	maps.Copy(merged, newTags)
+
+	if len(merged) > maxTopicTags {
+		return ErrTagLimitExceeded
 	}
 
 	b.topicTags[topicARN].Merge(newTags)
@@ -85,7 +120,7 @@ func (b *InMemoryBackend) UntagTopicByARN(topicARN string, tagKeys []string) err
 	defer b.mu.Unlock()
 
 	if !b.topics.Has(topicARN) {
-		return fmt.Errorf("%w: topic %s", ErrTopicNotFound, topicARN)
+		return fmt.Errorf("%w: topic %s", ErrResourceNotFound, topicARN)
 	}
 
 	if b.topicTags[topicARN] != nil {
@@ -93,4 +128,20 @@ func (b *InMemoryBackend) UntagTopicByARN(topicARN string, tagKeys []string) err
 	}
 
 	return nil
+}
+
+// ListTopicTagsByARN returns the tags of the topic identified by its ARN.
+func (b *InMemoryBackend) ListTopicTagsByARN(topicARN string) (map[string]string, error) {
+	b.mu.RLock("ListTopicTagsByARN")
+	defer b.mu.RUnlock()
+
+	if !b.topics.Has(topicARN) {
+		return nil, fmt.Errorf("%w: topic %s", ErrResourceNotFound, topicARN)
+	}
+
+	if b.topicTags[topicARN] == nil {
+		return map[string]string{}, nil
+	}
+
+	return b.topicTags[topicARN].Clone(), nil
 }

@@ -25,6 +25,12 @@ func (b *InMemoryBackend) CreateACL(ctx context.Context, req *createACLRequest) 
 		return nil, ErrACLAlreadyExists
 	}
 
+	for _, u := range req.UserNames {
+		if _, ok := tableGet(b.users[region], u); !ok {
+			return nil, fmt.Errorf("user %q not found: %w", u, ErrUserNotFound)
+		}
+	}
+
 	aclARN := arn.Build("memorydb", region, b.accountID, "acl/"+req.ACLName)
 
 	userNames := req.UserNames

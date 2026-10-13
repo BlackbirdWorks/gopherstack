@@ -105,3 +105,11 @@ func typesAsStrings(raw []any) []string {
 
 // keyStatus is duplicated here to avoid an import cycle; it must match the package constant.
 const keyStatus = "status"
+
+func validARPTestCase() bedrock.ARPTestCaseInput {
+	return bedrock.ARPTestCaseInput{GuardContent: "the answer is 4", ExpectedAggregatedFindingsResult: "VALID"}
+}
+
+var arpTestCaseBody = map[string]any{ //nolint:gochecknoglobals // shared immutable request body
+	"guardContent": "the answer is 4", "expectedAggregatedFindingsResult": "VALID",
+}

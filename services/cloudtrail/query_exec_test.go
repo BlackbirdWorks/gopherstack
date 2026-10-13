@@ -82,7 +82,7 @@ func TestQueryExecution_SelectColumnsWithWhereAndLimit(t *testing.T) {
 
 // TestQueryExecution_UnsupportedGrammarReachesFailed verifies a
 // syntactically valid but unsupported (outside the emulator's parsed
-// subset -- a JOIN, here) Lake SQL statement reaches QueryStatus FAILED with
+// subset -- a FULL JOIN, here) Lake SQL statement reaches QueryStatus FAILED with
 // a populated ErrorMessage, not a silent empty FINISHED. StartQuery itself
 // must not reject it synchronously (mirrors AWS's async execution model --
 // see materializeQueryLocked): only the first read discovers the failure.
@@ -93,7 +93,7 @@ func TestQueryExecution_UnsupportedGrammarReachesFailed(t *testing.T) {
 	b.RecordEvent(cloudtrail.Event{EventName: "CreateBucket", EventSource: "s3.amazonaws.com"})
 
 	q, err := b.StartQuery(
-		"SELECT edsA.eventName FROM eds-000001 AS edsA LEFT JOIN eds-000002 AS edsB ON edsA.eventId = edsB.eventId",
+		"SELECT edsA.eventName FROM eds-000001 AS edsA FULL JOIN eds-000002 AS edsB ON edsA.eventId = edsB.eventId",
 		"eds-000001", "", "", "",
 	)
 	require.NoError(t, err, "StartQuery must accept syntactically valid CloudTrail Lake SQL synchronously")

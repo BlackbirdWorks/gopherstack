@@ -227,23 +227,35 @@ func (h *Handler) handleListDevEndpoints(
 
 // updateDevEndpointInput holds input for UpdateDevEndpoint.
 type updateDevEndpointInput struct {
-	AddArguments     map[string]string `json:"AddArguments,omitempty"`
-	EndpointName     string            `json:"EndpointName"`
-	PublicKey        string            `json:"PublicKey,omitempty"`
-	AddPublicKeys    []string          `json:"AddPublicKeys,omitempty"`
-	DeleteArguments  []string          `json:"DeleteArguments,omitempty"`
-	DeletePublicKeys []string          `json:"DeletePublicKeys,omitempty"`
+	AddArguments    map[string]string `json:"AddArguments,omitempty"`
+	CustomLibraries *struct {
+		ExtraJarsS3Path       string `json:"ExtraJarsS3Path"`
+		ExtraPythonLibsS3Path string `json:"ExtraPythonLibsS3Path"`
+	} `json:"CustomLibraries,omitempty"`
+	EndpointName       string   `json:"EndpointName"`
+	PublicKey          string   `json:"PublicKey,omitempty"`
+	AddPublicKeys      []string `json:"AddPublicKeys,omitempty"`
+	DeleteArguments    []string `json:"DeleteArguments,omitempty"`
+	DeletePublicKeys   []string `json:"DeletePublicKeys,omitempty"`
+	UpdateEtlLibraries bool     `json:"UpdateEtlLibraries,omitempty"`
 }
 
 func (h *Handler) handleUpdateDevEndpoint(
 	_ context.Context,
 	in *updateDevEndpointInput,
 ) (*emptyOutput, error) {
-	err := h.Backend.UpdateDevEndpoint(in.EndpointName, in.AddArguments, in.DeleteArguments, UpdateDevEndpointOptions{
-		AddPublicKeys:    in.AddPublicKeys,
-		DeletePublicKeys: in.DeletePublicKeys,
-		PublicKey:        in.PublicKey,
-	})
+	opts := UpdateDevEndpointOptions{
+		AddPublicKeys:      in.AddPublicKeys,
+		DeletePublicKeys:   in.DeletePublicKeys,
+		PublicKey:          in.PublicKey,
+		UpdateEtlLibraries: in.UpdateEtlLibraries,
+	}
+	if in.CustomLibraries != nil {
+		opts.ExtraJarsS3Path = in.CustomLibraries.ExtraJarsS3Path
+		opts.ExtraPythonLibsS3Path = in.CustomLibraries.ExtraPythonLibsS3Path
+	}
+
+	err := h.Backend.UpdateDevEndpoint(in.EndpointName, in.AddArguments, in.DeleteArguments, opts)
 
 	return &emptyOutput{}, err
 }

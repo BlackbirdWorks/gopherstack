@@ -10,6 +10,9 @@ import (
 
 const (
 	presetCustom = "CUSTOM"
+	presetSystem = "SYSTEM"
+
+	defaultQueueName = "Default"
 )
 
 const (
@@ -156,6 +159,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		mu:           lockmetrics.New("mediaconvert"),
 	}
 	registerAllTables(b)
+	b.ensureDefaultQueueLocked()
 
 	return b
 }
@@ -187,4 +191,5 @@ func (b *InMemoryBackend) resetTablesLocked() {
 	b.queueCounters.Reset()
 	b.tokenIndex.Reset()
 	b.queries.Reset()
+	b.ensureDefaultQueueLocked()
 }

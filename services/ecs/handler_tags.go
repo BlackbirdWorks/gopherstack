@@ -1,6 +1,11 @@
 package ecs
 
-import "context"
+import (
+	"context"
+	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+)
 
 // ----- TagResource -----
 
@@ -15,6 +20,12 @@ func (h *Handler) handleTagResource(
 	_ context.Context,
 	in *tagResourceInput,
 ) (*tagResourceOutput, error) {
+	for _, t := range in.Tags {
+		if tags.IsPinnedIDKey(t.Key) {
+			return nil, fmt.Errorf("%w: tag %q is only valid on RunTask", ErrInvalidParameter, t.Key)
+		}
+	}
+
 	if err := h.Backend.TagResource(in.ResourceArn, in.Tags); err != nil {
 		return nil, err
 	}

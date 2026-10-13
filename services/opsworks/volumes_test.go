@@ -167,7 +167,7 @@ func TestVolumes(t *testing.T) {
 				rec = doTarget(t, h, "DescribeVolumes", map[string]any{
 					"VolumeIds": []string{volumeID},
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}

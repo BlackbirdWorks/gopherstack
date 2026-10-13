@@ -10,7 +10,7 @@ import (
 )
 
 // handleExecuteStatement: a positive SessionKeepAliveSeconds without SessionId mints a session
-// (expiry not modelled); ClientToken replays the original statement.
+// that expires after that many seconds; ClientToken replays the original statement.
 func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		StatementName           string         `json:"StatementName"`
@@ -25,11 +25,20 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		ClientToken             string         `json:"ClientToken"`
 		Parameters              []SQLParameter `json:"Parameters"`
 		SessionKeepAliveSeconds int32          `json:"SessionKeepAliveSeconds"`
+		WaitTimeSeconds         int32          `json:"WaitTimeSeconds"`
 		WithEvent               bool           `json:"WithEvent"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := h.checkWorkgroup(ctx, req.WorkgroupName); err != nil {
+		return nil, err
+	}
+
+	if err := validateWaitTimeSeconds(req.WaitTimeSeconds); err != nil {
+		return nil, err
 	}
 
 	sessionID, err := resolveSessionID(req.SessionID, req.SessionKeepAliveSeconds)
@@ -56,7 +65,18 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
+	h.Backend.SetStatementSessionKeepAlive(ctx, stmt.ID, req.SessionKeepAliveSeconds)
 	h.storeIdempotentStatement(tokenKey, stmt.ID)
+
+	if req.WaitTimeSeconds > 0 {
+		if stmt, err = h.Backend.WaitForStatement(
+			ctx,
+			stmt.ID,
+			time.Duration(req.WaitTimeSeconds)*time.Second,
+		); err != nil {
+			return nil, err
+		}
+	}
 
 	return json.Marshal(statementCreateResponse(stmt))
 }
@@ -93,11 +113,20 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 		Parameters              []SQLParameter `json:"Parameters"`
 		Sqls                    []string       `json:"Sqls"`
 		SessionKeepAliveSeconds int32          `json:"SessionKeepAliveSeconds"`
+		WaitTimeSeconds         int32          `json:"WaitTimeSeconds"`
 		WithEvent               bool           `json:"WithEvent"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := h.checkWorkgroup(ctx, req.WorkgroupName); err != nil {
+		return nil, err
+	}
+
+	if err := validateWaitTimeSeconds(req.WaitTimeSeconds); err != nil {
+		return nil, err
 	}
 
 	sessionID, err := resolveSessionID(req.SessionID, req.SessionKeepAliveSeconds)
@@ -124,7 +153,18 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 		return nil, err
 	}
 
+	h.Backend.SetStatementSessionKeepAlive(ctx, stmt.ID, req.SessionKeepAliveSeconds)
 	h.storeIdempotentStatement(tokenKey, stmt.ID)
+
+	if req.WaitTimeSeconds > 0 {
+		if stmt, err = h.Backend.WaitForStatement(
+			ctx,
+			stmt.ID,
+			time.Duration(req.WaitTimeSeconds)*time.Second,
+		); err != nil {
+			return nil, err
+		}
+	}
 
 	return json.Marshal(statementCreateResponse(stmt))
 }
@@ -134,15 +174,22 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 // set) used by both a fresh execution and a ClientToken cache-hit replay.
 func statementCreateResponse(stmt *Statement) map[string]any {
 	resp := map[string]any{
-		"Id":                stmt.ID,
+		"Id":            stmt.ID,
+		keyCreatedAt:    epochSeconds(stmt.CreatedAt),
+		keyStatusField:  stmt.Status,
+		keyHasResultSet: stmt.HasResultSet,
+	}
+
+	for key, val := range map[string]string{
 		"ClusterIdentifier": stmt.ClusterIdentifier,
 		"WorkgroupName":     stmt.WorkgroupName,
 		"Database":          stmt.Database,
 		"DbUser":            stmt.DBUser,
 		"SecretArn":         stmt.SecretARN,
-		keyCreatedAt:        epochSeconds(stmt.CreatedAt),
-		keyStatusField:      stmt.Status,
-		keyHasResultSet:     stmt.HasResultSet,
+	} {
+		if val != "" {
+			resp[key] = val
+		}
 	}
 
 	if stmt.SessionID != "" {
@@ -154,7 +201,8 @@ func statementCreateResponse(stmt *Statement) map[string]any {
 
 func (h *Handler) handleDescribeStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		ID string `json:"Id"`
+		ID              string `json:"Id"`
+		WaitTimeSeconds int32  `json:"WaitTimeSeconds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -165,7 +213,11 @@ func (h *Handler) handleDescribeStatement(ctx context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: Id is required", errMissingID)
 	}
 
-	stmt, err := h.Backend.DescribeStatement(ctx, req.ID)
+	if err := validateWaitTimeSeconds(req.WaitTimeSeconds); err != nil {
+		return nil, err
+	}
+
+	stmt, err := h.Backend.WaitForStatement(ctx, req.ID, time.Duration(req.WaitTimeSeconds)*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -175,8 +227,9 @@ func (h *Handler) handleDescribeStatement(ctx context.Context, body []byte) ([]b
 
 func (h *Handler) handleGetStatementResult(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		ID        string `json:"Id"`
-		NextToken string `json:"NextToken"`
+		ID              string `json:"Id"`
+		NextToken       string `json:"NextToken"`
+		WaitTimeSeconds int32  `json:"WaitTimeSeconds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -187,7 +240,7 @@ func (h *Handler) handleGetStatementResult(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: Id is required", errMissingID)
 	}
 
-	stmt, err := h.Backend.DescribeStatement(ctx, req.ID)
+	stmt, err := h.finishedStatementForResult(ctx, req.ID, req.WaitTimeSeconds)
 	if err != nil {
 		return nil, err
 	}
@@ -230,8 +283,9 @@ func (h *Handler) handleGetStatementResult(ctx context.Context, body []byte) ([]
 
 func (h *Handler) handleGetStatementResultV2(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		ID        string `json:"Id"`
-		NextToken string `json:"NextToken"`
+		ID              string `json:"Id"`
+		NextToken       string `json:"NextToken"`
+		WaitTimeSeconds int32  `json:"WaitTimeSeconds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -242,7 +296,7 @@ func (h *Handler) handleGetStatementResultV2(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: Id is required", errMissingID)
 	}
 
-	stmt, err := h.Backend.DescribeStatement(ctx, req.ID)
+	stmt, err := h.finishedStatementForResult(ctx, req.ID, req.WaitTimeSeconds)
 	if err != nil {
 		return nil, err
 	}
@@ -526,4 +580,26 @@ func statementToDescribeResponse(stmt *Statement) map[string]any {
 	}
 
 	return resp
+}
+
+func (h *Handler) finishedStatementForResult(ctx context.Context, id string, waitSeconds int32) (*Statement, error) {
+	if err := validateWaitTimeSeconds(waitSeconds); err != nil {
+		return nil, err
+	}
+
+	stmt, err := h.Backend.WaitForStatement(ctx, id, time.Duration(waitSeconds)*time.Second)
+	if err != nil {
+		return nil, err
+	}
+
+	if stmt.Status != statusFinished {
+		return nil, fmt.Errorf(
+			"%w: statement %s is %s; results are available once it is FINISHED",
+			ErrValidation,
+			id,
+			stmt.Status,
+		)
+	}
+
+	return stmt, nil
 }

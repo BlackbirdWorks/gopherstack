@@ -16,6 +16,14 @@ func resolveAppVersionLocked(a *App, number string) (*AppVersion, bool) {
 		return a.Draft, true
 	}
 
+	if number == releaseVersion {
+		if n := len(a.Published); n > 0 {
+			return a.Published[n-1], true
+		}
+
+		return nil, false
+	}
+
 	for _, v := range a.Published {
 		if v.Number == number {
 			return v, true

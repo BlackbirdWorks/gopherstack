@@ -20,6 +20,10 @@ const (
 func (b *InMemoryBackend) BatchCheckLayerAvailability(
 	registryID, repositoryName string, layerDigests []string,
 ) ([]LayerInfo, []LayerFailure, error) {
+	if err := validateBatchSize("layerDigests", len(layerDigests)); err != nil {
+		return nil, nil, err
+	}
+
 	b.mu.RLock("BatchCheckLayerAvailability")
 	defer b.mu.RUnlock()
 

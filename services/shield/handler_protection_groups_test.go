@@ -43,7 +43,6 @@ func TestHandler_CreateProtectionGroup(t *testing.T) {
 				"ProtectionGroupId": "group-2",
 				"Aggregation":       "SUM",
 				"Pattern":           "ARBITRARY",
-				"ResourceType":      "ELASTIC_IP_ALLOCATION",
 				"Members":           []string{"arn:aws:ec2:us-east-1:123:eip/eipalloc-1"},
 			},
 			wantStatus: http.StatusOK,

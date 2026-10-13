@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -25,8 +26,8 @@ import (
 type InMemoryBackend struct {
 	s3                          S3Accessor
 	appConfig                   any
-	sourceServerActionsByServer *store.Index[SourceServerActionDocument]
-	nmJobs                      *store.Table[NetworkMigrationJob]
+	launchTemplates             *store.Table[LaunchConfigurationTemplate]
+	registry                    *store.Registry
 	replicationTemplates        *store.Table[ReplicationConfigurationTemplate]
 	jobs                        *store.Table[Job]
 	jobLogs                     *store.Table[JobLog]
@@ -39,21 +40,22 @@ type InMemoryBackend struct {
 	importTasks                 *store.Table[ImportTask]
 	importFileEnrichments       *store.Table[ImportFileEnrichment]
 	sourceServerActions         *store.Table[SourceServerActionDocument]
-	launchTemplates             *store.Table[LaunchConfigurationTemplate]
-	sourceServers               *store.Table[SourceServer]
-	registry                    *store.Registry
-	nmDefinitions               *store.Table[NetworkMigrationDefinition]
+	nmJobs                      *store.Table[NetworkMigrationJob]
+	sourceServerActionsByServer *store.Index[SourceServerActionDocument]
 	nmExecutions                *store.Table[NetworkMigrationExecution]
+	nmDefinitions               *store.Table[NetworkMigrationDefinition]
+	sourceServers               *store.Table[SourceServer]
 	nmExecutionsByDef           *store.Index[NetworkMigrationExecution]
 	templateActions             *store.Table[TemplateActionDocument]
 	nmJobsByExecution           *store.Index[NetworkMigrationJob]
 	templateActionsByTemplate   *store.Index[TemplateActionDocument]
 	mu                          *lockmetrics.RWMutex
+	launchConfigs               *store.Table[LaunchConfiguration]
 	work                        *worker.Group
 	replicationConfigs          *store.Table[ReplicationConfiguration]
-	launchConfigs               *store.Table[LaunchConfiguration]
 	region                      string
 	accountID                   string
+	delayNanos                  atomic.Int64
 	serviceInitialized          bool
 }
 
@@ -270,3 +272,14 @@ func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339) }
 // time.Now().UTC() repeated at every call site, matching
 // services/directconnect's identical helper.
 func nowUTC() time.Time { return time.Now().UTC() }
+
+// SetTransitionDelay overrides the per-hop async state-transition delay; d <= 0 restores the built-in default.
+func (b *InMemoryBackend) SetTransitionDelay(d time.Duration) { b.delayNanos.Store(int64(d)) }
+
+func (b *InMemoryBackend) transitionDelay() time.Duration {
+	if d := time.Duration(b.delayNanos.Load()); d > 0 {
+		return d
+	}
+
+	return asyncTransitionDelay
+}

@@ -81,6 +81,9 @@ func (h *Handler) handleListWorkflowTypes(
 	_ context.Context,
 	in *handleListWorkflowTypesInput,
 ) (*listWorkflowTypesOutput, error) {
+	if err := requireRegistrationStatus(in.RegistrationStatus); err != nil {
+		return nil, err
+	}
 	wts, err := h.Backend.ListWorkflowTypes(in.Domain, in.RegistrationStatus)
 	if err != nil {
 		return nil, err
@@ -109,6 +112,10 @@ func (h *Handler) handleListWorkflowTypes(
 
 		return a.WorkflowType.Name < b.WorkflowType.Name
 	})
+	if pageErr := validatePageParams(in.NextPageToken, in.MaximumPageSize); pageErr != nil {
+		return nil, pageErr
+	}
+
 	infos, nextPageToken := applyPageTokenSlice(infos, in.NextPageToken, in.MaximumPageSize)
 
 	return &listWorkflowTypesOutput{TypeInfos: infos, NextPageToken: nextPageToken}, nil

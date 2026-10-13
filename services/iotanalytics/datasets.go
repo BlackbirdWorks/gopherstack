@@ -80,6 +80,7 @@ func cloneDataset(d *Dataset) *Dataset {
 	cp.LateDataRules = cloneLateDataRules(d.LateDataRules)
 	cp.VersioningConfiguration = cloneVersioningConfiguration(d.VersioningConfiguration)
 	cp.RetentionPeriod = cloneRetentionPeriod(d.RetentionPeriod)
+	cp.Status = observeStatus(d.Status, statusActive, d.readyAt)
 
 	return &cp
 }
@@ -116,7 +117,8 @@ func (b *InMemoryBackend) CreateDataset(
 	d := &Dataset{
 		Name:                    name,
 		ARN:                     arn,
-		Status:                  statusActive,
+		Status:                  b.createStatus(),
+		readyAt:                 b.readyAt(),
 		CreationTime:            now,
 		LastUpdate:              now,
 		Tags:                    make(map[string]string),
@@ -260,7 +262,8 @@ func (b *InMemoryBackend) CreateDatasetContent(datasetName, versionID string) (*
 	now := epochSeconds(time.Now())
 	content := &DatasetContent{
 		VersionID:      versionID,
-		Status:         statusSucceeded,
+		Status:         b.createContentStatus(),
+		readyAt:        b.readyAt(),
 		CreationTime:   now,
 		CompletionTime: now,
 		ScheduleTime:   now,
@@ -280,8 +283,8 @@ func (b *InMemoryBackend) CreateDatasetContent(datasetName, versionID string) (*
 // none match.
 func latestSucceededContent(contents []*DatasetContent) (*DatasetContent, error) {
 	for _, c := range slices.Backward(contents) {
-		if c.Status == statusSucceeded {
-			return c, nil
+		if oc := observeContent(c); oc.Status == statusSucceeded {
+			return oc, nil
 		}
 	}
 
@@ -308,12 +311,12 @@ func (b *InMemoryBackend) GetDatasetContent(datasetName, versionID string) (*Dat
 	case "", latestSucceededVersion:
 		return latestSucceededContent(contents)
 	case latestVersion:
-		return contents[len(contents)-1], nil
+		return observeContent(contents[len(contents)-1]), nil
 	}
 
 	for _, c := range contents {
 		if c.VersionID == versionID {
-			return c, nil
+			return observeContent(c), nil
 		}
 	}
 
@@ -338,7 +341,10 @@ func (b *InMemoryBackend) ListDatasetContents(datasetName string) ([]*DatasetCon
 
 	contents := b.datasetContents[datasetName]
 	result := make([]*DatasetContent, len(contents))
-	copy(result, contents)
+	for i, c := range contents {
+		result[i] = observeContent(c)
+	}
+
 	slices.Reverse(result)
 
 	slices.SortStableFunc(result, func(a, b *DatasetContent) int {

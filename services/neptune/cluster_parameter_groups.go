@@ -168,6 +168,13 @@ func (b *InMemoryBackend) ModifyDBClusterParameterGroup(
 	); err != nil {
 		return nil, err
 	}
+	if hasStaticParameter(neptuneClusterParameterCatalogIndex(), params) {
+		for _, c := range b.clustersInRegion(region) {
+			if c.DBClusterParameterGroupName == name {
+				b.markClusterPendingRebootLocked(region, c)
+			}
+		}
+	}
 	cp := *pg
 
 	return &cp, nil
@@ -268,4 +275,13 @@ func (b *InMemoryBackend) AddClusterParameterGroupInternal(
 	cp := *pg
 
 	return &cp
+}
+
+// checkClusterParameterGroupRef rejects names that are neither a built-in default nor a created group.
+func (b *InMemoryBackend) checkClusterParameterGroupRef(region, name string) error {
+	if name == "" || strings.HasPrefix(name, "default.neptune") || b.clusterParameterGroupHas(region, name) {
+		return nil
+	}
+
+	return fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupRefNotFound, name)
 }

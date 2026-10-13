@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -327,6 +328,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		op, resource := parseKafkaPath(method, path)
 		if op == "" {
 			return h.writeError(c, http.StatusNotFound, "NotFoundException", "not found")
+		}
+
+		if pageErr := validatePageParams(c); pageErr != nil {
+			return h.writeBackendError(c, pageErr)
 		}
 
 		body, err := httputils.ReadBody(c.Request())
@@ -716,6 +721,8 @@ func (h *Handler) writeError(c *echo.Context, status int, code, message string) 
 }
 
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
+	err = describedError{error: err, noun: resourceNoun(c.Request().URL.Path)}
+
 	switch {
 	// AWS: CreateTopic/DeleteTopic/UpdateTopic each model these specific
 	// codes in addition to the generic NotFoundException/ConflictException --
@@ -734,4 +741,18 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	}
 
 	return h.writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+}
+
+const maxPageSize = 100
+
+func validatePageParams(c *echo.Context) error {
+	q := c.Request().URL.Query()
+
+	if raw := q.Get("maxResults"); raw != "" {
+		if n, err := strconv.Atoi(raw); err != nil || n < 1 || n > maxPageSize {
+			return fmt.Errorf("maxResults must be between 1 and %d: %w", maxPageSize, ErrValidation)
+		}
+	}
+
+	return nil
 }

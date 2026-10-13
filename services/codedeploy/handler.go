@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -286,6 +287,11 @@ var errorMappings = []errorMapping{
 	{ErrRevisionNotFound, "RevisionDoesNotExistException", http.StatusNotFound},
 	{ErrDeploymentTargetNotFound, "DeploymentTargetDoesNotExistException", http.StatusNotFound},
 	{ErrInvalidNextToken, "InvalidNextTokenException", http.StatusBadRequest},
+	{ErrInvalidRole, "InvalidRoleException", http.StatusBadRequest},
+	{ErrInvalidDeploymentStyle, "InvalidDeploymentStyleException", http.StatusBadRequest},
+	{ErrInvalidApplicationName, "InvalidApplicationNameException", http.StatusBadRequest},
+	{ErrInvalidDeploymentGroupName, "InvalidDeploymentGroupNameException", http.StatusBadRequest},
+	{ErrInvalidRevision, "InvalidRevisionException", http.StatusBadRequest},
 	{ErrAlreadyExists, "ApplicationAlreadyExistsException", http.StatusConflict},
 	{ErrDeploymentGroupAlreadyExists, "DeploymentGroupAlreadyExistsException", http.StatusConflict},
 	{ErrDeploymentConfigAlreadyExists, "DeploymentConfigAlreadyExistsException", http.StatusConflict},
@@ -322,9 +328,20 @@ var errorMappings = []errorMapping{
 	{errUnknownAction, "InvalidRequestException", http.StatusBadRequest},
 }
 
+var exceptionPrefixRe = regexp.MustCompile(`[A-Za-z]+Exception: `)
+
+// stripExceptionPrefixes drops the "<Code>: " sentinel text that error wrapping leaves in messages.
+func stripExceptionPrefixes(msg string) string {
+	if out := exceptionPrefixRe.ReplaceAllString(msg, ""); out != "" {
+		return out
+	}
+
+	return msg
+}
+
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	makePayload := func(code, msg string) []byte {
-		b, _ := json.Marshal(service.JSONErrorResponse{Type: code, Message: msg})
+		b, _ := json.Marshal(service.JSONErrorResponse{Type: code, Message: stripExceptionPrefixes(msg)})
 
 		return b
 	}

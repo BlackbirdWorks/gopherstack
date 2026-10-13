@@ -640,6 +640,8 @@ func sesErrorCode(opErr error) (string, int) {
 		return errCodeAlreadyExists, status
 	case errors.Is(opErr, ErrConfigSetNotFound):
 		return "ConfigurationSetDoesNotExist", status
+	case errors.Is(opErr, ErrInvalidConfigurationSet):
+		return "InvalidConfigurationSet", status
 	case errors.Is(opErr, ErrConfigSetExists):
 		return "ConfigurationSetAlreadyExists", status
 	case errors.Is(opErr, ErrAccountSendingPaused):
@@ -697,7 +699,33 @@ func (h *Handler) handleOpError(c *echo.Context, reqID, action string, opErr err
 		logger.Load(c.Request().Context()).Error("SES internal error", "error", opErr, "action", action)
 	}
 
-	return h.writeError(c, reqID, statusCode, code, opErr.Error())
+	return h.writeError(c, reqID, statusCode, code, opErrorMessage(code, opErr))
+}
+
+// opErrorMessage drops the sentinel's code prefix from the message and words bare
+// not-found names the way SES does ("Configuration set <x> does not exist.").
+func opErrorMessage(code string, opErr error) string {
+	msg := opErr.Error()
+	if rest, ok := strings.CutPrefix(msg, code+": "); ok {
+		msg = rest
+	} else if rest, ok = strings.CutPrefix(msg, code); ok && rest == "" {
+		return code
+	}
+
+	if strings.ContainsAny(msg, " <") {
+		return msg
+	}
+
+	switch code {
+	case "ConfigurationSetDoesNotExist":
+		return "Configuration set <" + msg + "> does not exist."
+	case "RuleSetDoesNotExist":
+		return "Rule set does not exist: " + msg
+	case "TemplateDoesNotExist":
+		return "Template (" + msg + ") does not exist."
+	}
+
+	return msg
 }
 
 func (h *Handler) writeError(c *echo.Context, reqID string, statusCode int, code, message string) error {

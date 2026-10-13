@@ -51,6 +51,8 @@ const (
 var (
 	errUnknownAction  = errors.New("unknown action")
 	errInvalidRequest = errors.New("invalid request")
+
+	errInvalidNextToken = errors.New("InvalidNextTokenException")
 )
 
 // Handler is the Echo HTTP handler for AWS Transfer Family operations.
@@ -326,6 +328,12 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
 
+	if strings.HasPrefix(action, "List") {
+		if err := validateListPaging(body); err != nil {
+			return nil, err
+		}
+	}
+
 	result, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
@@ -339,15 +347,20 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
+	case errors.Is(err, errInvalidNextToken):
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			keyTypeField:    "InvalidNextTokenException",
+			keyMessageField: publicMessage(err),
+		})
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "ResourceNotFoundException",
-			keyMessageField: err.Error(),
+			keyMessageField: publicMessage(err),
 		})
 	case errors.Is(err, awserr.ErrConflict):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "ResourceExistsException",
-			keyMessageField: err.Error(),
+			keyMessageField: publicMessage(err),
 		})
 	case errors.Is(err, awserr.ErrInvalidParameter),
 		errors.Is(err, errInvalidRequest),
@@ -356,12 +369,12 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "InvalidRequestException",
-			keyMessageField: err.Error(),
+			keyMessageField: publicMessage(err),
 		})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			keyTypeField:    "InternalServiceError",
-			keyMessageField: err.Error(),
+			keyMessageField: publicMessage(err),
 		})
 	}
 }

@@ -207,7 +207,7 @@ func TestPatchBaselineMatchesFilters(t *testing.T) {
 			require.NoError(t, err)
 
 			out, err := b.DescribePatchBaselines(context.TODO(), &ssm.DescribePatchBaselinesInput{
-				Filters: tt.filters,
+				Filters: append([]ssm.PatchBaselineFilter{{Key: "OWNER", Values: []string{"Self"}}}, tt.filters...),
 			})
 			require.NoError(t, err)
 			assert.Len(t, out.BaselineIdentities, tt.wantCount)

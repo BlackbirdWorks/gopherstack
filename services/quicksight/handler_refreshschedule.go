@@ -103,7 +103,7 @@ func (h *Handler) handleCreateDataSetRefreshSchedule(c *echo.Context) error {
 	s, err := h.Backend.CreateRefreshSchedule(accountID, datasetID, scheduleID, refreshType, startAfter, freq)
 	if err != nil {
 		if errors.Is(err, ErrRefreshScheduleAlreadyExists) {
-			return writeError(c, http.StatusConflict, errResourceExistsCode, err.Error())
+			return writeError(c, http.StatusConflict, errResourceExistsCode, errMessage(err))
 		}
 
 		return httpErr(c, err)

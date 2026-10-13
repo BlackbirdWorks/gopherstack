@@ -19,6 +19,7 @@ func (h *Handler) EnableRegions() {
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
 		nb := NewInMemoryBackend(home.accountID, region)
 		nb.s3 = home.s3
+		nb.notifier = home.notifier
 
 		return NewHandler(nb)
 	})

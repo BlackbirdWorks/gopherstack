@@ -1,7 +1,6 @@
 package cognitoidp
 
 import (
-	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -44,7 +43,7 @@ func (b *InMemoryBackend) hostedChallengeLocked(pool *UserPool, clientID string,
 		}
 
 		name = challengeNewPasswordRequired
-	case pool.MfaConfiguration == "ON" || pool.MfaConfiguration == "OPTIONAL":
+	case mfaGateApplies(pool, user):
 		name = mfaChallengeType(pool, user)
 		if name != challengeSMSMFA && name != challengeSoftwareTokenMFA {
 			return hostedLogin{}, errHostedChallenge
@@ -86,7 +85,7 @@ func (b *InMemoryBackend) oauthRespondChallenge(clientID, session, name, answer 
 	}
 
 	if err := b.applyHostedAnswerLocked(pool, user, entry, answer); err != nil {
-		if !errors.Is(err, ErrInvalidPassword) {
+		if !isPasswordRejection(err) {
 			delete(b.mfaSessions, session)
 		}
 
@@ -110,7 +109,7 @@ func (b *InMemoryBackend) applyHostedAnswerLocked(
 			return err
 		}
 
-		return setPermanentPasswordLocked(user, answer)
+		return setPermanentPasswordLocked(pool, user, answer)
 	}
 
 	return verifyMFAChallengeCode(entry, user, answer)
@@ -128,7 +127,7 @@ func (h *Handler) answerHostedChallenge(c *echo.Context, req *authorizeRequest, 
 	username, err := h.Backend.oauthRespondChallenge(req.client.ClientID, session, name, answer)
 
 	switch {
-	case errors.Is(err, ErrInvalidPassword):
+	case isPasswordRejection(err):
 		return renderChallenge(
 			c,
 			q,

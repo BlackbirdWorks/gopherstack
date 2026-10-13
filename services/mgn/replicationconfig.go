@@ -65,6 +65,16 @@ func (b *InMemoryBackend) UpdateReplicationConfiguration(
 		return nil, err
 	}
 
+	if err := validateReplicationEnums(
+		strVal(in.DataPlaneRouting), strVal(in.DefaultLargeStagingDiskType), strVal(in.EbsEncryption),
+		strVal(in.InternetProtocol), int64Val(in.BandwidthThrottling),
+	); err != nil {
+		return nil, err
+	}
+	if err := validateReplicatedDisks(in.ReplicatedDisks); err != nil {
+		return nil, err
+	}
+
 	rc, ok := b.replicationConfigs.Get(sourceServerID)
 	if !ok {
 		return nil, notFoundError(resourceSourceServer, sourceServerID)
@@ -202,6 +212,16 @@ func (b *InMemoryBackend) CreateReplicationConfigurationTemplate(
 		return nil, err
 	}
 
+	if err := validateReplicationEnums(
+		in.DataPlaneRouting,
+		in.DefaultLargeStagingDiskType,
+		in.EbsEncryption,
+		in.InternetProtocol,
+		in.BandwidthThrottling,
+	); err != nil {
+		return nil, err
+	}
+
 	if in.ReplicationServerInstanceType == "" {
 		return nil, validationError("replicationServerInstanceType is required")
 	}
@@ -325,6 +345,13 @@ func (b *InMemoryBackend) UpdateReplicationConfigurationTemplate(
 	defer b.mu.Unlock()
 
 	if err := b.requireInitializedLocked(); err != nil {
+		return nil, err
+	}
+
+	if err := validateReplicationEnums(
+		strVal(in.DataPlaneRouting), strVal(in.DefaultLargeStagingDiskType), strVal(in.EbsEncryption),
+		strVal(in.InternetProtocol), int64Val(in.BandwidthThrottling),
+	); err != nil {
 		return nil, err
 	}
 

@@ -79,14 +79,19 @@ func (h *Handler) handleGetCelebrityInfo(
 // --- Async video jobs: celebrity recognition ---
 
 type startCelebrityRecognitionReq struct {
-	Video              videoRef `json:"Video"`
-	ClientRequestToken string   `json:"ClientRequestToken"`
-	JobTag             string   `json:"JobTag"`
+	Video               videoRef                `json:"Video"`
+	NotificationChannel *notificationChannelReq `json:"NotificationChannel"`
+	ClientRequestToken  string                  `json:"ClientRequestToken"`
+	JobTag              string                  `json:"JobTag"`
 }
 
 func (h *Handler) handleStartCelebrityRecognition(
 	ctx context.Context, req *startCelebrityRecognitionReq,
 ) (*startJobResp, error) {
+	if err := req.NotificationChannel.validate(); err != nil {
+		return nil, err
+	}
+
 	if err := h.checkVideoRef(ctx, req.Video); err != nil {
 		return nil, err
 	}
@@ -94,12 +99,13 @@ func (h *Handler) handleStartCelebrityRecognition(
 	bucket, name, version := videoRefS3(req.Video)
 
 	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
-		JobType:            "celebrity_recognition",
-		ClientRequestToken: req.ClientRequestToken,
-		JobTag:             req.JobTag,
-		VideoS3Bucket:      bucket,
-		VideoS3Name:        name,
-		VideoS3Version:     version,
+		NotificationTopicARN: req.NotificationChannel.topic(),
+		JobType:              "celebrity_recognition",
+		ClientRequestToken:   req.ClientRequestToken,
+		JobTag:               req.JobTag,
+		VideoS3Bucket:        bucket,
+		VideoS3Name:          name,
+		VideoS3Version:       version,
 	})
 	if err != nil {
 		return nil, err

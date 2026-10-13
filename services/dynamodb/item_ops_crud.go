@@ -131,6 +131,7 @@ func (db *InMemoryDB) putItemLocked(
 	}
 
 	globalTableName := table.GlobalTableName
+	db.emitIndexWCU(region, table, wcu, oldItem, wireItem)
 	out := db.populatePutItemOutput(input, table, oldItem, wireItem, wcu, lsiCollectionBytes)
 
 	return out, globalTableName, region, nil
@@ -380,7 +381,11 @@ func (db *InMemoryDB) validateItem(item map[string]any, table *Table) error {
 		return err
 	}
 
-	return validateKeySchema(item, table.KeySchema)
+	if err := validateKeySchema(item, table.KeySchema); err != nil {
+		return err
+	}
+
+	return validateItemKeyTypes(item, table)
 }
 
 func (db *InMemoryDB) populatePutItemOutput(
@@ -502,6 +507,10 @@ func (db *InMemoryDB) getItemCore(
 		defer table.mu.RUnlock()
 
 		pkVal, skVal, keyErr := resolveGetItemKeys(input.Key, table.KeySchema)
+		if keyErr == nil {
+			keyErr = validateKeyElementTypes(models.FromSDKItem(input.Key), table)
+		}
+
 		if keyErr != nil {
 			tableErr = keyErr
 
@@ -634,6 +643,10 @@ func (db *InMemoryDB) deleteItemLocked(
 		return nil, "", "", nil, err
 	}
 
+	if err := validateKeyElementTypes(wireKey, table); err != nil {
+		return nil, "", "", nil, err
+	}
+
 	region := getRegionFromContext(ctx, db)
 
 	pkDef, skDef := getPKAndSK(table.KeySchema)
@@ -676,6 +689,7 @@ func (db *InMemoryDB) deleteItemLocked(
 		table.appendStreamRecord(streamEventRemove, oldItem, nil, "", "")
 	}
 
+	db.emitIndexWCU(region, table, wcu, oldItem)
 	out := db.buildDeleteItemOutput(input, table, oldItem, wcu)
 	globalTableName := table.GlobalTableName
 
@@ -871,6 +885,10 @@ func (db *InMemoryDB) updateItemLocked(
 		return nil, "", "", nil, err
 	}
 
+	if err := validateKeyElementTypes(wireKey, table); err != nil {
+		return nil, "", "", nil, err
+	}
+
 	region := getRegionFromContext(ctx, db)
 
 	existing, matchIndex := db.findMatchForPut(table, wireKey)
@@ -907,6 +925,7 @@ func (db *InMemoryDB) updateItemLocked(
 	}
 
 	globalTableName := table.GlobalTableName
+	db.emitIndexWCU(region, table, updateWCU, existing, updated)
 	out, outErr := db.populateUpdateOutput(input, table, existing, updated, updatedPaths)
 
 	return out, globalTableName, region, updated, outErr

@@ -736,8 +736,6 @@ func matchesTGWRouteFilters(r *TransitGatewayRoute, filters map[string][]string)
 		var actual string
 
 		switch name {
-		case "route-search.exact-match":
-			actual = r.DestinationCidrBlock
 		case "state":
 			actual = r.State
 		case "type":
@@ -791,6 +789,8 @@ func (b *InMemoryBackend) SearchTransitGatewayRoutes(
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].DestinationCidrBlock < out[j].DestinationCidrBlock
 	})
+
+	out = applyRouteSearchFilters(out, filters, func(r *TransitGatewayRoute) string { return r.DestinationCidrBlock })
 
 	return out, nil
 }

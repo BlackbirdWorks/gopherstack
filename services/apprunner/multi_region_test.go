@@ -154,10 +154,10 @@ func TestHandler_MultiRegionPersistence(t *testing.T) {
 			t.Parallel()
 
 			src := newRegionHandler(t)
-			createOne(t, src, mrHome, "home")
+			createOne(t, src, mrHome, "home-svc")
 
 			if tc.remote {
-				createOne(t, src, "eu-west-1", "eu")
+				createOne(t, src, "eu-west-1", "eu-svc")
 			}
 
 			snap := src.Snapshot(context.Background())
@@ -169,17 +169,17 @@ func TestHandler_MultiRegionPersistence(t *testing.T) {
 
 			dst := newRegionHandler(t)
 			require.NoError(t, dst.Restore(context.Background(), snap))
-			assert.Equal(t, []string{"home"}, names(t, dst, mrHome))
+			assert.Equal(t, []string{"home-svc"}, names(t, dst, mrHome))
 
 			if tc.remote {
-				assert.Equal(t, []string{"eu"}, names(t, dst, "eu-west-1"))
+				assert.Equal(t, []string{"eu-svc"}, names(t, dst, "eu-west-1"))
 			} else {
 				assert.Empty(t, names(t, dst, "eu-west-1"))
 			}
 
 			old := newRegionHandler(t)
 			require.NoError(t, old.Backend.Restore(context.Background(), snap))
-			assert.Equal(t, []string{"home"}, names(t, old, mrHome))
+			assert.Equal(t, []string{"home-svc"}, names(t, old, mrHome))
 		})
 	}
 }

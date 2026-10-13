@@ -29,14 +29,25 @@ func (h *Handler) handleListTagsForResource(vals url.Values) (any, error) {
 // real SDK must call this (gopherstack-2mwl: tags accepted but never
 // reaching the tag store).
 func (h *Handler) applyCreateTags(vals url.Values, arn string) {
-	if tags := parseTagEntries(vals); len(tags) > 0 {
-		h.Backend.AddTagsToResource(arn, tags)
+	_, entries := svcTags.PinnedIDFromList(
+		parseTagEntries(vals),
+		func(t Tag) (string, string) { return t.Key, t.Value },
+	)
+	if len(entries) > 0 {
+		h.Backend.AddTagsToResource(arn, entries)
 	}
 }
 
 func (h *Handler) handleAddTagsToResource(vals url.Values) (any, error) {
 	arn := vals.Get("ResourceName")
 	tags := parseTagEntries(vals)
+	if pinned, _ := svcTags.PinnedIDFromList(
+		tags,
+		func(t Tag) (string, string) { return t.Key, t.Value },
+	); pinned != "" {
+		return nil, fmt.Errorf("%w: tag %q is only valid on CreateDBInstance", ErrInvalidParameter, svcTags.PinnedIDKey)
+	}
+
 	h.Backend.AddTagsToResource(arn, tags)
 
 	return &addTagsToResourceResponse{Xmlns: rdsXMLNS}, nil

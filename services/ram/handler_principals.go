@@ -50,6 +50,10 @@ func (h *Handler) handleListPrincipals(_ context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: resourceOwner is required", errInvalidRequest)
 	}
 
+	if err := validateResourceOwner(req.ResourceOwner); err != nil {
+		return nil, err
+	}
+
 	assocs := h.Backend.ListPrincipals(req.ResourceOwner, req.ResourceShareArns)
 	objs := make([]principalObject, 0, len(assocs))
 

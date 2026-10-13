@@ -1,8 +1,12 @@
 package cloudformation
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
+	ErrNoUpdates                = errors.New("no updates are to be performed")
 	ErrStackNotFound            = errors.New("stack with id does not exist")
 	ErrStackAlreadyExists       = errors.New("stack already exists")
 	ErrChangeSetNotFound        = errors.New("change set not found")
@@ -33,7 +37,7 @@ var (
 	ErrPublisherNotFound         = errors.New("publisher not found")
 	ErrInvalidRoleARN            = errors.New("invalid IAM role ARN format")
 	ErrInsufficientCapabilities  = errors.New(
-		"requires capabilities: CAPABILITY_IAM or CAPABILITY_NAMED_IAM",
+		"requires capabilities : [CAPABILITY_IAM]",
 	)
 	ErrCannotDeregisterDefaultVersion = errors.New(
 		"can't deregister the default version of a type while other active versions exist",
@@ -67,3 +71,18 @@ var (
 
 // ErrTerminationProtectionEnabled is returned when deleting a termination-protected stack.
 var ErrTerminationProtectionEnabled = errors.New("stack termination protection is enabled")
+
+// messageError carries AWS's exact wire text (which often starts with a capital
+// or ends with a period) while still matching its sentinel via errors.Is.
+type messageError struct {
+	kind error
+	text string
+}
+
+func (e *messageError) Error() string { return e.text }
+
+func (e *messageError) Unwrap() error { return e.kind }
+
+func awsErrorf(kind error, format string, args ...any) error {
+	return &messageError{kind: kind, text: fmt.Sprintf(format, args...)}
+}

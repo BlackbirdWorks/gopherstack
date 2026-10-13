@@ -169,6 +169,10 @@ func validateCreateRequest(req *createEnvironmentRequest) error {
 		return fmt.Errorf("%w: cannot specify more than %d tags", ErrInvalidParameter, maxTagsPerResource)
 	}
 
+	if err := validateTagEntries(req.Tags); err != nil {
+		return err
+	}
+
 	if err := validateLoggingConfiguration(req.LoggingConfiguration); err != nil {
 		return err
 	}
@@ -188,6 +192,14 @@ func validateCreateRequiredFields(req *createEnvironmentRequest) error {
 
 	if req.SourceBucketArn == "" {
 		return fmt.Errorf("%w: SourceBucketArn is required", ErrInvalidParameter)
+	}
+
+	if err := validateARNField("ExecutionRoleArn", req.ExecutionRoleArn, roleArnPattern); err != nil {
+		return err
+	}
+
+	if err := validateARNField("SourceBucketArn", req.SourceBucketArn, bucketArnPattern); err != nil {
+		return err
 	}
 
 	return validateNetworkConfigCreate(req.NetworkConfiguration)

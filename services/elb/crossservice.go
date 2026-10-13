@@ -14,6 +14,9 @@ type EC2Resolver interface {
 	SecurityGroupExists(id string) bool
 	SubnetExists(id string) bool
 	InstanceExists(id string) bool
+	// InstanceStateName returns the EC2 state name (running, stopped, ...) and
+	// whether the instance exists.
+	InstanceStateName(id string) (string, bool)
 }
 
 // CertificateResolver lets this backend validate an HTTPS/SSL listener's

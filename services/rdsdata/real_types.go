@@ -54,6 +54,9 @@ var (
 	// ErrClusterNotReady: the cluster's engine is not available yet.
 	ErrClusterNotReady = newAPIError("InvalidResourceStateException", http.StatusBadRequest,
 		"the DB cluster is not in a state that accepts Data API calls")
+	// ErrDatabaseResuming: the auto-paused Aurora Serverless v2 cluster is resuming; retry shortly.
+	ErrDatabaseResuming = newAPIError("DatabaseResumingException", http.StatusBadRequest,
+		"the Aurora Serverless DB cluster was paused and is resuming; wait a few seconds and try again")
 	errDatabaseUnavailable = newAPIError("DatabaseUnavailableException", http.StatusGatewayTimeout,
 		"the writer instance in the DB cluster is not available")
 	errStatementTimeout = newAPIError("StatementTimeoutException", http.StatusBadRequest,
@@ -71,6 +74,22 @@ type requestTarget struct {
 
 func withRequestTarget(ctx context.Context, secretARN, database string) context.Context {
 	return context.WithValue(ctx, requestTargetKey{}, requestTarget{SecretARN: secretARN, Database: database})
+}
+
+type continueAfterTimeoutKey struct{}
+
+func withContinueAfterTimeout(ctx context.Context, on bool) context.Context {
+	if !on {
+		return ctx
+	}
+
+	return context.WithValue(ctx, continueAfterTimeoutKey{}, true)
+}
+
+func continueAfterTimeout(ctx context.Context) bool {
+	on, _ := ctx.Value(continueAfterTimeoutKey{}).(bool)
+
+	return on
 }
 
 func getRequestTarget(ctx context.Context) requestTarget {

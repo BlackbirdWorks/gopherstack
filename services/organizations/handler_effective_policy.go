@@ -95,8 +95,8 @@ func (h *Handler) handleListEffectivePolicyValidationErrors(c *echo.Context, bod
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "PolicyType is required")
 	}
 
-	if rejected, err := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
-		return err
+	if rejected, pErr := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return pErr
 	}
 
 	errs, err := h.Backend.ListEffectivePolicyValidationErrors(req.PolicyType, req.AccountID)

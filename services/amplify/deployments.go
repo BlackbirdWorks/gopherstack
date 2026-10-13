@@ -32,8 +32,8 @@ type DeploymentURLs struct {
 func (b *InMemoryBackend) CreateDeploymentWithFiles(
 	appID, branchName string, fileMap map[string]string,
 ) (DeploymentURLs, error) {
-	b.mu.RLock("CreateDeployment")
-	defer b.mu.RUnlock()
+	b.mu.Lock("CreateDeployment")
+	defer b.mu.Unlock()
 
 	if !b.apps.Has(appID) {
 		return DeploymentURLs{}, fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
@@ -48,7 +48,7 @@ func (b *InMemoryBackend) CreateDeploymentWithFiles(
 		)
 	}
 
-	jobID := randomID()
+	jobID := b.nextJobIDLocked(appID, branchName)
 	base := "https://s3.amazonaws.com/amplify-upload-" + appID + "/" + branchName + "/" + jobID
 
 	fileURLs := make(map[string]string, len(fileMap))
@@ -79,7 +79,7 @@ func (b *InMemoryBackend) StartDeployment(
 	}
 
 	if jobID == "" {
-		jobID = randomID()
+		jobID = b.nextJobIDLocked(appID, branchName)
 	}
 
 	if sourceURL != "" && sourceURLType == "" {

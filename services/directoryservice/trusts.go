@@ -25,9 +25,9 @@ func (b *InMemoryBackend) CreateTrust(ctx context.Context, in CreateTrustInput) 
 
 	// Real AWS auto-verifies every direction except "One-Way: Incoming" (nothing to verify
 	// against locally); terraform's resourceTrustCreate waits on waitTrustVerified for the rest.
-	trustState := "Created"
+	settledState := trustStateCreated
 	if trustDirection != "One-Way: Incoming" {
-		trustState = "Verified"
+		settledState = trustStateVerified
 	}
 
 	id := newHexID("t-")
@@ -39,7 +39,7 @@ func (b *InMemoryBackend) CreateTrust(ctx context.Context, in CreateTrustInput) 
 		RemoteDomainName:     remoteDomainName,
 		TrustDirection:       trustDirection,
 		TrustType:            trustType,
-		TrustState:           trustState,
+		TrustState:           trustStateCreating,
 		SelectiveAuth:        selectiveAuth,
 		CreatedDateTime:      now,
 		LastUpdatedDateTime:  now,
@@ -58,6 +58,8 @@ func (b *InMemoryBackend) CreateTrust(ctx context.Context, in CreateTrustInput) 
 			DNSIPv6Addrs:     in.ConditionalForwarderIPv6Addrs,
 		})
 	}
+
+	b.settleTrust(region, id, trustStateCreating, settledState)
 
 	return id, nil
 }
@@ -78,11 +80,17 @@ func (b *InMemoryBackend) DeleteTrust(
 		return "", ErrTrustNotFound
 	}
 
-	b.trustDelete(region, trustID)
+	setTrustState(trust, trustStateDeleting)
 
 	if deleteConditionalForwarder {
 		b.conditionalForwarderDelete(region, trust.DirectoryID, trust.RemoteDomainName)
 	}
+
+	b.settleLater("DeleteTrust:deleted", func() {
+		if t, exists := b.trustGet(region, trustID); exists && t.TrustState == trustStateDeleting {
+			b.trustDelete(region, trustID)
+		}
+	})
 
 	return trustID, nil
 }
@@ -176,6 +184,8 @@ func (b *InMemoryBackend) UpdateTrust(ctx context.Context, trustID, selectiveAut
 		t.SelectiveAuth = selectiveAuth
 	}
 	t.LastUpdatedDateTime = time.Now().UTC()
+	setTrustState(t, trustStateUpdating)
+	b.settleTrust(region, trustID, trustStateUpdating, trustStateUpdated)
 
 	return trustID, nil
 }
@@ -192,9 +202,36 @@ func (b *InMemoryBackend) VerifyTrust(ctx context.Context, trustID string) (stri
 		return "", ErrTrustNotFound
 	}
 
-	t.TrustState = "Verified"
-	t.LastUpdatedDateTime = time.Now().UTC()
-	t.StateLastUpdatedTime = time.Now().UTC()
+	setTrustState(t, trustStateVerifying)
+	b.settleTrust(region, trustID, trustStateVerifying, trustStateVerified)
 
 	return trustID, nil
+}
+
+const (
+	trustStateCreating  = "Creating"
+	trustStateCreated   = "Created"
+	trustStateVerifying = "Verifying"
+	trustStateVerified  = "Verified"
+	trustStateUpdating  = "Updating"
+	trustStateUpdated   = "Updated"
+	trustStateDeleting  = "Deleting"
+)
+
+// setTrustState stamps the new state and its timestamps. Caller holds b.mu.
+func setTrustState(t *storedTrust, state string) {
+	now := time.Now().UTC()
+	t.TrustState = state
+	t.LastUpdatedDateTime = now
+	t.StateLastUpdatedTime = now
+}
+
+// settleTrust moves the trust from the transitional state to final once the delay elapses,
+// unless another operation has changed its state in the meantime. Caller holds b.mu.
+func (b *InMemoryBackend) settleTrust(region, trustID, from, final string) {
+	b.settleLater("Trust:"+final, func() {
+		if t, ok := b.trustGet(region, trustID); ok && t.TrustState == from {
+			setTrustState(t, final)
+		}
+	})
 }

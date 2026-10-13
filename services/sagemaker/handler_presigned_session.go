@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
+	"strings"
 )
 
 // ---------------------------------------------------------------------------
@@ -48,21 +50,59 @@ func (h *Handler) dispatchPresignedSessionOps(
 	return nil, false, nil
 }
 
+const (
+	presignedMinExpiresInSeconds = 5
+	presignedMaxExpiresInSeconds = 300
+	presignedMinSessionSeconds   = 1800
+	presignedMaxSessionSeconds   = 43200
+	maxLandingURILength          = 1023
+)
+
+// landingURIPrefixes are the LandingUri forms listed in api_op_CreatePresignedDomainUrl.go.
+var landingURIPrefixes = []string{ //nolint:gochecknoglobals // immutable lookup table
+	"studio::", "app:JupyterServer:", "app:JupyterLab:", "app:RStudioServerPro:", "app:CodeEditor:", "app:Canvas:",
+}
+
+// validatePresignedDurations applies the API reference ranges shared by the presigned-URL operations
+// (ExpiresInSeconds 5-300, SessionExpirationDurationInSeconds 1800-43200).
+func validatePresignedDurations(expires, session *int32) error {
+	if expires != nil && (*expires < presignedMinExpiresInSeconds || *expires > presignedMaxExpiresInSeconds) {
+		return fmt.Errorf("%w: ExpiresInSeconds must be between %d and %d",
+			errInvalidRequest, presignedMinExpiresInSeconds, presignedMaxExpiresInSeconds)
+	}
+
+	if session != nil && (*session < presignedMinSessionSeconds || *session > presignedMaxSessionSeconds) {
+		return fmt.Errorf("%w: SessionExpirationDurationInSeconds must be between %d and %d",
+			errInvalidRequest, presignedMinSessionSeconds, presignedMaxSessionSeconds)
+	}
+
+	return nil
+}
+
+func validateLandingURI(uri string) error {
+	if uri == "" {
+		return nil
+	}
+
+	if len(uri) > maxLandingURILength || !slices.ContainsFunc(landingURIPrefixes, func(p string) bool {
+		return strings.HasPrefix(uri, p)
+	}) {
+		return fmt.Errorf("%w: LandingUri must be one of studio::<path> or app:<JupyterServer|JupyterLab|"+
+			"RStudioServerPro|CodeEditor|Canvas>:<path> (max %d characters)", errInvalidRequest, maxLandingURILength)
+	}
+
+	return nil
+}
+
 // createPresignedDomainURLRequest is the request body for
-// CreatePresignedDomainUrl (api_op_CreatePresignedDomainUrl.go:50-92).
-// LandingUri/ExpiresInSeconds/SessionExpirationDurationInSeconds are real,
-// optional fields, decoded for wire visibility but disclosed no-ops:
-// CreatePresignedDomainUrlOutput is a bare {AuthorizedUrl}, and this
-// backend's synthetic URL (a token appended to the domain's stored URL)
-// carries no verified real query-parameter format to encode an expiry or
-// landing path into — the same disclosed-no-op stance as PartnerApps'
-// identical fields.
+// CreatePresignedDomainUrl (api_op_CreatePresignedDomainUrl.go:50-92). The URL itself is a
+// synthetic token; the optional members are validated against the API reference but not encoded.
 type createPresignedDomainURLRequest struct {
+	ExpiresInSeconds                   *int32 `json:"ExpiresInSeconds,omitempty"`
+	SessionExpirationDurationInSeconds *int32 `json:"SessionExpirationDurationInSeconds,omitempty"`
 	DomainID                           string `json:"DomainId"`
 	UserProfileName                    string `json:"UserProfileName"`
 	LandingURI                         string `json:"LandingUri,omitempty"`
-	ExpiresInSeconds                   int32  `json:"ExpiresInSeconds,omitempty"`
-	SessionExpirationDurationInSeconds int32  `json:"SessionExpirationDurationInSeconds,omitempty"`
 }
 
 func (h *Handler) handleCreatePresignedDomainURL(ctx context.Context, body []byte) ([]byte, error) {
@@ -78,6 +118,14 @@ func (h *Handler) handleCreatePresignedDomainURL(ctx context.Context, body []byt
 
 	if req.UserProfileName == "" {
 		return nil, fmt.Errorf("%w: UserProfileName is required", errInvalidRequest)
+	}
+
+	if err := validatePresignedDurations(req.ExpiresInSeconds, req.SessionExpirationDurationInSeconds); err != nil {
+		return nil, err
+	}
+
+	if err := validateLandingURI(req.LandingURI); err != nil {
+		return nil, err
 	}
 
 	url, err := h.Backend.CreatePresignedDomainURL(ctx, req.DomainID, req.UserProfileName)

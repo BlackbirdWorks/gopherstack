@@ -35,13 +35,13 @@ type tableStateSnapshot struct {
 
 // --- ExecuteTransaction ---
 
-// ExecuteTransaction executes a set of PartiQL DML statements atomically.
+// executeTransactionOp executes a set of PartiQL DML statements atomically.
 // Atomicity is provided via snapshot-based rollback: pre-transaction snapshots
 // of all affected tables are captured, statements are executed sequentially,
 // and all tables are restored from their snapshots if any statement fails.
 // This matches the observable contract of real AWS ExecuteTransaction for
 // single-process in-memory usage.
-func (db *InMemoryDB) ExecuteTransaction(
+func (db *InMemoryDB) executeTransactionOp(
 	ctx context.Context,
 	input *dynamodb.ExecuteTransactionInput,
 ) (*dynamodb.ExecuteTransactionOutput, error) {

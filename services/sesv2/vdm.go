@@ -1,7 +1,5 @@
 package sesv2
 
-import "fmt"
-
 // VdmOptions captures the VDM (Virtual Deliverability Manager) configuration of a
 // configuration set.
 type VdmOptions struct {
@@ -19,7 +17,7 @@ func (b *InMemoryBackend) PutConfigurationSetVdmOptions(
 
 	cs, ok := b.configurationSets.Get(name)
 	if !ok {
-		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
+		return configSetMissing(name)
 	}
 
 	cs.VdmOptions = &VdmOptions{

@@ -24,6 +24,7 @@ func newOverlayTestCluster(t *testing.T, h *rds.Handler, id string) {
 		rds.DBClusterOptions{},
 	)
 	require.NoError(t, err)
+	rds.FlushClusterLifecycle(h.Backend)
 }
 
 func TestRDS_DescribeDBClusters_FailoverStatusOverlay(t *testing.T) {
@@ -121,6 +122,7 @@ func TestRDS_FailoverDBCluster_FinalStatusUnchanged(t *testing.T) {
 		rds.DBClusterOptions{},
 	)
 	require.NoError(t, err)
+	rds.FlushClusterLifecycle(b)
 
 	updated, err := b.FailoverDBCluster("failover-final-cluster", "")
 	require.NoError(t, err)

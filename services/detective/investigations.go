@@ -124,11 +124,15 @@ func (b *InMemoryBackend) StartInvestigation(
 		return "", typeErr
 	}
 
+	if !scopeEnd.After(scopeStart) {
+		return "", fmt.Errorf("%w: ScopeEndTime must be after ScopeStartTime", ErrValidation)
+	}
+
 	b.mu.Lock("StartInvestigation")
 	defer b.mu.Unlock()
 
-	if !b.graphs.Has(graphARN) {
-		return "", ErrGraphNotFound
+	if err := b.requireGraphLocked(graphARN); err != nil {
+		return "", err
 	}
 
 	id := strings.ReplaceAll(uuid.NewString(), "-", "")
@@ -144,11 +148,11 @@ func (b *InMemoryBackend) StartInvestigation(
 		EntityType:      entityType,
 		Severity:        severityInformational,
 		State:           investigationStateActive,
-		// builtInIndicators is a pure function computed synchronously, so
-		// indicator derivation is already complete by the time this
-		// returns -- there is no real async pipeline that could still be
-		// RUNNING or ever FAILED, so completion is immediate.
-		Status: investigationStatusSucceeded,
+		Status:          investigationStatusSucceeded,
+	}
+
+	if b.lifecycleDelay > 0 {
+		inv.Status = investigationStatusRunning
 	}
 
 	b.investigations.Put(inv)
@@ -158,11 +162,13 @@ func (b *InMemoryBackend) StartInvestigation(
 
 // GetInvestigation returns an investigation by graph ARN and investigation ID.
 func (b *InMemoryBackend) GetInvestigation(graphARN, investigationID string) (*Investigation, error) {
-	b.mu.RLock("GetInvestigation")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetInvestigation")
+	defer b.mu.Unlock()
 
-	if !b.graphs.Has(graphARN) {
-		return nil, ErrGraphNotFound
+	b.settleInvestigationsLocked(time.Now())
+
+	if err := b.requireGraphLocked(graphARN); err != nil {
+		return nil, err
 	}
 
 	inv, ok := b.investigations.Get(investigationKey(graphARN, investigationID))
@@ -187,11 +193,13 @@ func (b *InMemoryBackend) ListInvestigations(
 		return nil, "", err
 	}
 
-	b.mu.RLock("ListInvestigations")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListInvestigations")
+	defer b.mu.Unlock()
 
-	if !b.graphs.Has(graphARN) {
-		return nil, "", ErrGraphNotFound
+	b.settleInvestigationsLocked(time.Now())
+
+	if err := b.requireGraphLocked(graphARN); err != nil {
+		return nil, "", err
 	}
 
 	items := slices.DeleteFunc(
@@ -212,9 +220,9 @@ func (b *InMemoryBackend) ListInvestigations(
 		start = len(items)
 	}
 
-	limit := int(maxResults)
-	if limit <= 0 || limit > maxInvestigationsPerPage {
-		limit = maxInvestigationsPerPage
+	limit, err := pageLimit(maxResults, maxInvestigationsPerPage)
+	if err != nil {
+		return nil, "", err
 	}
 
 	end := min(start+limit, len(items))
@@ -242,8 +250,8 @@ func (b *InMemoryBackend) UpdateInvestigationState(graphARN, investigationID, st
 	b.mu.Lock("UpdateInvestigationState")
 	defer b.mu.Unlock()
 
-	if !b.graphs.Has(graphARN) {
-		return ErrGraphNotFound
+	if err := b.requireGraphLocked(graphARN); err != nil {
+		return err
 	}
 
 	inv, ok := b.investigations.Get(investigationKey(graphARN, investigationID))
@@ -269,8 +277,8 @@ func (b *InMemoryBackend) ListIndicators(
 	b.mu.RLock("ListIndicators")
 	defer b.mu.RUnlock()
 
-	if !b.graphs.Has(graphARN) {
-		return nil, "", ErrGraphNotFound
+	if err := b.requireGraphLocked(graphARN); err != nil {
+		return nil, "", err
 	}
 
 	inv, ok := b.investigations.Get(investigationKey(graphARN, investigationID))
@@ -299,9 +307,9 @@ func (b *InMemoryBackend) ListIndicators(
 		start = len(all)
 	}
 
-	limit := int(maxResults)
-	if limit <= 0 || limit > maxIndicatorsPerPage {
-		limit = maxIndicatorsPerPage
+	limit, err := pageLimit(maxResults, maxIndicatorsPerPage)
+	if err != nil {
+		return nil, "", err
 	}
 
 	end := min(start+limit, len(all))

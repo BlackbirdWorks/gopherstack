@@ -64,6 +64,10 @@ func (b *InMemoryBackend) matchingMetricFilters(
 	var matched []metricFilterMatch
 	for i, e := range entries {
 		if len(matchedMsgs[i]) > 0 {
+			if b.metricFilterHits == nil {
+				b.metricFilterHits = make(map[string]struct{})
+			}
+			b.metricFilterHits[metricFilterTableKey(region, groupName, e.filter.FilterName)] = struct{}{}
 			cp := *e.filter
 			matched = append(matched, metricFilterMatch{filter: &cp, messages: matchedMsgs[i]})
 		}
@@ -174,6 +178,14 @@ func (b *InMemoryBackend) PutMetricFilterWithOptions(
 	}
 	if len(transformations) == 0 {
 		return fmt.Errorf("%w: at least one metricTransformation is required", ErrValidation)
+	}
+	for _, t := range transformations {
+		if len(t.Dimensions) > maxMetricFilterDimensions {
+			return fmt.Errorf(
+				"%w: a metric filter can include at most %d dimensions",
+				ErrValidation, maxMetricFilterDimensions,
+			)
+		}
 	}
 
 	region := getRegion(ctx, b.region)
@@ -372,7 +384,10 @@ func (b *InMemoryBackend) TestMetricFilter(
 	return matches, nil
 }
 
-const maxFieldSelectionCriteriaLen = 2000
+const (
+	maxFieldSelectionCriteriaLen = 2000
+	maxMetricFilterDimensions    = 3 // types.MetricTransformation.Dimensions doc
+)
 
 func metricEmitSystemFieldDimensions() []string { return []string{"@aws.account", "@aws.region"} }
 
@@ -406,4 +421,43 @@ func validateFilterOptions(opts FilterOptions, allowed []string) error {
 	}
 
 	return nil
+}
+
+// EmitMetricFilterDefaults publishes each dimensionless transformation's DefaultValue for
+// filters that matched no event since the previous call (one period's worth).
+func (b *InMemoryBackend) EmitMetricFilterDefaults() {
+	type pending struct {
+		region string
+		t      MetricTransformation
+	}
+
+	var due []pending
+
+	b.mu.Lock("EmitMetricFilterDefaults")
+	emitter := b.metricEmitter
+	for _, mf := range b.metricFilters.All() {
+		if _, hit := b.metricFilterHits[metricFilterTableKey(mf.region, mf.LogGroupName, mf.FilterName)]; hit {
+			continue
+		}
+		for _, t := range mf.MetricTransformations {
+			if t.DefaultValue != nil && len(t.Dimensions) == 0 {
+				due = append(due, pending{region: mf.region, t: t})
+			}
+		}
+	}
+	b.metricFilterHits = nil
+	b.mu.Unlock()
+
+	if emitter == nil {
+		return
+	}
+
+	for _, d := range due {
+		if err := emitter.EmitMetric(cwmetric.Point{
+			Region: d.region, Namespace: d.t.MetricNamespace, Name: d.t.MetricName,
+			Value: *d.t.DefaultValue, Unit: d.t.Unit,
+		}); err != nil {
+			logger.Load(b.ctx).Warn("cloudwatchlogs: default metric emit failed", "metric", d.t.MetricName, "err", err)
+		}
+	}
 }

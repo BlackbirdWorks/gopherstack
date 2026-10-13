@@ -54,6 +54,8 @@ var (
 	ErrOriginRequestPolicyNotFound = awserr.New("NoSuchOriginRequestPolicy", awserr.ErrNotFound)
 	// ErrValidation is returned when request parameters fail validation.
 	ErrValidation = awserr.New("InvalidArgument", awserr.ErrInvalidParameter)
+	// ErrEntitySizeLimitExceeded is returned when a key value store import exceeds the store size quota.
+	ErrEntitySizeLimitExceeded = awserr.New("EntitySizeLimitExceeded", awserr.ErrInvalidParameter)
 	// ErrAlreadyExists is the generic fallback for a resource whose identifier already
 	// exists but which has no dedicated AlreadyExists error type in the CloudFront API
 	// (e.g. Anycast IP lists, key value stores). AWS itself falls back to this same

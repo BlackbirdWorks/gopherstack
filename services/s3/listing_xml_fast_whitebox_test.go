@@ -549,7 +549,7 @@ func TestListXMLStructs_FieldNamesPinned(t *testing.T) {
 		"EncodingType", "Contents", "CommonPrefixes", "MaxKeys", "IsTruncated",
 	})
 	assertFieldNames(t, reflect.TypeFor[ObjectXML](), []string{
-		"Owner", "Key", "LastModified", "ETag", "StorageClass", "ChecksumAlgorithm", "Size",
+		"Owner", "RestoreStatus", "Key", "LastModified", "ETag", "StorageClass", "ChecksumAlgorithm", "Size",
 	})
 	assertFieldNames(t, reflect.TypeFor[Owner](), []string{"ID", "DisplayName"})
 	assertFieldNames(t, reflect.TypeFor[CommonPrefixXML](), []string{"Prefix"})

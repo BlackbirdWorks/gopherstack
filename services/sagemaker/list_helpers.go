@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -87,22 +87,9 @@ func sagemakerListPagedSlice[T any](
 
 	sort.Slice(list, func(i, j int) bool { return less(list[i], list[j]) })
 
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*T{}, ""
-	}
+	p := page.New(list, nextToken, sagemakerDefaultPageSize, sagemakerDefaultPageSize)
 
-	end := startIdx + sagemakerDefaultPageSize
-
-	var outToken string
-
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return p.Data, p.Next
 }
 
 // sagemakerListKeyPagedMap paginates a plain map[string]*T using name-key-based
@@ -404,36 +391,9 @@ func paginateSlice[T any](list []T, nextToken string, maxResults int32) ([]T, st
 		pageSize = int(maxResults)
 	}
 
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []T{}, ""
-	}
+	p := page.New(list, nextToken, pageSize, pageSize)
 
-	end := startIdx + pageSize
-
-	var outToken string
-
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
-}
-
-// parseNextToken parses a pagination token (integer offset) into a slice index.
-func parseNextToken(token string) int {
-	if token == "" {
-		return 0
-	}
-
-	idx, err := strconv.Atoi(token)
-	if err != nil || idx < 0 {
-		return 0
-	}
-
-	return idx
+	return p.Data, p.Next
 }
 
 // nameWindowSortParams bundles the CreationTime-window filter and name-only

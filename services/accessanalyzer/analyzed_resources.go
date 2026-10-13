@@ -76,16 +76,9 @@ func (b *InMemoryBackend) ListAnalyzedResources(
 		return result[i].ResourceArn < result[j].ResourceArn
 	})
 
-	start := 0
-
-	if nextToken != "" {
-		for i, ar := range result {
-			if ar.ResourceArn == nextToken {
-				start = i
-
-				break
-			}
-		}
+	start, tokErr := pageStart(len(result), nextToken, func(i int) string { return result[i].ResourceArn })
+	if tokErr != nil {
+		return nil, "", tokErr
 	}
 
 	result = result[start:]

@@ -18,10 +18,10 @@ import (
 //
 //nolint:gochecknoglobals // fixed enum lookup table, analogous to tableRegistrations elsewhere
 var logAlarmComparisonOperators = []string{
-	"GreaterThanThreshold",
-	"GreaterThanOrEqualToThreshold",
-	"LessThanThreshold",
-	"LessThanOrEqualToThreshold",
+	opGreater,
+	opGreaterOrEqual,
+	opLess,
+	opLessOrEqual,
 }
 
 const (

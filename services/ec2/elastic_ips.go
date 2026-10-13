@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -18,10 +19,12 @@ const elasticIPOctetRange = 254
 
 // Address represents an Elastic IP address.
 type Address struct {
-	AllocationID  string `json:"allocationID,omitempty"`
-	AssociationID string `json:"associationID,omitempty"`
-	PublicIP      string `json:"publicIP,omitempty"`
-	InstanceID    string `json:"instanceID,omitempty"`
+	AllocationID       string `json:"allocationID,omitempty"`
+	AssociationID      string `json:"associationID,omitempty"`
+	PublicIP           string `json:"publicIP,omitempty"`
+	InstanceID         string `json:"instanceID,omitempty"`
+	NetworkInterfaceID string `json:"networkInterfaceID,omitempty"`
+	PrivateIP          string `json:"privateIP,omitempty"`
 }
 
 // allocElasticIP returns the next 54.230.x.y elastic IP. Must be called with mu held.
@@ -49,8 +52,9 @@ func (b *InMemoryBackend) AllocateAddress() (*Address, error) {
 	return addr, nil
 }
 
-// AssociateAddress associates an Elastic IP with an instance.
-func (b *InMemoryBackend) AssociateAddress(allocationID, instanceID string) (string, error) {
+// AssociateAddress associates an Elastic IP with an instance's primary network interface, or
+// directly with a network interface when target is an eni- ID. Reassociation is automatic in a VPC.
+func (b *InMemoryBackend) AssociateAddress(allocationID, target string) (string, error) {
 	b.mu.Lock("AssociateAddress")
 	defer b.mu.Unlock()
 
@@ -59,15 +63,58 @@ func (b *InMemoryBackend) AssociateAddress(allocationID, instanceID string) (str
 		return "", fmt.Errorf("%w: %s", ErrAddressNotFound, allocationID)
 	}
 
-	if _, instOK := b.instances.Get(instanceID); !instOK {
-		return "", fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+	var eni *NetworkInterface
+
+	if strings.HasPrefix(target, "eni-") {
+		eni, ok = b.networkInterfaces.Get(target)
+		if !ok {
+			return "", fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, target)
+		}
+	} else {
+		if _, instOK := b.instances.Get(target); !instOK {
+			return "", fmt.Errorf("%w: %s", ErrInstanceNotFound, target)
+		}
+
+		eni = b.primaryNetworkInterfaceLocked(target)
 	}
 
-	assocID := newEIPAssociationID()
-	addr.AssociationID = assocID
-	addr.InstanceID = instanceID
+	b.releaseAddressTargetLocked(addr)
 
-	return assocID, nil
+	addr.AssociationID = newEIPAssociationID()
+	addr.InstanceID, addr.NetworkInterfaceID, addr.PrivateIP = "", "", ""
+
+	if eni != nil {
+		addr.NetworkInterfaceID = eni.ID
+		addr.PrivateIP = eni.PrivateIP
+		addr.InstanceID = eni.InstanceID
+	}
+
+	if !strings.HasPrefix(target, "eni-") {
+		addr.InstanceID = target
+	}
+
+	if inst, instOK := b.instances.Get(addr.InstanceID); instOK && (eni == nil || eni.DeviceIndex == 0) {
+		inst.PublicIPAddress = addr.PublicIP
+		inst.PublicDNSName = publicDNSNameFor(addr.PublicIP)
+	}
+
+	return addr.AssociationID, nil
+}
+
+func publicDNSNameFor(ip string) string {
+	return fmt.Sprintf("ec2-%s.compute-1.amazonaws.com", strings.ReplaceAll(ip, ".", "-"))
+}
+
+// releaseAddressTargetLocked clears the public IP the address granted its current instance.
+func (b *InMemoryBackend) releaseAddressTargetLocked(addr *Address) {
+	if addr.InstanceID == "" {
+		return
+	}
+
+	if inst, ok := b.instances.Get(addr.InstanceID); ok && inst.PublicIPAddress == addr.PublicIP {
+		inst.PublicIPAddress = ""
+		inst.PublicDNSName = ""
+	}
 }
 
 // DisassociateAddress removes an Elastic IP association.
@@ -77,8 +124,11 @@ func (b *InMemoryBackend) DisassociateAddress(associationID string) error {
 
 	for _, addr := range b.addresses.All() {
 		if addr.AssociationID == associationID {
+			b.releaseAddressTargetLocked(addr)
 			addr.AssociationID = ""
 			addr.InstanceID = ""
+			addr.NetworkInterfaceID = ""
+			addr.PrivateIP = ""
 
 			return nil
 		}
@@ -100,6 +150,11 @@ func (b *InMemoryBackend) ReleaseAddress(allocationID string) error {
 	if addr.AssociationID != "" {
 		return fmt.Errorf("%w: the address %s is associated (%s) and must be disassociated before release",
 			ErrAddressInUse, addr.PublicIP, addr.AssociationID)
+	}
+
+	if ngw := b.natGatewayUsingAllocationLocked(allocationID); ngw != "" {
+		return fmt.Errorf("%w: the address %s is in use by NAT gateway %s",
+			ErrAddressInUse, addr.PublicIP, ngw)
 	}
 
 	b.addresses.Delete(allocationID)

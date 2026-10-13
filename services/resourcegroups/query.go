@@ -148,22 +148,43 @@ func parseResourceTypeFilters(queryJSON string) map[string]bool {
 	return types
 }
 
-// SearchResources returns resource identifiers that have been grouped into any group
-// within the request's region, filtered by the ResourceQuery.
-// For TAG_FILTERS_1_0 queries, ResourceTypeFilters are applied when non-empty.
-// A nil query matches all grouped resources (match-all).
-// Results are de-duplicated and paginated.
-// Returns identifiers, a continuation token (empty when no more results), and any error.
+// QueryPage is one page of query results plus any QueryErrors.
+type QueryPage struct {
+	NextToken   string
+	Identifiers []ResourceIdentifier
+	Errors      []queryErrorWire
+}
+
+// SearchResources is SearchResourcesPage without the query errors.
 func (b *InMemoryBackend) SearchResources(
 	ctx context.Context,
 	q *ResourceQuery,
 	nextToken string,
 	maxResults int,
 ) ([]ResourceIdentifier, string, error) {
-	// Parse the query to extract any resource type filters.
+	p, err := b.SearchResourcesPage(ctx, q, nextToken, maxResults)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return p.Identifiers, p.NextToken, nil
+}
+
+// SearchResourcesPage evaluates q against the live resources when a resource
+// source is wired, else against explicitly grouped resources.
+func (b *InMemoryBackend) SearchResourcesPage(
+	ctx context.Context,
+	q *ResourceQuery,
+	nextToken string,
+	maxResults int,
+) (QueryPage, error) {
+	if ids, errs, handled := b.evaluateQuery(ctx, q); handled {
+		return pageIdentifiers(ids, errs, nextToken, maxResults), nil
+	}
+
 	var wantTypes map[string]bool
 
-	if q != nil && q.Type == "TAG_FILTERS_1_0" && q.Query != "" {
+	if q != nil && q.Type == resourceQueryTagFilters && q.Query != "" {
 		wantTypes = parseResourceTypeFilters(q.Query)
 	}
 
@@ -193,10 +214,13 @@ func (b *InMemoryBackend) SearchResources(
 		}
 	}
 
-	// Stable sort by ARN for deterministic pagination.
-	sort.Slice(out, func(i, j int) bool { return out[i].ResourceArn < out[j].ResourceArn })
+	return pageIdentifiers(out, nil, nextToken, maxResults), nil
+}
 
-	page, token := paginate(out, func(id ResourceIdentifier) string { return id.ResourceArn }, nextToken, maxResults)
+func pageIdentifiers(ids []ResourceIdentifier, errs []queryErrorWire, nextToken string, maxResults int) QueryPage {
+	sort.Slice(ids, func(i, j int) bool { return ids[i].ResourceArn < ids[j].ResourceArn })
 
-	return page, token, nil
+	page, token := paginate(ids, func(id ResourceIdentifier) string { return id.ResourceArn }, nextToken, maxResults)
+
+	return QueryPage{Identifiers: page, NextToken: token, Errors: errs}
 }

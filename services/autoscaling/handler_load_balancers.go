@@ -3,8 +3,6 @@ package autoscaling
 import (
 	"encoding/xml"
 	"net/url"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // defaultLBMaxRecords is DescribeLoadBalancers's and DescribeLoadBalancerTargetGroups's
@@ -71,7 +69,10 @@ func (h *Handler) handleDescribeLoadBalancers(vals url.Values) (any, error) {
 		}
 	}
 
-	p := page.New(lbs, vals.Get("NextToken"), maxRecords, defaultLBMaxRecords)
+	p, pageErr := newPage(vals, lbs, maxRecords, defaultLBMaxRecords)
+	if pageErr != nil {
+		return nil, pageErr
+	}
 
 	members := make([]xmlLoadBalancerState, 0, len(p.Data))
 	for _, lb := range p.Data {
@@ -104,7 +105,10 @@ func (h *Handler) handleDescribeLoadBalancerTargetGroups(vals url.Values) (any, 
 		}
 	}
 
-	p := page.New(tgs, vals.Get("NextToken"), maxRecords, defaultLBMaxRecords)
+	p, pageErr := newPage(vals, tgs, maxRecords, defaultLBMaxRecords)
+	if pageErr != nil {
+		return nil, pageErr
+	}
 
 	members := make([]xmlLoadBalancerTargetGroupState, 0, len(p.Data))
 	for _, tg := range p.Data {

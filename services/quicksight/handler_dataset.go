@@ -422,6 +422,9 @@ func ingestionToMap(ing *Ingestion) map[string]any {
 		keyIngestionID:     ing.IngestionID,
 		keyIngestionStatus: ing.IngestionStatus,
 	}
+	if ing.IngestionTimeInSeconds > 0 {
+		m["IngestionTimeInSeconds"] = ing.IngestionTimeInSeconds
+	}
 	if ing.RequestType != "" {
 		m["RequestType"] = ing.RequestType
 	}

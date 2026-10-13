@@ -96,6 +96,7 @@ func (v *SigV4Validator) EchoMiddleware() echo.MiddlewareFunc {
 				return c.JSON(sErr.Status, map[string]string{
 					"__type":  sErr.Code,
 					"message": sErr.Message,
+					"Message": sErr.Message,
 				})
 			}
 

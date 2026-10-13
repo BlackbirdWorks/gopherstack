@@ -65,6 +65,8 @@ const clientTokenTTL = 24 * time.Hour
 type InMemoryBackend struct {
 	svcCtx                    context.Context
 	s3                        S3Backend
+	s3Writer                  S3Writer
+	appConfig                 any
 	adapterClientTokenToID    map[string]map[string]string // region → clientToken → adapterID
 	clientTokenToJobID        map[string]map[string]string // region → clientToken → jobID
 	expenseClientTokenToJobID map[string]map[string]string // region → clientToken → expense jobID
@@ -133,6 +135,15 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 // validated against real S3 state instead of only being stored/echoed.
 func (b *InMemoryBackend) SetS3Backend(s3 S3Backend) {
 	b.s3 = s3
+}
+
+// SetAsyncJobDelay sets how long async jobs and adapter versions stay IN_PROGRESS before
+// settling. The default is 200ms.
+func (b *InMemoryBackend) SetAsyncJobDelay(d time.Duration) {
+	b.mu.Lock("SetAsyncJobDelay")
+	defer b.mu.Unlock()
+
+	b.asyncJobDelay = d
 }
 
 // runDelayed runs fn after delay, unless the backend's lifecycle context is

@@ -289,17 +289,13 @@ func (h *Handler) handleGetAggregateResourceConfig(
 // ResourceName/ResourceDeletionTime (real, optional members) go unpopulated
 // because this backend never tracks a discovered resource's display name or
 // deletion time.
-// listDiscoveredResourcesInput's real IncludeDeletedResources member
-// (api_op_ListDiscoveredResources.go) has no backend counterpart:
-// DeleteResourceConfig removes the resource from b.resourceConfigs outright
-// rather than tombstoning it, so there is no deleted-resource record to
-// include -- disclosed as a gap (PARITY.md) rather than fabricated.
 type listDiscoveredResourcesInput struct {
-	ResourceType string   `json:"resourceType"`
-	NextToken    string   `json:"nextToken,omitempty"`
-	ResourceName string   `json:"resourceName,omitempty"`
-	ResourceIDs  []string `json:"resourceIds,omitempty"`
-	Limit        int32    `json:"limit,omitempty"`
+	ResourceType            string   `json:"resourceType"`
+	NextToken               string   `json:"nextToken,omitempty"`
+	ResourceName            string   `json:"resourceName,omitempty"`
+	ResourceIDs             []string `json:"resourceIds,omitempty"`
+	Limit                   int32    `json:"limit,omitempty"`
+	IncludeDeletedResources bool     `json:"includeDeletedResources,omitempty"`
 }
 type listDiscoveredResourcesOutput struct {
 	NextToken           string               `json:"nextToken,omitempty"`
@@ -313,7 +309,7 @@ const listDiscoveredResourcesPageDefault = 100
 func (h *Handler) handleListDiscoveredResources(
 	_ context.Context, in *listDiscoveredResourcesInput,
 ) (*listDiscoveredResourcesOutput, error) {
-	all := h.Backend.ListDiscoveredResources(in.ResourceType)
+	all := h.Backend.ListDiscoveredResourcesIncludingDeleted(in.ResourceType, in.IncludeDeletedResources)
 	if len(in.ResourceIDs) > 0 {
 		all = slices.DeleteFunc(
 			all,
@@ -567,7 +563,9 @@ func (h *Handler) handleListResourceEvaluations(
 	return &listResourceEvaluationsOutput{ResourceEvaluations: p.Data, NextToken: p.Next}, nil
 }
 
-// StartResourceEvaluation: EvaluationTimeout is unmodelled (evaluation completes synchronously).
+// maxResourceEvaluationTimeout is StartResourceEvaluationInput.EvaluationTimeout's documented ceiling.
+const maxResourceEvaluationTimeout = 3600
+
 type startResourceEvaluationDetails struct {
 	ResourceID            string `json:"ResourceId"`
 	ResourceType          string `json:"ResourceType"`
@@ -577,9 +575,10 @@ type startResourceEvaluationInput struct {
 	EvaluationContext *struct {
 		EvaluationContextIdentifier string `json:"EvaluationContextIdentifier"`
 	} `json:"EvaluationContext,omitempty"`
-	ResourceDetails startResourceEvaluationDetails `json:"ResourceDetails"`
-	EvaluationMode  string                         `json:"EvaluationMode"`
-	ClientToken     string                         `json:"ClientToken,omitempty"`
+	ResourceDetails   startResourceEvaluationDetails `json:"ResourceDetails"`
+	EvaluationMode    string                         `json:"EvaluationMode"`
+	ClientToken       string                         `json:"ClientToken,omitempty"`
+	EvaluationTimeout int32                          `json:"EvaluationTimeout,omitempty"`
 }
 type startResourceEvaluationOutput struct {
 	ResourceEvaluationID string `json:"ResourceEvaluationId"`
@@ -588,6 +587,12 @@ type startResourceEvaluationOutput struct {
 func (h *Handler) handleStartResourceEvaluation(
 	_ context.Context, in *startResourceEvaluationInput,
 ) (*startResourceEvaluationOutput, error) {
+	if in.EvaluationTimeout < 0 || in.EvaluationTimeout > maxResourceEvaluationTimeout {
+		return nil, fmt.Errorf(
+			"%w: EvaluationTimeout must be between 0 and %d", ErrInvalidParameterValue, maxResourceEvaluationTimeout,
+		)
+	}
+
 	contextID := ""
 	if in.EvaluationContext != nil {
 		contextID = in.EvaluationContext.EvaluationContextIdentifier

@@ -48,8 +48,8 @@ func validateMedicalType(typ string) error {
 func (b *InMemoryBackend) StartMedicalTranscriptionJob(
 	input *MedicalTranscriptionJob,
 ) (*MedicalTranscriptionJob, error) {
-	if err := validateJobName(input.MedicalTranscriptionJobName); err != nil {
-		return nil, fmt.Errorf("%w: MedicalTranscriptionJobName is required", ErrValidation)
+	if err := validateResourceName("MedicalTranscriptionJobName", input.MedicalTranscriptionJobName); err != nil {
+		return nil, err
 	}
 
 	if input.LanguageCode == "" {
@@ -102,12 +102,18 @@ func (b *InMemoryBackend) StartMedicalTranscriptionJob(
 	job.CompletionTime = now
 	job.TranscriptJSON = synthesizeTranscriptJSON(input.MedicalTranscriptionJobName,
 		"Medical transcription result for "+input.MedicalTranscriptionJobName+".")
+	key := outputObjectKey(job.OutputKey, job.MedicalTranscriptionJobName)
+	if !b.putOutputLocked(job.OutputBucketName, key, job.TranscriptJSON) {
+		job.TranscriptionJobStatus = jobStatusFailed
+		job.FailureReason = outputWriteFailure
+	}
 	b.medicalTranscriptionJobs.Put(&job)
 	b.recordResourceTagsLocked(
 		b.resourceARN(resourceTypeMedicalTranscriptionJob, job.MedicalTranscriptionJobName), job.Tags,
 	)
 
 	cp := job
+	b.observeMedicalTranscriptionJob(&cp)
 
 	return &cp, nil
 }
@@ -125,6 +131,7 @@ func (b *InMemoryBackend) GetMedicalTranscriptionJob(
 	}
 
 	cp := *job
+	b.observeMedicalTranscriptionJob(&cp)
 	cp.Tags = b.liveTagsLocked(b.resourceARN(resourceTypeMedicalTranscriptionJob, jobName))
 
 	return &cp, nil
@@ -140,9 +147,12 @@ func (b *InMemoryBackend) ListMedicalTranscriptionJobs(
 
 	all := make([]MedicalTranscriptionJob, 0, b.medicalTranscriptionJobs.Len())
 	for _, j := range b.medicalTranscriptionJobs.All() {
-		if (statusFilter == "" || j.TranscriptionJobStatus == statusFilter) &&
+		cp := *j
+		b.observeMedicalTranscriptionJob(&cp)
+
+		if (statusFilter == "" || cp.TranscriptionJobStatus == statusFilter) &&
 			matchesNameContains(j.MedicalTranscriptionJobName, nameContains) {
-			all = append(all, *j)
+			all = append(all, cp)
 		}
 	}
 

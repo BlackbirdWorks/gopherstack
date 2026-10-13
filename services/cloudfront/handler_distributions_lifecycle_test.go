@@ -196,7 +196,7 @@ func TestDistributionCRUD(t *testing.T) {
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
 				t.Helper()
 				assert.Contains(t, rec.Body.String(), "<Distribution")
-				assert.Contains(t, rec.Body.String(), "<Status>Deployed</Status>")
+				assert.Contains(t, rec.Body.String(), "<Status>InProgress</Status>")
 				assert.NotEmpty(t, rec.Header().Get("ETag"))
 				assert.NotEmpty(t, rec.Header().Get("Location"))
 			},
@@ -346,7 +346,7 @@ func TestDistributionCRUD(t *testing.T) {
 			},
 		},
 		{
-			name:   "update_distribution_precondition_failed",
+			name:   "update_distribution_missing_if_match",
 			method: http.MethodPut,
 			path:   "", // set in setup
 			body:   minimalDistConfig("ref-007", "updated-dist", false),
@@ -358,14 +358,14 @@ func TestDistributionCRUD(t *testing.T) {
 
 				return "/2020-05-31/distribution/" + d.ID + "/config"
 			},
-			wantStatus: http.StatusPreconditionFailed,
+			wantStatus: http.StatusBadRequest,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
 				t.Helper()
-				assert.Contains(t, rec.Body.String(), "PreconditionFailed")
+				assert.Contains(t, rec.Body.String(), "InvalidIfMatchVersion")
 			},
 		},
 		{
-			name:   "delete_distribution_precondition_failed",
+			name:   "delete_distribution_missing_if_match",
 			method: http.MethodDelete,
 			path:   "", // set in setup
 			body:   nil,
@@ -377,10 +377,10 @@ func TestDistributionCRUD(t *testing.T) {
 
 				return "/2020-05-31/distribution/" + d.ID
 			},
-			wantStatus: http.StatusPreconditionFailed,
+			wantStatus: http.StatusBadRequest,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
 				t.Helper()
-				assert.Contains(t, rec.Body.String(), "PreconditionFailed")
+				assert.Contains(t, rec.Body.String(), "InvalidIfMatchVersion")
 			},
 		},
 		{

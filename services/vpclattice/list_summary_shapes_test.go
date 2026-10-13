@@ -81,7 +81,7 @@ func TestListSummaries_MemberRoundTrips(t *testing.T) {
 		require.Equal(t, http.StatusCreated, snRec.Code)
 		snID, _ := parseBody(t, snRec)["id"].(string)
 
-		svcRec := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svc-snsa"})
+		svcRec := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svcx-snsa"})
 		require.Equal(t, http.StatusCreated, svcRec.Code)
 		svcID, _ := parseBody(t, svcRec)["id"].(string)
 

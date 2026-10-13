@@ -509,7 +509,7 @@ func TestAccuracy_EvaluationJob_StopTransitionsStatus(t *testing.T) {
 
 			var out map[string]any
 			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out))
-			assert.Equal(t, "Stopped", out["status"])
+			assert.Equal(t, "Stopping", out["status"])
 		})
 	}
 }
@@ -948,7 +948,7 @@ func TestHandler_StopEvaluationJob(t *testing.T) {
 	rec3 := doRequest(t, h, http.MethodGet, "/evaluation-jobs/"+url.PathEscape(jobARN), nil)
 	var out map[string]any
 	mustUnmarshal(t, rec3, &out)
-	assert.Equal(t, "Stopped", out[keyStatus])
+	assert.Equal(t, "Stopping", out[keyStatus])
 }
 
 func TestBatch2Ops_StopEvaluationJob_AlreadyStopped_Rejected(t *testing.T) {
@@ -1011,7 +1011,7 @@ func TestBatch2Ops_StopEvaluationJob_InProgress_Succeeds(t *testing.T) {
 
 	var out map[string]any
 	mustUnmarshal(t, rec3, &out)
-	assert.Equal(t, "Stopped", out["status"])
+	assert.Equal(t, "Stopping", out["status"])
 }
 
 func TestBatch2Ops_BatchDeleteEvaluationJob_InProgress_ReportedAsError(t *testing.T) {

@@ -2,7 +2,12 @@ package workspaces
 
 import (
 	"context"
+	"fmt"
+	"slices"
 
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/workspaces/types"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -203,9 +208,36 @@ func (h *Handler) handleDescribeApplicationAssociations(
 }
 
 type describeApplicationsInput struct {
-	NextToken      string   `json:"NextToken"`
-	ApplicationIds []string `json:"ApplicationIds"` //nolint:revive // existing issue.
-	MaxResults     int32    `json:"MaxResults"`
+	NextToken            string   `json:"NextToken"`
+	LicenseType          string   `json:"LicenseType"`
+	ApplicationIds       []string `json:"ApplicationIds"` //nolint:revive // existing issue.
+	ComputeTypeNames     []string `json:"ComputeTypeNames"`
+	OperatingSystemNames []string `json:"OperatingSystemNames"`
+	MaxResults           int32    `json:"MaxResults"`
+}
+
+func validateDescribeApplicationsFilters(req *describeApplicationsInput) error {
+	if req.LicenseType != "" && !slices.Contains(
+		sdktypes.WorkSpaceApplicationLicenseType("").
+			Values(),
+		sdktypes.WorkSpaceApplicationLicenseType(req.LicenseType),
+	) {
+		return awserr.New(fmt.Sprintf("invalid LicenseType %q", req.LicenseType), awserr.ErrInvalidParameter)
+	}
+
+	for _, c := range req.ComputeTypeNames {
+		if !slices.Contains(sdktypes.Compute("").Values(), sdktypes.Compute(c)) {
+			return awserr.New(fmt.Sprintf("invalid ComputeTypeNames value %q", c), awserr.ErrInvalidParameter)
+		}
+	}
+
+	for _, o := range req.OperatingSystemNames {
+		if !slices.Contains(sdktypes.OperatingSystemName("").Values(), sdktypes.OperatingSystemName(o)) {
+			return awserr.New(fmt.Sprintf("invalid OperatingSystemNames value %q", o), awserr.ErrInvalidParameter)
+		}
+	}
+
+	return nil
 }
 
 type applicationResp struct {
@@ -223,6 +255,10 @@ type describeApplicationsOutput struct {
 func (h *Handler) handleDescribeApplications(
 	_ context.Context, req *describeApplicationsInput,
 ) (*describeApplicationsOutput, error) {
+	if err := validateDescribeApplicationsFilters(req); err != nil {
+		return nil, err
+	}
+
 	apps, nextToken, err := h.Backend.DescribeApplications(
 		req.ApplicationIds,
 		req.MaxResults,

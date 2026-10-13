@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"time"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // defaultIRMaxRecords and maxIRMaxRecords are DescribeInstanceRefreshes's documented
@@ -65,7 +63,10 @@ func (h *Handler) handleDescribeInstanceRefreshes(vals url.Values) (any, error) 
 		}
 	}
 
-	p := page.New(refreshes, vals.Get("NextToken"), maxRecords, defaultIRMaxRecords)
+	p, pageErr := newPage(vals, refreshes, maxRecords, defaultIRMaxRecords)
+	if pageErr != nil {
+		return nil, pageErr
+	}
 
 	members := make([]xmlInstanceRefresh, 0, len(p.Data))
 	for _, r := range p.Data {

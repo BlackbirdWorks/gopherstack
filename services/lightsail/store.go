@@ -5,6 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,12 +40,12 @@ type CloudFormationBackend interface {
 // .claude/memories/pkgs-catalog.md's locking rule.
 type InMemoryBackend struct {
 	cfnBackend               CloudFormationBackend
-	alarms                   *store.Table[Alarm]
-	disks                    *store.Table[Disk]
+	certificates             *store.Table[Certificate]
+	instances                *store.Table[Instance]
 	staticIPs                *store.Table[StaticIP]
 	keyPairs                 *store.Table[KeyPair]
 	instanceSnapshots        *store.Table[InstanceSnapshot]
-	diskSnapshots            *store.Table[DiskSnapshot]
+	guiSessions              *store.Table[GUISession]
 	exportSnapshotRecords    *store.Table[ExportSnapshotRecord]
 	cfnStackRecords          *store.Table[CloudFormationStackRecord]
 	loadBalancers            *store.Table[LoadBalancer]
@@ -53,9 +57,10 @@ type InMemoryBackend struct {
 	distributions            *store.Table[Distribution]
 	domains                  *store.Table[Domain]
 	registry                 *store.Registry
-	certificates             *store.Table[Certificate]
-	work                     *worker.Group
-	guiSessions              *store.Table[GUISession]
+	alarms                   *store.Table[Alarm]
+	disks                    *store.Table[Disk]
+	distributionCacheResets  map[string]time.Time
+	diskSnapshots            *store.Table[DiskSnapshot]
 	operations               *store.Table[Operation]
 	opsByResource            *store.Index[Operation]
 	setupHistory             *store.Table[SetupHistoryEntry]
@@ -63,13 +68,13 @@ type InMemoryBackend struct {
 	activeNames              map[string]string
 	defaultKeyPair           *KeyPair
 	mu                       *lockmetrics.RWMutex
-	instances                *store.Table[Instance]
+	work                     *worker.Group
 	contactMethods           *store.Table[ContactMethod]
-	distributionCacheResets  map[string]time.Time
 	defaultKeyPairPublicKey  string
 	defaultKeyPairPrivateKey string
 	accountID                string
 	region                   string
+	delayNanos               atomic.Int64
 	nextAccessKeySeq         int
 	vpcPeered                bool
 }
@@ -85,9 +90,21 @@ func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemory
 		mu:                      lockmetrics.New("lightsail"),
 		work:                    worker.NewGroup(ctx, "lightsail"),
 	}
+	b.delayNanos.Store(int64(asyncTransitionDelay))
 	registerAllTables(b)
 
 	return b
+}
+
+// SetTransitionDelay sets the delay of each async state hop (instance
+// pending/stopping, operation Started, ...) for resources created or acted on
+// afterwards. Default is asyncTransitionDelay.
+func (b *InMemoryBackend) SetTransitionDelay(d time.Duration) {
+	b.delayNanos.Store(int64(d))
+}
+
+func (b *InMemoryBackend) transitionDelay() time.Duration {
+	return time.Duration(b.delayNanos.Load())
 }
 
 // SetCloudFormationBackend wires the real services/cloudformation stack
@@ -237,6 +254,10 @@ func availabilityZoneA(region string) string { return region + "a" }
 // must hold b.mu. Returns a validationError if name is already taken by any
 // resource kind (including the same kind).
 func (b *InMemoryBackend) registerNameLocked(kind, name string) error {
+	if err := validateResourceName(kind, name); err != nil {
+		return err
+	}
+
 	if existing, ok := b.activeNames[name]; ok {
 		return validationError(fmt.Sprintf("a resource named %q already exists (%s)", name, existing))
 	}
@@ -246,8 +267,69 @@ func (b *InMemoryBackend) registerNameLocked(kind, name string) error {
 	return nil
 }
 
+// registerNamesLocked registers every name or none: a failure part-way rolls
+// back the names already taken, and a name repeated within names is rejected.
+func (b *InMemoryBackend) registerNamesLocked(kind string, names []string) error {
+	taken := make([]string, 0, len(names))
+
+	for _, name := range names {
+		if err := b.registerNameLocked(kind, name); err != nil {
+			for _, n := range taken {
+				b.unregisterNameLocked(n)
+			}
+
+			return err
+		}
+
+		taken = append(taken, name)
+	}
+
+	return nil
+}
+
+// validateAvailabilityZone rejects zones that cannot belong to the backend's region.
+func (b *InMemoryBackend) validateAvailabilityZone(az string) error {
+	if az != "" && (!strings.HasPrefix(az, b.region) || len(az) == len(b.region)) {
+		return validationError("Invalid availability zone: " + az + " is not in region " + b.region)
+	}
+
+	return nil
+}
+
 // unregisterNameLocked removes name from the global activeNames index.
 // Callers must hold b.mu.
 func (b *InMemoryBackend) unregisterNameLocked(name string) {
 	delete(b.activeNames, name)
+}
+
+var (
+	containerNameRE = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
+	bucketNameRE    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,52}[a-z0-9]$`)
+)
+
+var resourceNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.\-]{0,253}[A-Za-z0-9]$`)
+
+// validateResourceName applies Lightsail's 2-255 character name rule (letters,
+// digits, '_', '.', '-'; alphanumeric at both ends) to the kinds that share it.
+func validateResourceName(kind, name string) error {
+	switch kind {
+	case ResourceTypeContainerService:
+		if !containerNameRE.MatchString(name) {
+			return validationError("Invalid container service name " + strconv.Quote(name) + ": must contain " +
+				"1 to 63 alphanumeric characters and hyphens, with no hyphen at the start or end")
+		}
+	case ResourceTypeBucket:
+		if !bucketNameRE.MatchString(name) {
+			return validationError("Invalid bucket name " + strconv.Quote(name) + ": must contain 3 to 54 " +
+				"lowercase letters, numbers, and hyphens, starting and ending with a letter or number")
+		}
+	case ResourceTypeInstance, ResourceTypeDisk, ResourceTypeStaticIP, ResourceTypeKeyPair,
+		ResourceTypeLoadBalancer, ResourceTypeInstanceSnapshot, ResourceTypeDiskSnapshot:
+		if !resourceNameRE.MatchString(name) {
+			return validationError("Invalid name " + strconv.Quote(name) + ": names must be 2-255 characters of " +
+				"letters, numbers, underscores, periods, or hyphens, starting and ending with a letter or number")
+		}
+	}
+
+	return nil
 }

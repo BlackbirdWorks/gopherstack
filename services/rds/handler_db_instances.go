@@ -1,11 +1,14 @@
 package rds
 
 import (
+	"cmp"
 	"encoding/xml"
 	"fmt"
 	"net/url"
 	"strconv"
 	"time"
+
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // parseDBInstanceIntParams parses numeric form parameters for CreateDBInstance/ModifyDBInstance.
@@ -94,11 +97,16 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 		)
 	}
 
+	if err = validateMasterPassword(engine, vals.Get("MasterUserPassword")); err != nil {
+		return nil, err
+	}
+
 	vpcSGIds := parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId")
 	dbSGNames := parseMultiValueParam(vals, "DBSecurityGroups.DBSecurityGroupName")
 	logExports := parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member")
 
 	opts := DBInstanceOptions{
+		PinnedDbiResourceID:                pinnedDbiResourceID(vals),
 		MasterSecretRequest:                parseMasterSecretRequest(vals),
 		MasterUserPassword:                 vals.Get("MasterUserPassword"),
 		EngineVersion:                      vals.Get("EngineVersion"),
@@ -361,14 +369,14 @@ func toXMLInstance(inst *DBInstance, roles []DBInstanceRole) xmlDBInstance {
 		DBInstanceStatus:                   inst.DBInstanceStatus,
 		MasterUsername:                     inst.MasterUsername,
 		DBName:                             inst.DBName,
-		Endpoint:                           inst.Endpoint,
-		Port:                               inst.Port,
+		Endpoint:                           instanceEndpoint(inst),
 		AllocatedStorage:                   inst.AllocatedStorage,
 		Iops:                               inst.Iops,
 		StorageThroughput:                  inst.StorageThroughput,
 		VpcID:                              inst.VpcID,
 		DBSubnetGroupName:                  inst.DBSubnetGroupName,
 		ReplicaSourceDBInstanceIdentifier:  inst.ReplicaSourceDBInstanceIdentifier,
+		ReplicaSourceDBClusterIdentifier:   inst.ReplicaSourceDBClusterIdentifier,
 		StorageType:                        inst.StorageType,
 		StorageEncrypted:                   inst.StorageEncrypted,
 		MultiAZ:                            inst.MultiAZ,
@@ -470,7 +478,10 @@ func applyXMLInstanceGroups(inst *DBInstance, result *xmlDBInstance) {
 	if inst.DBParameterGroupName != "" {
 		result.DBParameterGroups = &xmlDBParamGroupsWrapper{
 			Members: []xmlDBParamGroupStatus{
-				{DBParameterGroupName: inst.DBParameterGroupName, ParameterApplyStatus: dbParameterApplyStatusInSync},
+				{
+					DBParameterGroupName: inst.DBParameterGroupName,
+					ParameterApplyStatus: cmp.Or(inst.ParameterApplyStatus, dbParameterApplyStatusInSync),
+				},
 			},
 		}
 	}
@@ -504,6 +515,9 @@ const optionGroupMembershipStatusInSync = "in-sync"
 // group applied statically (no pending change), matching this backend's
 // always-apply-immediately parameter group model.
 const dbParameterApplyStatusInSync = "in-sync"
+
+// dbParameterApplyStatusPendingReboot is reported until the instance reboots after a parameter-group change.
+const dbParameterApplyStatusPendingReboot = "pending-reboot"
 
 type xmlOptionGroupMembership struct {
 	OptionGroupName string `xml:"OptionGroupName"`
@@ -593,6 +607,7 @@ func xmlDBInstanceRolesOrNil(roles []DBInstanceRole) *xmlDBInstanceRoleList {
 }
 
 type xmlDBInstance struct {
+	Endpoint                         *xmlEndpoint                  `xml:"Endpoint,omitempty"`
 	DBParameterGroups                *xmlDBParamGroupsWrapper      `xml:"DBParameterGroups,omitempty"`
 	VpcSecurityGroups                *xmlVpcSecurityGroupList      `xml:"VpcSecurityGroups,omitempty"`
 	DBSecurityGroups                 *xmlDBSecGroupList            `xml:"DBSecurityGroups,omitempty"`
@@ -614,11 +629,11 @@ type xmlDBInstance struct {
 	DBInstanceStatus                  string `xml:"DBInstanceStatus"`
 	MasterUsername                    string `xml:"MasterUsername"`
 	DBName                            string `xml:"DBName,omitempty"`
-	Endpoint                          string `xml:"Endpoint>Address"`
 	VpcID                             string `xml:"DBSubnetGroup>VpcId,omitempty"`
 	DBSubnetGroupName                 string `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
 	NetworkType                       string `xml:"NetworkType,omitempty"`
 	ReplicaSourceDBInstanceIdentifier string `xml:"ReadReplicaSourceDBInstanceIdentifier,omitempty"`
+	ReplicaSourceDBClusterIdentifier  string `xml:"ReadReplicaSourceDBClusterIdentifier,omitempty"`
 	StorageType                       string `xml:"StorageType,omitempty"`
 	AvailabilityZone                  string `xml:"AvailabilityZone,omitempty"`
 	DBInstanceIdentifier              string `xml:"DBInstanceIdentifier"`
@@ -640,7 +655,6 @@ type xmlDBInstance struct {
 	StorageThroughput                  int `xml:"StorageThroughput,omitempty"`
 	BackupRetentionPeriod              int `xml:"BackupRetentionPeriod"`
 	MonitoringInterval                 int `xml:"MonitoringInterval,omitempty"`
-	Port                               int `xml:"Endpoint>Port"`
 	PromotionTier                      int `xml:"PromotionTier,omitempty"`
 	PerformanceInsightsRetentionPeriod int `xml:"PerformanceInsightsRetentionPeriod,omitempty"`
 
@@ -653,6 +667,20 @@ type xmlDBInstance struct {
 	MultiAZ                          bool `xml:"MultiAZ"`
 	AutoMinorVersionUpgrade          bool `xml:"AutoMinorVersionUpgrade,omitempty"`
 	MultiTenant                      bool `xml:"MultiTenant,omitempty"`
+}
+
+type xmlEndpoint struct {
+	Address string `xml:"Address"`
+	Port    int    `xml:"Port"`
+}
+
+// instanceEndpoint returns the Endpoint element, or nil while the instance has no address.
+func instanceEndpoint(inst *DBInstance) *xmlEndpoint {
+	if inst.Endpoint == "" {
+		return nil
+	}
+
+	return &xmlEndpoint{Address: inst.Endpoint, Port: inst.Port}
 }
 
 type xmlDBInstanceList struct {
@@ -697,6 +725,7 @@ func (h *Handler) handleCreateDBInstanceReadReplica(vals url.Values) (any, error
 	}
 
 	replicaOpts := DBInstanceOptions{
+		SourceDBClusterIdentifier:          vals.Get("SourceDBClusterIdentifier"),
 		VpcSecurityGroupIDs:                parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
 		AutoMinorVersionUpgrade:            vals.Get("AutoMinorVersionUpgrade") == formTrue,
 		IAMDatabaseAuthenticationEnabled:   vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
@@ -862,6 +891,15 @@ func parseRestoreDBInstanceOptions(vals url.Values) DBInstanceOptions {
 		UseDefaultProcessorFeatures:      vals.Get("UseDefaultProcessorFeatures") == formTrue,
 		BackupTarget:                     vals.Get("BackupTarget"),
 		EnabledCloudwatchLogsExports:     parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member"),
+		DBInstanceClass:                  vals.Get("DBInstanceClass"),
+		DBSubnetGroupName:                vals.Get("DBSubnetGroupName"),
+		PubliclyAccessible:               vals.Get("PubliclyAccessible") == formTrue,
+		AutoMinorVersionUpgrade:          vals.Get("AutoMinorVersionUpgrade") == formTrue,
+		CopyTagsToSnapshot:               vals.Get("CopyTagsToSnapshot") == formTrue,
+		NetworkType:                      vals.Get("NetworkType"),
+		DBPortNumber:                     atoiOrZero(vals.Get("Port")),
+		Iops:                             atoiOrZero(vals.Get("Iops")),
+		StorageThroughput:                atoiOrZero(vals.Get("StorageThroughput")),
 	}
 }
 
@@ -994,4 +1032,10 @@ func rejectRestoreTimeConflict(vals url.Values, timeKey string) error {
 	}
 
 	return nil
+}
+
+func pinnedDbiResourceID(vals url.Values) string {
+	id, _ := svcTags.PinnedIDFromList(parseTagEntries(vals), func(t Tag) (string, string) { return t.Key, t.Value })
+
+	return id
 }

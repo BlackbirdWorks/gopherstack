@@ -77,6 +77,10 @@ func (h *Handler) handleDescribeConnections(_ context.Context, body []byte) ([]b
 	}
 
 	conns := h.Backend.DescribeConnections(req.ConnectionID)
+	if req.ConnectionID != "" && len(conns) == 0 {
+		return nil, clientError("Could not find Connection with ID: " + req.ConnectionID)
+	}
+
 	page, next := paginate(conns, req.NextToken, req.MaxResults)
 
 	return marshalResponse(connectionsListResponse{Connections: connectionWires(page), NextToken: next})

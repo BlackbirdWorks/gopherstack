@@ -27,7 +27,11 @@ func minimalTrainingSpecification() map[string]any {
 		"TrainingImage":                  "123456789012.dkr.ecr.us-east-1.amazonaws.com/my-algo:latest",
 		"SupportedTrainingInstanceTypes": []string{"ml.m5.large"},
 		"TrainingChannels": []map[string]any{
-			{"Name": "train"},
+			{
+				"Name":                  "train",
+				"SupportedContentTypes": []string{"text/csv"},
+				"SupportedInputModes":   []string{"File"},
+			},
 		},
 	}
 }

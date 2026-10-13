@@ -84,6 +84,10 @@ func (h *Handler) handleListFindings(detectorID string, body []byte) (any, int, 
 		}
 	}
 
+	if err := checkMaxResults(req.MaxResults); err != nil {
+		return nil, http.StatusBadRequest, err
+	}
+
 	q := FindingsQuery{NextToken: req.NextToken, MaxResults: req.MaxResults}
 	if req.FindingCriteria != nil {
 		q.Criteria = req.FindingCriteria.Criterion

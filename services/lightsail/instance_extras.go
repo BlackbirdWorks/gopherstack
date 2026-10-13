@@ -51,7 +51,7 @@ func (b *InMemoryBackend) CreateInstanceSnapshot(
 	snap.Tags.Merge(userTags)
 	b.instanceSnapshots.Put(snap)
 
-	b.work.After("InstanceSnapshotComplete", asyncTransitionDelay, func() {
+	b.work.After("InstanceSnapshotComplete", b.transitionDelay(), func() {
 		b.mu.Lock("InstanceSnapshot-async-complete")
 		defer b.mu.Unlock()
 

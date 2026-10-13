@@ -160,6 +160,34 @@ func WithTenantCustomizations(c map[string]any) TenantOption {
 	return func(t *DistributionTenant) { t.Customizations = c }
 }
 
+// WithTenantManagedCertificateRequest records the tenant's managed certificate request.
+func WithTenantManagedCertificateRequest(r *ManagedCertificateRequest) TenantOption {
+	return func(t *DistributionTenant) { t.ManagedCertificateRequest = r }
+}
+
+// ValidateManagedCertificateRequest checks the request's enum members.
+func ValidateManagedCertificateRequest(r *ManagedCertificateRequest) error {
+	if r == nil {
+		return nil
+	}
+
+	switch r.ValidationTokenHost {
+	case validationTokenHostCloudFront, validationTokenHostSelfHosted:
+	default:
+		return fmt.Errorf("%w: ManagedCertificateRequest.ValidationTokenHost must be %s or %s, got %q",
+			ErrValidation, validationTokenHostCloudFront, validationTokenHostSelfHosted, r.ValidationTokenHost)
+	}
+
+	switch r.CertificateTransparencyLoggingPreference {
+	case "", "enabled", "disabled":
+	default:
+		return fmt.Errorf("%w: ManagedCertificateRequest.CertificateTransparencyLoggingPreference "+
+			"must be enabled or disabled, got %q", ErrValidation, r.CertificateTransparencyLoggingPreference)
+	}
+
+	return nil
+}
+
 // CreateDistributionTenant creates a new distribution tenant.
 func (b *InMemoryBackend) CreateDistributionTenant(
 	distributionID, name string,
@@ -308,6 +336,13 @@ func (b *InMemoryBackend) UpdateDistributionTenant(
 		t.DistributionID = upd.DistributionID
 	}
 
+	if upd.ManagedCertificateRequest != nil {
+		req := *upd.ManagedCertificateRequest
+		t.ManagedCertificateRequest = &req
+	}
+
+	delete(b.managedCertificates, id)
+
 	t.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	t.ETag = uuid.NewString()
 
@@ -323,6 +358,8 @@ func (b *InMemoryBackend) DeleteDistributionTenant(id string) error {
 	if !ok {
 		return fmt.Errorf("%w: tenant %s not found", ErrDistributionTenantNotFound, id)
 	}
+
+	delete(b.managedCertificates, id)
 
 	for _, d := range t.Domains {
 		delete(b.distributionTenantsByDomain, d)
@@ -722,10 +759,15 @@ func (b *InMemoryBackend) GetManagedCertificateDetails(tenantID string) (*Manage
 		})
 	}
 
+	tokenHost := validationTokenHostCloudFront
+	if req := tenant.ManagedCertificateRequest; req != nil && req.ValidationTokenHost != "" {
+		tokenHost = req.ValidationTokenHost
+	}
+
 	details := &ManagedCertificateDetails{
 		CertificateARN:         b.managedCertificateARN(tenantID),
 		CertificateStatus:      status,
-		ValidationTokenHost:    "cloudfront",
+		ValidationTokenHost:    tokenHost,
 		ValidationTokenDetails: tokens,
 	}
 	b.managedCertificates[tenantID] = details

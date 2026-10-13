@@ -42,8 +42,8 @@ func (b *InMemoryBackend) CreateCampaign(
 	b.mu.Lock("CreateCampaign")
 	defer b.mu.Unlock()
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	if err := validateName("name", name); err != nil {
+		return nil, err
 	}
 	if b.campaigns.Has(name) {
 		return nil, fmt.Errorf("%w: campaign %q already exists", ErrAlreadyExists, name)
@@ -56,6 +56,10 @@ func (b *InMemoryBackend) CreateCampaign(
 		return nil, fmt.Errorf("%w: solution version %q not found", ErrNotFound, solutionVersionArn)
 	}
 
+	if minProvisionedTPS <= 0 {
+		minProvisionedTPS = 1
+	}
+
 	now := time.Now().UTC()
 	c := &Campaign{
 		CampaignArn:         b.personalizeARN("campaign", name),
@@ -64,6 +68,7 @@ func (b *InMemoryBackend) CreateCampaign(
 		MinProvisionedTPS:   minProvisionedTPS,
 		CampaignConfig:      campaignConfig,
 		Status:              statusActive,
+		lc:                  b.lifecycle(),
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 	}
@@ -126,7 +131,7 @@ func (b *InMemoryBackend) UpdateCampaign(
 		keyLastUpdatedDateTime: awstime.Epoch(c.LastUpdatedDateTime),
 		"minProvisionedTPS":    c.MinProvisionedTPS,
 		keySolutionVersionArn:  c.SolutionVersionArn,
-		keyStatus:              c.Status,
+		keyStatus:              c.lc.resourceStatus(c.Status, c.CreationDateTime),
 	}
 
 	return c, nil

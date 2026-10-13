@@ -203,6 +203,21 @@ func (b *InMemoryBackend) RegisterConnectorV2(_, authState string) (*ConnectorV2
 	return target.clone(), nil
 }
 
+// GetTicketV2 returns the ticket created under ticketID.
+func (b *InMemoryBackend) GetTicketV2(ticketID string) (*TicketV2, error) {
+	b.mu.RLock("GetTicketV2")
+	defer b.mu.RUnlock()
+
+	t, ok := b.ticketsV2.Get(ticketID)
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	cp := *t
+
+	return &cp, nil
+}
+
 func (b *InMemoryBackend) CreateTicketV2(connectorID, findingMetadataUID, mode string) (*TicketV2, error) {
 	b.mu.Lock("CreateTicketV2")
 	defer b.mu.Unlock()

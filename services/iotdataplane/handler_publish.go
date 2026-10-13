@@ -193,7 +193,10 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 		// RequestEntityTooLargeException, so there's no verified type to emit.
 		return c.JSON(
 			http.StatusRequestEntityTooLarge,
-			map[string]string{keyError: "request body too large"},
+			map[string]string{
+				keyError:   "RequestEntityTooLargeException",
+				keyMessage: "The payload exceeds the maximum size allowed",
+			},
 		)
 	}
 

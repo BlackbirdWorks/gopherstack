@@ -288,7 +288,7 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		logger.Load(c.Request().Context()).Error("elb internal error", "error", opErr, "action", action)
 	}
 
-	return h.writeError(c, statusCode, code, opErr.Error())
+	return h.writeError(c, statusCode, code, publicMessage(code, opErr.Error()))
 }
 
 func elbErrorCode(opErr error) (string, int) {

@@ -46,11 +46,19 @@ func NewJanitor(backend StorageBackend, interval, idleTimeout time.Duration) *Ja
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
+	j.Start(ctx)()
+}
+
+// Start launches the sweeper goroutine before returning and returns a func
+// that blocks until ctx ends and the group has stopped.
+func (j *Janitor) Start(ctx context.Context) func() {
 	g := worker.NewGroup(ctx, janitorWorkerService)
 	g.Ticker(idleSweeperName, j.Interval, j.TaskTimeout, j.sweepIdleConnections)
 
-	<-ctx.Done()
-	g.Stop()
+	return func() {
+		<-ctx.Done()
+		g.Stop()
+	}
 }
 
 // SweepOnce runs a single sweep pass. Exposed for testing.

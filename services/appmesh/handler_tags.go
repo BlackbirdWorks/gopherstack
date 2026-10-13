@@ -16,7 +16,10 @@ func (h *Handler) handleListTags(c *echo.Context) error {
 	if resourceArn == "" {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "resourceArn is required"))
 	}
-	maxResults, nextToken := listParams(c)
+	maxResults, nextToken, pageErr := listParams(c)
+	if pageErr != nil {
+		return h.mapErr(c, pageErr)
+	}
 	refs, next, err := h.Backend.ListTagsForResource(resourceArn, maxResults, nextToken)
 	if err != nil {
 		return h.mapErr(c, err)
@@ -27,7 +30,7 @@ func (h *Handler) handleListTags(c *echo.Context) error {
 	}
 	resp := map[string]any{"tags": wireRefs}
 	if next != "" {
-		resp["nextToken"] = next
+		resp["nextToken"] = encodeNextToken(next)
 	}
 
 	return c.JSON(http.StatusOK, resp)

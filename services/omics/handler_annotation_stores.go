@@ -76,7 +76,10 @@ func (h *Handler) handleListAnnotationStores(c *echo.Context) error {
 		return err
 	}
 
-	maxResults, nextToken := listQueryParams(c)
+	maxResults, nextToken, err := listQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
 
 	stores, next, err := h.Backend.ListAnnotationStores(req.Filter, req.IDs, maxResults, nextToken)
 	if err != nil {
@@ -166,7 +169,10 @@ func (h *Handler) handleListAnnotationImportJobs(c *echo.Context) error {
 		return err
 	}
 
-	maxResults, nextToken := listQueryParams(c)
+	maxResults, nextToken, err := listQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
 
 	jobs, next, err := h.Backend.ListAnnotationImportJobs(req.Filter, req.IDs, maxResults, nextToken)
 	if err != nil {
@@ -265,7 +271,10 @@ func (h *Handler) handleListAnnotationStoreVersions(c *echo.Context, name string
 		return err
 	}
 
-	maxResults, nextToken := listQueryParams(c)
+	maxResults, nextToken, err := listQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
 
 	versions, next, err := h.Backend.ListAnnotationStoreVersions(
 		name,

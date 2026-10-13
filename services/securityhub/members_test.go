@@ -131,7 +131,7 @@ func TestMembers(t *testing.T) {
 				{
 					name:   "list",
 					method: http.MethodGet,
-					path:   "/members",
+					path:   "/members?OnlyAssociated=false",
 					body:   nil,
 					check: func(t *testing.T, code int, resp map[string]any) {
 						t.Helper()
@@ -248,7 +248,7 @@ func TestInviteMembers_UnknownAccountUnprocessed(t *testing.T) {
 			assert.Len(t, unprocessed, tc.wantUnproc)
 
 			if tc.wantListedMem {
-				membersRec := doRequest(t, h, http.MethodGet, "/members", nil)
+				membersRec := doRequest(t, h, http.MethodGet, "/members?OnlyAssociated=false", nil)
 				require.Equal(t, http.StatusOK, membersRec.Code)
 
 				var membersResp map[string]any

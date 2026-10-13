@@ -204,7 +204,7 @@ func seedJobResources(
 	)
 	require.NoError(t, err)
 
-	tc, err := b.CreateAutomatedReasoningPolicyTestCase(arp.PolicyArn)
+	tc, err := b.CreateAutomatedReasoningPolicyTestCase(arp.PolicyArn, validARPTestCase())
 	require.NoError(t, err)
 
 	arpv, err := b.CreateAutomatedReasoningPolicyVersion(arp.PolicyArn, "definition-hash-123", nil)
@@ -516,7 +516,12 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	// restore must reuse the very first ID, exactly like a brand-new backend.
 	g, err := b.CreateGuardrail("post-reset-guardrail", "d", "in", "out", nil)
 	require.NoError(t, err)
-	assert.Equal(t, "bedrock-guardrail-0000001", g.GuardrailID)
+	assert.Regexp(t, `^[a-z0-9]{10}$`, g.GuardrailID)
+
+	b2 := bedrock.NewInMemoryBackend(testAccountID, testRegion)
+	g2, err := b2.CreateGuardrail("fresh", "d", "in", "out", nil)
+	require.NoError(t, err)
+	assert.Equal(t, g2.GuardrailID, g.GuardrailID)
 }
 
 // TestInMemoryBackend_RestoreInvalidData verifies malformed JSON surfaces as

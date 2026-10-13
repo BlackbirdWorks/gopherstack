@@ -22,7 +22,7 @@ func newTaggableTrustAnchor(t *testing.T, b *rolesanywhere.InMemoryBackend) stri
 	t.Helper()
 
 	src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
-	ta, err := b.CreateTrustAnchor(context.Background(), t.Name(), src, nil, nil, nil)
+	ta, err := b.CreateTrustAnchor(context.Background(), testName(t), src, nil, nil, nil)
 	require.NoError(t, err)
 
 	return ta.TrustAnchorArn

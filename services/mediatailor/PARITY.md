@@ -7,7 +7,7 @@
 service: mediatailor
 sdk_module: aws-sdk-go-v2/service/mediatailor@v1.63.4   # version audited against
 last_audit_commit: ed6ef1a53                              # HEAD when this manifest was written
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-07
                        # 2026-08-30: pagination-tie sweep (does a name-sorted List op lose a
                        # record at a page boundary when two records tie on the sort key?). All 8
                        # paginated listings (ListChannels/ListSourceLocations/
@@ -113,15 +113,19 @@ families:
 gaps: []
 deferred: []      # every deferred item from the prior manifest is now implemented this pass - see ops[*].note above
 items_still_open:
-  - "ListAlerts.MaxResults has nothing to paginate: alerts are not modeled, so the list is always empty (matches a fresh account)."
-  - "ProgramScheduleEntry.ScheduleAdBreaks is always empty: real MediaTailor fills it from SCTE-35 avails detected by parsing source manifests, which this service does not do. Deriving it from the client-set Program.AdBreaks would be fabrication."
-  - "GetChannelSchedule.DurationMinutes is not applied: the pinned SDK and docs give no windowing baseline, so any choice would be invented."
+  - "GetChannelSchedule.DurationMinutes is not applied: the pinned SDK doc says only 'duration in minutes of the channel schedule' with no windowing baseline, so any choice would be invented."
   - "CreateProgram accepts both VodSourceName and LiveSourceName: neither the API reference nor the pinned SDK (v1.63.4) documents an error for it. Unreferenced-source rejection is proven by TestCreateProgram_RejectsUnknownReferences."
-  - "PlaybackConfiguration dual-stack response prefixes (DualStackPlaybackEndpointPrefix, DualStackSessionInitializationEndpointPrefix, HlsConfiguration.DualStackManifestEndpointPrefix) are modeled but never set: no dual-stack endpoint exists to report."
+  - "PlaybackConfiguration dual-stack response prefixes (DualStackPlaybackEndpointPrefix, DualStackSessionInitializationEndpointPrefix, HlsConfiguration.DualStackManifestEndpointPrefix) are never set: the SDK gives only the dual-stack API host (api.mediatailor.{region}.api.aws), not the playback host pattern, so deriving one would be invented."
+structural_gaps:
+  - "ListAlerts always returns an empty Items page (resourceArn is validated as required): alerts are raised by MediaTailor's runtime when it fails to process sources or playback, and no such processing exists to raise them."
+  - "ProgramScheduleEntry.ScheduleAdBreaks is always empty: real MediaTailor fills it from SCTE-35 avails detected by parsing source manifests, which this service does not do. Deriving it from the client-set Program.AdBreaks would be fabrication."
 leaks: {status: clean, note: "no goroutines, timers, or janitors in this service; all state lives in store.Table/Index + plain maps guarded by one lockmetrics.RWMutex. This pass additionally fixed two ghost-row leaks: DeleteChannel now cascade-deletes every program scheduled on it (via programsByChannel index) and its channel policy; DeletePlaybackConfiguration now cascade-deletes every attached prefetch schedule (via prefetchSchedulesByConfig index). Neither cascade existed before this pass - a channel/playback-config could be deleted and recreated with the same name while its old programs/prefetch-schedules silently lingered in their tables, invisible via any real op path but still occupying memory and corrupting Snapshot/Restore fidelity."}
 ---
 
 ## Notes
+
+**2026-10-10 (realism pass):** resource names (channel, playback configuration, source location, VOD source) reject whitespace, `/`, control characters and >255 chars; AvailSuppression.Mode/FillPolicy are checked against the SDK enums; URLs over 25000 chars rejected; List ops reject MaxResults < 1 and malformed NextToken (the upper bound stays lenient: the pinned SDK documents only the default of 100, and TestListSourceLocations_DefaultPageSize relies on larger values); program output omits unset VodSourceName/LiveSourceName instead of emitting empty strings. Tests: TestRequestValidation, TestProgramOmitsUnsetSourceName.
+
 
 ### 2026-09-19 (gopherstack-op3e census): "/tags/" prefix shadow (eks/amplify/accessanalyzer) -- false positive
 

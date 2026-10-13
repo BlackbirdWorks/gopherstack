@@ -19,6 +19,14 @@ func (b *InMemoryBackend) CreateFargateProfile(
 	subnets []string,
 	kv map[string]string,
 ) (*FargateProfile, error) {
+	if err := validateResourceName("Fargate profile", profileName, maxNodegroupNameLen); err != nil {
+		return nil, err
+	}
+
+	if err := validateRoleARN(podExecutionRoleARN); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateFargateProfile")
 	defer b.mu.Unlock()
 
@@ -29,7 +37,7 @@ func (b *InMemoryBackend) CreateFargateProfile(
 	// (InvalidParameterException), the only client-fault code it models
 	// besides InvalidRequestException.
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrValidation, clusterName)
+		return nil, errMsgf(ErrValidation, "No cluster found for name: %s.", clusterName)
 	}
 
 	if _, ok := b.fargateProfiles.Get(fargateProfileKey(clusterName, profileName)); ok {
@@ -86,7 +94,7 @@ func (b *InMemoryBackend) CreateFargateProfile(
 	}
 	b.fargateProfiles.Put(profile)
 
-	b.work.After("FargateProfileTransition", fargateProfileTransitionDelay, func() {
+	b.work.After("FargateProfileTransition", b.dwell(fargateProfileTransitionDelay), func() {
 		b.mu.Lock("CreateFargateProfile-async")
 		defer b.mu.Unlock()
 
@@ -126,12 +134,16 @@ func (b *InMemoryBackend) DeleteFargateProfile(clusterName, profileName string) 
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	profile, ok := b.fargateProfiles.Get(fargateProfileKey(clusterName, profileName))
 	if !ok {
-		return nil, fmt.Errorf("%w: fargate profile %s not found in cluster %s", ErrNotFound, profileName, clusterName)
+		return nil, errMsgf(ErrNotFound, "No Fargate Profile found with name: %s.", profileName)
+	}
+
+	if b.deferDeletes() {
+		return b.beginFargateDeleteLocked(profile), nil
 	}
 
 	cp := deepCopyFargateProfile(profile)
@@ -153,12 +165,12 @@ func (b *InMemoryBackend) DescribeFargateProfile(clusterName, profileName string
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	profile, ok := b.fargateProfiles.Get(fargateProfileKey(clusterName, profileName))
 	if !ok {
-		return nil, fmt.Errorf("%w: fargate profile %s not found in cluster %s", ErrNotFound, profileName, clusterName)
+		return nil, errMsgf(ErrNotFound, "No Fargate Profile found with name: %s.", profileName)
 	}
 
 	return deepCopyFargateProfile(profile), nil
@@ -170,7 +182,7 @@ func (b *InMemoryBackend) ListFargateProfiles(clusterName string) ([]string, err
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	items := b.fargateProfilesByCluster.Get(clusterName)

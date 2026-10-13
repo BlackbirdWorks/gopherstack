@@ -133,7 +133,7 @@ func (b *InMemoryBackend) StartAppAssessment(req *startAppAssessmentRequest) (*A
 func (b *InMemoryBackend) scheduleAssessment(assessmentArn string) {
 	id, _ := resourceIDFromARN(assessmentArn, ":app-assessment/")
 
-	b.work.After("AssessmentInProgress", asyncTransitionDelay, func() {
+	b.work.After("AssessmentInProgress", b.transitionDelay(), func() {
 		b.mu.Lock("AssessmentInProgress-async")
 
 		if asmt, ok := b.assessments.Get(id); ok && asmt.Status == AssessmentStatusPending {
@@ -142,7 +142,7 @@ func (b *InMemoryBackend) scheduleAssessment(assessmentArn string) {
 
 		b.mu.Unlock()
 
-		b.work.After("AssessmentComplete", asyncTransitionDelay, func() {
+		b.work.After("AssessmentComplete", b.transitionDelay(), func() {
 			b.mu.Lock("AssessmentComplete-async")
 			defer b.mu.Unlock()
 

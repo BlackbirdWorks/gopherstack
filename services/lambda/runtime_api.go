@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,8 +32,12 @@ type pendingInvocation struct {
 	// durableExecARN is set for an async (Event) invocation of a durable function so
 	// the retry loop can record the execution's completion once retries are exhausted.
 	durableExecARN string
-	result         chan invocationResult
-	payload        []byte
+	// qualifier is the version/alias the caller invoked ("" for the bare function);
+	// executedVersion is the version it resolved to.
+	qualifier       string
+	executedVersion string
+	result          chan invocationResult
+	payload         []byte
 }
 
 // invocationResult holds the outcome of a Lambda container invocation.
@@ -50,7 +55,9 @@ type runtimeServer struct {
 	queue   chan *pendingInvocation
 	done    chan struct{}
 	pending sync.Map
-	port    int
+	// traceActive makes /next carry a Lambda-Runtime-Trace-Id (Active tracing).
+	traceActive atomic.Bool
+	port        int
 }
 
 // runtimeQueueSize is the buffered depth of the invocation queue per function.
@@ -208,6 +215,9 @@ func (s *runtimeServer) handleNext(w http.ResponseWriter, r *http.Request) {
 			arn.Build("lambda", config.DefaultRegion, config.DefaultAccountID, "function:unknown"))
 		if inv.clientContext != "" {
 			w.Header().Set("Lambda-Runtime-Client-Context", inv.clientContext)
+		}
+		if s.traceActive.Load() {
+			w.Header().Set("Lambda-Runtime-Trace-Id", newTraceHeader(time.Now()))
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)

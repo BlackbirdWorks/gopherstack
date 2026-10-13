@@ -162,6 +162,11 @@ func (h *Handler) handleGetDataEndpoint(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "APIName is required")
 	}
 
+	if !validAPIName(req.APIName) {
+		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException",
+			"Value '"+req.APIName+"' at 'aPIName' failed to satisfy constraint: Member must satisfy enum value set")
+	}
+
 	endpoint, err := h.Backend.GetDataEndpoint(
 		req.StreamName, req.StreamARN, req.APIName, regionFromRequest(c, h.DefaultRegion))
 	if err != nil {
@@ -173,4 +178,14 @@ func (h *Handler) handleGetDataEndpoint(c *echo.Context, body []byte) error {
 
 func regionFromRequest(c *echo.Context, defaultRegion string) string {
 	return httputils.ExtractRegionFromRequest(c.Request(), defaultRegion)
+}
+
+func validAPIName(name string) bool {
+	switch name {
+	case "PUT_MEDIA", "GET_MEDIA", "LIST_FRAGMENTS", "GET_MEDIA_FOR_FRAGMENT_LIST",
+		"GET_HLS_STREAMING_SESSION_URL", "GET_DASH_STREAMING_SESSION_URL", "GET_CLIP", "GET_IMAGES":
+		return true
+	}
+
+	return false
 }

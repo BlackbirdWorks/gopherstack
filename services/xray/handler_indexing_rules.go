@@ -102,6 +102,10 @@ func (h *Handler) handleGetIndexingRules(_ context.Context, body []byte) ([]byte
 		views = append(views, toIndexingRuleView(r))
 	}
 
+	if tokErr := checkNextToken(in.NextToken); tokErr != nil {
+		return nil, tokErr
+	}
+
 	pg := page.New(views, in.NextToken, 0, defaultIndexingRulesPageSize)
 
 	return json.Marshal(map[string]any{

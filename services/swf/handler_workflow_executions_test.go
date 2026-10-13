@@ -123,7 +123,7 @@ func TestHandler_TerminateWorkflowExecution(t *testing.T) {
 		{
 			name:     "not_found",
 			body:     map[string]any{"domain": "d1", "workflowId": "missing"},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 

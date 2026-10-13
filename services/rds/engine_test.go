@@ -2,6 +2,7 @@ package rds_test
 
 import (
 	"context"
+	"net"
 	"strconv"
 	"sync"
 	"testing"
@@ -174,6 +175,20 @@ func hostPort(t *testing.T, spec container.Spec) int {
 	return p
 }
 
+// assertProxyPort checks a postgres instance advertises a listening proxy, not the container's own port.
+func assertProxyPort(t *testing.T, spec container.Spec, port int) {
+	t.Helper()
+	assert.NotEqual(t, hostPort(t, spec), port)
+
+	conn, err := (&net.Dialer{Timeout: engineWait}).DialContext(
+		t.Context(),
+		"tcp",
+		net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
+	)
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+}
+
 func TestEngineImageAndEnvSelection(t *testing.T) {
 	t.Parallel()
 
@@ -241,7 +256,7 @@ func TestEngineInstanceStateMachineAndEndpoint(t *testing.T) {
 
 	inst := f.waitInstance(t, "db1", "available")
 	assert.Equal(t, "127.0.0.1", inst.Endpoint)
-	assert.Equal(t, hostPort(t, f.rt.firstSpec()), inst.Port)
+	assertProxyPort(t, f.rt.firstSpec(), inst.Port)
 }
 
 func TestEngineStartFailure(t *testing.T) {
@@ -434,7 +449,7 @@ func TestEngineRestoreRelaunchesEmpty(t *testing.T) {
 	g.waitInstance(t, "db1", "available")
 
 	assert.Equal(t, 1, g.rt.containers())
-	assert.Equal(t, hostPort(t, g.rt.firstSpec()), g.instance(t, "db1").Port)
+	assertProxyPort(t, g.rt.firstSpec(), g.instance(t, "db1").Port)
 }
 
 func TestEngineUnsupportedEngineStaysMetadataOnly(t *testing.T) {

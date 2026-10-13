@@ -25,6 +25,10 @@ func (b *InMemoryBackend) PutBucketVersioning(
 	defer bucket.mu.Unlock()
 
 	status := input.VersioningConfiguration.Status
+	if bucket.ObjectLockEnabled && status != types.BucketVersioningStatusEnabled {
+		return nil, ErrObjectLockVersioningLocked
+	}
+
 	bucket.Versioning = status
 
 	if mfaDelete := input.VersioningConfiguration.MFADelete; mfaDelete != "" {

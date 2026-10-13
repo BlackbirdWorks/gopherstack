@@ -127,6 +127,7 @@ type StorageBackend interface {
 		description *string,
 		deploymentDuration, bakeTime int32,
 		growthFactor float32,
+		growthType *string,
 	) (*DeploymentStrategy, error)
 	// DeleteDeploymentStrategy deletes a deployment strategy.
 	DeleteDeploymentStrategy(strategyID string) error
@@ -139,6 +140,14 @@ type StorageBackend interface {
 		kmsKeyIdentifier *string,
 		latestDeploymentNumber *int32,
 		tags map[string]string,
+	) (*Deployment, error)
+	// StartDeploymentWithParameters is StartDeployment plus the request's DynamicExtensionParameters.
+	StartDeploymentWithParameters(
+		applicationID, environmentID, configProfileID, strategyID, configVersion, description string,
+		kmsKeyIdentifier *string,
+		latestDeploymentNumber *int32,
+		tags map[string]string,
+		dynamicParameters map[string]string,
 	) (*Deployment, error)
 	// GetDeployment retrieves a deployment by application, environment, and deployment number.
 	GetDeployment(applicationID, environmentID string, deploymentNumber int32) (*Deployment, error)

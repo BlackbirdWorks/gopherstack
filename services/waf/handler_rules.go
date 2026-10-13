@@ -14,6 +14,10 @@ func (h *Handler) opCreateRule(body []byte) (any, error) {
 		return nil, err
 	}
 
+	if err := validateCreateNames(in.Name, in.MetricName); err != nil {
+		return nil, err
+	}
+
 	rule, err := h.Backend.CreateRule(in.Name, in.MetricName, in.ChangeToken, tagsToMap(in.Tags))
 	if err != nil {
 		return nil, err
@@ -85,8 +89,12 @@ func (h *Handler) opListRules(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	page, next := paginate(h.Backend.ListRules(), in.NextMarker, in.Limit,
+	page, next, err := paginate(h.Backend.ListRules(), in.NextMarker, in.Limit,
 		func(s RuleSummary) string { return s.RuleId })
+	if err != nil {
+		return nil, err
+	}
+
 	result := map[string]any{"Rules": page}
 	if next != "" {
 		result["NextMarker"] = next

@@ -41,6 +41,8 @@ var (
 	ErrInvalidSamplingRule = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
 	// ErrInvalidPolicyRevisionID is returned when a policy revision ID does not match.
 	ErrInvalidPolicyRevisionID = awserr.New("InvalidPolicyRevisionIdException", awserr.ErrConflict)
+	// ErrLockoutPrevention is returned when a resource policy would lock the caller out of PutResourcePolicy.
+	ErrLockoutPrevention = awserr.New("LockoutPreventionException", awserr.ErrInvalidParameter)
 	// ErrMalformedPolicyDocument is returned when a policy document is not valid JSON.
 	ErrMalformedPolicyDocument = awserr.New("MalformedPolicyDocumentException", awserr.ErrInvalidParameter)
 	// ErrTooManyPolicies is returned when the max policy count is exceeded.

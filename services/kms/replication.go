@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	gopherarn "github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -54,7 +52,13 @@ func (b *InMemoryBackend) ReplicateKey(
 		)
 	}
 
-	newKeyID := uuid.New().String()
+	if input.ReplicaRegion == extractRegionFromARN(sourceKey.Arn) ||
+		b.replicaExistsInRegion(sourceKey, input.ReplicaRegion) {
+		return nil, fmt.Errorf("%w: a replica of key %q already exists in region %s",
+			ErrAliasAlreadyExists, sourceKey.KeyID, input.ReplicaRegion)
+	}
+
+	newKeyID := newMultiRegionKeyID()
 	description := sourceKey.Description
 	if input.Description != "" {
 		description = input.Description
@@ -236,4 +240,14 @@ func (b *InMemoryBackend) UpdatePrimaryRegion(
 	}
 
 	return nil
+}
+
+func (b *InMemoryBackend) replicaExistsInRegion(primary *Key, region string) bool {
+	for _, id := range primary.ReplicaKeyIDs {
+		if rk := b.findKeyInAnyRegion(id); rk != nil && extractRegionFromARN(rk.Arn) == region {
+			return true
+		}
+	}
+
+	return false
 }

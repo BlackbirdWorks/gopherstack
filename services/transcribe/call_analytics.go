@@ -125,7 +125,7 @@ func validateChannelDefinitions(defs []ChannelDefinition) error {
 			return fmt.Errorf("%w: each ChannelDefinition must have a ParticipantRole", ErrValidation)
 		}
 
-		if d.ParticipantRole != "AGENT" && d.ParticipantRole != "CUSTOMER" {
+		if d.ParticipantRole != roleAgent && d.ParticipantRole != roleCustomer {
 			return fmt.Errorf("%w: ParticipantRole %q must be AGENT or CUSTOMER", ErrValidation, d.ParticipantRole)
 		}
 
@@ -147,8 +147,8 @@ func validateChannelDefinitions(defs []ChannelDefinition) error {
 
 // CreateCallAnalyticsCategory creates a new Call Analytics category.
 func (b *InMemoryBackend) CreateCallAnalyticsCategory(input *CallAnalyticsCategory) (*CallAnalyticsCategory, error) {
-	if input.CategoryName == "" {
-		return nil, fmt.Errorf("%w: CategoryName is required", ErrValidation)
+	if err := validateResourceName("CategoryName", input.CategoryName); err != nil {
+		return nil, err
 	}
 
 	if err := validateCallAnalyticsInputType(input.InputType); err != nil {
@@ -277,8 +277,8 @@ func (b *InMemoryBackend) ListCallAnalyticsCategories(
 
 // StartCallAnalyticsJob creates a new Call Analytics job.
 func (b *InMemoryBackend) StartCallAnalyticsJob(input *CallAnalyticsJob) (*CallAnalyticsJob, error) {
-	if err := validateJobName(input.CallAnalyticsJobName); err != nil {
-		return nil, fmt.Errorf("%w: CallAnalyticsJobName is required", ErrValidation)
+	if err := validateResourceName("CallAnalyticsJobName", input.CallAnalyticsJobName); err != nil {
+		return nil, err
 	}
 
 	if err := validateLanguageCode(input.LanguageCode); err != nil {
@@ -306,10 +306,16 @@ func (b *InMemoryBackend) StartCallAnalyticsJob(input *CallAnalyticsJob) (*CallA
 	job.CreationTime = now
 	job.StartTime = now
 	job.CompletionTime = now
+	if bucket, key := splitOutputLocation(job.OutputLocation, job.CallAnalyticsJobName); job.OutputLocation != "" &&
+		!b.putOutputLocked(bucket, key, synthesizeCallAnalyticsJSON(&job)) {
+		job.CallAnalyticsJobStatus = jobStatusFailed
+		job.FailureReason = outputWriteFailure
+	}
 	b.callAnalyticsJobs.Put(&job)
 	b.recordResourceTagsLocked(b.resourceARN(resourceTypeCallAnalyticsJob, job.CallAnalyticsJobName), job.Tags)
 
 	cp := job
+	b.observeCallAnalyticsJob(&cp)
 
 	return &cp, nil
 }
@@ -325,6 +331,7 @@ func (b *InMemoryBackend) GetCallAnalyticsJob(jobName string) (*CallAnalyticsJob
 	}
 
 	cp := *job
+	b.observeCallAnalyticsJob(&cp)
 	cp.Tags = b.liveTagsLocked(b.resourceARN(resourceTypeCallAnalyticsJob, jobName))
 
 	return &cp, nil
@@ -340,9 +347,12 @@ func (b *InMemoryBackend) ListCallAnalyticsJobs(
 
 	all := make([]CallAnalyticsJob, 0, b.callAnalyticsJobs.Len())
 	for _, j := range b.callAnalyticsJobs.All() {
-		if (statusFilter == "" || j.CallAnalyticsJobStatus == statusFilter) &&
+		cp := *j
+		b.observeCallAnalyticsJob(&cp)
+
+		if (statusFilter == "" || cp.CallAnalyticsJobStatus == statusFilter) &&
 			matchesNameContains(j.CallAnalyticsJobName, nameContains) {
-			all = append(all, *j)
+			all = append(all, cp)
 		}
 	}
 

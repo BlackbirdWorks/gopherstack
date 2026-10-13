@@ -33,7 +33,24 @@ type revisionLocationInput struct {
 	S3Location     *s3LocationEntry     `json:"s3Location,omitempty"`
 	GitHubLocation *gitHubLocationEntry `json:"gitHubLocation,omitempty"`
 	AppSpecContent *appSpecContentEntry `json:"appSpecContent,omitempty"`
+	RawString      *appSpecContentEntry `json:"string,omitempty"`
 	RevisionType   string               `json:"revisionType"`
+}
+
+func appSpecFromWire(e *appSpecContentEntry) *RevisionAppSpecContent {
+	if e == nil {
+		return nil
+	}
+
+	return &RevisionAppSpecContent{Content: e.Content, Sha256: e.Sha256}
+}
+
+func appSpecToWire(c *RevisionAppSpecContent) *appSpecContentEntry {
+	if c == nil {
+		return nil
+	}
+
+	return &appSpecContentEntry{Content: c.Content, Sha256: c.Sha256}
 }
 
 // revisionFromWire converts a wire revisionLocationInput to a backend RevisionLocation.
@@ -61,12 +78,8 @@ func revisionFromWire(r *revisionLocationInput) *RevisionLocation {
 		}
 	}
 
-	if r.AppSpecContent != nil {
-		out.AppSpecContent = &RevisionAppSpecContent{
-			Content: r.AppSpecContent.Content,
-			Sha256:  r.AppSpecContent.Sha256,
-		}
-	}
+	out.AppSpecContent = appSpecFromWire(r.AppSpecContent)
+	out.RawString = appSpecFromWire(r.RawString)
 
 	return out
 }
@@ -96,12 +109,8 @@ func revisionToWire(r *RevisionLocation) *revisionLocationInput {
 		}
 	}
 
-	if r.AppSpecContent != nil {
-		out.AppSpecContent = &appSpecContentEntry{
-			Content: r.AppSpecContent.Content,
-			Sha256:  r.AppSpecContent.Sha256,
-		}
-	}
+	out.AppSpecContent = appSpecToWire(r.AppSpecContent)
+	out.RawString = appSpecToWire(r.RawString)
 
 	return out
 }
@@ -187,6 +196,9 @@ func toDeploymentInfo(d *Deployment) deploymentInfo {
 		info.CompleteTime = &ct
 	}
 
+	st := awstime.Epoch(d.CreateTime)
+	info.StartTime = &st
+
 	return info
 }
 
@@ -248,6 +260,7 @@ type deploymentInfo struct {
 	TargetInstances               *targetInstancesEntry    `json:"targetInstances,omitempty"`
 	DeploymentStyle               *deploymentStyleEntry    `json:"deploymentStyle,omitempty"`
 	CompleteTime                  *float64                 `json:"completeTime,omitempty"`
+	StartTime                     *float64                 `json:"startTime,omitempty"`
 	ComputePlatform               string                   `json:"computePlatform,omitempty"`
 	DeploymentID                  string                   `json:"deploymentId"`
 	ApplicationName               string                   `json:"applicationName"`

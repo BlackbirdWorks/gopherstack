@@ -30,6 +30,18 @@ func eventInvokeConfigKey(name, qualifier string) string {
 	return name + ":" + qualifier
 }
 
+// eventInvokeConfigForLocked returns the config scoped to qualifier, falling
+// back to the function-level one. Caller holds b.mu.
+func (b *InMemoryBackend) eventInvokeConfigForLocked(name, qualifier string) *FunctionEventInvokeConfig {
+	if qualifier != "" {
+		if cfg, ok := b.eventInvokeConfigs[eventInvokeConfigKey(name, qualifier)]; ok {
+			return cfg
+		}
+	}
+
+	return b.eventInvokeConfigs[name]
+}
+
 // eventInvokeConfigArn is the function ARN, suffixed with the qualifier when scoped.
 func eventInvokeConfigArn(fn *FunctionConfiguration, qualifier string) string {
 	if qualifier == "" {

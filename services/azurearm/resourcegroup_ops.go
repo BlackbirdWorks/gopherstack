@@ -60,6 +60,8 @@ func (b *InMemoryBackend) DeleteResourceGroup(name string) error {
 		}
 	}
 
+	b.byType.Store(nil)
+
 	return nil
 }
 

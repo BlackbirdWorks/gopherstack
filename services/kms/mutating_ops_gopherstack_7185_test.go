@@ -55,14 +55,14 @@ func TestImportKeyMaterial_ReturnsKeyID(t *testing.T) {
 		ExpirationModel:      kmstypes.ExpirationModelTypeKeyMaterialDoesNotExpire,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, keyID, aws.ToString(importOut.KeyId),
+	assert.Equal(t, aws.ToString(created.KeyMetadata.Arn), aws.ToString(importOut.KeyId),
 		"ImportKeyMaterial must return the id of the key that was imported into")
 
 	deleteOut, err := client.DeleteImportedKeyMaterial(
 		ctx, &kmssdk.DeleteImportedKeyMaterialInput{KeyId: aws.String(keyID)},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, keyID, aws.ToString(deleteOut.KeyId),
+	assert.Equal(t, aws.ToString(created.KeyMetadata.Arn), aws.ToString(deleteOut.KeyId),
 		"DeleteImportedKeyMaterial must return the id of the key its material was deleted from")
 }
 

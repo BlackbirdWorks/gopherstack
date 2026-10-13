@@ -79,7 +79,7 @@ func TestFilter_CRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+detectorID+"/filter/del-filter", nil)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -107,7 +107,7 @@ func TestFilter_CRUD(t *testing.T) {
 			fn: func(t *testing.T, h *guardduty.Handler, detectorID string) {
 				t.Helper()
 				rec := doRequest(t, h, http.MethodGet, "/detector/"+detectorID+"/filter/nonexistent", nil)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}

@@ -92,7 +92,9 @@ type getResolverRuleOutput struct {
 	ResolverRule resolverRuleOutput `json:"ResolverRule"`
 }
 
-type deleteResolverRuleOutput struct{}
+type deleteResolverRuleOutput struct {
+	ResolverRule resolverRuleOutput `json:"ResolverRule"`
+}
 
 type listResolverRulesInput struct {
 	NextToken  string       `json:"NextToken"`
@@ -198,11 +200,18 @@ func (h *Handler) handleDeleteResolverRule(
 	ctx context.Context,
 	in *resolverRuleIDInput,
 ) (*deleteResolverRuleOutput, error) {
-	if err := h.Backend.DeleteResolverRule(ctx, in.ResolverRuleID); err != nil {
+	rule, err := h.Backend.GetResolverRule(ctx, in.ResolverRuleID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &deleteResolverRuleOutput{}, nil
+	if err = h.Backend.DeleteResolverRule(ctx, in.ResolverRuleID); err != nil {
+		return nil, err
+	}
+
+	rule.Status = statusDeleting
+
+	return &deleteResolverRuleOutput{ResolverRule: ruleToOutput(rule)}, nil
 }
 
 func (h *Handler) handleListResolverRules(

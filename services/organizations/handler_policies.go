@@ -188,9 +188,9 @@ func (h *Handler) handleListPolicies(c *echo.Context, body []byte) error {
 		objs = append(objs, toPolicySummaryObject(p))
 	}
 
-	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
-
-	return c.JSON(http.StatusOK, listPoliciesResponse{Policies: p.Data, NextToken: p.Next})
+	return pageResponse(h, c, objs, req.NextToken, req.MaxResults, func(p page.Page[policySummaryObject]) any {
+		return listPoliciesResponse{Policies: p.Data, NextToken: p.Next}
+	})
 }
 
 func (h *Handler) handleEnablePolicyType(c *echo.Context, body []byte) error {

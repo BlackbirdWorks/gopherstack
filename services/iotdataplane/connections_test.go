@@ -199,7 +199,7 @@ func Test_DeleteConnection_UnknownClientNotFound(t *testing.T) {
 	require.ErrorIs(t, b.DeleteConnection("c1"), iotdataplane.ErrConnectionNotFound)
 	require.ErrorIs(t, b.DeleteConnection("never-existed"), iotdataplane.ErrConnectionNotFound)
 
-	assert.Equal(t, 0, iotdataplane.ConnectionCount(b))
+	assert.Empty(t, b.ListConnections())
 }
 func Test_ListConnections_Empty(t *testing.T) {
 	t.Parallel()
@@ -271,7 +271,7 @@ func Test_DeleteConnection_RemovesFromList(t *testing.T) {
 	assert.Equal(t, 1, iotdataplane.ConnectionCount(b))
 
 	doRequest(t, h, http.MethodDelete, "/_admin/connections/device-x", nil)
-	assert.Equal(t, 0, iotdataplane.ConnectionCount(b))
+	assert.Empty(t, b.ListConnections())
 }
 func Test_Connections_WrongMethod(t *testing.T) {
 	t.Parallel()
@@ -329,7 +329,7 @@ func Test_AdminConnectionsPath_BasicFlow(t *testing.T) {
 	// Delete.
 	rec = doRequest(t, h, http.MethodDelete, "/_admin/connections/dev-x", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, 0, iotdataplane.ConnectionCount(b))
+	assert.Empty(t, b.ListConnections())
 }
 
 // TestRefinement3_ConnectionsPath_NonAWSOpsReturn404 verifies that
@@ -380,7 +380,7 @@ func Test_DeleteConnection_RealAWSPath(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodDelete, "/connections/device-x", nil)
 	assert.Equal(t, http.StatusOK, rec.Code, "real AWS DeleteConnection wire path must work")
-	assert.Equal(t, 0, iotdataplane.ConnectionCount(b))
+	assert.Empty(t, b.ListConnections())
 }
 func Test_Connection_Register_DuplicateShape(t *testing.T) {
 	t.Parallel()
@@ -1062,4 +1062,32 @@ func Test_SendDirectMessage_MQTT5Fields_ForwardedToBroker(t *testing.T) {
 			assert.Equal(t, []byte("corr-2"), props.CorrelationData)
 		})
 	}
+}
+
+func Test_GetConnection_AfterDelete(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+	b.AddConnectionInternal("c1")
+	require.NoError(t, b.DeleteConnection("c1"))
+
+	conn, err := b.GetConnection("c1")
+	require.NoError(t, err)
+	assert.False(t, conn.DisconnectedAt.IsZero())
+	assert.Equal(t, "SERVER_INITIATED_DISCONNECT", conn.DisconnectReason)
+
+	h := iotdataplane.NewHandler(b)
+	rec := doRequest(t, h, http.MethodGet, "/connections/c1", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, false, resp["connected"])
+	assert.Equal(t, "SERVER_INITIATED_DISCONNECT", resp["disconnectReason"])
+	assert.NotZero(t, resp["disconnectedSince"])
+
+	require.NoError(t, b.RegisterConnection("c1", ""))
+	conn, err = b.GetConnection("c1")
+	require.NoError(t, err)
+	assert.True(t, conn.DisconnectedAt.IsZero())
 }

@@ -43,6 +43,10 @@ func (b *InMemoryBackend) ExecuteStatement(
 	b.mu.Lock("ExecuteStatement")
 	defer b.mu.Unlock()
 
+	if err = rejectClosedSession(b.storeFor(region).statements, sessionID, time.Now()); err != nil {
+		return nil, err
+	}
+
 	hasResultSet := sqlHasResultSet(sql)
 	caller := callerFromContext(ctx)
 
@@ -61,20 +65,15 @@ func (b *InMemoryBackend) ExecuteStatement(
 		ResultFormat:      resultFormat,
 		Parameters:        parameters,
 		SessionID:         sessionID,
-		Status:            statusFinished,
+		Status:            b.initialStatementStatus(),
 		HasResultSet:      hasResultSet,
 		IsBatchStatement:  false,
 		WithEvent:         withEvent,
 		CreatedAt:         now,
 		UpdatedAt:         now,
-		// Simulated instant execution: 1 ms so the UI always displays a
-		// human-readable duration rather than showing "0ms" which could be
-		// mistaken for a failed or uninitialized measurement.
-		DurationMs: mockStatementDurationMs,
-		ResultRows: demoResultRows,
-		ResultSize: demoResultSize,
 	}
 	b.storeFor(region).addStatement(stmt)
+	b.settleStatement(stmt, now)
 
 	return cloneStatement(stmt), nil
 }
@@ -118,6 +117,10 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 	b.mu.Lock("BatchExecuteStatement")
 	defer b.mu.Unlock()
 
+	if err = rejectClosedSession(b.storeFor(region).statements, sessionID, time.Now()); err != nil {
+		return nil, err
+	}
+
 	now := time.Now()
 
 	subs := make([]SubStatementData, len(sqls))
@@ -127,9 +130,8 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 			CreatedAt:    now,
 			UpdatedAt:    now,
 			QueryString:  sql,
-			Status:       statusFinished,
+			Status:       b.initialStatementStatus(),
 			HasResultSet: false,
-			DurationMs:   1,
 		}
 	}
 
@@ -151,16 +153,16 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 		ResultFormat:      resultFormat,
 		Parameters:        parameters,
 		SessionID:         sessionID,
-		Status:            statusFinished,
+		Status:            b.initialStatementStatus(),
 		HasResultSet:      false,
 		IsBatchStatement:  true,
 		WithEvent:         withEvent,
 		CreatedAt:         now,
 		UpdatedAt:         now,
-		DurationMs:        1,
 		ExecutionMode:     executionMode,
 	}
 	b.storeFor(region).addStatement(stmt)
+	b.settleStatement(stmt, now)
 
 	return cloneStatement(stmt), nil
 }
@@ -169,8 +171,10 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 func (b *InMemoryBackend) DescribeStatement(ctx context.Context, id string) (*Statement, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.RLock("DescribeStatement")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeStatement")
+	defer b.mu.Unlock()
+
+	b.settleStatements(time.Now())
 
 	store := b.storeForRead(region)
 	if store == nil {
@@ -193,6 +197,8 @@ func (b *InMemoryBackend) CancelStatement(ctx context.Context, id string) error 
 	b.mu.Lock("CancelStatement")
 	defer b.mu.Unlock()
 
+	b.settleStatements(time.Now())
+
 	store := b.storeFor(region)
 	stmt, ok := store.statements[id]
 
@@ -208,6 +214,7 @@ func (b *InMemoryBackend) CancelStatement(ctx context.Context, id string) error 
 	stmt.Status = statusAborted
 	stmt.UpdatedAt = now
 	stmt.DurationMs = now.Sub(stmt.CreatedAt).Milliseconds()
+	abortSubStatements(stmt, now)
 
 	return nil
 }
@@ -242,8 +249,10 @@ func (b *InMemoryBackend) ListStatements(
 ) ([]*Statement, string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
-	b.mu.RLock("ListStatements")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListStatements")
+	defer b.mu.Unlock()
+
+	b.settleStatements(time.Now())
 
 	store := b.storeForRead(region)
 	if store == nil {

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/services/s3"
 )
 
 // ObjectLambdaConfigSink receives the Lambda ARN configured for an Object
@@ -106,6 +108,10 @@ func (b *InMemoryBackend) DeleteAccessPointForObjectLambda(accountID, name strin
 	delete(b.objectLambdaAPPolicies, key)
 	delete(b.objectLambdaAPConfigs, key)
 	delete(b.resourceTags, arn)
+
+	if sink, isOL := b.objectLambdaSink.(s3.ObjectLambdaAccessPointSink); isOL {
+		sink.DeleteObjectLambdaAccessPoint(name, accountID)
+	}
 
 	return nil
 }
@@ -216,6 +222,7 @@ func (b *InMemoryBackend) PutAccessPointConfigurationForObjectLambda(
 	if b.objectLambdaSink != nil {
 		if bucket, lambdaARN, ok := b.resolveObjectLambdaTarget(accountID, config); ok {
 			b.objectLambdaSink.SetObjectLambdaConfig(bucket, lambdaARN)
+			b.registerObjectLambdaAccessPoint(key, bucket, lambdaARN, config)
 		}
 	}
 
@@ -227,13 +234,16 @@ func (b *InMemoryBackend) PutAccessPointConfigurationForObjectLambda(
 // the underlying bucket and Lambda ARN. It is unmarshalled from the raw inner
 // XML captured by createJobXMLCapture.
 type objectLambdaConfigXML struct {
-	SupportingAccessPoint        string `xml:"SupportingAccessPoint"`
+	SupportingAccessPoint        string   `xml:"SupportingAccessPoint"`
+	AllowedFeatures              []string `xml:"AllowedFeatures>AllowedFeature"`
 	TransformationConfigurations []struct {
 		ContentTransformation struct {
 			AwsLambda struct {
-				FunctionArn string `xml:"FunctionArn"`
+				FunctionArn     string `xml:"FunctionArn"`
+				FunctionPayload string `xml:"FunctionPayload"`
 			} `xml:"AwsLambda"`
 		} `xml:"ContentTransformation"`
+		Actions []string `xml:"Actions>Action"`
 	} `xml:"TransformationConfigurations>TransformationConfiguration"`
 }
 
@@ -274,4 +284,34 @@ func accessPointNameFromARN(arn string) (string, bool) {
 	_, name, found := strings.Cut(arn, "accesspoint/")
 
 	return name, found
+}
+
+func (b *InMemoryBackend) registerObjectLambdaAccessPoint(key, bucket, lambdaARN, config string) {
+	sink, ok := b.objectLambdaSink.(s3.ObjectLambdaAccessPointSink)
+	if !ok {
+		return
+	}
+
+	ap, found := b.objectLambdaAccessPoints.Get(key)
+	if !found {
+		return
+	}
+
+	sink.DeleteObjectLambdaAccessPoint(ap.Name, ap.AccountID)
+
+	stored := s3.StoredObjectLambdaAccessPoint{Name: ap.Name, AccountID: ap.AccountID, LambdaARN: lambdaARN}
+
+	var parsed objectLambdaConfigXML
+	if xml.Unmarshal([]byte("<c>"+config+"</c>"), &parsed) == nil && len(parsed.TransformationConfigurations) > 0 {
+		tc := parsed.TransformationConfigurations[0]
+		stored.Actions = tc.Actions
+		stored.Payload = tc.ContentTransformation.AwsLambda.FunctionPayload
+		stored.SupportingAccessPointARN = parsed.SupportingAccessPoint
+		stored.AllowedFeatures = parsed.AllowedFeatures
+	}
+	if ap.Alias != nil {
+		stored.Alias = ap.Alias.Value
+	}
+
+	sink.SetObjectLambdaAccessPoint(bucket, stored)
 }

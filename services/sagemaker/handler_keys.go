@@ -91,6 +91,7 @@ const (
 	statusCreated                    = "Created"
 	statusActive                     = "Active"
 	statusUpdating                   = "Updating"
+	statusDeleting                   = "Deleting"
 	statusSuccessful                 = "Successful"
 	keyFailed                        = "Failed"
 )

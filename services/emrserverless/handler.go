@@ -17,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -477,6 +478,10 @@ var emrDispatchTable = map[string]emrDispatchFn{
 }
 
 func (h *Handler) dispatch(c *echo.Context, route emrRoute, body []byte) error {
+	if page.ValidateToken(c.Request().URL.Query().Get("nextToken")) != nil {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "Invalid nextToken"))
+	}
+
 	if fn, ok := emrDispatchTable[route.operation]; ok {
 		return fn(h, c, route, body)
 	}
@@ -488,22 +493,22 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
 
-		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
+		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", publicMessage(err)))
 	case errors.Is(err, ErrAlreadyExists):
 
-		return c.JSON(http.StatusConflict, errResp("ConflictException", err.Error()))
+		return c.JSON(http.StatusConflict, errResp("ConflictException", publicMessage(err)))
 	case errors.Is(err, ErrValidation):
 
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", publicMessage(err)))
 	case errors.Is(err, ErrInvalidState):
 
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", publicMessage(err)))
 	case errors.Is(err, ErrConflict):
 
-		return c.JSON(http.StatusConflict, errResp("ConflictException", err.Error()))
+		return c.JSON(http.StatusConflict, errResp("ConflictException", publicMessage(err)))
 	default:
 
-		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", err.Error()))
+		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", publicMessage(err)))
 	}
 }
 
@@ -1016,7 +1021,7 @@ func parseAttemptQueryParam(c *echo.Context) (*int32, error) {
 func (h *Handler) handleGetJobRun(c *echo.Context, applicationID, jobRunID string) error {
 	attempt, err := parseAttemptQueryParam(c)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", publicMessage(err)))
 	}
 
 	jr, err := h.Backend.GetJobRun(applicationID, jobRunID, attempt)
@@ -1049,7 +1054,7 @@ func (h *Handler) handleListJobRuns(c *echo.Context, applicationID string) error
 
 	filter, err := jobRunFilterFromQuery(q, states)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", publicMessage(err)))
 	}
 
 	runs, outToken, err := h.Backend.ListJobRuns(applicationID, nextToken, maxResults, filter)
@@ -1086,7 +1091,7 @@ func (h *Handler) handleCancelJobRun(c *echo.Context, applicationID, jobRunID st
 func (h *Handler) handleGetDashboardForJobRun(c *echo.Context, applicationID, jobRunID string) error {
 	attempt, err := parseAttemptQueryParam(c)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", publicMessage(err)))
 	}
 
 	accessSystemProfileLogs := c.Request().URL.Query().Get("accessSystemProfileLogs") == queryValueTrue

@@ -15,8 +15,11 @@ func (b *InMemoryBackend) CreateFilter(
 	b.mu.Lock("CreateFilter")
 	defer b.mu.Unlock()
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	if err := validateName("name", name); err != nil {
+		return nil, err
+	}
+	if err := validateFilterExpression(filterExpression); err != nil {
+		return nil, err
 	}
 	if b.filters.Has(name) {
 		return nil, fmt.Errorf("%w: filter %q already exists", ErrAlreadyExists, name)
@@ -32,6 +35,7 @@ func (b *InMemoryBackend) CreateFilter(
 		DatasetGroupArn:     datasetGroupArn,
 		FilterExpression:    filterExpression,
 		Status:              statusActive,
+		lc:                  b.lifecycle(),
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 	}

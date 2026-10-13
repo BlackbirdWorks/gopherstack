@@ -72,6 +72,8 @@ const (
 	replicationStatusCompletedLower = "completed"
 )
 
+const maxListLimit = 1000
+
 var (
 	errUnknownPath    = errors.New("unknown path")
 	errInvalidRequest = errors.New("invalid request")
@@ -79,10 +81,11 @@ var (
 
 // Handler is the HTTP handler for the AWS S3 Tables API.
 type Handler struct {
-	peers     *regionpeers.Set[Handler]
-	Backend   *InMemoryBackend
-	AccountID string
-	Region    string
+	peers          *regionpeers.Set[Handler]
+	metadataWriter MetadataWriter
+	Backend        *InMemoryBackend
+	AccountID      string
+	Region         string
 }
 
 // NewHandler creates a new S3 Tables handler.
@@ -505,7 +508,7 @@ func (h *Handler) routeTableConfigOps(sub, method string) (string, dispatchFunc)
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	status := http.StatusInternalServerError
 	errType := "InternalServerErrorException"
-	msg := err.Error()
+	msg := stripCodePrefix(err.Error())
 
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
@@ -640,18 +643,19 @@ func rawPathSegments(r *http.Request) []string {
 // queryInt parses a query parameter as a positive integer, returning 0 (the
 // "unspecified" sentinel page.New treats as defaultLimit) when the
 // parameter is absent, empty, or not a valid non-negative integer.
-func queryInt(q url.Values, key string) int {
+// queryLimit parses a list page-size query member; the API range is 1..1000.
+func queryLimit(q url.Values, key string) (int, error) {
 	raw := q.Get(key)
 	if raw == "" {
-		return 0
+		return 0, nil
 	}
 
 	n, err := strconv.Atoi(raw)
-	if err != nil || n < 0 {
-		return 0
+	if err != nil || n < 1 || n > maxListLimit {
+		return 0, fmt.Errorf("%w: %s must be between 1 and %d", errInvalidRequest, key, maxListLimit)
 	}
 
-	return n
+	return n, nil
 }
 
 // storageClassFromConfig extracts the "storageClass" field from a
@@ -734,4 +738,15 @@ func parseReplicationDestinations(rule map[string]any) []ReplicationDestination 
 	}
 
 	return destinations
+}
+
+// stripCodePrefix drops the "<ErrorCode>: " the awserr sentinels prepend, so
+// the wire message does not repeat the code already in x-amzn-errortype.
+func stripCodePrefix(msg string) string {
+	prefix, rest, found := strings.Cut(msg, ": ")
+	if !found || prefix == "" || strings.ContainsAny(prefix, " \t") {
+		return msg
+	}
+
+	return rest
 }

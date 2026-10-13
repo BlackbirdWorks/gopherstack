@@ -36,6 +36,10 @@ func (b *InMemoryBackend) CreateRole(
 		return nil, err
 	}
 
+	if err := b.requireBoundaryLocked(permissionsBoundary); err != nil {
+		return nil, err
+	}
+
 	p := normPath(path)
 	r := Role{
 		RoleName:                 roleName,
@@ -45,6 +49,7 @@ func (b *InMemoryBackend) CreateRole(
 		AssumeRolePolicyDocument: assumeRolePolicyDocument,
 		CreateDate:               time.Now().UTC(),
 		PermissionsBoundary:      permissionsBoundary,
+		MaxSessionDuration:       defaultMaxSessionDuration,
 	}
 	b.roles.Put(&r)
 	b.roleByARN[r.Arn] = roleName
@@ -339,6 +344,10 @@ func (b *InMemoryBackend) PutRolePermissionsBoundary(roleName, policyArn string)
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
+	if err := b.requireBoundaryLocked(policyArn); err != nil {
+		return err
+	}
+
 	r.PermissionsBoundary = policyArn
 	b.roles.Put(r)
 
@@ -430,6 +439,10 @@ func (b *InMemoryBackend) TagRole(roleName string, tags map[string]string) error
 	r, exists := b.roles.Get(roleName)
 	if !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	if err := checkTagLimit(r.Tags, tags); err != nil {
+		return err
 	}
 
 	if r.Tags == nil {

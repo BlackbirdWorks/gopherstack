@@ -162,9 +162,11 @@ func TestDescribeLaunchTemplateVersions_RealShape_RealClient(t *testing.T) {
 		LaunchTemplateId: ltID,
 	})
 	require.NoError(t, err)
-	require.Len(t, out.LaunchTemplateVersions, 1)
+	require.Len(t, out.LaunchTemplateVersions, 2, "every recorded version is listed")
+	assert.Equal(t, int64(1), aws.ToInt64(out.LaunchTemplateVersions[0].VersionNumber))
+	assert.True(t, aws.ToBool(out.LaunchTemplateVersions[0].DefaultVersion))
 
-	v := out.LaunchTemplateVersions[0]
+	v := out.LaunchTemplateVersions[1]
 	assert.Equal(t, int64(2), aws.ToInt64(v.VersionNumber), "VersionNumber wrong/zero - wrong item shape used")
 	assert.False(t, aws.ToBool(v.DefaultVersion), "version 2 was never set as default - wrong item shape used")
 	require.NotNil(t, v.LaunchTemplateData, "LaunchTemplateData nil - never emitted by the flat summary shape")

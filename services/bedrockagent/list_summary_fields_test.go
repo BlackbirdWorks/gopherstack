@@ -79,12 +79,18 @@ func TestListSummaryFields(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = backend.IngestKnowledgeBaseDocuments(ctx, kb.KnowledgeBaseID, ds.DataSourceID, []bedrockagent.KBDocument{
-		{Identifier: bedrockagent.KBDocumentIdentifier{
-			DataSourceType: "CUSTOM",
-			Custom:         &bedrockagent.KBCustomDocumentIdentifier{ID: "doc-1"},
-		}},
-	})
+	_, err = backend.IngestKnowledgeBaseDocuments(
+		ctx,
+		kb.KnowledgeBaseID,
+		ds.DataSourceID,
+		"",
+		[]bedrockagent.KBDocument{
+			{Identifier: bedrockagent.KBDocumentIdentifier{
+				DataSourceType: "CUSTOM",
+				Custom:         &bedrockagent.KBCustomDocumentIdentifier{ID: "doc-1"},
+			}},
+		},
+	)
 	require.NoError(t, err)
 
 	tests := []struct {

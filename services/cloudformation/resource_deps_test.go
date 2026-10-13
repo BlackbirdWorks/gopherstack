@@ -435,7 +435,7 @@ func TestUpdateStack_StaleResourceDependencyOrder_EndToEnd(t *testing.T) {
 	vpcID := outputs["VpcId"]
 	require.NotEmpty(t, vpcID)
 
-	const emptied = `{"Resources": {}}`
+	const emptied = `{"Resources": {"Topic": {"Type": "AWS::SNS::Topic"}}}`
 
 	_, err := client.UpdateStack(t.Context(), &cfnsdk.UpdateStackInput{
 		StackName:    aws.String(stackName),

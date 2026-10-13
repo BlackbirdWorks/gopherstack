@@ -31,6 +31,10 @@ func (h *Handler) handleCreateAdapter(
 		return nil, fmt.Errorf("%w: AdapterName is required", errInvalidRequest)
 	}
 
+	if err := validateAdapterName(in.AdapterName); err != nil {
+		return nil, err
+	}
+
 	var adapter *Adapter
 	var err error
 
@@ -170,6 +174,10 @@ func (h *Handler) handleListAdapters(
 	ctx context.Context,
 	in *listAdaptersInput,
 ) (*listAdaptersResponse, error) {
+	if err := validateNextToken(in.NextToken); err != nil {
+		return nil, err
+	}
+
 	adapters := h.Backend.ListAdapters(ctx)
 
 	filtered := make([]Adapter, 0, len(adapters))

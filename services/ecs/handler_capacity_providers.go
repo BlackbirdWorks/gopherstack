@@ -79,12 +79,28 @@ func toCapacityProviderView(cp CapacityProvider) capacityProviderView {
 // ----- Handler: CreateCapacityProvider -----
 
 type managedScalingInput struct {
+	InstanceWarmupPeriod      *int   `json:"instanceWarmupPeriod,omitempty"`
 	Status                    string `json:"status,omitempty"`
 	TargetCapacityPercent     int    `json:"targetCapacity,omitempty"`
 	MinimumScalingStepSize    int    `json:"minimumScalingStepSize,omitempty"`
 	MaximumScalingStepSize    int    `json:"maximumScalingStepSize,omitempty"`
-	InstanceWarmupPeriod      int    `json:"instanceWarmupPeriod,omitempty"`
 	TargetCapacityUtilization int    `json:"targetCapacityUtilization,omitempty"`
+}
+
+func (m *managedScalingInput) toModel() *ManagedScaling {
+	warmup := defaultInstanceWarmupPeriod
+	if m.InstanceWarmupPeriod != nil {
+		warmup = *m.InstanceWarmupPeriod
+	}
+
+	return &ManagedScaling{
+		Status:                    m.Status,
+		TargetCapacityPercent:     m.TargetCapacityPercent,
+		MinimumScalingStepSize:    m.MinimumScalingStepSize,
+		MaximumScalingStepSize:    m.MaximumScalingStepSize,
+		InstanceWarmupPeriod:      warmup,
+		TargetCapacityUtilization: m.TargetCapacityUtilization,
+	}
 }
 
 type autoScalingGroupProviderInput struct {
@@ -124,14 +140,7 @@ func toAutoScalingGroupProvider(in *autoScalingGroupProviderInput) *AutoScalingG
 	}
 
 	if in.ManagedScaling != nil {
-		asg.ManagedScaling = &ManagedScaling{
-			Status:                    in.ManagedScaling.Status,
-			TargetCapacityPercent:     in.ManagedScaling.TargetCapacityPercent,
-			MinimumScalingStepSize:    in.ManagedScaling.MinimumScalingStepSize,
-			MaximumScalingStepSize:    in.ManagedScaling.MaximumScalingStepSize,
-			InstanceWarmupPeriod:      in.ManagedScaling.InstanceWarmupPeriod,
-			TargetCapacityUtilization: in.ManagedScaling.TargetCapacityUtilization,
-		}
+		asg.ManagedScaling = in.ManagedScaling.toModel()
 	}
 
 	return asg
@@ -285,14 +294,7 @@ func toAutoScalingGroupProviderUpdate(
 	}
 
 	if in.ManagedScaling != nil {
-		upd.ManagedScaling = &ManagedScaling{
-			Status:                    in.ManagedScaling.Status,
-			TargetCapacityPercent:     in.ManagedScaling.TargetCapacityPercent,
-			MinimumScalingStepSize:    in.ManagedScaling.MinimumScalingStepSize,
-			MaximumScalingStepSize:    in.ManagedScaling.MaximumScalingStepSize,
-			InstanceWarmupPeriod:      in.ManagedScaling.InstanceWarmupPeriod,
-			TargetCapacityUtilization: in.ManagedScaling.TargetCapacityUtilization,
-		}
+		upd.ManagedScaling = in.ManagedScaling.toModel()
 	}
 
 	return upd

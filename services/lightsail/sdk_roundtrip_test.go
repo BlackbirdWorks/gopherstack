@@ -134,15 +134,22 @@ func TestInstanceLifecycleRoundTrip(t *testing.T) {
 	_, err = client.StopInstance(ctx, &lightsailsdk.StopInstanceInput{InstanceName: aws.String("web-1")})
 	require.NoError(t, err)
 
-	stateOut, err := client.GetInstanceState(
-		ctx,
-		&lightsailsdk.GetInstanceStateInput{InstanceName: aws.String("web-1")},
-	)
-	require.NoError(t, err)
-	require.Equal(t, "stopped", aws.ToString(stateOut.State.Name))
+	instanceState := func() string {
+		stateOut, stateErr := client.GetInstanceState(
+			ctx,
+			&lightsailsdk.GetInstanceStateInput{InstanceName: aws.String("web-1")},
+		)
+		require.NoError(t, stateErr)
+
+		return aws.ToString(stateOut.State.Name)
+	}
+
+	require.Eventually(t, func() bool { return instanceState() == "stopped" }, defaultAsyncWait, defaultAsyncPoll)
 
 	_, err = client.StartInstance(ctx, &lightsailsdk.StartInstanceInput{InstanceName: aws.String("web-1")})
 	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return instanceState() == "running" }, defaultAsyncWait, defaultAsyncPoll)
 
 	_, err = client.DeleteInstance(ctx, &lightsailsdk.DeleteInstanceInput{InstanceName: aws.String("web-1")})
 	require.NoError(t, err)

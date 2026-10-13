@@ -220,3 +220,21 @@ func (b *InMemoryBackend) GetUserArnByAccessKeyID(accessKeyID string) (string, e
 
 	return u.Arn, nil
 }
+
+// GetUserIDByAccessKeyID returns the unique ID (AIDA...) of the user owning the access key.
+func (b *InMemoryBackend) GetUserIDByAccessKeyID(accessKeyID string) (string, error) {
+	b.mu.RLock("GetUserIDByAccessKeyID")
+	defer b.mu.RUnlock()
+
+	ak, exists := b.accessKeys.Get(accessKeyID)
+	if !exists {
+		return "", ErrAccessKeyNotFound
+	}
+
+	u, exists := b.users.Get(ak.UserName)
+	if !exists {
+		return "", ErrUserNotFound
+	}
+
+	return u.UserID, nil
+}

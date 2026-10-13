@@ -358,12 +358,23 @@ func TestEmailUniqueness_ViaHandler(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// Second account with same email should fail.
 	rec = doRequest(t, h, "CreateAccount", map[string]any{
 		"AccountName": "AccountB",
 		"Email":       "shared@example.com",
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		CreateAccountStatus struct {
+			State         string `json:"State"`
+			FailureReason string `json:"FailureReason"`
+			AccountID     string `json:"AccountId"`
+		} `json:"CreateAccountStatus"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, "FAILED", resp.CreateAccountStatus.State)
+	assert.Equal(t, "EMAIL_ALREADY_EXISTS", resp.CreateAccountStatus.FailureReason)
+	assert.Empty(t, resp.CreateAccountStatus.AccountID)
 }
 
 // TestCreateAccount_NoGovCloudID_ViaHandler verifies that the HTTP response

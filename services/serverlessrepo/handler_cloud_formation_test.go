@@ -44,6 +44,9 @@ func TestHandler_CreateCloudFormationTemplate(t *testing.T) {
 			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil, "", "", "")
 			require.NoError(t, err)
 
+			_, err = h.Backend.CreateApplicationVersion("my-app", "1.0.0", "https://example.com/src", "")
+			require.NoError(t, err)
+
 			rec := doServerlessRepoRequest(t, h, http.MethodPost, "/applications/"+tt.appName+"/templates", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 
@@ -62,6 +65,8 @@ func TestCreateCloudFormationTemplate_Returns201(t *testing.T) {
 
 	h := newTestHandler(t)
 	_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil, "", "", "")
+	require.NoError(t, err)
+	_, err = h.Backend.CreateApplicationVersion("my-app", "1.0.0", "https://example.com/src", "")
 	require.NoError(t, err)
 
 	rec := doServerlessRepoRequest(t, h, http.MethodPost, "/applications/my-app/templates", map[string]any{
@@ -111,6 +116,8 @@ func TestCreateCloudFormationTemplate_IncludesSemanticVersionWhenProvided(t *tes
 	h := newTestHandler(t)
 	_, err := h.Backend.CreateApplication("tmpl-sv", "desc", "author", "", "", nil, "", "", "")
 	require.NoError(t, err)
+	_, err = h.Backend.CreateApplicationVersion("tmpl-sv", "2.0.0", "https://example.com/src", "")
+	require.NoError(t, err)
 
 	rec := doServerlessRepoRequest(t, h, http.MethodPost, "/applications/tmpl-sv/templates",
 		map[string]any{"semanticVersion": "2.0.0"})
@@ -155,6 +162,9 @@ func TestHandler_GetCloudFormationTemplate(t *testing.T) {
 
 			h := newTestHandler(t)
 			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil, "", "", "")
+			require.NoError(t, err)
+
+			_, err = h.Backend.CreateApplicationVersion("my-app", "1.0.0", "https://example.com/src", "")
 			require.NoError(t, err)
 
 			templateID := tt.templateID
@@ -259,6 +269,8 @@ func TestGetCloudFormationTemplate_Fields(t *testing.T) {
 	h := newTestHandler(t)
 	_, err := h.Backend.CreateApplication("tmpl-app", "desc", "author", "", "", nil, "", "", "")
 	require.NoError(t, err)
+	_, err = h.Backend.CreateApplicationVersion("tmpl-app", "1.0.0", "https://example.com/src", "")
+	require.NoError(t, err)
 
 	rec := doServerlessRepoRequest(t, h, http.MethodPost, "/applications/tmpl-app/templates", map[string]any{
 		"semanticVersion": "1.0.0",
@@ -335,6 +347,9 @@ func TestHandler_CreateCloudFormationChangeSet(t *testing.T) {
 
 			h := newTestHandler(t)
 			_, err := h.Backend.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil, "", "", "")
+			require.NoError(t, err)
+
+			_, err = h.Backend.CreateApplicationVersion("my-app", "1.0.0", "https://example.com/src", "")
 			require.NoError(t, err)
 
 			rec := doServerlessRepoRequest(t, h, http.MethodPost, "/applications/"+tt.appName+"/changesets", tt.body)
@@ -512,6 +527,8 @@ func TestCreateCloudFormationChangeSet_IncludesSemanticVersionWhenProvided(t *te
 	h := newTestHandler(t)
 	_, err := h.Backend.CreateApplication("cs-sv", "desc", "author", "", "", nil, "", "", "")
 	require.NoError(t, err)
+	_, err = h.Backend.CreateApplicationVersion("cs-sv", "3.1.4", "https://example.com/src", "")
+	require.NoError(t, err)
 
 	rec := doServerlessRepoRequest(t, h, http.MethodPost, "/applications/cs-sv/changesets",
 		map[string]any{"stackName": "stack", "semanticVersion": "3.1.4"})
@@ -527,6 +544,8 @@ func TestCreateCloudFormationChangeSet_ResponseFields(t *testing.T) {
 
 	h := newTestHandler(t)
 	_, err := h.Backend.CreateApplication("cf-app", "desc", "author", "", "", nil, "", "", "")
+	require.NoError(t, err)
+	_, err = h.Backend.CreateApplicationVersion("cf-app", "1.0.0", "https://example.com/src", "")
 	require.NoError(t, err)
 
 	rec := doServerlessRepoRequest(t, h, http.MethodPost, "/applications/cf-app/changesets", map[string]any{

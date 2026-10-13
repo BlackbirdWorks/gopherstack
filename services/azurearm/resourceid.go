@@ -176,16 +176,32 @@ func (id ResourceID) LeafName() string {
 	return id.Names[len(id.Names)-1]
 }
 
+// armIDFixed is the literal text of an ARM ID outside its variable segments.
+const armIDFixed = "/subscriptions//resourceGroups//providers/"
+
 // ARMID renders the canonical ARM resource ID string for id, always using
 // the canonical "resourceGroups" casing regardless of what was parsed.
 func (id ResourceID) ARMID() string {
 	var b strings.Builder
 
-	fmt.Fprintf(&b, "/subscriptions/%s/resourceGroups/%s/providers/%s",
-		id.SubscriptionID, id.ResourceGroup, id.Namespace)
+	n := len(armIDFixed) + len(id.SubscriptionID) + len(id.ResourceGroup) + len(id.Namespace)
+	for i := range id.Types {
+		n += len("//") + len(id.Types[i]) + len(id.Names[i])
+	}
+
+	b.Grow(n)
+	b.WriteString("/subscriptions/")
+	b.WriteString(id.SubscriptionID)
+	b.WriteString("/resourceGroups/")
+	b.WriteString(id.ResourceGroup)
+	b.WriteString("/providers/")
+	b.WriteString(id.Namespace)
 
 	for i := range id.Types {
-		fmt.Fprintf(&b, "/%s/%s", id.Types[i], id.Names[i])
+		b.WriteByte('/')
+		b.WriteString(id.Types[i])
+		b.WriteByte('/')
+		b.WriteString(id.Names[i])
 	}
 
 	return b.String()

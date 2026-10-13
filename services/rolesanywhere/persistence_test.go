@@ -39,7 +39,7 @@ func TestPersistence_SnapshotRestoreRoundTrip(t *testing.T) {
 
 				threshold := int32(45)
 				_, err = b.PutNotificationSettings(ctx, ta.TrustAnchorID, []NotificationSetting{
-					{Event: "CERTIFICATE_EXPIRY", Threshold: &threshold, Enabled: true},
+					{Event: "CA_CERTIFICATE_EXPIRY", Threshold: &threshold, Enabled: true},
 				})
 				require.NoError(t, err)
 			},
@@ -74,7 +74,7 @@ func TestPersistence_SnapshotRestoreRoundTrip(t *testing.T) {
 
 				settings := b.GetNotificationSettings(ctx, ta.TrustAnchorID)
 				require.Len(t, settings, 1)
-				assert.Equal(t, "CERTIFICATE_EXPIRY", settings[0].Event)
+				assert.Equal(t, "CA_CERTIFICATE_EXPIRY", settings[0].Event)
 				require.NotNil(t, settings[0].Threshold)
 				assert.Equal(t, int32(45), *settings[0].Threshold)
 			},

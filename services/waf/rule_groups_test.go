@@ -3,6 +3,7 @@ package waf_test
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,7 +19,7 @@ func wafCreateRuleGroup(t *testing.T, h *waf.Handler, name string) string {
 	rec := wafDo(t, h, "CreateRuleGroup", map[string]any{
 		"ChangeToken": token,
 		"Name":        name,
-		"MetricName":  name + "Metric",
+		"MetricName":  strings.NewReplacer("-", "", "_", "", " ", "").Replace(name) + "Metric",
 	})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 

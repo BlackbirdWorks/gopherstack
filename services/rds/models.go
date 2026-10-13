@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -140,8 +141,10 @@ type DBInstance struct {
 	VpcID                              string                       `json:"vpcID"`
 	ReplicaMode                        string                       `json:"replicaMode,omitempty"`
 	DBParameterGroupName               string                       `json:"dbParameterGroupName"`
+	ParameterApplyStatus               string                       `json:"parameterApplyStatus,omitempty"`
 	OptionGroupName                    string                       `json:"optionGroupName,omitempty"`
 	ReplicaSourceDBInstanceIdentifier  string                       `json:"replicaSourceDBInstanceIdentifier"`
+	ReplicaSourceDBClusterIdentifier   string                       `json:"replicaSourceDBClusterIdentifier,omitempty"`
 	AvailabilityZone                   string                       `json:"availabilityZone"`
 	StorageType                        string                       `json:"storageType"`
 	LicenseModel                       string                       `json:"licenseModel,omitempty"`
@@ -208,6 +211,8 @@ type DBSnapshot struct {
 	KmsKeyID             string    `json:"kmsKeyID,omitempty"`
 	SourceRegion         string    `json:"sourceRegion,omitempty"`
 	SnapshotType         string    `json:"snapshotType,omitempty"`
+	MasterUsername       string    `json:"masterUsername,omitempty"`
+	DBInstanceClass      string    `json:"dbInstanceClass,omitempty"`
 	AllocatedStorage     int       `json:"allocatedStorage"`
 	Port                 int       `json:"port"`
 	PercentProgress      int       `json:"percentProgress"`
@@ -272,6 +277,10 @@ type OptionGroup struct {
 type ServerlessV2ScalingConfiguration struct {
 	MinCapacity float64 `json:"minCapacity"`
 	MaxCapacity float64 `json:"maxCapacity"`
+	// SecondsUntilAutoPause is the idle time before pausing; set only while MinCapacity is 0.
+	SecondsUntilAutoPause int32 `json:"secondsUntilAutoPause,omitempty"`
+	// MinCapacityOmitted marks a modify request that did not carry MinCapacity.
+	MinCapacityOmitted bool `json:"-"`
 }
 
 // DBCluster represents an Aurora-style RDS cluster.
@@ -339,6 +348,9 @@ type DBCluster struct {
 	EnableLocalWriteForwarding       bool `json:"enableLocalWriteForwarding,omitempty"`
 	PerformanceInsightsEnabled       bool `json:"performanceInsightsEnabled,omitempty"`
 
+	// AutoPaused is runtime-only: the Aurora Serverless v2 instances are currently paused.
+	AutoPaused bool `json:"-"`
+
 	// ActivityStreamEngineNativeAuditFieldsIncluded gets its own group: at 46
 	// chars it's by far the longest field name here, and gofmt aligns every
 	// field in a contiguous block to the widest one.
@@ -348,17 +360,25 @@ type DBCluster struct {
 // DBClusterSnapshot represents an RDS cluster snapshot.
 type DBClusterSnapshot struct {
 	SnapshotCreateTime          time.Time `json:"snapshotCreateTime"`
+	ClusterCreateTime           time.Time `json:"clusterCreateTime,omitzero"`
+	Status                      string    `json:"status"`
+	MasterUsername              string    `json:"masterUsername,omitempty"`
+	SourceDBClusterSnapshotArn  string    `json:"sourceDBClusterSnapshotArn,omitempty"`
+	KmsKeyID                    string    `json:"kmsKeyId,omitempty"`
+	SnapshotType                string    `json:"snapshotType,omitempty"`
+	StorageType                 string    `json:"storageType,omitempty"`
+	DBClusterSnapshotIdentifier string    `json:"dbClusterSnapshotIdentifier"`
 	EngineVersion               string    `json:"engineVersion,omitempty"`
 	DBClusterSnapshotArn        string    `json:"dbClusterSnapshotArn,omitempty"`
 	DBClusterIdentifier         string    `json:"dbClusterIdentifier"`
 	DBClusterResourceID         string    `json:"dbClusterResourceId,omitempty"`
 	Engine                      string    `json:"engine"`
-	DBClusterSnapshotIdentifier string    `json:"dbClusterSnapshotIdentifier"`
-	Status                      string    `json:"status"`
-	SnapshotType                string    `json:"snapshotType,omitempty"`
-	KmsKeyID                    string    `json:"kmsKeyId,omitempty"`
-	SourceDBClusterSnapshotArn  string    `json:"sourceDBClusterSnapshotArn,omitempty"`
+	BackupRetentionPeriod       int       `json:"backupRetentionPeriod,omitempty"`
+	Iops                        int       `json:"iops,omitempty"`
+	AllocatedStorage            int       `json:"allocatedStorage,omitempty"`
+	Port                        int       `json:"port,omitempty"`
 	PercentProgress             int       `json:"percentProgress"`
+	IAMDatabaseAuthEnabled      bool      `json:"iamDatabaseAuthenticationEnabled,omitempty"`
 	StorageEncrypted            bool      `json:"storageEncrypted,omitempty"`
 	CopyTagsToSnapshot          bool      `json:"copyTagsToSnapshot,omitempty"`
 }
@@ -709,6 +729,8 @@ type DBInstanceAutomatedBackup struct {
 
 // DBInstanceOptions holds optional fields for CreateDBInstance and ModifyDBInstance.
 type DBInstanceOptions struct {
+	PinnedDbiResourceID          string
+	SourceDBClusterIdentifier    string
 	DBClusterIdentifier          string
 	AutomationMode               string
 	EngineVersion                string
@@ -772,42 +794,46 @@ type CopyDBSnapshotOptions struct {
 
 // DBClusterOptions holds optional fields for CreateDBCluster and ModifyDBCluster.
 type DBClusterOptions struct {
+	ServerlessV2Scaling          *ServerlessV2ScalingConfiguration
+	PreferredBackupWindow        string
+	StorageType                  string
+	DBClusterParameterGroupName  string
+	GlobalClusterIdentifier      string
+	MasterUserPassword           string
+	EngineVersion                string
+	KmsKeyID                     string
+	DBSubnetGroupName            string
+	DatabaseName                 string
+	PreferredMaintenanceWindow   string
+	MonitoringRoleArn            string
+	NetworkType                  string
+	EngineLifecycleSupport       string
+	ReplicationSourceIdentifier  string
+	OptionGroupName              string
+	ClusterScalabilityType       string
+	DBInstanceParameterGroupName string
+	PerformanceInsightsKMSKeyID  string
+	EnabledCloudwatchLogsExports []string
+	VpcSecurityGroupIDs          []string
 	MasterSecretRequest
-	MasterUserPassword                 string
-	EngineVersion                      string
-	KmsKeyID                           string
-	PreferredBackupWindow              string
-	PreferredMaintenanceWindow         string
-	MonitoringRoleArn                  string
-	StorageType                        string
-	NetworkType                        string
-	EngineLifecycleSupport             string
-	ReplicationSourceIdentifier        string
-	OptionGroupName                    string
-	ClusterScalabilityType             string
-	DBInstanceParameterGroupName       string
-	PerformanceInsightsKMSKeyID        string
-	DBSubnetGroupName                  string
-	GlobalClusterIdentifier            string
-	VpcSecurityGroupIDs                []string
-	EnabledCloudwatchLogsExports       []string
 	AvailabilityZones                  []string
+	Port                               int
 	BacktrackWindow                    int64
 	BackupRetentionPeriod              int
 	MonitoringInterval                 int
 	PerformanceInsightsRetentionPeriod int
 	AllocatedStorage                   int
 	Iops                               int
-	AllowMajorVersionUpgrade           bool
-	MultiAZ                            bool
 	StorageEncrypted                   bool
+	PubliclyAccessible                 bool
+	AllowMajorVersionUpgrade           bool
 	StorageEncryptedChanged            bool
 	CopyTagsToSnapshot                 bool
 	DeletionProtection                 bool
 	DeletionProtectionSet              bool
 	OptimizedWrites                    bool
 	AutoMinorVersionUpgrade            bool
-	PubliclyAccessible                 bool
+	MultiAZ                            bool
 	EnableIAMDatabaseAuthentication    bool
 	EnableGlobalWriteForwarding        bool
 	EnableLocalWriteForwarding         bool
@@ -819,8 +845,11 @@ type DBClusterOptions struct {
 
 // InMemoryBackend is the in-memory store for RDS resources.
 type InMemoryBackend struct {
-	engine                    *dbEngine
+	metrics                   cwmetric.Sink
 	dnsRegistrar              DNSRegistrar
+	secrets                   SecretsStore
+	engine                    *dbEngine
+	pause                     map[string]*pauseTracker
 	registry                  *store.Registry
 	snapshotAttributes        *store.Table[DBSnapshotAttributesResult]
 	reservedInstances         *store.Table[ReservedDBInstance]
@@ -864,11 +893,15 @@ type InMemoryBackend struct {
 	instanceLogFiles          map[string][]DBLogFile
 	instanceLogContent        map[string]map[string]string
 	stopCh                    chan struct{}
+	iamAuth                   IAMAuthResolver
 	accountID                 string
 	region                    string
 	defaultCACertificateID    string
 	events                    []Event
+	autoPause                 AutoPauseConfig
+	pauseWG                   sync.WaitGroup
 	reconcilerWG              sync.WaitGroup
+	pauseRunning              bool
 	reconcilerRunning         bool
 	closed                    bool
 }

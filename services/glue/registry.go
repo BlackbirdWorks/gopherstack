@@ -3,6 +3,7 @@ package glue
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -492,12 +493,42 @@ func (b *InMemoryBackend) ListSchemas(registryName string) []*Schema {
 func (b *InMemoryBackend) UpdateSchema(
 	registryName, schemaName, compatibility, description string,
 ) (*Schema, error) {
+	return b.UpdateSchemaWithCheckpoint(registryName, schemaName, compatibility, description, nil)
+}
+
+// SchemaCheckpointRequest is UpdateSchemaInput.SchemaVersionNumber: the
+// version to checkpoint, or the latest one.
+type SchemaCheckpointRequest struct {
+	VersionNumber int64
+	LatestVersion bool
+}
+
+// UpdateSchemaWithCheckpoint is UpdateSchema plus the optional checkpoint move.
+func (b *InMemoryBackend) UpdateSchemaWithCheckpoint(
+	registryName, schemaName, compatibility, description string,
+	checkpoint *SchemaCheckpointRequest,
+) (*Schema, error) {
 	b.mu.Lock("UpdateSchema")
 	defer b.mu.Unlock()
 
 	s, ok := b.schemas.Get(schemaKey(registryName, schemaName))
 	if !ok {
 		return nil, ErrNotFound
+	}
+
+	if checkpoint != nil {
+		version := checkpoint.VersionNumber
+		if checkpoint.LatestVersion {
+			version = s.LatestSchemaVersion
+		}
+
+		if !slices.ContainsFunc(b.schemaVersions[schemaVersionListKey(s.SchemaARN)], func(v *SchemaVersion) bool {
+			return v.VersionNumber == version
+		}) {
+			return nil, fmt.Errorf("schema version %d not found: %w", version, ErrNotFound)
+		}
+
+		s.CheckpointVersion = version
 	}
 
 	if compatibility != "" {

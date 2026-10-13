@@ -122,10 +122,10 @@ func (h *Handler) handleWebSocketProxy(c *echo.Context, apiID, stageName string)
 	}
 
 	connectionID := uuid.New().String()
-	wm.connect()
+	wm.forRoute("$connect").connect()
 
 	// Route the $connect event
-	err := h.invokeWSRoute(c, apiID, "$connect", connectionID, []byte{})
+	err := h.invokeWSRoute(c, apiID, stageName, "$connect", connectionID, []byte{})
 	if err != nil {
 		log.Error("apigatewayv2: $connect route failed", "error", err)
 		wm.clientError()
@@ -172,20 +172,25 @@ func (h *Handler) handleWebSocketProxy(c *echo.Context, apiID, stageName string)
 		_ = conn.Close()
 	}()
 
-	h.wsReadLoop(c, conn, apiID, connectionID, wm)
+	h.wsReadLoop(c, conn, apiID, stageName, connectionID, wm)
 
 	if h.managementAPI != nil {
 		_ = h.managementAPI.DeleteConnection(connectionID)
 	}
 
 	// Route the $disconnect event
-	_ = h.invokeWSRoute(c, apiID, "$disconnect", connectionID, []byte{})
+	_ = h.invokeWSRoute(c, apiID, stageName, "$disconnect", connectionID, []byte{})
 
 	return nil
 }
 
 // invokeWSRoute invokes the backend integration for a specific route.
-func (h *Handler) wsReadLoop(c *echo.Context, conn *websocket.Conn, apiID, connectionID string, wm wsMetrics) {
+func (h *Handler) wsReadLoop(
+	c *echo.Context,
+	conn *websocket.Conn,
+	apiID, stageName, connectionID string,
+	wm wsMetrics,
+) {
 	log := logger.Load(c.Request().Context())
 
 	for {
@@ -211,21 +216,26 @@ func (h *Handler) wsReadLoop(c *echo.Context, conn *websocket.Conn, apiID, conne
 				}
 			}
 
-			wm.message()
+			rm := wm.forRoute(routeKey)
+			rm.message()
 
 			start := time.Now()
-			wm.routed(h.invokeWSRoute(c, apiID, routeKey, connectionID, msgBody), start)
+			rm.routed(h.invokeWSRoute(c, apiID, stageName, routeKey, connectionID, msgBody), start)
 		}
 	}
 }
 
-func (h *Handler) invokeWSRoute(c *echo.Context, apiID, routeKey, connectionID string, body []byte) error {
+func (h *Handler) invokeWSRoute(
+	c *echo.Context,
+	apiID, stageName, routeKey, connectionID string,
+	body []byte,
+) error {
 	_, err := h.Backend.GetAPI(apiID)
 	if err != nil {
 		return err
 	}
 
-	routes, err := h.Backend.GetRoutes(apiID)
+	routes, deployment, err := h.resolveHTTPAPIRoutes(apiID, h.lookupStage(apiID, stageName))
 	if err != nil {
 		return err
 	}
@@ -248,7 +258,7 @@ func (h *Handler) invokeWSRoute(c *echo.Context, apiID, routeKey, connectionID s
 	}
 
 	integrationID := strings.TrimPrefix(matchedRoute.Target, "integrations/")
-	integration, err := h.Backend.GetIntegration(apiID, integrationID)
+	integration, err := h.resolveHTTPAPIIntegration(apiID, integrationID, deployment)
 	if err != nil {
 		return fmt.Errorf("%w: %s", ErrIntegrationNotFound, integrationID)
 	}
@@ -289,7 +299,7 @@ func (h *Handler) invokeWSRoute(c *echo.Context, apiID, routeKey, connectionID s
 	// 5. Invoke Lambda
 	_, _, err = h.lambdaInvoker.InvokeFunction(c.Request().Context(), lambdaArn, "RequestResponse", payload)
 	if err != nil {
-		return fmt.Errorf("lambda invocation failed: %w", err)
+		return fmt.Errorf("lambda invocation failed: %w: %w", ErrIntegrationInvoke, err)
 	}
 
 	return nil

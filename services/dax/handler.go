@@ -269,7 +269,7 @@ var daxErrCodeMappings = []errCodeMapping{ //nolint:gochecknoglobals // package-
 func (h *Handler) mapError(err error) (int, map[string]any) {
 	for _, m := range daxErrCodeMappings {
 		if errors.Is(err, m.target) {
-			return http.StatusBadRequest, daxError(m.code, err.Error())
+			return http.StatusBadRequest, daxError(m.code, strings.TrimPrefix(err.Error(), m.target.Error()+": "))
 		}
 	}
 

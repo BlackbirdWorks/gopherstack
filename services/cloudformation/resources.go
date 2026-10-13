@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
+	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -77,6 +79,7 @@ import (
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	"github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
+	directconnectbackend "github.com/blackbirdworks/gopherstack/services/directconnect"
 	ecrpublicbackend "github.com/blackbirdworks/gopherstack/services/ecrpublic"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
@@ -84,6 +87,7 @@ import (
 	kinesisvideobackend "github.com/blackbirdworks/gopherstack/services/kinesisvideo"
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
+	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
@@ -168,11 +172,13 @@ type ServiceBackends struct {
 	AccessAnalyzer *accessanalyzerbackend.Handler
 	Amplify        *amplifybackend.Handler
 	// Phase-7 backends
-	KinesisVideo *kinesisvideobackend.Handler
-	ECRPublic    *ecrpublicbackend.Handler
-	KafkaConnect *kafkaconnectbackend.Handler
-	AccountID    string
-	Region       string
+	KinesisVideo   *kinesisvideobackend.Handler
+	ECRPublic      *ecrpublicbackend.Handler
+	KafkaConnect   *kafkaconnectbackend.Handler
+	DirectConnect  *directconnectbackend.Handler
+	NetworkManager *networkmanagerbackend.Handler
+	AccountID      string
+	Region         string
 }
 
 // NestedStackCreator is a callback used to create and delete nested CloudFormation stacks.
@@ -2700,13 +2706,7 @@ func (rc *ResourceCreator) createSQSQueue(
 	if queueName == "" {
 		queueName = logicalID
 	}
-	attrs := map[string]string{}
-	if vt := strProp(props, "VisibilityTimeout", params, physicalIDs); vt != "" {
-		attrs["VisibilityTimeout"] = vt
-	}
-	if mrt := strProp(props, "MessageRetentionPeriod", params, physicalIDs); mrt != "" {
-		attrs["MessageRetentionPeriod"] = mrt
-	}
+	attrs := sqsAttributesFromProps(props, params, physicalIDs)
 	if isFIFO, _ := props["FifoQueue"].(bool); isFIFO {
 		queueName = strings.TrimSuffix(queueName, ".fifo") + ".fifo"
 		attrs["FifoQueue"] = boolTrue
@@ -2972,19 +2972,36 @@ func (rc *ResourceCreator) createEventBridgeRule(
 	return rule.Arn, nil
 }
 
+// ruleARNWithBusParts is the "/" segment count of a custom-bus rule ARN.
+const ruleARNWithBusParts = 3
+
 func (rc *ResourceCreator) deleteEventBridgeRule(ctx context.Context, physicalID string) error {
 	if rc.backends.EventBridge == nil {
 		return nil
 	}
-	// physicalID is the rule ARN; extract name from it
+	// physicalID is arn:...:rule/[bus/]name
 	parts := strings.Split(physicalID, "/")
 	name := parts[len(parts)-1]
+	bus := defaultEventBusName
+	if len(parts) >= ruleARNWithBusParts {
+		bus = parts[len(parts)-2]
+	}
 
-	return rc.backends.EventBridge.Backend.DeleteRule(
-		ctx,
-		name,
-		defaultEventBusName,
-	)
+	targets, _, err := rc.backends.EventBridge.Backend.ListTargetsByRule(ctx, name, bus, "", 0)
+	if err != nil {
+		return fmt.Errorf("list EventBridge rule targets: %w", err)
+	}
+	if len(targets) > 0 {
+		ids := make([]string, 0, len(targets))
+		for _, t := range targets {
+			ids = append(ids, t.ID)
+		}
+		if _, err = rc.backends.EventBridge.Backend.RemoveTargets(ctx, name, bus, ids); err != nil {
+			return fmt.Errorf("remove EventBridge rule targets: %w", err)
+		}
+	}
+
+	return rc.backends.EventBridge.Backend.DeleteRule(ctx, name, bus)
 }
 
 // createStepFunctionsStateMachine creates a Step Functions state machine.
@@ -3437,7 +3454,36 @@ func (rc *ResourceCreator) deleteExtraPlatformResource(
 
 // intProp reads an integer-valued property, accepting JSON numbers (float64) and ints.
 func intProp(props map[string]any, key string) int {
-	return int(int64Val(props[key]))
+	return int(clampInt32(int64Val(props[key])))
+}
+
+func clampInt32(n int64) int32 {
+	if n < math.MinInt32 {
+		return math.MinInt32
+	}
+
+	if n > math.MaxInt32 {
+		return math.MaxInt32
+	}
+
+	return int32(n)
+}
+
+func floatToInt32(v float64) int32 {
+	if v < math.MinInt32 || v > math.MaxInt32 {
+		if v < 0 {
+			return math.MinInt32
+		}
+
+		return math.MaxInt32
+	}
+
+	n, err := strconv.ParseInt(strconv.FormatFloat(math.Trunc(v), 'f', 0, 64), 10, 32)
+	if err != nil {
+		return 0
+	}
+
+	return int32(n)
 }
 
 // int64Val converts a JSON-decoded numeric value to int64. CloudFormation templates may carry

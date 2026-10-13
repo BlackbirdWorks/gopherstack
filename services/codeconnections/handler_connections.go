@@ -110,14 +110,9 @@ func (h *Handler) handleListConnections(
 		all = append(all, connToItem(conn))
 	}
 
-	var limit int
-	if in.MaxResults != nil && *in.MaxResults > 0 {
-		limit = int(*in.MaxResults)
-	}
-
-	token := ""
-	if in.NextToken != nil {
-		token = *in.NextToken
+	token, limit, pageErr := pageArgs(in.NextToken, in.MaxResults)
+	if pageErr != nil {
+		return nil, pageErr
 	}
 
 	p := page.New(all, token, limit, ccDefaultPageSize)

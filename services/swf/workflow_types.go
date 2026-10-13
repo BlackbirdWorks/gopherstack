@@ -13,11 +13,11 @@ func (b *InMemoryBackend) RegisterWorkflowType(
 	if domain == "" {
 		return fmt.Errorf("%w: domain is required", ErrValidation)
 	}
-	if name == "" {
-		return fmt.Errorf("%w: name is required", ErrValidation)
+	if err := validateName("name", name, maxNameLength); err != nil {
+		return err
 	}
-	if version == "" {
-		return fmt.Errorf("%w: version is required", ErrValidation)
+	if err := validateName("version", version, maxVersionLength); err != nil {
+		return err
 	}
 	if err := validateChildPolicy(defaults.DefaultChildPolicy); err != nil {
 		return err

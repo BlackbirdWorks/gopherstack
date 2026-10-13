@@ -77,7 +77,7 @@ func (b *InMemoryBackend) GetAnalyzer(name string) (*Analyzer, error) {
 		return nil, ErrAnalyzerNotFound
 	}
 
-	return copyAnalyzer(a), nil
+	return b.analyzerView(a), nil
 }
 
 // ListAnalyzers returns all analyzers, optionally filtered by type.
@@ -93,7 +93,7 @@ func (b *InMemoryBackend) ListAnalyzers(analyzerType string) ([]*Analyzer, error
 			continue
 		}
 
-		result = append(result, copyAnalyzer(a))
+		result = append(result, b.analyzerView(a))
 	}
 
 	sort.Slice(result, func(i, j int) bool {

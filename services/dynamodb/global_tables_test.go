@@ -950,7 +950,8 @@ func TestGlobalTablesV2_UpdateReplica(t *testing.T) {
 		}
 	}
 	require.NotNil(t, euReplica)
-	assert.Equal(t, "STANDARD_INFREQUENT_ACCESS", euReplica["TableClassOverride"])
+	summary, _ := euReplica["ReplicaTableClassSummary"].(map[string]any)
+	assert.Equal(t, "STANDARD_INFREQUENT_ACCESS", summary["TableClass"])
 }
 
 // buildEnableKinesisInput is a test helper for constructing EnableKinesisStreamingDestinationInput.

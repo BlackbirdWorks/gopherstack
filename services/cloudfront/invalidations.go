@@ -74,7 +74,7 @@ func (b *InMemoryBackend) CreateInvalidation(
 
 	now := time.Now().UTC()
 	inv := &Invalidation{
-		ID:         generateID(),
+		ID:         generateIDWithPrefix("I"),
 		Status:     statusInProgress,
 		CreateTime: now,
 		Paths:      append([]string(nil), paths...),
@@ -82,6 +82,10 @@ func (b *InMemoryBackend) CreateInvalidation(
 		distID:     distributionID,
 	}
 	b.invalidations.Put(inv)
+
+	if b.cacheHook != nil {
+		b.cacheHook(distributionID, append([]string{}, paths...))
+	}
 
 	if b.invalidationReadyAt[distributionID] == nil {
 		b.invalidationReadyAt[distributionID] = make(map[string]time.Time)

@@ -28,7 +28,7 @@ const (
 	// disambiguate the shared path by the request's SigV4 service name.
 	sigV4Service = "mediapackage"
 
-	keyMessage = "Message"
+	keyMessage = "message"
 	keyType    = "__type"
 
 	opCreateChannel     = "CreateChannel"
@@ -356,7 +356,12 @@ func classifyTagPath(method, path string) (string, string) {
 }
 
 func (h *Handler) jsonErrorTyped(c *echo.Context, status int, errType string, err error) error {
-	return c.JSON(status, map[string]any{keyMessage: err.Error(), keyType: errType})
+	msg := strings.TrimPrefix(strings.TrimPrefix(err.Error(), errType), ": ")
+	if msg == "" {
+		msg = "The request could not be processed."
+	}
+
+	return c.JSON(status, map[string]any{keyMessage: msg, keyType: errType})
 }
 
 // mapError sets __type on every branch so a real SDK client can classify the

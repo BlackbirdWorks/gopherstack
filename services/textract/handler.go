@@ -355,7 +355,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, action string,
 		code, status = "InternalServerError", http.StatusInternalServerError
 	}
 
-	payload, marshalErr := json.Marshal(service.JSONErrorResponse{Type: code, Message: err.Error()})
+	payload, marshalErr := json.Marshal(service.JSONErrorResponse{Type: code, Message: errMessage(err)})
 	if marshalErr != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}

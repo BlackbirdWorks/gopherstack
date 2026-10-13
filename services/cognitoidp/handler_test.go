@@ -46,7 +46,7 @@ func TestStubOperations(t *testing.T) {
 
 			h := newTestHandler(t)
 			rec := doCognitoRequest(t, h, tt.name, map[string]any{
-				"UserPoolId": "any",
+				"UserPoolId": "us-east-1_any",
 				"Username":   "any",
 			})
 			assert.Equal(t, http.StatusOK, rec.Code, "action %s", tt.name)

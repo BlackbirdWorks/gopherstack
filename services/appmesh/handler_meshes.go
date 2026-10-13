@@ -77,7 +77,10 @@ func (h *Handler) handleCreateMesh(c *echo.Context) error {
 		Tags        []tagInput      `json:"tags"`
 	}
 	if err := c.Bind(&body); err != nil || !isValidResourceName(body.MeshName) {
-		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "meshName is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("BadRequestException", nameMsg("meshName", body.MeshName)),
+		)
 	}
 	m, err := h.Backend.CreateMesh(body.MeshName, body.Spec, tagsToMap(body.Tags))
 	if err != nil {
@@ -125,7 +128,10 @@ func (h *Handler) handleDeleteMesh(c *echo.Context, meshName string) error {
 }
 
 func (h *Handler) handleListMeshes(c *echo.Context) error {
-	maxResults, nextToken := listParams(c)
+	maxResults, nextToken, pageErr := listParams(c)
+	if pageErr != nil {
+		return h.mapErr(c, pageErr)
+	}
 	items, next, err := h.Backend.ListMeshes(maxResults, nextToken)
 	if err != nil {
 		return h.mapErr(c, err)

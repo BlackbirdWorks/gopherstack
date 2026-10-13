@@ -52,6 +52,7 @@ type relationalDatabaseWire struct {
 	Hardware                      *relationalDatabaseHardwareWire `json:"hardware,omitempty"`
 	MasterEndpoint                *relationalDatabaseEndpointWire `json:"masterEndpoint,omitempty"`
 	Location                      *resourceLocationWire           `json:"location,omitempty"`
+	PendingModifiedValues         *pendingModifiedValuesWire      `json:"pendingModifiedValues,omitempty"`
 	CreatedAt                     *float64                        `json:"createdAt,omitempty"`
 	LatestRestorableTime          *float64                        `json:"latestRestorableTime,omitempty"`
 	Name                          string                          `json:"name,omitempty"`
@@ -75,8 +76,27 @@ type relationalDatabaseWire struct {
 	BackupRetentionEnabled        bool                            `json:"backupRetentionEnabled,omitempty"`
 }
 
+type pendingModifiedValuesWire struct {
+	BackupRetentionEnabled *bool  `json:"backupRetentionEnabled,omitempty"`
+	EngineVersion          string `json:"engineVersion,omitempty"`
+	MasterUserPassword     string `json:"masterUserPassword,omitempty"`
+}
+
+func pendingToWire(p *PendingDatabaseChanges) *pendingModifiedValuesWire {
+	if p == nil {
+		return nil
+	}
+
+	return &pendingModifiedValuesWire{
+		BackupRetentionEnabled: p.BackupRetentionEnabled,
+		EngineVersion:          p.EngineVersion,
+		MasterUserPassword:     p.MasterUserPassword,
+	}
+}
+
 func databaseToWire(db *RelationalDatabase) relationalDatabaseWire {
 	return relationalDatabaseWire{
+		PendingModifiedValues:   pendingToWire(db.Pending),
 		Arn:                     db.Arn,
 		BackupRetentionEnabled:  db.BackupRetentionEnabled,
 		CaCertificateIdentifier: db.CaCertificateIdentifier,
@@ -162,10 +182,22 @@ func (h *Handler) handleCreateRelationalDatabaseFromSnapshot(_ context.Context, 
 		return nil, err
 	}
 
-	ops, createErr := h.Backend.CreateRelationalDatabaseFromSnapshot(
-		req.RelationalDatabaseName, req.RelationalDatabaseSnapshotName, req.AvailabilityZone,
-		req.RelationalDatabaseBundleID, req.PubliclyAccessible, tagsFromWire(req.Tags),
-	)
+	restore := &RestoreDatabaseRequest{
+		Name:                    req.RelationalDatabaseName,
+		SnapshotName:            req.RelationalDatabaseSnapshotName,
+		SourceName:              req.SourceRelationalDatabaseName,
+		AvailabilityZone:        req.AvailabilityZone,
+		BundleID:                req.RelationalDatabaseBundleID,
+		PubliclyAccessible:      req.PubliclyAccessible,
+		UseLatestRestorableTime: req.UseLatestRestorableTime,
+		Tags:                    tagsFromWire(req.Tags),
+	}
+	if req.RestoreTime != nil {
+		t := timeFromEpoch(*req.RestoreTime)
+		restore.RestoreTime = &t
+	}
+
+	ops, createErr := h.Backend.CreateRelationalDatabaseFromSnapshot(restore)
 	if createErr != nil {
 		return nil, createErr
 	}
@@ -293,18 +325,20 @@ func (h *Handler) handleRebootRelationalDatabase(_ context.Context, body []byte)
 }
 
 type updateRelationalDatabaseRequest struct {
+	ApplyImmediately              *bool  `json:"applyImmediately,omitempty"`
+	DisableBackupRetention        *bool  `json:"disableBackupRetention,omitempty"`
+	EnableBackupRetention         *bool  `json:"enableBackupRetention,omitempty"`
+	PubliclyAccessible            *bool  `json:"publiclyAccessible,omitempty"`
+	RotateMasterUserPassword      *bool  `json:"rotateMasterUserPassword,omitempty"`
 	CaCertificateIdentifier       string `json:"caCertificateIdentifier,omitempty"`
 	MasterUserPassword            string `json:"masterUserPassword,omitempty"`
 	PreferredBackupWindow         string `json:"preferredBackupWindow,omitempty"`
 	PreferredMaintenanceWindow    string `json:"preferredMaintenanceWindow,omitempty"`
 	RelationalDatabaseBlueprintID string `json:"relationalDatabaseBlueprintId,omitempty"`
 	RelationalDatabaseName        string `json:"relationalDatabaseName"`
-	ApplyImmediately              bool   `json:"applyImmediately,omitempty"`
-	DisableBackupRetention        bool   `json:"disableBackupRetention,omitempty"`
-	EnableBackupRetention         bool   `json:"enableBackupRetention,omitempty"`
-	PubliclyAccessible            bool   `json:"publiclyAccessible,omitempty"`
-	RotateMasterUserPassword      bool   `json:"rotateMasterUserPassword,omitempty"`
 }
+
+func boolOf(p *bool) bool { return p != nil && *p }
 
 func (h *Handler) handleUpdateRelationalDatabase(_ context.Context, body []byte) ([]byte, error) {
 	req, err := decodeBody[updateRelationalDatabaseRequest](body)
@@ -312,22 +346,19 @@ func (h *Handler) handleUpdateRelationalDatabase(_ context.Context, body []byte)
 		return nil, err
 	}
 
-	var enable, disable, public *bool
-
-	if req.EnableBackupRetention {
-		enable = &req.EnableBackupRetention
-	}
-
-	if req.DisableBackupRetention {
-		disable = &req.DisableBackupRetention
-	}
-
-	public = &req.PubliclyAccessible
-
-	ops, updateErr := h.Backend.UpdateRelationalDatabase(
-		req.RelationalDatabaseName, req.MasterUserPassword, req.PreferredBackupWindow, req.PreferredMaintenanceWindow,
-		req.CaCertificateIdentifier, enable, disable, public,
-	)
+	ops, updateErr := h.Backend.UpdateRelationalDatabase(&UpdateDatabaseRequest{
+		Name:                     req.RelationalDatabaseName,
+		MasterUserPassword:       req.MasterUserPassword,
+		PreferredBackupWindow:    req.PreferredBackupWindow,
+		PreferredMaintenance:     req.PreferredMaintenanceWindow,
+		CaCertificateIdentifier:  req.CaCertificateIdentifier,
+		BlueprintID:              req.RelationalDatabaseBlueprintID,
+		EnableBackupRetention:    req.EnableBackupRetention,
+		DisableBackupRetention:   req.DisableBackupRetention,
+		PubliclyAccessible:       req.PubliclyAccessible,
+		ApplyImmediately:         boolOf(req.ApplyImmediately),
+		RotateMasterUserPassword: boolOf(req.RotateMasterUserPassword),
+	})
 	if updateErr != nil {
 		return nil, updateErr
 	}
@@ -447,13 +478,16 @@ func (h *Handler) handleGetRelationalDatabaseMasterUserPassword(_ context.Contex
 		return nil, err
 	}
 
-	pw, getErr := h.Backend.GetRelationalDatabaseMasterUserPassword(req.RelationalDatabaseName, req.PasswordVersion)
+	pw, setAt, getErr := h.Backend.GetRelationalDatabaseMasterUserPassword(
+		req.RelationalDatabaseName,
+		req.PasswordVersion,
+	)
 	if getErr != nil {
 		return nil, getErr
 	}
 
 	return marshalResponse(
-		getRelationalDatabaseMasterUserPasswordResponse{CreatedAt: epochPtr(nowUTC()), MasterUserPassword: pw},
+		getRelationalDatabaseMasterUserPasswordResponse{CreatedAt: epochPtr(setAt), MasterUserPassword: pw},
 	)
 }
 

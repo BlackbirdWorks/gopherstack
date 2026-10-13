@@ -15,7 +15,7 @@ import (
 // convention.
 func isValidOptInType(optInType string) bool {
 	switch optInType {
-	case "immediate", "next-maintenance", "undo-opt-in":
+	case applyMethodImmediate, "next-maintenance", "undo-opt-in":
 		return true
 	default:
 		return false

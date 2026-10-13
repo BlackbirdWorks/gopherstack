@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
@@ -182,4 +183,29 @@ func TestInitializeServices_IoTAnalyticsLambdaIoTWiring(t *testing.T) {
 			"a wired backend must actually invoke Lambda and surface its not-found error, "+
 				"not silently pass the payload through unchanged")
 	})
+}
+
+func iotAnalyticsLifecycleKnob() lifecycleKnob {
+	return lifecycleKnob{
+		name: "iotanalytics",
+		set:  func(l *LifecycleSettings, d time.Duration) { l.IoTAnalytics = d },
+		start: func(t *testing.T, cfg aws.Config) func() bool {
+			t.Helper()
+
+			c := iotanalyticssdk.NewFromConfig(cfg)
+			_, err := c.CreateChannel(t.Context(), &iotanalyticssdk.CreateChannelInput{
+				ChannelName: aws.String("lcres"),
+			})
+			require.NoError(t, err)
+
+			return func() bool {
+				out, dErr := c.DescribeChannel(t.Context(), &iotanalyticssdk.DescribeChannelInput{
+					ChannelName: aws.String("lcres"),
+				})
+				require.NoError(t, dErr)
+
+				return out.Channel.Status == iotanalyticstypes.ChannelStatusCreating
+			}
+		},
+	}
 }

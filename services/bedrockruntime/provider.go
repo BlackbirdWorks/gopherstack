@@ -34,6 +34,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	backend := NewInMemoryBackendWithContext(svcCtx, accountID, region)
+	wireGuardrailLookup(ctx, backend)
 	handler := NewHandler(backend)
 	handler.EnableRegions()
 

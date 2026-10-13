@@ -21,6 +21,14 @@ func (b *InMemoryBackend) CreateAPIKey(input CreateAPIKeyInput) (*APIKey, error)
 		}
 	}
 
+	if input.Value != "" {
+		for _, k := range b.apiKeys.All() {
+			if k.Value == input.Value {
+				return nil, fmt.Errorf("%w: API key value already exists", ErrAlreadyExists)
+			}
+		}
+	}
+
 	stageKeys, err := b.resolveStageKeysLocked(input.StageKeys)
 	if err != nil {
 		return nil, err

@@ -398,7 +398,7 @@ func connectionFunctionSummaryXML(fn *ConnectionFunction) string {
 // GetConnectionFunctionOutput (ConnectionFunctionCode + ContentType), unlike
 // DescribeConnectionFunction which returns metadata only.
 func (h *Handler) handleGetConnectionFunction(c *echo.Context, id string) error {
-	fn, err := h.Backend.GetConnectionFunction(id)
+	fn, err := h.Backend.GetConnectionFunctionAtStage(id, c.QueryParam("Stage"))
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -408,7 +408,7 @@ func (h *Handler) handleGetConnectionFunction(c *echo.Context, id string) error 
 }
 
 func (h *Handler) handleDescribeConnectionFunction(c *echo.Context, id string) error {
-	fn, err := h.Backend.GetConnectionFunction(id)
+	fn, err := h.Backend.GetConnectionFunctionAtStage(id, c.QueryParam("Stage"))
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -447,7 +447,15 @@ func (h *Handler) handleListConnectionFunctions(c *echo.Context) error {
 
 	items := h.Backend.ListConnectionFunctions()
 	if req.Stage != "" {
-		items = filterSlice(items, func(fn *ConnectionFunction) bool { return fn.Stage == req.Stage })
+		staged := make([]*ConnectionFunction, 0, len(items))
+
+		for _, fn := range items {
+			if view, ok := connectionFunctionAtStage(fn, req.Stage); ok {
+				staged = append(staged, view)
+			}
+		}
+
+		items = staged
 	}
 
 	// Name alone is not a unique cursor key (ConnectionFunction names may repeat, see

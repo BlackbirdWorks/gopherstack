@@ -37,7 +37,7 @@ func TestCreateApplication_NameLength(t *testing.T) {
 			if tt.wantCode == http.StatusBadRequest {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Contains(t, resp["message"], "name must be at most")
+				assert.Contains(t, resp["message"], "Name must be at most")
 			}
 		})
 	}
@@ -109,7 +109,7 @@ func TestCreateApplication_AuthorLength(t *testing.T) {
 			if tt.wantCode == http.StatusBadRequest {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Contains(t, resp["message"], "author must be at most")
+				assert.Contains(t, resp["message"], "Author must be at most")
 			}
 		})
 	}
@@ -142,7 +142,7 @@ func TestCreateApplication_DescriptionLength(t *testing.T) {
 			if tt.wantCode == http.StatusBadRequest {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Contains(t, resp["message"], "description must be at most")
+				assert.Contains(t, resp["message"], "Description must be at most")
 			}
 		})
 	}
@@ -231,7 +231,7 @@ func TestCreateApplication_LabelsValidation(t *testing.T) {
 			name:        "too many labels",
 			labels:      tooManyLabels,
 			wantCode:    http.StatusBadRequest,
-			wantMessage: "at most 10 labels",
+			wantMessage: "At most 10 labels",
 		},
 		{
 			name:     "exactly 10 labels accepted",

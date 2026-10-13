@@ -114,7 +114,7 @@ func (h *Handler) handleCreateApplicationVersion(ctx context.Context, vals url.V
 		CreateApplicationVersionResult: createApplicationVersionResult{
 			ApplicationVersion: toAppVersionDesc(ver),
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-create-ver"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-create-ver"),
 	}, nil
 }
 
@@ -149,7 +149,7 @@ func (h *Handler) handleDescribeApplicationVersions(ctx context.Context, vals ur
 			ApplicationVersions: members,
 			NextToken:           pg.Next,
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-describe-vers"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-describe-vers"),
 	}, nil
 }
 
@@ -177,7 +177,7 @@ func (h *Handler) handleDeleteApplicationVersion(ctx context.Context, vals url.V
 
 	return &deleteApplicationVersionResponse{
 		Xmlns:            ebXMLNS,
-		ResponseMetadata: responseMetadata{RequestID: "eb-delete-ver"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-delete-ver"),
 	}, nil
 }
 
@@ -212,6 +212,6 @@ func (h *Handler) handleUpdateApplicationVersion(ctx context.Context, vals url.V
 		UpdateApplicationVersionResult: createApplicationVersionResult{
 			ApplicationVersion: toAppVersionDesc(ver),
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-update-app-ver"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-update-app-ver"),
 	}, nil
 }

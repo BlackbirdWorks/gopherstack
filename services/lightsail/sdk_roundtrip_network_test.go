@@ -25,6 +25,8 @@ func TestLoadBalancerRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	waitForInstanceState(t, client, "lb-target-1", "running")
+
 	_, err = client.CreateLoadBalancer(ctx, &lightsailsdk.CreateLoadBalancerInput{
 		LoadBalancerName: aws.String("lb-1"), InstancePort: 80,
 	})

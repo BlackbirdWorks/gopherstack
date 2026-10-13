@@ -9,6 +9,9 @@ func (h *Handler) EnableRegions() {
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
 		nb := NewInMemoryBackendWithMeta(home.accountID, region)
 		nb.s3Writer, nb.snsPublisher = home.deliveryTargets()
+		home.mu.RLock("inheritTemplates")
+		nb.templates = home.templates
+		home.mu.RUnlock()
 
 		return NewHandler(nb)
 	})

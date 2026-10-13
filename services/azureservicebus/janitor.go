@@ -117,6 +117,7 @@ func sweepMessageQueueLocked(mq *messageQueue, cfg EntityConfig, now time.Time) 
 	// to sleep.
 	notifyNeeded := false
 
+	liveBefore := len(mq.Messages)
 	kept := mq.Messages[:0]
 
 	for _, msg := range mq.Messages {
@@ -165,7 +166,13 @@ func sweepMessageQueueLocked(mq *messageQueue, cfg EntityConfig, now time.Time) 
 		final = append(final, msg)
 	}
 
+	clear(mq.Messages[len(final):])
 	mq.Messages = final
+	mq.idx.hintEnd = 0
+
+	if len(final) != liveBefore {
+		mq.reindexLive()
+	}
 
 	if notifyNeeded {
 		mq.broadcastLocked()

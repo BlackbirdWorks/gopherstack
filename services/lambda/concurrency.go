@@ -7,6 +7,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+const minUnreservedConcurrency = 100
+
 // PutFunctionConcurrency sets the reserved concurrent executions for a function.
 // Setting ReservedConcurrentExecutions to 0 disables all invocations of the function.
 func (b *InMemoryBackend) PutFunctionConcurrency(
@@ -25,6 +27,22 @@ func (b *InMemoryBackend) PutFunctionConcurrency(
 		return nil, fmt.Errorf(
 			"%w: ReservedConcurrentExecutions must be >= 0",
 			ErrInvalidParameterValue,
+		)
+	}
+
+	otherReserved := 0
+
+	for fnName, r := range b.functionConcurrencies {
+		if fnName != name {
+			otherReserved += r
+		}
+	}
+
+	if otherReserved+reserved > accountDefaultConcurrentExecutions-minUnreservedConcurrency {
+		return nil, fmt.Errorf(
+			"%w: Specified ReservedConcurrentExecutions for function decreases account's "+
+				"UnreservedConcurrentExecution below its minimum value of [%d]",
+			ErrInvalidParameterValue, minUnreservedConcurrency,
 		)
 	}
 

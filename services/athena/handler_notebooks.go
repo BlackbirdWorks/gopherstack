@@ -1,6 +1,9 @@
 package athena
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // createNotebookInput has no Tags: the real CreateNotebookInput carries only Name/WorkGroup/ClientRequestToken.
 type createNotebookInput struct {
@@ -36,12 +39,37 @@ type listNotebookMetadataFilter struct {
 	Name string `json:"Name"`
 }
 
+type notebookS3Loader interface {
+	loadNotebookFromS3(uri string) (string, error)
+}
+
+func (h *Handler) resolveNotebookPayload(input *importNotebookInput) error {
+	if input.Payload != "" || input.NotebookS3Location == "" {
+		return nil
+	}
+
+	loader, ok := h.Backend.(notebookS3Loader)
+	if !ok {
+		return fmt.Errorf("%w: NotebookS3LocationUri is not supported by this backend", ErrValidation)
+	}
+
+	payload, err := loader.loadNotebookFromS3(input.NotebookS3Location)
+	if err != nil {
+		return err
+	}
+
+	input.Payload = payload
+
+	return nil
+}
+
 type importNotebookInput struct {
 	WorkGroup          string `json:"WorkGroup"`
 	Name               string `json:"Name"`
 	Payload            string `json:"Payload"`
 	Type               string `json:"Type"`
 	ClientRequestToken string `json:"ClientRequestToken"`
+	NotebookS3Location string `json:"NotebookS3LocationUri"`
 }
 
 type updateNotebookInput struct {
@@ -168,6 +196,10 @@ func (h *Handler) notebookExtraOps() map[string]athenaActionFn {
 		"ImportNotebook": func(b []byte) (any, error) {
 			var input importNotebookInput
 			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			if err := h.resolveNotebookPayload(&input); err != nil {
 				return nil, err
 			}
 

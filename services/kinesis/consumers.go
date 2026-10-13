@@ -161,6 +161,15 @@ func (b *InMemoryBackend) ListStreamConsumers(
 	input *ListStreamConsumersInput,
 ) (*ListStreamConsumersOutput, error) {
 	region := regionFromARNOrCtx(ctx, input.StreamARN, b.region)
+	now := b.nowFunc()
+
+	var token pageToken
+	if input.NextToken != "" {
+		var err error
+		if token, err = decodePageToken(pageTokenKindConsumers, input.NextToken, now); err != nil {
+			return nil, err
+		}
+	}
 
 	b.mu.RLock("ListStreamConsumers")
 
@@ -188,10 +197,13 @@ func (b *InMemoryBackend) ListStreamConsumers(
 		return consumers[i].ConsumerName < consumers[j].ConsumerName
 	})
 
-	// Apply NextToken as exclusive start consumer name.
 	if input.NextToken != "" {
+		if !token.matchesStream(stream) {
+			return nil, ErrInvalidArgument
+		}
+
 		start := 0
-		for start < len(consumers) && consumers[start].ConsumerName <= input.NextToken {
+		for start < len(consumers) && consumers[start].ConsumerName <= token.Cursor {
 			start++
 		}
 		consumers = consumers[start:]
@@ -200,7 +212,7 @@ func (b *InMemoryBackend) ListStreamConsumers(
 	// Apply MaxResults cap.
 	var nextToken string
 	if input.MaxResults > 0 && input.MaxResults < len(consumers) {
-		nextToken = consumers[input.MaxResults-1].ConsumerName
+		nextToken = encodePageToken(pageTokenKindConsumers, stream, consumers[input.MaxResults-1].ConsumerName, now)
 		consumers = consumers[:input.MaxResults]
 	}
 

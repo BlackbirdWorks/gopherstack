@@ -70,18 +70,26 @@ type CopyObjectResult struct {
 	ChecksumCRC32     string   `xml:"ChecksumCRC32,omitempty"`
 	ChecksumCRC32C    string   `xml:"ChecksumCRC32C,omitempty"`
 	ChecksumCRC64NVME string   `xml:"ChecksumCRC64NVME,omitempty"`
+	ChecksumMD5       string   `xml:"ChecksumMD5,omitempty"`
+	ChecksumSHA512    string   `xml:"ChecksumSHA512,omitempty"`
 	ChecksumSHA1      string   `xml:"ChecksumSHA1,omitempty"`
 	ChecksumSHA256    string   `xml:"ChecksumSHA256,omitempty"`
 }
 
+type RestoreStatusXML struct {
+	RestoreExpiryDate   string `xml:"RestoreExpiryDate,omitempty"`
+	IsRestoreInProgress bool   `xml:"IsRestoreInProgress"`
+}
+
 type ObjectXML struct {
-	Owner             *Owner `xml:"Owner"`
-	Key               string `xml:"Key"`
-	LastModified      string `xml:"LastModified"`
-	ETag              string `xml:"ETag"`
-	StorageClass      string `xml:"StorageClass"`
-	ChecksumAlgorithm string `xml:"ChecksumAlgorithm,omitempty"`
-	Size              int64  `xml:"Size"`
+	Owner             *Owner            `xml:"Owner"`
+	RestoreStatus     *RestoreStatusXML `xml:"RestoreStatus,omitempty"`
+	Key               string            `xml:"Key"`
+	LastModified      string            `xml:"LastModified"`
+	ETag              string            `xml:"ETag"`
+	StorageClass      string            `xml:"StorageClass"`
+	ChecksumAlgorithm string            `xml:"ChecksumAlgorithm,omitempty"`
+	Size              int64             `xml:"Size"`
 }
 
 type VersioningConfiguration struct {
@@ -220,15 +228,16 @@ type ListVersionsResult struct {
 }
 
 type ObjectVersionXML struct {
-	Owner             *Owner `xml:"Owner"`
-	Key               string `xml:"Key"`
-	VersionID         string `xml:"VersionId"`
-	LastModified      string `xml:"LastModified"`
-	ETag              string `xml:"ETag"`
-	StorageClass      string `xml:"StorageClass"`
-	ChecksumAlgorithm string `xml:"ChecksumAlgorithm,omitempty"`
-	Size              int64  `xml:"Size"`
-	IsLatest          bool   `xml:"IsLatest"`
+	Owner             *Owner            `xml:"Owner"`
+	RestoreStatus     *RestoreStatusXML `xml:"RestoreStatus,omitempty"`
+	Key               string            `xml:"Key"`
+	VersionID         string            `xml:"VersionId"`
+	LastModified      string            `xml:"LastModified"`
+	ETag              string            `xml:"ETag"`
+	StorageClass      string            `xml:"StorageClass"`
+	ChecksumAlgorithm string            `xml:"ChecksumAlgorithm,omitempty"`
+	Size              int64             `xml:"Size"`
+	IsLatest          bool              `xml:"IsLatest"`
 }
 
 type DeleteMarkerXML struct {
@@ -264,6 +273,15 @@ type CompleteMultipartUploadResult struct {
 	Bucket   string   `xml:"Bucket"`
 	Key      string   `xml:"Key"`
 	ETag     string   `xml:"ETag"`
+
+	ChecksumCRC32     string `xml:"ChecksumCRC32,omitempty"`
+	ChecksumCRC32C    string `xml:"ChecksumCRC32C,omitempty"`
+	ChecksumCRC64NVME string `xml:"ChecksumCRC64NVME,omitempty"`
+	ChecksumSHA1      string `xml:"ChecksumSHA1,omitempty"`
+	ChecksumSHA256    string `xml:"ChecksumSHA256,omitempty"`
+	ChecksumMD5       string `xml:"ChecksumMD5,omitempty"`
+	ChecksumSHA512    string `xml:"ChecksumSHA512,omitempty"`
+	ChecksumType      string `xml:"ChecksumType,omitempty"`
 }
 
 type UploadPartCopyResult struct {
@@ -423,6 +441,8 @@ type PartXML struct {
 	ChecksumCRC32     string `xml:"ChecksumCRC32,omitempty"`
 	ChecksumCRC32C    string `xml:"ChecksumCRC32C,omitempty"`
 	ChecksumCRC64NVME string `xml:"ChecksumCRC64NVME,omitempty"`
+	ChecksumMD5       string `xml:"ChecksumMD5,omitempty"`
+	ChecksumSHA512    string `xml:"ChecksumSHA512,omitempty"`
 	ChecksumSHA1      string `xml:"ChecksumSHA1,omitempty"`
 	ChecksumSHA256    string `xml:"ChecksumSHA256,omitempty"`
 	Size              int64  `xml:"Size"`

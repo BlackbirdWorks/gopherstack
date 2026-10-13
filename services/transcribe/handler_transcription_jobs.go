@@ -126,10 +126,7 @@ func (h *Handler) handleGetTranscriptionJob(
 
 func buildTranscriptURI(job *TranscriptionJob) string {
 	if job.OutputBucketName != "" {
-		key := job.OutputKey
-		if key == "" {
-			key = job.JobName + ".json"
-		}
+		key := outputObjectKey(job.OutputKey, job.JobName)
 
 		return "s3://" + job.OutputBucketName + "/" + key
 	}
@@ -158,9 +155,10 @@ func buildTranscriptionJobOutput(job *TranscriptionJob, transcriptURI string) tr
 		ToxicityDetection:         job.ToxicityDetection,
 		IdentifiedLanguageScore:   job.IdentifiedLanguageScore,
 		Tags:                      tagsFromMap(job.Tags),
-		Transcript: transcriptOutput{
-			TranscriptFileURI: transcriptURI,
-		},
+	}
+
+	if job.JobStatus == jobStatusCompleted {
+		out.Transcript.TranscriptFileURI = transcriptURI
 	}
 
 	if job.Media.MediaFileURI != "" {
@@ -226,6 +224,10 @@ func (h *Handler) handleListTranscriptionJobs(
 	_ context.Context,
 	in *handleListTranscriptionJobsInput,
 ) (*listTranscriptionJobsOutput, error) {
+	if err := validateJobListRequest(in.Status, in.NextToken, in.MaxResults); err != nil {
+		return nil, err
+	}
+
 	jobs, nextToken := h.Backend.ListTranscriptionJobs(in.Status, in.JobNameContains, in.NextToken, in.MaxResults)
 
 	summaries := make([]transcriptionJobSummary, 0, len(jobs))

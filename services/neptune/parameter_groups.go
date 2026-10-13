@@ -190,6 +190,13 @@ func (b *InMemoryBackend) ModifyDBParameterGroup(
 	); err != nil {
 		return nil, err
 	}
+	if hasStaticParameter(neptuneInstanceParameterCatalogIndex(), params) {
+		for _, inst := range b.instancesInRegion(region) {
+			if inst.DBParameterGroupName == name {
+				inst.ParameterPendingReboot = true
+			}
+		}
+	}
 	cp := *pg
 
 	return &cp, nil
@@ -248,4 +255,36 @@ func (b *InMemoryBackend) AddParameterGroupInternal(name, family string) *DBPara
 	cp := *pg
 
 	return &cp
+}
+
+func hasStaticParameter(catalog map[string]EngineParameter, params []ParameterInput) bool {
+	for _, p := range params {
+		if catalog[p.ParameterName].ApplyType == applyTypeStatic {
+			return true
+		}
+	}
+
+	return false
+}
+
+// markClusterPendingRebootLocked flags every member of c as needing a reboot to pick up its parameter group.
+func (b *InMemoryBackend) markClusterPendingRebootLocked(region string, c *DBCluster) {
+	for i := range c.DBClusterMembers {
+		c.DBClusterMembers[i].ParameterGroupStatus = parameterApplyPendingReboot
+		if inst, ok := b.instanceGet(region, c.DBClusterMembers[i].DBInstanceIdentifier); ok {
+			inst.ParameterPendingReboot = true
+		}
+	}
+}
+
+func (b *InMemoryBackend) clearPendingRebootLocked(region string, inst *DBInstance) {
+	inst.ParameterPendingReboot = false
+
+	if c, ok := b.clusterGet(region, inst.DBClusterIdentifier); ok {
+		for i := range c.DBClusterMembers {
+			if c.DBClusterMembers[i].DBInstanceIdentifier == inst.DBInstanceIdentifier {
+				c.DBClusterMembers[i].ParameterGroupStatus = ""
+			}
+		}
+	}
 }

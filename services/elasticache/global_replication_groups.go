@@ -56,12 +56,10 @@ func (b *InMemoryBackend) CreateGlobalReplicationGroup(
 	}
 
 	nodeGroupCount := int32(1)
-	if rg, ok := b.replicationGroupsStore(region).Get(primaryReplicationGroupID); ok && len(rg.NodeGroups) > 0 {
-		var cnt int32
-		for range rg.NodeGroups {
-			cnt++
-		}
-		nodeGroupCount = cnt
+	primary, hasPrimary := b.replicationGroupsStore(region).Get(primaryReplicationGroupID)
+
+	if hasPrimary && len(primary.NodeGroups) > 0 {
+		nodeGroupCount = count32(len(primary.NodeGroups))
 	}
 
 	grg := &GlobalReplicationGroup{
@@ -77,6 +75,13 @@ func (b *InMemoryBackend) CreateGlobalReplicationGroup(
 		Tags:                          tags.New("elasticache.grg." + id + ".tags"),
 		NodeGroupCount:                nodeGroupCount,
 	}
+
+	if hasPrimary {
+		grg.PrimaryReplicationGroupID = primaryReplicationGroupID
+		primary.GlobalReplicationGroupID = id
+		primary.GlobalReplicationGroupRole = groupRolePrimary
+	}
+
 	b.markCreatingLocked(&grg.PendingStatus, &grg.AvailableAt)
 	b.putGlobalReplicationGroup(id, grg)
 	b.appendEventLocked(id, "global-replication-group", "global replication group created")
@@ -95,11 +100,13 @@ func (b *InMemoryBackend) AddGlobalReplicationGroupInternal(grg *GlobalReplicati
 	b.putGlobalReplicationGroup(grg.GlobalReplicationGroupID, grg)
 }
 
-// DeleteGlobalReplicationGroup deletes a global replication group.
+// DeleteGlobalReplicationGroup deletes a global replication group. The
+// primary replication group survives as a standalone group only when
+// retainPrimary is set; otherwise it is deleted with the global group.
 func (b *InMemoryBackend) DeleteGlobalReplicationGroup(
 	_ context.Context,
 	id string,
-	_ bool,
+	retainPrimary bool,
 ) (*GlobalReplicationGroup, error) {
 	b.mu.Lock("DeleteGlobalReplicationGroup")
 	defer b.mu.Unlock()
@@ -115,6 +122,16 @@ func (b *InMemoryBackend) DeleteGlobalReplicationGroup(
 		return nil, err
 	}
 
+	for rgID, region := range grg.SecondaryReplicationGroups {
+		b.unlinkGlobalMemberLocked(rgID, region)
+	}
+
+	b.unlinkGlobalMemberLocked(grg.PrimaryReplicationGroupID, grg.PrimaryReplicationGroupRegion)
+
+	if !retainPrimary && grg.PrimaryReplicationGroupID != "" {
+		b.removeReplicationGroupLocked(grg.PrimaryReplicationGroupRegion, grg.PrimaryReplicationGroupID)
+	}
+
 	if d := b.pendingUntil(); !d.IsZero() {
 		grg.PendingStatus = statusDeleting
 		grg.AvailableAt = d
@@ -123,13 +140,13 @@ func (b *InMemoryBackend) DeleteGlobalReplicationGroup(
 		return b.globalReplicationGroupView(grg), nil
 	}
 
-	result := *grg
+	result := b.globalReplicationGroupView(grg)
 	grg.Tags.Close()
 	b.deleteGlobalReplicationGroup(id)
 
 	b.appendEventLocked(id, "global-replication-group", "global replication group deleted")
 
-	return &result, nil
+	return result, nil
 }
 
 // DescribeGlobalReplicationGroups returns a paginated list of global replication groups.
@@ -168,54 +185,6 @@ func (b *InMemoryBackend) DescribeGlobalReplicationGroups(
 	})
 
 	return page.New(out, marker, maxRecords, elasticacheDefaultMaxRecords), nil
-}
-
-// DisassociateGlobalReplicationGroup removes a secondary replication group from a global replication group.
-func (b *InMemoryBackend) DisassociateGlobalReplicationGroup(
-	_ context.Context,
-	id, _, _ string,
-) (*GlobalReplicationGroup, error) {
-	b.mu.Lock("DisassociateGlobalReplicationGroup")
-	defer b.mu.Unlock()
-
-	grg, ok := b.getGlobalReplicationGroup(id)
-
-	if !ok {
-		return nil, ErrGlobalReplicationGroupNotFound
-	}
-	if err := b.requireAvailableLocked(
-		grg.Status, grg.PendingStatus, grg.AvailableAt, ErrGlobalReplicationGroupNotAvailable,
-	); err != nil {
-		return nil, err
-	}
-
-	result := *grg
-
-	return &result, nil
-}
-
-// FailoverGlobalReplicationGroup promotes a secondary region to primary.
-func (b *InMemoryBackend) FailoverGlobalReplicationGroup(
-	_ context.Context,
-	id, _, _ string,
-) (*GlobalReplicationGroup, error) {
-	b.mu.Lock("FailoverGlobalReplicationGroup")
-	defer b.mu.Unlock()
-
-	grg, ok := b.getGlobalReplicationGroup(id)
-
-	if !ok {
-		return nil, ErrGlobalReplicationGroupNotFound
-	}
-	if err := b.requireAvailableLocked(
-		grg.Status, grg.PendingStatus, grg.AvailableAt, ErrGlobalReplicationGroupNotAvailable,
-	); err != nil {
-		return nil, err
-	}
-
-	result := *grg
-
-	return &result, nil
 }
 
 // IncreaseNodeGroupsInGlobalReplicationGroup increases the node group count.

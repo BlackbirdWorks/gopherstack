@@ -209,8 +209,10 @@ func TestCompressionDynamoDBSDK(t *testing.T) {
 			on := rawDDB(srv.on, target, body, "identity")
 			off := rawDDB(srv.off, target, body, "identity")
 
-			off.Header().Del("X-Amz-Request-Id")
-			on.Header().Del("X-Amz-Request-Id")
+			for _, h := range []string{"X-Amz-Request-Id", "X-Gopherstack-Memory-Stats"} {
+				off.Header().Del(h)
+				on.Header().Del(h)
+			}
 
 			assert.Equal(t, off.Header(), on.Header(), target)
 			assert.Equal(t, off.Body.Bytes(), on.Body.Bytes(), target)

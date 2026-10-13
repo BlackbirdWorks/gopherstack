@@ -61,7 +61,7 @@ func TestInvokeWSRoute_MockIntegrationIsLoopback(t *testing.T) {
 	e := echo.New()
 	c := e.NewContext(req, rr)
 
-	err = h.invokeWSRoute(c, api.APIID, "$connect", "conn-1", []byte{})
+	err = h.invokeWSRoute(c, api.APIID, "$default", "$connect", "conn-1", []byte{})
 
 	require.NoError(t, err)
 	assert.False(t, lambda.called, "MOCK integration must not invoke a backend")

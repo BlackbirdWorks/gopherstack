@@ -118,6 +118,7 @@ type importWorkspaceImageInput struct {
 	ImageName        string    `json:"ImageName"`
 	ImageDescription string    `json:"ImageDescription"`
 	IngestionProcess string    `json:"IngestionProcess"`
+	Applications     []string  `json:"Applications"`
 	Tags             []tagItem `json:"Tags"`
 }
 
@@ -129,7 +130,12 @@ func (h *Handler) handleImportWorkspaceImage(
 	_ context.Context, req *importWorkspaceImageInput,
 ) (*importWorkspaceImageOutput, error) {
 	id, err := h.Backend.ImportWorkspaceImage(
-		req.Ec2ImageId, req.ImageName, req.ImageDescription, req.IngestionProcess, tagsToMap(req.Tags),
+		req.Ec2ImageId,
+		req.ImageName,
+		req.ImageDescription,
+		req.IngestionProcess,
+		req.Applications,
+		tagsToMap(req.Tags),
 	)
 	if err != nil {
 		return nil, err

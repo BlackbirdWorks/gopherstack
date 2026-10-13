@@ -39,7 +39,7 @@ type SearchResult struct {
 func (b *InMemoryBackend) findIndexLocked(domainName, indexName, action string) (*DomainIndex, error) {
 	d, ok := b.domains.Get(domainName)
 	if !ok || deleteWindowElapsed(d, b.clock()) {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	if accessPolicyDenies(d.AccessPolicies, action, d.ARN) {

@@ -205,12 +205,18 @@ func (b *InMemoryBackend) PutContainerPolicy(ctx context.Context, name, policy s
 
 	region := regionFromContext(ctx)
 
+	b.advanceContainerStates(time.Now())
+
 	b.mu.Lock("PutContainerPolicy")
 	defer b.mu.Unlock()
 
 	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
+	}
+
+	if err := requireActive(c); err != nil {
+		return err
 	}
 
 	c.ContainerPolicy = policy
@@ -222,12 +228,18 @@ func (b *InMemoryBackend) PutContainerPolicy(ctx context.Context, name, policy s
 func (b *InMemoryBackend) GetContainerPolicy(ctx context.Context, name string) (string, error) {
 	region := regionFromContext(ctx)
 
+	b.advanceContainerStates(time.Now())
+
 	b.mu.RLock("GetContainerPolicy")
 	defer b.mu.RUnlock()
 
 	c, exists := b.getContainer(region, name)
 	if !exists {
 		return "", ErrContainerNotFound
+	}
+
+	if err := requireActive(c); err != nil {
+		return "", err
 	}
 
 	if c.ContainerPolicy == "" {
@@ -241,12 +253,18 @@ func (b *InMemoryBackend) GetContainerPolicy(ctx context.Context, name string) (
 func (b *InMemoryBackend) DeleteContainerPolicy(ctx context.Context, name string) error {
 	region := regionFromContext(ctx)
 
+	b.advanceContainerStates(time.Now())
+
 	b.mu.Lock("DeleteContainerPolicy")
 	defer b.mu.Unlock()
 
 	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
+	}
+
+	if err := requireActive(c); err != nil {
+		return err
 	}
 
 	if c.ContainerPolicy == "" {
@@ -262,12 +280,18 @@ func (b *InMemoryBackend) DeleteContainerPolicy(ctx context.Context, name string
 func (b *InMemoryBackend) StartAccessLogging(ctx context.Context, name string) error {
 	region := regionFromContext(ctx)
 
+	b.advanceContainerStates(time.Now())
+
 	b.mu.Lock("StartAccessLogging")
 	defer b.mu.Unlock()
 
 	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
+	}
+
+	if err := requireActive(c); err != nil {
+		return err
 	}
 
 	c.AccessLoggingEnabled = true
@@ -279,12 +303,18 @@ func (b *InMemoryBackend) StartAccessLogging(ctx context.Context, name string) e
 func (b *InMemoryBackend) StopAccessLogging(ctx context.Context, name string) error {
 	region := regionFromContext(ctx)
 
+	b.advanceContainerStates(time.Now())
+
 	b.mu.Lock("StopAccessLogging")
 	defer b.mu.Unlock()
 
 	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
+	}
+
+	if err := requireActive(c); err != nil {
+		return err
 	}
 
 	c.AccessLoggingEnabled = false

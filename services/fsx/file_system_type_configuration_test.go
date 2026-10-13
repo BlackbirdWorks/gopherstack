@@ -21,6 +21,7 @@ func TestFSx_FileSystem_WindowsConfiguration(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{
 		"FileSystemType": "WINDOWS",
+		"SubnetIds":      []string{"subnet-0123456789abcdef0"},
 		"WindowsConfiguration": map[string]any{
 			"ActiveDirectoryId":  "d-1234567890",
 			"DeploymentType":     "SINGLE_AZ_1",
@@ -51,6 +52,7 @@ func TestFSx_FileSystem_OntapConfiguration(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{
 		"FileSystemType": "ONTAP",
+		"SubnetIds":      []string{"subnet-0123456789abcdef0", "subnet-0123456789abcdef1"},
 		"OntapConfiguration": map[string]any{
 			"DeploymentType":     "MULTI_AZ_1",
 			"ThroughputCapacity": 128,
@@ -85,6 +87,7 @@ func TestFSx_FileSystem_OpenZFSConfiguration(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{
 		"FileSystemType": "OPENZFS",
+		"SubnetIds":      []string{"subnet-0123456789abcdef0"},
 		"OpenZFSConfiguration": map[string]any{
 			"DeploymentType":     "SINGLE_AZ_1",
 			"ThroughputCapacity": 64,
@@ -138,7 +141,12 @@ func TestFSx_CreateFileSystem_MissingConfiguration(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{"FileSystemType": tc.fsType})
+			rec := doFSxRequest(
+				t,
+				h,
+				"CreateFileSystem",
+				map[string]any{"FileSystemType": tc.fsType, "SubnetIds": []string{"subnet-0123456789abcdef0"}},
+			)
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var out map[string]any
@@ -187,7 +195,7 @@ func TestFSx_CreateFileSystem_RequiredConfigMembers(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			body := map[string]any{"FileSystemType": tc.fsType}
+			body := map[string]any{"FileSystemType": tc.fsType, "SubnetIds": []string{"subnet-0123456789abcdef0"}}
 
 			switch tc.fsType {
 			case "WINDOWS":
@@ -252,7 +260,12 @@ func TestFSx_CreateFileSystemFromBackup_CarriesTypeConfig(t *testing.T) {
 	require.NoError(t, json.Unmarshal(backupRec.Body.Bytes(), &backupOut))
 	backupID := backupOut["Backup"].(map[string]any)["BackupId"].(string)
 
-	restoreRec := doFSxRequest(t, h, "CreateFileSystemFromBackup", map[string]any{"BackupId": backupID})
+	restoreRec := doFSxRequest(
+		t,
+		h,
+		"CreateFileSystemFromBackup",
+		map[string]any{"BackupId": backupID, "SubnetIds": []string{"subnet-0123456789abcdef0"}},
+	)
 	require.Equal(t, http.StatusOK, restoreRec.Code)
 
 	var restoreOut map[string]any

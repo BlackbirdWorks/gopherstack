@@ -76,6 +76,13 @@ type actionRevisionEntry struct {
 	Value  ActionRevisionRecord `json:"value"`
 }
 
+// conditionRunEntry is the JSON-serialisable list of stage condition runs per pipeline.
+type conditionRunEntry struct {
+	Region       string          `json:"region"`
+	PipelineName string          `json:"pipelineName"`
+	Runs         []*ConditionRun `json:"runs"`
+}
+
 // backendSnapshot is the top-level on-disk shape for the CodePipeline
 // backend.
 //
@@ -95,6 +102,7 @@ type backendSnapshot struct {
 	Executions       []executionEntry           `json:"executions"`
 	ActionExecutions []actionExecutionEntry     `json:"actionExecutions"`
 	ActionRevisions  []actionRevisionEntry      `json:"actionRevisions"`
+	ConditionRuns    []conditionRunEntry        `json:"conditionRuns,omitempty"`
 	Version          int                        `json:"version"`
 }
 
@@ -175,6 +183,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Executions:       flattenExecutions(b.executions),
 		ActionExecutions: flattenActionExecutions(b.actionExecutions),
 		ActionRevisions:  flattenActionRevisions(b.actionRevisions),
+		ConditionRuns:    flattenConditionRuns(b.conditionRuns),
 		AccountID:        b.accountID,
 		Region:           b.region,
 	}
@@ -234,6 +243,20 @@ func flattenActionRevisions(actionRevisions map[string]map[string]*ActionRevisio
 	return out
 }
 
+func flattenConditionRuns(runs map[string]map[string][]*ConditionRun) []conditionRunEntry {
+	out := make([]conditionRunEntry, 0)
+
+	for region, inner := range runs {
+		for pName, list := range inner {
+			if len(list) > 0 {
+				out = append(out, conditionRunEntry{Region: region, PipelineName: pName, Runs: list})
+			}
+		}
+	}
+
+	return out
+}
+
 // Restore loads backend state from a JSON snapshot produced by Snapshot.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
@@ -260,6 +283,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.executions = make(map[string]map[string][]*PipelineExecution)
 		b.actionExecutions = make(map[string]map[string][]*ActionExecution)
 		b.actionRevisions = make(map[string]map[string]*ActionRevisionRecord)
+		b.conditionRuns = make(map[string]map[string][]*ConditionRun)
 		b.accountID = snap.AccountID
 		b.region = snap.Region
 
@@ -306,6 +330,18 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.actionRevisions = actionRevisions
+
+	conditionRuns := make(map[string]map[string][]*ConditionRun)
+
+	for _, entry := range snap.ConditionRuns {
+		if conditionRuns[entry.Region] == nil {
+			conditionRuns[entry.Region] = make(map[string][]*ConditionRun)
+		}
+
+		conditionRuns[entry.Region][entry.PipelineName] = entry.Runs
+	}
+
+	b.conditionRuns = conditionRuns
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region

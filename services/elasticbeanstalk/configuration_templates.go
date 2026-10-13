@@ -257,7 +257,7 @@ func (b *InMemoryBackend) DeleteConfigurationTemplate(ctx context.Context, appNa
 	region := getRegion(ctx, b.region)
 
 	if _, ok := b.configTemplateGet(region, appName, templateName); !ok {
-		return fmt.Errorf("%w: configuration template %s not found", ErrNotFound, templateName)
+		return wrapf(ErrNotFound, "No Configuration Template named '%s' found.", templateName)
 	}
 
 	b.configTemplateDelete(region, appName, templateName)
@@ -307,7 +307,7 @@ func (b *InMemoryBackend) UpdateConfigurationTemplateWithParams(
 
 	tmpl, ok := b.configTemplateGet(region, appName, templateName)
 	if !ok {
-		return nil, fmt.Errorf("%w: configuration template %s not found", ErrNotFound, templateName)
+		return nil, wrapf(ErrNotFound, "No Configuration Template named '%s' found.", templateName)
 	}
 
 	tmpl.Description = params.Description

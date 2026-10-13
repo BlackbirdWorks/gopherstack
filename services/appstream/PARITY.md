@@ -7,7 +7,7 @@
 service: appstream
 sdk_module: aws-sdk-go-v2/service/appstream@v1.64.5
 last_audit_commit: 5c20d9fd7
-last_audit_date: 2026-09-24
+last_audit_date: 2026-10-10
 overall: A            # 2026-08-23: closed the one remaining named-and-flagged gap this file
                        # carried (UpdateThemeForStack request-side accept-and-drop -- see
                        # UpdateThemeForStack/Theme ops rows and the dated Notes section at the
@@ -87,14 +87,13 @@ families:
   UsageReportSubscription: {status: ok, note: "single scalar record, verified against real shape"}
   ExportImageTask: {status: fixed, note: "MAJOR rewrite this pass -- prior 'ok' verdict was wrong; the entire request/response shape was gopherstack-invented (S3-based export instead of real AMI export). See CreateExportImageTask/GetExportImageTask/ListExportImageTasks ops above for the full diff. Any real aws-sdk-go-v2 client hitting the old handler would have gotten a response with none of the fields it expects populated"}
 gaps: []                # no unfixed divergences found; all confirmed bugs were fixed this pass
-items_still_open:
+items_still_open: []
+structural_gaps:
   - "CreateImportedImage: AppCatalogConfig, IamRoleArn, RuntimeValidationConfig, SourceAmiId and WorkspaceImageId are accepted but unobservable -- no AMI/WorkSpaces image import pipeline exists and types.Image has no member for them; DryRun validates the name only."
   - "CreateStreamingURL.ApplicationId and SessionContext are accepted but unobservable: no application launch is modeled and types.Session has no member for either."
-  - "StartSoftwareDeploymentToImageBuilder.RetryFailedDeployments has no effect: software associations are recorded directly and no deployment can fail."
-  - "DescribeAppLicenseUsage.BillingPeriod filters nothing: no license-usage state is modeled."
-  - "Application.AppBlockArn is not existence-checked on CreateApplication/UpdateApplication (existing flows pass unregistered ARNs); CreateImageBuilder ImageName/ImageArn naming a public base image is stored as given because no public image catalog exists."
-  - "CreateImageBuilder SoftwaresToUninstall can only remove names from the same request's SoftwaresToInstall: there is no pre-installed software model."
-
+  - "StartSoftwareDeploymentToImageBuilder.RetryFailedDeployments has no effect: no deployment can fail."
+  - "DescribeAppLicenseUsage.BillingPeriod filters nothing: no license-usage metering exists."
+  - "CreateImageBuilder ImageName/ImageArn naming a public base image is stored as given (no public image catalog); SoftwaresToUninstall can only remove names from the same request's SoftwaresToInstall (no pre-installed software model)."
 deferred: []              # both prior deferred items resolved this pass (see below)
 resolved_this_pass:
   - CreatedTime/StartTime/CreatedDate wire encoding switched from time.Time.Unix() (whole-
@@ -184,6 +183,15 @@ assumption as the bug. Rewrote it to send all required fields plus a
 `Restore`, not just the initial create.
 
 ## Notes
+
+### 2026-10-10 realism pass
+
+- Opt-in `SetStateTransitionDelay` (default 0) shows STARTING/STOPPING on fleets and PENDING/STOPPING on image builders for the delay, measured with the backend clock; DeleteFleet during a transition is ResourceInUse. Interim state is not persisted.
+- ComputeCapacityStatus now follows the fleet: Running/Available are Desired only while RUNNING, InUse counts the fleet's sessions.
+- CreateFleet/UpdateFleet validate documented ranges: InstanceType must be a `stream.`/`rt.` type, DesiredInstances >= 0, MaxUserDurationInSeconds 600-432000, DisconnectTimeoutInSeconds 60-36000, IdleDisconnectTimeoutInSeconds 0 or 60-36000.
+- Error messages drop the duplicated code prefix; bare codes get a sentence.
+- Kept lenient: ImageName/ImageArn existence is not checked because AWS-provided base images are not modeled.
+- Tests: lifecycle_test.go.
 
 - **2026-10-04 (gopherstack-jzqo)**: both items verified at HEAD. The USER_NAME_NOT_FOUND ErrorCode is
   emitted; DescribeSoftwareAssociations accepts an image or image-builder resource (the SDK exposes no

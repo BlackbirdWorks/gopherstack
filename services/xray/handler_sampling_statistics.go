@@ -41,6 +41,10 @@ func (h *Handler) handleGetSamplingStatisticSummaries(_ context.Context, body []
 		})
 	}
 
+	if tokErr := checkNextToken(in.NextToken); tokErr != nil {
+		return nil, tokErr
+	}
+
 	pg := page.New(views, in.NextToken, 0, defaultSamplingStatsPageSize)
 
 	return json.Marshal(map[string]any{

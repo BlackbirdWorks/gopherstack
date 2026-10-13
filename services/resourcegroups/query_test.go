@@ -141,11 +141,11 @@ func TestSearchResources_ResourceTypeFilter(t *testing.T) {
 	_, err = b.GroupResources(context.Background(), "multi-type", arns)
 	require.NoError(t, err)
 
-	tests := []struct { //nolint:govet // field order optimized for readability
+	tests := []struct {
 		name          string
 		queryJSON     string
-		wantCount     int
 		wantTypeFound string
+		wantCount     int
 	}{
 		{
 			name:          "filter_s3_only",

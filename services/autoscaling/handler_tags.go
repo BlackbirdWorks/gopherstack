@@ -4,8 +4,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // defaultTagsMaxRecords and maxTagsMaxRecords are DescribeTags's documented default/max page
@@ -56,7 +54,10 @@ func (h *Handler) handleDescribeTags(vals url.Values) (any, error) {
 		}
 	}
 
-	p := page.New(tags, vals.Get("NextToken"), maxRecords, defaultTagsMaxRecords)
+	p, pageErr := newPage(vals, tags, maxRecords, defaultTagsMaxRecords)
+	if pageErr != nil {
+		return nil, pageErr
+	}
 
 	members := make([]xmlResourceTag, 0, len(p.Data))
 	for _, tag := range p.Data {

@@ -244,6 +244,10 @@ func (b *InMemoryBackend) SendEmail(in SendEmailInput) (string, error) {
 		)
 	}
 
+	if bad := firstMalformedAddress(in.To, in.Cc, in.Bcc); bad != "" {
+		return "", fmt.Errorf("%w: Missing final '@domain' in address %q", ErrInvalidParameter, bad)
+	}
+
 	// AWS SES caps a single message at 10 MiB total (subject + body + headers).
 	const maxMessageBytes = 10 * 1024 * 1024
 	if len(in.Subject)+len(in.BodyHTML)+len(in.BodyText) > maxMessageBytes {
@@ -285,14 +289,14 @@ func (b *InMemoryBackend) sendEmailLocked(in SendEmailInput) (string, Email, ses
 		return "", Email{}, sesNotificationTargets{}, err
 	}
 
-	if !b.isVerifiedLocked(in.From) {
+	if !b.isVerifiedLocked(bareAddress(in.From)) {
 		return "", Email{}, sesNotificationTargets{}, fmt.Errorf(
 			"%w: Email address is not verified. The following identities failed the check in region %s: %s",
 			ErrMessageRejected, strings.ToUpper(b.region), in.From,
 		)
 	}
 
-	if err := b.checkMailFromLocked(in.From); err != nil {
+	if err := b.checkMailFromLocked(bareAddress(in.From)); err != nil {
 		return "", Email{}, sesNotificationTargets{}, err
 	}
 
@@ -321,7 +325,7 @@ func (b *InMemoryBackend) sendEmailLocked(in SendEmailInput) (string, Email, ses
 	}
 	b.appendEmailLocked(email)
 
-	targets := b.collectNotificationTargetsLocked(in.From, in.ConfigurationSetName, bounced, complained)
+	targets := b.collectNotificationTargetsLocked(bareAddress(in.From), in.ConfigurationSetName, bounced, complained)
 
 	return msgID, email, targets, nil
 }
@@ -389,14 +393,14 @@ func (b *InMemoryBackend) sendTemplatedEmailLocked(
 		}
 	}
 
-	if !b.isVerifiedLocked(in.From) {
+	if !b.isVerifiedLocked(bareAddress(in.From)) {
 		return "", Email{}, sesNotificationTargets{}, fmt.Errorf(
 			"%w: Email address is not verified. The following identities failed the check in region %s: %s",
 			ErrMessageRejected, strings.ToUpper(b.region), in.From,
 		)
 	}
 
-	if sendErr := b.checkMailFromLocked(in.From); sendErr != nil {
+	if sendErr := b.checkMailFromLocked(bareAddress(in.From)); sendErr != nil {
 		return "", Email{}, sesNotificationTargets{}, sendErr
 	}
 
@@ -430,7 +434,7 @@ func (b *InMemoryBackend) sendTemplatedEmailLocked(
 	}
 	b.appendEmailLocked(email)
 
-	targets := b.collectNotificationTargetsLocked(in.From, in.ConfigurationSetName, bounced, complained)
+	targets := b.collectNotificationTargetsLocked(bareAddress(in.From), in.ConfigurationSetName, bounced, complained)
 
 	return msgID, email, targets, nil
 }
@@ -509,7 +513,7 @@ func (b *InMemoryBackend) SendBounce(
 	b.mu.Lock("SendBounce")
 	defer b.mu.Unlock()
 
-	if !b.isVerifiedLocked(bounceSender) {
+	if !b.isVerifiedLocked(bareAddress(bounceSender)) {
 		return "", fmt.Errorf(
 			"%w: Email address is not verified. The following identities failed the check in region %s: %s",
 			ErrMessageRejected, strings.ToUpper(b.region), bounceSender,
@@ -729,4 +733,24 @@ func (b *InMemoryBackend) ClearEmails() {
 
 	b.emails = nil
 	b.emailsByID.Reset()
+}
+
+// firstMalformedAddress returns the first recipient without an "@domain" part,
+// accepting "Name <local@domain>" display-name form; empty when all are well formed.
+func firstMalformedAddress(lists ...[]string) string {
+	for _, l := range lists {
+		for _, a := range l {
+			addr := a
+			if _, after, found := strings.Cut(a, "<"); found {
+				addr = strings.TrimSuffix(after, ">")
+			}
+
+			at := strings.LastIndex(addr, "@")
+			if at <= 0 || at == len(addr)-1 {
+				return a
+			}
+		}
+	}
+
+	return ""
 }

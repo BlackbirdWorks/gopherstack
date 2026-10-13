@@ -84,7 +84,8 @@ func TestRealClient_LaunchTemplateResolveAlias(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.NotEmpty(t, desc.LaunchTemplateVersions)
-			assert.Equal(t, tt.wantImageID, aws.ToString(desc.LaunchTemplateVersions[0].LaunchTemplateData.ImageId))
+			latest := desc.LaunchTemplateVersions[len(desc.LaunchTemplateVersions)-1]
+			assert.Equal(t, tt.wantImageID, aws.ToString(latest.LaunchTemplateData.ImageId))
 		})
 	}
 }

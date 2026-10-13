@@ -22,7 +22,7 @@ func TestIntegration_EC2_SecurityGroup_IngressRuleRoundTrip(t *testing.T) {
 	client := createEC2Client(t)
 	ctx := t.Context()
 
-	name := "sg-roundtrip-" + uuid.NewString()[:8]
+	name := "rt-group-" + uuid.NewString()[:8]
 
 	createOut, err := client.CreateSecurityGroup(ctx, &ec2sdk.CreateSecurityGroupInput{
 		GroupName:   aws.String(name),
@@ -132,7 +132,7 @@ func TestIntegration_EC2_SecurityGroup_TagFilterRoundTrip(t *testing.T) {
 
 	tagVal := "roundtrip-" + uuid.NewString()[:8]
 
-	taggedName := "sg-tagged-" + uuid.NewString()[:8]
+	taggedName := "rt-tagged-" + uuid.NewString()[:8]
 	taggedOut, err := client.CreateSecurityGroup(ctx, &ec2sdk.CreateSecurityGroupInput{
 		GroupName:   aws.String(taggedName),
 		Description: aws.String("tagged sg"),
@@ -140,7 +140,7 @@ func TestIntegration_EC2_SecurityGroup_TagFilterRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	taggedID := aws.ToString(taggedOut.GroupId)
 
-	plainName := "sg-plain-" + uuid.NewString()[:8]
+	plainName := "rt-plain-" + uuid.NewString()[:8]
 	plainOut, err := client.CreateSecurityGroup(ctx, &ec2sdk.CreateSecurityGroupInput{
 		GroupName:   aws.String(plainName),
 		Description: aws.String("untagged sg"),

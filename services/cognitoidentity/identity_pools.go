@@ -31,6 +31,10 @@ func (b *InMemoryBackend) CreateIdentityPool(
 		return nil, fmt.Errorf("%w: IdentityPoolName is required", ErrInvalidParameter)
 	}
 
+	if err := validatePoolNames(name, developerProviderName); err != nil {
+		return nil, err
+	}
+
 	if b.poolNameTaken(region, name) {
 		return nil, fmt.Errorf(
 			"%w: identity pool %q already exists",
@@ -251,6 +255,10 @@ func (b *InMemoryBackend) UpdateIdentityPool(
 func (b *InMemoryBackend) renamePoolIfNeeded(region string, pool *IdentityPool, name string) error {
 	if name == "" || name == pool.IdentityPoolName {
 		return nil
+	}
+
+	if err := validatePoolNames(name, ""); err != nil {
+		return err
 	}
 
 	if b.poolNameTaken(region, name) {

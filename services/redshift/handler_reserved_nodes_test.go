@@ -378,9 +378,42 @@ func TestRedshiftHandler_GetReservedNodeExchangeConfigurationOptions(t *testing.
 	}{
 		{
 			name:         "success",
-			body:         "Action=GetReservedNodeExchangeConfigurationOptions&Version=2012-12-01",
+			body:         "Action=GetReservedNodeExchangeConfigurationOptions&Version=2012-12-01&ActionType=restore-cluster",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"GetReservedNodeExchangeConfigurationOptionsResponse"},
+		},
+		{
+			name:         "missing action type",
+			body:         "Action=GetReservedNodeExchangeConfigurationOptions&Version=2012-12-01",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name:         "bad action type",
+			body:         "Action=GetReservedNodeExchangeConfigurationOptions&Version=2012-12-01&ActionType=nope",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "unknown cluster",
+			body: "Action=GetReservedNodeExchangeConfigurationOptions&Version=2012-12-01" +
+				"&ActionType=resize-cluster&ClusterIdentifier=ghost",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"ClusterNotFound"},
+		},
+		{
+			name: "unknown snapshot",
+			body: "Action=GetReservedNodeExchangeConfigurationOptions&Version=2012-12-01" +
+				"&ActionType=restore-cluster&SnapshotIdentifier=ghost",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"ClusterSnapshotNotFound"},
+		},
+		{
+			name: "bad max records",
+			body: "Action=GetReservedNodeExchangeConfigurationOptions&Version=2012-12-01" +
+				"&ActionType=restore-cluster&MaxRecords=5",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
 		},
 	}
 

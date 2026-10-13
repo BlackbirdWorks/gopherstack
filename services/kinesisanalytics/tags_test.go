@@ -452,7 +452,7 @@ func TestTagResource_NotFound(t *testing.T) {
 		"Tags":        []map[string]any{{"Key": "k", "Value": "v"}},
 	})
 
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestUntagResource_NotFound returns 404 for unknown ARN.
@@ -465,5 +465,5 @@ func TestUntagResource_NotFound(t *testing.T) {
 		"TagKeys":     []string{"k"},
 	})
 
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

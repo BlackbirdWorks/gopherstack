@@ -138,7 +138,7 @@ func TestTagResourceRejectsNonStackOrLayerARN(t *testing.T) {
 			"ResourceArn": "arn:aws:opsworks:us-east-1:000000000000:instance/" + instanceID,
 			"Tags":        map[string]string{"env": "prod"},
 		})
-		assert.Equal(t, http.StatusNotFound, rec.Code)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 
 	t.Run("app ARN is rejected", func(t *testing.T) {
@@ -156,7 +156,7 @@ func TestTagResourceRejectsNonStackOrLayerARN(t *testing.T) {
 			"ResourceArn": "arn:aws:opsworks:us-east-1:000000000000:app/" + appID,
 			"Tags":        map[string]string{"env": "prod"},
 		})
-		assert.Equal(t, http.StatusNotFound, rec.Code)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 }
 

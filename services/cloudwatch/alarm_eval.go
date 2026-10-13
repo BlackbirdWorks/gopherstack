@@ -2,7 +2,6 @@ package cloudwatch
 
 import (
 	"context"
-	"fmt"
 	"time"
 )
 
@@ -45,26 +44,16 @@ func (b *InMemoryBackend) EvaluateAlarms(ctx context.Context, now time.Time) {
 			continue
 		}
 
-		newState := b.evaluateMetricAlarmState(snap.alarm, alarmEvaluationTime(snap.alarm, now), warming)
+		evalAt := alarmEvaluationTime(snap.alarm, now)
+		newState, detail := b.evaluateMetricAlarmState(snap.alarm, evalAt, warming)
 		if newState == snap.alarm.StateValue {
 			continue
 		}
 
-		var reason string
-		switch newState {
-		case alarmStateInsufficientData:
-			reason = "Insufficient Data: not enough datapoints to evaluate"
-		case alarmStateOK:
-			reason = "Threshold Crossed: datapoints within normal range"
-		default:
-			reason = fmt.Sprintf(
-				"Threshold Crossed: %d datapoints breached the threshold",
-				snap.alarm.DatapointsToAlarm,
-			)
-		}
+		reason, reasonData := buildAlarmStateReason(snap.alarm, newState, detail, evalAt)
 
 		// SetAlarmState acquires its own lock and fires SNS/Lambda actions.
-		_ = b.SetAlarmState(ctx, snap.alarm.AlarmName, newState, reason, "")
+		_ = b.SetAlarmState(ctx, snap.alarm.AlarmName, newState, reason, reasonData)
 	}
 }
 
@@ -136,7 +125,9 @@ func (b *InMemoryBackend) fetchSingleMetricBuckets(
 // breaching periods applying TreatMissingData logic, and returns the resulting state.
 // When alarm.Metrics is set the alarm is a multi-metric / metric-math alarm and
 // GetMetricData is used instead of GetMetricStatistics.
-func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.Time, warming bool) string {
+func (b *InMemoryBackend) evaluateMetricAlarmState(
+	alarm MetricAlarm, now time.Time, warming bool,
+) (string, alarmEvalDetail) {
 	evalPeriods := int(alarm.EvaluationPeriods)
 
 	treatMissing := alarm.TreatMissingData
@@ -160,7 +151,7 @@ func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.T
 	}
 
 	if err != nil {
-		return alarm.StateValue
+		return alarm.StateValue, alarmEvalDetail{}
 	}
 
 	breachCount, evaluatedCount, realDataCount := countBreachingPeriods(
@@ -172,41 +163,49 @@ func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.T
 		alarm.ComparisonOperator,
 	)
 
-	// Warm-up ends early only once the evaluation window is full of real data.
-	if warming && realDataCount < evalPeriods {
-		return alarm.StateValue
+	detail := alarmEvalDetail{
+		values:       bucketValues,
+		start:        now.Add(-time.Duration(evalPeriods) * alarmPeriodDuration(alarm)),
+		period:       alarmPeriodDuration(alarm),
+		evalPeriods:  evalPeriods,
+		needed:       datapointsToAlarm,
+		breaching:    breachCount,
+		missing:      evalPeriods - realDataCount,
+		treatMissing: treatMissing,
 	}
 
-	// TreatMissingData=ignore: missing datapoints are disregarded and the alarm
-	// is evaluated only against the datapoints that are present. When there is no
-	// real data in the evaluation window, AWS maintains the current alarm state
-	// rather than transitioning (it does NOT go to INSUFFICIENT_DATA on ignore).
+	// Warm-up ends early only once the evaluation window is full of real data.
+	if warming && realDataCount < evalPeriods {
+		return alarm.StateValue, detail
+	}
+
+	// TreatMissingData=ignore: with no real data AWS keeps the current state
+	// instead of moving to INSUFFICIENT_DATA.
 	if treatMissing == "ignore" {
 		if realDataCount == 0 {
-			// No data to decide on — keep whatever state the alarm is in.
 			if alarm.StateValue == "" {
-				return alarmStateInsufficientData
+				return alarmStateInsufficientData, detail
 			}
 
-			return alarm.StateValue
+			return alarm.StateValue, detail
 		}
 
 		if breachCount >= datapointsToAlarm {
-			return alarmStateAlarm
+			return alarmStateAlarm, detail
 		}
 
-		return alarmStateOK
+		return alarmStateOK, detail
 	}
 
 	if breachCount >= datapointsToAlarm {
-		return alarmStateAlarm
+		return alarmStateAlarm, detail
 	}
 
 	if evaluatedCount < datapointsToAlarm && treatMissing == "missing" {
-		return alarmStateInsufficientData
+		return alarmStateInsufficientData, detail
 	}
 
-	return alarmStateOK
+	return alarmStateOK, detail
 }
 
 // buildBucketValuesFromMetricData maps GetMetricData results into per-period buckets.
@@ -402,13 +401,13 @@ func extractDatapointValue(dp Datapoint, statistic, extendedStatistic string) *f
 // For non-anomaly alarms, pass threshold for both lowerBound and upperBound.
 func breachesThreshold(value, lowerBound, upperBound float64, op string) bool {
 	switch op {
-	case "GreaterThanThreshold":
+	case opGreater:
 		return value > upperBound
-	case "GreaterThanOrEqualToThreshold":
+	case opGreaterOrEqual:
 		return value >= upperBound
-	case "LessThanThreshold":
+	case opLess:
 		return value < lowerBound
-	case "LessThanOrEqualToThreshold":
+	case opLessOrEqual:
 		return value <= lowerBound
 	case "GreaterThanUpperThreshold":
 		return value > upperBound

@@ -3,7 +3,6 @@ package stepfunctions
 import (
 	"fmt"
 	"sort"
-	"time"
 )
 
 // PublishStateMachineVersion creates an immutable snapshot version of a state machine.
@@ -35,7 +34,7 @@ func (b *InMemoryBackend) PublishStateMachineVersion(
 		Status:                 statusActive,
 		Description:            description,
 		RevisionID:             revisionID,
-		CreationDate:           float64(time.Now().Unix()),
+		CreationDate:           epochNow(),
 	}
 
 	// Put also inserts v into the versionsByStateMachine index, replacing the
@@ -114,7 +113,10 @@ func (b *InMemoryBackend) ListStateMachineVersions(
 	// Return newest first.
 	sort.Slice(all, func(i, j int) bool { return all[i].CreationDate > all[j].CreationDate })
 
-	versions, token := paginate(all, nextToken, maxResults)
+	versions, token, pageErr := paginate(all, nextToken, maxResults)
+	if pageErr != nil {
+		return nil, "", pageErr
+	}
 
 	return versions, token, nil
 }

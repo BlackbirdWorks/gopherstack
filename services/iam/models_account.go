@@ -162,6 +162,9 @@ type DelegationPolicyParameter struct {
 type DelegationRequest struct {
 	CreateDate           time.Time                   `json:"CreateDate"`
 	DelegationID         string                      `json:"DelegationId,omitempty"`
+	ApproverID           string                      `json:"ApproverId,omitempty"`
+	OwnerID              string                      `json:"OwnerId,omitempty"`
+	RequestorID          string                      `json:"RequestorId,omitempty"`
 	RedirectURL          string                      `json:"RedirectUrl,omitempty"`
 	Status               string                      `json:"Status,omitempty"`
 	Description          string                      `json:"Description,omitempty"`
@@ -179,6 +182,7 @@ type DelegationRequest struct {
 // CreateDelegationRequestInput is the parsed, validated form of
 // CreateDelegationRequest's request parameters, passed to the backend.
 type CreateDelegationRequestInput struct {
+	RequestorID          string
 	Description          string
 	NotificationChannel  string
 	RequestorWorkflowID  string
@@ -256,8 +260,8 @@ type delegationPermissionXML struct {
 // delegationRequestXML is the XML representation of a delegation request
 // (types.DelegationRequest, deserializers.go
 // awsAwsquery_deserializeDocumentDelegationRequest). Fields gopherstack has
-// no state for (ApproverId, ExpirationTime, OwnerId, PermissionPolicy,
-// RejectionReason, RequestorId, RequestorName,
+// no state for (ExpirationTime, PermissionPolicy,
+// RejectionReason, RequestorName,
 // RolePermissionRestrictionArns, UpdatedTime) are honestly omitted rather
 // than fabricated.
 type delegationRequestXML struct {
@@ -265,6 +269,9 @@ type delegationRequestXML struct {
 	DelegationRequestID string                   `xml:"DelegationRequestId"`
 	CreateDate          string                   `xml:"CreateDate"`
 	Description         string                   `xml:"Description,omitempty"`
+	ApproverID          string                   `xml:"ApproverId,omitempty"`
+	OwnerID             string                   `xml:"OwnerId,omitempty"`
+	RequestorID         string                   `xml:"RequestorId,omitempty"`
 	Notes               string                   `xml:"Notes,omitempty"`
 	OwnerAccountID      string                   `xml:"OwnerAccountId,omitempty"`
 	RedirectURL         string                   `xml:"RedirectUrl,omitempty"`
@@ -317,6 +324,9 @@ func toDelegationRequestXML(req *DelegationRequest) delegationRequestXML {
 		Notes:               req.Notes,
 		OnlySendByOwner:     req.OnlySendByOwner,
 		OwnerAccountID:      req.TargetAccountID,
+		ApproverID:          req.ApproverID,
+		OwnerID:             req.OwnerID,
+		RequestorID:         req.RequestorID,
 		RedirectURL:         req.RedirectURL,
 		RequestMessage:      req.RequestMessage,
 		SessionDuration:     req.SessionDuration,

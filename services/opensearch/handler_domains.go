@@ -143,6 +143,12 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if vErr := validateDomainOptions(&req); vErr != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", vErr.Error())
+
+		return
+	}
+
 	upd := applyReqToUpdateInput(&req)
 	input := CreateDomainInput{
 		Name:                        req.DomainName,

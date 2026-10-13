@@ -18,7 +18,7 @@ import (
 func (b *InMemoryBackend) CreateInstance(
 	stackID string, layerIDs []string, instanceType string, opts CreateInstanceOptions,
 ) (*Instance, error) {
-	if stackID == "" || len(layerIDs) == 0 || instanceType == "" {
+	if stackID == "" || len(layerIDs) == 0 || instanceType == "" || !validHostname(opts.Hostname) {
 		return nil, ErrValidation
 	}
 
@@ -271,7 +271,7 @@ func (b *InMemoryBackend) DeleteInstance(instanceID string, deleteElasticIP, del
 		return ErrInstanceNotFound
 	}
 
-	if i.Status != instanceStatusStopped {
+	if i.effectiveStatus() != instanceStatusStopped {
 		return ErrValidation
 	}
 
@@ -321,7 +321,7 @@ func (b *InMemoryBackend) StartInstance(instanceID string) error {
 		return ErrInstanceNotFound
 	}
 
-	i.Status = instanceStatusOnline
+	b.setInstanceStatus(i, instanceStatusOnline)
 
 	return nil
 }
@@ -338,7 +338,7 @@ func (b *InMemoryBackend) StopInstance(instanceID string) error {
 		return ErrInstanceNotFound
 	}
 
-	i.Status = instanceStatusStopped
+	b.setInstanceStatus(i, instanceStatusStopped)
 
 	return nil
 }
@@ -355,7 +355,7 @@ func (b *InMemoryBackend) RebootInstance(instanceID string) error {
 		return ErrInstanceNotFound
 	}
 
-	i.Status = instanceStatusOnline
+	b.setInstanceStatus(i, instanceStatusOnline)
 
 	return nil
 }

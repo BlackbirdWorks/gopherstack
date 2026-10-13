@@ -10,7 +10,39 @@ type putLogEventsInput struct {
 	LogGroupName  string          `json:"logGroupName"`
 	LogStreamName string          `json:"logStreamName"`
 	SequenceToken string          `json:"sequenceToken,omitempty"`
+	Entity        *logEntity      `json:"entity,omitempty"`
 	LogEvents     []InputLogEvent `json:"logEvents"`
+}
+
+type logEntity struct {
+	KeyAttributes map[string]string `json:"keyAttributes,omitempty"`
+	Attributes    map[string]string `json:"attributes,omitempty"`
+}
+
+type rejectedEntityInfo struct {
+	ErrorType string `json:"errorType"`
+}
+
+func validEntityKeyAttribute(k string) bool {
+	switch k {
+	case "Type", "ResourceType", "Identifier", "Name", "Environment":
+		return true
+	}
+
+	return false
+}
+
+func rejectEntity(e *logEntity) *rejectedEntityInfo {
+	if e == nil {
+		return nil
+	}
+	for k := range e.KeyAttributes {
+		if !validEntityKeyAttribute(k) {
+			return &rejectedEntityInfo{ErrorType: "InvalidKeyAttributes"}
+		}
+	}
+
+	return nil
 }
 
 type getLogEventsInput struct {
@@ -41,6 +73,7 @@ type filterLogEventsInput struct {
 
 type putLogEventsOutput struct {
 	RejectedLogEventsInfo *RejectedLogEventsInfo `json:"rejectedLogEventsInfo,omitempty"`
+	RejectedEntityInfo    *rejectedEntityInfo    `json:"rejectedEntityInfo,omitempty"`
 	NextSequenceToken     string                 `json:"nextSequenceToken"`
 }
 
@@ -87,6 +120,7 @@ func (h *Handler) logEventActions() map[string]actionFn {
 			return &putLogEventsOutput{
 				NextSequenceToken:     result.NextSequenceToken,
 				RejectedLogEventsInfo: result.RejectedLogEventsInfo,
+				RejectedEntityInfo:    rejectEntity(input.Entity),
 			}, nil
 		},
 		"GetLogEvents": func(ctx context.Context, b []byte) (any, error) {

@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+
 	"github.com/labstack/echo/v5"
 )
 
@@ -278,8 +280,14 @@ func (h *Handler) handleCreateTicketV2(c *echo.Context, body map[string]any) err
 		return typedErrorResponse(c, http.StatusBadRequest, "ValidationException", "Mode must be DRYRUN")
 	}
 
-	ticket, err := h.Backend.CreateTicketV2(connectorID, findingMetadataUID, mode)
+	ticket, err := idemCreate(h, opCreateTicketV2, body,
+		func(t *TicketV2) string { return t.TicketId }, h.Backend.GetTicketV2,
+		func() (*TicketV2, error) { return h.Backend.CreateTicketV2(connectorID, findingMetadataUID, mode) })
 	if err != nil {
+		if errors.Is(err, idempotency.ErrParamsMismatch) {
+			return createErrorResponse(c, err)
+		}
+
 		if errors.Is(err, ErrNotFound) {
 			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", "Connector V2 not found")
 		}

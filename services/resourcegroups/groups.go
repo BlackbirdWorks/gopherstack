@@ -41,7 +41,7 @@ const (
 const groupCriticalityMaxValue = 10
 
 // groupNameRe matches valid Resource Groups group names (AWS rule).
-var groupNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.−\-]+$`)
+var groupNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.\-]+$`)
 
 // groupNameReservedPrefixes lists prefixes that AWS does not allow for group names.
 var groupNameReservedPrefixes = []string{ //nolint:gochecknoglobals // lookup table, initialized once
@@ -85,7 +85,7 @@ func validateGroupName(name string) error {
 	}
 
 	if !groupNameRe.MatchString(name) {
-		return fmt.Errorf("%w: Name must match pattern [a-zA-Z0-9_.−-]+", ErrValidation)
+		return fmt.Errorf("%w: Name must match pattern [a-zA-Z0-9_.-]+", ErrValidation)
 	}
 
 	nameLower := strings.ToLower(name)
@@ -156,7 +156,7 @@ func validateResourceQuery(q *ResourceQuery) error {
 		)
 	}
 
-	return nil
+	return validateQueryShape(q.Type, q.Query)
 }
 
 // validateConfiguration validates each GroupConfigurationItem against the allow-list.
@@ -315,6 +315,7 @@ func (b *InMemoryBackend) CreateGroup(
 
 	if len(configuration) > 0 {
 		b.groupConfigurationsStore(region)[name] = cloneConfigItems(configuration)
+		b.markConfigUpdating(region, name, nil)
 	}
 
 	cp := *g
@@ -463,6 +464,8 @@ func (b *InMemoryBackend) DeleteGroup(ctx context.Context, nameOrARN string) (*G
 	if b.groupConfigurations[region] != nil {
 		delete(b.groupConfigurations[region], name)
 	}
+
+	delete(b.pendingConfigs, regionKey(region, name))
 
 	// Cancel any tag-sync tasks bound to this group. slices.Clone the index
 	// result first: Table.Delete mutates the index's backing slice in place,
@@ -614,6 +617,7 @@ func (b *InMemoryBackend) PutGroupConfiguration(
 		)
 	}
 
+	b.markConfigUpdating(region, name, b.groupConfigurations[region][name])
 	b.groupConfigurationsStore(region)[name] = cloneConfigItems(items)
 
 	return nil

@@ -152,6 +152,9 @@ type acceptVpcEndpointConnectionsResponse struct {
 type vpcPeeringConnectionVpcInfoItem struct {
 	PeeringOptions *peeringOptionsItem `xml:"peeringOptions,omitempty"`
 	VpcID          string              `xml:"vpcId,omitempty"`
+	CidrBlock      string              `xml:"cidrBlock,omitempty"`
+	OwnerID        string              `xml:"ownerId,omitempty"`
+	Region         string              `xml:"region,omitempty"`
 }
 
 type vpcPeeringConnectionStatusItem struct {
@@ -167,6 +170,7 @@ type vpcPeeringConnectionItem struct {
 	RequesterVpcInfo       vpcPeeringConnectionVpcInfoItem `xml:"requesterVpcInfo"`
 	AccepterVpcInfo        vpcPeeringConnectionVpcInfoItem `xml:"accepterVpcInfo"`
 	Status                 vpcPeeringConnectionStatusItem  `xml:"status"`
+	ExpirationTime         string                          `xml:"expirationTime,omitempty"`
 	TagSet                 []simpleTagItem                 `xml:"tagSet>item"`
 }
 
@@ -177,10 +181,20 @@ func toVpcPeeringConnectionItem(
 ) vpcPeeringConnectionItem {
 	item := vpcPeeringConnectionItem{
 		VpcPeeringConnectionID: pc.VpcPeeringConnectionID,
-		RequesterVpcInfo:       vpcPeeringConnectionVpcInfoItem{VpcID: pc.RequesterVpcID},
-		AccepterVpcInfo:        vpcPeeringConnectionVpcInfoItem{VpcID: pc.AccepterVpcID},
-		Status:                 vpcPeeringConnectionStatusItem{Code: pc.State},
-		TagSet:                 tagItemsFromMap(tags),
+		RequesterVpcInfo: vpcPeeringConnectionVpcInfoItem{
+			VpcID: pc.RequesterVpcID, CidrBlock: pc.RequesterCidrBlock,
+			OwnerID: pc.RequesterOwnerID, Region: pc.RequesterRegion,
+		},
+		AccepterVpcInfo: vpcPeeringConnectionVpcInfoItem{
+			VpcID: pc.AccepterVpcID, CidrBlock: pc.AccepterCidrBlock,
+			OwnerID: pc.AccepterOwnerID, Region: pc.AccepterRegion,
+		},
+		Status: vpcPeeringConnectionStatusItem{Code: pc.State},
+		TagSet: tagItemsFromMap(tags),
+	}
+
+	if !pc.ExpirationTime.IsZero() {
+		item.ExpirationTime = pc.ExpirationTime.UTC().Format(timeLayoutISO)
 	}
 
 	if opts != nil {

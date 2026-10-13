@@ -18,21 +18,19 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
-// parseListObjectsMaxKeys parses ListObjects (V1)'s max-keys query param. The
-// result is provably in [0, defaultMaxKeys]: it starts at the constant
-// default and is only reassigned to a parsed value that is non-negative and
-// strictly less than defaultMaxKeys. AWS clamps MaxKeys to [0, 1000] rather
-// than rejecting an over-limit value, so a value at or above the limit is
-// treated as the limit.
-func parseListObjectsMaxKeys(r *http.Request) int32 {
-	n := defaultMaxKeys
-	if mk := r.URL.Query().Get("max-keys"); mk != "" {
-		if v, err := strconv.Atoi(mk); err == nil && v >= 0 && v < defaultMaxKeys {
-			n = v
-		}
+// parseMaxKeys parses a max-keys query value: AWS clamps values above 1000 and
+// rejects non-numeric or negative ones with InvalidArgument.
+func parseMaxKeys(raw string) (int32, error) {
+	if raw == "" {
+		return defaultMaxKeys, nil
 	}
 
-	return int32(n)
+	v, err := strconv.ParseInt(raw, 10, 32)
+	if err != nil || v < 0 {
+		return 0, ErrInvalidMaxKeys
+	}
+
+	return min(int32(v), defaultMaxKeys), nil
 }
 
 func (h *S3Handler) listObjects(
@@ -42,6 +40,11 @@ func (h *S3Handler) listObjects(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "ListObjects")
+
+	bucketName, handled := h.routeObjectLambda(ctx, w, r, bucketName, "", objectLambdaActionListObjects)
+	if handled {
+		return
+	}
 
 	if err := h.authorizeObjectAccess(ctx, r, bucketName, "", actionListBucket); err != nil {
 		WriteError(ctx, w, r, err)
@@ -66,7 +69,12 @@ func (h *S3Handler) listObjects(
 		"bucket", bucketName, "prefix", prefix, "delimiter", delimiter, "marker", marker,
 	)
 
-	maxKeys := parseListObjectsMaxKeys(r)
+	maxKeys, mkErr := parseMaxKeys(r.URL.Query().Get("max-keys"))
+	if mkErr != nil {
+		WriteError(ctx, w, r, mkErr)
+
+		return
+	}
 
 	// Pass marker and delimiter to backend so it can seek and group correctly.
 	out, err := h.Backend.ListObjects(ctx, &s3.ListObjectsInput{
@@ -76,12 +84,6 @@ func (h *S3Handler) listObjects(
 		Delimiter: aws.String(delimiter),
 		Marker:    aws.String(marker),
 	})
-	if errors.Is(err, ErrNoSuchBucket) {
-		WriteError(ctx, w, r, err)
-
-		return
-	}
-
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -95,12 +97,6 @@ func (h *S3Handler) listObjects(
 	if isTruncated && delimiter != "" {
 		nextMarker = aws.ToString(out.NextMarker)
 	}
-
-	logger.Load(ctx).DebugContext(
-		ctx,
-		"S3 listObjects output",
-		"bucket", bucketName, "objectCount", len(out.Contents), "isTruncated", isTruncated,
-	)
 
 	resp := ListBucketResult{
 		Name:         bucketName,
@@ -127,7 +123,7 @@ func (h *S3Handler) listObjects(
 		delimiter,
 		seenPrefixes,
 		encodingType,
-		true,
+		true, wantsRestoreStatus(r),
 	)
 	// Merge backend-level common prefixes (populated when delimiter is set).
 	for _, cp := range out.CommonPrefixes {
@@ -154,7 +150,7 @@ func (h *S3Handler) mapObjectsToXML(
 	prefix, delimiter string,
 	seenPrefixes map[string]struct{},
 	encodingType string,
-	includeOwner bool,
+	includeOwner, includeRestore bool,
 ) ([]ObjectXML, []CommonPrefixXML) {
 	var commonPrefixes []CommonPrefixXML
 
@@ -191,6 +187,7 @@ func (h *S3Handler) mapObjectsToXML(
 		}
 
 		contents = append(contents, ObjectXML{
+			RestoreStatus:     restoreStatusXML(includeRestore, obj.RestoreStatus),
 			Owner:             owner,
 			Key:               encodeListKey(encodingType, key),
 			LastModified:      stamps.at(i),
@@ -239,6 +236,31 @@ func (a timestampArena) at(i int) string {
 	return a.text[start:a.ends[i]]
 }
 
+func wantsRestoreStatus(r *http.Request) bool {
+	for _, v := range r.Header.Values("X-Amz-Optional-Object-Attributes") {
+		for a := range strings.SplitSeq(v, ",") {
+			if strings.TrimSpace(a) == "RestoreStatus" {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func restoreStatusXML(include bool, rs *types.RestoreStatus) *RestoreStatusXML {
+	if !include || rs == nil {
+		return nil
+	}
+
+	out := &RestoreStatusXML{IsRestoreInProgress: aws.ToBool(rs.IsRestoreInProgress)}
+	if rs.RestoreExpiryDate != nil {
+		out.RestoreExpiryDate = rs.RestoreExpiryDate.UTC().Format(time.RFC3339)
+	}
+
+	return out
+}
+
 func commonPrefixFor(key, prefix, delimiter string) (string, bool) {
 	if delimiter == "" {
 		return "", false
@@ -268,16 +290,12 @@ func (h *S3Handler) listObjectVersions(
 	delimiter := q.Get("delimiter")
 	encodingType := q.Get("encoding-type")
 
-	// n is provably in [0, defaultMaxKeys] before the int32 conversion: it
-	// starts at the constant default and is only reassigned to a parsed value
-	// that is positive and no greater than defaultMaxKeys.
-	n := defaultMaxKeys
-	if mk := q.Get("max-keys"); mk != "" {
-		if v, err := strconv.Atoi(mk); err == nil && v >= 0 && v <= defaultMaxKeys {
-			n = v
-		}
+	maxKeys, mkErr := parseMaxKeys(q.Get("max-keys"))
+	if mkErr != nil {
+		WriteError(ctx, w, r, mkErr)
+
+		return
 	}
-	maxKeys := int32(n)
 
 	input := &s3.ListObjectVersionsInput{
 		Bucket:          aws.String(bucketName),
@@ -314,7 +332,7 @@ func (h *S3Handler) listObjectVersions(
 		EncodingType:        encodingType,
 	}
 
-	mapListVersionsOutput(&resp, out, encodingType)
+	mapListVersionsOutput(&resp, out, encodingType, wantsRestoreStatus(r))
 
 	httputils.WriteXML(ctx, w, http.StatusOK, resp)
 }
@@ -325,6 +343,7 @@ func mapListVersionsOutput(
 	resp *ListVersionsResult,
 	out *s3.ListObjectVersionsOutput,
 	encodingType string,
+	includeRestore bool,
 ) {
 	for _, v := range out.Versions {
 		size := int64(0)
@@ -339,18 +358,24 @@ func mapListVersionsOutput(
 		if len(v.ChecksumAlgorithm) > 0 {
 			checksumAlgo = string(v.ChecksumAlgorithm[0])
 		}
+		sc := string(v.StorageClass)
+		if sc == "" {
+			sc = storageStandard
+		}
+
 		resp.Versions = append(resp.Versions, ObjectVersionXML{
-			Key:          encodeListKey(encodingType, *v.Key),
-			VersionID:    *v.VersionId,
-			IsLatest:     *v.IsLatest,
-			LastModified: v.LastModified.Format(time.RFC3339),
-			ETag:         etag,
-			Size:         size,
+			RestoreStatus: restoreStatusXML(includeRestore, v.RestoreStatus),
+			Key:           encodeListKey(encodingType, *v.Key),
+			VersionID:     *v.VersionId,
+			IsLatest:      *v.IsLatest,
+			LastModified:  v.LastModified.Format(time.RFC3339),
+			ETag:          etag,
+			Size:          size,
 			Owner: &Owner{
 				ID:          gopherstackName,
 				DisplayName: gopherstackName,
 			},
-			StorageClass:      storageStandard,
+			StorageClass:      sc,
 			ChecksumAlgorithm: checksumAlgo,
 		})
 	}

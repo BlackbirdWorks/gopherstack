@@ -68,6 +68,17 @@ func logDeliveryConfigsToXML(configs []LogDeliveryConfig) *logDeliveryConfigsXML
 func (h *Handler) createReplicationGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	opts := parseCreateReplicationGroupOpts(form)
 
+	if err := firstError(
+		validateCacheID("ReplicationGroupId", opts.ID, maxReplicationGroupIDLen),
+		validateCacheEngine(opts.Engine),
+		validateCacheNodeType(opts.CacheNodeType),
+		validateAuthToken(opts.AuthToken, opts.TransitEncryptionEnabled),
+	); err != nil {
+		status, code, _ := paramErrorCode(err)
+
+		return xmlError(c, status, code, err.Error())
+	}
+
 	rg, err := h.Backend.CreateReplicationGroupFull(ctx, opts)
 	if err != nil {
 		return mapReplicationGroupCreateErr(c, err)
@@ -123,6 +134,8 @@ func parseCreateReplicationGroupOpts(form url.Values) ReplicationGroupCreateOpts
 		}
 	}
 
+	parseCreateTopologyOpts(form, &opts)
+
 	if s := form.Get("NumNodeGroups"); s != "" {
 		if n, err := strconv.ParseInt(s, 10, 32); err == nil {
 			opts.NumNodeGroups = int32(n)
@@ -132,6 +145,7 @@ func parseCreateReplicationGroupOpts(form url.Values) ReplicationGroupCreateOpts
 	if s := form.Get("ReplicasPerNodeGroup"); s != "" {
 		if n, err := strconv.ParseInt(s, 10, 32); err == nil {
 			opts.ReplicasPerNodeGroup = int32(n)
+			opts.HasReplicasPerNodeGroup = true
 		}
 	}
 
@@ -152,6 +166,65 @@ func parseCreateReplicationGroupOpts(form url.Values) ReplicationGroupCreateOpts
 	}
 
 	return opts
+}
+
+// parseCreateTopologyOpts reads the node-layout and placement members of CreateReplicationGroup.
+func parseCreateTopologyOpts(form url.Values, opts *ReplicationGroupCreateOpts) {
+	opts.PrimaryClusterID = form.Get("PrimaryClusterId")
+	opts.GlobalReplicationGroupID = form.Get("GlobalReplicationGroupId")
+	opts.SubnetGroupName = form.Get("CacheSubnetGroupName")
+	opts.ServerlessSnapshotName = form.Get("ServerlessCacheSnapshotName")
+	opts.PreferredCacheClusterAZs = parseRepeatedField(form, "PreferredCacheClusterAZs.AvailabilityZone")
+	opts.SecurityGroupIDs = parseRepeatedField(form, "SecurityGroupIds.SecurityGroupId")
+	opts.CacheSecurityGroupNames = parseRepeatedField(form, "CacheSecurityGroupNames.CacheSecurityGroupName")
+	opts.SnapshotArns = parseRepeatedField(form, "SnapshotArns.SnapshotArn")
+	opts.NodeGroupConfiguration = parseNodeGroupConfiguration(form)
+
+	if n, err := strconv.ParseInt(form.Get("NumCacheClusters"), 10, 32); err == nil {
+		opts.NumCacheClusters = int32(n)
+	}
+
+	if n, err := strconv.Atoi(form.Get("Port")); err == nil {
+		opts.Port = n
+	}
+}
+
+// parseNodeGroupConfiguration reads NodeGroupConfiguration.NodeGroupConfiguration.N.*.
+func parseNodeGroupConfiguration(form url.Values) []NodeGroupConfig {
+	var out []NodeGroupConfig
+
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("NodeGroupConfiguration.NodeGroupConfiguration.%d.", i)
+		present := false
+
+		for key := range form {
+			if strings.HasPrefix(key, prefix) {
+				present = true
+
+				break
+			}
+		}
+
+		if !present {
+			return out
+		}
+
+		cfg := NodeGroupConfig{
+			NodeGroupID:        form.Get(prefix + "NodeGroupId"),
+			Slots:              form.Get(prefix + "Slots"),
+			PrimaryAZ:          form.Get(prefix + "PrimaryAvailabilityZone"),
+			PrimaryOutpostArn:  form.Get(prefix + "PrimaryOutpostArn"),
+			ReplicaAZs:         parseRepeatedField(form, prefix+"ReplicaAvailabilityZones.AvailabilityZone"),
+			ReplicaOutpostArns: parseRepeatedField(form, prefix+"ReplicaOutpostArns.OutpostArn"),
+		}
+
+		if n, err := strconv.ParseInt(form.Get(prefix+"ReplicaCount"), 10, 32); err == nil {
+			rc := int32(n)
+			cfg.ReplicaCount = &rc
+		}
+
+		out = append(out, cfg)
+	}
 }
 
 // parseLogDeliveryConfigs reads the LogDeliveryConfigurations.member.N list from a form.
@@ -203,9 +276,32 @@ func mapReplicationGroupCreateErr(c *echo.Context, err error) error {
 		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
 	case errors.Is(err, ErrAuthTokenRequiredForMode):
 		return xmlError(c, http.StatusBadRequest, "InvalidParameterCombination", err.Error())
-	default:
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	case errors.Is(err, ErrClusterNotFound):
+		return xmlError(c, http.StatusNotFound, "CacheClusterNotFound", "Cache cluster not found")
+	case errors.Is(err, ErrClusterAlreadyExists):
+		return xmlError(c, http.StatusBadRequest, "CacheClusterAlreadyExists", err.Error())
+	case errors.Is(err, ErrClusterNotAvailable):
+		return xmlError(c, http.StatusBadRequest, "InvalidCacheClusterState", err.Error())
+	case errors.Is(err, ErrSubnetGroupNotFound):
+		return xmlError(c, http.StatusNotFound, "CacheSubnetGroupNotFoundFault", "Cache subnet group not found")
+	case errors.Is(err, ErrCacheSecurityGroupNotFound):
+		return xmlError(c, http.StatusNotFound, "CacheSecurityGroupNotFound", "Cache security group not found")
+	case errors.Is(err, ErrGlobalReplicationGroupNotFound):
+		return xmlError(
+			c,
+			http.StatusNotFound,
+			"GlobalReplicationGroupNotFoundFault",
+			"Global replication group not found",
+		)
+	case errors.Is(err, ErrServerlessCacheSnapshotNotFound):
+		return xmlError(c, http.StatusNotFound, "ServerlessCacheSnapshotNotFoundFault", err.Error())
 	}
+
+	if status, code, ok := paramErrorCode(err); ok {
+		return xmlError(c, status, code, err.Error())
+	}
+
+	return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 }
 
 func (h *Handler) deleteReplicationGroup(ctx context.Context, c *echo.Context, form url.Values) error {
@@ -229,7 +325,9 @@ func (h *Handler) deleteReplicationGroup(ctx context.Context, c *echo.Context, f
 		return finalSnapshotErrorResponse(c, snapErr)
 	}
 
-	if err := h.Backend.DeleteReplicationGroup(ctx, id); err != nil {
+	if err := h.Backend.DeleteReplicationGroupFull(
+		ctx, id, strings.EqualFold(form.Get("RetainPrimaryCluster"), "true"),
+	); err != nil {
 		undoSnapshot()
 
 		if errors.Is(err, ErrReplicationGroupNotFound) {
@@ -267,19 +365,46 @@ func (h *Handler) deleteReplicationGroup(ctx context.Context, c *echo.Context, f
 
 // nodeGroupNodeXML is the XML for a single node within a node group.
 type nodeGroupNodeXML struct {
-	CacheClusterID            string        `xml:"CacheClusterId,omitempty"`
-	CacheNodeID               string        `xml:"CacheNodeId,omitempty"`
-	CurrentRole               string        `xml:"CurrentRole,omitempty"`
-	PreferredAvailabilityZone string        `xml:"PreferredAvailabilityZone,omitempty"`
-	ReadEndpoint              cacheEndpoint `xml:"ReadEndpoint,omitempty"`
+	ReadEndpoint              *cacheEndpoint `xml:"ReadEndpoint,omitempty"`
+	CacheClusterID            string         `xml:"CacheClusterId,omitempty"`
+	CacheNodeID               string         `xml:"CacheNodeId,omitempty"`
+	CurrentRole               string         `xml:"CurrentRole,omitempty"`
+	PreferredAvailabilityZone string         `xml:"PreferredAvailabilityZone,omitempty"`
 }
 
 // nodeGroupXML is the XML representation of a shard / node group.
 type nodeGroupXML struct {
+	PrimaryEndpoint  *cacheEndpoint      `xml:"PrimaryEndpoint,omitempty"`
+	ReaderEndpoint   *cacheEndpoint      `xml:"ReaderEndpoint,omitempty"`
 	NodeGroupID      string              `xml:"NodeGroupId"`
 	Status           string              `xml:"Status"`
 	Slots            string              `xml:"Slots,omitempty"`
 	NodeGroupMembers nodeGroupMembersXML `xml:"NodeGroupMembers"`
+}
+
+type memberClustersXML struct {
+	ClusterID []string `xml:"ClusterId"`
+}
+
+type globalReplicationGroupInfoXML struct {
+	GlobalReplicationGroupID         string `xml:"GlobalReplicationGroupId"`
+	GlobalReplicationGroupMemberRole string `xml:"GlobalReplicationGroupMemberRole,omitempty"`
+}
+
+func endpointXML(e *NodeEndpoint) *cacheEndpoint {
+	if e == nil {
+		return nil
+	}
+
+	return &cacheEndpoint{Address: e.Address, Port: e.Port}
+}
+
+func readEndpointXML(n NodeGroupNode) *cacheEndpoint {
+	if n.ReadEndpointAddress == "" {
+		return nil
+	}
+
+	return &cacheEndpoint{Address: n.ReadEndpointAddress, Port: n.ReadEndpointPort}
 }
 
 type nodeGroupMembersXML struct {
@@ -314,36 +439,63 @@ type rgUserGroupIDsXML struct {
 // deliberately left always empty rather than guessed, per parity-principles.md's
 // no-fabrication rule.
 type replicationGroupXML struct {
-	PendingModifiedValues     *rgPendingModifiedXML  `xml:"PendingModifiedValues,omitempty"`
-	NodeGroups                *nodeGroupsListXML     `xml:"NodeGroups,omitempty"`
-	UserGroupIDs              *rgUserGroupIDsXML     `xml:"UserGroupIds,omitempty"`
-	LogDeliveryConfigurations *logDeliveryConfigsXML `xml:"LogDeliveryConfigurations,omitempty"`
-	AutoMinorVersionUpgrade   *bool                  `xml:"AutoMinorVersionUpgrade,omitempty"`
-	ReplicationGroupID        string                 `xml:"ReplicationGroupId"`
-	Description               string                 `xml:"Description"`
-	Status                    string                 `xml:"Status"`
-	ARN                       string                 `xml:"ARN"`
-	Engine                    string                 `xml:"Engine,omitempty"`
-	AutomaticFailover         string                 `xml:"AutomaticFailover,omitempty"`
-	MultiAZ                   string                 `xml:"MultiAZ,omitempty"`
-	CacheNodeType             string                 `xml:"CacheNodeType,omitempty"`
-	SnapshotWindow            string                 `xml:"SnapshotWindow,omitempty"`
-	CreatedAt                 string                 `xml:"ReplicationGroupCreateTime,omitempty"`
-	KmsKeyID                  string                 `xml:"KmsKeyId,omitempty"`
-	NetworkType               string                 `xml:"NetworkType,omitempty"`
-	IPDiscovery               string                 `xml:"IpDiscovery,omitempty"`
-	ClusterMode               string                 `xml:"ClusterMode,omitempty"`
-	SnapshottingClusterID     string                 `xml:"SnapshottingClusterId,omitempty"`
-	TransitEncryptionMode     string                 `xml:"TransitEncryptionMode,omitempty"`
-	DataTiering               string                 `xml:"DataTiering,omitempty"`
-	Durability                string                 `xml:"Durability,omitempty"`
-	EffectiveDurability       string                 `xml:"EffectiveDurability,omitempty"`
-	StorageEncryptionType     string                 `xml:"StorageEncryptionType,omitempty"`
-	SnapshotRetentionLimit    int                    `xml:"SnapshotRetentionLimit,omitempty"`
-	ClusterEnabled            bool                   `xml:"ClusterEnabled,omitempty"`
-	AuthTokenEnabled          bool                   `xml:"AuthTokenEnabled,omitempty"`
-	AtRestEncryptionEnabled   bool                   `xml:"AtRestEncryptionEnabled,omitempty"`
-	TransitEncryptionEnabled  bool                   `xml:"TransitEncryptionEnabled,omitempty"`
+	PendingModifiedValues     *rgPendingModifiedXML          `xml:"PendingModifiedValues,omitempty"`
+	NodeGroups                *nodeGroupsListXML             `xml:"NodeGroups,omitempty"`
+	ConfigurationEndpoint     *cacheEndpoint                 `xml:"ConfigurationEndpoint,omitempty"`
+	MemberClusters            *memberClustersXML             `xml:"MemberClusters,omitempty"`
+	GlobalReplicationGroup    *globalReplicationGroupInfoXML `xml:"GlobalReplicationGroupInfo,omitempty"`
+	UserGroupIDs              *rgUserGroupIDsXML             `xml:"UserGroupIds,omitempty"`
+	LogDeliveryConfigurations *logDeliveryConfigsXML         `xml:"LogDeliveryConfigurations,omitempty"`
+	AutoMinorVersionUpgrade   *bool                          `xml:"AutoMinorVersionUpgrade,omitempty"`
+	ReplicationGroupID        string                         `xml:"ReplicationGroupId"`
+	Description               string                         `xml:"Description"`
+	Status                    string                         `xml:"Status"`
+	ARN                       string                         `xml:"ARN"`
+	Engine                    string                         `xml:"Engine,omitempty"`
+	AutomaticFailover         string                         `xml:"AutomaticFailover,omitempty"`
+	MultiAZ                   string                         `xml:"MultiAZ,omitempty"`
+	CacheNodeType             string                         `xml:"CacheNodeType,omitempty"`
+	SnapshotWindow            string                         `xml:"SnapshotWindow,omitempty"`
+	CreatedAt                 string                         `xml:"ReplicationGroupCreateTime,omitempty"`
+	KmsKeyID                  string                         `xml:"KmsKeyId,omitempty"`
+	NetworkType               string                         `xml:"NetworkType,omitempty"`
+	IPDiscovery               string                         `xml:"IpDiscovery,omitempty"`
+	ClusterMode               string                         `xml:"ClusterMode,omitempty"`
+	SnapshottingClusterID     string                         `xml:"SnapshottingClusterId,omitempty"`
+	TransitEncryptionMode     string                         `xml:"TransitEncryptionMode,omitempty"`
+	DataTiering               string                         `xml:"DataTiering,omitempty"`
+	Durability                string                         `xml:"Durability,omitempty"`
+	EffectiveDurability       string                         `xml:"EffectiveDurability,omitempty"`
+	StorageEncryptionType     string                         `xml:"StorageEncryptionType,omitempty"`
+	SnapshotRetentionLimit    int                            `xml:"SnapshotRetentionLimit,omitempty"`
+	ClusterEnabled            bool                           `xml:"ClusterEnabled,omitempty"`
+	AuthTokenEnabled          bool                           `xml:"AuthTokenEnabled,omitempty"`
+	AtRestEncryptionEnabled   bool                           `xml:"AtRestEncryptionEnabled,omitempty"`
+	TransitEncryptionEnabled  bool                           `xml:"TransitEncryptionEnabled,omitempty"`
+}
+
+// effectiveDurability resolves an explicit Durability; "default" depends on
+// engine internals the service does not document, so it stays unresolved.
+func effectiveDurability(d string) string {
+	switch d {
+	case "async", "sync", statusDisabled:
+		return d
+	}
+
+	return ""
+}
+
+// storageEncryptionType derives the at-rest encryption kind per
+// types.StorageEncryptionType's documentation.
+func storageEncryptionType(customerKey, atRest bool) string {
+	switch {
+	case customerKey:
+		return "sse-kms"
+	case atRest:
+		return "sse-elasticache"
+	}
+
+	return "none"
 }
 
 // dataTieringStatus converts a bool to the AWS DataTieringStatus string.
@@ -368,19 +520,23 @@ func nodeGroupsToXML(ngs []NodeGroup) *nodeGroupsListXML {
 			members = append(members, nodeGroupNodeXML{
 				CacheClusterID:            ng.PrimaryNode.CacheClusterID,
 				CacheNodeID:               ng.PrimaryNode.CacheNodeID,
-				CurrentRole:               "primary",
+				CurrentRole:               rolePrimary,
 				PreferredAvailabilityZone: ng.PrimaryNode.PreferredAvailabilityZone,
+				ReadEndpoint:              readEndpointXML(*ng.PrimaryNode),
 			})
 		}
 		for _, r := range ng.Replicas {
 			members = append(members, nodeGroupNodeXML{
 				CacheClusterID:            r.CacheClusterID,
 				CacheNodeID:               r.CacheNodeID,
-				CurrentRole:               "replica",
+				CurrentRole:               roleReplica,
 				PreferredAvailabilityZone: r.PreferredAvailabilityZone,
+				ReadEndpoint:              readEndpointXML(r),
 			})
 		}
 		xmlNGs = append(xmlNGs, nodeGroupXML{
+			PrimaryEndpoint:  endpointXML(ng.PrimaryEndpoint),
+			ReaderEndpoint:   endpointXML(ng.ReaderEndpoint),
 			NodeGroupID:      ng.NodeGroupID,
 			Status:           ng.Status,
 			Slots:            ng.Slots,
@@ -413,7 +569,7 @@ func rgClusterMode(rg ReplicationGroup) string {
 		return clusterModeEnabled
 	}
 
-	return "disabled"
+	return statusDisabled
 }
 
 // optionalBool parses a boolean form field, returning nil when the field is absent.
@@ -445,7 +601,25 @@ func rgToXML(rg ReplicationGroup) replicationGroupXML {
 		userGroupIDs = &rgUserGroupIDsXML{UserGroupID: rg.UserGroupIDs}
 	}
 
+	var members *memberClustersXML
+	if ids := memberClusterIDs(&rg); len(ids) > 0 {
+		members = &memberClustersXML{ClusterID: ids}
+	}
+
+	var globalInfo *globalReplicationGroupInfoXML
+	if rg.GlobalReplicationGroupID != "" {
+		globalInfo = &globalReplicationGroupInfoXML{
+			GlobalReplicationGroupID:         rg.GlobalReplicationGroupID,
+			GlobalReplicationGroupMemberRole: rg.GlobalReplicationGroupRole,
+		}
+	}
+
 	return replicationGroupXML{
+		ConfigurationEndpoint:     endpointXML(rg.ConfigurationEndpoint),
+		MemberClusters:            members,
+		GlobalReplicationGroup:    globalInfo,
+		EffectiveDurability:       effectiveDurability(rg.Durability),
+		StorageEncryptionType:     storageEncryptionType(rg.KmsKeyID != "", rg.AtRestEncryptionEnabled),
 		ReplicationGroupID:        rg.ReplicationGroupID,
 		Description:               rg.Description,
 		Status:                    rg.Status,
@@ -559,6 +733,9 @@ func parseModifyReplicationGroupOpts(form url.Values) ReplicationGroupModifyOpts
 		RemoveUserGroups:        strings.EqualFold(form.Get("RemoveUserGroups"), "true"),
 		AutoMinorVersionUpgrade: optionalBool(form, "AutoMinorVersionUpgrade"),
 		CacheSecurityGroupNames: parseRepeatedField(form, "CacheSecurityGroupNames.CacheSecurityGroupName"),
+		SecurityGroupIDs:        parseRepeatedField(form, "SecurityGroupIds.SecurityGroupId"),
+		PrimaryClusterID:        form.Get("PrimaryClusterId"),
+		NotificationTopicStatus: form.Get("NotificationTopicStatus"),
 		ApplyImmediately:        strings.EqualFold(form.Get("ApplyImmediately"), "true"),
 	}
 
@@ -621,9 +798,19 @@ func mapReplicationGroupModifyErr(c *echo.Context, err error) error {
 		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
 	case errors.Is(err, ErrReplicationGroupNotAvailable):
 		return xmlError(c, http.StatusBadRequest, "InvalidReplicationGroupState", err.Error())
-	default:
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	case errors.Is(err, ErrClusterNotFound):
+		return xmlError(c, http.StatusNotFound, "CacheClusterNotFound", "Cache cluster not found")
+	case errors.Is(err, ErrClusterNotAvailable):
+		return xmlError(c, http.StatusBadRequest, "InvalidCacheClusterState", err.Error())
+	case errors.Is(err, ErrClusterAlreadyExists):
+		return xmlError(c, http.StatusBadRequest, "CacheClusterAlreadyExists", err.Error())
 	}
+
+	if status, code, ok := paramErrorCode(err); ok {
+		return xmlError(c, status, code, err.Error())
+	}
+
+	return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 }
 
 func (h *Handler) testFailoverReplicationGroup(ctx context.Context, c *echo.Context, form url.Values) error {
@@ -637,6 +824,9 @@ func (h *Handler) testFailoverReplicationGroup(ctx context.Context, c *echo.Cont
 		}
 		if errors.Is(err, ErrReplicationGroupNotAvailable) {
 			return xmlError(c, http.StatusBadRequest, "InvalidReplicationGroupState", err.Error())
+		}
+		if status, code, ok := paramErrorCode(err); ok {
+			return xmlError(c, status, code, err.Error())
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -760,12 +950,39 @@ func parseCustomerNodeEndpoints(form url.Values, prefix string) []CustomerNodeEn
 	return endpoints
 }
 
-func (h *Handler) increaseReplicaCount(ctx context.Context, c *echo.Context, form url.Values) error {
-	replicationGroupID := form.Get("ReplicationGroupId")
-	newReplicaCount, _ := strconv.ParseInt(form.Get("NewReplicaCount"), 10, 32)
-	applyImmediately := strings.EqualFold(form.Get("ApplyImmediately"), "true")
+// parseReplicaCountRequest reads Increase/DecreaseReplicaCount's members.
+func parseReplicaCountRequest(form url.Values) ReplicaCountRequest {
+	req := ReplicaCountRequest{
+		ApplyImmediately: strings.EqualFold(form.Get("ApplyImmediately"), "true"),
+		ReplicasToRemove: parseRepeatedField(form, "ReplicasToRemove.member"),
+	}
 
-	rg, err := h.Backend.IncreaseReplicaCount(ctx, replicationGroupID, int32(newReplicaCount), applyImmediately)
+	if raw := form.Get("NewReplicaCount"); raw != "" {
+		n, _ := strconv.ParseInt(raw, 10, 32)
+		req.NewReplicaCount, req.HasNewReplicaCount = int32(n), true
+	}
+
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("ReplicaConfiguration.ConfigureShard.%d.", i)
+		raw := form.Get(prefix + "NewReplicaCount")
+		id := form.Get(prefix + "NodeGroupId")
+
+		if raw == "" && id == "" {
+			return req
+		}
+
+		n, _ := strconv.ParseInt(raw, 10, 32)
+		req.Config = append(req.Config, ReplicaChange{
+			NodeGroupID:     id,
+			NewReplicaCount: int32(n),
+			AZs:             parseRepeatedField(form, prefix+"PreferredAvailabilityZones.PreferredAvailabilityZone"),
+			OutpostArns:     parseRepeatedField(form, prefix+"PreferredOutpostArns.PreferredOutpostArn"),
+		})
+	}
+}
+
+func (h *Handler) increaseReplicaCount(ctx context.Context, c *echo.Context, form url.Values) error {
+	rg, err := h.Backend.IncreaseReplicaCountFull(ctx, form.Get("ReplicationGroupId"), parseReplicaCountRequest(form))
 	if err != nil {
 		return mapReplicationGroupModifyErr(c, err)
 	}
@@ -783,11 +1000,7 @@ func (h *Handler) increaseReplicaCount(ctx context.Context, c *echo.Context, for
 }
 
 func (h *Handler) decreaseReplicaCount(ctx context.Context, c *echo.Context, form url.Values) error {
-	replicationGroupID := form.Get("ReplicationGroupId")
-	newReplicaCount, _ := strconv.ParseInt(form.Get("NewReplicaCount"), 10, 32)
-	applyImmediately := strings.EqualFold(form.Get("ApplyImmediately"), "true")
-
-	rg, err := h.Backend.DecreaseReplicaCount(ctx, replicationGroupID, int32(newReplicaCount), applyImmediately)
+	rg, err := h.Backend.DecreaseReplicaCountFull(ctx, form.Get("ReplicationGroupId"), parseReplicaCountRequest(form))
 	if err != nil {
 		return mapReplicationGroupModifyErr(c, err)
 	}
@@ -831,12 +1044,14 @@ func (h *Handler) modifyReplicationGroupShardConfiguration(
 ) error {
 	replicationGroupID := form.Get("ReplicationGroupId")
 	nodeGroupCount, _ := strconv.ParseInt(form.Get("NodeGroupCount"), 10, 32)
-	applyImmediately := strings.EqualFold(form.Get("ApplyImmediately"), "true")
-	reshardingConfig := parseReshardingConfiguration(form)
 
-	rg, err := h.Backend.ModifyReplicationGroupShardConfiguration(
-		ctx, replicationGroupID, int32(nodeGroupCount), applyImmediately, reshardingConfig,
-	)
+	rg, err := h.Backend.ModifyReplicationGroupShardConfigurationFull(ctx, replicationGroupID, ShardConfigRequest{
+		NodeGroupCount:     int32(nodeGroupCount),
+		ApplyImmediately:   strings.EqualFold(form.Get("ApplyImmediately"), "true"),
+		Resharding:         parseReshardingConfiguration(form),
+		NodeGroupsToRemove: parseRepeatedField(form, "NodeGroupsToRemove.NodeGroupToRemove"),
+		NodeGroupsToRetain: parseRepeatedField(form, "NodeGroupsToRetain.NodeGroupToRetain"),
+	})
 	if err != nil {
 		return mapReplicationGroupModifyErr(c, err)
 	}

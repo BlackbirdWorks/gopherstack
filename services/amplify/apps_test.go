@@ -193,13 +193,13 @@ func TestInMemoryBackend_ListAppsPagination(t *testing.T) {
 		{
 			name:       "second_page",
 			maxResults: 2,
-			nextToken:  "2",
+			nextToken:  "Mg==",
 			wantCount:  2,
 		},
 		{
 			name:       "token_beyond_end",
 			maxResults: 2,
-			nextToken:  "100",
+			nextToken:  "MTAw",
 			wantCount:  0,
 		},
 	}

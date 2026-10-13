@@ -44,7 +44,12 @@ func Test_StartTrigger_Scheduled_StillActivates(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doGlueRequest(t, h, "CreateTrigger", map[string]any{"Name": "sched1", "Type": "SCHEDULED"})
+	doGlueRequest(
+		t,
+		h,
+		"CreateTrigger",
+		map[string]any{"Name": "sched1", "Type": "SCHEDULED", "Schedule": "cron(0 12 * * ? *)"},
+	)
 
 	rec := doGlueRequest(t, h, "StartTrigger", map[string]any{"Name": "sched1"})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -261,7 +266,12 @@ func TestTrigger_StartStopActivate(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			doGlueRequest(t, h, "CreateTrigger", map[string]any{"Name": "t1", "Type": "SCHEDULED"})
+			doGlueRequest(
+				t,
+				h,
+				"CreateTrigger",
+				map[string]any{"Name": "t1", "Type": "SCHEDULED", "Schedule": "cron(0 12 * * ? *)"},
+			)
 
 			rec := doGlueRequest(t, h, tt.op, map[string]any{"Name": tt.trigName})
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -281,7 +291,12 @@ func TestTrigger_BatchGetAndList(t *testing.T) {
 
 	h := newTestHandler(t)
 	doGlueRequest(t, h, "CreateTrigger", map[string]any{"Name": "tr-a", "Type": "ON_DEMAND"})
-	doGlueRequest(t, h, "CreateTrigger", map[string]any{"Name": "tr-b", "Type": "SCHEDULED"})
+	doGlueRequest(
+		t,
+		h,
+		"CreateTrigger",
+		map[string]any{"Name": "tr-b", "Type": "SCHEDULED", "Schedule": "cron(0 12 * * ? *)"},
+	)
 
 	t.Run("batch-get", func(t *testing.T) {
 		t.Parallel()

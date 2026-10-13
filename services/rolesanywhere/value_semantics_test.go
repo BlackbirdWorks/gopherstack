@@ -65,7 +65,18 @@ func TestPutAttributeMapping_AdvancesProfileUpdatedAt(t *testing.T) {
 			ctx := t.Context()
 			b := newBackend(t)
 
-			p, err := b.CreateProfile(ctx, "p", []string{"r"}, nil, nil, nil, "", false, nil, nil)
+			p, err := b.CreateProfile(
+				ctx,
+				"p",
+				[]string{"arn:aws:iam::123456789012:role/r"},
+				nil,
+				nil,
+				nil,
+				"",
+				false,
+				nil,
+				nil,
+			)
 			require.NoError(t, err)
 
 			put, err := b.PutAttributeMapping(ctx, p.ProfileID, "x509Subject",

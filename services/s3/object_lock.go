@@ -2,10 +2,15 @@ package s3
 
 import (
 	"context"
+	"encoding/xml"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
+
+const objectLockEnabledOnlyXML = `<?xml version="1.0" encoding="UTF-8"?>` +
+	`<ObjectLockConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
+	`<ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>`
 
 // PutObjectLockConfiguration stores the object lock configuration for a bucket.
 func (b *InMemoryBackend) PutObjectLockConfiguration(
@@ -24,7 +29,11 @@ func (b *InMemoryBackend) PutObjectLockConfiguration(
 	defer bucket.mu.Unlock()
 
 	if !bucket.ObjectLockEnabled {
-		return ErrObjectLockNotEnabled
+		if bucket.Versioning != types.BucketVersioningStatusEnabled {
+			return ErrObjectLockNotEnabled
+		}
+
+		bucket.ObjectLockEnabled = true
 	}
 
 	bucket.ObjectLockConfig = configXML
@@ -49,6 +58,10 @@ func (b *InMemoryBackend) GetObjectLockConfiguration(
 	defer bucket.mu.RUnlock()
 
 	if bucket.ObjectLockConfig == "" {
+		if bucket.ObjectLockEnabled {
+			return objectLockEnabledOnlyXML, nil
+		}
+
 		return "", ErrNoObjectLockConfig
 	}
 
@@ -257,4 +270,63 @@ func findObjectVersion(
 	}
 
 	return nil, ErrNoSuchKey
+}
+
+// objectLockRetention resolves the retention an incoming write gets: explicit
+// request settings win, otherwise the bucket's default-retention rule applies.
+func objectLockRetention(
+	bucket *StoredBucket,
+	mode types.ObjectLockMode,
+	until *time.Time,
+	hold types.ObjectLockLegalHoldStatus,
+	now time.Time,
+) (string, time.Time, bool, error) {
+	explicit := mode != "" || until != nil || hold != ""
+	if explicit && !bucket.ObjectLockEnabled {
+		return "", time.Time{}, false, ErrBucketMissingObjectLock
+	}
+
+	if (mode == "") != (until == nil) {
+		return "", time.Time{}, false, ErrObjectLockHeadersIncomplete
+	}
+
+	held := hold == types.ObjectLockLegalHoldStatusOn
+
+	if mode != "" {
+		if mode != types.ObjectLockModeGovernance && mode != types.ObjectLockModeCompliance {
+			return "", time.Time{}, false, ErrUnknownLockMode
+		}
+
+		if !until.After(now) {
+			return "", time.Time{}, false, ErrRetainUntilNotFuture
+		}
+
+		return string(mode), until.UTC(), held, nil
+	}
+
+	defMode, defUntil := bucketDefaultRetention(bucket, now)
+
+	return defMode, defUntil, held, nil
+}
+
+func bucketDefaultRetention(bucket *StoredBucket, now time.Time) (string, time.Time) {
+	if !bucket.ObjectLockEnabled || bucket.ObjectLockConfig == "" {
+		return "", time.Time{}
+	}
+
+	var cfg ObjectLockConfiguration
+	if err := xml.Unmarshal([]byte(bucket.ObjectLockConfig), &cfg); err != nil { // #nosec G709 -- validated at Put
+		return "", time.Time{}
+	}
+
+	if cfg.Rule == nil || cfg.Rule.DefaultRetention == nil {
+		return "", time.Time{}
+	}
+
+	dr := cfg.Rule.DefaultRetention
+	if dr.Days <= 0 && dr.Years <= 0 {
+		return "", time.Time{}
+	}
+
+	return dr.Mode, now.AddDate(dr.Years, 0, dr.Days).UTC()
 }

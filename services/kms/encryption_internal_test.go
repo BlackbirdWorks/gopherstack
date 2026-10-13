@@ -190,7 +190,7 @@ func TestKMSBackendDecryptNonExistentKey(t *testing.T) {
 	// Fabricate a ciphertext blob whose key ID prefix references a non-existent key.
 	// Decrypt should fail with ErrKeyNotFound (not a data-corruption error).
 	badBlob := make([]byte, 36+28) // keyIDPrefixLen + minimum nonce/ct size
-	copy(badBlob[:36], "nonexistent-key-id-000000000000000")
+	copy(badBlob[:36], "11111111-1111-1111-1111-111111111111")
 	_, err = b.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: badBlob})
 	require.ErrorIs(t, err, kms.ErrKeyNotFound)
 

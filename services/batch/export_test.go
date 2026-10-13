@@ -147,3 +147,13 @@ func (b *InMemoryBackend) SetJobStartedAtForTest(jobID string, startedAt time.Ti
 	ms := startedAt.UnixMilli()
 	j.StartedAt = &ms
 }
+
+// SetServiceJobStatusForTest forces a service job into status.
+func (b *InMemoryBackend) SetServiceJobStatusForTest(jobID, status string) {
+	b.mu.Lock("SetServiceJobStatusForTest")
+	defer b.mu.Unlock()
+
+	if sj, ok := b.serviceJobs.Get(regionKey(b.region, jobID)); ok {
+		sj.Status = status
+	}
+}

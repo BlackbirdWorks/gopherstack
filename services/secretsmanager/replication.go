@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 )
 
 // replicationStatusInSync is the status used for in-sync replicas.
@@ -23,7 +25,7 @@ func (b *InMemoryBackend) ReplicateSecretToRegions(
 	b.mu.Lock("ReplicateSecretToRegions")
 	defer b.mu.Unlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, ok := b.secretGet(region, name)
 	if !ok {
@@ -32,6 +34,10 @@ func (b *InMemoryBackend) ReplicateSecretToRegions(
 
 	if secret.DeletedDate != nil {
 		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
+	}
+
+	if err := validateReplicaRegions(region, input.AddReplicaRegions); err != nil {
+		return nil, err
 	}
 
 	configs := b.replicationConfigsStore(region)
@@ -78,6 +84,24 @@ func (b *InMemoryBackend) ReplicateSecretToRegions(
 	}, nil
 }
 
+// validateReplicaRegions rejects malformed Regions and the primary's own Region.
+func validateReplicaRegions(primaryRegion string, replicas []ReplicaRegion) error {
+	for _, r := range replicas {
+		if !regionpeers.ValidRegion(r.Region) {
+			return fmt.Errorf("%w: %q is not a valid replica Region", ErrInvalidParameter, r.Region)
+		}
+
+		if r.Region == primaryRegion {
+			return fmt.Errorf(
+				"%w: the replica Region %s is the primary secret's Region",
+				ErrReplicaAlreadyExists, r.Region,
+			)
+		}
+	}
+
+	return nil
+}
+
 // RemoveRegionsFromReplication removes replication configuration for the specified regions.
 func (b *InMemoryBackend) RemoveRegionsFromReplication(
 	ctx context.Context,
@@ -88,7 +112,7 @@ func (b *InMemoryBackend) RemoveRegionsFromReplication(
 	b.mu.Lock("RemoveRegionsFromReplication")
 	defer b.mu.Unlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, ok := b.secretGet(region, name)
 	if !ok {
@@ -140,7 +164,7 @@ func (b *InMemoryBackend) StopReplicationToReplica(
 	b.mu.Lock("StopReplicationToReplica")
 	defer b.mu.Unlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, ok := b.secretGet(region, name)
 	if !ok {

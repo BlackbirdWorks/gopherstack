@@ -602,7 +602,7 @@ func TestEvaluateAssumeRoleTrust_UnmodeledOperatorPermitsByDesign(t *testing.T) 
 	const caller = "arn:aws:iam::123456789012:role/ProdDeploy"
 
 	policy := `{"Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},` +
-		`"Action":"sts:AssumeRole","Condition":{"NumericLessThan":{"aws:PrincipalArn":"1"}}}]}`
+		`"Action":"sts:AssumeRole","Condition":{"SomeFutureOperator":{"aws:PrincipalArn":"1"}}}]}`
 
 	err := sts.EvaluateAssumeRoleTrust(policy, sts.TrustEvalForTest{
 		Action: sts.ActionAssumeRole, CallerArn: caller,

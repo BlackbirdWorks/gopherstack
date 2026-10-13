@@ -244,7 +244,7 @@ func assertTransactions(t *testing.T, d *dockerDataAPI) {
 		assert.InDelta(t, base+tt.wantDelta, d.count(""), 0, tt.name)
 
 		code, out = d.call("/Execute", map[string]any{"sql": "SELECT 1", "transactionId": txID})
-		assert.Equal(t, http.StatusBadRequest, code)
+		assert.Equal(t, http.StatusNotFound, code)
 		assert.Equal(t, "TransactionNotFoundException", out["__type"])
 	}
 }

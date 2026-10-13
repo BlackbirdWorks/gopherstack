@@ -137,41 +137,21 @@ func (b *InMemoryBackend) ListRestoreJobs() []*RestoreJob {
 	return out
 }
 
-// ListRestoreJobSummaries returns restore job counts grouped by State, real
-// RestoreJobSummary's own required grouping key (backup@v1.59.4
-// api_op_ListRestoreJobSummaries.go, RestoreJobSummary: AccountId, Count,
-// Region, ResourceType, State, StartTime, EndTime). AggregationPeriod
-// (per-day/per-week time-bucketed counts) and ResourceType-level grouping
-// are not modeled: this backend produces one point-in-time snapshot per
-// call, not a historical time series, and every other summary op in this
-// package (ListBackupJobSummaries/ListCopyJobSummaries) groups by State
-// only, not by the full (Region,AccountId,State,ResourceType) key real AWS
-// documents -- kept consistent with that existing precedent rather than
-// introducing a different fidelity level for this one sibling op.
+// ListRestoreJobSummaries counts restore jobs per aggregation window, resource type and state.
 func (b *InMemoryBackend) ListRestoreJobSummaries(f JobSummaryFilter) []map[string]any {
 	b.mu.RLock("ListRestoreJobSummaries")
 	defer b.mu.RUnlock()
 
-	counts := make(map[string]int)
-	for _, j := range b.restoreJobs.All() {
-		if f.matches(b.summaryAccount(j.AccountID), j.ResourceType, j.Status, "") {
-			counts[j.Status]++
-		}
-	}
+	all := b.restoreJobs.All()
+	jobs := make([]summaryJob, 0, len(all))
 
-	summaries := make([]map[string]any, 0, len(counts))
-	for state, count := range counts {
-		summaries = append(summaries, map[string]any{
-			keyState:         state,
-			keySummaryCount:  count,
-			keySummaryRegion: b.region,
-			keyAccountID:     b.accountID,
+	for _, j := range all {
+		jobs = append(jobs, summaryJob{
+			at: j.StartTime, account: b.summaryAccount(j.AccountID), resourceType: j.ResourceType, state: j.Status,
 		})
 	}
 
-	sortSummaries(summaries)
-
-	return summaries
+	return b.buildSummaries(f, jobs, summaryShape{})
 }
 
 // ListRestoreJobsFilter contains optional filter parameters for listing

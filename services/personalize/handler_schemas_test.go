@@ -84,8 +84,8 @@ func TestPersonalize_Schema_List(t *testing.T) {
 	t.Parallel()
 
 	h := personalizeHandler(t)
-	personalizeDo(t, h, "CreateSchema", map[string]any{"name": "s1"})
-	personalizeDo(t, h, "CreateSchema", map[string]any{"name": "s2"})
+	personalizeDo(t, h, "CreateSchema", map[string]any{"name": "s1", "schema": `{"type":"record"}`})
+	personalizeDo(t, h, "CreateSchema", map[string]any{"name": "s2", "schema": `{"type":"record"}`})
 
 	rec := personalizeDo(t, h, "ListSchemas", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)

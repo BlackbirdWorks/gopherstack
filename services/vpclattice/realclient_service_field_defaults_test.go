@@ -40,7 +40,7 @@ func TestRealClient_ServiceIdleTimeoutSeconds(t *testing.T) {
 				ctx := t.Context()
 
 				out, err := client.CreateService(ctx, &vpclatticesdk.CreateServiceInput{
-					Name: aws.String("svc-idle-default"),
+					Name: aws.String("svcx-idle-default"),
 				})
 				require.NoError(t, err)
 				assert.Equal(t, int32(60), aws.ToInt32(out.IdleTimeoutSeconds))
@@ -55,7 +55,7 @@ func TestRealClient_ServiceIdleTimeoutSeconds(t *testing.T) {
 				ctx := t.Context()
 
 				created, err := client.CreateService(ctx, &vpclatticesdk.CreateServiceInput{
-					Name:               aws.String("svc-idle-custom"),
+					Name:               aws.String("svcx-idle-custom"),
 					IdleTimeoutSeconds: aws.Int32(300),
 				})
 				require.NoError(t, err)
@@ -78,7 +78,7 @@ func TestRealClient_ServiceIdleTimeoutSeconds(t *testing.T) {
 				ctx := t.Context()
 
 				_, err := client.CreateService(ctx, &vpclatticesdk.CreateServiceInput{
-					Name:               aws.String("svc-idle-bad"),
+					Name:               aws.String("svcx-idle-bad"),
 					IdleTimeoutSeconds: aws.Int32(30),
 				})
 				require.Error(t, err)

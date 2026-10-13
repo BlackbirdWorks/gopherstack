@@ -8,6 +8,10 @@ import (
 
 // TagResource adds or updates tags on a resource identified by its ARN.
 func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, tags map[string]string) error {
+	if err := validateTagEntries(tags); err != nil {
+		return err
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("TagResource")

@@ -165,7 +165,9 @@ type createResolverEndpointOutput struct {
 	ResolverEndpoint resolverEndpointOutput `json:"ResolverEndpoint"`
 }
 
-type deleteResolverEndpointOutput struct{}
+type deleteResolverEndpointOutput struct {
+	ResolverEndpoint resolverEndpointOutput `json:"ResolverEndpoint"`
+}
 
 type listResolverEndpointsInput struct {
 	NextToken  string       `json:"NextToken"`
@@ -255,11 +257,18 @@ func (h *Handler) handleDeleteResolverEndpoint(
 	ctx context.Context,
 	in *resolverEndpointIDInput,
 ) (*deleteResolverEndpointOutput, error) {
-	if err := h.Backend.DeleteResolverEndpoint(ctx, in.ResolverEndpointID); err != nil {
+	ep, err := h.Backend.GetResolverEndpoint(ctx, in.ResolverEndpointID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &deleteResolverEndpointOutput{}, nil
+	if err = h.Backend.DeleteResolverEndpoint(ctx, in.ResolverEndpointID); err != nil {
+		return nil, err
+	}
+
+	ep.Status = statusDeleting
+
+	return &deleteResolverEndpointOutput{ResolverEndpoint: endpointToOutput(ep)}, nil
 }
 
 func (h *Handler) handleListResolverEndpoints(

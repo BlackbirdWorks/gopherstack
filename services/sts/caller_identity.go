@@ -80,7 +80,40 @@ func (b *InMemoryBackend) GetCallerIdentity(
 		)
 	}
 
+	if userArn, err := b.LookupUserArn(accessKeyID); err == nil && userArn != "" {
+		return b.userCallerIdentity(accessKeyID, userArn), nil
+	}
+
 	return b.rootCallerIdentity(), nil
+}
+
+func (b *InMemoryBackend) userCallerIdentity(accessKeyID, userArn string) *GetCallerIdentityResponse {
+	userID := accessKeyID
+
+	b.mu.RLock("userCallerIdentity")
+	ul := b.userLookup
+	b.mu.RUnlock()
+
+	if il, ok := ul.(UserIDLookup); ok {
+		if id, err := il.GetUserIDByAccessKeyID(accessKeyID); err == nil && id != "" {
+			userID = id
+		}
+	}
+
+	account := b.accountID
+	if parts := strings.Split(userArn, ":"); len(parts) > 4 && parts[4] != "" {
+		account = parts[4]
+	}
+
+	return &GetCallerIdentityResponse{
+		Xmlns: STSNamespace,
+		GetCallerIdentityResult: GetCallerIdentityResult{
+			Account: account,
+			Arn:     userArn,
+			UserID:  userID,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
+	}
 }
 
 func (b *InMemoryBackend) rootCallerIdentity() *GetCallerIdentityResponse {

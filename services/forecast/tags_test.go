@@ -65,7 +65,7 @@ func TestTags_RoundTrip(t *testing.T) {
 	h := newHandler()
 
 	code, created := request(t, h, "CreateDatasetGroup", map[string]any{
-		"DatasetGroupName": "tag-group", "Domain": "RETAIL",
+		"DatasetGroupName": "tag_group", "Domain": "RETAIL",
 	})
 	require.Equal(t, http.StatusOK, code)
 	arn := created["DatasetGroupArn"].(string)
@@ -169,7 +169,7 @@ func TestTagResource_LimitExceeded(t *testing.T) {
 
 			h := newHandler()
 			code, created := request(t, h, "CreateDatasetGroup", map[string]any{
-				"DatasetGroupName": "tag-limit-" + tt.name, "Domain": "RETAIL",
+				"DatasetGroupName": "tag_limit_" + tt.name, "Domain": "RETAIL",
 			})
 			require.Equal(t, http.StatusOK, code)
 			arn := created["DatasetGroupArn"].(string)

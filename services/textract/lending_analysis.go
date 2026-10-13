@@ -131,6 +131,7 @@ func (b *InMemoryBackend) StartLendingAnalysisWithOptions(
 
 		if b.asyncJobDelay == 0 {
 			job.JobStatus = jobStatusSucceeded
+			b.deliverLendingJobLocked(job)
 			result = cloneLendingJob(job)
 			done = true
 
@@ -150,6 +151,7 @@ func (b *InMemoryBackend) StartLendingAnalysisWithOptions(
 
 		if j, ok := b.lendingJobs.Get(key); ok {
 			j.JobStatus = jobStatusSucceeded
+			b.deliverLendingJobLocked(j)
 		}
 	})
 

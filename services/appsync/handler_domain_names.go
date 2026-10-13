@@ -98,7 +98,7 @@ func (h *Handler) createDomainName(ctx context.Context, c *echo.Context) error {
 		return h.handleError(ctx, c, "CreateDomainName", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{keyDomainNameConfig: dn})
+	return c.JSON(http.StatusCreated, map[string]any{keyDomainNameConfig: wireShape(dn, "apiId")})
 }
 
 // associateAPI handles POST /v1/domainnames/{domainName}/apiassociation.
@@ -135,7 +135,7 @@ func (h *Handler) getDomainName(ctx context.Context, c *echo.Context, domainName
 		return h.handleError(ctx, c, "GetDomainName", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyDomainNameConfig: dn})
+	return c.JSON(http.StatusOK, map[string]any{keyDomainNameConfig: wireShape(dn, "apiId")})
 }
 
 // listDomainNames handles GET /v1/domainnames.
@@ -150,7 +150,7 @@ func (h *Handler) listDomainNames(ctx context.Context, c *echo.Context) error {
 	}
 
 	page, tok := appsyncPaginate(dns, nextToken, maxResults)
-	out := map[string]any{"domainNameConfigs": page}
+	out := map[string]any{"domainNameConfigs": wireShape(page, "apiId")}
 	if tok != "" {
 		out["nextToken"] = tok
 	}
@@ -198,7 +198,7 @@ func (h *Handler) updateDomainName(ctx context.Context, c *echo.Context, domainN
 		return h.handleError(ctx, c, "UpdateDomainName", updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyDomainNameConfig: dn})
+	return c.JSON(http.StatusOK, map[string]any{keyDomainNameConfig: wireShape(dn, "apiId")})
 }
 
 // disassociateAPI handles DELETE /v1/domainnames/{domainName}/apiassociation.

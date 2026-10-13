@@ -170,6 +170,10 @@ func (h *Handler) handleListVocabularyFilters(
 	_ context.Context,
 	in *listVocabularyFiltersInput,
 ) (*listVocabularyFiltersOutput, error) {
+	if err := validateListPage(in.NextToken, in.MaxResults); err != nil {
+		return nil, err
+	}
+
 	filters, nextToken := h.Backend.ListVocabularyFilters(in.NameContains, in.NextToken, in.MaxResults)
 
 	result := make([]vocabularyFilterOutput, 0, len(filters))

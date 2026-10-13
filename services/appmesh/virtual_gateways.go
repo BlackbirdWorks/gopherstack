@@ -30,6 +30,9 @@ func (b *InMemoryBackend) CreateVirtualGateway(
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
+	if err := b.schemas.validate("virtualGatewaySpec", spec); err != nil {
+		return nil, err
+	}
 	key := meshChildKey(meshName, name)
 	if b.virtualGWs.Has(key) {
 		return nil, ErrVirtualGatewayAlreadyExists
@@ -65,6 +68,9 @@ func (b *InMemoryBackend) DescribeVirtualGateway(meshName, name string) (*Virtua
 }
 
 func (b *InMemoryBackend) UpdateVirtualGateway(meshName, name string, spec json.RawMessage) (*VirtualGateway, error) {
+	if err := b.schemas.validate("virtualGatewaySpec", spec); err != nil {
+		return nil, err
+	}
 	b.mu.Lock("UpdateVirtualGateway")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
@@ -141,6 +147,9 @@ func (b *InMemoryBackend) ListVirtualGateways(
 func (b *InMemoryBackend) CreateGatewayRoute(
 	meshName, virtualGatewayName, routeName string, spec json.RawMessage, tags map[string]string,
 ) (*GatewayRoute, error) {
+	if err := b.schemas.validate("gatewayRouteSpec", spec); err != nil {
+		return nil, err
+	}
 	b.mu.Lock("CreateGatewayRoute")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
@@ -190,6 +199,9 @@ func (b *InMemoryBackend) DescribeGatewayRoute(meshName, virtualGatewayName, rou
 func (b *InMemoryBackend) UpdateGatewayRoute(
 	meshName, virtualGatewayName, routeName string, spec json.RawMessage,
 ) (*GatewayRoute, error) {
+	if err := b.schemas.validate("gatewayRouteSpec", spec); err != nil {
+		return nil, err
+	}
 	b.mu.Lock("UpdateGatewayRoute")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {

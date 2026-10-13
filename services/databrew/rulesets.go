@@ -2,10 +2,12 @@ package databrew
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 func (b *InMemoryBackend) rulesetARN(region, name string) string {
@@ -22,20 +24,21 @@ func (b *InMemoryBackend) CreateRuleset(
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
 	if name == "" {
-		return nil, ErrValidation
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 	if err := validateRules(rules); err != nil {
 		return nil, err
 	}
 	t := b.rulesetsTable(region)
 	if t.Has(name) {
-		return nil, ErrAlreadyExists
+		return nil, existsErr("Ruleset", name)
 	}
 	rs := &Ruleset{
 		Name: name, Arn: b.rulesetARN(region, name), Description: description,
 		TargetArn: targetArn, Rules: cloneRules(rules), RuleCount: len(rules),
 		Tags: maps.Clone(tags), CreateDate: float64(time.Now().Unix()),
 		LastModifiedDate: float64(time.Now().Unix()), AccountID: b.accountID,
+		CreatedBy: awsmeta.CallerArn(ctx), LastModifiedBy: awsmeta.CallerArn(ctx),
 	}
 	t.Put(rs)
 
@@ -76,12 +79,12 @@ func validateRules(rules []Rule) error {
 		switch th.Type {
 		case "", "GREATER_THAN_OR_EQUAL", "LESS_THAN_OR_EQUAL", "GREATER_THAN", "LESS_THAN":
 		default:
-			return ErrValidation
+			return fmt.Errorf("%w: invalid ThresholdType %q", ErrValidation, th.Type)
 		}
 		switch th.Unit {
 		case "", "COUNT", "PERCENTAGE":
 		default:
-			return ErrValidation
+			return fmt.Errorf("%w: invalid ThresholdUnit %q", ErrValidation, th.Unit)
 		}
 	}
 
@@ -94,7 +97,7 @@ func (b *InMemoryBackend) DescribeRuleset(ctx context.Context, name string) (*Ru
 	region := getRegion(ctx, b.defaultRegion)
 	rs, ok := b.rulesetsTable(region).Get(name)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, notFoundErr("Ruleset", name)
 	}
 
 	return b.rulesetCopy(rs), nil
@@ -145,7 +148,7 @@ func (b *InMemoryBackend) UpdateRuleset(
 	region := getRegion(ctx, b.defaultRegion)
 	rs, ok := b.rulesetsTable(region).Get(name)
 	if !ok {
-		return ErrNotFound
+		return notFoundErr("Ruleset", name)
 	}
 	if err := validateRules(rules); err != nil {
 		return err
@@ -156,6 +159,7 @@ func (b *InMemoryBackend) UpdateRuleset(
 	rs.Rules = cloneRules(rules)
 	rs.RuleCount = len(rules)
 	rs.LastModifiedDate = float64(time.Now().Unix())
+	stampModifiedBy(ctx, &rs.LastModifiedBy)
 
 	return nil
 }
@@ -165,7 +169,7 @@ func (b *InMemoryBackend) DeleteRuleset(ctx context.Context, name string) error 
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
 	if !b.rulesetsTable(region).Delete(name) {
-		return ErrNotFound
+		return notFoundErr("Ruleset", name)
 	}
 
 	return nil

@@ -331,6 +331,7 @@ type LateDataRule struct {
 
 // Channel stores all metadata and state for a single IoT Analytics channel.
 type Channel struct {
+	readyAt                time.Time
 	Tags                   map[string]string `json:"tags"`
 	Storage                *ChannelStorage   `json:"storage,omitempty"`
 	RetentionPeriod        *RetentionPeriod  `json:"retentionPeriod,omitempty"`
@@ -344,6 +345,7 @@ type Channel struct {
 
 // Datastore stores all metadata and state for a single IoT Analytics datastore.
 type Datastore struct {
+	readyAt                 time.Time
 	Tags                    map[string]string        `json:"tags"`
 	Storage                 *DatastoreStorage        `json:"storage,omitempty"`
 	RetentionPeriod         *RetentionPeriod         `json:"retentionPeriod,omitempty"`
@@ -359,16 +361,17 @@ type Datastore struct {
 
 // Dataset stores all metadata and state for a single IoT Analytics dataset.
 type Dataset struct {
-	Tags                    map[string]string        `json:"tags"`
+	readyAt                 time.Time
 	VersioningConfiguration *VersioningConfiguration `json:"versioningConfiguration,omitempty"`
 	RetentionPeriod         *RetentionPeriod         `json:"retentionPeriod,omitempty"`
+	Tags                    map[string]string        `json:"tags"`
 	Name                    string                   `json:"name"`
 	ARN                     string                   `json:"arn"`
 	Status                  string                   `json:"status"`
 	Actions                 []DatasetAction          `json:"actions,omitempty"`
-	Triggers                []DatasetTrigger         `json:"triggers,omitempty"`
 	ContentDeliveryRules    []ContentDeliveryRule    `json:"contentDeliveryRules,omitempty"`
 	LateDataRules           []LateDataRule           `json:"lateDataRules,omitempty"`
+	Triggers                []DatasetTrigger         `json:"triggers,omitempty"`
 	CreationTime            float64                  `json:"creationTime"`
 	LastUpdate              float64                  `json:"lastUpdate"`
 }
@@ -402,6 +405,7 @@ type LoggingOptions struct {
 // equal to CreationTime -- the same behavior AWS exhibits for a manually
 // invoked CreateDatasetContent that wasn't fired by a schedule trigger.
 type DatasetContent struct {
+	readyAt        time.Time
 	VersionID      string  `json:"versionId"`
 	Status         string  `json:"status"`
 	CreationTime   float64 `json:"creationTime"`

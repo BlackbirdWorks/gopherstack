@@ -12,9 +12,11 @@ import (
 
 const cfnSweep1Template = `{"Resources":{"Bucket":{"Type":"AWS::S3::Bucket"}}}`
 
-// cfnCyclicTemplate fails CreateStack pre-flight; with DisableRollback the stack stays CREATE_FAILED.
-const cfnCyclicTemplate = `{"Resources":{` +
-	`"A":{"Type":"AWS::S3::Bucket","DependsOn":"B"},"B":{"Type":"AWS::S3::Bucket","DependsOn":"A"}}}`
+const cfnSweep1TemplateV2 = `{"Description":"v2","Resources":{"Bucket":{"Type":"AWS::S3::Bucket"}}}`
+
+// cfnCyclicTemplate fails resource provisioning; with DisableRollback the stack stays CREATE_FAILED.
+const cfnCyclicTemplate = `{"Resources":{"A":{"Type":"AWS::S3::Bucket",` +
+	`"Properties":{"BucketName":{"Fn::ImportValue":"no-such-export"}}}}}`
 
 // TestCreateUpdateRollbackStack_OperationID_RealClient drives CreateStack,
 // UpdateStack and RollbackStack through the real aws-sdk-go-v2 client
@@ -37,7 +39,7 @@ func TestCreateUpdateRollbackStack_OperationID_RealClient(t *testing.T) {
 
 	updated, err := client.UpdateStack(t.Context(), &cfnsdk.UpdateStackInput{
 		StackName:    aws.String("sweep1-stack"),
-		TemplateBody: aws.String(cfnSweep1Template),
+		TemplateBody: aws.String(cfnSweep1TemplateV2),
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, aws.ToString(updated.OperationId), "UpdateStack: OperationId empty")
@@ -102,6 +104,19 @@ func TestTypeRegistryOps_RealClient(t *testing.T) {
 		t.Parallel()
 
 		client := newTestHandlerAndClient(t)
+
+		_, err := client.SetTypeConfiguration(t.Context(), &cfnsdk.SetTypeConfigurationInput{
+			TypeName:      aws.String("AWS::Sweep1::Configured"),
+			Configuration: aws.String(`{"Key":"Value"}`),
+		})
+		var notFound *types.TypeNotFoundException
+		require.ErrorAs(t, err, &notFound, "an unregistered type must be TypeNotFoundException")
+
+		_, err = client.RegisterType(t.Context(), &cfnsdk.RegisterTypeInput{
+			TypeName:             aws.String("AWS::Sweep1::Configured"),
+			SchemaHandlerPackage: aws.String("s3://bucket/schema.zip"),
+		})
+		require.NoError(t, err)
 
 		out, err := client.SetTypeConfiguration(t.Context(), &cfnsdk.SetTypeConfigurationInput{
 			TypeName:      aws.String("AWS::Sweep1::Configured"),

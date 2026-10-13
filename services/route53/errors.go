@@ -8,6 +8,7 @@ import (
 var (
 	ErrHostedZoneNotFound    = errors.New("NoSuchHostedZone")
 	ErrInvalidInput          = errors.New("InvalidInput")
+	ErrInvalidDomainName     = errors.New("InvalidDomainName")
 	ErrInvalidAction         = errors.New("InvalidChangeBatch")
 	ErrHealthCheckNotFound   = errors.New("NoSuchHealthCheck")
 	ErrKeySigningKeyNotFound = errors.New("NoSuchKeySigningKey")

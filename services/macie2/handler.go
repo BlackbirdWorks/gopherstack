@@ -11,6 +11,8 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -145,11 +147,12 @@ const (
 type Handler struct {
 	peers   *regionpeers.Set[Handler]
 	Backend StorageBackend
+	idem    *idempotency.Memo
 }
 
 // NewHandler constructs a new Handler.
 func NewHandler(b StorageBackend) *Handler {
-	return &Handler{Backend: b}
+	return &Handler{Backend: b, idem: idempotency.New("macie2")}
 }
 
 // Name returns the service name.
@@ -276,6 +279,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
+		if httputils.SignedForOtherService(c.Request(), macie2Service) {
+			return false
+		}
+
 		if strings.HasPrefix(path, "/"+pathTags+"/arn:aws:macie2:") {
 			return true
 		}
@@ -296,11 +303,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	}
 }
 
-// isMacie2Request checks the Authorization header for the macie2 signing service.
+// isMacie2Request reports whether the SigV4 scope names macie2.
 func isMacie2Request(c *echo.Context) bool {
-	auth := c.Request().Header.Get("Authorization")
-
-	return strings.Contains(auth, "/"+macie2Service+"/")
+	return httputils.ExtractServiceFromRequest(c.Request()) == macie2Service
 }
 
 // restRouter returns the shared REST-path routing/dispatch wiring for this

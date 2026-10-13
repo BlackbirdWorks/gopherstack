@@ -42,7 +42,7 @@ func (b *InMemoryBackend) CreateModelInvocationJob(
 	job := &ModelInvocationJob{
 		JobArn:           jobARN,
 		JobName:          name,
-		Status:           "Submitted",
+		Status:           invocationStatusSubmitted,
 		CreationTime:     now,
 		LastModifiedTime: now,
 		Tags:             copyTags(tags),
@@ -199,7 +199,8 @@ func (b *InMemoryBackend) StopModelInvocationJob(jobARN string) error {
 		return fmt.Errorf("%w: model invocation job %s not found", ErrNotFound, jobARN)
 	}
 
-	if job.Status != statusInProgress && job.Status != "Submitted" {
+	if job.Status != statusInProgress && job.Status != invocationStatusSubmitted &&
+		job.Status != invocationStatusValidating && job.Status != invocationStatusScheduled {
 		return fmt.Errorf(
 			"%w: model invocation job %s cannot be stopped in status %s",
 			ErrValidation,
@@ -208,7 +209,7 @@ func (b *InMemoryBackend) StopModelInvocationJob(jobARN string) error {
 		)
 	}
 
-	job.Status = statusStopped
+	job.Status = statusStopping
 	job.LastModifiedTime = time.Now().UTC()
 
 	return nil

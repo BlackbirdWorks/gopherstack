@@ -1,6 +1,8 @@
 package bedrock
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strconv"
@@ -9,11 +11,15 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-// newGuardrailID generates a unique guardrail ID.
+const guardrailIDLen = 10
+
+// newGuardrailID returns a deterministic 10-char [a-z0-9]+ guardrail ID.
 func (b *InMemoryBackend) newGuardrailID() string {
 	b.guardrailCounter++
 
-	return fmt.Sprintf("bedrock-guardrail-%07d", b.guardrailCounter)
+	sum := sha256.Sum256([]byte("guardrail-" + strconv.Itoa(b.guardrailCounter)))
+
+	return hex.EncodeToString(sum[:])[:guardrailIDLen]
 }
 
 // CreateGuardrail creates a new guardrail. The optional policies argument configures
@@ -50,6 +56,11 @@ func (b *InMemoryBackend) CreateGuardrailWithExtras(
 		return nil, fmt.Errorf("%w: guardrail %s already exists", ErrAlreadyExists, name)
 	}
 
+	resolvedExtras, err := b.resolveGuardrailExtras(extras)
+	if err != nil {
+		return nil, err
+	}
+
 	id := b.newGuardrailID()
 	guardrailARN := arn.Build("bedrock", b.region, b.accountID, "guardrail/"+id)
 	now := time.Now().UTC()
@@ -70,7 +81,7 @@ func (b *InMemoryBackend) CreateGuardrailWithExtras(
 		BlockedOutputsMessaging: blockedOutput,
 		Tags:                    tagsCopy,
 		Policies:                pol,
-		Extras:                  b.resolveGuardrailExtras(extras),
+		Extras:                  resolvedExtras,
 		CreatedAt:               now,
 		UpdatedAt:               now,
 	}
@@ -86,13 +97,20 @@ func (b *InMemoryBackend) CreateGuardrailWithExtras(
 }
 
 // resolveGuardrailExtras turns the request's kmsKeyId into the stored ARN; nil stays nil.
-func (b *InMemoryBackend) resolveGuardrailExtras(in *GuardrailExtras) *GuardrailExtras {
+func (b *InMemoryBackend) resolveGuardrailExtras(in *GuardrailExtras) (*GuardrailExtras, error) {
 	out := copyGuardrailExtras(in)
-	if out != nil {
-		out.KmsKeyArn = kmsKeyARN(b.region, b.accountID, out.KmsKeyArn)
+	if out == nil {
+		return nil, nil //nolint:nilnil // nil extras are a valid "not provided"
 	}
 
-	return out
+	keyARN, err := b.kmsARN(out.KmsKeyArn)
+	if err != nil {
+		return nil, err
+	}
+
+	out.KmsKeyArn = keyARN
+
+	return out, nil
 }
 
 // copyGuardrailExtras deep-copies e.
@@ -164,11 +182,55 @@ func (b *InMemoryBackend) ListGuardrails(
 			CreatedAt:            g.CreatedAt,
 			UpdatedAt:            g.UpdatedAt,
 		})
+
+		if guardrailIdentifier != "" {
+			list = append(list, b.guardrailVersionSummariesLocked(g)...)
+		}
 	}
 
-	sort.Slice(list, func(i, j int) bool { return list[i].GuardrailID < list[j].GuardrailID })
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].GuardrailID != list[j].GuardrailID {
+			return list[i].GuardrailID < list[j].GuardrailID
+		}
+
+		return guardrailVersionOrdinal(list[i].Version) < guardrailVersionOrdinal(list[j].Version)
+	})
 
 	return paginate(list, maxResults, nextToken)
+}
+
+// guardrailVersionSummariesLocked lists the numbered versions of g, for the
+// ListGuardrails call that names a guardrail. Caller holds b.mu.
+func (b *InMemoryBackend) guardrailVersionSummariesLocked(g *Guardrail) []*GuardrailSummary {
+	var out []*GuardrailSummary
+
+	for _, gv := range b.guardrailVersions.All() {
+		if gv.GuardrailID != g.GuardrailID {
+			continue
+		}
+
+		out = append(out, &GuardrailSummary{
+			GuardrailID: gv.GuardrailID,
+			Arn:         gv.GuardrailArn,
+			Name:        gv.Name,
+			Description: gv.Description,
+			Status:      g.Status,
+			Version:     gv.Version,
+			CreatedAt:   gv.CreatedAt,
+			UpdatedAt:   gv.CreatedAt,
+		})
+	}
+
+	return out
+}
+
+func guardrailVersionOrdinal(version string) int {
+	n, err := strconv.Atoi(version)
+	if err != nil {
+		return 0
+	}
+
+	return n
 }
 
 // UpdateGuardrail updates a guardrail's name, description, messaging, and policies.
@@ -206,6 +268,17 @@ func (b *InMemoryBackend) UpdateGuardrailWithExtras(
 		return nil, fmt.Errorf("%w: guardrail %s not found", ErrNotFound, idOrARN)
 	}
 
+	var resolvedExtras *GuardrailExtras
+
+	if extras != nil {
+		var extrasErr error
+
+		resolvedExtras, extrasErr = b.resolveGuardrailExtras(extras)
+		if extrasErr != nil {
+			return nil, extrasErr
+		}
+	}
+
 	// Update name with index maintenance.
 	if name != "" && name != g.Name {
 		if _, exists := b.guardrailsByName[name]; exists {
@@ -233,8 +306,8 @@ func (b *InMemoryBackend) UpdateGuardrailWithExtras(
 		g.Policies = copyGuardrailPolicies(pol)
 	}
 
-	if extras != nil {
-		g.Extras = b.resolveGuardrailExtras(extras)
+	if resolvedExtras != nil {
+		g.Extras = resolvedExtras
 	}
 
 	g.UpdatedAt = time.Now().UTC()

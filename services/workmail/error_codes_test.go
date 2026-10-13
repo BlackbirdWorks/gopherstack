@@ -194,7 +194,7 @@ func TestRegisterToWorkMail_NoOpWhenAlreadyEnabled(t *testing.T) {
 
 				r, err := client.CreateResource(t.Context(), &workmailsdk.CreateResourceInput{
 					OrganizationId: orgID,
-					Name:           aws.String("noop-resource-" + uuid.NewString()[:8]),
+					Name:           aws.String("noop-res-" + uuid.NewString()[:8]),
 					Type:           types.ResourceTypeRoom,
 				})
 				require.NoError(t, err)

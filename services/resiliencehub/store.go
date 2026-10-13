@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -33,20 +34,21 @@ const asyncTransitionDelay = 100 * time.Millisecond
 // .claude/memories/pkgs-catalog.md's locking rule.
 type InMemoryBackend struct {
 	appConfig         any
-	metricsExports    *store.Table[MetricsExport]
-	groupingByApp     *store.Index[GroupingTask]
+	assessments       *store.Table[AppAssessment]
+	work              *worker.Group
 	assessmentsByApp  *store.Index[AppAssessment]
 	templates         *store.Table[RecommendationTemplate]
 	templatesByAssess *store.Index[RecommendationTemplate]
 	apps              *store.Table[App]
-	groupingTasks     *store.Table[GroupingTask]
-	assessments       *store.Table[AppAssessment]
+	groupingByApp     *store.Index[GroupingTask]
 	registry          *store.Registry
+	groupingTasks     *store.Table[GroupingTask]
 	mu                *lockmetrics.RWMutex
-	work              *worker.Group
+	metricsExports    *store.Table[MetricsExport]
 	policies          *store.Table[ResiliencyPolicy]
 	region            string
 	accountID         string
+	delayNanos        atomic.Int64
 }
 
 // NewInMemoryBackend creates a new in-memory AWS Resilience Hub backend.
@@ -209,4 +211,15 @@ func newResolutionID() string { return "resolution-" + randomHexID() }
 // containsStr reports whether ss contains s.
 func containsStr(ss []string, s string) bool {
 	return slices.Contains(ss, s)
+}
+
+// SetTransitionDelay overrides the per-hop async state-transition delay; d <= 0 restores the built-in default.
+func (b *InMemoryBackend) SetTransitionDelay(d time.Duration) { b.delayNanos.Store(int64(d)) }
+
+func (b *InMemoryBackend) transitionDelay() time.Duration {
+	if d := time.Duration(b.delayNanos.Load()); d > 0 {
+		return d
+	}
+
+	return asyncTransitionDelay
 }

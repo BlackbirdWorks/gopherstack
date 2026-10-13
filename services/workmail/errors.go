@@ -39,4 +39,6 @@ var (
 	ErrMailDomainState = awserr.New("MailDomainStateException", awserr.ErrConflict)
 	// ErrEntityState is returned when an operation violates entity state constraints.
 	ErrEntityState = awserr.New("EntityStateException", awserr.ErrConflict)
+	// ErrOrganizationState is returned when an organization is not yet ACTIVE.
+	ErrOrganizationState = awserr.New("OrganizationStateException", awserr.ErrConflict)
 )

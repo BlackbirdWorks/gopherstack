@@ -78,7 +78,10 @@ func (h *Handler) handleListSequenceStores(c *echo.Context) error {
 		return err
 	}
 
-	maxResults, nextToken := listQueryParams(c)
+	maxResults, nextToken, err := listQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
 
 	stores, next, err := h.Backend.ListSequenceStores(req.Filter, maxResults, nextToken)
 	if err != nil {

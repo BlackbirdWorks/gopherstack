@@ -2,12 +2,14 @@ package ecs
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -108,6 +110,12 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, []Failure, error)
 			return
 		}
 
+		if err = b.validatePinnedTaskIDLocked(clusterName, input.PinnedTaskID, count); err != nil {
+			ferr = err
+
+			return
+		}
+
 		clusterArn := arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", clusterName))
 
 		launchType := input.LaunchType
@@ -168,7 +176,7 @@ func (b *InMemoryBackend) startTasksOutsideLock(work []taskWork) {
 
 		b.ensureAwslogsStreams(w.task, w.td)
 
-		if b.runner == nil {
+		if _, noop := b.runner.(noopRunner); b.runner == nil || noop {
 			if b.maybeRegisterStartLifecycle(w.task, clusterName) {
 				continue
 			}
@@ -194,6 +202,7 @@ func (b *InMemoryBackend) applyPendingTransition(task *Task) {
 
 	if task.LastStatus == statusProvisioning {
 		task.LastStatus = statusPending
+		b.emitTaskStateLocked(task)
 	}
 }
 
@@ -226,9 +235,11 @@ func (b *InMemoryBackend) applyNoRunnerTransition(task *Task, clusterName string
 
 	// Pass through PENDING (resource provisioning complete, container starting).
 	task.LastStatus = statusPending
+	b.emitTaskStateLocked(task)
 	// Immediately advance to RUNNING since there is no real container to wait for.
 	task.LastStatus = statusRunning
 	syncContainerStatuses(task, nil)
+	b.emitTaskStateLocked(task)
 
 	if c, _ := b.clusters.Get(clusterName); c != nil {
 		c.PendingTasksCount--
@@ -236,6 +247,22 @@ func (b *InMemoryBackend) applyNoRunnerTransition(task *Task, clusterName string
 	}
 
 	b.registerTaskWithELBv2Locked(task, clusterName)
+	b.registerTaskWithCloudMapLocked(task, clusterName)
+}
+
+// applyRuntimeContainerIDs sets each container's RuntimeID to the ID its runtime assigned, when the
+// runner exposes one. Caller holds b.mu.
+func (b *InMemoryBackend) applyRuntimeContainerIDs(task *Task) {
+	r, ok := b.runner.(interface{ ContainerIDs(taskArn string) []string })
+	if !ok {
+		return
+	}
+
+	for i, id := range r.ContainerIDs(task.TaskArn) {
+		if i < len(task.Containers) {
+			task.Containers[i].RuntimeID = id
+		}
+	}
 }
 
 // applyRunnerTransition transitions a PENDING task to RUNNING or STOPPED
@@ -253,7 +280,9 @@ func (b *InMemoryBackend) applyRunnerTransition(task *Task, clusterName string, 
 
 	if runErr == nil {
 		task.LastStatus = statusRunning
+		b.applyRuntimeContainerIDs(task)
 		syncContainerStatuses(task, nil)
+		b.emitTaskStateLocked(task)
 
 		if c, _ := b.clusters.Get(clusterName); c != nil {
 			c.PendingTasksCount--
@@ -261,6 +290,7 @@ func (b *InMemoryBackend) applyRunnerTransition(task *Task, clusterName string, 
 		}
 
 		b.registerTaskWithELBv2Locked(task, clusterName)
+		b.registerTaskWithCloudMapLocked(task, clusterName)
 
 		return
 	}
@@ -274,6 +304,7 @@ func (b *InMemoryBackend) applyRunnerTransition(task *Task, clusterName string, 
 	task.StoppedReason = fmt.Sprintf("container start failed: %v", runErr)
 	exitCode := 1
 	syncContainerStatuses(task, &exitCode)
+	b.emitTaskStateLocked(task)
 
 	if c, _ := b.clusters.Get(clusterName); c != nil {
 		c.PendingTasksCount--
@@ -300,7 +331,7 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 	td *TaskDefinition,
 	input RunTaskInput,
 ) ([]taskWork, []Failure) {
-	work := make([]taskWork, 0, count)
+	work := make([]taskWork, 0)
 
 	var failures []Failure
 
@@ -339,6 +370,7 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 		applyHostPortBindings(task, hostPortBindings)
 
 		b.tasks.Put(task)
+		b.emitTaskStateLocked(task)
 		work = append(work, taskWork{task: task, td: td})
 
 		// Increment the cached pending counter on the cluster.
@@ -360,7 +392,12 @@ func newTaskEntryLocked(
 	td *TaskDefinition,
 	input RunTaskInput,
 ) *Task {
-	taskArn := fmt.Sprintf("arn:aws:ecs:%s:%s:task/%s/%s", region, accountID, clusterName, uuid.NewString())
+	taskID := uuid.NewString()
+	if input.PinnedTaskID != "" {
+		taskID = input.PinnedTaskID
+	}
+
+	taskArn := fmt.Sprintf("arn:aws:ecs:%s:%s:task/%s/%s", region, accountID, clusterName, taskID)
 	now := time.Now()
 
 	// Resolve the effective task IAM role: per-run override takes precedence.
@@ -415,30 +452,53 @@ func (b *InMemoryBackend) placeEC2TaskLocked(
 	clusterName string, task *Task, td *TaskDefinition, input RunTaskInput,
 ) (map[string][]NetworkBinding, *Failure) {
 	constraints := mergeConstraints(td.PlacementConstraints, input.PlacementConstraints)
-	instanceArn := selectContainerInstance(
-		b.containerInstancesByCluster.Get(clusterName),
-		b.tasksByCluster.Get(clusterName),
-		constraints,
-		input.PlacementStrategy,
-		input.serviceNameForTags,
+	skip := map[string]bool{}
+	portsBlocked := false
+
+	var (
+		instanceArn string
+		bindings    map[string][]NetworkBinding
 	)
+
+	for {
+		instanceArn = selectContainerInstance(
+			b.containerInstancesByCluster.Get(clusterName),
+			b.tasksByCluster.Get(clusterName),
+			constraints,
+			input.PlacementStrategy,
+			input.serviceNameForTags,
+			skip,
+		)
+
+		if instanceArn == "" {
+			break
+		}
+
+		var ok bool
+
+		if bindings, ok = b.reserveTaskHostPortsLocked(clusterName, instanceArn, td); ok {
+			break
+		}
+
+		skip[instanceArn] = true
+		portsBlocked = true
+	}
+
+	if instanceArn == "" && portsBlocked {
+		return nil, &Failure{
+			Reason: failureReasonResourcePorts,
+			Detail: fmt.Sprintf(
+				"no container instance has the host ports required by task definition %s",
+				td.TaskDefinitionArn,
+			),
+		}
+	}
 
 	if instanceArn == "" {
 		return nil, &Failure{
 			Reason: failureReasonResource,
 			Detail: "no container instance available in the cluster that satisfies " +
 				"the requested placement constraints",
-		}
-	}
-
-	bindings, ok := b.reserveTaskHostPortsLocked(clusterName, instanceArn, td)
-	if !ok {
-		return nil, &Failure{
-			Reason: failureReasonResourcePorts,
-			Detail: fmt.Sprintf(
-				"no available host ports on container instance %s for task definition %s",
-				instanceArn, td.TaskDefinitionArn,
-			),
 		}
 	}
 
@@ -455,6 +515,8 @@ func (b *InMemoryBackend) DescribeTasks(
 	taskArns []string,
 ) ([]Task, []Failure, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
+
+	b.stepTaskLifecycle(time.Now())
 
 	b.mu.RLock("DescribeTasks")
 	defer b.mu.RUnlock()
@@ -557,6 +619,7 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 		// task is actually in an active state.
 		if b.stopDelay > 0 && isStoppableStatus(prevStatus) {
 			task.LastStatus = statusDeactivating
+			b.emitTaskStateLocked(task)
 			b.lifecycle[taskArn] = &taskLifecycle{
 				clusterName: clusterName,
 				kind:        lifecycleKindStop,
@@ -578,7 +641,13 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 		task.LastStatus = statusStopped
 		task.StoppedAt = &now
 		syncContainerStatuses(task, nil)
+
+		if prevStatus != statusStopped {
+			b.emitTaskStateLocked(task)
+		}
+
 		b.deregisterTaskFromELBv2Locked(task, clusterName)
+		b.deregisterTaskFromCloudMapLocked(task, clusterName)
 		b.releaseTaskHostPortsLocked(clusterName, task)
 		delete(b.lifecycle, taskArn)
 
@@ -668,6 +737,7 @@ func (b *InMemoryBackend) markTaskStoppedByContainerExit(taskArn, containerName 
 
 		syncContainerStatuses(task, nil)
 		setContainerExitCode(task, containerName, exitCode)
+		b.emitTaskStateLocked(task)
 
 		if c, _ := b.clusters.Get(clusterName); c != nil {
 			switch prevStatus {
@@ -679,6 +749,7 @@ func (b *InMemoryBackend) markTaskStoppedByContainerExit(taskArn, containerName 
 		}
 
 		b.deregisterTaskFromELBv2Locked(task, clusterName)
+		b.deregisterTaskFromCloudMapLocked(task, clusterName)
 		b.releaseTaskHostPortsLocked(clusterName, task)
 		delete(b.lifecycle, taskArn)
 
@@ -710,6 +781,7 @@ type ListTasksInput struct {
 	ContainerInstance string
 	Family            string
 	ServiceName       string
+	DaemonName        string
 	DesiredStatus     string
 	LaunchType        string
 	StartedBy         string
@@ -726,6 +798,8 @@ func (b *InMemoryBackend) ListTasks(cluster string) ([]string, error) {
 func (b *InMemoryBackend) ListTasksFiltered(input ListTasksInput) ([]string, error) {
 	clusterName := clusterKey(b.resolveCluster(input.Cluster))
 
+	b.stepTaskLifecycle(time.Now())
+
 	b.mu.RLock("ListTasksFiltered")
 	defer b.mu.RUnlock()
 
@@ -740,29 +814,36 @@ func (b *InMemoryBackend) ListTasksFiltered(input ListTasksInput) ([]string, err
 
 	clusterTasks := b.tasksByCluster.Get(clusterName)
 	arns := make([]string, 0, len(clusterTasks))
+
 	for _, task := range clusterTasks {
-		if input.ContainerInstance != "" && task.ContainerInstanceArn != input.ContainerInstance {
-			continue
+		if listTasksMatch(task, input, wantDesiredStatus) {
+			arns = append(arns, task.TaskArn)
 		}
-		if !strings.EqualFold(task.DesiredStatus, wantDesiredStatus) {
-			continue
-		}
-		if input.LaunchType != "" && !strings.EqualFold(task.LaunchType, input.LaunchType) {
-			continue
-		}
-		if input.StartedBy != "" && task.StartedBy != input.StartedBy {
-			continue
-		}
-		if input.Family != "" && !strings.Contains(task.TaskDefinitionArn, "/"+input.Family+":") {
-			continue
-		}
-		if input.ServiceName != "" && task.Group != "service:"+input.ServiceName {
-			continue
-		}
-		arns = append(arns, task.TaskArn)
 	}
 
 	return arns, nil
+}
+
+// listTasksMatch applies every ListTasks filter in input to task.
+func listTasksMatch(task *Task, input ListTasksInput, wantDesiredStatus string) bool {
+	switch {
+	case input.ContainerInstance != "" && task.ContainerInstanceArn != input.ContainerInstance:
+		return false
+	case !strings.EqualFold(task.DesiredStatus, wantDesiredStatus):
+		return false
+	case input.LaunchType != "" && !strings.EqualFold(task.LaunchType, input.LaunchType):
+		return false
+	case input.StartedBy != "" && task.StartedBy != input.StartedBy:
+		return false
+	case input.Family != "" && !strings.Contains(task.TaskDefinitionArn, "/"+input.Family+":"):
+		return false
+	case input.ServiceName != "" && task.Group != "service:"+input.ServiceName:
+		return false
+	case input.DaemonName != "" && task.Group != "daemon:"+input.DaemonName:
+		return false
+	default:
+		return true
+	}
 }
 
 // StartTask places tasks on specific container instances (as opposed to RunTask which auto-places).
@@ -822,6 +903,7 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, []Failure, er
 			t := b.newStartedTaskLocked(clusterName, clusterArn, ciArn, td, input)
 
 			b.tasks.Put(t)
+			b.emitTaskStateLocked(t)
 			tasks = append(tasks, *t)
 		}
 	}()
@@ -1096,4 +1178,28 @@ func firstRequestedSubnet(nc *NetworkConfiguration) string {
 	}
 
 	return nc.AwsvpcConfiguration.Subnets[0]
+}
+
+var taskIDPattern = regexp.MustCompile(`^[0-9a-f]{8}(?:-?[0-9a-f]{4}){3}-?[0-9a-f]{12}$`)
+
+// validatePinnedTaskIDLocked checks a pinned task ID is well formed, unused, and for a single task.
+func (b *InMemoryBackend) validatePinnedTaskIDLocked(clusterName, pinned string, count int) error {
+	if pinned == "" {
+		return nil
+	}
+
+	if count != 1 {
+		return fmt.Errorf("%w: %s can only pin the ID of a single task", ErrInvalidParameter, tags.PinnedIDKey)
+	}
+
+	if err := tags.ValidatePinnedID(pinned, taskIDPattern, "a 32 hex digit task ID"); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidParameter, err)
+	}
+
+	arnStr := fmt.Sprintf("arn:aws:ecs:%s:%s:task/%s/%s", b.region, b.accountID, clusterName, pinned)
+	if b.tasks.Has(arnStr) {
+		return fmt.Errorf("%w: task %q already exists", ErrTaskIDInUse, pinned)
+	}
+
+	return nil
 }

@@ -72,7 +72,7 @@ func datasetGroupToMap(dg *DatasetGroup) map[string]any {
 		keyDomain:              dg.Domain,
 		"kmsKeyArn":            dg.KmsKeyArn,
 		keyRoleArn:             dg.RoleArn,
-		keyStatus:              dg.Status,
+		keyStatus:              dg.lc.resourceStatus(dg.Status, dg.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(dg.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(dg.LastUpdatedDateTime),
 	}
@@ -94,7 +94,7 @@ func datasetGroupSummaryToMap(dg *DatasetGroup) map[string]any {
 		keyDatasetGroupArn:     dg.DatasetGroupArn,
 		keyName:                dg.Name,
 		keyDomain:              dg.Domain,
-		keyStatus:              dg.Status,
+		keyStatus:              dg.lc.resourceStatus(dg.Status, dg.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(dg.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(dg.LastUpdatedDateTime),
 	}

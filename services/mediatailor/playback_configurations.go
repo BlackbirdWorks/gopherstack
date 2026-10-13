@@ -76,6 +76,14 @@ func (b *InMemoryBackend) PutPlaybackConfiguration(
 		return nil, fmt.Errorf("%w: Name required", ErrInvalidParameter)
 	}
 
+	if err := validateResourceName("Name", name); err != nil {
+		return nil, err
+	}
+
+	if err := validatePlaybackConfigurationURLs(adDecisionServerURL, videoContentSourceURL, extra); err != nil {
+		return nil, err
+	}
+
 	cfgARN := b.playbackConfigARN(name)
 
 	b.mu.Lock("PutPlaybackConfiguration")

@@ -46,7 +46,7 @@ func (b *InMemoryBackend) FindTagsByArn(
 		}
 	}
 
-	return nil, ErrNotFound
+	return nil, notFoundErr("Resource", arnVal)
 }
 
 // UpdateTagsByArn searches all resources in the request region and applies tags additions/removals.
@@ -92,7 +92,7 @@ func (b *InMemoryBackend) UpdateTagsByArn(
 		return nil
 	}
 
-	return ErrNotFound
+	return notFoundErr("Resource", arnVal)
 }
 
 func (b *InMemoryBackend) updateDatasetTags(

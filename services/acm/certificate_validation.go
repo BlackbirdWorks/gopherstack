@@ -128,6 +128,10 @@ func validateDomainName(name string, invalidErr error) error {
 			return fmt.Errorf("%w: domain label %q in %q exceeds %d characters",
 				invalidErr, label, name, maxDomainLabelLength)
 		}
+
+		if !validDomainLabel(label) {
+			return fmt.Errorf("%w: domain name %q is not a valid DNS name", invalidErr, name)
+		}
 	}
 
 	return nil
@@ -191,7 +195,7 @@ func buildDomainValidationOptions(
 			}
 
 			opt.ResourceRecord = &ResourceRecord{
-				Name:  "_" + nameToken + "." + d + ".",
+				Name:  "_" + nameToken + "." + strings.TrimPrefix(d, "*.") + ".",
 				Type:  "CNAME",
 				Value: "_" + valueToken + ".acm-validations.aws.",
 			}
@@ -317,4 +321,20 @@ func randHex() (string, error) {
 	}
 
 	return hex.EncodeToString(b)[:n], nil
+}
+
+// validDomainLabel reports whether label is letters, digits and hyphens with
+// no leading or trailing hyphen.
+func validDomainLabel(label string) bool {
+	if label[0] == '-' || label[len(label)-1] == '-' {
+		return false
+	}
+
+	for _, r := range label {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' {
+			return false
+		}
+	}
+
+	return true
 }

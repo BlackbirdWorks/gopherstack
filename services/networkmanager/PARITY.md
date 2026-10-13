@@ -100,7 +100,7 @@ sdk_module: aws-sdk-go-v2/service/networkmanager@v1.44.4   # go.mod's pinned ver
 # (the 2026-08-01 pre-implementation audit resolved v1.44.3 against @latest in a throwaway scratch
 # module; go.mod has since moved to v1.44.4, re-confirmed this pass by direct grep).
 last_audit_commit: b36537ddc
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-10
 overall: A   # Raised from gap by this pass: the integration suite (the parity proof
 # .claude/memories/parity-principles.md rule 3 requires) passes, every buildable gap the 2026-08-05
 # pass flagged is now real (cross-service ARN validation against services/ec2/services/directconnect,
@@ -272,10 +272,10 @@ families:
   tagging: {status: ok, note: "3 ops, standard ARN-keyed tag store shared across all 9 taggable resource kinds. STALE NOTE CORRECTED 2026-08-13 (gopherstack-jqh2 pass 2): this family's routing previously needed a MatchPriority workaround for a bedrockagent bug (see gaps: history below); that workaround was reverted in ef896bcf1 once bedrockagent's real bug was fixed -- handler.go now returns the plain service.PriorityPathVersioned, no custom priority constant. Re-verified via TestExtractOperation_SDKRouteTable."}
 gaps: []
 items_still_open:
-  - "AttachmentState PENDING_NETWORK_UPDATE/PENDING_TAG_ACCEPTANCE/UPDATING/FAILED are never entered: needs unmodeled segment-reassignment and tag-acceptance workflows (2026-10-01)"
-  - "StartRouteAnalysis is single-hop (no TGW-peering chaining, so CYCLIC_PATH_DETECTED/MAX_HOPS_EXCEEDED never fire) and the change-set diff covers 5 of 14 ChangeType values: both need real network-topology/attachment-membership resolution (2026-10-01)"
-  - "No AWS::NetworkManager::* resource type in services/cloudformation (2026-10-01): cross-service work, outside this service"
-  - "GetNetworkResources/Relationships/Telemetry accept the RegisteredGatewayArn filter, but no modelled resource is registered under a gateway, so a non-empty value matches nothing and NetworkResource.RegisteredGatewayArn is never populated"
+  - "AttachmentState PENDING_NETWORK_UPDATE/PENDING_TAG_ACCEPTANCE/FAILED are never entered. The SDK does not say when AWS enters them and they need attachment-policy evaluation (tag conditions, segment assignment), which is not modelled. UPDATING is entered on Update*Attachment."
+  - "MAX_HOPS_EXCEEDED is not produced by StartRouteAnalysis: the SDK does not document the hop limit. Peering crossing is wired (cli_subnet_wiring.go via networkManagerEC2ResolverAdapter) and ends in CYCLIC_PATH_DETECTED on a revisit."
+  - "Change sets cover 5 of 14 ChangeType values; ATTACHMENT_MAPPING/ATTACHMENT_ROUTE_*/ROUTING_POLICY_* need attachment-to-segment membership from attachment-policy evaluation, which is not modelled."
+  - "NetworkResource.RegisteredGatewayArn is never populated and the RegisteredGatewayArn filter matches nothing: the SDK does not say which resource types are registered under a gateway."
 deferred: []
 leaks: {status: clean, note: "Handler.Reset()/InMemoryBackend.Close() wiring confirmed present (store.go: Close() calls b.work.Stop(), stopping the pkgs/worker.Group backing every scheduleAdvance/scheduleRemoval timer -- global network/site/device/link/connection/core-network/attachment/connect-peer/peering/policy-changeset state machines). `go test -race -count=1 ./services/networkmanager/...` run this pass: clean."}
 structural_gaps:
@@ -1407,3 +1407,9 @@ Orphan `InvalidPolicyDocument` (corenetworks.go) is the free-form `CoreNetworkPo
 ## 2026-10-05 (gopherstack-uox6 pass 8, value semantics)
 
 UpdateGlobalNetwork, UpdateSite, UpdateDevice and UpdateLink now keep an omitted string member and clear it when sent as an empty string, per "To remove information for any of the parameters, specify an empty string" (api_op_UpdateSite.go:12, same text on the other three). Previously an empty string was ignored and UpdateGlobalNetwork wiped an omitted Description. UpdateConnection got the same pointer handling. Recorded, unchanged: UpdateCoreNetwork (its SDK doc is silent). Proof: `TestUpdate_OmittedKeepsEmptyStringClears`.
+
+## 2026-10-10 (realism pass)
+
+- New `SetLifecycleDelay` (default 100ms, unchanged) for the PENDING/CREATING/DELETING dwell; needs `cli.go` wiring to expose a flag.
+- All ops now reject, with ValidationException: maxResults outside 1-500, a nextToken that is not a token this service issued (or >2048 chars), ID-list query params with >10 values, Description/Address/Latitude/Longitude >256 and Model/Vendor/SerialNumber/Provider >128 characters (API reference and SDK "Constraints" docs).
+- Lenient by design: Latitude/Longitude are free strings (<=256); the docs state no numeric range, so none is enforced.

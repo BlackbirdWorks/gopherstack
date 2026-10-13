@@ -171,11 +171,11 @@ func TestBackendReset(t *testing.T) {
 	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
 	_, err := b.CreateQueue("q1", "", "", "", nil)
 	require.NoError(t, err)
-	require.Equal(t, 1, mediaconvert.QueueCount(b))
+	require.Equal(t, 2, mediaconvert.QueueCount(b))
 
 	b.Reset()
 
-	require.Equal(t, 0, mediaconvert.QueueCount(b))
+	require.Equal(t, 1, mediaconvert.QueueCount(b))
 	require.Equal(t, 0, mediaconvert.JobCount(b))
 	require.Equal(t, 0, mediaconvert.JobTemplateCount(b))
 	require.Equal(t, 0, mediaconvert.PresetCount(b))
@@ -221,7 +221,7 @@ func TestSeedHelpers(t *testing.T) {
 				b.AddQueueInternal(&mediaconvert.Queue{Name: "seed-q", Status: "ACTIVE", Arn: "arn:test:q"})
 			},
 			check: func(b *mediaconvert.InMemoryBackend) {
-				assert.Equal(t, 1, mediaconvert.QueueCount(b))
+				assert.Equal(t, 2, mediaconvert.QueueCount(b))
 			},
 		},
 		{

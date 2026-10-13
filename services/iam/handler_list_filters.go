@@ -17,6 +17,13 @@ import (
 // if filtering ran after that window was already cut.
 const fetchAllMaxItems = math.MaxInt32
 
+// ListPolicies Scope values (types.PolicyScopeType).
+const (
+	policyScopeAll   = "All"
+	policyScopeAWS   = "AWS"
+	policyScopeLocal = "Local"
+)
+
 // iamRefinement2ListTable provides PathPrefix-filtered overrides for ListUsers, ListRoles, ListGroups.
 func (h *Handler) iamRefinement2ListTable() map[string]iamActionFn {
 	return map[string]iamActionFn{
@@ -163,24 +170,13 @@ func (h *Handler) listPoliciesFiltered(vals url.Values, reqID string) (any, erro
 
 	scope := vals.Get("Scope")
 	if scope == "" {
-		scope = "Local"
-	}
-
-	if scope == "AWS" {
-		// gopherstack never seeds or creates AWS-managed policies (every stored
-		// Policy comes from CreatePolicy), so Scope=AWS genuinely has zero
-		// matches rather than being an unhandled filter.
-		return &ListPoliciesResponse{
-			Xmlns:              iamXMLNS,
-			ListPoliciesResult: ListPoliciesResult{Policies: []PolicyXML{}},
-			ResponseMetadata:   ResponseMetadata{RequestID: reqID},
-		}, nil
+		scope = policyScopeAll
 	}
 
 	onlyAttached := vals.Get("OnlyAttached") == formValueTrue
 	usageFilter := vals.Get("PolicyUsageFilter")
 
-	pg, err := h.listPoliciesFilteredPage(vals, prefix, onlyAttached, usageFilter)
+	pg, err := h.listPoliciesFilteredPage(vals, prefix, scope, onlyAttached, usageFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -206,23 +202,33 @@ func (h *Handler) listPoliciesFiltered(vals url.Values, reqID string) (any, erro
 // it passes the backend's own Marker/MaxItems window through unchanged.
 func (h *Handler) listPoliciesFilteredPage(
 	vals url.Values,
-	prefix string,
+	prefix, scope string,
 	onlyAttached bool,
 	usageFilter string,
 ) (page.Page[Policy], error) {
-	if prefix == "/" && !onlyAttached && usageFilter == "" {
+	if prefix == "/" && scope == policyScopeLocal && !onlyAttached && usageFilter == "" {
 		return h.Backend.ListPolicies(vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
 	}
 
-	full, err := h.Backend.ListPolicies("", fetchAllMaxItems)
-	if err != nil {
-		return page.Page[Policy]{}, err
+	var candidates []Policy
+
+	if scope != policyScopeAWS {
+		full, err := h.Backend.ListPolicies("", fetchAllMaxItems)
+		if err != nil {
+			return page.Page[Policy]{}, err
+		}
+
+		candidates = full.Data
+	}
+
+	if scope != policyScopeLocal {
+		candidates = append(candidates, h.Backend.ListAWSManagedPolicies()...)
 	}
 
 	boundaryARNs := h.Backend.PermissionsBoundaryARNs()
-	filtered := make([]Policy, 0, len(full.Data))
+	filtered := make([]Policy, 0, len(candidates))
 
-	for _, pol := range full.Data {
+	for _, pol := range candidates {
 		if policyMatchesListFilters(pol, prefix, onlyAttached, usageFilter, boundaryARNs) {
 			filtered = append(filtered, pol)
 		}

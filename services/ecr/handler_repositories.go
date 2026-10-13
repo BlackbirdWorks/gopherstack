@@ -94,6 +94,10 @@ func (h *Handler) handleCreateRepository(
 		)
 	}
 
+	if err := validateRepositoryName(in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	scanOnPush := false
 	if in.ImageScanningConfiguration != nil {
 		scanOnPush = in.ImageScanningConfiguration.ScanOnPush
@@ -226,6 +230,10 @@ func (h *Handler) handleDeleteRepository(
 	ctx context.Context,
 	in *deleteRepositoryInput,
 ) (*deleteRepositoryOutput, error) {
+	if err := h.checkRegistryForRepo(in.RegistryID, in.RepositoryName); err != nil {
+		return nil, err
+	}
+
 	repo, err := h.Backend.DeleteRepository(ctx, in.RepositoryName, in.Force)
 	if err != nil {
 		return nil, err

@@ -3,6 +3,7 @@ package mediastore
 import (
 	"context"
 	"encoding/json"
+	"time"
 )
 
 // PutLifecyclePolicy stores a lifecycle policy for a container.
@@ -13,12 +14,18 @@ func (b *InMemoryBackend) PutLifecyclePolicy(ctx context.Context, name, policy s
 
 	region := regionFromContext(ctx)
 
+	b.advanceContainerStates(time.Now())
+
 	b.mu.Lock("PutLifecyclePolicy")
 	defer b.mu.Unlock()
 
 	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
+	}
+
+	if err := requireActive(c); err != nil {
+		return err
 	}
 
 	c.LifecyclePolicy = policy
@@ -30,12 +37,18 @@ func (b *InMemoryBackend) PutLifecyclePolicy(ctx context.Context, name, policy s
 func (b *InMemoryBackend) GetLifecyclePolicy(ctx context.Context, name string) (string, error) {
 	region := regionFromContext(ctx)
 
+	b.advanceContainerStates(time.Now())
+
 	b.mu.RLock("GetLifecyclePolicy")
 	defer b.mu.RUnlock()
 
 	c, exists := b.getContainer(region, name)
 	if !exists {
 		return "", ErrContainerNotFound
+	}
+
+	if err := requireActive(c); err != nil {
+		return "", err
 	}
 
 	if c.LifecyclePolicy == "" {
@@ -49,12 +62,18 @@ func (b *InMemoryBackend) GetLifecyclePolicy(ctx context.Context, name string) (
 func (b *InMemoryBackend) DeleteLifecyclePolicy(ctx context.Context, name string) error {
 	region := regionFromContext(ctx)
 
+	b.advanceContainerStates(time.Now())
+
 	b.mu.Lock("DeleteLifecyclePolicy")
 	defer b.mu.Unlock()
 
 	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
+	}
+
+	if err := requireActive(c); err != nil {
+		return err
 	}
 
 	if c.LifecyclePolicy == "" {

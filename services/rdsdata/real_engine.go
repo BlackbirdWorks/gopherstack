@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -56,6 +57,8 @@ type realEngine struct {
 	baseCancel context.CancelFunc
 	mu         *lockmetrics.RWMutex
 	txs        map[string]*realTx
+	wg         sync.WaitGroup
+	timeout    time.Duration
 	maxTx      int
 	closed     bool
 }
@@ -66,8 +69,9 @@ func newRealEngine(r ClusterResolver, s SecretReader) *realEngine {
 	return &realEngine{
 		resolver: r, secrets: s, open: openRealDB,
 		baseCtx: ctx, baseCancel: cancel,
-		mu:  lockmetrics.New("rdsdata-real"),
-		txs: make(map[string]*realTx), maxTx: realMaxTransactions,
+		timeout: realStatementTimeout,
+		mu:      lockmetrics.New("rdsdata-real"),
+		txs:     make(map[string]*realTx), maxTx: realMaxTransactions,
 	}
 }
 
@@ -256,13 +260,15 @@ func (e *realEngine) close() {
 
 	e.rollbackAll()
 	e.baseCancel()
+	e.wg.Wait()
 }
 
 // withRunner runs fn against the held transaction for txKey, or an autocommit connection when txKey is empty.
+// With continueAfterTimeout an autocommit statement keeps running after the call times out.
 func (e *realEngine) withRunner(
 	ctx context.Context, lg realLogin, txKey string, fn func(context.Context, string, querier) error,
 ) error {
-	ctx, cancel := context.WithTimeout(ctx, realStatementTimeout)
+	tctx, cancel := context.WithTimeout(ctx, e.timeout)
 	defer cancel()
 
 	if txKey != "" {
@@ -271,7 +277,7 @@ func (e *realEngine) withRunner(
 			return errNoEngineTx
 		}
 
-		return fn(ctx, t.kind, t.tx)
+		return fn(tctx, t.kind, t.tx)
 	}
 
 	db, err := e.open(lg)
@@ -279,9 +285,38 @@ func (e *realEngine) withRunner(
 		return mapDriverError(err)
 	}
 
-	defer func() { _ = db.Close() }()
+	if !continueAfterTimeout(ctx) {
+		defer func() { _ = db.Close() }()
 
-	return fn(ctx, lg.Kind, db)
+		return fn(tctx, lg.Kind, db)
+	}
+
+	return e.runDetached(tctx, ctx, lg.Kind, db, fn)
+}
+
+func (e *realEngine) runDetached(
+	tctx, ctx context.Context, kind string, db *sql.DB, fn func(context.Context, string, querier) error,
+) error {
+	dctx, dcancel := context.WithCancel(context.WithoutCancel(ctx))
+	stop := context.AfterFunc(e.baseCtx, dcancel)
+	done := make(chan error, 1)
+
+	e.wg.Go(func() {
+		defer func() {
+			stop()
+			dcancel()
+			_ = db.Close()
+		}()
+
+		done <- fn(dctx, kind, db)
+	})
+
+	select {
+	case err := <-done:
+		return err
+	case <-tctx.Done():
+		return mapDriverError(tctx.Err())
+	}
 }
 
 func (e *realEngine) execute(
@@ -296,8 +331,11 @@ func (e *realEngine) execute(
 
 		return runErr
 	})
+	if err != nil {
+		return realResult{}, err
+	}
 
-	return res, err
+	return res, nil
 }
 
 // executeBatch runs one statement per parameter set; outside a transaction the batch is atomic.

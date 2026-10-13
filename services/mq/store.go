@@ -14,6 +14,7 @@ type InMemoryBackend struct {
 	mu             *lockmetrics.RWMutex
 	registry       *store.Registry
 	engine         *brokerEngine
+	shares         ResourceShareResolver
 	accountID      string
 	region         string
 }
@@ -30,6 +31,21 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	registerAllTables(b)
 
 	return b
+}
+
+// ResourceShareResolver looks up RAM resource shares by ARN.
+type ResourceShareResolver interface {
+	// ResourceShareResources returns the resource ARNs associated with the share; found is false
+	// when the share does not exist.
+	ResourceShareResources(shareARN string) (resourceARNs []string, found bool)
+}
+
+// SetResourceShareResolver wires DescribeSharedResources to RAM.
+func (b *InMemoryBackend) SetResourceShareResolver(r ResourceShareResolver) {
+	b.mu.Lock("SetResourceShareResolver")
+	defer b.mu.Unlock()
+
+	b.shares = r
 }
 
 // Region returns the region configured for this backend.

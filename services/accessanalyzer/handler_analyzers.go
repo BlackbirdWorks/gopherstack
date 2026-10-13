@@ -82,6 +82,10 @@ func (h *Handler) handleCreateAnalyzer(body []byte) (any, int, error) {
 		analyzerType = AnalyzerTypeAccount
 	}
 
+	if err := validateCreateAnalyzer(req.AnalyzerName, analyzerType, req.Configuration); err != nil {
+		return nil, 0, err
+	}
+
 	a, err := h.Backend.CreateAnalyzer(req.AnalyzerName, analyzerType, req.Tags, req.Configuration)
 	if err != nil {
 		return nil, 0, err
@@ -216,6 +220,10 @@ func (h *Handler) handleCreateServiceLinkedAnalyzer(body []byte) (any, int, erro
 	analyzerType := AnalyzerType(req.Type)
 	if analyzerType == "" {
 		analyzerType = AnalyzerTypeAccountUnusedAccess
+	}
+
+	if err := validateAnalyzerTypeAndConfig(analyzerType, req.Configuration); err != nil {
+		return nil, 0, err
 	}
 
 	a, err := h.Backend.CreateServiceLinkedAnalyzer(analyzerType, req.Configuration)

@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
-const stateTypeTask = "Task"
+const (
+	stateTypeTask     = "Task"
+	stateTypeMap      = "Map"
+	stateTypeParallel = "Parallel"
+	arnPrefix         = "arn"
+)
 
 // historyRecorder adapts InMemoryBackend to the asl.HistoryRecorder interface.
 type historyRecorder struct {
@@ -38,9 +42,9 @@ func stateEnteredEventType(stateType string) string {
 		return "SucceedStateEntered"
 	case "Fail":
 		return "FailStateEntered"
-	case "Parallel":
+	case stateTypeParallel:
 		return "ParallelStateEntered"
-	case "Map":
+	case stateTypeMap:
 		return "MapStateEntered"
 	default:
 		return stateType + "StateEntered"
@@ -104,7 +108,7 @@ func (b *InMemoryBackend) appendHistory(execARN string, event *HistoryEvent) {
 
 func (r *historyRecorder) RecordStateEntered(execARN, stateName, stateType string, input any) {
 	r.backend.appendHistory(execARN, &HistoryEvent{
-		Timestamp: float64(time.Now().Unix()),
+		Timestamp: epochNow(),
 		Type:      stateEnteredEventType(stateType),
 		StateEnteredEventDetails: &StateEnteredEventDetails{
 			Name:  stateName,
@@ -113,9 +117,38 @@ func (r *historyRecorder) RecordStateEntered(execARN, stateName, stateType strin
 	})
 }
 
+func (r *historyRecorder) RecordCompositeStarted(execARN, stateType string, length int) {
+	ev := &HistoryEvent{Timestamp: epochNow(), Type: stateType + "StateStarted"}
+	if stateType == stateTypeMap {
+		ev.MapStateStartedEventDetails = &MapStateStartedEventDetails{Length: length}
+	}
+
+	r.backend.appendHistory(execARN, ev)
+}
+
+func (r *historyRecorder) RecordCompositeEnded(execARN, stateType, outcome string) {
+	r.backend.appendHistory(execARN, &HistoryEvent{Timestamp: epochNow(), Type: stateType + "State" + outcome})
+}
+
+func (r *historyRecorder) RecordMapIteration(execARN, stateName string, index int, outcome string) {
+	ev := &HistoryEvent{Timestamp: epochNow(), Type: "MapIteration" + outcome}
+	details := &MapIterationEventDetails{Name: stateName, Index: index}
+
+	switch outcome {
+	case "Started":
+		ev.MapIterationStartedEventDetails = details
+	case "Succeeded":
+		ev.MapIterationSucceededEventDetails = details
+	default:
+		ev.MapIterationFailedEventDetails = details
+	}
+
+	r.backend.appendHistory(execARN, ev)
+}
+
 func (r *historyRecorder) RecordStateExited(execARN, stateName, stateType string, output any) {
 	r.backend.appendHistory(execARN, &HistoryEvent{
-		Timestamp: float64(time.Now().Unix()),
+		Timestamp: epochNow(),
 		Type:      stateExitedEventType(stateType),
 		StateExitedEventDetails: &StateExitedEventDetails{
 			Name:   stateName,
@@ -128,7 +161,7 @@ func (r *historyRecorder) RecordTaskScheduled(
 	execARN, _ /* stateName */, resource string, parameters any, timeoutSeconds, heartbeatSeconds int,
 ) {
 	r.backend.appendHistory(execARN, &HistoryEvent{
-		Timestamp: float64(time.Now().Unix()),
+		Timestamp: epochNow(),
 		Type:      "TaskScheduled",
 		TaskScheduledEventDetails: &TaskScheduledEventDetails{
 			Resource:           historyResourceValue(resource),
@@ -141,9 +174,33 @@ func (r *historyRecorder) RecordTaskScheduled(
 	})
 }
 
+func (r *historyRecorder) RecordTaskStarted(execARN, _ /* stateName */, resource string) {
+	r.backend.appendHistory(execARN, &HistoryEvent{
+		Timestamp: epochNow(),
+		Type:      "TaskStarted",
+		TaskStartedEventDetails: &TaskStartedEventDetails{
+			Resource:     historyResourceValue(resource),
+			ResourceType: resourceTypeFromResource(resource),
+		},
+	})
+}
+
+func (r *historyRecorder) RecordTaskSubmitted(execARN, _ /* stateName */, resource string, output any) {
+	r.backend.appendHistory(execARN, &HistoryEvent{
+		Timestamp: epochNow(),
+		Type:      "TaskSubmitted",
+		TaskSubmittedEventDetails: &TaskSubmittedEventDetails{
+			Resource:      historyResourceValue(resource),
+			ResourceType:  resourceTypeFromResource(resource),
+			Output:        historyValueToJSON(output),
+			OutputDetails: &HistoryEventExecutionDataDetails{Truncated: false},
+		},
+	})
+}
+
 func (r *historyRecorder) RecordTaskSucceeded(execARN, _ /* stateName */, resource string, output any) {
 	r.backend.appendHistory(execARN, &HistoryEvent{
-		Timestamp: float64(time.Now().Unix()),
+		Timestamp: epochNow(),
 		Type:      "TaskSucceeded",
 		TaskSucceededEventDetails: &TaskSucceededEventDetails{
 			Resource:      historyResourceValue(resource),
@@ -158,7 +215,7 @@ func (r *historyRecorder) RecordTaskFailed(
 	execARN, _ /* stateName */, resource, errCode, cause string,
 ) {
 	r.backend.appendHistory(execARN, &HistoryEvent{
-		Timestamp: float64(time.Now().Unix()),
+		Timestamp: epochNow(),
 		Type:      "TaskFailed",
 		TaskFailedEventDetails: &TaskFailedEventDetails{
 			Resource:     historyResourceValue(resource),
@@ -199,7 +256,7 @@ func optionalHistorySeconds(seconds int) *int64 {
 // resourceTypeFromResource.
 func historyResourceValue(resource string) string {
 	parts := strings.Split(resource, ":")
-	if len(parts) < 6 || parts[0] != "arn" || parts[2] != awsServiceStates || parts[5] == resourceSegmentActivity {
+	if len(parts) < 6 || parts[0] != arnPrefix || parts[2] != awsServiceStates || parts[5] == resourceSegmentActivity {
 		return resource
 	}
 
@@ -303,7 +360,10 @@ func (b *InMemoryBackend) GetExecutionHistory(
 		sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
 	}
 
-	events, token := paginate(all, nextToken, maxResults)
+	events, token, pageErr := paginate(all, nextToken, maxResults)
+	if pageErr != nil {
+		return nil, "", pageErr
+	}
 
 	return events, token, nil
 }

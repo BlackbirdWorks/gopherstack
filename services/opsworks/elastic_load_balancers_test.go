@@ -106,14 +106,14 @@ func TestElasticLoadBalancers(t *testing.T) {
 			},
 		},
 		{
-			name: "AttachElasticLoadBalancer to nonexistent layer returns 404",
+			name: "AttachElasticLoadBalancer to nonexistent layer returns ResourceNotFoundException",
 			check: func(t *testing.T, h *opsworks.Handler) {
 				t.Helper()
 				rec := doTarget(t, h, "AttachElasticLoadBalancer", map[string]any{
 					"ElasticLoadBalancerName": "elb",
 					"LayerId":                 "nonexistent",
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}

@@ -6,14 +6,16 @@ import (
 )
 
 type getResourcesInput struct {
-	RestAPIID string `json:"restApiId"`
-	Position  string `json:"position"`
-	Limit     int    `json:"limit"`
+	RestAPIID string   `json:"restApiId"`
+	Position  string   `json:"position"`
+	Embed     []string `json:"embed"`
+	Limit     int      `json:"limit"`
 }
 
 type getResourceInput struct {
-	RestAPIID  string `json:"restApiId"`
-	ResourceID string `json:"resourceId"`
+	RestAPIID  string   `json:"restApiId"`
+	ResourceID string   `json:"resourceId"`
+	Embed      []string `json:"embed"`
 }
 
 type createResourceInput struct {
@@ -52,7 +54,7 @@ func (h *Handler) getResourcesAction(b []byte) (int, any, error) {
 	if err != nil {
 		return 0, nil, err
 	}
-	wireResources := toWireResources(resources)
+	wireResources := toWireResources(resources, embedsValue(input.Embed, embedMethods))
 	if position != "" {
 		return http.StatusOK, map[string]any{keyItem: wireResources, keyPosition: position}, nil
 	}
@@ -70,7 +72,7 @@ func (h *Handler) getResourceAction(b []byte) (int, any, error) {
 		return 0, nil, err
 	}
 
-	return http.StatusOK, toWireResource(r), nil
+	return http.StatusOK, toWireResource(r, embedsValue(input.Embed, embedMethods)), nil
 }
 
 func (h *Handler) createResourceAction(b []byte) (int, any, error) {
@@ -83,7 +85,7 @@ func (h *Handler) createResourceAction(b []byte) (int, any, error) {
 		return 0, nil, err
 	}
 
-	return http.StatusCreated, toWireResource(r), nil
+	return http.StatusCreated, toWireResource(r, false), nil
 }
 
 func (h *Handler) deleteResourceAction(b []byte) (int, any, error) {
@@ -108,5 +110,5 @@ func (h *Handler) updateResourceAction(b []byte) (int, any, error) {
 		return 0, nil, err
 	}
 
-	return http.StatusOK, toWireResource(res), nil
+	return http.StatusOK, toWireResource(res, false), nil
 }

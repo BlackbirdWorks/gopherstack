@@ -642,6 +642,7 @@ func TestRealClient_VaultPlanAndJobLifecycle(t *testing.T) {
 
 			janitor := backup.NewJanitor(b, time.Hour, time.Hour)
 			janitor.SweepOnce(ctx)
+			janitor.SweepOnce(ctx)
 
 			descJobDone, err := client.DescribeBackupJob(ctx, &backupsdk.DescribeBackupJobInput{
 				BackupJobId: startOut.BackupJobId,
@@ -703,6 +704,7 @@ func TestRealClient_VaultPlanAndJobLifecycle(t *testing.T) {
 			require.NoError(t, err)
 
 			janitor := backup.NewJanitor(b, time.Hour, time.Hour)
+			janitor.SweepOnce(ctx)
 			janitor.SweepOnce(ctx)
 
 			descJob, err := client.DescribeBackupJob(ctx, &backupsdk.DescribeBackupJobInput{
@@ -808,6 +810,7 @@ func TestRealClient_VaultPlanAndJobLifecycle(t *testing.T) {
 			require.NoError(t, err)
 
 			janitor := backup.NewJanitor(b, time.Hour, time.Hour)
+			janitor.SweepOnce(ctx)
 			janitor.SweepOnce(ctx)
 
 			descJob, err := client.DescribeBackupJob(ctx, &backupsdk.DescribeBackupJobInput{

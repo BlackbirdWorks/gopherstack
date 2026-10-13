@@ -2,6 +2,7 @@ package iotdataplane
 
 import (
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 	"time"
@@ -22,7 +23,9 @@ func (b *InMemoryBackend) RegisterConnection(clientID, sourceIP string) error {
 	b.mu.Lock("RegisterConnection")
 	defer b.mu.Unlock()
 
-	if b.connections.Has(clientID) {
+	b.pruneDisconnectedLocked(time.Now())
+
+	if b.liveConnectionLocked(clientID) != nil {
 		return fmt.Errorf("%w: %s", ErrConnectionExists, clientID)
 	}
 
@@ -53,7 +56,8 @@ func (b *InMemoryBackend) DeleteConnectionWithOptions(clientID string, cleanSess
 	b.mu.Lock("DeleteConnection")
 	defer b.mu.Unlock()
 
-	if !b.connections.Has(clientID) {
+	entry := b.liveConnectionLocked(clientID)
+	if entry == nil {
 		return fmt.Errorf("%w: %s", ErrConnectionNotFound, clientID)
 	}
 
@@ -63,7 +67,9 @@ func (b *InMemoryBackend) DeleteConnectionWithOptions(clientID string, cleanSess
 		}
 	}
 
-	b.connections.Delete(clientID)
+	entry.disconnectedAt = time.Now()
+	entry.disconnectReason = disconnectReasonServerInitiated
+	b.pruneDisconnectedLocked(entry.disconnectedAt)
 
 	return nil
 }
@@ -77,6 +83,10 @@ func (b *InMemoryBackend) ListConnections() []*Connection {
 	out := make([]*Connection, 0, len(all))
 
 	for _, entry := range all {
+		if !entry.disconnectedAt.IsZero() {
+			continue
+		}
+
 		out = append(out, &Connection{
 			ClientID:    entry.clientID,
 			SourceIP:    entry.sourceIP,
@@ -121,17 +131,29 @@ func (b *InMemoryBackend) GetConnection(clientID string) (*Connection, error) {
 
 	b.mu.RLock("GetConnection")
 	entry, ok := b.connections.Get(clientID)
+
+	var snap connectionEntry
+	if ok {
+		snap = *entry
+	}
+
 	broker := b.broker
 	b.mu.RUnlock()
 
-	if !ok {
+	if !ok || (!snap.disconnectedAt.IsZero() && time.Since(snap.disconnectedAt) > disconnectRetention) {
 		return nil, fmt.Errorf("%w: %s", ErrConnectionNotFound, clientID)
 	}
 
 	conn := &Connection{
-		ClientID:    entry.clientID,
-		SourceIP:    entry.sourceIP,
-		ConnectedAt: entry.connectedAt,
+		ClientID:         snap.clientID,
+		SourceIP:         snap.sourceIP,
+		ConnectedAt:      snap.connectedAt,
+		DisconnectedAt:   snap.disconnectedAt,
+		DisconnectReason: snap.disconnectReason,
+	}
+
+	if !snap.disconnectedAt.IsZero() {
+		return conn, nil
 	}
 
 	if broker != nil {
@@ -161,7 +183,7 @@ func (b *InMemoryBackend) ListSubscriptions(clientID string) ([]SubscriptionSumm
 	}
 
 	b.mu.RLock("ListSubscriptions")
-	tracked := b.connections.Has(clientID)
+	tracked := b.liveConnectionLocked(clientID) != nil
 	broker := b.broker
 	b.mu.RUnlock()
 
@@ -215,7 +237,7 @@ func (b *InMemoryBackend) SendDirectMessage(
 	}
 
 	b.mu.RLock("SendDirectMessage")
-	tracked := b.connections.Has(clientID)
+	tracked := b.liveConnectionLocked(clientID) != nil
 	broker := b.broker
 	b.mu.RUnlock()
 
@@ -242,4 +264,114 @@ func (b *InMemoryBackend) SendDirectMessage(
 	}
 
 	return broker.PublishWithProperties(topic, payload, false, qosByte, props)
+}
+
+// SendDirectMessageAwaitAck delivers to the client's live session at QoS 1 and waits for its PUBACK.
+// A tracked client with no live broker session cannot acknowledge, so it degrades like SendDirectMessage.
+func (b *InMemoryBackend) SendDirectMessageAwaitAck(
+	clientID, topic string,
+	payload []byte,
+	props MQTT5Properties,
+	timeout time.Duration,
+) error {
+	b.mu.RLock("SendDirectMessageAwaitAck")
+	broker := b.broker
+	b.mu.RUnlock()
+
+	acker, ok := broker.(AckingPublisher)
+	if !ok {
+		return b.SendDirectMessage(clientID, topic, payload, 1, props)
+	}
+
+	if strings.HasPrefix(clientID, "$") {
+		return fmt.Errorf("%w: clientId may not start with '$'", ErrValidation)
+	}
+
+	b.mu.RLock("SendDirectMessageAwaitAck")
+	tracked := b.liveConnectionLocked(clientID) != nil
+	b.mu.RUnlock()
+
+	if !tracked {
+		return fmt.Errorf("%w: %s", ErrConnectionNotFound, clientID)
+	}
+
+	delivered, err := acker.SendToClientAwaitAck(clientID, topic, payload, props, timeout)
+	if err != nil {
+		return err
+	}
+
+	if delivered {
+		return nil
+	}
+
+	return broker.PublishWithProperties(topic, payload, false, 1, props)
+}
+
+// ClientConnected records a broker-established session; an existing live entry is a takeover and is refreshed.
+func (b *InMemoryBackend) ClientConnected(clientID, remoteAddr string) {
+	if clientID == "" || strings.HasPrefix(clientID, "$") {
+		return
+	}
+
+	host := remoteAddr
+	if h, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		host = h
+	}
+
+	b.mu.Lock("ClientConnected")
+	defer b.mu.Unlock()
+
+	now := time.Now()
+	b.pruneDisconnectedLocked(now)
+
+	if entry := b.liveConnectionLocked(clientID); entry != nil {
+		entry.connectedAt = now
+		if host != "" {
+			entry.sourceIP = host
+		}
+
+		return
+	}
+
+	b.connections.Put(&connectionEntry{clientID: clientID, connectedAt: now, sourceIP: host})
+}
+
+// ClientDisconnected marks the tracked live connection disconnected with the broker's reason.
+func (b *InMemoryBackend) ClientDisconnected(clientID, reason string) {
+	b.mu.Lock("ClientDisconnected")
+	defer b.mu.Unlock()
+
+	entry := b.liveConnectionLocked(clientID)
+	if entry == nil {
+		return
+	}
+
+	entry.disconnectedAt = time.Now()
+	entry.disconnectReason = reason
+	b.pruneDisconnectedLocked(entry.disconnectedAt)
+}
+
+const (
+	// disconnectRetention is GetConnectionOutput.DisconnectedSince's documented 30-minute window.
+	disconnectRetention = 30 * time.Minute
+	// disconnectReasonServerInitiated is the life-cycle event reason for a DeleteConnection.
+	disconnectReasonServerInitiated = "SERVER_INITIATED_DISCONNECT"
+)
+
+// liveConnectionLocked returns the connected (not disconnected) entry for clientID, or nil.
+func (b *InMemoryBackend) liveConnectionLocked(clientID string) *connectionEntry {
+	if e, ok := b.connections.Get(clientID); ok && e.disconnectedAt.IsZero() {
+		return e
+	}
+
+	return nil
+}
+
+// pruneDisconnectedLocked drops disconnected entries older than the retention window.
+func (b *InMemoryBackend) pruneDisconnectedLocked(now time.Time) {
+	for _, e := range b.connections.All() {
+		if !e.disconnectedAt.IsZero() && now.Sub(e.disconnectedAt) > disconnectRetention {
+			b.connections.Delete(e.clientID)
+		}
+	}
 }

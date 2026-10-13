@@ -9,8 +9,12 @@ import (
 // validNameRe matches AWS SAR-valid application names: alphanumeric and hyphens only.
 var validNameRe = regexp.MustCompile(`^[a-zA-Z0-9\-]+$`)
 
-// validSemanticVersionRe matches a basic semver prefix (major.minor.patch).
-var validSemanticVersionRe = regexp.MustCompile(`^\d+\.\d+\.\d+`)
+// validSemanticVersionRe matches a full semver.org 2.0.0 version.
+var validSemanticVersionRe = regexp.MustCompile(
+	`^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)` +
+		`(?:-(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?` +
+		`(?:\+[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*)?$`,
+)
 
 // AWS SAR field length limits.
 const (

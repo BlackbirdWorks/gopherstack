@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -18,6 +19,7 @@ import (
 const (
 	statusActive          = "ACTIVE"
 	statusSucceeded       = "SUCCEEDED"
+	statusCreating        = "CREATING"
 	errCodeInvalidRequest = "InvalidRequestException"
 	maxRetentionDays      = 2147483647
 	// defaultRegion is used when the request context carries no region (e.g.
@@ -311,6 +313,7 @@ type InMemoryBackend struct {
 	thingRegistry   ThingRegistry
 	thingShadows    ThingShadowStore
 	mu              *lockmetrics.RWMutex
+	lifecycleDelay  time.Duration
 }
 
 // NewInMemoryBackend creates a new in-memory IoT Analytics backend with a background service context.

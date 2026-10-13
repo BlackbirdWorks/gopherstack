@@ -47,7 +47,14 @@ func TestHandler_TagResource_VerifyTags(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	resourceArn := "arn:aws:appconfig:us-east-1:123456789012:application/app-123"
+
+	created := doRequest(t, h, http.MethodPost, "/applications", []byte(`{"name":"verify-app"}`))
+	require.Equal(t, http.StatusCreated, created.Code)
+
+	var app appconfig.Application
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &app))
+
+	resourceArn := "arn:aws:appconfig:us-east-1:123456789012:application/" + app.ID
 
 	// Tag resource.
 	rec := doRequest(t, h, http.MethodPost, "/tags/"+resourceArn,

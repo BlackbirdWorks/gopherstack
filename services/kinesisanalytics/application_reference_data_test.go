@@ -68,7 +68,7 @@ func TestHandler_AddApplicationReferenceDataSource(t *testing.T) {
 					},
 				},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "version mismatch",
@@ -184,7 +184,7 @@ func TestHandler_DeleteApplicationReferenceDataSource(t *testing.T) {
 					"ReferenceId":                 refID,
 				}
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

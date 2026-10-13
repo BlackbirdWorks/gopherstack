@@ -40,6 +40,7 @@ var (
 	reCType    = regexp.MustCompile(`SetHeader\("Content-Type"\)\.String\("([^"]+)"\)`)
 	reAction   = regexp.MustCompile(`Key\("Action"\)\.String\("([^"]+)"\)`)
 	reVersion  = regexp.MustCompile(`Key\("Version"\)\.String\("([^"]+)"\)`)
+	reBearer   = regexp.MustCompile(`locationName := "(X-Amz-Sso_bearer_token)"`)
 	reSplitURI = regexp.MustCompile(`SplitURI\("([^"]*)"\)`)
 	reMethod   = regexp.MustCompile(`request\.Method = "(\w+)"`)
 	reURLPath  = regexp.MustCompile(`req\.URL\.Path = "([^"]+)"`)
@@ -173,7 +174,12 @@ func serializerRow(note, sign, body string) (row, bool) {
 	case strings.Contains(body, "rpc-v2-cbor") && cp != nil:
 		return row{methodPost, host, cp[1], sign, "application/cbor", "", "", cborHeader, note}, true
 	case u != nil && me != nil:
-		return row{me[1], host, restURI(u[1], true), sign, "", "", "", "", note}, true
+		hdr := ""
+		if b := reBearer.FindStringSubmatch(body); b != nil {
+			hdr = b[1] + ":token"
+		}
+
+		return row{me[1], host, restURI(u[1], true), sign, "", "", "", hdr, note}, true
 	}
 
 	return row{}, false

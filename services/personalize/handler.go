@@ -252,7 +252,7 @@ func (h *Handler) handleRuntimeRESTError(c *echo.Context, err error) error {
 		errType, status = "InvalidInputException", http.StatusBadRequest
 	}
 
-	return writeRuntimeRESTError(c, status, errType, err.Error())
+	return writeRuntimeRESTError(c, status, errType, errorMessage(errType, err))
 }
 
 func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
@@ -269,6 +269,10 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 	}
 	if input == nil {
 		input = make(map[string]any)
+	}
+
+	if err := validatePageInput(input); err != nil {
+		return nil, err
 	}
 
 	output, err := fn(input)
@@ -292,11 +296,13 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		errType, status = "InvalidInputException", http.StatusBadRequest
 	case errors.Is(err, ErrInUse):
 		errType, status = "ResourceInUseException", http.StatusBadRequest
+	case errors.Is(err, ErrInvalidNextToken):
+		errType, status = "InvalidNextTokenException", http.StatusBadRequest
 	}
 
 	c.Response().Header().Set("Content-Type", personalizeContentType)
 
-	payload, marshalErr := json.Marshal(map[string]string{"__type": errType, "message": err.Error()})
+	payload, marshalErr := json.Marshal(map[string]string{"__type": errType, "message": errorMessage(errType, err)})
 	if marshalErr != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}

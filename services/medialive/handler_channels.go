@@ -119,6 +119,16 @@ func toChannelEngineVersionOutput(v ChannelEngineVersion) *channelEngineVersionO
 	return &channelEngineVersionOutput{Version: v.Version}
 }
 
+// usedEngineVersion is the version running pipelines use: the channel's pinned
+// version, else the default listed by ListVersions.
+func usedEngineVersion(pinned ChannelEngineVersion) *channelEngineVersionOutput {
+	if pinned.Version != "" {
+		return &channelEngineVersionOutput{Version: pinned.Version}
+	}
+
+	return &channelEngineVersionOutput{Version: channelEngineVersion}
+}
+
 func extractChannelEngineVersion(body map[string]any) (ChannelEngineVersion, bool) {
 	raw, ok := body["channelEngineVersion"].(map[string]any)
 	if !ok {
@@ -133,12 +143,11 @@ func extractChannelEngineVersion(body map[string]any) (ChannelEngineVersion, boo
 // --- Vpc / Maintenance ---
 
 // channelVpcOutput mirrors types.VpcOutputSettingsDescription.
-// AvailabilityZones/NetworkInterfaceIds are real wire fields MediaLive
-// computes from a live VPC/ENI integration gopherstack does not have --
-// always omitted, never fabricated (see ChannelVpcSettings' doc comment).
 type channelVpcOutput struct {
-	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
-	SubnetIDs        []string `json:"subnetIds,omitempty"`
+	AvailabilityZones   []string `json:"availabilityZones,omitempty"`
+	NetworkInterfaceIDs []string `json:"networkInterfaceIds,omitempty"`
+	SecurityGroupIDs    []string `json:"securityGroupIds,omitempty"`
+	SubnetIDs           []string `json:"subnetIds,omitempty"`
 }
 
 func toChannelVpcOutput(v ChannelVpcSettings) *channelVpcOutput {
@@ -146,7 +155,10 @@ func toChannelVpcOutput(v ChannelVpcSettings) *channelVpcOutput {
 		return nil
 	}
 
-	return &channelVpcOutput{SubnetIDs: v.SubnetIDs, SecurityGroupIDs: v.SecurityGroupIDs}
+	return &channelVpcOutput{
+		SubnetIDs: v.SubnetIDs, SecurityGroupIDs: v.SecurityGroupIDs,
+		AvailabilityZones: v.AvailabilityZones, NetworkInterfaceIDs: v.NetworkInterfaceIDs,
+	}
 }
 
 func extractVpc(body map[string]any) (ChannelVpcSettings, bool) {
@@ -876,6 +888,10 @@ func channelSummaryToWire(s *ChannelSummary) map[string]any {
 		item["channelEngineVersion"] = v
 	}
 
+	if s.State == stateRunning {
+		item["usedChannelEngineVersions"] = []*channelEngineVersionOutput{usedEngineVersion(s.ChannelEngineVersion)}
+	}
+
 	if len(s.ChannelSecurityGroups) > 0 {
 		item["channelSecurityGroups"] = s.ChannelSecurityGroups
 	}
@@ -964,6 +980,10 @@ func (h *Handler) handleDeleteChannel(c *echo.Context, channelID string) error {
 }
 
 func (h *Handler) handleListChannels(c *echo.Context) error {
+	if err := validPaging(c); err != nil {
+		return respondErr(c, err)
+	}
+
 	maxResults, nextTokenParam := paginationParams(c)
 	summaries, nextToken, err := h.Backend.ListChannels(maxResults, nextTokenParam)
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 
@@ -182,7 +183,7 @@ func TestClusterSnapshot_Duplicate(t *testing.T) {
 
 			b := newBatch2Backend(t)
 			_, err := b.CreateDBCluster(
-				"cluster-c-"+tt.name,
+				"cluster-c-"+strings.ReplaceAll(tt.name, "_", "-"),
 				"aurora-postgresql",
 				"admin",
 				"",
@@ -193,12 +194,12 @@ func TestClusterSnapshot_Duplicate(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			_, err = b.CreateDBClusterSnapshot(tt.setupID, "cluster-c-"+tt.name)
+			_, err = b.CreateDBClusterSnapshot(tt.setupID, "cluster-c-"+strings.ReplaceAll(tt.name, "_", "-"))
 			require.NoError(t, err)
 
 			switch tt.action {
 			case "create":
-				_, err = b.CreateDBClusterSnapshot(tt.actionID, "cluster-c-"+tt.name)
+				_, err = b.CreateDBClusterSnapshot(tt.actionID, "cluster-c-"+strings.ReplaceAll(tt.name, "_", "-"))
 			case "describe":
 				var snaps []rds.DBClusterSnapshot
 				snaps, err = b.DescribeDBClusterSnapshots(tt.actionID, "")

@@ -105,6 +105,7 @@ func sendMetricSupported(q MetricDataQuery) (bool, string) {
 // as an exact address match or via its domain portion -- the same
 // resolution checkFromIdentityLocked uses for SendEmail's from-identity check.
 func matchesIdentityFilter(from, identity string) bool {
+	from = bareAddress(from)
 	if from == identity {
 		return true
 	}

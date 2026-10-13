@@ -55,6 +55,7 @@ func (b *InMemoryBackend) CreateConfiguredTableAssociation(
 		ConfiguredTableID:                    configuredTableID,
 	}
 	b.ctAssociations.Put(assoc)
+	b.syncAssociationSchemaLocked(assoc)
 	if len(tags) > 0 {
 		b.tagsByArn[assoc.Arn] = maps.Clone(tags)
 	}
@@ -137,6 +138,7 @@ func (b *InMemoryBackend) DeleteConfiguredTableAssociation(membershipID, assocID
 		return ErrNotFound
 	}
 	delete(b.tagsByArn, assoc.Arn)
+	b.deleteAssociationSchemaLocked(assoc)
 	b.ctAssociations.Delete(key)
 
 	for _, rule := range slices.Clone(b.ctaAnalysisRulesByAssociation.Get(assocID)) {
@@ -175,6 +177,7 @@ func (b *InMemoryBackend) CreateConfiguredTableAssociationAnalysisRule(
 	if !contains(assoc.AnalysisRuleTypes, ruleType) {
 		assoc.AnalysisRuleTypes = append(assoc.AnalysisRuleTypes, ruleType)
 	}
+	b.syncAssociationSchemaLocked(assoc)
 
 	return rule, nil
 }
@@ -205,6 +208,10 @@ func (b *InMemoryBackend) UpdateConfiguredTableAssociationAnalysisRule(
 	rule.Policy = policy
 	rule.UpdateTime = b.now()
 
+	if assoc, found := b.ctAssociations.Get(membershipKey(rule.MembershipIdentifier, assocID)); found {
+		b.syncAssociationSchemaLocked(assoc)
+	}
+
 	return rule, nil
 }
 
@@ -218,6 +225,7 @@ func (b *InMemoryBackend) DeleteConfiguredTableAssociationAnalysisRule(
 	}
 	if assoc, assocOK := b.ctAssociations.Get(membershipKey(membershipID, assocID)); assocOK {
 		assoc.AnalysisRuleTypes = removeFrom(assoc.AnalysisRuleTypes, ruleType)
+		b.syncAssociationSchemaLocked(assoc)
 	}
 
 	return nil

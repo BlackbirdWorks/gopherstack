@@ -290,6 +290,25 @@ func (b *InMemoryBackend) ModifyVpcEndpoint(
 	return nil
 }
 
+// DisassociateVpcEndpointResourceConfiguration clears the resource configuration bound to a Resource endpoint.
+func (b *InMemoryBackend) DisassociateVpcEndpointResourceConfiguration(endpointID string) error {
+	b.mu.Lock("DisassociateVpcEndpointResourceConfiguration")
+	defer b.mu.Unlock()
+
+	ep, ok := b.vpcEndpoints.Get(endpointID)
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrVpcEndpointNotFound, endpointID)
+	}
+
+	if ep.VpcEndpointType != vpcEndpointTypeResource || ep.ResourceConfigurationArn == "" {
+		return fmt.Errorf("%w: %s has no resource configuration", ErrInvalidParameter, endpointID)
+	}
+
+	ep.ResourceConfigurationArn = ""
+
+	return nil
+}
+
 // applyIDSetChanges removes ids in remove from current, then appends ids in add.
 func applyIDSetChanges(current, add, remove []string) []string {
 	removeSet := make(map[string]bool, len(remove))

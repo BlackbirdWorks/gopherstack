@@ -106,40 +106,40 @@ func TestErrorHandling(t *testing.T) {
 		wantCode  int
 	}{
 		{
-			name:      "DescribeStacks with nonexistent ID returns 404",
+			name:      "DescribeStacks with nonexistent ID returns ResourceNotFoundException",
 			operation: "DescribeStacks",
 			body:      map[string]any{"StackIds": []string{"nonexistent-id"}},
-			wantCode:  http.StatusNotFound,
+			wantCode:  http.StatusBadRequest,
 		},
 		{
-			name:      "DescribeLayers with nonexistent ID returns 404",
+			name:      "DescribeLayers with nonexistent ID returns ResourceNotFoundException",
 			operation: "DescribeLayers",
 			body:      map[string]any{"LayerIds": []string{"nonexistent-id"}},
-			wantCode:  http.StatusNotFound,
+			wantCode:  http.StatusBadRequest,
 		},
 		{
-			name:      "DescribeInstances with nonexistent ID returns 404",
+			name:      "DescribeInstances with nonexistent ID returns ResourceNotFoundException",
 			operation: "DescribeInstances",
 			body:      map[string]any{"InstanceIds": []string{"nonexistent-id"}},
-			wantCode:  http.StatusNotFound,
+			wantCode:  http.StatusBadRequest,
 		},
 		{
-			name:      "DeleteStack with nonexistent ID returns 404",
+			name:      "DeleteStack with nonexistent ID returns ResourceNotFoundException",
 			operation: "DeleteStack",
 			body:      map[string]any{"StackId": "nonexistent-id"},
-			wantCode:  http.StatusNotFound,
+			wantCode:  http.StatusBadRequest,
 		},
 		{
-			name:      "DeleteLayer with nonexistent ID returns 404",
+			name:      "DeleteLayer with nonexistent ID returns ResourceNotFoundException",
 			operation: "DeleteLayer",
 			body:      map[string]any{"LayerId": "nonexistent-id"},
-			wantCode:  http.StatusNotFound,
+			wantCode:  http.StatusBadRequest,
 		},
 		{
-			name:      "StartInstance with nonexistent ID returns 404",
+			name:      "StartInstance with nonexistent ID returns ResourceNotFoundException",
 			operation: "StartInstance",
 			body:      map[string]any{"InstanceId": "nonexistent-id"},
-			wantCode:  http.StatusNotFound,
+			wantCode:  http.StatusBadRequest,
 		},
 		{
 			name:      "CreateStack with empty name returns 400",

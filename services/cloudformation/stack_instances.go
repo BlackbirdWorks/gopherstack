@@ -149,36 +149,61 @@ func (b *InMemoryBackend) CreateStackInstances(
 	stackSetName string,
 	accounts, ouIDs, regions []string,
 	filterType string,
+	opOpts ...StackSetOpOption,
 ) (string, error) {
+	prefs, err := resolveOpPreferences(opOpts)
+	if err != nil {
+		return "", err
+	}
+
 	b.mu.Lock("CreateStackInstances")
 	defer b.mu.Unlock()
-	ss, ok := b.stackSets.Get(stackSetName)
-	if !ok {
+	if !b.stackSets.Has(stackSetName) {
 		return "", ErrStackSetNotFound
 	}
+
+	ss, _ := b.stackSets.Get(stackSetName)
 
 	targets, err := b.resolveInstanceTargets(ss, accounts, ouIDs, filterType)
 	if err != nil {
 		return "", err
 	}
 
-	opID := b.recordStackSetOperation(stackSetName, "CREATE")
-	touchedAccounts := make([]string, 0, len(targets))
+	apply := func(ctx context.Context, opID string, u stackSetUnit) string {
+		cur, ok := b.stackSets.Get(stackSetName)
+		if !ok {
+			return "stack set no longer exists"
+		}
+
+		if b.stackInstanceExists(stackSetName, u.account, u.region) {
+			return ""
+		}
+
+		inst := b.provisionStackInstance(ctx, cur, u.account, u.region, opID)
+		inst.OrganizationalUnitID = u.ouID
+		b.stackInstances[stackSetName] = append(b.stackInstances[stackSetName], inst)
+
+		if inst.Status == statusOutdated {
+			return inst.StatusReason
+		}
+
+		return ""
+	}
+
+	return b.admitStackSetOp(ctx, stackSetName, "CREATE", prefs, false, targetUnits(targets, regions), apply), nil
+}
+
+// targetUnits expands resolved targets across regions, account-major.
+func targetUnits(targets []instanceTarget, regions []string) []stackSetUnit {
+	units := make([]stackSetUnit, 0, len(targets)*len(regions))
+
 	for _, t := range targets {
-		touchedAccounts = append(touchedAccounts, t.account)
 		for _, region := range regions {
-			// Deduplicate: skip if instance already exists.
-			if b.stackInstanceExists(stackSetName, t.account, region) {
-				continue
-			}
-			inst := b.provisionStackInstance(ctx, ss, t.account, region, opID)
-			inst.OrganizationalUnitID = t.ouID
-			b.stackInstances[stackSetName] = append(b.stackInstances[stackSetName], inst)
+			units = append(units, stackSetUnit{account: t.account, region: region, ouID: t.ouID})
 		}
 	}
-	b.recordOpResults(stackSetName, opID, touchedAccounts, regions, "SUCCEEDED")
 
-	return opID, nil
+	return units
 }
 
 // stackInstanceExists reports whether a stack instance for the account/region
@@ -210,10 +235,15 @@ func (b *InMemoryBackend) provisionStackInstance(
 	var instanceStackID string
 	if ss.TemplateBody != "" {
 		child, err := b.createStackLocked(ctx, childName, ss.TemplateBody, nil, StackOptions{}, "")
-		if err != nil {
-			status = "INOPERABLE"
+		switch {
+		case err != nil:
+			status = statusOutdated
 			statusReason = err.Error()
-		} else {
+		case isFailedCreateStatus(child.StackStatus):
+			status = statusOutdated
+			statusReason = child.StackStatusReason
+			instanceStackID = child.StackID
+		default:
 			instanceStackID = child.StackID
 		}
 	}
@@ -279,7 +309,7 @@ func (b *InMemoryBackend) deleteMatchingStackInstances(
 		}
 		if childName, teardownOK := b.stackIDIndex[inst.StackID]; teardownOK {
 			if err := b.deleteStackLocked(ctx, childName); err != nil {
-				inst.Status = "INOPERABLE"
+				inst.Status = statusInoperable
 				inst.StatusReason = err.Error()
 				filtered = append(filtered, inst)
 				failed = append(failed, stackInstanceTeardownFailure{
@@ -295,47 +325,19 @@ func (b *InMemoryBackend) deleteMatchingStackInstances(
 	return failed
 }
 
-// recordStackInstanceDeleteResults records DeleteStackInstances' per-
-// account/region operation results: FAILED (with StatusReason) for pairs
-// whose child-stack teardown failed, SUCCEEDED for the rest. Also flips the
-// operation's own Status to FAILED when any pair failed, matching
-// StackSetOperationStatus's FAILED value (cloudformation@v1.76.1
-// types/enums.go:1742). Caller must hold b.mu.Lock.
-func (b *InMemoryBackend) recordStackInstanceDeleteResults(
-	stackSetName, opID string, accounts, regions []string, failed []stackInstanceTeardownFailure,
-) {
-	type pair struct{ account, region string }
-	reasonByPair := make(map[pair]string, len(failed))
-	for _, f := range failed {
-		reasonByPair[pair{f.account, f.region}] = f.reason
-	}
-	if b.stackSetOpResults[stackSetName] == nil {
-		b.stackSetOpResults[stackSetName] = make(map[string][]StackSetOperationResult)
-	}
-	for _, acct := range accounts {
-		for _, region := range regions {
-			result := StackSetOperationResult{Account: acct, Region: region, Status: "SUCCEEDED"}
-			if reason, failedPair := reasonByPair[pair{acct, region}]; failedPair {
-				result.Status = cfnStatusFailed
-				result.StatusReason = reason
-			}
-			b.stackSetOpResults[stackSetName][opID] = append(b.stackSetOpResults[stackSetName][opID], result)
-		}
-	}
-	if len(failed) > 0 {
-		if op, ok := b.stackSetOperations[stackSetName][opID]; ok {
-			op.Status = cfnStatusFailed
-		}
-	}
-}
-
 func (b *InMemoryBackend) DeleteStackInstances(
 	ctx context.Context,
 	stackSetName string,
 	accounts, ouIDs, regions []string,
 	retainStacks bool,
 	filterType string,
+	opOpts ...StackSetOpOption,
 ) (string, error) {
+	prefs, err := resolveOpPreferences(opOpts)
+	if err != nil {
+		return "", err
+	}
+
 	b.mu.Lock("DeleteStackInstances")
 	defer b.mu.Unlock()
 	ss, ok := b.stackSets.Get(stackSetName)
@@ -348,19 +350,39 @@ func (b *InMemoryBackend) DeleteStackInstances(
 		return "", err
 	}
 
-	targetAccounts := instanceTargetAccounts(targets)
-	failed := b.deleteMatchingStackInstances(ctx, stackSetName, targetAccounts, regions, retainStacks)
-	opID := b.recordStackSetOperation(stackSetName, "DELETE")
-	b.recordStackInstanceDeleteResults(stackSetName, opID, targetAccounts, regions, failed)
+	apply := func(ctx context.Context, _ string, u stackSetUnit) string {
+		failed := b.deleteMatchingStackInstances(
+			ctx, stackSetName, []string{u.account}, []string{u.region}, retainStacks,
+		)
+		if len(failed) > 0 {
+			return failed[0].reason
+		}
 
-	return opID, nil
+		return ""
+	}
+
+	return b.admitStackSetOp(
+		ctx,
+		stackSetName,
+		"DELETE",
+		prefs,
+		retainStacks,
+		targetUnits(targets, regions),
+		apply,
+	), nil
 }
 
 func (b *InMemoryBackend) UpdateStackInstances(
 	stackSetName string,
 	accounts, ouIDs, regions []string,
 	filterType string,
+	opOpts ...StackSetOpOption,
 ) (string, error) {
+	prefs, err := resolveOpPreferences(opOpts)
+	if err != nil {
+		return "", err
+	}
+
 	b.mu.Lock("UpdateStackInstances")
 	defer b.mu.Unlock()
 	ss, ok := b.stackSets.Get(stackSetName)
@@ -373,23 +395,11 @@ func (b *InMemoryBackend) UpdateStackInstances(
 		return "", err
 	}
 
-	targetAccounts := instanceTargetAccounts(targets)
-	opID := b.recordStackSetOperation(stackSetName, "UPDATE")
-	if len(targetAccounts) > 0 && len(regions) > 0 {
-		b.recordOpResults(stackSetName, opID, targetAccounts, regions, "SUCCEEDED")
-	}
+	apply := func(context.Context, string, stackSetUnit) string { return "" }
 
-	return opID, nil
-}
-
-// instanceTargetAccounts extracts the account ID from each resolved target.
-func instanceTargetAccounts(targets []instanceTarget) []string {
-	accounts := make([]string, 0, len(targets))
-	for _, t := range targets {
-		accounts = append(accounts, t.account)
-	}
-
-	return accounts
+	return b.admitStackSetOp(
+		context.Background(), stackSetName, "UPDATE", prefs, false, targetUnits(targets, regions), apply,
+	), nil
 }
 
 // ListStackInstancesFilter holds ListStackInstancesInput's optional

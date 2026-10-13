@@ -2,9 +2,6 @@ package appsync
 
 import (
 	"fmt"
-
-	"github.com/vektah/gqlparser/v2"
-	"github.com/vektah/gqlparser/v2/ast"
 )
 
 // StartSchemaCreation parses and stores the schema SDL for an API.
@@ -17,10 +14,7 @@ func (b *InMemoryBackend) StartSchemaCreation(apiID, sdl string) (*Schema, error
 	}
 
 	// Validate and parse the schema.
-	parsed, gqlErr := gqlparser.LoadSchema(&ast.Source{
-		Name:  "schema.graphql",
-		Input: sdl,
-	})
+	parsed, gqlErr := loadAppSyncSchema(sdl)
 	if gqlErr != nil {
 		schema := &Schema{
 			APIID:   apiID,

@@ -177,7 +177,7 @@ func TestElasticsearchHandler_AssociatePackage(t *testing.T) {
 				return pkgID, "dup-domain"
 			},
 			wantCode:     http.StatusConflict,
-			wantContains: []string{"ConflictException"},
+			wantContains: []string{"already associated"},
 		},
 	}
 

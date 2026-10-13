@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -582,12 +585,12 @@ func (h *Handler) handleBackendError(ctx context.Context, c *echo.Context, op st
 	if errors.Is(err, awserr.ErrNotFound) {
 		code, status := amplifyNotFoundCode(op)
 
-		return amplifyErrorCodeJSON(c, status, code, err.Error())
+		return amplifyErrorCodeJSON(c, status, code, errMessage(err))
 	}
 
 	if errors.Is(err, awserr.ErrAlreadyExists) || errors.Is(err, awserr.ErrConflict) ||
 		errors.Is(err, awserr.ErrInvalidParameter) {
-		return amplifyErrorJSON(c, http.StatusBadRequest, err.Error())
+		return amplifyErrorJSON(c, http.StatusBadRequest, errMessage(err))
 	}
 
 	return amplifyErrorJSON(c, http.StatusInternalServerError, "internal error: "+err.Error())
@@ -655,4 +658,41 @@ func amplifyErrorCodeJSON(c *echo.Context, status int, code, message string) err
 	c.Response().Header().Set("X-Amzn-Errortype", code)
 
 	return c.JSON(status, map[string]any{"__type": code, "message": message})
+}
+
+const maxListResults = 100
+
+var (
+	errInvalidNextToken = errors.New("invalid nextToken")
+	errMaxResults       = errors.New("maxResults must be between 0 and 100")
+)
+
+// listPageArgs validates the nextToken and maxResults query parameters shared by every List* op.
+func listPageArgs(q url.Values) (string, int, error) {
+	token := q.Get("nextToken")
+	if page.ValidateToken(token) != nil {
+		return "", 0, errInvalidNextToken
+	}
+
+	raw := q.Get("maxResults")
+	if raw == "" {
+		return token, 0, nil
+	}
+
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 || n > maxListResults {
+		return "", 0, errMaxResults
+	}
+
+	return token, n, nil
+}
+
+// errMessage drops the sentinel's code prefix that fmt.Errorf("%w: ...") leaves in the message.
+func errMessage(err error) string {
+	msg := err.Error()
+	for _, sentinel := range []error{ErrNotFound, ErrValidation} {
+		msg = strings.TrimPrefix(msg, sentinel.Error()+": ")
+	}
+
+	return msg
 }

@@ -32,6 +32,7 @@ type StorageBackend interface {
 	GetIntegration(apiID, integrationID string) (*Integration, error)
 	GetIntegrations(apiID string) ([]Integration, error)
 	DeleteIntegration(apiID, integrationID string) error
+	PurgeIntegrations(apiID string) error
 	UpdateIntegration(apiID, integrationID string, input UpdateIntegrationInput) (*Integration, error)
 
 	// Deployments

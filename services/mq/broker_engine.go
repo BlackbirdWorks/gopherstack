@@ -65,6 +65,7 @@ type portMap struct {
 }
 
 type liveBroker struct {
+	ctx         context.Context
 	cancel      context.CancelFunc
 	hostPorts   map[string]int
 	engine      string
@@ -73,6 +74,7 @@ type liveBroker struct {
 	password    string
 	ports       []int
 	ready       bool
+	applying    bool
 }
 
 type brokerEngine struct {
@@ -329,7 +331,7 @@ func (b *InMemoryBackend) launchBrokerLocked(br *Broker, u *User) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	lb := &liveBroker{cancel: cancel, engine: br.EngineType, username: u.Username, password: u.Password}
+	lb := &liveBroker{ctx: ctx, cancel: cancel, engine: br.EngineType, username: u.Username, password: u.Password}
 	e.brokers[br.BrokerID] = lb
 	br.BrokerState = BrokerStateCreating
 
@@ -369,9 +371,14 @@ func (b *InMemoryBackend) runBroker(ctx context.Context, brokerID, name string, 
 	}
 
 	if e.awaitReady(ctx, lb, e.addr(lb, consumerPortName(lb.engine))) == nil {
-		b.markRunning(brokerID, lb)
+		err = b.applyConfigOnStart(ctx, brokerID, lb)
+		if err == nil {
+			b.markRunning(brokerID, lb)
 
-		return
+			return
+		}
+
+		logger.Load(ctx).WarnContext(ctx, "mq: broker configuration failed", "broker", brokerID, "error", err)
 	}
 
 	b.finishBroker(ctx, brokerID, lb)

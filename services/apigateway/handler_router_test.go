@@ -1000,12 +1000,6 @@ func (n *noopBackend) UpdateAccount(_ apigateway.UpdateAccountInput) (*apigatewa
 	return nil, errNoopNotImplemented
 }
 
-func (n *noopBackend) TestInvokeAuthorizer(
-	_ apigateway.TestInvokeAuthorizerInput,
-) (*apigateway.TestInvokeAuthorizerOutput, error) {
-	return nil, errNoopNotImplemented
-}
-
 func (n *noopBackend) GetModelTemplate(_ string, _ string) (string, error) {
 	return "", errNoopNotImplemented
 }
@@ -1080,7 +1074,7 @@ func (n *noopBackend) UpdateClientCertificate(
 	return nil, errNoopNotImplemented
 }
 
-func (n *noopBackend) GetExport(_ string, _ string, _ string) (map[string]any, error) {
+func (n *noopBackend) GetExport(_, _, _ string, _ apigateway.ExportOptions) (map[string]any, error) {
 	return nil, errNoopNotImplemented
 }
 
@@ -1104,7 +1098,9 @@ func (n *noopBackend) GetSdkType(_ string) (*apigateway.SdkType, error) {
 	return nil, errNoopNotImplemented
 }
 
-func (n *noopBackend) GetSdk(_, _, _ string) (*apigateway.SdkExport, error) {
+func (n *noopBackend) CheckDomainNameID(_, _ string) error { return nil }
+
+func (n *noopBackend) GetSdk(_, _, _ string, _ map[string]string) (*apigateway.SdkExport, error) {
 	return nil, errNoopNotImplemented
 }
 

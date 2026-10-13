@@ -20,7 +20,7 @@ func TestInMemoryBackend_DeveloperLoginsFrom_EmptyProviderName(t *testing.T) {
 		"dev-logins-pool",
 		true,
 		false,
-		"",
+		"developer.example.com",
 		nil,
 		nil,
 		nil,
@@ -36,7 +36,7 @@ func TestInMemoryBackend_DeveloperLoginsFrom_EmptyProviderName(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, devRec.IdentityID)
 
-	// LookupDeveloperIdentity with empty provider name returns all dev user IDs.
+	// An empty provider name falls back to the pool's DeveloperProviderName.
 	result, err := b.LookupDeveloperIdentity(context.Background(),
 		pool.IdentityPoolID,
 		devRec.IdentityID,

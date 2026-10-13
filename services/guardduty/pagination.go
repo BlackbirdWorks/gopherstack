@@ -3,6 +3,7 @@ package guardduty
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/url"
 	"strconv"
 )
@@ -107,4 +108,33 @@ func resolvePageSize(requested int) int {
 	}
 
 	return requested
+}
+
+const maxListResults = 50
+
+// checkMaxResults rejects a maxResults outside 1-50, the range every GuardDuty list operation documents.
+func checkMaxResults(n int32) error {
+	if n < 0 || n > maxListResults {
+		return fmt.Errorf("%w: maxResults must be between 1 and %d", ErrValidation, maxListResults)
+	}
+
+	return nil
+}
+
+func checkQueryMaxResults(query string) error {
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return fmt.Errorf("%w: malformed query string", ErrValidation)
+	}
+
+	if !values.Has("maxResults") {
+		return nil
+	}
+
+	n, convErr := strconv.ParseInt(values.Get("maxResults"), 10, 32)
+	if convErr != nil {
+		return fmt.Errorf("%w: maxResults must be an integer", ErrValidation)
+	}
+
+	return checkMaxResults(int32(n))
 }

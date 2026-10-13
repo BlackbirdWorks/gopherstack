@@ -46,8 +46,10 @@ const (
 	errGoneException            = "GoneException"
 	errLimitExceededException   = "LimitExceededException"
 	errPayloadTooLargeException = "PayloadTooLargeException"
-	msgLimitExceeded            = "the websocket client-side buffer is full"
-	msgPayloadTooLarge          = "payload too large: exceeds maximum allowed size"
+	msgGone                     = "The connection with the provided id no longer exists."
+	msgLimitExceeded            = "The client is sending more than the allowed number of requests per unit of time " +
+		"or the WebSocket client side buffer is full."
+	msgPayloadTooLarge = "The data has exceeded the maximum size allowed."
 	// amznErrorTypeHeader carries the modeled error type in the AWS rest-json
 	// protocol; the SDK reads the exception type from this header.
 	amznErrorTypeHeader = "X-Amzn-Errortype"
@@ -93,34 +95,33 @@ func NewHandler(backend StorageBackend) *Handler {
 // resolves the exception from the header/__type, not from the message text --
 // omitting either causes a client-side generic/unknown error instead of the
 // modeled exception type.
-func writeModeledError(c *echo.Context, status int, errType, message, connectionID string) error {
+func writeModeledError(c *echo.Context, status int, errType, message string) error {
 	c.Response().Header().Set(amznErrorTypeHeader, errType)
 
 	return c.JSON(status, map[string]string{
 		keyTypeField:    errType,
 		keyMessageField: message,
-		keyConnectionID: connectionID,
 	})
 }
 
 // writeGoneException emits a GoneException (HTTP 410).
-func writeGoneException(c *echo.Context, connectionID string) error {
+func writeGoneException(c *echo.Context) error {
 	return writeModeledError(c, http.StatusGone, errGoneException,
-		"the connection is no longer available", connectionID)
+		msgGone)
 }
 
 // writeLimitExceededException emits a LimitExceededException (HTTP 429),
 // matching real AWS behavior when a connection's WebSocket client-side buffer
 // is full and a frame cannot be queued for delivery.
-func writeLimitExceededException(c *echo.Context, connectionID string) error {
+func writeLimitExceededException(c *echo.Context) error {
 	return writeModeledError(c, http.StatusTooManyRequests, errLimitExceededException,
-		msgLimitExceeded, connectionID)
+		msgLimitExceeded)
 }
 
 // writePayloadTooLargeException emits a PayloadTooLargeException (HTTP 413).
-func writePayloadTooLargeException(c *echo.Context, connectionID string) error {
+func writePayloadTooLargeException(c *echo.Context) error {
 	return writeModeledError(c, http.StatusRequestEntityTooLarge, errPayloadTooLargeException,
-		msgPayloadTooLarge, connectionID)
+		msgPayloadTooLarge)
 }
 
 // Name returns the service name.
@@ -234,7 +235,7 @@ func (h *Handler) handlePostToConnection(c *echo.Context, connectionID string) e
 	body, readErr := io.ReadAll(c.Request().Body)
 	if readErr != nil {
 		if _, ok := errors.AsType[*http.MaxBytesError](readErr); ok {
-			return writePayloadTooLargeException(c, connectionID)
+			return writePayloadTooLargeException(c)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: "failed to read request body"})
@@ -244,15 +245,15 @@ func (h *Handler) handlePostToConnection(c *echo.Context, connectionID string) e
 		log.Error("api gateway management api: post to connection failed", keyConnectionID, connectionID, "error", err)
 
 		if errors.Is(err, awserr.ErrNotFound) {
-			return writeGoneException(c, connectionID)
+			return writeGoneException(c)
 		}
 
 		if errors.Is(err, ErrPayloadTooLarge) {
-			return writePayloadTooLargeException(c, connectionID)
+			return writePayloadTooLargeException(c)
 		}
 
 		if errors.Is(err, ErrLimitExceeded) {
-			return writeLimitExceededException(c, connectionID)
+			return writeLimitExceededException(c)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
@@ -269,7 +270,7 @@ func (h *Handler) handleGetConnection(c *echo.Context, connectionID string) erro
 		log.Error("api gateway management api: get connection failed", keyConnectionID, connectionID, "error", err)
 
 		if errors.Is(err, awserr.ErrNotFound) {
-			return writeGoneException(c, connectionID)
+			return writeGoneException(c)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
@@ -291,7 +292,7 @@ func (h *Handler) handleDeleteConnection(c *echo.Context, connectionID string) e
 		log.Error("api gateway management api: delete connection failed", keyConnectionID, connectionID, "error", err)
 
 		if errors.Is(err, awserr.ErrNotFound) {
-			return writeGoneException(c, connectionID)
+			return writeGoneException(c)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})

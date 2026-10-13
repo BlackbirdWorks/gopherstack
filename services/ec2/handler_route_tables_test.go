@@ -14,12 +14,11 @@ func TestReplaceRoute(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	rt, _ := b.CreateRouteTable("vpc-default")
-	igw, _ := b.CreateInternetGateway()
-	_ = b.CreateRoute(rt.ID, "0.0.0.0/0", igw.ID, "")
+	igw := attachedIGW(t, b)
+	require.NoError(t, b.CreateRoute(rt.ID, "0.0.0.0/0", igw, ""))
 
 	t.Run("replaces existing route", func(t *testing.T) {
-		igw2, _ := b.CreateInternetGateway()
-		require.NoError(t, b.ReplaceRoute(rt.ID, "0.0.0.0/0", igw2.ID, ""))
+		require.NoError(t, b.ReplaceRoute(rt.ID, "0.0.0.0/0", igw, ""))
 	})
 }
 
@@ -111,10 +110,15 @@ func TestRouteTable_CreateRoute(t *testing.T) {
 				"DestinationCidrBlock": {tt.destCIDR},
 			}
 			if tt.gatewayID != "" {
-				vals.Set("GatewayId", tt.gatewayID)
+				vals.Set("GatewayId", attachedIGW(t, b))
 			}
 			if tt.natGatewayID != "" {
-				vals.Set("NatGatewayId", tt.natGatewayID)
+				eip, eipErr := b.AllocateAddress()
+				require.NoError(t, eipErr)
+				subnets := b.DescribeSubnets(nil)
+				nat, natErr := b.CreateNatGateway(subnets[0].ID, eip.AllocationID, nil)
+				require.NoError(t, natErr)
+				vals.Set("NatGatewayId", nat.ID)
 			}
 
 			resp, err := ec2.ExportDispatch(h, vals)
@@ -146,7 +150,7 @@ func TestRouteTable_DeleteRoute(t *testing.T) {
 	rt, err := b.CreateRouteTable("vpc-default")
 	require.NoError(t, err)
 
-	require.NoError(t, b.CreateRoute(rt.ID, "10.0.0.0/8", "igw-123", ""))
+	require.NoError(t, b.CreateRoute(rt.ID, "10.0.0.0/8", attachedIGW(t, b), ""))
 
 	_, err = ec2.ExportDispatch(h, url.Values{
 		"Action":               {"DeleteRoute"},

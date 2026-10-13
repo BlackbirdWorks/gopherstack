@@ -135,30 +135,31 @@ func TestRealClient_AccountsAndWorkspaces(t *testing.T) {
 
 				ctx := t.Context()
 				client := newTestHandlerAndClient(t)
+				wsID := createSDKWorkspace(t, client)
 
 				_, err := client.CreateTags(ctx, &wssdk.CreateTagsInput{
-					ResourceId: aws.String("ws-slice18tags"),
+					ResourceId: aws.String(wsID),
 					Tags:       []wstypes.Tag{{Key: aws.String("owner"), Value: aws.String("slice18")}},
 				})
 				require.NoError(t, err)
 
 				desc, err := client.DescribeTags(
 					ctx,
-					&wssdk.DescribeTagsInput{ResourceId: aws.String("ws-slice18tags")},
+					&wssdk.DescribeTagsInput{ResourceId: aws.String(wsID)},
 				)
 				require.NoError(t, err)
 				require.Len(t, desc.TagList, 1)
 				assert.Equal(t, "owner", aws.ToString(desc.TagList[0].Key))
 
 				_, err = client.DeleteTags(ctx, &wssdk.DeleteTagsInput{
-					ResourceId: aws.String("ws-slice18tags"),
+					ResourceId: aws.String(wsID),
 					TagKeys:    []string{"owner"},
 				})
 				require.NoError(t, err)
 
 				afterDelete, err := client.DescribeTags(
 					ctx,
-					&wssdk.DescribeTagsInput{ResourceId: aws.String("ws-slice18tags")},
+					&wssdk.DescribeTagsInput{ResourceId: aws.String(wsID)},
 				)
 				require.NoError(t, err)
 				assert.Empty(t, afterDelete.TagList)

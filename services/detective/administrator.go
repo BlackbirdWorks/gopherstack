@@ -78,9 +78,9 @@ func (b *InMemoryBackend) ListOrganizationAdminAccounts(
 		start = len(admins)
 	}
 
-	limit := int(maxResults)
-	if limit <= 0 || limit > maxOrgAdminsPerPage {
-		limit = maxOrgAdminsPerPage
+	limit, err := pageLimit(maxResults, maxOrgAdminsPerPage)
+	if err != nil {
+		return nil, "", err
 	}
 
 	end := min(start+limit, len(admins))
@@ -108,8 +108,8 @@ func (b *InMemoryBackend) StartMonitoringMember(graphARN, accountID string) erro
 	b.mu.Lock("StartMonitoringMember")
 	defer b.mu.Unlock()
 
-	if !b.graphs.Has(graphARN) {
-		return ErrGraphNotFound
+	if err := b.requireGraphLocked(graphARN); err != nil {
+		return err
 	}
 
 	m, ok := b.members.Get(memberKey(graphARN, accountID))

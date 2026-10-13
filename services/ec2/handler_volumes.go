@@ -795,18 +795,33 @@ func validateGP3Coupling(iops, throughput, size int) error {
 	return nil
 }
 
+func parseCreateVolumeSize(vals url.Values) (int, error) {
+	sizeStr, volType := vals.Get("Size"), vals.Get("VolumeType")
+
+	if sizeStr == "" && vals.Get("SnapshotId") == "" {
+		return 0, fmt.Errorf("%w: the request must contain either Size or SnapshotId", ErrMissingParameter)
+	}
+
+	size := 0
+	if sizeStr != "" {
+		if _, scanErr := fmt.Sscan(sizeStr, &size); scanErr != nil {
+			return 0, fmt.Errorf("%w: invalid value %q for Size", ErrInvalidParameter, sizeStr)
+		}
+	}
+
+	return size, validateVolumeSizeAndType(volType, size, sizeStr != "")
+}
+
 func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error) {
 	az := vals.Get("AvailabilityZone")
 	volType := vals.Get("VolumeType")
-	sizeStr := vals.Get("Size")
 	encryptedStr := vals.Get("Encrypted")
 	kmsKeyID := vals.Get("KmsKeyId")
 	snapshotID := vals.Get("SnapshotId")
 
-	size := 0
-	if sizeStr != "" {
-		// If parsing fails, size defaults to 0 and CreateVolume will use the default size.
-		_, _ = fmt.Sscan(sizeStr, &size)
+	size, err := parseCreateVolumeSize(vals)
+	if err != nil {
+		return nil, err
 	}
 
 	iops, throughput, err := parseVolumePerf(

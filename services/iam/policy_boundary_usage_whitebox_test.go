@@ -5,6 +5,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -62,7 +63,7 @@ func TestPolicy_PermissionsBoundaryUsageCount(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, want, aws.ToInt32(got.Policy.PermissionsBoundaryUsageCount))
 
-			list, err := client.ListPolicies(ctx, &iamsdk.ListPoliciesInput{})
+			list, err := client.ListPolicies(ctx, &iamsdk.ListPoliciesInput{Scope: types.PolicyScopeTypeLocal})
 			require.NoError(t, err)
 			require.Len(t, list.Policies, 1)
 			assert.Equal(t, want, aws.ToInt32(list.Policies[0].PermissionsBoundaryUsageCount))

@@ -32,6 +32,9 @@ func TestHandler_ListUsersSshPublicKeyCountAndHomeDirectoryType(t *testing.T) {
 		"UserName":          "alice",
 		"Role":              "arn:aws:iam::123456789012:role/TransferRole",
 		"HomeDirectoryType": "LOGICAL",
+		"HomeDirectoryMappings": []map[string]string{
+			{"Entry": "/", "Target": "/bucket/alice"},
+		},
 	})
 	require.Equal(t, http.StatusOK, createUserRec.Code, "CreateUser failed: %s", createUserRec.Body.String())
 

@@ -21,17 +21,9 @@ const (
 	hybridUpdateStatusUpdated = "Updated"
 )
 
-// CreateHybridAD creates a hybrid directory. Real CreateHybridADInput is
-// {AssessmentId, SecretArn, Tags} -- AWS derives the new directory's Name and
-// other descriptive fields from AssessmentId's own AssessmentConfiguration
-// (DnsName etc.), which this backend cannot capture since StartADAssessment
-// doesn't accept AssessmentConfiguration (a separate, already-tracked gap;
-// see PARITY.md). Rather than fabricating a domain name, this backend derives
-// them from the SAME assessment's snapshotted source-directory fields
-// (SourceDirectoryName etc., captured at StartADAssessment time from the
-// existing directory that was assessed) -- genuinely real data, not invented.
-// SecretArn is real-shape "used once and not stored" (accepted, validated,
-// discarded), matching AWS's own documented behavior.
+// CreateHybridAD creates a hybrid directory named after the assessment's DnsName (or, for an
+// assessment of an existing directory, that directory's descriptive fields). SecretArn is
+// validated and discarded: AWS documents it as used once and not stored.
 func (b *InMemoryBackend) CreateHybridAD(
 	ctx context.Context,
 	assessmentID, secretArn string,

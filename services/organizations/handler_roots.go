@@ -48,8 +48,8 @@ func (h *Handler) handleListRoots(c *echo.Context, body []byte) error {
 		}
 	}
 
-	if rejected, err := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
-		return err
+	if rejected, pErr := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return pErr
 	}
 
 	roots, err := h.Backend.ListRoots()

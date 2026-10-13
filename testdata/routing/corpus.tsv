@@ -1262,22 +1262,22 @@ POST	localhost:4566	/	autoscaling	application/x-www-form-urlencoded		Action=Susp
 POST	localhost:4566	/	autoscaling	application/x-www-form-urlencoded		Action=TerminateInstanceInAutoScalingGroup&Version=2011-01-01	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/autoscaling#1.0.0	Autoscaling	Autoscaling
 POST	localhost:4566	/	autoscaling	application/x-www-form-urlencoded		Action=UpdateAutoScalingGroup&Version=2011-01-01	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/autoscaling#1.0.0	Autoscaling	Autoscaling
 PUT	localhost:4566	/backup-vaults/xbackup/mpaApprovalTeam	backup				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	Backup	Backup
-PUT	localhost:4566	/backup-vaults/xbackup/mpaApprovalTeam	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	Backup	Backup
+PUT	localhost:4566	/backup-vaults/xbackup/mpaApprovalTeam	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	S3	S3
 PUT	backup.us-east-1.amazonaws.com	/backup-vaults/xbackup/mpaApprovalTeam	backup				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	Backup	Backup
 PUT	localhost:4566	/backup-vaults/xbackup/mpaApprovalTeam?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbackup%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	Backup	Backup
 PUT	localhost:4566	/backup-vaults/xbackup/mpaApprovalTeam						Backup	Backup
 DELETE	localhost:4566	/legal-holds/xlegalh	backup				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	Backup	Backup
-DELETE	localhost:4566	/legal-holds/xlegalh	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	Backup	Backup
+DELETE	localhost:4566	/legal-holds/xlegalh	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	S3	S3
 DELETE	backup.us-east-1.amazonaws.com	/legal-holds/xlegalh	backup				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	Backup	Backup
 DELETE	localhost:4566	/legal-holds/xlegalh?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbackup%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	Backup	Backup
 DELETE	localhost:4566	/legal-holds/xlegalh						Backup	Backup
 PUT	localhost:4566	/backup-access-point/create	backup				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	Backup	Backup
-PUT	localhost:4566	/backup-access-point/create	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	Backup	Backup
+PUT	localhost:4566	/backup-access-point/create	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	S3	S3
 PUT	backup.us-east-1.amazonaws.com	/backup-access-point/create	backup				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	Backup	Backup
 PUT	localhost:4566	/backup-access-point/create?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbackup%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	Backup	Backup
 PUT	localhost:4566	/backup-access-point/create						Backup	Backup
 PUT	localhost:4566	/backup/plans	backup				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	Backup	Backup
-PUT	localhost:4566	/backup/plans	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	Backup	Backup
+PUT	localhost:4566	/backup/plans	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	S3	S3
 PUT	backup.us-east-1.amazonaws.com	/backup/plans	backup				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	Backup	Backup
 PUT	localhost:4566	/backup/plans?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbackup%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	Backup	Backup
 PUT	localhost:4566	/backup/plans						Backup	Backup
@@ -1401,22 +1401,22 @@ PUT	localhost:4566	/restore-testing/plans/xrestor	backup				User-Agent:aws-sdk-g
 PUT	localhost:4566	/restore-testing/plans/xrestor/selections/xrestor	backup				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	Backup	Backup
 PUT	localhost:4566	/tiering-configurations/xtierin	backup				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/backup#1.0.0	Backup	Backup
 POST	localhost:4566	/v1/canceljob	batch				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
-POST	localhost:4566	/v1/canceljob	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/canceljob	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	S3	S3
 POST	batch.us-east-1.amazonaws.com	/v1/canceljob	batch				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
 POST	localhost:4566	/v1/canceljob?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbatch%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
 POST	localhost:4566	/v1/canceljob						Batch	Batch
 POST	localhost:4566	/v1/createcomputeenvironment	batch				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
-POST	localhost:4566	/v1/createcomputeenvironment	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/createcomputeenvironment	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	S3	S3
 POST	batch.us-east-1.amazonaws.com	/v1/createcomputeenvironment	batch				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
 POST	localhost:4566	/v1/createcomputeenvironment?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbatch%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
 POST	localhost:4566	/v1/createcomputeenvironment						Batch	Batch
 POST	localhost:4566	/v1/createconsumableresource	batch				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
-POST	localhost:4566	/v1/createconsumableresource	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/createconsumableresource	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	S3	S3
 POST	batch.us-east-1.amazonaws.com	/v1/createconsumableresource	batch				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
 POST	localhost:4566	/v1/createconsumableresource?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbatch%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
 POST	localhost:4566	/v1/createconsumableresource						Batch	Batch
 POST	localhost:4566	/v1/createjobqueue	batch				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
-POST	localhost:4566	/v1/createjobqueue	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/createjobqueue	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	S3	S3
 POST	batch.us-east-1.amazonaws.com	/v1/createjobqueue	batch				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
 POST	localhost:4566	/v1/createjobqueue?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbatch%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
 POST	localhost:4566	/v1/createjobqueue						Batch	Batch
@@ -1470,22 +1470,22 @@ POST	localhost:4566	/v1/updateschedulingpolicy	batch				User-Agent:aws-sdk-go-v2
 POST	localhost:4566	/v1/updateserviceenvironment	batch				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
 POST	localhost:4566	/v1/updateservicejob	batch				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
 POST	localhost:4566	/advanced-prompt-optimization-job/batch-delete	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	Bedrock	Bedrock
-POST	localhost:4566	/advanced-prompt-optimization-job/batch-delete	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	Bedrock	Bedrock
+POST	localhost:4566	/advanced-prompt-optimization-job/batch-delete	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	S3	S3
 POST	bedrock.us-east-1.amazonaws.com	/advanced-prompt-optimization-job/batch-delete	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	Bedrock	Bedrock
 POST	localhost:4566	/advanced-prompt-optimization-job/batch-delete?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbedrock%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	Bedrock	Bedrock
 POST	localhost:4566	/advanced-prompt-optimization-job/batch-delete						Bedrock	Bedrock
 POST	localhost:4566	/evaluation-jobs/batch-delete	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	Bedrock	Bedrock
-POST	localhost:4566	/evaluation-jobs/batch-delete	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	Bedrock	Bedrock
+POST	localhost:4566	/evaluation-jobs/batch-delete	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	S3	S3
 POST	bedrock.us-east-1.amazonaws.com	/evaluation-jobs/batch-delete	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	Bedrock	Bedrock
 POST	localhost:4566	/evaluation-jobs/batch-delete?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbedrock%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	Bedrock	Bedrock
 POST	localhost:4566	/evaluation-jobs/batch-delete						Bedrock	Bedrock
 POST	localhost:4566	/automated-reasoning-policies/xpolicy/build-workflows/xbuildw/cancel	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	Bedrock	Bedrock
-POST	localhost:4566	/automated-reasoning-policies/xpolicy/build-workflows/xbuildw/cancel	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	Bedrock	Bedrock
+POST	localhost:4566	/automated-reasoning-policies/xpolicy/build-workflows/xbuildw/cancel	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	S3	S3
 POST	bedrock.us-east-1.amazonaws.com	/automated-reasoning-policies/xpolicy/build-workflows/xbuildw/cancel	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	Bedrock	Bedrock
 POST	localhost:4566	/automated-reasoning-policies/xpolicy/build-workflows/xbuildw/cancel?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbedrock%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	Bedrock	Bedrock
 POST	localhost:4566	/automated-reasoning-policies/xpolicy/build-workflows/xbuildw/cancel						Bedrock	Bedrock
 POST	localhost:4566	/advanced-prompt-optimization-jobs	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	Bedrock	Bedrock
-POST	localhost:4566	/advanced-prompt-optimization-jobs	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	Bedrock	Bedrock
+POST	localhost:4566	/advanced-prompt-optimization-jobs	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	S3	S3
 POST	bedrock.us-east-1.amazonaws.com	/advanced-prompt-optimization-jobs	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	Bedrock	Bedrock
 POST	localhost:4566	/advanced-prompt-optimization-jobs?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbedrock%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	Bedrock	Bedrock
 POST	localhost:4566	/advanced-prompt-optimization-jobs						Bedrock	Bedrock
@@ -3819,7 +3819,7 @@ POST	localhost:4566	/recipeJobs	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2
 POST	localhost:4566	/recipeJobs						DataBrew	DataBrew
 POST	localhost:4566	/rulesets	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 POST	localhost:4566	/rulesets						DataBrew	DataBrew
-POST	localhost:4566	/schedules	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	Scheduler	Scheduler
+POST	localhost:4566	/schedules	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 POST	localhost:4566	/schedules						Scheduler	Scheduler
 DELETE	localhost:4566	/datasets/xname	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 DELETE	localhost:4566	/datasets/xname						IoTAnalytics	IoTAnalytics
@@ -3830,14 +3830,14 @@ DELETE	localhost:4566	/projects/xname						DataBrew	DataBrew
 DELETE	localhost:4566	/recipes/xname/recipeVersion/xrecipe	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 DELETE	localhost:4566	/recipes/xname/recipeVersion/xrecipe						DataBrew	DataBrew
 DELETE	localhost:4566	/rulesets/xname	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
-DELETE	localhost:4566	/schedules/xname	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	Scheduler	Scheduler
+DELETE	localhost:4566	/schedules/xname	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 GET	localhost:4566	/datasets/xname	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 GET	localhost:4566	/jobs/xname	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 GET	localhost:4566	/jobs/xname/jobRun/xrunid	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 GET	localhost:4566	/projects/xname	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 GET	localhost:4566	/recipes/xname	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 GET	localhost:4566	/rulesets/xname	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
-GET	localhost:4566	/schedules/xname	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	Scheduler	Scheduler
+GET	localhost:4566	/schedules/xname	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 GET	localhost:4566	/datasets	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 GET	localhost:4566	/jobs/xname/jobRuns	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 GET	localhost:4566	/jobs	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
@@ -3845,7 +3845,7 @@ GET	localhost:4566	/projects	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 
 GET	localhost:4566	/recipes	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 GET	localhost:4566	/recipeVersions	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 GET	localhost:4566	/rulesets	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
-GET	localhost:4566	/schedules	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	Scheduler	Scheduler
+GET	localhost:4566	/schedules	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 GET	localhost:4566	/tags/xresour	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 POST	localhost:4566	/recipes/xname/publishRecipe	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 PUT	localhost:4566	/projects/xname/sendProjectSessionAction	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
@@ -3860,7 +3860,7 @@ PUT	localhost:4566	/projects/xname	databrew				User-Agent:aws-sdk-go-v2/1.41.0 u
 PUT	localhost:4566	/recipes/xname	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 PUT	localhost:4566	/recipeJobs/xname	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 PUT	localhost:4566	/rulesets/xname	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
-PUT	localhost:4566	/schedules/xname	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	Scheduler	Scheduler
+PUT	localhost:4566	/schedules/xname	databrew				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/databrew#1.0.0	DataBrew	DataBrew
 POST	localhost:4566	/	datasync	application/x-amz-json-1.1	FmrsService.CancelTaskExecution	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/datasync#1.0.0	DataSync	DataSync
 POST	localhost:4566	/		application/x-amz-json-1.1	FmrsService.CancelTaskExecution	{}		DataSync	DataSync
 POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	FmrsService.CancelTaskExecution	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/datasync#1.0.0	DataSync	DataSync
@@ -3999,10 +3999,10 @@ POST	localhost:4566	/		application/x-amz-json-1.1	AmazonDAXV3.UpdateCluster	{}		
 POST	localhost:4566	/	dax	application/x-amz-json-1.1	AmazonDAXV3.UpdateParameterGroup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/dax#1.0.0	DAX	DAX
 POST	localhost:4566	/		application/x-amz-json-1.1	AmazonDAXV3.UpdateParameterGroup	{}		DAX	DAX
 POST	localhost:4566	/	dax	application/x-amz-json-1.1	AmazonDAXV3.UpdateSubnetGroup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/dax#1.0.0	DAX	DAX
-PUT	localhost:4566	/invitation	detective				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	GuardDuty	GuardDuty
-PUT	localhost:4566	/invitation	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	GuardDuty	GuardDuty
-PUT	detective.us-east-1.amazonaws.com	/invitation	detective				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	GuardDuty	GuardDuty
-PUT	localhost:4566	/invitation?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fdetective%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	GuardDuty	GuardDuty
+PUT	localhost:4566	/invitation	detective				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	Detective	Detective
+PUT	localhost:4566	/invitation	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	S3	S3
+PUT	detective.us-east-1.amazonaws.com	/invitation	detective				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	Detective	Detective
+PUT	localhost:4566	/invitation?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fdetective%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	Detective	Detective
 PUT	localhost:4566	/invitation						GuardDuty	GuardDuty
 POST	localhost:4566	/graph/datasources/get	detective				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	Detective	Detective
 POST	localhost:4566	/graph/datasources/get	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	Detective	Detective
@@ -4040,11 +4040,11 @@ POST	localhost:4566	/graph/datasources/list	detective				User-Agent:aws-sdk-go-v
 POST	localhost:4566	/graphs/list	detective				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	Detective	Detective
 POST	localhost:4566	/investigations/listIndicators	detective				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	Detective	Detective
 POST	localhost:4566	/investigations/listInvestigations	detective				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	Detective	Detective
-POST	localhost:4566	/invitations/list	detective				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	GuardDuty	GuardDuty
+POST	localhost:4566	/invitations/list	detective				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	Detective	Detective
 POST	localhost:4566	/graph/members/list	detective				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	Detective	Detective
 POST	localhost:4566	/orgs/adminAccountslist	detective				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	Detective	Detective
 GET	localhost:4566	/tags/xresour	detective				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	S3	S3
-POST	localhost:4566	/invitation/removal	detective				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	GuardDuty	GuardDuty
+POST	localhost:4566	/invitation/removal	detective				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	Detective	Detective
 POST	localhost:4566	/investigations/startInvestigation	detective				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	Detective	Detective
 POST	localhost:4566	/graph/member/monitoringstate	detective				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	Detective	Detective
 POST	localhost:4566	/tags/xresour	detective				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/detective#1.0.0	S3	S3
@@ -7158,22 +7158,22 @@ PUT	localhost:4566	/workspaces/xworksp	grafana				User-Agent:aws-sdk-go-v2/1.41.
 POST	localhost:4566	/workspaces/xworksp/authentication	grafana				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/grafana#1.0.0	Grafana	Grafana
 PUT	localhost:4566	/workspaces/xworksp/configuration	grafana				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/grafana#1.0.0	Grafana	Grafana
 POST	localhost:4566	/detector/xdetect/administrator	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
-POST	localhost:4566	/detector/xdetect/administrator	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
+POST	localhost:4566	/detector/xdetect/administrator	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
 POST	guardduty.us-east-1.amazonaws.com	/detector/xdetect/administrator	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
 POST	localhost:4566	/detector/xdetect/administrator?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fguardduty%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
 POST	localhost:4566	/detector/xdetect/administrator						GuardDuty	GuardDuty
 POST	localhost:4566	/detector/xdetect/master	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
-POST	localhost:4566	/detector/xdetect/master	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
+POST	localhost:4566	/detector/xdetect/master	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
 POST	guardduty.us-east-1.amazonaws.com	/detector/xdetect/master	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
 POST	localhost:4566	/detector/xdetect/master?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fguardduty%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
 POST	localhost:4566	/detector/xdetect/master						GuardDuty	GuardDuty
 POST	localhost:4566	/detector/xdetect/findings/archive	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
-POST	localhost:4566	/detector/xdetect/findings/archive	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
+POST	localhost:4566	/detector/xdetect/findings/archive	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
 POST	guardduty.us-east-1.amazonaws.com	/detector/xdetect/findings/archive	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
 POST	localhost:4566	/detector/xdetect/findings/archive?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fguardduty%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
 POST	localhost:4566	/detector/xdetect/findings/archive						GuardDuty	GuardDuty
 POST	localhost:4566	/detector	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
-POST	localhost:4566	/detector	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
+POST	localhost:4566	/detector	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
 POST	guardduty.us-east-1.amazonaws.com	/detector	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
 POST	localhost:4566	/detector?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fguardduty%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	GuardDuty	GuardDuty
 POST	localhost:4566	/detector						GuardDuty	GuardDuty
@@ -7544,22 +7544,22 @@ POST	localhost:4566	/		application/x-amz-json-1.1	AWSIdentityStore.UpdateGroup	{
 POST	localhost:4566	/	identitystore	application/x-amz-json-1.1	AWSIdentityStore.UpdateUser	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/identitystore#1.0.0	IdentityStore	IdentityStore
 POST	localhost:4566	/		application/x-amz-json-1.1	AWSIdentityStore.UpdateUser	{}		IdentityStore	IdentityStore
 POST	localhost:4566	/members/associate	inspector2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	Inspector2	Inspector2
-POST	localhost:4566	/members/associate	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	SecurityHub	SecurityHub
+POST	localhost:4566	/members/associate	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	S3	S3
 POST	inspector2.us-east-1.amazonaws.com	/members/associate	inspector2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	Inspector2	Inspector2
-POST	localhost:4566	/members/associate?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Finspector2%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	SecurityHub	SecurityHub
+POST	localhost:4566	/members/associate?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Finspector2%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	Inspector2	Inspector2
 POST	localhost:4566	/members/associate						SecurityHub	SecurityHub
 POST	localhost:4566	/codesecurity/scan-configuration/batch/associate	inspector2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	Inspector2	Inspector2
-POST	localhost:4566	/codesecurity/scan-configuration/batch/associate	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	Inspector2	Inspector2
+POST	localhost:4566	/codesecurity/scan-configuration/batch/associate	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	S3	S3
 POST	inspector2.us-east-1.amazonaws.com	/codesecurity/scan-configuration/batch/associate	inspector2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	Inspector2	Inspector2
 POST	localhost:4566	/codesecurity/scan-configuration/batch/associate?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Finspector2%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	Inspector2	Inspector2
 POST	localhost:4566	/codesecurity/scan-configuration/batch/associate						Inspector2	Inspector2
 POST	localhost:4566	/codesecurity/scan-configuration/batch/disassociate	inspector2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	Inspector2	Inspector2
-POST	localhost:4566	/codesecurity/scan-configuration/batch/disassociate	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	Inspector2	Inspector2
+POST	localhost:4566	/codesecurity/scan-configuration/batch/disassociate	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	S3	S3
 POST	inspector2.us-east-1.amazonaws.com	/codesecurity/scan-configuration/batch/disassociate	inspector2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	Inspector2	Inspector2
 POST	localhost:4566	/codesecurity/scan-configuration/batch/disassociate?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Finspector2%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	Inspector2	Inspector2
 POST	localhost:4566	/codesecurity/scan-configuration/batch/disassociate						Inspector2	Inspector2
 POST	localhost:4566	/status/batch/get	inspector2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	Inspector2	Inspector2
-POST	localhost:4566	/status/batch/get	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	Inspector2	Inspector2
+POST	localhost:4566	/status/batch/get	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	S3	S3
 POST	inspector2.us-east-1.amazonaws.com	/status/batch/get	inspector2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	Inspector2	Inspector2
 POST	localhost:4566	/status/batch/get?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Finspector2%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/inspector2#1.0.0	Inspector2	Inspector2
 POST	localhost:4566	/status/batch/get						Inspector2	Inspector2
@@ -9028,23 +9028,23 @@ POST	localhost:4566	/	lightsail	application/x-amz-json-1.1	Lightsail_20161128.Up
 POST	localhost:4566	/	lightsail	application/x-amz-json-1.1	Lightsail_20161128.UpdateLoadBalancerAttribute	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lightsail#1.0.0	Lightsail	Lightsail
 POST	localhost:4566	/	lightsail	application/x-amz-json-1.1	Lightsail_20161128.UpdateRelationalDatabase	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lightsail#1.0.0	Lightsail	Lightsail
 POST	localhost:4566	/	lightsail	application/x-amz-json-1.1	Lightsail_20161128.UpdateRelationalDatabaseParameters	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lightsail#1.0.0	Lightsail	Lightsail
-POST	localhost:4566	/invitations/accept	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	GuardDuty	GuardDuty
-POST	localhost:4566	/invitations/accept	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	GuardDuty	GuardDuty
-POST	macie2.us-east-1.amazonaws.com	/invitations/accept	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	GuardDuty	GuardDuty
-POST	localhost:4566	/invitations/accept?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fmacie2%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	GuardDuty	GuardDuty
+POST	localhost:4566	/invitations/accept	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
+POST	localhost:4566	/invitations/accept	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	S3	S3
+POST	macie2.us-east-1.amazonaws.com	/invitations/accept	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
+POST	localhost:4566	/invitations/accept?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fmacie2%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 POST	localhost:4566	/invitations/accept						GuardDuty	GuardDuty
 POST	localhost:4566	/custom-data-identifiers/get	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
-POST	localhost:4566	/custom-data-identifiers/get	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
+POST	localhost:4566	/custom-data-identifiers/get	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	S3	S3
 POST	macie2.us-east-1.amazonaws.com	/custom-data-identifiers/get	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 POST	localhost:4566	/custom-data-identifiers/get?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fmacie2%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 POST	localhost:4566	/custom-data-identifiers/get						Macie2	Macie2
 PATCH	localhost:4566	/automated-discovery/accounts	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
-PATCH	localhost:4566	/automated-discovery/accounts	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
+PATCH	localhost:4566	/automated-discovery/accounts	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	S3	S3
 PATCH	macie2.us-east-1.amazonaws.com	/automated-discovery/accounts	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 PATCH	localhost:4566	/automated-discovery/accounts?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fmacie2%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 PATCH	localhost:4566	/automated-discovery/accounts						Macie2	Macie2
 POST	localhost:4566	/allow-lists	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
-POST	localhost:4566	/allow-lists	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
+POST	localhost:4566	/allow-lists	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	S3	S3
 POST	macie2.us-east-1.amazonaws.com	/allow-lists	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 POST	localhost:4566	/allow-lists?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fmacie2%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 POST	localhost:4566	/allow-lists						Macie2	Macie2
@@ -9054,19 +9054,19 @@ POST	localhost:4566	/custom-data-identifiers	macie2				User-Agent:aws-sdk-go-v2/
 POST	localhost:4566	/custom-data-identifiers						Macie2	Macie2
 POST	localhost:4566	/findingsfilters	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 POST	localhost:4566	/findingsfilters						Macie2	Macie2
-POST	localhost:4566	/invitations	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	GuardDuty	GuardDuty
+POST	localhost:4566	/invitations	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 POST	localhost:4566	/invitations						GuardDuty	GuardDuty
 POST	localhost:4566	/members	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 POST	localhost:4566	/members						SecurityHub	SecurityHub
 POST	localhost:4566	/findings/sample	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 POST	localhost:4566	/findings/sample						S3	S3
-POST	localhost:4566	/invitations/decline	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	GuardDuty	GuardDuty
+POST	localhost:4566	/invitations/decline	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 POST	localhost:4566	/invitations/decline						GuardDuty	GuardDuty
 DELETE	localhost:4566	/allow-lists/xid	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 DELETE	localhost:4566	/allow-lists/xid						Macie2	Macie2
 DELETE	localhost:4566	/custom-data-identifiers/xid	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 DELETE	localhost:4566	/findingsfilters/xid	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
-POST	localhost:4566	/invitations/delete	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	GuardDuty	GuardDuty
+POST	localhost:4566	/invitations/delete	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 DELETE	localhost:4566	/members/xid	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 POST	localhost:4566	/datasources/s3	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 GET	localhost:4566	/jobs/xjobid	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
@@ -9089,7 +9089,7 @@ POST	localhost:4566	/findings/describe	macie2				User-Agent:aws-sdk-go-v2/1.41.0
 GET	localhost:4566	/findingsfilters/xid	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 GET	localhost:4566	/findings-publication-configuration	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 POST	localhost:4566	/findings/statistics	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
-GET	localhost:4566	/invitations/count	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	GuardDuty	GuardDuty
+GET	localhost:4566	/invitations/count	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 GET	localhost:4566	/macie	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 GET	localhost:4566	/master	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 GET	localhost:4566	/members/xid	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
@@ -9098,7 +9098,7 @@ GET	localhost:4566	/reveal-configuration	macie2				User-Agent:aws-sdk-go-v2/1.41
 GET	localhost:4566	/findings/xfindin/reveal	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 GET	localhost:4566	/findings/xfindin/reveal/availability	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 GET	localhost:4566	/templates/sensitivity-inspections/xid	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
-POST	localhost:4566	/usage/statistics	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Inspector2	Inspector2
+POST	localhost:4566	/usage/statistics	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 GET	localhost:4566	/usage	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 GET	localhost:4566	/allow-lists	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 GET	localhost:4566	/automated-discovery/accounts	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
@@ -9107,7 +9107,7 @@ GET	localhost:4566	/classification-scopes	macie2				User-Agent:aws-sdk-go-v2/1.4
 POST	localhost:4566	/custom-data-identifiers/list	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 POST	localhost:4566	/findings	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 GET	localhost:4566	/findingsfilters	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
-GET	localhost:4566	/invitations	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	GuardDuty	GuardDuty
+GET	localhost:4566	/invitations	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 POST	localhost:4566	/managed-data-identifiers/list	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 GET	localhost:4566	/members	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
 GET	localhost:4566	/admin	macie2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/macie2#1.0.0	Macie2	Macie2
@@ -10025,7 +10025,7 @@ DELETE	localhost:4566	/global-networks/xglobal/devices/xdevice	networkmanager			
 DELETE	localhost:4566	/global-networks/xglobal	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 DELETE	localhost:4566	/global-networks/xglobal/links/xlinkid	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 DELETE	localhost:4566	/peerings/xpeerin	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
-DELETE	localhost:4566	/resource-policy/xresour	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	Bedrock	Bedrock
+DELETE	localhost:4566	/resource-policy/xresour	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 DELETE	localhost:4566	/global-networks/xglobal/sites/xsiteid	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 DELETE	localhost:4566	/global-networks/xglobal/transit-gateway-registrations/xtransi	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 GET	localhost:4566	/global-networks	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
@@ -10052,7 +10052,7 @@ GET	localhost:4566	/global-networks/xglobal/network-resource-relationships	netwo
 GET	localhost:4566	/global-networks/xglobal/network-resources	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 POST	localhost:4566	/global-networks/xglobal/network-routes	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 GET	localhost:4566	/global-networks/xglobal/network-telemetry	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
-GET	localhost:4566	/resource-policy/xresour	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	Bedrock	Bedrock
+GET	localhost:4566	/resource-policy/xresour	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 GET	localhost:4566	/global-networks/xglobal/route-analyses/xroutea	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 GET	localhost:4566	/global-networks/xglobal/sites	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 GET	localhost:4566	/site-to-site-vpn-attachments/xattach	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
@@ -10068,17 +10068,17 @@ GET	localhost:4566	/core-networks/xcorene/core-network-policy-versions	networkma
 GET	localhost:4566	/prefix-list/core-network/xcorene	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 POST	localhost:4566	/core-networks/xcorene/core-network-routing-information	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 GET	localhost:4566	/core-networks	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
-GET	localhost:4566	/organizations/service-access	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	SecurityHub	SecurityHub
+GET	localhost:4566	/organizations/service-access	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 GET	localhost:4566	/peerings	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 GET	localhost:4566	/tags/xresour	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	S3	S3
 POST	localhost:4566	/routing-policy-label	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 POST	localhost:4566	/core-networks/xcorene/core-network-policy	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
-POST	localhost:4566	/resource-policy/xresour	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	Bedrock	Bedrock
+POST	localhost:4566	/resource-policy/xresour	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 POST	localhost:4566	/global-networks/xglobal/transit-gateway-registrations	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 POST	localhost:4566	/attachments/xattach/reject	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 DELETE	localhost:4566	/routing-policy-label/core-network/xcorene/attachment/xattach	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 POST	localhost:4566	/core-networks/xcorene/core-network-policy-versions/xpolicy/restore	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
-POST	localhost:4566	/organizations/service-access	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	SecurityHub	SecurityHub
+POST	localhost:4566	/organizations/service-access	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 POST	localhost:4566	/global-networks/xglobal/route-analyses	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	NetworkManager	NetworkManager
 POST	localhost:4566	/tags/xresour	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	S3	S3
 DELETE	localhost:4566	/tags/xresour	networkmanager				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/networkmanager#1.0.0	S3	S3
@@ -10843,22 +10843,22 @@ POST	personalize.us-east-1.amazonaws.com	/recommendations	personalize				User-Ag
 POST	localhost:4566	/recommendations?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fpersonalize%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/personalizeruntime#1.0.0	Personalize	Personalize
 POST	localhost:4566	/recommendations						Personalize	Personalize
 POST	localhost:4566	/v1/apps	mobiletargeting				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	Pinpoint	Pinpoint
-POST	localhost:4566	/v1/apps	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/apps	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	S3	S3
 POST	mobiletargeting.us-east-1.amazonaws.com	/v1/apps	mobiletargeting				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	Pinpoint	Pinpoint
 POST	localhost:4566	/v1/apps?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fmobiletargeting%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	Pinpoint	Pinpoint
 POST	localhost:4566	/v1/apps						Batch	Batch
 POST	localhost:4566	/v1/apps/xapplic/campaigns	mobiletargeting				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	Pinpoint	Pinpoint
-POST	localhost:4566	/v1/apps/xapplic/campaigns	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/apps/xapplic/campaigns	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	S3	S3
 POST	mobiletargeting.us-east-1.amazonaws.com	/v1/apps/xapplic/campaigns	mobiletargeting				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	Pinpoint	Pinpoint
 POST	localhost:4566	/v1/apps/xapplic/campaigns?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fmobiletargeting%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	Pinpoint	Pinpoint
 POST	localhost:4566	/v1/apps/xapplic/campaigns						Batch	Batch
 POST	localhost:4566	/v1/templates/xtempla/email	mobiletargeting				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	Pinpoint	Pinpoint
-POST	localhost:4566	/v1/templates/xtempla/email	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/templates/xtempla/email	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	S3	S3
 POST	mobiletargeting.us-east-1.amazonaws.com	/v1/templates/xtempla/email	mobiletargeting				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	Pinpoint	Pinpoint
 POST	localhost:4566	/v1/templates/xtempla/email?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fmobiletargeting%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	Pinpoint	Pinpoint
 POST	localhost:4566	/v1/templates/xtempla/email						Batch	Batch
 POST	localhost:4566	/v1/apps/xapplic/jobs/export	mobiletargeting				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	Pinpoint	Pinpoint
-POST	localhost:4566	/v1/apps/xapplic/jobs/export	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/apps/xapplic/jobs/export	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	S3	S3
 POST	mobiletargeting.us-east-1.amazonaws.com	/v1/apps/xapplic/jobs/export	mobiletargeting				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	Pinpoint	Pinpoint
 POST	localhost:4566	/v1/apps/xapplic/jobs/export?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fmobiletargeting%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	Pinpoint	Pinpoint
 POST	localhost:4566	/v1/apps/xapplic/jobs/export						Batch	Batch
@@ -10989,22 +10989,22 @@ PUT	localhost:4566	/v1/apps/xapplic/channels/voice	mobiletargeting				User-Agent
 PUT	localhost:4566	/v1/templates/xtempla/voice	mobiletargeting				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	Pinpoint	Pinpoint
 POST	localhost:4566	/v1/apps/xapplic/verify-otp	mobiletargeting				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pinpoint#1.0.0	Pinpoint	Pinpoint
 POST	localhost:4566	/v1/pipes/xname	pipes				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	Pipes	Pipes
-POST	localhost:4566	/v1/pipes/xname	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/pipes/xname	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	S3	S3
 POST	pipes.us-east-1.amazonaws.com	/v1/pipes/xname	pipes				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	Pipes	Pipes
 POST	localhost:4566	/v1/pipes/xname?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fpipes%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	Pipes	Pipes
 POST	localhost:4566	/v1/pipes/xname						Batch	Batch
 DELETE	localhost:4566	/v1/pipes/xname	pipes				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	Pipes	Pipes
-DELETE	localhost:4566	/v1/pipes/xname	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	Batch	Batch
+DELETE	localhost:4566	/v1/pipes/xname	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	S3	S3
 DELETE	pipes.us-east-1.amazonaws.com	/v1/pipes/xname	pipes				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	Pipes	Pipes
 DELETE	localhost:4566	/v1/pipes/xname?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fpipes%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	Pipes	Pipes
 DELETE	localhost:4566	/v1/pipes/xname						Batch	Batch
 GET	localhost:4566	/v1/pipes/xname	pipes				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	Pipes	Pipes
-GET	localhost:4566	/v1/pipes/xname	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	Batch	Batch
+GET	localhost:4566	/v1/pipes/xname	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	S3	S3
 GET	pipes.us-east-1.amazonaws.com	/v1/pipes/xname	pipes				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	Pipes	Pipes
 GET	localhost:4566	/v1/pipes/xname?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fpipes%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	Pipes	Pipes
 GET	localhost:4566	/v1/pipes/xname						Batch	Batch
 GET	localhost:4566	/v1/pipes	pipes				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	Pipes	Pipes
-GET	localhost:4566	/v1/pipes	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	Batch	Batch
+GET	localhost:4566	/v1/pipes	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	S3	S3
 GET	pipes.us-east-1.amazonaws.com	/v1/pipes	pipes				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	Pipes	Pipes
 GET	localhost:4566	/v1/pipes?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fpipes%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pipes#1.0.0	Pipes	Pipes
 GET	localhost:4566	/v1/pipes						Batch	Batch
@@ -11058,9 +11058,9 @@ POST	quicksight.us-east-1.amazonaws.com	/accounts/xawsacc/topics/xtopici/batch-c
 POST	localhost:4566	/accounts/xawsacc/topics/xtopici/batch-create-reviewed-answers?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fquicksight%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/quicksight#1.0.0	S3	S3
 POST	localhost:4566	/accounts/xawsacc/topics/xtopici/batch-create-reviewed-answers						S3	S3
 POST	localhost:4566	/v1/accounts/xawsacc/knowledge-bases/batch-delete	quicksight				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/quicksight#1.0.0	QuickSight	QuickSight
-POST	localhost:4566	/v1/accounts/xawsacc/knowledge-bases/batch-delete	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/quicksight#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/accounts/xawsacc/knowledge-bases/batch-delete	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/quicksight#1.0.0	S3	S3
 POST	quicksight.us-east-1.amazonaws.com	/v1/accounts/xawsacc/knowledge-bases/batch-delete	quicksight				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/quicksight#1.0.0	QuickSight	QuickSight
-POST	localhost:4566	/v1/accounts/xawsacc/knowledge-bases/batch-delete?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fquicksight%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/quicksight#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/accounts/xawsacc/knowledge-bases/batch-delete?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fquicksight%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/quicksight#1.0.0	S3	S3
 POST	localhost:4566	/v1/accounts/xawsacc/knowledge-bases/batch-delete						Batch	Batch
 POST	localhost:4566	/accounts/xawsacc/topics/xtopici/batch-delete-reviewed-answers	quicksight				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/quicksight#1.0.0	QuickSight	QuickSight
 POST	localhost:4566	/accounts/xawsacc/topics/xtopici/batch-delete-reviewed-answers	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/quicksight#1.0.0	S3	S3
@@ -12204,7 +12204,7 @@ POST	localhost:4566	/get-group-configuration	resource-groups				User-Agent:aws-s
 POST	localhost:4566	/get-group-configuration						ResourceGroups	ResourceGroups
 POST	localhost:4566	/get-group-query	resource-groups				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/resourcegroups#1.0.0	ResourceGroups	ResourceGroups
 POST	localhost:4566	/get-group-query						ResourceGroups	ResourceGroups
-GET	localhost:4566	/resources/xarn/tags	resource-groups				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/resourcegroups#1.0.0	Backup	Backup
+GET	localhost:4566	/resources/xarn/tags	resource-groups				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/resourcegroups#1.0.0	S3	S3
 GET	localhost:4566	/resources/xarn/tags						Backup	Backup
 POST	localhost:4566	/get-tag-sync-task	resource-groups				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/resourcegroups#1.0.0	ResourceGroups	ResourceGroups
 POST	localhost:4566	/get-tag-sync-task						ResourceGroups	ResourceGroups
@@ -12219,9 +12219,9 @@ POST	localhost:4566	/list-tag-sync-tasks	resource-groups				User-Agent:aws-sdk-g
 POST	localhost:4566	/put-group-configuration	resource-groups				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/resourcegroups#1.0.0	ResourceGroups	ResourceGroups
 POST	localhost:4566	/resources/search	resource-groups				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/resourcegroups#1.0.0	ResourceGroups	ResourceGroups
 POST	localhost:4566	/start-tag-sync-task	resource-groups				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/resourcegroups#1.0.0	ResourceGroups	ResourceGroups
-PUT	localhost:4566	/resources/xarn/tags	resource-groups				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/resourcegroups#1.0.0	Backup	Backup
+PUT	localhost:4566	/resources/xarn/tags	resource-groups				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/resourcegroups#1.0.0	S3	S3
 POST	localhost:4566	/ungroup-resources	resource-groups				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/resourcegroups#1.0.0	ResourceGroups	ResourceGroups
-PATCH	localhost:4566	/resources/xarn/tags	resource-groups				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/resourcegroups#1.0.0	Backup	Backup
+PATCH	localhost:4566	/resources/xarn/tags	resource-groups				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/resourcegroups#1.0.0	S3	S3
 POST	localhost:4566	/update-account-settings	resource-groups				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/resourcegroups#1.0.0	ResourceGroups	ResourceGroups
 POST	localhost:4566	/update-group	resource-groups				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/resourcegroups#1.0.0	ResourceGroups	ResourceGroups
 POST	localhost:4566	/update-group-query	resource-groups				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/resourcegroups#1.0.0	ResourceGroups	ResourceGroups
@@ -13413,22 +13413,22 @@ POST	sagemaker.us-east-1.amazonaws.com	/endpoints/xendpoi/invocations-response-s
 POST	localhost:4566	/endpoints/xendpoi/invocations-response-stream?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsagemaker%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sagemakerruntime#1.0.0	SageMakerRuntime	SageMakerRuntime
 POST	localhost:4566	/endpoints/xendpoi/invocations-response-stream						SageMakerRuntime	SageMakerRuntime
 POST	localhost:4566	/schedules/xname	scheduler				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	Scheduler	Scheduler
-POST	localhost:4566	/schedules/xname	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	Scheduler	Scheduler
+POST	localhost:4566	/schedules/xname	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	S3	S3
 POST	scheduler.us-east-1.amazonaws.com	/schedules/xname	scheduler				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	Scheduler	Scheduler
 POST	localhost:4566	/schedules/xname?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fscheduler%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	Scheduler	Scheduler
 POST	localhost:4566	/schedules/xname						Scheduler	Scheduler
 POST	localhost:4566	/schedule-groups/xname	scheduler				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	Scheduler	Scheduler
-POST	localhost:4566	/schedule-groups/xname	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	Scheduler	Scheduler
+POST	localhost:4566	/schedule-groups/xname	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	S3	S3
 POST	scheduler.us-east-1.amazonaws.com	/schedule-groups/xname	scheduler				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	Scheduler	Scheduler
 POST	localhost:4566	/schedule-groups/xname?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fscheduler%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	Scheduler	Scheduler
 POST	localhost:4566	/schedule-groups/xname						Scheduler	Scheduler
 DELETE	localhost:4566	/schedules/xname	scheduler				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	Scheduler	Scheduler
-DELETE	localhost:4566	/schedules/xname	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	Scheduler	Scheduler
+DELETE	localhost:4566	/schedules/xname	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	S3	S3
 DELETE	scheduler.us-east-1.amazonaws.com	/schedules/xname	scheduler				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	Scheduler	Scheduler
 DELETE	localhost:4566	/schedules/xname?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fscheduler%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	Scheduler	Scheduler
 DELETE	localhost:4566	/schedules/xname						Scheduler	Scheduler
 DELETE	localhost:4566	/schedule-groups/xname	scheduler				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	Scheduler	Scheduler
-DELETE	localhost:4566	/schedule-groups/xname	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	Scheduler	Scheduler
+DELETE	localhost:4566	/schedule-groups/xname	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	S3	S3
 DELETE	scheduler.us-east-1.amazonaws.com	/schedule-groups/xname	scheduler				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	Scheduler	Scheduler
 DELETE	localhost:4566	/schedule-groups/xname?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fscheduler%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/scheduler#1.0.0	Scheduler	Scheduler
 DELETE	localhost:4566	/schedule-groups/xname						Scheduler	Scheduler
@@ -13558,23 +13558,23 @@ POST	localhost:4566	/		application/x-amz-json-1.1	secretsmanager.UntagResource	{
 POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	secretsmanager.UpdateSecret	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	SecretsManager	SecretsManager
 POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	secretsmanager.UpdateSecretVersionStage	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	SecretsManager	SecretsManager
 POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	secretsmanager.ValidateResourcePolicy	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	SecretsManager	SecretsManager
-POST	localhost:4566	/administrator	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	Macie2	Macie2
-POST	localhost:4566	/administrator	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	Macie2	Macie2
-POST	securityhub.us-east-1.amazonaws.com	/administrator	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	Macie2	Macie2
-POST	localhost:4566	/administrator?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsecurityhub%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	Macie2	Macie2
+POST	localhost:4566	/administrator	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
+POST	localhost:4566	/administrator	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	S3	S3
+POST	securityhub.us-east-1.amazonaws.com	/administrator	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
+POST	localhost:4566	/administrator?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsecurityhub%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 POST	localhost:4566	/administrator						Macie2	Macie2
-POST	localhost:4566	/master	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	Macie2	Macie2
-POST	localhost:4566	/master	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	Macie2	Macie2
-POST	securityhub.us-east-1.amazonaws.com	/master	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	Macie2	Macie2
-POST	localhost:4566	/master?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsecurityhub%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	Macie2	Macie2
+POST	localhost:4566	/master	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
+POST	localhost:4566	/master	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	S3	S3
+POST	securityhub.us-east-1.amazonaws.com	/master	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
+POST	localhost:4566	/master?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsecurityhub%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 POST	localhost:4566	/master						Macie2	Macie2
 POST	localhost:4566	/automationrules/delete	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
-POST	localhost:4566	/automationrules/delete	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
+POST	localhost:4566	/automationrules/delete	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	S3	S3
 POST	securityhub.us-east-1.amazonaws.com	/automationrules/delete	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 POST	localhost:4566	/automationrules/delete?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsecurityhub%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 POST	localhost:4566	/automationrules/delete						SecurityHub	SecurityHub
 POST	localhost:4566	/standards/deregister	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
-POST	localhost:4566	/standards/deregister	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
+POST	localhost:4566	/standards/deregister	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	S3	S3
 POST	securityhub.us-east-1.amazonaws.com	/standards/deregister	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 POST	localhost:4566	/standards/deregister?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsecurityhub%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 POST	localhost:4566	/standards/deregister						SecurityHub	SecurityHub
@@ -13607,7 +13607,7 @@ POST	localhost:4566	/findingAggregator/create	securityhub				User-Agent:aws-sdk-
 POST	localhost:4566	/insights	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 POST	localhost:4566	/members	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 POST	localhost:4566	/ticketsv2	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
-POST	localhost:4566	/invitations/decline	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	GuardDuty	GuardDuty
+POST	localhost:4566	/invitations/decline	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 DELETE	localhost:4566	/actionTargets/a/b	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 DELETE	localhost:4566	/aggregatorv2/delete/a/b	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 DELETE	localhost:4566	/automationrulesv2/xidenti	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
@@ -13616,7 +13616,7 @@ DELETE	localhost:4566	/connectors/a/b	securityhub				User-Agent:aws-sdk-go-v2/1.
 DELETE	localhost:4566	/connectorsv2/a/b	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 DELETE	localhost:4566	/findingAggregator/delete/a/b	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 DELETE	localhost:4566	/insights/a/b	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
-POST	localhost:4566	/invitations/delete	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	GuardDuty	GuardDuty
+POST	localhost:4566	/invitations/delete	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 POST	localhost:4566	/members/delete	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 POST	localhost:4566	/actionTargets/get	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 GET	localhost:4566	/accounts	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
@@ -13631,8 +13631,8 @@ POST	localhost:4566	/organization/admin/disable	securityhub				User-Agent:aws-sd
 DELETE	localhost:4566	/accounts	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 DELETE	localhost:4566	/hubv2/feature/xfeatur	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 DELETE	localhost:4566	/hubv2	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
-POST	localhost:4566	/administrator/disassociate	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	Macie2	Macie2
-POST	localhost:4566	/master/disassociate	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	Macie2	Macie2
+POST	localhost:4566	/administrator/disassociate	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
+POST	localhost:4566	/master/disassociate	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 POST	localhost:4566	/members/disassociate	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 POST	localhost:4566	/productSubscriptions	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 POST	localhost:4566	/organization/admin/enable	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
@@ -13640,7 +13640,7 @@ POST	localhost:4566	/accounts	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/
 POST	localhost:4566	/hubv2/feature/xfeatur	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 POST	localhost:4566	/hubv2	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 POST	localhost:4566	/recommendedPolicyV2/xmetada	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
-GET	localhost:4566	/administrator	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	Macie2	Macie2
+GET	localhost:4566	/administrator	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 GET	localhost:4566	/aggregatorv2/get/a/b	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 GET	localhost:4566	/automationrulesv2/xidenti	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 GET	localhost:4566	/configurationPolicy/get/xidenti	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
@@ -13656,8 +13656,8 @@ POST	localhost:4566	/findingsTrendsv2	securityhub				User-Agent:aws-sdk-go-v2/1.
 POST	localhost:4566	/findingsv2	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 GET	localhost:4566	/insights/results/a/b	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 POST	localhost:4566	/insights/get	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
-GET	localhost:4566	/invitations/count	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	GuardDuty	GuardDuty
-GET	localhost:4566	/master	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	Macie2	Macie2
+GET	localhost:4566	/invitations/count	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
+GET	localhost:4566	/master	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 POST	localhost:4566	/members/get	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 GET	localhost:4566	/recommendedPolicyV2/xmetada	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 POST	localhost:4566	/resourcesv2/statistics	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
@@ -13674,7 +13674,7 @@ GET	localhost:4566	/connectors	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua
 GET	localhost:4566	/connectorsv2	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 GET	localhost:4566	/productSubscriptions	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 GET	localhost:4566	/findingAggregator/list	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
-GET	localhost:4566	/invitations	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	GuardDuty	GuardDuty
+GET	localhost:4566	/invitations	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 GET	localhost:4566	/members	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 GET	localhost:4566	/organization/admin	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
 GET	localhost:4566	/securityControls/definitions	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
@@ -14184,15 +14184,15 @@ POST	localhost:4566	/	shield	application/x-amz-json-1.1	AWSShield_20160616.Updat
 POST	localhost:4566	/	shield	application/x-amz-json-1.1	AWSShield_20160616.UpdateEmergencyContactSettings	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/shield#1.0.0	Shield	Shield
 POST	localhost:4566	/	shield	application/x-amz-json-1.1	AWSShield_20160616.UpdateProtectionGroup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/shield#1.0.0	Shield	Shield
 POST	localhost:4566	/	shield	application/x-amz-json-1.1	AWSShield_20160616.UpdateSubscription	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/shield#1.0.0	Shield	Shield
-POST	localhost:4566	/v1/token	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Batch	Batch
-POST	localhost:4566	/v1/token	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Batch	Batch
-POST	signin.us-east-1.amazonaws.com	/v1/token	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Batch	Batch
-POST	localhost:4566	/v1/token?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsignin%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/token	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
+POST	localhost:4566	/v1/token	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
+POST	signin.us-east-1.amazonaws.com	/v1/token	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
+POST	localhost:4566	/v1/token?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsignin%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
 POST	localhost:4566	/v1/token						Batch	Batch
-POST	localhost:4566	/v1/token?x-amz-client-auth-method=iam	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Batch	Batch
-POST	localhost:4566	/v1/token?x-amz-client-auth-method=iam	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Batch	Batch
-POST	signin.us-east-1.amazonaws.com	/v1/token?x-amz-client-auth-method=iam	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Batch	Batch
-POST	localhost:4566	/v1/token?x-amz-client-auth-method=iam&X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsignin%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/token?x-amz-client-auth-method=iam	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
+POST	localhost:4566	/v1/token?x-amz-client-auth-method=iam	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
+POST	signin.us-east-1.amazonaws.com	/v1/token?x-amz-client-auth-method=iam	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
+POST	localhost:4566	/v1/token?x-amz-client-auth-method=iam&X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsignin%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
 POST	localhost:4566	/v1/token?x-amz-client-auth-method=iam						Batch	Batch
 POST	localhost:4566	/delete-console-authorization-configuration	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
 POST	localhost:4566	/delete-console-authorization-configuration	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
@@ -14208,7 +14208,7 @@ POST	localhost:4566	/get-console-authorization-configuration	signin				User-Agen
 POST	localhost:4566	/get-console-authorization-configuration						S3	S3
 POST	localhost:4566	/get-resource-policy	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
 POST	localhost:4566	/get-resource-policy						S3	S3
-POST	localhost:4566	/v1/introspect?x-amz-client-auth-method=iam	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/introspect?x-amz-client-auth-method=iam	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
 POST	localhost:4566	/v1/introspect?x-amz-client-auth-method=iam						Batch	Batch
 POST	localhost:4566	/list-resource-permission-statements	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
 POST	localhost:4566	/list-resource-permission-statements						S3	S3
@@ -14216,7 +14216,7 @@ POST	localhost:4566	/put-console-authorization-configuration	signin				User-Agen
 POST	localhost:4566	/put-console-authorization-configuration						S3	S3
 POST	localhost:4566	/put-resource-permission-statement	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
 POST	localhost:4566	/put-resource-permission-statement						S3	S3
-POST	localhost:4566	/v1/revoke?x-amz-client-auth-method=iam	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/revoke?x-amz-client-auth-method=iam	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
 POST	localhost:4566	/v1/revoke?x-amz-client-auth-method=iam						Batch	Batch
 POST	localhost:4566	/	sns	application/x-www-form-urlencoded		Action=AddPermission&Version=2010-03-31	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sns#1.0.0	SNS	SNS
 POST	localhost:4566	/		application/x-www-form-urlencoded		Action=AddPermission&Version=2010-03-31		SNS	SNS
@@ -14541,26 +14541,26 @@ POST	localhost:4566	/	ssm	application/x-amz-json-1.1	AmazonSSM.UpdatePatchBaseli
 POST	localhost:4566	/	ssm	application/x-amz-json-1.1	AmazonSSM.UpdateResourceDataSync	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssm#1.0.0	SSM	SSM
 POST	localhost:4566	/	ssm	application/x-amz-json-1.1	AmazonSSM.UpdateServiceSetting	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssm#1.0.0	SSM	SSM
 POST	localhost:4566	/	ssm	application/x-amz-json-1.1	AmazonSSM.ValidateCloudConnector	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssm#1.0.0	SSM	SSM
-GET	localhost:4566	/federation/credentials	awsssoportal				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	localhost:4566	/federation/credentials	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	awsssoportal.us-east-1.amazonaws.com	/federation/credentials	awsssoportal				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	localhost:4566	/federation/credentials?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fawsssoportal%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	localhost:4566	/federation/credentials						S3	S3
-GET	localhost:4566	/assignment/roles	awsssoportal				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	localhost:4566	/assignment/roles	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	awsssoportal.us-east-1.amazonaws.com	/assignment/roles	awsssoportal				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	localhost:4566	/assignment/roles?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fawsssoportal%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	localhost:4566	/assignment/roles						S3	S3
-GET	localhost:4566	/assignment/accounts	awsssoportal				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	localhost:4566	/assignment/accounts	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	awsssoportal.us-east-1.amazonaws.com	/assignment/accounts	awsssoportal				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	localhost:4566	/assignment/accounts?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fawsssoportal%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-GET	localhost:4566	/assignment/accounts						S3	S3
-POST	localhost:4566	/logout	awsssoportal				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-POST	localhost:4566	/logout	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-POST	awsssoportal.us-east-1.amazonaws.com	/logout	awsssoportal				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-POST	localhost:4566	/logout?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fawsssoportal%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
-POST	localhost:4566	/logout						S3	S3
+GET	localhost:4566	/federation/credentials	awsssoportal				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+GET	localhost:4566	/federation/credentials	execute-api				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
+GET	awsssoportal.us-east-1.amazonaws.com	/federation/credentials	awsssoportal				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+GET	localhost:4566	/federation/credentials?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fawsssoportal%2Faws4_request&X-Amz-Signature=00					X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+GET	localhost:4566	/federation/credentials					X-Amz-Sso_bearer_token:token	SSOPortal	SSOPortal
+GET	localhost:4566	/assignment/roles	awsssoportal				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+GET	localhost:4566	/assignment/roles	execute-api				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
+GET	awsssoportal.us-east-1.amazonaws.com	/assignment/roles	awsssoportal				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+GET	localhost:4566	/assignment/roles?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fawsssoportal%2Faws4_request&X-Amz-Signature=00					X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+GET	localhost:4566	/assignment/roles					X-Amz-Sso_bearer_token:token	SSOPortal	SSOPortal
+GET	localhost:4566	/assignment/accounts	awsssoportal				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+GET	localhost:4566	/assignment/accounts	execute-api				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
+GET	awsssoportal.us-east-1.amazonaws.com	/assignment/accounts	awsssoportal				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+GET	localhost:4566	/assignment/accounts?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fawsssoportal%2Faws4_request&X-Amz-Signature=00					X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+GET	localhost:4566	/assignment/accounts					X-Amz-Sso_bearer_token:token	SSOPortal	SSOPortal
+POST	localhost:4566	/logout	awsssoportal				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+POST	localhost:4566	/logout	execute-api				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	S3	S3
+POST	awsssoportal.us-east-1.amazonaws.com	/logout	awsssoportal				X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+POST	localhost:4566	/logout?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fawsssoportal%2Faws4_request&X-Amz-Signature=00					X-Amz-Sso_bearer_token:token;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sso#1.0.0	SSOPortal	SSOPortal
+POST	localhost:4566	/logout					X-Amz-Sso_bearer_token:token	SSOPortal	SSOPortal
 POST	localhost:4566	/	sso	application/x-amz-json-1.1	SWBExternalService.AddRegion	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssoadmin#1.0.0	SsoAdmin	SsoAdmin
 POST	localhost:4566	/		application/x-amz-json-1.1	SWBExternalService.AddRegion	{}		SsoAdmin	SsoAdmin
 POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	SWBExternalService.AddRegion	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssoadmin#1.0.0	SsoAdmin	SsoAdmin
@@ -14672,26 +14672,26 @@ POST	localhost:4566	/	sso	application/x-amz-json-1.1	SWBExternalService.UpdateIn
 POST	localhost:4566	/	sso	application/x-amz-json-1.1	SWBExternalService.UpdateInstanceAccessControlAttributeConfiguration	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssoadmin#1.0.0	SsoAdmin	SsoAdmin
 POST	localhost:4566	/	sso	application/x-amz-json-1.1	SWBExternalService.UpdatePermissionSet	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssoadmin#1.0.0	SsoAdmin	SsoAdmin
 POST	localhost:4566	/	sso	application/x-amz-json-1.1	SWBExternalService.UpdateTrustedTokenIssuer	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssoadmin#1.0.0	SsoAdmin	SsoAdmin
-POST	localhost:4566	/token	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
+POST	localhost:4566	/token	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	SSOOIDC	SSOOIDC
 POST	localhost:4566	/token	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
-POST	sso-oauth.us-east-1.amazonaws.com	/token	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
+POST	sso-oauth.us-east-1.amazonaws.com	/token	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	SSOOIDC	SSOOIDC
 POST	localhost:4566	/token?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsso-oauth%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
-POST	localhost:4566	/token						S3	S3
-POST	localhost:4566	/token?aws_iam=t	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
+POST	localhost:4566	/token						SSOOIDC	SSOOIDC
+POST	localhost:4566	/token?aws_iam=t	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	SSOOIDC	SSOOIDC
 POST	localhost:4566	/token?aws_iam=t	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
-POST	sso-oauth.us-east-1.amazonaws.com	/token?aws_iam=t	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
+POST	sso-oauth.us-east-1.amazonaws.com	/token?aws_iam=t	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	SSOOIDC	SSOOIDC
 POST	localhost:4566	/token?aws_iam=t&X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsso-oauth%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
-POST	localhost:4566	/token?aws_iam=t						S3	S3
-POST	localhost:4566	/client/register	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
+POST	localhost:4566	/token?aws_iam=t						SSOOIDC	SSOOIDC
+POST	localhost:4566	/client/register	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	SSOOIDC	SSOOIDC
 POST	localhost:4566	/client/register	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
-POST	sso-oauth.us-east-1.amazonaws.com	/client/register	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
+POST	sso-oauth.us-east-1.amazonaws.com	/client/register	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	SSOOIDC	SSOOIDC
 POST	localhost:4566	/client/register?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsso-oauth%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
-POST	localhost:4566	/client/register						S3	S3
-POST	localhost:4566	/device_authorization	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
+POST	localhost:4566	/client/register						SSOOIDC	SSOOIDC
+POST	localhost:4566	/device_authorization	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	SSOOIDC	SSOOIDC
 POST	localhost:4566	/device_authorization	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
-POST	sso-oauth.us-east-1.amazonaws.com	/device_authorization	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
+POST	sso-oauth.us-east-1.amazonaws.com	/device_authorization	sso-oauth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	SSOOIDC	SSOOIDC
 POST	localhost:4566	/device_authorization?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsso-oauth%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ssooidc#1.0.0	S3	S3
-POST	localhost:4566	/device_authorization						S3	S3
+POST	localhost:4566	/device_authorization						SSOOIDC	SSOOIDC
 POST	localhost:4566	/	sts	application/x-www-form-urlencoded		Action=AssumeRole&Version=2011-06-15	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sts#1.0.0	STS	STS
 POST	localhost:4566	/		application/x-www-form-urlencoded		Action=AssumeRole&Version=2011-06-15		STS	STS
 GET	localhost:4566	/?Action=AssumeRole&Version=2011-06-15	sts				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sts#1.0.0	S3	S3

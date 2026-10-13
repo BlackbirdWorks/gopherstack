@@ -303,7 +303,7 @@ func TestAssociateVpcCidrBlock_ResponseShape(t *testing.T) {
 		cidr string
 	}{
 		{name: "ipv4_secondary", cidr: "100.64.0.0/16"},
-		{name: "ipv4_rfc1918", cidr: "172.31.0.0/16"},
+		{name: "ipv4_rfc1918", cidr: "10.2.0.0/16"},
 	}
 
 	for _, tt := range tests {

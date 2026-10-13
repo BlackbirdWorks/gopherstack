@@ -14,6 +14,9 @@ var ErrLambdaUnavailable = errors.New("ServiceException")
 // ErrInvalidParameterValue is returned when a request parameter has an invalid value.
 var ErrInvalidParameterValue = errors.New("InvalidParameterValueException")
 
+// ErrESMAlreadyExists is returned when a mapping for the same function and event source exists.
+var ErrESMAlreadyExists = errors.New("ResourceConflictException")
+
 // ErrESMNotFound is returned when an event source mapping UUID is not found.
 var ErrESMNotFound = errors.New("ResourceNotFoundException")
 

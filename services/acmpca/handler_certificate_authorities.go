@@ -448,7 +448,7 @@ func toCAOutput(ca *CertificateAuthority) certAuthorityOutput {
 		Arn:                        ca.ARN,
 		OwnerAccount:               ca.OwnerAccount,
 		Type:                       ca.Type,
-		Status:                     ca.Status,
+		Status:                     ca.currentStatus(),
 		Serial:                     ca.Serial,
 		KeyStorageSecurityStandard: ca.KeyStorageSecurityStandard,
 		UsageMode:                  ca.UsageMode,

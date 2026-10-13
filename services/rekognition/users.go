@@ -71,12 +71,8 @@ func (b *InMemoryBackend) ListUsers(
 
 	start := 0
 	if nextToken != "" {
-		for i, u := range group {
-			if u.UserID == nextToken {
-				start = i
-
-				break
-			}
+		if start = slices.IndexFunc(group, func(u *storedUser) bool { return u.UserID == nextToken }); start < 0 {
+			return nil, "", ErrInvalidPaginationToken
 		}
 	}
 

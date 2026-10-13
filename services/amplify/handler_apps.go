@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/labstack/echo/v5"
 
@@ -145,13 +144,9 @@ func (h *Handler) getApp(ctx context.Context, c *echo.Context, appID string) err
 // listApps handles GET /apps.
 func (h *Handler) listApps(ctx context.Context, c *echo.Context) error {
 	q := c.Request().URL.Query()
-	nextToken := q.Get("nextToken")
-
-	maxResults := 0
-	if s := q.Get("maxResults"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			maxResults = n
-		}
+	nextToken, maxResults, argErr := listPageArgs(q)
+	if argErr != nil {
+		return amplifyErrorJSON(c, http.StatusBadRequest, argErr.Error())
 	}
 
 	apps, outToken, err := h.Backend.ListApps(nextToken, maxResults)

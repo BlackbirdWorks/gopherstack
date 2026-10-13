@@ -8,13 +8,7 @@ import (
 )
 
 func (h *Handler) handleReplaceRoute(vals url.Values, reqID string) (any, error) {
-	rtID := vals.Get("RouteTableId")
-	destCIDR := vals.Get("DestinationCidrBlock")
-	gatewayID := vals.Get("GatewayId")
-	natGatewayID := vals.Get("NatGatewayId")
-	localTarget, _ := strconv.ParseBool(vals.Get("LocalTarget"))
-
-	if err := h.Backend.ReplaceRoute(rtID, destCIDR, gatewayID, natGatewayID, localTarget); err != nil {
+	if err := h.Backend.ReplaceRouteSpec(vals.Get("RouteTableId"), routeSpecFromVals(vals)); err != nil {
 		return nil, err
 	}
 
@@ -39,10 +33,43 @@ func routeTablesSupportedOperations() []string {
 }
 
 type routeItem struct {
-	DestinationCIDR string `xml:"destinationCidrBlock"`
-	GatewayID       string `xml:"gatewayId,omitempty"`
-	NatGatewayID    string `xml:"natGatewayId,omitempty"`
-	State           string `xml:"state"`
+	DestinationCIDR             string `xml:"destinationCidrBlock,omitempty"`
+	DestinationIPv6CIDR         string `xml:"destinationIpv6CidrBlock,omitempty"`
+	DestinationPrefixListID     string `xml:"destinationPrefixListId,omitempty"`
+	GatewayID                   string `xml:"gatewayId,omitempty"`
+	NatGatewayID                string `xml:"natGatewayId,omitempty"`
+	InstanceID                  string `xml:"instanceId,omitempty"`
+	NetworkInterfaceID          string `xml:"networkInterfaceId,omitempty"`
+	VpcPeeringConnectionID      string `xml:"vpcPeeringConnectionId,omitempty"`
+	TransitGatewayID            string `xml:"transitGatewayId,omitempty"`
+	EgressOnlyInternetGatewayID string `xml:"egressOnlyInternetGatewayId,omitempty"`
+	LocalGatewayID              string `xml:"localGatewayId,omitempty"`
+	CarrierGatewayID            string `xml:"carrierGatewayId,omitempty"`
+	CoreNetworkArn              string `xml:"coreNetworkArn,omitempty"`
+	Origin                      string `xml:"origin,omitempty"`
+	State                       string `xml:"state"`
+}
+
+func routeSpecFromVals(vals url.Values) RouteSpec {
+	localTarget, _ := strconv.ParseBool(vals.Get("LocalTarget"))
+
+	return RouteSpec{
+		DestinationCIDR:             vals.Get("DestinationCidrBlock"),
+		DestinationIPv6CIDR:         vals.Get("DestinationIpv6CidrBlock"),
+		DestinationPrefixListID:     vals.Get("DestinationPrefixListId"),
+		GatewayID:                   vals.Get("GatewayId"),
+		NatGatewayID:                vals.Get("NatGatewayId"),
+		InstanceID:                  vals.Get("InstanceId"),
+		NetworkInterfaceID:          vals.Get("NetworkInterfaceId"),
+		VpcPeeringConnectionID:      vals.Get("VpcPeeringConnectionId"),
+		TransitGatewayID:            vals.Get("TransitGatewayId"),
+		EgressOnlyInternetGatewayID: vals.Get("EgressOnlyInternetGatewayId"),
+		VpcEndpointID:               vals.Get("VpcEndpointId"),
+		LocalGatewayID:              vals.Get("LocalGatewayId"),
+		CarrierGatewayID:            vals.Get("CarrierGatewayId"),
+		CoreNetworkArn:              vals.Get("CoreNetworkArn"),
+		LocalTarget:                 localTarget,
+	}
 }
 
 type routeSet struct {
@@ -130,7 +157,23 @@ type disassociateRouteTableResponse struct {
 func toRouteTableItem(rt *RouteTable, tags map[string]string, propagatingVgws []string) routeTableItem {
 	routes := make([]routeItem, 0, len(rt.Routes))
 	for _, r := range rt.Routes {
-		routes = append(routes, routeItem(r))
+		routes = append(routes, routeItem{
+			DestinationCIDR:             r.DestinationCIDR,
+			DestinationIPv6CIDR:         r.DestinationIPv6CIDR,
+			DestinationPrefixListID:     r.DestinationPrefixListID,
+			GatewayID:                   r.GatewayID,
+			NatGatewayID:                r.NatGatewayID,
+			InstanceID:                  r.InstanceID,
+			NetworkInterfaceID:          r.NetworkInterfaceID,
+			VpcPeeringConnectionID:      r.VpcPeeringConnectionID,
+			TransitGatewayID:            r.TransitGatewayID,
+			EgressOnlyInternetGatewayID: r.EgressOnlyInternetGatewayID,
+			LocalGatewayID:              r.LocalGatewayID,
+			CarrierGatewayID:            r.CarrierGatewayID,
+			CoreNetworkArn:              r.CoreNetworkArn,
+			Origin:                      r.Origin,
+			State:                       r.State,
+		})
 	}
 
 	assocs := make([]assocItem, 0, len(rt.Associations))
@@ -228,18 +271,11 @@ func (h *Handler) handleDescribeRouteTables(vals url.Values, reqID string) (any,
 
 func (h *Handler) handleCreateRoute(vals url.Values, reqID string) (any, error) {
 	rtID := vals.Get("RouteTableId")
-	destCIDR := vals.Get("DestinationCidrBlock")
-	gatewayID := vals.Get("GatewayId")
-	natGatewayID := vals.Get("NatGatewayId")
-
-	if rtID == "" || destCIDR == "" {
-		return nil, fmt.Errorf(
-			"%w: RouteTableId and DestinationCidrBlock are required",
-			ErrInvalidParameter,
-		)
+	if rtID == "" {
+		return nil, fmt.Errorf("%w: RouteTableId is required", ErrInvalidParameter)
 	}
 
-	if err := h.Backend.CreateRoute(rtID, destCIDR, gatewayID, natGatewayID); err != nil {
+	if err := h.Backend.CreateRouteSpec(rtID, routeSpecFromVals(vals)); err != nil {
 		return nil, err
 	}
 
@@ -252,16 +288,11 @@ func (h *Handler) handleCreateRoute(vals url.Values, reqID string) (any, error) 
 
 func (h *Handler) handleDeleteRoute(vals url.Values, reqID string) (any, error) {
 	rtID := vals.Get("RouteTableId")
-	destCIDR := vals.Get("DestinationCidrBlock")
-
-	if rtID == "" || destCIDR == "" {
-		return nil, fmt.Errorf(
-			"%w: RouteTableId and DestinationCidrBlock are required",
-			ErrInvalidParameter,
-		)
+	if rtID == "" {
+		return nil, fmt.Errorf("%w: RouteTableId is required", ErrInvalidParameter)
 	}
 
-	if err := h.Backend.DeleteRoute(rtID, destCIDR); err != nil {
+	if err := h.Backend.DeleteRouteSpec(rtID, routeSpecFromVals(vals)); err != nil {
 		return nil, err
 	}
 

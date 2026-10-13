@@ -67,6 +67,22 @@ func validateLanguagePair(sourceLang string, targetLangs []string) error {
 	return nil
 }
 
+func validateStartJobRequest(jobName string, inputCfg, outputCfg map[string]any) error {
+	if err := validateJobName(jobName); err != nil {
+		return err
+	}
+
+	if err := validateS3URI("InputDataConfig.S3Uri", strField(inputCfg, "S3Uri")); err != nil {
+		return err
+	}
+
+	if err := validateInputContentType(strField(inputCfg, "ContentType")); err != nil {
+		return err
+	}
+
+	return validateS3URI("OutputDataConfig.S3Uri", strField(outputCfg, "S3Uri"))
+}
+
 func (h *Handler) startTextTranslationJob(input map[string]any) (map[string]any, error) {
 	jobName, _ := input["JobName"].(string)
 	dataAccessRoleARN, _ := input["DataAccessRoleArn"].(string)
@@ -88,6 +104,10 @@ func (h *Handler) startTextTranslationJob(input map[string]any) (map[string]any,
 	}
 
 	if err := validateLanguagePair(sourceLang, targetLangs); err != nil {
+		return nil, err
+	}
+
+	if err := validateStartJobRequest(jobName, inputCfg, outputCfg); err != nil {
 		return nil, err
 	}
 
@@ -228,6 +248,10 @@ func textTranslationJobFilterFromMap(f map[string]any) (TextTranslationJobFilter
 }
 
 func (h *Handler) listTextTranslationJobs(input map[string]any) (map[string]any, error) {
+	if err := validateListMaxResults(input); err != nil {
+		return nil, err
+	}
+
 	maxResults := maxResultsField(input)
 	nextToken, _ := input["NextToken"].(string)
 
@@ -269,11 +293,12 @@ func jobToMap(job *TranslationJob) map[string]any {
 		keySourceLanguageCode:  job.SourceLanguage,
 		keyTargetLanguageCodes: job.TargetLanguages,
 		"SubmittedTime":        awstime.Epoch(job.SubmittedAt),
-		"JobDetails": map[string]any{
-			"TranslatedDocumentsCount": 0,
-			"DocumentsWithErrorsCount": 0,
-			"InputDocumentsCount":      0,
-		},
+	}
+
+	m["JobDetails"] = map[string]any{
+		"TranslatedDocumentsCount": job.TranslatedDocumentsCount,
+		"DocumentsWithErrorsCount": job.DocumentsWithErrorsCount,
+		"InputDocumentsCount":      job.InputDocumentsCount,
 	}
 
 	if !job.EndAt.IsZero() {

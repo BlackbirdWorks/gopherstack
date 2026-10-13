@@ -557,7 +557,9 @@ type StorageBackend interface {
 	) ([]*AssetBundleExportJob, string, error)
 
 	// Asset bundle import jobs
-	StartAssetBundleImportJob(accountID, jobID, failureAction string) (*AssetBundleImportJob, error)
+	StartAssetBundleImportJob(
+		accountID, jobID, failureAction string, overrides map[string]any,
+	) (*AssetBundleImportJob, error)
 	DescribeAssetBundleImportJob(accountID, jobID string) (*AssetBundleImportJob, error)
 	ListAssetBundleImportJobs(
 		accountID string,

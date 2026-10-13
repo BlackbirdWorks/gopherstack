@@ -73,4 +73,5 @@ func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend) {
 	b.instanceTypeResolver = home.instanceTypeResolver
 	b.elbv2Registrar = home.elbv2Registrar
 	b.elbRegistrar = home.elbRegistrar
+	b.ec2Lookup = home.ec2Lookup
 }

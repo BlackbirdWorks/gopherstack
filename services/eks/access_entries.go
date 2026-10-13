@@ -3,6 +3,7 @@ package eks
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -19,7 +20,12 @@ func (b *InMemoryBackend) CreateAccessEntry(
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
+	}
+
+	if entryType != "" && entryType != "STANDARD" && !strings.Contains(principalARN, ":role/") {
+		return nil, errMsgf(ErrValidation,
+			"The principalArn for an access entry of type %s must be an IAM role ARN.", entryType)
 	}
 
 	if _, ok := b.accessEntries.Get(accessEntryKey(clusterName, principalARN)); ok {
@@ -75,7 +81,7 @@ func (b *InMemoryBackend) DeleteAccessEntry(clusterName, principalARN string) er
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	entry, ok := b.accessEntries.Get(accessEntryKey(clusterName, principalARN))
@@ -99,7 +105,7 @@ func (b *InMemoryBackend) DescribeAccessEntry(clusterName, principalARN string) 
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	entry, ok := b.accessEntries.Get(accessEntryKey(clusterName, principalARN))
@@ -123,7 +129,7 @@ func (b *InMemoryBackend) ListAccessEntries(clusterName string) ([]string, error
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	items := b.accessEntriesByCluster.Get(clusterName)
@@ -153,7 +159,7 @@ func (b *InMemoryBackend) UpdateAccessEntry(
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	entry, ok := b.accessEntries.Get(accessEntryKey(clusterName, principalARN))
@@ -212,7 +218,7 @@ func (b *InMemoryBackend) AssociateAccessPolicy(
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	if _, ok := b.accessEntries.Get(accessEntryKey(clusterName, principalARN)); !ok {
@@ -269,7 +275,7 @@ func (b *InMemoryBackend) ListAssociatedAccessPolicies(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	if _, ok := b.accessEntries.Get(accessEntryKey(clusterName, principalARN)); !ok {
@@ -298,7 +304,7 @@ func (b *InMemoryBackend) DisassociateAccessPolicy(clusterName, principalARN, po
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	if _, ok := b.accessEntries.Get(accessEntryKey(clusterName, principalARN)); !ok {

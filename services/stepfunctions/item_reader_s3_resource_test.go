@@ -300,18 +300,61 @@ func TestItemReader_S3Manifest(t *testing.T) {
 		assert.Equal(t, "csvDataset/titles.csv", items[0]["Key"])
 	})
 
-	t.Run("ManifestType ATHENA_DATA is a recorded gap", func(t *testing.T) {
+	t.Run("ManifestType ATHENA_DATA reads each listed data file", func(t *testing.T) {
 		t.Parallel()
 
 		const bucket = "athena-bucket"
 
 		s3Bk := newBucketBackedS3(t, bucket)
-		putS3Object(t, s3Bk, bucket, "athena/manifest.csv", []byte("s3://athena-bucket/data/f1.csv\n"))
+		putS3Object(t, s3Bk, bucket, "data/f1.jsonl", []byte(`{"id":1}`+"\n"+`{"id":2}`+"\n"))
+		putS3Object(t, s3Bk, bucket, "data/f2.jsonl.gz", gzipBytes(t, []byte(`{"id":3}`+"\n")))
+		putS3Object(t, s3Bk, bucket, "athena/manifest.csv", []byte(
+			"s3://athena-bucket/data/f1.jsonl\n\"s3://athena-bucket/data/f2.jsonl.gz\"\n"))
 
 		itemReader := `{
 			"Resource": "arn:aws:states:::s3:getObject",
-			"ReaderConfig": {"ManifestType": "ATHENA_DATA", "InputType": "CSV"},
+			"ReaderConfig": {"ManifestType": "ATHENA_DATA", "InputType": "JSONL"},
 			"Parameters": {"Bucket": "` + bucket + `", "Key": "athena/manifest.csv"}
+		}`
+
+		status, output, errCode, cause := runItemReaderExecution(t, s3Bk, itemReader)
+		require.Equal(t, sfntypes.ExecutionStatusSucceeded, status, "error=%s cause=%s", errCode, cause)
+		assert.JSONEq(t, `[{"id":1},{"id":2},{"id":3}]`, output)
+	})
+
+	t.Run("ManifestType ATHENA_DATA CSV with given headers", func(t *testing.T) {
+		t.Parallel()
+
+		const bucket = "athena-csv"
+
+		s3Bk := newBucketBackedS3(t, bucket)
+		putS3Object(t, s3Bk, bucket, "data/f1.csv", []byte("1,a\n2,b\n"))
+		putS3Object(t, s3Bk, bucket, "m.csv", []byte("s3://athena-csv/data/f1.csv\n"))
+
+		itemReader := `{
+			"Resource": "arn:aws:states:::s3:getObject",
+			"ReaderConfig": {"ManifestType": "ATHENA_DATA", "InputType": "CSV",
+				"CSVHeaderLocation": "GIVEN", "CSVHeaders": ["n", "s"]},
+			"Parameters": {"Bucket": "` + bucket + `", "Key": "m.csv"}
+		}`
+
+		status, output, errCode, cause := runItemReaderExecution(t, s3Bk, itemReader)
+		require.Equal(t, sfntypes.ExecutionStatusSucceeded, status, "error=%s cause=%s", errCode, cause)
+		assert.JSONEq(t, `[{"n":"1","s":"a"},{"n":"2","s":"b"}]`, output)
+	})
+
+	t.Run("ManifestType ATHENA_DATA without InputType fails", func(t *testing.T) {
+		t.Parallel()
+
+		const bucket = "athena-noinput"
+
+		s3Bk := newBucketBackedS3(t, bucket)
+		putS3Object(t, s3Bk, bucket, "m.csv", []byte("s3://athena-noinput/x\n"))
+
+		itemReader := `{
+			"Resource": "arn:aws:states:::s3:getObject",
+			"ReaderConfig": {"ManifestType": "ATHENA_DATA"},
+			"Parameters": {"Bucket": "` + bucket + `", "Key": "m.csv"}
 		}`
 
 		status, _, errCode, cause := runItemReaderExecution(t, s3Bk, itemReader)

@@ -1412,11 +1412,11 @@ func TestHandlerCreateRecipeJob_Extras(t *testing.T) {
 		h,
 		http.MethodPost,
 		"/databrew/v1/recipes",
-		map[string]any{"Name": "rj-extras-r"},
+		map[string]any{"Name": "rj-extras-r", "Steps": []any{}},
 	)
 	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipeJobs", map[string]any{
 		"Name":            "rj-extras",
-		"RecipeReference": map[string]any{"Name": "rj-extras-r"},
+		"RecipeReference": map[string]any{"Name": "rj-extras-r", "Steps": []any{}},
 		"RoleArn":         "arn:aws:iam::123456789012:role/r",
 		"EncryptionMode":  "SSE-KMS",
 		"LogSubscription": "ENABLE",

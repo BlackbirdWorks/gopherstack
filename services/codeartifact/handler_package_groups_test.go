@@ -29,8 +29,17 @@ func TestHandler_CreatePackageGroup(t *testing.T) {
 				doRequest(t, h, http.MethodPost, "/v1/domain?domain=pg-domain", nil)
 			},
 			path:       "/v1/package-group?domain=pg-domain",
-			body:       map[string]any{"packageGroup": "/*"},
+			body:       map[string]any{"packageGroup": "/npm/*"},
 			wantStatus: http.StatusOK,
+		},
+		{
+			name: "root_exists",
+			setup: func(h *codeartifact.Handler) {
+				doRequest(t, h, http.MethodPost, "/v1/domain?domain=pg-root", nil)
+			},
+			path:       "/v1/package-group?domain=pg-root",
+			body:       map[string]any{"packageGroup": "/*"},
+			wantStatus: http.StatusConflict,
 		},
 		{
 			name:       "missing_domain",
@@ -89,7 +98,7 @@ func TestHandler_CreatePackageGroup(t *testing.T) {
 				pg, _ := resp["packageGroup"].(map[string]any)
 				assert.NotEmpty(t, pg["arn"])
 				assert.Equal(t, "pg-domain", pg["domainName"])
-				assert.Equal(t, "/*", pg["pattern"])
+				assert.Equal(t, "/npm/*", pg["pattern"])
 			}
 		})
 	}
@@ -370,13 +379,13 @@ func TestHandler_PackageGroupHierarchy(t *testing.T) {
 		map[string]any{"packageGroup": "/pypi/*"},
 	)
 
-	// ListPackageGroups should return all 4.
+	// ListPackageGroups should return the 4 created groups plus the domain's root group.
 	allRec := doRequest(t, h, http.MethodPost, "/v1/package-groups?domain=hier-domain", nil)
 	require.Equal(t, http.StatusOK, allRec.Code)
 	var allResp map[string]any
 	require.NoError(t, json.Unmarshal(allRec.Body.Bytes(), &allResp))
 	allGroups, _ := allResp["packageGroups"].([]any)
-	assert.Len(t, allGroups, 4)
+	assert.Len(t, allGroups, 5)
 
 	// ListSubPackageGroups for /npm/* should return 2 sub-groups.
 	subRec := doRequest(
@@ -463,8 +472,9 @@ func TestBackend_GetAssociatedPackageGroup(t *testing.T) {
 		"lodash",
 	)
 	require.NoError(t, err)
-	assert.Nil(t, pg)
-	assert.Empty(t, assocType)
+	require.NotNil(t, pg)
+	assert.Equal(t, "/*", pg.Pattern)
+	assert.Equal(t, "STRONG", assocType)
 
 	_, _, err = b.GetAssociatedPackageGroup(
 		context.Background(),

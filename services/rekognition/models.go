@@ -60,13 +60,14 @@ type storedStreamProcessor struct {
 	NotificationChannel   *StreamProcessorNotificationChannel   `json:"notificationChannel,omitempty"`
 	Settings              *StreamProcessorSettings              `json:"settings,omitempty"`
 	Output                *StreamProcessorOutput                `json:"output,omitempty"`
-	Name                  string                                `json:"name"`
-	KmsKeyID              string                                `json:"kmsKeyId"`
-	StatusMessage         string                                `json:"statusMessage"`
-	Status                string                                `json:"status"`
-	RoleARN               string                                `json:"roleArn"`
-	StreamProcessorARN    string                                `json:"streamProcessorArn"`
-	RegionsOfInterest     []RegionOfInterest                    `json:"regionsOfInterest,omitempty"`
+	statusSince           time.Time
+	Name                  string             `json:"name"`
+	KmsKeyID              string             `json:"kmsKeyId"`
+	StatusMessage         string             `json:"statusMessage"`
+	Status                string             `json:"status"`
+	RoleARN               string             `json:"roleArn"`
+	StreamProcessorARN    string             `json:"streamProcessorArn"`
+	RegionsOfInterest     []RegionOfInterest `json:"regionsOfInterest,omitempty"`
 }
 
 func (p *storedStreamProcessor) toStreamProcessor() *StreamProcessor {
@@ -118,19 +119,20 @@ func (p *storedProject) toProject() *Project {
 
 // storedProjectVersion holds a model version within a project.
 type storedProjectVersion struct {
-	CreationTimestamp                       time.Time         `json:"creationTimestamp"`
+	CreationTimestamp                       time.Time `json:"creationTimestamp"`
+	statusSince                             time.Time
 	Tags                                    map[string]string `json:"tags"`
 	FeatureConfigContentModConfidenceThresh *float32          `json:"featureConfigContentModConfidenceThresh,omitempty"`
-	StatusMessage                           string            `json:"statusMessage"`
-	VersionName                             string            `json:"versionName"`
+	OutputConfigS3KeyPrefix                 string            `json:"outputConfigS3KeyPrefix,omitempty"`
 	Status                                  string            `json:"status"`
 	ProjectARN                              string            `json:"projectArn"`
 	OutputConfigS3Bucket                    string            `json:"outputConfigS3Bucket,omitempty"`
-	OutputConfigS3KeyPrefix                 string            `json:"outputConfigS3KeyPrefix,omitempty"`
+	VersionName                             string            `json:"versionName"`
 	KmsKeyID                                string            `json:"kmsKeyId,omitempty"`
 	VersionDescription                      string            `json:"versionDescription,omitempty"`
 	SourceProjectVersionARN                 string            `json:"sourceProjectVersionArn,omitempty"`
 	ProjectVersionARN                       string            `json:"projectVersionArn"`
+	StatusMessage                           string            `json:"statusMessage"`
 	MinInferenceUnits                       int32             `json:"minInferenceUnits"`
 	MaxInferenceUnits                       int32             `json:"maxInferenceUnits,omitempty"`
 }

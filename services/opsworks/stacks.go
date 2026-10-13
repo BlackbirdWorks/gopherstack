@@ -27,6 +27,11 @@ func (b *InMemoryBackend) CreateStack(
 		return nil, ErrValidation
 	}
 
+	if !validRegion(region) || !validIAMARN(defaultInstanceProfileArn, "instance-profile") ||
+		!validIAMARN(serviceRoleArn, "role") || !validCookbooksSource(opts.CustomCookbooksSource) {
+		return nil, ErrValidation
+	}
+
 	b.mu.Lock("CreateStack")
 	defer b.mu.Unlock()
 
@@ -36,6 +41,8 @@ func (b *InMemoryBackend) CreateStack(
 
 	s := &storedStack{
 		CreatedAt:                 now,
+		CustomCookbooksSource:     opts.CustomCookbooksSource,
+		UseCustomCookbooks:        opts.UseCustomCookbooks,
 		ConfigurationManager:      opts.ConfigurationManager,
 		ChefConfiguration:         opts.ChefConfiguration,
 		UseOpsworksSecurityGroups: opts.UseOpsworksSecurityGroups,
@@ -118,11 +125,19 @@ func (b *InMemoryBackend) CloneStack(
 		attrs = src.Attributes
 	}
 
+	cookbooks := opts.CustomCookbooksSource
+	if cookbooks == nil && src.CustomCookbooksSource != nil {
+		cp := *src.CustomCookbooksSource
+		cookbooks = &cp
+	}
+
 	s := &storedStack{
-		CreatedAt:            now,
-		Attributes:           maps.Clone(attrs),
-		ConfigurationManager: cloneStackConfigManager(opts.ConfigurationManager, src.ConfigurationManager),
-		ChefConfiguration:    cloneStackChefConfig(opts.ChefConfiguration, src.ChefConfiguration),
+		CreatedAt:             now,
+		CustomCookbooksSource: cookbooks,
+		UseCustomCookbooks:    cloneStackBoolOverride(opts.UseCustomCookbooks, src.UseCustomCookbooks),
+		Attributes:            maps.Clone(attrs),
+		ConfigurationManager:  cloneStackConfigManager(opts.ConfigurationManager, src.ConfigurationManager),
+		ChefConfiguration:     cloneStackChefConfig(opts.ChefConfiguration, src.ChefConfiguration),
 		UseOpsworksSecurityGroups: cloneStackBoolOverride(
 			opts.UseOpsworksSecurityGroups,
 			src.UseOpsworksSecurityGroups,
@@ -282,6 +297,7 @@ func applyUpdateStackOptions(s *storedStack, opts UpdateStackOptions) {
 	if opts.UseOpsworksSecurityGroups != nil {
 		s.UseOpsworksSecurityGroups = opts.UseOpsworksSecurityGroups
 	}
+	applyCookbookOptions(s, opts)
 	if opts.Attributes != nil {
 		s.Attributes = opts.Attributes
 	}
@@ -400,8 +416,8 @@ func (b *InMemoryBackend) StartStack(stackID string) error {
 	}
 
 	for _, i := range b.instancesByStack.Get(stackID) {
-		if i.Status == instanceStatusStopped {
-			i.Status = instanceStatusOnline
+		if i.effectiveStatus() == instanceStatusStopped {
+			b.setInstanceStatus(i, instanceStatusOnline)
 		}
 	}
 
@@ -420,8 +436,8 @@ func (b *InMemoryBackend) StopStack(stackID string) error {
 	}
 
 	for _, i := range b.instancesByStack.Get(stackID) {
-		if i.Status == instanceStatusOnline {
-			i.Status = instanceStatusStopped
+		if i.effectiveStatus() == instanceStatusOnline {
+			b.setInstanceStatus(i, instanceStatusStopped)
 		}
 	}
 
@@ -456,11 +472,21 @@ func (b *InMemoryBackend) DescribeStackSummary(stackID string) (*StackSummary, e
 
 	counts := &InstancesCount{}
 	for _, i := range b.instancesByStack.Get(stackID) {
-		switch i.Status {
+		switch i.effectiveStatus() {
 		case instanceStatusOnline:
 			counts.Online++
 		case instanceStatusStopped:
 			counts.Stopped++
+		case instanceStatusRequested:
+			counts.Requested++
+		case instanceStatusPending:
+			counts.Pending++
+		case instanceStatusBooting:
+			counts.Booting++
+		case instanceStatusRunningSetup:
+			counts.RunningSetup++
+		case instanceStatusStopping:
+			counts.Stopping++
 		}
 	}
 
@@ -514,4 +540,14 @@ func (b *InMemoryBackend) DescribeStackProvisioningParameters(stackID string) (s
 	)
 
 	return agentInstallerURL, map[string]string{}, nil
+}
+
+func applyCookbookOptions(s *storedStack, opts UpdateStackOptions) {
+	if opts.CustomCookbooksSource != nil {
+		s.CustomCookbooksSource = opts.CustomCookbooksSource
+	}
+
+	if opts.UseCustomCookbooks != nil {
+		s.UseCustomCookbooks = opts.UseCustomCookbooks
+	}
 }

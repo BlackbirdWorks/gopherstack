@@ -1,6 +1,8 @@
 package elb
 
 import (
+	"strings"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -76,3 +78,31 @@ var (
 	// CertificateNotFoundException / "CertificateNotFound").
 	ErrCertificateNotFound = awserr.New("CertificateNotFound", awserr.ErrNotFound)
 )
+
+// publicMessage drops the exception-name prefix the sentinel errors carry and
+// words the common not-found errors the way Classic ELB does.
+func publicMessage(code, raw string) string {
+	detail := strings.TrimPrefix(raw, code)
+	detail = strings.TrimPrefix(detail, ": ")
+	name := strings.Trim(detail, `"`)
+
+	switch code {
+	case "LoadBalancerNotFound":
+		return "There is no ACTIVE Load Balancer named '" + name + "'"
+	case "DuplicateLoadBalancerName":
+		return "A load balancer with the same name '" + name + "' exists, but with different settings"
+	case "PolicyNotFound":
+		return "One or more of the specified policies do not exist."
+	case "ListenerNotFound":
+		return "The load balancer does not have a listener configured at the specified port."
+	case "CertificateNotFound":
+		return "The specified ARN does not refer to a valid SSL certificate. Only certificates stored in IAM or " +
+			"ACM can be specified."
+	}
+
+	if detail == "" {
+		return code
+	}
+
+	return detail
+}

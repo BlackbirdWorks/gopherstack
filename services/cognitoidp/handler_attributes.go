@@ -38,24 +38,69 @@ func (h *Handler) handleUpdateUserAttributes(
 	_ context.Context,
 	in *updateUserAttributesInput,
 ) (*updateUserAttributesOutput, error) {
-	attrs := attributeListToMap(in.UserAttributes)
-	if err := h.Backend.UpdateUserAttributes(in.AccessToken, attrs); err != nil {
+	res, err := h.Backend.UpdateUserAttributesWithDelivery(in.AccessToken, attributeListToMap(in.UserAttributes))
+	if err != nil {
 		return nil, err
 	}
 
-	return &updateUserAttributesOutput{}, nil
+	details, err := h.deliverAttributeCodes(res, in.ClientMetadata, true)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateUserAttributesOutput{CodeDeliveryDetailsList: details}, nil
 }
 
 func (h *Handler) handleAdminUpdateUserAttributes(
 	_ context.Context,
 	in *adminUpdateUserAttributesInput,
 ) (*adminUpdateUserAttributesOutput, error) {
-	attrs := attributeListToMap(in.UserAttributes)
-	if err := h.Backend.AdminUpdateUserAttributes(in.UserPoolID, in.Username, attrs); err != nil {
+	res, err := h.Backend.AdminUpdateUserAttributesWithDelivery(
+		in.UserPoolID, in.Username, attributeListToMap(in.UserAttributes))
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err = h.deliverAttributeCodes(res, in.ClientMetadata, false); err != nil {
 		return nil, err
 	}
 
 	return &adminUpdateUserAttributesOutput{}, nil
+}
+
+// deliverAttributeCodes fires CustomMessage_UpdateUserAttribute for each verification message
+// and, when includeCode is set, returns the CodeDeliveryDetailsList wire entries.
+func (h *Handler) deliverAttributeCodes(
+	res *AttributeUpdateResult, meta map[string]string, includeCode bool,
+) ([]map[string]string, error) {
+	var out []map[string]string
+
+	for _, d := range res.Deliveries {
+		message, subject, err := h.Backend.InvokeCustomMessageTriggerForUser(
+			res.PoolID, res.ClientID, res.Username, d.Code, triggerSourceCustomMessageUpdateAttr, meta)
+		if err != nil {
+			return nil, err
+		}
+
+		entry := map[string]string{
+			keyDeliveryMedium: d.DeliveryMedium, keyDestination: d.Destination, keyAttributeName: d.AttributeName,
+		}
+		if includeCode {
+			entry[keyConfirmationCode] = d.Code
+		}
+
+		if message != "" {
+			entry[keyCustomMessage] = message
+		}
+
+		if subject != "" {
+			entry[keyCustomMessageSubject] = subject
+		}
+
+		out = append(out, entry)
+	}
+
+	return out, nil
 }
 
 func (h *Handler) handleAddCustomAttributes(
@@ -95,18 +140,37 @@ func (h *Handler) handleGetUserAttributeVerificationCodeFull(
 	_ context.Context,
 	in *getUserAttributeVerifCodeFullInput,
 ) (*getUserAttributeVerifCodeFullOutput, error) {
-	_, dest, medium, err := h.Backend.GetUserAttributeVerificationCode(in.AccessToken, in.AttributeName)
+	code, dest, medium, err := h.Backend.GetUserAttributeVerificationCode(in.AccessToken, in.AttributeName)
 	if err != nil {
 		return nil, err
 	}
 
-	return &getUserAttributeVerifCodeFullOutput{
-		CodeDeliveryDetails: map[string]string{
-			keyDeliveryMedium: medium,
-			keyDestination:    dest,
-			keyAttributeName:  in.AttributeName,
-		},
-	}, nil
+	poolID, username, clientID, err := h.Backend.AccessTokenIdentity(in.AccessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	details := map[string]string{
+		keyDeliveryMedium: medium,
+		keyDestination:    dest,
+		keyAttributeName:  in.AttributeName,
+	}
+
+	message, subject, err := h.Backend.InvokeCustomMessageTriggerForUser(
+		poolID, clientID, username, code, triggerSourceCustomMessageVerifyAttr, in.ClientMetadata)
+	if err != nil {
+		return nil, err
+	}
+
+	if message != "" {
+		details[keyCustomMessage] = message
+	}
+
+	if subject != "" {
+		details[keyCustomMessageSubject] = subject
+	}
+
+	return &getUserAttributeVerifCodeFullOutput{CodeDeliveryDetails: details}, nil
 }
 
 func (h *Handler) handleVerifyUserAttributeFull(

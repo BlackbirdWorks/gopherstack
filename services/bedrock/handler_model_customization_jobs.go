@@ -271,6 +271,7 @@ type modelCustomizationJobOutput struct {
 	VpcConfig            map[string]any             `json:"vpcConfig,omitempty"`
 	CreationTime         string                     `json:"creationTime"`
 	LastModifiedTime     string                     `json:"lastModifiedTime"`
+	EndTime              string                     `json:"endTime,omitempty"`
 	JobArn               string                     `json:"jobArn"`
 	JobName              string                     `json:"jobName"`
 	BaseModelArn         string                     `json:"baseModelArn"`
@@ -286,7 +287,7 @@ type modelCustomizationJobOutput struct {
 }
 
 func customizationJobToOutput(j *ModelCustomizationJob) modelCustomizationJobOutput {
-	return modelCustomizationJobOutput{
+	out := modelCustomizationJobOutput{
 		JobArn:               j.JobArn,
 		JobName:              j.JobName,
 		BaseModelArn:         j.BaseModelArn,
@@ -305,6 +306,12 @@ func customizationJobToOutput(j *ModelCustomizationJob) modelCustomizationJobOut
 		VpcConfig:            j.VpcConfig,
 		OutputModelKmsKeyArn: j.OutputModelKmsKeyArn,
 	}
+
+	if !j.EndTime.IsZero() {
+		out.EndTime = j.EndTime.Format(time.RFC3339)
+	}
+
+	return out
 }
 
 // modelCustomizationJobSummaryOutput is ListModelCustomizationJobs' per-item

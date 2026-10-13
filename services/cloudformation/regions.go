@@ -23,6 +23,7 @@ import (
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
+	directconnectbackend "github.com/blackbirdworks/gopherstack/services/directconnect"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
@@ -152,6 +153,7 @@ func (sb *ServiceBackends) forRegion(region string) *ServiceBackends {
 	out.BedrockRuntime = regionHandler(sb.BedrockRuntime, (*bedrockruntimebackend.Handler).RegionHandler, region)
 	out.DataSync = regionHandler(sb.DataSync, (*datasyncbackend.Handler).RegionHandler, region)
 
+	out.DirectConnect = regionHandler(sb.DirectConnect, (*directconnectbackend.Handler).RegionHandler, region)
 	out.KafkaConnect = regionHandler(sb.KafkaConnect, (*kafkaconnectbackend.Handler).RegionHandler, region)
 	out.KinesisVideo = regionHandler(sb.KinesisVideo, (*kinesisvideobackend.Handler).RegionHandler, region)
 	out.Macie2 = regionHandler(sb.Macie2, (*macie2backend.Handler).RegionHandler, region)

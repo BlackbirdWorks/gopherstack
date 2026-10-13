@@ -39,6 +39,7 @@ func (b *InMemoryBackend) CreateDeployment(
 		Status:       deploymentStatusSuccessful,
 		CustomJSON:   customJSON,
 		Duration:     1,
+		delay:        b.lifecycleDelay,
 	}
 	b.deployments.Put(d)
 
@@ -58,6 +59,7 @@ func (b *InMemoryBackend) CreateDeployment(
 			Type:           command,
 			Status:         commandStatusSuccessful,
 			ExitCode:       0,
+			delay:          b.lifecycleDelay,
 		})
 	}
 

@@ -3,6 +3,7 @@ package directoryservice
 import (
 	"context"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -28,9 +29,21 @@ func (b *InMemoryBackend) startADAssessmentLocked(
 	region, directoryID string,
 	cfg *ADAssessmentConfiguration,
 ) (string, error) {
-	d, ok := b.directoryGet(region, directoryID)
-	if !ok {
-		return "", ErrDirectoryNotFoundDDNE
+	var d *storedDirectory
+
+	if directoryID == "" {
+		if cfg == nil {
+			return "", ErrInvalidParameter
+		}
+
+		firstLabel, _, _ := strings.Cut(cfg.DNSName, ".")
+		d = &storedDirectory{Name: cfg.DNSName, ShortName: strings.ToUpper(firstLabel)}
+	} else {
+		var ok bool
+
+		if d, ok = b.directoryGet(region, directoryID); !ok {
+			return "", ErrDirectoryNotFoundDDNE
+		}
 	}
 
 	now := time.Now().UTC()

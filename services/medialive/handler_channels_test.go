@@ -29,7 +29,7 @@ func TestChannel_Create(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:     "create returns channel with ARN and IDLE state",
+			name:     "create returns channel with ARN and CREATING state",
 			body:     map[string]any{"name": "my-channel", "channelClass": "STANDARD"},
 			wantCode: http.StatusCreated,
 			check: func(t *testing.T, body []byte) {
@@ -39,7 +39,7 @@ func TestChannel_Create(t *testing.T) {
 				require.NoError(t, json.Unmarshal(body, &resp))
 				ch := resp["channel"].(map[string]any)
 				assert.Contains(t, ch["arn"], "arn:aws:medialive:us-east-1:000000000000:channel:")
-				assert.Equal(t, "IDLE", ch["state"])
+				assert.Equal(t, "CREATING", ch["state"])
 				assert.Equal(t, "STANDARD", ch["channelClass"])
 				assert.NotEmpty(t, ch["id"])
 			},
@@ -100,11 +100,11 @@ func TestChannel_CRUD(t *testing.T) {
 	// Delete
 	rec = doRequest(t, h, http.MethodDelete, "/prod/channels/"+channelID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, 0, medialive.ChannelCount(h.Backend.(*medialive.InMemoryBackend)))
 
-	// Describe deleted returns 404
+	// Describe after delete reports the DELETED tombstone, as the SDK ChannelDeleted waiter expects
 	rec = doRequest(t, h, http.MethodGet, "/prod/channels/"+channelID, nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"state":"DELETED"`)
 }
 
 func TestChannel_StartStop(t *testing.T) {

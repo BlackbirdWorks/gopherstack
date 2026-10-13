@@ -30,8 +30,6 @@ func (h *Handler) handleDescribeTags(vals url.Values) (any, error) {
 	tagKeys := parseRedshiftTagKeysAt(vals, "TagKeys.TagKey.")
 	tagValues := parseRedshiftTagKeysAt(vals, "TagValues.TagValue.")
 
-	allTags := h.Backend.DescribeTags()
-
 	type describeTagsResult struct {
 		XMLName         xml.Name                 `xml:"DescribeTagsResult"`
 		Marker          string                   `xml:"Marker,omitempty"`
@@ -43,30 +41,27 @@ func (h *Handler) handleDescribeTags(vals url.Values) (any, error) {
 		DescribeTagsResult describeTagsResult `xml:"DescribeTagsResult"`
 	}
 
-	// ResourceType filter: only "cluster" resources are currently stored.
-	if resourceType != "" && resourceType != keyResourceCluster {
-		return &response{Xmlns: redshiftXMLNS}, nil
-	}
-
 	var resources []redshiftTaggedResource
 
-	for clusterID, tags := range allTags {
-		if resourceName != "" {
-			// Accept exact cluster-ID match or ARN suffix match.
-			if clusterID != resourceName && !strings.HasSuffix(resourceName, ":cluster:"+clusterID) {
-				continue
-			}
+	for _, res := range h.Backend.DescribeAllTags() {
+		if resourceType != "" && res.ResourceType != resourceType {
+			continue
 		}
 
-		for k, v := range tags {
+		if resourceName != "" && res.ResourceName != resourceName &&
+			!strings.HasSuffix(res.ResourceName, ":"+resourceName) {
+			continue
+		}
+
+		for k, v := range res.Tags {
 			if !tagMatchesFilter(k, v, tagKeys, tagValues) {
 				continue
 			}
 
 			resources = append(resources, redshiftTaggedResource{
 				Tag:          svcTags.KV{Key: k, Value: v},
-				ResourceName: clusterID,
-				ResourceType: keyResourceCluster,
+				ResourceName: res.ResourceName,
+				ResourceType: res.ResourceType,
 			})
 		}
 	}
@@ -79,27 +74,11 @@ func (h *Handler) handleDescribeTags(vals url.Values) (any, error) {
 	}, nil
 }
 
-// redshiftClusterIDFromResourceName extracts the bare cluster identifier
-// from a CreateTags/DeleteTags ResourceName. A real client always sends the
-// full ARN (e.g. "arn:aws:redshift:<region>:<account>:cluster:<id>" --
-// confirmed against redshift@v1.65.4's CreateTagsInput/DeleteTagsInput doc:
-// "ResourceName ... This member is required" gives the ARN, never a bare
-// identifier), so looking the raw ResourceName value up directly against
-// this backend's identifier-keyed cluster store never matched. Mirrors
-// handleDescribeTags' existing ARN-suffix matching for the same field.
-func redshiftClusterIDFromResourceName(resourceName string) string {
-	if _, id, ok := strings.Cut(resourceName, ":cluster:"); ok {
-		return id
-	}
-
-	return resourceName
-}
-
 func (h *Handler) handleCreateTags(vals url.Values) (any, error) {
-	clusterID := redshiftClusterIDFromResourceName(vals.Get("ResourceName"))
+	resourceName := vals.Get("ResourceName")
 	tags := parseRedshiftTags(vals)
 
-	if err := h.Backend.CreateTags(clusterID, tags); err != nil {
+	if err := h.Backend.CreateTags(resourceName, tags); err != nil {
 		return nil, err
 	}
 
@@ -112,10 +91,10 @@ func (h *Handler) handleCreateTags(vals url.Values) (any, error) {
 }
 
 func (h *Handler) handleDeleteTags(vals url.Values) (any, error) {
-	clusterID := redshiftClusterIDFromResourceName(vals.Get("ResourceName"))
+	resourceName := vals.Get("ResourceName")
 	keys := parseRedshiftTagKeys(vals)
 
-	if err := h.Backend.DeleteTags(clusterID, keys); err != nil {
+	if err := h.Backend.DeleteTags(resourceName, keys); err != nil {
 		return nil, err
 	}
 

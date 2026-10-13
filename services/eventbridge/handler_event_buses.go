@@ -3,16 +3,18 @@ package eventbridge
 import (
 	"context"
 	"encoding/json"
+
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type createEventBusInput struct {
-	Tags             map[string]string `json:"Tags,omitempty"`
 	DeadLetterConfig *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
 	LogConfig        *LogConfig        `json:"LogConfig,omitempty"`
 	Name             string            `json:"Name"`
 	Description      string            `json:"Description"`
 	EventSourceName  string            `json:"EventSourceName,omitempty"`
 	KmsKeyIdentifier string            `json:"KmsKeyIdentifier,omitempty"`
+	Tags             []svcTags.KV      `json:"Tags,omitempty"`
 }
 
 type deleteEventBusInput struct {
@@ -129,7 +131,11 @@ func (h *Handler) handleCreateEventBus(ctx context.Context, b []byte) (any, erro
 		return nil, err
 	}
 	if len(input.Tags) > 0 {
-		h.setTags(bus.Arn, input.Tags)
+		kv := make(map[string]string, len(input.Tags))
+		for _, t := range input.Tags {
+			kv[t.Key] = t.Value
+		}
+		h.setTags(bus.Arn, kv)
 	}
 
 	return &createEventBusOutput{

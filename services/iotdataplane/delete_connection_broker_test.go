@@ -14,6 +14,18 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 )
 
+// awaitTracked waits for the broker's asynchronous session-established hook to
+// register clientID; the broker must be wired to b before the client connects.
+func awaitTracked(t *testing.T, b *iotdataplane.InMemoryBackend, clientID string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		_, err := b.GetConnection(clientID)
+
+		return err == nil
+	}, 3*time.Second, 5*time.Millisecond)
+}
+
 // TestDeleteConnection_DisconnectsLiveBrokerSession drives the typed SDK
 // DeleteConnection against a real broker and a persistent-session MQTT client.
 func TestDeleteConnection_DisconnectsLiveBrokerSession(t *testing.T) {
@@ -44,6 +56,9 @@ func TestDeleteConnection_DisconnectsLiveBrokerSession(t *testing.T) {
 			t.Cleanup(func() { watcher.Disconnect(100) })
 			require.True(t, watcher.Subscribe("lwt/topic", 0, nil).WaitTimeout(3*time.Second))
 
+			b := iotdataplane.NewInMemoryBackend()
+			b.SetBroker(broker)
+
 			lost := make(chan struct{})
 			victim := pahomqtt.NewClient(pahomqtt.NewClientOptions().
 				AddBroker(url).SetClientID("victim").
@@ -53,11 +68,8 @@ func TestDeleteConnection_DisconnectsLiveBrokerSession(t *testing.T) {
 			require.True(t, victim.Connect().WaitTimeout(3*time.Second))
 			require.True(t, victim.Subscribe("victim/in", 1, nil).WaitTimeout(3*time.Second))
 
-			b := iotdataplane.NewInMemoryBackend()
-			b.SetBroker(broker)
-			h := iotdataplane.NewHandler(b)
-			client, baseURL := newTestIoTDataPlaneSDKClient(t, h)
-			registerConnectionAdmin(t, baseURL, "victim")
+			awaitTracked(t, b, "victim")
+			client, _ := newTestIoTDataPlaneSDKClient(t, iotdataplane.NewHandler(b))
 
 			_, err := client.DeleteConnection(t.Context(), &iotdataplanesdk.DeleteConnectionInput{
 				ClientId:           aws.String("victim"),
@@ -120,6 +132,8 @@ func TestGetConnection_ReportsLiveBrokerSession(t *testing.T) {
 			t.Parallel()
 
 			broker, port := startRealBroker(t)
+			b := iotdataplane.NewInMemoryBackend()
+			b.SetBroker(broker)
 
 			c := pahomqtt.NewClient(pahomqtt.NewClientOptions().
 				AddBroker(fmt.Sprintf("tcp://127.0.0.1:%d", port)).SetClientID("dev").SetAutoReconnect(false).
@@ -127,10 +141,8 @@ func TestGetConnection_ReportsLiveBrokerSession(t *testing.T) {
 			require.True(t, c.Connect().WaitTimeout(3*time.Second))
 			t.Cleanup(func() { c.Disconnect(100) })
 
-			b := iotdataplane.NewInMemoryBackend()
-			b.SetBroker(broker)
-			client, baseURL := newTestIoTDataPlaneSDKClient(t, iotdataplane.NewHandler(b))
-			registerConnectionAdmin(t, baseURL, "dev")
+			awaitTracked(t, b, "dev")
+			client, _ := newTestIoTDataPlaneSDKClient(t, iotdataplane.NewHandler(b))
 
 			out, err := client.GetConnection(t.Context(), &iotdataplanesdk.GetConnectionInput{
 				ClientId:                 aws.String("dev"),

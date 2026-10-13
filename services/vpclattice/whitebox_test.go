@@ -65,14 +65,14 @@ func TestServiceDelete_CascadesDependents(t *testing.T) {
 	backend := NewInMemoryBackend("000000000000", "us-east-1")
 	h := NewHandler(backend)
 
-	svcRec := doWhiteboxRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svc-cascade"})
+	svcRec := doWhiteboxRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svcx-cascade"})
 	require.Equal(t, http.StatusCreated, svcRec.Code)
 	svc := parseWhiteboxBody(t, svcRec)
 	svcID, _ := svc["id"].(string)
 	svcARN, _ := svc["arn"].(string)
 
 	lRec := doWhiteboxRequest(t, h, http.MethodPost, "/services/"+svcID+"/listeners", map[string]any{
-		"name": "l1", "protocol": "HTTP",
+		"name": "lis1", "protocol": "HTTP",
 	})
 	require.Equal(t, http.StatusCreated, lRec.Code)
 	require.Equal(t, 1, ListenerCount(backend))

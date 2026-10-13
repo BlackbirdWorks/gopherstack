@@ -14,6 +14,15 @@ const (
 	instanceStatusStopped = "stopped"
 	instanceStatusOnline  = "online"
 
+	instanceStatusRequested    = "requested"
+	instanceStatusPending      = "pending"
+	instanceStatusBooting      = "booting"
+	instanceStatusRunningSetup = "running_setup"
+	instanceStatusStopping     = "stopping"
+
+	deploymentStatusRunning = "running"
+	commandStatusRunning    = "running"
+
 	deploymentStatusSuccessful = "successful"
 
 	commandStatusSuccessful = "successful"
@@ -25,6 +34,8 @@ const (
 
 // storedStack holds a stack with all fields.
 type storedStack struct {
+	CustomCookbooksSource     *CookbooksSource           `json:"customCookbooksSource,omitempty"`
+	UseCustomCookbooks        *bool                      `json:"useCustomCookbooks,omitempty"`
 	CreatedAt                 time.Time                  `json:"createdAt"`
 	ConfigurationManager      *StackConfigurationManager `json:"configurationManager,omitempty"`
 	ChefConfiguration         *ChefConfiguration         `json:"chefConfiguration,omitempty"`
@@ -58,7 +69,15 @@ func (s *storedStack) toStack() *Stack {
 		maps.Copy(attrs, s.Attributes)
 	}
 
+	var cookbooks *CookbooksSource
+	if s.CustomCookbooksSource != nil {
+		cp := *s.CustomCookbooksSource
+		cookbooks = &cp
+	}
+
 	return &Stack{
+		CustomCookbooksSource:     cookbooks,
+		UseCustomCookbooks:        ptrCopy(s.UseCustomCookbooks),
 		CreatedAt:                 s.CreatedAt,
 		ConfigurationManager:      s.ConfigurationManager,
 		ChefConfiguration:         s.ChefConfiguration,
@@ -125,22 +144,24 @@ func (l *storedLayer) toLayer() *Layer {
 
 // storedInstance holds an instance with all fields.
 type storedInstance struct {
-	CreatedAt            time.Time       `json:"createdAt"`
+	CreatedAt            time.Time `json:"createdAt"`
+	changedAt            time.Time
 	Extras               *InstanceExtras `json:"extras,omitempty"`
 	InstallUpdatesOnBoot *bool           `json:"installUpdatesOnBoot,omitempty"`
-	AgentVersion         string          `json:"agentVersion,omitempty"`
-	InstanceID           string          `json:"instanceId"`
-	Arn                  string          `json:"arn"`
+	Status               string          `json:"status"`
+	Os                   string          `json:"os,omitempty"`
 	Hostname             string          `json:"hostname"`
 	InstanceType         string          `json:"instanceType"`
-	Status               string          `json:"status"`
+	InstanceID           string          `json:"instanceId"`
 	StackID              string          `json:"stackId"`
 	Architecture         string          `json:"architecture,omitempty"`
-	Os                   string          `json:"os,omitempty"`
+	Arn                  string          `json:"arn"`
 	SubnetID             string          `json:"subnetId,omitempty"`
 	Tenancy              string          `json:"tenancy,omitempty"`
+	AgentVersion         string          `json:"agentVersion,omitempty"`
 	LayerIDs             []string        `json:"layerIds"`
-	Registered           bool            `json:"registered"`
+	delay                time.Duration
+	Registered           bool `json:"registered"`
 }
 
 // UnmarshalJSON tolerates a pre-slice13 snapshot's singular "layerId"
@@ -184,7 +205,7 @@ func (i *storedInstance) toInstance() *Instance {
 		Arn:                  i.Arn,
 		Hostname:             i.Hostname,
 		InstanceType:         i.InstanceType,
-		Status:               i.Status,
+		Status:               i.effectiveStatus(),
 		AgentVersion:         i.AgentVersion,
 		Architecture:         i.Architecture,
 		Os:                   i.Os,
@@ -235,21 +256,27 @@ type storedDeployment struct {
 	CustomJSON   string    `json:"customJson,omitempty"`
 	InstanceIDs  []string  `json:"instanceIds,omitempty"`
 	Duration     int32     `json:"duration"`
+	delay        time.Duration
 }
 
 func (d *storedDeployment) toDeployment() *Deployment {
+	status, completedAt, duration := d.Status, d.CompletedAt, d.Duration
+	if d.running() {
+		status, completedAt, duration = deploymentStatusRunning, time.Time{}, 0
+	}
+
 	return &Deployment{
 		CreatedAt:    d.CreatedAt,
-		CompletedAt:  d.CompletedAt,
+		CompletedAt:  completedAt,
 		InstanceIDs:  slices.Clone(d.InstanceIDs),
 		Comment:      d.Comment,
 		StackID:      d.StackID,
 		AppID:        d.AppID,
 		DeploymentID: d.DeploymentID,
 		Command:      d.Command,
-		Status:       d.Status,
+		Status:       status,
 		CustomJSON:   d.CustomJSON,
-		Duration:     d.Duration,
+		Duration:     duration,
 	}
 }
 
@@ -265,18 +292,24 @@ type storedCommand struct {
 	Status         string    `json:"status"`
 	LogURL         string    `json:"logUrl"`
 	ExitCode       int32     `json:"exitCode"`
+	delay          time.Duration
 }
 
 func (c *storedCommand) toCommand() *Command {
+	status, completedAt := c.Status, c.CompletedAt
+	if c.delay > 0 && time.Since(c.CreatedAt) < c.delay {
+		status, completedAt = commandStatusRunning, time.Time{}
+	}
+
 	return &Command{
 		CreatedAt:      c.CreatedAt,
 		AcknowledgedAt: c.AcknowledgedAt,
-		CompletedAt:    c.CompletedAt,
+		CompletedAt:    completedAt,
 		DeploymentID:   c.DeploymentID,
 		InstanceID:     c.InstanceID,
 		CommandID:      c.CommandID,
 		Type:           c.Type,
-		Status:         c.Status,
+		Status:         status,
 		LogURL:         c.LogURL,
 		ExitCode:       c.ExitCode,
 	}

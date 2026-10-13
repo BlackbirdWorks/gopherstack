@@ -2,7 +2,7 @@
 service: dynamodb
 sdk_module: aws-sdk-go-v2/service/dynamodb@v1.67.0   # version audited against (go.mod pin)
 last_audit_commit: e1e3f187f  # 2026-09-26 global-tables-v2-autoscaling pass: ReplicaUpdates + AutoScalingRoleArn/ScalingPolicies; prior: cd027034c
-last_audit_date: 2026-09-26  # prior: 2026-09-20 -- autoscaling-dynamodb-kms-and-cloudwatch terraform sweep: DisableKinesisStreamingDestination DISABLED-not-removed fix
+last_audit_date: 2026-10-10
   # 2026-09-26 (this audit): UpdateTableReplicaAutoScaling's ReplicaUpdates
   # (per-replica read-capacity + per-replica-per-GSI read-capacity) is now
   # wired end to end (wire, backend, Describe echo) -- previously accepted
@@ -116,9 +116,11 @@ gaps: []
     reach the SDK struct but are never read). Restored byte-identical again;
     all gates green with both layers in place."
 items_still_open:
-  - "AWS/DynamoDB metrics are emitted for the item ops, Query/Scan and Batch ops; GlobalSecondaryIndexName-dimensioned capacity, SystemErrors, ReturnedBytes/ReturnedRecordsCount, and per-op latency/errors for TransactWriteItems/TransactGetItems/PartiQL are not (PartiQL and Transact ops still emit consumed capacity). (gopherstack-4m1qr)"
-  - "No vector-index model: SearchVectors always ResourceNotFoundException for the index; VectorIndexes on CreateTable/UpdateTable/GSI actions and VectorIndexOverride on both restore ops are absent (search_vectors.go validates the request shape)."
-  - "Other unmodeled-subsystem fields, left nil rather than fabricated: WarmThroughput (AWS default values unverified), GlobalTableWitnesses/MRSC witnesses, replica KMSMasterKeyId/OnDemand overrides/ReplicaInaccessibleDateTime, SSE InaccessibleEncryptionDateTime, BackupExpiryDateTime (SYSTEM backups only), DescribeContributorInsights FailureException (no failure model)."
+  - "Vector indexes are modeled (CreateTable/UpdateTable/DescribeTable/Restore*Override/SearchVectors with real COSINE/EUCLIDEAN/DOT_PRODUCT scoring, HASH/INLINE_FILTER schema); VectorCapacity (VectorSearchRequestBytes/VectorWriteRequestBytes) and the per-write VectorIndexes capacity members are not emitted: the pinned SDK doc strings give no byte-accounting formula (re-checked 2026-10-07)."
+structural_gaps:
+  - "ReplicaDescription.ReplicaInaccessibleDateTime / INACCESSIBLE_ENCRYPTION_CREDENTIALS (2026-10-07): set when a replica's customer-managed KMS key becomes unusable; the replica KMSMasterKeyId is stored and echoed but dynamodb holds no live KMS key-state wiring."
+  - "BackupExpiryDateTime applies to SYSTEM backups only; the emulator creates none."
+  - "DescribeContributorInsights FailureException: there is no insights processing to fail."
 deferred:
   - expr/ lexer/parser/evaluator subpackage (has own aws_spec_test.go/evaluator_test.go) — not line-by-line re-audited this sweep; genuinely large surface, out of scope for this streams/transactions-focused follow-up pass. No known bugs, just not freshly field-diffed against the SDK this cycle.
   - PartiQL execution (partiql.go, ~37KB) — not re-audited this sweep, same reason as above.
@@ -126,6 +128,13 @@ leaks: {status: clean, note: TTL sweeper + stream trimming verified, ctx-cancel 
 ---
 
 ## Notes
+
+**2026-10-09 realism pass:** key attribute types are checked against AttributeDefinitions (PutItem/BatchWrite put: `Type mismatch for key`, GSI/LSI keys: `Type mismatch for Index Key`, Get/Update/Delete: `The provided key element does not match the schema`); Query without KeyConditions/KeyConditionExpression is a ValidationException; attribute nesting over 32 levels is rejected; ListTables Limit messages follow the real wording and a negative Limit is rejected. Not modeled: an explicit ListTables `Limit: 0` (models.ListTablesInput.Limit is a plain int, so 0 reads as unset).
+
+### 2026-10-07 WarmThroughput and remaining metrics
+
+- WarmThroughput on CreateTable, UpdateTable and GSI create/update is stored (merged per unit on update) and echoed as TableDescription.WarmThroughput and GlobalSecondaryIndexDescription.WarmThroughput with Status ACTIVE; unset stays nil (no AWS defaults invented). A GSI WarmThroughput naming neither unit is a ValidationException (SDK doc: "must specify ReadUnitsPerSecond, WriteUnitsPerSecond, or both"). Proof: `TestRealClient_WarmThroughput`.
+- BatchWriteItem and TransactWriteItems now emit GlobalSecondaryIndexName-dimensioned ConsumedWriteCapacityUnits (deletes use the removed item): `TestMetrics_IndexWriteCapacityForBatchAndTransact`. ExecuteStatement emits latency, ReturnedItemCount (SELECT) and error metrics: `TestMetrics_ExecuteStatement`. GetRecords emits ReturnedRecordsCount and ReturnedBytes under TableName+StreamLabel: `TestMetrics_StreamReturned`.
 
 ### 2026-10-01 on-demand ProvisionedThroughput
 
@@ -728,3 +737,22 @@ Emits AWS/DynamoDB (docs.aws.amazon.com/amazondynamodb/latest/developerguide/met
 ## 2026-10-04 (gopherstack-bn4vx, iterator region)
 
 `ShardIteratorEntry.Region` carries the stream's region so GetRecords resolves non-home tables without a request region; see services/dynamodbstreams/PARITY.md.
+
+## 2026-10-10 lifecycle dwell knob
+
+`DYNAMODB_CREATE_DELAY` falls back to `--lifecycle-delay` when unset (default `0s`). Proof: root `TestLifecycleDelayWiring/dynamodb`.
+
+## 2026-10-10 realism pass: disabled streams stay readable
+
+Disabling a stream (UpdateTable `StreamEnabled=false` or `DisableStream`) now moves it to `Table.RetiredStreams` instead of dropping it: it stays in `ListStreams`/`DescribeStream` as DISABLING then DISABLED (`SetStreamDisablingDelay`, default 0) with every shard closed (`EndingSequenceNumber` set), and `GetShardIterator`/`GetRecords` read its records until the janitor drops it after 24h. Re-enabling creates a new ARN and label (never reuses a retired one). Iterators now carry their stream ARN, so an iterator taken before disabling keeps reading the old generation. UpdateTable disable also resets the live record ring and sequence (it left them behind before). Persisted via an additive `Table.RetiredStreams` field (no version bump). Tests: `TestRetiredStream_*` (streams_retired_internal_test.go). Not modeled: retention of a deleted table's stream.
+
+## 2026-10-11 deep realism pass
+
+PartiQL (regex-driven) rejected common real-world statements. Fixed in `partiql_literals.go`:
+
+- Bare table/index names (`FROM Orders`, `Orders.gsi`); `IN [..]` lists; numeric, TRUE/FALSE and NULL literals in WHERE/SET (`WHERE sk = 1`, `v > 5`, `SET v = v + 1`); `<<set>>`, `[list]` and `{map}` literals in VALUE and SET; `set_add`/`set_delete`; repeated `SET` clauses.
+- UPDATE/DELETE accept extra non-key WHERE conditions as a condition expression; UPDATE of a missing item is ConditionalCheckFailedException; `RETURNING ALL|MODIFIED OLD|NEW *` returns the item.
+- Attribute names that DynamoDB expressions reserve (`name`, `status`, ...) and double-quoted names are aliased, since PartiQL has no such restriction.
+- BatchExecuteStatement per-statement errors use the closed `BatchStatementErrorCodeEnum` (ResourceNotFound, ConditionalCheckFailed, DuplicateItem, ValidationError, ...) instead of the invented `StatementError`.
+
+Proof: `TestPartiQLDialect`, `TestBatchExecuteStatementErrorCodes`. Probed and found correct: transactions with cancellation reasons and `ALL_OLD` items, conditional updates, streams GetRecords/iterators, TTL, billing-mode switches, GSI create/delete.

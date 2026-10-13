@@ -142,6 +142,13 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 	b.mu.Lock("CreateAutoScalingGroup")
 	defer b.mu.Unlock()
 
+	zones, zoneErr := b.zonesFromRequest(input.AvailabilityZones, input.AvailabilityZoneIDs)
+	if zoneErr != nil {
+		return nil, zoneErr
+	}
+
+	input.AvailabilityZones = zones
+
 	if input.HealthCheckType == "" {
 		input.HealthCheckType = healthCheckTypeEC2
 	}
@@ -154,6 +161,15 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 	normalizedHooks, err := buildInitialLifecycleHooks(input)
 	if err != nil {
 		return nil, err
+	}
+
+	lcName, deriveErr := b.deriveLaunchConfigurationLocked(input)
+	if deriveErr != nil {
+		return nil, deriveErr
+	}
+
+	if lcName != "" {
+		input.LaunchConfigurationName = lcName
 	}
 
 	azs := input.AvailabilityZones
@@ -191,23 +207,12 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		b.instanceIndex[inst.InstanceID] = input.AutoScalingGroupName
 	}
 
-	b.activities[input.AutoScalingGroupName] = append(
-		b.activities[input.AutoScalingGroupName],
-		ScalingActivity{
-			ActivityID:           uuid.NewString(),
-			AutoScalingGroupName: input.AutoScalingGroupName,
-			Description:          "Launching a new EC2 instance",
-			Cause: fmt.Sprintf(
-				"At %s a user request created an AutoScalingGroup changing the desired capacity from 0 to %d.",
-				time.Now().UTC().Format(time.RFC3339), group.DesiredCapacity,
-			),
-			StatusCode:    statusCodeSuccessful,
-			StatusMessage: "",
-			Progress:      completedProgress,
-			StartTime:     time.Now(),
-			EndTime:       time.Now(),
-		},
-	)
+	b.appendCapacityActivity(input.AutoScalingGroupName, launchingActivityPrefix,
+		fmt.Sprintf(
+			"At %s a user request created an AutoScalingGroup changing the desired capacity from 0 to %d.",
+			time.Now().UTC().Format(time.RFC3339), group.DesiredCapacity,
+		), time.Now())
+	b.beginLaunchDwellLocked(group, instanceIDsOf(group.Instances))
 
 	cp := *group
 	cloneGroupMutableSlices(&cp)
@@ -359,18 +364,11 @@ func validateDeletionProtection(v string) error {
 		ErrInvalidParameter, v)
 }
 
-// validateCapacity checks that min ≤ desired ≤ max (when max > 0).
+// validateCapacity checks that min <= desired <= max and min <= max.
 func validateCapacity(minSize, maxSize, desired int32) error {
-	if minSize > desired {
-		return fmt.Errorf("%w: DesiredCapacity must be >= MinSize", ErrInvalidParameter)
-	}
-
-	if maxSize > 0 && desired > maxSize {
-		return fmt.Errorf("%w: DesiredCapacity must be <= MaxSize", ErrInvalidParameter)
-	}
-
-	if maxSize > 0 && minSize > maxSize {
-		return fmt.Errorf("%w: MinSize must be <= MaxSize", ErrInvalidParameter)
+	if minSize < 0 || maxSize < 0 || minSize > maxSize || desired < minSize || desired > maxSize {
+		return fmt.Errorf("%w: Desired capacity:%d must be between the specified min size:%d and max size:%d",
+			ErrInvalidParameter, desired, minSize, maxSize)
 	}
 
 	return nil
@@ -393,6 +391,8 @@ func (b *InMemoryBackend) applyUpdateCapacityLocked(g *AutoScalingGroup, input U
 
 	if input.DesiredCapacity != nil {
 		newDesired = min(*input.DesiredCapacity, maxDesiredCapacity)
+	} else {
+		newDesired = max(min(newDesired, newMax), newMin)
 	}
 
 	if err := validateCapacity(newMin, newMax, newDesired); err != nil {
@@ -561,8 +561,22 @@ func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInp
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
 	}
 
+	zones, zoneErr := b.zonesFromRequest(input.AvailabilityZones, input.AvailabilityZoneIDs)
+	if zoneErr != nil {
+		return nil, zoneErr
+	}
+
+	input.AvailabilityZones = zones
+
+	before, oldDesired := instanceIDSet(g), g.DesiredCapacity
 	if err := b.applyUpdateCapacityLocked(g, input); err != nil {
 		return nil, err
+	}
+
+	if g.DesiredCapacity != oldDesired {
+		b.recordCapacityActivities(g, before, oldDesired, fmt.Sprintf(
+			"a user request update of AutoScalingGroup constraints to min: %d, max: %d, desired: %d",
+			g.MinSize, g.MaxSize, g.DesiredCapacity))
 	}
 
 	applyUpdateLaunchSourceFields(g, input)
@@ -605,8 +619,8 @@ func (b *InMemoryBackend) DeleteAutoScalingGroup(name string, forceDelete bool) 
 	}
 
 	if !forceDelete && len(g.Instances) > 0 {
-		return fmt.Errorf("%w: group %q has %d active instance(s); use ForceDelete=true to override",
-			ErrScalingActivityInProgress, name, len(g.Instances))
+		return errMsgf(ErrDeletionProtected, "You cannot delete an AutoScalingGroup while there are instances or "+
+			"pending Spot instance request(s) still in the group.")
 	}
 
 	b.cleanupHookTimers(name, "")
@@ -617,7 +631,7 @@ func (b *InMemoryBackend) DeleteAutoScalingGroup(name string, forceDelete bool) 
 	}
 
 	b.groups.Delete(name)
-	delete(b.activities, name)
+	b.retireActivities(name)
 	b.deleteScheduledActionsForGroupLocked(name)
 	delete(b.instanceRefreshes, name)
 	b.deleteLifecycleHooksForGroupLocked(name)
@@ -750,11 +764,21 @@ func (b *InMemoryBackend) SetDesiredCapacity(groupName string, desiredCapacity i
 	desired := min(desiredCapacity, maxDesiredCapacity)
 
 	if desired < g.MinSize {
-		return fmt.Errorf("%w: DesiredCapacity %d is less than MinSize %d", ErrInvalidParameter, desired, g.MinSize)
+		return errMsgf(
+			ErrInvalidParameter,
+			"New SetDesiredCapacity value %d is below min value %d for the AutoScalingGroup.",
+			desired,
+			g.MinSize,
+		)
 	}
 
-	if g.MaxSize > 0 && desired > g.MaxSize {
-		return fmt.Errorf("%w: DesiredCapacity %d exceeds MaxSize %d", ErrInvalidParameter, desired, g.MaxSize)
+	if desired > g.MaxSize {
+		return errMsgf(
+			ErrInvalidParameter,
+			"New SetDesiredCapacity value %d is above max value %d for the AutoScalingGroup.",
+			desired,
+			g.MaxSize,
+		)
 	}
 
 	if honorCooldown && g.DefaultCooldown > 0 && !g.LastScalingActivity.IsZero() {
@@ -764,7 +788,9 @@ func (b *InMemoryBackend) SetDesiredCapacity(groupName string, desiredCapacity i
 		}
 	}
 
+	before, oldDesired := instanceIDSet(g), g.DesiredCapacity
 	b.applyDesiredCapacityChange(g, desired)
+	b.recordCapacityActivities(g, before, oldDesired, "a user request explicitly set group desired capacity")
 
 	return nil
 }
@@ -873,4 +899,31 @@ func (b *InMemoryBackend) ResumeProcesses(groupName string, processes []string) 
 	g.SuspendedProcesses = newProcs
 
 	return nil
+}
+
+// deriveLaunchConfigurationLocked creates the launch configuration, named after
+// the group, that a CreateAutoScalingGroup request with InstanceId and no other
+// launch source runs on. Returns "" when nothing was derived.
+func (b *InMemoryBackend) deriveLaunchConfigurationLocked(input CreateAutoScalingGroupInput) (string, error) {
+	if input.InstanceID == "" {
+		return "", nil
+	}
+
+	if _, ok := b.instanceAttributes(input.InstanceID); !ok {
+		return "", fmt.Errorf("%w: The instance %q does not exist", ErrInvalidParameter, input.InstanceID)
+	}
+
+	if input.LaunchConfigurationName != "" || input.LaunchTemplate != nil || input.MixedInstancesPolicy != nil {
+		return "", nil
+	}
+
+	lc, err := b.createLaunchConfigurationLocked(CreateLaunchConfigurationInput{
+		LaunchConfigurationName: input.AutoScalingGroupName,
+		InstanceID:              input.InstanceID,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return lc.LaunchConfigurationName, nil
 }

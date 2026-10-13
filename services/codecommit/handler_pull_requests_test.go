@@ -74,6 +74,8 @@ func TestHandler_CreatePullRequest(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+			setupRepoAndBranch(t, h, "repo")
+			createBranchFromMain(t, h, "repo", "feature")
 
 			rec := doRequest(t, h, "CreatePullRequest", tt.input)
 			assert.Equal(t, tt.wantStatus, rec.Code)
@@ -135,7 +137,8 @@ func TestHandler_CreatePullRequest_RepoMetadataInResponse(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+	setupRepoAndBranch(t, h, "repo")
+	createBranchFromMain(t, h, "repo", "feat")
 
 	rec := doRequest(t, h, "CreatePullRequest", map[string]any{
 		"title":       "My PR",
@@ -209,7 +212,8 @@ func TestHandler_ListPullRequests_StatusFilter(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+			setupRepoAndBranch(t, h, "repo")
+			createBranchFromMain(t, h, "repo", "feat")
 
 			// Seed 2 OPEN + 1 CLOSED PR.
 			createPR := func() string {
@@ -296,7 +300,8 @@ func TestHandler_ListPullRequests_NumericDescendingOrder(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+	setupRepoAndBranch(t, h, "repo")
+	createBranchFromMain(t, h, "repo", "feat")
 
 	// Create 3 PRs — expect IDs 1, 2, 3.
 	for i := range 3 {
@@ -344,7 +349,8 @@ func TestHandler_MergePullRequest_AlreadyMerged(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+			setupRepoAndBranch(t, h, "repo")
+			createBranchFromMain(t, h, "repo", "feat")
 
 			rec := doRequest(t, h, "CreatePullRequest", map[string]any{
 				"title": "PR",
@@ -387,7 +393,8 @@ func TestHandler_MergePullRequest_StatusBecomesClosed(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+			setupRepoAndBranch(t, h, "repo")
+			createBranchFromMain(t, h, "repo", "feat")
 
 			rec := doRequest(t, h, "CreatePullRequest", map[string]any{
 				"title": "PR",
@@ -469,7 +476,8 @@ func TestHandler_UpdatePullRequestStatus_Validation(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+			setupRepoAndBranch(t, h, "repo")
+			createBranchFromMain(t, h, "repo", "feat")
 
 			rec := doRequest(t, h, "CreatePullRequest", map[string]any{
 				"title": "PR",
@@ -555,6 +563,8 @@ func TestHandler_PullRequest_FieldsPresent(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	setupRepoAndBranch(t, h, "repo")
+	createBranchFromMain(t, h, "repo", "feature")
 
 	rec := doRequest(t, h, "CreatePullRequest", map[string]any{
 		"title":              "My PR",

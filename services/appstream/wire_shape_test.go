@@ -239,6 +239,8 @@ func TestSDKRoundTrip_AssociateApplicationFleet_AssociationWireKey(t *testing.T)
 	h := appstream.NewHandler(appstream.NewInMemoryBackend("123456789012", "us-east-1"))
 	client := newTestAppStreamClient(t, h)
 
+	blockArn := createTestAppBlock(t, client, "assoc-app-block")
+
 	_, err := client.CreateApplication(t.Context(), &appstreamsdk.CreateApplicationInput{
 		Name:       aws.String("assoc-app"),
 		LaunchPath: aws.String("/app/assoc-app"),
@@ -247,7 +249,7 @@ func TestSDKRoundTrip_AssociateApplicationFleet_AssociationWireKey(t *testing.T)
 			S3Key:    aws.String("icons/assoc-app.png"),
 		},
 		Platforms:        []types.PlatformType{types.PlatformTypeWindowsServer2019},
-		AppBlockArn:      aws.String("arn:aws:appstream:us-east-1:123456789012:app-block/assoc-app-block"),
+		AppBlockArn:      aws.String(blockArn),
 		InstanceFamilies: []string{"GENERAL_PURPOSE"},
 	})
 	require.NoError(t, err)

@@ -76,9 +76,9 @@ func isValidUploadAvailability(ua string) bool {
 	return ua == "STANDARD" || ua == "STREAMING"
 }
 
-// normalizePath normalises an object path (strips leading slash).
+// normalizePath strips leading slashes: the SDK sends Path "/x" as URL "//x".
 func normalizePath(p string) string {
-	return strings.TrimPrefix(p, "/")
+	return strings.TrimLeft(p, "/")
 }
 
 // ValidatePath checks that path is a legal MediaStore object path.
@@ -92,6 +92,9 @@ func ValidatePath(p string) error {
 	}
 	if strings.Contains(key, "..") {
 		return fmt.Errorf("%w: path cannot contain '..'", ErrInvalidPath)
+	}
+	if strings.HasPrefix(key, "/") || strings.HasSuffix(key, "/") || strings.Contains(key, "//") {
+		return fmt.Errorf("%w: path must not contain empty folder names", ErrInvalidPath)
 	}
 	if strings.ContainsRune(key, 0) {
 		return fmt.Errorf("%w: path contains null byte", ErrInvalidPath)

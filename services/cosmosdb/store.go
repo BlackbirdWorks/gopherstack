@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 )
 
 // InMemoryBackend implements StorageBackend using an in-memory map guarded
@@ -22,6 +23,8 @@ type InMemoryBackend struct {
 	// etagFunc derives a document's ETag from its Timestamp, overridable in
 	// tests (see export_test.go's SetETagFunc).
 	etagFunc func(time.Time) string
+	// parsed caches parsed SQL statements by query text.
+	parsed *safemap.Map[string, *sqlSelectStmt]
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend.
@@ -31,6 +34,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		databases: make(map[string]*storedDatabase),
 		nowFunc:   time.Now,
 		etagFunc:  etagFor,
+		parsed:    safemap.New[string, *sqlSelectStmt]("cosmosdb-sql"),
 	}
 }
 
@@ -368,31 +372,38 @@ func (b *InMemoryBackend) CreateDocument(
 		Timestamp:        bumpTimestampFrom(now, prevTimestamp, exists),
 	}
 	c.Documents[key] = doc
+	c.sorted.Store(nil)
 
 	return b.documentInfo(dbID, containerID, doc), nil
 }
 
 func (b *InMemoryBackend) documentInfo(dbID, containerID string, d *storedDocument) DocumentInfo {
-	body, err := deepCopyBody(d.Body)
-	if err != nil {
-		// Unreachable in practice: d.Body was itself produced by a prior
-		// successful deepCopyBody, so it always re-round-trips. Fall back to
-		// an empty body rather than propagating an error type this method's
-		// callers don't expect, matching the fail-safe (never a document
-		// with the wrong ID/etag) posture over the fail-loud one here.
+	body, ok := copyStoredValue(d.Body).(map[string]any)
+	if !ok {
+		// Unreachable in practice: d.Body is always a map. Fail safe with an
+		// empty body rather than a document with the wrong ID/etag.
 		body = map[string]any{}
 	}
 
-	rid := fakeRID("dbs/" + dbID + "/colls/" + containerID + "/docs/" + d.ID)
+	info := b.documentInfoShared(dbID, containerID, d)
+	info.Body = body
+
+	return info
+}
+
+// documentInfoShared is documentInfo without the body copy: Body aliases
+// stored state and must not be mutated or retained.
+func (b *InMemoryBackend) documentInfoShared(dbID, containerID string, d *storedDocument) DocumentInfo {
+	path := "dbs/" + dbID + "/colls/" + containerID + "/docs/" + d.ID
 
 	return DocumentInfo{
 		ID:               d.ID,
-		RID:              rid,
-		Self:             "dbs/" + dbID + "/colls/" + containerID + "/docs/" + d.ID + "/",
+		RID:              fakeRID(path),
+		Self:             path + "/",
 		ETag:             b.etagFunc(d.Timestamp),
 		Timestamp:        d.Timestamp,
 		PartitionKeyJSON: d.PartitionKeyJSON,
-		Body:             body,
+		Body:             d.Body,
 	}
 }
 
@@ -495,6 +506,7 @@ func (b *InMemoryBackend) ReplaceDocument(
 		Timestamp:        bumpTimestampFrom(now, prevTimestamp, exists),
 	}
 	c.Documents[key] = doc
+	c.sorted.Store(nil)
 
 	return b.documentInfo(dbID, containerID, doc), nil
 }
@@ -528,6 +540,7 @@ func (b *InMemoryBackend) DeleteDocument(dbID, containerID, partitionKey, id, if
 	}
 
 	delete(c.Documents, key)
+	c.sorted.Store(nil)
 
 	return nil
 }
@@ -542,12 +555,7 @@ func (b *InMemoryBackend) ListDocuments(dbID, containerID string) ([]DocumentInf
 		return nil, err
 	}
 
-	docs := make([]*storedDocument, 0, len(c.Documents))
-	for _, d := range c.Documents {
-		docs = append(docs, d)
-	}
-
-	sort.Slice(docs, func(i, j int) bool { return docs[i].ID < docs[j].ID })
+	docs := c.sortedDocs()
 
 	out := make([]DocumentInfo, 0, len(docs))
 	for _, d := range docs {

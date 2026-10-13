@@ -1,0 +1,864 @@
+{
+ "roots": {
+  "CreateAIBenchmarkJob.BenchmarkTarget": "AIBenchmarkTarget",
+  "CreateAIBenchmarkJob.NetworkConfig": "AIBenchmarkNetworkConfig",
+  "CreateAIBenchmarkJob.OutputConfig": "AIBenchmarkOutputConfig",
+  "CreateAIRecommendationJob.AdapterSource": "AIAdapterSource",
+  "CreateAIRecommendationJob.OutputConfig": "AIRecommendationOutputConfig",
+  "CreateAIRecommendationJob.PerformanceTarget": "AIRecommendationPerformanceTarget",
+  "CreateAlgorithm.InferenceSpecification": "InferenceSpecification",
+  "CreateAlgorithm.TrainingSpecification": "TrainingSpecification",
+  "CreateAlgorithm.ValidationSpecification": "AlgorithmValidationSpecification",
+  "CreateAutoMLJobV2.AutoMLProblemTypeConfig": "AutoMLProblemTypeConfig",
+  "CreateDomain.DefaultSpaceSettings": "DefaultSpaceSettings",
+  "CreateDomain.DefaultUserSettings": "UserSettings",
+  "CreateDomain.DomainSettings": "DomainSettings",
+  "CreateEndpointConfig.ExplainerConfig": "ExplainerConfig",
+  "CreateInferenceRecommendationsJob.InputConfig": "RecommendationJobInputConfig",
+  "CreateModelPackage.AdditionalInferenceSpecifications": "AdditionalInferenceSpecifications",
+  "CreateModelPackage.DriftCheckBaselines": "DriftCheckBaselines",
+  "CreateModelPackage.InferenceSpecification": "InferenceSpecification",
+  "CreateModelPackage.ModelMetrics": "ModelMetrics",
+  "CreateModelPackage.SourceAlgorithmSpecification": "SourceAlgorithmSpecification",
+  "CreateModelPackage.ValidationSpecification": "ModelPackageValidationSpecification",
+  "CreateSpace.OwnershipSettings": "OwnershipSettings",
+  "CreateSpace.SpaceSettings": "SpaceSettings",
+  "CreateSpace.SpaceSharingSettings": "SpaceSharingSettings",
+  "CreateUserProfile.UserSettings": "UserSettings",
+  "UpdateDomain.DefaultSpaceSettings": "DefaultSpaceSettings",
+  "UpdateDomain.DefaultUserSettings": "UserSettings",
+  "UpdateDomain.DomainSettingsForUpdate": "DomainSettingsForUpdate",
+  "UpdateModelPackage.InferenceSpecification": "InferenceSpecification",
+  "UpdateSpace.SpaceSettings": "SpaceSettings",
+  "UpdateUserProfile.UserSettings": "UserSettings"
+ },
+ "shapes": {
+  "AIBenchmarkEndpoint": {
+   "fields": {
+    "InferenceComponents": "AIBenchmarkInferenceComponentList"
+   },
+   "req": [
+    "Identifier"
+   ]
+  },
+  "AIBenchmarkInferenceComponent": {
+   "req": [
+    "Identifier"
+   ]
+  },
+  "AIBenchmarkInferenceComponentList": {
+   "list": "AIBenchmarkInferenceComponent"
+  },
+  "AIBenchmarkNetworkConfig": {
+   "fields": {
+    "VpcConfig": "VpcConfig"
+   }
+  },
+  "AIBenchmarkOutputConfig": {
+   "fields": {
+    "MlflowConfig": "AIMlflowConfig"
+   },
+   "req": [
+    "S3OutputLocation"
+   ]
+  },
+  "AIBenchmarkTarget": {
+   "union": {
+    "Endpoint": "AIBenchmarkEndpoint"
+   }
+  },
+  "AIMlflowConfig": {
+   "req": [
+    "MlflowResourceArn"
+   ]
+  },
+  "AIRecommendationConstraint": {
+   "req": [
+    "Metric"
+   ]
+  },
+  "AIRecommendationConstraintList": {
+   "list": "AIRecommendationConstraint"
+  },
+  "AIRecommendationOutputConfig": {
+   "fields": {
+    "MlflowConfig": "AIMlflowConfig"
+   }
+  },
+  "AIRecommendationPerformanceTarget": {
+   "fields": {
+    "Constraints": "AIRecommendationConstraintList"
+   },
+   "req": [
+    "Constraints"
+   ]
+  },
+  "AdditionalInferenceSpecificationDefinition": {
+   "fields": {
+    "Containers": "ModelPackageContainerDefinitionList"
+   },
+   "req": [
+    "Name",
+    "Containers"
+   ]
+  },
+  "AdditionalInferenceSpecifications": {
+   "list": "AdditionalInferenceSpecificationDefinition"
+  },
+  "AdditionalModelDataSource": {
+   "fields": {
+    "S3DataSource": "S3ModelDataSource"
+   },
+   "req": [
+    "ChannelName",
+    "S3DataSource"
+   ]
+  },
+  "AdditionalModelDataSources": {
+   "list": "AdditionalModelDataSource"
+  },
+  "AdditionalS3DataSource": {
+   "req": [
+    "S3DataType",
+    "S3Uri"
+   ]
+  },
+  "AlgorithmValidationProfile": {
+   "fields": {
+    "TrainingJobDefinition": "TrainingJobDefinition",
+    "TransformJobDefinition": "TransformJobDefinition"
+   },
+   "req": [
+    "ProfileName",
+    "TrainingJobDefinition"
+   ]
+  },
+  "AlgorithmValidationProfiles": {
+   "list": "AlgorithmValidationProfile"
+  },
+  "AlgorithmValidationSpecification": {
+   "fields": {
+    "ValidationProfiles": "AlgorithmValidationProfiles"
+   },
+   "req": [
+    "ValidationRole",
+    "ValidationProfiles"
+   ]
+  },
+  "AutoMLAlgorithmConfig": {
+   "req": [
+    "AutoMLAlgorithms"
+   ]
+  },
+  "AutoMLAlgorithmsConfig": {
+   "list": "AutoMLAlgorithmConfig"
+  },
+  "AutoMLProblemTypeConfig": {
+   "union": {
+    "TabularJobConfig": "TabularJobConfig",
+    "TextClassificationJobConfig": "TextClassificationJobConfig",
+    "TextGenerationJobConfig": "TextGenerationJobConfig",
+    "TimeSeriesForecastingJobConfig": "TimeSeriesForecastingJobConfig"
+   }
+  },
+  "Bias": {
+   "fields": {
+    "PostTrainingReport": "MetricsSource",
+    "PreTrainingReport": "MetricsSource",
+    "Report": "MetricsSource"
+   }
+  },
+  "CandidateGenerationConfig": {
+   "fields": {
+    "AlgorithmsConfig": "AutoMLAlgorithmsConfig"
+   }
+  },
+  "CategoricalParameter": {
+   "req": [
+    "Name",
+    "Value"
+   ]
+  },
+  "CategoricalParameterRangeSpecification": {
+   "req": [
+    "Values"
+   ]
+  },
+  "CategoricalParameters": {
+   "list": "CategoricalParameter"
+  },
+  "Channel": {
+   "fields": {
+    "DataSource": "DataSource",
+    "ShuffleConfig": "ShuffleConfig"
+   },
+   "req": [
+    "ChannelName",
+    "DataSource"
+   ]
+  },
+  "ChannelSpecification": {
+   "req": [
+    "Name",
+    "SupportedContentTypes",
+    "SupportedInputModes"
+   ]
+  },
+  "ChannelSpecifications": {
+   "list": "ChannelSpecification"
+  },
+  "ClarifyExplainerConfig": {
+   "fields": {
+    "ShapConfig": "ClarifyShapConfig"
+   },
+   "req": [
+    "ShapConfig"
+   ]
+  },
+  "ClarifyShapConfig": {
+   "fields": {
+    "TextConfig": "ClarifyTextConfig"
+   },
+   "req": [
+    "ShapBaselineConfig"
+   ]
+  },
+  "ClarifyTextConfig": {
+   "req": [
+    "Language",
+    "Granularity"
+   ]
+  },
+  "CodeEditorAppSettings": {
+   "fields": {
+    "CustomImages": "CustomImages"
+   }
+  },
+  "CodeRepositories": {
+   "list": "CodeRepository"
+  },
+  "CodeRepository": {
+   "req": [
+    "RepositoryUrl"
+   ]
+  },
+  "ContinuousParameterRangeSpecification": {
+   "req": [
+    "MinValue",
+    "MaxValue"
+   ]
+  },
+  "CustomFileSystem": {
+   "union": {
+    "EFSFileSystem": "EFSFileSystem",
+    "FSxLustreFileSystem": "FSxLustreFileSystem",
+    "S3FileSystem": "S3FileSystem"
+   }
+  },
+  "CustomFileSystemConfig": {
+   "union": {
+    "EFSFileSystemConfig": "EFSFileSystemConfig",
+    "FSxLustreFileSystemConfig": "FSxLustreFileSystemConfig",
+    "S3FileSystemConfig": "S3FileSystemConfig"
+   }
+  },
+  "CustomFileSystemConfigs": {
+   "list": "CustomFileSystemConfig"
+  },
+  "CustomFileSystems": {
+   "list": "CustomFileSystem"
+  },
+  "CustomImage": {
+   "req": [
+    "ImageName",
+    "AppImageConfigName"
+   ]
+  },
+  "CustomImages": {
+   "list": "CustomImage"
+  },
+  "CustomPosixUserConfig": {
+   "req": [
+    "Uid",
+    "Gid"
+   ]
+  },
+  "DataSource": {
+   "fields": {
+    "DatasetSource": "DatasetSource",
+    "FileSystemDataSource": "FileSystemDataSource",
+    "S3DataSource": "S3DataSource"
+   }
+  },
+  "DatasetSource": {
+   "req": [
+    "DatasetArn"
+   ]
+  },
+  "DefaultEbsStorageSettings": {
+   "req": [
+    "DefaultEbsVolumeSizeInGb",
+    "MaximumEbsVolumeSizeInGb"
+   ]
+  },
+  "DefaultSpaceSettings": {
+   "fields": {
+    "CustomFileSystemConfigs": "CustomFileSystemConfigs",
+    "CustomPosixUserConfig": "CustomPosixUserConfig",
+    "JupyterLabAppSettings": "JupyterLabAppSettings",
+    "JupyterServerAppSettings": "JupyterServerAppSettings",
+    "KernelGatewayAppSettings": "KernelGatewayAppSettings",
+    "SpaceStorageSettings": "DefaultSpaceStorageSettings"
+   }
+  },
+  "DefaultSpaceStorageSettings": {
+   "fields": {
+    "DefaultEbsStorageSettings": "DefaultEbsStorageSettings"
+   }
+  },
+  "DomainSettings": {
+   "fields": {
+    "RStudioServerProDomainSettings": "RStudioServerProDomainSettings",
+    "TrustedIdentityPropagationSettings": "TrustedIdentityPropagationSettings"
+   }
+  },
+  "DomainSettingsForUpdate": {
+   "fields": {
+    "RStudioServerProDomainSettingsForUpdate": "RStudioServerProDomainSettingsForUpdate",
+    "TrustedIdentityPropagationSettings": "TrustedIdentityPropagationSettings"
+   }
+  },
+  "DriftCheckBaselines": {
+   "fields": {
+    "Bias": "DriftCheckBias",
+    "Explainability": "DriftCheckExplainability",
+    "ModelDataQuality": "DriftCheckModelDataQuality",
+    "ModelQuality": "DriftCheckModelQuality"
+   }
+  },
+  "DriftCheckBias": {
+   "fields": {
+    "ConfigFile": "FileSource",
+    "PostTrainingConstraints": "MetricsSource",
+    "PreTrainingConstraints": "MetricsSource"
+   }
+  },
+  "DriftCheckExplainability": {
+   "fields": {
+    "ConfigFile": "FileSource",
+    "Constraints": "MetricsSource"
+   }
+  },
+  "DriftCheckModelDataQuality": {
+   "fields": {
+    "Constraints": "MetricsSource",
+    "Statistics": "MetricsSource"
+   }
+  },
+  "DriftCheckModelQuality": {
+   "fields": {
+    "Constraints": "MetricsSource",
+    "Statistics": "MetricsSource"
+   }
+  },
+  "EFSFileSystem": {
+   "req": [
+    "FileSystemId"
+   ]
+  },
+  "EFSFileSystemConfig": {
+   "req": [
+    "FileSystemId"
+   ]
+  },
+  "EbsStorageSettings": {
+   "req": [
+    "EbsVolumeSizeInGb"
+   ]
+  },
+  "EndpointInputConfiguration": {
+   "fields": {
+    "EnvironmentParameterRanges": "EnvironmentParameterRanges",
+    "ServerlessConfig": "ProductionVariantServerlessConfig"
+   }
+  },
+  "EndpointInputConfigurations": {
+   "list": "EndpointInputConfiguration"
+  },
+  "EnvironmentParameterRanges": {
+   "fields": {
+    "CategoricalParameterRanges": "CategoricalParameters"
+   }
+  },
+  "Explainability": {
+   "fields": {
+    "Report": "MetricsSource"
+   }
+  },
+  "ExplainerConfig": {
+   "fields": {
+    "ClarifyExplainerConfig": "ClarifyExplainerConfig"
+   }
+  },
+  "FSxLustreFileSystem": {
+   "req": [
+    "FileSystemId"
+   ]
+  },
+  "FSxLustreFileSystemConfig": {
+   "req": [
+    "FileSystemId"
+   ]
+  },
+  "FileSource": {
+   "req": [
+    "S3Uri"
+   ]
+  },
+  "FileSystemDataSource": {
+   "req": [
+    "FileSystemId",
+    "FileSystemAccessMode",
+    "FileSystemType",
+    "DirectoryPath"
+   ]
+  },
+  "HubAccessConfig": {
+   "req": [
+    "HubContentArn"
+   ]
+  },
+  "HyperParameterSpecification": {
+   "fields": {
+    "Range": "ParameterRange"
+   },
+   "req": [
+    "Name",
+    "Type"
+   ]
+  },
+  "HyperParameterSpecifications": {
+   "list": "HyperParameterSpecification"
+  },
+  "HyperParameterTuningJobObjective": {
+   "req": [
+    "Type",
+    "MetricName"
+   ]
+  },
+  "HyperParameterTuningJobObjectives": {
+   "list": "HyperParameterTuningJobObjective"
+  },
+  "InferenceHubAccessConfig": {
+   "req": [
+    "HubContentArn"
+   ]
+  },
+  "InferenceSpecification": {
+   "fields": {
+    "Containers": "ModelPackageContainerDefinitionList"
+   },
+   "req": [
+    "Containers"
+   ]
+  },
+  "InputDataConfig": {
+   "list": "Channel"
+  },
+  "InstanceGroup": {
+   "req": [
+    "InstanceType",
+    "InstanceCount",
+    "InstanceGroupName"
+   ]
+  },
+  "InstanceGroups": {
+   "list": "InstanceGroup"
+  },
+  "InstancePlacementConfig": {
+   "fields": {
+    "PlacementSpecifications": "PlacementSpecifications"
+   }
+  },
+  "IntegerParameterRangeSpecification": {
+   "req": [
+    "MinValue",
+    "MaxValue"
+   ]
+  },
+  "JupyterLabAppSettings": {
+   "fields": {
+    "CodeRepositories": "CodeRepositories",
+    "CustomImages": "CustomImages"
+   }
+  },
+  "JupyterServerAppSettings": {
+   "fields": {
+    "CodeRepositories": "CodeRepositories"
+   }
+  },
+  "KernelGatewayAppSettings": {
+   "fields": {
+    "CustomImages": "CustomImages"
+   }
+  },
+  "MetricDefinition": {
+   "req": [
+    "Name",
+    "Regex"
+   ]
+  },
+  "MetricDefinitionList": {
+   "list": "MetricDefinition"
+  },
+  "MetricsSource": {
+   "req": [
+    "ContentType",
+    "S3Uri"
+   ]
+  },
+  "ModelAccessConfig": {
+   "req": [
+    "AcceptEula"
+   ]
+  },
+  "ModelDataQuality": {
+   "fields": {
+    "Constraints": "MetricsSource",
+    "Statistics": "MetricsSource"
+   }
+  },
+  "ModelDataSource": {
+   "fields": {
+    "S3DataSource": "S3ModelDataSource"
+   }
+  },
+  "ModelInput": {
+   "req": [
+    "DataInputConfig"
+   ]
+  },
+  "ModelMetrics": {
+   "fields": {
+    "Bias": "Bias",
+    "Explainability": "Explainability",
+    "ModelDataQuality": "ModelDataQuality",
+    "ModelQuality": "ModelQuality"
+   }
+  },
+  "ModelPackageContainerDefinition": {
+   "fields": {
+    "AdditionalModelDataSources": "AdditionalModelDataSources",
+    "AdditionalS3DataSource": "AdditionalS3DataSource",
+    "ModelDataSource": "ModelDataSource",
+    "ModelInput": "ModelInput"
+   }
+  },
+  "ModelPackageContainerDefinitionList": {
+   "list": "ModelPackageContainerDefinition"
+  },
+  "ModelPackageValidationProfile": {
+   "fields": {
+    "TransformJobDefinition": "TransformJobDefinition"
+   },
+   "req": [
+    "ProfileName",
+    "TransformJobDefinition"
+   ]
+  },
+  "ModelPackageValidationProfiles": {
+   "list": "ModelPackageValidationProfile"
+  },
+  "ModelPackageValidationSpecification": {
+   "fields": {
+    "ValidationProfiles": "ModelPackageValidationProfiles"
+   },
+   "req": [
+    "ValidationRole",
+    "ValidationProfiles"
+   ]
+  },
+  "ModelQuality": {
+   "fields": {
+    "Constraints": "MetricsSource",
+    "Statistics": "MetricsSource"
+   }
+  },
+  "OutputDataConfig": {
+   "req": [
+    "S3OutputPath"
+   ]
+  },
+  "OwnershipSettings": {
+   "req": [
+    "OwnerUserProfileName"
+   ]
+  },
+  "ParameterRange": {
+   "fields": {
+    "CategoricalParameterRangeSpecification": "CategoricalParameterRangeSpecification",
+    "ContinuousParameterRangeSpecification": "ContinuousParameterRangeSpecification",
+    "IntegerParameterRangeSpecification": "IntegerParameterRangeSpecification"
+   }
+  },
+  "PlacementSpecification": {
+   "req": [
+    "InstanceCount"
+   ]
+  },
+  "PlacementSpecifications": {
+   "list": "PlacementSpecification"
+  },
+  "ProductionVariantServerlessConfig": {
+   "req": [
+    "MemorySizeInMB",
+    "MaxConcurrency"
+   ]
+  },
+  "RSessionAppSettings": {
+   "fields": {
+    "CustomImages": "CustomImages"
+   }
+  },
+  "RStudioServerProDomainSettings": {
+   "req": [
+    "DomainExecutionRoleArn"
+   ]
+  },
+  "RStudioServerProDomainSettingsForUpdate": {
+   "req": [
+    "DomainExecutionRoleArn"
+   ]
+  },
+  "RecommendationJobInputConfig": {
+   "fields": {
+    "EndpointConfigurations": "EndpointInputConfigurations",
+    "VpcConfig": "RecommendationJobVpcConfig"
+   }
+  },
+  "RecommendationJobVpcConfig": {
+   "req": [
+    "SecurityGroupIds",
+    "Subnets"
+   ]
+  },
+  "ResourceConfig": {
+   "fields": {
+    "InstanceGroups": "InstanceGroups",
+    "InstancePlacementConfig": "InstancePlacementConfig"
+   }
+  },
+  "S3DataSource": {
+   "fields": {
+    "HubAccessConfig": "HubAccessConfig",
+    "ModelAccessConfig": "ModelAccessConfig"
+   },
+   "req": [
+    "S3DataType",
+    "S3Uri"
+   ]
+  },
+  "S3FileSystem": {
+   "req": [
+    "S3Uri"
+   ]
+  },
+  "S3FileSystemConfig": {
+   "req": [
+    "S3Uri"
+   ]
+  },
+  "S3ModelDataSource": {
+   "fields": {
+    "HubAccessConfig": "InferenceHubAccessConfig",
+    "ModelAccessConfig": "ModelAccessConfig"
+   },
+   "req": [
+    "S3Uri",
+    "S3DataType",
+    "CompressionType"
+   ]
+  },
+  "ShuffleConfig": {
+   "req": [
+    "Seed"
+   ]
+  },
+  "SourceAlgorithm": {
+   "fields": {
+    "ModelDataSource": "ModelDataSource"
+   },
+   "req": [
+    "AlgorithmName"
+   ]
+  },
+  "SourceAlgorithmList": {
+   "list": "SourceAlgorithm"
+  },
+  "SourceAlgorithmSpecification": {
+   "fields": {
+    "SourceAlgorithms": "SourceAlgorithmList"
+   },
+   "req": [
+    "SourceAlgorithms"
+   ]
+  },
+  "SpaceJupyterLabAppSettings": {
+   "fields": {
+    "CodeRepositories": "CodeRepositories"
+   }
+  },
+  "SpaceSettings": {
+   "fields": {
+    "CustomFileSystems": "CustomFileSystems",
+    "JupyterLabAppSettings": "SpaceJupyterLabAppSettings",
+    "JupyterServerAppSettings": "JupyterServerAppSettings",
+    "KernelGatewayAppSettings": "KernelGatewayAppSettings",
+    "SpaceStorageSettings": "SpaceStorageSettings"
+   }
+  },
+  "SpaceSharingSettings": {
+   "req": [
+    "SharingType"
+   ]
+  },
+  "SpaceStorageSettings": {
+   "fields": {
+    "EbsStorageSettings": "EbsStorageSettings"
+   }
+  },
+  "TabularJobConfig": {
+   "fields": {
+    "CandidateGenerationConfig": "CandidateGenerationConfig"
+   },
+   "req": [
+    "TargetAttributeName"
+   ]
+  },
+  "TextClassificationJobConfig": {
+   "req": [
+    "ContentColumn",
+    "TargetLabelColumn"
+   ]
+  },
+  "TextGenerationJobConfig": {
+   "fields": {
+    "ModelAccessConfig": "ModelAccessConfig"
+   }
+  },
+  "TimeSeriesConfig": {
+   "req": [
+    "TargetAttributeName",
+    "TimestampAttributeName",
+    "ItemIdentifierAttributeName"
+   ]
+  },
+  "TimeSeriesForecastingJobConfig": {
+   "fields": {
+    "CandidateGenerationConfig": "CandidateGenerationConfig",
+    "TimeSeriesConfig": "TimeSeriesConfig"
+   },
+   "req": [
+    "ForecastFrequency",
+    "ForecastHorizon",
+    "TimeSeriesConfig"
+   ]
+  },
+  "TrainingJobDefinition": {
+   "fields": {
+    "InputDataConfig": "InputDataConfig",
+    "OutputDataConfig": "OutputDataConfig",
+    "ResourceConfig": "ResourceConfig"
+   },
+   "req": [
+    "TrainingInputMode",
+    "InputDataConfig",
+    "OutputDataConfig",
+    "ResourceConfig",
+    "StoppingCondition"
+   ]
+  },
+  "TrainingSpecification": {
+   "fields": {
+    "AdditionalS3DataSource": "AdditionalS3DataSource",
+    "MetricDefinitions": "MetricDefinitionList",
+    "SupportedHyperParameters": "HyperParameterSpecifications",
+    "SupportedTuningJobObjectiveMetrics": "HyperParameterTuningJobObjectives",
+    "TrainingChannels": "ChannelSpecifications"
+   },
+   "req": [
+    "TrainingImage",
+    "SupportedTrainingInstanceTypes",
+    "TrainingChannels"
+   ]
+  },
+  "TransformDataSource": {
+   "fields": {
+    "S3DataSource": "TransformS3DataSource"
+   },
+   "req": [
+    "S3DataSource"
+   ]
+  },
+  "TransformInput": {
+   "fields": {
+    "DataSource": "TransformDataSource"
+   },
+   "req": [
+    "DataSource"
+   ]
+  },
+  "TransformJobDefinition": {
+   "fields": {
+    "TransformInput": "TransformInput",
+    "TransformOutput": "TransformOutput",
+    "TransformResources": "TransformResources"
+   },
+   "req": [
+    "TransformInput",
+    "TransformOutput",
+    "TransformResources"
+   ]
+  },
+  "TransformOutput": {
+   "req": [
+    "S3OutputPath"
+   ]
+  },
+  "TransformResources": {
+   "req": [
+    "InstanceType",
+    "InstanceCount"
+   ]
+  },
+  "TransformS3DataSource": {
+   "req": [
+    "S3DataType",
+    "S3Uri"
+   ]
+  },
+  "TrustedIdentityPropagationSettings": {
+   "req": [
+    "Status"
+   ]
+  },
+  "UserSettings": {
+   "fields": {
+    "CodeEditorAppSettings": "CodeEditorAppSettings",
+    "CustomFileSystemConfigs": "CustomFileSystemConfigs",
+    "CustomPosixUserConfig": "CustomPosixUserConfig",
+    "JupyterLabAppSettings": "JupyterLabAppSettings",
+    "JupyterServerAppSettings": "JupyterServerAppSettings",
+    "KernelGatewayAppSettings": "KernelGatewayAppSettings",
+    "RSessionAppSettings": "RSessionAppSettings",
+    "SpaceStorageSettings": "DefaultSpaceStorageSettings"
+   }
+  },
+  "VpcConfig": {
+   "req": [
+    "SecurityGroupIds",
+    "Subnets"
+   ]
+  }
+ }
+}

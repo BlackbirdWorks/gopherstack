@@ -2,6 +2,7 @@ package opensearch
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -341,7 +342,11 @@ func (b *InMemoryBackend) UpgradeDomain(domainName, upgradeName string) error {
 
 	d, ok := b.domains.Get(domainName)
 	if !ok || deleteWindowElapsed(d, b.clock()) {
-		return fmt.Errorf("%w: domain %q not found", ErrDomainNotFound, domainName)
+		return fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
+	}
+
+	if _, valid := parseEngineVersionNum(upgradeName); valid {
+		d.EngineVersion = upgradeName
 	}
 
 	b.beginProcessing(d, dpsUpgrading)
@@ -379,13 +384,34 @@ func (b *InMemoryBackend) UpgradeDomain(domainName, upgradeName string) error {
 	return nil
 }
 
+func checkUpgradeTarget(current, target string) error {
+	if !slices.Contains(compatibleTargetVersions(current), target) {
+		return fmt.Errorf("%w: cannot upgrade from %s to %s", ErrValidation, current, target)
+	}
+
+	return nil
+}
+
+// CheckUpgradeDomain validates an UpgradeDomain target without changing the domain (PerformCheckOnly).
+func (b *InMemoryBackend) CheckUpgradeDomain(domainName, target string) error {
+	b.mu.RLock("CheckUpgradeDomain")
+	defer b.mu.RUnlock()
+
+	d, ok := b.domains.Get(domainName)
+	if !ok || deleteWindowElapsed(d, b.clock()) {
+		return fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
+	}
+
+	return checkUpgradeTarget(d.EngineVersion, target)
+}
+
 // GetUpgradeHistory returns the upgrade history for a domain, newest first.
 func (b *InMemoryBackend) GetUpgradeHistory(domainName string) ([]*UpgradeHistory, error) {
 	b.mu.RLock("GetUpgradeHistory")
 	defer b.mu.RUnlock()
 
 	if !b.domains.Has(domainName) {
-		return nil, fmt.Errorf("%w: domain %q not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	src := b.upgradeHistory[upgradeHistoryKey(domainName)]
@@ -405,7 +431,7 @@ func (b *InMemoryBackend) GetUpgradeStatus(domainName string) (string, string, s
 	defer b.mu.RUnlock()
 
 	if !b.domains.Has(domainName) {
-		return "", "", "", fmt.Errorf("%w: domain %q not found", ErrDomainNotFound, domainName)
+		return "", "", "", fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	history := b.upgradeHistory[upgradeHistoryKey(domainName)]
@@ -431,7 +457,7 @@ func (b *InMemoryBackend) SetAutoTune(
 
 	d, ok := b.domains.Get(domainName)
 	if !ok {
-		return fmt.Errorf("%w: domain %q not found", ErrDomainNotFound, domainName)
+		return fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	d.AutoTuneOptions = applyAutoTuneUpdateLocked(d.AutoTuneOptions, b.clock(), AutoTuneUpdateInput{
@@ -470,7 +496,7 @@ func (b *InMemoryBackend) GetAutoTune(domainName string) ([]*AutoTune, error) {
 
 	d, ok := b.domains.Get(domainName)
 	if !ok || deleteWindowElapsed(d, b.clock()) {
-		return nil, fmt.Errorf("%w: domain %q not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	cfg := d.AutoTuneOptions

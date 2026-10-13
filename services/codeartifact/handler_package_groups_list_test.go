@@ -421,7 +421,7 @@ func TestHandler_ListPackageGroups(t *testing.T) {
 			},
 			path:       "/v1/package-groups?domain=lpg-domain",
 			wantStatus: http.StatusOK,
-			wantCount:  0,
+			wantCount:  1,
 		},
 		{
 			name: "success_two_groups",
@@ -444,7 +444,7 @@ func TestHandler_ListPackageGroups(t *testing.T) {
 			},
 			path:       "/v1/package-groups?domain=lpg2-domain",
 			wantStatus: http.StatusOK,
-			wantCount:  2,
+			wantCount:  3,
 		},
 		{
 			name: "success_prefix_filter",
@@ -835,7 +835,8 @@ func TestHandler_UpdatePackageGroupOriginConfiguration_Inheritance(t *testing.T)
 	publish, _ := restrictions["PUBLISH"].(map[string]any)
 	assert.Equal(t, "INHERIT", publish["mode"])
 	assert.Equal(t, "ALLOW", publish["effectiveMode"])
-	assert.Nil(t, publish["inheritedFrom"])
+	inherited, _ := publish["inheritedFrom"].(map[string]any)
+	assert.Equal(t, "/*", inherited["pattern"])
 
 	// Block PUBLISH on the parent (/npm/*): the child (/npm/space/*), still left at its
 	// default INHERIT, must now resolve its effective mode from that parent.

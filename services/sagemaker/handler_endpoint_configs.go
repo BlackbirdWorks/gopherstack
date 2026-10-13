@@ -54,14 +54,8 @@ func (h *Handler) handleCreateEndpointConfig(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if req.EndpointConfigName == "" {
-		return nil, fmt.Errorf("%w: EndpointConfigName is required", errInvalidRequest)
-	}
-
-	if len(req.ProductionVariants) == 0 {
-		return nil, fmt.Errorf(
-			"%w: At least one ProductionVariant must be specified", errInvalidRequest,
-		)
+	if err := validateCreateEndpointConfig(&req); err != nil {
+		return nil, err
 	}
 
 	tags := fromTagObjects(req.Tags)
@@ -204,4 +198,24 @@ func (h *Handler) handleDeleteEndpointConfig(ctx context.Context, body []byte) e
 	log.InfoContext(ctx, "sagemaker: deleted endpoint config", "name", req.EndpointConfigName)
 
 	return nil
+}
+
+func validateCreateEndpointConfig(req *createEndpointConfigRequest) error {
+	if req.EndpointConfigName == "" {
+		return fmt.Errorf("%w: EndpointConfigName is required", errInvalidRequest)
+	}
+
+	if len(req.ProductionVariants) == 0 {
+		return fmt.Errorf("%w: At least one ProductionVariant must be specified", errInvalidRequest)
+	}
+
+	if err := validateRequestShapes("CreateEndpointConfig", req); err != nil {
+		return err
+	}
+
+	if err := validateEndpointConfigNames(req); err != nil {
+		return err
+	}
+
+	return validateVariantsScaling(req.ProductionVariants, req.ShadowProductionVariants)
 }

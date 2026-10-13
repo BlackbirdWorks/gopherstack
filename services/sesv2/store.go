@@ -1,6 +1,9 @@
 package sesv2
 
 import (
+	"encoding/base64"
+	"fmt"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/smtprelay"
@@ -63,6 +66,7 @@ type InMemoryBackend struct {
 	accountDetails                 *AccountDetails
 	mu                             *lockmetrics.RWMutex
 	region                         string
+	snsPublisher                   SNSPublisher
 	accountID                      string
 	emails                         []Email
 	deliverabilityDashboardEnabled bool
@@ -99,6 +103,14 @@ func NewInMemoryBackendWithConfig(cfg *config.GlobalConfig) *InMemoryBackend {
 	}
 
 	return b
+}
+
+// SetSNSPublisher wires SNS delivery for configuration-set SNS event destinations.
+func (b *InMemoryBackend) SetSNSPublisher(pub SNSPublisher) {
+	b.mu.Lock("SetSNSPublisher")
+	defer b.mu.Unlock()
+
+	b.snsPublisher = pub
 }
 
 // Region returns the backend's AWS region.
@@ -138,6 +150,13 @@ func paginateMaps(
 
 	start := 0
 	if nextToken != "" {
+		raw, decErr := base64.StdEncoding.DecodeString(nextToken)
+		if decErr != nil {
+			return nil, "", fmt.Errorf("%w: NextToken is not valid", ErrInvalidInput)
+		}
+
+		nextToken = string(raw)
+
 		// Default to the end of the collection when the cursor doesn't
 		// resolve (e.g. the item it named was deleted) -- defaulting to 0
 		// would silently restart pagination from page one forever.
@@ -158,7 +177,7 @@ func paginateMaps(
 	if end < len(all) {
 		v, ok := all[end][keyName].(string)
 		if ok {
-			next = v
+			next = base64.StdEncoding.EncodeToString([]byte(v))
 		}
 	} else {
 		end = len(all)

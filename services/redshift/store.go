@@ -109,6 +109,7 @@ type InMemoryBackend struct {
 	// TableRestoreRequestID; intentionally never persisted, same rationale as
 	// clusterTransitions.
 	tableRestoreReadyAt     map[string]time.Time
+	slPending               map[string]*slTransition
 	mu                      *lockmetrics.RWMutex
 	reconcileStop           chan struct{}
 	region                  string
@@ -126,6 +127,7 @@ type InMemoryBackend struct {
 	slReservationIdx        sortedStringIndex
 	reconcileWG             sync.WaitGroup
 	clusterActivationDelay  time.Duration
+	slLifecycleDelay        time.Duration
 	reconcileInterval       time.Duration
 	reconcileMu             sync.Mutex
 	reconcileOn             bool
@@ -139,6 +141,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		snapshotCopyConfigs: make(map[string]*SnapshotCopyConfig),
 		clusterTransitions:  make(map[string]*clusterTransition),
 		tableRestoreReadyAt: make(map[string]time.Time),
+		slPending:           make(map[string]*slTransition),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("redshift"),
@@ -165,6 +168,7 @@ func (b *InMemoryBackend) Reset() {
 	b.snapshotCopyConfigs = make(map[string]*SnapshotCopyConfig)
 	b.clusterTransitions = make(map[string]*clusterTransition)
 	b.tableRestoreReadyAt = make(map[string]time.Time)
+	b.slPending = make(map[string]*slTransition)
 	b.resetServerlessIndexes()
 }
 
@@ -179,6 +183,13 @@ func (b *InMemoryBackend) SetDNSRegistrar(dns DNSRegistrar) {
 	b.mu.Lock("SetDNSRegistrar")
 	defer b.mu.Unlock()
 	b.dnsRegistrar = dns
+}
+
+// SetClusterActivationDelay sets how long a new cluster stays "creating"; zero (default) is instant.
+func (b *InMemoryBackend) SetClusterActivationDelay(d time.Duration) {
+	b.mu.Lock("SetClusterActivationDelay")
+	defer b.mu.Unlock()
+	b.clusterActivationDelay = d
 }
 
 // cloneCluster returns a deep copy of a Cluster, excluding the live Tags pointer.
@@ -229,12 +240,14 @@ type CreateClusterOptions struct {
 	AllowVersionUpgrade                  *bool
 	AutomatedSnapshotRetentionPeriod     *int
 	ManualSnapshotRetentionPeriod        *int
+	Settings                             ClusterSettings
 	AvailabilityZone                     string
 	ClusterSubnetGroupName               string
 	DefaultIamRoleArn                    string
-	Settings                             ClusterSettings
+	ClusterType                          string
 	VpcSecurityGroupIDs                  []string
 	Port                                 int
+	NumberOfNodes                        int
 	ExtraComputeForAutomaticOptimization bool
 }
 
@@ -345,6 +358,15 @@ func (b *InMemoryBackend) CreateCluster(
 
 	nodeType, dbName, masterUser, port := resolveClusterCreateDefaults(nodeType, dbName, masterUser, opts.Port)
 
+	if err = validateNodeType(nodeType); err != nil {
+		return nil, err
+	}
+
+	clusterType, numberOfNodes, err := resolveClusterTopology(opts.ClusterType, opts.NumberOfNodes)
+	if err != nil {
+		return nil, err
+	}
+
 	endpoint := fmt.Sprintf("%s.%s.%s.redshift.amazonaws.com", id, b.accountID, b.region)
 
 	initialStatus := clusterStatusAvailable
@@ -355,13 +377,13 @@ func (b *InMemoryBackend) CreateCluster(
 	cluster := &Cluster{
 		ClusterIdentifier:                    id,
 		NodeType:                             nodeType,
-		ClusterType:                          clusterTypeMultiNode,
+		ClusterType:                          clusterType,
 		Endpoint:                             endpoint,
 		Status:                               initialStatus,
 		DBName:                               dbName,
 		MasterUsername:                       masterUser,
 		Port:                                 port,
-		NumberOfNodes:                        1,
+		NumberOfNodes:                        numberOfNodes,
 		Tags:                                 tags.New("redshift.cluster." + id + ".tags"),
 		ClusterSecurityGroups:                clusterSecurityGroups,
 		ClusterParameterGroupName:            clusterParameterGroupName,
@@ -402,12 +424,18 @@ func (b *InMemoryBackend) CreateCluster(
 
 // DeleteCluster removes the cluster with the given identifier.
 func (b *InMemoryBackend) DeleteCluster(id string) (*Cluster, error) {
+	b.advanceClusterStates(time.Now())
+
 	b.mu.Lock("DeleteCluster")
 	defer b.mu.Unlock()
 
 	cluster, exists := b.clusters.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
+	}
+
+	if cluster.Status == clusterStatusDeleting {
+		return nil, fmt.Errorf("%w: cluster %s is already being deleted", ErrClusterInvalidState, id)
 	}
 
 	// When an activation delay is configured, model AWS's asynchronous deletion:
@@ -425,6 +453,7 @@ func (b *InMemoryBackend) DeleteCluster(id string) (*Cluster, error) {
 	}
 
 	cp := cloneCluster(cluster)
+	cp.Status = clusterStatusDeleting
 	delete(b.clusterTransitions, id)
 	delete(b.loggingStatuses, id)
 	cluster.Tags.Close()

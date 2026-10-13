@@ -69,6 +69,16 @@ var (
 		"AccountAlreadyRegisteredException: account is already a delegated administrator",
 		awserr.ErrAlreadyExists,
 	)
+	// ErrCannotCloseManagementAccount is returned by CloseAccount for the management account.
+	ErrCannotCloseManagementAccount = awserr.New(
+		"ConstraintViolationException: CANNOT_CLOSE_MANAGEMENT_ACCOUNT",
+		awserr.ErrConflict,
+	)
+	// ErrParentNotFound is returned when a well-formed parent ID names no root or OU.
+	ErrParentNotFound = awserr.New(
+		"ParentNotFoundException: parent not found",
+		awserr.ErrNotFound,
+	)
 	// ErrPolicyLimitExceeded is returned when the maximum number of policies per target is exceeded.
 	ErrPolicyLimitExceeded = awserr.New(
 		"ConstraintViolationException: maximum policies per target exceeded",
@@ -117,6 +127,21 @@ var (
 	// ErrServiceNotEnabled is returned when registering a delegated admin for a service not enabled for org access.
 	ErrServiceNotEnabled = awserr.New(
 		"ConstraintViolationException: service principal not enabled for service access",
+		awserr.ErrConflict,
+	)
+	// ErrCannotRegisterManagementAsDelegatedAdmin is returned when the management account is registered.
+	ErrCannotRegisterManagementAsDelegatedAdmin = awserr.New(
+		"ConstraintViolationException: CANNOT_REGISTER_MASTER_AS_DELEGATED_ADMINISTRATOR",
+		awserr.ErrConflict,
+	)
+	// ErrCannotRegisterSuspendedAsDelegatedAdmin is returned when a suspended or closing account is registered.
+	ErrCannotRegisterSuspendedAsDelegatedAdmin = awserr.New(
+		"ConstraintViolationException: CANNOT_REGISTER_SUSPENDED_ACCOUNT_AS_DELEGATED_ADMINISTRATOR",
+		awserr.ErrConflict,
+	)
+	// ErrPolicyTypeNotAvailable is returned when a policy type needs all features and the org has only billing.
+	ErrPolicyTypeNotAvailable = awserr.New(
+		"PolicyTypeNotAvailableForOrganizationException: policy type needs all features",
 		awserr.ErrConflict,
 	)
 	// ErrPolicyInUse is returned when attempting to delete a policy still attached to targets.

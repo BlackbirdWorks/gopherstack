@@ -352,18 +352,20 @@ func TestCreateLoadBalancerDuplicateName(t *testing.T) {
 		"AvailabilityZones.member.1":          {"us-east-1a"},
 		"Listeners.member.1.Protocol":         {"HTTP"},
 		"Listeners.member.1.LoadBalancerPort": {"80"},
-		"Listeners.member.1.InstancePort":     {"8080"},
+		"Listeners.member.1.InstancePort":     {"9090"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp struct {
 		XMLName xml.Name `xml:"ErrorResponse"`
 		Error   struct {
-			Code string `xml:"Code"`
+			Code    string `xml:"Code"`
+			Message string `xml:"Message"`
 		} `xml:"Error"`
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
 	assert.Equal(t, "DuplicateLoadBalancerName", errResp.Error.Code)
+	assert.NotContains(t, errResp.Error.Message, "DuplicateLoadBalancerName")
 }
 
 // TestAZSubnetMutualExclusivity verifies that supplying both

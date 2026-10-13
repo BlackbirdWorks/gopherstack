@@ -1,6 +1,8 @@
 package workspaces
 
 import (
+	"fmt"
+	"net/netip"
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -18,6 +20,10 @@ func (b *InMemoryBackend) CreateIpGroup( //nolint:revive,staticcheck // existing
 	userRules []ipRuleItem,
 	tags map[string]string,
 ) (string, error) {
+	if err := validateIPRules(userRules); err != nil {
+		return "", err
+	}
+
 	b.mu.Lock("CreateIpGroup")
 	defer b.mu.Unlock()
 
@@ -96,6 +102,10 @@ func (b *InMemoryBackend) AuthorizeIpRules( //nolint:revive,staticcheck // exist
 	groupID string,
 	rules []ipRuleItem,
 ) error {
+	if err := validateIPRules(rules); err != nil {
+		return err
+	}
+
 	b.mu.Lock("AuthorizeIpRules")
 	defer b.mu.Unlock()
 
@@ -141,6 +151,10 @@ func (b *InMemoryBackend) UpdateRulesOfIpGroup( //nolint:revive,staticcheck // e
 	groupID string,
 	rules []ipRuleItem,
 ) error {
+	if err := validateIPRules(rules); err != nil {
+		return err
+	}
+
 	b.mu.Lock("UpdateRulesOfIpGroup")
 	defer b.mu.Unlock()
 
@@ -185,6 +199,20 @@ func (b *InMemoryBackend) DisassociateIpGroups( //nolint:revive,staticcheck // e
 
 	for _, gid := range groupIDs {
 		delete(b.directoryIpGroups[directoryID], gid)
+	}
+
+	return nil
+}
+
+func validateIPRules(rules []ipRuleItem) error {
+	for _, r := range rules {
+		if _, err := netip.ParsePrefix(r.IpRule); err == nil {
+			continue
+		}
+
+		if _, err := netip.ParseAddr(r.IpRule); err != nil {
+			return fmt.Errorf("%w: %q is not a valid IP address or CIDR range", ErrInvalidParameter, r.IpRule)
+		}
 	}
 
 	return nil

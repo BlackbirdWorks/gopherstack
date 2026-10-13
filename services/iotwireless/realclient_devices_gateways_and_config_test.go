@@ -771,11 +771,12 @@ func testPositioningExtraRealClient(t *testing.T, client *iotwirelesssdk.Client)
 	require.NoError(t, err)
 	assert.NotEmpty(t, list.PositionConfigurationList)
 
-	estimate, err := client.GetPositionEstimate(ctx, &iotwirelesssdk.GetPositionEstimateInput{
+	_, err = client.GetPositionEstimate(ctx, &iotwirelesssdk.GetPositionEstimateInput{
 		Ip: &types.Ip{IpAddress: aws.String("192.0.2.1")},
 	})
-	require.NoError(t, err)
-	assert.NotEmpty(t, estimate.GeoJsonPayload)
+
+	var rnf *types.ResourceNotFoundException
+	require.ErrorAs(t, err, &rnf, "no solver exists, so no position is fabricated")
 }
 
 // testPartnerAccountsRealClient covers AssociateAwsAccountWithPartnerAccount,

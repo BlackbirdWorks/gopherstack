@@ -224,7 +224,7 @@ func toClusterObject(c *Cluster, showShards bool) clusterObject {
 
 	var shards []shardObject
 	if showShards {
-		shards = buildShards(c.Name, c.NumShards, c.NumReplicasPerShard, c.Port, region)
+		shards = buildShards(c.Name, c.NumShards, c.NumReplicasPerShard, c.Port, region, c.CreatedAt)
 	}
 
 	sgs := make([]securityGroupMembership, 0, len(c.SecurityGroupIDs))
@@ -237,7 +237,17 @@ func toClusterObject(c *Cluster, showShards bool) clusterObject {
 		pgStatus = "in-sync"
 	}
 
+	var pending *pendingUpdatesObject
+	if c.ReshardingProgress != nil {
+		pending = &pendingUpdatesObject{
+			Resharding: &pendingResharding{
+				SlotMigration: pendingSlotMigration{ProgressPercentage: *c.ReshardingProgress},
+			},
+		}
+	}
+
 	return clusterObject{
+		PendingUpdates:          pending,
 		Name:                    c.Name,
 		ARN:                     c.ARN,
 		Description:             c.Description,
@@ -273,26 +283,17 @@ func toClusterObject(c *Cluster, showShards bool) clusterObject {
 	}
 }
 
-// buildShards constructs a slice of shardObjects with evenly-distributed slots and nodes.
-func buildShards(clusterName string, numShards, numReplicas, port int32, region string) []shardObject {
-	const totalSlots = 16384
+const (
+	totalSlots = 16384
+	maxShards  = 256
+)
 
-	const maxShards = 256
-
-	// Clamp nShards to [1, maxShards] before use. Converting through a
-	// clamped int prevents CodeQL from treating the make size as
-	// attacker-controlled (go/slice-memory-allocation-excessive-size).
+// shardSlotRanges splits the keyspace evenly across n shards (clamped to
+// [1, maxShards]) as "start-end" strings.
+func shardSlotRanges(numShards int32) []string {
 	nShards := max(1, min(maxShards, int(numShards)))
-
 	slotsPerShard := totalSlots / nShards
-
-	zones := []string{region + "a", region + "b", region + "c"}
-
-	// No capacity hint — user-derived values in the make capacity position
-	// trigger CodeQL go/slice-memory-allocation-excessive-size even after
-	// clamping. nShards is only used for the loop count below (safe).
-	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
-	shards := make([]shardObject, 0)
+	ranges := make([]string, 0) //nolint:prealloc // no capacity hint: CodeQL flags user-derived sizes
 
 	for i := range nShards {
 		start := i * slotsPerShard
@@ -302,32 +303,46 @@ func buildShards(clusterName string, numShards, numReplicas, port int32, region 
 			end = totalSlots - 1
 		}
 
+		ranges = append(ranges, fmt.Sprintf("%d-%d", start, end))
+	}
+
+	return ranges
+}
+
+// shardName follows the MemoryDB convention <cluster>-<nodegroup>-<shardindex>.
+func shardName(clusterName string, index int) string {
+	return fmt.Sprintf("%s-0001-%04d", clusterName, index)
+}
+
+// buildShards constructs a slice of shardObjects with evenly-distributed slots and nodes.
+func buildShards(
+	clusterName string, numShards, numReplicas, port int32, region string, created time.Time,
+) []shardObject {
+	zones := []string{region + "a", region + "b", region + "c"}
+	ranges := shardSlotRanges(numShards)
+	shards := make([]shardObject, 0) //nolint:prealloc // no capacity hint: CodeQL flags user-derived sizes
+
+	for i, slots := range ranges {
 		nodes := make([]nodeObject, 0, 1+int(numReplicas))
+
 		for ni := range 1 + int(numReplicas) {
-			role := "primary"
-			if ni > 0 {
-				role = "replica"
-			}
 			nodeName := fmt.Sprintf("%s-0001-%04d-%04d", clusterName, i, ni)
 			nodes = append(nodes, nodeObject{
 				Name:             nodeName,
 				Status:           clusterStatusAvailable,
 				AvailabilityZone: zones[ni%len(zones)],
-				CreateTime:       float64(time.Now().Unix()),
+				CreateTime:       float64(created.Unix()),
 				Endpoint: &endpointObject{
 					Address: nodeName + ".memorydb." + region + ".amazonaws.com",
 					Port:    port,
 				},
 			})
-			_ = role
 		}
 
-		// Shard name follows the AWS MemoryDB convention: <cluster>-<nodegroup>-<shardindex>
-		// where nodegroup is always "0001" for single-shard-group clusters.
 		shards = append(shards, shardObject{
-			Name:          fmt.Sprintf("%s-0001-%04d", clusterName, i),
+			Name:          shardName(clusterName, i),
 			Status:        clusterStatusAvailable,
-			Slots:         fmt.Sprintf("%d-%d", start, end),
+			Slots:         slots,
 			NumberOfNodes: int32(1 + int(numReplicas)), //nolint:gosec // clamped above
 			Nodes:         nodes,
 		})

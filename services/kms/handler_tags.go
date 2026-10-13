@@ -235,6 +235,10 @@ func (h *Handler) tagResource(ctx context.Context, b []byte) (any, error) {
 
 // validateTag checks that a tag key and value satisfy AWS KMS length and content constraints.
 func validateTag(key, value string) error {
+	if tags.IsPinnedIDKey(key) {
+		return fmt.Errorf("%w: tag key %q is only valid on CreateKey", ErrInvalidTag, key)
+	}
+
 	if key == "" {
 		return fmt.Errorf("%w: tag key must not be empty", ErrInvalidTag)
 	}

@@ -124,6 +124,10 @@ func (h *Handler) handleDescribeFeatureGroup(ctx context.Context, body []byte) (
 
 	if fg.OnlineStoreConfig != nil {
 		resp["OnlineStoreConfig"] = fg.OnlineStoreConfig
+
+		if fg.OnlineStoreConfig.EnableOnlineStore == nil || *fg.OnlineStoreConfig.EnableOnlineStore {
+			resp["OnlineStoreTotalSizeBytes"] = fg.OnlineStoreTotalSizeBytes
+		}
 	}
 
 	if fg.OfflineStoreConfig != nil {

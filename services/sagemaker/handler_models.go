@@ -50,6 +50,16 @@ func (h *Handler) handleCreateModel(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: ModelName is required", errInvalidRequest)
 	}
 
+	if err := validateResourceName("ModelName", req.ModelName); err != nil {
+		return nil, err
+	}
+
+	if req.ExecutionRoleArn != "" {
+		if err := validateRoleArn("ExecutionRoleArn", req.ExecutionRoleArn); err != nil {
+			return nil, err
+		}
+	}
+
 	if req.PrimaryContainer != nil && len(req.Containers) > 0 {
 		return nil, fmt.Errorf(
 			"%w: provide either PrimaryContainer or Containers, not both",

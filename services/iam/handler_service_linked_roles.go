@@ -2,7 +2,6 @@ package iam
 
 import (
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -76,16 +75,13 @@ func (h *Handler) iamServiceLinkedRoleStatusDispatch() map[string]iamActionFn {
 	}
 }
 
-func isRoleNotFound(err error) bool { return errors.Is(err, ErrRoleNotFound) }
-
 // iamDeleteServiceLinkedRoleDispatch returns the DeleteServiceLinkedRole
 // dispatch entry added in the completeness pass.
 func (h *Handler) iamDeleteServiceLinkedRoleDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"DeleteServiceLinkedRole": func(vals url.Values, reqID string) (any, error) {
 			roleName := vals.Get("RoleName")
-			// Idempotent: ignore "not found" to match AWS async-deletion semantics.
-			if err := h.Backend.DeleteServiceLinkedRole(roleName); err != nil && !isRoleNotFound(err) {
+			if err := h.Backend.DeleteServiceLinkedRole(roleName); err != nil {
 				return nil, err
 			}
 

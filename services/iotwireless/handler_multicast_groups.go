@@ -174,6 +174,10 @@ func (h *Handler) disassociateWirelessDeviceFromMulticastGroup(
 }
 
 func (h *Handler) getMulticastGroupSession(c *echo.Context, id string) error {
+	if _, err := h.Backend.GetMulticastGroup(h.AccountID, h.DefaultRegion, id); err != nil {
+		return handleError(c, err)
+	}
+
 	startedAt, err := h.Backend.GetMulticastGroupSession(id)
 	if err != nil {
 		return handleError(c, err)
@@ -187,6 +191,10 @@ func (h *Handler) getMulticastGroupSession(c *echo.Context, id string) error {
 }
 
 func (h *Handler) startMulticastGroupSession(c *echo.Context, id string) error {
+	if _, err := h.Backend.GetMulticastGroup(h.AccountID, h.DefaultRegion, id); err != nil {
+		return handleError(c, err)
+	}
+
 	if err := h.Backend.StartMulticastGroupSession(id); err != nil {
 		return handleError(c, err)
 	}
@@ -277,8 +285,12 @@ func (h *Handler) startBulkDisassociateWirelessDeviceFromMulticastGroup(
 }
 
 func (h *Handler) cancelMulticastGroupSession(c *echo.Context, multicastGroupID string) error {
+	if _, err := h.Backend.GetMulticastGroup(h.AccountID, h.DefaultRegion, multicastGroupID); err != nil {
+		return handleError(c, err)
+	}
+
 	if err := h.Backend.CancelMulticastGroupSession(multicastGroupID); err != nil {
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return handleError(c, err)
 	}
 
 	c.Response().WriteHeader(http.StatusNoContent)

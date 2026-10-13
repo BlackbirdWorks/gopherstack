@@ -18,7 +18,7 @@ func TestDatasetGroups_FieldShapes(t *testing.T) {
 	dataset1ARN := createDataset(t, h)
 
 	code, created := request(t, h, "CreateDatasetGroup", map[string]any{
-		"DatasetGroupName": "field-group",
+		"DatasetGroupName": "field_group",
 		"Domain":           "RETAIL",
 		"DatasetArns":      []any{dataset1ARN},
 	})
@@ -30,7 +30,7 @@ func TestDatasetGroups_FieldShapes(t *testing.T) {
 	code, m := request(t, h, "DescribeDatasetGroup", map[string]any{"DatasetGroupArn": arn})
 	require.Equal(t, http.StatusOK, code)
 
-	assert.Equal(t, "field-group", m["DatasetGroupName"])
+	assert.Equal(t, "field_group", m["DatasetGroupName"])
 	assert.Equal(t, "RETAIL", m["Domain"])
 	assert.NotEmpty(t, m["DatasetGroupArn"])
 	assert.NotEmpty(t, m["CreationTime"])
@@ -38,8 +38,8 @@ func TestDatasetGroups_FieldShapes(t *testing.T) {
 
 	// Update
 	_, createdDataset2 := request(t, h, "CreateDataset", map[string]any{
-		"DatasetName": "fk-dataset-2", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES",
-		"DataFrequency": "D", "Schema": map[string]any{"Attributes": []any{}},
+		"DatasetName": "fk_dataset_2", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES",
+		"DataFrequency": "D", "Schema": testSchema(),
 	})
 	dataset2ARN := createdDataset2["DatasetArn"].(string)
 	code, m = request(t, h, "UpdateDatasetGroup", map[string]any{

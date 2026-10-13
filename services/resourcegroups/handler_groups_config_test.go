@@ -53,9 +53,9 @@ func TestGetGroupQuery_ErrorsForConfigurationGroup(t *testing.T) {
 func TestGetGroupQuery_ConfigVsQueryGroup(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
-		name     string
+	tests := []struct {
 		body     map[string]any
+		name     string
 		wantCode int
 	}{
 		{
@@ -451,13 +451,13 @@ func TestConfigurationTypeValidation(t *testing.T) {
 			name:      "invalid_type_s3_bucket",
 			config:    []map[string]any{{"Type": "AWS::S3::Bucket"}},
 			wantCode:  http.StatusBadRequest,
-			wantInMsg: "unsupported configuration type",
+			wantInMsg: "Unsupported configuration type",
 		},
 		{
 			name:      "invalid_type_lambda",
 			config:    []map[string]any{{"Type": "AWS::Lambda::Function"}},
 			wantCode:  http.StatusBadRequest,
-			wantInMsg: "unsupported configuration type",
+			wantInMsg: "Unsupported configuration type",
 		},
 		{
 			name: "invalid_param_name_for_generic",

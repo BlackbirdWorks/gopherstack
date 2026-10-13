@@ -27,7 +27,11 @@ const (
 	keyMessage = "message"
 )
 
-var errUnknownOperation = errors.New("UnknownOperationException")
+var (
+	errUnknownOperation = errors.New("UnknownOperationException")
+	errSerialization    = errors.New("SerializationException")
+	errValidation       = errors.New("ValidationException")
+)
 
 // Handler handles HTTP requests for DynamoDB Streams operations.
 //
@@ -200,7 +204,7 @@ func dispatchGetShardIterator(
 	var input dynamodbstreams.GetShardIteratorInput
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &input); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %w", errSerialization, err)
 		}
 	}
 
@@ -227,8 +231,12 @@ func dispatchListStreams(
 	var input dynamodbstreams.ListStreamsInput
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &input); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %w", errSerialization, err)
 		}
+	}
+
+	if err := validateLimit(input.Limit, maxStreamsPageLimit); err != nil {
+		return nil, err
 	}
 
 	out, err := op(ctx, &input)
@@ -255,7 +263,7 @@ func dispatchGetRecords(
 	var input dynamodbstreams.GetRecordsInput
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &input); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %w", errSerialization, err)
 		}
 	}
 
@@ -294,6 +302,16 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, operation stri
 		return c.JSONBlob(http.StatusBadRequest, body)
 	}
 
+	if errors.Is(reqErr, errSerialization) {
+		return writeJSONError(c, http.StatusBadRequest, "com.amazon.coral.service#SerializationException",
+			strings.TrimPrefix(reqErr.Error(), "SerializationException: "))
+	}
+
+	if errors.Is(reqErr, errValidation) {
+		return writeJSONError(c, http.StatusBadRequest, "com.amazon.coral.service#ValidationException",
+			strings.TrimPrefix(reqErr.Error(), "ValidationException: "))
+	}
+
 	// If the backend returned a structured error (e.g. ResourceNotFoundException,
 	// ExpiredIteratorException), propagate its __type and message directly so the
 	// AWS SDK client can unmarshal the correct error type.
@@ -313,13 +331,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, operation stri
 			"com.amazonaws.dynamodbstreams.v20120810#",
 		)
 
-		body, _ := json.Marshal(map[string]string{
-			keyErrType: errType,
-			keyMessage: backendErr.Message,
-		})
-		c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
-
-		return c.JSONBlob(httpStatus, body)
+		return writeJSONError(c, httpStatus, errType, streamNotFoundMessage(errType, backendErr.Message))
 	}
 
 	// Generic fallback for errors without structured type information.
@@ -341,8 +353,12 @@ func dispatchDescribeStream(
 	var input dynamodbstreams.DescribeStreamInput
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &input); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %w", errSerialization, err)
 		}
+	}
+
+	if err := validateLimit(input.Limit, maxStreamsPageLimit); err != nil {
+		return nil, err
 	}
 
 	out, err := op(ctx, &input)
@@ -351,4 +367,46 @@ func dispatchDescribeStream(
 	}
 
 	return ddbbackend.ToWireDescribeStreamOutput(out), nil
+}
+
+func writeJSONError(c *echo.Context, status int, errType, message string) error {
+	body, _ := json.Marshal(map[string]string{keyErrType: errType, keyMessage: message})
+	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
+
+	return c.JSONBlob(status, body)
+}
+
+// streamNotFoundMessage rewords the backend's "stream not found: <arn>" to the service's text.
+func streamNotFoundMessage(errType, message string) string {
+	if arn, ok := strings.CutPrefix(
+		message,
+		"stream not found: ",
+	); ok &&
+		strings.HasSuffix(errType, "#ResourceNotFoundException") {
+		return "Requested resource not found: Stream: " + arn + " not found"
+	}
+
+	return message
+}
+
+const (
+	maxStreamsPageLimit = 100
+	minLimit            = 1
+)
+
+func validateLimit(limit *int32, maxLimit int32) error {
+	if limit == nil {
+		return nil
+	}
+
+	switch {
+	case *limit < minLimit:
+		return fmt.Errorf("%w: 1 validation error detected: Value '%d' at 'limit' failed to satisfy constraint: "+
+			"Member must have value greater than or equal to %d", errValidation, *limit, minLimit)
+	case *limit > maxLimit:
+		return fmt.Errorf("%w: 1 validation error detected: Value '%d' at 'limit' failed to satisfy constraint: "+
+			"Member must have value less than or equal to %d", errValidation, *limit, maxLimit)
+	default:
+		return nil
+	}
 }

@@ -48,6 +48,7 @@ func TestHandler_PollForActivityTask_WorkflowExecution(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
+	require.NoError(t, b.RegisterDomain("dom", "", "1"))
 	b.EnqueueActivityTaskInternal("dom", "list", "act-1", "MyActivity", "1.0", "payload", "wf-10", "run-10")
 	h := swf.NewHandler(b)
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 func (b *InMemoryBackend) datasetARN(region, name string) string {
@@ -25,11 +26,14 @@ func (b *InMemoryBackend) CreateDataset(
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
 	if name == "" {
-		return nil, ErrValidation
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+	if err := validateInputFormat(format); err != nil {
+		return nil, err
 	}
 	t := b.datasetsTable(region)
 	if t.Has(name) {
-		return nil, ErrAlreadyExists
+		return nil, existsErr("Dataset", name)
 	}
 	source := "S3"
 	if input.DataCatalogInputDefinition != nil {
@@ -43,6 +47,7 @@ func (b *InMemoryBackend) CreateDataset(
 		PathOptions: pathOptions, AccountID: b.accountID,
 		Source: source, CreateDate: float64(time.Now().Unix()),
 		LastModifiedDate: float64(time.Now().Unix()),
+		CreatedBy:        awsmeta.CallerArn(ctx), LastModifiedBy: awsmeta.CallerArn(ctx),
 	}
 	t.Put(ds)
 
@@ -55,7 +60,7 @@ func (b *InMemoryBackend) DescribeDataset(ctx context.Context, name string) (*Da
 	region := getRegion(ctx, b.defaultRegion)
 	ds, ok := b.datasetsTable(region).Get(name)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, notFoundErr("Dataset", name)
 	}
 	cp := *ds
 	cp.Tags = maps.Clone(ds.Tags)
@@ -100,7 +105,10 @@ func (b *InMemoryBackend) UpdateDataset(
 	region := getRegion(ctx, b.defaultRegion)
 	ds, ok := b.datasetsTable(region).Get(name)
 	if !ok {
-		return ErrNotFound
+		return notFoundErr("Dataset", name)
+	}
+	if err := validateInputFormat(format); err != nil {
+		return err
 	}
 	ds.Input = input
 	if format != "" {
@@ -113,6 +121,7 @@ func (b *InMemoryBackend) UpdateDataset(
 		ds.PathOptions = pathOptions
 	}
 	ds.LastModifiedDate = float64(time.Now().Unix())
+	stampModifiedBy(ctx, &ds.LastModifiedBy)
 
 	return nil
 }
@@ -158,7 +167,7 @@ func (b *InMemoryBackend) DeleteDataset(ctx context.Context, name string) error 
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
 	if !b.datasetsTable(region).Has(name) {
-		return ErrNotFound
+		return notFoundErr("Dataset", name)
 	}
 	if p := b.datasetProjectName(region, name); p != "" {
 		return fmt.Errorf("%w: dataset %q is used by project %q", ErrConflict, name, p)
@@ -169,4 +178,13 @@ func (b *InMemoryBackend) DeleteDataset(ctx context.Context, name string) error 
 	b.datasetsTable(region).Delete(name)
 
 	return nil
+}
+
+func validateInputFormat(format string) error {
+	switch format {
+	case "", "CSV", "JSON", "PARQUET", "EXCEL", "ORC":
+		return nil
+	}
+
+	return fmt.Errorf("%w: invalid Format %q", ErrValidation, format)
 }

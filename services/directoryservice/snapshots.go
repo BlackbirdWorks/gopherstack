@@ -43,10 +43,11 @@ func (b *InMemoryBackend) CreateSnapshot(
 		SnapshotID:  id,
 		DirectoryID: directoryID,
 		Name:        name,
-		Status:      string(SnapshotStatusCompleted),
+		Status:      string(SnapshotStatusCreating),
 		SnapType:    string(SnapshotTypeManual),
 	}
 	b.snapshotPut(s)
+	b.completeSnapshot(region, id)
 
 	cp := s.toSnapshot()
 
@@ -58,14 +59,25 @@ func (b *InMemoryBackend) CreateSnapshot(
 // createSnapshotBeforeSchemaExtension) rather than requested directly via CreateSnapshot.
 // Callers must already hold b.mu and have confirmed directoryID exists.
 func (b *InMemoryBackend) newAutoSnapshot(region, directoryID, name string) {
+	id := b.newSnapshotID()
 	b.snapshotPut(&storedSnapshot{
 		region:      region,
 		StartTime:   time.Now().UTC(),
-		SnapshotID:  b.newSnapshotID(),
+		SnapshotID:  id,
 		DirectoryID: directoryID,
 		Name:        name,
-		Status:      string(SnapshotStatusCompleted),
+		Status:      string(SnapshotStatusCreating),
 		SnapType:    string(SnapshotTypeAuto),
+	})
+	b.completeSnapshot(region, id)
+}
+
+// completeSnapshot moves a Creating snapshot to Completed once the delay elapses. Caller holds b.mu.
+func (b *InMemoryBackend) completeSnapshot(region, snapshotID string) {
+	b.settleLater("Snapshot:completed", func() {
+		if s, ok := b.snapshotGet(region, snapshotID); ok && s.Status == string(SnapshotStatusCreating) {
+			s.Status = string(SnapshotStatusCompleted)
+		}
 	})
 }
 
@@ -194,7 +206,7 @@ func (b *InMemoryBackend) RestoreFromSnapshot(ctx context.Context, snapshotID st
 
 	dirID := dir.DirectoryID
 
-	b.work.After("DirectoryRestore", restoreLifecycleDelay, func() {
+	b.work.After("DirectoryRestore", b.delayOr(restoreLifecycleDelay), func() {
 		b.mu.Lock("RestoreFromSnapshot:active")
 		if d, exists := b.directoryGet(region, dirID); exists && d.Stage == string(DirectoryStageRestoring) {
 			setStage(d, DirectoryStageActive)

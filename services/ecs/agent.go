@@ -181,6 +181,10 @@ func (b *InMemoryBackend) SubmitTaskStateChange(input SubmitTaskStateChangeInput
 	applyContainerStateChangesLocked(task, input.Containers)
 	applyAttachmentStateChangesLocked(task, input.Attachments)
 
+	if input.Status != "" {
+		b.emitTaskStateLocked(task)
+	}
+
 	return nil
 }
 
