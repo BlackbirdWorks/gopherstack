@@ -5,8 +5,6 @@ import (
 	"maps"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // CreateProfile creates an AS2 profile. ProfileType must be LOCAL or PARTNER.
@@ -43,7 +41,7 @@ func (b *InMemoryBackend) CreateProfileFull(in *CreateProfileInput) (*Profile, e
 	b.mu.Lock("CreateProfile")
 	defer b.mu.Unlock()
 
-	profileID := "p-" + uuid.NewString()[:20]
+	profileID := newResourceID("p-")
 
 	merged := make(map[string]string, len(tags))
 	maps.Copy(merged, tags)

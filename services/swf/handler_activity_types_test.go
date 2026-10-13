@@ -36,7 +36,7 @@ func TestHandler_DescribeActivityType(t *testing.T) {
 				"domain":       "d1",
 				"activityType": map[string]any{"name": "missing", "version": "1.0"},
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -87,7 +87,7 @@ func TestHandler_DeprecateActivityType(t *testing.T) {
 				"domain":       "d1",
 				"activityType": map[string]any{"name": "missing", "version": "1.0"},
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 			wantType: "UnknownResourceFault",
 		},
 		{
@@ -228,9 +228,14 @@ func TestHandler_ListActivityTypes(t *testing.T) {
 		},
 		{
 			name:      "empty",
-			body:      map[string]any{"domain": "d1"},
+			body:      map[string]any{"domain": "d1", "registrationStatus": "REGISTERED"},
 			wantCode:  http.StatusOK,
 			wantCount: 0,
+		},
+		{
+			name:     "missing_status",
+			body:     map[string]any{"domain": "d1"},
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -278,7 +283,7 @@ func TestHandler_UndeprecateActivityType(t *testing.T) {
 				"domain":       "d1",
 				"activityType": map[string]any{"name": "missing", "version": "1.0"},
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -301,7 +306,7 @@ func TestHandler_UndeprecateActivityType(t *testing.T) {
 // TestHandler_DeleteActivityType_RequiresDeprecatedFirst verifies
 // DeleteActivityType rejects deleting a type that hasn't been deprecated yet
 // (real AWS: "Prior to deletion, activity types must first be deprecated"),
-// succeeds once deprecated, and 404s on an unknown type.
+// succeeds once deprecated, and fails on an unknown type.
 func TestHandler_DeleteActivityType_RequiresDeprecatedFirst(t *testing.T) {
 	t.Parallel()
 
@@ -329,5 +334,5 @@ func TestHandler_DeleteActivityType_RequiresDeprecatedFirst(t *testing.T) {
 
 	// Unknown type -> UnknownResourceFault.
 	rec = doSWFRequest(t, h, "DeleteActivityType", body)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

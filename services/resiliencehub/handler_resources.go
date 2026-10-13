@@ -114,6 +114,10 @@ func (h *Handler) handleListAppVersionResources(_ context.Context, _ *http.Reque
 		return nil, err
 	}
 
+	if err := validatePage(req.NextToken, int(req.MaxResults)); err != nil {
+		return nil, err
+	}
+
 	_, v, p, err := h.Backend.ListAppVersionResources(req.AppArn, req.AppVersion, req.NextToken, int(req.MaxResults))
 	if err != nil {
 		return nil, err
@@ -147,6 +151,10 @@ func (h *Handler) handleListUnsupportedAppVersionResources(
 		MaxResults   int32  `json:"maxResults,omitempty"`
 	}
 	if err := decodeJSONBody(body, &req); err != nil {
+		return nil, err
+	}
+
+	if err := validatePage(req.NextToken, int(req.MaxResults)); err != nil {
 		return nil, err
 	}
 

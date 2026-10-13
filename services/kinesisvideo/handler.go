@@ -352,6 +352,8 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return h.writeError(c, http.StatusNotFound, "StreamEdgeConfigurationNotFoundException", err.Error())
 	case errors.Is(err, ErrNoDataRetention):
 		return h.writeError(c, http.StatusBadRequest, "NoDataRetentionException", err.Error())
+	case errors.Is(err, ErrTagLimit):
+		return h.writeError(c, http.StatusBadRequest, "TagsPerResourceExceededLimitException", err.Error())
 	case errors.Is(err, awserr.ErrNotFound):
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):

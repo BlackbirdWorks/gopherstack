@@ -13,12 +13,13 @@ import (
 const maxGlossaryListResults = 100
 
 type createGlossaryInput struct {
+	ClientToken string `json:"ClientToken,omitempty"`
 	Name        string `json:"Name"`
 	Description string `json:"Description,omitempty"`
 }
 
 func (h *Handler) handleCreateGlossary(_ context.Context, in *createGlossaryInput) (*Glossary, error) {
-	return h.Backend.CreateGlossary(in.Name, in.Description)
+	return h.Backend.CreateGlossaryWithToken(in.Name, in.Description, in.ClientToken)
 }
 
 type getGlossaryInput struct {
@@ -73,6 +74,7 @@ func (h *Handler) handleListGlossaries(_ context.Context, in *listGlossariesInpu
 }
 
 type createGlossaryTermInput struct {
+	ClientToken        string `json:"ClientToken,omitempty"`
 	GlossaryIdentifier string `json:"GlossaryIdentifier"`
 	Name               string `json:"Name"`
 	ShortDescription   string `json:"ShortDescription,omitempty"`
@@ -80,7 +82,9 @@ type createGlossaryTermInput struct {
 }
 
 func (h *Handler) handleCreateGlossaryTerm(_ context.Context, in *createGlossaryTermInput) (*GlossaryTerm, error) {
-	return h.Backend.CreateGlossaryTerm(in.GlossaryIdentifier, in.Name, in.ShortDescription, in.LongDescription)
+	return h.Backend.CreateGlossaryTermWithToken(
+		in.GlossaryIdentifier, in.Name, in.ShortDescription, in.LongDescription, in.ClientToken,
+	)
 }
 
 type getGlossaryTermInput struct {

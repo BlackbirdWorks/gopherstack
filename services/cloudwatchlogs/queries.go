@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 // storedQuery holds the execution state of a single Logs Insights query.
@@ -227,6 +229,7 @@ func (b *InMemoryBackend) StartQuery(
 		QueryLanguage: queryLanguageCWLI,
 		BytesScanned:  bytesScanned,
 		QueryDuration: time.Since(started).Milliseconds(),
+		UserIdentity:  awsmeta.CallerArn(ctx),
 	}
 
 	sq := &storedQuery{

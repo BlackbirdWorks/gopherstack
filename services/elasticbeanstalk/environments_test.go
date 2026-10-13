@@ -46,6 +46,7 @@ func TestInMemoryBackend_CreateEnvironment(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend()
+			_, _ = b.CreateApplication(context.Background(), tt.appName, "", nil)
 
 			if tt.setup != nil {
 				tt.setup(b)
@@ -117,6 +118,8 @@ func TestInMemoryBackend_DescribeEnvironments(t *testing.T) {
 			b := newTestBackend()
 			ctx := context.Background()
 			params := elasticbeanstalk.CreateEnvironmentParams{}
+			_, _ = b.CreateApplication(ctx, "app-a", "", nil)
+			_, _ = b.CreateApplication(ctx, "app-b", "", nil)
 			_, _ = b.CreateEnvironment(ctx, "app-a", "env-1", "", "", nil, params)
 			_, _ = b.CreateEnvironment(ctx, "app-a", "env-2", "", "", nil, params)
 			_, _ = b.CreateEnvironment(ctx, "app-b", "env-3", "", "", nil, params)
@@ -155,6 +158,7 @@ func TestInMemoryBackend_TerminateEnvironment(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend()
+			_, _ = b.CreateApplication(context.Background(), "my-app", "", nil)
 
 			if tt.envName == "my-env" {
 				_, _ = b.CreateEnvironment(
@@ -193,7 +197,10 @@ func TestInMemoryBackend_TerminateEnvironment_ClearsManagedActionHistory(t *test
 	b := newTestBackend()
 	ctx := context.Background()
 
-	_, err := b.CreateEnvironment(ctx, "my-app", "my-env", "", "", nil,
+	_, err := b.CreateApplication(ctx, "my-app", "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateEnvironment(ctx, "my-app", "my-env", "", "", nil,
 		elasticbeanstalk.CreateEnvironmentParams{})
 	require.NoError(t, err)
 

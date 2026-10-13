@@ -4,13 +4,12 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
-
-	"github.com/google/uuid"
 )
 
 // ListSSHPublicKeys returns all SSH public keys for a user on a server.
@@ -37,6 +36,10 @@ func (b *InMemoryBackend) ListSSHPublicKeys(serverID, userName string) []*SSHPub
 func (b *InMemoryBackend) ImportSSHPublicKey(
 	serverID, userName, sshPublicKeyBody string,
 ) (*SSHPublicKey, error) {
+	if !sshPublicKeyBodyRe.MatchString(strings.TrimSpace(sshPublicKeyBody)) {
+		return nil, fmt.Errorf("%w: SshPublicKeyBody is not a valid RSA, ECDSA or ED25519 public key", ErrValidation)
+	}
+
 	b.mu.Lock("ImportSshPublicKey")
 	defer b.mu.Unlock()
 
@@ -80,7 +83,7 @@ func (b *InMemoryBackend) ImportSSHPublicKey(
 		)
 	}
 
-	keyID := "key-" + uuid.NewString()[:8]
+	keyID := newResourceID("key-")
 	fingerprint, keyType := computeSSHKeyFingerprintAndType(sshPublicKeyBody)
 
 	k := &SSHPublicKey{
@@ -167,3 +170,7 @@ func (b *InMemoryBackend) CountUserSSHPublicKeys(serverID, userName string) int 
 
 	return len(b.sshKeysByServerUser.Get(serverUserKey(serverID, userName)))
 }
+
+var sshPublicKeyBodyRe = regexp.MustCompile(
+	`^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/]+=*( .*)?$`,
+)

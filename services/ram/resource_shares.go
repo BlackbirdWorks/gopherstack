@@ -415,6 +415,10 @@ func (b *InMemoryBackend) PromoteResourceShareCreatedFromPolicy(
 		)
 	}
 
+	if err := b.matchPolicyPermissionLocked(rs); err != nil {
+		return nil, err
+	}
+
 	rs.FeatureSet = permStandard
 	rs.LastUpdatedTime = time.Now()
 

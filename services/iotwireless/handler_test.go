@@ -16,6 +16,7 @@ import (
 
 const (
 	testAccountID = "000000000000"
+	testRoleArn   = "arn:aws:iam::123456789012:role/r"
 	testRegion    = "us-east-1"
 )
 

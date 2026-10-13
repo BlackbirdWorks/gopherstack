@@ -275,28 +275,22 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
+	respond := func(errType string) error {
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    errType,
+			Message: strings.TrimPrefix(err.Error(), errType+": "),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	}
+
 	switch {
 	case errors.Is(err, ErrNotFound):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ResourceNotFoundException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return respond("ResourceNotFoundException")
 	case errors.Is(err, ErrAlreadyExists):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ResourceAlreadyExistsException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return respond("ResourceAlreadyExistsException")
 	case errors.Is(err, ErrValidation):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "InvalidInputException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return respond("InvalidInputException")
 	// errInvalidRequest backs every required-field check in this package (see
 	// handler_builds.go, handler_projects.go, ...), so this is a real
 	// client-triggerable path, not just malformed JSON/an unknown action.
@@ -305,12 +299,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	// raises errInvalidRequest), so it is a safe blanket fallback here.
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "InvalidInputException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusBadRequest, payload)
+		return respond("InvalidInputException")
 	default:
 		// codebuild@v1.72.4's types/errors.go declares no internal-server/
 		// generic-server exception at all -- left untyped rather than inventing one.

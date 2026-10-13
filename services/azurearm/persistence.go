@@ -67,6 +67,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.resourceGroups = make(map[string]*ResourceGroup)
 		b.resources = make(map[string]*Resource)
+		b.byType.Store(nil)
 		b.registeredProviders = make(map[string]map[string]bool)
 
 		return nil
@@ -94,6 +95,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.resourceGroups = snap.ResourceGroups
 	b.resources = snap.Resources
+	b.byType.Store(nil)
 	b.registeredProviders = snap.RegisteredProviders
 
 	return nil

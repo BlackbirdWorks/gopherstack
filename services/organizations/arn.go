@@ -55,9 +55,10 @@ func (b *InMemoryBackend) awsManagedPolicyARN(policyType, policyID string) strin
 // resourcePolicyARN builds an ARN for the organization resource policy.
 func (b *InMemoryBackend) resourcePolicyARN(orgID string) string {
 	return fmt.Sprintf(
-		"arn:aws:organizations::%s:resourcepolicy/%s/p-rp-default",
+		"arn:aws:organizations::%s:resourcepolicy/%s/%s",
 		b.accountID,
 		orgID,
+		resourcePolicyID(orgID),
 	)
 }
 

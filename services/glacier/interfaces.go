@@ -59,5 +59,7 @@ type StorageBackend interface {
 	// inventory-retrieval job so that subsequent DescribeJob calls return it.
 	SetJobInventorySize(accountID, region, vaultName, jobID string, size int64)
 
+	AuthorizeVaultAction(accountID, region, vaultName, action, archiveID, caller string) error
+
 	Reset()
 }

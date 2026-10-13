@@ -1,7 +1,6 @@
 package cloudwatch
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/aws/smithy-go/encoding/cbor"
@@ -147,6 +146,12 @@ func (h *Handler) cborGetMetricStatistics(input cbor.Map, c *echo.Context) error
 	statistics := cborStrList(input, "Statistics")
 	extendedStatistics := cborStrList(input, "ExtendedStatistics")
 
+	if verr := validateGetMetricStatisticsRequest(
+		startTime, endTime, period, statistics, extendedStatistics,
+	); verr != nil {
+		return h.cborBackendError(c, verr)
+	}
+
 	dps, err := h.Backend.GetMetricStatisticsForUnit(
 		namespace,
 		metricName,
@@ -159,48 +164,13 @@ func (h *Handler) cborGetMetricStatistics(input cbor.Map, c *echo.Context) error
 		cborStr(input, "Unit"),
 	)
 	if err != nil {
-		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return h.cborBackendError(c, err)
 	}
 
 	dpList := make(cbor.List, 0, len(dps))
 
 	for _, dp := range dps {
-		m := cbor.Map{"Timestamp": cborFromTime(dp.Timestamp)}
-
-		if dp.Average != nil {
-			m["Average"] = cbor.Float64(*dp.Average)
-		}
-
-		if dp.Sum != nil {
-			m[statSum] = cbor.Float64(*dp.Sum)
-		}
-
-		if dp.Minimum != nil {
-			m["Minimum"] = cbor.Float64(*dp.Minimum)
-		}
-
-		if dp.Maximum != nil {
-			m["Maximum"] = cbor.Float64(*dp.Maximum)
-		}
-
-		if dp.SampleCount != nil {
-			m["SampleCount"] = cbor.Float64(*dp.SampleCount)
-		}
-
-		if len(dp.ExtendedStatistics) > 0 {
-			es := make(cbor.Map, len(dp.ExtendedStatistics))
-			for k, v := range dp.ExtendedStatistics {
-				es[k] = cbor.Float64(v)
-			}
-
-			m["ExtendedStatistics"] = es
-		}
-
-		if dp.Unit != "" {
-			m["Unit"] = cbor.String(dp.Unit)
-		}
-
-		dpList = append(dpList, m)
+		dpList = append(dpList, cborDatapoint(dp))
 	}
 
 	return writeCBOR(c, cbor.Map{
@@ -278,6 +248,45 @@ func parseMetricDataQueries(input cbor.Map, key string) []MetricDataQuery {
 	return queries
 }
 
+func cborDatapoint(dp Datapoint) cbor.Map {
+	m := cbor.Map{"Timestamp": cborFromTime(dp.Timestamp)}
+
+	if dp.Average != nil {
+		m["Average"] = cbor.Float64(*dp.Average)
+	}
+
+	if dp.Sum != nil {
+		m[statSum] = cbor.Float64(*dp.Sum)
+	}
+
+	if dp.Minimum != nil {
+		m["Minimum"] = cbor.Float64(*dp.Minimum)
+	}
+
+	if dp.Maximum != nil {
+		m["Maximum"] = cbor.Float64(*dp.Maximum)
+	}
+
+	if dp.SampleCount != nil {
+		m["SampleCount"] = cbor.Float64(*dp.SampleCount)
+	}
+
+	if len(dp.ExtendedStatistics) > 0 {
+		es := make(cbor.Map, len(dp.ExtendedStatistics))
+		for k, v := range dp.ExtendedStatistics {
+			es[k] = cbor.Float64(v)
+		}
+
+		m["ExtendedStatistics"] = es
+	}
+
+	if dp.Unit != "" {
+		m["Unit"] = cbor.String(dp.Unit)
+	}
+
+	return m
+}
+
 func (h *Handler) cborGetMetricData(input cbor.Map, c *echo.Context) error {
 	startTime := cborTime(input, "StartTime")
 	endTime := cborTime(input, "EndTime")
@@ -298,7 +307,7 @@ func (h *Handler) cborGetMetricData(input cbor.Map, c *echo.Context) error {
 		pageResult.Results = results
 	}
 	if err != nil {
-		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return h.cborBackendError(c, err)
 	}
 
 	resultList := make(cbor.List, 0, len(pageResult.Results))
@@ -364,11 +373,7 @@ func (h *Handler) cborListMetrics(input cbor.Map, c *echo.Context) error {
 
 	p, err := h.Backend.ListMetrics(namespace, metricName, dimensions, recentlyActive, nextToken, maxResults)
 	if err != nil {
-		if errors.Is(err, ErrValidation) {
-			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
-		}
-
-		return h.cborError(c, http.StatusInternalServerError, errCodeInternalFailure, err.Error())
+		return h.cborBackendError(c, err)
 	}
 
 	mList := make(cbor.List, 0, len(p.Data))

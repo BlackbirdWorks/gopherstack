@@ -142,6 +142,7 @@ func (m *mockLambdaInvoker) InvokeFunction(
 
 // mockDynamoDB is a test double for DynamoDB operations.
 type mockDynamoDB struct {
+	appsync.DynamoDBBackend
 	items map[string]map[string]any
 }
 
@@ -154,7 +155,9 @@ func (m *mockDynamoDB) GetItemRaw(_ context.Context, tableName string, key map[s
 	return map[string]any{}, nil
 }
 
-func (m *mockDynamoDB) PutItemRaw(_ context.Context, tableName string, item map[string]any) error {
+func (m *mockDynamoDB) PutItemRaw(
+	_ context.Context, tableName string, item map[string]any, _ *appsync.DDBExpression,
+) error {
 	if m.items == nil {
 		m.items = make(map[string]map[string]any)
 	}

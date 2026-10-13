@@ -18,6 +18,7 @@ func (h *Handler) EnableRegions() {
 
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
 		nb := NewInMemoryBackend(home.baseCtx, home.accountID, region)
+		nb.SetIdcApplicationManager(home.idcApplicationManager())
 
 		if cfg, on := home.engineConfig(); on {
 			cfg.Runtime = sharedRuntime{cfg.Runtime}
@@ -26,6 +27,13 @@ func (h *Handler) EnableRegions() {
 
 		return NewHandler(nb)
 	})
+}
+
+func (b *InMemoryBackend) idcApplicationManager() IdcApplicationManager {
+	b.mu.RLock("idcApplicationManager")
+	defer b.mu.RUnlock()
+
+	return b.idcApps
 }
 
 func (b *InMemoryBackend) engineConfig() (ClusterEngineConfig, bool) {

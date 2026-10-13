@@ -46,6 +46,14 @@ func (b *InMemoryBackend) TagResource(
 		return ErrNotFound
 	}
 
+	merged := make(map[string]string, len(existing)+len(tags))
+	maps.Copy(merged, existing)
+	maps.Copy(merged, tags)
+
+	if err := validateTags(merged); err != nil {
+		return err
+	}
+
 	maps.Copy(existing, tags)
 
 	return nil

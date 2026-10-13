@@ -184,7 +184,7 @@ func (h *Handler) handlePutMetricData(form url.Values, c *echo.Context) error {
 		return h.xmlError(
 			c,
 			http.StatusBadRequest,
-			"InvalidParameterValue",
+			codeInvalidParam,
 			"Namespace is required",
 		)
 	}
@@ -220,7 +220,7 @@ func putMetricDataErrorCode(err error) string {
 		errors.Is(err, ErrInvalidMetricValue),
 		errors.Is(err, ErrMetricTimestampOutOfRange),
 		errors.Is(err, ErrValidation):
-		return "InvalidParameterValue"
+		return codeInvalidParam
 	default:
 		return errCodeInternalFailure
 	}
@@ -284,6 +284,12 @@ func (h *Handler) handleGetMetricStatistics(form url.Values, c *echo.Context) er
 	dimensions := parseDimensionsFromForm(form, "Dimensions.")
 	statistics := parseMemberList(form, "Statistics.")
 	extendedStatistics := parseMemberList(form, "ExtendedStatistics.")
+	if verr := validateGetMetricStatisticsRequest(
+		startTime, endTime, int32(period), statistics, extendedStatistics,
+	); verr != nil {
+		return h.xmlBackendError(c, verr)
+	}
+
 	dps, berr := h.Backend.GetMetricStatisticsForUnit(
 		namespace,
 		metricName,
@@ -296,7 +302,7 @@ func (h *Handler) handleGetMetricStatistics(form url.Values, c *echo.Context) er
 		form.Get("Unit"),
 	)
 	if berr != nil {
-		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", berr.Error())
+		return h.xmlBackendError(c, berr)
 	}
 
 	return writeXML(c, buildGetMetricStatisticsResponse(metricName, dps))
@@ -361,11 +367,7 @@ func (h *Handler) handleListMetrics(form url.Values, c *echo.Context) error {
 
 	p, err := h.Backend.ListMetrics(namespace, metricName, dimensions, recentlyActive, nextToken, maxResults)
 	if err != nil {
-		if errors.Is(err, ErrValidation) {
-			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
-		}
-
-		return h.xmlError(c, http.StatusInternalServerError, errCodeInternalFailure, err.Error())
+		return h.xmlBackendError(c, err)
 	}
 
 	type dimXML struct {
@@ -438,7 +440,7 @@ func (h *Handler) handleGetMetricData(form url.Values, c *echo.Context) error {
 		pageResult.Results = results
 	}
 	if berr != nil {
-		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", berr.Error())
+		return h.xmlBackendError(c, berr)
 	}
 
 	type messageXML struct {

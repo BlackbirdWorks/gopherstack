@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestParseSelectExpression_Valid verifies that the Glacier Select SQL subset
@@ -95,6 +96,108 @@ func TestParseSelectExpression_Invalid(t *testing.T) {
 
 			_, err := parseSelectQuery(tt.expr)
 			assert.Error(t, err, "expression: %s", tt.expr)
+		})
+	}
+}
+
+const selectExprCSV = "name,age,city\nalice,30,Paris\nbob,25,Berlin\ncarol,40,paris\ndave,,Rome\n"
+
+func runSelectExpr(t *testing.T, expr string) (string, error) {
+	t.Helper()
+
+	sp := &selectParametersDTO{
+		Expression:          expr,
+		ExpressionType:      "SQL",
+		InputSerialization:  &inputSerializationDTO{Csv: &csvInputDTO{FileHeaderInfo: "USE"}},
+		OutputSerialization: &outputSerializationDTO{Csv: &csvOutputDTO{}},
+	}
+
+	out, err := executeSelect([]byte(selectExprCSV), sp)
+
+	return string(out), err
+}
+
+func TestSelectExpressions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		expr string
+		want string
+	}{
+		{
+			name: "parens_group",
+			expr: "SELECT name FROM archive WHERE (age < 26 OR age > 35) AND city <> 'Rome'",
+			want: "bob\ncarol\n",
+		},
+		{name: "not", expr: "SELECT name FROM archive WHERE NOT age > 26 AND age >= 0", want: "bob\n"},
+		{name: "between", expr: "SELECT name FROM archive WHERE age BETWEEN 26 AND 35", want: "alice\n"},
+		{
+			name: "not_between",
+			expr: "SELECT name FROM archive WHERE age NOT BETWEEN 26 AND 35 AND name <> 'dave'",
+			want: "bob\ncarol\n",
+		},
+		{name: "in", expr: "SELECT name FROM archive WHERE city IN ('Paris', 'Rome')", want: "alice\ndave\n"},
+		{name: "not_in", expr: "SELECT name FROM archive WHERE city NOT IN ('Paris', 'Rome')", want: "bob\ncarol\n"},
+		{name: "like_prefix", expr: "SELECT name FROM archive WHERE name LIKE 'a%'", want: "alice\n"},
+		{name: "like_single", expr: "SELECT name FROM archive WHERE name LIKE 'bo_'", want: "bob\n"},
+		{name: "not_like", expr: "SELECT name FROM archive WHERE name NOT LIKE '%a%'", want: "bob\n"},
+		{name: "like_escape", expr: "SELECT name FROM archive WHERE city LIKE 'P\\aris' ESCAPE '\\'", want: "alice\n"},
+		{
+			name: "arithmetic",
+			expr: "SELECT name, age * 2 + 1 FROM archive WHERE age % 10 = 0",
+			want: "alice,61\ncarol,81\n",
+		},
+		{name: "arithmetic_where", expr: "SELECT name FROM archive WHERE age - 5 = 25", want: "alice\n"},
+		{name: "division", expr: "SELECT age / 4 FROM archive WHERE name = 'bob'", want: "6.25\n"},
+		{name: "cast_int", expr: "SELECT CAST(age AS INT) + 1 FROM archive WHERE name = 'carol'", want: "41\n"},
+		{name: "cast_string", expr: "SELECT CAST(age AS STRING) FROM archive WHERE name = 'bob'", want: "25\n"},
+		{name: "cast_bad_is_null", expr: "SELECT CAST(city AS INT) FROM archive WHERE name = 'bob'", want: "\n"},
+		{name: "coalesce", expr: "SELECT COALESCE(CAST(age AS INT), 0) FROM archive WHERE name = 'dave'", want: "0\n"},
+		{name: "nullif", expr: "SELECT NULLIF(city, 'Berlin') FROM archive WHERE name = 'bob'", want: "\n"},
+		{
+			name: "nullif_differs",
+			expr: "SELECT NULLIF(city, 'Berlin') FROM archive WHERE name = 'alice'",
+			want: "Paris\n",
+		},
+		{name: "unary_minus", expr: "SELECT name FROM archive WHERE -age < -35", want: "carol\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := runSelectExpr(t, tt.expr)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestSelectExpressionRejects(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		expr string
+	}{
+		{name: "unclosed_paren", expr: "SELECT * FROM archive WHERE (age > 1"},
+		{name: "bare_value_where", expr: "SELECT * FROM archive WHERE age"},
+		{name: "arithmetic_where", expr: "SELECT * FROM archive WHERE age + 1"},
+		{name: "unknown_function", expr: "SELECT BOGUS(age) FROM archive"},
+		{name: "bad_cast_type", expr: "SELECT CAST(age AS WIDGET) FROM archive"},
+		{name: "not_without_operator", expr: "SELECT * FROM archive WHERE age NOT 5"},
+		{name: "between_missing_and", expr: "SELECT * FROM archive WHERE age BETWEEN 1 5"},
+		{name: "nullif_arity", expr: "SELECT NULLIF(age) FROM archive"},
+		{name: "empty_in", expr: "SELECT * FROM archive WHERE age IN ()"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := parseSelectQuery(tt.expr)
+			assert.Error(t, err)
 		})
 	}
 }

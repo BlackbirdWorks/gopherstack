@@ -8,11 +8,60 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
+const deletionTaskPrefix = "task/"
+
+// knownServiceLinkedRoleName returns AWS's canonical service-linked role name for a service principal.
+func knownServiceLinkedRoleName(service string) (string, bool) {
+	names := map[string]string{
+		"autoscaling.amazonaws.com":                      "AWSServiceRoleForAutoScaling",
+		"ecs.amazonaws.com":                              "AWSServiceRoleForECS",
+		"elasticloadbalancing.amazonaws.com":             "AWSServiceRoleForElasticLoadBalancing",
+		"rds.amazonaws.com":                              "AWSServiceRoleForRDS",
+		"spot.amazonaws.com":                             "AWSServiceRoleForEC2Spot",
+		"spotfleet.amazonaws.com":                        "AWSServiceRoleForEC2SpotFleet",
+		"eks.amazonaws.com":                              "AWSServiceRoleForAmazonEKS",
+		"elasticache.amazonaws.com":                      "AWSServiceRoleForElastiCache",
+		"opensearchservice.amazonaws.com":                "AWSServiceRoleForAmazonOpenSearchService",
+		"es.amazonaws.com":                               "AWSServiceRoleForAmazonElasticsearchService",
+		"organizations.amazonaws.com":                    "AWSServiceRoleForOrganizations",
+		"support.amazonaws.com":                          "AWSServiceRoleForSupport",
+		"trustedadvisor.amazonaws.com":                   "AWSServiceRoleForTrustedAdvisor",
+		"lambda.application-autoscaling.amazonaws.com":   "AWSServiceRoleForApplicationAutoScaling_LambdaConcurrency",
+		"dynamodb.application-autoscaling.amazonaws.com": "AWSServiceRoleForApplicationAutoScaling_DynamoDBTable",
+		"ecs.application-autoscaling.amazonaws.com":      "AWSServiceRoleForApplicationAutoScaling_ECSService",
+		"globalaccelerator.amazonaws.com":                "AWSServiceRoleForGlobalAccelerator",
+		"transitgateway.amazonaws.com":                   "AWSServiceRoleForVPCTransitGateway",
+		"config.amazonaws.com":                           "AWSServiceRoleForConfig",
+		"guardduty.amazonaws.com":                        "AWSServiceRoleForAmazonGuardDuty",
+		"inspector2.amazonaws.com":                       "AWSServiceRoleForAmazonInspector2",
+		"cloudtrail.amazonaws.com":                       "AWSServiceRoleForCloudTrail",
+		"replication.ecr.amazonaws.com":                  "AWSServiceRoleForECRReplication",
+	}
+
+	n, ok := names[service]
+
+	return n, ok
+}
+
+func serviceLinkedRoleName(awsServiceName string) string {
+	if n, ok := knownServiceLinkedRoleName(awsServiceName); ok {
+		return n
+	}
+
+	svcShort := strings.TrimSuffix(awsServiceName, ".amazonaws.com")
+
+	return "AWSServiceRoleFor" + strings.ToUpper(svcShort[:1]) + svcShort[1:]
+}
+
 // GetServiceLinkedRoleDeletionStatus returns the status of a service-linked role deletion task.
 // Gopherstack synchronously deletes service-linked roles, so status is always SUCCEEDED.
 func (b *InMemoryBackend) GetServiceLinkedRoleDeletionStatus(deletionTaskID string) (string, error) {
 	if deletionTaskID == "" {
 		return "", fmt.Errorf("%w: DeletionTaskId must not be empty", ErrInvalidInput)
+	}
+
+	if !strings.HasPrefix(deletionTaskID, deletionTaskPrefix) {
+		return "", fmt.Errorf("%w: deletion task %q not found", ErrRoleNotFound, deletionTaskID)
 	}
 
 	return "SUCCEEDED", nil
@@ -55,10 +104,7 @@ func (b *InMemoryBackend) CreateServiceLinkedRole(
 		return nil, fmt.Errorf("%w: AWSServiceName must not be empty", ErrInvalidInput)
 	}
 
-	// Build a role name from the service name.
-	// e.g., elasticloadbalancing.amazonaws.com → AWSServiceRoleForElasticLoadBalancing
-	svcShort := strings.TrimSuffix(awsServiceName, ".amazonaws.com")
-	roleName := "AWSServiceRoleFor" + strings.ToUpper(svcShort[:1]) + svcShort[1:]
+	roleName := serviceLinkedRoleName(awsServiceName)
 	if customSuffix != "" {
 		roleName = roleName + "_" + customSuffix
 	}
@@ -85,11 +131,8 @@ func (b *InMemoryBackend) CreateServiceLinkedRole(
 		Path:                     p,
 		AssumeRolePolicyDocument: assumeRolePolicy,
 		CreateDate:               time.Now().UTC(),
-	}
-
-	if description != "" {
-		// Store description as a tag; IAM roles do not have a description field here.
-		_ = description
+		Description:              description,
+		MaxSessionDuration:       defaultMaxSessionDuration,
 	}
 
 	b.roles.Put(&role)

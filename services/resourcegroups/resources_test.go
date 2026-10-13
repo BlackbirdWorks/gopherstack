@@ -186,11 +186,11 @@ func TestListGroupResources_FilterByResourceType(t *testing.T) {
 	_, err = b.GroupResources(context.Background(), "mixed-group", arns)
 	require.NoError(t, err)
 
-	tests := []struct { //nolint:govet // field order optimized for readability
+	tests := []struct {
 		name       string
 		filterVals []string
-		wantCount  int
 		wantTypes  []string
+		wantCount  int
 	}{
 		{
 			name:       "filter_s3_only",

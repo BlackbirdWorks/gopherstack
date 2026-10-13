@@ -72,7 +72,7 @@ func (b *InMemoryBackend) UpdateMobileDeviceAccessRule(
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	rule, ok := b.mobileDeviceRules.Get(orgKey(orgID, ruleID))
 	if !ok {
@@ -186,7 +186,7 @@ func (b *InMemoryBackend) PutMobileDeviceAccessOverride(
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	key := orgKey(orgID, mobileOverrideKey(userID, deviceID))
 	now := time.Now()
@@ -215,7 +215,7 @@ func (b *InMemoryBackend) DeleteMobileDeviceAccessOverride(orgID, userID, device
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	key := orgKey(orgID, mobileOverrideKey(userID, deviceID))
 	if !b.mobileDeviceOverrides.Delete(key) {
@@ -241,7 +241,7 @@ func (b *InMemoryBackend) GetMobileDeviceAccessOverride(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	key := orgKey(orgID, mobileOverrideKey(userID, deviceID))
 	ov, ok := b.mobileDeviceOverrides.Get(key)
@@ -260,7 +260,7 @@ func (b *InMemoryBackend) ListMobileDeviceAccessOverrides(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, "", fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, "", fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	all := make([]*MobileDeviceAccessOverride, 0)
 	for _, ov := range b.mobileDeviceOverridesByOrg.Get(orgID) {

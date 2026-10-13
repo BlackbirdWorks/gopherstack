@@ -379,6 +379,7 @@ func shieldErrorRules() []shieldErrorRule {
 		{ErrSubscriptionRequired, "InvalidOperationException"},
 		{ErrLimitExceeded, "LimitsExceededException"},
 		{ErrNoAssociatedRole, "NoAssociatedRoleException"},
+		{ErrLockedSubscription, "LockedSubscriptionException"},
 		{errInvalidPaginationToken, "InvalidPaginationTokenException"},
 		{awserr.ErrNotFound, "ResourceNotFoundException"},
 		{awserr.ErrConflict, "ResourceAlreadyExistsException"},
@@ -413,7 +414,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	code, status := classifyShieldError(err)
 	payload, _ := json.Marshal(map[string]string{
 		keyTypeField:    code,
-		keyMessageField: err.Error(),
+		keyMessageField: messageWithoutCode(code, err),
 	})
 
 	return c.JSONBlob(status, payload)

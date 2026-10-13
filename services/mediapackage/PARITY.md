@@ -3,7 +3,7 @@ items_still_open: []
 service: mediapackage
 sdk_module: aws-sdk-go-v2/service/mediapackage@v1.42.4
 last_audit_commit: ed6ef1a53
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-11
 overall: A            # 2026-08-29: independent re-sweep, deliberately NOT using this campaign's
                       # known bug-class list (see comprehend's PARITY.md same-date entry for the
                       # sibling audit that found real bugs there via this method). Re-derived
@@ -48,6 +48,12 @@ leaks: {status: clean, note: "no goroutines/timers introduced; all ops are synch
 ---
 
 ## Notes
+
+**2026-10-11 (realism pass)**: harvest jobs now complete: IN_PROGRESS for `SetHarvestJobDuration` (default 1s)
+then SUCCEEDED, evaluated lazily; ManifestName defaults to "index" per the SDK doc (was the endpoint id) and the
+URL is recomputed when it changes; unspecified startover/time-delay report 0 (were -1); error bodies use
+lowercase `message` without the code prefix. The /origin_endpoints and /harvest_jobs matchers stay path-only (routing golden pins
+execute-api-signed requests to MediaPackage). Id charset validation left open-ended: the SDK states no pattern.
 
 ### 2026-09-19 (gopherstack-op3e census): "/tags" prefix shadow (accessanalyzer/dlm/amplify/eks) -- false positive
 

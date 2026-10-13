@@ -63,7 +63,7 @@ func TestEcsClusters(t *testing.T) {
 				rec = doTarget(t, h, "DescribeEcsClusters", map[string]any{
 					"EcsClusterArns": []string{testClusterArn},
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}

@@ -99,6 +99,7 @@ func toXMLSubnetGroup(sg *DBSubnetGroup) xmlDBSubnetGroup {
 		DBSubnetGroupName:        sg.DBSubnetGroupName,
 		DBSubnetGroupDescription: sg.DBSubnetGroupDescription,
 		VpcID:                    sg.VpcID,
+		SupportedNetworkTypes:    networkTypesXML(sg.SupportedNetworkTypes),
 		SubnetGroupStatus:        sg.Status,
 		Subnets:                  xmlSubnetList{Members: subnetMembers},
 		DBSubnetGroupArn:         sg.DBSubnetGroupArn,
@@ -116,12 +117,13 @@ type xmlSubnetList struct {
 }
 
 type xmlDBSubnetGroup struct {
-	DBSubnetGroupName        string        `xml:"DBSubnetGroupName"`
-	DBSubnetGroupDescription string        `xml:"DBSubnetGroupDescription"`
-	VpcID                    string        `xml:"VpcId,omitempty"`
-	SubnetGroupStatus        string        `xml:"SubnetGroupStatus"`
-	DBSubnetGroupArn         string        `xml:"DBSubnetGroupArn,omitempty"`
-	Subnets                  xmlSubnetList `xml:"Subnets"`
+	SupportedNetworkTypes    *xmlNetworkTypes `xml:"SupportedNetworkTypes,omitempty"`
+	DBSubnetGroupName        string           `xml:"DBSubnetGroupName"`
+	DBSubnetGroupDescription string           `xml:"DBSubnetGroupDescription"`
+	VpcID                    string           `xml:"VpcId,omitempty"`
+	SubnetGroupStatus        string           `xml:"SubnetGroupStatus"`
+	DBSubnetGroupArn         string           `xml:"DBSubnetGroupArn,omitempty"`
+	Subnets                  xmlSubnetList    `xml:"Subnets"`
 }
 
 type xmlDBSubnetGroupList struct {

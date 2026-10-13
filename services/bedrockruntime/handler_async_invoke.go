@@ -106,7 +106,10 @@ func (h *Handler) handleGetAsyncInvoke(c *echo.Context, path string) error {
 
 // defaultListAsyncInvokesMaxResults matches the real API's page size when maxResults is
 // omitted (bedrockruntime@v1.57.1 api_op_ListAsyncInvokes.go doc comment: "default 10").
-const defaultListAsyncInvokesMaxResults = 10
+const (
+	defaultListAsyncInvokesMaxResults = 10
+	maxListAsyncInvokesMaxResults     = 1000
+)
 
 // handleListAsyncInvokes handles GET /async-invoke.
 // Supports query parameters: statusEquals (InProgress|Completed|Failed), maxResults,
@@ -160,9 +163,14 @@ func (h *Handler) handleListAsyncInvokes(c *echo.Context) error {
 
 	maxResults := defaultListAsyncInvokesMaxResults
 	if s := c.QueryParam("maxResults"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			maxResults = n
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 || n > maxListAsyncInvokesMaxResults {
+			return c.JSON(http.StatusBadRequest, errorResponse(
+				"ValidationException", "maxResults must be between 1 and 1000",
+			))
 		}
+
+		maxResults = n
 	}
 
 	nextToken := c.QueryParam("nextToken")
@@ -176,11 +184,11 @@ func (h *Handler) handleListAsyncInvokes(c *echo.Context) error {
 			}
 		}
 
-		if idx >= 0 {
-			invocations = invocations[idx+1:]
-		} else {
-			invocations = nil
+		if idx < 0 {
+			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "nextToken is invalid"))
 		}
+
+		invocations = invocations[idx+1:]
 	}
 
 	respToken := ""

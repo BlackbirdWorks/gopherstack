@@ -1,6 +1,8 @@
 package guardduty
 
 import (
+	"maps"
+	"slices"
 	"sort"
 	"time"
 
@@ -151,12 +153,97 @@ func (b *InMemoryBackend) GetOrganizationStatistics() map[string]any {
 		"organizationDetails": map[string]any{
 			"updatedAt": awstime.Epoch(time.Now().UTC()),
 			"organizationStatistics": map[string]any{
-				"activeAccountsCount":  activeAccounts,
-				"totalAccountsCount":   totalAccounts,
-				"memberAccountsCount":  memberCount,
-				"enabledAccountsCount": enabledCount,
-				"countByFeature":       []any{},
+				"activeAccountsCount":   activeAccounts,
+				"totalAccountsCount":    totalAccounts,
+				"memberAccountsCount":   memberCount,
+				keyEnabledAccountsCount: enabledCount,
+				"countByFeature":        b.orgFeatureStatisticsLocked(),
 			},
 		},
 	}
 }
+
+// featureAccounts tracks the distinct accounts with a feature (and each of its
+// additional configurations) ENABLED.
+type featureAccounts struct {
+	accounts map[string]struct{}
+	extras   map[string]map[string]struct{}
+}
+
+type orgFeatureTally map[string]*featureAccounts
+
+func (t orgFeatureTally) add(account, name, status string, extras []AdditionalConfig) {
+	if status != statusEnabled {
+		return
+	}
+
+	fa := t[name]
+	if fa == nil {
+		fa = &featureAccounts{accounts: map[string]struct{}{}, extras: map[string]map[string]struct{}{}}
+		t[name] = fa
+	}
+
+	fa.accounts[account] = struct{}{}
+
+	for _, e := range extras {
+		if e.Status != statusEnabled {
+			continue
+		}
+
+		if fa.extras[e.Name] == nil {
+			fa.extras[e.Name] = map[string]struct{}{}
+		}
+
+		fa.extras[e.Name][account] = struct{}{}
+	}
+}
+
+func (t orgFeatureTally) wire() []map[string]any {
+	out := make([]map[string]any, 0, len(t))
+
+	for _, name := range slices.Sorted(maps.Keys(t)) {
+		fa := t[name]
+		entry := map[string]any{keyName: name, keyEnabledAccountsCount: len(fa.accounts)}
+
+		if len(fa.extras) > 0 {
+			extras := make([]map[string]any, 0, len(fa.extras))
+			for _, en := range slices.Sorted(maps.Keys(fa.extras)) {
+				extras = append(extras, map[string]any{keyName: en, keyEnabledAccountsCount: len(fa.extras[en])})
+			}
+
+			entry["additionalConfiguration"] = extras
+		}
+
+		out = append(out, entry)
+	}
+
+	return out
+}
+
+// orgFeatureStatisticsLocked counts, per feature (and additional
+// configuration), the distinct accounts with it ENABLED across this account's
+// detectors and its members. Caller holds b.mu.
+func (b *InMemoryBackend) orgFeatureStatisticsLocked() []map[string]any {
+	tally := orgFeatureTally{}
+
+	for _, d := range b.detectors.All() {
+		for _, f := range d.Features {
+			tally.add(b.accountID, f.Name, f.Status, f.AdditionalConfiguration)
+		}
+	}
+
+	for _, m := range b.members.All() {
+		for _, f := range m.Features {
+			extras := make([]AdditionalConfig, 0, len(f.AdditionalConfiguration))
+			for _, a := range f.AdditionalConfiguration {
+				extras = append(extras, AdditionalConfig{Name: a.Name, Status: a.Status})
+			}
+
+			tally.add(m.AccountID, f.Name, f.Status, extras)
+		}
+	}
+
+	return tally.wire()
+}
+
+const keyEnabledAccountsCount = "enabledAccountsCount"

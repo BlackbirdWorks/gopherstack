@@ -1,6 +1,8 @@
 package redshiftdata
 
 import (
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -71,10 +73,11 @@ func (s *regionStore) compactRingBuffer() {
 // All regional resource maps are nested by region (outer key = region) so that
 // the same-named statement in two regions are fully isolated.
 type InMemoryBackend struct {
-	stores        map[string]*regionStore
-	mu            *lockmetrics.RWMutex
-	accountID     string
-	defaultRegion string
+	stores         map[string]*regionStore
+	mu             *lockmetrics.RWMutex
+	accountID      string
+	defaultRegion  string
+	lifecycleDelay time.Duration
 }
 
 // NewInMemoryBackend creates a new in-memory Redshift Data backend.

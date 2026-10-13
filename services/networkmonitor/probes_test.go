@@ -74,13 +74,13 @@ func TestCreateProbeTCPRequiresPort(t *testing.T) {
 func TestCreateProbeValidation(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
+	tests := []struct {
+		destPort    *int32
+		packetSize  *int32
 		name        string
 		destination string
 		protocol    string
 		sourceArn   string
-		destPort    *int32
-		packetSize  *int32
 		wantErr     bool
 	}{
 		{

@@ -1,6 +1,7 @@
 package firehose_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -394,7 +395,7 @@ func TestUpdateDestination_S3BucketWireKey_SDKRoundTrip(t *testing.T) {
 			t.Parallel()
 
 			client := newTestClient(t)
-			streamName := "roundtrip-" + tc.name
+			streamName := "roundtrip-" + strings.ReplaceAll(tc.name, " ", "-")
 
 			require.NoError(t, tc.create(client, streamName))
 

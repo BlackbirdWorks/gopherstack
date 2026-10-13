@@ -1,6 +1,8 @@
 package managedblockchain
 
 import (
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -27,6 +29,7 @@ type InMemoryBackend struct {
 	proposalVotesByProposal *store.Index[ProposalVote]
 	invitations             *store.Table[Invitation]
 	mu                      *lockmetrics.RWMutex
+	createDelay             time.Duration
 }
 
 // var _ assertion ensures InMemoryBackend implements StorageBackend at compile time.

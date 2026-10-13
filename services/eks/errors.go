@@ -1,6 +1,10 @@
 package eks
 
-import "github.com/blackbirdworks/gopherstack/pkgs/awserr"
+import (
+	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+)
 
 var (
 	// ErrNotFound is returned when an EKS resource is not found.
@@ -31,3 +35,8 @@ var (
 	// Code: 400".
 	ErrResourceLimitExceeded = awserr.New("ResourceLimitExceededException", awserr.ErrInvalidParameter)
 )
+
+// errMsgf wraps sentinel with a client-facing message that may end in punctuation.
+func errMsgf(sentinel error, format string, args ...any) error {
+	return fmt.Errorf("%w: %s", sentinel, fmt.Sprintf(format, args...))
+}

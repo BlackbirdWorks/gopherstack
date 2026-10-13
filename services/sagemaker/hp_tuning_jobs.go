@@ -298,6 +298,10 @@ func (b *InMemoryBackend) StopHyperParameterTuningJob(ctx context.Context, name 
 		return fmt.Errorf("%w: HP tuning job %q not found", ErrHPTuningJobNotFound, name)
 	}
 
+	if j.HyperParameterTuningJobStatus != trainingJobStatusInProgress {
+		return nil
+	}
+
 	j.HyperParameterTuningJobStatus = pipelineStatusStopping
 	j.LastModifiedTime = time.Now()
 

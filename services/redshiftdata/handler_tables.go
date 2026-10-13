@@ -7,7 +7,7 @@ import (
 	"slices"
 )
 
-func (h *Handler) handleListTables(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleListTables(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Database          string `json:"Database"`
 		WorkgroupName     string `json:"WorkgroupName"`
@@ -27,6 +27,10 @@ func (h *Handler) handleListTables(_ context.Context, body []byte) ([]byte, erro
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := h.checkWorkgroup(ctx, req.WorkgroupName); err != nil {
+		return nil, err
 	}
 
 	if req.Database == "" {
@@ -79,7 +83,7 @@ func filterMapsByField(all []map[string]any, field string, match func(string) bo
 	return out
 }
 
-func (h *Handler) handleDescribeTable(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeTable(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Database          string `json:"Database"`
 		WorkgroupName     string `json:"WorkgroupName"`
@@ -97,6 +101,10 @@ func (h *Handler) handleDescribeTable(_ context.Context, body []byte) ([]byte, e
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := h.checkWorkgroup(ctx, req.WorkgroupName); err != nil {
+		return nil, err
 	}
 
 	if req.Database == "" {

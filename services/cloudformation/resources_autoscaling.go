@@ -22,23 +22,23 @@ func parseASGSizes(
 	var minSize, maxSize, desired int32 = 1, 1, 1
 
 	if v, ok := props["MinSize"].(float64); ok {
-		minSize = int32(v)
+		minSize = floatToInt32(v)
 	} else if s := strProp(props, "MinSize", params, physicalIDs); s != "" {
 		if n, err := strconv.ParseInt(s, 10, 32); err == nil {
-			minSize = int32(n)
+			minSize = clampInt32(n)
 		}
 	}
 
 	if v, ok := props["MaxSize"].(float64); ok {
-		maxSize = int32(v)
+		maxSize = floatToInt32(v)
 	} else if s := strProp(props, "MaxSize", params, physicalIDs); s != "" {
 		if n, err := strconv.ParseInt(s, 10, 32); err == nil {
-			maxSize = int32(n)
+			maxSize = clampInt32(n)
 		}
 	}
 
 	if v, ok := props["DesiredCapacity"].(float64); ok {
-		desired = int32(v)
+		desired = floatToInt32(v)
 	}
 
 	// Clamp to [0, maxAutoScalingCapacity] to prevent excessive allocations.

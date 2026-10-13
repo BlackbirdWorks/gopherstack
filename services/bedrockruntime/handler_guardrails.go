@@ -165,6 +165,10 @@ func (h *Handler) handleApplyGuardrail(
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
 	}
 
+	if !h.Backend.guardrailExists(guardrailID, guardrailVersion) {
+		return writeGuardrailNotFound(c, guardrailID, guardrailVersion)
+	}
+
 	action, matchedKeyword := evaluateGuardrailAction(req.items())
 
 	resp := map[string]any{

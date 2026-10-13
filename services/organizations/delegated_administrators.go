@@ -15,9 +15,8 @@ func (b *InMemoryBackend) RegisterDelegatedAdministrator(accountID, servicePrinc
 		return ErrOrgNotFound
 	}
 
-	// Reject management account.
 	if accountID == b.org.MasterAccountID {
-		return ErrInvalidInput
+		return ErrCannotRegisterManagementAsDelegatedAdmin
 	}
 
 	// Require service access to be enabled first.
@@ -28,6 +27,10 @@ func (b *InMemoryBackend) RegisterDelegatedAdministrator(accountID, servicePrinc
 	acct, ok := b.accounts.Get(accountID)
 	if !ok {
 		return ErrAccountNotFound
+	}
+
+	if acct.Status == accountStatusSuspended || acct.Status == accountStatusPendingClosure {
+		return ErrCannotRegisterSuspendedAsDelegatedAdmin
 	}
 
 	if b.delegatedAdmins.Has(delegatedAdminKey(servicePrincipal, accountID)) {

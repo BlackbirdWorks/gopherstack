@@ -11,18 +11,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/polly"
 )
 
-// TestErrValidation_WireCode_ValidationException proves ErrValidation's
-// mapped wire code is the real modeled type "ValidationException", not the
-// fabricated "InvalidParameterValueException" that names no type anywhere in
-// polly's pinned SDK module (polly@v1.60.4 types/errors.go).
-//
-// None of these operations' own deserializeOpError declares ANY generic
-// validation exception (confirmed by reading each switch in
-// deserializers.go), so the real client can never resolve a specific typed
-// exception here -- the strongest available proof is that the response
-// decodes as *smithy.GenericAPIError with Code == "ValidationException",
-// which is what this asserts. See errors.go's ErrValidation doc comment and
-// PARITY.md for the UNCONFIRMED-per-operation disclosure.
+// TestErrValidation_WireCode_ValidationException proves every op that raises
+// ErrValidation answers with the generic frontend "ValidationException" code,
+// which the SDK surfaces as *smithy.GenericAPIError (none of these ops
+// declares it in deserializeOpError; polly@v1.60.4 types/errors.go has no
+// "InvalidParameterValueException").
 func TestErrValidation_WireCode_ValidationException(t *testing.T) {
 	t.Parallel()
 
@@ -53,6 +46,27 @@ func TestErrValidation_WireCode_ValidationException(t *testing.T) {
 				OutputFormat: "mp3",
 				Text:         aws.String("hello"),
 				VoiceId:      "NotAVoice",
+			})
+
+			return err
+		},
+		"listspeechsynthesistasks invalid status": func(t *testing.T, client *pollysdk.Client) error {
+			t.Helper()
+
+			_, err := client.ListSpeechSynthesisTasks(t.Context(), &pollysdk.ListSpeechSynthesisTasksInput{
+				Status: "bogus",
+			})
+
+			return err
+		},
+		"startspeechsynthesistask missing bucket": func(t *testing.T, client *pollysdk.Client) error {
+			t.Helper()
+
+			_, err := client.StartSpeechSynthesisTask(t.Context(), &pollysdk.StartSpeechSynthesisTaskInput{
+				OutputFormat:       "mp3",
+				OutputS3BucketName: aws.String(""),
+				Text:               aws.String("hello"),
+				VoiceId:            "Joanna",
 			})
 
 			return err

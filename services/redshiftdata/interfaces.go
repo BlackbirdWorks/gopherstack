@@ -26,6 +26,7 @@ type StorageBackend interface {
 
 	// Statement inspection
 	DescribeStatement(ctx context.Context, id string) (*Statement, error)
+	WaitForStatement(ctx context.Context, id string, wait time.Duration) (*Statement, error)
 	CancelStatement(ctx context.Context, id string) error
 	// ListStatements returns a page of statements and a next-token for pagination.
 	ListStatements(ctx context.Context, filter ListStatementsFilter) (
@@ -33,6 +34,7 @@ type StorageBackend interface {
 	)
 
 	// Sessions
+	SetStatementSessionKeepAlive(ctx context.Context, id string, seconds int32)
 	// ListSessions returns a page of sessions -- derived from stored statements
 	// that share a SessionID, not a separately stored resource -- and a
 	// next-token for pagination.

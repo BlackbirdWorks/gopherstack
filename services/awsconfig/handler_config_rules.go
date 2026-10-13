@@ -171,11 +171,6 @@ func (h *Handler) handleDeleteEvaluationResults(
 }
 
 // PutConfigRule request/response types and handler.
-type putConfigRuleSourceBody struct {
-	Owner            string `json:"Owner"`
-	SourceIdentifier string `json:"SourceIdentifier"`
-}
-
 type putConfigRuleScopeBody struct {
 	ComplianceResourceID    string   `json:"ComplianceResourceId,omitempty"`
 	TagKey                  string   `json:"TagKey,omitempty"`
@@ -184,13 +179,14 @@ type putConfigRuleScopeBody struct {
 }
 
 type putConfigRuleBody struct {
-	Source                    *putConfigRuleSourceBody `json:"Source,omitempty"`
-	Scope                     *putConfigRuleScopeBody  `json:"Scope,omitempty"`
-	ConfigRuleName            string                   `json:"ConfigRuleName"`
-	ConfigRuleState           string                   `json:"ConfigRuleState,omitempty"`
-	Description               string                   `json:"Description,omitempty"`
-	InputParameters           string                   `json:"InputParameters,omitempty"`
-	MaximumExecutionFrequency string                   `json:"MaximumExecutionFrequency,omitempty"`
+	Source                    *ConfigRuleSource             `json:"Source,omitempty"`
+	Scope                     *putConfigRuleScopeBody       `json:"Scope,omitempty"`
+	ConfigRuleName            string                        `json:"ConfigRuleName"`
+	ConfigRuleState           string                        `json:"ConfigRuleState,omitempty"`
+	Description               string                        `json:"Description,omitempty"`
+	InputParameters           string                        `json:"InputParameters,omitempty"`
+	MaximumExecutionFrequency string                        `json:"MaximumExecutionFrequency,omitempty"`
+	EvaluationModes           []EvaluationModeConfiguration `json:"EvaluationModes,omitempty"`
 }
 
 type putConfigRuleInput struct {
@@ -207,13 +203,8 @@ func (h *Handler) handlePutConfigRule(
 		InputParameters:           in.ConfigRule.InputParameters,
 		MaximumExecutionFrequency: in.ConfigRule.MaximumExecutionFrequency,
 		ConfigRuleState:           in.ConfigRule.ConfigRuleState,
-	}
-
-	if in.ConfigRule.Source != nil {
-		rule.Source = &ConfigRuleSource{
-			Owner:            in.ConfigRule.Source.Owner,
-			SourceIdentifier: in.ConfigRule.Source.SourceIdentifier,
-		}
+		EvaluationModes:           in.ConfigRule.EvaluationModes,
+		Source:                    in.ConfigRule.Source,
 	}
 
 	if in.ConfigRule.Scope != nil {
@@ -252,7 +243,10 @@ type describeConfigRuleEvaluationStatusOutput struct {
 func (h *Handler) handleDescribeConfigRuleEvaluationStatus(
 	_ context.Context, in *describeConfigRuleEvaluationStatusInput,
 ) (*describeConfigRuleEvaluationStatusOutput, error) {
-	all := h.Backend.DescribeConfigRuleEvaluationStatus(in.ConfigRuleNames)
+	all, err := h.Backend.DescribeConfigRuleEvaluationStatusStrict(in.ConfigRuleNames)
+	if err != nil {
+		return nil, err
+	}
 
 	p, err := paginate(all, in.NextToken, in.Limit, unboundedPageDefault)
 	if err != nil {

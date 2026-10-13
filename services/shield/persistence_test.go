@@ -128,7 +128,7 @@ func TestBackend_SnapshotRestoreNewFields(t *testing.T) {
 	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
 
 	require.NoError(t, b.CreateSubscription())
-	require.NoError(t, b.AssociateDRTRole("arn:aws:iam::123:role/DRTRole"))
+	require.NoError(t, b.AssociateDRTRole("arn:aws:iam::123456789012:role/DRTRole"))
 	require.NoError(t, b.AssociateDRTLogBucket("my-bucket"))
 
 	_, err := b.CreateProtectionGroup("grp-1", "MAX", "ALL", "", nil, nil)
@@ -147,7 +147,7 @@ func TestBackend_SnapshotRestoreNewFields(t *testing.T) {
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	access := b2.DescribeDRTAccess()
-	assert.Equal(t, "arn:aws:iam::123:role/DRTRole", access.RoleArn)
+	assert.Equal(t, "arn:aws:iam::123456789012:role/DRTRole", access.RoleArn)
 	assert.Len(t, access.LogBucketList, 1)
 
 	assert.Equal(t, 1, shield.ProtectionGroupCount(b2))

@@ -2,6 +2,7 @@ package personalize
 
 import (
 	"maps"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -49,33 +50,28 @@ const (
 
 // InMemoryBackend stores Amazon Personalize state.
 type InMemoryBackend struct {
-	mu       *lockmetrics.RWMutex
-	registry *store.Registry
-
+	datasetExportJobs      *store.Table[DatasetExportJob]
+	batchInferenceJobs     *store.Table[BatchInferenceJob]
+	tags                   map[string]map[string]string
 	datasetGroups          *store.Table[DatasetGroup]
 	datasets               *store.Table[Dataset]
 	schemas                *store.Table[Schema]
 	solutions              *store.Table[Solution]
 	solutionVersions       *store.Table[SolutionVersion]
 	campaigns              *store.Table[Campaign]
-	datasetImportJobs      *store.Table[DatasetImportJob]
-	datasetExportJobs      *store.Table[DatasetExportJob]
-	batchInferenceJobs     *store.Table[BatchInferenceJob]
 	batchSegmentJobs       *store.Table[BatchSegmentJob]
+	registry               *store.Registry
+	mu                     *lockmetrics.RWMutex
+	datasetImportJobs      *store.Table[DatasetImportJob]
 	eventTrackers          *store.Table[EventTracker]
 	filters                *store.Table[Filter]
 	recommenders           *store.Table[Recommender]
 	metricAttributions     *store.Table[MetricAttribution]
 	dataDeletionJobs       *store.Table[DataDeletionJob]
 	featureTransformations *store.Table[storedFeatureTransformation]
-
-	// tags is left as a plain map: its value type is map[string]string, not
-	// *T, so it does not fit store.Table's keyed-by-identity-value shape.
-	// See persistence.go.
-	tags map[string]map[string]string
-
-	accountID string
-	region    string
+	accountID              string
+	region                 string
+	lifecycleDelay         time.Duration
 }
 
 // NewInMemoryBackend returns a stateful Amazon Personalize backend.
@@ -145,34 +141,48 @@ func copyStringMap(m map[string]string) map[string]string {
 // then resumes past everything already served instead of restarting at page
 // one, and a deleted item simply resumes at the next one.
 func paginateItems[T any](items []*T, keyOf func(*T) string, maxResults int, nextToken string) ([]*T, string) {
-	const defaultPageSize = 100
+	start := resumeIndex(len(items), func(i int) string { return keyOf(items[i]) }, nextToken)
+	end, more := pageEnd(start, len(items), maxResults)
 
-	if maxResults <= 0 {
-		maxResults = defaultPageSize
-	}
-
-	start := 0
-	if nextToken != "" {
-		start = len(items)
-
-		for i, v := range items {
-			if keyOf(v) > nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := start + maxResults
 	var outToken string
-	if end < len(items) {
-		outToken = keyOf(items[end])
-	} else {
-		end = len(items)
+	if more {
+		outToken = encodePageToken(keyOf(items[end-1]))
 	}
 
 	return items[start:end], outToken
+}
+
+// resumeIndex returns the index of the first item whose key sorts after the cursor encoded in token.
+func resumeIndex(n int, keyAt func(int) string, token string) int {
+	if token == "" {
+		return 0
+	}
+
+	cursor, ok := decodePageToken(token)
+	if !ok {
+		return 0
+	}
+
+	for i := range n {
+		if keyAt(i) > cursor {
+			return i
+		}
+	}
+
+	return n
+}
+
+func pageEnd(start, total, maxResults int) (int, bool) {
+	if maxResults <= 0 {
+		maxResults = maxPageResults
+	}
+
+	end := start + maxResults
+	if end < total {
+		return end, true
+	}
+
+	return total, false
 }
 
 // paginate is used only by ListMetricAttributionMetrics, which pages over a
@@ -182,31 +192,12 @@ func paginateItems[T any](items []*T, keyOf func(*T) string, maxResults int, nex
 // first key strictly greater than nextToken. A deleted or forged token then
 // resumes past everything already served instead of restarting at page one.
 func paginate[T any](keys []string, get func(string) T, maxResults int, nextToken string) ([]T, string) {
-	const defaultPageSize = 100
+	start := resumeIndex(len(keys), func(i int) string { return keys[i] }, nextToken)
+	end, more := pageEnd(start, len(keys), maxResults)
 
-	if maxResults <= 0 {
-		maxResults = defaultPageSize
-	}
-
-	start := 0
-	if nextToken != "" {
-		start = len(keys)
-
-		for i, k := range keys {
-			if k > nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := start + maxResults
 	var outToken string
-	if end < len(keys) {
-		outToken = keys[end]
-	} else {
-		end = len(keys)
+	if more {
+		outToken = encodePageToken(keys[end-1])
 	}
 
 	items := make([]T, 0, end-start)

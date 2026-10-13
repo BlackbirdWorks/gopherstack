@@ -94,7 +94,7 @@ func TestIPSet_CRUD(t *testing.T) {
 				assert.NotContains(t, rec.Body.String(), ipSetID)
 
 				rec = doRequest(t, h, http.MethodDelete, "/detector/"+detectorID+"/ipset/"+ipSetID, nil)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{

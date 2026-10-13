@@ -461,19 +461,23 @@ func (h *Handler) handlePutKey(c *echo.Context, kvs *cloudfrontbackend.KeyValueS
 		return ifMatchErr
 	}
 
-	if quotaErr := checkKeyValueSize(key, req.Value); quotaErr != nil {
+	if req.Value == nil {
+		return writeAWSError(c, http.StatusBadRequest, exceptionValidation, "Value is required")
+	}
+
+	if quotaErr := checkKeyValueSize(key, *req.Value); quotaErr != nil {
 		status, exType := classifyError(quotaErr)
 
 		return writeAWSError(c, status, exType, quotaErr.Error())
 	}
 
-	if quotaErr := h.checkStoreSizeQuota(kvs.ID, key, req.Value); quotaErr != nil {
+	if quotaErr := h.checkStoreSizeQuota(kvs.ID, key, *req.Value); quotaErr != nil {
 		status, exType := classifyError(quotaErr)
 
 		return writeAWSError(c, status, exType, quotaErr.Error())
 	}
 
-	newETag, putErr := h.Backend.PutKVSValue(kvs.ID, key, req.Value, ifMatch)
+	newETag, putErr := h.Backend.PutKVSValue(kvs.ID, key, *req.Value, ifMatch)
 	if putErr != nil {
 		status, exType := classifyError(putErr)
 
@@ -515,6 +519,11 @@ func (h *Handler) handleListKeys(c *echo.Context, kvs *cloudfrontbackend.KeyValu
 		return writeAWSError(c, status, exType, limitErr.Error())
 	}
 
+	token := c.Request().URL.Query().Get("NextToken")
+	if tokenErr := page.ValidateToken(token); tokenErr != nil {
+		return writeAWSError(c, http.StatusBadRequest, exceptionValidation, "NextToken is invalid")
+	}
+
 	items, _, err := h.Backend.ListKVSValues(kvs.ID)
 	if err != nil {
 		status, exType := classifyError(err)
@@ -522,7 +531,7 @@ func (h *Handler) handleListKeys(c *echo.Context, kvs *cloudfrontbackend.KeyValu
 		return writeAWSError(c, status, exType, err.Error())
 	}
 
-	pg := page.New(items, c.Request().URL.Query().Get("NextToken"), limit, defaultListKeysLimit)
+	pg := page.New(items, token, limit, defaultListKeysLimit)
 
 	out := make([]keyValuePairJSON, 0, len(pg.Data))
 	for _, item := range pg.Data {
@@ -545,8 +554,18 @@ func (h *Handler) handleUpdateKeys(c *echo.Context, kvs *cloudfrontbackend.KeyVa
 		}
 	}
 
-	puts := make([]*cloudfrontbackend.KVSItem, 0, len(req.Puts))
+	pairs := make([]keyValuePairJSON, 0, len(req.Puts))
+
 	for _, p := range req.Puts {
+		if p.Key == nil || p.Value == nil {
+			return writeAWSError(c, http.StatusBadRequest, exceptionValidation, "Puts items require Key and Value")
+		}
+
+		pairs = append(pairs, keyValuePairJSON{Key: *p.Key, Value: *p.Value})
+	}
+
+	puts := make([]*cloudfrontbackend.KVSItem, 0, len(pairs))
+	for _, p := range pairs {
 		puts = append(puts, &cloudfrontbackend.KVSItem{Key: p.Key, Value: p.Value})
 	}
 
@@ -560,7 +579,7 @@ func (h *Handler) handleUpdateKeys(c *echo.Context, kvs *cloudfrontbackend.KeyVa
 		return ifMatchErr
 	}
 
-	if quotaErr := checkUpdateKeysBatch(req.Puts, req.Deletes); quotaErr != nil {
+	if quotaErr := checkUpdateKeysBatch(pairs, req.Deletes); quotaErr != nil {
 		status, exType := classifyError(quotaErr)
 
 		return writeAWSError(c, status, exType, quotaErr.Error())
@@ -650,5 +669,17 @@ func writeJSON(c *echo.Context, v any) error {
 func writeAWSError(c *echo.Context, status int, exceptionType, message string) error {
 	c.Response().Header().Set(errorTypeHeader, exceptionType)
 
-	return c.JSON(status, awsErrorBody{Message: message})
+	return c.JSON(status, awsErrorBody{Message: cleanMessage(message)})
+}
+
+// cleanMessage drops the "<InternalCode>: " prefix that services/cloudfront's
+// backend sentinels (NoSuchDistribution, PreconditionFailed, EntityNotFound)
+// put in front of the text; those are control-plane codes, not this API's.
+func cleanMessage(msg string) string {
+	prefix, rest, found := strings.Cut(msg, ": ")
+	if !found || prefix == "" || strings.ContainsAny(prefix, " \t") {
+		return msg
+	}
+
+	return rest
 }

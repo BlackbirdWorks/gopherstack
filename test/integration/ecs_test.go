@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/google/uuid"
@@ -1243,7 +1244,7 @@ func TestIntegration_ECS_ClusterCapacityProviders(t *testing.T) {
 	_, err = client.CreateCapacityProvider(ctx, &ecs.CreateCapacityProviderInput{
 		Name: aws.String(cpName),
 		AutoScalingGroupProvider: &ecstypes.AutoScalingGroupProvider{
-			AutoScalingGroupArn: aws.String("arn:aws:autoscaling:us-east-1:000000000000:autoScalingGroup:fake"),
+			AutoScalingGroupArn: aws.String(createECSBackingASG(t)),
 		},
 	})
 	require.NoError(t, err)
@@ -1479,4 +1480,51 @@ func TestIntegration_ECS_Service_LoadBalancers_Deployments(t *testing.T) {
 		aws.ToString(svc.Deployments[0].TaskDefinition),
 	)
 	assert.Equal(t, int32(1), svc.Deployments[0].DesiredCount)
+}
+
+func createECSBackingASG(t *testing.T) string {
+	t.Helper()
+
+	client := createAutoScalingClient(t)
+	ctx := t.Context()
+	suffix := uuid.NewString()[:8]
+	lcName := "ecs-cp-lc-" + suffix
+	asgName := "ecs-cp-asg-" + suffix
+
+	_, err := client.CreateLaunchConfiguration(ctx, &autoscaling.CreateLaunchConfigurationInput{
+		LaunchConfigurationName: aws.String(lcName),
+		ImageId:                 aws.String("ami-12345678"),
+		InstanceType:            aws.String("t2.micro"),
+	})
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteAutoScalingGroup(cleanupCtx, &autoscaling.DeleteAutoScalingGroupInput{
+			AutoScalingGroupName: aws.String(asgName),
+			ForceDelete:          aws.Bool(true),
+		})
+		_, _ = client.DeleteLaunchConfiguration(cleanupCtx, &autoscaling.DeleteLaunchConfigurationInput{
+			LaunchConfigurationName: aws.String(lcName),
+		})
+	})
+
+	_, err = client.CreateAutoScalingGroup(ctx, &autoscaling.CreateAutoScalingGroupInput{
+		AutoScalingGroupName:    aws.String(asgName),
+		LaunchConfigurationName: aws.String(lcName),
+		MinSize:                 aws.Int32(0),
+		MaxSize:                 aws.Int32(1),
+		AvailabilityZones:       []string{"us-east-1a"},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeAutoScalingGroups(ctx, &autoscaling.DescribeAutoScalingGroupsInput{
+		AutoScalingGroupNames: []string{asgName},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.AutoScalingGroups, 1)
+
+	return aws.ToString(out.AutoScalingGroups[0].AutoScalingGroupARN)
 }

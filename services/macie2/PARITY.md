@@ -7,7 +7,7 @@
 service: macie2
 sdk_module: aws-sdk-go-v2/service/macie2@v1.54.4
 last_audit_commit: 22b4f068c                    # HEAD after the 2026-09-20 apigatewayv2-apprunner-and-macie terraform coverage
-last_audit_date: 2026-09-20
+last_audit_date: 2026-10-10
 overall: A                # all 5 prior gaps + both deferred field audits closed this pass; zero gaps/deferred remain
                           # CORRECTED 2026-08-30 (gopherstack-3qg6): SearchResources' own row was `wire:
                           # gap` at the time this A was recorded (BucketCriteria/SortCriteria/pagination
@@ -727,3 +727,9 @@ UpdateFindingsFilter keeps Description when omitted (an explicit empty string cl
 ## 2026-10-05 (gopherstack-dcyg9 value semantics)
 
 Recorded, not fixed: api_op_UpdateAllowList.go:53-55 describes Description only as "A custom description of the allow list" with no omit/clear rule, so UpdateAllowList keeps replacing it with the supplied value.
+
+### 2026-10-10 (realism pass)
+
+- ONE_TIME classification jobs stay RUNNING for a window (built-in 5s, `--lifecycle-macie2`) and then read as COMPLETE on Describe/List; CreateClassificationJob validates name/description length, jobType vs scheduleFrequency, samplingPercentage 1..100, managed-identifier selector rules and unknown allow list / custom identifier ids, and replays an identical clientToken.
+- Unknown `nextToken` on ListClassificationJobs/ListAllowLists/ListFindingsFilters/ListMembers is a ValidationException; allow-list criteria need exactly one valid member; findings filter action must be ARCHIVE or NOOP; Create{AllowList,FindingsFilter} honour clientToken (mismatched params are ConflictException).
+- Error messages no longer repeat the exception name; member ARNs are `member/{accountId}` under the administrator account.

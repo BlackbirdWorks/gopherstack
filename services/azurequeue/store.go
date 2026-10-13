@@ -132,7 +132,7 @@ func (b *InMemoryBackend) PutMessage(queue, text string, visibilityTimeout, ttl 
 		NextVisibleTime: now.Add(visibilityTimeout),
 		PopReceipt:      b.idFunc(),
 	}
-	q.Messages = append(q.Messages, msg)
+	q.add(msg)
 
 	return msg.info(true), nil
 }
@@ -161,13 +161,25 @@ func (b *InMemoryBackend) GetMessages(
 	nextVisible := now.Add(visibilityTimeout)
 
 	out := make([]MessageInfo, 0, numOfMessages)
+	start, hs := q.beginScan(now)
+	stopped := len(q.Messages)
 
-	for _, msg := range q.Messages {
+	for i := start; i < len(q.Messages); i++ {
 		if len(out) >= numOfMessages {
+			stopped = i
+
 			break
 		}
 
-		if msg.isExpired(now) || !msg.isVisible(now) {
+		msg := q.Messages[i]
+
+		if msg.isExpired(now) {
+			continue
+		}
+
+		if !msg.isVisible(now) {
+			hs.note(msg.NextVisibleTime)
+
 			continue
 		}
 
@@ -175,7 +187,10 @@ func (b *InMemoryBackend) GetMessages(
 		msg.PopReceipt = b.idFunc()
 		msg.NextVisibleTime = nextVisible
 		out = append(out, msg.info(true))
+		hs.note(nextVisible)
 	}
+
+	q.setHint(stopped, now, hs)
 
 	return out, nil
 }
@@ -200,7 +215,7 @@ func (b *InMemoryBackend) PeekMessages(queue string, numOfMessages int) ([]Messa
 
 	out := make([]MessageInfo, 0, numOfMessages)
 
-	for _, msg := range q.Messages {
+	for _, msg := range q.Messages[q.scanStart(now):] {
 		if len(out) >= numOfMessages {
 			break
 		}
@@ -236,7 +251,7 @@ func (b *InMemoryBackend) DeleteMessage(queue, messageID, popReceipt string) err
 		return ErrPopReceiptMismatch
 	}
 
-	q.Messages = append(q.Messages[:idx], q.Messages[idx+1:]...)
+	q.removeAt(idx)
 
 	return nil
 }
@@ -258,7 +273,7 @@ func (b *InMemoryBackend) UpdateMessage(
 
 	now := b.now()
 
-	_, msg, err := findMessageLocked(q, messageID, now)
+	idx, msg, err := findMessageLocked(q, messageID, now)
 	if err != nil {
 		return MessageInfo{}, err
 	}
@@ -269,6 +284,7 @@ func (b *InMemoryBackend) UpdateMessage(
 
 	msg.NextVisibleTime = now.Add(visibilityTimeout)
 	msg.PopReceipt = b.idFunc()
+	q.noteUpdated(idx, msg)
 
 	if text != nil {
 		msg.Text = *text
@@ -289,6 +305,7 @@ func (b *InMemoryBackend) ClearMessages(queue string) error {
 	}
 
 	q.Messages = nil
+	q.resetIndex()
 
 	return nil
 }
@@ -310,10 +327,8 @@ func (b *InMemoryBackend) Reset() {
 // not be able to observe or mutate it in the gap between expiry and sweep.
 // Callers must hold b.mu (either read or write).
 func findMessageLocked(q *storedQueue, messageID string, now time.Time) (int, *storedMessage, error) {
-	for i, msg := range q.Messages {
-		if msg.ID == messageID && !msg.isExpired(now) {
-			return i, msg, nil
-		}
+	if i, msg, ok := q.find(messageID, now); ok {
+		return i, msg, nil
 	}
 
 	return 0, nil, ErrMessageNotFound
@@ -330,6 +345,7 @@ func (b *InMemoryBackend) sweepExpired(now time.Time) int {
 
 	for _, q := range b.queues {
 		kept := q.Messages[:0]
+		before := removed
 
 		for _, msg := range q.Messages {
 			if msg.isExpired(now) {
@@ -341,7 +357,13 @@ func (b *InMemoryBackend) sweepExpired(now time.Time) int {
 			kept = append(kept, msg)
 		}
 
+		if removed == before {
+			continue
+		}
+
+		clear(q.Messages[len(kept):])
 		q.Messages = kept
+		q.reindex()
 	}
 
 	return removed

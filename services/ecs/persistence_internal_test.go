@@ -1,6 +1,7 @@
 package ecs
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -346,7 +347,12 @@ func Test_Restore_RebuildsServiceIndex(t *testing.T) {
 
 			src := NewInMemoryBackend("123456789012", "us-east-1", NewNoopRunner())
 
-			tdArn := registerSimpleTaskDef(t, src, "restore-app-"+tt.name, "nginx:good")
+			tdArn := registerSimpleTaskDef(
+				t,
+				src,
+				"restore-app-"+strings.NewReplacer(" ", "-", ":", "").Replace(tt.name),
+				"nginx:good",
+			)
 
 			if _, err := src.CreateCluster(CreateClusterInput{ClusterName: "restore-cluster"}); err != nil {
 				t.Fatalf("CreateCluster: %v", err)
@@ -432,7 +438,7 @@ func Test_Snapshot_Restore_PreservesResourceTags(t *testing.T) {
 			src := NewInMemoryBackend("123456789012", "us-east-1", NewNoopRunner())
 
 			td, err := src.RegisterTaskDefinition(RegisterTaskDefinitionInput{
-				Family:               "tag-app-" + tt.name,
+				Family:               "tag-app-" + strings.NewReplacer(" ", "-", ":", "").Replace(tt.name),
 				ContainerDefinitions: []ContainerDefinition{{Name: "app", Image: "nginx:good"}},
 			})
 			if err != nil {

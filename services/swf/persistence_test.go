@@ -189,11 +189,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	verifyTagsRestored(t, fresh, domainARN)
 	verifyActiveTasksRestored(t, fresh, activityTask.TaskToken, decisionTask.TaskToken)
 
-	// activityQueues/decisionQueues stay ephemeral -- neither was ever part of
-	// backendSnapshot pre-Phase-3.3, and that omission is preserved unchanged
-	// by this conversion (see persistence.go's restoreDirtyTablesLocked doc).
+	// Both polled tasks are active; the decision task StartWorkflowExecution enqueued is
+	// still pending and must survive the round trip.
 	assert.Equal(t, 0, fresh.CountPendingActivityTasks(domainName, taskListName))
-	assert.Equal(t, 0, fresh.CountPendingDecisionTasks(domainName, taskListName))
+	assert.Equal(t, 1, fresh.CountPendingDecisionTasks(domainName, taskListName))
 }
 
 // verifyDomainRestored checks the "clean" domains table survived the round trip.
@@ -269,7 +268,7 @@ func verifyTagsRestored(t *testing.T, b *swf.InMemoryBackend, resourceARN string
 func verifyActiveTasksRestored(t *testing.T, b *swf.InMemoryBackend, activityTaskToken, decisionTaskToken string) {
 	t.Helper()
 
-	cancelRequested, err := b.RecordActivityTaskHeartbeat(activityTaskToken)
+	cancelRequested, err := b.RecordActivityTaskHeartbeat(activityTaskToken, "")
 	require.NoError(t, err)
 	assert.False(t, cancelRequested)
 

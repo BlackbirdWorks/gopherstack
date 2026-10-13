@@ -19,6 +19,14 @@ func (h *Handler) handleCreateConfiguredTable(_ context.Context, body []byte) ([
 		SelectedMethods []string          `json:"selectedAnalysisMethods"`
 	}
 	_ = json.Unmarshal(body, &req)
+
+	if err := firstErr(
+		checkEnum("analysisMethod", crtypes.AnalysisMethod(req.AnalysisMethod)),
+		checkEnumList[crtypes.SelectedAnalysisMethod]("selectedAnalysisMethods", req.SelectedMethods),
+	); err != nil {
+		return nil, err
+	}
+
 	ct, err := h.Backend.CreateConfiguredTable(
 		req.Name,
 		req.Description,

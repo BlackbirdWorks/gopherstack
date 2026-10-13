@@ -2,6 +2,7 @@ package sesv2
 
 import (
 	"fmt"
+	"net/mail"
 	"slices"
 	"strings"
 	"time"
@@ -106,6 +107,7 @@ func (b *InMemoryBackend) SendMessage(out OutboundEmail) (string, error) {
 	}
 
 	b.relayEmail(email, out)
+	b.publishSendEvents(email)
 
 	return msgID, nil
 }
@@ -128,6 +130,15 @@ func (b *InMemoryBackend) storeEmail(email Email) error {
 	return nil
 }
 
+// bareAddress strips a friendly-from display name ("Bob <b@example.com>").
+func bareAddress(s string) string {
+	if a, err := mail.ParseAddress(s); err == nil {
+		return a.Address
+	}
+
+	return s
+}
+
 // checkFromIdentity verifies the from address against registered identities,
 // acquiring b.mu itself. Used by callers that check identity once up front
 // rather than per SendEmail call, e.g. SendBulkEmail.
@@ -141,7 +152,8 @@ func (b *InMemoryBackend) checkFromIdentity(from string) error {
 // checkFromIdentityLocked verifies the from address against registered identities.
 // It checks exact email match first, then the domain portion as a fallback.
 // Must be called with b.mu held for writing or reading.
-func (b *InMemoryBackend) checkFromIdentityLocked(from string) error {
+func (b *InMemoryBackend) checkFromIdentityLocked(rawFrom string) error {
+	from := bareAddress(rawFrom)
 	if id, ok := b.identities.Get(from); ok && id.VerifiedForSending {
 		return nil
 	}
@@ -151,7 +163,7 @@ func (b *InMemoryBackend) checkFromIdentityLocked(from string) error {
 		}
 	}
 
-	return fmt.Errorf("%w: identity not verified for sending: %s", ErrMailFromDomainNotVerified, from)
+	return fmt.Errorf("%w: identity not verified for sending: %s", ErrMailFromDomainNotVerified, rawFrom)
 }
 
 // ListEmails returns a copy of all captured emails.

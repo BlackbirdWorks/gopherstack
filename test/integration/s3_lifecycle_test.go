@@ -61,7 +61,7 @@ func TestIntegration_S3_LifecycleEnforcement(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Set a 0-day lifecycle rule: expire objects under logs/ immediately.
+	// AWS rejects Days=0, so expire immediately with a past midnight-UTC date.
 	_, err = client.PutBucketLifecycleConfiguration(ctx, &s3.PutBucketLifecycleConfigurationInput{
 		Bucket: aws.String(bucket),
 		LifecycleConfiguration: &types.BucketLifecycleConfiguration{
@@ -71,7 +71,7 @@ func TestIntegration_S3_LifecycleEnforcement(t *testing.T) {
 					Status: types.ExpirationStatusEnabled,
 					Filter: &types.LifecycleRuleFilter{Prefix: aws.String("logs/")},
 					Expiration: &types.LifecycleExpiration{
-						Days: aws.Int32(0),
+						Date: aws.Time(time.Now().UTC().AddDate(0, 0, -1).Truncate(24 * time.Hour)),
 					},
 				},
 			},

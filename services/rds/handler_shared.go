@@ -56,6 +56,10 @@ func parseMultiValueParam(vals url.Values, prefix string) []string {
 
 func parseDescribePagination(vals url.Values) (string, int, error) {
 	marker := vals.Get("Marker")
+	if err := page.ValidateToken(marker); err != nil {
+		return "", 0, fmt.Errorf("%w: invalid Marker %q", ErrInvalidParameter, marker)
+	}
+
 	maxRecords := 0
 	rawMaxRecords := vals.Get("MaxRecords")
 	if rawMaxRecords == "" {
@@ -67,12 +71,55 @@ func parseDescribePagination(vals url.Values) (string, int, error) {
 		return "", 0, fmt.Errorf("%w: invalid MaxRecords %q", ErrInvalidParameter, rawMaxRecords)
 	}
 
-	if maxRecords <= 0 {
-		return "", 0, fmt.Errorf("%w: MaxRecords must be greater than 0", ErrInvalidParameter)
+	lo, hi := maxRecordsBounds(vals.Get("Action"))
+	if maxRecords < lo || (hi > 0 && maxRecords > hi) {
+		return "", 0, fmt.Errorf("%w: MaxRecords must be between %d and %d", ErrInvalidParameter, lo, hi)
 	}
 
 	return marker, maxRecords, nil
 }
+
+// maxRecordsBounds returns the documented MaxRecords range for a Describe action
+// (rds@v1.124.1 api_op_Describe*.go "Constraints"); hi 0 means no documented maximum.
+func maxRecordsBounds(action string) (int, int) {
+	switch action {
+	case actionDescribeOrderableDBInstanceOptions:
+		return minDescribeMaxRecords, maxOrderableMaxRecords
+	case actionDescribeServerlessV2PlatformVersions:
+		return 1, maxServerlessMaxRecords
+	case actionDescribeAccountAttributes, actionDescribeDBClusterAutomatedBackups,
+		actionDescribeDBClusterSnapshotAttributes, actionDescribeDBInstanceAutomatedBackups,
+		actionDescribeDBLogFiles, actionDescribeDBMajorEngineVersions, actionDescribeDBRecommendations,
+		actionDescribeDBSnapshotAttributes, actionDescribeDBSnapshotTenantDatabases,
+		actionDescribeEventCategories, actionDescribeTenantDatabases,
+		actionDescribeValidDBInstanceModifications:
+		return 1, 0
+	default:
+		return minDescribeMaxRecords, maxDescribeMaxRecords
+	}
+}
+
+const (
+	minDescribeMaxRecords   = 20
+	maxDescribeMaxRecords   = 100
+	maxOrderableMaxRecords  = 1000
+	maxServerlessMaxRecords = 200
+
+	actionDescribeOrderableDBInstanceOptions   = "DescribeOrderableDBInstanceOptions"
+	actionDescribeServerlessV2PlatformVersions = "DescribeServerlessV2PlatformVersions"
+	actionDescribeAccountAttributes            = "DescribeAccountAttributes"
+	actionDescribeDBClusterAutomatedBackups    = "DescribeDBClusterAutomatedBackups"
+	actionDescribeDBClusterSnapshotAttributes  = "DescribeDBClusterSnapshotAttributes"
+	actionDescribeDBInstanceAutomatedBackups   = "DescribeDBInstanceAutomatedBackups"
+	actionDescribeDBLogFiles                   = "DescribeDBLogFiles"
+	actionDescribeDBMajorEngineVersions        = "DescribeDBMajorEngineVersions"
+	actionDescribeDBRecommendations            = "DescribeDBRecommendations"
+	actionDescribeDBSnapshotAttributes         = "DescribeDBSnapshotAttributes"
+	actionDescribeDBSnapshotTenantDatabases    = "DescribeDBSnapshotTenantDatabases"
+	actionDescribeEventCategories              = "DescribeEventCategories"
+	actionDescribeTenantDatabases              = "DescribeTenantDatabases"
+	actionDescribeValidDBInstanceModifications = "DescribeValidDBInstanceModifications"
+)
 
 func paginateDescribe[TData any, TXMLOutput any](
 	vals url.Values,

@@ -66,13 +66,23 @@ func (h *Handler) handleDescribeElasticLoadBalancers(_ context.Context, body []b
 func elasticLBsToJSON(elbs []*ElasticLoadBalancer) []map[string]any {
 	result := make([]map[string]any, 0, len(elbs))
 	for _, e := range elbs {
-		result = append(result, map[string]any{
+		m := map[string]any{
 			"ElasticLoadBalancerName": e.ElasticLoadBalancerName,
 			fieldRegion:               e.Region,
 			"DnsName":                 e.DNSName,
 			keyStackID:                e.StackID,
 			keyLayerID:                e.LayerID,
-		})
+		}
+		if e.VpcID != "" {
+			m["VpcId"] = e.VpcID
+		}
+		if len(e.AvailabilityZones) > 0 {
+			m["AvailabilityZones"] = e.AvailabilityZones
+		}
+		if len(e.SubnetIDs) > 0 {
+			m["SubnetIds"] = e.SubnetIDs
+		}
+		result = append(result, m)
 	}
 
 	return result

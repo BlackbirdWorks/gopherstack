@@ -16,7 +16,7 @@ func (b *InMemoryBackend) ListClusterOperations(_ context.Context, clusterArn st
 		b.clusters,
 		b.clusterOperationsByCluster,
 		clusterArn,
-		cloneClusterOperation,
+		b.viewOperation,
 		func(op *ClusterOperation) string { return op.ClusterOperationArn },
 	)
 }
@@ -42,7 +42,8 @@ func (b *InMemoryBackend) ListClusterOperationsV2(ctx context.Context, clusterAr
 func (b *InMemoryBackend) newClusterOperationLocked(
 	region, clusterArn, operationType string, source, target *MutableClusterInfo,
 ) *ClusterOperation {
-	if c, ok := b.clusters.Get(clusterArn); ok {
+	c, hasCluster := b.clusters.Get(clusterArn)
+	if hasCluster {
 		c.CurrentVersion = nextVersionToken()
 	}
 
@@ -58,6 +59,17 @@ func (b *InMemoryBackend) newClusterOperationLocked(
 		ClientRequestID:     uuid.New().String(),
 		CreationTime:        now,
 		EndTime:             now,
+	}
+	if b.lifecycleDelay > 0 {
+		op.OperationState = ClusterOperationStateUpdateInProgress
+		op.EndTime = ""
+		op.doneAt = b.now().Add(b.lifecycleDelay)
+
+		if hasCluster {
+			c.pendingState = ClusterStateUpdating
+			c.pendingOpArn = clusterOperationArn
+			c.readyAt = op.doneAt
+		}
 	}
 	b.clusterOperations.Put(op)
 
@@ -77,7 +89,7 @@ func (b *InMemoryBackend) DescribeClusterOperation(
 		return nil, ErrNotFound
 	}
 
-	return cloneClusterOperation(op), nil
+	return b.viewOperation(op), nil
 }
 
 // AddClusterOperationInternal adds a cluster operation for testing purposes.

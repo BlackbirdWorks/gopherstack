@@ -237,3 +237,59 @@ func TestHybridAD_UpdateHybridAD_Errors(t *testing.T) {
 		})
 	}
 }
+
+func TestHybridAD_DirectorylessAssessment(t *testing.T) {
+	t.Parallel()
+
+	cfg := map[string]any{
+		"CustomerDnsIps": []string{"10.0.0.1"},
+		"DnsName":        "onprem.example.com",
+		"InstanceIds":    []string{"i-0123456789abcdef0"},
+		"VpcSettings":    map[string]any{"VpcId": "vpc-1", "SubnetIds": []string{"subnet-1"}},
+	}
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{name: "config only", body: map[string]any{"AssessmentConfiguration": cfg}, wantCode: http.StatusOK},
+		{name: "neither", body: map[string]any{}, wantCode: http.StatusBadRequest},
+		{
+			name:     "both",
+			body:     map[string]any{"DirectoryId": "d-0000000000", "AssessmentConfiguration": cfg},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "StartADAssessment", tt.body)
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode != http.StatusOK {
+				return
+			}
+
+			assessmentID, _ := respBody(t, rec)["AssessmentId"].(string)
+			require.NotEmpty(t, assessmentID)
+
+			createRec := doRequest(t, h, "CreateHybridAD", map[string]any{
+				"AssessmentId": assessmentID,
+				"SecretArn":    "arn:aws:secretsmanager:us-east-1:000000000000:secret:hybrid-admin",
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+			hybridID, _ := respBody(t, createRec)["DirectoryId"].(string)
+
+			descRec := doRequest(t, h, "DescribeDirectories", map[string]any{"DirectoryIds": []string{hybridID}})
+			dirs, _ := respBody(t, descRec)["DirectoryDescriptions"].([]any)
+			require.Len(t, dirs, 1)
+			dir, _ := dirs[0].(map[string]any)
+			assert.Equal(t, "onprem.example.com", dir["Name"])
+			assert.Equal(t, "ONPREM", dir["ShortName"])
+		})
+	}
+}

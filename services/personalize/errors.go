@@ -7,6 +7,8 @@ var (
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource name already exists.
 	ErrAlreadyExists = awserr.New("ResourceAlreadyExistsException", awserr.ErrAlreadyExists)
+	// ErrInvalidNextToken is returned for a malformed pagination token.
+	ErrInvalidNextToken = awserr.New("InvalidNextTokenException", awserr.ErrInvalidParameter)
 	// ErrValidation is returned when a request is invalid.
 	ErrValidation = awserr.New("InvalidInputException", awserr.ErrInvalidParameter)
 	// ErrInUse is returned when a resource cannot be deleted because it is in use.

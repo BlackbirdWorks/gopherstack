@@ -16,8 +16,8 @@ func (b *InMemoryBackend) CreateDataDeletionJob(
 	b.mu.Lock("CreateDataDeletionJob")
 	defer b.mu.Unlock()
 
-	if jobName == "" {
-		return nil, fmt.Errorf("%w: jobName is required", ErrValidation)
+	if err := requireJob(jobName, roleArn); err != nil {
+		return nil, err
 	}
 	if b.findDatasetGroup(datasetGroupArn) == nil {
 		return nil, fmt.Errorf("%w: dataset group %q not found", ErrNotFound, datasetGroupArn)
@@ -31,7 +31,8 @@ func (b *InMemoryBackend) CreateDataDeletionJob(
 		DatasetGroupArn:     datasetGroupArn,
 		RoleArn:             roleArn,
 		DataSource:          dataSource,
-		Status:              statusActive,
+		Status:              statusCompleted,
+		lc:                  b.lifecycle(),
 		NumDeleted:          0,
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,

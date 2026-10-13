@@ -29,6 +29,8 @@ func seedRepoWithCommit(t *testing.T, client *codecommitsdk.Client) string {
 	})
 	require.NoError(t, err)
 
+	seedFeatureBranch(t, client, "repo")
+
 	return aws.ToString(out.CommitId)
 }
 
@@ -57,7 +59,7 @@ func createPR(t *testing.T, c *codecommitsdk.Client, title, token string) (strin
 		Title:              aws.String(title),
 		ClientRequestToken: aws.String(token),
 		Targets: []types.Target{
-			{RepositoryName: aws.String("repo"), SourceReference: aws.String("main")},
+			{RepositoryName: aws.String("repo"), SourceReference: aws.String("feature")},
 		},
 	})
 	if err != nil {

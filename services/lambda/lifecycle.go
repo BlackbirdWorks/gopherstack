@@ -125,25 +125,22 @@ func (b *InMemoryBackend) collectAndDeleteFunctions(cutoff time.Time) (
 		}
 		name := fn.FunctionName
 		purgedFunctions = append(purgedFunctions, name)
-		if srv, ok := b.functionURLServers[name]; ok {
-			urlServers = append(urlServers, srv)
-		}
 		if rt, ok := b.runtimes[name]; ok {
 			rts = append(rts, rt)
 		}
-		b.deleteFunctionMapsLocked(name)
+		urlServers = append(urlServers, b.deleteFunctionMapsLocked(name)...)
 	}
 
 	return purgedFunctions, urlServers, rts
 }
 
-// deleteFunctionMapsLocked removes all map entries for a function.
+// deleteFunctionMapsLocked removes all map entries for a function and returns
+// its detached URL listeners, which the caller must shut down outside the lock.
 // Caller must hold b.mu.
-func (b *InMemoryBackend) deleteFunctionMapsLocked(name string) {
+func (b *InMemoryBackend) deleteFunctionMapsLocked(name string) []*functionURLServer {
 	b.functions.Delete(name)
 	delete(b.runtimes, name)
-	delete(b.functionURLServers, name)
-	b.functionURLConfigs.Delete(name)
+	urlServers := b.detachURLServersLocked(name)
 	b.deleteAliasesForFunctionLocked(name)
 	delete(b.versionCounters, name)
 	delete(b.versions, name)
@@ -177,6 +174,8 @@ func (b *InMemoryBackend) deleteFunctionMapsLocked(name string) {
 		}
 	}
 	delete(b.versionIndex, name)
+
+	return urlServers
 }
 
 // shutdownPurgedResources shuts down URL servers and runtimes outside the lock.
@@ -190,12 +189,7 @@ func (b *InMemoryBackend) shutdownPurgedResources(
 	var wg sync.WaitGroup
 
 	for _, srv := range urlServers {
-		wg.Go(func() {
-			_ = srv.server.Shutdown(ctx)
-			if b.portAlloc != nil {
-				_ = b.portAlloc.Release(srv.port)
-			}
-		})
+		wg.Go(func() { b.releaseURLServer(ctx, srv) })
 	}
 
 	for _, rt := range rts {

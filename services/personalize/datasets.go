@@ -28,8 +28,8 @@ func (b *InMemoryBackend) CreateDataset(
 	b.mu.Lock("CreateDataset")
 	defer b.mu.Unlock()
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	if err := validateName("name", name); err != nil {
+		return nil, err
 	}
 	if b.datasets.Has(name) {
 		return nil, fmt.Errorf("%w: dataset %q already exists", ErrAlreadyExists, name)
@@ -52,6 +52,7 @@ func (b *InMemoryBackend) CreateDataset(
 		DatasetType:         datasetType,
 		SchemaArn:           schemaArn,
 		Status:              statusActive,
+		lc:                  b.lifecycle(),
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 	}
@@ -159,7 +160,7 @@ func (b *InMemoryBackend) CreateDatasetImportJob(
 	b.mu.Lock("CreateDatasetImportJob")
 	defer b.mu.Unlock()
 
-	if err := requireJobName(jobName); err != nil {
+	if err := requireJob(jobName, roleArn); err != nil {
 		return nil, err
 	}
 	if err := b.requireDataset(datasetArn); err != nil {
@@ -183,6 +184,7 @@ func (b *InMemoryBackend) CreateDatasetImportJob(
 		RoleArn:             roleArn,
 		DataSource:          dataSource,
 		Status:              statusActive,
+		lc:                  b.lifecycle(),
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 		ImportMode:          importMode,
@@ -241,7 +243,7 @@ func (b *InMemoryBackend) CreateDatasetExportJob(
 	b.mu.Lock("CreateDatasetExportJob")
 	defer b.mu.Unlock()
 
-	if err := requireJobName(jobName); err != nil {
+	if err := requireJob(jobName, roleArn); err != nil {
 		return nil, err
 	}
 	if err := b.requireDataset(datasetArn); err != nil {
@@ -268,6 +270,7 @@ func (b *InMemoryBackend) CreateDatasetExportJob(
 		RoleArn:             roleArn,
 		JobOutput:           jobOutput,
 		Status:              statusActive,
+		lc:                  b.lifecycle(),
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 		IngestionMode:       ingestionMode,

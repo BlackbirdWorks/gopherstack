@@ -288,6 +288,7 @@ func TestServiceRoleAuthzEventBridgeTargets(t *testing.T) {
 
 			role := authzRole(t, fx, "eb-role", principal, tt.action)
 			dlqURL, dlqARN := authzQueue(t, fx, "eb-dlq")
+			authzQueuePolicy(t, fx, dlqURL, dlqARN, "events.amazonaws.com", "")
 
 			destURL, destARN := authzQueue(t, fx, "eb-dest")
 			authzQueuePolicy(t, fx, destURL, destARN, "events.amazonaws.com", "arn:aws:events:*:*:rule/*")

@@ -191,7 +191,7 @@ func TestHandler_UpdateStack_WithCapabilities(t *testing.T) {
 	v := url.Values{
 		"Action":                {"UpdateStack"},
 		"StackName":             {"us-cap"},
-		"TemplateBody":          {simpleTemplate},
+		"TemplateBody":          {modifiedTemplate},
 		"Capabilities.member.1": {"CAPABILITY_AUTO_EXPAND"},
 	}
 	resp := postFormValues(t, h, v)

@@ -350,8 +350,8 @@ func queryMaxResults(q url.Values) int {
 	}
 
 	n, err := strconv.Atoi(raw)
-	if err != nil || n < 0 {
-		return 0
+	if err != nil {
+		return -1
 	}
 
 	return n

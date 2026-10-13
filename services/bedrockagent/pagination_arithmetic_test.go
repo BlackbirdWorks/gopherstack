@@ -1,6 +1,7 @@
 package bedrockagent_test
 
 import (
+	"encoding/base64"
 	"fmt"
 	"testing"
 
@@ -114,7 +115,12 @@ func TestPaginate_CursorRoundTrip(t *testing.T) {
 
 	page1, token1 := bedrockagent.PaginateForTest(all, "", 2)
 	require.Len(t, page1, 2)
-	require.Equal(t, all[2], token1, "token must name the first item of the next page")
+	require.Equal(
+		t,
+		base64.StdEncoding.EncodeToString([]byte(all[2])),
+		token1,
+		"token must be opaque and name the next item",
+	)
 
 	page2, _ := bedrockagent.PaginateForTest(all, token1, 2)
 	require.NotEmpty(t, page2)

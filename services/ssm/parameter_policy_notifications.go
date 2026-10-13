@@ -80,16 +80,18 @@ func parseParameterPolicies(policiesJSON string) []parameterStorePolicy {
 // DescribeParameters previously echoed the raw request string verbatim,
 // which is not the real response shape at all: a real aws-sdk-go-v2 client
 // would fail to unmarshal a JSON string where it expects an array of
-// {PolicyText, PolicyType, PolicyStatus} objects. PolicyStatus is always
-// "Finished": this backend applies every policy synchronously and in full
-// on PutParameter, with no Pending/InProgress/Failed phase to observe.
-func parameterPoliciesToWire(policiesJSON string) []ParameterInlinePolicy {
+// {PolicyText, PolicyType, PolicyStatus} objects. PolicyStatus is
+// "Pending" until due, then "Finished".
+func parameterPoliciesToWire(policiesJSON string, lastModified float64, now time.Time) []ParameterInlinePolicy {
 	parsed := parseParameterPolicies(policiesJSON)
 	if len(parsed) == 0 {
 		return nil
 	}
 
+	expiresAt, expiresAtOK := parameterExpiresAt(policiesJSON)
+	modified := time.Unix(int64(lastModified), 0).UTC()
 	wire := make([]ParameterInlinePolicy, 0, len(parsed))
+
 	for _, p := range parsed {
 		text, err := json.Marshal(p)
 		if err != nil {
@@ -99,11 +101,37 @@ func parameterPoliciesToWire(policiesJSON string) []ParameterInlinePolicy {
 		wire = append(wire, ParameterInlinePolicy{
 			PolicyText:   string(text),
 			PolicyType:   p.Type,
-			PolicyStatus: "Finished",
+			PolicyStatus: parameterPolicyStatus(p, expiresAt, expiresAtOK, modified, now),
 		})
 	}
 
 	return wire
+}
+
+// parameterPolicyStatus is Pending until the policy's due time, then Finished
+// (types.ParameterInlinePolicy.PolicyStatus).
+func parameterPolicyStatus(
+	p parameterStorePolicy,
+	expiresAt time.Time,
+	expiresAtOK bool,
+	lastModified, now time.Time,
+) string {
+	var (
+		dueAt time.Time
+		ok    bool
+	)
+
+	if p.Type == "Expiration" {
+		dueAt, ok = expiresAt, expiresAtOK
+	} else {
+		dueAt, ok = policyDueAt(p, expiresAt, expiresAtOK, lastModified)
+	}
+
+	if ok && !now.Before(dueAt) {
+		return "Finished"
+	}
+
+	return "Pending"
 }
 
 // policyNotificationDedupKey builds a stable per-policy-instance dedupe key

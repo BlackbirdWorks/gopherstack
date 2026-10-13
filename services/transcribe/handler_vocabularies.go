@@ -181,6 +181,10 @@ func (h *Handler) handleListVocabularies(
 	_ context.Context,
 	in *listVocabulariesInput,
 ) (*listVocabulariesOutput, error) {
+	if err := validateVocabularyListRequest(in.StateEquals, in.NextToken, in.MaxResults); err != nil {
+		return nil, err
+	}
+
 	vocabs, nextToken := h.Backend.ListVocabularies(in.StateEquals, in.NameContains, in.NextToken, in.MaxResults)
 
 	result := make([]vocabularySummary, 0, len(vocabs))

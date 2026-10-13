@@ -46,7 +46,7 @@ func (h *Handler) handleApplyEnvironmentManagedAction(ctx context.Context, vals 
 			ActionType:        "InstanceRefresh",
 			Status:            "Scheduled",
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-apply-managed-action"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-apply-managed-action"),
 	}, nil
 }
 
@@ -118,7 +118,7 @@ func (h *Handler) handleDescribeEnvironmentManagedActionHistory(ctx context.Cont
 			ManagedActionHistoryItems: members,
 			NextToken:                 pg.Next,
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-describe-env-managed-history"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-describe-env-managed-history"),
 	}, nil
 }
 
@@ -158,6 +158,6 @@ func (h *Handler) handleDescribeEnvironmentManagedActions(ctx context.Context, v
 		DescribeEnvironmentManagedActionsResult: describeEnvironmentManagedActionsResult{
 			ManagedActions: []managedAction{},
 		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-describe-env-managed-actions"},
+		ResponseMetadata: newResponseMetadata(ctx, "eb-describe-env-managed-actions"),
 	}, nil
 }

@@ -1,6 +1,8 @@
 package vpclattice
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -74,12 +76,13 @@ func domainVerificationToJSON(dv *DomainVerification) map[string]any {
 	}
 
 	m := map[string]any{
-		keyARN:        dv.ARN,
-		"id":          dv.ID,
-		keyDomainName: dv.DomainName,
-		keyStatus:     dv.Status,
-		keyCreatedAt:  dv.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
-		keyTags:       tags,
+		keyARN:            dv.ARN,
+		"id":              dv.ID,
+		keyDomainName:     dv.DomainName,
+		keyStatus:         dv.Status,
+		keyCreatedAt:      dv.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyTags:           tags,
+		"txtMethodConfig": txtMethodConfigJSON(dv.ID, dv.DomainName),
 	}
 
 	if dv.LastVerifiedTime != nil {
@@ -89,11 +92,17 @@ func domainVerificationToJSON(dv *DomainVerification) map[string]any {
 	return m
 }
 
-// domainVerificationSummaryToJSON mirrors DomainVerificationSummary
-// (vpclattice@v1.25.5): arn, createdAt, domainName, id, status,
-// lastVerifiedTime, tags, txtMethodConfig. txtMethodConfig is omitted --
-// see storedDomainVerification's doc comment for why this backend cannot
-// synthesize a real DNS TXT verification token.
+// txtMethodConfigJSON derives a stable, emulator-defined TXT record (name and value are both required
+// members of types.TxtMethodConfig); nothing ever checks DNS for it.
+func txtMethodConfigJSON(id, domainName string) map[string]any {
+	sum := sha256.Sum256([]byte(id + "|" + domainName))
+
+	return map[string]any{
+		"name":  "_vpc-lattice-challenge." + domainName,
+		"value": hex.EncodeToString(sum[:20]),
+	}
+}
+
 func domainVerificationSummaryToJSON(dv *DomainVerificationSummary) map[string]any {
 	tags := dv.Tags
 	if tags == nil {
@@ -101,12 +110,13 @@ func domainVerificationSummaryToJSON(dv *DomainVerificationSummary) map[string]a
 	}
 
 	m := map[string]any{
-		keyARN:        dv.ARN,
-		"id":          dv.ID,
-		keyDomainName: dv.DomainName,
-		keyStatus:     dv.Status,
-		keyCreatedAt:  dv.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
-		keyTags:       tags,
+		keyARN:            dv.ARN,
+		"id":              dv.ID,
+		keyDomainName:     dv.DomainName,
+		keyStatus:         dv.Status,
+		keyCreatedAt:      dv.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyTags:           tags,
+		"txtMethodConfig": txtMethodConfigJSON(dv.ID, dv.DomainName),
 	}
 
 	if dv.LastVerifiedTime != nil {

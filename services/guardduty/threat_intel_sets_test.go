@@ -92,7 +92,7 @@ func TestThreatIntelSet_CRUD(t *testing.T) {
 				assert.NotContains(t, rec.Body.String(), setID)
 
 				rec = doRequest(t, h, http.MethodDelete, "/detector/"+detectorID+"/threatintelset/"+setID, nil)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{

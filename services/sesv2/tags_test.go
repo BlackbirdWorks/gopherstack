@@ -14,12 +14,12 @@ import (
 func TestTagResource(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // test struct; reordering would separate related fields
+	tests := []struct {
 		wantTags map[string]string
-		initTags []any
 		name     string
 		arn      string
 		untagKey string
+		initTags []any
 	}{
 		{
 			name:     "tag_and_list",

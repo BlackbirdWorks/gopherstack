@@ -2,7 +2,7 @@
 service: dsql
 sdk_module: aws-sdk-go-v2/service/dsql@v1.22.1
 last_audit_commit: 5bb0d02ee
-last_audit_date: 2026-10-05
+last_audit_date: 2026-10-10
 overall: A            # A: SDK-driven test/integration suite TestIntegration_DSQL_ClusterLifecycle + TestIntegration_DSQL_MultiRegionPeering (test/integration/dsql_test.go) + every buildable gap closed; remaining divergences are structural_gaps.
 ops:
   CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "a replayed clientToken returns the same cluster; CREATING, lazily flips to ACTIVE on next read after a short fixed deadline (750ms); a multi-Region cluster settles to PENDING_SETUP until peering completes; multiRegionProperties.clusters peers must exist, be in another Region and share the witness Region"}
@@ -100,3 +100,9 @@ GetCluster/CreateCluster EncryptionDetails.KmsKeyArn now reports an ARN for a Km
 ## 2026-10-05 (zeroguard omitted-vs-zero audit)
 
 Tool false positives (cmd/zeroguard): required path/identifier members (Name, *Id, *Arn), Put* operations that replace the whole resource (PutRule, PutPermission, PutResourcePolicy, PutCodeBinding), and PatchOperations-based Update* ops.
+
+### 2026-10-10 (realism pass)
+
+- Path identifiers must match `^[a-z0-9]{26}$` (ValidationException); ListClusters/ListStreams reject `max-results` outside 1..100 and opaque-token garbage; tags reject `aws:` keys, keys over 128 and values over 256 chars; policies must be JSON objects.
+- ResourceNotFoundException now carries `resourceId`/`resourceType`.
+- `--lifecycle-dsql` / `DSQL_LIFECYCLE_DELAY` overrides the CREATING/UPDATING/DELETING windows (0 keeps the built-in 750ms clusters, 500ms streams).

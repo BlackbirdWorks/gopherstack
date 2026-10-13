@@ -1,5 +1,7 @@
 package appconfig
 
+import "context"
+
 // DeployedConfigurationPublisher lets the AppConfig backend push a
 // deployment's configuration into AppConfigData once it reaches COMPLETE, so
 // GetLatestConfiguration polling reflects real deployment state instead of
@@ -20,4 +22,17 @@ func (b *InMemoryBackend) SetDeployedConfigurationPublisher(p DeployedConfigurat
 	b.mu.Lock("SetDeployedConfigurationPublisher")
 	defer b.mu.Unlock()
 	b.configPublisher = p
+}
+
+// ConfigurationContentReader retrieves the content a non-hosted configuration profile points at
+// (ssm-parameter://, ssm-document://, s3://, secretsmanager://) at the given version.
+type ConfigurationContentReader interface {
+	ReadConfiguration(ctx context.Context, locationURI, retrievalRoleARN, version string) ([]byte, string, error)
+}
+
+// SetConfigurationContentReader wires the reader for non-hosted profiles.
+func (b *InMemoryBackend) SetConfigurationContentReader(r ConfigurationContentReader) {
+	b.mu.Lock("SetConfigurationContentReader")
+	defer b.mu.Unlock()
+	b.contentReader = r
 }

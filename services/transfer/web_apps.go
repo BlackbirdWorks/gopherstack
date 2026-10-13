@@ -37,7 +37,7 @@ func (b *InMemoryBackend) CreateWebApp(in *CreateWebAppInput) (*WebApp, error) {
 	b.mu.Lock("CreateWebApp")
 	defer b.mu.Unlock()
 
-	webAppID := "webapp-" + uuid.NewString()[:20]
+	webAppID := newResourceID("webapp-")
 
 	merged := make(map[string]string, len(in.Tags))
 	maps.Copy(merged, in.Tags)

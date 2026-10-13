@@ -2,11 +2,15 @@ package apigatewayv2
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"regexp"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 // errTypeHeader is the HTTP response header AWS uses to carry the modeled error
@@ -70,6 +74,11 @@ func writeErrType(c *echo.Context, status int, errType, message string) error {
 		c.Response().Header().Set(errTypeHeader, errType)
 	}
 
+	message = exceptionPrefix.ReplaceAllString(message, "")
+	if status == http.StatusNotFound && message == msgNotFound {
+		message = notFoundMessage(c)
+	}
+
 	return c.JSON(status, notFoundResponse{Message: message})
 }
 
@@ -78,6 +87,9 @@ var (
 	ErrAPINotFound = errors.New("NotFoundException")
 	// ErrStageNotFound is returned when a requested stage does not exist.
 	ErrStageNotFound = errors.New("NotFoundException")
+	// ErrIntegrationInvoke marks a failure from the backing integration call itself.
+	ErrIntegrationInvoke = errors.New("integration invocation failed")
+
 	// ErrRouteNotFound is returned when a requested route does not exist.
 	ErrRouteNotFound = errors.New("NotFoundException")
 	// ErrIntegrationNotFound is returned when a requested integration does not exist.
@@ -153,4 +165,34 @@ func writeRouteControlRejection(c *echo.Context, err error) error {
 	default:
 		return c.String(http.StatusInternalServerError, "Internal Server Error")
 	}
+}
+
+var exceptionPrefix = regexp.MustCompile(`^(?:[A-Za-z]+Exception: )+`)
+
+// notFoundMessage builds "Invalid <Kind> identifier specified <id>" from the
+// deepest apis/{id}/{collection}/{id} segment of the request path.
+func notFoundMessage(c *echo.Context) string {
+	kinds := map[string]string{
+		"routes": "Route", "integrations": "Integration", "stages": "Stage",
+		"deployments": "Deployment", collAuthorizers: "Authorizer", "models": "Model",
+	}
+
+	segs := strings.Split(strings.Trim(c.Request().URL.Path, "/"), "/")
+	for i, seg := range segs {
+		if seg != "apis" || i+1 >= len(segs) {
+			continue
+		}
+
+		if i+3 < len(segs) {
+			if kind, ok := kinds[segs[i+2]]; ok {
+				return fmt.Sprintf("Invalid %s identifier specified %s", kind, segs[i+3])
+			}
+
+			break
+		}
+
+		return fmt.Sprintf("Invalid API identifier specified %s:%s", awsmeta.Account(c.Request().Context()), segs[i+1])
+	}
+
+	return msgNotFound
 }

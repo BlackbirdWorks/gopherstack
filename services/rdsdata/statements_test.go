@@ -116,7 +116,7 @@ func TestHandler_ExecuteStatement_InvalidTransaction(t *testing.T) {
 		"sql":           "INSERT INTO test VALUES (1)",
 		"transactionId": "txn-does-not-exist",
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // TestHandler_ExecuteStatement_TracksStatement verifies statements are recorded.
@@ -636,7 +636,7 @@ func TestHandler_BatchExecuteStatement(t *testing.T) {
 				"sql":           "INSERT INTO test VALUES (:val)",
 				"transactionId": "txn-does-not-exist",
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 	}
 

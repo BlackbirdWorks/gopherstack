@@ -88,7 +88,7 @@ func TestUserProfiles(t *testing.T) {
 				rec = doTarget(t, h, "DescribeUserProfiles", map[string]any{
 					"IamUserArns": []string{testArn},
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -160,7 +160,7 @@ func TestPermissions(t *testing.T) {
 			},
 		},
 		{
-			name: "SetPermission on nonexistent stack returns 404",
+			name: "SetPermission on nonexistent stack returns ResourceNotFoundException",
 			check: func(t *testing.T, h *opsworks.Handler) {
 				t.Helper()
 				rec := doTarget(t, h, "SetPermission", map[string]any{
@@ -168,7 +168,7 @@ func TestPermissions(t *testing.T) {
 					"IamUserArn": "arn:aws:iam::000000000000:user/x",
 					"Level":      "manage",
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}
@@ -258,13 +258,13 @@ func TestGrantAccess(t *testing.T) {
 			},
 		},
 		{
-			name: "GrantAccess on nonexistent instance returns 404",
+			name: "GrantAccess on nonexistent instance returns ResourceNotFoundException",
 			check: func(t *testing.T, h *opsworks.Handler) {
 				t.Helper()
 				rec := doTarget(t, h, "GrantAccess", map[string]any{
 					"InstanceId": "nonexistent",
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}

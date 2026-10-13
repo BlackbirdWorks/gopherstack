@@ -91,7 +91,7 @@ func TestRdsDbInstances(t *testing.T) {
 				rec = doTarget(t, h, "DescribeRdsDbInstances", map[string]any{
 					"RdsDbInstanceArns": []string{testArn},
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}

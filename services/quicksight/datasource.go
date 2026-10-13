@@ -56,7 +56,10 @@ func (b *InMemoryBackend) CreateDataSource(
 		b.tags[ds.Arn] = maps.Clone(tags)
 	}
 
-	return ds.toDataSource(), nil
+	v := ds.toDataSource()
+	v.Status = statusCreationInProgress
+
+	return v, nil
 }
 
 func (b *InMemoryBackend) DescribeDataSource(accountID, dataSourceID string) (*DataSource, error) {
@@ -68,7 +71,12 @@ func (b *InMemoryBackend) DescribeDataSource(accountID, dataSourceID string) (*D
 		return nil, ErrDataSourceNotFound
 	}
 
-	return ds.toDataSource(), nil
+	v := ds.toDataSource()
+	if v.Status == statusCreationSuccessful {
+		v.Status = b.creationStatus(ds.LastUpdatedTime)
+	}
+
+	return v, nil
 }
 
 func (b *InMemoryBackend) UpdateDataSource(

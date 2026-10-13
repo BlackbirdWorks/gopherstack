@@ -46,6 +46,8 @@ const (
 	ChecksumCRC32C  = "CRC32C"
 	ChecksumSHA1    = "SHA1"
 	ChecksumSHA256  = "SHA256"
+	ChecksumSHA512  = "SHA512"
+	ChecksumMD5     = "MD5"
 	storageStandard = "STANDARD"
 	statusEnabled   = "Enabled"
 
@@ -228,8 +230,19 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 		}
 
 		start := time.Now()
+
+		var firstByte time.Duration
+
+		if resp, uerr := echo.UnwrapResponse(c.Response()); uerr == nil {
+			resp.Before(func() {
+				if firstByte == 0 {
+					firstByte = time.Since(start)
+				}
+			})
+		}
+
 		err := inner(c)
-		h.emitRequestMetrics(c, start)
+		h.emitRequestMetrics(c, start, firstByte)
 
 		return err
 	}
@@ -477,8 +490,10 @@ func (h *S3Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource returns the bucket name for this request.
 func (h *S3Handler) ExtractResource(c *echo.Context) string {
-	ctx := c.Request().Context()
-	bucketName, _, _ := h.resolveBucketAndKey(ctx, c.Response(), c.Request())
+	bucketName, _, err := h.parseBucketAndKey(c.Request())
+	if err != nil {
+		return ""
+	}
 
 	return bucketName
 }
@@ -492,43 +507,47 @@ func (h *S3Handler) resolveBucketAndKey(
 	w http.ResponseWriter,
 	r *http.Request,
 ) (string, string, bool) {
+	bucket, key, err := h.parseBucketAndKey(r)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return "", "", false
+	}
+
+	return bucket, key, true
+}
+
+// parseBucketAndKey is the side-effect-free half of resolveBucketAndKey.
+func (h *S3Handler) parseBucketAndKey(r *http.Request) (string, string, error) {
 	path := strings.TrimPrefix(r.URL.Path, "/")
 	parts := strings.SplitN(path, "/", pathSplitParts)
 
 	// Try virtual-hosted-style first: bucket name as subdomain in Host header.
 	if vhBucket := h.extractVirtualHostedBucketName(r); vhBucket != "" {
-		bucket := vhBucket
-		key := path
-		if key != "" && !IsValidObjectKey(key) {
-			WriteError(ctx, w, r, ErrInvalidArgument)
-
-			return "", "", false
+		if path != "" && !IsValidObjectKey(path) {
+			return "", "", ErrInvalidArgument
 		}
 
-		return bucket, key, true
+		return vhBucket, path, nil
 	}
 
 	// Fall back to path-style (/bucket/key).
 	bucket, key := "", ""
 	if path != "" && path != "/" {
 		bucket = parts[0]
-		if !IsValidBucketName(bucket) {
-			WriteError(ctx, w, r, ErrInvalidBucketName)
-
-			return "", "", false
+		if !IsValidBucketName(bucket) && !isObjectLambdaAliasRead(r, bucket) {
+			return "", "", ErrInvalidBucketName
 		}
 
 		if len(parts) > 1 {
 			key = parts[1]
 			if key != "" && !IsValidObjectKey(key) {
-				WriteError(ctx, w, r, ErrInvalidArgument)
-
-				return "", "", false
+				return "", "", ErrInvalidArgument
 			}
 		}
 	}
 
-	return bucket, key, true
+	return bucket, key, nil
 }
 
 // extractVirtualHostedBucketName returns the bucket name from the Host header

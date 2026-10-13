@@ -96,7 +96,7 @@ func (b *InMemoryBackend) GetSpeechSynthesisTask(taskID string) (*SpeechSynthesi
 		return nil, fmt.Errorf("%w: task %q", ErrTaskNotFound, taskID)
 	}
 
-	advanceTask(task)
+	b.settleTaskLocked(task)
 
 	return cloneTask(task), nil
 }
@@ -194,7 +194,7 @@ func (b *InMemoryBackend) ListSpeechSynthesisTasks(
 	out := make([]*SpeechSynthesisTask, 0, len(tasks))
 
 	for i := offset; i < len(tasks); i++ {
-		advanceTask(tasks[i])
+		b.settleTaskLocked(tasks[i])
 
 		if status != "" && tasks[i].TaskStatus != status {
 			continue
@@ -218,7 +218,10 @@ func cloneTask(task *SpeechSynthesisTask) *SpeechSynthesisTask {
 	return &copyTask
 }
 
-func advanceTask(task *SpeechSynthesisTask) {
+// advanceTask moves task one lifecycle step and reports whether it just completed.
+func advanceTask(task *SpeechSynthesisTask) bool {
+	completed := false
+
 	switch task.TaskStatus {
 	case taskStatusScheduled:
 		task.TaskStatus = taskStatusProgress
@@ -228,9 +231,12 @@ func advanceTask(task *SpeechSynthesisTask) {
 			task.TaskStatusReason = "Synthetic synthesis failure requested by text marker"
 		} else {
 			task.TaskStatus = taskStatusCompleted
+			completed = true
 		}
 	}
 	task.polls++
+
+	return completed
 }
 
 func taskExtension(format string) string {

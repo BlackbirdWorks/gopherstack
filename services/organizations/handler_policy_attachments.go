@@ -107,9 +107,9 @@ func (h *Handler) handleListPoliciesForTarget(c *echo.Context, body []byte) erro
 		objs = append(objs, toPolicySummaryObject(p))
 	}
 
-	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
-
-	return c.JSON(http.StatusOK, listPoliciesForTargetResponse{Policies: p.Data, NextToken: p.Next})
+	return pageResponse(h, c, objs, req.NextToken, req.MaxResults, func(p page.Page[policySummaryObject]) any {
+		return listPoliciesForTargetResponse{Policies: p.Data, NextToken: p.Next}
+	})
 }
 
 func (h *Handler) handleListTargetsForPolicy(c *echo.Context, body []byte) error {
@@ -128,7 +128,7 @@ func (h *Handler) handleListTargetsForPolicy(c *echo.Context, body []byte) error
 		objs = append(objs, policyTargetObject(t))
 	}
 
-	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
-
-	return c.JSON(http.StatusOK, listTargetsForPolicyResponse{Targets: p.Data, NextToken: p.Next})
+	return pageResponse(h, c, objs, req.NextToken, req.MaxResults, func(p page.Page[policyTargetObject]) any {
+		return listTargetsForPolicyResponse{Targets: p.Data, NextToken: p.Next}
+	})
 }

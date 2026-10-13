@@ -38,6 +38,10 @@ func (h *Handler) handleDescribeLags(_ context.Context, body []byte) ([]byte, er
 	}
 
 	lags := h.Backend.DescribeLags(req.LagID)
+	if req.LagID != "" && len(lags) == 0 {
+		return nil, clientError("Could not find Lag with ID: " + req.LagID)
+	}
+
 	pageLags, next := paginate(lags, req.NextToken, req.MaxResults)
 
 	out := make([]lagWire, len(pageLags))

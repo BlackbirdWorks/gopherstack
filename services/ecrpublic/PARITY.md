@@ -2,7 +2,7 @@
 service: ecrpublic
 sdk_module: aws-sdk-go-v2/service/ecrpublic@v1.47.1
 last_audit_commit: 5bb0d02ee
-last_audit_date: 2026-10-05
+last_audit_date: 2026-10-10
 overall: A            # A: SDK-driven test/integration suite TestIntegration_ECRPublic_RepositoryImageLifecycle (test/integration/ecrpublic_test.go) + every buildable gap closed; remaining divergences are structural_gaps.
 ops:
   CreateRepository: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -96,3 +96,7 @@ Grade moves B to A on `TestIntegration_ECRPublic_RepositoryImageLifecycle` (test
 ## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
 
 Clean. PutRepositoryCatalogData replaces the catalog data and PutRegistryCatalogData replaces the display name; the SDK says only 'creates or updates', so full replacement is an interpretation. Repository creation stores CatalogData that GetRepositoryCatalogData returns.
+
+## 2026-10-10 realism pass
+
+Error messages no longer repeat the exception name and use ECR wording ("The repository with name 'x' does not exist in the registry with id 'y'", same for already-exists/not-empty/policy-not-found/image-not-found). Invalid NextToken is InvalidParameterException; SetRepositoryPolicy rejects non-JSON policy text; catalog data limits (description 1024, about/usage 10240, 50 architectures/OS), tag key/value lengths and the 1-100 batch size of BatchDeleteImage/DescribeImages/BatchCheckLayerAvailability are enforced. Tests: error_realism_test.go.

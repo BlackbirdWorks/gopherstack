@@ -98,10 +98,10 @@ func TestDeletedEnvironments_BoundedAndPersisted(t *testing.T) {
 			require.NoError(t, err)
 
 			for range tt.terminate {
-				_, err = b.CreateEnvironment(ctx, "app", "env", testSolutionStack, "", nil,
+				_, err = b.CreateEnvironment(ctx, "app", "env-name", testSolutionStack, "", nil,
 					elasticbeanstalk.CreateEnvironmentParams{})
 				require.NoError(t, err)
-				_, err = b.TerminateEnvironment(ctx, "app", "env")
+				_, err = b.TerminateEnvironment(ctx, "app", "env-name")
 				require.NoError(t, err)
 			}
 

@@ -27,31 +27,38 @@ type Filter struct {
 // separate FindingDetail resource, not on Finding itself. (Field order below
 // is fieldalignment-optimized, not declaration/doc order.)
 type Finding struct {
-	FirstObservedAt time.Time         `json:"firstObservedAt"`
-	LastObservedAt  time.Time         `json:"lastObservedAt"`
-	UpdatedAt       time.Time         `json:"updatedAt"`
-	Title           string            `json:"title,omitempty"`
-	FindingArn      string            `json:"findingArn"`
-	ResourceID      string            `json:"-"`
-	ResourceType    string            `json:"-"`
-	FixAvailable    string            `json:"fixAvailable,omitempty"`
-	Description     string            `json:"description"`
-	AccountID       string            `json:"awsAccountId"`
-	Type            string            `json:"type"`
-	Status          string            `json:"status"`
-	Resources       []FindingResource `json:"resources,omitempty"`
-	Cwes            []string          `json:"cwes,omitempty"`
-	Severity        FindingSeverity   `json:"severity"`
-	Tools           []string          `json:"tools,omitempty"`
-	ReferenceUrls   []string          `json:"referenceUrls,omitempty"`
-	// Ttps holds FindingDetail.Ttps (MITRE adversary tactics/techniques/
-	// procedures) -- a plain string list, identical in shape to Tools/Cwes/
-	// ReferenceUrls above, added alongside them this pass (field-diffed
-	// against types.FindingDetail; previously omitted despite being no more
-	// complex than the fields already modeled).
-	Ttps      []string `json:"ttps,omitempty"`
-	EpssScore float64  `json:"epssScore,omitempty"`
-	RiskScore int32    `json:"riskScore,omitempty"`
+	FirstObservedAt             time.Time                    `json:"firstObservedAt"`
+	LastObservedAt              time.Time                    `json:"lastObservedAt"`
+	UpdatedAt                   time.Time                    `json:"updatedAt"`
+	ExploitObserved             *ExploitObserved             `json:"exploitObserved,omitempty"`
+	CisaData                    *CisaData                    `json:"cisaData,omitempty"`
+	PackageVulnerabilityDetails *PackageVulnerabilityDetails `json:"packageVulnerabilityDetails,omitempty"`
+	FindingArn                  string                       `json:"findingArn"`
+	FixAvailable                string                       `json:"fixAvailable,omitempty"`
+	Description                 string                       `json:"description"`
+	AccountID                   string                       `json:"awsAccountId"`
+	Type                        string                       `json:"type"`
+	Status                      string                       `json:"status"`
+	ResourceType                string                       `json:"-"`
+	ResourceID                  string                       `json:"-"`
+	ExploitAvailable            string                       `json:"exploitAvailable,omitempty"`
+	Title                       string                       `json:"title,omitempty"`
+	Resources                   []FindingResource            `json:"resources,omitempty"`
+	Ttps                        []string                     `json:"ttps,omitempty"`
+	ReferenceUrls               []string                     `json:"referenceUrls,omitempty"`
+	Tools                       []string                     `json:"tools,omitempty"`
+	Evidences                   []Evidence                   `json:"evidences,omitempty"`
+	Severity                    FindingSeverity              `json:"severity"`
+	Cwes                        []string                     `json:"cwes,omitempty"`
+	EpssScore                   float64                      `json:"epssScore,omitempty"`
+	RiskScore                   int32                        `json:"riskScore,omitempty"`
+}
+
+// Evidence is the real Evidence member of a FindingDetail.
+type Evidence struct {
+	EvidenceDetail string `json:"evidenceDetail,omitempty"`
+	EvidenceRule   string `json:"evidenceRule,omitempty"`
+	Severity       string `json:"severity,omitempty"`
 }
 
 // CodeLine is a single line of a retrieved code snippet (real CodeLine shape).
@@ -90,6 +97,38 @@ type FindingSeverity struct {
 type FindingResource struct {
 	Type string `json:"type"`
 	ID   string `json:"id"`
+	// ImageID, Repository and FunctionName are the resource details the aggregations group by.
+	Tags         map[string]string `json:"tags,omitempty"`
+	ImageID      string            `json:"imageId,omitempty"`
+	Repository   string            `json:"repository,omitempty"`
+	FunctionName string            `json:"functionName,omitempty"`
+	Platform     string            `json:"platform,omitempty"`
+	Runtime      string            `json:"runtime,omitempty"`
+	Architecture string            `json:"architecture,omitempty"`
+	ImageHash    string            `json:"imageHash,omitempty"`
+	ImageTags    []string          `json:"imageTags,omitempty"`
+}
+
+// VulnerablePackage is the real VulnerablePackage member of PackageVulnerabilityDetails.
+type VulnerablePackage struct {
+	Name                 string `json:"name"`
+	Version              string `json:"version"`
+	Arch                 string `json:"arch,omitempty"`
+	FilePath             string `json:"filePath,omitempty"`
+	FixedInVersion       string `json:"fixedInVersion,omitempty"`
+	PackageManager       string `json:"packageManager,omitempty"`
+	Release              string `json:"release,omitempty"`
+	Remediation          string `json:"remediation,omitempty"`
+	SourceLambdaLayerArn string `json:"sourceLambdaLayerArn,omitempty"`
+	SourceLayerHash      string `json:"sourceLayerHash,omitempty"`
+	Epoch                int32  `json:"epoch,omitempty"`
+}
+
+// PackageVulnerabilityDetails is the real PackageVulnerabilityDetails member of a Finding.
+type PackageVulnerabilityDetails struct {
+	Source             string              `json:"source"`
+	VulnerabilityID    string              `json:"vulnerabilityId"`
+	VulnerablePackages []VulnerablePackage `json:"vulnerablePackages"`
 }
 
 // storedFinding wraps Finding for internal storage. Its persisted twin is
@@ -326,13 +365,61 @@ type CoverageScanStatus struct {
 // hardwired-empty stubs with no way to populate real data, unlike Finding's
 // SeedFinding.
 type CoverageEntry struct {
-	LastScannedAt time.Time           `json:"lastScannedAt"`
-	ScanStatus    *CoverageScanStatus `json:"scanStatus,omitempty"`
-	AccountID     string              `json:"accountId"`
-	ResourceID    string              `json:"resourceId"`
-	ResourceType  string              `json:"resourceType"`
-	ScanType      string              `json:"scanType"`
-	ScanMode      string              `json:"scanMode,omitempty"`
+	LastScannedAt    time.Time                 `json:"lastScannedAt"`
+	ScanStatus       *CoverageScanStatus       `json:"scanStatus,omitempty"`
+	ResourceMetadata *CoverageResourceMetadata `json:"resourceMetadata,omitempty"`
+	AccountID        string                    `json:"accountId"`
+	ResourceID       string                    `json:"resourceId"`
+	ResourceType     string                    `json:"resourceType"`
+	ScanType         string                    `json:"scanType"`
+	ScanMode         string                    `json:"scanMode,omitempty"`
+}
+
+// CoverageResourceMetadata is the AWS-native part of the real ResourceScanMetadata union.
+type CoverageResourceMetadata struct {
+	Ec2            *CoverageEc2Metadata            `json:"ec2,omitempty"`
+	EcrImage       *CoverageEcrImageMetadata       `json:"ecrImage,omitempty"`
+	EcrRepository  *CoverageEcrRepositoryMetadata  `json:"ecrRepository,omitempty"`
+	LambdaFunction *CoverageLambdaFunctionMetadata `json:"lambdaFunction,omitempty"`
+	CodeRepository *CoverageCodeRepositoryMetadata `json:"codeRepository,omitempty"`
+}
+
+// CoverageEc2Metadata is the real Ec2Metadata member.
+type CoverageEc2Metadata struct {
+	Tags     map[string]string `json:"tags,omitempty"`
+	AmiID    string            `json:"amiId,omitempty"`
+	Platform string            `json:"platform,omitempty"`
+}
+
+// CoverageEcrImageMetadata is the real EcrContainerImageMetadata member.
+type CoverageEcrImageMetadata struct {
+	ImagePulledAt time.Time `json:"imagePulledAt"`
+	LastInUseAt   time.Time `json:"lastInUseAt"`
+	Tags          []string  `json:"tags,omitempty"`
+	InUseCount    int64     `json:"inUseCount,omitempty"`
+}
+
+// CoverageEcrRepositoryMetadata is the real EcrRepositoryMetadata member.
+type CoverageEcrRepositoryMetadata struct {
+	Name          string `json:"name"`
+	ScanFrequency string `json:"scanFrequency,omitempty"`
+}
+
+// CoverageLambdaFunctionMetadata is the real LambdaFunctionMetadata member.
+type CoverageLambdaFunctionMetadata struct {
+	FunctionTags map[string]string `json:"functionTags,omitempty"`
+	FunctionName string            `json:"functionName,omitempty"`
+	Runtime      string            `json:"runtime,omitempty"`
+	Layers       []string          `json:"layers,omitempty"`
+}
+
+// CoverageCodeRepositoryMetadata is the real CodeRepositoryMetadata member.
+type CoverageCodeRepositoryMetadata struct {
+	ProjectName            string `json:"projectName,omitempty"`
+	ProviderType           string `json:"providerType,omitempty"`
+	ProviderTypeVisibility string `json:"providerTypeVisibility,omitempty"`
+	IntegrationArn         string `json:"integrationArn,omitempty"`
+	LastScannedCommitID    string `json:"lastScannedCommitId,omitempty"`
 }
 
 // Vulnerability represents a known vulnerability, matching the real

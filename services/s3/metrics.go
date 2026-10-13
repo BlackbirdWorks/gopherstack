@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
@@ -25,18 +27,48 @@ const (
 
 // MetricsFilter is one bucket metrics configuration: its FilterId and optional key prefix.
 type MetricsFilter struct {
+	Tags   map[string]string
 	ID     string
 	Prefix string
+}
+
+type metricsTagXML struct {
+	Key   string `xml:"Key"`
+	Value string `xml:"Value"`
 }
 
 type metricsConfigXML struct {
 	ID     string `xml:"Id"`
 	Filter struct {
-		Prefix string `xml:"Prefix"`
+		Tag    *metricsTagXML `xml:"Tag"`
+		Prefix string         `xml:"Prefix"`
 		And    struct {
-			Prefix string `xml:"Prefix"`
+			Prefix string          `xml:"Prefix"`
+			Tags   []metricsTagXML `xml:"Tag"`
 		} `xml:"And"`
 	} `xml:"Filter"`
+}
+
+func (c *metricsConfigXML) tags() map[string]string {
+	var tags map[string]string
+
+	add := func(t metricsTagXML) {
+		if tags == nil {
+			tags = map[string]string{}
+		}
+
+		tags[t.Key] = t.Value
+	}
+
+	if c.Filter.Tag != nil {
+		add(*c.Filter.Tag)
+	}
+
+	for _, t := range c.Filter.And.Tags {
+		add(t)
+	}
+
+	return tags
 }
 
 // SetMetricEmitter sets the emitter used for the daily storage metrics.
@@ -75,7 +107,7 @@ func (b *InMemoryBackend) RequestMetricFilters(name string) (string, []MetricsFi
 			prefix = cfg.Filter.And.Prefix
 		}
 
-		filters = append(filters, MetricsFilter{ID: id, Prefix: prefix})
+		filters = append(filters, MetricsFilter{ID: id, Prefix: prefix, Tags: cfg.tags()})
 	}
 
 	return bucket.Region, filters
@@ -86,7 +118,7 @@ type requestMetricsSource interface {
 }
 
 // emitRequestMetrics publishes request metrics for each metrics configuration matching the request.
-func (h *S3Handler) emitRequestMetrics(c *echo.Context, start time.Time) {
+func (h *S3Handler) emitRequestMetrics(c *echo.Context, start time.Time, firstByte time.Duration) {
 	m, ok := c.Request().Context().Value(s3Key).(*s3Metrics)
 	if !ok || m.bucket == "" {
 		return
@@ -120,12 +152,42 @@ func (h *S3Handler) emitRequestMetrics(c *echo.Context, start time.Time) {
 			continue
 		}
 
-		h.putRequestMetrics(region, m, f.ID, c.Request(), status, size, time.Since(start))
+		if len(f.Tags) > 0 && !h.objectHasTags(c.Request().Context(), m.bucket, key, f.Tags) {
+			continue
+		}
+
+		h.putRequestMetrics(region, m, f.ID, c.Request(), status, size, time.Since(start), firstByte)
 	}
 }
 
+func (h *S3Handler) objectHasTags(ctx context.Context, bucket, key string, want map[string]string) bool {
+	if key == "" {
+		return false
+	}
+
+	out, err := h.Backend.GetObjectTagging(ctx, &sdk_s3.GetObjectTaggingInput{
+		Bucket: aws.String(bucket), Key: aws.String(key),
+	})
+	if err != nil {
+		return false
+	}
+
+	have := make(map[string]string, len(out.TagSet))
+	for _, t := range out.TagSet {
+		have[aws.ToString(t.Key)] = aws.ToString(t.Value)
+	}
+
+	for k, v := range want {
+		if got, ok := have[k]; !ok || got != v {
+			return false
+		}
+	}
+
+	return true
+}
+
 func (h *S3Handler) putRequestMetrics(
-	region string, m *s3Metrics, filterID string, r *http.Request, status int, size int64, d time.Duration,
+	region string, m *s3Metrics, filterID string, r *http.Request, status int, size int64, d, firstByte time.Duration,
 ) {
 	dims := []cwmetric.Dimension{{Name: dimBucketName, Value: m.bucket}, {Name: "FilterId", Value: filterID}}
 	put := func(name, unit string, v float64) {
@@ -137,6 +199,10 @@ func (h *S3Handler) putRequestMetrics(
 	put("4xxErrors", s3UnitCount, boolFloat(status >= http.StatusBadRequest && status < http.StatusInternalServerError))
 	put("5xxErrors", s3UnitCount, boolFloat(status >= http.StatusInternalServerError))
 	put("TotalRequestLatency", s3UnitMillis, float64(d)/float64(time.Millisecond))
+
+	if firstByte > 0 {
+		put("FirstByteLatency", s3UnitMillis, float64(firstByte)/float64(time.Millisecond))
+	}
 
 	switch {
 	case r.Method == http.MethodGet && size > 0:

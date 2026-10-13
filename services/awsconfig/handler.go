@@ -308,6 +308,7 @@ var errorWireMappings = []errorWireMapping{
 	{ErrNoSuchOrganizationConformancePack, "NoSuchOrganizationConformancePackException", http.StatusNotFound},
 	{ErrResourceNotFound, "ResourceNotFoundException", http.StatusBadRequest},
 	{ErrAlreadyExists, "MaxNumberOfConfigurationRecordersExceededException", http.StatusConflict},
+	{ErrMaxDeliveryChannels, "MaxNumberOfDeliveryChannelsExceededException", http.StatusBadRequest},
 	{ErrNoDeliveryChannel, "NoAvailableDeliveryChannelException", http.StatusBadRequest},
 	{ErrNoSuchConfigRuleInConformancePack, "NoSuchConfigRuleInConformancePackException", http.StatusNotFound},
 	{ErrNoSuchRemediationConfiguration, "NoSuchRemediationConfigurationException", http.StatusNotFound},
@@ -327,10 +328,20 @@ var errorWireMappings = []errorWireMapping{
 	{ErrLastDeliveryChannelDeleteFailed, "LastDeliveryChannelDeleteFailedException", http.StatusBadRequest},
 }
 
+// publicMessage drops the leading "<wireType>: " that sentinel wrapping adds so clients do not see the code twice.
+func publicMessage(wireType string, err error) string {
+	msg := strings.TrimPrefix(err.Error(), wireType+": ")
+	if msg == wireType {
+		return ""
+	}
+
+	return msg
+}
+
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	for _, m := range errorWireMappings {
 		if errors.Is(err, m.sentinel) {
-			return c.JSONBlob(m.httpStatus, marshalError(m.wireType, err.Error()))
+			return c.JSONBlob(m.httpStatus, marshalError(m.wireType, publicMessage(m.wireType, err)))
 		}
 	}
 

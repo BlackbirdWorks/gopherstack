@@ -282,14 +282,14 @@ func TestCloneStack(t *testing.T) {
 			},
 		},
 		{
-			name: "CloneStack of nonexistent stack returns 404",
+			name: "CloneStack of nonexistent stack returns ResourceNotFoundException",
 			check: func(t *testing.T, h *opsworks.Handler) {
 				t.Helper()
 				rec := doTarget(t, h, "CloneStack", map[string]any{
 					"SourceStackId":  "nonexistent",
 					"ServiceRoleArn": "arn:aws:iam::000000000000:role/opsworks",
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -365,11 +365,11 @@ func TestStartStopStack(t *testing.T) {
 			},
 		},
 		{
-			name: "StartStack on nonexistent stack returns 404",
+			name: "StartStack on nonexistent stack returns ResourceNotFoundException",
 			check: func(t *testing.T, h *opsworks.Handler) {
 				t.Helper()
 				rec := doTarget(t, h, "StartStack", map[string]any{"StackId": "no-such-stack"})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -454,13 +454,13 @@ func TestGetHostnameSuggestion(t *testing.T) {
 			},
 		},
 		{
-			name: "returns 404 for nonexistent layer",
+			name: "returns ResourceNotFoundException for nonexistent layer",
 			check: func(t *testing.T, h *opsworks.Handler) {
 				t.Helper()
 				rec := doTarget(t, h, "GetHostnameSuggestion", map[string]any{
 					"LayerId": "nonexistent",
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}
@@ -510,11 +510,11 @@ func TestDescribeStackSummary(t *testing.T) {
 			},
 		},
 		{
-			name: "nonexistent stack returns 404",
+			name: "nonexistent stack returns ResourceNotFoundException",
 			check: func(t *testing.T, h *opsworks.Handler) {
 				t.Helper()
 				rec := doTarget(t, h, "DescribeStackSummary", map[string]any{"StackId": "none"})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}

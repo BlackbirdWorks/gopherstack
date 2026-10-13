@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	opsworkssdk "github.com/aws/aws-sdk-go-v2/service/opsworks"
 	"github.com/aws/aws-sdk-go-v2/service/opsworks/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -510,4 +511,174 @@ func TestSDK_DeleteInstanceElasticIPAndVolumes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCreateStack_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		mutate  func(*opsworkssdk.CreateStackInput)
+		name    string
+		wantErr bool
+	}{
+		{name: "valid", mutate: func(*opsworkssdk.CreateStackInput) {}},
+		{
+			name:    "bad region",
+			mutate:  func(in *opsworkssdk.CreateStackInput) { in.Region = aws.String("moon") },
+			wantErr: true,
+		},
+		{
+			name: "role as profile",
+			mutate: func(in *opsworkssdk.CreateStackInput) {
+				in.DefaultInstanceProfileArn = aws.String("arn:aws:iam::000000000000:role/x")
+			},
+			wantErr: true,
+		},
+		{
+			name:    "profile as role",
+			mutate:  func(in *opsworkssdk.CreateStackInput) { in.ServiceRoleArn = aws.String("not-an-arn") },
+			wantErr: true,
+		},
+		{
+			name: "bad cookbook type",
+			mutate: func(in *opsworkssdk.CreateStackInput) {
+				in.CustomCookbooksSource = &types.Source{Type: types.SourceType("ftp")}
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestClient(t)
+			in := &opsworkssdk.CreateStackInput{
+				Name: aws.String("s"), Region: aws.String(rtTestRegion),
+				DefaultInstanceProfileArn: aws.String(testInstanceProfileArn),
+				ServiceRoleArn:            aws.String(testServiceRoleArn),
+			}
+			tt.mutate(in)
+
+			_, err := client.CreateStack(t.Context(), in)
+			if tt.wantErr {
+				var apiErr smithy.APIError
+				require.ErrorAs(t, err, &apiErr)
+				assert.Equal(t, "ValidationException", apiErr.ErrorCode())
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestStack_CustomCookbooksRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	client := newTestClient(t)
+	created, err := client.CreateStack(t.Context(), &opsworkssdk.CreateStackInput{
+		Name: aws.String("cb"), Region: aws.String(rtTestRegion),
+		DefaultInstanceProfileArn: aws.String(testInstanceProfileArn),
+		ServiceRoleArn:            aws.String(testServiceRoleArn),
+		UseCustomCookbooks:        aws.Bool(true),
+		CustomCookbooksSource: &types.Source{
+			Type: types.SourceTypeGit, Url: aws.String("https://example.com/repo.git"),
+			Username: aws.String("u"), Password: aws.String("secret"), Revision: aws.String("main"),
+		},
+	})
+	require.NoError(t, err)
+
+	cloned, err := client.CloneStack(t.Context(), &opsworkssdk.CloneStackInput{
+		SourceStackId: created.StackId, ServiceRoleArn: aws.String(testServiceRoleArn),
+	})
+	require.NoError(t, err)
+
+	for _, id := range []*string{created.StackId, cloned.StackId} {
+		out, descErr := client.DescribeStacks(t.Context(), &opsworkssdk.DescribeStacksInput{StackIds: []string{*id}})
+		require.NoError(t, descErr)
+		require.Len(t, out.Stacks, 1)
+
+		st := out.Stacks[0]
+		assert.True(t, aws.ToBool(st.UseCustomCookbooks))
+		require.NotNil(t, st.CustomCookbooksSource)
+		assert.Equal(t, "https://example.com/repo.git", aws.ToString(st.CustomCookbooksSource.Url))
+		assert.Equal(t, "main", aws.ToString(st.CustomCookbooksSource.Revision))
+		assert.Equal(t, filtered, aws.ToString(st.CustomCookbooksSource.Password))
+	}
+
+	_, err = client.UpdateStack(t.Context(), &opsworkssdk.UpdateStackInput{
+		StackId: created.StackId, UseCustomCookbooks: aws.Bool(false),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeStacks(
+		t.Context(),
+		&opsworkssdk.DescribeStacksInput{StackIds: []string{*created.StackId}},
+	)
+	require.NoError(t, err)
+	assert.False(t, aws.ToBool(out.Stacks[0].UseCustomCookbooks))
+}
+
+func TestCreateLayerAndInstance_NameValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		shortname string
+		hostname  string
+		wantErr   bool
+	}{
+		{name: "ok", shortname: "web-1", hostname: "web1"},
+		{name: "bad shortname", shortname: "web 1", hostname: "web1", wantErr: true},
+		{name: "long shortname", shortname: "abcdefghijklmnopqrstuvwxyzabcdefg", hostname: "web1", wantErr: true},
+		{name: "bad hostname", shortname: "web", hostname: "web_1", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestClient(t)
+			stackID := newTestStack(t, client)
+
+			layer, err := client.CreateLayer(t.Context(), &opsworkssdk.CreateLayerInput{
+				StackId: aws.String(stackID), Type: types.LayerTypeCustom,
+				Name: aws.String("l"), Shortname: aws.String(tt.shortname),
+			})
+			if tt.wantErr && tt.name != "bad hostname" {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			_, err = client.CreateInstance(t.Context(), &opsworkssdk.CreateInstanceInput{
+				StackId: aws.String(stackID), LayerIds: []string{aws.ToString(layer.LayerId)},
+				InstanceType: aws.String("c5.large"), Hostname: aws.String(tt.hostname),
+			})
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestNotFound_StatusAndMessage(t *testing.T) {
+	t.Parallel()
+
+	client := newTestClient(t)
+	_, err := client.DescribeStacks(t.Context(), &opsworkssdk.DescribeStacksInput{StackIds: []string{"nope"}})
+
+	var apiErr *types.ResourceNotFoundException
+	require.ErrorAs(t, err, &apiErr)
+	assert.NotContains(t, apiErr.ErrorMessage(), "ResourceNotFoundException")
+	assert.Contains(t, apiErr.ErrorMessage(), "stack")
+	assert.Contains(t, err.Error(), "StatusCode: 400")
 }

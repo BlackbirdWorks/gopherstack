@@ -214,6 +214,10 @@ func (b *InMemoryBackend) StopInferenceRecommendationsJob(ctx context.Context, n
 		)
 	}
 
+	if j.Status != inferenceRecommendationsJobStatusInProgress {
+		return nil
+	}
+
 	j.Status = inferenceRecommendationsJobStatusStopping
 	j.LastModifiedTime = time.Now()
 

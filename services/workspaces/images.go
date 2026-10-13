@@ -148,12 +148,31 @@ func isValidIngestionProcess(process string) bool {
 	)
 }
 
+// validateImportApplications enforces the Application enum and the documented one-item limit.
+func validateImportApplications(applications []string) error {
+	if len(applications) > 1 {
+		return awserr.New("only one Application is allowed", awserr.ErrInvalidParameter)
+	}
+
+	for _, a := range applications {
+		if !slices.Contains(sdktypes.Application("").Values(), sdktypes.Application(a)) {
+			return awserr.Newf("invalid Application: %q", awserr.ErrInvalidParameter, a)
+		}
+	}
+
+	return nil
+}
+
 // ImportWorkspaceImage imports an EC2 image as a workspace image.
 // IngestionProcess is required on the real ImportWorkspaceImageInput
 // (workspaces@v1.73.1 api_op_ImportWorkspaceImage.go:67).
 func (b *InMemoryBackend) ImportWorkspaceImage(
-	ec2ImageID, name, description, ingestionProcess string, tags map[string]string,
+	ec2ImageID, name, description, ingestionProcess string, applications []string, tags map[string]string,
 ) (string, error) {
+	if err := validateImportApplications(applications); err != nil {
+		return "", err
+	}
+
 	b.mu.Lock("ImportWorkspaceImage")
 	defer b.mu.Unlock()
 

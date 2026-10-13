@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
@@ -106,7 +107,7 @@ func (h *Handler) handleUpdateDomainConfig(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	h.writeJSON(r, w, buildDomainConfigOutput(domain))
+	h.writeJSON(r, w, h.buildDomainConfigOutput(domain))
 }
 
 // applyOptionalSecurityUpdateFields validates and applies req's
@@ -153,8 +154,8 @@ func applyOptionalSecurityUpdateFields(upd *UpdateConfig, req *updateDomainConfi
 }
 
 // buildDomainConfigOutput builds the DescribeDomainConfig/UpdateDomainConfig response.
-func buildDomainConfigOutput(d *Domain) *describeDomainConfigOutput {
-	status := domainConfigStatus(d)
+func (h *Handler) buildDomainConfigOutput(d *Domain) *describeDomainConfigOutput {
+	status := domainConfigStatus(d, h.Backend.Now())
 	out := &describeDomainConfigOutput{}
 	out.DomainConfig.ElasticsearchVersion = elasticsearchConfigValue{
 		Options: d.ElasticsearchVersion,
@@ -227,7 +228,7 @@ func buildDomainConfigOutput(d *Domain) *describeDomainConfigOutput {
 		Status: status,
 	}
 
-	applySecurityConfigFields(out, d, status)
+	h.applySecurityConfigFields(out, d, status)
 
 	return out
 }
@@ -235,7 +236,9 @@ func buildDomainConfigOutput(d *Domain) *describeDomainConfigOutput {
 // applySecurityConfigFields fills in the CognitoOptions/AdvancedSecurityOptions/
 // AutoTuneOptions/LogPublishingOptions/VPCOptions members of out.DomainConfig,
 // factored out of buildDomainConfigOutput to keep its cognitive complexity low.
-func applySecurityConfigFields(out *describeDomainConfigOutput, d *Domain, status elasticsearchConfigStatus) {
+func (h *Handler) applySecurityConfigFields(
+	out *describeDomainConfigOutput, d *Domain, status elasticsearchConfigStatus,
+) {
 	out.DomainConfig.CognitoOptions = elasticsearchConfigValue{
 		Options: toCognitoOptionsJSON(d.CognitoOptions),
 		Status:  status,
@@ -254,7 +257,7 @@ func applySecurityConfigFields(out *describeDomainConfigOutput, d *Domain, statu
 		Options: toLogPublishingOptionsJSON(d.LogPublishingOptions), Status: status,
 	}
 
-	if v := toVPCDerivedInfoJSON(d.VPCOptions); v != nil {
+	if v := h.vpcDerivedInfoJSON(d); v != nil {
 		out.DomainConfig.VPCOptions = &elasticsearchConfigValue{Options: v, Status: status}
 	}
 }
@@ -342,9 +345,9 @@ func deploymentStrategyOptionsToJSON(d *DeploymentStrategyOptions) deploymentStr
 // AWS tracks these per-option; this backend tracks one domain-wide
 // CreatedAt/ConfigUpdatedAt/ConfigVersion instead (see Domain's doc comment
 // in models.go), so every field in a given response shares the same status.
-func domainConfigStatus(d *Domain) elasticsearchConfigStatus {
+func domainConfigStatus(d *Domain, now time.Time) elasticsearchConfigStatus {
 	return elasticsearchConfigStatus{
-		State:         statusActiveCap,
+		State:         optionState(d, now),
 		CreationDate:  awstime.Epoch(d.CreatedAt),
 		UpdateDate:    awstime.Epoch(d.ConfigUpdatedAt),
 		UpdateVersion: d.ConfigVersion,
@@ -364,7 +367,7 @@ func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	h.writeJSON(r, w, buildDomainConfigOutput(d))
+	h.writeJSON(r, w, h.buildDomainConfigOutput(d))
 }
 
 // elasticsearchConfigStatus mirrors types.OptionStatus. CreationDate/
@@ -489,10 +492,15 @@ func (h *Handler) handleDescribeDomainChangeProgress(w http.ResponseWriter, r *h
 
 	// ConfigChangeStatus is mixed-case ("Completed", enums.go:83), unlike the
 	// overall Status enum's "COMPLETED" (OverallChangeStatus).
+	configStatus, overall := "Completed", "COMPLETED"
+	if change.InProgress {
+		configStatus, overall = "ApplyingChanges", "PROCESSING"
+	}
+
 	status := map[string]any{
 		"ChangeId":           change.ChangeID,
-		"ConfigChangeStatus": "Completed",
-		"Status":             "COMPLETED",
+		"ConfigChangeStatus": configStatus,
+		"Status":             overall,
 	}
 
 	if !change.StartTime.IsZero() {

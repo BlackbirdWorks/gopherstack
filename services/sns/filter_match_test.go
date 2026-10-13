@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -22,7 +21,7 @@ func TestFilterPolicyAnythingButMatchDelivery(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -61,7 +60,7 @@ func TestFilterPolicyAnythingButNoDelivery(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -96,7 +95,7 @@ func TestFilterPolicyPrefixMatch(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 2)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -152,7 +151,7 @@ func TestFilterPolicySuffixMatch(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -189,7 +188,7 @@ func TestFilterPolicyEqualsIgnoreCase(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -227,7 +226,7 @@ func TestFilterPolicyMessageBodyMatch(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -262,7 +261,7 @@ func TestFilterPolicyMessageBodyNoMatch(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -295,7 +294,7 @@ func TestFilterPolicyMessageBodyNonJSONBlocked(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -328,7 +327,7 @@ func TestFilterPolicyMessageBodyNoFilter(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -364,14 +363,14 @@ func TestFilterPolicyScopeMessageBodyVsAttributesSameSubscriber(t *testing.T) {
 	attrReceived := make(chan string, 1)
 	bodyReceived := make(chan string, 1)
 
-	tsAttr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	tsAttr := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		attrReceived <- string(body)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer tsAttr.Close()
 
-	tsBody := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	tsBody := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		bodyReceived <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -539,7 +538,7 @@ func TestFilterPolicy(t *testing.T) {
 	require.NoError(t, err)
 
 	delivered := make(chan string, 10)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		delivered <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -617,7 +616,7 @@ func TestInMemoryBackend_SetSubscriptionAttributes_FilterPolicy(t *testing.T) {
 			b := sns.NewInMemoryBackend()
 			topicArn := mustCreateTopic(t, b, "set-filter-policy-topic-"+strings.ReplaceAll(tt.name, " ", "-"))
 			received := make(chan string, 1)
-			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				body, _ := io.ReadAll(r.Body)
 				received <- string(body)
 				w.WriteHeader(http.StatusOK)
@@ -667,7 +666,7 @@ func TestFilterPolicyPrefixAndAnythingBut(t *testing.T) {
 	b := sns.NewInMemoryBackend()
 
 	delivered := make(chan string, 10)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		delivered <- string(body)
 		w.WriteHeader(http.StatusOK)
@@ -728,7 +727,7 @@ func TestFilterPolicySuffixAndEqualsIgnoreCase(t *testing.T) {
 	b := sns.NewInMemoryBackend()
 
 	delivered := make(chan string, 10)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		delivered <- string(body)
 		w.WriteHeader(http.StatusOK)

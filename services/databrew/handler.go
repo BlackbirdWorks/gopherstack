@@ -284,7 +284,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		status, code = http.StatusBadRequest, errCodeValidation
 	}
 
-	return c.JSON(status, databrewErrorResponse{Type: code, Message: err.Error()})
+	return c.JSON(status, databrewErrorResponse{Type: code, Message: errorMessage(err, code)})
 }
 
 func parseDataBrewRESTPath(method, path string) (string, string) {
@@ -496,4 +496,13 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 	}
 
 	return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
+}
+
+func errorMessage(err error, code string) string {
+	msg := err.Error()
+	if msg == code {
+		return ""
+	}
+
+	return strings.TrimPrefix(msg, code+": ")
 }

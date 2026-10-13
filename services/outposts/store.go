@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -31,39 +32,26 @@ const (
 // Sites table), so the invariant boundary is the whole backend -- see
 // .claude/memories/pkgs-catalog.md's locking rule.
 type InMemoryBackend struct {
-	outposts               *store.Table[Outpost]
-	outpostsBySite         *store.Index[Outpost]
-	sites                  *store.Table[Site]
-	orders                 *store.Table[Order]
-	ordersByOutpost        *store.Index[Order]
-	quotes                 *store.Table[Quote]
-	capacityTasks          *store.Table[CapacityTask]
-	capacityTasksByOutpost *store.Index[CapacityTask]
-	assets                 *store.Table[Asset]
-	assetsByOutpost        *store.Index[Asset]
-	connections            *store.Table[Connection]
-	runningInstances       *store.Table[runningInstance]
-
-	// runningInstancesByOutpost backs ListAssetInstances -- see
-	// capacity_ledger.go's ConsumeCapacity/ReleaseCapacity, which are this
-	// index's only writers (via runningInstances.Put/Delete).
+	connections               *store.Table[Connection]
+	outpostsBySite            *store.Index[Outpost]
+	sites                     *store.Table[Site]
+	orders                    *store.Table[Order]
+	ordersByOutpost           *store.Index[Order]
+	quotes                    *store.Table[Quote]
+	capacityTasks             *store.Table[CapacityTask]
+	capacityTasksByOutpost    *store.Index[CapacityTask]
+	assetsByOutpost           *store.Index[Asset]
+	assets                    *store.Table[Asset]
 	runningInstancesByOutpost *store.Index[runningInstance]
+	runningInstances          *store.Table[runningInstance]
+	outposts                  *store.Table[Outpost]
 	registry                  *store.Registry
-
-	// renewalIdempotency caches CreateRenewal's response keyed by
-	// outpostID+"::"+clientToken so a retried request with the same
-	// ClientToken replays the original response instead of recomputing (and
-	// re-recording) a new subscription. It is deliberately NOT persisted --
-	// losing this cache across a restore only means a replayed ClientToken
-	// computes a fresh (but numerically identical, since pricing is
-	// deterministic) response rather than reusing the cached one, which is
-	// harmless. See renewals.go.
-	renewalIdempotency map[string]CreateRenewalResult
-
-	mu        *lockmetrics.RWMutex
-	work      *worker.Group
-	accountID string
-	region    string
+	work                      *worker.Group
+	renewalIdempotency        map[string]CreateRenewalResult
+	mu                        *lockmetrics.RWMutex
+	accountID                 string
+	region                    string
+	delayOverride             atomic.Int64
 }
 
 // NewInMemoryBackend creates a new in-memory AWS Outposts backend.
@@ -242,4 +230,25 @@ func cloneStrs(ss []string) []string {
 	copy(cp, ss)
 
 	return cp
+}
+
+// SetTransitionDelay overrides the delay between order and capacity-task status hops; zero keeps the 100ms default.
+func (b *InMemoryBackend) SetTransitionDelay(d time.Duration) {
+	b.delayOverride.Store(int64(d))
+}
+
+func (b *InMemoryBackend) orderDelay() time.Duration {
+	return b.overrideDelay(orderTransitionDelay)
+}
+
+func (b *InMemoryBackend) capacityTaskDelay() time.Duration {
+	return b.overrideDelay(capacityTaskTransitionDelay)
+}
+
+func (b *InMemoryBackend) overrideDelay(def time.Duration) time.Duration {
+	if d := time.Duration(b.delayOverride.Load()); d > 0 {
+		return d
+	}
+
+	return def
 }

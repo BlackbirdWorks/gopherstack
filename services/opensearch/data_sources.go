@@ -28,7 +28,7 @@ func (b *InMemoryBackend) AddDataSource(
 	defer b.mu.Unlock()
 
 	if !b.domains.Has(domainName) {
-		return "", fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return "", fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	if b.domainDataSources.Has(dataSourceKey(domainName, name)) {

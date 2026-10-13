@@ -181,6 +181,12 @@ func TestAutoscalingHandler_CreateWithTags(t *testing.T) {
 			t.Parallel()
 
 			h := newAutoscalingHandler()
+			postAutoscalingForm(
+				t,
+				h,
+				"Action=CreateLaunchConfiguration&Version=2011-01-01&LaunchConfigurationName=my-lc"+
+					"&ImageId=ami-12345678&InstanceType=t3.micro",
+			)
 			rec := postAutoscalingForm(t, h, tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})

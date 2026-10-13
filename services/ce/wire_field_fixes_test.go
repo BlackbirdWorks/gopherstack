@@ -579,3 +579,75 @@ func TestGetAnomalies_TotalImpactFilter_RealClient(t *testing.T) {
 	require.Len(t, betweenOut.Anomalies, 1, "TotalImpact BETWEEN 0 and 100 must exclude the 500-impact anomaly")
 	assert.Equal(t, "low-impact", aws.ToString(betweenOut.Anomalies[0].AnomalyId))
 }
+
+func TestGetAnomalyMonitors_DimensionalValueCountFromSpecification(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		spec   *cetypes.Expression
+		name   string
+		catKey string
+		rules  []string
+		want   int32
+	}{
+		{
+			name: "cost category values",
+			spec: &cetypes.Expression{CostCategories: &cetypes.CostCategoryValues{Key: aws.String("Team")}},
+			want: 3, rules: []string{"a", "b", "c"}, catKey: "Team",
+		},
+		{
+			name: "cost category scoped values",
+			spec: &cetypes.Expression{CostCategories: &cetypes.CostCategoryValues{
+				Key: aws.String("Team"), Values: []string{"a", "c"},
+			}},
+			want: 2, rules: []string{"a", "b", "c"}, catKey: "Team",
+		},
+		{
+			name: "tag without ledger values",
+			spec: &cetypes.Expression{Tags: &cetypes.TagValues{Key: aws.String("env")}},
+			want: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+			client := newTestCEClient(t, h)
+
+			if tt.catKey != "" {
+				rules := make([]cetypes.CostCategoryRule, 0, len(tt.rules))
+				for _, r := range tt.rules {
+					rules = append(rules, cetypes.CostCategoryRule{Value: aws.String(r)})
+				}
+
+				_, err := client.CreateCostCategoryDefinition(
+					t.Context(),
+					&costexplorersdk.CreateCostCategoryDefinitionInput{
+						Name:        aws.String(tt.catKey),
+						RuleVersion: cetypes.CostCategoryRuleVersionCostCategoryExpressionV1,
+						Rules:       rules,
+					},
+				)
+				require.NoError(t, err)
+			}
+
+			createOut, err := client.CreateAnomalyMonitor(t.Context(), &costexplorersdk.CreateAnomalyMonitorInput{
+				AnomalyMonitor: &cetypes.AnomalyMonitor{
+					MonitorName:          aws.String("SpecMonitor"),
+					MonitorType:          cetypes.MonitorTypeCustom,
+					MonitorSpecification: tt.spec,
+				},
+			})
+			require.NoError(t, err)
+
+			getOut, err := client.GetAnomalyMonitors(t.Context(), &costexplorersdk.GetAnomalyMonitorsInput{
+				MonitorArnList: []string{aws.ToString(createOut.MonitorArn)},
+			})
+			require.NoError(t, err)
+			require.Len(t, getOut.AnomalyMonitors, 1)
+			assert.Equal(t, tt.want, getOut.AnomalyMonitors[0].DimensionalValueCount)
+		})
+	}
+}

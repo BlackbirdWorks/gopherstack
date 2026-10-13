@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -24,6 +25,21 @@ func newTestHandler() *elasticbeanstalk.Handler {
 }
 
 func postEBForm(t *testing.T, h *elasticbeanstalk.Handler, body string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	if vals, err := url.ParseQuery(body); err == nil && vals.Get("Action") == "CreateEnvironment" &&
+		vals.Get("ApplicationName") != "" {
+		postEBFormRaw(
+			t,
+			h,
+			"Version=2010-12-01&Action=CreateApplication&ApplicationName="+url.QueryEscape(vals.Get("ApplicationName")),
+		)
+	}
+
+	return postEBFormRaw(t, h, body)
+}
+
+func postEBFormRaw(t *testing.T, h *elasticbeanstalk.Handler, body string) *httptest.ResponseRecorder {
 	t.Helper()
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))

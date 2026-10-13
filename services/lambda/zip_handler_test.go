@@ -91,6 +91,7 @@ func TestZipHandler_CreateFunction(t *testing.T) {
 			name: "ZipWithS3Code",
 			input: map[string]any{
 				"FunctionName": "zip-s3-func",
+				"Role":         "arn:aws:iam::123456789012:role/r",
 				"PackageType":  "Zip",
 				"Runtime":      "nodejs20.x",
 				"Handler":      "index.handler",
@@ -113,14 +114,25 @@ func TestZipHandler_CreateFunction(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name: "DefaultsToImage",
+			name: "DefaultsToZip",
+			input: map[string]any{
+				"FunctionName": "default-type",
+				"Runtime":      "python3.12",
+				"Handler":      "index.handler",
+				"Code":         map[string]any{"ZipFile": "UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA=="},
+				"Role":         "arn:aws:iam::123456789012:role/test",
+			},
+			wantStatus:      http.StatusCreated,
+			wantPackageType: lambda.PackageTypeZip,
+		},
+		{
+			name: "ImageCodeWithoutTypeRejected",
 			input: map[string]any{
 				"FunctionName": "default-type",
 				"Code":         map[string]any{"ImageUri": "my-image:v1"},
 				"Role":         "arn:aws:iam::123456789012:role/test",
 			},
-			wantStatus:      http.StatusCreated,
-			wantPackageType: lambda.PackageTypeImage,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "NilCode",

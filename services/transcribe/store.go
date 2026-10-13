@@ -3,6 +3,7 @@ package transcribe
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -69,19 +70,22 @@ func (b *InMemoryBackend) resourceARN(resourceType, name string) string {
 
 // InMemoryBackend is the in-memory store for Transcribe jobs.
 type InMemoryBackend struct {
-	jobs                     *store.Table[TranscriptionJob]
-	callAnalyticsCategories  *store.Table[CallAnalyticsCategory]
-	languageModels           *store.Table[LanguageModel]
-	medicalVocabularies      *store.Table[MedicalVocabulary]
+	s3Writer                 S3Writer
+	appConfig                any
+	medicalTranscriptionJobs *store.Table[MedicalTranscriptionJob]
+	registry                 *store.Registry
 	vocabularies             *store.Table[Vocabulary]
 	vocabularyFilters        *store.Table[VocabularyFilter]
 	callAnalyticsJobs        *store.Table[CallAnalyticsJob]
 	medicalScribeJobs        *store.Table[MedicalScribeJob]
-	medicalTranscriptionJobs *store.Table[MedicalTranscriptionJob]
-	registry                 *store.Registry
-	resourceTags             map[string]map[string]string // ARN → tag map
+	jobs                     *store.Table[TranscriptionJob]
+	medicalVocabularies      *store.Table[MedicalVocabulary]
+	resourceTags             map[string]map[string]string
 	mu                       *lockmetrics.RWMutex
+	callAnalyticsCategories  *store.Table[CallAnalyticsCategory]
+	languageModels           *store.Table[LanguageModel]
 	region                   string
+	lifecycleDelay           time.Duration
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.

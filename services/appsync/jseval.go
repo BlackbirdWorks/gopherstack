@@ -44,6 +44,7 @@ const (
 	jsCtxKeyArguments = "arguments"
 	jsCtxKeyResult    = "result"
 	jsCtxKeyPrev      = "prev"
+	jsCtxKeySource    = "source"
 )
 
 var (

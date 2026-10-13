@@ -119,6 +119,15 @@ func TestPromoteResourceShareCreatedFromPolicy_Succeeds(t *testing.T) {
 		t.Context(),
 		&ramsdk.PromoteResourceShareCreatedFromPolicyInput{ResourceShareArn: aws.String(shares[0].ARN)},
 	)
+	var unmatched *ramtypes.UnmatchedPolicyPermissionException
+	require.ErrorAs(t, err, &unmatched)
+
+	promotePolicyPermission(t, backend, shares[0].ARN)
+
+	_, err = client.PromoteResourceShareCreatedFromPolicy(
+		t.Context(),
+		&ramsdk.PromoteResourceShareCreatedFromPolicyInput{ResourceShareArn: aws.String(shares[0].ARN)},
+	)
 	require.NoError(t, err)
 
 	got, err = client.GetResourceShares(t.Context(), &ramsdk.GetResourceSharesInput{

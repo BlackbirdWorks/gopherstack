@@ -21,10 +21,9 @@ const (
 // GetAccountAuthorizationDetails returns a page of IAM entities and their
 // policies. filter restricts which entity categories are populated (AWS
 // EntityType values: User, Role, Group, LocalManagedPolicy,
-// AWSManagedPolicy); an empty filter includes every category. This mock
-// tracks only customer-managed policies, so LocalManagedPolicy matches every
-// policy and AWSManagedPolicy always yields none (no AWS-managed policy
-// catalog is emulated). marker/maxItems paginate over the combined
+// AWSManagedPolicy); an empty filter includes every category.
+// LocalManagedPolicy yields customer-managed policies and AWSManagedPolicy the
+// seeded AWS catalog. marker/maxItems paginate over the combined
 // Users+Groups+Roles+Policies sequence in that order (matching the XML field
 // order), mirroring AWS's single Marker/MaxItems pair spanning all four
 // lists. Returns the next marker ("" when not truncated).
@@ -34,7 +33,7 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails(
 	b.mu.RLock("GetAccountAuthorizationDetails")
 	defer b.mu.RUnlock()
 
-	includeUsers, includeGroups, includeRoles, includePolicies := authDetailsFilterSets(filter)
+	includeUsers, includeGroups, includeRoles, includePolicies, includeAWS := authDetailsFilterSets(filter)
 
 	users := b.buildUserDetails()
 	groups := b.buildGroupDetails()
@@ -55,6 +54,10 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails(
 
 	if !includePolicies {
 		policies = nil
+	}
+
+	if includeAWS {
+		policies = append(policies, b.awsManagedPolicyDetailsLocked()...)
 	}
 
 	if maxItems <= 0 {
@@ -184,15 +187,30 @@ func (b *InMemoryBackend) buildPolicyDetails() []Policy {
 	return policies
 }
 
+// awsManagedPolicyDetailsLocked returns the seeded AWS managed policies for
+// GetAccountAuthorizationDetails: only those attached to an entity, as in
+// AWS. Caller must hold b.mu.
+func (b *InMemoryBackend) awsManagedPolicyDetailsLocked() []Policy {
+	var out []Policy
+
+	for _, pol := range loadAWSManagedCatalog().ordered {
+		if pol.AttachmentCount = b.attachmentCountLocked(pol.Arn); pol.AttachmentCount > 0 {
+			out = append(out, pol)
+		}
+	}
+
+	return out
+}
+
 // authDetailsFilterSets translates GetAccountAuthorizationDetails' Filter
 // (AWS EntityType values) into per-category inclusion flags. An empty filter
 // includes every category, matching AWS's "no filter means everything" default.
-func authDetailsFilterSets(filter []string) (bool, bool, bool, bool) {
+func authDetailsFilterSets(filter []string) (bool, bool, bool, bool, bool) {
 	if len(filter) == 0 {
-		return true, true, true, true
+		return true, true, true, true, true
 	}
 
-	var users, groups, roles, policies bool
+	var users, groups, roles, policies, awsPolicies bool
 
 	for _, f := range filter {
 		switch f {
@@ -205,11 +223,11 @@ func authDetailsFilterSets(filter []string) (bool, bool, bool, bool) {
 		case entityTypeLocalManagedPolicy:
 			policies = true
 		case entityTypeAWSManagedPolicy:
-			// No AWS-managed policy catalog is emulated; matches nothing.
+			awsPolicies = true
 		}
 	}
 
-	return users, groups, roles, policies
+	return users, groups, roles, policies, awsPolicies
 }
 
 // paginateAuthDetails slices the four already-filtered detail lists as one
@@ -564,12 +582,7 @@ func (b *InMemoryBackend) collectNamedEntityPolicies(
 	var named []namedPolicyDoc
 
 	for _, policyArn := range attachedARNs {
-		polName, ok := b.policyByARN[policyArn]
-		if !ok {
-			continue
-		}
-
-		p, ok := b.policies.Get(polName)
+		p, ok := b.getPolicyByARNLocked(policyArn)
 		if ok && p.PolicyDocument != "" {
 			named = append(named, namedPolicyDoc{SourceID: p.Arn, Doc: p.PolicyDocument})
 		}

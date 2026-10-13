@@ -23,7 +23,7 @@ func (b *InMemoryBackend) RegisterApplicationRevision(
 	defer b.mu.Unlock()
 
 	if !b.applications.Has(appName) {
-		return fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
+		return fmt.Errorf("%w: No application found for name: %s", ErrNotFound, appName)
 	}
 
 	key := applicationRevisionKey(appName, revision)
@@ -101,7 +101,7 @@ func (b *InMemoryBackend) GetApplicationRevision(
 	defer b.mu.RUnlock()
 
 	if !b.applications.Has(appName) {
-		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
+		return nil, fmt.Errorf("%w: No application found for name: %s", ErrNotFound, appName)
 	}
 
 	rev, ok := b.applicationRevisions.Get(applicationRevisionKey(appName, revision))
@@ -123,7 +123,7 @@ func (b *InMemoryBackend) ListApplicationRevisions(
 	defer b.mu.RUnlock()
 
 	if !b.applications.Has(appName) {
-		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
+		return nil, fmt.Errorf("%w: No application found for name: %s", ErrNotFound, appName)
 	}
 
 	entries := b.applicationRevisionsByApp.Get(appName)
@@ -230,7 +230,7 @@ func (b *InMemoryBackend) BatchGetApplicationRevisions(
 	defer b.mu.RUnlock()
 
 	if !b.applications.Has(appName) {
-		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
+		return nil, fmt.Errorf("%w: No application found for name: %s", ErrNotFound, appName)
 	}
 
 	if len(revisions) > maxBatchRevisions {

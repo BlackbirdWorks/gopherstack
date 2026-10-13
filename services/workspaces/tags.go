@@ -1,6 +1,7 @@
 package workspaces
 
 import (
+	"fmt"
 	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -47,6 +48,10 @@ func (b *InMemoryBackend) CreateTags(resourceID string, tags map[string]string) 
 
 	b.mu.Lock("CreateTags")
 	defer b.mu.Unlock()
+
+	if !b.taggableResourceExistsLocked(resourceID) {
+		return fmt.Errorf("%w: resource %s was not found", ErrWorkspaceNotFound, resourceID)
+	}
 
 	existing := b.tags[resourceID]
 	// Count distinct keys after merge to enforce 50-tag limit.
@@ -107,4 +112,9 @@ func (b *InMemoryBackend) DescribeTags(resourceID string) (map[string]string, er
 	maps.Copy(result, b.tags[resourceID])
 
 	return result, nil
+}
+
+func (b *InMemoryBackend) taggableResourceExistsLocked(id string) bool {
+	return b.workspaces.Has(id) || b.images.Has(id) || b.ipGroups.Has(id) || b.connAliases.Has(id) ||
+		b.customBundles.Has(id) || b.pools.Has(id) || b.dirSettings.Has(id) || b.applications.Has(id)
 }

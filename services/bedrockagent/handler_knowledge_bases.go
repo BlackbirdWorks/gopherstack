@@ -158,7 +158,8 @@ func (h *Handler) handleIngestKBDocs(
 	ctx context.Context, c *echo.Context, kbID, dsID string, body []byte,
 ) error {
 	var req struct {
-		Documents []struct {
+		ClientToken string `json:"clientToken"`
+		Documents   []struct {
 			Metadata map[string]any      `json:"metadata"`
 			Content  documentContentWire `json:"content"`
 		} `json:"documents"`
@@ -177,7 +178,7 @@ func (h *Handler) handleIngestKBDocs(
 		})
 	}
 
-	details, err := h.Backend.IngestKnowledgeBaseDocuments(ctx, kbID, dsID, docs)
+	details, err := h.Backend.IngestKnowledgeBaseDocuments(ctx, kbID, dsID, req.ClientToken, docs)
 	if err != nil {
 		return handleErr(c, err)
 	}
@@ -208,6 +209,7 @@ func (h *Handler) handleDeleteKBDocs(
 	ctx context.Context, c *echo.Context, kbID, dsID string, body []byte,
 ) error {
 	var req struct {
+		ClientToken         string                 `json:"clientToken"`
 		DocumentIdentifiers []KBDocumentIdentifier `json:"documentIdentifiers"`
 	}
 
@@ -215,7 +217,7 @@ func (h *Handler) handleDeleteKBDocs(
 		return handleErr(c, err)
 	}
 
-	details, err := h.Backend.DeleteKnowledgeBaseDocuments(ctx, kbID, dsID, req.DocumentIdentifiers)
+	details, err := h.Backend.DeleteKnowledgeBaseDocuments(ctx, kbID, dsID, req.ClientToken, req.DocumentIdentifiers)
 	if err != nil {
 		return handleErr(c, err)
 	}

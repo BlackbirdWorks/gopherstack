@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,6 +30,10 @@ func (b *InMemoryBackend) CreateReportPlanWithOptions(
 	setting *ReportSetting,
 	opts CreateOptions,
 ) (*ReportPlan, error) {
+	if err := validateReportSetting(setting); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateReportPlan")
 	defer b.mu.Unlock()
 
@@ -115,6 +120,10 @@ func (b *InMemoryBackend) UpdateReportPlan(
 	deliveryChannel *ReportDeliveryChannel,
 	setting *ReportSetting,
 ) (*ReportPlan, error) {
+	if err := validateReportSetting(setting); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateReportPlan")
 	defer b.mu.Unlock()
 
@@ -227,3 +236,16 @@ func (b *InMemoryBackend) ListReportJobsFiltered(f ReportJobsFilter) []*ReportJo
 }
 
 // ---- Scan Jobs ----
+
+func validateReportSetting(s *ReportSetting) error {
+	templates := []string{
+		"RESOURCE_COMPLIANCE_REPORT", "CONTROL_COMPLIANCE_REPORT", "BACKUP_JOB_REPORT",
+		"COPY_JOB_REPORT", "RESTORE_JOB_REPORT",
+	}
+
+	if s == nil || s.ReportTemplate == "" || slices.Contains(templates, s.ReportTemplate) {
+		return nil
+	}
+
+	return fmt.Errorf("%w: ReportTemplate must be one of %s", ErrValidation, strings.Join(templates, ", "))
+}

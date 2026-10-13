@@ -50,7 +50,7 @@ type InMemoryBackend struct {
 
 // seedDefaultInstance adds the default pre-seeded instance. Must be called before concurrent use.
 func (b *InMemoryBackend) seedDefaultInstance() {
-	defaultID := "d-0000000001"
+	defaultID := "0000000000000001"
 	identityStoreID := "d-" + b.accountID
 	if len(identityStoreID) > identityStoreIDMaxLen {
 		identityStoreID = identityStoreID[:identityStoreIDMaxLen]

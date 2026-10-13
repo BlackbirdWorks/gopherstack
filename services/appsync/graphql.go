@@ -53,12 +53,24 @@ type graphqlResponse struct {
 }
 
 type graphqlError struct {
-	Message string `json:"message"`
+	Message   string `json:"message"`
+	ErrorType string `json:"errorType,omitempty"`
+}
+
+// newGraphQLError maps an execution error to the GraphQL error object;
+// DynamoDB failures carry errorType "DynamoDB:<code>" as AppSync reports them.
+func newGraphQLError(err error) graphqlError {
+	if de, ok := errors.AsType[*DynamoDBError](err); ok {
+		return graphqlError{Message: de.Error(), ErrorType: "DynamoDB:" + de.Code}
+	}
+
+	return graphqlError{Message: err.Error()}
 }
 
 // executeGraphQL parses and executes the GraphQL query.
 func executeGraphQL(
 	ctx context.Context,
+	apiID string,
 	backend *InMemoryBackend,
 	schema *Schema,
 	resolvers map[string]*Resolver,
@@ -75,10 +87,7 @@ func executeGraphQL(
 	gqlSchema := schema.parsedSchema
 	if gqlSchema == nil {
 		var schemaErr error
-		gqlSchema, schemaErr = gqlparser.LoadSchema(&ast.Source{
-			Name:  "schema.graphql",
-			Input: schema.SDL,
-		})
+		gqlSchema, schemaErr = loadAppSyncSchema(schema.SDL)
 		if schemaErr != nil {
 			return nil, fmt.Errorf("invalid schema: %w", schemaErr)
 		}
@@ -104,12 +113,17 @@ func executeGraphQL(
 	// Determine the parent type name based on operation type.
 	parentTypeName := operationTypeName(op.Operation)
 
-	result, err := executeSelectionSet(
-		ctx, backend, resolvers, datasources, functions, parentTypeName, op.SelectionSet, variables,
-	)
+	env := &execEnv{
+		backend: backend, resolvers: resolvers, datasources: datasources,
+		functions: functions, variables: variables,
+	}
+
+	result, err := env.executeSelectionSet(ctx, parentTypeName, op.SelectionSet)
 	if err != nil {
 		return nil, err
 	}
+
+	backend.publishMutation(apiID, op, result)
 
 	return result, nil
 }
@@ -141,16 +155,20 @@ func findOperation(doc *ast.QueryDocument, operationName string) *ast.OperationD
 	return nil
 }
 
-// executeSelectionSet resolves all fields in a selection set.
-func executeSelectionSet(
+// execEnv carries the per-request state shared by root and nested resolvers.
+type execEnv struct {
+	backend     *InMemoryBackend
+	resolvers   map[string]*Resolver
+	datasources map[string]*DataSource
+	functions   map[string]*Function
+	variables   map[string]any
+}
+
+// executeSelectionSet resolves all root fields in a selection set.
+func (e *execEnv) executeSelectionSet(
 	ctx context.Context,
-	backend *InMemoryBackend,
-	resolvers map[string]*Resolver,
-	datasources map[string]*DataSource,
-	functions map[string]*Function,
 	parentTypeName string,
 	selectionSet ast.SelectionSet,
-	variables map[string]any,
 ) (map[string]any, error) {
 	result := make(map[string]any)
 
@@ -160,28 +178,42 @@ func executeSelectionSet(
 			continue
 		}
 
-		// Build argument map for this field.
-		fieldArgs := extractArguments(field, variables)
-
-		// Look up the resolver for this field.
-		key := resolverKey(parentTypeName, field.Name)
-		resolver := resolvers[key]
-
-		if resolver == nil {
+		if e.resolvers[resolverKey(parentTypeName, field.Name)] == nil {
 			result[field.Alias] = nil
 
 			continue
 		}
 
-		val, err := resolveField(ctx, backend, resolver, datasources, functions, fieldArgs)
+		val, err := e.resolveFieldValue(ctx, parentTypeName, field, nil)
 		if err != nil {
-			return nil, fmt.Errorf("error resolving %s.%s: %w", parentTypeName, field.Name, err)
+			return nil, err
 		}
 
 		result[field.Alias] = val
 	}
 
 	return result, nil
+}
+
+// resolveFieldValue runs the resolver for parentTypeName.field (with source
+// as $ctx.source for non-root fields) and projects the result by the field's
+// selection set, resolving nested resolvers on the way.
+func (e *execEnv) resolveFieldValue(
+	ctx context.Context,
+	parentTypeName string,
+	field *ast.Field,
+	source map[string]any,
+) (any, error) {
+	resolver := e.resolvers[resolverKey(parentTypeName, field.Name)]
+
+	val, err := resolveField(
+		ctx, e.backend, resolver, e.datasources, e.functions, extractArguments(field, e.variables), source,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error resolving %s.%s: %w", parentTypeName, field.Name, err)
+	}
+
+	return e.project(ctx, val, field.SelectionSet)
 }
 
 // extractArguments builds the arguments map for a field.
@@ -255,12 +287,22 @@ type mappingUnit struct {
 	RequestTemplate  string
 	ResponseTemplate string
 	Code             string
+	Source           any
 	FieldName        string
 	TypeName         string
 }
 
-func resolverMappingUnit(r *Resolver) mappingUnit {
+func sourceValue(m map[string]any) any {
+	if m == nil {
+		return nil
+	}
+
+	return m
+}
+
+func resolverMappingUnit(r *Resolver, source map[string]any) mappingUnit {
 	return mappingUnit{
+		Source:           sourceValue(source),
 		RequestTemplate:  r.RequestMappingTemplate,
 		ResponseTemplate: r.ResponseMappingTemplate,
 		Code:             r.Code,
@@ -269,8 +311,9 @@ func resolverMappingUnit(r *Resolver) mappingUnit {
 	}
 }
 
-func functionMappingUnit(f *Function) mappingUnit {
+func functionMappingUnit(f *Function, source any) mappingUnit {
 	return mappingUnit{
+		Source:           source,
 		RequestTemplate:  f.RequestMappingTemplate,
 		ResponseTemplate: f.ResponseMappingTemplate,
 		Code:             f.Code,
@@ -290,6 +333,7 @@ func evalRequestMapping(mu mappingUnit, args map[string]any, prevResult any) (an
 		ctxJSON, mErr := json.Marshal(map[string]any{
 			jsCtxKeyArguments: args,
 			jsCtxKeyPrev:      map[string]any{jsCtxKeyResult: prevResult},
+			jsCtxKeySource:    mu.Source,
 		})
 		if mErr != nil {
 			return nil, true, mErr
@@ -302,7 +346,9 @@ func evalRequestMapping(mu mappingUnit, args map[string]any, prevResult any) (an
 
 		return unmarshalOrRaw(out), true, nil
 	case mu.RequestTemplate != "":
-		rendered, vtlErr := renderVTLWithPrev(mu.RequestTemplate, args, nil, prevResult)
+		rendered, vtlErr := renderVTLFull(
+			mu.RequestTemplate, vtlContext{args: args, prev: prevResult, source: mu.Source},
+		)
 		if vtlErr != nil {
 			return nil, true, vtlErr
 		}
@@ -320,7 +366,9 @@ func evalRequestMapping(mu mappingUnit, args map[string]any, prevResult any) (an
 func evalResponseMapping(mu mappingUnit, args map[string]any, result any) (any, error) {
 	switch {
 	case mu.Code != "":
-		ctxJSON, err := json.Marshal(map[string]any{jsCtxKeyArguments: args, jsCtxKeyResult: result})
+		ctxJSON, err := json.Marshal(map[string]any{
+			jsCtxKeyArguments: args, jsCtxKeyResult: result, jsCtxKeySource: mu.Source,
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -332,7 +380,7 @@ func evalResponseMapping(mu mappingUnit, args map[string]any, result any) (any, 
 
 		return unmarshalOrRaw(out), nil
 	case mu.ResponseTemplate != "":
-		rendered, err := renderVTL(mu.ResponseTemplate, args, result)
+		rendered, err := renderVTLFull(mu.ResponseTemplate, vtlContext{args: args, result: result, source: mu.Source})
 		if err != nil {
 			return nil, err
 		}
@@ -365,13 +413,14 @@ func resolveField(
 	datasources map[string]*DataSource,
 	functions map[string]*Function,
 	args map[string]any,
+	source map[string]any,
 ) (any, error) {
 	if resolver.Kind == resolverKindPipeline {
-		return executePipeline(ctx, backend, resolver, datasources, functions, args)
+		return executePipeline(ctx, backend, resolver, datasources, functions, args, source)
 	}
 
 	return executeDataSourceStep(
-		ctx, backend, resolverMappingUnit(resolver), resolver.DataSourceName, datasources, args, nil,
+		ctx, backend, resolverMappingUnit(resolver, source), resolver.DataSourceName, datasources, args, nil,
 	)
 }
 
@@ -396,6 +445,7 @@ func executePipeline(
 	datasources map[string]*DataSource,
 	functions map[string]*Function,
 	args map[string]any,
+	source map[string]any,
 ) (any, error) {
 	var prevResult any
 
@@ -406,7 +456,13 @@ func executePipeline(
 		}
 
 		result, err := executeDataSourceStep(
-			ctx, backend, functionMappingUnit(fn), fn.DataSourceName, datasources, args, prevResult,
+			ctx,
+			backend,
+			functionMappingUnit(fn, sourceValue(source)),
+			fn.DataSourceName,
+			datasources,
+			args,
+			prevResult,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("pipeline function %q: %w", fn.Name, err)
@@ -415,7 +471,9 @@ func executePipeline(
 		prevResult = result
 	}
 
-	after := mappingUnit{ResponseTemplate: resolver.ResponseMappingTemplate, Code: resolver.Code}
+	after := mappingUnit{
+		ResponseTemplate: resolver.ResponseMappingTemplate, Code: resolver.Code, Source: sourceValue(source),
+	}
 
 	return evalResponseMapping(after, args, prevResult)
 }
@@ -512,6 +570,10 @@ func buildLambdaEvent(mu mappingUnit, args map[string]any, prevResult any) ([]by
 	}
 
 	event := map[string]any{jsCtxKeyArguments: args}
+	if mu.Source != nil {
+		event[jsCtxKeySource] = mu.Source
+	}
+
 	if mu.FieldName != "" {
 		event["field"] = mu.FieldName
 		event["typeName"] = mu.TypeName
@@ -549,35 +611,12 @@ func invokeDynamoDBDataSource(
 			return nil, fmt.Errorf("%w: request mapping did not produce a JSON object", ErrValidation)
 		}
 	} else {
-		request = map[string]any{"operation": "GetItem", "key": args}
+		request = map[string]any{"operation": ddbOpGetItem, "key": args}
 	}
-
-	operation, _ := request["operation"].(string)
 
 	ctx = withRegion(ctx, firstNonEmpty(ds.DynamoDBConfig.AWSRegion, backend.region))
 
-	var result any
-
-	switch operation {
-	case "GetItem":
-		key, _ := request["key"].(map[string]any)
-		result, err = backend.ddbBackend.GetItemRaw(ctx, ds.DynamoDBConfig.TableName, key)
-	case "PutItem":
-		item, _ := request["item"].(map[string]any)
-		if item == nil {
-			// Fall back to "key" for templates that use the key as the item.
-			item, _ = request["key"].(map[string]any)
-		}
-
-		err = backend.ddbBackend.PutItemRaw(ctx, ds.DynamoDBConfig.TableName, item)
-
-		if err == nil {
-			result = item
-		}
-	default:
-		return nil, fmt.Errorf("%w: %s", ErrUnsupportedDynamoDBOp, operation)
-	}
-
+	result, err := executeDDBRequest(ctx, backend.ddbBackend, ds.DynamoDBConfig.TableName, request)
 	if err != nil {
 		return nil, err
 	}
@@ -600,6 +639,12 @@ func invokeNoneDataSource(mu mappingUnit, args map[string]any, prevResult any) (
 
 	if !ok {
 		reqResult = args
+	}
+
+	if m, isMap := reqResult.(map[string]any); isMap {
+		if payload, has := m["payload"]; has {
+			reqResult = payload
+		}
 	}
 
 	return evalResponseMapping(mu, args, reqResult)
@@ -679,7 +724,7 @@ func (b *InMemoryBackend) ExecuteGraphQL(
 	}
 
 	return executeGraphQL(
-		ctx, b, schema, resolversCopy, datasourcesCopy, functionsCopy, query, operationName, variables,
+		ctx, apiID, b, schema, resolversCopy, datasourcesCopy, functionsCopy, query, operationName, variables,
 	)
 }
 

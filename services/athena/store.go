@@ -1,11 +1,12 @@
 package athena
 
 import (
-	"crypto/rand"
-	"encoding/binary"
+	"context"
 	"fmt"
 	"maps"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -14,9 +15,6 @@ import (
 )
 
 const (
-	idChars  = "abcdef0123456789"
-	idLength = 10
-
 	defaultWorkGroup = "primary"
 	awsDataCatalog   = "AwsDataCatalog"
 	millisToSeconds  = 1000.0
@@ -58,31 +56,33 @@ func isValidDataCatalogType(t string) bool {
 type InMemoryBackend struct {
 	glueSource                    GlueMetadataSource
 	s3                            S3Storer
-	queryExecutions               *store.Table[QueryExecution]
-	mu                            *lockmetrics.RWMutex
+	registry                      *store.Registry
+	databasesByCatalog            *store.Index[Database]
 	namedQueriesByWorkGroup       *store.Index[NamedQuery]
 	dataCatalogs                  *store.Table[DataCatalog]
 	notebooks                     *store.Table[Notebook]
 	notebooksByName               *store.Index[Notebook]
 	queryResults                  map[string]*sqlResult
+	cancels                       map[string]context.CancelFunc
 	tableData                     map[string][]map[string]any
 	resourceTags                  map[string]map[string]string
 	preparedStatements            *store.Table[PreparedStatement]
-	preparedStatementsByWorkGroup *store.Index[PreparedStatement]
-	registry                      *store.Registry
-	namedQueries                  *store.Table[NamedQuery]
 	calculations                  *store.Table[CalculationExecution]
+	mu                            *lockmetrics.RWMutex
+	namedQueries                  *store.Table[NamedQuery]
+	preparedStatementsByWorkGroup *store.Index[PreparedStatement]
 	queryExecutionsByWorkGroup    *store.Index[QueryExecution]
 	capacityReservations          *store.Table[CapacityReservation]
 	capacityAssignments           *store.Table[CapacityAssignmentConfiguration]
 	databases                     *store.Table[Database]
-	databasesByCatalog            *store.Index[Database]
+	queryExecutions               *store.Table[QueryExecution]
 	tables                        *store.Table[TableMetadata]
 	tablesByDatabase              *store.Index[TableMetadata]
 	sessions                      *store.Table[Session]
 	workGroups                    *store.Table[WorkGroup]
 	region                        string
 	accountID                     string
+	limits                        EngineLimits
 }
 
 // SetGlueMetadataSource wires a GLUE-type DataCatalog's database/table reads
@@ -111,6 +111,8 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		registry:     store.NewRegistry(),
 		queryResults: make(map[string]*sqlResult),
+		cancels:      make(map[string]context.CancelFunc),
+		limits:       defaultEngineLimits(),
 		tableData:    make(map[string][]map[string]any),
 		resourceTags: make(map[string]map[string]string),
 		region:       region,
@@ -153,24 +155,16 @@ func (b *InMemoryBackend) seedDefaultMetadata() {
 		Name:      "sample_table",
 		TableType: tableTypeExternal,
 		Columns: []Column{
-			{Name: "id", Type: "bigint"},
+			{Name: "id", Type: typeBigint},
 			{Name: "value", Type: columnTypeString},
 		},
 	})
 }
 
-// randomID generates a cryptographically random 10-character hex ID.
+// randomID returns a UUID, the format Athena uses for query, named-query,
+// notebook, session and calculation IDs.
 func randomID() string {
-	b := make([]byte, idLength)
-	charCount := uint64(len(idChars))
-
-	for i := range b {
-		var v [8]byte
-		_, _ = rand.Read(v[:])
-		b[i] = idChars[binary.BigEndian.Uint64(v[:])%charCount]
-	}
-
-	return string(b)
+	return uuid.NewString()
 }
 
 // sessionAuthTokenTTL is the validity window gopherstack assigns to the

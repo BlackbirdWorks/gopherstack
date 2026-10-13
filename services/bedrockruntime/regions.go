@@ -10,7 +10,9 @@ func (h *Handler) EnableRegions() {
 	}
 
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
-		p := NewHandler(NewInMemoryBackendWithContext(home.svcCtx, home.accountID, region))
+		pb := NewInMemoryBackendWithContext(home.svcCtx, home.accountID, region)
+		pb.inheritGuardrailLookup(home)
+		p := NewHandler(pb)
 
 		if ctx := h.workerCtx.Load(); ctx != nil {
 			p.startJanitor(*ctx)

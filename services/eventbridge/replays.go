@@ -194,6 +194,14 @@ func (b *InMemoryBackend) startReplayLocked(
 			archiveName = archive.ArchiveName
 			archivePattern = archive.EventPattern
 
+			if input.Destination != nil && input.Destination.Arn != "" &&
+				archive.EventSourceArn != "" && input.Destination.Arn != archive.EventSourceArn {
+				return replayDeliveryPlan{}, fmt.Errorf(
+					"%w: events can only be replayed to the event bus the archive was created from",
+					ErrInvalidParameter,
+				)
+			}
+
 			break
 		}
 	}

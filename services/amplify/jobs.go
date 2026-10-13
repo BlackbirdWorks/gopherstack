@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -50,7 +51,7 @@ func (b *InMemoryBackend) StartJob(
 		)
 	}
 
-	newJobID := randomID()
+	newJobID := b.nextJobIDLocked(appID, branchName)
 	now := time.Now().UTC()
 
 	job := &Job{
@@ -71,6 +72,23 @@ func (b *InMemoryBackend) StartJob(
 	cp := *job
 
 	return &cp, nil
+}
+
+// nextJobIDLocked returns the next sequential numeric job ID for a branch, as real Amplify issues.
+func (b *InMemoryBackend) nextJobIDLocked(appID, branchName string) string {
+	key := branchKey(appID, branchName)
+	seq := b.jobSeq[key]
+
+	for _, j := range b.jobsByBranch.Get(key) {
+		if n, err := strconv.Atoi(j.JobID); err == nil && n > seq {
+			seq = n
+		}
+	}
+
+	seq++
+	b.jobSeq[key] = seq
+
+	return strconv.Itoa(seq)
 }
 
 // inheritRetryCommitInfo fills in any commit fields the caller left empty
@@ -154,7 +172,18 @@ func (b *InMemoryBackend) GetJob(appID, branchName, jobID string) (*Job, error) 
 	return &cp, nil
 }
 
-// ListJobs lists all jobs for a branch.
+func jobIDLess(a, b string) bool {
+	x, errX := strconv.Atoi(a)
+	y, errY := strconv.Atoi(b)
+
+	if errX != nil || errY != nil {
+		return a < b
+	}
+
+	return x < y
+}
+
+// ListJobs lists all jobs for a branch, newest first.
 func (b *InMemoryBackend) ListJobs(
 	appID, branchName, nextToken string,
 	maxResults int,
@@ -173,7 +202,7 @@ func (b *InMemoryBackend) ListJobs(
 		all = append(all, &cp)
 	}
 
-	sort.Slice(all, func(i, j int) bool { return all[i].JobID < all[j].JobID })
+	sort.Slice(all, func(i, j int) bool { return jobIDLess(all[j].JobID, all[i].JobID) })
 
 	page, token := amplifyPaginate(all, nextToken, maxResults)
 

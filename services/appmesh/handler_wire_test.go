@@ -608,7 +608,7 @@ func TestAppMesh_ResponseFieldsAtTopLevel(t *testing.T) {
 			},
 			method:   http.MethodPut,
 			path:     "/meshes/m/virtualGateways/gw1",
-			body:     map[string]any{"spec": map[string]any{}},
+			body:     map[string]any{"spec": validGatewaySpecBody()},
 			wrapKey:  "virtualGateway",
 			topField: "virtualGatewayName",
 		},

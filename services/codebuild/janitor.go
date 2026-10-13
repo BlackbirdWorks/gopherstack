@@ -188,6 +188,7 @@ func (j *Janitor) advanceBuildsLocked(buildIDs, batchIDs []string, now float64) 
 	for _, id := range buildIDs {
 		if build, ok := j.Backend.builds.Get(id); ok && build.BuildStatus == buildStatusInProgress {
 			build.BuildStatus = buildStatusSucceeded
+			recordSuccessfulPhases(build, now)
 			build.EndTime = now
 			build.CurrentPhase = phaseCompleted
 			build.BuildComplete = true

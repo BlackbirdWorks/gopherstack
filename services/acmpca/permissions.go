@@ -121,6 +121,10 @@ func (b *InMemoryBackend) ListPermissions(
 		return page.Page[Permission]{}, err
 	}
 
+	if err := page.ValidateToken(nextToken); err != nil {
+		return page.Page[Permission]{}, fmt.Errorf("%w: NextToken is invalid", ErrInvalidNextToken)
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListPermissions")

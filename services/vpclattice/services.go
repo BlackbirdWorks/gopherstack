@@ -45,8 +45,8 @@ func (b *InMemoryBackend) CreateService(
 	idleTimeoutSeconds int32,
 	tags map[string]string,
 ) (*Service, error) {
-	if name == "" {
-		return nil, ErrInvalidParameter
+	if err := validateName("service", name, idPrefixService, maxServiceNameLen); err != nil {
+		return nil, err
 	}
 
 	if idleTimeoutSeconds == 0 {
@@ -59,6 +59,8 @@ func (b *InMemoryBackend) CreateService(
 
 	b.mu.Lock("CreateService")
 	defer b.mu.Unlock()
+
+	b.settleLocked()
 
 	if len(b.servicesByName.Get(name)) > 0 {
 		return nil, ErrAlreadyExists
@@ -73,6 +75,7 @@ func (b *InMemoryBackend) CreateService(
 		authType = authTypeNone
 	}
 
+	until := b.pendingUntil()
 	svc := &storedService{
 		ARN:                svcARN,
 		ID:                 id,
@@ -82,7 +85,8 @@ func (b *InMemoryBackend) CreateService(
 		CustomDomainName:   customDomainName,
 		DNSName:            id + ".vpc-lattice-svcs." + region + ".on.aws",
 		HostedZoneID:       newHostedZoneID(),
-		Status:             statusActive,
+		Status:             createStatus(until),
+		StatusUntil:        until,
 		Tags:               copyTags(tags),
 		CreatedAt:          now,
 		LastUpdatedAt:      now,
@@ -98,8 +102,10 @@ func (b *InMemoryBackend) CreateService(
 
 // GetService returns a service by ID or ARN.
 func (b *InMemoryBackend) GetService(serviceID string) (*Service, error) {
-	b.mu.RLock("GetService")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetService")
+	defer b.mu.Unlock()
+
+	b.settleLocked()
 
 	id, ok := b.resolveServiceID(serviceID)
 	if !ok {
@@ -123,6 +129,8 @@ func (b *InMemoryBackend) UpdateService(
 
 	b.mu.Lock("UpdateService")
 	defer b.mu.Unlock()
+
+	b.settleLocked()
 
 	id, ok := b.resolveServiceID(serviceID)
 	if !ok {
@@ -157,6 +165,8 @@ func (b *InMemoryBackend) DeleteService(serviceID string) (*Service, error) {
 	b.mu.Lock("DeleteService")
 	defer b.mu.Unlock()
 
+	b.settleLocked()
+
 	id, ok := b.resolveServiceID(serviceID)
 	if !ok {
 		return nil, ErrNotFound
@@ -170,13 +180,24 @@ func (b *InMemoryBackend) DeleteService(serviceID string) (*Service, error) {
 
 	svc, _ := b.services.Get(id)
 	out := svc.toService()
-	out.Status = statusDeleted
+	out.Status = statusDeleteInProgress
 
-	b.deleteServiceDependents(svc.ARN, id)
-	b.services.Delete(id)
-	delete(b.tags, svc.ARN)
+	if until := b.pendingUntil(); !until.IsZero() {
+		svc.Status, svc.StatusUntil = statusDeleteInProgress, until
+		svc.LastUpdatedAt = time.Now().UTC()
+
+		return out, nil
+	}
+
+	b.removeServiceLocked(svc)
 
 	return out, nil
+}
+
+func (b *InMemoryBackend) removeServiceLocked(svc *storedService) {
+	b.deleteServiceDependents(svc.ARN, svc.ID)
+	b.services.Delete(svc.ID)
+	delete(b.tags, svc.ARN)
 }
 
 // deleteServiceDependents removes the resources DeleteService cascades
@@ -205,8 +226,10 @@ func (b *InMemoryBackend) ListServices(
 	maxResults int32,
 	nextToken string,
 ) ([]*ServiceSummary, string, error) {
-	b.mu.RLock("ListServices")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListServices")
+	defer b.mu.Unlock()
+
+	b.settleLocked()
 
 	region := b.regionFor(ctx)
 	all := make([]*ServiceSummary, 0, b.services.Len())

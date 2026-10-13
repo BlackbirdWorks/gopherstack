@@ -363,6 +363,7 @@ func TestListPolicies_PolicyUsageFilter(t *testing.T) {
 	require.Equal(t, []string{"boundary-only"}, boundaryNames)
 
 	permOut, err := client.ListPolicies(t.Context(), &iamsdk.ListPoliciesInput{
+		Scope:             types.PolicyScopeTypeLocal,
 		PolicyUsageFilter: types.PolicyUsageTypePermissionsPolicy,
 	})
 	require.NoError(t, err)

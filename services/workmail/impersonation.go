@@ -18,7 +18,7 @@ func (b *InMemoryBackend) CreateImpersonationRole(
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	for _, r := range b.impersonationByOrg.Get(orgID) {
@@ -72,7 +72,7 @@ func (b *InMemoryBackend) UpdateImpersonationRole(
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	role, ok := b.impersonation.Get(orgKey(orgID, roleID))
@@ -148,7 +148,7 @@ func (b *InMemoryBackend) GetImpersonationRoleEffect(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return "", "", nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return "", "", nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	role, ok := b.impersonation.Get(orgKey(orgID, roleID))
 	if !ok {

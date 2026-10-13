@@ -34,6 +34,7 @@ const maxAuthorizerCacheEntries = 1024
 // authDecision is a cached authorizer result.
 type authDecision struct {
 	expireAt time.Time
+	ctx      map[string]any
 	allow    bool
 }
 
@@ -52,26 +53,36 @@ func newAuthorizerCache() *authorizerCache {
 
 // get returns the cached decision for key when present and unexpired.
 func (a *authorizerCache) get(key string) (bool, bool) {
+	d, ok := a.getDecision(key)
+
+	return d.allow, ok
+}
+
+func (a *authorizerCache) getDecision(key string) (authDecision, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	d, present := a.m[key]
 	if !present {
-		return false, false
+		return authDecision{}, false
 	}
 
 	if time.Now().After(d.expireAt) {
 		delete(a.m, key)
 
-		return false, false
+		return authDecision{}, false
 	}
 
-	return d.allow, true
+	return d, true
 }
 
 // put stores a decision for key with the given TTL. A non-positive TTL disables
 // caching for that entry (AWS treats a 0 TTL as "do not cache").
 func (a *authorizerCache) put(key string, allow bool, ttl time.Duration) {
+	a.putDecision(key, authDecision{allow: allow}, ttl)
+}
+
+func (a *authorizerCache) putDecision(key string, d authDecision, ttl time.Duration) {
 	if ttl <= 0 {
 		return
 	}
@@ -84,7 +95,8 @@ func (a *authorizerCache) put(key string, allow bool, ttl time.Duration) {
 		a.evictLocked(now)
 	}
 
-	a.m[key] = authDecision{allow: allow, expireAt: now.Add(ttl)}
+	d.expireAt = now.Add(ttl)
+	a.m[key] = d
 }
 
 // evictLocked drops expired entries, then arbitrary ones until below the bound.
@@ -271,8 +283,10 @@ func (h *Handler) enforceRequestAuthorizer(
 	}
 
 	cacheable := len(auth.IdentitySource) > 0
-	if allow, ok := h.authCache.get(cacheKey); ok && cacheable {
-		return finishAuthDecision(allow)
+	if d, ok := h.authCache.getDecision(cacheKey); ok && cacheable {
+		setAuthorizerContext(c, d.ctx)
+
+		return finishAuthDecision(d.allow)
 	}
 
 	method := req.Method
@@ -297,8 +311,13 @@ func (h *Handler) enforceRequestAuthorizer(
 	allow, denyExplicit := evaluateAuthorizerResponse(respBytes, auth, routeArn)
 
 	ttl := time.Duration(auth.AuthorizerResultTTLInSeconds) * time.Second
+	var authzCtx map[string]any
+	if allow {
+		authzCtx = lambdaAuthorizerContext(respBytes)
+	}
+
 	if cacheable {
-		h.authCache.put(cacheKey, allow, ttl)
+		h.authCache.putDecision(cacheKey, authDecision{allow: allow, ctx: authzCtx}, ttl)
 	}
 
 	if !allow {
@@ -308,6 +327,8 @@ func (h *Handler) enforceRequestAuthorizer(
 
 		return errRouteForbidden
 	}
+
+	setAuthorizerContext(c, authzCtx)
 
 	return nil
 }

@@ -29,7 +29,7 @@ func TestTargetGroup_CRUD(t *testing.T) {
 		{
 			name: "create instance target group returns 201",
 			body: map[string]any{
-				"name": "tg-inst",
+				"name": "tgx-inst",
 				"type": "INSTANCE",
 				"config": map[string]any{
 					"protocol":      "HTTP",
@@ -60,7 +60,7 @@ func TestTargetGroup_CRUD(t *testing.T) {
 
 	// full CRUD test
 	rec := doRequest(t, h, http.MethodPost, "/targetgroups", map[string]any{
-		"name": "tg-full",
+		"name": "tgx-full",
 		"type": "IP",
 		"config": map[string]any{
 			"protocol":      "HTTPS",
@@ -111,12 +111,12 @@ func TestTargetGroupDelete_ConflictWhileReferencedByRule(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
-	svcRec := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svc-tg-conflict"})
+	svcRec := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svcx-tg-conflict"})
 	require.Equal(t, http.StatusCreated, svcRec.Code)
 	svcID, _ := parseBody(t, svcRec)["id"].(string)
 
 	tgRec := doRequest(t, h, http.MethodPost, "/targetgroups", map[string]any{
-		"name": "tg-in-use",
+		"name": "tgx-in-use",
 		"type": "IP",
 		"config": map[string]any{
 			"protocol":      "HTTP",
@@ -128,7 +128,7 @@ func TestTargetGroupDelete_ConflictWhileReferencedByRule(t *testing.T) {
 	tgID, _ := parseBody(t, tgRec)["id"].(string)
 
 	lRec := doRequest(t, h, http.MethodPost, "/services/"+svcID+"/listeners", map[string]any{
-		"name":     "l1",
+		"name":     "lis1",
 		"protocol": "HTTP",
 		"defaultAction": map[string]any{
 			"forward": map[string]any{
@@ -172,7 +172,7 @@ func TestTargetGroupSummaryWireShape(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, http.MethodPost, "/targetgroups", map[string]any{
-		"name": "tg-summary-shape",
+		"name": "tgx-summary-shape",
 		"type": "IP",
 		"config": map[string]any{
 			"protocol":                    "HTTP",
@@ -208,7 +208,7 @@ func TestTargetGroupConfigRoundTripsIPAddressType(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, http.MethodPost, "/targetgroups", map[string]any{
-		"name": "tg-config-roundtrip",
+		"name": "tgx-config-roundtrip",
 		"type": "IP",
 		"config": map[string]any{
 			"protocol":                    "HTTP",
@@ -252,8 +252,8 @@ func TestListTargetGroups_Filters(t *testing.T) {
 		require.Equal(t, http.StatusCreated, rec.Code)
 	}
 
-	mustCreateTG("tg-a", "IP", "vpc-a")
-	mustCreateTG("tg-b", "INSTANCE", "vpc-b")
+	mustCreateTG("tgx-a", "IP", "vpc-a")
+	mustCreateTG("tgx-b", "INSTANCE", "vpc-b")
 
 	names := func(items []any) []string {
 		out := make([]string, 0, len(items))
@@ -270,9 +270,9 @@ func TestListTargetGroups_Filters(t *testing.T) {
 		query string
 		want  []string
 	}{
-		{name: "no filter returns all", query: "", want: []string{"tg-a", "tg-b"}},
-		{name: "vpcIdentifier filters to matching vpc", query: "?vpcIdentifier=vpc-a", want: []string{"tg-a"}},
-		{name: "targetGroupType filters to matching type", query: "?targetGroupType=INSTANCE", want: []string{"tg-b"}},
+		{name: "no filter returns all", query: "", want: []string{"tgx-a", "tgx-b"}},
+		{name: "vpcIdentifier filters to matching vpc", query: "?vpcIdentifier=vpc-a", want: []string{"tgx-a"}},
+		{name: "targetGroupType filters to matching type", query: "?targetGroupType=INSTANCE", want: []string{"tgx-b"}},
 		{name: "vpcIdentifier matching nothing returns empty", query: "?vpcIdentifier=vpc-none", want: []string{}},
 	}
 

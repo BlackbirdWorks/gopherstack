@@ -2,6 +2,7 @@ package directoryservice_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	directoryservicesdk "github.com/aws/aws-sdk-go-v2/service/directoryservice"
@@ -636,11 +637,13 @@ func TestRealClient_DirectoryLifecycleAndConfiguration(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			described, err = client.DescribeTrusts(t.Context(), &directoryservicesdk.DescribeTrustsInput{
-				DirectoryId: aws.String(dirID),
-			})
-			require.NoError(t, err)
-			assert.Empty(t, described.Trusts)
+			require.Eventually(t, func() bool {
+				described, err = client.DescribeTrusts(t.Context(), &directoryservicesdk.DescribeTrustsInput{
+					DirectoryId: aws.String(dirID),
+				})
+
+				return err == nil && len(described.Trusts) == 0
+			}, 5*time.Second, 10*time.Millisecond)
 		}},
 		{name: "hybrid_ad_family", run: func(t *testing.T) {
 			t.Helper()

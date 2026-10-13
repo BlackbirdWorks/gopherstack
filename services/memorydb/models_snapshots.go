@@ -26,25 +26,37 @@ type Snapshot struct {
 // time. MultiRegionClusterName/MultiRegionParameterGroupName are real
 // types.ClusterConfiguration members (types.go) that were never modeled --
 // distinct from Cluster.MultiRegionClusterName, which is already tracked at
-// the cluster level; ClusterConfiguration.Shards remains a disclosed gap
-// (see PARITY.md), genuinely un-derivable without fabricating shard sizes.
+// the cluster level. Shards is captured at snapshot time and only emitted
+// when DescribeSnapshots sets ShowDetail.
 type snapshotClusterConfig struct {
-	Engine                        string `json:"Engine,omitempty"`
-	VpcID                         string `json:"VpcId,omitempty"`
-	EngineVersion                 string `json:"EngineVersion,omitempty"`
-	Description                   string `json:"Description,omitempty"`
-	Name                          string `json:"Name,omitempty"`
-	SnapshotWindow                string `json:"SnapshotWindow,omitempty"`
-	TopicArn                      string `json:"TopicArn,omitempty"`
-	MaintenanceWindow             string `json:"MaintenanceWindow,omitempty"`
-	NodeType                      string `json:"NodeType,omitempty"`
-	ParameterGroupName            string `json:"ParameterGroupName,omitempty"`
-	SubnetGroupName               string `json:"SubnetGroupName,omitempty"`
-	MultiRegionClusterName        string `json:"MultiRegionClusterName,omitempty"`
-	MultiRegionParameterGroupName string `json:"MultiRegionParameterGroupName,omitempty"`
-	Port                          int32  `json:"Port,omitempty"`
-	SnapshotRetentionLimit        int32  `json:"SnapshotRetentionLimit,omitempty"`
-	NumShards                     int32  `json:"NumShards,omitempty"`
+	MaintenanceWindow             string                `json:"MaintenanceWindow,omitempty"`
+	NodeType                      string                `json:"NodeType,omitempty"`
+	VpcID                         string                `json:"VpcId,omitempty"`
+	EngineVersion                 string                `json:"EngineVersion,omitempty"`
+	Description                   string                `json:"Description,omitempty"`
+	Name                          string                `json:"Name,omitempty"`
+	SnapshotWindow                string                `json:"SnapshotWindow,omitempty"`
+	TopicArn                      string                `json:"TopicArn,omitempty"`
+	Engine                        string                `json:"Engine,omitempty"`
+	ParameterGroupName            string                `json:"ParameterGroupName,omitempty"`
+	MultiRegionParameterGroupName string                `json:"MultiRegionParameterGroupName,omitempty"`
+	SubnetGroupName               string                `json:"SubnetGroupName,omitempty"`
+	MultiRegionClusterName        string                `json:"MultiRegionClusterName,omitempty"`
+	Shards                        []snapshotShardDetail `json:"Shards,omitempty"`
+	Port                          int32                 `json:"Port,omitempty"`
+	SnapshotRetentionLimit        int32                 `json:"SnapshotRetentionLimit,omitempty"`
+	NumShards                     int32                 `json:"NumShards,omitempty"`
+}
+
+type snapshotShardDetail struct {
+	Name                 string              `json:"Name"`
+	Configuration        snapshotShardConfig `json:"Configuration"`
+	SnapshotCreationTime float64             `json:"SnapshotCreationTime"`
+}
+
+type snapshotShardConfig struct {
+	Slots        string `json:"Slots"`
+	ReplicaCount int32  `json:"ReplicaCount"`
 }
 
 type createSnapshotRequest struct {
@@ -58,11 +70,10 @@ type createSnapshotRequest struct {
 // "SnapshotType" field -- only ClusterName, MaxResults, NextToken, ShowDetail,
 // SnapshotName, Source (confirmed via api_op_DescribeSnapshots.go). A prior
 // pass invented SnapshotType as a filter, redundant with Source; removed.
-// ShowDetail (gating ClusterConfiguration in the response, mirroring
-// ShowShardDetails/ShowClusterDetails elsewhere in this service) is not yet
-// implemented -- see PARITY.md.
+// ShowDetail gates ClusterConfiguration.Shards in the response.
 type describeSnapshotRequest struct {
 	MaxResults   *int32 `json:"MaxResults,omitempty"`
+	ShowDetail   *bool  `json:"ShowDetail,omitempty"`
 	SnapshotName string `json:"SnapshotName,omitempty"`
 	ClusterName  string `json:"ClusterName,omitempty"`
 	Source       string `json:"Source,omitempty"`

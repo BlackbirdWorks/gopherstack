@@ -67,7 +67,7 @@ func eventTrackerToMap(et *EventTracker, accountID string) map[string]any {
 		keyName:                et.Name,
 		keyDatasetGroupArn:     et.DatasetGroupArn,
 		"trackingId":           et.TrackingID,
-		keyStatus:              et.Status,
+		keyStatus:              et.lc.resourceStatus(et.Status, et.CreationDateTime),
 		"accountId":            accountID,
 		keyCreationDateTime:    awstime.Epoch(et.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(et.LastUpdatedDateTime),
@@ -80,7 +80,7 @@ func eventTrackerSummaryToMap(et *EventTracker) map[string]any {
 	return map[string]any{
 		keyEventTrackerArn:     et.EventTrackerArn,
 		keyName:                et.Name,
-		keyStatus:              et.Status,
+		keyStatus:              et.lc.resourceStatus(et.Status, et.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(et.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(et.LastUpdatedDateTime),
 	}

@@ -145,7 +145,7 @@ func (b *InMemoryBackend) pruneState(now time.Time) {
 			before := len(q.messages)
 			// prepareAndPickMessages with maxMessages=0 performs all cleanup (re-queue
 			// expired in-flight, expire retained, drain to DLQ) without picking (#54).
-			prepareAndPickMessages(q, "", 0, 0, now)
+			prepareAndPickMessages(q, receiveCtx{}, 0, 0, now)
 			msgExpired += max(0, before-len(q.messages))
 
 			// When the queue is fully idle, clear hasActivity so subsequent janitor

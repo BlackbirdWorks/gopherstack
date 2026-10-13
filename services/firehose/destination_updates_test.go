@@ -67,6 +67,7 @@ func TestUpdateDestination_VersionCheck(t *testing.T) {
 
 	tests := []struct {
 		name             string
+		wantErrIs        error
 		currentVersionID string
 		wantErr          bool
 	}{
@@ -79,11 +80,13 @@ func TestUpdateDestination_VersionCheck(t *testing.T) {
 			name:             "empty_version_rejected",
 			currentVersionID: "",
 			wantErr:          true,
+			wantErrIs:        firehose.ErrValidation,
 		},
 		{
 			name:             "mismatched_version",
 			currentVersionID: "99",
 			wantErr:          true,
+			wantErrIs:        firehose.ErrConcurrentModification,
 		},
 	}
 
@@ -108,7 +111,7 @@ func TestUpdateDestination_VersionCheck(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.ErrorIs(t, err, firehose.ErrValidation)
+				assert.ErrorIs(t, err, tt.wantErrIs)
 
 				return
 			}

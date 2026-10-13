@@ -2,7 +2,7 @@
 service: amplify
 sdk_module: aws-sdk-go-v2/service/amplify@v1.47.0
 last_audit_commit: a83673c4a  # 2026-09-19 required-output-members reverification; prior: d522d763f
-last_audit_date: 2026-09-19  # prior: 2026-09-18
+last_audit_date: 2026-10-07  # prior: 2026-09-18
 overall: A            # 2026-08-29 write-only-state sweep: App.ComputeRoleArn/JobConfig,
                        # Branch.Backend/ComputeRoleArn/EnableSkewProtection, and
                        # DomainAssociation.AutoSubDomainCreationPatterns/
@@ -77,14 +77,22 @@ gaps: []
   # path optional response members; re-verified individually against each
   # field's own Create/UpdateInput rather than assumed by pattern-matching
   # against the ones that turned out to be real bugs.
-items_still_open:
-  - "Never-emitted optional response members with no request path: App.webhookCreateTime, Branch.destinationBranch/thumbnailUrl, DomainAssociation.updateStatus. Real Amplify computes them from PR-preview branches, build screenshots and its async certificate pipeline, none of which are modeled."
-  - "JobStatus PENDING/PROVISIONING/CANCELLING/CREATED/FAILED and DomainStatus IN_PROGRESS/IMPORTING_CUSTOM_CERTIFICATE/PENDING_DEPLOYMENT/AWAITING_APP_CNAME/REQUESTING_CERTIFICATE/UPDATING are never produced: they are phases of real build queueing/provisioning and certificate issuance, which this synchronous emulator collapses (RUNNING->SUCCEED/CANCELLED, PENDING_VERIFICATION->AVAILABLE). No code changed."
+items_still_open: []
+structural_gaps:
+  - "App.webhookCreateTime, Branch.destinationBranch and Branch.thumbnailUrl come from Git-provider webhooks, pull-request previews and build screenshots, none of which exist in an emulator."
+  - "DomainAssociation.updateStatus and DomainStatus IN_PROGRESS/IMPORTING_CUSTOM_CERTIFICATE/PENDING_DEPLOYMENT/AWAITING_APP_CNAME/REQUESTING_CERTIFICATE/UPDATING are phases of real certificate issuance."
+  - "JobStatus PENDING/PROVISIONING/CANCELLING/CREATED/FAILED are phases of real build queueing and provisioning; the synchronous emulator collapses them (RUNNING to SUCCEED/CANCELLED)."
 deferred: []
   # "Full App/Branch field parity" and "server-side enum validation" (the two
   # prior deferred items) are both done this sweep -- see gaps history above.
 leaks: {status: clean, note: "janitor.Run blocks on <-ctx.Done() and calls worker.Group.Stop() before returning, same lifecycle pattern as services/codebuild and services/batch; StartWorker only spawns the goroutine when a janitor was attached via WithJanitor (always true via provider.go), bound to the process/JanitorCtx lifetime. Fixed this sweep: DeleteApp previously cascaded only branches+tags, leaving jobs, domain associations, webhooks, and backend environments behind as ghost rows reachable by no legitimate path once the app 404s (an unbounded leak across create/delete churn in any long-running instance or test suite); DeleteBranch previously didn't cascade the branch's own jobs (or their artifacts) either. Both now cascade fully -- see InMemoryBackend.DeleteApp/deleteBranchLocked in apps.go and DeleteJob/DeleteBranch in jobs.go/branches.go. Every lock path remains defer-released; the new artifactsByJob store.Index (store_setup.go) adds no additional locking of its own, same invariant as every other index on this backend's single lockmetrics.RWMutex."}
 ---
+
+## 2026-10-10 realism pass
+
+Job IDs are sequential numerics per branch (newest first in ListJobs), app IDs are `d`+13 chars, pagination tokens are
+opaque and malformed tokens / maxResults > 100 return BadRequestException, and the code prefix is stripped from error
+messages (`TestJobIDs_Sequential`, `TestRequestRealism_Errors`).
 
 ## Notes
 

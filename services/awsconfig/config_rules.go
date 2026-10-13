@@ -14,6 +14,10 @@ func (b *InMemoryBackend) PutConfigRule(input *ConfigRule) error {
 		return fmt.Errorf("%w: ConfigRuleName is required", ErrInvalidParameterValue)
 	}
 
+	if err := validateConfigRule(input); err != nil {
+		return err
+	}
+
 	b.mu.Lock("PutConfigRule")
 	defer b.mu.Unlock()
 
@@ -41,6 +45,7 @@ func (b *InMemoryBackend) putConfigRuleLocked(input *ConfigRule) {
 			b.region, b.accountID, b.ruleCounter,
 		)
 		input.ConfigRuleID = fmt.Sprintf("config-rule-%08d", b.ruleCounter)
+		b.ruleActivity[input.ConfigRuleName] = &ruleActivity{activated: float64(b.now().Unix())}
 	}
 
 	if input.ConfigRuleState == "" {
@@ -48,9 +53,15 @@ func (b *InMemoryBackend) putConfigRuleLocked(input *ConfigRule) {
 	}
 
 	cp := *input
-	// Deep-copy Source to avoid shared pointer.
 	if input.Source != nil {
 		srcCopy := *input.Source
+		srcCopy.SourceDetails = slices.Clone(input.Source.SourceDetails)
+
+		if input.Source.CustomPolicyDetails != nil {
+			policy := *input.Source.CustomPolicyDetails
+			srcCopy.CustomPolicyDetails = &policy
+		}
+
 		cp.Source = &srcCopy
 	}
 
@@ -129,6 +140,10 @@ func (b *InMemoryBackend) DeleteConfigRule(name string) error {
 func (b *InMemoryBackend) clearRuleEvaluationsLocked(ruleName string) {
 	delete(b.ruleEvaluations, ruleName)
 
+	if act, ok := b.ruleActivity[ruleName]; ok {
+		act.firstEvaluation, act.lastEvaluation = 0, 0
+	}
+
 	for _, e := range slices.Clone(b.ruleResourceEvalsByRule.Get(ruleName)) {
 		b.ruleResourceEvals.Delete(storedEvaluationKeyFn(e))
 	}
@@ -167,30 +182,80 @@ func (b *InMemoryBackend) GetConfigRuleComplianceType(ruleName string) string {
 	return b.ruleEvaluations[ruleName]
 }
 
-// DescribeConfigRuleEvaluationStatus returns evaluation statuses for config rules.
-// If names is empty, all rules are returned.
+// ruleActivity holds a rule's activation and evaluation times as epoch seconds.
+type ruleActivity struct {
+	activated       float64
+	firstEvaluation float64
+	lastEvaluation  float64
+}
+
+// DescribeConfigRuleEvaluationStatus returns the evaluation status of the named rules, or of every rule when
+// names is empty; unknown names are skipped.
 func (b *InMemoryBackend) DescribeConfigRuleEvaluationStatus(names []string) []ConfigRuleEvaluationStatus {
+	out, _ := b.describeRuleEvaluationStatus(names, false)
+
+	return out
+}
+
+// DescribeConfigRuleEvaluationStatusStrict is DescribeConfigRuleEvaluationStatus, but an unknown name errors
+// NoSuchConfigRuleException (api_op_DescribeConfigRuleEvaluationStatus.go).
+func (b *InMemoryBackend) DescribeConfigRuleEvaluationStatusStrict(
+	names []string,
+) ([]ConfigRuleEvaluationStatus, error) {
+	return b.describeRuleEvaluationStatus(names, true)
+}
+
+func (b *InMemoryBackend) describeRuleEvaluationStatus(
+	names []string,
+	strict bool,
+) ([]ConfigRuleEvaluationStatus, error) {
 	b.mu.RLock("DescribeConfigRuleEvaluationStatus")
 	defer b.mu.RUnlock()
 
+	var rules []*ConfigRule
+
 	if len(names) == 0 {
-		out := make([]ConfigRuleEvaluationStatus, 0, len(b.ruleEvaluations))
-		for name := range b.ruleEvaluations {
-			out = append(out, ConfigRuleEvaluationStatus{ConfigRuleName: name})
-		}
+		rules = b.configRules.All()
+	} else {
+		for _, n := range names {
+			r, ok := b.configRules.Get(n)
+			if !ok {
+				if strict {
+					return nil, fmt.Errorf("%w: %s", ErrNoSuchConfigRule, n)
+				}
 
-		return out
+				continue
+			}
+
+			rules = append(rules, r)
+		}
 	}
 
-	out := make([]ConfigRuleEvaluationStatus, 0, len(names))
+	out := make([]ConfigRuleEvaluationStatus, 0, len(rules))
 
-	for _, name := range names {
-		if _, ok := b.ruleEvaluations[name]; ok {
-			out = append(out, ConfigRuleEvaluationStatus{ConfigRuleName: name})
+	for _, r := range rules {
+		st := ConfigRuleEvaluationStatus{
+			ConfigRuleName: r.ConfigRuleName,
+			ConfigRuleArn:  r.ConfigRuleArn,
+			ConfigRuleID:   r.ConfigRuleID,
 		}
+
+		if act, ok := b.ruleActivity[r.ConfigRuleName]; ok {
+			st.FirstActivatedTime = act.activated
+			st.FirstEvaluationStarted = act.firstEvaluation
+			st.LastSuccessfulInvocationTime = act.lastEvaluation
+			st.LastSuccessfulEvaluationTime = act.lastEvaluation
+		}
+
+		out = append(out, st)
 	}
 
-	return out
+	slices.SortFunc(
+		out,
+		func(a, b ConfigRuleEvaluationStatus) int { return strings.Compare(a.ConfigRuleName, b.ConfigRuleName) },
+	)
+
+	return out, nil
 }
 
 // DescribeComplianceByConfigRule returns compliance info for the given rule names.

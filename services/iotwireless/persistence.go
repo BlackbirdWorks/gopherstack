@@ -246,12 +246,15 @@ type backendSnapshot struct {
 	QueuedMessages             map[string][]QueuedMessage   `json:"queuedMessages,omitempty"`
 	EventConfigDefault         *EventConfigDoc              `json:"eventConfigDefault,omitempty"`
 	MetricConfigStatus         string                       `json:"metricConfigStatus,omitempty"`
+	Idempotency                []idempotentSnapshotEntry    `json:"idempotency,omitempty"`
 	Version                    int                          `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
+	idemEntries := b.idem.snapshot()
+
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -290,6 +293,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		QueuedMessages:             copyQueuedMessagesMap(b.queuedMessages),
 		EventConfigDefault:         b.eventConfigDefault,
 		MetricConfigStatus:         b.metricConfigStatus,
+		Idempotency:                idemEntries,
 	}
 
 	data, err := json.Marshal(snap) //nolint:musttag // nested types lack tags
@@ -422,6 +426,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	if err := persistence.UnmarshalSnapshot(ctx, "iotwireless", data, &snap); err != nil {
 		return err
+	}
+
+	if snap.Version == iotwirelessSnapshotVersion {
+		b.idem.restore(snap.Idempotency)
+	} else {
+		b.idem.reset()
 	}
 
 	b.mu.Lock("Restore")

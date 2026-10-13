@@ -1,6 +1,7 @@
 package guardduty
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -135,6 +136,12 @@ func (b *InMemoryBackend) CreateSampleFindings(detectorID string, findingTypes [
 
 	if len(findingTypes) == 0 {
 		findingTypes = []string{"UnauthorizedAccess:IAMUser/ConsoleLoginSuccess.B"}
+	}
+
+	for _, ft := range findingTypes {
+		if !findingTypeRe.MatchString(ft) {
+			return fmt.Errorf("%w: %q is not a valid finding type", ErrValidation, ft)
+		}
 	}
 
 	for _, ft := range findingTypes {

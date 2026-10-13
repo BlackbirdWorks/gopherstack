@@ -254,7 +254,15 @@ func (h *Handler) applyVpcEndpointUpdate(
 	return nil
 }
 
+const (
+	rollbackTimeoutMinMinutes = 120
+	rollbackTimeoutMaxMinutes = 10080
+)
+
 type updateClusterVersionBody struct {
+	RollbackConfig *struct {
+		TimeoutMinutes *int32 `json:"timeoutMinutes"`
+	} `json:"rollbackConfig"`
 	Version            string `json:"version"`
 	ClientRequestToken string `json:"clientRequestToken"`
 }
@@ -265,6 +273,14 @@ func (h *Handler) handleUpdateClusterVersion(c *echo.Context, clusterName string
 		if err := json.Unmarshal(body, &in); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
 		}
+	}
+
+	if rc := in.RollbackConfig; rc != nil && rc.TimeoutMinutes != nil &&
+		(*rc.TimeoutMinutes < rollbackTimeoutMinMinutes || *rc.TimeoutMinutes > rollbackTimeoutMaxMinutes) {
+		return c.JSON(http.StatusBadRequest, errResp(
+			"InvalidParameterException",
+			"rollbackConfig.timeoutMinutes must be between 120 and 10080",
+		))
 	}
 
 	return h.withIdempotency(c, opUpdateClusterVersion, in.ClientRequestToken, body, func() (int, any, error) {

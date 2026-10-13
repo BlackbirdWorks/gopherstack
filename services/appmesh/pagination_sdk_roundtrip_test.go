@@ -1,6 +1,7 @@
 package appmesh_test
 
 import (
+	"encoding/base64"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -38,7 +39,7 @@ func TestListMeshes_SDKRoundTrip_StaleCursorResumesPastDeletedItem(t *testing.T)
 	require.NotNil(t, page1.NextToken)
 
 	staleToken := aws.ToString(page1.NextToken)
-	require.Equal(t, "mesh-b", staleToken)
+	require.Equal(t, base64.RawURLEncoding.EncodeToString([]byte("mesh-b")), staleToken)
 
 	_, err = client.DeleteMesh(t.Context(), &appmeshsdk.DeleteMeshInput{MeshName: aws.String("mesh-c")})
 	require.NoError(t, err)

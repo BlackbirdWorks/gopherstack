@@ -19,7 +19,7 @@ func (b *InMemoryBackend) PutAccessControlRule(
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	now := time.Now().UTC()
@@ -76,7 +76,7 @@ func (b *InMemoryBackend) GetAccessControlEffect(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return "", nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return "", nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	byOrg := b.accessRulesByOrg.Get(orgID)

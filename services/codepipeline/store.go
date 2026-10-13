@@ -83,6 +83,7 @@ const (
 	// specially (as a gate on StartPipelineExecution/PutApprovalResult),
 	// matching real AWS's built-in Approval/AWS/Manual/1 action type.
 	actionCategoryApproval = "Approval"
+	actionCategorySource   = "Source"
 
 	// actionOwnerAWS is the ActionTypeID.Owner value for AWS-managed built-in
 	// action types, as opposed to "ThirdParty" or "Custom".
@@ -97,6 +98,7 @@ const (
 	actionProviderCodeBuild  = "CodeBuild"
 	actionProviderLambda     = "Lambda"
 	actionProviderCodeDeploy = "CodeDeploy"
+	actionProviderS3         = "S3"
 
 	// configKeyProjectName, configKeyFunctionName, configKeyApplicationName,
 	// and configKeyDeploymentGroupName are the Action.Configuration keys
@@ -162,6 +164,7 @@ type InMemoryBackend struct {
 	executions                 map[string]map[string][]*PipelineExecution  // region → pipelineName → executions
 	actionExecutions           map[string]map[string][]*ActionExecution    // region → pipelineName → action executions
 	actionRevisions            map[string]map[string]*ActionRevisionRecord // region → "pipeline/stage/action" → revision
+	conditionRuns              map[string]map[string][]*ConditionRun       // region → pipelineName → stage condition runs
 	startTokens                map[string]string                           // region|pipeline|token → execution ID
 	// codeBuildBackend, lambdaBackend, and codeDeployBackend back a
 	// Build/CodeBuild, an Invoke/Lambda, and a Deploy/CodeDeploy action
@@ -172,6 +175,7 @@ type InMemoryBackend struct {
 	codeBuildBackend  CodeBuildStarter
 	lambdaBackend     LambdaInvoker
 	codeDeployBackend CodeDeployStarter
+	artifactS3        ArtifactS3
 	mu                *lockmetrics.RWMutex
 	accountID         string
 	region            string
@@ -185,6 +189,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		executions:       make(map[string]map[string][]*PipelineExecution),
 		actionExecutions: make(map[string]map[string][]*ActionExecution),
 		actionRevisions:  make(map[string]map[string]*ActionRevisionRecord),
+		conditionRuns:    make(map[string]map[string][]*ConditionRun),
 		startTokens:      make(map[string]string),
 		accountID:        accountID,
 		region:           region,
@@ -204,6 +209,15 @@ func (b *InMemoryBackend) SetCodeBuildBackend(codeBuild CodeBuildStarter) {
 	defer b.mu.Unlock()
 
 	b.codeBuildBackend = codeBuild
+}
+
+// SetArtifactS3 wires S3 so Source/S3 and Deploy/S3 actions move real objects
+// and the pipeline artifact store is materialised.
+func (b *InMemoryBackend) SetArtifactS3(s ArtifactS3) {
+	b.mu.Lock("SetArtifactS3")
+	defer b.mu.Unlock()
+
+	b.artifactS3 = s
 }
 
 // SetLambdaBackend wires Lambda so an Invoke/Lambda action's FunctionName is
@@ -317,6 +331,7 @@ func (b *InMemoryBackend) Reset() {
 	b.executions = make(map[string]map[string][]*PipelineExecution)
 	b.actionExecutions = make(map[string]map[string][]*ActionExecution)
 	b.actionRevisions = make(map[string]map[string]*ActionRevisionRecord)
+	b.conditionRuns = make(map[string]map[string][]*ConditionRun)
 	b.startTokens = make(map[string]string)
 	b.startTokenOrder = nil
 }

@@ -166,7 +166,7 @@ func solutionToMap(sol *Solution, latest *SolutionVersion) map[string]any {
 		"performHPO":                sol.PerformHPO,
 		"performAutoTraining":       sol.PerformAutoTraining,
 		keyPerformIncrementalUpdate: sol.PerformIncrementalUpdate,
-		keyStatus:                   sol.Status,
+		keyStatus:                   sol.lc.resourceStatus(sol.Status, sol.CreationDateTime),
 		keyCreationDateTime:         awstime.Epoch(sol.CreationDateTime),
 		keyLastUpdatedDateTime:      awstime.Epoch(sol.LastUpdatedDateTime),
 	}
@@ -199,7 +199,7 @@ func solutionSummaryToMap(sol *Solution) map[string]any {
 		keySolutionArn:         sol.SolutionArn,
 		keyName:                sol.Name,
 		keyRecipeArn:           sol.RecipeArn,
-		keyStatus:              sol.Status,
+		keyStatus:              sol.lc.resourceStatus(sol.Status, sol.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(sol.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(sol.LastUpdatedDateTime),
 	}
@@ -211,7 +211,7 @@ func solutionSummaryToMap(sol *Solution) map[string]any {
 func solutionVersionSummaryToMap(sv *SolutionVersion) map[string]any {
 	m := map[string]any{
 		keySolutionVersionArn: sv.SolutionVersionArn,
-		keyStatus:             sv.Status,
+		keyStatus:             sv.lc.resourceStatus(sv.Status, sv.CreationDateTime),
 		"trainingMode":        sv.TrainingMode,
 		// trainingType is always MANUAL: this backend has no autotraining
 		// scheduler, every SolutionVersion is created via an explicit
@@ -237,7 +237,7 @@ func solutionVersionToMap(sv *SolutionVersion) map[string]any {
 		"performAutoML":             sv.PerformAutoML,
 		"performHPO":                sv.PerformHPO,
 		keyPerformIncrementalUpdate: sv.PerformIncrementalUpdate,
-		keyStatus:                   sv.Status,
+		keyStatus:                   sv.lc.resourceStatus(sv.Status, sv.CreationDateTime),
 		"trainingMode":              sv.TrainingMode,
 		"trainingHours":             sv.TrainingHours,
 		keyCreationDateTime:         awstime.Epoch(sv.CreationDateTime),

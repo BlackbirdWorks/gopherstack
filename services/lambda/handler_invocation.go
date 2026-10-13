@@ -9,6 +9,7 @@ import (
 	"hash/crc32"
 	"math"
 	"net/http"
+	"regexp"
 
 	"github.com/labstack/echo/v5"
 
@@ -66,6 +67,10 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "failed to read request")
 	}
 
+	if rejectNonJSONPayload(h, c, body) {
+		return nil
+	}
+
 	if body == nil {
 		body = []byte("{}")
 	}
@@ -98,12 +103,12 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 		c.Response().Header().Set("X-Amz-Log-Result", logResult)
 	}
 
-	if statusCode == http.StatusNoContent {
-		return c.NoContent(http.StatusNoContent)
-	}
+	return writeInvokeResult(c, result, functionError, statusCode)
+}
 
-	if statusCode == http.StatusAccepted {
-		return c.NoContent(http.StatusAccepted)
+func writeInvokeResult(c *echo.Context, result []byte, functionError string, statusCode int) error {
+	if statusCode == http.StatusNoContent || statusCode == http.StatusAccepted {
+		return c.NoContent(statusCode)
 	}
 
 	if len(result) > 0 {
@@ -121,6 +126,17 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 	}
 
 	return c.NoContent(http.StatusOK)
+}
+
+func rejectNonJSONPayload(h *Handler, c *echo.Context, body []byte) bool {
+	if len(body) == 0 || json.Valid(body) {
+		return false
+	}
+
+	_ = h.writeError(c, http.StatusBadRequest, "InvalidRequestContentException",
+		"Could not parse request body into json: Could not parse payload into json")
+
+	return true
 }
 
 // beginDurableInvoke starts or reuses handleInvoke's durable execution (if
@@ -186,7 +202,53 @@ func (h *Handler) dispatchInvoke(
 
 // validateInvokeQualifier checks qualifier well-formedness, then the durable-function requirement.
 func (h *Handler) validateInvokeQualifier(c *echo.Context, name, qualifier string) bool {
-	return h.validateQualifier(c, qualifier) && h.requireDurableQualifier(c, name, qualifier)
+	return h.validateQualifier(c, qualifier) && h.requireDurableQualifier(c, name, qualifier) &&
+		h.validateTenantID(c, name)
+}
+
+const maxTenantIDLen = 256
+
+var tenantIDPattern = regexp.MustCompile(`^[a-zA-Z0-9._:/=+\-@ ]+$`)
+
+// validateTenantID enforces the tenant-id rules of tenant-isolation-troubleshooting: a PER_TENANT function needs
+// one, any other function rejects one; the header itself is 1-256 chars (api_op_Invoke.go TenantId).
+func (h *Handler) validateTenantID(c *echo.Context, name string) bool {
+	tenantID := c.Request().Header.Get("X-Amz-Tenant-Id")
+	if len(tenantID) > maxTenantIDLen || (tenantID != "" && !tenantIDPattern.MatchString(tenantID)) {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"TenantId must be 1-256 characters matching [a-zA-Z0-9\\._:\\/=+\\-@ ]+")
+
+		return false
+	}
+
+	bk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return true
+	}
+
+	bareName, _ := functionNameAndQualifierFromARN(name)
+
+	fn, err := bk.GetFunction(bareName)
+	if err != nil {
+		return true
+	}
+
+	perTenant := fn.TenancyConfig != nil && fn.TenancyConfig.TenantIsolationMode == "PER_TENANT"
+
+	switch {
+	case perTenant && tenantID == "":
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"A tenant ID is required to invoke a function with tenant isolation enabled.")
+
+		return false
+	case !perTenant && tenantID != "":
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"A tenant ID cannot be passed to a function without tenant isolation enabled.")
+
+		return false
+	}
+
+	return true
 }
 
 // requireDurableQualifier rejects an unqualified Invoke of a durable function.

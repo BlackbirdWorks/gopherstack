@@ -72,6 +72,10 @@ func (b *InMemoryBackend) CreateEmailIdentity(
 		return nil, fmt.Errorf("%w: EmailIdentity is required", ErrInvalidInput)
 	}
 
+	if err := validateIdentityName(identity); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateEmailIdentity")
 	defer b.mu.Unlock()
 
@@ -126,7 +130,7 @@ func (b *InMemoryBackend) GetEmailIdentity(identity string) (*EmailIdentity, err
 
 	ei, ok := b.identities.Get(identity)
 	if !ok {
-		return nil, fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
+		return nil, identityMissing(identity)
 	}
 
 	cp := ei.Clone()
@@ -167,7 +171,7 @@ func (b *InMemoryBackend) DeleteEmailIdentity(identity string) error {
 	defer b.mu.Unlock()
 
 	if !b.identities.Has(identity) {
-		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
+		return identityMissing(identity)
 	}
 
 	b.identities.Delete(identity)
@@ -183,7 +187,7 @@ func (b *InMemoryBackend) CreateEmailIdentityPolicy(identity, policyName, policy
 	defer b.mu.Unlock()
 
 	if !b.identities.Has(identity) {
-		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
+		return identityMissing(identity)
 	}
 
 	if _, ok := b.emailIdentityPolicies[identity]; !ok {
@@ -212,7 +216,7 @@ func (b *InMemoryBackend) GetEmailIdentityPolicies(identity string) (map[string]
 	defer b.mu.RUnlock()
 
 	if !b.identities.Has(identity) {
-		return nil, fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
+		return nil, identityMissing(identity)
 	}
 
 	policies := b.emailIdentityPolicies[identity]
@@ -229,7 +233,7 @@ func (b *InMemoryBackend) DeleteEmailIdentityPolicy(identity, policyName string)
 
 	policies, ok := b.emailIdentityPolicies[identity]
 	if !ok {
-		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
+		return identityMissing(identity)
 	}
 
 	if _, exists := policies[policyName]; !exists {
@@ -252,7 +256,7 @@ func (b *InMemoryBackend) UpdateEmailIdentityPolicy(identity, policyName, policy
 	defer b.mu.Unlock()
 
 	if !b.identities.Has(identity) {
-		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
+		return identityMissing(identity)
 	}
 
 	if _, ok := b.emailIdentityPolicies[identity]; !ok {
@@ -275,7 +279,7 @@ func (b *InMemoryBackend) PutEmailIdentityConfigurationSetAttributes(
 
 	ei, ok := b.identities.Get(identity)
 	if !ok {
-		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
+		return identityMissing(identity)
 	}
 
 	ei.ConfigurationSetName = configSetName
@@ -293,7 +297,7 @@ func (b *InMemoryBackend) PutEmailIdentityDkimAttributes(
 
 	ei, ok := b.identities.Get(identity)
 	if !ok {
-		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
+		return identityMissing(identity)
 	}
 
 	ei.DkimSigningEnabled = signingEnabled
@@ -309,7 +313,7 @@ func (b *InMemoryBackend) PutEmailIdentityDkimSigningAttributes(identity string)
 
 	ei, ok := b.identities.Get(identity)
 	if !ok {
-		return nil, fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
+		return nil, identityMissing(identity)
 	}
 
 	return ei.Clone(), nil
@@ -325,7 +329,7 @@ func (b *InMemoryBackend) PutEmailIdentityFeedbackAttributes(
 
 	ei, ok := b.identities.Get(identity)
 	if !ok {
-		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
+		return identityMissing(identity)
 	}
 
 	ei.FeedbackForwarding = emailForwardingEnabled
@@ -342,7 +346,7 @@ func (b *InMemoryBackend) PutEmailIdentityMailFromAttributes(
 
 	ei, ok := b.identities.Get(identity)
 	if !ok {
-		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
+		return identityMissing(identity)
 	}
 
 	ei.MailFromDomain = mailFromDomain

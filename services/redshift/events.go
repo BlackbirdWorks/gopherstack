@@ -2,6 +2,7 @@ package redshift
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 	"unicode"
@@ -36,16 +37,17 @@ type Event struct {
 
 // EventSubscription represents a Redshift event subscription.
 type EventSubscription struct {
-	SubscriptionCreated time.Time `json:"subscriptionCreated"`
-	CustomerAwsID       string    `json:"customerAwsId"`
-	CustSubscriptionID  string    `json:"custSubscriptionId"`
-	SnsTopicArn         string    `json:"snsTopicArn"`
-	Status              string    `json:"status"`
-	SourceType          string    `json:"sourceType"`
-	Severity            string    `json:"severity"`
-	SourceIDs           []string  `json:"sourceIds"`
-	EventCategories     []string  `json:"eventCategories"`
-	Enabled             bool      `json:"enabled"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	SubscriptionCreated time.Time         `json:"subscriptionCreated"`
+	CustomerAwsID       string            `json:"customerAwsId"`
+	CustSubscriptionID  string            `json:"custSubscriptionId"`
+	SnsTopicArn         string            `json:"snsTopicArn"`
+	Status              string            `json:"status"`
+	SourceType          string            `json:"sourceType"`
+	Severity            string            `json:"severity"`
+	SourceIDs           []string          `json:"sourceIds"`
+	EventCategories     []string          `json:"eventCategories"`
+	Enabled             bool              `json:"enabled"`
 }
 
 // invalidS3KeyPrefixRune returns the first rune in s that falls outside the
@@ -327,6 +329,7 @@ func (b *InMemoryBackend) ModifyEventSubscription(
 // cloneEventSubscription returns a deep copy of an EventSubscription.
 func cloneEventSubscription(sub *EventSubscription) *EventSubscription {
 	cp := *sub
+	cp.Tags = maps.Clone(sub.Tags)
 	cp.SourceIDs = make([]string, len(sub.SourceIDs))
 	copy(cp.SourceIDs, sub.SourceIDs)
 	cp.EventCategories = make([]string, len(sub.EventCategories))

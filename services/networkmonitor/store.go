@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -39,8 +40,6 @@ var (
 
 const (
 	monitorStateActive = "ACTIVE"
-
-	probeStateActive = "ACTIVE"
 
 	protocolTCP  = "TCP"
 	protocolICMP = "ICMP"
@@ -137,6 +136,7 @@ type StorageBackend interface {
 // [regionKey] builds (see store_setup.go for the Phase 3.3 datalayer
 // conversion this struct went through).
 type InMemoryBackend struct {
+	appConfig        any
 	registry         *store.Registry
 	monitors         *store.Table[Monitor]
 	monitorsByRegion *store.Index[Monitor]
@@ -144,6 +144,7 @@ type InMemoryBackend struct {
 	accountID        string
 	defaultRegion    string
 	nextProbeSeq     int64
+	activationDelay  time.Duration
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

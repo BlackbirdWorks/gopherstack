@@ -40,6 +40,6 @@ var errSessionsNotEnabled = awserr.New(
 // doc: "You can only add steps to a cluster that is in one of the following
 // states: STARTING, BOOTSTRAPPING, RUNNING, or WAITING").
 var errClusterNotAcceptingSteps = awserr.New(
-	"ValidationException: cluster is not in a state that accepts new steps",
+	"ValidationException: A job flow that is shutting down, terminated, or finished may not be modified",
 	awserr.ErrInvalidParameter,
 )

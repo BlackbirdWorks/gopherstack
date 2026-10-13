@@ -184,7 +184,7 @@ func TestHandlerActions_ChangeMessageVisibilityBatch(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 
-	// gopherstack-opzq: MessageNotInflight is a per-entry BatchResultErrorEntry
+	// gopherstack-opzq: ReceiptHandleIsInvalid is a per-entry BatchResultErrorEntry
 	// code, not this operation's top-level error -- assert the wire shape a
 	// real client sees, not just that the backend's Failed slice is non-empty.
 	t.Run("partial failure", func(t *testing.T) {
@@ -243,7 +243,7 @@ func TestHandlerActions_ChangeMessageVisibilityBatch(t *testing.T) {
 
 		require.Len(t, body.Failed, 1)
 		assert.Equal(t, "bad", body.Failed[0].ID)
-		assert.Equal(t, "MessageNotInflight", body.Failed[0].Code)
+		assert.Equal(t, "ReceiptHandleIsInvalid", body.Failed[0].Code)
 		assert.True(t, body.Failed[0].SenderFault)
 
 		// Both succeeding entries had VisibilityTimeout 0, so both messages

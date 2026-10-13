@@ -21,6 +21,7 @@ type UpdateDestinationInput struct {
 	SplunkDestination        *SplunkDestinationDescription
 	IcebergDestination       *IcebergDestinationDescription
 	SnowflakeDestination     *SnowflakeDestinationDescription
+	DestinationID            string
 }
 
 // applyDestinationUpdate sets the single destination supplied in input and clears every
@@ -173,7 +174,16 @@ func (b *InMemoryBackend) UpdateDestination(
 	}
 
 	if s.VersionID != currentVersionID {
-		return fmt.Errorf("%w: version mismatch: expected %s got %s", ErrValidation, currentVersionID, s.VersionID)
+		return fmt.Errorf(
+			"%w: version mismatch: expected %s got %s",
+			ErrConcurrentModification,
+			currentVersionID,
+			s.VersionID,
+		)
+	}
+
+	if input.DestinationID != "" && input.DestinationID != currentDestinationID(s) {
+		return fmt.Errorf("%w: destination %s not found in stream %s", ErrValidation, input.DestinationID, streamName)
 	}
 
 	if err := applyDestinationUpdate(s, input); err != nil {

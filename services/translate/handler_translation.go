@@ -260,7 +260,7 @@ func applyTranslation(
 // applyCSVTerminology parses a simple two-column CSV (source,target) and replaces
 // occurrences of source terms in text with the corresponding target terms. The
 // first line is the header row (source/target language codes, see
-// parseCSVLanguages in terminologies.go) and is never treated as a term pair. It
+// parseTermFile in term_file.go) and is never treated as a term pair. It
 // returns the transformed text and the pairs that were actually found and
 // substituted (for AppliedTerminologies.Terms).
 func applyCSVTerminology(text string, csvBytes []byte) (string, []termMatch) {

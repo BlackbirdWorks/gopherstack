@@ -125,7 +125,12 @@ func (h *Handler) handleListIdentities(
 	ctx context.Context,
 	in *listIdentitiesInput,
 ) (*listIdentitiesOutput, error) {
-	result, err := h.Backend.ListIdentities(ctx, in.IdentityPoolID, in.MaxResults, in.HideDisabled, in.NextToken)
+	cursor, err := decodePageToken(in.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := h.Backend.ListIdentities(ctx, in.IdentityPoolID, in.MaxResults, in.HideDisabled, cursor)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +152,7 @@ func (h *Handler) handleListIdentities(
 
 	return &listIdentitiesOutput{
 		IdentityPoolID: result.IdentityPoolID,
-		NextToken:      result.NextToken,
+		NextToken:      encodePageToken(result.NextToken),
 		Identities:     items,
 	}, nil
 }
@@ -157,7 +162,6 @@ type lookupDeveloperIdentityInput struct {
 	IdentityPoolID          string `json:"IdentityPoolId"`
 	IdentityID              string `json:"IdentityId"`
 	DeveloperUserIdentifier string `json:"DeveloperUserIdentifier"`
-	DeveloperProviderName   string `json:"DeveloperProviderName"`
 	MaxResults              int    `json:"MaxResults"`
 }
 
@@ -176,7 +180,7 @@ func (h *Handler) handleLookupDeveloperIdentity(
 		in.IdentityPoolID,
 		in.IdentityID,
 		in.DeveloperUserIdentifier,
-		in.DeveloperProviderName,
+		"",
 	)
 	if err != nil {
 		return nil, err

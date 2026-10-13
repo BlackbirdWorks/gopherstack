@@ -107,9 +107,7 @@ func (b *InMemoryBackend) ListCollections(maxResults int32, nextToken string) ([
 	b.mu.RLock("ListCollections")
 	defer b.mu.RUnlock()
 
-	result, outToken := paginateTable(
+	return paginateTable(
 		b.collections, maxResults, maxCollectionsPerPage, nextToken, collectionKeyFn, (*storedCollection).toCollection,
 	)
-
-	return result, outToken, nil
 }

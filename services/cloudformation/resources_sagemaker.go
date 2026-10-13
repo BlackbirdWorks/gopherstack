@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
@@ -142,9 +143,12 @@ func (rc *ResourceCreator) deleteSageMakerResource(
 
 		return true, ignoreNotFound(err, sagemakerbackend.ErrEndpointConfigNotFound)
 	case resTypeSageMakerEndpoint:
-		err := b.DeleteEndpoint(ctx, sagemakerNameFromARN(physicalID))
+		name := sagemakerNameFromARN(physicalID)
+		if err := b.DeleteEndpoint(ctx, name); err != nil {
+			return true, ignoreNotFound(err, sagemakerbackend.ErrEndpointNotFound)
+		}
 
-		return true, ignoreNotFound(err, sagemakerbackend.ErrEndpointNotFound)
+		return true, waitSageMakerEndpointGone(ctx, b, name)
 	case resTypeSageMakerNotebookInstance:
 		// DeleteNotebookInstance requires Stopped status (real AWS semantics);
 		// StopNotebookInstance is the synchronous, unconditional variant (as
@@ -874,4 +878,35 @@ func (rc *ResourceCreator) createSageMakerImageVersion(
 	physicalIDs[logicalID+"/Version"] = strconv.Itoa(v.Version)
 
 	return v.ImageVersionArn, nil
+}
+
+var errSageMakerEndpointDeleting = errors.New("SageMaker endpoint still deleting")
+
+const (
+	sagemakerEndpointGoneTimeout   = 10 * time.Second
+	sagemakerEndpointGonePollEvery = 10 * time.Millisecond
+)
+
+// waitSageMakerEndpointGone blocks until the endpoint leaves Deleting, since
+// CloudFormation only reports DELETE_COMPLETE once the resource is gone.
+func waitSageMakerEndpointGone(ctx context.Context, b *sagemakerbackend.InMemoryBackend, name string) error {
+	deadline := time.NewTimer(sagemakerEndpointGoneTimeout)
+	defer deadline.Stop()
+
+	tick := time.NewTicker(sagemakerEndpointGonePollEvery)
+	defer tick.Stop()
+
+	for {
+		if _, err := b.DescribeEndpoint(ctx, name); errors.Is(err, sagemakerbackend.ErrEndpointNotFound) {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return fmt.Errorf("%w: %s after %s", errSageMakerEndpointDeleting, name, sagemakerEndpointGoneTimeout)
+		case <-tick.C:
+		}
+	}
 }

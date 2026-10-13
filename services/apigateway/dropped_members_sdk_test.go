@@ -286,3 +286,48 @@ func TestSDK_PatchAuthTypeAndSecurityPolicy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, apigwtypes.SecurityPolicyTls12, rest.SecurityPolicy)
 }
+
+func TestSDK_CreateRestApiKeepsSecurityPolicyAndVersion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		policy   apigwtypes.SecurityPolicy
+		version  string
+		wantPol  apigwtypes.SecurityPolicy
+		wantVers string
+	}{
+		{
+			name:     "both",
+			policy:   apigwtypes.SecurityPolicyTls12,
+			version:  "v1.2",
+			wantPol:  apigwtypes.SecurityPolicyTls12,
+			wantVers: "v1.2",
+		},
+		{name: "neither"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newRealClient(t)
+			ctx := t.Context()
+
+			in := &apigwsdk.CreateRestApiInput{Name: aws.String("sp-" + tt.name), SecurityPolicy: tt.policy}
+			if tt.version != "" {
+				in.Version = aws.String(tt.version)
+			}
+
+			created, err := client.CreateRestApi(ctx, in)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantPol, created.SecurityPolicy)
+			assert.Equal(t, tt.wantVers, aws.ToString(created.Version))
+
+			got, err := client.GetRestApi(ctx, &apigwsdk.GetRestApiInput{RestApiId: created.Id})
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantPol, got.SecurityPolicy)
+			assert.Equal(t, tt.wantVers, aws.ToString(got.Version))
+		})
+	}
+}

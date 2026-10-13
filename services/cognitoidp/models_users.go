@@ -29,6 +29,7 @@ type User struct {
 	// N) derived from the plaintext password at every point PasswordHash is set (see
 	// hashAndSRP in srp.go). USER_SRP_AUTH validates against these instead of PasswordHash.
 	SRPSalt            string          `json:"srpSalt,omitempty"`
+	PasswordHistory    []string        `json:"passwordHistory,omitempty"`
 	SRPVerifier        string          `json:"srpVerifier,omitempty"`
 	UserMFASettingList []string        `json:"userMFASettingList,omitempty"`
 	MFAOptions         []MFAOptionType `json:"mfaOptions,omitempty"`

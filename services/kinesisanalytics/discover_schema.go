@@ -26,12 +26,8 @@ const (
 )
 
 // DiscoverInputSchema samples real records from the requested source and infers a SourceSchema
-// from them. Reachability depends on which readers are wired: SetS3ObjectReader for an
-// S3Configuration source, SetKinesisStreamReader for a ResourceARN naming a Kinesis stream.
-// Neither is called by cli.go today (see README's known gaps), so every request currently
-// returns ErrUnableToDetectSchema -- the same error real AWS returns when it cannot reach or
-// sample the named source, since DiscoverInputSchema's error set has no
-// ResourceNotFoundException (see ErrUnableToDetectSchema's doc comment).
+// from them. A source whose reader is unwired or has nothing to sample yields
+// ErrUnableToDetectSchema, as the operation's error set has no ResourceNotFoundException.
 func (b *InMemoryBackend) DiscoverInputSchema(
 	ctx context.Context,
 	resourceARN string,
@@ -45,6 +41,8 @@ func (b *InMemoryBackend) DiscoverInputSchema(
 	switch {
 	case s3cfg != nil:
 		raw, err = b.sampleS3Object(ctx, s3cfg)
+	case strings.Contains(resourceARN, ":deliverystream/"):
+		raw, err = b.sampleFirehoseStream(resourceARN)
 	case resourceARN != "":
 		raw, err = b.sampleKinesisStream(resourceARN)
 	default:
@@ -147,6 +145,34 @@ func (b *InMemoryBackend) sampleKinesisStream(resourceARN string) ([]string, err
 
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("%w: stream %q has no records to sample", ErrUnableToDetectSchema, streamName)
+	}
+
+	return raw, nil
+}
+
+// sampleFirehoseStream reads the records most recently ingested by a delivery stream.
+func (b *InMemoryBackend) sampleFirehoseStream(resourceARN string) ([]string, error) {
+	b.mu.RLock("sampleFirehoseStream")
+	reader := b.firehoseReader
+	b.mu.RUnlock()
+
+	if reader == nil {
+		return nil, fmt.Errorf("%w: no Firehose backend wired", ErrUnableToDetectSchema)
+	}
+
+	records, err := reader.SampleRecords(resourceARN, maxSampleRecords)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrUnableToDetectSchema, err.Error())
+	}
+
+	raw := make([]string, 0, len(records))
+
+	for _, rec := range records {
+		raw = append(raw, string(rec))
+	}
+
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("%w: delivery stream %q has no records to sample", ErrUnableToDetectSchema, resourceARN)
 	}
 
 	return raw, nil

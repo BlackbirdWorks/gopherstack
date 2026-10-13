@@ -200,7 +200,21 @@ func (h *Handler) handleCreateBucket(_ context.Context, body []byte) ([]byte, er
 		return nil, createErr
 	}
 
-	return marshalResponse(opsEnvelope(ops))
+	resp := createBucketResponse{Operations: operationsToWire(ops)}
+
+	if pg, getErr := h.Backend.GetBuckets(req.BucketName, ""); getErr == nil && len(pg.Data) > 0 {
+		w := bucketToWire(pg.Data[0])
+		w.Cors = nil
+		w.ResourcesReceivingAccess = nil
+		resp.Bucket = &w
+	}
+
+	return marshalResponse(resp)
+}
+
+type createBucketResponse struct {
+	Bucket     *bucketWire     `json:"bucket,omitempty"`
+	Operations []operationWire `json:"operations,omitempty"`
 }
 
 type bucketNameRequest struct {

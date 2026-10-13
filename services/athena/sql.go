@@ -10,18 +10,25 @@ import (
 type sqlResult struct {
 	columns []sqlColumn
 	rows    [][]string // each element is a row of string-encoded values
+	nulls   [][]bool   // parallel to rows when set; a nil entry means no NULL in that row
 }
 
 type sqlColumn struct {
 	name string
 	typ  string
+	glue string
 }
 
-// sqlResultPage is a paginated slice of a sqlResult.
-type sqlResultPage struct {
+func (r *sqlResult) isNull(row, col int) bool {
+	return row < len(r.nulls) && col < len(r.nulls[row]) && r.nulls[row][col]
+}
+
+// SQLResultPage is a paginated slice of a sqlResult.
+type SQLResultPage struct {
 	NextToken string
 	Columns   []sqlColumn
 	Rows      [][]string
+	Nulls     [][]bool
 }
 
 // InsertRows loads test data into a table for SQL execution.
@@ -177,14 +184,14 @@ func applyPredicateAndProject(rawRows []map[string]any, selected []sqlColumn, pr
 // GetQueryResults returns a paginated result page for a query execution.
 // nextToken is a decimal-encoded row offset; empty string means start from 0.
 // maxResults = 0 means "use default page size (1000)".
-func (b *InMemoryBackend) GetQueryResults(id, nextToken string, maxResults int) (*sqlResultPage, error) {
+func (b *InMemoryBackend) GetQueryResults(id, nextToken string, maxResults int) (*SQLResultPage, error) {
 	b.mu.RLock("GetQueryResults-lookup")
 	res, ok := b.queryResults[id]
 	b.mu.RUnlock()
 
 	if !ok {
 		// execution exists but has no stored result → empty
-		return &sqlResultPage{}, nil
+		return &SQLResultPage{}, nil
 	}
 
 	if maxResults <= 0 || maxResults > athenaMaxQueryResultsPageSize {
@@ -203,14 +210,18 @@ func (b *InMemoryBackend) GetQueryResults(id, nextToken string, maxResults int) 
 	}
 
 	if offset >= len(res.rows) {
-		return &sqlResultPage{Columns: res.columns}, nil
+		return &SQLResultPage{Columns: res.columns}, nil
 	}
 
 	end := min(offset+maxResults, len(res.rows))
 
-	page := &sqlResultPage{
+	page := &SQLResultPage{
 		Columns: res.columns,
 		Rows:    res.rows[offset:end],
+	}
+
+	if res.nulls != nil {
+		page.Nulls = res.nulls[offset:end]
 	}
 
 	if end < len(res.rows) {
@@ -329,10 +340,10 @@ func anyToString(v any) string {
 		return strconv.FormatFloat(t, 'f', -1, 64)
 	case bool:
 		if t {
-			return "true"
+			return strTrue
 		}
 
-		return "false"
+		return strFalse
 	default:
 		return fmt.Sprintf("%v", v)
 	}

@@ -49,7 +49,7 @@ func (b *InMemoryBackend) CreateConnectorFull(in *CreateConnectorInput) (*Connec
 	b.mu.Lock("CreateConnector")
 	defer b.mu.Unlock()
 
-	connectorID := "c-" + uuid.NewString()[:20]
+	connectorID := newResourceID("c-")
 
 	merged := make(map[string]string, len(in.Tags))
 	maps.Copy(merged, in.Tags)

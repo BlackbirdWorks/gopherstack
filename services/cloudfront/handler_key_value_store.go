@@ -37,7 +37,8 @@ type keyValueStoreRequestFields struct {
 }
 
 type createKeyValueStoreRequestXML struct {
-	XMLName xml.Name `xml:"CreateKeyValueStoreRequest"`
+	ImportSource *kvsImportSourceXML `xml:"ImportSource"`
+	XMLName      xml.Name            `xml:"CreateKeyValueStoreRequest"`
 	keyValueStoreRequestFields
 }
 
@@ -71,9 +72,20 @@ func (h *Handler) handleCreateKeyValueStore(c *echo.Context) error {
 		req.Name = generateID()
 	}
 
+	imported, importErr := h.readKVSImport(c.Request().Context(), req.ImportSource)
+	if importErr != nil {
+		return h.handleError(c, importErr)
+	}
+
 	kvs, createErr := h.Backend.CreateKeyValueStore(req.Name, req.Comment, tagsXMLToMap(req.Tags))
 	if createErr != nil {
 		return h.handleError(c, createErr)
+	}
+
+	if len(imported) > 0 {
+		if _, putErr := h.Backend.UpdateKVSValues(kvs.ID, "", imported, nil); putErr != nil {
+			return h.handleError(c, putErr)
+		}
 	}
 
 	c.Response().Header().Set("ETag", kvs.ETag)

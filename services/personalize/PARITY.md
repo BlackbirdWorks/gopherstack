@@ -19,7 +19,7 @@ service: personalize
 sdk_module: aws-sdk-go-v2/service/personalize@v1.50.4  # go.mod pins v1.50.4; prior audit passes cited v1.47.11 in this file -- this pass verified every field/citation below against the actually-pinned v1.50.4 module in the Go module cache
 sibling_sdk_modules: [aws-sdk-go-v2/service/personalizeruntime@v1.36.4]  # GetRecommendations/GetPersonalizedRanking/GetActionRecommendations; see the Runtime family below
 last_audit_commit: a8b26ceaa
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-10
 overall: A
 ops:
   CreateDatasetGroup: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'added domain enum validation (ECOMMERCE/VIDEO_ON_DEMAND, or empty for a Custom group) -- an unrecognized value previously succeeded silently'}
@@ -112,6 +112,14 @@ leaks: {status: clean, note: no goroutines/janitors in this backend; all state i
 ---
 
 ## Notes
+
+## 2026-10-10 realism pass
+
+- Pagination bug fixed: the cursor was the key of the next item and the resume skipped it, so one item was lost at every page boundary. Tokens are now opaque, resume after the last returned item, and an unknown token returns InvalidNextTokenException; maxResults outside 1-100 is rejected.
+- Names (datasets, groups, solutions, campaigns, jobs, ...) follow `^[a-zA-Z0-9][a-zA-Z0-9\-_]*$`, max 63; schema must be a JSON Avro record (namespace/fields not checked, in-repo callers send minimal schemas); filter expressions must start with INCLUDE/EXCLUDE (max 2500); job role ARNs must be IAM role ARNs; CreateSolution needs a recipe unless performAutoML.
+- Data deletion jobs now end COMPLETED (the SDK status chain is PENDING > IN_PROGRESS > COMPLETED), not ACTIVE; campaign minProvisionedTPS defaults to 1.
+- Opt-in `SetLifecycleDelay` (default 0): resources report CREATE PENDING, CREATE IN_PROGRESS, then ACTIVE; batch jobs PENDING, IN PROGRESS, ACTIVE; deletion jobs PENDING, IN_PROGRESS, COMPLETED. Status is derived from age, so snapshots restore settled.
+- Error messages drop the duplicated code prefix.
 
 ### 2026-09-19: GetActionRecommendations implemented
 

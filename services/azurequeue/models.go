@@ -40,6 +40,7 @@ type storedMessage struct {
 	PopReceipt      string
 	Text            string
 	DequeueCount    int64
+	seq             uint64
 }
 
 // info returns a read-only MessageInfo snapshot. includePopReceipt is false
@@ -83,6 +84,7 @@ type storedQueue struct {
 	CreatedAt time.Time
 	Name      string
 	Messages  []*storedMessage
+	idx       queueIndex
 }
 
 // --- Azure Queue REST XML wire shapes ---

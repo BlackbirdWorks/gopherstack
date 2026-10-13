@@ -5,9 +5,10 @@ import "errors"
 // OrganizationsDirectory resolves the account IDs beneath an OU or root, for
 // SERVICE_MANAGED StackSet deployment-target expansion (DeploymentTargets.
 // OrganizationalUnitIds). Satisfied structurally by
-// organizations.InMemoryBackend.ResolveAccountIDsUnderParent.
+// organizations.InMemoryBackend.
 type OrganizationsDirectory interface {
 	ResolveAccountIDsUnderParent(parentID string) ([]string, error)
+	OrganizationalUnitIDsForAccount(accountID string) ([]string, error)
 }
 
 // SetOrganizationsDirectory wires an OrganizationsDirectory so SERVICE_MANAGED
@@ -31,6 +32,9 @@ var (
 	ErrOrganizationsAccessNotActive = errors.New(
 		"organizations trusted access is not activated: call ActivateOrganizationsAccess first",
 	)
+
+	// ErrAccountNotInOrganizationalUnits is returned when an imported stack's account is outside every named OU.
+	ErrAccountNotInOrganizationalUnits = errors.New("account is not a member of any specified organizational unit")
 
 	// ErrServiceManagedRequired is returned when OU-based deployment targets
 	// are used against a non-SERVICE_MANAGED StackSet.

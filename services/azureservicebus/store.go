@@ -81,6 +81,7 @@ type messageQueue struct {
 	notify     chan struct{}
 	Messages   []*storedMessage
 	DeadLetter []*storedMessage
+	idx        mqIndex
 }
 
 // newMessageQueue returns a messageQueue with its notify channel ready to

@@ -125,9 +125,11 @@ func (h *Handler) startJanitor(ctx context.Context) {
 		return
 	}
 
+	wait := h.Backend.StartJanitor(runCtx, defaultAsyncInvokeCompletionDelay)
+
 	go func() {
 		defer close(run.done)
-		h.Backend.RunJanitor(runCtx, defaultAsyncInvokeCompletionDelay)
+		wait()
 	}()
 }
 
@@ -311,6 +313,10 @@ func (h *Handler) handleModelPath(c *echo.Context, method, path string, body []b
 	modelID := extractModelID(path, op)
 	if modelID == "" {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "missing modelId in path"))
+	}
+
+	if msg := validateModelID(modelID); msg != "" {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", msg))
 	}
 
 	switch op {
@@ -497,6 +503,11 @@ func extractGuardrailIDAndVersion(path string) (string, string) {
 }
 
 func errorResponse(code, msg string) map[string]string {
+	if prefix, rest, found := strings.Cut(msg, ": "); found && strings.HasSuffix(prefix, "Exception") &&
+		!strings.ContainsAny(prefix, " \t") {
+		msg = rest
+	}
+
 	return map[string]string{"__type": code, keyMessage: msg}
 }
 

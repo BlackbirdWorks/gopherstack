@@ -3,6 +3,7 @@ package awsconfig
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -132,6 +133,10 @@ func (h *Handler) handleDescribeConfigurationRecorders(
 
 	recorders := h.Backend.DescribeConfigurationRecorders(names)
 
+	if err := requireNamed(in.ConfigurationRecorderNames, len(recorders), ErrNotFound); err != nil {
+		return nil, err
+	}
+
 	return &describeConfigurationRecordersOutput{ConfigurationRecorders: toWireConfigurationRecorders(recorders)}, nil
 }
 
@@ -200,6 +205,10 @@ func (h *Handler) handleDescribeConfigurationRecorderStatus(
 	}
 
 	statuses := h.Backend.DescribeConfigurationRecorderStatus(names)
+
+	if err := requireNamed(in.ConfigurationRecorderNames, len(statuses), ErrNotFound); err != nil {
+		return nil, err
+	}
 
 	return &describeConfigurationRecorderStatusOutput{ConfigurationRecordersStatus: statuses}, nil
 }
@@ -393,4 +402,22 @@ func (h *Handler) buildConfigurationRecorderDispatch() map[string]service.JSONOp
 		),
 		opListConfigurationRecorders: service.WrapOp(h.handleListConfigurationRecorders),
 	}
+}
+
+// requireNamed errors with notFound when an explicit name filter matched fewer distinct resources than names.
+func requireNamed(names []string, found int, notFound error) error {
+	if len(names) == 0 {
+		return nil
+	}
+
+	distinct := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		distinct[n] = struct{}{}
+	}
+
+	if found < len(distinct) {
+		return fmt.Errorf("%w: %s", notFound, strings.Join(names, ", "))
+	}
+
+	return nil
 }

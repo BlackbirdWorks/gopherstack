@@ -618,7 +618,7 @@ func TestListPermissions_SortedDeterministic(t *testing.T) {
 			DataLakePrincipalIdentifier: "arn:aws:iam::000000000000:user/alice",
 		},
 		Resource:    &lakeformation.Resource{Database: &lakeformation.DatabaseResource{Name: "db1"}},
-		Permissions: []string{"SELECT"},
+		Permissions: []string{"DESCRIBE"},
 	})
 
 	perms, _ := b.ListPermissions(nil, 0, "", nil, "")

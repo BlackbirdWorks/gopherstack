@@ -19,12 +19,21 @@ func (b *InMemoryBackend) CreateEventDataStore(
 	kv map[string]string,
 	startIngestion bool,
 ) (*EventDataStore, error) {
-	b.mu.Lock("CreateEventDataStore")
-	defer b.mu.Unlock()
-
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
+
+	if err := validateEventDataStoreName(name); err != nil {
+		return nil, err
+	}
+
+	if err := validateRetentionPeriod(retentionPeriod); err != nil {
+		return nil, err
+	}
+
+	b.mu.Lock("CreateEventDataStore")
+	defer b.mu.Unlock()
+
 	if matches := b.edsByName.Get(name); len(matches) > 0 {
 		return nil, fmt.Errorf("%w: event data store %s already exists", ErrEventDataStoreAlreadyExists, name)
 	}
@@ -122,6 +131,18 @@ func (b *InMemoryBackend) UpdateEventDataStore(
 	advancedEventSelectors []AdvancedEventSelector,
 	billingMode, kmsKeyID string,
 ) (*EventDataStore, error) {
+	if name != "" {
+		if err := validateEventDataStoreName(name); err != nil {
+			return nil, err
+		}
+	}
+
+	if retentionPeriod != nil {
+		if err := validateRetentionPeriod(*retentionPeriod); err != nil {
+			return nil, err
+		}
+	}
+
 	b.mu.Lock("UpdateEventDataStore")
 	defer b.mu.Unlock()
 

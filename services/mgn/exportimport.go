@@ -68,7 +68,7 @@ func (b *InMemoryBackend) StartExport(
 }
 
 func (b *InMemoryBackend) scheduleExportLocked(id string) {
-	b.work.After("ExportStarted", asyncTransitionDelay, func() {
+	b.work.After("ExportStarted", b.transitionDelay(), func() {
 		b.mu.Lock("ExportStarted-async")
 		if t, ok := b.exportTasks.Get(id); ok && t.Status == TaskStatusPending {
 			t.Status = TaskStatusStarted
@@ -76,7 +76,7 @@ func (b *InMemoryBackend) scheduleExportLocked(id string) {
 		}
 		b.mu.Unlock()
 
-		b.work.After("ExportSucceeded", asyncTransitionDelay, func() {
+		b.work.After("ExportSucceeded", b.transitionDelay(), func() {
 			b.mu.Lock("ExportSucceeded-async")
 			defer b.mu.Unlock()
 
@@ -166,7 +166,7 @@ func (b *InMemoryBackend) StartImport(source *S3BucketSource, importTags map[str
 // services/dynamodb's ImportTable, which likewise never holds its own
 // coarse lock during S3 I/O.
 func (b *InMemoryBackend) scheduleImportLocked(id string, source *S3BucketSource) {
-	b.work.After("ImportStarted", asyncTransitionDelay, func() {
+	b.work.After("ImportStarted", b.transitionDelay(), func() {
 		b.mu.Lock("ImportStarted-async")
 		t, ok := b.importTasks.Get(id)
 		started := ok && t.Status == TaskStatusPending
@@ -182,7 +182,7 @@ func (b *InMemoryBackend) scheduleImportLocked(id string, source *S3BucketSource
 
 		result, parseErr := b.readImportSourceServers(context.Background(), source)
 
-		b.work.After("ImportSucceeded", asyncTransitionDelay, func() {
+		b.work.After("ImportSucceeded", b.transitionDelay(), func() {
 			b.finishImportLocked(id, result, parseErr)
 		})
 	})
@@ -323,14 +323,14 @@ func (b *InMemoryBackend) StartImportFileEnrichment(
 }
 
 func (b *InMemoryBackend) scheduleImportFileEnrichmentLocked(id string) {
-	b.work.After("ImportFileEnrichmentStarted", asyncTransitionDelay, func() {
+	b.work.After("ImportFileEnrichmentStarted", b.transitionDelay(), func() {
 		b.mu.Lock("ImportFileEnrichmentStarted-async")
 		if j, ok := b.importFileEnrichments.Get(id); ok && j.Status == TaskStatusPending {
 			j.Status = TaskStatusStarted
 		}
 		b.mu.Unlock()
 
-		b.work.After("ImportFileEnrichmentSucceeded", asyncTransitionDelay, func() {
+		b.work.After("ImportFileEnrichmentSucceeded", b.transitionDelay(), func() {
 			b.mu.Lock("ImportFileEnrichmentSucceeded-async")
 			defer b.mu.Unlock()
 

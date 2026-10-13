@@ -112,6 +112,10 @@ func (b *InMemoryBackend) CreateConfigurationSet(name string, tags map[string]st
 		return nil, fmt.Errorf("%w: ConfigurationSetName is required", ErrInvalidInput)
 	}
 
+	if err := validateConfigurationSetName(name); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateConfigurationSet")
 	defer b.mu.Unlock()
 
@@ -141,7 +145,7 @@ func (b *InMemoryBackend) GetConfigurationSet(name string) (*ConfigurationSet, e
 
 	cs, ok := b.configurationSets.Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
+		return nil, configSetMissing(name)
 	}
 
 	cp := cs.Clone()
@@ -178,7 +182,7 @@ func (b *InMemoryBackend) DeleteConfigurationSet(name string) error {
 	defer b.mu.Unlock()
 
 	if !b.configurationSets.Has(name) {
-		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
+		return configSetMissing(name)
 	}
 
 	b.configurationSets.Delete(name)
@@ -204,7 +208,7 @@ func (b *InMemoryBackend) PutConfigurationSetArchivingOptions(name, archiveARN s
 
 	cs, ok := b.configurationSets.Get(name)
 	if !ok {
-		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
+		return configSetMissing(name)
 	}
 
 	cs.ArchivingOptions = &ArchivingOptions{ArchiveARN: archiveARN}
@@ -221,7 +225,7 @@ func (b *InMemoryBackend) PutConfigurationSetDeliveryOptions(
 
 	cs, ok := b.configurationSets.Get(name)
 	if !ok {
-		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
+		return configSetMissing(name)
 	}
 
 	cs.DeliveryTLSPolicy = tlsPolicy
@@ -240,7 +244,7 @@ func (b *InMemoryBackend) PutConfigurationSetReputationOptions(
 
 	cs, ok := b.configurationSets.Get(name)
 	if !ok {
-		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
+		return configSetMissing(name)
 	}
 
 	cs.ReputationMetricsEnabled = metricsEnabled
@@ -258,7 +262,7 @@ func (b *InMemoryBackend) PutConfigurationSetSendingOptions(
 
 	cs, ok := b.configurationSets.Get(name)
 	if !ok {
-		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
+		return configSetMissing(name)
 	}
 
 	cs.SendingEnabled = sendingEnabled
@@ -282,7 +286,7 @@ func (b *InMemoryBackend) PutConfigurationSetSuppressionOptions(
 
 	cs, ok := b.configurationSets.Get(name)
 	if !ok {
-		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
+		return configSetMissing(name)
 	}
 
 	reasons := make([]string, len(suppressedReasons))
@@ -303,7 +307,7 @@ func (b *InMemoryBackend) PutConfigurationSetTrackingOptions(
 
 	cs, ok := b.configurationSets.Get(name)
 	if !ok {
-		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
+		return configSetMissing(name)
 	}
 
 	cs.TrackingCustomRedirectDomain = customRedirectDomain

@@ -97,12 +97,18 @@ func (b *InMemoryBackend) DescribeRegions(
 	b.mu.RLock("DescribeRegions")
 	defer b.mu.RUnlock()
 
+	ownerRegion := region
 	if _, ok := b.directoryGet(region, directoryID); !ok {
-		return nil, "", ErrDirectoryNotFoundDDNE
+		_, replicaOwnerRegion, replicaOK := b.replicaOwner(region, directoryID)
+		if !replicaOK {
+			return nil, "", ErrDirectoryNotFoundDDNE
+		}
+
+		ownerRegion = replicaOwnerRegion
 	}
 
 	var all []storedRegion
-	for _, r := range b.dsRegionsInRegion(region) {
+	for _, r := range b.dsRegionsInRegion(ownerRegion) {
 		if r.DirectoryID != directoryID {
 			continue
 		}

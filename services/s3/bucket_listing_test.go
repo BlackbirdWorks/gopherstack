@@ -351,7 +351,7 @@ func TestHandler_ListObjectsV2(t *testing.T) {
 		{name: "common prefixes with delimiter"},
 		{name: "delimiter and prefix filter"},
 		{name: "start-after excludes items before it"},
-		{name: "invalid max-keys defaults to 1000"},
+		{name: "negative max-keys rejected"},
 	}
 
 	for _, tt := range tests {
@@ -414,11 +414,12 @@ func TestHandler_ListObjectsV2(t *testing.T) {
 				assert.Contains(t, body, "<Key>b</Key>")
 				assert.Contains(t, body, "<Key>c</Key>")
 
-			case "invalid max-keys defaults to 1000":
+			case "negative max-keys rejected":
 				req := httptest.NewRequest(http.MethodGet, "/bkt?list-type=2&max-keys=-1", nil)
 				rec := httptest.NewRecorder()
 				serveS3Handler(handler, rec, req)
-				assert.Equal(t, http.StatusOK, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+				assert.Contains(t, rec.Body.String(), "maxKeys")
 			}
 		})
 	}

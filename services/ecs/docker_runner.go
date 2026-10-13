@@ -66,6 +66,7 @@ type dockerClient interface {
 		containerID string,
 		options dockertypes.WaitOptions,
 	) dockertypes.WaitResult
+	ContainerStats(ctx context.Context, containerID string) (io.ReadCloser, error)
 }
 
 // NewDockerRunner creates a TaskRunner backed by the local Docker daemon.
@@ -104,6 +105,8 @@ type realDockerRunner struct {
 	cli               dockerClient
 	cwLogs            CWLogsBackend
 	completionHandler func(taskArn, containerName string, exitCode int)
+	taskEnv           func(task *Task, containerName string) []string
+	attach            func(ctx context.Context, containerID string) error
 	svcCtx            context.Context
 	logWG             sync.WaitGroup
 	waitWG            sync.WaitGroup
@@ -137,6 +140,46 @@ func (r *realDockerRunner) SetTaskCompletionHandler(fn func(taskArn, containerNa
 	defer r.mu.Unlock()
 
 	r.completionHandler = fn
+}
+
+// SetTaskEnvProvider wires the ECS runtime environment injected into every container this runner creates.
+func (r *realDockerRunner) SetTaskEnvProvider(fn func(task *Task, containerName string) []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.taskEnv = fn
+}
+
+// SetContainerAttacher wires the hook that runs on each created container before it starts.
+func (r *realDockerRunner) SetContainerAttacher(fn func(ctx context.Context, containerID string) error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.attach = fn
+}
+
+func (r *realDockerRunner) attachContainer(ctx context.Context, containerID string) error {
+	r.mu.Lock()
+	fn := r.attach
+	r.mu.Unlock()
+
+	if fn == nil {
+		return nil
+	}
+
+	return fn(ctx, containerID)
+}
+
+func (r *realDockerRunner) runtimeEnv(task *Task, containerName string) []string {
+	r.mu.Lock()
+	fn := r.taskEnv
+	r.mu.Unlock()
+
+	if fn == nil {
+		return nil
+	}
+
+	return fn(task, containerName)
 }
 
 func (r *realDockerRunner) taskCompletionHandler() func(taskArn, containerName string, exitCode int) {
@@ -196,7 +239,8 @@ func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
 		started = append(started, containerID)
 
 		if cwLogs != nil {
-			if group, stream, ok := awslogsTarget(cd, taskID); ok {
+			if group, stream, ok := awslogsContainerTarget(cd, taskID, containerID); ok {
+				_ = cwLogs.EnsureLogGroupAndStream(group, stream)
 				r.forwardContainerLogs(cwLogs, containerID, group, stream)
 			}
 		}
@@ -283,7 +327,7 @@ func (r *realDockerRunner) createContainer(
 	cd ContainerDefinition,
 ) (string, error) {
 	portBindings, exposedPorts := buildPortMappings(cd.PortMappings)
-	env := buildEnv(cd.Environment)
+	env := append(r.runtimeEnv(task, cd.Name), buildEnv(cd.Environment)...)
 
 	resp, err := r.cli.ContainerCreate(
 		ctx,
@@ -307,6 +351,12 @@ func (r *realDockerRunner) createContainer(
 		return "", fmt.Errorf("create container for %s: %w", cd.Image, err)
 	}
 
+	if attachErr := r.attachContainer(ctx, resp.ID); attachErr != nil {
+		_ = r.cli.ContainerRemove(ctx, resp.ID, dockertypes.RemoveOptions{Force: true})
+
+		return "", fmt.Errorf("attach container %s to link-local network: %w", resp.ID, attachErr)
+	}
+
 	return resp.ID, nil
 }
 
@@ -321,8 +371,18 @@ func buildPortMappings(mappings []PortMapping) (dockernetwork.PortMap, dockernet
 			proto = transportTCP
 		}
 
+		if pr, isRange := parsePortRange(pm.ContainerPortRange); isRange {
+			for p := pr.start; p <= pr.end; p++ {
+				if rp, rerr := dockernetwork.ParsePort(fmt.Sprintf("%d/%s", p, proto)); rerr == nil {
+					exposedPorts[rp] = struct{}{}
+				}
+			}
+
+			continue
+		}
+
 		containerPort, err := dockernetwork.ParsePort(fmt.Sprintf("%d/%s", pm.ContainerPort, proto))
-		if err != nil {
+		if err != nil || pm.ContainerPort == 0 {
 			continue
 		}
 
@@ -346,6 +406,14 @@ func buildEnv(kvs []KeyValuePair) []string {
 	}
 
 	return env
+}
+
+// ContainerIDs returns the Docker container IDs started for taskArn, in task-definition container order.
+func (r *realDockerRunner) ContainerIDs(taskArn string) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return append([]string(nil), r.containers[taskArn]...)
 }
 
 func (r *realDockerRunner) StopTask(task *Task) error {

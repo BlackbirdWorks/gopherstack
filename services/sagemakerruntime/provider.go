@@ -1,6 +1,8 @@
 package sagemakerruntime
 
 import (
+	"context"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
@@ -39,21 +41,69 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 }
 
 // wireEndpointLookup connects backend to the emulated SageMaker service's
-// endpoint registry when the app context exposes a SageMaker handler,
-// enabling real EndpointName existence/InService validation on invoke
-// calls. When the app context doesn't expose one (e.g. a standalone
-// sagemakerruntime-only test harness), backend keeps its pre-wiring
-// behaviour of accepting any EndpointName.
+// endpoint registry. The handler is resolved per call: the CLI stores its
+// handlers only after every provider's Init has run, so resolving here would
+// always see nil in a real server.
 func wireEndpointLookup(ctx *service.AppContext, backend *InMemoryBackend) {
 	hp, ok := ctx.Config.(sagemakerHandlerProvider)
 	if !ok {
 		return
 	}
 
-	sh, ok := hp.GetSageMakerHandler().(*sagemaker.Handler)
-	if !ok || sh == nil || sh.Backend == nil {
-		return
+	backend.SetEndpointLookup(lazyEndpointLookup{provider: hp})
+}
+
+// lazyEndpointLookup resolves the SageMaker backend at call time.
+type lazyEndpointLookup struct {
+	provider sagemakerHandlerProvider
+}
+
+func (l lazyEndpointLookup) DescribeEndpoint(ctx context.Context, name string) (*sagemaker.Endpoint, error) {
+	b, err := l.backend()
+	if err != nil {
+		return nil, err
 	}
 
-	backend.SetEndpointLookup(sh.Backend)
+	return b.DescribeEndpoint(ctx, name)
+}
+
+func (l lazyEndpointLookup) backend() (*sagemaker.InMemoryBackend, error) {
+	sh, ok := l.provider.GetSageMakerHandler().(*sagemaker.Handler)
+	if !ok || sh == nil || sh.Backend == nil {
+		return nil, errEndpointLookupUnavailable
+	}
+
+	return sh.Backend, nil
+}
+
+func (l lazyEndpointLookup) DescribeInferenceComponent(
+	ctx context.Context, name string,
+) (*sagemaker.InferenceComponent, error) {
+	b, err := l.backend()
+	if err != nil {
+		return nil, err
+	}
+
+	return b.DescribeInferenceComponent(ctx, name)
+}
+
+func (l lazyEndpointLookup) DescribeEndpointConfig(
+	ctx context.Context,
+	name string,
+) (*sagemaker.EndpointConfig, error) {
+	b, err := l.backend()
+	if err != nil {
+		return nil, err
+	}
+
+	return b.DescribeEndpointConfig(ctx, name)
+}
+
+func (l lazyEndpointLookup) DescribeModel(ctx context.Context, name string) (*sagemaker.Model, error) {
+	b, err := l.backend()
+	if err != nil {
+		return nil, err
+	}
+
+	return b.DescribeModel(ctx, name)
 }

@@ -62,6 +62,9 @@ func TestServerlessRepoBackend_IDs_Unique(t *testing.T) {
 				_, err := b.CreateApplication("my-app", "desc", "author", "", "1.0.0", nil, "", "", "")
 				require.NoError(t, err)
 
+				_, err = b.CreateApplicationVersion("my-app", "1.0.0", "https://example.com/src", "")
+				require.NoError(t, err)
+
 				id1 := tt.create(t, b)
 				id2 := tt.create(t, b)
 

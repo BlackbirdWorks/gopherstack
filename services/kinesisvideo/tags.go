@@ -22,7 +22,7 @@ func (b *InMemoryBackend) TagStream(name, streamARN string, tags map[string]stri
 	}
 
 	if len(s.Tags)+len(tags) > maxTagsPerStream {
-		return ErrValidation
+		return ErrTagLimit
 	}
 
 	maps.Copy(s.Tags, tags)
@@ -84,7 +84,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	}
 
 	if len(c.Tags)+len(tags) > maxTagsPerStream {
-		return ErrValidation
+		return ErrTagLimit
 	}
 
 	maps.Copy(c.Tags, tags)

@@ -35,6 +35,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		backend = NewInMemoryBackendWithContext(ctx.JanitorCtx, config.DefaultAccountID, config.DefaultRegion)
 	}
 
+	if ep, ok := ctx.Config.(interface{ GetS3Endpoint() string }); ok {
+		backend.SetDefaultEndpoint(ep.GetS3Endpoint())
+	}
+
 	handler := NewHandler(backend).WithJanitor()
 	handler.DefaultRegion = defaultRegion
 

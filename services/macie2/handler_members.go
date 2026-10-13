@@ -220,7 +220,7 @@ func (h *Handler) handleListMembers(query string) (any, int, error) {
 
 	members, nextToken, err := h.Backend.ListMembers(onlyAssociated, limit, q.Get("nextToken"))
 	if err != nil {
-		return nil, http.StatusInternalServerError, err
+		return nil, http.StatusBadRequest, err
 	}
 
 	resp := map[string]any{"members": members}

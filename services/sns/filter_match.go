@@ -46,6 +46,10 @@ func matchesBodyKeyConditions(
 	key string,
 	conditions []json.RawMessage,
 ) bool {
+	if subPolicy, nested := nestedSubPolicy(conditions); nested {
+		return matchesNestedBody(body[key], subPolicy)
+	}
+
 	rawVal, exists := body[key]
 	if !exists {
 		return matchesConditions("", false, conditions)
@@ -58,6 +62,32 @@ func matchesBodyKeyConditions(
 	}
 
 	return false
+}
+
+// matchesNestedBody applies a nested sub-policy to an object value, or to any
+// element when the value is an array of objects.
+func matchesNestedBody(raw json.RawMessage, subPolicyJSON string) bool {
+	if len(raw) == 0 {
+		return false
+	}
+
+	sub, err := parseFilterPolicy(subPolicyJSON)
+	if err != nil {
+		return false
+	}
+
+	var arr []json.RawMessage
+	if json.Unmarshal(raw, &arr) == nil {
+		for _, elem := range arr {
+			if matchesFilterPolicyMessageBody(sub, string(elem)) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	return matchesFilterPolicyMessageBody(sub, string(raw))
 }
 
 // bodyMatchValues extracts the candidate scalar string(s) from a JSON message

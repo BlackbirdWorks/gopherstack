@@ -1,9 +1,12 @@
 package servicediscovery
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // RegisterInstance registers an instance to a service. If the service has a
@@ -21,6 +24,10 @@ func (b *InMemoryBackend) RegisterInstance(serviceID, instanceID string, attrs m
 	svc, ok := b.services.Get(serviceID)
 	if !ok {
 		return "", fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
+	}
+
+	if err := b.checkInstanceQuotaLocked(svc, instanceID); err != nil {
+		return "", err
 	}
 
 	inst := &Instance{
@@ -244,14 +251,16 @@ func dnsHostname(svcName string, ns *Namespace) string {
 // route53.resyncDNSName -- because pkgs/dns.RegisterRecord only appends
 // values and never replaces or removes a single one. Caller must hold b.mu.
 func (b *InMemoryBackend) resyncServiceDNS(svc *Service) {
-	if b.dns == nil {
-		return
-	}
-
 	ns, _ := b.namespaces.Get(svc.NamespaceID)
 
 	hostname := dnsHostname(svc.Name, ns)
 	if hostname == "" {
+		return
+	}
+
+	b.syncHostedZoneRecords(svc, ns, hostname)
+
+	if b.dns == nil {
 		return
 	}
 
@@ -270,4 +279,72 @@ func (b *InMemoryBackend) resyncServiceDNS(svc *Service) {
 			b.dns.RegisterRecord(hostname, "CNAME", []string{cname})
 		}
 	}
+}
+
+// syncHostedZoneRecords rebuilds, per DnsRecord type configured on svc, the matching Route 53
+// record set from the registered instances; a type with no values has its record set removed.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) syncHostedZoneRecords(svc *Service, ns *Namespace, hostname string) {
+	if b.records == nil || svc.DNSConfig == nil || ns.Properties == nil || ns.Properties.DNSProperties == nil {
+		return
+	}
+
+	zoneID := ns.Properties.DNSProperties.HostedZoneID
+	instances := b.instancesByService.Get(svc.ID)
+
+	for _, rec := range svc.DNSConfig.DNSRecords {
+		attr := recordTypeAttribute(rec.Type)
+		if attr == "" {
+			continue
+		}
+
+		var values []string
+
+		for _, inst := range instances {
+			if v := inst.Attributes[attr]; v != "" {
+				values = append(values, v)
+			}
+		}
+
+		sort.Strings(values)
+
+		var err error
+		if len(values) == 0 {
+			err = b.records.DeleteRecordSet(zoneID, hostname, rec.Type)
+		} else {
+			err = b.records.PutRecordSet(zoneID, hostname, rec.Type, rec.TTL, values)
+		}
+
+		if err != nil {
+			logger.Load(context.Background()).ErrorContext(context.Background(),
+				"servicediscovery: Route 53 record sync failed",
+				"error", err, "hostname", hostname, "type", rec.Type)
+		}
+	}
+}
+
+// checkInstanceQuotaLocked enforces the Cloud Map instances-per-service and instances-per-namespace quotas for a
+// new instance; re-registering an existing instance ID updates it and is not counted.
+func (b *InMemoryBackend) checkInstanceQuotaLocked(svc *Service, instanceID string) error {
+	if b.instances.Has(instanceKey(svc.ID, instanceID)) {
+		return nil
+	}
+
+	if len(b.instancesByService.Get(svc.ID)) >= maxInstancesPerService {
+		return fmt.Errorf("%w: at most %d instances per service", ErrResourceLimitExceeded, maxInstancesPerService)
+	}
+
+	inNamespace := 0
+
+	for _, s := range b.services.All() {
+		if s.NamespaceID == svc.NamespaceID {
+			inNamespace += len(b.instancesByService.Get(s.ID))
+		}
+	}
+
+	if inNamespace >= maxInstancesPerNamespace {
+		return fmt.Errorf("%w: at most %d instances per namespace", ErrResourceLimitExceeded, maxInstancesPerNamespace)
+	}
+
+	return nil
 }

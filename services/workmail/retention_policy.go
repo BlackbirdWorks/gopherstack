@@ -56,7 +56,7 @@ func (b *InMemoryBackend) GetDefaultRetentionPolicy(orgID string) (*RetentionPol
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	pol, ok := b.retentionPolicies.Get(orgID)
 	if !ok {

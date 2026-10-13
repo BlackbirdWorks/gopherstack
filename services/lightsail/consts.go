@@ -338,3 +338,5 @@ const (
 // defensible, documented stand-in since this SDK module publishes no
 // specific Lightsail-certificate validity period.
 const certificateValidityMonths = 3
+
+const certificateValidationSuccess = "SUCCESS"

@@ -179,6 +179,7 @@ func serverlessCacheToXML(sc *ServerlessCache) serverlessCacheXML {
 		Engine:                 sc.Engine,
 		DailySnapshotTime:      sc.DailySnapshotTime,
 		KmsKeyID:               sc.KmsKeyID,
+		StorageEncryptionType:  storageEncryptionType(sc.KmsKeyID != "", true),
 		MajorEngineVersion:     sc.MajorEngineVersion,
 		NetworkType:            sc.NetworkType,
 		UserGroupID:            sc.UserGroupID,

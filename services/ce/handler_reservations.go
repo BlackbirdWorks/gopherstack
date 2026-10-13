@@ -64,7 +64,8 @@ func buildTimeSeriesResponse[T, A any](
 	}
 
 	keyFn := func(item T) string { return timePeriod(item)[timePeriodKeyStart] }
-	if nextPageToken != "" && !slices.ContainsFunc(items, func(item T) bool { return keyFn(item) == nextPageToken }) {
+	if nextPageToken != "" &&
+		!slices.ContainsFunc(items, func(item T) bool { return keyFn(item) == decodePageToken(nextPageToken) }) {
 		return nil, nil, "", fmt.Errorf("%w: unknown NextPageToken", ErrInvalidNextToken)
 	}
 

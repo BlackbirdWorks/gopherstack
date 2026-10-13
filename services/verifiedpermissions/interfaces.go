@@ -14,6 +14,12 @@ type StorageBackend interface {
 		tags map[string]string,
 		validationMode, deletionProtection, clientToken string,
 	) (*PolicyStore, error)
+	CreatePolicyStoreEncrypted(
+		description string,
+		tags map[string]string,
+		validationMode, deletionProtection, clientToken string,
+		enc *PolicyStoreEncryption,
+	) (*PolicyStore, error)
 	GetPolicyStore(policyStoreID string) (*PolicyStore, error)
 	ListPolicyStores(nextToken string, maxResults int) ([]PolicyStore, string)
 	UpdatePolicyStore(policyStoreID, description, validationMode, deletionProtection string) (*PolicyStore, error)

@@ -181,7 +181,12 @@ func (h *Handler) dispatchRestoreJobOps(
 		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"RestoreJobs": items}, next))
 	case opListRestoreJobSummaries:
 		q := c.Request().URL.Query()
-		summaries, next := pageQuery(q, h.Backend.ListRestoreJobSummaries(NewJobSummaryFilter(q)), summaryStateKey)
+		f := NewJobSummaryFilter(q)
+		if err := f.Validate(); err != nil {
+			return true, h.handleError(c, err)
+		}
+
+		summaries, next := pageQuery(q, h.Backend.ListRestoreJobSummaries(f), summaryStateKey)
 
 		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"RestoreJobSummaries": summaries}, next))
 	case opGetRestoreJobMetadata:

@@ -1,6 +1,7 @@
 package securityhub
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -55,7 +56,16 @@ func (h *Handler) handleBatchEnableStandards(c *echo.Context, body map[string]an
 		}
 	}
 
-	subscriptions, _ := h.Backend.BatchEnableStandards(requests)
+	subscriptions, failures := h.Backend.BatchEnableStandards(requests)
+	if len(subscriptions) == 0 && len(failures) > 0 {
+		return typedErrorResponse(
+			c,
+			http.StatusBadRequest,
+			"InvalidInputException",
+			fmt.Sprint(failures[0][keyErrorMessage]),
+		)
+	}
+
 	items := standardsSubscriptionsToMaps(subscriptions)
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -170,6 +180,13 @@ func (h *Handler) handleDescribeStandards(c *echo.Context) error {
 func (h *Handler) handleDescribeStandardsControls(c *echo.Context, subscriptionArn string) error {
 	nextToken := c.QueryParam("NextToken")
 	maxResults := queryInt(c)
+
+	if known, ok := h.Backend.(interface{ HasStandardsSubscription(string) bool }); ok &&
+		!known.HasStandardsSubscription(subscriptionArn) {
+		return typedErrorResponse(
+			c, http.StatusNotFound, "ResourceNotFoundException", "The standards subscription was not found.",
+		)
+	}
 
 	controls, nextOut := h.Backend.DescribeStandardsControls(subscriptionArn, nextToken, maxResults)
 	items := make([]map[string]any, len(controls))

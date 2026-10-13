@@ -107,7 +107,7 @@ func TestHandler_ListWorkforces_Filters(t *testing.T) {
 	}{
 		{name: "name contains match", body: map[string]any{"NameContains": "list-filter"}, wantCount: 1},
 		{name: "name contains no match", body: map[string]any{"NameContains": "nope"}, wantCount: 0},
-		{name: "max results zero page", body: map[string]any{"MaxResults": 0}, wantCount: 1},
+		{name: "max results one page", body: map[string]any{"MaxResults": 1}, wantCount: 1},
 	}
 
 	for _, tc := range tests {

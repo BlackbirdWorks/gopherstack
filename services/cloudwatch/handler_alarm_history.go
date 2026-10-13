@@ -2,7 +2,6 @@ package cloudwatch
 
 import (
 	"encoding/xml"
-	"net/http"
 	"net/url"
 	"strconv"
 	"time"
@@ -38,7 +37,7 @@ func (h *Handler) handleDescribeAlarmHistory(form url.Values, c *echo.Context) e
 		maxRecords,
 	)
 	if err != nil {
-		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return h.xmlBackendError(c, err)
 	}
 
 	type historyItemXML struct {

@@ -2,6 +2,7 @@ package resourcegroupstaggingapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"strings"
 
 	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 // maxARNsPerTagRequest is the maximum number of ARNs in a single TagResources or
@@ -162,11 +165,7 @@ func (b *InMemoryBackend) TagResources(ctx context.Context, input *TagResourcesI
 			if ok {
 				handled = true
 				if err != nil {
-					failed[arn] = FailureInfo{
-						ErrorCode:    "InternalServiceException",
-						ErrorMessage: err.Error(),
-						StatusCode:   http.StatusInternalServerError,
-					}
+					failed[arn] = failureForError(err)
 				}
 
 				break
@@ -188,4 +187,23 @@ func (b *InMemoryBackend) TagResources(ctx context.Context, input *TagResourcesI
 	}
 
 	return out, nil
+}
+
+// failureForError maps a tagger error to its FailedResourcesMap entry: client-side
+// errors are InvalidParameterException/400, anything else InternalServiceException/500.
+func failureForError(err error) FailureInfo {
+	if errors.Is(err, awserr.ErrNotFound) || errors.Is(err, awserr.ErrInvalidParameter) ||
+		errors.Is(err, ErrValidation) {
+		return FailureInfo{
+			ErrorCode:    errCodeInvalidParameter,
+			ErrorMessage: err.Error(),
+			StatusCode:   http.StatusBadRequest,
+		}
+	}
+
+	return FailureInfo{
+		ErrorCode:    "InternalServiceException",
+		ErrorMessage: err.Error(),
+		StatusCode:   http.StatusInternalServerError,
+	}
 }

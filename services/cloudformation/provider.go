@@ -26,6 +26,7 @@ import (
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
+	directconnectbackend "github.com/blackbirdworks/gopherstack/services/directconnect"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
@@ -50,6 +51,7 @@ import (
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -263,6 +265,24 @@ func extractAllServiceBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.IoT, _ = getHandler[*iotbackend.Handler](bp.GetIoTHandler())
 	backends.Pipes, _ = getHandler[*pipesbackend.Handler](bp.GetPipesHandler())
 	backends.EMR, _ = getHandler[*emrbackend.Handler](bp.GetEMRHandler())
+
+	if dp, ok := bp.(directConnectProvider); ok {
+		backends.DirectConnect, _ = getHandler[*directconnectbackend.Handler](dp.GetDirectConnectHandler())
+	}
+
+	if np, ok := bp.(networkManagerProvider); ok {
+		backends.NetworkManager, _ = getHandler[*networkmanagerbackend.Handler](np.GetNetworkManagerHandler())
+	}
+}
+
+// networkManagerProvider is the optional BackendsProvider extension that exposes the Network Manager handler.
+type networkManagerProvider interface {
+	GetNetworkManagerHandler() service.Registerable
+}
+
+// directConnectProvider is the optional BackendsProvider extension that exposes the Direct Connect handler.
+type directConnectProvider interface {
+	GetDirectConnectHandler() service.Registerable
 }
 
 // getHandler asserts h to type T; returns zero value and false if h is nil or the wrong type.

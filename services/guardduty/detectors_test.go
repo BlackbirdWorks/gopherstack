@@ -104,7 +104,7 @@ func TestDetector_Lifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+id, nil)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -133,7 +133,7 @@ func TestDetector_Lifecycle(t *testing.T) {
 				rec := doRequest(t, h, http.MethodPost, "/detector", map[string]any{
 					"enable": true,
 				})
-				assert.Equal(t, http.StatusConflict, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -141,7 +141,7 @@ func TestDetector_Lifecycle(t *testing.T) {
 			fn: func(t *testing.T, h *guardduty.Handler) {
 				t.Helper()
 				rec := doRequest(t, h, http.MethodGet, "/detector/nonexistent", nil)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{

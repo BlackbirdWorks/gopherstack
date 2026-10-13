@@ -104,6 +104,10 @@ func (h *Handler) handleGetSignalMap(c *echo.Context, identifier string) error {
 }
 
 func (h *Handler) handleListSignalMaps(c *echo.Context) error {
+	if err := validPaging(c); err != nil {
+		return respondErr(c, err)
+	}
+
 	maxResults, nextTokenParam := paginationParams(c)
 	cwGroupIdentifier := c.QueryParam("cloudWatchAlarmTemplateGroupIdentifier")
 	ebGroupIdentifier := c.QueryParam("eventBridgeRuleTemplateGroupIdentifier")

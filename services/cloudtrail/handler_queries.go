@@ -49,6 +49,15 @@ func (h *Handler) handleStartQuery(c *echo.Context, body []byte) error {
 		)
 	}
 
+	if in.QueryStatement == "" {
+		stmt, err := h.Backend.QueryStatementForAlias(in.QueryAlias)
+		if err != nil {
+			return h.handleError(c, err)
+		}
+
+		in.QueryStatement = stmt
+	}
+
 	edsARN := extractQueryFromTarget(in.QueryStatement)
 
 	ownerID := in.EventDataStoreOwnerAccountID
@@ -56,7 +65,9 @@ func (h *Handler) handleStartQuery(c *echo.Context, body []byte) error {
 		ownerID = h.Backend.AccountID()
 	}
 
-	q, err := h.Backend.StartQuery(in.QueryStatement, edsARN, in.DeliveryS3URI, in.QueryAlias, ownerID)
+	q, err := h.Backend.StartQueryWithParams(
+		in.QueryStatement, edsARN, in.DeliveryS3URI, in.QueryAlias, ownerID, in.QueryParameters,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -103,14 +114,13 @@ func (h *Handler) handleCancelQuery(c *echo.Context, body []byte) error {
 //
 // Neither QueryId nor QueryAlias is required alone: "You must specify either
 // QueryId or QueryAlias. Specifying the QueryAlias parameter returns
-// information about the last query run for the alias." RefreshId (view a
-// dashboard query's results as of a specific refresh) is accepted on the real
-// input but not modeled: gopherstack's dashboard refreshes don't create
-// linked Query records to disambiguate by.
+// information about the last query run for the alias." RefreshId narrows
+// the alias lookup to the query a StartDashboardRefresh started.
 type describeQueryBody struct {
 	QueryID        string `json:"QueryId"`
 	QueryAlias     string `json:"QueryAlias"`
 	EventDataStore string `json:"EventDataStore"`
+	RefreshID      string `json:"RefreshId"`
 }
 
 func (h *Handler) handleDescribeQuery(c *echo.Context, body []byte) error {
@@ -128,7 +138,7 @@ func (h *Handler) handleDescribeQuery(c *echo.Context, body []byte) error {
 	case in.QueryID != "":
 		q, err = h.Backend.DescribeQuery(in.QueryID)
 	case in.QueryAlias != "":
-		q, err = h.Backend.DescribeQueryByAlias(in.QueryAlias)
+		q, err = h.Backend.DescribeQueryByAliasRefresh(in.QueryAlias, in.RefreshID)
 	default:
 		return c.JSON(
 			http.StatusBadRequest,

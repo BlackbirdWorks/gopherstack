@@ -83,7 +83,7 @@ func (b *InMemoryBackend) oauthLogin(clientID, username, password string) (hoste
 		return hostedLogin{}, err
 	}
 
-	if err = b.precheckUserLocked(pool, clientID, user); err != nil {
+	if err = b.precheckUserLocked(pool, clientID, user, nil); err != nil {
 		return hostedLogin{}, err
 	}
 
@@ -104,7 +104,9 @@ func (b *InMemoryBackend) hostedLoginUserLocked(
 		return user, "", nil
 	}
 
-	migrated, finalStatus, err := b.tryUserMigration(pool, client.ClientID, authFlowUserPassword, username, password)
+	migrated, finalStatus, err := b.tryUserMigration(
+		pool, client.ClientID, authFlowUserPassword, username, password, nil,
+	)
 	if err != nil {
 		return nil, "", err
 	}
@@ -413,10 +415,10 @@ func (b *InMemoryBackend) oidcDiscovery(poolID string) (*oidcConfiguration, erro
 		ScopesSupported:       []string{scopePhone, scopeEmail, scopeOpenID, scopeProfile},
 		ResponseTypes:         []string{"code", "token"},
 		ResponseModes:         []string{"query", "fragment"},
-		GrantTypes:            []string{"authorization_code", "implicit", "refresh_token", "client_credentials"},
+		GrantTypes:            []string{grantAuthCode, "implicit", "refresh_token", "client_credentials"},
 		AuthMethods:           []string{"client_secret_basic", "client_secret_post"},
 		SubjectTypes:          []string{"public"},
-		IDTokenSigningAlgs:    []string{"RS256"},
+		IDTokenSigningAlgs:    []string{algRS256},
 		ClaimTypes:            []string{"normal"},
 		ClaimsSupported:       strings.Fields("sub iss aud exp iat email phone_number name preferred_username"),
 	}, nil
@@ -485,7 +487,7 @@ func userInfoClaims(user *User, client *UserPoolClient, scopes []string) map[str
 		}
 	}
 
-	out := map[string]string{"sub": user.Sub, "username": user.Username}
+	out := map[string]string{claimSub: user.Sub, "username": user.Username}
 
 	for attr, v := range user.Attributes {
 		if allowed(attr) && want(attr) {

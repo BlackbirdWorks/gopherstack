@@ -79,6 +79,12 @@ func (h *Handler) handleDescribeTrial(ctx context.Context, body []byte) ([]byte,
 	if t.MetadataProperties != nil {
 		resp["MetadataProperties"] = t.MetadataProperties
 	}
+	if t.CreatedBy != nil {
+		resp["CreatedBy"] = t.CreatedBy
+	}
+	if t.LastModifiedBy != nil {
+		resp["LastModifiedBy"] = t.LastModifiedBy
+	}
 
 	return json.Marshal(resp)
 }

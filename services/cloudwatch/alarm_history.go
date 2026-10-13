@@ -61,6 +61,10 @@ func (b *InMemoryBackend) DescribeAlarmHistory(
 	startDate, endDate time.Time,
 	maxRecords int,
 ) (page.Page[AlarmHistoryItem], error) {
+	if err := validateAlarmHistoryInput(historyItemType, nextToken, scanBy, maxRecords); err != nil {
+		return page.Page[AlarmHistoryItem]{}, err
+	}
+
 	b.mu.RLock("DescribeAlarmHistory")
 	defer b.mu.RUnlock()
 
@@ -101,6 +105,24 @@ func (b *InMemoryBackend) DescribeAlarmHistory(
 	})
 
 	return page.New(result, nextToken, maxRecords, cwDefaultAlarmHistoryLimit), nil
+}
+
+func validateAlarmHistoryInput(historyItemType, nextToken, scanBy string, maxRecords int) error {
+	if err := checkPageToken(nextToken); err != nil {
+		return err
+	}
+
+	if err := checkMaxRecords("maxRecords", maxRecords, cwDefaultAlarmHistoryLimit); err != nil {
+		return err
+	}
+
+	if err := checkEnum("scanBy", scanBy, "TimestampDescending", "TimestampAscending"); err != nil {
+		return err
+	}
+
+	return checkEnum("historyItemType", historyItemType,
+		historyTypeConfigurationUpdate, historyTypeStateUpdate, "Action",
+		"AlarmContributorStateUpdate", "AlarmContributorAction")
 }
 
 // appendHistory adds a history item. Caller must hold b.mu (write lock).
@@ -152,18 +174,24 @@ func (b *InMemoryBackend) reindexAlarmHistorySeqLocked() {
 	b.alarmHistorySeq = seq
 }
 
-// stateChangeHistoryData builds a JSON string for a state-change history item.
-func (b *InMemoryBackend) stateChangeHistoryData(
-	alarmName, oldState, newState, reason string,
-) string {
-	data := map[string]string{
-		keyAlarmName:     alarmName,
-		"OldStateValue":  oldState,
-		"NewStateValue":  newState,
-		"NewStateReason": reason,
+// stateChangeHistoryData builds the HistoryData JSON CloudWatch records for a state update.
+func stateChangeHistoryData(oldState, newState, reason, reasonData string) string {
+	next := map[string]any{"stateValue": newState}
+	if reason != "" {
+		next["stateReason"] = reason
 	}
-	// map[string]string marshaling cannot fail; error is intentionally ignored.
-	bs, _ := json.Marshal(data)
+	if reasonData != "" {
+		var parsed any
+		if json.Unmarshal([]byte(reasonData), &parsed) == nil {
+			next["stateReasonData"] = parsed
+		}
+	}
+
+	bs, _ := json.Marshal(map[string]any{
+		"version":  "1.0",
+		"oldState": map[string]any{"stateValue": oldState},
+		"newState": next,
+	})
 
 	return string(bs)
 }

@@ -86,6 +86,12 @@ func (h *Handler) handleIndexFaces(ctx context.Context, req *indexFacesReq) (*in
 }
 
 func validateIndexFacesOptions(req *indexFacesReq) error {
+	if req.ExternalImageID != "" {
+		if err := validateUserLikeID("ExternalImageId", req.ExternalImageID, maxIdentifierLen); err != nil {
+			return err
+		}
+	}
+
 	if !isValidQualityFilter(req.QualityFilter) {
 		return fmt.Errorf("%w: QualityFilter value %q is not valid", ErrValidation, req.QualityFilter)
 	}
@@ -210,6 +216,9 @@ func (h *Handler) handleSearchFaces(_ context.Context, req *searchFacesReq) (*se
 	threshold := defaultFaceMatchThreshold
 	if req.FaceMatchThreshold != nil {
 		threshold = float64(*req.FaceMatchThreshold)
+		if err := validatePercent("FaceMatchThreshold", threshold); err != nil {
+			return nil, err
+		}
 	}
 
 	matches, err := h.Backend.SearchFaces(req.CollectionID, req.FaceID, req.MaxFaces, threshold)
@@ -286,6 +295,9 @@ func (h *Handler) handleSearchFacesByImage(
 	threshold := defaultFaceMatchThreshold
 	if req.FaceMatchThreshold != nil {
 		threshold = float64(*req.FaceMatchThreshold)
+		if err := validatePercent("FaceMatchThreshold", threshold); err != nil {
+			return nil, err
+		}
 	}
 
 	imageKey := imageRefKey(req.Image)
@@ -457,15 +469,24 @@ func (h *Handler) handleDetectFaces(ctx context.Context, req *detectFacesReq) (*
 // --- Async video jobs: face detection / face search ---
 
 type startFaceDetectionReq struct {
-	Video              videoRef `json:"Video"`
-	ClientRequestToken string   `json:"ClientRequestToken"`
-	JobTag             string   `json:"JobTag"`
-	FaceAttributes     string   `json:"FaceAttributes"`
+	Video               videoRef                `json:"Video"`
+	NotificationChannel *notificationChannelReq `json:"NotificationChannel"`
+	ClientRequestToken  string                  `json:"ClientRequestToken"`
+	JobTag              string                  `json:"JobTag"`
+	FaceAttributes      string                  `json:"FaceAttributes"`
 }
 
 func (h *Handler) handleStartFaceDetection(
 	ctx context.Context, req *startFaceDetectionReq,
 ) (*startJobResp, error) {
+	if req.FaceAttributes != "" && req.FaceAttributes != "DEFAULT" && req.FaceAttributes != "ALL" {
+		return nil, fmt.Errorf("%w: FaceAttributes value %q is not valid", ErrValidation, req.FaceAttributes)
+	}
+
+	if err := req.NotificationChannel.validate(); err != nil {
+		return nil, err
+	}
+
 	if err := h.checkVideoRef(ctx, req.Video); err != nil {
 		return nil, err
 	}
@@ -473,12 +494,13 @@ func (h *Handler) handleStartFaceDetection(
 	bucket, name, version := videoRefS3(req.Video)
 
 	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
-		JobType:            "face_detection",
-		ClientRequestToken: req.ClientRequestToken,
-		JobTag:             req.JobTag,
-		VideoS3Bucket:      bucket,
-		VideoS3Name:        name,
-		VideoS3Version:     version,
+		NotificationTopicARN: req.NotificationChannel.topic(),
+		JobType:              "face_detection",
+		ClientRequestToken:   req.ClientRequestToken,
+		JobTag:               req.JobTag,
+		VideoS3Bucket:        bucket,
+		VideoS3Name:          name,
+		VideoS3Version:       version,
 	})
 	if err != nil {
 		return nil, err
@@ -507,16 +529,21 @@ func (h *Handler) handleGetFaceDetection(
 }
 
 type startFaceSearchReq struct {
-	Video              videoRef `json:"Video"`
-	CollectionId       string   `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
-	ClientRequestToken string   `json:"ClientRequestToken"`
-	JobTag             string   `json:"JobTag"`
-	FaceMatchThreshold float32  `json:"FaceMatchThreshold"`
+	Video               videoRef                `json:"Video"`
+	NotificationChannel *notificationChannelReq `json:"NotificationChannel"`
+	CollectionId        string                  `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
+	ClientRequestToken  string                  `json:"ClientRequestToken"`
+	JobTag              string                  `json:"JobTag"`
+	FaceMatchThreshold  float32                 `json:"FaceMatchThreshold"`
 }
 
 func (h *Handler) handleStartFaceSearch(
 	ctx context.Context, req *startFaceSearchReq,
 ) (*startJobResp, error) {
+	if err := req.NotificationChannel.validate(); err != nil {
+		return nil, err
+	}
+
 	if err := h.checkVideoRef(ctx, req.Video); err != nil {
 		return nil, err
 	}
@@ -524,13 +551,14 @@ func (h *Handler) handleStartFaceSearch(
 	bucket, name, version := videoRefS3(req.Video)
 
 	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
-		JobType:            "face_search",
-		ClientRequestToken: req.ClientRequestToken,
-		CollectionID:       req.CollectionId,
-		JobTag:             req.JobTag,
-		VideoS3Bucket:      bucket,
-		VideoS3Name:        name,
-		VideoS3Version:     version,
+		NotificationTopicARN: req.NotificationChannel.topic(),
+		JobType:              "face_search",
+		ClientRequestToken:   req.ClientRequestToken,
+		CollectionID:         req.CollectionId,
+		JobTag:               req.JobTag,
+		VideoS3Bucket:        bucket,
+		VideoS3Name:          name,
+		VideoS3Version:       version,
 	})
 	if err != nil {
 		return nil, err

@@ -129,7 +129,7 @@ func TestIAMEnforcement(t *testing.T) {
 			name:        "denied_action_returns_access_denied",
 			accessKeyID: "AKIAFORECASTUSER2",
 			target:      "AmazonForecast.CreateDatasetGroup",
-			body:        `{"DatasetGroupName":"test-dsg","Domain":"RETAIL"}`,
+			body:        `{"DatasetGroupName":"test_dsg","Domain":"RETAIL"}`,
 			setupBackend: func(b *mockFORECASTIAMBackend) {
 				b.users["user2"] = &iam.User{UserName: "user2"}
 				b.keyMap["AKIAFORECASTUSER2"] = "user2"

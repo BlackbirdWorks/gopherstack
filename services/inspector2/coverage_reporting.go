@@ -57,15 +57,8 @@ func (b *InMemoryBackend) SeedCoverage(e CoverageEntry) (*CoverageEntry, error) 
 // (accountId/resourceId/resourceType/scanType/scanStatusCode/
 // scanStatusReason/scanMode) and the lastScannedAt date-range facet, which
 // CoverageEntry.LastScannedAt/ScanStatus/ScanMode genuinely track. Every
-// other real filter facet (cloudContainerImageTags, ec2InstanceTags,
-// ecrImageTags, lambdaFunctionTags, ecrImageInUseCount, ecrImageLastInUseAt,
-// imagePulledAt, and the rest of the cloud*/code*/lambda* facets) is real on
-// the wire but tied to CoveredResource.resourceMetadata, a nested per-
-// resource-type union this backend does not model at all (see PARITY.md
-// gaps) -- accepting those in the request shape without narrowing on them is
-// an honest limitation (no data to filter against), not a fixable bug,
-// unlike the facets below, which previously had real backing data but were
-// silently never wired to the filter.
+// facet backed by CoveredResource.resourceMetadata is applied through
+// coverageMetadataFilters; only the multi-cloud cloud* facets have no data.
 type coverageStringFilters struct {
 	accountID        []stringFilter
 	resourceID       []stringFilter
@@ -75,6 +68,37 @@ type coverageStringFilters struct {
 	scanStatusReason []stringFilter
 	scanMode         []stringFilter
 	lastScannedAt    []dateRangeFilter
+	metadata         coverageMetadataFilters
+}
+
+// coverageMetadataFilters are the CoverageFilterCriteria facets backed by CoveredResource.resourceMetadata.
+type coverageMetadataFilters struct {
+	ec2Tags       []mapFilter
+	lambdaTags    []mapFilter
+	ecrImageTags  []stringFilter
+	ecrRepoName   []stringFilter
+	lambdaName    []stringFilter
+	lambdaRuntime []stringFilter
+	projectName   []stringFilter
+	providerType  []stringFilter
+	visibility    []stringFilter
+	lastCommitID  []stringFilter
+	inUseCount    []numberRange
+	lastInUseAt   []dateRangeFilter
+	imagePulledAt []dateRangeFilter
+}
+
+// mapFilter mirrors one CoverageMapFilter: the tag key must exist and, when value is set, equal it.
+type mapFilter struct {
+	key      string
+	value    string
+	hasValue bool
+}
+
+// numberRange mirrors one CoverageNumberFilter (lowerInclusive/upperInclusive, either may be absent).
+type numberRange struct {
+	lower, upper       int64
+	hasLower, hasUpper bool
 }
 
 // dateRangeFilter mirrors one CoverageDateFilter entry: startInclusive/
@@ -159,6 +183,21 @@ func parseCoverageFilterCriteria(criteria map[string]any) coverageStringFilters 
 		scanStatusReason: extractStringFilters(criteria, "scanStatusReason"),
 		scanMode:         extractStringFilters(criteria, "scanMode"),
 		lastScannedAt:    extractDateFilters(criteria, "lastScannedAt"),
+		metadata: coverageMetadataFilters{
+			ec2Tags:       extractMapFilters(criteria, "ec2InstanceTags"),
+			lambdaTags:    extractMapFilters(criteria, "lambdaFunctionTags"),
+			ecrImageTags:  extractStringFilters(criteria, "ecrImageTags"),
+			ecrRepoName:   extractStringFilters(criteria, "ecrRepositoryName"),
+			lambdaName:    extractStringFilters(criteria, "lambdaFunctionName"),
+			lambdaRuntime: extractStringFilters(criteria, "lambdaFunctionRuntime"),
+			projectName:   extractStringFilters(criteria, "codeRepositoryProjectName"),
+			providerType:  extractStringFilters(criteria, "codeRepositoryProviderType"),
+			visibility:    extractStringFilters(criteria, "codeRepositoryProviderTypeVisibility"),
+			lastCommitID:  extractStringFilters(criteria, "lastScannedCommitId"),
+			inUseCount:    extractNumberRanges(criteria, "ecrImageInUseCount"),
+			lastInUseAt:   extractDateFilters(criteria, "ecrImageLastInUseAt"),
+			imagePulledAt: extractDateFilters(criteria, "imagePulledAt"),
+		},
 	}
 }
 
@@ -176,7 +215,8 @@ func (f coverageStringFilters) matches(e *CoverageEntry) bool {
 		matchStringFilters(f.scanStatusCode, statusCode) &&
 		matchStringFilters(f.scanStatusReason, statusReason) &&
 		matchStringFilters(f.scanMode, e.ScanMode) &&
-		matchDateFilters(f.lastScannedAt, e.LastScannedAt)
+		matchDateFilters(f.lastScannedAt, e.LastScannedAt) &&
+		f.metadata.matches(e.ResourceMetadata)
 }
 
 // ListCoverage returns a page of seeded coverage entries filtered by the
@@ -306,11 +346,136 @@ func coverageGroupKey(e *CoverageEntry, groupBy string) string {
 
 		return ""
 	case groupKeyEcrRepositoryName:
-		// Not modeled (would require ResourceMetadata.EcrRepository), matching
-		// the deliberate omission of the nested ResourceMetadata union noted
-		// on CoverageEntry.
+		if e.ResourceMetadata != nil && e.ResourceMetadata.EcrRepository != nil {
+			return e.ResourceMetadata.EcrRepository.Name
+		}
+
 		return ""
 	default:
 		return ""
 	}
+}
+
+func extractMapFilters(criteria map[string]any, key string) []mapFilter {
+	raw, _ := criteria[key].([]any)
+	out := make([]mapFilter, 0, len(raw))
+
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		k, _ := m["key"].(string)
+		v, hasValue := m["value"].(string)
+		out = append(out, mapFilter{key: k, value: v, hasValue: hasValue})
+	}
+
+	return out
+}
+
+func extractNumberRanges(criteria map[string]any, key string) []numberRange {
+	raw, _ := criteria[key].([]any)
+	out := make([]numberRange, 0, len(raw))
+
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		var r numberRange
+
+		if lo, has := m["lowerInclusive"].(float64); has {
+			r.lower, r.hasLower = int64(lo), true
+		}
+
+		if hi, has := m["upperInclusive"].(float64); has {
+			r.upper, r.hasUpper = int64(hi), true
+		}
+
+		out = append(out, r)
+	}
+
+	return out
+}
+
+func matchMapFilters(filters []mapFilter, tags map[string]string) bool {
+	if len(filters) == 0 {
+		return true
+	}
+
+	for _, f := range filters {
+		v, ok := tags[f.key]
+		if ok && (!f.hasValue || v == f.value) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func matchNumberRanges(filters []numberRange, actual int64) bool {
+	if len(filters) == 0 {
+		return true
+	}
+
+	for _, f := range filters {
+		if (!f.hasLower || actual >= f.lower) && (!f.hasUpper || actual <= f.upper) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func matchAnyTag(filters []stringFilter, tags []string) bool {
+	if len(filters) == 0 {
+		return true
+	}
+
+	for _, t := range tags {
+		if matchStringFilters(filters, t) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// matches applies every metadata facet; a facet with no filter always passes, a set one needs matching metadata.
+func (f coverageMetadataFilters) matches(md *CoverageResourceMetadata) bool {
+	if md == nil {
+		md = &CoverageResourceMetadata{}
+	}
+
+	ec2 := orZero(md.Ec2)
+	img := orZero(md.EcrImage)
+	repo := orZero(md.EcrRepository)
+	fn := orZero(md.LambdaFunction)
+	code := orZero(md.CodeRepository)
+
+	return matchMapFilters(f.ec2Tags, ec2.Tags) &&
+		matchMapFilters(f.lambdaTags, fn.FunctionTags) &&
+		matchAnyTag(f.ecrImageTags, img.Tags) &&
+		matchStringFilters(f.ecrRepoName, repo.Name) &&
+		matchStringFilters(f.lambdaName, fn.FunctionName) &&
+		matchStringFilters(f.lambdaRuntime, fn.Runtime) &&
+		matchStringFilters(f.projectName, code.ProjectName) &&
+		matchStringFilters(f.providerType, code.ProviderType) &&
+		matchStringFilters(f.visibility, code.ProviderTypeVisibility) &&
+		matchStringFilters(f.lastCommitID, code.LastScannedCommitID) &&
+		matchNumberRanges(f.inUseCount, img.InUseCount) &&
+		matchDateFilters(f.lastInUseAt, img.LastInUseAt) &&
+		matchDateFilters(f.imagePulledAt, img.ImagePulledAt)
+}
+
+func orZero[T any](p *T) T {
+	if p == nil {
+		var zero T
+
+		return zero
+	}
+
+	return *p
 }

@@ -17,7 +17,7 @@ func (b *InMemoryBackend) AuthorizeVpcEndpointAccess(
 	defer b.mu.Unlock()
 
 	if !b.domains.Has(domainName) {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	principal := account

@@ -31,7 +31,7 @@ func (rc *ResourceCreator) createMSKCluster(
 
 	var numBrokers int32 = 3
 	if n, ok := props["NumberOfBrokerNodes"].(float64); ok {
-		numBrokers = int32(n)
+		numBrokers = floatToInt32(n)
 	}
 
 	var brokerInfo kafkabackend.BrokerNodeGroupInfo

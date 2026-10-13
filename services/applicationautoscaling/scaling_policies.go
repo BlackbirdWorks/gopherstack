@@ -137,9 +137,8 @@ func (b *InMemoryBackend) PutScalingPolicy(
 	// depends on the existence of a scalable target").
 	if !b.scalableTargetExists(serviceNamespace, resourceID, scalableDimension) {
 		return nil, fmt.Errorf(
-			"%w: scalable target %s not found",
-			ErrNotFound,
-			scalableTargetKey(serviceNamespace, resourceID, scalableDimension),
+			"%w: No scalable target found for service namespace: %s, resource ID: %s, scalable dimension: %s",
+			ErrNotFound, serviceNamespace, resourceID, scalableDimension,
 		)
 	}
 
@@ -273,7 +272,9 @@ func (b *InMemoryBackend) DeleteScalingPolicy(
 
 	group := b.policiesByName.Get(key)
 	if len(group) == 0 {
-		return fmt.Errorf("%w: scaling policy %s not found", ErrNotFound, policyName)
+		return fmt.Errorf("%w: No scaling policy found for service namespace: %s, resource ID: %s, "+
+			"scalable dimension: %s, policy name: %s", ErrNotFound, serviceNamespace, resourceID,
+			scalableDimension, policyName)
 	}
 
 	b.scalingPolicies.Delete(group[0].ARN)

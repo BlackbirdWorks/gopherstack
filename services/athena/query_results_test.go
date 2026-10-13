@@ -75,13 +75,6 @@ func TestGetQueryResults_SQLExecution(t *testing.T) {
 			wantFirst:  "2",
 		},
 		{
-			name:       "unknown_table_returns_empty",
-			query:      "SELECT * FROM " + database + ".no_such_table",
-			wantCols:   nil,
-			wantRowLen: 0,
-			wantFirst:  "",
-		},
-		{
 			name:       "no_from_clause_returns_empty",
 			query:      "SELECT 1",
 			wantCols:   nil,

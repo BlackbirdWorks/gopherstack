@@ -428,48 +428,27 @@ func (b *InMemoryBackend) ListScanJobs() []*ScanJob {
 	return out
 }
 
-// ListScanJobSummaries returns scan job counts grouped by State, real
-// ScanJobSummary's own required grouping key (backup@v1.59.4
-// api_op_ListScanJobSummaries.go, ScanJobSummary: AccountId, Count, Region,
-// ResourceType, ScanResultStatus, State, StartTime, EndTime).
-// AggregationPeriod (per-day/per-week time-bucketed counts),
-// ResourceType-level grouping, and MalwareScanner/ScanResultStatus (this
-// backend's ScanJob never tracks a scan result outcome, see the ScanJob
-// type doc) are not modeled -- kept consistent with the same State-only
-// grouping precedent ListBackupJobSummaries/ListCopyJobSummaries already
-// use for their own sibling ops.
+// ListScanJobSummaries counts scan jobs per aggregation window, resource type, state, scanner and result status.
+// ScanResultStatus derives from the job state: this emulator has no malware engine to report threats.
 func (b *InMemoryBackend) ListScanJobSummaries(f JobSummaryFilter) []map[string]any {
 	b.mu.RLock("ListScanJobSummaries")
 	defer b.mu.RUnlock()
 
-	counts := make(map[string]int)
-	for _, j := range b.scanJobs.All() {
-		if f.matches(b.summaryAccount(j.AccountID), j.ResourceType, j.Status, "") &&
-			summaryFieldMatches(f.MalwareScanner, j.MalwareScanner) {
-			counts[j.Status]++
-		}
-	}
+	all := b.scanJobs.All()
+	jobs := make([]summaryJob, 0, len(all))
 
-	summaries := make([]map[string]any, 0, len(counts))
-	for state, count := range counts {
-		summaries = append(summaries, map[string]any{
-			keyState:         state,
-			keySummaryCount:  count,
-			keySummaryRegion: b.region,
-			keyAccountID:     b.accountID,
+	for _, j := range all {
+		jobs = append(jobs, summaryJob{
+			at: j.CreationTime, account: b.summaryAccount(j.AccountID), resourceType: j.ResourceType,
+			state: j.Status, malwareScanner: j.MalwareScanner, scanResultStatus: scanResultStatusFor(j.Status),
 		})
 	}
 
-	sortSummaries(summaries)
-
-	return summaries
+	return b.buildSummaries(f, jobs, summaryShape{scan: true})
 }
 
 // ListScanJobsFilter contains optional filter parameters for listing scan
 // jobs, mirroring ListScanJobsInput (api_op_ListScanJobs.go, backup@v1.59.4).
-// ByScanResultStatus is not included: this backend's ScanJob has no field
-// to hold a scan result status (StartScanJob never receives or fabricates
-// one).
 type ListScanJobsFilter struct {
 	CompleteAfter    *time.Time
 	CompleteBefore   *time.Time
@@ -480,6 +459,7 @@ type ListScanJobsFilter struct {
 	ResourceArn      string
 	ResourceType     string
 	State            string
+	ScanResultStatus string
 	NextToken        string
 	MaxResults       int
 }
@@ -492,8 +472,13 @@ func scanJobAccountMatches(j *ScanJob, f ListScanJobsFilter) bool {
 	return f.AccountID == "" || f.AccountID == wildcardAccountID || j.AccountID == f.AccountID
 }
 
+func scanJobMatchesStateFilters(j *ScanJob, f ListScanJobsFilter) bool {
+	return (f.State == "" || j.Status == f.State) &&
+		(f.ScanResultStatus == "" || scanResultStatusFor(j.Status) == f.ScanResultStatus)
+}
+
 func scanJobMatchesFieldFilters(j *ScanJob, f ListScanJobsFilter) bool {
-	if !scanJobAccountMatches(j, f) {
+	if !scanJobAccountMatches(j, f) || !scanJobMatchesStateFilters(j, f) {
 		return false
 	}
 
@@ -507,8 +492,6 @@ func scanJobMatchesFieldFilters(j *ScanJob, f ListScanJobsFilter) bool {
 	case f.ResourceArn != "" && j.ResourceArn != f.ResourceArn:
 		return false
 	case f.ResourceType != "" && j.ResourceType != f.ResourceType:
-		return false
-	case f.State != "" && j.Status != f.State:
 		return false
 	}
 

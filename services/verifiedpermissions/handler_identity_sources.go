@@ -364,6 +364,10 @@ func (h *Handler) handleListIdentitySources(
 		}
 	}
 
+	if lerr := validateListParams(in.NextToken, in.MaxResults); lerr != nil {
+		return nil, lerr
+	}
+
 	maxResults := in.MaxResults
 	if maxResults <= 0 {
 		maxResults = defaultListPageSize

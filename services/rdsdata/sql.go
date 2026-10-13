@@ -1,6 +1,9 @@
 package rdsdata
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 // ExecuteSQL executes one or more SQL statements against the cluster.
 // This is a deprecated operation; use ExecuteStatement or BatchExecuteStatement instead.
@@ -8,11 +11,15 @@ func (b *InMemoryBackend) ExecuteSQL(
 	ctx context.Context,
 	resourceARN, sqlStatements string,
 ) ([]SQLStatementResult, error) {
+	if results, handled, err := b.executeSQLReal(ctx, resourceARN, sqlStatements); handled {
+		return results, err
+	}
+
 	b.mu.Lock("ExecuteSql")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	b.appendStatementLocked(region, resourceARN, sqlStatements, "")
+	b.appendStatementLocked(ctx, region, resourceARN, sqlStatements, "")
 
 	// Execute for real so the deprecated entry point still mutates state; the
 	// reported update count reflects the engine result when available.
@@ -74,4 +81,66 @@ func legacyValueFromField(f Field) Value {
 	default:
 		return Value{IsNull: &isNull}
 	}
+}
+
+func (b *InMemoryBackend) executeSQLReal(
+	ctx context.Context, resourceARN, sqlStatements string,
+) ([]SQLStatementResult, bool, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
+	rc, ok, err := b.realRoute(ctx, region, resourceARN, "")
+	if !ok || err != nil {
+		return nil, ok || err != nil, err
+	}
+
+	var results []SQLStatementResult
+
+	for _, stmt := range splitSQLStatements(sqlStatements) {
+		res, execErr := rc.re.execute(ctx, rc.lg, "", stmt, nil)
+		if execErr != nil {
+			return nil, true, execErr
+		}
+
+		out := SQLStatementResult{NumberOfRecordsUpdated: res.Updated}
+		if len(res.Columns) > 0 {
+			out.ResultFrame = buildResultFrame(res.Records, res.Columns)
+		}
+
+		results = append(results, out)
+	}
+
+	return results, true, nil
+}
+
+// splitSQLStatements splits on semicolons outside quoted strings and quoted identifiers.
+func splitSQLStatements(src string) []string {
+	var (
+		out   []string
+		start int
+		quote rune
+	)
+
+	for i, r := range src {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			}
+		case r == '\'' || r == '"' || r == '`':
+			quote = r
+		case r == ';':
+			out = appendStatement(out, src[start:i])
+			start = i + 1
+		}
+	}
+
+	return appendStatement(out, src[start:])
+}
+
+func appendStatement(out []string, stmt string) []string {
+	if trimmed := strings.TrimSpace(stmt); trimmed != "" {
+		return append(out, trimmed)
+	}
+
+	return out
 }

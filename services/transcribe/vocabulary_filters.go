@@ -20,8 +20,8 @@ func validateVocabularyFilterWords(words []string) error {
 
 // CreateVocabularyFilter creates a new custom vocabulary filter.
 func (b *InMemoryBackend) CreateVocabularyFilter(input *VocabularyFilter) (*VocabularyFilter, error) {
-	if input.VocabularyFilterName == "" {
-		return nil, fmt.Errorf("%w: VocabularyFilterName is required", ErrValidation)
+	if err := validateResourceName("VocabularyFilterName", input.VocabularyFilterName); err != nil {
+		return nil, err
 	}
 
 	if err := validateLanguageCode(input.LanguageCode); err != nil {

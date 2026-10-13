@@ -230,8 +230,11 @@ func (e *Evaluator) evaluateBetween(n *BetweenExpr) (bool, error) {
 		return false, err
 	}
 
-	return e.compareValues(val, TokenGreaterEqual, lower) &&
-		e.compareValues(val, TokenLessEqual, upper), nil
+	val = e.unwrapAttributeValue(val)
+	num, isNum := e.parseUnwrappedNumeric(val)
+
+	return e.compareUnwrapped(val, num, isNum, TokenGreaterEqual, e.unwrapAttributeValue(lower)) &&
+		e.compareUnwrapped(val, num, isNum, TokenLessEqual, e.unwrapAttributeValue(upper)), nil
 }
 
 func (e *Evaluator) evaluateIn(n *InExpr) (bool, error) {
@@ -629,34 +632,53 @@ func (e *Evaluator) toString(v any) string {
 
 func (e *Evaluator) compareValues(lhs any, op TokenType, rhs any) bool {
 	lhs = e.unwrapAttributeValue(lhs)
-	rhs = e.unwrapAttributeValue(rhs)
+	lNum, lIsNum := e.parseUnwrappedNumeric(lhs)
 
+	return e.compareUnwrapped(lhs, lNum, lIsNum, op, e.unwrapAttributeValue(rhs))
+}
+
+// compareUnwrapped compares an already-unwrapped lhs (with its numeric parse) to an unwrapped rhs.
+func (e *Evaluator) compareUnwrapped(lhs any, lNum float64, lIsNum bool, op TokenType, rhs any) bool {
 	if lhs == nil || rhs == nil {
 		return op == TokenEqual && lhs == rhs
 	}
 
 	// DynamoDB cross-type comparisons return false unless they are both numbers.
-	// We handle numbers first, then check if types match exactly for other types.
-	lNum, lIsNum := e.parseNumeric(lhs)
-	rNum, rIsNum := e.parseNumeric(rhs)
+	rNum, rIsNum := e.parseUnwrappedNumeric(rhs)
 
 	if lIsNum && rIsNum {
 		return compareNumbers(lNum, rNum, op)
 	}
 
-	// If one is a number and the other isn't, they are not equal, and other
-	// comparisons are false in DynamoDB.
 	if lIsNum != rIsNum {
 		return op == TokenNotEqual
 	}
 
-	// For non-numeric types, they must be of the same type to be comparable.
-	// We use unwrapAttributeValue above, so we can compare types directly.
 	if !sameType(lhs, rhs) {
 		return op == TokenNotEqual
 	}
 
 	return compareTyped(lhs, rhs, op)
+}
+
+// parseUnwrappedNumeric is parseNumeric for a value unwrapAttributeValue already processed.
+func (e *Evaluator) parseUnwrappedNumeric(v any) (float64, bool) {
+	switch val := v.(type) {
+	case float64:
+		return val, true
+	case string:
+		if !couldBeNumeric(val) {
+			return 0, false
+		}
+
+		f, err := strconv.ParseFloat(val, 64)
+
+		return f, err == nil
+	case nil:
+		return 0, false
+	default:
+		return e.parseNumeric(v)
+	}
 }
 
 // sameType reports whether a and b have the same dynamic type, using a type

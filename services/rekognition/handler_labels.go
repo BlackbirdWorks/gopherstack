@@ -2,6 +2,7 @@ package rekognition
 
 import (
 	"context"
+	"fmt"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -52,6 +53,14 @@ type detectLabelsResp struct {
 
 func (h *Handler) handleDetectLabels(ctx context.Context, req *detectLabelsReq) (*detectLabelsResp, error) {
 	if err := h.checkImageRef(ctx, req.Image); err != nil {
+		return nil, err
+	}
+
+	if req.MaxLabels < 0 {
+		return nil, fmt.Errorf("%w: MaxLabels must be greater than or equal to 0", ErrValidation)
+	}
+
+	if err := validatePercent("MinConfidence", req.MinConfidence); err != nil {
 		return nil, err
 	}
 
@@ -118,15 +127,20 @@ func plausibleLabels(minConfidence float64, maxLabels int32) []labelEntry {
 // --- Async video jobs: label detection ---
 
 type startLabelDetectionReq struct {
-	Video              videoRef `json:"Video"`
-	ClientRequestToken string   `json:"ClientRequestToken"`
-	JobTag             string   `json:"JobTag"`
-	MinConfidence      float32  `json:"MinConfidence"`
+	Video               videoRef                `json:"Video"`
+	NotificationChannel *notificationChannelReq `json:"NotificationChannel"`
+	ClientRequestToken  string                  `json:"ClientRequestToken"`
+	JobTag              string                  `json:"JobTag"`
+	MinConfidence       float32                 `json:"MinConfidence"`
 }
 
 func (h *Handler) handleStartLabelDetection(
 	ctx context.Context, req *startLabelDetectionReq,
 ) (*startJobResp, error) {
+	if err := req.NotificationChannel.validate(); err != nil {
+		return nil, err
+	}
+
 	if err := h.checkVideoRef(ctx, req.Video); err != nil {
 		return nil, err
 	}
@@ -134,12 +148,13 @@ func (h *Handler) handleStartLabelDetection(
 	bucket, name, version := videoRefS3(req.Video)
 
 	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
-		JobType:            "label_detection",
-		ClientRequestToken: req.ClientRequestToken,
-		JobTag:             req.JobTag,
-		VideoS3Bucket:      bucket,
-		VideoS3Name:        name,
-		VideoS3Version:     version,
+		NotificationTopicARN: req.NotificationChannel.topic(),
+		JobType:              "label_detection",
+		ClientRequestToken:   req.ClientRequestToken,
+		JobTag:               req.JobTag,
+		VideoS3Bucket:        bucket,
+		VideoS3Name:          name,
+		VideoS3Version:       version,
 	})
 	if err != nil {
 		return nil, err

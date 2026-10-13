@@ -154,12 +154,13 @@ func TestIntegration_Account_SingletonLifecycle(t *testing.T) {
 	t.Run("contact information roundtrip", func(t *testing.T) { //nolint:paralleltest // sequential by design
 		_, err := client.PutContactInformation(ctx, &accountsdk.PutContactInformationInput{
 			ContactInformation: &accounttypes.ContactInformation{
-				AddressLine1: aws.String("123 Main St"),
-				City:         aws.String("Seattle"),
-				CountryCode:  aws.String("US"),
-				FullName:     aws.String("Jane Doe"),
-				PhoneNumber:  aws.String("555-0300"),
-				PostalCode:   aws.String("98101"),
+				AddressLine1:  aws.String("123 Main St"),
+				City:          aws.String("Seattle"),
+				CountryCode:   aws.String("US"),
+				FullName:      aws.String("Jane Doe"),
+				PhoneNumber:   aws.String("+12065550300"),
+				PostalCode:    aws.String("98101"),
+				StateOrRegion: aws.String("WA"),
 			},
 		})
 		require.NoError(t, err, "PutContactInformation should succeed")
@@ -218,22 +219,24 @@ func TestIntegration_Account_SingletonLifecycle(t *testing.T) {
 		})
 		require.NoError(t, err, "DisableRegion should succeed")
 
-		statusOut, err := client.GetRegionOptStatus(ctx, &accountsdk.GetRegionOptStatusInput{
-			RegionName: aws.String("af-south-1"),
-		})
-		require.NoError(t, err)
-		assert.Equal(t, accounttypes.RegionOptStatusDisabled, statusOut.RegionOptStatus)
+		waitRegion := func(want accounttypes.RegionOptStatus) {
+			require.Eventually(t, func() bool {
+				out, gerr := client.GetRegionOptStatus(ctx, &accountsdk.GetRegionOptStatusInput{
+					RegionName: aws.String("af-south-1"),
+				})
+
+				return gerr == nil && out.RegionOptStatus == want
+			}, 5*time.Second, 20*time.Millisecond)
+		}
+
+		waitRegion(accounttypes.RegionOptStatusDisabled)
 
 		_, err = client.EnableRegion(ctx, &accountsdk.EnableRegionInput{
 			RegionName: aws.String("af-south-1"),
 		})
 		require.NoError(t, err, "EnableRegion should succeed")
 
-		statusOut, err = client.GetRegionOptStatus(ctx, &accountsdk.GetRegionOptStatusInput{
-			RegionName: aws.String("af-south-1"),
-		})
-		require.NoError(t, err)
-		assert.Equal(t, accounttypes.RegionOptStatusEnabled, statusOut.RegionOptStatus)
+		waitRegion(accounttypes.RegionOptStatusEnabled)
 	})
 
 	t.Run("enable default region fails", func(t *testing.T) { //nolint:paralleltest // sequential by design

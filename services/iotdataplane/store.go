@@ -52,4 +52,8 @@ func (b *InMemoryBackend) SetBroker(broker MQTTPublisher) {
 	defer b.mu.Unlock()
 
 	b.broker = broker
+
+	if notifier, ok := broker.(ConnectionNotifier); ok {
+		notifier.SetConnectionObserver(b)
+	}
 }

@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -81,7 +79,7 @@ func (b *InMemoryBackend) keepEmptyFoldersLocked(
 		}
 
 		keepPath := folder + "/" + gitkeepFileName
-		blobID := uuid.NewString()
+		blobID := newObjectID()
 		b.storeBlobLocked(repoName, blobID, []byte{})
 		tree[keepPath] = TreeEntry{BlobID: blobID, Mode: fileModeDefault}
 		b.files.Put(&File{
@@ -115,7 +113,7 @@ func (b *InMemoryBackend) applyFileChanges(
 		if fileMode == "" {
 			fileMode = fileModeDefault
 		}
-		blobID := uuid.NewString()
+		blobID := newObjectID()
 		b.files.Put(&File{
 			FilePath:        pf.FilePath,
 			CommitSpecifier: commitID,
@@ -228,7 +226,7 @@ func (b *InMemoryBackend) CreateCommitDetailed(
 	defer b.mu.Unlock()
 
 	if !b.repositories.Has(repositoryName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, repositoryName)
 	}
 
 	currentTip, err := b.branchTipLocked(repositoryName, branchName, parentCommitID)
@@ -247,8 +245,8 @@ func (b *InMemoryBackend) CreateCommitDetailed(
 		_, existing[pf.FilePath] = tree[pf.FilePath]
 	}
 
-	commitID := uuid.NewString()
-	treeID := uuid.NewString()
+	commitID := newObjectID()
+	treeID := newObjectID()
 	now := time.Now().UTC()
 
 	// Track parent commit.
@@ -291,7 +289,7 @@ func (b *InMemoryBackend) CreateCommitDetailed(
 
 	// Update the branch tip to the new commit.
 	if branchName != "" {
-		b.branches.Put(&Branch{
+		b.putBranchLocked(&Branch{
 			BranchName:     branchName,
 			CommitID:       commitID,
 			RepositoryName: repositoryName,
@@ -339,7 +337,7 @@ func (b *InMemoryBackend) BatchGetCommits(
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repositoryName) {
-		return nil, nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+		return nil, nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, repositoryName)
 	}
 
 	found := make([]*Commit, 0, len(commitIDs))
@@ -378,7 +376,7 @@ func (b *InMemoryBackend) GetCommit(repositoryName, commitID string) (*Commit, e
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repositoryName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+		return nil, fmt.Errorf("%w: %s does not exist", ErrNotFound, repositoryName)
 	}
 
 	c, ok := b.commits.Get(commitKey(repositoryName, commitID))
@@ -414,7 +412,7 @@ func (b *InMemoryBackend) GetDifferences(
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repoName) {
-		return page.Page[FileDifference]{}, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return page.Page[FileDifference]{}, fmt.Errorf("%w: %s does not exist", ErrNotFound, repoName)
 	}
 
 	if diffs, ok := b.treeDifferencesLocked(repoName, beforeCommitSpecifier, afterCommitSpecifier, afterPath); ok {

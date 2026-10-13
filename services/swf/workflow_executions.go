@@ -164,8 +164,13 @@ func validateStartWorkflowExecutionInput(input StartWorkflowExecutionInput) erro
 	if input.Domain == "" {
 		return fmt.Errorf("%w: domain is required", ErrValidation)
 	}
-	if input.WorkflowID == "" {
-		return fmt.Errorf("%w: workflowId is required", ErrValidation)
+	if err := validateName("workflowId", input.WorkflowID, maxNameLength); err != nil {
+		return err
+	}
+	if input.TaskList != "" {
+		if err := validateName("taskList name", input.TaskList, maxNameLength); err != nil {
+			return err
+		}
 	}
 	if err := validateChildPolicy(input.ChildPolicy); err != nil {
 		return err
@@ -574,13 +579,7 @@ func (b *InMemoryBackend) cascadeCancelRequestLocked(domain string, exec *Workfl
 	}
 	b.appendHistoryEventLocked(domain, exec.WorkflowID, exec.RunID, "WorkflowExecutionCancelRequested", attrs)
 
-	if exec.TaskList != "" {
-		qkey := domain + ":" + exec.TaskList
-		b.decisionQueues[qkey] = append(b.decisionQueues[qkey], &DecisionTask{
-			WorkflowID: exec.WorkflowID,
-			RunID:      exec.RunID,
-		})
-	}
+	b.enqueueDecisionTaskLocked(domain, exec.WorkflowID, exec.RunID)
 }
 
 // DescribeWorkflowExecution returns a specific run of a workflow execution.
@@ -625,8 +624,10 @@ func (b *InMemoryBackend) openCountsLocked(domain, workflowID, runID string) map
 
 	timerCount := 0
 	childCount := 0
+	lambdaCount := 0
 	if exec, ok := b.executions.Get(executionKey(domain, workflowID, runID)); ok {
 		timerCount = len(exec.OpenTimerIDs)
+		lambdaCount = len(exec.OpenLambdaIDs)
 		for _, e := range b.executionsByDomain.Get(domain) {
 			if e.Status == statusRunning && e.ParentWorkflowID == workflowID && e.ParentRunID == exec.RunID {
 				childCount++
@@ -639,6 +640,7 @@ func (b *InMemoryBackend) openCountsLocked(domain, workflowID, runID string) map
 		"openDecisionTasks":           decisionCount,
 		"openTimers":                  timerCount,
 		"openChildWorkflowExecutions": childCount,
+		"openLambdaFunctions":         lambdaCount,
 	}
 }
 
@@ -752,13 +754,7 @@ func (b *InMemoryBackend) RequestCancelWorkflowExecution(domain, workflowID, run
 	b.appendHistoryEventLocked(domain, workflowID, exec.RunID, "WorkflowExecutionCancelRequested", attrs)
 
 	// Enqueue a decision task so the workflow decider can react.
-	if exec.TaskList != "" {
-		qkey := domain + ":" + exec.TaskList
-		b.decisionQueues[qkey] = append(b.decisionQueues[qkey], &DecisionTask{
-			WorkflowID: workflowID,
-			RunID:      exec.RunID,
-		})
-	}
+	b.enqueueDecisionTaskLocked(domain, workflowID, exec.RunID)
 
 	return nil
 }

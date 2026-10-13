@@ -50,7 +50,7 @@ func (b *InMemoryBackend) followingChannelArns(primaryARN string) []string {
 
 	arns := []string{}
 
-	for _, ch := range b.channels.All() {
+	for _, ch := range b.liveChannels() {
 		if ch.LinkedChannelSettings.Follower.PrimaryChannelArn == primaryARN {
 			arns = append(arns, ch.ARN)
 		}
@@ -67,6 +67,7 @@ func (b *InMemoryBackend) followingChannelArns(primaryARN string) []string {
 // hold b.mu (Lock or RLock).
 func (b *InMemoryBackend) toChannelWithDerived(ch *storedChannel) *Channel {
 	out := ch.toChannel()
+	out.State = b.channelState(ch)
 	out.LinkedChannelSettings.Primary.FollowingChannelArns = b.followingChannelArns(ch.ARN)
 
 	return out
@@ -161,6 +162,10 @@ func (b *InMemoryBackend) CreateChannel(
 		channelClass = channelClassStandard
 	}
 
+	if err := validateChannelClass(channelClass); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateChannel")
 	defer b.mu.Unlock()
 
@@ -180,10 +185,28 @@ func (b *InMemoryBackend) CreateChannel(
 		AnywhereSettings: anywhereSettings,
 	}
 	applyChannelCreateExtras(ch, extras)
+	ch.Vpc = b.provisionVpcLocked(ch.ID, ch.Vpc)
 
+	ch.phase = b.newPhase(stateCreating)
+	b.pruneDeletedChannelsLocked(b.now())
 	b.channels.Put(ch)
 
-	return b.toChannelWithDerived(ch), nil
+	out := b.toChannelWithDerived(ch)
+	out.State = stateCreating
+
+	return out, nil
+}
+
+func validateChannelClass(class string) error {
+	if class != channelClassStandard && class != channelClassSinglePipeline {
+		return fmt.Errorf(
+			"%w: invalid channel class %q, must be STANDARD or SINGLE_PIPELINE",
+			ErrInvalidParameter,
+			class,
+		)
+	}
+
+	return nil
 }
 
 // DescribeChannel returns a channel by ID.
@@ -209,9 +232,13 @@ func (b *InMemoryBackend) UpdateChannel(
 	b.mu.Lock("UpdateChannel")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels.Get(channelID)
-	if !ok {
-		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
+	ch, err := b.liveChannel(channelID)
+	if err != nil {
+		return nil, err
+	}
+
+	if st := b.channelState(ch); st != stateIdle {
+		return nil, fmt.Errorf("%w: channel must be idle to update, current state %s", ErrConflict, st)
 	}
 
 	if name != "" {
@@ -223,14 +250,22 @@ func (b *InMemoryBackend) UpdateChannel(
 	}
 
 	if hasAnywhereSettings {
-		if err := b.validateAnywhereSettings(anywhereSettings); err != nil {
+		if err = b.validateAnywhereSettings(anywhereSettings); err != nil {
 			return nil, err
 		}
 
 		ch.AnywhereSettings = anywhereSettings
 	}
 
+	if extras.HasVpc {
+		b.releaseVpcLocked(ch.Vpc)
+	}
+
 	applyChannelUpdateExtras(ch, extras)
+
+	if extras.HasVpc {
+		ch.Vpc = b.provisionVpcLocked(ch.ID, ch.Vpc)
+	}
 
 	return b.toChannelWithDerived(ch), nil
 }
@@ -245,18 +280,22 @@ func (b *InMemoryBackend) DeleteChannel(channelID string) (*Channel, error) {
 	b.mu.Lock("DeleteChannel")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels.Get(channelID)
-	if !ok {
-		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
+	ch, err := b.liveChannel(channelID)
+	if err != nil {
+		return nil, err
 	}
 
-	if ch.State == stateRunning {
-		return nil, fmt.Errorf("%w: channel must be idle before deleting", ErrConflict)
+	if st := b.channelState(ch); st != stateIdle {
+		return nil, fmt.Errorf("%w: channel must be idle before deleting, current state %s", ErrConflict, st)
 	}
+
+	b.releaseVpcLocked(ch.Vpc)
+	ch.State = stateDeleted
+	ch.DeletedAt = b.now()
+	ch.phase = b.newPhase(stateDeleting)
 
 	out := b.toChannelWithDerived(ch)
 	out.State = stateDeleting
-	b.channels.Delete(channelID)
 
 	return out, nil
 }
@@ -266,8 +305,10 @@ func (b *InMemoryBackend) ListChannels(
 	maxResults int,
 	nextToken string,
 ) ([]*ChannelSummary, string, error) {
-	b.mu.RLock("ListChannels")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListChannels")
+	defer b.mu.Unlock()
+
+	b.pruneDeletedChannelsLocked(b.now())
 
 	all := b.channels.All()
 
@@ -292,16 +333,17 @@ func (b *InMemoryBackend) StartChannel(channelID string) (*Channel, error) {
 	b.mu.Lock("StartChannel")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels.Get(channelID)
-	if !ok {
-		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
+	ch, err := b.liveChannel(channelID)
+	if err != nil {
+		return nil, err
 	}
 
-	if ch.State != stateIdle {
-		return nil, fmt.Errorf("%w: channel must be idle to start", ErrConflict)
+	if st := b.channelState(ch); st != stateIdle {
+		return nil, fmt.Errorf("%w: channel must be idle to start, current state %s", ErrConflict, st)
 	}
 
 	ch.State = stateRunning
+	ch.phase = b.newPhase(stateStarting)
 
 	result := b.toChannelWithDerived(ch)
 	result.State = stateStarting
@@ -316,16 +358,17 @@ func (b *InMemoryBackend) StopChannel(channelID string) (*Channel, error) {
 	b.mu.Lock("StopChannel")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels.Get(channelID)
-	if !ok {
-		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
+	ch, err := b.liveChannel(channelID)
+	if err != nil {
+		return nil, err
 	}
 
-	if ch.State != stateRunning {
-		return nil, fmt.Errorf("%w: channel must be running to stop", ErrConflict)
+	if st := b.channelState(ch); st != stateRunning {
+		return nil, fmt.Errorf("%w: channel must be running to stop, current state %s", ErrConflict, st)
 	}
 
 	ch.State = stateIdle
+	ch.phase = b.newPhase(stateStopping)
 
 	result := b.toChannelWithDerived(ch)
 	result.State = stateStopping
@@ -361,13 +404,17 @@ func (b *InMemoryBackend) UpdateChannelClass(channelID, channelClass string) (*C
 	b.mu.Lock("UpdateChannelClass")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels.Get(channelID)
-	if !ok {
-		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
+	ch, err := b.liveChannel(channelID)
+	if err != nil {
+		return nil, err
 	}
 
-	if channelClass == "" {
-		return nil, fmt.Errorf("%w: channelClass required", ErrInvalidParameter)
+	if err = validateChannelClass(channelClass); err != nil {
+		return nil, err
+	}
+
+	if st := b.channelState(ch); st != stateIdle {
+		return nil, fmt.Errorf("%w: channel must be idle to update its class, current state %s", ErrConflict, st)
 	}
 
 	ch.ChannelClass = channelClass

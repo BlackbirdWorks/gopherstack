@@ -3,7 +3,6 @@ package stepfunctions
 import (
 	"fmt"
 	"strings"
-	"time"
 )
 
 // mapRunARNFor builds a Map Run ARN from an execution ARN and a state name.
@@ -63,8 +62,7 @@ func (b *InMemoryBackend) storeMapRun(
 	maxConcurrency, itemCount int,
 ) string {
 	mapRunARN := b.mapRunARNFor(executionARN, stateName)
-	const millisPerSecond = 1000.0
-	now := float64(time.Now().UnixMilli()) / millisPerSecond
+	now := epochNow()
 
 	mr := &MapRun{
 		MapRunArn:       mapRunARN,
@@ -106,8 +104,7 @@ func (b *InMemoryBackend) OnMapRunStart(
 // Map state's ResultWriter actually exported results to S3 -- DescribeMapRun
 // ItemCounts.ResultsWritten counts items ResultWriter wrote, not successes.
 func (b *InMemoryBackend) OnMapRunEnd(mapRunARN, status string, succeeded, failed, total, resultsWritten int) {
-	const millisPerSecond = 1000.0
-	now := float64(time.Now().UnixMilli()) / millisPerSecond
+	now := epochNow()
 
 	b.mu.Lock("OnMapRunEnd")
 	defer b.mu.Unlock()
@@ -234,7 +231,10 @@ func (b *InMemoryBackend) ListMapRuns(
 		all = append(all, *mr)
 	}
 
-	page, token := paginate(all, nextToken, maxResults)
+	page, token, pageErr := paginate(all, nextToken, maxResults)
+	if pageErr != nil {
+		return nil, "", pageErr
+	}
 
 	return page, token, nil
 }

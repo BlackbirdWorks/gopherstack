@@ -94,7 +94,7 @@ func TestThreatEntitySets(t *testing.T) {
 				id := createTestDetector(t, h)
 
 				rec := doRequest(t, h, http.MethodGet, "/detector/"+id+"/threatentityset/no-such-set", nil)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}
@@ -189,7 +189,7 @@ func TestTrustedEntitySets(t *testing.T) {
 				id := createTestDetector(t, h)
 
 				rec := doRequest(t, h, http.MethodGet, "/detector/"+id+"/trustedentityset/no-such-set", nil)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}

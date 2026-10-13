@@ -8,6 +8,7 @@ import (
 type createPartitionIndexInput struct {
 	DatabaseName   string         `json:"DatabaseName"`
 	TableName      string         `json:"TableName"`
+	CatalogID      string         `json:"CatalogId,omitempty"`
 	PartitionIndex PartitionIndex `json:"PartitionIndex"`
 }
 
@@ -15,6 +16,10 @@ func (h *Handler) handleCreatePartitionIndex(
 	_ context.Context,
 	in *createPartitionIndexInput,
 ) (*emptyOutput, error) {
+	if err := h.requireTableCatalog(in.DatabaseName, in.TableName, in.CatalogID); err != nil {
+		return nil, err
+	}
+
 	return &emptyOutput{}, h.Backend.CreatePartitionIndex(
 		in.DatabaseName,
 		in.TableName,
@@ -26,6 +31,7 @@ func (h *Handler) handleCreatePartitionIndex(
 type deletePartitionIndexInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	TableName    string `json:"TableName"`
+	CatalogID    string `json:"CatalogId,omitempty"`
 	IndexName    string `json:"IndexName"`
 }
 
@@ -33,6 +39,10 @@ func (h *Handler) handleDeletePartitionIndex(
 	_ context.Context,
 	in *deletePartitionIndexInput,
 ) (*emptyOutput, error) {
+	if err := h.requireTableCatalog(in.DatabaseName, in.TableName, in.CatalogID); err != nil {
+		return nil, err
+	}
+
 	return &emptyOutput{}, h.Backend.DeletePartitionIndex(
 		in.DatabaseName,
 		in.TableName,
@@ -44,6 +54,7 @@ func (h *Handler) handleDeletePartitionIndex(
 type getPartitionIndexesInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	TableName    string `json:"TableName"`
+	CatalogID    string `json:"CatalogId,omitempty"`
 	NextToken    string `json:"NextToken,omitempty"`
 }
 
@@ -76,6 +87,10 @@ func (h *Handler) handleGetPartitionIndexes(
 	_ context.Context,
 	in *getPartitionIndexesInput,
 ) (*getPartitionIndexesOutput, error) {
+	if err := h.requireTableCatalog(in.DatabaseName, in.TableName, in.CatalogID); err != nil {
+		return nil, err
+	}
+
 	indexes, err := h.Backend.GetPartitionIndexes(in.DatabaseName, in.TableName)
 	if err != nil {
 		return nil, err

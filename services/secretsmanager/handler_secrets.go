@@ -3,6 +3,8 @@ package secretsmanager
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 func (h *Handler) smSecretsActions() map[string]smActionFn {
@@ -13,6 +15,9 @@ func (h *Handler) smSecretsActions() map[string]smActionFn {
 				return nil, err
 			}
 			input.Region = region
+			input.PinnedSuffix, input.Tags = tags.PinnedIDFromList(input.Tags, func(t Tag) (string, string) {
+				return t.Key, t.Value
+			})
 
 			return h.Backend.CreateSecret(ctx, &input)
 		},

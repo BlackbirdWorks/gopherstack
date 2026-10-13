@@ -309,6 +309,10 @@ func (b *InMemoryBackend) StopProcessingJob(ctx context.Context, name string) er
 		return fmt.Errorf("%w: processing job %q not found", ErrProcessingJobNotFound, name)
 	}
 
+	if pj.ProcessingJobStatus != trainingJobStatusInProgress {
+		return nil
+	}
+
 	pj.ProcessingJobStatus = "Stopping"
 	pj.LastModifiedTime = time.Now()
 

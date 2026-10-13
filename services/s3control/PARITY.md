@@ -1,7 +1,7 @@
 service: s3control
 sdk_module: aws-sdk-go-v2/service/s3control@v1.73.4
 last_audit_commit: 2bc650bf9
-last_audit_date: 2026-09-19
+last_audit_date: 2026-10-10
                        # 2026-08-30: pagination-tie re-audit. Re-verified the 2026-08-28/29
                        # pagination_sweep entry below still holds: every List* backend method
                        # (ListAccessPoints/ListAccessPointsForDirectoryBuckets/ListJobs/
@@ -204,39 +204,22 @@ families:
 gaps: []
 
 items_still_open:
-  - "s3control.ErrAlreadyExists dead sentinel (errors.go) REMOVED this pass -- verified unreachable
-    (repo-wide grep, zero call sites) and its real-AWS duplicate-CreateAccessPoint behavior is
-    unverifiable (deserializers.go's awsRestxml_deserializeOpErrorCreateAccessPoint has zero modeled
-    error cases, generic fallback only), so wiring it up would be a guess, not a fix."
-  - "2026-09-13 (gopherstack-xhu2t): ListAccessPoints.DataSourceType (real semantics: default lists only
-    S3-bucket-backed access points, 'ALL' lists every data source type) has no observable effect --
-    AccessPoint (models.go) has no DataSourceType/DataSourceId field and every access point this backend
-    can create is bucket-backed, so both filter values are always byte-identical. Not fixed: a filter that
-    can never change the output is dead plumbing, not a real fix. Needs a non-bucket data-source-type
-    access point (e.g. S3 Tables) modeled first."
-  - "2026-09-19: aws_s3control_bucket/_lifecycle_configuration/_policy (S3 on Outposts) tried once via
-    real terraform apply and left out. CreateBucket's OutpostsBucket.BucketArn hardcodes a literal
-    op-00000000 outpost segment (bucket.go/arnFmtOutpostsBucket) instead of the caller-supplied
-    outpost_id, and real CreateBucketInput carries no AccountId (already documented on CreateBucket) so
-    the ARN's account segment is whatever accountIDFromRequest resolves to off a header the real op
-    doesn't have -- with skip_requesting_account_id in the test provider that surfaced as literal
-    'default'. terraform-provider-aws's post-create Read then calls GetBucketTagging, which this
-    backend correctly returns as NoSuchTagSetError (documented real AWS behavior, errors.go), but the
-    provider's own error-handling for that path did not tolerate it in this sandbox and the apply
-    failed with 'operation error S3 Control: GetBucketTagging ... NoSuchTagSetError'. Aws_s3control_
-    directory_bucket_access_point_scope (S3 Express One Zone / Local Zone) not attempted: needs a
-    zone-suffixed directory bucket the emulator's S3 side does not model."
-  - "Unmodeled (2026-10-05): PutBucketVersioning MFA and the MfaDelete member (no MFA device model, and the bucket versioning store tracks Status only), PutBucketPolicy ConfirmRemoveSelfBucketAccess (no policy evaluation to detect a self-lockout), CreateBucket ACL/GrantFullControl/GrantRead/GrantReadACP/GrantWrite/GrantWriteACP/ObjectLockEnabledForBucket (S3 Control has no op that reads them back), ListCallerAccessGrants AllowedByApplication (no caller Identity Center application identity), the access-grant S3PrefixType request member and GetDataAccess TargetType/AuditContext (grant-scope matching against object paths is not modeled), the ListAccessPoints data-source id filter (same gap as the data-source type filter above), the multi-region access point delete and put-policy ClientToken members (no idempotent async-request replay)."
+  - "ListAccessPoints/GetAccessPoint DataSourceId: the SDK documents it only as 'the unique identifier for the data source' without stating the value for a bucket-backed access point (the S3 Control API reference ListAccessPoints says the same), so the filter and the GetAccessPoint echo are left unmodeled rather than guessed."
+  - "Multi-region access point create/delete/put-policy ClientToken: SDK and the CreateMultiRegionAccessPoint API reference say only "an idempotency token ... guarantee that requests are unique", so idempotent replay is left unmodeled."
+  - "Terraform aws_s3control_bucket (S3 on Outposts) apply (2026-09-19): the ARN now carries the caller's X-Amz-Outpost-Id; the remaining failure is the provider's handling of GetBucketTagging NoSuchTagSetError, not verifiable here. aws_s3control_directory_bucket_access_point_scope needs zone-suffixed directory buckets the S3 emulator does not model."
+structural_gaps:
+  - "ListAccessPoints DataSourceType filter: every access point CreateAccessPoint can create is bucket-backed, so ALL and the default are always identical; non-bucket (S3 Tables) access points are created outside this API."
+  - "PutBucketVersioning MFA header: no MFA device model. (MfaDelete itself is stored and echoed.)"
+  - "PutBucketPolicy ConfirmRemoveSelfBucketAccess: no policy evaluation to detect a self-lockout."
+  - "CreateBucket ACL/Grant*/ObjectLockEnabledForBucket: S3 Control has no op that reads them back."
+  - "ListCallerAccessGrants AllowedByApplication: no caller Identity Center application identity exists."
+  - "GetDataAccess AuditContext: only feeds CloudTrail data events."
 deferred:
   - "AccessGrantsInstance / IdentityCenter association flows: state machine correctness beyond basic CRUD
     (the delete-grants-and-locations-first precondition IS enforced -- see the DeleteAccessGrantsInstance
     ops row)."
   - "Chaos fault-injection interaction with the fixed routes/leak (ChaosOperations() just echoes
     GetSupportedOperations(), unaffected)."
-  - "GetDataAccess/CreateJob request-side ManifestGenerator (alternative to Manifest, letting a caller
-    point at an S3 Inventory report) is accepted nowhere -- createJobRequestXML has no field for it.
-    Needs a design decision on synthetic manifest generation (no real S3 Inventory data to point at),
-    not a field-diff fix."
 
 leaks: {status: fixed, note: "LEAK FOUND AND FIXED THIS PASS. DeleteMultiRegionAccessPoint (multi_region_access_points.go) checked b.mraps.Has(key) and returned nil WITHOUT ever calling b.mraps.Delete(key) -- a disguised no-op. Both the synchronous DELETE /v20180820/mrap/instances/{Name} route and the async POST /v20180820/async-requests/mrap/delete route (the one a real aws-sdk-go-v2 client actually uses) call this same backend method, so every DeleteMultiRegionAccessPoint call, sync or async, silently failed to remove the resource: the MRAP stayed retrievable via GetMultiRegionAccessPoint/ListMultiRegionAccessPoints forever, and repeated create/delete cycles (e.g. any test or workload that creates+deletes MRAPs by generated/random names) accumulated an unbounded number of ghost rows in b.mraps with no way to reclaim them. No existing test caught this because the only assertion on delete was err == nil, never that the resource was actually gone -- classic 'green tests, real bug' (see the project's parity-principles.md point 3). Fixed: DeleteMultiRegionAccessPoint now actually deletes the row and cascade-cleans its route configuration (mrapRoutes); new tests TestBackend_DeleteMultiRegionAccessPoint_ActuallyRemoves and TestHandler_DeleteMultiRegionAccessPoint_AsyncRouteActuallyRemoves lock in both the backend- and HTTP-level behavior via Get-after-Delete and List-after-Delete assertions, not just the return value. While investigating this leak class, also found and fixed 6 more ghost-map-row leaks of the identical shape (delete removes the primary resource row but leaves secondary maps -- policy/scope/PAB/generic-tags -- behind forever) on DeleteAccessPoint, DeleteAccessPointForObjectLambda, DeleteBucket, DeleteAccessGrant, DeleteAccessGrantsLocation, DeleteAccessGrantsInstance, and DeleteStorageLensGroup -- see the tags/access-point-crud/bucket-outposts/access-grants/storage-lens family notes above. No goroutines/janitors/tickers exist in this service (verified: no `go func`/`time.NewTicker`/`time.AfterFunc`/`context.WithCancel` anywhere in services/s3control), so there is no goroutine-leak class here -- the leak this pass found and fixed was purely the disguised-no-op-delete / ghost-map-row class. Handler.Snapshot/Restore correctly delegate to InMemoryBackend.Snapshot/Restore (verified in persistence.go) so cli.go's setupPersistence registers it correctly -- no silent-unregistration bug found here."}
 ---
@@ -400,10 +383,10 @@ what a follow-up pass should still cover.
   `UpdateAccessGrantsLocationResult`: CLEAN.
 - `ListAccessGrantsLocationsResult`: FIXED -- item type only carried `AccessGrantsLocationId`/
   `LocationScope`; added `AccessGrantsLocationArn`/`CreatedAt`/`IAMRoleArn` (all backed).
-- `GetDataAccessResult`: GAP-DOCUMENTED -- real type also has `Credentials.SessionToken`,
-  `Credentials.Expiration`, and a top-level `Grantee`; this backend does not issue real
-  STS-style credentials or resolve which grant matched, so these are left unpopulated rather
-  than invented.
+- `GetDataAccessResult`: FIXED 2026-10-07 -- target/permission are matched against the account's
+  grants (AccessDenied 403 when none covers them) and the result carries generated temporary
+  Credentials (AccessKeyId/SecretAccessKey/SessionToken/Expiration from DurationSeconds) and the
+  matched Grantee. Grantee identity vs caller is not enforced.
 - `DeleteAccessGrantsInstance` precondition: **FIXED** -- see dedicated section below.
 
 ### Jobs (`handler_jobs.go`) -- all ops diffed
@@ -550,7 +533,7 @@ what a follow-up pass should still cover.
   The previous shape expected the payload nested one level deeper, which a real
   aws-sdk-go-v2 client's request would never match (root-element mismatch) -- **every real
   PutBucketTagging call would have been rejected outright**, not merely mis-parsed.
-- `GetBucketVersioningResult`: GAP-DOCUMENTED (`MfaDelete`, no backing data).
+- `GetBucketVersioningResult`: `MfaDelete` stored from PutBucketVersioning and echoed (2026-10-07).
 - `PutBucketVersioningRequest`: **REQUEST-BREAKING BUG, FIXED** -- same payload-root class of
   bug as `PutBucketTagging`: `VersioningConfiguration` is payload-bound, so the real root is
   `<VersioningConfiguration>` with `Status` as a direct child, not
@@ -1003,8 +986,7 @@ and fixed, every one caught only by a decoded typed-client value:
 
 Accept-and-drop, reconfirmed not fixed (already disclosed, out of scope):
 `GetDataAccess`'s `Credentials.AccessKeyId`/`SecretAccessKey` are always
-empty -- this backend issues no real STS federation tokens and has no
-backing credential state to vend.
+empty -- superseded 2026-10-07: GetDataAccess now vends generated credentials.
 
 Gates: `go build ./...` clean, `go vet ./services/s3control/...` clean,
 `go test -race -count=1 ./services/s3control/...` and
@@ -1168,3 +1150,26 @@ NoSuchAccessGrant (access_grants.go:260/276): the pinned s3control v1.73.4 decla
 - DeleteMultiRegionAccessPoint and PutMultiRegionAccessPointPolicy ClientToken: accepted and ignored, no idempotent request replay (items_still_open).
 - CreateAccessGrant S3PrefixType: accepted and ignored, grant-scope object matching is not modeled (items_still_open).
 - ListAccessPoints DataSourceId: accepted and ignored, every access point is bucket-backed (items_still_open).
+
+## 2026-10-07 pass
+
+- `CreateBucket` now reads `X-Amz-Outpost-Id` into the bucket ARN (default `op-00000000` only when absent) and
+  takes the account from the header, else the caller context. `TestCreateBucket_OutpostARN`.
+- `GetBucketVersioning`/`PutBucketVersioning` store and echo `MfaDelete` (snapshot field `bucketMFADelete`,
+  additive). `TestBucketVersioning_MfaDeleteRoundTrip`.
+- `GetDataAccess` matches grants and vends credentials (see above). `TestGetDataAccess`,
+  `TestRealClient_GetDataAccessCredentials`.
+- `CreateJob` `ManifestGenerator` is stored raw and echoed on `DescribeJob` (snapshot field
+  `BatchJob.manifestGenerator`, additive). `TestSDK_CreateJobManifestGeneratorRoundTrip`.
+- `S3PrefixType`/`TargetType` Object: exact-object scopes (no trailing `/` or `*` beyond the bucket) match exactly.
+
+## 2026-10-07: Object Lambda access points reach S3
+
+- Create/PutAccessPointConfigurationForObjectLambda register the access point (name, account, alias, supporting bucket, Lambda ARN) with the S3 handler via `s3.ObjectLambdaAccessPointSink`; DeleteAccessPointForObjectLambda removes it. Proof: `TestObjectLambdaAccessPointSink`.
+
+## 2026-10-10 realism pass
+- Error `<Message>` was a copy of the code; now human text per code (`errorMessages`). `TestAccessPoint_RequestValidation`.
+- CreateAccessPoint validates the name (3-50 of lowercase letters, digits, hyphen; no leading/trailing hyphen -> InvalidRequest) and rejects a duplicate with `AccessPointAlreadyOwnedByYou` (409). PutAccessPointPolicy rejects non-JSON with `MalformedPolicy`.
+- Batch jobs advance by elapsed time instead of staying `New` forever: New (2s) -> Preparing (2s) -> Suspended (ConfirmationRequired) or Ready. UpdateJobStatus on Cancelled/Complete/Failed jobs returns `JobStatusException` (409). No task executor exists, so jobs never reach Active/Complete (structural). `TestJobLifecycle_StatusAdvancesWithTime`.
+- Shared fix: `pkgs/awserr` XML errors were written with a doubled `<?xml ...?>` declaration (echo's XMLBlob prepends one); botocore/AWS CLI could not parse them. Now written via `c.Blob`.
+- Left lenient: CreateAccessPoint does not check the bucket exists (cross-service); MRAP creation reports READY immediately; ListAccessPoints ignores bad NextToken.

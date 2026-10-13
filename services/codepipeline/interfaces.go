@@ -1,6 +1,10 @@
 package codepipeline
 
-import "context"
+import (
+	"context"
+
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+)
 
 // CodeBuildStarter is the subset of CodeBuild operations CodePipeline needs
 // to run a Build/CodeBuild action, wired via SetCodeBuildBackend. When
@@ -35,4 +39,30 @@ type CodeDeployStarter interface {
 	// CreateDeployment starts a deployment in the region ctx carries. An error
 	// (e.g. either does not exist) fails the pipeline action.
 	CreateDeployment(ctx context.Context, applicationName, deploymentGroupName string) error
+}
+
+// BuildRequest is what a Build/CodeBuild action hands CodeBuild.
+type BuildRequest struct {
+	ProjectName string
+	// SourceLocation is "bucket/key" of the primary input artifact, empty when none is staged.
+	SourceLocation    string
+	BuildspecOverride string
+}
+
+// CodeBuildRunner is the CodeBuildStarter extension that lets a Build action
+// wait on the build's final status. A starter that also implements it is run
+// asynchronously: the action stays InProgress until BuildStatus is terminal.
+type CodeBuildRunner interface {
+	CodeBuildStarter
+	// RunBuild starts a build and returns its ID.
+	RunBuild(ctx context.Context, req BuildRequest) (string, error)
+	// BuildStatus returns the build's current status (e.g. IN_PROGRESS, SUCCEEDED, FAILED, STOPPED).
+	BuildStatus(ctx context.Context, buildID string) (string, error)
+}
+
+// ArtifactS3 is the S3 surface Source/S3 and Deploy/S3 actions and the
+// pipeline artifact store need, wired via SetArtifactS3.
+type ArtifactS3 interface {
+	GetObject(ctx context.Context, input *s3.GetObjectInput) (*s3.GetObjectOutput, error)
+	PutObject(ctx context.Context, input *s3.PutObjectInput) (*s3.PutObjectOutput, error)
 }

@@ -38,6 +38,10 @@ func (h *Handler) handleCreateProject(_ context.Context, req *createProjectReq) 
 		return nil, fmt.Errorf("%w: ProjectName is required", ErrValidation)
 	}
 
+	if err := validateName("ProjectName", req.ProjectName); err != nil {
+		return nil, err
+	}
+
 	proj, err := h.Backend.CreateProject(req.ProjectName, CreateProjectParams{
 		Tags:       req.Tags,
 		AutoUpdate: req.AutoUpdate,

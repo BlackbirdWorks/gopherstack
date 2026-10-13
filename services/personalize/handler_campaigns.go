@@ -76,7 +76,7 @@ func campaignToMap(c *Campaign) map[string]any {
 		keyName:                c.Name,
 		keySolutionVersionArn:  c.SolutionVersionArn,
 		"minProvisionedTPS":    c.MinProvisionedTPS,
-		keyStatus:              c.Status,
+		keyStatus:              c.lc.resourceStatus(c.Status, c.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(c.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(c.LastUpdatedDateTime),
 	}
@@ -102,7 +102,7 @@ func campaignSummaryToMap(c *Campaign) map[string]any {
 	return map[string]any{
 		keyCampaignArn:         c.CampaignArn,
 		keyName:                c.Name,
-		keyStatus:              c.Status,
+		keyStatus:              c.lc.resourceStatus(c.Status, c.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(c.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(c.LastUpdatedDateTime),
 	}

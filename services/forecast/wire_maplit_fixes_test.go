@@ -31,13 +31,13 @@ func TestGetAccuracyMetrics_QuantileAndWindowsDecode(t *testing.T) {
 	client := newTestForecastClient(t, h)
 
 	dsGroupOut, err := client.CreateDatasetGroup(t.Context(), &forecastsdk.CreateDatasetGroupInput{
-		DatasetGroupName: aws.String("acc-metrics-dsg"),
+		DatasetGroupName: aws.String("acc_metrics_dsg"),
 		Domain:           types.DomainCustom,
 	})
 	require.NoError(t, err)
 
 	predOut, err := client.CreatePredictor(t.Context(), &forecastsdk.CreatePredictorInput{
-		PredictorName:   aws.String("acc-metrics-pred"),
+		PredictorName:   aws.String("acc_metrics_pred"),
 		ForecastHorizon: aws.Int32(7),
 		ForecastTypes:   []string{"0.1", "0.5", "0.9", "mean"},
 		InputDataConfig: &types.InputDataConfig{

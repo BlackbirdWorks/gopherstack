@@ -506,7 +506,10 @@ func TestDescribePatchBaselines_PageWalkReproducesFullSet(t *testing.T) {
 	assertPageWalkReproducesSet(t, want, func(token string) ([]string, string) {
 		out, err := b.DescribePatchBaselines(
 			ctx,
-			&ssm.DescribePatchBaselinesInput{MaxResults: int64p(pageWalkTestPageSize), NextToken: token},
+			&ssm.DescribePatchBaselinesInput{
+				MaxResults: int64p(pageWalkTestPageSize), NextToken: token,
+				Filters: []ssm.PatchBaselineFilter{{Key: "OWNER", Values: []string{"Self"}}},
+			},
 		)
 		require.NoError(t, err)
 

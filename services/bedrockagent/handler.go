@@ -315,6 +315,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return c.JSON(http.StatusInternalServerError, errResp("InternalServerException", "internal server error"))
 		}
 
+		if pageErr := validatePageRequest(query, body); pageErr != nil {
+			return handleErr(c, pageErr)
+		}
+
 		return h.dispatch(ctx, c, path, method, query, body)
 	}
 }

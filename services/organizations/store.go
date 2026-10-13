@@ -28,43 +28,36 @@ const managementAccountCounter = 1
 // map[string]string, or map[string]bool), which does not fit store.Table's
 // keyed-by-*T shape.
 type InMemoryBackend struct {
-	registry                 *store.Registry
-	serviceAccess            *store.Table[EnabledServicePrincipal]
-	targetPolicies           map[string][]string
-	delegatedAdmins          *store.Table[DelegatedAdmin]
-	delegatedAdminsByService *store.Index[DelegatedAdmin]
-	delegatedAdminsByAccount *store.Index[DelegatedAdmin]
-	handshakes               *store.Table[Handshake]
-	responsibilityTransfers  *store.Table[ResponsibilityTransfer]
-	// responsibilityTransfersByHandshake indexes responsibilityTransfers by
-	// ActiveHandshakeID, so Accept/Cancel/Decline/expire on the underlying
-	// Handshake can find and re-sync the transfer's Status in O(1) -- see
-	// syncResponsibilityTransferStatusLocked (handshakes.go).
+	ous                                *store.Table[OrganizationalUnit]
+	ouParent                           map[string]string
+	serviceAccess                      *store.Table[EnabledServicePrincipal]
+	targetPolicies                     map[string][]string
+	delegatedAdmins                    *store.Table[DelegatedAdmin]
+	delegatedAdminsByService           *store.Index[DelegatedAdmin]
+	delegatedAdminsByAccount           *store.Index[DelegatedAdmin]
+	handshakes                         *store.Table[Handshake]
+	responsibilityTransfers            *store.Table[ResponsibilityTransfer]
 	responsibilityTransfersByHandshake *store.Index[ResponsibilityTransfer]
 	org                                *Organization
 	root                               *Root
 	resourcePolicy                     *ResourcePolicy
 	accounts                           *store.Table[Account]
-	ous                                *store.Table[OrganizationalUnit]
-	ousByParentIdx                     *store.Index[OrganizationalUnit]
-	policies                           *store.Table[Policy]
+	registry                           *store.Registry
+	mu                                 *lockmetrics.RWMutex
+	emailToAccountID                   map[string]string
 	accountParent                      map[string]string
 	policyTargets                      map[string][]string
 	createStatuses                     *store.Table[CreateAccountStatus]
-	ouParent                           map[string]string
+	ousByParentIdx                     *store.Index[OrganizationalUnit]
 	tags                               map[string]map[string]string
-	emailToAccountID                   map[string]string
-	// ousByParent maps parentID → ouName → ouID for O(1) sibling name uniqueness
-	// checks in CreateOrganizationalUnit and UpdateOrganizationalUnit.
-	ousByParent map[string]map[string]string
-	// accountChildrenByParent maps parentID → set of accountIDs for O(1) child
-	// lookups in ListChildren and DeleteOrganizationalUnit.
-	accountChildrenByParent map[string]map[string]bool
-	mu                      *lockmetrics.RWMutex
-	region                  string
-	accountID               string
-	accountCounter          int
-	statusCounter           int
+	policies                           *store.Table[Policy]
+	ousByParent                        map[string]map[string]string
+	accountChildrenByParent            map[string]map[string]bool
+	region                             string
+	accountID                          string
+	accountLeaveHooks                  []func(accountID string)
+	accountCounter                     int
+	statusCounter                      int
 }
 
 // NewInMemoryBackend creates a new in-memory Organizations backend.

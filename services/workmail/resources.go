@@ -35,8 +35,8 @@ func (b *InMemoryBackend) CreateResource(
 		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	if err := validateEntityName("resource", name, maxResourceNameLen); err != nil {
+		return nil, err
 	}
 	validTypes := map[string]bool{"ROOM": true, "EQUIPMENT": true}
 	if resourceType != "" && !validTypes[resourceType] {
@@ -87,7 +87,7 @@ func (b *InMemoryBackend) DescribeResource(orgID, entityID string) (*Resource, e
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	r := b.findResource(orgID, entityID)
 	if r == nil {
@@ -112,7 +112,7 @@ func (b *InMemoryBackend) UpdateResource(
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	r := b.findResource(orgID, entityID)
 	if r == nil {

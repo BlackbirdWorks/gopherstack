@@ -40,7 +40,7 @@ func TestTargetGroup_DocumentedDefaults(t *testing.T) {
 
 			c := newTestVPCLatticeClient(t, newTestHandler(t))
 			created, err := c.CreateTargetGroup(t.Context(), &vpclatticesdk.CreateTargetGroupInput{
-				Name: aws.String("tg"), Type: tc.tgType, Config: tc.cfg,
+				Name: aws.String("tgrp"), Type: tc.tgType, Config: tc.cfg,
 			})
 			require.NoError(t, err)
 
@@ -73,7 +73,7 @@ func TestTargetGroup_UpdateHealthCheckAppliesDefaults(t *testing.T) {
 
 	c := newTestVPCLatticeClient(t, newTestHandler(t))
 	created, err := c.CreateTargetGroup(t.Context(), &vpclatticesdk.CreateTargetGroupInput{
-		Name: aws.String("tg"), Type: types.TargetGroupTypeIp,
+		Name: aws.String("tgrp"), Type: types.TargetGroupTypeIp,
 		Config: &types.TargetGroupConfig{
 			Protocol: types.TargetGroupProtocolHttp, VpcIdentifier: aws.String("vpc-1"), Port: aws.Int32(8080),
 		},

@@ -88,7 +88,7 @@ func TestServiceNetwork_SharingConfigRoundTrip(t *testing.T) {
 
 			c := newRealClient(t)
 			created, err := c.CreateServiceNetwork(t.Context(), &vpclatticesdk.CreateServiceNetworkInput{
-				Name: aws.String("sn"), SharingConfig: tt.sharing,
+				Name: aws.String("snet"), SharingConfig: tt.sharing,
 			})
 			require.NoError(t, err)
 

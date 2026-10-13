@@ -417,7 +417,7 @@ func (b *InMemoryBackend) ResolveAppVersionResources(appArn, appVersion string) 
 // materializing every resolvable mapping into a PhysicalResource entry along
 // the way -- see resolveMappingsLocked.
 func (b *InMemoryBackend) scheduleResolution(appID, versionNumber, resolutionID string) {
-	b.work.After("ResolveAppVersionResources", asyncTransitionDelay, func() {
+	b.work.After("ResolveAppVersionResources", b.transitionDelay(), func() {
 		b.mu.Lock("ResolveAppVersionResources-async")
 		defer b.mu.Unlock()
 
@@ -563,7 +563,7 @@ func (b *InMemoryBackend) ImportResourcesToDraftAppVersion(
 // Success|Failed, resolving sourceArns/eksSources against real cross-service
 // backend state along the way -- see resolveImportSourcesLocked.
 func (b *InMemoryBackend) scheduleImport(appID string, sourceArns []string, eksSources []eksSourceWire) {
-	b.work.After("ImportResourcesToDraftAppVersion", asyncTransitionDelay, func() {
+	b.work.After("ImportResourcesToDraftAppVersion", b.transitionDelay(), func() {
 		b.mu.Lock("ImportResourcesToDraftAppVersion-async")
 		defer b.mu.Unlock()
 

@@ -45,6 +45,10 @@ func (h *Handler) handleSetIdentityPoolRoles(
 		)
 	}
 
+	if err := validateRolesInput(in); err != nil {
+		return nil, err
+	}
+
 	var roleMappings map[string]RoleMapping
 	if len(in.RoleMappings) > 0 {
 		roleMappings = make(map[string]RoleMapping, len(in.RoleMappings))
@@ -80,6 +84,73 @@ func (h *Handler) handleSetIdentityPoolRoles(
 	}
 
 	return &setIdentityPoolRolesOutput{}, nil
+}
+
+const maxMappingRules = 25
+
+// validateRolesInput enforces the SetIdentityPoolRoles input constraints documented on the SDK types.
+func validateRolesInput(in *setIdentityPoolRolesInput) error {
+	for key := range in.Roles {
+		if key != "authenticated" && key != "unauthenticated" {
+			return fmt.Errorf("%w: Roles key %q must be authenticated or unauthenticated", ErrInvalidParameter, key)
+		}
+	}
+
+	for provider, rm := range in.RoleMappings {
+		if err := validateRoleMapping(provider, rm); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateRoleMapping(provider string, rm roleMappingInput) error {
+	if rm.Type != "Token" && rm.Type != "Rules" {
+		return fmt.Errorf("%w: RoleMappings[%s].Type must be Token or Rules", ErrInvalidParameter, provider)
+	}
+
+	if rm.AmbiguousRoleResolution != "AuthenticatedRole" && rm.AmbiguousRoleResolution != "Deny" {
+		return fmt.Errorf(
+			"%w: RoleMappings[%s].AmbiguousRoleResolution must be AuthenticatedRole or Deny",
+			ErrInvalidParameter, provider,
+		)
+	}
+
+	if rm.Type != "Rules" {
+		return nil
+	}
+
+	if rm.RulesConfiguration == nil || len(rm.RulesConfiguration.Rules) == 0 {
+		return fmt.Errorf(
+			"%w: RoleMappings[%s].RulesConfiguration is required for Rules",
+			ErrInvalidParameter,
+			provider,
+		)
+	}
+
+	if len(rm.RulesConfiguration.Rules) > maxMappingRules {
+		return fmt.Errorf(
+			"%w: RoleMappings[%s] allows at most %d rules",
+			ErrInvalidParameter,
+			provider,
+			maxMappingRules,
+		)
+	}
+
+	for _, r := range rm.RulesConfiguration.Rules {
+		switch r.MatchType {
+		case "Equals", "Contains", "StartsWith", "NotEqual":
+		default:
+			return fmt.Errorf("%w: rule MatchType %q is invalid", ErrInvalidParameter, r.MatchType)
+		}
+
+		if r.Claim == "" || r.Value == "" || r.RoleARN == "" {
+			return fmt.Errorf("%w: rule Claim, Value and RoleARN are required", ErrInvalidParameter)
+		}
+	}
+
+	return nil
 }
 
 type getIdentityPoolRolesInput struct {

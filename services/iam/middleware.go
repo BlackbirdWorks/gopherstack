@@ -614,7 +614,7 @@ func writeS3AccessDenied(c *echo.Context, resource string) error {
 	}
 
 	resp := s3AccessDeniedError{
-		Code:      "AccessDenied",
+		Code:      codeAccessDenied,
 		Message:   "Access Denied",
 		Resource:  resource,
 		RequestID: reqID,

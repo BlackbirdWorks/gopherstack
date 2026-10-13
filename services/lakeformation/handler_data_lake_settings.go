@@ -17,6 +17,9 @@ func (h *Handler) handleGetDataLakeSettings(_ context.Context, c *echo.Context, 
 	}
 
 	settings := h.Backend.GetDataLakeSettings()
+	if in.CatalogID != "" && in.CatalogID != h.AccountID {
+		settings = h.Backend.GetDataLakeSettingsForCatalog(in.CatalogID)
+	}
 
 	return c.JSON(http.StatusOK, getDataLakeSettingsOutput{DataLakeSettings: settings})
 }
@@ -31,7 +34,11 @@ func (h *Handler) handlePutDataLakeSettings(_ context.Context, c *echo.Context, 
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "DataLakeSettings is required")
 	}
 
-	h.Backend.PutDataLakeSettings(in.DataLakeSettings)
+	if in.CatalogID != "" && in.CatalogID != h.AccountID {
+		h.Backend.PutDataLakeSettingsForCatalog(in.CatalogID, in.DataLakeSettings)
+	} else {
+		h.Backend.PutDataLakeSettings(in.DataLakeSettings)
+	}
 
 	return c.JSON(http.StatusOK, struct{}{})
 }

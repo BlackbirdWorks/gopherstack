@@ -39,7 +39,7 @@ func (b *InMemoryBackend) ExecuteStatement(
 		b.touchTransactionLocked(region, transactionID)
 	}
 
-	b.appendStatementLocked(region, resourceARN, sql, transactionID)
+	b.appendStatementLocked(ctx, region, resourceARN, sql, transactionID)
 
 	// Execute against the real in-memory SQL engine. A genuine result set is
 	// returned for well-formed statements; anything the engine rejects (for
@@ -97,7 +97,7 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 		b.touchTransactionLocked(region, transactionID)
 	}
 
-	b.appendStatementLocked(region, resourceARN, sql, transactionID)
+	b.appendStatementLocked(ctx, region, resourceARN, sql, transactionID)
 
 	if len(parameterSets) == 0 {
 		// A parameterless batch still executes the statement once so DDL such

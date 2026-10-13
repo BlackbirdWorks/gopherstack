@@ -107,13 +107,15 @@ func (f *lifecycleFilter) sizeBounds() (*int64, *int64) {
 }
 
 type lifecycleExpiration struct {
-	Days *int   `xml:"Days"`
-	Date string `xml:"Date"`
+	Days                      *int   `xml:"Days"`
+	ExpiredObjectDeleteMarker *bool  `xml:"ExpiredObjectDeleteMarker"`
+	Date                      string `xml:"Date"`
 }
 
 // lifecycleNoncurrentVersionExpiration specifies when noncurrent object versions expire.
 type lifecycleNoncurrentVersionExpiration struct {
-	NoncurrentDays *int `xml:"NoncurrentDays"`
+	NoncurrentDays          *int `xml:"NoncurrentDays"`
+	NewerNoncurrentVersions *int `xml:"NewerNoncurrentVersions"`
 }
 
 // lifecycleAbortIncomplete specifies when to abort incomplete multipart uploads.
@@ -357,7 +359,7 @@ func (j *Janitor) applyLifecycleRule(
 				tagFilters,
 				sizeMin, sizeMax,
 				tagsByKey,
-				expireDate,
+				now,
 			)
 		}
 	}

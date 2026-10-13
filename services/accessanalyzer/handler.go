@@ -280,17 +280,29 @@ func (h *Handler) dispatch(
 	return h.dispatchTagOps(op, path, query, body)
 }
 
+func errMessage(err error, code, fallback string) string {
+	msg := strings.TrimPrefix(err.Error(), code+": ")
+	if msg == code {
+		return fallback
+	}
+
+	return msg
+}
+
 // handleError writes an error response.
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrAnalyzerAlreadyExists), errors.Is(err, ErrArchiveRuleAlreadyExists):
-		return c.JSON(http.StatusConflict, errorBody("ConflictException", err.Error()))
+		return c.JSON(http.StatusConflict,
+			errorBody("ConflictException", errMessage(err, "ConflictException", "The resource already exists.")))
 	case errors.Is(err, ErrAnalyzerNotFound), errors.Is(err, ErrArchiveRuleNotFound),
 		errors.Is(err, ErrFindingNotFound),
 		isNotFoundErr(err):
-		return c.JSON(http.StatusNotFound, errorBody("ResourceNotFoundException", err.Error()))
+		return c.JSON(http.StatusNotFound, errorBody("ResourceNotFoundException",
+			errMessage(err, "ResourceNotFoundException", "The specified resource does not exist.")))
 	case errors.Is(err, ErrValidation):
-		return c.JSON(http.StatusBadRequest, errorBody("ValidationException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorBody("ValidationException",
+			errMessage(err, "ValidationException", "The request failed validation.")))
 	case errors.Is(err, ErrMalformedPolicy):
 		return c.JSON(http.StatusUnprocessableEntity, errorBody("UnprocessableEntityException", err.Error()))
 	}

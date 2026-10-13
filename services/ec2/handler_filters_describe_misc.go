@@ -1,6 +1,9 @@
 package ec2
 
-import "strconv"
+import (
+	"slices"
+	"strconv"
+)
 
 func tagValueMatches(resourceID string, values []string, b Backend) bool {
 	for _, v := range b.TagsForResource(resourceID) {
@@ -137,6 +140,18 @@ func applyReservedInstancesModificationFilters(
 			return anyEqual(m.Status, values)
 		case "status-message":
 			return anyEqual(m.StatusMessage, values)
+		case "client-token":
+			return anyEqual(m.ClientToken, values)
+		case "create-date":
+			return matchesWildcardTimeFilter(formatModificationTime(m.CreateDate), values)
+		case "effective-date":
+			return matchesWildcardTimeFilter(formatModificationTime(m.EffectiveDate), values)
+		case "update-date":
+			return matchesWildcardTimeFilter(formatModificationTime(m.UpdateDate), values)
+		case "modification-result.reserved-instances-id":
+			return slices.ContainsFunc(m.ModificationResults, func(r ReservedInstancesModificationResult) bool {
+				return anyEqual(r.ReservedInstancesID, values)
+			})
 		}
 
 		return modificationResultMatches(m.ModificationResults, name, values)
@@ -241,12 +256,16 @@ func applySubnetCidrReservationFilters(
 	})
 }
 
-// applyImageUsageReportFilters supports state, tag:<key> and tag-key
-// (api_op_DescribeImageUsageReports.go); creation-time wildcards are not modeled.
+// applyImageUsageReportFilters supports state, creation-time (wildcard allowed), tag:<key> and tag-key
+// (api_op_DescribeImageUsageReports.go).
 func applyImageUsageReportFilters(items []*UsageReport, filters map[string][]string, b Backend) []*UsageReport {
 	return applyFilterList(items, filters, func(r *UsageReport, name string, values []string) bool {
 		if name == filterKeyState {
 			return anyEqual(r.State, values)
+		}
+
+		if name == "creation-time" {
+			return matchesWildcardTimeFilter(r.CreatedAt.UTC().Format(timeLayoutISO), values)
 		}
 
 		if ok, handled := matchesTagFilter(r.ReportID, name, values, b); handled {

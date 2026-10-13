@@ -244,10 +244,15 @@ type jsonCondNode struct {
 	op     string
 	val    jsonVal
 	exists bool
+	absent bool
 }
 
 func (n *jsonCondNode) evalJSON(root any) bool {
 	leaves := resolveJSONSelector(root, n.segs)
+	if n.absent {
+		return len(leaves) == 0
+	}
+
 	if n.exists {
 		return len(leaves) > 0
 	}
@@ -345,6 +350,10 @@ func (p *jsonPatParser) parseParen() (jsonPatNode, bool) {
 func (p *jsonPatParser) parseCondition(sel jsonTok) (jsonPatNode, bool) {
 	p.pos++ // consume selector
 	segs := parseSelectorPath(sel.text)
+
+	if node, ok := p.parseKeywordCondition(segs); ok {
+		return node, true
+	}
 
 	if p.pos >= len(p.toks) || p.toks[p.pos].kind != jtOp {
 		return &jsonCondNode{segs: segs, op: "", val: jsonVal{}, exists: true}, true
@@ -581,4 +590,54 @@ func jsonChildren(node any) []any {
 	default:
 		return nil
 	}
+}
+
+// jsonKeywordForms maps keyword sequences to the condition they build.
+type jsonKeywordForm struct {
+	op     string
+	words  []string
+	exists bool
+	absent bool
+}
+
+func jsonKeywordForms() []jsonKeywordForm {
+	return []jsonKeywordForm{
+		{words: []string{"NOT", "EXISTS"}, absent: true},
+		{words: []string{"EXISTS"}, exists: true},
+		{words: []string{"IS", "NOT", "NULL"}, op: "!="},
+		{words: []string{"IS", "NULL"}, op: "="},
+	}
+}
+
+// parseKeywordCondition parses the EXISTS / NOT EXISTS / IS NULL / IS NOT NULL forms.
+func (p *jsonPatParser) parseKeywordCondition(segs []jsonSeg) (jsonPatNode, bool) {
+	for _, f := range jsonKeywordForms() {
+		if !p.hasKeywords(f.words) {
+			continue
+		}
+
+		p.pos += len(f.words)
+
+		return &jsonCondNode{
+			segs: segs, op: f.op, exists: f.exists, absent: f.absent,
+			val: jsonVal{str: literalNull, isNull: f.op != ""},
+		}, true
+	}
+
+	return nil, false
+}
+
+func (p *jsonPatParser) hasKeywords(words []string) bool {
+	if p.pos+len(words) > len(p.toks) {
+		return false
+	}
+
+	for i, w := range words {
+		t := p.toks[p.pos+i]
+		if t.kind != jtIdent || !strings.EqualFold(t.text, w) {
+			return false
+		}
+	}
+
+	return true
 }

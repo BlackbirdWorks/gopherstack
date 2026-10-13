@@ -22,6 +22,10 @@ func (b *InMemoryBackend) CreateUser(userName, path, permissionsBoundary string)
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUserAlreadyExists, userName)
 	}
 
+	if err := b.requireBoundaryLocked(permissionsBoundary); err != nil {
+		return nil, err
+	}
+
 	p := normPath(path)
 	u := User{
 		UserName:            userName,
@@ -423,6 +427,10 @@ func (b *InMemoryBackend) PutUserPermissionsBoundary(userName, policyArn string)
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
+	if err := b.requireBoundaryLocked(policyArn); err != nil {
+		return err
+	}
+
 	u.PermissionsBoundary = policyArn
 	b.users.Put(u)
 
@@ -558,6 +566,10 @@ func (b *InMemoryBackend) TagUser(userName string, tags map[string]string) error
 	u, exists := b.users.Get(userName)
 	if !exists {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	if err := checkTagLimit(u.Tags, tags); err != nil {
+		return err
 	}
 
 	if u.Tags == nil {

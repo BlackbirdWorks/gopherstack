@@ -83,10 +83,12 @@ func (b *InMemoryBackend) CreateInstances(req CreateInstancesRequest) ([]Operati
 		az = availabilityZoneA(b.region)
 	}
 
-	for _, name := range req.Names {
-		if err := b.registerNameLocked(ResourceTypeInstance, name); err != nil {
-			return nil, err
-		}
+	if err := b.validateAvailabilityZone(req.AvailabilityZone); err != nil {
+		return nil, err
+	}
+
+	if err := b.registerNamesLocked(ResourceTypeInstance, req.Names); err != nil {
+		return nil, err
 	}
 
 	ipType := req.IPAddressType
@@ -164,10 +166,12 @@ func (b *InMemoryBackend) CreateInstancesFromSnapshot(req CreateInstancesFromSna
 		return nil, notFoundError("InstanceSnapshot", req.InstanceSnapshotName)
 	}
 
-	for _, name := range req.InstanceNames {
-		if err := b.registerNameLocked(ResourceTypeInstance, name); err != nil {
-			return nil, err
-		}
+	if err := b.validateAvailabilityZone(req.AvailabilityZone); err != nil {
+		return nil, err
+	}
+
+	if err := b.registerNamesLocked(ResourceTypeInstance, req.InstanceNames); err != nil {
+		return nil, err
 	}
 
 	az := req.AvailabilityZone
@@ -218,7 +222,7 @@ func (b *InMemoryBackend) CreateInstancesFromSnapshot(req CreateInstancesFromSna
 // scheduleInstanceRunningLocked schedules name's pending -> running
 // transition. Callers must hold b.mu.
 func (b *InMemoryBackend) scheduleInstanceRunningLocked(name string) {
-	b.work.After("InstanceRunning", asyncTransitionDelay, func() {
+	b.work.After("InstanceRunning", b.transitionDelay(), func() {
 		b.mu.Lock("Instance-async-running")
 		defer b.mu.Unlock()
 
@@ -328,8 +332,8 @@ func (b *InMemoryBackend) RebootInstance(name string) ([]Operation, error) {
 	return b.newOperationsLocked(opTypeRebootInstance, ResourceTypeInstance, []string{name}), nil
 }
 
-// StartInstance transitions the named instance from stopped to running,
-// assigning a new dynamic public IP unless a static IP is attached
+// StartInstance moves a stopped instance to pending, then running, assigning
+// a new dynamic public IP unless a static IP is attached
 // (api_op_StartInstance.go doc comment; gopherstack-i2s6).
 func (b *InMemoryBackend) StartInstance(name string) ([]Operation, error) {
 	b.mu.Lock("StartInstance")
@@ -340,18 +344,25 @@ func (b *InMemoryBackend) StartInstance(name string) ([]Operation, error) {
 		return nil, notFoundError("Instance", name)
 	}
 
-	if i.StateCode == InstanceStateCodeStopped && !i.IsStaticIP {
+	if i.StateCode != InstanceStateCodeStopped {
+		return nil, validationError(
+			"Instance " + name + " is not in the stopped state (current state: " + i.StateName + ")",
+		)
+	}
+
+	if !i.IsStaticIP {
 		i.PublicIPGeneration++
 		i.PublicIPAddress = publicIPForName(i.Name, i.PublicIPGeneration)
 	}
 
-	i.StateCode = InstanceStateCodeRunning
-	i.StateName = InstanceStateNameRunning
+	i.StateCode = InstanceStateCodePending
+	i.StateName = InstanceStateNamePending
+	b.scheduleInstanceRunningLocked(name)
 
 	return b.newOperationsLocked(opTypeStartInstance, ResourceTypeInstance, []string{name}), nil
 }
 
-// StopInstance transitions the named instance from running to stopped.
+// StopInstance moves a running instance to stopping, then stopped.
 func (b *InMemoryBackend) StopInstance(name string) ([]Operation, error) {
 	b.mu.Lock("StopInstance")
 	defer b.mu.Unlock()
@@ -361,8 +372,24 @@ func (b *InMemoryBackend) StopInstance(name string) ([]Operation, error) {
 		return nil, notFoundError("Instance", name)
 	}
 
-	i.StateCode = InstanceStateCodeStopped
-	i.StateName = InstanceStateNameStopped
+	if i.StateCode != InstanceStateCodeRunning {
+		return nil, validationError(
+			"Instance " + name + " is not in the running state (current state: " + i.StateName + ")",
+		)
+	}
+
+	i.StateCode = InstanceStateCodeStopping
+	i.StateName = InstanceStateNameStopping
+
+	b.work.After("InstanceStopped", b.transitionDelay(), func() {
+		b.mu.Lock("Instance-async-stopped")
+		defer b.mu.Unlock()
+
+		if cur, found := b.instances.Get(name); found && cur.StateCode == InstanceStateCodeStopping {
+			cur.StateCode = InstanceStateCodeStopped
+			cur.StateName = InstanceStateNameStopped
+		}
+	})
 
 	return b.newOperationsLocked(opTypeStopInstance, ResourceTypeInstance, []string{name}), nil
 }

@@ -17,6 +17,10 @@ func (h *Handler) EnableRegions() {
 			nb.SetDeployedConfigurationPublisher(h.publisherFor(region))
 		}
 
+		if h.readerFor != nil {
+			nb.SetConfigurationContentReader(h.readerFor(region))
+		}
+
 		return NewHandler(nb)
 	})
 }
@@ -54,5 +58,14 @@ func (h *Handler) SetPublisherResolver(publisherFor func(region string) Deployed
 
 	if home, ok := h.Backend.(*InMemoryBackend); ok {
 		home.SetDeployedConfigurationPublisher(publisherFor(home.region))
+	}
+}
+
+// SetContentReaderResolver serves non-hosted profile content for every region from readerFor(region).
+func (h *Handler) SetContentReaderResolver(readerFor func(region string) ConfigurationContentReader) {
+	h.readerFor = readerFor
+
+	if home, ok := h.Backend.(*InMemoryBackend); ok {
+		home.SetConfigurationContentReader(readerFor(home.region))
 	}
 }

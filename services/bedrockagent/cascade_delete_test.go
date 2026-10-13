@@ -199,12 +199,18 @@ func TestDeleteKnowledgeBaseCascades(t *testing.T) {
 		t.Fatalf("start ingestion job: %v", jobErr)
 	}
 
-	_, ingestErr := b.IngestKnowledgeBaseDocuments(ctx, kb.KnowledgeBaseID, ds.DataSourceID, []bedrockagent.KBDocument{
-		{Identifier: bedrockagent.KBDocumentIdentifier{
-			DataSourceType: "CUSTOM",
-			Custom:         &bedrockagent.KBCustomDocumentIdentifier{ID: "doc-1"},
-		}},
-	})
+	_, ingestErr := b.IngestKnowledgeBaseDocuments(
+		ctx,
+		kb.KnowledgeBaseID,
+		ds.DataSourceID,
+		"",
+		[]bedrockagent.KBDocument{
+			{Identifier: bedrockagent.KBDocumentIdentifier{
+				DataSourceType: "CUSTOM",
+				Custom:         &bedrockagent.KBCustomDocumentIdentifier{ID: "doc-1"},
+			}},
+		},
+	)
 	if ingestErr != nil {
 		t.Fatalf("ingest docs: %v", ingestErr)
 	}
@@ -281,12 +287,18 @@ func TestDeleteDataSourceCascades(t *testing.T) {
 		t.Fatalf("start ingestion job: %v", jobErr)
 	}
 
-	_, ingestErr := b.IngestKnowledgeBaseDocuments(ctx, kb.KnowledgeBaseID, ds.DataSourceID, []bedrockagent.KBDocument{
-		{Identifier: bedrockagent.KBDocumentIdentifier{
-			DataSourceType: "CUSTOM",
-			Custom:         &bedrockagent.KBCustomDocumentIdentifier{ID: "doc-2"},
-		}},
-	})
+	_, ingestErr := b.IngestKnowledgeBaseDocuments(
+		ctx,
+		kb.KnowledgeBaseID,
+		ds.DataSourceID,
+		"",
+		[]bedrockagent.KBDocument{
+			{Identifier: bedrockagent.KBDocumentIdentifier{
+				DataSourceType: "CUSTOM",
+				Custom:         &bedrockagent.KBCustomDocumentIdentifier{ID: "doc-2"},
+			}},
+		},
+	)
 	if ingestErr != nil {
 		t.Fatalf("ingest docs: %v", ingestErr)
 	}

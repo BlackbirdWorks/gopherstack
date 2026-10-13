@@ -20,7 +20,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	accountID, region := service.AccountRegionOrDefault(ctx)
 
-	handler := NewHandler(NewInMemoryBackendWithConfig(accountID, region))
+	backend := NewInMemoryBackendWithConfig(accountID, region)
+	backend.ec2Lookup = ec2LookupAdapter{cfg: ctx.Config}
+
+	handler := NewHandler(backend)
 	handler.EnableRegions(ctx.JanitorCtx)
 
 	return handler, nil

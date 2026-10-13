@@ -99,7 +99,7 @@ func metricAttributionToMap(ma *MetricAttribution) map[string]any {
 		keyName:                 ma.Name,
 		keyDatasetGroupArn:      ma.DatasetGroupArn,
 		"metricsOutputConfig":   ma.MetricsOutputConfig,
-		keyStatus:               ma.Status,
+		keyStatus:               ma.lc.resourceStatus(ma.Status, ma.CreationDateTime),
 		keyCreationDateTime:     awstime.Epoch(ma.CreationDateTime),
 		keyLastUpdatedDateTime:  awstime.Epoch(ma.LastUpdatedDateTime),
 	}
@@ -113,7 +113,7 @@ func metricAttributionSummaryToMap(ma *MetricAttribution) map[string]any {
 	return map[string]any{
 		keyMetricAttributionArn: ma.MetricAttributionArn,
 		keyName:                 ma.Name,
-		keyStatus:               ma.Status,
+		keyStatus:               ma.lc.resourceStatus(ma.Status, ma.CreationDateTime),
 		keyCreationDateTime:     awstime.Epoch(ma.CreationDateTime),
 		keyLastUpdatedDateTime:  awstime.Epoch(ma.LastUpdatedDateTime),
 	}

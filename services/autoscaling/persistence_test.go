@@ -26,6 +26,13 @@ func Test_SnapshotRestore_FullState(t *testing.T) {
 	ctx := context.Background()
 	src := autoscaling.NewInMemoryBackend()
 
+	_, err := src.CreateLaunchConfiguration(autoscaling.CreateLaunchConfigurationInput{
+		LaunchConfigurationName: "full-state-lc",
+		ImageID:                 "ami-full-state",
+		InstanceType:            "t3.micro",
+	})
+	require.NoError(t, err)
+
 	group, err := src.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
 		AutoScalingGroupName:    "full-state-asg",
 		LaunchConfigurationName: "full-state-lc",
@@ -44,13 +51,6 @@ func Test_SnapshotRestore_FullState(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, group)
-
-	_, err = src.CreateLaunchConfiguration(autoscaling.CreateLaunchConfigurationInput{
-		LaunchConfigurationName: "full-state-lc",
-		ImageID:                 "ami-full-state",
-		InstanceType:            "t3.micro",
-	})
-	require.NoError(t, err)
 
 	// CreateAutoScalingGroup already records one "Launching a new EC2 instance"
 	// scaling activity, exercising the raw (non-Table) activities map.

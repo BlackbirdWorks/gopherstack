@@ -487,35 +487,18 @@ func (b *InMemoryBackend) PutImage(
 
 	tag := image.ImageID.ImageTag
 
+	if err := prepareImageMeta(&image); err != nil {
+		return nil, err
+	}
+
 	// Ensure per-repo tagIndex exists.
 	if b.tagIndex[repositoryName] == nil {
 		b.tagIndex[repositoryName] = make(map[string]string)
 	}
 	repoTags := b.tagIndex[repositoryName]
 
-	if existingDigest, has := repoTags[tag]; tag != "" && has {
-		switch {
-		case existingDigest == image.ImageDigest:
-			// ImageAlreadyExistsException: re-pushing a manifest that is
-			// already registered under this exact tag is a complete no-op
-			// push ("no changes to the manifest or image tag after the last
-			// push", per the real API doc) and is rejected -- independent of
-			// repository tag mutability, which instead governs the
-			// different-digest retag case below. Confirmed against the moto
-			// ECR emulator's put_image logic (existing_images_with_matching_manifest
-			// + tag already in image.image_tags raises this same exception).
-			return nil, fmt.Errorf("%w: image already exists with tag %s in repository %s",
-				ErrImageAlreadyExists, tag, repositoryName)
-
-		case repo.ImageTagMutability == mutabilityImmutable:
-			// IMMUTABLE enforcement: reject retagging to a different digest
-			// unless the tag matches an exclusion filter (which exempts
-			// specific tag patterns from immutability).
-			if !tagMatchesAnyExclusionFilter(tag, repo.ImageTagMutabilityExclusionFilters) {
-				return nil, fmt.Errorf("%w: tag %s already exists in immutable repository %s",
-					ErrImageTagAlreadyExists, tag, repositoryName)
-			}
-		}
+	if err := checkTagConflict(repo, repoTags, tag, image.ImageDigest); err != nil {
+		return nil, err
 	}
 
 	// If tag already points to a different digest, untag the old image.
@@ -527,6 +510,8 @@ func (b *InMemoryBackend) PutImage(
 
 	stored := image
 	b.putImageLocked(&stored)
+
+	b.scanOnPushLocked(repo, &stored)
 
 	// Update tag index and keep digestTagsIndex in sync.
 	if tag != "" {
@@ -666,4 +651,25 @@ func (b *InMemoryBackend) AddImageInternal(repositoryName string, img Image) {
 		}
 		b.tagIndex[repositoryName][img.ImageID.ImageTag] = img.ImageDigest
 	}
+}
+
+// checkTagConflict rejects re-pushing an identical tag/digest pair and, in an
+// IMMUTABLE repository, retagging to a different digest.
+func checkTagConflict(repo *Repository, repoTags map[string]string, tag, digest string) error {
+	existingDigest, has := repoTags[tag]
+	if tag == "" || !has {
+		return nil
+	}
+
+	switch {
+	case existingDigest == digest:
+		return fmt.Errorf("%w: image already exists with tag %s in repository %s",
+			ErrImageAlreadyExists, tag, repo.RepositoryName)
+	case repo.ImageTagMutability == mutabilityImmutable &&
+		!tagMatchesAnyExclusionFilter(tag, repo.ImageTagMutabilityExclusionFilters):
+		return fmt.Errorf("%w: tag %s already exists in immutable repository %s",
+			ErrImageTagAlreadyExists, tag, repo.RepositoryName)
+	}
+
+	return nil
 }

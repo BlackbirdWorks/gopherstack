@@ -23,7 +23,12 @@ func (h *Handler) handleCreateMember(c *echo.Context, networkID string, body []b
 	}
 
 	if errResp := validateMemberConfigurationRequest(req.MemberConfiguration); errResp != nil {
-		return writeError(c, http.StatusBadRequest, "InvalidRequestException", errResp.Error())
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidRequestException",
+			publicMessage(errResp, "InvalidRequestException"),
+		)
 	}
 
 	if req.InvitationID == "" {

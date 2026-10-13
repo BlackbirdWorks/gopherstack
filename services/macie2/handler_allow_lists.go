@@ -60,9 +60,9 @@ func (h *Handler) dispatchAllowListOps(op, path, query string, body []byte) (any
 		return nil, code, true, err
 
 	case opListAllowLists:
-		result, code := h.handleListAllowLists(query)
+		result, code, err := h.handleListAllowLists(query)
 
-		return result, code, true, nil
+		return result, code, true, err
 	}
 
 	return nil, 0, false, nil
@@ -81,21 +81,35 @@ func (h *Handler) handleCreateAllowList(body []byte) (any, int, error) {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	if req.Name == "" {
-		return nil, http.StatusBadRequest, ErrValidation
+	if err := validateAllowListInput(req.Name, req.Description, req.Criteria); err != nil {
+		return nil, http.StatusBadRequest, err
 	}
 
-	criteria := AllowListCriteria{}
-	if req.Criteria != nil {
-		criteria = *req.Criteria
-	}
+	criteria := *req.Criteria
 
-	al, err := h.Backend.CreateAllowList(req.Name, req.Description, criteria, req.Tags)
+	ref, err := idemCreate(h, "CreateAllowList", req.ClientToken, req,
+		func(r *createdRef) string { return r.ID },
+		func(id string) (*createdRef, error) {
+			al, getErr := h.Backend.GetAllowList(id)
+			if getErr != nil {
+				return nil, getErr
+			}
+
+			return &createdRef{Arn: al.Arn, ID: al.ID}, nil
+		},
+		func() (*createdRef, error) {
+			al, createErr := h.Backend.CreateAllowList(req.Name, req.Description, criteria, req.Tags)
+			if createErr != nil {
+				return nil, createErr
+			}
+
+			return &createdRef{Arn: al.Arn, ID: al.ID}, nil
+		})
 	if err != nil {
-		return nil, http.StatusInternalServerError, err
+		return nil, idemStatus(err), err
 	}
 
-	return map[string]string{keyArn: al.Arn, "id": al.ID}, http.StatusOK, nil
+	return map[string]string{keyArn: ref.Arn, "id": ref.ID}, http.StatusOK, nil
 }
 
 func (h *Handler) handleGetAllowList(id string) (any, int, error) {
@@ -120,6 +134,12 @@ func (h *Handler) handleUpdateAllowList(id string, body []byte) (any, int, error
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
+	}
+
+	if req.Criteria != nil {
+		if err := validateAllowListCriteria(req.Criteria); err != nil {
+			return nil, http.StatusBadRequest, err
+		}
 	}
 
 	criteria := AllowListCriteria{}
@@ -158,17 +178,20 @@ func (h *Handler) handleDeleteAllowList(id, query string) (int, error) {
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleListAllowLists(query string) (any, int) {
+func (h *Handler) handleListAllowLists(query string) (any, int, error) {
 	q, _ := url.ParseQuery(query)
 	limit, _ := strconv.Atoi(q.Get("maxResults"))
-	lists, nextToken, _ := h.Backend.ListAllowLists(limit, q.Get("nextToken"))
+	lists, nextToken, err := h.Backend.ListAllowLists(limit, q.Get("nextToken"))
+	if err != nil {
+		return nil, http.StatusBadRequest, err
+	}
 
 	resp := map[string]any{"allowLists": lists}
 	if nextToken != "" {
 		resp["nextToken"] = nextToken
 	}
 
-	return resp, http.StatusOK
+	return resp, http.StatusOK, nil
 }
 
 // Custom data identifier handlers

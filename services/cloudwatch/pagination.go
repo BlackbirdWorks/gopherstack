@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -83,4 +85,43 @@ func parseSignedPageToken(token string) (int, error) {
 	}
 
 	return int(u), nil
+}
+
+// checkPageToken rejects a NextToken that this service never issued.
+func checkPageToken(token string) error {
+	if token == "" {
+		return nil
+	}
+
+	raw, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		return ErrInvalidNextToken
+	}
+
+	if n, convErr := strconv.Atoi(string(raw)); convErr != nil || n < 0 {
+		return ErrInvalidNextToken
+	}
+
+	return nil
+}
+
+// checkMaxRecords enforces the 1..limit range on MaxRecords/MaxResults; 0 means unset.
+func checkMaxRecords(name string, v, limit int) error {
+	if v < 0 || v > limit {
+		return apiErrorf(ErrValidationFault,
+			"1 validation error detected: Value '%d' at '%s' failed to satisfy constraint: "+
+				"Member must have value between 1 and %d", v, name, limit)
+	}
+
+	return nil
+}
+
+func checkEnum(field, value string, allowed ...string) error {
+	if value == "" || slices.Contains(allowed, value) {
+		return nil
+	}
+
+	return apiErrorf(ErrValidationFault,
+		"1 validation error detected: Value '%s' at '%s' failed to satisfy constraint: "+
+			"Member must satisfy enum value set: [%s]", value, field, strings.Join(allowed, ", "))
 }

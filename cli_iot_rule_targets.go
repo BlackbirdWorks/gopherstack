@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -16,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -53,6 +56,27 @@ func wireIoTActionTargets(byName map[string]service.Registerable) {
 	wireIoTLookupTargets(t, byName)
 
 	iotBk.SetActionTargets(t)
+
+	if acmH, acmOk := byName["ACM"].(*acmbackend.Handler); acmOk {
+		iotBk.SetServerCertificateChecker(&iotServerCertChecker{acm: acmH.Backend})
+	}
+}
+
+type iotServerCertChecker struct{ acm *acmbackend.InMemoryBackend }
+
+func (c *iotServerCertChecker) ServerCertificateStatus(certARN string) (string, string) {
+	ctx := acmbackend.WithRegion(context.Background(), certificateRegion(certARN))
+
+	cert, err := c.acm.DescribeCertificate(ctx, certARN)
+	if err != nil {
+		return "INVALID", "certificate not found"
+	}
+
+	if cert.Status != "ISSUED" {
+		return "INVALID", "certificate status is " + cert.Status
+	}
+
+	return "VALID", ""
 }
 
 func wireIoTStreamTargets(t *iotbackend.ActionTargets, byName map[string]service.Registerable) {
@@ -87,7 +111,9 @@ func wireIoTStoreTargets(t *iotbackend.ActionTargets, byName map[string]service.
 	}
 
 	if h, ok := byName["S3"].(*s3backend.S3Handler); ok {
-		t.S3 = &iotS3Target{backend: h.Backend}
+		s3t := &iotS3Target{backend: h.Backend}
+		t.S3 = s3t
+		t.Descriptors = s3t
 	}
 }
 
@@ -215,6 +241,16 @@ func (a *iotDynamoTarget) DeleteItem(ctx context.Context, region, table string, 
 }
 
 type iotS3Target struct{ backend s3backend.StorageBackend }
+
+func (a *iotS3Target) GetDescriptorFile(ctx context.Context, _, bucket, key string) ([]byte, error) {
+	out, err := a.backend.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
+	if err != nil {
+		return nil, err
+	}
+	defer out.Body.Close()
+
+	return io.ReadAll(out.Body)
+}
 
 func (a *iotS3Target) PutObject(ctx context.Context, _, bucket, key string, data []byte, cannedACL string) error {
 	_, err := a.backend.PutObject(ctx, &s3.PutObjectInput{
@@ -397,3 +433,14 @@ func (a *iotRoleCredentials) IssueRoleCredentials(roleARN string) (aws.Credentia
 		AccessKeyID: c.AccessKeyID, SecretAccessKey: c.SecretAccessKey, SessionToken: c.SessionToken,
 	}, nil
 }
+
+func certificateRegion(certARN string) string {
+	parts := strings.SplitN(certARN, ":", arnRegionParts)
+	if len(parts) < arnRegionParts {
+		return ""
+	}
+
+	return parts[3]
+}
+
+const arnRegionParts = 6

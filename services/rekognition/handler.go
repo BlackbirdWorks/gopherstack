@@ -148,7 +148,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "ResourceNotFoundException",
-			keyMessageField: err.Error(),
+			keyMessageField: errMessage(err),
 		})
 	case errors.Is(err, ErrNameInUse):
 		// Stream processors, projects, and project versions report a
@@ -156,39 +156,49 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		// ResourceAlreadyExistsException -- see ErrNameInUse.
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "ResourceInUseException",
-			keyMessageField: err.Error(),
+			keyMessageField: errMessage(err),
+		})
+	case errors.Is(err, ErrInvalidPaginationToken):
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			keyTypeField:    "InvalidPaginationTokenException",
+			keyMessageField: errMessage(err),
+		})
+	case errors.Is(err, ErrNotReady):
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			keyTypeField:    "ResourceNotReadyException",
+			keyMessageField: errMessage(err),
 		})
 	case errors.Is(err, ErrIdempotentParameterMismatch):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "IdempotentParameterMismatchException",
-			keyMessageField: err.Error(),
+			keyMessageField: errMessage(err),
 		})
 	case errors.Is(err, ErrUserConflict):
 		// CreateUser reports a duplicate UserId as ConflictException, not
 		// ResourceAlreadyExistsException -- see ErrUserConflict.
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "ConflictException",
-			keyMessageField: err.Error(),
+			keyMessageField: errMessage(err),
 		})
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "ResourceAlreadyExistsException",
-			keyMessageField: err.Error(),
+			keyMessageField: errMessage(err),
 		})
 	case errors.Is(err, ErrInvalidS3Object):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "InvalidS3ObjectException",
-			keyMessageField: err.Error(),
+			keyMessageField: errMessage(err),
 		})
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "InvalidParameterException",
-			keyMessageField: err.Error(),
+			keyMessageField: errMessage(err),
 		})
 	default:
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "UnknownOperationException",
-			keyMessageField: err.Error(),
+			keyMessageField: errMessage(err),
 		})
 	}
 }

@@ -59,7 +59,8 @@ func (b *InMemoryBackend) AssociateLicense(id, licenseType, grafanaToken string)
 // error shapes this operation can return, so there is no wire-accurate way
 // to signal "nothing to remove" as an error here (unlike, e.g.,
 // AssociateLicense's ValidationException path for an unsupported license
-// type, this isn't a malformed-request condition either).
+// type, this isn't a malformed-request condition either). A chaos rule on
+// WorkspaceTransition fails the removal into LICENSE_REMOVAL_FAILED and keeps the license.
 func (b *InMemoryBackend) DisassociateLicense(id, licenseType string) (*Workspace, error) {
 	b.mu.Lock("DisassociateLicense")
 	defer b.mu.Unlock()
@@ -75,10 +76,20 @@ func (b *InMemoryBackend) DisassociateLicense(id, licenseType string) (*Workspac
 		return &cp, nil
 	}
 
+	w.Modified = time.Now().UTC()
+
+	if reason, degraded := b.injectedTransitionOutcome(); reason != "" && !degraded {
+		w.Status = StatusLicenseRemovalFailed
+		w.DegradedWorkspaceReason = reason
+
+		cp := *w
+
+		return &cp, nil
+	}
+
 	w.LicenseType = ""
 	w.LicenseExpiration = time.Time{}
 	w.GrafanaToken = ""
-	w.Modified = time.Now().UTC()
 
 	cp := *w
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net/netip"
 	"strings"
 	"time"
 )
@@ -51,11 +52,12 @@ func (b *InMemoryBackend) CreateProbe(
 		ProbeID:         probeID,
 		ProbeArn:        probeARN,
 		SourceArn:       pi.SourceArn,
+		VpcID:           b.subnetVpcID(pi.SourceArn),
 		Destination:     pi.Destination,
 		Protocol:        proto,
 		DestinationPort: pi.DestinationPort,
 		PacketSize:      pi.PacketSize,
-		State:           probeStateActive,
+		State:           b.initialState(),
 		AddressFamily:   af,
 		CreatedAt:       &now,
 		ModifiedAt:      &now,
@@ -65,7 +67,7 @@ func (b *InMemoryBackend) CreateProbe(
 	m.Probes = append(m.Probes, probe)
 	m.ModifiedAt = &now
 
-	return probeCopy(probe), nil
+	return b.viewProbe(probe), nil
 }
 
 // DeleteProbe removes a probe from a monitor.
@@ -117,7 +119,7 @@ func (b *InMemoryBackend) GetProbe(
 		)
 	}
 
-	return probeCopy(m.Probes[idx]), nil
+	return b.viewProbe(m.Probes[idx]), nil
 }
 
 // UpdateProbe updates a probe's attributes.
@@ -165,7 +167,7 @@ func (b *InMemoryBackend) UpdateProbe(
 	applyProbeUpdate(probe, req, normalizedProtocol, now)
 	m.ModifiedAt = &now
 
-	return probeCopy(probe), nil
+	return b.viewProbe(probe), nil
 }
 
 // validateUpdateProbeRequest validates an UpdateProbe request's optional
@@ -266,6 +268,10 @@ func validateProbeInput(destination, protocol, sourceARN string, destPort, packe
 		return "", fmt.Errorf("%w: probe destination is required", ErrValidation)
 	}
 
+	if _, err := netip.ParseAddr(destination); err != nil {
+		return "", fmt.Errorf("%w: probe destination %q must be an IPv4 or IPv6 address", ErrValidation, destination)
+	}
+
 	if protocol == "" {
 		return "", fmt.Errorf("%w: probe protocol is required", ErrValidation)
 	}
@@ -303,7 +309,7 @@ func validateDestinationPort(port *int32) error {
 	}
 
 	if *port < minDestinationPort || *port > maxDestinationPort {
-		return fmt.Errorf("%w: destinationPort must be between 1 and 65535", ErrValidation)
+		return fmt.Errorf("%w: destinationPort must be between 1 and 65536", ErrValidation)
 	}
 
 	return nil

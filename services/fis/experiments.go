@@ -583,6 +583,21 @@ func cloneExperimentReport(rep *ExperimentReport) *ExperimentReport {
 // SDK polling can observe intermediate states (initiating, completing, stopping).
 const lifecycleDelay = 10 * time.Millisecond
 
+// SetLifecycleDelay overrides the pause between experiment lifecycle states
+// (default 10ms) so slow realistic transitions can be observed; d <= 0
+// restores the default.
+func (b *InMemoryBackend) SetLifecycleDelay(d time.Duration) {
+	b.lifecycleStep.Store(int64(d))
+}
+
+func (b *InMemoryBackend) stepDelay() time.Duration {
+	if d := time.Duration(b.lifecycleStep.Load()); d > 0 {
+		return d
+	}
+
+	return lifecycleDelay
+}
+
 // runExperiment manages the full lifecycle of a single experiment: pending →
 // initiating → running → completed/stopped/cancelled/failed. These are exactly
 // the statuses in the real AWS FIS SDK's types.ExperimentStatus enum — there is
@@ -601,7 +616,7 @@ func (b *InMemoryBackend) runExperiment(
 	b.setExperimentStatus(expID, statusInitiating)
 	b.setAllActionStatuses(expID, actionStatusInitiating)
 
-	initiatingTimer := time.NewTimer(lifecycleDelay)
+	initiatingTimer := time.NewTimer(b.stepDelay())
 	defer initiatingTimer.Stop()
 	select {
 	case <-ctx.Done():
@@ -614,6 +629,20 @@ func (b *InMemoryBackend) runExperiment(
 	case <-initiatingTimer.C:
 	}
 
+	empty := b.resolveTemplateTargets(ctx, expID, tpl)
+	skipped := map[string]bool{}
+
+	if len(empty) > 0 {
+		if emptyResolutionMode(tpl) == emptyTargetResolutionFail {
+			b.markExperimentFailedWithCode(expID, targetResolutionFailedCode, empty[0], emptyTargetResolutionReason)
+			b.releaseFaultRulesAndCancel(nil, expID)
+
+			return
+		}
+
+		skipped = skippedActionsFor(tpl, empty)
+	}
+
 	// INITIATING → RUNNING.
 	b.setExperimentStatus(expID, statusRunning)
 
@@ -624,6 +653,7 @@ func (b *InMemoryBackend) runExperiment(
 		b.setAllActionStatuses(expID, actionStatusSkipped)
 	} else {
 		b.setAllActionStatuses(expID, actionStatusRunning)
+		b.markActionsSkipped(expID, skipped)
 	}
 
 	var (
@@ -634,7 +664,7 @@ func (b *InMemoryBackend) runExperiment(
 
 	if !skip {
 		// Build fault rules and run actions respecting startAfter dependencies.
-		faultRules, maxDuration, failReason = b.executeActionsOrdered(ctx, expID, tpl)
+		faultRules, maxDuration, failReason = b.executeActionsOrdered(ctx, expID, tpl, skipped)
 	}
 
 	if failReason != "" {
@@ -702,7 +732,7 @@ func (b *InMemoryBackend) waitForCompletionOrStop(
 	if maxDuration == 0 {
 		// No timed actions: give SDK polling a brief window to observe "running"
 		// before completing.
-		grace := time.NewTimer(lifecycleDelay)
+		grace := time.NewTimer(b.stepDelay())
 		defer grace.Stop()
 
 		select {
@@ -725,7 +755,7 @@ func (b *InMemoryBackend) waitForCompletionOrStop(
 		b.cleanupActions(faultRules, expID, statusStopped, actionStatusStopped)
 	case <-timer.C:
 		// All actions completed naturally.
-		grace := time.NewTimer(lifecycleDelay)
+		grace := time.NewTimer(b.stepDelay())
 		defer grace.Stop()
 
 		select {
@@ -744,6 +774,7 @@ func (b *InMemoryBackend) executeActionsOrdered(
 	ctx context.Context,
 	expID string,
 	tpl *ExperimentTemplate,
+	skipped map[string]bool,
 ) ([]chaos.FaultRule, time.Duration, string) {
 	var faultRules []chaos.FaultRule
 
@@ -756,6 +787,10 @@ func (b *InMemoryBackend) executeActionsOrdered(
 
 	for _, name := range ordered {
 		action := tpl.Actions[name]
+
+		if skipped[name] {
+			continue
+		}
 
 		// Check context before each action.
 		select {
@@ -1061,6 +1096,10 @@ const actionExecutionFailedCode = "ActionExecutionFailed"
 // ExperimentError.Location semantics ("context for the section of the experiment
 // template that failed").
 func (b *InMemoryBackend) markExperimentFailed(expID, actionName, reason string) {
+	b.markExperimentFailedWithCode(expID, actionExecutionFailedCode, actionName, reason)
+}
+
+func (b *InMemoryBackend) markExperimentFailedWithCode(expID, code, location, reason string) {
 	b.mu.Lock("markExperimentFailed")
 	defer b.mu.Unlock()
 
@@ -1074,8 +1113,8 @@ func (b *InMemoryBackend) markExperimentFailed(expID, actionName, reason string)
 		Status: statusFailed,
 		Reason: reason,
 		Error: &ExperimentStatusError{
-			Code:      actionExecutionFailedCode,
-			Location:  actionName,
+			Code:      code,
+			Location:  location,
 			AccountID: b.accountID,
 		},
 	}

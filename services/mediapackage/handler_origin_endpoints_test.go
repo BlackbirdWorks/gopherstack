@@ -160,7 +160,7 @@ func TestOriginEndpoint_DefaultOrigination(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "ALLOW", resp["origination"])
-	assert.Equal(t, "ep-defaults", resp["manifestName"])
+	assert.Equal(t, "index", resp["manifestName"])
 }
 
 func TestOriginEndpoint_ListEmpty(t *testing.T) {
@@ -213,7 +213,7 @@ func TestOriginEndpoint_DefaultFields(t *testing.T) {
 		{
 			name:             "origination defaults to ALLOW",
 			wantOrigination:  "ALLOW",
-			wantManifestName: "ep-defaults",
+			wantManifestName: "index",
 			epID:             "ep-defaults",
 		},
 	}
@@ -326,7 +326,7 @@ func TestHandler_OriginEndpoint_Authorization_RequiredFields(t *testing.T) {
 		},
 	})
 	require.Equal(t, http.StatusUnprocessableEntity, code)
-	assert.Contains(t, resp["Message"], "SecretsRoleArn")
+	assert.Contains(t, resp["message"], "SecretsRoleArn")
 }
 
 // TestHandler_OriginEndpoint_MssPackage_FullDepthRoundTrip verifies the

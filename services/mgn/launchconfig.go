@@ -65,6 +65,12 @@ func (b *InMemoryBackend) UpdateLaunchConfiguration(
 		return nil, err
 	}
 
+	if err := validateLaunchEnums(
+		strVal(in.BootMode), strVal(in.LaunchDisposition), strVal(in.TargetInstanceTypeRightSizingMethod),
+	); err != nil {
+		return nil, err
+	}
+
 	lc, ok := b.launchConfigs.Get(sourceServerID)
 	if !ok {
 		return nil, notFoundError(resourceSourceServer, sourceServerID)
@@ -149,6 +155,14 @@ func (b *InMemoryBackend) CreateLaunchConfigurationTemplate(
 	defer b.mu.Unlock()
 
 	if err := b.requireInitializedLocked(); err != nil {
+		return nil, err
+	}
+
+	if err := validateLaunchEnums(
+		in.BootMode,
+		in.LaunchDisposition,
+		in.TargetInstanceTypeRightSizingMethod,
+	); err != nil {
 		return nil, err
 	}
 
@@ -262,6 +276,12 @@ func (b *InMemoryBackend) UpdateLaunchConfigurationTemplate(
 	defer b.mu.Unlock()
 
 	if err := b.requireInitializedLocked(); err != nil {
+		return nil, err
+	}
+
+	if err := validateLaunchEnums(
+		strVal(in.BootMode), strVal(in.LaunchDisposition), strVal(in.TargetInstanceTypeRightSizingMethod),
+	); err != nil {
 		return nil, err
 	}
 

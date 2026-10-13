@@ -19,6 +19,9 @@ const maxShadowDocumentBytes = 8 * 1024
 // object itself counts as depth 1.
 const maxShadowStateDepth = 8
 
+// maxTopicSlashes is the IoT Core quota for forward slashes in a topic.
+const maxTopicSlashes = 8
+
 // maxTopicLength is the maximum allowed MQTT topic length per AWS IoT rules.
 const maxTopicLength = 256
 
@@ -76,7 +79,9 @@ type shadowEntry struct {
 // exported fields, so it is never JSON-marshaled directly; connectionEntrySnap
 // (persistence.go) is its serialisable form.
 type connectionEntry struct {
-	connectedAt time.Time
-	clientID    string
-	sourceIP    string
+	disconnectedAt   time.Time
+	disconnectReason string
+	connectedAt      time.Time
+	clientID         string
+	sourceIP         string
 }

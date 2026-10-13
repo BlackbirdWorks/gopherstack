@@ -74,13 +74,13 @@ func TestDescribeMonitor_LastEvaluation_RealClient(t *testing.T) {
 	ctx := t.Context()
 
 	dsGroupOut, err := client.CreateDatasetGroup(ctx, &forecastsdk.CreateDatasetGroupInput{
-		DatasetGroupName: aws.String("mon-dsg"),
+		DatasetGroupName: aws.String("mon_dsg"),
 		Domain:           types.DomainCustom,
 	})
 	require.NoError(t, err)
 
 	predOut, err := client.CreatePredictor(ctx, &forecastsdk.CreatePredictorInput{
-		PredictorName:   aws.String("mon-pred"),
+		PredictorName:   aws.String("mon_pred"),
 		ForecastHorizon: aws.Int32(7),
 		ForecastTypes:   []string{"0.5"},
 		InputDataConfig: &types.InputDataConfig{
@@ -114,13 +114,13 @@ func TestListMonitorEvaluations_RealClient(t *testing.T) {
 	ctx := t.Context()
 
 	dsGroupOut, err := client.CreateDatasetGroup(ctx, &forecastsdk.CreateDatasetGroupInput{
-		DatasetGroupName: aws.String("lme-dsg"),
+		DatasetGroupName: aws.String("lme_dsg"),
 		Domain:           types.DomainCustom,
 	})
 	require.NoError(t, err)
 
 	predOut, err := client.CreatePredictor(ctx, &forecastsdk.CreatePredictorInput{
-		PredictorName:       aws.String("lme-pred"),
+		PredictorName:       aws.String("lme_pred"),
 		ForecastHorizon:     aws.Int32(7),
 		ForecastTypes:       []string{"0.5"},
 		InputDataConfig:     &types.InputDataConfig{DatasetGroupArn: dsGroupOut.DatasetGroupArn},
@@ -129,7 +129,7 @@ func TestListMonitorEvaluations_RealClient(t *testing.T) {
 	require.NoError(t, err)
 
 	monOut, err := client.CreateMonitor(ctx, &forecastsdk.CreateMonitorInput{
-		MonitorName: aws.String("lme-mon"),
+		MonitorName: aws.String("lme_mon"),
 		ResourceArn: predOut.PredictorArn,
 	})
 	require.NoError(t, err)

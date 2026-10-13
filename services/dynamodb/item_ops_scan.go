@@ -219,6 +219,7 @@ func (db *InMemoryDB) buildScanOutput(
 	rcuUnits := applyConsistentReadMultiplier(rcuForCount(n), consistentRead)
 
 	db.emitRCU(region, tableName, rcuUnits)
+	db.emitIndexRCU(region, tableName, table, aws.ToString(input.IndexName), rcuUnits)
 
 	if !isOnDemandTable(billingMode) {
 		if err := db.throttler.ConsumeRead(throttleKey(region, tableName), rcuUnits); err != nil {

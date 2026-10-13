@@ -791,20 +791,41 @@ func TestAssumeRole_Duration_RespectRoleMaxSessionDuration(t *testing.T) {
 	}
 }
 
-func TestAssumeRole_Duration_NoRoleMaxUsesSystemDefault(t *testing.T) {
+func TestAssumeRole_Duration_UnsetRoleMaxDefaultsToOneHour(t *testing.T) {
 	t.Parallel()
 
-	// When MaxSessionDuration is 0, the system default (43200) is used.
-	backend := sts.NewInMemoryBackend()
-	backend.SetRoleLookup(&stubRoleLookup{meta: &sts.RoleMeta{MaxSessionDuration: 0}})
+	tests := []struct {
+		name     string
+		duration int32
+		wantErr  bool
+	}{
+		{name: "one hour", duration: 3600},
+		{name: "two hours", duration: 7200, wantErr: true},
+	}
 
-	resp, err := backend.AssumeRole(&sts.AssumeRoleInput{
-		RoleArn:         "arn:aws:iam::123456789012:role/MyRole",
-		RoleSessionName: "session",
-		DurationSeconds: 7200, // 2 hours — within system default 12 hours
-	})
-	require.NoError(t, err)
-	assert.NotNil(t, resp)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := sts.NewInMemoryBackend()
+			backend.SetRoleLookup(&stubRoleLookup{meta: &sts.RoleMeta{MaxSessionDuration: 0}})
+
+			resp, err := backend.AssumeRole(&sts.AssumeRoleInput{
+				RoleArn:         "arn:aws:iam::123456789012:role/MyRole",
+				RoleSessionName: "session",
+				DurationSeconds: tt.duration,
+			})
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, sts.ErrInvalidDuration)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotNil(t, resp)
+		})
+	}
 }
 
 // TestAssumeRoleDefaultDurationClamped verifies the default duration is clamped

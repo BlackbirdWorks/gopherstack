@@ -87,20 +87,21 @@ func (f *mergeFixture) content(spec, path string) string {
 func (f *mergeFixture) paths(spec string) []string {
 	f.t.Helper()
 
-	out, err := f.client.GetFolder(f.t.Context(), &codecommitsdk.GetFolderInput{
-		RepositoryName: aws.String(f.repo), CommitSpecifier: aws.String(spec), FolderPath: aws.String("/"),
-	})
-	if err != nil {
-		out, err = f.client.GetFolder(f.t.Context(), &codecommitsdk.GetFolderInput{
-			RepositoryName: aws.String(f.repo), CommitSpecifier: aws.String(spec), FolderPath: aws.String(""),
+	var paths []string
+
+	for queue := []string{"/"}; len(queue) > 0; queue = queue[1:] {
+		out, err := f.client.GetFolder(f.t.Context(), &codecommitsdk.GetFolderInput{
+			RepositoryName: aws.String(f.repo), CommitSpecifier: aws.String(spec), FolderPath: aws.String(queue[0]),
 		})
-	}
+		require.NoError(f.t, err)
 
-	require.NoError(f.t, err)
+		for _, file := range out.Files {
+			paths = append(paths, aws.ToString(file.AbsolutePath))
+		}
 
-	paths := make([]string, 0, len(out.Files))
-	for _, file := range out.Files {
-		paths = append(paths, aws.ToString(file.AbsolutePath))
+		for _, sub := range out.SubFolders {
+			queue = append(queue, aws.ToString(sub.AbsolutePath))
+		}
 	}
 
 	sort.Strings(paths)

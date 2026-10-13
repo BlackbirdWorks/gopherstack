@@ -27,6 +27,10 @@ func TestHandlerMapsModeledExceptions(t *testing.T) {
 			wantType: "HttpEndpointNotEnabledException", wantStatus: http.StatusBadRequest,
 		},
 		{
+			name: "cluster_resuming", resolverErr: ErrDatabaseResuming,
+			wantType: "DatabaseResumingException", wantStatus: http.StatusBadRequest,
+		},
+		{
 			name: "secret_missing", secrets: fakeSecrets{},
 			wantType: "SecretsErrorException", wantStatus: http.StatusBadRequest,
 		},

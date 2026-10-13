@@ -13,7 +13,7 @@ func (b *InMemoryBackend) GetMailboxDetails(orgID, userID string) (*MailboxDetai
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	u := b.findUser(orgID, userID)
 	if u == nil {
@@ -34,7 +34,7 @@ func (b *InMemoryBackend) UpdateMailboxQuota(orgID, userID string, quota int32) 
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	u := b.findUser(orgID, userID)
 	if u == nil {
@@ -57,7 +57,7 @@ func (b *InMemoryBackend) PutMailboxPermissions(
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	var actualID string
@@ -93,7 +93,7 @@ func (b *InMemoryBackend) DeleteMailboxPermissions(orgID, entityID, granteeID st
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	var actualID string
@@ -122,7 +122,7 @@ func (b *InMemoryBackend) ListMailboxPermissions(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, "", fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, "", fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 
 	var actualID string
@@ -154,7 +154,10 @@ func (b *InMemoryBackend) StartMailboxExportJob(
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
+	}
+	if err := b.validateExportJobLocked(orgID, entityID, roleARN, kmsKeyARN, s3BucketName); err != nil {
+		return nil, err
 	}
 	job := &MailboxExportJob{
 		JobID:        newID(),
@@ -180,11 +183,14 @@ func (b *InMemoryBackend) CancelMailboxExportJob(orgID, jobID string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	job, ok := b.exportJobs.Get(orgKey(orgID, jobID))
 	if !ok {
 		return fmt.Errorf("%w: mailbox export job %q not found", ErrNotFound, jobID)
+	}
+	if state := b.jobView(job).State; state != jobStateRunning {
+		return fmt.Errorf("%w: mailbox export job %q is %s and cannot be cancelled", ErrValidation, jobID, state)
 	}
 	job.State = "CANCELLED"
 	job.EndTime = time.Now()
@@ -198,14 +204,14 @@ func (b *InMemoryBackend) DescribeMailboxExportJob(orgID, jobID string) (*Mailbo
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	job, ok := b.exportJobs.Get(orgKey(orgID, jobID))
 	if !ok {
 		return nil, fmt.Errorf("%w: mailbox export job %q not found", ErrNotFound, jobID)
 	}
 
-	return job, nil
+	return b.jobView(job), nil
 }
 
 // ListMailboxExportJobs lists mailbox export jobs for an org.
@@ -220,9 +226,28 @@ func (b *InMemoryBackend) ListMailboxExportJobs(
 	}
 	byOrg := b.exportJobsByOrg.Get(orgID)
 	jobs := make([]*MailboxExportJob, 0, len(byOrg))
-	jobs = append(jobs, byOrg...)
+	for _, j := range byOrg {
+		jobs = append(jobs, b.jobView(j))
+	}
 	sort.Slice(jobs, func(i, k int) bool { return jobs[i].JobID < jobs[k].JobID })
 	page, next := paginate(jobs, maxResults, nextToken)
 
 	return page, next, nil
+}
+
+func (b *InMemoryBackend) validateExportJobLocked(orgID, entityID, roleARN, kmsKeyARN, bucket string) error {
+	switch {
+	case entityID == "":
+		return fmt.Errorf("%w: EntityId is required", ErrValidation)
+	case roleARN == "":
+		return fmt.Errorf("%w: RoleArn is required", ErrValidation)
+	case kmsKeyARN == "":
+		return fmt.Errorf("%w: KmsKeyArn is required", ErrValidation)
+	case bucket == "":
+		return fmt.Errorf("%w: S3BucketName is required", ErrValidation)
+	case b.findUser(orgID, entityID) == nil && b.findResource(orgID, entityID) == nil:
+		return fmt.Errorf("%w: entity %q not found", ErrNotFound, entityID)
+	}
+
+	return nil
 }

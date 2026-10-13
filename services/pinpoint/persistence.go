@@ -48,19 +48,21 @@ const pinpointSnapshotVersion = 2
 // plain JSON-friendly struct with no live/non-serialisable state, so a
 // direct field-for-field mapping (no separate DTO type) is sufficient.
 type backendSnapshot struct {
-	Tables                 map[string]json.RawMessage       `json:"tables"`
-	AppSettings            map[string]*StoredAppSettings    `json:"appSettings"`
-	CampaignVersions       map[string][]*Campaign           `json:"campaignVersions"`
-	SegmentVersions        map[string][]*Segment            `json:"segmentVersions"`
-	TemplateVersionHistory map[string][]templateVersionItem `json:"templateVersionHistory"`
-	CampaignActivities     map[string][]campaignActivity    `json:"campaignActivities"`
-	JourneyRuns            map[string][]*journeyRun         `json:"journeyRuns"`
-	AppEvents              map[string][]storedPinpointEvent `json:"appEvents"`
-	SentMessages           map[string]int                   `json:"sentMessages"`
-	OtpCodes               map[string]string                `json:"otpCodes"`
-	AccountID              string                           `json:"accountID"`
-	Region                 string                           `json:"region"`
-	Version                int                              `json:"version"`
+	Tables                 map[string]json.RawMessage            `json:"tables"`
+	AppSettings            map[string]*StoredAppSettings         `json:"appSettings"`
+	CampaignVersions       map[string][]*Campaign                `json:"campaignVersions"`
+	SegmentVersions        map[string][]*Segment                 `json:"segmentVersions"`
+	TemplateVersionHistory map[string][]templateVersionItem      `json:"templateVersionHistory"`
+	TemplateVersionData    map[string]map[string]json.RawMessage `json:"templateVersionData"`
+	TemplateActiveVersion  map[string]string                     `json:"templateActiveVersion"`
+	CampaignActivities     map[string][]campaignActivity         `json:"campaignActivities"`
+	JourneyRuns            map[string][]*journeyRun              `json:"journeyRuns"`
+	AppEvents              map[string][]storedPinpointEvent      `json:"appEvents"`
+	SentMessages           map[string]int                        `json:"sentMessages"`
+	OtpCodes               map[string]string                     `json:"otpCodes"`
+	AccountID              string                                `json:"accountID"`
+	Region                 string                                `json:"region"`
+	Version                int                                   `json:"version"`
 }
 
 // persistRegistry builds an ephemeral [store.Registry] over every
@@ -115,6 +117,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		CampaignVersions:       b.campaignVersions,
 		SegmentVersions:        b.segmentVersions,
 		TemplateVersionHistory: b.templateVersionHistory,
+		TemplateVersionData:    b.templateVersionData,
+		TemplateActiveVersion:  b.templateActiveVersion,
 		CampaignActivities:     b.campaignActivities,
 		JourneyRuns:            b.journeyRuns,
 		AppEvents:              b.appEvents,
@@ -179,6 +183,8 @@ func (b *InMemoryBackend) resetMapStateLocked() {
 	b.campaignVersions = make(map[string][]*Campaign)
 	b.segmentVersions = make(map[string][]*Segment)
 	b.templateVersionHistory = make(map[string][]templateVersionItem)
+	b.templateVersionData = make(map[string]map[string]json.RawMessage)
+	b.templateActiveVersion = make(map[string]string)
 	b.campaignActivities = make(map[string][]campaignActivity)
 	b.journeyRuns = make(map[string][]*journeyRun)
 	b.appEvents = make(map[string][]storedPinpointEvent)
@@ -194,6 +200,8 @@ func (b *InMemoryBackend) restoreMapStateLocked(snap backendSnapshot) {
 	b.campaignVersions = nonNilCampaignVersionsMap(snap.CampaignVersions)
 	b.segmentVersions = nonNilSegmentVersionsMap(snap.SegmentVersions)
 	b.templateVersionHistory = nonNilTemplateVersionHistoryMap(snap.TemplateVersionHistory)
+	b.templateVersionData = nonNilStringMap2(snap.TemplateVersionData)
+	b.templateActiveVersion = nonNilStringMap(snap.TemplateActiveVersion)
 	b.campaignActivities = nonNilCampaignActivitiesMap(snap.CampaignActivities)
 	b.journeyRuns = nonNilJourneyRunsMap(snap.JourneyRuns)
 	b.appEvents = nonNilAppEventsMap(snap.AppEvents)
@@ -317,4 +325,20 @@ func rebuildARNIndexLocked(b *InMemoryBackend) {
 	for _, v := range b.voiceTemplates.All() {
 		b.arnIndex[v.ARN] = v
 	}
+}
+
+func nonNilStringMap2(m map[string]map[string]json.RawMessage) map[string]map[string]json.RawMessage {
+	if m == nil {
+		return make(map[string]map[string]json.RawMessage)
+	}
+
+	return m
+}
+
+func nonNilStringMap(m map[string]string) map[string]string {
+	if m == nil {
+		return make(map[string]string)
+	}
+
+	return m
 }

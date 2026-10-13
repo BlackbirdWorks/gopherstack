@@ -35,6 +35,10 @@ func (h *Handler) handleCreateAnomalyMonitor(
 		return nil, fmt.Errorf("%w: MonitorType is required", ErrValidation)
 	}
 
+	if err := validateMonitorDimension(in.AnomalyMonitor.MonitorDimension); err != nil {
+		return nil, err
+	}
+
 	mon, err := h.Backend.CreateAnomalyMonitor(
 		in.AnomalyMonitor.MonitorName,
 		in.AnomalyMonitor.MonitorType,
@@ -129,24 +133,41 @@ func (h *Handler) handleGetAnomalyMonitors(
 	return &getAnomalyMonitorsOutput{AnomalyMonitors: items, NextPageToken: nextToken}, nil
 }
 
-// dimensionalValueCount computes types.AnomalyMonitor.DimensionalValueCount for a
-// DIMENSIONAL monitor on the SERVICE/LINKED_ACCOUNT dimension, the only dimensions
-// this emulator's cost ledger has real per-entry state for -- TAG/COST_CATEGORY
-// dimensions are scoped via MonitorSpecification instead of a ledger field, so
-// they stay 0 rather than fabricating a count.
+func isLedgerDimension(d string) bool { return d == "SERVICE" || d == "LINKED_ACCOUNT" }
+
+// dimensionalValueCount computes types.AnomalyMonitor.DimensionalValueCount: the number
+// of distinct values the monitor evaluates. SERVICE/LINKED_ACCOUNT come from the cost
+// ledger, a Tags clause in MonitorSpecification from the ledger's tag values, and a
+// CostCategories clause from the named cost category's values.
 func (h *Handler) dimensionalValueCount(mon *AnomalyMonitor) int32 {
-	if mon.MonitorType != "DIMENSIONAL" {
-		return 0
+	var n int
+
+	switch spec := mon.MonitorSpecification; {
+	case spec != nil && spec.Tags != nil:
+		n = countScopedValues(h.Backend.GetTagValues(spec.Tags.Key), spec.Tags.Values)
+	case spec != nil && spec.CostCategories != nil:
+		n = countScopedValues(h.Backend.GetCostCategories(spec.CostCategories.Key), spec.CostCategories.Values)
+	case mon.MonitorType == "DIMENSIONAL" && isLedgerDimension(mon.MonitorDimension):
+		n = len(h.Backend.GetDimensionValues(mon.MonitorDimension))
 	}
 
-	switch mon.MonitorDimension {
-	case "SERVICE", "LINKED_ACCOUNT":
-		n := len(h.Backend.GetDimensionValues(mon.MonitorDimension))
+	return int32(n)
+}
 
-		return int32(n) //nolint:gosec // G115: bounded by syntheticServiceCatalog size
-	default:
-		return 0
+func countScopedValues(all, scope []string) int {
+	if len(scope) == 0 {
+		return len(all)
 	}
+
+	n := 0
+
+	for _, v := range all {
+		if stringSliceContainsFold(scope, v) {
+			n++
+		}
+	}
+
+	return n
 }
 
 type updateAnomalyMonitorInput struct {
@@ -221,6 +242,10 @@ func (h *Handler) handleCreateAnomalySubscription(
 
 	if in.AnomalySubscription.Frequency == "" {
 		return nil, fmt.Errorf("%w: Frequency is required", ErrValidation)
+	}
+
+	if err := validateSubscribers(in.AnomalySubscription.Subscribers); err != nil {
+		return nil, err
 	}
 
 	subs := make([]Subscriber, 0, len(in.AnomalySubscription.Subscribers))
@@ -342,6 +367,10 @@ func (h *Handler) handleUpdateAnomalySubscription(
 ) (*updateAnomalySubscriptionOutput, error) {
 	if in.SubscriptionArn == "" {
 		return nil, fmt.Errorf("%w: SubscriptionArn is required", ErrValidation)
+	}
+
+	if err := validateSubscribers(in.Subscribers); err != nil {
+		return nil, err
 	}
 
 	subs := make([]Subscriber, 0, len(in.Subscribers))

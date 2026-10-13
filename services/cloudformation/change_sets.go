@@ -54,9 +54,11 @@ func (b *InMemoryBackend) CreateChangeSet(
 		return nil, ErrChangeSetExists
 	}
 
-	stack, _ := b.resolveStack(stackName)
+	if err := validateTemplateStructure(templateBody); err != nil {
+		return nil, err
+	}
 
-	changeSetType, typeErr := resolveChangeSetType(opts.ChangeSetType, stack != nil)
+	stack, changeSetType, typeErr := b.changeSetTargetLocked(stackName, templateBody, params, capabilities, tags, opts)
 	if typeErr != nil {
 		return nil, typeErr
 	}
@@ -102,6 +104,10 @@ func (b *InMemoryBackend) CreateChangeSet(
 		b.changeSets[stackName][changeSetName] = cs
 
 		return cs, nil
+	}
+
+	if changeSetType == changeSetTypeCreate {
+		stack = nil
 	}
 
 	cs.Changes = b.computeChanges(templateBody, stack)
@@ -273,13 +279,10 @@ func (b *InMemoryBackend) ExecuteChangeSet(
 		ResourceTypes:         cs.ResourceTypes,
 		DisableValidation:     cs.DisableValidation,
 	}
-	_, err := b.UpdateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, opts)
-	if err != nil {
-		// Stack may not exist yet — create it.
-		_, err = b.CreateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, opts)
-		if err != nil {
-			execErr = err
-		}
+	if cs.ChangeSetType == changeSetTypeCreate {
+		_, execErr = b.CreateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, opts)
+	} else {
+		_, execErr = b.UpdateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, opts)
 	}
 
 	func() {
@@ -343,4 +346,64 @@ func (b *InMemoryBackend) ListChangeSets(
 	)
 
 	return page.New(summaries, nextToken, 0, cfnDefaultPageSize), nil
+}
+
+// createReviewStack registers the REVIEW_IN_PROGRESS stack a CREATE change set
+// creates; ExecuteChangeSet later provisions it under the same StackId.
+func (b *InMemoryBackend) createReviewStack(
+	name, templateBody string,
+	params []Parameter,
+	capabilities []string,
+	tags []Tag,
+	opts CreateChangeSetOptions,
+) *Stack {
+	stackARN := b.buildStackARN(name, uuid.New().String())
+	stack := &Stack{
+		StackID:          stackARN,
+		StackName:        name,
+		StackStatus:      statusReviewInProgress,
+		CreationTime:     time.Now(),
+		Parameters:       params,
+		Tags:             tags,
+		TemplateBody:     templateBody,
+		Capabilities:     capabilities,
+		NotificationARNs: opts.NotificationARNs,
+		RoleARN:          opts.RoleARN,
+	}
+
+	b.stacks.Put(stack)
+	b.stackIDIndex[stackARN] = name
+	b.events[stackARN] = nil
+	b.resources[stackARN] = make(map[string]*StackResource)
+	b.addEvent(stackARN, name, name, stackARN, cfnStackType, statusReviewInProgress, reasonUserInitiated)
+
+	return stack
+}
+
+// changeSetTargetLocked resolves the stack a change set targets and its
+// effective type; a CREATE change set registers the REVIEW_IN_PROGRESS stack.
+func (b *InMemoryBackend) changeSetTargetLocked(
+	stackName, templateBody string,
+	params []Parameter,
+	capabilities []string,
+	tags []Tag,
+	opts CreateChangeSetOptions,
+) (*Stack, string, error) {
+	stack, _ := b.resolveStack(stackName)
+	if stack != nil && stack.StackStatus == statusDeleteComplete {
+		stack = nil
+	}
+
+	inReview := stack != nil && stack.StackStatus == statusReviewInProgress
+
+	changeSetType, err := resolveChangeSetType(opts.ChangeSetType, stack != nil && !inReview)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if changeSetType == changeSetTypeCreate && stack == nil {
+		stack = b.createReviewStack(stackName, templateBody, params, capabilities, tags, opts)
+	}
+
+	return stack, changeSetType, nil
 }

@@ -679,7 +679,7 @@ func (j *Janitor) sweepStreamRecords(ctx context.Context) {
 			return
 		}
 
-		cleared := sweepTableStreamRecordsLocked(t, now)
+		cleared := sweepTableStreamRecordsLocked(t, now) + sweepRetiredStreams(t, time.Unix(now, 0))
 
 		if cleared > 0 {
 			telemetry.RecordWorkerItems("dynamodb", "StreamSweeper", cleared)

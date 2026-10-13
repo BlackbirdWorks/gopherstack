@@ -13,6 +13,7 @@ func newRegionBackend(home *InMemoryBackend, region string) *InMemoryBackend {
 	home.mu.RLock("newRegionBackend")
 	nb.dnsRegistrar = home.dnsRegistrar
 	nb.clusterActivationDelay = home.clusterActivationDelay
+	nb.slLifecycleDelay = home.slLifecycleDelay
 	nb.reconcileInterval = home.reconcileInterval
 	home.mu.RUnlock()
 

@@ -155,7 +155,45 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	status, errType := classifyError(err)
 
-	return c.JSON(status, map[string]string{"__type": errType, "message": err.Error()})
+	return c.JSON(status, map[string]string{"__type": errType, "message": h.errorMessage(err, errType)})
+}
+
+// errorMessage drops the exception-name prefix the sentinel errors carry and
+// words the repository-scoped errors the way ECR Public does.
+const errTypeRepositoryNotFound = "RepositoryNotFoundException"
+
+func (h *Handler) errorMessage(err error, errType string) string {
+	detail := strings.TrimPrefix(err.Error(), errType)
+	detail = strings.TrimPrefix(detail, ": ")
+	registry := h.Backend.AccountID()
+
+	switch errType {
+	case errTypeRepositoryNotFound:
+		return fmt.Sprintf(
+			"The repository with name '%s' does not exist in the registry with id '%s'", detail, registry)
+	case "RepositoryAlreadyExistsException":
+		return fmt.Sprintf(
+			"The repository with name '%s' already exists in the registry with id '%s'",
+			detail,
+			registry,
+		)
+	case "RepositoryNotEmptyException":
+		return fmt.Sprintf(
+			"The repository with name '%s' in registry with id '%s' cannot be deleted because it still contains images",
+			detail, registry)
+	case "RepositoryPolicyNotFoundException":
+		return fmt.Sprintf(
+			"Repository policy does not exist for the repository with name '%s' in the registry with id '%s'",
+			detail, registry)
+	case "RegistryNotFoundException":
+		return fmt.Sprintf("The registry with id '%s' does not exist", detail)
+	}
+
+	if detail == "" {
+		return errType
+	}
+
+	return detail
 }
 
 // classifyError maps a backend/dispatch error to its HTTP status and AWS
@@ -166,7 +204,7 @@ func classifyError(err error) (int, string) {
 		err     error
 		errType string
 	}{
-		{ErrRepositoryNotFound, "RepositoryNotFoundException"},
+		{ErrRepositoryNotFound, errTypeRepositoryNotFound},
 		{ErrRepositoryAlreadyExists, "RepositoryAlreadyExistsException"},
 		{ErrRepositoryNotEmpty, "RepositoryNotEmptyException"},
 		{ErrRepositoryPolicyNotFound, "RepositoryPolicyNotFoundException"},

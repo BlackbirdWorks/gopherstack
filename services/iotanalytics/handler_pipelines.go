@@ -36,7 +36,10 @@ func (h *Handler) handleCreatePipeline(c *echo.Context, body []byte) error {
 }
 
 func (h *Handler) handleListPipelines(c *echo.Context) error {
-	maxResults, cursor := parsePagination(c)
+	maxResults, cursor, pageErr := parsePagination(c)
+	if pageErr != nil {
+		return h.writeBackendError(c, pageErr)
+	}
 	pipelines := h.Backend.ListPipelines()
 
 	summaries := make([]pipelineSummary, 0, len(pipelines))

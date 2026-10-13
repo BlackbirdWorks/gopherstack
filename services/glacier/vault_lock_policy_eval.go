@@ -7,107 +7,66 @@ import (
 	"strings"
 )
 
-// Vault Lock policy evaluation semantics below are transcribed from AWS's
-// documentation, not the SDK: like a CloudFormation stack policy, a Glacier
-// vault lock policy body is an opaque string with no wire type in
-// aws-sdk-go-v2, so there is no types/types.go line to cite. Sources:
-// https://docs.aws.amazon.com/amazonglacier/latest/dev/vault-lock.html
-// https://docs.aws.amazon.com/amazonglacier/latest/dev/vault-lock-policy.html
-// https://docs.aws.amazon.com/amazonglacier/latest/dev/glacier-api-permissions-ref.html
+// Vault Lock and vault access policy evaluation is transcribed from AWS's
+// documentation, not the SDK (policy bodies are opaque strings with no wire
+// type): https://docs.aws.amazon.com/amazonglacier/latest/dev/vault-lock-policy.html
+// and https://docs.aws.amazon.com/amazonglacier/latest/dev/glacier-api-permissions-ref.html.
 //
-// Implemented: Effect=Deny statements matching Action (glacier:<Verb>, "*"
-// wildcards) and Resource (the vault ARN, "*" wildcards per the permissions
-// reference's vaults/example* / vaults/* patterns), consulted only from
-// DeleteArchive and DeleteVault -- the two operations "deletion protection"
-// is about. AWS enforces the policy from the moment InitiateVaultLock puts
-// the lock InProgress, not only once Locked: vault-lock.html documents the
-// InProgress window as letting you "test your Vault Lock policy before
-// locking it down", i.e. requests are evaluated against it during the test
-// window too.
-//
-// The canonical Vault Lock use case (vault-lock-policy.html Example 1: "Deny
-// Deletion Permissions for Archives Less Than 365 Days Old") conditions the
-// Deny on the Glacier-specific key glacier:ArchiveAgeInDays, evaluated with
-// the standard IAM numeric operators. That condition is implemented since
-// Archive.CreationDate is already tracked and the age is computable; the
-// permissions reference confirms ArchiveAgeInDays is the only condition key
-// documented for DeleteArchive besides ResourceTag.
-//
-// NOT implemented, disclosed rather than approximated:
-//   - Effect=Allow is parsed but never grants anything. There is no
-//     identity-based/IAM baseline in this emulator for a resource policy to
-//     combine with (the KMS-grant precedent: "no IAM layer, stored for wire
-//     parity only"), so an Allow statement cannot correctly change
-//     behaviour here without fabricating CloudFormation-style
-//     default-deny-once-a-policy-exists semantics that AWS does not
-//     document for Glacier. Only the well-documented Deny half is
-//     implemented.
-//   - Principal is required by policy syntax but is not evaluated: this
-//     emulator has no per-request caller identity (tracked separately,
-//     gopherstack-cu4g), and every AWS-documented Vault Lock example writes
-//     Principal "*" -- Vault Lock's whole point is "prevent anyone,
-//     including the AWS account owner, from performing prohibited actions"
-//     -- so ignoring Principal matches the documented common case rather
-//     than under- or over-enforcing a rarer one.
-//   - The ResourceTag condition key (used by Example 2's legal-hold
-//     pattern) is not implemented: Glacier archives carry no tags in this
-//     emulator (only vaults do), so there is no tag state to condition on.
-//   - Only DeleteArchive and DeleteVault consult the policy. Other
-//     Vault-Lock-governable actions (UploadArchive, InitiateJob, ...) are
-//     out of scope for a deletion-protection pass; the policy is stored and
-//     available to them but not enforced.
-//   - Vault access policies (SetVaultAccessPolicy/GetVaultAccessPolicy) are
-//     a separate, still-unenforced feature: they exist specifically to
-//     grant cross-account/-principal access, which cannot be evaluated
-//     correctly without caller identity (gopherstack-cu4g again). Left
-//     untouched here.
+// Only Effect=Deny is evaluated: there is no IAM baseline for an Allow to combine
+// with. Principal is matched against the caller ARN when the request carries one
+// (named principals never match an anonymous caller). Condition supports the
+// numeric operators on glacier:ArchiveAgeInDays and the string operators on
+// glacier:ResourceTag/<key> (the vault's tags); any other operator or key makes
+// the statement not match rather than guess.
 type vaultLockPolicyDocument struct {
 	Statement []vaultLockPolicyStatement `json:"Statement"`
 }
 
 type vaultLockPolicyStatement struct {
-	Condition *vaultLockPolicyCondition `json:"Condition"`
-	Effect    string                    `json:"Effect"`
-	Action    glacierPolicyStringSet    `json:"Action"`
-	Resource  glacierPolicyStringSet    `json:"Resource"`
+	Condition map[string]map[string]glacierPolicyStringSet `json:"Condition"`
+	Principal json.RawMessage                              `json:"Principal"`
+	Effect    string                                       `json:"Effect"`
+	Action    glacierPolicyStringSet                       `json:"Action"`
+	Resource  glacierPolicyStringSet                       `json:"Resource"`
 }
 
-// vaultLockPolicyCondition supports the standard IAM numeric operators
-// against the glacier:ArchiveAgeInDays condition key -- see the package doc
-// above for why this is the only condition key implemented.
-type vaultLockPolicyCondition struct {
-	NumericLessThanEquals    map[string]string `json:"NumericLessThanEquals"`
-	NumericLessThan          map[string]string `json:"NumericLessThan"`
-	NumericGreaterThanEquals map[string]string `json:"NumericGreaterThanEquals"`
-	NumericGreaterThan       map[string]string `json:"NumericGreaterThan"`
-	NumericEquals            map[string]string `json:"NumericEquals"`
-}
-
-// glacierPolicyStringSet unmarshals a JSON value that is either a single
-// string or an array of strings, matching how policy documents write
-// Action/Resource values (e.g. "glacier:*" vs ["glacier:DeleteArchive",
-// "glacier:DeleteVault"]).
+// glacierPolicyStringSet unmarshals a JSON value that is a string, number, bool or
+// an array of them, the shapes policy documents use for Action/Resource/Condition values.
 type glacierPolicyStringSet []string
 
 func (s *glacierPolicyStringSet) UnmarshalJSON(data []byte) error {
-	var single string
-	if err := json.Unmarshal(data, &single); err == nil {
-		*s = glacierPolicyStringSet{single}
-
-		return nil
-	}
-
-	var multi []string
+	var multi []json.RawMessage
 	if err := json.Unmarshal(data, &multi); err != nil {
-		return err
+		multi = []json.RawMessage{data}
 	}
 
-	*s = multi
+	out := make(glacierPolicyStringSet, 0, len(multi))
+
+	for _, raw := range multi {
+		var str string
+		if err := json.Unmarshal(raw, &str); err == nil {
+			out = append(out, str)
+
+			continue
+		}
+
+		var num json.Number
+		if err := json.Unmarshal(raw, &num); err != nil {
+			return fmt.Errorf("unsupported policy value %s: %w", raw, err)
+		}
+
+		out = append(out, num.String())
+	}
+
+	*s = out
 
 	return nil
 }
 
-const vaultLockConditionArchiveAge = "glacier:ArchiveAgeInDays"
+const (
+	vaultLockConditionArchiveAge = "glacier:ArchiveAgeInDays"
+	vaultLockConditionTagPrefix  = "glacier:ResourceTag/"
+)
 
 const (
 	glacierActionDeleteArchive = "glacier:DeleteArchive"
@@ -116,8 +75,7 @@ const (
 
 // parseVaultLockPolicyDocument parses a vault lock policy body. Returns an
 // error for malformed JSON so a garbage policy is rejected at
-// InitiateVaultLock time rather than silently never enforcing anything at
-// DeleteArchive/DeleteVault time.
+// InitiateVaultLock time rather than silently never enforcing anything.
 func parseVaultLockPolicyDocument(policy string) (*vaultLockPolicyDocument, error) {
 	var doc vaultLockPolicyDocument
 	if err := json.Unmarshal([]byte(policy), &doc); err != nil {
@@ -127,10 +85,21 @@ func parseVaultLockPolicyDocument(policy string) (*vaultLockPolicyDocument, erro
 	return &doc, nil
 }
 
-// evaluateVaultLockPolicy reports whether action against vaultArn is denied
-// by policy. archiveAgeDays is the age in days of the archive the action
-// targets, or -1 when the action has no archive in play (DeleteVault).
-func evaluateVaultLockPolicy(policy, vaultArn, action string, archiveAgeDays int) (bool, error) {
+// policyRequest describes the request a policy is evaluated against.
+type policyRequest struct {
+	tags           map[string]string
+	vaultArn       string
+	action         string
+	caller         string
+	archiveAgeDays int
+	// checkCaller makes named Principals match against caller; when false only
+	// wildcard principals apply (the caller is not known).
+	checkCaller bool
+}
+
+// evaluateVaultPolicyDeny reports whether a Deny statement in policy applies to req.
+// archiveAgeDays is -1 when no archive is in play.
+func evaluateVaultPolicyDeny(policy string, req *policyRequest) (bool, error) {
 	if policy == "" {
 		return false, nil
 	}
@@ -145,15 +114,16 @@ func evaluateVaultLockPolicy(policy, vaultArn, action string, archiveAgeDays int
 			continue
 		}
 
-		if !matchesAnyGlacierPolicy(stmt.Action, action) {
+		if !matchesAnyGlacierPolicy(stmt.Action, req.action) ||
+			!matchesAnyGlacierPolicy(stmt.Resource, req.vaultArn) {
 			continue
 		}
 
-		if !matchesAnyGlacierPolicy(stmt.Resource, vaultArn) {
+		if !principalMatches(stmt.Principal, req) {
 			continue
 		}
 
-		if stmt.Condition != nil && !stmt.Condition.matches(archiveAgeDays) {
+		if stmt.Condition != nil && !conditionMatches(stmt.Condition, req) {
 			continue
 		}
 
@@ -163,43 +133,160 @@ func evaluateVaultLockPolicy(policy, vaultArn, action string, archiveAgeDays int
 	return false, nil
 }
 
-// matches reports whether the condition is satisfied. A Condition block with
-// no recognized operator/key never matches -- an unrecognized condition
-// fails toward "the statement behaves as if it weren't there" rather than
-// fabricating a match that could wrongly block a permitted action.
-func (c *vaultLockPolicyCondition) matches(archiveAgeDays int) bool {
-	checks := []struct {
-		vals map[string]string
-		cmp  func(have, want int) bool
-	}{
-		{c.NumericLessThanEquals, func(have, want int) bool { return have <= want }},
-		{c.NumericLessThan, func(have, want int) bool { return have < want }},
-		{c.NumericGreaterThanEquals, func(have, want int) bool { return have >= want }},
-		{c.NumericGreaterThan, func(have, want int) bool { return have > want }},
-		{c.NumericEquals, func(have, want int) bool { return have == want }},
+// principalMatches reports whether a statement's Principal covers the caller. A
+// missing Principal is treated as the wildcard.
+func principalMatches(raw json.RawMessage, req *policyRequest) bool {
+	if len(raw) == 0 {
+		return true
 	}
 
-	matched := false
+	var set glacierPolicyStringSet
 
-	for _, chk := range checks {
-		want, ok := chk.vals[vaultLockConditionArchiveAge]
-		if !ok {
-			continue
-		}
-
-		matched = true
-
-		if archiveAgeDays < 0 {
+	var single string
+	if json.Unmarshal(raw, &single) == nil {
+		set = glacierPolicyStringSet{single}
+	} else {
+		var obj map[string]glacierPolicyStringSet
+		if json.Unmarshal(raw, &obj) != nil {
 			return false
 		}
 
-		n, err := strconv.Atoi(want)
-		if err != nil || !chk.cmp(archiveAgeDays, n) {
-			return false
+		set = obj["AWS"]
+	}
+
+	for _, p := range set {
+		if p == "*" {
+			return true
+		}
+
+		if req.checkCaller && req.caller != "" && callerIsPrincipal(req.caller, p) {
+			return true
 		}
 	}
 
-	return matched
+	return false
+}
+
+// callerIsPrincipal matches a caller ARN against an exact ARN, a bare account ID,
+// or the account root ARN.
+func callerIsPrincipal(caller, principal string) bool {
+	if caller == principal {
+		return true
+	}
+
+	fields := strings.Split(caller, ":")
+
+	const accountField = 4
+	if len(fields) <= accountField {
+		return false
+	}
+
+	account := fields[accountField]
+
+	return principal == account || principal == "arn:aws:iam::"+account+":root"
+}
+
+// conditionMatches requires every operator/key pair to hold; a condition with no
+// recognised checks never matches.
+func conditionMatches(cond map[string]map[string]glacierPolicyStringSet, req *policyRequest) bool {
+	checked := false
+
+	for op, keys := range cond {
+		for key, wants := range keys {
+			ok, known := conditionHolds(op, key, wants, req)
+			if !known || !ok {
+				return false
+			}
+
+			checked = true
+		}
+	}
+
+	return checked
+}
+
+func conditionHolds(op, key string, wants glacierPolicyStringSet, req *policyRequest) (bool, bool) {
+	switch {
+	case key == vaultLockConditionArchiveAge:
+		return numericConditionHolds(op, wants, req.archiveAgeDays)
+	case strings.HasPrefix(key, vaultLockConditionTagPrefix):
+		have, present := req.tags[strings.TrimPrefix(key, vaultLockConditionTagPrefix)]
+
+		return stringConditionHolds(op, wants, have, present)
+	}
+
+	return false, false
+}
+
+func numericConditionHolds(op string, wants glacierPolicyStringSet, have int) (bool, bool) {
+	cmp, ok := map[string]func(have, want int) bool{
+		"NumericLessThanEquals":    func(have, want int) bool { return have <= want },
+		"NumericLessThan":          func(have, want int) bool { return have < want },
+		"NumericGreaterThanEquals": func(have, want int) bool { return have >= want },
+		"NumericGreaterThan":       func(have, want int) bool { return have > want },
+		"NumericEquals":            func(have, want int) bool { return have == want },
+		"NumericNotEquals":         func(have, want int) bool { return have != want },
+	}[op]
+	if !ok {
+		return false, false
+	}
+
+	if have < 0 {
+		return false, true
+	}
+
+	negated := op == "NumericNotEquals"
+	result := negated
+
+	for _, w := range wants {
+		n, err := strconv.Atoi(w)
+		if err != nil {
+			return false, true
+		}
+
+		if negated {
+			result = result && cmp(have, n)
+		} else {
+			result = result || cmp(have, n)
+		}
+	}
+
+	return result, true
+}
+
+func stringConditionHolds(op string, wants glacierPolicyStringSet, have string, present bool) (bool, bool) {
+	var match func(want, have string) bool
+
+	negated := false
+
+	switch op {
+	case "StringEquals":
+		match = func(want, have string) bool { return want == have }
+	case "StringNotEquals":
+		match, negated = func(want, have string) bool { return want == have }, true
+	case "StringLike":
+		match = glacierPolicyWildcardMatch
+	case "StringNotLike":
+		match, negated = glacierPolicyWildcardMatch, true
+	default:
+		return false, false
+	}
+
+	if !present {
+		return negated, true
+	}
+
+	anyMatch := false
+
+	for _, w := range wants {
+		if match(w, have) {
+			anyMatch = true
+
+			break
+		}
+	}
+
+	return anyMatch != negated, true
 }
 
 func matchesAnyGlacierPolicy(patterns glacierPolicyStringSet, target string) bool {

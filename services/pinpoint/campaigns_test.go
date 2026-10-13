@@ -428,7 +428,7 @@ func TestCampaign_ScheduleFrequencyRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	frequencies := []string{
-		"IN_APP", "ONCE", "HOURLY", "DAILY", "WEEKLY", "MONTHLY", "EVENT",
+		"IN_APP_EVENT", "ONCE", "HOURLY", "DAILY", "WEEKLY", "MONTHLY", "EVENT",
 	}
 
 	for _, freq := range frequencies {

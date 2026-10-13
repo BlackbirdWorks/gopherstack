@@ -269,6 +269,10 @@ func (h *Handler) handleListTables(
 	// ListTablesInput marks no member required, DatabaseName included
 	// (api_op_ListTables.go, timestreamwrite@v1.38.4): omitting it lists
 	// every table across every database -- gopherstack-4ly2.
+	if err := validatePaging(in.NextToken, in.MaxResults); err != nil {
+		return nil, err
+	}
+
 	tbls, err := h.Backend.ListTables(in.DatabaseName)
 	if err != nil {
 		return nil, err

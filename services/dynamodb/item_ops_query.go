@@ -158,6 +158,7 @@ func (db *InMemoryDB) queryCore(
 	rcuUnits := applyConsistentReadMultiplier(rcuForCount(len(candidates)), consistentRead)
 
 	db.emitRCU(region, tableName, rcuUnits)
+	db.emitIndexRCU(region, tableName, snapshotTable, aws.ToString(input.IndexName), rcuUnits)
 
 	if !isOnDemandTable(billingMode) {
 		if err = db.throttler.ConsumeRead(throttleKey(region, tableName), rcuUnits); err != nil {

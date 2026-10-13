@@ -58,6 +58,7 @@ type backendSnapshot struct {
 	AssociationVersions        map[string]map[string][]Association                `json:"association_versions,omitempty"`
 	AssociationExecTargets     map[string]map[string][]AssociationExecutionTarget `json:"association_exec_targets"`
 	InventoryDeletions         map[string][]InventoryDeletion                     `json:"inventory_deletions"`
+	InventorySchemas           map[string]map[string]*InventorySchemaRecord       `json:"inventory_schemas,omitempty"`
 	InstancePatches            map[string]map[string][]PatchComplianceData        `json:"instance_patches"`
 	AvailablePatches           map[string][]Patch                                 `json:"available_patches"`
 	NotifiedParameterPolicies  map[string]map[string]map[string]struct{}          `json:"notified_parameter_policies"`
@@ -158,6 +159,10 @@ func initSnapshotPatchOpsFields(snap *backendSnapshot) {
 		snap.InventoryDeletions = make(map[string][]InventoryDeletion)
 	}
 
+	if snap.InventorySchemas == nil {
+		snap.InventorySchemas = make(map[string]map[string]*InventorySchemaRecord)
+	}
+
 	if snap.InstancePatches == nil {
 		snap.InstancePatches = make(map[string]map[string][]PatchComplianceData)
 	}
@@ -210,6 +215,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		AssociationVersions:        b.associationVersions,
 		AssociationExecTargets:     b.associationExecTargets,
 		InventoryDeletions:         b.inventoryDeletions,
+		InventorySchemas:           b.inventorySchemas,
 		InstancePatches:            b.instancePatches,
 		AvailablePatches:           b.availablePatches,
 		NotifiedParameterPolicies:  b.notifiedParameterPolicies,
@@ -321,6 +327,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.associationVersions = snap.AssociationVersions
 	b.associationExecTargets = snap.AssociationExecTargets
 	b.inventoryDeletions = snap.InventoryDeletions
+	b.inventorySchemas = snap.InventorySchemas
 	b.instancePatches = snap.InstancePatches
 	b.availablePatches = snap.AvailablePatches
 	b.notifiedParameterPolicies = snap.NotifiedParameterPolicies

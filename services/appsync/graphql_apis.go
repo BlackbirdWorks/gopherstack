@@ -94,7 +94,7 @@ func (b *InMemoryBackend) CreateGraphqlAPI(
 		UpdatedAt:                         now,
 		URIs: map[string]string{
 			apiTypeGraphQL: graphqlEndpoint,
-			"REALTIME":     graphqlEndpoint,
+			"REALTIME":     b.realtimeEndpoint(apiID),
 		},
 		Tags: tags.New("appsync.api." + apiID + ".tags"),
 	}
@@ -397,4 +397,11 @@ func (b *InMemoryBackend) PutGraphqlAPIEnvironmentVariables(
 	api.EnvironmentVariables = maps.Clone(envVars)
 
 	return maps.Clone(api.EnvironmentVariables), nil
+}
+
+// realtimeEndpoint is the WebSocket URL serving the AppSync real-time protocol for apiID.
+func (b *InMemoryBackend) realtimeEndpoint(apiID string) string {
+	ws := strings.Replace(b.endpoint, "http", "ws", 1)
+
+	return fmt.Sprintf("%s/v1/apis/%s/graphql/realtime", ws, apiID)
 }

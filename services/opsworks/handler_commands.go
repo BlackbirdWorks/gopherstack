@@ -42,7 +42,7 @@ func commandsToJSON(commands []*Command) []map[string]any {
 			"LogUrl":         c.LogURL,
 			keyCreatedAt:     formatOpsWorksTime(c.CreatedAt),
 			"AcknowledgedAt": formatOpsWorksTime(c.AcknowledgedAt),
-			"CompletedAt":    formatOpsWorksTime(c.CompletedAt),
+			"CompletedAt":    formatOptionalTime(c.CompletedAt),
 		})
 	}
 

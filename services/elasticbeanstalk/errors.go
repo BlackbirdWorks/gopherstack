@@ -1,6 +1,8 @@
 package elasticbeanstalk
 
 import (
+	"fmt"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -25,3 +27,7 @@ var (
 	// ErrValidation is returned when request input fails validation.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
+
+func wrapf(sentinel error, format string, args ...any) error {
+	return fmt.Errorf("%w: %s", sentinel, fmt.Sprintf(format, args...))
+}

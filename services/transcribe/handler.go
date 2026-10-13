@@ -223,16 +223,16 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return c.JSON(http.StatusNotFound, errorBody("NotFoundException", err.Error()))
+		return c.JSON(http.StatusNotFound, errorBody("NotFoundException", errMessage(err)))
 	case errors.Is(err, awserr.ErrAlreadyExists):
-		return c.JSON(http.StatusConflict, errorBody("ConflictException", err.Error()))
+		return c.JSON(http.StatusConflict, errorBody("ConflictException", errMessage(err)))
 	case errors.Is(err, awserr.ErrInvalidParameter), errors.Is(err, errInvalidRequest),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, errorBody("BadRequestException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorBody("BadRequestException", errMessage(err)))
 	case errors.Is(err, errUnknownAction):
-		return c.JSON(http.StatusBadRequest, errorBody("UnknownOperationException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorBody("UnknownOperationException", errMessage(err)))
 	default:
-		return c.JSON(http.StatusInternalServerError, errorBody("InternalFailureException", err.Error()))
+		return c.JSON(http.StatusInternalServerError, errorBody("InternalFailureException", errMessage(err)))
 	}
 }
 
@@ -289,7 +289,7 @@ func tagsFromMap(tags map[string]string) []transcribeTag {
 // transcription jobs.
 type transcriptOutput struct {
 	RedactedTranscriptFileURI *string `json:"RedactedTranscriptFileUri"`
-	TranscriptFileURI         string  `json:"TranscriptFileUri"`
+	TranscriptFileURI         string  `json:"TranscriptFileUri,omitempty"`
 }
 
 // allSupportedOps returns all 43 supported operations in sorted order.

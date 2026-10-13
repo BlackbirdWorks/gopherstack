@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,18 +22,44 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // functionURLServer holds a running HTTP listener for a Lambda function URL.
 type functionURLServer struct {
 	listener net.Listener
 	server   *http.Server
+	hostname string
 	port     int
 }
 
+// urlConfigKey scopes a function URL config to its function, or to an alias
+// when qualifier is set.
+func urlConfigKey(name, qualifier string) string {
+	if qualifier == "" {
+		return name
+	}
+
+	return name + ":" + qualifier
+}
+
+// normalizeURLQualifier folds $LATEST into the unqualified URL.
+func normalizeURLQualifier(qualifier string) string {
+	if qualifier == versionLatest {
+		return ""
+	}
+
+	return qualifier
+}
+
 // functionURLHostname returns the synthetic DNS hostname for a function URL.
-func (b *InMemoryBackend) functionURLHostname(functionName string) string {
-	return fmt.Sprintf("%s.lambda-url.%s.on.aws", functionName, b.region)
+func (b *InMemoryBackend) functionURLHostname(functionName, qualifier string) string {
+	label := functionName
+	if qualifier != "" {
+		label += "-" + strings.ReplaceAll(qualifier, "_", "-")
+	}
+
+	return fmt.Sprintf("%s.lambda-url.%s.on.aws", label, b.region)
 }
 
 // CreateFunctionURLConfig creates a function URL endpoint for the given function.
@@ -44,6 +72,19 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 	cors *FunctionURLCors,
 	invokeMode string,
 ) (*FunctionURLConfig, error) {
+	return b.CreateFunctionURLConfigQualified(ctx, functionName, "", authType, cors, invokeMode)
+}
+
+// CreateFunctionURLConfigQualified is CreateFunctionURLConfig scoped to an alias.
+func (b *InMemoryBackend) CreateFunctionURLConfigQualified(
+	ctx context.Context,
+	functionName, qualifier, authType string,
+	cors *FunctionURLCors,
+	invokeMode string,
+) (*FunctionURLConfig, error) {
+	qualifier = normalizeURLQualifier(qualifier)
+	key := urlConfigKey(functionName, qualifier)
+
 	checkErr := func() error {
 		b.mu.Lock("CreateFunctionURLConfig.check")
 		defer b.mu.Unlock()
@@ -52,7 +93,13 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 			return ErrFunctionNotFound
 		}
 
-		if _, exists := b.functionURLConfigs.Get(functionName); exists {
+		if qualifier != "" {
+			if _, ok := b.aliases.Get(aliasKey(functionName, qualifier)); !ok {
+				return ErrFunctionNotFound
+			}
+		}
+
+		if _, exists := b.functionURLConfigs.Get(key); exists {
 			return ErrFunctionAlreadyExists
 		}
 
@@ -63,7 +110,7 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 	}
 
 	// Allocate port and start listener outside the lock (IO).
-	urlStr, startErr := b.allocateAndStartURLServerUnlocked(ctx, functionName)
+	urlStr, startErr := b.allocateAndStartURLServerUnlocked(ctx, functionName, qualifier)
 	if startErr != nil {
 		return nil, startErr
 	}
@@ -74,7 +121,7 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	cfg := &FunctionURLConfig{
-		FunctionArn:      buildURLARN(b.region, b.accountID, functionName),
+		FunctionArn:      buildURLARN(b.region, b.accountID, key),
 		FunctionURL:      urlStr,
 		AuthType:         authType,
 		InvokeMode:       invokeMode,
@@ -87,13 +134,13 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 	b.mu.Lock("CreateFunctionURLConfig.commit")
 	defer b.mu.Unlock()
 
-	if _, exists := b.functionURLConfigs.Get(functionName); exists {
+	if _, exists := b.functionURLConfigs.Get(key); exists {
 		// Another goroutine won the race. Our server was already committed to
 		// b.functionURLServers by allocateAndStartURLServerUnlocked; remove it
 		// under the lock and schedule shutdown outside.
-		ourSrv := b.functionURLServers[functionName]
+		ourSrv := b.functionURLServers[key]
 		if ourSrv != nil && ourSrv.port != 0 {
-			delete(b.functionURLServers, functionName)
+			delete(b.functionURLServers, key)
 
 			go func(s *functionURLServer) {
 				shutdownCtx, cancel := context.WithTimeout(
@@ -121,9 +168,9 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 // without holding b.mu. The caller must commit srv to b.functionURLServers under the lock.
 func (b *InMemoryBackend) allocateAndStartURLServerUnlocked(
 	ctx context.Context,
-	functionName string,
+	functionName, qualifier string,
 ) (string, error) {
-	urlStr, srv, err := b.doAllocateAndStart(ctx, functionName)
+	urlStr, srv, err := b.doAllocateAndStart(ctx, functionName, qualifier)
 	if err != nil {
 		return "", err
 	}
@@ -132,7 +179,7 @@ func (b *InMemoryBackend) allocateAndStartURLServerUnlocked(
 		b.mu.Lock("allocateAndStartURLServerUnlocked.commit")
 		defer b.mu.Unlock()
 
-		b.functionURLServers[functionName] = srv
+		b.functionURLServers[urlConfigKey(functionName, qualifier)] = srv
 	}
 
 	return urlStr, nil
@@ -142,18 +189,20 @@ func (b *InMemoryBackend) allocateAndStartURLServerUnlocked(
 // allocateAndStartURLServerUnlocked.
 func (b *InMemoryBackend) doAllocateAndStart(
 	ctx context.Context,
-	functionName string,
+	functionName, qualifier string,
 ) (string, *functionURLServer, error) {
+	key := urlConfigKey(functionName, qualifier)
+
 	if b.portAlloc == nil {
-		return fmt.Sprintf("http://localhost/%s/", functionName), nil, nil
+		return fmt.Sprintf("http://localhost/%s/", key), nil, nil
 	}
 
-	port, allocErr := b.portAlloc.Acquire("lambda-url:" + functionName)
+	port, allocErr := b.portAlloc.Acquire("lambda-url:" + key)
 	if allocErr != nil {
 		return "", nil, fmt.Errorf("%w: port allocation failed: %w", ErrLambdaUnavailable, allocErr)
 	}
 
-	srv, listenErr := b.startFunctionURLServer(ctx, functionName, port)
+	srv, listenErr := b.startFunctionURLServer(ctx, functionName, qualifier, port)
 	if listenErr != nil {
 		_ = b.portAlloc.Release(port)
 
@@ -164,9 +213,10 @@ func (b *InMemoryBackend) doAllocateAndStart(
 		)
 	}
 
-	hostname := b.functionURLHostname(functionName)
+	hostname := b.functionURLHostname(functionName, qualifier)
 
 	if b.dnsRegistrar != nil {
+		srv.hostname = hostname
 		b.dnsRegistrar.Register(hostname)
 
 		return "http://" + net.JoinHostPort(hostname, strconv.Itoa(port)) + "/", srv, nil
@@ -186,10 +236,15 @@ func cloneFunctionURLConfig(cfg *FunctionURLConfig) *FunctionURLConfig {
 
 // GetFunctionURLConfig returns the function URL config for a function.
 func (b *InMemoryBackend) GetFunctionURLConfig(functionName string) (*FunctionURLConfig, error) {
+	return b.GetFunctionURLConfigQualified(functionName, "")
+}
+
+// GetFunctionURLConfigQualified is GetFunctionURLConfig scoped to an alias.
+func (b *InMemoryBackend) GetFunctionURLConfigQualified(functionName, qualifier string) (*FunctionURLConfig, error) {
 	b.mu.RLock("GetFunctionURLConfig")
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.functionURLConfigs.Get(functionName)
+	cfg, ok := b.functionURLConfigs.Get(urlConfigKey(functionName, normalizeURLQualifier(qualifier)))
 	if !ok {
 		return nil, ErrFunctionURLNotFound
 	}
@@ -199,50 +254,66 @@ func (b *InMemoryBackend) GetFunctionURLConfig(functionName string) (*FunctionUR
 
 // DeleteFunctionURLConfig removes the function URL config, stops the listener, and deregisters DNS.
 func (b *InMemoryBackend) DeleteFunctionURLConfig(functionName string) error {
-	var (
-		found    bool
-		srv      *functionURLServer
-		dns      DNSRegistrar
-		hostname string
-	)
+	return b.DeleteFunctionURLConfigQualified(functionName, "")
+}
 
-	func() {
+// DeleteFunctionURLConfigQualified is DeleteFunctionURLConfig scoped to an alias.
+func (b *InMemoryBackend) DeleteFunctionURLConfigQualified(functionName, qualifier string) error {
+	key := urlConfigKey(functionName, normalizeURLQualifier(qualifier))
+
+	var srv *functionURLServer
+
+	found := func() bool {
 		b.mu.Lock("DeleteFunctionURLConfig")
 		defer b.mu.Unlock()
 
-		if _, ok := b.functionURLConfigs.Get(functionName); !ok {
-			return
+		if _, ok := b.functionURLConfigs.Get(key); !ok {
+			return false
 		}
 
-		found = true
+		b.functionURLConfigs.Delete(key)
 
-		b.functionURLConfigs.Delete(functionName)
+		srv = b.functionURLServers[key]
+		delete(b.functionURLServers, key)
 
-		srv = b.functionURLServers[functionName]
-		delete(b.functionURLServers, functionName)
-		dns = b.dnsRegistrar
-		hostname = b.functionURLHostname(functionName)
+		return true
 	}()
-
 	if !found {
 		return ErrFunctionURLNotFound
 	}
 
-	if srv != nil {
-		shutdownCtx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
-		defer cancel()
-		_ = srv.server.Shutdown(shutdownCtx)
-
-		if b.portAlloc != nil {
-			_ = b.portAlloc.Release(srv.port)
-		}
-	}
-
-	if dns != nil {
-		dns.Deregister(hostname)
-	}
+	b.releaseURLServer(b.ctx, srv)
 
 	return nil
+}
+
+// releaseURLServer shuts a detached URL listener down, frees its port and
+// deregisters its DNS name. Must not hold b.mu.
+func (b *InMemoryBackend) releaseURLServer(ctx context.Context, srv *functionURLServer) {
+	if srv == nil {
+		return
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), containerShutdownTimeout)
+	defer cancel()
+
+	_ = srv.server.Shutdown(shutdownCtx)
+
+	if b.portAlloc != nil {
+		_ = b.portAlloc.Release(srv.port)
+	}
+
+	if srv.hostname == "" {
+		return
+	}
+
+	b.mu.RLock("releaseURLServer")
+	dns := b.dnsRegistrar
+	b.mu.RUnlock()
+
+	if dns != nil {
+		dns.Deregister(srv.hostname)
+	}
 }
 
 // functionURLReadHeaderTimeout is the timeout for reading HTTP request headers on the function URL listener.
@@ -252,7 +323,7 @@ const functionURLReadHeaderTimeout = 30 * time.Second
 // to Lambda invocation events and returns the function's response.
 func (b *InMemoryBackend) startFunctionURLServer(
 	ctx context.Context,
-	functionName string,
+	functionName, qualifier string,
 	port int,
 ) (*functionURLServer, error) {
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
@@ -263,7 +334,7 @@ func (b *InMemoryBackend) startFunctionURLServer(
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", b.buildFunctionURLHandler(functionName))
+	mux.HandleFunc("/", b.buildFunctionURLHandler(functionName, qualifier))
 
 	srv := &http.Server{
 		Handler:           mux,
@@ -335,9 +406,9 @@ type lambdaURLResponse struct {
 // or missing signature) and applies CORS: OPTIONS preflight requests are answered
 // directly with the configured CORS headers, and those headers are echoed on real
 // responses.
-func (b *InMemoryBackend) buildFunctionURLHandler(functionName string) http.HandlerFunc {
+func (b *InMemoryBackend) buildFunctionURLHandler(functionName, qualifier string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cfg := b.lookupFunctionURLConfig(functionName)
+		cfg := b.lookupFunctionURLConfig(urlConfigKey(functionName, qualifier))
 
 		cors := functionURLCors(cfg)
 
@@ -368,9 +439,12 @@ func (b *InMemoryBackend) buildFunctionURLHandler(functionName string) http.Hand
 			return
 		}
 
-		result, _, invokeErr := b.InvokeFunction(
+		result, _, _, _, invokeErr := b.InvokeFunctionWithQualifier(
 			r.Context(),
 			functionName,
+			qualifier,
+			"",
+			"",
 			InvocationTypeRequestResponse,
 			payload,
 		)
@@ -389,11 +463,11 @@ func (b *InMemoryBackend) buildFunctionURLHandler(functionName string) http.Hand
 }
 
 // lookupFunctionURLConfig returns a copy-free reference to the function's URL config.
-func (b *InMemoryBackend) lookupFunctionURLConfig(functionName string) *FunctionURLConfig {
+func (b *InMemoryBackend) lookupFunctionURLConfig(key string) *FunctionURLConfig {
 	b.mu.RLock("lookupFunctionURLConfig")
 	defer b.mu.RUnlock()
 
-	cfg, _ := b.functionURLConfigs.Get(functionName)
+	cfg, _ := b.functionURLConfigs.Get(key)
 
 	return cfg
 }
@@ -637,10 +711,19 @@ func (b *InMemoryBackend) UpdateFunctionURLConfig(
 	cors *FunctionURLCors,
 	invokeMode string,
 ) (*FunctionURLConfig, error) {
+	return b.UpdateFunctionURLConfigQualified(functionName, "", authType, cors, invokeMode)
+}
+
+// UpdateFunctionURLConfigQualified is UpdateFunctionURLConfig scoped to an alias.
+func (b *InMemoryBackend) UpdateFunctionURLConfigQualified(
+	functionName, qualifier, authType string,
+	cors *FunctionURLCors,
+	invokeMode string,
+) (*FunctionURLConfig, error) {
 	b.mu.Lock("UpdateFunctionURLConfig")
 	defer b.mu.Unlock()
 
-	cfg, ok := b.functionURLConfigs.Get(functionName)
+	cfg, ok := b.functionURLConfigs.Get(urlConfigKey(functionName, normalizeURLQualifier(qualifier)))
 	if !ok {
 		return nil, ErrFunctionURLNotFound
 	}
@@ -668,11 +751,35 @@ func (b *InMemoryBackend) ListFunctionURLConfigs() []*FunctionURLConfig {
 	b.mu.RLock("ListFunctionURLConfigs")
 	defer b.mu.RUnlock()
 
-	cfgs := b.functionURLConfigs.All()
+	return sortedURLConfigs(b.functionURLConfigs.All(), "")
+}
 
-	out := make([]*FunctionURLConfig, len(cfgs))
-	for i, cfg := range cfgs {
-		out[i] = cloneFunctionURLConfig(cfg)
+// ListFunctionURLConfigsForFunction returns every URL config of one function
+// (unqualified and alias-scoped), paginated by marker.
+func (b *InMemoryBackend) ListFunctionURLConfigsForFunction(
+	functionName, marker string,
+	maxItems int,
+) ([]*FunctionURLConfig, string, error) {
+	b.mu.RLock("ListFunctionURLConfigsForFunction")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.functions.Get(functionName); !ok {
+		return nil, "", ErrFunctionNotFound
+	}
+
+	p := page.New(sortedURLConfigs(b.functionURLConfigs.All(), functionName), marker, maxItems, lambdaDefaultMaxItems)
+
+	return p.Data, p.Next, nil
+}
+
+// sortedURLConfigs clones cfgs (only functionName's when set), sorted by ARN.
+func sortedURLConfigs(cfgs []*FunctionURLConfig, functionName string) []*FunctionURLConfig {
+	out := make([]*FunctionURLConfig, 0, len(cfgs))
+
+	for _, cfg := range cfgs {
+		if name, _ := functionNameAndQualifierFromARN(cfg.FunctionArn); functionName == "" || name == functionName {
+			out = append(out, cloneFunctionURLConfig(cfg))
+		}
 	}
 
 	sort.Slice(out, func(i, j int) bool {
@@ -680,4 +787,41 @@ func (b *InMemoryBackend) ListFunctionURLConfigs() []*FunctionURLConfig {
 	})
 
 	return out
+}
+
+// urlConfigKeysForFunctionLocked returns the keys of every URL config and server
+// belonging to functionName. Caller holds b.mu.
+func (b *InMemoryBackend) urlConfigKeysForFunctionLocked(functionName string) []string {
+	seen := map[string]struct{}{}
+
+	for _, cfg := range b.functionURLConfigs.All() {
+		if name, qualifier := functionNameAndQualifierFromARN(cfg.FunctionArn); name == functionName {
+			seen[urlConfigKey(name, qualifier)] = struct{}{}
+		}
+	}
+
+	for key := range b.functionURLServers {
+		if key == functionName || strings.HasPrefix(key, functionName+":") {
+			seen[key] = struct{}{}
+		}
+	}
+
+	return slices.Collect(maps.Keys(seen))
+}
+
+// detachURLServersLocked removes the function's URL configs and returns their
+// listeners for shutdown outside the lock. Caller holds b.mu.
+func (b *InMemoryBackend) detachURLServersLocked(functionName string) []*functionURLServer {
+	var servers []*functionURLServer
+
+	for _, key := range b.urlConfigKeysForFunctionLocked(functionName) {
+		if srv, ok := b.functionURLServers[key]; ok {
+			servers = append(servers, srv)
+		}
+
+		delete(b.functionURLServers, key)
+		b.functionURLConfigs.Delete(key)
+	}
+
+	return servers
 }

@@ -76,6 +76,7 @@ type createDataRepositoryTaskInput struct {
 	Report               *CompletionReport     `json:"Report"`
 	CapacityToRelease    *int64                `json:"CapacityToRelease,omitempty"`
 	ReleaseConfiguration *ReleaseConfiguration `json:"ReleaseConfiguration,omitempty"`
+	ClientRequestToken   string                `json:"ClientRequestToken,omitempty"`
 	FileSystemID         string                `json:"FileSystemId"`
 	Type                 string                `json:"Type"`
 	Paths                []string              `json:"Paths,omitempty"`
@@ -104,6 +105,15 @@ func (b *InMemoryBackend) CreateDataRepositoryTask(input *createDataRepositoryTa
 	defer b.mu.Unlock()
 
 	b.sweepDataRepositoryTasksLocked(time.Now())
+
+	fp, replayID, err := b.replayTokenLocked("CreateDataRepositoryTask", input.ClientRequestToken, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if existing, ok := b.dataRepositoryTasks.Get(replayID); ok {
+		return existing.toPublic(), nil
+	}
 
 	if !b.fileSystems.Has(input.FileSystemID) {
 		return nil, ErrFileSystemNotFound
@@ -135,6 +145,7 @@ func (b *InMemoryBackend) CreateDataRepositoryTask(input *createDataRepositoryTa
 
 	b.dataRepositoryTasks.Put(t)
 	b.tags[arn] = tags
+	b.recordTokenLocked("CreateDataRepositoryTask", input.ClientRequestToken, fp, id)
 
 	return t.toPublic(), nil
 }

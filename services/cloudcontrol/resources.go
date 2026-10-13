@@ -62,7 +62,8 @@ func (b *InMemoryBackend) CreateResource(typeName, desiredState, clientToken str
 	}
 
 	if b.resources.Has(key) {
-		return nil, ErrAlreadyExists
+		return nil, fmt.Errorf("%w: Resource of type '%s' with identifier '%s' already exists",
+			ErrAlreadyExists, typeName, identifier)
 	}
 
 	b.resources.Put(&Resource{
@@ -73,7 +74,7 @@ func (b *InMemoryBackend) CreateResource(typeName, desiredState, clientToken str
 
 	token := uuid.NewString()
 	event := &ProgressEvent{
-		EventTime:       unixEpochTime{time.Now()},
+		EventTime:       unixEpochTime{b.clock()},
 		TypeName:        typeName,
 		Identifier:      identifier,
 		RequestToken:    token,
@@ -81,10 +82,11 @@ func (b *InMemoryBackend) CreateResource(typeName, desiredState, clientToken str
 		OperationStatus: opStatusSuccess,
 		ResourceModel:   desiredState,
 	}
+	b.settle(event)
 	b.requests.Put(event)
 	b.rememberClientToken(clientToken, token, fingerprint)
 
-	return copyEvent(event), nil
+	return b.present(event), nil
 }
 
 // GetResource returns a copy of the resource identified by typeName and identifier.
@@ -98,7 +100,7 @@ func (b *InMemoryBackend) GetResource(typeName, identifier string) (*Resource, e
 
 	r, ok := b.resources.Get(resourceKey(typeName, identifier))
 	if !ok {
-		return nil, ErrNotFound
+		return nil, notFoundError(typeName, identifier)
 	}
 
 	return copyResource(r), nil
@@ -212,24 +214,25 @@ func (b *InMemoryBackend) DeleteResource(typeName, identifier, clientToken strin
 	}
 
 	if !b.resources.Has(key) {
-		return nil, ErrNotFound
+		return nil, notFoundError(typeName, identifier)
 	}
 
 	b.resources.Delete(key)
 
 	token := uuid.NewString()
 	event := &ProgressEvent{
-		EventTime:       unixEpochTime{time.Now()},
+		EventTime:       unixEpochTime{b.clock()},
 		TypeName:        typeName,
 		Identifier:      identifier,
 		RequestToken:    token,
 		Operation:       "DELETE",
 		OperationStatus: opStatusSuccess,
 	}
+	b.settle(event)
 	b.requests.Put(event)
 	b.rememberClientToken(clientToken, token, fingerprint)
 
-	return copyEvent(event), nil
+	return b.present(event), nil
 }
 
 // UpdateResource applies a JSON RFC 6902 patch document to the resource. An
@@ -262,7 +265,7 @@ func (b *InMemoryBackend) UpdateResource(typeName, identifier, patchDocument, cl
 
 	r, ok := b.resources.Get(key)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, notFoundError(typeName, identifier)
 	}
 
 	newProperties, err := applyPatch(r.Properties, patchDocument)
@@ -280,7 +283,7 @@ func (b *InMemoryBackend) UpdateResource(typeName, identifier, patchDocument, cl
 
 	token := uuid.NewString()
 	event := &ProgressEvent{
-		EventTime:       unixEpochTime{time.Now()},
+		EventTime:       unixEpochTime{b.clock()},
 		TypeName:        typeName,
 		Identifier:      identifier,
 		RequestToken:    token,
@@ -288,10 +291,11 @@ func (b *InMemoryBackend) UpdateResource(typeName, identifier, patchDocument, cl
 		OperationStatus: opStatusSuccess,
 		ResourceModel:   r.Properties,
 	}
+	b.settle(event)
 	b.requests.Put(event)
 	b.rememberClientToken(clientToken, token, fingerprint)
 
-	return copyEvent(event), nil
+	return b.present(event), nil
 }
 
 // clientTokenFingerprint builds a stable fingerprint identifying the semantic content of
@@ -329,7 +333,7 @@ func (b *InMemoryBackend) cachedEventForToken(clientToken, fingerprint string) (
 		return nil, false, nil
 	}
 
-	return copyEvent(cachedEvent), true, nil
+	return b.present(cachedEvent), true, nil
 }
 
 // rememberClientToken records the mapping from clientToken to its requestToken and

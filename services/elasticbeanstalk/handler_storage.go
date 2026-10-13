@@ -26,6 +26,6 @@ func (h *Handler) handleCreateStorageLocation(ctx context.Context, _ url.Values)
 	return &createStorageLocationResponse{
 		Xmlns:                       ebXMLNS,
 		CreateStorageLocationResult: createStorageLocationResult{S3Bucket: bucket},
-		ResponseMetadata:            responseMetadata{RequestID: "eb-create-storage"},
+		ResponseMetadata:            newResponseMetadata(ctx, "eb-create-storage"),
 	}, nil
 }

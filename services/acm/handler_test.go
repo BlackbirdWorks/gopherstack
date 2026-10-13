@@ -667,9 +667,8 @@ func TestACMHandler_AcmeExternalAccountBindings(t *testing.T) {
 // DeleteAcmeDomainValidation, field-diffed against the real SDK's
 // AcmeDomainValidation shape (AcmeDomainValidationArn, AcmeEndpointArn,
 // DomainName, PrevalidationType, PrevalidationDetails.DnsPrevalidation,
-// Status). Status must always be VALIDATING -- gopherstack has no DNS
-// resolver to actually check the synthesized ResourceRecord against, so it
-// must never claim VALID (see acme_domain_validations.go's doc comment).
+// Status). Status starts VALIDATING and settles to VALID after the
+// auto-validation delay.
 func TestACMHandler_AcmeDomainValidations(t *testing.T) {
 	t.Parallel()
 

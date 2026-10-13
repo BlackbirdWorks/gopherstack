@@ -14,6 +14,12 @@ type S3Storer interface {
 	PutObject(ctx context.Context, input *sdk_s3.PutObjectInput) (*sdk_s3.PutObjectOutput, error)
 }
 
+// S3Getter is the optional read side of the wired S3 backend, used to load
+// ImportNotebook.NotebookS3LocationUri.
+type S3Getter interface {
+	GetObject(ctx context.Context, input *sdk_s3.GetObjectInput) (*sdk_s3.GetObjectOutput, error)
+}
+
 // GlueDatabase is the subset of a Glue database's fields Athena needs to
 // present a GLUE-type catalog's database, wired via SetGlueMetadataSource.
 type GlueDatabase struct {
@@ -93,7 +99,7 @@ type StorageBackend interface {
 		reuseCfg *ResultReuseConfiguration,
 	) (string, error)
 	GetQueryExecution(id string) (*QueryExecution, error)
-	GetQueryResults(id, nextToken string, maxResults int) (*sqlResultPage, error)
+	GetQueryResults(id, nextToken string, maxResults int) (*SQLResultPage, error)
 	ListQueryExecutions(workGroup string) ([]string, error)
 	StopQueryExecution(id string) error
 	BatchGetQueryExecution(ids []string) ([]QueryExecution, []UnprocessedQueryExecutionID)

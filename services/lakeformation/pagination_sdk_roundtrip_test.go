@@ -5,6 +5,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	lakeformationsdk "github.com/aws/aws-sdk-go-v2/service/lakeformation"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -62,10 +63,11 @@ func TestListLFTags_SDKRoundTrip_BoundaryWalkAndTamperedToken(t *testing.T) {
 	assert.Equal(t, want, seen, "walking every page must reproduce every created tag, in order, no drops or dupes")
 
 	require.NotPanics(t, func() {
-		out, err := client.ListLFTags(t.Context(), &lakeformationsdk.ListLFTagsInput{
+		_, err := client.ListLFTags(t.Context(), &lakeformationsdk.ListLFTagsInput{
 			NextToken: aws.String("not-a-valid-offset-token"),
 		})
-		require.NoError(t, err)
-		assert.NotNil(t, out)
+		var apiErr smithy.APIError
+		require.ErrorAs(t, err, &apiErr)
+		assert.Equal(t, "InvalidInputException", apiErr.ErrorCode())
 	})
 }

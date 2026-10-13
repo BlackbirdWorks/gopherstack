@@ -100,7 +100,37 @@ func validateASFFRequiredFields(f map[string]any, productArn, id string) string 
 		return "Resources must contain at least one entry"
 	}
 
+	return validateASFFEnums(f)
+}
+
+// validateASFFEnums rejects values outside the SeverityLabel, RecordState and WorkflowStatus enums.
+func validateASFFEnums(f map[string]any) string {
+	if sev, ok := f["Severity"].(map[string]any); ok {
+		if label, _ := sev["Label"].(string); label != "" && !validSeverityLabel(label) {
+			return "Severity.Label must be INFORMATIONAL, LOW, MEDIUM, HIGH or CRITICAL"
+		}
+	}
+
+	if state, _ := f["RecordState"].(string); state != "" && state != "ACTIVE" && state != "ARCHIVED" {
+		return "RecordState must be ACTIVE or ARCHIVED"
+	}
+
+	if wf, ok := f["Workflow"].(map[string]any); ok {
+		if st, _ := wf["Status"].(string); st != "" && !validWorkflowStatus(st) {
+			return "Workflow.Status must be NEW, NOTIFIED, RESOLVED or SUPPRESSED"
+		}
+	}
+
 	return ""
+}
+
+func validWorkflowStatus(status string) bool {
+	switch status {
+	case "NEW", "NOTIFIED", "RESOLVED", "SUPPRESSED":
+		return true
+	}
+
+	return false
 }
 
 func (b *InMemoryBackend) ImportFindings(findings []map[string]any) (int, int, []map[string]any) {
@@ -720,7 +750,7 @@ func parseHistoryTime(s string) (time.Time, bool) {
 	return t, true
 }
 
-func (b *InMemoryBackend) GetFindingStatisticsV2(groupByFields []string, sortOrder string) []map[string]any {
+func (b *InMemoryBackend) GetFindingStatisticsV2(rules []GroupByRule, sortOrder string) []map[string]any {
 	b.mu.RLock("GetFindingStatisticsV2")
 	defer b.mu.RUnlock()
 
@@ -729,7 +759,7 @@ func (b *InMemoryBackend) GetFindingStatisticsV2(groupByFields []string, sortOrd
 		items = append(items, flattenFindingGroupByFields(f))
 	}
 
-	return groupByResults(items, groupByFields, ocsfStringFieldMap, sortOrder)
+	return groupByResults(items, rules, ocsfStringFieldMap, sortOrder, matchesFindingFiltersV2)
 }
 
 // flattenFindingGroupByFields returns a shallow copy of finding with
@@ -760,8 +790,11 @@ const (
 	trendBucketOther         = "Other"
 	trendBucketUnknown       = "Unknown"
 
-	severityLabelHigh   = "HIGH"
-	severityLabelMedium = "MEDIUM"
+	severityLabelInformational = "INFORMATIONAL"
+	severityLabelLow           = "LOW"
+	severityLabelHigh          = "HIGH"
+	severityLabelMedium        = "MEDIUM"
+	severityLabelCritical      = "CRITICAL"
 )
 
 // severityTrendsBucket maps an ASFF SeverityLabel (types.SeverityLabel:
@@ -773,7 +806,7 @@ const (
 // derive it from, left inert rather than fabricated.
 func severityTrendsBucket(label string) string {
 	switch strings.ToUpper(label) {
-	case "CRITICAL":
+	case severityLabelCritical:
 		return trendBucketCritical
 	case severityLabelHigh:
 		return trendBucketHigh
@@ -797,7 +830,7 @@ func severityTrendsBucket(label string) string {
 // (api_op_GetFindingsTrendsV2.go:22-46); this backend has no time-bucketed
 // analytics engine, so unlike the real per-Granularity series this always
 // returns one point for the whole store, timestamped at endTime.
-func (b *InMemoryBackend) GetFindingsTrendsV2(startTime, endTime string) []map[string]any {
+func (b *InMemoryBackend) GetFindingsTrendsV2(startTime, endTime string, filters map[string]any) []map[string]any {
 	b.mu.RLock("GetFindingsTrendsV2")
 	defer b.mu.RUnlock()
 
@@ -807,6 +840,10 @@ func (b *InMemoryBackend) GetFindingsTrendsV2(startTime, endTime string) []map[s
 	}
 
 	for _, finding := range b.findings {
+		if !matchesFindingFiltersV2(finding, filters) {
+			continue
+		}
+
 		counts[severityTrendsBucket(findingFieldString(finding, keyFilterSeverityLabel))]++
 	}
 

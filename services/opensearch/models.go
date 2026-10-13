@@ -651,8 +651,11 @@ type UpdateDomainConfigInput struct {
 	EnableSoftwareUpdateOptions *EnableSoftwareUpdateOptions
 	LogPublishingOptions        map[string]*LogPublishingOption
 	ClusterConfig               *ClusterConfig
-	AccessPolicies              *string
-	EngineVersion               string
+	// ClusterConfigFields names the ClusterConfig members the request set;
+	// nil replaces the whole config.
+	ClusterConfigFields map[string]struct{}
+	AccessPolicies      *string
+	EngineVersion       string
 }
 
 // RollbackServiceSoftwareOptions represents the result of a

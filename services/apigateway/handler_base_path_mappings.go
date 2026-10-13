@@ -40,11 +40,11 @@ func parseAPIGWDomainNamesBasePathMapping(method string, segs []string) (string,
 // basePathMappingActions returns the action map for base path mapping CRUD operations.
 func (h *Handler) basePathMappingActions() map[string]actionFn {
 	return map[string]actionFn{
-		opCreateBasePathMapping: h.createBasePathMappingAction,
-		opGetBasePathMapping:    h.getBasePathMappingAction,
-		opGetBasePathMappings:   h.getBasePathMappingsAction,
-		opDeleteBasePathMapping: h.deleteBasePathMappingAction,
-		opUpdateBasePathMapping: h.updateBasePathMappingAction,
+		opCreateBasePathMapping: h.withDomainNameID(h.createBasePathMappingAction),
+		opGetBasePathMapping:    h.withDomainNameID(h.getBasePathMappingAction),
+		opGetBasePathMappings:   h.withDomainNameID(h.getBasePathMappingsAction),
+		opDeleteBasePathMapping: h.withDomainNameID(h.deleteBasePathMappingAction),
+		opUpdateBasePathMapping: h.withDomainNameID(h.updateBasePathMappingAction),
 	}
 }
 

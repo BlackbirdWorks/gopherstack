@@ -561,6 +561,7 @@ type Instance struct {
 	// chain at the right position instead of restarting it (see
 	// rearmPendingWaits).
 	LifecycleHookName    string `json:"LifecycleHookName,omitempty"`
+	SubnetID             string `json:"SubnetID,omitempty"`
 	ProtectedFromScaleIn bool   `json:"ProtectedFromScaleIn,omitempty"`
 }
 
@@ -732,6 +733,7 @@ type CreateAutoScalingGroupInput struct {
 	InstanceLifecyclePolicy          *InstanceLifecyclePolicy
 	InstanceMaintenancePolicy        *InstanceMaintenancePolicy
 	AutoScalingGroupName             string
+	InstanceID                       string
 	ServiceLinkedRoleARN             string
 	LaunchConfigurationName          string
 	HealthCheckType                  string
@@ -745,6 +747,7 @@ type CreateAutoScalingGroupInput struct {
 	TerminationPolicies              []string
 	Tags                             []Tag
 	AvailabilityZones                []string
+	AvailabilityZoneIDs              []string
 	TrafficSources                   []TrafficSource
 	LifecycleHookSpecificationList   []LifecycleHook
 	MinSize                          int32
@@ -787,12 +790,14 @@ type UpdateAutoScalingGroupInput struct {
 	AutoScalingGroupName             string
 	DeletionProtection               string
 	AvailabilityZones                []string
+	AvailabilityZoneIDs              []string
 	TerminationPolicies              []string
 }
 
 // CreateLaunchConfigurationInput holds the input for CreateLaunchConfiguration.
 type CreateLaunchConfigurationInput struct {
 	LaunchConfigurationName      string
+	InstanceID                   string
 	ImageID                      string
 	InstanceType                 string
 	KeyName                      string

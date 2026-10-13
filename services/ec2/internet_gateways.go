@@ -132,6 +132,7 @@ func (b *InMemoryBackend) AttachInternetGateway(igwID, vpcID string) error {
 	}
 
 	igw.Attachments = append(igw.Attachments, IGWAttachment{VPCID: vpcID, State: stateAvailable})
+	b.syncRegionalNatRoutesLocked(vpcID, igwID, true)
 
 	return nil
 }
@@ -155,6 +156,7 @@ func (b *InMemoryBackend) DetachInternetGateway(igwID, vpcID string) error {
 			}
 
 			igw.Attachments = append(igw.Attachments[:i], igw.Attachments[i+1:]...)
+			b.syncRegionalNatRoutesLocked(vpcID, igwID, false)
 
 			return nil
 		}

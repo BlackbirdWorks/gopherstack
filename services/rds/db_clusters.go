@@ -1,6 +1,7 @@
 package rds
 
 import (
+	"cmp"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -22,7 +23,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	serverlessV2Cfg *ServerlessV2ScalingConfiguration,
 	opts DBClusterOptions,
 ) (*DBCluster, error) {
-	if err := validateCreateDBClusterInput(id, engine, opts); err != nil {
+	if err := validateCreateDBClusterInput(id, engine, serverlessV2Cfg, opts); err != nil {
 		return nil, err
 	}
 	b.mu.Lock("CreateDBCluster")
@@ -61,14 +62,19 @@ func (b *InMemoryBackend) CreateDBCluster(
 		return nil, err
 	}
 
-	secret, err := b.createMasterSecret("cluster", opts.MasterSecretRequest, opts.MasterUserPassword)
+	secret, err := b.createMasterSecret("cluster", masterUser, opts.MasterSecretRequest, opts.MasterUserPassword)
 	if err != nil {
 		return nil, err
 	}
 
 	cluster := b.newDBCluster(id, engine, masterUser, dbName, paramGroupName, port, serverlessV2Cfg, opts)
 	cluster.MasterSecret = secret
-	b.provisionClusterLocked(cluster, opts.MasterUserPassword)
+	if !b.provisionClusterLocked(cluster, opts.MasterUserPassword) {
+		cluster.Status = instanceStatusCreating
+		b.clusterReadyAt[id] = time.Now().Add(instanceTransitionDelay)
+		b.scheduleReconcilerLocked()
+	}
+
 	b.clusters.Put(cluster)
 
 	if globalCluster != nil {
@@ -92,11 +98,21 @@ func (b *InMemoryBackend) CreateDBCluster(
 	return &cp, nil
 }
 
-func validateCreateDBClusterInput(id, engine string, opts DBClusterOptions) error {
+func validateCreateDBClusterInput(
+	id, engine string,
+	scaling *ServerlessV2ScalingConfiguration,
+	opts DBClusterOptions,
+) error {
 	if id == "" {
 		return fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
 	}
+	if err := validateDBClusterIdentifier(id); err != nil {
+		return err
+	}
 	if err := validateDBClusterEngine(engine); err != nil {
+		return err
+	}
+	if err := validateServerlessV2Scaling(scaling); err != nil {
 		return err
 	}
 	if err := ValidateStorageTypeForCluster(opts.StorageType); err != nil {
@@ -124,6 +140,9 @@ func (b *InMemoryBackend) newDBCluster(
 	if port <= 0 {
 		port = enginePort(engine)
 	}
+	if opts.EngineVersion == "" && b.engine == nil {
+		opts.EngineVersion = defaultEngineVersion(engine)
+	}
 	endpoint := fmt.Sprintf("%s.cluster.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 	readerEndpoint := fmt.Sprintf(
 		"%s.cluster-ro.%s.%s.rds.amazonaws.com",
@@ -135,8 +154,13 @@ func (b *InMemoryBackend) newDBCluster(
 	if networkType == "" {
 		networkType = "IPV4"
 	}
+	if serverlessV2Cfg != nil {
+		scaling := *serverlessV2Cfg
+		normalizeServerlessV2Scaling(&scaling)
+		serverlessV2Cfg = &scaling
+	}
 
-	return &DBCluster{
+	cluster := &DBCluster{
 		ClusterCreateTime:                  time.Now().UTC(),
 		DBClusterIdentifier:                id,
 		DBClusterArn:                       b.rdsARN("cluster", id),
@@ -186,6 +210,11 @@ func (b *InMemoryBackend) newDBCluster(
 		PerformanceInsightsEnabled:         opts.PerformanceInsightsEnabled,
 		HTTPEndpointEnabled:                opts.EnableHTTPEndpoint,
 	}
+	if autoPauseConfigured(cluster) {
+		b.scheduleAutoPauseLocked()
+	}
+
+	return cluster
 }
 
 // DescribeDBClusters returns clusters. If id is non-empty, returns only that cluster.
@@ -377,9 +406,11 @@ func (b *InMemoryBackend) DeleteDBClusterWithOptions(
 		}
 	}
 
+	b.releaseMasterSecret(cluster.MasterSecret)
 	b.clusters.Delete(normalizeID(id))
 	b.leaveGlobalClustersLocked(cp.DBClusterArn)
 	b.dropUnitLocked(unitKeyForCluster(canonicalID))
+	delete(b.pause, normalizeID(canonicalID))
 	delete(b.tags, b.rdsARN("cluster", canonicalID))
 	delete(b.fisFailoverFaults, canonicalID)
 	delete(b.clusterRoles, canonicalID)
@@ -551,9 +582,14 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	if err := guardClusterMajorUpgrade(cluster, opts); err != nil {
 		return nil, err
 	}
+	scaling, err := mergeServerlessV2Update(cluster, opts.ServerlessV2Scaling)
+	if err != nil {
+		return nil, err
+	}
 	secret, err := b.updateMasterSecret(
 		cluster.MasterSecret,
 		"cluster",
+		cluster.MasterUsername,
 		opts.MasterSecretRequest,
 		opts.MasterUserPassword,
 	)
@@ -561,6 +597,7 @@ func (b *InMemoryBackend) ModifyDBCluster(
 		return nil, err
 	}
 	cluster.MasterSecret = secret
+	b.applyServerlessV2Update(cluster, scaling)
 	applyDBClusterOpts(cluster, paramGroupName, opts)
 	if opts.DBInstanceParameterGroupName != "" {
 		cluster.DBInstanceParameterGroupName = opts.DBInstanceParameterGroupName
@@ -649,32 +686,18 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 			snapshotID,
 		)
 	}
-	if engine == "" {
-		engine = snap.Engine
-	}
-	endpoint := fmt.Sprintf("%s.cluster.%s.%s.rds.amazonaws.com", clusterID, b.accountID, b.region)
-	cluster := &DBCluster{
-		DBClusterIdentifier:                clusterID,
-		DBClusterArn:                       b.rdsARN("cluster", clusterID),
-		Engine:                             engine,
-		Status:                             instanceStatusAvailable,
-		DBClusterParameterGroupName:        "default." + engine,
-		Endpoint:                           endpoint,
-		Port:                               enginePort(engine),
-		OptionGroupName:                    opts.OptionGroupName,
-		PubliclyAccessible:                 opts.PubliclyAccessible,
-		IAMDatabaseAuthenticationEnabled:   opts.EnableIAMDatabaseAuthentication,
-		PerformanceInsightsKMSKeyID:        opts.PerformanceInsightsKMSKeyID,
-		PerformanceInsightsRetentionPeriod: opts.PerformanceInsightsRetentionPeriod,
-	}
-	if err := b.applyRestoreClusterOpts(cluster, opts); err != nil {
-		return nil, err
-	}
-	b.clusters.Put(cluster)
-	cp := *cluster
-	cloneDBClusterMutableSlices(&cp)
+	engine = cmp.Or(engine, snap.Engine)
+	opts.EngineVersion = cmp.Or(opts.EngineVersion, snap.EngineVersion)
+	opts.KmsKeyID = cmp.Or(opts.KmsKeyID, snap.KmsKeyID)
+	opts.StorageEncrypted = snap.StorageEncrypted || opts.KmsKeyID != ""
+	opts.AllocatedStorage = cmp.Or(opts.AllocatedStorage, snap.AllocatedStorage)
+	opts.Iops = cmp.Or(opts.Iops, snap.Iops)
+	opts.StorageType = cmp.Or(opts.StorageType, snap.StorageType)
+	opts.BackupRetentionPeriod = cmp.Or(opts.BackupRetentionPeriod, snap.BackupRetentionPeriod)
+	opts.EnableIAMDatabaseAuthentication = opts.EnableIAMDatabaseAuthentication || snap.IAMDatabaseAuthEnabled
+	opts.Port = cmp.Or(opts.Port, snap.Port)
 
-	return &cp, nil
+	return b.putRestoredClusterLocked(clusterID, engine, snap.MasterUsername, opts)
 }
 
 // RestoreDBClusterToPointInTime creates a new DB cluster as a point-in-time restore of the source cluster.
@@ -704,27 +727,35 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 			sourceClusterID,
 		)
 	}
-	endpoint := fmt.Sprintf("%s.cluster.%s.%s.rds.amazonaws.com", clusterID, b.accountID, b.region)
-	cluster := &DBCluster{
-		DBClusterIdentifier:                clusterID,
-		DBClusterArn:                       b.rdsARN("cluster", clusterID),
-		Engine:                             source.Engine,
-		Status:                             instanceStatusAvailable,
-		MasterUsername:                     source.MasterUsername,
-		DatabaseName:                       source.DatabaseName,
-		DBClusterParameterGroupName:        source.DBClusterParameterGroupName,
-		Endpoint:                           endpoint,
-		Port:                               source.Port,
-		OptionGroupName:                    opts.OptionGroupName,
-		PubliclyAccessible:                 opts.PubliclyAccessible,
-		IAMDatabaseAuthenticationEnabled:   opts.EnableIAMDatabaseAuthentication,
-		PerformanceInsightsKMSKeyID:        opts.PerformanceInsightsKMSKeyID,
-		PerformanceInsightsRetentionPeriod: opts.PerformanceInsightsRetentionPeriod,
+	opts.EngineVersion = cmp.Or(opts.EngineVersion, source.EngineVersion)
+	opts.KmsKeyID = cmp.Or(opts.KmsKeyID, source.KmsKeyID)
+	opts.StorageEncrypted = source.StorageEncrypted || opts.KmsKeyID != ""
+	opts.AllocatedStorage = cmp.Or(opts.AllocatedStorage, source.AllocatedStorage)
+	opts.BackupRetentionPeriod = cmp.Or(opts.BackupRetentionPeriod, source.BackupRetentionPeriod)
+	opts.DatabaseName = cmp.Or(opts.DatabaseName, source.DatabaseName)
+
+	return b.putRestoredClusterLocked(clusterID, source.Engine, source.MasterUsername, opts)
+}
+
+// putRestoredClusterLocked builds, validates and stores a restored cluster from fully resolved opts.
+func (b *InMemoryBackend) putRestoredClusterLocked(
+	clusterID, engine, masterUser string,
+	opts DBClusterOptions,
+) (*DBCluster, error) {
+	if opts.DBSubnetGroupName != "" && !b.subnetGroups.Has(opts.DBSubnetGroupName) {
+		return nil, fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, opts.DBSubnetGroupName)
 	}
-	if err := b.applyRestoreClusterOpts(cluster, opts); err != nil {
+	if err := validateServerlessV2Scaling(opts.ServerlessV2Scaling); err != nil {
 		return nil, err
 	}
+	cluster := b.newDBCluster(
+		clusterID, engine, masterUser, opts.DatabaseName, opts.DBClusterParameterGroupName,
+		opts.Port, opts.ServerlessV2Scaling, opts,
+	)
 	b.clusters.Put(cluster)
+	if cluster.BackupRetentionPeriod > 0 {
+		b.registerClusterAutomatedBackupLocked(cluster)
+	}
 	cp := *cluster
 	cloneDBClusterMutableSlices(&cp)
 
@@ -1199,7 +1230,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromS3(
 	if _, exists := b.clusters.Get(normalizeID(id)); exists {
 		return nil, fmt.Errorf("%w: %s", ErrClusterAlreadyExists, id)
 	}
-	secret, err := b.createMasterSecret("cluster", opts.MasterSecretRequest, opts.MasterUserPassword)
+	secret, err := b.createMasterSecret("cluster", masterUsername, opts.MasterSecretRequest, opts.MasterUserPassword)
 	if err != nil {
 		return nil, err
 	}

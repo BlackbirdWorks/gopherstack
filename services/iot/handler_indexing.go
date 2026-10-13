@@ -93,6 +93,8 @@ func (h *Handler) dispatchIndexOps(c *echo.Context, op string) (bool, error) {
 }
 
 // decodeJSONBody decodes the request body into v, tolerating an empty body.
+const keyCount = "count"
+
 func decodeJSONBody(c *echo.Context, v any) error {
 	if err := json.NewDecoder(c.Request().Body).Decode(v); err != nil && !errors.Is(err, io.EOF) {
 		return err
@@ -244,9 +246,13 @@ func (h *Handler) handleGetStatistics(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
+	if body.AggregationField == "" {
+		return c.JSON(http.StatusOK, map[string]any{"statistics": map[string]any{keyCount: stats.Count}})
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		"statistics": map[string]any{
-			"count":        stats.Count,
+			keyCount:       stats.Count,
 			"average":      stats.Average,
 			"sum":          stats.Sum,
 			"sumOfSquares": stats.SumOfSquares,
@@ -303,7 +309,7 @@ func (h *Handler) handleGetBucketsAggregation(c *echo.Context) error {
 	var total int64
 
 	for _, b := range buckets {
-		out = append(out, map[string]any{"keyValue": b.KeyValue, "count": b.Count})
+		out = append(out, map[string]any{"keyValue": b.KeyValue, keyCount: b.Count})
 		total += b.Count
 	}
 

@@ -105,13 +105,11 @@ func mapNum(field string) func(map[string]any) float64 {
 	}
 }
 
-func statusCount(status string) func(map[string]any) float64 {
-	return func(m map[string]any) float64 {
-		counts, _ := m["statusCounts"].(map[string]any)
-		n, _ := counts[status].(int64)
+func failedCount(m map[string]any) float64 {
+	counts, _ := m["statusCounts"].(map[string]any)
+	n, _ := counts["failed"].(int64)
 
-		return float64(n)
-	}
+	return float64(n)
 }
 
 func scanTargetAccount(m map[string]any) string {
@@ -158,7 +156,7 @@ func cisCheckAccessors() cisAccessors[map[string]any] {
 			"platformFilters":      mapKey(keyPlatform),
 			"securityLevelFilters": mapKey(keyLevel),
 		},
-		nums: map[string]func(map[string]any) float64{"failedResourcesFilters": statusCount("failed")},
+		nums: map[string]func(map[string]any) float64{"failedResourcesFilters": failedCount},
 	}
 }
 
@@ -169,7 +167,7 @@ func cisTargetAccessors() cisAccessors[map[string]any] {
 			"platformFilters":         mapKey(keyPlatform),
 			"targetResourceIdFilters": mapKey(keyTargetResourceID),
 		},
-		nums: map[string]func(map[string]any) float64{"failedChecksFilters": statusCount("failed")},
+		nums: map[string]func(map[string]any) float64{"failedChecksFilters": failedCount},
 	}
 }
 

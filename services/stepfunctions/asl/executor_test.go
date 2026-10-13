@@ -2866,6 +2866,50 @@ func TestIntrinsic_FormatAndConversions(t *testing.T) {
 			},
 		},
 		{
+			name:   "ArrayPartition_empty",
+			params: `{"chunks.$":"States.ArrayPartition($.arr, 3)"}`,
+			input:  `{"arr":[]}`,
+			assertFunc: func(t *testing.T, output any) {
+				t.Helper()
+				m, ok := output.(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, []any{}, m["chunks"])
+			},
+		},
+		{
+			name:   "ArrayPartition_size_larger_than_len",
+			params: `{"chunks.$":"States.ArrayPartition($.arr, 10)"}`,
+			input:  `{"arr":[1,2]}`,
+			assertFunc: func(t *testing.T, output any) {
+				t.Helper()
+				m, ok := output.(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, []any{[]any{float64(1), float64(2)}}, m["chunks"])
+			},
+		},
+		{
+			name:   "ArrayPartition_huge_size",
+			params: `{"chunks.$":"States.ArrayPartition($.arr, 1000000000000000000)"}`,
+			input:  `{"arr":[1,2,3]}`,
+			assertFunc: func(t *testing.T, output any) {
+				t.Helper()
+				m, ok := output.(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, []any{[]any{float64(1), float64(2), float64(3)}}, m["chunks"])
+			},
+		},
+		{
+			name:   "ArrayPartition_exact_multiple",
+			params: `{"chunks.$":"States.ArrayPartition($.arr, 2)"}`,
+			input:  `{"arr":[1,2,3,4]}`,
+			assertFunc: func(t *testing.T, output any) {
+				t.Helper()
+				m, ok := output.(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, []any{[]any{float64(1), float64(2)}, []any{float64(3), float64(4)}}, m["chunks"])
+			},
+		},
+		{
 			name:   "MathRandom_in_range",
 			params: `{"r.$":"States.MathRandom(1, 10)"}`,
 			input:  `{}`,

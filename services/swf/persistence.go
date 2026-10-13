@@ -76,17 +76,83 @@ func buildPersistenceDTORegistry() persistenceDTOTables {
 // "clean" tables on b.registry (domains, workflows, activities, executions)
 // plus the two DTO tables built above for the "dirty" activeActivityTasks/
 // activeDecisionTasks. History, ActivityQueues, and DecisionQueues stay plain
-// maps by design (ORDER-SENSITIVE event histories and FIFO task queues --
-// see the InMemoryBackend doc comment in store.go); only History and Tags
-// were ever part of the pre-Phase-3.3 snapshot, and that persisted/ephemeral
-// split is preserved unchanged here: ActivityQueues/DecisionQueues remain
-// ephemeral (never written to or read from a snapshot).
+// maps by design (order-sensitive) and are written as-is.
 type backendSnapshot struct {
-	Tables         map[string]json.RawMessage   `json:"tables"`
-	History        map[string][]HistoryEvent    `json:"history,omitempty"`
-	Tags           map[string]map[string]string `json:"tags,omitempty"`
-	ExecutionOrder []string                     `json:"executionOrder"`
-	Version        int                          `json:"version"`
+	Tables  map[string]json.RawMessage   `json:"tables"`
+	History map[string][]HistoryEvent    `json:"history,omitempty"`
+	Tags    map[string]map[string]string `json:"tags,omitempty"`
+	// ActivityQueues/DecisionQueues are the pending FIFO task lists, persisted in order.
+	ActivityQueues map[string][]*ActivityTask      `json:"activityQueues,omitempty"`
+	DecisionQueues map[string][]queuedDecisionTask `json:"decisionQueues,omitempty"`
+	ExecutionOrder []string                        `json:"executionOrder"`
+	Version        int                             `json:"version"`
+}
+
+// queuedDecisionTask is the persisted form of a pending DecisionTask (whose
+// scheduling state is json:"-" on the wire type).
+type queuedDecisionTask struct {
+	WorkflowID       string  `json:"workflowId"`
+	RunID            string  `json:"runId"`
+	ScheduledEventID int64   `json:"scheduledEventId"`
+	StickyDeadline   float64 `json:"stickyDeadline,omitempty"`
+	Sticky           bool    `json:"sticky,omitempty"`
+}
+
+func snapshotActivityQueues(queues map[string][]*ActivityTask) map[string][]*ActivityTask {
+	out := make(map[string][]*ActivityTask, len(queues))
+
+	for key, q := range queues {
+		if len(q) == 0 {
+			continue
+		}
+
+		cp := make([]*ActivityTask, len(q))
+		for i, t := range q {
+			c := *t
+			cp[i] = &c
+		}
+
+		out[key] = cp
+	}
+
+	return out
+}
+
+func snapshotDecisionQueues(queues map[string][]*DecisionTask) map[string][]queuedDecisionTask {
+	out := make(map[string][]queuedDecisionTask, len(queues))
+
+	for key, q := range queues {
+		if len(q) == 0 {
+			continue
+		}
+
+		cp := make([]queuedDecisionTask, len(q))
+		for i, t := range q {
+			cp[i] = queuedDecisionTask{
+				WorkflowID: t.WorkflowID, RunID: t.RunID, ScheduledEventID: t.ScheduledEventID,
+				StickyDeadline: t.StickyDeadline, Sticky: t.Sticky,
+			}
+		}
+
+		out[key] = cp
+	}
+
+	return out
+}
+
+func restoreDecisionQueues(queues map[string][]queuedDecisionTask) map[string][]*DecisionTask {
+	out := make(map[string][]*DecisionTask, len(queues))
+
+	for key, q := range queues {
+		for _, t := range q {
+			out[key] = append(out[key], &DecisionTask{
+				WorkflowID: t.WorkflowID, RunID: t.RunID, ScheduledEventID: t.ScheduledEventID,
+				StickyDeadline: t.StickyDeadline, Sticky: t.Sticky,
+			})
+		}
+	}
+
+	return out
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -142,6 +208,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Tables:         tables,
 		History:        history,
 		Tags:           tags,
+		ActivityQueues: snapshotActivityQueues(b.activityQueues),
+		DecisionQueues: snapshotDecisionQueues(b.decisionQueues),
 		ExecutionOrder: order,
 	}
 
@@ -201,6 +269,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 	b.tags = snap.Tags
 
+	b.activityQueues = snap.ActivityQueues
+	if b.activityQueues == nil {
+		b.activityQueues = make(map[string][]*ActivityTask)
+	}
+	b.decisionQueues = restoreDecisionQueues(snap.DecisionQueues)
+
 	b.executionOrder = snap.ExecutionOrder
 
 	return nil
@@ -210,12 +284,6 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // activeDecisionTasks; see store_setup.go's registerAllTables doc) from
 // tables via the ephemeral DTO registry, factored out of Restore to keep
 // Restore's own cognitive complexity low. Callers must hold b.mu.Lock.
-//
-// activityQueues and decisionQueues are deliberately left untouched here,
-// exactly as the pre-Phase-3.3 Restore did: neither was ever part of
-// backendSnapshot, so a normal (version-matched) Restore call has never reset
-// or otherwise touched them -- only the version-mismatch branch above resets
-// every raw map, including these two, to a clean slate.
 func (b *InMemoryBackend) restoreDirtyTablesLocked(tables map[string]json.RawMessage) error {
 	dtos := buildPersistenceDTORegistry()
 	if err := dtos.registry.RestoreAll(tables); err != nil {

@@ -220,6 +220,7 @@ type CreateAPIInput struct {
 	CorsConfiguration         *CorsConfiguration `json:"corsConfiguration,omitempty"`
 	Tags                      map[string]string  `json:"tags,omitempty"`
 	Name                      string             `json:"name"`
+	PinnedID                  string             `json:"-"`
 	Description               string             `json:"description,omitempty"`
 	ProtocolType              string             `json:"protocolType"`
 	RouteSelectionExpression  string             `json:"routeSelectionExpression,omitempty"`

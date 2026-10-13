@@ -121,7 +121,12 @@ func (h *Handler) handleListRepositoryLinks(
 		items[i] = repositoryLinkToItem(link)
 	}
 
-	p := page.New(items, in.NextToken, in.MaxResults, defaultCSCMaxResults)
+	token, limit, pageErr := pageArgs(in.NextToken, in.MaxResults)
+	if pageErr != nil {
+		return nil, pageErr
+	}
+
+	p := page.New(items, token, limit, defaultCSCMaxResults)
 
 	return &listRepositoryLinksOutput{RepositoryLinks: p.Data, NextToken: p.Next}, nil
 }

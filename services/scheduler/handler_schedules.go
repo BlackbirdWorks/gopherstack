@@ -636,15 +636,17 @@ type listSchedulesOutput struct {
 }
 
 func (h *Handler) handleListSchedules(ctx context.Context, in *listSchedulesInput) (*listSchedulesOutput, error) {
-	maxResults := parseMaxResults(in.MaxResults)
-	schedules, nextToken := h.Backend.ListSchedules(
-		ctx,
-		in.GroupName,
-		in.NamePrefix,
-		in.State,
-		in.NextToken,
-		maxResults,
-	)
+	maxResults, err := checkMaxResults(in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	token, err := decodePageToken(in.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	schedules, nextToken := h.Backend.ListSchedules(ctx, in.GroupName, in.NamePrefix, in.State, token, maxResults)
 	items := make([]scheduleSummary, 0, len(schedules))
 
 	for _, s := range schedules {
@@ -662,7 +664,7 @@ func (h *Handler) handleListSchedules(ctx context.Context, in *listSchedulesInpu
 		})
 	}
 
-	return &listSchedulesOutput{Schedules: items, NextToken: nextToken}, nil
+	return &listSchedulesOutput{Schedules: items, NextToken: encodePageToken(nextToken)}, nil
 }
 
 func (h *Handler) handleDeleteSchedule(ctx context.Context, in *scheduleNameInput) (*emptyOutput, error) {

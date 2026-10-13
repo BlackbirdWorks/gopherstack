@@ -162,6 +162,7 @@ type UpdateFileSystemRequest struct {
 // CreateFileSystemRequest holds parameters for creating an EFS file system.
 type CreateFileSystemRequest struct {
 	Tags                     map[string]string
+	PinnedID                 string
 	Backup                   *bool
 	CreationToken            string
 	PerformanceMode          string

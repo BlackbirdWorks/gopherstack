@@ -30,6 +30,9 @@ const (
 	keyPosition       = "position"
 	keyLimit          = "limit"
 	keyTagKeys        = "tagKeys"
+	keyEmbed          = "embed"
+	embedMethods      = "methods"
+	embedAPISummary   = "apisummary"
 	litTrue           = "true"
 	headerContentType = "Content-Type"
 	// modeImport is the "mode" query parameter value that distinguishes
@@ -51,8 +54,10 @@ type Handler struct {
 	lambda       LambdaInvoker
 	sqsSender    SQSSender
 	snsPublisher SNSPublisher
+	awsInvoker   AWSServiceInvoker
 	httpClient   *http.Client
 	authCache    *authorizerCache
+	respCache    *responseCache
 	peers        *regionpeers.Set[Handler]
 	// selRegexpCache is a bounded LRU of compiled selection-pattern regexps. It is
 	// keyed by user-supplied patterns, so it must be size-capped to prevent unbounded
@@ -88,6 +93,7 @@ func (h *Handler) EnableRegions() {
 		p := NewHandler(nb)
 		p.region = region
 		p.lambda, p.sqsSender, p.snsPublisher = h.lambda, h.sqsSender, h.snsPublisher
+		p.awsInvoker = h.awsInvoker
 		p.jwksProvider, p.httpClient = h.jwksProvider, h.httpClient
 		p.metrics.Set(h.metrics.Emitter())
 
@@ -138,6 +144,7 @@ func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend:        backend,
 		authCache:      newAuthorizerCache(),
+		respCache:      newResponseCache(),
 		httpClient:     &http.Client{Timeout: apiGWHTTPTimeout},
 		selRegexpCache: newRegexpCache(defaultRegexpCacheMaxEntries),
 	}
@@ -161,6 +168,13 @@ func (h *Handler) SetSQSSender(sender SQSSender) {
 // Lambda-invoke behaviour rather than erroring.
 func (h *Handler) SetSNSPublisher(publisher SNSPublisher) {
 	h.snsPublisher = publisher
+}
+
+// SetAWSServiceInvoker configures the generic hook for AWS integrations targeting any
+// service other than lambda (and sqs/sns when those have dedicated hooks). Left unset,
+// such integrations keep the Lambda-invoke fallback.
+func (h *Handler) SetAWSServiceInvoker(inv AWSServiceInvoker) {
+	h.awsInvoker = inv
 }
 
 // SetJWKSProvider configures the JWKS provider used to verify Cognito JWT signatures.
@@ -628,12 +642,16 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 		if len(v) == 0 {
 			continue
 		}
-		if k == keyTagKeys {
+		if k == keyTagKeys || k == keyEmbed {
 			body = injectJSONArrayFieldAPIGW(body, k, v)
 
 			continue
 		}
 		body = injectJSONFieldAPIGW(body, k, v[0])
+	}
+
+	if action == opGetExport {
+		body = injectJSONFieldAPIGW(body, "accepts", c.Request().Header.Get("Accept"))
 	}
 
 	return h.dispatchAndRespond(ctx, c, action, body, contentTypeJSON)
@@ -991,7 +1009,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 
 	errResp := ErrorResponse{
 		Type:    errType,
-		Message: reqErr.Error(),
+		Message: strings.TrimPrefix(reqErr.Error(), errType+": "),
 	}
 
 	payload, _ := json.Marshal(errResp)

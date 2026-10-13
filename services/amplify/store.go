@@ -3,9 +3,9 @@ package amplify
 import (
 	"crypto/rand"
 	"encoding/binary"
-	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -17,9 +17,9 @@ const (
 	arnResourceBranches = "branches"
 )
 
-// randomAppID generates a cryptographically random 12-character alphanumeric ID.
+// randomAppID generates an app ID shaped like the real ones: "d" plus 13 lowercase alphanumerics.
 func randomAppID() string {
-	const length = 12
+	const length = 14
 
 	b := make([]byte, length)
 	charCount := uint64(len(appIDChars))
@@ -29,6 +29,8 @@ func randomAppID() string {
 		_, _ = rand.Read(v[:])
 		b[i] = appIDChars[binary.BigEndian.Uint64(v[:])%charCount]
 	}
+
+	b[0] = 'd'
 
 	return string(b)
 }
@@ -54,6 +56,7 @@ type InMemoryBackend struct {
 	branchesByApp            *store.Index[Branch]
 	jobs                     *store.Table[Job]
 	jobsByBranch             *store.Index[Job]
+	jobSeq                   map[string]int
 	domains                  *store.Table[DomainAssociation]
 	domainsByApp             *store.Index[DomainAssociation]
 	webhooks                 *store.Table[Webhook]
@@ -75,6 +78,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		mu:        lockmetrics.New("amplify"),
 		accountID: accountID,
 		region:    region,
+		jobSeq:    make(map[string]int),
 	}
 	registerAllTables(b)
 
@@ -90,9 +94,7 @@ func amplifyPaginate[T any](all []*T, nextToken string, maxResults int) ([]*T, s
 
 	startIdx := 0
 	if nextToken != "" {
-		if idx, err := strconv.Atoi(nextToken); err == nil && idx >= 0 {
-			startIdx = idx
-		}
+		startIdx = page.DecodeToken(nextToken)
 	}
 
 	if startIdx >= len(all) {
@@ -108,7 +110,7 @@ func amplifyPaginate[T any](all []*T, nextToken string, maxResults int) ([]*T, s
 
 	var outToken string
 	if end < len(all) {
-		outToken = strconv.Itoa(end)
+		outToken = page.EncodeToken(end)
 	} else {
 		end = len(all)
 	}

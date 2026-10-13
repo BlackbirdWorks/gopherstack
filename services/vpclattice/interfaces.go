@@ -217,10 +217,11 @@ type StorageBackend interface {
 
 	ListResourceEndpointAssociations(
 		ctx context.Context,
+		filter ResourceEndpointAssociationFilter,
 		maxResults int32,
 		nextToken string,
 	) ([]*ResourceEndpointAssociationSummary, string, error)
-	DeleteResourceEndpointAssociation(id string) error
+	DeleteResourceEndpointAssociation(ctx context.Context, id string) (*ResourceEndpointAssociationSummary, error)
 
 	ListServiceNetworkVpcEndpointAssociations(
 		ctx context.Context,
@@ -700,6 +701,8 @@ type ServiceNetworkResourceAssociation struct {
 	ServiceNetworkName        string
 	Status                    string
 	CreatedBy                 string
+	PrivateDNSDomain          string
+	PrivateDNSHostedZoneID    string
 	PrivateDNSEnabled         bool
 }
 
@@ -716,6 +719,8 @@ type ServiceNetworkResourceAssociationSummary struct {
 	ServiceNetworkName        string
 	Status                    string
 	CreatedBy                 string
+	PrivateDNSDomain          string
+	PrivateDNSHostedZoneID    string
 	PrivateDNSEnabled         bool
 }
 
@@ -741,32 +746,32 @@ type DomainVerificationSummary struct {
 	Status           string
 }
 
-// ResourceEndpointAssociationSummary is a summary for list responses.
-// Real AWS populates this from EC2 VPC endpoints of type Resource pointed at
-// a ResourceConfiguration -- vpc-lattice itself has no Create operation for
-// this resource. This backend has no EC2 VPC-endpoint cross-service
-// modeling, so ListResourceEndpointAssociations always returns empty (an
-// honest reflection of "never created", not a fabricated entry) -- see
-// service_network_resource_associations.go.
+// ResourceEndpointAssociationSummary is a view of an EC2 Resource VPC endpoint bound to a resource configuration.
 type ResourceEndpointAssociationSummary struct {
-	CreatedAt                time.Time
-	ARN                      string
-	ID                       string
-	ResourceConfigurationARN string
-	ResourceConfigurationID  string
-	VpcEndpointID            string
-	VpcEndpointOwner         string
+	CreatedAt                 time.Time
+	ARN                       string
+	ID                        string
+	ResourceConfigurationARN  string
+	ResourceConfigurationID   string
+	ResourceConfigurationName string
+	VpcEndpointID             string
+	VpcEndpointOwner          string
 }
 
-// ServiceNetworkVpcEndpointAssociationSummary is a summary for list
-// responses. Same structural note as ResourceEndpointAssociationSummary:
-// populated from EC2 VPC endpoints of type ServiceNetwork, which this
-// backend doesn't model.
+// ResourceEndpointAssociationFilter narrows ListResourceEndpointAssociations.
+type ResourceEndpointAssociationFilter struct {
+	ResourceConfigurationIdentifier       string
+	ResourceEndpointAssociationIdentifier string
+	VpcEndpointID                         string
+	VpcEndpointOwner                      string
+}
+
+// ServiceNetworkVpcEndpointAssociationSummary is a view of an EC2 ServiceNetwork VPC endpoint.
 type ServiceNetworkVpcEndpointAssociationSummary struct {
 	CreatedAt         time.Time
 	ID                string
 	ServiceNetworkARN string
-	ServiceNetworkID  string
+	State             string
 	VpcEndpointID     string
 	VpcID             string
 	VpcEndpointOwner  string

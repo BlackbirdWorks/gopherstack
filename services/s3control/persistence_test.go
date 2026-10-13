@@ -104,7 +104,7 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	require.NotNil(t, ap)
 	olap := original.CreateAccessPointForObjectLambda(accountID, "my-olap")
 	require.NotNil(t, olap)
-	bucket := original.CreateBucket(accountID, "my-outposts-bucket")
+	bucket := original.CreateBucket(accountID, "", "my-outposts-bucket")
 	require.NotNil(t, bucket)
 	job, jobErr := original.CreateJob(accountID, "arn:aws:iam::000000000000:role/batch-role", 5)
 	require.NoError(t, jobErr)
@@ -390,11 +390,11 @@ func TestPersistence_Batch1Maps_SnapshotRestore(t *testing.T) {
 			name: "bucket_policy_tagging_lifecycle_versioning",
 			setup: func(t *testing.T, b *s3control.InMemoryBackend) {
 				t.Helper()
-				b.CreateBucket(accountID, "batch1-bucket")
+				b.CreateBucket(accountID, "", "batch1-bucket")
 				require.NoError(t, b.PutBucketPolicy("batch1-bucket", `{"p":1}`))
 				require.NoError(t, b.PutBucketTagging("batch1-bucket", s3control.TagSet{"k": "v"}))
 				require.NoError(t, b.PutBucketLifecycleConfiguration("batch1-bucket", "<Lifecycle/>"))
-				require.NoError(t, b.PutBucketVersioning("batch1-bucket", "Enabled"))
+				require.NoError(t, b.PutBucketVersioning("batch1-bucket", "Enabled", ""))
 			},
 			verify: func(t *testing.T, b *s3control.InMemoryBackend) {
 				t.Helper()
@@ -407,7 +407,7 @@ func TestPersistence_Batch1Maps_SnapshotRestore(t *testing.T) {
 				lc, err := b.GetBucketLifecycleConfiguration("batch1-bucket")
 				require.NoError(t, err)
 				assert.Equal(t, "<Lifecycle/>", lc)
-				v, err := b.GetBucketVersioning("batch1-bucket")
+				v, _, err := b.GetBucketVersioning("batch1-bucket")
 				require.NoError(t, err)
 				assert.Equal(t, "Enabled", v)
 			},

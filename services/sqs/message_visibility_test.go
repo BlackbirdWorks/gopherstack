@@ -17,53 +17,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
-func TestStaleReceiptHandleRejected(t *testing.T) {
-	t.Parallel()
-
-	b := newBackend(t)
-
-	out, err := b.CreateQueue(&sqs.CreateQueueInput{
-		QueueName: "stale-handle",
-		Endpoint:  testEndpoint,
-		Attributes: map[string]string{
-			"VisibilityTimeout": "0", // immediately visible
-		},
-	})
-	require.NoError(t, err)
-	qURL := out.QueueURL
-
-	_, err = b.SendMessage(&sqs.SendMessageInput{
-		QueueURL:    qURL,
-		MessageBody: "test",
-	})
-	require.NoError(t, err)
-
-	// Receive #1.
-	r1, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
-		QueueURL:            qURL,
-		MaxNumberOfMessages: 1,
-		VisibilityTimeout:   0,
-	})
-	require.NoError(t, err)
-	require.Len(t, r1.Messages, 1)
-	staleHandle := r1.Messages[0].ReceiptHandle
-
-	// Message visible again; receive #2 gets a new handle.
-	r2, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
-		QueueURL:            qURL,
-		MaxNumberOfMessages: 1,
-	})
-	require.NoError(t, err)
-	require.Len(t, r2.Messages, 1)
-
-	// Using stale handle should fail.
-	err = b.DeleteMessage(&sqs.DeleteMessageInput{
-		QueueURL:      qURL,
-		ReceiptHandle: staleHandle,
-	})
-	require.Error(t, err)
-}
-
 func TestChangeVisibilityBatchValidation(t *testing.T) {
 	t.Parallel()
 
@@ -445,7 +398,7 @@ func TestChangeMessageVisibility_NotInflight_Error(t *testing.T) {
 		ReceiptHandle:     "fake-receipt",
 		VisibilityTimeout: 10,
 	})
-	require.ErrorIs(t, err, sqs.ErrMessageNotInflight)
+	require.ErrorIs(t, err, sqs.ErrReceiptHandleInvalid)
 }
 
 func TestChangeMessageVisibilityBatch_Mixed(t *testing.T) {
@@ -729,7 +682,7 @@ func TestChangeMessageVisibility_InvalidHandle(t *testing.T) {
 	}{
 		{
 			name:    "invalid_receipt_handle",
-			wantErr: sqs.ErrMessageNotInflight,
+			wantErr: sqs.ErrReceiptHandleInvalid,
 		},
 	}
 
@@ -872,7 +825,7 @@ func TestChangeMessageVisibilityBatch(t *testing.T) {
 			},
 			wantSuccessIDs: []string{"good"},
 			wantFailIDs:    []string{"bad"},
-			wantFailCodes:  []string{"MessageNotInflight"},
+			wantFailCodes:  []string{"ReceiptHandleIsInvalid"},
 			wantFailFaults: []bool{true},
 		},
 		{

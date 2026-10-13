@@ -9,6 +9,7 @@ import (
 	"time"
 
 	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -174,6 +175,10 @@ type StorageBackend interface {
 	) (*ListKeyRotationsOutput, error)
 	ImportKeyMaterial(ctx context.Context, input *ImportKeyMaterialInput) error
 	DeleteImportedKeyMaterial(ctx context.Context, input *DeleteImportedKeyMaterialInput) error
+	ImportKeyMaterialWithResult(ctx context.Context, input *ImportKeyMaterialInput) (*ImportKeyMaterialOutput, error)
+	DeleteImportedKeyMaterialWithResult(
+		ctx context.Context, input *DeleteImportedKeyMaterialInput,
+	) (*DeleteImportedKeyMaterialOutput, error)
 	ReplicateKey(ctx context.Context, input *ReplicateKeyInput) (*ReplicateKeyOutput, error)
 	RotateKeyOnDemand(
 		ctx context.Context,
@@ -239,6 +244,7 @@ type InMemoryBackend struct {
 	policies             map[string]map[string]string
 	keyMaterials         map[string]map[string]*keyMaterial
 	keyMaterialHistory   map[string]map[string][]*keyMaterial
+	pendingMaterials     map[string]map[string]*keyMaterial
 	aliases              map[string]*store.Table[Alias]
 	keyIDResolutionCache *sync.Map
 	keys                 map[string]*store.Table[Key]
@@ -264,6 +270,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		policies:             make(map[string]map[string]string),
 		keyMaterials:         make(map[string]map[string]*keyMaterial),
 		keyMaterialHistory:   make(map[string]map[string][]*keyMaterial),
+		pendingMaterials:     make(map[string]map[string]*keyMaterial),
 		customKeyStores:      make(map[string]*store.Table[CustomKeyStore]),
 		registry:             store.NewRegistry(),
 		accountID:            accountID,
@@ -445,7 +452,7 @@ func (b *InMemoryBackend) resolveKeyID(
 	if strings.HasPrefix(keyID, "alias/") {
 		alias, ok := b.aliasesStore(ctxRegion).Get(keyID)
 		if !ok {
-			return "", "", ErrAliasNotFound
+			return "", "", b.aliasNotFound(ctxRegion, keyID)
 		}
 
 		b.keyIDResolutionCache.Store(keyID, cachedResolution{keyID: alias.TargetKeyID, region: ""})
@@ -478,7 +485,7 @@ func (b *InMemoryBackend) resolveARNKeyID(keyID string, malformedARNErr error) (
 	if strings.HasPrefix(parsed.Resource, "alias/") {
 		alias, ok := b.aliasesStore(parsed.Region).Get(parsed.Resource)
 		if !ok {
-			return "", "", ErrAliasNotFound
+			return "", "", b.aliasNotFound(parsed.Region, parsed.Resource)
 		}
 
 		return alias.TargetKeyID, parsed.Region, nil
@@ -590,6 +597,10 @@ func (b *InMemoryBackend) requireKeyMaterial(region string, key *Key) (*keyMater
 	}
 
 	km, ok := b.keyMaterialsStore(region)[key.KeyID]
+	if (!ok || km == nil) && key.MultiRegion {
+		km, ok = b.keyMaterialsStore(extractRegionFromARN(key.Arn))[key.KeyID]
+	}
+
 	if !ok || km == nil {
 		return nil, fmt.Errorf("%w: keyID %q", ErrKeyMaterialUnavailable, key.KeyID)
 	}
@@ -635,7 +646,7 @@ func (b *InMemoryBackend) resolveKeyAndRegion(
 		}
 	}
 
-	return nil, "", ErrKeyNotFound
+	return nil, "", fmt.Errorf("%w: Key '%s' does not exist", ErrKeyNotFound, keyID)
 }
 
 // lookupKey finds a key by ID, alias, or ARN. Caller must hold at least a read lock.
@@ -657,10 +668,14 @@ func (b *InMemoryBackend) lookupKeyWrite(ctx context.Context, keyID string, malf
 // return ErrKeyInvalidState, matching the KMSInvalidStateException that AWS raises.
 func keyStateError(key *Key) error {
 	if key.KeyState == KeyStateDisabled {
-		return ErrKeyDisabled
+		return fmt.Errorf("%w: %s is disabled", ErrKeyDisabled, key.Arn)
 	}
 
-	return ErrKeyInvalidState
+	if key.KeyState == KeyStatePendingDeletion {
+		return fmt.Errorf("%w: %s is pending deletion", ErrKeyInvalidState, key.Arn)
+	}
+
+	return fmt.Errorf("%w: %s is in state %s", ErrKeyInvalidState, key.Arn, key.KeyState)
 }
 
 // parseMarker converts a pagination marker string to an integer start index.
@@ -694,6 +709,7 @@ func (b *InMemoryBackend) Reset() {
 	b.policies = make(map[string]map[string]string)
 	b.keyMaterials = make(map[string]map[string]*keyMaterial)
 	b.keyMaterialHistory = make(map[string]map[string][]*keyMaterial)
+	b.pendingMaterials = make(map[string]map[string]*keyMaterial)
 	b.clearResolutionCache()
 	b.importWrappingKeys = sync.Map{}
 	b.lastUsage = sync.Map{}
@@ -725,4 +741,9 @@ func (b *InMemoryBackend) AddCustomKeyStoreInternal(ks *CustomKeyStore) {
 	defer b.mu.Unlock()
 
 	b.customKeyStoresStore(b.defaultRegion).Put(ks)
+}
+
+// newMultiRegionKeyID returns a key ID with the "mrk-" prefix AWS gives multi-Region keys.
+func newMultiRegionKeyID() string {
+	return "mrk-" + strings.ReplaceAll(uuid.New().String(), "-", "")
 }

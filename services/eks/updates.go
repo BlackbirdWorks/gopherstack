@@ -25,19 +25,20 @@ const updateTransitionDelay = 100 * time.Millisecond
 // Update's Status except CancelUpdate (VersionRollback-only). A client polling
 // DescribeUpdate never saw a terminal status.
 func (b *InMemoryBackend) scheduleUpdateTransition(clusterName, updateID string) {
-	b.work.After("UpdateTransition", updateTransitionDelay, func() {
+	b.work.After("UpdateTransition", b.dwell(updateTransitionDelay), func() {
 		b.mu.Lock("UpdateTransition-async")
 		defer b.mu.Unlock()
 
 		if u, ok := b.updates.Get(updateKey(clusterName, updateID)); ok && u.Status == statusInProgress {
 			u.Status = statusSuccessful
+			b.settleAfterUpdateLocked(u)
 		}
 	})
 }
 
 // startUpdate stamps u as a new InProgress update, stores it, and schedules its Successful transition.
 func (b *InMemoryBackend) startUpdate(u *Update) *Update {
-	u.ID = uuid.NewString()[:8]
+	u.ID = uuid.NewString()
 	u.Status = statusInProgress
 	u.CreatedAt = time.Now().UTC()
 	b.StoreUpdate(u)
@@ -61,7 +62,7 @@ func (b *InMemoryBackend) AssociateEncryptionConfig(
 
 	c, ok := b.clusters.Get(clusterName)
 	if !ok {
-		return nil, nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	for _, cfg := range configs {
@@ -86,7 +87,7 @@ func (b *InMemoryBackend) AssociateEncryptionConfig(
 	}
 
 	u := &Update{
-		ID:          stableID(clusterName + "/encryption-config-update/" + time.Now().String()),
+		ID:          uuid.NewString(),
 		ClusterName: clusterName,
 		Status:      statusInProgress,
 		Type:        opAssociateEncryptionConfig,
@@ -125,7 +126,7 @@ func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, upd ClusterCon
 
 	c, ok := b.clusters.Get(clusterName)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	if err := validateConfigBlocks(upd.ConfigBlocks); err != nil {
@@ -173,10 +174,10 @@ func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, upd ClusterCon
 
 	u := &Update{
 		Params:      params,
-		ID:          stableID(clusterName + "/config-update/" + time.Now().String()),
+		ID:          uuid.NewString(),
 		ClusterName: clusterName,
 		Status:      statusInProgress,
-		Type:        "ConfigUpdate",
+		Type:        typeConfigUpdate,
 		CreatedAt:   time.Now().UTC(),
 	}
 	b.storeUpdateLocked(u)
@@ -231,7 +232,7 @@ func (b *InMemoryBackend) UpdateClusterVpcEndpoint(clusterName string, upd VpcEn
 
 	c, ok := b.clusters.Get(clusterName)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	if c.VpcConfig == nil {
@@ -261,7 +262,7 @@ func (b *InMemoryBackend) UpdateClusterVpcEndpoint(clusterName string, upd VpcEn
 	}
 
 	u := &Update{
-		ID:          stableID(clusterName + "/vpc-update/" + time.Now().String()),
+		ID:          uuid.NewString(),
 		ClusterName: clusterName,
 		Status:      statusSuccessful,
 		Type:        "EndpointAccessUpdate",
@@ -312,19 +313,19 @@ func (b *InMemoryBackend) UpdateClusterVersion(clusterName, version string) (*Up
 
 	c, ok := b.clusters.Get(clusterName)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
-	if version != "" {
-		c.Version = version
+	if err := validateVersionUpgrade(c.Version, version); err != nil {
+		return nil, err
 	}
 
 	u := &Update{
-		ID:          stableID(clusterName + "/version-update/" + time.Now().String()),
+		ID:          uuid.NewString(),
 		ClusterName: clusterName,
 		Status:      statusInProgress,
 		Type:        typeVersionUpdate,
-		Params:      []UpdateParam{{Type: "Version", Value: version}},
+		Params:      []UpdateParam{{Type: paramVersion, Value: version}},
 		CreatedAt:   time.Now().UTC(),
 	}
 	b.storeUpdateLocked(u)
@@ -336,6 +337,68 @@ func (b *InMemoryBackend) UpdateClusterVersion(clusterName, version string) (*Up
 // storeUpdateLocked stores an update record. Must be called with b.mu held.
 func (b *InMemoryBackend) storeUpdateLocked(u *Update) {
 	b.updates.Put(u)
+
+	if u.Status == statusInProgress {
+		b.markUpdatingLocked(u)
+	}
+}
+
+// markUpdatingLocked moves the resource an InProgress update targets to UPDATING.
+func (b *InMemoryBackend) markUpdatingLocked(u *Update) {
+	switch {
+	case u.NodegroupName != "":
+		if ng, ok := b.nodegroups.Get(nodegroupKey(u.ClusterName, u.NodegroupName)); ok && ng.Status == statusActive {
+			ng.Status = statusUpdating
+		}
+	case u.AddonName != "":
+		if a, ok := b.addons.Get(addonKey(u.ClusterName, u.AddonName)); ok && a.Status == statusActive {
+			a.Status = statusUpdating
+		}
+	case u.CapabilityName == "" && clusterLevelUpdate(u.Type):
+		if c, ok := b.clusters.Get(u.ClusterName); ok && c.Status == statusActive {
+			c.Status = statusUpdating
+		}
+	}
+}
+
+func clusterLevelUpdate(updateType string) bool {
+	return updateType == typeVersionUpdate || updateType == typeConfigUpdate || updateType == "EndpointAccessUpdate"
+}
+
+// settleAfterUpdateLocked returns the updated resource to ACTIVE and applies a
+// cluster version change, which takes effect only when the update completes.
+func (b *InMemoryBackend) settleAfterUpdateLocked(u *Update) {
+	switch {
+	case u.NodegroupName != "":
+		if ng, ok := b.nodegroups.Get(nodegroupKey(u.ClusterName, u.NodegroupName)); ok && ng.Status == statusUpdating {
+			ng.Status = statusActive
+		}
+	case u.AddonName != "":
+		if a, ok := b.addons.Get(addonKey(u.ClusterName, u.AddonName)); ok && a.Status == statusUpdating {
+			a.Status = statusActive
+		}
+	case u.CapabilityName == "" && clusterLevelUpdate(u.Type):
+		b.settleClusterUpdateLocked(u)
+	}
+}
+
+func (b *InMemoryBackend) settleClusterUpdateLocked(u *Update) {
+	c, ok := b.clusters.Get(u.ClusterName)
+	if !ok {
+		return
+	}
+
+	if u.Type == typeVersionUpdate {
+		for _, p := range u.Params {
+			if p.Type == paramVersion && p.Value != "" {
+				c.Version = p.Value
+			}
+		}
+	}
+
+	if c.Status == statusUpdating {
+		c.Status = statusActive
+	}
 }
 
 // clone deep-copies u's reference fields. A shallow "cp := *u" is not enough:
@@ -376,12 +439,12 @@ func (b *InMemoryBackend) CancelUpdate(clusterName, updateID string) (*Update, e
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	u, ok := b.updates.Get(updateKey(clusterName, updateID))
 	if !ok {
-		return nil, fmt.Errorf("%w: update %s not found in cluster %s", ErrNotFound, updateID, clusterName)
+		return nil, errMsgf(ErrNotFound, "No update found with id: %s.", updateID)
 	}
 
 	if u.Type != typeVersionRollback {
@@ -412,12 +475,12 @@ func (b *InMemoryBackend) DescribeUpdate(clusterName, updateID string) (*Update,
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	u, ok := b.updates.Get(updateKey(clusterName, updateID))
 	if !ok {
-		return nil, fmt.Errorf("%w: update %s not found in cluster %s", ErrNotFound, updateID, clusterName)
+		return nil, errMsgf(ErrNotFound, "No update found with id: %s.", updateID)
 	}
 
 	return u.clone(), nil
@@ -429,7 +492,7 @@ func (b *InMemoryBackend) ListUpdates(clusterName string) ([]string, error) {
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	items := b.updatesByCluster.Get(clusterName)

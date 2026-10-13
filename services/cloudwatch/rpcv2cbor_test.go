@@ -745,7 +745,7 @@ func TestCBOR_NewOperations(t *testing.T) {
 				"AlarmName":  cbor.String("not-exist-cbor"),
 				"StateValue": cbor.String("ALARM"),
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusNotFound,
 		},
 		// EnableAlarmActions
 		{
@@ -1162,7 +1162,7 @@ func TestCBOR_PutMetricData_WithStatisticValues(t *testing.T) {
 	statsBody := cbor.Map{
 		"Namespace":  cbor.String("App"),
 		"MetricName": cbor.String("Latency"),
-		"StartTime":  cbor.Tag{ID: 1, Value: cbor.Float64(0)},
+		"StartTime":  cbor.Tag{ID: 1, Value: cbor.Float64(float64(time.Now().UTC().Add(-24 * time.Hour).Unix()))},
 		"EndTime":    cbor.Tag{ID: 1, Value: cbor.Float64(float64(time.Now().UTC().Add(24 * time.Hour).Unix()))},
 		"Period":     cbor.Uint(3600),
 		"Statistics": cbor.List{

@@ -74,6 +74,7 @@ func (b *InMemoryBackend) StartDocumentTextDetectionWithOptions(
 
 		if b.asyncJobDelay == 0 {
 			job.JobStatus = jobStatusSucceeded
+			b.deliverDocumentJobLocked(job)
 			result = cloneJob(job)
 			done = true
 
@@ -93,6 +94,7 @@ func (b *InMemoryBackend) StartDocumentTextDetectionWithOptions(
 
 		if j, ok := b.jobs.Get(key); ok {
 			j.JobStatus = jobStatusSucceeded
+			b.deliverDocumentJobLocked(j)
 		}
 	})
 

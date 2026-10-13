@@ -14,7 +14,7 @@ func TestAuthPolicy(t *testing.T) {
 	h := newTestHandler(t)
 
 	// create service
-	recSvc := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svc-auth"})
+	recSvc := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "svcx-auth"})
 	require.Equal(t, http.StatusCreated, recSvc.Code)
 	svcID, _ := parseBody(t, recSvc)["id"].(string)
 

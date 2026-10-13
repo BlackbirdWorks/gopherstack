@@ -132,8 +132,7 @@ func (h *Handler) handleListBuildBatchesForProject(
 }
 
 // retryBuildBatchInput mirrors api_op_RetryBuildBatch.go's
-// RetryBuildBatchInput. RetryType is accepted but not behaviorally
-// distinguished -- see RetryBuildBatch's doc comment (build_batches.go).
+// RetryBuildBatchInput.
 type retryBuildBatchInput struct {
 	ID               string `json:"id"`
 	RetryType        string `json:"retryType,omitempty"`

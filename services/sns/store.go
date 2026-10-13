@@ -172,6 +172,11 @@ const (
 	// This matches the AWS SNS service limit.
 	maxMessageSizeBytes = 256 * 1024
 
+	attrMaximumMessageSize       = "MaximumMessageSize"
+	minTopicMessageSizeBytes     = 1024
+	maxTopicMessageSizeBytes     = 1024 * 1024
+	maxLargeMessageSubscriptions = 100
+
 	// maxBatchEntryIDLen is the maximum character length of a PublishBatch entry ID.
 	maxBatchEntryIDLen = 80
 
@@ -224,11 +229,13 @@ func NewInMemoryBackendWithContext(
 		smsSandboxEnabled:         true,
 		svcCtx:                    svcCtx,
 		mu:                        lockmetrics.New("sns"),
-		httpClient:                &http.Client{Timeout: snsHTTPTimeout},
+		httpClient:                newDeliveryClient(allowLinkLocalFromEnv()),
 		workerSem:                 make(chan struct{}, snsMaxConcurrentDeliveries),
 		signer:                    newNotificationSigner(region),
 		subscriptionLimitPerTopic: defaultMaxSubscriptionsPerTopic,
 	}
+
+	b.allowLinkLocal.Store(allowLinkLocalFromEnv())
 
 	registerAllTables(b)
 

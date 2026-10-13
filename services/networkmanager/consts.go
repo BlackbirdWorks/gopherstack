@@ -100,6 +100,7 @@ const (
 	attachmentStatePendingAttachmentAcceptance = "PENDING_ATTACHMENT_ACCEPTANCE"
 	attachmentStateCreating                    = "CREATING"
 	attachmentStateAvailable                   = "AVAILABLE"
+	attachmentStateUpdating                    = "UPDATING"
 	attachmentStateDeleting                    = "DELETING"
 )
 
@@ -145,7 +146,7 @@ const routeAnalysisReasonNoDestination = "NO_DESTINATION_ARN_PROVIDED"
 
 // Further RouteAnalysisCompletionReasonCode values this backend's real
 // EC2-route-table walk (routeanalysis.go) can genuinely produce, out of the
-// 11 the real SDK models -- the rest (CYCLIC_PATH_DETECTED,
+// 11 the real SDK models -- the rest (
 // TRANSIT_GATEWAY_ATTACHMENT_NOT_IN_TRANSIT_GATEWAY,
 // TRANSIT_GATEWAY_ATTACHMENT_STABLE_ROUTE_TABLE_NOT_FOUND,
 // TRANSIT_GATEWAY_ATTACHMENT_ATTACH_ARN_NO_MATCH, MAX_HOPS_EXCEEDED,
@@ -156,6 +157,8 @@ const (
 	routeAnalysisReasonRouteNotFound = "ROUTE_NOT_FOUND"
 	routeAnalysisReasonBlackhole     = "BLACKHOLE_ROUTE_FOR_DESTINATION_FOUND"
 	routeAnalysisReasonInactiveRoute = "INACTIVE_ROUTE_FOR_DESTINATION_FOUND"
+	routeAnalysisReasonCyclicPath    = "CYCLIC_PATH_DETECTED"
+	tgwAttachmentResourceType        = "transit-gateway-attachment"
 )
 
 // ec2TransitGatewayRouteStateActive/ec2TransitGatewayRouteStateBlackhole

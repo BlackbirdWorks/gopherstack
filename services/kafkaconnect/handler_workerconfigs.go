@@ -73,6 +73,10 @@ func (h *Handler) handleDescribeWorkerConfiguration(c *echo.Context, workerConfi
 
 func (h *Handler) handleListWorkerConfigurations(c *echo.Context) error {
 	q := c.Request().URL.Query()
+	if err := ValidateListParams(q.Get("nextToken"), q.Get("maxResults")); err != nil {
+		return h.writeBackendError(c, err)
+	}
+
 	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
 	configs, next, err := h.Backend.ListWorkerConfigurations(q.Get("namePrefix"), q.Get("nextToken"), maxResults)

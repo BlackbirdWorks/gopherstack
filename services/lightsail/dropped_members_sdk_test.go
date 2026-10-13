@@ -113,7 +113,7 @@ func TestGetBuckets_IncludeConnectedResources(t *testing.T) {
 			ctx := t.Context()
 
 			_, err := client.CreateBucket(ctx, &lightsailsdk.CreateBucketInput{
-				BucketName: aws.String("b1"), BundleId: aws.String("small_1_0"),
+				BucketName: aws.String("bkt1"), BundleId: aws.String("small_1_0"),
 			})
 			require.NoError(t, err)
 
@@ -126,7 +126,7 @@ func TestGetBuckets_IncludeConnectedResources(t *testing.T) {
 			require.NoError(t, err)
 
 			_, err = client.SetResourceAccessForBucket(ctx, &lightsailsdk.SetResourceAccessForBucketInput{
-				ResourceName: aws.String("i1"), BucketName: aws.String("b1"),
+				ResourceName: aws.String("i1"), BucketName: aws.String("bkt1"),
 				Access: lightsailtypes.ResourceBucketAccessAllow,
 			})
 			require.NoError(t, err)

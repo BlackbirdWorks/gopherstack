@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -105,6 +106,16 @@ func TestHandler_ClusterOperations(t *testing.T) {
 	}{
 		{
 			name: "modify_cluster",
+			setup: func(t *testing.T, h *docdb.Handler) {
+				t.Helper()
+				doRequest(t, h, url.Values{
+					"Action":                      {"CreateDBClusterParameterGroup"},
+					"Version":                     {"2014-10-31"},
+					"DBClusterParameterGroupName": {"new-param-group"},
+					"DBParameterGroupFamily":      {"docdb4.0"},
+					"Description":                 {"d"},
+				})
+			},
 			vals: url.Values{
 				"Action":                      {"ModifyDBCluster"},
 				"Version":                     {"2014-10-31"},
@@ -488,7 +499,7 @@ func TestDefaultParamGroupName(t *testing.T) {
 			rr := doRequest(t, h, url.Values{
 				"Action":              {"CreateDBCluster"},
 				"Version":             {"2014-10-31"},
-				"DBClusterIdentifier": {"pg-test-" + tc.name},
+				"DBClusterIdentifier": {"pg-test-" + strings.ReplaceAll(tc.name, ".", "-")},
 				"Engine":              {"docdb"},
 				"EngineVersion":       {tc.engineVersion},
 			})

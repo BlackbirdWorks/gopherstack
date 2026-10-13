@@ -43,12 +43,8 @@ import (
 // test call sites (seedSourceServerViaImport and its callers) that this
 // pass's scope (mgn:app:*/mgn:wave:*) does not touch.
 //
-// mgn:launch:*/mgn:replication:*/mgn:account-id/mgn:region remain
-// unimplemented: mgn:launch:*/mgn:replication:* would require adding a
-// dozen fields this backend's LaunchConfiguration/ReplicationConfiguration
-// types don't have at all (a materially larger feature than this pass's
-// scope); mgn:account-id targets a delegated member account import (no
-// cross-account import path exists here); mgn:region is a single-region
+// mgn:launch:* / mgn:replication:* columns land per s3import_config.go. mgn:account-id targets a
+// delegated member account import (no cross-account import path exists here); mgn:region is a single-region
 // backend concept with nothing to select between. mgn:server:platform IS a
 // real column but has no corresponding field anywhere on
 // types.SourceServer/types.SourceProperties in this SDK version (confirmed
@@ -128,6 +124,9 @@ var (
 // mentioned a resource from one that mentioned it with an empty value.
 type importedRow struct {
 	appTags                map[string]string
+	launch                 *UpdateLaunchConfigurationInput
+	launchData             *importLaunchData
+	replication            *UpdateReplicationConfigurationInput
 	sourceProperties       *SourceProperties
 	serverTags             map[string]string
 	waveTags               map[string]string
@@ -274,6 +273,8 @@ type importHeaderIndex struct {
 	serverTagCols map[string]int
 	appTagCols    map[string]int
 	waveTagCols   map[string]int
+	stagingCols   map[string]int
+	launchCols    map[string]int
 }
 
 // indexImportHeader maps each header row's fixed columns to their index
@@ -285,6 +286,8 @@ func indexImportHeader(header []string) importHeaderIndex {
 		serverTagCols: make(map[string]int),
 		appTagCols:    make(map[string]int),
 		waveTagCols:   make(map[string]int),
+		stagingCols:   make(map[string]int),
+		launchCols:    make(map[string]int),
 	}
 
 	for i, h := range header {
@@ -296,8 +299,12 @@ func indexImportHeader(header []string) importHeaderIndex {
 			idx.serverTagCols[trimmed[len(csvColServerTagPrefix):]] = i
 		case strings.HasPrefix(lower, csvColAppTagPrefix):
 			idx.appTagCols[trimmed[len(csvColAppTagPrefix):]] = i
+		case strings.HasPrefix(lower, csvColStagingTagPrefix):
+			idx.stagingCols[trimmed[len(csvColStagingTagPrefix):]] = i
 		case strings.HasPrefix(lower, csvColWaveTagPrefix):
 			idx.waveTagCols[trimmed[len(csvColWaveTagPrefix):]] = i
+		case isDynamicLaunchColumn(lower):
+			idx.launchCols[trimmed[len(csvLaunchPrefix):]] = i
 		default:
 			idx.cols[lower] = i
 		}
@@ -351,6 +358,10 @@ func parseImportRow(row []string, idx importHeaderIndex) (importedRow, error) {
 	r := parseImportRowServer(row, idx)
 	parseImportRowApplication(row, idx, &r)
 	parseImportRowWave(row, idx, &r)
+
+	if err := parseImportRowConfigs(row, idx, &r); err != nil {
+		return importedRow{}, err
+	}
 
 	if !r.hasServer && !r.hasApp && !r.hasWave {
 		return importedRow{}, errImportRowNoIdentification
@@ -618,11 +629,13 @@ func (b *InMemoryBackend) resolveOrCreateServerLocked(row importedRow, applicati
 
 	if existing != nil {
 		b.applyImportRowLocked(existing, seed)
+		b.applyImportConfigsLocked(existing.SourceServerID, row)
 
 		return false, nil
 	}
 
-	b.createSourceServerLocked(seed)
+	created := b.createSourceServerLocked(seed)
+	b.applyImportConfigsLocked(created.SourceServerID, row)
 
 	return true, nil
 }
@@ -640,4 +653,16 @@ func (b *InMemoryBackend) resolveImportServerLocked(row importedRow) (*SourceSer
 	s, _ := b.resolveSourceServerByUserProvidedIDLocked(row.userProvidedID)
 
 	return s, nil
+}
+
+// isDynamicLaunchColumn reports whether lower is a mgn:launch: column whose name
+// embeds a case-sensitive key (tag key, device name, action name).
+func isDynamicLaunchColumn(lower string) bool {
+	rest, ok := strings.CutPrefix(lower, csvLaunchPrefix)
+	if !ok {
+		return false
+	}
+
+	return strings.HasPrefix(rest, launchTagInstancePfx) || strings.HasPrefix(rest, launchVolumePfx) ||
+		strings.HasPrefix(rest, launchNicPfx) || strings.HasPrefix(rest, launchPostActionsPfx)
 }

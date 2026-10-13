@@ -72,7 +72,7 @@ func TestPersonalize_DataDeletionJob(t *testing.T) {
 	rec = personalizeDo(t, h, "DescribeDataDeletionJob", map[string]any{"dataDeletionJobArn": jobArn})
 	job := personalizeUnmarshal(t, rec)["dataDeletionJob"].(map[string]any)
 	assert.Equal(t, "delete-job-1", job["jobName"])
-	assert.Equal(t, "ACTIVE", job["status"])
+	assert.Equal(t, "COMPLETED", job["status"])
 	assert.NotNil(t, job["numDeleted"])
 }
 

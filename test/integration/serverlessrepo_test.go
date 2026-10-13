@@ -93,6 +93,7 @@ func TestIntegration_ServerlessRepo_CloudFormationTemplate(t *testing.T) {
 		Description:     aws.String("CF template test application"),
 		Author:          aws.String("test-author"),
 		SemanticVersion: aws.String("1.0.0"),
+		TemplateBody:    aws.String(`{"Resources":{"Q":{"Type":"AWS::SQS::Queue"}}}`),
 	})
 	require.NoError(t, err)
 

@@ -186,7 +186,7 @@ func TestEC2Handler_PostForm(t *testing.T) {
 		},
 		{
 			name: "CreateSecurityGroup_InvalidVPC_Handler",
-			body: "Action=CreateSecurityGroup&Version=2016-11-15&GroupName=sg-name&" +
+			body: "Action=CreateSecurityGroup&Version=2016-11-15&GroupName=grp-name&" +
 				"GroupDescription=test&VpcId=vpc-nonexistent",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"InvalidVpcID.NotFound"},

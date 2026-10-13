@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	pkgpage "github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -104,7 +105,7 @@ func TestPaginateSlice_SevenChecks(t *testing.T) {
 		t.Parallel()
 
 		items := makePaginationTestItems(12)
-		out, next := paginateSlice(items, "10", 5)
+		out, next := paginateSlice(items, pkgpage.EncodeToken(10), 5)
 		assert.Equal(t, []string{"item-010", "item-011"}, idsOf(out))
 		assert.Empty(t, next)
 	})
@@ -136,7 +137,7 @@ func TestPaginateSlice_SevenChecks(t *testing.T) {
 		t.Parallel()
 
 		items := makePaginationTestItems(5)
-		out, next := paginateSlice(items, "999", 5)
+		out, next := paginateSlice(items, pkgpage.EncodeToken(999), 5)
 		assert.Empty(t, out)
 		assert.Empty(t, next)
 	})
@@ -351,7 +352,7 @@ func TestSagemakerListPagedSlice_SevenChecks(t *testing.T) {
 		t.Parallel()
 
 		items := makePaginationTestItems(5)
-		out, next := sagemakerListPagedSlice(items, "999999", clonePaginationTestItem, less)
+		out, next := sagemakerListPagedSlice(items, pkgpage.EncodeToken(999999), clonePaginationTestItem, less)
 		assert.Empty(t, out, "a stale offset past the collection length must not panic or wrap")
 		assert.Empty(t, next)
 	})

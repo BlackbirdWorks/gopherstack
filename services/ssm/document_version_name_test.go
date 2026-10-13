@@ -18,6 +18,7 @@ func TestDocumentVersionName_RealClient(t *testing.T) {
 	client := newTestSSMClient(t, ssm.NewHandler(ssm.NewInMemoryBackend()))
 	ctx := t.Context()
 	content := aws.String(`{"schemaVersion":"2.2","mainSteps":[]}`)
+	content2 := aws.String(`{"schemaVersion":"2.2","mainSteps":[],"description":"two"}`)
 
 	created, err := client.CreateDocument(ctx, &ssmsdk.CreateDocumentInput{
 		Name: aws.String("vn-doc"), Content: content, VersionName: aws.String("release-1"),
@@ -26,7 +27,7 @@ func TestDocumentVersionName_RealClient(t *testing.T) {
 	assert.Equal(t, "release-1", aws.ToString(created.DocumentDescription.VersionName))
 
 	_, err = client.UpdateDocument(ctx, &ssmsdk.UpdateDocumentInput{
-		Name: aws.String("vn-doc"), Content: content, VersionName: aws.String("release-2"),
+		Name: aws.String("vn-doc"), Content: content2, VersionName: aws.String("release-2"),
 	})
 	require.NoError(t, err)
 
@@ -95,6 +96,7 @@ func TestDocumentVersionName_DeleteByName(t *testing.T) {
 	client := newTestSSMClient(t, ssm.NewHandler(ssm.NewInMemoryBackend()))
 	ctx := t.Context()
 	content := aws.String(`{"schemaVersion":"2.2","mainSteps":[]}`)
+	content2 := aws.String(`{"schemaVersion":"2.2","mainSteps":[],"description":"two"}`)
 
 	_, err := client.CreateDocument(ctx, &ssmsdk.CreateDocumentInput{
 		Name: aws.String("vn-del"), Content: content, VersionName: aws.String("release-1"),
@@ -102,7 +104,7 @@ func TestDocumentVersionName_DeleteByName(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = client.UpdateDocument(ctx, &ssmsdk.UpdateDocumentInput{
-		Name: aws.String("vn-del"), Content: content, VersionName: aws.String("release-2"),
+		Name: aws.String("vn-del"), Content: content2, VersionName: aws.String("release-2"),
 	})
 	require.NoError(t, err)
 

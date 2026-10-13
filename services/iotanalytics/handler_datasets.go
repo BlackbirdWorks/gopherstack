@@ -122,7 +122,10 @@ func datasetActionSummaries(actions []DatasetAction) []datasetActionSummary {
 }
 
 func (h *Handler) handleListDatasets(c *echo.Context) error {
-	maxResults, cursor := parsePagination(c)
+	maxResults, cursor, pageErr := parsePagination(c)
+	if pageErr != nil {
+		return h.writeBackendError(c, pageErr)
+	}
 	datasets := h.Backend.ListDatasets()
 
 	summaries := make([]datasetSummary, 0, len(datasets))
@@ -261,7 +264,10 @@ func (h *Handler) handleGetDatasetContent(c *echo.Context, datasetName string) e
 // a random UUID unrelated to that order. Thresholding on VersionID would skip or repeat
 // entries arbitrarily across pages, so the opaque token instead encodes a slice offset.
 func (h *Handler) handleListDatasetContents(c *echo.Context, datasetName string) error {
-	maxResults, cursor := parsePagination(c)
+	maxResults, cursor, pageErr := parsePagination(c)
+	if pageErr != nil {
+		return h.writeBackendError(c, pageErr)
+	}
 
 	contents, err := h.Backend.ListDatasetContents(datasetName)
 	if err != nil {

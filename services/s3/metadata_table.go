@@ -21,6 +21,9 @@ func (b *InMemoryBackend) CreateBucketMetadataConfiguration(
 	defer bucket.mu.Unlock()
 
 	bucket.MetadataConfig = configXML
+	bucket.MetadataInventoryTableConfig = ""
+	bucket.MetadataJournalTableConfig = ""
+	bucket.MetadataAnnotationTableConfig = ""
 
 	return nil
 }
@@ -45,7 +48,15 @@ func (b *InMemoryBackend) GetBucketMetadataConfiguration(
 		return "", ErrNoMetadataConfig
 	}
 
-	return bucket.MetadataConfig, nil
+	account := bucket.OwnerAccountID
+	if account == "" {
+		account = mockAccountID
+	}
+
+	return buildMetadataConfigurationResult(
+		bucket.Region, account, bucketName, bucket.MetadataConfig,
+		bucket.MetadataInventoryTableConfig, bucket.MetadataJournalTableConfig, bucket.MetadataAnnotationTableConfig,
+	)
 }
 
 // DeleteBucketMetadataConfiguration clears the metadata configuration for a bucket.
@@ -65,6 +76,9 @@ func (b *InMemoryBackend) DeleteBucketMetadataConfiguration(
 	defer bucket.mu.Unlock()
 
 	bucket.MetadataConfig = ""
+	bucket.MetadataInventoryTableConfig = ""
+	bucket.MetadataJournalTableConfig = ""
+	bucket.MetadataAnnotationTableConfig = ""
 
 	return nil
 }

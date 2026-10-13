@@ -10,7 +10,10 @@ func (h *Handler) EnableRegions() {
 	}
 
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
-		return NewHandler(NewInMemoryBackend(home.accountID, region))
+		p := NewHandler(NewInMemoryBackend(home.accountID, region))
+		p.root = h
+
+		return p
 	})
 }
 
@@ -18,6 +21,15 @@ func (h *Handler) EnableRegions() {
 func (h *Handler) RegionHandler(region string) *Handler {
 	if p := h.peers.Get(region); p != nil {
 		return p
+	}
+
+	return h
+}
+
+// regionRoot returns the home handler that owns h's sibling set.
+func (h *Handler) regionRoot() *Handler {
+	if h.root != nil {
+		return h.root
 	}
 
 	return h

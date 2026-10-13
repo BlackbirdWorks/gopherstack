@@ -31,8 +31,13 @@ func (b *InMemoryBackend) CreateRule(
 	match *RuleMatch,
 	tags map[string]string,
 ) (*Rule, error) {
-	if name == "" {
-		return nil, ErrInvalidParameter
+	if err := validateName("rule", name, idPrefixRule, maxChildNameLen); err != nil {
+		return nil, err
+	}
+
+	if priority < minRulePriority || priority > maxRulePriority {
+		return nil, invalidf("Invalid priority %d: must be between %d and %d",
+			priority, minRulePriority, maxRulePriority)
 	}
 
 	b.mu.Lock("CreateRule")
@@ -48,10 +53,18 @@ func (b *InMemoryBackend) CreateRule(
 		return nil, ErrNotFound
 	}
 
+	if err := b.checkActionTargetGroups(action); err != nil {
+		return nil, err
+	}
+
 	// check duplicate name within listener
 	for _, r := range b.rulesByListener.Get(lID) {
 		if r.Name == name {
-			return nil, ErrAlreadyExists
+			return nil, conflictf("Rule %s already exists in listener %s", name, lID)
+		}
+
+		if !r.IsDefault && r.Priority == priority {
+			return nil, conflictf("A rule with priority %d already exists in listener %s", priority, lID)
 		}
 	}
 

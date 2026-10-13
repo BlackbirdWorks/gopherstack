@@ -65,9 +65,10 @@ func (b *InMemoryBackend) CreateDataset(
 		DatasetARN:           arn,
 		ProjectARN:           projectARN,
 		DatasetType:          datasetType,
-		Status:               "CREATE_COMPLETE",
+		Status:               statusDatasetCreating,
 	}
 	b.datasets.Put(ds)
+	b.settleDatasetLocked(ds)
 
 	if len(tags) > 0 {
 		b.tags[arn] = maps.Clone(tags)
@@ -89,7 +90,9 @@ func (b *InMemoryBackend) DeleteDataset(datasetARN string) error {
 		return ErrDatasetNotFound
 	}
 
-	if ds.Status == "CREATE_IN_PROGRESS" || ds.Status == "UPDATE_IN_PROGRESS" {
+	b.settleDatasetLocked(ds)
+
+	if ds.Status == statusDatasetCreating || ds.Status == statusDatasetUpdating {
 		return ErrDatasetInUse
 	}
 
@@ -102,13 +105,15 @@ func (b *InMemoryBackend) DeleteDataset(datasetARN string) error {
 
 // DescribeDataset returns details about a dataset.
 func (b *InMemoryBackend) DescribeDataset(datasetARN string) (*Dataset, error) {
-	b.mu.RLock("DescribeDataset")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeDataset")
+	defer b.mu.Unlock()
 
 	ds, exists := b.datasets.Get(datasetARN)
 	if !exists {
 		return nil, ErrDatasetNotFound
 	}
+
+	b.settleDatasetLocked(ds)
 
 	result := ds.toDataset()
 	result.Stats = computeDatasetStats(b.datasetEntries[datasetARN])
@@ -422,8 +427,9 @@ func (b *InMemoryBackend) DistributeDatasetEntries(datasets []DatasetDistributio
 			return ErrDatasetNotFound
 		}
 
-		ds.Status = "UPDATE_IN_PROGRESS"
+		ds.Status = statusDatasetUpdating
 		ds.LastUpdatedTimestamp = time.Now()
+		b.settleDatasetLocked(ds)
 	}
 
 	return nil

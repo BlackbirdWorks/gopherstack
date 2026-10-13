@@ -204,6 +204,7 @@ type tgwMulticastGroupItem struct {
 	ResourceID                 string `xml:"resourceId,omitempty"`
 	ResourceType               string `xml:"resourceType,omitempty"`
 	SourceType                 string `xml:"sourceType,omitempty"`
+	SubnetID                   string `xml:"subnetId,omitempty"`
 	TransitGatewayAttachmentID string `xml:"transitGatewayAttachmentId,omitempty"`
 	GroupMember                bool   `xml:"groupMember"`
 	GroupSource                bool   `xml:"groupSource"`
@@ -672,10 +673,30 @@ func splitMulticastGroupRoles(in []*TransitGatewayMulticastGroupEntry) []*Transi
 	return out
 }
 
+// multicastPlacement resolves a group entry's subnet (its network interface's) and the transit gateway
+// attachment that associates that subnet with the domain.
+func (h *Handler) multicastPlacement(domainID string) func(*TransitGatewayMulticastGroupEntry) (string, string) {
+	attachments := map[string]string{}
+	for _, a := range h.Backend.GetTransitGatewayMulticastDomainAssociations(domainID) {
+		attachments[a.SubnetID] = a.TransitGatewayAttachmentID
+	}
+
+	return func(e *TransitGatewayMulticastGroupEntry) (string, string) {
+		enis := h.Backend.DescribeNetworkInterfaces([]string{e.NetworkInterfaceID})
+		if len(enis) == 0 {
+			return "", ""
+		}
+
+		return enis[0].SubnetID, attachments[enis[0].SubnetID]
+	}
+}
+
 func (h *Handler) handleSearchTransitGatewayMulticastGroups(vals url.Values, reqID string) (any, error) {
 	domainID := vals.Get("TransitGatewayMulticastDomainId")
+	placement := h.multicastPlacement(domainID)
 	entries := applyTGWMulticastGroupFilters(
 		splitMulticastGroupRoles(h.Backend.SearchTransitGatewayMulticastGroups(domainID)), parseEC2Filters(vals),
+		placement,
 	)
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
@@ -689,13 +710,16 @@ func (h *Handler) handleSearchTransitGatewayMulticastGroups(vals url.Values, req
 	resp := &searchTransitGatewayMulticastGroupsResponse{Xmlns: ec2XMLNS, RequestID: reqID, NextToken: nextToken}
 
 	for _, e := range entries {
+		subnet, attachment := placement(e)
 		item := tgwMulticastGroupItem{
-			GroupIPAddress:     e.GroupIPAddress,
-			NetworkInterfaceID: e.NetworkInterfaceID,
-			ResourceID:         e.ResourceID,
-			ResourceType:       e.ResourceType,
-			GroupMember:        e.IsMember,
-			GroupSource:        e.IsSource,
+			SubnetID:                   subnet,
+			TransitGatewayAttachmentID: attachment,
+			GroupIPAddress:             e.GroupIPAddress,
+			NetworkInterfaceID:         e.NetworkInterfaceID,
+			ResourceID:                 e.ResourceID,
+			ResourceType:               e.ResourceType,
+			GroupMember:                e.IsMember,
+			GroupSource:                e.IsSource,
 		}
 
 		if e.IsMember {

@@ -461,6 +461,10 @@ func (h *Handler) jsonListCertificates(ctx context.Context, body []byte) (any, e
 	var input listCertificatesInput
 	_ = json.Unmarshal(body, &input)
 
+	if input.MaxItems < 0 || input.MaxItems > maxListItems {
+		return nil, fmt.Errorf("%w: MaxItems must be between 1 and %d", ErrInvalidArgs, maxListItems)
+	}
+
 	params := ListCertificatesParams{
 		NextToken:                 input.NextToken,
 		MaxItems:                  input.MaxItems,
@@ -637,6 +641,10 @@ func (h *Handler) jsonListCertificateDomainValidations(ctx context.Context, body
 	var input listCertificateDomainValidationsInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
+	}
+
+	if input.MaxItems < 0 || input.MaxItems > maxListItems {
+		return nil, fmt.Errorf("%w: MaxItems must be between 1 and %d", ErrInvalidParameter, maxListItems)
 	}
 
 	p, err := h.Backend.ListCertificateDomainValidations(

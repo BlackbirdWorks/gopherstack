@@ -20,6 +20,7 @@ type InMemoryBackend struct {
 	attachmentSetCreationTimes  []time.Time
 	describeAttachmentCallTimes []time.Time
 	nextDisplayID               uint64
+	caseProgressDelay           time.Duration
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.

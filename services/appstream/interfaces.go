@@ -380,6 +380,7 @@ type Fleet struct {
 	IamRoleArn                  string
 	VpcConfig                   VpcConfig
 	UsbDeviceFilterStrings      []string
+	InUseInstances              int
 	DesiredInstances            int
 	MaxUserDurationSecs         int
 	DisconnectTimeoutSecs       int

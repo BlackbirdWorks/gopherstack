@@ -99,7 +99,7 @@ func (h *Handler) toFpgaImageItemXML(img *FpgaImage) fpgaImageItemXML {
 	for _, code := range img.ProductCodes {
 		item.ProductCodeSet.Items = append(item.ProductCodeSet.Items, fpgaImageProductCodeXML{
 			ProductCode:     code,
-			ProductCodeType: "marketplace",
+			ProductCodeType: productCodeTypeMarketplace,
 		})
 	}
 

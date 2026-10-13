@@ -16,6 +16,10 @@ func (b *InMemoryBackend) CreateVpcIngressConnection(
 	b.mu.Lock("CreateVpcIngressConnection")
 	defer b.mu.Unlock()
 
+	if _, ok := b.services.Get(serviceArn); !ok {
+		return nil, fmt.Errorf("%w: service %s does not exist", errInvalidRequest, serviceArn)
+	}
+
 	if existing := b.vicByName.Get(name); len(existing) > 0 {
 		return nil, fmt.Errorf("vpc ingress connection %s already exists: %w", name, ErrAlreadyExists)
 	}

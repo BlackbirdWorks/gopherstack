@@ -96,13 +96,36 @@ func (b *InMemoryBackend) DeleteCluster(clusterID string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
 
-	c.State = clusterStateDeleted
 	channelIDs := b.channelIDsForCluster(clusterID)
+	if b.anyChannelBusy(channelIDs) {
+		return nil, fmt.Errorf("%w: cluster %s has running channels and must be idle", ErrConflict, clusterID)
+	}
+
+	c.State = clusterStateDeleted
 	b.clusters.Delete(clusterID)
 	delete(b.tags, c.ARN)
 	b.cascadeDeleteChannelPlacementGroups(clusterID)
 
 	return c.toCluster(channelIDs), nil
+}
+
+// anyChannelBusy reports whether any of the channels is starting, running or
+// stopping. Caller must hold b.mu.
+func (b *InMemoryBackend) anyChannelBusy(channelIDs []string) bool {
+	for _, id := range channelIDs {
+		ch, ok := b.channels.Get(id)
+		if !ok {
+			continue
+		}
+
+		switch b.channelState(ch) {
+		case stateStarting, stateRunning, stateStopping:
+			return true
+		default:
+		}
+	}
+
+	return false
 }
 
 // cascadeDeleteChannelPlacementGroups removes every ChannelPlacementGroup
@@ -132,7 +155,7 @@ func (b *InMemoryBackend) cascadeDeleteChannelPlacementGroups(clusterID string) 
 func (b *InMemoryBackend) channelIDsForCluster(clusterID string) []string {
 	ids := []string{}
 
-	for _, ch := range b.channels.All() {
+	for _, ch := range b.liveChannels() {
 		if ch.AnywhereSettings.ClusterID == clusterID {
 			ids = append(ids, ch.ID)
 		}

@@ -212,6 +212,8 @@ func (h *Handler) handleDescribeDomainConfiguration(c *echo.Context) error {
 		return respondErr(c, err)
 	}
 
+	dc.ValidationCertificateARN = "" // request-only: absent from DescribeDomainConfigurationOutput
+
 	return c.JSON(http.StatusOK, dc)
 }
 

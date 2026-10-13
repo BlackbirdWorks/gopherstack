@@ -59,6 +59,10 @@ func (b *InMemoryBackend) resolveImageLocked(repositoryName string, id ImageIden
 func (b *InMemoryBackend) DescribeImages(
 	registryID, repositoryName string, imageIDs []ImageIdentifier,
 ) ([]ImageDetail, error) {
+	if len(imageIDs) > maxBatchSize {
+		return nil, validateBatchSize("imageIds", len(imageIDs))
+	}
+
 	b.mu.RLock("DescribeImages")
 	defer b.mu.RUnlock()
 
@@ -88,7 +92,10 @@ func (b *InMemoryBackend) DescribeImages(
 	for _, id := range imageIDs {
 		img, ok := b.resolveImageLocked(repositoryName, id)
 		if !ok {
-			return nil, fmt.Errorf("%w: image not found in %s", ErrImageNotFound, repositoryName)
+			return nil, fmt.Errorf(
+				"%w: The image with imageId {imageDigest:'%s', imageTag:'%s'} does not exist within the "+
+					"repository with name '%s' in the registry with id '%s'",
+				ErrImageNotFound, orNull(id.ImageDigest), orNull(id.ImageTag), repositoryName, b.accountID)
 		}
 
 		out = append(out, toImageDetail(img, b.tagsForDigestLocked(repositoryName, img.ImageDigest)))
@@ -261,6 +268,10 @@ func (b *InMemoryBackend) missingManifestsLocked(repositoryName string, doc mani
 func (b *InMemoryBackend) BatchDeleteImage(
 	registryID, repositoryName string, imageIDs []ImageIdentifier,
 ) ([]ImageIdentifier, []ImageFailure, error) {
+	if err := validateBatchSize("imageIds", len(imageIDs)); err != nil {
+		return nil, nil, err
+	}
+
 	b.mu.Lock("BatchDeleteImage")
 	defer b.mu.Unlock()
 
@@ -319,4 +330,22 @@ func (b *InMemoryBackend) deleteImageIdentifierLocked(repositoryName string, id 
 	}
 
 	return false
+}
+
+const maxBatchSize = 100
+
+func validateBatchSize(field string, n int) error {
+	if n < 1 || n > maxBatchSize {
+		return fmt.Errorf("%w: %s must contain between 1 and %d entries", ErrInvalidParameter, field, maxBatchSize)
+	}
+
+	return nil
+}
+
+func orNull(s string) string {
+	if s == "" {
+		return "null"
+	}
+
+	return s
 }

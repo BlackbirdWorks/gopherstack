@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
@@ -137,6 +138,12 @@ func (b *InMemoryBackend) CreateDBCluster(
 	if b.clusterHas(region, id) {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, id)
 	}
+	if err = b.checkNetworkType(region, opts.NetworkType, opts.DBSubnetGroupName); err != nil {
+		return nil, err
+	}
+	if err = b.checkClusterParameterGroupRef(region, paramGroupName); err != nil {
+		return nil, err
+	}
 	cluster := b.buildNewCluster(region, id, paramGroupName, port, backupRetention, opts)
 	if opts.GlobalClusterIdentifier != "" {
 		if attachErr := b.attachClusterToGlobalClusterLocked(
@@ -227,10 +234,11 @@ func (b *InMemoryBackend) buildNewCluster(
 	azs := make([]string, len(opts.AvailabilityZones))
 	copy(azs, opts.AvailabilityZones)
 	cluster := &DBCluster{
+		readyAt:                         b.readyAtLocked(),
 		region:                          region,
 		DBClusterIdentifier:             id,
 		DBClusterArn:                    b.clusterARN(region, id),
-		DBClusterResourceID:             fmt.Sprintf("cluster-%s", id),
+		DBClusterResourceID:             newResourceID("cluster-"),
 		ClusterCreateTime:               nowISO8601(),
 		Engine:                          neptuneEngine,
 		EngineVersion:                   engineVersion,
@@ -360,6 +368,8 @@ func (b *InMemoryBackend) DeleteDBCluster(
 		)
 	}
 	cp := cloneCluster(c)
+	cp.Status = statusDeleting
+	cp.readyAt = time.Time{}
 	// Create a final snapshot when requested.
 	if !opts.SkipFinalSnapshot && opts.FinalDBSnapshotIdentifier != "" {
 		if !b.clusterSnapshotHas(region, opts.FinalDBSnapshotIdentifier) {
@@ -380,6 +390,7 @@ func (b *InMemoryBackend) DeleteDBCluster(
 				Port:                             c.Port,
 				PercentProgress:                  percentProgressComplete,
 				AllocatedStorage:                 c.AllocatedStorage,
+				VpcID:                            b.subnetGroupVpcID(region, c.DBSubnetGroupName),
 				SnapshotType:                     snapshotSourceManual,
 				SnapshotCreateTime:               nowISO8601(),
 				ClusterCreateTime:                c.ClusterCreateTime,
@@ -464,12 +475,21 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	if err := checkMajorVersionUpgrade(c.EngineVersion, opts.EngineVersion, opts.AllowMajorVersionUpgrade); err != nil {
 		return nil, err
 	}
+	if err := b.checkClusterParameterGroupRef(region, paramGroupName); err != nil {
+		return nil, err
+	}
 	if paramGroupName != "" {
+		if paramGroupName != c.DBClusterParameterGroupName {
+			b.markClusterPendingRebootLocked(region, c)
+		}
 		c.DBClusterParameterGroupName = paramGroupName
 	}
 	c.EnabledCloudwatchLogsExports = applyLogTypes(
 		c.EnabledCloudwatchLogsExports, opts.EnableLogTypes, opts.DisableLogTypes,
 	)
+	if err := b.checkNetworkType(region, opts.NetworkType, c.DBSubnetGroupName); err != nil {
+		return nil, err
+	}
 	applyClusterScalarModifications(c, opts)
 	if err := applyClusterBackupRetention(c, opts); err != nil {
 		return nil, err
@@ -887,6 +907,9 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 			"%w: subnet group %s not found", ErrSubnetGroupNotFound, opts.DBSubnetGroupName,
 		)
 	}
+	if err := b.checkNetworkType(region, opts.NetworkType, opts.DBSubnetGroupName); err != nil {
+		return nil, err
+	}
 	// Derive parameter group from the source cluster if available.
 	paramGroupName := pgFamilyDefaultNeptune13
 	if srcCluster, ok := b.clusterGet(region, snap.DBClusterIdentifier); ok {
@@ -898,7 +921,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 		region:                          region,
 		DBClusterIdentifier:             clusterID,
 		DBClusterArn:                    b.clusterARN(region, clusterID),
-		DBClusterResourceID:             fmt.Sprintf("cluster-%s", clusterID),
+		DBClusterResourceID:             newResourceID("cluster-"),
 		ClusterCreateTime:               nowISO8601(),
 		Engine:                          snap.Engine,
 		EngineVersion:                   snap.EngineVersion,
@@ -1026,6 +1049,9 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 			"%w: subnet group %s not found", ErrSubnetGroupNotFound, opts.DBSubnetGroupName,
 		)
 	}
+	if err := b.checkNetworkType(region, opts.NetworkType, opts.DBSubnetGroupName); err != nil {
+		return nil, err
+	}
 	src, srcExists := b.clusterGet(region, srcClusterID)
 	if !srcExists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, srcClusterID)
@@ -1043,7 +1069,7 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 		region:                          region,
 		DBClusterIdentifier:             targetClusterID,
 		DBClusterArn:                    b.clusterARN(region, targetClusterID),
-		DBClusterResourceID:             fmt.Sprintf("cluster-%s", targetClusterID),
+		DBClusterResourceID:             newResourceID("cluster-"),
 		ClusterCreateTime:               nowISO8601(),
 		Engine:                          src.Engine,
 		EngineVersion:                   src.EngineVersion,

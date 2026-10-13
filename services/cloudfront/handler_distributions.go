@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // handleWebACLAssociationError maps AssociateDistributionWebACL/
@@ -267,16 +269,8 @@ func (h *Handler) handleUpdateDistribution(c *echo.Context, id string) error {
 		return h.handleError(c, getErr)
 	}
 
-	ifMatch := c.Request().Header.Get("If-Match")
-	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(
-			c,
-			http.StatusPreconditionFailed,
-			cfErrorXML(
-				"PreconditionFailed",
-				"If-Match ETag did not match the current distribution config ETag",
-			),
-		)
+	if failed, resp := ifMatchRequiredFailure(c, current.ETag, "distribution"); failed {
+		return resp
 	}
 
 	d, updateErr := h.Backend.UpdateDistribution(id, cfg.Comment, cfg.Enabled, backfillOriginGroups(body))
@@ -295,16 +289,8 @@ func (h *Handler) handleDeleteDistribution(c *echo.Context, id string) error {
 		return h.handleError(c, getErr)
 	}
 
-	ifMatch := c.Request().Header.Get("If-Match")
-	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(
-			c,
-			http.StatusPreconditionFailed,
-			cfErrorXML(
-				"PreconditionFailed",
-				"If-Match ETag did not match the current distribution ETag",
-			),
-		)
+	if failed, resp := ifMatchRequiredFailure(c, current.ETag, "distribution"); failed {
+		return resp
 	}
 
 	if err := h.Backend.DeleteDistribution(id); err != nil {
@@ -685,7 +671,11 @@ func (h *Handler) handleCreateDistributionWithTags(c *echo.Context) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid DistributionConfig XML"))
 	}
 
-	d, createErr := h.Backend.CreateDistribution(
+	pinnedID, reqTags := tags.PinnedIDFromList(req.Tags, func(t tagXML) (string, string) { return t.Key, t.Value })
+	req.Tags = reqTags
+
+	d, createErr := h.Backend.CreateDistributionWithID(
+		pinnedID,
 		cfg.CallerReference,
 		cfg.Comment,
 		cfg.Enabled,
@@ -697,11 +687,11 @@ func (h *Handler) handleCreateDistributionWithTags(c *echo.Context) error {
 
 	// Apply tags if provided.
 	if len(req.Tags) > 0 {
-		tags := make(map[string]string, len(req.Tags))
+		kv := make(map[string]string, len(req.Tags))
 		for _, tag := range req.Tags {
-			tags[tag.Key] = tag.Value
+			kv[tag.Key] = tag.Value
 		}
-		if tagErr := h.Backend.TagResource(d.ARN, tags); tagErr != nil {
+		if tagErr := h.Backend.TagResource(d.ARN, kv); tagErr != nil {
 			return h.handleError(c, tagErr)
 		}
 	}

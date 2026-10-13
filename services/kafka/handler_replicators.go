@@ -21,32 +21,148 @@ type kafkaClusterClientVpcConfigDTO struct {
 	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
 }
 
+// apacheKafkaClusterDTO mirrors types.ApacheKafkaCluster.
+type apacheKafkaClusterDTO struct {
+	ApacheKafkaClusterID  string `json:"apacheKafkaClusterId"`
+	BootstrapBrokerString string `json:"bootstrapBrokerString"`
+}
+
+type secretDTO struct {
+	SecretArn string `json:"secretArn"`
+}
+
+type saslScramDTO struct {
+	Mechanism string `json:"mechanism"`
+	SecretArn string `json:"secretArn"`
+}
+
+// clientAuthenticationDTO mirrors types.KafkaClusterClientAuthentication (serializers.go:6460).
+type clientAuthenticationDTO struct {
+	MTLS      *secretDTO    `json:"mTLS,omitempty"`
+	SaslScram *saslScramDTO `json:"saslScram,omitempty"`
+}
+
+// encryptionInTransitDTO mirrors types.KafkaClusterEncryptionInTransit.
+type encryptionInTransitDTO struct {
+	EncryptionType    string `json:"encryptionType"`
+	RootCaCertificate string `json:"rootCaCertificate,omitempty"`
+}
+
+func (d *clientAuthenticationDTO) toConfig() *ReplicatorClientAuthentication {
+	if d == nil {
+		return nil
+	}
+
+	out := &ReplicatorClientAuthentication{}
+	if d.MTLS != nil {
+		out.MTLSSecretArn = d.MTLS.SecretArn
+	}
+
+	if d.SaslScram != nil {
+		out.SaslScramMechanism = d.SaslScram.Mechanism
+		out.SaslScramSecretArn = d.SaslScram.SecretArn
+	}
+
+	return out
+}
+
+func clientAuthenticationDTOFrom(c *ReplicatorClientAuthentication) *clientAuthenticationDTO {
+	if c == nil {
+		return nil
+	}
+
+	out := &clientAuthenticationDTO{}
+	if c.MTLSSecretArn != "" {
+		out.MTLS = &secretDTO{SecretArn: c.MTLSSecretArn}
+	}
+
+	if c.SaslScramSecretArn != "" || c.SaslScramMechanism != "" {
+		out.SaslScram = &saslScramDTO{Mechanism: c.SaslScramMechanism, SecretArn: c.SaslScramSecretArn}
+	}
+
+	return out
+}
+
+func encryptionInTransitDTOFrom(e *ReplicatorEncryptionInTransit) *encryptionInTransitDTO {
+	if e == nil {
+		return nil
+	}
+
+	return &encryptionInTransitDTO{EncryptionType: e.EncryptionType, RootCaCertificate: e.RootCaCertificate}
+}
+
+func mskClusterDTOFrom(arn string) *amazonMskClusterDTO {
+	if arn == "" {
+		return nil
+	}
+
+	return &amazonMskClusterDTO{MskClusterArn: arn}
+}
+
+func apacheClusterDTOFrom(kc ClusterConfig) *apacheKafkaClusterDTO {
+	if kc.ApacheKafkaClusterID == "" {
+		return nil
+	}
+
+	return &apacheKafkaClusterDTO{
+		ApacheKafkaClusterID:  kc.ApacheKafkaClusterID,
+		BootstrapBrokerString: kc.BootstrapBrokerString,
+	}
+}
+
 // kafkaClusterDTO mirrors types.KafkaCluster, the CreateReplicator request shape.
 type kafkaClusterDTO struct {
-	AmazonMskCluster amazonMskClusterDTO            `json:"amazonMskCluster"`
-	VpcConfig        kafkaClusterClientVpcConfigDTO `json:"vpcConfig"`
+	AmazonMskCluster     *amazonMskClusterDTO           `json:"amazonMskCluster,omitempty"`
+	ApacheKafkaCluster   *apacheKafkaClusterDTO         `json:"apacheKafkaCluster,omitempty"`
+	ClientAuthentication *clientAuthenticationDTO       `json:"clientAuthentication,omitempty"`
+	EncryptionInTransit  *encryptionInTransitDTO        `json:"encryptionInTransit,omitempty"`
+	VpcConfig            kafkaClusterClientVpcConfigDTO `json:"vpcConfig"`
 }
 
 func (d kafkaClusterDTO) toConfig() ClusterConfig {
-	return ClusterConfig{
-		MskClusterArn:    d.AmazonMskCluster.MskClusterArn,
-		SubnetIDs:        d.VpcConfig.SubnetIDs,
-		SecurityGroupIDs: d.VpcConfig.SecurityGroupIDs,
+	cfg := ClusterConfig{
+		ClientAuthentication: d.ClientAuthentication.toConfig(),
+		SubnetIDs:            d.VpcConfig.SubnetIDs,
+		SecurityGroupIDs:     d.VpcConfig.SecurityGroupIDs,
 	}
+
+	if d.AmazonMskCluster != nil {
+		cfg.MskClusterArn = d.AmazonMskCluster.MskClusterArn
+	}
+
+	if d.ApacheKafkaCluster != nil {
+		cfg.ApacheKafkaClusterID = d.ApacheKafkaCluster.ApacheKafkaClusterID
+		cfg.BootstrapBrokerString = d.ApacheKafkaCluster.BootstrapBrokerString
+	}
+
+	if d.EncryptionInTransit != nil {
+		cfg.EncryptionInTransit = &ReplicatorEncryptionInTransit{
+			EncryptionType:    d.EncryptionInTransit.EncryptionType,
+			RootCaCertificate: d.EncryptionInTransit.RootCaCertificate,
+		}
+	}
+
+	return cfg
 }
 
 // kafkaClusterDescriptionDTO mirrors types.KafkaClusterDescription, the
 // Describe/List response shape (adds the derived kafkaClusterAlias).
 type kafkaClusterDescriptionDTO struct {
-	AmazonMskCluster  amazonMskClusterDTO            `json:"amazonMskCluster"`
-	KafkaClusterAlias string                         `json:"kafkaClusterAlias,omitempty"`
-	VpcConfig         kafkaClusterClientVpcConfigDTO `json:"vpcConfig"`
+	AmazonMskCluster     *amazonMskClusterDTO           `json:"amazonMskCluster,omitempty"`
+	ApacheKafkaCluster   *apacheKafkaClusterDTO         `json:"apacheKafkaCluster,omitempty"`
+	ClientAuthentication *clientAuthenticationDTO       `json:"clientAuthentication,omitempty"`
+	EncryptionInTransit  *encryptionInTransitDTO        `json:"encryptionInTransit,omitempty"`
+	KafkaClusterAlias    string                         `json:"kafkaClusterAlias,omitempty"`
+	VpcConfig            kafkaClusterClientVpcConfigDTO `json:"vpcConfig"`
 }
 
 func kafkaClusterDescriptionFrom(kc ClusterConfig) kafkaClusterDescriptionDTO {
 	return kafkaClusterDescriptionDTO{
-		AmazonMskCluster:  amazonMskClusterDTO{MskClusterArn: kc.MskClusterArn},
-		KafkaClusterAlias: kc.Alias,
+		AmazonMskCluster:     mskClusterDTOFrom(kc.MskClusterArn),
+		ApacheKafkaCluster:   apacheClusterDTOFrom(kc),
+		ClientAuthentication: clientAuthenticationDTOFrom(kc.ClientAuthentication),
+		EncryptionInTransit:  encryptionInTransitDTOFrom(kc.EncryptionInTransit),
+		KafkaClusterAlias:    kc.Alias,
 		VpcConfig: kafkaClusterClientVpcConfigDTO{
 			SubnetIDs:        kc.SubnetIDs,
 			SecurityGroupIDs: kc.SecurityGroupIDs,
@@ -164,16 +280,20 @@ func consumerGroupReplicationDTOFrom(cfg ConsumerGroupReplicationConfig) consume
 // request shape for one source->target replication flow.
 type replicationInfoDTO struct {
 	ConsumerGroupReplication consumerGroupReplicationDTO `json:"consumerGroupReplication"`
-	SourceKafkaClusterArn    string                      `json:"sourceKafkaClusterArn"`
+	SourceKafkaClusterArn    string                      `json:"sourceKafkaClusterArn,omitempty"`
+	SourceKafkaClusterID     string                      `json:"sourceKafkaClusterId,omitempty"`
 	TargetCompressionType    string                      `json:"targetCompressionType,omitempty"`
-	TargetKafkaClusterArn    string                      `json:"targetKafkaClusterArn"`
+	TargetKafkaClusterArn    string                      `json:"targetKafkaClusterArn,omitempty"`
+	TargetKafkaClusterID     string                      `json:"targetKafkaClusterId,omitempty"`
 	TopicReplication         topicReplicationDTO         `json:"topicReplication"`
 }
 
 func (d replicationInfoDTO) toConfig() ReplicationInfoConfig {
 	return ReplicationInfoConfig{
 		SourceKafkaClusterArn:    d.SourceKafkaClusterArn,
+		SourceKafkaClusterID:     d.SourceKafkaClusterID,
 		TargetKafkaClusterArn:    d.TargetKafkaClusterArn,
+		TargetKafkaClusterID:     d.TargetKafkaClusterID,
 		TargetCompressionType:    d.TargetCompressionType,
 		TopicReplication:         d.TopicReplication.toConfig(),
 		ConsumerGroupReplication: d.ConsumerGroupReplication.toConfig(),
@@ -379,8 +499,9 @@ type replicatorSummaryOutput struct {
 }
 
 type kafkaClusterSummaryOutput struct {
-	AmazonMskCluster  amazonMskClusterDTO `json:"amazonMskCluster"`
-	KafkaClusterAlias string              `json:"kafkaClusterAlias,omitempty"`
+	AmazonMskCluster   *amazonMskClusterDTO   `json:"amazonMskCluster,omitempty"`
+	ApacheKafkaCluster *apacheKafkaClusterDTO `json:"apacheKafkaCluster,omitempty"`
+	KafkaClusterAlias  string                 `json:"kafkaClusterAlias,omitempty"`
 }
 
 type replicationInfoSummaryOutput struct {
@@ -392,8 +513,9 @@ func replicatorSummaryFrom(r *Replicator) replicatorSummaryOutput {
 	kafkaClustersSummary := make([]kafkaClusterSummaryOutput, len(r.KafkaClusters))
 	for i, kc := range r.KafkaClusters {
 		kafkaClustersSummary[i] = kafkaClusterSummaryOutput{
-			AmazonMskCluster:  amazonMskClusterDTO{MskClusterArn: kc.MskClusterArn},
-			KafkaClusterAlias: kc.Alias,
+			AmazonMskCluster:   mskClusterDTOFrom(kc.MskClusterArn),
+			ApacheKafkaCluster: apacheClusterDTOFrom(kc),
+			KafkaClusterAlias:  kc.Alias,
 		}
 	}
 
@@ -458,7 +580,9 @@ type updateReplicationInfoInput struct {
 	LogDelivery              *LogDelivery                 `json:"logDelivery,omitempty"`
 	CurrentVersion           string                       `json:"currentVersion"`
 	SourceKafkaClusterArn    string                       `json:"sourceKafkaClusterArn"`
+	SourceKafkaClusterID     string                       `json:"sourceKafkaClusterId"`
 	TargetKafkaClusterArn    string                       `json:"targetKafkaClusterArn"`
+	TargetKafkaClusterID     string                       `json:"targetKafkaClusterId"`
 }
 
 // updateReplicationInfoOutput mirrors UpdateReplicationInfoOutput:
@@ -502,6 +626,8 @@ func (h *Handler) handleUpdateReplicationInfo(
 		in.CurrentVersion,
 		in.SourceKafkaClusterArn,
 		in.TargetKafkaClusterArn,
+		in.SourceKafkaClusterID,
+		in.TargetKafkaClusterID,
 		topicReplication,
 		consumerGroupReplication,
 		in.LogDelivery,

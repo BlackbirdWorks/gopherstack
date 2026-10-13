@@ -271,7 +271,7 @@ func writeCBOR(c *echo.Context, v cbor.Value) error {
 // [service.WriteRPCv2CBORError] for why the CBOR body itself (not just the
 // X-Amzn-Errortype header) must carry the exception name.
 func (h *Handler) cborError(c *echo.Context, status int, code, message string) error {
-	return service.WriteRPCv2CBORError(c, status, code, message)
+	return service.WriteRPCv2CBORError(c, status, code, stripCodePrefix(message))
 }
 
 // cborStr extracts a string value from a CBOR map by key.

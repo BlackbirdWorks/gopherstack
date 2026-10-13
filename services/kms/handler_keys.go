@@ -3,6 +3,8 @@ package kms
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // buildKeyLifecycleActions returns dispatch entries for key creation, description, listing and deletion.
@@ -37,20 +39,12 @@ func (h *Handler) buildKeyLifecycleActions() map[string]kmsActionFn {
 		),
 		"ImportKeyMaterial": unmarshalAction(
 			func(ctx context.Context, i *ImportKeyMaterialInput) (any, error) {
-				if err := h.Backend.ImportKeyMaterial(ctx, i); err != nil {
-					return nil, err
-				}
-
-				return ImportKeyMaterialOutput{KeyID: i.KeyID}, nil
+				return h.Backend.ImportKeyMaterialWithResult(ctx, i)
 			},
 		),
 		"DeleteImportedKeyMaterial": unmarshalAction(
 			func(ctx context.Context, i *DeleteImportedKeyMaterialInput) (any, error) {
-				if err := h.Backend.DeleteImportedKeyMaterial(ctx, i); err != nil {
-					return nil, err
-				}
-
-				return DeleteImportedKeyMaterialOutput{KeyID: i.KeyID}, nil
+				return h.Backend.DeleteImportedKeyMaterialWithResult(ctx, i)
 			},
 		),
 	}
@@ -66,6 +60,10 @@ func (h *Handler) createKeyAction(ctx context.Context, b []byte) (any, error) {
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
+
+	input.PinnedKeyID, input.Tags = tags.PinnedIDFromList(input.Tags, func(t Tag) (string, string) {
+		return t.TagKey, t.TagValue
+	})
 
 	if err := validateTags(input.Tags); err != nil {
 		return nil, err

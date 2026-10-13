@@ -41,6 +41,7 @@ func TestProtectedResource_LastBackupVaultArnAndRecoveryPointArn(t *testing.T) {
 
 	janitor := backup.NewJanitor(b, time.Hour, time.Hour)
 	janitor.SweepOnce(ctx)
+	janitor.SweepOnce(ctx)
 
 	descJob, err := client.DescribeBackupJob(ctx, &backupsdk.DescribeBackupJobInput{
 		BackupJobId: startOut.BackupJobId,

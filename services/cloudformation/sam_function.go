@@ -21,7 +21,7 @@ func samFnPassthrough() map[string]bool {
 func samFnHandled() map[string]bool {
 	return keySet("CodeUri", "InlineCode", "ImageUri", "Environment", "Tags", "Role", "Policies",
 		"Events", "AutoPublishAlias", "Tracing", "DeadLetterQueue", "PermissionsBoundary",
-		"VersionDescription", samKeyAssumeRole)
+		"VersionDescription", samKeyAssumeRole, "FunctionUrlConfig", "EventInvokeConfig")
 }
 
 func (t *samTranslator) translateFunction(id string, r map[string]any) error {
@@ -56,12 +56,22 @@ func (t *samTranslator) translateFunction(id string, r map[string]any) error {
 		return err
 	}
 	if props["Role"] == nil {
-		if err = t.putFunctionRole(id, props, managed); err != nil {
+		roleProps, destErr := withDestinationPolicies(id, props)
+		if destErr != nil {
+			return destErr
+		}
+		if err = t.putFunctionRole(id, roleProps, managed); err != nil {
 			return err
 		}
 	}
+	if err = t.putAlias(id, props); err != nil {
+		return err
+	}
+	if err = t.putEventInvokeConfig(id, props); err != nil {
+		return err
+	}
 
-	return t.putAlias(id, props)
+	return t.putFunctionURL(id, props)
 }
 
 func buildLambdaProps(id string, props map[string]any) (map[string]any, error) {

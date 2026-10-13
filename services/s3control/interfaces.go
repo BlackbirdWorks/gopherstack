@@ -1,6 +1,9 @@
 package s3control
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend defines the interface for S3 Control backend implementations.
 // All mutating methods must be safe for concurrent use.
@@ -25,7 +28,7 @@ type StorageBackend interface {
 	DeleteAccessPointPolicy(accountID, name string) error
 	GetAccessPointPolicyStatus(accountID, name string) (bool, error)
 	CreateAccessPointForObjectLambda(accountID, name string) *ObjectLambdaAccessPoint
-	CreateBucket(accountID, bucketName string) *OutpostsBucket
+	CreateBucket(accountID, outpostID, bucketName string) *OutpostsBucket
 	CreateJob(accountID, roleArn string, priority int32) (*BatchJob, error)
 	GetJob(accountID, jobID string) (*BatchJob, error)
 	ListJobs(accountID string) []*BatchJob
@@ -74,7 +77,7 @@ type StorageBackend interface {
 	DeleteAccessGrantsLocation(accountID, locationID string) error
 	UpdateAccessGrantsLocation(accountID, locationID, iamRoleArn string) (*AccessGrantsLocation, error)
 	ListAccessGrantsLocations(accountID string) []*AccessGrantsLocation
-	GetDataAccess(accountID, target, permission string) (string, error)
+	GetDataAccess(accountID, target, permission string, duration time.Duration) (*DataAccess, error)
 
 	// Access Point Scope
 	GetAccessPointScope(accountID, name string) (string, error)
@@ -109,8 +112,8 @@ type StorageBackend interface {
 	GetBucketTagging(bucketName string) (TagSet, error)
 	PutBucketTagging(bucketName string, tags TagSet) error
 	DeleteBucketTagging(bucketName string) error
-	GetBucketVersioning(bucketName string) (string, error)
-	PutBucketVersioning(bucketName, status string) error
+	GetBucketVersioning(bucketName string) (status, mfaDelete string, err error)
+	PutBucketVersioning(bucketName, status, mfaDelete string) error
 	ListRegionalBuckets() []*OutpostsBucket
 
 	// MRAP
@@ -165,6 +168,7 @@ type StorageBackend interface {
 	DeleteAccessPointPublicAccessBlock(accountID, name string) error
 
 	// BatchJob extended fields
+	SetJobManifestGenerator(accountID, jobID, manifestGenerator string) error
 	UpdateJobDetails(accountID, jobID, description, manifest, operation, report string, confirmationRequired bool) error
 	UpdateJobStatusValidated(accountID, jobID, requestedStatus, statusUpdateReason string) (*BatchJob, error)
 

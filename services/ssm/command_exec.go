@@ -25,14 +25,14 @@ const (
 func renderCommandOutput(
 	docName string,
 	params map[string][]string,
-) (string, string, string) {
+) (string, string, string, int) {
 	switch docName {
 	case docRunShellScript:
 		return renderScriptOutput(params["commands"], shellEcho)
 	case docRunPowerShellScript:
 		return renderScriptOutput(params["commands"], powerShellEcho)
 	default:
-		return "", "", commandStatusSuccess
+		return "", "", commandStatusSuccess, 0
 	}
 }
 
@@ -47,7 +47,7 @@ type echoEvaluator func(line string) (out string, matched bool)
 func renderScriptOutput(
 	commands []string,
 	eval echoEvaluator,
-) (string, string, string) {
+) (string, string, string, int) {
 	var out strings.Builder
 
 	for _, raw := range commands {
@@ -61,7 +61,7 @@ func renderScriptOutput(
 				if code != 0 {
 					stderr := "failed to run commands: exit status " + strconv.Itoa(code)
 
-					return out.String(), stderr, commandStatusFailed
+					return out.String(), stderr, commandStatusFailed, code
 				}
 
 				continue
@@ -74,7 +74,7 @@ func renderScriptOutput(
 		}
 	}
 
-	return out.String(), "", commandStatusSuccess
+	return out.String(), "", commandStatusSuccess, 0
 }
 
 // parseExit recognises a POSIX/PowerShell `exit N` statement and returns its

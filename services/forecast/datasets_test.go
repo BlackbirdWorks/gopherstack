@@ -16,7 +16,7 @@ func TestDatasets_ImportCreateFailure(t *testing.T) {
 	h := newHandler()
 	datasetARN := createDataset(t, h)
 	_, created := request(t, h, "CreateDatasetImportJob", map[string]any{
-		"DatasetImportJobName": "broken-import",
+		"DatasetImportJobName": "broken_import",
 		"DatasetArn":           datasetARN,
 		"DataSource":           map[string]any{"S3Config": map[string]any{}},
 	})
@@ -40,7 +40,7 @@ func TestDatasets_FieldRetention(t *testing.T) {
 		},
 	}
 	code, created := request(t, h, "CreateDataset", map[string]any{
-		"DatasetName":   "schema-ds",
+		"DatasetName":   "schema_ds",
 		"Domain":        "RETAIL",
 		"DatasetType":   "TARGET_TIME_SERIES",
 		"DataFrequency": "W",
@@ -54,7 +54,7 @@ func TestDatasets_FieldRetention(t *testing.T) {
 	code, m := request(t, h, "DescribeDataset", map[string]any{"DatasetArn": arn})
 	require.Equal(t, http.StatusOK, code)
 
-	assert.Equal(t, "schema-ds", m["DatasetName"])
+	assert.Equal(t, "schema_ds", m["DatasetName"])
 	assert.Equal(t, "RETAIL", m["Domain"])
 	assert.Equal(t, "TARGET_TIME_SERIES", m["DatasetType"])
 	assert.Equal(t, "W", m["DataFrequency"])
@@ -76,7 +76,7 @@ func TestDatasetImportJobs_S3Validation(t *testing.T) {
 		{
 			name: "valid_s3_path_create_pending",
 			body: map[string]any{
-				"DatasetImportJobName": "valid-import",
+				"DatasetImportJobName": "valid_import",
 				"DatasetArn":           "arn:aws:forecast:us-east-1:000000000000:dataset/sales",
 				"DataSource": map[string]any{
 					"S3Config": map[string]any{"Path": "s3://bucket/data.csv"},
@@ -87,7 +87,7 @@ func TestDatasetImportJobs_S3Validation(t *testing.T) {
 		{
 			name: "missing_s3_path_create_failed",
 			body: map[string]any{
-				"DatasetImportJobName": "broken-import",
+				"DatasetImportJobName": "broken_import",
 				"DatasetArn":           "arn:aws:forecast:us-east-1:000000000000:dataset/sales",
 				"DataSource":           map[string]any{"S3Config": map[string]any{}},
 			},
@@ -106,7 +106,7 @@ func TestDatasetImportJobs_S3Validation(t *testing.T) {
 			// matches the literal "dataset/sales" ARN hardcoded in tt.body.
 			request(t, h, "CreateDataset", map[string]any{
 				"DatasetName": "sales", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES",
-				"DataFrequency": "D", "Schema": map[string]any{"Attributes": []any{}},
+				"DataFrequency": "D", "Schema": testSchema(),
 			})
 
 			code, created := request(t, h, "CreateDatasetImportJob", tt.body)

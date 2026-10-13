@@ -66,6 +66,10 @@ func (b *InMemoryBackend) CreateHostedZone(
 		return nil, fmt.Errorf("%w: callerReference is required", ErrInvalidInput)
 	}
 
+	if err := validateDomainName(name); err != nil {
+		return nil, err
+	}
+
 	name = normaliseName(name)
 
 	b.mu.Lock("CreateHostedZone")

@@ -168,12 +168,13 @@ func (b *InMemoryBackend) Reset() {
 
 // appendStatementLocked records an executed statement and trims the buffer to
 // maxExecutedStatements. The caller must hold b.mu (write lock).
-func (b *InMemoryBackend) appendStatementLocked(region, resourceARN, sql, transactionID string) {
+func (b *InMemoryBackend) appendStatementLocked(ctx context.Context, region, resourceARN, sql, transactionID string) {
 	stmts := b.statementsStore(region)
 	stmts = append(stmts, ExecutedStatement{
 		SQL:           sql,
 		ResourceARN:   resourceARN,
 		TransactionID: transactionID,
+		Database:      getRequestTarget(ctx).Database,
 	})
 
 	if len(stmts) > maxExecutedStatements {

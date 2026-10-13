@@ -38,7 +38,10 @@ func (h *Handler) handleCreateChannel(c *echo.Context, body []byte) error {
 }
 
 func (h *Handler) handleListChannels(c *echo.Context) error {
-	maxResults, cursor := parsePagination(c)
+	maxResults, cursor, pageErr := parsePagination(c)
+	if pageErr != nil {
+		return h.writeBackendError(c, pageErr)
+	}
 	channels := h.Backend.ListChannels()
 
 	summaries := make([]channelSummary, 0, len(channels))

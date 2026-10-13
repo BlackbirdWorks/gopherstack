@@ -242,10 +242,11 @@ func TestHandlerCoreResourceOperations(t *testing.T) {
 			name: "CreateRoute_success",
 			setupFn: func(h *ec2.Handler) string {
 				rt, _ := h.Backend.CreateRouteTable("vpc-default")
+				igw := attachedIGW(t, h.Backend)
 
 				return fmt.Sprintf(
-					"Action=CreateRoute&Version=2016-11-15&RouteTableId=%s&DestinationCidrBlock=0.0.0.0/0&GatewayId=igw-123",
-					rt.ID,
+					"Action=CreateRoute&Version=2016-11-15&RouteTableId=%s&DestinationCidrBlock=0.0.0.0/0&GatewayId=%s",
+					rt.ID, igw,
 				)
 			},
 			wantCode:     http.StatusOK,
@@ -255,7 +256,7 @@ func TestHandlerCoreResourceOperations(t *testing.T) {
 			name: "DeleteRoute_success",
 			setupFn: func(h *ec2.Handler) string {
 				rt, _ := h.Backend.CreateRouteTable("vpc-default")
-				_ = h.Backend.CreateRoute(rt.ID, "0.0.0.0/0", "igw-123", "")
+				_ = h.Backend.CreateRoute(rt.ID, "0.0.0.0/0", attachedIGW(t, h.Backend), "")
 
 				return fmt.Sprintf(
 					"Action=DeleteRoute&Version=2016-11-15&RouteTableId=%s&DestinationCidrBlock=0.0.0.0/0",

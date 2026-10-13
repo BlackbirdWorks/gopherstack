@@ -53,7 +53,10 @@ func (h *Handler) handleCreateVirtualNode(c *echo.Context, meshName string) erro
 		Tags            []tagInput      `json:"tags"`
 	}
 	if err := c.Bind(&body); err != nil || !isValidResourceName(body.VirtualNodeName) {
-		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "virtualNodeName is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("BadRequestException", nameMsg("virtualNodeName", body.VirtualNodeName)),
+		)
 	}
 	vn, err := h.Backend.CreateVirtualNode(meshName, body.VirtualNodeName, body.Spec, tagsToMap(body.Tags))
 	if err != nil {
@@ -98,7 +101,10 @@ func (h *Handler) handleDeleteVirtualNode(c *echo.Context, meshName, name string
 }
 
 func (h *Handler) handleListVirtualNodes(c *echo.Context, meshName string) error {
-	maxResults, nextToken := listParams(c)
+	maxResults, nextToken, pageErr := listParams(c)
+	if pageErr != nil {
+		return h.mapErr(c, pageErr)
+	}
 	items, next, err := h.Backend.ListVirtualNodes(meshName, maxResults, nextToken)
 	if err != nil {
 		return h.mapErr(c, err)

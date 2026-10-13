@@ -56,14 +56,16 @@ type DhcpOptions struct {
 
 // LaunchTemplateVersion holds the versioned launch template data.
 type LaunchTemplateVersion struct {
-	CreateTime         time.Time `json:"createTime"`
-	LaunchTemplateID   string    `json:"launchTemplateId,omitempty"`
-	LaunchTemplateName string    `json:"launchTemplateName,omitempty"`
-	CreatedBy          string    `json:"createdBy,omitempty"`
-	ImageID            string    `json:"imageId,omitempty"`
-	InstanceType       string    `json:"instanceType,omitempty"`
-	VersionNumber      int64     `json:"versionNumber"`
-	DefaultVersion     bool      `json:"defaultVersion,omitempty"`
+	CreateTime         time.Time         `json:"createTime"`
+	Data               map[string]string `json:"data,omitempty"`
+	LaunchTemplateID   string            `json:"launchTemplateId,omitempty"`
+	LaunchTemplateName string            `json:"launchTemplateName,omitempty"`
+	CreatedBy          string            `json:"createdBy,omitempty"`
+	ImageID            string            `json:"imageId,omitempty"`
+	InstanceType       string            `json:"instanceType,omitempty"`
+	Description        string            `json:"description,omitempty"`
+	VersionNumber      int64             `json:"versionNumber"`
+	DefaultVersion     bool              `json:"defaultVersion,omitempty"`
 }
 
 // ---- Transit Gateway VPC Attachments ----

@@ -85,6 +85,63 @@ func (b *InMemoryBackend) GetFunction(name string) (*Function, error) {
 	return &cp, nil
 }
 
+// functionAtStage returns fn as seen at stage: "" is the current record, DEVELOPMENT the
+// working copy, LIVE the last published snapshot (false when never published).
+func functionAtStage(fn *Function, stage string) (*Function, bool) {
+	cp := *fn
+
+	switch stage {
+	case "":
+		return &cp, true
+	case functionStageDevelopment:
+		cp.Status = functionStageDevelopment
+
+		return &cp, true
+	case functionStageLive:
+		live := fn.Live
+		if live == nil {
+			if fn.Status != functionStageLive {
+				return nil, false
+			}
+
+			return &cp, true
+		}
+
+		cp.Comment, cp.Runtime, cp.FunctionCode = live.Comment, live.Runtime, live.FunctionCode
+		cp.ETag, cp.LastModifiedTime, cp.Status = live.ETag, live.LastModifiedTime, functionStageLive
+
+		return &cp, true
+	}
+
+	return nil, false
+}
+
+func validFunctionStage(stage string) bool {
+	return stage == "" || stage == functionStageDevelopment || stage == functionStageLive
+}
+
+// GetFunctionAtStage returns a CloudFront Function as seen at the given stage.
+func (b *InMemoryBackend) GetFunctionAtStage(name, stage string) (*Function, error) {
+	if !validFunctionStage(stage) {
+		return nil, fmt.Errorf("%w: Stage must be DEVELOPMENT or LIVE, got %q", ErrValidation, stage)
+	}
+
+	b.mu.RLock("GetFunctionAtStage")
+	defer b.mu.RUnlock()
+
+	fn, ok := b.functions.Get(name)
+	if !ok {
+		return nil, fmt.Errorf("%w: function %s not found", ErrFunctionNotFound, name)
+	}
+
+	view, ok := functionAtStage(fn, stage)
+	if !ok {
+		return nil, fmt.Errorf("%w: function %s has no %s stage", ErrFunctionNotFound, name, stage)
+	}
+
+	return view, nil
+}
+
 // ListFunctions returns all CloudFront Functions sorted by name.
 func (b *InMemoryBackend) ListFunctions() []*Function {
 	b.mu.RLock("ListFunctions")
@@ -114,6 +171,13 @@ func (b *InMemoryBackend) PublishFunction(name string) (*Function, error) {
 	fn.Status = functionStageLive
 	fn.ETag = uuid.NewString()
 	fn.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+	fn.Live = &FunctionLive{
+		Comment:          fn.Comment,
+		Runtime:          fn.Runtime,
+		FunctionCode:     fn.FunctionCode,
+		ETag:             fn.ETag,
+		LastModifiedTime: fn.LastModifiedTime,
+	}
 	cp := *fn
 
 	return &cp, nil

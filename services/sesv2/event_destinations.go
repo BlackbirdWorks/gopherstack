@@ -77,7 +77,7 @@ func (b *InMemoryBackend) CreateConfigurationSetEventDestination(
 	defer b.mu.Unlock()
 
 	if !b.configurationSets.Has(configSetName) {
-		return nil, fmt.Errorf("%w: configuration set %s not found", ErrNotFound, configSetName)
+		return nil, configSetMissing(configSetName)
 	}
 
 	key := eventDestinationKey(configSetName, destName)
@@ -118,7 +118,7 @@ func (b *InMemoryBackend) GetConfigurationSetEventDestinations(
 	defer b.mu.RUnlock()
 
 	if !b.configurationSets.Has(configSetName) {
-		return nil, fmt.Errorf("%w: configuration set %s not found", ErrNotFound, configSetName)
+		return nil, configSetMissing(configSetName)
 	}
 
 	dests := b.eventDestinationsByConfigSet.Get(configSetName)
@@ -140,7 +140,7 @@ func (b *InMemoryBackend) DeleteConfigurationSetEventDestination(
 	defer b.mu.Unlock()
 
 	if !b.configurationSets.Has(configSetName) {
-		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, configSetName)
+		return configSetMissing(configSetName)
 	}
 
 	key := eventDestinationKey(configSetName, destName)
@@ -167,7 +167,7 @@ func (b *InMemoryBackend) UpdateConfigurationSetEventDestination(
 	defer b.mu.Unlock()
 
 	if !b.configurationSets.Has(configSetName) {
-		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, configSetName)
+		return configSetMissing(configSetName)
 	}
 
 	dest, ok := b.eventDestinations.Get(eventDestinationKey(configSetName, destName))

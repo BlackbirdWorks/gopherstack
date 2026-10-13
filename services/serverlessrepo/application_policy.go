@@ -2,6 +2,7 @@ package serverlessrepo
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
@@ -68,6 +69,17 @@ func (b *InMemoryBackend) PutApplicationPolicy(
 			return nil, fmt.Errorf("%w: statement %d has no principals", ErrValidation, i)
 		}
 
+		for _, p := range s.Principals {
+			if p != "*" && !accountIDRe.MatchString(p) {
+				return nil, fmt.Errorf(
+					"%w: statement %d principal %q must be a 12-digit AWS account ID or *",
+					ErrValidation,
+					i,
+					p,
+				)
+			}
+		}
+
 		if s.StatementID == "" {
 			statements[i].StatementID = uuid.NewString()
 		}
@@ -77,6 +89,8 @@ func (b *InMemoryBackend) PutApplicationPolicy(
 
 	return clonePolicyStatements(b.appPolicies[appName]), nil
 }
+
+var accountIDRe = regexp.MustCompile(`^\d{12}$`)
 
 // validPolicyActionVariantCount is the number of case variants (PascalCase and all-lowercase)
 // registered per documented policy action in [validPolicyActionsSet].

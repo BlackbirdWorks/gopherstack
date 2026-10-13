@@ -30,7 +30,7 @@ func TestBucketVersioning_NoStatusUntilConfigured(t *testing.T) {
 			t.Parallel()
 
 			backend := s3control.NewInMemoryBackend()
-			backend.CreateBucket("123456789012", "vb")
+			backend.CreateBucket("123456789012", "", "vb")
 			c := newTestS3ControlClient(t, s3control.NewHandler(backend))
 
 			if tc.put != "" {
@@ -46,6 +46,44 @@ func TestBucketVersioning_NoStatusUntilConfigured(t *testing.T) {
 			})
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got.Status)
+		})
+	}
+}
+
+func TestBucketVersioning_MfaDeleteRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		put  types.MFADelete
+		want types.MFADeleteStatus
+	}{
+		{name: "unset", want: ""},
+		{name: "enabled", put: types.MFADeleteEnabled, want: types.MFADeleteStatusEnabled},
+		{name: "disabled", put: types.MFADeleteDisabled, want: types.MFADeleteStatusDisabled},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := s3control.NewInMemoryBackend()
+			backend.CreateBucket("123456789012", "", "vb")
+			c := newTestS3ControlClient(t, s3control.NewHandler(backend))
+
+			_, err := c.PutBucketVersioning(t.Context(), &s3csdk.PutBucketVersioningInput{
+				AccountId: aws.String("123456789012"), Bucket: aws.String("vb"),
+				VersioningConfiguration: &types.VersioningConfiguration{
+					Status: types.BucketVersioningStatusEnabled, MFADelete: tc.put,
+				},
+			})
+			require.NoError(t, err)
+
+			got, err := c.GetBucketVersioning(t.Context(), &s3csdk.GetBucketVersioningInput{
+				AccountId: aws.String("123456789012"), Bucket: aws.String("vb"),
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got.MFADelete)
 		})
 	}
 }

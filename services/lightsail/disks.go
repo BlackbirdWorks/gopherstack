@@ -34,6 +34,10 @@ func (b *InMemoryBackend) CreateDisk(
 	b.mu.Lock("CreateDisk")
 	defer b.mu.Unlock()
 
+	if err := b.validateAvailabilityZone(availabilityZone); err != nil {
+		return nil, err
+	}
+
 	if err := b.registerNameLocked(ResourceTypeDisk, name); err != nil {
 		return nil, err
 	}
@@ -307,7 +311,7 @@ func (b *InMemoryBackend) CreateDiskSnapshot(
 }
 
 func (b *InMemoryBackend) scheduleDiskSnapshotCompleteLocked(name string) {
-	b.work.After("DiskSnapshotComplete", asyncTransitionDelay, func() {
+	b.work.After("DiskSnapshotComplete", b.transitionDelay(), func() {
 		b.mu.Lock("DiskSnapshot-async-complete")
 		defer b.mu.Unlock()
 

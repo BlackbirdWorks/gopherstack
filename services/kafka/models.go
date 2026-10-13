@@ -1,5 +1,7 @@
 package kafka
 
+import "time"
+
 const (
 	// kafkaVersion360 is the MSK Kafka 3.6.0 version identifier.
 	kafkaVersion360 = "3.6.0"
@@ -14,6 +16,8 @@ const (
 	VpcConnectionStateAvailable = "AVAILABLE"
 	// ClusterOperationStateUpdateComplete indicates a completed cluster operation.
 	ClusterOperationStateUpdateComplete = "UPDATE_COMPLETE"
+	// ClusterOperationStateUpdateInProgress indicates an operation that has not finished.
+	ClusterOperationStateUpdateInProgress = "UPDATE_IN_PROGRESS"
 	// NodeTypeBroker is the only real value of types.NodeType (enums.go:320).
 	NodeTypeBroker = "BROKER"
 	// DefaultClusterVersion is the default MSK cluster version identifier.
@@ -327,6 +331,7 @@ type ServerlessClusterInfo struct {
 
 // Cluster represents an MSK cluster.
 type Cluster struct {
+	readyAt              time.Time
 	Tags                 map[string]string      `json:"-"`
 	ClientAuthentication *ClientAuthentication  `json:"clientAuthentication,omitempty"`
 	EncryptionInfo       *EncryptionInfo        `json:"encryptionInfo,omitempty"`
@@ -336,19 +341,21 @@ type Cluster struct {
 	Serverless           *ServerlessClusterInfo `json:"serverless,omitempty"`
 	ConfigurationInfo    *ConfigurationInfo     `json:"configurationInfo,omitempty"`
 	Rebalancing          *Rebalancing           `json:"rebalancing,omitempty"`
-	ClusterArn           string                 `json:"clusterArn"`
-	ClusterName          string                 `json:"clusterName"`
-	ClusterType          string                 `json:"clusterType"`
 	KafkaVersion         string                 `json:"kafkaVersion,omitempty"`
+	StorageMode          string                 `json:"storageMode,omitempty"`
+	ClusterName          string                 `json:"clusterName"`
 	State                string                 `json:"state"`
 	CurrentVersion       string                 `json:"currentVersion"`
 	ActiveOperationArn   string                 `json:"activeOperationArn,omitempty"`
 	EnhancedMonitoring   string                 `json:"enhancedMonitoring,omitempty"`
-	StorageMode          string                 `json:"storageMode,omitempty"`
+	ClusterType          string                 `json:"clusterType"`
 	CreationTime         string                 `json:"creationTime,omitempty"`
-	BrokerNodeGroupInfo  BrokerNodeGroupInfo    `json:"brokerNodeGroupInfo"`
-	NumberOfBrokerNodes  int32                  `json:"numberOfBrokerNodes"`
-	pollCount            int                    // tracks CREATING→ACTIVE progression; not serialized
+	ClusterArn           string                 `json:"clusterArn"`
+	pendingOpArn         string
+	pendingState         string
+	BrokerNodeGroupInfo  BrokerNodeGroupInfo `json:"brokerNodeGroupInfo"`
+	pollCount            int
+	NumberOfBrokerNodes  int32 `json:"numberOfBrokerNodes"`
 }
 
 // Configuration represents an MSK configuration. CreationTime/LatestRevision/
@@ -505,10 +512,27 @@ type ScramSecretError struct {
 // KafkaClusterDescription.KafkaClusterAlias, which real MSK derives from the
 // referenced cluster's current name rather than storing it at creation time.
 type ClusterConfig struct {
-	MskClusterArn    string   `json:"mskClusterArn"`
-	Alias            string   `json:"-"`
-	SubnetIDs        []string `json:"subnetIds,omitempty"`
-	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
+	ClientAuthentication  *ReplicatorClientAuthentication `json:"clientAuthentication,omitempty"`
+	EncryptionInTransit   *ReplicatorEncryptionInTransit  `json:"encryptionInTransit,omitempty"`
+	MskClusterArn         string                          `json:"mskClusterArn"`
+	ApacheKafkaClusterID  string                          `json:"apacheKafkaClusterId,omitempty"`
+	BootstrapBrokerString string                          `json:"bootstrapBrokerString,omitempty"`
+	Alias                 string                          `json:"-"`
+	SubnetIDs             []string                        `json:"subnetIds,omitempty"`
+	SecurityGroupIDs      []string                        `json:"securityGroupIds,omitempty"`
+}
+
+// ReplicatorClientAuthentication mirrors types.KafkaClusterClientAuthentication.
+type ReplicatorClientAuthentication struct {
+	MTLSSecretArn      string `json:"mtlsSecretArn,omitempty"`
+	SaslScramMechanism string `json:"saslScramMechanism,omitempty"`
+	SaslScramSecretArn string `json:"saslScramSecretArn,omitempty"`
+}
+
+// ReplicatorEncryptionInTransit mirrors types.KafkaClusterEncryptionInTransit.
+type ReplicatorEncryptionInTransit struct {
+	EncryptionType    string `json:"encryptionType,omitempty"`
+	RootCaCertificate string `json:"rootCaCertificate,omitempty"`
 }
 
 // TopicReplicationConfig mirrors types.TopicReplication /
@@ -538,7 +562,9 @@ type ConsumerGroupReplicationConfig struct {
 // TargetAlias are resolved fresh on every read, like ClusterConfig.Alias.
 type ReplicationInfoConfig struct {
 	SourceKafkaClusterArn    string                         `json:"sourceKafkaClusterArn"`
+	SourceKafkaClusterID     string                         `json:"sourceKafkaClusterId,omitempty"`
 	TargetKafkaClusterArn    string                         `json:"targetKafkaClusterArn"`
+	TargetKafkaClusterID     string                         `json:"targetKafkaClusterId,omitempty"`
 	TargetCompressionType    string                         `json:"targetCompressionType,omitempty"`
 	SourceAlias              string                         `json:"-"`
 	TargetAlias              string                         `json:"-"`
@@ -644,6 +670,7 @@ type VpcConnection struct {
 // isn't tracked, and CreateVpcConnection/DeleteVpcConnection don't create a
 // ClusterOperation record at all in this backend (gopherstack-mk3t).
 type ClusterOperation struct {
+	doneAt              time.Time
 	SourceClusterInfo   *MutableClusterInfo `json:"sourceClusterInfo,omitempty"`
 	TargetClusterInfo   *MutableClusterInfo `json:"targetClusterInfo,omitempty"`
 	ClusterOperationArn string              `json:"operationArn"`

@@ -30,7 +30,7 @@ func (b *InMemoryBackend) resolveByARNLocked(resourceARN string) (*Repository, e
 
 	repo, ok := b.repos.Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, resourceARN)
+		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, name)
 	}
 
 	return repo, nil

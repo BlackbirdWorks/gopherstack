@@ -2,7 +2,7 @@
 service: kinesisvideo
 sdk_module: aws-sdk-go-v2/service/kinesisvideo@v1.41.1
 last_audit_commit: 5bb0d02ee
-last_audit_date: 2026-10-05
+last_audit_date: 2026-10-10
 overall: A            # A: SDK-driven test/integration suite TestIntegration_KinesisVideo_StreamLifecycle + TestIntegration_KinesisVideo_SignalingChannelLifecycle (test/integration/kinesisvideo_test.go) + every buildable gap closed; remaining divergences are structural_gaps.
 ops:
   CreateStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-10-05: CREATING, lazily ACTIVE after 500ms"}
@@ -87,3 +87,7 @@ Grade moves B to A on `TestIntegration_KinesisVideo_StreamLifecycle` and `TestIn
 ## 2026-10-05 (gopherstack-uox6 pass 9, value semantics)
 
 UpdateImageGenerationConfiguration now stores JPEGQuality 80 for JPEG when FormatConfig omits it (types.go:162 "default value of the JPEGQuality key will be set to 80"; applied to JPEG only, an interpretation). Proof: `TestUpdateImageGenerationConfiguration_JPEGQualityDefault`.
+
+## 2026-10-10 realism pass
+
+CreateStream/UpdateStream validate MediaType (`type/subtype` list), DeviceName (`[\w-]+`), DefaultStorageTier (HOT/WARM), KmsKeyId length and tag key/value; CreateSignalingChannel validates ChannelType and MessageTtlSeconds (5-120); UpdateDataRetention requires `DataRetentionChangeInHours` >= 1. List* reject an invalid NextToken and out-of-range MaxResults (InvalidArgumentException; previously ignored). More than 50 tags is TagsPerResourceExceededLimitException. GetDataEndpoint validates APIName. Error messages say which member failed. Kept lenient: CurrentVersion is length-checked only (in-repo callers pass non-alphanumeric versions). Tests: validation_test.go.

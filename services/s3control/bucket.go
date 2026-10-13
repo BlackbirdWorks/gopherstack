@@ -26,11 +26,15 @@ import (
 // bucketVersioning/bucketReplication) are keyed by bucket Name alone.
 // AccountID still flows into BucketArn but isn't part of any lookup key —
 // mirroring real S3's own globally-unique-by-name bucket namespace.
-func (b *InMemoryBackend) CreateBucket(accountID, bucketName string) *OutpostsBucket {
+func (b *InMemoryBackend) CreateBucket(accountID, outpostID, bucketName string) *OutpostsBucket {
 	b.mu.Lock("CreateBucket")
 	defer b.mu.Unlock()
 
-	arn := fmt.Sprintf(arnFmtOutpostsBucket, b.region, accountID, bucketName)
+	if outpostID == "" {
+		outpostID = defaultOutpostID
+	}
+
+	arn := fmt.Sprintf(arnFmtOutpostsBucket, b.region, accountID, outpostID, bucketName)
 
 	bkt := &OutpostsBucket{
 		AccountID: accountID,
@@ -82,6 +86,7 @@ func (b *InMemoryBackend) DeleteBucket(bucketName string) error {
 	delete(b.bucketPolicies, bucketName)
 	delete(b.bucketTagging, bucketName)
 	delete(b.bucketVersioning, bucketName)
+	delete(b.bucketMFADelete, bucketName)
 	delete(b.bucketReplication, bucketName)
 	delete(b.resourceTags, arn)
 
@@ -213,19 +218,19 @@ func (b *InMemoryBackend) DeleteBucketTagging(bucketName string) error {
 }
 
 // GetBucketVersioning returns the versioning state for an Outposts bucket.
-func (b *InMemoryBackend) GetBucketVersioning(bucketName string) (string, error) {
+func (b *InMemoryBackend) GetBucketVersioning(bucketName string) (string, string, error) {
 	b.mu.RLock("GetBucketVersioning")
 	defer b.mu.RUnlock()
 
 	if !b.outpostsBuckets.Has(bucketName) {
-		return "", fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
+		return "", "", fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
 	}
 	// Never-configured buckets return no status (api_op_GetBucketVersioning.go:24-26).
-	return b.bucketVersioning[bucketName], nil
+	return b.bucketVersioning[bucketName], b.bucketMFADelete[bucketName], nil
 }
 
 // PutBucketVersioning sets the versioning state for an Outposts bucket.
-func (b *InMemoryBackend) PutBucketVersioning(bucketName, status string) error {
+func (b *InMemoryBackend) PutBucketVersioning(bucketName, status, mfaDelete string) error {
 	b.mu.Lock("PutBucketVersioning")
 	defer b.mu.Unlock()
 
@@ -233,6 +238,9 @@ func (b *InMemoryBackend) PutBucketVersioning(bucketName, status string) error {
 		return fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
 	}
 	b.bucketVersioning[bucketName] = status
+	if mfaDelete != "" {
+		b.bucketMFADelete[bucketName] = mfaDelete
+	}
 
 	return nil
 }

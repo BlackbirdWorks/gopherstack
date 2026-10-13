@@ -188,7 +188,7 @@ func TestNatGateway_CreateReturnsNatGwID(t *testing.T) {
 			})
 			require.NoError(t, err)
 			assert.Contains(t, resp, "<natGatewayId>nat-", "must return nat- prefixed ID")
-			assert.Contains(t, resp, "<state>available</state>")
+			assert.Contains(t, resp, "<state>pending</state>")
 		})
 	}
 }
@@ -218,7 +218,7 @@ func TestNatGateway_DescribeReturnsAllFields(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, resp, "<natGatewayId>"+ngw.ID+"</natGatewayId>")
 	assert.Contains(t, resp, "<subnetId>subnet-default</subnetId>")
-	assert.Contains(t, resp, "<state>available</state>")
+	assert.Contains(t, resp, "<state>pending</state>")
 	// vpcId and connectivityType were previously missing from the wire
 	// response despite being present on the real NatGateway type.
 	assert.Contains(t, resp, "<vpcId>vpc-default</vpcId>")

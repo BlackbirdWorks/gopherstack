@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -194,6 +195,7 @@ const (
 type Handler struct {
 	peers   *regionpeers.Set[Handler]
 	idem    *idempotency.Memo
+	s3      S3ObjectReader
 	Backend StorageBackend
 }
 
@@ -749,7 +751,7 @@ func (h *Handler) mapError(c *echo.Context, err error) error {
 func errResp(code, message string) map[string]string {
 	return map[string]string{
 		"__type":  code,
-		"message": message,
+		"message": strings.TrimPrefix(message, code+": "),
 	}
 }
 
@@ -778,49 +780,42 @@ func readJSON(c *echo.Context, v any) error {
 	return nil
 }
 
-func paginationQueryParams(c *echo.Context) (int, string) {
-	q := c.Request().URL.Query()
-	nextToken := q.Get("startingToken")
-
-	var maxResults int
-
-	if s := q.Get("maxResults"); s != "" {
-		_, _ = fmt.Sscanf(s, "%d", &maxResults)
-	}
-
-	return maxResults, nextToken
+func paginationQueryParams(c *echo.Context) (int, string, error) {
+	return pageQueryParams(c, "maxResults", "startingToken")
 }
 
-// listQueryParams extracts maxResults/nextToken pagination params from the
-// query string for List* operations whose real AWS wire shape places these
-// in the query string (with only a JSON body "filter", e.g. ListReferenceStores,
-// ListReadSets, ListAnnotationStores, ListVariantStores, ListShares, ...) rather
-// than the request body.
-func listQueryParams(c *echo.Context) (int, string) {
-	q := c.Request().URL.Query()
-	nextToken := q.Get("nextToken")
-
-	var maxResults int
-
-	if s := q.Get("maxResults"); s != "" {
-		_, _ = fmt.Sscanf(s, "%d", &maxResults)
-	}
-
-	return maxResults, nextToken
+// listQueryParams reads maxResults/nextToken from the query string for List*
+// operations that bind them there (with only a JSON body "filter").
+func listQueryParams(c *echo.Context) (int, string, error) {
+	return pageQueryParams(c, "maxResults", "nextToken")
 }
 
-// batchQueryParams extracts maxItems/startingToken pagination params from the
-// query string for the RunBatch family (ListBatch, ListRunsInBatch), whose
-// real AWS wire shape uses "maxItems" rather than "maxResults".
-func batchQueryParams(c *echo.Context) (int, string) {
+// batchQueryParams reads maxItems/startingToken for the RunBatch family
+// (ListBatch, ListRunsInBatch), whose wire shape uses "maxItems".
+func batchQueryParams(c *echo.Context) (int, string, error) {
+	return pageQueryParams(c, "maxItems", "startingToken")
+}
+
+func pageQueryParams(c *echo.Context, maxKey, tokenKey string) (int, string, error) {
 	q := c.Request().URL.Query()
-	nextToken := q.Get("startingToken")
 
 	var maxResults int
 
-	if s := q.Get("maxItems"); s != "" {
-		_, _ = fmt.Sscanf(s, "%d", &maxResults)
+	if s := q.Get(maxKey); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 || n > maxPageSize {
+			return 0, "", fmt.Errorf("%w: %s must be between 1 and %d", ErrValidation, maxKey, maxPageSize)
+		}
+
+		maxResults = n
 	}
 
-	return maxResults, nextToken
+	token := q.Get(tokenKey)
+	if token != "" {
+		if _, ok := decodePageToken(token); !ok {
+			return 0, "", fmt.Errorf("%w: invalid %s", ErrValidation, tokenKey)
+		}
+	}
+
+	return maxResults, token, nil
 }

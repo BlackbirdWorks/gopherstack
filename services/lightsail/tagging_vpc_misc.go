@@ -650,7 +650,7 @@ func (b *InMemoryBackend) CreateGUISessionAccessDetails(resourceName string) (*G
 		s = &GUISession{ResourceName: resourceName, Status: GUISessionStatusSettingUp}
 		b.guiSessions.Put(s)
 
-		b.work.After("GUISessionReady", asyncTransitionDelay, func() {
+		b.work.After("GUISessionReady", b.transitionDelay(), func() {
 			b.mu.Lock("GUISession-async-ready")
 			defer b.mu.Unlock()
 

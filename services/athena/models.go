@@ -45,15 +45,46 @@ type EngineVersion struct {
 	EffectiveEngineVersion string `json:"EffectiveEngineVersion,omitempty"`
 }
 
+// IdentityCenterConfiguration mirrors types.IdentityCenterConfiguration.
+type IdentityCenterConfiguration struct {
+	EnableIdentityCenter      *bool  `json:"EnableIdentityCenter,omitempty"`
+	IdentityCenterInstanceArn string `json:"IdentityCenterInstanceArn,omitempty"`
+}
+
+// ManagedResultsEncryption mirrors types.ManagedQueryResultsEncryptionConfiguration.
+type ManagedResultsEncryption struct {
+	KmsKey string `json:"KmsKey,omitempty"`
+}
+
+// ManagedQueryResultsConfiguration mirrors types.ManagedQueryResultsConfiguration.
+type ManagedQueryResultsConfiguration struct {
+	EncryptionConfiguration *ManagedResultsEncryption `json:"EncryptionConfiguration,omitempty"`
+	Enabled                 bool                      `json:"Enabled"`
+}
+
+// ManagedResultsUpdates mirrors types.ManagedQueryResultsConfigurationUpdates.
+type ManagedResultsUpdates struct {
+	Enabled                       *bool                     `json:"Enabled,omitempty"`
+	EncryptionConfiguration       *ManagedResultsEncryption `json:"EncryptionConfiguration,omitempty"`
+	RemoveEncryptionConfiguration *bool                     `json:"RemoveEncryptionConfiguration,omitempty"`
+}
+
+// S3AccessGrantsConfig mirrors types.QueryResultsS3AccessGrantsConfiguration.
+type S3AccessGrantsConfig struct {
+	EnableS3AccessGrants  *bool  `json:"EnableS3AccessGrants,omitempty"`
+	CreateUserLevelPrefix *bool  `json:"CreateUserLevelPrefix,omitempty"`
+	AuthenticationType    string `json:"AuthenticationType,omitempty"`
+}
+
 // WorkGroupConfiguration holds configuration for a workgroup.
-//
-// IdentityCenterConfiguration/ManagedQueryResultsConfiguration/
-// QueryResultsS3AccessGrantsConfiguration remain deliberately unmodeled --
-// see the gaps: entry in PARITY.md.
 type WorkGroupConfiguration struct {
 	// CustomerContentEncryptionConfiguration is split from the aligned block
 	// below to keep its line under the lll limit once combined with its tag.
 	CustomerContentEncryptionConfiguration *CustomerEncCfg `json:"CustomerContentEncryptionConfiguration,omitempty"`
+
+	IdentityCenter *IdentityCenterConfiguration      `json:"IdentityCenterConfiguration,omitempty"`
+	ManagedResults *ManagedQueryResultsConfiguration `json:"ManagedQueryResultsConfiguration,omitempty"`
+	S3AccessGrants *S3AccessGrantsConfig             `json:"QueryResultsS3AccessGrantsConfiguration,omitempty"`
 
 	EngineConfiguration        *EngineConfiguration     `json:"EngineConfiguration,omitempty"`
 	MonitoringConfiguration    *MonitoringConfiguration `json:"MonitoringConfiguration,omitempty"`
@@ -82,6 +113,9 @@ type WorkGroupConfigurationUpdates struct {
 	// below to keep its line under the lll limit once combined with its tag.
 	CustomerContentEncryptionConfiguration *CustomerEncCfg `json:"CustomerContentEncryptionConfiguration,omitempty"`
 
+	ManagedResults *ManagedResultsUpdates `json:"ManagedQueryResultsConfigurationUpdates,omitempty"`
+	S3AccessGrants *S3AccessGrantsConfig  `json:"QueryResultsS3AccessGrantsConfiguration,omitempty"`
+
 	ResultConfiguration        *ResultConfiguration     `json:"ResultConfigurationUpdates,omitempty"`
 	EngineVersion              *EngineVersion           `json:"EngineVersion,omitempty"`
 	EngineConfiguration        *EngineConfiguration     `json:"EngineConfiguration,omitempty"`
@@ -93,6 +127,9 @@ type WorkGroupConfigurationUpdates struct {
 	EnforceWGCfg               *bool                    `json:"EnforceWorkGroupConfiguration,omitempty"`
 	PublishCWMetrics           *bool                    `json:"PublishCloudWatchMetricsEnabled,omitempty"`
 	RequesterPays              *bool                    `json:"RequesterPaysEnabled,omitempty"`
+
+	RemoveBytesScannedCutoffPerQuery             bool `json:"RemoveBytesScannedCutoffPerQuery,omitempty"`
+	RemoveCustomerContentEncryptionConfiguration bool `json:"RemoveCustomerContentEncryptionConfiguration,omitempty"`
 }
 
 // MergeInto applies only the members u actually carries onto cfg, leaving
@@ -134,6 +171,50 @@ func (u *WorkGroupConfigurationUpdates) MergeInto(cfg *WorkGroupConfiguration) {
 	if u.RequesterPays != nil {
 		cfg.RequesterPays = *u.RequesterPays
 	}
+
+	u.mergeFeatureConfigs(cfg)
+}
+
+func (u *WorkGroupConfigurationUpdates) mergeFeatureConfigs(cfg *WorkGroupConfiguration) {
+	if u.RemoveBytesScannedCutoffPerQuery {
+		cfg.BytesScannedCutoffPerQuery = 0
+	}
+
+	if u.RemoveCustomerContentEncryptionConfiguration {
+		cfg.CustomerContentEncryptionConfiguration = nil
+	}
+
+	if u.S3AccessGrants != nil {
+		cfg.S3AccessGrants = u.S3AccessGrants
+	}
+
+	if u.ManagedResults != nil {
+		cfg.ManagedResults = u.ManagedResults.apply(cfg.ManagedResults)
+	}
+}
+
+func (u *ManagedResultsUpdates) apply(
+	cur *ManagedQueryResultsConfiguration,
+) *ManagedQueryResultsConfiguration {
+	next := ManagedQueryResultsConfiguration{}
+	if cur != nil {
+		next = *cur
+	}
+
+	if u.Enabled != nil {
+		next.Enabled = *u.Enabled
+	}
+
+	if u.EncryptionConfiguration != nil {
+		next.EncryptionConfiguration = u.EncryptionConfiguration
+	}
+
+	if u.RemoveEncryptionConfiguration != nil && *u.RemoveEncryptionConfiguration {
+		next.Enabled = false
+		next.EncryptionConfiguration = nil
+	}
+
+	return &next
 }
 
 // WorkGroup represents an Athena workgroup.
@@ -249,13 +330,16 @@ type QueryExecution struct {
 	QueryExecutionContext    QueryExecutionContext     `json:"QueryExecutionContext,omitzero"`
 	ResultReuseConfiguration *ResultReuseConfiguration `json:"ResultReuseConfiguration,omitempty"`
 	EngineVersion            *EngineVersion            `json:"EngineVersion,omitempty"`
-	QueryExecutionID         string                    `json:"QueryExecutionId"`
-	Query                    string                    `json:"Query"`
-	WorkGroup                string                    `json:"WorkGroup,omitempty"`
-	StatementType            string                    `json:"StatementType,omitempty"`
-	ExecutionParameters      []string                  `json:"ExecutionParameters,omitempty"`
-	Status                   QueryExecutionStatus      `json:"Status"`
-	Statistics               QueryExecutionStatistics  `json:"Statistics,omitzero"`
+
+	ManagedQueryResultsConfiguration *ManagedQueryResultsConfiguration `json:"ManagedQueryResultsConfiguration,omitempty"`
+
+	QueryExecutionID    string                   `json:"QueryExecutionId"`
+	Query               string                   `json:"Query"`
+	WorkGroup           string                   `json:"WorkGroup,omitempty"`
+	StatementType       string                   `json:"StatementType,omitempty"`
+	ExecutionParameters []string                 `json:"ExecutionParameters,omitempty"`
+	Status              QueryExecutionStatus     `json:"Status"`
+	Statistics          QueryExecutionStatistics `json:"Statistics,omitzero"`
 }
 
 // Tag is a key-value pair.

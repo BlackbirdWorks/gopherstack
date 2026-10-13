@@ -32,7 +32,7 @@ func (b *InMemoryBackend) CreateEnvironment(
 	defer b.mu.Unlock()
 
 	if b.environments.Has(regionKey(region, name)) {
-		return nil, ErrEnvironmentAlreadyExists
+		return nil, envAlreadyExists(name)
 	}
 
 	defaults := resolveCreateDefaults(req)
@@ -47,6 +47,7 @@ func (b *InMemoryBackend) CreateEnvironment(
 	env.region = region
 
 	b.environments.Put(env)
+	b.settleEnvironment(regionKey(region, name), envStatusCreating)
 
 	return env, nil
 }
@@ -226,11 +227,13 @@ func (b *InMemoryBackend) GetEnvironment(ctx context.Context, name string) (*Env
 
 	env, ok := b.environments.Get(regionKey(region, name))
 	if !ok {
-		return nil, ErrEnvironmentNotFound
+		return nil, envNotFound(name)
 	}
 
 	cp := cloneEnvironment(env)
-	promoteTransientStatus(env)
+	if !b.timedTransitions() {
+		promoteTransientStatus(env)
+	}
 
 	return cp, nil
 }
@@ -258,7 +261,16 @@ func (b *InMemoryBackend) DeleteEnvironment(ctx context.Context, name string) (*
 
 	env, ok := b.environments.Get(regionKey(region, name))
 	if !ok {
-		return nil, ErrEnvironmentNotFound
+		return nil, envNotFound(name)
+	}
+
+	if b.timedTransitions() {
+		if env.Status != envStatusDeleting {
+			env.Status = envStatusDeleting
+			b.removeEnvironmentAfterDelay(region, name)
+		}
+
+		return cloneEnvironment(env), nil
 	}
 
 	b.environments.Delete(regionKey(region, name))
@@ -284,7 +296,7 @@ func (b *InMemoryBackend) UpdateEnvironment(
 
 	env, ok := b.environments.Get(regionKey(region, name))
 	if !ok {
-		return nil, ErrEnvironmentNotFound
+		return nil, envNotFound(name)
 	}
 
 	if env.Status != envStatusAvailable {
@@ -330,9 +342,14 @@ func (b *InMemoryBackend) UpdateEnvironment(
 		env.LoggingConfiguration = convertLoggingConfiguration(req.LoggingConfiguration)
 	}
 
+	lastStatus := lastUpdateSuccess
+	if b.timedTransitions() {
+		lastStatus = lastUpdatePending
+	}
+
 	env.LastUpdate = &LastUpdate{
 		CreatedAt:                 epochSecondsNow(),
-		Status:                    "SUCCESS",
+		Status:                    lastStatus,
 		Source:                    "USER",
 		WorkerReplacementStrategy: req.WorkerReplacementStrategy,
 	}
@@ -340,6 +357,7 @@ func (b *InMemoryBackend) UpdateEnvironment(
 	// Reflect the AWS lifecycle: UpdateEnvironment puts the env into UPDATING,
 	// then it returns to AVAILABLE on the next observation.
 	env.Status = envStatusUpdating
+	b.settleEnvironment(regionKey(region, name), envStatusUpdating)
 
 	return env, nil
 }

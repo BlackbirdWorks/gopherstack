@@ -190,8 +190,50 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	return c.JSON(status, map[string]string{
 		"__type":  code,
-		"message": err.Error(),
+		"message": errMessage(err, code),
 	})
+}
+
+func codeMessage(code string) (string, bool) {
+	switch code {
+	case errResourceNotFound:
+		return "The specified resource does not exist.", true
+	case errResourceExists:
+		return "The specified resource already exists.", true
+	case errResourceInUse:
+		return "The specified resource is in use.", true
+	}
+
+	return "", false
+}
+
+// errMessage drops the duplicated "<code>: " prefix and fills in a sentence
+// when the error is a bare code.
+func errMessage(err error, code string) string {
+	msg := strings.TrimPrefix(err.Error(), code+": ")
+	if msg == code {
+		if m, ok := codeMessage(code); ok {
+			return m
+		}
+	}
+
+	return msg
+}
+
+func computeCapacityStatus(f *Fleet) map[string]any {
+	running := 0
+	if f.State == fleetStateRunning {
+		running = f.DesiredInstances
+	}
+
+	inUse := min(f.InUseInstances, running)
+
+	return map[string]any{
+		"Desired":   f.DesiredInstances,
+		"Running":   running,
+		"InUse":     inUse,
+		"Available": running - inUse,
+	}
 }
 
 // opTable is the op-name -> handler-func map type shared by buildOps and its
@@ -1273,12 +1315,7 @@ func fleetToResponse(f *Fleet) map[string]any {
 		"DisconnectTimeoutInSeconds":     f.DisconnectTimeoutSecs,
 		"IdleDisconnectTimeoutInSeconds": f.IdleDisconnectTimeoutSecs,
 		"CreatedTime":                    f.CreatedTime.Unix(),
-		"ComputeCapacityStatus": map[string]any{
-			"Desired":   f.DesiredInstances,
-			"Running":   0,
-			"InUse":     0,
-			"Available": f.DesiredInstances,
-		},
+		"ComputeCapacityStatus":          computeCapacityStatus(f),
 	}
 
 	if f.ImageName != "" {

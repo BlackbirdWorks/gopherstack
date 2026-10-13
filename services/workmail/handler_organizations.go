@@ -2,6 +2,7 @@ package workmail
 
 import (
 	"context"
+	"time"
 )
 
 // ---- request/response types ----
@@ -65,7 +66,7 @@ type describeOrgResp struct {
 	DefaultMailDomain       string `json:"DefaultMailDomain"`
 	ErrorMessage            string `json:"ErrorMessage,omitempty"`
 	MigrationAdmin          string `json:"MigrationAdmin,omitempty"`
-	CompletedDate           int64  `json:"CompletedDate"`
+	CompletedDate           int64  `json:"CompletedDate,omitempty"`
 	InteroperabilityEnabled bool   `json:"InteroperabilityEnabled"`
 }
 
@@ -85,7 +86,7 @@ func (h *Handler) handleDescribeOrganization(_ context.Context, req *describeOrg
 		DefaultMailDomain:       org.DefaultMailDomain,
 		ErrorMessage:            org.ErrorMessage,
 		MigrationAdmin:          org.MigrationAdmin,
-		CompletedDate:           org.CompletedDate.Unix(),
+		CompletedDate:           unixOrZero(org.CompletedDate),
 		InteroperabilityEnabled: org.InteroperabilityEnabled,
 	}, nil
 }
@@ -144,4 +145,12 @@ func (h *Handler) handleListOrganizations(ctx context.Context, req *listOrgsReq)
 	}
 
 	return &listOrgsResp{OrganizationSummaries: summaries, NextToken: next}, nil
+}
+
+func unixOrZero(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+
+	return t.Unix()
 }

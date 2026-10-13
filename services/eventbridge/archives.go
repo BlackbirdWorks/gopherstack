@@ -9,7 +9,7 @@ import (
 // CreateArchive creates a new event archive.
 func (b *InMemoryBackend) CreateArchive(ctx context.Context, input CreateArchiveInput) (*Archive, error) {
 	if input.ArchiveName == "" {
-		return nil, fmt.Errorf("%w: ArchiveName is required", ErrInvalidParameter)
+		return nil, awsErrorf(ErrInvalidParameter, "ArchiveName is required")
 	}
 
 	if len(input.ArchiveName) > maxArchiveNameLength {
@@ -21,7 +21,7 @@ func (b *InMemoryBackend) CreateArchive(ctx context.Context, input CreateArchive
 	}
 
 	if input.EventSourceArn == "" {
-		return nil, fmt.Errorf("%w: EventSourceArn is required", ErrInvalidParameter)
+		return nil, awsErrorf(ErrInvalidParameter, "EventSourceArn is required")
 	}
 
 	if input.RetentionDays < 0 {
@@ -61,7 +61,7 @@ func (b *InMemoryBackend) CreateArchive(ctx context.Context, input CreateArchive
 // DeleteArchive deletes an archive.
 func (b *InMemoryBackend) DeleteArchive(ctx context.Context, name string) error {
 	if name == "" {
-		return fmt.Errorf("%w: ArchiveName is required", ErrInvalidParameter)
+		return awsErrorf(ErrInvalidParameter, "ArchiveName is required")
 	}
 
 	region := getRegionFromContext(ctx, b.region)
@@ -71,7 +71,7 @@ func (b *InMemoryBackend) DeleteArchive(ctx context.Context, name string) error 
 
 	store := b.archivesTable(region)
 	if !store.Has(name) {
-		return fmt.Errorf("%w: archive %s not found", ErrNotFound, name)
+		return awsErrorf(ErrNotFound, "Archive %s does not exist.", name)
 	}
 
 	store.Delete(name)
@@ -83,7 +83,7 @@ func (b *InMemoryBackend) DeleteArchive(ctx context.Context, name string) error 
 // DescribeArchive returns a single archive by name.
 func (b *InMemoryBackend) DescribeArchive(ctx context.Context, name string) (*Archive, error) {
 	if name == "" {
-		return nil, fmt.Errorf("%w: ArchiveName is required", ErrInvalidParameter)
+		return nil, awsErrorf(ErrInvalidParameter, "ArchiveName is required")
 	}
 
 	region := getRegionFromContext(ctx, b.region)
@@ -93,7 +93,7 @@ func (b *InMemoryBackend) DescribeArchive(ctx context.Context, name string) (*Ar
 
 	archive, exists := b.archivesTable(region).Get(name)
 	if !exists {
-		return nil, fmt.Errorf("%w: archive %s not found", ErrNotFound, name)
+		return nil, awsErrorf(ErrNotFound, "Archive %s does not exist.", name)
 	}
 
 	cp := *archive
@@ -131,7 +131,7 @@ func (b *InMemoryBackend) ListArchives(
 // UpdateArchive updates an existing archive.
 func (b *InMemoryBackend) UpdateArchive(ctx context.Context, input UpdateArchiveInput) (*Archive, error) {
 	if input.ArchiveName == "" {
-		return nil, fmt.Errorf("%w: ArchiveName is required", ErrInvalidParameter)
+		return nil, awsErrorf(ErrInvalidParameter, "ArchiveName is required")
 	}
 
 	region := getRegionFromContext(ctx, b.region)
@@ -141,7 +141,7 @@ func (b *InMemoryBackend) UpdateArchive(ctx context.Context, input UpdateArchive
 
 	archive, exists := b.archivesTable(region).Get(input.ArchiveName)
 	if !exists {
-		return nil, fmt.Errorf("%w: archive %s not found", ErrNotFound, input.ArchiveName)
+		return nil, awsErrorf(ErrNotFound, "Archive %s does not exist.", input.ArchiveName)
 	}
 
 	if input.Description != nil {

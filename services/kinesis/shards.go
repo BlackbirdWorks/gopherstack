@@ -103,6 +103,15 @@ func (s *Shard) shardIndex() int64 {
 	return *s.cachedIdx
 }
 
+func parseShardIndex(id string) int64 {
+	var idx int64
+	if _, err := fmt.Sscanf(id, "shardId-%d", &idx); err != nil {
+		return 0
+	}
+
+	return idx
+}
+
 // nextSequenceNumber generates a new sequence number for a shard.
 func (s *Shard) nextSequenceNumber() string {
 	s.NextSeq++
@@ -117,6 +126,22 @@ func (s *Shard) nextSequenceNumber() string {
 	buf = appendPadded(buf, strconv.AppendInt(scratch[:0], time.Now().UnixMilli(), decimalBase), seqTimestampWidth)
 	buf = appendPadded(buf, strconv.AppendInt(scratch[:0], s.shardIndex()%shardIDModulus, decimalBase), seqShardWidth)
 	buf = appendPadded(buf, strconv.AppendUint(scratch[:0], s.NextSeq, decimalBase), seqCounterWidth)
+
+	return string(buf)
+}
+
+// boundarySequenceNumber builds the shard range start/end sequence number from
+// the shard's open/close time, in the same layout as record sequence numbers.
+func boundarySequenceNumber(shardIdx int64, at time.Time, counter uint64) string {
+	const shardIDModulus = 10000
+
+	var scratch [seqCounterWidth]byte
+
+	buf := make([]byte, 0, len(seqPrefix)+seqTimestampWidth+seqShardWidth+seqCounterWidth)
+	buf = append(buf, seqPrefix...)
+	buf = appendPadded(buf, strconv.AppendInt(scratch[:0], at.UnixMilli(), decimalBase), seqTimestampWidth)
+	buf = appendPadded(buf, strconv.AppendInt(scratch[:0], shardIdx%shardIDModulus, decimalBase), seqShardWidth)
+	buf = appendPadded(buf, strconv.AppendUint(scratch[:0], counter, decimalBase), seqCounterWidth)
 
 	return string(buf)
 }
@@ -209,7 +234,9 @@ func findShard(shards []*Shard, shardID string) *Shard {
 // shardDescription builds a ShardDescription from a Shard.
 func shardDescription(s *Shard) ShardDescription {
 	seqStart := "0"
-	if s.Records.len() > 0 {
+	if !s.StartedAt.IsZero() {
+		seqStart = boundarySequenceNumber(parseShardIndex(s.ID), s.StartedAt, 0)
+	} else if s.Records.len() > 0 {
 		seqStart = s.Records.at(0).SequenceNumber
 	}
 
@@ -221,7 +248,9 @@ func shardDescription(s *Shard) ShardDescription {
 	var seqEnd string
 	if s.Closed {
 		seqEnd = "0"
-		if s.Records.len() > 0 {
+		if !s.ClosedAt.IsZero() {
+			seqEnd = boundarySequenceNumber(parseShardIndex(s.ID), s.ClosedAt, s.NextSeq+1)
+		} else if s.Records.len() > 0 {
 			seqEnd = s.Records.last().SequenceNumber
 		}
 	}
@@ -384,12 +413,12 @@ func resolveShardFilter(input *ListShardsInput, stream *Stream, now time.Time) (
 // ListShards pagination: ExclusiveStartShardID takes priority, then NextToken
 // (a resumed page), then -- only on a first page with no cursor yet --
 // AFTER_SHARD_ID's own ShardId plays the same exclusive-start role.
-func resolveListShardsStartCursor(input *ListShardsInput) string {
+func resolveListShardsStartCursor(input *ListShardsInput, tokenCursor string) string {
 	if input.ExclusiveStartShardID != "" {
 		return input.ExclusiveStartShardID
 	}
-	if input.NextToken != "" {
-		return input.NextToken
+	if tokenCursor != "" {
+		return tokenCursor
 	}
 	if input.ShardFilterShardID != "" &&
 		(input.ShardFilterType == shardFilterAfterShardID || input.ShardFilter == shardFilterAfterShardID) {
@@ -439,10 +468,26 @@ func filterShards(
 // ListShards returns the shards for a stream.
 func (b *InMemoryBackend) ListShards(ctx context.Context, input *ListShardsInput) (*ListShardsOutput, error) {
 	region := getRegion(ctx, b.region)
+	now := b.nowFunc()
+	streamName := input.StreamName
+
+	var token pageToken
+	if input.NextToken != "" {
+		var err error
+		if token, err = decodePageToken(pageTokenKindShards, input.NextToken, now); err != nil {
+			return nil, err
+		}
+
+		if streamName != "" && streamName != token.Stream {
+			return nil, ErrInvalidArgument
+		}
+
+		streamName = token.Stream
+	}
 
 	b.mu.RLock("ListShards")
 
-	stream, exists := b.streams.Get(streamKey(region, input.StreamName))
+	stream, exists := b.streams.Get(streamKey(region, streamName))
 	if !exists {
 		b.mu.RUnlock()
 
@@ -452,16 +497,20 @@ func (b *InMemoryBackend) ListShards(ctx context.Context, input *ListShardsInput
 	b.mu.RUnlock()
 	defer stream.mu.RUnlock()
 
+	if input.NextToken != "" && !token.matchesStream(stream) {
+		return nil, ErrInvalidArgument
+	}
+
 	if ts := input.StreamCreationTime; ts != nil && ts.Unix() != stream.CreatedAt.Unix() {
 		return nil, ErrStreamNotFound
 	}
 
-	includeAll, predicate, err := resolveShardFilter(input, stream, b.nowFunc())
+	includeAll, predicate, err := resolveShardFilter(input, stream, now)
 	if err != nil {
 		return nil, err
 	}
 
-	startShardID := resolveListShardsStartCursor(input)
+	startShardID := resolveListShardsStartCursor(input, token.Cursor)
 	result := filterShards(stream.Shards, startShardID, includeAll, predicate)
 
 	// Apply MaxResults pagination. AWS documents a default AND max of 1000
@@ -475,7 +524,7 @@ func (b *InMemoryBackend) ListShards(ctx context.Context, input *ListShardsInput
 	}
 
 	if maxResults < len(result) {
-		nextToken := result[maxResults-1].ShardID
+		nextToken := encodePageToken(pageTokenKindShards, stream, result[maxResults-1].ShardID, now)
 
 		return &ListShardsOutput{Shards: result[:maxResults], NextToken: nextToken}, nil
 	}

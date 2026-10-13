@@ -117,8 +117,8 @@ func TestFileCache_TagsWireShape(t *testing.T) {
 		fcID := createOut["FileCache"].(map[string]any)["FileCacheId"].(string)
 
 		updateRec := doFSxRequest(t, h, "UpdateFileCache", map[string]any{
-			"FileCacheId":        fcID,
-			"StorageCapacityGiB": 2400,
+			"FileCacheId":         fcID,
+			"LustreConfiguration": map[string]any{"WeeklyMaintenanceStartTime": "3:04:05"},
 		})
 		require.Equal(t, http.StatusOK, updateRec.Code)
 

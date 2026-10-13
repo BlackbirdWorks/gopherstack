@@ -43,8 +43,12 @@ func TestListReferenceStores_SDKRoundTrip_PaginationSurvivesDeleteBetweenPages(t
 	require.Len(t, page1.ReferenceStores, 5)
 	require.NotNil(t, page1.NextToken)
 
-	// Delete the store the cursor names before fetching the next page.
-	staleID := aws.ToString(page1.NextToken)
+	// Delete the store the cursor names (the first one of page 2) before fetching the next page.
+	all, err := client.ListReferenceStores(t.Context(), &omicssdk.ListReferenceStoresInput{})
+	require.NoError(t, err)
+	require.Len(t, all.ReferenceStores, 8)
+
+	staleID := aws.ToString(all.ReferenceStores[5].Id)
 	_, err = client.DeleteReferenceStore(t.Context(), &omicssdk.DeleteReferenceStoreInput{Id: aws.String(staleID)})
 	require.NoError(t, err)
 

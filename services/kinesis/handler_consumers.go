@@ -85,6 +85,7 @@ type jsonSubscribeToShardReq struct {
 	StartingPosition jsonStartingPosition `json:"StartingPosition"`
 	ConsumerARN      string               `json:"ConsumerARN"`
 	ShardID          string               `json:"ShardId"`
+	DryRun           bool                 `json:"DryRun,omitempty"`
 }
 
 type jsonSubscribeToShardEvent struct {
@@ -318,6 +319,14 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 		return err
 	}
 
+	started := time.Now()
+	defer h.subscriptions.add(req.ConsumerARN, activeSubscription{
+		shardID:   req.ShardID,
+		position:  sp.Type,
+		startedAt: started,
+		expiresAt: started.Add(h.subscribeToShardStreamDuration),
+	})()
+
 	return h.runSubscribeToShardStream(ctx, c, req, sp, flusher, canFlush)
 }
 
@@ -362,6 +371,10 @@ func (h *Handler) parseSubscribeToShardRequest(
 		StartingPosition: sp,
 	}); subErr != nil {
 		return req, sp, false, h.handleError(ctx, c, "SubscribeToShard", subErr)
+	}
+
+	if req.DryRun {
+		return req, sp, false, h.handleError(ctx, c, "SubscribeToShard", ErrDryRunOperation)
 	}
 
 	return req, sp, true, nil

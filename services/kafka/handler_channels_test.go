@@ -45,9 +45,9 @@ func TestKafka_ChannelLifecycle_HTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	clusterArn := createTestCluster(t, h, "channel-cluster")
+	clusterArn, topicArns := createExpressChannelSource(t, h, "channel-cluster", "my-topic")
 	encodedCluster := url.PathEscape(clusterArn)
-	topicArn := clusterArn + "/topic/my-topic"
+	topicArn := topicArns[0]
 
 	// CreateChannel via the real POST /v1/clusters/{ClusterArn}/channels wire path.
 	createRec := doKafkaRequest(
@@ -227,10 +227,9 @@ func TestKafka_ListChannels_TopicNameFilter(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	clusterArn := createTestCluster(t, h, "channel-filter-cluster")
+	clusterArn, topicArns := createExpressChannelSource(t, h, "channel-filter-cluster", "wanted-topic", "other-topic")
 	encodedCluster := url.PathEscape(clusterArn)
-	matchingTopicArn := clusterArn + "/topic/wanted-topic"
-	otherTopicArn := clusterArn + "/topic/other-topic"
+	matchingTopicArn, otherTopicArn := topicArns[0], topicArns[1]
 
 	createRec := doKafkaRequest(
 		t, h, http.MethodPost, "/v1/clusters/"+encodedCluster+"/channels",
@@ -262,11 +261,12 @@ func TestKafka_ListChannelsPagination(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandlerWithBackend(t)
-	clusterArn := createTestCluster(t, h, "channel-page-cluster")
+	clusterArn, topicArns := createExpressChannelSource(t, h, "channel-page-cluster", "my-topic")
 	encodedCluster := url.PathEscape(clusterArn)
 
 	for i := range 5 {
 		s3Dest, topics := s3ChannelFixtures()
+		topics[0].TopicArn = topicArns[0]
 		_, err := b.CreateChannel(
 			t.Context(), clusterArn, fmt.Sprintf("chan-%02d", i), topics, nil, nil, s3Dest, nil, nil,
 		)
@@ -307,4 +307,38 @@ func TestKafka_GetSupportedOperations_IncludesChannels(t *testing.T) {
 	for _, op := range []string{"CreateChannel", "DeleteChannel", "DescribeChannel", "ListChannels", "UpdateChannel"} {
 		assert.Contains(t, ops, op)
 	}
+}
+
+// createExpressChannelSource creates an Express cluster and the named topics through the HTTP API
+// and returns the cluster ARN plus the topic ARN of each name.
+func createExpressChannelSource(t *testing.T, h *kafka.Handler, name string, topics ...string) (string, []string) {
+	t.Helper()
+
+	rec := doKafkaRequest(t, h, http.MethodPost, "/v1/clusters", map[string]any{
+		"clusterName":         name,
+		"kafkaVersion":        "3.6.0",
+		"numberOfBrokerNodes": 3,
+		"brokerNodeGroupInfo": map[string]any{
+			"instanceType":  "express.m7g.large",
+			"clientSubnets": []string{"subnet-1"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "create cluster: %s", rec.Body.String())
+
+	clusterArn, _ := decodeJSONResponse(t, rec)["clusterArn"].(string)
+	require.NotEmpty(t, clusterArn)
+
+	arns := make([]string, 0, len(topics))
+	for _, topic := range topics {
+		trec := doKafkaRequest(t, h, http.MethodPost, "/v1/clusters/"+url.PathEscape(clusterArn)+"/topics",
+			map[string]any{"topicName": topic, "partitionCount": 1, "replicationFactor": 3})
+		require.Equal(t, http.StatusOK, trec.Code, "create topic: %s", trec.Body.String())
+
+		topicArn, _ := decodeJSONResponse(t, trec)["topicArn"].(string)
+		require.NotEmpty(t, topicArn)
+
+		arns = append(arns, topicArn)
+	}
+
+	return clusterArn, arns
 }

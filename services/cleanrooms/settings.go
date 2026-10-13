@@ -71,8 +71,13 @@ func (s CollaborationSettings) validate() error {
 	return validateMLAbilities(s.CreatorMLMemberAbilities)
 }
 
+const (
+	abilityReceiveModelOutput     = "CAN_RECEIVE_MODEL_OUTPUT"
+	abilityReceiveInferenceOutput = "CAN_RECEIVE_INFERENCE_OUTPUT"
+)
+
 func validMLMemberAbilities() []string {
-	return []string{"CAN_RECEIVE_MODEL_OUTPUT", "CAN_RECEIVE_INFERENCE_OUTPUT"}
+	return []string{abilityReceiveModelOutput, abilityReceiveInferenceOutput}
 }
 
 func validateMLAbilities(a *MLMemberAbilities) error {

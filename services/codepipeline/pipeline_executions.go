@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 )
 
 // GetPipelineExecution returns the stored execution by pipeline name and execution ID.
@@ -11,13 +12,14 @@ func (b *InMemoryBackend) GetPipelineExecution(
 	ctx context.Context,
 	pipelineName, executionID string,
 ) (*PipelineExecution, error) {
+	b.reconcileBuildActions(ctx)
 	b.mu.RLock("GetPipelineExecution")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
 	if !b.pipelines.Has(regionKey(region, pipelineName)) {
-		return nil, ErrNotFound
+		return nil, b.pipelineNotFound(pipelineName)
 	}
 
 	for _, exec := range b.executionsStoreRO(region)[pipelineName] {
@@ -36,13 +38,14 @@ func (b *InMemoryBackend) ListPipelineExecutions(
 	ctx context.Context,
 	pipelineName string,
 ) ([]PipelineExecution, error) {
+	b.reconcileBuildActions(ctx)
 	b.mu.RLock("ListPipelineExecutions")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
 	if !b.pipelines.Has(regionKey(region, pipelineName)) {
-		return nil, ErrNotFound
+		return nil, b.pipelineNotFound(pipelineName)
 	}
 
 	stored := b.executionsStoreRO(region)[pipelineName]
@@ -62,17 +65,24 @@ func (b *InMemoryBackend) ListActionExecutions(
 	ctx context.Context,
 	pipelineName, pipelineExecutionID string,
 ) ([]map[string]any, error) {
+	b.reconcileBuildActions(ctx)
 	b.mu.RLock("ListActionExecutions")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
 	if !b.pipelines.Has(regionKey(region, pipelineName)) {
-		return nil, ErrNotFound
+		return nil, b.pipelineNotFound(pipelineName)
 	}
 
 	stored := b.actionExecutionsStoreRO(region)[pipelineName]
 	out := make([]map[string]any, 0, len(stored))
+	execs := b.executionsStoreRO(region)[pipelineName]
+
+	var declared *Pipeline
+	if p, ok := b.pipelines.Get(regionKey(region, pipelineName)); ok {
+		declared = p
+	}
 
 	// Iterate in reverse so the most recent execution appears first.
 	for _, ae := range slices.Backward(stored) {
@@ -80,15 +90,31 @@ func (b *InMemoryBackend) ListActionExecutions(
 			continue
 		}
 
-		out = append(out, map[string]any{
+		item := map[string]any{
 			keyPipelineExecutionID: ae.PipelineExecutionID,
-			"actionExecutionId":    ae.ActionExecutionID,
+			keyActionExecutionID:   ae.ActionExecutionID,
 			"stageName":            ae.StageName,
 			"actionName":           ae.ActionName,
 			"startTime":            float64(ae.StartTime.Unix()),
 			"lastUpdateTime":       float64(ae.LastUpdateTime.Unix()),
 			keyStatus:              ae.Status,
-		})
+		}
+
+		if exec := findExecution(execs, ae.PipelineExecutionID); exec != nil {
+			item["pipelineVersion"] = exec.PipelineVersion
+		}
+
+		if declared != nil {
+			if input := actionExecutionInput(declared, ae, region); input != nil {
+				item["input"] = input
+			}
+		}
+
+		if output := actionExecutionOutput(ae); output != nil {
+			item["output"] = output
+		}
+
+		out = append(out, item)
 	}
 
 	return out, nil
@@ -147,7 +173,7 @@ func (b *InMemoryBackend) ListDeployActionExecutionTargets(
 
 	if pipelineName != "" {
 		if !b.pipelines.Has(regionKey(region, pipelineName)) {
-			return nil, ErrNotFound
+			return nil, b.pipelineNotFound(pipelineName)
 		}
 
 		if !hasActionExecution(b.actionExecutionsStoreRO(region)[pipelineName], executionID) {
@@ -175,4 +201,129 @@ func hasActionExecution(execs []*ActionExecution, executionID string) bool {
 	}
 
 	return false
+}
+
+// actionExecutionInput renders ActionExecutionDetail.input from the action's
+// declaration, or nil when the pipeline no longer declares the action.
+func actionExecutionInput(p *Pipeline, ae *ActionExecution, region string) map[string]any {
+	stage := findStage(p, ae.StageName)
+	if stage == nil {
+		return nil
+	}
+
+	action := findAction(stage, ae.ActionName)
+	if action == nil {
+		return nil
+	}
+
+	actionRegion := action.Region
+	if actionRegion == "" {
+		actionRegion = region
+	}
+
+	input := map[string]any{
+		"actionTypeId": map[string]any{
+			keyCategory: action.ActionTypeID.Category,
+			keyOwner:    action.ActionTypeID.Owner,
+			keyProvider: action.ActionTypeID.Provider,
+			keyVersion:  action.ActionTypeID.Version,
+		},
+		"region": actionRegion,
+	}
+
+	if len(action.Configuration) > 0 {
+		input["configuration"] = action.Configuration
+	}
+
+	if action.RoleArn != "" {
+		input["roleArn"] = action.RoleArn
+	}
+
+	if action.Namespace != "" {
+		input["namespace"] = action.Namespace
+	}
+
+	return input
+}
+
+// actionExecutionOutput renders ActionExecutionDetail.output (executionResult
+// and outputVariables) from what a job worker reported, or nil when it reported nothing.
+func actionExecutionOutput(ae *ActionExecution) map[string]any {
+	result := map[string]any{}
+
+	if ae.ExternalExecutionID != "" {
+		result["externalExecutionId"] = ae.ExternalExecutionID
+	}
+
+	if ae.Summary != "" && ae.ExternalExecutionID != "" {
+		result["externalExecutionSummary"] = ae.Summary
+	}
+
+	if ae.ErrorMessage != "" || ae.ErrorCode != "" {
+		result["errorDetails"] = map[string]any{"code": ae.ErrorCode, "message": ae.ErrorMessage}
+	}
+
+	out := map[string]any{}
+	if len(result) > 0 {
+		out["executionResult"] = result
+	}
+
+	if len(ae.OutputVariables) > 0 {
+		out["outputVariables"] = ae.OutputVariables
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
+}
+
+// sourceArtifactRevisions maps pinned source revisions onto the output artifacts of the pipeline's
+// Source-category actions. changeIDs optionally carries each action's revisionChangeIdentifier.
+func sourceArtifactRevisions(
+	stages []Stage, revisions []SourceRevision, changeIDs map[string]string, created time.Time,
+) []ArtifactRevision {
+	var out []ArtifactRevision
+
+	for _, rev := range revisions {
+		for _, st := range stages {
+			for _, a := range st.Actions {
+				if a.Name != rev.ActionName || a.ActionTypeID.Category != actionCategorySource {
+					continue
+				}
+
+				for _, art := range a.OutputArtifacts {
+					out = append(out, ArtifactRevision{
+						Name:                     art.Name,
+						RevisionID:               rev.RevisionID,
+						RevisionChangeIdentifier: changeIDs[a.Name],
+						Created:                  created,
+					})
+				}
+			}
+		}
+	}
+
+	return out
+}
+
+func artifactRevisionsWire(revs []ArtifactRevision) []map[string]any {
+	out := make([]map[string]any, len(revs))
+
+	for i, r := range revs {
+		item := map[string]any{
+			keyName:      r.Name,
+			"revisionId": r.RevisionID,
+			"created":    float64(r.Created.Unix()),
+		}
+
+		if r.RevisionChangeIdentifier != "" {
+			item["revisionChangeIdentifier"] = r.RevisionChangeIdentifier
+		}
+
+		out[i] = item
+	}
+
+	return out
 }

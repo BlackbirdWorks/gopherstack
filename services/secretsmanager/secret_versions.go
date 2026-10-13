@@ -61,7 +61,7 @@ func (b *InMemoryBackend) GetSecretValue(
 	b.mu.Lock("GetSecretValue")
 	defer b.mu.Unlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, exists := b.secretGet(region, name)
 	if !exists {
@@ -164,7 +164,7 @@ func (b *InMemoryBackend) PutSecretValue(
 	b.mu.Lock("PutSecretValue")
 	defer b.mu.Unlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, lookupErr := b.resolvePrimaryOnlySecretLocked(region, input.SecretID, name)
 	if lookupErr != nil {
@@ -177,20 +177,25 @@ func (b *InMemoryBackend) PutSecretValue(
 	}
 
 	// Idempotency: if the version ID already exists with identical content, return it.
-	if existing, ok := secret.Versions[versionID]; ok {
+	if existing, ok := secret.Versions[versionID]; ok && !isRotationPlaceholder(secret, existing) {
 		matched, err := b.matchesExistingVersion(ctx, existing, input.SecretString, input.SecretBinary)
 		if err != nil {
 			return nil, err
 		}
 
-		if matched {
-			return &PutSecretValueOutput{
-				ARN:           secret.ARN,
-				Name:          secret.Name,
-				VersionID:     existing.VersionID,
-				VersionStages: existing.StagingLabels,
-			}, nil
+		if !matched {
+			return nil, fmt.Errorf(
+				"%w: You can't modify an existing secret version. You can only create new versions",
+				ErrSecretAlreadyExists,
+			)
 		}
+
+		return &PutSecretValueOutput{
+			ARN:           secret.ARN,
+			Name:          secret.Name,
+			VersionID:     existing.VersionID,
+			VersionStages: existing.StagingLabels,
+		}, nil
 	}
 
 	callerWantsCurrentLabel, stagingLabels := b.resolveStagingLabels(secret, input.VersionStages)
@@ -324,12 +329,16 @@ func (b *InMemoryBackend) ListSecretVersionIDs(
 		return nil, err
 	}
 
+	if err := validateNextToken(input.NextToken); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListSecretVersionIDs")
 	defer b.mu.RUnlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, exists := b.secretGet(region, name)
 	if !exists {
@@ -409,6 +418,10 @@ func (b *InMemoryBackend) BatchGetSecretValue(
 		}
 	}
 
+	if err := validateNextToken(input.NextToken); err != nil {
+		return nil, err
+	}
+
 	if len(input.SecretIDList) > maxSecretIDListSize {
 		return nil, fmt.Errorf(
 			"%w: SecretIdList must not contain more than %d entries",
@@ -451,7 +464,7 @@ func (b *InMemoryBackend) batchGetByIDList(
 	accessDay := UnixTimeFloat(b.now().UTC().Truncate(hoursPerDay * time.Hour))
 
 	for _, id := range ids {
-		name := resolveSecretID(id)
+		name := b.resolveName(region, id)
 
 		secret, ok := b.secretGet(region, name)
 		if !ok {
@@ -488,7 +501,7 @@ func (b *InMemoryBackend) batchGetByIDList(
 		entry, err := b.secretVersionEntry(ctx, secret, ver)
 		if err != nil {
 			out.Errors = append(out.Errors, APIErrorType{
-				ErrorCode: "DecryptionFailure",
+				ErrorCode: errCodeDecryptionFailure,
 				Message:   err.Error(),
 				SecretID:  id,
 			})
@@ -527,7 +540,7 @@ func (b *InMemoryBackend) batchGetByFilter(
 		entry, err := b.secretVersionEntry(ctx, secret, ver)
 		if err != nil {
 			out.Errors = append(out.Errors, APIErrorType{
-				ErrorCode: "DecryptionFailure",
+				ErrorCode: errCodeDecryptionFailure,
 				Message:   err.Error(),
 				SecretID:  secret.Name,
 			})
@@ -615,7 +628,7 @@ func (b *InMemoryBackend) UpdateSecretVersionStage(
 	b.mu.Lock("UpdateSecretVersionStage")
 	defer b.mu.Unlock()
 
-	name := resolveSecretID(input.SecretID)
+	name := b.resolveName(region, input.SecretID)
 
 	secret, ok := b.secretGet(region, name)
 	if !ok {
@@ -739,3 +752,12 @@ func removeLabel(labels []string, label string) []string {
 
 	return newLabels
 }
+
+// isRotationPlaceholder reports whether v is the AWSPENDING version RotateSecret pre-created for the
+// rotation Lambda's createSecret step to fill in.
+func isRotationPlaceholder(secret *Secret, v *SecretVersion) bool {
+	return secret.RotationLambdaARN != "" && len(v.StagingLabels) == 1 &&
+		v.StagingLabels[0] == stagingLabelPendingRotation
+}
+
+const stagingLabelPendingRotation = "AWSPENDING"

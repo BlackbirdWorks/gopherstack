@@ -130,6 +130,7 @@ func (b *InMemoryBackend) StartDocumentAnalysisWithOptions(
 		if b.asyncJobDelay == 0 {
 			// Synchronous mode (tests): complete immediately under the same lock.
 			job.JobStatus = jobStatusSucceeded
+			b.deliverDocumentJobLocked(job)
 			result = cloneJob(job)
 			done = true
 
@@ -150,6 +151,7 @@ func (b *InMemoryBackend) StartDocumentAnalysisWithOptions(
 
 		if j, ok := b.jobs.Get(key); ok {
 			j.JobStatus = jobStatusSucceeded
+			b.deliverDocumentJobLocked(j)
 		}
 	})
 

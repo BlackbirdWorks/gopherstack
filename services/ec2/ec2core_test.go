@@ -128,10 +128,10 @@ func TestEC2Core_AssociateVpcCidrBlock(t *testing.T) {
 	vpc, err := bk.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
-	assoc, err := bk.AssociateVpcCidrBlock(vpc.ID, "192.168.0.0/24")
+	assoc, err := bk.AssociateVpcCidrBlock(vpc.ID, "10.1.0.0/24")
 	require.NoError(t, err)
 	assert.NotEmpty(t, assoc.AssociationID)
-	assert.Equal(t, "192.168.0.0/24", assoc.CidrBlock)
+	assert.Equal(t, "10.1.0.0/24", assoc.CidrBlock)
 
 	// Empty VPC ID.
 	_, err2 := bk.AssociateVpcCidrBlock("", "10.1.0.0/16")

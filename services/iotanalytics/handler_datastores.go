@@ -56,7 +56,10 @@ func datastoreFileFormatType(cfg *FileFormatConfiguration) string {
 }
 
 func (h *Handler) handleListDatastores(c *echo.Context) error {
-	maxResults, cursor := parsePagination(c)
+	maxResults, cursor, pageErr := parsePagination(c)
+	if pageErr != nil {
+		return h.writeBackendError(c, pageErr)
+	}
 	datastores := h.Backend.ListDatastores()
 
 	summaries := make([]datastoreSummary, 0, len(datastores))

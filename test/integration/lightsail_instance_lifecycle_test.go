@@ -116,12 +116,19 @@ func TestIntegration_Lightsail_InstanceLifecycle(t *testing.T) {
 			require.Len(t, stopOut.Operations, 1)
 			assert.Equal(t, types.OperationTypeStopInstance, stopOut.Operations[0].OperationType)
 
-			stateOut, err := client.GetInstanceState(ctx, &lightsailsdk.GetInstanceStateInput{
-				InstanceName: aws.String(tt.instanceName),
-			})
-			require.NoError(t, err, "GetInstanceState should succeed")
-			require.NotNil(t, stateOut.State)
-			assert.Equal(t, "stopped", aws.ToString(stateOut.State.Name))
+			waitState := func(want string) {
+				t.Helper()
+
+				require.Eventually(t, func() bool {
+					stateOut, stateErr := client.GetInstanceState(ctx, &lightsailsdk.GetInstanceStateInput{
+						InstanceName: aws.String(tt.instanceName),
+					})
+
+					return stateErr == nil && stateOut.State != nil && aws.ToString(stateOut.State.Name) == want
+				}, 5*time.Second, 20*time.Millisecond, "instance should reach "+want)
+			}
+
+			waitState("stopped")
 
 			startOut, err := client.StartInstance(ctx, &lightsailsdk.StartInstanceInput{
 				InstanceName: aws.String(tt.instanceName),
@@ -130,12 +137,7 @@ func TestIntegration_Lightsail_InstanceLifecycle(t *testing.T) {
 			require.Len(t, startOut.Operations, 1)
 			assert.Equal(t, types.OperationTypeStartInstance, startOut.Operations[0].OperationType)
 
-			stateOut, err = client.GetInstanceState(ctx, &lightsailsdk.GetInstanceStateInput{
-				InstanceName: aws.String(tt.instanceName),
-			})
-			require.NoError(t, err, "GetInstanceState should succeed")
-			require.NotNil(t, stateOut.State)
-			assert.Equal(t, "running", aws.ToString(stateOut.State.Name))
+			waitState("running")
 
 			rebootOut, err := client.RebootInstance(ctx, &lightsailsdk.RebootInstanceInput{
 				InstanceName: aws.String(tt.instanceName),

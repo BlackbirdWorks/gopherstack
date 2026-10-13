@@ -7,6 +7,14 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// protectedJobWire shadows the request-only "type" key; types.ProtectedJob has no type member.
+type protectedJobWire struct {
+	*ProtectedJob
+	Type string `json:"type,omitempty"`
+}
+
+func toProtectedJobWire(j *ProtectedJob) *protectedJobWire { return &protectedJobWire{ProtectedJob: j} }
+
 func (h *Handler) handleStartProtectedJob(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		JobParameters        map[string]any `json:"jobParameters"`
@@ -27,7 +35,7 @@ func (h *Handler) handleStartProtectedJob(_ context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{keyProtectedJob: j}), nil
+	return mustJSON(map[string]any{keyProtectedJob: toProtectedJobWire(j)}), nil
 }
 
 func (h *Handler) handleGetProtectedJob(_ context.Context, body []byte) ([]byte, error) {
@@ -41,7 +49,7 @@ func (h *Handler) handleGetProtectedJob(_ context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{keyProtectedJob: j}), nil
+	return mustJSON(map[string]any{keyProtectedJob: toProtectedJobWire(j)}), nil
 }
 
 func (h *Handler) handleListProtectedJobs(
@@ -86,5 +94,5 @@ func (h *Handler) handleUpdateProtectedJob(_ context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{keyProtectedJob: j}), nil
+	return mustJSON(map[string]any{keyProtectedJob: toProtectedJobWire(j)}), nil
 }

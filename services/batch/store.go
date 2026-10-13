@@ -18,6 +18,11 @@ const (
 // regionContextKey is the context key under which the per-request AWS region is stored.
 type regionContextKey struct{}
 
+// WithRegion returns ctx scoped to the given AWS region for backend calls.
+func WithRegion(ctx context.Context, region string) context.Context {
+	return context.WithValue(ctx, regionContextKey{}, region)
+}
+
 // getRegion extracts the region from ctx, falling back to defaultRegion when unset.
 func getRegion(ctx context.Context, defaultRegion string) string {
 	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
@@ -68,7 +73,7 @@ func validateTags(tags map[string]string) error {
 }
 
 func paginateMapKeys(keys []string, nextToken string, maxResults int32) ([]string, string) {
-	p := page.NewHMAC(keys, nextToken, "batch-secret", int(maxResults), defaultPaginationLimit)
+	p := page.NewHMAC(keys, nextToken, paginationSecret, int(maxResults), defaultPaginationLimit)
 
 	return p.Data, p.Next
 }
@@ -190,6 +195,8 @@ type InMemoryBackend struct {
 	crsByARN   map[string]string
 	ceToQueues map[string]map[string]struct{}
 
+	exec *execState
+
 	region    string
 	accountID string
 }
@@ -204,6 +211,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		crsByARN:        make(map[string]string),
 		ceToQueues:      make(map[string]map[string]struct{}),
 		mu:              lockmetrics.New("batch"),
+		exec:            newExecState(),
 		accountID:       accountID,
 		region:          region,
 	}

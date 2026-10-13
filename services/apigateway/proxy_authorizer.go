@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -265,7 +266,7 @@ func writeAuthorizerDecision(w http.ResponseWriter, policy *PolicyDocument, meth
 func (h *Handler) lambdaAuthorizerIdentity(
 	r *http.Request, auth *Authorizer, apiID, stageName string, ttl time.Duration,
 ) ([]string, bool) {
-	if auth.Type == "TOKEN" {
+	if auth.Type == authorizerTypeToken {
 		token := extractTokenFromIdentitySource(r, auth.IdentitySource)
 		if token == "" {
 			return nil, false
@@ -356,13 +357,14 @@ func resolveRESTIdentitySource(
 	}
 }
 
-// runCognitoAuthorizer verifies a JWT token for COGNITO_USER_POOLS authorizer type.
-func (h *Handler) runCognitoAuthorizer(
-	ctx context.Context,
-	w http.ResponseWriter,
-	r *http.Request,
-	auth *Authorizer,
-) bool {
+// authorizerTypeToken is the TOKEN Lambda authorizer type.
+const authorizerTypeToken = "TOKEN"
+
+// errMissingToken is returned when a Cognito authorizer's identity source carries no token.
+var errMissingToken = errors.New("authorization token missing")
+
+// verifyCognitoToken validates the request's JWT against the configured JWKS provider.
+func (h *Handler) verifyCognitoToken(r *http.Request, auth *Authorizer) (jwt.MapClaims, error) {
 	tokenSource := auth.IdentitySource
 	if tokenSource == "" {
 		tokenSource = defaultIdentitySource
@@ -377,9 +379,7 @@ func (h *Handler) runCognitoAuthorizer(
 	}
 
 	if tokenStr == "" {
-		writeAuthorizerError(w, http.StatusUnauthorized, msgUnauthorized)
-
-		return true
+		return nil, errMissingToken
 	}
 
 	keyfunc := func(t *jwt.Token) (any, error) {
@@ -399,14 +399,30 @@ func (h *Handler) runCognitoAuthorizer(
 
 	token, parseErr := jwt.Parse(tokenStr, keyfunc, jwt.WithExpirationRequired())
 	if parseErr != nil {
-		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: cognito authorizer invalid token", "error", parseErr)
-		writeAuthorizerError(w, http.StatusUnauthorized, msgUnauthorized)
-
-		return true
+		return nil, parseErr
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || !token.Valid {
+		return nil, errInvalidToken
+	}
+
+	return claims, nil
+}
+
+// runCognitoAuthorizer verifies a JWT token for COGNITO_USER_POOLS authorizer type.
+func (h *Handler) runCognitoAuthorizer(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	auth *Authorizer,
+) bool {
+	claims, err := h.verifyCognitoToken(r, auth)
+	if err != nil {
+		if !errors.Is(err, errMissingToken) {
+			logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: cognito authorizer invalid token", "error", err)
+		}
+
 		writeAuthorizerError(w, http.StatusUnauthorized, msgUnauthorized)
 
 		return true
@@ -490,7 +506,7 @@ func (h *Handler) buildAuthorizerEvent(
 	}
 
 	// For TOKEN type: extract token from identity source header.
-	if auth.Type == "TOKEN" {
+	if auth.Type == authorizerTypeToken {
 		token := extractTokenFromIdentitySource(r, auth.IdentitySource)
 		event.AuthorizationToken = token
 		// TOKEN authorizers only need type, token, and methodArn.

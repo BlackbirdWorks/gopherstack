@@ -234,7 +234,29 @@ func (h *Handler) updateWirelessDevice(c *echo.Context, id string) error {
 	return nil
 }
 
+// validWirelessDeviceTypeParam rejects a WirelessDeviceType query value outside
+// the Sidewalk/LoRaWAN enum, writing the 400 itself.
+const (
+	deviceTypeSidewalk = "Sidewalk"
+	deviceTypeLoRaWAN  = "LoRaWAN"
+)
+
+func validWirelessDeviceTypeParam(c *echo.Context) bool {
+	switch c.QueryParam("WirelessDeviceType") {
+	case "", deviceTypeSidewalk, deviceTypeLoRaWAN:
+		return true
+	}
+
+	_ = writeError(c, http.StatusBadRequest, "WirelessDeviceType must be one of Sidewalk, LoRaWAN")
+
+	return false
+}
+
 func (h *Handler) deregisterWirelessDevice(c *echo.Context, id string) error {
+	if !validWirelessDeviceTypeParam(c) {
+		return nil
+	}
+
 	if err := h.Backend.DeleteWirelessDevice(h.AccountID, h.DefaultRegion, id); err != nil {
 		return handleError(c, err)
 	}
@@ -307,6 +329,10 @@ func (h *Handler) testWirelessDevice(c *echo.Context, id string) error {
 }
 
 func (h *Handler) listQueuedMessages(c *echo.Context, wirelessDeviceID string) error {
+	if !validWirelessDeviceTypeParam(c) {
+		return nil
+	}
+
 	msgs := h.Backend.ListQueuedMessages(wirelessDeviceID)
 	pg, next := paginateQuery(c, msgs)
 
@@ -326,6 +352,10 @@ func (h *Handler) listQueuedMessages(c *echo.Context, wirelessDeviceID string) e
 }
 
 func (h *Handler) deleteQueuedMessages(c *echo.Context, wirelessDeviceID string) error {
+	if !validWirelessDeviceTypeParam(c) {
+		return nil
+	}
+
 	messageID := c.QueryParam("messageId")
 	if messageID == "" {
 		return writeError(c, http.StatusBadRequest, "messageId is required")

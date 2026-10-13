@@ -29,10 +29,10 @@ func TestBackend_AllowedImagesSettings_EnableReplaceDisableRoundTrip(t *testing.
 	assert.Equal(t, "enabled", settings.State)
 	assert.Equal(t, "account", settings.ManagedBy)
 
-	ok := b.ReplaceImageCriteriaInAllowedImagesSettings([]ec2.ImageCriterion{
+	err = b.ReplaceImageCriteriaInAllowedImagesSettings([]ec2.ImageCriterion{
 		{ImageProviders: []string{"amazon"}, ImageNames: []string{"amzn2-*"}},
 	})
-	assert.True(t, ok)
+	require.NoError(t, err)
 
 	settings = b.GetAllowedImagesSettings()
 	require.Len(t, settings.ImageCriteria, 1)

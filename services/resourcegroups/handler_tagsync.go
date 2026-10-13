@@ -132,22 +132,27 @@ func (h *Handler) handleGetTagSyncTask(ctx context.Context, in *getTagSyncTaskIn
 }
 
 // handleListTagSyncTasks lists tag-sync tasks.
-type listTagSyncTasksInput struct { //nolint:govet // fieldalignment: readability over micro-optimization
-	Filters    []ListTagSyncTasksFilter `json:"Filters,omitempty"`
+type listTagSyncTasksInput struct {
 	NextToken  string                   `json:"NextToken"`
+	Filters    []ListTagSyncTasksFilter `json:"Filters,omitempty"`
 	MaxResults int                      `json:"MaxResults"`
 }
 
-type listTagSyncTasksOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
-	TagSyncTasks []tagSyncTaskItem `json:"TagSyncTasks"`
+type listTagSyncTasksOutput struct {
 	NextToken    string            `json:"NextToken,omitempty"`
+	TagSyncTasks []tagSyncTaskItem `json:"TagSyncTasks"`
 }
 
 func (h *Handler) handleListTagSyncTasks(
 	ctx context.Context,
 	in *listTagSyncTasksInput,
 ) (*listTagSyncTasksOutput, error) {
-	tasks, nextToken, err := h.Backend.ListTagSyncTasks(ctx, in.Filters, in.NextToken, in.MaxResults)
+	cursor, err := parsePage(in.NextToken, in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	tasks, nextToken, err := h.Backend.ListTagSyncTasks(ctx, in.Filters, cursor, in.MaxResults)
 	if err != nil {
 		return nil, err
 	}
@@ -157,5 +162,5 @@ func (h *Handler) handleListTagSyncTasks(
 		items = append(items, tagSyncTaskItemFromTask(&tasks[i]))
 	}
 
-	return &listTagSyncTasksOutput{TagSyncTasks: items, NextToken: nextToken}, nil
+	return &listTagSyncTasksOutput{TagSyncTasks: items, NextToken: encodePageToken(nextToken)}, nil
 }

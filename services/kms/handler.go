@@ -291,6 +291,10 @@ func (h *Handler) dispatch(ctx context.Context, r *http.Request, action string, 
 		return nil, fmt.Errorf("%w: %s", ErrUnknownOperation, action)
 	}
 
+	if err := validateListMarker(action, body); err != nil {
+		return nil, err
+	}
+
 	response, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
@@ -327,12 +331,16 @@ func kmsErrorTable() []kmsErrorEntry {
 		{sentinel: ErrCustomKeyStoreInvalidState, awsType: "CustomKeyStoreInvalidStateException"},
 		{sentinel: ErrCustomKeyStoreHasKeys, awsType: "CustomKeyStoreHasCMKsException"},
 		{sentinel: ErrXksProxyInvalidConfiguration, awsType: "XksProxyInvalidConfigurationException"},
+		{sentinel: ErrXksKeyInvalidConfiguration, awsType: "XksKeyInvalidConfigurationException"},
+		{sentinel: ErrXksKeyAlreadyInUse, awsType: "XksKeyAlreadyInUseException"},
 		{sentinel: ErrXksProxyURIInUse, awsType: "XksProxyUriInUseException"},
 		{sentinel: ErrXksProxyURIEndpointInUse, awsType: "XksProxyUriEndpointInUseException"},
 		{sentinel: ErrXksProxyVPCEndpointServiceInUse, awsType: "XksProxyVpcEndpointServiceInUseException"},
 		{sentinel: ErrKeyDisabled, awsType: "DisabledException"},
 		{sentinel: ErrKeyInvalidState, awsType: "KMSInvalidStateException"},
 		{sentinel: ErrInvalidKeyUsage, awsType: "InvalidKeyUsageException"},
+		{sentinel: errUnsupportedAlgorithm, awsType: "InvalidKeyUsageException"},
+		{sentinel: ErrInvalidMarker, awsType: "InvalidMarkerException"},
 		{sentinel: ErrAliasAlreadyExists, awsType: "AlreadyExistsException"},
 		{sentinel: ErrInvalidAliasName, awsType: "InvalidAliasNameException"},
 		{sentinel: ErrCustomKeyStoreAlreadyExists, awsType: "CustomKeyStoreNameInUseException"},
@@ -380,7 +388,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 
 	payload, _ := json.Marshal(ErrorResponse{
 		Type:    errorType,
-		Message: reqErr.Error(),
+		Message: errorMessage(reqErr),
 	})
 
 	return c.JSONBlob(statusCode, payload)

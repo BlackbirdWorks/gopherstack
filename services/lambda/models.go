@@ -61,10 +61,11 @@ const (
 // For Image package type, only ImageUri is used.
 // For Zip package type, either ZipFile (inline base64) or S3Bucket+S3Key is used.
 type FunctionCode struct {
-	ImageURI string `json:"ImageUri,omitempty"`
-	S3Bucket string `json:"S3Bucket,omitempty"`
-	S3Key    string `json:"S3Key,omitempty"`
-	ZipFile  []byte `json:"ZipFile,omitempty"`
+	ImageURI        string `json:"ImageUri,omitempty"`
+	S3Bucket        string `json:"S3Bucket,omitempty"`
+	S3Key           string `json:"S3Key,omitempty"`
+	S3ObjectVersion string `json:"S3ObjectVersion,omitempty"`
+	ZipFile         []byte `json:"ZipFile,omitempty"`
 }
 
 // FunctionLayer holds a layer reference attached to a Lambda function.
@@ -113,6 +114,8 @@ type LoggingConfig struct {
 
 type FunctionConfiguration struct {
 	CreatedAt                    time.Time               `json:"-"`
+	CapacityProviderConfig       *CapacityProviderConfig `json:"CapacityProviderConfig,omitempty"`
+	TenancyConfig                *TenancyConfig          `json:"TenancyConfig,omitempty"`
 	DurableConfig                *DurableConfig          `json:"DurableConfig,omitempty"`
 	Environment                  *EnvironmentConfig      `json:"Environment,omitempty"`
 	EphemeralStorage             *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
@@ -145,6 +148,7 @@ type FunctionConfiguration struct {
 	CodeSha256          string              `json:"CodeSha256,omitempty"`
 	S3BucketCode        string              `json:"-"`
 	S3KeyCode           string              `json:"-"`
+	S3ObjectVersionCode string              `json:"-"`
 	S3ObjectStorageMode string              `json:"-"`
 	Handler             string              `json:"Handler,omitempty"`
 	Version             string              `json:"Version,omitempty"`
@@ -207,28 +211,47 @@ type DurableConfig struct {
 	KMSKeyArn             string `json:"KMSKeyArn,omitempty"`
 }
 
+// CapacityProviderConfig attaches a function to a Lambda capacity provider.
+type CapacityProviderConfig struct {
+	ManagedInstances *ManagedInstancesConfig `json:"LambdaManagedInstancesCapacityProviderConfig,omitempty"`
+}
+
+// ManagedInstancesConfig names the capacity provider and its sizing.
+type ManagedInstancesConfig struct {
+	ExecutionEnvironmentMemoryGiBPerVCpu  *float64 `json:"ExecutionEnvironmentMemoryGiBPerVCpu,omitempty"`
+	PerExecutionEnvironmentMaxConcurrency *int32   `json:"PerExecutionEnvironmentMaxConcurrency,omitempty"`
+	CapacityProviderArn                   string   `json:"CapacityProviderArn"`
+}
+
+// TenancyConfig is a function's tenant isolation configuration, fixed at creation.
+type TenancyConfig struct {
+	TenantIsolationMode string `json:"TenantIsolationMode"`
+}
+
 // CreateFunctionInput holds the request body for CreateFunction.
 type CreateFunctionInput struct {
-	LoggingConfig        *LoggingConfig          `json:"LoggingConfig,omitempty"`
-	KMSKeyArn            string                  `json:"KMSKeyArn,omitempty"`
-	CodeSigningConfigArn string                  `json:"CodeSigningConfigArn,omitempty"`
-	DurableConfig        *DurableConfig          `json:"DurableConfig,omitempty"`
-	Environment          *EnvironmentConfig      `json:"Environment,omitempty"`
-	ImageConfig          *ImageConfig            `json:"ImageConfig,omitempty"`
-	VpcConfig            *VpcConfig              `json:"VpcConfig,omitempty"`
-	TracingConfig        *TracingConfig          `json:"TracingConfig,omitempty"`
-	DeadLetterConfig     *DeadLetterConfig       `json:"DeadLetterConfig,omitempty"`
-	EphemeralStorage     *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
-	Code                 *FunctionCode           `json:"Code"`
-	SnapStart            *SnapStart              `json:"SnapStart,omitempty"`
-	Tags                 map[string]string       `json:"Tags,omitempty"`
-	FunctionName         string                  `json:"FunctionName"`
-	Description          string                  `json:"Description"`
-	PackageType          string                  `json:"PackageType"`
-	Runtime              string                  `json:"Runtime,omitempty"`
-	Handler              string                  `json:"Handler,omitempty"`
-	Role                 string                  `json:"Role"`
-	FileSystemConfigs    []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
+	CapacityProviderConfig *CapacityProviderConfig `json:"CapacityProviderConfig,omitempty"`
+	TenancyConfig          *TenancyConfig          `json:"TenancyConfig,omitempty"`
+	LoggingConfig          *LoggingConfig          `json:"LoggingConfig,omitempty"`
+	KMSKeyArn              string                  `json:"KMSKeyArn,omitempty"`
+	CodeSigningConfigArn   string                  `json:"CodeSigningConfigArn,omitempty"`
+	DurableConfig          *DurableConfig          `json:"DurableConfig,omitempty"`
+	Environment            *EnvironmentConfig      `json:"Environment,omitempty"`
+	ImageConfig            *ImageConfig            `json:"ImageConfig,omitempty"`
+	VpcConfig              *VpcConfig              `json:"VpcConfig,omitempty"`
+	TracingConfig          *TracingConfig          `json:"TracingConfig,omitempty"`
+	DeadLetterConfig       *DeadLetterConfig       `json:"DeadLetterConfig,omitempty"`
+	EphemeralStorage       *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
+	Code                   *FunctionCode           `json:"Code"`
+	SnapStart              *SnapStart              `json:"SnapStart,omitempty"`
+	Tags                   map[string]string       `json:"Tags,omitempty"`
+	FunctionName           string                  `json:"FunctionName"`
+	Description            string                  `json:"Description"`
+	PackageType            string                  `json:"PackageType"`
+	Runtime                string                  `json:"Runtime,omitempty"`
+	Handler                string                  `json:"Handler,omitempty"`
+	Role                   string                  `json:"Role"`
+	FileSystemConfigs      []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
 	// Layers is a list of layer ARN strings supplied by the client.
 	Layers        []string `json:"Layers,omitempty"`
 	Architectures []string `json:"Architectures,omitempty"`
@@ -259,34 +282,37 @@ type UpdateFunctionCodeInput struct {
 	ImageURI            string   `json:"ImageUri,omitempty"`
 	S3Bucket            string   `json:"S3Bucket,omitempty"`
 	S3Key               string   `json:"S3Key,omitempty"`
+	S3ObjectVersion     string   `json:"S3ObjectVersion,omitempty"`
 	RevisionID          *string  `json:"RevisionId,omitempty"`
 	S3ObjectStorageMode string   `json:"S3ObjectStorageMode,omitempty"`
 	Architectures       []string `json:"Architectures,omitempty"`
 	ZipFile             []byte   `json:"ZipFile,omitempty"`
 	Publish             bool     `json:"Publish,omitempty"`
+	DryRun              bool     `json:"DryRun,omitempty"`
 }
 
 // UpdateFunctionConfigurationInput holds the request body for UpdateFunctionConfiguration.
 type UpdateFunctionConfigurationInput struct {
-	LoggingConfig     *LoggingConfig          `json:"LoggingConfig,omitempty"`
-	ImageConfig       *ImageConfig            `json:"ImageConfig,omitempty"`
-	KMSKeyArn         *string                 `json:"KMSKeyArn,omitempty"`
-	Description       *string                 `json:"Description,omitempty"`
-	Handler           *string                 `json:"Handler,omitempty"`
-	VpcConfig         *VpcConfig              `json:"VpcConfig,omitempty"`
-	TracingConfig     *TracingConfig          `json:"TracingConfig,omitempty"`
-	DeadLetterConfig  *DeadLetterConfig       `json:"DeadLetterConfig,omitempty"`
-	EphemeralStorage  *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
-	Environment       *EnvironmentConfig      `json:"Environment,omitempty"`
-	SnapStart         *SnapStart              `json:"SnapStart,omitempty"`
-	DurableConfig     *DurableConfig          `json:"DurableConfig,omitempty"`
-	Timeout           *int32                  `json:"Timeout,omitempty"`
-	Role              *string                 `json:"Role,omitempty"`
-	MemorySize        *int32                  `json:"MemorySize,omitempty"`
-	RevisionID        *string                 `json:"RevisionId,omitempty"`
-	Runtime           string                  `json:"Runtime,omitempty"`
-	FileSystemConfigs []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
-	Layers            []string                `json:"Layers,omitempty"`
+	CapacityProviderConfig *CapacityProviderConfig `json:"CapacityProviderConfig,omitempty"`
+	LoggingConfig          *LoggingConfig          `json:"LoggingConfig,omitempty"`
+	ImageConfig            *ImageConfig            `json:"ImageConfig,omitempty"`
+	KMSKeyArn              *string                 `json:"KMSKeyArn,omitempty"`
+	Description            *string                 `json:"Description,omitempty"`
+	Handler                *string                 `json:"Handler,omitempty"`
+	VpcConfig              *VpcConfig              `json:"VpcConfig,omitempty"`
+	TracingConfig          *TracingConfig          `json:"TracingConfig,omitempty"`
+	DeadLetterConfig       *DeadLetterConfig       `json:"DeadLetterConfig,omitempty"`
+	EphemeralStorage       *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
+	Environment            *EnvironmentConfig      `json:"Environment,omitempty"`
+	SnapStart              *SnapStart              `json:"SnapStart,omitempty"`
+	DurableConfig          *DurableConfig          `json:"DurableConfig,omitempty"`
+	Timeout                *int32                  `json:"Timeout,omitempty"`
+	Role                   *string                 `json:"Role,omitempty"`
+	MemorySize             *int32                  `json:"MemorySize,omitempty"`
+	RevisionID             *string                 `json:"RevisionId,omitempty"`
+	Runtime                string                  `json:"Runtime,omitempty"`
+	FileSystemConfigs      []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
+	Layers                 []string                `json:"Layers,omitempty"`
 }
 
 // GetFunctionOutput is the response for GetFunction.
@@ -311,8 +337,9 @@ type FunctionCodeLocation struct {
 // S3ObjectStorageMode is REFERENCE (Lambda references the object in place
 // rather than uploading its own copy).
 type ResolvedS3Object struct {
-	S3Bucket string `json:"S3Bucket,omitempty"`
-	S3Key    string `json:"S3Key,omitempty"`
+	S3Bucket        string `json:"S3Bucket,omitempty"`
+	S3Key           string `json:"S3Key,omitempty"`
+	S3ObjectVersion string `json:"S3ObjectVersion,omitempty"`
 }
 
 // ListFunctionsOutput is the response for ListFunctions.
@@ -364,11 +391,14 @@ type CreateFunctionURLConfigInput struct {
 
 // ListFunctionURLConfigsOutput is the response for listing function URL configs.
 type ListFunctionURLConfigsOutput struct {
+	NextMarker         string               `json:"NextMarker,omitempty"`
 	FunctionURLConfigs []*FunctionURLConfig `json:"FunctionUrlConfigs"`
 }
 
 // FunctionVersion holds an immutable snapshot of a Lambda function configuration at publish time.
 type FunctionVersion struct {
+	CapacityProviderConfig *CapacityProviderConfig `json:"CapacityProviderConfig,omitempty"`
+	TenancyConfig          *TenancyConfig          `json:"TenancyConfig,omitempty"`
 	DurableConfig          *DurableConfig          `json:"DurableConfig,omitempty"`
 	Environment            *EnvironmentConfig      `json:"Environment,omitempty"`
 	EphemeralStorage       *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`

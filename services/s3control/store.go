@@ -25,7 +25,8 @@ const (
 	arnFmtAccessGrantsLocation = "arn:aws:s3:%s:%s:access-grants/default/location/%s"
 	arnFmtAccessPoint          = "arn:aws:s3:%s:%s:accesspoint/%s"
 	arnFmtObjectLambda         = "arn:aws:s3-object-lambda:%s:%s:accesspoint/%s"
-	arnFmtOutpostsBucket       = "arn:aws:s3-outposts:%s:%s:outpost/op-00000000/bucket/%s"
+	defaultOutpostID           = "op-00000000"
+	arnFmtOutpostsBucket       = "arn:aws:s3-outposts:%s:%s:outpost/%s/bucket/%s"
 	arnFmtJob                  = "arn:aws:s3:%s:%s:job/%s"
 	// arnFmtMRAPToken is the ARN for MRAP async request tokens; gosec false positive (not a credential).
 	arnFmtMRAPToken = "arn:aws:s3::%s:async-request/mrap/create/%s" //nolint:gosec // ARN format, not a credential
@@ -80,6 +81,7 @@ type InMemoryBackend struct {
 	bucketTagging         map[string]TagSet
 	bucketLifecycle       map[string]string
 	bucketVersioning      map[string]string
+	bucketMFADelete       map[string]string
 	mrapRoutes            map[string]string
 	bucketReplication     map[string]string            // accountID:bucketName → replication config XML
 	storageLensConfigs    map[string]string            // accountID:configName → config XML
@@ -111,6 +113,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		bucketTagging:                make(map[string]TagSet),
 		bucketLifecycle:              make(map[string]string),
 		bucketVersioning:             make(map[string]string),
+		bucketMFADelete:              make(map[string]string),
 		mrapRoutes:                   make(map[string]string),
 		bucketReplication:            make(map[string]string),
 		storageLensConfigs:           make(map[string]string),
@@ -155,6 +158,7 @@ func (b *InMemoryBackend) resetAllLocked() {
 	b.bucketTagging = make(map[string]TagSet)
 	b.bucketLifecycle = make(map[string]string)
 	b.bucketVersioning = make(map[string]string)
+	b.bucketMFADelete = make(map[string]string)
 	b.mrapRoutes = make(map[string]string)
 	b.bucketReplication = make(map[string]string)
 	b.storageLensConfigs = make(map[string]string)

@@ -177,9 +177,22 @@ func (b *InMemoryBackend) UpdateMultiRegionCluster(
 
 	if req.ShardConfiguration != nil && req.ShardConfiguration.ShardCount != nil {
 		mrc.NumShards = *req.ShardConfiguration.ShardCount
+		b.propagateShardCountLocked(mrc.MultiRegionClusterName, mrc.NumShards)
 	}
 
 	return cloneMultiRegionCluster(mrc), nil
+}
+
+// propagateShardCountLocked applies a multi-Region shard-count change to every
+// regional member cluster. Must hold b.mu.
+func (b *InMemoryBackend) propagateShardCountLocked(multiRegionName string, shards int32) {
+	for _, t := range b.clusters {
+		for _, c := range tableAll(t) {
+			if c.MultiRegionClusterName == multiRegionName {
+				b.setShardCountLocked(c, shards)
+			}
+		}
+	}
 }
 
 // -- MultiRegionParameterGroup operations ----------------------------------------

@@ -65,7 +65,7 @@ func (h *Handler) createAPICache(ctx context.Context, c *echo.Context, apiID str
 		return h.handleError(ctx, c, "CreateApiCache", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{keyAPICache: created})
+	return c.JSON(http.StatusCreated, map[string]any{keyAPICache: wireShape(created, "apiId")})
 }
 
 // getAPICache handles GET /v1/apis/{apiId}/ApiCaches.
@@ -75,7 +75,7 @@ func (h *Handler) getAPICache(ctx context.Context, c *echo.Context, apiID string
 		return h.handleError(ctx, c, "GetApiCache", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyAPICache: cache})
+	return c.JSON(http.StatusOK, map[string]any{keyAPICache: wireShape(cache, "apiId")})
 }
 
 // deleteAPICache handles DELETE /v1/apis/{apiId}/ApiCaches.
@@ -104,7 +104,7 @@ func (h *Handler) updateAPICache(ctx context.Context, c *echo.Context, apiID str
 		return h.handleError(ctx, c, opUpdateAPICache, updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyAPICache: updated})
+	return c.JSON(http.StatusOK, map[string]any{keyAPICache: wireShape(updated, "apiId")})
 }
 
 // flushAPICache handles DELETE /v1/apis/{apiId}/ApiCaches/entries.

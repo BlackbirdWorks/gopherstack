@@ -51,6 +51,10 @@ func (b *InMemoryBackend) PutInventory(
 	if b.inventory[region] == nil {
 		b.inventory[region] = make(map[string][]InventoryItem)
 	}
+	if err := b.registerCustomSchemasLocked(region, input.Items); err != nil {
+		return nil, err
+	}
+
 	store := b.inventoryStore(region)
 	existing := store[input.InstanceID]
 
@@ -152,24 +156,16 @@ func (b *InMemoryBackend) GetInventory(
 // GetInventorySchema returns the built-in AWS SSM inventory schema types.
 // When TypeName is provided, only schemas matching that prefix are returned.
 func (b *InMemoryBackend) GetInventorySchema(
-	_ context.Context,
+	ctx context.Context,
 	input *GetInventorySchemaInput,
 ) (*GetInventorySchemaOutput, error) {
-	all := []InventorySchemaItem{
-		{TypeName: "AWS:Application", Version: inventorySchemaV11},
-		{TypeName: "AWS:AWSComponent", Version: inventorySchemaV10},
-		{TypeName: "AWS:ComplianceItem", Version: inventorySchemaV11},
-		{TypeName: "AWS:ComplianceSummary", Version: inventorySchemaV11},
-		{TypeName: "AWS:InstanceDetailedInformation", Version: inventorySchemaV10},
-		{TypeName: "AWS:InstanceInformation", Version: inventorySchemaV10},
-		{TypeName: "AWS:Network", Version: inventorySchemaV10},
-		{TypeName: "AWS:PatchCompliance", Version: inventorySchemaV11},
-		{TypeName: "AWS:PatchSummary", Version: inventorySchemaV10},
-		{TypeName: "AWS:WindowsRegistry", Version: inventorySchemaV10},
-		{TypeName: "AWS:WindowsRole", Version: inventorySchemaV10},
-		{TypeName: "AWS:WindowsUpdate", Version: inventorySchemaV10},
-		{TypeName: "Custom:Application", Version: inventorySchemaV10},
-	}
+	b.mu.RLock("GetInventorySchema")
+	custom := b.customSchemaItemsLocked(getRegion(ctx))
+	b.mu.RUnlock()
+
+	builtin := builtinInventorySchemas()
+	all := append(make([]InventorySchemaItem, 0, len(builtin)+len(custom)), builtin...)
+	all = append(all, custom...)
 
 	schemas := make([]any, 0, len(all))
 	for _, s := range all {
@@ -303,37 +299,16 @@ func (b *InMemoryBackend) DeleteInventory(
 	b.mu.Lock("DeleteInventory")
 	defer b.mu.Unlock()
 
-	store := b.inventoryStore(region)
-
-	removed := 0
-
-	for instanceID, items := range store {
-		for _, item := range items {
-			if item.TypeName == input.TypeName {
-				removed++
-			}
-		}
-
-		if !input.DryRun {
-			filtered := items[:0]
-			for _, item := range items {
-				if item.TypeName != input.TypeName {
-					filtered = append(filtered, item)
-				}
-			}
-
-			if len(filtered) == 0 {
-				delete(store, instanceID)
-			} else {
-				store[instanceID] = filtered
-			}
-		}
+	if input.SchemaDeleteOption != "" && b.inventorySchemas[region][input.TypeName] == nil {
+		return nil, fmt.Errorf("%w: %s is not a registered custom inventory type", ErrInvalidTypeName, input.TypeName)
 	}
+
+	removed, byVersion := removeInventoryType(b.inventoryStore(region), input.TypeName, input.DryRun)
 
 	summary := &InventoryDeletionSummary{
 		TotalCount:     removed,
 		RemainingCount: 0,
-		SummaryItems:   []any{},
+		SummaryItems:   deletionSummaryItems(byVersion),
 	}
 
 	if input.DryRun {
@@ -341,6 +316,12 @@ func (b *InMemoryBackend) DeleteInventory(
 	}
 
 	cleanupEmptyInnerMap(b.inventory, region)
+
+	if input.SchemaDeleteOption != "" {
+		if err := b.applySchemaDeleteLocked(region, input.TypeName, input.SchemaDeleteOption); err != nil {
+			return nil, err
+		}
+	}
 
 	// Record a real deletion job so DescribeInventoryDeletions can report it.
 	deletionID := "deletion-" + uuid.NewString()

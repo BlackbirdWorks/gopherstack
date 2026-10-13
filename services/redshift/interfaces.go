@@ -27,8 +27,10 @@ type StorageBackend interface {
 
 	// Tag operations
 	DescribeTags() map[string]map[string]string
-	CreateTags(clusterID string, kv map[string]string) error
-	DeleteTags(clusterID string, keys []string) error
+	DescribeAllTags() []TaggedResource
+	TagNewResource(resourceType, id string, kv map[string]string) error
+	CreateTags(resourceName string, kv map[string]string) error
+	DeleteTags(resourceName string, keys []string) error
 
 	// Parameter group operations
 	CreateClusterParameterGroup(name, family, description string) (*ClusterParameterGroup, error)
@@ -50,7 +52,9 @@ type StorageBackend interface {
 	PurchaseReservedNodeOffering(offeringID, reservedNodeID string, nodeCount int) (*ReservedNode, error)
 	DescribeReservedNodeExchangeStatus(reservedNodeID string) (string, error)
 	GetReservedNodeExchangeOfferings(reservedNodeID string) ([]ReservedNodeOffering, error)
-	GetReservedNodeExchangeConfigurationOptions() []ReservedNodeConfigurationOption
+	GetReservedNodeExchangeConfigurationOptions(
+		actionType, clusterID, snapshotID string,
+	) ([]ReservedNodeConfigurationOption, error)
 
 	// Security group operations
 	AuthorizeClusterSecurityGroupIngress(

@@ -2,12 +2,15 @@ package ssm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -62,18 +65,22 @@ func (b *InMemoryBackend) registerDefaultDocuments(region string) {
 			name:    "AWS-RunShellScript",
 			docType: DocumentTypeCommand,
 			content: `{"schemaVersion":"2.2","description":"Run shell script",` +
-				`"parameters":{"commands":{"type":"StringList"}},` +
+				`"parameters":{"commands":{"type":"StringList"},"workingDirectory":{"type":"String","default":""},` +
+				`"executionTimeout":{"type":"String","default":"3600"}},` +
 				`"mainSteps":[{"action":"aws:runShellScript","name":"runShellScript",` +
-				`"inputs":{"commands":["{{ commands }}"]}}]}`,
+				`"inputs":{"timeoutSeconds":"{{ executionTimeout }}","workingDirectory":"{{ workingDirectory }}",` +
+				`"runCommand":"{{ commands }}"}}]}`,
 			platform: []string{"Linux"},
 		},
 		{
 			name:    "AWS-RunPowerShellScript",
 			docType: DocumentTypeCommand,
 			content: `{"schemaVersion":"2.2","description":"Run PowerShell script",` +
-				`"parameters":{"commands":{"type":"StringList"}},` +
+				`"parameters":{"commands":{"type":"StringList"},"workingDirectory":{"type":"String","default":""},` +
+				`"executionTimeout":{"type":"String","default":"3600"}},` +
 				`"mainSteps":[{"action":"aws:runPowerShellScript","name":"runPowerShellScript",` +
-				`"inputs":{"commands":["{{ commands }}"]}}]}`,
+				`"inputs":{"timeoutSeconds":"{{ executionTimeout }}","workingDirectory":"{{ workingDirectory }}",` +
+				`"runCommand":"{{ commands }}"}}]}`,
 			platform: []string{"Windows"},
 		},
 	}
@@ -120,6 +127,18 @@ func (b *InMemoryBackend) CreateDocument(
 	ctx context.Context,
 	input *CreateDocumentInput,
 ) (*CreateDocumentOutput, error) {
+	if prefix, ok := reservedDocumentPrefix(input.Name); ok {
+		return nil, fmt.Errorf(
+			"%w: document names can't start with the reserved prefix %q",
+			ErrValidationException,
+			prefix,
+		)
+	}
+
+	if err := validateDocumentContent(input.DocumentType, input.DocumentFormat, input.Content); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("CreateDocument")
 	defer b.mu.Unlock()
@@ -386,6 +405,18 @@ func (b *InMemoryBackend) GetDocument(
 	return nil, ErrInvalidDocumentVersion
 }
 
+// reservedDocumentPrefix checks api_op_CreateDocument.go's Name list of reserved prefixes.
+func reservedDocumentPrefix(name string) (string, bool) {
+	lower := strings.ToLower(name)
+	for _, p := range []string{"aws", "amazon", "amzn", "AWSEC2", "AWSConfigRemediation", "AWSSupport"} {
+		if strings.HasPrefix(lower, strings.ToLower(p)) {
+			return p, true
+		}
+	}
+
+	return "", false
+}
+
 // tagFilterKeyPrefix is the DocumentKeyValuesFilter.Key prefix
 // (api_op_ListDocuments.go: "valid keys include ... tag:tagName") selecting a
 // document's tag value for a given tag name.
@@ -577,6 +608,10 @@ func (b *InMemoryBackend) UpdateDocument(
 
 	doc := *docPtr
 
+	if err := validateDocumentContent(doc.DocumentType, input.DocumentFormat, input.Content); err != nil {
+		return nil, err
+	}
+
 	// Validate DocumentVersion if provided.
 	if input.DocumentVersion != nil {
 		switch *input.DocumentVersion {
@@ -593,6 +628,10 @@ func (b *InMemoryBackend) UpdateDocument(
 				return nil, ErrDuplicateDocumentVersionName
 			}
 		}
+	}
+
+	if newHash, _ := documentHashes(input.Content); newHash == doc.Hash {
+		return nil, ErrDuplicateDocumentContent
 	}
 
 	latestVer, _ := strconv.Atoi(doc.LatestVersion)
@@ -1083,4 +1122,29 @@ func (b *InMemoryBackend) ListDocumentMetadataHistory(
 			ReviewerResponse: []DocumentReviewerResponseSource{},
 		},
 	}, nil
+}
+
+// validateDocumentContent rejects Command/Automation/Session documents whose
+// content is not a JSON or YAML object (InvalidDocumentContent).
+func validateDocumentContent(docType, format, content string) error {
+	switch docType {
+	case "", DocumentTypeCommand, "Automation", "Session":
+	default:
+		return nil
+	}
+
+	var doc map[string]any
+
+	var err error
+	if format == documentFormatYAML {
+		err = yaml.Unmarshal([]byte(content), &doc)
+	} else {
+		err = json.Unmarshal([]byte(content), &doc)
+	}
+
+	if err != nil || doc == nil {
+		return fmt.Errorf("%w: document content must be a valid %s object", ErrInvalidDocumentContent, format)
+	}
+
+	return nil
 }

@@ -2,9 +2,12 @@ package dms
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
+	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -292,6 +295,8 @@ type startReplicationInput struct {
 	CdcStartPosition     *string  `json:"CdcStartPosition"`
 	CdcStartTime         *float64 `json:"CdcStartTime"`
 	CdcStopPosition      *string  `json:"CdcStopPosition"`
+	// PremigrationAssessmentSettings is a JSON object serialized as a string.
+	PremigrationAssessmentSettings *string `json:"PremigrationAssessmentSettings"`
 }
 
 // replicationJSON represents the DMS Serverless "Replication" runtime
@@ -299,17 +304,29 @@ type startReplicationInput struct {
 // DescribeReplications. This is distinct from the "ReplicationConfig"
 // resource (replicationConfigJSON) which has no Status field.
 type replicationJSON struct {
-	ReplicationConfigArn        string `json:"ReplicationConfigArn"`
-	ReplicationConfigIdentifier string `json:"ReplicationConfigIdentifier"`
-	ReplicationType             string `json:"ReplicationType,omitempty"`
-	SourceEndpointArn           string `json:"SourceEndpointArn,omitempty"`
-	TargetEndpointArn           string `json:"TargetEndpointArn,omitempty"`
-	StartReplicationType        string `json:"StartReplicationType,omitempty"`
-	Status                      string `json:"Status"`
+	CdcStartTime                *float64 `json:"CdcStartTime,omitempty"`
+	ReplicationConfigArn        string   `json:"ReplicationConfigArn"`
+	ReplicationConfigIdentifier string   `json:"ReplicationConfigIdentifier"`
+	ReplicationType             string   `json:"ReplicationType,omitempty"`
+	SourceEndpointArn           string   `json:"SourceEndpointArn,omitempty"`
+	TargetEndpointArn           string   `json:"TargetEndpointArn,omitempty"`
+	StartReplicationType        string   `json:"StartReplicationType,omitempty"`
+	CdcStartPosition            string   `json:"CdcStartPosition,omitempty"`
+	CdcStopPosition             string   `json:"CdcStopPosition,omitempty"`
+	Status                      string   `json:"Status"`
 }
 
 func replToJSON(rc *ReplicationConfig) replicationJSON {
+	var cdcStart *float64
+	if rc.CdcStartTime != nil {
+		v := awstime.Epoch(*rc.CdcStartTime)
+		cdcStart = &v
+	}
+
 	return replicationJSON{
+		CdcStartPosition:            rc.CdcStartPosition,
+		CdcStartTime:                cdcStart,
+		CdcStopPosition:             rc.CdcStopPosition,
 		ReplicationConfigArn:        rc.ReplicationConfigArn,
 		ReplicationConfigIdentifier: rc.ReplicationConfigIdentifier,
 		ReplicationType:             rc.ReplicationType,
@@ -349,7 +366,21 @@ func (h *Handler) handleStartReplication(
 		return nil, err
 	}
 
-	rc, err := h.Backend.StartReplication(ctx, configArn, startType)
+	if err := validatePremigrationAssessmentSettings(ptrconv.String(in.PremigrationAssessmentSettings)); err != nil {
+		return nil, err
+	}
+
+	cdc := StartReplicationCDC{
+		StartPosition: ptrconv.String(in.CdcStartPosition),
+		StopPosition:  ptrconv.String(in.CdcStopPosition),
+	}
+
+	if in.CdcStartTime != nil {
+		t := time.Unix(0, int64(*in.CdcStartTime*float64(time.Second))).UTC()
+		cdc.StartTime = &t
+	}
+
+	rc, err := h.Backend.StartReplication(ctx, configArn, startType, cdc)
 	if err != nil {
 		return nil, err
 	}
@@ -402,4 +433,33 @@ func (h *Handler) opsReplicationConfigs() map[string]service.JSONOpFunc {
 		opStartReplication: service.WrapOp(h.handleStartReplication),
 		opStopReplication:  service.WrapOp(h.handleStopReplication),
 	}
+}
+
+// validatePremigrationAssessmentSettings checks the documented members of
+// StartReplicationInput.PremigrationAssessmentSettings (api_op_StartReplication.go:80-104).
+func validatePremigrationAssessmentSettings(raw string) error {
+	if raw == "" {
+		return nil
+	}
+
+	var settings struct {
+		ResultEncryptionMode    *string `json:"ResultEncryptionMode"`
+		IncludeOnly             *string `json:"IncludeOnly"`
+		Exclude                 *string `json:"Exclude"`
+		FailOnAssessmentFailure *bool   `json:"FailOnAssessmentFailure"`
+	}
+
+	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
+		return fmt.Errorf("%w: PremigrationAssessmentSettings is not a valid settings object: %w", ErrValidation, err)
+	}
+
+	if mode := ptrconv.String(settings.ResultEncryptionMode); mode != "" && mode != "SSE_S3" && mode != "SSE_KMS" {
+		return fmt.Errorf("%w: invalid ResultEncryptionMode %q; valid: SSE_S3, SSE_KMS", ErrValidation, mode)
+	}
+
+	if ptrconv.String(settings.IncludeOnly) != "" && ptrconv.String(settings.Exclude) != "" {
+		return fmt.Errorf("%w: cannot set both IncludeOnly and Exclude", ErrValidation)
+	}
+
+	return nil
 }

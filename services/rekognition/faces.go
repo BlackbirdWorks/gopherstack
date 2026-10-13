@@ -124,12 +124,8 @@ func (b *InMemoryBackend) ListFaces(
 
 	start := 0
 	if nextToken != "" {
-		for i, f := range faces {
-			if f.FaceID == nextToken {
-				start = i
-
-				break
-			}
+		if start = slices.IndexFunc(faces, func(f *storedFace) bool { return f.FaceID == nextToken }); start < 0 {
+			return nil, "", ErrInvalidPaginationToken
 		}
 	}
 

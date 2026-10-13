@@ -157,8 +157,9 @@ func (h *Handler) handleUpdateFileSystem(
 // --- AssociateFileSystemAliases ---
 
 type associateFileSystemAliasesInput struct {
-	FileSystemID string   `json:"FileSystemId"`
-	Aliases      []string `json:"Aliases"`
+	FileSystemID       string   `json:"FileSystemId"`
+	ClientRequestToken string   `json:"ClientRequestToken,omitempty"`
+	Aliases            []string `json:"Aliases"`
 }
 
 type associateFileSystemAliasesOutput struct {
@@ -169,7 +170,7 @@ func (h *Handler) handleAssociateFileSystemAliases(
 	_ context.Context,
 	in *associateFileSystemAliasesInput,
 ) (*associateFileSystemAliasesOutput, error) {
-	aliases, err := h.Backend.AssociateFileSystemAliases(in.FileSystemID, in.Aliases)
+	aliases, err := h.Backend.AssociateFileSystemAliases(in)
 	if err != nil {
 		return nil, err
 	}

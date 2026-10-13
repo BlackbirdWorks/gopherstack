@@ -70,7 +70,8 @@ func TestHandler_GatewayTaskLifecycle(t *testing.T) {
 	var notFoundResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notFoundResp))
 	msg, _ := notFoundResp["Message"].(string)
-	assert.Contains(t, msg, "ResourceNotFoundException")
+	assert.NotContains(t, msg, "ResourceNotFoundException")
+	assert.Contains(t, msg, "task")
 	assert.NotContains(t, notFoundResp, "Status", "a stub response would fabricate a Status field")
 
 	// Delete task definition
@@ -254,7 +255,7 @@ func TestGetWirelessGatewayTaskDefinition_NotFound(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
 	msg, _ := resp["Message"].(string)
-	assert.Contains(t, msg, "ResourceNotFoundException")
+	assert.NotContains(t, msg, "ResourceNotFoundException")
 	assert.Contains(t, msg, "task definition")
 
 	// A stub response would have returned these placeholder fields; make

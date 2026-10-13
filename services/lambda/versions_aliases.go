@@ -1,7 +1,9 @@
 package lambda
 
 import (
+	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strconv"
 
@@ -12,7 +14,7 @@ import (
 
 // PublishVersion creates an immutable version snapshot of the current $LATEST function config.
 func (b *InMemoryBackend) PublishVersion(name, description string) (*FunctionVersion, error) {
-	return b.publishVersion(name, description, "")
+	return b.publishVersion(name, description, "", false)
 }
 
 // PublishVersionWithRevision behaves like PublishVersion but additionally
@@ -23,10 +25,20 @@ func (b *InMemoryBackend) PublishVersion(name, description string) (*FunctionVer
 // single lock acquisition to avoid a check-then-act race against a concurrent
 // UpdateFunctionConfiguration/UpdateFunctionCode.
 func (b *InMemoryBackend) PublishVersionWithRevision(name, description, revisionID string) (*FunctionVersion, error) {
-	return b.publishVersion(name, description, revisionID)
+	return b.publishVersion(name, description, revisionID, false)
 }
 
-func (b *InMemoryBackend) publishVersion(name, description, revisionID string) (*FunctionVersion, error) {
+// PublishVersionLatestPublished creates or republishes the single mutable $LATEST.PUBLISHED version
+// (PublishTo=LATEST_PUBLISHED) without consuming a version number.
+func (b *InMemoryBackend) PublishVersionLatestPublished(
+	name, description, revisionID string,
+) (*FunctionVersion, error) {
+	return b.publishVersion(name, description, revisionID, true)
+}
+
+func (b *InMemoryBackend) publishVersion(
+	name, description, revisionID string, latestPublished bool,
+) (*FunctionVersion, error) {
 	b.mu.Lock("PublishVersion")
 	defer b.mu.Unlock()
 
@@ -39,8 +51,11 @@ func (b *InMemoryBackend) publishVersion(name, description, revisionID string) (
 		return nil, ErrPreconditionFailed
 	}
 
-	b.versionCounters[name]++
-	versionNum := strconv.Itoa(b.versionCounters[name])
+	versionNum := versionLatestPublished
+	if !latestPublished {
+		b.versionCounters[name]++
+		versionNum = strconv.Itoa(b.versionCounters[name])
+	}
 
 	ver := &FunctionVersion{
 		FunctionName:           fn.FunctionName,
@@ -66,6 +81,8 @@ func (b *InMemoryBackend) publishVersion(name, description, revisionID string) (
 		CreatedAt:              fn.LastModified,
 		State:                  fn.State,
 		SnapStart:              copySnapStart(fn.SnapStart),
+		CapacityProviderConfig: fn.CapacityProviderConfig,
+		TenancyConfig:          fn.TenancyConfig,
 		DurableConfig:          fn.DurableConfig,
 		EphemeralStorage:       fn.EphemeralStorage,
 		LoggingConfig:          fn.LoggingConfig,
@@ -76,6 +93,12 @@ func (b *InMemoryBackend) publishVersion(name, description, revisionID string) (
 		StateReasonCode:        fn.StateReasonCode,
 		LastUpdateStatus:       fn.LastUpdateStatus,
 		LastUpdateStatusReason: fn.LastUpdateStatusReason,
+	}
+
+	if latestPublished {
+		b.versions[name] = slices.DeleteFunc(b.versions[name], func(v *FunctionVersion) bool {
+			return v.Version == versionLatestPublished
+		})
 	}
 
 	b.versions[name] = append(b.versions[name], ver)
@@ -157,6 +180,10 @@ func (b *InMemoryBackend) CreateAlias(
 		}
 	}
 
+	if err := b.validateRoutingConfig(name, input.FunctionVersion, input.RoutingConfig); err != nil {
+		return nil, err
+	}
+
 	if _, exists := b.aliases.Get(aliasKey(name, input.Name)); exists {
 		return nil, ErrAliasAlreadyExists
 	}
@@ -173,6 +200,40 @@ func (b *InMemoryBackend) CreateAlias(
 	b.aliases.Put(alias)
 
 	return cloneAlias(alias), nil
+}
+
+// validateRoutingConfig rejects weighted routing that AWS refuses: a $LATEST
+// primary, unknown or primary-equal additional versions, weights outside [0,1].
+func (b *InMemoryBackend) validateRoutingConfig(name, primary string, rc *AliasRoutingConfig) error {
+	if rc == nil || len(rc.AdditionalVersionWeights) == 0 {
+		return nil
+	}
+
+	if primary == versionLatest {
+		return fmt.Errorf(
+			"%w: weighted routing is not supported on an alias pointing to $LATEST", ErrInvalidParameterValue,
+		)
+	}
+
+	for version, weight := range rc.AdditionalVersionWeights {
+		if weight < 0 || weight > 1 {
+			return fmt.Errorf("%w: additional version weight must be between 0.0 and 1.0", ErrInvalidParameterValue)
+		}
+
+		if version == primary || version == versionLatest {
+			return fmt.Errorf(
+				"%w: additional version %s is not a valid routing target",
+				ErrInvalidParameterValue,
+				version,
+			)
+		}
+
+		if !versionInList(b.versions[name], version) {
+			return ErrVersionNotFound
+		}
+	}
+
+	return nil
 }
 
 // cloneAlias stops a caller from racing UpdateAlias, which mutates alias's
@@ -248,13 +309,26 @@ func (b *InMemoryBackend) UpdateAlias(
 		return nil, ErrPreconditionFailed
 	}
 
+	primary := alias.FunctionVersion
+
 	if input.FunctionVersion != nil {
 		if *input.FunctionVersion != versionLatest && !versionInList(b.versions[name], *input.FunctionVersion) {
 			return nil, ErrVersionNotFound
 		}
 
-		alias.FunctionVersion = *input.FunctionVersion
+		primary = *input.FunctionVersion
 	}
+
+	routing := alias.RoutingConfig
+	if input.RoutingConfig != nil {
+		routing = input.RoutingConfig
+	}
+
+	if err := b.validateRoutingConfig(name, primary, routing); err != nil {
+		return nil, err
+	}
+
+	alias.FunctionVersion = primary
 
 	if input.Description != nil {
 		alias.Description = *input.Description
@@ -339,6 +413,8 @@ func fnToVersion(fn *FunctionConfiguration) *FunctionVersion {
 		State:                  fn.State,
 		CodeSha256:             fn.CodeSha256,
 		SnapStart:              copySnapStart(fn.SnapStart),
+		CapacityProviderConfig: fn.CapacityProviderConfig,
+		TenancyConfig:          fn.TenancyConfig,
 		DurableConfig:          fn.DurableConfig,
 		EphemeralStorage:       fn.EphemeralStorage,
 		LoggingConfig:          fn.LoggingConfig,
@@ -387,7 +463,9 @@ func versionToFn(v *FunctionVersion) *FunctionConfiguration {
 		SnapStart:    v.SnapStart,
 		Version:      v.Version,
 		// Invoke reads this to detect durable invocations of versions/aliases.
-		DurableConfig: v.DurableConfig,
+		DurableConfig:          v.DurableConfig,
+		CapacityProviderConfig: v.CapacityProviderConfig,
+		TenancyConfig:          v.TenancyConfig,
 	}
 }
 
@@ -398,31 +476,33 @@ func versionToFn(v *FunctionVersion) *FunctionConfiguration {
 // including Version, Layers, VpcConfig, TracingConfig, and the version ARN.
 func versionToConfig(v *FunctionVersion) *FunctionConfiguration {
 	return &FunctionConfiguration{
-		FunctionName:        v.FunctionName,
-		FunctionArn:         v.FunctionArn,
-		Description:         v.Description,
-		Runtime:             v.Runtime,
-		Handler:             v.Handler,
-		Role:                v.Role,
-		MemorySize:          v.MemorySize,
-		Timeout:             v.Timeout,
-		PackageType:         v.PackageType,
-		ImageURI:            v.ImageURI,
-		ImageConfigResponse: v.ImageConfigResponse,
-		Environment:         deepCopyEnvironment(v.Environment),
-		VpcConfig:           v.VpcConfig,
-		TracingConfig:       v.TracingConfig,
-		FileSystemConfigs:   v.FileSystemConfigs,
-		DeadLetterConfig:    v.DeadLetterConfig,
-		Layers:              deepCopyFunctionLayers(v.Layers),
-		CodeSize:            v.CodeSize,
-		CodeSha256:          v.CodeSha256,
-		RevisionID:          v.RevisionID,
-		LastModified:        v.CreatedAt,
-		State:               v.State,
-		Version:             v.Version,
-		SnapStart:           copySnapStart(v.SnapStart),
-		DurableConfig:       v.DurableConfig,
+		FunctionName:           v.FunctionName,
+		FunctionArn:            v.FunctionArn,
+		Description:            v.Description,
+		Runtime:                v.Runtime,
+		Handler:                v.Handler,
+		Role:                   v.Role,
+		MemorySize:             v.MemorySize,
+		Timeout:                v.Timeout,
+		PackageType:            v.PackageType,
+		ImageURI:               v.ImageURI,
+		ImageConfigResponse:    v.ImageConfigResponse,
+		Environment:            deepCopyEnvironment(v.Environment),
+		VpcConfig:              v.VpcConfig,
+		TracingConfig:          v.TracingConfig,
+		FileSystemConfigs:      v.FileSystemConfigs,
+		DeadLetterConfig:       v.DeadLetterConfig,
+		Layers:                 deepCopyFunctionLayers(v.Layers),
+		CodeSize:               v.CodeSize,
+		CodeSha256:             v.CodeSha256,
+		RevisionID:             v.RevisionID,
+		LastModified:           v.CreatedAt,
+		State:                  v.State,
+		Version:                v.Version,
+		SnapStart:              copySnapStart(v.SnapStart),
+		DurableConfig:          v.DurableConfig,
+		CapacityProviderConfig: v.CapacityProviderConfig,
+		TenancyConfig:          v.TenancyConfig,
 		// Published versions are immutable: their last-update status is always
 		// Successful (AWS never reports Pending/InProgress for a numbered version).
 		LastUpdateStatus: LastUpdateStatusSuccessful,

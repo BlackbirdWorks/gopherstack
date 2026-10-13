@@ -276,4 +276,7 @@ const scorePlaceholder = 0.0
 // knowledge of the documented product behavior only -- see PARITY.md's gap
 // #8. If wrong, every draft-vs-published check in this package (see
 // appversions.go) would need the sentinel value changed in one place.
-const draftVersion = "draft"
+const (
+	draftVersion   = "draft"
+	releaseVersion = "release"
+)

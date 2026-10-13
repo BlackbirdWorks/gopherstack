@@ -1,7 +1,7 @@
 service: workspaces
 sdk_module: aws-sdk-go-v2/service/workspaces@v1.79.0
 last_audit_commit: 7c8077891728
-last_audit_date: 2026-08-28
+last_audit_date: 2026-10-10
 # 2026-09-07 (gopherstack-s3v4): CreateWorkspaces stored WorkspaceProperties verbatim: no default
 # and no validation. The pinned SDK's WorkspaceProperties.RunningMode doc comment
 # (types/types.go:1805-1815) states no default value -- evidence for defaulting to ALWAYS_ON is
@@ -223,12 +223,13 @@ gaps: []
   # into another region's image table.
 
 items_still_open:
-  - "RegisterWorkspaceDirectory accepts EnableSelfService but does not apply it: mapping the one bool onto the five SelfservicePermissions members needs AWS's actual mapping, which is unverified."
-  - "RegisterWorkspaceDirectory's WorkspaceType/Tenancy/UserIdentityType defaults (PERSONAL, SHARED, and AWS_DIRECTORY_SERVICE / CUSTOMER_MANAGED when ActiveDirectoryConfig is set / AWS_IAM_IDENTITY_CENTER when IdcInstanceArn is set) are inferred from the SDK enum docs, not verified against live AWS. IDCConfig.ApplicationArn is not modeled."
-  - "DirectoryType is derived for SimpleAD, ADConnector and IAM Identity Center only; MicrosoftAD/SharedMicrosoftAD leave it empty because AWS does not document which Directory Service type maps to CUSTOMER_MANAGED."
-  - "DescribeApplications' Owner/ComputeTypeNames/LicenseType/OperatingSystemNames filters and ImportWorkspaceImage.Applications are not applied: the application catalog (b.applications) has no create path, so there is nothing to filter or associate."
-  - "Accept/Reject/DeleteAccountLinkInvitation ClientToken is not read: repeating the same call is already idempotent here, and AWS's behaviour for a repeated Reject/Delete with a new token is unverified."
-  - "WorkspacesPool.ApplicationSettings.S3BucketName is not returned: AWS provisions the settings bucket, which this backend does not model."
+  - "RegisterWorkspaceDirectory EnableSelfService is accepted but not applied: API_RegisterWorkspaceDirectory says only 'whether self-service capabilities are enabled'; the admin guide lists the self-service toggles (restart, volume size, compute type, running mode, rebuild, remember-me, diagnostic uploads) without stating which EnableSelfService=true turns on."
+  - "RegisterWorkspaceDirectory's WorkspaceType/Tenancy/UserIdentityType defaults are inferred from SDK enum docs: API_RegisterWorkspaceDirectory documents the valid values but no defaults."
+  - "DirectoryType is derived for SimpleAD, ADConnector and IAM Identity Center only: the WorkspaceDirectoryType enum has no MicrosoftAD/SharedMicrosoftAD value and no doc maps them to CUSTOMER_MANAGED."
+  - "Accept/Reject/DeleteAccountLinkInvitation ClientToken is not read: the SDK says only 'ensure idempotent creation' and no doc gives the error for a mismatched token."
+structural_gaps:
+  - "DescribeApplications ComputeTypeNames/LicenseType/OperatingSystemNames/Owner filters match nothing: the application catalog is a read-only AWS/partner list with no create path, so b.applications is permanently empty (filter values are enum-validated)."
+  - "WorkspacesPool.ApplicationSettings.S3BucketName is not returned: AWS provisions the account/region settings bucket, which this backend does not model."
 deferred: []
 
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table maps guarded by lockmetrics.RWMutex. FIXED this pass: DeregisterWorkspaceDirectory no longer allows deregistering a directory that still has live WorkSpaces assigned to it (previously left DescribeWorkspaces returning WorkSpaces pointing at a DirectoryId with no corresponding registered directory — a dangling-reference-shaped leak, now prevented outright per real AWS semantics) and now cascade-cleans the directoryIpGroups map entry for a directory on successful deregistration (was an orphaned map entry keyed by a dead DirectoryId, never reachable again once the directory itself was gone)."}
@@ -733,3 +734,10 @@ ModifyWorkspaceProperties merges the supplied members instead of replacing the w
 ## 2026-10-05 (reqfielddiff tier-2 pagination)
 
 FIXED: DescribeWorkspacesPools applies Filters (Name PoolName; EQUALS/NOTEQUALS/CONTAINS/NOTCONTAINS; filters ANDed, values ORed, the NOT forms match none) and rejects other names/operators with InvalidParameterValuesException. Proof: `TestDescribeWorkspacesPools_Filters`. RECORDED: DescribeWorkspaceDirectories Filters (USER_IDENTITY_TYPE, WORKSPACE_TYPE) are unsupported because RegisterWorkspaceDirectory does not store UserIdentityType/WorkspaceType, so the directories carry nothing to match.
+
+## 2026-10-10: realism pass (CLI/SDK probing)
+
+- CreateWorkspaces reports `PENDING` and RegisterWorkspaceDirectory reports `REGISTERING`; `SetLifecycleDelay` (default 0, root wiring needed for a flag) keeps them in that state for Describe until the deadline, then `AVAILABLE`/`REGISTERED`. `SetClock` makes this testable without sleeping.
+- Bad NextToken on DescribeWorkspaces/Directories/Bundles is InvalidParameterValuesException; CreateTags on an unknown resource and DeregisterWorkspaceDirectory on an unregistered directory are ResourceNotFoundException; IP group rules must be IP addresses or CIDRs.
+- Errors carry readable messages instead of the bare code.
+- Lenient on purpose: an unknown BundleId is still accepted by CreateWorkspaces (in-repo callers use made-up `wsb-*` ids).

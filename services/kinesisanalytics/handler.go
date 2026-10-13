@@ -210,7 +210,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		status = http.StatusNotFound
+		status = http.StatusBadRequest
 		code = "ResourceNotFoundException"
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		status = http.StatusBadRequest
@@ -253,5 +253,33 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	c.Response().Header().Set("X-Amzn-Errortype", code)
 
-	return c.JSON(status, errorResponse{Type: code, Message: err.Error()})
+	return c.JSON(status, errorResponse{Type: code, Message: errMessage(err, code)})
+}
+
+// errMessage drops the leading "<code>: " the sentinels contribute and falls back to
+// the API reference's description of the exception when nothing else remains.
+func errMessage(err error, code string) string {
+	msg := strings.TrimPrefix(err.Error(), code)
+	msg = strings.TrimPrefix(msg, ": ")
+
+	if msg != "" && msg != code {
+		return msg
+	}
+
+	switch code {
+	case "ResourceNotFoundException":
+		return "Specified application can't be found."
+	case "ResourceInUseException":
+		return "Application is not available for this operation."
+	case "ConcurrentModificationException":
+		return "Exception thrown as a result of concurrent modification to an application."
+	case "LimitExceededException":
+		return "Exceeded the number of applications allowed."
+	case "TooManyTagsException":
+		return "Application tag limit exceeded."
+	case errInvalidArgumentException:
+		return "Specified input parameter value is invalid."
+	default:
+		return "An internal error occurred."
+	}
 }

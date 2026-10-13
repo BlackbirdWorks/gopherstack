@@ -18,6 +18,7 @@ func (h *Handler) handleStartDeployment(
 		KmsKeyIdentifier       *string           `json:"KmsKeyIdentifier"`
 		LatestDeploymentNumber *int32            `json:"LatestDeploymentNumber"`
 		Tags                   map[string]string `json:"Tags"`
+		DynamicParameters      map[string]string `json:"DynamicExtensionParameters"`
 		ConfigurationProfileID string            `json:"ConfigurationProfileId"`
 		DeploymentStrategyID   string            `json:"DeploymentStrategyId"`
 		ConfigurationVersion   string            `json:"ConfigurationVersion"`
@@ -30,11 +31,11 @@ func (h *Handler) handleStartDeployment(
 		)
 	}
 
-	deployment, err := h.Backend.StartDeployment(
+	deployment, err := h.Backend.StartDeploymentWithParameters(
 		applicationID, environmentID,
 		req.ConfigurationProfileID, req.DeploymentStrategyID,
 		req.ConfigurationVersion, req.Description,
-		req.KmsKeyIdentifier, req.LatestDeploymentNumber, req.Tags,
+		req.KmsKeyIdentifier, req.LatestDeploymentNumber, req.Tags, req.DynamicParameters,
 	)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {

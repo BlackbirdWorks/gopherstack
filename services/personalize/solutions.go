@@ -25,8 +25,8 @@ func (b *InMemoryBackend) CreateSolution(
 	b.mu.Lock("CreateSolution")
 	defer b.mu.Unlock()
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	if err := validateName("name", name); err != nil {
+		return nil, err
 	}
 	if b.solutions.Has(name) {
 		return nil, fmt.Errorf("%w: solution %q already exists", ErrAlreadyExists, name)
@@ -34,8 +34,9 @@ func (b *InMemoryBackend) CreateSolution(
 	if b.findDatasetGroup(datasetGroupArn) == nil {
 		return nil, fmt.Errorf("%w: dataset group %q not found", ErrNotFound, datasetGroupArn)
 	}
-	// recipeArn is required only when performAutoML is false; when omitted
-	// (the AutoML path) there is nothing to validate.
+	if recipeArn == "" && !performAutoML {
+		return nil, fmt.Errorf("%w: recipeArn is required unless performAutoML is true", ErrValidation)
+	}
 	if recipeArn != "" && !recipeExists(recipeArn) {
 		return nil, fmt.Errorf("%w: recipe %q not found", ErrNotFound, recipeArn)
 	}
@@ -53,6 +54,7 @@ func (b *InMemoryBackend) CreateSolution(
 		PerformIncrementalUpdate: performIncrementalUpdate,
 		SolutionConfig:           solutionConfig,
 		Status:                   statusActive,
+		lc:                       b.lifecycle(),
 		CreationDateTime:         now,
 		LastUpdatedDateTime:      now,
 	}
@@ -128,7 +130,7 @@ func (b *InMemoryBackend) UpdateSolution(
 		"performAutoTraining":       sol.PerformAutoTraining,
 		keyPerformIncrementalUpdate: sol.PerformIncrementalUpdate,
 		"solutionUpdateConfig":      solutionUpdateConfig,
-		keyStatus:                   sol.Status,
+		keyStatus:                   sol.lc.resourceStatus(sol.Status, sol.CreationDateTime),
 	}
 
 	return sol, nil
@@ -222,6 +224,7 @@ func (b *InMemoryBackend) CreateSolutionVersion(
 		SolutionVersionArn: sol.SolutionArn + "/" + versionID,
 		SolutionArn:        sol.SolutionArn,
 		Status:             statusActive,
+		lc:                 b.lifecycle(),
 		TrainingMode:       trainingMode,
 		Name:               name,
 		TrainingHours:      mockMetricValue,

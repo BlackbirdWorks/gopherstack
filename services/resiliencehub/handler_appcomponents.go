@@ -101,6 +101,10 @@ func (h *Handler) handleListAppVersionAppComponents(_ context.Context, _ *http.R
 		return nil, err
 	}
 
+	if err := validatePage(req.NextToken, int(req.MaxResults)); err != nil {
+		return nil, err
+	}
+
 	a, p, err := h.Backend.ListAppVersionAppComponents(req.AppArn, req.AppVersion, req.NextToken, int(req.MaxResults))
 	if err != nil {
 		return nil, err

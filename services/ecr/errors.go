@@ -18,6 +18,8 @@ var (
 	ErrRepositoryNotEmpty = awserr.New("RepositoryNotEmptyException", awserr.ErrConflict)
 	// ErrImageTagAlreadyExists is returned when re-tagging an image in an IMMUTABLE repository.
 	ErrImageTagAlreadyExists = awserr.New("ImageTagAlreadyExistsException", awserr.ErrConflict)
+	// ErrTooManyTags is returned when a resource would exceed the per-resource tag limit.
+	ErrTooManyTags = awserr.New("TooManyTagsException", awserr.ErrConflict)
 	// ErrInvalidRepositoryName is returned when the repository name is invalid.
 	ErrInvalidRepositoryName = errors.New("InvalidParameterException")
 	// ErrPullThroughCacheRuleNotFound is returned when a pull-through cache rule does not exist.

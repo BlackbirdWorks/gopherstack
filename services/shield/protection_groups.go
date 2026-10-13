@@ -118,6 +118,10 @@ func (b *InMemoryBackend) CreateProtectionGroup(
 		return nil, fmt.Errorf("%w: ProtectionGroupId is required", ErrValidation)
 	}
 
+	if err := validateProtectionGroupID(id); err != nil {
+		return nil, err
+	}
+
 	if b.subscription == nil {
 		// CreateProtectionGroup's declared error catalog has no InvalidOperationException
 		// (deserializers.go's deserializeOpErrorCreateProtectionGroup); use ErrSubscriptionNotFound
@@ -131,6 +135,10 @@ func (b *InMemoryBackend) CreateProtectionGroup(
 
 	if _, valid := validPatterns()[pattern]; !valid {
 		return nil, fmt.Errorf("%w: Pattern must be one of ALL, ARBITRARY, BY_RESOURCE_TYPE", ErrValidation)
+	}
+
+	if err := validateGroupPatternFields(pattern, resourceType, members); err != nil {
+		return nil, err
 	}
 
 	if pattern == PatternArbitrary && len(members) == 0 {
@@ -236,6 +244,10 @@ func (b *InMemoryBackend) UpdateProtectionGroup(
 
 	if _, valid := validPatterns()[pattern]; !valid {
 		return fmt.Errorf("%w: Pattern must be one of ALL, ARBITRARY, BY_RESOURCE_TYPE", ErrValidation)
+	}
+
+	if err := validateGroupPatternFields(pattern, resourceType, members); err != nil {
+		return err
 	}
 
 	if pattern == PatternArbitrary && len(members) == 0 {

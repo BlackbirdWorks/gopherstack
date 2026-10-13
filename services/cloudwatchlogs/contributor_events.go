@@ -59,3 +59,17 @@ func groupMatchesAny(name string, patterns []string) bool {
 
 	return false
 }
+
+// TransformerProcessors returns the transformer processors configured for a log group, if any.
+func (b *InMemoryBackend) TransformerProcessors(groupName string) ([]map[string]any, bool) {
+	b.mu.RLock("TransformerProcessors")
+	defer b.mu.RUnlock()
+
+	for _, t := range b.transformers.All() {
+		if normalizeLogGroupIdentifier(t.LogGroupIdentifier) == groupName {
+			return t.Processors, true
+		}
+	}
+
+	return nil, false
+}

@@ -127,7 +127,7 @@ func TestCreateSubnet_NotInVPC(t *testing.T) {
 	// Subnet outside VPC CIDR should fail.
 	_, err = b.CreateSubnet(vpc.ID, "192.168.1.0/24", "us-east-1a")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ec2.ErrInvalidParameter)
+	assert.ErrorIs(t, err, ec2.ErrSubnetRange)
 }
 
 // ---- Optimization: spotFleetHistory cap ----

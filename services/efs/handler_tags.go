@@ -7,6 +7,8 @@ import (
 	"strconv"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type tagResourceBody struct {
@@ -20,6 +22,13 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceID string, body []b
 	}
 
 	kv := tagsFromEntries(in.Tags)
+	if _, ok := kv[tags.PinnedIDKey]; ok {
+		return h.handleError(
+			c,
+			fmt.Errorf("%w: tag %q is only valid on CreateFileSystem", ErrValidation, tags.PinnedIDKey),
+		)
+	}
+
 	if err := h.Backend.TagResource(h.contextWithRegion(c), resourceID, kv); err != nil {
 		return h.handleError(c, err)
 	}
@@ -64,6 +73,36 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceID string) 
 }
 
 const listTagsDefaultMax = 100
+
+// handleDescribeTags serves the legacy DescribeTags op: Marker in, Marker and
+// NextMarker out, page size fixed at 100 with MaxItems ignored
+// (efs@v1.44.4 api_op_DescribeTags.go).
+func (h *Handler) handleDescribeTags(c *echo.Context, fileSystemID string) error {
+	t, err := h.Backend.ListTagsForResource(h.contextWithRegion(c), fileSystemID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	marker := c.Request().URL.Query().Get("Marker")
+
+	page, next, pageErr := paginate(
+		tagsToEntries(t), marker, listTagsDefaultMax, func(e tagEntry) string { return e.Key },
+	)
+	if pageErr != nil {
+		return h.handleError(c, fmt.Errorf("%w: invalid Marker", ErrBadRequest))
+	}
+
+	resp := map[string]any{keyTags: page}
+	if marker != "" {
+		resp["Marker"] = marker
+	}
+
+	if next != "" {
+		resp["NextMarker"] = next
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
 
 type createTagsBody struct {
 	Tags []tagEntry `json:"Tags"`

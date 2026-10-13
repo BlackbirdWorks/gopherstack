@@ -531,6 +531,28 @@ var errCodeLookup = []errCodeEntry{
 	{sentinel: ErrFileModeRequired, code: http.StatusBadRequest, errType: "FileModeRequiredException"},
 	{sentinel: ErrInvalidMaxConflictFiles, code: http.StatusBadRequest, errType: "InvalidMaxConflictFilesException"},
 	{sentinel: ErrInvalidMaxMergeHunks, code: http.StatusBadRequest, errType: "InvalidMaxMergeHunksException"},
+	{sentinel: ErrInvalidSortBy, code: http.StatusBadRequest, errType: "InvalidSortByException"},
+	{sentinel: ErrInvalidOrder, code: http.StatusBadRequest, errType: "InvalidOrderException"},
+	{
+		sentinel: ErrInvalidRepositoryDescription,
+		code:     http.StatusBadRequest,
+		errType:  "InvalidRepositoryDescriptionException",
+	},
+	{sentinel: ErrFolderNotFound, code: http.StatusNotFound, errType: "FolderDoesNotExistException"},
+	{sentinel: ErrReferenceNotFound, code: http.StatusBadRequest, errType: "ReferenceDoesNotExistException"},
+	{
+		sentinel: ErrSourceAndDestinationSame,
+		code:     http.StatusBadRequest,
+		errType:  "SourceAndDestinationAreSameException",
+	},
+	{sentinel: ErrInvalidPullRequestID, code: http.StatusBadRequest, errType: "InvalidPullRequestIdException"},
+	{sentinel: ErrInvalidTitle, code: http.StatusBadRequest, errType: "InvalidTitleException"},
+	{sentinel: ErrInvalidDescription, code: http.StatusBadRequest, errType: "InvalidDescriptionException"},
+	{
+		sentinel: ErrMultipleRepositories,
+		code:     http.StatusBadRequest,
+		errType:  "MultipleRepositoriesInPullRequestException",
+	},
 	{sentinel: errInvalidRequest, code: http.StatusBadRequest, errType: "ValidationException"},
 }
 
@@ -538,11 +560,13 @@ var errCodeLookup = []errCodeEntry{
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	code := http.StatusBadRequest
 	errType := "ValidationException"
+	msg := err.Error()
 
 	for _, entry := range errCodeLookup {
 		if errors.Is(err, entry.sentinel) {
 			code = entry.code
 			errType = entry.errType
+			msg = strings.TrimPrefix(msg, entry.sentinel.Error()+": ")
 
 			break
 		}
@@ -550,7 +574,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	return c.JSON(code, map[string]string{
 		"__type":   errType,
-		keyMessage: err.Error(),
+		keyMessage: msg,
 	})
 }
 

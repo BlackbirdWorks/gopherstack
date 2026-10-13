@@ -13,6 +13,7 @@ type scramSecretInput struct {
 }
 
 type batchScramSecretOutput struct {
+	ClusterArn              string             `json:"clusterArn"`
 	UnprocessedScramSecrets []ScramSecretError `json:"unprocessedScramSecrets"`
 }
 
@@ -37,7 +38,7 @@ func (h *Handler) handleBatchAssociateScramSecret(
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, batchScramSecretOutput{UnprocessedScramSecrets: errs})
+	return c.JSON(http.StatusOK, batchScramSecretOutput{ClusterArn: clusterArn, UnprocessedScramSecrets: errs})
 }
 
 func (h *Handler) handleBatchDisassociateScramSecret(
@@ -61,7 +62,7 @@ func (h *Handler) handleBatchDisassociateScramSecret(
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, batchScramSecretOutput{UnprocessedScramSecrets: errs})
+	return c.JSON(http.StatusOK, batchScramSecretOutput{ClusterArn: clusterArn, UnprocessedScramSecrets: errs})
 }
 
 type listScramSecretsOutput struct {

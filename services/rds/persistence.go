@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -110,6 +111,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	defer b.mu.Unlock()
 
 	b.dropAllUnitsLocked()
+	b.pause = make(map[string]*pauseTracker)
 
 	if snap.Version != rdsSnapshotVersion {
 		// An incompatible (older/newer/absent) snapshot version must never be
@@ -155,6 +157,9 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.defaultCACertificateID = defaultCACertificateID
 	}
 	b.relaunchUnitsLocked()
+	if slices.ContainsFunc(b.clusters.All(), autoPauseConfigured) {
+		b.scheduleAutoPauseLocked()
+	}
 	// FIS fault state is transient — clear it on restore so stale faults are not retained.
 	b.fisFailoverFaults = make(map[string]time.Time)
 

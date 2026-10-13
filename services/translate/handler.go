@@ -192,7 +192,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	return c.JSON(status, map[string]string{
 		"__type":  code,
-		"message": err.Error(),
+		"message": errMessage(err),
 	})
 }
 

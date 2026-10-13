@@ -2,6 +2,7 @@ package route53
 
 import (
 	"fmt"
+	"maps"
 	"net"
 	"regexp"
 	"sort"
@@ -363,6 +364,16 @@ func validateGeoProximityLocation(gpl *GeoProximityLocation) error {
 	return nil
 }
 
+// validateChangeZone rejects record names outside the hosted zone.
+func validateChangeZone(zd *zoneData, rrs ResourceRecordSet) error {
+	zone := zd.zone.Name
+	if rrs.Name == zone || strings.HasSuffix(rrs.Name, "."+zone) {
+		return nil
+	}
+
+	return fmt.Errorf("%w: RRSet with DNS name %s is not permitted in zone %s", ErrInvalidAction, rrs.Name, zone)
+}
+
 // validateChangeType checks the record type is one AWS Route 53 accepts.
 func validateChangeType(rrs ResourceRecordSet) error {
 	if !validRecordTypes[rrs.Type] {
@@ -483,6 +494,10 @@ func validateChangeActionState(zd *zoneData, ch Change) error {
 // validateChange validates a single change against current zone state.
 func validateChange(zd *zoneData, ch Change) error {
 	rrs := ch.ResourceRecordSet
+
+	if err := validateChangeZone(zd, rrs); err != nil {
+		return err
+	}
 
 	if err := validateChangeType(rrs); err != nil {
 		return err
@@ -656,7 +671,7 @@ func applyChange(zd *zoneData, ch Change, affected map[string]struct{}, hasDNS b
 		return fmt.Errorf("%w: unknown action %q", ErrInvalidAction, ch.Action)
 	}
 
-	if hasDNS && dnsEligible(rrs) {
+	if hasDNS && affected != nil && dnsEligible(rrs) {
 		affected[rrs.Name] = struct{}{}
 	}
 
@@ -710,13 +725,20 @@ func (b *InMemoryBackend) ChangeResourceRecordSets(
 		)
 	}
 
-	// Normalise names and validate all changes before mutating anything.
+	// Validate the batch in order against a scratch copy so each change sees the ones before it
+	// (a second CREATE of the same record set in one batch fails), before mutating anything.
+	scratch := &zoneData{zone: zd.zone, records: maps.Clone(zd.records)}
 	normalised := make([]Change, len(changes))
+
 	for i, ch := range changes {
 		ch.ResourceRecordSet.Name = normaliseName(ch.ResourceRecordSet.Name)
 		normalised[i] = ch
 
-		if err := validateChange(zd, ch); err != nil {
+		if err := validateChange(scratch, ch); err != nil {
+			return "", err
+		}
+
+		if err := applyChange(scratch, ch, nil, false); err != nil {
 			return "", err
 		}
 	}

@@ -773,9 +773,11 @@ func TestToSDKUpdateTableInputWithReplicaUpdates(t *testing.T) {
 				ReplicaUpdates: []models.ReplicaUpdate{
 					{
 						Update: &models.UpdateReplicationGroupMemberAction{
-							RegionName:                   "eu-west-1",
-							TableClassOverride:           "STANDARD",
-							ProvisionedReadCapacityUnits: &rcu,
+							RegionName:         "eu-west-1",
+							TableClassOverride: "STANDARD",
+							ProvisionedThroughputOverride: &models.ProvisionedThroughputOverrideWire{
+								ReadCapacityUnits: &rcu,
+							},
 						},
 					},
 				},

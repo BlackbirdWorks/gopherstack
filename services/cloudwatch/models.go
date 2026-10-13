@@ -341,6 +341,8 @@ type InsightRule struct {
 	Definition  string    `json:"Definition"`
 	Arn         string    `json:"RuleArn"`
 	ManagedRule bool      `json:"ManagedRule"`
+	// ApplyOnTransformedLogs evaluates the rule against log events after CloudWatch Logs transformation.
+	ApplyOnTransformedLogs bool `json:"ApplyOnTransformedLogs"`
 }
 
 // MetricStreamFilter specifies a namespace-level include/exclude filter for a metric stream.

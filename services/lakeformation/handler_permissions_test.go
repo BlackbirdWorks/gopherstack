@@ -117,7 +117,7 @@ func TestGrantAndListPermissions(t *testing.T) {
 	rec := postJSON(t, h, "/GrantPermissions", map[string]any{
 		"Principal":   map[string]any{"DataLakePrincipalIdentifier": "arn:aws:iam::123:user/alice"},
 		"Resource":    map[string]any{"Database": map[string]any{"Name": "mydb"}},
-		"Permissions": []string{"SELECT"},
+		"Permissions": []string{"DESCRIBE"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, 1, b.PermissionCount())
@@ -139,7 +139,7 @@ func TestGrantPermissions_NilPrincipalReturns400(t *testing.T) {
 
 	rec := postJSON(t, h, "/GrantPermissions", map[string]any{
 		"Resource":    map[string]any{"Database": map[string]any{"Name": "db"}},
-		"Permissions": []string{"SELECT"},
+		"Permissions": []string{"DESCRIBE"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -188,7 +188,7 @@ func TestBatchGrantPermissions_MissingIDRejected(t *testing.T) {
 			map[string]any{
 				"Principal":   map[string]any{"DataLakePrincipalIdentifier": "arn:aws:iam::123:user/a"},
 				"Resource":    map[string]any{"Database": map[string]any{"Name": "db"}},
-				"Permissions": []any{"SELECT"},
+				"Permissions": []any{"DESCRIBE"},
 			},
 		},
 	})
@@ -208,12 +208,12 @@ func TestListPermissions_ResourceShapedFilter(t *testing.T) {
 	postJSON(t, h, "/GrantPermissions", map[string]any{
 		"Principal":   map[string]any{"DataLakePrincipalIdentifier": "arn:aws:iam::123:user/alice"},
 		"Resource":    map[string]any{"Database": map[string]any{"Name": "matchdb"}},
-		"Permissions": []any{"SELECT"},
+		"Permissions": []any{"DESCRIBE"},
 	})
 	postJSON(t, h, "/GrantPermissions", map[string]any{
 		"Principal":   map[string]any{"DataLakePrincipalIdentifier": "arn:aws:iam::123:user/bob"},
 		"Resource":    map[string]any{"Database": map[string]any{"Name": "otherdb"}},
-		"Permissions": []any{"SELECT"},
+		"Permissions": []any{"DESCRIBE"},
 	})
 
 	rec := postJSON(t, h, "/ListPermissions", map[string]any{
@@ -319,7 +319,7 @@ func TestGrantPermissions_InvalidEnum(t *testing.T) {
 
 			rec := postJSON(t, h, "/GrantPermissions", map[string]any{
 				"Principal":   map[string]any{"DataLakePrincipalIdentifier": "arn:aws:iam::123:user/u"},
-				"Resource":    map[string]any{"Database": map[string]any{"Name": "db"}},
+				"Resource":    map[string]any{"LFTag": map[string]any{"TagKey": "k", "TagValues": []any{"v"}}},
 				"Permissions": tt.permissions,
 			})
 			assert.Equal(t, tt.wantStatus, rec.Code, "test case: %s", tt.name)
@@ -341,13 +341,13 @@ func TestGrantPermissions_MergesDuplicates(t *testing.T) {
 	postJSON(t, h, "/GrantPermissions", map[string]any{
 		"Principal":   principal,
 		"Resource":    resource,
-		"Permissions": []any{"SELECT"},
+		"Permissions": []any{"ALTER"},
 	})
 
 	postJSON(t, h, "/GrantPermissions", map[string]any{
 		"Principal":   principal,
 		"Resource":    resource,
-		"Permissions": []any{"INSERT"},
+		"Permissions": []any{"DROP"},
 	})
 
 	rec := postJSON(t, h, "/ListPermissions", map[string]any{})
@@ -360,7 +360,7 @@ func TestGrantPermissions_MergesDuplicates(t *testing.T) {
 
 	entry := entries[0].(map[string]any)
 	perms := entry["Permissions"].([]any)
-	assert.Len(t, perms, 2, "merged entry should contain both SELECT and INSERT")
+	assert.Len(t, perms, 2, "merged entry should contain both ALTER and DROP")
 }
 
 // --- #6: RevokePermissions subtracts, does not delete entire entry ---
@@ -398,7 +398,7 @@ func TestRevokePermissions_Subtracts(t *testing.T) {
 			h := lakeformation.NewHandler(b)
 
 			principal := map[string]any{"DataLakePrincipalIdentifier": "arn:aws:iam::123:user/u"}
-			resource := map[string]any{"Database": map[string]any{"Name": "db1"}}
+			resource := map[string]any{"LFTag": map[string]any{"TagKey": "k", "TagValues": []any{"v"}}}
 
 			postJSON(t, h, "/GrantPermissions", map[string]any{
 				"Principal":   principal,
@@ -454,7 +454,7 @@ func TestListPermissions_Filters(t *testing.T) {
 	tableResource := map[string]any{"Table": map[string]any{"DatabaseName": "mydb", "Name": "mytable"}}
 
 	postJSON(t, h, "/GrantPermissions", map[string]any{
-		"Principal": alice, "Resource": dbResource, "Permissions": []any{"SELECT"},
+		"Principal": alice, "Resource": dbResource, "Permissions": []any{"DESCRIBE"},
 	})
 	postJSON(t, h, "/GrantPermissions", map[string]any{
 		"Principal": bob, "Resource": tableResource, "Permissions": []any{"INSERT"},
@@ -551,7 +551,7 @@ func TestGrantPermissions_GrantOptionSubsetValidation(t *testing.T) {
 	rec := postJSON(t, h, "/GrantPermissions", map[string]any{
 		"Principal":                  map[string]any{"DataLakePrincipalIdentifier": "arn:aws:iam::123:user/u"},
 		"Resource":                   map[string]any{"Database": map[string]any{"Name": "db"}},
-		"Permissions":                []any{"SELECT"},
+		"Permissions":                []any{"DESCRIBE"},
 		"PermissionsWithGrantOption": []any{"INSERT"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "GrantOption not in Permissions should fail")

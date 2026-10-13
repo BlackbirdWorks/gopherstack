@@ -180,7 +180,7 @@ func TestIntegration_SecurityHub_ActionTargetRoundTrip(t *testing.T) {
 		EnableDefaultStandards: aws.Bool(false),
 	})
 
-	id := "roundtrip-action-" + uuid.NewString()[:8]
+	id := "rtaction" + uuid.NewString()[:8]
 
 	createOut, err := client.CreateActionTarget(ctx, &securityhubsdk.CreateActionTargetInput{
 		Id:          aws.String(id),

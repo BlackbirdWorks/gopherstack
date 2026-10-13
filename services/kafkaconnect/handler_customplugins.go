@@ -78,6 +78,10 @@ func pluginStateDescription(p *CustomPlugin) *stateDescriptionDTO {
 
 func (h *Handler) handleListCustomPlugins(c *echo.Context) error {
 	q := c.Request().URL.Query()
+	if err := ValidateListParams(q.Get("nextToken"), q.Get("maxResults")); err != nil {
+		return h.writeBackendError(c, err)
+	}
+
 	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
 	plugins, next, err := h.Backend.ListCustomPlugins(q.Get("namePrefix"), q.Get("nextToken"), maxResults)

@@ -9,18 +9,22 @@ import (
 // run of whitespace-delimited fields.
 const spaceEllipsis = "..."
 
-// spaceTerm is one positional term in a space-delimited "[...]" pattern.
-type spaceTerm struct {
+// spaceCond is one comparison on a field.
+type spaceCond struct {
 	op    string
 	value string
-	// name is the field's bare identifier as written in the pattern (e.g. "size"
-	// in both "size" and "size>100"), used to resolve MetricValue field
-	// references such as "$size". Empty for the ellipsis term.
+	num   float64
+	isNum bool
+}
+
+// spaceTerm is one positional term in a space-delimited "[...]" pattern.
+// alts is a disjunction of conjunctions ("a = 1 && b > 2 || c = 3"); empty means unconstrained.
+type spaceTerm struct {
+	// name is the field's bare identifier (e.g. "size" in "size>100"), used to
+	// resolve "$size" references. Empty for the ellipsis term.
 	name     string
-	num      float64
+	alts     [][]spaceCond
 	ellipsis bool
-	hasCond  bool
-	isNum    bool
 }
 
 // compileSpaceFilterPattern compiles a CloudWatch Logs space-delimited metric
@@ -54,22 +58,40 @@ func parseSpaceTerms(body string) []spaceTerm {
 // parseSpaceTerm parses a single space-pattern term.
 func parseSpaceTerm(raw string) spaceTerm {
 	if raw == spaceEllipsis {
-		return spaceTerm{op: "", value: "", name: "", ellipsis: true, hasCond: false, num: 0, isNum: false}
+		return spaceTerm{ellipsis: true}
 	}
 
-	op, idx := findSpaceOp(raw)
-	if idx < 0 {
-		name := strings.TrimSpace(raw)
+	var term spaceTerm
+	for orPart := range strings.SplitSeq(raw, "||") {
+		var conj []spaceCond
+		for andPart := range strings.SplitSeq(orPart, "&&") {
+			andPart = strings.TrimSpace(andPart)
+			op, idx := findSpaceOp(andPart)
+			if idx < 0 {
+				if term.name == "" {
+					term.name = andPart
+				}
 
-		return spaceTerm{op: "", value: "", name: name, ellipsis: false, hasCond: false, num: 0, isNum: false}
-	}
+				continue
+			}
 
-	name := strings.TrimSpace(raw[:idx])
-	value := strings.Trim(strings.TrimSpace(raw[idx+len(op):]), `"'`)
-	term := spaceTerm{op: op, value: value, name: name, ellipsis: false, hasCond: true, num: 0, isNum: false}
-	if f, err := strconv.ParseFloat(value, 64); err == nil {
-		term.num = f
-		term.isNum = true
+			if term.name == "" {
+				term.name = strings.TrimSpace(andPart[:idx])
+			}
+
+			value := strings.Trim(strings.TrimSpace(andPart[idx+len(op):]), `"'`)
+			c := spaceCond{op: op, value: value}
+			if f, err := strconv.ParseFloat(value, 64); err == nil {
+				c.num = f
+				c.isNum = true
+			}
+
+			conj = append(conj, c)
+		}
+
+		if len(conj) > 0 {
+			term.alts = append(term.alts, conj)
+		}
 	}
 
 	return term
@@ -78,102 +100,69 @@ func parseSpaceTerm(raw string) spaceTerm {
 // findSpaceOp locates the comparison operator in a term, returning it and its
 // byte offset (-1 when the term is a bare field binding).
 func findSpaceOp(raw string) (string, int) {
+	best, bestIdx := "", -1
 	for _, op := range []string{"!=", "<=", ">=", "=", "<", ">"} {
-		if idx := strings.Index(raw, op); idx >= 0 {
-			return op, idx
+		idx := strings.Index(raw, op)
+		if idx >= 0 && (bestIdx < 0 || idx < bestIdx) {
+			best, bestIdx = op, idx
 		}
 	}
 
-	return "", -1
+	return best, bestIdx
 }
 
-// matchSpaceTerms aligns the parsed terms against the message's fields.
+// matchSpaceTerms aligns the parsed terms against the message's fields; a single
+// "..." absorbs any run of fields between the anchored prefix and suffix.
 func matchSpaceTerms(terms []spaceTerm, fields []string) bool {
-	switch ellipsisPosition(terms) {
-	case ellipsisNone:
-		return matchFixed(terms, fields)
-	case ellipsisLead:
-		return matchTrailing(terms[1:], fields)
-	case ellipsisTail:
-		return matchLeading(terms[:len(terms)-1], fields)
-	default:
+	e := ellipsisIndex(terms)
+	if e == ellipsisMany {
 		return false
 	}
+
+	if e == ellipsisNone {
+		if len(terms) != len(fields) {
+			return false
+		}
+
+		return matchSpaceRange(terms, fields)
+	}
+
+	prefix, suffix := terms[:e], terms[e+1:]
+	if len(fields) < len(prefix)+len(suffix) {
+		return false
+	}
+
+	return matchSpaceRange(prefix, fields[:len(prefix)]) &&
+		matchSpaceRange(suffix, fields[len(fields)-len(suffix):])
 }
 
-// ellipsis position classifications.
 const (
-	ellipsisNone = iota
-	ellipsisLead
-	ellipsisTail
-	ellipsisOther
+	ellipsisNone = -1
+	ellipsisMany = -2
 )
 
-// ellipsisPosition reports where (if anywhere) a single ellipsis appears.
-func ellipsisPosition(terms []spaceTerm) int {
-	count, first := 0, -1
+// ellipsisIndex returns the index of the single ellipsis, ellipsisNone, or ellipsisMany.
+func ellipsisIndex(terms []spaceTerm) int {
+	idx := ellipsisNone
 	for i, t := range terms {
-		if t.ellipsis {
-			count++
-			if first < 0 {
-				first = i
-			}
+		if !t.ellipsis {
+			continue
 		}
+
+		if idx != ellipsisNone {
+			return ellipsisMany
+		}
+
+		idx = i
 	}
 
-	switch {
-	case count == 0:
-		return ellipsisNone
-	case count != 1:
-		return ellipsisOther
-	case first == 0:
-		return ellipsisLead
-	case first == len(terms)-1:
-		return ellipsisTail
-	default:
-		return ellipsisOther
-	}
+	return idx
 }
 
-// matchFixed requires an exact positional alignment of terms and fields.
-func matchFixed(terms []spaceTerm, fields []string) bool {
-	if len(terms) != len(fields) {
-		return false
-	}
-
+// matchSpaceRange matches terms pairwise against equally many fields.
+func matchSpaceRange(terms []spaceTerm, fields []string) bool {
 	for i, t := range terms {
 		if !matchSpaceField(t, fields[i]) {
-			return false
-		}
-	}
-
-	return true
-}
-
-// matchLeading anchors terms at the start, allowing extra trailing fields.
-func matchLeading(terms []spaceTerm, fields []string) bool {
-	if len(fields) < len(terms) {
-		return false
-	}
-
-	for i, t := range terms {
-		if !matchSpaceField(t, fields[i]) {
-			return false
-		}
-	}
-
-	return true
-}
-
-// matchTrailing anchors terms at the end, allowing extra leading fields.
-func matchTrailing(terms []spaceTerm, fields []string) bool {
-	if len(fields) < len(terms) {
-		return false
-	}
-
-	offset := len(fields) - len(terms)
-	for i, t := range terms {
-		if !matchSpaceField(t, fields[offset+i]) {
 			return false
 		}
 	}
@@ -183,17 +172,36 @@ func matchTrailing(terms []spaceTerm, fields []string) bool {
 
 // matchSpaceField applies one term's optional condition to a field value.
 func matchSpaceField(t spaceTerm, field string) bool {
-	if !t.hasCond {
+	if len(t.alts) == 0 {
 		return true
 	}
 
-	switch t.op {
+	for _, conj := range t.alts {
+		ok := true
+		for _, c := range conj {
+			if !matchSpaceCond(c, field) {
+				ok = false
+
+				break
+			}
+		}
+
+		if ok {
+			return true
+		}
+	}
+
+	return false
+}
+
+func matchSpaceCond(c spaceCond, field string) bool {
+	switch c.op {
 	case "=":
-		return spaceValueEquals(t.value, field)
+		return spaceValueEquals(c.value, field)
 	case "!=":
-		return !spaceValueEquals(t.value, field)
+		return !spaceValueEquals(c.value, field)
 	default:
-		return spaceNumericCompare(t, field)
+		return spaceNumericCompare(c, field)
 	}
 }
 
@@ -207,7 +215,7 @@ func spaceValueEquals(value, field string) bool {
 }
 
 // spaceNumericCompare implements <, <=, >, >= on numeric fields.
-func spaceNumericCompare(t spaceTerm, field string) bool {
+func spaceNumericCompare(t spaceCond, field string) bool {
 	f, err := strconv.ParseFloat(field, 64)
 	if err != nil || !t.isNum {
 		return false
@@ -269,41 +277,39 @@ func spacePatternFieldNames(pattern string) []string {
 }
 
 // spaceFieldIndex returns the message-field index bound to name, using the same
-// ellipsis-alignment rules as matchSpaceTerms (a single leading/trailing "..." absorbs
-// any extra fields so the named terms stay anchored to the opposite end).
+// ellipsis-alignment rules as matchSpaceTerms.
 func spaceFieldIndex(terms []spaceTerm, numFields int, name string) (int, bool) {
-	switch ellipsisPosition(terms) {
-	case ellipsisNone:
+	e := ellipsisIndex(terms)
+	if e == ellipsisMany {
+		return 0, false
+	}
+
+	if e == ellipsisNone {
 		if numFields != len(terms) {
 			return 0, false
 		}
 
-		return namedTermIndex(terms, 0, name)
-	case ellipsisLead:
-		rest := terms[1:]
-		if numFields < len(rest) {
-			return 0, false
-		}
+		return namedTermIndex(terms, name, func(i int) int { return i })
+	}
 
-		return namedTermIndex(rest, numFields-len(rest), name)
-	case ellipsisTail:
-		rest := terms[:len(terms)-1]
-		if numFields < len(rest) {
-			return 0, false
-		}
-
-		return namedTermIndex(rest, 0, name)
-	default:
+	if numFields < len(terms)-1 {
 		return 0, false
 	}
+
+	return namedTermIndex(terms, name, func(i int) int {
+		if i < e {
+			return i
+		}
+
+		return numFields - (len(terms) - i)
+	})
 }
 
-// namedTermIndex finds name among terms and returns its message-field index, offset by
-// the alignment base computed by spaceFieldIndex.
-func namedTermIndex(terms []spaceTerm, offset int, name string) (int, bool) {
+// namedTermIndex finds name among terms and maps its term index to a message-field index.
+func namedTermIndex(terms []spaceTerm, name string, pos func(int) int) (int, bool) {
 	for i, t := range terms {
-		if t.name == name {
-			return offset + i, true
+		if !t.ellipsis && t.name == name {
+			return pos(i), true
 		}
 	}
 

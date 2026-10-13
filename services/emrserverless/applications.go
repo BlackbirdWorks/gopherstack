@@ -40,6 +40,11 @@ func (b *InMemoryBackend) CreateApplication(
 		return nil, fmt.Errorf("%w: type is required", ErrValidation)
 	}
 
+	if !resourceNameRe.MatchString(name) {
+		return nil, fmt.Errorf("%w: name must match %s and be at most %d characters",
+			ErrValidation, resourceNameRe.String(), maxApplicationNameLen)
+	}
+
 	if opt.ClientToken != "" {
 		if appID, tokenOK := b.applicationTokens[opt.ClientToken]; tokenOK &&
 			b.clientTokenFresh("application", "", opt.ClientToken, time.Now()) {

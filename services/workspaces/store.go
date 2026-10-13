@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
@@ -68,16 +69,17 @@ func validateApplicationAssociatedResourceTypes(types []string) error {
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		mu:                lockmetrics.New("workspaces"),
-		registry:          store.NewRegistry(),
-		tags:              make(map[string]map[string]string),
-		directoryIpGroups: make(map[string]map[string]struct{}),
-		imagePermissions:  make(map[string]map[string]bool),
-		clientProperties:  make(map[string]storedClientProps),
-		appAssociations:   make(map[string]map[string]*storedAppAssociation),
-		idem:              idempotency.New("workspaces"),
-		accountID:         accountID,
-		region:            region,
+		mu:                  lockmetrics.New("workspaces"),
+		registry:            store.NewRegistry(),
+		tags:                make(map[string]map[string]string),
+		directoryIpGroups:   make(map[string]map[string]struct{}),
+		imagePermissions:    make(map[string]map[string]bool),
+		clientProperties:    make(map[string]storedClientProps),
+		appAssociations:     make(map[string]map[string]*storedAppAssociation),
+		idem:                idempotency.New("workspaces"),
+		dirRegisteringUntil: make(map[string]time.Time),
+		accountID:           accountID,
+		region:              region,
 	}
 
 	registerAllTables(b)
@@ -106,6 +108,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()
+	b.dirRegisteringUntil = make(map[string]time.Time)
 	b.tags = make(map[string]map[string]string)
 	b.directoryIpGroups = make(map[string]map[string]struct{})
 	b.imagePermissions = make(map[string]map[string]bool)

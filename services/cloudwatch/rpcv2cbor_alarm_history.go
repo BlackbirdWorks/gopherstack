@@ -1,7 +1,6 @@
 package cloudwatch
 
 import (
-	"net/http"
 	"time"
 
 	"github.com/aws/smithy-go/encoding/cbor"
@@ -36,7 +35,7 @@ func (h *Handler) cborDescribeAlarmHistory(input cbor.Map, c *echo.Context) erro
 		maxRecords,
 	)
 	if err != nil {
-		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return h.cborBackendError(c, err)
 	}
 
 	histList := make(cbor.List, 0, len(p.Data))

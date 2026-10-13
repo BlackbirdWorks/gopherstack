@@ -26,22 +26,22 @@ func TestCreateDatasetGroup_DomainValidation(t *testing.T) {
 	}{
 		{
 			name:     "missing_domain_rejected",
-			body:     map[string]any{"DatasetGroupName": "no-domain"},
+			body:     map[string]any{"DatasetGroupName": "no_domain"},
 			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "unrecognized_domain_rejected",
-			body:     map[string]any{"DatasetGroupName": "bad-domain", "Domain": "NOT_A_DOMAIN"},
+			body:     map[string]any{"DatasetGroupName": "bad_domain", "Domain": "NOT_A_DOMAIN"},
 			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "retail_domain_accepted",
-			body:     map[string]any{"DatasetGroupName": "retail-group", "Domain": "RETAIL"},
+			body:     map[string]any{"DatasetGroupName": "retail_group", "Domain": "RETAIL"},
 			wantCode: http.StatusOK,
 		},
 		{
 			name:     "metrics_domain_accepted",
-			body:     map[string]any{"DatasetGroupName": "metrics-group", "Domain": "METRICS"},
+			body:     map[string]any{"DatasetGroupName": "metrics_group", "Domain": "METRICS"},
 			wantCode: http.StatusOK,
 		},
 	}
@@ -67,7 +67,9 @@ func TestCreateDatasetGroup_DomainValidation(t *testing.T) {
 func TestCreateDataset_EnumValidation(t *testing.T) {
 	t.Parallel()
 
-	validSchema := map[string]any{"Attributes": []any{}}
+	validSchema := map[string]any{
+		"Attributes": []any{map[string]any{"AttributeName": "item_id", "AttributeType": "string"}},
+	}
 
 	tests := []struct {
 		body     map[string]any
@@ -150,7 +152,9 @@ func TestCreateDataset_EnumValidation(t *testing.T) {
 func TestCreateDataset_DataFrequencyValidation(t *testing.T) {
 	t.Parallel()
 
-	validSchema := map[string]any{"Attributes": []any{}}
+	validSchema := map[string]any{
+		"Attributes": []any{map[string]any{"AttributeName": "item_id", "AttributeType": "string"}},
+	}
 
 	tests := []struct {
 		dataFrequency any
@@ -219,7 +223,7 @@ func TestCreateDatasetImportJob_ImportModeValidation(t *testing.T) {
 			datasetARN := createDataset(t, h)
 
 			body := map[string]any{
-				"DatasetImportJobName": "import-job", "DatasetArn": datasetARN, "DataSource": validSource,
+				"DatasetImportJobName": "import_job", "DatasetArn": datasetARN, "DataSource": validSource,
 			}
 			if tt.importMode != nil {
 				body["ImportMode"] = tt.importMode
@@ -375,7 +379,7 @@ func TestCreate_FKReferenceValidation(t *testing.T) {
 			action: "CreateAutoPredictor",
 			buildBody: func(*testing.T, *forecast.Handler) map[string]any {
 				return map[string]any{
-					"PredictorName": "auto-pred",
+					"PredictorName": "auto_pred",
 					"DataConfig": map[string]any{
 						"DatasetGroupArn": "arn:aws:forecast:us-east-1:000000000000:dataset-group/does-not-exist",
 					},
@@ -459,7 +463,7 @@ func TestCreatePassthroughFields_PresenceValidation(t *testing.T) {
 				t.Helper()
 
 				return map[string]any{
-					"ExplainabilityName": "presence-explain", "ResourceArn": createPredictor(t, h),
+					"ExplainabilityName": "presence_explain", "ResourceArn": createPredictor(t, h),
 					"ExplainabilityConfig": explainabilityConfig,
 				}
 			},
@@ -476,7 +480,7 @@ func TestCreatePassthroughFields_PresenceValidation(t *testing.T) {
 				t.Helper()
 
 				return map[string]any{
-					"ForecastExportJobName": "presence-fc-export", "ForecastArn": createForecast(t, h),
+					"ForecastExportJobName": "presence_fc_export", "ForecastArn": createForecast(t, h),
 					"Destination": minimalDataDestination(),
 				}
 			},
@@ -493,7 +497,7 @@ func TestCreatePassthroughFields_PresenceValidation(t *testing.T) {
 				t.Helper()
 
 				return map[string]any{
-					"PredictorBacktestExportJobName": "presence-pred-export", "PredictorArn": createPredictor(t, h),
+					"PredictorBacktestExportJobName": "presence_pred_export", "PredictorArn": createPredictor(t, h),
 					"Destination": minimalDataDestination(),
 				}
 			},
@@ -510,7 +514,7 @@ func TestCreatePassthroughFields_PresenceValidation(t *testing.T) {
 				t.Helper()
 
 				return map[string]any{
-					"ExplainabilityExportName": "presence-explain-export",
+					"ExplainabilityExportName": "presence_explain_export",
 					"ExplainabilityArn":        createExplainability(t, h),
 					"Destination":              minimalDataDestination(),
 				}
@@ -528,7 +532,7 @@ func TestCreatePassthroughFields_PresenceValidation(t *testing.T) {
 				t.Helper()
 
 				return map[string]any{
-					"WhatIfForecastExportName": "presence-wif-export",
+					"WhatIfForecastExportName": "presence_wif_export",
 					"WhatIfForecastArns":       []any{createWhatIfForecast(t, h)},
 					"Destination":              minimalDataDestination(),
 				}
@@ -545,7 +549,7 @@ func TestCreatePassthroughFields_PresenceValidation(t *testing.T) {
 			validBody: func(t *testing.T, h *forecast.Handler) map[string]any {
 				t.Helper()
 
-				return minimalCreatePredictorBody(t, h, "presence-pred-horizon")
+				return minimalCreatePredictorBody(t, h, "presence_pred_horizon")
 			},
 			roundTripCheck: func(t *testing.T, resp map[string]any) {
 				t.Helper()
@@ -559,7 +563,7 @@ func TestCreatePassthroughFields_PresenceValidation(t *testing.T) {
 			validBody: func(t *testing.T, h *forecast.Handler) map[string]any {
 				t.Helper()
 
-				return minimalCreatePredictorBody(t, h, "presence-pred-input")
+				return minimalCreatePredictorBody(t, h, "presence_pred_input")
 			},
 			roundTripCheck: func(t *testing.T, resp map[string]any) {
 				t.Helper()
@@ -574,7 +578,7 @@ func TestCreatePassthroughFields_PresenceValidation(t *testing.T) {
 			validBody: func(t *testing.T, h *forecast.Handler) map[string]any {
 				t.Helper()
 
-				return minimalCreatePredictorBody(t, h, "presence-pred-featurization")
+				return minimalCreatePredictorBody(t, h, "presence_pred_featurization")
 			},
 			roundTripCheck: func(t *testing.T, resp map[string]any) {
 				t.Helper()
@@ -622,7 +626,7 @@ func TestCreateDatasetGroup_DatasetArnsOptional(t *testing.T) {
 
 	h := newHandler()
 	code, _ := request(t, h, "CreateDatasetGroup", map[string]any{
-		"DatasetGroupName": "no-datasets", "Domain": "RETAIL",
+		"DatasetGroupName": "no_datasets", "Domain": "RETAIL",
 	})
 	assert.Equal(t, http.StatusOK, code)
 }
@@ -669,7 +673,7 @@ func TestUpdateDatasetGroup_DatasetArnsValidation(t *testing.T) {
 
 			h := newHandler()
 			_, created := request(t, h, "CreateDatasetGroup", map[string]any{
-				"DatasetGroupName": "target-group", "Domain": "RETAIL",
+				"DatasetGroupName": "target_group", "Domain": "RETAIL",
 			})
 			body := map[string]any{"DatasetGroupArn": created["DatasetGroupArn"]}
 			if tt.datasetArns != nil {
@@ -698,7 +702,7 @@ func TestCreateExplainability_ResourceArnAcceptsEitherKind(t *testing.T) {
 		h := newHandler()
 		predictorARN := createPredictor(t, h)
 		code, _ := request(t, h, "CreateExplainability", map[string]any{
-			"ExplainabilityName": "explain-pred", "ResourceArn": predictorARN,
+			"ExplainabilityName": "explain_pred", "ResourceArn": predictorARN,
 			"ExplainabilityConfig": map[string]any{
 				"TimePointGranularity": "ALL", "TimeSeriesGranularity": "ALL",
 			},
@@ -712,7 +716,7 @@ func TestCreateExplainability_ResourceArnAcceptsEitherKind(t *testing.T) {
 		h := newHandler()
 		forecastARN := createForecast(t, h)
 		code, _ := request(t, h, "CreateExplainability", map[string]any{
-			"ExplainabilityName": "explain-fc", "ResourceArn": forecastARN,
+			"ExplainabilityName": "explain_fc", "ResourceArn": forecastARN,
 			"ExplainabilityConfig": map[string]any{
 				"TimePointGranularity": "ALL", "TimeSeriesGranularity": "ALL",
 			},
@@ -743,7 +747,7 @@ func TestDelete_ResourceInUseWhileCreatePending(t *testing.T) {
 			name: "dataset_group", createOp: "CreateDatasetGroup", describeOp: "DescribeDatasetGroup",
 			deleteOp: "DeleteDatasetGroup", arnField: "DatasetGroupArn",
 			createBody: func(*testing.T, *forecast.Handler) map[string]any {
-				return map[string]any{"DatasetGroupName": "pending-dg", "Domain": "RETAIL"}
+				return map[string]any{"DatasetGroupName": "pending_dg", "Domain": "RETAIL"}
 			},
 		},
 		{
@@ -753,7 +757,7 @@ func TestDelete_ResourceInUseWhileCreatePending(t *testing.T) {
 				t.Helper()
 
 				return map[string]any{
-					"PredictorName": "pending-pred", "ForecastHorizon": 5,
+					"PredictorName": "pending_pred", "ForecastHorizon": 5,
 					"InputDataConfig":     map[string]any{"DatasetGroupArn": createDatasetGroup(t, h)},
 					"FeaturizationConfig": map[string]any{},
 				}
@@ -796,7 +800,7 @@ func TestDelete_CreateFailedDatasetImportJobDeletableImmediately(t *testing.T) {
 	datasetARN := createDataset(t, h)
 
 	code, created := request(t, h, "CreateDatasetImportJob", map[string]any{
-		"DatasetImportJobName": "failed-import", "DatasetArn": datasetARN,
+		"DatasetImportJobName": "failed_import", "DatasetArn": datasetARN,
 		"DataSource": map[string]any{"S3Config": map[string]any{}},
 	})
 	require.Equal(t, http.StatusOK, code)

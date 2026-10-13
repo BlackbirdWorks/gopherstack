@@ -12,6 +12,10 @@ func (h *Handler) opCreateIPSet(body []byte) (any, error) {
 		return nil, err
 	}
 
+	if err := validateCreateNames(in.Name, ""); err != nil {
+		return nil, err
+	}
+
 	ipSet, err := h.Backend.CreateIPSet(in.Name, in.ChangeToken, nil)
 	if err != nil {
 		return nil, err
@@ -83,8 +87,12 @@ func (h *Handler) opListIPSets(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	page, next := paginate(h.Backend.ListIPSets(), in.NextMarker, in.Limit,
+	page, next, err := paginate(h.Backend.ListIPSets(), in.NextMarker, in.Limit,
 		func(s IPSetSummary) string { return s.IPSetId })
+	if err != nil {
+		return nil, err
+	}
+
 	result := map[string]any{"IPSets": page}
 	if next != "" {
 		result["NextMarker"] = next

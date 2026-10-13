@@ -133,7 +133,7 @@ func TestCreateTrainingJob_ModelArtifactsRequiredWhileInProgress(t *testing.T) {
 
 		artifacts, ok := resp["ModelArtifacts"].(map[string]any)
 		require.True(t, ok, "ModelArtifacts key must be present, even while InProgress")
-		assert.Equal(t, "s3://bucket/output/output/model.tar.gz", artifacts["S3ModelArtifacts"])
+		assert.Equal(t, "s3://bucket/output/tj-respsweep/output/model.tar.gz", artifacts["S3ModelArtifacts"])
 	})
 
 	tests := []struct {

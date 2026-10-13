@@ -58,16 +58,24 @@ func (h *Handler) launchOnCompute(
 
 	for _, inst := range instances {
 		req := LaunchRequest{
-			InstanceID:    inst.ID,
-			ImageID:       inst.ImageID,
-			InstanceType:  inst.InstanceType,
-			KeyName:       keyName,
-			AuthorizedKey: authorized,
-			UserData:      userData,
+			MetadataEndpoint: h.imdsEndpointFor(ctx, inst.ID),
+			InstanceID:       inst.ID,
+			ImageID:          inst.ImageID,
+			InstanceType:     inst.InstanceType,
+			KeyName:          keyName,
+			AuthorizedKey:    authorized,
+			UserData:         userData,
+			VPCID:            inst.VPCID,
+			PrivateIP:        inst.PrivateIP,
+		}
+
+		if nc, ok := cb.(networkContextBackend); ok {
+			req.VPCCIDR, req.PublishPorts = nc.ComputeNetworkContext(inst)
 		}
 
 		res, err := c.Launch(ctx, req)
 		if err != nil {
+			h.imds.forget(inst.ID)
 			log.WarnContext(ctx, "ec2 compute launch failed", "instance", inst.ID, "error", err)
 
 			continue
@@ -84,7 +92,65 @@ func (h *Handler) launchOnCompute(
 		mergeLaunchResultIntoInstance(inst, res)
 
 		publishComputeMetadata(ctx, cb, inst)
+		publishNetworkMetadata(ctx, cb, inst.ID, res)
 	}
+}
+
+// networkContextBackend supplies the VPC addressing and security-group ports of an instance.
+type networkContextBackend interface {
+	ComputeNetworkContext(inst *Instance) (string, []PortSpec)
+}
+
+// vpcNetworkRemover is implemented by Compute providers that own per-VPC networks.
+type vpcNetworkRemover interface {
+	RemoveVPCNetwork(ctx context.Context, vpcID string) error
+}
+
+// publishedPortReporter is implemented by Compute providers that publish ports on the host.
+type publishedPortReporter interface {
+	PublishedPorts(ctx context.Context, providerID string) ([]PublishedPort, error)
+}
+
+// publishNetworkMetadata tags the instance with its host port mappings and logs any VPC addressing mismatch.
+func publishNetworkMetadata(ctx context.Context, cb computeCapableBackend, instanceID string, res LaunchResult) {
+	log := logger.Load(ctx)
+
+	if res.NetworkNote != "" {
+		log.WarnContext(ctx, "ec2 vpc network mismatch", "instance", instanceID, "note", res.NetworkNote)
+
+		note := map[string]string{tagKeyNetworkNote: res.NetworkNote}
+		if err := cb.CreateTags([]string{instanceID}, note); err != nil {
+			log.WarnContext(ctx, "ec2 network note tag write failed", "instance", instanceID, "error", err)
+		}
+	}
+
+	if len(res.PublishedPorts) == 0 {
+		return
+	}
+
+	mapping := formatPublishedPorts(res.PublishedPorts)
+	log.InfoContext(ctx, "ec2 instance ports published", "instance", instanceID, "ports", mapping)
+
+	if err := cb.CreateTags([]string{instanceID}, map[string]string{tagKeyPorts: mapping}); err != nil {
+		log.WarnContext(ctx, "ec2 published ports tag write failed", "instance", instanceID, "error", err)
+	}
+}
+
+// imdsEndpointFor starts the instance's metadata endpoint; empty when none is wired or it failed.
+func (h *Handler) imdsEndpointFor(ctx context.Context, instanceID string) string {
+	l := h.imds.listenerOf()
+	if l == nil {
+		return ""
+	}
+
+	endpoint, err := l.Listen(instanceID, h.IMDSHandler(instanceID))
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "ec2 imds listen failed", "instance", instanceID, "error", err)
+
+		return ""
+	}
+
+	return endpoint
 }
 
 // publishComputeMetadata registers the synthetic public DNS hostname with the
@@ -120,6 +186,8 @@ func publishComputeMetadata(ctx context.Context, cb computeCapableBackend, inst 
 const (
 	tagKeySSHPort = "gopherstack:ssh-port"
 	tagKeySSHHost = "gopherstack:ssh-host"
+
+	tagKeyNetworkNote = "gopherstack:network-note"
 )
 
 // mergeLaunchResultIntoInstance applies the LaunchResult fields to the
@@ -412,4 +480,21 @@ func (b *InMemoryBackend) computeResources() (map[string]string, map[string]stri
 	}
 
 	return providerIDs, dnsNames
+}
+
+// removeVPCNetwork drops the VPC's Docker network once the VPC is gone.
+func (h *Handler) removeVPCNetwork(vpcID string) {
+	_, c := h.computeBackend()
+
+	rm, ok := c.(vpcNetworkRemover)
+	if !ok {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(h.svcCtx), releaseTimeout)
+	defer cancel()
+
+	if err := rm.RemoveVPCNetwork(ctx, vpcID); err != nil {
+		logger.Load(ctx).WarnContext(ctx, "ec2 vpc network removal", "vpc", vpcID, "error", err)
+	}
 }

@@ -63,7 +63,7 @@ func TestCreateTerms_UnknownClient(t *testing.T) {
 	h := newTestHandler(t)
 	poolID, _ := setupHandlerPoolAndClient(t, h, "terms-unknown-client-pool")
 
-	rec := doCognitoRequest(t, h, "CreateTerms", validTermsBody(poolID, "bogus-client-id"))
+	rec := doCognitoRequest(t, h, "CreateTerms", validTermsBody(poolID, "bogusclientid"))
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp struct {

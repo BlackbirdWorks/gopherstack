@@ -17,7 +17,7 @@ func datasetErrorStatus(err error) (int, string) {
 	case errors.Is(err, ErrDatasetNotFound):
 		return http.StatusBadRequest, errResourceNotFoundException
 	case errors.Is(err, ErrValidation):
-		return http.StatusBadRequest, "InvalidParameterValue"
+		return http.StatusBadRequest, codeInvalidParam
 	default:
 		return http.StatusInternalServerError, "InternalFailure"
 	}

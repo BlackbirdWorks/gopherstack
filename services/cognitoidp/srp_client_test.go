@@ -151,20 +151,33 @@ func (c *srpTestClient) challengeResponses(
 ) map[string]string {
 	t.Helper()
 
+	userIDForSRP := params["USER_ID_FOR_SRP"]
+	require.NotEmpty(t, userIDForSRP)
+
+	out := c.claim(t, testSRPPoolName(userPoolID), userIDForSRP, password, params)
+	out["USERNAME"] = userIDForSRP
+
+	return out
+}
+
+// claim computes the PASSWORD_CLAIM_* fields for an SRP challenge whose x derives from
+// poolName+signedName+":"+password (the pool/user pair for sign-in, the device group
+// key/device key pair for device authentication).
+func (c *srpTestClient) claim(
+	t *testing.T, poolName, signedName, password string, params map[string]string,
+) map[string]string {
+	t.Helper()
+
 	salt, ok := new(big.Int).SetString(params["SALT"], testHexBase)
 	require.True(t, ok, "SALT must be valid hex")
 
 	bPub, ok := new(big.Int).SetString(params["SRP_B"], testHexBase)
 	require.True(t, ok, "SRP_B must be valid hex")
 
-	userIDForSRP := params["USER_ID_FOR_SRP"]
-	require.NotEmpty(t, userIDForSRP)
-
 	u := testSRPCalculateU(c.A, bPub)
 	require.NotZero(t, u.Sign(), "U must not be zero")
 
-	poolName := testSRPPoolName(userPoolID)
-	inner := sha256.Sum256([]byte(poolName + userIDForSRP + ":" + password))
+	inner := sha256.Sum256([]byte(poolName + signedName + ":" + password))
 	xDigest := sha256.Sum256(append(testSRPPadHex(salt), inner[:]...))
 	x := new(big.Int).SetBytes(xDigest[:])
 
@@ -186,13 +199,12 @@ func (c *srpTestClient) challengeResponses(
 
 	mac := hmac.New(sha256.New, hkdfKey)
 	mac.Write([]byte(poolName))
-	mac.Write([]byte(userIDForSRP))
+	mac.Write([]byte(signedName))
 	mac.Write(secretBlock)
 	mac.Write([]byte(timestamp))
 	sig := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 
 	return map[string]string{
-		"USERNAME":                    userIDForSRP,
 		"PASSWORD_CLAIM_SECRET_BLOCK": secretBlockB64,
 		"TIMESTAMP":                   timestamp,
 		"PASSWORD_CLAIM_SIGNATURE":    sig,

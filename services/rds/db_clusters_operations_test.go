@@ -42,6 +42,7 @@ func TestRebootDBCluster(t *testing.T) {
 					rds.DBClusterOptions{},
 				)
 				require.NoError(t, err)
+				rds.FlushClusterLifecycle(b)
 			}
 			got, err := b.RebootDBCluster(tt.clusterID)
 			if tt.wantErr {
@@ -532,6 +533,7 @@ func TestRebootDBClusterTransitionsState(t *testing.T) {
 	b := newTestBackend(t)
 	_, err := b.CreateDBCluster("cluster-reboot", "aurora-postgresql", "admin", "", "", 0, nil, rds.DBClusterOptions{})
 	require.NoError(t, err)
+	rds.FlushClusterLifecycle(b)
 	// Rebooting an available cluster should return it in "rebooting" status.
 	got, err := b.RebootDBCluster("cluster-reboot")
 	require.NoError(t, err)
@@ -618,6 +620,7 @@ func TestRebootDBClusterDelayedTransition(t *testing.T) {
 					rds.DBClusterOptions{},
 				)
 				require.NoError(t, err)
+				rds.FlushClusterLifecycle(b)
 
 				_, err = b.RebootDBCluster("my-cluster")
 				require.NoError(t, err)
@@ -650,6 +653,43 @@ func TestRebootDBClusterDelayedTransition(t *testing.T) {
 				require.NoError(t, derr)
 				require.Len(t, clusters, 1)
 				require.Equal(t, tt.wantStatus, clusters[0].Status)
+			})
+		})
+	}
+}
+
+func TestCreateDBClusterLifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus string
+		wait       time.Duration
+	}{
+		{name: "creating on return", wait: 0, wantStatus: "creating"},
+		{name: "available after delay", wait: 2 * transitionDelay, wantStatus: "available"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				b := rds.NewInMemoryBackend("123456789012", "us-east-1")
+				defer b.Close()
+
+				created, err := b.CreateDBCluster(
+					"life-cluster", "aurora-mysql", "admin", "", "", 0, nil, rds.DBClusterOptions{},
+				)
+				require.NoError(t, err)
+				require.Equal(t, "creating", created.Status)
+
+				time.Sleep(tt.wait)
+
+				clusters, err := b.DescribeDBClusters("life-cluster")
+				require.NoError(t, err)
+				require.Len(t, clusters, 1)
+				assert.Equal(t, tt.wantStatus, clusters[0].Status)
 			})
 		})
 	}

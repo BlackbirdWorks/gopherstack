@@ -67,6 +67,10 @@ func (b *InMemoryBackend) CreateCertificateAuthority(
 		return nil, err
 	}
 
+	if err = validateCAAlgorithms(cfg.KeyAlgorithm, cfg.SigningAlgorithm); err != nil {
+		return nil, err
+	}
+
 	o, keyStorageSecurityStandard, usageMode, err := resolveCreateCAOptions(opts)
 	if err != nil {
 		return nil, err
@@ -544,6 +548,10 @@ func (b *InMemoryBackend) ListCertificateAuthorities(
 		)
 	}
 
+	if err := page.ValidateToken(nextToken); err != nil {
+		return page.Page[CertificateAuthority]{}, fmt.Errorf("%w: NextToken is invalid", ErrInvalidNextToken)
+	}
+
 	region := getRegion(ctx, b.region)
 
 	var cas []CertificateAuthority
@@ -827,4 +835,13 @@ func copyCA(ca *CertificateAuthority) CertificateAuthority {
 	cp.privKey = nil
 
 	return cp
+}
+
+// currentStatus reports EXPIRED for an ACTIVE CA whose certificate has lapsed.
+func (ca *CertificateAuthority) currentStatus() string {
+	if ca.Status == caStatusActive && !ca.NotAfter.IsZero() && time.Now().After(ca.NotAfter) {
+		return caStatusExpired
+	}
+
+	return ca.Status
 }

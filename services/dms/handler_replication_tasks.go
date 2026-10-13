@@ -72,6 +72,10 @@ func (h *Handler) handleCreateReplicationTask(
 		return nil, err
 	}
 
+	if err := validateTableMappings(ptrconv.String(in.TableMappings)); err != nil {
+		return nil, err
+	}
+
 	kv := tagsToMap(in.Tags)
 	rt, err := h.Backend.CreateReplicationTask(
 		ctx,
@@ -144,6 +148,7 @@ type startReplicationTaskInput struct {
 	StartReplicationTaskType *string  `json:"StartReplicationTaskType"`
 	CdcStartPosition         *string  `json:"CdcStartPosition"`
 	CdcStartTime             *float64 `json:"CdcStartTime"`
+	CdcStopPosition          *string  `json:"CdcStopPosition"`
 }
 
 // validateCdcStartExclusive enforces the documented rule that CdcStartPosition
@@ -188,7 +193,10 @@ func (h *Handler) handleStartReplicationTask(
 		return nil, err
 	}
 
-	rt, err := h.Backend.StartReplicationTask(ctx, ptrconv.String(in.ReplicationTaskArn))
+	rt, err := h.Backend.StartReplicationTask(ctx, ptrconv.String(in.ReplicationTaskArn), ReplicationTaskCDCSettings{
+		CdcStartPosition: ptrconv.String(in.CdcStartPosition),
+		CdcStopPosition:  ptrconv.String(in.CdcStopPosition),
+	})
 	if err != nil {
 		return nil, err
 	}

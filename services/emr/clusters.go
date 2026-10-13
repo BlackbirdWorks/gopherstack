@@ -14,44 +14,106 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
-// effectiveStepStatus derives a step's live status, promoting a still-PENDING
-// step to COMPLETED once stepCompletionDelay has elapsed since creation. AWS
-// steps execute asynchronously against a real Hadoop job; gopherstack has no
-// workload to run, so it simulates near-instant completion here rather than
-// leaving every step parked in PENDING forever -- which would hang a real
-// client's StepComplete waiter (DescribeStep/ListSteps are the only two read
-// paths for step state, so both call this before returning). CANCELLED steps
-// and steps already promoted are returned unchanged.
+// effectiveStepStatus derives a lone step's live status: PENDING for
+// stepStartDelay after creation, RUNNING for stepRunDuration, then COMPLETED.
+// Steps run no real workload, so the progression is time-derived on read.
 func effectiveStepStatus(s StepStatus) StepStatus {
+	return stepStatusAt(s, time.Now(), time.Time{})
+}
+
+func stepStatusAt(s StepStatus, now, notBefore time.Time) StepStatus {
 	if s.State != StepStatePending {
 		return s
 	}
 
 	created := time.Unix(0, int64(s.Timeline.CreationDateTime*float64(time.Second)))
-	if time.Since(created) < stepCompletionDelay {
-		return s
+	start := created.Add(stepStartDelay)
+
+	if notBefore.After(start) {
+		start = notBefore
 	}
 
+	end := start.Add(stepRunDuration)
 	cp := s
-	cp.State = StepStateCompleted
-	cp.Timeline.StartDateTime = s.Timeline.CreationDateTime
-	cp.Timeline.EndDateTime = awstime.Epoch(created.Add(stepCompletionDelay))
+
+	switch {
+	case now.Before(start):
+		return s
+	case now.Before(end):
+		cp.State = StepStateRunning
+		cp.Timeline.StartDateTime = awstime.Epoch(start)
+	default:
+		cp.State = StepStateCompleted
+		cp.Timeline.StartDateTime = awstime.Epoch(start)
+		cp.Timeline.EndDateTime = awstime.Epoch(end)
+	}
 
 	return cp
 }
 
-// allStepsTerminal reports whether every step on a cluster has reached a
-// terminal status (COMPLETED or CANCELLED), using effectiveStepStatus so a
-// still-PENDING step within its completion delay counts as not terminal. A
-// cluster with no steps at all is not "all steps terminal" -- there is
-// nothing for KeepJobFlowAliveWhenNoSteps=false to have completed yet.
+// effectiveSteps derives live statuses for a cluster's steps in submission
+// order. Steps run one at a time, so each starts after its predecessor ends.
+func effectiveSteps(steps []Step) []Step {
+	now := time.Now()
+	out := make([]Step, len(steps))
+
+	var prevEnd time.Time
+
+	for i, s := range steps {
+		out[i] = s
+
+		if s.Status.State == StepStateCancelled {
+			if e := s.Status.Timeline.EndDateTime; e > 0 {
+				prevEnd = time.Unix(0, int64(e*float64(time.Second)))
+			}
+
+			continue
+		}
+
+		out[i].Status = stepStatusAt(s.Status, now, prevEnd)
+
+		if s.Status.State == StepStatePending {
+			start := time.Unix(0, int64(s.Status.Timeline.CreationDateTime*float64(time.Second))).Add(stepStartDelay)
+			start = maxTime(start, prevEnd)
+			prevEnd = start.Add(stepRunDuration)
+		}
+	}
+
+	return out
+}
+
+func maxTime(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+
+	return a
+}
+
+// liveClusterState reports RUNNING while a step executes on a WAITING cluster.
+func liveClusterState(c *Cluster) string {
+	if c.Status.State != StateWaiting {
+		return c.Status.State
+	}
+
+	for _, s := range effectiveSteps(c.steps) {
+		if s.Status.State == StepStateRunning {
+			return StateRunning
+		}
+	}
+
+	return c.Status.State
+}
+
+// allStepsTerminal reports whether every step has finished. A cluster with no
+// steps is not "all steps terminal": nothing has completed yet.
 func allStepsTerminal(steps []Step) bool {
 	if len(steps) == 0 {
 		return false
 	}
 
-	for _, s := range steps {
-		if effectiveStepStatus(s.Status).State == StepStatePending {
+	for _, s := range effectiveSteps(steps) {
+		if s.Status.State == StepStatePending || s.Status.State == StepStateRunning {
 			return false
 		}
 	}
@@ -216,6 +278,10 @@ func validateRunJobFlowParams(params RunJobFlowParams) (string, error) {
 		return "", err
 	}
 
+	if err := firstErr(validateInstanceTypes(params.Instances), validateStepSpecs(params.Steps)); err != nil {
+		return "", err
+	}
+
 	if params.ManagedScalingPolicy != nil {
 		if err := validateManagedScalingPolicy(*params.ManagedScalingPolicy); err != nil {
 			return "", err
@@ -358,15 +424,18 @@ func (b *InMemoryBackend) RunJobFlow(ctx context.Context, params RunJobFlowParam
 func (b *InMemoryBackend) DescribeCluster(ctx context.Context, id string) (*Cluster, error) {
 	region := getRegion(ctx, b.region)
 
-	b.mu.RLock("DescribeCluster")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeCluster")
+	defer b.mu.Unlock()
+
+	b.terminateFinishedClustersLocked(time.Now())
 
 	cluster, ok := b.clusterGet(region, id)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, id)
+		return nil, notValidErr("Cluster", id)
 	}
 
 	cp := cluster.clone()
+	cp.Status.State = liveClusterState(cluster)
 
 	return &cp, nil
 }
@@ -433,8 +502,10 @@ func (c Cluster) clone() Cluster {
 func (b *InMemoryBackend) ListClusters(ctx context.Context, params ListClustersParams) ([]ClusterSummary, string) {
 	region := getRegion(ctx, b.region)
 
-	b.mu.RLock("ListClusters")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListClusters")
+	defer b.mu.Unlock()
+
+	b.terminateFinishedClustersLocked(time.Now())
 
 	stateSet := buildStateSet(params.ClusterStates)
 	list := b.gatherClusterSummaries(region, stateSet, params)
@@ -479,12 +550,13 @@ func (b *InMemoryBackend) gatherClusterSummaries(
 	list := make([]ClusterSummary, 0, len(clusters))
 
 	for _, c := range clusters {
-		if !clusterMatchesFilter(c, stateSet, params) {
+		state := liveClusterState(c)
+		if !clusterMatchesFilter(c, state, stateSet, params) {
 			continue
 		}
 
 		status := ClusterStatus{
-			State:             c.Status.State,
+			State:             state,
 			StateChangeReason: c.Status.StateChangeReason,
 			// Timeline must be carried through: ListClusters' real response
 			// includes Status.Timeline per cluster, and the sort below relies
@@ -503,8 +575,8 @@ func (b *InMemoryBackend) gatherClusterSummaries(
 }
 
 // clusterMatchesFilter reports whether c satisfies the given filter.
-func clusterMatchesFilter(c *Cluster, stateSet map[string]bool, params ListClustersParams) bool {
-	if stateSet != nil && !stateSet[c.Status.State] {
+func clusterMatchesFilter(c *Cluster, state string, stateSet map[string]bool, params ListClustersParams) bool {
+	if stateSet != nil && !stateSet[state] {
 		return false
 	}
 
@@ -557,7 +629,7 @@ func (b *InMemoryBackend) TerminateJobFlows(ctx context.Context, ids []string) e
 	for _, id := range ids {
 		cluster, ok := b.clusterGet(region, id)
 		if !ok {
-			return fmt.Errorf("%w: cluster %s not found", ErrNotFound, id)
+			return notValidErr("Cluster", id)
 		}
 
 		if err := terminateSingle(cluster, id, "USER_REQUEST", "Terminated by user request"); err != nil {
@@ -585,6 +657,7 @@ func terminateSingle(cluster *Cluster, id, reasonCode, reasonMessage string) err
 	}
 
 	now := time.Now()
+	settleStepsOnTermination(cluster, now)
 	cluster.Status.State = StateTerminated
 	cluster.Status.StateChangeReason = map[string]any{
 		"Code":    reasonCode,
@@ -655,4 +728,59 @@ func defaultScaleDownBehavior(v, releaseLabel string) string {
 	}
 
 	return "TERMINATE_AT_TASK_COMPLETION"
+}
+
+// settleStepsOnTermination freezes step statuses when their cluster ends:
+// finished steps keep their completion, PENDING steps become CANCELLED and
+// RUNNING steps INTERRUPTED.
+func settleStepsOnTermination(cluster *Cluster, now time.Time) {
+	live := effectiveSteps(cluster.steps)
+
+	for i := range cluster.steps {
+		st := &cluster.steps[i].Status
+		if st.State != StepStatePending {
+			continue
+		}
+
+		switch live[i].Status.State {
+		case StepStateCompleted:
+			*st = live[i].Status
+		case StepStateRunning:
+			st.State = StepStateInterrupted
+			st.Timeline.StartDateTime = live[i].Status.Timeline.StartDateTime
+			st.Timeline.EndDateTime = awstime.Epoch(now)
+		default:
+			st.State = StepStateCancelled
+			st.Timeline.EndDateTime = awstime.Epoch(now)
+		}
+	}
+}
+
+// terminateFinishedClustersLocked applies AutoTerminate and idle-timeout
+// termination to every cluster that has earned it, returning the IDs. The
+// janitor calls it on a tick; reads call it so a finished cluster is never
+// reported WAITING.
+func (b *InMemoryBackend) terminateFinishedClustersLocked(now time.Time) []string {
+	var terminated []string
+
+	for _, c := range b.clusters.Snapshot() {
+		if c.Status.State == StateTerminated || c.Status.State == StateTerminatedWithErrors {
+			continue
+		}
+
+		message := "Steps completed"
+		if !c.AutoTerminate || !allStepsTerminal(c.steps) {
+			if !idleTimeoutElapsed(c, now) {
+				continue
+			}
+
+			message = stateChangeMessageIdleTimeout
+		}
+
+		if err := terminateSingle(c, c.ID, stateChangeReasonAllStepsCompleted, message); err == nil {
+			terminated = append(terminated, c.ID)
+		}
+	}
+
+	return terminated
 }

@@ -137,6 +137,10 @@ func (h *Handler) handleListPolicyStoreAliases(
 		policyStoreID = in.Filter.PolicyStoreID
 	}
 
+	if err := validateListParams(in.NextToken, in.MaxResults); err != nil {
+		return nil, err
+	}
+
 	maxResults := in.MaxResults
 	if maxResults <= 0 {
 		maxResults = defaultAliasListPageSize

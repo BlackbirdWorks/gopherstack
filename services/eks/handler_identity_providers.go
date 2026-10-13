@@ -3,6 +3,7 @@ package eks
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 
@@ -89,6 +90,11 @@ func (h *Handler) handleAssociateIdentityProviderConfig(c *echo.Context, cluster
 
 	if in.Oidc == nil || in.Oidc.IssuerURL == "" {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "oidc.issuerUrl is required"))
+	}
+
+	if !strings.HasPrefix(in.Oidc.IssuerURL, "https://") {
+		return c.JSON(http.StatusBadRequest,
+			errResp("InvalidParameterException", "oidc.issuerUrl must begin with https://"))
 	}
 
 	if in.Oidc.ClientID == "" {

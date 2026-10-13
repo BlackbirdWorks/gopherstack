@@ -62,11 +62,11 @@ func (h *Handler) handleGroupResources(ctx context.Context, in *groupResourcesIn
 }
 
 // handleListGroupResources lists the resources associated with a group.
-type listGroupResourcesInput struct { //nolint:govet // fieldalignment: readability over micro-optimization
-	Filters    []ListGroupResourcesFilter `json:"Filters"`
+type listGroupResourcesInput struct {
 	Group      string                     `json:"Group"`
 	GroupName  string                     `json:"GroupName"`
 	NextToken  string                     `json:"NextToken"`
+	Filters    []ListGroupResourcesFilter `json:"Filters"`
 	MaxResults int                        `json:"MaxResults"`
 }
 
@@ -82,28 +82,30 @@ type listGroupResourcesItem struct {
 	Identifier ResourceIdentifier `json:"Identifier"`
 }
 
-type listGroupResourcesOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
-	Resources []listGroupResourcesItem `json:"Resources"`
-	// ResourceIdentifiers is the deprecated predecessor of Resources ("don't
-	// use this parameter, use the Resources response field instead" per the
-	// real API docs). Kept populated identically to Resources for
-	// backward-compatible SDK/CLI clients that still read it.
-	ResourceIdentifiers []ResourceIdentifier `json:"ResourceIdentifiers"`
-	QueryErrors         []queryErrorWire     `json:"QueryErrors,omitempty"`
-	NextToken           string               `json:"NextToken,omitempty"`
+type listGroupResourcesOutput struct {
+	NextToken           string                   `json:"NextToken,omitempty"`
+	Resources           []listGroupResourcesItem `json:"Resources"`
+	ResourceIdentifiers []ResourceIdentifier     `json:"ResourceIdentifiers"`
+	QueryErrors         []queryErrorWire         `json:"QueryErrors,omitempty"`
 }
 
 func (h *Handler) handleListGroupResources(
 	ctx context.Context,
 	in *listGroupResourcesInput,
 ) (*listGroupResourcesOutput, error) {
-	identifiers, nextToken, err := h.Backend.ListGroupResources(
-		ctx, in.resolvedName(), in.Filters, in.NextToken, in.MaxResults,
+	cursor, err := parsePage(in.NextToken, in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	p, err := h.Backend.ListGroupResourcesPage(
+		ctx, in.resolvedName(), in.Filters, cursor, in.MaxResults,
 	)
 	if err != nil {
 		return nil, err
 	}
 
+	identifiers := p.Identifiers
 	items := make([]listGroupResourcesItem, 0, len(identifiers))
 
 	for _, id := range identifiers {
@@ -113,7 +115,8 @@ func (h *Handler) handleListGroupResources(
 	return &listGroupResourcesOutput{
 		Resources:           items,
 		ResourceIdentifiers: identifiers,
-		NextToken:           nextToken,
+		QueryErrors:         p.Errors,
+		NextToken:           encodePageToken(p.NextToken),
 	}, nil
 }
 
@@ -138,10 +141,10 @@ type groupingStatusItemWire struct {
 	UpdatedAt    float64 `json:"UpdatedAt,omitempty"`
 }
 
-type listGroupingStatusesOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
+type listGroupingStatusesOutput struct {
 	Group            string                   `json:"Group"`
-	GroupingStatuses []groupingStatusItemWire `json:"GroupingStatuses"`
 	NextToken        string                   `json:"NextToken,omitempty"`
+	GroupingStatuses []groupingStatusItemWire `json:"GroupingStatuses"`
 }
 
 func (h *Handler) handleListGroupingStatuses(
@@ -152,7 +155,12 @@ func (h *Handler) handleListGroupingStatuses(
 		return nil, fmt.Errorf("%w: Group is required", ErrValidation)
 	}
 
-	statuses, nextToken, err := h.Backend.ListGroupingStatuses(ctx, in.Group, in.Filters, in.NextToken, in.MaxResults)
+	cursor, err := parsePage(in.NextToken, in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	statuses, nextToken, err := h.Backend.ListGroupingStatuses(ctx, in.Group, in.Filters, cursor, in.MaxResults)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +180,7 @@ func (h *Handler) handleListGroupingStatuses(
 	return &listGroupingStatusesOutput{
 		Group:            in.Group,
 		GroupingStatuses: items,
-		NextToken:        nextToken,
+		NextToken:        encodePageToken(nextToken),
 	}, nil
 }
 

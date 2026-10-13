@@ -191,7 +191,8 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 					elasticsearch.PackageSource{S3BucketName: "b", S3Key: "k"})
 				require.NoError(t, err)
 
-				require.NoError(t, b.AssociatePackage(ctx, pkg.ID, "pkg-domain"))
+				_, err = b.AssociatePackage(ctx, pkg.ID, "pkg-domain")
+				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *elasticsearch.InMemoryBackend) {
 				t.Helper()
@@ -215,12 +216,15 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 				// packageAssociations (raw map) must be preserved.
 				domains, err := b.ListDomainsForPackage(ctx, pkgs[0].ID)
 				require.NoError(t, err)
-				assert.Equal(t, []string{"pkg-domain"}, domains)
+				require.Len(t, domains, 1)
+				assert.Equal(t, "pkg-domain", domains[0].DomainName)
+				assert.Equal(t, "v1", domains[0].PackageVersion)
+				assert.False(t, domains[0].LastUpdated.IsZero())
 
 				domainPkgs, err := b.ListPackagesForDomain(ctx, "pkg-domain")
 				require.NoError(t, err)
 				require.Len(t, domainPkgs, 1)
-				assert.Equal(t, "my-dict", domainPkgs[0].Name)
+				assert.Equal(t, "my-dict", domainPkgs[0].Package.Name)
 			},
 		},
 		{

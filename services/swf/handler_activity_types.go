@@ -77,6 +77,9 @@ func (h *Handler) handleListActivityTypes(
 	_ context.Context,
 	in *handleListActivityTypesInput,
 ) (*listActivityTypesOutput, error) {
+	if err := requireRegistrationStatus(in.RegistrationStatus); err != nil {
+		return nil, err
+	}
 	ats, err := h.Backend.ListActivityTypes(in.Domain, in.RegistrationStatus)
 	if err != nil {
 		return nil, err
@@ -105,6 +108,10 @@ func (h *Handler) handleListActivityTypes(
 
 		return a.ActivityType.Name < b.ActivityType.Name
 	})
+	if pageErr := validatePageParams(in.NextPageToken, in.MaximumPageSize); pageErr != nil {
+		return nil, pageErr
+	}
+
 	infos, nextPageToken := applyPageTokenSlice(infos, in.NextPageToken, in.MaximumPageSize)
 
 	return &listActivityTypesOutput{TypeInfos: infos, NextPageToken: nextPageToken}, nil

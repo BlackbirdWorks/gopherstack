@@ -52,7 +52,11 @@ func (h *Handler) opListTagsForResource(body []byte) (any, error) {
 		return nil, err
 	}
 
-	page, next := paginate(tags, in.NextMarker, in.Limit, func(t Tag) string { return t.Key })
+	page, next, err := paginate(tags, in.NextMarker, in.Limit, func(t Tag) string { return t.Key })
+	if err != nil {
+		return nil, err
+	}
+
 	tagInfo := map[string]any{
 		"ResourceARN": in.ResourceARN,
 		"TagList":     page,

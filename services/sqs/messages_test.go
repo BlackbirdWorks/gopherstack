@@ -141,7 +141,7 @@ func TestReceiveRequestAttemptIDDifferentIds(t *testing.T) {
 	}
 }
 
-func TestReceiptHandleContainsMessageID(t *testing.T) {
+func TestReceiptHandleOpaque(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
@@ -160,11 +160,9 @@ func TestReceiptHandleContainsMessageID(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, recv.Messages, 1)
 
-	// Receipt handle format: <msgID>:<gen>:<uuid>
 	handle := recv.Messages[0].ReceiptHandle
-	parts := strings.SplitN(handle, ":", 3)
-	require.Len(t, parts, 3, "receipt handle must be <msgID>:<gen>:<uuid>")
-	assert.Equal(t, out.MessageID, parts[0])
+	assert.NotEmpty(t, handle)
+	assert.NotContains(t, handle, out.MessageID, "handle must be opaque")
 }
 
 func TestFullSendReceiveDeleteCycle(t *testing.T) {

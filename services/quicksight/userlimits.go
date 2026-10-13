@@ -31,16 +31,9 @@ const (
 	indexStorageDefaultGBStandard   = 25
 	indexStorageDefaultGBEnterprise = 50
 
-	// Agent-hours-per-month default entitlement, same tier mapping. AWS's
-	// API reference does not publish a number for this one (verified:
-	// API_EffectiveLimit.html states only the MB|GB|HOURS|DAYS unit and a
-	// minimum-value-0 constraint, no default). This is the one specific
-	// figure found in third-party Quick-pricing coverage, not a primary AWS
-	// source -- lower confidence than the index-storage figures above,
-	// disclosed as such in PARITY.md rather than presented as
-	// authoritative.
-	agentHoursDefaultStandard   = 4
-	agentHoursDefaultEnterprise = 8
+	// aws.amazon.com/quick/pricing: Professional 8, Enterprise 18 agent hours per user per month.
+	agentHoursDefaultStandard   = 8
+	agentHoursDefaultEnterprise = 18
 )
 
 // systemDefaultLimit resolves the SYSTEM_DEFAULT EffectiveLimit for

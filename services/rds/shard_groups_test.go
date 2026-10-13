@@ -354,8 +354,7 @@ func TestHandler_DescribeDBShardGroups_Pagination(t *testing.T) {
 	t.Parallel()
 	h := newRDSHandler(t)
 
-	// Create 5 shard groups
-	for i := range 5 {
+	for i := range 21 {
 		rec := postRDSForm(t, h, fmt.Sprintf(
 			"Action=CreateDBShardGroup&Version=2014-10-31"+
 				"&DBShardGroupIdentifier=sg-%02d&DBClusterIdentifier=cluster-1&MaxACU=64", i,
@@ -363,8 +362,7 @@ func TestHandler_DescribeDBShardGroups_Pagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
-	// Paginate with MaxRecords=2
-	rec := postRDSForm(t, h, "Action=DescribeDBShardGroups&Version=2014-10-31&MaxRecords=2")
+	rec := postRDSForm(t, h, "Action=DescribeDBShardGroups&Version=2014-10-31&MaxRecords=20")
 	assert.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 	assert.Contains(t, body, "Marker")

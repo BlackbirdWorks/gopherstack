@@ -79,6 +79,11 @@ func (b *InMemoryBackend) ListJobExecutionsForThing(thingName string) []*JobExec
 	return out
 }
 
+const (
+	jobTargetSnapshot   = "SNAPSHOT"
+	jobTargetContinuous = "CONTINUOUS"
+)
+
 // JobStatus represents the status of a job.
 type JobStatus string
 
@@ -101,6 +106,7 @@ const (
 	JobExecCanceled   JobExecutionStatus = "CANCELED"
 	JobExecRejected   JobExecutionStatus = "REJECTED"
 	JobExecRemoved    JobExecutionStatus = "REMOVED"
+	JobExecTimedOut   JobExecutionStatus = "TIMED_OUT"
 )
 
 // AbortConfig holds abort criteria for a job. CriteriaList has no omitempty:
@@ -247,6 +253,7 @@ type Job struct {
 	JobTemplateARN             string             `json:"jobTemplateArn,omitempty"`
 	Status                     JobStatus          `json:"status"`
 	TargetSelection            string             `json:"targetSelection,omitempty"`
+	NamespaceID                string             `json:"namespaceId,omitempty"`
 	Comment                    string             `json:"comment,omitempty"`
 	ReasonCode                 string             `json:"reasonCode,omitempty"`
 	DestinationPackageVersions []string           `json:"destinationPackageVersions,omitempty"`
@@ -340,6 +347,7 @@ type CreateJobInput struct {
 	DocumentSource             string                      `json:"documentSource,omitempty"`
 	JobTemplateARN             string                      `json:"jobTemplateArn,omitempty"`
 	TargetSelection            string                      `json:"targetSelection,omitempty"`
+	NamespaceID                string                      `json:"namespaceId,omitempty"`
 	Targets                    []string                    `json:"targets"`
 }
 
@@ -355,6 +363,12 @@ func (b *InMemoryBackend) createJobLocked(input *CreateJobInput) (*Job, error) {
 		return nil, fmt.Errorf("job %q already exists: %w", input.JobID, ErrAlreadyExists)
 	}
 	now := float64(time.Now().Unix())
+
+	targetSelection := input.TargetSelection
+	if targetSelection == "" {
+		targetSelection = jobTargetSnapshot
+	}
+
 	j := &Job{
 		JobID:                      input.JobID,
 		JobARN:                     b.jobARN(input.JobID),
@@ -362,7 +376,8 @@ func (b *InMemoryBackend) createJobLocked(input *CreateJobInput) (*Job, error) {
 		Document:                   input.Document,
 		DocumentSource:             input.DocumentSource,
 		JobTemplateARN:             input.JobTemplateARN,
-		TargetSelection:            input.TargetSelection,
+		TargetSelection:            targetSelection,
+		NamespaceID:                input.NamespaceID,
 		Targets:                    append([]string(nil), input.Targets...),
 		AbortConfig:                input.AbortConfig,
 		JobExecutionsRolloutConfig: input.JobExecutionsRolloutConfig,
@@ -501,6 +516,8 @@ func (b *InMemoryBackend) jobProcessDetailsLocked(jobID string) *JobProcessDetai
 			details.NumberOfCanceledThings++
 		case JobExecRemoved:
 			details.NumberOfRemovedThings++
+		case JobExecTimedOut:
+			details.NumberOfTimedOutThings++
 		}
 	}
 	sort.Strings(processing)
@@ -837,6 +854,9 @@ func (b *InMemoryBackend) CancelJobExecution(jobID, thingName string, opts Cance
 		maps.Copy(exec.StatusDetails.DetailsMap, opts.StatusDetails)
 	}
 
+	job, _ := b.jobs.Get(jobID)
+	b.completeJobIfDoneLocked(job, now)
+
 	return nil
 }
 
@@ -861,7 +881,7 @@ func statusDetailsFromMap(m map[string]string) *JobExecutionStatusDetails {
 // doc comment).
 func isTerminalJobExecutionStatus(status JobExecutionStatus) bool {
 	switch status {
-	case JobExecSucceeded, JobExecFailed, JobExecRejected, JobExecRemoved, JobExecCanceled:
+	case JobExecSucceeded, JobExecFailed, JobExecRejected, JobExecRemoved, JobExecCanceled, JobExecTimedOut:
 		return true
 	case JobExecQueued, JobExecInProgress:
 		return false

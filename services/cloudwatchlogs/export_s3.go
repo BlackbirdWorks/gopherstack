@@ -3,6 +3,7 @@ package cloudwatchlogs
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -14,17 +15,20 @@ import (
 // s3ExportSink adapts the in-process S3 backend to the ExportSink interface so
 // CreateExportTask writes real gzipped objects into the emulated S3 service.
 type s3ExportSink struct {
-	backend s3.StorageBackend
+	backend  s3.StorageBackend
+	provider s3HandlerProvider
 }
 
-// newS3ExportSink builds an export sink backed by the given S3 storage backend.
-func newS3ExportSink(backend s3.StorageBackend) *s3ExportSink {
-	return &s3ExportSink{backend: backend}
-}
+var errS3Unavailable = errors.New("s3 backend unavailable")
 
 // PutObject writes body to bucket/key via the S3 backend's PutObject operation.
 func (s *s3ExportSink) PutObject(ctx context.Context, bucket, key string, body []byte) error {
-	_, err := s.backend.PutObject(ctx, &awss3.PutObjectInput{
+	backend, err := s.resolve()
+	if err != nil {
+		return err
+	}
+
+	_, err = backend.PutObject(ctx, &awss3.PutObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 		Body:   bytes.NewReader(body),
@@ -34,4 +38,19 @@ func (s *s3ExportSink) PutObject(ctx context.Context, bucket, key string, body [
 	}
 
 	return nil
+}
+
+// resolve looks the S3 backend up per call: the CLI stores sibling handlers
+// only after every provider's Init has run.
+func (s *s3ExportSink) resolve() (s3.StorageBackend, error) {
+	if s.backend != nil {
+		return s.backend, nil
+	}
+
+	sh, ok := s.provider.GetS3Handler().(*s3.S3Handler)
+	if !ok || sh == nil || sh.Backend == nil {
+		return nil, errS3Unavailable
+	}
+
+	return sh.Backend, nil
 }

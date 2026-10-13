@@ -70,6 +70,10 @@ func (b *InMemoryBackend) AssociateDRTRole(roleARN string) error {
 		return fmt.Errorf("%w: RoleArn is required", ErrValidation)
 	}
 
+	if err := validateDRTRoleARN(roleARN); err != nil {
+		return err
+	}
+
 	b.mu.Lock("AssociateDRTRole")
 	defer b.mu.Unlock()
 

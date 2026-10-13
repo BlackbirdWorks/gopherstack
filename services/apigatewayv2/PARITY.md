@@ -2,8 +2,12 @@
 service: apigatewayv2
 sdk_module: aws-sdk-go-v2/service/apigatewayv2@v1.37.4
 last_audit_commit: 22b4f068c
-last_audit_date: 2026-09-20
+last_audit_date: 2026-10-11
 overall: A            # 2026-09-11 (gopherstack-mven, required-OUTPUT-member sweep, apigatewayv2
+                       # 2026-10-09 realism pass: error messages no longer repeat the exception name ("BadRequestException: ..."); 404
+                       # bodies say "Invalid API identifier specified <acct>:<id>" / "Invalid <Resource> identifier specified <id>"
+                       # instead of "Not Found"; CreateStage enforces the documented stage-name charset/length; CreateIntegration
+                       # rejects a PayloadFormatVersion other than 1.0/2.0.
                        # nested-candidate batch): hand-verified the 31 apigatewayv2 candidates
                        # from zero_nested_candidates.json (RoutingRule/List*/Portal family).
                        # Most were false positives (Create* client-side-validates the required
@@ -288,14 +292,20 @@ families:
   WebSocket @connections data plane (apigatewaymanagementapi): {status: ok, note: "delegated to services/apigatewaymanagementapi via SetManagementAPIBackend; out of scope for this apigatewayv2-only sweep"}
 gaps: []
 items_still_open:
-  - "AWS/ApiGateway HTTP/WebSocket metrics Count/4xx/5xx/Latency/IntegrationLatency and ConnectCount/MessageCount/ClientError/ExecutionError are emitted; DataProcessed, IntegrationError and the Route/Resource/Method dimensions are not. (gopherstack-4m1qr)"
-  - "DeleteRoute/DeleteStage/DeleteIntegration on a quick-create (apiGatewayManaged) resource are not rejected (gopherstack-2tx): AWS prose says a managed integration cannot be deleted, but service-2.json and the API reference list only NotFoundException/TooManyRequestsException for all three, so no wire-verifiable error code exists to reject with. UpdateRoute/UpdateStage managed-resource rejection is implemented."
-  - "ImportApi/ReimportApi basepath=split is not implemented (falls back to ignore): its semantics are described only in prose, not the SDK wire model. failOnWarnings is validated but never escalates, because OpenAPI import generates no warnings to escalate (gopherstack-jni0)."
-  - "A stage that exists but was never deployed (DeploymentID empty) still serves traffic, because real AWS behaviour for an autoDeploy=true stage with pre-existing routes is unverified (gopherstack-vli). WebSocket routing (invokeWSRoute) ignores the stage's pinned deployment snapshot, and Authorizer definitions and CORS config are resolved live rather than from the snapshot."
-  - "ProductRestEndpointPage StatusException is not modeled (no REST API resolution pipeline produces a failure status), and RawDisplayContent is never returned by GetProductRestEndpointPage."
+  - "Not-found wording for Stage/Deployment/Authorizer/Model/Route follows the \"Invalid <X> identifier specified\" convention but is not pinned by the SDK; only the API form is certain."
+  - "DeleteRoute/DeleteStage on a quick-create (apiGatewayManaged) resource are not rejected (gopherstack-2tx): the SDK says only that the $default route key and $default stage can't be modified (both enforced); unlike integrations ('you can't delete it', enforced), it is silent on deleting them."
+  - "ImportApi/ReimportApi failOnWarnings escalates only unsupported integration types (docs: HTTP APIs support only Lambda proxy and HTTP proxy); other warning classes and ImportInfo texts are not enumerated in the docs, so none are produced (gopherstack-jni0)."
+  - "A stage with no deployment still serves live routes, and authorizer/CORS config is resolved live rather than from the deployment snapshot: the developer guide says a deployment is a snapshot and changes need deploying, but not what an undeployed stage returns or whether authorizers/CORS are frozen (live serving is a deliberate dev-flow choice, gopherstack-cfr1)."
+  - "GetProductRestEndpointPage never returns RawDisplayContent: the SDK describes it only as 'the raw display content' and the API reference page carries no format or example."
+structural_gaps:
+  - "ProductRestEndpointPage StatusException: failure statuses come from resolving the referenced REST API, which lives in services/apigateway and needs cli.go cross-wiring."
 deferred: []
 leaks: {status: clean, note: "portalProductSharingPolicies cleanup on DeletePortalProduct already covered by leak_internal_test.go from a prior sweep; authorizerCache entries are now purged on DeleteAuthorizer/DeleteApi (bd gopherstack-wmh, fixed and closed this pass -- see Notes #11), not merely TTL-bounded; no goroutines/janitors in this package"}
 ---
+
+## 2026-10-07 (items_still_open burn-down)
+
+AWS/ApiGateway now also emits DataProcessed (bytes) for HTTP APIs, IntegrationError for WebSocket integration failures, and the ApiId+Stage+Route dimension set when the route's RouteSettings enable DetailedMetricsEnabled (TestHTTPAPIProxy_Metrics, TestWSMetrics_RoutedDimensionsAndErrors). WebSocket routing now resolves routes and integrations from the stage's pinned deployment like HTTP APIs (TestInvokeWSRoute_DeploymentSnapshot). Resource/Method dimensions belong to REST APIs (services/apigateway), not v2.
 
 ## 2026-10-05 (gap burn-down pass 3, gopherstack-9x62)
 
@@ -1076,3 +1086,17 @@ InternalServerErrorException (errors.go:30) is a generic 500 fallback; the pinne
 ## 2026-10-05 (zeroguard omitted-vs-zero pass)
 
 UpdateIntegration TimeoutInMillis is a pointer: omitted keeps the stored value, an explicit 0 is range-checked and rejected (cmd/zeroguard). PutRoutingRule is full-replace with required Priority: tool false positive. Proof: `TestUpdateIntegration_TimeoutOmittedVsZero`.
+
+## 2026-10-11 deep realism pass (data plane)
+
+- Lambda proxy responses: payload 2.0 returns any non-envelope JSON (object without statusCode, string) as a 200 JSON body; 1.0 without statusCode, a function error payload and an invalid statusCode are 500 `{"message":"Internal Server Error"}`; Content-Type defaults to application/json; multiValueHeaders (1.0) and isBase64Encoded are honoured. Previously a non-envelope object produced an empty 200.
+- Events: 1.0 carries version, resource (the route path, not "GET /path"), multiValueHeaders, multiValueQueryStringParameters and a fuller requestContext; 2.0 rawPath/http.path include the stage for named stages; greedy `{proxy+}` pathParameters have no leading slash; isBase64Encoded is always present.
+- Authorizers: requestContext.authorizer carries `jwt.claims/scopes` for JWT authorizers and `lambda` (the authorizer context) for Lambda authorizers, including cached decisions; JWT routes enforce AuthorizationScopes (403); audience also matches `client_id` (Cognito access tokens); a Cognito issuer written as `https://cognito-idp.<region>.amazonaws.com/<pool>` matches the emulator-hosted pool of the same id.
+- HTTP_PROXY: integration method ANY forwards the client method; `{id}`/`{proxy}` placeholders in the integration URI are substituted from the route's path parameters.
+- CORS: headers only for an allowed Origin; Allow-Methods/Headers/Max-Age only on preflight; credentials echo the origin. Gateway errors (404, 500) are `{"message":...}` JSON.
+- CreateApi with Target and no RouteKey creates the `$default` route (CreateApiInput.RouteKey doc). Tests: http_proxy_flows_test.go, Test_CreateAPI_QuickCreate_DefaultRouteKey.
+- Not probed: WebSocket $connect/@connections (needs a Lambda runtime; covered by existing unit tests).
+
+## 2026-10-11 reserved ID-pinning tag (gopherstack-cefu7.23)
+
+`CreateApi` honours the emulator-only `gopherstack:id` tag to pin the API ID (10 lowercase alphanumerics). The tag is consumed, never stored or listed; a malformed ID returns `BadRequestException`, a reused ID `ConflictException` (409), and `TagResource` rejects the key. See docs/pinned-ids.md.

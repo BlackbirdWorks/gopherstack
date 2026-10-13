@@ -2,8 +2,12 @@ package eks
 
 import (
 	"context"
+	"crypto/rsa"
+	"sync/atomic"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
@@ -46,6 +50,8 @@ type InMemoryBackend struct {
 	work                             *worker.Group
 	baseCtx                          context.Context
 	clusterEng                       *clusterEngine
+	idcApps                          IdcApplicationManager
+	oidcKeys                         *safemap.Map[string, *rsa.PrivateKey]
 	accountID                        string
 	region                           string
 
@@ -55,6 +61,7 @@ type InMemoryBackend struct {
 	// services/glue's limits/configuredLimits precedent.
 	limits           resourceLimits
 	configuredLimits resourceLimits
+	lifecycleDelay   atomic.Int64
 }
 
 // NewInMemoryBackend creates a new in-memory EKS backend.
@@ -66,6 +73,7 @@ func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemory
 		region:            region,
 		registry:          store.NewRegistry(),
 		mu:                lockmetrics.New("eks"),
+		oidcKeys:          safemap.New[string, *rsa.PrivateKey]("eks.oidc.keys"),
 		work:              worker.NewGroup(ctx, "eks"),
 		baseCtx:           ctx,
 		limits:            defaultResourceLimits(),
@@ -88,6 +96,20 @@ func (b *InMemoryBackend) WithResourceLimits(l ResourceLimits) *InMemoryBackend 
 	applyResourceLimitOverrides(&b.configuredLimits, l)
 
 	return b
+}
+
+// SetLifecycleDelay sets how long clusters, nodegroups, addons, Fargate profiles, identity
+// providers, certificate authorities and updates dwell in a transitional state; 0 keeps the built-in 100ms.
+func (b *InMemoryBackend) SetLifecycleDelay(d time.Duration) {
+	b.lifecycleDelay.Store(int64(d))
+}
+
+func (b *InMemoryBackend) dwell(builtin time.Duration) time.Duration {
+	if d := time.Duration(b.lifecycleDelay.Load()); d > 0 {
+		return d
+	}
+
+	return builtin
 }
 
 // Close stops all scheduled state-transition timers so none outlives the
@@ -200,6 +222,7 @@ func (b *InMemoryBackend) Reset() {
 	// per-map make() calls this used to be (Phase 3.3 pkgs/store conversion).
 	// See registerAllTables in store_setup.go for the full list of tables.
 	b.registry.ResetAll()
+	b.oidcKeys.Clear()
 	b.reapClustersLocked()
 	b.limits = b.configuredLimits
 

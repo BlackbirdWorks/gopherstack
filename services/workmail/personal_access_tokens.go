@@ -52,7 +52,7 @@ func (b *InMemoryBackend) ListPersonalAccessTokens(
 	defer b.mu.RUnlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, "", fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, "", fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	all := make([]*PersonalAccessToken, 0)
 	for _, tok := range b.personalTokensByOrg.Get(orgID) {
@@ -76,7 +76,7 @@ func (b *InMemoryBackend) CreatePersonalAccessToken(
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations.Get(orgID); !ok {
-		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
+		return nil, fmt.Errorf("%w: organization %q not found", ErrOrganizationNotFound, orgID)
 	}
 	now := time.Now()
 	tok := &PersonalAccessToken{

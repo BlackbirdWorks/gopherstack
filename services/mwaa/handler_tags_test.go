@@ -31,7 +31,9 @@ func TestHandler_TagsFlow(t *testing.T) {
 
 			// Create environment.
 			rec := doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, map[string]any{
-				"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+				"DagS3Path":            "dags/",
+				"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/r",
+				"SourceBucketArn":      "arn:aws:s3:::b",
 				"NetworkConfiguration": networkConfigBody(),
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -95,8 +97,8 @@ func TestHandler_UntagResource(t *testing.T) {
 			// Create environment.
 			rec := doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, map[string]any{
 				"DagS3Path":            "dags/",
-				"ExecutionRoleArn":     "arn:r",
-				"SourceBucketArn":      "arn:b",
+				"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/r",
+				"SourceBucketArn":      "arn:aws:s3:::b",
 				"NetworkConfiguration": networkConfigBody(),
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -177,7 +179,9 @@ func TestTagLimit_HTTP_TagResource_Exceeds(t *testing.T) {
 
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/http-tag-env", map[string]any{
-		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"DagS3Path":            "dags/",
+		"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/r",
+		"SourceBucketArn":      "arn:aws:s3:::b",
 		"NetworkConfiguration": networkConfigBody(),
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -244,7 +248,9 @@ func TestTags_HTTP_CreateWithTagsRoundTrip(t *testing.T) {
 
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/http-tags-env", map[string]any{
-		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"DagS3Path":            "dags/",
+		"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/r",
+		"SourceBucketArn":      "arn:aws:s3:::b",
 		"NetworkConfiguration": networkConfigBody(),
 		"Tags":                 map[string]string{"service": "airflow", "tier": "production"},
 	})

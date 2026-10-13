@@ -27,6 +27,12 @@ type LogEventSource interface {
 	InsightEvents(region string, logGroupPatterns []string, start, end time.Time) []InsightLogEvent
 }
 
+// TransformedLogEventSource is an optional LogEventSource extension serving events after
+// CloudWatch Logs transformation, for rules with ApplyOnTransformedLogs set.
+type TransformedLogEventSource interface {
+	TransformedInsightEvents(region string, logGroupPatterns []string, start, end time.Time) []InsightLogEvent
+}
+
 // InsightLogEvent is one log event as seen by a Contributor Insights rule.
 type InsightLogEvent struct {
 	Timestamp time.Time
@@ -164,7 +170,7 @@ func (b *InMemoryBackend) GetInsightRuleReport(req InsightRuleReportRequest) (*I
 		return report, nil
 	}
 
-	events := src.InsightEvents(region, spec.LogGroupNames, req.StartTime, req.EndTime)
+	events := insightEventsFor(src, cp.ApplyOnTransformedLogs, region, spec.LogGroupNames, req)
 	agg := aggregateInsightEvents(spec, events, req)
 	agg.fill(report, req)
 
@@ -351,4 +357,14 @@ func (b *bucketAgg) datapoint(ts time.Time, metrics []string) InsightRuleMetricD
 	}
 
 	return dp
+}
+
+func insightEventsFor(
+	src LogEventSource, transformed bool, region string, groups []string, req InsightRuleReportRequest,
+) []InsightLogEvent {
+	if ts, ok := src.(TransformedLogEventSource); ok && transformed {
+		return ts.TransformedInsightEvents(region, groups, req.StartTime, req.EndTime)
+	}
+
+	return src.InsightEvents(region, groups, req.StartTime, req.EndTime)
 }

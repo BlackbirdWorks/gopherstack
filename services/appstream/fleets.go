@@ -132,6 +132,11 @@ func (b *InMemoryBackend) CreateFleet(name string, opts CreateFleetOptions) (*Fl
 		)
 	}
 
+	if err := validateFleetSettings(opts.InstanceType, opts.DesiredInstances, opts.MaxUserDurationSecs,
+		opts.DisconnectTimeoutSecs, opts.IdleDisconnectTimeoutSecs); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateFleet")
 	defer b.mu.Unlock()
 
@@ -199,8 +204,9 @@ func (b *InMemoryBackend) CreateFleet(name string, opts CreateFleetOptions) (*Fl
 	}
 	b.fleets.Put(f)
 	b.tags[fleetArn] = storedTags
+	delete(b.transitions, fleetKey(name))
 
-	return f.toFleet(), nil
+	return b.fleetView(f), nil
 }
 
 // DescribeFleets returns fleets, optionally filtered by names.
@@ -217,7 +223,7 @@ func (b *InMemoryBackend) DescribeFleets(names []string) ([]*Fleet, error) {
 				return nil, ErrNotFound
 			}
 
-			result = append(result, f.toFleet())
+			result = append(result, b.fleetView(f))
 		}
 
 		return result, nil
@@ -225,7 +231,7 @@ func (b *InMemoryBackend) DescribeFleets(names []string) ([]*Fleet, error) {
 
 	result := make([]*Fleet, 0, b.fleets.Len())
 	for _, f := range b.fleets.All() {
-		result = append(result, f.toFleet())
+		result = append(result, b.fleetView(f))
 	}
 
 	return result, nil
@@ -259,6 +265,16 @@ func applyFleetAttributesToDelete(f *storedFleet, attrs []string) {
 
 // UpdateFleet updates mutable fields of an existing fleet.
 func (b *InMemoryBackend) UpdateFleet(name string, opts UpdateFleetOptions) (*Fleet, error) {
+	idle := 0
+	if opts.IdleDisconnectTimeoutSecs != nil {
+		idle = *opts.IdleDisconnectTimeoutSecs
+	}
+
+	if err := validateFleetSettings(opts.InstanceType, opts.DesiredInstances, opts.MaxUserDurationSecs,
+		opts.DisconnectTimeoutSecs, idle); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateFleet")
 	defer b.mu.Unlock()
 
@@ -271,7 +287,7 @@ func (b *InMemoryBackend) UpdateFleet(name string, opts UpdateFleetOptions) (*Fl
 	applyFleetExtendedUpdates(f, opts)
 	applyFleetAttributesToDelete(f, opts.AttributesToDelete)
 
-	return f.toFleet(), nil
+	return b.fleetView(f), nil
 }
 
 // applyFleetCoreUpdates sets the fields UpdateFleet has always supported
@@ -384,10 +400,11 @@ func (b *InMemoryBackend) DeleteFleet(name string) error {
 		return ErrNotFound
 	}
 
-	if f.State == fleetStateRunning {
+	if b.effectiveState(fleetKey(name), f.State) != fleetStateStopped {
 		return ErrResourceInUse
 	}
 
+	delete(b.transitions, fleetKey(name))
 	delete(b.tags, f.Arn)
 	b.fleets.Delete(name)
 	delete(b.associations, name)
@@ -405,11 +422,12 @@ func (b *InMemoryBackend) StartFleet(name string) error {
 		return ErrNotFound
 	}
 
-	if f.State == fleetStateRunning {
+	if b.effectiveState(fleetKey(name), f.State) != fleetStateStopped {
 		return ErrFleetNotStopped
 	}
 
 	f.State = fleetStateRunning
+	b.beginTransition(fleetKey(name), fleetStateStarting)
 
 	return nil
 }
@@ -424,6 +442,10 @@ func (b *InMemoryBackend) StopFleet(name string) error {
 	f, ok := b.fleets.Get(name)
 	if !ok {
 		return ErrNotFound
+	}
+
+	if f.State == fleetStateRunning {
+		b.beginTransition(fleetKey(name), fleetStateStopping)
 	}
 
 	f.State = fleetStateStopped

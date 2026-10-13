@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -37,11 +38,12 @@ type Handler struct {
 	Backend       StorageBackend
 	dispatchTable map[string]dispatchFunc
 	peers         *regionpeers.Set[Handler]
+	dp            *dataPlane
 }
 
 // NewHandler creates a new ELBv2 handler.
 func NewHandler(backend StorageBackend) *Handler {
-	h := &Handler{Backend: backend}
+	h := &Handler{Backend: backend, dp: newDataPlane()}
 	h.dispatchTable = h.buildDispatchTable()
 
 	return h
@@ -136,6 +138,10 @@ func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		r := c.Request()
+		if h.isDataPlaneRequest(r) {
+			return true
+		}
+
 		if r.Method != http.MethodPost {
 			return false
 		}
@@ -174,6 +180,10 @@ func (h *Handler) MatchPriority() int { return service.PriorityFormStandard }
 
 // ExtractOperation extracts the ELBv2 action from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
+	if h.isDataPlaneRequest(c.Request()) {
+		return operationDataPlane
+	}
+
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return unknownOp
@@ -194,6 +204,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource extracts the primary resource identifier from the request.
 func (h *Handler) ExtractResource(c *echo.Context) string {
+	if h.isDataPlaneRequest(c.Request()) {
+		return ""
+	}
+
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return ""
@@ -214,6 +228,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for ELBv2 operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if h.isDataPlaneRequest(c.Request()) {
+			return h.serveDataPlane(c)
+		}
+
 		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
 			return p.Handler()(c)
 		}
@@ -329,7 +347,7 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		logger.Load(c.Request().Context()).Error("elbv2 internal error", "error", opErr, "action", action)
 	}
 
-	return h.writeError(c, statusCode, code, opErr.Error())
+	return h.writeError(c, statusCode, code, errorMessage(code, opErr))
 }
 
 func elbv2ErrorCode(opErr error) (string, int) {
@@ -383,7 +401,7 @@ func (h *Handler) writeError(c *echo.Context, statusCode int, code, message stri
 	errResp := &elbv2ErrorResponse{
 		Xmlns:     elbv2XMLNS,
 		Error:     elbv2Error{Code: code, Message: message, Type: "Sender"},
-		RequestID: "elbv2-error",
+		RequestID: uuid.NewString(),
 	}
 
 	xmlBytes, err := marshalXML(errResp)
@@ -556,4 +574,27 @@ type xmlStringValue struct {
 
 type xmlStringList struct {
 	Members []xmlStringValue `xml:"member"`
+}
+
+// bareCodeMessages are AWS's own messages for errors this backend raises without detail.
+var bareCodeMessages = map[string]string{ //nolint:gochecknoglobals // read-only lookup table
+	"LoadBalancerNotFound":      "One or more load balancers not found",
+	"TargetGroupNotFound":       "One or more target groups not found",
+	"ListenerNotFound":          "One or more listeners not found",
+	"RuleNotFound":              "One or more rules not found",
+	"TrustStoreNotFound":        "One or more trust stores not found",
+	"DuplicateLoadBalancerName": "A load balancer with the same name exists, but with different settings",
+	"DuplicateTargetGroupName":  "A target group with the same name exists, but with different settings",
+	"ResourceInUse":             "The specified resource is in use",
+}
+
+func errorMessage(code string, err error) string {
+	msg := strings.TrimPrefix(err.Error(), code+": ")
+	if msg == code {
+		if m, ok := bareCodeMessages[code]; ok {
+			return m
+		}
+	}
+
+	return msg
 }

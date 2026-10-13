@@ -59,7 +59,7 @@ func TestHandler_AddApplicationOutput(t *testing.T) {
 					"DestinationSchema": map[string]any{"RecordFormatType": "JSON"},
 				},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "version mismatch",
@@ -169,7 +169,7 @@ func TestHandler_DeleteApplicationOutput(t *testing.T) {
 					"OutputId":                    outputID,
 				}
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

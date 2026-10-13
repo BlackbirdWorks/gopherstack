@@ -35,6 +35,18 @@ func TestListFindings_FilterOperators(t *testing.T) {
 		{name: "eq_is_public", filter: map[string]aatypes.Criterion{
 			"isPublic": {Eq: []string{"true"}},
 		}, want: []string{"bucket"}},
+		{name: "owner_account_match", filter: map[string]aatypes.Criterion{
+			"resourceOwnerAccount": {Eq: []string{"000000000000"}},
+		}, want: []string{"bucket", "queue"}},
+		{name: "owner_account_other", filter: map[string]aatypes.Criterion{
+			"resourceOwnerAccount": {Eq: []string{"111111111111"}},
+		}, want: nil},
+		{name: "error_exists", filter: map[string]aatypes.Criterion{
+			"error": {Exists: aws.Bool(true)},
+		}, want: nil},
+		{name: "error_absent", filter: map[string]aatypes.Criterion{
+			"error": {Exists: aws.Bool(false)},
+		}, want: []string{"bucket", "queue"}},
 		{name: "eq_action", filter: map[string]aatypes.Criterion{
 			"action": {Eq: []string{"sqs:SendMessage"}},
 		}, want: []string{"queue"}},

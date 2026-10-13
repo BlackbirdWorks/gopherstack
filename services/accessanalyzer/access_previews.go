@@ -130,16 +130,9 @@ func (b *InMemoryBackend) ListAccessPreviewFindings(
 		return findings[i].ID < findings[j].ID
 	})
 
-	start := 0
-
-	if nextToken != "" {
-		for i, f := range findings {
-			if f.ID == nextToken {
-				start = i
-
-				break
-			}
-		}
+	start, tokErr := pageStart(len(findings), nextToken, func(i int) string { return findings[i].ID })
+	if tokErr != nil {
+		return nil, "", tokErr
 	}
 
 	findings = findings[start:]

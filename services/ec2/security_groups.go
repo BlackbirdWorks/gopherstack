@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"slices"
 	"sort"
-	"strconv"
-	"strings"
 )
 
 // AuthorizeSecurityGroupIngress adds ingress rules to a security group.
@@ -25,7 +23,11 @@ func (b *InMemoryBackend) AuthorizeSecurityGroupIngress(
 		return err
 	}
 
-	sg.IngressRules = append(sg.IngressRules, rules...)
+	if err := b.requireSourceGroupsLocked(rules); err != nil {
+		return err
+	}
+
+	sg.IngressRules = append(sg.IngressRules, withRuleIDs(rules)...)
 
 	return nil
 }
@@ -47,7 +49,11 @@ func (b *InMemoryBackend) AuthorizeSecurityGroupEgress(
 		return err
 	}
 
-	sg.EgressRules = append(sg.EgressRules, rules...)
+	if err := b.requireSourceGroupsLocked(rules); err != nil {
+		return err
+	}
+
+	sg.EgressRules = append(sg.EgressRules, withRuleIDs(rules)...)
 
 	return nil
 }
@@ -90,16 +96,7 @@ func (b *InMemoryBackend) RevokeSecurityGroupIngress(
 		}
 
 		matched := sg.IngressRules[idx]
-		revoked = append(revoked, &SecurityGroupRuleDetail{
-			SecurityGroupRuleID: fmt.Sprintf("sgr-%s-in-%d", groupID, idx),
-			GroupID:             groupID,
-			Protocol:            matched.Protocol,
-			CIDRIPv4:            matched.IPRange,
-			Description:         matched.Description,
-			FromPort:            matched.FromPort,
-			ToPort:              matched.ToPort,
-			IsEgress:            false,
-		})
+		revoked = append(revoked, matched.detail(groupID, false, ruleIDFor(groupID, false, idx, matched)))
 		sg.IngressRules = removeRule(sg.IngressRules, rule)
 	}
 
@@ -146,16 +143,7 @@ func (b *InMemoryBackend) RevokeSecurityGroupEgress(
 		}
 
 		matched := sg.EgressRules[idx]
-		revoked = append(revoked, &SecurityGroupRuleDetail{
-			SecurityGroupRuleID: fmt.Sprintf("sgr-%s-out-%d", groupID, idx),
-			GroupID:             groupID,
-			Protocol:            matched.Protocol,
-			CIDRIPv4:            matched.IPRange,
-			Description:         matched.Description,
-			FromPort:            matched.FromPort,
-			ToPort:              matched.ToPort,
-			IsEgress:            true,
-		})
+		revoked = append(revoked, matched.detail(groupID, true, ruleIDFor(groupID, true, idx, matched)))
 		sg.EgressRules = removeRule(sg.EgressRules, rule)
 	}
 
@@ -492,106 +480,133 @@ func (b *InMemoryBackend) DescribeSecurityGroupRules(
 	var out []*SecurityGroupRuleDetail
 
 	for i, r := range sg.IngressRules {
-		out = append(out, &SecurityGroupRuleDetail{
-			SecurityGroupRuleID: fmt.Sprintf("sgr-%s-in-%d", groupID, i),
-			GroupID:             groupID,
-			Protocol:            r.Protocol,
-			CIDRIPv4:            r.IPRange,
-			Description:         r.Description,
-			FromPort:            r.FromPort,
-			ToPort:              r.ToPort,
-			IsEgress:            false,
-		})
+		out = append(out, r.detail(groupID, false, ruleIDFor(groupID, false, i, r)))
 	}
 
 	for i, r := range sg.EgressRules {
-		out = append(out, &SecurityGroupRuleDetail{
-			SecurityGroupRuleID: fmt.Sprintf("sgr-%s-out-%d", groupID, i),
-			GroupID:             groupID,
-			Protocol:            r.Protocol,
-			CIDRIPv4:            r.IPRange,
-			Description:         r.Description,
-			FromPort:            r.FromPort,
-			ToPort:              r.ToPort,
-			IsEgress:            true,
-		})
+		out = append(out, r.detail(groupID, true, ruleIDFor(groupID, true, i, r)))
 	}
 
 	return out, nil
 }
 
-// securityGroupIDFromRuleID extracts the owning security group ID from a
-// "sgr-<groupID>-{in,out}-<index>" rule ID without needing to already know
-// the group. Security group IDs are lowercase hex ("sg-" + [0-9a-f]+), which
-// never contains the letters i/n/o/u/t, so the last "-in-"/"-out-" occurrence
-// unambiguously marks the split point.
-func securityGroupIDFromRuleID(ruleID string) (string, bool) {
-	rest, ok := strings.CutPrefix(ruleID, "sgr-")
-	if !ok {
-		return "", false
-	}
-
-	if before, _, found := strings.CutLast(rest, "-in-"); found {
-		return before, true
-	}
-
-	if before, _, found := strings.CutLast(rest, "-out-"); found {
-		return before, true
-	}
-
-	return "", false
-}
-
-// DescribeSecurityGroupRulesByIDs returns the security group rules matching
-// ruleIDs, looking up each rule's owning group from its ID
-// (DescribeSecurityGroupRules requires a GroupId, but
-// aws_vpc_security_group_ingress_rule/egress_rule read back by
-// SecurityGroupRuleId alone).
-func (b *InMemoryBackend) DescribeSecurityGroupRulesByIDs(ruleIDs []string) ([]*SecurityGroupRuleDetail, error) {
-	var out []*SecurityGroupRuleDetail
-
-	for _, ruleID := range ruleIDs {
-		groupID, ok := securityGroupIDFromRuleID(ruleID)
-		if !ok {
+// requireSourceGroupsLocked rejects rules referencing an unknown security group owned by this account.
+func (b *InMemoryBackend) requireSourceGroupsLocked(rules []SecurityGroupRule) error {
+	for _, r := range rules {
+		if r.SourceGroupID == "" || (r.SourceGroupOwnerID != "" && r.SourceGroupOwnerID != b.AccountID) {
 			continue
 		}
 
-		groupRules, err := b.DescribeSecurityGroupRules(groupID)
-		if err != nil {
-			continue
-		}
-
-		for _, r := range groupRules {
-			if r.SecurityGroupRuleID == ruleID {
-				out = append(out, r)
-			}
+		if _, ok := b.securityGroups.Get(r.SourceGroupID); !ok {
+			return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, r.SourceGroupID)
 		}
 	}
 
-	return out, nil
+	return nil
 }
 
-// ModifySecurityGroupRules updates one or more rules (by position index) within a security group.
-// Only protocol, IPRange, and port range can be mutated; egress/ingress direction is immutable.
-// parseSecurityGroupRuleID decodes the deterministic "sgr-<groupID>-{in,out}-<index>"
-// IDs DescribeSecurityGroupRules synthesizes (security_groups.go
-// DescribeSecurityGroupRules), returning which direction's rule slice and
-// index the caller means. ok is false for any ID not shaped that way or not
-// belonging to groupID.
-func parseSecurityGroupRuleID(groupID, ruleID string) (bool, int, bool) {
-	if suffix, found := strings.CutPrefix(ruleID, "sgr-"+groupID+"-in-"); found {
-		n, err := strconv.Atoi(suffix)
+// withRuleIDs returns a copy of rules with a stable ID assigned to each rule lacking one.
+func withRuleIDs(rules []SecurityGroupRule) []SecurityGroupRule {
+	out := make([]SecurityGroupRule, len(rules))
+	copy(out, rules)
 
-		return false, n, err == nil
+	for i := range out {
+		if out[i].ID == "" {
+			out[i].ID = newSecurityGroupRuleID()
+		}
 	}
 
-	if suffix, found := strings.CutPrefix(ruleID, "sgr-"+groupID+"-out-"); found {
-		n, err := strconv.Atoi(suffix)
+	return out
+}
 
-		return true, n, err == nil
+// ruleIDFor returns the rule's stable ID, or the positional ID of a rule restored from a
+// snapshot that predates stable IDs.
+func (r SecurityGroupRule) detail(groupID string, egress bool, ruleID string) *SecurityGroupRuleDetail {
+	return &SecurityGroupRuleDetail{
+		SecurityGroupRuleID: ruleID,
+		GroupID:             groupID,
+		Protocol:            r.Protocol,
+		CIDRIPv4:            r.IPRange,
+		CIDRIPv6:            r.IPv6Range,
+		PrefixListID:        r.PrefixListID,
+		ReferencedGroupID:   r.SourceGroupID,
+		ReferencedGroupUser: r.SourceGroupOwnerID,
+		Description:         r.Description,
+		FromPort:            r.FromPort,
+		ToPort:              r.ToPort,
+		IsEgress:            egress,
+	}
+}
+
+func ruleIDFor(groupID string, egress bool, idx int, r SecurityGroupRule) string {
+	if r.ID != "" {
+		return r.ID
+	}
+
+	dir := "in"
+	if egress {
+		dir = "out"
+	}
+
+	return fmt.Sprintf("sgr-%s-%s-%d", groupID, dir, idx)
+}
+
+// findRuleLocked locates the rule with ruleID in sg, returning its direction and index.
+func findRuleLocked(sg *SecurityGroup, ruleID string) (bool, int, bool) {
+	for i, r := range sg.IngressRules {
+		if ruleIDFor(sg.ID, false, i, r) == ruleID {
+			return false, i, true
+		}
+	}
+
+	for i, r := range sg.EgressRules {
+		if ruleIDFor(sg.ID, true, i, r) == ruleID {
+			return true, i, true
+		}
 	}
 
 	return false, 0, false
+}
+
+// DescribeSecurityGroupRulesByIDs returns the security group rules matching
+// ruleIDs, searching every group (aws_vpc_security_group_ingress_rule and
+// egress_rule read back by SecurityGroupRuleId alone).
+func (b *InMemoryBackend) DescribeSecurityGroupRulesByIDs(ruleIDs []string) ([]*SecurityGroupRuleDetail, error) {
+	want := make(map[string]struct{}, len(ruleIDs))
+	for _, id := range ruleIDs {
+		want[id] = struct{}{}
+	}
+
+	b.mu.RLock("DescribeSecurityGroupRulesByIDs")
+	defer b.mu.RUnlock()
+
+	out := make([]*SecurityGroupRuleDetail, 0, len(ruleIDs))
+
+	for _, sg := range b.securityGroups.All() {
+		out = append(out, matchingRuleDetails(sg, want)...)
+	}
+
+	return out, nil
+}
+
+func matchingRuleDetails(sg *SecurityGroup, want map[string]struct{}) []*SecurityGroupRuleDetail {
+	var out []*SecurityGroupRuleDetail
+
+	collect := func(rules []SecurityGroupRule, egress bool) {
+		for i, r := range rules {
+			id := ruleIDFor(sg.ID, egress, i, r)
+			if _, ok := want[id]; !ok {
+				continue
+			}
+
+			out = append(out, r.detail(sg.ID, egress, id))
+		}
+	}
+
+	collect(sg.IngressRules, false)
+	collect(sg.EgressRules, true)
+
+	return out
 }
 
 // ModifySecurityGroupRules updates existing rules in place by
@@ -620,7 +635,7 @@ func (b *InMemoryBackend) ModifySecurityGroupRules(
 	}
 
 	for _, u := range updates {
-		egress, idx, found := parseSecurityGroupRuleID(groupID, u.SecurityGroupRuleID)
+		egress, idx, found := findRuleLocked(sg, u.SecurityGroupRuleID)
 		if !found {
 			return fmt.Errorf("%w: %s", ErrSecurityGroupRuleNotFound, u.SecurityGroupRuleID)
 		}
@@ -630,13 +645,12 @@ func (b *InMemoryBackend) ModifySecurityGroupRules(
 			rules = sg.EgressRules
 		}
 
-		if idx < 0 || idx >= len(rules) {
-			return fmt.Errorf("%w: %s", ErrSecurityGroupRuleNotFound, u.SecurityGroupRuleID)
-		}
-
 		rules[idx] = SecurityGroupRule{
+			ID:            u.SecurityGroupRuleID,
 			Protocol:      u.Protocol,
 			IPRange:       u.CIDRIPv4,
+			IPv6Range:     u.CIDRIPv6,
+			PrefixListID:  u.PrefixListID,
 			SourceGroupID: u.ReferencedGroupID,
 			Description:   u.Description,
 			FromPort:      u.FromPort,
@@ -686,6 +700,13 @@ func (b *InMemoryBackend) DescribeSecurityGroups(ids []string) []*SecurityGroup 
 func (b *InMemoryBackend) CreateSecurityGroup(
 	name, description, vpcID string,
 ) (*SecurityGroup, error) {
+	return b.CreateSecurityGroupWithID("", name, description, vpcID)
+}
+
+// CreateSecurityGroupWithID is CreateSecurityGroup with an optional pinned group ID.
+func (b *InMemoryBackend) CreateSecurityGroupWithID(
+	pinnedID, name, description, vpcID string,
+) (*SecurityGroup, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: GroupName is required", ErrInvalidParameter)
 	}
@@ -711,6 +732,18 @@ func (b *InMemoryBackend) CreateSecurityGroup(
 	}
 
 	id := newSecurityGroupID()
+	if pinnedID != "" {
+		if err := validatePinnedEC2ID(pinnedID, "sg-"); err != nil {
+			return nil, err
+		}
+
+		if _, exists := b.securityGroups.Get(pinnedID); exists {
+			return nil, fmt.Errorf("%w: security group %s already exists", ErrDuplicateSGName, pinnedID)
+		}
+
+		id = pinnedID
+	}
+
 	sg := &SecurityGroup{
 		ID:          id,
 		Name:        name,
@@ -719,7 +752,7 @@ func (b *InMemoryBackend) CreateSecurityGroup(
 		ARN:         "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":security-group/" + id,
 		// Real AWS creates new security groups with a default allow-all egress rule.
 		EgressRules: []SecurityGroupRule{
-			{Protocol: "-1", IPRange: cidrAllIPv4},
+			{ID: newSecurityGroupRuleID(), Protocol: "-1", IPRange: cidrAllIPv4},
 		},
 	}
 	b.securityGroups.Put(sg)

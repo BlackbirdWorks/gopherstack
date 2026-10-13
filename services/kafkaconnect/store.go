@@ -1,19 +1,22 @@
 package kafkaconnect
 
 import (
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
+	appConfig            any
 	connectors           *store.Table[Connector]
 	customPlugins        *store.Table[CustomPlugin]
 	workerConfigurations *store.Table[WorkerConfiguration]
 	connectorOperations  *store.Table[ConnectorOperation]
 	registry             *store.Registry
-	appConfig            any
 	mu                   *lockmetrics.RWMutex
+	lifecycleDelay       time.Duration
 }
 
 // NewInMemoryBackend creates a new in-memory MSK Connect backend.

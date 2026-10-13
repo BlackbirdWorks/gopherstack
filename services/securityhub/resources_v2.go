@@ -6,42 +6,49 @@ import (
 	"time"
 )
 
+// resourceViews derives the resource list from stored findings (one entry per resource
+// Id), flattened for ResourcesFilters evaluation. Caller holds b.mu.
+func (b *InMemoryBackend) resourceViewsLocked() map[string]map[string]any {
+	views := make(map[string]map[string]any)
+
+	for _, finding := range b.findings {
+		account, _ := finding[keyAwsAccountID].(string)
+
+		resources, _ := finding["Resources"].([]any)
+		for _, r := range resources {
+			res, ok := r.(map[string]any)
+			if !ok {
+				continue
+			}
+
+			if id, idOK := res["Id"].(string); idOK && id != "" {
+				views[id] = resourceView(res, account)
+			}
+		}
+	}
+
+	return views
+}
+
 func (b *InMemoryBackend) GetResourcesV2(
-	filters map[string]any, //nolint:revive // existing issue.
+	filters map[string]any,
 	nextToken string,
 	maxResults int,
 ) ([]map[string]any, string) {
 	b.mu.RLock("GetResourcesV2")
 	defer b.mu.RUnlock()
 
-	// Derive resource list from findings
-	resourceMap := make(map[string]map[string]any)
+	all := make([]map[string]any, 0)
 
-	for _, finding := range b.findings {
-		if resources, ok := finding["Resources"].([]any); ok {
-			for _, r := range resources {
-				if res, ok := r.(map[string]any); ok { //nolint:govet // existing issue.
-					if id, ok := res["Id"].(string); ok && id != "" { //nolint:govet // existing issue.
-						resourceMap[id] = res
-					}
-				}
-			}
+	for _, view := range b.resourceViewsLocked() {
+		if !matchesFiltersV2(resourceTarget(view), filters) {
+			continue
 		}
+
+		all = append(all, originalResource(view))
 	}
 
-	all := make([]map[string]any, 0, len(resourceMap))
-
-	for _, r := range resourceMap {
-		cp := make(map[string]any)
-		maps.Copy(cp, r)
-
-		all = append(all, cp)
-	}
-
-	// resourceMap is a plain map: range order is unspecified and
-	// re-randomized per call, so an unsorted result would drop or duplicate
-	// resources across two separate GetResourcesV2 calls that straddle a
-	// page boundary (Class E).
+	// The views come from a plain map: sort so pages stay stable across calls.
 	sort.Slice(all, func(i, j int) bool {
 		ii, _ := all[i]["Id"].(string)
 		jj, _ := all[j]["Id"].(string)
@@ -52,10 +59,30 @@ func (b *InMemoryBackend) GetResourcesV2(
 	return paginateSlice(all, nextToken, maxResults, maxDefaultResults)
 }
 
-func (b *InMemoryBackend) GetResourcesStatisticsV2(groupByFields []string, sortOrder string) []map[string]any {
-	resources, _ := b.GetResourcesV2(nil, "", maxDefaultResults)
+// originalResource strips the filter-only keys resourceView adds.
+func originalResource(view map[string]any) map[string]any {
+	res := maps.Clone(view)
+	for _, key := range resourceViewKeys {
+		delete(res, key)
+	}
 
-	return groupByResults(resources, groupByFields, nil, sortOrder)
+	return res
+}
+
+func (b *InMemoryBackend) GetResourcesStatisticsV2(rules []GroupByRule, sortOrder string) []map[string]any {
+	b.mu.RLock("GetResourcesStatisticsV2")
+	defer b.mu.RUnlock()
+
+	views := b.resourceViewsLocked()
+	items := make([]map[string]any, 0, len(views))
+
+	for _, view := range views {
+		items = append(items, view)
+	}
+
+	return groupByResults(items, rules, nil, sortOrder, func(item, filters map[string]any) bool {
+		return matchesFiltersV2(resourceTarget(item), filters)
+	})
 }
 
 // GetResourcesTrendsV2 returns a single ResourcesTrendsMetricsResult data
@@ -65,8 +92,8 @@ func (b *InMemoryBackend) GetResourcesStatisticsV2(groupByFields []string, sortO
 // (api_op_GetResourcesTrendsV2.go:22-46); this backend has no time-bucketed
 // analytics engine, so unlike the real per-Granularity series this always
 // returns one point for the whole store, timestamped at endTime.
-func (b *InMemoryBackend) GetResourcesTrendsV2(startTime, endTime string) []map[string]any {
-	resources, _ := b.GetResourcesV2(nil, "", maxDefaultResults)
+func (b *InMemoryBackend) GetResourcesTrendsV2(startTime, endTime string, filters map[string]any) []map[string]any {
+	resources, _ := b.GetResourcesV2(filters, "", maxDefaultResults)
 
 	ts := endTime
 	if ts == "" {

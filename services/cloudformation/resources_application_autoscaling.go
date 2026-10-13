@@ -50,10 +50,10 @@ func (rc *ResourceCreator) createAppAutoScalingScalableTarget(
 
 	var minCap, maxCap int32 = 1, 10
 	if v, ok := props["MinCapacity"].(float64); ok {
-		minCap = int32(v)
+		minCap = floatToInt32(v)
 	}
 	if v, ok := props["MaxCapacity"].(float64); ok {
-		maxCap = int32(v)
+		maxCap = floatToInt32(v)
 	}
 
 	roleARN := strProp(props, "RoleARN", params, physicalIDs)

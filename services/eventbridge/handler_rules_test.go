@@ -200,7 +200,15 @@ func TestDeleteRule_CleansUpTags(t *testing.T) {
 		`{"Name":"temp-rule","EventBusName":"default"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Tag entry should be gone.
+	// The rule is gone, and a recreated rule starts without the old tag.
+	rec = makeRequestWithHandler(t, handler, e, "ListTagsForResource",
+		`{"ResourceARN":"`+ruleARN+`"}`)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+
+	rec = makeRequestWithHandler(t, handler, e, "PutRule",
+		`{"Name":"temp-rule","EventPattern":"{\"source\":[\"test\"]}"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
 	rec = makeRequestWithHandler(t, handler, e, "ListTagsForResource",
 		`{"ResourceARN":"`+ruleARN+`"}`)
 	require.Equal(t, http.StatusOK, rec.Code)

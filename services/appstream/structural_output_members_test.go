@@ -241,10 +241,12 @@ func TestApplication_ExtendedFields_RealClient(t *testing.T) {
 	client := newTestAppStreamClient(t, h)
 	ctx := t.Context()
 
+	blockArn := createTestAppBlock(t, client, "ext-appblock")
+
 	created, err := client.CreateApplication(ctx, &appstreamsdk.CreateApplicationInput{
 		Name:             aws.String("ext-app"),
 		LaunchPath:       aws.String("C:\\app.exe"),
-		AppBlockArn:      aws.String("arn:aws:appstream:us-east-1:000000000000:app-block/ext-appblock"),
+		AppBlockArn:      aws.String(blockArn),
 		Platforms:        []types.PlatformType{types.PlatformTypeWindows},
 		InstanceFamilies: []string{"GENERAL_PURPOSE"},
 		IconS3Location:   &types.S3Location{S3Bucket: aws.String("icons"), S3Key: aws.String("ext-app.png")},

@@ -583,6 +583,14 @@ var onceOpHandlers = sync.OnceValue(func() map[string]opHandlerFunc {
 func (h *Handler) handleREST(c *echo.Context) error {
 	op, id1, id2, id3 := classifyPath(c.Request().Method, c.Request().URL.Path)
 
+	if id1 != "" && id2 == "" && id3 == "" {
+		c.Set(ctxSingleResourceID, id1)
+	}
+
+	if err := validateListQuery(c); err != nil {
+		return validationError(c, err.Error())
+	}
+
 	var body map[string]any
 	if c.Request().ContentLength != 0 {
 		if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
@@ -644,7 +652,51 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 
 	c.Response().Header().Set(amznErrorTypeHeader, wireType)
 
-	return c.JSON(status, map[string]any{keyMessage: err.Error()})
+	body := map[string]any{keyMessage: err.Error()}
+	if body[keyMessage] == wireType {
+		body[keyMessage] = bareErrorMessage(c, wireType, body)
+	}
+
+	return c.JSON(status, body)
+}
+
+const ctxSingleResourceID = "vpclattice.resourceId"
+
+var resourceTypeByPrefix = map[string]string{ //nolint:gochecknoglobals // immutable lookup
+	idPrefixService: "Service", idPrefixNetwork: "ServiceNetwork", idPrefixTargetGroup: "TargetGroup",
+	idPrefixALS: "AccessLogSubscription", idPrefixResourceGateway: "ResourceGateway",
+	idPrefixResourceConfiguration: "ResourceConfiguration", idPrefixDomainVerification: "DomainVerification",
+	idPrefixSNSA: "ServiceNetworkServiceAssociation", idPrefixSNVA: "ServiceNetworkVpcAssociation",
+	idPrefixServiceNetworkResAssoc: "ServiceNetworkResourceAssociation",
+}
+
+// bareErrorMessage gives sentinel errors a human-readable message; when the
+// request addressed a single resource it names that resource.
+func bareErrorMessage(c *echo.Context, wireType string, body map[string]any) string {
+	id, _ := c.Get(ctxSingleResourceID).(string)
+
+	switch wireType {
+	case "ResourceNotFoundException":
+		if id == "" {
+			return "The requested resource was not found"
+		}
+
+		body["resourceId"] = id
+
+		for prefix, kind := range resourceTypeByPrefix {
+			if strings.HasPrefix(id, prefix) {
+				body["resourceType"] = kind
+			}
+		}
+
+		return "Resource " + id + " not found"
+	case "ConflictException":
+		return "The request conflicts with the current state of the resource"
+	case "ValidationException":
+		return "The input does not satisfy the constraints specified by the service"
+	}
+
+	return wireType
 }
 
 // ------- Path classification -------

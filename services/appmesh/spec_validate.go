@@ -6,11 +6,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
-// Structural validation for the shallow spec shapes (MeshSpec,
-// VirtualRouterSpec, VirtualServiceSpec). VirtualNodeSpec, RouteSpec,
-// VirtualGatewaySpec, and GatewayRouteSpec are deliberately left as opaque
-// passthrough — their listener/TLS/matcher/retry-policy union fan-out is too
-// deep to model to full field depth in one pass (see PARITY.md).
+// Structural validation for the shallow spec shapes (MeshSpec, VirtualRouterSpec,
+// VirtualServiceSpec). The deeper shapes are validated by spec_schema.go.
 //
 // Enum members and field constraints verified against
 // aws-sdk-go-v2/service/appmesh@v1.38.4/types/{enums,types}.go and

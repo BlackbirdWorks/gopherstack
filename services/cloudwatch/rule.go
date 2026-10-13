@@ -181,6 +181,11 @@ func (p *ruleParser) parseAtom() (bool, bool) {
 
 	// State function: ALARM("name"), OK("name"), INSUFFICIENT_DATA("name")
 	upper := strings.ToUpper(tok)
+	if upper == "TRUE" || upper == "FALSE" {
+		p.consume()
+
+		return upper == "TRUE", true
+	}
 	if upper == "ALARM" || upper == "OK" || upper == "INSUFFICIENT_DATA" {
 		p.consume()
 		if p.peek() != "(" {
@@ -235,4 +240,13 @@ func extractAlarmRuleRefs(rule string) []alarmRuleRef {
 	}
 
 	return refs
+}
+
+func validateAlarmRule(rule string) error {
+	p := &ruleParser{tokens: tokenizeRule(rule), resolve: func(string) string { return alarmStateOK }}
+	if _, ok := p.parseExpr(); !ok || p.pos != len(p.tokens) {
+		return apiErrorf(ErrValidationFault, "Unable to parse AlarmRule %q", rule)
+	}
+
+	return nil
 }

@@ -97,6 +97,10 @@ func (h *Handler) handleListAWSServiceAccessForOrganization(c *echo.Context, bod
 		})
 	}
 
+	if rejected, pErr := h.checkPaging(c, req.MaxResults, req.NextToken); rejected {
+		return pErr
+	}
+
 	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
 
 	return c.JSON(http.StatusOK, listAWSServiceAccessResponse{EnabledServicePrincipals: p.Data, NextToken: p.Next})

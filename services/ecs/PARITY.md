@@ -2,7 +2,7 @@
 service: ecs
 sdk_module: aws-sdk-go-v2/service/ecs@v1.96.0
 last_audit_commit: 30db30dd8  # 2026-09-24 INACTIVE service TTL eviction fix; prior: 1598513da
-last_audit_date: 2026-09-24  # prior: 2026-09-20
+last_audit_date: 2026-10-07
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
 ops:
   CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "added capacityProviders/defaultCapacityProviderStrategy/tags at creation (previously silently dropped); tags echoed on create response; this sweep: defaultCapacityProviderStrategy now validated (rejects unknown capacity provider names, see PutClusterCapacityProviders note)"}
@@ -73,19 +73,33 @@ ops:
 families:
   daemon: {status: ok, note: "Field-diffed for real (previous ledger entries for this family were no-stub-only assessments, not wire-shape diffs). Fixed a real leak: DeleteDaemon never cleaned up daemonRevisions/daemonDeployments rows at all (only the daemons table entry), and the cluster-purge cleanup path (purgeDaemonsLocked) deleted from daemonRevisions by the wrong key (DaemonArn instead of DaemonRevisionArn, a documented-but-never-fixed no-op preserved through a prior mechanical refactor) -- both fixed via a new shared deleteDaemonAncillaryLocked helper. CORRECTED gopherstack-rnka: the prior ledger entry here (2026-07-23) claimed DescribeDaemonOutput.Daemon was flattened -- daemonName/daemonTaskDefinitionArn/capacityProviderArns/tags/etc. living directly on the response instead of nested under CurrentRevisions -- and downgraded this family to partial on that basis. Re-verified against the real types.DaemonDetail shape (ClusterArn/CreatedAt/CurrentRevisions[]DaemonRevisionDetail{Arn,CapacityProviders[]DaemonCapacityProvider{Arn,RunningCount},TotalRunningCount}/DaemonArn/DeploymentArn/Status/UpdatedAt) field-by-field: handler_daemon.go's daemonDetailView/daemonRevisionDetailView/daemonCapacityProviderView already match this exactly, and DO NOT expose daemonName/daemonTaskDefinitionArn/tags/etc. at the top level. Proven with a new real-SDK-client round-trip test (TestECS_DescribeDaemon_SDKRoundTrip_RevisionNesting) rather than trusting the prior note. The 2026-07-23 gap description was inaccurate at the time it was written (the code was already correct); upgraded back to ok. FIXED (order-bug sweep): ListDaemonTaskDefinitions had the same numeric-vs-lexicographic bug as ListTaskDefinitions -- it sorted by the full ARN string ('daemon-task-definition/family:10' < '...:2'), wrong once a family passes revision 9, though unlike ListTaskDefinitions the request's Sort field WAS threaded through and applied (as a post-hoc reversal of the already-wrong order). AWS documents 'by default (ASC), daemon task definitions are listed in ascending order by family name and revision number' (api_op_ListDaemonTaskDefinitions.go). Now sorts by (Family, Revision) with Revision compared numerically before Sort=DESC reverses it. Proven by TestECS_ListDaemonTaskDefinitions_Order. FIXED (value-semantics sweep, gopherstack-uox6): ListDaemons had the same DescribeClusters-shaped bug -- ListDaemonsInput.ClusterArn docs 'If you do not specify a cluster, the default cluster is assumed', but an empty ClusterArn returned daemons from every cluster in the account instead of scoping to 'default'. Fixed by routing through the same resolveCluster helper every other Cluster-defaulting op uses. Proven by TestECS_ListDaemons_OmittedClusterScopesToDefault (fails without the fix). Gap: ListDaemonDeploymentsInput.CreatedAt (a documented time-range filter) is not declared/read at all -- other axis (never-read), not fixed here. FIXED (2026-09-18, gopherstack-xhu2t reqfielddiff tier-1): CreateDaemon.Critical and UpdateDaemon.Critical (documented default true, ecs@v1.96.0 api_op_CreateDaemon.go:86/api_op_UpdateDaemon.go:79) were entirely undeclared -- not on the wire input structs, not on the Daemon/DaemonRevision domain structs, not echoed anywhere. Added Critical to both domain structs (default resolved via resolveDaemonCritical) and threaded it into DescribeDaemonRevisions' daemonRevisionView (the only response shape types.DaemonRevision.Critical actually appears on -- DescribeDaemon's DaemonRevisionDetail has no Critical member). Proven by TestECS_DaemonCritical_DefaultsTrueAndHonoursExplicitFalse (real SDK client: create with Critical omitted decodes true, update with Critical=false decodes false)."}
 gaps: []
-items_still_open:
-  - "AWS/ECS CPUUtilization/MemoryUtilization are not emitted: there is no container runtime producing utilisation, and fabricating values would be a stub (gopherstack-4m1qr)."
-  - "Blue/green lifecycle is unmodeled (PAUSE-stage hooks, Lambda hook invocation): ContinueServiceDeployment always returns ClientException, StopServiceDeployment.StopType=ROLLBACK is not applied (no ROLLBACK_* deployment statuses), and ServiceDeployment/ServiceRevisionOverrides lack LifecycleStage, SourceServiceRevisions, Rollback, Alarms, and output-only RuntimePlatform."
-  - "ELBv2 registration is one-directional (ELB health never feeds ECS health), placement never retries another instance on host-port collision, and containerPortRange/hostPortRange are not allocated."
-  - "ASG capacity providers are config-only: AutoScalingGroupProvider is never validated against or scaled via services/autoscaling (cross-service)."
-  - "ListTasksInput.daemonName and ListServicesInput.resourceManagementType are not declared: no daemon-launched tasks or ECS-managed (Express) Service rows exist to filter on."
-  - "awslogs without awslogs-stream-prefix names the stream after the task ID, not the Docker container ID (unknown before container creation)."
-deferred:
-  - "Full ServiceDeployment wire-shape parity (LifecycleStage, SourceServiceRevisions, Rollback, DeploymentCircuitBreaker, Alarms sub-objects) -- the richer blue/green fields remain unmodeled (same underlying reason ContinueServiceDeployment is deferred: blue/green lifecycle is not modeled at all in this backend)."
+items_still_open: []
+structural_gaps:
+  - "Service Connect: ServiceConnectConfiguration is stored and echoed, and ListServicesByNamespace matches on it, but Service Connect proxies and its Cloud Map instance registration are not modeled."
+  - "Cloud Map registration of bridge/host-mode EC2 tasks: container instances have no modeled private IP, so only awsvpc tasks (ENI IP) are registered; tasks carry no placement AZ, so AVAILABILITY_ZONE is <region>a."  - "Managed scaling / managed termination protection (2026-10-07): settings are validated against the ECS API reference ranges and defaults, but the group is never scaled or protected: ECS drives scale-out from the CapacityProviderReservation metric over container-instance resource accounting, and tasks here run on a runner with no per-instance CPU/memory ledger."
+  - "AWS/ECS CPUUtilization/MemoryUtilization are emitted only for docker-runtime tasks; the noop runner has no container stats to measure."
+  - "Daemon-launched tasks: ECS Managed Daemons run only on Managed Instances capacity providers, which provision EC2 hosts this emulator does not model, so ListTasks.daemonName filters correctly but no task ever belongs to a daemon."
+  - "awslogs without awslogs-stream-prefix names the stream after the runtime container ID: exact under the docker runtime, but without a container runtime no container ID exists and the task ID stands in."
+deferred: []
 leaks: {status: clean, note: "Prior 'found' status was stale documentation -- that leak (DeleteService's ServiceDeployment-map entry) was already fixed in the same prior sweep that wrote the note; the status field just never got flipped back to clean. Re-verified clean this sweep. Two NEW leaks found and fixed this sweep: (1) DeleteDaemon never cleaned up daemonRevisions/daemonDeployments rows, and purgeDaemonsLocked deleted from daemonRevisions by the wrong key so it silently matched nothing -- both fixed via deleteDaemonAncillaryLocked. (2) resourceTags side-map ghost rows were never cleaned up on delete for clusters/services/container-instances/task-sets/task-definitions/express-gateway-services -- fixed via deleteResourceTagsLocked. See Notes for full writeup and proof tests. Reconciler, janitor, lifecycle stepper, and docker_runner (re-audited this sweep) remain clean. NEW (2026-09-24): the DRAINING->INACTIVE fix below (552b2bb5a) never removed an INACTIVE service from b.services -- unbounded growth for any workload that repeatedly creates/deletes same-named services. Fixed: Service now carries InactiveAt, and sweepServiceTransitionsLocked evicts an INACTIVE service inactiveServiceTTL (1h, citing api_op_DeleteService.go's 'INACTIVE services may be cleaned up and purged ... return a ServiceNotFoundException' -- no duration documented, reused ec2's terminated-instance 1h) past that point; DescribeServices on an evicted service now returns a MISSING failure, matching real AWS. See TestDeleteService_InactiveServiceEvictedAfterTTL, TestDeleteService_InactiveServiceKeptWithinTTL."}
 ---
 
 ## Notes
+
+### 2026-10-08: blue/green deployment lifecycle
+
+DeploymentConfiguration now carries strategy (ROLLING/BLUE_GREEN/LINEAR/CANARY), bakeTimeInMinutes, lifecycleHooks,
+alarms, canaryConfiguration and linearConfiguration (validated per ecs@v1.96.0 types: PAUSE not allowed at
+TEST_TRAFFIC_SHIFT/PRODUCTION_TRAFFIC_SHIFT, AWS_LAMBDA needs hookTargetArn, canary/linear ranges). For non-ROLLING
+strategies each ServiceDeployment walks RECONCILE_SERVICE (only with more than one ACTIVE revision), PRE_SCALE_UP,
+SCALE_UP (waits for the target to reach desiredCount), POST_SCALE_UP, TEST_TRAFFIC_SHIFT, POST_TEST_TRAFFIC_SHIFT,
+PRODUCTION_TRAFFIC_SHIFT, POST_PRODUCTION_TRAFFIC_SHIFT, BAKE_TIME (bakeTimeInMinutes) and CLEAN_UP, then SUCCESSFUL.
+A PAUSE hook parks the deployment with a lifecycleHookDetails entry (AWAITING_ACTION, hookId, expiresAt,
+timeoutAction); ContinueServiceDeployment CONTINUE advances, ROLLBACK rolls back to the previous revision, and an
+expired hook applies its timeoutAction (default ROLLBACK, 1440 minutes). Progress is evaluated lazily on
+Describe/List/Continue and the service sweep. Deployment alarms report DISABLED/MONITORING/TRIGGERED/
+MONITORING_COMPLETE. Tests: `TestRealClient_BlueGreenContinue`, `TestBlueGreen_HookTimeoutAndBakeTime`,
+`TestBlueGreen_AlarmsFailDeployment`, `TestRealClient_DeploymentConfigurationValidation`.
 
 ### 2026-10-01: deregistered container instances stay INACTIVE
 
@@ -1229,8 +1243,8 @@ Adjudicated (reqfielddiff -adjudicated), unchanged:
 - RunTask.ReferenceId: documented "not intended for use by customers" (api_op_RunTask.go:243).
 - StartTask.ReferenceId: see RunTask.ReferenceId.
 - DeleteTaskSet.Force: the not-scaled-to-zero rejection AWS applies without it is undocumented in the SDK; unverified, so deletion stays unconditional.
-- ListTasks.DaemonName: no daemon-launched tasks exist to filter on (see items_still_open).
-- ListServices.ResourceManagementType: no ECS-managed (Express) Service rows exist to filter on (see items_still_open).
+- ListTasks.DaemonName: filter applied (2026-10-07); no daemon-launched tasks exist (see structural_gaps).
+- ListServices.ResourceManagementType: applied (2026-10-07); Express services are listed and described with resourceManagementType ECS.
 - UpdateService.DeploymentController: the SDK documents no switchable controller transitions; unverified against real AWS.
 - CreateService.VolumeConfigurations: EBS volume attachment at launch is not modeled.
 - UpdateService.VolumeConfigurations: see CreateService.VolumeConfigurations.
@@ -1254,3 +1268,29 @@ Tool false positives (cmd/zeroguard): required path/identifier members (Name, *I
 ## 2026-10-05 (undeclared response members)
 
 Dropped invented members: cluster/capacityProvider createdAt, managedScaling.targetCapacityUtilization, containerInstance.clusterArn, taskDefinition.platformFamily, task networkConfiguration/propagateTags/runtimeId. Service.serviceConnectConfiguration moved to the PRIMARY deployment; awsvpc task subnetId now comes from the requested subnet.
+
+## 2026-10-09 (service realism pass)
+
+CreateCluster validates the name pattern; RegisterTaskDefinition validates the family pattern; CreateService returns ClusterNotFoundException for an unknown cluster (it silently created the service) and rejects negative desiredCount. A nextToken not issued by the service returns InvalidParameterException. Messages no longer repeat the error code. Left lenient: container memory/memoryReservation is not required when the task sets no memory (many in-repo task definitions omit it).
+
+## 2026-10-10 lifecycle dwell knob
+
+`--lifecycle-ecs-start` (`ECS_START_DELAY`) and `--lifecycle-ecs-stop` (`ECS_STOP_DELAY`) fall back to `--lifecycle-delay`, default `0s`. The start pipeline now also applies with the default no-op runner, and DescribeTasks/ListTasks advance due phases instead of waiting for the 5s reconciler tick. Proof: root `TestLifecycleDelayWiring/ecs_*`.
+
+## 2026-10-11 deep realism pass
+
+Rolling deployments are now real: tasks carry startedBy = their deployment id, UpdateService (new task definition or forceNewDeployment) starts replacement tasks and stops superseded ones within MaximumPercent/MinimumHealthyPercent, then drops the superseded deployment (previously old tasks ran forever and services-stable never succeeded). Per-deployment running/pending counts follow the owning deployment. DescribeServices returns events (started/stopped tasks, steady state, deployment completed/failed; in memory, not persisted). Left out: BLUE_GREEN/LINEAR/CANARY keep their existing lifecycle model; a rollback to a task definition reuses no old tasks.
+
+## 2026-10-11 state-change events and task runtime endpoints (gopherstack-cefu7.20, gopherstack-cefu7.21)
+
+Task, container-instance and service-deployment transitions publish `aws.ecs` events to the default bus: `ECS Task State Change` (every `lastStatus` step incl. PROVISIONING/PENDING/RUNNING/DEACTIVATING/STOPPING/DEPROVISIONING/STOPPED, per-task `version`, containers with exit codes, `stoppedReason`), `ECS Container Instance State Change`, `ECS Deployment State Change` (`SERVICE_DEPLOYMENT_IN_PROGRESS`/`COMPLETED`/`FAILED`) and `ECS Service Action` (`SERVICE_STEADY_STATE`). The publisher is wired in `cli.go` and resolves EventBridge at call time. Not emitted: `stopCode`, `pullStartedAt`/`pullStoppedAt`, `attributes`, `SERVICE_TASK_START_IMPAIRED` and the other service-action names. Proof: `TestTaskStateChangeEvents`, `TestContainerInstanceStateChangeEvents`, `TestDeploymentStateChangeEvents`, `TestDeploymentFailedEvent`, `TestECSTaskStateEventsReachRuleTarget`.
+
+Docker-launched task containers get `AWS_REGION`, `AWS_DEFAULT_REGION`, `AWS_EXECUTION_ENV`, `AWS_ENDPOINT_URL`, `ECS_CONTAINER_METADATA_URI_V4` and, when the task has a role, `AWS_CONTAINER_CREDENTIALS_FULL_URI`. The emulator serves `/_gopherstack/ecs/credentials/{taskId}` (STS AssumeRole of the task role as `ecs-tasks.amazonaws.com`, session = task id, container-credential JSON) and `/_gopherstack/ecs/metadata/{taskId}/{container}` with `/task`, `/taskWithTags`, `/stats`, `/task/stats`. Link-local (opt-in, `LINKLOCAL_PROXY=true`): the SDK allowlist (`aws-sdk-go-v2/config` `isIPAllowed`) is loopback, 169.254.170.2, 169.254.170.23 and fd00:ec2::23, so the FULL_URI above is rejected from a bridge container. With the flag set, a labelled bridge network `gopherstack-linklocal-ecs` (169.254.170.0/24) holds a busybox relay container at 169.254.170.2 that forwards plain HTTP to the emulator; each task container is attached as a secondary endpoint (`GwPriority=-1`, default route unchanged) and gets `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI=/_gopherstack/ecs/credentials/{taskId}` and a `http://169.254.170.2/...` metadata URI, as in AWS. No root; the image (`LINKLOCAL_IMAGE`, default `alpine:3.21`) is never pulled, and a missing image, a subnet clash or an attach failure on the task falls back to the FULL_URI above (attach failure fails the container create). Trade-offs: needs a local Docker daemon the emulator can reach at `DockerHost`; the relay and network persist across emulator restarts (reused by config hash; remove with `docker rm -f`/`docker network rm` on label `gopherstack.linklocal`); at most about 250 attached containers; tasks on the shared network can reach each other on 169.254.170.0/24. Without the flag: SDKs reject non-loopback `AWS_CONTAINER_CREDENTIALS_FULL_URI` hosts, so a container reaching the emulator via a bridge `DockerHost` cannot use the credentials URI without host networking; credential TTL is STS's default session length; stats need the docker runtime (404 otherwise); `AvailabilityZone` is `<region>a` (tasks carry no AZ). Proof: `TestContainerRuntimeEnv`, `TestDockerRunnerInjectsRuntimeEnv`, `TestTaskCredentialsEndpoint`, `TestTaskCredentialsSDKProvider`, `TestTaskMetadataEndpoints`, `TestECSTaskRoleCredentialsAssumedIdentity`, `TestLinkLocalTaskEnv`, `TestDockerRunnerAttachesLinkLocal`, `TestDockerRunnerLiveRelativeCredentialsURI` (docker-gated: wget to 169.254.170.2 inside a real task container).
+
+## 2026-10-11 (Cloud Map registration)
+
+Service tasks with serviceRegistries register as Cloud Map instances on RUNNING and deregister on STOPPED, scale-in, DeleteService and registry change (UpdateService). Registry ARNs are validated on CreateService/UpdateService (InvalidParameterException; the error message text is unverified against AWS). Wired lazily in the root (`cli_ecs_cloudmap.go`). Tests: TestCloudMap_*, TestECSServiceRegistersTasksInCloudMap. DeleteService(force) still leaves tasks RUNNING (pre-existing); they are deregistered.
+
+## 2026-10-11 reserved ID-pinning tag (gopherstack-cefu7.23)
+
+`RunTask` honours the emulator-only `gopherstack:id` tag to pin the task ID (a single task; 32 hex digits, optionally UUID-dashed). The tag is consumed, never stored or listed; a malformed ID or `count` above 1 returns `InvalidParameterException`, a reused ID `ResourceInUseException`, and `TagResource` rejects the key. See docs/pinned-ids.md.

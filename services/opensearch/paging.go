@@ -12,6 +12,7 @@ import (
 const (
 	errInvalidPaginationToken = "InvalidPaginationTokenException"
 	errValidation             = "ValidationException"
+	errResourceNotFound       = "ResourceNotFoundException"
 )
 
 // pageSpec names the response list key and request token member of a paged List/Describe op.

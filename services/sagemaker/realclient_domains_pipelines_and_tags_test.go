@@ -2,6 +2,7 @@ package sagemaker_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
@@ -267,6 +268,10 @@ func testEndpointsExtraRealClient(t *testing.T) {
 		&sagemakersdk.DeleteEndpointInput{EndpointName: aws.String("slice4-ep")},
 	)
 	require.NoError(t, err)
+
+	require.NoError(t, sagemakersdk.NewEndpointDeletedWaiter(client).Wait(
+		t.Context(), &sagemakersdk.DescribeEndpointInput{EndpointName: aws.String("slice4-ep")}, time.Minute,
+	))
 
 	_, err = client.DeleteEndpointConfig(t.Context(), &sagemakersdk.DeleteEndpointConfigInput{
 		EndpointConfigName: aws.String("slice4-epc"),

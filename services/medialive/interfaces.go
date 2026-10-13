@@ -464,15 +464,14 @@ func (s InputSpecification) hasInputSpecification() bool {
 
 // ChannelVpcSettings holds the caller-supplied VPC output configuration
 // (request shape types.VpcOutputSettings: subnetIds/publicAddressAllocationIds/
-// securityGroupIds). The response shape (types.VpcOutputSettingsDescription)
-// additionally reports availabilityZones/networkInterfaceIds -- values
-// MediaLive computes from a real VPC/ENI integration that gopherstack does
-// not have; left omitted on output rather than fabricated (same convention
-// as ChannelEngineVersion's ExpirationDate below).
+// securityGroupIds). AvailabilityZones and NetworkInterfaceIDs are derived from
+// EC2 when a VPCNetwork is wired (types.VpcOutputSettingsDescription).
 type ChannelVpcSettings struct {
 	SubnetIDs                  []string
 	PublicAddressAllocationIDs []string
 	SecurityGroupIDs           []string
+	AvailabilityZones          []string
+	NetworkInterfaceIDs        []string
 }
 
 func (v ChannelVpcSettings) hasVpc() bool { return len(v.SubnetIDs) > 0 }

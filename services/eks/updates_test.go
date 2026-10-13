@@ -726,7 +726,7 @@ func TestDescribeUpdate_Status_Successful(t *testing.T) {
 	b := newBackend(t)
 	mustCreateClusterNoVpc(t, b, "desc-upd-cluster")
 
-	created, err := b.UpdateClusterVersion("desc-upd-cluster", "1.30")
+	created, err := b.UpdateClusterVersion("desc-upd-cluster", "1.33")
 	require.NoError(t, err)
 
 	upd, err := b.DescribeUpdate("desc-upd-cluster", created.ID)
@@ -762,7 +762,7 @@ func TestListUpdates_ReturnsStoredIDs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, ids, "no updates yet")
 
-	u1, err := b.UpdateClusterVersion("list-upd-cluster", "1.30")
+	u1, err := b.UpdateClusterVersion("list-upd-cluster", "1.33")
 	require.NoError(t, err)
 
 	u2, err := b.UpdateNodegroupVersion("list-upd-cluster", "ng1", "1.30", "")

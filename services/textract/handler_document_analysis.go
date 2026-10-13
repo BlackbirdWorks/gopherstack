@@ -34,6 +34,14 @@ func (h *Handler) handleAnalyzeDocument(
 	ctx context.Context,
 	in *documentInput,
 ) (*analyzeDocumentResponse, error) {
+	if err := validateDocumentPresent(
+		in.Document.S3Object.Bucket,
+		in.Document.S3Object.Name,
+		in.Document.Bytes,
+	); err != nil {
+		return nil, err
+	}
+
 	if err := validateAnalyzeDocumentFeatureTypes(in.FeatureTypes); err != nil {
 		return nil, err
 	}
@@ -78,6 +86,10 @@ func (h *Handler) handleStartDocumentAnalysis(
 	ctx context.Context,
 	in *asyncInput,
 ) (*startJobResponse, error) {
+	if err := validateStartOptions(in.JobTag, in.ClientRequestToken, in.NotificationChannel); err != nil {
+		return nil, err
+	}
+
 	if err := validateAnalyzeDocumentFeatureTypes(in.FeatureTypes); err != nil {
 		return nil, err
 	}
@@ -135,6 +147,10 @@ func (h *Handler) handleGetDocumentAnalysis(
 	ctx context.Context,
 	in *getJobInput,
 ) (*getDocumentAnalysisResponse, error) {
+	if err := validateNextToken(in.NextToken); err != nil {
+		return nil, err
+	}
+
 	if in.JobID == "" {
 		return nil, fmt.Errorf("%w: JobID is required", errInvalidRequest)
 	}

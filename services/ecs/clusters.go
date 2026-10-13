@@ -39,6 +39,11 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 		name = defaultCluster
 	}
 
+	if !clusterNameRe.MatchString(name) {
+		return nil, fmt.Errorf("%w: Cluster name contains invalid characters. Up to 255 letters "+
+			"(uppercase and lowercase), numbers, underscores, and hyphens are allowed", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 

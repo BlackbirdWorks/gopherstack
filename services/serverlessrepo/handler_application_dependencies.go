@@ -18,8 +18,10 @@ func (h *Handler) handleListApplicationDependencies(req *http.Request) ([]byte, 
 		return nil, backendErr
 	}
 
-	nextToken := req.URL.Query().Get("nextToken")
-	maxItems := parseMaxItems(req.URL.Query().Get("maxItems"), maxItemsDefault)
+	nextToken, maxItems, pageErr := pageParams(req)
+	if pageErr != nil {
+		return nil, pageErr
+	}
 
 	// deps is sorted by (ApplicationID, SemanticVersion) and the same
 	// ApplicationID can repeat across versions, so an unresolved token
@@ -55,7 +57,7 @@ func (h *Handler) handleListApplicationDependencies(req *http.Request) ([]byte, 
 	resp := map[string]any{"dependencies": depList}
 
 	if end < len(deps) {
-		resp["nextToken"] = deps[end-1].ApplicationID
+		resp["nextToken"] = encodePageToken(deps[end-1].ApplicationID)
 	}
 
 	return json.Marshal(resp)

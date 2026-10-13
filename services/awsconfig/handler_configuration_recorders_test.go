@@ -101,14 +101,14 @@ func TestRecorderStatusLastStatus(t *testing.T) {
 
 	statusBefore := b.DescribeConfigurationRecorderStatus(nil)
 	require.Len(t, statusBefore, 1)
-	assert.Equal(t, "PENDING", statusBefore[0].LastStatus)
+	assert.Equal(t, "Pending", statusBefore[0].LastStatus)
 	assert.False(t, statusBefore[0].Recording)
 
 	require.NoError(t, b.StartConfigurationRecorder("default"))
 
 	statusAfter := b.DescribeConfigurationRecorderStatus(nil)
 	require.Len(t, statusAfter, 1)
-	assert.Equal(t, "SUCCESS", statusAfter[0].LastStatus)
+	assert.Equal(t, "Success", statusAfter[0].LastStatus)
 	assert.True(t, statusAfter[0].Recording)
 }
 
@@ -508,7 +508,7 @@ func TestAWSConfigHandler_DescribeConfigurationRecorders_NameFilter(t *testing.T
 		{
 			name:      "filter_nonexistent",
 			body:      map[string]any{"ConfigurationRecorderNames": []string{"no-such"}},
-			wantCode:  http.StatusOK,
+			wantCode:  http.StatusNotFound,
 			wantCount: 0,
 		},
 	}
@@ -524,6 +524,10 @@ func TestAWSConfigHandler_DescribeConfigurationRecorders_NameFilter(t *testing.T
 
 			rec := doAWSConfigRequest(t, h, "DescribeConfigurationRecorders", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode != http.StatusOK {
+				return
+			}
 
 			var out map[string]json.RawMessage
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))

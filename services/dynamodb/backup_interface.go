@@ -2,7 +2,10 @@ package dynamodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -29,6 +32,7 @@ type tableBackupSnapshot struct {
 	Items                  []map[string]any
 	LocalSecondaryIndexes  []models.LocalSecondaryIndex
 	GlobalSecondaryIndexes []models.GlobalSecondaryIndex
+	VectorIndexes          []models.VectorIndexDescription
 	AttributeDefinitions   []models.AttributeDefinition
 	ProvisionedThroughput  models.ProvisionedThroughputDescription
 	SSEEnabled             bool
@@ -66,6 +70,7 @@ func snapshotTableForBackup(table *Table) tableBackupSnapshot {
 		len(table.LocalSecondaryIndexes),
 	)
 	copy(snap.LocalSecondaryIndexes, table.LocalSecondaryIndexes)
+	snap.VectorIndexes = slices.Clone(table.VectorIndexes)
 
 	return snap
 }
@@ -132,6 +137,7 @@ func (db *InMemoryDB) CreateBackup(
 		KeySchema: snap.KeySchema, AttributeDefinitions: snap.AttributeDefinitions,
 		GlobalSecondaryIndexes: snap.GlobalSecondaryIndexes,
 		LocalSecondaryIndexes:  snap.LocalSecondaryIndexes,
+		VectorIndexes:          snap.VectorIndexes,
 		ProvisionedThroughput:  snap.ProvisionedThroughput, BillingMode: snap.BillingMode,
 		SSEEnabled: snap.SSEEnabled, SSEType: snap.SSEType,
 		SSEKMSMasterKeyArn: snap.SSEKMSMasterKeyArn,
@@ -496,6 +502,7 @@ func tableDescriptionToSDK(d models.TableDescription) *sdktypes.TableDescription
 		AttributeDefinitions:   models.ToSDKAttributeDefinitions(d.AttributeDefinitions),
 		GlobalSecondaryIndexes: models.ToSDKGlobalSecondaryIndexDescriptions(d.GlobalSecondaryIndexes),
 		LocalSecondaryIndexes:  models.ToSDKLocalSecondaryIndexDescriptions(d.LocalSecondaryIndexes),
+		VectorIndexes:          models.ToSDKVectorIndexDescriptions(d.VectorIndexes),
 		ItemCount:              aws.Int64(int64(d.ItemCount)),
 	}
 	if d.BillingModeSummary != nil {
@@ -630,6 +637,12 @@ func (db *InMemoryDB) RestoreTableFromBackup(
 
 	gsis := resolveGSIOverride(backup.GlobalSecondaryIndexes, input.GlobalSecondaryIndexOverride)
 	lsis := resolveLSIOverride(backup.LocalSecondaryIndexes, input.LocalSecondaryIndexOverride)
+
+	vectorIndexes, vecErr := resolveVectorIndexOverride(backup.VectorIndexes, input.VectorIndexOverride)
+	if vecErr != nil {
+		return nil, vecErr
+	}
+
 	keySchema := make([]models.KeySchemaElement, len(backup.KeySchema))
 	copy(keySchema, backup.KeySchema)
 	attrDefs := make([]models.AttributeDefinition, len(backup.AttributeDefinitions))
@@ -645,7 +658,7 @@ func (db *InMemoryDB) RestoreTableFromBackup(
 
 	p := restoredTableParams{
 		Items: deepCopyItems(backup.Items), KeySchema: keySchema, AttributeDefinitions: attrDefs,
-		GlobalSecondaryIndexes: gsis, LocalSecondaryIndexes: lsis,
+		GlobalSecondaryIndexes: gsis, LocalSecondaryIndexes: lsis, VectorIndexes: vectorIndexes,
 		ProvisionedThroughput: provThroughput, BillingMode: billingMode,
 		SSEEnabled: sseEnabled, SSEType: sseType, SSEKMSMasterKeyArn: sseKMSMasterKeyArn,
 		StreamsEnabled: backup.StreamsEnabled, StreamViewType: backup.StreamViewType,
@@ -665,6 +678,7 @@ func (db *InMemoryDB) RestoreTableFromBackup(
 			gsis, int64(len(p.Items)), newTable.TableArn, billingMode == string(sdktypes.BillingModePayPerRequest),
 		),
 		LocalSecondaryIndexes: buildLSIDescriptions(lsis, newTable.TableArn),
+		VectorIndexes:         rebindVectorIndexes(vectorIndexes, newTable.TableArn),
 		BillingModeSummary:    billingModeSummary(billingMode),
 		ItemCount:             len(p.Items),
 	})
@@ -737,6 +751,11 @@ func (db *InMemoryDB) RestoreTableToPointInTime(
 	p.GlobalSecondaryIndexes = resolveGSIOverride(p.GlobalSecondaryIndexes, input.GlobalSecondaryIndexOverride)
 	p.LocalSecondaryIndexes = resolveLSIOverride(p.LocalSecondaryIndexes, input.LocalSecondaryIndexOverride)
 
+	var vecErr error
+	if p.VectorIndexes, vecErr = resolveVectorIndexOverride(p.VectorIndexes, input.VectorIndexOverride); vecErr != nil {
+		return nil, vecErr
+	}
+
 	sseEnabled, sseType, sseKMSMasterKeyArn := resolveSSEOverride(
 		p.SSEEnabled, p.SSEType, p.SSEKMSMasterKeyArn, input.SSESpecificationOverride,
 	)
@@ -763,6 +782,7 @@ func (db *InMemoryDB) RestoreTableToPointInTime(
 			billingMode == string(sdktypes.BillingModePayPerRequest),
 		),
 		LocalSecondaryIndexes: buildLSIDescriptions(p.LocalSecondaryIndexes, newTable.TableArn),
+		VectorIndexes:         rebindVectorIndexes(p.VectorIndexes, newTable.TableArn),
 		BillingModeSummary:    billingModeSummary(billingMode),
 		ItemCount:             len(itemsCopy),
 	})
@@ -835,13 +855,13 @@ func (db *InMemoryDB) validateBatchStatementsAreKeyed(
 	return nil
 }
 
-// BatchExecuteStatement executes multiple PartiQL statements and returns their results.
+// batchExecuteStatementOp executes multiple PartiQL statements and returns their results.
 // It satisfies the StorageBackend interface using official AWS SDK v2 types.
 //
 // AWS limit: at most maxBatchExecuteStatements statements per call.
 // The ConsistentRead flag on each statement is forwarded to the underlying
 // Query / Scan execution so strongly-consistent reads are honoured.
-func (db *InMemoryDB) BatchExecuteStatement(
+func (db *InMemoryDB) batchExecuteStatementOp(
 	ctx context.Context,
 	input *sdkdynamodb.BatchExecuteStatementInput,
 ) (*sdkdynamodb.BatchExecuteStatementOutput, error) {
@@ -923,11 +943,9 @@ func runOneBatchStatement(
 
 	result, err := runner.executeStatement(ctx, req)
 	if err != nil {
+		code, msg := batchStatementErrorFor(err)
 		resp := sdktypes.BatchStatementResponse{
-			Error: &sdktypes.BatchStatementError{
-				Code:    sdktypes.BatchStatementErrorCodeEnum("StatementError"),
-				Message: aws.String(err.Error()),
-			},
+			Error: &sdktypes.BatchStatementError{Code: code, Message: aws.String(msg)},
 		}
 		if tableName := extractPartiQLTableName(req.Statement); tableName != "" {
 			resp.TableName = aws.String(tableName)
@@ -947,4 +965,38 @@ func runOneBatchStatement(
 	}
 
 	return resp, result.ConsumedCapacity
+}
+
+// batchStatementErrorFor maps a statement failure onto the closed
+// BatchStatementErrorCodeEnum (dynamodb@v1.63.1 types/enums.go).
+func batchStatementErrorFor(err error) (sdktypes.BatchStatementErrorCodeEnum, string) {
+	var ddbErr *Error
+	if !errors.As(err, &ddbErr) {
+		if errors.Is(err, ErrInvalidStatement) {
+			return sdktypes.BatchStatementErrorCodeEnumValidationError, err.Error()
+		}
+
+		return sdktypes.BatchStatementErrorCodeEnumInternalServerError, err.Error()
+	}
+
+	switch {
+	case strings.Contains(ddbErr.Type, "ResourceNotFoundException"):
+		return sdktypes.BatchStatementErrorCodeEnumResourceNotFound, ddbErr.Message
+	case strings.Contains(ddbErr.Type, "ConditionalCheckFailedException"):
+		return sdktypes.BatchStatementErrorCodeEnumConditionalCheckFailed, ddbErr.Message
+	case strings.Contains(ddbErr.Type, "DuplicateItemException"):
+		return sdktypes.BatchStatementErrorCodeEnumDuplicateItem, ddbErr.Message
+	case strings.Contains(ddbErr.Type, "ValidationException"):
+		return sdktypes.BatchStatementErrorCodeEnumValidationError, ddbErr.Message
+	case strings.Contains(ddbErr.Type, "ProvisionedThroughputExceededException"):
+		return sdktypes.BatchStatementErrorCodeEnumProvisionedThroughputExceeded, ddbErr.Message
+	case strings.Contains(ddbErr.Type, "ThrottlingException"):
+		return sdktypes.BatchStatementErrorCodeEnumThrottlingError, ddbErr.Message
+	case strings.Contains(ddbErr.Type, "TransactionConflictException"):
+		return sdktypes.BatchStatementErrorCodeEnumTransactionConflict, ddbErr.Message
+	case strings.Contains(ddbErr.Type, "ItemCollectionSizeLimitExceededException"):
+		return sdktypes.BatchStatementErrorCodeEnumItemCollectionSizeLimitExceeded, ddbErr.Message
+	default:
+		return sdktypes.BatchStatementErrorCodeEnumInternalServerError, ddbErr.Message
+	}
 }

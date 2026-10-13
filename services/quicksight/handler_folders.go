@@ -95,7 +95,7 @@ func (h *Handler) handleCreateFolder(c *echo.Context) error {
 	)
 	if err != nil {
 		if errors.Is(err, ErrFolderAlreadyExists) {
-			return writeError(c, http.StatusConflict, errResourceExistsCode, err.Error())
+			return writeError(c, http.StatusConflict, errResourceExistsCode, errMessage(err))
 		}
 
 		return httpErr(c, err)
@@ -311,7 +311,7 @@ func (h *Handler) handleDescribeFolderPermissions(c *echo.Context) error {
 func (h *Handler) writePagedFolderPermissions(c *echo.Context, folderID string, perms []ResourcePermission) error {
 	page, next, err := pageSliceStrict(perms, maxResultsParam(c), nextTokenParam(c))
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, "InvalidNextTokenException", err.Error())
+		return writeError(c, http.StatusBadRequest, "InvalidNextTokenException", errMessage(err))
 	}
 
 	resp := map[string]any{

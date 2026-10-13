@@ -11,6 +11,8 @@ type Backend interface {
 
 	// RunInstances creates one or more EC2 instance stubs.
 	RunInstances(imageID, instanceType, subnetID string, count int) ([]*Instance, error)
+	// RunInstancesWithID is RunInstances with an optional pinned instance ID (count must be 1).
+	RunInstancesWithID(pinnedID, imageID, instanceType, subnetID string, count int) ([]*Instance, error)
 
 	// SetInstanceAttribute persists a modifiable attribute on an instance.
 	// Attribute names match EC2 ModifyInstanceAttribute keys (e.g. "userData", "instanceType").
@@ -86,6 +88,8 @@ type Backend interface {
 
 	// CreateSecurityGroup creates a security group and returns it.
 	CreateSecurityGroup(name, description, vpcID string) (*SecurityGroup, error)
+	// CreateSecurityGroupWithID is CreateSecurityGroup with an optional pinned group ID.
+	CreateSecurityGroupWithID(pinnedID, name, description, vpcID string) (*SecurityGroup, error)
 
 	// DeleteSecurityGroup removes a security group by ID.
 	DeleteSecurityGroup(id string) error
@@ -124,6 +128,8 @@ type Backend interface {
 
 	// CreateVpc creates a new VPC with the given CIDR block.
 	CreateVpc(cidr, tenancy string) (*VPC, error)
+	// CreateVpcWithID is CreateVpc with an optional pinned VPC ID.
+	CreateVpcWithID(pinnedID, cidr, tenancy string) (*VPC, error)
 	VpcTenancy(vpcID string) string
 
 	// DeleteVpc removes a VPC by ID.
@@ -140,6 +146,15 @@ type Backend interface {
 	// CreateSubnetWithOutpost is CreateSubnet plus an optional OutpostArn,
 	// cross-validated against the real Outposts backend when wired.
 	CreateSubnetWithOutpost(vpcID, cidr, az, outpostArn string) (*Subnet, error)
+
+	// CreateSubnetWithOptions creates a subnet from the full CreateSubnet request.
+	CreateSubnetWithOptions(p CreateSubnetParams) (*Subnet, error)
+
+	// SubnetIpv6Associations returns the IPv6 CIDR associations of a subnet.
+	SubnetIpv6Associations(subnetID string) []*SubnetCIDRAssociation
+
+	// ModifySubnetAttributes applies one ModifySubnetAttribute request.
+	ModifySubnetAttributes(subnetID string, u SubnetAttributeUpdate) error
 
 	// DeleteSubnet removes a subnet by ID.
 	DeleteSubnet(id string) error
@@ -238,6 +253,11 @@ type Backend interface {
 	// DeleteRoute removes a route from a route table by destination CIDR.
 	DeleteRoute(rtID, destCIDR string) error
 
+	// CreateRouteSpec, DeleteRouteSpec and ReplaceRouteSpec take the full destination/target set.
+	CreateRouteSpec(rtID string, spec RouteSpec) error
+	DeleteRouteSpec(rtID string, spec RouteSpec) error
+	ReplaceRouteSpec(rtID string, spec RouteSpec) error
+
 	// AssociateRouteTable associates a route table with a subnet; returns association ID.
 	AssociateRouteTable(rtID, subnetID string) (string, error)
 
@@ -248,6 +268,8 @@ type Backend interface {
 
 	// CreateNatGateway creates a NAT gateway in the given subnet.
 	CreateNatGateway(subnetID, allocationID string, tags map[string]string) (*NatGateway, error)
+	AttachLaunchVolumes(instanceID string, specs []LaunchVolumeSpec, volumeTags map[string]string) error
+	CreatePrivateNatGateway(subnetID string, tags map[string]string) (*NatGateway, error)
 
 	// DeleteNatGateway removes a NAT gateway.
 	DeleteNatGateway(id string) error
@@ -355,6 +377,12 @@ type Backend interface {
 	// DescribeVpcEndpoints returns VPC endpoints, optionally filtered by IDs.
 	DescribeVpcEndpoints(ids []string) []*VpcEndpoint
 
+	// VpcEndpointsByServiceNetworkArn lists ServiceNetwork endpoints bound to a service network ARN.
+	VpcEndpointsByServiceNetworkArn(serviceNetworkArn string) []*VpcEndpoint
+
+	// VpcEndpointsByResourceConfigurationArn lists Resource endpoints bound to a resource configuration ARN.
+	VpcEndpointsByResourceConfigurationArn(resourceConfigurationArn string) []*VpcEndpoint
+
 	// ---- launch templates ----
 
 	// CreateLaunchTemplate creates a launch template.
@@ -370,6 +398,7 @@ type Backend interface {
 
 	// CreateNetworkInterface creates a new ENI in the given subnet.
 	CreateNetworkInterface(subnetID, description string, interfaceType ...string) (*NetworkInterface, error)
+	CreateNetworkInterfaceWithOptions(subnetID string, opts NetworkInterfaceOptions) (*NetworkInterface, error)
 
 	// DeleteNetworkInterface removes a network interface by ID.
 	DeleteNetworkInterface(id string) error
@@ -599,6 +628,16 @@ type Backend interface {
 
 	// DeleteLaunchTemplateVersions removes specific versions from a launch template.
 	DeleteLaunchTemplateVersions(id string, versions []int64) ([]int64, error)
+
+	ResolveLaunchTemplateData(idOrName, version string) (map[string]string, error)
+	LaunchTemplateVersions(idOrName string) (*LaunchTemplate, []LaunchTemplateVersion, error)
+	AllLaunchTemplateVersions() []LaunchTemplateVersion
+	CreateLaunchTemplateWithData(name, description string, data, tags map[string]string) (*LaunchTemplate, error)
+	CreateLaunchTemplateVersionWithData(
+		idOrName, sourceVersion, description string, data map[string]string,
+	) (*LaunchTemplateVersion, error)
+	DeleteLaunchTemplateVersionsDetailed(idOrName string, versions []int64) (*LaunchTemplate, []int64, []int64, error)
+	ModifyLaunchTemplateByRef(idOrName string, defaultVersion int64) (*LaunchTemplate, error)
 
 	// GetLaunchTemplateData returns synthesized launch template data from an instance.
 	GetLaunchTemplateData(instanceID string) (*LaunchTemplate, error)
@@ -1353,6 +1392,8 @@ type Backend interface {
 	// CreateDefaultSubnetWithOptions adds the Ipv6Native flag.
 	CreateDefaultSubnetWithOptions(az string, ipv6Native bool) (*Subnet, error)
 	AssociateSubnetCidrBlock(subnetID, ipv6CIDRBlock string) (*SubnetCIDRAssociation, error)
+	// SubnetHasIPv6Block reports whether subnetID has an associated IPv6 CIDR block.
+	SubnetHasIPv6Block(subnetID string) bool
 	DisassociateSubnetCidrBlock(associationID string) (string, error)
 	AssociateSecurityGroupVpc(sgID, vpcID string) (*SGVpcAssociationState, error)
 	DisassociateSecurityGroupVpc(sgID, vpcID string) error
@@ -1376,6 +1417,7 @@ type Backend interface {
 		instanceID, httpTokens, httpEndpoint, instanceMetadataTags string,
 		hopLimit int,
 	) (*IMDSOptions, error)
+	ApplyLaunchMetadataOptions(instanceIDs []string, in MetadataOptionsInput) error
 	GetInstanceMetadataDefaults() *InstanceMetadataDefaults
 	ModifyInstanceMetadataDefaults(
 		httpTokens, httpEndpoint, instanceMetadataTags string,
@@ -1456,6 +1498,10 @@ type Backend interface {
 		maxDrainSeconds int,
 	) (*NatGateway, error)
 	AssociateNatGatewayAddress(natGatewayID string, allocationIDs []string) (*NatGateway, error)
+	// AssociateNatGatewayAddressInZone adds the AvailabilityZone regional gateways need.
+	AssociateNatGatewayAddressInZone(natGatewayID, azName, azID string, allocationIDs []string) (*NatGateway, error)
+	// CreateRegionalNatGateway creates a regional (multi-AZ) public NAT gateway.
+	CreateRegionalNatGateway(vpcID string, zones []NatGatewayZoneRequest, tags map[string]string) (*NatGateway, error)
 	AssignPrivateNatGatewayAddress(natGatewayID string, count int, ips []string) (*NatGateway, error)
 	DisableImage(imageID string) error
 	EnableImage(imageID string) error
@@ -1800,6 +1846,7 @@ type Backend interface {
 	ModifyReservedInstances(
 		reservedInstancesIDs []string,
 		targets []ReservedInstancesConfigurationTarget,
+		clientToken string,
 	) (*ReservedInstancesModification, error)
 	DeleteQueuedReservedInstances(ids []string) []QueuedPurchaseDeletionResult
 	GetReservedInstancesExchangeQuote(
@@ -2050,7 +2097,11 @@ type Backend interface {
 	EnableAllowedImagesSettings(state string) (string, error)
 	DisableAllowedImagesSettings() string
 	GetAllowedImagesSettings() *AllowedImagesSettings
-	ReplaceImageCriteriaInAllowedImagesSettings(criteria []ImageCriterion) bool
+	ReplaceImageCriteriaInAllowedImagesSettings(criteria []ImageCriterion) error
+	// EvaluateAllowedImages returns the Allowed AMIs state and per-image verdicts.
+	EvaluateAllowedImages(imageIDs []string) (string, map[string]bool)
+	// ImageWatermarksFor returns the watermarks attached to an AMI.
+	ImageWatermarksFor(imageID string) []ImageWatermarkRecord
 
 	// ---- Store / Restore Image Tasks ----
 

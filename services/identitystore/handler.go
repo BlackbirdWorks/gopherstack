@@ -2,10 +2,13 @@ package identitystore
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -233,6 +236,10 @@ var identityStoreDispatch = map[string]func(*Handler, context.Context, *echo.Con
 
 func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op string, body []byte) error {
 	if fn, ok := identityStoreDispatch[op]; ok {
+		if strings.HasPrefix(op, "List") && !validNextToken(body) {
+			return h.writeError(c, http.StatusBadRequest, "ValidationException", "Invalid NextToken provided")
+		}
+
 		return fn(h, ctx, c, body)
 	}
 
@@ -394,7 +401,7 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 func (h *Handler) writeResourceError(c *echo.Context, errType, message, resourceType string) error {
 	return c.JSON(http.StatusNotFound, map[string]string{
 		keyErrType:     errType,
-		keyErrMessage:  message,
+		keyErrMessage:  stripCodePrefix(message),
 		"ResourceType": resourceType,
 	})
 }
@@ -412,7 +419,7 @@ func (h *Handler) writeResourceError(c *echo.Context, errType, message, resource
 func (h *Handler) writeConflictError(c *echo.Context, message string) error {
 	return c.JSON(http.StatusConflict, map[string]string{
 		keyErrType:    "ConflictException",
-		keyErrMessage: message,
+		keyErrMessage: stripCodePrefix(message),
 		"Reason":      "UNIQUENESS_CONSTRAINT_VIOLATION",
 	})
 }
@@ -420,6 +427,33 @@ func (h *Handler) writeConflictError(c *echo.Context, message string) error {
 func (h *Handler) writeError(c *echo.Context, statusCode int, errType, message string) error {
 	return c.JSON(statusCode, map[string]string{
 		keyErrType:    errType,
-		keyErrMessage: message,
+		keyErrMessage: stripCodePrefix(message),
 	})
+}
+
+var codePrefixPattern = regexp.MustCompile(`^[A-Z][A-Za-z]+Exception: `)
+
+// stripCodePrefix drops the "<Code>: " that sentinel wrapping puts before the detail.
+func stripCodePrefix(msg string) string {
+	return codePrefixPattern.ReplaceAllString(msg, "")
+}
+
+// validNextToken reports whether body's NextToken, if any, is one paginateSlice could have issued.
+func validNextToken(body []byte) bool {
+	var req struct {
+		NextToken string `json:"NextToken"`
+	}
+
+	if json.Unmarshal(body, &req) != nil || req.NextToken == "" {
+		return true
+	}
+
+	dec, err := base64.StdEncoding.DecodeString(req.NextToken)
+	if err != nil {
+		return false
+	}
+
+	n, err := strconv.Atoi(string(dec))
+
+	return err == nil && n >= 0
 }

@@ -61,7 +61,10 @@ func (h *Handler) handleListVariantStores(c *echo.Context) error {
 		return err
 	}
 
-	maxResults, nextToken := listQueryParams(c)
+	maxResults, nextToken, err := listQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
 
 	stores, next, err := h.Backend.ListVariantStores(req.Filter, req.IDs, maxResults, nextToken)
 	if err != nil {
@@ -146,7 +149,10 @@ func (h *Handler) handleListVariantImportJobs(c *echo.Context) error {
 		return err
 	}
 
-	maxResults, nextToken := listQueryParams(c)
+	maxResults, nextToken, err := listQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
 
 	jobs, next, err := h.Backend.ListVariantImportJobs(req.Filter, req.IDs, maxResults, nextToken)
 	if err != nil {

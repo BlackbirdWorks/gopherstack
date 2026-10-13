@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/labstack/echo/v5"
 )
 
@@ -213,10 +214,14 @@ type createBucketResponseXML struct {
 }
 
 func (h *Handler) handleCreateBucket(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
+	accountID := c.Request().Header.Get("X-Amz-Account-Id")
+	if accountID == "" {
+		accountID = awsmeta.Account(c.Request().Context())
+	}
+
 	bucketName := strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix)
 
-	bkt := h.Backend.CreateBucket(accountID, bucketName)
+	bkt := h.Backend.CreateBucket(accountID, c.Request().Header.Get("X-Amz-Outpost-Id"), bucketName)
 
 	c.Response().Header().Set("Location", bkt.Location)
 
@@ -457,18 +462,16 @@ func (h *Handler) handleGetBucketVersioning(c *echo.Context) error {
 		"/versioning",
 	)
 
-	status, err := h.Backend.GetBucketVersioning(bucketName)
+	status, mfaDelete, err := h.Backend.GetBucketVersioning(bucketName)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
 
-	// GAP (no backing data, not fabricated): the real GetBucketVersioningOutput
-	// also carries MfaDelete -- this backend tracks only a bare Status
-	// string per bucket (see bucket.go), not MFA delete state.
 	return writeXML(c, struct {
-		XMLName xml.Name `xml:"GetBucketVersioningResult"`
-		Status  string   `xml:"Status,omitempty"`
-	}{Status: status})
+		XMLName   xml.Name `xml:"GetBucketVersioningResult"`
+		Status    string   `xml:"Status,omitempty"`
+		MfaDelete string   `xml:"MfaDelete,omitempty"`
+	}{Status: status, MfaDelete: mfaDelete})
 }
 
 // putBucketVersioningRequestXML mirrors PutBucketVersioningInput's real
@@ -477,8 +480,9 @@ func (h *Handler) handleGetBucketVersioning(c *echo.Context) error {
 // Status as its direct child — no "<PutBucketVersioningRequest>" wrapper
 // (awsRestxml_serializeOpPutBucketVersioningRequest).
 type putBucketVersioningRequestXML struct {
-	XMLName xml.Name `xml:"VersioningConfiguration"`
-	Status  string   `xml:"Status"`
+	XMLName   xml.Name `xml:"VersioningConfiguration"`
+	Status    string   `xml:"Status"`
+	MfaDelete string   `xml:"MfaDelete"`
 }
 
 func (h *Handler) handlePutBucketVersioning(c *echo.Context) error {
@@ -492,7 +496,7 @@ func (h *Handler) handlePutBucketVersioning(c *echo.Context) error {
 		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
-	if err := h.Backend.PutBucketVersioning(bucketName, body.Status); err != nil {
+	if err := h.Backend.PutBucketVersioning(bucketName, body.Status, body.MfaDelete); err != nil {
 		return handleBackendError(c, err)
 	}
 

@@ -21,6 +21,10 @@ func (b *InMemoryBackend) CreateLifecyclePolicy(
 	tags map[string]string,
 	policyDetails map[string]any,
 ) (*Policy, error) {
+	if err := validateSettableState(state); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateLifecyclePolicy")
 	defer b.mu.Unlock()
 
@@ -37,7 +41,7 @@ func (b *InMemoryBackend) CreateLifecyclePolicy(
 	}
 
 	b.counter++
-	policyID := fmt.Sprintf("%s%016x", policyIDPrefix, b.counter)
+	policyID := fmt.Sprintf("%s%017x", policyIDPrefix, b.counter)
 	policyARN := arn.Build("dlm", b.region, b.accountID, fmt.Sprintf("policy/%s", policyID))
 
 	now := time.Now().UTC()
@@ -153,6 +157,10 @@ func (b *InMemoryBackend) UpdateLifecyclePolicy(
 	policyID string, description, executionRoleARN *string, state string,
 	policyDetails map[string]any, defaultPolicyOverrides map[string]any,
 ) error {
+	if err := validateSettableState(state); err != nil {
+		return err
+	}
+
 	b.mu.Lock("UpdateLifecyclePolicy")
 	defer b.mu.Unlock()
 

@@ -124,6 +124,7 @@ func (h *Handler) handleModifyCluster(vals url.Values) (any, error) {
 	}
 
 	cluster, err := h.Backend.ModifyCluster(id, ModifyClusterOptions{
+		NewClusterIdentifier:                 vals.Get("NewClusterIdentifier"),
 		NodeType:                             vals.Get("NodeType"),
 		MasterUserPassword:                   vals.Get("MasterUserPassword"),
 		ClusterVersion:                       vals.Get("ClusterVersion"),

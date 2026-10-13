@@ -3,7 +3,6 @@ package opensearch
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
@@ -173,7 +172,7 @@ func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		if errors.Is(err, ErrDomainNotFound) {
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("domain %s/config not found", name))
+				"Domain not found: "+name)
 		} else {
 			h.writeError(r, w, http.StatusInternalServerError, "InternalException", err.Error())
 		}

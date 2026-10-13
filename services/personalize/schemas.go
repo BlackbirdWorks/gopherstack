@@ -12,8 +12,11 @@ func (b *InMemoryBackend) CreateSchema(name, schema, domain string) (*Schema, er
 	b.mu.Lock("CreateSchema")
 	defer b.mu.Unlock()
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	if err := validateName("name", name); err != nil {
+		return nil, err
+	}
+	if err := validateSchemaDocument(schema); err != nil {
+		return nil, err
 	}
 	if b.schemas.Has(name) {
 		return nil, fmt.Errorf("%w: schema %q already exists", ErrAlreadyExists, name)

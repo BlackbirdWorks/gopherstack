@@ -34,7 +34,7 @@ func parseDocumentParameters(content, format string) []DocumentParameter {
 	}
 
 	var err error
-	if format == "YAML" {
+	if format == documentFormatYAML {
 		err = yaml.Unmarshal([]byte(content), &doc)
 	} else {
 		err = json.Unmarshal([]byte(content), &doc)

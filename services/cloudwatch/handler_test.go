@@ -884,7 +884,7 @@ func TestCloudWatchHandler_NewOperations(t *testing.T) {
 		{
 			name:     "SetAlarmState/not found",
 			body:     "Action=SetAlarmState&AlarmName=does-not-exist&StateValue=ALARM&StateReason=test",
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusNotFound,
 		},
 		// EnableAlarmActions
 		{

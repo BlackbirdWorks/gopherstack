@@ -1,6 +1,9 @@
 package athena
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // AWS Athena models a small, fixed set of API exceptions. The gopherstack
 // sentinels below each map to one of these codes; handleError translates the
@@ -43,3 +46,18 @@ var (
 	// exists (SessionAlreadyExistsException).
 	ErrSessionExists = errors.New(errTypeSessionExistsExc)
 )
+
+// messageError carries AWS's exact wire text (capitalised, with a trailing
+// period) while still matching its sentinel via errors.Is.
+type messageError struct {
+	kind error
+	text string
+}
+
+func (e *messageError) Error() string { return e.text }
+
+func (e *messageError) Unwrap() error { return e.kind }
+
+func awsErrorf(kind error, format string, args ...any) error {
+	return &messageError{kind: kind, text: fmt.Sprintf(format, args...)}
+}

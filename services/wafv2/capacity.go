@@ -2,6 +2,7 @@ package wafv2
 
 import (
 	"context"
+	"fmt"
 	"sync"
 )
 
@@ -337,4 +338,23 @@ func has(m map[string]any, key string) bool {
 	_, ok := m[key]
 
 	return ok
+}
+
+// maxWebACLCapacity is the default WCU quota for a web ACL.
+const maxWebACLCapacity = int64(1500)
+
+func (b *InMemoryBackend) checkWebACLCapacityLocked(region string, rules []map[string]any) error {
+	var total int64
+	for _, rule := range rules {
+		total += b.ruleCapacityLocked(region, rule)
+	}
+
+	if total > maxWebACLCapacity {
+		return fmt.Errorf(
+			"%w: web ACL capacity %d exceeds the maximum of %d WCUs",
+			ErrLimitsExceeded, total, maxWebACLCapacity,
+		)
+	}
+
+	return nil
 }

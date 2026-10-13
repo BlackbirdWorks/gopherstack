@@ -158,6 +158,11 @@ type StorageBackend interface {
 		computeConfiguration map[string]any,
 		payerAccountID string,
 	) (*ProtectedQuery, error)
+	StartProtectedQuerySQL(
+		membershipID string,
+		sqlParams, resultConfig, computeConfiguration map[string]any,
+		payerAccountID string,
+	) (*ProtectedQuery, error)
 	GetProtectedQuery(membershipID, queryID string) (*ProtectedQuery, error)
 	ListProtectedQueries(
 		membershipID, status, maxResults, nextToken string,

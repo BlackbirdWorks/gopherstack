@@ -143,7 +143,7 @@ func (b *InMemoryBackend) DeleteGlobalCluster(
 // target is looked up in the ctx region when it names an existing DB cluster
 // rather than an ARN).
 func (b *InMemoryBackend) FailoverGlobalCluster(
-	ctx context.Context, globalClusterID, targetDBClusterID string,
+	ctx context.Context, globalClusterID, targetDBClusterID string, allowDataLoss bool,
 ) (*GlobalCluster, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("FailoverGlobalCluster")
@@ -156,12 +156,38 @@ func (b *InMemoryBackend) FailoverGlobalCluster(
 			globalClusterID,
 		)
 	}
-	if err := b.promoteGlobalClusterWriter(region, gc, targetDBClusterID); err != nil {
+	cp, err := b.promoteAndSnapshot(region, gc, targetDBClusterID, allowDataLoss)
+	if err != nil {
+		return nil, err
+	}
+
+	return cp, nil
+}
+
+// promoteAndSnapshot promotes the target and returns a copy of gc carrying the
+// FailoverState the real operation response reports; the stored cluster keeps
+// none because the promotion completes synchronously.
+func (b *InMemoryBackend) promoteAndSnapshot(
+	region string, gc *GlobalCluster, targetDBClusterID string, allowDataLoss bool,
+) (*GlobalCluster, error) {
+	fromARN, toARN, err := b.promoteGlobalClusterWriter(region, gc, targetDBClusterID)
+	if err != nil {
 		return nil, err
 	}
 	cp := *gc
 	cp.GlobalClusterMembers = make([]GlobalClusterMember, len(gc.GlobalClusterMembers))
 	copy(cp.GlobalClusterMembers, gc.GlobalClusterMembers)
+
+	status := failoverStatusSwitchingOver
+	if allowDataLoss {
+		status = failoverStatusFailingOver
+	}
+	cp.FailoverState = &GlobalClusterFailoverState{
+		Status:            status,
+		FromDBClusterARN:  fromARN,
+		ToDBClusterARN:    toARN,
+		IsDataLossAllowed: allowDataLoss,
+	}
 
 	return &cp, nil
 }
@@ -184,19 +210,19 @@ func (b *InMemoryBackend) FailoverGlobalCluster(
 // secondary. Caller must hold b.mu (write lock).
 func (b *InMemoryBackend) promoteGlobalClusterWriter(
 	region string, gc *GlobalCluster, targetDBClusterID string,
-) error {
+) (string, string, error) {
 	if targetDBClusterID == "" {
-		return fmt.Errorf("%w: TargetDbClusterIdentifier is required", ErrInvalidParameter)
+		return "", "", fmt.Errorf("%w: TargetDbClusterIdentifier is required", ErrInvalidParameter)
 	}
 	targetARN := targetDBClusterID
 	if !isNeptuneARN(targetDBClusterID) {
 		cl, ok := b.clusterGet(region, targetDBClusterID)
 		if !ok {
-			return fmt.Errorf("%w: DB cluster %s not found", ErrClusterNotFound, targetDBClusterID)
+			return "", "", fmt.Errorf("%w: DB cluster %s not found", ErrClusterNotFound, targetDBClusterID)
 		}
 		targetARN = b.clusterARN(region, cl.DBClusterIdentifier)
 	} else if _, ok := b.clusterByARNLocked(targetARN, region); !ok {
-		return fmt.Errorf("%w: DB cluster %s not found", ErrClusterNotFound, targetDBClusterID)
+		return "", "", fmt.Errorf("%w: DB cluster %s not found", ErrClusterNotFound, targetDBClusterID)
 	}
 
 	idx := -1
@@ -208,22 +234,26 @@ func (b *InMemoryBackend) promoteGlobalClusterWriter(
 		}
 	}
 	if idx == -1 {
-		return fmt.Errorf(
+		return "", "", fmt.Errorf(
 			"%w: DB cluster %s is not a member of global cluster %s",
 			ErrInvalidDBClusterStateFault, targetDBClusterID, gc.GlobalClusterIdentifier,
 		)
 	}
 	if gc.GlobalClusterMembers[idx].IsWriter {
-		return fmt.Errorf(
+		return "", "", fmt.Errorf(
 			"%w: DB cluster %s is already the primary of global cluster %s",
 			ErrInvalidDBClusterStateFault, targetDBClusterID, gc.GlobalClusterIdentifier,
 		)
 	}
+	fromARN := ""
 	for i := range gc.GlobalClusterMembers {
+		if gc.GlobalClusterMembers[i].IsWriter {
+			fromARN = gc.GlobalClusterMembers[i].DBClusterARN
+		}
 		gc.GlobalClusterMembers[i].IsWriter = i == idx
 	}
 
-	return nil
+	return fromARN, targetARN, nil
 }
 
 // ModifyGlobalCluster applies deletion-protection/engine-version/rename
@@ -322,12 +352,10 @@ func (b *InMemoryBackend) SwitchoverGlobalCluster(
 			globalClusterID,
 		)
 	}
-	if err := b.promoteGlobalClusterWriter(region, gc, targetDBClusterID); err != nil {
+	cp, err := b.promoteAndSnapshot(region, gc, targetDBClusterID, false)
+	if err != nil {
 		return nil, err
 	}
-	cp := *gc
-	cp.GlobalClusterMembers = make([]GlobalClusterMember, len(gc.GlobalClusterMembers))
-	copy(cp.GlobalClusterMembers, gc.GlobalClusterMembers)
 
-	return &cp, nil
+	return cp, nil
 }

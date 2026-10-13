@@ -1053,8 +1053,14 @@ func TestRealClient_PermissionSetsAndApplications(t *testing.T) {
 					&ssoadminsdk.ListRegionsInput{InstanceArn: inst.InstanceArn},
 				)
 				require.NoError(t, err)
-				require.Len(t, listOut.Regions, 1)
-				assert.Equal(t, "eu-west-1", aws.ToString(listOut.Regions[0].RegionName))
+				require.Len(t, listOut.Regions, 2)
+
+				byName := map[string]bool{}
+				for _, r := range listOut.Regions {
+					byName[aws.ToString(r.RegionName)] = r.IsPrimaryRegion
+				}
+
+				assert.Equal(t, map[string]bool{"us-east-1": true, "eu-west-1": false}, byName)
 
 				removeOut, err := client.RemoveRegion(t.Context(), &ssoadminsdk.RemoveRegionInput{
 					InstanceArn: inst.InstanceArn,

@@ -56,6 +56,7 @@ func WriteRPCv2CBORError(c *echo.Context, status int, code, message string) erro
 	_, err := c.Response().Write(cbor.Encode(cbor.Map{
 		"__type":  cbor.String(code),
 		"message": cbor.String(message),
+		"Message": cbor.String(message),
 	}))
 
 	return err

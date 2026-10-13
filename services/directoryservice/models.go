@@ -633,6 +633,7 @@ type DirectorySetting struct {
 
 // SettingEntry domain type.
 type SettingEntry struct {
+	RegionStatuses      map[string]string
 	LastUpdatedDateTime time.Time
 	LastRequestedTime   time.Time
 	DirectoryID         string

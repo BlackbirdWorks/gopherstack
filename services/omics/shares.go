@@ -44,9 +44,17 @@ func (b *InMemoryBackend) AcceptShare(shareID string) (*Share, error) {
 		return nil, fmt.Errorf("%w: share %s not found", ErrNotFound, shareID)
 	}
 
-	share.Status = "ACTIVATING"
+	share.Status = statusActivating
 	now := time.Now().UTC()
 	share.UpdateTime = &now
+
+	if b.timedLifecycle() {
+		b.afterHops(1, func() {
+			if s, found := b.shares.Get(shareID); found && s.Status == statusActivating {
+				s.Status = "ACTIVE"
+			}
+		})
+	}
 	result := *share
 
 	return &result, nil
@@ -84,9 +92,9 @@ func (b *InMemoryBackend) GetShare(shareID string) (*Share, error) {
 		return nil, fmt.Errorf("%w: share %s not found", ErrNotFound, shareID)
 	}
 
-	if share.Status == "ACTIVATING" {
+	if share.Status == statusActivating {
 		share.pollCount++
-		if share.pollCount >= 1 {
+		if share.pollCount >= 1 && !b.timedLifecycle() {
 			share.Status = "ACTIVE"
 		}
 	}

@@ -1,6 +1,8 @@
 package directoryservice
 
 import (
+	"fmt"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -88,3 +90,7 @@ var (
 	// client error.
 	ErrSnapshotUnsupportedForADConnector = awserr.New("ClientException", awserr.ErrConflict)
 )
+
+func wrapf(sentinel error, format string, args ...any) error {
+	return fmt.Errorf("%w: %s", sentinel, fmt.Sprintf(format, args...))
+}

@@ -85,6 +85,7 @@ func (h *Handler) handleUpdateDeploymentStrategy(c *echo.Context, strategyID str
 		FinalBakeTimeInMinutes      *int32   `json:"FinalBakeTimeInMinutes"`
 		GrowthFactor                *float32 `json:"GrowthFactor"`
 		Description                 *string  `json:"Description"`
+		GrowthType                  *string  `json:"GrowthType"`
 		Name                        string   `json:"Name"`
 	}
 	if err := c.Bind(&req); err != nil {
@@ -122,11 +123,15 @@ func (h *Handler) handleUpdateDeploymentStrategy(c *echo.Context, strategyID str
 	strategy, err := h.Backend.UpdateDeploymentStrategy(
 		strategyID, req.Name, req.Description,
 		deployDur, bakeTime,
-		growthFactor,
+		growthFactor, req.GrowthType,
 	)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
+		}
+
+		if errors.Is(err, awserr.ErrInvalidParameter) {
+			return badRequestResponse(c, err)
 		}
 
 		return internalServerErrorResponse(c, err)

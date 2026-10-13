@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -227,6 +228,9 @@ func (h *Handler) handleListJobs(c *echo.Context) error {
 		c.QueryParam("status"), c.QueryParam("targetSelection"),
 		c.QueryParam("thingGroupName"), c.QueryParam("thingGroupId"),
 	)
+	if ns := c.QueryParam("namespaceId"); ns != "" {
+		jobs = slices.DeleteFunc(jobs, func(j *Job) bool { return j.NamespaceID != ns })
+	}
 	summaries := make([]map[string]any, len(jobs))
 	for i, j := range jobs {
 		summaries[i] = map[string]any{
@@ -362,7 +366,7 @@ func (h *Handler) handleDescribeJobExecution(c *echo.Context) error {
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"execution": h.toJobExecutionWire(exec)})
+	return c.JSON(http.StatusOK, map[string]any{keyExecution: h.toJobExecutionWire(exec)})
 }
 
 func (h *Handler) handleCancelJobExecution(c *echo.Context) error {

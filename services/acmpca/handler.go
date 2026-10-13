@@ -258,6 +258,8 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		code = "MalformedCertificateException"
 	case errors.Is(opErr, ErrMalformedCSR):
 		code = "MalformedCSRException"
+	case errors.Is(opErr, ErrInvalidNextToken):
+		code = "InvalidNextTokenException"
 	case errors.Is(opErr, ErrInvalidState):
 		code = "InvalidStateException"
 	case errors.Is(opErr, ErrPermissionAlreadyExists):
@@ -272,7 +274,7 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		logger.Load(c.Request().Context()).Error("ACM PCA internal error", "error", opErr, "action", action)
 	}
 
-	return h.writeJSONError(c, statusCode, code, opErr.Error())
+	return h.writeJSONError(c, statusCode, code, strings.TrimPrefix(opErr.Error(), code+": "))
 }
 
 func (h *Handler) writeJSONError(c *echo.Context, statusCode int, code, message string) error {

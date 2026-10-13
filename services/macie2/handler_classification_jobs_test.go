@@ -174,8 +174,9 @@ func TestClassificationJobs(t *testing.T) {
 				t.Helper()
 
 				rec := doRequest(t, h, http.MethodPost, "/jobs", map[string]any{
-					"name":    "sched-job",
-					"jobType": "SCHEDULED",
+					"name":            "sched-job",
+					"jobType":         "SCHEDULED",
+					"s3JobDefinition": map[string]any{"bucketDefinitions": []any{}},
 					"scheduleFrequency": map[string]any{
 						"dailySchedule": map[string]any{},
 					},
@@ -560,14 +561,28 @@ func TestClassificationJobCreateFieldsRoundTrip(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, http.MethodPost, "/jobs", map[string]any{
+	rec := doRequest(t, h, http.MethodPost, "/allow-lists", map[string]any{
+		"clientToken": "al-tok", "name": "al", "criteria": map[string]any{"regex": "x+"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var al map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &al))
+
+	rec = doRequest(t, h, http.MethodPost, "/custom-data-identifiers", map[string]any{"name": "cdi", "regex": `.+`})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var cdi map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cdi))
+
+	rec = doRequest(t, h, http.MethodPost, "/jobs", map[string]any{
 		"name":    "full-field-job",
 		"jobType": "ONE_TIME",
 		"s3JobDefinition": map[string]any{
 			"bucketDefinitions": []any{},
 		},
-		"allowListIds":                  []string{"allow-1"},
-		"customDataIdentifierIds":       []string{"cdi-1"},
+		"allowListIds":                  []string{al["id"]},
+		"customDataIdentifierIds":       []string{cdi["customDataIdentifierId"]},
 		"managedDataIdentifierIds":      []string{"EMAIL_ADDRESS"},
 		"managedDataIdentifierSelector": "INCLUDE",
 	})
@@ -584,11 +599,11 @@ func TestClassificationJobCreateFieldsRoundTrip(t *testing.T) {
 
 	allowListIDs, ok := desc["allowListIds"].([]any)
 	require.True(t, ok)
-	assert.Equal(t, []any{"allow-1"}, allowListIDs)
+	assert.Equal(t, []any{al["id"]}, allowListIDs)
 
 	cdiIDs, ok := desc["customDataIdentifierIds"].([]any)
 	require.True(t, ok)
-	assert.Equal(t, []any{"cdi-1"}, cdiIDs)
+	assert.Equal(t, []any{cdi["customDataIdentifierId"]}, cdiIDs)
 
 	mdiIDs, ok := desc["managedDataIdentifierIds"].([]any)
 	require.True(t, ok)

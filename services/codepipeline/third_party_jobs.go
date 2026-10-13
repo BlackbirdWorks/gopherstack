@@ -52,7 +52,7 @@ func (b *InMemoryBackend) PollForThirdPartyJobs(
 	b.mu.Lock("PollForThirdPartyJobs")
 	defer b.mu.Unlock()
 
-	jobs := b.pollForJobsLocked(ctx, category, "ThirdParty", provider, version)
+	jobs := b.pollForJobsLocked(ctx, category, ownerThirdParty, provider, version, nil)
 
 	result := make([]*Job, len(jobs))
 	for i, j := range jobs {
@@ -88,6 +88,13 @@ func (b *InMemoryBackend) GetThirdPartyJobDetails(ctx context.Context, jobID, cl
 
 // PutThirdPartyJobSuccessResult acknowledges third-party job success.
 func (b *InMemoryBackend) PutThirdPartyJobSuccessResult(ctx context.Context, jobID, clientToken string) error {
+	return b.PutThirdPartyJobSuccessResultWith(ctx, jobID, clientToken, JobSuccess{})
+}
+
+// PutThirdPartyJobSuccessResultWith is PutThirdPartyJobSuccessResult carrying the optional result members.
+func (b *InMemoryBackend) PutThirdPartyJobSuccessResultWith(
+	ctx context.Context, jobID, clientToken string, res JobSuccess,
+) error {
 	b.mu.Lock("PutThirdPartyJobSuccessResult")
 	defer b.mu.Unlock()
 
@@ -100,15 +107,20 @@ func (b *InMemoryBackend) PutThirdPartyJobSuccessResult(ctx context.Context, job
 		return err
 	}
 
-	job.Status = "Succeeded"
-
-	return nil
+	return b.completeJobSuccessLocked(job, res)
 }
 
 // PutThirdPartyJobFailureResult acknowledges third-party job failure.
 func (b *InMemoryBackend) PutThirdPartyJobFailureResult(
 	ctx context.Context,
 	jobID, clientToken, message, failureType string,
+) error {
+	return b.PutThirdPartyJobFailureResultWith(ctx, jobID, clientToken, JobFailure{Message: message, Type: failureType})
+}
+
+// PutThirdPartyJobFailureResultWith is PutThirdPartyJobFailureResult carrying the full FailureDetails.
+func (b *InMemoryBackend) PutThirdPartyJobFailureResultWith(
+	ctx context.Context, jobID, clientToken string, fail JobFailure,
 ) error {
 	b.mu.Lock("PutThirdPartyJobFailureResult")
 	defer b.mu.Unlock()
@@ -122,9 +134,5 @@ func (b *InMemoryBackend) PutThirdPartyJobFailureResult(
 		return err
 	}
 
-	job.Status = "Failed"
-	job.FailureMessage = message
-	job.FailureType = failureType
-
-	return nil
+	return b.completeJobFailureLocked(job, fail)
 }

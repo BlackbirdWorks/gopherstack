@@ -630,6 +630,22 @@ func TestHandler_Snapshot_Restore_Delegation(t *testing.T) {
 
 // ---- Backend: UpdateStack with invalid template (covers applyTemplateToStack error) ----
 
+func TestBackend_UpdateStack_MalformedTemplateRejected(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	_, err := b.CreateStack(t.Context(), "upd-stack", simpleTemplate, nil, cloudformation.StackOptions{})
+	require.NoError(t, err)
+
+	_, err = b.UpdateStack(t.Context(), "upd-stack", "{bad json}", nil, cloudformation.StackOptions{})
+	require.ErrorIs(t, err, cloudformation.ErrTemplateFormat)
+	require.ErrorContains(t, err, "JSON not well-formed")
+
+	stack, err := b.DescribeStack("upd-stack")
+	require.NoError(t, err)
+	assert.Equal(t, "CREATE_COMPLETE", stack.StackStatus)
+}
+
 func TestBackend_UpdateStack_InvalidTemplate(t *testing.T) {
 	t.Parallel()
 
@@ -638,11 +654,6 @@ func TestBackend_UpdateStack_InvalidTemplate(t *testing.T) {
 		updateBody string
 		wantStatus string
 	}{
-		{
-			name:       "invalid_template_body_on_update",
-			updateBody: "{bad json}",
-			wantStatus: "UPDATE_FAILED",
-		},
 		{
 			name: "import_value_missing_on_update",
 			updateBody: `{

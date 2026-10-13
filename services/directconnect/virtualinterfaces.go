@@ -1,6 +1,8 @@
 package directconnect
 
 import (
+	"strconv"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -74,12 +76,8 @@ func (b *InMemoryBackend) validateVifCreateLocked(p vifCreateParams) error {
 		return clientError("virtualInterfaceName and vlan are required")
 	}
 
-	if p.vlan != 0 {
-		for _, existing := range b.vifsByConnection.Get(p.connectionID) {
-			if existing.Vlan == p.vlan {
-				return clientError("VLAN " + p.name + " is already in use on this connection")
-			}
-		}
+	if err := b.checkVlanLocked(p.connectionID, p.vlan); err != nil {
+		return err
 	}
 
 	if p.vifType != VifTypePublic {
@@ -90,6 +88,25 @@ func (b *InMemoryBackend) validateVifCreateLocked(p vifCreateParams) error {
 
 	if p.mtu != nil && *p.mtu != defaultMtu && *p.mtu != jumboMtu {
 		return clientError("mtu must be 1500 or 8500")
+	}
+
+	return nil
+}
+
+// checkVlanLocked rejects an out-of-range VLAN or one already used on the connection.
+func (b *InMemoryBackend) checkVlanLocked(connectionID string, vlan int32) error {
+	if vlan == 0 {
+		return nil
+	}
+
+	if vlan < minVlan || vlan > maxVlan {
+		return clientError("vlan must be between 1 and 4094")
+	}
+
+	for _, existing := range b.vifsByConnection.Get(connectionID) {
+		if existing.Vlan == vlan {
+			return clientError("VLAN " + strconv.Itoa(int(vlan)) + " is already in use on this connection")
+		}
 	}
 
 	return nil

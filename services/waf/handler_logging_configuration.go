@@ -60,8 +60,12 @@ func (h *Handler) opListLoggingConfigurations(body []byte) (any, error) {
 
 	_ = unmarshal(body, &in)
 
-	page, next := paginate(h.Backend.ListLoggingConfigurations(), in.NextMarker, in.Limit,
+	page, next, err := paginate(h.Backend.ListLoggingConfigurations(), in.NextMarker, in.Limit,
 		func(c LoggingConfiguration) string { return c.ResourceArn })
+	if err != nil {
+		return nil, err
+	}
+
 	result := map[string]any{"LoggingConfigurations": page}
 	if next != "" {
 		result["NextMarker"] = next

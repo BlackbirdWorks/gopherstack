@@ -4,7 +4,7 @@ sdk_module: aws-sdk-go-v2/service/codebuild@v1.72.4   # version audited against
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: 0627d5d3                             # HEAD when the PRIOR manifest was written;
                                                           # this pass ran under the "no git" constraint
                                                           # and could not read/update this hash
-last_audit_date: 2026-09-19  # prior: 2026-09-04
+last_audit_date: 2026-10-09
 overall: A                # 2026-09-11 pass (gopherstack-9ckk, BuildBatch redesign): BuildBatch
                            # was previously a 7-field placeholder (see gopherstack-8mcb/-to8g class
                            # notes and bd memory) -- unmodeled capability, not a fixable field gap.
@@ -16,9 +16,8 @@ overall: A                # 2026-09-11 pass (gopherstack-9ckk, BuildBatch redesi
                            # Disclosed (not cheap, see gaps below): CombineArtifacts/BatchReportMode
                            # are carried as passthrough config only (no real artifact merging or
                            # source-provider status reporting is simulated anywhere in this
-                           # service); build-matrix is recognized-and-rejected, not expanded;
-                           # RetryBuildBatch doesn't enforce the FAILED-only precondition or
-                           # distinguish RetryType. snapshot: purely additive field changes to
+                           # service). 2026-10-07: build-matrix is now expanded and
+                           # RetryBuildBatch enforces failed-only and RetryType. snapshot: purely additive field changes to
                            # Build/BuildBatch and a new backendSnapshot.buildBatchNumbers map --
                            # codebuildSnapshotVersion unchanged (confirmed via
                            # TestSnapshotVersionGuard -update; see pkgs/persistence/testdata/
@@ -99,7 +98,7 @@ ops:
   BatchDeleteBuilds: {wire: ok, errors: ok, state: ok, persist: ok}
   StartBuildBatch: {wire: ok, errors: ok, state: ok, persist: ok, note: "REDESIGNED 2026-09-11 (gopherstack-9ckk): BuildBatch was previously 7 fields (id/arn/projectName/status/tags/startTime/endTime) -- a placeholder, not a model. Now carries the full types.BuildBatch shape (Environment/Source/Artifacts/Cache/LogConfig/VpcConfig/BuildBatchConfig/BuildGroups/Phases/ServiceRole/timeouts/ResolvedSourceVersion/...), defaulting from the project and divergeable via StartBuildBatch's *Override fields exactly like StartBuild (batchspec.go, build_batches.go). The buildspec's `batch:` section (build-list, build-graph) is now parsed and enforced -- StartBuildBatch returns the real InvalidInputException when it's absent, previously always accepted silently. Each BuildGroup starts a real child Build (Build.BuildBatchArn set) once its DependsOn groups reach a terminal, non-blocking state; dependency ordering rides the existing Janitor tick (see janitor: below). BuildBatchConfig.Restrictions.MaximumBuildsAllowed is now enforced at start time. IdempotencyToken replays the original batch for five minutes (a changed parameter is InvalidInputException -- the mismatch error code is not documented, so the declared InvalidInputException is used); LogsConfigOverride replaces the project logs configuration and is reported as BuildBatch.LogConfig."}
   StopBuildBatch:  {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-11 (gopherstack-9ckk): now stops every in-progress child Build, not just the top-level status field (there was no group/child concept before)."}
-  RetryBuildBatch: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-11 (gopherstack-9ckk): previously created a blank new BuildBatch with none of the original's fields (a fabricated-empty-record bug). Now re-runs the batch definition from the retried batch's own resolved fields. Disclosed gap: real AWS only allows retrying a FAILED batch and RetryType (RETRY_ALL_BUILDS|RETRY_FAILED_BUILDS) selects full-vs-partial re-run (api_op_RetryBuildBatch.go) -- neither is enforced/distinguished here (every retry behaves as RETRY_ALL_BUILDS, regardless of the batch's status); see gaps below. IdempotencyToken replays the original retry for five minutes (same token cache and mismatch error as StartBuildBatch)."}
+  RetryBuildBatch: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-11 (gopherstack-9ckk): previously created a blank new BuildBatch with none of the original's fields (a fabricated-empty-record bug). Now re-runs the batch definition from the retried batch's own resolved fields. Retry is rejected with InvalidInputException unless the batch is failed (FAILED/STOPPED/TIMED_OUT/FAULT); RETRY_FAILED_BUILDS carries succeeded groups forward and re-runs the rest, and every re-run group records its earlier build in PriorBuildSummaryList. IdempotencyToken replays the original retry for five minutes (same token cache and mismatch error as StartBuildBatch)."}
   BatchGetBuildBatches: {wire: ok, errors: ok, state: ok, persist: ok, note: "now returns the full BuildBatch shape (see StartBuildBatch note); BuildGroups is deep-cloned per call so a caller can't mutate backend state through a nested CurrentBuildSummary pointer"}
   DeleteBuildBatch: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotent on a nonexistent id, same real-AWS error-contract fix as DeleteProject"}
   ListBuildBatches: {wire: ok, errors: ok, state: ok, persist: ok, note: "filter.status/nextToken/sortOrder/maxResults implemented"}
@@ -149,17 +148,16 @@ families:
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to InMemoryBackend.Snapshot/Restore, versioned (codebuildSnapshotVersion), backed by store.Registry across all store.Table-based resource maps plus a plain resourcePolicies map"}
   janitor: {status: ok, note: "janitor.tick runs sweepCompletedBuilds (TTL eviction) then advanceInProgressBuilds (status advancement) every tick. FIXED 2026-09-11 (gopherstack-9ckk): advanceInProgressBuilds used to unconditionally flip every IN_PROGRESS BuildBatch straight to SUCCEEDED, ignoring groups entirely. Now advances plain builds (batch children included) as before, then calls reconcileBatch per IN_PROGRESS batch, which starts any build-graph group whose dependencies just went terminal and derives the batch's real status from its groups."}
   tags: {status: ok, note: "REMOVED this pass: TagResource/UntagResource/ListTagsForResource were gopherstack-invented operations with no counterpart on the real aws-sdk-go-v2/service/codebuild Client (verified: the SDK module has no api_op_TagResource.go/api_op_UntagResource.go/api_op_ListTagsForResource.go, and Client's exported method set — grepped directly from api_op_*.go — has no such methods). Real AWS CodeBuild only supports tagging inline via the `tags` field on CreateProject/CreateReportGroup/CreateFleet/UpdateProject (already implemented and unaffected). Deleted services/codebuild/tags.go, handler_tags.go, tags_test.go; removed the 3 ops from GetSupportedOperations()/dispatchTable(); TestHandler_GetSupportedOperations now asserts their absence."}
-items_still_open:            # genuinely unfinished — do not mark ok
-  - "DescribeCodeCoverages (SortBy, SortOrder, MinLineCoveragePercentage, MaxLineCoveragePercentage), DescribeTestCases and GetReportGroupTrend (NumOfReports) always return empty content (codeCoverages/testCases/stats) because no report actually populates coverage/test-case/trend data anywhere in the backend (reports are seed-only via the AddReportInternal test helper — there is no real CodeBuild API to push test-case/coverage content; on real AWS it's ingested by the managed build agent parsing buildspec `reports` sections and artifact files, which this emulator's build execution does not model). This remains genuinely correct to leave empty rather than fabricate numbers a client cannot distinguish from real data. Implementing this for real would require modeling report-content ingestion from build artifacts, which is out of scope for this pass. NOTE: as of the 2026-08-11 pass, this is now *only* a content gap -- the request validation these three ops perform (required fields, ARN existence where real AWS declares it, trendField enum) is complete and correct; see ops: above."
-  - "gopherstack-9ckk (2026-09-11): BuildBatchConfig.CombineArtifacts and .BatchReportMode are carried as passthrough config (round-trip through CreateProject/StartBuildBatch's BuildBatchConfigOverride and back out on BatchGetBuildBatches) but have no behavioral effect -- no real artifact merging (CombineArtifacts) or source-provider status reporting (BatchReportMode, ReportBuildBatchStatusOverride) is simulated anywhere in this service, matching every other CodeBuild op that doesn't talk to a real Git host."
-  - "gopherstack-9ckk (2026-09-11): build-matrix batch definitions are recognized (selectBatchNodes, batchspec.go) and rejected with InvalidInputException rather than expanded into per-combination BuildGroups -- combinatorial matrix expansion (static/dynamic env + buildspec cross product) was judged not cheap relative to build-list/build-graph, which cover the dependency-graph question this issue was filed to answer. Only StartBuildBatch on a build-matrix-only buildspec is affected; build-list and build-graph are fully implemented."
-  - "gopherstack-9ckk (2026-09-11): RetryBuildBatch doesn't enforce real AWS's 'only a FAILED batch can be retried' precondition, and doesn't distinguish RetryType (RETRY_ALL_BUILDS vs RETRY_FAILED_BUILDS -- every retry re-runs every group fresh, i.e. always behaves as RETRY_ALL_BUILDS). Enforcing the precondition would have required a failure-injection mechanism this emulator doesn't otherwise have (nothing here ever organically fails a build), and RETRY_FAILED_BUILDS's partial re-run (carrying successful groups forward into PriorBuildSummaryList) is a distinct, non-trivial feature; see RetryBuildBatch above."
+items_still_open: []
+structural_gaps:
+  - "DescribeCodeCoverages/DescribeTestCases/GetReportGroupTrend return empty content: report data is ingested on AWS by the managed build agent parsing buildspec reports and artifact files, and this emulator runs no build commands."
+  - "BuildBatchConfig.CombineArtifacts and BatchReportMode are round-tripped config only: no artifact store to merge into and no Git host to report status to."
 gaps: []
                            # ComputeConfiguration/ProxyConfiguration/VpcConfig/ScalingConfiguration
                            # (found genuinely unmodeled in the first 2026-07-25 pass) were
                            # implemented end to end in the second 2026-07-25 pass -- see Notes.
 deferred:                 # consciously not audited this pass (scope) — next pass targets
-  - "Report-content ingestion (DescribeCodeCoverages/DescribeTestCases/GetReportGroupTrend real data) — see items_still_open above for why this is a substantially larger feature (build artifact parsing), not a quick fix."
+  - "Report-content ingestion (DescribeCodeCoverages/DescribeTestCases/GetReportGroupTrend real data) — see structural_gaps above for why this is a substantially larger feature (build artifact parsing), not a quick fix."
 leaks: {status: clean, note: "janitor.Run selects on ctx.Done() and calls worker.Group.Stop(); TestCodeBuildJanitor_RunContext passes under -race. paginateIDs/ListProjectsSortedBy/ListFleetsSortedBy/ListReportGroupsSortedBy are pure functions under the existing RLock scope — no new goroutines, no new lock paths, all backend locks remain defer-released."}
 ---
 
@@ -865,12 +863,11 @@ in this repo — `cloudformation/template.go`, `apigateway/import.go`, etc.). `b
 (flat, no dependencies) and `build-graph` (`depend-on` ordering, cycle-checked) are
 fully implemented, including each node's own `buildspec`/`env` (compute-type, image,
 type, privileged-mode, variables) overrides, layered onto the batch's own environment.
-`build-matrix` is recognized and rejected with a clear `InvalidInputException` rather
-than silently ignored or half-implemented; `build-fanout` isn't a real CodeBuild
+`build-matrix` is expanded (static env layered under the cross product of dynamic
+image/compute-type/type/privileged-mode/variables lists, max 100 builds); `build-fanout` isn't a real CodeBuild
 buildspec keyword (confirmed: AWS's own "Batch build buildspec reference" documents
 exactly `build-list`/`build-matrix`/`build-graph`) so it was not modeled. A buildspec
-with no `batch:` section at all (or one where the only key present is
-`build-matrix`) returns the real error: `InvalidInputException` (`ErrValidation`) —
+with no `batch:` section at all returns the real error: `InvalidInputException` (`ErrValidation`) —
 verified as the right exception *type* (StartBuildBatch's `deserializers.go` handler
 is the same generic `awsAwsjson11_deserializeOpErrorStartBuildBatch` shape used by every
 op, driven entirely by the server's runtime `__type`/`message`, not a per-op enumerated
@@ -903,10 +900,8 @@ must still count toward `FAILED` rather than stall the batch at `IN_PROGRESS` fo
 `StopBuildBatch` is the one status transition NOT derived: it force-stops every
 in-progress child and sets `STOPPED` directly, matching the issue's own framing exactly.
 
-**Disclosed** (not cheap; see `gaps:` above for each): `CombineArtifacts`/
-`BatchReportMode` are passthrough config only, no real effect; `build-matrix` is
-rejected, not expanded; `RetryBuildBatch` doesn't enforce the FAILED-only precondition
-or distinguish `RetryType`.
+**Disclosed** (see `structural_gaps:` above): `CombineArtifacts`/`BatchReportMode` are
+passthrough config only, no real effect.
 
 **Snapshot decision.** All `Build`/`BuildBatch` changes are additive fields — no
 existing field's JSON key or type changed. `backendSnapshot` gained one new additive
@@ -1072,3 +1067,7 @@ StartBuild, RetryBuild, StartBuildBatch, RetryBuildBatch and StartSandbox honour
 ## 2026-10-05 (input enum validation)
 
 40 request members typed as SDK enums are now checked against the SDK `Values()` and an unknown value is InvalidInputException (Create/UpdateFleet compute/environment/overflow, CreateReportGroup type, Create/UpdateWebhook buildType, DescribeCodeCoverages sortBy/sortOrder, ImportSourceCredentials, RetryBuildBatch, StartBuild/StartBuildBatch overrides, UpdateProjectVisibility, shared-resource sortBy and every List* sortOrder). Proof: `TestSDK_EnumInputValidation` (rejects an invalid value, accepts every `Values()` entry). RECORDED: StartCommandExecution type is not validated because existing tests send `COMMAND` while `types.CommandType` only lists `SHELL`; DescribeCodeCoverages sortBy/sortOrder are validated but have no effect (the op always returns an empty list).
+
+## 2026-10-09 realism pass
+
+Build IDs are `project:<uuid>`. When the janitor completes a build it records the full phase timeline (QUEUED through FINALIZING, then COMPLETED). StopBuild on a finished build returns it unchanged instead of rewriting SUCCEEDED to STOPPED. Create/UpdateProject validate the name pattern, timeouts (5-2160, queued 5-480) and environment/source/artifacts enums; StartBuild bounds timeoutInMinutesOverride. NotFound/AlreadyExists carry AWS-style messages and no code prefix. Lenient on purpose: serviceRole is not ARN-checked (fixtures use placeholders). Tests: realism_validation_test.go.

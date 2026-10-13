@@ -42,16 +42,15 @@ func TestDeleteServiceLinkedRole_RemovesRole(t *testing.T) {
 		"service-linked role must be removed from the backend")
 }
 
-func TestDeleteServiceLinkedRole_Idempotent(t *testing.T) {
+func TestDeleteServiceLinkedRole_NotFound(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
 	h, _ := newTestHandler(t)
 
-	// Deleting a non-existent role must not error (AWS async semantics).
 	rec := iamCall(t, e, h, "DeleteServiceLinkedRole", map[string]string{"RoleName": "NonExistentRole"})
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "DeletionTaskId")
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), "NoSuchEntity")
 }
 
 func TestCreateServiceLinkedRole_Backend(t *testing.T) {

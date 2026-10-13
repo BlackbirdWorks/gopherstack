@@ -267,6 +267,17 @@ func (h *Handler) handleCreateProcessingJob(ctx context.Context, body []byte) ([
 		return nil, fmt.Errorf("%w: ProcessingResources.ClusterConfig.InstanceType is required", errInvalidRequest)
 	}
 
+	if err := firstErr(
+		validateResourceName("ProcessingJobName", req.ProcessingJobName),
+		validateRoleArn("RoleArn", req.RoleArn),
+		validateInstanceType(
+			"ProcessingResources.ClusterConfig.InstanceType",
+			req.ProcessingResources.ClusterConfig.InstanceType,
+		),
+	); err != nil {
+		return nil, err
+	}
+
 	pj, err := h.Backend.CreateProcessingJob(ctx, ProcessingJob{
 		ProcessingJobName: req.ProcessingJobName,
 		RoleArn:           req.RoleArn,

@@ -67,7 +67,7 @@ func TestDescribeJobs_Attempts_RealClient(t *testing.T) {
 				JobQueue:      aws.String("q"),
 				JobDefinition: aws.String("jd"),
 				RetryStrategy: &types.RetryStrategy{Attempts: aws.Int32(tt.retryAttempt)},
-				Timeout:       &types.JobTimeout{AttemptDurationSeconds: aws.Int32(1)},
+				Timeout:       &types.JobTimeout{AttemptDurationSeconds: aws.Int32(60)},
 			})
 			require.NoError(t, err)
 
@@ -75,7 +75,7 @@ func TestDescribeJobs_Attempts_RealClient(t *testing.T) {
 
 			for range tt.wantAttempts {
 				jan.SweepOnce(ctx)
-				bk.SetJobStartedAtForTest(aws.ToString(sub.JobId), time.Now().Add(-2*time.Second))
+				bk.SetJobStartedAtForTest(aws.ToString(sub.JobId), time.Now().Add(-2*time.Minute))
 				jan.SweepOnce(ctx)
 			}
 

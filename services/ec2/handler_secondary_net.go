@@ -171,24 +171,38 @@ type describeSecondarySubnetsResponse struct {
 // ---- Response shapes: Secondary Interfaces ----
 
 type secondaryInterfaceItem struct {
-	SecondaryInterfaceID   string          `xml:"secondaryInterfaceId,omitempty"`
-	Status                 string          `xml:"status,omitempty"`
-	SecondaryInterfaceType string          `xml:"secondaryInterfaceType,omitempty"`
-	SecondaryNetworkID     string          `xml:"secondaryNetworkId,omitempty"`
-	SecondaryNetworkType   string          `xml:"secondaryNetworkType,omitempty"`
-	SecondarySubnetID      string          `xml:"secondarySubnetId,omitempty"`
-	AvailabilityZoneID     string          `xml:"availabilityZoneId,omitempty"`
-	AvailabilityZone       string          `xml:"availabilityZone,omitempty"`
-	SecondaryInterfaceArn  string          `xml:"secondaryInterfaceArn,omitempty"`
-	MacAddress             string          `xml:"macAddress,omitempty"`
-	OwnerID                string          `xml:"ownerId,omitempty"`
-	PrivateIpv4Addresses   []string        `xml:"privateIpv4AddressSet>item,omitempty"`
-	TagSet                 []simpleTagItem `xml:"tagSet>item"`
-	SourceDestCheck        bool            `xml:"sourceDestCheck,omitempty"`
+	SecondaryInterfaceID   string                            `xml:"secondaryInterfaceId,omitempty"`
+	Status                 string                            `xml:"status,omitempty"`
+	SecondaryInterfaceType string                            `xml:"secondaryInterfaceType,omitempty"`
+	SecondaryNetworkID     string                            `xml:"secondaryNetworkId,omitempty"`
+	SecondaryNetworkType   string                            `xml:"secondaryNetworkType,omitempty"`
+	SecondarySubnetID      string                            `xml:"secondarySubnetId,omitempty"`
+	AvailabilityZoneID     string                            `xml:"availabilityZoneId,omitempty"`
+	AvailabilityZone       string                            `xml:"availabilityZone,omitempty"`
+	SecondaryInterfaceArn  string                            `xml:"secondaryInterfaceArn,omitempty"`
+	MacAddress             string                            `xml:"macAddress,omitempty"`
+	OwnerID                string                            `xml:"ownerId,omitempty"`
+	Attachment             *secondaryInterfaceAttachmentItem `xml:"attachment,omitempty"`
+	PrivateIpv4Addresses   []secondaryInterfaceIPv4Item      `xml:"privateIpv4AddressSet>item,omitempty"`
+	TagSet                 []simpleTagItem                   `xml:"tagSet>item"`
+	SourceDestCheck        bool                              `xml:"sourceDestCheck,omitempty"`
 }
 
+type secondaryInterfaceIPv4Item struct {
+	PrivateIPAddress string `xml:"privateIpAddress"`
+}
+
+type secondaryInterfaceAttachmentItem struct {
+	AttachmentID    string `xml:"attachmentId,omitempty"`
+	InstanceID      string `xml:"instanceId,omitempty"`
+	InstanceOwnerID string `xml:"instanceOwnerId,omitempty"`
+	Status          string `xml:"status,omitempty"`
+}
+
+const secondaryAttachmentAttached = "attached"
+
 func toSecondaryInterfaceItem(si *SecondaryInterface, tags map[string]string) secondaryInterfaceItem {
-	return secondaryInterfaceItem{
+	item := secondaryInterfaceItem{
 		SecondaryInterfaceID:   si.SecondaryInterfaceID,
 		SecondaryInterfaceArn:  si.SecondaryInterfaceArn,
 		SecondaryInterfaceType: si.SecondaryInterfaceType,
@@ -201,9 +215,23 @@ func toSecondaryInterfaceItem(si *SecondaryInterface, tags map[string]string) se
 		MacAddress:             si.MacAddress,
 		Status:                 si.Status,
 		SourceDestCheck:        si.SourceDestCheck,
-		PrivateIpv4Addresses:   si.PrivateIpv4Addresses,
 		TagSet:                 tagItemsFromMap(tags),
 	}
+
+	for _, ip := range si.PrivateIpv4Addresses {
+		item.PrivateIpv4Addresses = append(item.PrivateIpv4Addresses, secondaryInterfaceIPv4Item{PrivateIPAddress: ip})
+	}
+
+	if si.InstanceID != "" {
+		item.Attachment = &secondaryInterfaceAttachmentItem{
+			AttachmentID:    si.AttachmentID,
+			InstanceID:      si.InstanceID,
+			InstanceOwnerID: si.InstanceOwnerID,
+			Status:          secondaryAttachmentAttached,
+		}
+	}
+
+	return item
 }
 
 type describeSecondaryInterfacesResponse struct {

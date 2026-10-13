@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -256,9 +257,10 @@ func (h *Handler) handleUpdateStackSet(form url.Values, c *echo.Context) error {
 
 	_, opID, err := h.Backend.UpdateStackSet(
 		name, form.Get("Description"), form.Get("TemplateBody"), parseStackSetOptions(form),
+		WithOperationPreferences(parseOperationPreferences(form)),
 	)
 	if err != nil {
-		return h.xmlError(c, "StackSetNotFoundException", err.Error())
+		return h.xmlError(c, stackInstancesErrorCode(err), err.Error())
 	}
 	type result struct {
 		OperationID string `xml:"OperationId"`
@@ -289,6 +291,10 @@ func (h *Handler) handleDeleteStackSet(form url.Values, c *echo.Context) error {
 	if err := h.Backend.DeleteStackSet(name); err != nil {
 		if errors.Is(err, ErrStackSetNotEmpty) {
 			return h.xmlError(c, "StackSetNotEmptyException", err.Error())
+		}
+
+		if errors.Is(err, ErrOperationInProgress) {
+			return h.xmlError(c, "OperationInProgressException", err.Error())
 		}
 
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
@@ -549,6 +555,7 @@ func parseStackInstanceAccounts(form url.Values) []string {
 // request shape (accounts/OU targets/regions/filter type in, an operation ID out).
 type stackInstancesOp func(
 	ctx context.Context, stackSetName string, accounts, ouIDs, regions []string, filterType string,
+	opOpts ...StackSetOpOption,
 ) (string, error)
 
 // handleStackInstancesOp parses the shared CreateStackInstances/
@@ -576,7 +583,10 @@ func (h *Handler) handleStackInstancesOp(
 	accounts := parseStackInstanceAccounts(form)
 	ouIDs := parseMemberList(form, "DeploymentTargets.OrganizationalUnitIds.")
 	regions := parseMemberList(form, "Regions.")
-	opID, err := op(c.Request().Context(), name, accounts, ouIDs, regions, filterType)
+	opID, err := op(
+		c.Request().Context(), name, accounts, ouIDs, regions, filterType,
+		WithOperationPreferences(parseOperationPreferences(form)),
+	)
 	if err != nil {
 		return h.xmlError(c, stackInstancesErrorCode(err), err.Error())
 	}
@@ -613,8 +623,11 @@ func (h *Handler) handleDeleteStackInstances(form url.Values, c *echo.Context) e
 	retainStacks := retainStr == boolTrue
 	op := func(
 		ctx context.Context, stackSetName string, accounts, ouIDs, regions []string, filterType string,
+		opOpts ...StackSetOpOption,
 	) (string, error) {
-		return h.Backend.DeleteStackInstances(ctx, stackSetName, accounts, ouIDs, regions, retainStacks, filterType)
+		return h.Backend.DeleteStackInstances(
+			ctx, stackSetName, accounts, ouIDs, regions, retainStacks, filterType, opOpts...,
+		)
 	}
 
 	return h.handleStackInstancesOp(form, c, "DeleteStackInstancesResponse", "DeleteStackInstancesResult", false, op)
@@ -638,7 +651,9 @@ func (h *Handler) handleUpdateStackInstances(form url.Values, c *echo.Context) e
 	accounts := parseStackInstanceAccounts(form)
 	ouIDs := parseMemberList(form, "DeploymentTargets.OrganizationalUnitIds.")
 	regions := parseMemberList(form, "Regions.")
-	opID, err := h.Backend.UpdateStackInstances(name, accounts, ouIDs, regions, filterType)
+	opID, err := h.Backend.UpdateStackInstances(
+		name, accounts, ouIDs, regions, filterType, WithOperationPreferences(parseOperationPreferences(form)),
+	)
 	if err != nil {
 		return h.xmlError(c, stackInstancesErrorCode(err), err.Error())
 	}
@@ -815,9 +830,9 @@ func (h *Handler) handleDetectStackSetDrift(form url.Values, c *echo.Context) er
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
-	opID, err := h.Backend.DetectStackSetDrift(name)
+	opID, err := h.Backend.DetectStackSetDrift(name, WithOperationPreferences(parseOperationPreferences(form)))
 	if err != nil {
-		return h.xmlError(c, "StackSetNotFoundException", err.Error())
+		return h.xmlError(c, stackInstancesErrorCode(err), err.Error())
 	}
 	type result struct {
 		OperationID string `xml:"OperationId"`
@@ -844,18 +859,26 @@ func (h *Handler) handleListStackSetOperations(form url.Values, c *echo.Context)
 
 	p, _ := h.Backend.ListStackSetOperations(name, parseFormMaxResults(form), form.Get("NextToken"))
 	type opXML struct {
-		OperationID       string `xml:"OperationId"`
-		Action            string `xml:"Action"`
-		Status            string `xml:"Status"`
-		CreationTimestamp string `xml:"CreationTimestamp"`
+		OperationPreferences *opPreferencesXML   `xml:"OperationPreferences,omitempty"`
+		StatusDetails        *opStatusDetailsXML `xml:"StatusDetails,omitempty"`
+		OperationID          string              `xml:"OperationId"`
+		Action               string              `xml:"Action"`
+		Status               string              `xml:"Status"`
+		CreationTimestamp    string              `xml:"CreationTimestamp"`
+		EndTimestamp         string              `xml:"EndTimestamp,omitempty"`
+		StatusReason         string              `xml:"StatusReason,omitempty"`
 	}
 	members := make([]opXML, 0, len(p.Data))
 	for _, op := range p.Data {
 		members = append(members, opXML{
-			OperationID:       op.OperationID,
-			Action:            op.Action,
-			Status:            op.Status,
-			CreationTimestamp: op.CreationTime.UTC().Format("2006-01-02T15:04:05Z"),
+			OperationID:          op.OperationID,
+			Action:               op.Action,
+			Status:               op.Status,
+			CreationTimestamp:    op.CreationTime.UTC().Format("2006-01-02T15:04:05Z"),
+			EndTimestamp:         formatOpEnd(op.EndTime),
+			StatusReason:         op.StatusReason,
+			OperationPreferences: toOpPreferencesXML(op.Preferences),
+			StatusDetails:        toOpStatusDetailsXML(op.Status, op.FailedCount),
 		})
 	}
 	type result struct {
@@ -897,24 +920,34 @@ func (h *Handler) handleDescribeStackSetOperation(form url.Values, c *echo.Conte
 	}
 	type result struct {
 		StackSetOperation struct {
-			OperationID       string `xml:"OperationId"`
-			Action            string `xml:"Action"`
-			Status            string `xml:"Status"`
-			CreationTimestamp string `xml:"CreationTimestamp"`
-			StackSetID        string `xml:"StackSetId,omitempty"`
+			OperationPreferences *opPreferencesXML   `xml:"OperationPreferences,omitempty"`
+			StatusDetails        *opStatusDetailsXML `xml:"StatusDetails,omitempty"`
+			OperationID          string              `xml:"OperationId"`
+			Action               string              `xml:"Action"`
+			Status               string              `xml:"Status"`
+			CreationTimestamp    string              `xml:"CreationTimestamp"`
+			EndTimestamp         string              `xml:"EndTimestamp,omitempty"`
+			StatusReason         string              `xml:"StatusReason,omitempty"`
+			StackSetID           string              `xml:"StackSetId,omitempty"`
+			RetainStacks         bool                `xml:"RetainStacks,omitempty"`
 		} `xml:"StackSetOperation"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"DescribeStackSetOperationResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
-		Result    result   `xml:"DescribeStackSetOperationResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		Result    result   `xml:"DescribeStackSetOperationResult"`
 	}
 	r := result{}
 	r.StackSetOperation.OperationID = op.OperationID
 	r.StackSetOperation.Action = op.Action
 	r.StackSetOperation.Status = op.Status
 	r.StackSetOperation.CreationTimestamp = op.CreatedAt.UTC().Format("2006-01-02T15:04:05Z")
+	r.StackSetOperation.EndTimestamp = formatOpEnd(op.EndedAt)
+	r.StackSetOperation.StatusReason = op.StatusReason
+	r.StackSetOperation.OperationPreferences = toOpPreferencesXML(op.Preferences)
+	r.StackSetOperation.StatusDetails = toOpStatusDetailsXML(op.Status, op.FailedCount)
+	r.StackSetOperation.RetainStacks = op.RetainStacks
 	if ss, ssErr := h.Backend.DescribeStackSet(name); ssErr == nil {
 		r.StackSetOperation.StackSetID = ss.StackSetID
 	}
@@ -989,9 +1022,16 @@ func (h *Handler) handleImportStacksToStackSet(form url.Values, c *echo.Context)
 	}
 
 	stackIDs := parseMemberList(form, "StackIds.")
-	opID, err := h.Backend.ImportStacksToStackSet(name, stackIDs)
+	opID, err := h.Backend.ImportStacksToStackSet(
+		name, stackIDs, parseMemberList(form, "OrganizationalUnitIds."),
+		WithOperationPreferences(parseOperationPreferences(form)),
+	)
 	if err != nil {
-		return h.xmlError(c, "StackSetNotFoundException", err.Error())
+		if errors.Is(err, ErrStackSetNotFound) {
+			return h.xmlError(c, "StackSetNotFoundException", err.Error())
+		}
+
+		return h.xmlError(c, "ValidationError", err.Error())
 	}
 	type result struct {
 		OperationID string `xml:"OperationId"`
@@ -1209,4 +1249,84 @@ func (h *Handler) handleListStackSetOperationResults(form url.Values, c *echo.Co
 		Result:    resultWrapper{Summaries: items, NextToken: p.Next},
 		RequestID: uuid.New().String(),
 	})
+}
+
+// parseOperationPreferences reads OperationPreferences.* (cloudformation@v1.76.1
+// serializers.go, awsAwsquery_serializeDocumentStackSetOperationPreferences); nil when absent.
+func parseOperationPreferences(form url.Values) *OperationPreferences {
+	const prefix = "OperationPreferences."
+
+	p := &OperationPreferences{
+		ConcurrencyMode:            form.Get(prefix + "ConcurrencyMode"),
+		RegionConcurrencyType:      form.Get(prefix + "RegionConcurrencyType"),
+		RegionOrder:                parseMemberList(form, prefix+"RegionOrder."),
+		FailureToleranceCount:      parseOptionalInt32(form, prefix+"FailureToleranceCount"),
+		FailureTolerancePercentage: parseOptionalInt32(form, prefix+"FailureTolerancePercentage"),
+		MaxConcurrentCount:         parseOptionalInt32(form, prefix+"MaxConcurrentCount"),
+		MaxConcurrentPercentage:    parseOptionalInt32(form, prefix+"MaxConcurrentPercentage"),
+	}
+
+	if p.ConcurrencyMode == "" && p.RegionConcurrencyType == "" && len(p.RegionOrder) == 0 &&
+		p.FailureToleranceCount == nil && p.FailureTolerancePercentage == nil &&
+		p.MaxConcurrentCount == nil && p.MaxConcurrentPercentage == nil {
+		return nil
+	}
+
+	return p
+}
+
+func parseOptionalInt32(form url.Values, key string) *int32 {
+	v := form.Get(key)
+	if v == "" {
+		return nil
+	}
+
+	n, err := strconv.ParseInt(v, 10, 32)
+	if err != nil {
+		return nil
+	}
+
+	out := int32(n)
+
+	return &out
+}
+
+type opPreferencesXML struct {
+	FailureToleranceCount      *int32   `xml:"FailureToleranceCount,omitempty"`
+	FailureTolerancePercentage *int32   `xml:"FailureTolerancePercentage,omitempty"`
+	MaxConcurrentCount         *int32   `xml:"MaxConcurrentCount,omitempty"`
+	MaxConcurrentPercentage    *int32   `xml:"MaxConcurrentPercentage,omitempty"`
+	ConcurrencyMode            string   `xml:"ConcurrencyMode,omitempty"`
+	RegionConcurrencyType      string   `xml:"RegionConcurrencyType,omitempty"`
+	RegionOrder                []string `xml:"RegionOrder>member,omitempty"`
+}
+
+type opStatusDetailsXML struct {
+	FailedStackInstancesCount int `xml:"FailedStackInstancesCount"`
+}
+
+func toOpPreferencesXML(p *OperationPreferences) *opPreferencesXML {
+	if p == nil {
+		return nil
+	}
+
+	x := opPreferencesXML(*p)
+
+	return &x
+}
+
+func toOpStatusDetailsXML(status string, failed int) *opStatusDetailsXML {
+	if status == opStatusQueued || status == opStatusRunning {
+		return nil
+	}
+
+	return &opStatusDetailsXML{FailedStackInstancesCount: failed}
+}
+
+func formatOpEnd(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+
+	return t.UTC().Format("2006-01-02T15:04:05Z")
 }

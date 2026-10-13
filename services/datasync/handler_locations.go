@@ -38,6 +38,10 @@ func (h *Handler) handleCreateLocationS3(
 		return nil, fmt.Errorf("%w: S3BucketArn is required", errInvalidRequest)
 	}
 
+	if err := validateS3BucketArn(in.S3BucketArn); err != nil {
+		return nil, err
+	}
+
 	if in.S3Config == nil {
 		return nil, fmt.Errorf("%w: S3Config is required", errInvalidRequest)
 	}

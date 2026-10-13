@@ -56,7 +56,10 @@ func (b *InMemoryBackend) CreateDashboard(
 		b.tags[d.Arn] = maps.Clone(tags)
 	}
 
-	return d.toDashboard(), nil
+	v := d.toDashboard()
+	v.Status = statusCreationInProgress
+
+	return v, nil
 }
 
 func (b *InMemoryBackend) DescribeDashboard(accountID, dashboardID string) (*Dashboard, error) {
@@ -68,7 +71,10 @@ func (b *InMemoryBackend) DescribeDashboard(accountID, dashboardID string) (*Das
 		return nil, ErrDashboardNotFound
 	}
 
-	return d.toDashboard(), nil
+	v := d.toDashboard()
+	v.Status = b.creationStatus(d.LastUpdatedTime)
+
+	return v, nil
 }
 
 func (b *InMemoryBackend) UpdateDashboard(
@@ -105,7 +111,10 @@ func (b *InMemoryBackend) UpdateDashboard(
 	// creation status of the new dashboard version this update just created.
 	d.Status = statusCreationSuccessful
 
-	return d.toDashboard(), nil
+	v := d.toDashboard()
+	v.Status = statusCreationInProgress
+
+	return v, nil
 }
 
 // DeleteDashboard deletes a dashboard, or (per api_op_DeleteDashboard.go's

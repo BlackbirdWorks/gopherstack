@@ -330,3 +330,61 @@ func TestHandler_LiveTailAndLogFieldOperations(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_PutLogEvents_EntityRejection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		entity   map[string]any
+		name     string
+		wantType string
+	}{
+		{name: "no_entity"},
+		{
+			name:   "valid_keys",
+			entity: map[string]any{"keyAttributes": map[string]string{"Type": "Service", "Name": "x"}},
+		},
+		{
+			name:     "unknown_key",
+			entity:   map[string]any{"keyAttributes": map[string]string{"Type": "Service", "Bogus": "x"}},
+			wantType: "InvalidKeyAttributes",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
+			doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
+			doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"grp","logStreamName":"s"}`)
+
+			req := map[string]any{
+				"logGroupName":  "grp",
+				"logStreamName": "s",
+				"logEvents":     []any{map[string]any{"message": "m", "timestamp": time.Now().UnixMilli()}},
+			}
+			if tt.entity != nil {
+				req["entity"] = tt.entity
+			}
+			body, _ := json.Marshal(req)
+			rec := doLogsRequest(t, h, e, "PutLogEvents", string(body))
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				RejectedEntityInfo *struct {
+					ErrorType string `json:"errorType"`
+				} `json:"rejectedEntityInfo"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			if tt.wantType == "" {
+				assert.Nil(t, out.RejectedEntityInfo)
+
+				return
+			}
+			require.NotNil(t, out.RejectedEntityInfo)
+			assert.Equal(t, tt.wantType, out.RejectedEntityInfo.ErrorType)
+		})
+	}
+}

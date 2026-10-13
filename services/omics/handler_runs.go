@@ -57,7 +57,11 @@ func (h *Handler) handleGetRunGroup(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListRunGroups(c *echo.Context) error {
-	maxResults, nextToken := paginationQueryParams(c)
+	maxResults, nextToken, err := paginationQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	filter := &RunGroupFilter{Name: c.QueryParam("name")}
 	groups, next, err := h.Backend.ListRunGroups(filter, maxResults, nextToken)
 
@@ -128,6 +132,8 @@ func (h *Handler) handleStartRun(c *echo.Context) error {
 		WorkflowType        string            `json:"workflowType"`
 		WorkflowVersionName string            `json:"workflowVersionName"`
 		WorkflowID          string            `json:"workflowId"`
+		ConfigurationName   string            `json:"configurationName"`
+		RunID               string            `json:"runId"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -135,6 +141,8 @@ func (h *Handler) handleStartRun(c *echo.Context) error {
 	}
 
 	in := StartRunInput{
+		ConfigurationName:   req.ConfigurationName,
+		RunID:               req.RunID,
 		Priority:            req.Priority,
 		EngineSettings:      req.EngineSettings,
 		LogLevel:            req.LogLevel,
@@ -211,7 +219,11 @@ func (h *Handler) handleGetRun(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListRuns(c *echo.Context) error {
-	maxResults, nextToken := paginationQueryParams(c)
+	maxResults, nextToken, err := paginationQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	q := c.Request().URL.Query()
 	filter := &RunFilter{
 		Name:       q.Get("name"),
@@ -251,7 +263,11 @@ func (h *Handler) handleGetRunTask(c *echo.Context, runID, taskID string) error 
 }
 
 func (h *Handler) handleListRunTasks(c *echo.Context, runID string) error {
-	maxResults, nextToken := paginationQueryParams(c)
+	maxResults, nextToken, err := paginationQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	filter := &RunTaskFilter{Status: c.QueryParam("status")}
 	tasks, next, err := h.Backend.ListRunTasks(runID, filter, maxResults, nextToken)
 
@@ -321,7 +337,11 @@ func (h *Handler) handleGetRunCache(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListRunCaches(c *echo.Context) error {
-	maxResults, nextToken := paginationQueryParams(c)
+	maxResults, nextToken, err := paginationQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	caches, next, err := h.Backend.ListRunCaches(maxResults, nextToken)
 
 	if err != nil {
@@ -367,6 +387,8 @@ type inlineRunSettingWire struct {
 	RunSettingID   string            `json:"runSettingId"`
 	Name           string            `json:"name,omitempty"`
 	OutputURI      string            `json:"outputUri,omitempty"`
+
+	OutputBucketOwnerID string `json:"outputBucketOwnerId,omitempty"`
 }
 
 // batchRunSettingsWire mirrors the real BatchRunSettings union
@@ -401,6 +423,8 @@ type defaultRunSettingWire struct {
 	WorkflowOwnerID     string            `json:"workflowOwnerId,omitempty"`
 	WorkflowType        string            `json:"workflowType,omitempty"`
 	WorkflowVersionName string            `json:"workflowVersionName,omitempty"`
+	ConfigurationName   string            `json:"configurationName,omitempty"`
+	OutputBucketOwnerID string            `json:"outputBucketOwnerId,omitempty"`
 }
 
 // startRunBatchWire mirrors the real StartRunBatchInput's JSON keys, confirmed via
@@ -439,16 +463,15 @@ func (h *Handler) handleStartRunBatch(c *echo.Context) error {
 		))
 	}
 
+	inlineWire := req.BatchRunSettings.InlineSettings
+
 	if hasS3URI {
-		// Real AWS reads and validates access to this S3 object synchronously during
-		// the StartRunBatch call. gopherstack has no S3 object content to read here
-		// (no cross-service wiring reads real S3 body bytes for this op), so this path
-		// cannot be honestly simulated -- rejected explicitly rather than silently
-		// creating a batch with zero runs. See PARITY.md.
-		return h.mapError(c, fmt.Errorf(
-			"%w: batchRunSettings.s3UriSettings is not supported by this emulator; use inlineSettings",
-			ErrValidation,
-		))
+		var err error
+
+		inlineWire, err = h.inlineSettingsFromURI(c.Request().Context(), req.BatchRunSettings.S3URISettings)
+		if err != nil {
+			return h.mapError(c, err)
+		}
 	}
 
 	d := req.DefaultRunSetting
@@ -473,10 +496,12 @@ func (h *Handler) handleStartRunBatch(c *echo.Context) error {
 		Name:                d.Name,
 		OutputURI:           d.OutputURI,
 		RunGroupID:          d.RunGroupID,
+		ConfigurationName:   d.ConfigurationName,
+		OutputBucketOwnerID: d.OutputBucketOwnerID,
 	}
 
-	inline := make([]InlineRunSetting, len(req.BatchRunSettings.InlineSettings))
-	for i, s := range req.BatchRunSettings.InlineSettings {
+	inline := make([]InlineRunSetting, len(inlineWire))
+	for i, s := range inlineWire {
 		inline[i] = InlineRunSetting{
 			RunSettingID:   s.RunSettingID,
 			Name:           s.Name,
@@ -485,6 +510,8 @@ func (h *Handler) handleStartRunBatch(c *echo.Context) error {
 			RunTags:        s.RunTags,
 			Parameters:     s.Parameters,
 			EngineSettings: s.EngineSettings,
+
+			OutputBucketOwnerID: s.OutputBucketOwnerID,
 		}
 	}
 
@@ -595,7 +622,11 @@ type runBatchListItemWire struct {
 }
 
 func (h *Handler) handleListRunBatches(c *echo.Context) error {
-	maxResults, nextToken := batchQueryParams(c)
+	maxResults, nextToken, err := batchQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	q := c.Request().URL.Query()
 	filter := &RunBatchFilter{
 		Name:       q.Get("name"),
@@ -644,14 +675,18 @@ func (h *Handler) handleDeleteRunBatch(c *echo.Context) error {
 }
 
 func (h *Handler) handleListRunsInBatch(c *echo.Context, batchID string) error {
-	maxResults, nextToken := batchQueryParams(c)
+	maxResults, nextToken, err := batchQueryParams(c)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
 	q := c.Request().URL.Query()
 	filter := &RunsInBatchFilter{
 		RunID:            q.Get("runId"),
 		RunSettingID:     q.Get("runSettingId"),
 		SubmissionStatus: q.Get("submissionStatus"),
 	}
-	runs, next, err := h.Backend.ListRunsInBatch(batchID, filter, maxResults, nextToken)
+	summaries, next, err := h.Backend.ListRunsInBatch(batchID, filter, maxResults, nextToken)
 
 	if err != nil {
 		return h.mapError(c, err)
@@ -660,11 +695,6 @@ func (h *Handler) handleListRunsInBatch(c *echo.Context, batchID string) error {
 	// Real ListRunsInBatchOutput's element (RunBatchListItem) is an entirely
 	// different, much narrower shape than Run/GetRunOutput -- see
 	// RunInBatchSummary's doc comment.
-	summaries := make([]RunInBatchSummary, 0, len(runs))
-	for _, r := range runs {
-		summaries = append(summaries, newRunInBatchSummary(r))
-	}
-
 	return c.JSON(http.StatusOK, map[string]any{"runs": summaries, keyNextToken: next})
 }
 
@@ -699,5 +729,7 @@ func defaultRunSettingToWire(rb *RunBatch) defaultRunSettingWire {
 		Name:                d.Name,
 		OutputURI:           d.OutputURI,
 		RunGroupID:          d.RunGroupID,
+		ConfigurationName:   d.ConfigurationName,
+		OutputBucketOwnerID: d.OutputBucketOwnerID,
 	}
 }

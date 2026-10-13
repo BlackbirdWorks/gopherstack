@@ -7,12 +7,22 @@ import (
 	"time"
 )
 
+// templateHTMLPart reads Template.HtmlPart, the key aws-sdk-go-v2 serializes
+// (ses serializers.go:5796); HTMLPart is kept for hand-built requests.
+func templateHTMLPart(vals url.Values) string {
+	if v := vals.Get("Template.HtmlPart"); v != "" {
+		return v
+	}
+
+	return vals.Get("Template.HTMLPart")
+}
+
 func (h *Handler) handleCreateTemplate(vals url.Values, reqID string) (any, error) {
 	tmpl := EmailTemplate{
 		TemplateName: vals.Get("Template.TemplateName"),
 		SubjectPart:  vals.Get("Template.SubjectPart"),
 		TextPart:     vals.Get("Template.TextPart"),
-		HTMLPart:     vals.Get("Template.HTMLPart"),
+		HTMLPart:     templateHTMLPart(vals),
 	}
 
 	if err := h.Backend.CreateTemplate(tmpl); err != nil {
@@ -30,7 +40,7 @@ func (h *Handler) handleUpdateTemplate(vals url.Values, reqID string) (any, erro
 		TemplateName: vals.Get("Template.TemplateName"),
 		SubjectPart:  vals.Get("Template.SubjectPart"),
 		TextPart:     vals.Get("Template.TextPart"),
-		HTMLPart:     vals.Get("Template.HTMLPart"),
+		HTMLPart:     templateHTMLPart(vals),
 	}
 
 	if err := h.Backend.UpdateTemplate(tmpl); err != nil {
@@ -110,7 +120,7 @@ type xmlTemplate struct {
 	TemplateName string `xml:"TemplateName"`
 	SubjectPart  string `xml:"SubjectPart,omitempty"`
 	TextPart     string `xml:"TextPart,omitempty"`
-	HTMLPart     string `xml:"HTMLPart,omitempty"`
+	HTMLPart     string `xml:"HtmlPart,omitempty"`
 }
 
 type createTemplateResult struct{}

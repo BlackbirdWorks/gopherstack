@@ -22,6 +22,10 @@ func (b *InMemoryBackend) AddJourneyInternal(j *Journey) {
 
 // CreateJourney creates a new Pinpoint journey for an application.
 func (b *InMemoryBackend) CreateJourney(region, accountID, appID string, req createJourneyRequest) (*Journey, error) {
+	if err := validateJourneyStateName(req.State); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateJourney")
 	defer b.mu.Unlock()
 
@@ -38,7 +42,7 @@ func (b *InMemoryBackend) CreateJourney(region, accountID, appID string, req cre
 		ARN:                    journeyARN,
 		ID:                     id,
 		Name:                   req.Name,
-		State:                  journeyStateDraft,
+		State:                  cmpDefault(req.State, journeyStateDraft),
 		StartActivity:          req.StartActivity,
 		RefreshFrequency:       req.RefreshFrequency,
 		LocalTime:              req.LocalTime,
@@ -63,6 +67,10 @@ func (b *InMemoryBackend) CreateJourney(region, accountID, appID string, req cre
 
 	b.journeys.Put(j)
 	b.arnIndex[journeyARN] = j
+
+	if j.State == journeyStateActive {
+		b.scheduleJourneyRunLocked(appID, id)
+	}
 
 	return cloneJourney(j), nil
 }
@@ -224,27 +232,18 @@ func (b *InMemoryBackend) UpdateJourneyState(appID, journeyID, state string) (*J
 
 	allowed, exists := allowedJourneyTransitions(j.State)
 	if !exists {
-		return nil, ErrValidation
+		return nil, badRequest("journey in state %s cannot change state", j.State)
 	}
 
 	if !slices.Contains(allowed, state) {
-		return nil, ErrValidation
+		return nil, badRequest("journey in state %s cannot move to %q", j.State, state)
 	}
 
 	j.State = state
 	j.LastModifiedDate = nowRFC3339()
 
 	if state == journeyStateActive {
-		runNow := nowRFC3339()
-		runKey := appID + "/" + journeyID
-		b.journeyRuns[runKey] = append(b.journeyRuns[runKey], &journeyRun{
-			RunID:          uuid.NewString(),
-			JourneyID:      journeyID,
-			ApplicationID:  appID,
-			Status:         "SCHEDULED",
-			CreationTime:   runNow,
-			LastUpdateTime: runNow,
-		})
+		b.scheduleJourneyRunLocked(appID, journeyID)
 	}
 
 	return cloneJourney(j), nil
@@ -408,4 +407,26 @@ func (b *InMemoryBackend) GetJourneyRunExecutionActivityMetrics(
 		},
 		LastEvaluatedTime: nowRFC3339(),
 	}, nil
+}
+
+func cmpDefault(v, def string) string {
+	if v == "" {
+		return def
+	}
+
+	return v
+}
+
+// scheduleJourneyRunLocked records a SCHEDULED run for an activated journey. Caller must hold b.mu.
+func (b *InMemoryBackend) scheduleJourneyRunLocked(appID, journeyID string) {
+	runNow := nowRFC3339()
+	runKey := appID + "/" + journeyID
+	b.journeyRuns[runKey] = append(b.journeyRuns[runKey], &journeyRun{
+		RunID:          uuid.NewString(),
+		JourneyID:      journeyID,
+		ApplicationID:  appID,
+		Status:         "SCHEDULED",
+		CreationTime:   runNow,
+		LastUpdateTime: runNow,
+	})
 }

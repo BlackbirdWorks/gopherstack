@@ -15,8 +15,6 @@ const (
 	EventConnected EventType = "connected"
 	// EventMessage marks a successful PostToConnection.
 	EventMessage EventType = "message"
-	// EventDisconnected marks the moment a connection was terminated.
-	EventDisconnected EventType = "disconnected"
 	// EventPing marks a heartbeat that updates LastActiveAt without storing data.
 	EventPing EventType = "ping"
 	// EventBroadcast marks a broadcast send to all active connections.

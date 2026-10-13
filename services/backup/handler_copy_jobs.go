@@ -53,6 +53,7 @@ func copyJobToJSON(j *CopyJob) map[string]any {
 	setOptionalStr(resp, "SourceRecoveryPointArn", j.SourceRecoveryPointArn)
 	setOptionalStr(resp, "DestinationBackupVaultArn", j.DestinationBackupVaultArn)
 	setOptionalStr(resp, "DestinationRecoveryPointArn", j.DestinationRecoveryPointArn)
+	setOptionalStr(resp, "StatusMessage", j.StatusMessage)
 	if j.CompletionDate != nil {
 		resp["CompletionDate"] = epochSeconds(*j.CompletionDate)
 	}
@@ -83,15 +84,21 @@ func (h *Handler) dispatchCopyJobExtraOps(c *echo.Context, route backupRoute, bo
 	switch route.operation {
 	case opListCopyJobSummaries:
 		q := c.Request().URL.Query()
-		summaries, next := pageQuery(q, h.Backend.ListCopyJobSummaries(NewJobSummaryFilter(q)), summaryStateKey)
+		f := NewJobSummaryFilter(q)
+		if err := f.Validate(); err != nil {
+			return true, h.handleError(c, err)
+		}
+
+		summaries, next := pageQuery(q, h.Backend.ListCopyJobSummaries(f), summaryStateKey)
 
 		return true, c.JSON(http.StatusOK, withNextToken(map[string]any{"CopyJobSummaries": summaries}, next))
 	case opStartCopyJob:
 		var copyJobReq struct {
-			RecoveryPointArn          string `json:"RecoveryPointArn"`
-			SourceBackupVaultName     string `json:"SourceBackupVaultName"`
-			DestinationBackupVaultArn string `json:"DestinationBackupVaultArn"`
-			IamRoleArn                string `json:"IamRoleArn"`
+			Lifecycle                 *lifecycleJSON `json:"Lifecycle"`
+			RecoveryPointArn          string         `json:"RecoveryPointArn"`
+			SourceBackupVaultName     string         `json:"SourceBackupVaultName"`
+			DestinationBackupVaultArn string         `json:"DestinationBackupVaultArn"`
+			IamRoleArn                string         `json:"IamRoleArn"`
 		}
 		if err := json.Unmarshal(body, &copyJobReq); err != nil {
 			return true, c.JSON(
@@ -99,11 +106,12 @@ func (h *Handler) dispatchCopyJobExtraOps(c *echo.Context, route backupRoute, bo
 				errResp("InvalidParameterValueException", "invalid request body"),
 			)
 		}
-		job, err := h.Backend.StartCopyJob(
+		job, err := h.Backend.StartCopyJobWithLifecycle(
 			copyJobReq.RecoveryPointArn,
 			copyJobReq.SourceBackupVaultName,
 			copyJobReq.DestinationBackupVaultArn,
 			copyJobReq.IamRoleArn,
+			lifecycleFromJSON(copyJobReq.Lifecycle),
 		)
 		if err != nil {
 			return true, h.handleError(c, err)

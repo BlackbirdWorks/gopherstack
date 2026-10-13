@@ -10,8 +10,8 @@ import (
 func (b *InMemoryBackend) CreateMedicalVocabulary(
 	vocabularyName, languageCode, vocabularyFileURI string, tags map[string]string,
 ) (*MedicalVocabulary, error) {
-	if vocabularyName == "" {
-		return nil, fmt.Errorf("%w: VocabularyName is required", ErrValidation)
+	if err := validateResourceName("VocabularyName", vocabularyName); err != nil {
+		return nil, err
 	}
 
 	if languageCode == "" {
@@ -46,6 +46,7 @@ func (b *InMemoryBackend) CreateMedicalVocabulary(
 	b.recordResourceTagsLocked(b.resourceARN(resourceTypeMedicalVocabulary, v.VocabularyName), v.Tags)
 
 	cp := *v
+	b.observeMedicalVocabulary(&cp)
 
 	return &cp, nil
 }
@@ -72,6 +73,7 @@ func (b *InMemoryBackend) GetMedicalVocabulary(vocabularyName string) (*MedicalV
 	}
 
 	cp := *v
+	b.observeMedicalVocabulary(&cp)
 
 	return &cp, nil
 }
@@ -103,6 +105,7 @@ func (b *InMemoryBackend) UpdateMedicalVocabulary(
 	v.LastModifiedTime = time.Now()
 
 	cp := *v
+	b.observeMedicalVocabulary(&cp)
 
 	return &cp, nil
 }
@@ -135,9 +138,12 @@ func (b *InMemoryBackend) ListMedicalVocabularies(
 
 	all := make([]MedicalVocabulary, 0, b.medicalVocabularies.Len())
 	for _, v := range b.medicalVocabularies.All() {
-		if (stateFilter == "" || v.VocabularyState == stateFilter) &&
+		cp := *v
+		b.observeMedicalVocabulary(&cp)
+
+		if (stateFilter == "" || cp.VocabularyState == stateFilter) &&
 			matchesNameContains(v.VocabularyName, nameContains) {
-			all = append(all, *v)
+			all = append(all, cp)
 		}
 	}
 

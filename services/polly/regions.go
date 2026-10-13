@@ -14,7 +14,10 @@ func (h *Handler) EnableRegions() {
 	home := h.Backend
 
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
-		return NewHandler(NewInMemoryBackendWithConfig(home.accountID, region))
+		nb := NewInMemoryBackendWithConfig(home.accountID, region)
+		nb.SetAppConfig(home.appConfigValue())
+
+		return NewHandler(nb)
 	})
 }
 

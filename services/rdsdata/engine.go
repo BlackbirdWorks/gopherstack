@@ -42,7 +42,23 @@ type resourceDB struct {
 // gopherstack-wh8gv.
 type engineTx struct {
 	tx     *sql.Tx
+	conn   *sql.Conn
 	cancel context.CancelFunc
+}
+
+// rawConner exposes the driver connection a statement runs on.
+type rawConner func(ctx context.Context, fn func(driverConn any) error) error
+
+func rawViaDB(db *sql.DB) rawConner {
+	return func(ctx context.Context, fn func(driverConn any) error) error {
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			return fmt.Errorf("origin conn: %w", err)
+		}
+		defer func() { _ = conn.Close() }()
+
+		return conn.Raw(fn)
+	}
 }
 
 // sqlEngine backs the RDS Data API with real, per-resource in-memory SQLite
@@ -104,16 +120,17 @@ type querier interface {
 }
 
 // dbKey derives a stable, process-unique identifier for a resource database.
-func dbKey(nonce, region, resourceARN string) string {
-	sum := sha256.Sum256([]byte(nonce + "\x00" + region + "\x00" + resourceARN))
+func dbKey(nonce, region, resourceARN, database string) string {
+	sum := sha256.Sum256([]byte(nonce + "\x00" + region + "\x00" + resourceARN + "\x00" + database))
 
 	return hex.EncodeToString(sum[:])
 }
 
-// dbFor returns the database for a resource, opening it lazily. The caller must
-// hold e.mu.
+// dbFor returns the database for a resource, opening it lazily. The request's
+// Database, when set, selects a distinct database within the resource. The
+// caller must hold e.mu.
 func (e *sqlEngine) dbFor(ctx context.Context, region, resourceARN string) (*sql.DB, error) {
-	key := dbKey(e.nonce, region, resourceARN)
+	key := dbKey(e.nonce, region, resourceARN, getRequestTarget(ctx).Database)
 	if rdb, ok := e.dbs[key]; ok {
 		return rdb.db, nil
 	}
@@ -154,7 +171,7 @@ func (e *sqlEngine) execute(
 
 	var run querier
 
-	var originDB *sql.DB
+	var raw rawConner
 
 	if transactionID != "" {
 		et, ok := e.txs[transactionID]
@@ -163,6 +180,7 @@ func (e *sqlEngine) execute(
 		}
 
 		run = et.tx
+		raw = func(_ context.Context, fn func(driverConn any) error) error { return et.conn.Raw(fn) }
 	} else {
 		db, err := e.dbFor(ctx, region, resourceARN)
 		if err != nil {
@@ -170,14 +188,10 @@ func (e *sqlEngine) execute(
 		}
 
 		run = db
-		// originDB backs columnOriginInfo's conn.Raw lookup (see
-		// applyColumnOrigin). Only available here: *sql.Tx has no equivalent
-		// to *sql.Conn.Raw, so a statement run inside a BeginTransaction
-		// transaction can't use this path -- see PARITY.md.
-		originDB = db
+		raw = rawViaDB(db)
 	}
 
-	return runStatement(ctx, run, originDB, statement, params, getResultSetOptions(ctx))
+	return runStatement(ctx, run, raw, statement, params, getResultSetOptions(ctx))
 }
 
 // beginTx opens an engine-side transaction bound to txID, under a context
@@ -205,14 +219,22 @@ func (e *sqlEngine) beginTx(ctx context.Context, region, resourceARN, txID strin
 
 	txCtx, cancel := context.WithCancel(e.baseCtx)
 
-	tx, err := db.BeginTx(txCtx, nil)
+	conn, err := db.Conn(txCtx)
 	if err != nil {
+		cancel()
+
+		return fmt.Errorf("tx conn: %w", err)
+	}
+
+	tx, err := conn.BeginTx(txCtx, nil)
+	if err != nil {
+		_ = conn.Close()
 		cancel()
 
 		return fmt.Errorf("begin tx: %w", err)
 	}
 
-	e.txs[txID] = &engineTx{tx: tx, cancel: cancel}
+	e.txs[txID] = &engineTx{tx: tx, conn: conn, cancel: cancel}
 
 	return nil
 }
@@ -236,6 +258,7 @@ func (e *sqlEngine) finalizeTx(txID string, commit bool) {
 		_ = et.tx.Rollback()
 	}
 
+	_ = et.conn.Close()
 	et.cancel()
 }
 
@@ -249,6 +272,7 @@ func (e *sqlEngine) reset() {
 
 	for id, et := range e.txs {
 		_ = et.tx.Rollback()
+		_ = et.conn.Close()
 		et.cancel()
 		delete(e.txs, id)
 	}
@@ -279,6 +303,7 @@ func (e *sqlEngine) close() {
 
 	for id, et := range e.txs {
 		_ = et.tx.Rollback()
+		_ = et.conn.Close()
 		et.cancel()
 		delete(e.txs, id)
 	}
@@ -314,7 +339,8 @@ func (e *sqlEngine) replay(ctx context.Context, region string, stmts []ExecutedS
 			continue
 		}
 
-		_, _, _, _, _ = e.execute(ctx, region, st.ResourceARN, st.SQL, "", nil)
+		stCtx := withRequestTarget(ctx, "", st.Database)
+		_, _, _, _, _ = e.execute(stCtx, region, st.ResourceARN, st.SQL, "", nil)
 	}
 }
 
@@ -326,7 +352,7 @@ func (e *sqlEngine) replay(ctx context.Context, region string, stmts []ExecutedS
 func runStatement(
 	ctx context.Context,
 	run querier,
-	originDB *sql.DB,
+	raw rawConner,
 	statement string,
 	params []SQLParameter,
 	opts resultSetOptions,
@@ -340,7 +366,7 @@ func runStatement(
 		}
 		defer func() { _ = rows.Close() }()
 
-		records, columns, scanErr := scanRows(ctx, run, originDB, statement, rows, opts)
+		records, columns, scanErr := scanRows(ctx, run, raw, statement, rows, opts)
 		if scanErr != nil {
 			return nil, nil, 0, nil, scanErr
 		}
@@ -464,26 +490,17 @@ func rowIDAliasColumn(ctx context.Context, run querier, table string) (string, b
 // sqlite3_column_database_name / sqlite3_column_origin_name C APIs, which
 // modernc.org/sqlite@v1.58.0 exposes through *sql.Conn.Raw (see conn.go's
 // ColumnInfo) -- database/sql's own sql.ColumnType has no such accessor.
-// Returns nil when originDB is nil (statement ran inside a transaction; see
-// runStatement), the driver conn doesn't implement the accessor, or opening
-// a fresh connection fails, so callers degrade to the historical
-// zero-valued fields. A column that doesn't resolve to an unambiguous table
-// column (an expression, function call, or constant) reports an empty
-// TableName, per the accessor's own documented contract -- not an error.
-func columnOriginInfo(ctx context.Context, originDB *sql.DB, statement string) []sqlitedriver.ColumnInfo {
-	if originDB == nil {
+// Returns nil when the driver conn lacks the accessor or the lookup fails, so
+// callers keep the zero-valued fields. A column that is not an unambiguous
+// table column (expression, function, constant) reports an empty TableName.
+func columnOriginInfo(ctx context.Context, raw rawConner, statement string) []sqlitedriver.ColumnInfo {
+	if raw == nil {
 		return nil
 	}
-
-	conn, err := originDB.Conn(ctx)
-	if err != nil {
-		return nil
-	}
-	defer func() { _ = conn.Close() }()
 
 	var info []sqlitedriver.ColumnInfo
 
-	_ = conn.Raw(func(driverConn any) error {
+	_ = raw(ctx, func(driverConn any) error {
 		ci, ok := driverConn.(interface {
 			ColumnInfo(query string) ([]sqlitedriver.ColumnInfo, error)
 		})
@@ -506,8 +523,8 @@ func columnOriginInfo(ctx context.Context, originDB *sql.DB, statement string) [
 // PostgreSQL/MySQL schema, since SQLite databases have no schema catalog of
 // their own. Left at the zero value (unmodified) for any column
 // columnOriginInfo can't resolve, or when it returns nil entirely.
-func applyColumnOrigin(ctx context.Context, run querier, originDB *sql.DB, statement string, columns []ColumnMetadata) {
-	origin := columnOriginInfo(ctx, originDB, statement)
+func applyColumnOrigin(ctx context.Context, run querier, raw rawConner, statement string, columns []ColumnMetadata) {
+	origin := columnOriginInfo(ctx, raw, statement)
 
 	for i := range columns {
 		if i >= len(origin) || origin[i].TableName == "" {
@@ -666,11 +683,10 @@ func columnMetadataFor(ct *sql.ColumnType) ColumnMetadata {
 
 // scanRows materialises an *sql.Rows cursor into the Data API record model,
 // applying opts (real AWS ExecuteStatementInput.ResultSetOptions) to shape
-// each column's values -- see shapeField. originDB (nil inside a
-// transaction) backs applyColumnOrigin's SchemaName/TableName/
-// IsAutoIncrement lookup.
+// each column's values -- see shapeField. raw backs applyColumnOrigin's
+// SchemaName/TableName/IsAutoIncrement lookup.
 func scanRows(
-	ctx context.Context, run querier, originDB *sql.DB, statement string, rows *sql.Rows, opts resultSetOptions,
+	ctx context.Context, run querier, raw rawConner, statement string, rows *sql.Rows, opts resultSetOptions,
 ) ([][]Field, []ColumnMetadata, error) {
 	cols, err := rows.ColumnTypes()
 	if err != nil {
@@ -682,7 +698,7 @@ func scanRows(
 		columns[i] = columnMetadataFor(ct)
 	}
 
-	applyColumnOrigin(ctx, run, originDB, statement, columns)
+	applyColumnOrigin(ctx, run, raw, statement, columns)
 
 	records := [][]Field{}
 

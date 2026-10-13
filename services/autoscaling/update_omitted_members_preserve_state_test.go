@@ -25,7 +25,14 @@ func TestUpdateAutoScalingGroup_PreservesOmittedMembers(t *testing.T) {
 	client := newTestHandlerAndClient(t)
 	ctx := t.Context()
 
-	_, err := client.CreateAutoScalingGroup(ctx, &assdk.CreateAutoScalingGroupInput{
+	_, err := client.CreateLaunchConfiguration(ctx, &assdk.CreateLaunchConfigurationInput{
+		LaunchConfigurationName: aws.String("lc-1"),
+		ImageId:                 aws.String("ami-12345678"),
+		InstanceType:            aws.String("t3.micro"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateAutoScalingGroup(ctx, &assdk.CreateAutoScalingGroupInput{
 		AutoScalingGroupName:    aws.String("uds-asg"),
 		MinSize:                 aws.Int32(0),
 		MaxSize:                 aws.Int32(3),

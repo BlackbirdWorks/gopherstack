@@ -219,9 +219,9 @@ type Shard struct {
 // closeShard marks a shard CLOSED and records the closure time, keeping
 // Closed/ClosedAt in sync everywhere a shard is retired (SplitShard,
 // MergeShards, UpdateShardCount, UpdateStreamMode's mode-transition reshard).
-func closeShard(s *Shard) {
+func closeShard(s *Shard, at time.Time) {
 	s.Closed = true
-	s.ClosedAt = time.Now()
+	s.ClosedAt = at
 }
 
 // Record represents a single Kinesis data record.
@@ -361,6 +361,7 @@ type PutRecordInput struct {
 	PartitionKey    string
 	ExplicitHashKey string
 	Data            []byte
+	DryRun          bool
 }
 
 // PutRecordOutput is the output for PutRecord.
@@ -389,6 +390,7 @@ type PutRecordsResultEntry struct {
 type PutRecordsInput struct {
 	StreamName string
 	Records    []PutRecordsEntry
+	DryRun     bool
 }
 
 // PutRecordsOutput is the output for PutRecords.
@@ -407,6 +409,7 @@ type GetShardIteratorInput struct {
 	ShardID                string
 	ShardIteratorType      string
 	StartingSequenceNumber string
+	DryRun                 bool
 }
 
 // GetShardIteratorOutput is the output for GetShardIterator.
@@ -418,6 +421,7 @@ type GetShardIteratorOutput struct {
 type GetRecordsInput struct {
 	ShardIterator string
 	Limit         int
+	DryRun        bool
 }
 
 // GetRecordResult is a single record returned by GetRecords.

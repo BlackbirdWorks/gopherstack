@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -155,6 +157,18 @@ func (b *InMemoryBackend) CreateNodegroup(
 	input NodegroupInput,
 	kv map[string]string,
 ) (*Nodegroup, error) {
+	if err := validateResourceName("Nodegroup", nodegroupName, maxNodegroupNameLen); err != nil {
+		return nil, err
+	}
+
+	if err := validateNodegroupScaling(desiredSize, minSize, maxSize); err != nil {
+		return nil, err
+	}
+
+	if err := validateRoleARN(nodeRole); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateNodegroup")
 	defer b.mu.Unlock()
 
@@ -163,7 +177,7 @@ func (b *InMemoryBackend) CreateNodegroup(
 	// ErrValidation (InvalidParameterException), not ErrNotFound.
 	cluster, ok := b.clusters.Get(clusterName)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrValidation, clusterName)
+		return nil, errMsgf(ErrValidation, "No cluster found for name: %s.", clusterName)
 	}
 
 	version, err := resolveNodegroupVersion(clusterName, version, cluster.Version)
@@ -173,7 +187,7 @@ func (b *InMemoryBackend) CreateNodegroup(
 
 	if _, exists := b.nodegroups.Get(nodegroupKey(clusterName, nodegroupName)); exists {
 		return nil, fmt.Errorf(
-			"%w: nodegroup %s already exists in cluster %s",
+			"%w: NodeGroup already exists with name %s and cluster name %s",
 			ErrAlreadyExists,
 			nodegroupName,
 			clusterName,
@@ -202,7 +216,7 @@ func (b *InMemoryBackend) CreateNodegroup(
 	b.nodegroups.Put(ng)
 
 	// Schedule async transition CREATING -> ACTIVE.
-	b.work.After("NodegroupTransition", nodegroupTransitionDelay, func() {
+	b.work.After("NodegroupTransition", b.dwell(nodegroupTransitionDelay), func() {
 		b.mu.Lock("CreateNodegroup-async")
 		defer b.mu.Unlock()
 
@@ -222,12 +236,12 @@ func (b *InMemoryBackend) DescribeNodegroup(clusterName, nodegroupName string) (
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	ng, ok := b.nodegroups.Get(nodegroupKey(clusterName, nodegroupName))
 	if !ok {
-		return nil, fmt.Errorf("%w: nodegroup %s not found in cluster %s", ErrNotFound, nodegroupName, clusterName)
+		return nil, errMsgf(ErrNotFound, "No node group found for name: %s.", nodegroupName)
 	}
 
 	return deepCopyNodegroup(ng), nil
@@ -239,7 +253,7 @@ func (b *InMemoryBackend) ListNodegroups(clusterName string) ([]string, error) {
 	defer b.mu.RUnlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	items := b.nodegroupsByCluster.Get(clusterName)
@@ -260,13 +274,17 @@ func (b *InMemoryBackend) DeleteNodegroup(clusterName, nodegroupName string) (*N
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	ng, ok := b.nodegroups.Get(nodegroupKey(clusterName, nodegroupName))
 	if !ok {
-		return nil, fmt.Errorf("%w: nodegroup %s not found in cluster %s", ErrNotFound, nodegroupName, clusterName)
+		return nil, errMsgf(ErrNotFound, "No node group found for name: %s.", nodegroupName)
 	}
+	if b.deferDeletes() {
+		return b.beginNodegroupDeleteLocked(ng), nil
+	}
+
 	cp := deepCopyNodegroup(ng)
 	cp.Status = statusDeleting
 	b.nodegroups.Delete(nodegroupKey(clusterName, nodegroupName))
@@ -306,12 +324,12 @@ func (b *InMemoryBackend) UpdateNodegroupConfig(
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	ng, ok := b.nodegroups.Get(nodegroupKey(clusterName, nodegroupName))
 	if !ok {
-		return nil, fmt.Errorf("%w: nodegroup %s not found in cluster %s", ErrNotFound, nodegroupName, clusterName)
+		return nil, errMsgf(ErrNotFound, "No node group found for name: %s.", nodegroupName)
 	}
 
 	if upd.DesiredSize != nil {
@@ -477,12 +495,12 @@ func (b *InMemoryBackend) UpdateNodegroupVersion(
 	defer b.mu.Unlock()
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
 	}
 
 	ng, ok := b.nodegroups.Get(nodegroupKey(clusterName, nodegroupName))
 	if !ok {
-		return nil, fmt.Errorf("%w: nodegroup %s not found in cluster %s", ErrNotFound, nodegroupName, clusterName)
+		return nil, errMsgf(ErrNotFound, "No node group found for name: %s.", nodegroupName)
 	}
 
 	var lt *LaunchTemplate
@@ -500,7 +518,7 @@ func (b *InMemoryBackend) UpdateNodegroupVersion(
 
 	ng.ModifiedAt = time.Now().UTC()
 
-	params := []UpdateParam{{Type: "Version", Value: version}}
+	params := []UpdateParam{{Type: paramVersion, Value: version}}
 
 	if lt != nil && lt.Version != "" {
 		updated := cloneLaunchTemplate(ng.LaunchTemplate)
@@ -515,7 +533,7 @@ func (b *InMemoryBackend) UpdateNodegroupVersion(
 	}
 
 	u := &Update{
-		ID:            stableID(clusterName + "/" + nodegroupName + "/version-update/" + time.Now().String()),
+		ID:            uuid.NewString(),
 		ClusterName:   clusterName,
 		NodegroupName: nodegroupName,
 		Status:        statusInProgress,

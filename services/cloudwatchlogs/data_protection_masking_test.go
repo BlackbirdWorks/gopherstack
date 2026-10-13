@@ -1,6 +1,7 @@
 package cloudwatchlogs_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -145,6 +146,74 @@ func TestDataProtection_PolicyValidation(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+		})
+	}
+}
+
+func TestDataProtection_ManagedIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	const (
+		secret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+		pem    = "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\ndef\n-----END OPENSSH PRIVATE KEY-----"
+	)
+
+	tests := []struct {
+		name string
+		id   string
+		in   string
+		want string
+	}{
+		{name: "ssn", id: "Ssn-US", in: "ssn 123-45-6789 ok", want: "ssn *********** ok"},
+		{name: "ssn-invalid", id: "Ssn-US", in: "no 000-12-3456", want: "no 000-12-3456"},
+		{
+			name: "secret-key", id: "AwsSecretKey", in: "aws_secret_access_key=" + secret,
+			want: "aws_secret_access_key=" + strings.Repeat("*", len(secret)),
+		},
+		{
+			name: "openssh", id: "OpenSSHPrivateKey", in: "k " + pem + " z",
+			want: "k " + strings.Repeat("*", len(pem)) + " z",
+		},
+		{name: "cvv", id: "CreditCardSecurityCode", in: "cvv: 123 done", want: "cvv: *** done"},
+		{name: "expiry", id: "CreditCardExpiration", in: "exp 04/2028 x", want: "exp ******* x"},
+		{name: "no-match", id: "Ssn-US", in: "nothing here", want: "nothing here"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestCloudWatchLogsClient(t, cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend()))
+			ctx := t.Context()
+
+			_, err := client.CreateLogGroup(ctx, &cwlsdk.CreateLogGroupInput{LogGroupName: aws.String("/m")})
+			require.NoError(t, err)
+			_, err = client.CreateLogStream(ctx, &cwlsdk.CreateLogStreamInput{
+				LogGroupName: aws.String("/m"), LogStreamName: aws.String("s"),
+			})
+			require.NoError(t, err)
+
+			doc := `{"Name":"p","Version":"2021-06-01","Statement":[{"Sid":"r","DataIdentifier":` +
+				`["arn:aws:dataprotection::aws:data-identifier/` + tt.id + `"],` + redactOp + `}]}`
+			_, err = client.PutDataProtectionPolicy(ctx, &cwlsdk.PutDataProtectionPolicyInput{
+				LogGroupIdentifier: aws.String("/m"), PolicyDocument: aws.String(doc),
+			})
+			require.NoError(t, err)
+
+			_, err = client.PutLogEvents(ctx, &cwlsdk.PutLogEventsInput{
+				LogGroupName: aws.String("/m"), LogStreamName: aws.String("s"),
+				LogEvents: []cwltypes.InputLogEvent{{
+					Message: aws.String(tt.in), Timestamp: aws.Int64(time.Now().UnixMilli()),
+				}},
+			})
+			require.NoError(t, err)
+
+			out, err := client.GetLogEvents(ctx, &cwlsdk.GetLogEventsInput{
+				LogGroupName: aws.String("/m"), LogStreamName: aws.String("s"), StartFromHead: aws.Bool(true),
+			})
+			require.NoError(t, err)
+			require.Len(t, out.Events, 1)
+			assert.Equal(t, tt.want, aws.ToString(out.Events[0].Message))
 		})
 	}
 }

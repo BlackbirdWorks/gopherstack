@@ -2,6 +2,7 @@ package azurearm
 
 import (
 	"strings"
+	"sync/atomic"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -32,6 +33,10 @@ type InMemoryBackend struct {
 	// resource_provider_registrations="none" mode to be unnecessary (though
 	// still supported, since register/list both work regardless).
 	registeredProviders map[string]map[string]bool
+
+	// byType groups resources by subscription/namespace/leaf type; derived,
+	// rebuilt lazily after any change to resources.
+	byType atomic.Pointer[map[string][]*Resource]
 }
 
 // NewInMemoryBackend creates an empty InMemoryBackend.
@@ -54,6 +59,30 @@ func (b *InMemoryBackend) Reset() {
 	b.resourceGroups = make(map[string]*ResourceGroup)
 	b.resources = make(map[string]*Resource)
 	b.registeredProviders = make(map[string]map[string]bool)
+	b.byType.Store(nil)
 }
 
 func resourceGroupKey(name string) string { return strings.ToLower(name) }
+
+func typeIndexKey(subscriptionID, namespace, leafType string) string {
+	return subscriptionID + "|" + strings.ToLower(namespace) + "|" + strings.ToLower(leafType)
+}
+
+// typeIndex returns the cached per-type grouping of b.resources. Callers
+// must hold b.mu (read or write).
+func (b *InMemoryBackend) typeIndex() map[string][]*Resource {
+	if p := b.byType.Load(); p != nil {
+		return *p
+	}
+
+	idx := make(map[string][]*Resource)
+
+	for _, res := range b.resources {
+		k := typeIndexKey(res.ID.SubscriptionID, res.ID.Namespace, res.ID.LeafType())
+		idx[k] = append(idx[k], res)
+	}
+
+	b.byType.Store(&idx)
+
+	return idx
+}

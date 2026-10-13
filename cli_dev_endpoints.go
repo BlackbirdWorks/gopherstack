@@ -155,6 +155,10 @@ func registerLocalstackDevEndpoints(e *echo.Echo, services []service.Registerabl
 	e.POST("/_localstack/state/reset", buildResetHandler(services))
 
 	for _, svc := range services {
+		if r, ok := svc.(interface{ RegisterInspectionRoutes(*echo.Echo) }); ok {
+			r.RegisterInspectionRoutes(e)
+		}
+
 		switch h := svc.(type) {
 		case *sqsbackend.Handler:
 			e.GET("/_aws/sqs/messages", h.ServeInspectMessages)

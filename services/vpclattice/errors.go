@@ -1,6 +1,8 @@
 package vpclattice
 
 import (
+	"fmt"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -20,3 +22,19 @@ var (
 	// can tell "duplicate name" apart from "in use" via errors.Is.
 	ErrDependencyConflict = awserr.New("ConflictException", awserr.ErrConflict)
 )
+
+type detailError struct {
+	base error
+	msg  string
+}
+
+func (e *detailError) Error() string { return e.msg }
+func (e *detailError) Unwrap() error { return e.base }
+
+func invalidf(format string, args ...any) error {
+	return &detailError{base: ErrInvalidParameter, msg: fmt.Sprintf(format, args...)}
+}
+
+func conflictf(format string, args ...any) error {
+	return &detailError{base: ErrAlreadyExists, msg: fmt.Sprintf(format, args...)}
+}

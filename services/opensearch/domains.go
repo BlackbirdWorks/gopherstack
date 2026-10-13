@@ -107,7 +107,7 @@ func (b *InMemoryBackend) DeleteDomain(name string) (*Domain, error) {
 
 	d, exists := b.domains.Get(name)
 	if !exists {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, name)
 	}
 
 	d.Deleted = true
@@ -129,7 +129,7 @@ func (b *InMemoryBackend) DescribeDomain(name string) (*Domain, error) {
 
 	d, exists := b.domains.Get(name)
 	if !exists || deleteWindowElapsed(d, b.clock()) {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, name)
 	}
 
 	cp := *d
@@ -187,7 +187,7 @@ func (b *InMemoryBackend) CancelServiceSoftwareUpdate(
 
 	d, exists := b.domains.Get(domainName)
 	if !exists || deleteWindowElapsed(d, b.clock()) {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	if d.ServiceSoftware == nil || d.ServiceSoftware.UpdateStatus != sswStatusPendingUpdate {
@@ -228,7 +228,7 @@ func (b *InMemoryBackend) StartServiceSoftwareUpdate(
 
 	d, exists := b.domains.Get(domainName)
 	if !exists || deleteWindowElapsed(d, b.clock()) {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	desc := "A new service software version is ready to install."
@@ -281,7 +281,7 @@ func (b *InMemoryBackend) RollbackServiceSoftwareUpdate(
 
 	d, exists := b.domains.Get(domainName)
 	if !exists || deleteWindowElapsed(d, b.clock()) {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
+		return nil, fmt.Errorf("%w: Domain not found: %s", ErrDomainNotFound, domainName)
 	}
 
 	if d.ServiceSoftware == nil {

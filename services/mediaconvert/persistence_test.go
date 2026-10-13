@@ -48,7 +48,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	err = b.Restore(t.Context(), []byte(`{"version":999,"tables":{}}`))
 	require.NoError(t, err)
 
-	assert.Equal(t, 0, mediaconvert.QueueCount(b))
+	assert.Equal(t, 1, mediaconvert.QueueCount(b))
 }
 
 // TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero verifies that a
@@ -69,7 +69,7 @@ func TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
 	err = b.Restore(t.Context(), []byte(oldShape))
 	require.NoError(t, err)
 
-	assert.Equal(t, 0, mediaconvert.QueueCount(b))
+	assert.Equal(t, 1, mediaconvert.QueueCount(b))
 }
 
 // TestInMemoryBackend_RestoreV1JobLastShareDetailsDiscarded proves
@@ -247,7 +247,7 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	h2 := mediaconvert.NewHandler(mediaconvert.NewInMemoryBackend(testAccountID, testRegion))
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
-	assert.Equal(t, 1, mediaconvert.QueueCount(h2.Backend.(*mediaconvert.InMemoryBackend)))
+	assert.Equal(t, 2, mediaconvert.QueueCount(h2.Backend.(*mediaconvert.InMemoryBackend)))
 }
 
 // TestPersistenceRoundTrip verifies Snapshot/Restore round-trip across every
@@ -275,7 +275,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 
 	assert.Equal(t, testAccountID, b2.AccountID())
 	assert.Equal(t, testRegion, b2.Region())
-	assert.Equal(t, 1, mediaconvert.QueueCount(b2))
+	assert.Equal(t, 2, mediaconvert.QueueCount(b2))
 	assert.Equal(t, 1, mediaconvert.PresetCount(b2))
 	assert.Equal(t, 1, mediaconvert.JobCount(b2))
 	assert.Equal(t, 1, mediaconvert.JobTemplateCount(b2))
@@ -294,7 +294,7 @@ func TestRestoreEmptySnapshot(t *testing.T) {
 	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
 	err := b.Restore(t.Context(), []byte(`{}`))
 	require.NoError(t, err)
-	assert.Equal(t, 0, mediaconvert.QueueCount(b))
+	assert.Equal(t, 1, mediaconvert.QueueCount(b))
 }
 
 // TestSnapshotThenDeleteThenRestore_DataPreserved verifies that mutating the

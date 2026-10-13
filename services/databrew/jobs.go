@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 func (b *InMemoryBackend) jobARN(region, name string) string {
@@ -27,13 +28,13 @@ func (b *InMemoryBackend) CreateJob(
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
 	if name == "" {
-		return nil, ErrValidation
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 	t := b.jobsTable(region)
 	if t.Has(name) {
-		return nil, ErrAlreadyExists
+		return nil, existsErr("Job", name)
 	}
-	if err := b.validateJobResourceRefs(region, datasetName, projectName, recipeName); err != nil {
+	if err := b.validateJobResourceRefs(region, datasetName, projectName, recipeName, extra.RecipeVersion); err != nil {
 		return nil, err
 	}
 	if err := validateJobExtras(extra); err != nil {
@@ -46,6 +47,8 @@ func (b *InMemoryBackend) CreateJob(
 		AccountID: b.accountID,
 		Tags:      maps.Clone(tags), CreateDate: float64(time.Now().Unix()),
 		LastModifiedDate:         float64(time.Now().Unix()),
+		CreatedBy:                awsmeta.CallerArn(ctx),
+		LastModifiedBy:           awsmeta.CallerArn(ctx),
 		ProfileConfiguration:     cloneProfileConfiguration(extra.ProfileConfiguration),
 		JobSample:                extra.JobSample,
 		EncryptionMode:           extra.EncryptionMode,
@@ -76,7 +79,7 @@ func (b *InMemoryBackend) DescribeJob(ctx context.Context, name string) (*Job, e
 	region := getRegion(ctx, b.defaultRegion)
 	j, ok := b.jobsTable(region).Get(name)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, notFoundErr("Job", name)
 	}
 
 	return jobCopy(j), nil
@@ -128,7 +131,7 @@ func (b *InMemoryBackend) UpdateJob(
 	region := getRegion(ctx, b.defaultRegion)
 	j, ok := b.jobsTable(region).Get(name)
 	if !ok {
-		return ErrNotFound
+		return notFoundErr("Job", name)
 	}
 	if err := validateJobExtras(extra); err != nil {
 		return err
@@ -150,6 +153,7 @@ func (b *InMemoryBackend) UpdateJob(
 	}
 	applyJobExtras(j, extra)
 	j.LastModifiedDate = float64(time.Now().Unix())
+	stampModifiedBy(ctx, &j.LastModifiedBy)
 
 	return nil
 }
@@ -165,18 +169,34 @@ func (b *InMemoryBackend) UpdateJob(
 // checked only when non-empty: CreateRecipeJobInput accepts ProjectName as an
 // alternative to DatasetName+RecipeReference, so an unset reference is not an
 // error.
-func (b *InMemoryBackend) validateJobResourceRefs(region, datasetName, projectName, recipeName string) error {
+func (b *InMemoryBackend) validateJobResourceRefs(
+	region, datasetName, projectName, recipeName, recipeVersion string,
+) error {
 	if datasetName != "" && !b.datasetsTable(region).Has(datasetName) {
-		return fmt.Errorf("%w: dataset %q", ErrNotFound, datasetName)
+		return notFoundErr("Dataset", datasetName)
 	}
 	if projectName != "" && !b.projectsTable(region).Has(projectName) {
-		return fmt.Errorf("%w: project %q", ErrNotFound, projectName)
+		return notFoundErr("Project", projectName)
 	}
 	if recipeName != "" && !b.recipesTable(region).Has(recipeName) {
-		return fmt.Errorf("%w: recipe %q", ErrNotFound, recipeName)
+		return notFoundErr("Recipe", recipeName)
+	}
+	if recipeName != "" && !b.recipeVersionExists(region, recipeName, recipeVersion) {
+		return notFoundErr("Recipe", recipeName+" version "+recipeVersion)
 	}
 
 	return nil
+}
+
+func (b *InMemoryBackend) recipeVersionExists(region, name, version string) bool {
+	switch version {
+	case "", recipeVersionLatestWorking:
+		return true
+	case recipeVersionLatestPublished:
+		return len(b.recipeVersionsStoreRO(region)[name]) > 0
+	}
+
+	return recipeVersionIndex(b.recipeVersionsStoreRO(region)[name], version) != -1
 }
 
 // validateJobExtras rejects extras values the real service would reject,
@@ -193,6 +213,17 @@ func validateJobExtras(extra JobExtras) error {
 		return err
 	}
 
+	if err := validateJobScalarEnums(extra); err != nil {
+		return err
+	}
+	if err := validateDataCatalogOutputs(extra.DataCatalogOutputs); err != nil {
+		return err
+	}
+
+	return validateDatabaseOutputs(extra.DatabaseOutputs)
+}
+
+func validateJobScalarEnums(extra JobExtras) error {
 	if extra.EncryptionMode != "" && extra.EncryptionMode != "SSE-KMS" && extra.EncryptionMode != "SSE-S3" {
 		return fmt.Errorf("%w: invalid EncryptionMode %q", ErrValidation, extra.EncryptionMode)
 	}
@@ -203,11 +234,11 @@ func validateJobExtras(extra JobExtras) error {
 		extra.JobSample.Mode != "FULL_DATASET" && extra.JobSample.Mode != "CUSTOM_ROWS" {
 		return fmt.Errorf("%w: invalid JobSample.Mode %q", ErrValidation, extra.JobSample.Mode)
 	}
-	if err := validateDataCatalogOutputs(extra.DataCatalogOutputs); err != nil {
-		return err
+	if js := extra.JobSample; js != nil && js.Mode == "CUSTOM_ROWS" && js.Size < 1 {
+		return fmt.Errorf("%w: JobSample.Size must be a positive row count when Mode is CUSTOM_ROWS", ErrValidation)
 	}
 
-	return validateDatabaseOutputs(extra.DatabaseOutputs)
+	return nil
 }
 
 func validateDataCatalogOutputs(outs []DataCatalogOutput) error {
@@ -290,7 +321,7 @@ func (b *InMemoryBackend) DeleteJob(ctx context.Context, name string) error {
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
 	if !b.jobsTable(region).Delete(name) {
-		return ErrNotFound
+		return notFoundErr("Job", name)
 	}
 	runStore := b.jobRunsStore(region)
 	delete(runStore, name)
@@ -303,6 +334,10 @@ const (
 	jobRunTransitionDelay = 100 * time.Millisecond
 	// jobRunDefaultExecTime is the simulated execution time returned in a completed job run.
 	jobRunDefaultExecTime = 30
+	// jobRunHops is the number of equal-length hops STARTING->RUNNING->SUCCEEDED.
+	jobRunHops     = 2
+	jobRunStarting = "STARTING"
+	jobRunRunning  = "RUNNING"
 )
 
 // StartJobRun creates a new job run with STARTING state, transitioning to SUCCEEDED asynchronously.
@@ -327,8 +362,9 @@ func (b *InMemoryBackend) StartJobRun(ctx context.Context, jobName string) (*Job
 	run := &JobRun{
 		JobName:                  jobName,
 		RunID:                    uuid.New().String(),
-		State:                    "STARTING",
+		State:                    jobRunStarting,
 		StartedOn:                float64(time.Now().Unix()),
+		StartedBy:                awsmeta.CallerArn(ctx),
 		Attempt:                  1,
 		DatasetName:              j.DatasetName,
 		DataCatalogOutputs:       append([]DataCatalogOutput(nil), j.DataCatalogOutputs...),
@@ -343,12 +379,23 @@ func (b *InMemoryBackend) StartJobRun(ctx context.Context, jobName string) (*Job
 	runStore := b.jobRunsStore(region)
 	runStore[jobName] = append(runStore[jobName], run)
 
-	b.runDelayed(jobRunTransitionDelay, func() {
+	half := b.jobRunDelay() / jobRunHops
+	b.runDelayed(half, func() {
+		b.mu.Lock("StartJobRun.running")
+		defer b.mu.Unlock()
+
+		if b.jobRunExists(region, jobName, run.RunID) && run.State == jobRunStarting {
+			run.State = jobRunRunning
+		}
+	})
+	b.runDelayed(b.jobRunDelay(), func() {
 		b.mu.Lock("StartJobRun.transition")
 		defer b.mu.Unlock()
-		// Re-check the run still exists: Reset may have cleared jobRuns while
-		// the transition was pending, in which case there is nothing to update.
+		// Reset may have cleared jobRuns while the transition was pending.
 		if !b.jobRunExists(region, jobName, run.RunID) {
+			return
+		}
+		if run.State != jobRunStarting && run.State != jobRunRunning {
 			return
 		}
 		run.State = "SUCCEEDED"
@@ -388,7 +435,7 @@ func (b *InMemoryBackend) ListJobRuns(
 
 	region := getRegion(ctx, b.defaultRegion)
 	if !b.jobsTable(region).Has(jobName) {
-		return nil, "", fmt.Errorf("%w: job %q", ErrNotFound, jobName)
+		return nil, "", notFoundErr("Job", jobName)
 	}
 
 	runStore := b.jobRunsStoreRO(region)
@@ -442,7 +489,7 @@ func (b *InMemoryBackend) StopJobRun(ctx context.Context, name, runID string) (*
 	runStore := b.jobRunsStore(region)
 	runs, ok := runStore[name]
 	if !ok {
-		return nil, ErrNotFound
+		return nil, notFoundErr("Job", name)
 	}
 
 	for _, run := range runs {
@@ -457,7 +504,7 @@ func (b *InMemoryBackend) StopJobRun(ctx context.Context, name, runID string) (*
 		}
 	}
 
-	return nil, ErrNotFound
+	return nil, notFoundErr("Job run", runID)
 }
 
 func (b *InMemoryBackend) DescribeJobRun(ctx context.Context, name, runID string) (*JobRun, error) {
@@ -468,7 +515,7 @@ func (b *InMemoryBackend) DescribeJobRun(ctx context.Context, name, runID string
 	runStore := b.jobRunsStoreRO(region)
 	runs, ok := runStore[name]
 	if !ok {
-		return nil, ErrNotFound
+		return nil, notFoundErr("Job", name)
 	}
 
 	for _, run := range runs {
@@ -479,7 +526,7 @@ func (b *InMemoryBackend) DescribeJobRun(ctx context.Context, name, runID string
 		}
 	}
 
-	return nil, ErrNotFound
+	return nil, notFoundErr("Job run", runID)
 }
 
 func jobCopy(j *Job) *Job {
@@ -583,4 +630,15 @@ func validateValidationConfigurations(vcs []ValidationConfiguration) error {
 	}
 
 	return nil
+}
+
+// SetJobRunDelay overrides how long a job run takes to reach SUCCEEDED; d <= 0 restores the built-in default.
+func (b *InMemoryBackend) SetJobRunDelay(d time.Duration) { b.runDelayNanos.Store(int64(d)) }
+
+func (b *InMemoryBackend) jobRunDelay() time.Duration {
+	if d := time.Duration(b.runDelayNanos.Load()); d > 0 {
+		return d
+	}
+
+	return jobRunTransitionDelay
 }

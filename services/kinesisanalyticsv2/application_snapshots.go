@@ -23,7 +23,7 @@ func (b *InMemoryBackend) CreateApplicationSnapshot(
 	}
 
 	// Real AWS requires application to be RUNNING before snapshot creation.
-	if app.ApplicationStatus != ApplicationStatusRunning {
+	if app.effectiveStatus() != ApplicationStatusRunning {
 		return nil, ErrAlreadyExists
 	}
 

@@ -71,6 +71,10 @@ func (h *Handler) handleListAppVersionResourceMappings(
 		return nil, err
 	}
 
+	if err := validatePage(req.NextToken, int(req.MaxResults)); err != nil {
+		return nil, err
+	}
+
 	p, err := h.Backend.ListAppVersionResourceMappings(req.AppArn, req.AppVersion, req.NextToken, int(req.MaxResults))
 	if err != nil {
 		return nil, err
@@ -226,6 +230,10 @@ func (h *Handler) handleListAppInputSources(_ context.Context, _ *http.Request, 
 		MaxResults int32  `json:"maxResults,omitempty"`
 	}
 	if err := decodeJSONBody(body, &req); err != nil {
+		return nil, err
+	}
+
+	if err := validatePage(req.NextToken, int(req.MaxResults)); err != nil {
 		return nil, err
 	}
 

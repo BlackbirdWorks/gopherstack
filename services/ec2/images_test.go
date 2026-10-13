@@ -194,35 +194,15 @@ func TestHTTP_CopyImage(t *testing.T) {
 func TestDescribeImages_Pagination(t *testing.T) {
 	t.Parallel()
 
-	const stubAMICount = 3 // number of pre-seeded stub AMIs in InMemoryBackend
-
 	tests := []struct {
 		name       string
-		numImages  int // extra images added beyond stubs
+		numImages  int // images added; the name filter hides the seeded catalog
 		maxResults int
 		wantPages  int
 	}{
-		{
-			// 3 stubs + 3 extra = 6 total; maxResults=2 → 3 pages.
-			name:       "paginates across three pages",
-			numImages:  3,
-			maxResults: 2,
-			wantPages:  3,
-		},
-		{
-			// 3 stubs; maxResults=10 → single page.
-			name:       "single page when all fit",
-			numImages:  0,
-			maxResults: 10,
-			wantPages:  1,
-		},
-		{
-			// 3 stubs; maxResults=3 → single page exactly.
-			name:       "exact boundary no second page",
-			numImages:  0,
-			maxResults: stubAMICount,
-			wantPages:  1,
-		},
+		{name: "paginates across three pages", numImages: 5, maxResults: 2, wantPages: 3},
+		{name: "single page when all fit", numImages: 3, maxResults: 10, wantPages: 1},
+		{name: "exact boundary no second page", numImages: 3, maxResults: 3, wantPages: 1},
 	}
 
 	for _, tc := range tests {
@@ -245,9 +225,11 @@ func TestDescribeImages_Pagination(t *testing.T) {
 
 			for {
 				vals := url.Values{
-					"Action":     {"DescribeImages"},
-					"Version":    {"2016-11-15"},
-					"MaxResults": {strconv.Itoa(tc.maxResults)},
+					"Action":           {"DescribeImages"},
+					"Version":          {"2016-11-15"},
+					"MaxResults":       {strconv.Itoa(tc.maxResults)},
+					"Filter.1.Name":    {"name"},
+					"Filter.1.Value.1": {"test-ami-*"},
 				}
 				if nextToken != "" {
 					vals.Set("NextToken", nextToken)

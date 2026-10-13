@@ -25,7 +25,7 @@ func TestDetective_Members(t *testing.T) { //nolint:paralleltest // existing iss
 			method: http.MethodPost,
 			path:   "/graph/members",
 			body: map[string]any{
-				"GraphArn": "arn:aws:detective:us-east-1:000000000000:graph:notexists",
+				"GraphArn": missingGraphARN,
 				"Accounts": []any{},
 			},
 			wantCode: http.StatusNotFound,
@@ -42,7 +42,7 @@ func TestDetective_Members(t *testing.T) { //nolint:paralleltest // existing iss
 			method: http.MethodPost,
 			path:   "/graph/members/removal",
 			body: map[string]any{
-				"GraphArn":   "arn:aws:detective:us-east-1:000000000000:graph:notexists",
+				"GraphArn":   missingGraphARN,
 				"AccountIds": []string{"111111111111"},
 			},
 			wantCode: http.StatusNotFound,
@@ -52,16 +52,18 @@ func TestDetective_Members(t *testing.T) { //nolint:paralleltest // existing iss
 			method: http.MethodPost,
 			path:   "/graph/members/get",
 			body: map[string]any{
-				"GraphArn":   "arn:aws:detective:us-east-1:000000000000:graph:notexists",
+				"GraphArn":   missingGraphARN,
 				"AccountIds": []string{"111111111111"},
 			},
 			wantCode: http.StatusNotFound,
 		},
 		{
-			name:     "ListMembers without graph returns 404",
-			method:   http.MethodPost,
-			path:     "/graph/members/list",
-			body:     map[string]any{"GraphArn": "arn:aws:detective:us-east-1:000000000000:graph:notexists"},
+			name:   "ListMembers without graph returns 404",
+			method: http.MethodPost,
+			path:   "/graph/members/list",
+			body: map[string]any{
+				"GraphArn": missingGraphARN,
+			},
 			wantCode: http.StatusNotFound,
 		},
 		{
@@ -633,10 +635,12 @@ func TestDetective_Invitations(t *testing.T) { //nolint:paralleltest // existing
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "AcceptInvitation unknown graph returns 404",
-			method:   http.MethodPut,
-			path:     "/invitation",
-			body:     map[string]any{"GraphArn": "arn:aws:detective:us-east-1:000000000000:graph:doesnotexist"},
+			name:   "AcceptInvitation unknown graph returns 404",
+			method: http.MethodPut,
+			path:   "/invitation",
+			body: map[string]any{
+				"GraphArn": missingGraphARN,
+			},
 			wantCode: http.StatusNotFound,
 		},
 		{
@@ -647,10 +651,12 @@ func TestDetective_Invitations(t *testing.T) { //nolint:paralleltest // existing
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "RejectInvitation unknown graph returns 404",
-			method:   http.MethodPost,
-			path:     "/invitation/removal",
-			body:     map[string]any{"GraphArn": "arn:aws:detective:us-east-1:000000000000:graph:doesnotexist"},
+			name:   "RejectInvitation unknown graph returns 404",
+			method: http.MethodPost,
+			path:   "/invitation/removal",
+			body: map[string]any{
+				"GraphArn": missingGraphARN,
+			},
 			wantCode: http.StatusNotFound,
 		},
 		{
@@ -661,10 +667,12 @@ func TestDetective_Invitations(t *testing.T) { //nolint:paralleltest // existing
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "DisassociateMembership unknown graph returns 404",
-			method:   http.MethodPost,
-			path:     "/membership/removal",
-			body:     map[string]any{"GraphArn": "arn:aws:detective:us-east-1:000000000000:graph:doesnotexist"},
+			name:   "DisassociateMembership unknown graph returns 404",
+			method: http.MethodPost,
+			path:   "/membership/removal",
+			body: map[string]any{
+				"GraphArn": missingGraphARN,
+			},
 			wantCode: http.StatusNotFound,
 		},
 	}

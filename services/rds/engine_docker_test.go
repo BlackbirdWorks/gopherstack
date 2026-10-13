@@ -107,10 +107,11 @@ func newDockerEngineBackend(t *testing.T) (*rds.InMemoryBackend, *recordingEngin
 	return b, rec
 }
 
-func openEngineDB(t *testing.T, kind string, inst rds.DBInstance, user, password string) *sql.DB {
+func openEngineDB(t *testing.T, kind string, inst rds.DBInstance, password string) *sql.DB {
 	t.Helper()
 
 	addr := net.JoinHostPort(inst.Endpoint, strconv.Itoa(inst.Port))
+	const user = "master"
 
 	var (
 		db  *sql.DB
@@ -171,7 +172,7 @@ func TestEngineDockerRealDatabases(t *testing.T) {
 
 			assert.Equal(t, "127.0.0.1", inst.Endpoint)
 
-			db := openEngineDB(t, tt.kind, inst, "master", "firstpass1")
+			db := openEngineDB(t, tt.kind, inst, "firstpass1")
 			require.NoError(t, db.PingContext(t.Context()))
 			_, err = db.ExecContext(t.Context(), tt.createStmt)
 			require.NoError(t, err)
@@ -186,11 +187,11 @@ func TestEngineDockerRealDatabases(t *testing.T) {
 				rds.DBInstanceOptions{MasterUserPassword: "secondpass2", ApplyImmediately: true})
 			require.NoError(t, err)
 
-			fresh := openEngineDB(t, tt.kind, inst, "master", "secondpass2")
+			fresh := openEngineDB(t, tt.kind, inst, "secondpass2")
 			require.NoError(t, fresh.PingContext(t.Context()))
 			require.NoError(t, fresh.QueryRowContext(t.Context(), "SELECT name FROM items WHERE id = 1").Scan(&name))
 
-			old := openEngineDB(t, tt.kind, inst, "master", "firstpass1")
+			old := openEngineDB(t, tt.kind, inst, "firstpass1")
 			require.Error(t, old.PingContext(t.Context()))
 
 			ids := rec.containerIDs()

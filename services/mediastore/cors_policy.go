@@ -1,6 +1,9 @@
 package mediastore
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // PutCorsPolicy stores a CORS policy for a container.
 func (b *InMemoryBackend) PutCorsPolicy(ctx context.Context, name string, rules []CorsRule) error {
@@ -21,12 +24,18 @@ func (b *InMemoryBackend) PutCorsPolicy(ctx context.Context, name string, rules 
 
 	region := regionFromContext(ctx)
 
+	b.advanceContainerStates(time.Now())
+
 	b.mu.Lock("PutCorsPolicy")
 	defer b.mu.Unlock()
 
 	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
+	}
+
+	if err := requireActive(c); err != nil {
+		return err
 	}
 
 	ptrs := make([]*CorsRule, len(rules))
@@ -44,12 +53,18 @@ func (b *InMemoryBackend) PutCorsPolicy(ctx context.Context, name string, rules 
 func (b *InMemoryBackend) GetCorsPolicy(ctx context.Context, name string) ([]CorsRule, error) {
 	region := regionFromContext(ctx)
 
+	b.advanceContainerStates(time.Now())
+
 	b.mu.RLock("GetCorsPolicy")
 	defer b.mu.RUnlock()
 
 	c, exists := b.getContainer(region, name)
 	if !exists {
 		return nil, ErrContainerNotFound
+	}
+
+	if err := requireActive(c); err != nil {
+		return nil, err
 	}
 
 	if c.CorsPolicy == nil {
@@ -68,12 +83,18 @@ func (b *InMemoryBackend) GetCorsPolicy(ctx context.Context, name string) ([]Cor
 func (b *InMemoryBackend) DeleteCorsPolicy(ctx context.Context, name string) error {
 	region := regionFromContext(ctx)
 
+	b.advanceContainerStates(time.Now())
+
 	b.mu.Lock("DeleteCorsPolicy")
 	defer b.mu.Unlock()
 
 	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
+	}
+
+	if err := requireActive(c); err != nil {
+		return err
 	}
 
 	if c.CorsPolicy == nil {

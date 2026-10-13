@@ -182,7 +182,7 @@ func datasetToMap(ds *Dataset) map[string]any {
 		keySchemaArn:           ds.SchemaArn,
 		keyName:                ds.Name,
 		"datasetType":          ds.DatasetType,
-		keyStatus:              ds.Status,
+		keyStatus:              ds.lc.resourceStatus(ds.Status, ds.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(ds.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(ds.LastUpdatedDateTime),
 	}
@@ -196,7 +196,7 @@ func datasetImportJobToMap(job *DatasetImportJob) map[string]any {
 		keyRoleArn:             job.RoleArn,
 		"dataSource":           job.DataSource,
 		"importMode":           job.ImportMode,
-		keyStatus:              job.Status,
+		keyStatus:              job.lc.resourceStatus(job.Status, job.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
 	}
@@ -215,7 +215,7 @@ func datasetExportJobToMap(job *DatasetExportJob) map[string]any {
 		keyRoleArn:             job.RoleArn,
 		keyJobOutput:           job.JobOutput,
 		"ingestionMode":        job.IngestionMode,
-		keyStatus:              job.Status,
+		keyStatus:              job.lc.resourceStatus(job.Status, job.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
 	}
@@ -228,7 +228,7 @@ func datasetSummaryToMap(ds *Dataset) map[string]any {
 		keyDatasetArn:          ds.DatasetArn,
 		keyName:                ds.Name,
 		"datasetType":          ds.DatasetType,
-		keyStatus:              ds.Status,
+		keyStatus:              ds.lc.resourceStatus(ds.Status, ds.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(ds.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(ds.LastUpdatedDateTime),
 	}
@@ -246,7 +246,7 @@ func datasetImportJobSummaryToMap(job *DatasetImportJob) map[string]any {
 		keyDatasetImportJobArn: job.DatasetImportJobArn,
 		keyJobName:             job.JobName,
 		"importMode":           job.ImportMode,
-		keyStatus:              job.Status,
+		keyStatus:              job.lc.resourceStatus(job.Status, job.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
 	}
@@ -260,7 +260,7 @@ func datasetExportJobSummaryToMap(job *DatasetExportJob) map[string]any {
 	return map[string]any{
 		keyDatasetExportJobArn: job.DatasetExportJobArn,
 		keyJobName:             job.JobName,
-		keyStatus:              job.Status,
+		keyStatus:              job.lc.resourceStatus(job.Status, job.CreationDateTime),
 		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
 	}
