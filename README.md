@@ -368,6 +368,8 @@ By default resources settle instantly. Set a dwell to make Creating/Processing/P
 | `--lifecycle-mgn` | `MGN_LIFECYCLE_DELAY` | Application Migration Service replication/job/import per-hop window (built-in `100ms`). |
 | `--lifecycle-forecast` | `FORECAST_LIFECYCLE_DELAY` | Forecast resource CREATE_PENDING/CREATE_IN_PROGRESS window. |
 | `--lifecycle-networkmonitor` | `NETWORKMONITOR_LIFECYCLE_DELAY` | Network Monitor monitor and probe PENDING window. |
+| `--lifecycle-route53-recovery` | `ROUTE53_RECOVERY_LIFECYCLE_DELAY` | Route 53 ARC control plane PENDING and PENDING_DELETION window for clusters, control panels, routing controls and safety rules. |
+| `--lifecycle-arczonalshift` | `ARCZONALSHIFT_PRACTICE_RUN_DURATION` | ARC zonal shift practice run ACTIVE window; 0 keeps the built-in 30m; ignores the global delay. |
 | `--lifecycle-managedblockchain` | `MANAGEDBLOCKCHAIN_LIFECYCLE_DELAY` | Managed Blockchain network/member/node CREATING window. |
 | `--lifecycle-cleanrooms` | `CLEANROOMS_LIFECYCLE_DELAY` | Clean Rooms protected query and job SUBMITTED window. |
 | `--lifecycle-resourcegroups` | `RESOURCEGROUPS_LIFECYCLE_DELAY` | Resource Groups transitional window. |
@@ -631,6 +633,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [API Gateway](services/apigateway/README.md) | A | 123 | 2 gaps; 1 structural gap; 2 deferred |
 | [API Gateway Management API](services/apigatewaymanagementapi/README.md) | A | 3 | 2 deferred |
 | [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 5 gaps; 1 structural gap |
+| [ARC Zonal Shift](services/arczonalshift/README.md) | B | 15 | 1 gap; 1 structural gap |
 | [App Mesh](services/appmesh/README.md) | A | 38 | 1 structural gap |
 | [Cloud Map](services/servicediscovery/README.md) | A | 30 | 4 structural gaps; 1 deferred |
 | [CloudFront](services/cloudfront/README.md) | A | 60 | 2 gaps; 4 structural gaps; 4 deferred |
@@ -638,6 +641,9 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [ELB (Classic)](services/elb/README.md) | A | 29 | 1 gap; 1 deferred |
 | [ELBv2](services/elbv2/README.md) | A | 51 | 2 gaps; 2 structural gaps; 2 deferred |
 | [Route 53](services/route53/README.md) | A | 67 | 3 deferred |
+| [Route 53 Recovery Cluster](services/route53recoverycluster/README.md) | A | 4 | clean |
+| [Route 53 Recovery Control Config](services/route53recoverycontrolconfig/README.md) | A | 25 | 1 structural gap |
+| [Route 53 Recovery Readiness](services/route53recoveryreadiness/README.md) | B | 32 | 2 gaps |
 | [Route 53 Resolver](services/route53resolver/README.md) | A | 72 | 4 gaps; 1 structural gap; 1 deferred |
 | [VPC Lattice](services/vpclattice/README.md) | A | 73 | 1 gap; 3 structural gaps |
 

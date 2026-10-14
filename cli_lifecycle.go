@@ -9,6 +9,7 @@ import (
 	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
 	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
 	appstreambackend "github.com/blackbirdworks/gopherstack/services/appstream"
+	arczonalshiftbackend "github.com/blackbirdworks/gopherstack/services/arczonalshift"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
@@ -65,6 +66,7 @@ import (
 	rekognitionbackend "github.com/blackbirdworks/gopherstack/services/rekognition"
 	resiliencehubbackend "github.com/blackbirdworks/gopherstack/services/resiliencehub"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
+	recoverycontrolbackend "github.com/blackbirdworks/gopherstack/services/route53recoverycontrolconfig"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
@@ -160,6 +162,8 @@ type LifecycleSettings struct {
 	CodeStarConnections          time.Duration `name:"codestarconnections"            env:"CODESTARCONNECTIONS_LIFECYCLE_DELAY"  default:"0s" help:"CodeStar Connections connection handshake and host setup PENDING window; hosts stay PENDING when 0."` //nolint:lll // config struct tags are intentionally verbose
 	CloudControl                 time.Duration `name:"cloudcontrol"                   env:"CLOUDCONTROL_OPERATION_DELAY"         default:"0s" help:"Cloud Control Create/Update/DeleteResource IN_PROGRESS window."`                                      //nolint:lll // config struct tags are intentionally verbose
 	MediaPackage                 time.Duration `name:"mediapackage"                   env:"MEDIAPACKAGE_HARVEST_JOB_DELAY"       default:"0s" help:"MediaPackage harvest job IN_PROGRESS window; 0 keeps the built-in 1s."`                               //nolint:lll // config struct tags are intentionally verbose
+	Route53Recovery              time.Duration `name:"route53-recovery"               env:"ROUTE53_RECOVERY_LIFECYCLE_DELAY"     default:"0s" help:"Route 53 ARC control plane PENDING/PENDING_DELETION window."`                                         //nolint:lll // config struct tags are intentionally verbose
+	ARCZonalShift                time.Duration `name:"arczonalshift"                  env:"ARCZONALSHIFT_PRACTICE_RUN_DURATION"  default:"0s" help:"ARC zonal shift practice run ACTIVE window; 0 keeps the built-in 30m; ignores the global delay."`     //nolint:lll // config struct tags are intentionally verbose
 	EKS                          time.Duration `name:"eks"                            env:"EKS_LIFECYCLE_DELAY"                  default:"0s" help:"EKS transitional-state window (built-in 100ms)."`                                                     //nolint:lll // config struct tags are intentionally verbose
 }
 
@@ -745,6 +749,18 @@ func applyCodeStarConnections(reg service.Registerable, l LifecycleSettings) {
 	}
 }
 
+func applyRoute53Recovery(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*recoverycontrolbackend.Handler); ok {
+		h.Backend.SetActivationDelay(l.effective(l.Route53Recovery))
+	}
+}
+
+func applyARCZonalShift(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*arczonalshiftbackend.Handler); ok {
+		h.Backend.SetPracticeRunDuration(l.ARCZonalShift)
+	}
+}
+
 // wireLifecycleDelays applies the configured dwell times to the already
 // initialized service backends; zero values leave services instant.
 func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSettings) {
@@ -824,6 +840,9 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSett
 		"ServerlessRepo":      applyServerlessRepo,
 		"CodeConnections":     applyCodeConnections,
 		"CodeStarConnections": applyCodeStarConnections,
+
+		"Route53RecoveryControlConfig": applyRoute53Recovery,
+		"ARCZonalShift":                applyARCZonalShift,
 	}
 
 	for name, apply := range appliers {

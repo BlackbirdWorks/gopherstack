@@ -170,6 +170,7 @@ with evidence · unknown-key behaviour · notes.
 | appstream | appstream | rpc-v2-cbor / `deserializeCBOR_*` (GENERATED, but under a non-`awsXxx_` scheme) | v1.64.5 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped | CORRECTED 2026-08-14: an earlier revision of this row called these functions hand-written. They are generated, present in the pinned SDK's own serializers.go and deserializers.go — just not under the `awsXxx_` prefix the other protocols use. What IS hand-rolled is gopherstack's own extraction off a `cbor.Map`, which is why this service is case-sensitive. |
 | appsync | appsync | REST-JSON 1 / `awsRestjson1_` | v1.56.4 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped |  |
 | athena | athena | JSON-RPC 1.1 / `awsAwsjson11_` | v1.60.4 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped |  |
+| arczonalshift | arczonalshift | REST-JSON 1 / smithy schema-serde (`schemas.go`; no `awsRestjson1_`) | v1.34.1 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped |  |
 | autoscaling | autoscaling | AWS Query (XML) / `awsAwsquery_` | v1.70.4 | Case-insensitive (`strings.EqualFold` on element/field name) | Silently dropped |  |
 | awsconfig | configservice | JSON-RPC 1.1 / `awsAwsjson11_` | v1.68.4 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped |  |
 | backup | backup | REST-JSON 1 / `awsRestjson1_` | v1.59.4 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped |  |
@@ -284,6 +285,9 @@ with evidence · unknown-key behaviour · notes.
 | resourcegroupstaggingapi | resourcegroupstaggingapi | JSON-RPC 1.1 / `awsAwsjson11_` | v1.35.4 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped |  |
 | rolesanywhere | rolesanywhere | REST-JSON 1 / `awsRestjson1_` | v1.26.3 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped |  |
 | route53 | route53 | REST-XML / `awsRestxml_` | v1.65.6 | Case-insensitive (`strings.EqualFold` on element/field name) | Silently dropped |  |
+| route53recoverycluster | route53recoverycluster | JSON-RPC 1.0 / `awsAwsjson10_` | v1.36.4 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped |  |
+| route53recoverycontrolconfig | route53recoverycontrolconfig | REST-JSON 1 / `awsRestjson1_` | v1.40.4 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped |  |
+| route53recoveryreadiness | route53recoveryreadiness | REST-JSON 1 / `awsRestjson1_` | v1.34.4 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped |  |
 | route53resolver | route53resolver | JSON-RPC 1.1 / `awsAwsjson11_` | v1.48.4 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped |  |
 | s3 | s3 | REST-XML / `awsRestxml_` | v1.106.5 | Case-insensitive (`strings.EqualFold` on element/field name) | Silently dropped |  |
 | s3control | s3control | REST-XML / `awsRestxml_` | v1.73.4 | Case-insensitive (`strings.EqualFold` on element/field name) | Silently dropped |  |

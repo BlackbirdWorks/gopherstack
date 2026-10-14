@@ -232,7 +232,7 @@ func (b *InMemoryBackend) GetHealthCheckStatus(id string) (string, error) {
 		return "", fmt.Errorf("%w: health check %s not found", ErrHealthCheckNotFound, id)
 	}
 
-	return hc.Status, nil
+	return b.effectiveStatus(hc), nil
 }
 
 // SetHealthCheckStatus overrides the mocked health status for a health check.

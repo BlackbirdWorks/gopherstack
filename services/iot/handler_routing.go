@@ -26,13 +26,21 @@ func matchIoTPath(method, path, svc string) bool {
 		return matchIoTJobsShape(method, path) && (svc == "" || svc == iotServiceName)
 	}
 
-	if isIoTWirelessSharedPath(path) && svc != "" && svc != iotServiceName {
+	if claimedByOtherScope(path, svc) {
 		return false
 	}
 
 	return matchCoreIoTPath(path) || matchNewIoTPath(path) || matchBatch4Path(path) ||
 		matchFinalOpsPath(path) || matchTaggableResourcePath(path) || matchCACertPath(path) ||
 		matchPolicyPrincipalPath(path) || matchCertificateTransferPath(path) || matchMiscUnroutedPath(path)
+}
+
+// pathListRules is IoT's ListTopicRules path; Route 53 Recovery Readiness ListRules uses the same path.
+const pathListRules = "/rules"
+
+// claimedByOtherScope reports shared paths whose request is signed for a different service.
+func claimedByOtherScope(path, svc string) bool {
+	return (isIoTWirelessSharedPath(path) || path == pathListRules) && svc != "" && svc != iotServiceName
 }
 
 // isIoTWirelessSharedPath reports paths IoT Wireless also serves (destinations, event-configurations, tags).
