@@ -312,6 +312,7 @@ type Table struct {
 	mu                   *lockmetrics.RWMutex
 	activateTimer        *time.Timer
 	scanOrder            atomic.Pointer[scanOrderCache]
+	scanLog              []scanOp
 	Tags                 *tags.Tags           `json:"Tags,omitempty"`
 	AutoScaling          *autoScalingSettings `json:"AutoScaling,omitempty"`
 	// ReplicaAutoScaling holds per-replica read-capacity autoscaling settings,
@@ -358,6 +359,7 @@ type Table struct {
 	StreamShards               []StreamShard                           `json:"StreamShards,omitempty"`
 	ProvisionedThroughput      models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	itemsVersion               uint64
+	scanLogBase                uint64
 	totalItemSizeBytes         int64
 	streamSeq                  int64
 	StreamHead                 int `json:"StreamHead,omitempty"`
@@ -701,6 +703,12 @@ func (t *Table) initializeIndexes() {
 // rebuildIndexes rebuilds all indexes from existing items (used after table creation or batch updates).
 func (t *Table) rebuildIndexes() {
 	t.itemsChanged()
+	t.rebuildDerivedState()
+}
+
+// rebuildDerivedState recomputes key indexes and item sizes without touching the
+// scan-order log; callers must have logged or invalidated their Items changes.
+func (t *Table) rebuildDerivedState() {
 	t.initializeIndexes()
 
 	// Rebuild the item-size accounting alongside the key indexes. itemSizes has

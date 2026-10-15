@@ -78,6 +78,7 @@ var (
 	ErrNoMetadataTableConfig      = errors.New(errNoSuchConfig)
 	ErrNoSuchTagSet               = errors.New("NoSuchTagSet")
 	ErrBadChecksum                = errors.New("BadDigest")
+	ErrInvalidDigest              = errors.New("InvalidDigest")
 	ErrDeleteMarker               = errors.New("DeleteMarker")
 	ErrLatestDeleteMarker         = errors.New("LatestDeleteMarker")
 	ErrTooManyTags                = errors.New("BadRequest")
@@ -411,6 +412,11 @@ func coreErrorTableObject() []s3ErrorEntry {
 
 func configErrorTable() []s3ErrorEntry {
 	return []s3ErrorEntry{
+		{ErrInvalidDigest, s3ErrorInfo{
+			"InvalidDigest",
+			"The Content-MD5 you specified was invalid.",
+			http.StatusBadRequest,
+		}},
 		{ErrNoBucketPolicy, s3ErrorInfo{
 			"NoSuchBucketPolicy",
 			"The bucket policy does not exist",

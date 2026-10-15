@@ -45,6 +45,14 @@ func (h *S3Handler) handleBucketOperation(
 	r *http.Request,
 	bucket string,
 ) {
+	if r.Method == http.MethodPut || r.Method == http.MethodPost {
+		if err := verifyBodyContentMD5(r); err != nil {
+			WriteError(ctx, w, r, err)
+
+			return
+		}
+	}
+
 	switch r.Method {
 	case http.MethodPut:
 		h.routeBucketPut(ctx, w, r, bucket)

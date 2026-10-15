@@ -3,7 +3,6 @@ package s3
 import (
 	"bytes"
 	"context"
-	"crypto/md5" //nolint:gosec // MD5 required for S3 ETag compatibility
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -1292,15 +1291,13 @@ func (b *InMemoryBackend) computeObjectHashes(
 
 // validateContentMD5 validates the Content-MD5 header from context against the computed etag.
 func (b *InMemoryBackend) validateContentMD5(ctx context.Context, _ []byte, etag string) error {
-	if md5Header, ok := ctx.Value(md5Key).(string); ok && md5Header != "" {
-		decoded, dErr := base64.StdEncoding.DecodeString(md5Header)
-		if dErr != nil || len(decoded) != md5.Size {
-			return ErrBadChecksum
-		}
+	decoded, dErr := contentMD5FromContext(ctx)
+	if dErr != nil {
+		return dErr
+	}
 
-		if hex.EncodeToString(decoded) != etag {
-			return ErrBadChecksum
-		}
+	if decoded != nil && hex.EncodeToString(decoded) != etag {
+		return ErrBadChecksum
 	}
 
 	return nil

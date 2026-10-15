@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -686,13 +687,26 @@ func getAttributeType(
 	return defaultType
 }
 
-// findExclusiveStartIndex finds the index after the ExclusiveStartKey in the candidates list.
-// Returns 0 if ExclusiveStartKey is nil or not found.
+// findExclusiveStartIndex returns the index just past the ExclusiveStartKey in candidates,
+// sorted ascending by the index sort key.
 func findExclusiveStartIndex(
 	candidates []map[string]any,
 	exclusiveStartKey map[string]any,
 	keySchema []models.KeySchemaElement,
 	tableKeySchema []models.KeySchemaElement,
+) int {
+	return queryStartIndex(candidates, exclusiveStartKey, keySchema, tableKeySchema, true)
+}
+
+// queryStartIndex returns the index of the first candidate after the ExclusiveStartKey in
+// query order. The key is a position: if its item is gone, the next candidate in sort order
+// is returned. candidates must already be sorted in the query direction.
+func queryStartIndex(
+	candidates []map[string]any,
+	exclusiveStartKey map[string]any,
+	keySchema []models.KeySchemaElement,
+	tableKeySchema []models.KeySchemaElement,
+	forward bool,
 ) int {
 	if len(exclusiveStartKey) == 0 {
 		return 0
@@ -707,7 +721,50 @@ func findExclusiveStartIndex(
 		}
 	}
 
-	return 0
+	startSK, ok := exclusiveStartKey[skDef.AttributeName]
+	if skDef.AttributeName == "" || !ok {
+		return 0
+	}
+
+	typ := sortKeyType(startSK)
+
+	for i, item := range candidates {
+		c := compareSortKeyValues(item[skDef.AttributeName], startSK, typ)
+		if !forward {
+			c = -c
+		}
+
+		if c > 0 {
+			return i
+		}
+	}
+
+	return len(candidates)
+}
+
+// sortKeyType returns the DynamoDB scalar type tag ("N", "S" or "B") of a wire attribute.
+func sortKeyType(v any) string {
+	if m, ok := v.(map[string]any); ok {
+		for _, t := range []string{"N", "B"} {
+			if _, has := m[t]; has {
+				return t
+			}
+		}
+	}
+
+	return "S"
+}
+
+// compareSortKeyValues orders two sort-key values the way sortCandidates does.
+func compareSortKeyValues(a, b any, typ string) int {
+	if typ == "N" {
+		an, _ := dynamoattr.ParseNumeric(a)
+		bn, _ := dynamoattr.ParseNumeric(b)
+
+		return cmp.Compare(an, bn)
+	}
+
+	return cmp.Compare(dynamoattr.ToString(a), dynamoattr.ToString(b))
 }
 
 // itemMatchesStartKeyMap reports whether item matches the ExclusiveStartKey for the given
