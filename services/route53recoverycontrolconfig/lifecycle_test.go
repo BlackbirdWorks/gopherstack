@@ -40,7 +40,7 @@ func TestActivationDelay(t *testing.T) {
 				b := cc.NewInMemoryBackend(testAccount)
 				b.SetActivationDelay(tt.delay)
 
-				cl, err := b.CreateCluster("c", "", "", nil)
+				cl, err := b.CreateCluster(t.Context(), "c", "", "", nil)
 				require.NoError(t, err)
 
 				rc, err := b.CreateRoutingControl(cl.ClusterArn, "", "r", "")
@@ -48,7 +48,7 @@ func TestActivationDelay(t *testing.T) {
 
 				time.Sleep(tt.elapsed)
 
-				got, err := b.DescribeCluster(cl.ClusterArn)
+				got, err := b.DescribeCluster(t.Context(), cl.ClusterArn)
 				require.NoError(t, err)
 				assert.Equal(t, tt.wantStatus, got.Status)
 				assert.Equal(t, tt.wantEndpoints, len(got.ClusterEndpoints) > 0)
@@ -82,18 +82,18 @@ func TestPendingDeletion(t *testing.T) {
 				b := cc.NewInMemoryBackend(testAccount)
 				b.SetActivationDelay(time.Minute)
 
-				cl, err := b.CreateCluster("c", "", "", nil)
+				cl, err := b.CreateCluster(t.Context(), "c", "", "", nil)
 				require.NoError(t, err)
 
 				time.Sleep(2 * time.Minute)
 				require.NoError(t, b.DeleteCluster(cl.ClusterArn))
 				time.Sleep(tt.elapsed)
 
-				got, err := b.DescribeCluster(cl.ClusterArn)
+				got, err := b.DescribeCluster(t.Context(), cl.ClusterArn)
 				if tt.wantGone {
 					require.Error(t, err)
 
-					list, _, lErr := b.ListClusters("", 0)
+					list, _, lErr := b.ListClusters(t.Context(), "", 0)
 					require.NoError(t, lErr)
 					assert.Empty(t, list)
 
@@ -103,7 +103,7 @@ func TestPendingDeletion(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tt.wantStatus, got.Status)
 
-				list, _, err := b.ListClusters("", 0)
+				list, _, err := b.ListClusters(t.Context(), "", 0)
 				require.NoError(t, err)
 				assert.Len(t, list, 1)
 			})

@@ -633,7 +633,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [API Gateway](services/apigateway/README.md) | A | 123 | 2 gaps; 1 structural gap; 2 deferred |
 | [API Gateway Management API](services/apigatewaymanagementapi/README.md) | A | 3 | 2 deferred |
 | [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 5 gaps; 1 structural gap |
-| [ARC Zonal Shift](services/arczonalshift/README.md) | B | 15 | 1 gap; 1 structural gap |
+| [ARC Zonal Shift](services/arczonalshift/README.md) | A | 15 | 1 structural gap |
 | [App Mesh](services/appmesh/README.md) | A | 38 | 1 structural gap |
 | [Cloud Map](services/servicediscovery/README.md) | A | 30 | 4 structural gaps; 1 deferred |
 | [CloudFront](services/cloudfront/README.md) | A | 60 | 2 gaps; 4 structural gaps; 4 deferred |
@@ -643,7 +643,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Route 53](services/route53/README.md) | A | 67 | 3 deferred |
 | [Route 53 Recovery Cluster](services/route53recoverycluster/README.md) | A | 4 | clean |
 | [Route 53 Recovery Control Config](services/route53recoverycontrolconfig/README.md) | A | 25 | 1 structural gap |
-| [Route 53 Recovery Readiness](services/route53recoveryreadiness/README.md) | B | 32 | 2 gaps |
+| [Route 53 Recovery Readiness](services/route53recoveryreadiness/README.md) | A | 32 | 1 structural gap |
 | [Route 53 Resolver](services/route53resolver/README.md) | A | 72 | 4 gaps; 1 structural gap; 1 deferred |
 | [VPC Lattice](services/vpclattice/README.md) | A | 73 | 1 gap; 3 structural gaps |
 

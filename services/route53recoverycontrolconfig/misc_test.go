@@ -64,7 +64,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	assert.Equal(t, map[string]string{"k": "v"}, tags)
 
 	require.NoError(t, restored.Restore(ctx, []byte(`{"version":999}`)))
-	_, err = restored.Backend.DescribeCluster(topo.cluster)
+	_, err = restored.Backend.DescribeCluster(t.Context(), topo.cluster)
 	assert.Error(t, err, "an incompatible snapshot starts empty")
 }
 

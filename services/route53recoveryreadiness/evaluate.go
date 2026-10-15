@@ -42,6 +42,28 @@ func ruleCatalog() []ruleDef {
 		{typeTable, "DynamoDbTableExists", "The table exists", kindExists},
 		{typeTable, "DynamoDbTableActive", "The table status is ACTIVE", kindHealthy},
 		{typeDNSTarget, "DnsTargetRecordExists", "The DNS record exists in the hosted zone", kindExists},
+		{typeAPIGWStage, "ApiGatewayStageExists", "The stage exists", kindExists},
+		{typeAPIGWV2Stage, "ApiGatewayV2StageExists", "The stage exists", kindExists},
+		{typeASG, "AutoScalingGroupExists", "The Auto Scaling group exists", kindExists},
+		{
+			typeASG, "AutoScalingGroupCapacityMet",
+			"The group is not deleting and has at least its minimum size in service", kindHealthy,
+		},
+		{typeCGW, "Ec2CustomerGatewayExists", "The customer gateway exists", kindExists},
+		{typeCGW, "Ec2CustomerGatewayAvailable", "The customer gateway is available", kindHealthy},
+		{typeVolume, "Ec2VolumeExists", "The volume exists", kindExists},
+		{typeVolume, "Ec2VolumeAvailable", "The volume is available or in use", kindHealthy},
+		{typeELBClassic, "ElbLoadBalancerExists", "The classic load balancer exists", kindExists},
+		{typeMSK, "MskClusterExists", "The cluster exists", kindExists},
+		{typeMSK, "MskClusterActive", "The cluster is in the ACTIVE state", kindHealthy},
+		{typeRDSCluster, "RdsDbClusterExists", "The DB cluster exists", kindExists},
+		{typeRDSCluster, "RdsDbClusterAvailable", "The DB cluster is available", kindHealthy},
+		{typeSNSSub, "SnsSubscriptionExists", "The subscription exists", kindExists},
+		{typeSNSSub, "SnsSubscriptionConfirmed", "The subscription is confirmed", kindHealthy},
+		{typeVPNConn, "Ec2VpnConnectionExists", "The VPN connection exists", kindExists},
+		{typeVPNConn, "Ec2VpnConnectionAvailable", "The VPN connection is available", kindHealthy},
+		{typeVPNGateway, "Ec2VpnGatewayExists", "The VPN gateway exists", kindExists},
+		{typeVPNGateway, "Ec2VpnGatewayAvailable", "The VPN gateway is available", kindHealthy},
 	}
 }
 

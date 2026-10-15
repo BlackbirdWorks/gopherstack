@@ -1,9 +1,9 @@
 ---
 service: route53recoveryreadiness
 sdk_module: aws-sdk-go-v2/service/route53recoveryreadiness@v1.34.4
-last_audit_commit: a65519ce2
-last_audit_date: 2026-10-13
-overall: B
+last_audit_commit: 80b7bb8b3
+last_audit_date: 2026-10-14
+overall: A
 ops:
   CreateCell: {wire: ok, errors: ok, state: ok, persist: ok}
   GetCell: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -28,7 +28,7 @@ ops:
   ListReadinessChecks: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateReadinessCheck: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteReadinessCheck: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetReadinessCheckStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "readiness is derived from the live state of the owning sibling service; UNKNOWN when no rule evaluates the type or the sibling is unreachable"}
+  GetReadinessCheckStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "readiness is derived from the live state of the owning sibling service for every documented resource set type; UNKNOWN only when the sibling is unreachable"}
   GetReadinessCheckResourceStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "per-rule results with timestamps; the resource is addressed by ARN or componentId"}
   CreateCrossAccountAuthorization: {wire: ok, errors: ok, state: ok, persist: ok}
   ListCrossAccountAuthorizations: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -41,10 +41,9 @@ families:
   route_matching: {status: ok, note: "matches the SigV4 signing name or SDK user agent plus a known path shape; /rules is shared with IoT and resolved by scope"}
   errors: {status: ok, note: "REST-JSON error bodies carry both message and Message plus X-Amzn-Errortype"}
 gaps: []
-items_still_open:
-  - ListRules: the rule IDs and descriptions are gopherstack-defined; the real ARC rule catalog is not published in the SDK, so parity of IDs is unverifiable
-  - GetReadinessCheckStatus: resource types without an evaluator (API Gateway stages, Auto Scaling groups, EC2 volumes and gateways, ELB classic, MSK, RDS clusters, SNS subscriptions) report UNKNOWN; each needs a sibling lookup
-structural_gaps: []
+items_still_open: []
+structural_gaps:
+  - ListRules IDs and descriptions are gopherstack-defined: the real ARC rule catalog is not published in the SDK, so ID parity is unverifiable
 deferred: []
 leaks: {status: clean, note: "no goroutines or janitors; expiry and lifecycle are derived from the clock at read time"}
 ---
@@ -52,7 +51,7 @@ leaks: {status: clean, note: "no goroutines or janitors; expiry and lifecycle ar
 ## Notes
 
 - Protocol: REST-JSON, camelCase members, ISO-8601 timestamps, SigV4 signing name `route53-recovery-readiness`.
-- Readiness is never assumed. Each resource is evaluated by looking the resource up in the sibling that owns its type (resolved at call time): ELBv2 load balancer (exists, active), Route 53 health check (exists, Healthy), SQS queue, SNS topic, Lambda function, EC2 VPC, CloudWatch alarm (exists, not in ALARM), DynamoDB table (exists, ACTIVE), Route 53 DNS target record (exists in the hosted zone). Anything else, or a sibling that is not reachable, is UNKNOWN with a message. A resource in another account is NOT_AUTHORIZED until a cross-account authorization naming that account exists.
+- Readiness is never assumed. Each resource is evaluated by looking the resource up in the sibling that owns its type (resolved at call time): ELBv2 load balancer (exists, active), Route 53 health check (exists, Healthy), SQS queue, SNS topic, Lambda function, EC2 VPC, CloudWatch alarm (exists, not in ALARM), DynamoDB table (exists, ACTIVE), Route 53 DNS target record (exists in the hosted zone). API Gateway REST and HTTP stages, Auto Scaling group (exists, not deleting, in-service count at least MinSize), EC2 customer gateway, VPN gateway, VPN connection and volume (exists, available or in-use), classic ELB, MSK cluster (ACTIVE), RDS DB cluster (available) and SNS subscription (confirmed). Every resource set type the SDK lists has an evaluator; a sibling that is not reachable is UNKNOWN with a message. Rule sets are existence plus state, not the full AWS capacity and limit checks. A resource in another account is NOT_AUTHORIZED until a cross-account authorization naming that account exists.
 - Check readiness: any NOT_READY gives NOT_READY, then NOT_AUTHORIZED, then UNKNOWN; READY only when every rule of every resource is READY. Cell and recovery group summaries use the same reduction over the checks scoped to them.
 - Architecture recommendations are generated from configuration facts (single or missing cells, resource sets without checks, resource types present in some cells only, groups with no scoped resource sets).
 

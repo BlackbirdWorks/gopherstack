@@ -112,7 +112,17 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 }
 
 // Handler returns the Echo handler.
-func (h *Handler) Handler() echo.HandlerFunc { return h.server.Handler() }
+func (h *Handler) Handler() echo.HandlerFunc {
+	serve := h.server.Handler()
+
+	return func(c *echo.Context) error {
+		if base, ok := requestBase(c.Scheme(), c.Request().Host); ok {
+			c.SetRequest(c.Request().WithContext(context.WithValue(c.Request().Context(), requestBaseCtxKey{}, base)))
+		}
+
+		return serve(c)
+	}
+}
 
 func routes() []restroute.Route {
 	return []restroute.Route{

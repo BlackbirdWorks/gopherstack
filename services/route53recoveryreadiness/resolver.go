@@ -54,14 +54,18 @@ func parseARN(a string) (awsarn.ARN, bool) {
 
 // lookup dispatches on the resource type; unsupported types answer with answered=false.
 func (r resolver) lookup(ctx context.Context, typ, resourceArn string) probe {
-	s, ok := r.siblings()
-	if !ok {
-		return probe{}
-	}
-
 	p, parsed := parseARN(resourceArn)
 	if !parsed {
 		return probe{answered: true, detail: "the resource ARN is not valid"}
+	}
+
+	if pr, handled := r.lookupMore(ctx, typ, p, resourceArn); handled {
+		return pr
+	}
+
+	s, ok := r.siblings()
+	if !ok {
+		return probe{}
 	}
 
 	switch typ {

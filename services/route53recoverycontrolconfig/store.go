@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,16 +18,17 @@ import (
 
 // InMemoryBackend holds the Route 53 ARC control plane: clusters, control panels, routing controls, safety rules.
 type InMemoryBackend struct {
-	appConfig       any
-	registry        *store.Registry
-	clusters        *store.Table[Cluster]
-	panels          *store.Table[ControlPanel]
-	controls        *store.Table[RoutingControl]
-	rules           *store.Table[SafetyRule]
-	tokens          map[string]string
-	mu              *lockmetrics.RWMutex
-	accountID       string
-	activationDelay time.Duration
+	appConfig        any
+	externalEndpoint atomic.Pointer[string]
+	registry         *store.Registry
+	clusters         *store.Table[Cluster]
+	panels           *store.Table[ControlPanel]
+	controls         *store.Table[RoutingControl]
+	rules            *store.Table[SafetyRule]
+	tokens           map[string]string
+	mu               *lockmetrics.RWMutex
+	accountID        string
+	activationDelay  time.Duration
 }
 
 // NewInMemoryBackend creates an empty backend for accountID.

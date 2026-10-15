@@ -135,7 +135,7 @@ func TestReadinessFollowsSiblingState(t *testing.T) {
 		)
 	})
 
-	t.Run("unsupported resource type is unknown", func(t *testing.T) {
+	t.Run("unreachable sibling is unknown", func(t *testing.T) {
 		t.Parallel()
 
 		f := newFixture(t)
@@ -148,9 +148,9 @@ func TestReadinessFollowsSiblingState(t *testing.T) {
 		)
 		require.NoError(t, err)
 		assert.Equal(t, types.ReadinessUnknown, out.Readiness)
-		require.NotEmpty(t, out.Messages)
-		assert.Contains(t, aws.ToString(out.Messages[0].MessageText), "AWS::MSK::Cluster")
-		assert.Empty(t, f.rules(t, rc, arn))
+		assert.Equal(t, map[string]types.Readiness{
+			"MskClusterExists": types.ReadinessUnknown, "MskClusterActive": types.ReadinessUnknown,
+		}, f.rules(t, rc, arn))
 	})
 
 	t.Run("cross account needs authorization", func(t *testing.T) {
@@ -343,7 +343,7 @@ func TestListRules(t *testing.T) {
 	assert.Equal(t, "SqsQueueExists", aws.ToString(one.Rules[0].RuleId))
 	assert.NotEmpty(t, aws.ToString(one.Rules[0].RuleDescription))
 
-	none, err := f.client.ListRules(t.Context(), &sdk.ListRulesInput{ResourceType: aws.String("AWS::MSK::Cluster")})
+	none, err := f.client.ListRules(t.Context(), &sdk.ListRulesInput{ResourceType: aws.String("AWS::Nope::Thing")})
 	require.NoError(t, err)
 	assert.Empty(t, none.Rules)
 }

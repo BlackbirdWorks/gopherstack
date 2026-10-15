@@ -1,6 +1,8 @@
 package route53recoverycontrolconfig
 
 import (
+	"context"
+	"net/url"
 	"strings"
 	"time"
 
@@ -38,8 +40,35 @@ func idOf(arn string) string {
 	return arn
 }
 
-// endpointBase is the externally reachable URL of this server; cluster endpoints are paths below it.
-func (b *InMemoryBackend) endpointBase() string {
+type requestBaseCtxKey struct{}
+
+// requestBase returns scheme://host for the address the caller reached the server on, or false when it is not a
+// plain host[:port].
+func requestBase(scheme, host string) (string, bool) {
+	if scheme != "http" && scheme != "https" {
+		return "", false
+	}
+
+	u, err := url.Parse(scheme + "://" + host)
+	if err != nil || host == "" || u.Host != host || u.User != nil || u.Path != "" || u.RawQuery != "" ||
+		u.Fragment != "" {
+		return "", false
+	}
+
+	return scheme + "://" + host, true
+}
+
+// endpointBase is the URL cluster endpoints hang from: the configured external endpoint, else the scheme and
+// host the caller reached this server on, else the server's own listen address.
+func (b *InMemoryBackend) endpointBase(ctx context.Context) string {
+	if ext := b.externalEndpoint.Load(); ext != nil && *ext != "" {
+		return *ext
+	}
+
+	if base, ok := ctx.Value(requestBaseCtxKey{}).(string); ok {
+		return base
+	}
+
 	if ep, ok := b.appConfig.(interface{ GetEndpoint() string }); ok {
 		return strings.TrimRight(ep.GetEndpoint(), "/")
 	}
@@ -47,7 +76,13 @@ func (b *InMemoryBackend) endpointBase() string {
 	return "http://localhost:4566"
 }
 
-func (b *InMemoryBackend) clusterView(c *Cluster) wireCluster {
+// SetExternalEndpoint pins the base URL of cluster endpoints, overriding the caller's host.
+func (b *InMemoryBackend) SetExternalEndpoint(base string) {
+	base = strings.TrimRight(base, "/")
+	b.externalEndpoint.Store(&base)
+}
+
+func (b *InMemoryBackend) clusterView(ctx context.Context, c *Cluster) wireCluster {
 	v := wireCluster{
 		ClusterArn:  c.ARN,
 		Name:        c.Name,
@@ -59,7 +94,7 @@ func (b *InMemoryBackend) clusterView(c *Cluster) wireCluster {
 	if v.Status == statusDeployed {
 		for _, region := range clusterRegions() {
 			v.ClusterEndpoints = append(v.ClusterEndpoints, wireEndpoint{
-				Endpoint: b.endpointBase() + endpointPrefix + idOf(c.ARN) + "/" + region,
+				Endpoint: b.endpointBase(ctx) + endpointPrefix + idOf(c.ARN) + "/" + region,
 				Region:   region,
 			})
 		}
@@ -69,7 +104,11 @@ func (b *InMemoryBackend) clusterView(c *Cluster) wireCluster {
 }
 
 // CreateCluster creates a cluster together with its default control panel.
-func (b *InMemoryBackend) CreateCluster(name, networkType, token string, tags map[string]string) (wireCluster, error) {
+func (b *InMemoryBackend) CreateCluster(
+	ctx context.Context,
+	name, networkType, token string,
+	tags map[string]string,
+) (wireCluster, error) {
 	if err := validName("cluster", name); err != nil {
 		return wireCluster{}, err
 	}
@@ -87,7 +126,7 @@ func (b *InMemoryBackend) CreateCluster(name, networkType, token string, tags ma
 
 	if existing, ok := b.idempotent("cluster", token); ok {
 		if c, err := b.getCluster(existing); err == nil {
-			return b.clusterView(c), nil
+			return b.clusterView(ctx, c), nil
 		}
 	}
 
@@ -102,11 +141,11 @@ func (b *InMemoryBackend) CreateCluster(name, networkType, token string, tags ma
 	})
 	b.rememberToken("cluster", token, cluster.ARN)
 
-	return b.clusterView(cluster), nil
+	return b.clusterView(ctx, cluster), nil
 }
 
 // DescribeCluster returns one cluster.
-func (b *InMemoryBackend) DescribeCluster(arn string) (wireCluster, error) {
+func (b *InMemoryBackend) DescribeCluster(ctx context.Context, arn string) (wireCluster, error) {
 	b.mu.RLock("DescribeCluster")
 	defer b.mu.RUnlock()
 
@@ -115,11 +154,15 @@ func (b *InMemoryBackend) DescribeCluster(arn string) (wireCluster, error) {
 		return wireCluster{}, err
 	}
 
-	return b.clusterView(c), nil
+	return b.clusterView(ctx, c), nil
 }
 
 // ListClusters lists clusters.
-func (b *InMemoryBackend) ListClusters(token string, maxResults int) ([]wireCluster, string, error) {
+func (b *InMemoryBackend) ListClusters(
+	ctx context.Context,
+	token string,
+	maxResults int,
+) ([]wireCluster, string, error) {
 	b.mu.RLock("ListClusters")
 	defer b.mu.RUnlock()
 
@@ -139,14 +182,14 @@ func (b *InMemoryBackend) ListClusters(token string, maxResults int) ([]wireClus
 
 	out := make([]wireCluster, 0, len(pg.Data))
 	for _, c := range pg.Data {
-		out = append(out, b.clusterView(c))
+		out = append(out, b.clusterView(ctx, c))
 	}
 
 	return out, pg.Next, nil
 }
 
 // UpdateCluster changes the network type.
-func (b *InMemoryBackend) UpdateCluster(arn, networkType string) (wireCluster, error) {
+func (b *InMemoryBackend) UpdateCluster(ctx context.Context, arn, networkType string) (wireCluster, error) {
 	if !validNetworkType(networkType) {
 		return wireCluster{}, restroute.Validation("NetworkType must be IPV4 or DUALSTACK")
 	}
@@ -161,7 +204,7 @@ func (b *InMemoryBackend) UpdateCluster(arn, networkType string) (wireCluster, e
 
 	c.NetworkType = networkType
 
-	return b.clusterView(c), nil
+	return b.clusterView(ctx, c), nil
 }
 
 // DeleteCluster removes a cluster; it must not hold custom control panels, routing controls or safety rules.

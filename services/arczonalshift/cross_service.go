@@ -59,6 +59,10 @@ func supportedLB(arn string) (awsarn.ARN, bool) {
 
 // managedFor resolves a resource identifier to a live managed resource.
 func (b *InMemoryBackend) managedFor(arn string) (managedResource, error) {
+	if m, handled, err := b.managedGroupOrCluster(arn); handled {
+		return m, err
+	}
+
 	p, ok := supportedLB(arn)
 	if !ok {
 		return managedResource{}, invalidReason(
@@ -81,8 +85,15 @@ func (b *InMemoryBackend) managedFor(arn string) (managedResource, error) {
 	return toManaged(&lbs[0]), nil
 }
 
-// listManaged returns the load balancers of region.
+// listManaged returns the zonal-shift managed resources of region.
 func (b *InMemoryBackend) listManaged(region string) []managedResource {
+	out := b.listLoadBalancers(region)
+	out = append(out, b.listGroupsAndClusters(region)...)
+
+	return out
+}
+
+func (b *InMemoryBackend) listLoadBalancers(region string) []managedResource {
 	h, ok := b.elbv2()
 	if !ok {
 		return nil

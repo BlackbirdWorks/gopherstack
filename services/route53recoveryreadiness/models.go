@@ -17,6 +17,18 @@ const (
 	typeVPC         = "AWS::EC2::VPC"
 	typeAlarm       = "AWS::CloudWatch::Alarm"
 	typeTable       = "AWS::DynamoDB::Table"
+
+	typeAPIGWStage   = "AWS::ApiGateway::Stage"
+	typeAPIGWV2Stage = "AWS::ApiGatewayV2::Stage"
+	typeASG          = "AWS::AutoScaling::AutoScalingGroup"
+	typeCGW          = "AWS::EC2::CustomerGateway"
+	typeVolume       = "AWS::EC2::Volume"
+	typeELBClassic   = "AWS::ElasticLoadBalancing::LoadBalancer"
+	typeMSK          = "AWS::MSK::Cluster"
+	typeRDSCluster   = "AWS::RDS::DBCluster"
+	typeSNSSub       = "AWS::SNS::Subscription"
+	typeVPNConn      = "AWS::EC2::VPNConnection"
+	typeVPNGateway   = "AWS::EC2::VPNGateway"
 )
 
 // Cell is a failover unit that may nest other cells.

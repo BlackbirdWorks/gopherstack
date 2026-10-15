@@ -1,11 +1,11 @@
 ---
 service: route53recoverycontrolconfig
 sdk_module: aws-sdk-go-v2/service/route53recoverycontrolconfig@v1.40.4
-last_audit_commit: a65519ce2
-last_audit_date: 2026-10-13
+last_audit_commit: 80b7bb8b3
+last_audit_date: 2026-10-14
 overall: A
 ops:
-  CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "creates the default control panel with the cluster; ClientToken idempotent; PENDING->DEPLOYED via opt-in activation delay; DEPLOYED clusters expose five regional endpoints that route back to this server"}
+  CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "creates the default control panel with the cluster; ClientToken idempotent; PENDING->DEPLOYED via opt-in activation delay; DEPLOYED clusters expose five regional endpoints that route back to this server on the scheme and host the caller used, or on ROUTE53_RECOVERY_CONTROL_ENDPOINT when set"}
   DescribeCluster: {wire: ok, errors: ok, state: ok, persist: ok}
   ListClusters: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateCluster: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -26,7 +26,7 @@ ops:
   ListSafetyRules: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateSafetyRule: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteSafetyRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "existence-checked; policies only arrive through RAM sharing, which is not emulated, so an existing resource returns no Policy"}
+  GetResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "existence-checked; an existing resource returns no Policy (see structural_gaps)"}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -36,7 +36,7 @@ families:
 gaps: []
 items_still_open: []
 structural_gaps:
-  - GetResourcePolicy cannot return a policy: resource policies are created by RAM resource sharing, which is not emulated
+  - GetResourcePolicy cannot return a policy: ARC policies come from RAM sharing, but services/ram has no ARC shareable resource types or managed permissions, and the SDK does not publish the policy AWS attaches
 deferred: []
 leaks: {status: clean, note: "no goroutines or janitors; expiry and lifecycle are derived from the clock at read time"}
 ---

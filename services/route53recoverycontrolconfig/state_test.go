@@ -24,7 +24,7 @@ func newWorld(t *testing.T) *world {
 	t.Helper()
 
 	b := cc.NewInMemoryBackend(testAccount)
-	cl, err := b.CreateCluster("w", "", "", nil)
+	cl, err := b.CreateCluster(t.Context(), "w", "", "", nil)
 	require.NoError(t, err)
 
 	w := &world{b: b, cluster: cl.ClusterArn}
@@ -295,7 +295,7 @@ func TestClusterScopedState(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	other, err := w.b.CreateCluster("other", "", "", nil)
+	other, err := w.b.CreateCluster(t.Context(), "other", "", "", nil)
 	require.NoError(t, err)
 
 	otherID := other.ClusterArn[len(other.ClusterArn)-32:]

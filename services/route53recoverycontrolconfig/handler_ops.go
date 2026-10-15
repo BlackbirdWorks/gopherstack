@@ -26,7 +26,7 @@ func listParams(req *restroute.Request) (listQuery, error) {
 	return listQuery{token: req.Query.Get("NextToken"), max: m}, nil
 }
 
-func (h *Handler) createCluster(_ context.Context, req *restroute.Request) (any, int, error) {
+func (h *Handler) createCluster(ctx context.Context, req *restroute.Request) (any, int, error) {
 	var in struct {
 		Tags        map[string]string
 		ClusterName string
@@ -37,35 +37,35 @@ func (h *Handler) createCluster(_ context.Context, req *restroute.Request) (any,
 		return nil, 0, err
 	}
 
-	c, err := h.Backend.CreateCluster(in.ClusterName, in.NetworkType, in.ClientToken, in.Tags)
+	c, err := h.Backend.CreateCluster(ctx, in.ClusterName, in.NetworkType, in.ClientToken, in.Tags)
 
 	return map[string]any{keyCluster: c}, 0, err
 }
 
-func (h *Handler) describeCluster(_ context.Context, req *restroute.Request) (any, int, error) {
-	c, err := h.Backend.DescribeCluster(req.Params["ClusterArn"])
+func (h *Handler) describeCluster(ctx context.Context, req *restroute.Request) (any, int, error) {
+	c, err := h.Backend.DescribeCluster(ctx, req.Params["ClusterArn"])
 
 	return map[string]any{keyCluster: c}, 0, err
 }
 
-func (h *Handler) listClusters(_ context.Context, req *restroute.Request) (any, int, error) {
+func (h *Handler) listClusters(ctx context.Context, req *restroute.Request) (any, int, error) {
 	q, err := listParams(req)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	items, next, err := h.Backend.ListClusters(q.token, q.max)
+	items, next, err := h.Backend.ListClusters(ctx, q.token, q.max)
 
 	return pageOut("Clusters", items, next), 0, err
 }
 
-func (h *Handler) updateCluster(_ context.Context, req *restroute.Request) (any, int, error) {
+func (h *Handler) updateCluster(ctx context.Context, req *restroute.Request) (any, int, error) {
 	var in struct{ ClusterArn, NetworkType string }
 	if err := req.Decode(&in); err != nil {
 		return nil, 0, err
 	}
 
-	c, err := h.Backend.UpdateCluster(in.ClusterArn, in.NetworkType)
+	c, err := h.Backend.UpdateCluster(ctx, in.ClusterArn, in.NetworkType)
 
 	return map[string]any{keyCluster: c}, 0, err
 }

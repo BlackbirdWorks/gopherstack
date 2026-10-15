@@ -10,11 +10,11 @@ import (
 // resourceSetTypes are the documented ResourceSetType values (route53recoveryreadiness api_op_CreateResourceSet.go).
 func resourceSetTypes() []string {
 	return []string{
-		"AWS::ApiGateway::Stage", "AWS::ApiGatewayV2::Stage", "AWS::AutoScaling::AutoScalingGroup",
-		typeAlarm, "AWS::EC2::CustomerGateway", typeTable, "AWS::EC2::Volume",
-		"AWS::ElasticLoadBalancing::LoadBalancer", typeELBv2, typeLambda,
-		"AWS::MSK::Cluster", "AWS::RDS::DBCluster", typeHealthCheck, typeSQS, typeSNS,
-		"AWS::SNS::Subscription", typeVPC, "AWS::EC2::VPNConnection", "AWS::EC2::VPNGateway", typeDNSTarget,
+		typeAPIGWStage, typeAPIGWV2Stage, typeASG,
+		typeAlarm, typeCGW, typeTable, typeVolume,
+		typeELBClassic, typeELBv2, typeLambda,
+		typeMSK, typeRDSCluster, typeHealthCheck, typeSQS, typeSNS,
+		typeSNSSub, typeVPC, typeVPNConn, typeVPNGateway, typeDNSTarget,
 	}
 }
 

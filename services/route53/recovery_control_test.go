@@ -37,7 +37,7 @@ func newRecoveryWorld(t *testing.T, wire bool) *recoveryWorld {
 	t.Helper()
 
 	control := cc.NewInMemoryBackend("123456789012")
-	cl, err := control.CreateCluster("c", "", "", nil)
+	cl, err := control.CreateCluster(t.Context(), "c", "", "", nil)
 	require.NoError(t, err)
 	rcOut, err := control.CreateRoutingControl(cl.ClusterArn, "", "primary-up", "")
 	require.NoError(t, err)
