@@ -108,3 +108,38 @@ func TestErrorBodyShape(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractOperationIgnoresCredentialHeaders(t *testing.T) {
+	t.Parallel()
+
+	h := cluster.NewHandler(nil)
+
+	tests := []struct {
+		name, target, want string
+	}{
+		{"known op", "ToggleCustomerAPI.GetRoutingControlState", "GetRoutingControlState"},
+		{"unknown op", "ToggleCustomerAPI.Bogus", "Unknown"},
+		{"no target", "", "Unknown"},
+		{"foreign prefix", "Other.GetRoutingControlState", "Unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", nil)
+			req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=AKIASECRET/20260101/us-east-1/s3/aws4_request")
+			req.Header.Set("X-Amz-Security-Token", "secret-token")
+
+			if tt.target != "" {
+				req.Header.Set("X-Amz-Target", tt.target)
+			}
+
+			c := echo.New().NewContext(req, httptest.NewRecorder())
+			got := h.ExtractOperation(c)
+			assert.Equal(t, tt.want, got)
+			assert.Empty(t, h.ExtractResource(c))
+			assert.NotContains(t, got, "AKIASECRET")
+		})
+	}
+}

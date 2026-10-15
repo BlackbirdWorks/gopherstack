@@ -87,12 +87,14 @@ func (h *Handler) MatchPriority() int { return matchPriority }
 
 // ExtractOperation returns the operation name for metrics.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	_, op, _ := strings.Cut(httputils.HeaderValue(c.Request().Header, "X-Amz-Target"), ".")
-	if op == "" {
-		return "Unknown"
+	target := c.Request().Header.Get("X-Amz-Target")
+	for _, op := range h.GetSupportedOperations() {
+		if target == targetPrefix+op {
+			return op
+		}
 	}
 
-	return op
+	return "Unknown"
 }
 
 // ExtractResource returns no resource label; operations name routing controls in the body.
