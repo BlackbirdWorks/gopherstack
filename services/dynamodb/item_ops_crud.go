@@ -233,7 +233,7 @@ func (db *InMemoryDB) doPut(table *Table, item map[string]any, matchIndex int) {
 }
 
 func (db *InMemoryDB) doPutWithSize(table *Table, item map[string]any, matchIndex int, itemSize int) {
-	table.itemsChanged()
+	table.itemStored(item, itemSize)
 	if matchIndex != -1 {
 		oldItem := table.Items[matchIndex]
 		table.totalItemSizeBytes += int64(itemSize) - int64(table.itemSizes[matchIndex])
@@ -1040,7 +1040,7 @@ func (db *InMemoryDB) commitUpdate(
 	matchIndex int,
 ) {
 	updatedSize, _ := CalculateItemSize(updated)
-	table.itemsChanged()
+	table.itemStored(updated, updatedSize)
 
 	if matchIndex != -1 {
 		table.totalItemSizeBytes += int64(updatedSize) - int64(table.itemSizes[matchIndex])
@@ -1207,7 +1207,7 @@ func (db *InMemoryDB) deleteItemAtIndex(table *Table, matchIndex int) {
 
 	table.updateSecondaryIndexes(item, matchIndex, nil, 0)
 
-	table.itemsChanged()
+	table.itemRemoved(item)
 	// Swap with last strategy for O(1) deletion
 	lastIdx := len(table.Items) - 1
 	deletedSize := table.itemSizes[matchIndex]

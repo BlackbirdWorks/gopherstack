@@ -156,8 +156,11 @@ func (h *S3Handler) uploadPart(
 	// the real bytes, not the chunk-signature envelope.
 	r = maybeDecodeChunkedBody(r)
 
-	if md5Header := r.Header.Get("Content-MD5"); md5Header != "" {
-		ctx = context.WithValue(ctx, md5Key, md5Header)
+	ctx, md5Err := withContentMD5(ctx, r)
+	if md5Err != nil {
+		WriteError(ctx, w, r, md5Err)
+
+		return
 	}
 
 	algo, crc32p, crc32cp, sha1p, sha256p := extractAlgoAndChecksums(r)

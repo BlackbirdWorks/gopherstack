@@ -81,7 +81,7 @@ func (db *InMemoryDB) scanCore(
 	// A shallow slice copy is safe: writes always replace items[i] with a new map;
 	// they never mutate an existing map in place, so our pointers remain valid.
 	presorted := aws.ToString(input.IndexName) == ""
-	snap := snapshotTableForScan(table, presorted)
+	snap := snapshotTableForScan(table, presorted, false)
 
 	// Get key schema definitions (reconstruct the table temporarily for getScanKeySchema)
 	snapshotTable := &Table{
@@ -138,13 +138,14 @@ type scanView struct {
 	gsiList     []models.GlobalSecondaryIndex
 	lsiList     []models.LocalSecondaryIndex
 	attrDefs    []models.AttributeDefinition
+	delta       []scanOp
 	version     uint64
 	sorted      bool
 }
 
 // snapshotTableForScan captures scan state under one read lock. A valid sorted cache is
 // reused as-is, so a paged Scan copies nothing.
-func snapshotTableForScan(table *Table, wantSorted bool) scanView {
+func snapshotTableForScan(table *Table, wantSorted, forceFull bool) scanView {
 	table.mu.RLock("Scan")
 	defer table.mu.RUnlock()
 
@@ -158,21 +159,41 @@ func snapshotTableForScan(table *Table, wantSorted bool) scanView {
 		version:     table.itemsVersion,
 	}
 
-	if wantSorted {
-		if c := table.scanOrder.Load(); c != nil && c.version == table.itemsVersion {
-			snap.items, snap.sizes, snap.sorted = c.items, c.sizes, true
+	if wantSorted && !forceFull && table.useCachedScanOrder(&snap) {
+		return snap
+	}
 
-			return snap
-		}
-
-		if len(table.itemSizes) == len(table.Items) {
-			snap.sizes = slices.Clone(table.itemSizes)
-		}
+	if wantSorted && len(table.itemSizes) == len(table.Items) {
+		snap.sizes = slices.Clone(table.itemSizes)
 	}
 
 	snap.items = slices.Clone(table.Items)
 
 	return snap
+}
+
+// useCachedScanOrder fills snap from the cached order, either as-is or with the
+// pending write log to merge. Call under table.mu.
+func (t *Table) useCachedScanOrder(snap *scanView) bool {
+	c := t.scanOrder.Load()
+	if c == nil {
+		return false
+	}
+
+	if c.version == t.itemsVersion {
+		snap.items, snap.sizes, snap.sorted = c.items, c.sizes, true
+
+		return true
+	}
+
+	ops, ok := t.scanOpsSince(c)
+	if !ok {
+		return false
+	}
+
+	snap.items, snap.sizes, snap.delta = c.items, c.sizes, slices.Clone(ops)
+
+	return true
 }
 
 // scanOrderCache is the key-sorted item order of a table at one itemsVersion.
@@ -182,23 +203,179 @@ type scanOrderCache struct {
 	version uint64
 }
 
-// itemsChanged invalidates the cached scan order; call it under table.mu.Lock
-// before any mutation of t.Items.
-func (t *Table) itemsChanged() {
-	t.itemsVersion++
+// scanOp is one item-store write since the cached scan order: item is the
+// stored item (or the removed one when deleted), size its byte size.
+type scanOp struct {
+	item    map[string]any
+	size    int
+	deleted bool
 }
 
-// storeScanOrder sorts the snapshot into base-table key order (with sizes alongside)
+// scanLogCap bounds the write log kept for incremental scan-order rebuilds;
+// past it the next Scan re-sorts from scratch.
+const scanLogCap = 1024
+
+// itemsChanged invalidates the cached scan order; call it under table.mu.Lock
+// before any mutation of t.Items that is not logged via itemStored/itemRemoved.
+func (t *Table) itemsChanged() {
+	t.itemsVersion++
+	t.scanLog = nil
+	t.scanLogBase = t.itemsVersion
+}
+
+// itemStored records a put/update of item for incremental scan-order upkeep.
+func (t *Table) itemStored(item map[string]any, size int) {
+	t.logScanOp(scanOp{item: item, size: size})
+}
+
+// itemRemoved records a delete of item for incremental scan-order upkeep.
+func (t *Table) itemRemoved(item map[string]any) {
+	t.logScanOp(scanOp{item: item, deleted: true})
+}
+
+func (t *Table) logScanOp(op scanOp) {
+	if t.scanOrder.Load() == nil || len(t.scanLog) >= scanLogCap {
+		t.itemsChanged()
+
+		return
+	}
+
+	t.itemsVersion++
+	t.scanLog = append(t.scanLog, op)
+}
+
+// scanOpsSince returns the writes applied after c was built, if still logged.
+// Call under table.mu (read or write).
+func (t *Table) scanOpsSince(c *scanOrderCache) ([]scanOp, bool) {
+	if c.version < t.scanLogBase || c.version > t.itemsVersion ||
+		uint64(len(t.scanLog)) != t.itemsVersion-t.scanLogBase {
+		return nil, false
+	}
+
+	ops := t.scanLog[c.version-t.scanLogBase:]
+	if len(ops) > len(c.items) {
+		return nil, false
+	}
+
+	return ops, true
+}
+
+// storeScanOrder returns the snapshot in base-table key order (with sizes alongside)
 // and caches it at the snapshot's version. The result is shared and read-only.
 func (t *Table) storeScanOrder(
 	snap scanView,
 	pkDef, skDef models.KeySchemaElement,
 ) ([]map[string]any, []int) {
+	table := &Table{AttributeDefinitions: snap.attrDefs}
+
+	if snap.delta != nil {
+		if items, sizes, ok := applyScanOps(snap.items, snap.sizes, snap.delta, pkDef, skDef, table); ok {
+			t.scanOrder.Store(&scanOrderCache{items: items, sizes: sizes, version: snap.version})
+
+			return items, sizes
+		}
+
+		snap = snapshotTableForScan(t, true, true)
+	}
+
 	items, sizes := snap.items, snap.sizes
-	sortScanResultsSized(items, sizes, pkDef, skDef, &Table{AttributeDefinitions: snap.attrDefs})
+	sortScanResultsSized(items, sizes, pkDef, skDef, table)
 	t.scanOrder.Store(&scanOrderCache{items: items, sizes: sizes, version: snap.version})
 
 	return items, sizes
+}
+
+type scanKey struct {
+	pk, sk   string
+	pkN, skN float64
+}
+
+type scanTouch struct {
+	op    scanOp
+	entry scanSortEntry
+	pos   int
+	found bool
+}
+
+// applyScanOps merges logged writes into an already key-sorted order without
+// re-sorting it: each touched key is binary-searched, then one pass copies the
+// untouched runs. Returns ok=false when the order cannot be reconciled.
+func applyScanOps(
+	items []map[string]any,
+	sizes []int,
+	ops []scanOp,
+	pkDef, skDef models.KeySchemaElement,
+	table *Table,
+) ([]map[string]any, []int, bool) {
+	pkType := getAttributeType(table.AttributeDefinitions, pkDef.AttributeName, "S")
+	var skType string
+	if skDef.AttributeName != "" {
+		skType = getAttributeType(table.AttributeDefinitions, skDef.AttributeName, "S")
+	}
+
+	hasSK := skDef.AttributeName != ""
+	haveSizes := sizes != nil && len(sizes) == len(items)
+
+	touched := make(map[scanKey]*scanTouch, len(ops))
+
+	for _, op := range ops {
+		e := populateScanSortEntry(op.item, pkDef, skDef, pkType, skType)
+		k := scanKey{pk: e.pkStr, sk: e.skStr, pkN: e.pkNum, skN: e.skNum}
+		touched[k] = &scanTouch{op: op, entry: e}
+	}
+
+	list := make([]*scanTouch, 0, len(touched))
+	for _, tc := range touched {
+		tc.pos, tc.found = slices.BinarySearchFunc(items, tc.entry, func(it map[string]any, target scanSortEntry) int {
+			return compareScanSortEntries(
+				populateScanSortEntry(it, pkDef, skDef, pkType, skType), target, pkType, skType, hasSK,
+			)
+		})
+		list = append(list, tc)
+	}
+
+	slices.SortFunc(list, func(a, b *scanTouch) int {
+		return compareScanSortEntries(a.entry, b.entry, pkType, skType, hasSK)
+	})
+
+	out := make([]map[string]any, 0, len(items)+len(list))
+
+	var outSizes []int
+	if haveSizes {
+		outSizes = make([]int, 0, len(items)+len(list))
+	}
+
+	cur := 0
+
+	for _, tc := range list {
+		if tc.pos < cur {
+			return nil, nil, false
+		}
+
+		out = append(out, items[cur:tc.pos]...)
+		if haveSizes {
+			outSizes = append(outSizes, sizes[cur:tc.pos]...)
+		}
+
+		cur = tc.pos
+		if tc.found {
+			cur++
+		}
+
+		if !tc.op.deleted {
+			out = append(out, tc.op.item)
+			if haveSizes {
+				outSizes = append(outSizes, tc.op.size)
+			}
+		}
+	}
+
+	out = append(out, items[cur:]...)
+	if haveSizes {
+		outSizes = append(outSizes, sizes[cur:]...)
+	}
+
+	return out, outSizes, true
 }
 
 // buildScanOutput enforces read throughput and assembles the scan page.
@@ -363,7 +540,7 @@ func (db *InMemoryDB) scanCandidates(
 	presorted bool,
 ) ([]map[string]any, []int) {
 	if presorted && snap.ttlAttr == "" && aws.ToInt32(input.TotalSegments) <= 1 {
-		start := locateAfterStartKey(snap, input.ExclusiveStartKey, pkDef, skDef)
+		start := locateAfterStartKey(snap.items, input.ExclusiveStartKey, pkDef, skDef, snap.keySchema, snap.attrDefs)
 		if snap.sizes != nil {
 			return snap.items[start:], snap.sizes[start:]
 		}
@@ -390,63 +567,55 @@ func (db *InMemoryDB) scanCandidates(
 	// Apply parallel-scan segment filter (Segment / TotalSegments).
 	candidate = applySegmentFilter(candidate, input, pkDef)
 
-	// Apply ExclusiveStartKey: skip items up to and including the start-key item.
-	candidate = applyExclusiveStartKey(
-		candidate,
-		input.ExclusiveStartKey,
-		pkDef,
-		skDef,
-		snap.keySchema,
-	)
+	candidate = candidate[locateAfterStartKey(
+		candidate, input.ExclusiveStartKey, pkDef, skDef, snap.keySchema, snap.attrDefs,
+	):]
 
 	return candidate, nil
 }
 
-// locateAfterStartKey returns the index just past the ExclusiveStartKey item in the sorted
-// snapshot (0 when absent or unmatched), using binary search with a linear fallback.
+// locateAfterStartKey returns the index of the first item after ExclusiveStartKey in the
+// key-sorted items. The key is a position, so a deleted key's item resumes at the next item.
+// On ties (GSI/LSI) it skips past the matching item, or past all ties when none matches.
 func locateAfterStartKey(
-	snap scanView,
+	items []map[string]any,
 	startKey map[string]types.AttributeValue,
 	pkDef, skDef models.KeySchemaElement,
+	tableKeySchema []models.KeySchemaElement,
+	attrDefs []models.AttributeDefinition,
 ) int {
 	if len(startKey) == 0 {
 		return 0
 	}
 
 	wireKey := models.FromSDKItem(startKey)
-	tablePKDef, tableSKDef := getPKAndSK(snap.keySchema)
-	pkType := getAttributeType(snap.attrDefs, pkDef.AttributeName, "S")
+	tablePKDef, tableSKDef := getPKAndSK(tableKeySchema)
+	pkType := getAttributeType(attrDefs, pkDef.AttributeName, "S")
 
 	var skType string
 	if skDef.AttributeName != "" {
-		skType = getAttributeType(snap.attrDefs, skDef.AttributeName, "S")
+		skType = getAttributeType(attrDefs, skDef.AttributeName, "S")
 	}
 
 	hasSK := skDef.AttributeName != ""
 	target := populateScanSortEntry(wireKey, pkDef, skDef, pkType, skType)
-
-	idx, _ := slices.BinarySearchFunc(snap.items, target, func(item map[string]any, t scanSortEntry) int {
+	compare := func(item map[string]any) int {
 		return compareScanSortEntries(
-			populateScanSortEntry(item, pkDef, skDef, pkType, skType),
-			t,
-			pkType,
-			skType,
-			hasSK,
+			populateScanSortEntry(item, pkDef, skDef, pkType, skType), target, pkType, skType, hasSK,
 		)
+	}
+
+	idx, _ := slices.BinarySearchFunc(items, target, func(item map[string]any, _ scanSortEntry) int {
+		return compare(item)
 	})
 
-	matches := func(i int) bool {
-		return i >= 0 && i < len(snap.items) &&
-			itemMatchesStartKeyMap(snap.items[i], wireKey, pkDef, skDef, tablePKDef, tableSKDef)
+	for ; idx < len(items) && compare(items[idx]) == 0; idx++ {
+		if itemMatchesStartKeyMap(items[idx], wireKey, pkDef, skDef, tablePKDef, tableSKDef) {
+			return idx + 1
+		}
 	}
 
-	if matches(idx) && !matches(idx-1) {
-		return idx + 1
-	}
-
-	rest := applyExclusiveStartKey(snap.items, startKey, pkDef, skDef, snap.keySchema)
-
-	return len(snap.items) - len(rest)
+	return idx
 }
 
 // scanPage iterates candidate items up to 1MB or limit, applying filter and projection.
@@ -692,28 +861,6 @@ func isItemInIndex(
 	}
 
 	return true
-}
-
-func applyExclusiveStartKey(
-	candidate []map[string]any,
-	exclusiveStartKey map[string]types.AttributeValue,
-	pkDef, skDef models.KeySchemaElement,
-	tableKeySchema []models.KeySchemaElement,
-) []map[string]any {
-	if len(exclusiveStartKey) == 0 {
-		return candidate
-	}
-
-	startKey := models.FromSDKItem(exclusiveStartKey)
-	tablePKDef, tableSKDef := getPKAndSK(tableKeySchema)
-
-	for i, item := range candidate {
-		if itemMatchesStartKeyMap(item, startKey, pkDef, skDef, tablePKDef, tableSKDef) {
-			return candidate[i+1:]
-		}
-	}
-
-	return candidate
 }
 
 // maxParallelScanSegments is the upper bound on TotalSegments for parallel Scan.

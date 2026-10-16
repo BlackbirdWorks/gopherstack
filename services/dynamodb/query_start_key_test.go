@@ -40,10 +40,15 @@ func TestQuery_ExclusiveStartKeyVariants(t *testing.T) {
 			want:     []string{"o2", "o3", "o4"},
 		},
 		{
-			name:     "unknown key restarts",
+			name:     "absent key past end",
 			startKey: map[string]any{"pk": map[string]any{"S": "c"}, "sk": map[string]any{"S": "zz"}},
 			limit:    2,
-			want:     []string{"o0", "o1"},
+			want:     []string{},
+		},
+		{
+			name:     "absent key in middle",
+			startKey: map[string]any{"pk": map[string]any{"S": "c"}, "sk": map[string]any{"S": "o15"}},
+			want:     []string{"o2", "o3", "o4"},
 		},
 	}
 

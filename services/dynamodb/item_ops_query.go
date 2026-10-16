@@ -612,7 +612,10 @@ func (db *InMemoryDB) processQueryResults(
 ) (*pageResult, error) {
 	exclusiveStartKey := models.FromSDKItem(input.ExclusiveStartKey)
 
-	startIndex := findExclusiveStartIndex(candidates, exclusiveStartKey, keySchema, tableKeySchema)
+	startIndex := queryStartIndex(
+		candidates, exclusiveStartKey, keySchema, tableKeySchema,
+		input.ScanIndexForward == nil || *input.ScanIndexForward,
+	)
 
 	items, lastEvaluatedKey, scannedCount, err := db.collectQueryPage(
 		ctx,
