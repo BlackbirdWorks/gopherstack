@@ -7,7 +7,6 @@ import (
 	"crypto/sha1" //nolint:gosec // SHA1 required for S3 checksum compatibility
 	"crypto/sha256"
 	"crypto/sha512"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
@@ -196,16 +195,13 @@ func (b *InMemoryBackend) UploadPart(
 	etag := hex.EncodeToString(md5Hasher.Sum(nil))
 
 	// 2. Validate Content-MD5 from context if present.
-	if md5Header, ok := ctx.Value(md5Key).(string); ok && md5Header != "" {
-		decoded, dErr := base64.StdEncoding.DecodeString(md5Header)
-		if dErr != nil || len(decoded) != md5.Size {
-			return nil, ErrBadChecksum
-		}
+	decoded, dErr := contentMD5FromContext(ctx)
+	if dErr != nil {
+		return nil, dErr
+	}
 
-		computed := md5Hasher.Sum(nil)
-		if !bytes.Equal(computed, decoded) {
-			return nil, ErrBadChecksum
-		}
+	if decoded != nil && !bytes.Equal(md5Hasher.Sum(nil), decoded) {
+		return nil, ErrBadChecksum
 	}
 
 	if vErr := b.verifyChecksum(input, s3Hasher, algo); vErr != nil {

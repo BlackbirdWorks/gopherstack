@@ -38,6 +38,15 @@ func (h *S3Handler) setPutObjectResponseHeaders(w http.ResponseWriter, ver *s3.P
 	}
 }
 
+// validatePutObjectHeaders rejects invalid tag sets (>10 tags, over-long key/value) and oversized metadata.
+func validatePutObjectHeaders(r *http.Request) error {
+	if err := validateTaggingHeader(r.Header.Get("X-Amz-Tagging")); err != nil {
+		return err
+	}
+
+	return validateUserMetadataSize(r.Header)
+}
+
 func (h *S3Handler) putObject(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -62,14 +71,7 @@ func (h *S3Handler) putObject(
 	// ETag) is the real object bytes, not the chunk-signature envelope.
 	r = maybeDecodeChunkedBody(r)
 
-	// Reject invalid tag sets (>10 tags, over-long key/value) before writing.
-	if err := validateTaggingHeader(r.Header.Get("X-Amz-Tagging")); err != nil {
-		WriteError(ctx, w, r, err)
-
-		return
-	}
-
-	if err := validateUserMetadataSize(r.Header); err != nil {
+	if err := validatePutObjectHeaders(r); err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
@@ -97,8 +99,11 @@ func (h *S3Handler) putObject(
 	logger.Load(ctx).DebugContext(ctx, "S3 putObject input",
 		"bucket", bucketName, "key", key, "contentType", r.Header.Get("Content-Type"))
 
-	if md5Header := r.Header.Get("Content-MD5"); md5Header != "" {
-		ctx = context.WithValue(ctx, md5Key, md5Header)
+	ctx, md5Err := withContentMD5(ctx, r)
+	if md5Err != nil {
+		WriteError(ctx, w, r, md5Err)
+
+		return
 	}
 
 	algo, crc32p, crc32cp, sha1p, sha256p := extractAlgoAndChecksums(r)

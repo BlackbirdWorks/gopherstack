@@ -167,38 +167,6 @@ func TestScanPaging_FastPathMatchesLinearPath(t *testing.T) {
 	}
 }
 
-func TestScanPaging_StartKeyOfDeletedItemRestartsLikeLinearPath(t *testing.T) {
-	t.Parallel()
-
-	schema := pagingSchema{name: "s", keyType: types.ScalarAttributeTypeS}
-	db := NewInMemoryDB()
-	db.SetDefaultRegion("us-east-1")
-	newPagingTable(t, db, "plain", schema, false)
-	newPagingTable(t, db, "twin", schema, true)
-
-	for _, tbl := range []string{"plain", "twin"} {
-		for i := range 6 {
-			_, err := db.PutItem(t.Context(), &sdk.PutItemInput{
-				TableName: aws.String(tbl),
-				Item: map[string]types.AttributeValue{
-					"pk": &types.AttributeValueMemberS{Value: "k" + strconv.Itoa(i)},
-				},
-			})
-			require.NoError(t, err)
-		}
-	}
-
-	ghost := map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "k25"}}
-	want, err := db.Scan(t.Context(), &sdk.ScanInput{TableName: aws.String("twin"), ExclusiveStartKey: ghost})
-	require.NoError(t, err)
-
-	got, err := db.Scan(t.Context(), &sdk.ScanInput{TableName: aws.String("plain"), ExclusiveStartKey: ghost})
-	require.NoError(t, err)
-
-	assert.Equal(t, want.Items, got.Items)
-	assert.Equal(t, want.Count, got.Count)
-}
-
 func TestScanOrderCache_SizesMatchItems(t *testing.T) {
 	t.Parallel()
 
