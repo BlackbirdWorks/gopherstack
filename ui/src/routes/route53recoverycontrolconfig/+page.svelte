@@ -139,6 +139,19 @@
 		}
 	}
 
+	async function listControls(panelArn: string): Promise<RoutingControl[]> {
+		const out: RoutingControl[] = [];
+		let token: string | undefined;
+		do {
+			const resp = await client().send(
+				new ListRoutingControlsCommand({ ControlPanelArn: panelArn, NextToken: token })
+			);
+			out.push(...(resp.RoutingControls ?? []));
+			token = resp.NextToken;
+		} while (token);
+		return out;
+	}
+
 	async function fetchControls(): Promise<void> {
 		if (panels.length === 0) await fetchPanels();
 		if (clusters.length === 0) await fetchClusters();
@@ -146,16 +159,7 @@
 			controls = [];
 			return;
 		}
-		const out: RoutingControl[] = [];
-		let token: string | undefined;
-		do {
-			const resp = await client().send(
-				new ListRoutingControlsCommand({ ControlPanelArn: selectedPanelArn, NextToken: token })
-			);
-			out.push(...(resp.RoutingControls ?? []));
-			token = resp.NextToken;
-		} while (token);
-		controls = out;
+		controls = await listControls(selectedPanelArn);
 		await loadStates();
 	}
 
@@ -200,10 +204,7 @@
 			return;
 		}
 		if (controls.length === 0) {
-			const resp = await client().send(
-				new ListRoutingControlsCommand({ ControlPanelArn: selectedPanelArn })
-			);
-			controls = resp.RoutingControls ?? [];
+			controls = await listControls(selectedPanelArn);
 		}
 		const out: FlatRule[] = [];
 		let token: string | undefined;
@@ -256,7 +257,7 @@
 			controls = [];
 			rules = [];
 			clusters = [];
-			void tabLoader.refresh(activeTab);
+			void tabLoader.refreshLoaded(activeTab);
 		});
 	});
 

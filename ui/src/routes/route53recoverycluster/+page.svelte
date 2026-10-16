@@ -65,8 +65,14 @@
 		loading = true;
 		loadError = null;
 		try {
-			const resp = await configClient().send(new ListClustersCommand({}));
-			clusters = resp.Clusters ?? [];
+			const all: Cluster[] = [];
+			let token: string | undefined;
+			do {
+				const resp = await configClient().send(new ListClustersCommand({ NextToken: token }));
+				all.push(...(resp.Clusters ?? []));
+				token = resp.NextToken;
+			} while (token);
+			clusters = all;
 			if (!clusters.some((c) => c.ClusterArn === selectedCluster)) {
 				selectedCluster = clusters[0]?.ClusterArn ?? '';
 			}

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
+import { DEFAULT_REGION, setStoredRegion } from "#lib/region.svelte.ts";
 import Page from "./+page.svelte";
 
 type Handler = (input: Record<string, unknown>) => unknown;
@@ -136,5 +137,36 @@ describe("Route 53 Recovery Readiness page", () => {
     await waitFor(() => screen.getByText("app_rg"));
     await fireEvent.click(screen.getByLabelText("Delete recovery group app_rg"));
     await waitFor(() => expect(deleted).toEqual([{ RecoveryGroupName: "app_rg" }]));
+  });
+
+  it("reloads loaded tabs and clears stale readiness when the region changes", async () => {
+    let cellLists = 0;
+    const cells = h.ListCellsCommand;
+    h.ListCellsCommand = (input) => {
+      cellLists += 1;
+      return cells(input);
+    };
+    render(Page);
+    await waitFor(() => screen.getByText("app_rg"));
+    await fireEvent.click(screen.getByRole("tab", { name: "Cells" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("readiness-cell-cell_west")).toHaveTextContent("READY"),
+    );
+    await fireEvent.click(screen.getByRole("tab", { name: "Recovery Groups" }));
+    const before = cellLists;
+
+    h.GetCellReadinessSummaryCommand = () => new Promise(() => {});
+    h.GetRecoveryGroupReadinessSummaryCommand = () => new Promise(() => {});
+    setStoredRegion("us-west-2");
+    try {
+      await waitFor(() => expect(cellLists).toBeGreaterThan(before));
+      await waitFor(() =>
+        expect(screen.getByTestId("readiness-group-app_rg")).not.toHaveTextContent("NOT_READY"),
+      );
+      await fireEvent.click(screen.getByRole("tab", { name: "Cells" }));
+      expect(screen.getByTestId("readiness-cell-cell_west")).not.toHaveTextContent("READY");
+    } finally {
+      setStoredRegion(DEFAULT_REGION);
+    }
   });
 });

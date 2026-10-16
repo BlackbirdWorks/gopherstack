@@ -92,4 +92,16 @@ describe("Route 53 Recovery Cluster page", () => {
     render(Page);
     await waitFor(() => expect(screen.getByText("No routing controls found")).toBeInTheDocument());
   });
+
+  it("lists every page of clusters", async () => {
+    cfg.ListClustersCommand = (input) =>
+      input.NextToken
+        ? { Clusters: [{ ClusterArn: "arn:c2", Name: "second", ClusterEndpoints: [] }] }
+        : {
+            Clusters: [{ ClusterArn: "arn:c1", Name: "first", ClusterEndpoints: [] }],
+            NextToken: "p2",
+          };
+    render(Page);
+    await waitFor(() => expect(screen.getByRole("option", { name: "second" })).toBeInTheDocument());
+  });
 });

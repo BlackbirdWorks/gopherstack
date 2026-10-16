@@ -82,3 +82,26 @@ export function statusBadgeClass(status: string | undefined): string {
       return "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400";
   }
 }
+
+export const RESOURCE_SET_TYPE_LIST: string[] = [
+  "AWS::ApiGateway::Stage",
+  "AWS::ApiGatewayV2::Stage",
+  "AWS::AutoScaling::AutoScalingGroup",
+  "AWS::CloudWatch::Alarm",
+  "AWS::DynamoDB::Table",
+  "AWS::EC2::CustomerGateway",
+  "AWS::EC2::Volume",
+  "AWS::EC2::VPC",
+  "AWS::EC2::VPNConnection",
+  "AWS::EC2::VPNGateway",
+  "AWS::ElasticLoadBalancing::LoadBalancer",
+  "AWS::ElasticLoadBalancingV2::LoadBalancer",
+  "AWS::Lambda::Function",
+  "AWS::MSK::Cluster",
+  "AWS::RDS::DBCluster",
+  "AWS::Route53::HealthCheck",
+  "AWS::SNS::Subscription",
+  "AWS::SNS::Topic",
+  "AWS::Route53RecoveryReadiness::DNSTargetResource",
+  "AWS::SQS::Queue",
+];

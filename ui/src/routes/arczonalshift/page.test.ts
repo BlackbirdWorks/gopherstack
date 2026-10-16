@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
+import { DEFAULT_REGION, setStoredRegion } from "#lib/region.svelte.ts";
 import Page from "./+page.svelte";
 
 type Handler = (input: Record<string, unknown>) => unknown;
@@ -140,5 +141,27 @@ describe("ARC Zonal Shift page", () => {
     await waitFor(() =>
       expect(screen.getByText("AccessDeniedException (HTTP 403): denied")).toBeInTheDocument(),
     );
+  });
+
+  it("reloads every loaded tab when the region changes", async () => {
+    let shiftLists = 0;
+    const list = h.ListZonalShiftsCommand;
+    h.ListZonalShiftsCommand = (input) => {
+      shiftLists += 1;
+      return list(input);
+    };
+    render(Page);
+    await waitFor(() => screen.getByText("api-alb"));
+    await fireEvent.click(screen.getByRole("tab", { name: "Zonal Shifts" }));
+    await waitFor(() => screen.getByText("zs-1"));
+    await fireEvent.click(screen.getByRole("tab", { name: "Managed Resources" }));
+    expect(shiftLists).toBe(1);
+
+    setStoredRegion("us-west-2");
+    try {
+      await waitFor(() => expect(shiftLists).toBe(2));
+    } finally {
+      setStoredRegion(DEFAULT_REGION);
+    }
   });
 });

@@ -20,6 +20,8 @@ export type TabLoader<K extends string> = {
   load(tab: K, force?: boolean): Promise<void>;
   /** Force a reload of a tab regardless of whether it is already loaded. */
   refresh(tab: K): Promise<void>;
+  /** Force-reload every tab that has loaded, plus `include` (e.g. the active tab) even if it has not. */
+  refreshLoaded(include?: K): Promise<void>;
   isLoading(tab: K): boolean;
   getError(tab: K): string | null;
   isLoaded(tab: K): boolean;
@@ -126,6 +128,13 @@ export function createTabLoader<K extends string>(
     return load(tab, true);
   }
 
+  async function refreshLoaded(include?: K): Promise<void> {
+    const tabs = (Object.keys(fetchers) as K[]).filter(
+      (t) => t === include || untrack(() => stateFor(t).loaded),
+    );
+    await Promise.all(tabs.map((t) => load(t, true)));
+  }
+
   function isLoading(tab: K): boolean {
     return stateFor(tab).loading;
   }
@@ -138,5 +147,5 @@ export function createTabLoader<K extends string>(
     return stateFor(tab).loaded;
   }
 
-  return { load, refresh, isLoading, getError, isLoaded };
+  return { load, refresh, refreshLoaded, isLoading, getError, isLoaded };
 }

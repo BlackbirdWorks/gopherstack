@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
+import { DEFAULT_REGION, setStoredRegion } from "#lib/region.svelte.ts";
 import Page from "./+page.svelte";
 
 type Handler = (input: Record<string, unknown>) => unknown;
@@ -235,5 +236,48 @@ describe("Route 53 Recovery Control page", () => {
     expect(deleted).toEqual([]);
     await fireEvent.click(screen.getByLabelText("Delete cluster prod-cluster"));
     await waitFor(() => expect(deleted).toEqual([{ ClusterArn: clusterArn }]));
+  });
+
+  it("resolves safety rule control names across paginated routing controls", async () => {
+    seed({});
+    configHandlers.ListRoutingControlsCommand = (input) =>
+      input.NextToken
+        ? { RoutingControls: [{ RoutingControlArn: rcWest, Name: "west-active" }] }
+        : {
+            RoutingControls: [{ RoutingControlArn: rcEast, Name: "east-active" }],
+            NextToken: "page2",
+          };
+    render(Page);
+    await waitFor(() => screen.getByText("prod-cluster"));
+    await openTab("Safety Rules");
+    await waitFor(() => screen.getByText("at-least-one"));
+    expect(screen.getByText(/Asserted: east-active, west-active/)).toBeInTheDocument();
+  });
+
+  it("reloads every loaded tab when the region changes", async () => {
+    seed({});
+    const calls = { clusters: 0, rules: 0 };
+    configHandlers.ListClustersCommand = () => {
+      calls.clusters += 1;
+      return { Clusters: [cluster] };
+    };
+    const rules = configHandlers.ListSafetyRulesCommand;
+    configHandlers.ListSafetyRulesCommand = (input) => {
+      calls.rules += 1;
+      return rules(input);
+    };
+    render(Page);
+    await waitFor(() => screen.getByText("prod-cluster"));
+    await openTab("Safety Rules");
+    await waitFor(() => screen.getByText("at-least-one"));
+    expect(calls).toEqual({ clusters: 1, rules: 1 });
+
+    setStoredRegion("us-west-2");
+    try {
+      await waitFor(() => expect(calls.rules).toBe(2));
+      await waitFor(() => expect(calls.clusters).toBe(2));
+    } finally {
+      setStoredRegion(DEFAULT_REGION);
+    }
   });
 });

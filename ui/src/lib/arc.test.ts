@@ -3,6 +3,7 @@ import {
   describeError,
   endpointPath,
   isApiError,
+  RESOURCE_SET_TYPE_LIST,
   statusBadgeClass,
   withClusterEndpoints,
 } from "./arc";
@@ -82,5 +83,35 @@ describe("arc helpers", () => {
     await expect(withClusterEndpoints([], "us-east-1", () => Promise.resolve(1))).rejects.toThrow(
       "no endpoints",
     );
+  });
+});
+
+describe("RESOURCE_SET_TYPE_LIST", () => {
+  it("matches the backend's accepted resource set types", () => {
+    // Source: services/route53recoveryreadiness/sets.go resourceSetTypes() and its type* consts.
+    const backend = [
+      "AWS::ApiGateway::Stage",
+      "AWS::ApiGatewayV2::Stage",
+      "AWS::AutoScaling::AutoScalingGroup",
+      "AWS::CloudWatch::Alarm",
+      "AWS::EC2::CustomerGateway",
+      "AWS::DynamoDB::Table",
+      "AWS::EC2::Volume",
+      "AWS::ElasticLoadBalancing::LoadBalancer",
+      "AWS::ElasticLoadBalancingV2::LoadBalancer",
+      "AWS::Lambda::Function",
+      "AWS::MSK::Cluster",
+      "AWS::RDS::DBCluster",
+      "AWS::Route53::HealthCheck",
+      "AWS::SQS::Queue",
+      "AWS::SNS::Topic",
+      "AWS::SNS::Subscription",
+      "AWS::EC2::VPC",
+      "AWS::EC2::VPNConnection",
+      "AWS::EC2::VPNGateway",
+      "AWS::Route53RecoveryReadiness::DNSTargetResource",
+    ];
+    expect(backend).toHaveLength(20);
+    expect(RESOURCE_SET_TYPE_LIST.toSorted()).toEqual(backend.toSorted());
   });
 });

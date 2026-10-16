@@ -111,7 +111,7 @@
 
 	onRegionChange(() => {
 		untrack(() => {
-			void tabLoader.refresh(activeTab);
+			void tabLoader.refreshLoaded(activeTab);
 		});
 	});
 

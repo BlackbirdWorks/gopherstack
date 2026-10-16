@@ -2,7 +2,7 @@
 	import { untrack } from 'svelte';
 	import { onRegionChange, regionalClient } from '#lib/region-effect.svelte.ts';
 	import { getRoute53RecoveryReadinessClient } from '#lib/aws-client.ts';
-	import { describeError, statusBadgeClass } from '#lib/arc.ts';
+	import { describeError, RESOURCE_SET_TYPE_LIST, statusBadgeClass } from '#lib/arc.ts';
 	import {
 		ListCellsCommand,
 		CreateCellCommand,
@@ -47,26 +47,7 @@
 		{ id: 'checks', label: 'Readiness Checks' }
 	];
 
-	const RESOURCE_SET_TYPES = [
-		'AWS::ApiGateway::Stage',
-		'AWS::ApiGatewayV2::Stage',
-		'AWS::AutoScaling::AutoScalingGroup',
-		'AWS::CloudWatch::Alarm',
-		'AWS::DynamoDB::Table',
-		'AWS::EC2::CustomerGateway',
-		'AWS::EC2::Volume',
-		'AWS::EC2::VPC',
-		'AWS::EC2::VPNConnection',
-		'AWS::EC2::VPNGateway',
-		'AWS::ElasticLoadBalancing::LoadBalancer',
-		'AWS::ElasticLoadBalancingV2::LoadBalancer',
-		'AWS::Lambda::Function',
-		'AWS::MSK::Cluster',
-		'AWS::RDS::DBCluster',
-		'AWS::Route53::HealthCheck',
-		'AWS::SNS::Topic',
-		'AWS::SQS::Queue'
-	];
+	const RESOURCE_SET_TYPES = RESOURCE_SET_TYPE_LIST;
 
 	const btn =
 		'flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 text-sm';
@@ -179,7 +160,8 @@
 		untrack(() => {
 			cells = [];
 			sets = [];
-			void tabLoader.refresh(activeTab);
+			readiness = {};
+			void tabLoader.refreshLoaded(activeTab);
 		});
 	});
 
