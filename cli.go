@@ -3664,6 +3664,30 @@ func (a *elbEC2ResolverAdapter) subnet(id string) *ec2backend.Subnet {
 	return nil
 }
 
+func (a *elbEC2ResolverAdapter) subnetIn(region, id string) *ec2backend.Subnet {
+	if subnets := a.regions.handler.BackendFor(region).DescribeSubnets([]string{id}); len(subnets) > 0 {
+		return subnets[0]
+	}
+
+	return nil
+}
+
+func (a *elbEC2ResolverAdapter) SubnetVPCIn(region, id string) string {
+	if sn := a.subnetIn(region, id); sn != nil {
+		return sn.VPCID
+	}
+
+	return ""
+}
+
+func (a *elbEC2ResolverAdapter) SubnetAZIn(region, id string) string {
+	if sn := a.subnetIn(region, id); sn != nil {
+		return sn.AvailabilityZone
+	}
+
+	return ""
+}
+
 func (a *elbEC2ResolverAdapter) SubnetVPC(id string) string {
 	if sn := a.subnet(id); sn != nil {
 		return sn.VPCID

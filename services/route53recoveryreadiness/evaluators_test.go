@@ -359,3 +359,69 @@ func TestEveryResourceSetTypeHasRules(t *testing.T) {
 		})
 	}
 }
+
+func TestEmptyDNSTargetAndComponentCountAsUnset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		res  types.Resource
+		fail bool
+	}{
+		{
+			name: "terraform shape",
+			res: types.Resource{
+				ComponentId: aws.String(""), DnsTargetResource: &types.DNSTargetResource{},
+				ReadinessScopes: []string{"arn:aws:route53-recovery-readiness::123456789012:cell/c"},
+				ResourceArn:     aws.String(queueARN("dbg")),
+			},
+		},
+		{name: "empty dns only", res: types.Resource{DnsTargetResource: &types.DNSTargetResource{}}, fail: true},
+		{
+			name: "real dns and arn",
+			res: types.Resource{
+				DnsTargetResource: &types.DNSTargetResource{DomainName: aws.String("a.example.com")},
+				ResourceArn:       aws.String(queueARN("dbg")),
+			},
+			fail: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFixture(t)
+			ctx := t.Context()
+
+			_, err := f.client.CreateCell(ctx, &sdk.CreateCellInput{CellName: aws.String("c")})
+			require.NoError(t, err)
+
+			out, err := f.client.CreateResourceSet(ctx, &sdk.CreateResourceSetInput{
+				ResourceSetName: aws.String("rs"), ResourceSetType: aws.String("AWS::SQS::Queue"),
+				Resources: []types.Resource{tt.res},
+			})
+			if tt.fail {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			got, err := f.client.GetResourceSet(ctx, &sdk.GetResourceSetInput{ResourceSetName: aws.String("rs")})
+			require.NoError(t, err)
+			require.Len(t, got.Resources, 1)
+			assert.Nil(t, got.Resources[0].DnsTargetResource)
+			assert.Empty(t, aws.ToString(got.Resources[0].ComponentId))
+			assert.Len(t, out.Resources, 1)
+			assert.Nil(t, out.Resources[0].DnsTargetResource)
+
+			_, err = f.client.UpdateResourceSet(ctx, &sdk.UpdateResourceSetInput{
+				ResourceSetName: aws.String("rs"), ResourceSetType: aws.String("AWS::SQS::Queue"),
+				Resources: []types.Resource{tt.res},
+			})
+			require.NoError(t, err)
+		})
+	}
+}

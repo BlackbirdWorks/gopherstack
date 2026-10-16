@@ -1,7 +1,6 @@
 package arczonalshift
 
 import (
-	"strconv"
 	"strings"
 
 	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
@@ -9,6 +8,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
+	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 )
 
@@ -143,40 +143,9 @@ func (b *InMemoryBackend) alarmState(alarmArn string) (string, bool) {
 
 // zoneID maps a zone name like "us-east-1a" to its zone ID like "use1-az1"; other inputs are returned unchanged.
 func zoneID(name string) string {
-	if len(name) < len("x-y-1a") {
-		return name
+	if id := ec2backend.AvailabilityZoneID(name); id != "" {
+		return id
 	}
 
-	letter := name[len(name)-1]
-	region := name[:len(name)-1]
-	parts := strings.Split(region, "-")
-
-	if letter < 'a' || letter > 'z' || len(parts) < 3 || region[len(region)-1] < '0' || region[len(region)-1] > '9' {
-		return name
-	}
-
-	var sb strings.Builder
-
-	sb.WriteString(parts[0])
-
-	for _, p := range parts[1 : len(parts)-1] {
-		switch p {
-		case "northeast":
-			sb.WriteString("ne")
-		case "northwest":
-			sb.WriteString("nw")
-		case "southeast":
-			sb.WriteString("se")
-		case "southwest":
-			sb.WriteString("sw")
-		default:
-			sb.WriteString(p[:1])
-		}
-	}
-
-	sb.WriteString(parts[len(parts)-1])
-	sb.WriteString("-az")
-	sb.WriteString(strconv.Itoa(int(letter-'a') + 1))
-
-	return sb.String()
+	return name
 }

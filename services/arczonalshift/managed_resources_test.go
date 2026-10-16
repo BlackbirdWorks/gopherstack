@@ -239,3 +239,43 @@ func TestManagedResourceStopsWhenZonalShiftDisabled(t *testing.T) {
 	)
 	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 }
+
+func TestZoneIDsFollowRegionAndZone(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		region string
+		zone   string
+		want   string
+	}{
+		{region: "us-east-1", zone: "us-east-1a", want: "use1-az1"},
+		{region: "us-west-2", zone: "us-west-2a", want: "usw2-az1"},
+		{region: "eu-west-1", zone: "eu-west-1c", want: "euw1-az3"},
+		{region: "ap-southeast-2", zone: "ap-southeast-2b", want: "apse2-az2"},
+		{region: "ap-northeast-1", zone: "ap-northeast-1a", want: "apne1-az1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.region, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFixture(t)
+			w := &managedWorld{asg: asg.NewInMemoryBackendWithConfig(testAccount, tt.region)}
+			f.backend.SetAppConfig(&extSiblings{
+				siblings: &siblings{elb: elbv2.NewHandler(f.elb), cw: cw.NewHandler(f.cw)},
+				asg:      asg.NewHandler(w.asg),
+			})
+
+			g, err := w.asg.CreateAutoScalingGroup(asg.CreateAutoScalingGroupInput{
+				AutoScalingGroupName: "web", MaxSize: 1, AvailabilityZones: []string{tt.zone},
+				AvailabilityZoneImpairmentPolicy: &asg.AvailabilityZoneImpairmentPolicy{ZonalShiftEnabled: true},
+			})
+			require.NoError(t, err)
+
+			got, err := f.client.GetManagedResource(t.Context(),
+				&sdk.GetManagedResourceInput{ResourceIdentifier: aws.String(g.AutoScalingGroupARN)})
+			require.NoError(t, err)
+			assert.Equal(t, map[string]float32{tt.want: 1}, got.AppliedWeights)
+		})
+	}
+}

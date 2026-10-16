@@ -22,6 +22,9 @@ func azDirectionAbbrev(p string) string {
 	return p[:1]
 }
 
+// AvailabilityZoneID is the exported form of the AZ name to zone ID mapping.
+func AvailabilityZoneID(az string) string { return availabilityZoneID(az) }
+
 // availabilityZoneID maps a zone name like "us-east-1a" to a stable zone ID
 // like "use1-az1"; names outside the region-plus-letter form yield "".
 func availabilityZoneID(az string) string {

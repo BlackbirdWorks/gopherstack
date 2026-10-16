@@ -28,6 +28,13 @@ type InstanceStateResolver interface {
 	InstanceStateName(id string) (string, bool)
 }
 
+// RegionalSubnetPlacementResolver resolves a subnet within the load balancer's own region; subnet IDs such as
+// subnet-default exist in every region, so a region-blind lookup can answer for the wrong one.
+type RegionalSubnetPlacementResolver interface {
+	SubnetVPCIn(region, id string) string
+	SubnetAZIn(region, id string) string
+}
+
 // SubnetPlacementResolver is the optional EC2Resolver extension CreateLoadBalancer uses to
 // report a subnet's real VPC and Availability Zone instead of placeholders.
 type SubnetPlacementResolver interface {

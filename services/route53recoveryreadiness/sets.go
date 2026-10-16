@@ -58,6 +58,10 @@ func normalizeResources(typ string, in []Resource) ([]Resource, error) {
 
 // checkResource validates one resource against the set type and fills in a generated component ID for DNS targets.
 func checkResource(typ string, i int, r Resource) (Resource, error) {
+	if r.DNS != nil && r.DNS.empty() {
+		r.DNS = nil
+	}
+
 	hasArn, hasDNS := r.ResourceArn != "", r.DNS != nil
 
 	switch {
@@ -78,6 +82,12 @@ func checkResource(typ string, i int, r Resource) (Resource, error) {
 	}
 
 	return r, nil
+}
+
+// empty reports a dnsTargetResource with no members set, which clients send for "no DNS target".
+func (d *DNSTarget) empty() bool {
+	return d.DomainName == "" && d.HostedZoneArn == "" && d.RecordSetID == "" && d.RecordType == "" &&
+		(d.Target == nil || (d.Target.NLB == nil && d.Target.R53 == nil))
 }
 
 func validateSetType(typ string) error {
