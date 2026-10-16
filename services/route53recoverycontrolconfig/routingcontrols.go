@@ -32,7 +32,7 @@ func (b *InMemoryBackend) CreateRoutingControl(clusterArn, panelArn, name, token
 		}
 	}
 
-	if _, err := b.getCluster(clusterArn); err != nil {
+	if err := b.activeCluster(clusterArn); err != nil {
 		return wireRoutingControl{}, err
 	}
 
@@ -45,7 +45,7 @@ func (b *InMemoryBackend) CreateRoutingControl(clusterArn, panelArn, name, token
 		panelArn = def
 	}
 
-	panel, err := b.getPanel(panelArn)
+	panel, err := b.activePanel(panelArn)
 	if err != nil {
 		return wireRoutingControl{}, err
 	}
@@ -150,7 +150,9 @@ func (b *InMemoryBackend) DeleteRoutingControl(arn string) error {
 		return err
 	}
 
-	for _, r := range b.rulesIn(c.PanelARN) {
+	rules := sortedBy(b.rulesIn(c.PanelARN), func(r *SafetyRule) string { return r.Name + r.ARN })
+
+	for _, r := range rules {
 		if r.governs(arn) {
 			return restroute.Conflict("Routing control %s is used by safety rule %q (%s)", arn, r.Name, r.ARN)
 		}

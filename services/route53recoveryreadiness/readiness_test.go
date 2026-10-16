@@ -175,6 +175,37 @@ func TestReadinessFollowsSiblingState(t *testing.T) {
 		)
 	})
 
+	t.Run("authorization must match the account exactly", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name string
+			auth string
+			want types.Readiness
+		}{
+			{name: "longer account id", auth: "arn:aws:iam::1999999999999:root", want: types.ReadinessNotAuthorized},
+			{name: "other account", auth: "arn:aws:iam::123456789012:root", want: types.ReadinessNotAuthorized},
+			{name: "exact arn", auth: "arn:aws:iam::999999999999:root", want: types.ReadinessNotReady},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				f := newFixture(t)
+				arn := "arn:aws:sqs:us-east-1:999999999999:theirs"
+				rc := f.checkOf(t, "AWS::SQS::Queue", types.Resource{ResourceArn: aws.String(arn)})
+
+				_, err := f.client.CreateCrossAccountAuthorization(
+					t.Context(),
+					&sdk.CreateCrossAccountAuthorizationInput{CrossAccountAuthorization: aws.String(tt.auth)},
+				)
+				require.NoError(t, err)
+				assert.Equal(t, tt.want, f.readiness(t, rc))
+			})
+		}
+	})
+
 	t.Run("empty resource set is unknown", func(t *testing.T) {
 		t.Parallel()
 

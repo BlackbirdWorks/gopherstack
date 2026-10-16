@@ -112,7 +112,7 @@ func (b *InMemoryBackend) CreateSafetyRule(spec *NewRuleSpec, token string, tags
 		}
 	}
 
-	if _, err := b.getPanel(spec.PanelARN); err != nil {
+	if _, err := b.activePanel(spec.PanelARN); err != nil {
 		return wireRule{}, err
 	}
 

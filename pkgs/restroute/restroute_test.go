@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 )
 
@@ -185,6 +186,14 @@ func TestServerDispatchAndErrors(t *testing.T) {
 			body:       "{",
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "ValidationException",
+		},
+		{
+			name:       "oversized body",
+			method:     http.MethodPost,
+			path:       "/cells",
+			body:       strings.Repeat("a", int(httputils.MaxRequestBodyBytes)+1),
+			wantStatus: http.StatusRequestEntityTooLarge,
+			wantCode:   "RequestEntityTooLargeException",
 		},
 		{
 			name:       "unrouted",

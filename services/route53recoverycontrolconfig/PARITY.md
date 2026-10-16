@@ -46,6 +46,6 @@ leaks: {status: clean, note: "no goroutines or janitors; expiry and lifecycle ar
 - Protocol: REST-JSON, PascalCase members, SigV4 signing name `route53-recovery-control-config` (`services/_PROTOCOLS.md`). ARNs have no region segment (`arn:aws:route53-recovery-control::<acct>:cluster/<id>`).
 - Routing control state (On/Off) lives here and is the single source of truth for the data plane (`route53recoverycluster`) and for Route 53 `RECOVERY_CONTROL` health checks.
 - Safety rules are evaluated on every data-plane update against the resulting state of the controls the update touches. ASSERTION: the rule's controls must satisfy `RuleConfig` after the update. GATING: updates to target controls require the gating controls to satisfy `RuleConfig`. ATLEAST needs `Threshold` controls On, AND needs all, OR needs one; `Inverted` negates. `WaitPeriodMs` blocks further changes to governed controls after one lands. `SafetyRulesToOverride` skips both checks for the named rules. A rejected batch changes nothing.
-- Lifecycle: `--lifecycle-route53recoverycontrolconfig` (or the global delay) keeps new resources PENDING and deleted ones PENDING_DELETION for the window; default 0 is instant.
+- Lifecycle: `--lifecycle-route53-recovery` (or the global delay) keeps new resources PENDING and deleted ones PENDING_DELETION for the window; default 0 is instant.
 - Quotas are not enforced; the SDK documents none per operation.
 

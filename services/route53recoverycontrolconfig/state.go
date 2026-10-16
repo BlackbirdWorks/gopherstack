@@ -2,6 +2,7 @@ package route53recoverycontrolconfig
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -288,7 +289,7 @@ func (b *InMemoryBackend) evaluateRules(
 		return ev
 	}
 
-	for panel := range panels {
+	for _, panel := range slices.Sorted(maps.Keys(panels)) {
 		for _, r := range sortedBy(b.rulesIn(panel), func(r *SafetyRule) string { return r.ARN }) {
 			if !r.touchedBy(effective) {
 				continue

@@ -102,7 +102,7 @@ func TestSafetyRuleCRUD(t *testing.T) {
 		&sdk.DeleteRoutingControlInput{RoutingControlArn: aws.String(topo.ctlA)},
 	)
 	assert.Equal(t, "ConflictException", apiCode(err), "a routing control used by a rule cannot be deleted")
-	assert.Contains(t, apiMessage(err), "renamed")
+	assert.Contains(t, apiMessage(err), `"gate"`, "the first rule by name is reported")
 
 	_, err = f.client.DeleteSafetyRule(ctx, &sdk.DeleteSafetyRuleInput{SafetyRuleArn: ar.SafetyRuleArn})
 	require.NoError(t, err)

@@ -122,6 +122,34 @@ func (b *InMemoryBackend) getPanel(arn string) (*ControlPanel, error) {
 	return p, nil
 }
 
+// activeCluster is getCluster for new children: a cluster being deleted rejects them.
+func (b *InMemoryBackend) activeCluster(arn string) error {
+	c, err := b.getCluster(arn)
+	if err != nil {
+		return err
+	}
+
+	if c.DeletedAt != nil {
+		return restroute.Conflict("Cluster %s is being deleted", arn)
+	}
+
+	return nil
+}
+
+// activePanel is getPanel for new children: a control panel being deleted rejects them.
+func (b *InMemoryBackend) activePanel(arn string) (*ControlPanel, error) {
+	p, err := b.getPanel(arn)
+	if err != nil {
+		return nil, err
+	}
+
+	if p.DeletedAt != nil {
+		return nil, restroute.Conflict("Control panel %s is being deleted", arn)
+	}
+
+	return p, nil
+}
+
 func (b *InMemoryBackend) getControl(arn string) (*RoutingControl, error) {
 	c, ok := b.controls.Get(arn)
 	if !ok || !b.alive(c.DeletedAt) {

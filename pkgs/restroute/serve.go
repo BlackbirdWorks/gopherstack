@@ -97,6 +97,11 @@ func (s *Server) Handler() echo.HandlerFunc {
 
 		body, err := httputils.ReadBody(r)
 		if err != nil {
+			if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+				return WriteError(c, http.StatusRequestEntityTooLarge, "RequestEntityTooLargeException",
+					"Request body is too large", nil)
+			}
+
 			return WriteError(c, http.StatusBadRequest, "ValidationException", "Unable to read the request body", nil)
 		}
 

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 	cc "github.com/blackbirdworks/gopherstack/services/route53recoverycontrolconfig"
 )
 
@@ -106,6 +107,100 @@ func TestPendingDeletion(t *testing.T) {
 				list, _, err := b.ListClusters(t.Context(), "", 0)
 				require.NoError(t, err)
 				assert.Len(t, list, 1)
+			})
+		})
+	}
+}
+
+func TestNoChildrenUnderPendingDeletion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		create        func(b *cc.InMemoryBackend, cluster, panel string) error
+		name          string
+		deleteCluster bool
+	}{
+		{
+			name: "panel under deleting cluster", deleteCluster: true,
+			create: func(b *cc.InMemoryBackend, cluster, _ string) error {
+				_, err := b.CreateControlPanel(cluster, "p2", "", nil)
+
+				return err
+			},
+		},
+		{
+			name: "control under deleting cluster", deleteCluster: true,
+			create: func(b *cc.InMemoryBackend, cluster, _ string) error {
+				_, err := b.CreateRoutingControl(cluster, "", "r2", "")
+
+				return err
+			},
+		},
+		{
+			name: "control under deleting panel",
+			create: func(b *cc.InMemoryBackend, cluster, panel string) error {
+				_, err := b.CreateRoutingControl(cluster, panel, "r2", "")
+
+				return err
+			},
+		},
+		{
+			name: "rule under deleting panel",
+			create: func(b *cc.InMemoryBackend, _, panel string) error {
+				_, err := b.CreateSafetyRule(&cc.NewRuleSpec{
+					Name:     "a",
+					PanelARN: panel,
+					Kind:     "ASSERTION",
+					RuleType: "ATLEAST",
+					Controls: []string{
+						"arn:aws:route53-recovery-control::123456789012:controlpanel/x/routingcontrol/y",
+					},
+					Threshold: 1,
+				}, "", nil)
+
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				b := cc.NewInMemoryBackend(testAccount)
+				b.SetActivationDelay(time.Minute)
+
+				cl, err := b.CreateCluster(t.Context(), "c", "", "", nil)
+				require.NoError(t, err)
+
+				time.Sleep(2 * time.Minute)
+
+				panel, err := b.CreateControlPanel(cl.ClusterArn, "p", "", nil)
+				require.NoError(t, err)
+
+				if tt.deleteCluster {
+					panels, _, lErr := b.ListControlPanels(cl.ClusterArn, "", 0)
+					require.NoError(t, lErr)
+
+					for _, p := range panels {
+						if !p.DefaultControlPanel {
+							require.NoError(t, b.DeleteControlPanel(p.ControlPanelArn))
+						}
+					}
+
+					time.Sleep(2 * time.Minute)
+					require.NoError(t, b.DeleteCluster(cl.ClusterArn))
+				} else {
+					require.NoError(t, b.DeleteControlPanel(panel.ControlPanelArn))
+				}
+
+				err = tt.create(b, cl.ClusterArn, panel.ControlPanelArn)
+
+				var re *restroute.Error
+
+				require.ErrorAs(t, err, &re)
+				assert.Equal(t, "ConflictException", re.Code)
 			})
 		})
 	}

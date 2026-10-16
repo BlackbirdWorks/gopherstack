@@ -364,6 +364,11 @@ func (b *InMemoryBackend) StartPracticeRun(resource, awayFrom, comment string) (
 			blk.reason, "", "A practice run cannot start for %s: %s", resource, blk.detail)
 	}
 
+	if active := b.activeShifts(m.ARN, shiftPractice, now); len(active) > 0 {
+		return ShiftView{}, conflictReason("ZonalShiftAlreadyExists", active[0].ID,
+			"A practice run is already active for %s", m.ARN)
+	}
+
 	if err = b.checkNoConflict(m, az, now); err != nil {
 		return ShiftView{}, err
 	}

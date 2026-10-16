@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 	zs "github.com/blackbirdworks/gopherstack/services/arczonalshift"
 	cw "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 )
@@ -499,4 +500,53 @@ func TestAutoshiftObserverNotification(t *testing.T) {
 
 	_, err = f.client.ListAutoshifts(ctx, &sdk.ListAutoshiftsInput{Status: "BOGUS"})
 	assert.Equal(t, "ValidationException", apiCode(err))
+}
+
+func TestStartPracticeRunRejectsSecondActiveRun(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		second  string
+		sleep   time.Duration
+		wantErr bool
+	}{
+		{name: "same zone while active", second: "us-east-1a", wantErr: true},
+		{name: "other zone while active", second: "us-east-1b", wantErr: true},
+		{name: "after the first expires", second: "us-east-1a", sleep: 31 * time.Minute},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				x := newBubble(t)
+				outcome := x.alarm(t, "outcome")
+				_, err := x.b.CreatePracticeRunConfiguration(
+					zs.PracticeConfig{Resource: x.lb, OutcomeAlarms: cond(outcome)},
+				)
+				require.NoError(t, err)
+
+				first, err := x.b.StartPracticeRun(x.lb, "us-east-1a", "drill")
+				require.NoError(t, err)
+
+				time.Sleep(tt.sleep)
+
+				_, err = x.b.StartPracticeRun(x.lb, tt.second, "again")
+				if tt.wantErr {
+					requireReason(t, err, "ZonalShiftAlreadyExists")
+
+					var re *restroute.Error
+
+					require.ErrorAs(t, err, &re)
+					assert.Equal(t, first.ZonalShiftID, re.Extra["zonalShiftId"])
+
+					return
+				}
+
+				require.NoError(t, err)
+			})
+		})
+	}
 }

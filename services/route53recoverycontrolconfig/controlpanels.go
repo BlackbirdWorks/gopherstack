@@ -64,7 +64,7 @@ func (b *InMemoryBackend) CreateControlPanel(
 		}
 	}
 
-	if _, err := b.getCluster(clusterArn); err != nil {
+	if err := b.activeCluster(clusterArn); err != nil {
 		return wireControlPanel{}, err
 	}
 

@@ -59,12 +59,8 @@ func (b *InMemoryBackend) ReadinessCheckStatus(
 
 	var msgs []Message
 
-	for _, o := range outs {
-		if o.Note != "" {
-			msgs = append(msgs, Message{MessageText: o.Note})
-
-			break
-		}
+	if i := slices.IndexFunc(outs, func(o resourceOutcome) bool { return o.Note != "" }); i >= 0 {
+		msgs = append(msgs, Message{MessageText: outs[i].Note})
 	}
 
 	if len(outs) == 0 {

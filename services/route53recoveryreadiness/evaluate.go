@@ -124,7 +124,16 @@ func (b *InMemoryBackend) authorized(resourceArn string, auths []string) (bool, 
 		return true, ""
 	}
 
-	return slices.ContainsFunc(auths, func(a string) bool { return strings.Contains(a, p.AccountID) }), p.AccountID
+	return slices.ContainsFunc(auths, func(a string) bool { return authAccount(a) == p.AccountID }), p.AccountID
+}
+
+// authAccount is the account an authorization names: the ARN's account, else the whole string.
+func authAccount(auth string) string {
+	if p, ok := parseARN(auth); ok {
+		return p.AccountID
+	}
+
+	return auth
 }
 
 func outcomeFor(def ruleDef, p probe, now time.Time) ruleOutcome {
