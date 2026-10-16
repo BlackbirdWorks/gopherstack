@@ -19,6 +19,8 @@ resource "aws_lb" "arczs" {
   internal           = true
   load_balancer_type = "application"
   subnets            = [aws_subnet.arczs_a.id, aws_subnet.arczs_b.id]
+
+  drop_invalid_header_fields = true
 }
 
 resource "aws_cloudwatch_metric_alarm" "arczs_outcome" {
