@@ -3,7 +3,7 @@ resource "aws_route53recoverycontrolconfig_cluster" "arc" {
 }
 
 resource "aws_route53recoverycontrolconfig_control_panel" "arc" {
-  name        = "arc-panel-{{.Suffix}}"
+  name        = "{{.PanelName}}"
   cluster_arn = aws_route53recoverycontrolconfig_cluster.arc.arn
 }
 
@@ -14,15 +14,15 @@ resource "aws_route53recoverycontrolconfig_routing_control" "primary" {
 }
 
 resource "aws_route53recoverycontrolconfig_routing_control" "secondary" {
-  name              = "arc-secondary-{{.Suffix}}"
+  name              = "{{.SecondaryName}}"
   cluster_arn       = aws_route53recoverycontrolconfig_cluster.arc.arn
   control_panel_arn = aws_route53recoverycontrolconfig_control_panel.arc.arn
 }
 
 resource "aws_route53recoverycontrolconfig_safety_rule" "assertion" {
-  name              = "arc-at-least-one-{{.Suffix}}"
+  name              = "{{.AssertionName}}"
   control_panel_arn = aws_route53recoverycontrolconfig_control_panel.arc.arn
-  wait_period_ms    = 5000
+  wait_period_ms    = {{.WaitMs}}
 
   asserted_controls = [
     aws_route53recoverycontrolconfig_routing_control.primary.arn,
@@ -31,23 +31,23 @@ resource "aws_route53recoverycontrolconfig_safety_rule" "assertion" {
 
   rule_config {
     inverted  = false
-    threshold = 1
+    threshold = {{.Threshold}}
     type      = "ATLEAST"
   }
 }
 
 resource "aws_route53recoverycontrolconfig_safety_rule" "gating" {
-  name              = "arc-gate-secondary-{{.Suffix}}"
+  name              = "{{.GatingName}}"
   control_panel_arn = aws_route53recoverycontrolconfig_control_panel.arc.arn
-  wait_period_ms    = 5000
+  wait_period_ms    = {{.WaitMs}}
 
   gating_controls = [aws_route53recoverycontrolconfig_routing_control.primary.arn]
   target_controls = [aws_route53recoverycontrolconfig_routing_control.secondary.arn]
 
   rule_config {
-    inverted  = false
+    inverted  = true
     threshold = 1
-    type      = "ATLEAST"
+    type      = "OR"
   }
 }
 

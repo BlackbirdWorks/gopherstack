@@ -45,7 +45,9 @@ resource "aws_cloudwatch_metric_alarm" "arczs_blocking" {
 
 resource "aws_arczonalshift_zonal_autoshift_configuration" "arczs" {
   resource_arn           = aws_lb.arczs.arn
-  zonal_autoshift_status = "ENABLED"
+  zonal_autoshift_status = "{{.Status}}"
+  blocked_windows        = ["{{.BlockedWindow}}"]
+  blocked_dates          = ["2030-12-25"]
 
   outcome_alarms {
     alarm_identifier = aws_cloudwatch_metric_alarm.arczs_outcome.arn

@@ -26,9 +26,17 @@ resource "aws_route53recoveryreadiness_resource_set" "arc" {
     resource_arn     = aws_sqs_queue.arc.arn
     readiness_scopes = [aws_route53recoveryreadiness_cell.west.arn]
   }
+
+  tags = {
+    env = "{{.Env}}"
+  }
 }
 
 resource "aws_route53recoveryreadiness_readiness_check" "arc" {
   readiness_check_name = "arc_check_{{.Suffix}}"
   resource_set_name    = aws_route53recoveryreadiness_resource_set.arc.resource_set_name
+
+  tags = {
+    env = "{{.Env}}"
+  }
 }

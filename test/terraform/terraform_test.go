@@ -11,6 +11,7 @@ import (
 	"hash/fnv"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
@@ -1018,8 +1019,13 @@ type tfTestCase struct {
 	providerFn func(addr string) string
 	setup      func(t *testing.T, dir string) map[string]any
 	verify     func(t *testing.T, ctx context.Context, vars map[string]any)
-	name       string
-	fixture    string
+	// update overlays vars and re-applies the fixture to exercise Update ops.
+	update       map[string]any
+	verifyUpdate func(t *testing.T, ctx context.Context, vars map[string]any)
+	name         string
+	fixture      string
+	// noDrift asserts an empty plan after every apply.
+	noDrift bool
 }
 
 // runTFTest is the common runner shared by all per-service Terraform tests.
@@ -1043,6 +1049,26 @@ func runTFTest(t *testing.T, tc tfTestCase) {
 
 	if tc.verify != nil {
 		tc.verify(t, ctx, vars)
+	}
+
+	if tc.noDrift {
+		assertNoTofuChanges(ctx, t, tofuBin, dir)
+	}
+
+	if tc.update == nil {
+		return
+	}
+
+	updated := maps.Clone(vars)
+	maps.Copy(updated, tc.update)
+	reapplyTofu(ctx, t, tofuBin, dir, provFn(endpoint)+renderFixture(t, tc.fixture, updated))
+
+	if tc.verifyUpdate != nil {
+		tc.verifyUpdate(t, ctx, updated)
+	}
+
+	if tc.noDrift {
+		assertNoTofuChanges(ctx, t, tofuBin, dir)
 	}
 }
 
