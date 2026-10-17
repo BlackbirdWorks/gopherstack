@@ -100,7 +100,7 @@ func (m *StreamMessage) Marshal() []byte {
 		payload = payload[:MaxStreamPayload]
 	}
 
-	out := make([]byte, msgPayloadOff+len(payload))
+	out := make([]byte, msgPayloadOff)
 
 	binary.BigEndian.PutUint32(out, msgHeaderLength)
 
@@ -125,7 +125,7 @@ func (m *StreamMessage) Marshal() []byte {
 
 	binary.BigEndian.PutUint32(out[msgPayloadTypeOff:], m.PayloadType)
 	binary.BigEndian.PutUint32(out[msgPayloadLengthOff:], uint32(len(payload)&math.MaxUint32))
-	copy(out[msgPayloadOff:], payload)
+	out = append(out, payload...)
 
 	return out
 }
