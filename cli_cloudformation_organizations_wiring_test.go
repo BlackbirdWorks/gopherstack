@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation"
@@ -72,7 +73,7 @@ func TestCloudFormationImportStacksStampsOrganizationalUnit(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			_, err = cfn.ImportStacksToStackSet(t.Context(), &cloudformation.ImportStacksToStackSetInput{
+			imp, err := cfn.ImportStacksToStackSet(t.Context(), &cloudformation.ImportStacksToStackSetInput{
 				StackSetName:          aws.String("imp"),
 				StackIds:              []string{"arn:aws:cloudformation:us-east-1:" + accountID + ":stack/s/abc"},
 				OrganizationalUnitIds: []string{ouID},
@@ -85,6 +86,14 @@ func TestCloudFormationImportStacksStampsOrganizationalUnit(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+
+			require.Eventually(t, func() bool {
+				op, derr := cfn.DescribeStackSetOperation(t.Context(), &cloudformation.DescribeStackSetOperationInput{
+					StackSetName: aws.String("imp"), OperationId: imp.OperationId,
+				})
+
+				return derr == nil && op.StackSetOperation.Status == cfntypes.StackSetOperationStatusSucceeded
+			}, 10*time.Second, 10*time.Millisecond)
 
 			list, err := cfn.ListStackInstances(t.Context(), &cloudformation.ListStackInstancesInput{
 				StackSetName: aws.String("imp"),
