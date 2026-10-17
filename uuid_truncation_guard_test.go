@@ -55,16 +55,41 @@ func pureHexTruncationDirs() map[string]string {
 	}
 }
 
-// TestNoUndeclaredUUIDTruncation guards the bug class of hand-built IDs made by
-// slicing a UUID string: past 8 chars the slice carries a hyphen and breaks
-// hex/alphanumeric ID patterns (Transfer vpce-, SSM AccessKeyId, ECS task sets).
-// Mint a shaped ID with a helper instead, or add a reasoned allowlist entry.
-func TestNoUndeclaredUUIDTruncation(t *testing.T) {
-	t.Parallel()
+func skipGuardDir(name string) bool {
+	return strings.HasPrefix(name, "azure") || name == "cosmosdb" || name == ".claude" || name == "node_modules"
+}
 
-	hyphenated := hyphenatedTruncations()
-	hexDirs := pureHexTruncationDirs()
-	gotHyphenated := map[string]int{}
+func isGuardedSource(path string) bool {
+	return strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go")
+}
+
+// classifyTruncations records hyphen-bearing slices in got and returns offenders
+// for short-hex slices in directories missing from hexDirs.
+func classifyTruncations(
+	slashed, dir string, src []byte, hexDirs map[string]string, got map[string]int,
+) []string {
+	var offenders []string
+
+	for _, m := range uuidTruncation.FindAllStringSubmatch(string(src), -1) {
+		n, convErr := strconv.Atoi(m[1])
+		if convErr != nil || n > maxPureHexTruncation {
+			got[slashed]++
+
+			continue
+		}
+
+		if _, ok := hexDirs[dir]; !ok {
+			offenders = append(offenders, slashed+": uuid["+":"+m[1]+"] in a dir missing from pureHexTruncationDirs")
+		}
+	}
+
+	return offenders
+}
+
+func scanUUIDTruncations(t *testing.T, hexDirs map[string]string) ([]string, map[string]int) {
+	t.Helper()
+
+	got := map[string]int{}
 
 	var offenders []string
 
@@ -74,15 +99,14 @@ func TestNoUndeclaredUUIDTruncation(t *testing.T) {
 		}
 
 		if d.IsDir() {
-			n := d.Name()
-			if strings.HasPrefix(n, "azure") || n == "cosmosdb" || n == ".claude" || n == "node_modules" {
+			if skipGuardDir(d.Name()) {
 				return filepath.SkipDir
 			}
 
 			return nil
 		}
 
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+		if !isGuardedSource(path) {
 			return nil
 		}
 
@@ -91,41 +115,43 @@ func TestNoUndeclaredUUIDTruncation(t *testing.T) {
 			return readErr
 		}
 
-		slashed := filepath.ToSlash(path)
-		dir := filepath.ToSlash(filepath.Dir(path))
-
-		for _, m := range uuidTruncation.FindAllStringSubmatch(string(src), -1) {
-			n, convErr := strconv.Atoi(m[1])
-			if convErr == nil && n <= maxPureHexTruncation {
-				if _, ok := hexDirs[dir]; !ok {
-					offenders = append(
-						offenders,
-						slashed+": uuid[:"+m[1]+"] in a dir missing from pureHexTruncationDirs",
-					)
-				}
-
-				continue
-			}
-
-			gotHyphenated[slashed]++
-		}
+		offenders = append(offenders,
+			classifyTruncations(filepath.ToSlash(path), filepath.ToSlash(filepath.Dir(path)), src, hexDirs, got)...)
 
 		return nil
 	})
 	require.NoError(t, err)
 
-	for path, n := range gotHyphenated {
-		want, ok := hyphenated[path]
-		if !ok || want.count != n {
+	return offenders, got
+}
+
+func compareHyphenatedAllowlist(got map[string]int, want map[string]truncationAllowance) []string {
+	var offenders []string
+
+	for path, n := range got {
+		if w, ok := want[path]; !ok || w.count != n {
 			offenders = append(offenders, path+": hyphen-bearing uuid truncation not matching hyphenatedTruncations()")
 		}
 	}
 
-	for path := range hyphenated {
-		if gotHyphenated[path] == 0 {
+	for path := range want {
+		if got[path] == 0 {
 			offenders = append(offenders, path+": stale hyphenatedTruncations() entry")
 		}
 	}
+
+	return offenders
+}
+
+// TestNoUndeclaredUUIDTruncation guards the bug class of hand-built IDs made by
+// slicing a UUID string: past 8 chars the slice carries a hyphen and breaks
+// hex/alphanumeric ID patterns (Transfer vpce-, SSM AccessKeyId, ECS task sets).
+// Mint a shaped ID with a helper instead, or add a reasoned allowlist entry.
+func TestNoUndeclaredUUIDTruncation(t *testing.T) {
+	t.Parallel()
+
+	offenders, got := scanUUIDTruncations(t, pureHexTruncationDirs())
+	offenders = append(offenders, compareHyphenatedAllowlist(got, hyphenatedTruncations())...)
 
 	require.Empty(t, offenders,
 		"UUID-slice IDs: use a shaped-ID helper (hex without hyphens at the AWS length) "+
