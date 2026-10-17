@@ -67,6 +67,18 @@ describe("createTabLoader", () => {
     expect(loader.isLoaded("a")).toBe(true);
   });
 
+  it("refreshLoaded refetches only tabs that have loaded", async () => {
+    const a = vi.fn(async () => {});
+    const b = vi.fn(async () => {});
+    const loader = createTabLoader({ a, b });
+
+    await loader.load("a");
+    await loader.refreshLoaded();
+
+    expect(a).toHaveBeenCalledTimes(2);
+    expect(b).not.toHaveBeenCalled();
+  });
+
   it("captures errors into per-tab error state instead of throwing", async () => {
     const fetcher = vi.fn().mockRejectedValue(new Error("boom"));
     const loader = createTabLoader({ a: fetcher });

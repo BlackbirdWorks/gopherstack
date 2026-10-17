@@ -88,6 +88,10 @@ import { PersonalizeRuntimeClient } from "@aws-sdk/client-personalize-runtime";
 import { QuickSightClient } from "@aws-sdk/client-quicksight";
 import { RolesAnywhereClient } from "@aws-sdk/client-rolesanywhere";
 import { WorkMailClient } from "@aws-sdk/client-workmail";
+import { Route53RecoveryControlConfigClient } from "@aws-sdk/client-route53-recovery-control-config";
+import { Route53RecoveryClusterClient } from "@aws-sdk/client-route53-recovery-cluster";
+import { Route53RecoveryReadinessClient } from "@aws-sdk/client-route53-recovery-readiness";
+import { ARCZonalShiftClient } from "@aws-sdk/client-arc-zonal-shift";
 import { S3Client } from "@aws-sdk/client-s3";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { regionProvider } from "#lib/region.svelte.ts";
@@ -791,4 +795,30 @@ import { DynamoDBStreamsClient } from "@aws-sdk/client-dynamodb-streams";
 
 export function getDynamoDBStreamsClient(region?: string): DynamoDBStreamsClient {
   return new DynamoDBStreamsClient(clientConfig(region));
+}
+
+export function getRoute53RecoveryControlConfigClient(
+  region?: string,
+): Route53RecoveryControlConfigClient {
+  return new Route53RecoveryControlConfigClient(clientConfig(region));
+}
+
+export function getRoute53RecoveryReadinessClient(region?: string): Route53RecoveryReadinessClient {
+  return new Route53RecoveryReadinessClient(clientConfig(region));
+}
+
+export function getARCZonalShiftClient(region?: string): ARCZonalShiftClient {
+  return new ARCZonalShiftClient(clientConfig(region));
+}
+
+// The cluster data plane lives under a per-cluster, per-region path on this server,
+// so the host the control plane reports is replaced by the dashboard origin.
+export function getRoute53RecoveryClusterClient(
+  endpointPath: string,
+  region: string,
+): Route53RecoveryClusterClient {
+  return new Route53RecoveryClusterClient({
+    ...clientConfig(region),
+    endpoint: `${endpointURL()}${endpointPath}`,
+  });
 }

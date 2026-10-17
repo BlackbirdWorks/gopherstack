@@ -24,6 +24,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	backend := NewInMemoryBackend()
+	backend.SetAppConfig(ctx.Config)
 	handler := NewHandler(backend)
 
 	return handler, nil

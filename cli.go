@@ -83,6 +83,7 @@ import (
 	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
 	appstreambackend "github.com/blackbirdworks/gopherstack/services/appstream"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
+	arczonalshiftbackend "github.com/blackbirdworks/gopherstack/services/arczonalshift"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
@@ -205,6 +206,9 @@ import (
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	rolesanywherebackend "github.com/blackbirdworks/gopherstack/services/rolesanywhere"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
+	route53recoveryclusterbackend "github.com/blackbirdworks/gopherstack/services/route53recoverycluster"
+	route53recoverycontrolconfigbackend "github.com/blackbirdworks/gopherstack/services/route53recoverycontrolconfig"
+	route53recoveryreadinessbackend "github.com/blackbirdworks/gopherstack/services/route53recoveryreadiness"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
@@ -337,6 +341,10 @@ type CLI struct {
 	swfHandler                    service.Registerable
 	firehoseHandler               service.Registerable
 	networkmonitorHandler         service.Registerable
+	arcZonalShiftHandler          service.Registerable
+	route53RecoveryClusterHandler service.Registerable
+	route53RecoveryControlHandler service.Registerable
+	route53RecoveryReadyHandler   service.Registerable
 	schedulerHandler              service.Registerable
 	servicediscoveryHandler       service.Registerable
 	transcribeHandler             service.Registerable
@@ -1313,6 +1321,32 @@ func (c *CLI) GetSWFHandler() service.Registerable { return c.swfHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetFirehoseHandler() service.Registerable { return c.firehoseHandler }
+
+// GetARCZonalShiftHandler returns the ARC zonal shift handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetARCZonalShiftHandler() service.Registerable { return c.arcZonalShiftHandler }
+
+// GetRoute53RecoveryClusterHandler returns the Route 53 Recovery Cluster handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRoute53RecoveryClusterHandler() service.Registerable {
+	return c.route53RecoveryClusterHandler
+}
+
+// GetRoute53RecoveryControlConfigHandler returns the Route 53 Recovery Control Config handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRoute53RecoveryControlConfigHandler() service.Registerable {
+	return c.route53RecoveryControlHandler
+}
+
+// GetRoute53RecoveryReadinessHandler returns the Route 53 Recovery Readiness handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRoute53RecoveryReadinessHandler() service.Registerable {
+	return c.route53RecoveryReadyHandler
+}
 
 // GetNetworkMonitorHandler returns the NetworkMonitor handler.
 //
@@ -2811,6 +2845,10 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.swfHandler = byName["SWF"]
 	cli.firehoseHandler = byName["Firehose"]
 	cli.networkmonitorHandler = byName["NetworkMonitor"]
+	cli.arcZonalShiftHandler = byName["ARCZonalShift"]
+	cli.route53RecoveryClusterHandler = byName["Route53RecoveryCluster"]
+	cli.route53RecoveryControlHandler = byName["Route53RecoveryControlConfig"]
+	cli.route53RecoveryReadyHandler = byName["Route53RecoveryReadiness"]
 	cli.schedulerHandler = byName["Scheduler"]
 	cli.route53resolverHandler = byName["Route53Resolver"]
 	cli.rdsHandler = byName["RDS"]
@@ -3626,6 +3664,30 @@ func (a *elbEC2ResolverAdapter) subnet(id string) *ec2backend.Subnet {
 	return nil
 }
 
+func (a *elbEC2ResolverAdapter) subnetIn(region, id string) *ec2backend.Subnet {
+	if subnets := a.regions.handler.BackendFor(region).DescribeSubnets([]string{id}); len(subnets) > 0 {
+		return subnets[0]
+	}
+
+	return nil
+}
+
+func (a *elbEC2ResolverAdapter) SubnetVPCIn(region, id string) string {
+	if sn := a.subnetIn(region, id); sn != nil {
+		return sn.VPCID
+	}
+
+	return ""
+}
+
+func (a *elbEC2ResolverAdapter) SubnetAZIn(region, id string) string {
+	if sn := a.subnetIn(region, id); sn != nil {
+		return sn.AvailabilityZone
+	}
+
+	return ""
+}
+
 func (a *elbEC2ResolverAdapter) SubnetVPC(id string) string {
 	if sn := a.subnet(id); sn != nil {
 		return sn.VPCID
@@ -4393,6 +4455,10 @@ func getMostRecentServiceProviders() []service.Provider {
 		&grafanabackend.Provider{},
 		&outpostsbackend.Provider{},
 		&resiliencehubbackend.Provider{},
+		&route53recoverycontrolconfigbackend.Provider{},
+		&route53recoveryclusterbackend.Provider{},
+		&route53recoveryreadinessbackend.Provider{},
+		&arczonalshiftbackend.Provider{},
 		&directconnectbackend.Provider{},
 		&mgnbackend.Provider{},
 		&networkmanagerbackend.Provider{},

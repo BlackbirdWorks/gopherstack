@@ -180,6 +180,10 @@ func subnetMappingsToAZs(region string, mappings []SubnetMapping) []Availability
 func (b *InMemoryBackend) placeSubnets(mappings []SubnetMapping) ([]AvailabilityZone, string) {
 	azs := subnetMappingsToAZs(b.region, mappings)
 
+	if regional, ok := b.ec2Resolver.(RegionalSubnetPlacementResolver); ok {
+		return b.placeSubnetsIn(regional, azs, mappings)
+	}
+
 	placer, ok := b.ec2Resolver.(SubnetPlacementResolver)
 	if !ok {
 		return azs, ""
@@ -194,6 +198,24 @@ func (b *InMemoryBackend) placeSubnets(mappings []SubnetMapping) ([]Availability
 
 		if vpcID == "" {
 			vpcID = placer.SubnetVPC(m.SubnetID)
+		}
+	}
+
+	return azs, vpcID
+}
+
+func (b *InMemoryBackend) placeSubnetsIn(
+	r RegionalSubnetPlacementResolver, azs []AvailabilityZone, mappings []SubnetMapping,
+) ([]AvailabilityZone, string) {
+	vpcID := ""
+
+	for i, m := range mappings {
+		if az := r.SubnetAZIn(b.region, m.SubnetID); az != "" {
+			azs[i].ZoneName = az
+		}
+
+		if vpcID == "" {
+			vpcID = r.SubnetVPCIn(b.region, m.SubnetID)
 		}
 	}
 
