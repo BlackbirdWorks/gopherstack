@@ -12,6 +12,7 @@ import (
 	arczonalshiftbackend "github.com/blackbirdworks/gopherstack/services/arczonalshift"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockagentbackend "github.com/blackbirdworks/gopherstack/services/bedrockagent"
 	cleanroomsbackend "github.com/blackbirdworks/gopherstack/services/cleanrooms"
@@ -167,6 +168,7 @@ type LifecycleSettings struct {
 	Route53Recovery              time.Duration `name:"route53-recovery"               env:"ROUTE53_RECOVERY_LIFECYCLE_DELAY"     default:"0s" help:"Route 53 ARC control plane PENDING/PENDING_DELETION window."`                                         //nolint:lll // config struct tags are intentionally verbose
 	ARCZonalShift                time.Duration `name:"arczonalshift"                  env:"ARCZONALSHIFT_PRACTICE_RUN_DURATION"  default:"0s" help:"ARC zonal shift practice run ACTIVE window; 0 keeps the built-in 30m; ignores the global delay."`     //nolint:lll // config struct tags are intentionally verbose
 	EKS                          time.Duration `name:"eks"                            env:"EKS_LIFECYCLE_DELAY"                  default:"0s" help:"EKS transitional-state window (built-in 100ms)."`                                                     //nolint:lll // config struct tags are intentionally verbose
+	Backup                       time.Duration `name:"backup"                         env:"BACKUP_LIFECYCLE_DELAY"               default:"0s" help:"Backup restore and copy job PENDING/CREATED/RUNNING window before COMPLETED."`                        //nolint:lll // config struct tags are intentionally verbose
 }
 
 func (l LifecycleSettings) effective(specific time.Duration) time.Duration {
@@ -343,6 +345,12 @@ func applyOrganizations(reg service.Registerable, l LifecycleSettings) {
 		if bk, isBk := h.Backend.(*organizationsbackend.InMemoryBackend); isBk {
 			bk.SetLifecycleDelay(l.effective(l.Organizations))
 		}
+	}
+}
+
+func applyBackup(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*backupbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.effective(l.Backup))
 	}
 }
 
@@ -809,6 +817,7 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSett
 		"Detective":           applyDetective,
 		"Macie2":              applyMacie2,
 		"Organizations":       applyOrganizations,
+		"Backup":              applyBackup,
 		"Pinpoint":            applyPinpoint,
 		"Autoscaling":         applyAutoscaling,
 		"EKS":                 applyEKS,
