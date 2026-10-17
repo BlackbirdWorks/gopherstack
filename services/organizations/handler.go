@@ -183,6 +183,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 // dispatch routes to the appropriate handler based on the operation name.
 func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
+	if s, ok := h.Backend.(interface{ settlePendingCreates() }); ok {
+		s.settlePendingCreates()
+	}
+
 	if ok, result := h.dispatchOrg(c, op, body); ok {
 		return result
 	}

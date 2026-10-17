@@ -55,6 +55,7 @@ import (
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	opsworksbackend "github.com/blackbirdworks/gopherstack/services/opsworks"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	outpostsbackend "github.com/blackbirdworks/gopherstack/services/outposts"
 	personalizebackend "github.com/blackbirdworks/gopherstack/services/personalize"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
@@ -124,6 +125,7 @@ type LifecycleSettings struct {
 	Transcribe                   time.Duration `name:"transcribe"                     env:"TRANSCRIBE_LIFECYCLE_DELAY"           default:"0s" help:"Transcribe job, vocabulary and language model IN_PROGRESS/PENDING window."`                           //nolint:lll // config struct tags are intentionally verbose
 	IoTAnalytics                 time.Duration `name:"iotanalytics"                   env:"IOTANALYTICS_LIFECYCLE_DELAY"         default:"0s" help:"IoT Analytics channel/datastore/dataset CREATING and dataset content CREATING window."`               //nolint:lll // config struct tags are intentionally verbose
 	IoTWireless                  time.Duration `name:"iotwireless"                    env:"IOTWIRELESS_LIFECYCLE_DELAY"          default:"0s" help:"IoT Wireless FUOTA task FuotaSession_Waiting/In_FuotaSession stage window."`                          //nolint:lll // config struct tags are intentionally verbose
+	Organizations                time.Duration `name:"organizations"                  env:"ORGANIZATIONS_LIFECYCLE_DELAY"        default:"0s" help:"Organizations CreateAccount/CreateGovCloudAccount IN_PROGRESS window."`                               //nolint:lll // config struct tags are intentionally verbose
 	Account                      time.Duration `name:"account"                        env:"ACCOUNT_LIFECYCLE_DELAY"              default:"0s" help:"Account region ENABLING/DISABLING window (built-in 100ms)."`                                          //nolint:lll // config struct tags are intentionally verbose
 	RedshiftData                 time.Duration `name:"redshiftdata"                   env:"REDSHIFTDATA_LIFECYCLE_DELAY"         default:"0s" help:"Redshift Data statement SUBMITTED/STARTED window before FINISHED."`                                   //nolint:lll // config struct tags are intentionally verbose
 	RedshiftServerless           time.Duration `name:"redshiftserverless"             env:"REDSHIFTSERVERLESS_LIFECYCLE_DELAY"   default:"0s" help:"Redshift Serverless workgroup CREATING/MODIFYING/DELETING and namespace MODIFYING/DELETING window."`  //nolint:lll // config struct tags are intentionally verbose
@@ -328,6 +330,14 @@ func applyDSQL(reg service.Registerable, l LifecycleSettings) {
 	if h, ok := reg.(*dsqlbackend.Handler); ok {
 		if bk, isBk := h.Backend.(*dsqlbackend.InMemoryBackend); isBk {
 			bk.SetLifecycleDelay(l.effective(l.DSQL))
+		}
+	}
+}
+
+func applyOrganizations(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*organizationsbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*organizationsbackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.Organizations))
 		}
 	}
 }
@@ -782,6 +792,7 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSett
 		"Support":             applySupport,
 		"Detective":           applyDetective,
 		"Macie2":              applyMacie2,
+		"Organizations":       applyOrganizations,
 		"Pinpoint":            applyPinpoint,
 		"Autoscaling":         applyAutoscaling,
 		"EKS":                 applyEKS,
