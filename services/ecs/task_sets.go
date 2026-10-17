@@ -1,7 +1,9 @@
 package ecs
 
 import (
+	"encoding/binary"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,6 +16,18 @@ import (
 var ErrTaskSetNotFound = awserr.New("TaskSetNotFoundException", awserr.ErrNotFound)
 
 const defaultTaskSetScaleValue = 100.0
+
+// newTaskSetSuffix returns the 19-digit numeric tail of a task set Id ("ecs-svc/<digits>").
+func newTaskSetSuffix() string {
+	const (
+		span = 9_000_000_000_000_000_000
+		base = 1_000_000_000_000_000_000
+	)
+
+	u := uuid.New()
+
+	return strconv.FormatUint(binary.BigEndian.Uint64(u[:8])%span+base, 10)
+}
 
 // CreateTaskSet creates a task set within a service.
 func (b *InMemoryBackend) CreateTaskSet(input CreateTaskSetInput) (*TaskSet, error) {
@@ -50,9 +64,9 @@ func (b *InMemoryBackend) CreateTaskSet(input CreateTaskSetInput) (*TaskSet, err
 		return nil, err
 	}
 
-	id := uuid.NewString()[:8]
+	id := newTaskSetSuffix()
 	taskSetArn := fmt.Sprintf(
-		"arn:aws:ecs:%s:%s:task-set/%s/%s/ecs-svc-%s",
+		"arn:aws:ecs:%s:%s:task-set/%s/%s/ecs-svc/%s",
 		b.region, b.accountID, clusterName, svcKey, id,
 	)
 
@@ -74,7 +88,7 @@ func (b *InMemoryBackend) CreateTaskSet(input CreateTaskSetInput) (*TaskSet, err
 	now := time.Now()
 	ts := &TaskSet{
 		TaskSetArn: taskSetArn,
-		ID:         "ecs-svc-" + id,
+		ID:         "ecs-svc/" + id,
 		ServiceArn: svc.ServiceArn,
 		ClusterArn: arn.Build(
 			"ecs",
@@ -111,7 +125,7 @@ func (b *InMemoryBackend) CreateTaskSet(input CreateTaskSetInput) (*TaskSet, err
 
 // findTaskSetRefLocked resolves a task set reference that may be either its
 // full ARN (the store's real key, taskSetsKeyFn) or its short Id (e.g.
-// "ecs-svc-91785480", the value CreateTaskSetOutput.TaskSet.Id carries and
+// "ecs-svc/1234567890123456789", the value CreateTaskSetOutput.TaskSet.Id carries and
 // the one terraform-provider-aws's resourceTaskSetRead/Update/Delete always
 // pass back for Describe/Update/DeleteTaskSet's TaskSet parameter -- a real
 // SDK client never re-sends the ARN it was given at create). Must be called
