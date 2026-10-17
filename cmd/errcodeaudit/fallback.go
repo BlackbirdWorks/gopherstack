@@ -176,7 +176,7 @@ func markDefaultInit(fd *ast.FuncDecl, out map[token.Pos]string) {
 // fallbackReasons maps literal positions in unreachable-by-operation
 // positions (classifier defaults, generic cases, routing) to a reason.
 func fallbackReasons(files []*ast.File) map[token.Pos]string {
-	out := map[token.Pos]string{}
+	out := make(map[token.Pos]string)
 
 	for _, f := range files {
 		ast.Inspect(f, func(n ast.Node) bool {

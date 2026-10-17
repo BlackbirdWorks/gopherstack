@@ -271,7 +271,7 @@ func resolveOverrideCallCode(call *ast.CallExpr, ov overrideFunc, idx *pkgIndex)
 }
 
 func dedupEmissions(in []emission) []emission {
-	seen := map[token.Pos]bool{}
+	seen := make(map[token.Pos]bool)
 
 	var out []emission
 

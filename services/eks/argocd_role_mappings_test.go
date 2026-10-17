@@ -167,7 +167,7 @@ func TestCapabilityConfiguration_UpdateArgoCd_RoleMappingMergeSemantics(t *testi
 	require.NoError(t, err)
 
 	mappings := desc.Capability.Configuration.ArgoCd.RbacRoleMappings
-	byRole := map[ekstypes.ArgoCdRole][]string{}
+	byRole := make(map[ekstypes.ArgoCdRole][]string)
 
 	for _, m := range mappings {
 		ids := make([]string, 0, len(m.Identities))

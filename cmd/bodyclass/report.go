@@ -114,7 +114,7 @@ func printOp(o opResult) {
 func printFleet(results []serviceReport) {
 	sort.Slice(results, func(i, j int) bool { return len(results[i].Ops) > len(results[j].Ops) })
 
-	totals := map[class]int{}
+	totals := make(map[class]int)
 
 	fmt.Fprintf(os.Stdout, "%-24s %6s %8s %8s %12s %6s %8s  %s\n",
 		"service", "ops", "wrapped", "flat", "hdr-only", "void", "unknown", "mixed")
@@ -167,7 +167,7 @@ func printUnresolved(results []serviceReport) {
 }
 
 func classCounts(ops []opResult) map[class]int {
-	counts := map[class]int{}
+	counts := make(map[class]int)
 	for _, o := range ops {
 		counts[o.Class]++
 	}

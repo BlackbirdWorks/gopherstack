@@ -17,7 +17,7 @@ type categoryRouting struct {
 // collectSentinelCategories maps each awserr.New("Lit", awserr.ErrX) message
 // literal position to its category name.
 func collectSentinelCategories(files []*ast.File) map[token.Pos]string {
-	out := map[token.Pos]string{}
+	out := make(map[token.Pos]string)
 
 	for _, f := range files {
 		ast.Inspect(f, func(n ast.Node) bool {
