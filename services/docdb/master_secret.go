@@ -32,18 +32,20 @@ func (b *InMemoryBackend) SetSecretsStore(s SecretsStore) {
 	b.secrets = s
 }
 
-func masterSecretBody(user string) (string, error) {
+func masterSecretBody(user string) (string, string, error) {
 	raw := make([]byte, masterPasswordBytes)
 	if _, err := rand.Read(raw); err != nil {
-		return "", fmt.Errorf("generate master password: %w", err)
+		return "", "", fmt.Errorf("generate master password: %w", err)
 	}
 
-	body, err := json.Marshal(map[string]string{"username": user, "password": hex.EncodeToString(raw)})
+	password := hex.EncodeToString(raw)
+
+	body, err := json.Marshal(map[string]string{"username": user, "password": password})
 	if err != nil {
-		return "", fmt.Errorf("encode master user secret: %w", err)
+		return "", "", fmt.Errorf("encode master user secret: %w", err)
 	}
 
-	return string(body), nil
+	return string(body), password, nil
 }
 
 func (b *InMemoryBackend) rotateMasterSecret(c *DBCluster) error {
@@ -57,7 +59,7 @@ func (b *InMemoryBackend) rotateMasterSecret(c *DBCluster) error {
 		return nil
 	}
 
-	body, err := masterSecretBody(c.MasterUsername)
+	body, password, err := masterSecretBody(c.MasterUsername)
 	if err != nil {
 		return err
 	}
@@ -65,6 +67,8 @@ func (b *InMemoryBackend) rotateMasterSecret(c *DBCluster) error {
 	if err = b.secrets.PutManagedSecretValue(c.region, c.MasterUserSecretARN, body); err != nil {
 		return fmt.Errorf("rotate master user secret: %w", err)
 	}
+
+	c.managedPassword = password
 
 	return nil
 }
@@ -74,7 +78,7 @@ func (b *InMemoryBackend) provisionMasterSecret(c *DBCluster, kmsKeyID string) e
 	secretARN := arn.Build("secretsmanager", c.region, b.accountID, "secret:"+name)
 
 	if b.secrets != nil {
-		body, err := masterSecretBody(c.MasterUsername)
+		body, password, err := masterSecretBody(c.MasterUsername)
 		if err != nil {
 			return err
 		}
@@ -82,6 +86,8 @@ func (b *InMemoryBackend) provisionMasterSecret(c *DBCluster, kmsKeyID string) e
 		if secretARN, err = b.secrets.CreateManagedSecret(c.region, name, kmsKeyID, body); err != nil {
 			return fmt.Errorf("create master user secret: %w", err)
 		}
+
+		c.managedPassword = password
 	}
 
 	c.MasterUserSecretARN = secretARN

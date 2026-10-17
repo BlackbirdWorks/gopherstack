@@ -244,6 +244,7 @@ that already exports them (e.g. `awslocal`) works without remapping. These are n
 | `--eks-engine` | `EKS_ENGINE` | `stub` | EKS engine mode: `stub` (metadata only) or `docker` (one privileged single-node `rancher/k3s` container per cluster, tag mapped from the requested version; `DescribeCluster` returns the real endpoint and CA; clusters accept the static admin bearer token `EKS_CLUSTER_TOKEN`, default `gopherstack-eks-cluster-token`; `EKS_CLUSTER_HOST` sets the advertised host, default `127.0.0.1`, and the port binds loopback only unless it is non-loopback, which then requires `EKS_CLUSTER_TOKEN`; `EKS_K3S_IMAGE` overrides the image). |
 | `--mq-engine` | `MQ_ENGINE` | `stub` | Amazon MQ engine mode: `stub` (metadata only) or `docker` (one `rabbitmq:3.13.7-management` or `apache/activemq-classic:5.18.7` container per broker with a user; plaintext endpoints; `MQ_BROKER_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces). |
 | `--rds-engine` | `RDS_ENGINE` | `stub` | RDS engine mode: `stub` (metadata only) or `docker` (real `postgres`/`mysql`/`mariadb` container per DB instance, one per Aurora cluster; Data API stays on SQLite; `RDS_DB_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces). |
+| `--docdb-engine` | `DOCDB_ENGINE` | `stub` | DocumentDB engine mode: `stub` (metadata only) or `docker` (one plaintext `mongo` container per cluster, `mongo:4.4` for 3.6/4.0 and `mongo:5.0` for 5.0; `DOCDB_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces). |
 | `--opensearch-engine` | `OPENSEARCH_ENGINE` | `stub` | OpenSearch engine mode: `stub` (API-only) or `docker`. |
 | `--elasticsearch-engine` | `ELASTICSEARCH_ENGINE` | `stub` | Elasticsearch engine mode: `stub` (API-only) or `docker`. |
 | `--ec2-provider` | `EC2_PROVIDER` | `inmemory` | EC2 compute provider: `inmemory` (stub) or `docker` (launches real containers as instances). |
@@ -614,7 +615,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [DAX](services/dax/README.md) | A | 21 | 1 structural gap; 1 deferred |
-| [DocumentDB](services/docdb/README.md) | A | 55 | 2 gaps; 4 structural gaps; 1 deferred |
+| [DocumentDB](services/docdb/README.md) | A | 55 | 2 gaps; 5 structural gaps; 1 deferred |
 | [DynamoDB](services/dynamodb/README.md) | A | — | 15 families; 1 gap; 3 structural gaps; 2 deferred |
 | [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
 | [ElastiCache](services/elasticache/README.md) | A | 75 | 2 gaps; 4 structural gaps; 2 deferred |
