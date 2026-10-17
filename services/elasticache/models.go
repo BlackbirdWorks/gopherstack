@@ -142,36 +142,28 @@ type CacheSubnetGroup struct {
 
 // CacheSnapshot represents an ElastiCache snapshot.
 type CacheSnapshot struct {
-	CreatedAt   time.Time `json:"createdAt"`
-	AvailableAt time.Time `json:"availableAt,omitzero"`
-	// SourceClusterCreatedAt is the source CacheCluster's own CreatedAt,
-	// captured at snapshot time. Zero when the snapshot was taken from a
-	// replication group instead (member-cluster creation time isn't tracked
-	// there). This backs the wire's CacheClusterCreateTime member, which is
-	// the source cluster's creation time -- not the snapshot's.
-	SourceClusterCreatedAt time.Time  `json:"sourceClusterCreatedAt,omitzero"`
-	Tags                   *tags.Tags `json:"tags,omitempty"`
-	SnapshotName           string     `json:"snapshotName"`
-	CacheClusterID         string     `json:"cacheClusterId"`
-	ReplicationGroupID     string     `json:"replicationGroupId"`
-	Status                 string     `json:"status"`
-	PendingStatus          string     `json:"pendingStatus,omitempty"`
-	ARN                    string     `json:"arn"`
-	Engine                 string     `json:"engine"`
-	EngineVersion          string     `json:"engineVersion"`
-	NodeType               string     `json:"nodeType"`
-	KmsKeyID               string     `json:"kmsKeyId,omitempty"`
-	SnapshotSource         string     `json:"snapshotSource"` // "manual" or "automated"
-	// Durability is the source replication group's Durability at snapshot time.
-	Durability string `json:"durability,omitempty"`
-	// ReplicationGroupDescription and AutomaticFailover mirror the source replication group.
-	ReplicationGroupDescription string `json:"replicationGroupDescription,omitempty"`
-	AutomaticFailover           string `json:"automaticFailover,omitempty"`
-	// NodeGroups is the source replication group's topology at snapshot time.
-	NodeGroups []NodeGroup `json:"nodeGroups,omitempty"`
-	// CacheNodeIDs and CacheNodeAZs are the source cluster's nodes at snapshot time.
-	CacheNodeIDs []string `json:"cacheNodeIds,omitempty"`
-	CacheNodeAZs []string `json:"cacheNodeAzs,omitempty"`
+	CreatedAt                   time.Time         `json:"createdAt"`
+	AvailableAt                 time.Time         `json:"availableAt,omitzero"`
+	SourceClusterCreatedAt      time.Time         `json:"sourceClusterCreatedAt,omitzero"`
+	Tags                        *tags.Tags        `json:"tags,omitempty"`
+	Data                        map[string][]byte `json:"data,omitempty"`
+	Engine                      string            `json:"engine"`
+	SnapshotSource              string            `json:"snapshotSource"`
+	Status                      string            `json:"status"`
+	PendingStatus               string            `json:"pendingStatus,omitempty"`
+	ARN                         string            `json:"arn"`
+	CacheClusterID              string            `json:"cacheClusterId"`
+	EngineVersion               string            `json:"engineVersion"`
+	NodeType                    string            `json:"nodeType"`
+	KmsKeyID                    string            `json:"kmsKeyId,omitempty"`
+	ReplicationGroupID          string            `json:"replicationGroupId"`
+	Durability                  string            `json:"durability,omitempty"`
+	ReplicationGroupDescription string            `json:"replicationGroupDescription,omitempty"`
+	AutomaticFailover           string            `json:"automaticFailover,omitempty"`
+	SnapshotName                string            `json:"snapshotName"`
+	CacheNodeIDs                []string          `json:"cacheNodeIds,omitempty"`
+	CacheNodeAZs                []string          `json:"cacheNodeAzs,omitempty"`
+	NodeGroups                  []NodeGroup       `json:"nodeGroups,omitempty"`
 }
 
 // StorageBackend defines the interface for the ElastiCache in-memory store.
@@ -250,6 +242,7 @@ type StorageBackend interface {
 		maxRecords int,
 	) (page.Page[CacheSnapshot], error)
 	ApplyClusterSettings(ctx context.Context, id string, settings ClusterSettings) (*Cluster, error)
+	RestoreClusterData(ctx context.Context, id, snapshotName string) error
 	CopySnapshot(ctx context.Context, sourceSnapshotName, targetSnapshotName string) (*CacheSnapshot, error)
 	CreateSnapshotFull(
 		ctx context.Context,

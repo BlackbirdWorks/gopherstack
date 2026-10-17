@@ -357,6 +357,14 @@ func (b *InMemoryBackend) CreateCluster(ctx context.Context, req *createClusterR
 		return nil, err
 	}
 
+	if restoreSnap != nil {
+		if err = c.engine.Restore(restoreSnap.Data); err != nil {
+			stopEngine(c)
+
+			return nil, err
+		}
+	}
+
 	b.clustersStore(region).Put(c)
 	b.arnToResourceStore(region)[clusterARN] = resourceRef{Kind: resourceKindCluster, Name: req.ClusterName}
 
@@ -461,6 +469,12 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 			CreatedAt:            time.Now(),
 			ClusterConfiguration: b.snapshotClusterConfigFor(c),
 		}
+		data, err := c.engine.Snapshot()
+		if err != nil {
+			return nil, err
+		}
+
+		s.Data = data
 		b.snapshotsStore(region).Put(s)
 		b.arnToResourceStore(region)[snapshotARN] = resourceRef{Kind: resourceKindSnapshot, Name: snapshotName}
 	}

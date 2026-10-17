@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- Data plane (--memorydb-engine=embedded, default): one in-process miniredis per cluster; every shard and node endpoint reports that single host:port, plaintext only (TLSEnabled is reported but not terminated), and data is not slot-sharded, replicated, snapshotted or persisted (Restore restarts empty servers on new ports). docker mode starts no server, as in ElastiCache.
+- Data plane (--memorydb-engine=embedded, default): one in-process miniredis per cluster; every shard and node endpoint reports that single host:port, plaintext only (TLSEnabled is reported but not terminated), and data is not slot-sharded, replicated or persisted (Restore restarts empty servers on new ports). CreateSnapshot, CopySnapshot and the final snapshot on DeleteCluster capture the keyspace (strings, hashes, lists, sets, sorted sets, streams, TTLs) in a private gzip/gob blob stored on the snapshot, and CreateCluster SnapshotName restores it; the blob is persisted with the snapshot, so large datasets grow the persisted state. docker mode starts no server, as in ElastiCache.
 - ACL enforcement is AUTH-only: first password per user is enforced via miniredis, access strings (+@all, ~keys) are not, IAM-auth users are not, and ACL/user changes re-sync running clusters only on UpdateACL, UpdateUser and UpdateCluster.
 - ServiceUpdate.NodesUpdated is always empty: the SDK documents it only as a string 'list of nodes updated' with no format, and nodes are synthesised per request, so the wire value is not determinable.
 
@@ -24,7 +24,7 @@
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- CreateCluster.SnapshotArns (S3 RDB files) is accepted and ignored: no S3 integration exists and no data backs an externally uploaded RDB, so there is nothing to import. The in-account SnapshotName restore path is implemented.
+- CreateCluster.SnapshotArns (S3 RDB files) is accepted and ignored: no S3 integration exists and no data backs an externally uploaded RDB, so there is nothing to import. The in-account SnapshotName restore path is implemented, including key data.
 - ShardDetail.Size (per-shard snapshot size) is never returned: no data is stored in the emulated shards, so there is no size to report.
 
 ### Deferred
