@@ -18,6 +18,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.20
 	github.com/aws/aws-sdk-go-v2/config v1.33.3
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.3
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.19.2
 	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.51.4
 	github.com/aws/aws-sdk-go-v2/service/account v1.35.4
 	github.com/aws/aws-sdk-go-v2/service/acm v1.49.0
@@ -173,7 +174,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sns v1.46.0
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.51.0
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.77.0
+	github.com/aws/aws-sdk-go-v2/service/sso v1.37.0
 	github.com/aws/aws-sdk-go-v2/service/ssoadmin v1.43.1
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.42.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.49.0
 	github.com/aws/aws-sdk-go-v2/service/support v1.34.4
 	github.com/aws/aws-sdk-go-v2/service/swf v1.37.4
@@ -192,7 +195,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/xray v1.39.4
 	github.com/aws/smithy-go v1.28.5
 	github.com/cedar-policy/cedar-go v1.8.0
-	github.com/distribution/distribution/v3 v3.1.1
+	github.com/distribution/distribution/v3 v3.1.2
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/go-stomp/stomp/v3 v3.1.5
@@ -234,7 +237,6 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/antlr/antlr4 v0.0.0-20181218183524-be58ebffde8e // indirect
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.19.2 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.2 // indirect
@@ -244,8 +246,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.9.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.37.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.42.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bitfield/gotestdox v0.2.2 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
@@ -344,6 +344,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
+	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/exp v0.0.0-20260824195058-e88cd73687aa // indirect
 	golang.org/x/net v0.60.0 // indirect
