@@ -139,7 +139,7 @@ func syncContainerStatuses(task *Task, exitCode *int) {
 
 		if task.LastStatus == statusRunning {
 			if task.Containers[i].RuntimeID == "" {
-				task.Containers[i].RuntimeID = uuid.NewString()[:12]
+				task.Containers[i].RuntimeID = newDockerContainerID()
 			}
 
 			if task.Containers[i].HealthStatus == containerHealthStatusUnknown {
@@ -237,4 +237,9 @@ func newFargateTaskAttachment(taskArn, requestedSubnet string) TaskAttachment {
 			{Name: "privateIPv4Address", Value: privateIP},
 		},
 	}
+}
+
+// newDockerContainerID returns a 64-char lowercase hex ID, the shape of a Docker container ID.
+func newDockerContainerID() string {
+	return strings.ReplaceAll(uuid.NewString()+uuid.NewString(), "-", "")
 }

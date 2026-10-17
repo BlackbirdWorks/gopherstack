@@ -21,6 +21,7 @@ const (
 	// jitCredentialTTL is the lifetime of mock temporary credentials minted
 	// by GetAccessToken for an approved just-in-time access request.
 	jitCredentialTTL = 15 * time.Minute
+	jitKeyIDLen      = 16
 )
 
 func (b *InMemoryBackend) sessionsStore(region string) *store.Table[Session] {
@@ -210,7 +211,7 @@ func (b *InMemoryBackend) GetAccessToken(
 // TokenValue / GetAccessToken's old TokenValue field).
 func mockJITCredentials() *Credentials {
 	return &Credentials{
-		AccessKeyID:     "ASIA" + strings.ToUpper(uuid.NewString()[:16]),
+		AccessKeyID:     "ASIA" + strings.ToUpper(strings.ReplaceAll(uuid.NewString(), "-", "")[:jitKeyIDLen]),
 		SecretAccessKey: uuid.NewString() + uuid.NewString(),
 		SessionToken:    "gph-jit-token-" + uuid.NewString(),
 		ExpirationTime:  UnixTimeFloat(timeNow().Add(jitCredentialTTL)),
