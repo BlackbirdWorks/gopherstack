@@ -46,6 +46,7 @@ type InMemoryBackend struct {
 	scheduledQueryTokens     *clientTokenCache            // CreateScheduledQuery ClientToken -> Arn
 	pageStore                *nextTokenStore
 	tagWriteBackend          TagWriteBackend
+	catalog                  Catalog
 	accountID                string
 	defaultRegion            string
 }
