@@ -148,3 +148,40 @@ func (b *InMemoryBackend) verifyLoginSignature(token string, claims map[string]a
 
 	return nil
 }
+
+const (
+	tagDefaultUsername = "username"
+	tagDefaultClientID = "clientID"
+)
+
+// sessionPrincipalTags builds the session tags for an identity from the pool's explicit principal tag
+// mappings, reading each mapped claim from the matching login token. Must be called with b.mu held.
+func (b *InMemoryBackend) sessionPrincipalTags(region, poolID string, logins map[string]string) map[string]string {
+	tags := map[string]string{}
+
+	for provider, token := range logins {
+		mapping, ok := b.principalTagGet(region, poolID, provider)
+		if !ok {
+			continue
+		}
+
+		claims, _ := parseLoginClaims(token)
+
+		if mapping.UseDefaults {
+			setClaimTag(tags, tagDefaultUsername, claims["sub"])
+			setClaimTag(tags, tagDefaultClientID, claims["aud"])
+		}
+
+		for tagKey, claim := range mapping.PrincipalTags {
+			setClaimTag(tags, tagKey, claims[claim])
+		}
+	}
+
+	return tags
+}
+
+func setClaimTag(tags map[string]string, key string, v any) {
+	if s, ok := v.(string); ok && s != "" {
+		tags[key] = s
+	}
+}

@@ -15,8 +15,9 @@ func (b *InMemoryBackend) GetCredentialsForIdentity(
 	ctx context.Context,
 	identityID string,
 	logins map[string]string,
+	customRoleARN string,
 ) (*Credentials, error) {
-	plan, err := b.planCredentials(ctx, identityID, logins)
+	plan, err := b.planCredentials(ctx, identityID, logins, customRoleARN)
 	if err != nil {
 		return nil, err
 	}
@@ -25,11 +26,12 @@ func (b *InMemoryBackend) GetCredentialsForIdentity(
 		return randomCredentials(identityID)
 	}
 
-	return assumeIdentityRole(plan.assumer, plan.roleARN, plan.poolID, identityID, len(logins) > 0)
+	return assumeIdentityRole(plan.assumer, plan.roleARN, plan.poolID, identityID, len(logins) > 0, plan.tags)
 }
 
 type credentialsPlan struct {
 	assumer RoleAssumer
+	tags    map[string]string
 	roleARN string
 	poolID  string
 }
@@ -39,6 +41,7 @@ func (b *InMemoryBackend) planCredentials(
 	ctx context.Context,
 	identityID string,
 	logins map[string]string,
+	customRoleARN string,
 ) (credentialsPlan, error) {
 	if identityID == "" {
 		return credentialsPlan{}, fmt.Errorf("%w: IdentityId is required", ErrInvalidParameter)
@@ -84,12 +87,17 @@ func (b *InMemoryBackend) planCredentials(
 
 	roles, _ := b.rolesGet(region, identity.IdentityPoolID)
 
-	roleARN, err := resolveRole(identity.IdentityPoolID, roles, logins)
+	roleARN, err := resolveRole(identity.IdentityPoolID, roles, logins, customRoleARN)
 	if err != nil {
 		return credentialsPlan{}, err
 	}
 
-	return credentialsPlan{assumer: b.assumer, roleARN: roleARN, poolID: identity.IdentityPoolID}, nil
+	return credentialsPlan{
+		assumer: b.assumer,
+		roleARN: roleARN,
+		poolID:  identity.IdentityPoolID,
+		tags:    b.sessionPrincipalTags(region, identity.IdentityPoolID, logins),
+	}, nil
 }
 
 // assumeIdentityRole obtains credentials for roleARN through STS using a Cognito OpenID token.
@@ -97,8 +105,9 @@ func assumeIdentityRole(
 	assumer RoleAssumer,
 	roleARN, poolID, identityID string,
 	authenticated bool,
+	tags map[string]string,
 ) (*Credentials, error) {
-	token, err := issueOpenIDToken(poolID, identityID, authenticated, getOpenIDTokenTTL, nil)
+	token, err := issueOpenIDToken(poolID, identityID, authenticated, getOpenIDTokenTTL, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -206,6 +215,15 @@ func (b *InMemoryBackend) GetOpenIDTokenForDeveloperIdentity(
 	pool, ok := b.poolGet(region, poolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
+	}
+
+	for provider := range logins {
+		if provider != pool.DeveloperProviderName {
+			return nil, fmt.Errorf(
+				"%w: Logins key %q must equal the pool's DeveloperProviderName",
+				ErrInvalidParameter, provider,
+			)
+		}
 	}
 
 	if identityID != "" {

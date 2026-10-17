@@ -251,7 +251,7 @@ func TestGetCredentialsForIdentity_RoleSelection(t *testing.T) {
 			identity, err := b.GetID(ctx, pool.IdentityPoolID, "", logins)
 			require.NoError(t, err)
 
-			creds, err := b.GetCredentialsForIdentity(ctx, identity.IdentityID, logins)
+			creds, err := b.GetCredentialsForIdentity(ctx, identity.IdentityID, logins, "")
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 
@@ -281,7 +281,7 @@ func TestGetCredentialsForIdentity_AssumeFailure(t *testing.T) {
 	identity, err := b.GetID(ctx, pool.IdentityPoolID, "", nil)
 	require.NoError(t, err)
 
-	_, err = b.GetCredentialsForIdentity(ctx, identity.IdentityID, nil)
+	_, err = b.GetCredentialsForIdentity(ctx, identity.IdentityID, nil, "")
 	require.ErrorIs(t, err, cognitoidentity.ErrInvalidIdentityPoolConfiguration)
 }
 

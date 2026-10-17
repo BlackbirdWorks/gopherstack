@@ -43,10 +43,7 @@ families: {}
   open_id_token_jwt: {status: ok, note: "2026-10-07: OpenID tokens are now JWT-shaped (open_id_token.go) with iss/aud(pool)/sub(identity)/amr/iat/exp; GetOpenIdToken is valid 10 minutes and GetOpenIdTokenForDeveloperIdentity honors TokenDuration (default 15 minutes) via exp, so services/sts AssumeRoleWithWebIdentity rejects an expired token; PrincipalTags are emitted as the https://aws.amazon.com/tags claim that STS reads. Guarded by TestDeveloperOpenIDTokenClaims/TestOpenIDTokenTenMinutes."}
 gaps: []
 items_still_open:
-  - "GetCredentialsForIdentity does not honor CustomRoleArn and does not pass the pool's PrincipalTags mapping as STS session tags; GetOpenIdTokenForDeveloperIdentity does not require the Logins key to be the pool's DeveloperProviderName."
   - "Login tokens from providers other than emulator-hosted Cognito user pools (Google, Facebook, OIDC/SAML) are not signature-verified; opaque tokens are accepted."
-structural_gaps:
-  - "GetOpenIdTokenForDeveloperIdentity PrincipalTags also drive the STS session tags Cognito applies when it assumes the pool role inside GetCredentialsForIdentity; those tags only become observable once the STS wiring in items_still_open exists."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - HTTP status code choice for NotAuthorizedException (403 here) vs AWS's actual per-exception status (SDK error-type resolution is body-driven, not status-code-driven, so this doesn't break aws-sdk-go-v2 clients; only relevant to tooling that inspects raw HTTP status).
   - "ALREADY COVERED BY CHAOS (verified gopherstack-tqdj): ConcurrentModificationException (SetIdentityPoolRoles, UpdateIdentityPool per deserializers.go) is not emulated: there is no optimistic-concurrency/version token in this backend's resource model to make a genuine concurrent-write collision detectable, and fabricating one that never fires (or fires on arbitrary heuristics) would be worse than omitting it. Would need a real revision-counter field added to IdentityPool/IdentityRoles to do properly -- out of scope for an error-taxonomy pass. Concretely verified this pass: cognitoidentity.Handler implements ChaosServiceName() -> \"cognito-identity\" and ChaosOperations() -> h.GetSupportedOperations() (handler.go), and pkgs/chaos.Middleware is wired globally via registry.Use(chaos.Middleware(faultStore)) in cli.go, matching purely on the request's SigV4 service name + X-Amz-Target operation + region and injecting an arbitrary caller-specified FaultError{Code, StatusCode} without touching backend state -- a fault rule such as {\"service\":\"cognito-identity\",\"operation\":\"UpdateIdentityPool\",\"error\":{\"code\":\"ConcurrentModificationException\",\"statusCode\":400}} deterministically returns that exact typed error to a real client with zero backend code changes."
@@ -56,6 +53,16 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single loc
 ---
 
 ## Notes
+
+### 2026-10-17 (credential follow-ups)
+
+- GetCredentialsForIdentity honours CustomRoleArn: it must be a role the identity could be mapped to (the pool's
+  authenticated/unauthenticated role for its auth state, or a role from a matching Token/Rules mapping); otherwise
+  NotAuthorizedException. The exact AWS error code for a disallowed role is not documented in the SDK; it is a judgment call.
+- The pool's principal tag mapping (explicitly set only; UseDefaults adds username=sub, clientID=aud) is read from the
+  login token claims and passed to STS in the https://aws.amazon.com/tags claim, so STS sessions carry the tags.
+- GetOpenIdTokenForDeveloperIdentity rejects Logins keys other than the pool's DeveloperProviderName with
+  InvalidParameterException (the code is a judgment call).
 
 ### 2026-10-12 (deep realism pass)
 

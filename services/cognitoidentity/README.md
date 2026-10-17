@@ -9,21 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 23 (23 ok) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 2 |
-| Structural gaps (can't be emulated) | 1 |
+| Known gaps | 1 |
 | Deferred items | 4 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- GetCredentialsForIdentity does not honor CustomRoleArn and does not pass the pool's PrincipalTags mapping as STS session tags; GetOpenIdTokenForDeveloperIdentity does not require the Logins key to be the pool's DeveloperProviderName.
 - Login tokens from providers other than emulator-hosted Cognito user pools (Google, Facebook, OIDC/SAML) are not signature-verified; opaque tokens are accepted.
-
-### Structural gaps
-
-These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
-
-- GetOpenIdTokenForDeveloperIdentity PrincipalTags also drive the STS session tags Cognito applies when it assumes the pool role inside GetCredentialsForIdentity; those tags only become observable once the STS wiring in items_still_open exists.
 
 ### Deferred
 
