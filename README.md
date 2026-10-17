@@ -214,6 +214,7 @@ precedence is **defaults < persisted config < env vars / CLI flags**.
 | `--port-range-start` | `PORT_RANGE_START` | `10000` | Start of the port range used for allocated resource endpoints. |
 | `--port-range-end` | `PORT_RANGE_END` | `10100` | End (exclusive) of that port range. |
 | `--iot-mqtt-port` | `IOT_MQTT_PORT` | `1883` | TCP port of the embedded IoT MQTT broker. `0` picks a free port. |
+| `--iot-mqtt-auth` | `IOT_MQTT_AUTH` | `false` | Opt-in: the IoT MQTT port speaks mutual TLS, clients must present an ACTIVE registered certificate, and CONNECT/PUBLISH/SUBSCRIBE/RECEIVE are authorised by the IoT policies attached to it. |
 | `--init-script` | `INIT_SCRIPTS` | *(none)* | Shell script(s) to run on startup (repeatable flag / comma-separated env var). |
 | `--init-timeout` | `INIT_TIMEOUT` | `30s` | Per-script timeout for init hooks. |
 | `--s3-bucket` | `S3_BUCKETS` | *(none)* | S3 bucket(s) to create on startup (repeatable flag / comma-separated env var). |

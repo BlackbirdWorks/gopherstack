@@ -43,15 +43,16 @@ var ErrBrokerCloseTimeout = errors.New("mqtt broker close timed out")
 // Broker wraps a mochi-mqtt server to provide the IoT MQTT endpoint.
 type Broker struct {
 	// server is accessed atomically to avoid data races between Start and Publish.
-	server    atomic.Pointer[mqtt.Server]
-	observer  atomic.Pointer[iotdataplane.ConnectionObserver]
-	ready     chan struct{}
-	backend   *InMemoryBackend
-	others    func() []*InMemoryBackend
-	acks      sync.Map
-	boundPort atomic.Int64
-	readyOnce sync.Once
-	port      int
+	server       atomic.Pointer[mqtt.Server]
+	observer     atomic.Pointer[iotdataplane.ConnectionObserver]
+	ready        chan struct{}
+	backend      *InMemoryBackend
+	others       func() []*InMemoryBackend
+	acks         sync.Map
+	boundPort    atomic.Int64
+	authRequired atomic.Bool
+	readyOnce    sync.Once
+	port         int
 }
 
 // NewBroker creates a new Broker using the given backend and port.
@@ -79,7 +80,13 @@ func (b *Broker) Start(ctx context.Context) error {
 		InlineClient: true,
 	})
 
-	if err := s.AddHook(new(auth.AllowHook), nil); err != nil {
+	authOn := b.authRequired.Load()
+
+	if authOn {
+		if err := s.AddHook(&authHook{broker: b}, nil); err != nil {
+			return fmt.Errorf("iot broker: add policy hook: %w", err)
+		}
+	} else if err := s.AddHook(new(auth.AllowHook), nil); err != nil {
 		return fmt.Errorf("iot broker: add auth hook: %w", err)
 	}
 
@@ -94,10 +101,18 @@ func (b *Broker) Start(ctx context.Context) error {
 		return fmt.Errorf("iot broker: add rule hook: %w", err)
 	}
 
-	tcp := listeners.NewTCP(listeners.Config{
-		ID:      "tcp1",
-		Address: fmt.Sprintf(":%d", b.port),
-	})
+	lcfg := listeners.Config{ID: "tcp1", Address: fmt.Sprintf(":%d", b.port)}
+
+	if authOn {
+		tlsCfg, err := b.brokerTLSConfig()
+		if err != nil {
+			return err
+		}
+
+		lcfg.TLSConfig = tlsCfg
+	}
+
+	tcp := listeners.NewTCP(lcfg)
 
 	if err := s.AddListener(tcp); err != nil {
 		return fmt.Errorf("iot broker: add listener: %w", err)
