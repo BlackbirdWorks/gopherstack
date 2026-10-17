@@ -11,4 +11,4 @@ Run `.claude/skills/reset-caches/reset.sh` and report what was stopped and the b
 - `--other-scratch`: also remove other Claude sessions' scratch dirs untouched for a day.
 - Worktrees: removes every linked worktree that is clean and fully pushed; dirty or unpushed ones are listed and kept.
 - Docker: prunes unused images, build cache and unattached volumes after the kill phase.
-- Never deletes `~/go/pkg/mod` (module cache) or anything tracked in the repo.
+- Never deletes the module cache (`go env GOMODCACHE`) or anything tracked in the repo.

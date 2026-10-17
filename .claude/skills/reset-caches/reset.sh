@@ -22,8 +22,7 @@ done
 
 GOCACHE_DIR=$(go env GOCACHE 2>/dev/null || true)
 GOTMP_DIR=$(go env GOTMPDIR 2>/dev/null || true)
-SCRATCH_ROOT=""
-[[ -n "$GOTMP_DIR" ]] && SCRATCH_ROOT="$GOTMP_DIR/claude-$(id -u)"
+SCRATCH_ROOT="${TMPDIR:-/tmp}/claude-$(id -u)"
 REPO=$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null || pwd)
 STRAY_CACHES=()
 if [[ -n "${RESET_EXTRA_CACHE_DIRS:-}" ]]; then
@@ -68,7 +67,7 @@ fi
 
 echo "== stale go-build temp dirs in ${GOTMP_DIR:-<GOTMPDIR unset>}"
 if [[ -n "$GOTMP_DIR" ]]; then
-	find "$GOTMP_DIR" -maxdepth 1 -name 'go-build*' -mmin "+$AGE_MIN" -exec rm -rf {} + 2>/dev/null
+	find "$GOTMP_DIR" "${TMPDIR:-/tmp}" -maxdepth 1 -name 'go-build*' -mmin "+$AGE_MIN" -exec rm -rf {} + 2>/dev/null
 fi
 
 echo "== golangci-lint cache"
