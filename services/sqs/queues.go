@@ -123,13 +123,18 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 	defer b.mu.Unlock()
 
 	isFIFO := strings.HasSuffix(input.QueueName, fifoSuffix)
-	region := b.effectiveRegion(input.Region)
+	scope := b.effectiveRegion(input.Region)
+	account, region := splitScope(scope)
+
+	if account == "" {
+		account = b.accountID
+	}
 
 	// AWS idempotency: if a queue with the same name exists in the same region
 	// and the caller-supplied configurable attributes are the same (or absent),
 	// return the existing URL. Different configurable attributes yields
 	// QueueNameExists. A name collision in a different region is allowed.
-	if q, exists := b.queues.Get(queueKey(region, input.QueueName)); exists {
+	if q, exists := b.queues.Get(queueKey(scope, input.QueueName)); exists {
 		for k, v := range input.Attributes {
 			if !isConfigurableQueueAttribute(k) {
 				continue
@@ -145,11 +150,11 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 
 	now := b.now()
 
-	if err := b.checkQueueDeletedRecently(region, input.QueueName, now); err != nil {
+	if err := b.checkQueueDeletedRecently(scope, input.QueueName, now); err != nil {
 		return nil, err
 	}
 
-	attrs := buildDefaultAttributes(input.QueueName, b.accountID, region, isFIFO, now)
+	attrs := buildDefaultAttributes(input.QueueName, account, region, isFIFO, now)
 
 	mergeQueueAttributes(attrs, input.Attributes)
 
@@ -163,7 +168,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		endpoint = b.defaultEndpoint
 	}
 
-	queueURL := scheme + "://" + endpoint + "/" + b.accountID + "/" + input.QueueName
+	queueURL := scheme + "://" + endpoint + "/" + account + "/" + input.QueueName
 
 	tagName := "sqs.queue." + input.QueueName + ".tags"
 
@@ -171,6 +176,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		Name:                input.QueueName,
 		URL:                 queueURL,
 		Region:              region,
+		AccountID:           accountOverride(account, b.accountID),
 		IsFIFO:              isFIFO,
 		Attributes:          attrs,
 		Tags:                tags.FromMap(tagName, input.Tags),
@@ -232,9 +238,9 @@ func (b *InMemoryBackend) DeleteQueue(input *DeleteQueueInput) error {
 		q.Tags.Close()
 	}
 
-	b.recentlyDeleted[queueKey(q.Region, q.Name)] = b.now()
+	b.recentlyDeleted[queueKey(q.scope(), q.Name)] = b.now()
 
-	b.queues.Delete(queueKey(q.Region, q.Name))
+	b.queues.Delete(queueKey(q.scope(), q.Name))
 
 	// Cancel any active move tasks that involve this queue (either as source or
 	// destination) to prevent goroutine leaks.
@@ -255,7 +261,7 @@ func (b *InMemoryBackend) ListQueues(input *ListQueuesInput) (*ListQueuesOutput,
 	urls := make([]string, 0, b.queues.Len())
 
 	for _, q := range b.queues.All() {
-		if q.Region != scope {
+		if q.scope() != scope {
 			continue
 		}
 		if input.QueueNamePrefix == "" || strings.HasPrefix(q.Name, input.QueueNamePrefix) {
@@ -275,7 +281,7 @@ func (b *InMemoryBackend) GetQueueURL(input *GetQueueURLInput) (*GetQueueURLOutp
 	b.mu.RLock("GetQueueURL")
 	defer b.mu.RUnlock()
 
-	if input.OwnerAccountID != "" && input.OwnerAccountID != b.accountID {
+	if input.OwnerAccountID != "" && input.OwnerAccountID != b.scopeAccount(input.Region) {
 		return nil, ErrQueueNotFound
 	}
 

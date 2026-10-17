@@ -64,7 +64,7 @@ type InMemoryBackend struct {
 // queueTableKey is the [store.Table] key function for b.queues, deriving the
 // same (region, name) composite key that queueKey builds from raw input.
 func queueTableKey(q *Queue) string {
-	return queueKey(q.Region, q.Name)
+	return queueKey(q.scope(), q.Name)
 }
 
 // SetDefaultEndpoint sets the host used in queue URLs when a request carries none (in-process callers).
@@ -212,6 +212,10 @@ func queueNameFromInput(queueURL string) string {
 // callers (and existing tests) continue to work without explicit region threading.
 func (b *InMemoryBackend) effectiveRegion(region string) string {
 	if region != "" {
+		if account, plain := splitScope(region); account == b.accountID {
+			return plain
+		}
+
 		return region
 	}
 
@@ -384,4 +388,46 @@ func (b *InMemoryBackend) queueURLFromARNLocked(queueARN string) (string, bool) 
 	}
 
 	return q.URL, true
+}
+
+// scopeOf joins a non-default account and region into one lookup scope; an empty
+// account yields the bare region, so default-account queues keep their keys.
+func scopeOf(account, region string) string {
+	if account == "" {
+		return region
+	}
+
+	return account + scopeSep + region
+}
+
+// splitScope is the inverse of scopeOf; a bare region has an empty account.
+func splitScope(scope string) (string, string) {
+	account, region, ok := strings.Cut(scope, scopeSep)
+	if !ok {
+		return "", scope
+	}
+
+	return account, region
+}
+
+func (q *Queue) scope() string {
+	return scopeOf(q.AccountID, q.Region)
+}
+
+const scopeSep = "@"
+
+func accountOverride(account, backendAccount string) string {
+	if account == backendAccount {
+		return ""
+	}
+
+	return account
+}
+
+func (b *InMemoryBackend) scopeAccount(region string) string {
+	if account, _ := splitScope(b.effectiveRegion(region)); account != "" {
+		return account
+	}
+
+	return b.accountID
 }

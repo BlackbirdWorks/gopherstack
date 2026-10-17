@@ -12344,6 +12344,11 @@ func principalMiddleware(resolvers awsmeta.PrincipalResolverChain) echo.Middlewa
 			if meta != nil && meta.AccessKeyID != "" && meta.Principal == nil {
 				if p, ok := resolvers.ResolvePrincipal(ctx, meta.AccessKeyID, meta.SecurityToken); ok && p != nil {
 					meta.Principal = p
+
+					if p.AccountID != "" && req.Header.Get(awsmeta.AccountHeader) == "" {
+						meta.Account = p.AccountID
+					}
+
 					ctx = awsmeta.Set(ctx, meta)
 					c.SetRequest(req.WithContext(ctx))
 				}

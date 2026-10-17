@@ -186,7 +186,11 @@ func (b *InMemoryBackend) startMessageMoveTaskLocked(
 	}
 
 	// Snapshot queue depth under the lock so the estimate is consistent.
-	srcQueue, _ := b.lookupQueueByURL("", srcURL)
+	srcQueue, found := b.lookupQueueByURL("", srcURL)
+	if !found {
+		return "", "", "", nil, nil, ErrQueueNotFound
+	}
+
 	totalCount := approximateQueueDepthLocked(srcQueue, now)
 
 	taskHandle := uuid.NewString()

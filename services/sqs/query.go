@@ -68,7 +68,7 @@ func (h *Handler) handleQueryProtocol(c *echo.Context) error {
 		)
 	}
 
-	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
+	region := h.requestScope(r)
 
 	xmlResp, httpStatus, qErr := h.dispatchQueryAction(action, vals, r, region)
 	if qErr != nil {

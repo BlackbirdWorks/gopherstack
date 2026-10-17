@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 type jsonGetQueueAttributesReq struct {
@@ -34,7 +32,7 @@ func (h *Handler) handleGetQueueAttributes(
 
 	out, err := h.Backend.GetQueueAttributes(&GetQueueAttributesInput{
 		QueueURL:       req.QueueURL,
-		Region:         httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		Region:         h.requestScope(r),
 		AttributeNames: req.AttributeNames,
 	})
 	if err != nil {
@@ -61,7 +59,7 @@ func (h *Handler) handleSetQueueAttributes(
 
 	if err := h.Backend.SetQueueAttributes(&SetQueueAttributesInput{
 		QueueURL:   req.QueueURL,
-		Region:     httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		Region:     h.requestScope(r),
 		Attributes: req.Attributes,
 	}); err != nil {
 		return nil, err
