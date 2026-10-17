@@ -100,6 +100,9 @@ checkpoint.md
 !/cmd/*/*/
 !/cmd/*/*.*
 
-# Understand-Anything scratch
-.ua/intermediate/
+# Understand-Anything: keep graph + incremental baselines, ignore scratch
+.ua/.trash-*/
+.ua/tmp/
+.ua/intermediate/*
+!.ua/intermediate/scan-result.json
 .ua/diff-overlay.json
