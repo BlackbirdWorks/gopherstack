@@ -222,6 +222,10 @@ func (b *InMemoryBackend) CreatePolicyVersion(input *CreatePolicyVersionInput) (
 		return nil, fmt.Errorf("%w: PolicyName is required", ErrValidation)
 	}
 
+	if err := validatePolicyDocument(input.PolicyDocument); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreatePolicyVersion")
 	defer b.mu.Unlock()
 

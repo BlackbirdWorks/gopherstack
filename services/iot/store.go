@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,7 +30,6 @@ type RuleDispatcher interface {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	issuer                     certIssuer
 	dispatcher                 RuleDispatcher
 	serverCertChecker          ServerCertificateChecker
 	roleAuth                   roleauth.Authorizer
@@ -104,11 +104,13 @@ type InMemoryBackend struct {
 	thingConnectivity          map[string]*ThingConnectivityData
 	behaviorTrainingSummaries  map[string][]*BehaviorModelTrainingSummary
 	mu                         *lockmetrics.RWMutex
+	jobNotifier                atomic.Pointer[func(string)]
 	registrationCode           string
 	endpointBase               string
 	defaultAuthorizer          string
 	accountID                  string
 	region                     string
+	issuer                     certIssuer
 	violationEvents            []*ViolationEvent
 	bg                         sync.WaitGroup
 	mqttPort                   int
@@ -117,8 +119,7 @@ type InMemoryBackend struct {
 // Compile-time assertion that InMemoryBackend implements StorageBackend.
 var _ StorageBackend = (*InMemoryBackend)(nil)
 
-// mqttDefaultPort is the default TCP port for the embedded MQTT broker.
-const mqttDefaultPort = 1883
+const mqttDefaultPort = DefaultMQTTPort
 
 // NewInMemoryBackend creates a new InMemoryBackend with default values.
 func NewInMemoryBackend() *InMemoryBackend {

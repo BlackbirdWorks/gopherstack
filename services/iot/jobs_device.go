@@ -163,6 +163,7 @@ func (b *InMemoryBackend) StartNextPendingJobExecution(
 		exec.LastUpdatedAt = now
 		exec.VersionNumber++
 		exec.StatusDetails = mergeStatusDetails(exec.StatusDetails, statusDetails)
+		b.notifyJob(thingName)
 	}
 
 	job, _ := b.jobs.Get(exec.JobID)
@@ -249,6 +250,7 @@ func (b *InMemoryBackend) UpdateDeviceJobExecution(in *UpdateDeviceJobExecutionI
 	exec.LastUpdatedAt = now
 	exec.VersionNumber++
 	exec.StatusDetails = mergeStatusDetails(exec.StatusDetails, in.StatusDetails)
+	b.notifyJob(in.ThingName)
 
 	job, _ := b.jobs.Get(in.JobID)
 	b.completeJobIfDoneLocked(job, now)
@@ -276,4 +278,26 @@ func (b *InMemoryBackend) completeJobIfDoneLocked(job *Job, now float64) {
 	job.Status = JobStatusCompleted
 	job.CompletedAt = now
 	job.LastUpdatedAt = now
+}
+
+// setJobNotifier registers the callback that reports a thing whose job executions changed.
+func (b *InMemoryBackend) setJobNotifier(fn func(thingName string)) {
+	b.jobNotifier.Store(&fn)
+}
+
+// notifyJob reports a changed thing in the background so the callback never runs under b.mu.
+func (b *InMemoryBackend) notifyJob(thingName string) {
+	fn := b.jobNotifier.Load()
+	if fn == nil {
+		return
+	}
+
+	b.bg.Go(func() { (*fn)(thingName) })
+}
+
+func (b *InMemoryBackend) hasThing(thingName string) bool {
+	b.mu.RLock("hasThing")
+	defer b.mu.RUnlock()
+
+	return b.requireThingLocked(thingName) == nil
 }

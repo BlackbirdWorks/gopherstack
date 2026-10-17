@@ -111,7 +111,7 @@ func seedCertificates(t *testing.T, b *iot.InMemoryBackend) string {
 
 	_, err = b.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "gap-policy",
-		PolicyDocument: `{"Version":"2012-10-17","Statement":[]}`,
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 

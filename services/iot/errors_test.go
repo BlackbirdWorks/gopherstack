@@ -30,7 +30,7 @@ func TestErrValidationMapping(t *testing.T) {
 			name:   "empty_policy_name",
 			method: http.MethodPost,
 			path:   "/policies/",
-			body:   map[string]any{"policyDocument": "{}"},
+			body:   map[string]any{"policyDocument": validPolicyDoc},
 		},
 	}
 
@@ -65,7 +65,7 @@ func TestErrAlreadyExists(t *testing.T) {
 			name:   "duplicate_policy",
 			method: http.MethodPost,
 			path:   "/policies/dup-policy",
-			body:   map[string]any{"policyDocument": "{}"},
+			body:   map[string]any{"policyDocument": validPolicyDoc},
 		},
 	}
 

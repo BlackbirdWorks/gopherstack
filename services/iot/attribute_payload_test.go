@@ -217,7 +217,7 @@ func Test_AttachOps_AreIdempotent(t *testing.T) {
 		b := iot.NewInMemoryBackend()
 		_, err := b.CreatePolicy(&iot.CreatePolicyInput{
 			PolicyName:     "policy-1",
-			PolicyDocument: "{}",
+			PolicyDocument: validPolicyDoc,
 		})
 		require.NoError(t, err)
 
@@ -237,7 +237,7 @@ func Test_AttachOps_AreIdempotent(t *testing.T) {
 		b := iot.NewInMemoryBackend()
 		_, err := b.CreatePolicy(&iot.CreatePolicyInput{
 			PolicyName:     "policy-1",
-			PolicyDocument: "{}",
+			PolicyDocument: validPolicyDoc,
 		})
 		require.NoError(t, err)
 

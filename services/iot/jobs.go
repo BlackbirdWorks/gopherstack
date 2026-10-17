@@ -481,6 +481,7 @@ func (b *InMemoryBackend) fanOutJobExecutionsLocked(jobID string, targets []stri
 			QueuedAt:        now,
 			LastUpdatedAt:   now,
 		})
+		b.notifyJob(thingName)
 	}
 }
 
@@ -687,10 +688,12 @@ func (b *InMemoryBackend) CancelJob(jobID, comment, reasonCode string, force boo
 		case exec.Status == JobExecQueued:
 			exec.Status = JobExecCanceled
 			exec.LastUpdatedAt = now
+			b.notifyJob(exec.ThingName)
 		case exec.Status == JobExecInProgress && force:
 			exec.Status = JobExecCanceled
 			exec.ForceCanceled = true
 			exec.LastUpdatedAt = now
+			b.notifyJob(exec.ThingName)
 		}
 	}
 
@@ -726,6 +729,7 @@ func (b *InMemoryBackend) deleteJobLocked(jobID string, force bool) error {
 		k := jobExecKey(exec.JobID, exec.ThingName)
 		if len(k) > len(jobID)+1 && k[:len(jobID)] == jobID {
 			b.jobExecutions.Delete(k)
+			b.notifyJob(exec.ThingName)
 		}
 	}
 
@@ -759,6 +763,7 @@ func (b *InMemoryBackend) AddJobExecutionInternal(e *JobExecution) {
 
 	cp := *e
 	b.jobExecutions.Put(&cp)
+	b.notifyJob(cp.ThingName)
 }
 
 func (b *InMemoryBackend) DescribeJobExecution(jobID, thingName string) (*JobExecution, error) {
@@ -823,6 +828,7 @@ func (b *InMemoryBackend) CancelJobExecution(jobID, thingName string, opts Cance
 			QueuedAt:        now,
 			LastUpdatedAt:   now,
 		})
+		b.notifyJob(thingName)
 
 		return nil
 	}
@@ -845,6 +851,7 @@ func (b *InMemoryBackend) CancelJobExecution(jobID, thingName string, opts Cance
 	exec.ForceCanceled = opts.Force
 	exec.LastUpdatedAt = now
 	exec.VersionNumber++
+	b.notifyJob(thingName)
 
 	if len(opts.StatusDetails) > 0 {
 		if exec.StatusDetails == nil {
@@ -915,6 +922,7 @@ func (b *InMemoryBackend) DeleteJobExecution(jobID, thingName string, force bool
 	}
 
 	b.jobExecutions.Delete(key)
+	b.notifyJob(thingName)
 
 	return nil
 }
