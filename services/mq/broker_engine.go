@@ -64,17 +64,29 @@ type portMap struct {
 	container int
 }
 
-type liveBroker struct {
-	ctx         context.Context
-	cancel      context.CancelFunc
+type liveNode struct {
 	hostPorts   map[string]int
-	engine      string
 	containerID string
-	username    string
-	password    string
 	ports       []int
+}
+
+type liveBroker struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	engine string
+	// username and password are the engine credentials.
+	username string
+	password string
+	// standbys are the extra containers of a multi-AZ deployment; the embedded node is the primary.
+	standbys []*liveNode
+	liveNode
+	standbyWant int
 	ready       bool
 	applying    bool
+}
+
+func (lb *liveBroker) nodes() []*liveNode {
+	return append([]*liveNode{&lb.liveNode}, lb.standbys...)
 }
 
 type brokerEngine struct {
@@ -139,14 +151,18 @@ func (b *InMemoryBackend) MQConsumerEndpoint(brokerARN string) (string, string, 
 
 func consumerPortName(engine string) string {
 	if engine == EngineTypeRabbitMQ {
-		return "amqp"
+		return portNameAMQP
 	}
 
 	return "stomp"
 }
 
 func (e *brokerEngine) addr(lb *liveBroker, name string) string {
-	return net.JoinHostPort(e.cfg.Host, strconv.Itoa(lb.hostPorts[name]))
+	return e.nodeAddr(&lb.liveNode, name)
+}
+
+func (e *brokerEngine) nodeAddr(n *liveNode, name string) string {
+	return net.JoinHostPort(e.cfg.Host, strconv.Itoa(n.hostPorts[name]))
 }
 
 // Close removes every broker container and waits for in-flight startups to finish.
@@ -208,8 +224,10 @@ func (e *brokerEngine) reap(lbs []*liveBroker) {
 
 		lb.cancel()
 
-		if lb.containerID != "" {
-			e.wg.Go(func() { e.remove(lb.containerID, lb.ports) })
+		for _, n := range lb.nodes() {
+			if n.containerID != "" {
+				e.wg.Go(func() { e.remove(n.containerID, n.ports) })
+			}
 		}
 	}
 }
@@ -273,37 +291,32 @@ func (e *brokerEngine) acquirePort(label string) (int, error) {
 	return a.Port, nil
 }
 
-func portMapsFor(engine string) []portMap {
-	if engine == EngineTypeRabbitMQ {
-		return []portMap{{"amqp", 5672}, {"console", 15672}}
-	}
-
-	return []portMap{{"openwire", 61616}, {"stomp", 61613}, {"mqtt", 1883}}
-}
-
-func (e *brokerEngine) spec(name string, lb *liveBroker) container.Spec {
+func (e *brokerEngine) spec(name string, lb *liveBroker, n *liveNode) container.Spec {
 	maps := portMapsFor(lb.engine)
 	ports := make([]string, len(maps))
 	bind := container.BindHostFor(e.cfg.Host)
 
 	for i, pm := range maps {
-		ports[i] = container.PortSpec(bind, strconv.Itoa(lb.ports[i]), strconv.Itoa(pm.container))
+		ports[i] = container.PortSpec(bind, strconv.Itoa(n.ports[i]), strconv.Itoa(pm.container))
 	}
 
 	spec := container.Spec{
 		Name:  "gopherstack-mq-" + name + "-" + uuid.NewString()[:8],
 		Ports: ports,
+		Env:   tlsEnv(e.cfg.Host),
 	}
+
+	spec.Entrypoint, spec.Cmd = tlsEntrypoint(lb.engine)
 
 	if lb.engine == EngineTypeRabbitMQ {
 		spec.Image = e.cfg.RabbitMQImage
-		spec.Env = []string{"RABBITMQ_DEFAULT_USER=" + lb.username, "RABBITMQ_DEFAULT_PASS=" + lb.password}
+		spec.Env = append(spec.Env, "RABBITMQ_DEFAULT_USER="+lb.username, "RABBITMQ_DEFAULT_PASS="+lb.password)
 
 		return spec
 	}
 
 	spec.Image = e.cfg.ActiveMQImage
-	spec.Env = []string{"ACTIVEMQ_CONNECTION_USER=" + lb.username, "ACTIVEMQ_CONNECTION_PASSWORD=" + lb.password}
+	spec.Env = append(spec.Env, "ACTIVEMQ_CONNECTION_USER="+lb.username, "ACTIVEMQ_CONNECTION_PASSWORD="+lb.password)
 
 	return spec
 }
@@ -331,7 +344,10 @@ func (b *InMemoryBackend) launchBrokerLocked(br *Broker, u *User) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	lb := &liveBroker{ctx: ctx, cancel: cancel, engine: br.EngineType, username: u.Username, password: u.Password}
+	lb := &liveBroker{
+		ctx: ctx, cancel: cancel, engine: br.EngineType, username: u.Username, password: u.Password,
+		standbyWant: standbyCount(br.EngineType, br.DeploymentMode),
+	}
 	e.brokers[br.BrokerID] = lb
 	br.BrokerState = BrokerStateCreating
 
@@ -341,36 +357,22 @@ func (b *InMemoryBackend) launchBrokerLocked(br *Broker, u *User) {
 func (b *InMemoryBackend) runBroker(ctx context.Context, brokerID, name string, lb *liveBroker) {
 	e := b.engine
 
-	ports, err := e.acquirePorts(name, portMapsFor(lb.engine))
+	nodes, err := e.startNodes(ctx, name, lb)
 	if err != nil {
 		b.finishBroker(ctx, brokerID, lb)
 
 		return
 	}
 
-	hostPorts := make(map[string]int, len(ports))
-	for i, pm := range portMapsFor(lb.engine) {
-		hostPorts[pm.name] = ports[i]
-	}
-
-	lb.ports = ports
-
-	id, err := e.cfg.Runtime.CreateAndStart(ctx, e.spec(name, lb))
-	if err != nil {
-		e.releasePorts(ports)
-		lb.ports = nil
-		b.finishBroker(ctx, brokerID, lb)
+	if !b.recordContainers(brokerID, lb, nodes) {
+		for _, n := range nodes {
+			e.remove(n.containerID, n.ports)
+		}
 
 		return
 	}
 
-	if !b.recordContainer(brokerID, lb, id, hostPorts) {
-		e.remove(id, ports)
-
-		return
-	}
-
-	if e.awaitReady(ctx, lb, e.addr(lb, consumerPortName(lb.engine))) == nil {
+	if e.awaitAllReady(ctx, lb) == nil {
 		err = b.applyConfigOnStart(ctx, brokerID, lb)
 		if err == nil {
 			b.markRunning(brokerID, lb)
@@ -384,7 +386,62 @@ func (b *InMemoryBackend) runBroker(ctx context.Context, brokerID, name string, 
 	b.finishBroker(ctx, brokerID, lb)
 }
 
-func (b *InMemoryBackend) recordContainer(brokerID string, lb *liveBroker, id string, hostPorts map[string]int) bool {
+// startNodes starts the primary container and any multi-AZ standbys; on error it removes what it started.
+func (e *brokerEngine) startNodes(ctx context.Context, name string, lb *liveBroker) ([]*liveNode, error) {
+	nodes := make([]*liveNode, 0, 1+lb.standbyWant)
+
+	for range 1 + lb.standbyWant {
+		n, err := e.startNode(ctx, name, lb)
+		if err != nil {
+			for _, started := range nodes {
+				e.remove(started.containerID, started.ports)
+			}
+
+			return nil, err
+		}
+
+		nodes = append(nodes, n)
+	}
+
+	return nodes, nil
+}
+
+func (e *brokerEngine) startNode(ctx context.Context, name string, lb *liveBroker) (*liveNode, error) {
+	maps := portMapsFor(lb.engine)
+
+	ports, err := e.acquirePorts(name, maps)
+	if err != nil {
+		return nil, err
+	}
+
+	n := &liveNode{ports: ports, hostPorts: make(map[string]int, len(ports))}
+	for i, pm := range maps {
+		n.hostPorts[pm.name] = ports[i]
+	}
+
+	id, err := e.cfg.Runtime.CreateAndStart(ctx, e.spec(name, lb, n))
+	if err != nil {
+		e.releasePorts(ports)
+
+		return nil, fmt.Errorf("start broker container: %w", err)
+	}
+
+	n.containerID = id
+
+	return n, nil
+}
+
+func (e *brokerEngine) awaitAllReady(ctx context.Context, lb *liveBroker) error {
+	for _, n := range lb.nodes() {
+		if err := e.awaitReady(ctx, lb, e.nodeAddr(n, consumerPortName(lb.engine))); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) recordContainers(brokerID string, lb *liveBroker, nodes []*liveNode) bool {
 	b.mu.Lock("recordBroker")
 	defer b.mu.Unlock()
 
@@ -392,8 +449,8 @@ func (b *InMemoryBackend) recordContainer(brokerID string, lb *liveBroker, id st
 		return false
 	}
 
-	lb.containerID = id
-	lb.hostPorts = hostPorts
+	lb.liveNode = *nodes[0]
+	lb.standbys = nodes[1:]
 
 	return true
 }
@@ -460,8 +517,8 @@ func (e *brokerEngine) awaitReady(ctx context.Context, lb *liveBroker, addr stri
 	}
 }
 
-// applyLiveEndpoints replaces the synthetic instance of a ready docker broker with its real endpoints.
-// Plaintext only: the container serves no TLS, so schemes are amqp/tcp/stomp/mqtt rather than their +ssl forms.
+// applyLiveEndpoints replaces the synthetic instances of a ready docker broker with one per container,
+// reporting the published TLS listeners in the AWS URL forms.
 func (b *InMemoryBackend) applyLiveEndpoints(cp *Broker) {
 	if b.engine == nil {
 		return
@@ -472,28 +529,18 @@ func (b *InMemoryBackend) applyLiveEndpoints(cp *Broker) {
 		return
 	}
 
-	inst := BrokerInstance{ConsoleURL: b.engine.consoleURL(lb)}
+	nodes := lb.nodes()
+	insts := make([]BrokerInstance, len(nodes))
 
-	if lb.engine == EngineTypeRabbitMQ {
-		inst.Endpoints = []string{"amqp://" + b.engine.addr(lb, "amqp")}
-	} else {
-		inst.Endpoints = []string{
-			"tcp://" + b.engine.addr(lb, "openwire"),
-			"stomp://" + b.engine.addr(lb, "stomp"),
-			"mqtt://" + b.engine.addr(lb, "mqtt"),
+	for i, n := range nodes {
+		insts[i].Endpoints, insts[i].ConsoleURL = b.engine.liveEndpoints(lb.engine, n)
+
+		if i < len(cp.BrokerInstances) {
+			insts[i].IPAddress = cp.BrokerInstances[i].IPAddress
 		}
-		inst.ConsoleURL = cp.BrokerInstances[0].ConsoleURL
 	}
 
-	cp.BrokerInstances = []BrokerInstance{inst}
-}
-
-func (e *brokerEngine) consoleURL(lb *liveBroker) string {
-	if lb.engine != EngineTypeRabbitMQ {
-		return ""
-	}
-
-	return "http://" + e.addr(lb, "console")
+	cp.BrokerInstances = insts
 }
 
 // relaunchBrokersLocked starts an empty container per restored broker with a user; passwords are not
