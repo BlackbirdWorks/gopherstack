@@ -2,6 +2,7 @@ package mq
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 
@@ -47,4 +48,17 @@ func probeSTOMP(ctx context.Context, addr, username, password string) error {
 	}
 
 	return conn.Disconnect()
+}
+
+// probeTLS completes a TLS handshake; a published port with nothing behind it fails here.
+func probeTLS(ctx context.Context, addr string) error {
+	cfg := &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12} //nolint:gosec // readiness only
+	d := &tls.Dialer{Config: cfg}
+
+	conn, err := d.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return fmt.Errorf("tls dial: %w", err)
+	}
+
+	return conn.Close() //nolint:wrapcheck // close error is irrelevant
 }

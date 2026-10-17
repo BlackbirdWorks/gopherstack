@@ -50,6 +50,9 @@ type BrokerConfig struct {
 	Ports *portalloc.Allocator
 	// Probe returns nil once the broker at addr accepts the credentials; nil uses the real protocol clients.
 	Probe func(ctx context.Context, engine, addr, username, password string) error
+	// TLSProbe returns nil once the TLS listener or console at the host:port addr serves requests;
+	// nil skips the check unless Probe is also nil, which uses the real HTTPS/TLS clients.
+	TLSProbe func(ctx context.Context, addr string) error
 	// Host is the address clients use to reach published ports; default 127.0.0.1.
 	Host string
 	// RabbitMQImage and ActiveMQImage override the pinned images.
@@ -115,6 +118,10 @@ func (b *InMemoryBackend) EnableBrokers(cfg BrokerConfig) {
 
 	if cfg.Probe == nil {
 		cfg.Probe = probeBroker
+
+		if cfg.TLSProbe == nil {
+			cfg.TLSProbe = probeTLS
+		}
 	}
 
 	b.mu.Lock("EnableBrokers")
@@ -435,6 +442,47 @@ func (e *brokerEngine) awaitAllReady(ctx context.Context, lb *liveBroker) error 
 	for _, n := range lb.nodes() {
 		if err := e.awaitReady(ctx, lb, e.nodeAddr(n, consumerPortName(lb.engine))); err != nil {
 			return err
+		}
+
+		if err := e.awaitTLS(ctx, lb, n); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (e *brokerEngine) awaitTLS(ctx context.Context, lb *liveBroker, n *liveNode) error {
+	if e.cfg.TLSProbe == nil {
+		return nil
+	}
+
+	endpoints, console := e.liveEndpoints(lb.engine, n)
+
+	ctx, cancel := context.WithTimeout(ctx, e.cfg.StartTimeout)
+	defer cancel()
+
+	ticker := time.NewTicker(brokerProbeInterval)
+	defer ticker.Stop()
+
+	for _, raw := range append(endpoints, console) {
+		_, addr, _ := strings.Cut(raw, "://")
+
+		for {
+			pctx, pcancel := context.WithTimeout(ctx, brokerProbeTimeout)
+			err := e.cfg.TLSProbe(pctx, addr)
+
+			pcancel()
+
+			if err == nil {
+				break
+			}
+
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("broker TLS listener %s not ready: %w", raw, err)
+			case <-ticker.C:
+			}
 		}
 	}
 
