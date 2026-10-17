@@ -4252,6 +4252,7 @@ func registerCloudFormationAndDashboard(
 	// hierarchy instead of rejecting OU-based targets outright.
 	wireCloudFormationOrganizations(cfnSvc, byName["Organizations"])
 	wireRAMOrganizations(byName["RAM"], byName["Organizations"])
+	wireOrganizationsIAM(byName["Organizations"], byName["IAM"])
 
 	wireVPCLatticeEndpoints(byName["VPCLattice"], byName["EC2"])
 
@@ -13758,6 +13759,46 @@ func wireRAMOrganizations(ramReg, orgReg service.Registerable) {
 	}
 
 	orgBk.OnAccountLeave(ramBk.HandleAccountLeftOrganization)
+}
+
+type orgAccessRoleProvisioner struct{ iam *iambackend.InMemoryBackend }
+
+const administratorAccessPolicyARN = "arn:aws:iam::aws:policy/AdministratorAccess"
+
+func (p orgAccessRoleProvisioner) ProvisionAccessRole(accountID, roleName, trustPolicy string) error {
+	bk := p.iam.ForAccount(accountID)
+
+	if _, err := bk.CreateRole(roleName, "/", trustPolicy, ""); err != nil &&
+		!errors.Is(err, iambackend.ErrRoleAlreadyExists) {
+		return err
+	}
+
+	return bk.AttachRolePolicy(roleName, administratorAccessPolicyARN)
+}
+
+// wireOrganizationsIAM makes CreateAccount provision the access role in the new account's IAM.
+func wireOrganizationsIAM(orgReg, iamReg service.Registerable) {
+	orgH, ok := orgReg.(*organizationsbackend.Handler)
+	if !ok || orgH.Backend == nil {
+		return
+	}
+
+	orgBk, ok := orgH.Backend.(*organizationsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	iamH, ok := iamReg.(*iambackend.Handler)
+	if !ok {
+		return
+	}
+
+	iamBk, ok := iamH.Backend.(*iambackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	orgBk.SetAccountProvisioner(orgAccessRoleProvisioner{iam: iamBk})
 }
 
 // extractServiceName finds the service name for a given Echo context by checking

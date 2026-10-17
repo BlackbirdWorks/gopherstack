@@ -11,6 +11,8 @@ type createParams struct {
 	govCloud                                      bool
 }
 
+type provisionReq struct{ accountID, roleName string }
+
 type pendingCreate struct {
 	dueAt    time.Time
 	statusID string
@@ -86,6 +88,7 @@ func (b *InMemoryBackend) completeCreateLocked(status *CreateAccountStatus, p cr
 	}
 
 	b.emailToAccountID[p.email] = acctID
+	b.provisionQueue = append(b.provisionQueue, provisionReq{accountID: acctID, roleName: p.roleName})
 
 	status.AccountID = acctID
 	status.State = createAccountStateSucceeded
@@ -97,6 +100,11 @@ func (b *InMemoryBackend) completeCreateLocked(status *CreateAccountStatus, p cr
 
 // settlePendingCreates completes every pending create whose delay elapsed.
 func (b *InMemoryBackend) settlePendingCreates() {
+	b.settleDue()
+	b.flushProvisions()
+}
+
+func (b *InMemoryBackend) settleDue() {
 	now := time.Now()
 
 	b.mu.RLock("settlePendingCreates")

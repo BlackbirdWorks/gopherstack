@@ -25,6 +25,16 @@ func (b *InMemoryBackend) CreateAccount(
 	name, email, roleName, iamUserAccessToBilling string,
 	tags []Tag,
 ) (*CreateAccountStatus, error) {
+	status, err := b.createAccount(name, email, roleName, iamUserAccessToBilling, tags)
+	b.flushProvisions()
+
+	return status, err
+}
+
+func (b *InMemoryBackend) createAccount(
+	name, email, roleName, iamUserAccessToBilling string,
+	tags []Tag,
+) (*CreateAccountStatus, error) {
 	b.mu.Lock("CreateAccount")
 	defer b.mu.Unlock()
 
@@ -254,6 +264,16 @@ func (b *InMemoryBackend) CloseAccount(accountID string) error {
 
 // CreateGovCloudAccount creates a commercial account paired with a GovCloud account.
 func (b *InMemoryBackend) CreateGovCloudAccount(
+	name, email, roleName, iamUserAccessToBilling string,
+	tags []Tag,
+) (*CreateAccountStatus, error) {
+	status, err := b.createGovCloudAccount(name, email, roleName, iamUserAccessToBilling, tags)
+	b.flushProvisions()
+
+	return status, err
+}
+
+func (b *InMemoryBackend) createGovCloudAccount(
 	name, email, roleName, iamUserAccessToBilling string,
 	tags []Tag,
 ) (*CreateAccountStatus, error) {

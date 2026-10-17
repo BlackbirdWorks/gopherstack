@@ -82,7 +82,7 @@ ops:
   DeleteOrganization: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects when non-management member accounts remain, matches AWS"}
   EnableAllFeatures: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns a synthetic ENABLE_ALL_FEATURES handshake in ACCEPTED state (no real multi-account approval flow needed for single-account emulation)"}
   ListRoots: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreateAccountStatus transitions straight to SUCCEEDED (no stuck IN_PROGRESS poll trap)"}
+  CreateAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "On SUCCEEDED (incl. CreateGovCloudAccount) the new account gets RoleName (default OrganizationAccountAccessRole) in its own IAM, trusting the management account root and holding AdministratorAccess, when IAM is wired via SetAccountProvisioner. CreateAccountStatus transitions straight to SUCCEEDED (no stuck IN_PROGRESS poll trap)"}
   CreateGovCloudAccount: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeCreateAccountStatus: {wire: ok, errors: ok, state: ok, persist: ok}
   ListCreateAccountStatus: {wire: fixed, errors: ok, state: ok, persist: ok, note: "MaxResults/NextToken were parsed into the request but never applied -- handler always returned the full unfiltered set. Now wired through pkgs/page.New."}
