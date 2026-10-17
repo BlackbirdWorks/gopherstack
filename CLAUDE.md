@@ -1,11 +1,33 @@
 # Project Instructions for AI Agents
 
-## Project Memories (read these)
+## pkgs/ usage and locking
 
-Read `.claude/memories/*.md` before writing code:
+Reuse `pkgs/` instead of reimplementing in a service (e.g. `awstime.Epoch` would have prevented the QuickSight/IoT epoch-timestamp bugs).
 
-- `.claude/memories/pkgs-catalog.md` — when to use each `pkgs/` package; locking/map rules (coarse `lockmetrics.RWMutex` per backend, `safemap` only for isolated maps); prefer consolidated pkgs over reimplementing.
-- `.claude/memories/parity-principles.md` — no-stub rule, wire-shape verification against the real AWS SDK, known bug classes, de-stub hygiene.
+- Lock granularity follows invariant granularity. One coarse `lockmetrics.RWMutex` per service backend guards all its maps; AWS ops are cross-map transactions and `Snapshot()` needs one consistent view.
+- `safemap.Map` only for genuinely isolated single-map state (token stores, caches, janitor-swept stores). Never for backend resource maps: per-map locks tear cross-map state and risk deadlock.
+- No raw `sync.Mutex`/`sync.RWMutex` in services.
+- Per-map init/Reset/Snapshot/Restore boilerplate is a lifecycle problem, not a locking one (planned fix: `gopherstack-drp`). Persistence JSON field names must be preserved exactly.
+- ARNs: `arn`, never hand-format. IDs: `awsid.New("vpc-")`, not `uuid.NewString()[:N]`.
+- Timestamps: `awstime`; `awstime.Epoch()` for epoch-seconds JSON numbers.
+- Pagination: `page.Page[T]`, not hand-rolled NextToken/cursor logic.
+- Case-insensitive identifiers (e.g. RDS DBInstanceIdentifier): `strs` (`Fold`, `Equal`, `ContainsFold`), not per-service `strings.ToLower`/`EqualFold`.
+- Outbound HTTP: `httpclient` (own cloned transport); never `&http.Client{}` without a Transport (guarded by `TestNoOutboundHTTPOnDefaultTransport`).
+- All logging goes through `pkgs/logger`. Nil-safe pointer deref: `ptrconv`. Tags: `tags`. Shared errors: `awserr`.
+
+## AWS parity rules
+
+- No stubs: no no-op handlers, hardcoded/empty returns, fabricated IDs, or `&StubOutput{}`. Every routed SDK op must mutate/read real backend state, return AWS-accurate shapes and error codes, and persist (wire into the service's `persistence.go` `backendSnapshot`). If an op can't be implemented yet, say so; never ship a half-working stub.
+- Verify wire shapes against the real `aws-sdk-go-v2` serializers/deserializers, not your handler's own output. Known bug classes:
+  - wrong XML list wrappers (`<member>` vs `<Item>`), wrong root elements, missing response-root nesting when the output has no httpPayload member
+  - ISO8601 strings where the JSON protocol expects epoch-seconds numbers
+  - a hardcoded `xml:"StubResponse"` XMLName overriding the runtime root
+  - stub registrations overwriting real handlers (EC2 uses `registerStubOpsIfAbsent`; real handlers must win)
+  - missing `errCodeLookup` entries surfacing not-found as 500 InternalFailure
+- Unit tests are not parity proof. SDK-driven `test/integration/*_parity_test.go` caught 8 client-breaking wire bugs that green unit tests missed. Run `make build-linux` before `go test ./test/integration/...`.
+- Grep-based stub hunting has false positives: an empty envelope returned AFTER real backend logic is correct (void-result ops). Read the backend method before flagging; conversely, a real-looking op may filter a never-populated map.
+- De-stubbing: remove the stub registration, delete the orphaned stub handler, drop it from bare-call stub test manifests, run `golangci-lint`.
+- PARITY.md front-matter `items_still_open:` is the only authoritative open list (`gopherstack-anjf`); never `gaps:`/`deferred:` or body text. A pass that fixes an item must remove it in the same commit. Dated body sections are history only (`make parity-lint` catches stale claims).
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
 ## Beads Issue Tracker
