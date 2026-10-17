@@ -16,8 +16,8 @@
 
 ### Known gaps
 
-- GetCredentialsForIdentity returns random credentials that no STS-authenticated service accepts (sts:GetCallerIdentity says InvalidClientTokenId), and the role chosen by RoleMappings is never assumed. Minting real sessions needs services/sts to accept cognito-identity.amazonaws.com as a built-in web-identity issuer (skip the IAM OIDC provider lookup, supply the amr and aud condition keys) and this service to call AssumeRoleWithWebIdentity with the issued OpenID token through the lazy GetSTSHandler sibling lookup; the STS half is outside this service.
-- Login tokens are not signature-verified: JWT tokens are checked for expiry and for the audience listed on the pool's provider, opaque tokens (and providers the pool does not list) are accepted, and GetOpenIdTokenForDeveloperIdentity does not require the Logins key to be the pool's DeveloperProviderName.
+- GetCredentialsForIdentity does not honor CustomRoleArn and does not pass the pool's PrincipalTags mapping as STS session tags; GetOpenIdTokenForDeveloperIdentity does not require the Logins key to be the pool's DeveloperProviderName.
+- Login tokens from providers other than emulator-hosted Cognito user pools (Google, Facebook, OIDC/SAML) are not signature-verified; opaque tokens are accepted.
 
 ### Structural gaps
 
