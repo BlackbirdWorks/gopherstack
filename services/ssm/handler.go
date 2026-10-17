@@ -98,7 +98,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		target := c.Request().Header.Get("X-Amz-Target")
 
-		return strings.HasPrefix(target, "AmazonSSM") || strings.HasPrefix(target, ec2MessagesTargetPrefix)
+		return strings.HasPrefix(target, "AmazonSSM") || strings.HasPrefix(target, ec2MessagesTargetPrefix) ||
+			strings.HasPrefix(c.Request().URL.Path, dataChannelPathPrefix)
 	}
 }
 
@@ -109,6 +110,10 @@ func (h *Handler) MatchPriority() int {
 
 // ExtractOperation attempts to extract the specific SSM operation from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
+	if strings.HasPrefix(c.Request().URL.Path, dataChannelPathPrefix) {
+		return "OpenDataChannel"
+	}
+
 	target := c.Request().Header.Get("X-Amz-Target")
 	parts := strings.Split(target, ".")
 	const targetParts = 2
@@ -146,6 +151,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		ctx := c.Request().Context()
 		region := httputils.ExtractRegionFromRequest(c.Request(), config.DefaultRegion)
 		ctx = context.WithValue(ctx, regionContextKey{}, region)
+
+		if strings.HasPrefix(c.Request().URL.Path, dataChannelPathPrefix) {
+			return h.handleDataChannel(c)
+		}
+
+		ctx = context.WithValue(ctx, streamBaseKey{}, streamBase(requestScheme(c.Request()), c.Request().Host))
 
 		if strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), ec2MessagesTargetPrefix) {
 			return h.handleAgent(ctx, c)

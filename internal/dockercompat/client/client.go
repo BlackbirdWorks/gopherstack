@@ -316,3 +316,59 @@ func (c *Client) ContainerExec(
 		}
 	}
 }
+
+// InteractiveExec is a TTY exec attached to stdin and stdout.
+type InteractiveExec struct {
+	cli  *Client
+	conn mobyclient.HijackedResponse
+	ID   string
+}
+
+// ContainerExecInteractive starts cmd in a container with a TTY and attached stdin.
+func (c *Client) ContainerExecInteractive(
+	ctx context.Context,
+	containerID string,
+	cmd []string,
+	cols, rows uint,
+) (*InteractiveExec, error) {
+	size := mobyclient.ConsoleSize{Height: rows, Width: cols}
+
+	created, err := c.inner.ExecCreate(ctx, containerID, mobyclient.ExecCreateOptions{
+		AttachStdin:  true,
+		AttachStdout: true,
+		AttachStderr: true,
+		TTY:          true,
+		ConsoleSize:  size,
+		Cmd:          cmd,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("exec create: %w", err)
+	}
+
+	attached, err := c.inner.ExecAttach(ctx, created.ID, mobyclient.ExecAttachOptions{TTY: true, ConsoleSize: size})
+	if err != nil {
+		return nil, fmt.Errorf("exec attach: %w", err)
+	}
+
+	return &InteractiveExec{cli: c, conn: attached.HijackedResponse, ID: created.ID}, nil
+}
+
+// Read reads terminal output.
+func (e *InteractiveExec) Read(p []byte) (int, error) { return e.conn.Reader.Read(p) }
+
+// Write writes terminal input.
+func (e *InteractiveExec) Write(p []byte) (int, error) { return e.conn.Conn.Write(p) }
+
+// Close detaches from the exec; the shell exits when its TTY hangs up.
+func (e *InteractiveExec) Close() error {
+	e.conn.Close()
+
+	return nil
+}
+
+// Resize changes the TTY size.
+func (e *InteractiveExec) Resize(ctx context.Context, cols, rows uint) error {
+	_, err := e.cli.inner.ExecResize(ctx, e.ID, mobyclient.ExecResizeOptions{Height: rows, Width: cols})
+
+	return err
+}
