@@ -552,7 +552,10 @@ func (r *realDockerRunner) watchContainerExit(
 		select {
 		case res := <-result.Result:
 			handler(taskArn, containerName, int(res.StatusCode))
-		case <-result.Error:
+		case err := <-result.Error:
+			if err != nil && ctx.Err() == nil {
+				logger.Load(ctx).WarnContext(ctx, "container wait failed", "containerID", containerID, "error", err)
+			}
 		case <-ctx.Done():
 		}
 	})

@@ -396,7 +396,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", "internal server error"))
 		}
 
-		c.Response().Header().Set("X-Amzn-RequestId", fmt.Sprintf("%x", time.Now().UnixNano()))
+		c.Response().Header().Set("X-Amzn-Requestid", fmt.Sprintf("%x", time.Now().UnixNano()))
 
 		return h.dispatch(c, route, body)
 	}

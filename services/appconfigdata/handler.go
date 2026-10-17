@@ -399,7 +399,7 @@ func (h *Handler) writeGetLatestConfigurationResponse(
 
 	// 200 OK: content changed or first poll.
 	if hash != "" {
-		c.Response().Header().Set(etagHeader, fmt.Sprintf(`"%s"`, hash))
+		c.Response().Header().Set("ETag", fmt.Sprintf(`"%s"`, hash))
 	}
 
 	c.Response().Header().Set("Content-Length", strconv.Itoa(len(content)))

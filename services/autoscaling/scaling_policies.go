@@ -221,27 +221,7 @@ func (b *InMemoryBackend) DescribePolicies(
 	b.mu.RLock("DescribePolicies")
 	defer b.mu.RUnlock()
 
-	nameFilter := make(map[string]bool, len(policyNames))
-	for _, n := range policyNames {
-		nameFilter[n] = true
-	}
-
-	typeFilter := make(map[string]bool, len(policyTypes))
-	for _, t := range policyTypes {
-		typeFilter[t] = true
-	}
-
-	matches := func(p *ScalingPolicy) bool {
-		if len(nameFilter) > 0 && !nameFilter[p.PolicyName] {
-			return false
-		}
-
-		if len(typeFilter) > 0 && !typeFilter[p.PolicyType] {
-			return false
-		}
-
-		return true
-	}
+	matches := policyMatcher(policyNames, policyTypes)
 
 	var result []ScalingPolicy
 
@@ -272,6 +252,26 @@ func (b *InMemoryBackend) DescribePolicies(
 	})
 
 	return result, nil
+}
+
+func policyMatcher(policyNames, policyTypes []string) func(*ScalingPolicy) bool {
+	nameFilter := make(map[string]bool, len(policyNames))
+	for _, n := range policyNames {
+		nameFilter[n] = true
+	}
+
+	typeFilter := make(map[string]bool, len(policyTypes))
+	for _, t := range policyTypes {
+		typeFilter[t] = true
+	}
+
+	return func(p *ScalingPolicy) bool {
+		if len(nameFilter) > 0 && !nameFilter[p.PolicyName] {
+			return false
+		}
+
+		return len(typeFilter) == 0 || typeFilter[p.PolicyType]
+	}
 }
 
 func validatePolicyEnums(input ScalingPolicyInput) error {
