@@ -641,3 +641,87 @@ func TestMultiAccount_WebIdentityFederationPerAccount(t *testing.T) {
 		})
 	}
 }
+
+func TestMultiAccount_IAMUserKeyResolvesAccount(t *testing.T) {
+	t.Parallel()
+
+	stack := newMultiAccountStack(t)
+	ctx := t.Context()
+
+	admin := iam.NewFromConfig(stack.config(t, acctB, "", nil))
+
+	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String("alice")})
+	require.NoError(t, err)
+
+	key, err := admin.CreateAccessKey(ctx, &iam.CreateAccessKeyInput{UserName: aws.String("alice")})
+	require.NoError(t, err)
+
+	akia := aws.ToString(key.AccessKey.AccessKeyId)
+	require.True(t, len(akia) > 4 && akia[:4] == "AKIA")
+
+	userClient := sqs.NewFromConfig(stack.config(t, akia, "", nil))
+	created, err := userClient.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("user-q")})
+	require.NoError(t, err)
+	assert.Contains(t, aws.ToString(created.QueueUrl), "/"+acctB+"/")
+
+	tests := []struct {
+		headers    map[string]string
+		name       string
+		key        string
+		wantAcct   string
+		wantArnSub string
+	}{
+		{
+			name: "user key no header", key: akia, wantAcct: acctB,
+			wantArnSub: ":" + acctB + ":user/alice",
+		},
+		{
+			name: "unknown akia", key: "AKIAUNKNOWNKEY000000",
+			wantAcct: defaultAccount, wantArnSub: ":" + defaultAccount + ":",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := sts.NewFromConfig(stack.config(t, tt.key, "", tt.headers))
+
+			out, callErr := client.GetCallerIdentity(t.Context(), &sts.GetCallerIdentityInput{})
+			require.NoError(t, callErr)
+			assert.Equal(t, tt.wantAcct, aws.ToString(out.Account))
+			assert.Contains(t, aws.ToString(out.Arn), tt.wantArnSub)
+		})
+	}
+
+	t.Run("header overrides user key", func(t *testing.T) {
+		t.Parallel()
+
+		client := sqs.NewFromConfig(stack.config(t, akia, "", map[string]string{"X-Amz-Account-Id": acctA}))
+
+		out, qErr := client.CreateQueue(t.Context(), &sqs.CreateQueueInput{QueueName: aws.String("hdr-q")})
+		require.NoError(t, qErr)
+		assert.Contains(t, aws.ToString(out.QueueUrl), "/"+acctA+"/")
+	})
+
+	visibility := []struct {
+		name      string
+		key       string
+		wantCount int
+	}{
+		{name: "default account sees none", key: "test", wantCount: 0},
+		{name: "account b via key sees queue", key: acctB, wantCount: 1},
+		{name: "user key sees queue", key: akia, wantCount: 1},
+	}
+
+	for _, tt := range visibility {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			list, listErr := sqs.NewFromConfig(stack.config(t, tt.key, "", nil)).
+				ListQueues(t.Context(), &sqs.ListQueuesInput{})
+			require.NoError(t, listErr)
+			assert.Len(t, list.QueueUrls, tt.wantCount)
+		})
+	}
+}

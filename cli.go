@@ -12348,6 +12348,8 @@ func buildPrincipalResolvers(services []service.Registerable) awsmeta.PrincipalR
 }
 
 // principalMiddleware populates the resolved caller Principal onto the request context.
+// Account precedence: X-Amz-Account-Id header > resolved principal (STS session or
+// IAM user key, any account) > 12-digit access key ID > default.
 func principalMiddleware(resolvers awsmeta.PrincipalResolverChain) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
