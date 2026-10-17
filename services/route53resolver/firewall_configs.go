@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // GetFirewallConfig returns or lazily creates the firewall config for a resource (VPC).
@@ -19,7 +19,7 @@ func (b *InMemoryBackend) GetFirewallConfig(ctx context.Context, resourceID stri
 
 		return &cp
 	}
-	id := "fwc-" + uuid.New().String()[:8]
+	id := awsid.New("fwc-")
 	cfg := &FirewallConfig{
 		ID:               id,
 		OwnerID:          b.accountID,
@@ -58,7 +58,7 @@ func (b *InMemoryBackend) UpdateFirewallConfig(
 
 	cfg, ok := b.firewallConfigs.Get(regionalKey(region, resourceID))
 	if !ok {
-		id := "fwc-" + uuid.New().String()[:8]
+		id := awsid.New("fwc-")
 		cfg = &FirewallConfig{
 			ID:         id,
 			OwnerID:    b.accountID,

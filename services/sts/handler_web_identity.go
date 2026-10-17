@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 // dispatchAssumeRoleWithWebIdentity handles the AssumeRoleWithWebIdentity
@@ -81,6 +83,10 @@ func (h *Handler) dispatchGetWebIdentityToken(
 	if callerKey := extractAccessKeyFromAuth(r); callerKey != "" {
 		secToken := r.Header.Get("X-Amz-Security-Token")
 		input.CallerSession = h.Backend.LookupSession(callerKey, secToken)
+	}
+
+	if account := awsmeta.Account(r.Context()); account != awsmeta.DefaultAccount {
+		input.Account = account
 	}
 
 	return h.Backend.GetWebIdentityToken(input)

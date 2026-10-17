@@ -199,6 +199,7 @@ type Queue struct {
 	Name                 string
 	URL                  string
 	Region               string
+	AccountID            string
 	messages             []*Message
 	inFlightMessages     []*InFlightMessage
 	// mu guards queue-level state independently of the backend-global mu (#55).

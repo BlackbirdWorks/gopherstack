@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // subnetDerivedVpcID returns a stable synthetic VpcID derived from a subnet ID.
@@ -268,9 +267,9 @@ func (b *InMemoryBackend) CreateMountTarget(
 		)
 	}
 
-	id := "fsmt-" + uuid.NewString()[:8]
+	id := awsid.New("fsmt-")
 	mtARN := arn.Build("elasticfilesystem", region, b.accountID, "mount-target/"+id)
-	eniID := "eni-" + uuid.NewString()[:8]
+	eniID := awsid.New("eni-")
 
 	sgs := make([]string, len(req.SecurityGroups))
 	copy(sgs, req.SecurityGroups)

@@ -79,21 +79,29 @@ func TestGetCredentialsForIdentity_ExpirationIsEpochSeconds(t *testing.T) {
 }
 
 // TestGetCredentialsForIdentity_CustomRoleArn verifies that
-// GetCredentialsForIdentity accepts a CustomRoleArn field without error.
+// GetCredentialsForIdentity honours CustomRoleArn only for a role the identity may assume.
 func TestGetCredentialsForIdentity_CustomRoleArn(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name          string
 		customRoleArn string
+		wantCode      int
 	}{
 		{
-			name:          "with_custom_role",
+			name:          "with_allowed_custom_role",
+			customRoleArn: "arn:aws:iam::000000000000:role/UnauthRole",
+			wantCode:      http.StatusOK,
+		},
+		{
+			name:          "with_unlisted_custom_role",
 			customRoleArn: "arn:aws:iam::000000000000:role/MyCustomRole",
+			wantCode:      http.StatusForbidden,
 		},
 		{
 			name:          "without_custom_role",
 			customRoleArn: "",
+			wantCode:      http.StatusOK,
 		},
 	}
 
@@ -137,7 +145,7 @@ func TestGetCredentialsForIdentity_CustomRoleArn(t *testing.T) {
 			rec := doCognitoIdentityRequest(t, h, "GetCredentialsForIdentity", req)
 			assert.Equal(
 				t,
-				http.StatusOK,
+				tt.wantCode,
 				rec.Code,
 				"GetCredentialsForIdentity with CustomRoleArn: %s",
 				rec.Body.String(),
@@ -281,6 +289,7 @@ func TestHandler_GetOpenIdTokenForDeveloperIdentity(t *testing.T) {
 				createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
 					"IdentityPoolName":               "dev-token-pool",
 					"AllowUnauthenticatedIdentities": true,
+					"DeveloperProviderName":          "developer.example.com",
 				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -317,6 +326,7 @@ func TestHandler_GetOpenIdTokenForDeveloperIdentity_ExistingIdentity(t *testing.
 	createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
 		"IdentityPoolName":               "dev-existing-pool",
 		"AllowUnauthenticatedIdentities": true,
+		"DeveloperProviderName":          "developer.example.com",
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 

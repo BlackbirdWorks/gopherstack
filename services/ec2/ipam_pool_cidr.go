@@ -5,7 +5,7 @@ import (
 	"net"
 	"sort"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // ---- IPAM Pool CIDR provisioning ----
@@ -179,7 +179,7 @@ func (b *InMemoryBackend) AllocateIpamPoolCidr(
 	}
 
 	alloc := &IpamPoolAllocation{
-		IpamPoolAllocationID: "ipam-alloc-" + uuid.New().String()[:8],
+		IpamPoolAllocationID: awsid.New("ipam-alloc-"),
 		IpamPoolID:           poolID,
 		Cidr:                 allocCidr,
 		Description:          o.Description,

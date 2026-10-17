@@ -1,5 +1,5 @@
 # Lightweight test image — expects a pre-built static binary at bin/gopherstack-linux
-# (from `make build-linux`; this is a separate path from `make build`'s bin/gopherstack
+# (from `task build-linux`; this is a separate path from `task build`'s bin/gopherstack
 # so the two targets can't clobber each other — see gopherstack-gooq).
 FROM scratch
 COPY bin/gopherstack-linux /root/gopherstack

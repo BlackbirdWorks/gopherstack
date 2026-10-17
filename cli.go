@@ -446,10 +446,14 @@ type CLI struct {
 	globalConfig                  *config.GlobalConfig
 	portAlloc                     *portalloc.Allocator
 	ElastiCacheEngine             string                            `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"             default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                            //nolint:lll // config struct tags are intentionally verbose
+	MemoryDBEngine                string                            `                                       name:"memorydb-engine"         env:"MEMORYDB_ENGINE"                default:"embedded"      help:"MemoryDB engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                               //nolint:lll // config struct tags are intentionally verbose
 	KafkaEngine                   string                            `                                       name:"kafka-engine"            env:"KAFKA_ENGINE"                   default:"stub"          help:"MSK engine mode: stub (metadata only) or docker (real Kafka broker per cluster)."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
 	MQEngine                      string                            `                                       name:"mq-engine"               env:"MQ_ENGINE"                      default:"stub"          help:"Amazon MQ engine mode: stub (metadata only) or docker (real RabbitMQ/ActiveMQ container per broker)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	EKSEngine                     string                            `                                       name:"eks-engine"              env:"EKS_ENGINE"                     default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
 	RDSEngine                     string                            `                                       name:"rds-engine"              env:"RDS_ENGINE"                     default:"stub"          help:"RDS engine mode: stub (metadata only) or docker (real database container)."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	DocDBEngine                   string                            `                                       name:"docdb-engine"            env:"DOCDB_ENGINE"                   default:"stub"          help:"DocumentDB engine mode: stub (metadata only) or docker (real MongoDB container per cluster)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
+	RedshiftEngine                string                            `                                       name:"redshift-engine"         env:"REDSHIFT_ENGINE"                default:"stub"          help:"Redshift engine mode: stub (metadata only) or docker (real Postgres container per cluster; Data API runs SQL against it)."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
+	NeptuneEngine                 string                            `                                       name:"neptune-engine"          env:"NEPTUNE_ENGINE"                 default:"stub"          help:"Neptune engine mode: stub (metadata only) or docker (real Apache TinkerPop Gremlin Server container per cluster)."`                                                                                          //nolint:lll // config struct tags are intentionally verbose
 	EC2Provider                   string                            `                                       name:"ec2-provider"            env:"EC2_PROVIDER"                   default:"inmemory"      help:"EC2 compute provider: inmemory (stub) or docker (launches real containers as instances)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerImage                string                            `                                       name:"ec2-docker-image"        env:"EC2_DOCKER_IMAGE"               default:"amazonlinux:2" help:"Docker image used by the EC2 docker provider when launching instances."`                                                                                                                                     //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerNetwork              string                            `                                       name:"ec2-docker-network"      env:"EC2_DOCKER_NETWORK"             default:""              help:"Docker network EC2 docker-provider containers attach to (empty = daemon default bridge)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
@@ -494,8 +498,9 @@ type CLI struct {
 	AzureTable                    azuretablebackend.Settings        `embed:"" prefix:"azure-table-"`
 	AzureServiceBus               azureservicebusbackend.Settings   `embed:"" prefix:"azure-servicebus-"`
 	AzureStorageVHost             azurestoragevhostbackend.Settings `embed:"" prefix:"azure-storage-vhost-"`
-	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"               default:"10000"         help:"Start of the port range for resource endpoints."`                                          //nolint:lll // config struct tags are intentionally verbose
-	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                 default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                //nolint:lll // config struct tags are intentionally verbose
+	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"               default:"10000"         help:"Start of the port range for resource endpoints."`           //nolint:lll // config struct tags are intentionally verbose
+	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                 default:"10100"         help:"End (exclusive) of the port range for resource endpoints."` //nolint:lll // config struct tags are intentionally verbose
+	IoT                           iotbackend.Settings               `embed:"" prefix:"iot-"`
 	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"        default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."` //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMax           int                               `                                       name:"ec2-docker-ssh-port-max" env:"EC2_DOCKER_SSH_PORT_MAX"        default:"0"             help:"Upper bound of the host TCP port range used to map EC2-docker SSH."`                       //nolint:lll // config struct tags are intentionally verbose
 	Lifecycle                     LifecycleSettings                 `embed:"" prefix:"lifecycle-"`
@@ -575,6 +580,11 @@ func (c *CLI) GetAzureQueueSettings() azurequeuebackend.Settings {
 // GetAzureTableSettings returns Azure Table settings (azuretable.ConfigProvider).
 func (c *CLI) GetAzureTableSettings() azuretablebackend.Settings {
 	return c.AzureTable
+}
+
+// GetIoTSettings returns IoT settings (iot.ConfigProvider).
+func (c *CLI) GetIoTSettings() iotbackend.Settings {
+	return c.IoT
 }
 
 // GetCosmosDBSettings returns Cosmos DB settings (cosmosdb.ConfigProvider).
@@ -1212,6 +1222,9 @@ func (c *CLI) GetElastiCacheHandler() service.Registerable { return c.elasticach
 // GetElastiCacheEngine returns the ElastiCache engine mode (elasticache.EngineConfig).
 func (c *CLI) GetElastiCacheEngine() string { return c.ElastiCacheEngine }
 
+// GetMemoryDBEngine returns the MemoryDB engine mode (memorydb.EngineConfig).
+func (c *CLI) GetMemoryDBEngine() string { return c.MemoryDBEngine }
+
 // GetEKSEngine returns the EKS engine mode (eks.EngineConfig).
 func (c *CLI) GetEKSEngine() string { return c.EKSEngine }
 
@@ -1220,6 +1233,15 @@ func (c *CLI) GetMQEngine() string { return c.MQEngine }
 
 // GetRDSEngine returns the RDS engine mode (rds.EngineModeConfig).
 func (c *CLI) GetRDSEngine() string { return c.RDSEngine }
+
+// GetRedshiftEngine returns the Redshift engine mode (redshift.EngineModeConfig).
+func (c *CLI) GetRedshiftEngine() string { return c.RedshiftEngine }
+
+// GetNeptuneEngine returns the Neptune engine mode (neptune.EngineModeConfig).
+func (c *CLI) GetNeptuneEngine() string { return c.NeptuneEngine }
+
+// GetDocDBEngine returns the DocumentDB engine mode (docdb.EngineModeConfig).
+func (c *CLI) GetDocDBEngine() string { return c.DocDBEngine }
 
 // GetKafkaEngine returns the MSK engine mode (kafka.EngineConfig).
 func (c *CLI) GetKafkaEngine() string { return c.KafkaEngine }
@@ -3941,6 +3963,7 @@ func wireCWLogsMetricEmitters(byName map[string]service.Registerable) {
 func wireSSOAndRedshiftData(byName map[string]service.Registerable) {
 	wireSSO(byName)
 	wireRedshiftServerlessData(byName)
+	wireRedshiftClusterEngines(byName)
 }
 
 // wireStorageAndSecretsIntegrations wires Firehose delivery, DynamoDB→S3
@@ -4074,7 +4097,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// names a bucket that actually exists, instead of accepting any
 	// non-empty ResourceArn regardless of whether it resolves to a real
 	// resource (gopherstack-0o0q).
-	wireBackupS3(byName["Backup"], byName["S3"])
+	wireBackupResources(byName)
 
 	// Wire CodePipeline → CodeBuild/Lambda/CodeDeploy so a Build/CodeBuild
 	// action's ProjectName, an Invoke/Lambda action's FunctionName, and a
@@ -4186,6 +4209,7 @@ func wireGovernanceIntegrations(byName map[string]service.Registerable, services
 	// Wire IAM → STS for ExternalId validation and MaxSessionDuration enforcement.
 	wireIAMToSTS(byName["IAM"], byName["STS"])
 	wireEKSIRSAToSTS(byName["EKS"], byName["STS"])
+	wireCognitoIdentity(byName["CognitoIdentity"], byName["STS"], byName["CognitoIDP"])
 
 	// Collect all services implementing FISActionProvider and register them with the FIS backend.
 	wireFISActionProviders(byName["FIS"], services)
@@ -4232,6 +4256,7 @@ func registerCloudFormationAndDashboard(
 	// hierarchy instead of rejecting OU-based targets outright.
 	wireCloudFormationOrganizations(cfnSvc, byName["Organizations"])
 	wireRAMOrganizations(byName["RAM"], byName["Organizations"])
+	wireOrganizationsIAM(byName["Organizations"], byName["IAM"])
 
 	wireVPCLatticeEndpoints(byName["VPCLattice"], byName["EC2"])
 
@@ -7009,7 +7034,7 @@ func wireBackupS3(backupReg, s3Reg service.Registerable) {
 		return
 	}
 
-	backupH.Backend.SetS3Backend(s3Bk)
+	backupH.Backend.SetObjectStore(s3Bk)
 }
 
 // wireCodePipelineCodeBuild connects the CodePipeline backend to CodeBuild so
@@ -7453,6 +7478,7 @@ func wireTimestreamQueryTags(tsqReg, tswReg service.Registerable) {
 
 	if tswH, tswOk := tswReg.(*timestreamwritebackend.Handler); tswOk {
 		tsqBk.SetTagWriteBackend(&timestreamTagWriter{handler: tswH})
+		tsqBk.SetCatalog(&timestreamCatalog{handler: tswH})
 	}
 }
 
@@ -12327,6 +12353,8 @@ func buildPrincipalResolvers(services []service.Registerable) awsmeta.PrincipalR
 }
 
 // principalMiddleware populates the resolved caller Principal onto the request context.
+// Account precedence: X-Amz-Account-Id header > resolved principal (STS session or
+// IAM user key, any account) > 12-digit access key ID > default.
 func principalMiddleware(resolvers awsmeta.PrincipalResolverChain) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -12337,6 +12365,11 @@ func principalMiddleware(resolvers awsmeta.PrincipalResolverChain) echo.Middlewa
 			if meta != nil && meta.AccessKeyID != "" && meta.Principal == nil {
 				if p, ok := resolvers.ResolvePrincipal(ctx, meta.AccessKeyID, meta.SecurityToken); ok && p != nil {
 					meta.Principal = p
+
+					if p.AccountID != "" && req.Header.Get(awsmeta.AccountHeader) == "" {
+						meta.Account = p.AccountID
+					}
+
 					ctx = awsmeta.Set(ctx, meta)
 					c.SetRequest(req.WithContext(ctx))
 				}
@@ -13730,6 +13763,46 @@ func wireRAMOrganizations(ramReg, orgReg service.Registerable) {
 	}
 
 	orgBk.OnAccountLeave(ramBk.HandleAccountLeftOrganization)
+}
+
+type orgAccessRoleProvisioner struct{ iam *iambackend.InMemoryBackend }
+
+const administratorAccessPolicyARN = "arn:aws:iam::aws:policy/AdministratorAccess"
+
+func (p orgAccessRoleProvisioner) ProvisionAccessRole(accountID, roleName, trustPolicy string) error {
+	bk := p.iam.ForAccount(accountID)
+
+	if _, err := bk.CreateRole(roleName, "/", trustPolicy, ""); err != nil &&
+		!errors.Is(err, iambackend.ErrRoleAlreadyExists) {
+		return err
+	}
+
+	return bk.AttachRolePolicy(roleName, administratorAccessPolicyARN)
+}
+
+// wireOrganizationsIAM makes CreateAccount provision the access role in the new account's IAM.
+func wireOrganizationsIAM(orgReg, iamReg service.Registerable) {
+	orgH, ok := orgReg.(*organizationsbackend.Handler)
+	if !ok || orgH.Backend == nil {
+		return
+	}
+
+	orgBk, ok := orgH.Backend.(*organizationsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	iamH, ok := iamReg.(*iambackend.Handler)
+	if !ok {
+		return
+	}
+
+	iamBk, ok := iamH.Backend.(*iambackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	orgBk.SetAccountProvisioner(orgAccessRoleProvisioner{iam: iamBk})
 }
 
 // extractServiceName finds the service name for a given Echo context by checking

@@ -17,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
@@ -193,7 +194,7 @@ func NewHandler(backend StorageBackend) *Handler {
 		authCache:             newAuthorizerCache(),
 		subCollectionDispatch: newSubCollectionDispatch(),
 		subResourceDispatch:   newSubResourceDispatch(),
-		httpClient:            &http.Client{Timeout: httpClientTimeout},
+		httpClient:            httpclient.New(httpClientTimeout),
 	}
 }
 
@@ -207,7 +208,7 @@ func (h *Handler) getHTTPClient() *http.Client {
 		return h.httpClient
 	}
 
-	return &http.Client{Timeout: httpClientTimeout}
+	return fallbackHTTPClient
 }
 
 // SetLambdaInvoker configures the Lambda invoker for AWS_PROXY integrations.
@@ -1028,3 +1029,6 @@ func (h *Handler) handleDeepResource(
 
 	return writeErr(c, http.StatusNotFound, msgNotFound)
 }
+
+//nolint:gochecknoglobals // one pooled transport per service package
+var fallbackHTTPClient = httpclient.New(httpClientTimeout)

@@ -20,6 +20,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
@@ -145,7 +146,7 @@ func NewHandler(backend StorageBackend) *Handler {
 		Backend:        backend,
 		authCache:      newAuthorizerCache(),
 		respCache:      newResponseCache(),
-		httpClient:     &http.Client{Timeout: apiGWHTTPTimeout},
+		httpClient:     httpclient.New(apiGWHTTPTimeout),
 		selRegexpCache: newRegexpCache(defaultRegexpCacheMaxEntries),
 	}
 }

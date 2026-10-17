@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // ---- Capacity Reservation Fleet ----
@@ -71,7 +71,7 @@ func (b *InMemoryBackend) CreateCapacityReservationFleet(
 		}
 
 		instanceCount := int32(math.Ceil(remaining / weight))
-		crID := "cr-" + uuid.New().String()[:8]
+		crID := awsid.New("cr-")
 		b.capacityReservations.Put(&CapacityReservation{
 			CapacityReservationID:  crID,
 			InstanceType:           resolved[i].InstanceType,
@@ -97,7 +97,7 @@ func (b *InMemoryBackend) CreateCapacityReservationFleet(
 	}
 
 	fleet := &CapacityReservationFleet{
-		CapacityReservationFleetID: "crf-" + uuid.New().String()[:8],
+		CapacityReservationFleetID: awsid.New("crf-"),
 		AllocationStrategy:         allocationStrategy,
 		State:                      stateActive,
 		InstanceMatchCriteria:      instanceMatchCriteria,

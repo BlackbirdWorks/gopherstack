@@ -958,7 +958,7 @@ exercised `StreamARN`-only calling or a consumer-ARN tag round trip), not assert
 
 All three fix groups: full gate suite green (`go build`, `go vet`, `gofmt -l` clean, `go test -race`,
 `golangci-lint run` 0 findings / 0 nolints added after fixing 1 `err113` + 3 `modernize` (mapsloop) +
-1 `golines` finding by refactoring, `go fix -diff` no diff, `make build-check` clean). Working tree
+1 `golines` finding by refactoring, `go fix -diff` no diff, `task build-check` clean). Working tree
 left uncommitted per this session's constraints.
 
 ### 2026-09-11: gopherstack-s0ju items 2-4 (on-demand auto-scale, retention-aware trim horizon, SubscribeToShard cadence)

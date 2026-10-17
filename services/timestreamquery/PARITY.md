@@ -40,7 +40,6 @@ families:
 gaps: []
 items_still_open: []
 structural_gaps:
-  - "Query does not fail for tables that do not exist in timestreamwrite: that needs a cross-service catalog lookup in root wiring (cli.go), which this service cannot do alone."
   - "CreateScheduledQuery KmsKeyId is stored and echoed, but there is no at-rest encryption layer to apply it to."
   - "ScheduledQueryDescription.RecentlyFailedRuns and ScheduledQueryRunSummary.QueryInsightsResponse: ExecuteScheduledQuery runs no real query engine, so no run can fail or produce insights; both fields are optional and omitted."
 deferred:

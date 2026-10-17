@@ -7,9 +7,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // imageOwnerAliasAmazon is the well-known non-numeric OwnerID this backend's
@@ -607,7 +606,7 @@ func (b *InMemoryBackend) ImportImage(
 	}
 
 	task := &ImageImportTask{
-		ImportTaskID: "import-ami-" + uuid.New().String()[:8],
+		ImportTaskID: awsid.New("import-ami-"),
 		Description:  description,
 		Architecture: architecture,
 		Platform:     platform,
@@ -675,7 +674,7 @@ func (b *InMemoryBackend) ExportImage(
 		roleName = "vmimport"
 	}
 
-	id := "export-ami-" + uuid.New().String()[:8]
+	id := awsid.New("export-ami-")
 	task := &ExportImageTaskRec{
 		ExportImageTaskID: id,
 		Description:       description,

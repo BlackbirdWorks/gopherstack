@@ -611,7 +611,7 @@ real `aws-sdk-go-v2/service/sesv2` client, not just decoded JSON maps.
 - SDK-driven integration test coverage (`test/integration/*_parity_test.go`)
   has not been run for this service — this and prior passes added a
   route/path regression test (`route_matrix_test.go`) and real-SDK-client
-  round-trip unit tests (see "This pass" above); no `make build-linux` +
+  round-trip unit tests (see "This pass" above); no `task build-linux` +
   Docker-based integration run was performed.
 
 ## Traps for the next auditor

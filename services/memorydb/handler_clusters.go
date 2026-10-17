@@ -224,7 +224,7 @@ func toClusterObject(c *Cluster, showShards bool) clusterObject {
 
 	var shards []shardObject
 	if showShards {
-		shards = buildShards(c.Name, c.NumShards, c.NumReplicasPerShard, c.Port, region, c.CreatedAt)
+		shards = buildShards(c.Name, c.NumShards, c.NumReplicasPerShard, c.Port, region, c.CreatedAt, c.dataEndpoint())
 	}
 
 	sgs := make([]securityGroupMembership, 0, len(c.SecurityGroupIDs))
@@ -276,11 +276,17 @@ func toClusterObject(c *Cluster, showShards bool) clusterObject {
 		Shards:                  shards,
 		AvailabilityMode:        c.AvailabilityMode,
 		SecurityGroups:          sgs,
-		ClusterEndpoint: &endpointObject{
-			Address: c.Name + ".memorydb." + region + ".amazonaws.com",
-			Port:    c.Port,
-		},
+		ClusterEndpoint:         clusterEndpoint(c, region),
 	}
+}
+
+// clusterEndpoint reports the real server address when one runs, else the synthetic hostname.
+func clusterEndpoint(c *Cluster, region string) *endpointObject {
+	if ep := c.dataEndpoint(); ep != nil {
+		return ep
+	}
+
+	return &endpointObject{Address: c.Name + ".memorydb." + region + ".amazonaws.com", Port: c.Port}
 }
 
 const (
@@ -317,6 +323,7 @@ func shardName(clusterName string, index int) string {
 // buildShards constructs a slice of shardObjects with evenly-distributed slots and nodes.
 func buildShards(
 	clusterName string, numShards, numReplicas, port int32, region string, created time.Time,
+	dataEP *endpointObject,
 ) []shardObject {
 	zones := []string{region + "a", region + "b", region + "c"}
 	ranges := shardSlotRanges(numShards)
@@ -332,10 +339,7 @@ func buildShards(
 				Status:           clusterStatusAvailable,
 				AvailabilityZone: zones[ni%len(zones)],
 				CreateTime:       float64(created.Unix()),
-				Endpoint: &endpointObject{
-					Address: nodeName + ".memorydb." + region + ".amazonaws.com",
-					Port:    port,
-				},
+				Endpoint:         nodeEndpoint(dataEP, nodeName, region, port),
 			})
 		}
 
@@ -349,4 +353,14 @@ func buildShards(
 	}
 
 	return shards
+}
+
+func nodeEndpoint(dataEP *endpointObject, nodeName, region string, port int32) *endpointObject {
+	if dataEP != nil {
+		cp := *dataEP
+
+		return &cp
+	}
+
+	return &endpointObject{Address: nodeName + ".memorydb." + region + ".amazonaws.com", Port: port}
 }

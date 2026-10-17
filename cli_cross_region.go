@@ -281,3 +281,20 @@ func (w *timestreamTagWriter) TagResource(arn string, tags map[string]string) er
 func (w *timestreamTagWriter) UntagResource(arn string, keys []string) error {
 	return w.handler.BackendFor(arnRegion(arn)).UntagResource(arn, keys)
 }
+
+// timestreamCatalog answers Timestream Query's table-existence checks from the Timestream Write backends.
+type timestreamCatalog struct {
+	handler *timestreamwritebackend.Handler
+}
+
+func (c *timestreamCatalog) DatabaseExists(region, database string) bool {
+	_, err := c.handler.BackendFor(region).DescribeDatabase(database)
+
+	return err == nil
+}
+
+func (c *timestreamCatalog) TableExists(region, database, table string) bool {
+	_, err := c.handler.BackendFor(region).DescribeTable(database, table)
+
+	return err == nil
+}

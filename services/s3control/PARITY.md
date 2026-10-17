@@ -725,7 +725,7 @@ updated `TestHandler_GetAccessPointPolicyStatus` (handler_access_points_test.go)
 prior case asserted the old stub's wrong behavior (200/not-public on a nonexistent access point)
 -- rewritten table-driven to cover no-policy, policy-attached, and nonexistent-access-point.
 
-**Gates:** `go build ./...`, `go vet` (default/e2e/integration via `make build-check`), `gofmt
+**Gates:** `go build ./...`, `go vet` (default/e2e/integration via `task build-check`), `gofmt
 -l` (clean), `go test -race` (services/s3control, pkgs/awserr, both green), `golangci-lint run`
 (0 issues, no nolint added), live `test/integration` run against a real running gopherstack
 binary (`GOPHERSTACK_ENDPOINT`) both with and without `-tags integration`: pass.

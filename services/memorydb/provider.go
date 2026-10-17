@@ -9,6 +9,11 @@ import (
 // ErrNilAppContext is returned by Init when a nil AppContext is passed.
 var ErrNilAppContext = errors.New("nil AppContext passed to MemoryDB Provider.Init")
 
+// EngineConfig exposes the MemoryDB engine mode (embedded, stub, or docker).
+type EngineConfig interface {
+	GetMemoryDBEngine() string
+}
+
 // Provider implements service.Provider for the MemoryDB service.
 type Provider struct{}
 
@@ -26,6 +31,12 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	accountID, region := service.AccountRegionOrDefault(ctx)
 
 	backend := newInMemoryBackendWithDefaults(region, accountID)
+	engineMode := EngineEmbedded
+	if ec, ok := ctx.Config.(EngineConfig); ok {
+		engineMode = ec.GetMemoryDBEngine()
+	}
+
+	backend.SetEngine(engineMode, ctx.PortAlloc)
 	handler := NewHandler(backend)
 	handler.AccountID = accountID
 	handler.DefaultRegion = region

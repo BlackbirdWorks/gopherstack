@@ -14,9 +14,9 @@ This repo ships a project-scoped `.mcp.json` at the root with three dev-only MCP
 
 On every new session in this repo:
 
-1. Run `make dev-mcp-check` (or `bash scripts/dev-mcp-check.sh --quiet`) and confirm the four CLIs (`gopls`, `mcp-language-server`, `terraform-mcp-server`, `npx`) are present.
-2. If anything is missing, run `make dev-mcp-install` once.
-3. If an MCP tool call fails mid-session, re-run `make dev-mcp-check` before falling back to raw `grep` / `find`.
+1. Run `task dev-mcp-check` (or `bash scripts/dev-mcp-check.sh --quiet`) and confirm the four CLIs (`gopls`, `mcp-language-server`, `terraform-mcp-server`, `npx`) are present.
+2. If anything is missing, run `task dev-mcp-install` once.
+3. If an MCP tool call fails mid-session, re-run `task dev-mcp-check` before falling back to raw `grep` / `find`.
 
 ## Optional: auto-check via SessionStart hook
 

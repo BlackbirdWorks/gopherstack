@@ -19,7 +19,7 @@ const (
 // committed spec fixture and the current services/cloudformation source must
 // reproduce services/cloudformation/cfn_attributes.json byte-for-byte. A
 // mismatch means someone added a resTypeXxx constant (or the fixture
-// changed) without running `make cfn-attrs-gen`, so coverage silently
+// changed) without running `task cfn-attrs-gen`, so coverage silently
 // drifted from what the source now supports.
 func TestGeneratedTableUpToDate(t *testing.T) {
 	t.Parallel()
@@ -42,7 +42,7 @@ func TestGeneratedTableUpToDate(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, string(want), string(got),
-		"cfn_attributes.json is stale -- run `make cfn-attrs-gen` and commit the result")
+		"cfn_attributes.json is stale -- run `task cfn-attrs-gen` and commit the result")
 }
 
 // TestBuildTable_CoversEverySupportedSpecType asserts buildTable never drops

@@ -44,6 +44,17 @@ func (r *recordingEngineRuntime) CreateAndStart(ctx context.Context, spec contai
 	return id, err
 }
 
+func (r *recordingEngineRuntime) Exec(
+	ctx context.Context, id string, cmd []string,
+) (container.ExecResult, error) {
+	x, ok := r.EngineRuntime.(rds.EngineExecRuntime)
+	if !ok {
+		return container.ExecResult{}, container.ErrExecUnsupported
+	}
+
+	return x.Exec(ctx, id, cmd)
+}
+
 func (r *recordingEngineRuntime) Close() error {
 	if c, ok := r.EngineRuntime.(io.Closer); ok {
 		return c.Close()

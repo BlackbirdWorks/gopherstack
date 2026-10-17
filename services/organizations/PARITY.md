@@ -13,7 +13,7 @@ last_audit_date: 2026-10-12
 # duplicate CreateAccount email -> FAILED/EMAIL_ALREADY_EXISTS status (was InvalidInput); ParentNotFoundException
 # vs malformed parent id; AccountName(<=50)/Email(6-64)/RoleName/OU name(<=128) limits; CloseAccount on mgmt
 # account -> CANNOT_CLOSE_MANAGEMENT_ACCOUNT, already-closed -> AccountAlreadyClosedException.
-# Lenient on purpose: CreateAccount completes SUCCEEDED synchronously (callers read AccountId from the response);
+# Lenient by default: CreateAccount completes SUCCEEDED synchronously (callers read AccountId from the response); opt in to IN_PROGRESS via --lifecycle-organizations;
 # SCP/RCP content only needs valid JSON (dozens of in-repo fixtures use "{}"); MaxResults=0 is "unset" (int field).
 overall: A            # 2026-08-30 (ordering pass): audited every List op's sort key against its actual
                       # unsorted source for tie-safety (Table.All() map walks are unspecified-order; a
@@ -82,7 +82,7 @@ ops:
   DeleteOrganization: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects when non-management member accounts remain, matches AWS"}
   EnableAllFeatures: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns a synthetic ENABLE_ALL_FEATURES handshake in ACCEPTED state (no real multi-account approval flow needed for single-account emulation)"}
   ListRoots: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreateAccountStatus transitions straight to SUCCEEDED (no stuck IN_PROGRESS poll trap)"}
+  CreateAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "On SUCCEEDED (incl. CreateGovCloudAccount) the new account gets RoleName (default OrganizationAccountAccessRole) in its own IAM, trusting the management account root and holding AdministratorAccess, when IAM is wired via SetAccountProvisioner. CreateAccountStatus transitions straight to SUCCEEDED (no stuck IN_PROGRESS poll trap)"}
   CreateGovCloudAccount: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeCreateAccountStatus: {wire: ok, errors: ok, state: ok, persist: ok}
   ListCreateAccountStatus: {wire: fixed, errors: ok, state: ok, persist: ok, note: "MaxResults/NextToken were parsed into the request but never applied -- handler always returned the full unfiltered set. Now wired through pkgs/page.New."}
@@ -174,7 +174,7 @@ deviations, each with a typed-client regression test (feature_set_flows_test.go)
   `^rp-[0-9a-zA-Z_]{4,128}$`; it is now `rp-<org suffix>`.
 
 Lenient on purpose: CreateAccount still completes SUCCEEDED synchronously (callers, including CloudFormation and
-in-repo fixtures, read AccountId straight from the response); the IN_PROGRESS to SUCCEEDED transition is not modeled.
+in-repo fixtures, read AccountId straight from the response). With `--lifecycle-organizations` / `ORGANIZATIONS_LIFECYCLE_DELAY` > 0 the IN_PROGRESS to SUCCEEDED/FAILED transition is modeled lazily on read; the account is absent from ListAccounts until SUCCEEDED, and a pending create is failed INTERNAL_FAILURE on restore.
 
 ### 2026-10-01 EffectivePolicyType validation
 
@@ -282,7 +282,7 @@ so the next auditor doesn't re-flag them.
   before flagging.
 
 - **CreateAccount lifecycle**: `CreateAccountStatus.State` goes straight to `SUCCEEDED` in the
-  same call (no stuck `IN_PROGRESS` that would make a real client poll
+  same call by default (opt-in delay: see above; no stuck `IN_PROGRESS` that would make a real client poll
   `DescribeCreateAccountStatus` forever) -- correct emulator behavior for this bug class called
   out in parity-principles.
 

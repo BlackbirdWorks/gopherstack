@@ -7,6 +7,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -181,6 +182,8 @@ type InMemoryBackend struct {
 	events                     map[string][]*Event
 	clock                      func() time.Time
 	mu                         *lockmetrics.RWMutex
+	allocator                  *portalloc.Allocator
+	engineMode                 string
 	defaultRegion              string
 	accountID                  string
 	lifecycleDelay             time.Duration
@@ -326,6 +329,7 @@ func (b *InMemoryBackend) Reset() {
 // holds the lock (calling the public, self-locking Reset there would
 // deadlock). Must hold b.mu.
 func (b *InMemoryBackend) resetLocked() {
+	b.stopAllEnginesLocked()
 	b.clusters = make(map[string]*store.Table[Cluster])
 	b.acls = make(map[string]*store.Table[ACL])
 	b.subnetGroups = make(map[string]*store.Table[SubnetGroup])

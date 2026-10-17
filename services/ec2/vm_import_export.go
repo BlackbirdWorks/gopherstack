@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // vm_import_export.go: VM Import/Export, Bundle Instance, and Conversion Task
@@ -145,7 +145,7 @@ func (b *InMemoryBackend) BundleInstance(instanceID, s3Bucket, s3Prefix string) 
 
 	now := time.Now().UTC()
 	task := &BundleTask{
-		BundleID:   "bundle-" + uuid.New().String()[:8],
+		BundleID:   awsid.New("bundle-"),
 		InstanceID: instanceID,
 		State:      bundleStatePending,
 		Progress:   taskZeroProgress,
@@ -250,7 +250,7 @@ func (b *InMemoryBackend) ImportInstance(
 
 	now := time.Now().UTC()
 	task := &ConversionTask{
-		ConversionTaskID: "import-i-" + uuid.New().String()[:8],
+		ConversionTaskID: awsid.New("import-i-"),
 		Kind:             conversionKindInstance,
 		State:            vmTaskStateActive,
 		StatusMessage:    vmTaskStateActive,
@@ -287,7 +287,7 @@ func (b *InMemoryBackend) ImportVolume(
 
 	now := time.Now().UTC()
 	task := &ConversionTask{
-		ConversionTaskID: "import-vol-" + uuid.New().String()[:8],
+		ConversionTaskID: awsid.New("import-vol-"),
 		Kind:             conversionKindVolume,
 		State:            vmTaskStateActive,
 		StatusMessage:    vmTaskStateActive,
@@ -397,7 +397,7 @@ func (b *InMemoryBackend) CreateInstanceExportTask(
 		diskImageFormat = defaultExportDiskImageFormat
 	}
 
-	id := "export-i-" + uuid.New().String()[:8]
+	id := awsid.New("export-i-")
 	task := &ExportTask{
 		ExportTaskID:      id,
 		Description:       description,

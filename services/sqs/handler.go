@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -758,3 +759,12 @@ func (h *Handler) Reset() {
 }
 
 // --- JSON request/response types for new operations ---
+
+func (h *Handler) requestScope(r *http.Request) string {
+	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
+	if m, ok := awsmeta.Key.Get(r.Context()); ok && m != nil {
+		return scopeOf(m.Account, region)
+	}
+
+	return region
+}

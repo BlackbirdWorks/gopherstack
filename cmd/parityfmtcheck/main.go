@@ -19,7 +19,7 @@
 // sibling_sdk_modules, botocore_model, items_still_open that a second,
 // independently-maintained reserved-key list here would only drift out of
 // sync with). Full ops:/families: entry-level tolerant parsing already gates
-// `make docs` (cmd/gendocs's checkParseWarnings) -- duplicating that here
+// `task docs` (cmd/gendocs's checkParseWarnings) -- duplicating that here
 // would risk exactly the two-parsers-drift failure mode this tool exists to
 // avoid. This tool's checks are the narrower, side-effect-free ones nothing
 // else validates, runnable in CI without invoking full doc generation.

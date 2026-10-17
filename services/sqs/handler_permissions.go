@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 type jsonAddPermissionReq struct {
@@ -32,7 +30,7 @@ func (h *Handler) handleAddPermission(
 
 	if err := h.Backend.AddPermission(&AddPermissionInput{
 		QueueURL:      req.QueueURL,
-		Region:        httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		Region:        h.requestScope(r),
 		Label:         req.Label,
 		AWSAccountIDs: req.AWSAccountIDs,
 		Actions:       req.Actions,
@@ -55,7 +53,7 @@ func (h *Handler) handleRemovePermission(
 
 	if err := h.Backend.RemovePermission(&RemovePermissionInput{
 		QueueURL: req.QueueURL,
-		Region:   httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		Region:   h.requestScope(r),
 		Label:    req.Label,
 	}); err != nil {
 		return nil, err

@@ -28,7 +28,7 @@ func (h *Handler) handleGetCredentialsForIdentity(
 	ctx context.Context,
 	in *getCredentialsForIdentityInput,
 ) (*getCredentialsForIdentityOutput, error) {
-	creds, err := h.Backend.GetCredentialsForIdentity(ctx, in.IdentityID, in.Logins)
+	creds, err := h.Backend.GetCredentialsForIdentity(ctx, in.IdentityID, in.Logins, in.CustomRoleArn)
 	if err != nil {
 		return nil, err
 	}

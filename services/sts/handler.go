@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -215,10 +216,7 @@ func (h *Handler) dispatch(ctx context.Context, r *http.Request) (any, error) {
 	case "AssumeRoot":
 		return h.dispatchAssumeRoot(r)
 	case "GetCallerIdentity":
-		return h.Backend.GetCallerIdentity(
-			extractAccessKeyFromAuth(r),
-			r.Header.Get("X-Amz-Security-Token"),
-		)
+		return h.getCallerIdentity(r)
 	case "GetDelegatedAccessToken":
 		return h.dispatchGetDelegatedAccessToken(r)
 	case "GetFederationToken":
@@ -454,4 +452,21 @@ func (h *Handler) SessionMetrics() SessionMetrics {
 	}
 
 	return metrics
+}
+
+type callerIdentityInAccount interface {
+	GetCallerIdentityInAccount(accessKeyID, sessionToken, account string) (*GetCallerIdentityResponse, error)
+}
+
+func (h *Handler) getCallerIdentity(r *http.Request) (*GetCallerIdentityResponse, error) {
+	accessKey := extractAccessKeyFromAuth(r)
+	token := r.Header.Get("X-Amz-Security-Token")
+
+	if b, ok := h.Backend.(callerIdentityInAccount); ok {
+		if account := awsmeta.Account(r.Context()); account != awsmeta.DefaultAccount {
+			return b.GetCallerIdentityInAccount(accessKey, token, account)
+		}
+	}
+
+	return h.Backend.GetCallerIdentity(accessKey, token)
 }

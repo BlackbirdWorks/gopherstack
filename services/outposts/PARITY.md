@@ -485,7 +485,7 @@ with the real `OutpostArn`, `RunInstances`, observe `GetOutpostInstanceTypes`/`L
 reflect the drop, a second launch rejected with `InsufficientInstanceCapacity`,
 `TerminateInstances`, observe capacity and the asset-instance listing both reverse, and the freed
 unit consumable again) and `..._NonexistentOutpostArn` proves the `CreateSubnet`-time rejection.
-Both ran green against the Docker container (`make build-linux` + the real test harness), alongside
+Both ran green against the Docker container (`task build-linux` + the real test harness), alongside
 unit-level coverage in both packages (`services/ec2/cross_service_test.go`,
 `services/outposts/capacity_ledger_test.go`) for the permutation/error cases (insufficient capacity,
 exact-capacity, unconfigured instance type, unknown Outpost, unwired-backend no-ops, filter

@@ -395,7 +395,7 @@ Fixed via the existing `QualifierInvoker`/`QualifierResolver`
 optional-extension pattern (`store.go`) rather than changing
 `StorageBackend.DeleteFunction`'s existing signature (would have required
 touching `services/cloudformation/resources.go:2150`, the one out-of-package
-caller, and running `make build-check`): added `QualifierDeleter` with
+caller, and running `task build-check`): added `QualifierDeleter` with
 `DeleteFunctionVersion(name, qualifier string) error`, implemented on
 `InMemoryBackend` (`functions.go`). `handleDeleteFunction` now reads
 `Qualifier` off the query string; when present it type-asserts
@@ -446,7 +446,7 @@ diff), `gofmt -l services/lambda/` (no output), `golangci-lint run
 rewording so the comment's last line ends outside the quote; 0 issues after,
 no `//nolint` added), `go test ./pkgs/persistence/...` (no persisted struct
 changed) all clean. No exported method signature was changed —
-`StorageBackend.DeleteFunction` is untouched — so `make build-check` was not
+`StorageBackend.DeleteFunction` is untouched — so `task build-check` was not
 required; `go build ./...` (whole repo) confirmed clean regardless.
 
 

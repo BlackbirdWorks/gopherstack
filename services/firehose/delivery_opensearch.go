@@ -193,7 +193,7 @@ func (b *InMemoryBackend) bulkToEndpoint(
 
 	deadline := time.Now().Add(maxRetry)
 	backoff := 1 * time.Second
-	client := &http.Client{Timeout: openSearchBulkTimeout}
+	client := &http.Client{Timeout: openSearchBulkTimeout, Transport: deliveryTransport}
 
 	for {
 		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, bulkURL, bytes.NewReader(bodyBytes))

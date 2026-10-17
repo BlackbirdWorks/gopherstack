@@ -6,9 +6,8 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 func (b *InMemoryBackend) resolverRulePoliciesStore(region string) map[string]string {
@@ -103,7 +102,7 @@ func (b *InMemoryBackend) CreateResolverRule(
 	}
 
 	now := currentTime()
-	id := "rslvr-rr-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-rr-")
 	ruleARN := arn.Build("route53resolver", region, b.accountID, "resolver-rule/"+id)
 	r := &ResolverRule{
 		ID:                 id,
@@ -242,7 +241,7 @@ func (b *InMemoryBackend) AddRuleInternal(name, domainName, ruleType string) *Re
 	b.mu.Lock("AddRuleInternal")
 	defer b.mu.Unlock()
 
-	id := "rslvr-rr-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-rr-")
 	ruleARN := arn.Build("route53resolver", b.region, b.accountID, "resolver-rule/"+id)
 	r := &ResolverRule{
 		ID:          id,
@@ -267,7 +266,7 @@ func (b *InMemoryBackend) AddRuleInternalWithEndpoint(
 	b.mu.Lock("AddRuleInternalWithEndpoint")
 	defer b.mu.Unlock()
 
-	id := "rslvr-rr-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-rr-")
 	ruleARN := arn.Build("route53resolver", b.region, b.accountID, "resolver-rule/"+id)
 	r := &ResolverRule{
 		ID:                 id,

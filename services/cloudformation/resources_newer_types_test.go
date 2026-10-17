@@ -432,7 +432,7 @@ func testR53RResolverQueryLogConfig(t *testing.T) {
 }`
 
 	outputs := createStackAndGetOutputs(t, client, "qlc-stack", tmpl)
-	assert.Contains(t, outputs["Ref"], "rqlc-")
+	assert.Contains(t, outputs["Ref"], "rslvr-rqlc-")
 	assert.Contains(t, outputs["Arn"], "resolver-query-log-config/")
 
 	_, err := backends.Route53Resolver.Backend.GetResolverQueryLogConfig(t.Context(), outputs["Ref"])
@@ -466,7 +466,7 @@ func testR53RResolverQueryLogConfigAssociation(t *testing.T) {
 }`
 
 	outputs := createStackAndGetOutputs(t, client, "qlca-stack", tmpl)
-	assert.Contains(t, outputs["Ref"], "rqlca-")
+	assert.Contains(t, outputs["Ref"], "rslvr-qlcassoc-")
 
 	assocs := backends.Route53Resolver.Backend.ListResolverQueryLogConfigAssociations(t.Context())
 	require.Len(t, assocs, 1)

@@ -58,7 +58,7 @@ func CheckFreshness(logger *slog.Logger, binInfo fs.FileInfo, repoRoot string) e
 	return fmt.Errorf(
 		"%w: %s (modified %s) is newer than bin/gopherstack-linux (built %s). "+
 			"Tests would silently run against old code. Rebuild with:\n\n"+
-			"    make build-linux",
+			"    task build-linux",
 		ErrStaleBinary,
 		newestPath,
 		newestMod.Format(time.RFC3339),

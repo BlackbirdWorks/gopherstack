@@ -12,6 +12,7 @@ import (
 	arczonalshiftbackend "github.com/blackbirdworks/gopherstack/services/arczonalshift"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockagentbackend "github.com/blackbirdworks/gopherstack/services/bedrockagent"
 	cleanroomsbackend "github.com/blackbirdworks/gopherstack/services/cleanrooms"
@@ -56,6 +57,7 @@ import (
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	opsworksbackend "github.com/blackbirdworks/gopherstack/services/opsworks"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	outpostsbackend "github.com/blackbirdworks/gopherstack/services/outposts"
 	personalizebackend "github.com/blackbirdworks/gopherstack/services/personalize"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
@@ -126,6 +128,7 @@ type LifecycleSettings struct {
 	Transcribe                   time.Duration `name:"transcribe"                     env:"TRANSCRIBE_LIFECYCLE_DELAY"           default:"0s" help:"Transcribe job, vocabulary and language model IN_PROGRESS/PENDING window."`                           //nolint:lll // config struct tags are intentionally verbose
 	IoTAnalytics                 time.Duration `name:"iotanalytics"                   env:"IOTANALYTICS_LIFECYCLE_DELAY"         default:"0s" help:"IoT Analytics channel/datastore/dataset CREATING and dataset content CREATING window."`               //nolint:lll // config struct tags are intentionally verbose
 	IoTWireless                  time.Duration `name:"iotwireless"                    env:"IOTWIRELESS_LIFECYCLE_DELAY"          default:"0s" help:"IoT Wireless FUOTA task FuotaSession_Waiting/In_FuotaSession stage window."`                          //nolint:lll // config struct tags are intentionally verbose
+	Organizations                time.Duration `name:"organizations"                  env:"ORGANIZATIONS_LIFECYCLE_DELAY"        default:"0s" help:"Organizations CreateAccount/CreateGovCloudAccount IN_PROGRESS window."`                               //nolint:lll // config struct tags are intentionally verbose
 	Account                      time.Duration `name:"account"                        env:"ACCOUNT_LIFECYCLE_DELAY"              default:"0s" help:"Account region ENABLING/DISABLING window (built-in 100ms)."`                                          //nolint:lll // config struct tags are intentionally verbose
 	RedshiftData                 time.Duration `name:"redshiftdata"                   env:"REDSHIFTDATA_LIFECYCLE_DELAY"         default:"0s" help:"Redshift Data statement SUBMITTED/STARTED window before FINISHED."`                                   //nolint:lll // config struct tags are intentionally verbose
 	RedshiftServerless           time.Duration `name:"redshiftserverless"             env:"REDSHIFTSERVERLESS_LIFECYCLE_DELAY"   default:"0s" help:"Redshift Serverless workgroup CREATING/MODIFYING/DELETING and namespace MODIFYING/DELETING window."`  //nolint:lll // config struct tags are intentionally verbose
@@ -165,6 +168,7 @@ type LifecycleSettings struct {
 	Route53Recovery              time.Duration `name:"route53-recovery"               env:"ROUTE53_RECOVERY_LIFECYCLE_DELAY"     default:"0s" help:"Route 53 ARC control plane PENDING/PENDING_DELETION window."`                                         //nolint:lll // config struct tags are intentionally verbose
 	ARCZonalShift                time.Duration `name:"arczonalshift"                  env:"ARCZONALSHIFT_PRACTICE_RUN_DURATION"  default:"0s" help:"ARC zonal shift practice run ACTIVE window; 0 keeps the built-in 30m; ignores the global delay."`     //nolint:lll // config struct tags are intentionally verbose
 	EKS                          time.Duration `name:"eks"                            env:"EKS_LIFECYCLE_DELAY"                  default:"0s" help:"EKS transitional-state window (built-in 100ms)."`                                                     //nolint:lll // config struct tags are intentionally verbose
+	Backup                       time.Duration `name:"backup"                         env:"BACKUP_LIFECYCLE_DELAY"               default:"0s" help:"Backup restore and copy job PENDING/CREATED/RUNNING window before COMPLETED."`                        //nolint:lll // config struct tags are intentionally verbose
 }
 
 func (l LifecycleSettings) effective(specific time.Duration) time.Duration {
@@ -333,6 +337,20 @@ func applyDSQL(reg service.Registerable, l LifecycleSettings) {
 		if bk, isBk := h.Backend.(*dsqlbackend.InMemoryBackend); isBk {
 			bk.SetLifecycleDelay(l.effective(l.DSQL))
 		}
+	}
+}
+
+func applyOrganizations(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*organizationsbackend.Handler); ok {
+		if bk, isBk := h.Backend.(*organizationsbackend.InMemoryBackend); isBk {
+			bk.SetLifecycleDelay(l.effective(l.Organizations))
+		}
+	}
+}
+
+func applyBackup(reg service.Registerable, l LifecycleSettings) {
+	if h, ok := reg.(*backupbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.effective(l.Backup))
 	}
 }
 
@@ -798,6 +816,8 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l LifecycleSett
 		"Support":             applySupport,
 		"Detective":           applyDetective,
 		"Macie2":              applyMacie2,
+		"Organizations":       applyOrganizations,
+		"Backup":              applyBackup,
 		"Pinpoint":            applyPinpoint,
 		"Autoscaling":         applyAutoscaling,
 		"EKS":                 applyEKS,

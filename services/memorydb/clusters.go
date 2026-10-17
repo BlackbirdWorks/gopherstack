@@ -353,6 +353,18 @@ func (b *InMemoryBackend) CreateCluster(ctx context.Context, req *createClusterR
 	c := buildCluster(region, clusterARN, aclName, req, d, b.now())
 	b.markCreatingLocked(c)
 
+	if err = b.startEngineLocked(c); err != nil {
+		return nil, err
+	}
+
+	if restoreSnap != nil {
+		if err = c.engine.Restore(restoreSnap.Data); err != nil {
+			stopEngine(c)
+
+			return nil, err
+		}
+	}
+
 	b.clustersStore(region).Put(c)
 	b.arnToResourceStore(region)[clusterARN] = resourceRef{Kind: resourceKindCluster, Name: req.ClusterName}
 
@@ -411,6 +423,7 @@ func (b *InMemoryBackend) DeleteCluster(ctx context.Context, name string) (*Clus
 		return nil, ErrClusterNotFound
 	}
 
+	stopEngine(c)
 	b.clustersStore(region).Delete(name)
 	delete(b.arnToResourceStore(region), c.ARN)
 
@@ -456,10 +469,17 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 			CreatedAt:            time.Now(),
 			ClusterConfiguration: b.snapshotClusterConfigFor(c),
 		}
+		data, err := c.engine.Snapshot()
+		if err != nil {
+			return nil, err
+		}
+
+		s.Data = data
 		b.snapshotsStore(region).Put(s)
 		b.arnToResourceStore(region)[snapshotARN] = resourceRef{Kind: resourceKindSnapshot, Name: snapshotName}
 	}
 
+	stopEngine(c)
 	b.clustersStore(region).Delete(clusterName)
 	delete(b.arnToResourceStore(region), c.ARN)
 
@@ -609,6 +629,7 @@ func (b *InMemoryBackend) setShardCountLocked(c *Cluster, shards int32) {
 func (b *InMemoryBackend) UpdateCluster(ctx context.Context, req *updateClusterRequest) (*Cluster, error) {
 	b.mu.Lock("UpdateCluster")
 	defer b.mu.Unlock()
+	defer b.syncAllAuthLocked()
 
 	region := getRegion(ctx, b.defaultRegion)
 

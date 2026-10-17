@@ -318,6 +318,12 @@ func (b *InMemoryBackend) SimulatePrincipalPolicy(
 	principalArn, callerArn, resourceOwner string,
 	resourcePolicyList, actionNames, resourceArns []string, ctx ConditionContext,
 ) ([]SimulationResult, error) {
+	if target, remote := b.routeARN(principalArn); remote && target != nil {
+		return target.SimulatePrincipalPolicy(
+			principalArn, callerArn, resourceOwner, resourcePolicyList, actionNames, resourceArns, ctx,
+		)
+	}
+
 	b.mu.RLock("SimulatePrincipalPolicy")
 	defer b.mu.RUnlock()
 

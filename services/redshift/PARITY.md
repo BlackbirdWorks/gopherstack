@@ -87,7 +87,8 @@ families:
 gaps: []          # bd gopherstack-0eyk (IdcApplication missing inner <RedshiftIdcApplication>
                    # wrapper) FIXED this pass -- see families.IdcApplication above for detail.
 structural_gaps:
-  - "No SQL engine or cluster nodes: RestoreTableFromClusterSnapshot.EnableCaseSensitiveIdentifier and GetClusterCredentials.DbGroups have no observable effect to gate; the two terraform datashare resources (aws_redshift_data_share_authorization/_consumer_association) need CREATE DATASHARE SQL."
+  - "Docker engine (--redshift-engine=docker): one plaintext postgres:17 container per provisioned cluster (not Redshift, so Redshift-only SQL such as DISTKEY/COPY/CREATE DATASHARE fails; no TLS), not per node, and Serverless workgroups have no engine. Cluster data does not survive a restart or snapshot restore (snapshots are metadata); master passwords are not persisted so a relaunched engine gets a random one until ModifyCluster sets a new one."
+  - "Without the engine there is no SQL: RestoreTableFromClusterSnapshot.EnableCaseSensitiveIdentifier and GetClusterCredentials.DbGroups have no observable effect to gate; the two terraform datashare resources (aws_redshift_data_share_authorization/_consumer_association) need CREATE DATASHARE SQL."
   - "Serverless Workgroup.CrossAccountVpcs/PatchVersion/PendingTrackName/WorkgroupVersion and Endpoint.VpcEndpoints are unmodeled: they need a patch catalog, track-upgrade scheduler and real ENI allocation."
   - "CreateCluster.LoadSampleData has no SQL engine to load into; CreateCluster.AdditionalInfo and RestoreFromClusterSnapshot.AdditionalInfo are documented as Reserved."
   - "ModifyCluster.MaintenanceTrackName stays in PendingModifiedValues (as the SDK docs say): no maintenance window runs. ElasticIp is syntax-checked only (no EC2 elastic IP lookup) and MasterPasswordSecretArn is minted without a Secrets Manager secret."
@@ -2328,3 +2329,7 @@ CreateScheduledAction/ModifyScheduledAction store StartTime/EndTime (ISO 8601; a
 ## 2026-10-10 lifecycle dwell knob
 
 `--lifecycle-redshift` (`REDSHIFT_ACTIVATION_DELAY`, falls back to `--lifecycle-delay`, default `0s`) is passed to `SetClusterActivationDelay`, so clusters report `creating` before `available`. Proof: root `TestLifecycleDelayWiring/redshift`.
+
+## 2026-10-17 optional Docker-backed clusters (--redshift-engine)
+
+`--redshift-engine=docker` (`REDSHIFT_ENGINE`, default `stub`; `REDSHIFT_HOST` overrides the advertised host, default `127.0.0.1`) starts a `postgres:17` container per provisioned cluster at CreateCluster with MasterUsername/MasterUserPassword as the superuser and DBName as the database (a generated password is used when none is given). The cluster stays `creating` until a `SELECT 1` login succeeds, then Endpoint.Address/Port report the published host:port. PauseCluster stops the container (`pausing` -> `paused`), ResumeCluster restarts it on the same port, RebootCluster restarts it through `rebooting`, DeleteCluster/Reset/Restore/Shutdown remove it, ModifyCluster MasterUserPassword issues `ALTER USER`, and a rename or Port change keeps the live endpoint. RestoreFromClusterSnapshot starts an empty engine. A start failure leaves the cluster in `hardware-failure` (the nearest ClusterStatus value). Covered by `engine_test.go` (fake runtime) and `engine_docker_test.go` (real container, skipped without docker).

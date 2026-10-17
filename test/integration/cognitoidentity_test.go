@@ -272,6 +272,7 @@ func TestIntegration_CognitoIdentity_UnlinkOperations(t *testing.T) {
 
 			createOut, err := client.CreateIdentityPool(ctx, &cognitoidentitysdk.CreateIdentityPoolInput{
 				IdentityPoolName:               aws.String("unlink-pool-" + tt.name),
+				DeveloperProviderName:          aws.String("developer.example.com"),
 				AllowUnauthenticatedIdentities: true,
 			})
 			require.NoError(t, err)

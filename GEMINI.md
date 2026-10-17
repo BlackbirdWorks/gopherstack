@@ -18,4 +18,4 @@ Boundaries: code/commits/PRs written normal.
 
 `.mcp.json` at repo root wires dev-only MCPs: `gopls` (Go symbols), `terraform` (provider docs), `playwright` (dashboard browser). Dev tooling only — never embedded in the gopherstack runtime binary.
 
-On session start: run `make dev-mcp-check`. If CLIs missing, run `make dev-mcp-install`. Details: `.agent/rules/dev-mcp.md`.
+On session start: run `task dev-mcp-check`. If CLIs missing, run `task dev-mcp-install`. Details: `.agent/rules/dev-mcp.md`.

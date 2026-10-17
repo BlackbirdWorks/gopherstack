@@ -139,6 +139,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return nil
 	}
 
+	b.stopAllEnginesLocked()
 	fixNilTagsInSnapshot(&snap)
 
 	if err := b.registry.RestoreAll(snap.Tables); err != nil {
@@ -176,6 +177,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.accountID = snap.AccountID
 	b.defaultRegion = snap.DefaultRegion
+	b.startAllEnginesLocked()
 
 	return nil
 }

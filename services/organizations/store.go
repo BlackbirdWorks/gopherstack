@@ -2,6 +2,7 @@ package organizations
 
 import (
 	"slices"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -53,9 +54,13 @@ type InMemoryBackend struct {
 	policies                           *store.Table[Policy]
 	ousByParent                        map[string]map[string]string
 	accountChildrenByParent            map[string]map[string]bool
+	provisioner                        AccountProvisioner
 	region                             string
 	accountID                          string
 	accountLeaveHooks                  []func(accountID string)
+	pendingCreates                     []*pendingCreate
+	provisionQueue                     []provisionReq
+	createDelay                        time.Duration
 	accountCounter                     int
 	statusCounter                      int
 }
@@ -136,6 +141,7 @@ func (b *InMemoryBackend) resetStateLocked() {
 	b.emailToAccountID = make(map[string]string)
 	b.resourcePolicy = nil
 	b.accountCounter = managementAccountCounter
+	b.pendingCreates = nil
 }
 
 // parentExists checks if a parentID refers to the root or an existing OU.

@@ -1368,7 +1368,7 @@ against unmodified code before the fix:
 - No integration test (`test/integration/stepfunctions*`) was added this
   pass -- the backend-level and handler-level regression tests above
   already assert the real emitted wire code end-to-end through the HTTP
-  handler; a full SDK-client round trip would need `make build-linux` +
+  handler; a full SDK-client round trip would need `task build-linux` +
   Docker for a P3 fix already covered at the wire-format layer.
 
 ## 2026-09-08 pass (bd gopherstack-s9zy): DescribeStateMachineForExecution / StateMachineDoesNotExist re-audited, left unfixed

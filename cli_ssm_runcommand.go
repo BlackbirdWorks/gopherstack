@@ -117,4 +117,36 @@ func wireSSMRunCommand(cli *CLI, byName map[string]service.Registerable) {
 	}
 
 	installSSMRunCommand(byName, exec)
+
+	if shells, serr := ssmbackend.NewDockerShellOpener(); serr == nil {
+		installSSMShells(byName, shells)
+	}
+
+	if dialer, derr := ssmbackend.NewDockerPortDialer(); derr == nil {
+		installSSMPortDialer(byName, dialer)
+	}
+}
+
+// installSSMShells lets Session Manager sessions open interactive shells in docker-backed EC2 instances.
+func installSSMShells(byName map[string]service.Registerable, shells ssmbackend.ShellOpener) {
+	h, ok := byName["SSM"].(*ssmbackend.Handler)
+	if !ok {
+		return
+	}
+
+	if bk, isMem := h.Backend.(*ssmbackend.InMemoryBackend); isMem {
+		bk.SetShellOpener(shells)
+	}
+}
+
+// installSSMPortDialer lets Session Manager port-forwarding and SSH sessions reach docker-backed EC2 instances.
+func installSSMPortDialer(byName map[string]service.Registerable, dialer ssmbackend.PortDialer) {
+	h, ok := byName["SSM"].(*ssmbackend.Handler)
+	if !ok {
+		return
+	}
+
+	if bk, isMem := h.Backend.(*ssmbackend.InMemoryBackend); isMem {
+		bk.SetPortDialer(dialer)
+	}
 }

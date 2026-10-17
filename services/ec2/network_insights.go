@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 func (b *InMemoryBackend) CreateNetworkInsightsPath(
@@ -20,7 +20,7 @@ func (b *InMemoryBackend) CreateNetworkInsightsPath(
 		return nil, fmt.Errorf("%w: SourceId is required", ErrInvalidParameter)
 	}
 
-	id := "nip-" + uuid.New().String()[:8]
+	id := awsid.New("nip-")
 	p := &NetworkInsightsPath{
 		NetworkInsightsPathID:  id,
 		NetworkInsightsPathArn: "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":network-insights-path/" + id,
@@ -79,7 +79,7 @@ func (b *InMemoryBackend) StartNetworkInsightsAnalysis(pathID string) (*NetworkI
 		return nil, fmt.Errorf("%w: %s", ErrNetworkInsightsPathNotFound, pathID)
 	}
 
-	id := "nia-" + uuid.New().String()[:8]
+	id := awsid.New("nia-")
 	a := &NetworkInsightsAnalysis{
 		NetworkInsightsAnalysisID:  id,
 		NetworkInsightsAnalysisARN: "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":network-insights-analysis/" + id,
@@ -138,7 +138,7 @@ func (b *InMemoryBackend) CreateNetworkInsightsAccessScope() (*NetworkInsightsAc
 	b.mu.Lock("CreateNetworkInsightsAccessScope")
 	defer b.mu.Unlock()
 
-	id := "nias-" + uuid.New().String()[:8]
+	id := awsid.New("nias-")
 	s := &NetworkInsightsAccessScope{
 		NetworkInsightsAccessScopeID:  id,
 		NetworkInsightsAccessScopeArn: "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":network-insights-access-scope/" + id,
@@ -195,7 +195,7 @@ func (b *InMemoryBackend) StartNetworkInsightsAccessScopeAnalysis(
 		return nil, fmt.Errorf("%w: %s", ErrNetworkInsightsAccessScopeNF, scopeID)
 	}
 
-	id := "niasa-" + uuid.New().String()[:8]
+	id := awsid.New("niasa-")
 	a := &NetworkInsightsAccessScopeAnalysis{
 		NetworkInsightsAccessScopeAnalysisID: id,
 		NetworkInsightsAccessScopeID:         scopeID,

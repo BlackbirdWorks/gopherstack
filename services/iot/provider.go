@@ -34,7 +34,14 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		backend = NewInMemoryBackend()
 	}
 
+	settings := DefaultSettings()
+	if cp, ok := ctx.Config.(ConfigProvider); ok {
+		settings = cp.GetIoTSettings()
+	}
+
+	backend.mqttPort = settings.MQTTPort
 	broker := NewBroker(backend, backend.MQTTPort())
+	broker.SetAuthRequired(settings.MQTTAuth)
 	handler := NewHandler(backend, broker)
 	handler.EnableRegions()
 

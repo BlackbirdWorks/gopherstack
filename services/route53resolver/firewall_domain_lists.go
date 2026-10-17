@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // CreateFirewallDomainList creates a new DNS Firewall domain list.
@@ -20,7 +19,7 @@ func (b *InMemoryBackend) CreateFirewallDomainList(
 
 	region := getRegion(ctx, b.region)
 	now := currentTime()
-	id := "rslvr-fdl-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-fdl-")
 	listARN := arn.Build("route53resolver", region, b.accountID, "firewall-domain-list/"+id)
 	dl := &FirewallDomainList{
 		ID:               id,
@@ -60,7 +59,7 @@ func (b *InMemoryBackend) AddFirewallDomainListInternal(name string) *FirewallDo
 	b.mu.Lock("AddFirewallDomainListInternal")
 	defer b.mu.Unlock()
 
-	id := "rslvr-fdl-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-fdl-")
 	listARN := arn.Build("route53resolver", b.region, b.accountID, "firewall-domain-list/"+id)
 	dl := &FirewallDomainList{
 		ID:     id,

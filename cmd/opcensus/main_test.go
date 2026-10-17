@@ -703,3 +703,82 @@ func TestCensusAll_TombstoneSkipped(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, results)
 }
+
+func TestCensusService_LocalScope(t *testing.T) {
+	t.Parallel()
+
+	const header = `package svc
+
+import (
+	"maps"
+	"slices"
+
+	"github.com/aws/aws-sdk-go-v2/service/examplesvc"
+)
+
+type actionFn func()
+
+type Handler struct {
+	ops map[string]actionFn
+}
+
+func NewHandler() *Handler {
+	h := &Handler{}
+	h.ops = h.buildOps()
+
+	return h
+}
+
+func (h *Handler) buildOps() map[string]actionFn {
+	return map[string]actionFn{"ListWidgets": nil}
+}
+
+func (h *Handler) GetSupportedOperations() []string {
+	return slices.Sorted(maps.Keys(h.ops))
+}
+
+var _ = examplesvc.Client{}
+`
+
+	tests := []struct {
+		name    string
+		extra   string
+		wantOps []string
+	}{
+		{
+			name: "unrelated function local with same name is ignored",
+			extra: `
+func (h *Handler) dispatch() {
+	ops := h.otherOps()
+	_ = ops
+}
+
+func (h *Handler) otherOps() map[string]actionFn {
+	return map[string]actionFn{"DeleteWidget": nil, "GetWidget": nil}
+}
+`,
+			wantOps: []string{"ListWidgets"},
+		},
+		{
+			name:    "no unrelated local",
+			extra:   "",
+			wantOps: []string{"ListWidgets"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "handler.go"), []byte(header+tt.extra), 0o600))
+
+			got := censusService(dir, "examplesvc")
+
+			require.False(t, got.Error, "reason: %s", got.ErrorReason)
+			assert.Equal(t, len(tt.wantOps), got.Total)
+			assert.Equal(t, tt.wantOps, got.ListOps)
+			assert.Empty(t, got.GetOps)
+		})
+	}
+}

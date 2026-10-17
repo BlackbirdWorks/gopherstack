@@ -14,9 +14,9 @@ description: Pick the narrowest correct build/test/lint command for a gopherstac
 | Wire-shape confidence | `go test -race -run TestSDKCompleteness ./services/<svc>/...` plus that service's roundtrip tests |
 | Shared type in `pkgs/` changed | add `go build ./...` to the above — catches breaks in every consumer |
 | Anything touching persistence/snapshot | run that service's `persistence_test.go` explicitly |
-| Full gate before push | `make lint` → `make test` → `make build-linux` → `make integration-test`, in that order |
+| Full gate before push | `task lint` → `task test` → `task build-linux` → `task integration-test`, in that order |
 
-## Makefile targets
+## Taskfile targets
 
 | target | runs | prereq |
 |---|---|---|
@@ -30,11 +30,11 @@ description: Pick the narrowest correct build/test/lint command for a gopherstac
 | `e2e-test` | `gotestsum ... -tags=e2e ./test/e2e/...` | `ui-build` |
 | `total-coverage` | unit+integration+terraform+e2e merged into coverage.out/.html | `build-linux` |
 | `docs` | `go run ./cmd/gendocs` — regenerates per-service README.md, root README table, `.badges/*.svg` | none |
-| `all` | `make lint-fix && make total-coverage` | — |
+| `all` | `task lint-fix && task total-coverage` | — |
 
-If you edit code and then run `make integration-test` without `make build-linux`
+If you edit code and then run `task integration-test` without `task build-linux`
 first, you are testing the OLD binary. Always rebuild first, or just run
-`make integration-test` (it depends on `build-linux` already) rather than
+`task integration-test` (it depends on `build-linux` already) rather than
 invoking gotestsum directly.
 
 ## golangci-lint gotchas that actually bite
@@ -44,7 +44,7 @@ routinely surprise agents:
 
 | gotcha | detail |
 |---|---|
-| `fieldalignment` | force-enabled via `settings.govet.enable: [fieldalignment]` on top of `enable-all: true`. Bites on every new struct. Fix: `fieldalignment -fix ./...` (also runs as part of `make lint-fix`), don't hand-reorder fields |
+| `fieldalignment` | force-enabled via `settings.govet.enable: [fieldalignment]` on top of `enable-all: true`. Bites on every new struct. Fix: `fieldalignment -fix ./...` (also runs as part of `task lint-fix`), don't hand-reorder fields |
 | golines, not `lll` | max line length is **120**, enforced by the `golines` formatter, not a linter check. Run `gofmt`/the formatter rather than manually wrapping |
 | `exhaustive` | fires on both `switch` AND `map` literals over enum-like types. A `default:` case satisfies it — add one instead of enumerating every case if the switch isn't meant to be exhaustive |
 | `mnd` (magic numbers) | bare numeric literals need a named const, even small ones in non-test files |
@@ -96,7 +96,7 @@ synctest.Test(t, func(t *testing.T) {
 
 (services/eks/async_lifecycle_test.go:35-58)
 
-`mulint` (declared as a go.mod `tool`, invoked separately by `make lint` via
+`mulint` (declared as a go.mod `tool`, invoked separately by `task lint` via
 `go vet -vettool=...`, NOT a golangci-lint plugin) catches mutex misuse —
 recursive locks, copied locks — relevant given the coarse-lock convention in
 `pkgs-catalog.md`.
@@ -114,5 +114,5 @@ names, `-timeout 10m`) → `terraform-tests`.
 Branch protection on `main`: 12 required contexts (lint, unit, e2e, ui-lint,
 ui-test, integration, terraform, modernize, govulncheck, build, CodeFactor,
 CodeQL), `enforce_admins=true`, no bypass. If your change doesn't pass
-locally with `make lint && make test && make build-linux &&
-make integration-test`, it will not pass CI either.
+locally with `task lint && task test && task build-linux &&
+task integration-test`, it will not pass CI either.

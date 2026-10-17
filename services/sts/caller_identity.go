@@ -16,10 +16,18 @@ import (
 func (b *InMemoryBackend) GetCallerIdentity(
 	accessKeyID, sessionToken string,
 ) (*GetCallerIdentityResponse, error) {
+	return b.GetCallerIdentityInAccount(accessKeyID, sessionToken, b.accountID)
+}
+
+// GetCallerIdentityInAccount is GetCallerIdentity with root and unknown-key
+// callers reported in account instead of the backend default.
+func (b *InMemoryBackend) GetCallerIdentityInAccount(
+	accessKeyID, sessionToken, account string,
+) (*GetCallerIdentityResponse, error) {
 	b.cntGetCallerIdentity.Add(1)
 
 	if accessKeyID == "" {
-		return b.rootCallerIdentity(), nil
+		return b.rootCallerIdentity(account), nil
 	}
 
 	var session *SessionInfo
@@ -81,13 +89,13 @@ func (b *InMemoryBackend) GetCallerIdentity(
 	}
 
 	if userArn, err := b.LookupUserArn(accessKeyID); err == nil && userArn != "" {
-		return b.userCallerIdentity(accessKeyID, userArn), nil
+		return b.userCallerIdentity(accessKeyID, userArn, account), nil
 	}
 
-	return b.rootCallerIdentity(), nil
+	return b.rootCallerIdentity(account), nil
 }
 
-func (b *InMemoryBackend) userCallerIdentity(accessKeyID, userArn string) *GetCallerIdentityResponse {
+func (b *InMemoryBackend) userCallerIdentity(accessKeyID, userArn, account string) *GetCallerIdentityResponse {
 	userID := accessKeyID
 
 	b.mu.RLock("userCallerIdentity")
@@ -100,7 +108,6 @@ func (b *InMemoryBackend) userCallerIdentity(accessKeyID, userArn string) *GetCa
 		}
 	}
 
-	account := b.accountID
 	if parts := strings.Split(userArn, ":"); len(parts) > 4 && parts[4] != "" {
 		account = parts[4]
 	}
@@ -116,13 +123,13 @@ func (b *InMemoryBackend) userCallerIdentity(accessKeyID, userArn string) *GetCa
 	}
 }
 
-func (b *InMemoryBackend) rootCallerIdentity() *GetCallerIdentityResponse {
-	callerArn := arn.Build(arnServiceIAM, "", b.accountID, "root")
+func (b *InMemoryBackend) rootCallerIdentity(account string) *GetCallerIdentityResponse {
+	callerArn := arn.Build(arnServiceIAM, "", account, "root")
 
 	return &GetCallerIdentityResponse{
 		Xmlns: STSNamespace,
 		GetCallerIdentityResult: GetCallerIdentityResult{
-			Account: b.accountID,
+			Account: account,
 			Arn:     callerArn,
 			UserID:  MockUserID,
 		},

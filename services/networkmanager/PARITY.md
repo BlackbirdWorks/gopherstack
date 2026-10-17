@@ -343,7 +343,7 @@ attachment + Connect peer (plus a real not-found for a non-CONNECT parent attach
 (TagResource/ListTagsForResource/UntagResource against a real ARN); and `StartRouteAnalysis` against
 a real EC2 Transit Gateway/route table/route, asserting a real `CONNECTED` verdict with a real
 `PathComponent`, and `NO_DESTINATION_ARN_PROVIDED` when neither endpoint carries a destination.
-`make build-linux && go test -race -count=1 -run TestIntegration_NetworkManager
+`task build-linux && go test -race -count=1 -run TestIntegration_NetworkManager
 ./test/integration/...` passes.
 
 **Found along the way, not this package's bug (historical -- fixed since)**: the integration suite's

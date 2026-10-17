@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // CopySnapshot creates a new snapshot as a copy of an existing one.
@@ -580,7 +580,7 @@ func (b *InMemoryBackend) ImportSnapshot(
 	b.snapshots.Put(snap)
 
 	task := &SnapshotImportTask{
-		ImportTaskID: "import-snap-" + uuid.New().String()[:8],
+		ImportTaskID: awsid.New("import-snap-"),
 		Description:  description,
 		Status:       stateTaskCompleted,
 		Encrypted:    encrypted,

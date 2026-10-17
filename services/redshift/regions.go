@@ -17,6 +17,10 @@ func newRegionBackend(home *InMemoryBackend, region string) *InMemoryBackend {
 	nb.reconcileInterval = home.reconcileInterval
 	home.mu.RUnlock()
 
+	if cfg, ok := home.engineConfig(); ok {
+		nb.enableEngine(cfg, true)
+	}
+
 	return nb
 }
 
@@ -76,6 +80,7 @@ func (h *Handler) startRegionWorkers(ctx context.Context) {
 func (h *Handler) stopRegionWorkers() {
 	for _, p := range h.peers.All() {
 		p.Backend.StopReconciler()
+		closeBackend(p.Backend)
 	}
 }
 

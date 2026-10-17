@@ -5,8 +5,6 @@ import (
 	"maps"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // CreateWebAppInput holds all fields for CreateWebApp.
@@ -19,7 +17,10 @@ type CreateWebAppInput struct {
 	WebAppUnits          int32
 }
 
-const defaultWebAppEndpointPolicy = "STANDARD"
+const (
+	defaultWebAppEndpointPolicy = "STANDARD"
+	ssoAppIDHexLen              = 16
+)
 
 // CreateWebApp creates a Transfer web application. IdentityCenterConfig is required
 // by real AWS (CreateWebAppInput.IdentityProviderDetails is a required member, and
@@ -43,12 +44,12 @@ func (b *InMemoryBackend) CreateWebApp(in *CreateWebAppInput) (*WebApp, error) {
 	maps.Copy(merged, in.Tags)
 
 	icc := *in.IdentityCenterConfig
-	icc.ApplicationArn = "arn:aws:sso::" + b.accountID + ":application/apl-" + uuid.NewString()[:16]
+	icc.ApplicationArn = "arn:aws:sso::" + b.accountID + ":application/" + newHexID("apl-", ssoAppIDHexLen)
 
 	var vpcConfig *WebAppVpcConfig
 	if in.VpcConfig != nil {
 		vc := *in.VpcConfig
-		vc.VpcEndpointID = "vpce-" + uuid.NewString()[:17]
+		vc.VpcEndpointID = newResourceID("vpce-")
 		vpcConfig = &vc
 	}
 
@@ -164,7 +165,7 @@ func (b *InMemoryBackend) UpdateWebApp(in *UpdateWebAppInput) (*WebApp, error) {
 
 	if in.VpcSubnetIDs != nil {
 		if w.VpcConfig == nil {
-			w.VpcConfig = &WebAppVpcConfig{VpcEndpointID: "vpce-" + uuid.NewString()[:17]}
+			w.VpcConfig = &WebAppVpcConfig{VpcEndpointID: newResourceID("vpce-")}
 		}
 
 		w.VpcConfig.SubnetIDs = append([]string(nil), in.VpcSubnetIDs...)
@@ -172,7 +173,7 @@ func (b *InMemoryBackend) UpdateWebApp(in *UpdateWebAppInput) (*WebApp, error) {
 
 	if in.VpcIPAddressType != nil {
 		if w.VpcConfig == nil {
-			w.VpcConfig = &WebAppVpcConfig{VpcEndpointID: "vpce-" + uuid.NewString()[:17]}
+			w.VpcConfig = &WebAppVpcConfig{VpcEndpointID: newResourceID("vpce-")}
 		}
 
 		w.VpcConfig.IPAddressType = *in.VpcIPAddressType

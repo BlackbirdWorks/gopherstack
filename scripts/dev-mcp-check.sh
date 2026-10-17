@@ -43,7 +43,7 @@ if [[ ! -f .mcp.json ]]; then
 fi
 
 if [[ ${#missing[@]} -gt 0 ]]; then
-  warn "missing: ${missing[*]} — run: make dev-mcp-install"
+  warn "missing: ${missing[*]} — run: task dev-mcp-install"
   exit 0   # non-fatal; agents can still operate without MCPs
 fi
 
