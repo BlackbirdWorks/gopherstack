@@ -28680,6 +28680,7 @@
       "CommandInvocation.StandardOutputURL string `json:\"StandardOutputUrl,omitempty\"`",
       "CommandInvocation.Status string `json:\"Status\"`",
       "CommandInvocation.StatusDetails string `json:\"StatusDetails\"`",
+      "CommandInvocation.agent bool",
       "CommandInvocation.direct bool",
       "CommandInvocation.executionEndUnix float64",
       "CommandInvocation.finalStatus string",

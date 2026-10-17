@@ -98,7 +98,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		target := c.Request().Header.Get("X-Amz-Target")
 
-		return strings.HasPrefix(target, "AmazonSSM")
+		return strings.HasPrefix(target, "AmazonSSM") || strings.HasPrefix(target, ec2MessagesTargetPrefix)
 	}
 }
 
@@ -146,6 +146,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		ctx := c.Request().Context()
 		region := httputils.ExtractRegionFromRequest(c.Request(), config.DefaultRegion)
 		ctx = context.WithValue(ctx, regionContextKey{}, region)
+
+		if strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), ec2MessagesTargetPrefix) {
+			return h.handleAgent(ctx, c)
+		}
 
 		return service.HandleTarget(
 			c, logger.Load(ctx),

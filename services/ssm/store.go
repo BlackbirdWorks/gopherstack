@@ -56,6 +56,7 @@ type InMemoryBackend struct {
 	secrets                     SecretResolver
 	runner                      *CommandRunner
 	execCancels                 map[string]context.CancelFunc
+	agents                      map[string]*agentQueue
 	registry                    *store.Registry
 	parameters                  map[string]*store.Table[Parameter]
 	maintenanceWindows          map[string]*store.Table[MaintenanceWindow]
@@ -336,6 +337,7 @@ func (b *InMemoryBackend) Reset() {
 	b.documentSharedVersions = make(map[string]map[string]map[string]string)
 	b.commands = make(map[string]*store.Table[Command])
 	b.commandInvocations = make(map[string]map[string][]CommandInvocation)
+	b.agents = nil
 	b.activations = make(map[string]*store.Table[Activation])
 	b.cloudConnectors = make(map[string]*store.Table[CloudConnector])
 	b.associations = make(map[string]*store.Table[Association])
