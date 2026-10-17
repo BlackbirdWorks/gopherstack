@@ -19,6 +19,7 @@ import (
 const stockActiveMQXML = `<beans xmlns="http://www.springframework.org/schema/beans">
 <!-- The <broker> element configures the broker. -->
 <broker xmlns="http://activemq.apache.org/schema/core" brokerName="localhost">
+<sslContext><sslContext keyStore="file:${activemq.conf}/broker.ks" keyStorePassword="password"/></sslContext>
 <transportConnectors>
 <transportConnector name="stomp" uri="stomp://0.0.0.0:61613"/>
 </transportConnectors>
@@ -115,7 +116,8 @@ func TestDockerBrokerReboot_AppliesUsersAndConfiguration(t *testing.T) {
 	t.Parallel()
 
 	cfgXML := `<?xml version="1.0"?><broker xmlns="http://activemq.apache.org/schema/core"><queues>` +
-		`<marker/></queues></broker>`
+		`<marker/></queues><transportConnectors><transportConnector name="userx" uri="tcp://0.0.0.0:1"/>` +
+		`</transportConnectors><sslContext><sslContext keyStore="user.ks"/></sslContext></broker>`
 
 	tests := []struct {
 		name         string
@@ -137,7 +139,9 @@ func TestDockerBrokerReboot_AppliesUsersAndConfiguration(t *testing.T) {
 				`<authenticationUser username="operator" password="operatorpassword1" groups="ops,dev"/>`,
 				`<authenticationUser username="admin" password="s3cretpassword"/>`,
 				`<marker/>`, `<transportConnectors>`, `<import resource="jetty.xml"/>`,
+				`name="stomp"`, `broker.ks`,
 			},
+			wantNoXML:  []string{`userx`, `user.ks`},
 			wantUsers:  "operator=operatorpassword1\n",
 			wantGroups: "admins=operator\n",
 		},
@@ -145,8 +149,8 @@ func TestDockerBrokerReboot_AppliesUsersAndConfiguration(t *testing.T) {
 			name:        "delete_user",
 			extraUser:   "operator",
 			deleteAdmin: true,
-			wantXML:     []string{`username="operator"`},
-			wantNoXML:   []string{`username="admin"`},
+			wantXML:     []string{`username="operator"`, `broker.ks`},
+			wantNoXML:   []string{`username="admin"`, `userx`},
 		},
 	}
 
