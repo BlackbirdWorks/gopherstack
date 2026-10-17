@@ -971,12 +971,7 @@ func (h *Handler) handleGetLineageGroupPolicy(ctx context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: LineageGroupName is required", errInvalidRequest)
 	}
 
-	resourcePolicy, err := h.Backend.GetLineageGroupPolicy(ctx, req.LineageGroupName)
-	if err != nil {
-		return nil, err
-	}
-
-	return json.Marshal(map[string]string{"ResourcePolicy": resourcePolicy})
+	return nil, h.Backend.GetLineageGroupPolicyError(ctx, req.LineageGroupName)
 }
 
 // ---------------------------------------------------------------------------
