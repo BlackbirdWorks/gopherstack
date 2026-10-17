@@ -8677,6 +8677,7 @@
       "DBCluster.Tags map[string]string `json:\"tags\"`",
       "DBCluster.VpcSecurityGroupIDs []string `json:\"vpcSecurityGroupIds\"`",
       "DBCluster.WriterInstanceID string `json:\"writerInstanceId\"`",
+      "DBCluster.managedPassword string",
       "DBCluster.readyAt time.Time",
       "DBCluster.region string",
       "DBClusterParameterGroup.DBClusterParameterGroupArn string `json:\"dbClusterParameterGroupArn\"`",
