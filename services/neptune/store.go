@@ -168,10 +168,12 @@ type InMemoryBackend struct {
 	clusterParameterOverrides      map[string]map[string]ParameterValue
 	pendingMaintenanceActions      map[string]map[string]PendingMaintenanceAction
 	registry                       *store.Registry
+	engine                         *dbEngine
 	mu                             *lockmetrics.RWMutex
 	accountID                      string
 	region                         string
 	lifecycleDelay                 time.Duration
+	closed                         bool
 }
 
 // NewInMemoryBackend creates a new in-memory Neptune backend.
@@ -260,6 +262,7 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
+	b.dropAllUnitsLocked()
 	b.registry.ResetAll()
 	b.clusterRoles = make(map[string]map[string][]string)
 	b.tags = make(map[string]map[string][]Tag)
