@@ -1,4 +1,4 @@
-package app
+package guards_test
 
 import (
 	"go/ast"
