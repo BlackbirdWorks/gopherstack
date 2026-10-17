@@ -240,6 +240,7 @@ that already exports them (e.g. `awslocal`) works without remapping. These are n
 | Flag | Env var | Default | Description |
 |------|---------|---------|-------------|
 | `--elasticache-engine` | `ELASTICACHE_ENGINE` | `embedded` | ElastiCache engine mode: `embedded` (miniredis), `stub`, or `docker`. |
+| `--memorydb-engine` | `MEMORYDB_ENGINE` | `embedded` | MemoryDB engine mode: `embedded` (miniredis per cluster, ACL passwords enforced via AUTH), `stub`, or `docker` (no server, as ElastiCache). |
 | `--kafka-engine` | `KAFKA_ENGINE` | `stub` | MSK engine mode: `stub` (metadata only) or `docker` (real single-node `apache/kafka` broker per provisioned cluster; `KAFKA_BROKER_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces). |
 | `--eks-engine` | `EKS_ENGINE` | `stub` | EKS engine mode: `stub` (metadata only) or `docker` (one privileged single-node `rancher/k3s` container per cluster, tag mapped from the requested version; `DescribeCluster` returns the real endpoint and CA; clusters accept the static admin bearer token `EKS_CLUSTER_TOKEN`, default `gopherstack-eks-cluster-token`; `EKS_CLUSTER_HOST` sets the advertised host, default `127.0.0.1`, and the port binds loopback only unless it is non-loopback, which then requires `EKS_CLUSTER_TOKEN`; `EKS_K3S_IMAGE` overrides the image). |
 | `--mq-engine` | `MQ_ENGINE` | `stub` | Amazon MQ engine mode: `stub` (metadata only) or `docker` (one `rabbitmq:3.13.7-management` or `apache/activemq-classic:5.18.7` container per broker with a user; plaintext endpoints; `MQ_BROKER_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces). |
@@ -618,7 +619,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [DynamoDB](services/dynamodb/README.md) | A | — | 15 families; 1 gap; 3 structural gaps; 2 deferred |
 | [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
 | [ElastiCache](services/elasticache/README.md) | A | 75 | 2 gaps; 4 structural gaps; 2 deferred |
-| [MemoryDB](services/memorydb/README.md) | A | 45 | 1 gap; 2 structural gaps; 3 deferred |
+| [MemoryDB](services/memorydb/README.md) | A | 45 | 3 gaps; 2 structural gaps; 3 deferred |
 | [Neptune](services/neptune/README.md) | A | — | 13 families; 1 gap; 2 structural gaps; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |

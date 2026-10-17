@@ -2,6 +2,8 @@ package memorydb
 
 import (
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/redisengine"
 )
 
 // Cluster represents an in-memory MemoryDB cluster.
@@ -13,6 +15,8 @@ import (
 // (no-op) unless SetLifecycleDelay has been configured, preserving the
 // pre-existing instant-available behavior by default.
 type Cluster struct {
+	engine      *redisengine.Engine
+	authUsers   []string
 	CreatedAt   time.Time `json:"createdAt"`
 	AvailableAt time.Time `json:"availableAt"`
 	// ReshardingStartedAt/ReshardingUntil bound an in-flight online resharding

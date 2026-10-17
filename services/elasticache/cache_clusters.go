@@ -4,10 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
 	"net"
 	"slices"
-	"strconv"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
@@ -15,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/redisengine"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -57,34 +56,17 @@ func (b *InMemoryBackend) startClusterEngine(port int) (*clusterEngine, error) {
 		return &clusterEngine{port: p}, nil
 	}
 
-	mr := miniredis.NewMiniRedis()
-
-	eng := &clusterEngine{mini: mr}
-	if b.allocator != nil {
-		allocatedPort, err := b.allocator.Acquire("elasticache")
-		if err != nil {
-			return nil, fmt.Errorf("allocate miniredis port: %w", err)
-		}
-		if startErr := mr.StartAddr(fmt.Sprintf("0.0.0.0:%d", allocatedPort)); startErr != nil {
-			_ = b.allocator.Release(allocatedPort)
-
-			return nil, fmt.Errorf("start miniredis on port %d: %w", allocatedPort, startErr)
-		}
-		eng.allocatedPort = allocatedPort
-	} else if err := mr.Start(); err != nil {
-		return nil, fmt.Errorf("start miniredis: %w", err)
+	re, err := redisengine.Start(b.allocator, "elasticache")
+	if err != nil {
+		return nil, err
 	}
 
-	addr := mr.Server().Addr()
-	eng.port = addr.Port
-	host := addr.IP.String()
-	if addr.IP.IsUnspecified() {
-		// 0.0.0.0 is a bind wildcard, not a connectable target; publish loopback.
-		host = "127.0.0.1"
-	}
-	eng.connectAddr = net.JoinHostPort(host, strconv.Itoa(addr.Port))
-
-	return eng, nil
+	return &clusterEngine{
+		mini:          re.Mini,
+		connectAddr:   re.Addr(),
+		port:          re.Port,
+		allocatedPort: re.AllocatedPort,
+	}, nil
 }
 
 // releaseEngine discards an engine that was started but never inserted (lost a

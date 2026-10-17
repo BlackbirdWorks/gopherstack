@@ -446,6 +446,7 @@ type CLI struct {
 	globalConfig                  *config.GlobalConfig
 	portAlloc                     *portalloc.Allocator
 	ElastiCacheEngine             string                            `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"             default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                            //nolint:lll // config struct tags are intentionally verbose
+	MemoryDBEngine                string                            `                                       name:"memorydb-engine"         env:"MEMORYDB_ENGINE"                default:"embedded"      help:"MemoryDB engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                               //nolint:lll // config struct tags are intentionally verbose
 	KafkaEngine                   string                            `                                       name:"kafka-engine"            env:"KAFKA_ENGINE"                   default:"stub"          help:"MSK engine mode: stub (metadata only) or docker (real Kafka broker per cluster)."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
 	MQEngine                      string                            `                                       name:"mq-engine"               env:"MQ_ENGINE"                      default:"stub"          help:"Amazon MQ engine mode: stub (metadata only) or docker (real RabbitMQ/ActiveMQ container per broker)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	EKSEngine                     string                            `                                       name:"eks-engine"              env:"EKS_ENGINE"                     default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
@@ -1217,6 +1218,9 @@ func (c *CLI) GetElastiCacheHandler() service.Registerable { return c.elasticach
 
 // GetElastiCacheEngine returns the ElastiCache engine mode (elasticache.EngineConfig).
 func (c *CLI) GetElastiCacheEngine() string { return c.ElastiCacheEngine }
+
+// GetMemoryDBEngine returns the MemoryDB engine mode (memorydb.EngineConfig).
+func (c *CLI) GetMemoryDBEngine() string { return c.MemoryDBEngine }
 
 // GetEKSEngine returns the EKS engine mode (eks.EngineConfig).
 func (c *CLI) GetEKSEngine() string { return c.EKSEngine }
