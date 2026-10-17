@@ -364,14 +364,14 @@ func TestLoginTokenSignatureVerification(t *testing.T) {
 				[]cognitoidentity.IdentityProvider{{ProviderName: rsProvider, ClientID: "client-1"}}, nil, nil)
 			require.NoError(t, poolErr)
 
-			_, err = b.GetID(ctx, pool.IdentityPoolID, "", map[string]string{rsProvider: tt.token()})
+			_, idErr := b.GetID(ctx, pool.IdentityPoolID, "", map[string]string{rsProvider: tt.token()})
 			if tt.wantErr != nil {
-				require.ErrorIs(t, err, tt.wantErr)
+				require.ErrorIs(t, idErr, tt.wantErr)
 
 				return
 			}
 
-			require.NoError(t, err)
+			require.NoError(t, idErr)
 		})
 	}
 }
