@@ -24,7 +24,7 @@ func TestPolicyPrincipalOps(t *testing.T) {
 	// Seed: policy + attachment
 	b.AddPolicyInternal(iot.Policy{
 		PolicyName:     "my-policy",
-		PolicyDocument: `{"Version":"2012-10-17"}`,
+		PolicyDocument: validPolicyDoc,
 		ARN:            "arn:aws:iot:us-east-1:000000000000:policy/my-policy",
 	})
 	_ = b.AttachPolicy(&iot.AttachPolicyInput{
@@ -61,7 +61,7 @@ func TestGetEffectivePolicies_ThingNameIsQueryParam(t *testing.T) {
 	b.AddThingInternal(iot.Thing{ThingName: "effective-policy-thing"})
 	b.AddPolicyInternal(iot.Policy{
 		PolicyName:     "thing-scoped-policy",
-		PolicyDocument: `{"Version":"2012-10-17"}`,
+		PolicyDocument: validPolicyDoc,
 		ARN:            "arn:aws:iot:us-east-1:000000000000:policy/thing-scoped-policy",
 	})
 	require.NoError(t, b.AttachThingPrincipal(&iot.AttachThingPrincipalInput{
@@ -286,13 +286,13 @@ func TestGetPolicy(t *testing.T) {
 	t.Parallel()
 
 	backend := iot.NewInMemoryBackend()
-	backend.AddPolicyInternal(iot.Policy{PolicyName: "my-policy", PolicyDocument: `{"Version":"2012-10-17"}`})
+	backend.AddPolicyInternal(iot.Policy{PolicyName: "my-policy", PolicyDocument: validPolicyDoc})
 
 	out, err := backend.GetPolicy("my-policy")
 	require.NoError(t, err)
 	assert.Equal(t, "my-policy", out.PolicyName)
 	assert.NotEmpty(t, out.PolicyARN)
-	assert.JSONEq(t, `{"Version":"2012-10-17"}`, out.PolicyDocument)
+	assert.JSONEq(t, validPolicyDoc, out.PolicyDocument)
 }
 
 func TestGetPolicy_NotFound(t *testing.T) {
@@ -331,7 +331,7 @@ func TestDeletePolicy_ClearsResourceTagsOnRecreate(t *testing.T) {
 
 	created, err := backend.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "reused-policy",
-		PolicyDocument: "{}",
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 	require.NoError(t, backend.TagResourceGeneric(created.PolicyARN, map[string]string{"env": "prod"}))
@@ -341,7 +341,7 @@ func TestDeletePolicy_ClearsResourceTagsOnRecreate(t *testing.T) {
 
 	recreated, err := backend.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "reused-policy",
-		PolicyDocument: "{}",
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 	require.Equal(t, created.PolicyARN, recreated.PolicyARN)
@@ -353,9 +353,13 @@ func TestDeletePolicy_LeavesOtherPolicyTagsIntact(t *testing.T) {
 
 	backend := iot.NewInMemoryBackend()
 
-	gone, err := backend.CreatePolicy(&iot.CreatePolicyInput{PolicyName: "gone-policy-3", PolicyDocument: "{}"})
+	gone, err := backend.CreatePolicy(
+		&iot.CreatePolicyInput{PolicyName: "gone-policy-3", PolicyDocument: validPolicyDoc},
+	)
 	require.NoError(t, err)
-	kept, err := backend.CreatePolicy(&iot.CreatePolicyInput{PolicyName: "kept-policy-2", PolicyDocument: "{}"})
+	kept, err := backend.CreatePolicy(
+		&iot.CreatePolicyInput{PolicyName: "kept-policy-2", PolicyDocument: validPolicyDoc},
+	)
 	require.NoError(t, err)
 
 	require.NoError(t, backend.TagResourceGeneric(gone.PolicyARN, map[string]string{"env": "prod"}))
@@ -374,7 +378,7 @@ func TestDeletePolicy_ClearsPolicyVersions(t *testing.T) {
 
 	_, err := backend.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "gone-policy",
-		PolicyDocument: "{}",
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 
@@ -390,9 +394,9 @@ func TestDeletePolicy_LeavesOtherPolicyVersionsIntact(t *testing.T) {
 
 	backend := iot.NewInMemoryBackend()
 
-	_, err := backend.CreatePolicy(&iot.CreatePolicyInput{PolicyName: "keep-policy", PolicyDocument: "{}"})
+	_, err := backend.CreatePolicy(&iot.CreatePolicyInput{PolicyName: "keep-policy", PolicyDocument: validPolicyDoc})
 	require.NoError(t, err)
-	_, err = backend.CreatePolicy(&iot.CreatePolicyInput{PolicyName: "gone-policy-2", PolicyDocument: "{}"})
+	_, err = backend.CreatePolicy(&iot.CreatePolicyInput{PolicyName: "gone-policy-2", PolicyDocument: validPolicyDoc})
 	require.NoError(t, err)
 
 	require.NoError(t, backend.DeletePolicy("gone-policy-2"))
@@ -468,7 +472,7 @@ func TestHandler_GetPolicy_HTTP(t *testing.T) {
 
 	backend := iot.NewInMemoryBackend()
 	h := iot.NewHandler(backend, nil)
-	backend.AddPolicyInternal(iot.Policy{PolicyName: "http-policy", PolicyDocument: `{}`})
+	backend.AddPolicyInternal(iot.Policy{PolicyName: "http-policy", PolicyDocument: validPolicyDoc})
 
 	resp := doRequest(t, h, http.MethodGet, "/policies/http-policy", nil)
 	require.Equal(t, http.StatusOK, resp.Code)
@@ -529,7 +533,7 @@ func TestCreatePolicy_ReturnsPolicyVersionID(t *testing.T) {
 	h, _ := newR3Handler()
 	var out map[string]string
 	code := r3JSON(t, h, http.MethodPost, "/policies/test-policy", map[string]any{
-		"policyDocument": `{"Version":"2012-10-17"}`,
+		"policyDocument": validPolicyDoc,
 	}, &out)
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, "1", out["policyVersionId"])
@@ -541,7 +545,7 @@ func TestCreatePolicy_AutoCreatesVersion1(t *testing.T) {
 	_, b := newR3Handler()
 	_, err := b.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "auto-version-policy",
-		PolicyDocument: `{"Version":"2012-10-17"}`,
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 
@@ -558,7 +562,7 @@ func TestCreatePolicy_Version1IsDefault(t *testing.T) {
 	_, b := newR3Handler()
 	_, err := b.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "default-v1-policy",
-		PolicyDocument: `{"Version":"2012-10-17","Statement":[]}`,
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 
@@ -572,7 +576,7 @@ func TestGetPolicy_ReturnsDefaultVersionID(t *testing.T) {
 
 	h, _ := newR3Handler()
 	r3Req(t, h, http.MethodPost, "/policies/versioned-policy", map[string]any{
-		"policyDocument": `{"Version":"2012-10-17"}`,
+		"policyDocument": validPolicyDoc,
 	})
 
 	var out map[string]any
@@ -586,7 +590,7 @@ func TestGetPolicy_ReturnsCreationDate(t *testing.T) {
 
 	h, _ := newR3Handler()
 	r3Req(t, h, http.MethodPost, "/policies/dated-policy", map[string]any{
-		"policyDocument": `{"Version":"2012-10-17"}`,
+		"policyDocument": validPolicyDoc,
 	})
 
 	var out map[string]any
@@ -602,13 +606,13 @@ func TestGetPolicy_DefaultVersionUpdatesAfterSetDefault(t *testing.T) {
 	_, b := newR3Handler()
 	_, err := b.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "multi-ver-policy",
-		PolicyDocument: `{"Version":"2012-10-17"}`,
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 
 	_, err = b.CreatePolicyVersion(&iot.CreatePolicyVersionInput{
 		PolicyName:     "multi-ver-policy",
-		PolicyDocument: `{"Version":"2012-10-17","Statement":[]}`,
+		PolicyDocument: validPolicyDoc,
 		SetAsDefault:   true,
 	})
 	require.NoError(t, err)
@@ -624,7 +628,7 @@ func TestPolicy_CreationDateNotZero(t *testing.T) {
 	_, b := newR3Handler()
 	_, err := b.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "ts-policy",
-		PolicyDocument: `{}`,
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 
@@ -640,7 +644,7 @@ func TestPolicy_LastModifiedUpdatesOnNewVersion(t *testing.T) {
 	_, b := newR3Handler()
 	_, err := b.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "lm-policy",
-		PolicyDocument: `{}`,
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 
@@ -649,7 +653,7 @@ func TestPolicy_LastModifiedUpdatesOnNewVersion(t *testing.T) {
 
 	_, err = b.CreatePolicyVersion(&iot.CreatePolicyVersionInput{
 		PolicyName:     "lm-policy",
-		PolicyDocument: `{"updated": true}`,
+		PolicyDocument: validPolicyDoc,
 		SetAsDefault:   false,
 	})
 	require.NoError(t, err)
@@ -667,7 +671,7 @@ func TestDeletePolicyVersion_DefaultVersionBlocked(t *testing.T) {
 	_, b := newR3Handler()
 	_, err := b.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "del-default-policy",
-		PolicyDocument: `{}`,
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 
@@ -681,13 +685,13 @@ func TestDeletePolicyVersion_NonDefaultCanBeDeleted(t *testing.T) {
 	_, b := newR3Handler()
 	_, err := b.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "del-v2-policy",
-		PolicyDocument: `{}`,
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 
 	_, err = b.CreatePolicyVersion(&iot.CreatePolicyVersionInput{
 		PolicyName:     "del-v2-policy",
-		PolicyDocument: `{"updated": true}`,
+		PolicyDocument: validPolicyDoc,
 		SetAsDefault:   false,
 	})
 	require.NoError(t, err)
@@ -702,13 +706,13 @@ func TestDeletePolicyVersion_AfterSetDefault_OldDefaultCanBeDeleted(t *testing.T
 	_, b := newR3Handler()
 	_, err := b.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "swap-default-policy",
-		PolicyDocument: `{}`,
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 
 	_, err = b.CreatePolicyVersion(&iot.CreatePolicyVersionInput{
 		PolicyName:     "swap-default-policy",
-		PolicyDocument: `{"v2": true}`,
+		PolicyDocument: validPolicyDoc,
 		SetAsDefault:   true,
 	})
 	require.NoError(t, err)
@@ -723,7 +727,7 @@ func TestDeletePolicyVersion_DefaultVersion_DeleteConflict(t *testing.T) {
 	_, b := newR3Handler()
 	_, err := b.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "del-def-conflict",
-		PolicyDocument: `{}`,
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 
@@ -748,13 +752,13 @@ func TestPolicyVersion_CreateAndList(t *testing.T) {
 	_, b := newR3Handler()
 	_, err := b.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "vlist-policy",
-		PolicyDocument: `{}`,
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 
 	_, err = b.CreatePolicyVersion(&iot.CreatePolicyVersionInput{
 		PolicyName:     "vlist-policy",
-		PolicyDocument: `{"v2": true}`,
+		PolicyDocument: validPolicyDoc,
 		SetAsDefault:   false,
 	})
 	require.NoError(t, err)
@@ -770,13 +774,13 @@ func TestPolicyVersion_SetDefault_ClearsOldDefault(t *testing.T) {
 	_, b := newR3Handler()
 	_, err := b.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "setdef-policy",
-		PolicyDocument: `{}`,
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 
 	_, err = b.CreatePolicyVersion(&iot.CreatePolicyVersionInput{
 		PolicyName:     "setdef-policy",
-		PolicyDocument: `{"v2": true}`,
+		PolicyDocument: validPolicyDoc,
 		SetAsDefault:   false,
 	})
 	require.NoError(t, err)
@@ -815,13 +819,13 @@ func TestGetPolicyVersion_NotFound_AfterDelete(t *testing.T) {
 	_, b := newR3Handler()
 	_, err := b.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "del-get-policy",
-		PolicyDocument: `{}`,
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 
 	_, err = b.CreatePolicyVersion(&iot.CreatePolicyVersionInput{
 		PolicyName:     "del-get-policy",
-		PolicyDocument: `{"v2": true}`,
+		PolicyDocument: validPolicyDoc,
 		SetAsDefault:   true,
 	})
 	require.NoError(t, err)
@@ -839,7 +843,7 @@ func TestReset_ClearsPoliciesAndVersions(t *testing.T) {
 	_, b := newR3Handler()
 	_, err := b.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "reset-ver-policy",
-		PolicyDocument: `{}`,
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 
@@ -852,7 +856,7 @@ func TestReset_ClearsPoliciesAndVersions(t *testing.T) {
 func TestGetPolicy_ReturnsSameDocument(t *testing.T) {
 	t.Parallel()
 
-	const doc = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow"}]}`
+	const doc = validPolicyDoc
 	h, _ := newR3Handler()
 	r3Req(t, h, http.MethodPost, "/policies/doc-policy", map[string]any{
 		"policyDocument": doc,
@@ -872,7 +876,7 @@ func TestListPolicies_SortedByName(t *testing.T) {
 	for _, n := range names {
 		_, err := b.CreatePolicy(&iot.CreatePolicyInput{
 			PolicyName:     n,
-			PolicyDocument: `{}`,
+			PolicyDocument: validPolicyDoc,
 		})
 		require.NoError(t, err)
 	}
@@ -890,7 +894,7 @@ func TestDeletePolicy_RemovesFromList(t *testing.T) {
 	_, b := newR3Handler()
 	_, err := b.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "to-delete-policy",
-		PolicyDocument: `{}`,
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 
@@ -907,7 +911,7 @@ func TestCreatePolicy_ARNFormat(t *testing.T) {
 	b := iot.NewInMemoryBackendWithConfig("555566667777", "ca-central-1")
 	out, err := b.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "arn-test-policy",
-		PolicyDocument: `{}`,
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:iot:ca-central-1:555566667777:policy/arn-test-policy", out.PolicyARN)
@@ -919,7 +923,7 @@ func TestGetPolicy_DefaultVersionID_AfterMultipleVersions(t *testing.T) {
 	_, b := newR3Handler()
 	_, err := b.CreatePolicy(&iot.CreatePolicyInput{
 		PolicyName:     "multi-default-policy",
-		PolicyDocument: `{"v": 1}`,
+		PolicyDocument: validPolicyDoc,
 	})
 	require.NoError(t, err)
 
@@ -927,7 +931,7 @@ func TestGetPolicy_DefaultVersionID_AfterMultipleVersions(t *testing.T) {
 	for range 2 {
 		_, err = b.CreatePolicyVersion(&iot.CreatePolicyVersionInput{
 			PolicyName:     "multi-default-policy",
-			PolicyDocument: `{}`,
+			PolicyDocument: validPolicyDoc,
 			SetAsDefault:   false,
 		})
 		require.NoError(t, err)
@@ -941,7 +945,7 @@ func TestGetPolicy_DefaultVersionID_AfterMultipleVersions(t *testing.T) {
 	// Add version 4 and set as default
 	_, err = b.CreatePolicyVersion(&iot.CreatePolicyVersionInput{
 		PolicyName:     "multi-default-policy",
-		PolicyDocument: `{"v": 4}`,
+		PolicyDocument: validPolicyDoc,
 		SetAsDefault:   true,
 	})
 	require.NoError(t, err)
@@ -978,12 +982,12 @@ func TestPolicyVersionsPath(t *testing.T) {
 
 			h := newTestHandler()
 			doRequest(t, h, http.MethodPost, "/policies/parb-pol",
-				map[string]string{"policyDocument": `{"Version":"2012-10-17"}`})
+				map[string]string{"policyDocument": validPolicyDoc})
 
 			var rec *httptest.ResponseRecorder
 			if tt.name == "create_version_plural_path" {
 				rec = doRequest(t, h, http.MethodPost, tt.path,
-					map[string]string{"policyDocument": `{"Version":"2012-10-17","v2":true}`})
+					map[string]string{"policyDocument": validPolicyDoc})
 			} else {
 				rec = doRequest(t, h, http.MethodGet, tt.path, nil)
 			}
@@ -999,9 +1003,9 @@ func TestGetPolicyVersion_ReturnsPolicyArnAndName(t *testing.T) {
 
 	h := newTestHandler()
 	doRequest(t, h, http.MethodPost, "/policies/parb-pol2",
-		map[string]string{"policyDocument": `{"Version":"2012-10-17"}`})
+		map[string]string{"policyDocument": validPolicyDoc})
 	doRequest(t, h, http.MethodPost, "/policies/parb-pol2/versions?setAsDefault=true",
-		map[string]string{"policyDocument": `{"Version":"2012-10-17","v2":true}`})
+		map[string]string{"policyDocument": validPolicyDoc})
 
 	rec := doRequest(t, h, http.MethodGet, "/policies/parb-pol2/versions/2", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1040,7 +1044,7 @@ func TestDeletePolicy_WithTargets_Blocked(t *testing.T) {
 			t.Parallel()
 
 			b := iot.NewInMemoryBackend()
-			b.AddPolicyInternal(iot.Policy{PolicyName: "del-pol-" + tt.name, PolicyDocument: `{}`})
+			b.AddPolicyInternal(iot.Policy{PolicyName: "del-pol-" + tt.name, PolicyDocument: validPolicyDoc})
 
 			if tt.attachTarget {
 				err := b.AttachPolicy(&iot.AttachPolicyInput{
@@ -1079,13 +1083,13 @@ func TestPolicyVersionLimit(t *testing.T) {
 			t.Parallel()
 
 			b := iot.NewInMemoryBackend()
-			b.AddPolicyInternal(iot.Policy{PolicyName: "limit-pol", PolicyDocument: `{}`})
+			b.AddPolicyInternal(iot.Policy{PolicyName: "limit-pol", PolicyDocument: validPolicyDoc})
 
 			var lastErr error
 			for range tt.extraCounts {
 				_, lastErr = b.CreatePolicyVersion(&iot.CreatePolicyVersionInput{
 					PolicyName:     "limit-pol",
-					PolicyDocument: `{}`,
+					PolicyDocument: validPolicyDoc,
 				})
 			}
 

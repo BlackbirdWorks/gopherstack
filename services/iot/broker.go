@@ -532,6 +532,11 @@ func (h *ruleHook) OnPublish(cl *mqtt.Client, pk packets.Packet) (packets.Packet
 	log := logger.Load(h.ctx)
 	hops := takeHops(&pk)
 	received := time.Now()
+
+	if jr, ok := parseJobsTopic(pk.TopicName); ok && pk.Origin != mqtt.InlineClientId {
+		h.broker.handleJobsRequest(pk.TopicName, jr, pk.Payload)
+	}
+
 	ruleName, ingestTopic, ingest := basicIngestTopic(pk.TopicName)
 
 	known := false

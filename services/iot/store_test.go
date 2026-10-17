@@ -76,7 +76,7 @@ func TestBackend_PolicyLifecycle(t *testing.T) {
 			name: "create_policy",
 			input: &iot.CreatePolicyInput{
 				PolicyName:     "AllowAll",
-				PolicyDocument: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"iot:*","Resource":"*"}]}`,
+				PolicyDocument: validPolicyDoc,
 			},
 		},
 	}

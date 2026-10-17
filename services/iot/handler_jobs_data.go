@@ -212,9 +212,9 @@ func (h *Handler) handleUpdateDeviceJobExecution(c *echo.Context, thing, jobID s
 
 	if body.IncludeJobExecutionState {
 		out["executionState"] = map[string]any{
-			"status":        exec.Status,
-			"statusDetails": exec.StatusDetails,
-			"versionNumber": exec.VersionNumber,
+			"status":             exec.Status,
+			jobsKeyStatusDetails: exec.StatusDetails,
+			"versionNumber":      exec.VersionNumber,
 		}
 	}
 
