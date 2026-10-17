@@ -16,6 +16,11 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(snapshotID, clusterID string) 
 	if clusterID == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
 	}
+	data, err := b.captureClusterData(clusterID)
+	if err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateDBClusterSnapshot")
 	defer b.mu.Unlock()
 	if _, exists := b.clusterSnapshots.Get(normalizeID(snapshotID)); exists {
@@ -27,6 +32,7 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(snapshotID, clusterID string) 
 	}
 	snap := b.newManualClusterSnapshotLocked(snapshotID, cluster)
 	b.clusterSnapshots.Put(snap)
+	b.storeSnapDataLocked(snapKindCluster, snapshotID, data)
 	cp := *snap
 
 	return &cp, nil
@@ -171,6 +177,7 @@ func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBCluster
 	}
 	cp := *snap
 	b.clusterSnapshots.Delete(normalizeID(snapshotID))
+	b.dropSnapDataLocked(snapKindCluster, snapshotID)
 	// Use snap.DBClusterSnapshotIdentifier (the stored, creation-time casing)
 	// rather than the raw snapshotID argument -- see normalizeID.
 	delete(b.tags, b.rdsARN("cluster-snapshot", snap.DBClusterSnapshotIdentifier))
@@ -241,6 +248,7 @@ func (b *InMemoryBackend) CopyDBClusterSnapshotWithKMS(
 		IAMDatabaseAuthEnabled:      source.IAMDatabaseAuthEnabled,
 	}
 	b.clusterSnapshots.Put(snap)
+	b.copySnapDataLocked(snapKindCluster, source.DBClusterSnapshotIdentifier, targetSnapshotID)
 	if copyTags {
 		if srcTags := b.tags[source.DBClusterSnapshotArn]; len(srcTags) > 0 {
 			cp := make([]Tag, len(srcTags))

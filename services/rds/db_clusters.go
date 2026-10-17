@@ -343,6 +343,11 @@ func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
 func (b *InMemoryBackend) DeleteDBClusterWithOptions(
 	id string, skipFinalSnapshot bool, finalSnapshotID string, deleteAutomatedBackups bool,
 ) (*DBCluster, error) {
+	var final engineData
+	if err := b.captureFinalCluster(&final, skipFinalSnapshot, finalSnapshotID, id); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("DeleteDBCluster")
 	defer b.mu.Unlock()
 
@@ -376,6 +381,7 @@ func (b *InMemoryBackend) DeleteDBClusterWithOptions(
 			)
 		}
 		b.clusterSnapshots.Put(b.newManualClusterSnapshotLocked(finalSnapshotID, cluster))
+		b.storeSnapDataLocked(snapKindCluster, finalSnapshotID, final)
 	}
 
 	cp := *cluster
@@ -697,7 +703,10 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 	opts.EnableIAMDatabaseAuthentication = opts.EnableIAMDatabaseAuthentication || snap.IAMDatabaseAuthEnabled
 	opts.Port = cmp.Or(opts.Port, snap.Port)
 
-	return b.putRestoredClusterLocked(clusterID, engine, snap.MasterUsername, opts)
+	seed := b.snapSeedLocked(snapKindCluster, snap.DBClusterSnapshotIdentifier)
+	opts.DatabaseName = cmp.Or(opts.DatabaseName, seed.dbName)
+
+	return b.putRestoredClusterLocked(clusterID, engine, snap.MasterUsername, opts, seed)
 }
 
 // RestoreDBClusterToPointInTime creates a new DB cluster as a point-in-time restore of the source cluster.
@@ -734,13 +743,17 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 	opts.BackupRetentionPeriod = cmp.Or(opts.BackupRetentionPeriod, source.BackupRetentionPeriod)
 	opts.DatabaseName = cmp.Or(opts.DatabaseName, source.DatabaseName)
 
-	return b.putRestoredClusterLocked(clusterID, source.Engine, source.MasterUsername, opts)
+	seed := liveSeedLocked(b.clusterUnitLocked(source.DBClusterIdentifier))
+	opts.DatabaseName = cmp.Or(opts.DatabaseName, seed.dbName)
+
+	return b.putRestoredClusterLocked(clusterID, source.Engine, source.MasterUsername, opts, seed)
 }
 
 // putRestoredClusterLocked builds, validates and stores a restored cluster from fully resolved opts.
 func (b *InMemoryBackend) putRestoredClusterLocked(
 	clusterID, engine, masterUser string,
 	opts DBClusterOptions,
+	seed engineSeed,
 ) (*DBCluster, error) {
 	if opts.DBSubnetGroupName != "" && !b.subnetGroups.Has(opts.DBSubnetGroupName) {
 		return nil, fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, opts.DBSubnetGroupName)
@@ -753,6 +766,7 @@ func (b *InMemoryBackend) putRestoredClusterLocked(
 		opts.Port, opts.ServerlessV2Scaling, opts,
 	)
 	b.clusters.Put(cluster)
+	b.provisionSeededClusterLocked(cluster, "", seed)
 	if cluster.BackupRetentionPeriod > 0 {
 		b.registerClusterAutomatedBackupLocked(cluster)
 	}
