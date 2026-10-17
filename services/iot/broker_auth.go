@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -21,11 +22,15 @@ import (
 	"github.com/mochi-mqtt/server/v2/packets"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/services/iam"
 )
 
 const brokerServerCertValidity = 24 * time.Hour
 
-var errNoPeerCertificate = errors.New("iot broker: client presented no certificate")
+var (
+	errNoPeerCertificate          = errors.New("iot broker: client presented no certificate")
+	errCertificateOutsideValidity = errors.New("iot broker: client certificate is outside its validity period")
+)
 
 // SetAuthRequired switches the broker to X.509 mutual-TLS authentication with IoT policy
 // authorisation of CONNECT, PUBLISH, SUBSCRIBE and RECEIVE. Call before Start.
@@ -61,6 +66,11 @@ func (b *Broker) brokerTLSConfig() (*tls.Config, error) {
 		VerifyConnection: func(cs tls.ConnectionState) error {
 			if len(cs.PeerCertificates) == 0 {
 				return errNoPeerCertificate
+			}
+
+			now := time.Now()
+			if leaf := cs.PeerCertificates[0]; now.Before(leaf.NotBefore) || now.After(leaf.NotAfter) {
+				return errCertificateOutsideValidity
 			}
 
 			if b.activeCertARN(cs.PeerCertificates[0].Raw) == "" {
@@ -106,37 +116,37 @@ func (b *Broker) activeCertARN(der []byte) string {
 	return ""
 }
 
-func (b *Broker) principalOf(cl *mqtt.Client) (string, *InMemoryBackend) {
+func (b *Broker) principalOf(cl *mqtt.Client) (string, string, *InMemoryBackend) {
 	conn, ok := cl.Net.Conn.(*tls.Conn)
 	if !ok {
-		return "", nil
+		return "", "", nil
 	}
 
 	peers := conn.ConnectionState().PeerCertificates
 	if len(peers) == 0 {
-		return "", nil
+		return "", "", nil
 	}
 
 	sum := sha256.Sum256(peers[0].Raw)
 	id := hex.EncodeToString(sum[:])
 
-	for _, be := range b.backends() {
-		be.mu.RLock("mqttPrincipal")
-		c, found := be.certificates.Get(id)
-		principal := ""
+	for _, cand := range b.backends() {
+		cand.mu.RLock("mqttPrincipal")
+		c, found := cand.certificates.Get(id)
+		arnStr := ""
 
 		if found && c.Status == certStatusActive {
-			principal = c.ARN
+			arnStr = c.ARN
 		}
 
-		be.mu.RUnlock()
+		cand.mu.RUnlock()
 
-		if principal != "" {
-			return principal, be
+		if arnStr != "" {
+			return arnStr, peers[0].Subject.CommonName, cand
 		}
 	}
 
-	return "", nil
+	return "", "", nil
 }
 
 // authHook enforces IoT policies on a broker running with authentication enabled.
@@ -209,71 +219,98 @@ func (h *authHook) isPendingFilter(clientID, topic string) bool {
 }
 
 func (h *authHook) allowed(cl *mqtt.Client, action, resource string) bool {
-	principal, be := h.broker.principalOf(cl)
+	principal, commonName, be := h.broker.principalOf(cl)
 	if principal == "" {
 		return false
 	}
 
-	return be.authorizeMQTT(principal, cl.ID, action, resource)
+	return be.authorizeMQTT(principal, cl.ID, commonName, action, resource)
 }
 
-// authorizeMQTT evaluates the policies attached to principal: an explicit Deny wins, otherwise an Allow is required.
-func (b *InMemoryBackend) authorizeMQTT(principal, clientID, action, resource string) bool {
+// authorizeMQTT evaluates the policies attached to principal, and for a thing connecting
+// as itself those of its thing groups and their ancestors. An explicit Deny wins.
+func (b *InMemoryBackend) authorizeMQTT(principal, clientID, commonName, action, resource string) bool {
 	b.mu.RLock("authorizeMQTT")
 	defer b.mu.RUnlock()
 
-	vars := map[string]string{"${iot:ClientId}": clientID}
+	ctx := iam.ConditionContext{Extra: map[string]string{
+		"iot:clientid":                       clientID,
+		"iot:certificate.subject.commonname": commonName,
+		"iot:connection.thing.isattached":    "false",
+	}}
+
+	targets := []string{principal}
 
 	if principals, ok := b.thingPrincipals[clientID]; ok && slices.Contains(principals, principal) {
-		vars["${iot:Connection.Thing.ThingName}"] = clientID
+		ctx.Extra["iot:connection.thing.isattached"] = keyBoolTrue
+		ctx.Extra["iot:connection.thing.thingname"] = clientID
+
+		if t, found := b.things.Get(clientID); found {
+			ctx.Extra["iot:connection.thing.thingtypename"] = t.ThingTypeName
+
+			for k, v := range t.Attributes {
+				ctx.Extra["iot:connection.thing.attributes["+strings.ToLower(k)+"]"] = v
+			}
+		}
+
+		targets = append(targets, b.thingGroupARNsLocked(clientID)...)
+	}
+
+	escaped := iam.ConditionContext{Extra: make(map[string]string, len(ctx.Extra))}
+	for k, v := range ctx.Extra {
+		escaped.Extra[k] = jsonEscape(v)
+	}
+
+	var docs []string
+
+	for name, attached := range b.policyTargets {
+		if !slices.ContainsFunc(attached, func(t string) bool { return slices.Contains(targets, t) }) {
+			continue
+		}
+
+		if p, ok := b.policies.Get(name); ok {
+			docs = append(docs, iam.SubstituteVariables(p.PolicyDocument, escaped))
+		}
 	}
 
 	full := arn.Build("iot", b.region, b.accountID, resource)
-	allowed := false
 
-	for name, targets := range b.policyTargets {
-		if !slices.Contains(targets, principal) {
-			continue
-		}
-
-		p, ok := b.policies.Get(name)
-		if !ok {
-			continue
-		}
-
-		stmts, err := parseIoTPolicyDocument(p.PolicyDocument)
-		if err != nil {
-			continue
-		}
-
-		for _, s := range stmts {
-			if !statementMatches(substituteVars(s, vars), action, full) {
-				continue
-			}
-
-			if strings.EqualFold(s.Effect, "Deny") {
-				return false
-			}
-
-			allowed = true
-		}
-	}
-
-	return allowed
+	return iam.EvaluatePolicies(docs, action, full, ctx) == iam.EvalAllow
 }
 
-func substituteVars(s iamStatement, vars map[string]string) iamStatement {
-	oldNew := make([]string, 0, len(vars)+len(vars))
-	for k, v := range vars {
-		oldNew = append(oldNew, k, v)
-	}
+// thingGroupARNsLocked returns the ARNs of every group containing thingName plus all their
+// ancestor groups. Call with b.mu held.
+func (b *InMemoryBackend) thingGroupARNsLocked(thingName string) []string {
+	var out []string
 
-	r := strings.NewReplacer(oldNew...)
-	out := iamStatement{Effect: s.Effect, Action: s.Action, Resource: make([]string, len(s.Resource))}
+	seen := map[string]bool{}
 
-	for i, res := range s.Resource {
-		out.Resource[i] = r.Replace(res)
+	for group, members := range b.thingGroupMembers {
+		if !slices.Contains(members, thingName) {
+			continue
+		}
+
+		for name := group; name != "" && !seen[name]; {
+			seen[name] = true
+
+			tg, ok := b.thingGroups.Get(name)
+			if !ok {
+				break
+			}
+
+			out = append(out, tg.ThingGroupARN)
+			name = tg.ParentGroupName
+		}
 	}
 
 	return out
+}
+
+func jsonEscape(v string) string {
+	raw, err := json.Marshal(v)
+	if err != nil || len(raw) < 2 {
+		return ""
+	}
+
+	return string(raw[1 : len(raw)-1])
 }
