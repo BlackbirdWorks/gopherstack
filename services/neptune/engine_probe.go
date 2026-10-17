@@ -13,6 +13,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -118,11 +119,9 @@ func gremlinPayload() ([]byte, error) {
 		return nil, fmt.Errorf("encode gremlin request: %w", err)
 	}
 
-	out := make([]byte, 0, 1+len(gremlinMime)+len(body))
-	out = append(out, byte(len(gremlinMime)))
-	out = append(out, gremlinMime...)
+	hdr := append([]byte{byte(len(gremlinMime))}, gremlinMime...)
 
-	return append(out, body...), nil
+	return slices.Concat(hdr, body), nil
 }
 
 func wsHandshake(conn net.Conn, br *bufio.Reader, addr string) error {

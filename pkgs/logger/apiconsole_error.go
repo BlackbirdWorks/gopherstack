@@ -2,6 +2,7 @@ package logger
 
 import (
 	"html"
+	"io"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -35,29 +36,40 @@ var sensitiveQueryParams = map[string]struct{}{ //nolint:gochecknoglobals // imm
 	"signature":            {},
 }
 
-// errorCaptureWriter tees the first maxCapturedBodyBytes of an error response.
+// errorBodyCapture keeps the first maxCapturedBodyBytes of an error response body.
 // It is single-request scoped, so it needs no locking.
-type errorCaptureWriter struct {
-	http.ResponseWriter
+type errorBodyCapture struct {
 	buf    []byte
 	status int
 }
 
+// Write never short-writes, so io.MultiWriter always reaches the real writer.
+func (c *errorBodyCapture) Write(b []byte) (int, error) {
+	if c.status >= http.StatusBadRequest && len(c.buf) < maxCapturedBodyBytes {
+		c.buf = append(c.buf, b[:min(len(b), maxCapturedBodyBytes-len(c.buf))]...)
+	}
+
+	return len(b), nil
+}
+
+// errorCaptureWriter tees error response bodies into an errorBodyCapture.
+type errorCaptureWriter struct {
+	http.ResponseWriter
+	out io.Writer
+	cap *errorBodyCapture
+}
+
 func (w *errorCaptureWriter) WriteHeader(code int) {
-	w.status = code
+	w.cap.status = code
 	w.ResponseWriter.WriteHeader(code)
 }
 
 func (w *errorCaptureWriter) Write(b []byte) (int, error) {
-	if w.status == 0 {
-		w.status = http.StatusOK
+	if w.cap.status == 0 {
+		w.cap.status = http.StatusOK
 	}
 
-	if w.status >= http.StatusBadRequest && len(w.buf) < maxCapturedBodyBytes {
-		w.buf = append(w.buf, b[:min(len(b), maxCapturedBodyBytes-len(w.buf))]...)
-	}
-
-	return w.ResponseWriter.Write(b) //nolint:wrapcheck // pass-through writer
+	return w.out.Write(b) //nolint:wrapcheck // pass-through writer
 }
 
 // Unwrap lets http.ResponseController and echo.UnwrapResponse reach the real writer.
@@ -71,7 +83,12 @@ func attachErrorCapture(w http.ResponseWriter) *errorCaptureWriter {
 		return nil
 	}
 
-	cw := &errorCaptureWriter{ResponseWriter: resp.ResponseWriter}
+	c := &errorBodyCapture{}
+	cw := &errorCaptureWriter{
+		ResponseWriter: resp.ResponseWriter,
+		out:            io.MultiWriter(resp.ResponseWriter, c),
+		cap:            c,
+	}
 	resp.ResponseWriter = cw
 
 	return cw
@@ -85,7 +102,7 @@ func resolveError(status int, err error, cw *errorCaptureWriter) (string, string
 	var code, msg string
 
 	if cw != nil {
-		code, msg = ExtractErrorFields(cw.buf)
+		code, msg = ExtractErrorFields(cw.cap.buf)
 		if code == "" {
 			code = normalizeErrorCode(cw.Header().Get(errorTypeHeader))
 		}
