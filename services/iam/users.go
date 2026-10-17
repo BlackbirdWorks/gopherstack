@@ -224,6 +224,23 @@ func (b *InMemoryBackend) ListAttachedUserPolicies(userName string) ([]AttachedP
 // GetUserByAccessKeyID returns the User associated with the given access key ID.
 // Returns ErrAccessKeyNotFound if no key with that ID exists.
 func (b *InMemoryBackend) GetUserByAccessKeyID(accessKeyID string) (*User, error) {
+	u, err := b.userByAccessKeyIDStrict(accessKeyID)
+	if err == nil {
+		return u, nil
+	}
+
+	if su, ok := fromShards(b, func(s *InMemoryBackend) (*User, bool) {
+		x, serr := s.userByAccessKeyIDStrict(accessKeyID)
+
+		return x, serr == nil
+	}); ok {
+		return su, nil
+	}
+
+	return nil, err
+}
+
+func (b *InMemoryBackend) userByAccessKeyIDStrict(accessKeyID string) (*User, error) {
 	b.mu.RLock("GetUserByAccessKeyID")
 	defer b.mu.RUnlock()
 
@@ -256,11 +273,17 @@ func (b *InMemoryBackend) userByAccessKeyID(accessKeyID string) (*User, bool) {
 
 // ResolvePrincipal resolves an access key ID to an awsmeta.Principal representing an IAM User.
 func (b *InMemoryBackend) ResolvePrincipal(
-	_ context.Context,
-	accessKeyID, _ string,
+	ctx context.Context,
+	accessKeyID, sessionToken string,
 ) (*awsmeta.Principal, bool) {
 	u, ok := b.userByAccessKeyID(accessKeyID)
 	if !ok {
+		if p, found := fromShards(b, func(s *InMemoryBackend) (*awsmeta.Principal, bool) {
+			return s.ResolvePrincipal(ctx, accessKeyID, sessionToken)
+		}); found {
+			return p, true
+		}
+
 		return nil, false
 	}
 
@@ -278,11 +301,20 @@ func (b *InMemoryBackend) ResolvePrincipal(
 // inherited from every group the user belongs to. Policies that are referenced but not
 // found in the backend are silently skipped.
 func (b *InMemoryBackend) GetPoliciesForUser(userName string) ([]string, error) {
+	docs, remote, err := b.localPoliciesForUser(userName)
+	if err != nil {
+		return nil, err
+	}
+
+	return append(docs, b.remotePolicyDocs(remote)...), nil
+}
+
+func (b *InMemoryBackend) localPoliciesForUser(userName string) ([]string, []string, error) {
 	b.mu.RLock("GetPoliciesForUser")
 	defer b.mu.RUnlock()
 
 	if _, exists := b.users.Get(userName); !exists {
-		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+		return nil, nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
 	arns := b.userPolicies[userName]
@@ -290,6 +322,7 @@ func (b *InMemoryBackend) GetPoliciesForUser(userName string) ([]string, error) 
 	docs := make([]string, 0, len(arns)+len(inline))
 
 	docs = b.appendManagedPolicyDocsLocked(docs, arns)
+	remote := b.remoteArnsLocked(arns)
 	docs = appendInlinePolicyDocs(docs, inline)
 
 	for groupName, members := range b.groupMembers {
@@ -298,10 +331,11 @@ func (b *InMemoryBackend) GetPoliciesForUser(userName string) ([]string, error) 
 		}
 
 		docs = b.appendManagedPolicyDocsLocked(docs, b.groupPolicies[groupName])
+		remote = append(remote, b.remoteArnsLocked(b.groupPolicies[groupName])...)
 		docs = appendInlinePolicyDocs(docs, b.groupInlinePolicies[groupName])
 	}
 
-	return docs, nil
+	return docs, remote, nil
 }
 
 // appendManagedPolicyDocsLocked appends the policy documents for each managed

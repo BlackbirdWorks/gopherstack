@@ -85,6 +85,16 @@ func (b *InMemoryBackend) OutboundWebIdentityFederationEnabled() bool {
 	return b.outboundFederationEnabled
 }
 
+// OutboundWebIdentityFederationEnabledIn reports the setting for acct.
+func (b *InMemoryBackend) OutboundWebIdentityFederationEnabledIn(acct string) bool {
+	s, ok := b.existingShard(acct)
+	if !ok {
+		return true
+	}
+
+	return s.OutboundWebIdentityFederationEnabled()
+}
+
 // GenerateOrganizationsAccessReport creates a new org access report job and returns its ID.
 func (b *InMemoryBackend) GenerateOrganizationsAccessReport(_ string) string {
 	jobID := "orgjob-" + newID("")

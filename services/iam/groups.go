@@ -153,6 +153,10 @@ func (b *InMemoryBackend) GetGroupUsers(groupName string) ([]User, error) {
 
 // AttachGroupPolicy attaches a policy to a group.
 func (b *InMemoryBackend) AttachGroupPolicy(groupName, policyArn string) error {
+	if err := b.requireRemotePolicy(policyArn); err != nil {
+		return err
+	}
+
 	b.mu.Lock("AttachGroupPolicy")
 	defer b.mu.Unlock()
 

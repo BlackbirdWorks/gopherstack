@@ -15063,6 +15063,7 @@
       "comprehensiveSnapshot.OrgReportJobs map[string]time.Time `json:\"orgReportJobs,omitempty\"`",
       "comprehensiveSnapshot.SSHPublicKeys map[string]SSHPublicKey `json:\"sshPublicKeys,omitempty\"`",
       "comprehensiveSnapshot.ServiceLastAccessed map[string]map[string]ServiceLastAccessedDetail `json:\"serviceLastAccessed,omitempty\"`",
+      "handlerSnapshot.Accounts map[string]json.RawMessage `json:\"accounts,omitempty\"`",
       "handlerSnapshot.Backend json.RawMessage `json:\"backend,omitempty\"`",
       "handlerSnapshot.Tags map[string]map[string]string `json:\"tags,omitempty\"`",
       "policyAttachmentRefs.groups map[string]struct{}",

@@ -447,7 +447,9 @@ type GetWebIdentityTokenInput struct {
 	// that the issued JWT's expiration does not exceed the calling session's own
 	// expiration (AWS SessionDurationEscalationException). Nil when the caller
 	// used long-lived (non-STS) credentials, in which case no such cap applies.
-	CallerSession    *SessionInfo
+	CallerSession *SessionInfo
+	// Account is the caller's account when it is not the default one.
+	Account          string
 	SigningAlgorithm string
 	Audience         []string
 	Tags             []Tag
