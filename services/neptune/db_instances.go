@@ -167,6 +167,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		inst.AutoMinorVersionUpgrade = opts.AutoMinorVersionUpgrade
 	}
 	b.instancePut(inst)
+	b.joinEngineLocked(inst)
 	if clusterID != "" {
 		if cl, ok := b.clusterGet(region, clusterID); ok {
 			isWriter := len(cl.DBClusterMembers) == 0
@@ -308,6 +309,7 @@ func (b *InMemoryBackend) ModifyDBInstance(
 		b.renameInstance(region, id, inst, opts.NewDBInstanceIdentifier)
 	}
 	applyDBInstanceModifications(inst, instanceClass, opts)
+	b.reapplyLiveInstanceLocked(inst)
 	cp := *inst
 
 	return &cp, nil

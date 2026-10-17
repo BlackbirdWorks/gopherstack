@@ -247,6 +247,7 @@ that already exports them (e.g. `awslocal`) works without remapping. These are n
 | `--rds-engine` | `RDS_ENGINE` | `stub` | RDS engine mode: `stub` (metadata only) or `docker` (real `postgres`/`mysql`/`mariadb` container per DB instance, one per Aurora cluster; Data API stays on SQLite; `RDS_DB_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces). |
 | `--docdb-engine` | `DOCDB_ENGINE` | `stub` | DocumentDB engine mode: `stub` (metadata only) or `docker` (one plaintext `mongo` container per cluster, `mongo:4.4` for 3.6/4.0 and `mongo:5.0` for 5.0; `DOCDB_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces). |
 | `--redshift-engine` | `REDSHIFT_ENGINE` | `stub` | Redshift engine mode: `stub` (metadata only) or `docker` (one `postgres:17` container per provisioned cluster with MasterUsername/MasterUserPassword/DBName; Endpoint reports the published `127.0.0.1` port and the Redshift Data API runs SQL against it; `REDSHIFT_HOST` overrides the advertised host; Serverless workgroups stay metadata-only). |
+| `--neptune-engine` | `NEPTUNE_ENGINE` | `stub` | Neptune engine mode: `stub` (metadata only) or `docker` (one `tinkerpop/gremlin-server` container per cluster, TinkerPop 3.4.13 for engine 1.0/1.1, 3.5.7 for 1.2, 3.6.8 for 1.3, 3.7.3 later; Endpoint, ReaderEndpoint, Port and member instances report the published `127.0.0.1` port, Gremlin over WebSocket at `/gremlin`; `NEPTUNE_HOST` overrides the advertised host; no IAM auth or openCypher). |
 | `--opensearch-engine` | `OPENSEARCH_ENGINE` | `stub` | OpenSearch engine mode: `stub` (API-only) or `docker`. |
 | `--elasticsearch-engine` | `ELASTICSEARCH_ENGINE` | `stub` | Elasticsearch engine mode: `stub` (API-only) or `docker`. |
 | `--ec2-provider` | `EC2_PROVIDER` | `inmemory` | EC2 compute provider: `inmemory` (stub) or `docker` (launches real containers as instances). |
@@ -622,7 +623,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
 | [ElastiCache](services/elasticache/README.md) | A | 75 | 2 gaps; 4 structural gaps; 2 deferred |
 | [MemoryDB](services/memorydb/README.md) | A | 45 | 3 gaps; 2 structural gaps; 3 deferred |
-| [Neptune](services/neptune/README.md) | A | — | 13 families; 1 gap; 2 structural gaps; 2 deferred |
+| [Neptune](services/neptune/README.md) | A | — | 13 families; 4 gaps; 2 structural gaps; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
 | [RDS](services/rds/README.md) | A | 52 | 4 gaps; 7 structural gaps |
