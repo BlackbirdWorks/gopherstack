@@ -580,7 +580,7 @@ check key existence (`DescribeKey` + `errors.Is(err, kms.ErrKeyNotFound)`, both 
 `KeyMetadata.KeyID`), and (c) perform real encrypt/decrypt passthrough (`Encrypt`/
 `Decrypt`), exactly mirroring `ssmKMSAdapter`'s three-method shape. Wiring any of the
 services above is pure `cli.go` + that service's own backend work, per
-`PARITY_PHASE4_KICKOFF.md`'s "cross-service interconnect wired in cli.go, main-thread
+`docs/history/PARITY_PHASE4_KICKOFF.md`'s "cross-service interconnect wired in cli.go, main-thread
 work" rule — out of scope for this KMS-only pass.
 
 ## 2026-07-12 gap-closure pass (in-scope follow-ups from the lifecycle re-audit)
@@ -636,7 +636,7 @@ struck through, as a historical record rather than deleted.
 the cross-service Secrets Manager → KMS wiring (real `SecretString`/`SecretBinary`
 encryption via a `secretsmanager.KMSEncryptor`-style adapter, mirroring the existing
 SSM precedent). That is `cli.go` + Secrets Manager backend work — main-thread /
-cross-service territory per `PARITY_PHASE4_KICKOFF.md`, and needs no new KMS-side
+cross-service territory per `docs/history/PARITY_PHASE4_KICKOFF.md`, and needs no new KMS-side
 export (`Handler.Backend`'s `Encrypt`/`Decrypt`/`DescribeKey` already suffice, as
 documented in the cross-service punch-list above). No KMS-local gaps remain.~~
 
