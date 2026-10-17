@@ -502,6 +502,9 @@ linters:
       # traffic, not concurrently with them.
       - path: 'test/terraform/azure/storage_dataplane_test.go'
         linters: [ paralleltest ]
+      # internal/app tests white-box the composition root's unexported wiring (formerly package main).
+      - path: 'internal/app/.*_test\.go'
+        linters: [ testpackage ]
       # isolation_test.go uses unexported types and must be in the same package.
       - path: 'elasticache/isolation_test.go'
         linters: [ testpackage, paralleltest ]
@@ -558,7 +561,7 @@ linters:
       - path: 'securityhub/realclient_accept_invitation_and_connector_test.go'
         linters: [ staticcheck ]
       # Same reasoning as iotanalytics/handler_create_tags_test.go above -- this
-      # cli.go composition-root wiring test also drives the deprecated iotanalytics
+      # internal/app composition-root wiring test also drives the deprecated iotanalytics
       # SDK client end to end.
       - path: 'cli_iotanalytics_lambda_iot_wiring_test.go'
         linters: [ staticcheck ]

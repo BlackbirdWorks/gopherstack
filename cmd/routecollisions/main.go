@@ -3,7 +3,7 @@
 //
 // gopherstack-op3e found that inspector2 and macie2 both claimed
 // "/findings*" and "/members*" unconditionally in their RouteMatcher, and
-// both register (cli.go's getServiceProviders chain) before securityhub --
+// both register (internal/app/cli.go's getServiceProviders chain) before securityhub --
 // so pkgs/service/router.go, which evaluates matchers in priority order and
 // takes the first that returns true, sent every securityhub findings/members
 // request to the wrong service. Unit tests never caught it because they call
@@ -19,7 +19,7 @@
 // path-prefix string literals it tests against the request path -- both
 // literal ("/findings/") and package-const-resolved ("/"+pathAnalyzer). It
 // also resolves each service's MatchPriority() and its registration order
-// from cli.go's getServiceProviders chain, and flags whether the matcher
+// from internal/app/cli.go's getServiceProviders chain, and flags whether the matcher
 // already gates any of its claims behind a SigV4 signing-service check
 // (httputils.ExtractServiceFromRequest, or a local isXRequest helper) --
 // the established disambiguation pattern (securityhub, mediapackage, iot,
@@ -52,7 +52,7 @@ import (
 	"strings"
 )
 
-const cliGoPath = "cli.go"
+const cliGoPath = "internal/app/cli.go"
 
 func main() {
 	jsonOut := flag.String("json", "", "write full per-service claim detail to this path as JSON")
@@ -104,7 +104,7 @@ func run() ([]svcInfo, error) {
 
 	cliSrc, err := os.ReadFile(filepath.Join(root, cliGoPath))
 	if err != nil {
-		return nil, fmt.Errorf("read cli.go: %w", err)
+		return nil, fmt.Errorf("read internal/app/cli.go: %w", err)
 	}
 
 	regOrder := parseRegOrder(cliSrc, parseAliasToDir(cliSrc))
@@ -204,7 +204,7 @@ func parseAliasToDir(cliSrc []byte) map[string]string {
 	return out
 }
 
-// parseRegOrder scans cli.go in file order for &alias.XxxProvider{} references
+// parseRegOrder scans internal/app/cli.go in file order for &alias.XxxProvider{} references
 // and assigns each directory the index of its FIRST such reference, which is
 // its effective registration order for router.go's SliceStable priority sort.
 func parseRegOrder(cliSrc []byte, aliasToDir map[string]string) map[string]int {
