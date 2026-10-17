@@ -46,14 +46,18 @@ because CI is slow.
 
 ## Waiting on the user
 
-1. **Root directory cleanup (requested).** Move the 264 root `package main`
-   files (236 `cli_*`) to `cmd/gopherstack/`; update Makefile, Dockerfiles,
-   goreleaser, CI workflows, `default.pgo` location, repo-wide guard tests that
-   walk `services/` by relative path, docs. Tidy root clutter (this file could
-   move to `docs/`, `PARITY_PHASE4_KICKOFF.md`, `parity.md`, `GEMINI.md`,
-   `cli_route_path_gates.txt`, stray `gopherstack` binary). Open question: the
-   five `cli_azure*` test files must move with the package — pure moves, but
-   they are azure-owned.
+1. **Root directory cleanup (requested, gopherstack-h4b67).** `main.go` stays at the root;
+   everything else in root `package main` (cli.go, ~236 `cli_*` files, their
+   tests, adapters, route gates, lifecycle settings, guards) gets organised
+   into real packages — e.g. `internal/app` (composition root),
+   `internal/app/wiring` (cross-service seams by domain), CLI config, route
+   gates, and the repo-wide guard tests in their own package. Keep
+   `default.pgo` next to `main`. Update Makefile, Dockerfiles, goreleaser, CI,
+   guard tests that walk `services/` by relative path, docs. Needs exclusive
+   branch access. Tidy root clutter (this file -> `docs/`,
+   `PARITY_PHASE4_KICKOFF.md`, `parity.md`, `GEMINI.md`,
+   `cli_route_path_gates.txt`, stray `gopherstack` binary). The five
+   `cli_azure*` tests must move too (unchanged) — confirm with their owner.
 2. **"Reset" kill phase.** User defined reset = kill running gopherstack
    servers, `*.test` binaries and `gopherstack-*`/testcontainers containers,
    then clear caches. The cache part is in `.claude/skills/reset-caches/reset.sh`
