@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -100,34 +101,33 @@ func (m *StreamMessage) Marshal() []byte {
 		payload = payload[:MaxStreamPayload]
 	}
 
-	out := make([]byte, msgPayloadOff)
+	hdr := make([]byte, msgPayloadOff)
 
-	binary.BigEndian.PutUint32(out, msgHeaderLength)
+	binary.BigEndian.PutUint32(hdr, msgHeaderLength)
 
-	typ := out[msgMessageTypeOff : msgMessageTypeOff+msgMessageTypeLen]
+	typ := hdr[msgMessageTypeOff : msgMessageTypeOff+msgMessageTypeLen]
 	for i := range typ {
 		typ[i] = ' '
 	}
 
 	copy(typ, m.MessageType)
 
-	binary.BigEndian.PutUint32(out[msgSchemaVersionOff:], m.SchemaVersion)
-	binary.BigEndian.PutUint64(out[msgCreatedDateOff:], m.CreatedDate)
+	binary.BigEndian.PutUint32(hdr[msgSchemaVersionOff:], m.SchemaVersion)
+	binary.BigEndian.PutUint64(hdr[msgCreatedDateOff:], m.CreatedDate)
 	seq := uint64(m.SequenceNumber) //nolint:gosec // two's complement on the wire
-	binary.BigEndian.PutUint64(out[msgSequenceNumberOff:], seq)
-	binary.BigEndian.PutUint64(out[msgFlagsOff:], m.Flags)
+	binary.BigEndian.PutUint64(hdr[msgSequenceNumberOff:], seq)
+	binary.BigEndian.PutUint64(hdr[msgFlagsOff:], m.Flags)
 
-	copy(out[msgMessageIDOff:], m.MessageID[msgUUIDHalf:])
-	copy(out[msgMessageIDOff+msgUUIDHalf:], m.MessageID[:msgUUIDHalf])
+	copy(hdr[msgMessageIDOff:], m.MessageID[msgUUIDHalf:])
+	copy(hdr[msgMessageIDOff+msgUUIDHalf:], m.MessageID[:msgUUIDHalf])
 
 	digest := sha256.Sum256(payload)
-	copy(out[msgPayloadDigestOff:], digest[:])
+	copy(hdr[msgPayloadDigestOff:], digest[:])
 
-	binary.BigEndian.PutUint32(out[msgPayloadTypeOff:], m.PayloadType)
-	binary.BigEndian.PutUint32(out[msgPayloadLengthOff:], uint32(len(payload)&math.MaxUint32))
-	out = append(out, payload...)
+	binary.BigEndian.PutUint32(hdr[msgPayloadTypeOff:], m.PayloadType)
+	binary.BigEndian.PutUint32(hdr[msgPayloadLengthOff:], uint32(len(payload)&math.MaxUint32))
 
-	return out
+	return slices.Concat(hdr, payload)
 }
 
 // ParseStreamMessage decodes and verifies a data channel frame.
