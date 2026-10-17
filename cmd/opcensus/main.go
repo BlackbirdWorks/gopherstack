@@ -676,14 +676,10 @@ func (w *opWalker) extractLiterals(n ast.Node) {
 // intermediate local variable). This is what resolves the shape that
 // motivated gopherstack-jq8x.
 //
-// Tier 3 (only if tier 2 also found nothing): scan every map literal and
-// index-assignment in the whole package for a key matching a known
-// operation name (rekognition/appstream's "h.ops" populated inline in a
-// constructor with no separate named builder to chase). This is
-// deliberately a last resort -- it isn't scoped to the field name, so it
-// can pick up unrelated map[string]T literals (dms's total was
-// historically overcounted this way); tier 2 resolving precisely is what
-// keeps most services out of this tier.
+// Tier 3 (only if tier 2 also found nothing): scan the package for
+// index-assignments (`h.ops["Foo"] = ...`) whose target names a dynamic
+// source. Map literals are never scanned unscoped; they only count when
+// assigned to a chased name (tier 2).
 func (w *opWalker) resolveDynamicSources() {
 	for src := range w.dynamicSources {
 		if val, ok := w.idx.varSpecs[src]; ok {
@@ -751,6 +747,10 @@ func (w *opWalker) chaseExpr(expr ast.Expr, scope *ast.FuncDecl, depth int) {
 	switch e := expr.(type) {
 	case *ast.CallExpr:
 		w.chaseCall(e, scope, depth)
+	case *ast.CompositeLit:
+		w.extractLiterals(e)
+	case *ast.UnaryExpr:
+		w.chaseExpr(e.X, scope, depth)
 	case *ast.Ident:
 		w.resolveName(e.Name, scope, depth)
 	case *ast.SelectorExpr:
@@ -762,8 +762,6 @@ func (w *opWalker) chaseCall(call *ast.CallExpr, scope *ast.FuncDecl, depth int)
 	if name := calleeName(call.Fun); name != "" {
 		if callee, ok := w.idx.funcDecls[name]; ok {
 			w.walk(callee, depth)
-
-			return
 		}
 	}
 	for _, arg := range call.Args {
@@ -820,27 +818,8 @@ func lhsName(e ast.Expr, local bool) string {
 }
 
 func (w *opWalker) visitFallbackNode(n ast.Node) {
-	switch v := n.(type) {
-	case *ast.KeyValueExpr:
-		w.recordFallbackKey(v.Key)
-	case *ast.IndexExpr:
+	if v, ok := n.(*ast.IndexExpr); ok {
 		w.visitFallbackIndex(v)
-	}
-}
-
-// recordFallbackKey handles both literal-string map keys
-// (map[string]T{"Foo": ...}) and named-const keys (map[string]T{opFoo: ...},
-// dms's style across its opsXxx() family builders).
-func (w *opWalker) recordFallbackKey(key ast.Expr) {
-	switch k := key.(type) {
-	case *ast.BasicLit:
-		if k.Kind == token.STRING {
-			w.recordLiteral(k)
-		}
-	case *ast.Ident:
-		if s, ok := w.idx.constVals[k.Name]; ok && opNameRe.MatchString(s) {
-			w.seen[s] = true
-		}
 	}
 }
 

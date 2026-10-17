@@ -782,3 +782,124 @@ func (h *Handler) otherOps() map[string]actionFn {
 		})
 	}
 }
+
+func TestCensusService_LocalNameDoesNotLeak(t *testing.T) {
+	t.Parallel()
+
+	const imports = `package svc
+
+import (
+	"maps"
+	"slices"
+
+	"github.com/aws/aws-sdk-go-v2/service/examplesvc"
+)
+
+var _ = examplesvc.Client{}
+
+type actionFn func()
+
+type Handler struct {
+	ops map[string]actionFn
+}
+`
+
+	tests := []struct {
+		name    string
+		src     string
+		wantOps []string
+	}{
+		{
+			name: "package var with unrelated local ops slice",
+			src: `
+var supported = []string{"ListWidgets"}
+
+func (h *Handler) GetSupportedOperations() []string { return supported }
+
+func (h *Handler) agent() {
+	ops := []string{"ListNotAnOp"}
+	_ = ops
+}
+`,
+			wantOps: []string{"ListWidgets"},
+		},
+		{
+			name: "helper with unrelated local ops table",
+			src: `
+func (h *Handler) GetSupportedOperations() []string { return h.names() }
+
+func (h *Handler) names() []string { return []string{"ListWidgets"} }
+
+func (h *Handler) agent() map[string]actionFn {
+	ops := h.agentOps()
+	return ops
+}
+
+func (h *Handler) agentOps() map[string]actionFn {
+	return map[string]actionFn{"ListNotAnOp": nil}
+}
+`,
+			wantOps: []string{"ListWidgets"},
+		},
+		{
+			name: "field read ignores local ops in other function",
+			src: `
+func NewHandler() *Handler {
+	h := &Handler{}
+	h.ops = map[string]actionFn{"ListWidgets": nil}
+	return h
+}
+
+func (h *Handler) GetSupportedOperations() []string {
+	ops := slices.Collect(maps.Keys(h.ops))
+	return ops
+}
+
+func (h *Handler) agent() {
+	ops := h.agentOps()
+	_ = ops
+}
+
+func (h *Handler) agentOps() map[string]actionFn {
+	return map[string]actionFn{"ListNotAnOp": nil}
+}
+`,
+			wantOps: []string{"ListWidgets"},
+		},
+		{
+			name: "local ops read in entry point resolves in entry point only",
+			src: `
+func (h *Handler) GetSupportedOperations() []string {
+	var ops []string
+	ops = append(ops, "ListWidgets")
+	return ops
+}
+
+func other() {
+	ops := []string{"ListNotAnOp"}
+	_ = ops
+}
+
+func other2(h *Handler) {
+	h.ops = map[string]actionFn{"ListNotAnOp2": nil}
+}
+`,
+			wantOps: []string{"ListWidgets"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "handler.go"), []byte(imports+tt.src), 0o600))
+
+			got := censusService(dir, "examplesvc")
+
+			require.False(t, got.Error, "reason: %s", got.ErrorReason)
+			assert.Equal(t, tt.wantOps, got.ListOps)
+			assert.Equal(t, len(tt.wantOps), got.Total)
+		})
+	}
+}
