@@ -19,7 +19,10 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	for region, t := range b.clusters {
 		purgeTable(ctx, t, cutoff, clusterKeyFn,
 			func(c *Cluster) time.Time { return c.CreatedAt },
-			func(c *Cluster) { delete(b.arnToResource[region], c.ARN) },
+			func(c *Cluster) {
+				stopEngine(c)
+				delete(b.arnToResource[region], c.ARN)
+			},
 		)
 	}
 	for region, t := range b.acls {

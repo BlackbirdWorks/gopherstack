@@ -9,13 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 45 (43 ok, 2 partial) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 1 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- Data plane (--memorydb-engine=embedded, default): one in-process miniredis per cluster; every shard and node endpoint reports that single host:port, plaintext only (TLSEnabled is reported but not terminated), and data is not slot-sharded, replicated, snapshotted or persisted (Restore restarts empty servers on new ports). docker mode starts no server, as in ElastiCache.
+- ACL enforcement is AUTH-only: first password per user is enforced via miniredis, access strings (+@all, ~keys) are not, IAM-auth users are not, and ACL/user changes re-sync running clusters only on UpdateACL, UpdateUser and UpdateCluster.
 - ServiceUpdate.NodesUpdated is always empty: the SDK documents it only as a string 'list of nodes updated' with no format, and nodes are synthesised per request, so the wire value is not determinable.
 
 ### Structural gaps

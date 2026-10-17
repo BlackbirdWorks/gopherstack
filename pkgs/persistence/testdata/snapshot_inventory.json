@@ -20289,6 +20289,8 @@
       "Cluster.SubnetGroupName string `json:\"subnetGroupName\"`",
       "Cluster.TLSEnabled bool `json:\"tlsEnabled\"`",
       "Cluster.Tags map[string]string `json:\"tags\"`",
+      "Cluster.authUsers []string",
+      "Cluster.engine *redisengine.Engine",
       "Event.Date time.Time `json:\"date\"`",
       "Event.Message string `json:\"message\"`",
       "Event.SourceName string `json:\"sourceName\"`",
