@@ -3,6 +3,7 @@ package logger
 import (
 	"bytes"
 	"io"
+	"maps"
 	"net/http"
 	"strings"
 	"sync"
@@ -24,14 +25,30 @@ const (
 
 // CapturedRequest represents a single HTTP request captured by the console middleware.
 type CapturedRequest struct {
-	Timestamp time.Time         `json:"timestamp"`
-	Headers   map[string]string `json:"headers"`
-	ID        string            `json:"id"`
-	Method    string            `json:"method"`
-	Path      string            `json:"path"`
-	Body      string            `json:"body,omitempty"`
-	Status    int               `json:"status"`
-	Duration  time.Duration     `json:"duration_ms"`
+	Timestamp    time.Time         `json:"timestamp"`
+	Headers      map[string]string `json:"headers"`
+	ID           string            `json:"id"`
+	Method       string            `json:"method"`
+	Path         string            `json:"path"`
+	Query        string            `json:"query,omitempty"`
+	Service      string            `json:"service,omitempty"`
+	Body         string            `json:"body,omitempty"`
+	ErrorCode    string            `json:"error_code,omitempty"`
+	ErrorMessage string            `json:"error_message,omitempty"`
+	Status       int               `json:"status"`
+	Duration     time.Duration     `json:"duration_ms"`
+}
+
+// Clone returns a copy that shares no mutable state with r.
+func (r *CapturedRequest) Clone() *CapturedRequest {
+	if r == nil {
+		return nil
+	}
+
+	c := *r
+	c.Headers = maps.Clone(r.Headers)
+
+	return &c
 }
 
 // RequestRingBuffer holds the last N captured requests.
@@ -73,11 +90,13 @@ func (r *RequestRingBuffer) Unsubscribe(ch chan *CapturedRequest) {
 
 // Add appends a new request into the ring buffer and notifies subscribers.
 func (r *RequestRingBuffer) Add(req *CapturedRequest) {
+	stored := req.Clone()
+
 	r.mu.Lock()
 	if len(r.requests) < r.maxSize {
-		r.requests = append(r.requests, req)
+		r.requests = append(r.requests, stored)
 	} else {
-		r.requests[r.cursor] = req
+		r.requests[r.cursor] = stored
 		r.cursor = (r.cursor + 1) % r.maxSize
 	}
 	r.mu.Unlock()
@@ -85,7 +104,7 @@ func (r *RequestRingBuffer) Add(req *CapturedRequest) {
 	r.subMu.RLock()
 	for ch := range r.subs {
 		select {
-		case ch <- req:
+		case ch <- stored.Clone():
 		default:
 			// If a subscriber's channel is full, we drop the message
 			// so that we don't block the API proxying/logging path.
@@ -94,23 +113,63 @@ func (r *RequestRingBuffer) Add(req *CapturedRequest) {
 	r.subMu.RUnlock()
 }
 
-// GetAll returns all captured requests in chronological order.
+// GetAll returns copies of all captured requests in chronological order.
 func (r *RequestRingBuffer) GetAll() []*CapturedRequest {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	result := make([]*CapturedRequest, 0, len(r.requests))
 	if len(r.requests) < r.maxSize {
-		result = append(result, r.requests...)
-	} else {
-		result = append(result, r.requests[r.cursor:]...)
-		result = append(result, r.requests[:r.cursor]...)
+		for _, q := range r.requests {
+			result = append(result, q.Clone())
+		}
+
+		return result
+	}
+
+	for _, q := range r.requests[r.cursor:] {
+		result = append(result, q.Clone())
+	}
+
+	for _, q := range r.requests[:r.cursor] {
+		result = append(result, q.Clone())
 	}
 
 	return result
 }
 
-const defaultBufferSize = 100
+// MaxSize returns the buffer capacity.
+func (r *RequestRingBuffer) MaxSize() int { return r.maxSize }
+
+// Recent returns copies of up to n captured requests accepted by match
+// (nil matches all), newest first.
+func (r *RequestRingBuffer) Recent(n int, match func(*CapturedRequest) bool) []*CapturedRequest {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	total := len(r.requests)
+	result := make([]*CapturedRequest, 0, min(n, total))
+
+	for i := total - 1; i >= 0 && len(result) < n; i-- {
+		idx := i
+		if total == r.maxSize {
+			idx = (r.cursor + i) % r.maxSize
+		}
+
+		if q := r.requests[idx]; match == nil || match(q) {
+			result = append(result, q.Clone())
+		}
+	}
+
+	return result
+}
+
+const (
+	defaultBufferSize = 100
+
+	// RequestsEndpointPath is the request-log read endpoint; it is not itself logged.
+	RequestsEndpointPath = "/_gopherstack/requests"
+)
 
 // GlobalRingBuffer is the global buffer for the Live API Console.
 // It stores the last 100 requests.
@@ -127,7 +186,7 @@ const redactedHeaderValue = "[REDACTED]"
 // health/root checks that would otherwise flood the console with no useful
 // signal.
 func skipAPIConsoleCapture(req *http.Request) bool {
-	if strings.HasPrefix(req.URL.Path, "/dashboard") {
+	if strings.HasPrefix(req.URL.Path, "/dashboard") || req.URL.Path == RequestsEndpointPath {
 		return true
 	}
 
@@ -180,6 +239,9 @@ func attachBodyCapture(req *http.Request) *bytes.Buffer {
 func resolveResponseStatus(resp http.ResponseWriter, err error) int {
 	if err != nil {
 		return http.StatusInternalServerError
+	}
+	if er, uerr := echo.UnwrapResponse(resp); uerr == nil && er.Status != 0 {
+		return er.Status
 	}
 	if rw, ok := resp.(interface{ StatusCode() int }); ok {
 		return rw.StatusCode()
@@ -235,21 +297,30 @@ func APIConsoleMiddleware() echo.MiddlewareFunc {
 
 			reqID := c.Response().Header().Get(echo.HeaderXRequestID)
 
+			errBody := attachErrorCapture(c.Response())
+
 			err := next(c)
 
 			status := resolveResponseStatus(c.Response(), err)
 			reqBody := capturedBodyString(bodyBuf)
+			svc := requestService(c.Request())
+			errCode, errMsg := resolveError(status, err, errBody)
 
 			// Store in ring buffer
 			GlobalRingBuffer.Add(&CapturedRequest{
 				ID:        reqID,
 				Method:    req.Method,
 				Path:      req.URL.Path,
+				Query:     redactQuery(req.URL.RawQuery),
+				Service:   svc,
 				Headers:   headers,
 				Body:      reqBody,
 				Status:    status,
 				Duration:  time.Since(start),
 				Timestamp: time.Now(),
+
+				ErrorCode:    errCode,
+				ErrorMessage: errMsg,
 			})
 
 			return err

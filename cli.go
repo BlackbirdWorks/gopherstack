@@ -2482,6 +2482,7 @@ func buildEchoServer(
 	e.GET("/_localstack/init/ready", buildLocalstackInitHandler())
 	e.GET("/_localstack/info", buildLocalstackInfoHandler())
 	e.POST("/_gopherstack/reset", buildResetHandler(services))
+	e.GET(logger.RequestsEndpointPath, buildRequestsHandler(logger.GlobalRingBuffer))
 	registerLocalstackDevEndpoints(e, services)
 	registerECSTaskEndpoints(e, services)
 	registerEC2IMDSEndpoints(e, services)
