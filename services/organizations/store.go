@@ -54,10 +54,12 @@ type InMemoryBackend struct {
 	policies                           *store.Table[Policy]
 	ousByParent                        map[string]map[string]string
 	accountChildrenByParent            map[string]map[string]bool
+	provisioner                        AccountProvisioner
 	region                             string
 	accountID                          string
 	accountLeaveHooks                  []func(accountID string)
 	pendingCreates                     []*pendingCreate
+	provisionQueue                     []provisionReq
 	createDelay                        time.Duration
 	accountCounter                     int
 	statusCounter                      int
