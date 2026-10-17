@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 const interruptibleAllocStatusActive = "active"
@@ -66,7 +66,7 @@ func (b *InMemoryBackend) CreateCapacityReservation(
 	defer b.mu.Unlock()
 
 	cr := &CapacityReservation{
-		CapacityReservationID:  "cr-" + uuid.New().String()[:8],
+		CapacityReservationID:  awsid.New("cr-"),
 		InstanceType:           instanceType,
 		AvailabilityZone:       availabilityZone,
 		InstanceMatchCriteria:  instanceMatchCriteria,
@@ -213,7 +213,7 @@ func (b *InMemoryBackend) CreateInterruptibleCapacityReservationAllocation(
 	}
 
 	icr := &CapacityReservation{
-		CapacityReservationID:       "cr-" + uuid.New().String()[:8],
+		CapacityReservationID:       awsid.New("cr-"),
 		InstanceType:                cr.InstanceType,
 		AvailabilityZone:            cr.AvailabilityZone,
 		InstanceMatchCriteria:       cr.InstanceMatchCriteria,

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // ---- BYOASN ----
@@ -134,7 +136,7 @@ func (b *InMemoryBackend) CreateIpamExternalResourceVerificationToken(
 		return nil, fmt.Errorf("%w: %s", ErrIpamNotFound, ipamID)
 	}
 
-	id := "ipam-ext-res-verification-token-" + uuid.New().String()[:8]
+	id := awsid.New("ipam-ext-res-verification-token-")
 	now := time.Now().UTC()
 	token := &IpamExternalResourceVerificationToken{
 		IpamExternalResourceVerificationTokenID: id,

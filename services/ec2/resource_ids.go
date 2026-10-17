@@ -1,14 +1,6 @@
 package ec2
 
-import (
-	"strings"
-
-	"github.com/google/uuid"
-)
-
-// uuid.New().String() is hyphenated (8-4-4-4-12), so a naive [:N] slice embeds
-// literal "-" once N crosses a hyphen boundary, producing shapes AWS never
-// returns. Every helper below strips hyphens first via newHexUUID.
+import "github.com/blackbirdworks/gopherstack/pkgs/awsid"
 
 // ec2IDHexLen is the hex-character length AWS uses for the current
 // (post-2016) EC2 resource ID format, e.g. "i-0123456789abcdef0". A handful
@@ -17,11 +9,9 @@ import (
 // vpnPreSharedKeyLength/newIPAMVerificationTokenName's literal 12).
 const ec2IDHexLen = 17
 
-// newHexUUID returns n lowercase hex characters derived from a fresh UUID
-// with the separating hyphens stripped, safe to embed directly after a
-// resource ID prefix.
+// newHexUUID returns n random lowercase hex characters.
 func newHexUUID(n int) string {
-	return strings.ReplaceAll(uuid.New().String(), "-", "")[:n]
+	return awsid.NewN("", n)
 }
 
 // ---- Compute / instances ----

@@ -6,7 +6,7 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // ---- Route Server errors ----
@@ -133,7 +133,7 @@ func (b *InMemoryBackend) CreateRouteServer(
 	b.mu.Lock("CreateRouteServer")
 	defer b.mu.Unlock()
 
-	id := "rs-" + uuid.New().String()[:8]
+	id := awsid.New("rs-")
 	rs := &RouteServer{
 		RouteServerID:           id,
 		AmazonSideAsn:           amazonSideAsn,
@@ -240,8 +240,8 @@ func (b *InMemoryBackend) CreateRouteServerEndpoint(routeServerID, subnetID stri
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
-	id := "rse-" + uuid.New().String()[:8]
-	eniID := "eni-" + uuid.New().String()[:8]
+	id := awsid.New("rse-")
+	eniID := awsid.New("eni-")
 	ep := &RouteServerEndpoint{
 		RouteServerEndpointID: id,
 		RouteServerID:         routeServerID,
@@ -325,8 +325,8 @@ func (b *InMemoryBackend) CreateRouteServerPeer(
 		livenessDetection = "bfd"
 	}
 
-	id := "rsp-" + uuid.New().String()[:8]
-	eniID := "eni-" + uuid.New().String()[:8]
+	id := awsid.New("rsp-")
+	eniID := awsid.New("eni-")
 	peer := &RouteServerPeer{
 		RouteServerPeerID:            id,
 		RouteServerEndpointID:        endpointID,

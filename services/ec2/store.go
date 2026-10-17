@@ -8,8 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -1182,7 +1181,7 @@ func (b *InMemoryBackend) attachLaunchENILocked(inst *Instance) {
 		VPCID:               inst.VPCID,
 		PrivateIP:           inst.PrivateIP,
 		InstanceID:          inst.ID,
-		AttachmentID:        "eni-attach-" + uuid.New().String()[:8],
+		AttachmentID:        awsid.New("eni-attach-"),
 		DeviceIndex:         0,
 		Status:              stateInUse,
 		OwnerID:             b.AccountID,

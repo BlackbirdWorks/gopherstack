@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // Errors for network interface (ENI) operations.
@@ -19,8 +19,9 @@ var (
 
 // Attribute name and boolean-string constants used when reading/writing ENI attributes.
 const (
-	attrSourceDest = "sourceDestCheck"
-	ec2BooleanTrue = "true"
+	attrSourceDest  = "sourceDestCheck"
+	ec2BooleanTrue  = "true"
+	ipv6GroupHexLen = 4
 )
 
 // NetworkInterface represents an EC2 Network Interface (ENI).
@@ -586,7 +587,7 @@ func (b *InMemoryBackend) CreateNetworkInterfacePermission(
 	}
 
 	perm := &NetworkInterfacePermission{
-		PermissionID:       "eni-perm-" + uuid.New().String()[:8],
+		PermissionID:       awsid.New("eni-perm-"),
 		NetworkInterfaceID: niID,
 		AwsAccountID:       awsAccountID,
 		AwsService:         awsService,
@@ -636,7 +637,7 @@ func (b *InMemoryBackend) AssignIpv6Addresses(niID string, count int) ([]string,
 
 	assigned := make([]string, 0, count)
 	for range count {
-		addr := fmt.Sprintf("2001:db8::%s", uuid.New().String()[:4])
+		addr := fmt.Sprintf("2001:db8::%s", awsid.NewN("", ipv6GroupHexLen))
 		b.niIPv6Addresses[niID] = append(b.niIPv6Addresses[niID], addr)
 		assigned = append(assigned, addr)
 	}

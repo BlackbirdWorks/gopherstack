@@ -113,7 +113,7 @@ func TestQueryLogConfigAssociationErrors(t *testing.T) {
 		{
 			name:     "get_not_found",
 			action:   "GetResolverQueryLogConfigAssociation",
-			body:     map[string]any{"ResolverQueryLogConfigAssociationId": "rqlca-notexist"},
+			body:     map[string]any{"ResolverQueryLogConfigAssociationId": "rslvr-qlcassoc-notexist"},
 			wantCode: http.StatusNotFound,
 		},
 	}
@@ -186,7 +186,7 @@ func TestAssociateResolverQueryLogConfig(t *testing.T) {
 			name:       "missing_resource_id",
 			setupExtra: func(_ *testing.T, _ *route53resolver.Handler) string { return "" },
 			body: func(_ string) map[string]any {
-				return map[string]any{"ResolverQueryLogConfigId": "rqlc-notexist"}
+				return map[string]any{"ResolverQueryLogConfigId": "rslvr-rqlc-notexist"}
 			},
 			wantCode: http.StatusBadRequest,
 		},
@@ -195,7 +195,7 @@ func TestAssociateResolverQueryLogConfig(t *testing.T) {
 			setupExtra: func(_ *testing.T, _ *route53resolver.Handler) string { return "" },
 			body: func(_ string) map[string]any {
 				return map[string]any{
-					"ResolverQueryLogConfigId": "rqlc-notexist",
+					"ResolverQueryLogConfigId": "rslvr-rqlc-notexist",
 					"ResourceId":               "vpc-1",
 				}
 			},

@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"maps"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -57,7 +56,7 @@ func (b *InMemoryBackend) CreateAccessPoint(
 		return nil, accessPointLimitExceededErr(req.FileSystemID, b.limits.accessPointsPerFileSys)
 	}
 
-	id := "fsap-" + uuid.NewString()[:8]
+	id := awsid.New("fsap-")
 	apARN := arn.Build("elasticfilesystem", region, b.accountID, "access-point/"+id)
 	t := tags.New("efs.accesspoint." + id + ".tags")
 

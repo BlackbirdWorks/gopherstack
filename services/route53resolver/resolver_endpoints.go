@@ -6,12 +6,9 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
-
-const dirPrefixLen = 2
 
 // validateDelegationProtocols enforces "For a delegation inbound endpoint you
 // can use Do53 only" (CreateResolverEndpointInput.Protocols).
@@ -39,7 +36,7 @@ func copyIPAddressesWithIDs(ips []IPAddress) []IPAddress {
 		cp[i].CreationTime = now
 		cp[i].ModificationTime = now
 		if cp[i].IPID == "" {
-			cp[i].IPID = "rni-" + uuid.New().String()[:8]
+			cp[i].IPID = awsid.New("rni-")
 		}
 	}
 
@@ -111,11 +108,11 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 		protocols = []string{"Do53"}
 	}
 
-	dirPrefix := direction
-	if len(dirPrefix) > dirPrefixLen {
-		dirPrefix = dirPrefix[:dirPrefixLen]
+	idPrefix := "rslvr-in-"
+	if direction == "OUTBOUND" {
+		idPrefix = "rslvr-out-"
 	}
-	id := "rslvr-" + dirPrefix + "-" + uuid.New().String()[:8]
+	id := awsid.New(idPrefix)
 	epARN := arn.Build("route53resolver", region, b.accountID, "resolver-endpoint/"+id)
 
 	ipsCopy := copyIPAddressesWithIDs(ips)
@@ -267,7 +264,7 @@ func (b *InMemoryBackend) AssociateResolverEndpointIPAddress(
 	}
 
 	newIP := IPAddress{
-		IPID:             "rni-" + uuid.New().String()[:8],
+		IPID:             awsid.New("rni-"),
 		SubnetID:         subnetID,
 		IP:               ip,
 		Ipv6:             ipv6,
@@ -399,7 +396,7 @@ func (b *InMemoryBackend) AddEndpointInternal(name, direction string) *ResolverE
 	b.mu.Lock("AddEndpointInternal")
 	defer b.mu.Unlock()
 
-	id := "rslvr-in-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-in-")
 	epARN := arn.Build("route53resolver", b.region, b.accountID, "resolver-endpoint/"+id)
 	ep := &ResolverEndpoint{
 		ID:               id,
