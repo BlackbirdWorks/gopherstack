@@ -19,6 +19,7 @@ import (
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 )
 
 const (
@@ -181,6 +182,149 @@ func TestInitializeServices_CognitoIdentityCredentialsAcceptedBySTS(t *testing.T
 			who, whoErr := stsClient.GetCallerIdentity(t.Context(), &stssdk.GetCallerIdentityInput{})
 			require.NoError(t, whoErr)
 			assert.Equal(t, tt.wantARN, aws.ToString(who.Arn))
+		})
+	}
+}
+
+func TestInitializeServices_CognitoIdentityCustomRoleAndPrincipalTags(t *testing.T) {
+	t.Parallel()
+
+	cli := &CLI{AccountID: "000000000000", Region: "us-east-1"}
+	cli.faultStore = chaos.NewFaultStore()
+	services, err := initializeServices(
+		&service.AppContext{Logger: slog.Default(), Config: cli, JanitorCtx: t.Context()},
+	)
+	require.NoError(t, err)
+
+	byName := serviceByName(services)
+	iamH, ok := byName["IAM"].(*iambackend.Handler)
+	require.True(t, ok)
+	stsH, ok := byName["STS"].(*stsbackend.Handler)
+	require.True(t, ok)
+	identityH, ok := byName["CognitoIdentity"].(*cognitoidentitybackend.Handler)
+	require.True(t, ok)
+	idpH, ok := byName["CognitoIDP"].(*cognitoidpbackend.Handler)
+	require.True(t, ok)
+
+	registry := service.NewRegistry()
+	require.NoError(t, registry.Register(stsH))
+	require.NoError(t, registry.Register(identityH))
+
+	e := echo.New()
+	e.Use(service.NewServiceRouter(registry).RouteHandler())
+	srv := httptest.NewServer(e)
+	t.Cleanup(srv.Close)
+
+	identityClient := cognitoidentitysdk.NewFromConfig(wiredSDKConfig(t, "test", "test"),
+		func(o *cognitoidentitysdk.Options) { o.BaseEndpoint = aws.String(srv.URL) })
+
+	userPool, err := idpH.Backend.CreateUserPool("tags-users")
+	require.NoError(t, err)
+	client, err := idpH.Backend.CreateUserPoolClient(userPool.ID, "app")
+	require.NoError(t, err)
+	_, err = idpH.Backend.AdminCreateUser(userPool.ID, "bob", "Temp#Pass1", nil)
+	require.NoError(t, err)
+	require.NoError(t, idpH.Backend.AdminSetUserPassword(userPool.ID, "bob", "Perm#Pass1x", true))
+
+	auth, err := idpH.Backend.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "bob", "Perm#Pass1x")
+	require.NoError(t, err)
+
+	provider := "cognito-idp.us-east-1.amazonaws.com/" + userPool.ID
+	logins := map[string]string{provider: auth.Tokens.IDToken}
+
+	pool, err := identityClient.CreateIdentityPool(t.Context(), &cognitoidentitysdk.CreateIdentityPoolInput{
+		IdentityPoolName: aws.String("tags-pool"),
+		CognitoIdentityProviders: []cognitoidentitytypes.CognitoIdentityProvider{
+			{ProviderName: aws.String(provider), ClientId: aws.String(client.ClientID)},
+		},
+	})
+	require.NoError(t, err)
+
+	poolID := aws.ToString(pool.IdentityPoolId)
+
+	for _, role := range []string{"CognitoAuth", "CognitoAdmin"} {
+		_, err = iamH.Backend.CreateRole(role, "/", cognitoTrust(poolID, "authenticated"), "")
+		require.NoError(t, err)
+	}
+
+	_, err = identityClient.SetIdentityPoolRoles(t.Context(), &cognitoidentitysdk.SetIdentityPoolRolesInput{
+		IdentityPoolId: aws.String(poolID),
+		Roles:          map[string]string{"authenticated": cognitoE2EAuthRole},
+		RoleMappings: map[string]cognitoidentitytypes.RoleMapping{
+			provider + ":" + client.ClientID: {
+				Type:                    cognitoidentitytypes.RoleMappingTypeRules,
+				AmbiguousRoleResolution: cognitoidentitytypes.AmbiguousRoleResolutionTypeAuthenticatedRole,
+				RulesConfiguration: &cognitoidentitytypes.RulesConfigurationType{
+					Rules: []cognitoidentitytypes.MappingRule{{
+						Claim:     aws.String("cognito:username"),
+						MatchType: cognitoidentitytypes.MappingRuleMatchTypeEquals,
+						Value:     aws.String("bob"),
+						RoleARN:   aws.String(cognitoE2EAdminRole),
+					}},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = identityClient.SetPrincipalTagAttributeMap(
+		t.Context(),
+		&cognitoidentitysdk.SetPrincipalTagAttributeMapInput{
+			IdentityPoolId:       aws.String(poolID),
+			IdentityProviderName: aws.String(provider),
+			UseDefaults:          aws.Bool(true),
+			PrincipalTags:        map[string]string{"who": "cognito:username"},
+		},
+	)
+	require.NoError(t, err)
+
+	id, err := identityClient.GetId(t.Context(), &cognitoidentitysdk.GetIdInput{
+		IdentityPoolId: aws.String(poolID), Logins: logins,
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name       string
+		customRole string
+		wantARN    string
+		wantErr    string
+	}{
+		{name: "mapped role", wantARN: "assumed-role/CognitoAdmin/"},
+		{name: "authenticated role as custom", customRole: cognitoE2EAuthRole, wantARN: "assumed-role/CognitoAuth/"},
+		{name: "unlisted custom role", customRole: cognitoE2EUnauthRole, wantErr: "NotAuthorizedException"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			in := &cognitoidentitysdk.GetCredentialsForIdentityInput{IdentityId: id.IdentityId, Logins: logins}
+			if tt.customRole != "" {
+				in.CustomRoleArn = aws.String(tt.customRole)
+			}
+
+			creds, credErr := identityClient.GetCredentialsForIdentity(t.Context(), in)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, credErr, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, credErr)
+
+			session := stsH.Backend.LookupSession(
+				aws.ToString(creds.Credentials.AccessKeyId), aws.ToString(creds.Credentials.SessionToken))
+			require.NotNil(t, session)
+			assert.Contains(t, session.AssumedRoleArn, tt.wantARN)
+
+			got := map[string]string{}
+			for _, tag := range session.Tags {
+				got[tag.Key] = tag.Value
+			}
+
+			assert.Equal(t, "bob", got["who"])
+			assert.Equal(t, client.ClientID, got["clientID"])
+			assert.NotEmpty(t, got["username"])
 		})
 	}
 }

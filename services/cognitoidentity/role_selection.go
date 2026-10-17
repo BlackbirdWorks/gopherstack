@@ -22,9 +22,13 @@ func errNoRole(poolID, why string) error {
 
 // resolveRole picks the IAM role an identity assumes: a matching role mapping first, then the
 // pool's authenticated or unauthenticated role.
-func resolveRole(poolID string, roles *IdentityRoles, logins map[string]string) (string, error) {
+func resolveRole(poolID string, roles *IdentityRoles, logins map[string]string, customRole string) (string, error) {
 	if roles == nil {
 		return "", errNoRole(poolID, "no IAM roles configured")
+	}
+
+	if customRole != "" {
+		return checkCustomRole(roles, logins, customRole)
 	}
 
 	if len(logins) == 0 {
@@ -172,4 +176,48 @@ func ruleMatches(rule MappingRule, claims map[string]any) bool {
 	}
 
 	return false
+}
+
+// checkCustomRole accepts customRole only when it is one of the roles the identity could be mapped to.
+func checkCustomRole(roles *IdentityRoles, logins map[string]string, customRole string) (string, error) {
+	allowed := []string{roles.UnauthenticatedRoleARN}
+
+	if len(logins) > 0 {
+		allowed = []string{roles.AuthenticatedRoleARN}
+
+		for provider, token := range logins {
+			claims, _ := parseLoginClaims(token)
+			if mapping, ok := findRoleMapping(roles.RoleMappings, provider, claims); ok {
+				allowed = append(allowed, mappedRoles(mapping, claims)...)
+			}
+		}
+	}
+
+	if customRole == "" || !slices.Contains(allowed, customRole) {
+		return "", fmt.Errorf(
+			"%w: CustomRoleArn %q is not a role this identity may assume", ErrNotAuthorized, customRole,
+		)
+	}
+
+	return customRole, nil
+}
+
+func mappedRoles(m RoleMapping, claims map[string]any) []string {
+	switch m.Type {
+	case mappingTypeToken:
+		return claimStrings(claims[claimRoles])
+	case mappingTypeRules:
+		if m.RulesConfiguration == nil {
+			return nil
+		}
+
+		out := make([]string, 0, len(m.RulesConfiguration.Rules))
+		for _, rule := range m.RulesConfiguration.Rules {
+			out = append(out, rule.RoleARN)
+		}
+
+		return out
+	}
+
+	return nil
 }

@@ -710,7 +710,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 2 gaps; 1 structural gap; 4 deferred |
+| [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 1 gap; 4 deferred |
 | [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 4 gaps; 4 structural gaps |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 1 gap; 2 structural gaps; 1 deferred |
 | [IAM](services/iam/README.md) | A | 38 | 2 gaps; 4 structural gaps |
