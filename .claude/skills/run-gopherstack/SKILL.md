@@ -66,6 +66,18 @@ later shells find the running server.
 The wrapper injects `--endpoint-url` and dummy creds. Verified output:
 `sts get-caller-identity` → `{"Account": "000000000000", ...}`.
 
+### Debug a running server (gsdebug.sh)
+
+`scripts/dev/gsdebug.sh` wraps the `/_gopherstack/*` dev endpoints (needs curl + jq;
+`GOPHERSTACK_ENDPOINT`, default `http://localhost:8123`):
+
+```bash
+scripts/dev/gsdebug.sh requests --failed [-n 20] [--service s3] [--json]  # error codes/messages
+scripts/dev/gsdebug.sh snapshot [svc]   # no arg: sizes per service; arg: that service's state
+scripts/dev/gsdebug.sh reset [svc]      # wipe one or all services
+scripts/dev/gsdebug.sh health
+```
+
 ### Raw HTTP (wire-shape work)
 
 `api` prints response headers plus body — this is the tool for checking XML
