@@ -5,8 +5,7 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/google/uuid"
-
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
@@ -16,7 +15,7 @@ func (b *InMemoryBackend) CreateTrafficMirrorFilter(
 	b.mu.Lock("CreateTrafficMirrorFilter")
 	defer b.mu.Unlock()
 
-	id := "tmf-" + uuid.New().String()[:8]
+	id := awsid.New("tmf-")
 	f := &TrafficMirrorFilter{
 		TrafficMirrorFilterID: id,
 		Description:           description,
@@ -114,7 +113,7 @@ func (b *InMemoryBackend) CreateTrafficMirrorFilterRule(
 		return nil, fmt.Errorf("%w: %s", ErrTrafficMirrorFilterNotFound, filterID)
 	}
 
-	id := "tmfr-" + uuid.New().String()[:8]
+	id := awsid.New("tmfr-")
 	rule := &TrafficMirrorFilterRule{
 		TrafficMirrorFilterRuleID: id,
 		TrafficMirrorFilterID:     filterID,
@@ -255,7 +254,7 @@ func (b *InMemoryBackend) CreateTrafficMirrorSession(
 		pl = packetLength[0]
 	}
 
-	id := "tms-" + uuid.New().String()[:8]
+	id := awsid.New("tms-")
 	s := &TrafficMirrorSession{
 		TrafficMirrorSessionID: id,
 		NetworkInterfaceID:     networkInterfaceID,
@@ -378,7 +377,7 @@ func (b *InMemoryBackend) CreateTrafficMirrorTarget(
 		glbEndpointID = gatewayLoadBalancerEndpointID[0]
 	}
 
-	id := "tmt-" + uuid.New().String()[:8]
+	id := awsid.New("tmt-")
 	t := &TrafficMirrorTarget{
 		TrafficMirrorTargetID:         id,
 		NetworkInterfaceID:            networkInterfaceID,

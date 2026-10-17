@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // vpcTenancyDefault is the documented CreateVpc InstanceTenancy default
@@ -292,7 +292,7 @@ func (b *InMemoryBackend) createVpcPeeringConnectionLocal(
 	}
 
 	pc := &VpcPeeringConnection{
-		VpcPeeringConnectionID: "pcx-" + uuid.New().String()[:8],
+		VpcPeeringConnectionID: awsid.New("pcx-"),
 		RequesterVpcID:         requesterVPCID,
 		AccepterVpcID:          accepterVPCID,
 		AccepterOwnerID:        peerOwnerID,

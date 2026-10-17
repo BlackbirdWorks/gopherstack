@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // vpnTunnelBandwidthStandard is api_op_ModifyVpnConnectionOptions.go's
@@ -166,7 +168,7 @@ func (b *InMemoryBackend) CreateVpnConnection(
 	}
 
 	conn := &VpnConnection{
-		VpnConnectionID:   "vpn-" + uuid.New().String()[:8],
+		VpnConnectionID:   awsid.New("vpn-"),
 		State:             stateAvailable,
 		CustomerGatewayID: customerGatewayID,
 		VpnGatewayID:      vpnGatewayID,

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // ---- IPAM ----
@@ -26,12 +26,12 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 	b.mu.Lock("CreateIpam")
 	defer b.mu.Unlock()
 
-	ipamID := "ipam-" + uuid.New().String()[:8]
+	ipamID := awsid.New("ipam-")
 
 	ipamARN := "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam/" + ipamID
 
 	privScope := &IpamScope{
-		IpamScopeID:   "ipam-scope-" + uuid.New().String()[:8],
+		IpamScopeID:   awsid.New("ipam-scope-"),
 		IpamScopeARN:  "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam-scope/",
 		IpamID:        ipamID,
 		IpamARN:       ipamARN,
@@ -44,7 +44,7 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 	b.ipamScopes.Put(privScope)
 
 	pubScope := &IpamScope{
-		IpamScopeID:   "ipam-scope-" + uuid.New().String()[:8],
+		IpamScopeID:   awsid.New("ipam-scope-"),
 		IpamScopeARN:  "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam-scope/",
 		IpamID:        ipamID,
 		IpamARN:       ipamARN,
@@ -57,7 +57,7 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 	b.ipamScopes.Put(pubScope)
 
 	discovery := &IpamResourceDiscovery{
-		IpamResourceDiscoveryID: "ipam-res-disco-" + uuid.New().String()[:8],
+		IpamResourceDiscoveryID: awsid.New("ipam-res-disco-"),
 		OwnerID:                 b.AccountID,
 		Region:                  b.Region,
 		IsDefault:               true,
@@ -68,7 +68,7 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 	b.ipamResourceDiscoveries.Put(discovery)
 
 	assoc := &IpamResourceDiscoveryAssociation{
-		IpamResourceDiscoveryAssociationID: "ipam-res-disco-assoc-" + uuid.New().String()[:8],
+		IpamResourceDiscoveryAssociationID: awsid.New("ipam-res-disco-assoc-"),
 		IpamID:                             ipamID,
 		IpamARN:                            ipamARN,
 		IpamRegion:                         b.Region,
@@ -263,7 +263,7 @@ func (b *InMemoryBackend) CreateIpamScope(ipamID, description string) (*IpamScop
 		return nil, fmt.Errorf("%w: %s", ErrIpamNotFound, ipamID)
 	}
 
-	scopeID := "ipam-scope-" + uuid.New().String()[:8]
+	scopeID := awsid.New("ipam-scope-")
 	scope := &IpamScope{
 		IpamScopeID:   scopeID,
 		IpamScopeARN:  "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam-scope/" + scopeID,
@@ -403,7 +403,7 @@ func (b *InMemoryBackend) CreateIpamPool(
 		}
 	}
 
-	poolID := "ipam-pool-" + uuid.New().String()[:8]
+	poolID := awsid.New("ipam-pool-")
 	pool := &IpamPool{
 		IpamPoolID:                     poolID,
 		IpamPoolARN:                    "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam-pool/" + poolID,

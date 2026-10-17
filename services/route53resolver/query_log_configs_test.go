@@ -281,7 +281,7 @@ func TestQueryLogConfigErrors(t *testing.T) {
 		{
 			name:     "delete_not_found",
 			action:   "DeleteResolverQueryLogConfig",
-			body:     map[string]any{"ResolverQueryLogConfigId": "rqlc-notexist"},
+			body:     map[string]any{"ResolverQueryLogConfigId": "rslvr-rqlc-notexist"},
 			wantCode: http.StatusNotFound,
 		},
 	}

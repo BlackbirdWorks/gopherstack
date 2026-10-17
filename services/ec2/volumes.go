@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // ModifyVolume records a volume modification request and immediately applies
@@ -274,7 +274,7 @@ func (b *InMemoryBackend) CreateReplaceRootVolumeTask(
 	}
 
 	task := &ReplaceRootVolumeTask{
-		ReplaceRootVolumeTaskID: "replacevol-" + uuid.New().String()[:8],
+		ReplaceRootVolumeTaskID: awsid.New("replacevol-"),
 		InstanceID:              instanceID,
 		SnapshotID:              snapshotID,
 		TaskState:               stateCompleted,

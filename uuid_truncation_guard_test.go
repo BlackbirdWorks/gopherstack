@@ -36,22 +36,19 @@ func hyphenatedTruncations() map[string]truncationAllowance {
 // the 8-vs-17 digit length is a fidelity gap, not an SDK-pattern violation.
 func pureHexTruncationDirs() map[string]string {
 	return map[string]string{
-		"services/accessanalyzer":  "analyzer name suffix, free-form name",
-		"services/awsconfig":       "connector name suffix, free-form name",
-		"services/backup":          "job IDs, free-form strings",
-		"services/cloudformation":  "physical resource name suffixes, free-form",
-		"services/codeartifact":    "Revision and bucket-name suffix; revision is \\S+ (1-50)",
-		"services/ec2":             "EC2 IDs accept 8 or 17 hex digits",
-		"services/efs":             "fs-/fsap-/fsmt- patterns are [0-9a-f]{8,40}",
-		"services/eks":             "container name suffix",
-		"services/glue":            "Glue IDs have no charset pattern, length 1-255",
-		"services/kafka":           "container name suffix",
-		"services/lambda":          "container name and log-stream suffix",
-		"services/medialive":       "internal sub-resource IDs",
-		"services/mq":              "broker container name suffix",
-		"services/opsworks":        "hostname suffix",
-		"services/route53resolver": "resolver IDs are 1-64 chars, lowercase hex is legal",
-		"services/support":         "case ID is a free-form string",
+		"services/accessanalyzer": "analyzer name suffix, free-form name",
+		"services/awsconfig":      "connector name suffix, free-form name",
+		"services/backup":         "job IDs, free-form strings",
+		"services/cloudformation": "physical resource name suffixes, free-form",
+		"services/codeartifact":   "Revision and bucket-name suffix; revision is \\S+ (1-50)",
+		"services/eks":            "container name suffix",
+		"services/glue":           "Glue IDs have no charset pattern, length 1-255",
+		"services/kafka":          "container name suffix",
+		"services/lambda":         "container name and log-stream suffix",
+		"services/medialive":      "internal sub-resource IDs",
+		"services/mq":             "broker container name suffix",
+		"services/opsworks":       "hostname suffix",
+		"services/support":        "case ID is a free-form string",
 	}
 }
 

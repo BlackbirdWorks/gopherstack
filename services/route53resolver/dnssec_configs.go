@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // GetResolverDnssecConfig returns or lazily creates the DNSSEC config for a
@@ -23,7 +23,7 @@ func (b *InMemoryBackend) GetResolverDnssecConfig(ctx context.Context, resourceI
 
 		return &cp
 	}
-	id := "rslvr-dnssec-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-dnssec-")
 	cfg := &ResolverDnssecConfig{
 		ID:               id,
 		OwnerID:          b.accountID,
@@ -75,7 +75,7 @@ func (b *InMemoryBackend) UpdateResolverDnssecConfig(
 
 	cfg, ok := b.resolverDnssecConfigs.Get(regionalKey(region, resourceID))
 	if !ok {
-		id := "rslvr-dnssec-" + uuid.New().String()[:8]
+		id := awsid.New("rslvr-dnssec-")
 		cfg = &ResolverDnssecConfig{
 			ID:         id,
 			OwnerID:    b.accountID,

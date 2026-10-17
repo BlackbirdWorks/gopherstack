@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // ---- VPC Endpoint Service Configurations ----
@@ -16,7 +16,7 @@ func (b *InMemoryBackend) CreateVpcEndpointServiceConfiguration(
 	b.mu.Lock("CreateVpcEndpointServiceConfiguration")
 	defer b.mu.Unlock()
 
-	svcID := "vpce-svc-" + uuid.New().String()[:8]
+	svcID := awsid.New("vpce-svc-")
 	svcName := "com.amazonaws.vpce." + b.Region + "." + svcID
 
 	cfg := &VpcEndpointServiceConfig{

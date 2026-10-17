@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // createTransitGatewayPeeringAttachmentLocal creates a TGW peering attachment.
@@ -23,7 +23,7 @@ func (b *InMemoryBackend) createTransitGatewayPeeringAttachmentLocal(
 	b.mu.Lock("CreateTransitGatewayPeeringAttachment")
 	defer b.mu.Unlock()
 
-	id := "tgw-attach-" + uuid.New().String()[:8]
+	id := awsid.New("tgw-attach-")
 	att := &TransitGatewayPeeringAttachment{
 		TransitGatewayAttachmentID: id,
 		RequesterTransitGatewayID:  transitGatewayID,
@@ -120,7 +120,7 @@ func (b *InMemoryBackend) CreateTransitGatewayConnect(
 	b.mu.Lock("CreateTransitGatewayConnect")
 	defer b.mu.Unlock()
 
-	id := "tgw-attach-" + uuid.New().String()[:8]
+	id := awsid.New("tgw-attach-")
 	conn := &TransitGatewayConnect{
 		TransitGatewayAttachmentID:          id,
 		TransportTransitGatewayAttachmentID: transportAttachmentID,
@@ -237,7 +237,7 @@ func (b *InMemoryBackend) CreateTransitGatewayConnectPeer(
 		tgwAsn = tgw.Options.AmazonSideAsn
 	}
 
-	id := "tgw-connect-peer-" + uuid.New().String()[:8]
+	id := awsid.New("tgw-connect-peer-")
 	peer := &TransitGatewayConnectPeer{
 		TransitGatewayConnectPeerID: id,
 		TransitGatewayAttachmentID:  connectAttachmentID,

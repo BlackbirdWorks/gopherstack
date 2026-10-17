@@ -5,7 +5,7 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // CreateManagedPrefixList creates a new managed prefix list.
@@ -24,7 +24,7 @@ func (b *InMemoryBackend) CreateManagedPrefixList(
 	b.mu.Lock("CreateManagedPrefixList")
 	defer b.mu.Unlock()
 
-	id := "pl-" + uuid.New().String()[:8]
+	id := awsid.New("pl-")
 	pl := &ManagedPrefixList{
 		PrefixListID:   id,
 		PrefixListName: name,

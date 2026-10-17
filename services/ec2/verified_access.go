@@ -5,7 +5,7 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // CreateVerifiedAccessEndpoint creates a Verified Access endpoint.
@@ -19,7 +19,7 @@ func (b *InMemoryBackend) CreateVerifiedAccessEndpoint(
 	b.mu.Lock("CreateVerifiedAccessEndpoint")
 	defer b.mu.Unlock()
 
-	id := "vae-" + uuid.New().String()[:8]
+	id := awsid.New("vae-")
 	ep := &VerifiedAccessEndpoint{
 		VerifiedAccessEndpointID: id,
 		VerifiedAccessGroupID:    groupID,
@@ -110,7 +110,7 @@ func (b *InMemoryBackend) CreateVerifiedAccessGroup(
 	b.mu.Lock("CreateVerifiedAccessGroup")
 	defer b.mu.Unlock()
 
-	id := "vagr-" + uuid.New().String()[:8]
+	id := awsid.New("vagr-")
 	grp := &VerifiedAccessGroup{
 		VerifiedAccessGroupID:    id,
 		VerifiedAccessInstanceID: instanceID,
@@ -172,7 +172,7 @@ func (b *InMemoryBackend) CreateVerifiedAccessInstance(description string) (*Ver
 	b.mu.Lock("CreateVerifiedAccessInstance")
 	defer b.mu.Unlock()
 
-	id := "vai-" + uuid.New().String()[:8]
+	id := awsid.New("vai-")
 	inst := &VerifiedAccessInstance{
 		VerifiedAccessInstanceID: id,
 		Status:                   stateActive,
@@ -243,7 +243,7 @@ func (b *InMemoryBackend) CreateVerifiedAccessTrustProvider(
 	b.mu.Lock("CreateVerifiedAccessTrustProvider")
 	defer b.mu.Unlock()
 
-	id := "vatp-" + uuid.New().String()[:8]
+	id := awsid.New("vatp-")
 	tp := &VerifiedAccessTrustProvider{
 		VerifiedAccessTrustProviderID: id,
 		TrustProviderType:             trustProviderType,
