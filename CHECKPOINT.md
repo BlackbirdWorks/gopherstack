@@ -52,7 +52,7 @@ because CI is slow.
    into real packages — e.g. `internal/app` (composition root),
    `internal/app/wiring` (cross-service seams by domain), CLI config, route
    gates, and the repo-wide guard tests in their own package. Keep
-   `default.pgo` next to `main`. Update Makefile, Dockerfiles, goreleaser, CI,
+   `default.pgo` next to `main`. Update Taskfile.yml, Dockerfiles, goreleaser, CI,
    guard tests that walk `services/` by relative path, docs. Needs exclusive
    branch access. Tidy root clutter (this file -> `docs/`,
    `PARITY_PHASE4_KICKOFF.md`, `parity.md`, `GEMINI.md`,
