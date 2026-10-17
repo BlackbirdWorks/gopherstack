@@ -144,7 +144,7 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 // (e.g. in isolated unit tests that never call SetOIDCLookup), the check is
 // skipped (permissive mock behaviour), matching validateOIDCProvider's same
 // "skip when unwired" convention below.
-func (b *InMemoryBackend) checkOutboundWebIdentityFederationEnabled() error {
+func (b *InMemoryBackend) checkOutboundWebIdentityFederationEnabled(account string) error {
 	b.mu.RLock("checkOutboundWebIdentityFederationEnabled")
 	asl := b.accountSettingsLookup
 	b.mu.RUnlock()
@@ -153,7 +153,12 @@ func (b *InMemoryBackend) checkOutboundWebIdentityFederationEnabled() error {
 		return nil
 	}
 
-	if !asl.OutboundWebIdentityFederationEnabled() {
+	enabled := asl.OutboundWebIdentityFederationEnabled()
+	if scoped, ok := asl.(accountScopedSettingsLookup); ok && account != "" {
+		enabled = scoped.OutboundWebIdentityFederationEnabledIn(account)
+	}
+
+	if !enabled {
 		return ErrOutboundWebIdentityFederationDisabled
 	}
 
@@ -422,7 +427,12 @@ func (b *InMemoryBackend) GetWebIdentityToken(
 ) (*GetWebIdentityTokenResponse, error) {
 	b.cntGetWebIdentityToken.Add(1)
 
-	if err := b.checkOutboundWebIdentityFederationEnabled(); err != nil {
+	account := ""
+	if input != nil {
+		account = input.Account
+	}
+
+	if err := b.checkOutboundWebIdentityFederationEnabled(account); err != nil {
 		return nil, err
 	}
 
