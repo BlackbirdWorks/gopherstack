@@ -356,3 +356,33 @@ func TestAccessorsMatchGet(t *testing.T) {
 		})
 	}
 }
+
+func TestAccountFromAccessKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		key    string
+		want   string
+		wantOK bool
+	}{
+		{name: "twelve digits", key: "111111111111", want: "111111111111", wantOK: true},
+		{name: "leading zeros", key: "000000000042", want: "000000000042", wantOK: true},
+		{name: "eleven digits", key: "11111111111"},
+		{name: "thirteen digits", key: "1111111111111"},
+		{name: "letters", key: "AKIAIOSFODNN"},
+		{name: "mixed", key: "11111111111a"},
+		{name: "unicode digits", key: "１１１１１１１１１１１１"},
+		{name: "empty", key: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := awsmeta.AccountFromAccessKey(tt.key)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

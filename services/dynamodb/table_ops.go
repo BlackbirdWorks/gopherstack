@@ -151,7 +151,7 @@ func (db *InMemoryDB) CreateTable(
 		return nil, err
 	}
 
-	tableArn := arn.Build("dynamodb", region, db.accountID, "table/"+tableName)
+	tableArn := arn.Build("dynamodb", region, accountFromContext(ctx, db), "table/"+tableName)
 
 	vectorIndexes, vectorErr := buildVectorIndexes(tableArn, models.FromSDKVectorIndexes(input.VectorIndexes))
 	if vectorErr != nil {

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -37,7 +36,7 @@ func (h *Handler) handleTagQueue(
 
 	if err := h.Backend.TagQueue(&TagQueueInput{
 		QueueURL: req.QueueURL,
-		Region:   httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		Region:   h.requestScope(r),
 		Tags:     req.Tags,
 	}); err != nil {
 		return nil, err
@@ -58,7 +57,7 @@ func (h *Handler) handleUntagQueue(
 
 	if err := h.Backend.UntagQueue(&UntagQueueInput{
 		QueueURL: req.QueueURL,
-		Region:   httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		Region:   h.requestScope(r),
 		TagKeys:  req.TagKeys,
 	}); err != nil {
 		return nil, err
@@ -79,7 +78,7 @@ func (h *Handler) handleListQueueTags(
 
 	out, err := h.Backend.ListQueueTags(&ListQueueTagsInput{
 		QueueURL: req.QueueURL,
-		Region:   httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		Region:   h.requestScope(r),
 	})
 	if err != nil {
 		return nil, err
