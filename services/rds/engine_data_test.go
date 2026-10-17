@@ -265,6 +265,13 @@ func waitStatus(t *testing.T, b *rds.InMemoryBackend, id, status string) {
 	}, engineWait, 5*time.Millisecond)
 }
 
+func (f *engineFixture) setProbeErr(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.probeErr = err
+}
+
 func (f *engineFixture) readyCluster(t *testing.T, id string) {
 	t.Helper()
 
@@ -304,8 +311,10 @@ func TestEngineClusterSnapshotAndPointInTimeRestore(t *testing.T) {
 			f := newEngineFixture(t, engineWait)
 			f.readyCluster(t, "c1")
 
+			f.setProbeErr(assert.AnError)
 			require.NoError(t, tt.restore(f))
 			assert.Equal(t, "creating", f.cluster(t, "c2").Status)
+			f.setProbeErr(nil)
 
 			require.Eventually(t, func() bool { return f.cluster(t, "c2").Status == "available" },
 				engineWait, 5*time.Millisecond)
