@@ -10,6 +10,8 @@ operation's own serializer/deserializer. Same-looking ops can differ: directconn
 `AllocatePrivateVirtualInterface` flattens `VirtualInterface` fields onto Output while
 `AllocateTransitVirtualInterface` nests it as `VirtualInterface *types.VirtualInterface`.
 
+For "which ops exist / are missing" use `scripts/dev/svcops.sh <service>` (see gopherstack-map).
+
 ## Fast path: use the script
 
 ```bash

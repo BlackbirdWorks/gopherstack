@@ -149,3 +149,10 @@ service cold:
 ```bash
 .claude/skills/gopherstack-map/scripts/svcmap.sh grafana
 ```
+
+## scripts/dev/svcops.sh
+
+`scripts/dev/svcops.sh <service> [sdk-pkg]` diffs the pinned SDK's `api_op_*.go` against what
+`services/<svc>` routes: implemented / missing / unverified (dynamic names) / extra (not in SDK).
+Run it before claiming an op exists or is missing. Limit: "implemented" means routed, not a real
+backend; stubs are possible, read the backend method. If missing on your branch, it's in PR #2493 / main after merge.
