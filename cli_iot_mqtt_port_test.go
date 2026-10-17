@@ -24,3 +24,22 @@ func TestCLI_IoTMQTTPort(t *testing.T) {
 		})
 	}
 }
+
+//nolint:paralleltest // uses t.Setenv via parseCLI
+func TestCLI_IoTMQTTAuth(t *testing.T) {
+	tests := []struct {
+		env  map[string]string
+		name string
+		want bool
+	}{
+		{name: "default_off", env: nil, want: false},
+		{name: "env_on", env: map[string]string{"IOT_MQTT_AUTH": "true"}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cli := parseCLI(t, tt.env)
+			assert.Equal(t, tt.want, cli.GetIoTSettings().MQTTAuth)
+		})
+	}
+}

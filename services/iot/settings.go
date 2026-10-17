@@ -6,7 +6,8 @@ const DefaultMQTTPort = 1883
 // Settings holds service-level configuration for the IoT backend. Kong picks the fields up when
 // the struct is embedded in the root CLI command.
 type Settings struct {
-	MQTTPort int `json:"mqttPort" env:"IOT_MQTT_PORT" default:"1883" name:"mqtt-port" help:"TCP port for the embedded IoT MQTT broker; 0 picks a free port."` //nolint:lll // config struct tags are intentionally verbose
+	MQTTPort int  `json:"mqttPort" env:"IOT_MQTT_PORT" default:"1883" name:"mqtt-port" help:"TCP port for the embedded IoT MQTT broker; 0 picks a free port."`                                                                                      //nolint:lll,golines // config struct tags are intentionally verbose
+	MQTTAuth bool `json:"mqttAuth" env:"IOT_MQTT_AUTH" default:"false" name:"mqtt-auth" help:"Require X.509 client certificates on the IoT MQTT broker (TLS) and authorise CONNECT/PUBLISH/SUBSCRIBE/RECEIVE with attached IoT policies (opt-in)."` //nolint:lll,golines // config struct tags are intentionally verbose
 }
 
 // DefaultSettings returns the settings used when no ConfigProvider is available.
