@@ -583,7 +583,7 @@ func (b *InMemoryBackend) awaitAndMark(ctx context.Context, lb *liveDB) {
 		}
 	}
 
-	if lb.kind != enginePostgres && b.wantsForwarder(lb) && lb.fwd.Load() == nil {
+	if lb.kind != enginePostgres && lb.fwd.Load() == nil {
 		if err := b.startForwarder(lb); err != nil {
 			b.failUnit(ctx, lb)
 

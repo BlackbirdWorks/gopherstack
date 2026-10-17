@@ -3,6 +3,7 @@ package rds_test
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"database/sql"
 	"net"
 	"net/http"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -115,4 +117,85 @@ func TestEngineDockerPostgresIAMAuth(t *testing.T) {
 	_, err = connect(wrong)
 	require.ErrorAs(t, err, &pgErr)
 	assert.Equal(t, "28000", pgErr.Code)
+}
+
+func TestEngineDockerMySQLIAMAuth(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		engine string
+	}{
+		{name: "mysql", engine: "mysql"},
+		{name: "mariadb", engine: "mariadb"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, _ := newDockerEngineBackend(t)
+
+			ib := iam.NewInMemoryBackend()
+			_, err := ib.CreateUser("alice", "/", "")
+			require.NoError(t, err)
+
+			ak, err := ib.CreateAccessKey("alice")
+			require.NoError(t, err)
+			require.NoError(t, ib.PutUserPolicy("alice", "p", `{"Version":"2012-10-17","Statement":[`+
+				`{"Effect":"Allow","Action":"rds-db:connect",`+
+				`"Resource":"arn:aws:rds-db:us-east-1:123456789012:dbuser:myiamdb/iamuser"}]}`))
+
+			b.SetIAMAuth(func() rds.IAMAuthConfig { return rds.IAMAuthConfig{Identities: ib, Enforce: true} })
+
+			_, err = b.CreateDBInstance("myiamdb", tt.engine, "db.t3.micro", "appdb", "master", "", 20,
+				rds.DBInstanceOptions{MasterUserPassword: "firstpass1", IAMDatabaseAuthenticationEnabled: true})
+			require.NoError(t, err)
+
+			var inst rds.DBInstance
+			require.Eventually(t, func() bool {
+				got, derr := b.DescribeDBInstances("myiamdb")
+				require.NoError(t, derr)
+				inst = got[0]
+				require.NotEqual(t, "failed", inst.DBInstanceStatus)
+
+				return inst.DBInstanceStatus == "available"
+			}, dockerEngineWait, 500*time.Millisecond)
+
+			pool := x509.NewCertPool()
+			require.True(t, pool.AppendCertsFromPEM(b.EngineCAPEM()))
+
+			endpoint := net.JoinHostPort(inst.Endpoint, strconv.Itoa(inst.Port))
+			creds := aws.Credentials{AccessKeyID: ak.AccessKeyID, SecretAccessKey: ak.SecretAccessKey}
+
+			selectOne := func(user, password string, withTLS bool) error {
+				cfg := mysql.NewConfig()
+				cfg.User, cfg.Passwd, cfg.Net, cfg.Addr = user, password, "tcp", endpoint
+				cfg.DBName, cfg.AllowCleartextPasswords, cfg.Timeout = "appdb", true, 10*time.Second
+
+				if withTLS {
+					cfg.TLS = &tls.Config{RootCAs: pool, ServerName: inst.Endpoint, MinVersion: tls.VersionTLS12}
+				}
+
+				conn, cerr := mysql.NewConnector(cfg)
+				require.NoError(t, cerr)
+
+				db := sql.OpenDB(conn)
+				defer func() { _ = db.Close() }()
+
+				var one int
+
+				return db.QueryRowContext(t.Context(), "SELECT 1").Scan(&one)
+			}
+
+			now := time.Now().UTC()
+			require.NoError(t, selectOne("iamuser", generateAuthToken(t, endpoint, "iamuser", creds, now), true))
+			require.NoError(t, selectOne("master", "firstpass1", true))
+
+			require.Error(t, selectOne("iamuser", generateAuthToken(t, endpoint, "iamuser", creds, now), false))
+			require.Error(t, selectOne("iamuser", generateAuthToken(t, endpoint, "iamuser", creds, now.Add(-time.Hour)), true))
+			require.Error(t, selectOne("iamuser", generateAuthToken(t, "127.0.0.1:1", "iamuser", creds, now), true))
+			require.Error(t, selectOne("master", "wrongpass", true))
+		})
+	}
 }

@@ -6,21 +6,22 @@ import (
 	"io"
 	"net"
 	"strconv"
-	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 )
 
 // tcpForwarder fronts a MySQL-family container so client connections are counted and can resume a paused cluster.
 type tcpForwarder struct {
-	ln    net.Listener
-	be    *InMemoryBackend
-	lb    *liveDB
-	conns sync.Map
-	wg    sync.WaitGroup
-	port  int
-	once  sync.Once
+	ln      net.Listener
+	be      *InMemoryBackend
+	lb      *liveDB
+	conns   sync.Map
+	wg      sync.WaitGroup
+	port    int
+	once    sync.Once
+	connSeq atomic.Uint32
 }
 
 func (f *tcpForwarder) close() {
@@ -37,21 +38,6 @@ func (f *tcpForwarder) close() {
 
 		f.be.engine.releasePort(f.port)
 	})
-}
-
-// wantsForwarder reports whether lb backs an auto-pausable cluster, whose connections must be observable.
-func (b *InMemoryBackend) wantsForwarder(lb *liveDB) bool {
-	cid, ok := strings.CutPrefix(lb.key, unitClusterPrefix)
-	if !ok {
-		return false
-	}
-
-	b.mu.RLock("rdsWantsForwarder")
-	defer b.mu.RUnlock()
-
-	c, found := b.clusters.Get(cid)
-
-	return found && autoPauseConfigured(c)
 }
 
 func (b *InMemoryBackend) startForwarder(lb *liveDB) error {
@@ -118,6 +104,12 @@ func (f *tcpForwarder) serve(client net.Conn) {
 
 	defer release()
 
+	if t, found := f.be.proxyTarget(f.lb, f.port); found && t.auth.enabled {
+		f.serveIAM(client, t)
+
+		return
+	}
+
 	f.be.mu.RLock("rdsForwardTarget")
 	addr := net.JoinHostPort(f.be.engine.cfg.Host, strconv.Itoa(f.lb.port))
 	f.be.mu.RUnlock()
@@ -133,6 +125,10 @@ func (f *tcpForwarder) serve(client net.Conn) {
 
 	defer func() { _ = up.Close() }()
 
+	pipeConns(client, up)
+}
+
+func pipeConns(client, up net.Conn) {
 	done := make(chan struct{}, pumpDirections)
 
 	go func() {
