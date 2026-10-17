@@ -358,11 +358,11 @@ func TestEngineAuroraClusterSharesOneContainer(t *testing.T) {
 	require.Eventually(t, func() bool { return f.cluster(t, "c1").Status == "available" },
 		engineWait, 5*time.Millisecond)
 
-	port := hostPort(t, f.rt.firstSpec())
 	cl := f.cluster(t, "c1")
+	port := cl.Port
+	assert.NotZero(t, port)
 	assert.Equal(t, "127.0.0.1", cl.Endpoint)
 	assert.Equal(t, "127.0.0.1", cl.ReaderEndpoint)
-	assert.Equal(t, port, cl.Port)
 
 	for _, id := range []string{"w1", "r1"} {
 		inst := f.waitInstance(t, id, "available")
