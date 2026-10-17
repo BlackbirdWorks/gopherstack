@@ -1,6 +1,8 @@
 package app
 
 import (
+	"github.com/blackbirdworks/gopherstack/internal/cliconfig"
+
 	"encoding/json"
 	"log/slog"
 	"net/http/httptest"
@@ -26,7 +28,7 @@ import (
 // (initializeServices, the function cli.go's Run() calls) rather than invoking
 // wireIoTAnalyticsCrossService directly, so that deleting the wiring call from
 // wireStorageAndSecretsIntegrations -- not just breaking the helper function itself -- is
-// what this test is sensitive to. See cli_sagemaker_s3_pipeline_wiring_test.go for the same
+// what this test is sensitive to. See sagemaker_s3_pipeline_wiring_test.go for the same
 // shape. deviceRegistryEnrich/deviceShadowEnrich are exercised end to end (pure state
 // lookups, no container needed); the lambda activity is exercised via its not-found error
 // path, since actually invoking a function needs a container runtime this test environment
@@ -188,7 +190,7 @@ func TestInitializeServices_IoTAnalyticsLambdaIoTWiring(t *testing.T) {
 func iotAnalyticsLifecycleKnob() lifecycleKnob {
 	return lifecycleKnob{
 		name: "iotanalytics",
-		set:  func(l *LifecycleSettings, d time.Duration) { l.IoTAnalytics = d },
+		set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.IoTAnalytics = d },
 		start: func(t *testing.T, cfg aws.Config) func() bool {
 			t.Helper()
 

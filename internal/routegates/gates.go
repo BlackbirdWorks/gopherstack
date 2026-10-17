@@ -1,7 +1,7 @@
-package app
+package routegates
 
 import (
-	_ "embed" // routePathGatesData
+	_ "embed" // pathGatesData
 	"strings"
 )
 
@@ -10,9 +10,9 @@ func namespaced(ns, prefix string) []string {
 	return []string{prefix, "com.amazonaws." + ns + prefix}
 }
 
-// routeTargetGates maps each service to the X-Amz-Target prefixes its RouteMatcher requires;
+// TargetGates maps each service to the X-Amz-Target prefixes its RouteMatcher requires;
 // TestRouteTargetGatesHold proves the matchers return false outside them.
-func routeTargetGates() map[string][]string {
+func TargetGates() map[string][]string {
 	return map[string][]string{
 		"ACM":                      {"CertificateManager."},
 		"ACMPCA":                   {"ACMPrivateCA."},
@@ -81,15 +81,15 @@ func routeTargetGates() map[string][]string {
 	}
 }
 
-//go:embed cli_route_path_gates.txt
-var routePathGatesData string
+//go:embed path_gates.txt
+var pathGatesData string
 
-// routePathGates maps each service to the path prefixes its matcher requires ("Name<TAB>prefixes");
+// PathGates maps each service to the path prefixes its matcher requires ("Name<TAB>prefixes");
 // TestRoutePathGatesHold proves the matchers return false outside them.
-func routePathGates() map[string][]string {
+func PathGates() map[string][]string {
 	gates := map[string][]string{}
 
-	for line := range strings.SplitSeq(routePathGatesData, "\n") {
+	for line := range strings.SplitSeq(pathGatesData, "\n") {
 		if name, prefixes, ok := strings.Cut(line, "\t"); ok {
 			gates[name] = strings.Fields(prefixes)
 		}

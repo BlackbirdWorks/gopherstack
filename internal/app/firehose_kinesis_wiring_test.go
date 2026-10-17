@@ -29,7 +29,7 @@ import (
 // (initializeServices, the function cli.go's Run() calls) rather than invoking
 // wireFirehoseKinesisSource directly, so that deleting the wiring call from
 // wireStorageAndSecretsIntegrations -- not just breaking the helper function itself -- is what
-// this test is sensitive to. Same shape as cli_kinesisanalytics_kinesis_s3_wiring_test.go.
+// this test is sensitive to. Same shape as kinesisanalytics_kinesis_s3_wiring_test.go.
 //
 // Regression test for gopherstack-o4ny: a delivery stream created with
 // DeliveryStreamType=KinesisStreamAsSource must actually poll its source Kinesis stream and

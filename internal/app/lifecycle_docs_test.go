@@ -1,6 +1,8 @@
 package app
 
 import (
+	"github.com/blackbirdworks/gopherstack/internal/cliconfig"
+
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -19,7 +21,7 @@ func lifecycleFlagNames(t *testing.T) map[string]bool {
 	t.Helper()
 
 	names := map[string]bool{}
-	typ := reflect.TypeFor[LifecycleSettings]()
+	typ := reflect.TypeFor[cliconfig.LifecycleSettings]()
 
 	for f := range typ.Fields() {
 		name := f.Tag.Get("name")

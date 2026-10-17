@@ -1,6 +1,8 @@
 package app
 
 import (
+	"github.com/blackbirdworks/gopherstack/internal/routegates"
+
 	"context"
 	"net/http/httptest"
 	"sync"
@@ -210,7 +212,9 @@ func TestRoutingSigningScopeDispatch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			router := service.NewServiceRouter(reg).WithTargetGates(routeTargetGates()).WithPathGates(routePathGates())
+			router := service.NewServiceRouter(reg).
+				WithTargetGates(routegates.TargetGates()).
+				WithPathGates(routegates.PathGates())
 
 			var (
 				mu  sync.Mutex
@@ -255,7 +259,9 @@ func TestRoutingSigningScopeUnimplementedNotBatch(t *testing.T) {
 	t.Parallel()
 
 	reg, _ := routingFixture(t)
-	router := service.NewServiceRouter(reg).WithTargetGates(routeTargetGates()).WithPathGates(routePathGates())
+	router := service.NewServiceRouter(reg).
+		WithTargetGates(routegates.TargetGates()).
+		WithPathGates(routegates.PathGates())
 
 	tests := []struct {
 		name, authSvc, uri string

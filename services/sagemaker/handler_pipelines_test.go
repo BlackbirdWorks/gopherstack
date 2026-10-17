@@ -109,7 +109,7 @@ func TestHandler_UpdatePipeline_FullFields(t *testing.T) {
 // silently dropping the field. Real fetch-and-use is covered by
 // TestHandler_CreatePipeline_S3Location_Fetched below; the cli.go
 // composition-root wiring itself is covered by
-// cli_sagemaker_s3_pipeline_wiring_test.go.
+// sagemaker_s3_pipeline_wiring_test.go.
 // ---------------------------------------------------------------------------
 
 func TestHandler_CreatePipeline_S3Location_UnreadableRejected(t *testing.T) {

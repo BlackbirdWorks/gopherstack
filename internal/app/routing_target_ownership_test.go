@@ -1,6 +1,8 @@
 package app
 
 import (
+	"github.com/blackbirdworks/gopherstack/internal/routegates"
+
 	"net/http/httptest"
 	"testing"
 
@@ -14,7 +16,9 @@ func TestRoutingTargetOwnership(t *testing.T) {
 	t.Parallel()
 
 	reg, _ := routingFixture(t)
-	router := service.NewServiceRouter(reg).WithTargetGates(routeTargetGates()).WithPathGates(routePathGates())
+	router := service.NewServiceRouter(reg).
+		WithTargetGates(routegates.TargetGates()).
+		WithPathGates(routegates.PathGates())
 
 	const (
 		local     = "localhost:4566"

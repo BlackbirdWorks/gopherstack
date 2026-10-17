@@ -1,6 +1,8 @@
 package app
 
 import (
+	"github.com/blackbirdworks/gopherstack/internal/routegates"
+
 	"math/rand/v2"
 	"net/http/httptest"
 	"slices"
@@ -156,7 +158,9 @@ func TestRoutingIndexMatchesLinearScan(t *testing.T) {
 
 	reg, entries := routingFixture(t)
 	cases := loadRoutingCorpus(t)
-	router := service.NewServiceRouter(reg).WithTargetGates(routeTargetGates()).WithPathGates(routePathGates())
+	router := service.NewServiceRouter(reg).
+		WithTargetGates(routegates.TargetGates()).
+		WithPathGates(routegates.PathGates())
 
 	all := make([]routingCase, 0, len(cases)*(1+indexVariantsPerCase)+indexCrossCases)
 
@@ -209,7 +213,7 @@ func TestRoutePathGatesHold(t *testing.T) {
 		byName[e.Registerable.Name()] = e
 	}
 
-	for name, prefixes := range routePathGates() {
+	for name, prefixes := range routegates.PathGates() {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -240,7 +244,9 @@ func TestRoutingPathGatedAlternatives(t *testing.T) {
 	t.Parallel()
 
 	reg, _ := routingFixture(t)
-	router := service.NewServiceRouter(reg).WithTargetGates(routeTargetGates()).WithPathGates(routePathGates())
+	router := service.NewServiceRouter(reg).
+		WithTargetGates(routegates.TargetGates()).
+		WithPathGates(routegates.PathGates())
 
 	tests := []struct {
 		name, method, uri, target, want string

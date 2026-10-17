@@ -39,8 +39,8 @@ func discoverSchemaErrorCode(err error) string {
 // (initializeServices, the function cli.go's Run() calls) rather than invoking
 // wireKinesisAnalyticsCrossService directly, so that deleting the wiring call from
 // wireStorageAndSecretsIntegrations -- not just breaking the helper function itself -- is what
-// this test is sensitive to. Same shape as cli_glacier_select_s3_wiring_test.go/
-// cli_iotanalytics_lambda_iot_wiring_test.go. Covers DiscoverInputSchema's real sampling+
+// this test is sensitive to. Same shape as glacier_select_s3_wiring_test.go/
+// iotanalytics_lambda_iot_wiring_test.go. Covers DiscoverInputSchema's real sampling+
 // inference (services/kinesisanalytics/discover_schema.go): S3 objects and Kinesis stream
 // records put directly into the wired sibling backends must be visible through the SDK client,
 // with real inferred columns -- not a canned shape. A Firehose-sourced request for a stream

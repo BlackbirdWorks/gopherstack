@@ -1,6 +1,8 @@
 package app
 
 import (
+	"github.com/blackbirdworks/gopherstack/internal/routegates"
+
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -86,8 +88,8 @@ func newMultiAccountStackWith(t *testing.T, enforce bool) *multiAccountStack {
 	e.Pre(awsMetaMiddleware("us-east-1", "000000000000"))
 	e.Use(
 		service.NewServiceRouter(registry).
-			WithTargetGates(routeTargetGates()).
-			WithPathGates(routePathGates()).
+			WithTargetGates(routegates.TargetGates()).
+			WithPathGates(routegates.PathGates()).
 			RouteHandler(),
 	)
 

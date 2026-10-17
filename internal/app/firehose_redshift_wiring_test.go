@@ -22,7 +22,7 @@ import (
 // (initializeServices, the function cli.go's Run() calls) rather than invoking
 // wireFirehoseRedshift directly, so that deleting the wiring call from
 // wireStorageAndSecretsIntegrations -- not just breaking the helper function itself -- is what
-// this test is sensitive to. Same shape as cli_firehose_kinesis_wiring_test.go.
+// this test is sensitive to. Same shape as firehose_kinesis_wiring_test.go.
 //
 // Regression test for gopherstack-lgwb: a delivery stream with a Redshift destination must
 // actually issue the COPY command against the real Redshift Data API after S3 staging, not

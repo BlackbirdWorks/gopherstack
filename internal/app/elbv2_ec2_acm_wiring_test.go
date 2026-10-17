@@ -25,7 +25,7 @@ import (
 // invoking wireELBv2CrossService directly, so that deleting the wiring call
 // from wireComputeAndObservabilityIntegrations -- not just breaking the
 // helper function itself -- is what this test is sensitive to. Mirrors
-// TestInitializeServices_ELBEC2ACMWiring (cli_elb_ec2_acm_wiring_test.go) for
+// TestInitializeServices_ELBEC2ACMWiring (elb_ec2_acm_wiring_test.go) for
 // ELBv2. Covers three things wired by the same cli.go call site
 // (gopherstack-t74c/gopherstack-v7ns): EC2 (SecurityGroups/Subnets
 // existence, CreateLoadBalancer), ACM (CertificateArn existence on

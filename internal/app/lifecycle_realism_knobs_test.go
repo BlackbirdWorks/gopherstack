@@ -1,6 +1,8 @@
 package app
 
 import (
+	"github.com/blackbirdworks/gopherstack/internal/cliconfig"
+
 	"testing"
 	"time"
 
@@ -24,7 +26,7 @@ func realismLifecycleKnobs() []lifecycleKnob {
 	return []lifecycleKnob{
 		{
 			name: "accessanalyzer",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.AccessAnalyzer = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.AccessAnalyzer = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -47,7 +49,7 @@ func realismLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "acmpca",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.ACMPCA = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.ACMPCA = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -85,7 +87,7 @@ func realismLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "appstream",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.AppStream = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.AppStream = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -108,7 +110,7 @@ func realismLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "detective",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.Detective = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.Detective = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 

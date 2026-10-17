@@ -1,6 +1,8 @@
 package app
 
 import (
+	"github.com/blackbirdworks/gopherstack/internal/cliconfig"
+
 	"archive/zip"
 	"bytes"
 	"testing"
@@ -68,7 +70,7 @@ const (
 )
 
 type lifecycleKnob struct {
-	set        func(l *LifecycleSettings, d time.Duration)
+	set        func(l *cliconfig.LifecycleSettings, d time.Duration)
 	start      func(t *testing.T, cfg aws.Config) func() bool
 	name       string
 	skipGlobal bool
@@ -105,7 +107,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 	return []lifecycleKnob{
 		{
 			name: "elasticsearch",
-			set:  func(*LifecycleSettings, time.Duration) {},
+			set:  func(*cliconfig.LifecycleSettings, time.Duration) {},
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -128,7 +130,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "vpclattice",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.VPCLattice = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.VPCLattice = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -146,7 +148,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "opensearch",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.OpenSearchProcessing = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.OpenSearchProcessing = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -167,7 +169,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "elasticache",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.ElastiCache = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.ElastiCache = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -193,7 +195,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "memorydb",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.MemoryDB = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.MemoryDB = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -218,7 +220,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "docdb",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.DocDB = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.DocDB = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -244,7 +246,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "neptune",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.Neptune = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.Neptune = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -268,7 +270,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "kafka",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.Kafka = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.Kafka = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -295,7 +297,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "lambda_activation",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.LambdaActivation = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.LambdaActivation = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -315,7 +317,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name:       "lambda_provisioned_concurrency",
-			set:        func(l *LifecycleSettings, d time.Duration) { l.LambdaProvisionedConcurrency = d },
+			set:        func(l *cliconfig.LifecycleSettings, d time.Duration) { l.LambdaProvisionedConcurrency = d },
 			skipGlobal: true,
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
@@ -351,7 +353,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "mediastore",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.MediaStore = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.MediaStore = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -374,7 +376,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "efs",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.EFS = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.EFS = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -399,7 +401,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "autoscaling",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.Autoscaling = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.Autoscaling = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -427,7 +429,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "redshiftdata",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.RedshiftData = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.RedshiftData = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -449,7 +451,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "pinpoint",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.Pinpoint = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.Pinpoint = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -481,7 +483,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "redshift",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.Redshift = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.Redshift = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -507,7 +509,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "ssm_command",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.SSMCommand = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.SSMCommand = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -532,7 +534,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "ssm_automation",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.SSMAutomation = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.SSMAutomation = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -554,7 +556,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "ecs_start",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.ECSStart = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.ECSStart = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -566,7 +568,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name:       "ecs_stop",
-			set:        func(l *LifecycleSettings, d time.Duration) { l.ECSStop = d },
+			set:        func(l *cliconfig.LifecycleSettings, d time.Duration) { l.ECSStop = d },
 			skipGlobal: true,
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
@@ -584,7 +586,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "awsconfig",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.AWSConfig = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.AWSConfig = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -609,7 +611,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "inspector2",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.Inspector2 = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.Inspector2 = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -630,7 +632,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "apprunner",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.AppRunner = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.AppRunner = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -658,7 +660,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "kinesisanalyticsv2",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.KinesisAnalyticsV2 = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.KinesisAnalyticsV2 = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -686,7 +688,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "workspaces",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.WorkSpaces = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.WorkSpaces = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -711,7 +713,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "quicksight",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.QuickSight = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.QuickSight = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -736,7 +738,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "bedrockagent",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.BedrockAgent = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.BedrockAgent = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -762,7 +764,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "elasticbeanstalk",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.ElasticBeanstalk = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.ElasticBeanstalk = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -788,7 +790,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "fsx",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.FSx = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.FSx = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -815,7 +817,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "route53resolver",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.Route53Resolver = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.Route53Resolver = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -844,7 +846,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "medialive",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.MediaLive = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.MediaLive = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -864,7 +866,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "transcribe",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.Transcribe = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.Transcribe = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -888,7 +890,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		},
 		{
 			name: "rekognition",
-			set:  func(l *LifecycleSettings, d time.Duration) { l.Rekognition = d },
+			set:  func(l *cliconfig.LifecycleSettings, d time.Duration) { l.Rekognition = d },
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -917,7 +919,7 @@ func baseLifecycleKnobs() []lifecycleKnob {
 		iotAnalyticsLifecycleKnob(),
 		{
 			name: "dynamodb",
-			set:  func(*LifecycleSettings, time.Duration) {},
+			set:  func(*cliconfig.LifecycleSettings, time.Duration) {},
 			start: func(t *testing.T, cfg aws.Config) func() bool {
 				t.Helper()
 
@@ -969,7 +971,10 @@ func TestLifecycleDelayWiring(t *testing.T) {
 					t.Skip("global delay also delays a prerequisite")
 				}
 
-				poll := k.start(t, newWiredSDKConfig(t, CLI{Lifecycle: LifecycleSettings{Delay: lifecycleLongDelay}}))
+				poll := k.start(
+					t,
+					newWiredSDKConfig(t, CLI{Lifecycle: cliconfig.LifecycleSettings{Delay: lifecycleLongDelay}}),
+				)
 				assert.True(t, poll())
 			})
 
@@ -1056,14 +1061,14 @@ func TestLifecycleDelayCloudFront(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		life       LifecycleSettings
+		life       cliconfig.LifecycleSettings
 		wantHeld   bool
 		wantSettle bool
 	}{
-		{name: "default", life: LifecycleSettings{}, wantSettle: true},
-		{name: "specific", life: LifecycleSettings{CloudFront: lifecycleLongDelay}, wantHeld: true},
-		{name: "global", life: LifecycleSettings{Delay: lifecycleLongDelay}, wantHeld: true},
-		{name: "short", life: LifecycleSettings{CloudFront: lifecycleShortDelay}, wantSettle: true},
+		{name: "default", life: cliconfig.LifecycleSettings{}, wantSettle: true},
+		{name: "specific", life: cliconfig.LifecycleSettings{CloudFront: lifecycleLongDelay}, wantHeld: true},
+		{name: "global", life: cliconfig.LifecycleSettings{Delay: lifecycleLongDelay}, wantHeld: true},
+		{name: "short", life: cliconfig.LifecycleSettings{CloudFront: lifecycleShortDelay}, wantSettle: true},
 	}
 
 	for _, tt := range tests {
@@ -1127,13 +1132,21 @@ func TestLifecycleDelayQuickSightIngestion(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		life       LifecycleSettings
+		life       cliconfig.LifecycleSettings
 		wantHeld   bool
 		wantSettle bool
 	}{
-		{name: "explicit holds", life: LifecycleSettings{QuickSightIngestion: lifecycleLongDelay}, wantHeld: true},
-		{name: "global ignored", life: LifecycleSettings{Delay: lifecycleLongDelay}, wantSettle: true},
-		{name: "short settles", life: LifecycleSettings{QuickSightIngestion: lifecycleShortDelay}, wantSettle: true},
+		{
+			name:     "explicit holds",
+			life:     cliconfig.LifecycleSettings{QuickSightIngestion: lifecycleLongDelay},
+			wantHeld: true,
+		},
+		{name: "global ignored", life: cliconfig.LifecycleSettings{Delay: lifecycleLongDelay}, wantSettle: true},
+		{
+			name:       "short settles",
+			life:       cliconfig.LifecycleSettings{QuickSightIngestion: lifecycleShortDelay},
+			wantSettle: true,
+		},
 	}
 
 	for _, tt := range tests {

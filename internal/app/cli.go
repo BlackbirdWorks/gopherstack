@@ -1,6 +1,10 @@
 package app
 
 import (
+	"github.com/blackbirdworks/gopherstack/internal/routegates"
+
+	"github.com/blackbirdworks/gopherstack/internal/cliconfig"
+
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -503,7 +507,7 @@ type CLI struct {
 	IoT                           iotbackend.Settings               `embed:"" prefix:"iot-"`
 	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"        default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."` //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMax           int                               `                                       name:"ec2-docker-ssh-port-max" env:"EC2_DOCKER_SSH_PORT_MAX"        default:"0"             help:"Upper bound of the host TCP port range used to map EC2-docker SSH."`                       //nolint:lll // config struct tags are intentionally verbose
-	Lifecycle                     LifecycleSettings                 `embed:"" prefix:"lifecycle-"`
+	Lifecycle                     cliconfig.LifecycleSettings       `embed:"" prefix:"lifecycle-"`
 	ElasticsearchProcessingDelay  time.Duration                     `                                       name:"es-processing-delay"     env:"ELASTICSEARCH_PROCESSING_DELAY" default:"0s"            help:"Elasticsearch domain Processing window; 0 settles instantly."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
 	InitScriptTimeout             time.Duration                     `                                       name:"init-timeout"            env:"INIT_TIMEOUT"                   default:"30s"           help:"Per-script timeout for init hooks."`                                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
 	JanitorTimeout                time.Duration                     `                                       name:"janitor-timeout"         env:"JANITOR_TIMEOUT"                default:"30s"           help:"Per-task timeout for janitor operations (TTL sweeps, table cleaners, etc.). Zero disables per-task timeouts. Higher values prevent deadlocks; lower values keep the janitor loop responsive."` //nolint:lll // config struct tags are intentionally verbose
@@ -557,7 +561,7 @@ func (c *CLI) createPersistenceStore() (*persistence.FileStore, error) {
 
 func (c *CLI) GetDynamoDBSettings() ddbbackend.Settings {
 	s := c.DynamoDB
-	s.CreateDelay = c.Lifecycle.effective(s.CreateDelay)
+	s.CreateDelay = c.Lifecycle.Effective(s.CreateDelay)
 
 	return s
 }
@@ -666,47 +670,6 @@ func (c *CLI) GetKMSSettings() kmsbackend.Settings {
 // GetSTSSettings returns STS settings (sts.ConfigProvider).
 func (c *CLI) GetSTSSettings() stsbackend.Settings {
 	return c.STS
-}
-
-// PersistableConfig holds settings that can be saved to disk.
-type PersistableConfig struct {
-	ElasticsearchEngine string                    `json:"elasticsearch_engine"`
-	ElastiCacheEngine   string                    `json:"elasticache_engine"`
-	Region              string                    `json:"region"`
-	LogLevel            string                    `json:"log_level"`
-	Port                string                    `json:"port"`
-	OpenSearchEngine    string                    `json:"opensearch_engine"`
-	AccountID           string                    `json:"account_id"`
-	DataDir             string                    `json:"data_dir"`
-	DNSListenAddr       string                    `json:"dns_listen_addr"`
-	DNSResolveIP        string                    `json:"dns_resolve_ip"`
-	S3                  s3backend.Settings        `json:"s3"`
-	Lambda              lambdabackend.Settings    `json:"lambda"`
-	DynamoDB            ddbbackend.Settings       `json:"dynamodb"`
-	Batch               batchbackend.Settings     `json:"batch"`
-	EC2                 ec2backend.Settings       `json:"ec2"`
-	CodeBuild           codebuildbackend.Settings `json:"codebuild"`
-	FIS                 fisbackend.Settings       `json:"fis"`
-	Athena              athenabackend.Settings    `json:"athena"`
-	EMR                 emrbackend.Settings       `json:"emr"`
-	SES                 sesbackend.Settings       `json:"ses"`
-	SSM                 ssmbackend.Settings       `json:"ssm"`
-	XRay                xraybackend.Settings      `json:"xray"`
-	Backup              backupbackend.Settings    `json:"backup"`
-	PortRangeEnd        int                       `json:"port_range_end"`
-	InitScriptTimeout   time.Duration             `json:"init_script_timeout"`
-	LatencyMs           int                       `json:"latency_ms"`
-	PortRangeStart      int                       `json:"port_range_start"`
-	JanitorTimeout      time.Duration             `json:"janitor_timeout"`
-	CloudWatchLogs      cwlogsbackend.Settings    `json:"cloudwatchlogs"`
-	STS                 stsbackend.Settings       `json:"sts"`
-	StepFunctions       sfnbackend.Settings       `json:"stepfunctions"`
-	AutoPurgeTTL        time.Duration             `json:"auto_purge_ttl"`
-	Kinesis             kinesisbackend.Settings   `json:"kinesis"`
-	KMS                 kmsbackend.Settings       `json:"kms"`
-	EnforceIAM          bool                      `json:"enforce_iam"`
-	Demo                bool                      `json:"demo"`
-	Persist             bool                      `json:"persist"`
 }
 
 // GetSettings returns the dashboard configuration settings.
@@ -921,7 +884,7 @@ func (c *CLI) SaveConfig() error {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	cfg := PersistableConfig{
+	cfg := cliconfig.PersistableConfig{
 		AccountID:           c.AccountID,
 		Region:              c.Region,
 		LatencyMs:           c.LatencyMs,
@@ -986,7 +949,7 @@ func (c *CLI) LoadConfig() error {
 		return fmt.Errorf("failed to read config: %w", err)
 	}
 
-	var cfg PersistableConfig
+	var cfg cliconfig.PersistableConfig
 	if unmarshalErr := json.Unmarshal(data, &cfg); unmarshalErr != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", unmarshalErr)
 	}
@@ -1271,7 +1234,7 @@ func (c *CLI) GetElasticsearchEngine() string { return c.ElasticsearchEngine }
 
 // GetElasticsearchProcessingDelay returns the domain Processing window (elasticsearch.ProcessingDelayConfig).
 func (c *CLI) GetElasticsearchProcessingDelay() time.Duration {
-	return c.Lifecycle.effective(c.ElasticsearchProcessingDelay)
+	return c.Lifecycle.Effective(c.ElasticsearchProcessingDelay)
 }
 
 // GetElasticsearchHandler returns the Elasticsearch handler.
@@ -2120,7 +2083,7 @@ func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *port
 	// range that happens to include 8081 (e.g. 8000-8100) still needs this
 	// reservation to keep PortAlloc from handing 8081 to an unrelated
 	// caller. See AZURE.md section 4, services/cosmosdb/settings.go's
-	// DefaultPort doc comment, and cli_cosmosdb_port_reservation_test.go's
+	// DefaultPort doc comment, and cosmosdb_port_reservation_test.go's
 	// table (which -- unlike AzureBlob/AzureQueue/AzureTable's tables --
 	// covers both the outside-range default case AND a custom in-range
 	// case, since only CosmosDB's default port has this inverted default
@@ -12203,7 +12166,9 @@ func setupRegistry(
 		}
 	}
 
-	router := service.NewServiceRouter(registry).WithTargetGates(routeTargetGates()).WithPathGates(routePathGates())
+	router := service.NewServiceRouter(registry).
+		WithTargetGates(routegates.TargetGates()).
+		WithPathGates(routegates.PathGates())
 	e.Use(router.RouteHandler())
 
 	return registry, nil

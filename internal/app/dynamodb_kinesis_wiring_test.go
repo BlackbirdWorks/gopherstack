@@ -20,7 +20,7 @@ import (
 // (initializeServices, the function cli.go's Run() calls) rather than invoking
 // wireDynamoDBKinesis directly, so that deleting the wiring call from
 // wireStorageAndSecretsIntegrations -- not just breaking the helper function itself -- is what
-// this test is sensitive to. Same shape as cli_firehose_kinesis_wiring_test.go.
+// this test is sensitive to. Same shape as firehose_kinesis_wiring_test.go.
 //
 // Regression test for gopherstack-eouu: a table with EnableKinesisStreamingDestination
 // configured must actually forward mutation records to the destination Kinesis stream, not

@@ -1,6 +1,8 @@
 package app
 
 import (
+	"github.com/blackbirdworks/gopherstack/internal/routegates"
+
 	"bufio"
 	"context"
 	"fmt"
@@ -186,7 +188,9 @@ func TestRoutingEquivalence(t *testing.T) {
 	reg, entries := routingFixture(t)
 	cases := loadRoutingCorpus(t)
 
-	router := service.NewServiceRouter(reg).WithTargetGates(routeTargetGates()).WithPathGates(routePathGates())
+	router := service.NewServiceRouter(reg).
+		WithTargetGates(routegates.TargetGates()).
+		WithPathGates(routegates.PathGates())
 	scan := selectAll(t, cases, func(c *echo.Context) string { return scanSelect(entries, c) })
 	lookup := selectAll(t, cases, func(c *echo.Context) string { return entryName(router.Lookup(c)) })
 
@@ -261,7 +265,7 @@ func TestRouteTargetGatesHold(t *testing.T) {
 		byName[e.Registerable.Name()] = e
 	}
 
-	for name, prefixes := range routeTargetGates() {
+	for name, prefixes := range routegates.TargetGates() {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 

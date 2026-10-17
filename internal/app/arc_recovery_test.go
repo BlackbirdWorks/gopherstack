@@ -1,6 +1,8 @@
 package app
 
 import (
+	"github.com/blackbirdworks/gopherstack/internal/routegates"
+
 	"log/slog"
 	"net"
 	"net/http"
@@ -51,8 +53,8 @@ func arcStack(t *testing.T) aws.Config {
 	e.Pre(awsMetaMiddleware(regionA, "000000000000"))
 	e.Use(
 		service.NewServiceRouter(registry).
-			WithTargetGates(routeTargetGates()).
-			WithPathGates(routePathGates()).
+			WithTargetGates(routegates.TargetGates()).
+			WithPathGates(routegates.PathGates()).
 			RouteHandler(),
 	)
 

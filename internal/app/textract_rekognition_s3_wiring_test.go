@@ -51,7 +51,7 @@ func doJSONTargetRequest(
 
 // newTestAppContext builds a minimal service.AppContext for driving the real
 // initializeServices composition root, matching the pattern used by the
-// other cli_*_wiring_test.go files (e.g. TestInitializeServices_LambdaS3CodeWiring).
+// other *_wiring_test.go files (e.g. TestInitializeServices_LambdaS3CodeWiring).
 func newTestAppContext(t *testing.T, portFrom, portTo int) *service.AppContext {
 	t.Helper()
 

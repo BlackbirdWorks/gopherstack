@@ -563,7 +563,7 @@ linters:
       # Same reasoning as iotanalytics/handler_create_tags_test.go above -- this
       # internal/app composition-root wiring test also drives the deprecated iotanalytics
       # SDK client end to end.
-      - path: 'cli_iotanalytics_lambda_iot_wiring_test.go'
+      - path: 'iotanalytics_lambda_iot_wiring_test.go'
         linters: [ staticcheck ]
       # Same reasoning as iotanalytics/handler_create_tags_test.go above -- the
       # go-sdk-v2 upgrade extended SA1019 from the deprecated methods to every

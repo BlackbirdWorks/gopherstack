@@ -23,7 +23,7 @@ import (
 // (services/ec2/instance_type_catalog.go) among the m5 family. Uses the same
 // composition-root harness as
 // TestWireAutoScalingEC2_MixedInstancesPolicyRoundRobin
-// (cli_asg_ec2_launch_template_wiring_test.go).
+// (asg_ec2_launch_template_wiring_test.go).
 func TestWireAutoScalingEC2_InstanceRequirementsResolvesViaEC2Catalog(t *testing.T) {
 	t.Parallel()
 

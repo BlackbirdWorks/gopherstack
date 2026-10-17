@@ -7,7 +7,7 @@ package pipes_test
 // PARITY.md gap): both pollers are exercised against fake
 // PipeKinesisReader/PipeDynamoDBStreamsReader implementations (the real
 // backend adapters live in cli.go and are proven end-to-end against the real
-// kinesis/dynamodb backends by cli_pipes_wiring_test.go in the root package).
+// kinesis/dynamodb backends by pipes_wiring_test.go in the root package).
 // Kafka/MSK/ActiveMQ/RabbitMQ broker sources (a much deeper parameter
 // surface: credentials, VPC config, clone isolation) live in
 // sources_brokers_test.go.
@@ -789,7 +789,7 @@ func newStreamSourceHarness(t *testing.T, tc streamSourceCase) *streamSourceHarn
 // failed GetRecords does not leave a stale shard iterator cached), and
 // target-failure DLQ redirection, for both source types. The real backend
 // adapters live in cli.go and are proven end-to-end against the real
-// kinesis/dynamodb backends by cli_pipes_wiring_test.go in the root package.
+// kinesis/dynamodb backends by pipes_wiring_test.go in the root package.
 func TestPipesRunner_StreamSourcePolling(t *testing.T) {
 	t.Parallel()
 

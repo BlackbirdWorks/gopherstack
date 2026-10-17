@@ -1,6 +1,8 @@
 package app
 
 import (
+	"github.com/blackbirdworks/gopherstack/internal/routegates"
+
 	"context"
 	"log/slog"
 	"net"
@@ -76,8 +78,8 @@ func regionIsolationURL(t *testing.T) string {
 		e := echo.New()
 		e.Pre(awsMetaMiddleware(regionA, "000000000000"))
 		router := service.NewServiceRouter(registry).
-			WithTargetGates(routeTargetGates()).
-			WithPathGates(routePathGates())
+			WithTargetGates(routegates.TargetGates()).
+			WithPathGates(routegates.PathGates())
 		e.Use(router.RouteHandler())
 		regionSrvURL = httptest.NewServer(e).URL
 	})

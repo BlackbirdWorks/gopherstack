@@ -20,7 +20,7 @@ import (
 // (initializeServices, the function cli.go's Run() calls) rather than invoking
 // wireCloudWatchFirehose directly, so that deleting the wiring call from
 // wireStorageAndSecretsIntegrations -- not just breaking the helper function itself -- is what
-// this test is sensitive to. Same shape as cli_firehose_kinesis_wiring_test.go.
+// this test is sensitive to. Same shape as firehose_kinesis_wiring_test.go.
 //
 // Regression test for gopherstack-vjmc: a metric stream created with a Firehose destination
 // must actually deliver matched metric data to that delivery stream, not silently accept the
