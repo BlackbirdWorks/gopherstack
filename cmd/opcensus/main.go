@@ -383,7 +383,9 @@ type opWalker struct {
 	seen             map[string]bool
 	visited          map[*ast.FuncDecl]bool
 	dynamicSources   map[string]bool
-	resolvedNames    map[string]bool
+	dynamicScopes    map[string]map[*ast.FuncDecl]bool
+	resolvedNames    map[resolveKey]bool
+	cur              *ast.FuncDecl
 	ambiguousReasons []string
 	ambiguous        bool
 }
@@ -394,8 +396,27 @@ func newOpWalker(idx pkgIndex) *opWalker {
 		seen:           map[string]bool{},
 		visited:        map[*ast.FuncDecl]bool{},
 		dynamicSources: map[string]bool{},
-		resolvedNames:  map[string]bool{},
+		dynamicScopes:  map[string]map[*ast.FuncDecl]bool{},
+		resolvedNames:  map[resolveKey]bool{},
 	}
+}
+
+// resolveKey identifies one name lookup; a bare-identifier lookup is scoped
+// to a function, a field (selector) lookup is package-wide (scope nil).
+type resolveKey struct {
+	scope *ast.FuncDecl
+	name  string
+}
+
+func (w *opWalker) addDynamicSource(name string, local bool) {
+	w.dynamicSources[name] = true
+	if !local || w.cur == nil {
+		return
+	}
+	if w.dynamicScopes[name] == nil {
+		w.dynamicScopes[name] = map[*ast.FuncDecl]bool{}
+	}
+	w.dynamicScopes[name][w.cur] = true
 }
 
 func (w *opWalker) recordLiteral(lit *ast.BasicLit) {
@@ -424,6 +445,10 @@ func (w *opWalker) walk(fd *ast.FuncDecl, depth int) {
 		return
 	}
 	w.visited[fd] = true
+
+	prev := w.cur
+	w.cur = fd
+	defer func() { w.cur = prev }()
 
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
 		return w.visitNode(n, depth)
@@ -506,7 +531,7 @@ func (w *opWalker) visitNode(n ast.Node, depth int) bool {
 		// selector unconditionally is safe: it only feeds
 		// resolveDynamicSources, which is only consulted once the direct
 		// walk found zero literals (see censusService).
-		w.dynamicSources[v.Sel.Name] = true
+		w.addDynamicSource(v.Sel.Name, false)
 	}
 
 	return true
@@ -597,16 +622,16 @@ func (w *opWalker) visitIdent(id *ast.Ident, depth int) {
 		return
 	}
 	if _, ok := w.idx.varSpecs[id.Name]; ok {
-		w.dynamicSources[id.Name] = true
+		w.addDynamicSource(id.Name, true)
 	}
 }
 
 func (w *opWalker) recordRangeTarget(x ast.Expr) {
 	switch v := x.(type) {
 	case *ast.SelectorExpr:
-		w.dynamicSources[v.Sel.Name] = true
+		w.addDynamicSource(v.Sel.Name, false)
 	case *ast.Ident:
-		w.dynamicSources[v.Name] = true
+		w.addDynamicSource(v.Name, true)
 	}
 }
 
@@ -671,7 +696,10 @@ func (w *opWalker) resolveDynamicSources() {
 	}
 
 	for src := range w.dynamicSources {
-		w.resolveName(src, 0)
+		w.resolveName(src, nil, 0)
+		for fd := range w.dynamicScopes[src] {
+			w.resolveName(src, fd, 0)
+		}
 	}
 
 	if len(w.seen) > 0 {
@@ -687,21 +715,26 @@ func (w *opWalker) resolveDynamicSources() {
 	}
 }
 
-// resolveName searches every file in the package for an assignment whose
-// left-hand side names a field or variable called name (`h.ops = ...` or
-// `keys := ...`), and chases each match's right-hand side. Package-wide,
-// unscoped by function -- a heuristic, not a real dataflow analysis -- so
-// it is guarded by resolvedNames (visit each name once) and maxWalkDepth
-// (bound the hop count), same discipline the funcDecl chase already uses.
-func (w *opWalker) resolveName(name string, depth int) {
-	if depth > maxWalkDepth || w.resolvedNames[name] {
+// resolveName chases assignments to name. A field (`h.ops = ...`) is
+// matched package-wide; a bare identifier (`keys := ...`) only inside scope,
+// the function it was read in, so same-named locals elsewhere are ignored.
+// Guarded by resolvedNames and maxWalkDepth.
+func (w *opWalker) resolveName(name string, scope *ast.FuncDecl, depth int) {
+	key := resolveKey{scope: scope, name: name}
+	if depth > maxWalkDepth || w.resolvedNames[key] {
 		return
 	}
-	w.resolvedNames[name] = true
+	w.resolvedNames[key] = true
 
 	for _, f := range w.idx.files {
-		for _, rhs := range findAssignments(f, name) {
-			w.chaseExpr(rhs, depth+1)
+		for _, fd := range f.Decls {
+			decl, ok := fd.(*ast.FuncDecl)
+			if !ok || decl.Body == nil {
+				continue
+			}
+			for _, rhs := range findAssignments(decl, name, scope != nil && decl == scope) {
+				w.chaseExpr(rhs, decl, depth+1)
+			}
 		}
 	}
 }
@@ -714,18 +747,18 @@ func (w *opWalker) resolveName(name string, depth int) {
 // a name in turn. A bare identifier is chased as a name too, for a local
 // variable assigned from another local variable or field
 // (`h.supportedOpsCache = keys`, then `keys := ...` elsewhere).
-func (w *opWalker) chaseExpr(expr ast.Expr, depth int) {
+func (w *opWalker) chaseExpr(expr ast.Expr, scope *ast.FuncDecl, depth int) {
 	switch e := expr.(type) {
 	case *ast.CallExpr:
-		w.chaseCall(e, depth)
+		w.chaseCall(e, scope, depth)
 	case *ast.Ident:
-		w.resolveName(e.Name, depth)
+		w.resolveName(e.Name, scope, depth)
 	case *ast.SelectorExpr:
-		w.resolveName(e.Sel.Name, depth)
+		w.resolveName(e.Sel.Name, nil, depth)
 	}
 }
 
-func (w *opWalker) chaseCall(call *ast.CallExpr, depth int) {
+func (w *opWalker) chaseCall(call *ast.CallExpr, scope *ast.FuncDecl, depth int) {
 	if name := calleeName(call.Fun); name != "" {
 		if callee, ok := w.idx.funcDecls[name]; ok {
 			w.walk(callee, depth)
@@ -734,7 +767,7 @@ func (w *opWalker) chaseCall(call *ast.CallExpr, depth int) {
 		}
 	}
 	for _, arg := range call.Args {
-		w.chaseExpr(arg, depth)
+		w.chaseExpr(arg, scope, depth)
 	}
 }
 
@@ -749,18 +782,18 @@ func calleeName(fun ast.Expr) string {
 	}
 }
 
-// findAssignments returns the right-hand side of every assignment in f
-// (`=` or `:=`) whose left-hand side is a bare identifier or a selector
-// (struct field) named name.
-func findAssignments(f *ast.File, name string) []ast.Expr {
+// findAssignments returns the right-hand side of every assignment in fd
+// (`=` or `:=`) whose left-hand side is a selector (struct field) named
+// name, or, when local is true, a bare identifier named name.
+func findAssignments(fd *ast.FuncDecl, name string, local bool) []ast.Expr {
 	var exprs []ast.Expr
-	ast.Inspect(f, func(n ast.Node) bool {
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
 		as, isAssign := n.(*ast.AssignStmt)
 		if !isAssign || len(as.Lhs) != len(as.Rhs) {
 			return true
 		}
 		for i, lhs := range as.Lhs {
-			if lhsName(lhs) == name {
+			if lhsName(lhs, local) == name {
 				exprs = append(exprs, as.Rhs[i])
 			}
 		}
@@ -771,9 +804,13 @@ func findAssignments(f *ast.File, name string) []ast.Expr {
 	return exprs
 }
 
-func lhsName(e ast.Expr) string {
+func lhsName(e ast.Expr, local bool) string {
 	switch v := e.(type) {
 	case *ast.Ident:
+		if !local {
+			return ""
+		}
+
 		return v.Name
 	case *ast.SelectorExpr:
 		return v.Sel.Name

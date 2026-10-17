@@ -100,15 +100,14 @@ func agentMessageOp(fn func(context.Context, *agentMessageIDInput) error) ssmAct
 // handleAgent serves the ec2messages protocol the SSM agent polls for Run Command work.
 func (h *Handler) handleAgent(ctx context.Context, c *echo.Context) error {
 	ctx = context.WithValue(ctx, agentHostKey{}, c.Request().Host)
-	// Not "ops": cmd/opcensus resolves assignments to that name into the SSM op census.
-	table := h.agentOps()
+	ops := h.agentOps()
 
 	return service.HandleTarget(
 		c, logger.Load(ctx),
 		"SSM", "application/x-amz-json-1.1",
-		slices.Sorted(maps.Keys(table)),
+		slices.Sorted(maps.Keys(ops)),
 		func(ctx context.Context, action string, body []byte) ([]byte, error) {
-			fn, ok := table[action]
+			fn, ok := ops[action]
 			if !ok {
 				return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 			}
