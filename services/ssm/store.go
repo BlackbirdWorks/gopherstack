@@ -56,6 +56,7 @@ type InMemoryBackend struct {
 	secrets                     SecretResolver
 	runner                      *CommandRunner
 	shells                      ShellOpener
+	portDialer                  PortDialer
 	dataChannels                map[string]context.CancelFunc
 	execCancels                 map[string]context.CancelFunc
 	agents                      map[string]*agentQueue

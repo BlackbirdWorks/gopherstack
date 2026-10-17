@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -29,6 +30,9 @@ const (
 	msgPayloadOff        = 120
 	msgUUIDHalf          = 8
 	msgSchemaVersion     = 1
+
+	// MaxStreamPayload bounds one frame payload (plugin stream data limit is 1024).
+	MaxStreamPayload = 1 << 20
 )
 
 // Data channel message types.
@@ -52,7 +56,10 @@ const (
 )
 
 // Flag payload values the client sends as a 4-byte big-endian integer.
-const flagTerminateSession uint32 = 2
+const (
+	flagDisconnectToPort uint32 = 1
+	flagTerminateSession uint32 = 2
+)
 
 var (
 	errMsgTooShort      = errors.New("data channel message too short")
@@ -88,7 +95,12 @@ func NewStreamMessage(messageType string, seq int64, payloadType uint32, payload
 
 // Marshal encodes the message with its SHA-256 payload digest.
 func (m *StreamMessage) Marshal() []byte {
-	out := make([]byte, msgPayloadOff+len(m.Payload))
+	payload := m.Payload
+	if len(payload) > MaxStreamPayload {
+		payload = payload[:MaxStreamPayload]
+	}
+
+	out := make([]byte, msgPayloadOff+len(payload))
 
 	binary.BigEndian.PutUint32(out, msgHeaderLength)
 
@@ -108,12 +120,12 @@ func (m *StreamMessage) Marshal() []byte {
 	copy(out[msgMessageIDOff:], m.MessageID[msgUUIDHalf:])
 	copy(out[msgMessageIDOff+msgUUIDHalf:], m.MessageID[:msgUUIDHalf])
 
-	digest := sha256.Sum256(m.Payload)
+	digest := sha256.Sum256(payload)
 	copy(out[msgPayloadDigestOff:], digest[:])
 
 	binary.BigEndian.PutUint32(out[msgPayloadTypeOff:], m.PayloadType)
-	binary.BigEndian.PutUint32(out[msgPayloadLengthOff:], uint32(len(m.Payload))) //nolint:gosec // bounded by frame size
-	copy(out[msgPayloadOff:], m.Payload)
+	binary.BigEndian.PutUint32(out[msgPayloadLengthOff:], uint32(len(payload)&math.MaxUint32))
+	copy(out[msgPayloadOff:], payload)
 
 	return out
 }
@@ -129,7 +141,7 @@ func ParseStreamMessage(b []byte) (*StreamMessage, error) {
 	}
 
 	payloadLen := binary.BigEndian.Uint32(b[msgPayloadLengthOff:])
-	if int64(payloadLen) != int64(len(b)-msgPayloadOff) {
+	if payloadLen > MaxStreamPayload || int64(payloadLen) != int64(len(b)-msgPayloadOff) {
 		return nil, fmt.Errorf("%w: %d", errMsgBadPayloadLen, payloadLen)
 	}
 
@@ -143,7 +155,10 @@ func ParseStreamMessage(b []byte) (*StreamMessage, error) {
 	seq := int64(binary.BigEndian.Uint64(b[msgSequenceNumberOff:])) //nolint:gosec // two's complement on the wire
 
 	m := &StreamMessage{
-		MessageType:    strings.Trim(strings.Trim(string(b[msgMessageTypeOff:msgMessageTypeOff+msgMessageTypeLen]), "\x00"), " "),
+		MessageType: strings.Trim(
+			strings.Trim(string(b[msgMessageTypeOff:msgMessageTypeOff+msgMessageTypeLen]), "\x00"),
+			" ",
+		),
 		SchemaVersion:  binary.BigEndian.Uint32(b[msgSchemaVersionOff:]),
 		CreatedDate:    binary.BigEndian.Uint64(b[msgCreatedDateOff:]),
 		SequenceNumber: seq,
@@ -227,6 +242,7 @@ type SizePayload struct {
 const (
 	actionTypeSessionType = "SessionType"
 	sessionTypeStandard   = "Standard_Stream"
+	sessionTypePort       = "Port"
 	actionStatusSuccess   = 1
 	agentVersion          = "3.3.0.0"
 )
