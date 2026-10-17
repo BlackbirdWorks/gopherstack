@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// Root README injection markers. Idempotent: a second `make docs` run
+// Root README injection markers. Idempotent: a second `task docs` run
 // replaces exactly the bytes between these markers with the same
 // deterministically-generated block, producing no diff.
 const (
@@ -123,7 +123,7 @@ func buildServiceTable(entries []summaryEntry) string {
 		"audit. **PARITY Entries** is the number of `ops:` entries audited in that service's " +
 		"PARITY.md -- a hand-grouped audit unit, not a raw operation count (one entry can name " +
 		"more than one real operation); a dash means the service is tracked by feature family " +
-		"instead. Run `make docs` to refresh this table.\n\n")
+		"instead. Run `task docs` to refresh this table.\n\n")
 
 	for _, cat := range categoryOrder() {
 		rows := byCategory[cat]

@@ -1132,7 +1132,7 @@ isolated worktree with only the appstream call site patched for compilation (not
 anywhere) -- `golangci-lint run ./services/autoscaling/...` and `golangci-lint run
 --new-from-rev=HEAD ./services/ec2/... .` (root verified the same way) both 0 issues after
 `--fix` resolved fieldalignment (both new structs) and a `modernize` `int32Ptr` rewrite in the
-autoscaling test file. Did NOT commit, push, run `bd` write commands, or run `make docs`.
+autoscaling test file. Did NOT commit, push, run `bd` write commands, or run `task docs`.
 
 ## 2026-09-12 (gopherstack-n3zi: typed-client coverage)
 

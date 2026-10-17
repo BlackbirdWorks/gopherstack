@@ -654,7 +654,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 	return h
 }
 
-// spaBuildStamp is written by `make ui-build` into dashboard/static/spa/build-stamp.json
+// spaBuildStamp is written by `task ui-build` into dashboard/static/spa/build-stamp.json
 // and go:embed-ed alongside the compiled JS, so it travels with whatever SPA
 // bundle actually ended up in the binary.
 type spaBuildStamp struct {
@@ -664,7 +664,7 @@ type spaBuildStamp struct {
 
 // logEmbeddedSPABuildStamp logs which SPA build is embedded in this binary.
 // dashboard/static/spa is gitignored and go:embed-ed, so a bare `go build`
-// (skipping `make build`'s ui-build step) silently ships whatever compiled JS
+// (skipping `task build`'s ui-build step) silently ships whatever compiled JS
 // happens to be on disk — this makes that visible in server logs and, since
 // the file is embedded as a normal SPA asset, at /dashboard/build-stamp.json
 // for browser repros too (gopherstack-0rkc).
@@ -675,7 +675,7 @@ func (h *DashboardHandler) logEmbeddedSPABuildStamp() {
 
 	data, err := spaFS.ReadFile("static/spa/build-stamp.json")
 	if err != nil {
-		h.Logger.Info("embedded dashboard SPA has no build-stamp.json; run `make ui-build`")
+		h.Logger.Info("embedded dashboard SPA has no build-stamp.json; run `task ui-build`")
 
 		return
 	}

@@ -23,7 +23,7 @@ description: Audit a gopherstack service for AWS parity and write or refresh its
    don't restate its recipes here.
 3. **Unit tests are not parity proof.** SDK-driven integration tests have
    caught 8 client-breaking wire bugs that green unit tests missed. Run
-   `make build-linux` before `go test ./test/integration/...` — integration
+   `task build-linux` before `go test ./test/integration/...` — integration
    tests exercise the real Docker-built binary, not a Go-level shortcut.
 4. **Grep-based stub hunting has false positives in both directions.** An op
    that returns an empty envelope *after* real backend logic ran is correct
@@ -117,7 +117,7 @@ audit tool being defeated, not satisfied.
 ## Regenerating docs
 
 ```bash
-make docs   # = go run ./cmd/gendocs
+task docs   # = go run ./cmd/gendocs
 ```
 Reads every `services/*/PARITY.md`, parses the frontmatter, and regenerates
 per-service `README.md`, the category-grouped table in root `README.md`, and
@@ -126,7 +126,7 @@ no shields.io, because a shields.io outage once broke every badge). Expect
 `README.md` + `.badges/*.svg` churn in your diff after editing any
 PARITY.md — that's expected, not a mistake to revert. The generator is
 idempotent: an identical PARITY.md corpus produces byte-identical SVGs, so if
-`make docs` produces no diff, nothing changed. `.badges/parity.svg` reflects
+`task docs` produces no diff, nothing changed. `.badges/parity.svg` reflects
 `gradeDistribution()` — a tally of `normalizeGrade(doc.Overall)` (strips a
 trailing `+`), e.g. "152 A".
 

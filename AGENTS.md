@@ -11,7 +11,7 @@ go vet ./services/<pkg>/...
 golangci-lint run ./services/<pkg>/...
 ```
 
-`make lint` also runs mulint (mutex misuse detection) via `go vet -vettool`.
+`task lint` also runs mulint (mutex misuse detection) via `go vet -vettool`.
 mulint cannot follow mutex wrappers across package boundaries, so it does
 **not** see `lockmetrics.RWMutex` (used almost everywhere in this repo) — it
 only guards direct `sync.Mutex`/`sync.RWMutex` use.
@@ -43,7 +43,7 @@ only guards direct `sync.Mutex`/`sync.RWMutex` use.
 ```bash
 git add -A && git commit -m "WIP: checkpoint" && git push origin HEAD
 ```
-**Subagent Isolation:** When dispatching subagents for concurrent tasks, always isolate working trees (`Workspace: 'branch'` or `git worktree`) to avoid cross-contamination of uncommitted edits, `make docs` regeneration, or intermediate build artifacts.
+**Subagent Isolation:** When dispatching subagents for concurrent tasks, always isolate working trees (`Workspace: 'branch'` or `git worktree`) to avoid cross-contamination of uncommitted edits, `task docs` regeneration, or intermediate build artifacts.
 
 This project uses **bd** (beads) for issue tracking. Run `bd prime` for full workflow context.
 
@@ -85,7 +85,7 @@ Boundaries: code/commits/PRs written normal.
 
 `.mcp.json` at repo root wires dev-only MCPs: `gopls` (Go symbols), `terraform` (provider docs), `playwright` (dashboard browser). Dev tooling only — never embedded in the gopherstack runtime binary.
 
-On session start: run `make dev-mcp-check`. If CLIs missing, run `make dev-mcp-install`. Details: `.agent/rules/dev-mcp.md`.
+On session start: run `task dev-mcp-check`. If CLIs missing, run `task dev-mcp-install`. Details: `.agent/rules/dev-mcp.md`.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:46cd31e7 -->
 ## Beads Issue Tracker

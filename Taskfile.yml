@@ -1,0 +1,394 @@
+version: '3'
+
+vars:
+  BINARY_NAME: gopherstack
+  VERSION_PKG: github.com/blackbirdworks/gopherstack/pkgs/version
+  BUILD_VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+  # Single source of truth for the golangci-lint version. ci.yml and
+  # copilot-setup-steps.yml sed this line (keep it at 2-space indent, unquoted).
+  GOLANGCI_LINT_VERSION: 2.14.0
+
+tasks:
+  default:
+    desc: Same as build
+    cmds:
+      - task: build
+
+  build:
+    desc: Build bin/gopherstack (dynamic) with the embedded SPA
+    cmds:
+      - task: ui-build
+      - |
+        go build \
+          -trimpath \
+          -ldflags "-w -s -X {{.VERSION_PKG}}.Build={{.BUILD_VERSION}}" \
+          -o bin/{{.BINARY_NAME}} .
+
+  build-check:
+    desc: Compile under default, e2e and integration tags (go vet type-checks _test.go files)
+    cmds:
+      - go build ./...
+      - go vet -tags e2e ./...
+      - go vet -tags integration ./...
+
+  ui-install:
+    desc: npm ci in ui/
+    run: once
+    cmds:
+      - PATH="/opt/homebrew/bin:$PATH" npm --prefix ui ci
+
+  ui-lint:
+    desc: Lint the UI
+    cmds:
+      - task: ui-install
+      - PATH="/opt/homebrew/bin:$PATH" npm --prefix ui run lint
+
+  ui-check:
+    desc: Type-check the UI
+    cmds:
+      - task: ui-install
+      - PATH="/opt/homebrew/bin:$PATH" NODE_OPTIONS="--max-old-space-size=8192" npm --prefix ui run check
+
+  ui-lint-fix:
+    desc: Lint the UI with --fix
+    cmds:
+      - task: ui-install
+      - PATH="/opt/homebrew/bin:$PATH" npm --prefix ui run lint:fix
+
+  ui-fmt:
+    desc: Check UI formatting
+    cmds:
+      - task: ui-install
+      - PATH="/opt/homebrew/bin:$PATH" npm --prefix ui run fmt:check
+
+  ui-fmt-fix:
+    desc: Format the UI
+    cmds:
+      - task: ui-install
+      - PATH="/opt/homebrew/bin:$PATH" npm --prefix ui run fmt
+
+  ui-test:
+    desc: Run UI tests with coverage
+    cmds:
+      - task: ui-install
+      - PATH="/opt/homebrew/bin:$PATH" NODE_OPTIONS="--max-old-space-size=8192" npm --prefix ui run test:coverage
+
+  ui-build:
+    desc: Build the SPA into dashboard/static/spa and stamp it
+    run: once
+    cmds:
+      - task: ui-install
+      - mkdir -p dashboard/static/spa
+      - find dashboard/static/spa -mindepth 1 ! -name '.keep' -exec rm -rf {} +
+      - PATH="/opt/homebrew/bin:$PATH" NODE_OPTIONS="--max-old-space-size=8192" npm --prefix ui run build
+      - |
+        echo "{\"builtAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"commit\":\"$(git rev-parse --short HEAD 2>/dev/null || echo unknown)\"}" > dashboard/static/spa/build-stamp.json
+      - touch dashboard/static/spa/.keep
+
+  build-linux:
+    desc: Static linux binary at bin/gopherstack-linux (for Dockerfile.test)
+    run: once
+    env:
+      CGO_ENABLED: "0"
+      GOOS: linux
+    cmds:
+      - |
+        go build \
+          -trimpath \
+          -ldflags "-w -s -X {{.VERSION_PKG}}.Build={{.BUILD_VERSION}}" \
+          -o bin/{{.BINARY_NAME}}-linux .
+
+  install-deps:
+    desc: Install pinned golangci-lint, fieldalignment and dev MCP CLIs
+    run: once
+    cmds:
+      - cmd: echo "Checking for golangci-lint {{.GOLANGCI_LINT_VERSION}}..."
+        silent: true
+      - cmd: |
+          installed_version=$(golangci-lint version 2>/dev/null | sed -n 's/.*has version \([0-9.]*\).*/\1/p')
+          if [ "$installed_version" != "{{.GOLANGCI_LINT_VERSION}}" ]; then
+            echo "Installing golangci-lint {{.GOLANGCI_LINT_VERSION}} (found: ${installed_version:-none})..."
+            GOMODCACHE=$(mktemp -d) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v{{.GOLANGCI_LINT_VERSION}} || {
+              echo "go install failed; cloning and building v{{.GOLANGCI_LINT_VERSION}} from source..."
+              TMPDIR=$(mktemp -d) && git clone --branch v{{.GOLANGCI_LINT_VERSION}} --depth=1 https://github.com/golangci/golangci-lint "${TMPDIR}/golangci-lint" && \
+              cd "${TMPDIR}/golangci-lint" && go build -o "$(go env GOPATH)/bin/golangci-lint" ./cmd/golangci-lint
+            }
+          else
+            echo "golangci-lint {{.GOLANGCI_LINT_VERSION}} is already installed."
+          fi
+        silent: true
+      - cmd: echo "Checking for fieldalignment..."
+        silent: true
+      - cmd: |
+          if ! command -v fieldalignment >/dev/null 2>&1; then
+            echo "Installing fieldalignment..."
+            go install golang.org/x/tools/go/analysis/passes/fieldalignment/cmd/fieldalignment@latest
+          else
+            echo "fieldalignment is already installed."
+          fi
+        silent: true
+      - task: dev-mcp-install
+
+  dev-mcp-install:
+    desc: Install dev-only MCP server CLIs read by .mcp.json
+    cmds:
+      - cmd: echo "Checking dev MCP server CLIs (read by .mcp.json)..."
+        silent: true
+      - cmd: |
+          command -v gopls >/dev/null 2>&1 || {
+            echo "Installing gopls..."
+            go install golang.org/x/tools/gopls@latest
+          }
+          command -v mcp-language-server >/dev/null 2>&1 || {
+            echo "Installing mcp-language-server..."
+            go install github.com/isaacphi/mcp-language-server@latest
+          }
+          command -v terraform-mcp-server >/dev/null 2>&1 || {
+            echo "Installing terraform-mcp-server..."
+            go install github.com/hashicorp/terraform-mcp-server/cmd/terraform-mcp-server@latest
+          }
+          command -v npx >/dev/null 2>&1 || echo "WARN: npx not found — Playwright MCP needs Node.js."
+        silent: true
+      - cmd: echo "Dev MCP CLIs ready. Playwright MCP runs on demand via 'npx -y @playwright/mcp@latest'."
+        silent: true
+
+  dev-mcp-check:
+    desc: Check the dev MCP server CLIs
+    silent: true
+    cmds:
+      - bash scripts/dev-mcp-check.sh
+
+  install-tofu:
+    desc: Download OpenTofu to bin/tofu (TOFU_VERSION=latest by default)
+    run: once
+    silent: true
+    cmds:
+      - mkdir -p bin
+      - |
+        if [ -x bin/tofu ]; then
+          echo "OpenTofu is already installed at bin/tofu"
+        else
+          echo "Downloading OpenTofu..."
+          TOFU_VERSION="${TOFU_VERSION:-latest}"
+          if [ "$TOFU_VERSION" = "latest" ]; then
+            TOFU_VER=$(curl -sS https://get.opentofu.org/tofu/api.json | jq -r '[.versions[].id | select(contains("-") | not)][0]')
+          else
+            TOFU_VER=$TOFU_VERSION
+          fi
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi
+          if [ "$ARCH" = "aarch64" ]; then ARCH="arm64"; fi
+          echo "Downloading OpenTofu $TOFU_VER ($OS/$ARCH)..."
+          curl -sSfL "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VER}/tofu_${TOFU_VER}_${OS}_${ARCH}.zip" -o bin/tofu.zip
+          unzip -o bin/tofu.zip tofu -d bin/
+          rm bin/tofu.zip
+          chmod +x bin/tofu
+          echo "OpenTofu $TOFU_VER installed to bin/tofu"
+        fi
+
+  lint:
+    desc: Full lint (golangci-lint, mulint vet, govulncheck, UI lint/fmt/check, build-check)
+    cmds:
+      - task: install-deps
+      - task: ui-lint
+      - task: ui-fmt
+      - task: ui-check
+      - task: build-check
+      - golangci-lint run --timeout 20m ./...
+      - go vet -vettool=$(go tool -n mulint-vet) ./...
+      - go tool govulncheck ./...
+
+  lint-changed:
+    desc: Lint and vet only packages touched by the diff
+    silent: true
+    cmds:
+      - bash scripts/lint-changed.sh
+
+  lint-fix:
+    desc: Auto-fix lint (fieldalignment, golangci-lint --fix, UI)
+    cmds:
+      - task: install-deps
+      - task: ui-lint-fix
+      - task: ui-fmt-fix
+      - cmd: echo "Running fieldalignment..."
+        silent: true
+      - fieldalignment -fix ./...
+      - cmd: echo "Running golangci-lint with --fix..."
+        silent: true
+      - golangci-lint run --fix ./...
+
+  test:
+    desc: Unit tests (-race -short)
+    cmds:
+      - go tool gotestsum --format pkgname -- -race -shuffle on -short ./...
+
+  leak-test:
+    desc: Leak tests
+    cmds:
+      - go tool gotestsum --format pkgname -- -race -count=1 -timeout 20m -run TestLeak .
+
+  integration-test:
+    desc: Integration tests (builds the linux binary first)
+    cmds:
+      - task: build-linux
+      - go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m ./test/integration/...
+
+  terraform-test:
+    desc: Terraform tests against bin/tofu and the linux binary
+    cmds:
+      - task: install-tofu
+      - task: build-linux
+      - PATH="$PWD/bin:$PATH" go tool gotestsum --format pkgname -- -v -race -parallel 8 -timeout 45m ./test/terraform/...
+
+  e2e:
+    desc: Alias for e2e-test
+    cmds:
+      - task: e2e-test
+
+  e2e-test:
+    desc: Playwright e2e tests (builds the SPA first)
+    cmds:
+      - task: ui-build
+      - go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m -tags=e2e ./test/e2e/...
+
+  total-coverage:
+    desc: Unit + integration + terraform + e2e coverage merged into coverage.out/html
+    vars:
+      COVERPKGS:
+        sh: go list ./... | grep -v -E '(test/|/demo$|/modules/|/teststack$)' | tr '\n' ',' | sed 's/,$//'
+    cmds:
+      - task: build-linux
+      - cmd: echo "Running unit tests with coverage..."
+        silent: true
+      - go tool gotestsum --format pkgname -- -race -shuffle on -short -timeout 10m -coverpkg={{.COVERPKGS}} -coverprofile=unit-coverage.out -covermode=atomic ./...
+      - cmd: echo "Running integration tests with coverage..."
+        silent: true
+      - go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m -coverpkg={{.COVERPKGS}} -coverprofile=integration-coverage.out -covermode=atomic ./test/integration/...
+      - cmd: echo "Running terraform tests with coverage..."
+        silent: true
+      - go tool gotestsum --format pkgname -- -race -parallel 8 -timeout 45m -coverpkg={{.COVERPKGS}} -coverprofile=terraform-coverage.out -covermode=atomic ./test/terraform/...
+      - cmd: echo "Running E2E tests with coverage..."
+        silent: true
+      - go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m -tags=e2e -coverpkg={{.COVERPKGS}} -coverprofile=e2e-coverage.out -covermode=atomic ./test/e2e/...
+      - cmd: |
+          echo "Merging coverage profiles..."
+          echo "mode: atomic" > coverage.out
+          tail -n +2 unit-coverage.out >> coverage.out
+          tail -n +2 integration-coverage.out >> coverage.out
+          tail -n +2 terraform-coverage.out >> coverage.out
+          tail -n +2 e2e-coverage.out >> coverage.out
+          rm -f unit-coverage.out integration-coverage.out terraform-coverage.out e2e-coverage.out
+        silent: true
+      - go tool cover -func=coverage.out | tail -1
+      - go tool cover -html=coverage.out -o coverage.html
+
+  clean:
+    desc: Remove bin/
+    cmds:
+      - rm -rf bin/
+
+  upgrade-static:
+    desc: Static assets note
+    silent: true
+    cmds:
+      - echo "Static assets are managed by npm in the ui directory."
+
+  upgrade:
+    desc: go get -u ./... and go mod tidy
+    cmds:
+      - task: upgrade-static
+      - task: install-tofu
+      - go get -u ./...
+      - go mod tidy
+
+  bench:
+    desc: Run all Go benchmarks
+    cmds:
+      - go test -bench=. -benchmem ./...
+
+  pgo:
+    desc: Regenerate default.pgo (see scripts/pgo.sh)
+    cmds:
+      - bash scripts/pgo.sh
+
+  docs:
+    desc: Regenerate per-service READMEs and the root README service table from PARITY.md
+    cmds:
+      - go run ./cmd/gendocs
+
+  check-pins:
+    desc: Verify PARITY.md sdk_module pins match go.mod
+    cmds:
+      - go run ./cmd/checkpins
+
+  bd-audit:
+    desc: Report bd issues whose state disagrees with git history (reports only)
+    cmds:
+      - go run ./cmd/bdaudit
+
+  parity-lint:
+    desc: Check every PARITY.md keeps fix status in items_still_open
+    cmds:
+      - go run ./cmd/paritylint
+
+  cfn-attrs-gen:
+    desc: Regenerate services/cloudformation/cfn_attributes.json
+    cmds:
+      - go run ./cmd/cfnattrgen -spec cmd/cfnattrgen/testdata/cfn_resource_spec.json -src services/cloudformation -out services/cloudformation/cfn_attributes.json
+
+  cfn-attrs-spec-refresh:
+    desc: Refresh the CloudFormation resource spec fixture (then run cfn-attrs-gen)
+    cmds:
+      - curl -sL https://d1uauaxba7bl26.cloudfront.net/latest/gzip/CloudFormationResourceSpecification.json | gunzip > /tmp/cfn_full_spec.json
+      - go run ./cmd/cfnattrgen -spec /tmp/cfn_full_spec.json -trimspec-out cmd/cfnattrgen/testdata/cfn_resource_spec.json
+      - rm -f /tmp/cfn_full_spec.json
+
+  demo:
+    desc: Build the SPA and bring up docker compose
+    cmds:
+      - task: ui-build
+      - docker compose down
+      - docker compose build
+      - docker compose up -d
+
+  all:
+    desc: lint-fix then total-coverage
+    cmds:
+      - task: lint-fix
+      - task: total-coverage
+
+  ua:install:
+    desc: Install the Understand-Anything Claude Code plugin and prereqs (restart Claude Code afterwards)
+    cmds:
+      - cmd: |
+          if ! claude plugin marketplace add Egonex-AI/Understand-Anything; then
+            echo "marketplace add failed or already added; continuing"
+          fi
+      - cmd: |
+          if ! claude plugin install understand-anything --scope user; then
+            echo "plugin install failed or already installed; continuing"
+          fi
+      - cmd: |
+          major=$(pnpm --version 2>/dev/null | cut -d. -f1)
+          if [ -z "$major" ] || [ "$major" -lt 10 ]; then
+            echo "Installing pnpm@10 into ~/.local..."
+            npm i -g --prefix ~/.local pnpm@10
+          else
+            echo "pnpm $(pnpm --version) already satisfies >=10"
+          fi
+      - cmd: echo "Done. Restart Claude Code to load the understand-anything plugin."
+        silent: true
+
+  ua:graph:
+    desc: Generate or incrementally update the Understand-Anything knowledge graph via non-interactive Claude
+    cmds:
+      - cmd: |
+          if [ -f .ua/knowledge-graph.json ] || [ -f .understand-anything/knowledge-graph.json ]; then
+            echo "Existing graph found: incremental update"
+          else
+            echo "No graph found: full analysis"
+          fi
+        silent: true
+      - claude -p "/understand" --permission-mode acceptEdits --allowedTools "Bash Read Write Edit Glob Grep Task"

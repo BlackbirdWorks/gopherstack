@@ -5215,7 +5215,7 @@ confirmed clean without a `-update` run.
 
 **Gates:** `go build ./...`, `go vet ./...`, `gofmt -l`, `go test -race ./services/sagemaker/...`,
 `go test ./pkgs/persistence/...`, `golangci-lint run ./services/sagemaker/...`, and
-`make build-check` (`go build ./...` + `go vet -tags e2e,integration ./...`) all clean. No
+`task build-check` (`go build ./...` + `go vet -tags e2e,integration ./...`) all clean. No
 `//nolint` added; the `dupl` finding on Delete/Reboot's near-identical handlers was fixed by
 extracting `handleBatchNodeIDsOp` rather than suppressed.
 
@@ -5376,7 +5376,7 @@ see glue note above), `golangci-lint run ./services/sagemaker/...` (0 issues aft
 `handleBatchNodeIDsOp` resolved by extracting `newNodeIdentifierArms`/`partitionByArm[T]`
 rather than suppressed, a `goconst` finding resolved via `errCodeInstanceIDNotFound`, and 3
 `revive` var-naming findings renaming `...LogicalIdsError` types to `...LogicalIDsError`), and
-`make build-check` (`go build ./...` + `go vet -tags e2e ./...` + `go vet -tags integration
+`task build-check` (`go build ./...` + `go vet -tags e2e ./...` + `go vet -tags integration
 ./...`) all clean. No `//nolint` added.
 
 ## gopherstack-o7gx (2026-08-22): ReadBody-failure path wrote untyped errors
@@ -5639,7 +5639,7 @@ Create, previously just unreachable from Update); only the Update path's plumbin
 
 **Gates:** `go build ./services/sagemaker/...`, `go vet ./services/sagemaker/...`, `gofmt -l
 services/sagemaker/` (clean), `go test -race ./services/sagemaker/...`, `go test
-./pkgs/persistence/...`, `make build-check` (exported signatures of `InMemoryBackend.UpdateSpace`/
+./pkgs/persistence/...`, `task build-check` (exported signatures of `InMemoryBackend.UpdateSpace`/
 `UpdateUserProfile` changed). Work left uncommitted per instructions.
 
 **Ops not reached:** none — all 16 from the parity-27 queue were read. No further never-named

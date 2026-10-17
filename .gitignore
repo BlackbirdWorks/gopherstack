@@ -48,7 +48,6 @@ ui/build/
 !.beads/issues.jsonl
 .gemini/
 .runtime/
-CLAUDE.md
 
 # Gas Town (added by gt)
 .claude/*
@@ -100,3 +99,7 @@ checkpoint.md
 /cmd/*/*
 !/cmd/*/*/
 !/cmd/*/*.*
+
+# Understand-Anything scratch
+.ua/intermediate/
+.ua/diff-overlay.json

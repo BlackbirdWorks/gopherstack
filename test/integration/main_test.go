@@ -207,10 +207,10 @@ var ErrResetFailed = errors.New("reset endpoint returned unexpected status")
 // statically-linked linux binary, so Dockerfile.test's `FROM scratch` image
 // cannot run it. Turns the "No such container" mystery from gopherstack-gooq
 // into a clear error at build time instead.
-var ErrBinaryNotStatic = errors.New("not a statically-linked linux binary; run `make build-linux`")
+var ErrBinaryNotStatic = errors.New("not a statically-linked linux binary; run `task build-linux`")
 
-// preBuiltLinuxBinary is where `make build-linux` writes its static binary,
-// deliberately distinct from `make build`'s bin/gopherstack (gopherstack-gooq).
+// preBuiltLinuxBinary is where `task build-linux` writes its static binary,
+// deliberately distinct from `task build`'s bin/gopherstack (gopherstack-gooq).
 const preBuiltLinuxBinary = "../../bin/gopherstack-linux"
 
 // dockerfileFor picks Dockerfile.test when a pre-built binary exists at
@@ -233,7 +233,7 @@ func dockerfileFor() (string, error) {
 }
 
 // requireStaticELF rejects a binary that isn't ELF at all (e.g. a macOS
-// `make build` artifact) or that carries a PT_INTERP segment, meaning it's
+// `task build` artifact) or that carries a PT_INTERP segment, meaning it's
 // dynamically linked against libc and won't run in a `FROM scratch` image.
 func requireStaticELF(path string) error {
 	f, err := elf.Open(path)
@@ -286,7 +286,7 @@ func TestMain(m *testing.M) {
 
 	// Escape hatch: if GOPHERSTACK_ENDPOINT is set, point the suite at an
 	// already-running server instead of building/starting a testcontainer.
-	// This is used by `make pgo` to run the integration suite against a
+	// This is used by `task pgo` to run the integration suite against a
 	// locally-running, pprof-enabled server so that profile data covers
 	// realistic request traffic. Placed at the very top of the
 	// container-setup path so Docker is not required in this mode.

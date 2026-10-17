@@ -77,7 +77,7 @@ last_audit_commit: 22b4f068c   # bumped 2026-09-20 (wafclassic-and-directconnect
 # ParentConnectionID/LagID/InterconnectID) now also matches on its own ConnectionID.
 # TestDescribeHostedConnections_ByOwnID added (hosted_connections_test.go).
 last_audit_date: 2026-10-11  # 2026-10-07: endpoint identity (AwsDevice/AwsDeviceV2/AwsLogicalDeviceId, one endpoint per location, endpoint_device.go) and VirtualGatewayRegion now populated; AssociateConnectionWithLag enforces same-endpoint; MacSecSecretCreator hook added. Older notes below saying these were never populated are history.   # was 2026-09-11
-overall: A   # test/integration/directconnect_test.go passes for real (make build-linux && go test
+overall: A   # test/integration/directconnect_test.go passes for real (task build-linux && go test
 # -race -run TestIntegration_DirectConnect ./test/integration/...); every gap that could produce
 # real data is closed (cross-service EC2 validation, pkgs/arn.BuildGlobal for dx-gateway, pkgs/page
 # pagination, placeholder LOA-CFA PDF, non-authoritative static seed data, empty

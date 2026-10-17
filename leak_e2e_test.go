@@ -44,7 +44,7 @@ func skipLeakInShort(t *testing.T) {
 	t.Helper()
 
 	if testing.Short() {
-		t.Skip("leak suite runs via `make leak-test`")
+		t.Skip("leak suite runs via `task leak-test`")
 	}
 }
 

@@ -602,7 +602,7 @@ against the unfixed code before restoring.
 `go fix -diff` (no diff), `golangci-lint run ./services/cloudwatchlogs/...`
 (0 issues after fixing 9 real findings -- golines, gosec G115, 2x
 fieldalignment, 3x shadow, 2x testifylint `error-is-as` -- by refactoring,
-not `//nolint`), `make build-check` (clean; `StorageBackend.UpdateAnomaly`'s
+not `//nolint`), `task build-check` (clean; `StorageBackend.UpdateAnomaly`'s
 signature changed to add `patternID`).
 
 Sweep status: 118/118 ops now covered by at least one structural pass (two

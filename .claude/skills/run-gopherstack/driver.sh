@@ -22,7 +22,7 @@ running() {
 
 cmd_build() {
 	# The dashboard SPA is already committed under dashboard/static/spa and
-	# embedded, so a plain go build is enough; `make build` re-runs npm.
+	# embedded, so a plain go build is enough; `task build` re-runs npm.
 	cd "$REPO" && go build -o bin/gopherstack .
 	echo "built $BIN"
 }
