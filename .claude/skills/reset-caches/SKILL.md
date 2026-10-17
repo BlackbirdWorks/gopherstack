@@ -1,12 +1,14 @@
 ---
 name: reset-caches
-description: Reclaim disk on this dev box — Go build cache, stale go-build temp dirs, golangci-lint cache, stray agent caches, old task logs, clean pushed worktrees, and unused Docker images/build cache/volumes. Use when the user says "reset", "clean up caches", or disk is filling.
+description: Whole-system dev-box reset — kill running gopherstack servers, test binaries and gopherstack/testcontainers containers, then clear Go/lint/Docker caches, stale temp dirs, old task logs and clean pushed worktrees. Use when the user says "reset". For cache-only cleanup (e.g. disk filling mid-work) use --soft.
 ---
 
-Run `.claude/skills/reset-caches/reset.sh` and report the before/after free space.
+Run `.claude/skills/reset-caches/reset.sh` and report what was stopped and the before/after free space.
 
-- Default is safe while builds run: if a Go compile/link or golangci-lint is active, cache entries younger than `AGE_MIN` (60) minutes are kept. Pass `--force` only when nothing is building.
-- `--other-scratch` also removes other Claude sessions' scratch dirs untouched for a day — only when the user asks.
+- "Reset" means a whole-system reset (user, 2026-10-17): it stops running `gopherstack serve` processes (including the long-running one on 8123/8081/10000-10002/1883), `*.test` binaries, and every `gopherstack-*` or testcontainers container, so no stale test state survives. Agents' in-flight test containers die too — only run it when the user asks.
+- `--soft`: skip the kill phase; cache cleanup only, safe while builds run (entries younger than `AGE_MIN`=60 min kept if a Go build is active).
+- `--force`: wipe the Go cache fully even if a build is active (implied by a full reset).
+- `--other-scratch`: also remove other Claude sessions' scratch dirs untouched for a day.
 - Worktrees: removes every linked worktree that is clean and fully pushed; dirty or unpushed ones are listed and kept.
-- Docker: prunes unused images, build cache and unattached volumes; running containers and their volumes are untouched. Never stop or kill containers or processes (user processes on 8123/8081/10000-10002/1883).
-- Never deletes `~/go/pkg/mod` (module cache) or anything in the repo itself.
+- Docker: prunes unused images, build cache and unattached volumes after the kill phase.
+- Never deletes `~/go/pkg/mod` (module cache) or anything tracked in the repo.
