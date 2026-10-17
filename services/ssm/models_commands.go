@@ -50,6 +50,7 @@ type CommandInvocation struct {
 	executionEndUnix      float64
 	ResponseCode          int32 `json:"ResponseCode"`
 	direct                bool
+	agent                 bool
 }
 
 // SendCommandInput is the request payload for SendCommand.
