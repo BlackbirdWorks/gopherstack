@@ -81,6 +81,11 @@ func TestStreamMessageParseErrors(t *testing.T) {
 		}, "header_len"},
 		{func(b []byte) []byte { return b[:len(b)-1] }, "payload_len"},
 		{func(b []byte) []byte {
+			binary.BigEndian.PutUint32(b[116:], 0xFFFFFFFF)
+
+			return b
+		}, "payload_len_overflow"},
+		{func(b []byte) []byte {
 			b[len(b)-1] ^= 1
 
 			return b

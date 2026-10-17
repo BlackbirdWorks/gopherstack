@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -32,9 +33,8 @@ const (
 )
 
 var (
-	errUnsupportedSessionDoc = errors.New("session document is not an interactive shell")
-	errNoShellBackend        = errors.New("no shell backend is configured (EC2 compute provider is not docker)")
-	errTargetNotContainer    = errors.New("target is not a running docker-backed managed instance")
+	errNoShellBackend     = errors.New("no shell backend is configured (EC2 compute provider is not docker)")
+	errTargetNotContainer = errors.New("target is not a running docker-backed managed instance")
 )
 
 func (h *Handler) handleDataChannel(c *echo.Context) error {
@@ -63,13 +63,15 @@ type dataChannel struct {
 	ws        *websocket.Conn
 	b         *InMemoryBackend
 	shell     Shell
+	conn      net.Conn
 	pending   map[int64]*StreamMessage
+	params    map[string][]string
 	exited    chan struct{}
+	started   time.Time
 	sessionID string
 	region    string
 	target    string
 	document  string
-	started   time.Time
 	wg        sync.WaitGroup
 	wmu       sync.Mutex
 	outSeq    int64
@@ -115,7 +117,7 @@ func (d *dataChannel) serve(parent context.Context) {
 		return
 	}
 
-	d.region, d.target, d.document = region, sess.Target, sess.DocumentName
+	d.region, d.target, d.document, d.params = region, sess.Target, sess.DocumentName, sess.Parameters
 	d.started = time.Now()
 
 	d.b.trackChannel(d.sessionID, cancel)
@@ -229,7 +231,10 @@ func (d *dataChannel) process(ctx context.Context, m *StreamMessage) bool {
 			}
 		}
 	case PayloadOutput:
-		if d.shell != nil {
+		switch {
+		case d.conn != nil:
+			_, _ = d.conn.Write(m.Payload)
+		case d.shell != nil:
 			_, _ = d.shell.Write(m.Payload)
 		}
 	case PayloadFlag:
@@ -244,13 +249,21 @@ func (d *dataChannel) process(ctx context.Context, m *StreamMessage) bool {
 }
 
 func (d *dataChannel) sendHandshakeRequest() error {
+	version, sessionType, props := agentVersion, sessionTypeStandard, map[string]any(nil)
+
+	if t, err := parsePortTarget(d.document, d.params); err == nil {
+		version, sessionType, props = portAgentVersion, sessionTypePort, t.properties()
+	} else if isPortDocument(d.document) {
+		version, sessionType = portAgentVersion, sessionTypePort
+	}
+
 	body, _ := json.Marshal(HandshakeRequestPayload{
-		AgentVersion: agentVersion,
+		AgentVersion: version,
 		RequestedClientActions: []RequestedClientAction{{
 			ActionType: actionTypeSessionType,
 			ActionParameters: map[string]any{
-				"SessionType": sessionTypeStandard,
-				"Properties":  nil,
+				"SessionType": sessionType,
+				"Properties":  props,
 			},
 		}},
 	})
@@ -289,8 +302,8 @@ func (d *dataChannel) completeHandshake(ctx context.Context, payload []byte) boo
 }
 
 func (d *dataChannel) startShell(ctx context.Context) error {
-	if strings.HasPrefix(d.document, "AWS-StartPortForwarding") || d.document == "AWS-StartSSHSession" {
-		return fmt.Errorf("%w: %s", errUnsupportedSessionDoc, d.document)
+	if isPortDocument(d.document) {
+		return d.startPort(ctx)
 	}
 
 	opener := d.b.shellOpener()
@@ -334,6 +347,10 @@ func (d *dataChannel) pumpShell(sh Shell) {
 func (d *dataChannel) closeShell() {
 	if d.shell != nil {
 		_ = d.shell.Close()
+	}
+
+	if d.conn != nil {
+		_ = d.conn.Close()
 	}
 }
 

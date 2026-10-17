@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -315,6 +316,27 @@ func (c *Client) ContainerExec(
 		case <-ticker.C:
 		}
 	}
+}
+
+// ErrNoContainerIP is returned when a container has no network address.
+var ErrNoContainerIP = errors.New("container has no network address")
+
+// ContainerIP returns the first network IP address of a running container.
+func (c *Client) ContainerIP(ctx context.Context, containerID string) (string, error) {
+	res, err := c.inner.ContainerInspect(ctx, containerID, mobyclient.ContainerInspectOptions{})
+	if err != nil {
+		return "", fmt.Errorf("container inspect: %w", err)
+	}
+
+	if ns := res.Container.NetworkSettings; ns != nil {
+		for _, ep := range ns.Networks {
+			if ep != nil && ep.IPAddress.IsValid() {
+				return ep.IPAddress.String(), nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("%w: %s", ErrNoContainerIP, containerID)
 }
 
 // InteractiveExec is a TTY exec attached to stdin and stdout.
