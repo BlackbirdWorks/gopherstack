@@ -51,6 +51,7 @@ const (
 // InMemoryBackend is the in-memory store for Redshift clusters.
 type InMemoryBackend struct {
 	dnsRegistrar   DNSRegistrar
+	engine         *dbEngine
 	registry       *store.Registry
 	customDomains  *store.Table[CustomDomainAssociation]
 	events         *store.Table[Event]
@@ -131,6 +132,7 @@ type InMemoryBackend struct {
 	reconcileInterval       time.Duration
 	reconcileMu             sync.Mutex
 	reconcileOn             bool
+	closed                  bool
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -162,6 +164,7 @@ func (b *InMemoryBackend) Reset() {
 		c.Tags.Close()
 	}
 
+	b.dropAllUnitsLocked()
 	b.registry.ResetAll()
 	b.activeResizes = make(map[string]*ResizeProgress)
 	b.loggingStatuses = make(map[string]*LoggingStatus)
@@ -241,10 +244,11 @@ type CreateClusterOptions struct {
 	AutomatedSnapshotRetentionPeriod     *int
 	ManualSnapshotRetentionPeriod        *int
 	Settings                             ClusterSettings
-	AvailabilityZone                     string
-	ClusterSubnetGroupName               string
 	DefaultIamRoleArn                    string
+	ClusterSubnetGroupName               string
+	AvailabilityZone                     string
 	ClusterType                          string
+	MasterUserPassword                   string
 	VpcSecurityGroupIDs                  []string
 	Port                                 int
 	NumberOfNodes                        int
@@ -370,7 +374,7 @@ func (b *InMemoryBackend) CreateCluster(
 	endpoint := fmt.Sprintf("%s.%s.%s.redshift.amazonaws.com", id, b.accountID, b.region)
 
 	initialStatus := clusterStatusAvailable
-	if b.clusterActivationDelay > 0 {
+	if b.clusterActivationDelay > 0 || b.engine != nil {
 		initialStatus = clusterStatusCreating
 	}
 
@@ -406,7 +410,7 @@ func (b *InMemoryBackend) CreateCluster(
 	// Schedule the creating→available transition instead of spawning an
 	// unmanaged per-cluster goroutine. The managed reconciler (or a lazy read)
 	// advances it, so cluster deletion and Reset cancel it deterministically.
-	if b.clusterActivationDelay > 0 {
+	if b.clusterActivationDelay > 0 && b.engine == nil {
 		b.scheduleClusterTransitionLocked(id, &clusterTransition{
 			effectiveAt: time.Now().Add(b.clusterActivationDelay),
 			status:      clusterStatusAvailable,
@@ -416,6 +420,8 @@ func (b *InMemoryBackend) CreateCluster(
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Register(endpoint)
 	}
+
+	b.provisionClusterLocked(cluster, opts.MasterUserPassword)
 
 	cp := cloneCluster(cluster)
 
@@ -437,6 +443,8 @@ func (b *InMemoryBackend) DeleteCluster(id string) (*Cluster, error) {
 	if cluster.Status == clusterStatusDeleting {
 		return nil, fmt.Errorf("%w: cluster %s is already being deleted", ErrClusterInvalidState, id)
 	}
+
+	b.dropUnitLocked(id)
 
 	// When an activation delay is configured, model AWS's asynchronous deletion:
 	// the cluster enters "deleting" and is removed by the reconciler once the

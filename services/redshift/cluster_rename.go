@@ -32,15 +32,17 @@ func (b *InMemoryBackend) renameClusterLocked(oldID, newID string) {
 
 	b.clusters.Delete(oldID)
 
-	if b.dnsRegistrar != nil {
+	dns := b.dnsRegistrar != nil && !b.liveEndpointLocked(cluster)
+	if dns {
 		b.dnsRegistrar.Deregister(cluster.Endpoint)
 	}
 
 	cluster.ClusterIdentifier = newID
 	cluster.Endpoint = strings.Replace(cluster.Endpoint, oldID+".", newID+".", 1)
 	b.clusters.Put(cluster)
+	b.rekeyUnitLocked(oldID, newID)
 
-	if b.dnsRegistrar != nil {
+	if dns {
 		b.dnsRegistrar.Register(cluster.Endpoint)
 	}
 

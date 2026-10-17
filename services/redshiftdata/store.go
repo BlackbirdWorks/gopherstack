@@ -75,6 +75,7 @@ func (s *regionStore) compactRingBuffer() {
 type InMemoryBackend struct {
 	stores         map[string]*regionStore
 	mu             *lockmetrics.RWMutex
+	engineState    *engineState
 	accountID      string
 	defaultRegion  string
 	lifecycleDelay time.Duration

@@ -10,7 +10,7 @@
 | PARITY entries audited | 12 (8 ok, 4 gap) |
 | Feature families | 3 (3 ok) |
 | Known gaps | none |
-| Structural gaps (can't be emulated) | 3 |
+| Structural gaps (can't be emulated) | 4 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
@@ -18,7 +18,8 @@
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- Statements settle on a timer, not by running SQL (no SQL engine): result rows are a fixed placeholder, and QueryTimeout/ActiveStatementsExceeded-style faults cannot occur.
+- Without a live cluster engine (--redshift-engine=docker) statements settle on a timer and result rows are a fixed placeholder; QueryTimeout/ActiveStatementsExceeded-style faults cannot occur. Serverless workgroups never have an engine.
+- Engine-backed statements log in as the cluster master user, ignoring DbUser/SecretArn/temporary credentials; results are one page (no NextToken); SQL runs on Postgres, so Redshift-only syntax fails. Unverified against a real cluster: NUMERIC is returned as stringValue, DDL/DML report ResultRows -1, and sub-statement ids are `<id>:<n>`.
 - DescribeStatement.RedshiftPid and ExecuteStatement/BatchExecuteStatement.DbGroups are engine/credential-sourced values (real backend pid, GetClusterCredentials groups); no engine or credential model exists.
 - ActiveStatementsExceeded/ActiveSessionsExceeded/ActiveWaitingRequestsExceeded/DatabaseConnection/QueryTimeout/ExecuteStatement/BatchExecuteStatement exceptions need a real cluster, concurrency limit or wait queue.
 

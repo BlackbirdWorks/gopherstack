@@ -108,6 +108,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	b.dropAllUnitsLocked()
+
 	if snap.Version != redshiftSnapshotVersion {
 		// An incompatible (older/newer/absent) snapshot version must never be
 		// partially decoded as the current shape -- that risks silently
@@ -144,6 +146,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	// the serverless sorted indexes from the freshly loaded tables.
 	b.clusterTransitions = make(map[string]*clusterTransition)
 	b.rebuildServerlessIndexes()
+	b.relaunchClustersLocked()
 
 	return nil
 }

@@ -452,6 +452,7 @@ type CLI struct {
 	EKSEngine                     string                            `                                       name:"eks-engine"              env:"EKS_ENGINE"                     default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
 	RDSEngine                     string                            `                                       name:"rds-engine"              env:"RDS_ENGINE"                     default:"stub"          help:"RDS engine mode: stub (metadata only) or docker (real database container)."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
 	DocDBEngine                   string                            `                                       name:"docdb-engine"            env:"DOCDB_ENGINE"                   default:"stub"          help:"DocumentDB engine mode: stub (metadata only) or docker (real MongoDB container per cluster)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
+	RedshiftEngine                string                            `                                       name:"redshift-engine"         env:"REDSHIFT_ENGINE"                default:"stub"          help:"Redshift engine mode: stub (metadata only) or docker (real Postgres container per cluster; Data API runs SQL against it)."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
 	EC2Provider                   string                            `                                       name:"ec2-provider"            env:"EC2_PROVIDER"                   default:"inmemory"      help:"EC2 compute provider: inmemory (stub) or docker (launches real containers as instances)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerImage                string                            `                                       name:"ec2-docker-image"        env:"EC2_DOCKER_IMAGE"               default:"amazonlinux:2" help:"Docker image used by the EC2 docker provider when launching instances."`                                                                                                                                     //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerNetwork              string                            `                                       name:"ec2-docker-network"      env:"EC2_DOCKER_NETWORK"             default:""              help:"Docker network EC2 docker-provider containers attach to (empty = daemon default bridge)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
@@ -1231,6 +1232,9 @@ func (c *CLI) GetMQEngine() string { return c.MQEngine }
 
 // GetRDSEngine returns the RDS engine mode (rds.EngineModeConfig).
 func (c *CLI) GetRDSEngine() string { return c.RDSEngine }
+
+// GetRedshiftEngine returns the Redshift engine mode (redshift.EngineModeConfig).
+func (c *CLI) GetRedshiftEngine() string { return c.RedshiftEngine }
 
 // GetDocDBEngine returns the DocumentDB engine mode (docdb.EngineModeConfig).
 func (c *CLI) GetDocDBEngine() string { return c.DocDBEngine }
@@ -3955,6 +3959,7 @@ func wireCWLogsMetricEmitters(byName map[string]service.Registerable) {
 func wireSSOAndRedshiftData(byName map[string]service.Registerable) {
 	wireSSO(byName)
 	wireRedshiftServerlessData(byName)
+	wireRedshiftClusterEngines(byName)
 }
 
 // wireStorageAndSecretsIntegrations wires Firehose delivery, DynamoDB→S3

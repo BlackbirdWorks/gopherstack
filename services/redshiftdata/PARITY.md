@@ -188,7 +188,8 @@ families:
 gaps: []
 items_still_open: []
 structural_gaps:
-  - "Statements settle on a timer, not by running SQL (no SQL engine): result rows are a fixed placeholder, and QueryTimeout/ActiveStatementsExceeded-style faults cannot occur."
+  - "Without a live cluster engine (--redshift-engine=docker) statements settle on a timer and result rows are a fixed placeholder; QueryTimeout/ActiveStatementsExceeded-style faults cannot occur. Serverless workgroups never have an engine."
+  - "Engine-backed statements log in as the cluster master user, ignoring DbUser/SecretArn/temporary credentials; results are one page (no NextToken); SQL runs on Postgres, so Redshift-only syntax fails. Unverified against a real cluster: NUMERIC is returned as stringValue, DDL/DML report ResultRows -1, and sub-statement ids are `<id>:<n>`."
   - "DescribeStatement.RedshiftPid and ExecuteStatement/BatchExecuteStatement.DbGroups are engine/credential-sourced values (real backend pid, GetClusterCredentials groups); no engine or credential model exists."
   - "ActiveStatementsExceeded/ActiveSessionsExceeded/ActiveWaitingRequestsExceeded/DatabaseConnection/QueryTimeout/ExecuteStatement/BatchExecuteStatement exceptions need a real cluster, concurrency limit or wait queue."
 deferred:
@@ -765,3 +766,7 @@ FIXED: DescribeTable pages its ColumnList by MaxResults (0-1000)/NextToken and r
 ## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
 
 Recorded, unchanged: ListStatements/ListSessions accept RoleLevel but do not apply it (SDK default true, api_op_ListStatements.go:63-66); no role/session identity is modeled. Statements complete synchronously, so there is no update surface.
+
+## 2026-10-17 SQL against Docker-backed clusters
+
+When the target ClusterIdentifier has a ready engine (`--redshift-engine=docker`, wired by `wireRedshiftClusterEngines` in cli_redshift_serverless_data.go), ExecuteStatement and BatchExecuteStatement run the SQL over the Postgres wire (pgx, simple protocol, `:name` parameters bound to `$n`) before the statement is stored, so DescribeStatement is already FINISHED or FAILED (Error carries `ERROR: <message>`). GetStatementResult returns real `Records` (`longValue`/`doubleValue`/`booleanValue`/`stringValue`/`blobValue`/`isNull`; timestamps and dates as strings) and `ColumnMetadata`; GetStatementResultV2 returns one `CSVRecords` per row. BatchExecuteStatement runs one transaction in TRANSACTION mode (default) and per statement in AUTO_COMMIT, stops at the first failure and marks the rest ABORTED; sub-statement results are fetched by their `<id>:<n>` id. `Statement.EngineBacked` is persisted but result rows are in memory only, so they are gone after a restore. Covered by `engine_test.go` (injected `SQLExecutor`) and the docker test in services/redshift.

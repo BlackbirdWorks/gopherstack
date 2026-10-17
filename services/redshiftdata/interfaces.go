@@ -26,6 +26,8 @@ type StorageBackend interface {
 
 	// Statement inspection
 	DescribeStatement(ctx context.Context, id string) (*Statement, error)
+	// EngineResult returns the result set of a statement run on a live engine; found is false otherwise.
+	EngineResult(ctx context.Context, id string) (rs *ResultSet, found bool, err error)
 	WaitForStatement(ctx context.Context, id string, wait time.Duration) (*Statement, error)
 	CancelStatement(ctx context.Context, id string) error
 	// ListStatements returns a page of statements and a next-token for pagination.

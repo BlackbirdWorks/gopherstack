@@ -39,6 +39,7 @@ func (b *InMemoryBackend) ExecuteStatement(
 	}
 
 	region := getRegion(ctx, b.defaultRegion)
+	run, live := b.runEngine(ctx, region, clusterIdentifier, database, []string{sql}, parameters, false)
 
 	b.mu.Lock("ExecuteStatement")
 	defer b.mu.Unlock()
@@ -73,7 +74,12 @@ func (b *InMemoryBackend) ExecuteStatement(
 		UpdatedAt:         now,
 	}
 	b.storeFor(region).addStatement(stmt)
-	b.settleStatement(stmt, now)
+
+	if live {
+		applyEngineStatement(stmt, run, now)
+	} else {
+		b.settleStatement(stmt, now)
+	}
 
 	return cloneStatement(stmt), nil
 }
@@ -113,6 +119,8 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 	}
 
 	region := getRegion(ctx, b.defaultRegion)
+	run, live := b.runEngine(ctx, region, clusterIdentifier, database, sqls, parameters,
+		executionMode == executionModeTransaction)
 
 	b.mu.Lock("BatchExecuteStatement")
 	defer b.mu.Unlock()
@@ -162,7 +170,12 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 		ExecutionMode:     executionMode,
 	}
 	b.storeFor(region).addStatement(stmt)
-	b.settleStatement(stmt, now)
+
+	if live {
+		applyEngineBatch(stmt, run, now)
+	} else {
+		b.settleStatement(stmt, now)
+	}
 
 	return cloneStatement(stmt), nil
 }
