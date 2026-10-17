@@ -261,7 +261,12 @@ func (b *InMemoryBackend) recordHealthy(rrs *ResourceRecordSet) bool {
 		return true
 	}
 
-	return !strings.EqualFold(hc.Status, healthUnhealthy)
+	status := b.effectiveStatus(hc)
+	if hc.Config.Type == HealthCheckTypeRecoveryControl && hc.Config.Inverted {
+		return strings.EqualFold(status, healthUnhealthy)
+	}
+
+	return !strings.EqualFold(status, healthUnhealthy)
 }
 
 // routingKind classifies a set of candidate record sets into a single routing

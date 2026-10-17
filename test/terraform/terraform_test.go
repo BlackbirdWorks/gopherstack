@@ -11,6 +11,7 @@ import (
 	"hash/fnv"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
@@ -608,6 +609,39 @@ provider "aws" {
 `, addr)
 }
 
+// arczonalshiftProviderBlock pins provider v6: aws_arczonalshift_zonal_autoshift_configuration
+// does not exist in v5.
+func arczonalshiftProviderBlock(addr string) string {
+	return fmt.Sprintf(`terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+  }
+  required_version = ">= 1.0"
+}
+
+provider "aws" {
+  region                      = "us-east-1"
+  access_key                  = "test"
+  secret_key                  = "test"
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  skip_requesting_account_id  = true
+  skip_region_validation      = true
+
+  endpoints {
+    arczonalshift = %[1]q
+    cloudwatch    = %[1]q
+    ec2           = %[1]q
+    elbv2         = %[1]q
+    sts           = %[1]q
+  }
+}
+`, addr)
+}
+
 // ensureTofuBinary returns the path to the tofu binary, downloading it if
 // necessary. The download happens at most once per test run.
 func ensureTofuBinary(t *testing.T) string {
@@ -985,8 +1019,13 @@ type tfTestCase struct {
 	providerFn func(addr string) string
 	setup      func(t *testing.T, dir string) map[string]any
 	verify     func(t *testing.T, ctx context.Context, vars map[string]any)
-	name       string
-	fixture    string
+	// update overlays vars and re-applies the fixture to exercise Update ops.
+	update       map[string]any
+	verifyUpdate func(t *testing.T, ctx context.Context, vars map[string]any)
+	name         string
+	fixture      string
+	// noDrift asserts an empty plan after every apply.
+	noDrift bool
 }
 
 // runTFTest is the common runner shared by all per-service Terraform tests.
@@ -1010,6 +1049,26 @@ func runTFTest(t *testing.T, tc tfTestCase) {
 
 	if tc.verify != nil {
 		tc.verify(t, ctx, vars)
+	}
+
+	if tc.noDrift {
+		assertNoTofuChanges(ctx, t, tofuBin, dir)
+	}
+
+	if tc.update == nil {
+		return
+	}
+
+	updated := maps.Clone(vars)
+	maps.Copy(updated, tc.update)
+	reapplyTofu(ctx, t, tofuBin, dir, provFn(endpoint)+renderFixture(t, tc.fixture, updated))
+
+	if tc.verifyUpdate != nil {
+		tc.verifyUpdate(t, ctx, updated)
+	}
+
+	if tc.noDrift {
+		assertNoTofuChanges(ctx, t, tofuBin, dir)
 	}
 }
 

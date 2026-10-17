@@ -48,7 +48,26 @@ func tofuEnv() []string {
 		"TF_IN_AUTOMATION=1",
 		"TF_PLUGIN_CACHE_DIR="+tofuProviderCacheDir,
 		"TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE=true",
+		"AWS_ENDPOINT_URL="+endpoint,
 	)
+}
+
+// assertNoTofuChanges fails the test if a fresh plan in dir still reports changes.
+func assertNoTofuChanges(ctx context.Context, t *testing.T, tofuBin, dir string) {
+	t.Helper()
+
+	assert.False(t, runTofuPlan(ctx, t, tofuBin, dir).HasChanges, "plan after apply must be empty")
+}
+
+// reapplyTofu rewrites main.tf in an already-initialised dir and applies it.
+func reapplyTofu(ctx context.Context, t *testing.T, tofuBin, dir, hcl string) {
+	t.Helper()
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.tf"), []byte(hcl), 0o644))
+
+	out, err := execTofuCmd(ctx, t, tofuBin, dir, "apply", "-auto-approve", "-no-color")
+	t.Logf("tofu apply (update):\n%s", out)
+	require.NoError(t, err, "tofu update apply failed")
 }
 
 // execTofuCmd runs a single OpenTofu sub-command inside dir and returns the combined

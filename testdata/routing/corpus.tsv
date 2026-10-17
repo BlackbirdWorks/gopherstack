@@ -1051,6 +1051,45 @@ POST	localhost:4566	/v1/apis/xapiid	appsync				User-Agent:aws-sdk-go-v2/1.41.0 u
 POST	localhost:4566	/v1/apis/xapiid/types/xtypena/resolvers/xfieldn	appsync				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/appsync#1.0.0	AppSync	AppSync
 POST	localhost:4566	/v1/mergedApis/xmerged/sourceApiAssociations/xassoci	appsync				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/appsync#1.0.0	AppSync	AppSync
 POST	localhost:4566	/v1/apis/xapiid/types/xtypena	appsync				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/appsync#1.0.0	AppSync	AppSync
+DELETE	localhost:4566	/practiceruns/xzonals	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+DELETE	localhost:4566	/practiceruns/xzonals	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+DELETE	arc-zonal-shift.us-east-1.amazonaws.com	/practiceruns/xzonals	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+DELETE	localhost:4566	/practiceruns/xzonals?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Farc-zonal-shift%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+DELETE	localhost:4566	/practiceruns/xzonals						S3	S3
+DELETE	localhost:4566	/zonalshifts/xzonals	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+DELETE	localhost:4566	/zonalshifts/xzonals	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+DELETE	arc-zonal-shift.us-east-1.amazonaws.com	/zonalshifts/xzonals	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+DELETE	localhost:4566	/zonalshifts/xzonals?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Farc-zonal-shift%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+DELETE	localhost:4566	/zonalshifts/xzonals						S3	S3
+POST	localhost:4566	/configuration	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+POST	localhost:4566	/configuration	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+POST	arc-zonal-shift.us-east-1.amazonaws.com	/configuration	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+POST	localhost:4566	/configuration?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Farc-zonal-shift%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+POST	localhost:4566	/configuration						Omics	Omics
+DELETE	localhost:4566	/configuration/xresour	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+DELETE	localhost:4566	/configuration/xresour	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+DELETE	arc-zonal-shift.us-east-1.amazonaws.com	/configuration/xresour	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+DELETE	localhost:4566	/configuration/xresour?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Farc-zonal-shift%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+DELETE	localhost:4566	/configuration/xresour						Omics	Omics
+GET	localhost:4566	/autoshift-observer-notification	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+GET	localhost:4566	/autoshift-observer-notification						S3	S3
+GET	localhost:4566	/managedresources/xresour	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+GET	localhost:4566	/managedresources/xresour						S3	S3
+GET	localhost:4566	/autoshifts	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+GET	localhost:4566	/autoshifts						S3	S3
+GET	localhost:4566	/managedresources	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+GET	localhost:4566	/managedresources						S3	S3
+GET	localhost:4566	/zonalshifts	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+GET	localhost:4566	/zonalshifts						S3	S3
+POST	localhost:4566	/practiceruns	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+POST	localhost:4566	/practiceruns						S3	S3
+POST	localhost:4566	/zonalshifts	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+POST	localhost:4566	/zonalshifts						S3	S3
+PUT	localhost:4566	/autoshift-observer-notification	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+PUT	localhost:4566	/autoshift-observer-notification						S3	S3
+PATCH	localhost:4566	/configuration/xresour	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+PUT	localhost:4566	/managedresources/xresour	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
+PATCH	localhost:4566	/zonalshifts/xzonals	arc-zonal-shift				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/arczonalshift#1.0.0	ARCZonalShift	ARCZonalShift
 POST	localhost:4566	/	athena	application/x-amz-json-1.1	AmazonAthena.BatchGetNamedQuery	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/athena#1.0.0	Athena	Athena
 POST	localhost:4566	/		application/x-amz-json-1.1	AmazonAthena.BatchGetNamedQuery	{}		Athena	Athena
 POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AmazonAthena.BatchGetNamedQuery	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/athena#1.0.0	Athena	Athena
@@ -12404,6 +12443,131 @@ POST	localhost:4566	/2013-04-01/hostedzone/xid	route53				User-Agent:aws-sdk-go-
 POST	localhost:4566	/2013-04-01/hostedzone/xhosted/features	route53				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53#1.0.0	Route53	Route53
 POST	localhost:4566	/2013-04-01/trafficpolicy/xid/xversio	route53				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53#1.0.0	Route53	Route53
 POST	localhost:4566	/2013-04-01/trafficpolicyinstance/xid	route53				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53#1.0.0	Route53	Route53
+POST	localhost:4566	/	route53-recovery-cluster	application/x-amz-json-1.0	ToggleCustomerAPI.GetRoutingControlState	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycluster#1.0.0	Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/		application/x-amz-json-1.0	ToggleCustomerAPI.GetRoutingControlState	{}		Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.0	ToggleCustomerAPI.GetRoutingControlState	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycluster#1.0.0	Route53RecoveryCluster	Route53RecoveryCluster
+POST	route53-recovery-cluster.us-east-1.amazonaws.com	/	route53-recovery-cluster	application/x-amz-json-1.0	ToggleCustomerAPI.GetRoutingControlState	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycluster#1.0.0	Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-cluster%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.0	ToggleCustomerAPI.GetRoutingControlState	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycluster#1.0.0	Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/	route53-recovery-cluster	application/x-amz-json-1.0	ToggleCustomerAPI.ListRoutingControls	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycluster#1.0.0	Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/		application/x-amz-json-1.0	ToggleCustomerAPI.ListRoutingControls	{}		Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.0	ToggleCustomerAPI.ListRoutingControls	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycluster#1.0.0	Route53RecoveryCluster	Route53RecoveryCluster
+POST	route53-recovery-cluster.us-east-1.amazonaws.com	/	route53-recovery-cluster	application/x-amz-json-1.0	ToggleCustomerAPI.ListRoutingControls	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycluster#1.0.0	Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-cluster%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.0	ToggleCustomerAPI.ListRoutingControls	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycluster#1.0.0	Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/	route53-recovery-cluster	application/x-amz-json-1.0	ToggleCustomerAPI.UpdateRoutingControlState	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycluster#1.0.0	Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/		application/x-amz-json-1.0	ToggleCustomerAPI.UpdateRoutingControlState	{}		Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.0	ToggleCustomerAPI.UpdateRoutingControlState	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycluster#1.0.0	Route53RecoveryCluster	Route53RecoveryCluster
+POST	route53-recovery-cluster.us-east-1.amazonaws.com	/	route53-recovery-cluster	application/x-amz-json-1.0	ToggleCustomerAPI.UpdateRoutingControlState	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycluster#1.0.0	Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-cluster%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.0	ToggleCustomerAPI.UpdateRoutingControlState	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycluster#1.0.0	Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/	route53-recovery-cluster	application/x-amz-json-1.0	ToggleCustomerAPI.UpdateRoutingControlStates	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycluster#1.0.0	Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/		application/x-amz-json-1.0	ToggleCustomerAPI.UpdateRoutingControlStates	{}		Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.0	ToggleCustomerAPI.UpdateRoutingControlStates	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycluster#1.0.0	Route53RecoveryCluster	Route53RecoveryCluster
+POST	route53-recovery-cluster.us-east-1.amazonaws.com	/	route53-recovery-cluster	application/x-amz-json-1.0	ToggleCustomerAPI.UpdateRoutingControlStates	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycluster#1.0.0	Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-cluster%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.0	ToggleCustomerAPI.UpdateRoutingControlStates	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycluster#1.0.0	Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/cluster	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+POST	localhost:4566	/cluster	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+POST	route53-recovery-control-config.us-east-1.amazonaws.com	/cluster	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+POST	localhost:4566	/cluster?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-control-config%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+POST	localhost:4566	/cluster						DSQL	DSQL
+POST	localhost:4566	/controlpanel	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+POST	localhost:4566	/controlpanel	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+POST	route53-recovery-control-config.us-east-1.amazonaws.com	/controlpanel	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+POST	localhost:4566	/controlpanel?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-control-config%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+POST	localhost:4566	/controlpanel						S3	S3
+POST	localhost:4566	/routingcontrol	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+POST	localhost:4566	/routingcontrol	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+POST	route53-recovery-control-config.us-east-1.amazonaws.com	/routingcontrol	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+POST	localhost:4566	/routingcontrol?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-control-config%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+POST	localhost:4566	/routingcontrol						S3	S3
+POST	localhost:4566	/safetyrule	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+POST	localhost:4566	/safetyrule	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+POST	route53-recovery-control-config.us-east-1.amazonaws.com	/safetyrule	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+POST	localhost:4566	/safetyrule?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-control-config%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+POST	localhost:4566	/safetyrule						S3	S3
+DELETE	localhost:4566	/cluster/xcluste	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+DELETE	localhost:4566	/cluster/xcluste						DSQL	DSQL
+DELETE	localhost:4566	/controlpanel/xcontro	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+DELETE	localhost:4566	/controlpanel/xcontro						S3	S3
+DELETE	localhost:4566	/routingcontrol/xroutin	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+DELETE	localhost:4566	/routingcontrol/xroutin						S3	S3
+DELETE	localhost:4566	/safetyrule/xsafety	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+DELETE	localhost:4566	/safetyrule/xsafety						S3	S3
+GET	localhost:4566	/cluster/xcluste	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+GET	localhost:4566	/cluster/xcluste						DSQL	DSQL
+GET	localhost:4566	/controlpanel/xcontro	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+GET	localhost:4566	/controlpanel/xcontro						S3	S3
+GET	localhost:4566	/routingcontrol/xroutin	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+GET	localhost:4566	/routingcontrol/xroutin						S3	S3
+GET	localhost:4566	/safetyrule/xsafety	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+GET	localhost:4566	/safetyrule/xsafety						S3	S3
+GET	localhost:4566	/resourcePolicy/xresour	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+GET	localhost:4566	/routingcontrol/xroutin/associatedRoute53HealthChecks	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+GET	localhost:4566	/cluster	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+GET	localhost:4566	/controlpanels	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+GET	localhost:4566	/controlpanel/xcontro/routingcontrols	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+GET	localhost:4566	/controlpanel/xcontro/safetyrules	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+GET	localhost:4566	/tags/xresour	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+POST	localhost:4566	/tags/xresour	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+DELETE	localhost:4566	/tags/xresour	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+PUT	localhost:4566	/cluster	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+PUT	localhost:4566	/controlpanel	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+PUT	localhost:4566	/routingcontrol	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+PUT	localhost:4566	/safetyrule	route53-recovery-control-config				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoverycontrolconfig#1.0.0	Route53RecoveryControlConfig	Route53RecoveryControlConfig
+POST	localhost:4566	/cells	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+POST	localhost:4566	/cells	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+POST	route53-recovery-readiness.us-east-1.amazonaws.com	/cells	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+POST	localhost:4566	/cells?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-readiness%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+POST	localhost:4566	/cells						S3	S3
+POST	localhost:4566	/crossaccountauthorizations	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+POST	localhost:4566	/crossaccountauthorizations	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+POST	route53-recovery-readiness.us-east-1.amazonaws.com	/crossaccountauthorizations	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+POST	localhost:4566	/crossaccountauthorizations?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-readiness%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+POST	localhost:4566	/crossaccountauthorizations						S3	S3
+POST	localhost:4566	/readinesschecks	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+POST	localhost:4566	/readinesschecks	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+POST	route53-recovery-readiness.us-east-1.amazonaws.com	/readinesschecks	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+POST	localhost:4566	/readinesschecks?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-readiness%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+POST	localhost:4566	/readinesschecks						S3	S3
+POST	localhost:4566	/recoverygroups	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+POST	localhost:4566	/recoverygroups	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+POST	route53-recovery-readiness.us-east-1.amazonaws.com	/recoverygroups	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+POST	localhost:4566	/recoverygroups?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-readiness%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+POST	localhost:4566	/recoverygroups						S3	S3
+POST	localhost:4566	/resourcesets	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+POST	localhost:4566	/resourcesets						S3	S3
+DELETE	localhost:4566	/cells/xcellna	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+DELETE	localhost:4566	/cells/xcellna						S3	S3
+DELETE	localhost:4566	/crossaccountauthorizations/xcrossa	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+DELETE	localhost:4566	/crossaccountauthorizations/xcrossa						S3	S3
+DELETE	localhost:4566	/readinesschecks/xreadin	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+DELETE	localhost:4566	/readinesschecks/xreadin						S3	S3
+DELETE	localhost:4566	/recoverygroups/xrecove	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+DELETE	localhost:4566	/recoverygroups/xrecove						S3	S3
+DELETE	localhost:4566	/resourcesets/xresour	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+DELETE	localhost:4566	/resourcesets/xresour						S3	S3
+GET	localhost:4566	/recoverygroups/xrecove/architectureRecommendations	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+GET	localhost:4566	/recoverygroups/xrecove/architectureRecommendations						S3	S3
+GET	localhost:4566	/cells/xcellna	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+GET	localhost:4566	/cells/xcellna						S3	S3
+GET	localhost:4566	/cellreadiness/xcellna	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+GET	localhost:4566	/readinesschecks/xreadin	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+GET	localhost:4566	/readinesschecks/xreadin/resource/xresour/status	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+GET	localhost:4566	/readinesschecks/xreadin/status	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+GET	localhost:4566	/recoverygroups/xrecove	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+GET	localhost:4566	/recoverygroupreadiness/xrecove	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+GET	localhost:4566	/resourcesets/xresour	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+GET	localhost:4566	/cells	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+GET	localhost:4566	/crossaccountauthorizations	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+GET	localhost:4566	/readinesschecks	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+GET	localhost:4566	/recoverygroups	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+GET	localhost:4566	/resourcesets	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+GET	localhost:4566	/rules	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+GET	localhost:4566	/tags/xresour	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+POST	localhost:4566	/tags/xresour	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+DELETE	localhost:4566	/tags/xresour	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+PUT	localhost:4566	/cells/xcellna	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+PUT	localhost:4566	/readinesschecks/xreadin	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+PUT	localhost:4566	/recoverygroups/xrecove	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
+PUT	localhost:4566	/resourcesets/xresour	route53-recovery-readiness				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53recoveryreadiness#1.0.0	Route53RecoveryReadiness	Route53RecoveryReadiness
 POST	localhost:4566	/	route53resolver	application/x-amz-json-1.1	Route53Resolver.AssociateFirewallRuleGroup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53resolver#1.0.0	Route53Resolver	Route53Resolver
 POST	localhost:4566	/		application/x-amz-json-1.1	Route53Resolver.AssociateFirewallRuleGroup	{}		Route53Resolver	Route53Resolver
 POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	Route53Resolver.AssociateFirewallRuleGroup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/route53resolver#1.0.0	Route53Resolver	Route53Resolver

@@ -167,6 +167,10 @@ export const implementedDashboardRouteIds = new Set<string>([
   "resourcegroups",
   "resourcegroupstaggingapi",
   "swf",
+  "route53recoverycontrolconfig",
+  "route53recoverycluster",
+  "route53recoveryreadiness",
+  "arczonalshift",
 ]);
 
 // The 31 most commonly used AWS services shown in the sidebar (routes flagged `common: true`).
@@ -651,6 +655,30 @@ export const sidebarCategories: DashboardCategory[] = [
       },
       { id: "transfer", href: "/dashboard/transfer", label: "Transfer Family", icon: "transfer" },
       { id: "appmesh", href: "/dashboard/appmesh", label: "App Mesh", icon: "appmesh" },
+      {
+        id: "route53recoverycontrolconfig",
+        href: "/dashboard/route53recoverycontrolconfig",
+        label: "ARC Recovery Control",
+        icon: "route53",
+      },
+      {
+        id: "route53recoverycluster",
+        href: "/dashboard/route53recoverycluster",
+        label: "ARC Recovery Cluster",
+        icon: "route53",
+      },
+      {
+        id: "route53recoveryreadiness",
+        href: "/dashboard/route53recoveryreadiness",
+        label: "ARC Recovery Readiness",
+        icon: "route53",
+      },
+      {
+        id: "arczonalshift",
+        href: "/dashboard/arczonalshift",
+        label: "ARC Zonal Shift",
+        icon: "arczonalshift",
+      },
     ],
   },
   {

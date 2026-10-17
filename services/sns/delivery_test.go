@@ -383,8 +383,15 @@ func TestHTTPSSubscriptionDelivery(t *testing.T) {
 	}))
 	defer ts.Close()
 
+	client := ts.Client()
+	tr, ok := client.Transport.(*http.Transport)
+	require.True(t, ok)
+
+	tr.DisableKeepAlives = true
+	t.Cleanup(tr.CloseIdleConnections)
+
 	b := newA1679Backend(t)
-	b.SetHTTPDeliveryClient(ts.Client())
+	b.SetHTTPDeliveryClient(client)
 
 	tp, err := b.CreateTopic("https-topic", nil)
 	require.NoError(t, err)

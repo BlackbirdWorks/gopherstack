@@ -14,7 +14,7 @@ require (
 	github.com/andybalholm/brotli v1.2.6
 	github.com/aws/aws-dax-go v1.2.15
 	github.com/aws/aws-sdk-go v1.55.8
-	github.com/aws/aws-sdk-go-v2 v1.47.1
+	github.com/aws/aws-sdk-go-v2 v1.47.3
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.20
 	github.com/aws/aws-sdk-go-v2/config v1.33.3
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.3
@@ -33,6 +33,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/apprunner v1.42.4
 	github.com/aws/aws-sdk-go-v2/service/appstream v1.64.5
 	github.com/aws/aws-sdk-go-v2/service/appsync v1.60.0
+	github.com/aws/aws-sdk-go-v2/service/arczonalshift v1.34.1
 	github.com/aws/aws-sdk-go-v2/service/athena v1.60.4
 	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.70.4
 	github.com/aws/aws-sdk-go-v2/service/backup v1.64.0
@@ -150,6 +151,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi v1.35.4
 	github.com/aws/aws-sdk-go-v2/service/rolesanywhere v1.26.3
 	github.com/aws/aws-sdk-go-v2/service/route53 v1.65.6
+	github.com/aws/aws-sdk-go-v2/service/route53recoverycluster v1.36.4
+	github.com/aws/aws-sdk-go-v2/service/route53recoverycontrolconfig v1.40.4
+	github.com/aws/aws-sdk-go-v2/service/route53recoveryreadiness v1.34.4
 	github.com/aws/aws-sdk-go-v2/service/route53resolver v1.53.0
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.111.0
 	github.com/aws/aws-sdk-go-v2/service/s3control v1.73.4
@@ -186,7 +190,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/workmail v1.39.4
 	github.com/aws/aws-sdk-go-v2/service/workspaces v1.79.0
 	github.com/aws/aws-sdk-go-v2/service/xray v1.39.4
-	github.com/aws/smithy-go v1.28.1
+	github.com/aws/smithy-go v1.28.5
 	github.com/cedar-policy/cedar-go v1.8.0
 	github.com/distribution/distribution/v3 v3.1.1
 	github.com/eclipse/paho.mqtt.golang v1.5.1
@@ -231,8 +235,8 @@ require (
 	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/antlr/antlr4 v0.0.0-20181218183524-be58ebffde8e // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.19.2 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.4 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.4 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.6 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.19 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.2 // indirect

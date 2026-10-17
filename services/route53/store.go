@@ -28,6 +28,7 @@ const (
 // fields are deliberately left as plain maps -- see the doc comment atop
 // store_setup.go for the full list and why.
 type InMemoryBackend struct {
+	appConfig                    any
 	dns                          DNSRegistrar
 	registry                     *store.Registry
 	zones                        *store.Table[zoneData]
