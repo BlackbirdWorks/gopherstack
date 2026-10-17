@@ -18,6 +18,11 @@ func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSn
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier is required", ErrInvalidParameter)
 	}
 
+	data, err := b.captureInstanceData(instanceID)
+	if err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateDBSnapshot")
 	defer b.mu.Unlock()
 
@@ -32,6 +37,7 @@ func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSn
 
 	snap := b.newManualSnapshotLocked(snapshotID, inst)
 	b.snapshots.Put(snap)
+	b.storeSnapDataLocked(snapKindInstance, snapshotID, data)
 	b.copyTenantDatabasesToSnapshotLocked(snap.DBSnapshotIdentifier, inst)
 
 	cp := *snap
@@ -199,6 +205,7 @@ func (b *InMemoryBackend) DeleteDBSnapshot(snapshotID string) (*DBSnapshot, erro
 
 	cp := *snap
 	b.snapshots.Delete(normalizeID(snapshotID))
+	b.dropSnapDataLocked(snapKindInstance, snapshotID)
 	// Use snap.DBSnapshotIdentifier (the stored, creation-time casing) rather
 	// than the raw snapshotID argument: they can differ purely in case (see
 	// normalizeID), and the tags map is keyed by ARN built from whichever
@@ -258,6 +265,7 @@ func (b *InMemoryBackend) CopyDBSnapshot(
 		PercentProgress:      percentProgressComplete,
 	}
 	b.snapshots.Put(snap)
+	b.copySnapDataLocked(snapKindInstance, src.DBSnapshotIdentifier, targetSnapshotID)
 	cp := *snap
 
 	return &cp, nil
@@ -327,8 +335,12 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 		inst := restoredInstanceFromSnapshot(id, b.rdsARN("db", id), snap, opts, secret, endpoint, port)
 		applyVpcSecurityGroups(inst, opts.VpcSecurityGroupIDs)
 		b.instances.Put(inst)
-		b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
-		b.scheduleReconcilerLocked()
+		seed := b.snapSeedLocked(snapKindInstance, snap.DBSnapshotIdentifier)
+		inst.DBName = cmp.Or(inst.DBName, seed.dbName)
+		if !b.provisionSeededInstanceLocked(inst, "", seed) {
+			b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
+			b.scheduleReconcilerLocked()
+		}
 		b.publishInstanceEventLocked(id, "DB instance restored from snapshot")
 		cp := *inst
 		result = &cp

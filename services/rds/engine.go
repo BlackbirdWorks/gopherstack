@@ -1,6 +1,7 @@
 package rds
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
@@ -101,6 +102,7 @@ type liveDB struct {
 	gone        chan struct{}
 	proxy       atomic.Pointer[pgProxy]
 	fwd         atomic.Pointer[tcpForwarder]
+	seed        engineSeed
 	password    string
 	kind        string
 	version     string
@@ -165,6 +167,7 @@ func (lb *liveDB) opContext(timeout time.Duration) (context.Context, context.Can
 
 type dbEngine struct {
 	units   map[string]*liveDB
+	data    map[string]engineData
 	ca      *engineCA
 	tlsCfg  *tls.Config
 	cfg     EngineConfig
@@ -193,7 +196,7 @@ func (b *InMemoryBackend) EnableEngine(cfg EngineConfig) {
 	b.mu.Lock("EnableEngine")
 	defer b.mu.Unlock()
 
-	b.engine = &dbEngine{cfg: cfg, units: make(map[string]*liveDB)}
+	b.engine = &dbEngine{cfg: cfg, units: make(map[string]*liveDB), data: make(map[string]engineData)}
 }
 
 // engineKind maps an RDS engine name to its base database; "" means no real engine is available.
@@ -415,22 +418,27 @@ func (b *InMemoryBackend) dropAllUnitsLocked() {
 		delete(b.engine.units, key)
 		b.engine.reap(lb)
 	}
+
+	clear(b.engine.data)
 }
 
-// launchUnitLocked registers a database unit and starts its container in the background.
-func (b *InMemoryBackend) launchUnitLocked(key, resourceID, engine, version, user, password, dbName string) {
+// launchSeededUnitLocked registers a database unit and starts its container in the background; the seed is
+// loaded once the engine first comes up.
+func (b *InMemoryBackend) launchSeededUnitLocked(
+	key, resourceID, engine, version, user, password, dbName string, seed engineSeed,
+) {
 	e := b.engine
 	if e == nil || b.closed {
 		return
 	}
 
 	if password == "" {
-		password = randomPassword()
+		password = cmp.Or(seed.password, randomPassword())
 	}
 
 	lb := &liveDB{
 		gone: make(chan struct{}), key: key, resourceID: resourceID, kind: engineKind(engine),
-		version: version, user: user, password: password, dbName: dbName,
+		version: version, user: user, password: password, dbName: dbName, seed: seed,
 	}
 	e.units[key] = lb
 
@@ -440,6 +448,11 @@ func (b *InMemoryBackend) launchUnitLocked(key, resourceID, engine, version, use
 // provisionInstanceLocked starts (or joins) the real engine for a new instance; true means the engine
 // drives the instance's status to available instead of the timer.
 func (b *InMemoryBackend) provisionInstanceLocked(inst *DBInstance, password string) bool {
+	return b.provisionSeededInstanceLocked(inst, password, engineSeed{})
+}
+
+// provisionSeededInstanceLocked is provisionInstanceLocked for an instance restored from existing data.
+func (b *InMemoryBackend) provisionSeededInstanceLocked(inst *DBInstance, password string, seed engineSeed) bool {
 	if b.engine == nil || engineKind(inst.Engine) == "" {
 		return false
 	}
@@ -459,21 +472,26 @@ func (b *InMemoryBackend) provisionInstanceLocked(inst *DBInstance, password str
 		return true
 	}
 
-	b.launchUnitLocked(unitKeyForInstance(inst.DBInstanceIdentifier), inst.DBInstanceIdentifier,
-		inst.Engine, inst.EngineVersion, inst.MasterUsername, password, inst.DBName)
+	b.launchSeededUnitLocked(unitKeyForInstance(inst.DBInstanceIdentifier), inst.DBInstanceIdentifier,
+		inst.Engine, inst.EngineVersion, inst.MasterUsername, password, inst.DBName, seed)
 
 	return true
 }
 
 // provisionClusterLocked starts the single real engine backing a cluster; the cluster stays creating until it is up.
 func (b *InMemoryBackend) provisionClusterLocked(c *DBCluster, password string) bool {
+	return b.provisionSeededClusterLocked(c, password, engineSeed{})
+}
+
+// provisionSeededClusterLocked is provisionClusterLocked for a cluster restored from existing data.
+func (b *InMemoryBackend) provisionSeededClusterLocked(c *DBCluster, password string, seed engineSeed) bool {
 	if b.engine == nil || engineKind(c.Engine) == "" {
 		return false
 	}
 
 	c.Status = instanceStatusCreating
-	b.launchUnitLocked(unitKeyForCluster(c.DBClusterIdentifier), c.DBClusterIdentifier,
-		c.Engine, c.EngineVersion, c.MasterUsername, password, c.DatabaseName)
+	b.launchSeededUnitLocked(unitKeyForCluster(c.DBClusterIdentifier), c.DBClusterIdentifier,
+		c.Engine, c.EngineVersion, c.MasterUsername, password, c.DatabaseName, seed)
 
 	return true
 }
@@ -551,7 +569,7 @@ func (b *InMemoryBackend) awaitAndMark(ctx context.Context, lb *liveDB) {
 	ctx, cancel := context.WithTimeout(ctx, b.engine.cfg.StartTimeout)
 	defer cancel()
 
-	if b.engine.awaitReady(ctx, login) != nil {
+	if b.engine.awaitReady(ctx, login) != nil || b.applySeed(ctx, lb) != nil {
 		b.failUnit(ctx, lb)
 
 		return

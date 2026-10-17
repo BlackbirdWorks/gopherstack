@@ -20,14 +20,20 @@ const engineWait = 10 * time.Second
 type fakeEngineRuntime struct {
 	running   map[string]bool
 	createErr error
+	execErr   error
+	staged    map[string]string
+	loaded    map[string]string
 	specs     []container.Spec
+	execs     [][]string
 	mu        sync.Mutex
 	stops     int
 	starts    int
 }
 
 func newFakeEngineRuntime() *fakeEngineRuntime {
-	return &fakeEngineRuntime{running: make(map[string]bool)}
+	return &fakeEngineRuntime{
+		running: make(map[string]bool), staged: make(map[string]string), loaded: make(map[string]string),
+	}
 }
 
 func (f *fakeEngineRuntime) CreateAndStart(_ context.Context, spec container.Spec) (string, error) {
