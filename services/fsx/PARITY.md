@@ -871,7 +871,7 @@ ListTagsForResource pages through MaxResults/NextToken (api_op_ListTagsForResour
 
 ## 2026-10-10 (realism pass)
 
-- Lifecycle: new `SetLifecycleDelay` (default 0, instant). With a delay, file systems, backups, volumes, snapshots, caches, SVMs and associations render CREATING until `ReadyAt` passes (lazy, time-derived, persisted). Needs `cli.go` wiring to expose a flag.
+- Lifecycle: new `SetLifecycleDelay` (default 0, instant). With a delay, file systems, backups, volumes, snapshots, caches, SVMs and associations render CREATING until `ReadyAt` passes (lazy, time-derived, persisted). Needs `internal/app/cli.go` wiring to expose a flag.
 - LustreConfiguration: PerUnitStorageThroughput, DataCompressionType, DriveCacheType, WeeklyMaintenanceStartTime, backup settings, import/export paths, root squash, metadata, log and read-cache members were silently dropped on create; now stored and echoed. UpdateFileSystem now honors `LustreConfiguration`.
 - Validation: Lustre deployment type, PerUnitStorageThroughput per deployment/storage type (required for PERSISTENT_*), StorageCapacity step per deployment type; Windows/OpenZFS/ONTAP max capacity and Windows HDD minimum; ONTAP HAPairs 1-12 (>1 only SINGLE_AZ_2) and ThroughputCapacity = per-HA-pair x HAPairs. UpdateFileSystem rejects capacity decreases (except ONTAP), <10% growth, SCRATCH_1 growth.
 - Pagination: NextToken is now opaque (base64url of the cursor); an undecodable token is BadRequest.

@@ -227,7 +227,7 @@ tasks:
   leak-test:
     desc: Leak tests
     cmds:
-      - go tool gotestsum --format pkgname -- -race -count=1 -timeout 20m -run TestLeak .
+      - go tool gotestsum --format pkgname -- -race -count=1 -timeout 20m -run TestLeak ./internal/app/
 
   integration-test:
     desc: Integration tests (builds the linux binary first)

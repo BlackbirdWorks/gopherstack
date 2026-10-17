@@ -52,7 +52,7 @@ underlying backend state (services/cloudfront's `keyValueStoreData`/
 `DeleteKVSValue`/`ListKVSValues`/`UpdateKVSValues` methods) was real, not
 fabricated -- only the HTTP-layer routing and wire shape were wrong. This
 package replaces the dead handlers with correct routing and wire shape, wired
-(cli.go's `wireCloudFrontKeyValueStore`) directly to that same
+(internal/app/cli.go's `wireCloudFrontKeyValueStore`) directly to that same
 `*cloudfront.InMemoryBackend`, mirroring how services/dynamodbstreams borrows
 services/dynamodb's backend rather than owning a duplicate store.
 
@@ -189,7 +189,7 @@ Re-read every `items_still_open` entry against the actual code instead of
 trusting the prior wording:
 
 - **AccessDeniedException claim was stale.** `iam.EnforcementMiddleware` is
-  wired repo-wide ahead of every service's handler (cli.go:12066), this
+  wired repo-wide ahead of every service's handler (internal/app/cli.go:12066), this
   package included, and `iam_enforcement_test.go`'s
   `denied_action_returns_access_denied` subtest already proves a real 403
   AccessDenied response. The "no AccessDeniedException path" half of the old

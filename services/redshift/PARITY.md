@@ -196,7 +196,7 @@ so apply unconditionally, matching the existing `VpcSecurityGroupIds`/`Port`
 precedent in this same function.
 `CreateCluster`'s positional signature grew a trailing `CreateClusterOptions`
 parameter -- ~90 call sites across this package's tests plus three external
-callers (`cli_test.go`, `services/cloudformation/resources_redshift.go`,
+callers (`internal/app/cli_test.go`, `services/cloudformation/resources_redshift.go`,
 `test/e2e/redshift_test.go`) updated; all shared the literal trailing
 `, nil, "")` pattern except two `fmt.Sprintf`-built IDs in
 `reconciler_test.go`, fixed by hand.

@@ -79,10 +79,10 @@
 	//
 	// This is a CROSS-SERVICE AGGREGATOR, not an owner of any resources of
 	// its own. GetResources only ever returns what has been wired into the
-	// backend via cli.go's wireResourceGroupsTagging -- as of this build that
+	// backend via internal/app/cli.go's wireResourceGroupsTagging -- as of this build that
 	// is 11 of the ~90 gopherstack services with native tagging support:
 	// DynamoDB, SQS, SNS, Lambda, KMS, Secrets Manager, ECS, Athena, Glue,
-	// ECR, and Kinesis (see cli.go:5220 and PARITY.md's gaps section, tracked
+	// ECR, and Kinesis (see internal/app/cli.go:5220 and PARITY.md's gaps section, tracked
 	// under bd: gopherstack-3xne). Resources tagged through any OTHER
 	// service's own native TagResource API are invisible here, and
 	// TagResources/UntagResources against their ARNs will land in

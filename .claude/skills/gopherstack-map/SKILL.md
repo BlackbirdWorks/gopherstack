@@ -1,6 +1,6 @@
 ---
 name: gopherstack-map
-description: Navigate the gopherstack repo (161 AWS service emulators under services/, plus pkgs/, cli.go, test/, ui/) without re-discovering structure via Glob/Grep every session. Use whenever asked to find where a service is registered, what operations it supports, its routing style, its parity grade, which pkgs/ package to reuse, or generally "where is X" / "how does service Y work" / "map this service" for any gopherstack service. Trigger before opening a service directory cold, and run scripts/svcmap.sh <service> for a compact structural summary instead of manually listing+grepping files.
+description: Navigate the gopherstack repo (161 AWS service emulators under services/, plus pkgs/, internal/app/cli.go, test/, ui/) without re-discovering structure via Glob/Grep every session. Use whenever asked to find where a service is registered, what operations it supports, its routing style, its parity grade, which pkgs/ package to reuse, or generally "where is X" / "how does service Y work" / "map this service" for any gopherstack service. Trigger before opening a service directory cold, and run scripts/svcmap.sh <service> for a compact structural summary instead of manually listing+grepping files.
 ---
 
 # gopherstack map
@@ -12,6 +12,10 @@ re-deriving it with Glob/Grep.
 
 | path | contents |
 |---|---|
+| `main.go` | thin entry (`func main` calls `app.Run()`); only other root files: `default.pgo` |
+| `internal/app/` | composition root (formerly package main): `cli.go` (`Run()`, service wiring) + `<x>.go` cross-service wiring files + white-box tests (`go test ./internal/app/`) |
+| `internal/routegates/` | route-gate logic (`gates.go`) + `path_gates.txt` |
+| `internal/cliconfig/` | lifecycle/persistable settings types shared with `internal/app` |
 | `services/<svc>/` | one emulator: `handler.go` + `store.go` + op-family files + `PARITY.md` + generated `README.md` |
 | `pkgs/` | 32 shared infra packages (table below) |
 | `cmd/gendocs` | regenerates per-service READMEs + `.badges/*.svg` from PARITY.md (`task docs`) |
@@ -31,8 +35,8 @@ Also present: `internal/`, `modules/`, `proto/`, `examples/`, `bench/`, `scripts
 
 ## Entry points
 
-- `main.go` — 5 lines, calls `Run()`.
-- `cli.go` (~9160 lines): `Run()` at line 1747 (Kong CLI parsing, then service
+- `main.go` — 5 lines, calls `app.Run()`.
+- `internal/app/cli.go` (~9160 lines): `Run()` at line 1747 (Kong CLI parsing, then service
   wiring). `echo.New()` at 2110. `initializeServices` at 2628,
   `initIndependentServices` at 2660 — this is where every provider is
   constructed. Chaos middleware `registry.Use(chaos.Middleware(faultStore))`
@@ -46,7 +50,7 @@ Also present: `internal/`, `modules/`, `proto/`, `examples/`, `bench/`, `scripts
 
 | question | answer |
 |---|---|
-| Is service X registered, and how? | `cli.go`, `initIndependentServices` (2660) — grep the service name |
+| Is service X registered, and how? | `internal/app/cli.go`, `initIndependentServices` (2660) — grep the service name |
 | What ops does X support? | `GetSupportedOperations()` in `services/X/handler.go` |
 | What's X's parity status? | `services/X/PARITY.md` frontmatter, `overall: A|B` field |
 | What's X's wire shape for op Y? | `services/X/wire.go` — doc comment cites the SDK source line that confirms it |
@@ -73,7 +77,7 @@ Verified against grafana, networkmanager, account.
 | `wire_convert.go` | `toXWire`/`fromXWire` mappers |
 | `errors.go` | sentinel errors, `apiError` struct, constructors (`notFoundError`/`conflictError`/`validationError`/`quotaError`) |
 | `consts.go` | path-segment and JSON-key literals reused 3+ times (goconst-driven) |
-| `provider.go` | `Provider` implementing `service.Provider` (Name, Init) — what `cli.go` registers |
+| `provider.go` | `Provider` implementing `service.Provider` (Name, Init) — what `internal/app/cli.go` registers |
 | `persistence.go` | `backendSnapshot` struct + Snapshot/Restore |
 | `tags.go` / `handler_tags.go` | TagResource/UntagResource/ListTagsForResource/TaggedResources |
 | `cross_service.go` / `crossservice.go` | lazy sibling-service lookups |

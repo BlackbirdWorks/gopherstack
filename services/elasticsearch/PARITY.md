@@ -287,8 +287,8 @@ why" rule:
    -- documented as structural, not left silently absent.
 4. **`VPCOptions.VPCId`/`.AvailabilityZones`**: confirmed still blocked on an EC2
    lookup this service has no access to (no `ec2` import anywhere in
-   `services/elasticsearch`) -- see gaps for the specific `cli.go` wiring this would
-   need. Not implemented this pass per the exclusion on editing `cli.go`.
+   `services/elasticsearch`) -- see gaps for the specific `internal/app/cli.go` wiring this would
+   need. Not implemented this pass per the exclusion on editing `internal/app/cli.go`.
 5. **Domains never reach `Processing`**: investigated what real AWS does (no
    `elasticsearchservice` waiter exists in the pinned SDK -- confirmed no
    `waiters.go` in the module -- so real clients like Terraform's

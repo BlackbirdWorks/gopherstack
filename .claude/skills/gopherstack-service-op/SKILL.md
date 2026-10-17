@@ -35,7 +35,7 @@ pressure; check your own diff against it before calling the op done.
 | `wire_convert.go` | toXWire/fromXWire mappers |
 | `errors.go` | sentinel errors, `apiError` struct, constructors (notFoundError/conflictError/validationError/quotaError) |
 | `consts.go` | path-segment + JSON-key literals reused 3+ times |
-| `provider.go` | Provider implementing `service.Provider` (Name, Init) — what `cli.go` registers |
+| `provider.go` | Provider implementing `service.Provider` (Name, Init) — what `internal/app/cli.go` registers |
 | `persistence.go` | `backendSnapshot` struct + Snapshot/Restore |
 | `tags.go` / `handler_tags.go` | TagResource/UntagResource/ListTagsForResource/TaggedResources |
 | `cross_service.go` | lazy sibling-service lookups via a structurally-matched `siblingServices` interface |
@@ -155,7 +155,7 @@ If the resource is taggable, use the same `tags.Tags` field its other ops
 already use, created via `tags.New("<service>.<resource>.<id>.tags")`.
 `pkgs/tags` has its own internal locking, separate from `b.mu`.
 `handler_tags.go` is the thin HTTP wrapper; `TaggedResources()` feeds the
-resourcegroupstaggingapi cross-service integration (wired in `cli.go`, e.g.
+resourcegroupstaggingapi cross-service integration (wired in `internal/app/cli.go`, e.g.
 `wireTaggingGrafana`).
 
 ## Wire shapes

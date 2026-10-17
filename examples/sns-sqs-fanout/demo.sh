@@ -4,7 +4,7 @@
 # Creates one SNS topic, two SQS queues, subscribes both queues to the topic,
 # publishes a message, then receives it from both queues. This exercises the
 # real fan-out plumbing inside gopherstack (SNS publish emitter -> SQS
-# delivery wired up in cli.go), not just two isolated API mocks.
+# delivery wired up in internal/app/cli.go), not just two isolated API mocks.
 set -eu
 
 AWS="aws --endpoint-url ${ENDPOINT:-http://localhost:8000} --no-cli-pager --output json"

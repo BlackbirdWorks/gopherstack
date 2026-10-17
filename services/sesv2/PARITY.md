@@ -337,7 +337,7 @@ itself) -- documented per-field in the `ops:` notes, not silently dropped.
 
 ## Notes
 
-**2026-10-12 deep realism pass:** friendly-from `FromEmailAddress` ("Bob <b@example.com>") failed identity verification (now bare address); configuration-set SNS event destinations were stored but never delivered, SendEmail now publishes `Send`/`Delivery` events (SES event-publishing JSON) through the new `SetSNSPublisher` (wired in cli.go by wireSESv2SNS; root test cli_sesv2_sns_event_wiring_test.go). Tests: deep_flows_sdk_test.go. Not delivered: CloudWatch/Firehose/EventBridge destinations, Bounce/Complaint outcomes, suppression-list drop; sandbox recipient verification is not enforced (lenient, would reject most in-repo senders).
+**2026-10-12 deep realism pass:** friendly-from `FromEmailAddress` ("Bob <b@example.com>") failed identity verification (now bare address); configuration-set SNS event destinations were stored but never delivered, SendEmail now publishes `Send`/`Delivery` events (SES event-publishing JSON) through the new `SetSNSPublisher` (wired in internal/app/cli.go by wireSESv2SNS; root test internal/app/sesv2_sns_event_wiring_test.go). Tests: deep_flows_sdk_test.go. Not delivered: CloudWatch/Firehose/EventBridge destinations, Bounce/Complaint outcomes, suppression-list drop; sandbox recipient verification is not enforced (lenient, would reject most in-repo senders).
 
 ### 2026-10-05 (gopherstack-fb5ao): secret-echo audit
 

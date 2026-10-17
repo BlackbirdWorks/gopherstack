@@ -6,9 +6,9 @@
 # every family table's Input/Output/Errors columns) is left UNMODIFIED below as the wire-shape
 # ground truth the implementation was built from -- it is still accurate as a wire-shape reference;
 # only its "gap" verdicts were stale. This pass touched ONLY this file: no .go file, go.mod, go.sum,
-# or cli.go was read or written to produce the status change below (all evidence came from `go
+# or internal/app/cli.go was read or written to produce the status change below (all evidence came from `go
 # build`/`go vet`/`go test -race`/`golangci-lint` against the already-committed tree, plus direct
-# reading of services/lightsail/*.go and the relevant cli.go wiring lines, never modifying either).
+# reading of services/lightsail/*.go and the relevant internal/app/cli.go wiring lines, never modifying either).
 service: lightsail
 sdk_module: aws-sdk-go-v2/service/lightsail@v1.58.4   # gopherstack-u8my: was recorded v1.58.3 but
 # go.mod actually pinned v1.58.4 -- the "confirmed unchanged" claim below was wrong. Diffed v1.58.3
@@ -19,13 +19,13 @@ sdk_module: aws-sdk-go-v2/service/lightsail@v1.58.4   # gopherstack-u8my: was re
 last_audit_commit: c02948310   # 2026-09-20 ssoadmin-config-and-lightsail terraform coverage pass, see dated Notes
 # entry at the bottom of this file. Prior value da97fccdb was the gopherstack-21my per-item field
 # sweep (2026-09-18). Prior-prior value c397a0243 was the commit that actually implemented all 161
-# ops, registered the handler, and wired cli.go. A follow-up pass on top of that HEAD (same day)
-# closed the CreateCloudFormationStack wiring gap below; see "cli.go wiring" section for the cli.go
+# ops, registered the handler, and wired internal/app/cli.go. A follow-up pass on top of that HEAD (same day)
+# closed the CreateCloudFormationStack wiring gap below; see "internal/app/cli.go wiring" section for the internal/app/cli.go
 # diff, which is the only .go-file change this follow-up pass made (plus errors.go's disclosure
 # comment).
 last_audit_date: 2026-10-10
 overall: A   # raised from A- by a follow-up pass that closed the one load-bearing gap the re-audit
-# above found: cli.go now calls wireLightsailCloudFormation(byName["Lightsail"], cfnSvc) from
+# above found: internal/app/cli.go now calls wireLightsailCloudFormation(byName["Lightsail"], cfnSvc) from
 # registerCloudFormationAndDashboard (not from wireStorageAndSecretsIntegrations -- CloudFormation
 # isn't registered yet when that runs), wiring a real cfnLightsailStackAdapter that calls the real
 # services/cloudformation backend's CreateStack. Verified end-to-end (not just compiled) via a
@@ -49,11 +49,11 @@ overall: A   # raised from A- by a follow-up pass that closed the one load-beari
 # exception list), real per-op InMemoryBackend state (not stub echoes), real Operation-model
 # Started->Succeeded async transitions (operations.go), a real 7-state/9-detail-code/
 # 4-deployment-state container-service machine that walks its documented intermediate steps on real
-# wall-clock timers rather than jumping straight to RUNNING, cli.go registration AND
+# wall-clock timers rather than jumping straight to RUNNING, internal/app/cli.go registration AND
 # resourcegroupstaggingapi tag-bridge wiring both already present (wireTaggingLightsail,
-# cli.go:7061). `go build`/`go vet`/`go test -race -count=1` all clean (3+ consecutive race runs
+# internal/app/cli.go:7061). `go build`/`go vet`/`go test -race -count=1` all clean (3+ consecutive race runs
 # across both services/lightsail/... and services/cloudformation/..., since this pass touches
-# cloudformation's cli.go wiring too); `golangci-lint run` reports 0 issues; `grep -rnE
+# cloudformation's internal/app/cli.go wiring too); `golangci-lint run` reports 0 issues; `grep -rnE
 # '//nolint:.*(funlen|gocyclo|gocognit|cyclop)' services/lightsail/` is empty -- no banned complexity
 # suppressions. The six MetricData ops, GetCostEstimate, GetContainerLog, and
 # GetRelationalDatabaseLogEvents all genuinely return real, well-formed, EMPTY payloads (verified by
@@ -61,7 +61,7 @@ overall: A   # raised from A- by a follow-up pass that closed the one load-beari
 # honest non-fabrication this audit's own brief called for, so these do NOT count against the grade.
 # No fabrication anywhere in this pass: the CloudFormation handoff creates a real Stack from real
 # instance/export data (no invented template resources -- see cfnLightsailStackAdapter's own doc
-# comment in cli.go for why an empty template body was the honest choice over fabricating EC2
+# comment in internal/app/cli.go for why an empty template body was the honest choice over fabricating EC2
 # resources Lightsail's export never actually described), and the 5 unused error shapes are
 # disclosed, not silently missing or wrongly triggered.
 families:
@@ -75,7 +75,7 @@ families:
   static_ips: {status: ok, note: "6 ops, keypairs_staticips.go. Real attach/detach against a named instance, no ENI concept, as spec'd."}
   disks: {status: ok, note: "7 ops, disks.go. DiskState is a real typed 5-value enum (consts.go) driving genuine available<->in-use transitions on Attach/Detach; AutoMounting/AutoMountStatus bookkeeping-only by explicit design (no real guest OS to mount into), documented at the call site."}
   disk_snapshots: {status: ok, note: "5 ops incl. CopySnapshot, disks.go. CopySnapshot is an honest, documented scoped-down same-process record copy, never claiming a real second-region call (disks.go:357-358's own comment)."}
-  export_cloudformation: {status: ok, note: "4 ops, exportcfn.go. ExportSnapshot/GetExportSnapshotRecords/GetCloudFormationStackRecords are fully real. CreateCloudFormationStack's real cross-service handoff (CloudFormationBackend.CreateStackFromLightsail, store.go) is now WIRED: cli.go's registerCloudFormationAndDashboard calls wireLightsailCloudFormation(byName[\"Lightsail\"], cfnSvc) right after CloudFormation is registered (it cannot run from wireStorageAndSecretsIntegrations/wireCrossServiceDependencies like wireMGNS3/wireDynamoDBS3 do, since those run before CloudFormation exists), handing off to a cfnLightsailStackAdapter that calls the real services/cloudformation backend's CreateStack with an empty template body (no fabricated EC2 resources -- Lightsail's export gives instance names, not a template) and one Parameter per source instance name. Verified end-to-end via a throwaway root-package test (since deleted) that drove real initializeServices, created a real instance/snapshot/export, called CreateCloudFormationStack, and confirmed a real Stack now exists in the CloudFormation backend with DestinationInfoID populated and State SUCCEEDED. Previously the one confirmed genuine cross-service handoff in this whole 161-op surface was unreachable in the running application; that gap is now closed."}
+  export_cloudformation: {status: ok, note: "4 ops, exportcfn.go. ExportSnapshot/GetExportSnapshotRecords/GetCloudFormationStackRecords are fully real. CreateCloudFormationStack's real cross-service handoff (CloudFormationBackend.CreateStackFromLightsail, store.go) is now WIRED: internal/app/cli.go's registerCloudFormationAndDashboard calls wireLightsailCloudFormation(byName[\"Lightsail\"], cfnSvc) right after CloudFormation is registered (it cannot run from wireStorageAndSecretsIntegrations/wireCrossServiceDependencies like wireMGNS3/wireDynamoDBS3 do, since those run before CloudFormation exists), handing off to a cfnLightsailStackAdapter that calls the real services/cloudformation backend's CreateStack with an empty template body (no fabricated EC2 resources -- Lightsail's export gives instance names, not a template) and one Parameter per source instance name. Verified end-to-end via a throwaway root-package test (since deleted) that drove real initializeServices, created a real instance/snapshot/export, called CreateCloudFormationStack, and confirmed a real Stack now exists in the CloudFormation backend with DestinationInfoID populated and State SUCCEEDED. Previously the one confirmed genuine cross-service handoff in this whole 161-op surface was unreachable in the running application; that gap is now closed."}
   load_balancers: {status: partial, note: "9 ops, loadbalancers.go/handler_loadbalancers.go. 8/9 fully real (create/delete/attach/detach/UpdateLoadBalancerAttribute/SetIpAddressType, real InstanceHealthState per-instance tracking). GetLoadBalancerMetricData deliberately returns real, well-formed, EMPTY MetricData (loadbalancers.go:298) after existence validation -- same honest non-fabrication pattern as family E."}
   lb_tls_certs: {status: ok, note: "5 ops, loadbalancers.go. Real cert lifecycle distinct from the CDN-facing Certificate family, GetLoadBalancerTlsPolicies a real static policy catalog."}
   relational_databases_core: {status: ok, note: "9 ops, databases.go. Real Creating->Available/Starting/Stopping/Rebooting state walk. RelationalDatabaseState string constants (consts.go) EXPLICITLY commented UNCONFIRMED (no typed SDK enum exists at all), matching the pre-implementation audit's own flagged unknown -- not presented as SDK-confirmed."}
@@ -112,11 +112,11 @@ leaks: {status: clean, note: "store.go's Close() stops the pkgs/worker.Group bac
 ## Implementation summary (this pass)
 
 This was a documentation-only re-audit: `services/lightsail/` was fully implemented in commit
-`c397a0243` (all 161 ops, real backend state, cli.go registration, resourcegroupstaggingapi wiring)
+`c397a0243` (all 161 ops, real backend state, internal/app/cli.go registration, resourcegroupstaggingapi wiring)
 but this file still read as the from-scratch pre-implementation audit written before that commit,
-grading every op "gap." This pass changed nothing in `.go`/`go.mod`/`go.sum`/`cli.go` -- it read the
+grading every op "gap." This pass changed nothing in `.go`/`go.mod`/`go.sum`/`internal/app/cli.go` -- it read the
 implementation (`handler.go`, every `handler_*.go`/op-family `.go` file, `persistence.go`,
-`sdk_completeness_test.go`, `operations.go`, `errors.go`, and the relevant `cli.go` wiring lines) and
+`sdk_completeness_test.go`, `operations.go`, `errors.go`, and the relevant `internal/app/cli.go` wiring lines) and
 ran `go build`/`go vet`/`go test -race -count=1`/`golangci-lint` against the already-committed tree,
 then rewrote this file's frontmatter (`overall`, `families`, `gaps`, `deferred`, `leaks`,
 `last_audit_commit`) to match what the code actually does. Everything from "## Purpose of this
@@ -129,9 +129,9 @@ frontmatter above now corrects.
 
 - **All 161 ops routed and registered**: `GetSupportedOperations()` (`handler.go`) lists exactly 161
   names, `go test ./services/lightsail/...`'s `TestSDKCompleteness` passes with an empty exception
-  list against a real `*lightsailsdk.Client{}`, and `cli.go` both registers the handler
-  (`lightsailbackend.Provider{}`, `cli.go:3267`) and wires it into `resourcegroupstaggingapi`
-  (`wireTaggingLightsail`, `cli.go:7061`) -- unlike mgn's original pass, there was no
+  list against a real `*lightsailsdk.Client{}`, and `internal/app/cli.go` both registers the handler
+  (`lightsailbackend.Provider{}`, `internal/app/cli.go:3267`) and wires it into `resourcegroupstaggingapi`
+  (`wireTaggingLightsail`, `internal/app/cli.go:7061`) -- unlike mgn's original pass, there was no
   service-registration or cross-service tag-bridge gap left to close here.
 - **The Operation model is real** (`operations.go`): every mutating call creates a `Started`
   `Operation` and schedules a genuine timed transition to `Succeeded` via `pkgs/worker`, never a
@@ -172,16 +172,16 @@ frontmatter above now corrects.
    own file header calls this "the one confirmed genuine cross-service handoff in this whole 161-op
    surface," and the code path (`b.cfnBackend.CreateStackFromLightsail`, gated on `b.cfnBackend !=
    nil`) was already correctly implemented. But `SetCloudFormationBackend` (`store.go`) had zero call
-   sites anywhere in this repo outside its own definition and doc comments -- not in `cli.go`, not in
+   sites anywhere in this repo outside its own definition and doc comments -- not in `internal/app/cli.go`, not in
    this package's own tests -- so `b.cfnBackend` was always `nil` in the running application. This
-   pass added `cli.go`'s `cfnLightsailStackAdapter` (adapts the real `services/cloudformation`
+   pass added `internal/app/cli.go`'s `cfnLightsailStackAdapter` (adapts the real `services/cloudformation`
    backend's `CreateStack` to the narrow `CreateStackFromLightsail(stackName string, instanceNames
    []string) (string, error)` shape `CloudFormationBackend` expects, with an empty template body --
    Lightsail's export gives instance names, not a CloudFormation template, so fabricating EC2/AMI
    resources would be worse than the honest empty-template stack) and `wireLightsailCloudFormation`.
    The call site is `registerCloudFormationAndDashboard`, not one of the `wire*Integrations` helpers
    `wireCrossServiceDependencies` dispatches to: those all run *before* CloudFormation is registered
-   (`cli.go`'s `initializeServices` explicitly registers CloudFormation only after cross-service
+   (`internal/app/cli.go`'s `initializeServices` explicitly registers CloudFormation only after cross-service
    wiring, so its own dashboard can see every other handler), so wiring from there is a silent no-op
    -- confirmed the hard way, by trying it first and watching the throwaway verification test still
    see a `nil` `DestinationInfoID`. Verified end-to-end (not just compiled) via a throwaway
@@ -1010,9 +1010,9 @@ prices this audit does not fabricate).
 - **`TagResource`/`UntagResource` key on `ResourceName` (required) with `ResourceArn` OPTIONAL**
   (`api_op_TagResource.go`: `ResourceName *string` marked "This member is required", `ResourceArn
   *string` with no such marker) -- the reverse of the ARN-required convention. An implementer
-  wiring `resourcegroupstaggingapi` (`cli.go:5357`, `wireResourceGroupsTagging`) will need a
+  wiring `resourcegroupstaggingapi` (`internal/app/cli.go:5357`, `wireResourceGroupsTagging`) will need a
   resource-NAME-keyed lookup path in addition to (or instead of) the ARN-keyed
-  `wireTaggingCtxARNResources` helper pattern seen in e.g. `wireTaggingEFS` (`cli.go:6137-6162`,
+  `wireTaggingCtxARNResources` helper pattern seen in e.g. `wireTaggingEFS` (`internal/app/cli.go:6137-6162`,
   which derives resource type FROM the ARN's own service segment via `resourceTypeFromARN(arn,
   "elasticfilesystem")`) -- Lightsail resources are name-addressed first, ARN-addressed second.
 - **ARN namespace**: confirmed literally `lightsail` (NOT a diverging case like stepfunctions ->
@@ -1120,7 +1120,7 @@ underlying transition logic is DRY.
 
 ### 5.3 Existing Lightsail references in this repo
 
-`grep -rni "lightsail" services/ cli.go` (case-insensitive, whole tree) returns **zero hits** --
+`grep -rni "lightsail" services/ internal/app/cli.go` (case-insensitive, whole tree) returns **zero hits** --
 confirmed via direct grep in this session, no prior partial work, no stray references anywhere.
 
 ### 5.4 CloudFormation
@@ -1163,7 +1163,7 @@ strongly recommended:
     A should actually be seeded EARLY in practice (many other families' `Get*Blueprints`/
     `Get*Bundles` calls are referenced by create ops throughout), noted last here only because it
     requires the most externally-sourced (non-SDK) reference data to do honestly.
-11. **Tagging wiring into `resourcegroupstaggingapi`** (`cli.go:5357`) can happen incrementally
+11. **Tagging wiring into `resourcegroupstaggingapi`** (`internal/app/cli.go:5357`) can happen incrementally
     alongside any of the above, once at least one resource kind's name-first tag storage exists to
     prove out the pattern described in 5.1.
 

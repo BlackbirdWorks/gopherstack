@@ -623,7 +623,7 @@ trips through the backend already.
   `CreateCluster`/`IncreaseReplicationFactor`) have no doc comment in this SDK version to derive
   a trigger from -- left unmodeled, same reasoning as the 2026-08-10 pass's
   `InsufficientClusterCapacityFault`/`ServiceLinkedRoleNotFoundFault` finding.
-- `cli.go`'s `wireTaggingDAX` (Resource Groups Tagging API cross-service wiring): DAX's
+- `internal/app/cli.go`'s `wireTaggingDAX` (Resource Groups Tagging API cross-service wiring): DAX's
   single taggable resource kind (`cache/{name}` ARN segment) and its bare-error-vs-
   `(result, error)` adapter shape read correctly against `InMemoryBackend.TagResource`/
   `UntagResource`.

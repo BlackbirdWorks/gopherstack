@@ -620,7 +620,7 @@ UpdateApplication with a RunConfigurationUpdate that omits AllowNonRestoredState
 AddApplicationCloudWatchLoggingOption, AddApplicationVpcConfiguration, DeleteApplicationCloudWatchLoggingOption and DeleteApplicationVpcConfiguration now honour ConditionalToken (`TestSDK_ConditionalTokenGuardsConfigOps`). DiscoverInputSchema accepts S3Configuration as the alternative to ResourceARN (`TestSDK_DiscoverInputSchemaS3Configuration`). No persisted fields changed.
 
 ## 2026-10-10 realism pass
-- Start/Stop/Update now report STARTING/STOPPING/UPDATING for `SetLifecycleDelay(d)` (default 0 = instant, previous behaviour); time-driven, not per-Describe. Start/Stop/CreateSnapshot guards use the effective status. `TestLifecycleDelay_TransitionalStatuses`. Root wiring needed: a `--lifecycle-*` field and `SetLifecycleDelay` call in cli_lifecycle.go (not done here).
+- Start/Stop/Update now report STARTING/STOPPING/UPDATING for `SetLifecycleDelay(d)` (default 0 = instant, previous behaviour); time-driven, not per-Describe. Start/Stop/CreateSnapshot guards use the effective status. `TestLifecycleDelay_TransitionalStatuses`. Root wiring needed: a `--lifecycle-*` field and `SetLifecycleDelay` call in internal/app/lifecycle.go (not done here).
 - CreateApplication validates ApplicationName (`[a-zA-Z0-9_.-]`, 1-128) and RuntimeEnvironment against the pinned SDK enum -> InvalidArgumentException. `TestCreateApplication_InputValidation`.
 - Error messages are human text instead of the bare code.
 - Left lenient: ServiceExecutionRole is not required to be an ARN (in-repo tests/fixtures pass empty or non-ARN roles).

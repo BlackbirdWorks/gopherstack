@@ -146,12 +146,12 @@ there is no operation in this service that can change it (confirmed above).
   AWS marks `AccountId` **required** on these three specifically (unlike every other op, where
   it's optional and defaults to the caller's account) — added the validation. Not modeled:
   actually routing by AccountId to a different backend/member account (see gaps).
-- The service had no `provider.go` and was not referenced anywhere in `cli.go`'s Provider
+- The service had no `provider.go` and was not referenced anywhere in `internal/app/cli.go`'s Provider
   list — confirmed via repo-wide grep that `gopherstack/services/account` is imported nowhere
   outside this package's own tests. The entire service was dead code, unreachable from the
   running gopherstack server, independent of any wire-shape bugs. Added
   `services/account/provider.go` (mirrors `services/workspaces/provider.go`) so wiring it in
-  is a one-line cli.go change. **Since resolved**: as of this pass's audit, `cli.go` imports
+  is a one-line internal/app/cli.go change. **Since resolved**: as of this pass's audit, `internal/app/cli.go` imports
   `accountbackend "github.com/blackbirdworks/gopherstack/services/account"` and registers
   `&accountbackend.Provider{}` (wired by a separate concurrent pass on this branch, not this
   audit) -- the service is now reachable from the running server.
@@ -492,6 +492,6 @@ the record: `GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/account/...` 0 is
 ## 2026-10-10 (realism pass)
 
 - Region catalog expanded to the real set: 17 ENABLED_BY_DEFAULT regions plus 15 opt-in regions that start DISABLED (af-south-1 and ap-east-1 stay seeded ENABLED for existing callers). Restored snapshots are topped up with missing regions.
-- New `SetLifecycleDelay` (default 100ms, unchanged) for ENABLING/DISABLING and primary-email ACCEPTED dwell; needs `cli.go` wiring to expose a flag.
+- New `SetLifecycleDelay` (default 100ms, unchanged) for ENABLING/DISABLING and primary-email ACCEPTED dwell; needs `internal/app/cli.go` wiring to expose a flag.
 - Validation from the API reference: PutContactInformation lengths, two-letter CountryCode, `+` phone pattern, StateOrRegion required for US/CA/GB/DE/JP/IN/BR; PutAlternateContact email/phone patterns and lengths; AccountName <=50; ListRegions rejects unknown RegionOptStatusContains values and forged NextTokens.
 - Error messages no longer repeat the exception name.

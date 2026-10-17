@@ -413,7 +413,7 @@ whole decimals as Decimal, rejects nested SELECT, SELECT VALUE of an array and t
   declared by iot@v1.83.0 types.SqlParseException on both operations.
 
 Tests: sql_engine_whitebox_test.go, rules_test.go, rule_templates_whitebox_test.go,
-cli_iot_rule_sql_test.go (typed-SDK delivery to SQS and SqlParseException).
+internal/app/iot_rule_sql_test.go (typed-SDK delivery to SQS and SqlParseException).
 
 ## 2026-10-03: Rule action roles under --enforce-iam
 
@@ -2434,7 +2434,7 @@ IoT is region-isolated: each non-home region gets a lazily built sibling `Handle
 
 ## 2026-10-03: Rule actions dispatched in-process
 
-- republish (topic/qos/headers, hop-limited), sns (RAW/JSON), kinesis, firehose (separator, batchMode), dynamoDB (INSERT/UPDATE/DELETE, payloadField), dynamoDBv2, s3 (key, cannedAcl), cloudwatchMetric, cloudwatchAlarm, cloudwatchLogs (batchMode; stream named after the rule), stepFunctions (executionNamePrefix) and iotAnalytics now deliver through `ActionTargets` wired in `cli_iot_rule_targets.go`.
+- republish (topic/qos/headers, hop-limited), sns (RAW/JSON), kinesis, firehose (separator, batchMode), dynamoDB (INSERT/UPDATE/DELETE, payloadField), dynamoDBv2, s3 (key, cannedAcl), cloudwatchMetric, cloudwatchAlarm, cloudwatchLogs (batchMode; stream named after the rule), stepFunctions (executionNamePrefix) and iotAnalytics now deliver through `ActionTargets` wired in `internal/app/iot_rule_targets.go`.
 - `${...}` templates support topic(), topic(n), timestamp(), clientid(), newuuid(), accountid() and dotted payload paths; an undefined value fails the action and runs errorAction.
 - Under --enforce-iam each action checks its roleArn for iot.amazonaws.com against the documented permission (iot:Publish, sns:Publish, kinesis:PutRecord, firehose:PutRecord/PutRecordBatch, dynamodb:PutItem/UpdateItem/DeleteItem, s3:PutObject, cloudwatch:PutMetricData/SetAlarmState, logs:CreateLogStream/DescribeLogStreams/PutLogEvents, states:StartExecution, iotanalytics:BatchPutMessage); failures run errorAction.
 - LocalStack executes only Lambda, SQS, Kinesis, Firehose, DynamoDBv2 and HTTP (https://docs.localstack.cloud/aws/services/iot/); AWS action list: https://docs.aws.amazon.com/iot/latest/developerguide/iot-rule-actions.html.

@@ -267,7 +267,7 @@ rather than fixed one. Proven by
 existing `TestHandler_Endpoint_TimestampsAreEpochSeconds`/pipe-timestamp test
 style; verified to fail against the pre-fix code by hand-revert.
 
-### ECS delivery param threading (2026-08-07, bd gopherstack-ubum) -- service side fixed, cli.go wiring still needed
+### ECS delivery param threading (2026-08-07, bd gopherstack-ubum) -- service side fixed, internal/app/cli.go wiring still needed
 
 `services/eventbridge/delivery.go`'s ECS target delivery (`deliverToECS`) called
 `ECSTaskRunner.RunTask(ctx, clusterARN, payload)` -- no path for the target's
@@ -288,7 +288,7 @@ extends `ECSTaskRunner` with
 `deliverToECS` type-asserts `dt.ECS` against it; if the concrete adapter
 implements it, its params-aware method is called with `target.EcsParameters`;
 otherwise the original `RunTask` still runs exactly as before. This keeps
-every existing `ECSTaskRunner` implementation (including `cli.go`'s
+every existing `ECSTaskRunner` implementation (including `internal/app/cli.go`'s
 `ebECSTaskRunnerAdapter` and every test double in
 `delivery_ecs_test.go`) compiling and working unchanged -- `go build ./...`
 stays green with zero other-service edits.
@@ -298,8 +298,8 @@ While verifying `EcsParameters` field-by-field against the pinned
 also missing the real `TaskCount *int32` member (wire key `"TaskCount"`,
 confirmed in `serializers.go`/`deserializers.go`) -- added.
 
-**Central wiring NOT done here (`cli.go` is out of `services/eventbridge`
-scope):** `cli.go`'s `ebECSTaskRunnerAdapter` (the concrete type installed as
+**Central wiring NOT done here (`internal/app/cli.go` is out of `services/eventbridge`
+scope):** `internal/app/cli.go`'s `ebECSTaskRunnerAdapter` (the concrete type installed as
 `DeliveryTargets.ECS`) needs a new `RunTaskWithParams` method for the fix to
 take effect end-to-end. It should map `EcsParameters` onto
 `ecsbackend.RunTaskInput` by field name: `TaskDefinitionArn` ->
@@ -606,7 +606,7 @@ matching statement/policy exists (matches AWS's idempotent-remove semantics). Al
    `func(...) ([]EventResultEntry, error)` to carry whole-request failures
    (>10 entries, 0 entries, or no entry with all three required fields).
    Signature-safety check performed: grepped every call site repo-wide;
-   `cli.go:3364` and `cli_adapters.go:43` call `PutEvents` as a bare statement
+   `internal/app/cli.go:3364` and `internal/app/adapters.go:43` call `PutEvents` as a bare statement
    without capturing the return value, so the added return value does not
    break either composition-root call site (verified with `go build ./...`
    before/after). Only in-package callers captured a single return value
@@ -1128,7 +1128,7 @@ validation but the SDK does not model (UNCONFIRMED per-op). Proven by
 
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
-Emits AWS/Events (RuleName, plus EventBusName for non-default buses; eb-monitoring.html): MatchedEvents, TriggeredRules, Invocations, FailedInvocations (after retries or authorization/age failure) and DeadLetterInvocations (DLQ send succeeded). Verified by cli_service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
+Emits AWS/Events (RuleName, plus EventBusName for non-default buses; eb-monitoring.html): MatchedEvents, TriggeredRules, Invocations, FailedInvocations (after retries or authorization/age failure) and DeadLetterInvocations (DLQ send succeeded). Verified by internal/app/service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
 
 ## 2026-10-04 cross-region targets
 
@@ -1154,7 +1154,7 @@ Tool false positives (cmd/zeroguard): required path/identifier members (Name, *I
 
 Rule targets with a Batch job-queue, CodeBuild project, CodePipeline pipeline, SageMaker pipeline or Redshift cluster
 ARN were dropped with an "unsupported target" warning. They now deliver through `DeliveryTargets.{Batch,CodeBuild,
-CodePipeline,SageMakerPipeline,RedshiftData}` (delivery_services.go), wired in cli_eventbridge_job_targets_wiring.go;
+CodePipeline,SageMakerPipeline,RedshiftData}` (delivery_services.go), wired in internal/app/eventbridge_job_targets_wiring.go;
 `TestEventBridgeJobTargets` drives PutEvents through the SDK and asserts the job/build/execution/statement exists.
 CodePipeline is wired the same way but has no root-level test yet. API Gateway (execute-api) targets are delivered
 in-process; SSM Run Command / Automation and AppSync targets are delivered as of 2026-10-11 (see that section).
@@ -1163,7 +1163,7 @@ in-process; SSM Run Command / Automation and AppSync targets are delivered as of
 
 `deliverToServiceTarget` (delivery_services.go) now routes `arn:aws:ssm:...:document/<name>` to SendCommand,
 `arn:aws:ssm:...:automation-definition/<name>:<version>` to StartAutomationExecution and `arn:aws:appsync:...:apis/<id>`
-to a GraphQL execution (delivery_ssm_appsync.go); adapters in cli_interconnect_ssm_appsync_timestream.go resolve the
+to a GraphQL execution (delivery_ssm_appsync.go); adapters in internal/app/interconnect_ssm_appsync_timestream.go resolve the
 sibling backend per call and honour the ARN region. Failures return true so the existing retry/DLQ path applies.
 
 Mappings (docs: eb-targets "Systems Manager Run Command as a target", target-appsync):

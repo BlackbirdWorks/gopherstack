@@ -28,11 +28,11 @@
 # Attachments: "VpnConnection already carries its own TransitGatewayID/VpnGatewayID fields, so
 # this attachment is validating a resource that itself may already reference a registered TGW")
 # -- recognized, never exploited, anywhere in this service. A faithful fix needs a new
-# EC2Resolver method sourced from services/ec2's VpnConnection table plus cli.go wiring
+# EC2Resolver method sourced from services/ec2's VpnConnection table plus internal/app/cli.go wiring
 # (networkManagerEC2ResolverAdapter). Initially concluded this was out of scope for a
 # networkmanager-only pass; corrected on review, citing an established repo split
 # (gopherstack-5c3m/services/elb): the consuming service adds the interface method and the real
-# logic, cli.go's adapter is wired separately -- an unwired cross-service hook is this repo's
+# logic, internal/app/cli.go's adapter is wired separately -- an unwired cross-service hook is this repo's
 # normal silent no-op, not a rejection. IMPLEMENTED this pass:
 # crossservice.go's EC2Resolver gained CustomerGatewayArnsForTransitGateway(transitGatewayArn
 # string) []string; DeregisterTransitGateway (associations.go) now calls it via a new
@@ -40,14 +40,14 @@
 # CustomerGatewayAssociation PENDING/AVAILABLE -> DELETING -> gone, reusing
 # DisassociateCustomerGateway's own transition (not a hard delete; CustomerGatewayAssociationState
 # has a real DELETED terminal value). A nil ec2Resolver -- the default in every isolated unit
-# test and any backend cli.go has not wired -- is a no-op, proven by
+# test and any backend internal/app/cli.go has not wired -- is a no-op, proven by
 # TestDeregisterTransitGateway_NilResolverLeavesAssociationsUntouched
 # (deregister_transit_gateway_cascade_test.go) via require.Never. The wired-resolver cascade,
 # scoped so a DIFFERENT transit gateway's association is untouched, is proven by
 # TestDeregisterTransitGateway_CascadesScopedCustomerGatewayAssociations, revert-proofed: reverting
 # just the cascadeDeregisterCustomerGatewayAssociations call made that test fail with "Condition
 # never satisfied" while the nil-resolver test kept passing, confirmed, then restored.
-# cli.go's networkManagerEC2ResolverAdapter is NOT wired this pass (out of scope,
+# internal/app/cli.go's networkManagerEC2ResolverAdapter is NOT wired this pass (out of scope,
 # services/networkmanager/ ONLY) -- `go build ./...` at the repo root fails on that one adapter
 # (missing method CustomerGatewayArnsForTransitGateway) until it is, by design, matching
 # gopherstack-5c3m's precedent; `go build`/`go test -race`/`golangci-lint run`, all scoped to
@@ -142,12 +142,12 @@ ops:
   DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   GetConnections: {wire: ok, errors: ok, state: ok, persist: ok}
   # G. Customer Gateway Associations (3)
-  AssociateCustomerGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "CustomerGatewayArn validated against services/ec2's real CustomerGateway state via EC2Resolver, wired through cli.go's wireNetworkManagerEC2 (associations.go, crossservice.go) -- this pass closed the prior scope gap"}
+  AssociateCustomerGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "CustomerGatewayArn validated against services/ec2's real CustomerGateway state via EC2Resolver, wired through internal/app/cli.go's wireNetworkManagerEC2 (associations.go, crossservice.go) -- this pass closed the prior scope gap"}
   DisassociateCustomerGateway: {wire: ok, errors: ok, state: ok, persist: ok}
   GetCustomerGatewayAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
   # H. Transit Gateway Registrations (3)
   RegisterTransitGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "TransitGatewayArn validated against services/ec2's real TransitGateway state via EC2Resolver (this pass)"}
-  DeregisterTransitGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-3fkj: now cascades CustomerGatewayAssociations to DELETING via a new EC2Resolver.CustomerGatewayArnsForTransitGateway (crossservice.go), sourced from services/ec2's VpnConnection.CustomerGatewayID/TransitGatewayID; nil-resolver no-op preserved. cli.go networkManagerEC2ResolverAdapter now implements it (verified 2026-10-01)"}
+  DeregisterTransitGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-3fkj: now cascades CustomerGatewayAssociations to DELETING via a new EC2Resolver.CustomerGatewayArnsForTransitGateway (crossservice.go), sourced from services/ec2's VpnConnection.CustomerGatewayID/TransitGatewayID; nil-resolver no-op preserved. internal/app/cli.go networkManagerEC2ResolverAdapter now implements it (verified 2026-10-01)"}
   GetTransitGatewayRegistrations: {wire: ok, errors: ok, state: ok, persist: ok}
   # I. Transit Gateway Connect Peer Associations (3)
   AssociateTransitGatewayConnectPeer: {wire: ok, errors: ok, state: ok, persist: ok, note: "TransitGatewayConnectPeerArn validated against services/ec2's real TransitGatewayConnectPeer state via EC2Resolver (this pass)"}
@@ -206,7 +206,7 @@ ops:
   CreateSiteToSiteVpnAttachment: {wire: fixed, errors: ok, state: ok, persist: ok, note: "VpnConnectionArn validated against services/ec2's real VpnConnection state via EC2Resolver; EdgeLocation now derived from VpnConnectionArn's region segment instead of permanently empty (this pass, gopherstack-6flj)"}
   GetSiteToSiteVpnAttachment: {wire: fixed, errors: ok, state: ok, persist: ok, note: "EdgeLocation now derived (see CreateSiteToSiteVpnAttachment)"}
   # Q4. Direct Connect Gateway attachments (3)
-  CreateDirectConnectGatewayAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "DirectConnectGatewayArn validated against services/directconnect's real gateway state via DirectConnectResolver, wired through cli.go's wireNetworkManagerDirectConnect (this pass)"}
+  CreateDirectConnectGatewayAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "DirectConnectGatewayArn validated against services/directconnect's real gateway state via DirectConnectResolver, wired through internal/app/cli.go's wireNetworkManagerDirectConnect (this pass)"}
   GetDirectConnectGatewayAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateDirectConnectGatewayAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
   # Q5. Transit Gateway Route Table attachments (2)
@@ -273,7 +273,7 @@ families:
 gaps: []
 items_still_open:
   - "AttachmentState PENDING_NETWORK_UPDATE/PENDING_TAG_ACCEPTANCE/FAILED are never entered. The SDK does not say when AWS enters them and they need attachment-policy evaluation (tag conditions, segment assignment), which is not modelled. UPDATING is entered on Update*Attachment."
-  - "MAX_HOPS_EXCEEDED is not produced by StartRouteAnalysis: the SDK does not document the hop limit. Peering crossing is wired (cli_subnet_wiring.go via networkManagerEC2ResolverAdapter) and ends in CYCLIC_PATH_DETECTED on a revisit."
+  - "MAX_HOPS_EXCEEDED is not produced by StartRouteAnalysis: the SDK does not document the hop limit. Peering crossing is wired (internal/app/subnet_wiring.go via networkManagerEC2ResolverAdapter) and ends in CYCLIC_PATH_DETECTED on a revisit."
   - "Change sets cover 5 of 14 ChangeType values; ATTACHMENT_MAPPING/ATTACHMENT_ROUTE_*/ROUTING_POLICY_* need attachment-to-segment membership from attachment-policy evaluation, which is not modelled."
   - "NetworkResource.RegisteredGatewayArn is never populated and the RegisteredGatewayArn filter matches nothing: the SDK does not say which resource types are registered under a gateway."
 deferred: []
@@ -290,7 +290,7 @@ Closed every buildable gap the 2026-08-05 audit flagged, added the SDK-driven in
 the 3 genuinely underivable ops to `structural_gaps:`.
 
 **Cross-service ARN validation** (`crossservice.go`'s `EC2Resolver`/`DirectConnectResolver`
-interfaces, `store.go`'s `SetEC2Resolver`/`SetDirectConnectResolver`, wired from `cli.go`'s
+interfaces, `store.go`'s `SetEC2Resolver`/`SetDirectConnectResolver`, wired from `internal/app/cli.go`'s
 `wireNetworkManagerEC2`/`wireNetworkManagerDirectConnect` mirroring `services/directconnect`'s
 existing `EC2GatewayResolver` pattern): `CustomerGatewayArn`/`TransitGatewayArn`/
 `TransitGatewayConnectPeerArn` (`associations.go`), `VpcArn`/`SubnetArns`/`VpnConnectionArn`/
@@ -1074,17 +1074,17 @@ invention**:
 ### Tagging (`resourcegroupstaggingapi`)
 
 Yes — `TagResource`/`UntagResource`/`ListTagsForResource` are real, native NetworkManager ops
-(family X above), so this belongs in `wireResourceGroupsTagging` in `cli.go`
+(family X above), so this belongs in `wireResourceGroupsTagging` in `internal/app/cli.go`
 (`/home/agbishop/gopherstack/cli.go:5357`, currently wires exactly 30 services enumerated in its
-own doc comment at `cli.go:5339-5343`, most recently `wireTaggingGrafana(bk, byName["Grafana"])` at
-`cli.go:5408`). NetworkManager would need its own `wireTaggingNetworkManager`-style function
-following the `wireTaggingCtxARNResources` generic helper (`cli.go:5520-5537`, used by e.g.
+own doc comment at `internal/app/cli.go:5339-5343`, most recently `wireTaggingGrafana(bk, byName["Grafana"])` at
+`internal/app/cli.go:5408`). NetworkManager would need its own `wireTaggingNetworkManager`-style function
+following the `wireTaggingCtxARNResources` generic helper (`internal/app/cli.go:5520-5537`, used by e.g.
 `wireTaggingGrafana`/`wireTaggingEFS`) — **9 distinct taggable resource kinds** share the one
 `networkmanager` ARN namespace (`GlobalNetwork`/`Site`/`Device`/`Link`/`Connection`/`ConnectPeer`/
 `CoreNetwork`/`Peering`/`Attachment` all carry `Tags []Tag`, confirmed by direct per-struct grep —
 below mgn's 12 (the highest in this campaign) but above directconnect's 5 and
 outposts'/resiliencehub's 2), so the tag store backing this wiring needs `resourceTypeFromARN`-style
-dispatch (`cli.go:5568-5580`) across at least
+dispatch (`internal/app/cli.go:5568-5580`) across at least
 `global-network`/`site`/`device`/`link`/`connection`/`connect-peer`/`core-network`/`peering`/
 `attachment` resource-type prefixes, not a single flat map.
 
@@ -1192,7 +1192,7 @@ that claim is scoped to this repo's tree only.
 ### Grep results for prior references
 
 `grep -rni "networkmanager\|corenetwork\|globalnetwork\|core-network\|global-network" services/
-cli.go` returns exactly 4 hits, **all four inside `services/directconnect/PARITY.md`**, all noting
+internal/app/cli.go` returns exactly 4 hits, **all four inside `services/directconnect/PARITY.md`**, all noting
 that DirectConnect's `AssociatedCoreNetwork` field (Cloud WAN core-network attachment reference on
 `DirectConnectGatewayAssociation`) has "no backing service... in this tree at all" — i.e. these are
 a PRIOR AUDIT correctly flagging the absence of exactly this service, not a partial implementation
@@ -1410,6 +1410,6 @@ UpdateGlobalNetwork, UpdateSite, UpdateDevice and UpdateLink now keep an omitted
 
 ## 2026-10-10 (realism pass)
 
-- New `SetLifecycleDelay` (default 100ms, unchanged) for the PENDING/CREATING/DELETING dwell; needs `cli.go` wiring to expose a flag.
+- New `SetLifecycleDelay` (default 100ms, unchanged) for the PENDING/CREATING/DELETING dwell; needs `internal/app/cli.go` wiring to expose a flag.
 - All ops now reject, with ValidationException: maxResults outside 1-500, a nextToken that is not a token this service issued (or >2048 chars), ID-list query params with >10 values, Description/Address/Latitude/Longitude >256 and Model/Vendor/SerialNumber/Provider >128 characters (API reference and SDK "Constraints" docs).
 - Lenient by design: Latitude/Longitude are free strings (<=256); the docs state no numeric range, so none is enforced.

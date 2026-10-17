@@ -88,7 +88,7 @@ families:
 gaps: []
 items_still_open:
   - "Kept lenient for in-repo fixtures: a target group attached to no listener reports healthy (real AWS: unused/Target.NotInUse), an ALB with subnets in one AZ is accepted, and health-check defaults stay 3/3/5 because the SDK docs and observed AWS values disagree."
-  - "LB VpcId/ZoneName from the real subnet needs cli.go to give elbEC2ResolverAdapter SubnetVPC(id) and SubnetAZ(id) (same bodies as efsEC2ResolverAdapter); until then they stay vpc-00000000 and index-derived zones."
+  - "LB VpcId/ZoneName from the real subnet needs internal/app/cli.go to give elbEC2ResolverAdapter SubnetVPC(id) and SubnetAZ(id) (same bodies as efsEC2ResolverAdapter); until then they stay vpc-00000000 and index-derived zones."
 structural_gaps:
   - "Data plane has no real listener sockets or TLS: HTTPS listeners are served as plain HTTP on the emulator port (X-Forwarded-Proto reports the listener protocol), the client address is the TCP peer of the emulator, and HTTP/2, gRPC and WebSocket upgrades are not proxied."
   - "GetTrustStoreCaCertificatesBundle/GetTrustStoreRevocationContent return an empty Location: the real value is a presigned URL to an AWS-owned copy of the bundle, which the emulator does not store. The ops still validate TrustStoreNotFound/RevocationIdNotFound."
@@ -582,7 +582,7 @@ Load balancer and target group ARNs now carry random 16-hex ids (were a constant
 
 - Wire bug: Matcher `HttpCode` was read/written as `HTTPCode`, so a custom health-check matcher (`200-399`) from a real SDK/CLI/Terraform was dropped and always reported 200. Request key and response element are now `HttpCode` (legacy request spelling still accepted). Test: TestTargetGroupMatcherHttpCodeWire.
 - DescribeTargetHealth: instance targets on stopped/terminated EC2 instances report `unused`/`Target.InvalidState`, and every reason carries its Description (works with the existing elbEC2ResolverAdapter.InstanceStateName). Tests: TestTargetHealthFollowsInstanceState.
-- CreateLoadBalancer: repeating identical settings returns the existing balancer (documented idempotency), different settings stay DuplicateLoadBalancerName. LB VpcId and AvailabilityZones ZoneName come from the subnets when the EC2 resolver implements SubnetPlacementResolver (needs cli.go wiring: `SubnetVPC(id) string` and `SubnetAZ(id) string` on elbEC2ResolverAdapter; same bodies as efsEC2ResolverAdapter).
+- CreateLoadBalancer: repeating identical settings returns the existing balancer (documented idempotency), different settings stay DuplicateLoadBalancerName. LB VpcId and AvailabilityZones ZoneName come from the subnets when the EC2 resolver implements SubnetPlacementResolver (needs internal/app/cli.go wiring: `SubnetVPC(id) string` and `SubnetAZ(id) string` on elbEC2ResolverAdapter; same bodies as efsEC2ResolverAdapter).
 - Rule conditions: unknown Field, missing values/header name/query pairs, over-long values and path patterns with illegal characters are ValidationError. LB attributes: `.enabled` keys must be true/false, idle_timeout 1-4000, client_keep_alive 60-604800; unknown keys are still accepted.
 - Kept lenient: a target group attached to no listener reports healthy instead of unused/Target.NotInUse (many in-repo tests and fixtures register targets without a listener); ALB needs two AZs is not enforced (fixtures and integration tests create both subnets in the default AZ); health-check threshold/timeout defaults stay 3/3/5 (the SDK docs and observed AWS values disagree).
 

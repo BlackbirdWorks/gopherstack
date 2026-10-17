@@ -149,7 +149,7 @@ structural_gaps:
   - "ListDeployActionExecutionTargets returns empty: no real deploy targets exist behind Deploy actions."
   - "ListWebhookItem.ErrorCode/ErrorMessage are never set: webhook registration against a third party cannot fail in an emulator."
   - "Built-in action providers other than Build/CodeBuild, Invoke/Lambda, Deploy/CodeDeploy and Source/Deploy S3 (ECR, CodeCommit, ...) always Succeed in runOneAction: no real source/deploy targets. Custom-owner actions are real: a Queued job is created for the worker (PollForJobs/Put*JobResult)."
-  - "Build/CodeBuild waits for the real build status, but the emulated build runs no buildspec: the primary input artifact is passed through unchanged as every output artifact, and exported variables are not produced. Source/S3 and Deploy/S3 move real objects when the S3 seam is wired (cli.go wireCodePipelineS3); the artifact store key is derived from pipeline, artifact name and execution ID. A missing source object fails the action with ConfigurationError (code chosen from the FailureType enum; the docs name none)."
+  - "Build/CodeBuild waits for the real build status, but the emulated build runs no buildspec: the primary input artifact is passed through unchanged as every output artifact, and exported variables are not produced. Source/S3 and Deploy/S3 move real objects when the S3 seam is wired (internal/app/cli.go wireCodePipelineS3); the artifact store key is derived from pipeline, artifact name and execution ID. A missing source object fails the action with ConfigurationError (code chosen from the FailureType enum; the docs name none)."
 deferred:
   - "Subsystem-gated work: see items_still_open."
 leaks: {status: clean, note: "DeletePipeline now cascade-clears executionsStore, actionExecutionsStore, AND actionRevisionsStore (the last one is new this pass) for the deleted pipeline name; StopPipelineExecution now abandons+clears the token of any action execution left InProgress on a pending approval gate rather than leaving it silently unresolved forever; no goroutines/janitors in this service"}
@@ -615,7 +615,7 @@ undeclared-error-code findings against the pinned schema-based SDK
 replacement; consolidated 4 items_still_open entries into 1. Fixed one
 real gap: Deploy/CodeDeploy actions were still inert (S3/CodeDeploy never
 wired, per gopherstack-cb9l) -- wired `CodeDeployStarter`
-(`interfaces.go`/`cli.go`'s `wireCodePipelineCodeDeploy`), same
+(`interfaces.go`/`internal/app/cli.go`'s `wireCodePipelineCodeDeploy`), same
 accept/reject shape as CodeBuild/Lambda. Proven by
 `TestRunOneAction_CodeDeploy`, hand-reverted/confirmed-failing/restored.
 items_still_open: 14 -> 11 (4 wlab entries merged into 1; CodeDeploy's
@@ -656,4 +656,4 @@ GetPipelineState now returns stage-level latestExecution ({pipelineExecutionId, 
 
 ## 2026-10-12 (deep realism pass)
 
-ListActionExecutions returns each action's `input` (actionTypeId, configuration, region, roleArn, namespace) from the pipeline declaration and the execution's pipelineVersion (`TestListActionExecutions_InputAndVersion`). Still open, needing cli.go wiring: Source/S3 and Deploy/S3 actions do not touch S3 (no revision ids, no artifacts written), and Build/CodeBuild succeeds on StartBuild acceptance instead of waiting for the build's final status; both need a status-returning CodeBuild seam and an S3 seam passed in from cli.go.
+ListActionExecutions returns each action's `input` (actionTypeId, configuration, region, roleArn, namespace) from the pipeline declaration and the execution's pipelineVersion (`TestListActionExecutions_InputAndVersion`). Still open, needing internal/app/cli.go wiring: Source/S3 and Deploy/S3 actions do not touch S3 (no revision ids, no artifacts written), and Build/CodeBuild succeeds on StartBuild acceptance instead of waiting for the build's final status; both need a status-returning CodeBuild seam and an S3 seam passed in from internal/app/cli.go.

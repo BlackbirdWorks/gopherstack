@@ -341,7 +341,7 @@ log file delivery, both previously recorded as a structural gap
   (`awsAwsjson11_deserializeOpErrorUpdateTrail`, same file). The type's own
   doc comment (`types/errors.go:2247`): "This exception is thrown when the
   specified S3 bucket does not exist." CreateTrail/UpdateTrail now call a new
-  `S3Backend.HeadBucket` hook (wired via `SetS3Backend`, `cli.go`'s
+  `S3Backend.HeadBucket` hook (wired via `SetS3Backend`, `internal/app/cli.go`'s
   `wireCloudTrailS3`) and return `ErrS3BucketNotFound` when it errors. HTTP
   status (400) is an inference by analogy to the sibling `InvalidS3BucketNameException`
   on the same op (also 400) — the pinned SDK's client-side deserializer code
@@ -394,7 +394,7 @@ new `s3_delivery_test.go`), `go test -race -count=1 .` (root package, clean),
 pass on the new test file and a `govet` shadow fix in `delivery.go`). Files
 touched: `services/cloudtrail/{interfaces.go (new), delivery.go (new),
 s3_delivery_test.go (new), store.go, trails.go, events.go, errors.go,
-handler.go, PARITY.md}` and `cli.go` (root). No other service's files
+handler.go, PARITY.md}` and `internal/app/cli.go` (root). No other service's files
 touched.
 
 **2026-09-11 (gopherstack-53eh): GetQueryResults SQL grammar (OR/LIKE/NOT/
@@ -617,6 +617,6 @@ Adjudicated (reqfielddiff -adjudicated), unchanged:
 
 ## 2026-10-10 (service realism pass)
 
-FIXED: botocore-based clients (AWS CLI v1/v2, boto3, CDK) send `X-Amz-Target: com.amazonaws.cloudtrail.v20131101.CloudTrail_20131101.<Op>`; the Go SDK sends the bare `CloudTrail_20131101.<Op>`. The handler only matched the bare form, so every CLI/boto3 call fell through to S3 (`SignatureDoesNotMatch ... scoped to s3`). `RouteMatcher` and `ExtractOperation` now strip the namespace. NOT FIXED here (root wiring, owned by cli.go): `routeTargetGates()["CloudTrail"]` in `cli_route_gates.go` must also list `com.amazonaws.cloudtrail.v20131101.` or the router index never offers the request to this handler, and `services/iam/actions.go` needs the same prefix for IAM action mapping; `pkgs/chaos` also splits the target on the first `.`.
+FIXED: botocore-based clients (AWS CLI v1/v2, boto3, CDK) send `X-Amz-Target: com.amazonaws.cloudtrail.v20131101.CloudTrail_20131101.<Op>`; the Go SDK sends the bare `CloudTrail_20131101.<Op>`. The handler only matched the bare form, so every CLI/boto3 call fell through to S3 (`SignatureDoesNotMatch ... scoped to s3`). `RouteMatcher` and `ExtractOperation` now strip the namespace. NOT FIXED here (root wiring, owned by internal/app/cli.go): `routeTargetGates()["CloudTrail"]` in `internal/routegates/gates.go` must also list `com.amazonaws.cloudtrail.v20131101.` or the router index never offers the request to this handler, and `services/iam/actions.go` needs the same prefix for IAM action mapping; `pkgs/chaos` also splits the target on the first `.`.
 FIXED: CreateTrail validates the documented name rules (3-128 chars, letters/numbers/`.`/`_`/`-`, alphanumeric ends, no adjacent separators, not an IP address) with `InvalidTrailNameException`; CreateEventDataStore/UpdateEventDataStore validate the name (3-128) and RetentionPeriod (7-3653) with `InvalidParameterException`; LookupEvents rejects MaxResults > 50 (`InvalidMaxResultsException`) and unknown LookupAttribute keys (`InvalidLookupAttributesException`); PutEventSelectors rejects a ReadWriteType outside All/ReadOnly/WriteOnly and more than 5 selectors (`InvalidEventSelectorsException`). Error messages no longer repeat the code (`TrailNotFoundException: ...`). Query IDs are UUIDs (the CLI model requires 36+ chars; `query-000001` failed client-side validation). Proof: `validation_sdk_test.go`.
 LENIENT (recorded): the trail's S3 bucket policy, SNS topic existence and KMS key are not checked (`InsufficientS3BucketPolicyException`, `InvalidSnsTopicNameException`, `KmsKeyNotFoundException`) because in-repo callers create trails against bare buckets; StartQuery does not resolve its FROM clause to an existing event data store; DeleteEventDataStore hard-deletes instead of entering PENDING_DELETION (RestoreEventDataStore therefore always reports not-found) because the Terraform provider's delete waiter behaviour against PENDING_DELETION could not be verified here.

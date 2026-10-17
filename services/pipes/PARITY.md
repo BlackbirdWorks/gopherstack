@@ -3,7 +3,7 @@ service: pipes
 sdk_module: aws-sdk-go-v2/service/pipes@v1.26.4
 last_audit_commit: 302aa4e3c  # zeroguard: UpdatePipe Target/Enrichment omitted-member fix
 last_audit_date: 2026-10-11
-overall: A            # both execution gaps closed for real (runner.go source pollers + cli.go target/DLQ wiring); the only remaining gap is a proven genuine impossibility (no in-repo Kafka/AMQP broker)
+overall: A            # both execution gaps closed for real (runner.go source pollers + internal/app/cli.go target/DLQ wiring); the only remaining gap is a proven genuine impossibility (no in-repo Kafka/AMQP broker)
 ops:
   CreatePipe: {wire: ok, errors: ok, state: ok, persist: ok, note: "added max-50-tags validation to match TagResource's existing limit; RoleArn is now enforced as a required field (ValidationException when absent/empty), matching validateOpCreatePipeInput -- closes the gap previously left open in the 2026-07-13 pass. ~40 call sites across the test suite (Go CreatePipeInput{} literals and raw-HTTP JSON bodies) updated to supply RoleArn now that it's enforced. 2026-08-21: KinesisStreamSourceParameters.StartingPositionTimestamp (a Kinesis-source-only filter) decoded straight into *time.Time, which encoding/json cannot unmarshal from the epoch-seconds JSON number restjson1 actually sends -- rejecting the entire request body for any real client setting it (gopherstack-5mr2). Fixed via wire_time.go's MarshalJSON/UnmarshalJSON pair, not a field-type change, since the same struct also serves DescribePipe's response and the persistence snapshot round trip. FIXED 2026-08-21 (gopherstack-us9u kind-mismatch sweep) -- BatchContainerOverrides.Environment was map[string]string; the real types.BatchContainerOverrides.Environment is []BatchEnvironmentVariable ({Name, Value} objects), and serializers.go/deserializers.go reuse the identical type for both CreatePipe's request and DescribePipe's response, so a real client setting a Batch environment variable override failed CreatePipe's request decode outright (json: cannot unmarshal array into ... of type map[string]string). Fixed by changing the field's Go type directly to []BatchEnvironmentVariable (no domain/wire split needed, since both directions share one struct). Proven via a real aws-sdk-go-v2/service/pipes client round trip (wire_batch_environment_test.go), hand-reverted/confirmed-failing/restored, md5sum-verified byte-identical. FIXED (gopherstack-101r): RuntimeMetricsStreaming (request, response, and the Pipe model) was a wholly invented concept -- absent from CreatePipeInput/UpdatePipeInput/types.Pipe in the real SDK, no such feature exists anywhere in EventBridge Pipes. Removed entirely (models.go/handler.go/pipe_lifecycle.go), including the two raw-body tests that asserted it round-tripped (TestRuntimeMetricsStreaming_Create/Update, pipe_lifecycle_test.go) -- replaced by wire_field_fixes_test.go's TestCreateUpdatePipe_RuntimeMetricsStreamingNotAccepted, which asserts the key is gone. FIXED (gopherstack-gcjw): added nested source union required-field validation matching validatePipeSourceParameters' per-type validators in aws-sdk-go-v2 pipes validators.go -- ActiveMQ/RabbitMQ Credentials+QueueName, MSK/SelfManagedKafka TopicName (validateSourceRequiredFields, sources.go), alongside the pre-existing Kinesis/DynamoDB StartingPosition check (validateSourceStartingPosition). Also added target union fields beyond the pre-existing KinesisStreamParameters.PartitionKey: EcsTaskParameters.TaskDefinitionArn, BatchJobParameters.JobDefinition/JobName, RedshiftDataParameters.Database/Sqls, SageMakerPipelineParameters.PipelineParameterList[].Name/Value, and TimestreamParameters.TimeValue/VersionValue/DimensionMappings (plus each DimensionMappings entry's DimensionName/DimensionValue/DimensionValueType) -- validateTargetRequiredFields, targets.go. FOLLOW-UP (gopherstack-gcjw, 2026-09-06): added TimestreamParameters.SingleMeasureMappings per-entry MeasureName/MeasureValue/MeasureValueType and MultiMeasureMappings per-entry MultiMeasureName/MultiMeasureAttributeMappings (plus each attribute mapping's MeasureValue/MeasureValueType/MultiMeasureAttributeName) -- validateSingleMeasureMappingsRequiredFields/validateMultiMeasureMappingsRequiredFields/validateMultiMeasureAttrMappingsRequiredFields, targets.go. Added ECS NetworkConfiguration.AwsvpcConfiguration.Subnets (required when AwsvpcConfiguration is set) and CapacityProviderStrategy[].CapacityProvider per entry -- validateECSTargetRequiredFields, targets.go. Added PipeLogConfigurationParameters.Level, required whenever LogConfiguration is set -- validateLogConfigurationRequiredFields, pipe_lifecycle.go. FIXED (gopherstack-iyc2, 2026-09-06): the ECS/Batch override wire shapes that d4e234022 silently removed (see the addendum after Bug 3) are restored -- EcsEnvironmentVariable, EcsEnvironmentFile, EcsResourceRequirement, EcsContainerOverride, EcsEphemeralStorage, EcsInferenceAcceleratorOverride, and EcsTaskOverride's ContainerOverrides/EphemeralStorage/InferenceAcceleratorOverrides fields; BatchResourceRequirement and BatchContainerOverrides.ResourceRequirements; ECSTaskTargetParameters' PropagateTags/ReferenceId/Tags (as a new shared Tag type, matching real types.Tag -- the prior prose's proposed name EcsTag was never actually landed). Re-derived from the pinned pipes@v1.26.4 SDK directly rather than restored verbatim from the old diff, because the old diff had five wire-casing bugs the SDK's own serializers.go/deserializers.go contradict: EcsResourceRequirement's Type/Value, EcsEnvironmentFile's Type/Value, EcsEnvironmentVariable's Name/Value, and EcsEphemeralStorage's SizeInGiB all serialize lowercase (type/value, type/value, name/value, sizeInGiB) -- Pipes passes ECS's own RunTask-override casing straight through for these leaf shapes rather than using its usual PascalCase -- and EcsInferenceAcceleratorOverride's DeviceName/DeviceType likewise serialize lowercase (deviceName/deviceType). The old diff had all of these capitalized, which would have silently dropped every one of these fields on both request decode and response encode for any real client. Now attached: the nested required-field validation this gap had blocked -- validateEcsTaskOverrideRequiredFields (EnvironmentFiles/ResourceRequirements Type/Value required per ContainerOverrides entry, EphemeralStorage.SizeInGiB required when set, matching validators.go:505-525's validateEcsTaskOverride) and validateBatchContainerOverridesRequiredFields (ResourceRequirements Type/Value required per entry, matching validators.go:244-259's validateBatchContainerOverrides). Round-trip proof: targets_ecs_batch_test.go's TestECS_ContainerOverrides_RoundTrip/TestECS_EphemeralStorage_RoundTrip/TestECS_InferenceAcceleratorOverrides_RoundTrip/TestECS_PropagateTagsReferenceIdTags_RoundTrip/TestBatch_ResourceRequirements_RoundTrip, hand-reverted against HEAD (pre-fix, which has none of these types) and confirmed failing, then restored byte-identical. Validation proof: targets_required_fields_test.go's TestTargetEcsTaskOverrideRequiredFields/TestTargetBatchContainerOverridesRequiredFields, hand-neutered (validation call sites replaced with `return nil`, keeping the types so the package still compiles) and confirmed every rejection subtest wrongly passes, then restored byte-identical. TestSnapshotVersionGuard now reports pipes' backendSnapshot changed without a version bump for this additive-only field set -- left to a human decision per gopherstack-5i6p's guidance, not bumped or -update'd here."}
   DescribePipe: {wire: ok, errors: ok, state: ok, persist: ok, note: "DesiredState now reports DELETED while CurrentState=DELETING, per RequestedPipeStateDescribeResponse. 2026-08-21: StartingPositionTimestamp response encoding fixed by the same wire_time.go change as CreatePipe (see its note) -- it was previously emitted as an RFC3339 string, which the real client's deserializer (expecting the epoch-seconds number restjson1's own serializer always used on the request side) would have rejected. FIXED 2026-08-21 (gopherstack-us9u) -- BatchContainerOverrides.Environment fixed to []BatchEnvironmentVariable; see CreatePipe's note (same shared type, same fix). FIXED (gopherstack-101r): RuntimeMetricsStreaming removed from the response (pipeResponse/toPipeResponse); see CreatePipe's note."}
@@ -30,7 +30,7 @@ leaks: {status: clean, note: "runDelayed goroutines are tracked by b.wg and tied
 ## 2026-10-09 API Gateway and API destination targets and enrichment
 
 `arn:aws:execute-api:...` and `arn:aws:events:...:api-destination/...` are now valid pipe targets and enrichments
-(`runner_http_targets.go`, wired in `cli_http_targets_wiring.go`). `TargetParameters.HttpParameters` /
+(`runner_http_targets.go`, wired in `internal/app/http_targets_wiring.go`). `TargetParameters.HttpParameters` /
 `EnrichmentParameters.HttpParameters` (`PipeTargetHttpParameters` / `PipeEnrichmentHttpParameters`, pipes@v1.26.4)
 fill path wildcards and add headers and query strings; API destinations apply the connection's auth and invocation
 parameters, which take precedence. The enrichment response body replaces the event payload (an empty body keeps the
@@ -231,14 +231,14 @@ just closed on paper.
    source types share one matcher), enriched and dispatched through the same
    `dispatchTarget`/DLQ path SQS uses (`invokeTargetWithPayload` was split
    into that reusable `dispatchTarget` plus a thin SQS-receipt-handle wrapper).
-   `cli.go`'s `wirePipesRunner` wires both against the **real** Kinesis and
+   `internal/app/cli.go`'s `wirePipesRunner` wires both against the **real** Kinesis and
    DynamoDB backends (new `pipesKinesisReaderAdapter`/
    `pipesDDBStreamsReaderAdapter`, modeled on the existing
    `kinesisReaderAdapter`/`ddbStreamsReaderAdapter` Lambda ESM adapters).
    MSK/self-managed Kafka/RabbitMQ/ActiveMQ remain unpolled -- see `gaps:`
    above for the proof this is a genuine impossibility, not a deferral.
 
-2. **cli.go target/DLQ wiring.** `wirePipesRunner` previously only wired an
+2. **internal/app/cli.go target/DLQ wiring.** `wirePipesRunner` previously only wired an
    SQS source reader and Lambda/StepFunctions target invokers, even though
    `runner.go` already had full `SNSPublisher`/`SQSSender`/`PipeKinesisPutter`/
    `PipeEventBridgePutter`/`PipeCloudWatchLogsPutter`/`PipeFirehosePutter`
@@ -258,9 +258,9 @@ just closed on paper.
    (`handlePipeFailure`/`sendToDLQIfConfigured`) since `runner.go` already
    shared those two interfaces between the two call sites.
 
-   Proof of delivery (not just "no error returned"): `cli_pipes_wiring_test.go`
+   Proof of delivery (not just "no error returned"): `internal/app/pipes_wiring_test.go`
    (root package) builds every backend for real (no mocks), calls the exact
-   `wirePipesRunner` cli.go invokes, starts the real `Runner` ticker, and
+   `wirePipesRunner` internal/app/cli.go invokes, starts the real `Runner` ticker, and
    asserts the record actually landed in each target's own backend state --
    an SNS topic's message archive, a real SQS queue's `ReceiveMessage`, a
    Kinesis shard's `GetRecords`, an EventBridge archive's `EventCount`, a
@@ -1045,7 +1045,7 @@ Tool false positives (cmd/zeroguard): required path/identifier members (Name, *I
 
 `dispatchTarget` returned ErrUnsupportedPipeTarget for Batch, SageMaker, Redshift and ECS ARNs although
 `TargetParameters` already models them. `Runner.SetJobTargets` (runner_job_targets.go) now routes them to the real
-backends via cli_pipes_job_targets_wiring.go; `TestPipesJobTargets` covers batch, sagemaker_pipeline and redshift_data
+backends via internal/app/pipes_job_targets_wiring.go; `TestPipesJobTargets` covers batch, sagemaker_pipeline and redshift_data
 end to end (ECS is wired, untested at root level). Timestream targets landed 2026-10-11 (see that section).
 
 ## 2026-10-10: realism pass (CLI/SDK probing)
@@ -1058,7 +1058,7 @@ end to end (ECS is wired, untested at root level). Timestream targets landed 202
 ## 2026-10-11: Timestream target
 
 `arn:aws:timestream:<region>:<acct>:database/<db>/table/<tbl>` targets write via `PipeTimestreamWriter`
-(runner_timestream.go; adapter in cli_interconnect_ssm_appsync_timestream.go resolves the region's TimestreamWrite
+(runner_timestream.go; adapter in internal/app/interconnect_ssm_appsync_timestream.go resolves the region's TimestreamWrite
 backend per call). Each batch event yields, per mapping, one record: every SingleMeasureMapping is a record, every
 MultiMeasureMapping is one MULTI record, all sharing the event's time, version and dimensions.
 

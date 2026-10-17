@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- RAM integration: DescribeLakeFormationIdentityCenterConfiguration.ResourceShare and PrincipalResourcePermissions.AdditionalDetails.ResourceShare stay unpopulated: AWS docs (cross-account-permissions, optimize-ram, checked 2026-10-09) only say shares match the IAM condition LakeFormation* and that v2+ reuses shares across grants, giving no exact name or reuse rule; a services/ram lookup also needs cli.go wiring.
+- RAM integration: DescribeLakeFormationIdentityCenterConfiguration.ResourceShare and PrincipalResourcePermissions.AdditionalDetails.ResourceShare stay unpopulated: AWS docs (cross-account-permissions, optimize-ram, checked 2026-10-09) only say shares match the IAM condition LakeFormation* and that v2+ reuses shares across grants, giving no exact name or reuse rule; a services/ram lookup also needs internal/app/cli.go wiring.
 
 ### Structural gaps
 

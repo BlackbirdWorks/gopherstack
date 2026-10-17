@@ -801,7 +801,7 @@ UpdateSchedule resets an omitted State to ENABLED and ActionAfterCompletion to N
 ## 2026-10-09: Firehose, CodeBuild and CodePipeline targets
 
 Schedules targeting these ARNs were warned about and skipped. `Runner.SetDeliveryTargets` (runner_build_targets.go) now
-delivers them through cli_scheduler_build_targets_wiring.go; `TestSchedulerCodeBuildTarget` verifies a build is started
+delivers them through internal/app/scheduler_build_targets_wiring.go; `TestSchedulerCodeBuildTarget` verifies a build is started
 via the SDK. Firehose and CodePipeline are wired but lack a root-level test. Universal (`arn:aws:scheduler:::aws-sdk:`)
 targets remain unsupported.
 
