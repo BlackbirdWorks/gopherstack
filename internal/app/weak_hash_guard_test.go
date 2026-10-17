@@ -23,7 +23,8 @@ func allowedWeakHashFiles() map[string]string {
 		// member beside Hash/HashType (ssm@v1.73.4 types/enums.go:708-724), so an
 		// emulator cannot populate it without computing SHA1. Content-integrity
 		// checksum echoed on the wire, never a credential. gopherstack-ziv9.
-		"services/ssm/document_hashes.go": "DocumentDescription.Sha1 parity, verified",
+		"services/neptune/engine_probe.go": "RFC 6455 WebSocket Sec-WebSocket-Accept mandates SHA-1, verified",
+		"services/ssm/document_hashes.go":  "DocumentDescription.Sha1 parity, verified",
 
 		// Verified 2026-09-19: ChecksumAlgorithm SHA1 is one of the four
 		// algorithms the S3 SDK computes over the request body

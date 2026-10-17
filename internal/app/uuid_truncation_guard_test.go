@@ -26,6 +26,9 @@ type truncationAllowance struct {
 func hyphenatedTruncations() map[string]truncationAllowance {
 	return map[string]truncationAllowance{
 		"services/rds/engine.go":               {"Docker container name, hyphen is legal", 1},
+		"services/neptune/engine.go":           {"Docker container name, hyphen is legal", 1},
+		"services/docdb/engine.go":             {"Docker container name, hyphen is legal", 1},
+		"services/redshift/engine.go":          {"Docker container name, hyphen is legal", 1},
 		"services/kinesis/channel_delivery.go": {"S3 object key suffix, not an AWS-pattern ID", 1},
 		"services/iot/audit.go":                {"taskId pattern is [a-zA-Z0-9\\-]+, hyphen is legal", 1},
 	}
