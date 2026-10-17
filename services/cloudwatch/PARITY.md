@@ -816,7 +816,7 @@ reported error against unfixed code for `deletedashboards` and passes
 against the fix, across all 14 ops.
 
 **Gates**: `go build`, `go vet`, `gofmt -l`, `go test -race`, `golangci-lint
-run` all green, scoped to `services/cloudwatch`; `make build-check` green.
+run` all green, scoped to `services/cloudwatch`; `task build-check` green.
 2 `fieldalignment` findings fixed by reordering struct fields (zero-sized
 `Result` field was landing last, forcing 8 bytes of trailing padding), not
 suppressed. 0 new nolints. No exported signature changed.

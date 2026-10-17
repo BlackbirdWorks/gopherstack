@@ -138,7 +138,7 @@ toolchain), not something introduced by this change — flagging for the next
 auditor rather than silently skipping.
 
 Cross-service integration (`test/integration/sns_*_test.go`) was not
-re-run this pass — running `make build-linux`/Docker-based integration
+re-run this pass — running `task build-linux`/Docker-based integration
 tests was judged too heavy/risky while another agent was concurrently
 editing `services/sqs` in the same worktree; SNS→SQS/Lambda ARN
 resolution and event-shape code was instead reviewed statically

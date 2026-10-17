@@ -112,7 +112,7 @@ In pure unit tests (non-integration), `require` alone for the whole body is also
 
 External `package integration_test`, real Docker-built binary, real `aws-sdk-go-v2` clients pointed at the container's endpoint.
 
-- **Build the binary first**: `make build-linux` before `go test ./test/integration/...` — the Docker image copies `bin/gopherstack`; skipping this fails in confusing ways.
+- **Build the binary first**: `task build-linux` before `go test ./test/integration/...` — the Docker image copies `bin/gopherstack`; skipping this fails in confusing ways.
 - `dumpContainerLogsOnFailure(t)` (`test/integration/main_test.go:1395`) at the top of a test dumps container logs if it fails — call it.
 - `startChaosContainer(t)` (`test/integration/chaos_test.go:47`) gives an isolated container for tests that need to control fault injection or avoid shared-container state races; `postChaosRules(t, ep, rules)` (`chaos_test.go:103`) posts/clears fault rules.
 - Async state: `require.Eventually` against `Describe*`, exactly like unit tests — see any `awaitStatus` helper in `test/integration/grafana_test.go`.
@@ -130,4 +130,4 @@ External `package integration_test`, real Docker-built binary, real `aws-sdk-go-
 - No new `export_test.go`. 128 already exist (pre-existing debt, not a license to add more) — prefer unexported test-file helpers/constants, or exercise state through the real exported API/SDK client the way the grafana/networkmanager tests above do.
 - File names describe contents, never sequence tags (no `handler_test2.go`).
 - Comments: default to none. Only for a non-obvious why, a landmine, or a cited external fact — see `services/grafana/tags_test.go:11-18`'s comment on the ARN-with-slash test for the bar to clear.
-- Fastest check: `go test -race ./services/<svc>/...`. Full unit gate: `make test` (`gotestsum -- -race -shuffle on -short ./...`) — `-shuffle on` means tests must not depend on run order.
+- Fastest check: `go test -race ./services/<svc>/...`. Full unit gate: `task test` (`gotestsum -- -race -shuffle on -short ./...`) — `-shuffle on` means tests must not depend on run order.

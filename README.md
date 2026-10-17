@@ -572,7 +572,7 @@ See [`examples/README.md`](examples/README.md) for prerequisites and teardown.
 
 Every service links to its own page with a coverage breakdown — audited operations, known gaps, deferred items and resource-leak status — generated from that service's `PARITY.md` audit.
 
-**Parity** is the overall grade recorded by that service's most recent audit. **PARITY Entries** is the number of `ops:` entries audited in that service's PARITY.md -- a hand-grouped audit unit, not a raw operation count (one entry can name more than one real operation); a dash means the service is tracked by feature family instead. Run `make docs` to refresh this table.
+**Parity** is the overall grade recorded by that service's most recent audit. **PARITY Entries** is the number of `ops:` entries audited in that service's PARITY.md -- a hand-grouped audit unit, not a raw operation count (one entry can name more than one real operation); a dash means the service is tracked by feature family instead. Run `task docs` to refresh this table.
 
 ### Compute
 
@@ -952,12 +952,12 @@ cdk deploy
 (optional).
 
 ```bash
-make all             # lint + all tests with coverage
-make test            # unit tests (short mode)
-make total-coverage  # unit + integration + E2E with combined coverage
-make lint            # linters
-make docs            # regenerate the service docs from each PARITY.md
-make pgo             # regenerate the PGO profile
+task all             # lint + all tests with coverage
+task test            # unit tests (short mode)
+task total-coverage  # unit + integration + E2E with combined coverage
+task lint            # linters
+task docs            # regenerate the service docs from each PARITY.md
+task pgo             # regenerate the PGO profile
 ```
 
 ## Versioning
@@ -990,7 +990,7 @@ compiler can optimize the real hot paths.
 Regenerate it with:
 
 ```bash
-make pgo
+task pgo
 ```
 
 This runs `scripts/pgo.sh`, which builds the server and the `cmd/pgoload` load generator, runs
@@ -999,10 +999,10 @@ the merged result to `default.pgo`. It validates the profile with `go tool pprof
 `go build -pgo=auto` before finishing. Knobs (capture/load duration, concurrency, …) are
 environment variables — see the header of `scripts/pgo.sh`.
 
-**Per-PR:** if your change measurably shifts the server's hot paths, run `make pgo` and commit
+**Per-PR:** if your change measurably shifts the server's hot paths, run `task pgo` and commit
 the updated `default.pgo` alongside it.
 
-**CI:** a weekly workflow (`.github/workflows/pgo.yml`) also runs `make pgo` and opens a pull
+**CI:** a weekly workflow (`.github/workflows/pgo.yml`) also runs `task pgo` and opens a pull
 request with a refreshed profile.
 
 ## License

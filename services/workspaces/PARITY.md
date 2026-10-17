@@ -290,7 +290,7 @@ HEAD`, confirmed all three tests fail with exactly the predicted symptom (empty/
 `WorkspaceName` where a real value was expected, and a fabricated `[UNDEFINED]`/
 `UserName` value where nothing should be present), restored, `md5sum` byte-identical.
 `go build`/`go vet`/`go test -race ./services/workspaces/...`/
-`golangci-lint run ./services/workspaces/...`/`make build-check` (repo-wide, since
+`golangci-lint run ./services/workspaces/...`/`task build-check` (repo-wide, since
 `UpdateThemeForStack`'s sibling appstream fix this session also changed an exported
 interface signature) all clean.
 

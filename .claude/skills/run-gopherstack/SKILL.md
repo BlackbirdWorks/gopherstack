@@ -31,13 +31,13 @@ go build -o bin/gopherstack .
 
 ~16 s warm. That is enough: the dashboard SPA is committed under
 `dashboard/static/spa` and `//go:embed`-ed by `dashboard/ui.go`, so you do
-**not** need npm to get a working dashboard. `make build` re-runs `npm --prefix
+**not** need npm to get a working dashboard. `task build` re-runs `npm --prefix
 ui ci` + a Vite build first — use it only when you edited `ui/`.
 
 For integration tests, build the static Linux binary the test container copies:
 
 ```bash
-make build-linux
+task build-linux
 ```
 
 ## Run (agent path)
@@ -114,14 +114,14 @@ prints `ok` and exits 0 — that is the Docker healthcheck.
 
 ```bash
 go test -short ./services/<svc>/...              # one service, ~3 s
-make test                                        # all unit tests (gotestsum, -race -shuffle)
-make build-linux && go test -count=1 -run 'TestIntegration_ACM_' ./test/integration/
-make integration-test                            # all integration tests
+task test                                        # all unit tests (gotestsum, -race -shuffle)
+task build-linux && go test -count=1 -run 'TestIntegration_ACM_' ./test/integration/
+task integration-test                            # all integration tests
 ```
 
 Integration tests spin up a Docker container from `Dockerfile.test`, which
 copies `bin/gopherstack` — **stale or non-Linux binary = you test old code.**
-Always `make build-linux` first. Verified: `TestIntegration_ACM_*` passes in 14 s.
+Always `task build-linux` first. Verified: `TestIntegration_ACM_*` passes in 14 s.
 
 ## Gotchas
 
@@ -158,6 +158,6 @@ Always `make build-linux` first. Verified: `TestIntegration_ACM_*` passes in 14 
 | `NoSuchBucket` XML from your health probe | You hit `/health`. Use `/_gopherstack/health`. |
 | `InvalidClientTokenId` from an `aws` call | Missing `--endpoint-url`; the call went to real AWS. |
 | `driver.sh up` prints `FAILED to come up` + log tail | Port in use, or the build is broken — read the tail, then `driver.sh build`. |
-| Integration test asserts against code you just changed and fails | You skipped `make build-linux`; the container has the old binary. |
+| Integration test asserts against code you just changed and fails | You skipped `task build-linux`; the container has the old binary. |
 | Screenshot is blank/white | Chrome exited before hydration — raise `--virtual-time-budget` in `driver.sh`. |
 | `driver.sh aws` hits the wrong server | Stale `$TMPDIR/gopherstack-driver/port`. Run `driver.sh down`, then `up <port>`. |

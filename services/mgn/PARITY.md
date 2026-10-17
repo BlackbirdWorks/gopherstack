@@ -628,7 +628,7 @@ before cleanups run):
   `AlreadyInOrganizationException`, since the org is shared account-wide state) -> CreateAccount ->
   the new member account ID appears in MGN's own ListManagedAccounts.
 
-Run against a real Docker container (`make build-linux && go test -race -count=1 -run
+Run against a real Docker container (`task build-linux && go test -race -count=1 -run
 TestIntegration_MGN ./test/integration/...`): all 9 pass.
 
 ### Gaps closed
@@ -707,7 +707,7 @@ clean. `gofmt -l services/mgn/ test/integration/mgn_test.go` empty. `golangci-li
 ./services/mgn/...` and `./test/integration/...` (mgn_test.go) both 0 issues. `grep -rnE
 '//nolint:.*(funlen|gocyclo|gocognit|cyclop)' services/mgn/ test/integration/mgn_test.go` — the only
 hits are prose mentions inside this file, no actual directives. `go test -race -count=1
-./services/mgn/...` run 3 times, all 3 clean. `make build-linux && go test -race -count=1 -run
+./services/mgn/...` run 3 times, all 3 clean. `task build-linux && go test -race -count=1 -run
 TestIntegration_MGN ./test/integration/...` — all 9 integration test functions pass against a real
 Docker container, run twice for confirmation.
 

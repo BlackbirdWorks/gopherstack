@@ -320,7 +320,7 @@ Three, and none is an agent's call.
   session, cloudfront this one); `Restore` discards *all* state on mismatch. A
   guard exists in `pkgs/persistence` and works — it simply has to be run. Bump only
   for an incompatible retype, as rds and directoryservice legitimately did.
-- Integration tests need `make build-linux` plus a container; both were run green.
+- Integration tests need `task build-linux` plus a container; both were run green.
   `test/terraform` still cannot run locally.
 
 ## Where to go next

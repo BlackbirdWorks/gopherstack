@@ -1408,7 +1408,7 @@ pattern-matching against the snapshots-side bug (bugs 1/2's shape), then confirm
 per-op rather than assumed broken by association.
 
 Gates: `go build ./...` (repo-wide, `Backend.CopyVolumes`'s exported signature changed),
-`make build-check` (`go build ./...`, `go vet -tags e2e ./...`, `go vet -tags integration
+`task build-check` (`go build ./...`, `go vet -tags e2e ./...`, `go vet -tags integration
 ./...`, all clean), `go vet ./services/ec2/...`, `gofmt -l services/ec2/*.go` (clean),
 `go test -race ./services/ec2/... -count=1` (`ok`, full suite including all new tests),
 `go test ./pkgs/persistence/... -count=1` (`ok`), `golangci-lint run ./services/ec2/...`
@@ -1502,7 +1502,7 @@ No persisted struct changed (all three fixes are response-only XML shapes plus o
 backend lookup call already exported); no `ec2SnapshotVersion` bump needed, and none of
 `KeyPair`/`ClientVpnEndpoint`/`IpamPoolAllocation` persisted fields changed.
 
-Gates: `go build ./...` (no exported signature changed, so `make build-check` wasn't
+Gates: `go build ./...` (no exported signature changed, so `task build-check` wasn't
 required, but ran anyway -- clean), `go vet ./services/ec2/...` and `gofmt -l` on every
 touched file (clean), `go test -race ./services/ec2/...` (`ok`, full suite including the
 3 new tests), `golangci-lint run ./services/ec2/...` (0 issues). No banned `//nolint`s.
@@ -1695,7 +1695,7 @@ tests updated, no external callers found via full-repo grep):
 or type changed; no `ec2SnapshotVersion` bump; `go test
 ./services/ec2/... -run TestPersist` green.
 
-Gates: `make build-check` (`go build ./...` + `go vet -tags e2e ./...` +
+Gates: `task build-check` (`go build ./...` + `go vet -tags e2e ./...` +
 `go vet -tags integration ./...`, exit 0 -- run because 7 exported `Backend`
 signatures changed), `gofmt -l` on every touched file (clean), `go test
 -race ./services/ec2/...` (`ok`, full suite including all new tests),
@@ -1881,7 +1881,7 @@ representative failures:
   `TestDescribeClientVpnEndpoints_Pagination_RealClient`: `"1" is not
   greater than or equal to "2"` (paginator never split across pages).
 
-Gates: `go build ./services/ec2/...`, `make build-check` (`go build ./...` +
+Gates: `go build ./services/ec2/...`, `task build-check` (`go build ./...` +
 `go vet -tags e2e ./...` + `go vet -tags integration ./...`, exit 0 -- run
 because `Backend.RevokeSecurityGroupEgress`'s exported signature changed),
 `gofmt -l services/ec2/*.go` (clean), `go test -race ./services/ec2/...
@@ -2264,7 +2264,7 @@ Representative failures:
 Gates: `go build ./...` (clean, exported `Backend` interface signature
 changed -- `CreateTransitGatewayMulticastDomain`/`CreateTransitGatewayMeteringPolicy`
 gained a `tags map[string]string` parameter, single implementer
-`InMemoryBackend`, no other package implements `Backend`), `make build-check`
+`InMemoryBackend`, no other package implements `Backend`), `task build-check`
 (clean: `go build ./...` + `go vet -tags e2e ./...` + `go vet -tags
 integration ./...`), `go vet ./services/ec2/...` (clean), `gofmt -l
 services/ec2/*.go` (clean after `goimports -w`/`golines -w --max-len=120` on
@@ -2565,7 +2565,7 @@ etc. already had `NextToken` fields (dead weight until now);
 
 All ten fixes are handler-layer only (mirroring `pageSlice`'s existing usage
 elsewhere in this package) -- no `Backend` interface signature changed, so
-`make build-check` was run as a precaution but had nothing to fix.
+`task build-check` was run as a precaution but had nothing to fix.
 
 **Recorded as inert, not fixed**: `DescribeCapacityBlockExtensionOfferings`
 also ignores real `MaxResults`/`NextToken`, but this backend's
@@ -2657,7 +2657,7 @@ Gates: `go build ./...` (clean, no exported signature changed),
 full suite including the 10 new tests), `golangci-lint run
 ./services/ec2/...` (`0 issues` -- fixed one `govet` shadow, one `intrange`,
 and three `prealloc` findings by hand, not via `-fix`), `go test
-./pkgs/persistence/...` (`ok`), `make build-check` (clean). No banned
+./pkgs/persistence/...` (`ok`), `task build-check` (clean). No banned
 `//nolint`s.
 
 **Ops not reached this pass**: none within the queue named by the prior

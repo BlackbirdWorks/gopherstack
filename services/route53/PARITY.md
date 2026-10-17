@@ -440,7 +440,7 @@ fit the "one selector function" shape — as explicit early returns.
 once written; split into `cidrBlockLongestPrefix` (single-location scan) and
 `cidrCandidateMatch` (per-candidate resolution) to flatten the nesting.
 
-**SDK-driven integration-test run** — `make build-linux` (whole-repo
+**SDK-driven integration-test run** — `task build-linux` (whole-repo
 monolith binary; every service links into one binary, so this isn't
 route53-specific and is genuinely slow in a resource-constrained sandbox —
 two earlier attempts in this pass hit multi-minute wall-clock stalls before

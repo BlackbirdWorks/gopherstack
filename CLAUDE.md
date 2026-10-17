@@ -24,10 +24,12 @@ Reuse `pkgs/` instead of reimplementing in a service (e.g. `awstime.Epoch` would
   - a hardcoded `xml:"StubResponse"` XMLName overriding the runtime root
   - stub registrations overwriting real handlers (EC2 uses `registerStubOpsIfAbsent`; real handlers must win)
   - missing `errCodeLookup` entries surfacing not-found as 500 InternalFailure
-- Unit tests are not parity proof. SDK-driven `test/integration/*_parity_test.go` caught 8 client-breaking wire bugs that green unit tests missed. Run `make build-linux` before `go test ./test/integration/...`.
+- Unit tests are not parity proof. SDK-driven `test/integration/*_parity_test.go` caught 8 client-breaking wire bugs that green unit tests missed. Run `task build-linux` before `go test ./test/integration/...`.
 - Grep-based stub hunting has false positives: an empty envelope returned AFTER real backend logic is correct (void-result ops). Read the backend method before flagging; conversely, a real-looking op may filter a never-populated map.
 - De-stubbing: remove the stub registration, delete the orphaned stub handler, drop it from bare-call stub test manifests, run `golangci-lint`.
-- PARITY.md front-matter `items_still_open:` is the only authoritative open list (`gopherstack-anjf`); never `gaps:`/`deferred:` or body text. A pass that fixes an item must remove it in the same commit. Dated body sections are history only (`make parity-lint` catches stale claims).
+- PARITY.md front-matter `items_still_open:` is the only authoritative open list (`gopherstack-anjf`); never `gaps:`/`deferred:` or body text. A pass that fixes an item must remove it in the same commit. Dated body sections are history only (`task parity-lint` catches stale claims).
+
+Build tooling is go-task: run `task --list` for targets (same names as the old make targets).
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
 ## Beads Issue Tracker
@@ -58,7 +60,7 @@ bd close <id>         # Complete work
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
 2. **Run quality gates** (if code changed) - Tests, linters, builds
 3. **Update issue status** - Close finished work, update in-progress items
-   - Run `make bd-audit` and reconcile any TRAILER MISMATCH / TYPO'D TRAILER ID
+   - Run `task bd-audit` and reconcile any TRAILER MISMATCH / TYPO'D TRAILER ID
      findings. Run it on the branch, before the PR is squashed: this repo
      squash-merges, and only 8 of 155 `Closes` trailers survive into main, so
      the trailer is gone by the time main sees it. `bd` never parsed commit

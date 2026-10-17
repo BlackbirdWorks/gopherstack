@@ -99,3 +99,7 @@ checkpoint.md
 /cmd/*/*
 !/cmd/*/*/
 !/cmd/*/*.*
+
+# Understand-Anything scratch
+.ua/intermediate/
+.ua/diff-overlay.json

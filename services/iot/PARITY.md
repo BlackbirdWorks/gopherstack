@@ -1378,7 +1378,7 @@ SDK's serializer/deserializer/type definitions:
   silently dropped, and `GetV2LoggingOptionsOutput` never modeled it at all.
   Both fixed (new `LogEventConfigurationV2` type); `SetV2LoggingOptions`'s
   exported `Backend` interface signature changed to add the parameter --
-  `make build-check` run clean afterward. See
+  `task build-check` run clean afterward. See
   `TestListV2LoggingLevels_TargetTypeFilterAndPagination`,
   `TestV2LoggingOptions_EventConfigurationsSurvive`.
 - `GetIndexingConfiguration`/`UpdateIndexingConfiguration`
@@ -1519,7 +1519,7 @@ the rest.
 Gates run: `go build ./...`, `go vet ./services/iot/...`, `gofmt -l
 services/iot/`, `go test -race -count=1 ./services/iot/...`,
 `go test ./pkgs/persistence/...` (iot clean, ec2 pre-existing/out-of-scope
-failure), `golangci-lint run ./services/iot/...` (0 issues), `make
+failure), `golangci-lint run ./services/iot/...` (0 issues), `task
 build-check` (exit 0, whole-repo, covers the `SetV2LoggingOptions`
 exported-signature change) -- all clean. Work left uncommitted per this
 pass's instructions.
@@ -1632,7 +1632,7 @@ and ec2 both -- no pre-existing ec2 failure was hit this pass),
 two `golines` line-length and one `fieldalignment` finding introduced by
 this pass's own edits, plus one `testifylint` JSONEq finding in a new
 test), `go build ./...` + `go vet -tags e2e ./...` + `go vet -tags
-integration ./...` (`make build-check`'s three steps, run individually;
+integration ./...` (`task build-check`'s three steps, run individually;
 exit 0 -- covers this pass's exported-signature changes to
 `UpdateIoTPackage`, `UpdateIoTPackageVersion`, `UpdateProvisioningTemplate`,
 and the new `Backend.ListPrincipalThingsV2`). Work left uncommitted per

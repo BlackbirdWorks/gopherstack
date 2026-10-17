@@ -2,7 +2,7 @@
 trigger: always_on
 ---
  - Tests MUST be table tests. No matter what
- - All code must pass `make lint`
+ - All code must pass `task lint`
  - Always run tests and lint before committing changes
  - Errors should be sentinel errors
  - logging must be via slog

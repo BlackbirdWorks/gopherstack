@@ -18,7 +18,7 @@ COPY . .
 
 # Build dashboard2 frontend assets before embedding in Go binary
 # Build dashboard2 frontend assets before embedding in Go binary
-# If the SPA was pre-built (e.g. via `make ui-build` before `make demo`), skip the npm build
+# If the SPA was pre-built (e.g. via `task ui-build` before `task demo`), skip the npm build
 # to avoid OOM inside the container. Fall back to building in-container if assets are absent.
 RUN if [ ! -f dashboard/static/spa/index.html ]; then \
         npm --prefix ui ci --include=optional && \

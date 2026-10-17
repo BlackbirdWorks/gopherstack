@@ -57,7 +57,7 @@ type badgeSpec struct {
 // distribution across docs, plus totalServices (the count of services/ directories,
 // including the two removed services that have no PARITY.md) — and writes
 // them to .badges/. Idempotent: identical input produces byte-identical SVG
-// output, so a second `make docs` run leaves no diff.
+// output, so a second `task docs` run leaves no diff.
 func generateBadges(totalServices int, docs []*ParityDoc) error {
 	goVersion, err := readGoVersion(goModPath)
 	if err != nil {
