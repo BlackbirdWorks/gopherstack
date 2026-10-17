@@ -55,6 +55,8 @@ type InMemoryBackend struct {
 	parameterPolicyNotifier     ParameterPolicyNotifier
 	secrets                     SecretResolver
 	runner                      *CommandRunner
+	shells                      ShellOpener
+	dataChannels                map[string]context.CancelFunc
 	execCancels                 map[string]context.CancelFunc
 	agents                      map[string]*agentQueue
 	registry                    *store.Registry

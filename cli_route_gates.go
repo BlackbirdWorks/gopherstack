@@ -60,7 +60,6 @@ func routeTargetGates() map[string][]string {
 		"Rekognition":              {"RekognitionService."},
 		"ResourceGroupsTaggingAPI": {"ResourceGroupsTaggingAPI_20170126."},
 		"Route53Resolver":          {"Route53Resolver."},
-		"SSM":                      {"AmazonSSM", "EC2WindowsMessageDeliveryService."},
 		"SWF":                      {"SimpleWorkflowService."},
 		"SageMaker":                {"SageMaker."},
 		"SecretsManager":           {"secretsmanager"},

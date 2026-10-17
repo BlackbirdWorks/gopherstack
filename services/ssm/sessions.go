@@ -235,12 +235,14 @@ func (b *InMemoryBackend) ResumeSession(
 
 	sess := *sessPtr
 	sess.Status = sessionStatusConnected
+	sess.StreamURL = streamURL(ctx, sess.SessionID)
+	sess.TokenValue = uuid.NewString()
 	sessions.Put(&sess)
 
 	return &ResumeSessionOutputFull{
 		SessionID:  sess.SessionID,
-		StreamURL:  "wss://gopherstack.mock/" + sess.SessionID,
-		TokenValue: "gph-resume-token-" + uuid.NewString(),
+		StreamURL:  sess.StreamURL,
+		TokenValue: sess.TokenValue,
 	}, nil
 }
 
@@ -305,7 +307,7 @@ func (b *InMemoryBackend) StartSession(
 		Target:       input.Target,
 		Status:       sessionStatusConnected,
 		StartDate:    UnixTimeFloat(timeNow()),
-		StreamURL:    "wss://gopherstack-ssm-session/" + sessionID,
+		StreamURL:    streamURL(ctx, sessionID),
 		TokenValue:   uuid.NewString(),
 		DocumentName: input.DocumentName,
 		Reason:       input.Reason,
@@ -341,6 +343,7 @@ func (b *InMemoryBackend) TerminateSession(
 	sess.Status = sessionStatusTerminated
 	sess.EndDate = UnixTimeFloat(timeNow())
 	sessions.Put(&sess)
+	b.closeChannel(input.SessionID)
 
 	// Bound retained terminated (history) sessions so the store cannot grow
 	// without limit under repeated Start/Terminate cycles.
