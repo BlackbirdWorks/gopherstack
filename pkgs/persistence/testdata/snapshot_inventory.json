@@ -22390,7 +22390,7 @@
       "Account.Status string `json:\"status\"`",
       "CreateAccountStatus.AccountID string `json:\"AccountId,omitempty\"`",
       "CreateAccountStatus.AccountName string `json:\"AccountName\"`",
-      "CreateAccountStatus.CompletedTimestamp float64 `json:\"CompletedTimestamp\"`",
+      "CreateAccountStatus.CompletedTimestamp float64 `json:\"CompletedTimestamp,omitempty\"`",
       "CreateAccountStatus.FailureReason string `json:\"FailureReason,omitempty\"`",
       "CreateAccountStatus.GovCloudAccountID string `json:\"GovCloudAccountId,omitempty\"`",
       "CreateAccountStatus.ID string `json:\"Id\"`",
