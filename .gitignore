@@ -48,7 +48,6 @@ ui/build/
 !.beads/issues.jsonl
 .gemini/
 .runtime/
-CLAUDE.md
 
 # Gas Town (added by gt)
 .claude/*
