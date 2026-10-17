@@ -105,15 +105,7 @@ func reportSettingToJSON(in *ReportSetting) map[string]any {
 	return out
 }
 
-// reportJobToJSON builds the real ReportJob wire shape (backup@v1.59.4
-// deserializers.go: ReportJobId, Status, ReportPlanArn, CreationTime,
-// CompletionTime, ReportTemplate, ReportDestination, StatusMessage).
-// DescribeReportJob/ListReportJobs previously shared a helper that emitted
-// only ReportJobId/Status even though CreationTime/CompletionTime/
-// ReportPlanArn are all tracked and set at StartReportJob time.
-// ReportTemplate/ReportDestination/StatusMessage are not modeled -- this
-// backend never generates an actual report artifact -- so they are
-// disclosed gaps rather than fabricated.
+// reportJobToJSON builds the ReportJob wire shape (backup@v1.59.4 deserializers.go).
 func reportJobToJSON(j *ReportJob) map[string]any {
 	item := map[string]any{
 		keyReportJobID:   j.ReportJobID,
@@ -123,6 +115,15 @@ func reportJobToJSON(j *ReportJob) map[string]any {
 	}
 	if j.CompletionTime != nil {
 		item["CompletionTime"] = epochSeconds(*j.CompletionTime)
+	}
+	setOptionalStr(item, "ReportTemplate", j.ReportTemplate)
+	setOptionalStr(item, "StatusMessage", j.StatusMessage)
+	if j.ReportDestination != nil {
+		dest := map[string]any{"S3BucketName": j.ReportDestination.S3BucketName}
+		if len(j.ReportDestination.S3Keys) > 0 {
+			dest["S3Keys"] = j.ReportDestination.S3Keys
+		}
+		item["ReportDestination"] = dest
 	}
 
 	return item

@@ -161,23 +161,41 @@ func (b *InMemoryBackend) DeleteReportPlan(name string) error {
 	return nil
 }
 
-// StartReportJob creates a new report job for a report plan.
+// StartReportJob compiles a report for the plan and delivers it to the plan's S3 channel. Delivery needs a
+// wired object store; without one the job still completes but names no destination.
 func (b *InMemoryBackend) StartReportJob(reportPlanName string) *ReportJob {
 	b.mu.Lock("StartReportJob")
 	defer b.mu.Unlock()
 
 	now := time.Now().UTC()
-	done := now
 	job := &ReportJob{
-		ReportJobID:    "report-job-" + uuid.NewString()[:8],
-		ReportPlanArn:  "arn:aws:backup:" + b.region + ":" + b.accountID + ":report-plan:" + reportPlanName,
-		Status:         statusCompleted,
-		CreationTime:   now,
-		CompletionTime: &done,
+		ReportJobID:   "report-job-" + uuid.NewString()[:8],
+		ReportPlanArn: "arn:aws:backup:" + b.region + ":" + b.accountID + ":report-plan:" + reportPlanName,
+		Status:        statusCompleted,
+		CreationTime:  now,
 	}
+
+	if plan, ok := b.reportPlans.Get(reportPlanName); ok {
+		if plan.ReportSetting != nil {
+			job.ReportTemplate = plan.ReportSetting.ReportTemplate
+		}
+		if plan.ReportDeliveryChannel != nil && b.objects != nil {
+			dest, err := b.deliverReportLocked(plan, job, now)
+			job.ReportDestination = dest
+			if err != nil {
+				job.Status = statusFailed
+				job.StatusMessage = err.Error()
+			}
+		}
+	}
+
+	done := time.Now().UTC()
+	job.CompletionTime = &done
 	b.reportJobs.Put(job)
 
-	return job
+	cp := *job
+
+	return &cp
 }
 
 // DescribeReportJob returns a report job by ID.

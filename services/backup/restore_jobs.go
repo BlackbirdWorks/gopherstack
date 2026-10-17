@@ -3,7 +3,6 @@ package backup
 import (
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -76,16 +75,13 @@ func (b *InMemoryBackend) StartRestoreJobWithToken(
 		IAMRoleArn:       iamRoleArn,
 		ResourceType:     resourceType,
 		Metadata:         metadata,
-		Status:           statusCompleted,
-		PercentDone:      "100.0",
+		Status:           statusPending,
+		PercentDone:      "0.0",
 		StartTime:        now,
-		CompletionDate:   &now,
 		AccountID:        b.accountID,
 	}
 
-	// Enrich from the source recovery point when this backend tracks it --
-	// a caller may legitimately restore from an ARN it never registered
-	// through this emulator's own Backup APIs.
+	// A caller may legitimately restore from an ARN it never registered through this emulator's Backup APIs.
 	if srcRP, found := b.findRecoveryPointByArn(recoveryPointArn); found {
 		job.ResourceArn = srcRP.ResourceArn
 		job.BackupVaultName = srcRP.BackupVaultName
@@ -96,12 +92,15 @@ func (b *InMemoryBackend) StartRestoreJobWithToken(
 		}
 	}
 
-	if job.ResourceType != "" {
-		job.CreatedResourceArn = "arn:aws:" + strings.ToLower(job.ResourceType) +
-			":" + b.region + ":" + b.accountID + ":restored/" + jobID
+	b.restoreJobs.Put(job)
+
+	if b.lifecycleDelay > 0 {
+		settleAt := now.Add(b.lifecycleDelay)
+		job.SettleAt = &settleAt
+	} else {
+		b.settleRestoreJobLocked(job, now)
 	}
 
-	b.restoreJobs.Put(job)
 	cp := *job
 
 	return &cp, nil
@@ -109,8 +108,10 @@ func (b *InMemoryBackend) StartRestoreJobWithToken(
 
 // DescribeRestoreJob returns a restore job by ID.
 func (b *InMemoryBackend) DescribeRestoreJob(restoreJobID string) (*RestoreJob, error) {
-	b.mu.RLock("DescribeRestoreJob")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeRestoreJob")
+	defer b.mu.Unlock()
+
+	b.settleDueJobsLocked(time.Now().UTC())
 
 	job, ok := b.restoreJobs.Get(restoreJobID)
 	if !ok {
@@ -123,8 +124,10 @@ func (b *InMemoryBackend) DescribeRestoreJob(restoreJobID string) (*RestoreJob, 
 
 // ListRestoreJobs returns all restore jobs.
 func (b *InMemoryBackend) ListRestoreJobs() []*RestoreJob {
-	b.mu.RLock("ListRestoreJobs")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListRestoreJobs")
+	defer b.mu.Unlock()
+
+	b.settleDueJobsLocked(time.Now().UTC())
 
 	all := b.restoreJobs.All()
 	out := make([]*RestoreJob, 0, len(all))
@@ -139,8 +142,10 @@ func (b *InMemoryBackend) ListRestoreJobs() []*RestoreJob {
 
 // ListRestoreJobSummaries counts restore jobs per aggregation window, resource type and state.
 func (b *InMemoryBackend) ListRestoreJobSummaries(f JobSummaryFilter) []map[string]any {
-	b.mu.RLock("ListRestoreJobSummaries")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListRestoreJobSummaries")
+	defer b.mu.Unlock()
+
+	b.settleDueJobsLocked(time.Now().UTC())
 
 	all := b.restoreJobs.All()
 	jobs := make([]summaryJob, 0, len(all))
@@ -194,8 +199,10 @@ func restoreJobMatchesFilter(j *RestoreJob, f ListRestoreJobsFilter) bool {
 // ListRestoreJobsFiltered returns restore jobs matching the filter, paginated
 // per f.MaxResults/f.NextToken. Returns (jobs, nextToken).
 func (b *InMemoryBackend) ListRestoreJobsFiltered(f ListRestoreJobsFilter) ([]*RestoreJob, string) {
-	b.mu.RLock("ListRestoreJobsFiltered")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListRestoreJobsFiltered")
+	defer b.mu.Unlock()
+
+	b.settleDueJobsLocked(time.Now().UTC())
 
 	all := b.restoreJobs.All()
 	out := make([]*RestoreJob, 0, len(all))
@@ -229,8 +236,10 @@ func (b *InMemoryBackend) ListRestoreJobsByProtectedResource(resourceArn string)
 func (b *InMemoryBackend) ListRestoreJobsByProtectedResourceFiltered(
 	resourceArn string, f ProtectedResourceRestoreFilter,
 ) []*RestoreJob {
-	b.mu.RLock("ListRestoreJobsByProtectedResource")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListRestoreJobsByProtectedResource")
+	defer b.mu.Unlock()
+
+	b.settleDueJobsLocked(time.Now().UTC())
 
 	byDate := f.RecoveryPointCreatedAfter != nil || f.RecoveryPointCreatedBefore != nil
 

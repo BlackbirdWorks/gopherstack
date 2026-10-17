@@ -228,6 +228,7 @@ const (
 	// Status value constants.
 	statusCompleted = "COMPLETED"
 	statusCreated   = "CREATED"
+	statusPending   = "PENDING"
 	statusRunning   = "RUNNING"
 	statusFailed    = "FAILED"
 	statusCreating  = "CREATING"

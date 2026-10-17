@@ -4074,7 +4074,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// names a bucket that actually exists, instead of accepting any
 	// non-empty ResourceArn regardless of whether it resolves to a real
 	// resource (gopherstack-0o0q).
-	wireBackupS3(byName["Backup"], byName["S3"])
+	wireBackupResources(byName)
 
 	// Wire CodePipeline → CodeBuild/Lambda/CodeDeploy so a Build/CodeBuild
 	// action's ProjectName, an Invoke/Lambda action's FunctionName, and a
@@ -7009,7 +7009,7 @@ func wireBackupS3(backupReg, s3Reg service.Registerable) {
 		return
 	}
 
-	backupH.Backend.SetS3Backend(s3Bk)
+	backupH.Backend.SetObjectStore(s3Bk)
 }
 
 // wireCodePipelineCodeBuild connects the CodePipeline backend to CodeBuild so
