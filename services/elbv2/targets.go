@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 )
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
@@ -194,7 +196,7 @@ func probeTargetHTTP(tg *TargetGroup, targetKey string) string {
 	scheme := strings.ToLower(tg.HealthCheckProtocol)
 	url := scheme + "://" + id + ":" + port + path
 
-	client := &http.Client{Timeout: 2 * time.Second} //nolint:mnd // 2s probe timeout
+	client := probeClient
 
 	resp, err := client.Get(url) //nolint:noctx // probe is fire-and-forget
 	if err != nil {
@@ -409,3 +411,5 @@ func (b *InMemoryBackend) SetTargetHealthState(
 
 	return ErrTargetGroupNotFound
 }
+
+var probeClient = httpclient.New(2 * time.Second) //nolint:gochecknoglobals,mnd // pooled client, 2s probe timeout

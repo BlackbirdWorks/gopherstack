@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 )
 
 const (
@@ -168,6 +170,7 @@ func idpFetchJSON(
 
 	client := &http.Client{
 		Timeout:       idpHTTPTimeout,
+		Transport:     idpTransport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 
@@ -304,3 +307,5 @@ func (c *oidcConfig) fetchAttributes(ctx context.Context, accessToken string, cl
 
 	return nil
 }
+
+var idpTransport = httpclient.NewTransport() //nolint:gochecknoglobals // one pooled transport per service package
