@@ -67,6 +67,7 @@ func TargetGates() map[string][]string {
 		"ResourceGroupsTaggingAPI": {"ResourceGroupsTaggingAPI_20170126."},
 		"Route53Resolver":          {"Route53Resolver."},
 		"SWF":                      {"SimpleWorkflowService."},
+		"TimestreamInfluxDB":       {"AmazonTimestreamInfluxDB."},
 		"SageMaker":                {"SageMaker."},
 		"SecretsManager":           {"secretsmanager"},
 		"ServiceCatalog":           {"AWS242ServiceCatalogService."},

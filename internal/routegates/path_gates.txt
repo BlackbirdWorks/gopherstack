@@ -1,3 +1,4 @@
+AMP	/scraperconfiguration /scrapers /tags /workspaces
 APIGatewayManagementAPI	/@connections /_gopherstack
 APIGatewayV2	/v2
 AccessAnalyzer	/access-preview /analyzed-resource /analyzer /archive-rule /finding /policy /recommendation /resource /service-linked-analyzer /tags
@@ -11,6 +12,7 @@ Backup	/account-settings /audit /backup /copy-jobs /global-settings /indexes /le
 Batch	/v1
 Bedrock	/advanced-prompt-optimization-job /automated-reasoning-policies /create-foundation-model-agreement /custom-models /data-retention /delete-foundation-model-agreement /enforcedGuardrailsConfiguration /evaluation-job /foundation-model-availability /foundation-models /guardrails /imported-models /inference-profiles /list-foundation-model-agreement-offers /listTagsForResource /logging /marketplace-model /model-copy-jobs /model-customization /model-import-jobs /model-invocation-job /prompt-routers /provisioned-model-throughput /resource-policy /tagResource /untagResource /use-case-for-model-access
 BedrockAgent	/agents /flows /knowledgebases /prompts /resourcepolicy /tags
+BedrockAgentCoreControl	/browser-profiles /browsers /capacity-providers /code-interpreters /configuration-bundles /datasets /evaluators /gateways /harnesses /identities /memories /online-evaluation-configs /payments /policy-engine-summaries /policy-engines /registries /resourcepolicy /runtimes /tags
 BedrockRuntime	/async-invoke /guardrail /model
 CloudFront	/2020-05-31
 CloudFront KeyValueStore	/key-value-stores
@@ -55,6 +57,7 @@ ResourceExplorer2	/AssociateDefaultView /BatchGetView /CreateIndex /CreateResour
 RolesAnywhere	/ListTagsForResource /TagResource /UntagResource /crl /profile /put-notifications-settings /reset-notifications-settings /subject /trustanchor
 Route53	/2013-04-01
 S3Control	/v20180820
+S3Vectors	/CreateIndex /CreateVectorBucket /DeleteIndex /DeleteVectorBucket /DeleteVectorBucketPolicy /DeleteVectors /GetIndex /GetVectorBucket /GetVectorBucketPolicy /GetVectors /ListIndexes /ListVectorBuckets /ListVectors /PutVectorBucketDefaultIndexMode /PutVectorBucketPolicy /PutVectors /QueryVectors /UpdateIndexMode /tags
 S3tables	/buckets /get-table /namespaces /replication-status /table-bucket-replication /table-record-expiration /table-replication /tables /tag
 SESv2	/v2
 SageMakerRuntime	/endpoints

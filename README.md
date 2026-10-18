@@ -837,10 +837,12 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
+| [Amp](services/amp/README.md) | B | 44 | 11 gaps; 2 structural gaps |
 | [AppStream 2.0](services/appstream/README.md) | A | 44 | 5 structural gaps |
 | [Azurearm](services/azurearm/README.md) | B | 16 | 8 gaps; 3 deferred |
 | [Azurestoragevhost](services/azurestoragevhost/README.md) | B | 2 | 2 gaps; 1 deferred |
 | [Bcmdataexports](services/bcmdataexports/README.md) | B | 12 | 6 gaps |
+| [Bedrockagentcorecontrol](services/bedrockagentcorecontrol/README.md) | B | 171 | 13 gaps; 2 structural gaps |
 | [Budgets](services/budgets/README.md) | B | 26 | 9 gaps |
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | A | 6 | 2 structural gaps |
 | [Cur](services/cur/README.md) | B | 7 | 6 gaps |
@@ -862,9 +864,11 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Pricing](services/pricing/README.md) | B | 5 | 4 gaps |
 | [Resiliencehub](services/resiliencehub/README.md) | A | 63 | 7 structural gaps |
 | [Resourceexplorer2](services/resourceexplorer2/README.md) | B | 27 | 13 gaps; 1 structural gap |
+| [S3vectors](services/s3vectors/README.md) | B | 21 | 8 gaps; 1 structural gap |
 | [Servicecatalog](services/servicecatalog/README.md) | B | 89 | 14 gaps; 1 structural gap |
 | [Servicequotas](services/servicequotas/README.md) | B | 26 | 8 gaps; 1 structural gap |
 | [Support](services/support/README.md) | A | 16 | 1 structural gap; 1 deferred |
+| [Timestreaminfluxdb](services/timestreaminfluxdb/README.md) | B | 24 | 10 gaps; 2 structural gaps |
 | [WorkSpaces](services/workspaces/README.md) | A | 34 | 4 gaps; 2 structural gaps |
 <!-- END GENERATED SERVICES -->
 

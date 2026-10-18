@@ -76,6 +76,8 @@ github.com/aws/aws-sdk-go-v2/service/acm v1.49.0 h1:D/cTbl3j7f5kajglyWC/RLSA9duv
 github.com/aws/aws-sdk-go-v2/service/acm v1.49.0/go.mod h1:2MZLty7tYnPQ3uqScga+594vDl5rjmwNQEr1MPPaIDU=
 github.com/aws/aws-sdk-go-v2/service/acmpca v1.50.0 h1:khlQZUbJH9pE7XAW3mBmF8a+WoPTj7t3HlFEvTQcN7k=
 github.com/aws/aws-sdk-go-v2/service/acmpca v1.50.0/go.mod h1:p6KeHzzCSWzRybDbZEeBoxIku2r2MmDWq9tmO0K2YjU=
+github.com/aws/aws-sdk-go-v2/service/amp v1.54.5 h1:XqlX+lpd0eKIICOSZrACtVbudpRFDCtXtWcQSKMzSNg=
+github.com/aws/aws-sdk-go-v2/service/amp v1.54.5/go.mod h1:97b2dML5q5fNskfcv+kbVAtyETFpCLXxBH9V3opqGD4=
 github.com/aws/aws-sdk-go-v2/service/amplify v1.47.0 h1:UiuSWeNyequ56cMzvzTdiwBOfULUK5+TsGUYR4YxACY=
 github.com/aws/aws-sdk-go-v2/service/amplify v1.47.0/go.mod h1:+v8R3LZ8GMv9z1VFCXx4Wqvh8Jh1QOy2wIWBYRGOH/Q=
 github.com/aws/aws-sdk-go-v2/service/apigateway v1.42.4 h1:Ms7Axfp9CmCT4fCGwSDzR+cYj+8db0LXNqi9ew5bubM=
@@ -114,6 +116,8 @@ github.com/aws/aws-sdk-go-v2/service/bedrock v1.66.4 h1:OPGQGYloZ7rzjVQI+Ws/ZV5M
 github.com/aws/aws-sdk-go-v2/service/bedrock v1.66.4/go.mod h1:xhbORNExXawam0hRGkJ8eHoQ43WyVltje/N+FRHnRw8=
 github.com/aws/aws-sdk-go-v2/service/bedrockagent v1.58.4 h1:WSMh0kuwP1p2rOCJA2cTncULy7I4tP76f+mt75s941c=
 github.com/aws/aws-sdk-go-v2/service/bedrockagent v1.58.4/go.mod h1:NYt2Zq3Yu2fb/AohBBkeSa3x75G9OPDxVsDHPCY3Ud0=
+github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol v1.73.0 h1:78d6F47xqGbz6oE7b6YzVMLnQZwpA49ZIdF18HRp4Lg=
+github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol v1.73.0/go.mod h1:UyjBGRvvrJ+qriFGIAKGsl/OGjGOAzhG2s16pUtJ9xE=
 github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.57.1 h1:ZjxrEBMaFr3BaYDo/Wz+8hfE0FgbC1cESZ8BiE02NOs=
 github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.57.1/go.mod h1:xx9ylHjnvUw9VCNrruAVBM8HycwTZ19+qdCQzk50shg=
 github.com/aws/aws-sdk-go-v2/service/budgets v1.53.1 h1:Ua/xE2mw75XcBcm9P6pGFgDL5+zJ4eCqj9UQ2r73Mzo=
@@ -374,6 +378,8 @@ github.com/aws/aws-sdk-go-v2/service/s3control v1.73.4 h1:iLaMpTt0YOtycNqDY6vOS8
 github.com/aws/aws-sdk-go-v2/service/s3control v1.73.4/go.mod h1:9mOGHKkx2NOZnCHDis0ykauoNoE8wdUba2MrZjHki38=
 github.com/aws/aws-sdk-go-v2/service/s3tables v1.18.4 h1:Dw488RJo3tscyq5pzpT/BIGZcfZ7GoIE+S06AG4q8ik=
 github.com/aws/aws-sdk-go-v2/service/s3tables v1.18.4/go.mod h1:7PsCRtQnxct6wWtIRr6glZNE8rDpqV+UraHwmZJMK1c=
+github.com/aws/aws-sdk-go-v2/service/s3vectors v1.16.3 h1:NgQczlKFUPk+H8AXPeSjp5Uz1VSRxnpKE9aGErI97KQ=
+github.com/aws/aws-sdk-go-v2/service/s3vectors v1.16.3/go.mod h1:bztrEwCGRZiCXBIfesU1YjV38+h+I1RevzL4FCn2gJk=
 github.com/aws/aws-sdk-go-v2/service/sagemaker v1.263.2 h1:YANyT2tYBmH3xiFnavinRyAH2wrxjGhM90YJJZSH83g=
 github.com/aws/aws-sdk-go-v2/service/sagemaker v1.263.2/go.mod h1:bAVgWbt1cFpa7Nr6tqXWVqhFNJhqN74dlZrOPRT444Y=
 github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.43.4 h1:T+hN3yD4gGT5ENRxIYKxY0NYTXyhuEoWFkA/MGWMI2o=
@@ -424,6 +430,8 @@ github.com/aws/aws-sdk-go-v2/service/swf v1.37.4 h1:0HbBrDr59duC/ZZSU8XACCFlyyIF
 github.com/aws/aws-sdk-go-v2/service/swf v1.37.4/go.mod h1:B4ZYMiBiyYBGRIe4HmxDh0LCpg4sqF2WSPhCee1HBi4=
 github.com/aws/aws-sdk-go-v2/service/textract v1.43.4 h1:j7YvBlskaWzKk0NjM22cG1zZLdcd2EqkWGE28cPuJdM=
 github.com/aws/aws-sdk-go-v2/service/textract v1.43.4/go.mod h1:lQGUgVuQPK5QeQFYCurkyAUkWbJ88wwce0ClxZE+nzA=
+github.com/aws/aws-sdk-go-v2/service/timestreaminfluxdb v1.29.4 h1:1Ai4beGZTaImiJlmU0NvAVloROPTOXmyumDwYTRrkus=
+github.com/aws/aws-sdk-go-v2/service/timestreaminfluxdb v1.29.4/go.mod h1:xh5sBHU5x4uhMmH4YVOww3mQYx3l+aUDyA1iyKraEVQ=
 github.com/aws/aws-sdk-go-v2/service/timestreamquery v1.39.4 h1:Cn2uz4FE63WulhdIM7lqKVnXy988EdS91S8k6xunFsk=
 github.com/aws/aws-sdk-go-v2/service/timestreamquery v1.39.4/go.mod h1:OpWVPCX5NLXpJbefaX5GDFxDJpQnCF+VbwcUcZStfGA=
 github.com/aws/aws-sdk-go-v2/service/timestreamwrite v1.38.4 h1:IcEJV3Ci+QIrShtUsFFktJdcEazxucykIuDbJDG8Snk=

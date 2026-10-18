@@ -228,6 +228,25 @@ POST	localhost:4566	/		application/x-amz-json-1.1	ACMPrivateCA.RevokeCertificate
 POST	localhost:4566	/	acm-pca	application/x-amz-json-1.1	ACMPrivateCA.TagCertificateAuthority	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/acmpca#1.0.0	ACMPCA	ACMPCA
 POST	localhost:4566	/	acm-pca	application/x-amz-json-1.1	ACMPrivateCA.UntagCertificateAuthority	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/acmpca#1.0.0	ACMPCA	ACMPCA
 POST	localhost:4566	/	acm-pca	application/x-amz-json-1.1	ACMPrivateCA.UpdateCertificateAuthority	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/acmpca#1.0.0	ACMPCA	ACMPCA
+POST	localhost:4566	/workspaces/xworksp/alertmanager/definition	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	localhost:4566	/workspaces/xworksp/alertmanager/definition	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	aps.us-east-1.amazonaws.com	/workspaces/xworksp/alertmanager/definition	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	localhost:4566	/workspaces/xworksp/alertmanager/definition?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Faps%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	localhost:4566	/workspaces/xworksp/anomalydetectors	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	localhost:4566	/workspaces/xworksp/anomalydetectors	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	aps.us-east-1.amazonaws.com	/workspaces/xworksp/anomalydetectors	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	localhost:4566	/workspaces/xworksp/anomalydetectors?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Faps%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	localhost:4566	/workspaces/xworksp/logging	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	localhost:4566	/workspaces/xworksp/logging	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	aps.us-east-1.amazonaws.com	/workspaces/xworksp/logging	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	localhost:4566	/workspaces/xworksp/logging?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Faps%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	localhost:4566	/workspaces/xworksp/logging/query	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	localhost:4566	/workspaces/xworksp/logging/query	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	aps.us-east-1.amazonaws.com	/workspaces/xworksp/logging/query	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	localhost:4566	/workspaces/xworksp/logging/query?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Faps%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	localhost:4566	/workspaces/xworksp/rulegroupsnamespaces	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	localhost:4566	/scrapers	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	localhost:4566	/workspaces	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
 POST	localhost:4566	/apps	amplify				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amplify#1.0.0	Amplify	Amplify
 POST	localhost:4566	/apps	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amplify#1.0.0	Amplify	Amplify
 POST	amplify.us-east-1.amazonaws.com	/apps	amplify				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amplify#1.0.0	Amplify	Amplify
@@ -1775,6 +1794,189 @@ PUT	localhost:4566	/flows/xflowid/aliases/xaliasi	bedrock				User-Agent:aws-sdk-
 PUT	localhost:4566	/knowledgebases/xknowle	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagent#1.0.0	BedrockAgent	BedrockAgent
 PUT	localhost:4566	/prompts/xprompt/	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagent#1.0.0	BedrockAgent	BedrockAgent
 POST	localhost:4566	/flows/validate-definition	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagent#1.0.0	BedrockAgent	BedrockAgent
+POST	localhost:4566	/datasets/xdatase/examples/add	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/datasets/xdatase/examples/add	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	bedrock-agentcore.us-east-1.amazonaws.com	/datasets/xdatase/examples/add	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/datasets/xdatase/examples/add?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbedrock-agentcore%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/gateways/xgatewa/rate-limits/batch	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/gateways/xgatewa/rate-limits/batch	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	bedrock-agentcore.us-east-1.amazonaws.com	/gateways/xgatewa/rate-limits/batch	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/gateways/xgatewa/rate-limits/batch?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbedrock-agentcore%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/runtimes/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/runtimes/	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	bedrock-agentcore.us-east-1.amazonaws.com	/runtimes/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/runtimes/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbedrock-agentcore%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/runtimes/xagentr/runtime-endpoints/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/runtimes/xagentr/runtime-endpoints/	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	bedrock-agentcore.us-east-1.amazonaws.com	/runtimes/xagentr/runtime-endpoints/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/runtimes/xagentr/runtime-endpoints/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbedrock-agentcore%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/CreateApiKeyCredentialProvider	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/browsers	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/browser-profiles	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/capacity-providers	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/code-interpreters	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/configuration-bundles/create	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/CreateConsentPortal	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/datasets	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/datasets/xdatase/versions	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/evaluators/create	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/gateways/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/gateways/xgatewa/rate-limits	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/gateways/xgatewa/rules	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/gateways/xgatewa/targets/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/harnesses	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/harnesses/xharnes/endpoints	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/memories/create	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/CreateOauth2CredentialProvider	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/online-evaluation-configs/create	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/payments/managers/xpaymen/connectors	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/CreatePaymentCredentialProvider	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/payments/managers	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/policy-engines/xpolicy/policies	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/policy-engines	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/registries	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/registries/xregist/records	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/CreateWorkloadIdentity	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/runtimes/xagentr/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/runtimes/xagentr/runtime-endpoints/xendpoi/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/DeleteApiKeyCredentialProvider	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/browsers/xbrowse	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/browser-profiles/xprofil	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/capacity-providers/xcapaci	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/code-interpreters/xcodein	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/configuration-bundles/xbundle	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/DeleteConsentPortal	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/datasets/xdatase	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/datasets/xdatase/examples/delete	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/evaluators/xevalua	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/gateways/xgatewa/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/gateways/xgatewa/rate-limits/xrateli	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/gateways/xgatewa/rules/xruleid	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/gateways/xgatewa/targets/xtarget/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/harnesses/xharnes	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/harnesses/xharnes/endpoints/xendpoi	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/memories/xmemory/delete	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/DeleteOauth2CredentialProvider	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/online-evaluation-configs/xonline	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/payments/managers/xpaymen/connectors/xpaymen	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/DeletePaymentCredentialProvider	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/payments/managers/xpaymen	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/policy-engines/xpolicy/policies/xpolicy	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/policy-engines/xpolicy	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/registries/xregist	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/registries/xregist/records/xrecord	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/resourcepolicy/xresour	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/DeleteWorkloadIdentity	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/runtimes/xagentr/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/runtimes/xagentr/runtime-endpoints/xendpoi/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/GetApiKeyCredentialProvider	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/browsers/xbrowse	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/browser-profiles/xprofil	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/capacity-providers/xcapaci	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/code-interpreters/xcodein	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/configuration-bundles/xbundle	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/configuration-bundles/xbundle/versions/xversio	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/GetConsentPortal	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/datasets/xdatase	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/evaluators/xevalua	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/gateways/xgatewa/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/gateways/xgatewa/rate-limits/xrateli	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/gateways/xgatewa/rules/xruleid	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/gateways/xgatewa/targets/xtarget/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/harnesses/xharnes	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/harnesses/xharnes/endpoints/xendpoi	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/memories/xmemory/details	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/GetOauth2CredentialProvider	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/online-evaluation-configs/xonline	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/payments/managers/xpaymen/connectors/xpaymen	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/GetPaymentCredentialProvider	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/payments/managers/xpaymen	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/policy-engines/xpolicy/policies/xpolicy	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/policy-engines/xpolicy	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/policy-engine-summaries/xpolicy	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/policy-engines/xpolicy/policy-generations/xpolicy	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/policy-engines/xpolicy/policy-generation-summaries/xpolicy	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/policy-engines/xpolicy/policy-summaries/xpolicy	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/registries/xregist	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/registries/xregist/records/xrecord	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/resourcepolicy/xresour	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/get-token-vault	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/GetWorkloadIdentity	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/runtimes/xagentr/runtime-endpoints/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/runtimes/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/runtimes/xagentr/versions/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/capacity-providers/xcapaci/runtime-versions	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/ListApiKeyCredentialProviders	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/browser-profiles	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/browsers	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/capacity-providers	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/code-interpreters	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/configuration-bundles	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/configuration-bundles/xbundle/versions	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/ListConsentPortals	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/datasets/xdatase/examples	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/datasets	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/datasets/xdatase/versions	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/evaluators	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/gateways/xgatewa/rate-limits	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/gateways/xgatewa/rules	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/gateways/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/gateways/xgatewa/targets/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/harnesses/xharnes/endpoints	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/harnesses	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/harnesses/xharnes/versions	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/memories/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/ListOauth2CredentialProviders	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/online-evaluation-configs	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/payments/managers/xpaymen/connectors-list	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/ListPaymentCredentialProviders	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/payments/managers-list	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/policy-engines/xpolicy/policies	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/policy-engines	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/policy-engine-summaries	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/policy-engines/xpolicy/policy-generations/xpolicy/assets	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/policy-engines/xpolicy/policy-generations	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/policy-engines/xpolicy/policy-generation-summaries	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/policy-engines/xpolicy/policy-summaries	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/registries	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/registries/xregist/records	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/tags/xresour	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/ListWorkloadIdentities	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/resourcepolicy/xresour	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/payments/managers/xpaymen/connectors/xpaymen/rotate-credentials	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/set-token-vault-cmk	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/policy-engines/xpolicy/policy-generations	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/registries/xregist/records/xrecord/submit-for-approval	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/gateways/xgatewa/synchronizeTargets	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/tags/xresour	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+DELETE	localhost:4566	/tags/xresour	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/runtimes/xagentr/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/runtimes/xagentr/runtime-endpoints/xendpoi/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/UpdateApiKeyCredentialProvider	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/capacity-providers/xcapaci	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/configuration-bundles/xbundle	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/UpdateConsentPortal	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/datasets/xdatase	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/datasets/xdatase/examples/update	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/evaluators/xevalua	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/gateways/xgatewa/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PATCH	localhost:4566	/gateways/xgatewa/rate-limits/xrateli	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PATCH	localhost:4566	/gateways/xgatewa/rules/xruleid	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/gateways/xgatewa/targets/xtarget/	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PATCH	localhost:4566	/harnesses/xharnes	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PATCH	localhost:4566	/harnesses/xharnes/endpoints/xendpoi	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/memories/xmemory/update	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/UpdateOauth2CredentialProvider	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PUT	localhost:4566	/online-evaluation-configs/xonline	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PATCH	localhost:4566	/payments/managers/xpaymen/connectors/xpaymen	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/UpdatePaymentCredentialProvider	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PATCH	localhost:4566	/payments/managers/xpaymen	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PATCH	localhost:4566	/policy-engines/xpolicy/policies/xpolicy	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PATCH	localhost:4566	/policy-engines/xpolicy	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PATCH	localhost:4566	/registries/xregist	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PATCH	localhost:4566	/registries/xregist/records/xrecord	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+PATCH	localhost:4566	/registries/xregist/records/xrecord/status	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+POST	localhost:4566	/identities/UpdateWorkloadIdentity	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcorecontrol#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
 POST	localhost:4566	/guardrail/xguardr/version/xguardr/apply	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockruntime#1.0.0	BedrockRuntime	BedrockRuntime
 POST	localhost:4566	/guardrail/xguardr/version/xguardr/apply	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockruntime#1.0.0	BedrockRuntime	BedrockRuntime
 POST	bedrock.us-east-1.amazonaws.com	/guardrail/xguardr/version/xguardr/apply	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockruntime#1.0.0	BedrockRuntime	BedrockRuntime
@@ -7369,6 +7571,43 @@ POST	localhost:4566	/workspaces	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 u
 POST	grafana.us-east-1.amazonaws.com	/workspaces	grafana				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/grafana#1.0.0	Grafana	Grafana
 POST	localhost:4566	/workspaces?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fgrafana%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/grafana#1.0.0	Grafana	Grafana
 POST	localhost:4566	/workspaces						Grafana	Grafana
+DELETE	localhost:4566	/workspaces/xworksp/alertmanager/definition	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+DELETE	localhost:4566	/workspaces/xworksp/anomalydetectors/xanomal	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+DELETE	localhost:4566	/workspaces/xworksp/logging	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+DELETE	localhost:4566	/workspaces/xworksp/logging/query	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+DELETE	localhost:4566	/workspaces/xworksp/policy	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+DELETE	localhost:4566	/workspaces/xworksp/rulegroupsnamespaces/xname	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+DELETE	localhost:4566	/scrapers/xscrape	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+DELETE	localhost:4566	/scrapers/xscrape/logging-configuration	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+DELETE	localhost:4566	/workspaces/xworksp	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+GET	localhost:4566	/workspaces/xworksp/alertmanager/definition	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+GET	localhost:4566	/workspaces/xworksp/anomalydetectors/xanomal	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+GET	localhost:4566	/workspaces/xworksp/logging	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+GET	localhost:4566	/workspaces/xworksp/logging/query	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+GET	localhost:4566	/workspaces/xworksp/policy	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+GET	localhost:4566	/workspaces/xworksp/rulegroupsnamespaces/xname	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+GET	localhost:4566	/scrapers/xscrape	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+GET	localhost:4566	/scrapers/xscrape/logging-configuration	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+GET	localhost:4566	/workspaces/xworksp	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+GET	localhost:4566	/workspaces/xworksp/configuration	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+GET	localhost:4566	/scraperconfiguration	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+GET	localhost:4566	/workspaces/xworksp/anomalydetectors	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+GET	localhost:4566	/workspaces/xworksp/rulegroupsnamespaces	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+GET	localhost:4566	/scrapers	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+GET	localhost:4566	/tags/xresour	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+GET	localhost:4566	/workspaces	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+PUT	localhost:4566	/workspaces/xworksp/alertmanager/definition	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+PUT	localhost:4566	/workspaces/xworksp/anomalydetectors/xanomal	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+PUT	localhost:4566	/workspaces/xworksp/policy	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+PUT	localhost:4566	/workspaces/xworksp/rulegroupsnamespaces/xname	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	localhost:4566	/tags/xresour	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+DELETE	localhost:4566	/tags/xresour	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+PUT	localhost:4566	/workspaces/xworksp/logging	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+PUT	localhost:4566	/workspaces/xworksp/logging/query	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+PUT	localhost:4566	/scrapers/xscrape	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+PUT	localhost:4566	/scrapers/xscrape/logging-configuration	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+POST	localhost:4566	/workspaces/xworksp/alias	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
+PATCH	localhost:4566	/workspaces/xworksp/configuration	aps				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/amp#1.0.0	AMP	AMP
 POST	localhost:4566	/workspaces/xworksp/apikeys	grafana				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/grafana#1.0.0	Grafana	Grafana
 POST	localhost:4566	/workspaces/xworksp/apikeys	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/grafana#1.0.0	Grafana	Grafana
 POST	grafana.us-east-1.amazonaws.com	/workspaces/xworksp/apikeys	grafana				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/grafana#1.0.0	Grafana	Grafana
@@ -13504,6 +13743,39 @@ PUT	localhost:4566	/tables/xtableb/xnamesp/xname/rename	s3tables				User-Agent:a
 POST	localhost:4566	/tag/xresour	s3tables				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3tables#1.0.0	S3tables	S3tables
 DELETE	localhost:4566	/tag/xresour	s3tables				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3tables#1.0.0	S3tables	S3tables
 PUT	localhost:4566	/tables/xtableb/xnamesp/xname/metadata-location	s3tables				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3tables#1.0.0	S3tables	S3tables
+POST	localhost:4566	/CreateIndex	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/CreateIndex	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	s3vectors.us-east-1.amazonaws.com	/CreateIndex	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/CreateIndex?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fs3vectors%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/CreateVectorBucket	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/CreateVectorBucket	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	s3vectors.us-east-1.amazonaws.com	/CreateVectorBucket	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/CreateVectorBucket?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fs3vectors%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/DeleteIndex	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/DeleteIndex	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	s3vectors.us-east-1.amazonaws.com	/DeleteIndex	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/DeleteIndex?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fs3vectors%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/DeleteVectorBucket	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/DeleteVectorBucket	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	s3vectors.us-east-1.amazonaws.com	/DeleteVectorBucket	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/DeleteVectorBucket?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fs3vectors%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/DeleteVectorBucketPolicy	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/DeleteVectors	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/GetIndex	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/GetVectorBucket	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/GetVectorBucketPolicy	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/GetVectors	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/ListIndexes	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+GET	localhost:4566	/tags/xresour	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/ListVectorBuckets	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/ListVectors	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/PutVectorBucketDefaultIndexMode	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/PutVectorBucketPolicy	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/PutVectors	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/QueryVectors	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/tags/xresour	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+DELETE	localhost:4566	/tags/xresour	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
+POST	localhost:4566	/UpdateIndexMode	s3vectors				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3vectors#1.0.0	S3Vectors	S3Vectors
 POST	localhost:4566	/	sagemaker	application/x-amz-json-1.1	SageMaker.AddAssociation	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sagemaker#1.0.0	SageMaker	SageMaker
 POST	localhost:4566	/		application/x-amz-json-1.1	SageMaker.AddAssociation	{}		SageMaker	SageMaker
 POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	SageMaker.AddAssociation	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sagemaker#1.0.0	SageMaker	SageMaker
@@ -17073,3 +17345,59 @@ POST	localhost:4566	/BatchGetView	resource-explorer-2				User-Agent:aws-sdk-go-v
 POST	localhost:4566	/BatchGetView	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/resourceexplorer2#1.0.0	ResourceExplorer2	ResourceExplorer2
 POST	resource-explorer-2.us-east-1.amazonaws.com	/BatchGetView	resource-explorer-2				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/resourceexplorer2#1.0.0	ResourceExplorer2	ResourceExplorer2
 POST	localhost:4566	/BatchGetView?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fresource-explorer-2%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/resourceexplorer2#1.0.0	ResourceExplorer2	ResourceExplorer2
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbBackup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbBackup	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbBackup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	timestream-influxdb.us-east-1.amazonaws.com	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbBackup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Ftimestream-influxdb%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbBackup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbCluster	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbCluster	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbCluster	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	timestream-influxdb.us-east-1.amazonaws.com	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbCluster	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Ftimestream-influxdb%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbCluster	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbInstance	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbInstance	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbInstance	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	timestream-influxdb.us-east-1.amazonaws.com	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbInstance	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Ftimestream-influxdb%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbInstance	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbParameterGroup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbParameterGroup	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbParameterGroup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	timestream-influxdb.us-east-1.amazonaws.com	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbParameterGroup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Ftimestream-influxdb%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.CreateDbParameterGroup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.DeleteDbBackup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.DeleteDbBackup	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.DeleteDbCluster	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.DeleteDbCluster	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.DeleteDbInstance	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.DeleteDbInstance	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.GetDbBackup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.GetDbBackup	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.GetDbCluster	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.GetDbCluster	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.GetDbInstance	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.GetDbInstance	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.GetDbParameterGroup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.GetDbParameterGroup	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.ListDbBackups	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.ListDbBackups	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.ListDbClusters	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.ListDbClusters	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.ListDbInstances	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.ListDbInstances	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.ListDbInstancesForCluster	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.ListDbInstancesForCluster	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.ListDbParameterGroups	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.ListDbParameterGroups	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.ListTagsForResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.ListTagsForResource	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.RebootDbCluster	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.RebootDbCluster	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.RebootDbInstance	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.RebootDbInstance	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.RestoreFromDbBackup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/		application/x-amz-json-1.0	AmazonTimestreamInfluxDB.RestoreFromDbBackup	{}		TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.TagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.UntagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.UpdateDbCluster	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.UpdateDbInstance	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB

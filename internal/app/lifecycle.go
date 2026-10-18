@@ -7,6 +7,7 @@ import (
 	accessanalyzerbackend "github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 	accountbackend "github.com/blackbirdworks/gopherstack/services/account"
 	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
+	ampbackend "github.com/blackbirdworks/gopherstack/services/amp"
 	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
 	appstreambackend "github.com/blackbirdworks/gopherstack/services/appstream"
 	arczonalshiftbackend "github.com/blackbirdworks/gopherstack/services/arczonalshift"
@@ -15,6 +16,7 @@ import (
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockagentbackend "github.com/blackbirdworks/gopherstack/services/bedrockagent"
+	bedrockagentcorecontrolbackend "github.com/blackbirdworks/gopherstack/services/bedrockagentcorecontrol"
 	cleanroomsbackend "github.com/blackbirdworks/gopherstack/services/cleanrooms"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
@@ -78,6 +80,7 @@ import (
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
+	timestreaminfluxdbbackend "github.com/blackbirdworks/gopherstack/services/timestreaminfluxdb"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	translatebackend "github.com/blackbirdworks/gopherstack/services/translate"
 	vpclatticebackend "github.com/blackbirdworks/gopherstack/services/vpclattice"
@@ -255,6 +258,24 @@ func applyNetworkFirewall(reg service.Registerable, l cliconfig.LifecycleSetting
 func applyGlobalAccelerator(reg service.Registerable, l cliconfig.LifecycleSettings) {
 	if h, ok := reg.(*globalacceleratorbackend.Handler); ok {
 		h.Backend.SetLifecycleDelay(l.Effective(l.GlobalAccelerator))
+	}
+}
+
+func applyBedrockAgentCoreControl(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*bedrockagentcorecontrolbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.Effective(l.BedrockAgentCore))
+	}
+}
+
+func applyAMP(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*ampbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.Effective(l.AMP))
+	}
+}
+
+func applyTimestreamInfluxDB(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*timestreaminfluxdbbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.Effective(l.TimestreamInfluxDB))
 	}
 }
 
@@ -729,6 +750,8 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l cliconfig.Lif
 		"FIS":                 applyFIS,
 		"DSQL":                applyDSQL,
 		"GlobalAccelerator":   applyGlobalAccelerator,
+		"AMP":                 applyAMP,
+		"TimestreamInfluxDB":  applyTimestreamInfluxDB,
 		"ServiceQuotas":       applyServiceQuotas,
 		"NetworkFirewall":     applyNetworkFirewall,
 		"WorkMail":            applyWorkMail,
@@ -790,6 +813,7 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l cliconfig.Lif
 
 		"Route53RecoveryControlConfig": applyRoute53Recovery,
 		"ARCZonalShift":                applyARCZonalShift,
+		"BedrockAgentCoreControl":      applyBedrockAgentCoreControl,
 	}
 
 	for name, apply := range appliers {

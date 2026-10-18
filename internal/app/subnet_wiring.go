@@ -18,6 +18,7 @@ import (
 	networkfirewallbackend "github.com/blackbirdworks/gopherstack/services/networkfirewall"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
+	timestreaminfluxdbbackend "github.com/blackbirdworks/gopherstack/services/timestreaminfluxdb"
 )
 
 // ec2SubnetAdapter serves subnet lookups for services that derive VPC, AZ and network-type data from EC2.
@@ -121,6 +122,8 @@ func (a ec2SubnetAdapter) SubnetCIDR(region, id string) (string, bool) {
 
 // wireSubnetLookups gives DocumentDB, Neptune and MediaLive their EC2 subnet accessors.
 func wireSubnetLookups(byName map[string]service.Registerable) {
+	wireAMPScraperSources(byName)
+
 	ec2H, ok := byName["EC2"].(*ec2backend.Handler)
 	if !ok {
 		return
@@ -147,6 +150,10 @@ func wireSubnetLookups(byName map[string]service.Registerable) {
 	}
 
 	if h, hok := byName["GlobalAccelerator"].(*globalacceleratorbackend.Handler); hok {
+		h.Backend.SetSubnetResolver(adapter)
+	}
+
+	if h, hok := byName["TimestreamInfluxDB"].(*timestreaminfluxdbbackend.Handler); hok {
 		h.Backend.SetSubnetResolver(adapter)
 	}
 

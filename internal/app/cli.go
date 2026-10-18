@@ -77,6 +77,7 @@ import (
 	accountbackend "github.com/blackbirdworks/gopherstack/services/account"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
+	ampbackend "github.com/blackbirdworks/gopherstack/services/amp"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
@@ -103,6 +104,7 @@ import (
 	bcmdataexportsbackend "github.com/blackbirdworks/gopherstack/services/bcmdataexports"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockagentbackend "github.com/blackbirdworks/gopherstack/services/bedrockagent"
+	bedrockagentcorecontrolbackend "github.com/blackbirdworks/gopherstack/services/bedrockagentcorecontrol"
 	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	budgetsbackend "github.com/blackbirdworks/gopherstack/services/budgets"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
@@ -226,6 +228,7 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
 	s3tablesbackend "github.com/blackbirdworks/gopherstack/services/s3tables"
+	s3vectorsbackend "github.com/blackbirdworks/gopherstack/services/s3vectors"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerruntime"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
@@ -249,6 +252,7 @@ import (
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
+	timestreaminfluxdbbackend "github.com/blackbirdworks/gopherstack/services/timestreaminfluxdb"
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
@@ -3237,6 +3241,7 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	wireFISTargetResolver(byName)
 	wireResourceExplorer(byName)
 	wireServiceCatalog(byName)
+	wireAgentCore(byName)
 
 	// Wire Auto Scaling → EC2 so scale-out launches real (mock) EC2 instances
 	// and scale-in terminates them there too, instead of Auto Scaling
@@ -4298,6 +4303,10 @@ func getServiceProviders() []service.Provider {
 	return slices.Concat(getCoreServiceProviders(), getRemainingServiceProviders(), []service.Provider{
 		&resourceexplorer2backend.Provider{},
 		&servicecatalogbackend.Provider{},
+		&ampbackend.Provider{},
+		&timestreaminfluxdbbackend.Provider{},
+		&bedrockagentcorecontrolbackend.Provider{},
+		&s3vectorsbackend.Provider{},
 	})
 }
 
