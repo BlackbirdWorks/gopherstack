@@ -18,6 +18,8 @@ import (
 var (
 	errNoDocker = errors.New("no docker")
 	errRefused  = errors.New("refused")
+
+	errPortTaken = errors.New("bind for 127.0.0.1:35673 failed: port is already allocated")
 )
 
 type fakeRuntime struct {
@@ -25,6 +27,7 @@ type fakeRuntime struct {
 	specs   []container.Spec
 	removed []string
 	mu      sync.Mutex
+	failFor int
 }
 
 func (f *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (string, error) {
@@ -33,6 +36,12 @@ func (f *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (st
 
 	if f.failErr != nil {
 		return "", f.failErr
+	}
+
+	if f.failFor > 0 {
+		f.failFor--
+
+		return "", errPortTaken
 	}
 
 	f.specs = append(f.specs, spec)
@@ -395,4 +404,38 @@ func TestMetadataOnlyBrokerStaysRunning(t *testing.T) {
 
 	_, _, ok := b.MQConsumerEndpoint(br.BrokerArn)
 	assert.False(t, ok)
+}
+
+func TestDockerBrokerRetriesPortBindRace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		wantState string
+		failFor   int
+	}{
+		{name: "one collision recovers", wantState: mq.BrokerStateRunning, failFor: 1},
+		{name: "persistent collision fails", wantState: mq.BrokerStateCreationFailed, failFor: 100},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			probe := newGatedProbe()
+			close(probe.gate)
+
+			rt := &fakeRuntime{failFor: tt.failFor}
+			b := dockerBackend(t, rt, probe)
+			br := createBroker(t, b, mq.EngineTypeRabbitMQ)
+
+			require.Eventually(t, func() bool {
+				return brokerState(b, br.BrokerID) == tt.wantState
+			}, 10*time.Second, 10*time.Millisecond)
+
+			if tt.wantState == mq.BrokerStateCreationFailed {
+				assert.Contains(t, mq.BrokerStartFailure(b, br.BrokerID), "port is already allocated")
+			}
+		})
+	}
 }

@@ -177,6 +177,7 @@ func startTestBroker(t *testing.T, backend *iot.InMemoryBackend, port int) *iot.
 	opts := pahomqtt.NewClientOptions().
 		AddBroker(addr).
 		SetClientID("probe-client").
+		SetAutoReconnect(false).
 		SetConnectTimeout(100 * time.Millisecond)
 
 	deadline := time.Now().Add(3 * time.Second)
@@ -256,6 +257,7 @@ func TestBroker_ClientSubscriptionsAndSendToClient(t *testing.T) {
 			opts := pahomqtt.NewClientOptions().
 				AddBroker(fmt.Sprintf("tcp://127.0.0.1:%d", port)).
 				SetClientID(tt.clientID).
+				SetAutoReconnect(false).
 				SetConnectTimeout(3 * time.Second).
 				SetDefaultPublishHandler(func(_ pahomqtt.Client, m pahomqtt.Message) {
 					received <- m

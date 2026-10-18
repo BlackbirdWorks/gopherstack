@@ -253,6 +253,8 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 	}
 
 	if startErr := r.docker.ContainerStart(ctx, resp.ID, dockercontainer.StartOptions{}); startErr != nil {
+		_ = r.docker.ContainerRemove(context.WithoutCancel(ctx), resp.ID, dockercontainer.RemoveOptions{Force: true})
+
 		return "", fmt.Errorf("container start %q: %w", resp.ID, startErr)
 	}
 

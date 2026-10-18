@@ -101,7 +101,8 @@ func TestRealDockerBrokerTLSEndpoints(t *testing.T) {
 			require.Eventually(t, func() bool {
 				return brokerState(b, br.BrokerID) != mq.BrokerStateCreating
 			}, realBrokerWait, time.Second)
-			require.Equal(t, mq.BrokerStateRunning, brokerState(b, br.BrokerID))
+			require.Equal(t, mq.BrokerStateRunning, brokerState(b, br.BrokerID),
+				"start failure: %s", mq.BrokerStartFailure(b, br.BrokerID))
 
 			desc, err := b.DescribeBroker(br.BrokerID)
 			require.NoError(t, err)

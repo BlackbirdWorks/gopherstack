@@ -59,6 +59,7 @@ func newJobsMQTTEnv(t *testing.T) *jobsMQTTEnv {
 	opts := pahomqtt.NewClientOptions().
 		AddBroker(fmt.Sprintf("tcp://127.0.0.1:%d", broker.Port())).
 		SetClientID("jobs-device").
+		SetAutoReconnect(false).
 		SetConnectTimeout(jobsDeadline).
 		SetDefaultPublishHandler(func(_ pahomqtt.Client, m pahomqtt.Message) { env.msgs <- m })
 

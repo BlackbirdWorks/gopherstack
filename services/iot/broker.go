@@ -136,13 +136,26 @@ func (b *Broker) Start(ctx context.Context) error {
 
 	<-ctx.Done()
 
-	return closeMQTTServer(log, s)
+	return closeMQTTServer(log, s, tcp)
 }
 
 // brokerCloseTimeout bounds mochi's Server.Close, which has been seen to hang when a peer stops reading.
 const brokerCloseTimeout = 10 * time.Second
 
-func closeMQTTServer(log *slog.Logger, s *mqtt.Server) error {
+// disconnectListenerClients replaces mochi's closeListenerClients, whose Clients.GetByListener
+// takes RLock twice (via Len) and deadlocks when a Clients.Delete is queued between them.
+func disconnectListenerClients(s *mqtt.Server) listeners.CloseFn {
+	return func(string) {
+		for _, cl := range s.Clients.GetAll() {
+			_ = s.DisconnectClient(cl, packets.ErrServerShuttingDown)
+		}
+	}
+}
+
+func closeMQTTServer(log *slog.Logger, s *mqtt.Server, tcp *listeners.TCP) error {
+	// Closing the listener first makes the CAS in Server.Close's own TCP.Close a no-op.
+	tcp.Close(disconnectListenerClients(s))
+
 	closed := make(chan error, 1)
 
 	go func() { closed <- s.Close() }()

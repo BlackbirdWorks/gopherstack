@@ -177,6 +177,7 @@ func TestHandler_MultiRegionRulesFireOnSharedBroker(t *testing.T) {
 			opts := pahomqtt.NewClientOptions().
 				AddBroker(fmt.Sprintf("tcp://127.0.0.1:%d", port)).
 				SetClientID("mr-pub").
+				SetAutoReconnect(false).
 				SetConnectTimeout(200 * time.Millisecond)
 			client := pahomqtt.NewClient(opts)
 
