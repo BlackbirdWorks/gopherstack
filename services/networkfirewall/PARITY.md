@@ -59,7 +59,7 @@ items_still_open:
   - Container association ops and DescribeRuleGroupSummary: not implemented (bd: gopherstack-cefu7.4)
   - FirewallStatus.CapacityUsageSummary and NatGatewayAttachments never populated (bd: gopherstack-cefu7.4)
   - Firewall endpoints are generated vpce IDs; no EC2 VPC endpoint is created or removed (bd: gopherstack-cefu7.4)
-  - No --lifecycle-networkfirewall flag; the transition window is only settable in code (bd: gopherstack-cefu7.4)
+  - Firewall transition window has no lifecycle CLI flag; only settable in code (bd: gopherstack-cefu7.79)
 structural_gaps:
   - "Rule evaluation: no packets flow, so stateless/stateful rules, TLS inspection and logging never act on traffic."
   - "AnalysisResults on DescribeRuleGroup need a rule-analysis engine; none exists."

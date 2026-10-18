@@ -23,7 +23,7 @@
 - Container association ops and DescribeRuleGroupSummary: not implemented (bd: gopherstack-cefu7.4)
 - FirewallStatus.CapacityUsageSummary and NatGatewayAttachments never populated (bd: gopherstack-cefu7.4)
 - Firewall endpoints are generated vpce IDs; no EC2 VPC endpoint is created or removed (bd: gopherstack-cefu7.4)
-- No --lifecycle-networkfirewall flag; the transition window is only settable in code (bd: gopherstack-cefu7.4)
+- Firewall transition window has no lifecycle CLI flag; only settable in code (bd: gopherstack-cefu7.79)
 
 ### Structural gaps
 
