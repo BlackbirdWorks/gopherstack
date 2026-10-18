@@ -3203,6 +3203,22 @@ func TestLocalstackCompatibilityEndpoints(t *testing.T) {
 		},
 	}
 
+	// READY runs after the listener accepts, so wait for it before asserting stage state.
+	require.Eventually(t, func() bool {
+		resp, err := client.Get(fmt.Sprintf("http://localhost:%d/_localstack/init/ready", port))
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+
+		var body map[string]any
+		if json.NewDecoder(resp.Body).Decode(&body) != nil {
+			return false
+		}
+
+		return body["completed"] == true
+	}, 10*time.Second, 20*time.Millisecond)
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			resp, err := client.Get(fmt.Sprintf("http://localhost:%d%s", port, tt.path))
