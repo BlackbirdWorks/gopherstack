@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 type jsonMsgAttr struct {
@@ -121,7 +119,7 @@ func (h *Handler) handleSendMessage(
 
 	out, err := h.Backend.SendMessage(&SendMessageInput{
 		QueueURL:                req.QueueURL,
-		Region:                  httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		Region:                  h.requestScope(r),
 		MessageBody:             req.MessageBody,
 		MessageGroupID:          req.MessageGroupID,
 		MessageDeduplicationID:  req.MessageDeduplicationID,
@@ -179,7 +177,7 @@ func (h *Handler) handleReceiveMessage(
 
 	out, err := h.Backend.ReceiveMessage(&ReceiveMessageInput{
 		QueueURL:                req.QueueURL,
-		Region:                  httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		Region:                  h.requestScope(r),
 		MaxNumberOfMessages:     req.MaxNumberOfMessages,
 		VisibilityTimeout:       vt,
 		WaitTimeSeconds:         req.WaitTimeSeconds,
@@ -245,7 +243,7 @@ func (h *Handler) handleDeleteMessage(
 
 	if err := h.Backend.DeleteMessage(&DeleteMessageInput{
 		QueueURL:      req.QueueURL,
-		Region:        httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		Region:        h.requestScope(r),
 		ReceiptHandle: req.ReceiptHandle,
 	}); err != nil {
 		return nil, err
@@ -279,7 +277,7 @@ func (h *Handler) handleSendMessageBatch(
 
 	out, err := h.Backend.SendMessageBatch(&SendMessageBatchInput{
 		QueueURL: req.QueueURL,
-		Region:   httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		Region:   h.requestScope(r),
 		Entries:  entries,
 	})
 	if err != nil {
@@ -327,7 +325,7 @@ func (h *Handler) handleDeleteMessageBatch(
 
 	out, err := h.Backend.DeleteMessageBatch(&DeleteMessageBatchInput{
 		QueueURL: req.QueueURL,
-		Region:   httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		Region:   h.requestScope(r),
 		Entries:  entries,
 	})
 	if err != nil {

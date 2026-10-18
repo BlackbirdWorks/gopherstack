@@ -18,6 +18,8 @@ import (
 var (
 	errNoDocker = errors.New("no docker")
 	errRefused  = errors.New("refused")
+
+	errPortTaken = errors.New("bind for 127.0.0.1:35673 failed: port is already allocated")
 )
 
 type fakeRuntime struct {
@@ -25,6 +27,7 @@ type fakeRuntime struct {
 	specs   []container.Spec
 	removed []string
 	mu      sync.Mutex
+	failFor int
 }
 
 func (f *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (string, error) {
@@ -33,6 +36,12 @@ func (f *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (st
 
 	if f.failErr != nil {
 		return "", f.failErr
+	}
+
+	if f.failFor > 0 {
+		f.failFor--
+
+		return "", errPortTaken
 	}
 
 	f.specs = append(f.specs, spec)
@@ -136,14 +145,24 @@ func TestDockerBrokerLifecycle(t *testing.T) {
 		wantPorts  int
 	}{
 		{
-			name: "rabbitmq", engine: mq.EngineTypeRabbitMQ, image: mq.RabbitMQImage, wantPorts: 2,
+			name: "rabbitmq", engine: mq.EngineTypeRabbitMQ, image: mq.RabbitMQImage, wantPorts: 4,
 			wantEnv:    []string{"RABBITMQ_DEFAULT_USER=admin", "RABBITMQ_DEFAULT_PASS=s3cretpassword"},
-			wantScheme: []string{"amqp://"}, wantEngine: mq.EngineTypeRabbitMQ,
+			wantScheme: []string{"amqps://"}, wantEngine: mq.EngineTypeRabbitMQ,
 		},
 		{
-			name: "activemq", engine: mq.EngineTypeActiveMQ, image: mq.ActiveMQImage, wantPorts: 3,
-			wantEnv:    []string{"ACTIVEMQ_CONNECTION_USER=admin", "ACTIVEMQ_CONNECTION_PASSWORD=s3cretpassword"},
-			wantScheme: []string{"tcp://", "stomp://", "mqtt://"}, wantEngine: mq.EngineTypeActiveMQ,
+			name:      "activemq",
+			engine:    mq.EngineTypeActiveMQ,
+			image:     mq.ActiveMQImage,
+			wantPorts: 11,
+			wantEnv:   []string{"ACTIVEMQ_CONNECTION_USER=admin", "ACTIVEMQ_CONNECTION_PASSWORD=s3cretpassword"},
+			wantScheme: []string{
+				"ssl://",
+				"amqp+ssl://",
+				"stomp+ssl://",
+				"mqtt+ssl://",
+				"wss://",
+			},
+			wantEngine: mq.EngineTypeActiveMQ,
 		},
 	}
 
@@ -385,4 +404,38 @@ func TestMetadataOnlyBrokerStaysRunning(t *testing.T) {
 
 	_, _, ok := b.MQConsumerEndpoint(br.BrokerArn)
 	assert.False(t, ok)
+}
+
+func TestDockerBrokerRetriesPortBindRace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		wantState string
+		failFor   int
+	}{
+		{name: "one collision recovers", wantState: mq.BrokerStateRunning, failFor: 1},
+		{name: "persistent collision fails", wantState: mq.BrokerStateCreationFailed, failFor: 100},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			probe := newGatedProbe()
+			close(probe.gate)
+
+			rt := &fakeRuntime{failFor: tt.failFor}
+			b := dockerBackend(t, rt, probe)
+			br := createBroker(t, b, mq.EngineTypeRabbitMQ)
+
+			require.Eventually(t, func() bool {
+				return brokerState(b, br.BrokerID) == tt.wantState
+			}, 10*time.Second, 10*time.Millisecond)
+
+			if tt.wantState == mq.BrokerStateCreationFailed {
+				assert.Contains(t, mq.BrokerStartFailure(b, br.BrokerID), "port is already allocated")
+			}
+		})
+	}
 }

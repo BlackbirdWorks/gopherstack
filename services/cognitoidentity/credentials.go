@@ -10,14 +10,41 @@ import (
 	"time"
 )
 
-// GetCredentialsForIdentity returns synthetic temporary AWS credentials for an identity.
+// GetCredentialsForIdentity returns temporary credentials for the role selected for an identity.
 func (b *InMemoryBackend) GetCredentialsForIdentity(
 	ctx context.Context,
 	identityID string,
 	logins map[string]string,
+	customRoleARN string,
 ) (*Credentials, error) {
+	plan, err := b.planCredentials(ctx, identityID, logins, customRoleARN)
+	if err != nil {
+		return nil, err
+	}
+
+	if plan.assumer == nil {
+		return randomCredentials(identityID)
+	}
+
+	return assumeIdentityRole(plan.assumer, plan.roleARN, plan.poolID, identityID, len(logins) > 0, plan.tags)
+}
+
+type credentialsPlan struct {
+	assumer RoleAssumer
+	tags    map[string]string
+	roleARN string
+	poolID  string
+}
+
+// planCredentials validates the request and selects the role under the lock, so the STS call runs outside it.
+func (b *InMemoryBackend) planCredentials(
+	ctx context.Context,
+	identityID string,
+	logins map[string]string,
+	customRoleARN string,
+) (credentialsPlan, error) {
 	if identityID == "" {
-		return nil, fmt.Errorf("%w: IdentityId is required", ErrInvalidParameter)
+		return credentialsPlan{}, fmt.Errorf("%w: IdentityId is required", ErrInvalidParameter)
 	}
 
 	region := getRegion(ctx, b.region)
@@ -27,7 +54,7 @@ func (b *InMemoryBackend) GetCredentialsForIdentity(
 
 	identity, ok := b.identityGet(region, identityID)
 	if !ok {
-		return nil, fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
+		return credentialsPlan{}, fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
 	}
 
 	// An authenticated identity (one that has logins on record) must present a
@@ -35,22 +62,22 @@ func (b *InMemoryBackend) GetCredentialsForIdentity(
 	// the validation loop entirely and hand out credentials with no token,
 	// bypassing authentication.
 	if len(logins) == 0 && len(identity.Logins) > 0 {
-		return nil, fmt.Errorf(
+		return credentialsPlan{}, fmt.Errorf(
 			"%w: Logins is required for an authenticated identity",
 			ErrNotAuthorized,
 		)
 	}
 
 	if pool, poolOK := b.poolGet(region, identity.IdentityPoolID); poolOK {
-		if err := validateLoginTokens(pool, logins, time.Now()); err != nil {
-			return nil, err
+		if err := b.validateLoginTokens(pool, logins, time.Now()); err != nil {
+			return credentialsPlan{}, err
 		}
 	}
 
 	for provider, token := range logins {
 		stored, exists := identity.Logins[provider]
 		if !exists || (stored != token && !sameLogin(stored, token)) {
-			return nil, fmt.Errorf(
+			return credentialsPlan{}, fmt.Errorf(
 				"%w: login token for provider %q does not match",
 				ErrNotAuthorized,
 				provider,
@@ -58,14 +85,46 @@ func (b *InMemoryBackend) GetCredentialsForIdentity(
 		}
 	}
 
-	// AWS returns InvalidIdentityPoolConfigurationException when the pool has no IAM role
-	// configured for the identity's auth state (authenticated vs. unauthenticated) -- there
-	// would be nothing for GetCredentialsForIdentity to hand out credentials for.
-	authenticated := len(logins) > 0
-	if err := b.checkRoleConfigured(region, identity.IdentityPoolID, authenticated); err != nil {
+	roles, _ := b.rolesGet(region, identity.IdentityPoolID)
+
+	roleARN, err := resolveRole(identity.IdentityPoolID, roles, logins, customRoleARN)
+	if err != nil {
+		return credentialsPlan{}, err
+	}
+
+	return credentialsPlan{
+		assumer: b.assumer,
+		roleARN: roleARN,
+		poolID:  identity.IdentityPoolID,
+		tags:    b.sessionPrincipalTags(region, identity.IdentityPoolID, logins),
+	}, nil
+}
+
+// assumeIdentityRole obtains credentials for roleARN through STS using a Cognito OpenID token.
+func assumeIdentityRole(
+	assumer RoleAssumer,
+	roleARN, poolID, identityID string,
+	authenticated bool,
+	tags map[string]string,
+) (*Credentials, error) {
+	token, err := issueOpenIDToken(poolID, identityID, authenticated, getOpenIDTokenTTL, tags)
+	if err != nil {
 		return nil, err
 	}
 
+	creds, err := assumer.AssumeRoleWithWebIdentity(roleARN, identitySessionName, token)
+	if err != nil {
+		return nil, fmt.Errorf("%w: assume role %q: %w", ErrInvalidIdentityPoolConfiguration, roleARN, err)
+	}
+
+	out := *creds
+	out.IdentityID = identityID
+
+	return &out, nil
+}
+
+// randomCredentials returns synthetic credentials for backends with no STS wired.
+func randomCredentials(identityID string) (*Credentials, error) {
 	expiry := time.Now().Add(credentialsExpirySeconds * time.Second)
 
 	keyID, err := randomAlphanumeric(accessKeyIDLen)
@@ -158,6 +217,15 @@ func (b *InMemoryBackend) GetOpenIDTokenForDeveloperIdentity(
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
+	for provider := range logins {
+		if provider != pool.DeveloperProviderName {
+			return nil, fmt.Errorf(
+				"%w: Logins key %q must equal the pool's DeveloperProviderName",
+				ErrInvalidParameter, provider,
+			)
+		}
+	}
+
 	if identityID != "" {
 		identity, identityOK := b.identityGet(region, identityID)
 		if !identityOK {
@@ -193,33 +261,6 @@ func (b *InMemoryBackend) GetOpenIDTokenForDeveloperIdentity(
 		IdentityID: identityID,
 		Token:      token,
 	}, nil
-}
-
-// checkRoleConfigured returns ErrInvalidIdentityPoolConfiguration if poolID has no IAM role
-// mapped for the given auth state (authenticated vs. unauthenticated). Must be called with
-// b.mu held (read or write).
-func (b *InMemoryBackend) checkRoleConfigured(region, poolID string, authenticated bool) error {
-	roles, ok := b.rolesGet(region, poolID)
-	if !ok {
-		return fmt.Errorf(
-			"%w: identity pool %q has no IAM roles configured",
-			ErrInvalidIdentityPoolConfiguration, poolID,
-		)
-	}
-
-	roleARN := roles.UnauthenticatedRoleARN
-	if authenticated {
-		roleARN = roles.AuthenticatedRoleARN
-	}
-
-	if roleARN == "" {
-		return fmt.Errorf(
-			"%w: identity pool %q has no IAM role configured for this identity's auth state",
-			ErrInvalidIdentityPoolConfiguration, poolID,
-		)
-	}
-
-	return nil
 }
 
 // linkDeveloperLogins merges logins into identity, in place, rejecting the request with

@@ -8,9 +8,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -200,7 +199,7 @@ func (b *InMemoryBackend) CreateFileSystem(
 		return nil, fileSystemLimitExceededErr(b.limits.fileSystemsPerAccount)
 	}
 
-	id := "fs-" + uuid.NewString()[:8]
+	id := awsid.New("fs-")
 
 	if req.PinnedID != "" {
 		if err = tags.ValidatePinnedID(

@@ -199,6 +199,10 @@ func (b *InMemoryBackend) clonePolicyLocked(policyName string) (*Policy, bool) {
 
 // AttachUserPolicy attaches a policy to a user.
 func (b *InMemoryBackend) AttachUserPolicy(userName, policyArn string) error {
+	if err := b.requireRemotePolicy(policyArn); err != nil {
+		return err
+	}
+
 	b.mu.Lock("AttachUserPolicy")
 	defer b.mu.Unlock()
 
@@ -244,6 +248,10 @@ func (b *InMemoryBackend) DetachUserPolicy(userName, policyArn string) error {
 
 // AttachRolePolicy attaches a policy to a role.
 func (b *InMemoryBackend) AttachRolePolicy(roleName, policyArn string) error {
+	if err := b.requireRemotePolicy(policyArn); err != nil {
+		return err
+	}
+
 	b.mu.Lock("AttachRolePolicy")
 	defer b.mu.Unlock()
 
@@ -307,6 +315,14 @@ func (b *InMemoryBackend) ListAllPolicies() []Policy {
 
 // GetPolicy returns the policy metadata for the given ARN.
 func (b *InMemoryBackend) GetPolicy(policyArn string) (*Policy, error) {
+	if target, remote := b.routeARN(policyArn); remote {
+		if target == nil {
+			return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+		}
+
+		return target.GetPolicy(policyArn)
+	}
+
 	b.mu.RLock("GetPolicy")
 	defer b.mu.RUnlock()
 
@@ -867,6 +883,10 @@ func (b *InMemoryBackend) requireBoundaryLocked(policyArn string) error {
 		return nil
 	}
 
+	if b.isRemotePolicyArnLocked(policyArn) {
+		return fmt.Errorf("%w: scope ARN %s does not exist or is not attachable", ErrPolicyNotFound, policyArn)
+	}
+
 	if err := b.requireAttachablePolicyLocked(policyArn); err != nil {
 		return fmt.Errorf("%w: scope ARN %s does not exist or is not attachable", ErrPolicyNotFound, policyArn)
 	}
@@ -875,6 +895,10 @@ func (b *InMemoryBackend) requireBoundaryLocked(policyArn string) error {
 }
 
 func (b *InMemoryBackend) requireAttachablePolicyLocked(policyArn string) error {
+	if b.isRemotePolicyArnLocked(policyArn) {
+		return nil // existence verified by requireRemotePolicy before locking
+	}
+
 	if _, ok := b.getPolicyByARNLocked(policyArn); !ok {
 		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}

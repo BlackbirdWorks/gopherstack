@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // slLifecyclePolicyResourceTypeIndex is the only real ResourceType value
@@ -164,7 +162,7 @@ func (b *InMemoryBackend) UpdateServerlessLifecyclePolicy(
 	lp.LastModifiedDate = float64(time.Now().Unix())
 	// uuid suffix: UnixMilli alone collides when two updates land in the same
 	// synctest instant, breaking the PolicyVersion staleness check above.
-	lp.PolicyVersion = fmt.Sprintf("v%d-%s", time.Now().UnixMilli(), uuid.NewString()[:8])
+	lp.PolicyVersion = newServerlessVersion()
 
 	cp := *lp
 

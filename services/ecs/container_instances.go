@@ -187,38 +187,43 @@ func (b *InMemoryBackend) enrichContainerInstance(
 	cp := *ci
 	cp.Attributes = b.instanceAttributesLocked(clusterName, ci.ContainerInstanceArn)
 
-	running := 0
-	pending := 0
-
-	if instanceIndex, ok := b.tasksByInstance[clusterName]; ok {
-		for taskArn := range instanceIndex[ci.ContainerInstanceArn] {
-			if t, found := b.tasks.Get(taskArn); found && clusterKey(t.ClusterArn) == clusterName {
-				switch t.LastStatus {
-				case statusRunning:
-					running++
-				case statusPending, statusProvisioning:
-					pending++
-				}
-			}
-		}
-	} else {
-		// Fallback to linear scan when index is not populated (e.g. after restore).
-		for _, t := range b.tasksByCluster.Get(clusterName) {
-			if t.ContainerInstanceArn == ci.ContainerInstanceArn {
-				switch t.LastStatus {
-				case statusRunning:
-					running++
-				case statusPending, statusProvisioning:
-					pending++
-				}
-			}
-		}
-	}
+	running, pending := b.countInstanceTasks(ci, clusterName)
 
 	cp.RunningTasksCount = running
 	cp.PendingTasksCount = pending
 
 	return cp
+}
+
+func (b *InMemoryBackend) countInstanceTasks(ci *ContainerInstance, clusterName string) (int, int) {
+	var running, pending int
+
+	count := func(t *Task) {
+		switch t.LastStatus {
+		case statusRunning:
+			running++
+		case statusPending, statusProvisioning:
+			pending++
+		}
+	}
+
+	if instanceIndex, ok := b.tasksByInstance[clusterName]; ok {
+		for taskArn := range instanceIndex[ci.ContainerInstanceArn] {
+			if t, found := b.tasks.Get(taskArn); found && clusterKey(t.ClusterArn) == clusterName {
+				count(t)
+			}
+		}
+
+		return running, pending
+	}
+
+	for _, t := range b.tasksByCluster.Get(clusterName) {
+		if t.ContainerInstanceArn == ci.ContainerInstanceArn {
+			count(t)
+		}
+	}
+
+	return running, pending
 }
 
 // indexTaskOnInstance adds a task to the reverse containerInstance→task index.

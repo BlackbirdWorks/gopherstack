@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // ---- Capacity Block ----
@@ -62,7 +62,7 @@ func (b *InMemoryBackend) DescribeCapacityBlockOfferings(
 
 	for _, azSuffix := range []string{"a", "b"} {
 		offering := &CapacityBlockOffering{
-			CapacityBlockOfferingID:    "cbo-" + uuid.New().String()[:8],
+			CapacityBlockOfferingID:    awsid.New("cbo-"),
 			InstanceType:               instanceType,
 			AvailabilityZone:           b.Region + azSuffix,
 			Tenancy:                    crFleetTenancyDefault,
@@ -102,7 +102,7 @@ func (b *InMemoryBackend) PurchaseCapacityBlock(
 		instancePlatform = "Linux/UNIX"
 	}
 
-	crID := "cr-" + uuid.New().String()[:8]
+	crID := awsid.New("cr-")
 	now := time.Now().UTC()
 	cr := &CapacityReservation{
 		CapacityReservationID:  crID,
@@ -118,7 +118,7 @@ func (b *InMemoryBackend) PurchaseCapacityBlock(
 	b.capacityReservations.Put(cr)
 
 	block := &CapacityBlock{
-		CapacityBlockID:        "cb-" + uuid.New().String()[:8],
+		CapacityBlockID:        awsid.New("cb-"),
 		AvailabilityZone:       offering.AvailabilityZone,
 		State:                  stateActive,
 		CreateDate:             now,
@@ -185,7 +185,7 @@ func (b *InMemoryBackend) DescribeCapacityBlockExtensionOfferings(
 	upfront := hourlyRate * float64(durationHours) * float64(cr.TotalInstanceCount)
 
 	offering := &CapacityBlockExtensionOffering{
-		CapacityBlockExtensionOfferingID:    "cbeo-" + uuid.New().String()[:8],
+		CapacityBlockExtensionOfferingID:    awsid.New("cbeo-"),
 		CapacityReservationID:               reservationID,
 		InstanceType:                        cr.InstanceType,
 		AvailabilityZone:                    cr.AvailabilityZone,

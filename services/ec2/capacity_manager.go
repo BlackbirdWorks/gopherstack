@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // ---- Capacity Manager ----
@@ -123,7 +123,7 @@ func (b *InMemoryBackend) CreateCapacityManagerDataExport(
 	defer b.mu.Unlock()
 
 	export := &CapacityManagerDataExport{
-		CapacityManagerDataExportID: "cmde-" + uuid.New().String()[:8],
+		CapacityManagerDataExportID: awsid.New("cmde-"),
 		OutputFormat:                outputFormat,
 		S3BucketName:                s3BucketName,
 		S3BucketPrefix:              s3BucketPrefix,

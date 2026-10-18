@@ -26,6 +26,7 @@ func TestLookupDeveloperIdentity_CrossPoolIdentityID_RealClient(t *testing.T) {
 	poolA, err := client.CreateIdentityPool(ctx, &cognitoidentitysdk.CreateIdentityPoolInput{
 		IdentityPoolName:               aws.String("cross-pool-a"),
 		AllowUnauthenticatedIdentities: true,
+		DeveloperProviderName:          aws.String("developer.example.com"),
 	})
 	require.NoError(t, err)
 

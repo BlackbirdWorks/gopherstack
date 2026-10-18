@@ -481,43 +481,43 @@ full `terraform apply`/`plan`/`destroy` cycle, since the CreateKey bug proved mo
   both `GrantToken` and the internal `TokenIssuedAt` bookkeeping field (also not
   part of real `GrantListEntry`); the internal `Grant` storage struct keeps both,
   since `TokenIssuedAt`/`GrantToken` are needed for TTL and token-lookup indexing.
-  No consumer in this repo (tests, `cli.go`, UI) read `GrantToken` off a
+  No consumer in this repo (tests, `internal/app/cli.go`, UI) read `GrantToken` off a
   `ListGrants`/`ListRetirableGrants` response — every existing reference reads it
   off `CreateGrant`'s own output — so this was a pure emulator-side leak with no
   in-repo caller depending on it.
 
 ### Cross-service KMS integration punch-list (Step 4, report-only — no edits made)
 
-**CORRECTION (gopherstack-utfj, verified against current `cli.go`):** Secrets Manager
-was listed below as unwired; `wireSecretsManagerKMS` (`cli.go:4551`, called from
-`cli.go:3385`) has wired it since commit `efc42cbc4` (2026-07-13), after this Step 4
+**CORRECTION (gopherstack-utfj, verified against current `internal/app/cli.go`):** Secrets Manager
+was listed below as unwired; `wireSecretsManagerKMS` (`internal/app/cli.go:4551`, called from
+`internal/app/cli.go:3385`) has wired it since commit `efc42cbc4` (2026-07-13), after this Step 4
 punch-list and the 2026-07-12 pass's closing paragraph were written and never updated.
 Moved to the wired list below. Also missing from this punch-list entirely: **Kinesis**
-(`wireKinesisKMS`, `cli.go:4502`, called from `cli.go:2876`) real-validates
+(`wireKinesisKMS`, `internal/app/cli.go:4502`, called from `internal/app/cli.go:2876`) real-validates
 `StartStreamEncryption`'s `KeyId` via `kms.InMemoryBackend.DescribeKey` — this Step 4
 search's `KmsKeyId`/`KMSMasterKeyId`/`SSEKMSKeyId` field-name grep didn't match
 Kinesis's bare `KeyId` field, so it was never enumerated either way. Added below. The
 remaining "not wired" entries (S3, SQS, SNS, DynamoDB, RDS, EC2/EBS, CloudWatch Logs)
-were re-checked against current `cli.go` and still have no `wire*KMS` counterpart —
+were re-checked against current `internal/app/cli.go` and still have no `wire*KMS` counterpart —
 still accurate.
 
 Searched the full non-KMS codebase (read-only) for `KmsKeyId`/`KMSMasterKeyId`/
-`SSEKMSKeyId`-style fields. **Already wired in `cli.go` (no gap):**
+`SSEKMSKeyId`-style fields. **Already wired in `internal/app/cli.go` (no gap):**
 
-- **SSM** (`wireSSMKMS` in `cli.go:3542`): `ssm.InMemoryBackend.WithKMS` +
-  `ssm.KMSEncryptor` interface + a `cli.go`-local `ssmKMSAdapter` calling
+- **SSM** (`wireSSMKMS` in `internal/app/cli.go:3542`): `ssm.InMemoryBackend.WithKMS` +
+  `ssm.KMSEncryptor` interface + a `internal/app/cli.go`-local `ssmKMSAdapter` calling
   `kms.InMemoryBackend.Encrypt`/`Decrypt` directly. SecureString `Parameter`s whose
   `KeyId` is set get *real* KMS encryption already. No action needed.
-- **Resource Groups Tagging API** (`wireTaggingKMS` in `cli.go:5218`): uses
+- **Resource Groups Tagging API** (`wireTaggingKMS` in `internal/app/cli.go:5218`): uses
   `Handler.TaggedKeys`/`TagKeyByARN`/`UntagKeyByARN` (already exported on
   `kms.Handler` specifically for this). No action needed.
-- **Kinesis** (`wireKinesisKMS` in `cli.go:4502`): `kinesis.InMemoryBackend.WithKMSValidator`
-  + `kinesis.KMSKeyValidator` interface + a `cli.go`-local `kinesisKMSAdapter` calling
+- **Kinesis** (`wireKinesisKMS` in `internal/app/cli.go:4502`): `kinesis.InMemoryBackend.WithKMSValidator`
+  + `kinesis.KMSKeyValidator` interface + a `internal/app/cli.go`-local `kinesisKMSAdapter` calling
   `kms.InMemoryBackend.DescribeKey` to real-validate `StartStreamEncryption`'s `KeyId`
   (existence + `Enabled` state). No action needed.
-- **Secrets Manager** (`wireSecretsManagerKMS` in `cli.go:4551`, called from `cli.go:3385`):
+- **Secrets Manager** (`wireSecretsManagerKMS` in `internal/app/cli.go:4551`, called from `internal/app/cli.go:3385`):
   `secretsmanager.InMemoryBackend.SetKMSEncryptor` + `secretsmanager.KMSEncryptor`
-  interface (`services/secretsmanager/kms.go`) + a `cli.go`-local
+  interface (`services/secretsmanager/kms.go`) + a `internal/app/cli.go`-local
   `secretsManagerKMSAdapter` calling `kms.InMemoryBackend.Encrypt`/`Decrypt`, mirroring
   the SSM precedent. `SecretString`/`SecretBinary` are now *really* encrypted/decrypted
   through KMS when a secret has a `KmsKeyId` (or the default alias). No action needed —
@@ -568,7 +568,7 @@ correctness requirement for `apply`/`plan`/`destroy` to succeed:
   - **CloudWatch Logs** (`aws_cloudwatch_log_group`, `KmsKeyId` in
     `backend.go`/`handler.go`/`models.go`): stored/echoed only. Same (a)-(d) as S3.
 
-**No new KMS-side export is needed for any future cli.go wiring of the services above.**
+**No new KMS-side export is needed for any future internal/app/cli.go wiring of the services above.**
 The integration surface already exists and is already exercised by the SSM/CloudFormation
 precedents: `kms.Handler.Backend` is already a public field typed as the `StorageBackend`
 interface (exactly how `wireSSMKMS` and the CloudFormation resource handlers obtain a
@@ -579,8 +579,8 @@ check key existence (`DescribeKey` + `errors.Is(err, kms.ErrKeyNotFound)`, both 
 `arn:...`/bare-UUID interchangeably in its `KeyId` field and returns the canonical
 `KeyMetadata.KeyID`), and (c) perform real encrypt/decrypt passthrough (`Encrypt`/
 `Decrypt`), exactly mirroring `ssmKMSAdapter`'s three-method shape. Wiring any of the
-services above is pure `cli.go` + that service's own backend work, per
-`PARITY_PHASE4_KICKOFF.md`'s "cross-service interconnect wired in cli.go, main-thread
+services above is pure `internal/app/cli.go` + that service's own backend work, per
+`docs/history/PARITY_PHASE4_KICKOFF.md`'s "cross-service interconnect wired in internal/app/cli.go, main-thread
 work" rule — out of scope for this KMS-only pass.
 
 ## 2026-07-12 gap-closure pass (in-scope follow-ups from the lifecycle re-audit)
@@ -626,17 +626,17 @@ the details.
 
 **UPDATE (gopherstack-utfj, 2026-09-06): done, not remaining.** The cross-service
 Secrets Manager → KMS wiring described below landed in `efc42cbc4` (2026-07-13), two
-days after this paragraph was written — `wireSecretsManagerKMS` (`cli.go:4551`) is
-called from `cli.go:3385`, and `services/secretsmanager/kms.go` implements the real
-`KMSEncryptor` adapter (`secretsManagerKMSAdapter` in `cli.go`) exactly as predicted
+days after this paragraph was written — `wireSecretsManagerKMS` (`internal/app/cli.go:4551`) is
+called from `internal/app/cli.go:3385`, and `services/secretsmanager/kms.go` implements the real
+`KMSEncryptor` adapter (`secretsManagerKMSAdapter` in `internal/app/cli.go`) exactly as predicted
 below. This paragraph was never updated after that commit landed; left in place,
 struck through, as a historical record rather than deleted.
 
 ~~**Only remaining KMS-related follow-up is external (out of this service's scope):**
 the cross-service Secrets Manager → KMS wiring (real `SecretString`/`SecretBinary`
 encryption via a `secretsmanager.KMSEncryptor`-style adapter, mirroring the existing
-SSM precedent). That is `cli.go` + Secrets Manager backend work — main-thread /
-cross-service territory per `PARITY_PHASE4_KICKOFF.md`, and needs no new KMS-side
+SSM precedent). That is `internal/app/cli.go` + Secrets Manager backend work — main-thread /
+cross-service territory per `docs/history/PARITY_PHASE4_KICKOFF.md`, and needs no new KMS-side
 export (`Handler.Backend`'s `Encrypt`/`Decrypt`/`DescribeKey` already suffice, as
 documented in the cross-service punch-list above). No KMS-local gaps remain.~~
 

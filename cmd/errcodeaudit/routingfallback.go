@@ -57,7 +57,7 @@ func applyRoutingFallbackDetection(files []*ast.File, cands []candidate) {
 }
 
 func routingFallbackPositions(files []*ast.File) map[token.Pos]bool {
-	out := map[token.Pos]bool{}
+	out := make(map[token.Pos]bool)
 
 	for _, f := range files {
 		ast.Inspect(f, func(n ast.Node) bool {

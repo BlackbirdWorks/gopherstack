@@ -1,7 +1,7 @@
 ---
 # PARITY MANIFEST — IMPLEMENTED. See "Implementation summary (this pass)" below the frontmatter for
 # the hard-design-problem decisions, corrections found, and gate results from the original
-# 2026-08-01 implementation pass and its gopherstack-i6oz cli.go-wiring follow-up. The original
+# 2026-08-01 implementation pass and its gopherstack-i6oz internal/app/cli.go-wiring follow-up. The original
 # pre-implementation audit prose (everything from "## Purpose of this document" onward) is left
 # otherwise unmodified as the wire-shape ground truth the implementation was built from.
 #
@@ -14,7 +14,7 @@
 # networkmigration.go, networkmigrationjobs.go, launchconfig.go, replicationconfig.go, tagging.go)
 # and verified GetSupportedOperations()/routes() against the SDK's own 95-op list, confirmed
 # `go test ./services/mgn/...` and `go test -race -count=1 ./services/mgn/...` both pass, confirmed
-# wireMGNS3 is present and called in cli.go, confirmed SeedSourceServer was in fact removed, and
+# wireMGNS3 is present and called in internal/app/cli.go, confirmed SeedSourceServer was in fact removed, and
 # confirmed several specific honest-gap claims already made in prose below (mapper segments always
 # empty/404, StartImport's ModifiedCount always zero, ListManagedAccounts always returns only the
 # caller's own account, StartTest/StartCutover mint a synthetic non-cross-checked EC2 instance ID)
@@ -485,8 +485,8 @@ unpublished real one; keep scope small ("niche, do not over-engineer").
   just `GetObject`, since StartImport only ever reads a single object — satisfied by the in-process
   S3 backend, same cross-service pattern `services/dynamodb`'s `ImportTable`/
   `ExportTableToPointInTime` already use for their own `S3Accessor`) plus `SetS3Backend`/
-  `s3Backend()`. **cli.go wiring applied by a later pass** (this pass could not touch `cli.go` —
-  another agent held it at the time) — see "cli.go wiring" below for what was added and how it was
+  `s3Backend()`. **internal/app/cli.go wiring applied by a later pass** (this pass could not touch `internal/app/cli.go` —
+  another agent held it at the time) — see "internal/app/cli.go wiring" below for what was added and how it was
   verified.
 - **A documented, best-effort CSV schema**, since AWS does not publish StartImport's real column set
   anywhere in this SDK (`types.SourceServer`/`types.SourceProperties` are the wire OUTPUT shape, not
@@ -541,9 +541,9 @@ unpublished real one; keep scope small ("niche, do not over-engineer").
   `VcenterClient` into the backend at all, exactly the "no import path exists" case the task
   flagged as the reason to keep it.
 
-### cli.go wiring (now applied and verified end-to-end)
+### internal/app/cli.go wiring (now applied and verified end-to-end)
 
-`services/mgn/InMemoryBackend.SetS3Backend(S3Accessor)` is now actually called from `cli.go`.
+`services/mgn/InMemoryBackend.SetS3Backend(S3Accessor)` is now actually called from `internal/app/cli.go`.
 `wireMGNS3` was added next to `wireDynamoDBS3` (same one-function-plus-one-call pattern, same
 `mgnbackend`/`s3backend` imports `wireTaggingMGN`/`wireDynamoDBS3` already used — no new import
 needed) and is called from `wireStorageAndSecretsIntegrations` as `wireMGNS3(byName["MGN"],
@@ -571,15 +571,15 @@ whole-repo level fail, but only in `services/networkmanager/` — pre-existing, 
 work from another concurrently-running agent (this pass never touched anything outside
 `services/mgn/`).
 
-### Gate results (cli.go-wiring pass)
+### Gate results (internal/app/cli.go-wiring pass)
 
-Full whole-repo gates, run after adding `wireMGNS3` to `cli.go` (the only file this pass touched
+Full whole-repo gates, run after adding `wireMGNS3` to `internal/app/cli.go` (the only file this pass touched
 outside `services/mgn/`): `go build ./...`, `go vet ./...`, `go vet -tags e2e ./test/e2e/...`,
-`gofmt -l services/mgn/ cli.go` (empty), `golangci-lint run ./services/mgn/... .` (0 issues), and
+`gofmt -l services/mgn/ internal/app/cli.go` (empty), `golangci-lint run ./services/mgn/... .` (0 issues), and
 `grep -rnE '//nolint:.*(funlen|gocyclo|gocognit|cyclop)' services/mgn/` (empty) all clean —
 `services/networkmanager/` no longer fails, since the concurrent work referenced above had landed by
 this point. `go test -race -count=1 ./services/mgn/...` run 3 times, all 3 clean. The end-to-end
-wiring verification described above in "cli.go wiring" passed on its first run.
+wiring verification described above in "internal/app/cli.go wiring" passed on its first run.
 
 ## 2026-08-06 pass (gopherstack-xd34): integration suite + gap closures, A- -> A
 
@@ -666,7 +666,7 @@ TestIntegration_MGN ./test/integration/...`): all 9 pass.
    instance type (`t3.medium` — real MGN right-sizes from source CPU/RAM via
    `TargetInstanceTypeRightSizingMethod`, an algorithm this emulator doesn't model). Falls back to the
    prior synthetic ID only when EC2 isn't wired (unit tests) or `RunInstances` itself fails. `provider.go`
-   now calls `backend.SetAppConfig(ctx.Config)` — no `cli.go` edit needed, since `ctx.Config` is already
+   now calls `backend.SetAppConfig(ctx.Config)` — no `internal/app/cli.go` edit needed, since `ctx.Config` is already
    populated generically for every service.
 4. **UpdateSourceServer silently dropped `FqdnForActionFramework`/`UserProvidedID`** — a real bug the
    integration suite caught directly (not something this pass set out to fix): the wire request struct
@@ -1348,9 +1348,9 @@ would misrepresent what the emulator actually did.
 
 **Tagging.** `TagResource`/`UntagResource`/`ListTagsForResource` exist (confirmed:
 `api_op_TagResource.go`, `api_op_UntagResource.go`, `api_op_ListTagsForResource.go`, family L
-above), so this service should be wired into `cli.go`'s `wireResourceGroupsTagging`
+above), so this service should be wired into `internal/app/cli.go`'s `wireResourceGroupsTagging`
 (`/home/agbishop/gopherstack/cli.go:5348`), following the `wireTaggingGrafana`/`wireTaggingEFS`
-pattern already used for the other 30 wired services (`cli.go:5327-5399`'s own doc comment
+pattern already used for the other 30 wired services (`internal/app/cli.go:5327-5399`'s own doc comment
 enumerates them: dynamodb, sqs, sns, lambda, kms, secretsmanager, ecs, athena, glue, ecr, kinesis,
 stepfunctions, cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds, elasticache,
 redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr, grafana). MGN would be the
@@ -1400,15 +1400,15 @@ then return. Flagged here as a concrete, buildable follow-on, explicitly NOT req
 first-pass, honestly-gapped implementation (a first pass can validate the ID format and store it
 without cross-checking existence, clearly documented as such).
 
-**Grep results for "mgn"/"migration".** `grep -rni "\bmgn\b" services/ cli.go` (word-boundary,
+**Grep results for "mgn"/"migration".** `grep -rni "\bmgn\b" services/ internal/app/cli.go` (word-boundary,
 excluding false positives like "management") returns **zero hits**. `grep -rli "migration"
-services/ cli.go` returns hits only in `services/dms/*` (AWS Database Migration Service — an
+services/ internal/app/cli.go` returns hits only in `services/dms/*` (AWS Database Migration Service — an
 entirely different, already-implemented AWS product), `services/opensearch/*migrations*` (index
 migration, unrelated), `services/elasticache/handler_replication_groups.go` (cache replication,
 unrelated), and `services/ec2/handler_instance_attrs.go`/`services/waf/handler_web_acls.go` (both
 false-positive substring matches on unrelated concepts, confirmed by reading context) — none
 reference AWS Application Migration Service. `grep -rli "SourceServer\|StartCutover\|
-ReplicationConfigurationTemplate" services/ cli.go` returns only unrelated false positives
+ReplicationConfigurationTemplate" services/ internal/app/cli.go` returns only unrelated false positives
 (cognitoidp's `ResourceServer`, elasticache's `Serverless`) — confirmed zero real MGN-adjacent
 state anywhere in this tree.
 
@@ -1685,7 +1685,7 @@ confirmed a same-version additive diff (not a version-bump case), golden refresh
 
 `go build ./...` clean. `go vet ./services/mgn/... .` clean. `go test -race -count=1
 ./services/mgn/... ./pkgs/persistence/...` clean. `go test -count=1 -run 'MGN|Mgn' .`
-(new root-level `cli_mgn_s3_import_wiring_test.go`, proving `wireMGNS3` is connected through
+(new root-level `internal/app/mgn_s3_import_wiring_test.go`, proving `wireMGNS3` is connected through
 the real `initializeServices` composition root, not just the helper function) clean.
 `golangci-lint run ./services/mgn/...` and `golangci-lint run --new-from-rev=HEAD .` both 0
 issues. New tests: `services/mgn/s3import_app_wave_test.go` (Application/Wave creation +

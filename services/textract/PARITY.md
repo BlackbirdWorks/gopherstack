@@ -383,7 +383,7 @@ historical entry.
 Followed the `services/cloudtrail` `S3Backend`/`SetS3Backend`/`wireXxxS3` precedent
 (gopherstack-g9b4): `S3Backend` interface (`interfaces.go`, `HeadObject` only) implemented
 directly by `s3.InMemoryBackend` (no adapter), `InMemoryBackend.SetS3Backend` setter
-(`store.go`), `Handler.checkS3Object` (`handler.go`) calling it, wired from `cli.go`'s
+(`store.go`), `Handler.checkS3Object` (`handler.go`) calling it, wired from `internal/app/cli.go`'s
 `wireTextractS3` in `wireStorageAndSecretsIntegrations`. Unwired (no `SetS3Backend` call) or
 Backend not `*InMemoryBackend`: no-op, matching this repo's unwired-hook-stays-permissive
 convention. A `Document`/`DocumentPages` entry carrying inline `Bytes` instead of an S3Object
@@ -407,7 +407,7 @@ proving the check does not reject everything). `TestAnalyzeDocument_UnwiredS3Sta
 `TestStartDocumentAnalysis_UnwiredS3StaysPermissive` prove the unwired path stays permissive.
 `TestAnalyzeDocument_InlineBytesUnaffected` proves inline `Bytes` is never checked. All fail
 against a neutered `checkS3Object` (HeadObject called but its result discarded) and pass
-against the fix. `cli_textract_rekognition_s3_wiring_test.go` (root package) drives the real
+against the fix. `internal/app/textract_rekognition_s3_wiring_test.go` (root package) drives the real
 `initializeServices` composition root end-to-end.
 
 Gates: `go build ./...`, `go test -race -count=1 ./services/textract/...` and `.` (root),

@@ -34,7 +34,7 @@ func parentMap(files []*ast.File) map[ast.Node]ast.Node {
 }
 
 func stringLitPositions(files []*ast.File) map[token.Pos]*ast.BasicLit {
-	out := map[token.Pos]*ast.BasicLit{}
+	out := make(map[token.Pos]*ast.BasicLit)
 
 	for _, f := range files {
 		ast.Inspect(f, func(n ast.Node) bool {
@@ -181,7 +181,7 @@ func lhsLabel(lhs ast.Expr, pkgStrings map[string]string) string {
 }
 
 func declaredStringConsts(files []*ast.File) map[token.Pos]*ast.Ident {
-	out := map[token.Pos]*ast.Ident{}
+	out := make(map[token.Pos]*ast.Ident)
 
 	for _, f := range files {
 		for _, decl := range f.Decls {

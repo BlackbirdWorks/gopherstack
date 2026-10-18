@@ -25,7 +25,7 @@ Protocol is REST-JSON (`restJson1`), signing name `awsssoportal`. The SDK sends 
 `x-amz-sso_bearer_token`; the matcher requires that header (it separates these paths from S3 path-style
 requests) and rejects other signing scopes. A missing, unknown or expired token is `UnauthorizedException` (401).
 
-**Wiring.** The handler holds no state. `cli_sso.go` wires a token source (the `ssooidc` backend) and a
+**Wiring.** The handler holds no state. `internal/app/sso.go` wires a token source (the `ssooidc` backend) and a
 directory at call time: entitlements come from `ssoadmin` account assignments for the user (`USER`) plus every
 group the user belongs to in `identitystore` (`GROUP`); account names and emails come from Organizations when it
 has the account, else the account ID is the name.

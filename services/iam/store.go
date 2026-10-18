@@ -356,6 +356,8 @@ type InMemoryBackend struct {
 	loginProfiles              *store.Table[LoginProfile]
 	rolePolicies               map[string][]string
 	mu                         *lockmetrics.RWMutex
+	shards                     *accountShards
+	parent                     *InMemoryBackend
 	roles                      *store.Table[Role]
 	signingCertificates        *store.Table[SigningCertificate]
 	serverCertificates         *store.Table[ServerCertificate]
@@ -410,6 +412,7 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		accountProperties:          make(map[string]string),
 		accountID:                  accountID,
 		mu:                         lockmetrics.New("iam"),
+		shards:                     newAccountShards(),
 		registry:                   store.NewRegistry(),
 		comprehensive:              newComprehensiveBackend(),
 		outboundFederationEnabled:  true,
@@ -457,9 +460,9 @@ func (b *InMemoryBackend) addPolicyAttachmentLocked(policyArn, entityName, entit
 	}
 
 	switch entityType {
-	case "user":
+	case entityUser:
 		refs.users[entityName] = struct{}{}
-	case "role":
+	case entityRole:
 		refs.roles[entityName] = struct{}{}
 	case "group":
 		refs.groups[entityName] = struct{}{}
@@ -666,6 +669,11 @@ func newSecretAccessKey() (string, error) {
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (b *InMemoryBackend) Reset() {
+	b.resetShards()
+	b.resetLocal()
+}
+
+func (b *InMemoryBackend) resetLocal() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
@@ -703,6 +711,10 @@ func (b *InMemoryBackend) Reset() {
 func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	if ctx.Err() != nil {
 		return
+	}
+
+	for _, s := range b.shardList() {
+		s.Purge(ctx, cutoff)
 	}
 
 	b.mu.Lock("Purge")

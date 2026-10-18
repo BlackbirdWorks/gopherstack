@@ -48,7 +48,7 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 ### 2026-10-10 realism pass
 
 - KeyAlgorithm/SigningAlgorithm validated against the SDK enums and key/signing family (RSA keys with RSA/RSA_PSS, EC with ECDSA, ML_DSA_n and SM2 paired); InvalidArgsException otherwise.
-- Opt-in `SetAuditReportDelay` keeps new audit reports in CREATING for the delay (default 0: SUCCESS immediately). No S3 write happens, so the bucket is not checked (needs cli.go wiring to S3).
+- Opt-in `SetAuditReportDelay` keeps new audit reports in CREATING for the delay (default 0: SUCCESS immediately). No S3 write happens, so the bucket is not checked (needs internal/app/cli.go wiring to S3).
 - ListCertificateAuthorities/ListPermissions reject malformed NextToken with InvalidNextTokenException (the only declared code for those ops); ListTags declares none and stays lenient.
 - Error messages no longer repeat the code ("InvalidArgsException: InvalidArgsException: ...").
 - Kept lenient: ROOT CAs still auto-activate (real AWS leaves them PENDING_CERTIFICATE until a cert is imported) because Terraform/CDK fixtures in this repo rely on it; CA keys are always P-256 whatever KeyAlgorithm says.

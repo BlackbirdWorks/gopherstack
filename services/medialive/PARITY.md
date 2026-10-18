@@ -756,7 +756,7 @@ leaks: {status: clean, note: "No goroutines/janitors in this service (re-confirm
 
 ## Notes
 
-**2026-10-10 (realism pass):** channels and multiplexes report CREATING/STARTING/STOPPING/DELETING for an opt-in `SetLifecycleDelay` window (default 0 settles at once; the create/start/stop/delete responses still carry the transient state) and DeleteChannel now leaves a DELETED tombstone (TTL one hour, like multiplexes) so the SDK ChannelDeleted waiter can finish; Start/Stop/Delete/Update/UpdateChannelClass/Batch* check the effective state. ChannelClass and InputType enums, WhitelistRule CIDRs and the two-AZ multiplex rule are validated; every List op rejects maxResults outside 1..1000 and malformed nextToken. Tests: TestChannelLifecycleDelay, TestChannelWaitersWithoutDelay, TestMultiplexLifecycleDelay, TestCreateValidation. The setter is not wired to a CLI flag yet (cli.go is owned elsewhere).
+**2026-10-10 (realism pass):** channels and multiplexes report CREATING/STARTING/STOPPING/DELETING for an opt-in `SetLifecycleDelay` window (default 0 settles at once; the create/start/stop/delete responses still carry the transient state) and DeleteChannel now leaves a DELETED tombstone (TTL one hour, like multiplexes) so the SDK ChannelDeleted waiter can finish; Start/Stop/Delete/Update/UpdateChannelClass/Batch* check the effective state. ChannelClass and InputType enums, WhitelistRule CIDRs and the two-AZ multiplex rule are validated; every List op rejects maxResults outside 1..1000 and malformed nextToken. Tests: TestChannelLifecycleDelay, TestChannelWaitersWithoutDelay, TestMultiplexLifecycleDelay, TestCreateValidation. The setter is not wired to a CLI flag yet (internal/app/cli.go is owned elsewhere).
 
 
 ### 2026-10-01: ListOfferings filters, Node mappings

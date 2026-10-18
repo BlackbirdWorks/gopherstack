@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // ipam_policy.go: IPAM Policy/Governance layered on the core Ipam/IpamPool state
@@ -108,7 +108,7 @@ func (b *InMemoryBackend) CreateIpamPolicy(ipamID string) (*IpamPolicy, error) {
 		return nil, fmt.Errorf("%w: %s", ErrIpamNotFound, ipamID)
 	}
 
-	id := "ipam-policy-" + uuid.New().String()[:8]
+	id := awsid.New("ipam-policy-")
 	policy := &IpamPolicy{
 		IpamPolicyID:     id,
 		IpamPolicyARN:    "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam-policy/" + id,

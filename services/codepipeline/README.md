@@ -30,7 +30,7 @@ These do not block an A grade — no implementation could produce real data here
 - ListDeployActionExecutionTargets returns empty: no real deploy targets exist behind Deploy actions.
 - ListWebhookItem.ErrorCode/ErrorMessage are never set: webhook registration against a third party cannot fail in an emulator.
 - Built-in action providers other than Build/CodeBuild, Invoke/Lambda, Deploy/CodeDeploy and Source/Deploy S3 (ECR, CodeCommit, ...) always Succeed in runOneAction: no real source/deploy targets. Custom-owner actions are real: a Queued job is created for the worker (PollForJobs/Put*JobResult).
-- Build/CodeBuild waits for the real build status, but the emulated build runs no buildspec: the primary input artifact is passed through unchanged as every output artifact, and exported variables are not produced. Source/S3 and Deploy/S3 move real objects when the S3 seam is wired (cli.go wireCodePipelineS3); the artifact store key is derived from pipeline, artifact name and execution ID. A missing source object fails the action with ConfigurationError (code chosen from the FailureType enum; the docs name none).
+- Build/CodeBuild waits for the real build status, but the emulated build runs no buildspec: the primary input artifact is passed through unchanged as every output artifact, and exported variables are not produced. Source/S3 and Deploy/S3 move real objects when the S3 seam is wired (internal/app/cli.go wireCodePipelineS3); the artifact store key is derived from pipeline, artifact name and execution ID. A missing source object fails the action with ConfigurationError (code chosen from the FailureType enum; the docs name none).
 
 ### Deferred
 

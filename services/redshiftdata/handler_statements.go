@@ -240,6 +240,10 @@ func (h *Handler) handleGetStatementResult(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: Id is required", errMissingID)
 	}
 
+	if rs, found, err := h.Backend.EngineResult(ctx, req.ID); found {
+		return h.engineStatementResult(ctx, req.ID, req.NextToken, resultFormatJSON, rs, err)
+	}
+
 	stmt, err := h.finishedStatementForResult(ctx, req.ID, req.WaitTimeSeconds)
 	if err != nil {
 		return nil, err
@@ -264,10 +268,10 @@ func (h *Handler) handleGetStatementResult(ctx context.Context, body []byte) ([]
 	// Return a single demo row so the UI can render a non-empty result table.
 	// NextToken is empty because the demo result set fits on one page.
 	return json.Marshal(map[string]any{
-		"Records": [][]map[string]any{
+		keyRecords: [][]map[string]any{
 			{{"stringValue": "mock_value"}},
 		},
-		"ColumnMetadata": []map[string]any{
+		keyColumnMetadata: []map[string]any{
 			{
 				keyName:     valColumn1,
 				"label":     valColumn1,
@@ -276,8 +280,8 @@ func (h *Handler) handleGetStatementResult(ctx context.Context, body []byte) ([]
 				keyNullable: mockColumnNullable,
 			},
 		},
-		"TotalNumRows": int64(1),
-		keyNextToken:   "",
+		keyTotalNumRows: int64(1),
+		keyNextToken:    "",
 	})
 }
 
@@ -294,6 +298,10 @@ func (h *Handler) handleGetStatementResultV2(ctx context.Context, body []byte) (
 
 	if req.ID == "" {
 		return nil, fmt.Errorf("%w: Id is required", errMissingID)
+	}
+
+	if rs, found, err := h.Backend.EngineResult(ctx, req.ID); found {
+		return h.engineStatementResult(ctx, req.ID, req.NextToken, resultFormatCSV, rs, err)
 	}
 
 	stmt, err := h.finishedStatementForResult(ctx, req.ID, req.WaitTimeSeconds)
@@ -325,10 +333,10 @@ func (h *Handler) handleGetStatementResultV2(ctx context.Context, body []byte) (
 	// object of the form {"CSVRecords": "..."}, not a bare string, or the
 	// SDK's union deserializer treats it as an unknown member and drops it.
 	return json.Marshal(map[string]any{
-		"Records": []map[string]any{
+		keyRecords: []map[string]any{
 			{keyCSVRecords: "mock_value"},
 		},
-		"ColumnMetadata": []map[string]any{
+		keyColumnMetadata: []map[string]any{
 			{
 				keyName:     valColumn1,
 				"label":     valColumn1,
@@ -337,7 +345,7 @@ func (h *Handler) handleGetStatementResultV2(ctx context.Context, body []byte) (
 				keyNullable: mockColumnNullable,
 			},
 		},
-		"TotalNumRows":  int64(1),
+		keyTotalNumRows: int64(1),
 		keyResultFormat: resultFormatCSV,
 		keyNextToken:    "",
 	})

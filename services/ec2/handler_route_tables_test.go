@@ -311,4 +311,4 @@ func TestRouteTable_DeleteRouteMissingParams(t *testing.T) {
 
 // TestClientVPN_TargetNetworkHasAssociationID verifies that
 // DescribeClientVpnTargetNetworks now returns associationId and status
-// (was missing per parity.md §R).
+// (was missing per docs/history/parity.md §R).

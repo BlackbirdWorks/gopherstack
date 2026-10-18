@@ -29,7 +29,7 @@ overall: A            # closed all 5 documented gaps + 3 deferred items from the
 # real DynamoDB/SQS/SNS/S3/Step-Functions direct "AWS" integration (a common,
 # AWS-documented pattern) is accepted at PutIntegration with no validation but never
 # executes the target action; fixing this needs new per-service invoker wiring in
-# cli.go, out of this pass's services/apigateway-only scope. Also documented (not
+# internal/app/cli.go, out of this pass's services/apigateway-only scope. Also documented (not
 # fixed, large architectural change): CreateDeployment does not freeze a routable
 # snapshot -- the data plane always matches against the RestApi's LIVE current
 # resource/method/integration state regardless of which deployment a stage is
@@ -50,7 +50,7 @@ overall: A            # closed all 5 documented gaps + 3 deferred items from the
 # path-style (arn:aws:apigateway:{region}:sqs:path/{accountId}/{queueName}) ->
 # SendMessage, and sns action-style (arn:aws:apigateway:{region}:sns:action/Publish)
 # -> Publish, each behind a new SetSQSSender/SetSNSPublisher hook (proxy.go, wired in
-# cli.go's wireAPIGatewaySQSSNS, reusing the existing sqsSenderAdapter/
+# internal/app/cli.go's wireAPIGatewaySQSSNS, reusing the existing sqsSenderAdapter/
 # snsPublisherAdapter already declared for eventbridge). No VTL library exists in this
 # module, so this is a documented simplified passthrough, not mapping-template
 # evaluation: the rendered request payload (raw body, or the existing $input.json/
@@ -1082,7 +1082,7 @@ explicitly documents for API Gateway → DynamoDB direct integrations) was
 accepted by `PutIntegration` with zero validation of the target service, but
 the target action never executed: reproduced getting either a 503 ("Lambda
 integration not configured", no invoker wired) or, with the production
-`LambdaInvoker` wired the way `cli.go`'s `wireAPIGatewayLambda` wires it, a
+`LambdaInvoker` wired the way `internal/app/cli.go`'s `wireAPIGatewayLambda` wires it, a
 Lambda "function not found" failure (`ExtractLambdaFunctionName` returns the
 DynamoDB ARN unchanged, which resolves to no real Lambda function). This
 matched the campaign's "accepted on the wire, silently does nothing in a
@@ -1098,7 +1098,7 @@ when the target is `sqs` (path-style,
 corresponding hook is wired, dispatches there instead of Lambda. The hooks
 are `SQSSender.SendMessageToQueue` and `SNSPublisher.PublishToTopic`
 (proxy.go), set via `Handler.SetSQSSender`/`SetSNSPublisher` (handler.go) and
-wired in `cli.go`'s `wireAPIGatewaySQSSNS`, which reuses the
+wired in `internal/app/cli.go`'s `wireAPIGatewaySQSSNS`, which reuses the
 `sqsSenderAdapter`/`snsPublisherAdapter` types already declared for
 eventbridge (same method sets, satisfied structurally, no new adapter code
 needed). This module has no VTL/Velocity library, so the dispatch is a
@@ -1167,7 +1167,7 @@ Five-dimension summary:
 3. **Cross-service integration**: BUGS FOUND -- the AWS-non-Lambda-target gap
    above is squarely this dimension. Lambda proxy event/response shape
    verified correct (AWS_PROXY). Cognito JWKS and Lambda-invoker wiring in
-   `cli.go` verified present and correctly connected (read-only check).
+   `internal/app/cli.go` verified present and correctly connected (read-only check).
 4. **Performance**: CLEAN (checked) -- routing trie is built once per
    resource-set version and cached (`routingTrie`/`trieCacheEntry`), not
    rebuilt per request; selection-pattern regexps are cached in a bounded LRU
@@ -1287,7 +1287,7 @@ API Gateway (REST) is region-isolated: each non-home region gets a lazily built 
 
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
-Emits AWS/ApiGateway (ApiName; ApiName+Stage; ApiName+Method+Resource+Stage when the stage MethodSettings enable metrics): Count, 4XXError, 5XXError, Latency and, when an integration ran, IntegrationLatency (api-gateway-metrics-and-dimensions.html). Requests that never resolve a deployed stage emit nothing. Points fold per second into statistic sets. Verified by cli_service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
+Emits AWS/ApiGateway (ApiName; ApiName+Stage; ApiName+Method+Resource+Stage when the stage MethodSettings enable metrics): Count, 4XXError, 5XXError, Latency and, when an integration ran, IntegrationLatency (api-gateway-metrics-and-dimensions.html). Requests that never resolve a deployed stage emit nothing. Points fold per second into statistic sets. Verified by internal/app/service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
 
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 

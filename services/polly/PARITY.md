@@ -665,7 +665,7 @@ GetLexicon/ListLexicons attributes are derived from the root `<lexicon>` tag onl
 
 - Added `SetLifecycleDelay` (default 0): synthesis tasks go scheduled, inProgress, then terminal by elapsed time, visible through ListSpeechSynthesisTasks. Default keeps advance-per-poll.
 - DescribeVoices rejects an unknown LanguageCode (derived from the SDK enum) and any NextToken (none is ever issued): InvalidNextTokenException. Error messages no longer repeat the exception code.
-- Open: completed tasks do not write audio to the S3 output URI; that needs an S3 backend hook wired from cli.go (not done here).
+- Open: completed tasks do not write audio to the S3 output URI; that needs an S3 backend hook wired from internal/app/cli.go (not done here).
 
 ### 2026-10-07: synthesis task output written to S3
 

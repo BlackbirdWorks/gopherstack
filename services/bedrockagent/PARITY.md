@@ -534,7 +534,7 @@ ops:
 # Families audited as a group (when per-op is impractical):
 families:
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to
-    InMemoryBackend.Snapshot/Restore, registered via provider.go -> cli.go
+    InMemoryBackend.Snapshot/Restore, registered via provider.go -> internal/app/cli.go
     setupPersistence; every store.Table is registered in store_setup.go and
     round-trips (persistence_test.go). No dead-wiring found."}
   timestamps: {status: ok, note: "real bedrockagent restjson1 wire format is

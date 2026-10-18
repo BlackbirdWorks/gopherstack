@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -157,6 +158,7 @@ func deliverHTTPBatch(
 	backoff := time.Second
 	client := &http.Client{
 		Timeout:       httpDeliveryTimeout,
+		Transport:     deliveryTransport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 
@@ -275,3 +277,5 @@ func checkHTTPDeliveryResponse(ctx context.Context, resp *http.Response, doErr e
 
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
+
+var deliveryTransport = httpclient.NewTransport() //nolint:gochecknoglobals // one pooled transport per service package

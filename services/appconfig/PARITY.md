@@ -295,7 +295,7 @@ application/environment/profile) is updated only when a deployment reaches `COMP
 `StopDeployment(..., allowRevert=true)` revert. `CurrentDeployedConfiguration` (configuration.go) is a
 **public read accessor with no caller inside this package** — it exists for a future
 `appconfig` -> `appconfigdata` bridge (see bd `gopherstack-uiyi`: appconfigdata's config store is never
-populated by a real deployment today). `cli.go` wiring to actually call it on deployment completion is out
+populated by a real deployment today). `internal/app/cli.go` wiring to actually call it on deployment completion is out
 of scope for this change; adding the accessor itself is the in-scope half of closing that cross-service gap.
 
 **Cascade-delete**: `DeleteApplication`/`DeleteEnvironment`/`DeleteConfigurationProfile` now also remove

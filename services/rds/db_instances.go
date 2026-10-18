@@ -293,6 +293,7 @@ func (b *InMemoryBackend) deleteDBInstanceLocked(
 	skipFinalSnapshot bool,
 	finalSnapshotID string,
 	deleteAutomatedBackups bool,
+	final engineData,
 ) (*DBInstance, error) {
 	b.mu.Lock("DeleteDBInstance")
 	defer b.mu.Unlock()
@@ -317,6 +318,7 @@ func (b *InMemoryBackend) deleteDBInstanceLocked(
 			return nil, fmt.Errorf("%w: snapshot %s already exists", ErrSnapshotAlreadyExists, finalSnapshotID)
 		}
 		b.snapshots.Put(b.newManualSnapshotLocked(finalSnapshotID, inst))
+		b.storeSnapDataLocked(snapKindInstance, finalSnapshotID, final)
 	}
 
 	// canonicalID is the identifier as originally stored (preserving its
@@ -382,7 +384,12 @@ func (b *InMemoryBackend) DeleteDBInstanceWithOptions(
 	finalSnapshotID string,
 	deleteAutomatedBackups bool,
 ) (*DBInstance, error) {
-	result, err := b.deleteDBInstanceLocked(id, skipFinalSnapshot, finalSnapshotID, deleteAutomatedBackups)
+	var final engineData
+	if err := b.captureFinalInstance(&final, skipFinalSnapshot, finalSnapshotID, id); err != nil {
+		return nil, err
+	}
+
+	result, err := b.deleteDBInstanceLocked(id, skipFinalSnapshot, finalSnapshotID, deleteAutomatedBackups, final)
 	if err != nil {
 		return nil, err
 	}
@@ -703,7 +710,21 @@ func (b *InMemoryBackend) ModifyDBInstance(
 		return nil, err
 	}
 
-	return b.modifyDBInstanceLocked(id, instanceClass, allocatedStorage, opts)
+	sw, err := b.prepareInstancePort(id, opts.DBPortNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	inst, err := b.modifyDBInstanceLocked(id, instanceClass, allocatedStorage, opts)
+	if err != nil {
+		sw.abort()
+
+		return nil, err
+	}
+
+	sw.commit()
+
+	return inst, nil
 }
 
 func (b *InMemoryBackend) modifyDBInstanceLocked(
@@ -839,6 +860,7 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 		}
 		applyVpcSecurityGroups(inst, opts.VpcSecurityGroupIDs)
 		b.instances.Put(inst)
+		b.seedFromLiveSourceLocked(inst, b.instanceUnitLocked(source))
 		b.publishInstanceEventLocked(id, "DB instance restored to point in time")
 		cp := *inst
 		result = &cp
@@ -1014,6 +1036,7 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(
 	applyReplicaOverrides(replica, &inherited, opts)
 	applyVpcSecurityGroups(replica, opts.VpcSecurityGroupIDs)
 	b.instances.Put(replica)
+	b.seedFromLiveSourceLocked(replica, b.replicaSourceUnitLocked(source, sourceCluster))
 	b.publishInstanceEventLocked(id, "DB read replica created")
 
 	// Track reverse read replica reference on source instance or cluster.
@@ -1031,6 +1054,31 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(
 	cp := *replica
 
 	return &cp, nil
+}
+
+func (b *InMemoryBackend) replicaSourceUnitLocked(source *DBInstance, sourceCluster *DBCluster) *liveDB {
+	switch {
+	case source != nil:
+		return b.instanceUnitLocked(source)
+	case sourceCluster != nil:
+		return b.clusterUnitLocked(sourceCluster.DBClusterIdentifier)
+	default:
+		return nil
+	}
+}
+
+// seedFromLiveSourceLocked gives inst its own engine loaded with a copy of src's data; no-op without a live src.
+func (b *InMemoryBackend) seedFromLiveSourceLocked(inst *DBInstance, src *liveDB) {
+	if src == nil {
+		return
+	}
+
+	inst.DBName = cmp.Or(inst.DBName, src.dbName)
+	inst.DBInstanceStatus = instanceStatusCreating
+
+	if !b.provisionSeededInstanceLocked(inst, "", liveSeedLocked(src)) {
+		inst.DBInstanceStatus = instanceStatusAvailable
+	}
 }
 
 // detachClusterReplicaLocked drops inst from its source cluster's ReadReplicaIdentifiers and clears the link.

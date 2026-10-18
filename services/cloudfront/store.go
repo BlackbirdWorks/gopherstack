@@ -50,11 +50,17 @@ const (
 	idChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	// idLen is the length of generated CloudFront IDs.
 	idLen = 14
+	// tenantIDRandLen is the length of the random tail after "dt_" in a distribution tenant ID.
+	tenantIDRandLen = 27
 )
 
 // generateID generates a random uppercase alphanumeric ID of length 14.
 func generateID() string {
-	b := make([]byte, idLen)
+	return generateIDOfLen(idLen)
+}
+
+func generateIDOfLen(n int) string {
+	b := make([]byte, n)
 	for i := range b {
 		b[i] = idChars[rand.IntN(len(idChars))] //nolint:gosec // mock service, not security-sensitive
 	}

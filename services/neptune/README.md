@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 13 (13 ok) |
-| Known gaps | 1 |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 2 |
 | Resource leaks | clean |
@@ -16,6 +16,9 @@
 ### Known gaps
 
 - UNVERIFIABLE: OrderableDBInstanceOption.SupportedNetworkTypes stays empty; the pinned SDK states no per-instance-class network type support.
+- --neptune-engine=docker: IAM database authentication (SigV4 on the Gremlin endpoint) is not enforced; the container accepts unauthenticated requests whatever EnableIAMDatabaseAuthentication says.
+- --neptune-engine=docker: only Gremlin (WebSocket /gremlin) is served; openCypher and SPARQL need Neptune's HTTP endpoints, which the stock tinkerpop/gremlin-server image does not provide.
+- --neptune-engine=docker: graph data is not captured by cluster snapshots or persistence; restored and relaunched clusters start with an empty graph. The writer and reader endpoints are the same host:port.
 
 ### Structural gaps
 

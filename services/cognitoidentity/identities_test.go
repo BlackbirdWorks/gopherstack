@@ -102,7 +102,7 @@ func TestInMemoryBackend_DeleteIdentities_UnprocessedNil(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, unprocessed)
 
-	_, descErr := b.GetCredentialsForIdentity(context.Background(), identity.IdentityID, nil)
+	_, descErr := b.GetCredentialsForIdentity(context.Background(), identity.IdentityID, nil, "")
 	require.Error(t, descErr)
 }
 

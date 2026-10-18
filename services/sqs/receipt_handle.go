@@ -33,7 +33,7 @@ func newReceiptHandleCodec() *receiptHandleCodec {
 }
 
 func (c *receiptHandleCodec) queueTag(q *Queue) []byte {
-	sum := sha256.Sum256([]byte(queueKey(q.Region, q.Name)))
+	sum := sha256.Sum256([]byte(queueKey(q.scope(), q.Name)))
 
 	return sum[:receiptHandleTagLen]
 }

@@ -62,7 +62,7 @@ last_audit_commit: 54869319e  # 2026-09-25 24 new resource types added: EC2
                                # ClusterParameterGroup/ClusterSubnetGroup (2
                                # types) (380 -> 405 supported types); DataSync,
                                # AppConfig, Macie2, AccessAnalyzer newly wired
-                               # into the CloudFormation backend (cli.go
+                               # into the CloudFormation backend (internal/app/cli.go
                                # gained datasyncHandler/macie2Handler/
                                # accessanalyzerHandler fields + getters --
                                # FSx was NOT wired: every FSx InMemoryBackend
@@ -70,7 +70,7 @@ last_audit_commit: 54869319e  # 2026-09-25 24 new resource types added: EC2
                                # struct pointer, uncallable from outside the
                                # fsx package, so AWS::FSx::FileSystem/Backup
                                # were skipped rather than stubbed; GuardDuty/
-                               # Amplify/AppConfig already had cli.go getters,
+                               # Amplify/AppConfig already had internal/app/cli.go getters,
                                # just needed BackendsProvider/ServiceBackends
                                # wiring); cfn_attributes_gen.go regenerated
                                # (cmd/cfnattrgen) -- most new attribute names
@@ -98,7 +98,7 @@ last_audit_commit: 54869319e  # 2026-09-25 24 new resource types added: EC2
                                # newly wired into the CloudFormation backend,
                                # CodeArtifact field added to ServiceBackends;
                                # GetCodeArtifactHandler already existed on
-                               # BackendsProvider/cli.go, so no cli.go change
+                               # BackendsProvider/cli.go, so no internal/app/cli.go change
                                # was needed) (356 -> 380 supported types);
                                # prior: 390f9687e  # 2026-09-24 20 new resource types added: SageMaker Model/
                                # EndpointConfig/Endpoint/NotebookInstance/
@@ -109,9 +109,9 @@ last_audit_commit: 54869319e  # 2026-09-25 24 new resource types added: EC2
                                # WAFv2 WebACLAssociation (1 type) (319 -> 339 supported
                                # types); SageMaker and Athena newly wired into the
                                # CloudFormation backend (GetSageMakerHandler/GetAthenaHandler
-                               # added to BackendsProvider/ServiceBackends -- cli.go already
+                               # added to BackendsProvider/ServiceBackends -- internal/app/cli.go already
                                # implemented both methods for the generic backend registry,
-                               # so no cli.go change was needed); prior: 0af53d7f0  # 2026-09-24 28 new resource types added: IAM GroupPolicy/
+                               # so no internal/app/cli.go change was needed); prior: 0af53d7f0  # 2026-09-24 28 new resource types added: IAM GroupPolicy/
                                # RolePolicy/UserPolicy/ServerCertificate, ECR
                                # PullThroughCacheRule/RegistryPolicy/RepositoryCreationTemplate,
                                # ElastiCache ParameterGroup/SecurityGroup/GlobalReplicationGroup/
@@ -211,7 +211,7 @@ ops:
   DeleteStackSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now idempotent (no-op, not StackSetNotFoundException) — SDK's DeleteStackSet error deserializer models only {OperationInProgressException, StackSetNotEmptyException}, no not-found case, mirroring the already-fixed DeleteStack precedent"}
   DescribeStackSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass (was the #1 named gap): full field set now returned, field-diffed against awsAwsquery_deserializeDocumentStackSet -- Parameters, Capabilities, Tags, StackSetARN, AdministrationRoleARN, ExecutionRoleName, PermissionModel, OrganizationalUnitIds, AutoDeployment{Enabled,RetainStacksOnAccountRemoval}, ManagedExecution{Active}. CreateStackSet/UpdateStackSet now accept these via a new StackSetOptions struct (signature change, all callers updated). Regions is intentionally NOT stored on StackSet -- it's computed live from stack instances each call (StackSetRegions) to avoid a second source of truth, mirroring the driftByStackID rationale below. Verified via TestStackSet_DescribeFieldCompleteness"}
   ListStackSets: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass (constraint-parameter audit): fixed -- Status (cloudformation@v1.76.1 api_op_ListStackSets.go:75-76) was read nowhere, so a real client's Status=DELETED filter silently fell back to returning every StackSet instead of the empty list real AWS would return (DeleteStackSet hard-deletes its row, so no DELETED-status StackSet can ever exist in this backend -- an unfiltered call and a Status=ACTIVE-filtered call are behaviorally identical; only Status=DELETED was actually wrong). Now applies the filter (exact match against StackSetSummary.Status)."}
-  CreateStackInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "real per-account/region child stacks are provisioned (provisionStackInstance), not just recorded rows — verified correct. gopherstack-g7b5: now also accepts DeploymentTargets.OrganizationalUnitIds.member.N (serializers.go's DeploymentTargets/OrganizationalUnitIdList encoders) and resolves each OU to its real member accounts via a wired Organizations backend (services/cloudformation/organizations_directory.go's OrganizationsDirectory interface, satisfied by organizations.InMemoryBackend.ResolveAccountIDsUnderParent, wired in cli.go's wireCloudFormationOrganizations). Requires PermissionModel=SERVICE_MANAGED and ActivateOrganizationsAccess; errors clearly otherwise rather than silently expanding to zero accounts. FIXED 2026-09-26 (was: gopherstack-nirx's INTERSECTION/DIFFERENCE/UNION-rejected-outright state): DeploymentTargets.AccountFilterType now implements the full documented enum (API_DeploymentTargets.html) -- NONE (OU accounts only, Accounts ignored), INTERSECTION (Accounts ∩ OU accounts), DIFFERENCE (OU accounts minus Accounts), UNION (OU accounts plus Accounts, the wire default when unset) -- via resolveInstanceTargets/combineAccountFilter (stack_instances.go). Also enforces the two Create-specific documented rules: UNION is rejected with ValidationError ('UNION is not supported for CreateStackInstances operations'), and specifying both Accounts and OrganizationalUnitIds without an explicit AccountFilterType is rejected ('you must specify DeploymentTargets.AccountFilterType...'). AccountsUrl (S3-hosted account list) is accepted on the wire but not fetched -- no S3 client wired for it, same structural gap as TemplateURL not being fetched elsewhere in this service. See TestStackInstances_AccountFilterType_Create/_UnionRejectedAtCreate/_RequiredWhenBothGivenAtCreate/_InvalidValue"}
+  CreateStackInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "real per-account/region child stacks are provisioned (provisionStackInstance), not just recorded rows — verified correct. gopherstack-g7b5: now also accepts DeploymentTargets.OrganizationalUnitIds.member.N (serializers.go's DeploymentTargets/OrganizationalUnitIdList encoders) and resolves each OU to its real member accounts via a wired Organizations backend (services/cloudformation/organizations_directory.go's OrganizationsDirectory interface, satisfied by organizations.InMemoryBackend.ResolveAccountIDsUnderParent, wired in internal/app/cli.go's wireCloudFormationOrganizations). Requires PermissionModel=SERVICE_MANAGED and ActivateOrganizationsAccess; errors clearly otherwise rather than silently expanding to zero accounts. FIXED 2026-09-26 (was: gopherstack-nirx's INTERSECTION/DIFFERENCE/UNION-rejected-outright state): DeploymentTargets.AccountFilterType now implements the full documented enum (API_DeploymentTargets.html) -- NONE (OU accounts only, Accounts ignored), INTERSECTION (Accounts ∩ OU accounts), DIFFERENCE (OU accounts minus Accounts), UNION (OU accounts plus Accounts, the wire default when unset) -- via resolveInstanceTargets/combineAccountFilter (stack_instances.go). Also enforces the two Create-specific documented rules: UNION is rejected with ValidationError ('UNION is not supported for CreateStackInstances operations'), and specifying both Accounts and OrganizationalUnitIds without an explicit AccountFilterType is rejected ('you must specify DeploymentTargets.AccountFilterType...'). AccountsUrl (S3-hosted account list) is accepted on the wire but not fetched -- no S3 client wired for it, same structural gap as TemplateURL not being fetched elsewhere in this service. See TestStackInstances_AccountFilterType_Create/_UnionRejectedAtCreate/_RequiredWhenBothGivenAtCreate/_InvalidValue"}
   DeleteStackInstances: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "tears down provisioned child stacks via deleteStackLocked — verified correct. gopherstack-g7b5: also accepts DeploymentTargets.OrganizationalUnitIds, same resolution path as CreateStackInstances. CORRECTION 2026-09-11 (required-member sweep pass 4a): 'verified correct' missed that RetainStacks (required, api_op_DeleteStackInstances.go) was never read at all -- the handler always tore down the child stack via deleteStackLocked regardless of what the caller asked. Fixed: RetainStacks is now required and presence-validated; when true, deleteMatchingStackInstances drops only the stack-instance association and leaves the child stack alive. See TestDeleteStackInstances_RetainStacksKeepsChildStack. FIXED 2026-09-26: AccountFilterType (NONE/INTERSECTION/DIFFERENCE/UNION) now determines exactly which accounts' instances are torn down, same combineAccountFilter as CreateStackInstances/UpdateStackInstances (previously always used the union of Accounts and OU-resolved accounts regardless of the requested filter). See TestStackInstances_AccountFilterType_DeleteDifference"}
   UpdateStackInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-g7b5: also accepts DeploymentTargets.OrganizationalUnitIds. FIXED 2026-09-26: AccountFilterType (NONE/INTERSECTION/DIFFERENCE/UNION, UNION allowed here unlike Create) now determines the touched account set recorded via ListStackSetOperationResults; note UpdateStackInstances updates existing stack instances rather than provisioning new ones for a previously-untargeted account (pre-existing structural behavior, unaffected by this fix). See TestStackInstances_AccountFilterType_UpdateUnion"}
   ListStackInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass (constraint-parameter audit): fixed -- handleListStackInstances read only StackSetName/NextToken; StackInstanceAccount, StackInstanceRegion, and Filters (cloudformation@v1.76.1 api_op_ListStackInstances.go) were parsed nowhere, so every call returned every instance in the StackSet regardless of the filter sent. Now applies StackInstanceAccount/StackInstanceRegion (exact match) and Filters entries named DRIFT_STATUS/LAST_OPERATION_ID (matched against StackInstance.DriftStatus/LastOperationID). DETAILED_STATUS is accepted on the wire but left unenforced and documented as a gap: this backend tracks no field distinct from Status, and DetailedStatus's real values (PENDING/RUNNING/SUCCEEDED/FAILED/CANCELLED/INOPERABLE/SKIPPED_SUSPENDED_ACCOUNT) don't correspond to StackInstanceStatus's (CURRENT/OUTDATED/INOPERABLE) closely enough to map one onto the other without fabricating data."}
@@ -383,9 +383,9 @@ All three backends were newly wired into the CloudFormation backend:
 `ServiceBackends` (`resources.go`) gained `KinesisVideo`/`ECRPublic`/
 `KafkaConnect` fields, `BackendsProvider` (`provider.go`) gained the matching
 `Get*Handler` methods, and `extractAllServiceBackends` wires them from the
-handlers -- `cli.go` already had `GetKinesisVideoHandler`/
+handlers -- `internal/app/cli.go` already had `GetKinesisVideoHandler`/
 `GetECRPublicHandler`/`GetKafkaConnectHandler` getters (added when those
-services first landed), so no `cli.go` change was needed. Dispatch wiring
+services first landed), so no `internal/app/cli.go` change was needed. Dispatch wiring
 chains `createKinesisVideoResource`/`createECRPublicResource`/
 `createKafkaConnectResource` (and their `delete*` counterparts) off the end
 of `createNewestSupplementalResource`/`deleteNewestSupplementalResource` in
@@ -433,7 +433,7 @@ by a genuine `InMemoryBackend` call (no stubs), with Ref/Fn::GetAtt verified
 against the live AWS CloudFormation Template Reference docs (fetched this
 pass). Every backing service (EC2, IAM, ElastiCache, ApiGatewayV2, ACM,
 OpenSearch) was already wired into the CloudFormation backend, so no
-`cli.go`/`provider.go` changes were needed this pass.
+`internal/app/cli.go`/`provider.go` changes were needed this pass.
 
 - **EC2** (18 types): PlacementGroup, VPNGateway, VPNConnection, PrefixList,
   NetworkInterfacePermission, VPCEndpointService
@@ -531,11 +531,11 @@ Amplify Branch, and AccessAnalyzer ArchiveRule). The extra indirection
 to a single call in its `default` case.
 
 **Backend wiring.** DataSync, AppConfig, Macie2, and AccessAnalyzer were not
-previously reachable from CloudFormation at all: `cli.go` gained
+previously reachable from CloudFormation at all: `internal/app/cli.go` gained
 `datasyncHandler`/`macie2Handler`/`accessanalyzerHandler` fields, `byName[...]`
 assignments, and `GetDataSyncHandler`/`GetMacie2Handler`/
 `GetAccessAnalyzerHandler` getters (mirroring the existing pattern for every
-other service). GuardDuty, Amplify, and AppConfig already had cli.go getters
+other service). GuardDuty, Amplify, and AppConfig already had internal/app/cli.go getters
 from earlier work; they only needed `BackendsProvider` interface entries and
 `ServiceBackends` struct fields/extraction wiring in `provider.go`/
 `resources.go`.
@@ -864,8 +864,8 @@ URL redirects to the TemplateReference index rather than resolving to a page)
 
 Wired AWS::SageMaker and AWS::Athena into the CloudFormation backend for the first time
 (GetSageMakerHandler/GetAthenaHandler added to BackendsProvider in provider.go and to
-ServiceBackends/extractAllServiceBackends; cli.go already implemented both methods for the
-generic backend registry from an earlier, unrelated pass, so no cli.go edit was needed).
+ServiceBackends/extractAllServiceBackends; internal/app/cli.go already implemented both methods for the
+generic backend registry from an earlier, unrelated pass, so no internal/app/cli.go edit was needed).
 
 Added AWS::SageMaker::{Model,EndpointConfig,Endpoint,NotebookInstance,
 NotebookInstanceLifecycleConfig,CodeRepository,Domain,Pipeline,ModelPackageGroup,
@@ -991,8 +991,8 @@ Skipped (backend lacks the op, or the backend doesn't exist in this service's de
 graph): AWS::SageMaker::* and AWS::Athena::* (prioritized types from the task brief) --
 neither service backend is wired into CloudFormation's ServiceBackends/BackendsProvider at
 all, and wiring one in requires adding a Get<Service>Handler() method to the BackendsProvider
-interface AND implementing it in cli.go, which sits outside services/cloudformation/ and was
-out of scope for this change (cli.go is also being edited by another agent this session, per
+interface AND implementing it in internal/app/cli.go, which sits outside services/cloudformation/ and was
+out of scope for this change (internal/app/cli.go is also being edited by another agent this session, per
 the task brief, making a concurrent edit there doubly unsafe). AWS::ECR::PublicRepository was
 considered but skipped: this backend's CreateRepository models private ECR only (a different
 AWS service/ARN namespace/attribute shape than ECR Public), and reusing it would misrepresent
@@ -1012,7 +1012,7 @@ AggregationAuthorization,ConformancePack,RemediationConfiguration,StoredQuery} (
 OrganizationConfigRule intentionally excluded -- it targets an AWS Organizations management
 account, a different provisioning model than a single-account stack resource). New files
 resources_iot_more.go, resources_awsconfig.go; AWSConfig added to ServiceBackends/
-BackendsProvider/extractAllServiceBackends (provider.go, resources.go) -- cli.go already had
+BackendsProvider/extractAllServiceBackends (provider.go, resources.go) -- internal/app/cli.go already had
 GetAWSConfigHandler wired for the dashboard, just not threaded into CloudFormation. Each type's
 Ref/Fn::GetAtt was verified against the CloudFormation Template Reference's "Return values"
 section for that exact type, not assumed from sibling types. Several Refs return a

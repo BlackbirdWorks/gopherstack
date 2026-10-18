@@ -3,7 +3,7 @@
 	// connection for today. Every AWS API call gopherstack handles — for
 	// every service, not just these five — passes through the same global
 	// HTTP middleware (`logger.APIConsoleMiddleware`, wired once in
-	// `cli.go` via `e.Use(...)`) that feeds the Connect-RPC `StreamConsole`
+	// `internal/app/cli.go` via `e.Use(...)`) that feeds the Connect-RPC `StreamConsole`
 	// server-stream already consumed by the dashboard's home page and
 	// `/console` (see `dashboard/connect_server.go`'s `StreamConsole` and
 	// `ui/src/routes/console/+page.svelte`). That stream is real, and any

@@ -64,3 +64,15 @@ func AddConfigurationInternal(b *InMemoryBackend, cfg *Configuration) {
 	b.configurations.Put(cfg)
 	b.tags[cfg.Arn] = cfg.Tags
 }
+
+// BrokerStartFailure returns why a docker-backed broker went CREATION_FAILED, or "".
+func BrokerStartFailure(b *InMemoryBackend, brokerID string) string {
+	b.mu.RLock("BrokerStartFailure")
+	defer b.mu.RUnlock()
+
+	if b.engine == nil {
+		return ""
+	}
+
+	return b.engine.failures[brokerID]
+}

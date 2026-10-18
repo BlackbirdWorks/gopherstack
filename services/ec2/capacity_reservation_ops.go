@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // ---- Capacity Reservation splitting / instance movement ----
@@ -45,7 +45,7 @@ func (b *InMemoryBackend) CreateCapacityReservationBySplitting(
 	src.TotalInstanceCount -= instanceCount
 
 	dst := &CapacityReservation{
-		CapacityReservationID:  "cr-" + uuid.New().String()[:8],
+		CapacityReservationID:  awsid.New("cr-"),
 		InstanceType:           src.InstanceType,
 		AvailabilityZone:       src.AvailabilityZone,
 		InstancePlatform:       src.InstancePlatform,
@@ -262,7 +262,7 @@ func (b *InMemoryBackend) CreateCapacityReservationCancellationQuote(
 
 	now := time.Now().UTC()
 	quote := &CapacityReservationCancellationQuote{
-		CapacityReservationCancellationQuoteID: "crcq-" + uuid.New().String()[:8],
+		CapacityReservationCancellationQuoteID: awsid.New("crcq-"),
 		CapacityReservationID:                  capacityReservationID,
 		QuoteState:                             capacityReservationCancellationQuoteStateActive,
 		CurrentInstanceCount:                   toInt32Clamped(cr.TotalInstanceCount),

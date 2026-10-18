@@ -532,7 +532,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		"message": msg,
 	})
 
-	c.Response().Header().Set("x-amzn-errortype", errType)
+	c.Response().Header().Set("X-Amzn-Errortype", errType)
 
 	return c.JSONBlob(status, payload)
 }

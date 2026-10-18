@@ -501,20 +501,9 @@ func (b *InMemoryBackend) planDirectJob(
 		return nil
 	}
 
-	docPtr, ok := b.documentsStore(region).Get(input.DocumentName)
-	if !ok || docPtr.DocumentType != DocumentTypeCommand {
+	content, format, ok := b.commandDocumentContent(region, input.DocumentName, input.DocumentVersion)
+	if !ok {
 		return nil
-	}
-
-	content, format := docPtr.Content, docPtr.DocumentFormat
-
-	versions := b.documentVersionsStore(region)[input.DocumentName]
-	if target, err := resolveDocumentVersionTarget(*docPtr, versions, input.DocumentVersion, ""); err == nil {
-		for _, v := range versions {
-			if v.DocumentVersion == target {
-				content, format = v.Content, v.DocumentFormat
-			}
-		}
 	}
 
 	steps, ok := parseScriptSteps(content, format, input.Parameters)
@@ -543,4 +532,26 @@ func (b *InMemoryBackend) planDirectJob(
 		maxConc:   min(parseLimit(input.MaxConcurrency, len(ids), defaultMaxConcurrency), len(targets)),
 		maxErrors: parseLimit(input.MaxErrors, len(ids), 0),
 	}
+}
+
+// commandDocumentContent returns the Command document body at the requested version.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) commandDocumentContent(region, name, version string) (string, string, bool) {
+	docPtr, ok := b.documentsStore(region).Get(name)
+	if !ok || docPtr.DocumentType != DocumentTypeCommand {
+		return "", "", false
+	}
+
+	content, format := docPtr.Content, docPtr.DocumentFormat
+
+	versions := b.documentVersionsStore(region)[name]
+	if target, err := resolveDocumentVersionTarget(*docPtr, versions, version, ""); err == nil {
+		for _, v := range versions {
+			if v.DocumentVersion == target {
+				content, format = v.Content, v.DocumentFormat
+			}
+		}
+	}
+
+	return content, format, true
 }

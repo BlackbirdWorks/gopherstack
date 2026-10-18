@@ -30,7 +30,7 @@ const maxRetainedQueries = 10000
 
 // QueryWithOptions executes a query with full options support (clientToken, pagination).
 // ctx is accepted for interface consistency; query results are not region-isolated.
-func (b *InMemoryBackend) QueryWithOptions(_ context.Context, opts QueryOptions) (*QueryPage, error) {
+func (b *InMemoryBackend) QueryWithOptions(ctx context.Context, opts QueryOptions) (*QueryPage, error) {
 	// Validate MaxRows.
 	maxRows, err := validateMaxRows(opts.MaxRows)
 	if err != nil {
@@ -59,6 +59,10 @@ func (b *InMemoryBackend) QueryWithOptions(_ context.Context, opts QueryOptions)
 	}
 
 	if err = validateQuerySyntax(opts.QueryString); err != nil {
+		return nil, err
+	}
+
+	if err = b.checkTableRefs(ctx, opts.QueryString); err != nil {
 		return nil, err
 	}
 
@@ -211,13 +215,17 @@ func evictOldestQueryLocked(b *InMemoryBackend) {
 // actually use.
 // ctx is accepted for interface consistency; PrepareQuery is stateless.
 func (b *InMemoryBackend) PrepareQuery(
-	_ context.Context, queryString string, _ bool,
+	ctx context.Context, queryString string, _ bool,
 ) (*PrepareQueryResult, error) {
 	if queryString == "" {
 		return nil, fmt.Errorf("%w: QueryString is required", ErrValidation)
 	}
 
 	if err := validateQuerySyntax(queryString); err != nil {
+		return nil, err
+	}
+
+	if err := b.checkTableRefs(ctx, queryString); err != nil {
 		return nil, err
 	}
 

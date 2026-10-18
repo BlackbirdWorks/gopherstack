@@ -205,6 +205,23 @@ func (b *InMemoryBackend) RecordAccessKeyUsage(accessKeyID, region, serviceName 
 
 // GetUserArnByAccessKeyID returns the ARN of the IAM user that owns the given access key ID.
 func (b *InMemoryBackend) GetUserArnByAccessKeyID(accessKeyID string) (string, error) {
+	v, err := b.userArnByAccessKeyIDLocal(accessKeyID)
+	if err == nil {
+		return v, nil
+	}
+
+	if sv, ok := fromShards(b, func(s *InMemoryBackend) (string, bool) {
+		x, serr := s.userArnByAccessKeyIDLocal(accessKeyID)
+
+		return x, serr == nil
+	}); ok {
+		return sv, nil
+	}
+
+	return "", err
+}
+
+func (b *InMemoryBackend) userArnByAccessKeyIDLocal(accessKeyID string) (string, error) {
 	b.mu.RLock("GetUserArnByAccessKeyID")
 	defer b.mu.RUnlock()
 
@@ -223,6 +240,23 @@ func (b *InMemoryBackend) GetUserArnByAccessKeyID(accessKeyID string) (string, e
 
 // GetUserIDByAccessKeyID returns the unique ID (AIDA...) of the user owning the access key.
 func (b *InMemoryBackend) GetUserIDByAccessKeyID(accessKeyID string) (string, error) {
+	v, err := b.userIDByAccessKeyIDLocal(accessKeyID)
+	if err == nil {
+		return v, nil
+	}
+
+	if sv, ok := fromShards(b, func(s *InMemoryBackend) (string, bool) {
+		x, serr := s.userIDByAccessKeyIDLocal(accessKeyID)
+
+		return x, serr == nil
+	}); ok {
+		return sv, nil
+	}
+
+	return "", err
+}
+
+func (b *InMemoryBackend) userIDByAccessKeyIDLocal(accessKeyID string) (string, error) {
 	b.mu.RLock("GetUserIDByAccessKeyID")
 	defer b.mu.RUnlock()
 

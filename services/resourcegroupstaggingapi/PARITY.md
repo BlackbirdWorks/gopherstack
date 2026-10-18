@@ -14,7 +14,7 @@ overall: A            # 2026-08-07 (gopherstack-3xfq): ListRequiredTags now deri
                        # extension point (cross_service.go, mirrors the existing
                        # RegisterProvider/RegisterARNTagger pattern) lets a caller supply the
                        # account's effective TAG_POLICY content; with none registered (the
-                       # state until cli.go wires it -- see gaps below) this still correctly
+                       # state until internal/app/cli.go wires it -- see gaps below) this still correctly
                        # returns an empty list, matching real AWS's behavior for an account
                        # with no tag policy attached. GetComplianceSummary is UNCHANGED and
                        # deliberately NOT touched this pass -- gopherstack-i710 already
@@ -23,7 +23,7 @@ overall: A            # 2026-08-07 (gopherstack-3xfq): ListRequiredTags now deri
                        # org, which gopherstack's single-account model cannot honestly
                        # simulate); reopening it with a single-account approximation would be
                        # exactly the "plausible-looking but wrong" mistake that closure
-                       # avoided. See gaps below for what still needs central (cli.go) wiring.
+                       # avoided. See gaps below for what still needs central (internal/app/cli.go) wiring.
 ops:
   GetResources: {wire: ok, errors: ok, state: ok, persist: n/a, note: "field-diffed against aws-sdk-go's api-2.json shapes this sweep: TagFilter.Values cap was 256, real TagValueList shape caps at 20 -- fixed. ResourceARNList had no length cap at all; real ResourceARNListForGet shape caps at 100 (distinct from TagResources/UntagResources' 20-ARN ResourceARNListForTagUntag) -- added. PaginationTokenExpiredException was declared in the error model but never producible; an unmatched PaginationToken now returns it instead of silently restarting from page 1. State is cross-service (registered providers), not backend-owned, so no persistence entry applies here."}
   GetTagKeys: {wire: ok, errors: ok, state: ok, persist: n/a, note: "same PaginationTokenExpiredException fix as GetResources; signature changed to return (*GetTagKeysOutput, error)"}
@@ -31,7 +31,7 @@ ops:
   TagResources: {wire: ok, errors: ok, state: ok, persist: n/a, note: "delegates to registered ARN taggers; FailedResourcesMap error codes InvalidParameterException/InternalServiceException match the model's 2-value ErrorCode enum exactly; ResourceARNList (max 20), Tags (TagMap max 50 entries), TagKey (max 128)/TagValue (max 256) all confirmed against api-2.json shapes"}
   UntagResources: {wire: ok, errors: ok, state: ok, persist: n/a, note: "same fix history as TagResources; TagKeys (TagKeyListForUntag max 50) confirmed against api-2.json"}
   GetComplianceSummary: {wire: ok, errors: ok, state: partial, persist: n/a, note: "NonCompliantResources is always 0. CORRECTED THIS SWEEP: the prior note ('no tag-policy engine exists anywhere in gopherstack') was imprecise -- services/organizations DOES model TAG_POLICY as a real policy type with content documents, attachments, and effective-policy deep-merge inheritance (DescribeEffectivePolicy). The actual, better-evidenced gap is architectural: real GetComplianceSummary is callable only from an organization's management account and aggregates noncompliant-resource counts ACROSS EVERY MEMBER ACCOUNT (confirmed against the AWS API reference's example response, which returns three SummaryList rows for three distinct TargetId account IDs under GroupBy=TARGET_ID) -- but gopherstack's architecture is one simulated AWS account's resource state per running instance, with no multi-account resource-store simulation anywhere in the codebase. Wiring Organizations' tag-policy content into a single-account evaluator would only produce a plausible-looking but semantically wrong approximation of what is fundamentally a cross-account operation, so this was deliberately not attempted; see gap below (bd: gopherstack-i710). This sweep: MaxResults was silently clamped to a default on out-of-range input instead of validating -- real MaxResultsGetComplianceSummary shape declares min:1/max:1000 explicitly (unlike GetResources' ResourcesPerPage, which has NO declared min/max in the model), so out-of-range now returns InvalidParameterException, matching the same explicit-range-with-error pattern already used for TagsPerPage. Signature changed to return (*GetComplianceSummaryOutput, error)."}
-  ListRequiredTags: {wire: ok, errors: ok, state: ok, persist: n/a, note: "2026-08-07 (gopherstack-3xfq): now real -- derives RequiredTag rows from a registered TagPolicyProvider's effective TAG_POLICY document (requiredTagsFromPolicy, compliance.go), grouped by the resource-type identifiers named in each tag's report_required_tag_for.@@assign list. Real pagination via pkgs/page (MaxResults/NextToken), default page size 50 (no documented MaxResults range found in any vendored API model for this newer operation, unlike GetComplianceSummary's declared 1-1000, so no range is enforced -- only a default). KNOWN LIMITATION, documented in-code: CloudFormationResourceTypes returns the policy's resource-type identifier verbatim (e.g. \"ec2:ALL_SUPPORTED\") rather than expanding it into the real CloudFormation type names (e.g. \"AWS::EC2::Instance\") AWS's real API may return -- no verified expansion table was available. Central wiring still needed: nothing currently calls RegisterTagPolicyProvider, so this returns an empty list (correctly) until cli.go wires services/organizations' DescribeEffectivePolicy(TAG_POLICY, accountID) result into it -- see gaps below."}
+  ListRequiredTags: {wire: ok, errors: ok, state: ok, persist: n/a, note: "2026-08-07 (gopherstack-3xfq): now real -- derives RequiredTag rows from a registered TagPolicyProvider's effective TAG_POLICY document (requiredTagsFromPolicy, compliance.go), grouped by the resource-type identifiers named in each tag's report_required_tag_for.@@assign list. Real pagination via pkgs/page (MaxResults/NextToken), default page size 50 (no documented MaxResults range found in any vendored API model for this newer operation, unlike GetComplianceSummary's declared 1-1000, so no range is enforced -- only a default). KNOWN LIMITATION, documented in-code: CloudFormationResourceTypes returns the policy's resource-type identifier verbatim (e.g. \"ec2:ALL_SUPPORTED\") rather than expanding it into the real CloudFormation type names (e.g. \"AWS::EC2::Instance\") AWS's real API may return -- no verified expansion table was available. Central wiring still needed: nothing currently calls RegisterTagPolicyProvider, so this returns an empty list (correctly) until internal/app/cli.go wires services/organizations' DescribeEffectivePolicy(TAG_POLICY, accountID) result into it -- see gaps below."}
   StartReportCreation: {wire: ok, errors: ok, state: ok, persist: ok, note: "removed fabricated S3BucketRegion input field -- not part of the real AWS API at all (real StartReportCreationInput has only S3Bucket)"}
   DescribeReportCreation: {wire: ok, errors: ok, state: ok, persist: ok, note: "CORRECTED THIS SWEEP: a prior audit had it backwards -- 'NO REPORT' IS a real, documented AWS status value (aws-sdk-go-v2 DescribeReportCreationOutput.Status doc comment and aws-sdk-go's docs-2.json both list it: 'NO REPORT - No report was generated in the last 90 days'), not a gopherstack invention. Two tests (TestDescribeReportCreation_NoReport, TestDescribeReportCreation_NoReportResponseBody) had pinned the wrong (nil-Status) behavior with comments asserting NO REPORT was 'not a real AWS status value' -- rewritten to assert the correct string. Also added the 90-day staleness reversion (a non-RUNNING report older than 90 days now reports NO REPORT instead of its stale terminal status), matching the same doc line."}
 families:
@@ -156,7 +156,7 @@ leaks: {status: clean, note: "no goroutines; per-region resourceCache and report
   distinct from `GetComplianceSummary`'s `tag_key`/`tag_value` basic-compliance rules) was
   not separately investigated this sweep. Tracked (bd: gopherstack-i710).
 
-- **Cross-service tag wiring lives in `cli.go` (`wireResourceGroupsTagging`) -- EXPANDED
+- **Cross-service tag wiring lives in `internal/app/cli.go` (`wireResourceGroupsTagging`) -- EXPANDED
   THIS SWEEP from 6 to 11 of the ~90 services with native `TagResource` support.**
   Previously only dynamodb, sqs, sns, lambda, kms, secretsmanager were registered as
   providers/ARN taggers. Added ecs, athena, glue, ecr, kinesis, chosen because they were
@@ -179,7 +179,7 @@ leaks: {status: clean, note: "no goroutines; per-region resourceCache and report
   `InvalidParameterException` ("no registered tagger handles ARN") for every other
   service's ARNs, which is the *correct* behavior for an unregistered tagger -- the gap
   is in what's registered, not in how this package handles an unregistered ARN. The
-  remaining services were unwired as of this note; see `cli.go`'s `wireResourceGroupsTagging`
+  remaining services were unwired as of this note; see `internal/app/cli.go`'s `wireResourceGroupsTagging`
   doc comment for the current exact list (coverage has grown across several sweeps since --
   see the gaps section above for the up-to-date count) and for why s3control was skipped
   (its taggable ARNs use the `"s3"`/`"s3-object-lambda"` service namespaces, not
@@ -278,7 +278,7 @@ and ResourceARN had no 1011-char max were both false against current code
 (`grep regexp` returns zero hits in this package; `validateResourceARNLength`
 already enforces the real 1011-char cap in both `validateARNList` -- used by
 TagResources/UntagResources -- and GetResources directly). Also removed 4
-superseded historical cli.go-wiring-progress entries (55->61->69->91
+superseded historical internal/app/cli.go-wiring-progress entries (55->61->69->91
 services) that were fully subsumed by the final 91-service entry. Kept 3
 items_still_open + 1 deferred, consolidated and tightened to one paragraph
 each. No code fix needed (behavior fixes claimed by 2 of the removed entries
@@ -293,7 +293,7 @@ go.sum` empty. No code or persisted-field change.
 
 ## 2026-10-03 (gopherstack-taq78 multi-region)
 
-The bridge lists the request region's resources and resolves TagResources/UntagResources by the ARN's region for ECS, Athena, Glue, ECR, Backup, CodeCommit, Cloud Map, Lightsail, Cognito IdP, SESv2 and CodeDeploy (`regionalTagSpec` in cli_cross_region.go). Auto Scaling, ELBv2 and CloudFormation expose no tagged-resource listing and are not bridged. Proof: `TestInitializeServices_TaggingBridgeFollowsRegion`.
+The bridge lists the request region's resources and resolves TagResources/UntagResources by the ARN's region for ECS, Athena, Glue, ECR, Backup, CodeCommit, Cloud Map, Lightsail, Cognito IdP, SESv2 and CodeDeploy (`regionalTagSpec` in internal/app/cross_region.go). Auto Scaling, ELBv2 and CloudFormation expose no tagged-resource listing and are not bridged. Proof: `TestInitializeServices_TaggingBridgeFollowsRegion`.
 
 ## 2026-10-10 realism pass
 

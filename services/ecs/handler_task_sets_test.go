@@ -100,7 +100,7 @@ func TestTaskSet_ExternalController_CreateDescribeDelete(t *testing.T) {
 
 // TestTaskSet_DescribeUpdateDeleteByShortID guards against a real bug: the
 // task set store is keyed by its full TaskSetArn, but CreateTaskSetOutput's
-// TaskSet.Id carries only the short form ("ecs-svc-XXXXXXXX"), and a real SDK
+// TaskSet.Id carries only the short form ("ecs-svc/NNNNNNNNNNNNNNNNNNN"), and a real SDK
 // client (e.g. terraform-provider-aws's task_set.go) stores and re-sends that
 // short Id -- never the ARN -- to Describe/Update/DeleteTaskSet's TaskSet
 // parameter. Looking it up only by the ARN-keyed store previously 404'd

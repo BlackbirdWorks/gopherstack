@@ -176,46 +176,35 @@ type SubStatementData struct {
 
 // Statement represents an AWS Redshift Data API SQL statement.
 type Statement struct {
-	CreatedAt         time.Time `json:"createdAt"`
-	UpdatedAt         time.Time `json:"updatedAt"`
-	Status            string    `json:"status"`
-	Error             string    `json:"error"`
-	ClusterIdentifier string    `json:"clusterIdentifier"`
-	WorkgroupName     string    `json:"workgroupName"`
-	QueryString       string    `json:"queryString"`
-	DBUser            string    `json:"dbUser"`
-	SecretARN         string    `json:"secretARN"`
-	StatementName     string    `json:"statementName"`
-	ResultFormat      string    `json:"resultFormat"`
-	// Owner and OwnerSession are the IAM role and session that ran the statement.
-	Owner        string `json:"owner,omitempty"`
-	OwnerSession string `json:"ownerSession,omitempty"`
-	// ExecutionMode is BatchExecuteStatementInput.ExecutionMode, echoed back on
-	// DescribeStatement (TRANSACTION | AUTO_COMMIT). Empty for ExecuteStatement,
-	// which has no such input member.
-	ExecutionMode string `json:"executionMode,omitempty"`
-	ID            string `json:"id"`
-	Database      string `json:"database"`
-	// SessionID is the session identifier echoed back from the ExecuteStatement/
-	// BatchExecuteStatement request that created this statement (StatementData.SessionId
-	// / DescribeStatementOutput.SessionId in the real API). Empty when the caller did
-	// not supply one -- this mock does not mint new session ids on the caller's behalf,
-	// it only threads through what was provided (see handleExecuteStatement).
-	SessionID     string             `json:"sessionID,omitempty"`
-	Parameters    []SQLParameter     `json:"parameters,omitempty"`
-	SubStatements []SubStatementData `json:"subStatements,omitempty"`
-	QueryStrings  []string           `json:"queryStrings"`
-	// DurationMs is the total wall-clock execution time in milliseconds. Populated
-	// when the statement reaches a terminal state (FINISHED / FAILED / ABORTED).
-	DurationMs int64 `json:"durationMs"`
-	ResultRows int64 `json:"resultRows"`
-	ResultSize int64 `json:"resultSize"`
-	// SessionKeepAliveSeconds is the keep-alive the request supplied for its session.
-	SessionKeepAliveSeconds int32 `json:"sessionKeepAliveSeconds,omitempty"`
-	HasResultSet            bool  `json:"hasResultSet"`
-	IsBatchStatement        bool  `json:"isBatchStatement"`
-	// WithEvent indicates whether an EventBridge event is generated on completion.
-	WithEvent bool `json:"withEvent"`
+	CreatedAt               time.Time `json:"createdAt"`
+	UpdatedAt               time.Time `json:"updatedAt"`
+	results                 map[string]*ResultSet
+	ID                      string             `json:"id"`
+	SessionID               string             `json:"sessionID,omitempty"`
+	WorkgroupName           string             `json:"workgroupName"`
+	QueryString             string             `json:"queryString"`
+	DBUser                  string             `json:"dbUser"`
+	SecretARN               string             `json:"secretARN"`
+	StatementName           string             `json:"statementName"`
+	ResultFormat            string             `json:"resultFormat"`
+	Owner                   string             `json:"owner,omitempty"`
+	OwnerSession            string             `json:"ownerSession,omitempty"`
+	ExecutionMode           string             `json:"executionMode,omitempty"`
+	Error                   string             `json:"error"`
+	Database                string             `json:"database"`
+	ClusterIdentifier       string             `json:"clusterIdentifier"`
+	Status                  string             `json:"status"`
+	SubStatements           []SubStatementData `json:"subStatements,omitempty"`
+	QueryStrings            []string           `json:"queryStrings"`
+	Parameters              []SQLParameter     `json:"parameters,omitempty"`
+	DurationMs              int64              `json:"durationMs"`
+	ResultRows              int64              `json:"resultRows"`
+	ResultSize              int64              `json:"resultSize"`
+	SessionKeepAliveSeconds int32              `json:"sessionKeepAliveSeconds,omitempty"`
+	HasResultSet            bool               `json:"hasResultSet"`
+	IsBatchStatement        bool               `json:"isBatchStatement"`
+	WithEvent               bool               `json:"withEvent"`
+	EngineBacked            bool               `json:"engineBacked,omitempty"`
 }
 
 // ListStatementsFilter controls statement filtering and pagination.

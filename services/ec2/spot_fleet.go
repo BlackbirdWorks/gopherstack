@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
@@ -182,7 +183,7 @@ func (b *InMemoryBackend) spawnFleetInstanceLocked(
 	inst.PrivateIP = b.allocPrivateIPInSubnet(subnetID)
 
 	eniID := newENIID()
-	attachID := "eni-attach-" + uuid.New().String()[:8]
+	attachID := awsid.New("eni-attach-")
 	b.networkInterfaces.Put(&NetworkInterface{
 		ID:                  eniID,
 		SubnetID:            subnetID,
@@ -563,7 +564,7 @@ func (b *InMemoryBackend) DescribeSpotFleetInstances(fleetID string) ([]SpotFlee
 		result = append(result, SpotFleetInstance{
 			InstanceID:            instID,
 			InstanceType:          instanceType,
-			SpotInstanceRequestID: "sir-" + uuid.New().String()[:8],
+			SpotInstanceRequestID: awsid.New("sir-"),
 			InstanceHealth:        "healthy",
 		})
 	}

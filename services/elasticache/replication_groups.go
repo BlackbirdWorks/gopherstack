@@ -569,6 +569,10 @@ func (b *InMemoryBackend) insertGroupLocked(
 		adopted = c
 	}
 
+	if err := b.restoreGroupDataLocked(region, opts, prep, engines, adopted != nil); err != nil {
+		return nil, err
+	}
+
 	rg := b.buildReplicationGroupFromCreateOpts(region, opts)
 	rg.ClusterModeEnabled = prep.clusterMode && opts.ClusterMode != statusDisabled
 	b.buildTopologyLocked(
@@ -1051,7 +1055,11 @@ func (b *InMemoryBackend) TriggerAutoSnapshot(ctx context.Context, replicationGr
 		return nil, ErrSnapshotAlreadyExists
 	}
 
-	snap := buildAutoSnapshot(b, region, snapName, rg)
+	snap, err := buildAutoSnapshot(b, region, snapName, rg)
+	if err != nil {
+		return nil, err
+	}
+
 	snapStore.Put(snap)
 
 	b.appendEventLocked(replicationGroupID, "replication-group", "automated snapshot created: "+snapName)
@@ -1068,7 +1076,9 @@ func buildAutoSnapshotName(replicationGroupID string) string {
 }
 
 // buildAutoSnapshot constructs the snapshot object.
-func buildAutoSnapshot(b *InMemoryBackend, region, snapName string, rg *ReplicationGroup) *CacheSnapshot {
+func buildAutoSnapshot(
+	b *InMemoryBackend, region, snapName string, rg *ReplicationGroup,
+) (*CacheSnapshot, error) {
 	ev := rg.EngineVersion
 	if ev == "" {
 		ev = defaultEngineVersion(engineRedis)
@@ -1088,7 +1098,14 @@ func buildAutoSnapshot(b *InMemoryBackend, region, snapName string, rg *Replicat
 	}
 	snapshotGroupState(snap, rg)
 
-	return snap
+	data, err := b.captureGroupDataLocked(region, rg)
+	if err != nil {
+		return nil, err
+	}
+
+	snap.Data = data
+
+	return snap, nil
 }
 
 // sortAutoSnapshots sorts snapshots by CreatedAt ascending (oldest first).

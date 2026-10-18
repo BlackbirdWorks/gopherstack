@@ -428,5 +428,5 @@ codestarconnections already region-isolated: same-named resources in two regions
 
 - List* MaxResults outside 0-100 and malformed NextToken are rejected (were ignored).
 - Error messages drop the repeated exception code and are sentence-cased.
-- Opt-in `SetConnectionHandshakeDelay(d)` keeps new connections PENDING for d; `SetHostSetupDelay(d)` moves hosts PENDING -> AVAILABLE after d (default 0: hosts stay PENDING as before, since only the console completes host setup). Status progression state is transient (not persisted). Needs wiring in cli_lifecycle.go.
+- Opt-in `SetConnectionHandshakeDelay(d)` keeps new connections PENDING for d; `SetHostSetupDelay(d)` moves hosts PENDING -> AVAILABLE after d (default 0: hosts stay PENDING as before, since only the console completes host setup). Status progression state is transient (not persisted). Needs wiring in internal/app/lifecycle.go.
 - Name/tag/endpoint limits were already enforced here; codeconnections now matches.

@@ -51,7 +51,7 @@ ops:
   DeleteDatasetContent: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: omitted versionId previously deleted ALL content versions; AWS defaults to $LATEST_SUCCEEDED (exactly one version). Now also honors explicit $LATEST / $LATEST_SUCCEEDED"}
   DescribeLoggingOptions: {wire: ok, errors: ok, state: ok, persist: ok}
   PutLoggingOptions: {wire: ok, errors: ok, state: ok, persist: ok}
-  RunPipelineActivity: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED: addAttributes/removeAttributes/selectAttributes/filter/math now perform real per-activity transforms (see Notes and pipeline_expr.go); channel/datastore remain pass-through (correct: real source/sink activities); lambda/deviceRegistryEnrich/deviceShadowEnrich now invoke the real Lambda/IoT backends when cli.go's wireIoTAnalyticsCrossService has wired them (see Notes); math now supports the documented math-operators-functions.html function library; filter's LIKE/IN/BETWEEN remain unimplemented -- see items_still_open"}
+  RunPipelineActivity: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED: addAttributes/removeAttributes/selectAttributes/filter/math now perform real per-activity transforms (see Notes and pipeline_expr.go); channel/datastore remain pass-through (correct: real source/sink activities); lambda/deviceRegistryEnrich/deviceShadowEnrich now invoke the real Lambda/IoT backends when internal/app/cli.go's wireIoTAnalyticsCrossService has wired them (see Notes); math now supports the documented math-operators-functions.html function library; filter's LIKE/IN/BETWEEN remain unimplemented -- see items_still_open"}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -288,9 +288,9 @@ now asserts its absence. See list_summary_shapes_test.go.
   no wiring" for cross-service calls -- the same stale claim this parity campaign found and
   fixed for sagemaker's S3 read, ELB's EC2/ACM/IAM checks, and glacier's S3 write-back. The
   wiring pattern already exists (SNS/Firehose/SecretsManager's `LambdaInvoker` +
-  `SetLambdaBackend`, IoT's `DescribeThing`/`GetThingShadow` used elsewhere in `cli.go`) and
+  `SetLambdaBackend`, IoT's `DescribeThing`/`GetThingShadow` used elsewhere in `internal/app/cli.go`) and
   applies here unchanged. `services/iotanalytics/interfaces.go` adds `LambdaInvoker`,
-  `ThingRegistry`, `ThingShadowStore`; `cli.go`'s `wireIoTAnalyticsCrossService` (called from
+  `ThingRegistry`, `ThingShadowStore`; `internal/app/cli.go`'s `wireIoTAnalyticsCrossService` (called from
   `wireStorageAndSecretsIntegrations`) wires the real Lambda backend directly (it already
   satisfies `LambdaInvoker`) and adapts the IoT backend's `DescribeThing`/`GetThingShadow`
   (`iotAnalyticsThingRegistryAdapter`/`iotAnalyticsThingShadowAdapter`) into the map-shaped
@@ -308,8 +308,8 @@ now asserts its absence. See list_summary_shapes_test.go.
   Lambda/IoT backend is registered at all (`SetLambdaBackend`/`SetThingRegistry`/
   `SetThingShadowStore` never called), these three activities still pass through unchanged --
   there's nothing to invoke, which is an environment characteristic, not a bug. Proven by
-  `cli_iotanalytics_lambda_iot_wiring_test.go`, which drives `initializeServices` (the actual
-  `cli.go` composition root) rather than calling the wiring helper directly.
+  `internal/app/iotanalytics_lambda_iot_wiring_test.go`, which drives `initializeServices` (the actual
+  `internal/app/cli.go` composition root) rather than calling the wiring helper directly.
 - **`RunPipelineActivity` math function library (fixed):** `math` only implemented arithmetic
   (`+ - * / %`); AWS documents a real function library at
   `math-operators-functions.html` (`abs/acos/asin/atan/atan2/ceil/cos/cosh/exp/ln/log/mod/

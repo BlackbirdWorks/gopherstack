@@ -460,6 +460,18 @@ func (b *InMemoryBackend) purgeOIDCProvidersLocked(cutoff time.Time) {
 // The issuer URL may or may not have a trailing slash; both forms are checked.
 // This method implements the sts.OIDCLookup interface.
 func (b *InMemoryBackend) OIDCProviderExists(issuerURL string) bool {
+	if b.oidcProviderExistsLocal(issuerURL) {
+		return true
+	}
+
+	_, ok := fromShards(b, func(s *InMemoryBackend) (struct{}, bool) {
+		return struct{}{}, s.oidcProviderExistsLocal(issuerURL)
+	})
+
+	return ok
+}
+
+func (b *InMemoryBackend) oidcProviderExistsLocal(issuerURL string) bool {
 	b.mu.RLock("OIDCProviderExists")
 	defer b.mu.RUnlock()
 
@@ -526,6 +538,16 @@ func (b *InMemoryBackend) AddClientIDToOpenIDConnectProvider(providerArn, client
 
 // OIDCProviderClientIDs returns the client IDs registered on the OIDC provider for issuerURL.
 func (b *InMemoryBackend) OIDCProviderClientIDs(issuerURL string) ([]string, bool) {
+	if ids, ok := b.oidcProviderClientIDsLocal(issuerURL); ok {
+		return ids, true
+	}
+
+	return fromShards(b, func(s *InMemoryBackend) ([]string, bool) {
+		return s.oidcProviderClientIDsLocal(issuerURL)
+	})
+}
+
+func (b *InMemoryBackend) oidcProviderClientIDsLocal(issuerURL string) ([]string, bool) {
 	b.mu.RLock("OIDCProviderClientIDs")
 	defer b.mu.RUnlock()
 

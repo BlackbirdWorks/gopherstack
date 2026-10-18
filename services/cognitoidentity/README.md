@@ -9,26 +9,18 @@
 | --- | --- |
 | PARITY entries audited | 23 (23 ok) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 2 |
-| Structural gaps (can't be emulated) | 1 |
+| Known gaps | 1 |
 | Deferred items | 4 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- GetCredentialsForIdentity returns random credentials that no STS-authenticated service accepts (sts:GetCallerIdentity says InvalidClientTokenId), and the role chosen by RoleMappings is never assumed. Minting real sessions needs services/sts to accept cognito-identity.amazonaws.com as a built-in web-identity issuer (skip the IAM OIDC provider lookup, supply the amr and aud condition keys) and this service to call AssumeRoleWithWebIdentity with the issued OpenID token through the lazy GetSTSHandler sibling lookup; the STS half is outside this service.
-- Login tokens are not signature-verified: JWT tokens are checked for expiry and for the audience listed on the pool's provider, opaque tokens (and providers the pool does not list) are accepted, and GetOpenIdTokenForDeveloperIdentity does not require the Logins key to be the pool's DeveloperProviderName.
-
-### Structural gaps
-
-These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
-
-- GetOpenIdTokenForDeveloperIdentity PrincipalTags also drive the STS session tags Cognito applies when it assumes the pool role inside GetCredentialsForIdentity; those tags only become observable once the STS wiring in items_still_open exists.
+- Login tokens from providers other than emulator-hosted Cognito user pools (Google, Facebook, OIDC/SAML) are not signature-verified; opaque tokens are accepted.
 
 ### Deferred
 
 - HTTP status code choice for NotAuthorizedException (403 here) vs AWS's actual per-exception status (SDK error-type resolution is body-driven, not status-code-driven, so this doesn't break aws-sdk-go-v2 clients; only relevant to tooling that inspects raw HTTP status).
-- ALREADY COVERED BY CHAOS (verified gopherstack-tqdj): ConcurrentModificationException (SetIdentityPoolRoles, UpdateIdentityPool per deserializers.go) is not emulated: there is no optimistic-concurrency/version token in this backend's resource model to make a genuine concurrent-write collision detectable, and fabricating one that never fires (or fires on arbitrary heuristics) would be worse than omitting it. Would need a real revision-counter field added to IdentityPool/IdentityRoles to do properly -- out of scope for an error-taxonomy pass. Concretely verified this pass: cognitoidentity.Handler implements ChaosServiceName() -> "cognito-identity" and ChaosOperations() -> h.GetSupportedOperations() (handler.go), and pkgs/chaos.Middleware is wired globally via registry.Use(chaos.Middleware(faultStore)) in cli.go, matching purely on the request's SigV4 service name + X-Amz-Target operation + region and injecting an arbitrary caller-specified FaultError{Code, StatusCode} without touching backend state -- a fault rule such as {"service":"cognito-identity","operation":"UpdateIdentityPool","error":{"code":"ConcurrentModificationException","statusCode":400}} deterministically returns that exact typed error to a real client with zero backend code changes.
+- ALREADY COVERED BY CHAOS (verified gopherstack-tqdj): ConcurrentModificationException (SetIdentityPoolRoles, UpdateIdentityPool per deserializers.go) is not emulated: there is no optimistic-concurrency/version token in this backend's resource model to make a genuine concurrent-write collision detectable, and fabricating one that never fires (or fires on arbitrary heuristics) would be worse than omitting it. Would need a real revision-counter field added to IdentityPool/IdentityRoles to do properly -- out of scope for an error-taxonomy pass. Concretely verified this pass: cognitoidentity.Handler implements ChaosServiceName() -> "cognito-identity" and ChaosOperations() -> h.GetSupportedOperations() (handler.go), and pkgs/chaos.Middleware is wired globally via registry.Use(chaos.Middleware(faultStore)) in internal/app/cli.go, matching purely on the request's SigV4 service name + X-Amz-Target operation + region and injecting an arbitrary caller-specified FaultError{Code, StatusCode} without touching backend state -- a fault rule such as {"service":"cognito-identity","operation":"UpdateIdentityPool","error":{"code":"ConcurrentModificationException","statusCode":400}} deterministically returns that exact typed error to a real client with zero backend code changes.
 - ALREADY COVERED BY CHAOS (verified gopherstack-tqdj): TooManyRequestsException (every op) and LimitExceededException (CreateIdentityPool/GetId/UpdateIdentityPool per deserializers.go) are throttling/account-quota conditions; this in-memory emulator has no request-rate tracking and AWS's actual per-account pool/identity quotas are account-specific soft limits, not fixed constants -- inventing an arbitrary hard-coded threshold would be a fabricated business rule, not a verified one. Left unimplemented, consistent with how other gopherstack services treat throttling. Same chaos mechanism as ConcurrentModificationException above makes both reachable on demand with zero backend code changes.
 - ALREADY COVERED BY CHAOS (verified gopherstack-tqdj): ExternalServiceException (GetCredentialsForIdentity, GetId, GetOpenIdToken, UnlinkIdentity per deserializers.go) is AWS's wrapper for a real external identity provider (Facebook/Google/a linked Cognito user pool) rejecting a token. This backend validates login tokens against its own stored state, not a real external IdP, so there is no authentic backend-state trigger condition for this exception here. Same chaos mechanism as above makes it reachable on demand with zero backend code changes.
 

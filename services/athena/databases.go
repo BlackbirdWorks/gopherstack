@@ -139,33 +139,14 @@ func (b *InMemoryBackend) ListTableMetadata(catalog, database, expr string) ([]T
 	var out []TableMetadata
 
 	if b.isGlueBacked(catalog) {
-		gts, err := b.glueSource.GetTables(database)
+		var err error
+
+		out, err = b.listGlueTables(catalog, database, re)
 		if err != nil {
-			return nil, fmt.Errorf("%w: database %q not found in catalog %q", ErrMetadata, database, catalog)
-		}
-
-		for _, gt := range gts {
-			if re != nil && !re.MatchString(gt.Name) {
-				continue
-			}
-
-			out = append(out, *glueTableToAthena(catalog, database, gt))
+			return nil, err
 		}
 	} else {
-		tables := b.tablesByDatabase.Get(databaseKey(catalog, database))
-		out = make([]TableMetadata, 0, len(tables))
-
-		for _, t := range tables {
-			if re != nil && !re.MatchString(t.Name) {
-				continue
-			}
-
-			cp := *t
-			cp.Parameters = maps.Clone(t.Parameters)
-			cp.Columns = append([]Column(nil), t.Columns...)
-			cp.PartitionKeys = append([]Column(nil), t.PartitionKeys...)
-			out = append(out, cp)
-		}
+		out = b.listLocalTables(catalog, database, re)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -193,4 +174,42 @@ func glueTableToAthena(catalog, database string, gt *GlueTable) *TableMetadata {
 		PartitionKeys: append([]Column(nil), gt.PartitionKeys...),
 		CreateTime:    gt.CreateTime,
 	}
+}
+
+func (b *InMemoryBackend) listGlueTables(catalog, database string, re *regexp.Regexp) ([]TableMetadata, error) {
+	gts, err := b.glueSource.GetTables(database)
+	if err != nil {
+		return nil, fmt.Errorf("%w: database %q not found in catalog %q", ErrMetadata, database, catalog)
+	}
+
+	var out []TableMetadata
+
+	for _, gt := range gts {
+		if re != nil && !re.MatchString(gt.Name) {
+			continue
+		}
+
+		out = append(out, *glueTableToAthena(catalog, database, gt))
+	}
+
+	return out, nil
+}
+
+func (b *InMemoryBackend) listLocalTables(catalog, database string, re *regexp.Regexp) []TableMetadata {
+	tables := b.tablesByDatabase.Get(databaseKey(catalog, database))
+	out := make([]TableMetadata, 0, len(tables))
+
+	for _, t := range tables {
+		if re != nil && !re.MatchString(t.Name) {
+			continue
+		}
+
+		cp := *t
+		cp.Parameters = maps.Clone(t.Parameters)
+		cp.Columns = append([]Column(nil), t.Columns...)
+		cp.PartitionKeys = append([]Column(nil), t.PartitionKeys...)
+		out = append(out, cp)
+	}
+
+	return out
 }

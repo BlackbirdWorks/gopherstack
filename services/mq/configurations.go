@@ -105,7 +105,7 @@ func (b *InMemoryBackend) CreateConfiguration(
 		}
 	}
 
-	id := "c-" + uuid.NewString()[:8]
+	id := "c-" + uuid.NewString()
 	configArn := arn.Build("mq", b.region, b.accountID, "configuration:"+id)
 	now := time.Now().UTC().Format(time.RFC3339)
 

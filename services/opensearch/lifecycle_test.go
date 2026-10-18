@@ -24,7 +24,7 @@ func newLifecycleBackend(t *testing.T) *opensearch.InMemoryBackend {
 
 // TestDomainProcessingWindow_Create asserts that after CreateDomain a domain is
 // observably in a Creating/Processing window, and settles to Active once the
-// window elapses. This is the SDK-waiter-observable transition parity.md flags.
+// window elapses. This is the SDK-waiter-observable transition docs/history/parity.md flags.
 func TestDomainProcessingWindow_Create(t *testing.T) {
 	t.Parallel()
 

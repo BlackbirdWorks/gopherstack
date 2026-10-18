@@ -2,7 +2,7 @@
 # PARITY MANIFEST — B TO A PASS.
 # services/resiliencehub/ was already built (63/63 operations routed, real
 # backend state, persisted via InMemoryBackend.Snapshot/Restore, wired into
-# cli.go). This pass (1) added the SDK-driven integration suite that was the
+# internal/app/cli.go). This pass (1) added the SDK-driven integration suite that was the
 # B grade's sole blocker (parity-principles rule 3: unit tests are not parity
 # proof) and (2) closed the one genuinely-buildable gap the pre-implementation
 # audit identified: ResolveAppVersionResources now performs real cross-service
@@ -95,7 +95,7 @@ ops:
   UpdateResiliencyPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "policies.go; partial-update semantics"}
 families:
   route-matcher: {status: ok, note: "handler_routes.go's flat map[string]routeEntry keyed by \"METHOD firstPathSegment\" -- every op but the tags trio is a literal fixed-path POST/GET with no path parameters, so no segment-count branching is needed at all (unlike services/outposts). Split across 5 routesX() builders merged by mergeRoutes to stay under funlen, a lookup-table split not a logic split."}
-  tagging: {status: ok, note: "TagResource/UntagResource/ListTagsForResource wired into cli.go's wireResourceGroupsTagging via wireTaggingResilienceHub, the 32nd service. App/ResiliencyPolicy/AppAssessment share one ARN-keyed tag store (tagging.go's resolveTaggableLocked); resourceTypeFromARN derives resiliencehub:app / resiliencehub:resiliency-policy / resiliencehub:app-assessment per-ARN (three-kind case, one more than Outposts' two)."}
+  tagging: {status: ok, note: "TagResource/UntagResource/ListTagsForResource wired into internal/app/cli.go's wireResourceGroupsTagging via wireTaggingResilienceHub, the 32nd service. App/ResiliencyPolicy/AppAssessment share one ARN-keyed tag store (tagging.go's resolveTaggableLocked); resourceTypeFromARN derives resiliencehub:app / resiliencehub:resiliency-policy / resiliencehub:app-assessment per-ARN (three-kind case, one more than Outposts' two)."}
   cross-service-resolution: {status: ok, note: "cross_service.go, added this pass, following services/grafana's/services/mgn's SetAppConfig/siblingServices/Provider.Init(ctx.Config) pattern. ResolveAppVersionResources' resolveMappingsLocked resolves CfnStack mappings against services/cloudformation.DescribeStackResources, ResourceGroup mappings against services/resourcegroups.ListGroupResources, and EKS mappings against services/eks.DescribeCluster -- real discovered PhysicalResource entries, not fabricated. Verified by TestIntegration_ResilienceHub_ResourceMappingResolution's 4 subtests (cfn_stack/resource_group/eks_cluster/app_registry_app_stays_unresolved), each setting up real sibling-service state via its own SDK client."}
 gaps: []
 items_still_open: []
@@ -554,9 +554,9 @@ confidence scores for.
 
 Yes — `TagResource`/`UntagResource`/`ListTagsForResource` are real ops
 (`/tags/{resourceArn}`, confirmed above), so this belongs in
-`wireResourceGroupsTagging` in `cli.go` (currently wires 30 services,
-`cli.go:5348`, most recently `wireTaggingGrafana(bk, byName["Grafana"])` at
-`cli.go:5397`). Taggable resource types per the SDK's own doc comments
+`wireResourceGroupsTagging` in `internal/app/cli.go` (currently wires 30 services,
+`internal/app/cli.go:5348`, most recently `wireTaggingGrafana(bk, byName["Grafana"])` at
+`internal/app/cli.go:5397`). Taggable resource types per the SDK's own doc comments
 (repeated verbatim on every ARN field in `types/types.go`): apps
 (`arn:{partition}:resiliencehub:{region}:{account}:app/{app-id}`),
 resiliency policies (`.../resiliency-policy/{policy-id}`), and app
@@ -565,7 +565,7 @@ map[string]string` fields and would need their own
 `wireTaggingResilienceHub`-style function following the `wireTaggingGrafana`
 model — multiple ARN resource kinds under one service ARN namespace
 (`resiliencehub`), same shape as DocDB/Neptune/RDS all sharing `"rds"`
-(`cli.go:5375-5379`). **ARN namespace is `resiliencehub` itself** (not a
+(`internal/app/cli.go:5375-5379`). **ARN namespace is `resiliencehub` itself** (not a
 divergent name like `stepfunctions`→`states` or `efs`→`elasticfilesystem`) —
 this is directly readable from the SDK's own generated doc comments on every
 ARN-bearing field, not inferred.
@@ -692,7 +692,7 @@ AppAssessment as a real state machine (`Pending`->`InProgress`->`Success` via
 async-transition pattern), RecommendationTemplate CRUD, the full resource-
 grouping-recommendation task/accept/reject state machine, MetricsExport, and
 full tag support for App/ResiliencyPolicy/AppAssessment wired into
-`resourcegroupstaggingapi` (`cli.go`'s `wireTaggingResilienceHub`, the 32nd
+`resourcegroupstaggingapi` (`internal/app/cli.go`'s `wireTaggingResilienceHub`, the 32nd
 tagging-wired service). Per the honest-gap posture this service's whole
 product category demands (see `gaps:` above), every proprietary
 scoring/ML/curated-recommendation output is either a documented placeholder

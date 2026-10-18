@@ -44,7 +44,7 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 	_, dlqName := parseQueueARNOrURL(pol.DeadLetterTargetArn)
 
 	// DLQ must reside in the same region as the source queue (AWS rule).
-	dlq, exists := backend.lookupQueueByName(q.Region, dlqName)
+	dlq, exists := backend.lookupQueueByName(q.scope(), dlqName)
 	if !exists {
 		return &InvalidParameterError{
 			Message: fmt.Sprintf(

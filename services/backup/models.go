@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -387,19 +388,20 @@ type RecoveryPoint struct {
 	CompletionDate            *time.Time           `json:"completionDate,omitempty"`
 	Lifecycle                 *Lifecycle           `json:"lifecycle,omitempty"`
 	CalculatedLifecycle       *CalculatedLifecycle `json:"calculatedLifecycle,omitempty"`
-	RecoveryPointArn          string               `json:"recoveryPointArn"`
+	EncryptionKeyArn          string               `json:"encryptionKeyArn,omitempty"`
+	IAMRoleArn                string               `json:"iamRoleArn,omitempty"`
 	BackupVaultName           string               `json:"backupVaultName"`
 	BackupVaultArn            string               `json:"backupVaultArn"`
 	ResourceArn               string               `json:"resourceArn,omitempty"`
 	ResourceType              string               `json:"resourceType,omitempty"`
 	ResourceName              string               `json:"resourceName,omitempty"`
-	IAMRoleArn                string               `json:"iamRoleArn,omitempty"`
+	RecoveryPointArn          string               `json:"recoveryPointArn"`
 	Status                    string               `json:"status"`
 	StorageClass              string               `json:"storageClass,omitempty"`
-	EncryptionKeyArn          string               `json:"encryptionKeyArn,omitempty"`
+	SourceBackupVaultArn      string               `json:"sourceBackupVaultArn,omitempty"`
 	ParentRecoveryPointArn    string               `json:"parentRecoveryPointArn,omitempty"`
 	CompositeMemberIdentifier string               `json:"compositeMemberIdentifier,omitempty"`
-	SourceBackupVaultArn      string               `json:"sourceBackupVaultArn,omitempty"`
+	Snapshot                  json.RawMessage      `json:"snapshot,omitempty"`
 	BackupSizeInBytes         int64                `json:"backupSizeInBytes,omitempty"`
 	IsEncrypted               bool                 `json:"isEncrypted,omitempty"`
 }
@@ -408,6 +410,8 @@ type RecoveryPoint struct {
 type CopyJob struct {
 	CreationDate                time.Time  `json:"creationDate"`
 	CompletionDate              *time.Time `json:"completionDate,omitempty"`
+	SettleAt                    *time.Time `json:"settleAt,omitempty"`
+	Lifecycle                   *Lifecycle `json:"lifecycle,omitempty"`
 	CopyJobID                   string     `json:"copyJobId"`
 	SourceBackupVaultArn        string     `json:"sourceBackupVaultArn,omitempty"`
 	SourceRecoveryPointArn      string     `json:"sourceRecoveryPointArn,omitempty"`
@@ -463,54 +467,58 @@ type VaultNotificationConfig struct {
 // store_setup.go. A handful of maps remain plain map[string]string because
 // their values are not *T (mirroring services/ses's "policies" precedent).
 type InMemoryBackend struct {
+	globalSettingsLastUpdate       time.Time
 	s3                             S3Backend
-	regionSettings                 *RegionSettings
+	objects                        ObjectStore
+	copyJobs                       *store.Table[CopyJob]
+	vaultNotifications             *store.Table[VaultNotificationConfig]
 	mu                             *lockmetrics.RWMutex
 	registry                       *store.Registry
 	vaults                         *store.Table[Vault]
 	plans                          *store.Table[Plan]
 	deletedPlans                   *store.Table[DeletedPlan]
 	jobs                           *store.Table[Job]
-	selections                     *store.Table[Selection] // composite key: planID#selectionID
-	selectionsByPlan               *store.Index[Selection] // grouped by BackupPlanID
+	selections                     *store.Table[Selection]
+	selectionsByPlan               *store.Index[Selection]
 	frameworks                     *store.Table[Framework]
 	legalHolds                     *store.Table[LegalHold]
 	reportPlans                    *store.Table[ReportPlan]
 	restoreAccessVaults            *store.Table[RestoreAccessVault]
 	restoreTestingPlans            *store.Table[RestoreTestingPlan]
-	restoreTestingSelections       *store.Table[RestoreTestingSelection] // composite key: planName#selectionName
-	restoreTestingSelectionsByPlan *store.Index[RestoreTestingSelection] // grouped by RestoreTestingPlanName
-	recoveryPoints                 *store.Table[RecoveryPoint]           // composite key: vaultName#rpArn
-	recoveryPointsByVault          *store.Index[RecoveryPoint]           // grouped by BackupVaultName
-	copyJobs                       *store.Table[CopyJob]
-	vaultAccessPolicies            *store.Table[VaultAccessPolicy]
+	restoreTestingSelections       *store.Table[RestoreTestingSelection]
+	restoreTestingSelectionsByPlan *store.Index[RestoreTestingSelection]
 	vaultLockConfigs               *store.Table[VaultLockConfig]
-	vaultNotifications             *store.Table[VaultNotificationConfig]
-	mpaApprovals                   map[string]string // vaultName → mpaApprovalTeamArn
-	vaultARNIndex                  map[string]string // ARN → vault name
-	restoreAccessVaultARNIndex     map[string]string // ARN → restore access vault name
-	planARNIndex                   map[string]string // ARN → plan name
-	planIDIndex                    map[string]string // plan ID → plan name
-	frameworkARNIndex              map[string]string // ARN → framework name
-	reportPlanARNIndex             map[string]string // ARN → report plan name
+	recoveryPointsByVault          *store.Index[RecoveryPoint]
+	engines                        map[string]resourceEngine
+	regionSettings                 *RegionSettings
+	vaultAccessPolicies            *store.Table[VaultAccessPolicy]
+	recoveryPoints                 *store.Table[RecoveryPoint]
+	mpaApprovals                   map[string]string
+	vaultARNIndex                  map[string]string
+	restoreAccessVaultARNIndex     map[string]string
+	planARNIndex                   map[string]string
+	planIDIndex                    map[string]string
+	frameworkARNIndex              map[string]string
+	reportPlanARNIndex             map[string]string
 	restoreJobs                    *store.Table[RestoreJob]
 	reportJobs                     *store.Table[ReportJob]
 	scanJobs                       *store.Table[ScanJob]
 	tieringConfigs                 *store.Table[TieringConfiguration]
 	protectedResources             *store.Table[ProtectedResource]
 	backupAccessPoints             *store.Table[AccessPoint]
-	backupAccessPointsByRecovery   *store.Index[AccessPoint] // grouped by RecoveryPointArn
-	backupAccessPointsByResource   *store.Index[AccessPoint] // grouped by ResourceArn
+	backupAccessPointsByRecovery   *store.Index[AccessPoint]
+	backupAccessPointsByResource   *store.Index[AccessPoint]
 	globalSettings                 map[string]string
-	recoveryPointIndexStatus       map[string]string // vaultName:rpArn → index status
-	globalSettingsLastUpdate       time.Time
+	recoveryPointIndexStatus       map[string]string
 	accountID                      string
 	region                         string
+	lifecycleDelay                 time.Duration
 }
 
 // RestoreJob represents an AWS Backup restore job.
 type RestoreJob struct {
 	CompletionDate   *time.Time        `json:"completionDate,omitempty"`
+	SettleAt         *time.Time        `json:"settleAt,omitempty"`
 	Metadata         map[string]string `json:"metadata,omitempty"`
 	StartTime        time.Time         `json:"startTime"`
 	RestoreJobID     string            `json:"restoreJobId"`
@@ -537,11 +545,20 @@ type RestoreJob struct {
 
 // ReportJob represents an AWS Backup report job.
 type ReportJob struct {
-	CreationTime   time.Time  `json:"creationTime"`
-	CompletionTime *time.Time `json:"completionTime,omitempty"`
-	ReportJobID    string     `json:"reportJobId"`
-	ReportPlanArn  string     `json:"reportPlanArn"`
-	Status         string     `json:"status"`
+	CreationTime      time.Time          `json:"creationTime"`
+	CompletionTime    *time.Time         `json:"completionTime,omitempty"`
+	ReportDestination *ReportDestination `json:"reportDestination,omitempty"`
+	ReportJobID       string             `json:"reportJobId"`
+	ReportPlanArn     string             `json:"reportPlanArn"`
+	ReportTemplate    string             `json:"reportTemplate,omitempty"`
+	Status            string             `json:"status"`
+	StatusMessage     string             `json:"statusMessage,omitempty"`
+}
+
+// ReportDestination is where a completed report job delivered its files.
+type ReportDestination struct {
+	S3BucketName string   `json:"s3BucketName"`
+	S3Keys       []string `json:"s3Keys,omitempty"`
 }
 
 // ScanJob represents an AWS Backup restore testing scan job.

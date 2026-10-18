@@ -63,7 +63,7 @@ func identKey(expr ast.Expr, sentinels map[string]bool) (string, bool) {
 // scan read" would make reachSet.Determined true almost unconditionally --
 // exactly backwards from what it exists to gate.
 func buildGuardIndex(idx *pkgIndex) (map[token.Pos]guard, map[string]bool) {
-	out := map[token.Pos]guard{}
+	out := make(map[token.Pos]guard)
 	mapperNames := map[string]bool{}
 
 	visit := func(name string, body *ast.BlockStmt) {

@@ -89,6 +89,9 @@ families:
 gaps: []
 items_still_open:
   - "UNVERIFIABLE: OrderableDBInstanceOption.SupportedNetworkTypes stays empty; the pinned SDK states no per-instance-class network type support."
+  - "--neptune-engine=docker: IAM database authentication (SigV4 on the Gremlin endpoint) is not enforced; the container accepts unauthenticated requests whatever EnableIAMDatabaseAuthentication says."
+  - "--neptune-engine=docker: only Gremlin (WebSocket /gremlin) is served; openCypher and SPARQL need Neptune's HTTP endpoints, which the stock tinkerpop/gremlin-server image does not provide."
+  - "--neptune-engine=docker: graph data is not captured by cluster snapshots or persistence; restored and relaunched clusters start with an empty graph. The writer and reader endpoints are the same host:port."
 structural_gaps:
   - "DescribeDBClusterSnapshots IncludePublic/IncludeShared add other accounts' snapshots; single-account emulator, so there are none to add (SnapshotType=public/shared are evaluated)."
   - "DeleteDBInstance SkipFinalSnapshot=false creates no snapshot: Neptune has no DB-instance snapshot resource in the pinned SDK."
@@ -99,6 +102,10 @@ leaks: {status: clean, note: "No goroutines, timers, or janitors in this service
 ---
 
 ## Notes
+
+### 2026-10-17 opt-in Gremlin engine (bd gopherstack-cefu7.55)
+
+`--neptune-engine docker` (`NEPTUNE_ENGINE`) gives each cluster a real `tinkerpop/gremlin-server` container. CreateDBCluster, RestoreDBClusterFromSnapshot and RestoreDBClusterToPointInTime start it and hold the cluster in `creating` until a Gremlin `g.V().count()` over WebSocket succeeds; Endpoint, ReaderEndpoint, Port and every member instance then report the published host (`NEPTUNE_HOST`, default `127.0.0.1`) and port. Stop/Start stop and restart the container (`stopping`/`starting` states), Delete/Reset/Close/Shutdown remove it, and a persistence Restore relaunches an empty container per cluster. Image mapping is approximate: engine 1.0/1.1 use TinkerPop 3.4.13, 1.2 uses 3.5.7, 1.3 uses 3.6.8, later versions use 3.7.3. Stub mode is unchanged. Remaining differences are listed in `items_still_open`.
 
 ### 2026-09-30 items_still_open burn-down
 

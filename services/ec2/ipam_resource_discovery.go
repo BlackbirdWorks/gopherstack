@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // ---- IPAM Resource Discoveries (user-created) ----
@@ -17,7 +17,7 @@ func (b *InMemoryBackend) CreateIpamResourceDiscovery(
 	b.mu.Lock("CreateIpamResourceDiscovery")
 	defer b.mu.Unlock()
 
-	id := "ipam-res-disco-" + uuid.New().String()[:8]
+	id := awsid.New("ipam-res-disco-")
 	d := &IpamResourceDiscovery{
 		IpamResourceDiscoveryID: id,
 		IpamResourceDiscoveryARN: "arn:aws:ec2:" + b.Region + ":" + b.AccountID +
@@ -95,7 +95,7 @@ func (b *InMemoryBackend) AssociateIpamResourceDiscovery(
 		return nil, fmt.Errorf("%w: %s", ErrIpamResourceDiscoveryNotFound, discoveryID)
 	}
 
-	assocID := "ipam-res-disco-assoc-" + uuid.New().String()[:8]
+	assocID := awsid.New("ipam-res-disco-assoc-")
 	assoc := &IpamResourceDiscoveryAssociation{
 		IpamResourceDiscoveryAssociationID: assocID,
 		IpamID:                             ipamID,

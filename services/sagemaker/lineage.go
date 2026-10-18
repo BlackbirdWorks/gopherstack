@@ -917,19 +917,19 @@ func (b *InMemoryBackend) lifecycleEpoch() time.Time {
 	return time.Unix(0, 0).UTC()
 }
 
-// GetLineageGroupPolicy returns the resource policy attached to a lineage group.
-// nameOrArn may be either the lineage group's name or its ARN. No
-// policy-attachment operation exists in this batch, so a lineage group never
-// has a policy attached and this always reports not-found for a valid group.
-func (b *InMemoryBackend) GetLineageGroupPolicy(ctx context.Context, nameOrArn string) (string, error) {
+// GetLineageGroupPolicyError resolves nameOrArn (name or ARN) and returns the
+// error GetLineageGroupPolicy must surface. SageMaker has no operation that
+// attaches a lineage group policy, so a valid group always has none; there is
+// deliberately no success value to return.
+func (b *InMemoryBackend) GetLineageGroupPolicyError(ctx context.Context, nameOrArn string) error {
 	region := getRegion(ctx, b.region)
 	lineageGroupARN := arn.Build("sagemaker", region, b.accountID, "lineage-group/"+defaultLineageGroupName)
 
 	if nameOrArn != defaultLineageGroupName && nameOrArn != lineageGroupARN {
-		return "", fmt.Errorf("%w: lineage group %q not found", ErrLineageGroupNotFound, nameOrArn)
+		return fmt.Errorf("%w: lineage group %q not found", ErrLineageGroupNotFound, nameOrArn)
 	}
 
-	return "", fmt.Errorf("%w: lineage group %q has no resource policy attached",
+	return fmt.Errorf("%w: lineage group %q has no resource policy attached",
 		ErrLineageGroupPolicyNotFound, nameOrArn)
 }
 

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -198,7 +199,7 @@ func TestCreateOpsAcceptListShapedTags(t *testing.T) {
 			name:   "policy",
 			method: http.MethodPost,
 			path:   "/policies/wire-policy",
-			body:   map[string]any{"tags": []map[string]string{envTag()}, "policyDocument": "{}"},
+			body:   map[string]any{"tags": []map[string]string{envTag()}, "policyDocument": validPolicyDoc},
 		},
 		{
 			name:   "thing group",
@@ -369,7 +370,7 @@ func TestCreateThenListTagsForResourceRoundTrip(t *testing.T) {
 			name:     "policy",
 			method:   http.MethodPost,
 			path:     "/policies/rt-policy",
-			body:     `{"policyDocument":"{}","tags":[{"Key":"env","Value":"prod"}]}`,
+			body:     `{"policyDocument":` + strconv.Quote(validPolicyDoc) + `,"tags":[{"Key":"env","Value":"prod"}]}`,
 			arnField: "policyArn",
 		},
 		{

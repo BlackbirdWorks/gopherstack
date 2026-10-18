@@ -216,7 +216,7 @@ func (b *InMemoryBackend) CreateDistributionTenant(
 		}
 	}
 
-	id := uuid.NewString()[:12]
+	id := "dt_" + generateIDOfLen(tenantIDRandLen)
 	now := time.Now().UTC().Format(time.RFC3339)
 	t := &DistributionTenant{
 		ID:               id,
@@ -627,7 +627,7 @@ func (b *InMemoryBackend) CreateInvalidationForTenant(
 
 	now := time.Now().UTC()
 	inv := &Invalidation{
-		ID:         uuid.NewString()[:12],
+		ID:         generateIDWithPrefix("I"),
 		Status:     statusInProgress,
 		CreateTime: now,
 		CallerRef:  callerRef,

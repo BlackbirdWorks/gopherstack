@@ -5,7 +5,7 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 func (b *InMemoryBackend) CreateCarrierGateway(vpcID string) (*CarrierGateway, error) {
@@ -16,7 +16,7 @@ func (b *InMemoryBackend) CreateCarrierGateway(vpcID string) (*CarrierGateway, e
 	b.mu.Lock("CreateCarrierGateway")
 	defer b.mu.Unlock()
 
-	id := "cagw-" + uuid.New().String()[:8]
+	id := awsid.New("cagw-")
 	gw := &CarrierGateway{
 		CarrierGatewayID: id,
 		VpcID:            vpcID,

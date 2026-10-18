@@ -20,11 +20,14 @@ for a in "$@"; do
 	esac
 done
 
-GOCACHE_DIR=$(go env GOCACHE 2>/dev/null || echo /mnt/fast/gocache)
-GOTMP_DIR=$(go env GOTMPDIR 2>/dev/null || echo /mnt/fast/gotmp)
+GOCACHE_DIR=$(go env GOCACHE 2>/dev/null || true)
+GOTMP_DIR=$(go env GOTMPDIR 2>/dev/null || true)
 SCRATCH_ROOT="${TMPDIR:-/tmp}/claude-$(id -u)"
-REPO=$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null || echo "$HOME/gopherstack")
-STRAY_CACHES=("$HOME/gocache-worker" "$HOME/.cache/go-build-lambda-task" "$HOME/gotmp-worker")
+REPO=$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null || pwd)
+STRAY_CACHES=()
+if [[ -n "${RESET_EXTRA_CACHE_DIRS:-}" ]]; then
+	IFS=: read -r -a STRAY_CACHES <<<"$RESET_EXTRA_CACHE_DIRS"
+fi
 
 if [[ $SOFT -eq 0 ]]; then
 	echo "== kill: gopherstack servers and test binaries"
@@ -51,30 +54,34 @@ if [[ $building -eq 1 && $FORCE -eq 0 ]]; then
 	echo "Go build active: only removing cache entries older than ${AGE_MIN}m (use --force to wipe)."
 fi
 
-before=$(df -h --output=avail "$GOCACHE_DIR" / | tail -2 | tr -s ' \n' ' ')
+before=$(df -h --output=avail "${GOCACHE_DIR:-/}" / | tail -2 | tr -s ' \n' ' ')
 
 echo "== Go build cache: $GOCACHE_DIR"
-if [[ ${#age_args[@]} -eq 0 ]]; then
+if [[ -z "$GOCACHE_DIR" ]]; then
+	echo "GOCACHE unset: skipped"
+elif [[ ${#age_args[@]} -eq 0 ]]; then
 	go clean -cache
 else
 	find "$GOCACHE_DIR" -type f "${age_args[@]}" -delete 2>/dev/null
 fi
 
-echo "== stale go-build temp dirs in $GOTMP_DIR"
-find "$GOTMP_DIR" "${TMPDIR:-/tmp}" -maxdepth 1 -name 'go-build*' -mmin "+$AGE_MIN" -exec rm -rf {} + 2>/dev/null
+echo "== stale go-build temp dirs in ${GOTMP_DIR:-<GOTMPDIR unset>}"
+if [[ -n "$GOTMP_DIR" ]]; then
+	find "$GOTMP_DIR" "${TMPDIR:-/tmp}" -maxdepth 1 -name 'go-build*' -mmin "+$AGE_MIN" -exec rm -rf {} + 2>/dev/null
+fi
 
 echo "== golangci-lint cache"
 golangci-lint cache clean >/dev/null 2>&1 || true
 
-echo "== stray agent caches"
+echo "== extra cache dirs (RESET_EXTRA_CACHE_DIRS)"
 for d in "${STRAY_CACHES[@]}"; do
 	[[ -d "$d" ]] && rm -rf "$d" && echo "removed $d"
 done
 
 echo "== this session's old task logs (> ${AGE_MIN}m)"
-find "$SCRATCH_ROOT" -path '*/tasks/*' -type f -mmin "+$AGE_MIN" -delete 2>/dev/null
+[[ -n "$SCRATCH_ROOT" ]] && find "$SCRATCH_ROOT" -path '*/tasks/*' -type f -mmin "+$AGE_MIN" -delete 2>/dev/null
 
-if [[ $OTHER_SCRATCH -eq 1 ]]; then
+if [[ $OTHER_SCRATCH -eq 1 && -n "$SCRATCH_ROOT" ]]; then
 	echo "== other sessions' scratch dirs untouched for > 1 day"
 	find "$SCRATCH_ROOT"/*/ -mindepth 1 -maxdepth 1 -type d -mtime +0 -exec rm -rf {} + 2>/dev/null
 fi
@@ -106,5 +113,5 @@ if command -v docker >/dev/null; then
 	docker volume prune -af >/dev/null && echo "unused volumes pruned"
 fi
 
-after=$(df -h --output=avail "$GOCACHE_DIR" / | tail -2 | tr -s ' \n' ' ')
+after=$(df -h --output=avail "${GOCACHE_DIR:-/}" / | tail -2 | tr -s ' \n' ' ')
 echo "avail before: $before | after: $after"

@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
 
@@ -121,7 +122,11 @@ func (a *sdkAdapter) invokeHTTP(ctx context.Context, call asl.SDKCall) (any, err
 		return nil, err
 	}
 
-	client := &http.Client{Timeout: httpTaskTimeout, CheckRedirect: redirectPolicy(creds.APIKeyName)}
+	client := &http.Client{
+		Timeout:       httpTaskTimeout,
+		Transport:     httpTaskTransport,
+		CheckRedirect: redirectPolicy(creds.APIKeyName),
+	}
 
 	req, err := buildHTTPRequest(ctx, client, spec, creds, call.Region)
 	if err != nil {
@@ -557,3 +562,5 @@ func httpOutput(resp *http.Response, data []byte) map[string]any {
 		"StatusText":   strings.TrimSpace(strings.TrimPrefix(resp.Status, strconv.Itoa(resp.StatusCode))),
 	}
 }
+
+var httpTaskTransport = httpclient.NewTransport() //nolint:gochecknoglobals // one pooled transport per service package

@@ -1,6 +1,8 @@
 package opensearch
 
 import (
+	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"maps"
@@ -594,7 +596,7 @@ func (b *InMemoryBackend) UpdateServerlessAccessPolicy(
 	_ = policyVersion
 	ap.LastModifiedDate = float64(time.Now().Unix())
 	// uuid suffix: UnixMilli alone collides across same-instant updates under synctest.
-	ap.PolicyVersion = fmt.Sprintf("v%d-%s", time.Now().UnixMilli(), uuid.NewString()[:8])
+	ap.PolicyVersion = newServerlessVersion()
 
 	cp := *ap
 
@@ -701,7 +703,7 @@ func (b *InMemoryBackend) UpdateServerlessSecurityConfig(
 	_ = configVersion
 	sc.LastModifiedDate = float64(time.Now().Unix())
 	// uuid suffix: UnixMilli alone collides across same-instant updates under synctest.
-	sc.ConfigVersion = fmt.Sprintf("v%d-%s", time.Now().UnixMilli(), uuid.NewString()[:8])
+	sc.ConfigVersion = newServerlessVersion()
 
 	cp := *sc
 
@@ -812,7 +814,7 @@ func (b *InMemoryBackend) UpdateServerlessEncryptionPolicy(
 	_ = policyVersion
 	ep.LastModifiedDate = float64(time.Now().Unix())
 	// uuid suffix: UnixMilli alone collides across same-instant updates under synctest.
-	ep.PolicyVersion = fmt.Sprintf("v%d-%s", time.Now().UnixMilli(), uuid.NewString()[:8])
+	ep.PolicyVersion = newServerlessVersion()
 
 	cp := *ep
 
@@ -990,4 +992,14 @@ func (b *InMemoryBackend) UntagServerlessResource(resourceArn string, tagKeys []
 	}
 
 	return nil
+}
+
+// newServerlessVersion returns an unpadded base64 "<millis>_<n>" token, the shape AOSS policy and config versions take.
+func newServerlessVersion() string {
+	const span = 1_000_000
+
+	u := uuid.New()
+	raw := fmt.Sprintf("%d_%06d", time.Now().UnixMilli(), binary.BigEndian.Uint32(u[:4])%span)
+
+	return base64.RawStdEncoding.EncodeToString([]byte(raw))
 }

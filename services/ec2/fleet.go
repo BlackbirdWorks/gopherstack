@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // FleetLaunchTemplateOverride mirrors FleetLaunchTemplateOverridesRequest
@@ -95,7 +95,7 @@ func (b *InMemoryBackend) CreateFleet(input FleetCreateInput) (*Fleet, []CreateF
 		excessPolicy = fleetExcessTerminationPolicy
 	}
 
-	id := "fleet-" + uuid.New().String()[:8]
+	id := awsid.New("fleet-")
 	f := &Fleet{
 		FleetID:                          id,
 		FleetState:                       SpotFleetStateActive,
@@ -389,7 +389,7 @@ func (b *InMemoryBackend) spawnFleetMemberInstanceLocked(
 	inst.PrivateIP = b.allocPrivateIPInSubnet(subnetID)
 
 	eniID := newENIID()
-	attachID := "eni-attach-" + uuid.New().String()[:8]
+	attachID := awsid.New("eni-attach-")
 	b.networkInterfaces.Put(&NetworkInterface{
 		ID:                  eniID,
 		SubnetID:            subnetID,

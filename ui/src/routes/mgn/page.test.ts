@@ -173,7 +173,7 @@ describe("MGN page", () => {
     });
   });
 
-  it("surfaces the documented CSV import schema and the cli.go wiring caveat on Import/Export", async () => {
+  it("surfaces the documented CSV import schema and the internal/app/cli.go wiring caveat on Import/Export", async () => {
     mockSend.mockResolvedValueOnce({ items: [] });
     render(MgnPage);
     await waitFor(() => screen.getByText("No source servers found"));

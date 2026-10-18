@@ -1411,7 +1411,7 @@ Gates (this pass, `services/quicksight/` only): `go build`, `go vet`,
 `go vet ./...` could not complete (build cache disk at 100%, an environment
 issue unrelated to this diff -- `dashboard` package failed with "no space
 left on device"); the only out-of-scope importer of this package
-(`cli.go`, root package) was vetted directly instead (`go vet .` -- clean),
+(`internal/app/cli.go`, root package) was vetted directly instead (`go vet .` -- clean),
 and no exported signature changed in this diff, so no caller outside this
 package could be affected regardless.
 

@@ -51,7 +51,7 @@ Proven by `TestStreamRetryAndOnFailureDestination`, `TestDynamoDBStreamOnFailure
 ## Notes (2026-10-03 — Amazon MQ event source mappings)
 
 `arn:aws:mq:` mappings resolve the broker through `MQBrokerResolver` and the `BASIC_AUTH`
-SourceAccessConfiguration secret through `MQSecretResolver` (both wired in `cli.go` to services/mq and
+SourceAccessConfiguration secret through `MQSecretResolver` (both wired in `internal/app/cli.go` to services/mq and
 services/secretsmanager). RabbitMQ uses github.com/rabbitmq/amqp091-go v1.15.0 (manual ack, prefetch =
 BatchSize, `VIRTUAL_HOST` source config, default `/`); ActiveMQ uses github.com/go-stomp/stomp/v3 v3.1.5
 (client-individual ack). Payloads follow https://docs.aws.amazon.com/lambda/latest/dg/with-mq.html: `aws:mq`
@@ -65,7 +65,7 @@ Proven by `TestMQWorkerBatching`, `TestMQEventPayloadShapes`, `TestMQSpecResolut
 ## Notes (2026-10-01 — MSK event source mappings)
 
 `arn:aws:kafka:` mappings resolve the cluster's bootstrap brokers through `MSKBrokerResolver`
-(wired in `cli.go` to `services/kafka`) and run the same franz-go worker with the documented
+(wired in `internal/app/cli.go` to `services/kafka`) and run the same franz-go worker with the documented
 `aws:kafka` payload (`eventSourceArn` = cluster ARN, `bootstrapServers` = real brokers). A cluster
 with no reachable broker (metadata-only, still CREATING, deleted) is not polled and warns once;
 the worker follows the cluster, restarting when its broker address changes. Proven by
@@ -327,7 +327,7 @@ ParallelizationFactor} — all pointer-ified, proven in
 
 ## 2026-10-03: resource-policy lookup by ARN under --enforce-iam
 
-- The cli.go resource-policy adapter split `arn:aws:lambda:...:function:<name>` on every colon and read `function` as the name, so a function's AddPermission policy was never found for an ARN resource. It now resolves `<name>[:<qualifier>]`; EventBridge, SNS, S3, CloudWatch Logs and IoT deliveries rely on it.
+- The internal/app/cli.go resource-policy adapter split `arn:aws:lambda:...:function:<name>` on every colon and read `function` as the name, so a function's AddPermission policy was never found for an ARN resource. It now resolves `<name>[:<qualifier>]`; EventBridge, SNS, S3, CloudWatch Logs and IoT deliveries rely on it.
 - InvocationType is a type alias (type InvocationType = string) so lambda backend satisfies sns.LambdaInvoker directly.
 - ARN-parsing anti-pattern "take last colon segment" recurs — watch for it elsewhere.
 - Trap: RemovePermission wire = DELETE /2015-03-31/functions/{name}/policy/{StatementId} (path, not query).
@@ -957,7 +957,7 @@ backend -- accepts every `ImageUri` unvalidated, matching this repo's convention
 for unwired cross-service checks and preserving every pre-existing test that
 creates an Image function with an arbitrary `ImageUri` like `"x"`.
 
-**Not wired up**: cli.go is out of scope for this pass (owned by a concurrent
+**Not wired up**: internal/app/cli.go is out of scope for this pass (owned by a concurrent
 agent). Wiring needs a `wireLambdaECR(lambdaReg, ecrReg service.Registerable)`
 function mirroring `wireLambdaS3`/`wireLambdaCWLogs`, plus an adapter type (e.g.
 `lambdaECRResolverAdapter`) whose `ResolveImage(imageURI string) bool` parses the
@@ -966,7 +966,7 @@ account/region/repository/tag-or-digest out of the ECR-style URI and calls
 []ImageIdentifier{...})`, returning `true` only on a nil error. No changes needed in
 services/ecr itself -- `DescribeImages` already returns `ErrRepositoryNotFound`/
 `ErrImageNotFound` for exactly this check. Call site: alongside the other
-`wireLambda*` calls in cli.go's service-wiring sequence.
+`wireLambda*` calls in internal/app/cli.go's service-wiring sequence.
 
 Regression tests (`ecr_resolver_test.go`): a fake `ECRResolver` proves both
 directions (unknown image rejected with `InvalidParameterValueException` and not

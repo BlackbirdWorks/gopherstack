@@ -25,7 +25,7 @@
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- ProductRestEndpointPage StatusException: failure statuses come from resolving the referenced REST API, which lives in services/apigateway and needs cli.go cross-wiring.
+- ProductRestEndpointPage StatusException: failure statuses come from resolving the referenced REST API, which lives in services/apigateway and needs internal/app/cli.go cross-wiring.
 
 ## More
 

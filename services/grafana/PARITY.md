@@ -86,7 +86,7 @@ after a simulated 100ms delay via `pkgs/worker`, mirroring `services/eks`'s
 service-account tokens with real expiry (`pkgs/awstime.Epoch` for the wire's epoch-seconds
 timestamp fields), licence association/disassociation, a many-to-many permissions grant
 table with real batch partial-failure semantics, and full tag support wired into
-`resourcegroupstaggingapi` (`cli.go`'s `wireTaggingGrafana`).
+`resourcegroupstaggingapi` (`internal/app/cli.go`'s `wireTaggingGrafana`).
 
 **File layout**: `models.go` (stored-state types) / `wire.go` + `wire_convert.go` (JSON wire
 shapes and their conversion to/from stored state) / `store.go` + `store_setup.go` (the
@@ -152,13 +152,13 @@ nothing to validate) — this emulator's implementation never attempts to return
 `cross_service.go` gives `InMemoryBackend` a `SetAppConfig(cfg any)` setter, called from
 `provider.go`'s `Provider.Init` with `ctx.Config` (the `*CLI`). It can't resolve sibling
 handlers *at* `Init` time: gopherstack constructs every service provider independently in one
-pass (`cli.go`'s `initIndependentServices`) and only wires each provider's own CLI-struct
+pass (`internal/app/cli.go`'s `initIndependentServices`) and only wires each provider's own CLI-struct
 field afterward, once every provider has returned — grafana's `Init` runs inside that first
 pass, before `iamHandler`/`ec2Handler`/etc. exist on the `*CLI`. Storing the `*CLI` pointer
 (matched structurally via a local `siblingServices` interface, so no import of the top-level
 package) and resolving `GetIAMHandler()` et al. *lazily*, on the first real request — well
 after startup has finished — sidesteps the ordering problem without a second, cross-service-
-aware init phase or any change to `cli.go`. The chaos fault store is the one exception: `cli.
+aware init phase or any change to `internal/app/cli.go`. The chaos fault store is the one exception: `cli.
 faultStore` is constructed before `initializeServices` runs, so `chaosFaultStore()` could
 resolve it eagerly too, but it shares the same lazy path for consistency.
 
@@ -178,7 +178,7 @@ InMemoryBackend.DescribeUser`/`DescribeGroup` resolves the grant's `User.Id` aga
 ## Chaos-driven failure states — mechanism (this pass)
 
 `pkgs/chaos`'s `Middleware` is wired generically into every service's request path
-(`cli.go`'s `registry.Use(chaos.Middleware(faultStore))`) and already gave `AccessDeniedException`/
+(`internal/app/cli.go`'s `registry.Use(chaos.Middleware(faultStore))`) and already gave `AccessDeniedException`/
 `ThrottlingException` a real trigger path with zero grafana-specific code — a chaos fault rule
 targeting a real operation name (e.g. `CreateWorkspace`) short-circuits the HTTP request before
 this handler ever runs. That mechanism can't reach the `*_FAILED`/`DEGRADED` statuses, though:

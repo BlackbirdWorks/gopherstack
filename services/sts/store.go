@@ -79,6 +79,12 @@ type AccountSettingsLookup interface {
 	OutboundWebIdentityFederationEnabled() bool
 }
 
+// accountScopedSettingsLookup is an optional AccountSettingsLookup extension
+// reporting the setting for a specific account.
+type accountScopedSettingsLookup interface {
+	OutboundWebIdentityFederationEnabledIn(account string) bool
+}
+
 // RoleMeta carries the role properties that STS needs during AssumeRole.
 type RoleMeta struct {
 	// TrustPolicy is the raw JSON of the role's trust (assume-role) policy document.

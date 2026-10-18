@@ -5,6 +5,12 @@ description: Add a new AWS operation to an existing gopherstack service, or fini
 
 # gopherstack-service-op
 
+## Hard rule: shapes from the SDK, not memory
+
+Before writing any wire struct, field name, error code, or timestamp format, run the
+gopherstack-sdk-shape skill for that op and read its output. Run `scripts/dev/svcops.sh <svc>`
+before and after to confirm the op's status. If missing on your branch, it's in PR #2493 / main after merge.
+
 ## No-stub rule first
 
 Never ship a stub: no-op handlers, `&StubOutput{}`, fabricated IDs, or an op
@@ -29,7 +35,7 @@ pressure; check your own diff against it before calling the op done.
 | `wire_convert.go` | toXWire/fromXWire mappers |
 | `errors.go` | sentinel errors, `apiError` struct, constructors (notFoundError/conflictError/validationError/quotaError) |
 | `consts.go` | path-segment + JSON-key literals reused 3+ times |
-| `provider.go` | Provider implementing `service.Provider` (Name, Init) — what `cli.go` registers |
+| `provider.go` | Provider implementing `service.Provider` (Name, Init) — what `internal/app/cli.go` registers |
 | `persistence.go` | `backendSnapshot` struct + Snapshot/Restore |
 | `tags.go` / `handler_tags.go` | TagResource/UntagResource/ListTagsForResource/TaggedResources |
 | `cross_service.go` | lazy sibling-service lookups via a structurally-matched `siblingServices` interface |
@@ -149,7 +155,7 @@ If the resource is taggable, use the same `tags.Tags` field its other ops
 already use, created via `tags.New("<service>.<resource>.<id>.tags")`.
 `pkgs/tags` has its own internal locking, separate from `b.mu`.
 `handler_tags.go` is the thin HTTP wrapper; `TaggedResources()` feeds the
-resourcegroupstaggingapi cross-service integration (wired in `cli.go`, e.g.
+resourcegroupstaggingapi cross-service integration (wired in `internal/app/cli.go`, e.g.
 `wireTaggingGrafana`).
 
 ## Wire shapes

@@ -82,7 +82,7 @@ func (b *InMemoryBackend) deliverToSplunk(
 
 	deadline := time.Now().Add(maxRetry)
 	backoff := 1 * time.Second
-	client := &http.Client{Timeout: splunkHECTimeout}
+	client := &http.Client{Timeout: splunkHECTimeout, Transport: deliveryTransport}
 
 	for {
 		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, hecURL, bytes.NewReader(body))

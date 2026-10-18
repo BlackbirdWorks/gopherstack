@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // AssociateResolverRule associates a resolver rule with a VPC.
@@ -38,7 +38,7 @@ func (b *InMemoryBackend) AssociateResolverRule(
 		}
 	}
 
-	id := "rslvr-rrassoc-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-rrassoc-")
 	assoc := &ResolverRuleAssociation{
 		ID:             id,
 		Name:           name,

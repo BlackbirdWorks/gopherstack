@@ -131,7 +131,7 @@ accessors use `RLock`/`RUnlock`. No behavioural change — `Lock`/`Unlock` staye
 write-exclusive everywhere a map mutation (session store/delete) occurs.
 
 ### Not touched (shared files / out of scope)
-`cli.go`'s `stsBk.SetRoleLookup(...)` / `stsBk.SetOIDCLookup(...)` wiring was
+`internal/app/cli.go`'s `stsBk.SetRoleLookup(...)` / `stsBk.SetOIDCLookup(...)` wiring was
 read but not modified — the `RoleLookup`/`OIDCLookup` interfaces in
 `backend.go` are unchanged (additive-safe; no signature changes were needed).
 
@@ -277,13 +277,13 @@ Fixed by:
    value passed to `SetOIDCLookup` also implements `AccountSettingsLookup`
    (the real IAM backend now does), it's captured as
    `b.accountSettingsLookup` too. This was a deliberate design constraint:
-   this session was expressly forbidden from editing `cli.go`, and `grep`
-   confirms `cli.go`'s `stsBk.SetOIDCLookup(iamBk)` (in `wireIAMToSTS`) is the
+   this session was expressly forbidden from editing `internal/app/cli.go`, and `grep`
+   confirms `internal/app/cli.go`'s `stsBk.SetOIDCLookup(iamBk)` (in `wireIAMToSTS`) is the
    **only** call site anywhere in the codebase that cross-wires IAM into STS
    — so a conventional new `SetAccountSettingsLookup` call would have
-   required a `cli.go` edit. Piggybacking the capability check onto the
-   existing call means `cli.go` needed zero changes (verified:
-   `git diff --stat cli.go` is empty) while still giving STS a live,
+   required a `internal/app/cli.go` edit. Piggybacking the capability check onto the
+   existing call means `internal/app/cli.go` needed zero changes (verified:
+   `git diff --stat internal/app/cli.go` is empty) while still giving STS a live,
    correctly-defaulted link to IAM's real state.
 3. `services/sts/web_identity.go`: `GetWebIdentityToken` now calls
    `checkOutboundWebIdentityFederationEnabled()` first, returning the new
@@ -296,7 +296,7 @@ Fixed by:
    convention for the same reason. IAM's default (`true`/enabled) was chosen
    specifically so `test/integration/sts_test.go`'s
    `TestIntegration_STS_GetWebIdentityToken` (which calls `GetWebIdentityToken`
-   with no setup) keeps passing against the full `cli.go`-wired stack —
+   with no setup) keeps passing against the full `internal/app/cli.go`-wired stack —
    defaulting to AWS's real off-by-default posture would have broken that
    test and every other zero-setup caller.
 
@@ -607,13 +607,13 @@ AssumeRole against an existing role whose MaxSessionDuration is unset now caps D
 
 ## 2026-10-11 deep realism pass (end-to-end IaC flows)
 
-- GetCallerIdentity resolves long-term IAM user access keys through the wired `UserLookup` (user ARN, account from the ARN; UserId via the optional `UserIDLookup`, falls back to the key id). Needs `cli.go` `iamRoleLookupAdapter` to forward `GetUserIDByAccessKeyID` for the AIDA id.
+- GetCallerIdentity resolves long-term IAM user access keys through the wired `UserLookup` (user ARN, account from the ARN; UserId via the optional `UserIDLookup`, falls back to the key id). Needs `internal/app/cli.go` `iamRoleLookupAdapter` to forward `GetUserIDByAccessKeyID` for the AIDA id.
 - GetSessionToken and GetFederationToken called with temporary (session) credentials return AccessDenied ("Cannot call ... with session credentials").
 - Kept lenient: AssumeRole of an unknown same-account role still succeeds (in-repo callers/fixtures assume roles that are never created); role-chaining 1h cap and role MaxSessionDuration already enforced.
 
 ## 2026-10-11 IRSA web-identity verification (gopherstack-cefu7.30)
 
-- Tokens whose issuer an `IssuerKeyResolver` hosts (EKS cluster issuers, wired in `cli_eks_irsa.go`) are RS256-signature-checked; unknown `oidc.eks.*.amazonaws.com/id/*` issuers are rejected. Other issuers keep the permissive no-signature behavior (the emulator has no network path to fetch their JWKS).
+- Tokens whose issuer an `IssuerKeyResolver` hosts (EKS cluster issuers, wired in `internal/app/eks_irsa.go`) are RS256-signature-checked; unknown `oidc.eks.*.amazonaws.com/id/*` issuers are rejected. Other issuers keep the permissive no-signature behavior (the emulator has no network path to fetch their JWKS).
 - The token audience must be in the IAM OIDC provider's client-ID list when that list is non-empty (`Incorrect token audience`); an unregistered provider is now `InvalidIdentityToken` ("No OpenIDConnect provider found in your account for ..."), not `AccessDenied`.
 - Trust-policy conditions `<issuer host/path>:sub` and `:aud` (StringEquals/StringLike, case-sensitive values) and the `Federated` provider ARN are evaluated as before; `:aud` is the client ID the token matched.
 - Errors: tampered/foreign signature, alg other than RS256, unknown cluster issuer, bad audience, unregistered provider -> `InvalidIdentityToken`; expired -> `ExpiredTokenException`; trust-policy mismatch -> `AccessDenied`. `IDPRejectedClaim` is still not produced (it maps to `AccessDenied`).

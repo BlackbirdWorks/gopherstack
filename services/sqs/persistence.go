@@ -36,6 +36,7 @@ type queueSnapshot struct {
 	Name                string                           `json:"name"`
 	URL                 string                           `json:"url"`
 	Region              string                           `json:"region,omitempty"`
+	AccountID           string                           `json:"accountID,omitempty"`
 	Messages            []*Message                       `json:"messages"`
 	InFlightMessages    []*InFlightMessage               `json:"inFlightMessages"`
 	// FifoSeqCounter is the last-issued FIFO SequenceNumber counter. Persisting
@@ -55,7 +56,7 @@ type queueSnapshot struct {
 // DTO table built inside Snapshot/Restore. It mirrors queueTableKey so the
 // on-disk table is keyed identically to the live b.queues table.
 func queueSnapshotKey(qs *queueSnapshot) string {
-	return queueKey(qs.Region, qs.Name)
+	return queueKey(scopeOf(qs.AccountID, qs.Region), qs.Name)
 }
 
 // moveTaskSnapshot captures the serialisable state of a completed/cancelled/failed move task.
@@ -129,6 +130,7 @@ func marshalQueuesLocked(queues []*Queue) (json.RawMessage, error) {
 			Name:                  q.Name,
 			URL:                   q.URL,
 			Region:                q.Region,
+			AccountID:             q.AccountID,
 			MaxReceiveCount:       q.MaxReceiveCount,
 			IsFIFO:                q.IsFIFO,
 			FifoSeqCounter:        q.fifoSeqCounter,
@@ -383,6 +385,7 @@ func restoreQueueFromSnapshot(qs *queueSnapshot, region string, now time.Time) *
 		Name:                qs.Name,
 		URL:                 qs.URL,
 		Region:              region,
+		AccountID:           qs.AccountID,
 		MaxReceiveCount:     qs.MaxReceiveCount,
 		IsFIFO:              qs.IsFIFO,
 		notify:              make(chan struct{}),

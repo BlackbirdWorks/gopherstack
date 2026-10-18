@@ -11,6 +11,7 @@ import (
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		registry:                   store.NewRegistry(),
+		engines:                    make(map[string]resourceEngine),
 		mpaApprovals:               make(map[string]string),
 		vaultARNIndex:              make(map[string]string),
 		restoreAccessVaultARNIndex: make(map[string]string),

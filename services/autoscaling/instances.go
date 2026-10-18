@@ -129,25 +129,7 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 	b.deregisterELBTargets([]string{instanceID}, targetGroup.TargetGroupARNs)
 	b.deregisterELBInstances([]string{instanceID}, targetGroup.LoadBalancerNames)
 
-	if shouldDecrement {
-		if targetGroup.DesiredCapacity > 0 {
-			targetGroup.DesiredCapacity--
-		}
-
-		if targetGroup.MinSize > 0 {
-			targetGroup.MinSize--
-		}
-	} else {
-		// Launch a replacement to maintain DesiredCapacity.
-		oldLen := len(targetGroup.Instances)
-		targetGroup.Instances = b.adjustInstances(targetGroup, targetGroup.Instances, targetGroup.DesiredCapacity)
-
-		for _, inst := range targetGroup.Instances[oldLen:] {
-			b.instanceIndex[inst.InstanceID] = targetGroup.AutoScalingGroupName
-		}
-
-		b.gateNewLaunchInstances(targetGroup, oldLen)
-	}
+	b.applyTermination(targetGroup, shouldDecrement)
 
 	activity := ScalingActivity{
 		ActivityID:           uuid.NewString(),
@@ -166,6 +148,29 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 	)
 
 	return &activity, nil
+}
+
+func (b *InMemoryBackend) applyTermination(targetGroup *AutoScalingGroup, shouldDecrement bool) {
+	if shouldDecrement {
+		if targetGroup.DesiredCapacity > 0 {
+			targetGroup.DesiredCapacity--
+		}
+
+		if targetGroup.MinSize > 0 {
+			targetGroup.MinSize--
+		}
+
+		return
+	}
+
+	oldLen := len(targetGroup.Instances)
+	targetGroup.Instances = b.adjustInstances(targetGroup, targetGroup.Instances, targetGroup.DesiredCapacity)
+
+	for _, inst := range targetGroup.Instances[oldLen:] {
+		b.instanceIndex[inst.InstanceID] = targetGroup.AutoScalingGroupName
+	}
+
+	b.gateNewLaunchInstances(targetGroup, oldLen)
 }
 
 // DescribeAutoScalingInstances returns instance details across all ASGs, optionally filtered by instance ID.

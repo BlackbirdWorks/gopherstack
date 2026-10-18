@@ -24,7 +24,7 @@ last_audit_commit: 22b4f068c   # bumped 2026-09-20 (wafclassic-and-directconnect
 # (real aws-sdk-go-v2 client against a running Docker container -- connections, LAGs, private/
 # public/transit VIFs, BGP peers, DirectConnectGateway/associations/proposals, and tagging), and
 # re-judged every gaps: entry: the EC2 cross-service GatewayId/VirtualGatewayId validation this
-# audit originally flagged as a nice-to-have (store.go's EC2GatewayResolver, cli.go's
+# audit originally flagged as a nice-to-have (store.go's EC2GatewayResolver, internal/app/cli.go's
 # wireDirectConnectEC2) was already implemented and is now proven end-to-end by the new suite
 # (TestIntegration_DirectConnect_GatewayAssociationsCrossService creates a REAL EC2 VpnGateway/
 # TransitGateway via the EC2 SDK and confirms both acceptance of the real id and rejection of a
@@ -216,7 +216,7 @@ TestIntegration_DirectConnect ./test/integration/...` passes.
 Every `gaps:` entry was re-read against current code, not re-derived from scratch: the EC2 cross-
 service validation this document previously described only as a "clear, concrete, low-risk
 improvement... not required for a first-pass implementation" turned out to already be implemented
-(`store.go`, `virtualinterfaces.go`'s `resolveGatewayBindingLocked`, `cli.go`'s
+(`store.go`, `virtualinterfaces.go`'s `resolveGatewayBindingLocked`, `internal/app/cli.go`'s
 `wireDirectConnectEC2`) and untested by any SDK-driven suite -- now it is both. Gaps whose
 underlying data source cannot exist in an emulator by any amount of implementation effort (physical
 cross-connect state, real LOA-CFA authorization, AWS's proprietary location/router catalogs, real
@@ -224,7 +224,7 @@ customer legal agreements, physical MACsec hardware, real BGP sessions, partner 
 with no backing service) moved to `structural_gaps:`. The two gaps left in `gaps:` are real but out
 of this pass's reach for reasons that are not "too hard": CloudFormation resource types belong to
 services/cloudformation's ownership, not this directory, and secretsmanager-backed MACsec keys were
-deliberately not attempted because cli.go had a concurrent in-flight edit from another agent on this
+deliberately not attempted because internal/app/cli.go had a concurrent in-flight edit from another agent on this
 branch at audit time.
 
 ## Implementation summary (previous pass)
@@ -257,7 +257,7 @@ the reverse of this audit's first-pass guess from shape alone.
   `CreateDirectConnectGatewayAssociation`/`CreateDirectConnectGatewayAssociationProposal` validate a
   `GatewayId`/`VirtualGatewayId` against real (mock) EC2 `VpnGateway`/`TransitGateway` records, and
   `DescribeVirtualGateways` proxies EC2's own VpnGateway list instead of a duplicate store — wired in
-  cli.go's `wireDirectConnectEC2`. Falls back to services/ec2's own `vgw-`/`tgw-` ID-prefix convention
+  internal/app/cli.go's `wireDirectConnectEC2`. Falls back to services/ec2's own `vgw-`/`tgw-` ID-prefix convention
   when no resolver is wired (e.g. isolated unit tests), never fabricating an unconditionally-accepted id.
 - Pagination: despite PARITY.md's wire-trap #4 finding no generated `Paginator` type anywhere in this
   SDK module, all ten MaxResults/NextToken-bearing Describe/List ops now genuinely paginate via
@@ -737,16 +737,16 @@ Yes — `TagResource`/`UntagResource`/`DescribeTags` are real, native Direct Con
 `ListTagsForResource` like most other services in this campaign — Direct Connect's read op is
 `DescribeTags`, and notably **batch-shaped**: it takes `ResourceArns []string`, plural, in one
 call, unlike the single-ARN-per-call `ListTagsForResource` pattern seen in outposts/resiliencehub).
-This belongs in `wireResourceGroupsTagging` in `cli.go`
+This belongs in `wireResourceGroupsTagging` in `internal/app/cli.go`
 (`/home/agbishop/gopherstack/cli.go:5348`, currently wires exactly 30 services enumerated in its
-own doc comment at `cli.go:5327-5342`, most recently `wireTaggingGrafana(bk, byName["Grafana"])`
-at `cli.go:5399`). Direct Connect would need its own `wireTaggingDirectConnect`-style function
-following the `wireTaggingCtxARNResources` generic helper (`cli.go:5510-5537`) or the
-`wireTaggingGrafana`/`wireTaggingEFS` model (`cli.go:6675`, `cli.go:6127`) — **five** distinct
+own doc comment at `internal/app/cli.go:5327-5342`, most recently `wireTaggingGrafana(bk, byName["Grafana"])`
+at `internal/app/cli.go:5399`). Direct Connect would need its own `wireTaggingDirectConnect`-style function
+following the `wireTaggingCtxARNResources` generic helper (`internal/app/cli.go:5510-5537`) or the
+`wireTaggingGrafana`/`wireTaggingEFS` model (`internal/app/cli.go:6675`, `internal/app/cli.go:6127`) — **five** distinct
 taggable resource kinds share the one `directconnect` ARN namespace (`Connection`/`Lag`/
 `Interconnect`/`VirtualInterface` all carry `Tags []Tag`; `DirectConnectGateway` also carries
 `Tags`), so the tag store backing this wiring needs `resourceTypeFromARN`-style dispatch
-(`cli.go:5558-5571`) across (at least) `dxcon`/`dxlag`/`dxvif`/`dx-gateway` resource-type
+(`internal/app/cli.go:5558-5571`) across (at least) `dxcon`/`dxlag`/`dxvif`/`dx-gateway` resource-type
 prefixes, not a single flat map like DynamoDB/SQS's single-resource-kind wiring.
 
 **ARN namespace**: confirmed **`directconnect`** — matching the package name exactly (not a
@@ -818,7 +818,7 @@ DirectConnectGateway, DirectConnectGatewayAssociation and Private/Public/Transit
 ### No prior Direct Connect references anywhere in this tree
 
 `grep -rni "directconnect\|dxcon\|dxvif\|dxlag\|dx-gateway\|dxgateway" --include="*.go" services/
-cli.go` returns **zero hits** — this is a genuinely from-scratch service with no partial
+internal/app/cli.go` returns **zero hits** — this is a genuinely from-scratch service with no partial
 implementation, no opaque `DirectConnectArn`-style field anywhere else in the tree to
 cross-reference (unlike Outposts, which had `OutpostArn` fields scattered across
 `services/ec2`, `services/route53resolver`, `services/s3control`, etc.).
@@ -884,7 +884,7 @@ See the machine-readable `gaps:` list in the frontmatter for the authoritative v
    taking `ResourceArns []string`) unlike almost every other service's single-ARN
    `ListTagsForResource`** — wiring this into `wireResourceGroupsTagging` needs the
    `resourceTypeFromARN`-style multi-kind dispatch this repo already has a pattern for
-   (`cli.go:5558-5571`), but the batch-input shape of `DescribeTags` itself is a genuine
+   (`internal/app/cli.go:5558-5571`), but the batch-input shape of `DescribeTags` itself is a genuine
    Direct-Connect-specific wrinkle relative to every other tagging-wiring precedent audited in
    this campaign so far.
 

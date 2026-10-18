@@ -222,7 +222,9 @@ func UserID(ctx context.Context) string {
 
 // FromRequest builds a Metadata from r. defaultRegion is applied when no
 // region is derivable from the SigV4 scope. Always returns non-nil with
-// Account and Partition populated.
+// Account and Partition populated. Account precedence: X-Amz-Account-Id header,
+// then a 12-digit access key ID, then DefaultAccount; the principal middleware
+// further prefers the account of an STS session principal over the AKID.
 func FromRequest(r *http.Request, defaultRegion string) *Metadata {
 	if r == nil {
 		m := defaults()
@@ -243,11 +245,35 @@ func FromRequest(r *http.Request, defaultRegion string) *Metadata {
 		Service:       service,
 	}
 
-	if v := httputils.HeaderValue(r.Header, "X-Amz-Account-Id"); v != "" {
+	if id, ok := AccountFromAccessKey(accessKeyID); ok {
+		m.Account = id
+	}
+
+	if v := httputils.HeaderValue(r.Header, AccountHeader); v != "" {
 		m.Account = httputils.SanitizeHeaderString(v)
 	}
 
 	return m
+}
+
+// AccountHeader is the non-AWS request header that explicitly selects the account.
+const AccountHeader = "X-Amz-Account-Id"
+
+const accountIDLen = 12
+
+// AccountFromAccessKey returns accessKeyID as an account ID when it is exactly 12 ASCII digits.
+func AccountFromAccessKey(accessKeyID string) (string, bool) {
+	if len(accessKeyID) != accountIDLen {
+		return "", false
+	}
+
+	for i := range len(accessKeyID) {
+		if accessKeyID[i] < '0' || accessKeyID[i] > '9' {
+			return "", false
+		}
+	}
+
+	return accessKeyID, true
 }
 
 func defaults() *Metadata {

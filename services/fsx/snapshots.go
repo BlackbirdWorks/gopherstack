@@ -135,38 +135,9 @@ func (b *InMemoryBackend) DescribeSnapshots(
 		maxResults = maxResultsDefault
 	}
 
-	var all []*storedSnapshot
-
-	if len(ids) > 0 {
-		for _, id := range ids {
-			s, ok := b.snapshots.Get(id)
-			if !ok {
-				return nil, "", ErrSnapshotNotFound
-			}
-
-			all = append(all, s)
-		}
-	} else {
-		for _, s := range b.snapshots.All() {
-			if matchesFilters(filters, func(name string) (string, bool) {
-				switch name {
-				case filterNameVolumeID:
-					return s.VolumeID, true
-				case filterNameFileSystemID:
-					if vol, ok := b.volumes.Get(s.VolumeID); ok {
-						return vol.FileSystemID, true
-					}
-
-					return "", true
-				default:
-					return "", false
-				}
-			}) {
-				all = append(all, s)
-			}
-		}
-
-		sort.Slice(all, func(i, j int) bool { return all[i].SnapshotID < all[j].SnapshotID })
+	all, err := b.selectSnapshots(ids, filters)
+	if err != nil {
+		return nil, "", err
 	}
 
 	start, end, next := paginate(len(all), int(maxResults), nextToken, func(i int) string {
@@ -179,6 +150,42 @@ func (b *InMemoryBackend) DescribeSnapshots(
 	}
 
 	return result, next, nil
+}
+
+func (b *InMemoryBackend) selectSnapshots(ids []string, filters []wireFilter) ([]*storedSnapshot, error) {
+	var all []*storedSnapshot
+
+	if len(ids) > 0 {
+		for _, id := range ids {
+			s, ok := b.snapshots.Get(id)
+			if !ok {
+				return nil, ErrSnapshotNotFound
+			}
+
+			all = append(all, s)
+		}
+
+		return all, nil
+	}
+
+	for _, s := range b.snapshots.All() {
+		if matchesFilters(filters, func(name string) (string, bool) {
+			switch name {
+			case filterNameVolumeID:
+				return s.VolumeID, true
+			case filterNameFileSystemID:
+				return b.volumeFileSystemID(s.VolumeID), true
+			default:
+				return "", false
+			}
+		}) {
+			all = append(all, s)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].SnapshotID < all[j].SnapshotID })
+
+	return all, nil
 }
 
 type updateSnapshotInput struct {

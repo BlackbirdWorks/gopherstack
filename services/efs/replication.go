@@ -6,9 +6,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // CreateReplicationConfiguration creates a replication configuration for a file system.
@@ -80,7 +79,7 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 		// Assign a destination file-system ID and ARN when not provided by the caller.
 		// Real AWS creates a read-only replica; we record a synthetic ID here.
 		if dests[i].FileSystemID == "" {
-			destFSID := "fs-" + uuid.NewString()[:8]
+			destFSID := awsid.New("fs-")
 			dests[i].FileSystemID = destFSID
 			dests[i].FileSystemArn = arn.Build(
 				"elasticfilesystem", dests[i].Region, b.accountID, "file-system/"+destFSID,

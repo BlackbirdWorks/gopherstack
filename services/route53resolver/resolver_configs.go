@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // GetResolverConfig returns or lazily creates the resolver config for a resource (VPC).
@@ -21,7 +20,7 @@ func (b *InMemoryBackend) GetResolverConfig(ctx context.Context, resourceID stri
 
 		return &cp
 	}
-	id := "rslvr-rc-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-rc-")
 	cfgARN := arn.Build("route53resolver", region, b.accountID, "resolver-config/"+id)
 	cfg := &ResolverConfig{
 		ID:                 id,
@@ -62,7 +61,7 @@ func (b *InMemoryBackend) UpdateResolverConfig(
 
 	cfg, ok := b.resolverConfigs.Get(regionalKey(region, resourceID))
 	if !ok {
-		id := "rslvr-rc-" + uuid.New().String()[:8]
+		id := awsid.New("rslvr-rc-")
 		cfgARN := arn.Build("route53resolver", region, b.accountID, "resolver-config/"+id)
 		cfg = &ResolverConfig{
 			ID:         id,

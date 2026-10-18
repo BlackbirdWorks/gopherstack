@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // privateIPOctetRange bounds the third octet used by allocPrivateIP.
@@ -401,7 +402,7 @@ func (b *InMemoryBackend) DescribeInstanceTopology(ids []string) []InstanceTopol
 			GroupName:        inst.Placement.GroupName,
 			AvailabilityZone: az,
 			ZoneID:           availabilityZoneID(az),
-			NetworkNodes:     []string{"nn-" + inst.ID[:8]},
+			NetworkNodes:     []string{"nn-" + strings.TrimPrefix(inst.ID, "i-")},
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].InstanceID < out[j].InstanceID })
@@ -559,7 +560,7 @@ func (b *InMemoryBackend) CreateInstanceConnectEndpoint(
 		addrType = ipAddressType[0]
 	}
 
-	id := "eice-" + uuid.New().String()[:8]
+	id := awsid.New("eice-")
 	ep := &InstanceConnectEndpoint{
 		InstanceConnectEndpointID:  id,
 		InstanceConnectEndpointARN: "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":instance-connect-endpoint/" + id,
@@ -664,7 +665,7 @@ func (b *InMemoryBackend) CreateInstanceEventWindow(
 	defer b.mu.Unlock()
 
 	ew := &InstanceEventWindow{
-		InstanceEventWindowID: "iew-" + uuid.New().String()[:8],
+		InstanceEventWindowID: awsid.New("iew-"),
 		Name:                  name,
 		CronExpression:        cronExpression,
 		State:                 stateActive,

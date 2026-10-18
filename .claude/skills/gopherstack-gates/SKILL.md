@@ -16,6 +16,12 @@ description: Pick the narrowest correct build/test/lint command for a gopherstac
 | Anything touching persistence/snapshot | run that service's `persistence_test.go` explicitly |
 | Full gate before push | `task lint` → `task test` → `task build-linux` → `task integration-test`, in that order |
 
+## Iterative fix loops
+
+While fixing, use `scripts/dev/gotest-fail.sh [flags] <pkgs>` (e.g. `scripts/dev/gotest-fail.sh -run TestFoo ./services/sqs/...`).
+It runs `go test -json -race` and prints only failures: failed tests with output, build failures, package-level
+panics/races, and a summary. Exit code = go test's. Keep full `task test` for the final gate. If missing on your branch, it's in PR #2493 / main after merge.
+
 ## Taskfile targets
 
 | target | runs | prereq |

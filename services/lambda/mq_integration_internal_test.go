@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -183,7 +184,10 @@ func TestMQESMRealRabbitMQ(t *testing.T) {
 
 	desc, err := h.mq.DescribeBroker(h.broker.BrokerID)
 	require.NoError(t, err)
-	assert.Equal(t, "amqp://"+addr, desc.BrokerInstances[0].Endpoints[0])
+	require.Len(t, desc.BrokerInstances[0].Endpoints, 1)
+	assert.True(t, strings.HasPrefix(desc.BrokerInstances[0].Endpoints[0], "amqps://"))
+	assert.NotEqual(t, "amqps://"+addr, desc.BrokerInstances[0].Endpoints[0], "TLS port differs from consumer port")
+	assert.True(t, strings.HasPrefix(desc.BrokerInstances[0].ConsoleURL, "https://"))
 
 	conn, err := amqp.DialConfig("amqp://"+addr+"/", amqp.Config{
 		SASL: []amqp.Authentication{&amqp.PlainAuth{Username: "admin", Password: mqTestPassword}},
@@ -257,8 +261,14 @@ func TestMQESMRealActiveMQ(t *testing.T) {
 
 	desc, err := h.mq.DescribeBroker(h.broker.BrokerID)
 	require.NoError(t, err)
-	require.Len(t, desc.BrokerInstances[0].Endpoints, 3)
-	assert.Equal(t, "stomp://"+addr, desc.BrokerInstances[0].Endpoints[1])
+	require.Len(t, desc.BrokerInstances[0].Endpoints, 5)
+
+	for i, scheme := range []string{"ssl", "amqp+ssl", "stomp+ssl", "mqtt+ssl", "wss"} {
+		ep := desc.BrokerInstances[0].Endpoints[i]
+		assert.True(t, strings.HasPrefix(ep, scheme+"://"), ep)
+	}
+
+	assert.True(t, strings.HasPrefix(desc.BrokerInstances[0].ConsoleURL, "https://"))
 
 	conn, err := stomp.Dial("tcp", addr, stomp.ConnOpt.Login("admin", mqTestPassword))
 	require.NoError(t, err)

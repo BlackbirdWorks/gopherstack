@@ -84,7 +84,7 @@ func verifyNetworkmanagerAttachmentsNetworkManager(ctx context.Context, t *testi
 	})
 	require.NoError(t, err, "ListAttachments should succeed")
 
-	byType := map[nmtypes.AttachmentType][]nmtypes.Attachment{}
+	byType := make(map[nmtypes.AttachmentType][]nmtypes.Attachment)
 	for _, a := range attachOut.Attachments {
 		byType[a.AttachmentType] = append(byType[a.AttachmentType], a)
 	}

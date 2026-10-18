@@ -257,7 +257,7 @@ func TestHandlerReplaceNetworkACLAssociation(t *testing.T) {
 
 // TestNetworkACL_DescribeReturnsAssociations verifies that
 // DescribeNetworkAcls includes an <associationSet> with association items
-// (was missing per parity.md §R).
+// (was missing per docs/history/parity.md §R).
 func TestNetworkACL_DescribeReturnsAssociations(t *testing.T) {
 	t.Parallel()
 

@@ -17,7 +17,7 @@
 ### Known gaps
 
 - Kept lenient for in-repo fixtures: a target group attached to no listener reports healthy (real AWS: unused/Target.NotInUse), an ALB with subnets in one AZ is accepted, and health-check defaults stay 3/3/5 because the SDK docs and observed AWS values disagree.
-- LB VpcId/ZoneName from the real subnet needs cli.go to give elbEC2ResolverAdapter SubnetVPC(id) and SubnetAZ(id) (same bodies as efsEC2ResolverAdapter); until then they stay vpc-00000000 and index-derived zones.
+- LB VpcId/ZoneName from the real subnet needs internal/app/cli.go to give elbEC2ResolverAdapter SubnetVPC(id) and SubnetAZ(id) (same bodies as efsEC2ResolverAdapter); until then they stay vpc-00000000 and index-derived zones.
 
 ### Structural gaps
 

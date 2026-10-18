@@ -68,7 +68,8 @@ jobs:
 
       - name: Read golangci-lint version
         id: golangci-lint-version
-        run: echo "version=$(sed -n 's/^  GOLANGCI_LINT_VERSION: \(.*\)$/\1/p' Taskfile.yml)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(sed -n 's/^  GOLANGCI_LINT_VERSION: \(.*\)$/\1/p' Taskfile.yml)" >> "$GITHUB_OUTPUT"
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
@@ -203,7 +204,7 @@ jobs:
 
       - name: Upload govulncheck SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
           sarif_file: govulncheck.sarif
           category: govulncheck
@@ -233,7 +234,7 @@ jobs:
           cache: true
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
           languages: ${{ matrix.language }}
           build-mode: 'manual'
@@ -244,7 +245,7 @@ jobs:
         run: go build ./...
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
           category: "/language:${{ matrix.language }}"
 

@@ -3320,7 +3320,7 @@ non-issue by construction here, like guardduty/pinpoint before it.
 
 **Second client**: none. Only `vpclatticesdk "github.com/aws/aws-sdk-go-v2/service/vpclattice"`
 is imported anywhere in this repo outside `services/vpclattice` itself
-(cli.go, gendocs, teststack, and the terraform/integration test suites all
+(internal/app/cli.go, gendocs, teststack, and the terraform/integration test suites all
 use the one client).
 
 **Dead-deserializer trap checked and found NOT to apply** — traced

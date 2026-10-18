@@ -15,7 +15,7 @@ import (
 // point is deleted, preventing the index from growing without bound as access
 // points are created and deleted over the lifetime of a backend.
 //
-// Note: parity.md §D listed this service under "h.archiveData" (Glacier's
+// Note: docs/history/parity.md §D listed this service under "h.archiveData" (Glacier's
 // field — a mislabelling). The actual bounded-growth concern for EFS is the
 // client-token idempotency index; this test confirms it is properly evicted.
 func TestEFSAccessPointClientTokenIndex_ClearedOnDelete(t *testing.T) {

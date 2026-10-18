@@ -213,6 +213,8 @@ precedence is **defaults < persisted config < env vars / CLI flags**.
 | `--dns-resolve-ip` | `DNS_RESOLVE_IP` | `127.0.0.1` | IP address synthetic hostnames resolve to. |
 | `--port-range-start` | `PORT_RANGE_START` | `10000` | Start of the port range used for allocated resource endpoints. |
 | `--port-range-end` | `PORT_RANGE_END` | `10100` | End (exclusive) of that port range. |
+| `--iot-mqtt-port` | `IOT_MQTT_PORT` | `1883` | TCP port of the embedded IoT MQTT broker. `0` picks a free port. |
+| `--iot-mqtt-auth` | `IOT_MQTT_AUTH` | `false` | Opt-in: the IoT MQTT port speaks mutual TLS, clients must present an ACTIVE registered certificate, and CONNECT/PUBLISH/SUBSCRIBE/RECEIVE are authorised by the IoT policies attached to it. |
 | `--init-script` | `INIT_SCRIPTS` | *(none)* | Shell script(s) to run on startup (repeatable flag / comma-separated env var). |
 | `--init-timeout` | `INIT_TIMEOUT` | `30s` | Per-script timeout for init hooks. |
 | `--s3-bucket` | `S3_BUCKETS` | *(none)* | S3 bucket(s) to create on startup (repeatable flag / comma-separated env var). |
@@ -238,10 +240,14 @@ that already exports them (e.g. `awslocal`) works without remapping. These are n
 | Flag | Env var | Default | Description |
 |------|---------|---------|-------------|
 | `--elasticache-engine` | `ELASTICACHE_ENGINE` | `embedded` | ElastiCache engine mode: `embedded` (miniredis), `stub`, or `docker`. |
+| `--memorydb-engine` | `MEMORYDB_ENGINE` | `embedded` | MemoryDB engine mode: `embedded` (miniredis per cluster, ACL passwords enforced via AUTH), `stub`, or `docker` (no server, as ElastiCache). |
 | `--kafka-engine` | `KAFKA_ENGINE` | `stub` | MSK engine mode: `stub` (metadata only) or `docker` (real single-node `apache/kafka` broker per provisioned cluster; `KAFKA_BROKER_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces). |
 | `--eks-engine` | `EKS_ENGINE` | `stub` | EKS engine mode: `stub` (metadata only) or `docker` (one privileged single-node `rancher/k3s` container per cluster, tag mapped from the requested version; `DescribeCluster` returns the real endpoint and CA; clusters accept the static admin bearer token `EKS_CLUSTER_TOKEN`, default `gopherstack-eks-cluster-token`; `EKS_CLUSTER_HOST` sets the advertised host, default `127.0.0.1`, and the port binds loopback only unless it is non-loopback, which then requires `EKS_CLUSTER_TOKEN`; `EKS_K3S_IMAGE` overrides the image). |
 | `--mq-engine` | `MQ_ENGINE` | `stub` | Amazon MQ engine mode: `stub` (metadata only) or `docker` (one `rabbitmq:3.13.7-management` or `apache/activemq-classic:5.18.7` container per broker with a user; plaintext endpoints; `MQ_BROKER_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces). |
 | `--rds-engine` | `RDS_ENGINE` | `stub` | RDS engine mode: `stub` (metadata only) or `docker` (real `postgres`/`mysql`/`mariadb` container per DB instance, one per Aurora cluster; Data API stays on SQLite; `RDS_DB_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces). |
+| `--docdb-engine` | `DOCDB_ENGINE` | `stub` | DocumentDB engine mode: `stub` (metadata only) or `docker` (one plaintext `mongo` container per cluster, `mongo:4.4` for 3.6/4.0 and `mongo:5.0` for 5.0; `DOCDB_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces). |
+| `--redshift-engine` | `REDSHIFT_ENGINE` | `stub` | Redshift engine mode: `stub` (metadata only) or `docker` (one `postgres:17` container per provisioned cluster with MasterUsername/MasterUserPassword/DBName; Endpoint reports the published `127.0.0.1` port and the Redshift Data API runs SQL against it; `REDSHIFT_HOST` overrides the advertised host; Serverless workgroups stay metadata-only). |
+| `--neptune-engine` | `NEPTUNE_ENGINE` | `stub` | Neptune engine mode: `stub` (metadata only) or `docker` (one `tinkerpop/gremlin-server` container per cluster, TinkerPop 3.4.13 for engine 1.0/1.1, 3.5.7 for 1.2, 3.6.8 for 1.3, 3.7.3 later; Endpoint, ReaderEndpoint, Port and member instances report the published `127.0.0.1` port, Gremlin over WebSocket at `/gremlin`; `NEPTUNE_HOST` overrides the advertised host; no IAM auth or openCypher). |
 | `--opensearch-engine` | `OPENSEARCH_ENGINE` | `stub` | OpenSearch engine mode: `stub` (API-only) or `docker`. |
 | `--elasticsearch-engine` | `ELASTICSEARCH_ENGINE` | `stub` | Elasticsearch engine mode: `stub` (API-only) or `docker`. |
 | `--ec2-provider` | `EC2_PROVIDER` | `inmemory` | EC2 compute provider: `inmemory` (stub) or `docker` (launches real containers as instances). |
@@ -384,6 +390,7 @@ By default resources settle instantly. Set a dwell to make Creating/Processing/P
 | `--lifecycle-apprunner` | `APPRUNNER_OPERATION_DELAY` | App Runner service `OPERATION_IN_PROGRESS` window after create/update/pause/resume/deploy/delete. |
 | `--lifecycle-fsx` | `FSX_LIFECYCLE_DELAY` | FSx file system/backup/volume/snapshot `CREATING` window. |
 | `--lifecycle-networkmanager` | `NETWORKMANAGER_LIFECYCLE_DELAY` | Network Manager `PENDING`/`DELETING` window (built-in `100ms`). |
+| `--lifecycle-organizations` | `ORGANIZATIONS_LIFECYCLE_DELAY` | Organizations `CreateAccount`/`CreateGovCloudAccount` `IN_PROGRESS` window before `SUCCEEDED`/`FAILED`. |
 | `--lifecycle-account` | `ACCOUNT_LIFECYCLE_DELAY` | Account region `ENABLING`/`DISABLING` window (built-in `100ms`). |
 | `--lifecycle-comprehend` | `COMPREHEND_LIFECYCLE_DELAY` | Comprehend async job and classifier/recognizer training stage window. |
 | `--lifecycle-rekognition` | `REKOGNITION_LIFECYCLE_DELAY` | Rekognition stream processor, project version and dataset transitional window. |
@@ -597,7 +604,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Backup](services/backup/README.md) | A | 66 | 1 gap; 3 structural gaps |
+| [Backup](services/backup/README.md) | A | 66 | 2 gaps; 3 structural gaps |
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
 | [EFS](services/efs/README.md) | A | 31 | 4 gaps; 1 deferred |
 | [FSx](services/fsx/README.md) | A | — | 13 families; 2 structural gaps |
@@ -611,19 +618,19 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [DAX](services/dax/README.md) | A | 21 | 1 structural gap; 1 deferred |
-| [DocumentDB](services/docdb/README.md) | A | 55 | 2 gaps; 4 structural gaps; 1 deferred |
+| [DocumentDB](services/docdb/README.md) | A | 55 | 2 gaps; 5 structural gaps; 1 deferred |
 | [DynamoDB](services/dynamodb/README.md) | A | — | 15 families; 1 gap; 3 structural gaps; 2 deferred |
 | [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
-| [ElastiCache](services/elasticache/README.md) | A | 75 | 2 gaps; 4 structural gaps; 2 deferred |
-| [MemoryDB](services/memorydb/README.md) | A | 45 | 1 gap; 2 structural gaps; 3 deferred |
-| [Neptune](services/neptune/README.md) | A | — | 13 families; 1 gap; 2 structural gaps; 2 deferred |
+| [ElastiCache](services/elasticache/README.md) | A | 75 | 2 gaps; 4 structural gaps; 1 deferred |
+| [MemoryDB](services/memorydb/README.md) | A | 45 | 3 gaps; 2 structural gaps; 3 deferred |
+| [Neptune](services/neptune/README.md) | A | — | 13 families; 4 gaps; 2 structural gaps; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
 | [RDS](services/rds/README.md) | A | 52 | 4 gaps; 7 structural gaps |
 | [RDS Data](services/rdsdata/README.md) | A | 7 | 4 structural gaps |
-| [Redshift](services/redshift/README.md) | A | 9 | 5 gaps; 4 structural gaps |
-| [Redshift Data](services/redshiftdata/README.md) | A | 12 | 3 structural gaps; 1 deferred |
-| [Timestream Query](services/timestreamquery/README.md) | A | 12 | 3 structural gaps; 1 deferred |
+| [Redshift](services/redshift/README.md) | A | 9 | 5 gaps; 5 structural gaps |
+| [Redshift Data](services/redshiftdata/README.md) | A | 12 | 4 structural gaps; 1 deferred |
+| [Timestream Query](services/timestreamquery/README.md) | A | 12 | 2 structural gaps; 1 deferred |
 | [Timestream Write](services/timestreamwrite/README.md) | A | 19 | 1 structural gap |
 
 ### Networking & Content Delivery
@@ -708,7 +715,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 2 gaps; 1 structural gap; 4 deferred |
+| [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 1 gap; 4 deferred |
 | [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 4 gaps; 4 structural gaps |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 1 gap; 2 structural gaps; 1 deferred |
 | [IAM](services/iam/README.md) | A | 38 | 2 gaps; 4 structural gaps |

@@ -958,7 +958,7 @@ route53resolver already keys its resources by region; same-named resources in tw
 ## 2026-10-11 (gopherstack-cefu7.37) embedded DNS applies Resolver config
 
 `pkgs/dns` gained an `Interceptor` hook; `NewDNSResolver` (dns_resolver.go) is installed on it by
-cli_route53resolver_dns.go. Per query, in order:
+internal/app/route53resolver_dns.go. Per query, in order:
 
 1. **VPC context**: source address -> VPC via EC2 ENI and instance private IPs, then subnet CIDRs,
    across every region backend (`VPCLocator`, overridable with `SetVPCLocator`). No match -> the

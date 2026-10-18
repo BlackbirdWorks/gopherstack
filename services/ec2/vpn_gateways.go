@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // ---- VPN Gateways ----
@@ -19,7 +19,7 @@ func (b *InMemoryBackend) CreateVpnGateway(gatewayType string, amazonSideAsn int
 	defer b.mu.Unlock()
 
 	vgw := &VpnGateway{
-		VpnGatewayID:  "vgw-" + uuid.New().String()[:8],
+		VpnGatewayID:  awsid.New("vgw-"),
 		State:         stateAvailable,
 		Type:          gatewayType,
 		AmazonSideAsn: amazonSideAsn,
@@ -148,7 +148,7 @@ func (b *InMemoryBackend) CreateCustomerGateway(
 	defer b.mu.Unlock()
 
 	cgw := &CustomerGateway{
-		CustomerGatewayID: "cgw-" + uuid.New().String()[:8],
+		CustomerGatewayID: awsid.New("cgw-"),
 		State:             stateAvailable,
 		Type:              gatewayType,
 		BgpAsn:            bgpAsn,

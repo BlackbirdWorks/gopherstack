@@ -13,7 +13,7 @@ The control plane (`CreateCluster`, `DescribeClusters`, ... under the
 For item traffic the SDK opens a raw TCP (optionally TLS) socket to the cluster
 endpoint and exchanges CBOR-encoded, method-ID-framed messages. As a result, the
 real DAX SDK never reaches gopherstack's HTTP handler for data-plane calls, which
-is why this was the last open `parity.md` item.
+is why this was the last open `docs/history/parity.md` item.
 
 DAX is a write-through cache in front of DynamoDB. For emulation, the cache is a
 pass-through: the listener decodes a request, delegates to the existing

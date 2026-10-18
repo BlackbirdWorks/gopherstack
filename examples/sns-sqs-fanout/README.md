@@ -2,7 +2,7 @@
 
 Demonstrates the real fan-out plumbing inside gopherstack: an SNS publish is
 delivered to every SQS queue subscribed to the topic, by the SNS publish
-emitter that `cli.go` wires to the SQS backend at startup.
+emitter that `internal/app/cli.go` wires to the SQS backend at startup.
 
 This is the same wiring AWS uses; the only difference is the storage is
 in-memory.

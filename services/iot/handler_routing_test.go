@@ -63,7 +63,7 @@ func TestHandler_Operations(t *testing.T) {
 			method: http.MethodPost,
 			path:   "/policies/my-policy",
 			body: map[string]any{
-				"policyDocument": "{}",
+				"policyDocument": validPolicyDoc,
 			},
 			wantStatus:   http.StatusOK,
 			wantOp:       "CreatePolicy",
@@ -287,7 +287,7 @@ func TestHandler_NewOperations(t *testing.T) {
 			setup: func(t *testing.T, b *iot.InMemoryBackend) {
 				t.Helper()
 				_, err := b.CreatePolicy(&iot.CreatePolicyInput{
-					PolicyName: "my-policy", PolicyDocument: `{"Version":"2012-10-17","Statement":[]}`,
+					PolicyName: "my-policy", PolicyDocument: validPolicyDoc,
 				})
 				require.NoError(t, err)
 			},

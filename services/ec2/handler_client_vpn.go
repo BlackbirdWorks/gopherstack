@@ -57,11 +57,11 @@ type clientVpnRouteItem struct {
 
 // describeClientVpnRoutesResponse wraps routes under <routes>, matching the
 // real aws-sdk-go-v2 wire format (this repo previously used the wrong
-// <clientVpnRouteSet> wrapper name — see parity.md "EC2 sub-resource ops").
+// <clientVpnRouteSet> wrapper name — see docs/history/parity.md "EC2 sub-resource ops").
 
 // describeClientVpnRoutesResponse wraps routes under <routes>, matching the
 // real aws-sdk-go-v2 wire format (this repo previously used the wrong
-// <clientVpnRouteSet> wrapper name — see parity.md "EC2 sub-resource ops").
+// <clientVpnRouteSet> wrapper name — see docs/history/parity.md "EC2 sub-resource ops").
 type describeClientVpnRoutesResponse struct {
 	XMLName   xml.Name `xml:"DescribeClientVpnRoutesResponse"`
 	RequestID string   `xml:"requestId"`

@@ -134,6 +134,48 @@ type permissionsBoundaryLookup interface {
 	PermissionsBoundaryDocForRole(roleName string) string
 }
 
+// principalPolicyLookup is an optional EnforcementBackend capability that
+// resolves identity policies by principal ARN in the ARN's own account.
+type principalPolicyLookup interface {
+	GetPoliciesForPrincipalArn(arn string) ([]string, error)
+	PermissionsBoundaryDocForPrincipalArn(arn string) string
+	AccountID() string
+}
+
+// failClosedAccount reports whether ctx names a non-default account, in which
+// case an unresolvable principal must be denied rather than passed through.
+func failClosedAccount(ctx context.Context, backend EnforcementBackend) bool {
+	pl, ok := backend.(principalPolicyLookup)
+	if !ok {
+		return false
+	}
+
+	m, present := awsmeta.Key.Get(ctx)
+
+	return present && m != nil && m.Account != "" && m.Account != pl.AccountID()
+}
+
+// policiesForPrincipalArn resolves arn's policies via the account-aware
+// capability. found is false when the backend lacks it. A lookup error for a
+// non-default-account principal yields an enforced result with no policies.
+func policiesForPrincipalArn(
+	backend EnforcementBackend, arn string,
+) ([]string, string, bool, bool) {
+	pl, ok := backend.(principalPolicyLookup)
+	if !ok {
+		return nil, "", false, false
+	}
+
+	docs, err := pl.GetPoliciesForPrincipalArn(arn)
+	if err != nil {
+		acct, hasAcct := arnAccountID(arn)
+
+		return nil, "", hasAcct && acct != pl.AccountID(), true
+	}
+
+	return docs, pl.PermissionsBoundaryDocForPrincipalArn(arn), true, true
+}
+
 func boundaryDocForUser(backend EnforcementBackend, userName string) string {
 	if pb, ok := backend.(permissionsBoundaryLookup); ok {
 		return pb.PermissionsBoundaryDocForUser(userName)
@@ -186,6 +228,10 @@ func resolveAssumedRoleIdentityPolicies(
 		return nil, "", ConditionContext{}, "", false
 	}
 
+	if docs, boundary, enforced, found := policiesForPrincipalArn(backend, principal.Arn); found {
+		return docs, boundary, buildPrincipalConditionContext(ctx, r, principal), roleName, enforced
+	}
+
 	docs, err := backend.GetPoliciesForRole(roleName)
 	if err != nil {
 		return nil, "", ConditionContext{}, "", false
@@ -233,6 +279,10 @@ func resolveSTSUserIdentityPolicies(
 	condCtx := buildPrincipalConditionContext(ctx, r, principal)
 
 	if userName := extractUserNameFromArn(principal.Arn); userName != "" {
+		if docs, boundary, enforced, found := policiesForPrincipalArn(backend, principal.Arn); found && enforced {
+			return docs, boundary, condCtx, userName, true
+		}
+
 		if docs, err := backend.GetPoliciesForUser(userName); err == nil {
 			return docs, boundaryDocForUser(backend, userName), condCtx, userName, true
 		}
@@ -258,6 +308,14 @@ func resolveCallerIdentityPolicies(
 
 	user, userErr := backend.GetUserByAccessKeyID(accessKeyID)
 	if userErr == nil {
+		if docs, boundary, enforced, found := policiesForPrincipalArn(backend, user.Arn); found {
+			if !enforced {
+				return nil, "", ConditionContext{}, "", false
+			}
+
+			return docs, boundary, buildConditionContext(r, user), user.UserName, true
+		}
+
 		docs, err := backend.GetPoliciesForUser(user.UserName)
 		if err != nil {
 			return nil, "", ConditionContext{}, "", false
@@ -325,6 +383,12 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 
 	policyDocs, boundaryDoc, condCtx, callerName, enforced := resolveCallerIdentityPolicies(ctx, r, backend)
 	if !enforced {
+		if failClosedAccount(ctx, backend) {
+			log.InfoContext(ctx, "IAM enforcement: access denied (unresolved principal)")
+
+			return writeAccessDenied(c, ExtractTargetOrFormIAMAction(r), "*")
+		}
+
 		// Unknown key (test/dummy) — pass through without enforcement.
 		return next(c)
 	}

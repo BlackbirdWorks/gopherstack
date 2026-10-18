@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/google/uuid"
-
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
@@ -22,7 +21,7 @@ func (b *InMemoryBackend) CreateVpcEndpointConnectionNotification(
 	defer b.mu.Unlock()
 
 	notif := &VpcEndpointConnectionNotification{
-		ConnectionNotificationID:    "vpce-nfn-" + uuid.New().String()[:8],
+		ConnectionNotificationID:    awsid.New("vpce-nfn-"),
 		ServiceID:                   serviceID,
 		VpcEndpointID:               endpointID,
 		ConnectionNotificationARN:   notifARN,

@@ -4,7 +4,7 @@ Built for gopherstack-op3e. Securityhub's entire findings/members op family
 was unreachable over the real HTTP wire for an unknown length of time:
 inspector2 and macie2 both claimed `/findings*` and `/members*`
 unconditionally in their `RouteMatcher`, both register before securityhub in
-`cli.go`'s `getServiceProviders` chain, and `pkgs/service/router.go` takes
+`internal/app/cli.go`'s `getServiceProviders` chain, and `pkgs/service/router.go` takes
 the first matcher that returns true. `BatchImportFindings` got a 501 from
 inspector2; `CreateMembers` got a 400 from macie2. Every unit test passed,
 because unit tests call `h.Handler()` directly and never touch
@@ -55,7 +55,7 @@ never go through the router.
 
 ## Method
 
-1. Enumerated all 163 provider registrations in `cli.go`'s
+1. Enumerated all 163 provider registrations in `internal/app/cli.go`'s
    `getServiceProviders` chain (`getCoreServiceProviders` →
    `getRemainingServiceProviders` → `getLatestServiceProviders` →
    `getNewestServiceProviders` → `getMostRecentServiceProviders`), which
@@ -288,7 +288,7 @@ error and byte-identically restored** — see each service's own dedicated
    `SplitURI("/configuration/{name}")`); Inspector2's own `GetConfiguration`/
    `UpdateConfiguration` independently bind `/configuration/get` and
    `/configuration/update`. Both register/evaluate at `MatchPriority` 85
-   (tied); Inspector2 registers first in `cli.go`, so it always won ties.
+   (tied); Inspector2 registers first in `internal/app/cli.go`, so it always won ties.
    `/configuration/` was in Inspector2's `onceRouteMatchPrefixes` table but
    *not* in `ambiguousRouteMatchPrefixes` (the map that gates a prefix behind
    `isInspector2Request`) — same exact mechanism as the original
@@ -541,7 +541,7 @@ service (the standard AWS tagging-operation convention). RolesAnywhere
 claimed all three unconditionally (`path == "/"+pathTagResource`, no SigV4
 gate at all) while X-Ray's own real matcher indexes an equally unconditional
 `xrayPaths` map — both `MatchPriority` 85, and RolesAnywhere registers first
-in `cli.go`, so it always won the tie and silently swallowed every X-Ray
+in `internal/app/cli.go`, so it always won the tie and silently swallowed every X-Ray
 `TagResource`/`UntagResource`/`ListTagsForResource` request. Neither
 delegation shape was previously chased, so RolesAnywhere had zero extracted
 claims before this pass and the pair was invisible to the tool. **Fix**:
@@ -949,7 +949,7 @@ above, except this time it was live, not a false positive: `batch`'s
 (Kafka MSK) — none of kafkaconnect's paths were excluded, and unlike MSK,
 kafkaconnect does not bump its own `MatchPriority` above batch's, so at a
 tied priority-85 the router's stable sort falls back to registration order,
-and batch registers before kafkaconnect in `cli.go`. Batch's matcher would
+and batch registers before kafkaconnect in `internal/app/cli.go`. Batch's matcher would
 therefore have won every kafkaconnect request.
 
 **Fix** (per this file's own rule and `.claude/memories`'s

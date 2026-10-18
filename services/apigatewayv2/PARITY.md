@@ -298,7 +298,7 @@ items_still_open:
   - "A stage with no deployment still serves live routes, and authorizer/CORS config is resolved live rather than from the deployment snapshot: the developer guide says a deployment is a snapshot and changes need deploying, but not what an undeployed stage returns or whether authorizers/CORS are frozen (live serving is a deliberate dev-flow choice, gopherstack-cfr1)."
   - "GetProductRestEndpointPage never returns RawDisplayContent: the SDK describes it only as 'the raw display content' and the API reference page carries no format or example."
 structural_gaps:
-  - "ProductRestEndpointPage StatusException: failure statuses come from resolving the referenced REST API, which lives in services/apigateway and needs cli.go cross-wiring."
+  - "ProductRestEndpointPage StatusException: failure statuses come from resolving the referenced REST API, which lives in services/apigateway and needs internal/app/cli.go cross-wiring."
 deferred: []
 leaks: {status: clean, note: "portalProductSharingPolicies cleanup on DeletePortalProduct already covered by leak_internal_test.go from a prior sweep; authorizerCache entries are now purged on DeleteAuthorizer/DeleteApi (bd gopherstack-wmh, fixed and closed this pass -- see Notes #11), not merely TTL-bounded; no goroutines/janitors in this package"}
 ---
@@ -1059,7 +1059,7 @@ API Gateway v2 is region-isolated: each non-home region gets a lazily built sibl
 
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
-Emits HTTP API Count, 4xx, 5xx, Latency, IntegrationLatency and WebSocket ConnectCount, MessageCount, Count, ClientError, ExecutionError, IntegrationLatency under AWS/ApiGateway with ApiId and ApiId+Stage dimensions (http-api-metrics.html, apigateway-websocket-api-logging.html). Points fold per second into statistic sets. Verified by cli_service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
+Emits HTTP API Count, 4xx, 5xx, Latency, IntegrationLatency and WebSocket ConnectCount, MessageCount, Count, ClientError, ExecutionError, IntegrationLatency under AWS/ApiGateway with ApiId and ApiId+Stage dimensions (http-api-metrics.html, apigateway-websocket-api-logging.html). Points fold per second into statistic sets. Verified by internal/app/service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
 
 ## 2026-10-04 (gopherstack-jrfzw multi-region)
 
