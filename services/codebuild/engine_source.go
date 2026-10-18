@@ -151,9 +151,12 @@ func unzipInto(data []byte, dir string) error {
 }
 
 func extractEntry(f *zip.File, dir string) error {
-	full, err := safeJoin(dir, f.Name)
-	if err != nil {
-		return err
+	root := filepath.Clean(dir)
+	full := filepath.Join(root, filepath.FromSlash(f.Name))
+
+	// Guard inline: CodeQL go/zipslip only recognises a same-function prefix check.
+	if !strings.HasPrefix(full, root+string(filepath.Separator)) {
+		return fmt.Errorf("%w: %s", errUnsafePath, f.Name)
 	}
 
 	if f.FileInfo().IsDir() {
@@ -176,8 +179,12 @@ func extractEntry(f *zip.File, dir string) error {
 		return fmt.Errorf("read %s: %w", f.Name, err)
 	}
 
-	if err = writeSafeFile(dir, f.Name, body); err != nil {
-		return err
+	if err = os.MkdirAll(filepath.Dir(full), dirPerm); err != nil {
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(full), err)
+	}
+
+	if err = os.WriteFile(full, body, filePerm); err != nil {
+		return fmt.Errorf("write %s: %w", full, err)
 	}
 
 	if f.Mode()&0o111 != 0 {

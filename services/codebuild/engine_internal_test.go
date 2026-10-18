@@ -939,6 +939,22 @@ func TestHelpers(t *testing.T) {
 		assert.Equal(t, "/w/a/b", p)
 	})
 
+	t.Run("unzip_rejects_escaping_entry", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		zw := zip.NewWriter(&buf)
+		w, err := zw.Create("../escape.txt")
+		require.NoError(t, err)
+		_, err = w.Write([]byte("x"))
+		require.NoError(t, err)
+		require.NoError(t, zw.Close())
+
+		dir := t.TempDir()
+		require.ErrorIs(t, unzipInto(buf.Bytes(), filepath.Join(dir, "src")), errUnsafePath)
+		assert.NoFileExists(t, filepath.Join(dir, "escape.txt"))
+	})
+
 	t.Run("inline_buildspec", func(t *testing.T) {
 		t.Parallel()
 		assert.True(t, isInlineBuildspec("version: 0.2"))
