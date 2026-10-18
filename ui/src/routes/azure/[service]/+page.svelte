@@ -5,6 +5,7 @@
 	import ArmDashboard from '#lib/components/azure/ArmDashboard.svelte';
 	import BlobDashboard from '#lib/components/azure/BlobDashboard.svelte';
 	import QueueDashboard from '#lib/components/azure/QueueDashboard.svelte';
+	import TableDashboard from '#lib/components/azure/TableDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedAzureServices } from '#lib/cloud.svelte.ts';
 
 	const service = $derived(azureServiceById(page.params.service ?? ''));
@@ -23,6 +24,8 @@
 	<BlobDashboard />
 {:else if service?.id === 'queue'}
 	<QueueDashboard />
+{:else if service?.id === 'table'}
+	<TableDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="azure-service-placeholder">
 	{#if !service}
