@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { Activity, BarChart3, Cpu, Flame, Gauge, Layout, Server, Settings, Target, Terminal, Zap, ZapOff } from 'lucide-svelte';
+	import CloudOverview from '#lib/components/CloudOverview.svelte';
+	import { currentCloud } from '#lib/cloud.svelte.ts';
 	import { dashboardClient } from '#lib/api/connect-client.ts';
 	import type { CapturedRequest, DashboardMetrics } from '#lib/api/gopherstack/dashboard/v1/dashboard_pb.ts';
 
@@ -23,6 +25,8 @@
 		};
 		faults?: unknown[];
 	};
+
+	const cloud = $derived(currentCloud());
 
 	const maxLiveEvents = 8;
 	const compactNumberFormatter = new Intl.NumberFormat('en-US', {
@@ -392,6 +396,9 @@
 	];
 </script>
 
+{#if cloud !== 'aws'}
+	<CloudOverview {cloud} />
+{:else}
 <div class="space-y-8 pb-20">
 	<!-- Hero Section -->
 	<section class="relative overflow-hidden rounded-[2.5rem] bg-slate-900 border border-slate-800 p-8 md:p-12 shadow-2xl group">
@@ -573,6 +580,7 @@
 
 	</div>
 </div>
+{/if}
 
 <style>
 	:global(body) {
