@@ -39,9 +39,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.70.4
 	github.com/aws/aws-sdk-go-v2/service/backup v1.64.0
 	github.com/aws/aws-sdk-go-v2/service/batch v1.68.4
+	github.com/aws/aws-sdk-go-v2/service/bcmdataexports v1.25.4
 	github.com/aws/aws-sdk-go-v2/service/bedrock v1.66.4
 	github.com/aws/aws-sdk-go-v2/service/bedrockagent v1.58.4
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.57.1
+	github.com/aws/aws-sdk-go-v2/service/budgets v1.53.1
 	github.com/aws/aws-sdk-go-v2/service/cleanrooms v1.49.4
 	github.com/aws/aws-sdk-go-v2/service/cloudcontrol v1.32.4
 	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.76.1
@@ -61,6 +63,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider v1.67.4
 	github.com/aws/aws-sdk-go-v2/service/comprehend v1.43.4
 	github.com/aws/aws-sdk-go-v2/service/configservice v1.68.4
+	github.com/aws/aws-sdk-go-v2/service/costandusagereportservice v1.43.4
 	github.com/aws/aws-sdk-go-v2/service/costexplorer v1.67.4
 	github.com/aws/aws-sdk-go-v2/service/databasemigrationservice v1.66.4
 	github.com/aws/aws-sdk-go-v2/service/databrew v1.42.4
@@ -141,6 +144,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/pinpoint v1.42.4
 	github.com/aws/aws-sdk-go-v2/service/pipes v1.26.4
 	github.com/aws/aws-sdk-go-v2/service/polly v1.60.4
+	github.com/aws/aws-sdk-go-v2/service/pricing v1.49.4
 	github.com/aws/aws-sdk-go-v2/service/quicksight v1.129.0
 	github.com/aws/aws-sdk-go-v2/service/ram v1.39.4
 	github.com/aws/aws-sdk-go-v2/service/rds v1.124.1
@@ -245,15 +249,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/bcmdataexports v1.25.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/budgets v1.53.1 // indirect
-	github.com/aws/aws-sdk-go-v2/service/costandusagereportservice v1.43.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.19 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.13.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/pricing v1.49.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.9.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bitfield/gotestdox v0.2.2 // indirect
