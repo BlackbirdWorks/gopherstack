@@ -768,3 +768,33 @@ func copyBoolPtr(p *bool) *bool {
 
 	return &v
 }
+
+// typeCheckLocked is registeredTypeLocked, or accept-everything when the caller
+// set DisableValidation. The caller must hold b.mu.
+func (b *InMemoryBackend) typeCheckLocked(disableValidation bool) typeKnown {
+	if disableValidation {
+		return func(string) bool { return true }
+	}
+
+	return b.registeredTypeLocked
+}
+
+// registeredTypeLocked reports whether typeName is a registered or activated
+// private type. The caller must hold b.mu.
+func (b *InMemoryBackend) registeredTypeLocked(typeName string) bool {
+	found := false
+
+	b.typeRegistry.Range(func(t *RegisteredType) bool {
+		found = t.TypeName == typeName
+
+		return !found
+	})
+
+	if found {
+		return true
+	}
+
+	_, ok := b.typeVersions[b.buildTypeARN(typeName)]
+
+	return ok
+}

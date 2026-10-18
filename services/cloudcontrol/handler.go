@@ -155,6 +155,12 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrConcurrentModification):
 		return ccError(c, http.StatusInternalServerError, "ConcurrentModificationException", err,
 			"The resource request is not in a state that can be cancelled.")
+	case errors.Is(err, ErrUnsupportedAction):
+		return ccError(c, http.StatusBadRequest, "UnsupportedActionException", err,
+			"The resource type does not support the requested action.")
+	case errors.Is(err, ErrNotUpdatable):
+		return ccError(c, http.StatusBadRequest, "NotUpdatableException", err,
+			"The resource cannot be updated in place.")
 	case errors.Is(err, ErrNotFound):
 		return ccError(c, http.StatusBadRequest, "ResourceNotFoundException", err,
 			"The specified resource was not found.")

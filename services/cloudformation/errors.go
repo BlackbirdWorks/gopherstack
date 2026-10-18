@@ -69,6 +69,12 @@ var (
 	ErrChangeSetTypeUnsupported = errors.New("ChangeSetType IMPORT is not supported")
 )
 
+// ErrPropertyValidation is a resource-schema property failure.
+var ErrPropertyValidation = errors.New("properties validation failed")
+
+// ErrRuleAssertion is a failed template Rules assertion.
+var ErrRuleAssertion = errors.New("rule assertion failed")
+
 // ErrTerminationProtectionEnabled is returned when deleting a termination-protected stack.
 var ErrTerminationProtectionEnabled = errors.New("stack termination protection is enabled")
 

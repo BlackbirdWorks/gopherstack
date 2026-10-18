@@ -336,7 +336,7 @@ tasks:
   cfn-attrs-gen:
     desc: Regenerate services/cloudformation/cfn_attributes.json
     cmds:
-      - go run ./cmd/cfnattrgen -spec cmd/cfnattrgen/testdata/cfn_resource_spec.json -src services/cloudformation -out services/cloudformation/cfn_attributes.json
+      - go run ./cmd/cfnattrgen -spec cmd/cfnattrgen/testdata/cfn_resource_spec.json -src services/cloudformation -out services/cloudformation/cfn_attributes.json -services-out services/cloudformation/cfn_resource_services.json -types-out services/cloudformation/cfn_provisionable_types.json
 
   cfn-attrs-spec-refresh:
     desc: Refresh the CloudFormation resource spec fixture (then run cfn-attrs-gen)

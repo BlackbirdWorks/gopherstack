@@ -30,6 +30,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
+	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
 
 const (
@@ -189,6 +190,24 @@ func wireCloudControlHandlers(e http.Handler, services []service.Registerable) {
 	bk.RegisterTypeHandler("AWS::Logs::LogGroup", &ccLogGroup{client: cloudwatchlogs.NewFromConfig(cfg)})
 	wireCloudControlMoreHandlers(bk, cfg)
 	wireCloudControlInfraHandlers(bk, cfg)
+	wireCloudControlProvisionedTypes(bk, services)
+}
+
+// wireCloudControlProvisionedTypes serves every other CloudFormation-provisionable type through the
+// stack engine's own resource creators and rejects AWS:: types it cannot provision.
+func wireCloudControlProvisionedTypes(bk *cloudcontrolbackend.InMemoryBackend, services []service.Registerable) {
+	cfnH, ok := serviceByName(services)["CloudFormation"].(*cfnbackend.Handler)
+	if !ok {
+		return
+	}
+
+	cfn, ok := cfnH.Backend.(*cfnbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	bk.RegisterProvisionedTypes(cfn.CloudControlProvisioner(), cfnbackend.ProvisionableTypes())
+	bk.RejectUnprovisionedAWSTypes()
 }
 
 // --- AWS::S3::Bucket ---

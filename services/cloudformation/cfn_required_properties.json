@@ -1,0 +1,79 @@
+{
+  "AWS::ApiGateway::Resource": [
+    "ParentId",
+    "PathPart",
+    "RestApiId"
+  ],
+  "AWS::CloudWatch::Alarm": [
+    "ComparisonOperator",
+    "EvaluationPeriods"
+  ],
+  "AWS::DynamoDB::Table": [
+    "KeySchema"
+  ],
+  "AWS::EC2::RouteTable": [
+    "VpcId"
+  ],
+  "AWS::EC2::SecurityGroup": [
+    "GroupDescription"
+  ],
+  "AWS::EC2::Subnet": [
+    "VpcId"
+  ],
+  "AWS::EC2::SubnetRouteTableAssociation": [
+    "RouteTableId",
+    "SubnetId"
+  ],
+  "AWS::IAM::InstanceProfile": [
+    "Roles"
+  ],
+  "AWS::IAM::Policy": [
+    "PolicyDocument",
+    "PolicyName"
+  ],
+  "AWS::IAM::Role": [
+    "AssumeRolePolicyDocument"
+  ],
+  "AWS::KMS::Alias": [
+    "AliasName",
+    "TargetKeyId"
+  ],
+  "AWS::Lambda::EventSourceMapping": [
+    "FunctionName"
+  ],
+  "AWS::Lambda::Function": [
+    "Code",
+    "Role"
+  ],
+  "AWS::Lambda::Permission": [
+    "Action",
+    "FunctionName",
+    "Principal"
+  ],
+  "AWS::Logs::LogStream": [
+    "LogGroupName"
+  ],
+  "AWS::S3::BucketPolicy": [
+    "Bucket",
+    "PolicyDocument"
+  ],
+  "AWS::SNS::Subscription": [
+    "Protocol",
+    "TopicArn"
+  ],
+  "AWS::SNS::TopicPolicy": [
+    "PolicyDocument",
+    "Topics"
+  ],
+  "AWS::SQS::QueuePolicy": [
+    "PolicyDocument",
+    "Queues"
+  ],
+  "AWS::SSM::Parameter": [
+    "Type",
+    "Value"
+  ],
+  "AWS::StepFunctions::StateMachine": [
+    "RoleArn"
+  ]
+}

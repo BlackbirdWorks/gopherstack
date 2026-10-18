@@ -26,18 +26,33 @@ func createWithParam(
 	t *testing.T,
 	b *cloudformation.InMemoryBackend,
 	stackName, paramDef, value string,
-) *cloudformation.Stack {
+) (*cloudformation.Stack, error) {
 	t.Helper()
-	stack, err := b.CreateStack(
+
+	return b.CreateStack(
 		context.Background(),
 		stackName,
 		constrainedParamTemplate(paramDef),
 		[]cloudformation.Parameter{{ParameterKey: "P", ParameterValue: value}},
 		cloudformation.StackOptions{},
 	)
-	require.NoError(t, err)
+}
 
-	return stack
+// requireParamOutcome asserts the AWS behaviour for a constraint violation: a
+// synchronous ValidationError ("Parameter validation failed: ...") and no
+// stack. wantStatus is the stack status expected when the value is valid.
+func requireParamOutcome(t *testing.T, stack *cloudformation.Stack, err error, wantStatus string) {
+	t.Helper()
+
+	if wantStatus == "ROLLBACK_COMPLETE" || wantStatus == "UPDATE_ROLLBACK_COMPLETE" {
+		require.ErrorIs(t, err, cloudformation.ErrParameterValidation)
+		assert.Contains(t, err.Error(), "Parameter validation failed: parameter value ")
+
+		return
+	}
+
+	require.NoError(t, err)
+	assert.Equal(t, wantStatus, stack.StackStatus)
 }
 
 // TestValidateParameters_AllowedPattern_Valid verifies that values matching
@@ -61,7 +76,8 @@ func TestValidateParameters_AllowedPattern_Valid(t *testing.T) {
 
 			b := newBackend()
 			paramDef := `{"Type": "String", "AllowedPattern": "` + tc.pattern + `"}`
-			stack := createWithParam(t, b, "pat-"+tc.name, paramDef, tc.value)
+			stack, err := createWithParam(t, b, "pat-"+tc.name, paramDef, tc.value)
+			require.NoError(t, err)
 			assert.Equal(t, "CREATE_COMPLETE", stack.StackStatus,
 				"valid value %q should match pattern %q", tc.value, tc.pattern)
 		})
@@ -89,15 +105,16 @@ func TestValidateParameters_AllowedPattern_Invalid(t *testing.T) {
 
 			b := newBackend()
 			paramDef := `{"Type": "String", "AllowedPattern": "` + tc.pattern + `"}`
-			stack := createWithParam(t, b, "pat-"+tc.name, paramDef, tc.value)
-			assert.Equal(t, "ROLLBACK_COMPLETE", stack.StackStatus,
+			_, err := createWithParam(t, b, "pat-"+tc.name, paramDef, tc.value)
+			require.ErrorIs(t, err, cloudformation.ErrParameterValidation,
 				"value %q should be rejected by pattern %q", tc.value, tc.pattern)
+			assert.Contains(t, err.Error(), "does not match AllowedPattern "+tc.pattern)
 		})
 	}
 }
 
-// TestValidateParameters_AllowedPattern_ConstraintDescription verifies that the
-// custom ConstraintDescription is surfaced in StackStatusReason when the pattern fails.
+// TestValidateParameters_AllowedPattern_ConstraintDescription verifies the API
+// error carries the standard AWS text, not ConstraintDescription (console-only).
 func TestValidateParameters_AllowedPattern_ConstraintDescription(t *testing.T) {
 	t.Parallel()
 
@@ -113,12 +130,12 @@ func TestValidateParameters_AllowedPattern_ConstraintDescription(t *testing.T) {
 		},
 		"Resources": {"Bucket": {"Type": "AWS::S3::Bucket", "Properties": {}}}
 	}`
-	stack, err := b.CreateStack(context.Background(), "cd-stack", body,
+	_, err := b.CreateStack(context.Background(), "cd-stack", body,
 		[]cloudformation.Parameter{{ParameterKey: "P", ParameterValue: "Bad1"}},
 		cloudformation.StackOptions{})
-	require.NoError(t, err)
-	assert.Equal(t, "ROLLBACK_COMPLETE", stack.StackStatus)
-	assert.Contains(t, stack.StackStatusReason, "must be lowercase letters only")
+	require.ErrorIs(t, err, cloudformation.ErrParameterValidation)
+	assert.EqualError(t, err,
+		"Parameter validation failed: parameter value Bad1 for parameter name P does not match AllowedPattern ^[a-z]+$")
 }
 
 // TestValidateParameters_MinValue_MaxValue validates Number type range constraints.
@@ -199,9 +216,8 @@ func TestValidateParameters_MinValue_MaxValue(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
-			stack := createWithParam(t, b, "num-"+tc.name, tc.paramDef, tc.value)
-			assert.Equal(t, tc.wantStatus, stack.StackStatus,
-				"value=%q paramDef=%s", tc.value, tc.paramDef)
+			stack, err := createWithParam(t, b, "num-"+tc.name, tc.paramDef, tc.value)
+			requireParamOutcome(t, stack, err, tc.wantStatus)
 		})
 	}
 }
@@ -265,9 +281,8 @@ func TestValidateParameters_MinLength_MaxLength(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
-			stack := createWithParam(t, b, "len-"+tc.name, tc.paramDef, tc.value)
-			assert.Equal(t, tc.wantStatus, stack.StackStatus,
-				"len(%q)=%d paramDef=%s", tc.value, len(tc.value), tc.paramDef)
+			stack, err := createWithParam(t, b, "len-"+tc.name, tc.paramDef, tc.value)
+			requireParamOutcome(t, stack, err, tc.wantStatus)
 		})
 	}
 }
@@ -324,9 +339,7 @@ func TestValidateParameters_UpdateStack_Constraints(t *testing.T) {
 				body,
 				[]cloudformation.Parameter{{ParameterKey: "P", ParameterValue: tc.updateVal}},
 				cloudformation.StackOptions{})
-			require.NoError(t, err)
-			assert.Equal(t, tc.wantStatus, stack.StackStatus,
-				"update with value=%q", tc.updateVal)
+			requireParamOutcome(t, stack, err, tc.wantStatus)
 		})
 	}
 }
@@ -368,8 +381,7 @@ func TestValidateParameters_DefaultValue_ConstraintApplied(t *testing.T) {
 				constrainedParamTemplate(tc.paramDef),
 				nil,
 				cloudformation.StackOptions{})
-			require.NoError(t, err)
-			assert.Equal(t, tc.wantStatus, stack.StackStatus)
+			requireParamOutcome(t, stack, err, tc.wantStatus)
 		})
 	}
 }

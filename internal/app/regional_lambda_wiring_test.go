@@ -300,7 +300,7 @@ func TestInitializeServices_LambdaPolicyAdapterReadsARNRegion(t *testing.T) {
 
 const cfnLambdaTemplate = `{"Resources":{
 "F":{"Type":"AWS::Lambda::Function","Properties":{"FunctionName":"cfn-fn","Runtime":"nodejs20.x",
-"Handler":"index.handler","Role":"arn:aws:iam::000000000000:role/r"}}}}`
+"Handler":"index.handler","Code":{"ZipFile":"x"},"Role":"arn:aws:iam::000000000000:role/r"}}}}`
 
 func TestInitializeServices_CloudFormationCreatesLambdaInStackRegion(t *testing.T) {
 	t.Parallel()

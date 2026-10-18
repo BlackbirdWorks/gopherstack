@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 
@@ -27,8 +28,8 @@ var ErrEmptyTemplate = errors.New("template body is empty")
 // normalizeYAMLNodeValue's unreachable default case (see its doc comment).
 var errUnexpectedYAMLNodeKind = errors.New("unexpected YAML node kind")
 
-// ErrParameterValidation is returned when a parameter value fails AllowedValues validation.
-var ErrParameterValidation = errors.New("parameter validation failed")
+// ErrParameterValidation is returned when a parameter value violates its constraints.
+var ErrParameterValidation = errors.New("Parameter validation failed")
 
 // splitSep is the internal separator used by Fn::Split to encode a list as a string.
 // A null byte cannot appear in CloudFormation string values, making it unambiguous.
@@ -57,6 +58,7 @@ type Template struct {
 	Outputs                  map[string]TemplateOutput    `json:"Outputs"                  yaml:"Outputs"`
 	Mappings                 map[string]any               `json:"Mappings"                 yaml:"Mappings"`
 	Conditions               map[string]any               `json:"Conditions"               yaml:"Conditions"`
+	Rules                    map[string]any               `json:"Rules"                    yaml:"Rules"`
 	AWSTemplateFormatVersion string                       `json:"AWSTemplateFormatVersion" yaml:"AWSTemplateFormatVersion"`
 	Description              string                       `json:"Description"              yaml:"Description"`
 	// Transform is the top-level Transform section (e.g. AWS::Serverless-2016-10-31,
@@ -81,6 +83,7 @@ type templatePlain struct {
 	Outputs                  map[string]TemplateOutput    `json:"Outputs"                  yaml:"Outputs"`
 	Mappings                 map[string]any               `json:"Mappings"                 yaml:"Mappings"`
 	Conditions               map[string]any               `json:"Conditions"               yaml:"Conditions"`
+	Rules                    map[string]any               `json:"Rules"                    yaml:"Rules"`
 	Transform                any                          `json:"Transform"                yaml:"Transform"`
 	AWSTemplateFormatVersion string                       `json:"AWSTemplateFormatVersion" yaml:"AWSTemplateFormatVersion"`
 	Description              string                       `json:"Description"              yaml:"Description"`
@@ -92,6 +95,7 @@ func (t *Template) fromPlain(p templatePlain) {
 	t.Outputs = p.Outputs
 	t.Mappings = p.Mappings
 	t.Conditions = p.Conditions
+	t.Rules = p.Rules
 	t.AWSTemplateFormatVersion = p.AWSTemplateFormatVersion
 	t.Description = p.Description
 	t.Transform = parseTransform(p.Transform)
@@ -167,6 +171,7 @@ type TemplateResource struct {
 	DeletionPolicy string         `json:"DeletionPolicy" yaml:"DeletionPolicy"`
 	// UpdateReplacePolicy governs the OLD physical resource when an update replaces it.
 	UpdateReplacePolicy string   `json:"UpdateReplacePolicy" yaml:"UpdateReplacePolicy"`
+	Condition           string   `json:"-"                   yaml:"-"`
 	DependsOn           []string `json:"-"                   yaml:"-"`
 }
 
@@ -180,6 +185,7 @@ func (r *TemplateResource) UnmarshalJSON(data []byte) error {
 		DeletionPolicy string         `json:"DeletionPolicy"`
 
 		UpdateReplacePolicy string `json:"UpdateReplacePolicy"`
+		Condition           string `json:"Condition"`
 	}
 
 	var p plain
@@ -188,6 +194,7 @@ func (r *TemplateResource) UnmarshalJSON(data []byte) error {
 	}
 
 	r.UpdateReplacePolicy = p.UpdateReplacePolicy
+	r.Condition = p.Condition
 
 	r.Type = p.Type
 	r.Properties = p.Properties
@@ -206,6 +213,7 @@ func (r *TemplateResource) UnmarshalYAML(unmarshal func(any) error) error {
 		DeletionPolicy string         `yaml:"DeletionPolicy"`
 
 		UpdateReplacePolicy string `yaml:"UpdateReplacePolicy"`
+		Condition           string `yaml:"Condition"`
 	}
 
 	var p plain
@@ -214,6 +222,7 @@ func (r *TemplateResource) UnmarshalYAML(unmarshal func(any) error) error {
 	}
 
 	r.UpdateReplacePolicy = p.UpdateReplacePolicy
+	r.Condition = p.Condition
 
 	r.Type = p.Type
 	r.Properties = p.Properties
@@ -258,6 +267,7 @@ type TemplateOutput struct {
 	Value       any                   `json:"Value"       yaml:"Value"`
 	Export      *TemplateOutputExport `json:"Export"      yaml:"Export"`
 	Description string                `json:"Description" yaml:"Description"`
+	Condition   string                `json:"Condition"   yaml:"Condition"`
 }
 
 // ParseTemplate parses a CloudFormation template from a JSON or YAML string.
@@ -665,37 +675,44 @@ func validateParamConstraints(name, val string, param TemplateParameter) error {
 	return validateStringLength(name, val, param)
 }
 
-func constraintMsg(fallback string, param TemplateParameter) string {
-	if param.ConstraintDescription != "" {
-		return param.ConstraintDescription
+// paramValueForMessage hides NoEcho parameter values the way CloudFormation
+// masks them in error text.
+func paramValueForMessage(val string, param TemplateParameter) string {
+	if param.NoEcho {
+		return "****"
 	}
 
-	return fallback
+	return val
+}
+
+func paramViolation(name, val string, param TemplateParameter, detail string) error {
+	return fmt.Errorf(
+		"%w: parameter value %s for parameter name %s %s",
+		ErrParameterValidation, paramValueForMessage(val, param), name, detail,
+	)
 }
 
 func validateAllowedValues(name, val string, param TemplateParameter) error {
 	if len(param.AllowedValues) == 0 || slices.Contains(param.AllowedValues, val) {
 		return nil
 	}
-	msg := constraintMsg(fmt.Sprintf("Parameter %s must be one of %v", name, param.AllowedValues), param)
 
-	return fmt.Errorf("%w: %s", ErrParameterValidation, msg)
+	return paramViolation(name, val, param, "does not exist in AllowedValues")
 }
 
 func validateAllowedPattern(name, val string, param TemplateParameter) error {
 	if param.AllowedPattern == "" {
 		return nil
 	}
-	re, err := regexp.Compile(param.AllowedPattern)
+	re, err := regexp.Compile("^(?:" + param.AllowedPattern + ")$")
 	if err != nil {
 		return fmt.Errorf("%w: parameter %s AllowedPattern is not a valid regex: %w", ErrParameterValidation, name, err)
 	}
 	if re.MatchString(val) {
 		return nil
 	}
-	msg := constraintMsg(fmt.Sprintf("Parameter %s must match pattern %s", name, param.AllowedPattern), param)
 
-	return fmt.Errorf("%w: %s", ErrParameterValidation, msg)
+	return paramViolation(name, val, param, "does not match AllowedPattern "+param.AllowedPattern)
 }
 
 func validateNumericRange(name, val string, param TemplateParameter) error {
@@ -704,32 +721,25 @@ func validateNumericRange(name, val string, param TemplateParameter) error {
 	}
 	n, err := strconv.ParseFloat(val, 64)
 	if err != nil {
-		return fmt.Errorf("%w: parameter %s must be a number, got %q", ErrParameterValidation, name, val)
+		return paramViolation(name, val, param, "is not a number")
 	}
 	if param.MinValue != nil && n < *param.MinValue {
-		msg := constraintMsg(fmt.Sprintf("Parameter %s must be >= %v", name, *param.MinValue), param)
-
-		return fmt.Errorf("%w: %s", ErrParameterValidation, msg)
+		return paramViolation(name, val, param, fmt.Sprintf("is lower than MinValue %v", *param.MinValue))
 	}
 	if param.MaxValue != nil && n > *param.MaxValue {
-		msg := constraintMsg(fmt.Sprintf("Parameter %s must be <= %v", name, *param.MaxValue), param)
-
-		return fmt.Errorf("%w: %s", ErrParameterValidation, msg)
+		return paramViolation(name, val, param, fmt.Sprintf("is higher than MaxValue %v", *param.MaxValue))
 	}
 
 	return nil
 }
 
 func validateStringLength(name, val string, param TemplateParameter) error {
-	if param.MinLength != nil && len(val) < *param.MinLength {
-		msg := constraintMsg(fmt.Sprintf("Parameter %s must be at least %d characters", name, *param.MinLength), param)
-
-		return fmt.Errorf("%w: %s", ErrParameterValidation, msg)
+	n := utf8.RuneCountInString(val)
+	if param.MinLength != nil && n < *param.MinLength {
+		return paramViolation(name, val, param, fmt.Sprintf("is shorter than MinLength %d", *param.MinLength))
 	}
-	if param.MaxLength != nil && len(val) > *param.MaxLength {
-		msg := constraintMsg(fmt.Sprintf("Parameter %s must be at most %d characters", name, *param.MaxLength), param)
-
-		return fmt.Errorf("%w: %s", ErrParameterValidation, msg)
+	if param.MaxLength != nil && n > *param.MaxLength {
+		return paramViolation(name, val, param, fmt.Sprintf("is longer than MaxLength %d", *param.MaxLength))
 	}
 
 	return nil

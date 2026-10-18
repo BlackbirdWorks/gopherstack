@@ -145,6 +145,7 @@ func TestFnGetAtt_LambdaFunction(t *testing.T) {
 					"FunctionName": "parity-test-fn",
 					"Runtime": "python3.9",
 					"Handler": "index.handler",
+					"Code": {"ZipFile": "def handler(e, c): pass"},
 					"Role": "arn:aws:iam::000000000000:role/exec"
 				}
 			}

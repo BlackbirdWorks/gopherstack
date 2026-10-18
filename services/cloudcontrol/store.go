@@ -28,16 +28,17 @@ type clientTokenEntry struct {
 
 // InMemoryBackend is a thread-safe in-memory store for CloudControl resources.
 type InMemoryBackend struct {
-	registry     *store.Registry
-	resources    *store.Table[Resource]      // key: typeName+"/"+identifier
-	requests     *store.Table[ProgressEvent] // key: requestToken
-	clientTokens map[string]clientTokenEntry // clientToken → entry (idempotency + conflict detection)
-	typeHandlers map[string]TypeHandler
-	mu           *lockmetrics.RWMutex
-	now          func() time.Time
-	accountID    string
-	region       string
-	opDelay      time.Duration
+	registry       *store.Registry
+	resources      *store.Table[Resource]      // key: typeName+"/"+identifier
+	requests       *store.Table[ProgressEvent] // key: requestToken
+	clientTokens   map[string]clientTokenEntry // clientToken → entry (idempotency + conflict detection)
+	typeHandlers   map[string]TypeHandler
+	mu             *lockmetrics.RWMutex
+	now            func() time.Time
+	accountID      string
+	region         string
+	opDelay        time.Duration
+	strictAWSTypes bool
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.

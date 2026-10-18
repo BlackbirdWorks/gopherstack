@@ -51,9 +51,17 @@ func main() {
 	specPath := flag.String("spec", "", "path to the CloudFormation resource specification JSON")
 	srcDir := flag.String("src", "", "directory to scan for resTypeXxx constants")
 	outPath := flag.String("out", "", "output attribute-table JSON file path")
+	servicesOut := flag.String(
+		"services-out", "",
+		"also write the sorted list of known CloudFormation service namespaces here",
+	)
 	trimSpecOut := flag.String(
 		"trimspec-out", "",
 		"write a trimmed (types+attribute names only) copy of -spec here instead of generating the table",
+	)
+	typesOut := flag.String(
+		"types-out", "",
+		"also write the sorted list of resource types the provisioner references (Cloud Control coverage) here",
 	)
 	flag.Parse()
 
@@ -76,13 +84,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := run(*specPath, *srcDir, *outPath); err != nil {
+	if err := run(*specPath, *srcDir, *outPath, *servicesOut, *typesOut); err != nil {
 		fmt.Fprintln(os.Stderr, "cfnattrgen:", err)
 		os.Exit(1)
 	}
 }
 
-func run(specPath, srcDir, outPath string) error {
+func run(specPath, srcDir, outPath, servicesOut, typesOut string) error {
 	spec, err := loadSpec(specPath)
 	if err != nil {
 		return fmt.Errorf("load spec: %w", err)
@@ -104,6 +112,30 @@ func run(specPath, srcDir, outPath string) error {
 
 	if writeErr := os.WriteFile(outPath, out, 0o600); writeErr != nil {
 		return fmt.Errorf("write %s: %w", outPath, writeErr)
+	}
+
+	if servicesOut != "" {
+		svcJSON, svcErr := renderServices(buildServices(spec, collectResourceTypeLiterals(files)))
+		if svcErr != nil {
+			return fmt.Errorf("render services: %w", svcErr)
+		}
+
+		if writeErr := os.WriteFile(servicesOut, svcJSON, 0o600); writeErr != nil {
+			return fmt.Errorf("write %s: %w", servicesOut, writeErr)
+		}
+	}
+
+	if typesOut == "" {
+		return nil
+	}
+
+	typesJSON, err := renderServices(buildProvisionableTypes(collectResourceTypeLiterals(files)))
+	if err != nil {
+		return fmt.Errorf("render types: %w", err)
+	}
+
+	if writeErr := os.WriteFile(typesOut, typesJSON, 0o600); writeErr != nil {
+		return fmt.Errorf("write %s: %w", typesOut, writeErr)
 	}
 
 	return nil
@@ -269,4 +301,93 @@ func renderJSON(table map[string][]string) ([]byte, error) {
 	}
 
 	return append(out, '\n'), nil
+}
+
+// collectResourceTypeLiterals returns every resource-type string literal
+// anywhere in files, not only resTypeXxx constants.
+func collectResourceTypeLiterals(files []*ast.File) map[string]struct{} {
+	types := make(map[string]struct{})
+
+	for _, file := range files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+
+			if value, err := strconv.Unquote(lit.Value); err == nil && isResourceTypeValue(value) {
+				types[value] = struct{}{}
+			}
+
+			return true
+		})
+	}
+
+	return types
+}
+
+// buildServices returns the sorted "AWS::<Service>" namespaces named by the
+// spec or by any literal the provisioner references.
+func buildServices(spec *resourceSpec, literals map[string]struct{}) []string {
+	set := make(map[string]struct{})
+
+	add := func(typeName string) {
+		parts := strings.Split(typeName, "::")
+		if len(parts) >= minTypeNameParts && parts[0] == "AWS" && parts[1] != "" {
+			set[parts[1]] = struct{}{}
+		}
+	}
+
+	for name := range spec.ResourceTypes {
+		add(name)
+	}
+
+	for name := range literals {
+		add(name)
+	}
+
+	out := make([]string, 0, len(set))
+	for svc := range set {
+		out = append(out, svc)
+	}
+
+	sort.Strings(out)
+
+	return out
+}
+
+const minTypeNameParts = 3
+
+func renderServices(services []string) ([]byte, error) {
+	out, err := json.MarshalIndent(services, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+
+	return append(out, '\n'), nil
+}
+
+// buildProvisionableTypes returns the sorted three-segment AWS:: types the
+// provisioner references, minus the CloudFormation-only families (nested
+// stacks, custom resources, macros) and SAM's pre-transform types, none of
+// which Cloud Control manages.
+func buildProvisionableTypes(literals map[string]struct{}) []string {
+	out := make([]string, 0, len(literals))
+
+	for name := range literals {
+		parts := strings.Split(name, "::")
+		if len(parts) != minTypeNameParts || parts[0] != "AWS" || parts[2] == "" {
+			continue
+		}
+
+		if parts[1] == "CloudFormation" || parts[1] == "Serverless" {
+			continue
+		}
+
+		out = append(out, name)
+	}
+
+	sort.Strings(out)
+
+	return out
 }

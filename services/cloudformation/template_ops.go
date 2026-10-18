@@ -112,7 +112,11 @@ func (b *InMemoryBackend) EstimateTemplateCost(_ string, _ []Parameter) (string,
 }
 
 func (b *InMemoryBackend) ValidateTemplate(templateBody string) (*TemplateSummary, error) {
-	if err := validateTemplateStructure(templateBody); err != nil {
+	b.mu.RLock("ValidateTemplate")
+	err := validateTemplateStructure(templateBody, b.registeredTypeLocked)
+	b.mu.RUnlock()
+
+	if err != nil {
 		return nil, err
 	}
 

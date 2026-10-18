@@ -324,18 +324,18 @@ func TestCreateStack_AllowedValues_InvalidValue_Rejected(t *testing.T) {
 		}
 	}`
 
-	stack, err := b.CreateStack(
+	_, err := b.CreateStack(
 		t.Context(), "av-bad", tmpl,
 		[]cloudformation.Parameter{{ParameterKey: "Env", ParameterValue: "qa"}},
 		cloudformation.StackOptions{},
 	)
-	require.NoError(t, err)
-	// AWS rolls back to ROLLBACK_COMPLETE on parameter validation failure.
-	assert.Equal(t, "ROLLBACK_COMPLETE", stack.StackStatus)
-	assert.Contains(t, stack.StackStatusReason, "parameter validation failed")
+	// AWS rejects an AllowedValues violation synchronously with a ValidationError.
+	require.ErrorIs(t, err, cloudformation.ErrParameterValidation)
+	assert.EqualError(t, err,
+		"Parameter validation failed: parameter value qa for parameter name Env does not exist in AllowedValues")
 }
 
-func TestCreateStack_AllowedValues_ConstraintDescription_InError(t *testing.T) {
+func TestCreateStack_AllowedValues_ConstraintDescription_NotInAPIError(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
@@ -353,14 +353,13 @@ func TestCreateStack_AllowedValues_ConstraintDescription_InError(t *testing.T) {
 		}
 	}`
 
-	stack, err := b.CreateStack(
+	_, err := b.CreateStack(
 		t.Context(), "av-constraint", tmpl,
 		[]cloudformation.Parameter{{ParameterKey: "Env", ParameterValue: "qa"}},
 		cloudformation.StackOptions{},
 	)
-	require.NoError(t, err)
-	assert.Equal(t, "ROLLBACK_COMPLETE", stack.StackStatus)
-	assert.Contains(t, stack.StackStatusReason, "must be dev or prod")
+	require.ErrorIs(t, err, cloudformation.ErrParameterValidation)
+	assert.NotContains(t, err.Error(), "must be dev or prod")
 }
 
 func TestCreateStack_AllowedValues_DefaultUsed_MustBeInList(t *testing.T) {
@@ -417,13 +416,12 @@ func TestUpdateStack_AllowedValues_InvalidValue_Rejected(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	updated, err := b.UpdateStack(
+	_, err = b.UpdateStack(
 		t.Context(), "upd-av", tmpl,
 		[]cloudformation.Parameter{{ParameterKey: "Env", ParameterValue: "qa"}},
 		cloudformation.StackOptions{},
 	)
-	require.NoError(t, err)
-	assert.Equal(t, "UPDATE_ROLLBACK_COMPLETE", updated.StackStatus)
+	require.ErrorIs(t, err, cloudformation.ErrParameterValidation)
 }
 
 // ---- GetTemplateSummary: AllowedValues and NoEcho surfaced ---------------------
