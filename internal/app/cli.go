@@ -113,6 +113,7 @@ import (
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	cfkvsbackend "github.com/blackbirdworks/gopherstack/services/cloudfrontkeyvaluestore"
+	cloudhsmv2backend "github.com/blackbirdworks/gopherstack/services/cloudhsmv2"
 	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -225,6 +226,7 @@ import (
 	route53recoverycontrolconfigbackend "github.com/blackbirdworks/gopherstack/services/route53recoverycontrolconfig"
 	route53recoveryreadinessbackend "github.com/blackbirdworks/gopherstack/services/route53recoveryreadiness"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
+	rumbackend "github.com/blackbirdworks/gopherstack/services/rum"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
 	s3tablesbackend "github.com/blackbirdworks/gopherstack/services/s3tables"
@@ -378,9 +380,9 @@ type CLI struct {
 	secretsManagerHandler         service.Registerable
 	backupHandler                 service.Registerable
 	cloudtrailHandler             service.Registerable
+	azureARMHandler               service.Registerable
 	appConfigHandler              service.Registerable
 	applicationautoscalingHandler service.Registerable
-	azureARMHandler               service.Registerable
 	batchHandler                  service.Registerable
 	bedrockHandler                service.Registerable
 	bedrockruntimeHandler         service.Registerable
@@ -1737,13 +1739,13 @@ func (c *CLI) GetBackupHandler() service.Registerable { return c.backupHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCloudTrailHandler() service.Registerable { return c.cloudtrailHandler }
 
-// GetAppConfigHandler returns the AppConfig handler (dashboard.AWSSDKProvider).
-//
-// GetAzureARMHandler returns the Azure Resource Manager handler (dashboard proxy).
+// GetAzureARMHandler returns the Azure Resource Manager handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAzureARMHandler() service.Registerable { return c.azureARMHandler }
 
+// GetAppConfigHandler returns the AppConfig handler (dashboard.AWSSDKProvider).
+//
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAppConfigHandler() service.Registerable { return c.appConfigHandler }
 
@@ -2928,9 +2930,9 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.identitystoreHandler = byName["IdentityStore"]
 	cli.backupHandler = byName["Backup"]
 	cli.cloudtrailHandler = byName["CloudTrail"]
+	cli.azureARMHandler = byName["AzureARM"]
 	cli.ceHandler = byName["Ce"]
 	cli.cloudcontrolHandler = byName["CloudControl"]
-	cli.azureARMHandler = byName["AzureARM"]
 	cli.cloudFrontHandler = byName["CloudFront"]
 	cli.codeArtifactHandler = byName["CodeArtifact"]
 	cli.codeConnectionsHandler = byName["CodeConnections"]
@@ -4314,6 +4316,8 @@ func getServiceProviders() []service.Provider {
 		&timestreaminfluxdbbackend.Provider{},
 		&bedrockagentcorecontrolbackend.Provider{},
 		&s3vectorsbackend.Provider{},
+		&cloudhsmv2backend.Provider{},
+		&rumbackend.Provider{},
 	})
 }
 

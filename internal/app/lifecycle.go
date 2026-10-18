@@ -20,6 +20,7 @@ import (
 	cleanroomsbackend "github.com/blackbirdworks/gopherstack/services/cleanrooms"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
+	cloudhsmv2backend "github.com/blackbirdworks/gopherstack/services/cloudhsmv2"
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	comprehendbackend "github.com/blackbirdworks/gopherstack/services/comprehend"
@@ -258,6 +259,12 @@ func applyNetworkFirewall(reg service.Registerable, l cliconfig.LifecycleSetting
 func applyGlobalAccelerator(reg service.Registerable, l cliconfig.LifecycleSettings) {
 	if h, ok := reg.(*globalacceleratorbackend.Handler); ok {
 		h.Backend.SetLifecycleDelay(l.Effective(l.GlobalAccelerator))
+	}
+}
+
+func applyCloudHSMV2(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*cloudhsmv2backend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.Effective(l.CloudHSMV2))
 	}
 }
 
@@ -750,6 +757,7 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l cliconfig.Lif
 		"FIS":                 applyFIS,
 		"DSQL":                applyDSQL,
 		"GlobalAccelerator":   applyGlobalAccelerator,
+		"CloudHSMV2":          applyCloudHSMV2,
 		"AMP":                 applyAMP,
 		"TimestreamInfluxDB":  applyTimestreamInfluxDB,
 		"ServiceQuotas":       applyServiceQuotas,

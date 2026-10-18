@@ -17401,3 +17401,83 @@ POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimes
 POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.UntagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
 POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.UpdateDbCluster	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
 POST	localhost:4566	/	timestream-influxdb	application/x-amz-json-1.0	AmazonTimestreamInfluxDB.UpdateDbInstance	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/timestreaminfluxdb#1.0.0	TimestreamInfluxDB	TimestreamInfluxDB
+POST	localhost:4566	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.CopyBackupToRegion	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/		application/x-amz-json-1.1	BaldrApiService.CopyBackupToRegion	{}		CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	BaldrApiService.CopyBackupToRegion	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	cloudhsm.us-east-1.amazonaws.com	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.CopyBackupToRegion	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcloudhsm%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	BaldrApiService.CopyBackupToRegion	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.CreateCluster	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/		application/x-amz-json-1.1	BaldrApiService.CreateCluster	{}		CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	BaldrApiService.CreateCluster	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	cloudhsm.us-east-1.amazonaws.com	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.CreateCluster	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcloudhsm%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	BaldrApiService.CreateCluster	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.CreateHsm	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/		application/x-amz-json-1.1	BaldrApiService.CreateHsm	{}		CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	BaldrApiService.CreateHsm	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	cloudhsm.us-east-1.amazonaws.com	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.CreateHsm	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcloudhsm%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	BaldrApiService.CreateHsm	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.DeleteBackup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/		application/x-amz-json-1.1	BaldrApiService.DeleteBackup	{}		CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	BaldrApiService.DeleteBackup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	cloudhsm.us-east-1.amazonaws.com	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.DeleteBackup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcloudhsm%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	BaldrApiService.DeleteBackup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.DeleteCluster	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/		application/x-amz-json-1.1	BaldrApiService.DeleteCluster	{}		CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.DeleteHsm	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/		application/x-amz-json-1.1	BaldrApiService.DeleteHsm	{}		CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.DeleteResourcePolicy	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/		application/x-amz-json-1.1	BaldrApiService.DeleteResourcePolicy	{}		CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.DescribeBackups	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/		application/x-amz-json-1.1	BaldrApiService.DescribeBackups	{}		CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.DescribeClusters	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/		application/x-amz-json-1.1	BaldrApiService.DescribeClusters	{}		CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.GetResourcePolicy	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/		application/x-amz-json-1.1	BaldrApiService.GetResourcePolicy	{}		CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.InitializeCluster	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/		application/x-amz-json-1.1	BaldrApiService.InitializeCluster	{}		CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.ListTags	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/		application/x-amz-json-1.1	BaldrApiService.ListTags	{}		CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.ModifyBackupAttributes	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/		application/x-amz-json-1.1	BaldrApiService.ModifyBackupAttributes	{}		CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.ModifyCluster	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/		application/x-amz-json-1.1	BaldrApiService.ModifyCluster	{}		CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.PutResourcePolicy	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/		application/x-amz-json-1.1	BaldrApiService.PutResourcePolicy	{}		CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.RestoreBackup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/		application/x-amz-json-1.1	BaldrApiService.RestoreBackup	{}		CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.TagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/		application/x-amz-json-1.1	BaldrApiService.TagResource	{}		CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/	cloudhsm	application/x-amz-json-1.1	BaldrApiService.UntagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudhsmv2#1.0.0	CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/		application/x-amz-json-1.1	BaldrApiService.UntagResource	{}		CloudHSMV2	CloudHSMV2
+POST	localhost:4566	/rummetrics/xappmon/metrics	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+POST	localhost:4566	/rummetrics/xappmon/metrics	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+POST	rum.us-east-1.amazonaws.com	/rummetrics/xappmon/metrics	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+POST	localhost:4566	/rummetrics/xappmon/metrics?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Frum%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+DELETE	localhost:4566	/rummetrics/xappmon/metrics	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+DELETE	localhost:4566	/rummetrics/xappmon/metrics	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+DELETE	rum.us-east-1.amazonaws.com	/rummetrics/xappmon/metrics	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+DELETE	localhost:4566	/rummetrics/xappmon/metrics?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Frum%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+GET	localhost:4566	/rummetrics/xappmon/metrics	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+GET	localhost:4566	/rummetrics/xappmon/metrics	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+GET	rum.us-east-1.amazonaws.com	/rummetrics/xappmon/metrics	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+GET	localhost:4566	/rummetrics/xappmon/metrics?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Frum%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+POST	localhost:4566	/appmonitor	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+POST	localhost:4566	/appmonitor	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+POST	rum.us-east-1.amazonaws.com	/appmonitor	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+POST	localhost:4566	/appmonitor?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Frum%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+DELETE	localhost:4566	/appmonitor/xname	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+DELETE	localhost:4566	/appmonitor/xname/policy	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+DELETE	localhost:4566	/rummetrics/xappmon/metricsdestination	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+GET	localhost:4566	/appmonitor/xname	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+POST	localhost:4566	/appmonitor/xname/data	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+GET	localhost:4566	/appmonitor/xname/policy	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+POST	localhost:4566	/appmonitors	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+GET	localhost:4566	/rummetrics/xappmon/metricsdestination	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+GET	localhost:4566	/tags/xresour	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+PUT	localhost:4566	/appmonitor/xname/policy	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+POST	localhost:4566	/appmonitors/xid/	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+POST	localhost:4566	/rummetrics/xappmon/metricsdestination	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+POST	localhost:4566	/tags/xresour	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+DELETE	localhost:4566	/tags/xresour	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+PATCH	localhost:4566	/appmonitor/xname	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM
+PATCH	localhost:4566	/rummetrics/xappmon/metrics	rum				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/rum#1.0.0	RUM	RUM

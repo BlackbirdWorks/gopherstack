@@ -132,6 +132,8 @@ github.com/aws/aws-sdk-go-v2/service/cloudfront v1.67.4 h1:vM0MvzS7MkDHdo7Wmf8la
 github.com/aws/aws-sdk-go-v2/service/cloudfront v1.67.4/go.mod h1:pJFmx+oQZM45GaxxMbro/1hebSe7r2HEvzRZpYfbOUo=
 github.com/aws/aws-sdk-go-v2/service/cloudfrontkeyvaluestore v1.15.4 h1:LWUGqVZsHUfwhkxwjsS9uhR8ucNIYeUo6ya1+BQyBIE=
 github.com/aws/aws-sdk-go-v2/service/cloudfrontkeyvaluestore v1.15.4/go.mod h1:McSPeuANDgw8FqwQAbR224jGON/DVpWqyEdoGTk0Kv4=
+github.com/aws/aws-sdk-go-v2/service/cloudhsmv2 v1.43.4 h1:OjZQOFFB+dxBgKx8HZa4mFiUIlQHHGTLZfHMFNue+SQ=
+github.com/aws/aws-sdk-go-v2/service/cloudhsmv2 v1.43.4/go.mod h1:97Fi8N9/gN73eadosvztmCMRomYXoGK4SzdEWNOcn8A=
 github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.58.4 h1:Fh/6TN1aghBh46UYgRyZNLvqVm1MmB70gpTPMz6Bz4c=
 github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.58.4/go.mod h1:s7TH/kP0aqYvQSWOV13Izaibuc7WqKQl/eGVUxzz1tg=
 github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.71.0 h1:rsz5qRD9Fdeh/AehTwu1cd8pBOlWVKOi/0iGeaQ4xGU=
@@ -372,6 +374,8 @@ github.com/aws/aws-sdk-go-v2/service/route53recoveryreadiness v1.34.4 h1:2jAcvH3
 github.com/aws/aws-sdk-go-v2/service/route53recoveryreadiness v1.34.4/go.mod h1:g5SgpVFiZ5w4luIPMffpNTqWi17lUDSWb7JYu98UrWc=
 github.com/aws/aws-sdk-go-v2/service/route53resolver v1.53.0 h1:mpL6r9kantOM8zWI/SR5AYfOH6KIIEfc0YhBs0K4hP8=
 github.com/aws/aws-sdk-go-v2/service/route53resolver v1.53.0/go.mod h1:dJrmGVzOLmT+qWT3O7PGQdnBuZincImXChQYW0EXA1Y=
+github.com/aws/aws-sdk-go-v2/service/rum v1.38.4 h1:nx+2JTzyexVpSYCuAJxKPw5Gwhe0dAbFXj02pM8iJWA=
+github.com/aws/aws-sdk-go-v2/service/rum v1.38.4/go.mod h1:DSu+UpWk2dKHPSY3VUlrT2wbL+dFLJEG0coja3Kk5Dg=
 github.com/aws/aws-sdk-go-v2/service/s3 v1.111.0 h1:4PokON/ISKuD6Zl062n4WfQNnEFBMHvfeJy73Jp7K+g=
 github.com/aws/aws-sdk-go-v2/service/s3 v1.111.0/go.mod h1:6ZFrmv/qIAYFmG+2WhA7mFU8+edldRlISwT+tNnyLuA=
 github.com/aws/aws-sdk-go-v2/service/s3control v1.73.4 h1:iLaMpTt0YOtycNqDY6vOS8ghR+5lxv3s1CSvCiezhXk=

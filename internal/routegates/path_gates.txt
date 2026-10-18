@@ -56,6 +56,7 @@ RDSData	/BatchExecute /BeginTransaction /CommitTransaction /Execute /RollbackTra
 ResourceExplorer2	/AssociateDefaultView /BatchGetView /CreateIndex /CreateResourceExplorerSetup /CreateView /DeleteIndex /DeleteResourceExplorerSetup /DeleteView /DisassociateDefaultView /GetAccountLevelServiceConfiguration /GetDefaultView /GetIndex /GetManagedView /GetResourceExplorerSetup /GetServiceIndex /GetServiceView /GetView /ListIndexes /ListIndexesForMembers /ListManagedViews /ListResources /ListServiceIndexes /ListServiceViews /ListStreamingAccessForServices /ListSupportedResourceTypes /ListViews /Search /UpdateIndexType /UpdateView /tags
 RolesAnywhere	/ListTagsForResource /TagResource /UntagResource /crl /profile /put-notifications-settings /reset-notifications-settings /subject /trustanchor
 Route53	/2013-04-01
+RUM	/appmonitor /appmonitors /rummetrics /tags
 S3Control	/v20180820
 S3Vectors	/CreateIndex /CreateVectorBucket /DeleteIndex /DeleteVectorBucket /DeleteVectorBucketPolicy /DeleteVectors /GetIndex /GetVectorBucket /GetVectorBucketPolicy /GetVectors /ListIndexes /ListVectorBuckets /ListVectors /PutVectorBucketDefaultIndexMode /PutVectorBucketPolicy /PutVectors /QueryVectors /UpdateIndexMode /tags
 S3tables	/buckets /get-table /namespaces /replication-status /table-bucket-replication /table-record-expiration /table-replication /tables /tag

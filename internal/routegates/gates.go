@@ -25,6 +25,7 @@ func TargetGates() map[string][]string {
 		"Budgets":                  {"AWSBudgetServiceGateway."},
 		"Ce":                       {"AWSInsightsIndexService."},
 		"CloudControl":             {"CloudApiService."},
+		"CloudHSMV2":               {"BaldrApiService."},
 		"CloudTrail":               namespaced("cloudtrail.v20131101.", "CloudTrail_20131101."),
 		"CloudWatchLogs":           {"Logs_20140328."},
 		"CodeBuild":                {"CodeBuild_20161006."},

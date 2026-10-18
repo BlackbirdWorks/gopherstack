@@ -123,6 +123,8 @@ func (a ec2SubnetAdapter) SubnetCIDR(region, id string) (string, bool) {
 // wireSubnetLookups gives DocumentDB, Neptune and MediaLive their EC2 subnet accessors.
 func wireSubnetLookups(byName map[string]service.Registerable) {
 	wireAMPScraperSources(byName)
+	wireCloudHSMNetwork(byName)
+	wireRUMCloudWatch(byName)
 
 	ec2H, ok := byName["EC2"].(*ec2backend.Handler)
 	if !ok {
