@@ -65,7 +65,8 @@ func asDDBResolvers() []asResolverSpec {
 		{"Query", "queryPosts", "posts", asPre + `"operation":"Query","query":{"expression":"authorId = :a",` +
 			`"expressionValues":{":a":$util.dynamodb.toDynamoDBJson($ctx.args.authorId)}},` +
 			`"filter":{"expression":"n >= :m","expressionValues":{":m":$util.dynamodb.toDynamoDBJson($ctx.args.minN)}},` +
-			`"limit":$util.toJson($ctx.args.limit),"nextToken":$util.toJson($ctx.args.nextToken),"scanIndexForward":$util.toJson($ctx.args.fwd)}`},
+			`"limit":$util.toJson($ctx.args.limit),"nextToken":$util.toJson($ctx.args.nextToken),` +
+			`"scanIndexForward":$util.toJson($ctx.args.fwd)}`},
 		{"Query", "queryByTitle", "posts", asPre + `"operation":"Query","index":"byTitle",` +
 			`"query":{"expression":"#t = :t","expressionNames":{"#t":"title"},` +
 			`"expressionValues":{":t":$util.dynamodb.toDynamoDBJson($ctx.args.title)}}}`},

@@ -481,6 +481,7 @@ type CLI struct {
 	InitScripts                   []string                          `                                       name:"init-script"             env:"INIT_SCRIPTS"                                           help:"Shell scripts to run on startup (may be specified multiple times)."`                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
 	S3InitBuckets                 []string                          `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                             help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	ExtraListen                   []string                          `                                       name:"extra-listen"            env:"GOPHERSTACK_EXTRA_LISTEN"                               help:"Additional ports to serve the same endpoint on (comma-separated)."`                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
 	AzureARM                      azurearmbackend.Settings          `embed:"" prefix:"azure-arm-"`
@@ -490,7 +491,6 @@ type CLI struct {
 	Batch                         batchbackend.Settings             `embed:"" prefix:"batch-"`
 	EC2                           ec2backend.Settings               `embed:"" prefix:"ec2-"`
 	StepFunctions                 sfnbackend.Settings               `embed:"" prefix:"stepfunctions-"`
-	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
 	Backup                        backupbackend.Settings            `embed:"" prefix:"backup-"`
 	SSM                           ssmbackend.Settings               `embed:"" prefix:"ssm-"`
 	XRay                          xraybackend.Settings              `embed:"" prefix:"xray-"`
