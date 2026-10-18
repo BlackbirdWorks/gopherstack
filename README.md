@@ -200,6 +200,16 @@ A built-in UI at `http://localhost:8000/dashboard` for inspecting and managing l
   create tables
 - **S3** — list buckets, browse files with folder support, upload/download, manage
   versioning, view object metadata
+- **Cloud switcher** — a top-nav dropdown scopes the dashboard to AWS, Azure or GCP;
+  Azure pages cover Resource Manager, Blob Storage and Queue Storage
+
+### Desktop App
+
+`gopherstack-desktop` runs the full emulator and its dashboard as a native app on
+macOS, Windows and Linux, with no browser or terminal needed. It's built with Wails
+on the system webview, so it adds only a few MB over the headless binary, and it
+ships with every release next to the headless `gopherstack`. See
+[Desktop app](#desktop-app) for install steps.
 
 ### Configuration
 
