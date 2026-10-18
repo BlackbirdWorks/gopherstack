@@ -4,6 +4,7 @@
 	import { gcpServiceById } from '#lib/cloud.ts';
 	import StorageDashboard from '#lib/components/gcp/StorageDashboard.svelte';
 	import PubSubDashboard from '#lib/components/gcp/PubSubDashboard.svelte';
+	import FirestoreDashboard from '#lib/components/gcp/FirestoreDashboard.svelte';
 	import SecretManagerDashboard from '#lib/components/gcp/SecretManagerDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedGcpServices } from '#lib/cloud.svelte.ts';
 
@@ -23,6 +24,8 @@
 	<PubSubDashboard />
 {:else if service?.id === 'secretmanager'}
 	<SecretManagerDashboard />
+{:else if service?.id === 'firestore'}
+	<FirestoreDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="gcp-service-placeholder">
 	{#if !service}

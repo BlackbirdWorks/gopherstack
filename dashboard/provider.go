@@ -34,6 +34,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/efs"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
+	"github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	"github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
 	"github.com/blackbirdworks/gopherstack/services/gcpstorage"
@@ -117,17 +118,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		conf.AzureBlobOps, _ = getHandler[*azureblob.Handler](bp.GetAzureBlobHandler())
 	}
 
-	if gp, hasGCS := ctx.Config.(interface{ GetGCPStorageHandler() service.Registerable }); hasGCS {
-		conf.GCPStorageOps, _ = getHandler[*gcpstorage.Handler](gp.GetGCPStorageHandler())
-	}
-
-	if gp, hasPubSub := ctx.Config.(interface{ GetGCPPubSubHandler() service.Registerable }); hasPubSub {
-		conf.GCPPubSubOps, _ = getHandler[*gcppubsub.Handler](gp.GetGCPPubSubHandler())
-	}
-
-	if gp, hasSM := ctx.Config.(interface{ GetGCPSecretManagerHandler() service.Registerable }); hasSM {
-		conf.GCPSecretManagerOps, _ = getHandler[*gcpsecretmanager.Handler](gp.GetGCPSecretManagerHandler())
-	}
+	wireGCPOps(ctx, &conf)
 
 	if qp, hasQueue := ctx.Config.(interface{ GetAzureQueueHandler() service.Registerable }); hasQueue {
 		conf.AzureQueueOps, _ = getHandler[*azurequeue.Handler](qp.GetAzureQueueHandler())
@@ -200,4 +191,23 @@ func getHandler[T any](h service.Registerable) (T, bool) {
 	v, ok := h.(T)
 
 	return v, ok
+}
+
+// wireGCPOps resolves the in-process GCP backends the dashboard proxies call.
+func wireGCPOps(ctx *service.AppContext, conf *Config) {
+	if gp, hasGCS := ctx.Config.(interface{ GetGCPStorageHandler() service.Registerable }); hasGCS {
+		conf.GCPStorageOps, _ = getHandler[*gcpstorage.Handler](gp.GetGCPStorageHandler())
+	}
+
+	if gp, hasPubSub := ctx.Config.(interface{ GetGCPPubSubHandler() service.Registerable }); hasPubSub {
+		conf.GCPPubSubOps, _ = getHandler[*gcppubsub.Handler](gp.GetGCPPubSubHandler())
+	}
+
+	if gp, hasFS := ctx.Config.(interface{ GetGCPFirestoreHandler() service.Registerable }); hasFS {
+		conf.GCPFirestoreOps, _ = getHandler[*gcpfirestore.Handler](gp.GetGCPFirestoreHandler())
+	}
+
+	if gp, hasSM := ctx.Config.(interface{ GetGCPSecretManagerHandler() service.Registerable }); hasSM {
+		conf.GCPSecretManagerOps, _ = getHandler[*gcpsecretmanager.Handler](gp.GetGCPSecretManagerHandler())
+	}
 }

@@ -115,10 +115,14 @@ describe("categoriesForCloud", () => {
     expect(availableGcpServices(["S3"])).toEqual([]);
   });
 
-  it("lists Pub/Sub and Secret Manager only when served", () => {
-    const served = availableGcpServices(["GCPSecretManager", "GCPPubSub"]);
-    expect(served.map((s) => s.id)).toEqual(["pubsub", "secretmanager"]);
-    expect(served.map((s) => s.portLabel)).toEqual(["gcppubsub", "gcpsecretmanager"]);
+  it("lists Pub/Sub, Secret Manager and Firestore only when served", () => {
+    const served = availableGcpServices(["GCPFirestore", "GCPSecretManager", "GCPPubSub"]);
+    expect(served.map((s) => s.id)).toEqual(["pubsub", "secretmanager", "firestore"]);
+    expect(served.map((s) => s.portLabel)).toEqual([
+      "gcppubsub",
+      "gcpsecretmanager",
+      "gcpfirestore",
+    ]);
   });
 });
 

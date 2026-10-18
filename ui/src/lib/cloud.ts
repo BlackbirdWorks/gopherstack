@@ -110,6 +110,14 @@ export const GCP_SERVICES: readonly GcpService[] = [
     portLabel: "gcpsecretmanager",
     defaultPort: 8086,
   },
+  {
+    id: "firestore",
+    label: "Firestore",
+    description: "Google Cloud Firestore",
+    healthName: "GCPFirestore",
+    portLabel: "gcpfirestore",
+    defaultPort: 8080,
+  },
 ];
 
 export function parseCloud(value: string | null | undefined): Cloud | null {
