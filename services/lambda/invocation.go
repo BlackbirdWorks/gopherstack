@@ -200,6 +200,8 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 		timeout = defaultFunctionTimeout
 	}
 
+	timeout = b.debugInvokeTimeoutFor(fn, timeout)
+
 	if invocationType == InvocationTypeEvent {
 		b.invokeEvent(ctx, fn, qualifier, srv, payload, clientContext, timeout, trackConcurrency)
 

@@ -86,3 +86,25 @@ aws --endpoint-url http://localhost:8000 lambda create-function-url-config \
 | `--lambda-pool-size` | `LAMBDA_POOL_SIZE` | `3` | Warm container pool size per function |
 | `--lambda-idle-timeout` | `LAMBDA_IDLE_TIMEOUT` | `10m` | Idle container lifetime before reaping |
 | `--container-runtime` | `CONTAINER_RUNTIME` | `docker` | `docker`, `podman`, or `auto` |
+
+## Remote debugging
+
+Set `LAMBDA_DEBUG_MODE=1` to publish a debugger port from a function's container to `127.0.0.1` on the host, so an IDE can attach. Configure functions with a YAML/JSON file (`LAMBDA_DEBUG_MODE_CONFIG_PATH`) or the env form `LAMBDA_DEBUG_MODE_FUNCTIONS=name=5678,other:1=5679`:
+
+```yaml
+functions:
+  arn:aws:lambda:us-east-1:000000000000:function:my-fn:   # or "my-fn" / "my-fn:3"
+    debug-port: 5678
+    enforce-timeouts: false   # default true; false raises the invoke timeout to 1h
+```
+
+Env form timeouts: `LAMBDA_DEBUG_MODE_ENFORCE_TIMEOUTS=false`. Each function needs a distinct port; a collision, duplicate function or bad port disables debug mode and logs the error at startup.
+
+| Runtime | Injected | Attach with |
+|---------|----------|-------------|
+| Node.js | `NODE_OPTIONS=--inspect=0.0.0.0:PORT` | Node inspector |
+| Java | `JAVA_TOOL_OPTIONS=-agentlib:jdwp=...,address=*:PORT` | JDWP remote |
+| Python | `PYTHONPATH` bootstrap calling `debugpy.listen(PORT)` | debugpy (the function package or a layer must contain `debugpy`) |
+| .NET, Go, other | port published only | start `vsdbg` / `dlv --listen=:PORT` yourself (e.g. in a `provided.*` bootstrap) |
+
+A debug-mode function keeps one warm container that the idle reaper and LRU eviction skip; invocations of it queue on that container. A qualifier in the config only matches invocations of that published version.

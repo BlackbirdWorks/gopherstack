@@ -34,6 +34,10 @@ deferred: []
 leaks: {status: ok, note: "gopherstack-9zx (2026-09-03): 2 real leak-class bugs found + fixed, see dated section below -- cleanupTimedOutRuntime silently dropped container/port/tempdir cleanup when b.cleanupSem was saturated (its two sibling call sites already fell back to inline cleanup; this one just returned), and a genuine async-invocation timeout skipped both retry and DLQ/on-failure destination delivery entirely (AWS treats a runtime timeout as a function error for async purposes). Everything else re-verified clean this pass: event-source pollers + janitor + container lifecycle otherwise leak-conscious; go test -race passes (3/3 clean runs). New PublishVersionWithRevision path adds no new goroutines/locks (reuses the existing PublishVersion lock); layerPolicyRevisionID/policyRevisionID are pure functions with no new backend state (derived from already-persisted b.permissions / b.layerPolicies, so no new persistence surface either). durable_execution rewrite: durableExecutionStore starts no goroutines and holds no live resources (pure in-memory map + mutex), so Shutdown has nothing to drain; every Lock/RLock is immediately followed by a deferred Unlock/RUnlock with no intervening early return; b.durableExecs.reset() (lifecycle.go) clears both the executions map and the callbackOwner index together, so no ghost callbackOwner entries survive a Reset."}
 ---
 
+## Notes (2026-10-18 — Lambda debug mode, gopherstack-49qct.10)
+
+LocalStack-style remote debugging (`LAMBDA_DEBUG_MODE`, see docs/services/lambda.md): per-function debugger port published to 127.0.0.1, Node/Java/Python flags injected, optional 1h invoke timeout. .NET/Go only get the port published; Python needs `debugpy` in the package. Not an AWS API surface.
+
 ## Notes (2026-10-07 — stream/Kafka error handling)
 
 Kinesis and DynamoDB stream mappings now invoke synchronously and honour MaximumRetryAttempts (nil = -1, 0 = no retry),

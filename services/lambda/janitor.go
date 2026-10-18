@@ -72,6 +72,10 @@ func (j *Janitor) sweepIdleRuntimes(ctx context.Context) {
 		now := time.Now()
 
 		for name, rt := range j.Backend.runtimes {
+			if _, debugging := j.Backend.debug.forName(name); debugging {
+				continue
+			}
+
 			if now.Sub(rt.lastUsed) > idleTimeout {
 				toEvict = append(toEvict, rt)
 				delete(j.Backend.runtimes, name)

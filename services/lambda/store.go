@@ -2,12 +2,14 @@ package lambda
 
 import (
 	"context"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -92,6 +94,7 @@ type DNSRegistrar interface {
 
 // InMemoryBackend is a concurrency-safe in-memory Lambda backend.
 type InMemoryBackend struct {
+	debug              *debugConfig
 	cwLogs             CWLogsBackend
 	s3Fetcher          S3CodeFetcher
 	ecrResolver        ECRResolver
@@ -273,6 +276,11 @@ func NewInMemoryBackendWithContext(
 	}
 
 	registerAllTables(b)
+
+	var debugErr error
+	if b.debug, debugErr = LoadDebugConfig(os.Getenv, os.ReadFile); debugErr != nil {
+		logger.Load(svcCtx).ErrorContext(svcCtx, "lambda: debug mode disabled", "error", debugErr)
+	}
 
 	return b
 }
