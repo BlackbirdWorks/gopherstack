@@ -38,7 +38,7 @@ tasks:
           -trimpath \
           -buildvcs=false \
           -tags "production{{if eq OS "linux"}},webkit2_41{{end}}" \
-          -ldflags "-w -s -X {{.VERSION_PKG}}.Build={{.BUILD_VERSION}}{{if eq OS "windows"}} -H windowsgui{{end}}" \
+          -ldflags "-w -s -X {{.VERSION_PKG}}.Build={{.BUILD_VERSION}}{{if eq OS "windows"}} -H windowsgui{{end}}{{if eq OS "darwin"}} -extldflags '-framework UniformTypeIdentifiers'{{end}}" \
           -o ../bin/{{.BINARY_NAME}}-desktop{{exeExt}} .
 
   build-check:
