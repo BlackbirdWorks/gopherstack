@@ -9,11 +9,13 @@ import (
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	elasticsearchbackend "github.com/blackbirdworks/gopherstack/services/elasticsearch"
+	globalacceleratorbackend "github.com/blackbirdworks/gopherstack/services/globalaccelerator"
 	medialivebackend "github.com/blackbirdworks/gopherstack/services/medialive"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	networkfirewallbackend "github.com/blackbirdworks/gopherstack/services/networkfirewall"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
@@ -102,6 +104,21 @@ func (a ec2SubnetAdapter) DeleteNetworkInterface(id string) {
 	}
 }
 
+// SubnetCIDR implements globalaccelerator.SubnetResolver for the subnets of one region.
+func (a ec2SubnetAdapter) SubnetCIDR(region, id string) (string, bool) {
+	b := a.regions.handler.BackendFor(region)
+	if b == nil {
+		return "", false
+	}
+
+	subnets := b.DescribeSubnets([]string{id})
+	if len(subnets) == 0 {
+		return "", false
+	}
+
+	return subnets[0].CIDRBlock, true
+}
+
 // wireSubnetLookups gives DocumentDB, Neptune and MediaLive their EC2 subnet accessors.
 func wireSubnetLookups(byName map[string]service.Registerable) {
 	ec2H, ok := byName["EC2"].(*ec2backend.Handler)
@@ -122,6 +139,14 @@ func wireSubnetLookups(byName map[string]service.Registerable) {
 	}
 
 	if h, hok := byName["Elasticsearch"].(*elasticsearchbackend.Handler); hok {
+		h.Backend.SetSubnetResolver(adapter)
+	}
+
+	if h, hok := byName["NetworkFirewall"].(*networkfirewallbackend.Handler); hok {
+		h.SetSubnetResolver(adapter)
+	}
+
+	if h, hok := byName["GlobalAccelerator"].(*globalacceleratorbackend.Handler); hok {
 		h.Backend.SetSubnetResolver(adapter)
 	}
 

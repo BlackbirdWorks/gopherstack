@@ -67,7 +67,7 @@ One process can serve several regions. The shared middleware resolves the reques
 credential scope, then `X-Amz-Region`, then the configured default, and stores it on the context
 (`awsmeta.Region(ctx)`).
 
-- **Global by AWS definition** (no region key): IAM, Route 53, CloudFront, Organizations, STS global endpoint, WAF classic, ECR Public (AWS serves it only from us-east-1), Network Manager (a global service homed in us-west-2; its ARNs carry no region).
+- **Global by AWS definition** (no region key): IAM, Route 53, CloudFront, Organizations, STS global endpoint, WAF classic, ECR Public (AWS serves it only from us-east-1), Network Manager and Global Accelerator (global services homed in us-west-2; their ARNs carry no region).
   S3 bucket names are globally unique, but each bucket has a region.
 - **Regional with per-request keys**: ssm, cloudwatchlogs, memorydb, sqs, sns, dynamodb, kms, kinesis, elb, firehose, acm, acmpca, batch,
   codepipeline, dms, elasticbeanstalk, emr, kinesisanalyticsv2, sagemaker, route53resolver, elasticsearch, codeartifact, codeconnections,

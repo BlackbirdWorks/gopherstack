@@ -154,6 +154,7 @@ import (
 	forecastbackend "github.com/blackbirdworks/gopherstack/services/forecast"
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
+	globalacceleratorbackend "github.com/blackbirdworks/gopherstack/services/globalaccelerator"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	grafanabackend "github.com/blackbirdworks/gopherstack/services/grafana"
 	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
@@ -187,6 +188,7 @@ import (
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	networkfirewallbackend "github.com/blackbirdworks/gopherstack/services/networkfirewall"
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
@@ -4344,6 +4346,7 @@ func getRemainingServiceProviders() []service.Provider {
 		&inspector2backend.Provider{},
 		&docdbbackend.Provider{},
 		&dsqlbackend.Provider{},
+		&globalacceleratorbackend.Provider{},
 		&glacierbackend.Provider{},
 		&iotanalyticsbackend.Provider{},
 		&iotwirelessbackend.Provider{},
@@ -4352,6 +4355,7 @@ func getRemainingServiceProviders() []service.Provider {
 		&kafkaconnectbackend.Provider{},
 		&kinesisanalyticsv2backend.Provider{},
 		&kinesisvideobackend.Provider{},
+		&networkfirewallbackend.Provider{},
 		&ecrpublicbackend.Provider{},
 		&lakeformationbackend.Provider{},
 		&managedblockchainbackend.Provider{},

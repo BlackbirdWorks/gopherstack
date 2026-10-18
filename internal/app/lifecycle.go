@@ -35,6 +35,7 @@ import (
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	forecastbackend "github.com/blackbirdworks/gopherstack/services/forecast"
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
+	globalacceleratorbackend "github.com/blackbirdworks/gopherstack/services/globalaccelerator"
 	grafanabackend "github.com/blackbirdworks/gopherstack/services/grafana"
 	inspector2backend "github.com/blackbirdworks/gopherstack/services/inspector2"
 	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
@@ -240,6 +241,12 @@ func applyDSQL(reg service.Registerable, l cliconfig.LifecycleSettings) {
 		if bk, isBk := h.Backend.(*dsqlbackend.InMemoryBackend); isBk {
 			bk.SetLifecycleDelay(l.Effective(l.DSQL))
 		}
+	}
+}
+
+func applyGlobalAccelerator(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*globalacceleratorbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.Effective(l.GlobalAccelerator))
 	}
 }
 
@@ -707,6 +714,7 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l cliconfig.Lif
 		"AppStream":           applyAppStream,
 		"FIS":                 applyFIS,
 		"DSQL":                applyDSQL,
+		"GlobalAccelerator":   applyGlobalAccelerator,
 		"WorkMail":            applyWorkMail,
 		"Personalize":         applyPersonalize,
 		"OpsWorks":            applyOpsWorks,
