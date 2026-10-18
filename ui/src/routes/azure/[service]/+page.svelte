@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { azureServiceById } from '#lib/cloud.ts';
+	import ArmDashboard from '#lib/components/azure/ArmDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedAzureServices } from '#lib/cloud.svelte.ts';
 
 	const service = $derived(azureServiceById(page.params.service ?? ''));
@@ -14,6 +15,9 @@
 	});
 </script>
 
+{#if service?.id === 'arm'}
+	<ArmDashboard />
+{:else}
 <div class="space-y-4 pb-20" data-testid="azure-service-placeholder">
 	{#if !service}
 		<h1 class="text-3xl font-bold text-slate-900 dark:text-white">Unknown Azure service</h1>
@@ -32,3 +36,4 @@
 		<a href="/dashboard?cloud=azure" class="inline-block text-indigo-600 dark:text-indigo-400 underline">Back to Azure</a>
 	{/if}
 </div>
+{/if}

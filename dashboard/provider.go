@@ -16,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	"github.com/blackbirdworks/gopherstack/services/athena"
 	"github.com/blackbirdworks/gopherstack/services/autoscaling"
+	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 	"github.com/blackbirdworks/gopherstack/services/cloudtrail"
@@ -98,6 +99,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	// If the config provides service handlers, link them.
 	if ap, hasAWSSDKProvider := ctx.Config.(AWSSDKProvider); hasAWSSDKProvider {
 		linkHandlers(&conf, ap)
+	}
+
+	if ap, hasARM := ctx.Config.(interface{ GetAzureARMHandler() service.Registerable }); hasARM {
+		conf.AzureARMOps, _ = getHandler[*azurearm.Handler](ap.GetAzureARMHandler())
 	}
 
 	h := NewHandler(conf)

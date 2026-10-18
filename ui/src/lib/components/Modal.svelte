@@ -134,7 +134,7 @@
 	onkeydown={handleKeydown}
 	oncancel={handleCancel}
 	onclose={handleClose}
-	class="rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+	class="m-auto rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
 >
 	<div class="w-full max-w-md space-y-4 p-6">
 		<div class="flex items-center justify-between">

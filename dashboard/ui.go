@@ -44,6 +44,7 @@ import (
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	azurearmbackend "github.com/blackbirdworks/gopherstack/services/azurearm"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
@@ -491,6 +492,8 @@ type Config struct {
 	CognitoIdentityOps *cognitoidentitybackend.Handler
 	// AppSyncOps provides access to the AppSync backend.
 	AppSyncOps *appsyncbackend.Handler
+	// AzureARMOps is dispatched in-process by the /dashboard/api/v1/azure/arm proxy.
+	AzureARMOps *azurearmbackend.Handler
 	// CognitoIDPOps provides access to the Cognito IDP backend.
 	CognitoIDPOps *cognitoidpbackend.Handler
 	// IoTDataPlaneOps provides access to the IoT Data Plane backend.
@@ -725,6 +728,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerCoreRoutes()
 	h.registerCodeStarConnectionsListRoute()
 	h.registerSystemRoutes()
+	h.registerAzureARMRoutes()
 	h.registerSTSMetricsRoute()
 	h.registerCodeStarConnectionsMutationRoutes()
 	h.registerCognitoUserPoolRoutes()

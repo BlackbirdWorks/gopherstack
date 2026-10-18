@@ -380,6 +380,7 @@ type CLI struct {
 	cloudtrailHandler             service.Registerable
 	appConfigHandler              service.Registerable
 	applicationautoscalingHandler service.Registerable
+	azureARMHandler               service.Registerable
 	batchHandler                  service.Registerable
 	bedrockHandler                service.Registerable
 	bedrockruntimeHandler         service.Registerable
@@ -1738,6 +1739,11 @@ func (c *CLI) GetCloudTrailHandler() service.Registerable { return c.cloudtrailH
 
 // GetAppConfigHandler returns the AppConfig handler (dashboard.AWSSDKProvider).
 //
+// GetAzureARMHandler returns the Azure Resource Manager handler (dashboard proxy).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAzureARMHandler() service.Registerable { return c.azureARMHandler }
+
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAppConfigHandler() service.Registerable { return c.appConfigHandler }
 
@@ -2924,6 +2930,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.cloudtrailHandler = byName["CloudTrail"]
 	cli.ceHandler = byName["Ce"]
 	cli.cloudcontrolHandler = byName["CloudControl"]
+	cli.azureARMHandler = byName["AzureARM"]
 	cli.cloudFrontHandler = byName["CloudFront"]
 	cli.codeArtifactHandler = byName["CodeArtifact"]
 	cli.codeConnectionsHandler = byName["CodeConnections"]
