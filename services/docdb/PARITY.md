@@ -93,7 +93,7 @@ items_still_open:
   - "UNVERIFIABLE: MasterUserSecret.KmsKeyId stays empty when MasterUserSecretKmsKeyId is unset; ModifyDBCluster docs say only that aws/secretsmanager is used, not the KmsKeyId value AWS returns (key ARN vs alias)."
   - "UNVERIFIABLE: DescribeDBEngineVersions ValidUpgradeTarget (which version pairs are upgradable is not in the SDK or API reference), DescribeOrderableDBInstanceOptions LicenseModel filter (no documented value), DBCluster IOOptimizedNextAllowedModificationTime (no interval stated), CloneGroupId (no documented format), and the cluster parameters beyond audit_logs/tls/ttl_monitor (the developer guide examples list only those three with AllowedValues)."
 structural_gaps:
-  - "Docker engine (--docdb-engine=docker): one plaintext mongo container per cluster (3.6/4.0 map to mongo:4.4, 5.0 to mongo:5.0), not DocumentDB's TLS endpoint, so clients must disable TLS; instances share the cluster container (one endpoint serves Endpoint, ReaderEndpoint and every instance), and restore-from-snapshot/PITR/persistence-restore relaunch an empty container with a random password because no data is carried."
+  - "Docker engine (--docdb-engine=docker): one mongo container per cluster (3.6/4.0 map to mongo:4.4, 5.0 to mongo:5.0), plaintext unless `DOCDB_TLS=true` (see the 2026-10-18 note); the master user is a mongod root user, so SCRAM-SHA-1/SCRAM-SHA-256 are enforced by mongod itself, but the cluster `tls` parameter does not toggle TLS per cluster; instances share the cluster container (one endpoint serves Endpoint, ReaderEndpoint and every instance), and restore-from-snapshot/PITR/persistence-restore relaunch an empty container with a random password because no data is carried."
   - "DBInstance PendingModifiedValues/StatusInfos, DBCluster PercentProgress and GlobalCluster FailoverState describe async windows this backend never has: every Modify/Failover/Restore applies synchronously."
   - "DBCluster AssociatedRoles: the docdb API has no role-association operation."
   - "CreateDBCluster/CopyDBClusterSnapshot SourceRegion and PreSignedUrl: no cross-region copy; RebootDBInstance ForceFailover: instances have no Multi-AZ attribute; RestoreDBClusterToPointInTime copy-on-write: no shared storage layer, a full copy is made."
@@ -441,6 +441,10 @@ DescribeDBClusterSnapshots.IncludePublic/IncludeShared) recorded in
 items_still_open, not fabricated -- no backing feature or, for
 IncludePublic/IncludeShared, no observable effect in a single-account
 emulator.
+
+## 2026-10-18 (docker engine TLS and SCRAM)
+
+`DOCDB_TLS=true` (`EngineConfig.TLS`) starts each mongod with `--tlsMode requireTLS` using a certificate (SANs localhost, loopback, `DOCDB_HOST`) signed by a per-backend CA that is bind-mounted read-only; `Backend.TLSCAPEM()` returns the CA for `tlsCAFile`. Readiness probes and master-password changes use TLS. Master-user auth is a mongod root user created from `MasterUsername`/`MasterUserPassword`, so SCRAM-SHA-1 and SCRAM-SHA-256 handshakes are real and wrong passwords are rejected; `TestEngineDockerRealMongoTLSAndSCRAM` proves both against mongo:5.0 (skips without docker).
 
 ## 2026-10-03 (reqfielddiff tier-1 follow-up)
 
