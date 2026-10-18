@@ -34,6 +34,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/efs"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
+	"github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
@@ -112,6 +113,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	if bp, hasBlob := ctx.Config.(interface{ GetAzureBlobHandler() service.Registerable }); hasBlob {
 		conf.AzureBlobOps, _ = getHandler[*azureblob.Handler](bp.GetAzureBlobHandler())
+	}
+
+	if gp, hasGCS := ctx.Config.(interface{ GetGCPStorageHandler() service.Registerable }); hasGCS {
+		conf.GCPStorageOps, _ = getHandler[*gcpstorage.Handler](gp.GetGCPStorageHandler())
 	}
 
 	if qp, hasQueue := ctx.Config.(interface{ GetAzureQueueHandler() service.Registerable }); hasQueue {

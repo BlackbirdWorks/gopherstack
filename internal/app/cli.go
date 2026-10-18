@@ -385,6 +385,7 @@ type CLI struct {
 	cloudtrailHandler             service.Registerable
 	azureARMHandler               service.Registerable
 	azureBlobHandler              service.Registerable
+	gcpStorageHandler             service.Registerable
 	azureQueueHandler             service.Registerable
 	azureTableHandler             service.Registerable
 	azureServiceBusHandler        service.Registerable
@@ -1774,6 +1775,11 @@ func (c *CLI) GetAzureARMHandler() service.Registerable { return c.azureARMHandl
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAzureBlobHandler() service.Registerable { return c.azureBlobHandler }
 
+// GetGCPStorageHandler returns the GCS handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPStorageHandler() service.Registerable { return c.gcpStorageHandler }
+
 // GetAzureQueueHandler returns the Azure Queue handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
@@ -2984,6 +2990,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.cloudtrailHandler = byName["CloudTrail"]
 	cli.azureARMHandler = byName["AzureARM"]
 	cli.azureBlobHandler = byName["AzureBlob"]
+	cli.gcpStorageHandler = byName["GCPStorage"]
 	cli.azureQueueHandler = byName["AzureQueue"]
 	cli.azureTableHandler = byName["AzureTable"]
 	cli.azureServiceBusHandler = byName["AzureServiceBus"]

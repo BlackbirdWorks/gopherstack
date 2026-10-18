@@ -74,6 +74,28 @@ export const AZURE_SERVICES: readonly AzureService[] = [
   },
 ];
 
+export type GcpService = {
+  id: string;
+  label: string;
+  description: string;
+  /** Registerable Name() reported by /_gopherstack/health. */
+  healthName: string;
+  /** Label the server reserves the fixed port under (/dashboard/api/system/state). */
+  portLabel: string;
+  defaultPort: number;
+};
+
+export const GCP_SERVICES: readonly GcpService[] = [
+  {
+    id: "storage",
+    label: "Cloud Storage",
+    description: "Google Cloud Storage",
+    healthName: "GCPStorage",
+    portLabel: "gcpstorage",
+    defaultPort: 4443,
+  },
+];
+
 export function parseCloud(value: string | null | undefined): Cloud | null {
   const v = value?.trim().toLowerCase();
   return CLOUDS.find((c) => c.id === v)?.id ?? null;
@@ -112,6 +134,25 @@ export function azureServiceById(id: string): AzureService | undefined {
   return AZURE_SERVICES.find((s) => s.id === id);
 }
 
+/** GCP services the backend actually serves, in catalog order. */
+export function availableGcpServices(healthNames: readonly string[]): GcpService[] {
+  const served = new Set(healthNames.map((n) => n.toLowerCase()));
+  return GCP_SERVICES.filter((s) => served.has(s.healthName.toLowerCase()));
+}
+
+export function gcpServiceById(id: string): GcpService | undefined {
+  return GCP_SERVICES.find((s) => s.id === id);
+}
+
+export function gcpRoute(service: GcpService): DashboardRoute {
+  return {
+    id: `gcp-${service.id}`,
+    href: `/dashboard/gcp/${service.id}`,
+    label: service.label,
+    icon: `gcp-${service.id}`,
+  };
+}
+
 export function azureRoute(service: AzureService): DashboardRoute {
   return {
     id: `azure-${service.id}`,
@@ -126,9 +167,20 @@ export function categoriesForCloud(
   cloud: Cloud,
   awsCategories: DashboardCategory[],
   azureServices: readonly AzureService[],
+  gcpServices: readonly GcpService[] = [],
 ): DashboardCategory[] {
   if (cloud === "aws") return awsCategories;
-  if (cloud === "gcp" || azureServices.length === 0) return [];
+  if (cloud === "gcp") {
+    if (gcpServices.length === 0) return [];
+    return [
+      {
+        id: "gcp-services",
+        label: "GCP Services",
+        routes: gcpServices.map((svc) => gcpRoute(svc)),
+      },
+    ];
+  }
+  if (azureServices.length === 0) return [];
   return [
     {
       id: "azure-services",

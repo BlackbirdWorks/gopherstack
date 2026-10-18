@@ -4,6 +4,7 @@ import {
   AZURE_SERVICES,
   CLOUD_STORAGE_KEY,
   availableAzureServices,
+  availableGcpServices,
   categoriesForCloud,
   parseCloud,
   readStoredCloud,
@@ -101,6 +102,17 @@ describe("categoriesForCloud", () => {
   it("is empty for Azure with nothing served and for GCP", () => {
     expect(categoriesForCloud("azure", sidebarCategories, [])).toEqual([]);
     expect(categoriesForCloud("gcp", sidebarCategories, azure)).toEqual([]);
+  });
+
+  it("lists served GCP services under the GCP cloud", () => {
+    const cats = categoriesForCloud(
+      "gcp",
+      sidebarCategories,
+      azure,
+      availableGcpServices(["GCPStorage"]),
+    );
+    expect(cats[0]?.routes.map((r) => r.href)).toEqual(["/dashboard/gcp/storage"]);
+    expect(availableGcpServices(["S3"])).toEqual([]);
   });
 });
 

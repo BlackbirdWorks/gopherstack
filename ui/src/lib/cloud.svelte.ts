@@ -1,7 +1,9 @@
 import {
   type AzureService,
   type Cloud,
+  type GcpService,
   availableAzureServices,
+  availableGcpServices,
   readStoredCloud,
   resolveCloud,
   writeStoredCloud,
@@ -42,6 +44,11 @@ export function servedAzureServices(): AzureService[] {
   return availableAzureServices(backend.services ?? []);
 }
 
+/** Served GCP services; empty until the backend answers. */
+export function servedGcpServices(): GcpService[] {
+  return availableGcpServices(backend.services ?? []);
+}
+
 export async function loadBackendInfo(fetchFn: typeof fetch = fetch): Promise<void> {
   let services: string[] | null = null;
   const ports: Record<string, number> = {};
@@ -59,7 +66,9 @@ export async function loadBackendInfo(fetchFn: typeof fetch = fetch): Promise<vo
   try {
     const res = await fetchFn("/dashboard/api/system/state");
     if (res.ok) {
-      const body = (await res.json()) as { allocated?: { label?: string; port?: number }[] };
+      const body = (await res.json()) as {
+        allocated?: { label?: string; port?: number }[];
+      };
       for (const a of body.allocated ?? []) {
         if (typeof a.label === "string" && typeof a.port === "number") ports[a.label] = a.port;
       }

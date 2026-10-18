@@ -89,6 +89,7 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
@@ -499,6 +500,8 @@ type Config struct {
 	AppSyncOps *appsyncbackend.Handler
 	// AzureARMOps is dispatched in-process by the /dashboard/api/v1/azure/arm proxy.
 	AzureARMOps *azurearmbackend.Handler
+	// GCPStorageOps is dispatched in-process by the /dashboard/api/v1/gcp/storage proxy.
+	GCPStorageOps *gcpstoragebackend.Handler
 	// AzureBlobOps is dispatched in-process by the /dashboard/api/v1/azure/blob proxy.
 	AzureBlobOps *azureblobbackend.Handler
 	// AzureQueueOps is dispatched in-process by the /dashboard/api/v1/azure/queue proxy.
@@ -745,6 +748,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerSystemRoutes()
 	h.registerAzureARMRoutes()
 	h.registerAzureBlobRoutes()
+	h.registerGCPStorageRoutes()
 	h.registerAzureQueueRoutes()
 	h.registerAzureTableRoutes()
 	h.registerAzureServiceBusRoutes()
