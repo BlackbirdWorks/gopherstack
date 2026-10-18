@@ -175,6 +175,9 @@ jobs:
           - os: ubuntu-latest
             name: Linux_x86_64
             ext: tar.gz
+          - os: ubuntu-24.04-arm
+            name: Linux_arm64
+            ext: tar.gz
           - os: macos-latest
             name: Darwin_arm64
             ext: zip
@@ -183,6 +186,9 @@ jobs:
             ext: zip
           - os: windows-latest
             name: Windows_x86_64
+            ext: zip
+          - os: windows-11-arm
+            name: Windows_arm64
             ext: zip
     runs-on: ${{ matrix.os }}
     env:
