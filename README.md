@@ -73,6 +73,22 @@ docker run -p 8000:8000 ghcr.io/blackbirdworks/gopherstack:latest
 
 The API and the dashboard are both served on port `8000`.
 
+### Desktop app
+
+Each release also ships `gopherstack-desktop`, a native window around the same
+server and dashboard (system webview, no browser needed). Download
+`gopherstack-desktop_<version>_<OS>_<arch>` from the
+[releases page](https://github.com/blackbirdworks/gopherstack/releases):
+
+- macOS: unzip and open `Gopherstack.app` (unsigned; right-click, Open on first launch)
+- Windows: unzip and run `gopherstack-desktop.exe` (needs the WebView2 runtime, preinstalled on Windows 11)
+- Linux: extract and run `gopherstack-desktop` (needs `libgtk-3` and `libwebkit2gtk-4.1`)
+
+It serves on port 8000 if free, otherwise a random loopback port, and accepts
+the same flags and environment variables as the headless binary (e.g. `--port`).
+Build it locally with `task build-desktop` (CGO and the webview libraries are
+required; the headless binary stays pure Go).
+
 ### Docker Compose
 
 ```yaml

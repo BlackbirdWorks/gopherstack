@@ -22,8 +22,24 @@ tasks:
       - |
         go build \
           -trimpath \
+          -buildvcs=false \
           -ldflags "-w -s -X {{.VERSION_PKG}}.Build={{.BUILD_VERSION}}" \
           -o bin/{{.BINARY_NAME}} .
+
+  build-desktop:
+    desc: Build the native desktop app at bin/gopherstack-desktop (CGO + system webview; separate desktop/ module)
+    deps: [ui-build]
+    dir: desktop
+    env:
+      CGO_ENABLED: "1"
+    cmds:
+      - |
+        go build \
+          -trimpath \
+          -buildvcs=false \
+          -tags "production{{if eq OS "linux"}},webkit2_41{{end}}" \
+          -ldflags "-w -s -X {{.VERSION_PKG}}.Build={{.BUILD_VERSION}}{{if eq OS "windows"}} -H windowsgui{{end}}" \
+          -o ../bin/{{.BINARY_NAME}}-desktop{{exeExt}} .
 
   build-check:
     desc: Compile under default, e2e and integration tags (go vet type-checks _test.go files)
@@ -96,6 +112,7 @@ tasks:
       - |
         go build \
           -trimpath \
+          -buildvcs=false \
           -ldflags "-w -s -X {{.VERSION_PKG}}.Build={{.BUILD_VERSION}}" \
           -o bin/{{.BINARY_NAME}}-linux .
 
