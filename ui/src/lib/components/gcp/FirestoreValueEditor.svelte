@@ -39,6 +39,8 @@
 		<select class="{field} w-32" value={n.type} onchange={(e) => changeType(n, e.currentTarget.value as FsType)} aria-label="Field type" data-testid="fs-field-type">
 			{#each FS_TYPES as t (t)}<option value={t}>{t}</option>{/each}
 		</select>
+		<button type="button" class="ml-auto rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950" aria-label="Remove field" onclick={remove} data-testid="fs-field-remove"><Trash2 class="h-4 w-4" /></button>
+		<div class="flex w-full min-w-0 items-start gap-2">
 		<div class="min-w-0 flex-1">
 			{#if n.type === 'string'}
 				<textarea class="{field} w-full font-mono" rows="1" bind:value={n.value} placeholder="text" aria-label="Value" data-testid="fs-field-value"></textarea>
@@ -66,7 +68,7 @@
 		{#if n.type === 'timestamp'}
 			<button type="button" class="rounded-md border border-gray-200 dark:border-gray-700 px-2 py-1 text-xs hover:bg-gray-50 dark:hover:bg-slate-800" onclick={() => (n.value = new Date().toISOString())}>Now</button>
 		{/if}
-		<button type="button" class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950" aria-label="Remove field" onclick={remove} data-testid="fs-field-remove"><Trash2 class="h-4 w-4" /></button>
+		</div>
 	</div>
 	{#if !isContainer(n) && validateNode(n, ctx)}<p class="text-xs text-red-600 dark:text-red-400" data-testid="fs-field-problem">{validateNode(n, ctx)}</p>{/if}
 	{#if isContainer(n)}

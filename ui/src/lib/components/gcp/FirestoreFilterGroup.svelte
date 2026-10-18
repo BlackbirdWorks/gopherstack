@@ -41,7 +41,7 @@
 		{:else}
 			<div class="flex flex-wrap items-center gap-2" data-testid="fs-filter">
 				<input class="{field} w-36 font-mono" bind:value={item.field} placeholder="field" aria-label="Filter field" data-testid="fs-filter-field" />
-				<select class="{field} w-52" bind:value={item.op} aria-label="Operator" data-testid="fs-filter-op">
+				<select class="{field} w-64" bind:value={item.op} aria-label="Operator" data-testid="fs-filter-op">
 					{#each FS_OPS as op (op)}<option value={op}>{op}</option>{/each}
 				</select>
 				{#if !isUnaryOp(item.op)}

@@ -194,6 +194,7 @@
 		const prevParent = key(parentDoc);
 		navSeq++;
 		segments = next;
+		saveMode = 'merge';
 		doc = null;
 		subcollections = [];
 		const jobs: Promise<void>[] = [];
