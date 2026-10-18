@@ -65,13 +65,13 @@ func asDDBResolvers() []asResolverSpec {
 		{"Query", "queryPosts", "posts", asPre + `"operation":"Query","query":{"expression":"authorId = :a",` +
 			`"expressionValues":{":a":$util.dynamodb.toDynamoDBJson($ctx.args.authorId)}},` +
 			`"filter":{"expression":"n >= :m","expressionValues":{":m":$util.dynamodb.toDynamoDBJson($ctx.args.minN)}},` +
-			`"limit":$ctx.args.limit,"nextToken":$util.toJson($ctx.args.nextToken),"scanIndexForward":$ctx.args.fwd}`},
+			`"limit":$util.toJson($ctx.args.limit),"nextToken":$util.toJson($ctx.args.nextToken),"scanIndexForward":$util.toJson($ctx.args.fwd)}`},
 		{"Query", "queryByTitle", "posts", asPre + `"operation":"Query","index":"byTitle",` +
 			`"query":{"expression":"#t = :t","expressionNames":{"#t":"title"},` +
 			`"expressionValues":{":t":$util.dynamodb.toDynamoDBJson($ctx.args.title)}}}`},
 		{"Query", "scanPosts", "posts", asPre + `"operation":"Scan",` +
 			`"filter":{"expression":"n >= :m","expressionValues":{":m":$util.dynamodb.toDynamoDBJson($ctx.args.minN)}},` +
-			`"limit":$ctx.args.limit,"nextToken":$util.toJson($ctx.args.nextToken)}`},
+			`"limit":$util.toJson($ctx.args.limit),"nextToken":$util.toJson($ctx.args.nextToken)}`},
 		{"Query", "batchGetPosts", "posts", asPre + `"operation":"BatchGetItem","tables":{"posts":{"keys":[` +
 			asBatchKey("a") + `,` + asBatchKey("b") + `,` + asBatchKey("c") + `]}}}`},
 		{"Mutation", "updatePost", "posts", asPre + `"operation":"UpdateItem",` + asKeyJSON + `,` +

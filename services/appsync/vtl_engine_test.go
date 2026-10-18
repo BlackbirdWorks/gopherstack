@@ -19,6 +19,16 @@ func TestEvaluateMappingTemplate_Engine(t *testing.T) {
 		want string
 	}{
 		{name: "set and ref", tmpl: `#set($x = 5)$x`, want: "5"},
+		{
+			name: "toJson of missing arg is null",
+			tmpl: `{"limit":$util.toJson($ctx.args.limit)}`, ctx: users, want: `{"limit":null}`,
+		},
+		{
+			name: "bare missing arg stays literal",
+			tmpl: `{"limit":$ctx.args.limit}`,
+			ctx:  users,
+			want: `{"limit":$ctx.args.limit}`,
+		},
 		{name: "int division", tmpl: `#set($a = 7)#set($b = 2)#set($r = $a / $b)$r`, want: "3"},
 		{name: "float division", tmpl: `#set($r = 7.0 / 2)$r`, want: "3.5"},
 		{name: "string concat", tmpl: `#set($s = "a" + 1 + "b")$s`, want: "a1b"},
