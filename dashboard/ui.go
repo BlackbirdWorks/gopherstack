@@ -46,6 +46,7 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	azurearmbackend "github.com/blackbirdworks/gopherstack/services/azurearm"
 	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
+	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
@@ -497,6 +498,8 @@ type Config struct {
 	AzureARMOps *azurearmbackend.Handler
 	// AzureBlobOps is dispatched in-process by the /dashboard/api/v1/azure/blob proxy.
 	AzureBlobOps *azureblobbackend.Handler
+	// AzureQueueOps is dispatched in-process by the /dashboard/api/v1/azure/queue proxy.
+	AzureQueueOps *azurequeuebackend.Handler
 	// CognitoIDPOps provides access to the Cognito IDP backend.
 	CognitoIDPOps *cognitoidpbackend.Handler
 	// IoTDataPlaneOps provides access to the IoT Data Plane backend.
@@ -733,6 +736,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerSystemRoutes()
 	h.registerAzureARMRoutes()
 	h.registerAzureBlobRoutes()
+	h.registerAzureQueueRoutes()
 	h.registerSTSMetricsRoute()
 	h.registerCodeStarConnectionsMutationRoutes()
 	h.registerCognitoUserPoolRoutes()
