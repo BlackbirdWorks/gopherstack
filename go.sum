@@ -90,6 +90,8 @@ github.com/aws/aws-sdk-go-v2/service/appconfig v1.48.4 h1:crCuWo9LZqLLzh6E6lyzvH
 github.com/aws/aws-sdk-go-v2/service/appconfig v1.48.4/go.mod h1:mYkMdch4JkZKyttB6nOTAeB2LMFSX2iAWg0lJtQDGqY=
 github.com/aws/aws-sdk-go-v2/service/appconfigdata v1.26.4 h1:i/oXVpjWZJQ2Pv7eU/E4zrWs7T7yTOH4S2JTaIPdYjk=
 github.com/aws/aws-sdk-go-v2/service/appconfigdata v1.26.4/go.mod h1:I0nocuGpjy3g6bY2tt+p8JCEtiV7wsFuLllGiH8vtMU=
+github.com/aws/aws-sdk-go-v2/service/appintegrations v1.52.0 h1:YiwvDhp5Cbbsi1Jh7e8/fy41t7dvEExvbHbeTJBphvk=
+github.com/aws/aws-sdk-go-v2/service/appintegrations v1.52.0/go.mod h1:b1NoW5atkYkstNHyVBmqnM8XFacOcpxsGWxlhYVQRUM=
 github.com/aws/aws-sdk-go-v2/service/applicationautoscaling v1.45.4 h1:nVofkIIvIS3cE6pTMqHWGTCCiHLJYovDoz0KX01IT6U=
 github.com/aws/aws-sdk-go-v2/service/applicationautoscaling v1.45.4/go.mod h1:1tyfPUSbHmB+G3Rg6YSR+jRKa9FBASYlrT5gSjNJsTI=
 github.com/aws/aws-sdk-go-v2/service/appmesh v1.38.4 h1:6WA0a8CsMDKCCpC1pk6OHgq17KEa1ABfrMQ6UEka+iU=
@@ -162,6 +164,8 @@ github.com/aws/aws-sdk-go-v2/service/comprehend v1.43.4 h1:X22jCzVcQZ/eatzFgTMh8
 github.com/aws/aws-sdk-go-v2/service/comprehend v1.43.4/go.mod h1:C47KI+jjZYh8DaSvP53mfVeBw3xQjLU2OpuG4PPeqpY=
 github.com/aws/aws-sdk-go-v2/service/configservice v1.68.4 h1:L37DoV4JOQFqucVUeYaJrrhIc1995EPra+8UtGRCsgo=
 github.com/aws/aws-sdk-go-v2/service/configservice v1.68.4/go.mod h1:CcqHkp94OiUOXcUgSc2moHZ97ISugWDoClGhmW17CFg=
+github.com/aws/aws-sdk-go-v2/service/connect v1.205.0 h1:PCihZ8mQbQ3+j4yO3zbVl4U4I7R7knrHaEurmo1Q7GQ=
+github.com/aws/aws-sdk-go-v2/service/connect v1.205.0/go.mod h1:yJQGI/vttyS7t/qzjMkIvNjOtcTlriApzSbWHcdk2QA=
 github.com/aws/aws-sdk-go-v2/service/costandusagereportservice v1.43.4 h1:2wlMnKGjvS+9FVdftlQBRoTDqr/Xx/TE7jEU9xp06Sg=
 github.com/aws/aws-sdk-go-v2/service/costandusagereportservice v1.43.4/go.mod h1:d9x5APE7+l24zBP2KwRCCYmS0VH9tCb6oio5TBS6sxg=
 github.com/aws/aws-sdk-go-v2/service/costexplorer v1.67.4 h1:VNk2MA9utaj/r1OCqWBQrtNAEw5hjVoDa9VSKSGhBBA=

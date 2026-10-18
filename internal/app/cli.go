@@ -84,6 +84,7 @@ import (
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
+	appintegrationsbackend "github.com/blackbirdworks/gopherstack/services/appintegrations"
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	appmeshbackend "github.com/blackbirdworks/gopherstack/services/appmesh"
 	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
@@ -127,6 +128,7 @@ import (
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	comprehendbackend "github.com/blackbirdworks/gopherstack/services/comprehend"
+	connectbackend "github.com/blackbirdworks/gopherstack/services/connect"
 	cosmosdbbackend "github.com/blackbirdworks/gopherstack/services/cosmosdb"
 	curbackend "github.com/blackbirdworks/gopherstack/services/cur"
 	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
@@ -4353,6 +4355,8 @@ func getServiceProviders() []service.Provider {
 	})
 }
 
+		&appintegrationsbackend.Provider{},
+		&connectbackend.Provider{},
 // getCoreServiceProviders returns the foundational service providers.
 // Extracted from getServiceProviders to satisfy the funlen limit and to
 // give the inline registration list headroom as new services are added.

@@ -24,6 +24,7 @@ import (
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	comprehendbackend "github.com/blackbirdworks/gopherstack/services/comprehend"
+	connectbackend "github.com/blackbirdworks/gopherstack/services/connect"
 	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
 	daxbackend "github.com/blackbirdworks/gopherstack/services/dax"
 	detectivebackend "github.com/blackbirdworks/gopherstack/services/detective"
@@ -253,6 +254,12 @@ func applyDSQL(reg service.Registerable, l cliconfig.LifecycleSettings) {
 func applyNetworkFirewall(reg service.Registerable, l cliconfig.LifecycleSettings) {
 	if h, ok := reg.(*networkfirewallbackend.Handler); ok {
 		h.Backend.SetLifecycleDelay(l.Effective(l.NetworkFirewall))
+	}
+}
+
+func applyConnect(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*connectbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.Effective(l.Connect))
 	}
 }
 
@@ -757,6 +764,7 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l cliconfig.Lif
 		"FIS":                 applyFIS,
 		"DSQL":                applyDSQL,
 		"GlobalAccelerator":   applyGlobalAccelerator,
+		"Connect":             applyConnect,
 		"CloudHSMV2":          applyCloudHSMV2,
 		"AMP":                 applyAMP,
 		"TimestreamInfluxDB":  applyTimestreamInfluxDB,

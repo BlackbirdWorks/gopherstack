@@ -6,6 +6,7 @@ Account	/acceptPrimaryEmailUpdate /deleteAlternateContact /disableRegion /enable
 Amplify	/apps /artifacts /tags /webhooks
 AppConfig	/applications /deployementstrategies /deploymentstrategies /experimentdefinitions /extensionassociations /extensions /settings /tags
 AppConfigData	/configuration
+AppIntegrations	/applications /dataIntegrations /eventIntegrations /tags
 AppMesh	/v20190125
 AppSync	/v1 /v2
 Backup	/account-settings /audit /backup /copy-jobs /global-settings /indexes /legal-holds /logically-air-gapped-backup-vaults /resources /restore-access-backup-vaults /restore-jobs /restore-testing /scan /supported-resource-types /tags /tiering-configurations /untag
@@ -17,6 +18,7 @@ BedrockRuntime	/async-invoke /guardrail /model
 CloudFront	/2020-05-31
 CloudFront KeyValueStore	/key-value-stores
 CodeArtifact	/v1
+Connect	/agent-status /analytics-data /associate-security-profiles /attached-files /auth /chat-integration-event /contact /cross-region-routing /data-tables /default-vocabulary /disassociate-security-profiles /effective-hours-of-operations /email-addresses /entity-security-profiles-summary /evaluation-forms /extraction-definitions /flow-associations /hours-of-operations /instance /metrics /notifications /phone-number /predefined-attributes /prompts /push-notification /queues /quick-connects /routing-profiles /rules /search- /security-profiles /tags /test-case /traffic-distribution /user /views /vocabulary /workspaces
 DLM	/policies /tags
 DSQL	/cluster /stream /tags
 Dashboard	/dashboard

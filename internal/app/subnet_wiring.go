@@ -125,6 +125,7 @@ func wireSubnetLookups(byName map[string]service.Registerable) {
 	wireAMPScraperSources(byName)
 	wireCloudHSMNetwork(byName)
 	wireRUMCloudWatch(byName)
+	wireConnectIntegrations(byName)
 
 	ec2H, ok := byName["EC2"].(*ec2backend.Handler)
 	if !ok {
