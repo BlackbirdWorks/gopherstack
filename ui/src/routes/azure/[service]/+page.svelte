@@ -5,6 +5,7 @@
 	import ArmDashboard from '#lib/components/azure/ArmDashboard.svelte';
 	import BlobDashboard from '#lib/components/azure/BlobDashboard.svelte';
 	import QueueDashboard from '#lib/components/azure/QueueDashboard.svelte';
+	import ServiceBusDashboard from '#lib/components/azure/ServiceBusDashboard.svelte';
 	import TableDashboard from '#lib/components/azure/TableDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedAzureServices } from '#lib/cloud.svelte.ts';
 
@@ -24,6 +25,8 @@
 	<BlobDashboard />
 {:else if service?.id === 'queue'}
 	<QueueDashboard />
+{:else if service?.id === 'servicebus'}
+	<ServiceBusDashboard />
 {:else if service?.id === 'table'}
 	<TableDashboard />
 {:else}

@@ -47,6 +47,7 @@ import (
 	azurearmbackend "github.com/blackbirdworks/gopherstack/services/azurearm"
 	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
+	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
 	azuretablebackend "github.com/blackbirdworks/gopherstack/services/azuretable"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
@@ -503,6 +504,8 @@ type Config struct {
 	AzureQueueOps *azurequeuebackend.Handler
 	// AzureTableOps is dispatched in-process by the /dashboard/api/v1/azure/table proxy.
 	AzureTableOps *azuretablebackend.Handler
+	// AzureServiceBusOps is dispatched in-process by the /dashboard/api/v1/azure/servicebus proxy.
+	AzureServiceBusOps *azureservicebusbackend.Handler
 	// CognitoIDPOps provides access to the Cognito IDP backend.
 	CognitoIDPOps *cognitoidpbackend.Handler
 	// IoTDataPlaneOps provides access to the IoT Data Plane backend.
@@ -741,6 +744,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerAzureBlobRoutes()
 	h.registerAzureQueueRoutes()
 	h.registerAzureTableRoutes()
+	h.registerAzureServiceBusRoutes()
 	h.registerSTSMetricsRoute()
 	h.registerCodeStarConnectionsMutationRoutes()
 	h.registerCognitoUserPoolRoutes()

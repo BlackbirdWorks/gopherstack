@@ -19,6 +19,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
 	"github.com/blackbirdworks/gopherstack/services/azurequeue"
+	"github.com/blackbirdworks/gopherstack/services/azureservicebus"
 	"github.com/blackbirdworks/gopherstack/services/azuretable"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -118,6 +119,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	if tp, hasTable := ctx.Config.(interface{ GetAzureTableHandler() service.Registerable }); hasTable {
 		conf.AzureTableOps, _ = getHandler[*azuretable.Handler](tp.GetAzureTableHandler())
+	}
+
+	if sp, hasBus := ctx.Config.(interface{ GetAzureServiceBusHandler() service.Registerable }); hasBus {
+		conf.AzureServiceBusOps, _ = getHandler[*azureservicebus.Handler](sp.GetAzureServiceBusHandler())
 	}
 
 	h := NewHandler(conf)
