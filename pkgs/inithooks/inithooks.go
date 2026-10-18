@@ -36,17 +36,27 @@ func New(scripts []string, timeout time.Duration, log *slog.Logger) *Runner {
 	}
 }
 
-// Run executes each script sequentially.
+// Result is the outcome of one init script.
+type Result struct {
+	Script string
+	OK     bool
+}
+
+// Run executes each script sequentially and returns one Result per script.
 // It blocks until all scripts have completed (or timed out).
 // Errors from individual scripts are logged but do not stop subsequent scripts.
-func (r *Runner) Run(ctx context.Context) {
+func (r *Runner) Run(ctx context.Context) []Result {
+	results := make([]Result, 0, len(r.scripts))
+
 	for _, script := range r.scripts {
-		r.runOne(ctx, script)
+		results = append(results, Result{Script: script, OK: r.runOne(ctx, script)})
 	}
+
+	return results
 }
 
 // runOne executes a single script, respecting the per-script timeout.
-func (r *Runner) runOne(ctx context.Context, script string) {
+func (r *Runner) runOne(ctx context.Context, script string) bool {
 	scriptCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -74,10 +84,12 @@ func (r *Runner) runOne(ctx context.Context, script string) {
 			)
 		}
 
-		return
+		return false
 	}
 
 	if r.log != nil {
 		r.log.InfoContext(scriptCtx, "init hook: script succeeded", "script", script, "output", string(out))
 	}
+
+	return true
 }

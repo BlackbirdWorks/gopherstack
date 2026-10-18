@@ -3174,7 +3174,11 @@ func TestLocalstackCompatibilityEndpoints(t *testing.T) {
 			path: "/_localstack/init",
 			validate: func(t *testing.T, body map[string]any) {
 				t.Helper()
-				assert.Equal(t, true, body["completed"])
+				assert.Equal(
+					t,
+					map[string]any{"BOOT": true, "START": true, "READY": true, "SHUTDOWN": false},
+					body["completed"],
+				)
 				assert.NotNil(t, body["scripts"])
 			},
 		},

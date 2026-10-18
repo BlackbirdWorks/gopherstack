@@ -289,8 +289,8 @@ type CLI struct {
 	SNS                           struct{}            `embed:"" prefix:"sns-"`
 	IAM                           struct{}            `embed:"" prefix:"iam-"`
 	shutdownDeadline              time.Time
-	kinesisHandler                service.Registerable
-	athenaHandler                 service.Registerable
+	kinesisanalyticsHandler       service.Registerable
+	autoscalingHandler            service.Registerable
 	emrserverlessHandler          service.Registerable
 	s3tablesHandler               service.Registerable
 	grafanaHandler                service.Registerable
@@ -360,7 +360,7 @@ type CLI struct {
 	apiGatewayMgmtHandler         service.Registerable
 	appConfigDataHandler          service.Registerable
 	amplifyHandler                service.Registerable
-	autoscalingHandler            service.Registerable
+	inspector2Handler             service.Registerable
 	apiGatewayV2Handler           service.Registerable
 	secretsManagerHandler         service.Registerable
 	backupHandler                 service.Registerable
@@ -402,12 +402,12 @@ type CLI struct {
 	emrHandler                    service.Registerable
 	glacierHandler                service.Registerable
 	iotwirelessHandler            service.Registerable
-	kinesisanalyticsHandler       service.Registerable
+	kinesisHandler                service.Registerable
 	lakeformationHandler          service.Registerable
 	glueHandler                   service.Registerable
 	guarddutyHandler              service.Registerable
-	inspector2Handler             service.Registerable
-	iotanalyticsHandler           service.Registerable
+	athenaHandler                 service.Registerable
+	sagemakerHandler              service.Registerable
 	kafkaHandler                  service.Registerable
 	kafkaconnectHandler           service.Registerable
 	kinesisanalyticsv2Handler     service.Registerable
@@ -426,12 +426,12 @@ type CLI struct {
 	rdsdataHandler                service.Registerable
 	ramHandler                    service.Registerable
 	redshiftdataHandler           service.Registerable
-	sagemakerHandler              service.Registerable
+	iotanalyticsHandler           service.Registerable
 	datasyncHandler               service.Registerable
 	macie2Handler                 service.Registerable
 	accessanalyzerHandler         service.Registerable
 	fsxHandler                    service.Registerable
-	ssmClient                     *ssmsdk.Client
+	iamClient                     *iam.Client
 	ecsClient                     *ecs.Client
 	amplifyClient                 *amplifysdk.Client
 	codePipelineSDKClient         *codepipelinesdk.Client
@@ -447,10 +447,11 @@ type CLI struct {
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
-	iamClient                     *iam.Client
+	ssmClient                     *ssmsdk.Client
 	s3Client                      *s3.Client
 	globalConfig                  *config.GlobalConfig
 	portAlloc                     *portalloc.Allocator
+	localstackInit                *localstackInitState
 	ElastiCacheEngine             string                            `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"             default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                            //nolint:lll // config struct tags are intentionally verbose
 	MemoryDBEngine                string                            `                                       name:"memorydb-engine"         env:"MEMORYDB_ENGINE"                default:"embedded"      help:"MemoryDB engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                               //nolint:lll // config struct tags are intentionally verbose
 	KafkaEngine                   string                            `                                       name:"kafka-engine"            env:"KAFKA_ENGINE"                   default:"stub"          help:"MSK engine mode: stub (metadata only) or docker (real Kafka broker per cluster)."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
@@ -479,13 +480,15 @@ type CLI struct {
 	SigV4Secret                   string                            `                                       name:"sigv4-secret"            env:"SIGV4_SECRET"                   default:"test"          help:"Secret access key SigV4 validation signs against (used only when --validate-sigv4 is set)."`                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
 	InitScripts                   []string                          `                                       name:"init-script"             env:"INIT_SCRIPTS"                                           help:"Shell scripts to run on startup (may be specified multiple times)."`                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
 	S3InitBuckets                 []string                          `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                             help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
-	AzureARM                      azurearmbackend.Settings          `embed:"" prefix:"azure-arm-"`
+	ExtraListen                   []string                          `                                       name:"extra-listen"            env:"GOPHERSTACK_EXTRA_LISTEN"                               help:"Additional ports to serve the same endpoint on (comma-separated)."`                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
+	AzureARM                      azurearmbackend.Settings          `embed:"" prefix:"azure-arm-"`
 	Lambda                        lambdabackend.Settings            `embed:"" prefix:"lambda-"`
 	DynamoDB                      ddbbackend.Settings               `embed:"" prefix:"dynamodb-"`
-	EC2                           ec2backend.Settings               `embed:"" prefix:"ec2-"`
+	Lifecycle                     cliconfig.LifecycleSettings       `embed:"" prefix:"lifecycle-"`
 	Batch                         batchbackend.Settings             `embed:"" prefix:"batch-"`
+	EC2                           ec2backend.Settings               `embed:"" prefix:"ec2-"`
 	StepFunctions                 sfnbackend.Settings               `embed:"" prefix:"stepfunctions-"`
 	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
 	Backup                        backupbackend.Settings            `embed:"" prefix:"backup-"`
@@ -496,26 +499,26 @@ type CLI struct {
 	EMR                           emrbackend.Settings               `embed:"" prefix:"emr-"`
 	Athena                        athenabackend.Settings            `embed:"" prefix:"athena-"`
 	CloudWatchLogs                cwlogsbackend.Settings            `embed:"" prefix:"cloudwatchlogs-"`
+	AzureServiceBus               azureservicebusbackend.Settings   `embed:"" prefix:"azure-servicebus-"`
+	IoT                           iotbackend.Settings               `embed:"" prefix:"iot-"`
 	KMS                           kmsbackend.Settings               `embed:"" prefix:"kms-"`
 	Kinesis                       kinesisbackend.Settings           `embed:"" prefix:"kinesis-"`
 	STS                           stsbackend.Settings               `embed:"" prefix:"sts-"`
 	AzureBlob                     azureblobbackend.Settings         `embed:"" prefix:"azure-blob-"`
 	AzureQueue                    azurequeuebackend.Settings        `embed:"" prefix:"azure-queue-"`
 	AzureTable                    azuretablebackend.Settings        `embed:"" prefix:"azure-table-"`
-	AzureServiceBus               azureservicebusbackend.Settings   `embed:"" prefix:"azure-servicebus-"`
 	AzureStorageVHost             azurestoragevhostbackend.Settings `embed:"" prefix:"azure-storage-vhost-"`
-	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"               default:"10000"         help:"Start of the port range for resource endpoints."`           //nolint:lll // config struct tags are intentionally verbose
-	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                 default:"10100"         help:"End (exclusive) of the port range for resource endpoints."` //nolint:lll // config struct tags are intentionally verbose
-	IoT                           iotbackend.Settings               `embed:"" prefix:"iot-"`
-	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"        default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."` //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerSSHPortMax           int                               `                                       name:"ec2-docker-ssh-port-max" env:"EC2_DOCKER_SSH_PORT_MAX"        default:"0"             help:"Upper bound of the host TCP port range used to map EC2-docker SSH."`                       //nolint:lll // config struct tags are intentionally verbose
-	Lifecycle                     cliconfig.LifecycleSettings       `embed:"" prefix:"lifecycle-"`
+	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"               default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
+	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                 default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"        default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerSSHPortMax           int                               `                                       name:"ec2-docker-ssh-port-max" env:"EC2_DOCKER_SSH_PORT_MAX"        default:"0"             help:"Upper bound of the host TCP port range used to map EC2-docker SSH."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
 	ElasticsearchProcessingDelay  time.Duration                     `                                       name:"es-processing-delay"     env:"ELASTICSEARCH_PROCESSING_DELAY" default:"0s"            help:"Elasticsearch domain Processing window; 0 settles instantly."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
 	InitScriptTimeout             time.Duration                     `                                       name:"init-timeout"            env:"INIT_TIMEOUT"                   default:"30s"           help:"Per-script timeout for init hooks."`                                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
 	JanitorTimeout                time.Duration                     `                                       name:"janitor-timeout"         env:"JANITOR_TIMEOUT"                default:"30s"           help:"Per-task timeout for janitor operations (TTL sweeps, table cleaners, etc.). Zero disables per-task timeouts. Higher values prevent deadlocks; lower values keep the janitor loop responsive."` //nolint:lll // config struct tags are intentionally verbose
 	LatencyMs                     int                               `                                       name:"latency-ms"              env:"LATENCY_MS"                     default:"0"             help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."`                                                                   //nolint:lll // config struct tags are intentionally verbose
 	AutoPurgeTTL                  time.Duration                     `                                       name:"auto-purge-ttl"          env:"AUTO_PURGE_TTL"                                         help:"If set, automatically reset all services on a timer based on the TTL (e.g., 10m)."`                                                                                                            //nolint:lll // config struct tags are intentionally verbose
 	EnforceIAM                    bool                              `                                       name:"enforce-iam"             env:"GOPHERSTACK_ENFORCE_IAM"        default:"false"         help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
+	LocalstackCompat              bool                              `                                       name:"localstack-compat"       env:"GOPHERSTACK_LOCALSTACK_COMPAT"  default:"false"         help:"LocalStack drop-in mode: also listen on 4566 (auto-enabled when LOCALSTACK_*, GATEWAY_LISTEN, LS_LOG or PERSISTENCE is set)."`                                                                 //nolint:lll // config struct tags are intentionally verbose
 	Persist                       bool                              `                                       name:"persist"                 env:"PERSIST"                        default:"false"         help:"Enable snapshot-based persistence across restarts."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
 	Demo                          bool                              `                                       name:"demo"                    env:"DEMO"                           default:"false"         help:"Load demo data on startup."`                                                                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
 	TLS                           bool                              `                                       name:"tls"                     env:"TLS"                            default:"false"         help:"Serve over HTTPS. With --tls-cert/--tls-key uses those files; otherwise a self-signed certificate is generated on demand."`                                                                    //nolint:lll // config struct tags are intentionally verbose
@@ -1918,6 +1921,8 @@ func (h *HealthCmd) Run() error {
 func Run() {
 	var root rootCLI
 
+	applyLocalstackEnv()
+
 	kctx := kong.Parse(
 		&root,
 		kong.Name("gopherstack"),
@@ -2199,7 +2204,7 @@ func run(ctx context.Context, cli CLI) error {
 
 	// Create the fault store before initialising services so the dashboard can
 	// receive it via cli.GetFaultStore() during its Init() call.
-	cli.faultStore = chaos.NewFaultStore()
+	cli.faultStore, cli.localstackInit = chaos.NewFaultStore(), newLocalstackInitState()
 
 	services, err := initializeServices(appCtx)
 	if err != nil {
@@ -2246,7 +2251,7 @@ func run(ctx context.Context, cli CLI) error {
 	// to a multiple of shutdownTimeout.
 	defer shutdownBackends(janitorCancel, cli.lambdaHandler, services, &cli.shutdownDeadline)
 
-	return startServer(ctx, cli.Port, e, tlsConfigFromCLI(&cli), &cli.shutdownDeadline)
+	return serveAll(ctx, &cli, e, log)
 }
 
 // tlsSettings carries the resolved TLS configuration for the listener.
@@ -2278,7 +2283,7 @@ func runInitHooks(ctx context.Context, cli *CLI, log *slog.Logger) {
 	}
 
 	runner := inithooks.New(cli.InitScripts, cli.InitScriptTimeout, log)
-	runner.Run(ctx)
+	cli.localstackInit.record(runner.Run(ctx))
 }
 
 // createS3InitBuckets creates S3 buckets listed in cli.S3InitBuckets on startup.
@@ -2443,8 +2448,7 @@ func buildEchoServer(
 	e.GET("/_gopherstack/health", buildHealthHandler(services))
 	e.GET("/_localstack/health", buildLocalstackHealthHandler(services))
 	e.GET("/_aws/health", buildLocalstackHealthHandler(services))
-	e.GET("/_localstack/init", buildLocalstackInitHandler())
-	e.GET("/_localstack/init/ready", buildLocalstackInitHandler())
+	registerLocalstackInternalEndpoints(e, &cli, services)
 	e.GET("/_localstack/info", buildLocalstackInfoHandler())
 	e.POST("/_gopherstack/reset", buildResetHandler(services))
 	e.GET(logger.RequestsEndpointPath, buildRequestsHandler(logger.GlobalRingBuffer))
@@ -3248,6 +3252,7 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// actually starts instead of failing with ErrLambdaUnavailable: S3 code
 	// delivery requires S3 integration.
 	wireLambdaS3(byName["Lambda"], byName["S3"])
+
 
 	// Wire ECR → Lambda so Code.ImageUri on an Image package-type
 	// CreateFunction/UpdateFunctionCode is validated against real ECR state
@@ -11917,9 +11922,9 @@ func buildLogger(level string) *slog.Logger {
 	switch strings.ToLower(strings.TrimSpace(level)) {
 	case logLevelDebug:
 		slogLevel = slog.LevelDebug
-	case "warn":
+	case levelWarn:
 		slogLevel = slog.LevelWarn
-	case "error":
+	case levelError:
 		slogLevel = slog.LevelError
 	default:
 		slogLevel = slog.LevelInfo
@@ -11954,12 +11959,6 @@ type localstackHealthResponse struct {
 	Edition  string            `json:"edition"`
 }
 
-// localstackInitResponse is the JSON body returned by LocalStack-compatible init endpoints.
-type localstackInitResponse struct {
-	Scripts   []string `json:"scripts"`
-	Completed bool     `json:"completed"`
-}
-
 func buildLocalstackHealthHandler(services []service.Registerable) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		svcMap := make(map[string]string, len(services))
@@ -11970,16 +11969,7 @@ func buildLocalstackHealthHandler(services []service.Registerable) echo.HandlerF
 		return c.JSON(http.StatusOK, localstackHealthResponse{
 			Services: svcMap,
 			Version:  version.Get(),
-			Edition:  "community",
-		})
-	}
-}
-
-func buildLocalstackInitHandler() echo.HandlerFunc {
-	return func(c *echo.Context) error {
-		return c.JSON(http.StatusOK, localstackInitResponse{
-			Completed: true,
-			Scripts:   []string{},
+			Edition:  editionCommunity,
 		})
 	}
 }
@@ -11995,7 +11985,7 @@ func buildLocalstackInfoHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		return c.JSON(http.StatusOK, localstackInfoResponse{
 			Version:   version.Get(),
-			Edition:   "community",
+			Edition:   editionCommunity,
 			IsAuth:    false,
 			SessionID: "00000000-0000-0000-0000-000000000000",
 		})
