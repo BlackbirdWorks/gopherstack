@@ -3,6 +3,11 @@ module github.com/blackbirdworks/gopherstack
 go 1.27.0
 
 require (
+	cloud.google.com/go/firestore v1.26.0
+	cloud.google.com/go/iam v1.11.0
+	cloud.google.com/go/pubsub/v2 v2.7.0
+	cloud.google.com/go/secretmanager v1.22.0
+	cloud.google.com/go/storage v1.65.1
 	connectrpc.com/connect v1.20.0
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0
 	github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos v1.5.0
@@ -61,6 +66,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/codecommit v1.36.4
 	github.com/aws/aws-sdk-go-v2/service/codeconnections v1.13.4
 	github.com/aws/aws-sdk-go-v2/service/codedeploy v1.43.0
+	github.com/aws/aws-sdk-go-v2/service/codegurureviewer v1.43.4
 	github.com/aws/aws-sdk-go-v2/service/codepipeline v1.54.0
 	github.com/aws/aws-sdk-go-v2/service/codestarconnections v1.38.4
 	github.com/aws/aws-sdk-go-v2/service/cognitoidentity v1.36.4
@@ -124,6 +130,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/lightsail v1.58.4
 	github.com/aws/aws-sdk-go-v2/service/macie2 v1.54.4
 	github.com/aws/aws-sdk-go-v2/service/managedblockchain v1.34.4
+	github.com/aws/aws-sdk-go-v2/service/marketplaceentitlementservice v1.46.4
+	github.com/aws/aws-sdk-go-v2/service/marketplacemetering v1.46.2
 	github.com/aws/aws-sdk-go-v2/service/mediaconvert v1.97.1
 	github.com/aws/aws-sdk-go-v2/service/medialive v1.101.4
 	github.com/aws/aws-sdk-go-v2/service/mediapackage v1.42.4
@@ -246,6 +254,10 @@ require (
 	golang.org/x/crypto v0.57.0
 	golang.org/x/mod v0.41.0
 	golang.org/x/sync v0.23.0
+	google.golang.org/api v0.287.1
+	google.golang.org/genproto v0.0.0-20260519071638-aa98bba5eb94
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260904194346-d0f1323225a4
+	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.58.0
@@ -257,13 +269,8 @@ require (
 	cloud.google.com/go/auth v0.20.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
-	cloud.google.com/go/firestore v1.26.0 // indirect
-	cloud.google.com/go/iam v1.11.0 // indirect
 	cloud.google.com/go/longrunning v1.2.0 // indirect
 	cloud.google.com/go/monitoring v1.29.0 // indirect
-	cloud.google.com/go/pubsub/v2 v2.7.0 // indirect
-	cloud.google.com/go/secretmanager v1.22.0 // indirect
-	cloud.google.com/go/storage v1.65.1 // indirect
 	dario.cat/mergo v1.0.2 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.12.0 // indirect
@@ -277,14 +284,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/codegurureviewer v1.43.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.19 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.13.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/marketplaceentitlementservice v1.46.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/marketplacemetering v1.46.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.9.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bitfield/gotestdox v0.2.2 // indirect
@@ -414,11 +418,7 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
 	golang.org/x/vuln v1.7.0 // indirect
-	google.golang.org/api v0.287.1 // indirect
-	google.golang.org/genproto v0.0.0-20260519071638-aa98bba5eb94 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260904194346-d0f1323225a4 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260904194346-d0f1323225a4 // indirect
-	google.golang.org/grpc v1.83.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gotest.tools/gotestsum v1.13.0 // indirect
 	modernc.org/libc v1.75.7 // indirect
