@@ -42,6 +42,8 @@ type Handler struct {
 	Backend    StorageBackend
 	janitor    *Janitor
 	relay      *smtprelay.Relay
+	inbound    *inboundServer
+	inboundCfg *InboundConfig
 	peers      *regionpeers.Set[Handler]
 	workerCtx  atomic.Pointer[context.Context]
 	janitorRun worker.SingleRun
@@ -76,6 +78,10 @@ func (h *Handler) WithJanitor(interval time.Duration, taskTimeout ...time.Durati
 func (h *Handler) StartWorker(ctx context.Context) error {
 	h.startRegionWorkers(ctx)
 
+	if err := h.startInbound(ctx); err != nil {
+		return err
+	}
+
 	if h.janitor == nil {
 		return nil
 	}
@@ -89,6 +95,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 func (h *Handler) Shutdown(ctx context.Context) {
 	h.stopRegionWorkers(ctx)
 	h.janitorRun.Stop(ctx)
+	h.stopInbound()
 
 	if h.relay != nil {
 		h.relay.Close()

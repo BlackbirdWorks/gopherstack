@@ -3124,6 +3124,7 @@ func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable
 	// destinations to SNS, so bounce/complaint/delivery outcomes are
 	// actually published instead of silently validated-and-stored.
 	wireSESSNS(byName["SES"], byName["SNS"])
+	wireSESInbound(byName)
 	wireSESv2SNS(byName["SESv2"], byName["SNS"])
 
 	// Wire AWS Config's DeliverConfigSnapshot to S3 (and SNS, when a

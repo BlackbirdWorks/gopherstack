@@ -316,6 +316,9 @@ commonly set via env var:
 | `S3_JANITOR_INTERVAL` | `500ms` | S3 janitor tick interval. |
 | `S3_COMPRESSION_MIN_BYTES` | `1024` | Minimum object size for gzip compression. `0` compresses everything. |
 | `SES_JANITOR_INTERVAL` | `1m` | SES janitor tick interval. |
+| `SES_INBOUND_ENABLED` | `false` | Run an SMTP listener that applies the active SES receipt rule set to received mail. |
+| `SES_INBOUND_ADDR` | `127.0.0.1:2525` | Listen address of the SES inbound SMTP server. |
+| `SES_INBOUND_MAX_SIZE` | `41943040` | Maximum SES inbound message size in bytes. |
 | `SES_EMAIL_TTL` | `24h` | TTL for stored sent emails. |
 | `SMTP_HOST` | unset | Relay SES/SESv2 mail to this SMTP server (`host[:port]`, port 25 default) as well as the simulator. |
 | `SMTP_USER` | unset | SMTP login username; sent only over STARTTLS or to localhost. |
@@ -666,7 +669,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 2 structural gaps |
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
 | [Pinpoint](services/pinpoint/README.md) | A | 51 | 2 structural gaps; 3 deferred |
-| [SES](services/ses/README.md) | A | 71 | 4 structural gaps; 1 deferred |
+| [SES](services/ses/README.md) | A | 71 | 2 gaps; 3 structural gaps; 1 deferred |
 | [SES v2](services/sesv2/README.md) | A | 112 | 2 gaps; 2 structural gaps |
 | [SNS](services/sns/README.md) | A | 34 | 1 structural gap; 1 deferred |
 | [SQS](services/sqs/README.md) | A | 20 | 2 gaps; 1 structural gap |

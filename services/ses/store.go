@@ -20,6 +20,9 @@ const sesDefaultMaxItems = 100
 // email templates, and configuration sets.
 type InMemoryBackend struct {
 	snsPublisher         SNSPublisher
+	inboundStore         InboundObjectStore
+	inboundLambda        InboundLambdaInvoker
+	inboundLog           []InboundMessage
 	relay                *smtprelay.Relay
 	customVerifTemplates *store.Table[CustomVerificationEmailTemplate]
 	emailsByID           *store.Table[Email]
@@ -135,6 +138,7 @@ func (b *InMemoryBackend) Reset() {
 	b.emails = nil
 	b.policies = make(map[string]map[string]string)
 	b.activeRuleSet = ""
+	b.inboundLog = nil
 	b.accountSendingEnabled = true
 	b.emailTTL = b.configuredEmailTTL
 	b.limits = b.configuredLimits
