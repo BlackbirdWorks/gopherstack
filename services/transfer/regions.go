@@ -18,9 +18,27 @@ func (h *Handler) EnableRegions(ctx context.Context) {
 	}
 
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
-		return NewHandler(NewInMemoryBackend(ctx, home.accountID, region))
+		bk := NewInMemoryBackend(ctx, home.accountID, region)
+		if cfg := h.sftpConfig(); cfg != nil {
+			bk.EnableSFTP(*cfg)
+		}
+
+		return NewHandler(bk)
 	})
 }
+
+// EnableSFTP turns on real SFTP listeners for this region and every region built later.
+func (h *Handler) EnableSFTP(cfg SFTPConfig) {
+	h.sftpCfg = &cfg
+
+	for _, bk := range h.RegionBackends() {
+		if ib, ok := bk.(*InMemoryBackend); ok {
+			ib.EnableSFTP(cfg)
+		}
+	}
+}
+
+func (h *Handler) sftpConfig() *SFTPConfig { return h.sftpCfg }
 
 // RegionHandler returns the handler serving region: h itself for the home region, else its sibling.
 func (h *Handler) RegionHandler(region string) *Handler {

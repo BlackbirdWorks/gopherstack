@@ -291,6 +291,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
+	github.com/kr/fs v0.1.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260802145828-341c2f0c90b5 // indirect
 	github.com/magiconair/properties v1.18.11 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
@@ -310,6 +311,7 @@ require (
 	github.com/parquet-go/jsonlite v1.0.0 // indirect
 	github.com/parquet-go/parquet-go v0.32.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.30 // indirect
+	github.com/pkg/sftp v1.13.11 // indirect
 	github.com/power-devops/perfstat v0.0.0-20260805114148-88456608a4f6 // indirect
 	github.com/prometheus/common v0.71.0 // indirect
 	github.com/prometheus/otlptranslator v1.0.0 // indirect

@@ -41,6 +41,9 @@ type InMemoryBackend struct {
 	transferRecords *store.Table[FileTransferResult]
 	asyncOperations *store.Table[AsyncOperationRecord]
 	mu              *lockmetrics.RWMutex
+	sftpMu          *lockmetrics.RWMutex // guards sftp + sftpListeners; lock order sftpMu -> mu
+	sftp            *SFTPConfig
+	sftpListeners   map[string]*sftpListener
 	work            *worker.Group
 	accountID       string
 	region          string
@@ -49,13 +52,15 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		registry:     store.NewRegistry(),
-		sshKeyBodies: make(map[string]map[string]map[string]struct{}),
-		tagsStore:    make(map[string]map[string]string),
-		accountID:    accountID,
-		region:       region,
-		mu:           lockmetrics.New("transfer"),
-		work:         worker.NewGroup(ctx, "transfer"),
+		registry:      store.NewRegistry(),
+		sshKeyBodies:  make(map[string]map[string]map[string]struct{}),
+		tagsStore:     make(map[string]map[string]string),
+		accountID:     accountID,
+		region:        region,
+		mu:            lockmetrics.New("transfer"),
+		sftpMu:        lockmetrics.New("transfer-sftp"),
+		sftpListeners: make(map[string]*sftpListener),
+		work:          worker.NewGroup(ctx, "transfer"),
 	}
 	registerAllTables(b)
 
@@ -64,7 +69,10 @@ func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemory
 
 // Close stops all scheduled server state-transition timers so none outlives the
 // backend. It is safe to call multiple times.
-func (b *InMemoryBackend) Close() { b.work.Stop() }
+func (b *InMemoryBackend) Close() {
+	b.work.Stop()
+	b.stopAllSFTP()
+}
 
 // AccountID returns the AWS account ID for this backend.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
@@ -74,6 +82,8 @@ func (b *InMemoryBackend) Region() string { return b.region }
 
 // Reset clears all stored resources, returning the backend to a clean state.
 func (b *InMemoryBackend) Reset() {
+	b.stopAllSFTP()
+
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
