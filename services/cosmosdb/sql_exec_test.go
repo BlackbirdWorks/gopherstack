@@ -48,7 +48,7 @@ func TestExecuteQuery_SelectStar(t *testing.T) {
 	rows, err := cosmosdb.ExecuteQuery("SELECT * FROM c", nil, docs)
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
-	assert.Equal(t, "alice", rows[0]["name"])
+	assert.Equal(t, "alice", rowObj(t, rows[0])["name"])
 }
 
 func TestExecuteQuery_ProjectionWithAlias(t *testing.T) {
@@ -59,8 +59,8 @@ func TestExecuteQuery_ProjectionWithAlias(t *testing.T) {
 	rows, err := cosmosdb.ExecuteQuery("SELECT c.name AS n, c.age FROM c", nil, docs)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
-	assert.Equal(t, "alice", rows[0]["n"])
-	assert.Equal(t, json.Number("30"), rows[0]["age"])
+	assert.Equal(t, "alice", rowObj(t, rows[0])["n"])
+	assert.Equal(t, json.Number("30"), rowObj(t, rows[0])["age"])
 }
 
 func TestExecuteQuery_WhereComparisons(t *testing.T) {
@@ -119,7 +119,7 @@ func TestExecuteQuery_WhereComparisons(t *testing.T) {
 
 			gotIDs := make([]string, 0, len(rows))
 			for _, r := range rows {
-				id, _ := r["id"].(string)
+				id, _ := rowObj(t, r)["id"].(string)
 				gotIDs = append(gotIDs, id)
 			}
 
@@ -138,7 +138,7 @@ func TestExecuteQuery_Parameters(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
-	assert.Equal(t, "1", rows[0]["id"])
+	assert.Equal(t, "1", rowObj(t, rows[0])["id"])
 }
 
 func TestExecuteQuery_OrderByAndTop(t *testing.T) {
@@ -149,8 +149,8 @@ func TestExecuteQuery_OrderByAndTop(t *testing.T) {
 	rows, err := cosmosdb.ExecuteQuery("SELECT TOP 2 * FROM c ORDER BY c.age DESC", nil, docs)
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
-	assert.Equal(t, "3", rows[0]["id"])
-	assert.Equal(t, "1", rows[1]["id"])
+	assert.Equal(t, "3", rowObj(t, rows[0])["id"])
+	assert.Equal(t, "1", rowObj(t, rows[1])["id"])
 }
 
 func TestExecuteQuery_OffsetLimit(t *testing.T) {
@@ -161,7 +161,7 @@ func TestExecuteQuery_OffsetLimit(t *testing.T) {
 	rows, err := cosmosdb.ExecuteQuery("SELECT * FROM c ORDER BY c.id OFFSET 1 LIMIT 1", nil, docs)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
-	assert.Equal(t, "2", rows[0]["id"])
+	assert.Equal(t, "2", rowObj(t, rows[0])["id"])
 }
 
 func TestExecuteQuery_Int64PrecisionInComparison(t *testing.T) {
@@ -172,7 +172,7 @@ func TestExecuteQuery_Int64PrecisionInComparison(t *testing.T) {
 	rows, err := cosmosdb.ExecuteQuery("SELECT * FROM c WHERE c.big = 9007199254740993", nil, docs)
 	require.NoError(t, err)
 	require.Len(t, rows, 1, "must distinguish magnitudes beyond 2^53, not collapse via float64")
-	assert.Equal(t, "1", rows[0]["id"])
+	assert.Equal(t, "1", rowObj(t, rows[0])["id"])
 }
 
 func TestExecuteQuery_ParseErrors(t *testing.T) {
@@ -230,7 +230,7 @@ func TestExecuteQuery_AliasResolution(t *testing.T) {
 			rows, err := cosmosdb.ExecuteQuery(tt.query, nil, docs)
 			require.NoError(t, err)
 			require.Len(t, rows, 1)
-			assert.Equal(t, "alice", rows[0]["name"])
+			assert.Equal(t, "alice", rowObj(t, rows[0])["name"])
 		})
 	}
 }
@@ -248,7 +248,7 @@ func TestExecuteQuery_BareAliasProjectsWholeRow(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 
-	whole, ok := rows[0]["c"].(map[string]any)
+	whole, ok := rowObj(t, rows[0])["c"].(map[string]any)
 	require.True(t, ok, "bare alias projects the whole row under its own alias key")
 	assert.Equal(t, "1", whole["id"])
 	assert.Equal(t, "alice", whole["name"])

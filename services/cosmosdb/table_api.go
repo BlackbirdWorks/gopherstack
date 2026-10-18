@@ -3,7 +3,7 @@
 // and AZURE.md section 9's M6 milestone), wire-identical to
 // services/azuretable's own OData/JSON entity model and $filter grammar --
 // differing only in auth (Cosmos's existing master-key HMAC, unchanged --
-// see masterkey.go and checkAuth in handler.go) and the fact that it needs
+// see masterkey.go and authorize in auth.go) and the fact that it needs
 // no separate account path segment (real Cosmos Table API disambiguates
 // Table vs. Core/SQL traffic by path shape on one hostname, not by an
 // account-name path prefix the way services/azuretable's Azurite-style

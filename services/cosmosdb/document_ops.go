@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func (h *Handler) handleDocuments(c *echo.Context, dbID, collID string) error {
@@ -51,27 +52,19 @@ func (h *Handler) handleDocumentItem(c *echo.Context, dbID, collID, docID string
 	}
 }
 
-// partitionKeyFromHeader parses the mandatory x-ms-documentdb-partitionkey
-// header (a JSON array carrying exactly the partition key's single scalar
-// value, e.g. ["foo"], [123], [true], or [null]) into its canonical JSON
-// encoding. Required on every point operation (Get/Replace/Delete
-// Document); Create derives the partition key from the document body
-// instead (see store.go's prepareDocumentBody), matching real Cosmos.
-//
-// The array MUST contain exactly one element: an empty array ([]) is
-// rejected rather than silently treated as a null partition key ([null] is
-// the correct way to express that), and an array with more than one
-// element is rejected too rather than silently truncated to its first
-// element -- an earlier version of this function did exactly that
-// truncation, which could route a request against the wrong document
-// without any error. The element itself must be a scalar (string, number,
-// bool, or null) -- canonicalPartitionKeyJSON enforces that.
+// partitionKeyFromHeader parses the x-ms-documentdb-partitionkey header (a JSON array of one to three scalars)
+// into the canonical partition key JSON: a scalar for one component, an array for hierarchical keys. Whether the
+// component count matches the container is checked by the backend.
 func partitionKeyFromHeader(r *http.Request) (string, error) {
 	raw := r.Header.Get(headerPartitionKey)
 	if raw == "" {
 		return "", fmt.Errorf("%w: %s header is required", ErrInvalidDocument, headerPartitionKey)
 	}
 
+	return parsePartitionKeyHeader(raw)
+}
+
+func parsePartitionKeyHeader(raw string) (string, error) {
 	dec := json.NewDecoder(bytes.NewReader([]byte(raw)))
 	dec.UseNumber()
 
@@ -80,22 +73,59 @@ func partitionKeyFromHeader(r *http.Request) (string, error) {
 		return "", fmt.Errorf("%w: malformed %s header: %w", ErrInvalidDocument, headerPartitionKey, err)
 	}
 
-	// Reject trailing content after the array -- see rejectTrailingJSON's
-	// doc comment (models.go) for why dec.More() alone isn't sufficient.
 	if trailingErr := rejectTrailingJSON(dec); trailingErr != nil {
 		return "", fmt.Errorf(
 			"%w: trailing content after %s header value: %w", ErrInvalidDocument, headerPartitionKey, trailingErr,
 		)
 	}
 
-	if len(arr) != 1 {
+	if len(arr) < 1 || len(arr) > maxPartitionKeyPaths {
 		return "", fmt.Errorf(
-			"%w: %s header must carry exactly one partition key value, got %d",
-			ErrInvalidDocument, headerPartitionKey, len(arr),
+			"%w: %s header must carry between one and %d partition key values, got %d",
+			ErrInvalidDocument, headerPartitionKey, maxPartitionKeyPaths, len(arr),
 		)
 	}
 
-	return canonicalPartitionKeyJSON(arr[0])
+	for _, v := range arr {
+		if _, err := canonicalPartitionKeyJSON(v); err != nil {
+			return "", err
+		}
+	}
+
+	if len(arr) == 1 {
+		return canonicalPartitionKeyJSON(arr[0])
+	}
+
+	data, err := json.Marshal(arr)
+	if err != nil {
+		return "", fmt.Errorf("cosmosdb: encode partition key: %w", err)
+	}
+
+	return string(data), nil
+}
+
+// writeDocumentError maps a backend error to its Cosmos status and body.
+func (h *Handler) writeDocumentError(c *echo.Context, err error) error {
+	switch {
+	case errors.Is(err, ErrDatabaseNotFound):
+		return h.writeDatabaseNotFoundError(c)
+	case errors.Is(err, ErrContainerNotFound):
+		return h.writeContainerNotFoundError(c)
+	case errors.Is(err, ErrDocumentNotFound):
+		return h.writeDocumentNotFoundError(c)
+	case errors.Is(err, ErrDocumentAlreadyExists):
+		return h.writeError(c, http.StatusConflict, "Conflict", "Document with the specified id already exists.")
+	case errors.Is(err, ErrETagMismatch):
+		return h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailed",
+			"Operation cannot be performed because one of the specified precondition is not met.")
+	case errors.Is(err, ErrInvalidDocument), errors.Is(err, ErrPartitionKeyMismatch):
+		return h.writeError(c, http.StatusBadRequest, "BadRequest", err.Error())
+	case errors.Is(err, ErrQueryParse), errors.Is(err, ErrQueryTooDeep):
+		return h.writeError(c, http.StatusBadRequest, "BadRequest",
+			fmt.Sprintf("The SQL query text is invalid or has one or more syntax errors: %s", err.Error()))
+	default:
+		return h.writeError(c, http.StatusInternalServerError, "InternalError", err.Error())
+	}
 }
 
 func (h *Handler) createDocument(c *echo.Context, dbID, collID string) error {
@@ -112,24 +142,13 @@ func (h *Handler) createDocument(c *echo.Context, dbID, collID string) error {
 	upsert := strings.EqualFold(c.Request().Header.Get(headerIsUpsert), "true")
 
 	info, createErr := h.Backend.CreateDocument(dbID, collID, doc, upsert)
-
-	switch {
-	case createErr == nil:
-	case errors.Is(createErr, ErrDatabaseNotFound):
-		return h.writeDatabaseNotFoundError(c)
-	case errors.Is(createErr, ErrContainerNotFound):
-		return h.writeContainerNotFoundError(c)
-	case errors.Is(createErr, ErrDocumentAlreadyExists):
-		return h.writeError(c, http.StatusConflict, "Conflict", "Document with the specified id already exists.")
-	case errors.Is(createErr, ErrInvalidDocument):
-		return h.writeError(c, http.StatusBadRequest, "BadRequest", createErr.Error())
-	default:
-		return h.writeError(c, http.StatusInternalServerError, "InternalError", createErr.Error())
+	if createErr != nil {
+		return h.writeDocumentError(c, createErr)
 	}
 
 	c.Response().Header().Set("ETag", info.ETag)
 
-	return h.writeJSON(c, http.StatusCreated, h.encodeDocument(info))
+	return h.writeJSONCharged(c, http.StatusCreated, h.encodeDocument(info), createCharge)
 }
 
 func (h *Handler) getDocument(c *echo.Context, dbID, collID, docID string) error {
@@ -139,22 +158,13 @@ func (h *Handler) getDocument(c *echo.Context, dbID, collID, docID string) error
 	}
 
 	info, err := h.Backend.GetDocument(dbID, collID, pk, docID)
-
-	switch {
-	case err == nil:
-	case errors.Is(err, ErrDatabaseNotFound):
-		return h.writeDatabaseNotFoundError(c)
-	case errors.Is(err, ErrContainerNotFound):
-		return h.writeContainerNotFoundError(c)
-	case errors.Is(err, ErrDocumentNotFound):
-		return h.writeDocumentNotFoundError(c)
-	default:
-		return h.writeError(c, http.StatusInternalServerError, "InternalError", err.Error())
+	if err != nil {
+		return h.writeDocumentError(c, err)
 	}
 
 	c.Response().Header().Set("ETag", info.ETag)
 
-	return h.writeJSON(c, http.StatusOK, h.encodeDocument(info))
+	return h.writeJSONCharged(c, http.StatusOK, h.encodeDocument(info), readCharge)
 }
 
 func (h *Handler) replaceDocument(c *echo.Context, dbID, collID, docID string) error {
@@ -175,32 +185,14 @@ func (h *Handler) replaceDocument(c *echo.Context, dbID, collID, docID string) e
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", "The input is not valid JSON.")
 	}
 
-	ifMatch := r.Header.Get("If-Match")
-
-	info, replaceErr := h.Backend.ReplaceDocument(dbID, collID, pk, docID, doc, ifMatch)
-
-	switch {
-	case replaceErr == nil:
-	case errors.Is(replaceErr, ErrDatabaseNotFound):
-		return h.writeDatabaseNotFoundError(c)
-	case errors.Is(replaceErr, ErrContainerNotFound):
-		return h.writeContainerNotFoundError(c)
-	case errors.Is(replaceErr, ErrDocumentNotFound):
-		return h.writeDocumentNotFoundError(c)
-	case errors.Is(replaceErr, ErrETagMismatch):
-		return h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailed",
-			"Operation cannot be performed because one of the specified precondition is not met.")
-	case errors.Is(replaceErr, ErrInvalidDocument):
-		return h.writeError(c, http.StatusBadRequest, "BadRequest", replaceErr.Error())
-	case errors.Is(replaceErr, ErrPartitionKeyMismatch):
-		return h.writeError(c, http.StatusBadRequest, "BadRequest", replaceErr.Error())
-	default:
-		return h.writeError(c, http.StatusInternalServerError, "InternalError", replaceErr.Error())
+	info, replaceErr := h.Backend.ReplaceDocument(dbID, collID, pk, docID, doc, r.Header.Get("If-Match"))
+	if replaceErr != nil {
+		return h.writeDocumentError(c, replaceErr)
 	}
 
 	c.Response().Header().Set("ETag", info.ETag)
 
-	return h.writeJSON(c, http.StatusOK, h.encodeDocument(info))
+	return h.writeJSONCharged(c, http.StatusOK, h.encodeDocument(info), replaceCharge)
 }
 
 func (h *Handler) deleteDocument(c *echo.Context, dbID, collID, docID string) error {
@@ -211,46 +203,51 @@ func (h *Handler) deleteDocument(c *echo.Context, dbID, collID, docID string) er
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", pkErr.Error())
 	}
 
-	ifMatch := r.Header.Get("If-Match")
-
-	err := h.Backend.DeleteDocument(dbID, collID, pk, docID, ifMatch)
-
-	switch {
-	case err == nil:
-		return c.NoContent(http.StatusNoContent)
-	case errors.Is(err, ErrDatabaseNotFound):
-		return h.writeDatabaseNotFoundError(c)
-	case errors.Is(err, ErrContainerNotFound):
-		return h.writeContainerNotFoundError(c)
-	case errors.Is(err, ErrDocumentNotFound):
-		return h.writeDocumentNotFoundError(c)
-	case errors.Is(err, ErrETagMismatch):
-		return h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailed",
-			"Operation cannot be performed because one of the specified precondition is not met.")
-	default:
-		return h.writeError(c, http.StatusInternalServerError, "InternalError", err.Error())
+	if err := h.Backend.DeleteDocument(dbID, collID, pk, docID, r.Header.Get("If-Match")); err != nil {
+		return h.writeDocumentError(c, err)
 	}
+
+	setCharge(c, ruDelete)
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// pagedDocumentLister is implemented by backends that can page the read feed without copying every document.
+type pagedDocumentLister interface {
+	ListDocumentsPaged(dbID, containerID, token string, limit int) (page.Page[DocumentInfo], error)
 }
 
 func (h *Handler) listDocuments(c *echo.Context, dbID, collID string) error {
-	infos, err := h.Backend.ListDocuments(dbID, collID)
-
-	switch {
-	case err == nil:
-	case errors.Is(err, ErrDatabaseNotFound):
-		return h.writeDatabaseNotFoundError(c)
-	case errors.Is(err, ErrContainerNotFound):
-		return h.writeContainerNotFoundError(c)
-	default:
-		return h.writeError(c, http.StatusInternalServerError, "InternalError", err.Error())
+	token, limit, reqErr := pageRequest(c.Request())
+	if reqErr != nil {
+		return h.writeContinuationError(c)
 	}
 
-	values := make([]map[string]any, 0, len(infos))
-	for _, info := range infos {
+	var pg page.Page[DocumentInfo]
+
+	if lister, ok := h.Backend.(pagedDocumentLister); ok {
+		var err error
+		if pg, err = lister.ListDocumentsPaged(dbID, collID, token, limit); err != nil {
+			return h.writeDocumentError(c, err)
+		}
+	} else {
+		infos, err := h.Backend.ListDocuments(dbID, collID)
+		if err != nil {
+			return h.writeDocumentError(c, err)
+		}
+
+		pg = paginate(infos, token, limit)
+	}
+
+	values := make([]map[string]any, 0, len(pg.Data))
+	for _, info := range pg.Data {
 		values = append(values, h.encodeDocument(info))
 	}
 
-	return h.writeJSON(c, http.StatusOK, map[string]any{sysPropRID: "", "Documents": values, sysPropCount: len(values)})
+	setPageHeaders(c, len(values), pg.Next)
+
+	return h.writeJSONCharged(c, http.StatusOK,
+		map[string]any{sysPropRID: "", "Documents": values, sysPropCount: len(values)}, readCharge)
 }
 
 // queryRequestBody is the request body shape for a SQL query POST:
@@ -261,7 +258,14 @@ type queryRequestBody struct {
 }
 
 func (h *Handler) queryDocuments(c *echo.Context, dbID, collID string) error {
-	body, err := httputils.ReadBody(c.Request())
+	r := c.Request()
+
+	token, limit, reqErr := pageRequest(r)
+	if reqErr != nil {
+		return h.writeContinuationError(c)
+	}
+
+	body, err := httputils.ReadBody(r)
 	if err != nil {
 		return h.writeError(c, http.StatusInternalServerError, "InternalError", "Failed to read request body.")
 	}
@@ -271,63 +275,80 @@ func (h *Handler) queryDocuments(c *echo.Context, dbID, collID string) error {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
 
-	if decErr := dec.Decode(&req); decErr != nil {
+	if decErr := dec.Decode(&req); decErr != nil || rejectTrailingJSON(dec) != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", "The input is not valid JSON.")
 	}
 
-	// Reject trailing content after the query request object -- see
-	// rejectTrailingJSON's doc comment (models.go) for why dec.More() alone
-	// isn't sufficient.
-	if trailingErr := rejectTrailingJSON(dec); trailingErr != nil {
-		return h.writeError(c, http.StatusBadRequest, "BadRequest", "The input is not valid JSON.")
+	scope, scopeErr := queryPartitionScope(r)
+	if scopeErr != nil {
+		return h.writeError(c, http.StatusBadRequest, "BadRequest", scopeErr.Error())
 	}
 
-	results, execErr := h.runQuery(dbID, collID, req)
-
-	switch {
-	case execErr == nil:
-	case errors.Is(execErr, ErrDatabaseNotFound):
-		return h.writeDatabaseNotFoundError(c)
-	case errors.Is(execErr, ErrContainerNotFound):
-		return h.writeContainerNotFoundError(c)
-	case errors.Is(execErr, ErrQueryParse), errors.Is(execErr, ErrQueryTooDeep):
-		return h.writeError(c, http.StatusBadRequest, "BadRequest",
-			fmt.Sprintf("The SQL query text is invalid or has one or more syntax errors: %s", execErr.Error()))
-	default:
-		return h.writeError(c, http.StatusInternalServerError, "InternalError", execErr.Error())
+	res, execErr := h.runQuery(dbID, collID, req, scope)
+	if execErr != nil {
+		return h.writeDocumentError(c, execErr)
 	}
 
-	return h.writeJSON(c, http.StatusOK,
-		map[string]any{sysPropRID: "", "Documents": results, sysPropCount: len(results)})
+	pg := paginate(res.Rows, token, limit)
+	setPageHeaders(c, len(pg.Data), pg.Next)
+
+	payload := map[string]any{sysPropRID: "", "Documents": pg.Data, sysPropCount: len(pg.Data)}
+
+	return h.writeJSONCharged(c, http.StatusOK, payload, func(size int) float64 {
+		return queryCharge(res.Scanned, size)
+	})
 }
 
-// encodeDocument builds a document's Cosmos DB JSON response body: its
-// user-defined fields (already a deep-cloned, alias-safe copy -- see
-// StorageBackend's documentInfo/deepCopyBody) overlaid with the
-// server-managed system properties.
+// queryPartitionScope returns the partition key a query is scoped to ("" for cross-partition). An empty key
+// array means cross-partition.
+func queryPartitionScope(r *http.Request) (string, error) {
+	raw := strings.TrimSpace(r.Header.Get(headerPartitionKey))
+	if raw == "" || raw == "[]" {
+		return "", nil
+	}
+
+	return parsePartitionKeyHeader(raw)
+}
+
+// encodeDocument builds a document's JSON response body.
 func (h *Handler) encodeDocument(info DocumentInfo) map[string]any {
 	return documentAsMap(info)
 }
 
-// writeDocumentNotFoundError maps a missing-document StorageBackend error to
-// the corresponding Cosmos error code/status.
+// writeDocumentNotFoundError maps a missing-document StorageBackend error to the Cosmos error.
 func (h *Handler) writeDocumentNotFoundError(c *echo.Context) error {
 	return h.writeError(c, http.StatusNotFound, "NotFound", "Resource Not Found")
 }
 
-// runQuery uses the backend's direct query path when it has one, otherwise
-// ListDocuments plus ExecuteQuery.
-func (h *Handler) runQuery(dbID, collID string, req queryRequestBody) ([]map[string]any, error) {
-	if q, ok := h.Backend.(interface {
-		QueryDocuments(dbID, containerID, query string, params []QueryParameter) ([]map[string]any, error)
-	}); ok {
-		return q.QueryDocuments(dbID, collID, req.Query, req.Parameters)
+// partitionQuerier is implemented by backends that can run a query scoped to a partition.
+type partitionQuerier interface {
+	RunQuery(dbID, containerID, query string, params []QueryParameter, partitionKey string) (QueryResult, error)
+}
+
+// runQuery uses the backend's direct query path when it has one, otherwise ListDocuments plus ExecuteQuery.
+func (h *Handler) runQuery(dbID, collID string, req queryRequestBody, partitionKey string) (QueryResult, error) {
+	if q, ok := h.Backend.(partitionQuerier); ok {
+		return q.RunQuery(dbID, collID, req.Query, req.Parameters, partitionKey)
 	}
 
 	infos, err := h.Backend.ListDocuments(dbID, collID)
 	if err != nil {
-		return nil, err
+		return QueryResult{}, err
 	}
 
-	return ExecuteQuery(req.Query, req.Parameters, infos)
+	if partitionKey != "" {
+		scoped := infos[:0]
+
+		for _, info := range infos {
+			if partitionKeyMatches(info.PartitionKeyJSON, partitionKey) {
+				scoped = append(scoped, info)
+			}
+		}
+
+		infos = scoped
+	}
+
+	rows, execErr := ExecuteQuery(req.Query, req.Parameters, infos)
+
+	return QueryResult{Rows: rows, Scanned: len(infos)}, execErr
 }

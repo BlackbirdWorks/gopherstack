@@ -1,287 +1,22 @@
 package cosmosdb
 
 import (
-	"encoding/json"
 	"fmt"
-	"sort"
+	"strconv"
 	"strings"
 )
 
-// sql_exec.go executes a parsed sqlSelectStmt (see sql_parser.go) against a
-// container's documents. WHERE evaluation never panics, matching
-// services/azuretable's odata_filter_eval.go's evaluate-never-panic
-// posture, but -- unlike that file's simpler two-valued "missing field
-// means false" model -- implements real Cosmos SQL's three-valued logic
-// (sqlTriState: true/false/undefined). A missing document field (or an
-// unbound @param) is Undefined, NOT false: Undefined is not the same value
-// as false, and critically does not flip to true under NOT (`NOT
-// (c.missing = 1)` must still not match -- if a missing comparison were
-// modeled as a plain false, NOT would incorrectly turn it into a match).
-// AND/OR follow standard SQL 3VL (undefined AND false = false; undefined OR
-// true = true; anything else touching undefined stays undefined). Only a
-// definite sqlTrue at the top level counts as a row match -- see
-// ExecuteQuery. IS NULL/IS NOT NULL are the one place this emulator
-// deliberately does NOT propagate Undefined: both evaluate to a definite
-// boolean false against an undefined operand (real Cosmos's own behavior),
-// since undefined is neither "null" nor meaningfully "not null" for what
-// these operators test.
+// sql_exec.go runs a parsed sqlSelectStmt: source tuples (container rows x JOINs) -> WHERE -> GROUP BY /
+// aggregates -> projection -> DISTINCT -> ORDER BY -> OFFSET/LIMIT or TOP. Expression evaluation (sql_eval.go)
+// follows Cosmos's three-valued logic: a missing field is undefined, undefined never flips under NOT, and only
+// a definite true keeps a row.
 
-// QueryParameter is one "@name"/value binding from a query request body's
-// "parameters" array.
+// QueryParameter is one "@name"/value binding from a query request body.
 type QueryParameter struct {
 	Value any    `json:"value"`
 	Name  string `json:"name"`
 }
 
-// ExecuteQuery parses and runs a Cosmos SQL query against docs, returning
-// the projected result rows in Cosmos's own {"Documents": [...]} response
-// shape (see document_ops.go's queryDocuments). Never panics: a malformed
-// query returns (nil, ErrQueryParse-wrapped error); a runtime type mismatch
-// during WHERE evaluation simply excludes that document, exactly like
-// services/azuretable's EvaluateFilter.
-func ExecuteQuery(query string, params []QueryParameter, docs []DocumentInfo) ([]map[string]any, error) {
-	stmt, err := parseQuery(query)
-	if err != nil {
-		return nil, err
-	}
-
-	rows := make(mapRows, len(docs))
-	for i, doc := range docs {
-		rows[i] = documentAsMap(doc)
-	}
-
-	return executeStatement(stmt, params, rows), nil
-}
-
-// queryRows is the row source executeStatement runs a parsed statement
-// against: row(i) is a cheap view used for WHERE/ORDER BY/projection, and
-// full(i) materializes the complete response row.
-type queryRows interface {
-	count() int
-	row(i int) sqlRow
-	full(i int) map[string]any
-}
-
-type mapRows []map[string]any
-
-func (r mapRows) count() int                { return len(r) }
-func (r mapRows) row(i int) sqlRow          { return sqlRow{m: r[i]} }
-func (r mapRows) full(i int) map[string]any { return r[i] }
-
-func executeStatement(stmt *sqlSelectStmt, params []QueryParameter, rs queryRows) []map[string]any {
-	paramValues := make(map[string]any, len(params))
-	for _, p := range params {
-		paramValues[p.Name] = p.Value
-	}
-
-	n := rs.count()
-	idx := make([]int, 0, n)
-
-	for i := range n {
-		// Only a definite sqlTrue counts as a match: both sqlFalse and
-		// sqlUndefined exclude the row (see this file's top doc comment on
-		// three-valued logic).
-		if stmt.where != nil && evalSQLNode(stmt.where, rs.row(i), paramValues) != sqlTrue {
-			continue
-		}
-
-		idx = append(idx, i)
-	}
-
-	sortRows(idx, rs, stmt.orderBy)
-
-	idx = applyOffsetAndLimit(idx, stmt)
-
-	return projectRows(idx, rs, stmt)
-}
-
-// applyOffsetAndLimit applies TOP or OFFSET/LIMIT (mutually exclusive in
-// real Cosmos SQL; if a query somehow specified both, this emulator applies
-// OFFSET/LIMIT and ignores TOP -- an ambiguous case with no real-world
-// occurrence worth erroring over) to the already-filtered, already-sorted
-// row set.
-func applyOffsetAndLimit(rows []int, stmt *sqlSelectStmt) []int {
-	if stmt.hasOffset || stmt.hasLimit {
-		offset := min(stmt.offset, len(rows))
-
-		rows = rows[offset:]
-
-		if stmt.hasLimit && stmt.limit < len(rows) {
-			rows = rows[:stmt.limit]
-		}
-
-		return rows
-	}
-
-	if stmt.hasTop && stmt.top < len(rows) {
-		rows = rows[:stmt.top]
-	}
-
-	return rows
-}
-
-// projectRows applies stmt's SELECT list to the selected rows: SELECT *
-// returns each full row unchanged; an explicit projection list rebuilds each
-// row with only the requested paths, under their (possibly AS-aliased)
-// output keys.
-func projectRows(idx []int, rs queryRows, stmt *sqlSelectStmt) []map[string]any {
-	out := make([]map[string]any, len(idx))
-
-	for i, ri := range idx {
-		if stmt.isStar {
-			out[i] = rs.full(ri)
-
-			continue
-		}
-
-		row := rs.row(ri)
-		projected := make(map[string]any, len(stmt.projections))
-
-		for _, proj := range stmt.projections {
-			if v, ok := resolvePath(row, proj.path); ok {
-				projected[proj.alias] = v
-			}
-		}
-
-		out[i] = projected
-	}
-
-	return out
-}
-
-// sortRows sorts rows in place per orderKeys, evaluated left-to-right (a
-// tie on the first key falls through to the next). A row missing a sort
-// key's field sorts before one that has it, so ordering is total and
-// deterministic even against heterogeneous documents.
-func sortRows(idx []int, rs queryRows, orderKeys []sqlOrderKey) {
-	if len(orderKeys) == 0 || len(idx) < 2 {
-		return
-	}
-
-	type keyVal struct {
-		v  any
-		ok bool
-	}
-
-	nk := len(orderKeys)
-	keys := make([]keyVal, len(idx)*nk)
-	pos := make([]int, len(idx))
-
-	for i, ri := range idx {
-		pos[i] = i
-
-		row := rs.row(ri)
-		for k, key := range orderKeys {
-			v, ok := resolvePath(row, key.path)
-			keys[i*nk+k] = keyVal{v: v, ok: ok}
-		}
-	}
-
-	sort.SliceStable(pos, func(i, j int) bool {
-		for k, key := range orderKeys {
-			a, b := keys[pos[i]*nk+k], keys[pos[j]*nk+k]
-
-			cmp, ok := compareOrdered(a.v, a.ok, b.v, b.ok)
-			if !ok || cmp == 0 {
-				continue
-			}
-
-			if key.desc {
-				return cmp > 0
-			}
-
-			return cmp < 0
-		}
-
-		return false
-	})
-
-	sorted := make([]int, len(idx))
-	for i, p := range pos {
-		sorted[i] = idx[p]
-	}
-
-	copy(idx, sorted)
-}
-
-// compareOrdered compares two ORDER BY key values, returning ok=false when
-// they are incomparable (mismatched types) so rowLess falls through to the
-// next key instead of asserting an arbitrary order.
-func compareOrdered(a any, aok bool, b any, bok bool) (int, bool) {
-	switch {
-	case !aok && !bok:
-		return 0, false
-	case !aok:
-		return -1, true
-	case !bok:
-		return 1, true
-	default:
-		return compareValuesOrdered(a, b)
-	}
-}
-
-func compareValuesOrdered(a, b any) (int, bool) {
-	switch av := a.(type) {
-	case json.Number:
-		bv, ok := b.(json.Number)
-		if !ok {
-			return 0, false
-		}
-
-		return compareJSONNumbers(av, bv), true
-	case string:
-		bv, ok := b.(string)
-		if !ok {
-			return 0, false
-		}
-
-		return strings.Compare(av, bv), true
-	case bool:
-		bv, ok := b.(bool)
-		if !ok {
-			return 0, false
-		}
-
-		return cmpBool(av, bv), true
-	default:
-		return 0, false
-	}
-}
-
-// resolvePath navigates row along path's segments (e.g. ["a","b"] ->
-// row["a"].(map[string]any)["b"]), mirroring store.go's
-// extractPartitionKeyValue. An empty path (a bare alias reference, e.g.
-// "SELECT c FROM c") resolves to the whole row.
-func resolvePath(row sqlRow, path []string) (any, bool) {
-	if len(path) == 0 {
-		return row.full(), true
-	}
-
-	cur, found := row.lookup(path[0])
-	if !found {
-		return nil, false
-	}
-
-	for _, seg := range path[1:] {
-		m, ok := cur.(map[string]any)
-		if !ok {
-			return nil, false
-		}
-
-		v, ok := m[seg]
-		if !ok {
-			return nil, false
-		}
-
-		cur = v
-	}
-
-	return cur, true
-}
-
-// sqlTriState is Cosmos SQL's three-valued logic result: true, false, or
-// undefined (the result of evaluating an expression against a field that
-// doesn't exist, or an unbound @param). See this file's top doc comment.
 type sqlTriState int
 
 const (
@@ -290,8 +25,6 @@ const (
 	sqlTrue
 )
 
-// boolToTri lifts a definite Go bool into sqlTriState. Never returns
-// sqlUndefined -- callers that need to produce Undefined do so explicitly.
 func boolToTri(b bool) sqlTriState {
 	if b {
 		return sqlTrue
@@ -300,11 +33,6 @@ func boolToTri(b bool) sqlTriState {
 	return sqlFalse
 }
 
-// triAnd implements SQL 3VL's AND truth table: false in either operand
-// forces false (even against undefined -- false is "stronger" than
-// undefined); true in both operands is required for true; anything else
-// (undefined paired with true, or undefined paired with undefined) stays
-// undefined.
 func triAnd(a, b sqlTriState) sqlTriState {
 	if a == sqlFalse || b == sqlFalse {
 		return sqlFalse
@@ -317,9 +45,6 @@ func triAnd(a, b sqlTriState) sqlTriState {
 	return sqlUndefined
 }
 
-// triOr implements SQL 3VL's OR truth table: true in either operand forces
-// true; false in both operands is required for false; anything else stays
-// undefined.
 func triOr(a, b sqlTriState) sqlTriState {
 	if a == sqlTrue || b == sqlTrue {
 		return sqlTrue
@@ -332,11 +57,6 @@ func triOr(a, b sqlTriState) sqlTriState {
 	return sqlUndefined
 }
 
-// triNot implements SQL 3VL's NOT: true and false invert as usual, but
-// undefined stays undefined -- it never flips to true. This is the crux of
-// the bug this tri-state model fixes: "NOT (c.missing = 1)" must still
-// exclude the row, not match it just because negating the inner
-// comparison's (incorrect, two-valued) false would otherwise yield true.
 func triNot(a sqlTriState) sqlTriState {
 	switch a {
 	case sqlTrue:
@@ -348,219 +68,388 @@ func triNot(a sqlTriState) sqlTriState {
 	}
 }
 
-// evalSQLNode evaluates node against row under Cosmos SQL's three-valued
-// logic, resolving @param references against paramValues. Never panics --
-// see this file's top doc comment.
-func evalSQLNode(node sqlNode, row sqlRow, paramValues map[string]any) sqlTriState {
-	switch n := node.(type) {
-	case *sqlAndNode:
-		return triAnd(evalSQLNode(n.left, row, paramValues), evalSQLNode(n.right, row, paramValues))
-	case *sqlOrNode:
-		return triOr(evalSQLNode(n.left, row, paramValues), evalSQLNode(n.right, row, paramValues))
-	case *sqlNotNode:
-		return triNot(evalSQLNode(n.expr, row, paramValues))
-	case *sqlCmpNode:
-		return evalSQLComparison(n, row, paramValues)
-	case *sqlIsNullNode:
-		return evalSQLIsNull(n, row, paramValues)
-	default:
-		return sqlFalse
-	}
+// QueryResult is the output of one query execution; Scanned counts container rows examined.
+type QueryResult struct {
+	Rows    []any
+	Scanned int
 }
 
-// evalSQLIsNull evaluates IS NULL / IS NOT NULL. Deliberately never returns
-// sqlUndefined: against an undefined operand (a missing field or unbound
-// param), BOTH "IS NULL" and "IS NOT NULL" evaluate to a definite false --
-// matching real Cosmos SQL, where undefined is neither "null" nor
-// meaningfully "not null" for what these operators test. Only a resolved,
-// non-nil value makes "IS NOT NULL" true.
-func evalSQLIsNull(n *sqlIsNullNode, row sqlRow, paramValues map[string]any) sqlTriState {
-	v, ok := resolveSQLOperand(n.operand, row, paramValues)
+// ExecuteQuery parses and runs query against docs. It never panics.
+func ExecuteQuery(query string, params []QueryParameter, docs []DocumentInfo) ([]any, error) {
+	stmt, err := parseQuery(query)
+	if err != nil {
+		return nil, err
+	}
+
+	rows := make(mapRows, len(docs))
+	for i, doc := range docs {
+		rows[i] = documentAsMap(doc)
+	}
+
+	res, err := executeStatement(stmt, params, rows)
+
+	return res.Rows, err
+}
+
+// queryRows is the container row source of a top-level statement.
+type queryRows interface {
+	count() int
+	row(i int) sqlRow
+}
+
+type mapRows []map[string]any
+
+func (r mapRows) count() int       { return len(r) }
+func (r mapRows) row(i int) sqlRow { return sqlRow{m: r[i]} }
+
+func executeStatement(stmt *sqlSelectStmt, params []QueryParameter, rs queryRows) (QueryResult, error) {
+	ec := newEvalCtx(params)
+
+	rows, err := ec.runStmt(stmt, nil, rs)
+	if err != nil {
+		return QueryResult{}, err
+	}
+
+	return QueryResult{Rows: rows, Scanned: rs.count()}, nil
+}
+
+type outRow struct {
+	val  any
+	keys []any
+}
+
+// limits are the resolved TOP/OFFSET/LIMIT values; negative means unset.
+type limits struct{ top, offset, limit int }
+
+func (ec *evalCtx) resolveCount(x sqlExpr, what string) (int, error) {
+	if x == nil {
+		return -1, nil
+	}
+
+	n, ok := toNumber(ec.eval(x, nil))
 	if !ok {
-		return sqlFalse
+		return 0, fmt.Errorf("%w: %s value must be a non-negative integer", ErrQueryParse, what)
 	}
 
-	result := v == nil
-	if n.negate {
-		result = !result
+	i, err := strconv.ParseInt(string(n), 10, 32)
+	if err != nil || i < 0 {
+		return 0, fmt.Errorf("%w: %s value must be a non-negative integer", ErrQueryParse, what)
 	}
 
-	return boolToTri(result)
+	return int(i), nil
 }
 
-// evalSQLComparison evaluates a comparison operator. Returns sqlUndefined
-// (never sqlFalse) when either side fails to resolve (a missing field or an
-// unbound @param) -- see this file's top doc comment for why that
-// distinction matters under NOT/AND/OR. A resolved comparison between
-// mismatched types (e.g. a string against a number) still evaluates to a
-// definite false, not undefined -- this emulator does not attempt to
-// replicate every nuance of real Cosmos's type-coercion rules, only the
-// undefined-propagation behavior the review that added this function was
-// actually about.
-func evalSQLComparison(n *sqlCmpNode, row sqlRow, paramValues map[string]any) sqlTriState {
-	left, leftOK := resolveSQLOperand(n.left, row, paramValues)
-	right, rightOK := resolveSQLOperand(n.right, row, paramValues)
+func (ec *evalCtx) resolveLimits(stmt *sqlSelectStmt) (limits, error) {
+	var (
+		l   limits
+		err error
+	)
 
-	if !leftOK || !rightOK {
-		return sqlUndefined
+	if l.top, err = ec.resolveCount(stmt.top, "TOP"); err != nil {
+		return l, err
 	}
 
-	return boolToTri(compareValues(left, right, n.op))
+	if l.offset, err = ec.resolveCount(stmt.offset, "OFFSET"); err != nil {
+		return l, err
+	}
+
+	l.limit, err = ec.resolveCount(stmt.limit, "LIMIT")
+
+	return l, err
 }
 
-// resolveSQLOperand resolves op against row/paramValues: a path resolves
-// via resolvePath; a param looks up paramValues (ok=false if unbound); a
-// literal resolves to its typed Go value directly. Numeric literals are
-// carried as json.Number (parsed from their raw source text) rather than
-// float64, so a literal like 9007199254740993 compares exactly against a
-// stored value of the same magnitude -- see compareValues/compareJSONNumbers.
-func resolveSQLOperand(op sqlOperand, row sqlRow, paramValues map[string]any) (any, bool) {
-	switch op.kind {
-	case sqlOperandPath:
-		return resolvePath(row, op.path)
-	case sqlOperandParam:
-		v, ok := paramValues[op.paramName]
-
-		return v, ok
-	case sqlOperandString, sqlOperandNumber:
-		return op.lit, true
-	case sqlOperandBool:
-		return op.boolVal, true
-	case sqlOperandNull:
-		return nil, true
-	default:
-		return nil, false
-	}
-}
-
-// compareValues applies op to left/right (each a JSON-decoded value: nil,
-// bool, string, json.Number, or a param-supplied Go value of one of those
-// kinds), never erroring or panicking: an unsupported type (map/slice) or a
-// type mismatch between operands evaluates to false, mirroring
-// services/azuretable's compareOperands.
-func compareValues(left, right any, op sqlTokenType) bool {
-	if left == nil || right == nil {
-		return compareNullOperand(left, right, op)
-	}
-
-	switch lv := left.(type) {
-	case json.Number:
-		rv, ok := normalizeToJSONNumber(right)
-		if !ok {
-			return false
-		}
-
-		return applySQLCompare(compareJSONNumbers(lv, rv), op)
-	case string:
-		rv, ok := right.(string)
-		if !ok {
-			return false
-		}
-
-		return applySQLCompare(strings.Compare(lv, rv), op)
-	case bool:
-		rv, ok := right.(bool)
-		if !ok || (op != sqlTokEq && op != sqlTokNeq) {
-			return false
-		}
-
-		return applySQLCompare(cmpBool(lv, rv), op)
-	default:
-		return false
-	}
-}
-
-// normalizeToJSONNumber accepts either a json.Number (the type every
-// document-derived or SQL-literal number takes) or a plain float64
-// (possible only for a caller-supplied @param bound to a bare JSON number
-// decoded elsewhere without UseNumber), so a query parameter numeric value
-// still compares correctly regardless of which numeric Go type it arrived
-// as.
-func normalizeToJSONNumber(v any) (json.Number, bool) {
-	switch n := v.(type) {
-	case json.Number:
-		return n, true
-	case float64:
-		return json.Number(fmt.Sprintf("%v", n)), true
-	default:
-		return "", false
-	}
-}
-
-func compareNullOperand(left, right any, op sqlTokenType) bool {
-	if op != sqlTokEq && op != sqlTokNeq {
-		return false
-	}
-
-	eq := left == nil && right == nil
-	if op == sqlTokEq {
-		return eq
-	}
-
-	return !eq
-}
-
-// compareJSONNumbers compares two json.Number values. When both parse as
-// int64 exactly, they are compared as int64 directly rather than through
-// float64 -- float64 has only a 53-bit mantissa, so a blanket
-// float64-conversion comparison would silently corrupt any magnitude beyond
-// 2^53 (mirrors services/azuretable's compareNumeric and its documented
-// Int64-precision rationale). Falls back to float64 comparison when either
-// side isn't an exact integer (e.g. a fractional number).
-func compareJSONNumbers(a, b json.Number) int {
-	ai, aErr := a.Int64()
-	bi, bErr := b.Int64()
-
-	if aErr == nil && bErr == nil {
-		switch {
-		case ai < bi:
-			return -1
-		case ai > bi:
-			return 1
-		default:
-			return 0
-		}
-	}
-
-	af, _ := a.Float64()
-	bf, _ := b.Float64()
-
+// window is how many rows the statement can ever emit before ordering is considered (-1 = unbounded).
+func (l limits) window() int {
 	switch {
-	case af < bf:
+	case l.limit >= 0:
+		return l.offset + l.limit
+	case l.top >= 0:
+		return l.top
+	default:
 		return -1
-	case af > bf:
-		return 1
-	default:
-		return 0
 	}
 }
 
-func applySQLCompare(cmp int, op sqlTokenType) bool {
-	switch op {
-	case sqlTokEq:
-		return cmp == 0
-	case sqlTokNeq:
-		return cmp != 0
-	case sqlTokLt:
-		return cmp < 0
-	case sqlTokLte:
-		return cmp <= 0
-	case sqlTokGt:
-		return cmp > 0
-	case sqlTokGte:
-		return cmp >= 0
-	default:
-		return false
+func (l limits) apply(rows []any) []any {
+	if l.limit >= 0 || l.offset > 0 {
+		rows = rows[min(l.offset, len(rows)):]
+
+		if l.limit >= 0 && l.limit < len(rows) {
+			rows = rows[:l.limit]
+		}
+
+		return rows
+	}
+
+	if l.top >= 0 && l.top < len(rows) {
+		rows = rows[:l.top]
+	}
+
+	return rows
+}
+
+type runState struct {
+	ec     *evalCtx
+	stmt   *sqlSelectStmt
+	seen   map[string]struct{}
+	outs   []outRow
+	lim    limits
+	nsrc   int
+	stream bool
+}
+
+func (rs *runState) emit(env []any) bool {
+	val := rs.ec.project(rs.stmt, env, rs.nsrc)
+	if isUndef(val) {
+		return true
+	}
+
+	if rs.stmt.distinct {
+		key := canonicalJSON(val)
+		if _, dup := rs.seen[key]; dup {
+			return true
+		}
+
+		rs.seen[key] = struct{}{}
+	}
+
+	out := outRow{val: val}
+
+	if len(rs.stmt.orderBy) > 0 {
+		out.keys = make([]any, len(rs.stmt.orderBy))
+		for i, k := range rs.stmt.orderBy {
+			out.keys[i] = rs.ec.eval(k.expr, env)
+		}
+	}
+
+	rs.outs = append(rs.outs, out)
+
+	w := rs.lim.window()
+
+	stop := rs.stream && w >= 0 && len(rs.outs) >= w
+
+	return !stop
+}
+
+// runStmt executes stmt. outer is the enclosing env for subqueries; rs supplies container rows for a top-level
+// statement.
+func (ec *evalCtx) runStmt(stmt *sqlSelectStmt, outer []any, rows queryRows) ([]any, error) {
+	lim, err := ec.resolveLimits(stmt)
+	if err != nil {
+		return nil, err
+	}
+
+	if lim.top == 0 || lim.limit == 0 {
+		return []any{}, nil
+	}
+
+	st := &runState{ec: ec, stmt: stmt, lim: lim, nsrc: len(stmt.sources)}
+	if stmt.distinct {
+		st.seen = make(map[string]struct{})
+	}
+
+	grouped := stmt.hasAgg || len(stmt.groupBy) > 0
+	st.stream = !grouped && len(stmt.orderBy) == 0
+
+	env := make([]any, len(outer), len(outer)+len(stmt.sources))
+	copy(env, outer)
+
+	if grouped {
+		ec.runGrouped(st, env, rows)
+	} else {
+		ec.forEachTuple(stmt, env, rows, func(e []any) bool {
+			if stmt.where != nil && ec.truth(stmt.where, e) != sqlTrue {
+				return true
+			}
+
+			return st.emit(e)
+		})
+	}
+
+	if len(stmt.orderBy) > 0 {
+		sortOutputs(st.outs, stmt.orderBy)
+	}
+
+	vals := make([]any, len(st.outs))
+	for i, o := range st.outs {
+		vals[i] = o.val
+	}
+
+	return lim.apply(vals), nil
+}
+
+// groupKeySeparator is the ASCII unit separator between GROUP BY key parts.
+const groupKeySeparator = 0x1f
+
+type tupleGroup struct {
+	tuples [][]any
+}
+
+func (ec *evalCtx) runGrouped(st *runState, env []any, rows queryRows) {
+	stmt := st.stmt
+	groups := make(map[string]*tupleGroup)
+
+	var order []*tupleGroup
+
+	ec.forEachTuple(stmt, env, rows, func(e []any) bool {
+		if stmt.where != nil && ec.truth(stmt.where, e) != sqlTrue {
+			return true
+		}
+
+		key := ec.groupKey(stmt.groupBy, e)
+
+		g, ok := groups[key]
+		if !ok {
+			g = &tupleGroup{}
+			groups[key] = g
+			order = append(order, g)
+		}
+
+		g.tuples = append(g.tuples, cloneTuple(e))
+
+		return true
+	})
+
+	if len(order) == 0 && len(stmt.groupBy) == 0 {
+		order = append(order, &tupleGroup{})
+	}
+
+	for _, g := range order {
+		genv := emptyTuple(len(env) + st.nsrc)
+		if len(g.tuples) > 0 {
+			genv = g.tuples[0]
+		}
+
+		ec.group, ec.grouped = g.tuples, true
+		ok := st.emit(genv)
+		ec.group, ec.grouped = nil, false
+
+		if !ok {
+			return
+		}
 	}
 }
 
-func cmpBool(a, b bool) int {
+// emptyTuple is an env of n undefined slots, used for an aggregate over no rows.
+func emptyTuple(n int) []any {
+	out := make([]any, n)
+	for i := range out {
+		out[i] = undef{}
+	}
+
+	return out
+}
+
+func cloneTuple(e []any) []any {
+	out := make([]any, len(e))
+
+	for i, v := range e {
+		if r, ok := v.(*sqlRow); ok {
+			rc := *r
+			out[i] = &rc
+
+			continue
+		}
+
+		out[i] = v
+	}
+
+	return out
+}
+
+func (ec *evalCtx) groupKey(groupBy []sqlExpr, env []any) string {
+	if len(groupBy) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	for _, g := range groupBy {
+		v := ec.eval(g, env)
+		if isUndef(v) {
+			sb.WriteString("\x00u")
+		} else {
+			sb.WriteString(canonicalJSON(v))
+		}
+
+		sb.WriteByte(groupKeySeparator)
+	}
+
+	return sb.String()
+}
+
+// forEachTuple enumerates source tuples, calling fn with a reused env slice until fn returns false.
+func (ec *evalCtx) forEachTuple(stmt *sqlSelectStmt, env []any, rows queryRows, fn func([]any) bool) {
+	if rows == nil {
+		ec.expandSources(stmt, 0, env, fn)
+
+		return
+	}
+
+	row := &sqlRow{}
+	env = append(env, row)
+
+	for i := range rows.count() {
+		*row = rows.row(i)
+
+		if !ec.expandSources(stmt, 1, env, fn) {
+			return
+		}
+	}
+}
+
+// expandSources binds sources[k:] by iterating each source's array, then calls fn per full tuple.
+func (ec *evalCtx) expandSources(stmt *sqlSelectStmt, k int, env []any, fn func([]any) bool) bool {
+	if k >= len(stmt.sources) {
+		return fn(env)
+	}
+
+	src := stmt.sources[k]
+	base := len(env)
+
+	if _, isVar := src.src.(*exprVar); isVar {
+		return ec.expandSources(stmt, k+1, append(env[:base:base+1], ec.evalRaw(src.src, env)), fn)
+	}
+
+	arr, ok := ec.eval(src.src, env).([]any)
+	if !ok {
+		return true
+	}
+
+	for _, item := range arr {
+		if !ec.expandSources(stmt, k+1, append(env[:base], item), fn) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// project builds one output value for env.
+func (ec *evalCtx) project(stmt *sqlSelectStmt, env []any, nsrc int) any {
 	switch {
-	case a == b:
-		return 0
-	case !a && b:
-		return -1
+	case stmt.isStar:
+		base := len(env) - nsrc
+		if base < 0 || base >= len(env) {
+			return undef{}
+		}
+
+		if r, ok := env[base].(*sqlRow); ok {
+			return r.full()
+		}
+
+		return env[base]
+	case stmt.selectValue:
+		return ec.eval(stmt.items[0].expr, env)
 	default:
-		return 1
+		obj := make(map[string]any, len(stmt.items))
+
+		for _, it := range stmt.items {
+			if v := ec.eval(it.expr, env); !isUndef(v) {
+				obj[it.name] = v
+			}
+		}
+
+		return obj
 	}
 }

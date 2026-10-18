@@ -4,138 +4,30 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
-// sql_parser.go implements a hand-written recursive-descent parser for the
-// Cosmos DB SQL query subset this emulator supports, over sql_tokenizer.go's
-// tokens. sql_exec.go holds the executor. Modeled on
-// services/azuretable/odata_filter.go's identical
-// lexer->parser->AST->evaluator shape and services/s3's
-// select_sql_parser.go, gopherstack's two existing SQL/filter-parsing
-// precedents.
+// sql_parser.go is a recursive-descent parser for Cosmos DB SQL.
 //
-// Supported grammar:
+//	query      := SELECT [DISTINCT] [TOP operand] ( '*' | [VALUE] item (',' item)* )
+//	              [FROM source (JOIN source)*] [WHERE expr] [GROUP BY expr (',' expr)*]
+//	              [ORDER BY expr [ASC|DESC] (',' ...)*] [OFFSET operand LIMIT operand]
+//	source     := ident [AS] [ident]            (top-level container, first source only)
+//	            | ident IN expr | expr [AS] ident
+//	item       := expr [AS ident]
+//	expr       := ternary ('?' expr ':' expr) over ?? OR AND NOT, comparison, IN, BETWEEN, LIKE, IS NULL,
+//	              ||, + -, * / %, unary - +, postfix '.' '[ ]', calls, literals, subqueries.
 //
-//	query      := SELECT [TOP number] selectList FROM ident [ident]
-//	              [WHERE expr] [ORDER BY orderList] [OFFSET number LIMIT number]
-//	selectList := '*' | projection (',' projection)*
-//	projection := path [AS ident]
-//	path       := ident ('.' ident)*
-//	orderList  := orderItem (',' orderItem)*
-//	orderItem  := path [ASC|DESC]
-//	expr       := orExpr
-//	orExpr     := andExpr ('OR' andExpr)*
-//	andExpr    := unary ('AND' unary)*
-//	unary      := 'NOT' unary | primary
-//	primary    := '(' expr ')' | operand 'IS' ['NOT'] 'NULL' | comparison
-//	comparison := operand ('='|'!='|'<>'|'<'|'<='|'>'|'>=') operand
-//	operand    := path | '@param' | 'string' | number | true | false | null
-//
-// The first identifier after FROM is the source/container alias (e.g. "c"
-// in "FROM c"); an optional second identifier re-aliases it (e.g. "r" in
-// "FROM root r"). Every path in selectList/WHERE/ORDER BY MUST start with
-// whichever alias is in effect -- parsePath keeps the full segment chain
-// (it does NOT strip the leading segment on its own, since FROM's alias
-// isn't known yet when the SELECT list is parsed); resolveFieldPath
-// validates and strips it in a pass over the whole statement once FROM has
-// been parsed (see ParseQuery/parseSelectStmt's tail and
-// resolveWhereAliases). An unqualified field (e.g. "SELECT name FROM c") or
-// a path qualified with anything other than the effective alias (e.g.
-// "WHERE other.value = 1" when the alias is "c") is a parse error --
-// exactly like real Cosmos SQL, which has no implicit "current row" scope.
-// A bare alias reference alone (e.g. "SELECT c FROM c") resolves to an
-// empty path, meaning "the whole row" (see sql_exec.go's resolvePath).
+// Every identifier must resolve to a FROM/JOIN/subquery binding (sql_resolve.go).
 
-// sqlNode is a node in a parsed WHERE expression tree.
-type sqlNode interface{ isSQLNode() }
-
-type sqlAndNode struct{ left, right sqlNode }
-
-func (*sqlAndNode) isSQLNode() {}
-
-type sqlOrNode struct{ left, right sqlNode }
-
-func (*sqlOrNode) isSQLNode() {}
-
-type sqlNotNode struct{ expr sqlNode }
-
-func (*sqlNotNode) isSQLNode() {}
-
-type sqlCmpNode struct {
-	left, right sqlOperand
-	op          sqlTokenType
-}
-
-func (*sqlCmpNode) isSQLNode() {}
-
-type sqlIsNullNode struct {
-	operand sqlOperand
-	negate  bool
-}
-
-func (*sqlIsNullNode) isSQLNode() {}
-
-// sqlOperandKind discriminates sqlOperand's active field set.
-type sqlOperandKind int
-
-const (
-	sqlOperandPath sqlOperandKind = iota
-	sqlOperandParam
-	sqlOperandString
-	sqlOperandNumber
-	sqlOperandBool
-	sqlOperandNull
-)
-
-// sqlOperand is either a document-field path reference, a query-parameter
-// reference, or a typed literal value.
-type sqlOperand struct {
-	lit       any
-	paramName string
-	strVal    string
-	numLit    string
-	path      []string
-	kind      sqlOperandKind
-	boolVal   bool
-}
-
-// sqlProjection is one SELECT list item: the (alias-stripped) path to
-// project, and the output key to emit it under.
-type sqlProjection struct {
-	alias string
-	path  []string
-}
-
-// sqlOrderKey is one ORDER BY item.
-type sqlOrderKey struct {
-	path []string
-	desc bool
-}
-
-// sqlSelectStmt is a fully parsed Cosmos SQL query.
-type sqlSelectStmt struct {
-	where       sqlNode
-	fromAlias   string
-	projections []sqlProjection
-	orderBy     []sqlOrderKey
-	top         int
-	offset      int
-	limit       int
-	isStar      bool
-	hasTop      bool
-	hasOffset   bool
-	hasLimit    bool
-}
-
-// maxQueryDepth bounds recursive-descent recursion so a deeply nested (or
-// adversarial) query fails with a parse error instead of overflowing the
-// stack, mirroring services/azuretable's maxFilterDepth.
+// maxQueryDepth bounds recursion so adversarial queries fail with a parse error.
 const maxQueryDepth = 100
 
-// sqlParser is a recursive-descent parser over a Cosmos SQL query string.
 type sqlParser struct {
-	lx  *sqlLexer
-	cur sqlToken
+	lx    *sqlLexer
+	agg   *bool
+	cur   sqlToken
+	depth int
 }
 
 func newSQLParser(s string) *sqlParser {
@@ -147,9 +39,19 @@ func newSQLParser(s string) *sqlParser {
 
 func (p *sqlParser) advance() { p.cur = p.lx.next() }
 
+func (p *sqlParser) peek() sqlToken {
+	lx := *p.lx
+
+	return lx.next()
+}
+
+func (p *sqlParser) errorf(format string, args ...any) error {
+	return fmt.Errorf("%w: %s", ErrQueryParse, fmt.Sprintf(format, args...))
+}
+
 func (p *sqlParser) expect(typ sqlTokenType, what string) (sqlToken, error) {
 	if p.cur.typ != typ {
-		return sqlToken{}, fmt.Errorf("%w: expected %s, got %q", ErrQueryParse, what, p.cur.lit)
+		return sqlToken{}, p.errorf("expected %s, got %q", what, p.cur.lit)
 	}
 
 	tok := p.cur
@@ -158,100 +60,109 @@ func (p *sqlParser) expect(typ sqlTokenType, what string) (sqlToken, error) {
 	return tok, nil
 }
 
-// parseQuery parses a complete Cosmos SQL query string into a sqlSelectStmt.
-// Returns ErrQueryParse (wrapped with detail) on any malformed input,
-// ErrQueryTooDeep if WHERE nesting exceeds maxQueryDepth, and never panics.
+func (p *sqlParser) enter() error {
+	p.depth++
+	if p.depth > maxQueryDepth {
+		return ErrQueryTooDeep
+	}
+
+	return nil
+}
+
+func (p *sqlParser) leave() { p.depth-- }
+
+// parseQuery parses and resolves a complete query. It never panics.
 func parseQuery(query string) (*sqlSelectStmt, error) {
 	p := newSQLParser(query)
 
-	stmt, err := p.parseSelectStmt()
+	stmt, err := p.parseSelectStmt(false)
 	if err != nil {
 		return nil, err
 	}
 
 	if p.cur.typ == sqlTokError {
-		return nil, fmt.Errorf("%w: %s", ErrQueryParse, p.cur.lit)
+		return nil, p.errorf("%s", p.cur.lit)
 	}
 
 	if p.cur.typ != sqlTokEOF {
-		return nil, fmt.Errorf("%w: unexpected trailing input %q", ErrQueryParse, p.cur.lit)
+		return nil, p.errorf("unexpected trailing input %q", p.cur.lit)
+	}
+
+	if resolveErr := resolveStmt(stmt, nil); resolveErr != nil {
+		return nil, resolveErr
 	}
 
 	return stmt, nil
 }
 
-func (p *sqlParser) parseSelectStmt() (*sqlSelectStmt, error) {
+func (p *sqlParser) parseSelectStmt(sub bool) (*sqlSelectStmt, error) {
 	if _, err := p.expect(sqlTokSelect, "SELECT"); err != nil {
 		return nil, err
 	}
 
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+
+	defer p.leave()
+
 	stmt := &sqlSelectStmt{}
 
-	if p.cur.typ == sqlTokTop {
-		p.advance()
+	prevAgg := p.agg
+	p.agg = &stmt.hasAgg
 
-		n, err := p.parseIntLiteral("TOP")
-		if err != nil {
+	defer func() { p.agg = prevAgg }()
+
+	if err := p.parseSelectHead(stmt); err != nil {
+		return nil, err
+	}
+
+	if p.cur.typ == sqlTokFrom || !sub {
+		if _, err := p.expect(sqlTokFrom, "FROM"); err != nil {
 			return nil, err
 		}
 
-		stmt.hasTop, stmt.top = true, n
-	}
-
-	if err := p.parseSelectList(stmt); err != nil {
-		return nil, err
-	}
-
-	if _, err := p.expect(sqlTokFrom, "FROM"); err != nil {
-		return nil, err
-	}
-
-	if err := p.parseFromClause(stmt); err != nil {
-		return nil, err
-	}
-
-	if p.cur.typ == sqlTokWhere {
-		p.advance()
-
-		where, err := p.parseOr(0)
-		if err != nil {
-			return nil, err
-		}
-
-		stmt.where = where
-	}
-
-	if p.cur.typ == sqlTokOrder {
-		if err := p.parseOrderBy(stmt); err != nil {
+		if err := p.parseFromClause(stmt, sub); err != nil {
 			return nil, err
 		}
 	}
 
-	if p.cur.typ == sqlTokOffset {
-		if err := p.parseOffsetLimit(stmt); err != nil {
-			return nil, err
-		}
-	}
-
-	if err := resolveStatementAliases(stmt); err != nil {
+	if err := p.parseClauses(stmt); err != nil {
 		return nil, err
 	}
+
+	nameSelectItems(stmt)
 
 	return stmt, nil
 }
 
-func (p *sqlParser) parseIntLiteral(what string) (int, error) {
-	tok, err := p.expect(sqlTokNumber, what+" value")
-	if err != nil {
-		return 0, err
+func (p *sqlParser) parseSelectHead(stmt *sqlSelectStmt) error {
+	for {
+		switch p.cur.typ {
+		case sqlTokDistinct:
+			stmt.distinct = true
+
+			p.advance()
+
+			continue
+		case sqlTokTop:
+			p.advance()
+
+			top, err := p.parseCountOperand("TOP")
+			if err != nil {
+				return err
+			}
+
+			stmt.top = top
+
+			continue
+		default:
+		}
+
+		break
 	}
 
-	n, convErr := strconv.Atoi(tok.lit)
-	if convErr != nil || n < 0 {
-		return 0, fmt.Errorf("%w: invalid %s value %q", ErrQueryParse, what, tok.lit)
-	}
-
-	return n, nil
+	return p.parseSelectList(stmt)
 }
 
 func (p *sqlParser) parseSelectList(stmt *sqlSelectStmt) error {
@@ -263,13 +174,41 @@ func (p *sqlParser) parseSelectList(stmt *sqlSelectStmt) error {
 		return nil
 	}
 
-	for {
-		proj, err := p.parseProjection()
+	if p.cur.typ == sqlTokValue {
+		p.advance()
+
+		stmt.selectValue = true
+
+		x, err := p.parseExpr()
 		if err != nil {
 			return err
 		}
 
-		stmt.projections = append(stmt.projections, proj)
+		stmt.items = []sqlSelectItem{{expr: x}}
+
+		return nil
+	}
+
+	for {
+		x, err := p.parseExpr()
+		if err != nil {
+			return err
+		}
+
+		item := sqlSelectItem{expr: x, name: deriveName(x)}
+
+		if p.cur.typ == sqlTokAs {
+			p.advance()
+
+			tok, aliasErr := p.expectName("alias identifier")
+			if aliasErr != nil {
+				return aliasErr
+			}
+
+			item.name = tok.lit
+		}
+
+		stmt.items = append(stmt.items, item)
 
 		if p.cur.typ != sqlTokComma {
 			return nil
@@ -279,178 +218,219 @@ func (p *sqlParser) parseSelectList(stmt *sqlSelectStmt) error {
 	}
 }
 
-func (p *sqlParser) parseProjection() (sqlProjection, error) {
-	path, err := p.parsePath()
-	if err != nil {
-		return sqlProjection{}, err
+func (p *sqlParser) expectName(what string) (sqlToken, error) {
+	if !isWordToken(p.cur.typ) {
+		return sqlToken{}, p.errorf("expected %s, got %q", what, p.cur.lit)
 	}
 
-	alias := ""
-	if len(path) > 0 {
-		alias = path[len(path)-1]
+	tok := p.cur
+	p.advance()
+
+	return tok, nil
+}
+
+func deriveName(x sqlExpr) string {
+	switch n := x.(type) {
+	case *exprProp:
+		return n.key
+	case *exprVar:
+		return n.name
+	default:
+		return ""
 	}
+}
+
+// nameSelectItems gives unnamed projections Cosmos's positional "$1", "$2" names.
+func nameSelectItems(stmt *sqlSelectStmt) {
+	if stmt.selectValue {
+		return
+	}
+
+	n := 0
+
+	for i := range stmt.items {
+		if stmt.items[i].name == "" {
+			n++
+			stmt.items[i].name = "$" + strconv.Itoa(n)
+		}
+	}
+}
+
+func (p *sqlParser) parseCountOperand(what string) (sqlExpr, error) {
+	switch p.cur.typ {
+	case sqlTokNumber:
+		n, err := strconv.Atoi(p.cur.lit)
+		if err != nil || n < 0 {
+			return nil, p.errorf("invalid %s value %q", what, p.cur.lit)
+		}
+
+		p.advance()
+
+		return &exprLit{v: json.Number(strconv.Itoa(n))}, nil
+	case sqlTokParam:
+		x := &exprParam{name: p.cur.lit}
+
+		p.advance()
+
+		return x, nil
+	default:
+		return nil, p.errorf("expected %s value, got %q", what, p.cur.lit)
+	}
+}
+
+func (p *sqlParser) parseFromClause(stmt *sqlSelectStmt, sub bool) error {
+	var (
+		first sqlSource
+		err   error
+	)
+
+	if sub {
+		first, err = p.parseSubSource()
+	} else {
+		first, err = p.parseContainerSource()
+	}
+
+	if err != nil {
+		return err
+	}
+
+	stmt.sources = append(stmt.sources, first)
+
+	for p.cur.typ == sqlTokJoin {
+		p.advance()
+
+		src, srcErr := p.parseSubSource()
+		if srcErr != nil {
+			return srcErr
+		}
+
+		stmt.sources = append(stmt.sources, src)
+	}
+
+	return nil
+}
+
+// parseContainerSource parses the top-level "container [[AS] alias]" source.
+func (p *sqlParser) parseContainerSource() (sqlSource, error) {
+	first, err := p.expectName("FROM source identifier")
+	if err != nil {
+		return sqlSource{}, err
+	}
+
+	alias := first.lit
 
 	if p.cur.typ == sqlTokAs {
 		p.advance()
+	}
 
-		tok, aliasErr := p.expect(sqlTokIdent, "alias identifier")
-		if aliasErr != nil {
-			return sqlProjection{}, aliasErr
+	if p.cur.typ == sqlTokIdent {
+		alias = p.cur.lit
+
+		p.advance()
+	}
+
+	return sqlSource{alias: alias}, nil
+}
+
+// parseSubSource parses "alias IN expr" or "expr [AS] alias".
+func (p *sqlParser) parseSubSource() (sqlSource, error) {
+	if p.cur.typ == sqlTokIdent && p.peek().typ == sqlTokIn {
+		alias := p.cur.lit
+
+		p.advance()
+		p.advance()
+
+		x, err := p.parsePostfix()
+		if err != nil {
+			return sqlSource{}, err
+		}
+
+		return sqlSource{src: x, alias: alias}, nil
+	}
+
+	x, err := p.parsePostfix()
+	if err != nil {
+		return sqlSource{}, err
+	}
+
+	alias := deriveName(x)
+
+	switch p.cur.typ {
+	case sqlTokAs:
+		p.advance()
+
+		tok, nameErr := p.expectName("source alias")
+		if nameErr != nil {
+			return sqlSource{}, nameErr
 		}
 
 		alias = tok.lit
-	}
+	case sqlTokIdent:
+		alias = p.cur.lit
 
-	return sqlProjection{path: path, alias: alias}, nil
-}
-
-// parsePath parses a dotted identifier chain (e.g. "c.a.b") and returns its
-// FULL segment list, unstripped -- see this file's top doc comment for why
-// alias validation/stripping is deferred to resolveFieldPath.
-func (p *sqlParser) parsePath() ([]string, error) {
-	first, err := p.expect(sqlTokIdent, "identifier")
-	if err != nil {
-		return nil, err
-	}
-
-	segments := []string{first.lit}
-
-	for p.cur.typ == sqlTokDot {
 		p.advance()
-
-		tok, segErr := p.expect(sqlTokIdent, "identifier after '.'")
-		if segErr != nil {
-			return nil, segErr
-		}
-
-		segments = append(segments, tok.lit)
-	}
-
-	return segments, nil
-}
-
-// resolveFieldPath validates that path's leading segment is fromAlias (the
-// query's single FROM source alias, known only once the FROM clause has
-// been parsed) and strips it, returning the path relative to the row: "c.a.b"
-// -> ["a","b"]; a bare alias reference ("c" alone) -> [] ("the whole row").
-// A path whose leading segment is anything else is a parse error -- real
-// Cosmos SQL has no implicit "current row" scope, so an unqualified field
-// name and a path qualified with an unknown alias are both invalid, not
-// silently resolved against whatever the first path segment happens to be
-// (an earlier version of this parser did exactly that: it stripped
-// parsePath's first segment unconditionally, so "SELECT name FROM c" or a
-// WHERE clause misspelling the alias silently "worked" by treating whatever
-// leading word appeared as the alias, rather than erroring).
-func resolveFieldPath(fromAlias string, path []string) ([]string, error) {
-	if len(path) == 0 {
-		return nil, fmt.Errorf("%w: empty field reference", ErrQueryParse)
-	}
-
-	if path[0] == fromAlias {
-		return path[1:], nil
-	}
-
-	if len(path) == 1 {
-		return nil, fmt.Errorf(
-			"%w: unqualified field %q (fields must be qualified with the FROM alias %q)",
-			ErrQueryParse, path[0], fromAlias,
-		)
-	}
-
-	return nil, fmt.Errorf("%w: unknown alias %q (query source is %q)", ErrQueryParse, path[0], fromAlias)
-}
-
-// resolveStatementAliases resolves and strips the FROM alias from every
-// path reference in stmt (SELECT list, WHERE tree, ORDER BY), once FROM has
-// been fully parsed and stmt.fromAlias is known.
-func resolveStatementAliases(stmt *sqlSelectStmt) error {
-	for i := range stmt.projections {
-		resolved, err := resolveFieldPath(stmt.fromAlias, stmt.projections[i].path)
-		if err != nil {
-			return err
-		}
-
-		stmt.projections[i].path = resolved
-	}
-
-	for i := range stmt.orderBy {
-		resolved, err := resolveFieldPath(stmt.fromAlias, stmt.orderBy[i].path)
-		if err != nil {
-			return err
-		}
-
-		stmt.orderBy[i].path = resolved
-	}
-
-	if stmt.where != nil {
-		return resolveWhereAliases(stmt.where, stmt.fromAlias)
-	}
-
-	return nil
-}
-
-// resolveWhereAliases walks node's WHERE expression tree, resolving and
-// stripping the FROM alias from every path-kind operand it finds.
-func resolveWhereAliases(node sqlNode, fromAlias string) error {
-	switch n := node.(type) {
-	case *sqlAndNode:
-		if err := resolveWhereAliases(n.left, fromAlias); err != nil {
-			return err
-		}
-
-		return resolveWhereAliases(n.right, fromAlias)
-	case *sqlOrNode:
-		if err := resolveWhereAliases(n.left, fromAlias); err != nil {
-			return err
-		}
-
-		return resolveWhereAliases(n.right, fromAlias)
-	case *sqlNotNode:
-		return resolveWhereAliases(n.expr, fromAlias)
-	case *sqlCmpNode:
-		if err := resolveOperandAlias(&n.left, fromAlias); err != nil {
-			return err
-		}
-
-		return resolveOperandAlias(&n.right, fromAlias)
-	case *sqlIsNullNode:
-		return resolveOperandAlias(&n.operand, fromAlias)
 	default:
-		return nil
 	}
+
+	if alias == "" {
+		return sqlSource{}, p.errorf("source requires an alias")
+	}
+
+	return sqlSource{src: x, alias: alias}, nil
 }
 
-// resolveOperandAlias resolves op's path in place when op is a path-kind
-// operand; every other operand kind (param/literal) is left untouched.
-func resolveOperandAlias(op *sqlOperand, fromAlias string) error {
-	if op.kind != sqlOperandPath {
-		return nil
+func (p *sqlParser) parseClauses(stmt *sqlSelectStmt) error {
+	if p.cur.typ == sqlTokWhere {
+		p.advance()
+
+		where, err := p.parseExpr()
+		if err != nil {
+			return err
+		}
+
+		stmt.where = where
 	}
 
-	resolved, err := resolveFieldPath(fromAlias, op.path)
-	if err != nil {
-		return err
+	if p.cur.typ == sqlTokGroup {
+		if err := p.parseGroupBy(stmt); err != nil {
+			return err
+		}
 	}
 
-	op.path = resolved
+	if p.cur.typ == sqlTokOrder {
+		if err := p.parseOrderBy(stmt); err != nil {
+			return err
+		}
+	}
+
+	if p.cur.typ == sqlTokOffset {
+		return p.parseOffsetLimit(stmt)
+	}
 
 	return nil
 }
 
-func (p *sqlParser) parseFromClause(stmt *sqlSelectStmt) error {
-	first, err := p.expect(sqlTokIdent, "FROM source identifier")
-	if err != nil {
+func (p *sqlParser) parseGroupBy(stmt *sqlSelectStmt) error {
+	p.advance()
+
+	if _, err := p.expect(sqlTokBy, "BY"); err != nil {
 		return err
 	}
 
-	stmt.fromAlias = first.lit
+	for {
+		x, err := p.parseExpr()
+		if err != nil {
+			return err
+		}
 
-	if p.cur.typ == sqlTokIdent {
-		stmt.fromAlias = p.cur.lit
+		stmt.groupBy = append(stmt.groupBy, x)
+
+		if p.cur.typ != sqlTokComma {
+			return nil
+		}
+
 		p.advance()
 	}
-
-	return nil
 }
 
 func (p *sqlParser) parseOrderBy(stmt *sqlSelectStmt) error {
@@ -461,24 +441,24 @@ func (p *sqlParser) parseOrderBy(stmt *sqlSelectStmt) error {
 	}
 
 	for {
-		path, err := p.parsePath()
+		x, err := p.parseExpr()
 		if err != nil {
 			return err
 		}
 
-		desc := false
+		key := sqlOrderKey{expr: x}
 
 		switch p.cur.typ {
 		case sqlTokAsc:
 			p.advance()
 		case sqlTokDesc:
-			desc = true
+			key.desc = true
 
 			p.advance()
 		default:
 		}
 
-		stmt.orderBy = append(stmt.orderBy, sqlOrderKey{path: path, desc: desc})
+		stmt.orderBy = append(stmt.orderBy, key)
 
 		if p.cur.typ != sqlTokComma {
 			return nil
@@ -491,7 +471,7 @@ func (p *sqlParser) parseOrderBy(stmt *sqlSelectStmt) error {
 func (p *sqlParser) parseOffsetLimit(stmt *sqlSelectStmt) error {
 	p.advance()
 
-	offset, err := p.parseIntLiteral("OFFSET")
+	offset, err := p.parseCountOperand("OFFSET")
 	if err != nil {
 		return err
 	}
@@ -500,39 +480,75 @@ func (p *sqlParser) parseOffsetLimit(stmt *sqlSelectStmt) error {
 		return expectErr
 	}
 
-	limit, err := p.parseIntLiteral("LIMIT")
+	limit, err := p.parseCountOperand("LIMIT")
 	if err != nil {
 		return err
 	}
 
-	stmt.hasOffset, stmt.offset = true, offset
-	stmt.hasLimit, stmt.limit = true, limit
+	stmt.offset, stmt.limit = offset, limit
 
 	return nil
 }
 
-func checkQueryDepth(depth int) error {
-	if depth > maxQueryDepth {
-		return ErrQueryTooDeep
-	}
+// --- expressions ---
 
-	return nil
-}
-
-// parseOr/parseAnd/parseUnary/parsePrimary form one precedence-climbing
-// layer of recursive descent per grammar rule each, not one nesting level
-// each -- depth is threaded through unchanged across same-level calls and
-// incremented only where genuine nesting happens (parseUnary's NOT branch,
-// parsePrimary's parenthesized branch), exactly mirroring
-// services/azuretable/odata_filter.go's identical, review-corrected
-// depth-counting discipline (see that file's doc comment for the bug this
-// avoids).
-func (p *sqlParser) parseOr(depth int) (sqlNode, error) {
-	if err := checkQueryDepth(depth); err != nil {
+func (p *sqlParser) parseExpr() (sqlExpr, error) {
+	if err := p.enter(); err != nil {
 		return nil, err
 	}
 
-	left, err := p.parseAnd(depth)
+	defer p.leave()
+
+	cond, err := p.parseCoalesce()
+	if err != nil {
+		return nil, err
+	}
+
+	if p.cur.typ != sqlTokQuestion {
+		return cond, nil
+	}
+
+	p.advance()
+
+	a, err := p.parseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	if _, expectErr := p.expect(sqlTokColon, "':'"); expectErr != nil {
+		return nil, expectErr
+	}
+
+	b, err := p.parseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	return &exprTernary{cond: cond, a: a, b: b}, nil
+}
+
+func (p *sqlParser) parseCoalesce() (sqlExpr, error) {
+	left, err := p.parseOr()
+	if err != nil {
+		return nil, err
+	}
+
+	for p.cur.typ == sqlTokCoalesce {
+		p.advance()
+
+		right, rightErr := p.parseOr()
+		if rightErr != nil {
+			return nil, rightErr
+		}
+
+		left = &exprBinary{op: sqlTokCoalesce, l: left, r: right}
+	}
+
+	return left, nil
+}
+
+func (p *sqlParser) parseOr() (sqlExpr, error) {
+	left, err := p.parseAnd()
 	if err != nil {
 		return nil, err
 	}
@@ -540,23 +556,19 @@ func (p *sqlParser) parseOr(depth int) (sqlNode, error) {
 	for p.cur.typ == sqlTokOr {
 		p.advance()
 
-		right, andErr := p.parseAnd(depth)
-		if andErr != nil {
-			return nil, andErr
+		right, rightErr := p.parseAnd()
+		if rightErr != nil {
+			return nil, rightErr
 		}
 
-		left = &sqlOrNode{left: left, right: right}
+		left = &exprBinary{op: sqlTokOr, l: left, r: right}
 	}
 
 	return left, nil
 }
 
-func (p *sqlParser) parseAnd(depth int) (sqlNode, error) {
-	if err := checkQueryDepth(depth); err != nil {
-		return nil, err
-	}
-
-	left, err := p.parseUnary(depth)
+func (p *sqlParser) parseAnd() (sqlExpr, error) {
+	left, err := p.parseNot()
 	if err != nil {
 		return nil, err
 	}
@@ -564,97 +576,36 @@ func (p *sqlParser) parseAnd(depth int) (sqlNode, error) {
 	for p.cur.typ == sqlTokAnd {
 		p.advance()
 
-		right, unaryErr := p.parseUnary(depth)
-		if unaryErr != nil {
-			return nil, unaryErr
+		right, rightErr := p.parseNot()
+		if rightErr != nil {
+			return nil, rightErr
 		}
 
-		left = &sqlAndNode{left: left, right: right}
+		left = &exprBinary{op: sqlTokAnd, l: left, r: right}
 	}
 
 	return left, nil
 }
 
-func (p *sqlParser) parseUnary(depth int) (sqlNode, error) {
-	if err := checkQueryDepth(depth); err != nil {
+func (p *sqlParser) parseNot() (sqlExpr, error) {
+	if p.cur.typ != sqlTokNot {
+		return p.parsePredicate()
+	}
+
+	if err := p.enter(); err != nil {
 		return nil, err
 	}
 
-	if p.cur.typ == sqlTokNot {
-		p.advance()
+	defer p.leave()
 
-		inner, err := p.parseUnary(depth + 1)
-		if err != nil {
-			return nil, err
-		}
-
-		return &sqlNotNode{expr: inner}, nil
-	}
-
-	return p.parsePrimary(depth)
-}
-
-func (p *sqlParser) parsePrimary(depth int) (sqlNode, error) {
-	if err := checkQueryDepth(depth); err != nil {
-		return nil, err
-	}
-
-	if p.cur.typ == sqlTokLParen {
-		p.advance()
-
-		node, err := p.parseOr(depth + 1)
-		if err != nil {
-			return nil, err
-		}
-
-		if p.cur.typ != sqlTokRParen {
-			return nil, fmt.Errorf("%w: expected ) got %q", ErrQueryParse, p.cur.lit)
-		}
-
-		p.advance()
-
-		return node, nil
-	}
-
-	return p.parseComparisonOrIsNull()
-}
-
-func (p *sqlParser) parseComparisonOrIsNull() (sqlNode, error) {
-	left, err := p.parseOperand()
-	if err != nil {
-		return nil, err
-	}
-
-	if p.cur.typ == sqlTokIs {
-		p.advance()
-
-		negate := false
-		if p.cur.typ == sqlTokNot {
-			negate = true
-
-			p.advance()
-		}
-
-		if _, expectErr := p.expect(sqlTokNull, "NULL"); expectErr != nil {
-			return nil, expectErr
-		}
-
-		return &sqlIsNullNode{operand: left, negate: negate}, nil
-	}
-
-	if !isSQLCompareOp(p.cur.typ) {
-		return nil, fmt.Errorf("%w: expected comparison operator or IS NULL, got %q", ErrQueryParse, p.cur.lit)
-	}
-
-	op := p.cur.typ
 	p.advance()
 
-	right, err := p.parseOperand()
+	inner, err := p.parseNot()
 	if err != nil {
 		return nil, err
 	}
 
-	return &sqlCmpNode{left: left, right: right, op: op}, nil
+	return &exprUnary{op: sqlTokNot, x: inner}, nil
 }
 
 func isSQLCompareOp(t sqlTokenType) bool {
@@ -666,40 +617,522 @@ func isSQLCompareOp(t sqlTokenType) bool {
 	}
 }
 
-func (p *sqlParser) parseOperand() (sqlOperand, error) {
+func (p *sqlParser) parsePredicate() (sqlExpr, error) {
+	left, err := p.parseConcat()
+	if err != nil {
+		return nil, err
+	}
+
+	switch {
+	case isSQLCompareOp(p.cur.typ):
+		op := p.cur.typ
+
+		p.advance()
+
+		right, rightErr := p.parseConcat()
+		if rightErr != nil {
+			return nil, rightErr
+		}
+
+		return &exprBinary{op: op, l: left, r: right}, nil
+	case p.cur.typ == sqlTokIs:
+		return p.parseIsNull(left)
+	case p.cur.typ == sqlTokNot:
+		p.advance()
+
+		return p.parseNegatablePredicate(left, true)
+	default:
+		return p.parseNegatablePredicate(left, false)
+	}
+}
+
+func (p *sqlParser) parseIsNull(left sqlExpr) (sqlExpr, error) {
+	p.advance()
+
+	negate := false
+	if p.cur.typ == sqlTokNot {
+		negate = true
+
+		p.advance()
+	}
+
+	if _, err := p.expect(sqlTokNull, "NULL"); err != nil {
+		return nil, err
+	}
+
+	return &exprIsNull{x: left, negate: negate}, nil
+}
+
+// parseNegatablePredicate handles [NOT] IN / BETWEEN / LIKE; with no such keyword it returns left (or errors
+// if a NOT was already consumed).
+func (p *sqlParser) parseNegatablePredicate(left sqlExpr, negate bool) (sqlExpr, error) {
+	switch p.cur.typ {
+	case sqlTokIn:
+		p.advance()
+
+		return p.parseInList(left, negate)
+	case sqlTokBetween:
+		p.advance()
+
+		return p.parseBetween(left, negate)
+	case sqlTokLike:
+		p.advance()
+
+		return p.parseLike(left, negate)
+	default:
+		if negate {
+			return nil, p.errorf("expected IN, BETWEEN or LIKE after NOT, got %q", p.cur.lit)
+		}
+
+		return left, nil
+	}
+}
+
+func (p *sqlParser) parseInList(left sqlExpr, negate bool) (sqlExpr, error) {
+	if _, err := p.expect(sqlTokLParen, "'('"); err != nil {
+		return nil, err
+	}
+
+	node := &exprIn{x: left, negate: negate}
+
+	for {
+		item, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+
+		node.list = append(node.list, item)
+
+		if p.cur.typ != sqlTokComma {
+			break
+		}
+
+		p.advance()
+	}
+
+	if _, err := p.expect(sqlTokRParen, "')'"); err != nil {
+		return nil, err
+	}
+
+	return node, nil
+}
+
+func (p *sqlParser) parseBetween(left sqlExpr, negate bool) (sqlExpr, error) {
+	lo, err := p.parseConcat()
+	if err != nil {
+		return nil, err
+	}
+
+	if _, expectErr := p.expect(sqlTokAnd, "AND"); expectErr != nil {
+		return nil, expectErr
+	}
+
+	hi, err := p.parseConcat()
+	if err != nil {
+		return nil, err
+	}
+
+	return &exprBetween{x: left, lo: lo, hi: hi, negate: negate}, nil
+}
+
+func (p *sqlParser) parseLike(left sqlExpr, negate bool) (sqlExpr, error) {
+	pat, err := p.parseConcat()
+	if err != nil {
+		return nil, err
+	}
+
+	node := &exprLike{x: left, pattern: pat, negate: negate}
+
+	if p.cur.typ == sqlTokEscape {
+		p.advance()
+
+		tok, escErr := p.expect(sqlTokString, "escape character")
+		if escErr != nil {
+			return nil, escErr
+		}
+
+		node.escape = tok.lit
+	}
+
+	return node, nil
+}
+
+func (p *sqlParser) parseConcat() (sqlExpr, error) {
+	left, err := p.parseAdditive()
+	if err != nil {
+		return nil, err
+	}
+
+	for p.cur.typ == sqlTokConcat {
+		p.advance()
+
+		right, rightErr := p.parseAdditive()
+		if rightErr != nil {
+			return nil, rightErr
+		}
+
+		left = &exprBinary{op: sqlTokConcat, l: left, r: right}
+	}
+
+	return left, nil
+}
+
+func (p *sqlParser) parseAdditive() (sqlExpr, error) {
+	left, err := p.parseMultiplicative()
+	if err != nil {
+		return nil, err
+	}
+
+	for p.cur.typ == sqlTokPlus || p.cur.typ == sqlTokMinus {
+		op := p.cur.typ
+
+		p.advance()
+
+		right, rightErr := p.parseMultiplicative()
+		if rightErr != nil {
+			return nil, rightErr
+		}
+
+		left = &exprBinary{op: op, l: left, r: right}
+	}
+
+	return left, nil
+}
+
+func (p *sqlParser) parseMultiplicative() (sqlExpr, error) {
+	left, err := p.parseUnary()
+	if err != nil {
+		return nil, err
+	}
+
+	for p.cur.typ == sqlTokStar || p.cur.typ == sqlTokSlash || p.cur.typ == sqlTokPercent {
+		op := p.cur.typ
+
+		p.advance()
+
+		right, rightErr := p.parseUnary()
+		if rightErr != nil {
+			return nil, rightErr
+		}
+
+		left = &exprBinary{op: op, l: left, r: right}
+	}
+
+	return left, nil
+}
+
+func (p *sqlParser) parseUnary() (sqlExpr, error) {
+	if p.cur.typ != sqlTokMinus && p.cur.typ != sqlTokPlus {
+		return p.parsePostfix()
+	}
+
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+
+	defer p.leave()
+
+	op := p.cur.typ
+
+	p.advance()
+
+	if op == sqlTokMinus && p.cur.typ == sqlTokNumber {
+		lit := "-" + p.cur.lit
+
+		p.advance()
+
+		return &exprLit{v: json.Number(lit)}, nil
+	}
+
+	inner, err := p.parseUnary()
+	if err != nil {
+		return nil, err
+	}
+
+	return &exprUnary{op: op, x: inner}, nil
+}
+
+func (p *sqlParser) parsePostfix() (sqlExpr, error) {
+	x, err := p.parsePrimary()
+	if err != nil {
+		return nil, err
+	}
+
+	for {
+		switch p.cur.typ {
+		case sqlTokDot:
+			p.advance()
+
+			tok, nameErr := p.expectName("identifier after '.'")
+			if nameErr != nil {
+				return nil, nameErr
+			}
+
+			x = &exprProp{base: x, key: tok.lit}
+		case sqlTokLBracket:
+			p.advance()
+
+			idx, idxErr := p.parseExpr()
+			if idxErr != nil {
+				return nil, idxErr
+			}
+
+			if _, expectErr := p.expect(sqlTokRBracket, "']'"); expectErr != nil {
+				return nil, expectErr
+			}
+
+			x = &exprIndex{base: x, idx: idx}
+		default:
+			return x, nil
+		}
+	}
+}
+
+func (p *sqlParser) parsePrimary() (sqlExpr, error) {
 	tok := p.cur
 
 	switch tok.typ {
-	case sqlTokIdent:
-		path, err := p.parsePath()
-		if err != nil {
-			return sqlOperand{}, err
-		}
-
-		return sqlOperand{kind: sqlOperandPath, path: path}, nil
-	case sqlTokParam:
-		p.advance()
-
-		return sqlOperand{kind: sqlOperandParam, paramName: tok.lit}, nil
-	case sqlTokString:
-		p.advance()
-
-		return sqlOperand{kind: sqlOperandString, strVal: tok.lit, lit: tok.lit}, nil
 	case sqlTokNumber:
 		p.advance()
 
-		return sqlOperand{kind: sqlOperandNumber, numLit: tok.lit, lit: json.Number(tok.lit)}, nil
+		return &exprLit{v: json.Number(tok.lit)}, nil
+	case sqlTokString:
+		p.advance()
+
+		return &exprLit{v: tok.lit}, nil
 	case sqlTokTrue, sqlTokFalse:
 		p.advance()
 
-		return sqlOperand{kind: sqlOperandBool, boolVal: tok.typ == sqlTokTrue}, nil
+		return &exprLit{v: tok.typ == sqlTokTrue}, nil
 	case sqlTokNull:
 		p.advance()
 
-		return sqlOperand{kind: sqlOperandNull}, nil
+		return &exprLit{v: nil}, nil
+	case sqlTokUndefined:
+		p.advance()
+
+		return &exprUndefined{}, nil
+	case sqlTokParam:
+		p.advance()
+
+		return &exprParam{name: tok.lit}, nil
+	case sqlTokLParen:
+		return p.parseParen()
+	case sqlTokLBracket:
+		return p.parseArrayLiteral()
+	case sqlTokLBrace:
+		return p.parseObjectLiteral()
+	case sqlTokIdent:
+		return p.parseIdentOrCall()
 	case sqlTokError:
-		return sqlOperand{}, fmt.Errorf("%w: %s", ErrQueryParse, tok.lit)
+		return nil, p.errorf("%s", tok.lit)
 	default:
-		return sqlOperand{}, fmt.Errorf("%w: unexpected token %q", ErrQueryParse, tok.lit)
+		return nil, p.errorf("unexpected token %q", tok.lit)
 	}
+}
+
+func (p *sqlParser) parseParen() (sqlExpr, error) {
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+
+	defer p.leave()
+
+	p.advance()
+
+	if p.cur.typ == sqlTokSelect {
+		sub, err := p.parseSelectStmt(true)
+		if err != nil {
+			return nil, err
+		}
+
+		if _, expectErr := p.expect(sqlTokRParen, "')'"); expectErr != nil {
+			return nil, expectErr
+		}
+
+		return &exprSubquery{stmt: sub, kind: subScalar}, nil
+	}
+
+	x, err := p.parseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	if p.cur.typ != sqlTokRParen {
+		return nil, p.errorf("expected ) got %q", p.cur.lit)
+	}
+
+	p.advance()
+
+	return x, nil
+}
+
+func (p *sqlParser) parseArrayLiteral() (sqlExpr, error) {
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+
+	defer p.leave()
+
+	p.advance()
+
+	node := &exprArrayLit{}
+
+	for p.cur.typ != sqlTokRBracket {
+		item, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+
+		node.items = append(node.items, item)
+
+		if p.cur.typ != sqlTokComma {
+			break
+		}
+
+		p.advance()
+	}
+
+	if _, err := p.expect(sqlTokRBracket, "']'"); err != nil {
+		return nil, err
+	}
+
+	return node, nil
+}
+
+func (p *sqlParser) parseObjectLiteral() (sqlExpr, error) {
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+
+	defer p.leave()
+
+	p.advance()
+
+	node := &exprObjectLit{}
+
+	for p.cur.typ != sqlTokRBrace {
+		if p.cur.typ != sqlTokString && !isWordToken(p.cur.typ) {
+			return nil, p.errorf("expected object key, got %q", p.cur.lit)
+		}
+
+		key := p.cur.lit
+
+		p.advance()
+
+		if _, err := p.expect(sqlTokColon, "':'"); err != nil {
+			return nil, err
+		}
+
+		val, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+
+		node.keys = append(node.keys, key)
+		node.vals = append(node.vals, val)
+
+		if p.cur.typ != sqlTokComma {
+			break
+		}
+
+		p.advance()
+	}
+
+	if _, err := p.expect(sqlTokRBrace, "'}'"); err != nil {
+		return nil, err
+	}
+
+	return node, nil
+}
+
+func (p *sqlParser) parseIdentOrCall() (sqlExpr, error) {
+	name := p.cur.lit
+
+	p.advance()
+
+	if p.cur.typ != sqlTokLParen {
+		return &exprVar{name: name}, nil
+	}
+
+	upper := strings.ToUpper(name)
+
+	if (upper == "EXISTS" || upper == "ARRAY") && p.peek().typ == sqlTokSelect {
+		return p.parseSubqueryCall(upper)
+	}
+
+	return p.parseCall(upper)
+}
+
+func (p *sqlParser) parseSubqueryCall(upper string) (sqlExpr, error) {
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+
+	defer p.leave()
+
+	p.advance()
+
+	sub, err := p.parseSelectStmt(true)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, expectErr := p.expect(sqlTokRParen, "')'"); expectErr != nil {
+		return nil, expectErr
+	}
+
+	kind := subArray
+	if upper == "EXISTS" {
+		kind = subExists
+	}
+
+	return &exprSubquery{stmt: sub, kind: kind}, nil
+}
+
+func (p *sqlParser) parseCall(upper string) (sqlExpr, error) {
+	kind := builtinKind(upper)
+	if kind == fnUnknown {
+		return nil, p.errorf("unknown function %q", upper)
+	}
+
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+
+	defer p.leave()
+
+	p.advance()
+
+	call := &exprCall{name: upper, kind: kind}
+
+	for p.cur.typ != sqlTokRParen {
+		arg, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+
+		call.args = append(call.args, arg)
+
+		if p.cur.typ != sqlTokComma {
+			break
+		}
+
+		p.advance()
+	}
+
+	if _, err := p.expect(sqlTokRParen, "')'"); err != nil {
+		return nil, err
+	}
+
+	lo, hi := builtinArity(upper)
+	if len(call.args) < lo || (hi >= 0 && len(call.args) > hi) {
+		return nil, p.errorf("wrong number of arguments for %s", upper)
+	}
+
+	if kind == fnAggregate {
+		*p.agg = true
+	}
+
+	return call, nil
 }

@@ -164,7 +164,7 @@ func TestQueryDocuments_SeesWrites(t *testing.T) {
 
 				out := make([]string, 0, len(rows))
 				for _, r := range rows {
-					out = append(out, r["id"].(string))
+					out = append(out, rowObj(t, r)["id"].(string))
 				}
 
 				return out

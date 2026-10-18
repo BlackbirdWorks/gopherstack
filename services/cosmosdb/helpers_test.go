@@ -41,3 +41,13 @@ func decodeJSONBody(t *testing.T, raw string) map[string]any {
 
 	return m
 }
+
+// rowObj asserts that a query result row is a JSON object.
+func rowObj(t *testing.T, v any) map[string]any {
+	t.Helper()
+
+	m, ok := v.(map[string]any)
+	require.True(t, ok, "row is not an object: %#v", v)
+
+	return m
+}

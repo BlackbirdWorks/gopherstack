@@ -4,6 +4,8 @@ import "errors"
 
 // Sentinel errors for Azure Cosmos DB (Core/SQL API) operations.
 var (
+	errEmptyID = errors.New("id must not be empty")
+
 	ErrDatabaseNotFound       = errors.New("cosmosdb: database not found")
 	ErrDatabaseAlreadyExists  = errors.New("cosmosdb: database already exists")
 	ErrContainerNotFound      = errors.New("cosmosdb: container not found")
@@ -16,11 +18,20 @@ var (
 	// object, or its "id" field is present but not a non-empty string.
 	ErrInvalidDocument = errors.New("cosmosdb: invalid document body")
 
-	// ErrInvalidPartitionKeyPath is returned when a container is created
-	// with a partitionKey.paths that is empty or not exactly one path --
-	// hierarchical (multi-path) partition keys are out of scope for this
-	// milestone; see PARITY.md's deferred section.
-	ErrInvalidPartitionKeyPath = errors.New("cosmosdb: partitionKey.paths must contain exactly one path")
+	// ErrInvalidPartitionKeyPath is returned for a container partition key definition that is empty, unprefixed,
+	// duplicated, or has more than three (hierarchical) paths.
+	ErrInvalidPartitionKeyPath = errors.New(
+		"cosmosdb: partitionKey.paths must contain between one and three distinct \"/\"-prefixed paths",
+	)
+
+	// ErrInvalidDefaultTTL is returned for a container defaultTtl that is neither -1 nor a positive integer.
+	ErrInvalidDefaultTTL = errors.New("cosmosdb: defaultTtl must be -1 or a positive integer")
+
+	// ErrPartitionKeyImmutable is returned when a container replace tries to change the partition key.
+	ErrPartitionKeyImmutable = errors.New("cosmosdb: the partition key of an existing container cannot be changed")
+
+	// ErrInvalidContinuation is returned for a malformed x-ms-continuation token.
+	ErrInvalidContinuation = errors.New("cosmosdb: invalid continuation token")
 
 	// ErrQueryParse and ErrQueryTooDeep are returned by ParseQuery. A parse
 	// error always surfaces as 400 BadRequest, never a panic -- see

@@ -8053,11 +8053,15 @@
   "cosmosdb": {
     "fields": [
       "backendSnapshot.Databases map[string]*storedDatabase `json:\"databases\"`",
+      "backendSnapshot.TableAPI json.RawMessage `json:\"tableApi,omitempty\"`",
       "documentCompositeKey.ID string",
       "documentCompositeKey.PartitionKeyJSON string",
+      "storedContainer.DefaultTTL *int `json:\"DefaultTTL,omitempty\"`",
       "storedContainer.Documents map[documentCompositeKey]*storedDocument",
       "storedContainer.ID string",
+      "storedContainer.IndexingPolicy json.RawMessage `json:\"IndexingPolicy,omitempty\"`",
       "storedContainer.PartitionKeyPath string",
+      "storedContainer.PartitionKeyPaths []string `json:\"PartitionKeyPaths,omitempty\"`",
       "storedContainer.sorted atomic.Pointer[[]*storedDocument]",
       "storedDatabase.Containers map[string]*storedContainer",
       "storedDatabase.ID string",

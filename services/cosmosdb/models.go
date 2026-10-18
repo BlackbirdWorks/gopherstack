@@ -97,20 +97,25 @@ type DatabaseInfo struct {
 	RID string
 }
 
-// ContainerSpec is the caller-supplied shape for creating a container:
-// its ID and single partition key path (e.g. "/pk"). See
-// ErrInvalidPartitionKeyPath for why exactly one path is required.
+// ContainerSpec is the caller-supplied shape for creating or replacing a container. PartitionKeyPaths (up to
+// three, hierarchical) takes precedence over the single PartitionKeyPath. DefaultTTL nil leaves TTL disabled.
 type ContainerSpec struct {
-	ID               string
-	PartitionKeyPath string
+	DefaultTTL        *int
+	ID                string
+	PartitionKeyPath  string
+	PartitionKeyPaths []string
+	IndexingPolicy    json.RawMessage
 }
 
 // ContainerInfo is a read-only snapshot of a container, returned by the
 // StorageBackend container accessors.
 type ContainerInfo struct {
-	ID               string
-	RID              string
-	PartitionKeyPath string
+	DefaultTTL        *int
+	ID                string
+	RID               string
+	PartitionKeyPath  string
+	PartitionKeyPaths []string
+	IndexingPolicy    json.RawMessage
 }
 
 // DocumentInfo is a read-only snapshot of a document, returned by the
@@ -136,10 +141,13 @@ type storedDatabase struct {
 
 // storedContainer is the backend's internal representation of a container.
 type storedContainer struct {
-	Documents        map[documentCompositeKey]*storedDocument
-	sorted           atomic.Pointer[[]*storedDocument]
-	ID               string
-	PartitionKeyPath string
+	Documents         map[documentCompositeKey]*storedDocument
+	DefaultTTL        *int `json:"DefaultTTL,omitempty"`
+	sorted            atomic.Pointer[[]*storedDocument]
+	ID                string
+	PartitionKeyPath  string
+	PartitionKeyPaths []string        `json:"PartitionKeyPaths,omitempty"`
+	IndexingPolicy    json.RawMessage `json:"IndexingPolicy,omitempty"`
 }
 
 // storedDocument is the backend's internal representation of a document.

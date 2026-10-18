@@ -1,6 +1,10 @@
 package cosmosdb
 
-import "sort"
+import (
+	"encoding/json"
+	"sort"
+	"strconv"
+)
 
 // maxParsedQueries bounds the parsed-statement cache.
 const maxParsedQueries = 256
@@ -27,7 +31,7 @@ func (r sqlRow) lookup(seg string) (any, bool) {
 		case "id":
 			return r.doc.ID, true
 		case sysPropTS:
-			return r.doc.Timestamp.Unix(), true
+			return json.Number(strconv.FormatInt(r.doc.Timestamp.Unix(), 10)), true
 		case sysPropETag:
 			return r.src.b.etagFunc(r.doc.Timestamp), true
 		case sysPropAttachments:
@@ -43,6 +47,9 @@ func (r sqlRow) lookup(seg string) (any, bool) {
 	}
 
 	v, ok := r.m[seg]
+	if i, isInt := v.(int64); isInt {
+		return json.Number(strconv.FormatInt(i, 10)), true
+	}
 
 	return v, ok
 }
@@ -65,8 +72,6 @@ func (r storedRows) count() int { return len(r.docs) }
 func (r storedRows) row(i int) sqlRow {
 	return sqlRow{m: r.docs[i].Body, doc: r.docs[i], src: r.src}
 }
-
-func (r storedRows) full(i int) map[string]any { return r.row(i).full() }
 
 // sortedDocs returns the container's documents ordered by (ID,
 // PartitionKeyJSON); the slice is cached and read-only until the next write.
@@ -113,26 +118,48 @@ func (b *InMemoryBackend) parseCached(query string) (*sqlSelectStmt, error) {
 	return stmt, nil
 }
 
-// QueryDocuments runs a Cosmos SQL query against containerID without
-// materializing every document. Rows share nested values with stored
+// QueryDocuments runs a Cosmos SQL query against containerID. Result values share nested data with stored
 // documents and must be treated as read-only.
 func (b *InMemoryBackend) QueryDocuments(
 	dbID, containerID, query string, params []QueryParameter,
-) ([]map[string]any, error) {
+) ([]any, error) {
+	res, err := b.RunQuery(dbID, containerID, query, params, "")
+
+	return res.Rows, err
+}
+
+// RunQuery is QueryDocuments scoped to partitionKey (canonical JSON; empty means cross-partition), also
+// reporting how many rows were scanned.
+func (b *InMemoryBackend) RunQuery(
+	dbID, containerID, query string, params []QueryParameter, partitionKey string,
+) (QueryResult, error) {
 	b.mu.RLock("QueryDocuments")
 	defer b.mu.RUnlock()
 
 	c, err := b.findContainer(dbID, containerID)
 	if err != nil {
-		return nil, err
+		return QueryResult{}, err
 	}
 
 	stmt, err := b.parseCached(query)
 	if err != nil {
-		return nil, err
+		return QueryResult{}, err
 	}
 
-	rows := storedRows{docs: c.sortedDocs(), src: &docSource{b: b, dbID: dbID, containerID: containerID}}
+	docs := c.liveDocs(b.now())
+	if partitionKey != "" {
+		scoped := make([]*storedDocument, 0, len(docs))
 
-	return executeStatement(stmt, params, rows), nil
+		for _, d := range docs {
+			if partitionKeyMatches(d.PartitionKeyJSON, partitionKey) {
+				scoped = append(scoped, d)
+			}
+		}
+
+		docs = scoped
+	}
+
+	rows := storedRows{docs: docs, src: &docSource{b: b, dbID: dbID, containerID: containerID}}
+
+	return executeStatement(stmt, params, rows)
 }

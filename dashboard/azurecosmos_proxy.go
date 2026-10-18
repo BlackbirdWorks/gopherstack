@@ -18,13 +18,24 @@ const (
 )
 
 // registerAzureCosmosRoutes exposes the Cosmos DB emulator's SQL API to the SPA
-// by dispatching in-process to its handler. The emulator accepts anonymous
-// requests, so no master key reaches the browser.
+// by dispatching in-process to its handler. Browser-supplied credentials are
+// dropped; when the emulator enforces master-key auth (--cosmosdb-validate-auth)
+// the proxy signs each forwarded request server-side, so no key reaches the browser.
 func (h *DashboardHandler) registerAzureCosmosRoutes() {
 	var handler echo.HandlerFunc
 
-	if h.config.AzureCosmosOps != nil {
-		handler = h.config.AzureCosmosOps.Handler()
+	if ops := h.config.AzureCosmosOps; ops != nil {
+		inner := ops.Handler()
+
+		handler = func(c *echo.Context) error {
+			if ops.ValidateAuth {
+				if err := ops.SignRequest(c.Request()); err != nil {
+					return c.String(http.StatusInternalServerError, "failed to sign Cosmos DB request")
+				}
+			}
+
+			return inner(c)
+		}
 	}
 
 	serve := newAzureProxyHandler(azureCosmosProxyPrefix, azureCosmosMaxBodyBytes, handler, azureCosmosProxyPath)

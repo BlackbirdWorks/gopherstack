@@ -26,7 +26,7 @@ const DefaultMasterKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqob
 // in the root CLI command (see cli.go's CLI.CosmosDB field), mirroring
 // services/azuretable's Settings pattern.
 type Settings struct {
-	// MasterKey is the base64-encoded master key checkAuth verifies request
+	// MasterKey is the base64-encoded master key authorize verifies request
 	// signatures against when ValidateAuth is true. Defaults to the real
 	// emulator's own well-known key (DefaultMasterKey).
 	MasterKey string `json:"masterKey" env:"COSMOSDB_MASTER_KEY" default:"C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==" name:"master-key" help:"Base64-encoded Cosmos DB master key checked when --cosmosdb-validate-auth is set."` //nolint:lll // config struct tags are intentionally verbose

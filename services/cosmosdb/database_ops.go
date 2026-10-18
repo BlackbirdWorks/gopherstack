@@ -18,6 +18,10 @@ type createDatabaseBody struct {
 func (h *Handler) handleDatabases(c *echo.Context) error {
 	switch c.Request().Method {
 	case http.MethodPost:
+		if isQueryRequest(c.Request()) {
+			return h.queryDatabases(c)
+		}
+
 		return h.createDatabase(c)
 	case http.MethodGet:
 		return h.listDatabases(c)
@@ -76,13 +80,32 @@ func (h *Handler) createDatabase(c *echo.Context) error {
 	return h.writeJSON(c, http.StatusCreated, databaseBody(info))
 }
 
-func (h *Handler) listDatabases(c *echo.Context) error {
+func (h *Handler) queryDatabases(c *echo.Context) error {
 	infos := h.Backend.ListDatabases()
 
-	values := make([]map[string]any, 0, len(infos))
+	bodies := make([]map[string]any, 0, len(infos))
 	for _, info := range infos {
+		bodies = append(bodies, databaseBody(info))
+	}
+
+	return h.queryResources(c, "Databases", bodies)
+}
+
+func (h *Handler) listDatabases(c *echo.Context) error {
+	token, limit, reqErr := pageRequest(c.Request())
+	if reqErr != nil {
+		return h.writeContinuationError(c)
+	}
+
+	pg := paginate(h.Backend.ListDatabases(), token, limit)
+
+	values := make([]map[string]any, 0, len(pg.Data))
+	for _, info := range pg.Data {
 		values = append(values, databaseBody(info))
 	}
+
+	setPageHeaders(c, len(values), pg.Next)
+	setCharge(c, ruMetadata)
 
 	return h.writeJSON(c, http.StatusOK, map[string]any{
 		sysPropRID: "", "Databases": values, sysPropCount: len(values),

@@ -136,3 +136,52 @@ func TestAzureCosmosProxyDisabled(t *testing.T) {
 	require.NoError(t, h.Handler()(echo.NewContext(req, rec)))
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
+
+func TestAzureCosmosProxy_SignsWhenAuthValidationEnabled(t *testing.T) {
+	t.Parallel()
+
+	const base = "/dashboard/api/v1/azure/cosmos"
+
+	tests := []struct {
+		header   map[string]string
+		name     string
+		method   string
+		path     string
+		body     string
+		wantCode int
+	}{
+		{
+			name:     "create db",
+			method:   http.MethodPost,
+			path:     base + "/dbs",
+			body:     `{"id":"d1"}`,
+			wantCode: http.StatusCreated,
+		},
+		{name: "list dbs", method: http.MethodGet, path: base + "/dbs", wantCode: http.StatusOK},
+		{name: "get missing db", method: http.MethodGet, path: base + "/dbs/nope", wantCode: http.StatusNotFound},
+		{
+			name: "browser authorization is replaced", method: http.MethodGet, path: base + "/dbs",
+			header: map[string]string{"Authorization": "garbage"}, wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cosmos := cosmosdb.NewHandler(cosmosdb.NewInMemoryBackend())
+			cosmos.ValidateAuth = true
+			h := dashboard.NewHandler(dashboard.Config{AzureCosmosOps: cosmos})
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+
+			for k, v := range tt.header {
+				req.Header.Set(k, v)
+			}
+
+			require.NoError(t, h.Handler()(echo.NewContext(req, rec)))
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}

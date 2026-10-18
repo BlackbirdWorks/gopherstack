@@ -33,6 +33,7 @@ func TestStartWorker_BindsAndServes(t *testing.T) {
 
 	backend := cosmosdb.NewInMemoryBackend()
 	h := cosmosdb.NewHandler(backend)
+	h.Port = 0
 
 	// Port 0 lets the OS assign a free ephemeral port directly inside
 	// StartWorker's own net.Listen call -- no separate "bind :0, read the

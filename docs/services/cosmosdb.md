@@ -1,6 +1,6 @@
 # CosmosDB — Azure Cosmos DB (Core/SQL API)
 
-Gopherstack provides an in-memory Azure Cosmos DB Core/SQL API implementation with databases, containers, documents, and a hand-written Cosmos SQL query subset (real lexer/parser/AST/executor with three-valued-logic `WHERE` evaluation).
+Gopherstack provides an in-memory Azure Cosmos DB Core/SQL API implementation with databases, containers (TTL, hierarchical partition keys), documents, continuation tokens, request-unit accounting, and a Cosmos SQL engine (joins, subqueries, aggregates, `GROUP BY`, built-in functions) with three-valued-logic evaluation. The Table API is served on the same port.
 
 ## Supported Operations
 
@@ -9,15 +9,18 @@ Gopherstack provides an in-memory Azure Cosmos DB Core/SQL API implementation wi
 | `GetDatabaseAccount` | Database-account root resource (required by every real Cosmos SDK before any data-plane call) |
 | `CreateDatabase` | Create a new database |
 | `GetDatabase` | Get a database by id |
-| `ListDatabases` | List all databases (single page, no pagination) |
+| `ListDatabases` | List databases (`x-ms-max-item-count` / `x-ms-continuation` paging) |
+| `QueryDatabases` | SQL query over databases (what the SDK query pager sends) |
 | `DeleteDatabase` | Delete a database (cascades to its containers/documents) |
-| `CreateContainer` | Create a container (exactly one partition-key path required) |
+| `CreateContainer` | Create a container (1-3 partition-key paths, `defaultTtl`, `indexingPolicy`) |
+| `ReplaceContainer` | Update `defaultTtl` / `indexingPolicy` (partition key is immutable) |
 | `GetContainer` | Get a container by id |
-| `ListContainers` | List containers in a database (single page, no pagination) |
+| `ListContainers` | List containers in a database (paged) |
+| `QueryContainers` | SQL query over containers |
 | `DeleteContainer` | Delete a container (cascades to its documents) |
 | `CreateDocument` | Create a document (also serves as Upsert with `x-ms-documentdb-is-upsert: true`) |
-| `QueryDocuments` | Run a Cosmos SQL query (cross-partition scan) |
-| `ListDocuments` | Read-feed list of documents (single page, no pagination) |
+| `QueryDocuments` | Run a Cosmos SQL query (cross-partition, or scoped by `x-ms-documentdb-partitionkey`; paged) |
+| `ListDocuments` | Read-feed list of documents (paged; TTL-expired documents hidden) |
 | `GetDocument` | Get a document (requires `x-ms-documentdb-partitionkey`) |
 | `ReplaceDocument` | Full-body replace (upsert if no `If-Match`; `412` on `If-Match` mismatch) |
 | `DeleteDocument` | Delete a document (requires `x-ms-documentdb-partitionkey`) |
@@ -31,8 +34,10 @@ Cosmos DB runs on its own dedicated, synchronously-bound TCP port, mirroring the
 | Port | `8081` (real Cosmos DB Local Emulator's default) | `--cosmosdb-port` | `COSMOSDB_PORT` |
 | Master key | real emulator's well-known fixed key (below) | `--cosmosdb-master-key` | `COSMOSDB_MASTER_KEY` |
 | Validate auth | `false` | `--cosmosdb-validate-auth` | `COSMOSDB_VALIDATE_AUTH` |
+| TLS (self-signed) | `false` | (env only) | `COSMOSDB_TLS=true` |
+| Extra TLS hosts | none | (env only) | `COSMOSDB_TLS_HOSTS=name1,10.0.0.5` |
 
-Startup fails fast if the port is unavailable — there is no fallback pool. **TLS is not implemented** — clients must connect over plain HTTP (`http://localhost:8081`), or explicitly disable SSL verification if their SDK defaults to HTTPS.
+Startup fails fast if the port is unavailable — there is no fallback pool. With `COSMOSDB_TLS=true` the listener serves HTTPS with an in-memory self-signed certificate (valid for `localhost`, `127.0.0.1`, `::1` and `COSMOSDB_TLS_HOSTS`); point the SDK at `https://localhost:8081` and skip certificate verification. The default is plain HTTP.
 
 ## Authentication
 
@@ -42,7 +47,19 @@ Gopherstack accepts the real Cosmos DB Local Emulator's published well-known mas
 C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==
 ```
 
-Unlike Blob/Queue/Table (which have no enforcement flag at all), Cosmos DB has an **opt-in** `--cosmosdb-validate-auth` flag. With it off (the default), any Authorization header is accepted. With it on, a *present* header must carry a correctly signed master-key signature (`401 Unauthorized` otherwise) — but an *absent* header is still accepted either way, so anonymous local-dev workflows keep working.
+Cosmos DB has an **opt-in** `--cosmosdb-validate-auth` flag. With it off (the default), any Authorization header, or none, is accepted. With it on, **every** request (account root, databases, containers, documents and the Table API) must carry a correctly signed master-key `Authorization: type=master&ver=1.0&sig=...` header and an `x-ms-date` (or `Date`) within 15 minutes of server time, otherwise the response is `401 Unauthorized`. Table API requests may alternatively be SharedKey/SharedKeyLite signed with the same key. The dashboard's Cosmos DB page keeps working with validation on: its in-process proxy signs forwarded requests server-side, so the key never reaches the browser.
+
+## Request charge
+
+`x-ms-request-charge` is computed from payload size and operation: point read 1 RU + 0.09 per KB beyond the first; create/upsert 5.5 + 0.73 per KB; replace twice a create; delete 5.5; query 2.3 + 0.005 per scanned item + 0.1 per KB returned; metadata operations 1. It is an approximation; nothing is throttled.
+
+## SQL support
+
+`SELECT [DISTINCT] [TOP n] (* | VALUE expr | expr [AS name], ...)`, `FROM c [JOIN x IN c.arr]...`, `WHERE`, `GROUP BY`, multi-key `ORDER BY`, `OFFSET n LIMIT n`, `@parameters`, `COUNT/SUM/AVG/MIN/MAX`, `EXISTS(...)`/`ARRAY(...)`/scalar subqueries, `IN`/`BETWEEN`/`LIKE`/`?:`/`??`, and the common string, math, type-check, array and date functions. See [PARITY.md](../../services/cosmosdb/PARITY.md) for the full list.
+
+## TTL and partition keys
+
+A container `defaultTtl` (`-1` = on without default expiry) and per-item `ttl` expire documents: expired documents are invisible to reads and queries at once and physically removed by a background sweeper. Containers accept up to three hierarchical partition-key paths (`kind: MultiHash`); point operations then need every key component, and a query's `x-ms-documentdb-partitionkey` may be a leading prefix.
 
 ## Go SDK Example
 
@@ -89,15 +106,13 @@ curl -X POST "http://localhost:8081/dbs/my-db/colls/my-container/docs" \
 
 ## Known Limitations
 
-- No RU (request unit) accounting — `x-ms-request-charge` is a static `"1"` on every response.
-- No continuation-token pagination on List/Query operations — all return every result in one page.
-- Hierarchical (multi-path) partition keys are not supported — `CreateContainer` requires exactly one `partitionKey.paths` entry.
-- SQL query subset does not support subqueries, `JOIN`, aggregate functions (`COUNT`/`SUM`/`AVG`/`MIN`/`MAX`), built-in scalar/array/object functions, `GROUP BY`, or array/object literals in projections/`WHERE`.
-- Query execution is always cross-partition (no partition-key-scoped optimization).
-- TLS is not implemented — plain HTTP only.
-- No container-level `DefaultTimeToLive` (TTL) enforcement — documents never expire.
+- No provisioned throughput, autoscale or `429` throttling; the offers APIs are not served.
+- `indexingPolicy` is stored and echoed but never enforced; queries always scan the container.
+- One fixed region; no failover, multi-write or consistency-level behavior beyond a static session token.
+- A query is re-executed for each continuation page, so results can shift if data changes between pages.
+- No user-defined functions, spatial functions, PATCH, transactional batch, change feed, stored procedures or triggers.
 - Database/container ETags are static (derived from their RID, never versioned).
-- Auth verification is off by default; `--cosmosdb-validate-auth` opts in, but anonymous (no-header) requests are always accepted regardless.
+- Table API `$batch` is not implemented.
 
 ## More
 
