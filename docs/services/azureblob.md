@@ -1,19 +1,23 @@
 # AzureBlob — Azure Blob Storage
 
-Gopherstack provides an in-memory Azure Blob Storage implementation (Azurite-compatible wire protocol) with container/blob CRUD, single-request BlockBlob uploads, and single-range downloads.
+Gopherstack provides an in-memory Azure Blob Storage implementation (Azurite-compatible wire protocol) with container/blob CRUD, metadata, content properties, public access levels, hierarchical listing, snapshots, access tiers, and single-range downloads.
 
 ## Supported Operations
 
 | Operation | Description |
 |-----------|-------------|
-| `ListContainers` | List all containers in the account (single page, no pagination) |
-| `CreateContainer` | Create a new container |
+| `ListContainers` | List all containers in the account (`include=metadata`; single page) |
+| `CreateContainer` | Create a container with optional `x-ms-meta-*` and `x-ms-blob-public-access` |
 | `DeleteContainer` | Delete a container |
-| `ListBlobs` | Flat listing of blobs in a container (single page, no pagination) |
-| `PutBlob` | Upload a blob (BlockBlob only, whole-body single-request PUT) |
-| `GetBlob` | Download a blob (supports single-range `Range` or `x-ms-range` header) |
-| `GetBlobProperties` | Get blob metadata via `HEAD` |
-| `DeleteBlob` | Delete a blob |
+| `GetContainerProperties` | Container ETag, metadata and public-access level (`GET`/`HEAD`) |
+| `SetContainerMetadata` / `GetContainerACL` / `SetContainerACL` | Container metadata, public access level and stored access policies |
+| `ListBlobs` | List blobs with `prefix`, `delimiter` (`BlobPrefix`), `maxresults` + `marker`, `include=snapshots,metadata` |
+| `PutBlob` | Upload a blob (BlockBlob only) with metadata, content properties and `x-ms-access-tier` |
+| `GetBlob` | Download a blob or `?snapshot=` (single `Range` or `x-ms-range`); archived blobs return 409 |
+| `GetBlobProperties` / `GetBlobMetadata` | Properties and `x-ms-meta-*` via `HEAD` / `?comp=metadata` |
+| `SetBlobProperties` / `SetBlobMetadata` / `SetBlobTier` | Persisted content properties, metadata and Hot/Cool/Cold/Archive tier |
+| `SnapshotBlob` / `CopyBlob` | `?comp=snapshot`; same-account synchronous copy via `x-ms-copy-source` |
+| `DeleteBlob` | Delete a blob or one `?snapshot=`; `x-ms-delete-snapshots` include/only |
 
 ## Configuration
 
@@ -22,6 +26,7 @@ Azure Blob runs on its own dedicated, synchronously-bound TCP port — it is nev
 | Setting | Default | Flag | Env var |
 |---|---|---|---|
 | Port | `10000` (Azurite's own Blob port) | `--azure-blob-port` | `AZURE_BLOB_PORT` |
+| Enforce public access | `false` | `--azure-blob-enforce-public-access` | `AZURE_BLOB_ENFORCE_PUBLIC_ACCESS` |
 
 Startup fails fast if the port is unavailable — there is no fallback pool.
 
@@ -76,12 +81,11 @@ curl "http://localhost:10000/devstoreaccount1/my-container/hello.txt"
 ## Known Limitations
 
 - No Put Block / Put Block List — only whole-body single-request BlockBlob uploads (no large-object multipart upload).
-- No container or blob metadata (`x-ms-meta-*`) support — neither stored nor returned.
-- No ACL / public-access-level support (`x-ms-blob-public-access`, Set/Get Container ACL).
 - No conditional-header support (`If-Match`/`If-None-Match`/`If-Modified-Since`/`If-Unmodified-Since`) on any operation.
-- No Copy Blob (server-side or cross-account) support.
-- No snapshot, versioning, soft-delete, lease, or storage-tier (hot/cool/archive) support.
-- `ListContainers`/`ListBlobs` return every result in one page — no prefix/marker/maxresults pagination.
+- Copy Blob is same-account and synchronous only (no cross-account or URL sources).
+- No blob versions, soft-delete, or leases; Archive rehydration is instantaneous.
+- `ListContainers` returns every container in one page — no prefix/marker/maxresults.
+- Anonymous requests honour container public-access levels only with `--azure-blob-enforce-public-access` (`AZURE_BLOB_ENFORCE_PUBLIC_ACCESS`); by default unsigned requests are unrestricted.
 - `GetBlob` supports a single range via `Range` or `x-ms-range` (the latter takes precedence when both are sent, matching real Azure); multi-range requests (`bytes=0-1,3-4`) are rejected rather than served.
 - Auth verification is not enforced (see Authentication above).
 

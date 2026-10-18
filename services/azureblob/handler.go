@@ -46,6 +46,14 @@ const (
 	opGetBlob                = "GetBlob"
 	opGetBlobProperties      = "GetBlobProperties"
 	opDeleteBlob             = "DeleteBlob"
+	opSetBlobMetadata        = "SetBlobMetadata"
+	opGetBlobMetadata        = "GetBlobMetadata"
+	opSetBlobTier            = "SetBlobTier"
+	opSnapshotBlob           = "SnapshotBlob"
+	opCopyBlob               = "CopyBlob"
+	opSetContainerMetadata   = "SetContainerMetadata"
+	opGetContainerACL        = "GetContainerACL"
+	opSetContainerACL        = "SetContainerACL"
 	unknownOperation         = "Unknown"
 )
 
@@ -64,6 +72,9 @@ type Handler struct {
 	// pool, so StartWorker fails fast if it's unavailable rather than
 	// silently binding a different port.
 	Port int
+	// EnforcePublicAccess makes anonymous requests honour container
+	// public-access levels; off, anonymous access is unrestricted.
+	EnforcePublicAccess bool
 }
 
 // NewHandler creates a new Azure Blob Handler. Port defaults to DefaultPort;
@@ -99,6 +110,14 @@ func (h *Handler) GetSupportedOperations() []string {
 		opGetBlob,
 		opGetBlobProperties,
 		opDeleteBlob,
+		opSetBlobMetadata,
+		opGetBlobMetadata,
+		opSetBlobTier,
+		opSnapshotBlob,
+		opCopyBlob,
+		opSetContainerMetadata,
+		opGetContainerACL,
+		opSetContainerACL,
 	}
 }
 
@@ -155,6 +174,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if account == "" {
 			return h.writeError(c, http.StatusBadRequest, "InvalidUri",
 				"The requested URI does not represent any resource on the server.")
+		}
+
+		if denied, err := h.denyAnonymous(c, container, blob); denied {
+			return err
 		}
 
 		switch {
@@ -257,6 +280,10 @@ const (
 	restypeService   = "service"
 	compList         = "list"
 	compProperties   = "properties"
+	compMetadata     = "metadata"
+	compACL          = "acl"
+	compTier         = "tier"
+	compSnapshot     = "snapshot"
 )
 
 // operationFor determines the Azure Blob operation name for a request, for
@@ -296,17 +323,39 @@ func accountOperationFor(r *http.Request) string {
 // Create Container, Delete Container, List Blobs, and Get Container
 // Properties.
 func containerOperationFor(r *http.Request) string {
-	restype := r.URL.Query().Get(queryRestype)
-	comp := r.URL.Query().Get(queryComp)
+	q := r.URL.Query()
+	if q.Get(queryRestype) != restypeContainer {
+		return unknownOperation
+	}
 
-	switch {
-	case r.Method == http.MethodPut && restype == restypeContainer:
-		return opCreateContainer
-	case r.Method == http.MethodDelete && restype == restypeContainer:
+	comp := q.Get(queryComp)
+
+	switch r.Method {
+	case http.MethodPut:
+		switch comp {
+		case compMetadata:
+			return opSetContainerMetadata
+		case compACL:
+			return opSetContainerACL
+		case "":
+			return opCreateContainer
+		}
+	case http.MethodDelete:
 		return opDeleteContainer
-	case r.Method == http.MethodGet && restype == restypeContainer && comp == compList:
+	case http.MethodGet, http.MethodHead:
+		return containerReadOp(r.Method, comp)
+	}
+
+	return unknownOperation
+}
+
+func containerReadOp(method, comp string) string {
+	switch {
+	case method == http.MethodGet && comp == compList:
 		return opListBlobs
-	case r.Method == http.MethodGet && restype == restypeContainer && comp == "":
+	case method == http.MethodGet && comp == compACL:
+		return opGetContainerACL
+	case comp == "" || comp == compMetadata:
 		return opGetContainerProperties
 	default:
 		return unknownOperation
@@ -316,19 +365,44 @@ func containerOperationFor(r *http.Request) string {
 // blobOperationFor covers the five blob-scoped operations (mirrors
 // handleBlobLevel).
 func blobOperationFor(r *http.Request) string {
-	switch {
-	case r.Method == http.MethodPut && r.URL.Query().Get(queryComp) == compProperties:
-		return opSetBlobProperties
-	case r.Method == http.MethodPut:
-		return opPutBlob
-	case r.Method == http.MethodGet:
+	comp := r.URL.Query().Get(queryComp)
+
+	switch r.Method {
+	case http.MethodPut:
+		return blobPutOp(comp, r.Header.Get(headerCopySource) != "")
+	case http.MethodGet:
+		if comp == compMetadata {
+			return opGetBlobMetadata
+		}
+
 		return opGetBlob
-	case r.Method == http.MethodHead:
+	case http.MethodHead:
+		if comp == compMetadata {
+			return opGetBlobMetadata
+		}
+
 		return opGetBlobProperties
-	case r.Method == http.MethodDelete:
+	case http.MethodDelete:
 		return opDeleteBlob
 	default:
 		return unknownOperation
+	}
+}
+
+func blobPutOp(comp string, copying bool) string {
+	switch {
+	case comp == compProperties:
+		return opSetBlobProperties
+	case comp == compMetadata:
+		return opSetBlobMetadata
+	case comp == compTier:
+		return opSetBlobTier
+	case comp == compSnapshot:
+		return opSnapshotBlob
+	case copying:
+		return opCopyBlob
+	default:
+		return opPutBlob
 	}
 }
 
@@ -364,14 +438,23 @@ func (h *Handler) handleAccountLevel(c *echo.Context) error {
 		Containers:      &containersList{Container: make([]containerEntry, 0, len(containers))},
 	}
 
+	withMetadata := strings.Contains(c.QueryParam("include"), compMetadata)
+
 	for _, ci := range containers {
-		result.Containers.Container = append(result.Containers.Container, containerEntry{
+		entry := containerEntry{
 			Name: ci.Name,
 			Properties: containerProperties{
-				LastModified: ci.CreatedAt.Format(http.TimeFormat),
-				Etag:         computeContainerETag(ci.Name, ci.CreatedAt),
+				LastModified: ci.LastModified.Format(http.TimeFormat),
+				Etag:         ci.ETag,
+				PublicAccess: ci.PublicAccess,
 			},
-		})
+		}
+
+		if withMetadata {
+			entry.Metadata = metadataElem(ci.Metadata)
+		}
+
+		result.Containers.Container = append(result.Containers.Container, entry)
 	}
 
 	return h.writeXML(c, http.StatusOK, result)
@@ -380,62 +463,25 @@ func (h *Handler) handleAccountLevel(c *echo.Context) error {
 // handleContainerLevel serves the three container-scoped operations: Create
 // Container, Delete Container, and List Blobs.
 func (h *Handler) handleContainerLevel(c *echo.Context, container string) error {
-	r := c.Request()
-	restype := c.QueryParam(queryRestype)
-	comp := c.QueryParam(queryComp)
-
-	switch {
-	case r.Method == http.MethodPut && restype == restypeContainer:
+	switch containerOperationFor(c.Request()) {
+	case opCreateContainer:
 		return h.createContainer(c, container)
-	case r.Method == http.MethodDelete && restype == restypeContainer:
+	case opDeleteContainer:
 		return h.deleteContainer(c, container)
-	case r.Method == http.MethodGet && restype == restypeContainer && comp == compList:
+	case opListBlobs:
 		return h.listBlobs(c, container)
-	case r.Method == http.MethodGet && restype == restypeContainer && comp == "":
+	case opGetContainerProperties:
 		return h.getContainerProperties(c, container)
+	case opSetContainerMetadata:
+		return h.setContainerMetadata(c, container)
+	case opGetContainerACL:
+		return h.getContainerACL(c, container)
+	case opSetContainerACL:
+		return h.setContainerACL(c, container)
 	default:
 		return h.writeError(c, http.StatusBadRequest, "InvalidQueryParameterValue",
 			"A query parameter is not supported for this operation.")
 	}
-}
-
-// getContainerProperties serves GET /<account>/<container>?restype=container
-// (no comp) -- real Azure's "Get Container Properties", used by
-// terraform-provider-azurerm's azurerm_storage_container to check whether a
-// container already exists before creating it (jackofallops/giovanni's
-// containers.Client.GetProperties). Headers reflect a container with no
-// lease and private access -- Set Container ACL/lease support aren't
-// implemented (see PARITY.md), so these are always their unlocked/private
-// defaults.
-func (h *Handler) getContainerProperties(c *echo.Context, container string) error {
-	for _, ci := range h.Backend.ListContainers() {
-		if ci.Name != container {
-			continue
-		}
-
-		hdr := c.Response().Header()
-		hdr.Set("Last-Modified", ci.CreatedAt.Format(http.TimeFormat))
-		hdr.Set("ETag", computeContainerETag(ci.Name, ci.CreatedAt))
-		hdr.Set("X-Ms-Lease-Status", "unlocked")
-		hdr.Set("X-Ms-Lease-State", "available")
-
-		return c.NoContent(http.StatusOK)
-	}
-
-	return h.writeError(c, http.StatusNotFound, "ContainerNotFound", "The specified container does not exist.")
-}
-
-func (h *Handler) createContainer(c *echo.Context, container string) error {
-	if err := h.Backend.CreateContainer(container); err != nil {
-		if errors.Is(err, ErrContainerAlreadyExists) {
-			return h.writeError(c, http.StatusConflict, "ContainerAlreadyExists",
-				"The specified container already exists.")
-		}
-
-		return h.writeError(c, http.StatusInternalServerError, "InternalError", err.Error())
-	}
-
-	return c.NoContent(http.StatusCreated)
 }
 
 func (h *Handler) deleteContainer(c *echo.Context, container string) error {
@@ -447,51 +493,33 @@ func (h *Handler) deleteContainer(c *echo.Context, container string) error {
 	return c.NoContent(http.StatusAccepted)
 }
 
-func (h *Handler) listBlobs(c *echo.Context, container string) error {
-	blobs, err := h.Backend.ListBlobs(container)
-	if err != nil {
-		return h.writeError(c, http.StatusNotFound, "ContainerNotFound",
-			"The specified container does not exist.")
-	}
-
-	return c.XMLBlob(http.StatusOK, encodeBlobList(h.serviceEndpoint(), container, blobs))
-}
-
-// handleBlobLevel dispatches the blob-scoped operations by HTTP method (and,
-// for PUT, by comp=properties vs a plain Put Blob).
+// handleBlobLevel dispatches the blob-scoped operations.
 func (h *Handler) handleBlobLevel(c *echo.Context, container, blob string) error {
-	switch {
-	case c.Request().Method == http.MethodPut && c.QueryParam(queryComp) == compProperties:
+	switch blobOperationFor(c.Request()) {
+	case opSetBlobProperties:
 		return h.setBlobProperties(c, container, blob)
-	case c.Request().Method == http.MethodPut:
+	case opSetBlobMetadata:
+		return h.setBlobMetadata(c, container, blob)
+	case opGetBlobMetadata:
+		return h.getBlobMetadata(c, container, blob)
+	case opSetBlobTier:
+		return h.setBlobTier(c, container, blob)
+	case opSnapshotBlob:
+		return h.snapshotBlob(c, container, blob)
+	case opCopyBlob:
+		return h.copyBlob(c, container, blob)
+	case opPutBlob:
 		return h.putBlob(c, container, blob)
-	case c.Request().Method == http.MethodGet:
+	case opGetBlob:
 		return h.getBlob(c, container, blob)
-	case c.Request().Method == http.MethodHead:
+	case opGetBlobProperties:
 		return h.headBlob(c, container, blob)
-	case c.Request().Method == http.MethodDelete:
+	case opDeleteBlob:
 		return h.deleteBlob(c, container, blob)
 	default:
 		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
 			"The resource doesn't support the specified HTTP verb.")
 	}
-}
-
-// setBlobProperties serves PUT /<account>/<container>/<blob>?comp=properties
-// -- real Azure's "Set Blob Properties", used by
-// terraform-provider-azurerm's azurerm_storage_blob to update
-// content-type/cache-control/etc after upload. Unlike Put Blob, this never
-// sends x-ms-blob-type (it isn't (re-)uploading content), so it's routed
-// here rather than through putBlob's x-ms-blob-type check. Accepted but not
-// persisted: this service has no property-update path in StorageBackend
-// (PutBlob only sets content-type at upload time) -- see PARITY.md's known
-// gaps. Returns 404 if the blob doesn't exist, matching real Azure.
-func (h *Handler) setBlobProperties(c *echo.Context, container, blob string) error {
-	if _, err := h.Backend.HeadBlob(container, blob); err != nil {
-		return h.writeBlobNotFoundError(c, err)
-	}
-
-	return c.NoContent(http.StatusOK)
 }
 
 func (h *Handler) putBlob(c *echo.Context, container, blob string) error {
@@ -503,13 +531,27 @@ func (h *Handler) putBlob(c *echo.Context, container, blob string) error {
 				"(x-ms-blob-type must be BlockBlob; only block blobs are supported).")
 	}
 
+	attrs, apiErr := blobAttrsFromRequest(r)
+	if apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
+	if attrs.ContentType == "" {
+		attrs.ContentType = r.Header.Get("Content-Type")
+	}
+
+	attrs.AccessTier = r.Header.Get(headerAccessTier)
+	if attrs.AccessTier != "" && !validTier(attrs.AccessTier) {
+		return h.writeAPIError(c, errInvalidHeader(headerAccessTier))
+	}
+
 	body, err := httputils.ReadBody(r)
 	if err != nil {
 		return h.writeError(c, http.StatusInternalServerError, "InternalError",
 			"Failed to read request body.")
 	}
 
-	info, err := h.Backend.PutBlob(container, blob, body, r.Header.Get("Content-Type"))
+	info, err := h.Backend.PutBlobWith(container, blob, body, attrs)
 	if err != nil {
 		return h.writeError(c, http.StatusNotFound, "ContainerNotFound",
 			"The specified container does not exist.")
@@ -525,26 +567,29 @@ func (h *Handler) putBlob(c *echo.Context, container, blob string) error {
 func (h *Handler) getBlob(c *echo.Context, container, blob string) error {
 	r := c.Request()
 
-	info, data, err := h.Backend.GetBlob(container, blob)
+	info, data, err := h.Backend.GetBlobAt(container, blob, c.QueryParam(querySnapshot))
 	if err != nil {
 		return h.writeBlobNotFoundError(c, err)
 	}
 
+	if info.AccessTier == TierArchive {
+		return h.writeError(c, http.StatusConflict, "BlobArchived",
+			"This operation is not permitted on an archived blob.")
+	}
+
 	h.setBlobHeaders(c, info)
 
-	// x-ms-range takes precedence over the standard Range header when both
-	// are present, matching real Azure Blob's documented behavior -- the
-	// azure-storage-blob (Python) and @azure/storage-blob (JS) SDKs' generated
-	// Get Blob operation sends x-ms-range exclusively (never Range), so
-	// accepting only "Range" made GetBlob's single-range support unreachable
-	// from those SDKs' default download path even though the Go SDK (which
-	// does send "Range") passed.
+	// x-ms-range takes precedence over Range; the Python and JS SDKs send only x-ms-range.
 	rangeHeader := r.Header.Get("X-Ms-Range")
 	if rangeHeader == "" {
 		rangeHeader = r.Header.Get("Range")
 	}
 
 	if rangeHeader == "" {
+		if info.ContentMD5 != "" {
+			c.Response().Header().Set("Content-MD5", info.ContentMD5)
+		}
+
 		return c.Blob(http.StatusOK, contentTypeOrDefault(info.ContentType), data)
 	}
 
@@ -564,18 +609,33 @@ func (h *Handler) getBlob(c *echo.Context, container, blob string) error {
 }
 
 func (h *Handler) headBlob(c *echo.Context, container, blob string) error {
-	info, err := h.Backend.HeadBlob(container, blob)
+	info, err := h.Backend.HeadBlobAt(container, blob, c.QueryParam(querySnapshot))
 	if err != nil {
 		return h.writeBlobNotFoundError(c, err)
 	}
 
 	h.setBlobHeaders(c, info)
 
+	if info.ContentMD5 != "" {
+		c.Response().Header().Set("Content-MD5", info.ContentMD5)
+	}
+
 	return c.NoContent(http.StatusOK)
 }
 
 func (h *Handler) deleteBlob(c *echo.Context, container, blob string) error {
-	if err := h.Backend.DeleteBlob(container, blob); err != nil {
+	mode := c.Request().Header.Get(headerDeleteSnapshots)
+	if mode != "" && mode != DeleteSnapshotsInclude && mode != DeleteSnapshotsOnly {
+		return h.writeAPIError(c, errInvalidHeader(headerDeleteSnapshots))
+	}
+
+	err := h.Backend.DeleteBlobAt(container, blob, c.QueryParam(querySnapshot), mode)
+	if errors.Is(err, ErrSnapshotsPresent) {
+		return h.writeError(c, http.StatusConflict, "SnapshotsPresent",
+			"This operation is not permitted because the blob has snapshots.")
+	}
+
+	if err != nil {
 		return h.writeBlobNotFoundError(c, err)
 	}
 
@@ -593,8 +653,7 @@ func (h *Handler) writeBlobNotFoundError(c *echo.Context, err error) error {
 	return h.writeError(c, http.StatusNotFound, "BlobNotFound", "The specified blob does not exist.")
 }
 
-// setBlobHeaders sets the properties common to Get Blob, Get Blob Properties,
-// and (implicitly, via the caller) any other blob-body response.
+// setBlobHeaders sets the headers common to Get Blob and Get Blob Properties.
 func (h *Handler) setBlobHeaders(c *echo.Context, info BlobInfo) {
 	hdr := c.Response().Header()
 	hdr.Set("ETag", info.ETag)
@@ -602,9 +661,28 @@ func (h *Handler) setBlobHeaders(c *echo.Context, info BlobInfo) {
 	hdr.Set("Content-Length", strconv.FormatInt(info.ContentLength, 10))
 	hdr.Set("X-Ms-Blob-Type", blockBlobType)
 	hdr.Set("Accept-Ranges", "bytes")
+	setMetadataHeaders(hdr, info.Metadata)
 
-	if info.ContentType != "" {
-		hdr.Set("Content-Type", info.ContentType)
+	for name, val := range map[string]string{
+		"Content-Type":        info.ContentType,
+		"Content-Encoding":    info.ContentEncoding,
+		"Content-Language":    info.ContentLanguage,
+		"Content-Disposition": info.ContentDisposition,
+		"Cache-Control":       info.CacheControl,
+		"X-Ms-Access-Tier":    info.AccessTier,
+		"X-Ms-Snapshot":       info.Snapshot,
+	} {
+		if val != "" {
+			hdr.Set(name, val)
+		}
+	}
+
+	if info.AccessTierInferred {
+		hdr.Set("X-Ms-Access-Tier-Inferred", "true")
+	}
+
+	if !info.AccessTierChanged.IsZero() {
+		hdr.Set("X-Ms-Access-Tier-Change-Time", info.AccessTierChanged.Format(http.TimeFormat))
 	}
 }
 

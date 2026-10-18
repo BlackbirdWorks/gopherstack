@@ -7,6 +7,8 @@ var (
 	ErrContainerNotFound      = errors.New("azureblob: container not found")
 	ErrContainerAlreadyExists = errors.New("azureblob: container already exists")
 	ErrBlobNotFound           = errors.New("azureblob: blob not found")
+	ErrSnapshotsPresent       = errors.New("azureblob: blob has snapshots")
+	ErrInvalidMarker          = errors.New("azureblob: invalid list marker")
 
 	// ErrSnapshotContainerNull and ErrSnapshotBlobNull are returned by
 	// Restore when a snapshot's "containers" map (or a container's "Blobs"

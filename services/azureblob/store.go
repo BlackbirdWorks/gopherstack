@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"maps"
 	"sort"
 	"time"
 
@@ -34,23 +35,38 @@ func NewInMemoryBackend() *InMemoryBackend {
 	}
 }
 
-// CreateContainer creates a new, empty container. Returns
-// ErrContainerAlreadyExists if a container with the same name already exists.
+// CreateContainer creates a new, empty container with default settings.
 func (b *InMemoryBackend) CreateContainer(name string) error {
+	_, err := b.CreateContainerWith(name, ContainerOptions{})
+
+	return err
+}
+
+// CreateContainerWith creates a container with metadata and a public-access
+// level. Returns ErrContainerAlreadyExists if the name is taken.
+func (b *InMemoryBackend) CreateContainerWith(name string, opts ContainerOptions) (ContainerInfo, error) {
 	b.mu.Lock("CreateContainer")
 	defer b.mu.Unlock()
 
 	if _, ok := b.containers[name]; ok {
-		return ErrContainerAlreadyExists
+		return ContainerInfo{}, ErrContainerAlreadyExists
 	}
 
-	b.containers[name] = &storedContainer{
-		Name:      name,
-		CreatedAt: time.Now().UTC(),
-		Blobs:     make(map[string]*storedBlob),
-	}
+	now := time.Now().UTC()
+	b.etagSeq++
 
-	return nil
+	c := &storedContainer{
+		Name:         name,
+		CreatedAt:    now,
+		LastModified: now,
+		ETag:         computeBlobETag([]byte(name), b.etagSeq),
+		Blobs:        make(map[string]*storedBlob),
+		Metadata:     maps.Clone(opts.Metadata),
+		PublicAccess: opts.PublicAccess,
+	}
+	b.containers[name] = c
+
+	return c.info(), nil
 }
 
 // DeleteContainer removes a container and all of its blobs. Returns
@@ -76,7 +92,7 @@ func (b *InMemoryBackend) ListContainers() []ContainerInfo {
 
 	out := make([]ContainerInfo, 0, len(b.containers))
 	for _, c := range b.containers {
-		out = append(out, ContainerInfo{Name: c.Name, CreatedAt: c.CreatedAt})
+		out = append(out, c.info())
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -84,11 +100,15 @@ func (b *InMemoryBackend) ListContainers() []ContainerInfo {
 	return out
 }
 
-// PutBlob stores data as a block blob named blob within container. Returns
-// ErrContainerNotFound if the container does not exist. Overwrites any
-// existing blob with the same name (Azure's Put Blob semantics -- no
-// conditional headers are enforced, see PARITY.md known gaps).
+// PutBlob stores data as a block blob with only a content type set.
 func (b *InMemoryBackend) PutBlob(container, blob string, data []byte, contentType string) (BlobInfo, error) {
+	return b.PutBlobWith(container, blob, data, BlobAttrs{ContentType: contentType})
+}
+
+// PutBlobWith stores data as a block blob named blob within container,
+// replacing any existing blob but keeping its snapshots, as Azure does.
+// Returns ErrContainerNotFound if the container does not exist.
+func (b *InMemoryBackend) PutBlobWith(container, blob string, data []byte, attrs BlobAttrs) (BlobInfo, error) {
 	b.mu.Lock("PutBlob")
 	defer b.mu.Unlock()
 
@@ -101,24 +121,39 @@ func (b *InMemoryBackend) PutBlob(container, blob string, data []byte, contentTy
 
 	stored := &storedBlob{
 		Name:         blob,
-		ContentType:  contentType,
 		Data:         append([]byte(nil), data...),
 		LastModified: time.Now().UTC(),
 		ETag:         computeBlobETag(data, b.etagSeq),
 	}
+	stored.applyAttrs(attrs)
+	stored.Metadata = maps.Clone(attrs.Metadata)
+
+	if attrs.AccessTier != "" {
+		stored.AccessTier = attrs.AccessTier
+		stored.AccessTierChanged = stored.LastModified
+	}
+
+	if old, exists := c.Blobs[blob]; exists {
+		stored.Snapshots = old.Snapshots
+	}
+
 	c.Blobs[blob] = stored
 
 	return stored.info(), nil
 }
 
 // GetBlob returns a blob's metadata and full body; the slice is immutable
-// backend storage and must not be modified. Returns ErrContainerNotFound
-// or ErrBlobNotFound as appropriate.
+// backend storage and must not be modified.
 func (b *InMemoryBackend) GetBlob(container, blob string) (BlobInfo, []byte, error) {
+	return b.GetBlobAt(container, blob, "")
+}
+
+// GetBlobAt is GetBlob for the base blob (snapshot == "") or one snapshot.
+func (b *InMemoryBackend) GetBlobAt(container, blob, snapshot string) (BlobInfo, []byte, error) {
 	b.mu.RLock("GetBlob")
 	defer b.mu.RUnlock()
 
-	stored, err := b.lookupBlobLocked(container, blob)
+	stored, err := b.lookupBlobLocked(container, blob, snapshot)
 	if err != nil {
 		return BlobInfo{}, nil, err
 	}
@@ -126,13 +161,17 @@ func (b *InMemoryBackend) GetBlob(container, blob string) (BlobInfo, []byte, err
 	return stored.info(), stored.Data, nil
 }
 
-// HeadBlob returns a blob's metadata without its body. Returns
-// ErrContainerNotFound or ErrBlobNotFound as appropriate.
+// HeadBlob returns a blob's metadata without its body.
 func (b *InMemoryBackend) HeadBlob(container, blob string) (BlobInfo, error) {
+	return b.HeadBlobAt(container, blob, "")
+}
+
+// HeadBlobAt is HeadBlob for the base blob (snapshot == "") or one snapshot.
+func (b *InMemoryBackend) HeadBlobAt(container, blob, snapshot string) (BlobInfo, error) {
 	b.mu.RLock("HeadBlob")
 	defer b.mu.RUnlock()
 
-	stored, err := b.lookupBlobLocked(container, blob)
+	stored, err := b.lookupBlobLocked(container, blob, snapshot)
 	if err != nil {
 		return BlobInfo{}, err
 	}
@@ -140,28 +179,13 @@ func (b *InMemoryBackend) HeadBlob(container, blob string) (BlobInfo, error) {
 	return stored.info(), nil
 }
 
-// DeleteBlob removes a blob. Returns ErrContainerNotFound or ErrBlobNotFound
-// as appropriate.
+// DeleteBlob removes a blob that has no snapshots.
 func (b *InMemoryBackend) DeleteBlob(container, blob string) error {
-	b.mu.Lock("DeleteBlob")
-	defer b.mu.Unlock()
-
-	c, ok := b.containers[container]
-	if !ok {
-		return ErrContainerNotFound
-	}
-
-	if _, blobExists := c.Blobs[blob]; !blobExists {
-		return ErrBlobNotFound
-	}
-
-	delete(c.Blobs, blob)
-
-	return nil
+	return b.DeleteBlobAt(container, blob, "", "")
 }
 
-// ListBlobs returns a snapshot of all blobs in container, sorted by name.
-// Returns ErrContainerNotFound if the container does not exist.
+// ListBlobs returns every base blob in container, sorted by name. Returns
+// ErrContainerNotFound if the container does not exist.
 func (b *InMemoryBackend) ListBlobs(container string) ([]BlobInfo, error) {
 	b.mu.RLock("ListBlobs")
 	defer b.mu.RUnlock()
@@ -191,9 +215,9 @@ func (b *InMemoryBackend) Reset() {
 	b.etagSeq = 0
 }
 
-// lookupBlobLocked resolves a (container, blob) pair. Callers must hold
-// b.mu (either read or write).
-func (b *InMemoryBackend) lookupBlobLocked(container, blob string) (*storedBlob, error) {
+// lookupBlobLocked resolves a (container, blob[, snapshot]) triple. Callers
+// must hold b.mu (either read or write).
+func (b *InMemoryBackend) lookupBlobLocked(container, blob, snapshot string) (*storedBlob, error) {
 	c, ok := b.containers[container]
 	if !ok {
 		return nil, ErrContainerNotFound
@@ -204,7 +228,16 @@ func (b *InMemoryBackend) lookupBlobLocked(container, blob string) (*storedBlob,
 		return nil, ErrBlobNotFound
 	}
 
-	return stored, nil
+	if snapshot == "" {
+		return stored, nil
+	}
+
+	snap, ok := stored.Snapshots[snapshot]
+	if !ok {
+		return nil, ErrBlobNotFound
+	}
+
+	return snap, nil
 }
 
 // computeBlobETag derives a quoted, opaque ETag from a blob's body and seq, a

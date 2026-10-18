@@ -7,23 +7,22 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 11 (8 ok, 2 partial, 1 gap) |
-| Feature families | 4 (3 ok, 1 partial) |
-| Known gaps | 9 |
+| PARITY entries audited | 19 (17 ok, 2 partial) |
+| Feature families | 5 (3 ok, 2 partial) |
+| Known gaps | 8 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Put Block / Put Block List (large-object multipart upload) is not implemented -- Put Blob only accepts a single whole-body BlockBlob PUT. Deliberate M0 scope per AZURE.md; not currently assigned to a later milestone (see AZURE.md section 8's M0 entry for the full deferred-gaps list).
-- No ACL / container public-access-level support (x-ms-blob-public-access, Set/Get Container ACL are unimplemented).
-- No blob or container metadata (x-ms-meta-* headers) -- neither stored on PUT/Create nor returned on GET/HEAD/List.
-- No conditional-header support (If-Match/If-None-Match/If-Modified-Since/If-Unmodified-Since) on any operation -- every write unconditionally overwrites, every read unconditionally succeeds regardless of ETag/date preconditions.
-- No Copy Blob (server-side or cross-account) support.
-- No snapshot, versioning, soft-delete, lease, or tier (hot/cool/archive) support.
-- List Containers / List Blobs return every result in one page; no prefix/marker/maxresults pagination.
-- Auth verification is not enforced -- see families.auth. pkgs/azureauth.VerifySharedKey exists and is unit-tested but checkAuth does not call it yet.
-- Set Blob Properties (PUT ?comp=properties, ops.SetBlobProperties) is accepted and validated (404s a nonexistent blob) but not persisted -- StorageBackend has no property-update path (PutBlob only sets content-type at upload time), so content-type/cache-control/etc changes sent via this call are silently discarded. Added in M8 solely to satisfy terraform-provider-azurerm's post-upload call, which only checks for a 200 and never re-reads these properties in the same apply. All gaps above are intentional MVP scope per AZURE.md's M0 entry, not oversights; see AZURE.md sections 2 and 8 for the milestone plan.
+- Put Block / Put Block List (large-object multipart upload) is not implemented; Put Blob accepts only a single whole-body BlockBlob PUT.
+- Blob versions (x-ms-version-id, include=versions, version-scoped read/delete) and soft-delete (include=deleted, undelete) are not modeled.
+- No conditional-header support (If-Match/If-None-Match/If-Modified-Since/If-Unmodified-Since) on any operation.
+- Copy Blob is same-account and synchronous only; no cross-account or URL sources, no Abort Copy, no x-ms-copy-* properties on the destination.
+- No lease support, and Archive rehydration is instantaneous rather than asynchronous.
+- List Containers returns every container in one page; no prefix/marker/maxresults.
+- SharedKey signatures are not verified (families.auth), so stored access policies and SAS tokens never gate a request.
+- No append or page blobs, blob index tags, or Set/Get Blob Service Properties beyond the empty read.
 
 ### Deferred
 
