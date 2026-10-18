@@ -26,6 +26,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/ec2"
 	"github.com/blackbirdworks/gopherstack/services/ecr"
@@ -123,6 +124,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	if sp, hasBus := ctx.Config.(interface{ GetAzureServiceBusHandler() service.Registerable }); hasBus {
 		conf.AzureServiceBusOps, _ = getHandler[*azureservicebus.Handler](sp.GetAzureServiceBusHandler())
+	}
+
+	if cp, hasCosmos := ctx.Config.(interface{ GetCosmosDBHandler() service.Registerable }); hasCosmos {
+		conf.AzureCosmosOps, _ = getHandler[*cosmosdb.Handler](cp.GetCosmosDBHandler())
 	}
 
 	h := NewHandler(conf)

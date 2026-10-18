@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { azureServiceById } from '#lib/cloud.ts';
 	import ArmDashboard from '#lib/components/azure/ArmDashboard.svelte';
+	import CosmosDashboard from '#lib/components/azure/CosmosDashboard.svelte';
 	import BlobDashboard from '#lib/components/azure/BlobDashboard.svelte';
 	import QueueDashboard from '#lib/components/azure/QueueDashboard.svelte';
 	import ServiceBusDashboard from '#lib/components/azure/ServiceBusDashboard.svelte';
@@ -27,6 +28,8 @@
 	<QueueDashboard />
 {:else if service?.id === 'servicebus'}
 	<ServiceBusDashboard />
+{:else if service?.id === 'cosmosdb'}
+	<CosmosDashboard />
 {:else if service?.id === 'table'}
 	<TableDashboard />
 {:else}

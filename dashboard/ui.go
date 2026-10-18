@@ -69,6 +69,7 @@ import (
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	cosmosdbbackend "github.com/blackbirdworks/gopherstack/services/cosmosdb"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -506,6 +507,8 @@ type Config struct {
 	AzureTableOps *azuretablebackend.Handler
 	// AzureServiceBusOps is dispatched in-process by the /dashboard/api/v1/azure/servicebus proxy.
 	AzureServiceBusOps *azureservicebusbackend.Handler
+	// AzureCosmosOps is dispatched in-process by the /dashboard/api/v1/azure/cosmos proxy.
+	AzureCosmosOps *cosmosdbbackend.Handler
 	// CognitoIDPOps provides access to the Cognito IDP backend.
 	CognitoIDPOps *cognitoidpbackend.Handler
 	// IoTDataPlaneOps provides access to the IoT Data Plane backend.
@@ -745,6 +748,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerAzureQueueRoutes()
 	h.registerAzureTableRoutes()
 	h.registerAzureServiceBusRoutes()
+	h.registerAzureCosmosRoutes()
 	h.registerSTSMetricsRoute()
 	h.registerCodeStarConnectionsMutationRoutes()
 	h.registerCognitoUserPoolRoutes()

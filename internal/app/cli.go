@@ -385,11 +385,11 @@ type CLI struct {
 	azureARMHandler               service.Registerable
 	azureBlobHandler              service.Registerable
 	azureQueueHandler             service.Registerable
-	appConfigHandler              service.Registerable
-	applicationautoscalingHandler service.Registerable
 	azureTableHandler             service.Registerable
 	azureServiceBusHandler        service.Registerable
-	azureTableHandler             service.Registerable
+	cosmosDBHandler               service.Registerable
+	appConfigHandler              service.Registerable
+	applicationautoscalingHandler service.Registerable
 	batchHandler                  service.Registerable
 	bedrockHandler                service.Registerable
 	bedrockruntimeHandler         service.Registerable
@@ -1761,20 +1761,23 @@ func (c *CLI) GetAzureBlobHandler() service.Registerable { return c.azureBlobHan
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAzureQueueHandler() service.Registerable { return c.azureQueueHandler }
 
-// GetAppConfigHandler returns the AppConfig handler (dashboard.AWSSDKProvider).
-//
 // GetAzureTableHandler returns the Azure Table handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAzureTableHandler() service.Registerable { return c.azureTableHandler }
+
 // GetAzureServiceBusHandler returns the Azure Service Bus handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAzureServiceBusHandler() service.Registerable { return c.azureServiceBusHandler }
 
+// GetCosmosDBHandler returns the Cosmos DB handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCosmosDBHandler() service.Registerable { return c.cosmosDBHandler }
+
 // GetAppConfigHandler returns the AppConfig handler (dashboard.AWSSDKProvider).
 //
-
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAppConfigHandler() service.Registerable { return c.appConfigHandler }
 
@@ -2961,12 +2964,12 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.cloudtrailHandler = byName["CloudTrail"]
 	cli.azureARMHandler = byName["AzureARM"]
 	cli.azureBlobHandler = byName["AzureBlob"]
+	cli.azureQueueHandler = byName["AzureQueue"]
 	cli.azureTableHandler = byName["AzureTable"]
 	cli.azureServiceBusHandler = byName["AzureServiceBus"]
-	cli.azureQueueHandler = byName["AzureQueue"]
+	cli.cosmosDBHandler = byName["CosmosDB"]
 	cli.ceHandler = byName["Ce"]
 	cli.cloudcontrolHandler = byName["CloudControl"]
-	cli.azureTableHandler = byName["AzureTable"]
 	cli.cloudFrontHandler = byName["CloudFront"]
 	cli.codeArtifactHandler = byName["CodeArtifact"]
 	cli.codeConnectionsHandler = byName["CodeConnections"]
@@ -4352,11 +4355,11 @@ func getServiceProviders() []service.Provider {
 		&s3vectorsbackend.Provider{},
 		&cloudhsmv2backend.Provider{},
 		&rumbackend.Provider{},
+		&appintegrationsbackend.Provider{},
+		&connectbackend.Provider{},
 	})
 }
 
-		&appintegrationsbackend.Provider{},
-		&connectbackend.Provider{},
 // getCoreServiceProviders returns the foundational service providers.
 // Extracted from getServiceProviders to satisfy the funlen limit and to
 // give the inline registration list headroom as new services are added.
