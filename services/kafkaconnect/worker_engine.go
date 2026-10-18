@@ -19,8 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -582,7 +581,7 @@ func parseProperties(content string) map[string]string {
 func (e *workerEngine) spec(name, dir string, port int) container.Spec {
 	return container.Spec{
 		Image:  e.cfg.Image,
-		Name:   "gopherstack-mskc-" + safeName(name) + "-" + uuid.NewString()[:8],
+		Name:   awsid.New("gopherstack-mskc-" + safeName(name) + "-"),
 		Ports:  []string{container.PortSpec(container.BindHostFor(e.cfg.Host), strconv.Itoa(port), workerRESTPort)},
 		Mounts: []string{dir + ":" + workerMountDir + ":ro"},
 		Cmd:    []string{"/opt/kafka/bin/connect-distributed.sh", workerMountDir + "/worker.properties"},
