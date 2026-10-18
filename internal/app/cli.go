@@ -64,6 +64,7 @@ import (
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
 	snsevents "github.com/blackbirdworks/gopherstack/pkgs/events"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
 	"github.com/blackbirdworks/gopherstack/pkgs/inithooks"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
@@ -450,6 +451,7 @@ type CLI struct {
 	ssmClient                     *ssmsdk.Client
 	s3Client                      *s3.Client
 	globalConfig                  *config.GlobalConfig
+	iamStream                     *iampolicystream.Recorder
 	portAlloc                     *portalloc.Allocator
 	localstackInit                *localstackInitState
 	ElastiCacheEngine             string                            `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"             default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                            //nolint:lll // config struct tags are intentionally verbose
@@ -519,6 +521,7 @@ type CLI struct {
 	LatencyMs                     int                               `                                       name:"latency-ms"              env:"LATENCY_MS"                     default:"0"             help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."`                                                                   //nolint:lll // config struct tags are intentionally verbose
 	AutoPurgeTTL                  time.Duration                     `                                       name:"auto-purge-ttl"          env:"AUTO_PURGE_TTL"                                         help:"If set, automatically reset all services on a timer based on the TTL (e.g., 10m)."`                                                                                                            //nolint:lll // config struct tags are intentionally verbose
 	EnforceIAM                    bool                              `                                       name:"enforce-iam"             env:"GOPHERSTACK_ENFORCE_IAM"        default:"false"         help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
+	IAMAudit                      bool                              `                                       name:"iam-audit"              env:"GOPHERSTACK_IAM_AUDIT,IAM_SOFT_MODE" default:"false" help:"IAM audit (soft) mode: evaluate and record every request in the IAM Policy Stream but never deny."`                                                                                                //nolint:lll // config struct tags are intentionally verbose
 	LocalstackCompat              bool                              `                                       name:"localstack-compat"       env:"GOPHERSTACK_LOCALSTACK_COMPAT"  default:"false"         help:"LocalStack drop-in mode: also listen on 4566 (auto-enabled when LOCALSTACK_*, GATEWAY_LISTEN, LS_LOG or PERSISTENCE is set)."`                                                                 //nolint:lll // config struct tags are intentionally verbose
 	Persist                       bool                              `                                       name:"persist"                 env:"PERSIST"                        default:"false"         help:"Enable snapshot-based persistence across restarts."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
 	Demo                          bool                              `                                       name:"demo"                    env:"DEMO"                           default:"false"         help:"Load demo data on startup."`                                                                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
@@ -2209,6 +2212,7 @@ func run(ctx context.Context, cli CLI) error {
 	// Create the fault store before initialising services so the dashboard can
 	// receive it via cli.GetFaultStore() during its Init() call.
 	cli.faultStore, cli.localstackInit = chaos.NewFaultStore(), newLocalstackInitState()
+	cli.iamStream = iampolicystream.New(iampolicystream.DefaultCapacity)
 
 	services, err := initializeServices(appCtx)
 	if err != nil {
@@ -2458,6 +2462,7 @@ func buildEchoServer(
 	e.GET(logger.RequestsEndpointPath, buildRequestsHandler(logger.GlobalRingBuffer))
 	registerLocalstackDevEndpoints(e, services)
 	registerECSTaskEndpoints(e, services)
+	registerIAMPolicyStreamEndpoints(e, cli.IAMPolicyStream())
 	registerEC2IMDSEndpoints(e, services)
 	registerSSOEndpoints(e, services)
 	registerEC2NetworkEndpoints(e, services)
@@ -12019,6 +12024,8 @@ func setupChaosAndRegistry(
 		cli.GetGlobalConfig(),
 		faultStore,
 		cli.Compression != compressionOff,
+		cli.IAMAudit,
+		cli.IAMPolicyStream(),
 	)
 	if err != nil {
 		return err
@@ -12112,6 +12119,8 @@ func setupRegistry(
 	globalCfg *config.GlobalConfig,
 	faultStore *chaos.FaultStore,
 	compression bool,
+	iamAudit bool,
+	iamRecorder *iampolicystream.Recorder,
 ) (*service.Registry, error) {
 	registry := service.NewRegistry()
 
@@ -12143,7 +12152,7 @@ func setupRegistry(
 		registry.Use(service.Middleware(principalMiddleware(principalResolvers)))
 	}
 
-	if enforceIAM {
+	if enforceIAM || iamAudit {
 		iamBackend := findIAMBackend(services)
 		if iamBackend != nil {
 			log.Info("IAM policy enforcement enabled")
@@ -12152,6 +12161,8 @@ func setupRegistry(
 				Global:            globalCfg,
 				ResourceProviders: buildResourcePolicyProviders(services),
 				ActionExtractors:  buildActionExtractors(services),
+				Recorder:          iamRecorder,
+				Audit:             iamAudit,
 			}
 
 			registry.Use(service.Middleware(iambackend.EnforcementMiddleware(iamBackend, ecfg)))

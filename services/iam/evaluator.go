@@ -30,6 +30,7 @@ type Statement struct {
 	// Principal is ignored in enforcement; stored for completeness.
 	Principal any    `json:"Principal"`
 	Effect    string `json:"Effect,omitempty"`
+	Sid       string `json:"Sid,omitempty"`
 }
 
 // parsedPolicyCache memoizes json.Unmarshal of a policy document string, keyed
@@ -118,9 +119,58 @@ const (
 // and to substitute policy variables. Pass an empty ConditionContext{} when
 // no conditions or variables are needed.
 func EvaluatePolicies(policyDocs []string, action, resource string, ctx ConditionContext) EvaluationResult {
+	return evaluatePolicies(policyDocs, action, resource, ctx, nil)
+}
+
+// EvalMatch identifies the statement that decided an evaluation.
+type EvalMatch struct {
+	Sid           string
+	ConditionKeys []string
+	PolicyIndex   int
+	StatementIdx  int
+	Matched       bool
+}
+
+// ExplainPolicies is EvaluatePolicies plus the deciding statement: the first
+// matching Deny, else the last matching Allow. ConditionKeys lists the keys of
+// every action- and resource-matching statement's Condition block.
+func ExplainPolicies(
+	policyDocs []string, action, resource string, ctx ConditionContext,
+) (EvaluationResult, EvalMatch) {
+	m := EvalMatch{PolicyIndex: -1, StatementIdx: -1}
+	res := evaluatePolicies(policyDocs, action, resource, ctx, &m)
+
+	return res, m
+}
+
+func (m *EvalMatch) noteConditionKeys(cond map[string]map[string]any) {
+	if m == nil {
+		return
+	}
+
+	for _, byKey := range cond {
+		for k := range byKey {
+			if !slices.Contains(m.ConditionKeys, k) {
+				m.ConditionKeys = append(m.ConditionKeys, k)
+			}
+		}
+	}
+}
+
+func (m *EvalMatch) decide(sid string, policyIdx, stmtIdx int) {
+	if m == nil {
+		return
+	}
+
+	m.Sid, m.PolicyIndex, m.StatementIdx, m.Matched = sid, policyIdx, stmtIdx, true
+}
+
+func evaluatePolicies(
+	policyDocs []string, action, resource string, ctx ConditionContext, trace *EvalMatch,
+) EvaluationResult {
 	result := EvalImplicitDeny
 
-	for _, doc := range policyDocs {
+	for di, doc := range policyDocs {
 		expanded := SubstituteVariables(doc, ctx)
 
 		pd, ok := parsePolicyDocumentCached(expanded)
@@ -128,14 +178,12 @@ func EvaluatePolicies(policyDocs []string, action, resource string, ctx Conditio
 			continue
 		}
 
-		for _, stmt := range pd.Statement {
-			if !stmtActionMatches(stmt, action) {
+		for si, stmt := range pd.Statement {
+			if !stmtActionMatches(stmt, action) || !stmtResourceMatches(stmt, resource) {
 				continue
 			}
 
-			if !stmtResourceMatches(stmt, resource) {
-				continue
-			}
+			trace.noteConditionKeys(stmt.Condition)
 
 			if !conditionMatches(stmt.Condition, ctx) {
 				continue
@@ -143,9 +191,13 @@ func EvaluatePolicies(policyDocs []string, action, resource string, ctx Conditio
 
 			switch strings.ToUpper(stmt.Effect) {
 			case "DENY":
+				trace.decide(stmt.Sid, di, si)
+
 				return EvalExplicitDeny
 			case "ALLOW":
 				result = EvalAllow
+
+				trace.decide(stmt.Sid, di, si)
 			}
 		}
 	}

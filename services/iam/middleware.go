@@ -12,6 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -48,6 +49,8 @@ type EnforcementBackend interface {
 type EnforcementConfig struct {
 	// Global is the shared AWS configuration state.
 	Global *config.GlobalConfig `json:"global,omitempty"`
+	// Recorder, when non-nil, receives one event per evaluated request.
+	Recorder *iampolicystream.Recorder `json:"-"`
 	// ResourceProviders is a list of backends that can return resource-based
 	// policies (e.g. S3 bucket policies, SQS queue policies).
 	ResourceProviders []ResourcePolicyProvider `json:"resourceProviders,omitempty"`
@@ -55,6 +58,8 @@ type EnforcementConfig struct {
 	// when the global ExtractIAMAction function cannot determine the IAM action
 	// (e.g. for REST-based services that bypass the standard mappers).
 	ActionExtractors []ActionExtractor `json:"actionExtractors,omitempty"`
+	// Audit evaluates and records but never denies.
+	Audit bool `json:"audit,omitempty"`
 }
 
 // EnforcementMiddleware returns an Echo middleware that enforces IAM policies on
@@ -384,7 +389,14 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 	policyDocs, boundaryDoc, condCtx, callerName, enforced := resolveCallerIdentityPolicies(ctx, r, backend)
 	if !enforced {
 		if failClosedAccount(ctx, backend) {
-			log.InfoContext(ctx, "IAM enforcement: access denied (unresolved principal)")
+			log.InfoContext(ctx, "IAM enforcement: access denied (unresolved principal)",
+				"reason", reasonUnresolvedCaller)
+			cfg.record(c, requestDecision{reason: reasonUnresolvedCaller}, ExtractTargetOrFormIAMAction(r), "*",
+				awsmeta.CallerArn(ctx), "")
+
+			if cfg.Audit {
+				return next(c)
+			}
 
 			return writeAccessDenied(c, ExtractTargetOrFormIAMAction(r), "*")
 		}
@@ -415,66 +427,72 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 	}
 
 	resourceARN := extractResourceARN(r, accountID, region)
-
-	// Collect resource-based policies for the accessed resource.
 	resourceDocs := collectResourcePolicies(ctx, cfg.ResourceProviders, resourceARN)
 
-	// Determine what resource string to match against policy Resource fields.
 	matchResource := resourceARN
 	if matchResource == "" {
 		matchResource = "*"
 	}
-
-	// Identity-based policies.
-	idResult := EvaluatePolicies(policyDocs, action, matchResource, condCtx)
 
 	var boundaryDocs []string
 	if boundaryDoc != "" {
 		boundaryDocs = []string{boundaryDoc}
 	}
 
+	dec := decideRequest(policyDocs, boundaryDocs, resourceDocs, action, matchResource, condCtx)
+	cfg.record(c, dec, action, matchResource, condCtx.PrincipalARN, callerName)
+
+	if dec.allow {
+		return next(c)
+	}
+
+	if cfg.Audit {
+		log.InfoContext(ctx, "IAM audit: request would be denied",
+			"caller", callerName, "action", action, "resource", matchResource, "reason", dec.reason)
+
+		return next(c)
+	}
+
+	log.InfoContext(ctx, "IAM enforcement: access denied ("+dec.reason+")",
+		"caller", callerName, "action", action, "resource", matchResource, "reason", dec.reason,
+		"matchedSid", dec.match.Sid)
+
+	return writeAccessDenied(c, action, matchResource)
+}
+
+// decideRequest applies identity, boundary and resource policies to one request.
+func decideRequest(
+	policyDocs, boundaryDocs, resourceDocs []string,
+	action, matchResource string, condCtx ConditionContext,
+) requestDecision {
+	idResult, match := ExplainPolicies(policyDocs, action, matchResource, condCtx)
+
 	idResult, boundaryDenied, _ := applyPermissionsBoundary(boundaryDocs, action, matchResource, condCtx, idResult)
 	if boundaryDenied {
-		log.InfoContext(ctx, "IAM enforcement: access denied (permission boundary)",
-			"caller", callerName, "action", action, "resource", matchResource)
-
-		return writeAccessDenied(c, action, matchResource)
+		return requestDecision{reason: reasonPermissionBoundary, match: EvalMatch{ConditionKeys: match.ConditionKeys}}
 	}
 
-	// Explicit Deny from identity policy always wins.
 	if idResult == EvalExplicitDeny {
-		log.InfoContext(ctx, "IAM enforcement: access denied (identity policy)",
-			"caller", callerName, "action", action, "resource", matchResource)
-
-		return writeAccessDenied(c, action, matchResource)
+		return requestDecision{reason: reasonIdentityPolicy, match: match}
 	}
 
-	// Resource-based policies: allow if any grants access, deny on explicit deny.
 	if len(resourceDocs) > 0 {
-		resResult := EvaluatePolicies(resourceDocs, action, matchResource, condCtx)
+		resResult, resMatch := ExplainPolicies(resourceDocs, action, matchResource, condCtx)
 
 		if resResult == EvalExplicitDeny {
-			log.InfoContext(ctx, "IAM enforcement: access denied (resource policy)",
-				"caller", callerName, "action", action, "resource", matchResource)
-
-			return writeAccessDenied(c, action, matchResource)
+			return requestDecision{reason: reasonResourcePolicy, match: resMatch}
 		}
 
-		// Resource policy Allow is sufficient even without identity Allow.
 		if resResult == EvalAllow {
-			return next(c)
+			return requestDecision{allow: true, reason: reasonResourcePolicy, match: resMatch}
 		}
 	}
 
-	// No Allow from either identity or resource policy.
 	if idResult != EvalAllow {
-		log.InfoContext(ctx, "IAM enforcement: access denied (implicit deny)",
-			"caller", callerName, "action", action, "resource", matchResource)
-
-		return writeAccessDenied(c, action, matchResource)
+		return requestDecision{reason: reasonImplicitDeny, match: match}
 	}
 
-	return next(c)
+	return requestDecision{allow: true, reason: reasonIdentityPolicy, match: match}
 }
 
 // extractActionFromProviders calls each action extractor until one returns a non-empty action.
