@@ -212,6 +212,8 @@ github.com/aws/aws-sdk-go-v2/service/fsx v1.68.4 h1:x0zJPJVIgVt6/SyEblb2FaAterPq
 github.com/aws/aws-sdk-go-v2/service/fsx v1.68.4/go.mod h1:2NEMGSF5nfgA8bDuZTH12bldOVZCnGKpvyu4TFEKX38=
 github.com/aws/aws-sdk-go-v2/service/glacier v1.35.4 h1:9BhE7MC/wKmn9eAakgnrZgQVzUkRl7ts1/yisgMgvYc=
 github.com/aws/aws-sdk-go-v2/service/glacier v1.35.4/go.mod h1:sfrLkYKM1gZ13cyv8Ty8Y8BicxETqkjmlQe7NOhIZt8=
+github.com/aws/aws-sdk-go-v2/service/globalaccelerator v1.45.3 h1:0acuqYbzUmOR2XHPCM5356v2HunpKOOLa3FBxHNHWAU=
+github.com/aws/aws-sdk-go-v2/service/globalaccelerator v1.45.3/go.mod h1:vDBEUOtxWwwnAAeXURFFcT6rGEQ6e3xhKAaU1fIUmOI=
 github.com/aws/aws-sdk-go-v2/service/glue v1.157.0 h1:qJLe2A1hzHCMfij9ERcjiY5VdP7WtoE2tZk2Vx6LL+0=
 github.com/aws/aws-sdk-go-v2/service/glue v1.157.0/go.mod h1:jmg+e20p4KXwv/kWgs9PefMJMAz0/0ayrB2Yffo60pE=
 github.com/aws/aws-sdk-go-v2/service/grafana v1.38.4 h1:g87rPqroQwXySy7BkMLLrNvbccrumcFZWx2rqX0aU6o=
@@ -288,6 +290,8 @@ github.com/aws/aws-sdk-go-v2/service/mwaa v1.43.4 h1:zRhf9XchidSEYRsxpNzTaRxZfoR
 github.com/aws/aws-sdk-go-v2/service/mwaa v1.43.4/go.mod h1:IISK5TmF65KsOFWzqLmMruG5ZaofVakcjEflxBQ6BFE=
 github.com/aws/aws-sdk-go-v2/service/neptune v1.48.4 h1:OKqe8wmRV8/b0PgfEm2xBKUdxO81uVNF2TOvLny5mVE=
 github.com/aws/aws-sdk-go-v2/service/neptune v1.48.4/go.mod h1:QpgA5y9y/SywZTBw8ylR5gDS4Uc2qlVYbudXmzr/VSw=
+github.com/aws/aws-sdk-go-v2/service/networkfirewall v1.76.1 h1:5vjcmM/0scMQ7T2Gf9QxAqUehUbLeyl6viZZj+bYdKw=
+github.com/aws/aws-sdk-go-v2/service/networkfirewall v1.76.1/go.mod h1:UwfhRPgauP3bzV9eY3M94mpRATlNTzzlYtPTGjd85Zk=
 github.com/aws/aws-sdk-go-v2/service/networkmanager v1.44.4 h1:NqVaABPv2KzNPAFFDWe0tOx7Y7B3y/UuuB+TTUJNEO0=
 github.com/aws/aws-sdk-go-v2/service/networkmanager v1.44.4/go.mod h1:Rn3XXfK1IcbCURfY2KNXs/joVMDuIxQGrgLHQzx6df4=
 github.com/aws/aws-sdk-go-v2/service/networkmonitor v1.16.4 h1:a69y4f63C/nbN6eQrjoPazMUqZhbT/sd/Yr/sSvBzL0=

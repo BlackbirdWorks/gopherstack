@@ -93,6 +93,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/forecast v1.44.4
 	github.com/aws/aws-sdk-go-v2/service/fsx v1.68.4
 	github.com/aws/aws-sdk-go-v2/service/glacier v1.35.4
+	github.com/aws/aws-sdk-go-v2/service/globalaccelerator v1.45.3
 	github.com/aws/aws-sdk-go-v2/service/glue v1.157.0
 	github.com/aws/aws-sdk-go-v2/service/grafana v1.38.4
 	github.com/aws/aws-sdk-go-v2/service/guardduty v1.85.4
@@ -126,6 +127,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/mq v1.39.4
 	github.com/aws/aws-sdk-go-v2/service/mwaa v1.43.4
 	github.com/aws/aws-sdk-go-v2/service/neptune v1.48.4
+	github.com/aws/aws-sdk-go-v2/service/networkfirewall v1.76.1
 	github.com/aws/aws-sdk-go-v2/service/networkmanager v1.44.4
 	github.com/aws/aws-sdk-go-v2/service/networkmonitor v1.16.4
 	github.com/aws/aws-sdk-go-v2/service/omics v1.49.5
