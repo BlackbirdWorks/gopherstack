@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -97,6 +99,10 @@ func loadSAMLMetadata(ctx context.Context, details map[string]string) (*samlMeta
 			return nil, samlErrorf("provider requires MetadataFile or an http(s) MetadataURL")
 		}
 
+		if strings.HasPrefix(strings.ToLower(target), "http://") {
+			logger.Load(ctx).WarnContext(ctx, "cognitoidp: SAML MetadataURL is plain http; use https in production")
+		}
+
 		var err error
 		if raw, err = idpFetchRaw(ctx, target); err != nil {
 			return nil, err
@@ -152,29 +158,39 @@ func (md *samlMetadata) validate() error {
 	return nil
 }
 
-// signingKeys collects the RSA public keys of every X509Certificate under the IdP descriptor.
+// signingKeys collects the RSA public keys of KeyDescriptors usable for signing (use absent or "signing").
 func signingKeys(idpDesc *xnode) []*rsa.PublicKey {
 	var keys []*rsa.PublicKey
 
-	idpDesc.walk(func(n *xnode) {
-		if !n.is(nsDSig, "X509Certificate") {
-			return
+	var certs []*xnode
+
+	for _, kd := range idpDesc.childrenNamed(nsSAMLMetadata, "KeyDescriptor") {
+		if use := kd.attr("use"); use != "" && use != "signing" {
+			continue
 		}
 
+		kd.walk(func(n *xnode) {
+			if n.is(nsDSig, "X509Certificate") {
+				certs = append(certs, n)
+			}
+		})
+	}
+
+	for _, n := range certs {
 		der, err := base64.StdEncoding.DecodeString(stripSpace(n.textContent()))
 		if err != nil {
-			return
+			continue
 		}
 
 		cert, err := x509.ParseCertificate(der)
 		if err != nil {
-			return
+			continue
 		}
 
 		if pub, ok := cert.PublicKey.(*rsa.PublicKey); ok {
 			keys = append(keys, pub)
 		}
-	})
+	}
 
 	return keys
 }
@@ -238,6 +254,7 @@ func (h *Handler) startSAML(c *echo.Context, req *authorizeRequest, idp *Identit
 		return fail(errServerError, "")
 	}
 
+	setIDPBinding(c, key, pathSAMLIDPResponse, true)
 	c.Response().Header().Set("Cache-Control", "no-store")
 
 	if md.ssoRedirect != "" {
@@ -281,6 +298,10 @@ func (h *Handler) handleSAMLResponse(c *echo.Context) error {
 		return renderErrorPage(c, http.StatusBadRequest, errInvalidRequest, "malformed form body")
 	}
 
+	if !verifyIDPBinding(r, r.PostForm.Get("RelayState"), true) {
+		return renderErrorPage(c, http.StatusBadRequest, errInvalidRequest, "state does not match this browser session")
+	}
+
 	st, ok := h.Backend.consumeIDPState(r.PostForm.Get("RelayState"))
 	if !ok || st.SAMLRequestID == "" {
 		return renderErrorPage(c, http.StatusBadRequest, errInvalidRequest, "state is invalid or has expired")
@@ -304,12 +325,18 @@ func (h *Handler) handleSAMLResponse(c *echo.Context) error {
 
 	md, err := loadSAMLMetadata(r.Context(), idp.ProviderDetails)
 	if err != nil {
-		return fail(err.Error())
+		logger.Load(r.Context()).WarnContext(r.Context(), "cognitoidp: SAML metadata load failed",
+			"pool", st.PoolID, "provider", st.ProviderName, "error", err)
+
+		return fail("identity provider metadata could not be loaded")
 	}
 
 	claims, err := validateSAMLResponse(raw, md, st, time.Now())
 	if err != nil {
-		return fail(err.Error())
+		logger.Load(r.Context()).WarnContext(r.Context(), "cognitoidp: SAML response rejected",
+			"pool", st.PoolID, "provider", st.ProviderName, "error", err)
+
+		return fail("SAML response validation failed")
 	}
 
 	username, err := h.Backend.federatedSignIn(st.PoolID, st.ClientID, idp, claims, md.entityID)
@@ -337,18 +364,10 @@ func validateSAMLResponse(raw []byte, md *samlMetadata, st *idpState, now time.T
 		return nil, err
 	}
 
-	if dest := root.attr("Destination"); dest != "" && dest != st.IDPRedirect {
-		return nil, samlErrorf("response destination does not match this endpoint")
-	}
-
-	if root.attr("InResponseTo") != st.SAMLRequestID {
-		return nil, samlErrorf("response is not a reply to the pending request")
-	}
-
-	if status := root.child(nsSAMLProtocol, "Status"); status == nil ||
-		status.child(nsSAMLProtocol, "StatusCode") == nil ||
-		status.child(nsSAMLProtocol, "StatusCode").attr("Value") != samlStatusOK {
-		return nil, samlErrorf("identity provider returned a non-success status")
+	if slices.Contains(signed, root) {
+		if err = checkSignedResponse(root, st); err != nil {
+			return nil, err
+		}
 	}
 
 	if len(root.childrenNamed(nsSAMLAssertion, "EncryptedAssertion")) > 0 {
@@ -361,6 +380,26 @@ func validateSAMLResponse(raw []byte, md *samlMetadata, st *idpState, now time.T
 	}
 
 	return assertionClaims(assertion, md, st, now)
+}
+
+// checkSignedResponse validates the Response-level attributes, which are only trustworthy when the
+// Response element itself is covered by a verified signature.
+func checkSignedResponse(root *xnode, st *idpState) error {
+	if root.attr("Destination") != st.IDPRedirect {
+		return samlErrorf("response destination does not match this endpoint")
+	}
+
+	if root.attr("InResponseTo") != st.SAMLRequestID {
+		return samlErrorf("response is not a reply to the pending request")
+	}
+
+	status := root.child(nsSAMLProtocol, "Status")
+	if status == nil || status.child(nsSAMLProtocol, "StatusCode") == nil ||
+		status.child(nsSAMLProtocol, "StatusCode").attr("Value") != samlStatusOK {
+		return samlErrorf("identity provider returned a non-success status")
+	}
+
+	return nil
 }
 
 // signedAssertion returns the single assertion whose content is covered by a verified signature.
@@ -459,13 +498,18 @@ func checkConditions(a *xnode, poolID string, now time.Time) error {
 
 	want := samlSPPrefix + poolID
 
-	for _, ar := range cond.childrenNamed(nsSAMLAssertion, "AudienceRestriction") {
-		for _, aud := range ar.childrenNamed(nsSAMLAssertion, "Audience") {
-			if aud.textContent() == want {
-				return nil
-			}
+	restrictions := cond.childrenNamed(nsSAMLAssertion, "AudienceRestriction")
+	if len(restrictions) == 0 {
+		return samlErrorf("assertion audience is not %s", want)
+	}
+
+	for _, ar := range restrictions {
+		if !slices.ContainsFunc(ar.childrenNamed(nsSAMLAssertion, "Audience"), func(a *xnode) bool {
+			return a.textContent() == want
+		}) {
+			return samlErrorf("assertion audience is not %s", want)
 		}
 	}
 
-	return samlErrorf("assertion audience is not %s", want)
+	return nil
 }

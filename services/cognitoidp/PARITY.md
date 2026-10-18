@@ -174,6 +174,12 @@ leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessi
   XML-DSig (exclusive C14N, RSA SHA-2 only, certificates pinned from metadata, unique-ID reference, content read
   only from the signed element), issuer, destination, InResponseTo, bearer confirmation, validity window and the
   `urn:amazon:cognito:sp:<poolId>` audience. RelayState is single-use.
+- Hardening: Response-level Destination/InResponseTo/Status are trusted only when the Response itself is signed
+  (then Destination is mandatory); every AudienceRestriction must name the SP; only signing KeyDescriptors are
+  pinned; validation detail is logged, not returned in `error_description`. State is bound to the initiating
+  browser by an HttpOnly hashed-state cookie (SameSite=None; Secure for POST callbacks on https; plain-http POST
+  callbacks accept a missing cookie with a warning). Native SignUp/AdminCreateUser usernames starting with
+  `<ProviderName>_` of a pool IdP are rejected (InvalidParameterException).
 - First federated sign-in fires PreSignUp_ExternalProvider then PostConfirmation_ConfirmSignUp; a PreSignUp error
   aborts creation. AdminLinkProviderForUser requires a native destination and an existing provider, merges away the
   standalone federated profile (AliasExistsException if linked elsewhere) and records the identity;

@@ -25,6 +25,10 @@ func (b *InMemoryBackend) AdminCreateUser(
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
+	if err := b.reservedFederatedNameLocked(userPoolID, username); err != nil {
+		return nil, err
+	}
+
 	if b.usernameExistsLocked(userPoolID, username) {
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUsernameExists, username)
 	}

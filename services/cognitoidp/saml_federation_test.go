@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,6 +45,8 @@ type samlOpts struct {
 	inResponse string
 	nameID     string
 	sign       string
+	extraAud   string
+	noDest     bool
 	expires    time.Duration
 }
 
@@ -131,6 +134,7 @@ func (i *samlIDP) response(requestID, acs, poolID string, o *samlOpts) string {
 		`" Recipient="` + acs + `"></saml:SubjectConfirmationData></saml:SubjectConfirmation></saml:Subject>` +
 		`<saml:Conditions NotBefore="` + stamp(-time.Minute) + `" NotOnOrAfter="` + stamp(o.expires) + `">` +
 		`<saml:AudienceRestriction><saml:Audience>` + o.audience + `</saml:Audience></saml:AudienceRestriction>` +
+		o.extraRestriction() +
 		`</saml:Conditions><saml:AttributeStatement><saml:Attribute Name="` + samlEmailAttr + `">` +
 		`<saml:AttributeValue>alice@corp.example</saml:AttributeValue></saml:Attribute></saml:AttributeStatement>`
 
@@ -139,8 +143,13 @@ func (i *samlIDP) response(requestID, acs, poolID string, o *samlOpts) string {
 	aBefore := `<saml:Issuer>` + o.issuer + `</saml:Issuer>`
 	aClose := `</saml:Assertion>`
 
-	rOpen := `<samlp:Response xmlns:samlp="` + samlNSProtocol + `" Destination="` + acs +
-		`" ID="_resp1" InResponseTo="` + requestID + `" IssueInstant="` + stamp(0) + `" Version="2.0">`
+	dest := ` Destination="` + acs + `"`
+	if o.noDest {
+		dest = ""
+	}
+
+	rOpen := `<samlp:Response xmlns:samlp="` + samlNSProtocol + `"` + dest +
+		` ID="_resp1" InResponseTo="` + requestID + `" IssueInstant="` + stamp(0) + `" Version="2.0">`
 	status := `<samlp:Status><samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success">` +
 		`</samlp:StatusCode></samlp:Status>`
 
@@ -162,6 +171,14 @@ func (i *samlIDP) response(requestID, acs, poolID string, o *samlOpts) string {
 	return base64.StdEncoding.EncodeToString([]byte(doc))
 }
 
+func (o *samlOpts) extraRestriction() string {
+	if o.extraAud == "" {
+		return ""
+	}
+
+	return `<saml:AudienceRestriction><saml:Audience>` + o.extraAud + `</saml:Audience></saml:AudienceRestriction>`
+}
+
 func (o *samlOpts) fill(requestID, poolID string, def *rsa.PrivateKey) {
 	if o.signKey == nil {
 		o.signKey = def
@@ -173,6 +190,10 @@ func (o *samlOpts) fill(requestID, poolID string, def *rsa.PrivateKey) {
 
 	if o.issuer == "" {
 		o.issuer = samlEntityID
+	}
+
+	if o.extraAud == "self" {
+		o.extraAud = o.audience
 	}
 
 	if o.inResponse == "" {
@@ -230,10 +251,18 @@ const detailMetadataFile = "MetadataFile"
 func (e *samlEnv) start(t *testing.T) (string, string, string) {
 	t.Helper()
 
+	id, relay, xmlReq, _ := e.startWith(t, nil)
+
+	return id, relay, xmlReq
+}
+
+func (e *samlEnv) startWith(t *testing.T, hdr map[string]string) (string, string, string, *http.Response) {
+	t.Helper()
+
 	q := authorizeQuery(e.clientID, "")
 	q.Set("identity_provider", fedProvider)
 
-	resp, _ := e.get(t, "/oauth2/authorize?"+q.Encode(), nil)
+	resp, _ := e.get(t, "/oauth2/authorize?"+q.Encode(), hdr)
 	require.Equal(t, http.StatusFound, resp.StatusCode)
 
 	loc, err := url.Parse(resp.Header.Get("Location"))
@@ -249,7 +278,7 @@ func (e *samlEnv) start(t *testing.T) (string, string, string) {
 	m := regexp.MustCompile(`ID="([^"]+)"`).FindStringSubmatch(string(xmlReq))
 	require.Len(t, m, 2)
 
-	return m[1], loc.Query().Get("RelayState"), string(xmlReq)
+	return m[1], loc.Query().Get("RelayState"), string(xmlReq), resp
 }
 
 func (e *samlEnv) acs() string { return e.srv.URL + "/saml2/idpresponse" }
@@ -283,6 +312,27 @@ func TestSAMLFederation(t *testing.T) {
 		{name: "signed assertion", wantOK: true},
 		{name: "signed response", opts: samlOpts{sign: "response"}, wantOK: true},
 		{name: "metadata url", byURL: true, wantOK: true},
+		{
+			name: "unsigned root attrs ignored when only assertion signed",
+			opts: samlOpts{mutate: func(s string) string {
+				s = regexp.MustCompile(`Destination="[^"]*"`).ReplaceAllString(s, `Destination="https://evil.example/"`)
+
+				s = regexp.MustCompile(`(<samlp:Response[^>]*?) InResponseTo="[^"]*"`).
+					ReplaceAllString(s, `${1} InResponseTo="_forged"`)
+
+				return strings.Replace(s, "status:Success", "status:Responder", 1)
+			}},
+			wantOK: true,
+		},
+		{
+			name: "signed response without destination", errSubstr: "destination",
+			opts: samlOpts{sign: "response", noDest: true},
+		},
+		{name: "every restriction names the sp", opts: samlOpts{extraAud: "self"}, wantOK: true},
+		{
+			name: "second restriction missing audience", errSubstr: "audience",
+			opts: samlOpts{extraAud: "urn:amazon:cognito:sp:other"},
+		},
 		{name: "unsigned", opts: samlOpts{sign: "none"}, errSubstr: "not signed"},
 		{name: "wrong key", opts: samlOpts{signKey: otherKey}, errSubstr: "does not verify"},
 		{
@@ -324,12 +374,24 @@ func TestSAMLFederation(t *testing.T) {
 			assert.Contains(t, xmlReq, env.acs())
 
 			opts := tt.opts
-			resp := env.post(t, relay, env.idp.response(reqID, env.acs(), env.poolID, &opts))
+			doc := env.idp.response(reqID, env.acs(), env.poolID, &opts)
+			raw, derr := base64.StdEncoding.DecodeString(doc)
+			require.NoError(t, derr)
+
+			verr := cognitoidp.ValidateSAMLResponseForTest(
+				raw, []byte(env.idp.metadata()), env.poolID, env.acs(), reqID, time.Now())
+			if tt.wantOK {
+				require.NoError(t, verr)
+			} else {
+				require.ErrorContains(t, verr, tt.errSubstr)
+			}
+
+			resp := env.post(t, relay, doc)
 			q := locationQuery(t, resp)
 
 			if !tt.wantOK {
 				assert.Equal(t, "invalid_request", q.Get("error"))
-				assert.Contains(t, q.Get("error_description"), tt.errSubstr)
+				assert.Equal(t, "SAML response validation failed", q.Get("error_description"))
 				assert.Equal(t, "st8", q.Get("state"))
 				assert.Empty(t, q.Get("code"))
 
@@ -382,4 +444,147 @@ func TestSAMLReplayAndBadState(t *testing.T) {
 
 	resp, _ = env.postForm(t, "/saml2/idpresponse", url.Values{"SAMLResponse": {doc}, "RelayState": {"nope"}}, nil)
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func bindingCookie(resp *http.Response) *http.Cookie {
+	for _, c := range resp.Cookies() {
+		if strings.HasPrefix(c.Name, "gs_idp_") {
+			return c
+		}
+	}
+
+	return nil
+}
+
+// bareDo sends req on a cookie-less client that does not follow redirects.
+func bareDo(t *testing.T, req *http.Request) *http.Response {
+	t.Helper()
+
+	c := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+
+	resp, err := c.Do(req)
+	require.NoError(t, err)
+
+	_ = resp.Body.Close()
+
+	return resp
+}
+
+func TestSAMLBrowserBinding(t *testing.T) {
+	t.Parallel()
+
+	https := map[string]string{"X-Forwarded-Proto": "https"}
+
+	tests := []struct {
+		name       string
+		hdr        map[string]string
+		cookie     string
+		wantStatus int
+		wantNone   bool
+		wantSecure bool
+	}{
+		{name: "http valid cookie", cookie: "good", wantStatus: http.StatusFound},
+		{name: "http no cookie falls back", cookie: "", wantStatus: http.StatusFound},
+		{name: "http wrong cookie", cookie: "bad", wantStatus: http.StatusBadRequest},
+		{
+			name: "https valid cookie", hdr: https, cookie: "good", wantStatus: http.StatusFound,
+			wantNone: true, wantSecure: true,
+		},
+		{
+			name: "https no cookie", hdr: https, cookie: "", wantStatus: http.StatusBadRequest,
+			wantNone: true, wantSecure: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			env := newSAMLEnv(t, false)
+			reqID, relay, _, resp := env.startWith(t, tt.hdr)
+
+			ck := bindingCookie(resp)
+			require.NotNil(t, ck)
+			assert.True(t, ck.HttpOnly)
+			assert.Equal(t, "/saml2/idpresponse", ck.Path)
+			assert.Equal(t, tt.wantSecure, ck.Secure)
+
+			if tt.wantNone {
+				assert.Equal(t, http.SameSiteNoneMode, ck.SameSite)
+			} else {
+				assert.Equal(t, http.SameSiteLaxMode, ck.SameSite)
+			}
+
+			doc := env.idp.response(reqID, env.acs(), env.poolID, &samlOpts{})
+			req, err := http.NewRequest(http.MethodPost, env.srv.URL+"/saml2/idpresponse",
+				strings.NewReader(url.Values{"SAMLResponse": {doc}, "RelayState": {relay}}.Encode()))
+			require.NoError(t, err)
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+			for k, v := range tt.hdr {
+				req.Header.Set(k, v)
+			}
+
+			switch tt.cookie {
+			case "good":
+				req.AddCookie(ck)
+			case "bad":
+				req.AddCookie(&http.Cookie{Name: ck.Name, Value: "forged"})
+			}
+
+			assert.Equal(t, tt.wantStatus, bareDo(t, req).StatusCode)
+		})
+	}
+}
+
+func TestSAMLMetadataKeyUse(t *testing.T) {
+	t.Parallel()
+
+	idp := newSAMLIDP(t)
+	cert := base64.StdEncoding.EncodeToString(idp.cert)
+
+	build := func(kd string) []byte {
+		return []byte(`<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="e">` +
+			`<md:IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">` + kd +
+			`<md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://i/sso"/>` +
+			`</md:IDPSSODescriptor></md:EntityDescriptor>`)
+	}
+
+	keyDesc := func(use string) string {
+		attr := ""
+		if use != "" {
+			attr = ` use="` + use + `"`
+		}
+
+		return `<md:KeyDescriptor` + attr + `><ds:KeyInfo xmlns:ds="` + samlNSDSig + `"><ds:X509Data>` +
+			`<ds:X509Certificate>` + cert + `</ds:X509Certificate></ds:X509Data></ds:KeyInfo></md:KeyDescriptor>`
+	}
+
+	tests := []struct {
+		name    string
+		kd      string
+		want    int
+		wantErr bool
+	}{
+		{name: "signing", kd: keyDesc("signing"), want: 1},
+		{name: "unspecified use", kd: keyDesc(""), want: 1},
+		{name: "encryption only", kd: keyDesc("encryption"), wantErr: true},
+		{name: "encryption ignored beside signing", kd: keyDesc("encryption") + keyDesc("signing"), want: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			n, err := cognitoidp.SAMLSigningKeyCount(build(tt.kd))
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, n)
+		})
+	}
 }

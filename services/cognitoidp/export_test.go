@@ -228,3 +228,25 @@ func (b *InMemoryBackend) CreateFederatedUserForTest(poolID, provider, subject s
 
 	return b.federatedSignIn(poolID, "", idp, map[string]any{claimSub: subject}, "https://issuer.test")
 }
+
+// ValidateSAMLResponseForTest runs the SAML response validator against metadata. For testing only.
+func ValidateSAMLResponseForTest(raw, metadata []byte, poolID, acs, requestID string, now time.Time) error {
+	md, err := parseSAMLMetadata(metadata)
+	if err != nil {
+		return err
+	}
+
+	_, err = validateSAMLResponse(raw, md, &idpState{PoolID: poolID, IDPRedirect: acs, SAMLRequestID: requestID}, now)
+
+	return err
+}
+
+// SAMLSigningKeyCount parses IdP metadata and returns its signing key count. For testing only.
+func SAMLSigningKeyCount(metadata []byte) (int, error) {
+	md, err := parseSAMLMetadata(metadata)
+	if err != nil {
+		return 0, err
+	}
+
+	return len(md.keys), nil
+}

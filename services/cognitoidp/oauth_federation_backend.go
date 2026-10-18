@@ -8,9 +8,12 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
@@ -218,6 +221,21 @@ func (b *InMemoryBackend) federatedSignIn(
 	user.UpdatedAt = time.Now()
 
 	return user.Username, nil
+}
+
+// reservedFederatedNameLocked rejects native usernames in the "<ProviderName>_" namespace of a
+// configured identity provider, closing the pre-hijack of a future federated account.
+func (b *InMemoryBackend) reservedFederatedNameLocked(poolID, username string) error {
+	folded := strs.Fold(username)
+
+	for _, idp := range b.identityProvidersByPool.Get(poolID) {
+		if strings.HasPrefix(folded, strs.Fold(idp.ProviderName)+"_") {
+			return fmt.Errorf("%w: username prefix %q_ is reserved for identity provider %q",
+				ErrInvalidParameter, idp.ProviderName, idp.ProviderName)
+		}
+	}
+
+	return nil
 }
 
 func (b *InMemoryBackend) linkedUserLocked(poolID, providerName, subject string) *User {

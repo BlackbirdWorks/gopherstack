@@ -28,7 +28,7 @@ func federationTarget(q url.Values) (string, string, bool) {
 
 func idpCallbackURL(r *http.Request) string {
 	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == schemeHTTPS {
+	if isHTTPSRequest(r) {
 		scheme = schemeHTTPS
 	}
 
@@ -78,6 +78,8 @@ func (h *Handler) startFederation(c *echo.Context, req *authorizeRequest, name, 
 	if err != nil {
 		return fail(errServerError, "")
 	}
+
+	setIDPBinding(c, key, pathOAuthIDPResponse, idp.ProviderType == providerTypeApple)
 
 	target, err := url.Parse(cfg.authorizeURL)
 	if err != nil {
@@ -148,6 +150,10 @@ func (h *Handler) handleIDPResponse(c *echo.Context) error {
 	q, perr := idpResponseParams(c)
 	if perr != nil {
 		return renderErrorPage(c, http.StatusBadRequest, errInvalidRequest, "malformed form body")
+	}
+
+	if !verifyIDPBinding(c.Request(), q.Get("state"), c.Request().Method == http.MethodPost) {
+		return renderErrorPage(c, http.StatusBadRequest, errInvalidRequest, "state does not match this browser session")
 	}
 
 	st, ok := h.Backend.consumeIDPState(q.Get("state"))
