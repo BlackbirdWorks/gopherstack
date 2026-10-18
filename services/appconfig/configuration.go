@@ -78,12 +78,9 @@ func (b *InMemoryBackend) CurrentDeployedConfiguration(
 // failures are logged, not propagated, since the deployment itself already
 // succeeded. Must be called under lock.
 func (b *InMemoryBackend) publishDeployedConfigurationLocked(d *Deployment) {
-	if b.configPublisher == nil {
-		return
-	}
-
 	profile, ok := b.configProfiles.Get(d.ConfigurationProfileID)
-	if !ok {
+	cacheOnly := b.configPublisher == nil
+	if !ok || (cacheOnly && (profile.LocationURI == contentTypeHostedLocation || b.contentReader == nil)) {
 		return
 	}
 
@@ -115,6 +112,10 @@ func (b *InMemoryBackend) publishDeployedConfigurationLocked(d *Deployment) {
 
 		b.fetchedConfigs[appEnvProfileKey(d.ApplicationID, d.EnvironmentID, d.ConfigurationProfileID)] = fetched
 		content, contentType = fetched.Content, fetched.ContentType
+	}
+
+	if cacheOnly {
+		return
 	}
 
 	deploymentID := strconv.FormatInt(int64(d.DeploymentNumber), 10)

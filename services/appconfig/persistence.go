@@ -54,18 +54,19 @@ const appconfigSnapshotVersion = 1
 // deploymentTimers is deliberately NOT part of this snapshot -- see its doc
 // comment on InMemoryBackend.
 type backendSnapshot struct {
-	Tables                map[string]json.RawMessage      `json:"tables"`
-	TagsByArn             map[string]map[string]string    `json:"tagsByArn"`
-	VersionCounters       map[string]map[string]int32     `json:"versionCounters"`
-	DeploymentCounters    map[string]map[string]int32     `json:"deploymentCounters"`
-	DeployedConfigs       map[string]string               `json:"deployedConfigs"`
-	DeploymentContent     map[string][]byte               `json:"deploymentContent,omitempty"`
-	ExperimentRunEvents   map[string][]ExperimentRunEvent `json:"experimentRunEvents"`
-	ExperimentRunCounters map[string]int32                `json:"experimentRunCounters"`
-	AccountSettings       AccountSettings                 `json:"accountSettings"`
-	AccountID             string                          `json:"accountID"`
-	Region                string                          `json:"region"`
-	Version               int                             `json:"version"`
+	Tables                map[string]json.RawMessage             `json:"tables"`
+	TagsByArn             map[string]map[string]string           `json:"tagsByArn"`
+	VersionCounters       map[string]map[string]int32            `json:"versionCounters"`
+	DeploymentCounters    map[string]map[string]int32            `json:"deploymentCounters"`
+	DeployedConfigs       map[string]string                      `json:"deployedConfigs"`
+	DeploymentContent     map[string][]byte                      `json:"deploymentContent,omitempty"`
+	FetchedConfigs        map[string]*HostedConfigurationVersion `json:"fetchedConfigs,omitempty"`
+	ExperimentRunEvents   map[string][]ExperimentRunEvent        `json:"experimentRunEvents"`
+	ExperimentRunCounters map[string]int32                       `json:"experimentRunCounters"`
+	AccountSettings       AccountSettings                        `json:"accountSettings"`
+	AccountID             string                                 `json:"accountID"`
+	Region                string                                 `json:"region"`
+	Version               int                                    `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements
@@ -89,6 +90,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		DeploymentCounters:    b.deploymentCounters,
 		DeployedConfigs:       b.deployedConfigs,
 		DeploymentContent:     b.deploymentContent,
+		FetchedConfigs:        b.fetchedConfigs,
 		ExperimentRunEvents:   b.experimentRunEvents,
 		ExperimentRunCounters: b.experimentRunCounters,
 		AccountSettings:       b.accountSettings,
@@ -169,7 +171,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.deploymentContent = make(map[string][]byte)
 	}
 
-	b.fetchedConfigs = make(map[string]*HostedConfigurationVersion)
+	b.fetchedConfigs = snap.FetchedConfigs
+	if b.fetchedConfigs == nil {
+		b.fetchedConfigs = make(map[string]*HostedConfigurationVersion)
+	}
 
 	if snap.ExperimentRunEvents == nil {
 		snap.ExperimentRunEvents = make(map[string][]ExperimentRunEvent)
