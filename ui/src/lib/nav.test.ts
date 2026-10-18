@@ -32,7 +32,7 @@ const ROUTE_ID_TO_SERVICE_DIR: Record<string, string> = {
 // Dashboard chrome carried in implementedDashboardRouteIds that isn't
 // backed by an AWS service emulator at all — nothing to check a services/
 // dir or internal/app/cli.go registration against.
-const BACKEND_CHECK_EXEMPT_ROUTE_IDS = new Set<string>(["chaos", "resources"]);
+const BACKEND_CHECK_EXEMPT_ROUTE_IDS = new Set<string>(["apptrace", "chaos", "resources"]);
 
 // Known gap, not swept under the rug: the dashboard advertises this route
 // (nav entry + page) but no services/globalaccelerator backend exists yet
@@ -54,6 +54,8 @@ const SIDEBAR_EXEMPT_ROUTE_IDS = new Set<string>([
   // today (via settings-resilience), but its chrome-ness makes it exempt
   // regardless.
   "chaos",
+  // App Inspector request-trace viewer (also in sidebarCategories).
+  "apptrace",
   // Live API console.
   "console",
   // Docs viewer.

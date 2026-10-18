@@ -15,6 +15,7 @@ export type DashboardCategory = {
 export const implementedDashboardRouteIds = new Set<string>([
   "acmpca",
   "amplify",
+  "apptrace",
   "appconfig",
   "appconfigdata",
   "athena",
@@ -766,6 +767,7 @@ export const sidebarCategories: DashboardCategory[] = [
     routes: [
       { id: "fis", href: "/dashboard/fis", label: "FIS", icon: "fis" },
       { id: "chaos", href: "/dashboard/chaos", label: "Chaos", icon: "chaos" },
+      { id: "apptrace", href: "/dashboard/apptrace", label: "App Inspector", icon: "apptrace" },
     ],
   },
 ];

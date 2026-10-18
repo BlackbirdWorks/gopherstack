@@ -2455,6 +2455,7 @@ func buildEchoServer(
 	e.Use(httputils.RequestIDMiddleware())
 	e.Use(logger.APIConsoleMiddleware())
 	e.Use(telemetry.MemoryStatsMiddleware)
+	registerAppInspector(e)
 	e.Pre(logger.EchoMiddleware(log))
 	e.Pre(awsMetaMiddleware(cli.Region, cli.AccountID))
 
@@ -4850,9 +4851,10 @@ type sqsSenderAdapter struct {
 }
 
 func (a *sqsSenderAdapter) SendMessageToQueue(
-	_ context.Context,
+	ctx context.Context,
 	queueARN, messageBody string,
 ) error {
+	done := traceSQSDelivery(ctx, queueARN)
 	// Convert SQS ARN to queue name (last segment after ':').
 	queueURL := arnToSQSQueueURL(queueARN)
 	_, err := a.backend.SendMessage(&sqsbackend.SendMessageInput{
@@ -4860,6 +4862,7 @@ func (a *sqsSenderAdapter) SendMessageToQueue(
 		Region:      arnRegion(queueARN),
 		MessageBody: messageBody,
 	})
+	done(err)
 
 	return err
 }

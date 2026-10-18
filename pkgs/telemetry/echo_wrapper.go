@@ -6,6 +6,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
 	pkglogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -73,6 +74,8 @@ func WrapEchoHandler(
 		if operation == "Unknown" || operation == "unknown" {
 			operation = observer.ExtractOperation(c)
 		}
+
+		apptrace.FromContext(reqCtx).SetOperation(serviceName, operation, resource)
 
 		duration := time.Since(start)
 		durationSeconds := duration.Seconds()
