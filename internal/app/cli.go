@@ -3253,7 +3253,6 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// delivery requires S3 integration.
 	wireLambdaS3(byName["Lambda"], byName["S3"])
 
-
 	// Wire ECR → Lambda so Code.ImageUri on an Image package-type
 	// CreateFunction/UpdateFunctionCode is validated against real ECR state
 	// instead of accepted unconditionally.
