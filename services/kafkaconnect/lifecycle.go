@@ -63,6 +63,10 @@ func (b *InMemoryBackend) settleConnectorLocked(c *Connector, now time.Time) {
 		return
 	}
 
+	if c.State != deletingState && b.workerManagedLocked(c.ARN) {
+		return
+	}
+
 	if c.State == deletingState {
 		b.connectors.Delete(c.ARN)
 		b.deleteOperationsLocked(c.ARN)

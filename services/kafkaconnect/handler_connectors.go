@@ -87,7 +87,16 @@ func (h *Handler) handleDescribeConnector(c *echo.Context, connectorArn string) 
 		return h.writeBackendError(c, err)
 	}
 
-	return h.writeJSON(c, describeConnectorResponse{connectorSummaryDTO: connectorToDTO(connector)})
+	resp := describeConnectorResponse{connectorSummaryDTO: connectorToDTO(connector)}
+	if sd, ok := h.Backend.(interface {
+		ConnectorStateDescription(string) *StateDescription
+	}); ok {
+		if d := sd.ConnectorStateDescription(connector.ARN); d != nil {
+			resp.StateDescription = &stateDescriptionDTO{Code: d.Code, Message: d.Message}
+		}
+	}
+
+	return h.writeJSON(c, resp)
 }
 
 func (h *Handler) handleListConnectors(c *echo.Context) error {

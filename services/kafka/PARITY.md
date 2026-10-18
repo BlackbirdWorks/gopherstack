@@ -115,9 +115,13 @@ gaps: []
   #   - ClientVpcConnection.Owner is populated from the backend's own AccountID as
   #     a best-effort placeholder; gopherstack has no cross-account VPC-connection
   #     ownership model to draw a different value from.
-items_still_open: []
+items_still_open:
+  - "UpdateSecurity on a docker-backed cluster does not reconfigure the running broker's listeners (needs a rolling relaunch that keeps topics)."
+  - "TLS client-certificate (mutual TLS / ACM PCA) authentication is not enforced: the TLS listener is server-TLS only."
+  - "AWS_MSK_IAM enforces kafka-cluster:Connect only; per-API actions (WriteData, ReadData, CreateTopic, ...) are not evaluated against policies."
+  - "Lambda MSK event source mappings only resolve the plaintext bootstrap; SCRAM/IAM clusters need credentials plumbed into the poller."
 structural_gaps:
-  - "Docker engine (--kafka-engine=docker) runs ONE plaintext single-node KRaft broker per provisioned cluster; serverless clusters, TLS/SASL/IAM listeners and the MSK Topic API metadata are not backed by a real multi-broker cluster."
+  - "Docker engine (--kafka-engine=docker) runs ONE single-node KRaft broker per provisioned cluster (apache/kafka 3.9.1); serverless clusters and the MSK Topic API metadata are not backed by a real multi-broker cluster. Clusters with no explicit encryption/auth settings keep the original single plaintext listener; any explicit EncryptionInfo or ClientAuthentication switches to MSK-style listeners (see 2026-10-18 section)."
 deferred: []
   # Both prior deferred items are now resolved:
   #   - GetBootstrapBrokers: field-diffed against deserializers.go this pass (see
@@ -722,3 +726,13 @@ Bare NotFound/Conflict errors now carry a descriptive message; cluster names (1-
 GetBootstrapBrokers returns one `b-N.<name>.<id>.c2.kafka.<region>.amazonaws.com:<port>` entry per broker (follows UpdateBrokerCount) and honours EncryptionInTransit.ClientBroker (default TLS: no plaintext string; TLS_PLAINTEXT: both); serverless clusters return only `BootstrapBrokerStringSaslIam`. Batch(Dis)AssociateScramSecret echo `clusterArn`. New `SetLifecycleDelay`/`SetClock`: with a non-zero delay a new cluster reports CREATING and every update operation reports UPDATE_IN_PROGRESS + cluster UPDATING (ActiveOperationArn set) before UPDATE_COMPLETE; default `0s` is unchanged. Wiring needed in internal/app/lifecycle.go: a `Kafka` LifecycleSettings field and `bk.SetLifecycleDelay(l.effective(l.Kafka))` for `*kafkabackend.InMemoryBackend`. Tests: bootstrap_brokers_flow_test.go, lifecycle_flow_sdk_test.go, scram_flow_sdk_test.go.
 
 Not verifiable from the pinned SDK (left lenient): UpdateBrokerCount decreases, per-secret `UnprocessedScramSecrets` error codes / `AmazonMSK_` prefix and existence checks, rejecting updates while UPDATING, configuration property validation.
+
+## 2026-10-18 (gopherstack-49qct.20 client authentication)
+
+Docker engine brokers now honour the cluster's EncryptionInfo and ClientAuthentication (broker.go, broker_plan.go).
+
+- Listeners follow the client-broker mode and auth settings: PLAINTEXT, TLS (SSL, PEM keystore signed by the engine CA from pkgs/devtls, mounted read-only), SASL_SSL SCRAM-SHA-512, and SASL IAM. Each gets its own published host port; a loopback-only ADMIN listener is used for readiness probing and SCRAM administration. Clusters with neither setting keep the legacy single plaintext listener (existing consumers such as Lambda MSK mappings are unchanged).
+- GetBootstrapBrokers on a docker-backed cluster returns the real `host:port` for each enabled mode (`bootstrapBrokerString`, `...Tls`, `...SaslScram`, `...SaslIam`), empty until the broker is reachable. The broker CA is served at `/_gopherstack/kafka/ca.pem`; `--persist` keeps it under `<data>/kafka-ca`.
+- SCRAM: BatchAssociateScramSecret reads each secret from the emulator's Secrets Manager (JSON `username`/`password`), rejects names without the `AmazonMSK_` prefix (`InvalidSecret`) and missing secrets (`SecretNotFound`) as per-secret ScramSecretError entries, and creates/removes the SCRAM-SHA-512 users on the live broker via the Kafka admin API (AlterUserScramCredentials). Disassociate removes them; users are also applied when the broker becomes ACTIVE. Metadata-only mode is unchanged. The ScramSecretError code strings are best-effort: AWS does not publish the vocabulary.
+- IAM: apache/kafka cannot speak AWS_MSK_IAM, so gopherstack runs a TLS SASL proxy (iam_proxy.go) in front of a SASL/PLAIN-only internal listener. The proxy relays ApiVersions, answers SaslHandshake/SaslAuthenticate for `AWS_MSK_IAM`, verifies the SigV4 payload (version 2020_10_22, service `kafka-cluster`, action `kafka-cluster:Connect`) against emulator IAM users or STS sessions (iam_auth.go), optionally evaluating policies when `--enforce-iam` is on, then authenticates upstream with a per-broker random credential and splices bytes. Real clients derive the region from the broker hostname; against a loopback endpoint set `AWS_REGION`.
+- Proof: `TestBroker_ClientAuthenticationDocker` (real broker, franz-go SCRAM and IAM clients over TLS, wrong credentials rejected, disassociate revokes access; skips without docker), `TestAuthenticateIAMPayload`, `TestBroker_ScramSecretsSyncToBroker`, `TestBroker_SecureSpecAndEndpoints`, `TestPlanListeners`.

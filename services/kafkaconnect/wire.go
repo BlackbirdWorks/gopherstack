@@ -327,6 +327,7 @@ type createConnectorResponse struct {
 }
 
 type describeConnectorResponse struct {
+	StateDescription *stateDescriptionDTO `json:"stateDescription,omitempty"`
 	connectorSummaryDTO
 }
 

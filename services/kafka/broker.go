@@ -2,9 +2,17 @@ package kafka
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -13,6 +21,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
@@ -21,13 +30,22 @@ const (
 	// BrokerImage is the pinned single-node KRaft Kafka image.
 	BrokerImage = "apache/kafka:3.9.1"
 
-	brokerListenPort    = "9092"
 	brokerDefaultHost   = "127.0.0.1"
 	brokerStartTimeout  = 3 * time.Minute
 	brokerProbeInterval = 500 * time.Millisecond
 	brokerProbeTimeout  = 5 * time.Second
 	brokerStopTimeout   = 30 * time.Second
+
+	keystoreDirMode  = 0o755
+	keystoreFileMode = 0o644
+	iamPasswordBytes = 24
 )
+
+var errNoBrokerCA = errors.New("kafka: no CA available to sign broker certificates")
+
+func shortID() string { return uuid.NewString()[:8] }
+
+func sprintfJAAS(password string) string { return fmt.Sprintf(plainJAAS, password) }
 
 // BrokerRuntime is the slice of container.Runtime the broker engine needs.
 type BrokerRuntime interface {
@@ -37,24 +55,26 @@ type BrokerRuntime interface {
 
 // BrokerConfig configures docker-backed MSK brokers.
 type BrokerConfig struct {
-	Runtime BrokerRuntime
-	// Ports hands out host ports; nil falls back to an OS-chosen free port.
-	Ports *portalloc.Allocator
-	// Probe reports nil once the broker at addr serves Kafka requests; nil uses a franz-go ping.
-	Probe func(ctx context.Context, addr string) error
-	// Host is the address clients use to reach published ports; default 127.0.0.1.
-	Host string
-	// Image overrides BrokerImage.
-	Image string
-	// StartTimeout bounds how long a broker may stay CREATING before FAILED.
+	Runtime      BrokerRuntime
+	Ports        *portalloc.Allocator
+	Probe        func(ctx context.Context, addr string) error
+	CA           *devtls.CA
+	ScramAdmin   ScramAdmin
+	Host         string
+	Image        string
 	StartTimeout time.Duration
 }
 
 type liveBroker struct {
-	cancel      context.CancelFunc
-	containerID string
-	address     string
-	port        int
+	cancel       context.CancelFunc
+	res          *brokerRes
+	scramApplied map[string]string
+	syncGate     chan struct{}
+	containerID  string
+	adminAddr    string
+	endpoints    ManagedEndpoints
+	plan         brokerPlan
+	ready        bool
 }
 
 type brokerEngine struct {
@@ -75,6 +95,16 @@ func (b *InMemoryBackend) EnableBrokers(cfg BrokerConfig) {
 
 	if cfg.StartTimeout <= 0 {
 		cfg.StartTimeout = brokerStartTimeout
+	}
+
+	if cfg.ScramAdmin == nil {
+		cfg.ScramAdmin = franzScramAdmin
+	}
+
+	if cfg.CA == nil {
+		if ca, err := devtls.NewCA(); err == nil {
+			cfg.CA = ca
+		}
 	}
 
 	if cfg.Probe == nil {
@@ -98,11 +128,37 @@ func (b *InMemoryBackend) ManagedBootstrap(clusterArn string) ([]string, bool) {
 		return nil, false
 	}
 
-	if lb.address == "" {
+	if !lb.ready || lb.endpoints.Plaintext == "" {
 		return nil, true
 	}
 
-	return []string{lb.address}, true
+	return []string{lb.endpoints.Plaintext}, true
+}
+
+// ManagedEndpointsFor returns the per-mode broker endpoints of a docker-backed cluster.
+// The bool is false for metadata-only clusters; the endpoints are empty until the broker is reachable.
+func (b *InMemoryBackend) ManagedEndpointsFor(clusterArn string) (ManagedEndpoints, bool) {
+	b.mu.RLock("ManagedEndpointsFor")
+	defer b.mu.RUnlock()
+
+	lb, ok := b.managedBrokerLocked(clusterArn)
+	if !ok {
+		return ManagedEndpoints{}, false
+	}
+
+	return lb.endpoints, true
+}
+
+// BrokerCAPEM returns the CA that signs docker-backed broker certificates, or nil when brokers are disabled.
+func (b *InMemoryBackend) BrokerCAPEM() []byte {
+	b.mu.RLock("BrokerCAPEM")
+	defer b.mu.RUnlock()
+
+	if b.engine == nil || b.engine.cfg.CA == nil {
+		return nil
+	}
+
+	return b.engine.cfg.CA.CertPEM()
 }
 
 func (b *InMemoryBackend) managedBrokerLocked(clusterArn string) (*liveBroker, bool) {
@@ -182,28 +238,175 @@ func (e *brokerEngine) reap(lbs []*liveBroker) {
 
 		lb.cancel()
 
-		if lb.containerID != "" {
-			e.wg.Go(func() { e.remove(lb.containerID, lb.port) })
+		if lb.containerID != "" || lb.res != nil {
+			e.wg.Go(func() { e.teardown(lb) })
 		}
 	}
-}
-
-func (e *brokerEngine) remove(containerID string, port int) {
-	ctx, cancel := context.WithTimeout(context.Background(), brokerStopTimeout)
-	defer cancel()
-
-	if err := e.cfg.Runtime.StopAndRemove(ctx, containerID); err != nil {
-		logger.Load(ctx).WarnContext(ctx, "kafka: broker container removal failed",
-			"container", containerID, "error", err)
-	}
-
-	e.releasePort(port)
 }
 
 func (e *brokerEngine) releasePort(port int) {
 	if e.cfg.Ports != nil && port > 0 {
 		_ = e.cfg.Ports.Release(port)
 	}
+}
+
+func (e *brokerEngine) teardown(lb *liveBroker) {
+	if lb.containerID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), brokerStopTimeout)
+		defer cancel()
+
+		if err := e.cfg.Runtime.StopAndRemove(ctx, lb.containerID); err != nil {
+			logger.Load(ctx).WarnContext(ctx, "kafka: broker container removal failed",
+				"container", lb.containerID, "error", err)
+		}
+	}
+
+	if lb.res == nil {
+		return
+	}
+
+	if lb.res.proxy != nil {
+		lb.res.proxy.close()
+	}
+
+	if lb.res.keystoreDir != "" {
+		_ = os.RemoveAll(lb.res.keystoreDir)
+	}
+
+	for _, p := range lb.res.ports {
+		e.releasePort(p)
+	}
+}
+
+// provision allocates ports, the TLS keystore and the IAM proxy a broker of plan needs.
+func (e *brokerEngine) provision(name string, plan brokerPlan, auth iamAuthFunc) (*brokerRes, error) {
+	res := &brokerRes{ports: make(map[string]int)}
+
+	fail := func(err error) (*brokerRes, error) {
+		e.teardown(&liveBroker{res: res})
+
+		return nil, err
+	}
+
+	for _, l := range plan.listenerNames() {
+		p, err := e.acquirePort(name + "-" + l)
+		if err != nil {
+			return fail(err)
+		}
+
+		res.ports[l] = p
+	}
+
+	if plan.needsKeystore() {
+		dir, err := e.writeKeystore()
+		if err != nil {
+			return fail(err)
+		}
+
+		res.keystoreDir = dir
+	}
+
+	if plan.iam {
+		if err := e.startProxy(res, auth); err != nil {
+			return fail(err)
+		}
+	}
+
+	return res, nil
+}
+
+func (p brokerPlan) listenerNames() []string {
+	var names []string
+
+	if p.secure {
+		names = append(names, listenerAdmin)
+	}
+
+	if p.plaintext {
+		names = append(names, listenerPlaintext)
+	}
+
+	if p.tls {
+		names = append(names, listenerTLS)
+	}
+
+	if p.scram {
+		names = append(names, listenerScram)
+	}
+
+	if p.iam {
+		names = append(names, listenerIAM, listenerIAMPublic)
+	}
+
+	return names
+}
+
+func (e *brokerEngine) tlsHosts() []string {
+	return []string{e.cfg.Host, "localhost", brokerDefaultHost, "host.docker.internal"}
+}
+
+// writeKeystore writes a PEM keystore (PKCS8 key + chain) the broker mounts for its TLS listeners.
+func (e *brokerEngine) writeKeystore() (string, error) {
+	if e.cfg.CA == nil {
+		return "", errNoBrokerCA
+	}
+
+	cert, err := e.cfg.CA.Issue(e.tlsHosts()...)
+	if err != nil {
+		return "", fmt.Errorf("issue broker certificate: %w", err)
+	}
+
+	keyDER, err := x509.MarshalPKCS8PrivateKey(cert.PrivateKey)
+	if err != nil {
+		return "", fmt.Errorf("marshal broker key: %w", err)
+	}
+
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
+	for _, der := range cert.Certificate {
+		pemBytes = append(pemBytes, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
+	}
+
+	dir, err := os.MkdirTemp("", "gopherstack-msk-tls-")
+	if err != nil {
+		return "", fmt.Errorf("keystore dir: %w", err)
+	}
+
+	if err = os.Chmod(dir, keystoreDirMode); err != nil {
+		_ = os.RemoveAll(dir)
+
+		return "", fmt.Errorf("keystore dir mode: %w", err)
+	}
+
+	if err = os.WriteFile(filepath.Join(dir, keystoreFile), pemBytes, keystoreFileMode); err != nil {
+		_ = os.RemoveAll(dir)
+
+		return "", fmt.Errorf("write keystore: %w", err)
+	}
+
+	return dir, nil
+}
+
+func (e *brokerEngine) startProxy(res *brokerRes, auth iamAuthFunc) error {
+	cert, err := e.cfg.CA.Issue(e.tlsHosts()...)
+	if err != nil {
+		return fmt.Errorf("issue proxy certificate: %w", err)
+	}
+
+	buf := make([]byte, iamPasswordBytes)
+	if _, err = rand.Read(buf); err != nil {
+		return fmt.Errorf("iam proxy credential: %w", err)
+	}
+
+	res.iamPassword = hex.EncodeToString(buf)
+
+	backend := net.JoinHostPort(brokerDefaultHost, strconv.Itoa(res.ports[listenerIAM]))
+	bind := net.JoinHostPort(container.BindHostFor(e.cfg.Host), strconv.Itoa(res.ports[listenerIAMPublic]))
+
+	res.proxy, err = startIAMProxy(bind, &tls.Config{
+		Certificates: []tls.Certificate{*cert}, MinVersion: tls.VersionTLS12,
+	}, backend, res.iamPassword, auth)
+
+	return err
 }
 
 func (e *brokerEngine) acquirePort(name string) (int, error) {
@@ -226,29 +429,6 @@ func (e *brokerEngine) acquirePort(name string) (int, error) {
 	return addr.Port, nil
 }
 
-func (e *brokerEngine) spec(name string, port int) container.Spec {
-	advertised := net.JoinHostPort(e.cfg.Host, strconv.Itoa(port))
-
-	return container.Spec{
-		Image: e.cfg.Image,
-		Name:  "gopherstack-msk-" + name + "-" + uuid.NewString()[:8],
-		Ports: []string{container.PortSpec(container.BindHostFor(e.cfg.Host), strconv.Itoa(port), brokerListenPort)},
-		Env: []string{
-			"KAFKA_NODE_ID=1",
-			"KAFKA_PROCESS_ROLES=broker,controller",
-			"KAFKA_LISTENERS=PLAINTEXT://:" + brokerListenPort + ",CONTROLLER://:9093",
-			"KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://" + advertised,
-			"KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER",
-			"KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT",
-			"KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093",
-			"KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1",
-			"KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1",
-			"KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1",
-			"KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0",
-		},
-	}
-}
-
 // launchBrokerLocked registers a pending broker for cluster and starts it in the background.
 func (b *InMemoryBackend) launchBrokerLocked(clusterArn, name string) {
 	e := b.engine
@@ -256,65 +436,110 @@ func (b *InMemoryBackend) launchBrokerLocked(clusterArn, name string) {
 		return
 	}
 
+	plan := brokerPlan{plaintext: true}
+	if c, ok := b.clusters.Get(clusterArn); ok {
+		plan = planFor(c)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
-	lb := &liveBroker{cancel: cancel}
+	lb := &liveBroker{cancel: cancel, plan: plan, syncGate: make(chan struct{}, 1)}
 	e.brokers[clusterArn] = lb
 
-	e.wg.Go(func() { b.runBroker(ctx, clusterArn, name, lb) })
+	e.wg.Go(func() { b.runBroker(ctx, clusterArn, name, plan, lb) })
 }
 
-func (b *InMemoryBackend) runBroker(ctx context.Context, clusterArn, name string, lb *liveBroker) {
+func (b *InMemoryBackend) runBroker(ctx context.Context, clusterArn, name string, plan brokerPlan, lb *liveBroker) {
 	e := b.engine
 
-	port, err := e.acquirePort(name)
+	res, err := e.provision(name, plan, func(payload []byte, remote string) error {
+		return b.authenticateIAM(clusterArn, payload, remote, time.Now())
+	})
 	if err != nil {
-		b.finishBroker(ctx, clusterArn, lb, fmt.Errorf("allocate broker port: %w", err))
+		b.finishBroker(ctx, clusterArn, lb, fmt.Errorf("provision broker resources: %w", err))
 
 		return
 	}
 
-	id, err := e.cfg.Runtime.CreateAndStart(ctx, e.spec(name, port))
+	id, err := e.cfg.Runtime.CreateAndStart(ctx, e.spec(name, plan, res))
 	if err != nil {
-		e.releasePort(port)
+		e.teardown(&liveBroker{res: res})
 		b.finishBroker(ctx, clusterArn, lb, fmt.Errorf("start broker container: %w", err))
 
 		return
 	}
 
-	if !b.recordContainer(clusterArn, lb, id, port) {
-		e.remove(id, port)
+	if !b.attach(clusterArn, lb, func() { lb.res, lb.containerID = res, id }) {
+		e.teardown(&liveBroker{containerID: id, res: res})
 
 		return
 	}
 
-	address := net.JoinHostPort(e.cfg.Host, strconv.Itoa(port))
-	err = e.awaitReady(ctx, address)
-
-	if err == nil {
-		b.markActive(clusterArn, lb, address)
+	probe := e.probeAddress(plan, res)
+	if err = e.awaitReady(ctx, probe); err != nil {
+		b.finishBroker(ctx, clusterArn, lb, err)
 
 		return
 	}
 
-	b.finishBroker(ctx, clusterArn, lb, err)
+	b.attach(clusterArn, lb, func() { lb.adminAddr = probe })
+	b.syncScram(ctx, clusterArn)
+	b.markActive(clusterArn, lb, e.endpoints(plan, res))
 }
 
-// recordContainer stores the started container; false means the cluster went away first.
-func (b *InMemoryBackend) recordContainer(clusterArn string, lb *liveBroker, id string, port int) bool {
-	b.mu.Lock("recordBroker")
+// probeAddress is the loopback endpoint used to detect readiness and to administer SCRAM users.
+func (e *brokerEngine) probeAddress(plan brokerPlan, res *brokerRes) string {
+	name := listenerAdmin
+	if !plan.secure {
+		name = listenerPlaintext
+	}
+
+	host := brokerDefaultHost
+	if !plan.secure {
+		host = e.cfg.Host
+	}
+
+	return net.JoinHostPort(host, strconv.Itoa(res.ports[name]))
+}
+
+func (e *brokerEngine) endpoints(plan brokerPlan, res *brokerRes) ManagedEndpoints {
+	at := func(name string) string { return net.JoinHostPort(e.cfg.Host, strconv.Itoa(res.ports[name])) }
+
+	var ep ManagedEndpoints
+
+	if plan.plaintext {
+		ep.Plaintext = at(listenerPlaintext)
+	}
+
+	if plan.tls {
+		ep.TLS = at(listenerTLS)
+	}
+
+	if plan.scram {
+		ep.SaslScram = at(listenerScram)
+	}
+
+	if plan.iam {
+		ep.SaslIam = at(listenerIAMPublic)
+	}
+
+	return ep
+}
+
+// attach runs mutate under the lock if lb is still the cluster's broker; false means the cluster went away.
+func (b *InMemoryBackend) attach(clusterArn string, lb *liveBroker, mutate func()) bool {
+	b.mu.Lock("attachBroker")
 	defer b.mu.Unlock()
 
 	if b.engine.brokers[clusterArn] != lb {
 		return false
 	}
 
-	lb.containerID = id
-	lb.port = port
+	mutate()
 
 	return true
 }
 
-func (b *InMemoryBackend) markActive(clusterArn string, lb *liveBroker, address string) {
+func (b *InMemoryBackend) markActive(clusterArn string, lb *liveBroker, ep ManagedEndpoints) {
 	b.mu.Lock("markBrokerActive")
 	defer b.mu.Unlock()
 
@@ -322,7 +547,7 @@ func (b *InMemoryBackend) markActive(clusterArn string, lb *liveBroker, address 
 		return
 	}
 
-	lb.address = address
+	lb.endpoints, lb.ready = ep, true
 
 	if c, ok := b.clusters.Get(clusterArn); ok && c.State == ClusterStateCreating {
 		c.State = ClusterStateActive

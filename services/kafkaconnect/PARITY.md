@@ -31,9 +31,12 @@ families:
   WorkerConfiguration: {status: ok, note: "Create/Describe/List/Delete round-trip name/description/propertiesFileContent. Always revision 1: UpdateWorkerConfiguration (which would create later revisions) is not part of the AWS API."}
   Tags: {status: ok, note: "One generic tag family keyed by ARN across all three resource kinds, matching real AWS."}
 gaps: []
-items_still_open: []
+items_still_open:
+  - "IAM client authentication to the MSK cluster (kafkaClusterClientAuthentication IAM) is rejected as FAILED: the worker image does not bundle aws-msk-iam-auth."
+  - "TLS in-transit to docker-backed brokers is wired (CA trust via SetTrustCAPEM) but has no real-worker test."
+  - "Capacity (workerCount/mcuCount/autoscaling) is recorded but does not scale the single worker container."
 structural_gaps:
-  - "No Kafka Connect runtime: connector tasks never run, there is no worker fleet or autoscaling metric source, and MSK bootstrap-broker / VPC reachability, connector.class resolution and plugin-archive validity are never exercised. AWS surfaces those failures asynchronously as FAILED states whose StateDescription code vocabulary is not published, so connectors here never reach FAILED."
+  - "Without --kafka-engine=docker there is no Kafka Connect runtime: connector tasks never run and connectors never reach FAILED. With the docker engine a single apache/kafka 3.9.1 Connect worker container runs per connector (kafkaConnectVersion is not mapped to an image); the StateDescription code `WORKER_FAILED` is ours, AWS does not publish its vocabulary."
   - "A custom plugin whose S3 object is absent ends CREATE_FAILED with a message-only StateDescription (the code vocabulary is unpublished); archive contents are not validated as a real ZIP/JAR."
   - "UpdateCustomPlugin / UpdateWorkerConfiguration do not exist in the pinned SDK (v1.39.1), so plugin and worker-configuration revisions stay at 1."
 deferred: []
@@ -77,3 +80,12 @@ CreateConnector defaults NetworkType to IPV4 (api_op_CreateConnector.go:92). Pro
 
 - Connector capacity validated (mcuCount 1/2/4/8, workerCount >= 1, autoscaling min <= max, maxAutoscalingTaskCount >= maxWorkerCount, cpu percentages <= 100), service execution role must be an ARN, resource names 1-128 characters, worker configuration properties must be base64. Validation runs before dependency lookups.
 - Opt-in `SetLifecycleDelay` (`--lifecycle-kafkaconnect`) overrides the built-in 500ms provisioning and 300ms deletion windows. Malformed `nextToken` and `maxResults` outside 1-100 are BadRequestException.
+
+## 2026-10-18 (gopherstack-49qct.20 real connector workers)
+
+With `--kafka-engine=docker` (shared with MSK) CreateConnector starts a Kafka Connect worker container per connector (worker_engine.go).
+
+- Custom plugin archives are read from emulated S3 and extracted (ZIP, zip-slip checked) or copied (JAR) into a directory mounted into `plugin.path`; a referenced worker configuration's properties (base64 in the API) overlay the generated worker.properties. `connectorConfiguration` is applied with `PUT /connectors/{name}/config` on the worker's REST API.
+- State comes from the worker: CREATING until the connector and tasks report RUNNING; a rejected config or a FAILED connector/task makes the connector FAILED with the worker's message in DescribeConnector `stateDescription`. A watcher keeps RUNNING/FAILED in step afterwards. UpdateConnector re-applies the configuration, RestartConnector calls the worker restart endpoint; in-flight operations complete (or end UPDATE_FAILED/RESTART_FAILED). DeleteConnector, Reset and shutdown remove the container. Restore relaunches workers (container state is not persisted).
+- The bootstrap servers must be reachable from inside the container: set `KAFKA_BROKER_HOST` to the docker bridge address (for example 172.17.0.1) so the MSK engine binds and advertises it. Only `NONE` client authentication is supported.
+- Proof: `TestWorkerEngine_RealConnectDocker` (real MSK broker + real Connect worker; FileStreamSink writes a produced record; delete removes the container; skips without docker) and `TestWorkerEngine_ConnectorLifecycle` (fake runtime and REST).

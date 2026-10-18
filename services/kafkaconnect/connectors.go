@@ -86,6 +86,7 @@ func (b *InMemoryBackend) CreateConnector(accountID, region string, spec Connect
 	}
 
 	b.connectors.Put(c)
+	b.launchWorkerLocked(c.ARN)
 
 	return c.clone(), nil
 }
@@ -205,6 +206,7 @@ func (b *InMemoryBackend) UpdateConnector(
 	c.CurrentVersion = newVersion()
 
 	b.connectorOperations.Put(op)
+	b.workerReconfigure(connectorArn, false)
 
 	return c.clone(), op.clone(), nil
 }
@@ -212,6 +214,10 @@ func (b *InMemoryBackend) UpdateConnector(
 // DeleteConnector marks a connector DELETING under optimistic lock
 // (currentVersion, when supplied); it is removed once deletionDelay elapses.
 func (b *InMemoryBackend) DeleteConnector(connectorArn, currentVersion string) (*Connector, error) {
+	var lw *liveWorker
+
+	defer func() { b.reapDetached(lw) }()
+
 	b.mu.Lock("DeleteConnector")
 	defer b.mu.Unlock()
 
@@ -229,6 +235,7 @@ func (b *InMemoryBackend) DeleteConnector(connectorArn, currentVersion string) (
 	if c.State != deletingState {
 		c.State = deletingState
 		c.PendingUntil = time.Now().UTC().Add(b.deletionDelay())
+		lw = b.detachWorkerLocked(connectorArn)
 	}
 
 	return c.clone(), nil
@@ -266,6 +273,7 @@ func (b *InMemoryBackend) RestartConnector(connectorArn string, _ bool) (*Connec
 	c.PendingUntil = now.Add(b.provisionDelay())
 
 	b.connectorOperations.Put(op)
+	b.workerReconfigure(connectorArn, true)
 
 	return c.clone(), op.clone(), nil
 }

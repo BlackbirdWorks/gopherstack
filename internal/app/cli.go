@@ -12071,6 +12071,7 @@ func setupChaosAndRegistry(
 	wireCloudControlHandlers(e, services)
 	wireServiceRoleAuthorizer(services, cli.EnforceIAM)
 	wireRDSIAMAuth(e, services, cli.EnforceIAM)
+	wireKafkaAuth(e, services, cli.EnforceIAM)
 
 	return nil
 }

@@ -7,10 +7,39 @@ import (
 // BatchAssociateScramSecret associates a list of SCRAM secrets with a cluster.
 // It returns any errors that occurred for individual secrets.
 func (b *InMemoryBackend) BatchAssociateScramSecret(
-	_ context.Context,
+	ctx context.Context,
 	clusterArn string,
 	secretArnList []string,
 ) ([]ScramSecretError, error) {
+	scramErrs, err := b.associateScramSecrets(ctx, clusterArn, secretArnList)
+	if err != nil {
+		return nil, err
+	}
+
+	b.syncScram(ctx, clusterArn)
+
+	if scramErrs == nil {
+		scramErrs = []ScramSecretError{}
+	}
+
+	return scramErrs, nil
+}
+
+func (b *InMemoryBackend) associateScramSecrets(
+	ctx context.Context,
+	clusterArn string,
+	secretArnList []string,
+) ([]ScramSecretError, error) {
+	b.mu.RLock("BatchAssociateScramSecret")
+	known := b.clusters.Has(clusterArn)
+	b.mu.RUnlock()
+
+	if !known {
+		return nil, ErrNotFound
+	}
+
+	secretArnList, scramErrs := b.validateScramSecrets(ctx, secretArnList)
+
 	b.mu.Lock("BatchAssociateScramSecret")
 	defer b.mu.Unlock()
 
@@ -34,21 +63,31 @@ func (b *InMemoryBackend) BatchAssociateScramSecret(
 
 	b.scramSecrets[clusterArn] = existing
 
-	return []ScramSecretError{}, nil
+	return scramErrs, nil
 }
 
 // BatchDisassociateScramSecret disassociates a list of SCRAM secrets from a cluster.
 // It returns any errors that occurred for individual secrets.
 func (b *InMemoryBackend) BatchDisassociateScramSecret(
-	_ context.Context,
+	ctx context.Context,
 	clusterArn string,
 	secretArnList []string,
 ) ([]ScramSecretError, error) {
+	if err := b.disassociateScramSecrets(clusterArn, secretArnList); err != nil {
+		return nil, err
+	}
+
+	b.syncScram(ctx, clusterArn)
+
+	return []ScramSecretError{}, nil
+}
+
+func (b *InMemoryBackend) disassociateScramSecrets(clusterArn string, secretArnList []string) error {
 	b.mu.Lock("BatchDisassociateScramSecret")
 	defer b.mu.Unlock()
 
 	if !b.clusters.Has(clusterArn) {
-		return nil, ErrNotFound
+		return ErrNotFound
 	}
 
 	removeSet := make(map[string]struct{}, len(secretArnList))
@@ -68,7 +107,7 @@ func (b *InMemoryBackend) BatchDisassociateScramSecret(
 
 	b.scramSecrets[clusterArn] = kept
 
-	return []ScramSecretError{}, nil
+	return nil
 }
 
 // ListScramSecrets returns all SCRAM secrets for a cluster.

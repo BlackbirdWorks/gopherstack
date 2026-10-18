@@ -1,5 +1,7 @@
 package kafka
 
+import "time"
+
 // ExportedCluster is an alias for Cluster used in external tests.
 type ExportedCluster = Cluster
 
@@ -90,4 +92,16 @@ func GetStoredCluster(b *InMemoryBackend, clusterArn string) *Cluster {
 	c, _ := b.clusters.Get(clusterArn)
 
 	return c
+}
+
+// AuthenticateIAMPayloadForTest exposes AWS_MSK_IAM payload verification.
+func AuthenticateIAMPayloadForTest(cfg IAMAuthConfig, clusterArn string, raw []byte, now time.Time) error {
+	return authenticateIAMPayload(cfg, clusterArn, raw, "", now)
+}
+
+// PlanListenersForTest reports which listeners a cluster's security settings enable.
+func PlanListenersForTest(c *Cluster) []bool {
+	p := planFor(c)
+
+	return []bool{p.plaintext, p.tls, p.scram, p.iam, p.secure}
 }
