@@ -31,6 +31,7 @@ const (
 	brokerProbeInterval = 500 * time.Millisecond
 	brokerProbeTimeout  = 5 * time.Second
 	brokerStopTimeout   = 30 * time.Second
+	brokerPortRetries   = 5
 
 	brokerStartFailedCode = "BROKER_START_FAILED"
 	brokerPasswordBytes   = 24
@@ -93,9 +94,10 @@ func (lb *liveBroker) nodes() []*liveNode {
 }
 
 type brokerEngine struct {
-	brokers map[string]*liveBroker
-	cfg     BrokerConfig
-	wg      sync.WaitGroup
+	brokers  map[string]*liveBroker
+	failures map[string]string
+	cfg      BrokerConfig
+	wg       sync.WaitGroup
 }
 
 // EnableBrokers switches the backend to docker mode: brokers with a user get a real RabbitMQ or ActiveMQ container.
@@ -127,7 +129,9 @@ func (b *InMemoryBackend) EnableBrokers(cfg BrokerConfig) {
 	b.mu.Lock("EnableBrokers")
 	defer b.mu.Unlock()
 
-	b.engine = &brokerEngine{cfg: cfg, brokers: make(map[string]*liveBroker)}
+	b.engine = &brokerEngine{
+		cfg: cfg, brokers: make(map[string]*liveBroker), failures: make(map[string]string),
+	}
 }
 
 // MQConsumerEndpoint returns the engine and consumer address (AMQP for RabbitMQ, STOMP for ActiveMQ)
@@ -366,7 +370,7 @@ func (b *InMemoryBackend) runBroker(ctx context.Context, brokerID, name string, 
 
 	nodes, err := e.startNodes(ctx, name, lb)
 	if err != nil {
-		b.finishBroker(ctx, brokerID, lb)
+		b.finishBroker(ctx, brokerID, lb, err)
 
 		return
 	}
@@ -379,18 +383,17 @@ func (b *InMemoryBackend) runBroker(ctx context.Context, brokerID, name string, 
 		return
 	}
 
-	if e.awaitAllReady(ctx, lb) == nil {
+	err = e.awaitAllReady(ctx, lb)
+	if err == nil {
 		err = b.applyConfigOnStart(ctx, brokerID, lb)
 		if err == nil {
 			b.markRunning(brokerID, lb)
 
 			return
 		}
-
-		logger.Load(ctx).WarnContext(ctx, "mq: broker configuration failed", "broker", brokerID, "error", err)
 	}
 
-	b.finishBroker(ctx, brokerID, lb)
+	b.finishBroker(ctx, brokerID, lb, err)
 }
 
 // startNodes starts the primary container and any multi-AZ standbys; on error it removes what it started.
@@ -413,7 +416,29 @@ func (e *brokerEngine) startNodes(ctx context.Context, name string, lb *liveBrok
 	return nodes, nil
 }
 
+// startNode retries on a host-port bind race: a probed-free port can be taken before docker binds it.
 func (e *brokerEngine) startNode(ctx context.Context, name string, lb *liveBroker) (*liveNode, error) {
+	var err error
+
+	for range brokerPortRetries {
+		var n *liveNode
+
+		n, err = e.startNodeOnce(ctx, name, lb)
+		if err == nil || !isPortBindError(err) || ctx.Err() != nil {
+			return n, err
+		}
+	}
+
+	return nil, err
+}
+
+func isPortBindError(err error) bool {
+	msg := err.Error()
+
+	return strings.Contains(msg, "port is already allocated") || strings.Contains(msg, "address already in use")
+}
+
+func (e *brokerEngine) startNodeOnce(ctx context.Context, name string, lb *liveBroker) (*liveNode, error) {
 	maps := portMapsFor(lb.engine)
 
 	ports, err := e.acquirePorts(name, maps)
@@ -518,8 +543,19 @@ func (b *InMemoryBackend) markRunning(brokerID string, lb *liveBroker) {
 	}
 }
 
+func (b *InMemoryBackend) recordStartFailure(brokerID string, cause error) {
+	if cause == nil {
+		return
+	}
+
+	b.mu.Lock("recordStartFailure")
+	defer b.mu.Unlock()
+
+	b.engine.failures[brokerID] = cause.Error()
+}
+
 // finishBroker marks a still-wanted broker CREATION_FAILED and releases its container.
-func (b *InMemoryBackend) finishBroker(ctx context.Context, brokerID string, lb *liveBroker) {
+func (b *InMemoryBackend) finishBroker(ctx context.Context, brokerID string, lb *liveBroker, cause error) {
 	b.mu.Lock("failBroker")
 
 	if b.engine.brokers[brokerID] != lb {
@@ -536,7 +572,9 @@ func (b *InMemoryBackend) finishBroker(ctx context.Context, brokerID string, lb 
 
 	b.mu.Unlock()
 
-	logger.Load(ctx).WarnContext(ctx, "mq: broker failed to start", "code", brokerStartFailedCode)
+	logger.Load(ctx).WarnContext(ctx, "mq: broker failed to start",
+		"broker", brokerID, "code", brokerStartFailedCode, "error", cause)
+	b.recordStartFailure(brokerID, cause)
 	b.engine.reap([]*liveBroker{lb})
 }
 
