@@ -485,6 +485,7 @@ type CLI struct {
 	S3InitBuckets                 []string                          `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                                  help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	ExtraListen                   []string                          `                                       name:"extra-listen"            env:"GOPHERSTACK_EXTRA_LISTEN"                                    help:"Additional ports to serve the same endpoint on (comma-separated)."`                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
 	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
+	SES                           sesbackend.Settings               `embed:"" prefix:"ses-"`
 	Pods                          PodsConfig                        `embed:"" prefix:"pod-"`
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
@@ -498,7 +499,6 @@ type CLI struct {
 	Backup                        backupbackend.Settings            `embed:"" prefix:"backup-"`
 	SSM                           ssmbackend.Settings               `embed:"" prefix:"ssm-"`
 	XRay                          xraybackend.Settings              `embed:"" prefix:"xray-"`
-	SES                           sesbackend.Settings               `embed:"" prefix:"ses-"`
 	FIS                           fisbackend.Settings               `embed:"" prefix:"fis-"`
 	EMR                           emrbackend.Settings               `embed:"" prefix:"emr-"`
 	Athena                        athenabackend.Settings            `embed:"" prefix:"athena-"`
