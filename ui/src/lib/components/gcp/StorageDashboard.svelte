@@ -432,7 +432,7 @@
 							<li class="flex items-center {current === b.name ? 'bg-blue-50 dark:bg-blue-950/40' : ''}" data-testid="gcs-bucket-row">
 								<button class="flex-1 min-w-0 px-3 py-2 text-left text-sm font-medium text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-slate-800/50" onclick={() => selectBucket(b.name)}>
 									<span class="block truncate">{b.name}</span>
-									<span class="block text-[11px] font-normal text-gray-500 dark:text-gray-400">{b.location} · {b.storageClass}{#if b.versioning} · versioned{/if}</span>
+									<span class="block text-[11px] font-normal text-gray-500 dark:text-gray-400">{b.location} · {b.storageClass}{#if b.versioning}{' · versioned'}{/if}</span>
 								</button>
 								<button class="mr-1 rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950" title="Delete {b.name}" aria-label="Delete bucket {b.name}" onclick={() => removeBucket(b)}>
 									<Trash2 class="h-4 w-4" />
@@ -558,7 +558,7 @@
 												<td class="px-4 py-3 text-gray-600 dark:text-gray-400">{formatBytes(e.object.size)}</td>
 												<td class="px-4 py-3 text-gray-600 dark:text-gray-400">{e.object.contentType || '—'}</td>
 												<td class="px-4 py-3 text-gray-600 dark:text-gray-400">{e.object.storageClass || '—'}</td>
-												<td class="px-4 py-3 text-gray-600 dark:text-gray-400">{e.object.updated || '—'}</td>
+												<td class="px-4 py-3 whitespace-nowrap text-gray-600 dark:text-gray-400">{e.object.updated || '—'}</td>
 												<td class="px-4 py-3 text-right whitespace-nowrap">
 													<button class="rounded p-1 hover:bg-gray-100 dark:hover:bg-slate-800" title="Download {e.name}" aria-label="Download {e.name}" onclick={(ev) => { ev.stopPropagation(); void download(e.object); }}><Download class="h-4 w-4" /></button>
 													<button class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950" title="Delete {e.name}" aria-label="Delete object {e.name}" onclick={(ev) => { ev.stopPropagation(); void removeObject(e.object); }}><Trash2 class="h-4 w-4" /></button>
