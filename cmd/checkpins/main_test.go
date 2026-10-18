@@ -16,6 +16,7 @@ func TestEvaluatePin(t *testing.T) {
 		"dlm":            "v1.39.4",
 		"opsworks":       "v1.31.0",
 		"storage/azblob": "v1.8.0",
+		"pubsub/v2":      "v2.7.0",
 	}
 
 	tests := []struct {
@@ -50,6 +51,19 @@ func TestEvaluatePin(t *testing.T) {
 			content:  "service: azureblob\nsdk_module: azure-sdk-for-go/sdk/storage/azblob@v1.7.0   # stale\n",
 			wantKind: resultMismatch,
 			wantMsg:  "azureblob: recorded v1.7.0, go.mod v1.8.0",
+		},
+		{
+			name:     "matching gcp pin",
+			slug:     "gcppubsub",
+			content:  "service: gcppubsub\nsdk_module: cloud.google.com/go/pubsub/v2@v2.7.0\n",
+			wantKind: resultOK,
+		},
+		{
+			name:     "mismatched gcp pin",
+			slug:     "gcppubsub",
+			content:  "service: gcppubsub\nsdk_module: cloud.google.com/go/pubsub/v2@v2.6.0\n",
+			wantKind: resultMismatch,
+			wantMsg:  "gcppubsub: recorded v2.6.0, go.mod v2.7.0",
 		},
 		{
 			name: "module cache only documented",
