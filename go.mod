@@ -198,6 +198,7 @@ require (
 	github.com/aws/smithy-go v1.28.5
 	github.com/cedar-policy/cedar-go v1.8.0
 	github.com/distribution/distribution/v3 v3.1.2
+	github.com/dop251/goja v0.0.0-20260911104922-fabc3b8078ad
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/go-stomp/stomp/v3 v3.1.5
@@ -267,7 +268,6 @@ require (
 	github.com/docker/go-events v0.1.0 // indirect
 	github.com/docker/go-metrics v0.1.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
-	github.com/dop251/goja v0.0.0-20260911104922-fabc3b8078ad // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ebitengine/purego v0.11.0 // indirect
 	github.com/fatih/color v1.18.0 // indirect
