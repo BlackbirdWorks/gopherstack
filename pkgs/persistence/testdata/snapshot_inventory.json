@@ -11745,6 +11745,7 @@
       "Cluster.ConfigBlocks map[string]json.RawMessage `json:\"configBlocks,omitempty\"`",
       "Cluster.ConnectorConfig *ConnectorConfig `json:\"connectorConfig,omitempty\"`",
       "Cluster.CreatedAt time.Time `json:\"createdAt\"`",
+      "Cluster.CreatorARN string `json:\"creatorArn,omitempty\"`",
       "Cluster.DeletionProtection bool `json:\"deletionProtection,omitempty\"`",
       "Cluster.EncryptionConfig []EncryptionConfig `json:\"encryptionConfig,omitempty\"`",
       "Cluster.Endpoint string `json:\"endpoint,omitempty\"`",
