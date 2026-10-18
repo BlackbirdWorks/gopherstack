@@ -28,7 +28,8 @@ func (r redshiftClusterEngines) EngineLogin(region, clusterID string) (redshiftd
 	return redshiftdatabackend.EngineLogin(l), ok
 }
 
-// wireRedshiftClusterEngines lets the Redshift Data API run SQL on clusters backed by a live engine.
+// wireRedshiftClusterEngines lets the Redshift Data API run SQL on live cluster and workgroup engines
+// and wires S3 for COPY/UNLOAD.
 func wireRedshiftClusterEngines(byName map[string]service.Registerable) {
 	cluster, ok := byName["Redshift"].(*redshiftbackend.Handler)
 	if !ok {
@@ -38,6 +39,9 @@ func wireRedshiftClusterEngines(byName map[string]service.Registerable) {
 	if data, dok := byName["RedshiftData"].(*redshiftdatabackend.Handler); dok {
 		data.SetClusterEngines(redshiftClusterEngines{h: cluster})
 	}
+
+	wireRedshiftWorkgroupEngines(byName)
+	wireRedshiftObjectStore(byName)
 }
 
 // applyRedshiftServerless sets the namespace and workgroup dwell in transitional states.

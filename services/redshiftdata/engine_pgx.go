@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -33,7 +34,8 @@ const (
 var errMissingParameter = errors.New("parameter is not provided")
 
 type pgxExecutor struct {
-	open func(EngineLogin) (*sql.DB, error)
+	open  func(EngineLogin) (*sql.DB, error)
+	store atomic.Pointer[storeHolder]
 }
 
 // NewPGXExecutor returns an SQLExecutor that speaks the Postgres wire protocol.
@@ -72,16 +74,28 @@ func (x *pgxExecutor) ExecuteSQL(
 
 	db.SetMaxOpenConns(1)
 
-	if !atomic {
-		return runStatements(ctx, db, sqls, params)
-	}
-
-	tx, err := db.BeginTx(ctx, nil)
+	conn, err := db.Conn(ctx)
 	if err != nil {
 		return []SQLOutcome{{Err: formatPGError(err)}}
 	}
 
-	outcomes := runStatements(ctx, tx, sqls, params)
+	defer func() { _ = conn.Close() }()
+
+	s3 := &s3Runner{conn: conn}
+	if h := x.store.Load(); h != nil {
+		s3.store = h.store
+	}
+
+	if !atomic {
+		return runStatements(ctx, conn, s3, sqls, params)
+	}
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return []SQLOutcome{{Err: formatPGError(err)}}
+	}
+
+	outcomes := runStatements(ctx, tx, s3, sqls, params)
 
 	if failedAny(outcomes) {
 		_ = tx.Rollback()
@@ -106,11 +120,13 @@ func failedAny(outcomes []SQLOutcome) bool {
 	return false
 }
 
-func runStatements(ctx context.Context, q querier, sqls []string, params []SQLParameter) []SQLOutcome {
+func runStatements(
+	ctx context.Context, q querier, s3 *s3Runner, sqls []string, params []SQLParameter,
+) []SQLOutcome {
 	outcomes := make([]SQLOutcome, 0, len(sqls))
 
 	for _, stmt := range sqls {
-		rs, err := runStatement(ctx, q, stmt, params)
+		rs, err := runStatement(ctx, q, s3, stmt, params)
 		outcomes = append(outcomes, SQLOutcome{Result: rs, Err: err})
 
 		if err != nil {
@@ -121,7 +137,13 @@ func runStatements(ctx context.Context, q querier, sqls []string, params []SQLPa
 	return outcomes
 }
 
-func runStatement(ctx context.Context, q querier, stmt string, params []SQLParameter) (*ResultSet, error) {
+func runStatement(
+	ctx context.Context, q querier, s3 *s3Runner, stmt string, params []SQLParameter,
+) (*ResultSet, error) {
+	if handled, err := s3.run(ctx, q, stmt); handled {
+		return nil, err
+	}
+
 	query, args := stmt, []any(nil)
 
 	if len(params) > 0 {
@@ -206,7 +228,7 @@ func columnMetadata(ct *sql.ColumnType) ColumnMetadata {
 	switch typeName {
 	case "int2":
 		md.Precision, md.IsSigned = precisionInt2, true
-	case "int4":
+	case pgInt4:
 		md.Precision, md.IsSigned = precisionInt4, true
 	case "int8":
 		md.Precision, md.IsSigned = precisionInt8, true

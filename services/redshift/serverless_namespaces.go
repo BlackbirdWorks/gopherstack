@@ -20,7 +20,6 @@ import (
 // comment. p.RedshiftIdcApplicationArn is likewise accepted but not
 // persisted, since real AWS never surfaces it back either.
 func (b *InMemoryBackend) CreateNamespace(p CreateNamespaceParams) (*Namespace, error) {
-	_ = p.AdminUserPassword         // credential: intentionally never persisted, see doc comment above
 	_ = p.RedshiftIdcApplicationArn // intentionally never persisted, see doc comment above
 
 	if err := slValidName("namespaceName", p.NamespaceName); err != nil {
@@ -38,6 +37,8 @@ func (b *InMemoryBackend) CreateNamespace(p CreateNamespaceParams) (*Namespace, 
 			p.NamespaceName,
 		)
 	}
+
+	b.rememberNamespacePasswordLocked(p.NamespaceName, p.AdminUserPassword)
 
 	id := randomHex(slIDHexBytes)
 	nsArn := arn.Build("redshift-serverless", b.region, b.accountID, "namespace/"+id)
@@ -134,8 +135,6 @@ func (b *InMemoryBackend) ListNamespaces(maxResults int, nextToken string) ([]*N
 // p.AdminUserPassword is a credential: it is read from the wire but never
 // stored, logged, or echoed back -- see UpdateNamespaceParams' doc comment.
 func (b *InMemoryBackend) UpdateNamespace(namespaceName string, p UpdateNamespaceParams) (*Namespace, error) {
-	_ = p.AdminUserPassword // credential: intentionally never persisted, see doc comment above
-
 	b.mu.Lock("UpdateNamespace")
 	defer b.mu.Unlock()
 	b.settleServerlessLocked(time.Now())
@@ -148,6 +147,8 @@ func (b *InMemoryBackend) UpdateNamespace(namespaceName string, p UpdateNamespac
 	if ns.Status != slStatusAvailable {
 		return nil, slBusy("namespace", namespaceName)
 	}
+
+	b.rememberNamespacePasswordLocked(namespaceName, p.AdminUserPassword)
 
 	if p.AdminUsername != "" {
 		ns.AdminUsername = p.AdminUsername
@@ -264,6 +265,7 @@ func (b *InMemoryBackend) DeleteNamespace(
 	}
 
 	b.slNamespaces.Delete(namespaceName)
+	delete(b.slNsPasswords, namespaceName)
 	b.slNamespaceIdx.remove(namespaceName)
 
 	return cp, nil

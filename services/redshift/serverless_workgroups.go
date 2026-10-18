@@ -93,6 +93,7 @@ func (b *InMemoryBackend) CreateWorkgroup(
 	}
 	wg.Status = b.slBeginLocked(slKindWorkgroup, workgroupName, slStatusCreating, slStatusAvailable, false)
 	b.slWorkgroups.Put(wg)
+	b.provisionWorkgroupLocked(wg)
 	b.slWorkgroupIdx.insert(workgroupName)
 	b.putServerlessTagsLocked(wgArn, tags)
 	b.generateRecoveryPointLocked(ns, wg)
@@ -240,6 +241,8 @@ func (b *InMemoryBackend) DeleteWorkgroup(workgroupName string) (*Workgroup, err
 	if wg.Status != slStatusAvailable {
 		return nil, slBusy("workgroup", workgroupName)
 	}
+
+	b.dropUnitLocked(workgroupUnitKey(workgroupName))
 
 	cp := cloneWorkgroup(wg)
 	cp.Status = slStatusDeleting

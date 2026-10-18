@@ -44,14 +44,14 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 func enableDockerEngine(ctx *service.AppContext, backend *InMemoryBackend) {
 	rt, err := container.NewRuntime(container.Config{Logger: ctx.Logger})
 	if err != nil {
-		ctx.Logger.Warn("Redshift: container runtime unavailable; clusters stay metadata-only", "error", err)
+		ctx.Logger.Warn("Redshift: container runtime unavailable; resources stay metadata-only", "error", err)
 
 		return
 	}
 
 	er, ok := rt.(EngineRuntime)
 	if !ok {
-		ctx.Logger.Warn("Redshift: container runtime cannot stop/start containers; clusters stay metadata-only")
+		ctx.Logger.Warn("Redshift: container runtime cannot stop/start containers; resources stay metadata-only")
 
 		return
 	}
@@ -76,6 +76,10 @@ func (p *ServerlessProvider) Init(ctx *service.AppContext) (service.Registerable
 	accountID, region := service.AccountRegionOrDefault(ctx)
 
 	backend := NewInMemoryBackend(accountID, region)
+	if ec, ok := ctx.Config.(EngineModeConfig); ok && ec.GetRedshiftEngine() == EngineDocker {
+		enableDockerEngine(ctx, backend)
+	}
+
 	handler := NewServerlessHandler(backend)
 	handler.EnableRegions()
 
