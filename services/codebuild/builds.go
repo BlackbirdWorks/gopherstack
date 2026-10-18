@@ -322,6 +322,10 @@ func (b *InMemoryBackend) StartBuild(projectName string, cfg StartBuildConfig) (
 	b.builds.Put(build)
 	b.idemRecord("StartBuild", token, fp, fullID)
 
+	if b.engine != nil {
+		b.launchBuildLocked(build)
+	}
+
 	out := *build
 
 	return &out, nil
@@ -369,6 +373,8 @@ func (b *InMemoryBackend) StopBuild(id string) (*Build, error) {
 
 		return &out, nil
 	}
+
+	b.stopRunLocked(build)
 
 	build.BuildStatus = buildStatusStopped
 	build.EndTime = float64(time.Now().Unix())
