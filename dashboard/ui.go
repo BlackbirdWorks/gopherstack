@@ -45,6 +45,7 @@ import (
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	azurearmbackend "github.com/blackbirdworks/gopherstack/services/azurearm"
+	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
@@ -494,6 +495,8 @@ type Config struct {
 	AppSyncOps *appsyncbackend.Handler
 	// AzureARMOps is dispatched in-process by the /dashboard/api/v1/azure/arm proxy.
 	AzureARMOps *azurearmbackend.Handler
+	// AzureBlobOps is dispatched in-process by the /dashboard/api/v1/azure/blob proxy.
+	AzureBlobOps *azureblobbackend.Handler
 	// CognitoIDPOps provides access to the Cognito IDP backend.
 	CognitoIDPOps *cognitoidpbackend.Handler
 	// IoTDataPlaneOps provides access to the IoT Data Plane backend.
@@ -729,6 +732,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerCodeStarConnectionsListRoute()
 	h.registerSystemRoutes()
 	h.registerAzureARMRoutes()
+	h.registerAzureBlobRoutes()
 	h.registerSTSMetricsRoute()
 	h.registerCodeStarConnectionsMutationRoutes()
 	h.registerCognitoUserPoolRoutes()

@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { azureServiceById } from '#lib/cloud.ts';
 	import ArmDashboard from '#lib/components/azure/ArmDashboard.svelte';
+	import BlobDashboard from '#lib/components/azure/BlobDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedAzureServices } from '#lib/cloud.svelte.ts';
 
 	const service = $derived(azureServiceById(page.params.service ?? ''));
@@ -17,6 +18,8 @@
 
 {#if service?.id === 'arm'}
 	<ArmDashboard />
+{:else if service?.id === 'blob'}
+	<BlobDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="azure-service-placeholder">
 	{#if !service}
