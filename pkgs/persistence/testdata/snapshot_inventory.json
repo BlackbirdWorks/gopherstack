@@ -14400,6 +14400,13 @@
     ],
     "version": 2
   },
+  "gcpfirestore": {
+    "fields": [
+      "backendSnapshot.Docs map[string]json.RawMessage `json:\"docs\"`",
+      "backendSnapshot.LastCommit time.Time `json:\"lastCommit\"`"
+    ],
+    "version": 1
+  },
   "gcppubsub": {
     "fields": [
       "backendSnapshot.LastMsg int64 `json:\"lastMsg\"`",

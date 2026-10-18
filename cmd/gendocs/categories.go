@@ -26,6 +26,7 @@ const (
 	slugGCPStorage      = "gcpstorage"
 	slugGCPPubSub       = "gcppubsub"
 	slugGCPSecretMgr    = "gcpsecretmanager"
+	slugGCPFirestore    = "gcpfirestore"
 )
 
 // categoryGroups is the curated slug -> category assignment for every
@@ -107,7 +108,7 @@ func categoryGroups() []categoryGroup {
 			slugAzureBlob, slugAzureQueue, slugAzureTable, slugAzureServiceBus, slugCosmosDB,
 		}},
 		{"GCP", []string{
-			slugGCPStorage, slugGCPPubSub, slugGCPSecretMgr,
+			slugGCPStorage, slugGCPPubSub, slugGCPSecretMgr, slugGCPFirestore,
 		}},
 		{"Other", []string{
 			"appstream", "managedblockchain", "omics", "support", "workspaces",
@@ -211,6 +212,7 @@ func displayNamesB() map[string]string {
 		slugGCPStorage:     "Google Cloud Storage",
 		slugGCPPubSub:      "Google Cloud Pub/Sub",
 		slugGCPSecretMgr:   "Google Secret Manager",
+		slugGCPFirestore:   "Google Cloud Firestore",
 		"databrew":         "Glue DataBrew",
 		"datasync":         "DataSync",
 		"dax":              "DAX",

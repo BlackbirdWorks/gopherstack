@@ -867,8 +867,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
+| [Google Cloud Firestore](services/gcpfirestore/README.md) | B | 15 | 4 gaps |
 | [Google Cloud Pub/Sub](services/gcppubsub/README.md) | B | 35 | 6 gaps |
 | [Google Cloud Storage](services/gcpstorage/README.md) | B | 23 | 8 gaps |
+| [Google Secret Manager](services/gcpsecretmanager/README.md) | B | 15 | 4 gaps |
 
 ### Other
 
@@ -884,6 +886,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Budgets](services/budgets/README.md) | B | 26 | 9 gaps |
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | A | 6 | 2 structural gaps |
 | [Cloudhsmv2](services/cloudhsmv2/README.md) | B | 18 | 9 gaps; 3 structural gaps |
+| [Codegurureviewer](services/codegurureviewer/README.md) | B | 14 | 6 gaps; 2 structural gaps |
 | [Connect](services/connect/README.md) | B | 141 | 34 gaps; 2 structural gaps |
 | [Cur](services/cur/README.md) | B | 7 | 6 gaps |
 | [Directconnect](services/directconnect/README.md) | A | 64 | 8 structural gaps; 1 deferred |
@@ -896,6 +899,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Kinesisvideo](services/kinesisvideo/README.md) | A | 32 | 3 structural gaps |
 | [Lightsail](services/lightsail/README.md) | A | — | 28 families; 1 gap; 6 structural gaps; 2 deferred |
 | [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 3 structural gaps |
+| [Marketplaceentitlementservice](services/marketplaceentitlementservice/README.md) | B | 1 | 3 gaps; 1 structural gap |
+| [Marketplacemetering](services/marketplacemetering/README.md) | B | 4 | 5 gaps; 2 structural gaps |
 | [Mgn](services/mgn/README.md) | A | 95 | 1 gap; 8 structural gaps; 1 deferred |
 | [Networkfirewall](services/networkfirewall/README.md) | B | 85 | 4 gaps; 3 structural gaps |
 | [Networkmanager](services/networkmanager/README.md) | A | 95 | 4 gaps; 2 structural gaps |

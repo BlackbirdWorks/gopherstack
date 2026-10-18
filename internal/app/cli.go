@@ -163,6 +163,7 @@ import (
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	forecastbackend "github.com/blackbirdworks/gopherstack/services/forecast"
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
+	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
@@ -549,6 +550,7 @@ type CLI struct {
 	GCPStorage                    gcpstoragebackend.Settings        `embed:"" prefix:"gcp-storage-"`
 	GCPPubSub                     gcppubsubbackend.Settings         `embed:"" prefix:"gcp-pubsub-"`
 	GCPSecretManager              gcpsecretmanagerbackend.Settings  `embed:"" prefix:"gcp-secretmanager-"`
+	GCPFirestore                  gcpfirestorebackend.Settings      `embed:"" prefix:"gcp-firestore-"`
 	AzureStorageVHost             azurestoragevhostbackend.Settings `embed:"" prefix:"azure-storage-vhost-"`
 	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
@@ -638,6 +640,11 @@ func (c *CLI) GetGCPPubSubSettings() gcppubsubbackend.Settings {
 // GetGCPSecretManagerSettings returns Google Secret Manager settings (gcpsecretmanager.ConfigProvider).
 func (c *CLI) GetGCPSecretManagerSettings() gcpsecretmanagerbackend.Settings {
 	return c.GCPSecretManager
+}
+
+// GetGCPFirestoreSettings returns Google Cloud Firestore settings (gcpfirestore.ConfigProvider).
+func (c *CLI) GetGCPFirestoreSettings() gcpfirestorebackend.Settings {
+	return c.GCPFirestore
 }
 
 // GetGCPStorageSettings returns Google Cloud Storage settings (gcpstorage.ConfigProvider).
@@ -2180,6 +2187,11 @@ func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *port
 	if err := alloc.Reserve(cli.GCPSecretManager.Port, "gcpsecretmanager"); err != nil {
 		log.WarnContext(ctx, "failed to reserve GCPSecretManager's fixed port in the shared pool",
 			"port", cli.GCPSecretManager.Port, "error", err)
+	}
+
+	if err := alloc.Reserve(cli.GCPFirestore.Port, "gcpfirestore"); err != nil {
+		log.WarnContext(ctx, "failed to reserve GCPFirestore's fixed port in the shared pool",
+			"port", cli.GCPFirestore.Port, "error", err)
 	}
 
 	// AzureQueue's dedicated listener (services/azurequeue) binds its own
@@ -4582,6 +4594,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&gcpstoragebackend.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
+		&gcpfirestorebackend.Provider{},
 		&azurearmbackend.Provider{},
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
