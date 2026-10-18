@@ -347,7 +347,7 @@ func errorProbeUnreachable() map[string]string {
 		"GCPFirestore":            "non-AWS",
 		"Dashboard":               "not an AWS API",
 		"IoTDataPlane":            "path-routed REST",
-		"MarketplaceMetering":     "only mutating ops (MeterUsage, ResolveCustomer...); probe sends Describe/Get/List/Delete only; error shape verified manually",
+		"MarketplaceMetering":     "mutating ops only; probe sends Describe/Get/List/Delete",
 		"RDSData":                 "path-routed REST, no probe-safe ops",
 		"SageMaker":               "unknown-action probe only; ops dispatch on target prefix",
 		"SageMakerRuntime":        "path-routed REST",
