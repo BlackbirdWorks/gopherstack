@@ -264,8 +264,12 @@ that already exports them (e.g. `awslocal`) works without remapping. These are n
 
 #### Per-service engine & provider selection
 
+A single switch picks the default for every container-backed engine (RDS/Aurora, MSK, MQ, OpenSearch, Elasticsearch, DocumentDB, Neptune, Redshift, EKS, ElastiCache, MemoryDB, CodeBuild, Timestream for InfluxDB, ECS tasks). `auto` probes the Docker then Podman socket once at startup (5s bound, result logged) and uses real containers when one is reachable, otherwise stays on the stub; it never fails startup. Per-service flags or env vars always override it. See [docs/engines.md](docs/engines.md).
+
 | Flag | Env var | Default | Description |
 |------|---------|---------|-------------|
+| `--engines` | `GOPHERSTACK_ENGINES` | `stub` | Global engine default: `stub`, `auto` (docker/podman if reachable, else stub), or `docker`. |
+| `--ecs-runtime` | `GOPHERSTACK_ECS_RUNTIME` | *(follows `--engines`)* | ECS task runtime: `none` or `docker`. |
 | `--elasticache-engine` | `ELASTICACHE_ENGINE` | `embedded` | ElastiCache engine mode: `embedded` (miniredis), `stub`, or `docker`. |
 | `--memorydb-engine` | `MEMORYDB_ENGINE` | `embedded` | MemoryDB engine mode: `embedded` (miniredis per cluster, ACL passwords enforced via AUTH), `stub`, or `docker` (no server, as ElastiCache). |
 | `--kafka-engine` | `KAFKA_ENGINE` | `stub` | MSK engine mode: `stub` (metadata only) or `docker` (real single-node `apache/kafka` broker per provisioned cluster; `KAFKA_BROKER_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces). |
@@ -307,7 +311,7 @@ configuration](#lambda-configuration) below. A few more exist:
 | `--lambda-disable-hot-reload` | `LAMBDA_DISABLE_HOT_RELOAD` | `false` | Disable Lambda hot reloading from local directories. |
 | `--lambda-keep-containers` | `LAMBDA_KEEP_CONTAINERS` | `false` | If true, keep Lambda containers alive for debugging. |
 | *(none)* | `CONTAINER_HOST` | *(empty)* | Generic container endpoint override (e.g. a Podman socket URL). Takes precedence over runtime auto-detection. |
-| *(none)* | `GOPHERSTACK_ECS_RUNTIME` | *(unset = no-op)* | Set to `docker` to run ECS tasks as real containers. Unset or any other value is a no-op runner. |
+| `--ecs-runtime` | `GOPHERSTACK_ECS_RUNTIME` | *(unset = no-op)* | Set to `docker` to run ECS tasks as real containers; also driven by `--engines`. Unset or any other value is a no-op runner. |
 | *(none)* | `GOPHERSTACK_ENABLE_LOCAL_REGISTRY` | `false` (set to `1` to enable) | Run a real embedded Docker Registry v2 backend for ECR instead of the in-memory stub. |
 
 #### Per-service tuning (janitor intervals & TTLs)
@@ -853,11 +857,17 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Azure Blob Storage](services/azureblob/README.md) | C | 11 | 9 gaps; 3 deferred |
+| [Azure Blob Storage](services/azureblob/README.md) | C | 19 | 8 gaps; 3 deferred |
 | [Azure Cosmos DB](services/cosmosdb/README.md) | C | 15 | 10 gaps; 6 deferred |
 | [Azure Queue Storage](services/azurequeue/README.md) | C | 11 | 7 gaps; 1 deferred |
 | [Azure Service Bus](services/azureservicebus/README.md) | B | 17 | 4 gaps; 2 deferred |
 | [Azure Table Storage](services/azuretable/README.md) | C | 13 | 6 gaps; 3 deferred |
+
+### GCP
+
+| Service | Parity | PARITY Entries | Notes |
+|---|---|---|---|
+| [Google Cloud Storage](services/gcpstorage/README.md) | B | 23 | 8 gaps |
 
 ### Other
 

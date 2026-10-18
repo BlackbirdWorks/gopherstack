@@ -162,6 +162,7 @@ import (
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	forecastbackend "github.com/blackbirdworks/gopherstack/services/forecast"
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
+	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	globalacceleratorbackend "github.com/blackbirdworks/gopherstack/services/globalaccelerator"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
@@ -475,6 +476,7 @@ type CLI struct {
 	globalConfig                  *config.GlobalConfig
 	iamStream                     *iampolicystream.Recorder
 	portAlloc                     *portalloc.Allocator
+	engineModes                   map[string]string
 	localstackInit                *localstackInitState
 	ElastiCacheEngine             string                            `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"                  default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                            //nolint:lll // config struct tags are intentionally verbose
 	MemoryDBEngine                string                            `                                       name:"memorydb-engine"         env:"MEMORYDB_ENGINE"                     default:"embedded"      help:"MemoryDB engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                               //nolint:lll // config struct tags are intentionally verbose
@@ -515,6 +517,7 @@ type CLI struct {
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
 	AzureARM                      azurearmbackend.Settings          `embed:"" prefix:"azure-arm-"`
 	Lambda                        lambdabackend.Settings            `embed:"" prefix:"lambda-"`
+	EngineSwitch                  EngineSettings                    `embed:""`
 	DynamoDB                      ddbbackend.Settings               `embed:"" prefix:"dynamodb-"`
 	Lifecycle                     cliconfig.LifecycleSettings       `embed:"" prefix:"lifecycle-"`
 	Batch                         batchbackend.Settings             `embed:"" prefix:"batch-"`
@@ -535,6 +538,7 @@ type CLI struct {
 	AzureBlob                     azureblobbackend.Settings         `embed:"" prefix:"azure-blob-"`
 	AzureQueue                    azurequeuebackend.Settings        `embed:"" prefix:"azure-queue-"`
 	AzureTable                    azuretablebackend.Settings        `embed:"" prefix:"azure-table-"`
+	GCPStorage                    gcpstoragebackend.Settings        `embed:"" prefix:"gcp-storage-"`
 	AzureStorageVHost             azurestoragevhostbackend.Settings `embed:"" prefix:"azure-storage-vhost-"`
 	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
@@ -614,6 +618,11 @@ func (c *CLI) GetAzureBlobSettings() azureblobbackend.Settings {
 // GetAzureQueueSettings returns Azure Queue settings (azurequeue.ConfigProvider).
 func (c *CLI) GetAzureQueueSettings() azurequeuebackend.Settings {
 	return c.AzureQueue
+}
+
+// GetGCPStorageSettings returns Google Cloud Storage settings (gcpstorage.ConfigProvider).
+func (c *CLI) GetGCPStorageSettings() gcpstoragebackend.Settings {
+	return c.GCPStorage
 }
 
 // GetAzureTableSettings returns Azure Table settings (azuretable.ConfigProvider).
@@ -1055,7 +1064,10 @@ func (c *CLI) GetCloudWatchLogsSettings() cwlogsbackend.Settings {
 
 // GetCodeBuildSettings returns CodeBuild settings (codebuild.ConfigProvider).
 func (c *CLI) GetCodeBuildSettings() codebuildbackend.Settings {
-	return c.CodeBuild
+	st := c.CodeBuild
+	st.Engine = c.engineMode("codebuild-engine", st.Engine)
+
+	return st
 }
 
 // GetEC2Settings returns EC2 settings (ec2.ConfigProvider).
@@ -1218,31 +1230,33 @@ func (c *CLI) GetKinesisHandler() service.Registerable { return c.kinesisHandler
 func (c *CLI) GetElastiCacheHandler() service.Registerable { return c.elasticacheHandler }
 
 // GetElastiCacheEngine returns the ElastiCache engine mode (elasticache.EngineConfig).
-func (c *CLI) GetElastiCacheEngine() string { return c.ElastiCacheEngine }
+func (c *CLI) GetElastiCacheEngine() string {
+	return c.engineMode("elasticache-engine", c.ElastiCacheEngine)
+}
 
 // GetMemoryDBEngine returns the MemoryDB engine mode (memorydb.EngineConfig).
-func (c *CLI) GetMemoryDBEngine() string { return c.MemoryDBEngine }
+func (c *CLI) GetMemoryDBEngine() string { return c.engineMode("memorydb-engine", c.MemoryDBEngine) }
 
 // GetEKSEngine returns the EKS engine mode (eks.EngineConfig).
-func (c *CLI) GetEKSEngine() string { return c.EKSEngine }
+func (c *CLI) GetEKSEngine() string { return c.engineMode("eks-engine", c.EKSEngine) }
 
 // GetMQEngine returns the Amazon MQ engine mode (mq.EngineConfig).
-func (c *CLI) GetMQEngine() string { return c.MQEngine }
+func (c *CLI) GetMQEngine() string { return c.engineMode("mq-engine", c.MQEngine) }
 
 // GetRDSEngine returns the RDS engine mode (rds.EngineModeConfig).
-func (c *CLI) GetRDSEngine() string { return c.RDSEngine }
+func (c *CLI) GetRDSEngine() string { return c.engineMode("rds-engine", c.RDSEngine) }
 
 // GetRedshiftEngine returns the Redshift engine mode (redshift.EngineModeConfig).
-func (c *CLI) GetRedshiftEngine() string { return c.RedshiftEngine }
+func (c *CLI) GetRedshiftEngine() string { return c.engineMode("redshift-engine", c.RedshiftEngine) }
 
 // GetNeptuneEngine returns the Neptune engine mode (neptune.EngineModeConfig).
-func (c *CLI) GetNeptuneEngine() string { return c.NeptuneEngine }
+func (c *CLI) GetNeptuneEngine() string { return c.engineMode("neptune-engine", c.NeptuneEngine) }
 
 // GetDocDBEngine returns the DocumentDB engine mode (docdb.EngineModeConfig).
-func (c *CLI) GetDocDBEngine() string { return c.DocDBEngine }
+func (c *CLI) GetDocDBEngine() string { return c.engineMode("docdb-engine", c.DocDBEngine) }
 
 // GetKafkaEngine returns the MSK engine mode (kafka.EngineConfig).
-func (c *CLI) GetKafkaEngine() string { return c.KafkaEngine }
+func (c *CLI) GetKafkaEngine() string { return c.engineMode("kafka-engine", c.KafkaEngine) }
 
 // GetRoute53Handler returns the Route 53 handler (dashboard.AWSSDKProvider).
 //
@@ -1265,7 +1279,9 @@ func (c *CLI) GetSESv2Handler() service.Registerable { return c.sesv2Handler }
 func (c *CLI) GetEC2Handler() service.Registerable { return c.ec2Handler }
 
 // GetElasticsearchEngine returns the Elasticsearch engine mode (elasticsearch.EngineConfig).
-func (c *CLI) GetElasticsearchEngine() string { return c.ElasticsearchEngine }
+func (c *CLI) GetElasticsearchEngine() string {
+	return c.engineMode("elasticsearch-engine", c.ElasticsearchEngine)
+}
 
 // GetElasticsearchProcessingDelay returns the domain Processing window (elasticsearch.ProcessingDelayConfig).
 func (c *CLI) GetElasticsearchProcessingDelay() time.Duration {
@@ -1278,7 +1294,9 @@ func (c *CLI) GetElasticsearchProcessingDelay() time.Duration {
 func (c *CLI) GetElasticsearchHandler() service.Registerable { return c.elasticsearchHandler }
 
 // GetOpenSearchEngine returns the OpenSearch engine mode (opensearch.EngineConfig).
-func (c *CLI) GetOpenSearchEngine() string { return c.OpenSearchEngine }
+func (c *CLI) GetOpenSearchEngine() string {
+	return c.engineMode("opensearch-engine", c.OpenSearchEngine)
+}
 
 // GetOpenSearchHandler returns the OpenSearch handler.
 //
@@ -2114,6 +2132,11 @@ func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *port
 			"port", cli.AzureBlob.Port, "error", err)
 	}
 
+	if err := alloc.Reserve(cli.GCPStorage.Port, "gcpstorage"); err != nil {
+		log.WarnContext(ctx, "failed to reserve GCPStorage's fixed port in the shared pool",
+			"port", cli.GCPStorage.Port, "error", err)
+	}
+
 	// AzureQueue's dedicated listener (services/azurequeue) binds its own
 	// fixed, protocol-conventional default port (10001, matching Azurite's
 	// own Queue service port) the same way AzureBlob does above -- see that
@@ -2229,10 +2252,7 @@ func run(ctx context.Context, cli CLI) error {
 	}
 
 	cli = applyExplicitOverrides(original, cli)
-	cli.GetGlobalConfig().Update(
-		cli.AccountID, cli.Region, cli.LatencyMs,
-		cli.JanitorTimeout, cli.EnforceIAM, cli.AutoPurgeTTL,
-	)
+	cli.applyRuntimeConfig(ctx, log)
 
 	// --- Port allocator ---
 	cli.portAlloc = setupPortAllocatorWithReservations(ctx, log, cli)
@@ -4510,6 +4530,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&azureservicebusbackend.Provider{},
 		&azurestoragevhostbackend.Provider{},
 		&cosmosdbbackend.Provider{},
+		&gcpstoragebackend.Provider{},
 		&azurearmbackend.Provider{},
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},

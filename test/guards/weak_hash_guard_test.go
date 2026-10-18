@@ -23,6 +23,10 @@ func allowedWeakHashFiles() map[string]string {
 		// member beside Hash/HashType (ssm@v1.73.4 types/enums.go:708-724), so an
 		// emulator cannot populate it without computing SHA1. Content-integrity
 		// checksum echoed on the wire, never a credential. gopherstack-ziv9.
+		// GCS objects carry an md5Hash field and X-Goog-Hash md5= value defined as the
+		// base64 MD5 of the content; integrity checksum, never a credential.
+		"services/gcpstorage/store.go": "GCS Object.md5Hash parity, verified",
+
 		"services/neptune/engine_probe.go": "RFC 6455 WebSocket Sec-WebSocket-Accept mandates SHA-1, verified",
 		"services/ssm/document_hashes.go":  "DocumentDescription.Sha1 parity, verified",
 

@@ -255,9 +255,9 @@ func (m manifest) fullText() string {
 	return strings.Join(m.lines, "\n")
 }
 
-// isNonAWSService reports the Azure emulation dirs, which are owned by a
+// isNonAWSService reports the Azure and GCP emulation dirs, which are owned by a
 // separate workstream and carry their own manifest conventions; the AWS
 // parity lint must never require edits there.
 func isNonAWSService(slug string) bool {
-	return strings.HasPrefix(slug, "azure") || slug == "cosmosdb"
+	return strings.HasPrefix(slug, "azure") || strings.HasPrefix(slug, "gcp") || slug == "cosmosdb"
 }
