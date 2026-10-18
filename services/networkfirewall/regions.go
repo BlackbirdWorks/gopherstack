@@ -15,6 +15,7 @@ func (h *Handler) EnableRegions() {
 		bk := NewInMemoryBackend(h.AccountID, region)
 		bk.SetSubnetResolver(h.Backend.resolver())
 		bk.SetTransitionDelay(h.Backend.transitionDelay())
+		bk.SetTransitGatewayResolver(h.Backend.tgwResolver())
 
 		p := NewHandler(bk)
 		p.AccountID = h.AccountID

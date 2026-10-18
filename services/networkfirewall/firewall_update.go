@@ -293,6 +293,10 @@ func (b *InMemoryBackend) AssociateSubnets(_ context.Context, in *AssociateSubne
 
 	return mutateFirewall(b, "AssociateSubnets", in.firewallTarget,
 		func(r *firewallRecord, now time.Time) error {
+			if r.TGWID != "" {
+				return invalid("The firewall %s is attached to a transit gateway and has no subnets", r.Name)
+			}
+
 			if r.SubnetProtection {
 				return invalidOp("The firewall %s has subnet change protection enabled", r.Name)
 			}
@@ -331,6 +335,10 @@ func (b *InMemoryBackend) DisassociateSubnets(_ context.Context, in *Disassociat
 
 	return mutateFirewall(b, "DisassociateSubnets", in.firewallTarget,
 		func(r *firewallRecord, _ time.Time) error {
+			if r.TGWID != "" {
+				return invalid("The firewall %s is attached to a transit gateway and has no subnets", r.Name)
+			}
+
 			if r.SubnetProtection {
 				return invalidOp("The firewall %s has subnet change protection enabled", r.Name)
 			}

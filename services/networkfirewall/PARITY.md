@@ -3,7 +3,7 @@ service: networkfirewall
 sdk_module: aws-sdk-go-v2/service/networkfirewall@v1.76.1
 last_audit_commit: 8e8351102
 last_audit_date: 2026-10-17
-overall: B            # B: 37 of 85 SDK ops implemented against the real client (wire shapes cross-checked with the SDK response snapshots); proxy, VPC endpoint association, availability zone, transit gateway, flow and analysis ops remain open.
+overall: B            # B: all 85 SDK ops implemented and verified through the real client; no packets flow, so flow/analysis results are empty, and NAT gateway mappings and VpcEndpoint on CreateFirewall stay unsupported.
 ops:
   CreateFirewall: {wire: ok, errors: ok, state: ok, persist: ok, note: "VPC firewalls only; PROVISIONING for the transition window then READY/IN_SYNC; one subnet per zone; subnets and VPC checked against EC2 when wired"}
   DescribeFirewall: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns Firewall, FirewallStatus (SyncStates keyed by zone, Config keyed by policy and rule group ARNs) and UpdateToken"}
@@ -42,8 +42,56 @@ ops:
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "firewalls, policies, rule groups and TLS configurations; 50-tag limit"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateProxy: {wire: ok, errors: ok, state: ok, persist: ok, note: "NatGatewayId not checked against EC2; TLS ENABLED needs PcaArn; ATTACHING then ATTACHED"}
+  DescribeProxy: {wire: ok, errors: ok, state: ok, persist: ok, note: "PrivateDNSName and VpcEndpointServiceName are minted at creation"}
+  UpdateProxy: {wire: ok, errors: ok, state: ok, persist: ok, note: "UpdateToken required; MODIFYING then COMPLETED"}
+  DeleteProxy: {wire: ok, errors: ok, state: ok, persist: ok, note: "DETACHING until the window passes, then removed"}
+  ListProxies: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateProxyConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "RuleGroupArns/Names must exist; priority is list position"}
+  DescribeProxyConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateProxyConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteProxyConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "InvalidOperationException while a proxy uses it"}
+  ListProxyConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
+  AttachRuleGroupsToProxyConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  DetachRuleGroupsFromProxyConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateProxyRuleGroupPriorities: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateProxyRuleGroup: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeProxyRuleGroup: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteProxyRuleGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "InvalidOperationException while attached to a proxy configuration"}
+  ListProxyRuleGroups: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateProxyRules: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteProxyRules: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeProxyRule: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateProxyRule: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateProxyRulePriorities: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateProxySettings: {wire: ok, errors: ok, state: ok, persist: ok, note: "stored on the firewall; CreateFirewall accepts ProxySettings"}
+  CreateVpcEndpointAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "zone and VPC checked against EC2 when wired; no EC2 endpoint is created"}
+  DescribeVpcEndpointAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListVpcEndpointAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteVpcEndpointAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "associations are dropped with their firewall"}
+  AssociateAvailabilityZones: {wire: ok, errors: ok, state: ok, persist: ok, note: "transit gateway firewalls only"}
+  DisassociateAvailabilityZones: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateAvailabilityZoneChangeProtection: {wire: ok, errors: ok, state: ok, persist: ok}
+  AcceptNetworkFirewallTransitGatewayAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "only PENDING_ACCEPTANCE; see items_still_open for when that arises"}
+  RejectNetworkFirewallTransitGatewayAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteNetworkFirewallTransitGatewayAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
+  StartFlowCapture: {wire: ok, errors: ok, state: ok, persist: ok, note: "target must be a firewall zone, endpoint or association"}
+  StartFlowFlush: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeFlowOperation: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListFlowOperations: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListFlowOperationResults: {wire: ok, errors: ok, state: ok, persist: ok, note: "always zero flows: no traffic crosses the emulator"}
+  StartAnalysisReport: {wire: ok, errors: ok, state: ok, persist: ok, note: "analysis type must be enabled on the firewall"}
+  ListAnalysisReports: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetAnalysisReportResults: {wire: ok, errors: ok, state: ok, persist: ok, note: "always zero rows: no traffic"}
+  UpdateFirewallAnalysisSettings: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeRuleGroupSummary: {wire: ok, errors: ok, state: ok, persist: ok, note: "STATEFUL only; Suricata options parsed from RulesString and StatefulRules; no SummaryConfiguration selects no fields"}
+  CreateContainerAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeContainerAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResolvedCidrCount is 0: no container runtime to resolve"}
+  UpdateContainerAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteContainerAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListContainerAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
-  Firewall: {status: ok, note: "Create/Describe/List/Delete plus every update op verified through the real aws-sdk-go-v2 client (awsjson1.0, NetworkFirewall_20201112 target). Lifecycle is lazy deadlines evaluated on read (PROVISIONING to READY, DELETING to gone); the window is SetTransitionDelay (500ms default)."}
+  Firewall: {status: ok, note: "Create/Describe/List/Delete plus every update op verified through the real aws-sdk-go-v2 client (awsjson1.0, NetworkFirewall_20201112 target). Lifecycle is lazy deadlines evaluated on read (PROVISIONING to READY, DELETING to gone); the window is 500ms by default, set with --lifecycle-networkfirewall (NETWORKFIREWALL_LIFECYCLE_DELAY) or --lifecycle-delay; it also times proxies, VPC endpoint associations, flow operations, analysis reports, container associations and transit gateway attachments."}
   FirewallPolicy: {status: ok, note: "Capacity and association counts are computed from live rule group and firewall state."}
   RuleGroup: {status: ok, note: "Suricata rule text is not parsed; capacity is the line count."}
   TLSInspectionConfiguration: {status: ok, note: "Stored and referenced by policies; no certificate handling."}
@@ -52,14 +100,10 @@ families:
   Tags: {status: ok, note: "Shared by all four taggable resource kinds."}
 gaps: []
 items_still_open:
-  - Proxy ops (CreateProxy, CreateProxyConfiguration, CreateProxyRuleGroup, CreateProxyRules, DescribeProxy*, UpdateProxy*, DeleteProxy*, ListProxies, ListProxyConfigurations, ListProxyRuleGroups, Attach/DetachRuleGroups*): not implemented (bd: gopherstack-cefu7.4)
-  - VPC endpoint association ops (Create/Describe/Delete/ListVpcEndpointAssociations): not implemented (bd: gopherstack-cefu7.4)
-  - Availability zone and transit gateway ops (Associate/DisassociateAvailabilityZones, UpdateAvailabilityZoneChangeProtection, Accept/Reject/DeleteNetworkFirewallTransitGatewayAttachment) and CreateFirewall with TransitGatewayId, AvailabilityZoneMappings, NatGatewayMappings, ProxySettings or VpcEndpoint (UnsupportedOperationException): not implemented (bd: gopherstack-cefu7.4)
-  - Flow ops (StartFlowCapture, StartFlowFlush, DescribeFlowOperation, ListFlowOperations, ListFlowOperationResults) and analysis ops (StartAnalysisReport, ListAnalysisReports, GetAnalysisReportResults, UpdateFirewallAnalysisSettings): not implemented (bd: gopherstack-cefu7.4)
-  - Container association ops and DescribeRuleGroupSummary: not implemented (bd: gopherstack-cefu7.4)
-  - FirewallStatus.CapacityUsageSummary and NatGatewayAttachments never populated (bd: gopherstack-cefu7.4)
-  - Firewall endpoints are generated vpce IDs; no EC2 VPC endpoint is created or removed (bd: gopherstack-cefu7.4)
-  - Firewall transition window has no lifecycle CLI flag; only settable in code (bd: gopherstack-cefu7.79)
+  - CreateFirewall NatGatewayMappings and VpcEndpoint: UnsupportedOperationException (bd: gopherstack-cefu7.79)
+  - Transit gateway attachments start PENDING_ACCEPTANCE only when a TransitGatewayResolver reports another owner account; internal/app does not wire one to EC2, so standalone attachments auto-accept (bd: gopherstack-cefu7.79)
+  - FirewallStatus.CapacityUsageSummary and NatGatewayAttachments never populated (bd: gopherstack-cefu7.79)
+  - Firewall, VPC endpoint association and proxy endpoints are generated IDs; no EC2 VPC endpoint is created or removed (bd: gopherstack-cefu7.79)
 structural_gaps:
   - "Rule evaluation: no packets flow, so stateless/stateful rules, TLS inspection and logging never act on traffic."
   - "AnalysisResults on DescribeRuleGroup need a rule-analysis engine; none exists."

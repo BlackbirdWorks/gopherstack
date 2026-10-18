@@ -53,6 +53,7 @@ import (
 	mgnbackend "github.com/blackbirdworks/gopherstack/services/mgn"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	networkfirewallbackend "github.com/blackbirdworks/gopherstack/services/networkfirewall"
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
@@ -241,6 +242,12 @@ func applyDSQL(reg service.Registerable, l cliconfig.LifecycleSettings) {
 		if bk, isBk := h.Backend.(*dsqlbackend.InMemoryBackend); isBk {
 			bk.SetLifecycleDelay(l.Effective(l.DSQL))
 		}
+	}
+}
+
+func applyNetworkFirewall(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*networkfirewallbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.Effective(l.NetworkFirewall))
 	}
 }
 
@@ -715,6 +722,7 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l cliconfig.Lif
 		"FIS":                 applyFIS,
 		"DSQL":                applyDSQL,
 		"GlobalAccelerator":   applyGlobalAccelerator,
+		"NetworkFirewall":     applyNetworkFirewall,
 		"WorkMail":            applyWorkMail,
 		"Personalize":         applyPersonalize,
 		"OpsWorks":            applyOpsWorks,

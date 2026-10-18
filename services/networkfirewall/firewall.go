@@ -66,6 +66,9 @@ type DescribeFirewallMetadataOutput struct {
 	FirewallArn       string `json:"FirewallArn"`
 	FirewallPolicyArn string `json:"FirewallPolicyArn"`
 	Status            string `json:"Status"`
+
+	SupportedAvailabilityZones map[string]AvailabilityZoneMetadata `json:"SupportedAvailabilityZones,omitempty"`
+	TransitGatewayAttachmentID string                              `json:"TransitGatewayAttachmentId,omitempty"`
 }
 
 // ListFirewallsInput is the ListFirewalls request.
@@ -84,18 +87,6 @@ type ListFirewallsOutput struct {
 // DeleteFirewallInput is the DeleteFirewall request.
 type DeleteFirewallInput = DescribeFirewallInput
 
-func rejectUnsupportedFirewallFields(in *CreateFirewallInput) error {
-	if in.TransitGatewayID != "" || len(in.AvailabilityZoneMappings) > 0 || in.VpcEndpoint != nil {
-		return unsupported("transit gateway-attached firewalls are not supported")
-	}
-
-	if len(in.NatGatewayMappings) > 0 || in.ProxySettings != nil {
-		return unsupported("NatGatewayMappings and ProxySettings are not supported")
-	}
-
-	return nil
-}
-
 func validateCreateFirewall(in *CreateFirewallInput) error {
 	if err := validateName("FirewallName", in.FirewallName); err != nil {
 		return err
@@ -105,15 +96,15 @@ func validateCreateFirewall(in *CreateFirewallInput) error {
 		return invalid("FirewallPolicyArn is required")
 	}
 
-	if err := rejectUnsupportedFirewallFields(in); err != nil {
+	if len(in.NatGatewayMappings) > 0 || in.VpcEndpoint != nil {
+		return unsupported("NatGatewayMappings and VpcEndpoint are not supported")
+	}
+
+	if err := validateProxySettings(in.ProxySettings); err != nil {
 		return err
 	}
 
-	if in.VpcID == "" || len(in.SubnetMappings) == 0 {
-		return invalid("VpcId and at least one SubnetMapping are required")
-	}
-
-	if err := validateSubnetMappings(in.SubnetMappings); err != nil {
+	if err := validateFirewallPlacement(in); err != nil {
 		return err
 	}
 
@@ -125,7 +116,31 @@ func validateCreateFirewall(in *CreateFirewallInput) error {
 		return err
 	}
 
+	if err := validateAnalysisTypes(in.EnabledAnalysisTypes); err != nil {
+		return err
+	}
+
 	return validateTags(tagMap(in.Tags))
+}
+
+func validateFirewallPlacement(in *CreateFirewallInput) error {
+	if in.TransitGatewayID != "" {
+		if in.VpcID != "" || len(in.SubnetMappings) > 0 {
+			return invalid("VpcId and SubnetMappings cannot be combined with TransitGatewayId")
+		}
+
+		return validateZoneMappings(in.AvailabilityZoneMappings)
+	}
+
+	if len(in.AvailabilityZoneMappings) > 0 {
+		return invalid("AvailabilityZoneMappings requires TransitGatewayId")
+	}
+
+	if in.VpcID == "" || len(in.SubnetMappings) == 0 {
+		return invalid("VpcId and at least one SubnetMapping are required")
+	}
+
+	return validateSubnetMappings(in.SubnetMappings)
 }
 
 func validateSubnetMappings(sm []SubnetMapping) error {
@@ -221,9 +236,13 @@ func (b *InMemoryBackend) configStatusLocked(r *firewallRecord, state string) ma
 }
 
 func (r *firewallRecord) statusAt(now time.Time) (string, string, string) {
-	switch {
+	switch tgw := r.tgwStatusAt(now); {
 	case !r.DeleteUntil.IsZero():
 		return statusDeleting, syncPending, statusDeleting
+	case tgw == tgwPendingAcceptance || tgw == tgwCreating || tgw == tgwRejecting:
+		return statusProvisioning, syncPending, attachmentCreating
+	case isTGWFailure(tgw):
+		return statusFailed, syncPending, attachmentFailed
 	case now.Before(r.ProvisionUntil):
 		return statusProvisioning, syncPending, attachmentCreating
 	case now.Before(r.SyncUntil):
@@ -241,19 +260,24 @@ func (b *InMemoryBackend) firewallViewLocked(r *firewallRecord, now time.Time) (
 	status, sync, attachment := r.statusAt(now)
 
 	fw := Firewall{
-		FirewallArn:                    r.ARN,
-		FirewallID:                     r.ID,
-		FirewallName:                   r.Name,
-		FirewallPolicyArn:              r.PolicyARN,
-		Description:                    r.Description,
-		VpcID:                          r.VpcID,
-		SubnetMappings:                 slices.Clone(r.SubnetMappings),
-		DeleteProtection:               r.DeleteProtection,
-		SubnetChangeProtection:         r.SubnetProtection,
-		FirewallPolicyChangeProtection: r.PolicyProtection,
-		EncryptionConfiguration:        normalizeEncryption(r.Encryption),
-		EnabledAnalysisTypes:           cloneStrings(r.AnalysisTypes),
-		Tags:                           tagList(r.Tags),
+		FirewallArn:                      r.ARN,
+		FirewallID:                       r.ID,
+		FirewallName:                     r.Name,
+		FirewallPolicyArn:                r.PolicyARN,
+		Description:                      r.Description,
+		VpcID:                            r.VpcID,
+		SubnetMappings:                   slices.Clone(r.SubnetMappings),
+		DeleteProtection:                 r.DeleteProtection,
+		SubnetChangeProtection:           r.SubnetProtection,
+		FirewallPolicyChangeProtection:   r.PolicyProtection,
+		EncryptionConfiguration:          normalizeEncryption(r.Encryption),
+		AvailabilityZoneChangeProtection: r.ZoneProtection,
+		AvailabilityZoneMappings:         zoneMappings(r.AZMappings),
+		TransitGatewayID:                 r.TGWID,
+		TransitGatewayOwnerAccountID:     r.TGWOwner,
+		ProxySettings:                    r.ProxySettings,
+		EnabledAnalysisTypes:             cloneStrings(r.AnalysisTypes),
+		Tags:                             tagList(r.Tags),
 	}
 
 	syncStates := make(map[string]SyncState, len(r.Zones))
@@ -269,13 +293,36 @@ func (b *InMemoryBackend) firewallViewLocked(r *firewallRecord, now time.Time) (
 		}
 	}
 
-	return fw, FirewallStatus{Status: status, ConfigurationSyncStateSummary: sync, SyncStates: syncStates}
+	for _, az := range r.AZMappings {
+		syncStates[az] = SyncState{
+			Attachment: &Attachment{EndpointID: r.Endpoints[az], Status: attachment},
+			Config:     b.configStatusLocked(r, sync),
+		}
+	}
+
+	st := FirewallStatus{Status: status, ConfigurationSyncStateSummary: sync, SyncStates: syncStates}
+	if r.TGWID != "" {
+		st.TransitGatewayAttachmentSyncState = &TransitGatewayAttachmentSyncState{
+			AttachmentID: r.TGWAttachmentID, TransitGatewayAttachmentStatus: r.tgwStatusAt(now),
+		}
+	}
+
+	return fw, st
 }
 
 func (b *InMemoryBackend) sweepLocked(now time.Time) {
 	for _, r := range b.firewalls.All() {
 		if r.expired(now) {
-			b.firewalls.Delete(r.ARN)
+			b.removeFirewallLocked(r.ARN)
+		}
+	}
+
+	b.sweepProxiesLocked(now)
+	b.sweepContainersLocked(now)
+
+	for _, r := range b.vpcEndpoints.All() {
+		if r.expired(now) {
+			b.vpcEndpoints.Delete(r.ARN)
 		}
 	}
 }
@@ -318,6 +365,7 @@ func (b *InMemoryBackend) CreateFirewall(_ context.Context, in *CreateFirewallIn
 		SubnetProtection: in.SubnetChangeProtection,
 		PolicyProtection: in.FirewallPolicyChangeProtection,
 		ZoneProtection:   in.AvailabilityZoneChangeProtection,
+		ProxySettings:    in.ProxySettings,
 		Endpoints:        map[string]string{},
 		Zones:            map[string]string{},
 		ProvisionUntil:   b.deadline(now),
@@ -332,7 +380,11 @@ func (b *InMemoryBackend) CreateFirewall(_ context.Context, in *CreateFirewallIn
 		r.SubnetMappings = append(r.SubnetMappings, m)
 	}
 
-	if err := b.resolveSubnetsLocked(r, r.VpcID, r.SubnetMappings); err != nil {
+	if in.TransitGatewayID != "" {
+		if err := b.attachTransitGatewayLocked(r, in, now); err != nil {
+			return nil, err
+		}
+	} else if err := b.resolveSubnetsLocked(r, r.VpcID, r.SubnetMappings); err != nil {
 		return nil, err
 	}
 
@@ -398,12 +450,22 @@ func (b *InMemoryBackend) DescribeFirewallMetadata(
 
 	status, _, _ := r.statusAt(now)
 
-	return &DescribeFirewallMetadataOutput{
-		Description:       r.Description,
-		FirewallArn:       r.ARN,
-		FirewallPolicyArn: r.PolicyARN,
-		Status:            status,
-	}, nil
+	out := &DescribeFirewallMetadataOutput{
+		Description:                r.Description,
+		FirewallArn:                r.ARN,
+		FirewallPolicyArn:          r.PolicyARN,
+		Status:                     status,
+		TransitGatewayAttachmentID: r.TGWAttachmentID,
+	}
+
+	if r.TGWID != "" {
+		out.SupportedAvailabilityZones = make(map[string]AvailabilityZoneMetadata, len(r.AZMappings))
+		for _, az := range r.AZMappings {
+			out.SupportedAvailabilityZones[az] = AvailabilityZoneMetadata{IPAddressType: ipv4}
+		}
+	}
+
+	return out, nil
 }
 
 // ListFirewalls lists firewalls, optionally filtered by VPC.
@@ -456,8 +518,17 @@ func (b *InMemoryBackend) DeleteFirewall(_ context.Context, in *DeleteFirewallIn
 	fw, st := b.firewallViewLocked(r, now)
 
 	if b.delay <= 0 {
-		b.firewalls.Delete(r.ARN)
+		b.removeFirewallLocked(r.ARN)
 	}
 
 	return &FirewallOutput{Firewall: fw, FirewallStatus: st}, nil
+}
+
+func isTGWFailure(s string) bool {
+	switch s {
+	case tgwRejected, tgwFailed, tgwError, tgwDeleting, tgwDeleted:
+		return true
+	default:
+		return false
+	}
 }

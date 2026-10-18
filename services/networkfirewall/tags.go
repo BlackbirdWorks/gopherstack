@@ -55,6 +55,10 @@ func (b *InMemoryBackend) tagHandleLocked(resourceARN string) (tagHandle, error)
 		return tagHandle{func() map[string]string { return r.Tags }, func(m map[string]string) { r.Tags = m }}, nil
 	}
 
+	if h, ok := b.extraTagHandleLocked(resourceARN); ok {
+		return h, nil
+	}
+
 	return tagHandle{}, notFound("resource", resourceARN)
 }
 
@@ -132,4 +136,36 @@ func (b *InMemoryBackend) ListTagsForResource(
 	}
 
 	return &ListTagsForResourceOutput{Tags: pg.Data, NextToken: pg.Next}, nil
+}
+
+func newTagHandle[V any](rec *V, get func(*V) *map[string]string) tagHandle {
+	p := get(rec)
+
+	return tagHandle{func() map[string]string { return *p }, func(m map[string]string) { *p = m }}
+}
+
+func (b *InMemoryBackend) extraTagHandleLocked(resourceARN string) (tagHandle, bool) {
+	now := time.Now()
+
+	if r, ok := b.proxies.Get(resourceARN); ok && !r.expired(now) {
+		return newTagHandle(r, func(x *proxyRecord) *map[string]string { return &x.Tags }), true
+	}
+
+	if r, ok := b.proxyConfigs.Get(resourceARN); ok {
+		return newTagHandle(r, func(x *proxyConfigRecord) *map[string]string { return &x.Tags }), true
+	}
+
+	if r, ok := b.proxyRuleGroups.Get(resourceARN); ok {
+		return newTagHandle(r, func(x *proxyRuleGroupRecord) *map[string]string { return &x.Tags }), true
+	}
+
+	if r, ok := b.vpcEndpoints.Get(resourceARN); ok && !r.expired(now) {
+		return newTagHandle(r, func(x *vpcEndpointRecord) *map[string]string { return &x.Tags }), true
+	}
+
+	if r, ok := b.containers.Get(resourceARN); ok && !r.expired(now) {
+		return newTagHandle(r, func(x *containerRecord) *map[string]string { return &x.Tags }), true
+	}
+
+	return tagHandle{}, false
 }

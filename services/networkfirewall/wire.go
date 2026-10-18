@@ -48,20 +48,24 @@ type VpcEndpoint struct {
 
 // Firewall is the Firewall response shape.
 type Firewall struct {
-	EncryptionConfiguration          *EncryptionConfiguration `json:"EncryptionConfiguration,omitempty"`
-	FirewallArn                      string                   `json:"FirewallArn"`
-	FirewallID                       string                   `json:"FirewallId"`
-	FirewallName                     string                   `json:"FirewallName"`
-	FirewallPolicyArn                string                   `json:"FirewallPolicyArn"`
-	Description                      string                   `json:"Description,omitempty"`
-	VpcID                            string                   `json:"VpcId"`
-	SubnetMappings                   []SubnetMapping          `json:"SubnetMappings"`
-	EnabledAnalysisTypes             []string                 `json:"EnabledAnalysisTypes,omitempty"`
-	Tags                             []Tag                    `json:"Tags,omitempty"`
-	DeleteProtection                 bool                     `json:"DeleteProtection"`
-	SubnetChangeProtection           bool                     `json:"SubnetChangeProtection"`
-	FirewallPolicyChangeProtection   bool                     `json:"FirewallPolicyChangeProtection"`
-	AvailabilityZoneChangeProtection bool                     `json:"AvailabilityZoneChangeProtection"`
+	ProxySettings                    *ProxySettings            `json:"ProxySettings,omitempty"`
+	EncryptionConfiguration          *EncryptionConfiguration  `json:"EncryptionConfiguration,omitempty"`
+	TransitGatewayID                 string                    `json:"TransitGatewayId,omitempty"`
+	FirewallArn                      string                    `json:"FirewallArn"`
+	FirewallPolicyArn                string                    `json:"FirewallPolicyArn"`
+	Description                      string                    `json:"Description,omitempty"`
+	VpcID                            string                    `json:"VpcId"`
+	TransitGatewayOwnerAccountID     string                    `json:"TransitGatewayOwnerAccountId,omitempty"`
+	FirewallName                     string                    `json:"FirewallName"`
+	FirewallID                       string                    `json:"FirewallId"`
+	AvailabilityZoneMappings         []AvailabilityZoneMapping `json:"AvailabilityZoneMappings,omitempty"`
+	Tags                             []Tag                     `json:"Tags,omitempty"`
+	EnabledAnalysisTypes             []string                  `json:"EnabledAnalysisTypes,omitempty"`
+	SubnetMappings                   []SubnetMapping           `json:"SubnetMappings"`
+	DeleteProtection                 bool                      `json:"DeleteProtection"`
+	SubnetChangeProtection           bool                      `json:"SubnetChangeProtection"`
+	FirewallPolicyChangeProtection   bool                      `json:"FirewallPolicyChangeProtection"`
+	AvailabilityZoneChangeProtection bool                      `json:"AvailabilityZoneChangeProtection"`
 }
 
 // Attachment is a firewall endpoint attachment.
@@ -69,7 +73,7 @@ type Attachment struct {
 	EndpointID    string `json:"EndpointId"`
 	Status        string `json:"Status"`
 	StatusMessage string `json:"StatusMessage,omitempty"`
-	SubnetID      string `json:"SubnetId"`
+	SubnetID      string `json:"SubnetId,omitempty"`
 }
 
 // PerObjectStatus is the sync state of one policy or rule group.
@@ -86,9 +90,10 @@ type SyncState struct {
 
 // FirewallStatus is the FirewallStatus response shape.
 type FirewallStatus struct {
-	SyncStates                    map[string]SyncState `json:"SyncStates,omitempty"`
-	ConfigurationSyncStateSummary string               `json:"ConfigurationSyncStateSummary"`
-	Status                        string               `json:"Status"`
+	TransitGatewayAttachmentSyncState *TransitGatewayAttachmentSyncState `json:"TransitGatewayAttachmentSyncState,omitempty"` //nolint:lll // wire name
+	SyncStates                        map[string]SyncState               `json:"SyncStates,omitempty"`
+	ConfigurationSyncStateSummary     string                             `json:"ConfigurationSyncStateSummary"`
+	Status                            string                             `json:"Status"`
 }
 
 // AvailabilityZoneMetadata is a supported zone entry.

@@ -92,6 +92,9 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	for _, key := range []string{
 		"FirewallName", "FirewallArn", "FirewallPolicyName", "FirewallPolicyArn", "RuleGroupName",
 		"RuleGroupArn", "TLSInspectionConfigurationName", "TLSInspectionConfigurationArn", "ResourceArn",
+		"ProxyName", "ProxyArn", "ProxyConfigurationName", "ProxyConfigurationArn", "ProxyRuleGroupName",
+		"ProxyRuleGroupArn", "ContainerAssociationName", "ContainerAssociationArn", "VpcEndpointAssociationArn",
+		"TransitGatewayAttachmentId",
 	} {
 		if s, ok := data[key].(string); ok && s != "" {
 			return s
@@ -128,11 +131,10 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	var syntaxErr *json.SyntaxError
+	_, isSyntax := errors.AsType[*json.SyntaxError](err)
+	_, isType := errors.AsType[*json.UnmarshalTypeError](err)
 
-	var typeErr *json.UnmarshalTypeError
-
-	if errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
+	if isSyntax || isType {
 		err = invalid("The request body is not valid: %v", err)
 	}
 
@@ -186,5 +188,59 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"TagResource":                           service.WrapOp(b.TagResource),
 		"UntagResource":                         service.WrapOp(b.UntagResource),
 		"ListTagsForResource":                   service.WrapOp(b.ListTagsForResource),
+		"AcceptNetworkFirewallTransitGatewayAttachment": service.WrapOp(
+			b.AcceptNetworkFirewallTransitGatewayAttachment,
+		),
+		"AssociateAvailabilityZones":           service.WrapOp(b.AssociateAvailabilityZones),
+		"AttachRuleGroupsToProxyConfiguration": service.WrapOp(b.AttachRuleGroupsToProxyConfiguration),
+		"CreateContainerAssociation":           service.WrapOp(b.CreateContainerAssociation),
+		"CreateProxy":                          service.WrapOp(b.CreateProxy),
+		"CreateProxyConfiguration":             service.WrapOp(b.CreateProxyConfiguration),
+		"CreateProxyRuleGroup":                 service.WrapOp(b.CreateProxyRuleGroup),
+		"CreateProxyRules":                     service.WrapOp(b.CreateProxyRules),
+		"CreateVpcEndpointAssociation":         service.WrapOp(b.CreateVpcEndpointAssociation),
+		"DeleteContainerAssociation":           service.WrapOp(b.DeleteContainerAssociation),
+		"DeleteNetworkFirewallTransitGatewayAttachment": service.WrapOp(
+			b.DeleteNetworkFirewallTransitGatewayAttachment,
+		),
+		"DeleteProxy":                            service.WrapOp(b.DeleteProxy),
+		"DeleteProxyConfiguration":               service.WrapOp(b.DeleteProxyConfiguration),
+		"DeleteProxyRuleGroup":                   service.WrapOp(b.DeleteProxyRuleGroup),
+		"DeleteProxyRules":                       service.WrapOp(b.DeleteProxyRules),
+		"DeleteVpcEndpointAssociation":           service.WrapOp(b.DeleteVpcEndpointAssociation),
+		"DescribeContainerAssociation":           service.WrapOp(b.DescribeContainerAssociation),
+		"DescribeFlowOperation":                  service.WrapOp(b.DescribeFlowOperation),
+		"DescribeProxy":                          service.WrapOp(b.DescribeProxy),
+		"DescribeProxyConfiguration":             service.WrapOp(b.DescribeProxyConfiguration),
+		"DescribeProxyRule":                      service.WrapOp(b.DescribeProxyRule),
+		"DescribeProxyRuleGroup":                 service.WrapOp(b.DescribeProxyRuleGroup),
+		"DescribeRuleGroupSummary":               service.WrapOp(b.DescribeRuleGroupSummary),
+		"DescribeVpcEndpointAssociation":         service.WrapOp(b.DescribeVpcEndpointAssociation),
+		"DetachRuleGroupsFromProxyConfiguration": service.WrapOp(b.DetachRuleGroupsFromProxyConfiguration),
+		"DisassociateAvailabilityZones":          service.WrapOp(b.DisassociateAvailabilityZones),
+		"GetAnalysisReportResults":               service.WrapOp(b.GetAnalysisReportResults),
+		"ListAnalysisReports":                    service.WrapOp(b.ListAnalysisReports),
+		"ListContainerAssociations":              service.WrapOp(b.ListContainerAssociations),
+		"ListFlowOperationResults":               service.WrapOp(b.ListFlowOperationResults),
+		"ListFlowOperations":                     service.WrapOp(b.ListFlowOperations),
+		"ListProxies":                            service.WrapOp(b.ListProxies),
+		"ListProxyConfigurations":                service.WrapOp(b.ListProxyConfigurations),
+		"ListProxyRuleGroups":                    service.WrapOp(b.ListProxyRuleGroups),
+		"ListVpcEndpointAssociations":            service.WrapOp(b.ListVpcEndpointAssociations),
+		"RejectNetworkFirewallTransitGatewayAttachment": service.WrapOp(
+			b.RejectNetworkFirewallTransitGatewayAttachment,
+		),
+		"StartAnalysisReport":                    service.WrapOp(b.StartAnalysisReport),
+		"StartFlowCapture":                       service.WrapOp(b.StartFlowCapture),
+		"StartFlowFlush":                         service.WrapOp(b.StartFlowFlush),
+		"UpdateAvailabilityZoneChangeProtection": service.WrapOp(b.UpdateAvailabilityZoneChangeProtection),
+		"UpdateContainerAssociation":             service.WrapOp(b.UpdateContainerAssociation),
+		"UpdateFirewallAnalysisSettings":         service.WrapOp(b.UpdateFirewallAnalysisSettings),
+		"UpdateProxy":                            service.WrapOp(b.UpdateProxy),
+		"UpdateProxyConfiguration":               service.WrapOp(b.UpdateProxyConfiguration),
+		"UpdateProxyRule":                        service.WrapOp(b.UpdateProxyRule),
+		"UpdateProxyRuleGroupPriorities":         service.WrapOp(b.UpdateProxyRuleGroupPriorities),
+		"UpdateProxyRulePriorities":              service.WrapOp(b.UpdateProxyRulePriorities),
+		"UpdateProxySettings":                    service.WrapOp(b.UpdateProxySettings),
 	}
 }

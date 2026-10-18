@@ -7,23 +7,19 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 37 (37 ok) |
+| PARITY entries audited | 85 (85 ok) |
 | Feature families | 7 (7 ok) |
-| Known gaps | 8 |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Proxy ops (CreateProxy, CreateProxyConfiguration, CreateProxyRuleGroup, CreateProxyRules, DescribeProxy*, UpdateProxy*, DeleteProxy*, ListProxies, ListProxyConfigurations, ListProxyRuleGroups, Attach/DetachRuleGroups*): not implemented (bd: gopherstack-cefu7.4)
-- VPC endpoint association ops (Create/Describe/Delete/ListVpcEndpointAssociations): not implemented (bd: gopherstack-cefu7.4)
-- Availability zone and transit gateway ops (Associate/DisassociateAvailabilityZones, UpdateAvailabilityZoneChangeProtection, Accept/Reject/DeleteNetworkFirewallTransitGatewayAttachment) and CreateFirewall with TransitGatewayId, AvailabilityZoneMappings, NatGatewayMappings, ProxySettings or VpcEndpoint (UnsupportedOperationException): not implemented (bd: gopherstack-cefu7.4)
-- Flow ops (StartFlowCapture, StartFlowFlush, DescribeFlowOperation, ListFlowOperations, ListFlowOperationResults) and analysis ops (StartAnalysisReport, ListAnalysisReports, GetAnalysisReportResults, UpdateFirewallAnalysisSettings): not implemented (bd: gopherstack-cefu7.4)
-- Container association ops and DescribeRuleGroupSummary: not implemented (bd: gopherstack-cefu7.4)
-- FirewallStatus.CapacityUsageSummary and NatGatewayAttachments never populated (bd: gopherstack-cefu7.4)
-- Firewall endpoints are generated vpce IDs; no EC2 VPC endpoint is created or removed (bd: gopherstack-cefu7.4)
-- Firewall transition window has no lifecycle CLI flag; only settable in code (bd: gopherstack-cefu7.79)
+- CreateFirewall NatGatewayMappings and VpcEndpoint: UnsupportedOperationException (bd: gopherstack-cefu7.79)
+- Transit gateway attachments start PENDING_ACCEPTANCE only when a TransitGatewayResolver reports another owner account; internal/app does not wire one to EC2, so standalone attachments auto-accept (bd: gopherstack-cefu7.79)
+- FirewallStatus.CapacityUsageSummary and NatGatewayAttachments never populated (bd: gopherstack-cefu7.79)
+- Firewall, VPC endpoint association and proxy endpoints are generated IDs; no EC2 VPC endpoint is created or removed (bd: gopherstack-cefu7.79)
 
 ### Structural gaps
 

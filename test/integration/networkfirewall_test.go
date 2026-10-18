@@ -127,7 +127,9 @@ func TestIntegration_NetworkFirewall_FirewallLifecycle(t *testing.T) {
 	})
 	assert.Equal(t, "InvalidRequestException", nfErrCode(t, err))
 
-	_, err = client.DeleteRuleGroup(ctx, &nfsdk.DeleteRuleGroupInput{RuleGroupArn: group.RuleGroupResponse.RuleGroupArn})
+	_, err = client.DeleteRuleGroup(ctx, &nfsdk.DeleteRuleGroupInput{
+		RuleGroupArn: group.RuleGroupResponse.RuleGroupArn,
+	})
 	assert.Equal(t, "InvalidOperationException", nfErrCode(t, err))
 
 	_, err = client.DeleteFirewall(ctx, &nfsdk.DeleteFirewallInput{FirewallName: aws.String(fwName)})
@@ -157,6 +159,8 @@ func TestIntegration_NetworkFirewall_FirewallLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = client.DeleteRuleGroup(ctx, &nfsdk.DeleteRuleGroupInput{RuleGroupArn: group.RuleGroupResponse.RuleGroupArn})
+	_, err = client.DeleteRuleGroup(ctx, &nfsdk.DeleteRuleGroupInput{
+		RuleGroupArn: group.RuleGroupResponse.RuleGroupArn,
+	})
 	require.NoError(t, err)
 }

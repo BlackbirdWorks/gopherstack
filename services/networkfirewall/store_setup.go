@@ -10,4 +10,21 @@ func registerAllTables(b *InMemoryBackend) {
 	b.resourcePolicies = store.Register(
 		b.registry, "resourcePolicies", store.New(func(r *resourcePolicyRecord) string { return r.ResourceARN }),
 	)
+	b.proxies = store.Register(b.registry, "proxies", store.New(func(r *proxyRecord) string { return r.ARN }))
+	b.proxyConfigs = store.Register(
+		b.registry, "proxyConfigs", store.New(func(r *proxyConfigRecord) string { return r.ARN }),
+	)
+	b.proxyRuleGroups = store.Register(
+		b.registry, "proxyRuleGroups", store.New(func(r *proxyRuleGroupRecord) string { return r.ARN }),
+	)
+	b.vpcEndpoints = store.Register(
+		b.registry, "vpcEndpoints", store.New(func(r *vpcEndpointRecord) string { return r.ARN }),
+	)
+	b.flowOps = store.Register(b.registry, "flowOps", store.New(func(r *flowOpRecord) string { return r.Key }))
+	b.analysisReports = store.Register(
+		b.registry, "analysisReports", store.New(func(r *analysisReportRecord) string { return r.Key }),
+	)
+	b.containers = store.Register(
+		b.registry, "containers", store.New(func(r *containerRecord) string { return r.ARN }),
+	)
 }

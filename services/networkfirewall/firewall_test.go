@@ -247,7 +247,7 @@ func TestFirewall_Lifecycle(t *testing.T) {
 
 			_, err = f.client.CreateFirewall(t.Context(), &sdk.CreateFirewallInput{
 				FirewallName: aws.String("other"), FirewallPolicyArn: aws.String(polARN),
-				TransitGatewayId: aws.String("tgw-1"),
+				NatGatewayMappings: []types.NatGatewayMapping{{NatGatewayId: aws.String("nat-1")}},
 			})
 			assert.Equal(t, "UnsupportedOperationException", errCode(t, err))
 

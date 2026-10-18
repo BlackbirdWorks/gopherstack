@@ -30,7 +30,15 @@ type InMemoryBackend struct {
 	ruleGroups       *store.Table[ruleGroupRecord]
 	tlsConfigs       *store.Table[tlsRecord]
 	resourcePolicies *store.Table[resourcePolicyRecord]
+	proxies          *store.Table[proxyRecord]
+	proxyConfigs     *store.Table[proxyConfigRecord]
+	proxyRuleGroups  *store.Table[proxyRuleGroupRecord]
+	vpcEndpoints     *store.Table[vpcEndpointRecord]
+	flowOps          *store.Table[flowOpRecord]
+	analysisReports  *store.Table[analysisReportRecord]
+	containers       *store.Table[containerRecord]
 	subnets          SubnetResolver
+	tgws             TransitGatewayResolver
 	mu               *lockmetrics.RWMutex
 	accountID        string
 	region           string
@@ -76,6 +84,15 @@ func (b *InMemoryBackend) SetTransitionDelay(d time.Duration) {
 	b.delay = d
 }
 
+// SetLifecycleDelay sets the PROVISIONING/DELETING/sync window; d <= 0 keeps the built-in 500ms.
+func (b *InMemoryBackend) SetLifecycleDelay(d time.Duration) {
+	if d <= 0 {
+		d = defaultTransitionDelay
+	}
+
+	b.SetTransitionDelay(d)
+}
+
 func (b *InMemoryBackend) arnFor(kind, name string) string {
 	return arn.Build(serviceName, b.region, b.accountID, kind+"/"+name)
 }
@@ -96,4 +113,11 @@ func (b *InMemoryBackend) transitionDelay() time.Duration {
 	defer b.mu.RUnlock()
 
 	return b.delay
+}
+
+func (b *InMemoryBackend) tgwResolver() TransitGatewayResolver {
+	b.mu.RLock("tgwResolver")
+	defer b.mu.RUnlock()
+
+	return b.tgws
 }
