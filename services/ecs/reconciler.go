@@ -103,6 +103,7 @@ func (r *Reconciler) reconcile(ctx context.Context, log *slog.Logger) {
 	r.backend.stepTaskLifecycle(time.Now())
 	r.backend.stopELBUnhealthyTasks(ctx)
 	r.sampleUtilization(ctx)
+	r.backend.ReconcileCapacity(ctx)
 
 	snapshots := r.backend.getServicesForReconciler()
 

@@ -24,10 +24,32 @@ func (b *InMemoryBackend) RegisterContainerInstanceWithDetails(
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.Lock("RegisterContainerInstance")
-	defer b.mu.Unlock()
-
 	b.sweepInactiveContainerInstancesLocked(time.Now())
 
+	cp, err := b.registerContainerInstanceLocked(clusterName, cluster, ec2InstanceID, details)
+	b.mu.Unlock()
+
+	if err != nil {
+		return nil, err
+	}
+
+	b.placeAwaitingTasks()
+
+	return cp, nil
+}
+
+// registerManagedInstanceLocked registers a scaling-group instance on behalf of the emulated ECS agent.
+func (b *InMemoryBackend) registerManagedInstanceLocked(t scalingTarget, ec2InstanceID string) error {
+	_, err := b.registerContainerInstanceLocked(t.cluster, t.cluster, ec2InstanceID,
+		ContainerInstanceDetails{ManagedBy: t.provider.Name})
+
+	return err
+}
+
+func (b *InMemoryBackend) registerContainerInstanceLocked(
+	clusterName, cluster, ec2InstanceID string,
+	details ContainerInstanceDetails,
+) (*ContainerInstance, error) {
 	b.ensureClusterLocked(clusterName)
 
 	clusterObj, ok := b.clusters.Get(clusterName)
@@ -49,7 +71,9 @@ func (b *InMemoryBackend) RegisterContainerInstanceWithDetails(
 		AgentConnected:       true,
 		Version:              1,
 		VersionInfo:          details.VersionInfo,
+		ManagedBy:            details.ManagedBy,
 	}
+	ci.RegisteredResources = b.registeredResourcesLocked(ec2InstanceID, details.Resources)
 
 	b.containerInstances.Put(ci)
 	b.emitContainerInstanceStateLocked(ci)
@@ -121,7 +145,7 @@ func (b *InMemoryBackend) DeregisterContainerInstance(
 	b.emitContainerInstanceStateLocked(ci)
 	b.deleteResourceTagsLocked(ci.ContainerInstanceArn)
 
-	cp := *ci
+	cp := b.enrichContainerInstance(ci, clusterName)
 
 	return &cp, nil
 }
@@ -186,6 +210,7 @@ func (b *InMemoryBackend) enrichContainerInstance(
 ) ContainerInstance {
 	cp := *ci
 	cp.Attributes = b.instanceAttributesLocked(clusterName, ci.ContainerInstanceArn)
+	cp.RemainingResources = b.remainingResourcesLocked(clusterName, ci)
 
 	running, pending := b.countInstanceTasks(ci, clusterName)
 
@@ -332,8 +357,7 @@ func (b *InMemoryBackend) UpdateContainerInstancesState(
 		ci.Version++
 		b.emitContainerInstanceStateLocked(ci)
 
-		cp := *ci
-		out = append(out, cp)
+		out = append(out, b.enrichContainerInstance(ci, clusterName))
 	}
 
 	return out, failures, nil
