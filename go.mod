@@ -51,6 +51,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.76.1
 	github.com/aws/aws-sdk-go-v2/service/cloudfront v1.67.4
 	github.com/aws/aws-sdk-go-v2/service/cloudfrontkeyvaluestore v1.15.4
+	github.com/aws/aws-sdk-go-v2/service/cloudhsmv2 v1.43.4
 	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.58.4
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.71.0
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.86.0
@@ -166,6 +167,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/route53recoverycontrolconfig v1.40.4
 	github.com/aws/aws-sdk-go-v2/service/route53recoveryreadiness v1.34.4
 	github.com/aws/aws-sdk-go-v2/service/route53resolver v1.53.0
+	github.com/aws/aws-sdk-go-v2/service/rum v1.38.4
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.111.0
 	github.com/aws/aws-sdk-go-v2/service/s3control v1.73.4
 	github.com/aws/aws-sdk-go-v2/service/s3tables v1.18.4
@@ -258,13 +260,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/cloudhsmv2 v1.43.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.19 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.13.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/rum v1.38.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.9.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bitfield/gotestdox v0.2.2 // indirect
