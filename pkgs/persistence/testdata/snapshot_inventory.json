@@ -30494,6 +30494,7 @@
       "Server.Protocols []string `json:\"protocols\"`",
       "Server.Region string `json:\"region\"`",
       "Server.S3StorageOptions *S3StorageOptions `json:\"s3_storage_options,omitempty\"`",
+      "Server.SFTPHostKey string `json:\"sftp_host_key,omitempty\"`",
       "Server.SecurityPolicyName string `json:\"security_policy_name,omitempty\"`",
       "Server.ServerID string `json:\"server_id\"`",
       "Server.State string `json:\"state\"`",

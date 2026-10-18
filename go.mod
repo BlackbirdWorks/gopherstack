@@ -215,6 +215,8 @@ require (
 	github.com/mochi-mqtt/server/v2 v2.7.9
 	github.com/mxschmitt/playwright-go v0.6100.0
 	github.com/opencontainers/image-spec v1.1.1
+	github.com/parquet-go/parquet-go v0.32.0
+	github.com/pkg/sftp v1.13.11
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.3
 	github.com/rabbitmq/amqp091-go v1.15.0
@@ -309,9 +311,7 @@ require (
 	github.com/palkan/mulint v1.1.0 // indirect
 	github.com/parquet-go/bitpack v1.0.0 // indirect
 	github.com/parquet-go/jsonlite v1.0.0 // indirect
-	github.com/parquet-go/parquet-go v0.32.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.30 // indirect
-	github.com/pkg/sftp v1.13.11 // indirect
 	github.com/power-devops/perfstat v0.0.0-20260805114148-88456608a4f6 // indirect
 	github.com/prometheus/common v0.71.0 // indirect
 	github.com/prometheus/otlptranslator v1.0.0 // indirect
