@@ -18,8 +18,8 @@ import (
 )
 
 type podFakeState struct {
-	mu    sync.Mutex
 	state string
+	mu    sync.Mutex
 }
 
 func (f *podFakeState) Snapshot(context.Context) []byte {
@@ -134,7 +134,13 @@ func TestPodEndpointErrors(t *testing.T) {
 		name, method, path, body string
 		want                     int
 	}{
-		{"bad strategy", http.MethodPost, "/_gopherstack/pods/x/load?strategy=account-region-merge", "", http.StatusBadRequest},
+		{
+			"bad strategy",
+			http.MethodPost,
+			"/_gopherstack/pods/x/load?strategy=account-region-merge",
+			"",
+			http.StatusBadRequest,
+		},
 		{"bad version", http.MethodPost, "/_gopherstack/pods/x/load?version=abc", "", http.StatusBadRequest},
 		{"unknown pod", http.MethodPost, "/_gopherstack/pods/x/load", "", http.StatusNotFound},
 		{"bad name", http.MethodPost, "/_gopherstack/pods/.bad", "", http.StatusBadRequest},
@@ -170,6 +176,14 @@ func TestPodAutoload(t *testing.T) {
 
 	a.state = "dirty"
 
-	registerPodEndpoints(ctx, logger.NewTestLogger(), echo.New(), PodsConfig{Dir: dir, Autoload: "boot:1"}, "", mgr, nil)
+	registerPodEndpoints(
+		ctx,
+		logger.NewTestLogger(),
+		echo.New(),
+		PodsConfig{Dir: dir, Autoload: "boot:1"},
+		"",
+		mgr,
+		nil,
+	)
 	assert.Equal(t, "saved", a.get())
 }

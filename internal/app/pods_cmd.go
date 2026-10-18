@@ -23,11 +23,11 @@ var errPodServer = errors.New("pod request failed")
 // PodCmd groups the `gopherstack pod` subcommands, which call a running instance.
 type PodCmd struct {
 	Save     PodSaveCmd     `cmd:"" help:"Save current state as a new pod version."`
-	Load     PodLoadCmd     `cmd:"" help:"Load a pod version into the running instance."`
 	List     PodListCmd     `cmd:"" help:"List pods."`
 	Versions PodVersionsCmd `cmd:"" help:"List versions of a pod."`
 	Delete   PodDeleteCmd   `cmd:"" help:"Delete a pod, or one version of it."`
 	Inspect  PodInspectCmd  `cmd:"" help:"Show the manifest of a pod version."`
+	Load     PodLoadCmd     `cmd:"" help:"Load a pod version into the running instance."`
 }
 
 // PodTarget locates the running instance.
@@ -37,19 +37,19 @@ type PodTarget struct {
 
 // PodSaveCmd is `gopherstack pod save NAME`.
 type PodSaveCmd struct {
-	PodTarget `embed:""`
-	Name      string   `arg:"" help:"Pod name."`
-	Message   string   `name:"message" short:"m" help:"Version message."`
-	Services  []string `name:"services" help:"Only save these services."`
+	PodTarget `         embed:""`
+	Name      string   `         arg:"" help:"Pod name."`
+	Message   string   `                help:"Version message."          name:"message"  short:"m"`
+	Services  []string `                help:"Only save these services." name:"services"`
 }
 
 // PodLoadCmd is `gopherstack pod load NAME`.
 type PodLoadCmd struct {
-	PodTarget `embed:""`
-	Name      string   `arg:"" help:"Pod name."`
-	Version   string   `name:"version" default:"latest" help:"Version number or 'latest'."`
-	Strategy  string   `name:"strategy" default:"overwrite" enum:"overwrite,service-merge" help:"overwrite replaces all state; service-merge replaces only the services in the pod."` //nolint:lll // config struct tags are intentionally verbose
-	Services  []string `name:"services" help:"Only load these services."`
+	PodTarget `         embed:""`
+	Name      string   `         arg:"" help:"Pod name."`
+	Version   string   `                help:"Version number or 'latest'."                                                        name:"version"  default:"latest"` //nolint:lll // config struct tags are intentionally verbose
+	Strategy  string   `                help:"overwrite replaces all state; service-merge replaces only the services in the pod." name:"strategy" default:"overwrite" enum:"overwrite,service-merge"` //nolint:lll // config struct tags are intentionally verbose
+	Services  []string `                help:"Only load these services."                                                          name:"services"` //nolint:lll // config struct tags are intentionally verbose
 }
 
 // PodListCmd is `gopherstack pod list`.
@@ -59,22 +59,22 @@ type PodListCmd struct {
 
 // PodVersionsCmd is `gopherstack pod versions NAME`.
 type PodVersionsCmd struct {
-	PodTarget `embed:""`
-	Name      string `arg:"" help:"Pod name."`
+	PodTarget `       embed:""`
+	Name      string `         arg:"" help:"Pod name."`
 }
 
 // PodDeleteCmd is `gopherstack pod delete NAME`.
 type PodDeleteCmd struct {
-	PodTarget `embed:""`
-	Name      string `arg:"" help:"Pod name."`
-	Version   string `name:"version" help:"Delete only this version (default: whole pod)."`
+	PodTarget `       embed:""`
+	Name      string `         arg:"" help:"Pod name."`
+	Version   string `                help:"Delete only this version (default: whole pod)." name:"version"`
 }
 
 // PodInspectCmd is `gopherstack pod inspect NAME`.
 type PodInspectCmd struct {
-	PodTarget `embed:""`
-	Name      string `arg:"" help:"Pod name."`
-	Version   string `name:"version" default:"latest" help:"Version number or 'latest'."`
+	PodTarget `       embed:""`
+	Name      string `         arg:"" help:"Pod name."`
+	Version   string `                help:"Version number or 'latest'." name:"version" default:"latest"`
 }
 
 func (t PodTarget) call(method, path string, query url.Values, body any) error {

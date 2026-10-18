@@ -118,7 +118,12 @@ func TestPodLifecycle(t *testing.T) {
 			ctx := context.Background()
 			svc := tt.mk(t)
 
-			m1, err := svc.Save(ctx, "demo", "first", map[string][]byte{"s3": []byte(`{"a":1}`), "sqs": []byte(`{"b":2}`)})
+			m1, err := svc.Save(
+				ctx,
+				"demo",
+				"first",
+				map[string][]byte{"s3": []byte(`{"a":1}`), "sqs": []byte(`{"b":2}`)},
+			)
 			require.NoError(t, err)
 			assert.Equal(t, 1, m1.Version)
 			assert.Equal(t, []string{"s3", "sqs"}, m1.Services)
