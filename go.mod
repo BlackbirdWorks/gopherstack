@@ -30,6 +30,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/apigatewayv2 v1.37.4
 	github.com/aws/aws-sdk-go-v2/service/appconfig v1.48.4
 	github.com/aws/aws-sdk-go-v2/service/appconfigdata v1.26.4
+	github.com/aws/aws-sdk-go-v2/service/appintegrations v1.52.0
 	github.com/aws/aws-sdk-go-v2/service/applicationautoscaling v1.45.4
 	github.com/aws/aws-sdk-go-v2/service/appmesh v1.38.4
 	github.com/aws/aws-sdk-go-v2/service/apprunner v1.42.4
@@ -66,6 +67,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider v1.67.4
 	github.com/aws/aws-sdk-go-v2/service/comprehend v1.43.4
 	github.com/aws/aws-sdk-go-v2/service/configservice v1.68.4
+	github.com/aws/aws-sdk-go-v2/service/connect v1.205.0
 	github.com/aws/aws-sdk-go-v2/service/costandusagereportservice v1.43.4
 	github.com/aws/aws-sdk-go-v2/service/costexplorer v1.67.4
 	github.com/aws/aws-sdk-go-v2/service/databasemigrationservice v1.66.4
@@ -260,8 +262,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/appintegrations v1.52.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/connect v1.205.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.19 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.13.2 // indirect
