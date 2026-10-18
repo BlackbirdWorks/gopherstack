@@ -21,17 +21,18 @@ const defaultTransparentDNSAddr = ":53"
 // TransparentSettings configures transparent endpoint injection: unmodified SDKs
 // targeting real *.amazonaws.com names reach gopherstack via the embedded DNS and an HTTPS listener.
 type TransparentSettings struct {
-	DNSSkip      []string `name:"dns-skip"      env:"TRANSPARENT_DNS_SKIP"      help:"Names/zones that keep resolving upstream (e.g. sts.amazonaws.com)."`
-	DNSUpstream  []string `name:"dns-upstream"  env:"TRANSPARENT_DNS_UPSTREAM"  help:"Upstream resolvers host:port for non-AWS names (default: /etc/resolv.conf)."`
-	HTTPSAddr    string   `name:"https-addr"    env:"TRANSPARENT_HTTPS_ADDR"    help:"HTTPS listen address for real AWS endpoint names." default:":443"`
-	ContainerDNS string   `name:"container-dns" env:"TRANSPARENT_CONTAINER_DNS" help:"DNS IP handed to spawned containers (default: --dns-resolve-ip unless loopback)."`
-	CADir        string   `name:"ca-dir"        env:"TRANSPARENT_CA_DIR"        help:"Directory to persist the CA so it is trusted once (default: ephemeral)."`
-	Enabled      bool     `name:"dns"           env:"TRANSPARENT_DNS"           help:"Resolve *.amazonaws.com (and .com.cn, api.aws) to this server and serve HTTPS for them."`
+	HTTPSAddr    string   `name:"https-addr"    env:"TRANSPARENT_HTTPS_ADDR"    default:":443" help:"HTTPS listen addr."`                                //nolint:lll // config struct tags are intentionally verbose
+	ContainerDNS string   `name:"container-dns" env:"TRANSPARENT_CONTAINER_DNS"                help:"DNS IP for spawned containers."`                    //nolint:lll // config struct tags are intentionally verbose
+	CADir        string   `name:"ca-dir"        env:"TRANSPARENT_CA_DIR"                       help:"Directory persisting the CA (default: ephemeral)."` //nolint:lll // config struct tags are intentionally verbose
+	DNSSkip      []string `name:"dns-skip"      env:"TRANSPARENT_DNS_SKIP"                     help:"Names/zones that keep resolving upstream."`         //nolint:lll // config struct tags are intentionally verbose
+	DNSUpstream  []string `name:"dns-upstream"  env:"TRANSPARENT_DNS_UPSTREAM"                 help:"Upstream resolvers host:port."`                     //nolint:lll // config struct tags are intentionally verbose
+	Enabled      bool     `name:"dns"           env:"TRANSPARENT_DNS"                          help:"Resolve AWS endpoint names here and serve HTTPS."`  //nolint:lll // config struct tags are intentionally verbose
 }
 
 // transparentRuntime holds the CA used by the HTTPS listener and container injection.
 type transparentRuntime struct {
 	ca       *devtls.CA
+	srv      *transparent.Server
 	httpsAdr string
 }
 
@@ -131,7 +132,7 @@ func injectContainers(ctx context.Context, containerDNS, resolveIP string, ca *d
 	}()
 
 	caFile := filepath.Join(dir, "ca.pem")
-	if wErr := os.WriteFile(caFile, ca.CertPEM(), 0o644); wErr != nil { //nolint:gosec // public CA cert must be readable by container users
+	if wErr := os.WriteFile(caFile, ca.CertPEM(), 0o644); wErr != nil { //nolint:gosec // public cert, world-readable
 		return fmt.Errorf("transparent ca file: %w", wErr)
 	}
 
@@ -153,9 +154,12 @@ func injectContainers(ctx context.Context, containerDNS, resolveIP string, ca *d
 func (t *transparentRuntime) serveHTTPS(ctx context.Context, e *echo.Echo) error {
 	e.GET(transparent.CAPath, echo.WrapHandler(transparent.CAHandler(t.ca)))
 
-	if _, err := transparent.Start(ctx, t.httpsAdr, e, t.ca); err != nil {
+	srv, err := transparent.Start(ctx, t.httpsAdr, e, t.ca)
+	if err != nil {
 		return fmt.Errorf("transparent https: %w", err)
 	}
+
+	t.srv = srv
 
 	return nil
 }

@@ -487,6 +487,7 @@ type CLI struct {
 	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
 	SES                           sesbackend.Settings               `embed:"" prefix:"ses-"`
 	Pods                          PodsConfig                        `embed:"" prefix:"pod-"`
+	Transparent                   TransparentSettings               `embed:"" prefix:"transparent-"`
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
 	AzureARM                      azurearmbackend.Settings          `embed:"" prefix:"azure-arm-"`
@@ -2184,9 +2185,9 @@ func run(ctx context.Context, cli CLI) error {
 	cli.portAlloc = setupPortAllocatorWithReservations(ctx, log, cli)
 
 	// --- Embedded DNS server ---
-	var dnsSrv *gopherDNS.Server
-	if cli.DNSListenAddr != "" {
-		dnsSrv = startEmbeddedDNS(ctx, cli.DNSListenAddr, cli.DNSResolveIP)
+	tr, dnsSrv, err := startDNSAndTransparent(ctx, &cli)
+	if err != nil {
+		return err
 	}
 
 	inMemMux := http.NewServeMux()
@@ -2243,18 +2244,15 @@ func run(ctx context.Context, cli CLI) error {
 		return setupErr
 	}
 
+	if tr != nil {
+		if httpsErr := tr.serveHTTPS(ctx, e); httpsErr != nil {
+			return httpsErr
+		}
+	}
+
 	startBackgroundWorkers(janitorCtx, services)
 
-	// Start automatic purge background worker. It dynamically checks for TTL updates from the config.
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.ErrorContext(ctx, "purge worker: panic recovered",
-					"panic", fmt.Sprintf("%v", r))
-			}
-		}()
-		startPurgeWorker(janitorCtx, cli.globalConfig, services)
-	}()
+	launchPurgeWorker(janitorCtx, ctx, log, &cli, services)
 
 	inMemMux.Handle("/", e)
 
@@ -12687,6 +12685,37 @@ func (a *bedrockPolicyAdapter) GetResourcePolicy(
 	}
 
 	return rp.PolicyDocument, nil
+}
+
+// launchPurgeWorker starts the TTL purge worker; it re-reads the TTL from config dynamically.
+func launchPurgeWorker(
+	janitorCtx, ctx context.Context,
+	log *slog.Logger,
+	cli *CLI,
+	services []service.Registerable,
+) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.ErrorContext(ctx, "purge worker: panic recovered",
+					"panic", fmt.Sprintf("%v", r))
+			}
+		}()
+		startPurgeWorker(janitorCtx, cli.globalConfig, services)
+	}()
+}
+
+// startDNSAndTransparent starts the embedded DNS server, in transparent mode when enabled.
+func startDNSAndTransparent(ctx context.Context, cli *CLI) (*transparentRuntime, *gopherDNS.Server, error) {
+	if cli.Transparent.Enabled {
+		return setupTransparent(ctx, cli.Transparent, cli.DNSListenAddr, cli.DNSResolveIP)
+	}
+
+	if cli.DNSListenAddr != "" {
+		return nil, startEmbeddedDNS(ctx, cli.DNSListenAddr, cli.DNSResolveIP), nil
+	}
+
+	return nil, nil, nil
 }
 
 // startEmbeddedDNS creates and starts the embedded DNS server.
