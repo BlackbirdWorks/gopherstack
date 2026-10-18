@@ -220,8 +220,8 @@ func TestAthenaEngine_CTASDefaultLocationAndFailures(t *testing.T) {
 			reason: "TABLE_ALREADY_EXISTS",
 		},
 		{
-			name:   "parquet default",
-			query:  "CREATE TABLE shop.pq WITH (external_location='s3://lake/pq/') AS SELECT id FROM shop.sales",
+			name:   "orc",
+			query:  "CREATE TABLE shop.pq WITH (format='ORC', external_location='s3://lake/pq/') AS SELECT id FROM shop.sales",
 			reason: "NOT_SUPPORTED",
 		},
 		{
@@ -329,7 +329,7 @@ func TestAthenaEngine_Unload(t *testing.T) {
 	assert.Equal(t, athenatypes.QueryExecutionStateFailed, qe.Status.State)
 	assert.Contains(t, aws.ToString(qe.Status.StateChangeReason), "HIVE_PATH_ALREADY_EXISTS")
 
-	_, qe = f.run(t, "shop", "UNLOAD (SELECT id FROM shop.sales) TO 's3://lake/unl/pq/'")
+	_, qe = f.run(t, "shop", "UNLOAD (SELECT id FROM shop.sales) TO 's3://lake/unl/orc/' WITH (format='ORC')")
 	assert.Equal(t, athenatypes.QueryExecutionStateFailed, qe.Status.State)
 	assert.Contains(t, aws.ToString(qe.Status.StateChangeReason), "NOT_SUPPORTED")
 

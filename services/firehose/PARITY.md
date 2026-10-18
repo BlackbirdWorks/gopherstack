@@ -96,7 +96,7 @@ Per the Firehose developer guide (s3-prefixes, data-transformation-failure-handl
 - Compression: GZIP, ZIP, Snappy and HADOOP_SNAPPY with default extensions; error objects are written uncompressed under ErrorOutputPrefix (default `<Prefix><error-output-type>/`) in the primary bucket.
 - HTTP endpoint: documented headers (protocol version, request id kept across retries, source ARN, access key, common-attributes JSON, gzip), 1s doubling jittered backoff to 2m within RetryOptions, only a 200 with a matching requestId JSON body succeeds, 413 is permanent and not backed up, exhausted batches go to the S3 bucket as `http-endpoint-failed` envelopes.
 - OpenSearch/Elasticsearch: a DomainARN destination indexes into the in-process opensearch store (index created on first write, IndexRotationPeriod suffixes); non-JSON records fail to `AmazonOpenSearchService-failed`. A ClusterEndpoint still uses the bulk HTTP path. The opensearch backend is single-region, so no per-region lookup exists.
-- Not delivered: Parquet/ORC output (canonical JSON), Redshift/MSK/Snowflake/Iceberg real sinks (unchanged, see items_still_open), Splunk failures to backup.
+- Not delivered: ORC output (canonical JSON; no pure-Go ORC writer), Redshift/MSK/Snowflake/Iceberg real sinks (unchanged, see items_still_open), Splunk failures to backup.
 
 ## 2026-10-03: S3 destination role under --enforce-iam
 
@@ -738,3 +738,9 @@ CreateDeliveryStream validates the name against `[a-zA-Z0-9_.-]{1,64}`. UpdateDe
 
 - Added: `CreateDeliveryStream` rejects a malformed S3 `BucketARN` and a `KinesisStreamAsSource` stream without `KinesisStreamSourceConfiguration` (`InvalidArgumentException`).
 - Kept lenient: S3 objects keep the `\n` record separator (real Firehose concatenates records; in-repo consumers rely on newlines); processing-failure error objects hold the raw record rather than AWS's JSON envelope.
+
+## 2026-10-18: DataFormatConversion to Parquet (cefu7.8)
+
+- An enabled DataFormatConversionConfiguration with a ParquetSerDe now writes one real Parquet object per delivery group (key extension `.parquet`) via `pkgs/parquetio`: records are deserialized (OpenX key mappings, case-insensitive keys) and encoded to the Glue table's column types (`SchemaConfiguration` resolved through `GlueSchemaSource` / `SetGlueSchemaSource`); `ParquetSerDe.Compression` selects SNAPPY (default), GZIP, ZSTD, LZ4 or UNCOMPRESSED. Records that are not JSON objects, or do not fit a column type, go to the `format-conversion-failed/` error output and count as FailedRecords; an unresolvable schema table fails the whole group the same way. With no Glue source wired the schema is inferred from the records (sorted keys; bigint/double/boolean/string).
+- `internal/app/firehose_glue.go` provides `wireFirehoseGlue(firehoseReg, glueReg)`; it must be called from cli.go next to `wireFirehoseDelivery` (not done in this pass).
+- ORC serializer is still canonical JSON (no pure-Go ORC writer). Column mapping honours `ColumnToJsonKeyMappings` only for the OpenX deserializer; Hive `TimestampFormats` is not applied.

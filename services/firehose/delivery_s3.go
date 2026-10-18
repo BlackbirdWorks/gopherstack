@@ -79,15 +79,30 @@ func (b *InMemoryBackend) deliverToS3(
 	for _, group := range groups {
 		recs := group.records
 
-		if dest.DataFormatConversion != nil && dest.DataFormatConversion.Enabled {
-			converted, convFailed := convertRecords(dest.DataFormatConversion, recs)
-			recs = converted
+		var (
+			key  string
+			size int
+			err  error
+		)
+
+		switch {
+		case isParquetConversion(dest.DataFormatConversion) && dest.DataFormatConversion.Enabled:
+			var convFailed [][]byte
+
+			key, size, recs, convFailed, err = b.putParquetObject(ctx, recs, dest, group.prefix, streamName)
 			f.conversion = append(f.conversion, convFailed...)
+		default:
+			if dest.DataFormatConversion != nil && dest.DataFormatConversion.Enabled {
+				converted, convFailed := convertRecords(dest.DataFormatConversion, recs)
+				recs = converted
+				f.conversion = append(f.conversion, convFailed...)
+			}
+
+			key, size, err = b.putRecordsObject(
+				ctx, recs, dest.BucketARN, group.prefix, dest.FileExtension, dest.CompressionFormat, streamName,
+			)
 		}
 
-		key, size, err := b.putRecordsObject(
-			ctx, recs, dest.BucketARN, group.prefix, dest.FileExtension, dest.CompressionFormat, streamName,
-		)
 		if err != nil {
 			b.logDeliveryIssue(ctx, dest.CloudWatchLoggingOptions, streamName, "S3 delivery failed", err)
 			f.delivery = append(f.delivery, recs...)
@@ -185,6 +200,13 @@ func (b *InMemoryBackend) putRecordsObject(
 		return "", 0, err
 	}
 
+	return b.putBody(ctx, cb, bucketARN, prefix, fileExtension, streamName)
+}
+
+// putBody writes an already-encoded payload under a generated key.
+func (b *InMemoryBackend) putBody(
+	ctx context.Context, cb compressedBody, bucketARN, prefix, fileExtension, streamName string,
+) (string, int, error) {
 	if fileExtension == "" {
 		fileExtension = cb.extension
 	}
@@ -201,7 +223,7 @@ func (b *InMemoryBackend) putRecordsObject(
 		input.ContentEncoding = aws.String("gzip")
 	}
 
-	if _, err = b.s3.PutObject(ctx, input); err != nil {
+	if _, err := b.s3.PutObject(ctx, input); err != nil {
 		return "", 0, err
 	}
 

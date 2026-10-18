@@ -12,7 +12,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	smithy "github.com/aws/smithy-go"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 )
 
 // selectBugfixesDrain reads a SelectObjectContent event stream to completion
@@ -178,35 +181,86 @@ func TestSelectObjectContent_AggregateColumnMismatch(t *testing.T) {
 	}
 }
 
-// TestSelectObjectContent_ParquetRejected is a regression test: Parquet
-// input was not modeled on the wire struct at all, so a client requesting it
-// fell through to the CSV default and got either a confusing CSV parse error
-// or -- for byte layouts that happen to tokenize as valid-looking CSV --
-// wrong data silently returned as if it were a real query result. Verified
-// by hand-reverting the Parquet field/check in select.go: the request then
-// returns InternalError ("reading CSV: record on line ...") instead of a
-// clear UnsupportedFileType error.
-func TestSelectObjectContent_ParquetRejected(t *testing.T) {
+// TestSelectObjectContent_ParquetInput is a regression test: Parquet input
+// used to be rejected with UnsupportedFileType; it now reads the file.
+func TestSelectObjectContent_ParquetInput(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+
+	require.NoError(t, parquetio.Write(&buf, []parquetio.Column{
+		{Name: "name", Type: "string"}, {Name: "age", Type: "int"}, {Name: "joined", Type: "date"},
+	}, [][]any{{"Alice", int64(30), "2024-01-02"}, {"Bob", int64(25), nil}, {"Cy", int64(41), "2020-05-06"}}, ""))
+
+	client := newRealS3ClientTest(t)
+	bucket := selectBugfixesPutObject(t, client, "data.parquet", buf.Bytes())
+
+	tests := []struct {
+		out  *types.OutputSerialization
+		name string
+		expr string
+		want string
+	}{
+		{&types.OutputSerialization{CSV: &types.CSVOutput{}}, "csv star keeps column order",
+			"SELECT * FROM s3object s WHERE s.age > 26", "Alice,30,2024-01-02\nCy,41,2020-05-06\n"},
+		{&types.OutputSerialization{JSON: &types.JSONOutput{}}, "json projection",
+			"SELECT s.name FROM s3object s WHERE s.age < 26", "{\"name\":\"Bob\"}\n"},
+		{&types.OutputSerialization{CSV: &types.CSVOutput{}}, "aggregate",
+			"SELECT SUM(s.age) FROM s3object s", "96\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out, err := client.SelectObjectContent(context.Background(), &sdk_s3.SelectObjectContentInput{
+				Bucket: aws.String(bucket), Key: aws.String("data.parquet"),
+				Expression: aws.String(tt.expr), ExpressionType: "SQL",
+				InputSerialization:  &types.InputSerialization{Parquet: &types.ParquetInput{}},
+				OutputSerialization: tt.out,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, string(selectBugfixesDrain(t, out)))
+		})
+	}
+}
+
+// TestSelectObjectContent_ParquetErrors covers a file that is not Parquet and
+// a CompressionType other than NONE, which S3 rejects for Parquet.
+func TestSelectObjectContent_ParquetErrors(t *testing.T) {
 	t.Parallel()
 
 	client := newRealS3ClientTest(t)
 	bucket := selectBugfixesPutObject(t, client, "data.parquet", []byte("PAR1\x00\x01,junk\nnot,real,parquet\nPAR1"))
 
-	out, err := client.SelectObjectContent(context.Background(), &sdk_s3.SelectObjectContentInput{
-		Bucket:         aws.String(bucket),
-		Key:            aws.String("data.parquet"),
-		Expression:     aws.String("SELECT * FROM s3object"),
-		ExpressionType: "SQL",
-		InputSerialization: &types.InputSerialization{
-			Parquet: &types.ParquetInput{},
-		},
-		OutputSerialization: &types.OutputSerialization{CSV: &types.CSVOutput{}},
-	})
-	require.NoError(t, err)
+	tests := []struct {
+		name        string
+		code        string
+		compression types.CompressionType
+	}{
+		{"corrupt file", "ParquetParsingError", ""},
+		{"gzip compression", "InvalidCompressionFormat", types.CompressionTypeGzip},
+	}
 
-	streamErr := selectBugfixesDrainExpectErr(t, out)
-	require.Error(t, streamErr)
-	require.Equal(t, "UnsupportedFileType", selectBugfixesErrCode(t, streamErr))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out, err := client.SelectObjectContent(context.Background(), &sdk_s3.SelectObjectContentInput{
+				Bucket: aws.String(bucket), Key: aws.String("data.parquet"),
+				Expression: aws.String("SELECT * FROM s3object"), ExpressionType: "SQL",
+				InputSerialization: &types.InputSerialization{
+					Parquet: &types.ParquetInput{}, CompressionType: tt.compression,
+				},
+				OutputSerialization: &types.OutputSerialization{CSV: &types.CSVOutput{}},
+			})
+			require.NoError(t, err)
+
+			streamErr := selectBugfixesDrainExpectErr(t, out)
+			require.Error(t, streamErr)
+			require.Equal(t, tt.code, selectBugfixesErrCode(t, streamErr))
+		})
+	}
 }
 
 // TestSelectObjectContent_Compression is a regression test: CompressionType

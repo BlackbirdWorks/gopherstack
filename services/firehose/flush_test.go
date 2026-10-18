@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 	"github.com/blackbirdworks/gopherstack/services/firehose"
 )
 
@@ -843,8 +844,18 @@ func TestDataFormatConversion(t *testing.T) {
 	}
 	require.NotNil(t, converted)
 	require.NotNil(t, errOut)
-	// Canonical, key-sorted JSON output.
-	assert.Contains(t, string(converted.body), `{"a":1,"b":2}`)
+	// Real Parquet, schema inferred from the records (no Glue source wired).
+	pf, perr := parquetio.Open(converted.body)
+	require.NoError(t, perr)
+	assert.Equal(t, []string{"a", "b"}, pf.Columns())
+
+	var got [][]any
+	require.NoError(t, pf.ForEach([]string{"a", "b"}, func(v []any) error {
+		got = append(got, v)
+
+		return nil
+	}))
+	assert.Equal(t, [][]any{{int64(1), int64(2)}}, got)
 	// FileExtension applied to the converted object key.
 	assert.Contains(t, converted.key, ".parquet")
 	// Unparseable record routed to the error output.

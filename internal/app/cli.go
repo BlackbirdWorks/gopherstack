@@ -3967,6 +3967,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 
 	// Wire Firehose → S3 and Lambda for actual record delivery and transformation.
 	wireFirehoseDelivery(byName["Firehose"], byName["S3"], byName["Lambda"])
+	wireFirehoseGlue(byName["Firehose"], byName["Glue"])
 
 	// Wire Firehose → Kinesis so a KinesisStreamAsSource delivery stream actually
 	// polls and ingests records instead of accepting the stream and never

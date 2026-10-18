@@ -17,6 +17,7 @@ type regionContextKey struct{}
 type InMemoryBackend struct {
 	appConfig      any
 	s3             S3Storer
+	glue           GlueSchemaSource
 	lambda         LambdaInvoker
 	kinesisBackend KinesisReader
 	redshiftData   RedshiftDataExecutor

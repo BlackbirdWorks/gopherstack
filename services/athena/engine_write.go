@@ -19,6 +19,7 @@ const (
 	fmtNameText      = "TEXTFILE"
 	fmtNameJSON      = "JSON"
 	fmtNameCSV       = "CSV"
+	fmtNameParquet   = "PARQUET"
 	compressionNone  = "NONE"
 	compressionGzip  = "GZIP"
 	fileSeqWidth     = 5
@@ -43,6 +44,7 @@ func isWriteProp(k string) bool {
 // outFormat is how rows are laid out in the written objects.
 type outFormat struct {
 	delim string
+	codec string
 	kind  dataFormat
 	gzip  bool
 }
@@ -159,10 +161,11 @@ func (p *writePlan) validateProps() statementOutcome {
 	}
 
 	switch name {
-	case fmtNameText, fmtNameJSON, fmtNameCSV:
-	case "PARQUET", "ORC", "AVRO":
+	case fmtNameText, fmtNameJSON, fmtNameCSV, fmtNameParquet:
+	case "ORC", "AVRO":
 		return stmtFail(athenaErrTypeSyntax,
-			"NOT_SUPPORTED: format %s is not supported by the embedded SQL engine; use TEXTFILE, CSV or JSON", name)
+			"NOT_SUPPORTED: format %s is not supported by the embedded SQL engine; use PARQUET, TEXTFILE, CSV or JSON",
+			name)
 	default:
 		return stmtFail(athenaErrTypeSyntax, "INVALID_TABLE_PROPERTY: line 1:1: invalid format '%s'", name)
 	}
@@ -170,6 +173,8 @@ func (p *writePlan) validateProps() statementOutcome {
 	switch name {
 	case fmtNameJSON:
 		p.format.kind = fmtJSON
+	case fmtNameParquet:
+		p.format.kind = fmtParquet
 	case fmtNameCSV:
 		p.format.kind, p.format.delim = fmtCSVSerde, csvDefaultDelim
 	default:
@@ -191,7 +196,33 @@ func (p *writePlan) validateProps() statementOutcome {
 
 func (p *writePlan) validateCompression() statementOutcome {
 	props := p.stmt.props
-	c := strings.ToUpper(orDefault(firstProp(props, "write_compression"), firstProp(props, "compression")))
+	c := strings.ToUpper(orDefault(firstProp(props, "write_compression"),
+		orDefault(firstProp(props, "compression"), firstProp(props, "parquet_compression"))))
+
+	if out := p.checkCompression(c); out.failed {
+		return out
+	}
+
+	p.partitionBy = nil
+	for _, k := range p.stmt.props["partitioned_by"] {
+		p.partitionBy = append(p.partitionBy, strings.ToLower(k))
+	}
+
+	return stmtOK()
+}
+
+func (p *writePlan) checkCompression(c string) statementOutcome {
+	if p.format.kind == fmtParquet {
+		switch c {
+		case "", "SNAPPY", compressionGzip, "ZSTD", "LZ4", compressionNone:
+			p.format.codec = c
+
+			return stmtOK()
+		default:
+			return stmtFail(athenaErrTypeSyntax,
+				"NOT_SUPPORTED: compression %s is not supported for PARQUET; use SNAPPY, GZIP, ZSTD, LZ4 or NONE", c)
+		}
+	}
 
 	switch c {
 	case "", compressionNone:
@@ -200,11 +231,6 @@ func (p *writePlan) validateCompression() statementOutcome {
 	default:
 		return stmtFail(athenaErrTypeSyntax,
 			"NOT_SUPPORTED: compression %s is not supported; use GZIP or NONE", c)
-	}
-
-	p.partitionBy = nil
-	for _, k := range p.stmt.props["partitioned_by"] {
-		p.partitionBy = append(p.partitionBy, strings.ToLower(k))
 	}
 
 	return stmtOK()
@@ -398,6 +424,11 @@ func (p *writePlan) ctasDef(data, parts []outCol) GlueTableDef {
 	}
 
 	switch p.format.kind {
+	case fmtParquet:
+		def.SerdeLibrary = parquetSerde
+		def.InputFormat = parquetInputFmt
+		def.OutputFormat = parquetOutFmt
+		def.SerdeParameters = map[string]string{serdeParamFmtKey: "1"}
 	case fmtJSON:
 		def.SerdeLibrary = jsonSerdeLib
 	case fmtCSVSerde:
@@ -727,6 +758,8 @@ func (p *writePlan) encodeGroup(res *sqlResult, g *rowGroup, data []outCol) ([]b
 	var body []byte
 
 	switch p.format.kind {
+	case fmtParquet:
+		return encodeParquetRows(res, g.rows, data, p.format.codec)
 	case fmtJSON:
 		body = encodeJSONLines(res, g.rows, data)
 	case fmtCSVSerde:
@@ -757,7 +790,10 @@ func (p *writePlan) putObject(ctx context.Context, loc string, seq int, body []b
 	bucket, locPrefix, _ := splitS3URI(loc)
 
 	name := fmt.Sprintf("%s_%0*d", p.queryID, fileSeqWidth, seq)
-	if p.format.gzip {
+	switch {
+	case p.format.kind == fmtParquet:
+		name += ".parquet"
+	case p.format.gzip:
 		name += ".gz"
 	}
 

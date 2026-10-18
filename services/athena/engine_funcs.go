@@ -42,6 +42,9 @@ func registerEngineFuncs() {
 		reg("athena_day", 1, datePart(func(t time.Time) int64 { return int64(t.Day()) }))
 		reg("athena_hour", 1, datePart(func(t time.Time) int64 { return int64(t.Hour()) }))
 		reg("athena_regexp_like", argsTwo, udfRegexpLike)
+		registerExtraFuncs()
+		registerAggregates()
+		registerUnnestModule()
 	})
 }
 
