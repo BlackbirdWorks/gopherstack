@@ -206,22 +206,29 @@ tasks:
         fi
 
   lint:
-    desc: Full lint (golangci-lint, mulint vet, govulncheck, UI lint/fmt/check, build-check)
+    desc: Full lint (golangci-lint, mulint vet, govulncheck binary mode, UI lint/fmt/check, build-check)
     cmds:
       - task: install-deps
       - task: ui-lint
       - task: ui-fmt
       - task: ui-check
       - task: build-check
+      - task: build-linux
       - golangci-lint run --timeout 20m ./...
       - go vet -vettool=$(go tool -n mulint-vet) ./...
-      - go tool govulncheck ./...
+      - go tool govulncheck -mode=binary bin/{{.BINARY_NAME}}-linux
 
   lint-changed:
-    desc: Lint and vet only packages touched by the diff
+    desc: Lint and vet only packages touched by the diff (branch vs origin/main + working tree)
     silent: true
     cmds:
       - bash scripts/lint-changed.sh
+
+  lint-wip:
+    desc: Fast lint and vet only packages touched in working tree and HEAD commit
+    silent: true
+    cmds:
+      - bash scripts/lint-changed.sh --wip
 
   lint-fix:
     desc: Auto-fix lint (fieldalignment, golangci-lint --fix, UI)

@@ -16,14 +16,36 @@
 # at commit time needs the branch-vs-merge-base diff.
 #
 # Usage:
-#   scripts/lint-changed.sh          # auto-detect changed files from git
-#   scripts/lint-changed.sh FILE...  # lint only these files' packages
+#   scripts/lint-changed.sh                # auto-detect changed files (working tree + branch vs origin/main)
+#   scripts/lint-changed.sh --wip          # only uncommitted + last commit (HEAD~1) changes (fast on huge branches)
+#   scripts/lint-changed.sh --base <ref>   # diff against <ref> instead of origin/main
+#   scripts/lint-changed.sh FILE...        # lint only these files' packages
 
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
 BATCH_SIZE=300
+BASE_REF="${LINT_BASE:-}"
+WIP_ONLY=0
+
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --wip)
+      WIP_ONLY=1
+      shift
+      ;;
+    --base)
+      BASE_REF="$2"
+      shift 2
+      ;;
+    *)
+      args+=("$1")
+      shift
+      ;;
+  esac
+done
 
 for bin in golangci-lint go; do
   command -v "$bin" >/dev/null 2>&1 || {
@@ -32,11 +54,19 @@ for bin in golangci-lint go; do
   }
 done
 
-if [[ $# -gt 0 ]]; then
-  changed_files=("$@")
+if [[ ${#args[@]} -gt 0 ]]; then
+  changed_files=("${args[@]}")
 else
   merge_base=""
-  if git rev-parse --verify -q origin/main >/dev/null 2>&1; then
+  if [[ "$WIP_ONLY" -eq 1 ]]; then
+    if git rev-parse --verify -q HEAD~1 >/dev/null 2>&1; then
+      merge_base="HEAD~1"
+    fi
+  elif [[ -n "$BASE_REF" ]]; then
+    if git rev-parse --verify -q "$BASE_REF" >/dev/null 2>&1; then
+      merge_base=$(git merge-base HEAD "$BASE_REF")
+    fi
+  elif git rev-parse --verify -q origin/main >/dev/null 2>&1; then
     merge_base=$(git merge-base HEAD origin/main)
   fi
   changed_files=()
@@ -52,7 +82,7 @@ else
 fi
 
 if [[ ${#changed_files[@]} -eq 0 ]]; then
-  echo "lint-changed: no changed Go files (working tree vs HEAD, HEAD vs origin/main) -- nothing to check."
+  echo "lint-changed: no changed Go files -- nothing to check."
   exit 0
 fi
 
@@ -62,7 +92,7 @@ skipped=()
 for f in "${changed_files[@]}"; do
   [[ -f "$f" ]] || continue
   case "/$f" in
-    */testdata/*|*/vendor/*|*/.*)
+    */testdata/*|*/vendor/*|*/.*|desktop/*)
       skipped+=("$f (excluded dir)")
       continue
       ;;
@@ -124,5 +154,8 @@ run_batched() {
 overall=0
 run_batched "golangci-lint" golangci-lint run --timeout 20m || overall=1
 run_batched "go vet" go vet || overall=1
+if mulint_bin=$(go tool -n mulint-vet 2>/dev/null) && [[ -n "$mulint_bin" ]]; then
+  run_batched "mulint-vet" go vet -vettool="$mulint_bin" || overall=1
+fi
 
 exit $overall
