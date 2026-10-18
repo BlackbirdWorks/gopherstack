@@ -36,7 +36,11 @@ func TestAthenaEngine_ParquetCTASRoundTrip(t *testing.T) {
 	assert.Contains(t, aws.ToString(tbl.Table.StorageDescriptor.InputFormat), "MapredParquetInputFormat")
 
 	id := f.ok(t, "SELECT category, sum(amount) FROM shop.pq GROUP BY category ORDER BY category")
-	assert.Equal(t, [][]string{{"category", "_col1"}, {"books", "30.0"}, {"games", "55.0"}, {"toys", "7.0"}}, f.rows(t, id))
+	assert.Equal(
+		t,
+		[][]string{{"category", "_col1"}, {"books", "30.0"}, {"games", "55.0"}, {"toys", "7.0"}},
+		f.rows(t, id),
+	)
 }
 
 func TestAthenaEngine_ParquetDefaultFormatAndPartitions(t *testing.T) {

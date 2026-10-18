@@ -37,6 +37,9 @@ func allowedWeakHashFiles() map[string]string {
 		// as rule functions over payload data, never credentials.
 		"services/iot/sql_funcs_message.go": "IoT SQL md5()/sha1() functions, verified",
 
+		// Athena SQL md5()/sha1() are Presto/Trino built-ins, never credentials.
+		"services/athena/engine_funcs_str.go": "Athena SQL md5()/sha1() functions, verified",
+
 		// Verified 2026-10-05: kafkaconnect types.CustomPluginFileDescription.FileMd5
 		// is defined as the hex-encoded MD5 checksum of the plugin file, so the
 		// emulator must compute MD5 over the S3 object to report it. Integrity

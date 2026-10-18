@@ -115,7 +115,12 @@ func TestIAMPolicyStreamFollow(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+iamPolicyStreamPath+"?follow=1&decision=deny", nil)
+			req, err := http.NewRequestWithContext(
+				ctx,
+				http.MethodGet,
+				srv.URL+iamPolicyStreamPath+"?follow=1&decision=deny",
+				nil,
+			)
 			require.NoError(t, err)
 
 			if tt.accept != "" {

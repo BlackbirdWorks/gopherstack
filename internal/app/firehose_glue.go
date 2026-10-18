@@ -44,7 +44,7 @@ func wireFirehoseGlue(firehoseReg, glueReg service.Registerable) {
 		return
 	}
 
-	if glueBk, ok := glueH.Backend.(*gluebackend.InMemoryBackend); ok {
+	if glueBk, isMem := glueH.Backend.(*gluebackend.InMemoryBackend); isMem {
 		fhBk.SetGlueSchemaSource(&firehoseGlueSchema{backend: glueBk})
 	}
 }
