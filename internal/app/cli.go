@@ -63,6 +63,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
 	snsevents "github.com/blackbirdworks/gopherstack/pkgs/events"
+	"github.com/blackbirdworks/gopherstack/pkgs/extensions"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
 	"github.com/blackbirdworks/gopherstack/pkgs/inithooks"
@@ -479,6 +480,7 @@ type CLI struct {
 	stsClient                     *stssdk.Client
 	ddbClient                     *dynamodb.Client
 	faultStore                    *chaos.FaultStore
+	extHost                       *extensionHost
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
 	ssmClient                     *ssmsdk.Client
@@ -553,6 +555,7 @@ type CLI struct {
 	GCPSecretManager              gcpsecretmanagerbackend.Settings  `embed:"" prefix:"gcp-secretmanager-"`
 	GCPFirestore                  gcpfirestorebackend.Settings      `embed:"" prefix:"gcp-firestore-"`
 	AzureStorageVHost             azurestoragevhostbackend.Settings `embed:"" prefix:"azure-storage-vhost-"`
+	Extensions                    extensions.Settings               `embed:""`
 	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"             default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
@@ -2377,6 +2380,10 @@ func run(ctx context.Context, cli CLI) error {
 
 	e := buildEchoServer(ctx, log, persistManager, services, cli)
 
+	if extErr := cli.initExtensions(log, e); extErr != nil {
+		return extErr
+	}
+
 	if setupErr := setupChaosAndRegistry(e, log, &cli, services); setupErr != nil {
 		return setupErr
 	}
@@ -2404,7 +2411,10 @@ func run(ctx context.Context, cli CLI) error {
 	// budget rather than each stage restarting its own clock and stacking
 	// to a multiple of shutdownTimeout.
 	defer shutdownBackends(janitorCancel, cli.lambdaHandler, services, &cli.shutdownDeadline)
+	defer cli.stopExtensions(ctx)
 	defer runShutdownStage(ctx, &cli)
+
+	cli.startExtensions(ctx)
 
 	return serveAll(ctx, &cli, e, log)
 }
@@ -12226,6 +12236,7 @@ func setupChaosAndRegistry(
 		cli.Compression != compressionOff,
 		cli.IAMAudit,
 		cli.IAMPolicyStream(),
+		cli.extensionInterceptor(),
 	)
 	if err != nil {
 		return err
@@ -12322,6 +12333,7 @@ func setupRegistry(
 	compression bool,
 	iamAudit bool,
 	iamRecorder *iampolicystream.Recorder,
+	interceptor service.Interceptor,
 ) (*service.Registry, error) {
 	registry := service.NewRegistry()
 
@@ -12382,7 +12394,8 @@ func setupRegistry(
 
 	router := service.NewServiceRouter(registry).
 		WithTargetGates(routegates.TargetGates()).
-		WithPathGates(routegates.PathGates())
+		WithPathGates(routegates.PathGates()).
+		WithInterceptor(interceptor)
 	e.Use(router.RouteHandler())
 
 	return registry, nil

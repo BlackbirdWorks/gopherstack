@@ -1,0 +1,6 @@
+# gopherstack --extensions-config examples/extensions/hello/extensions.yaml
+extensions:
+  - name: hello
+    command: [go, run, ./examples/extensions/hello]
+    restart: on-failure
+    start_timeout: 60s

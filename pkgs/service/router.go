@@ -22,8 +22,13 @@ type Router struct {
 	services    []*Entry
 	targetGates [][]string
 	pathGates   [][]string
+	intercept   Interceptor
 	idx         routeIndex
 }
+
+// Interceptor sees every request after the built-in lookup (entry is nil when no service
+// matched). A non-nil handler replaces the default dispatch; nil leaves it unchanged.
+type Interceptor func(c *echo.Context, entry *Entry) echo.HandlerFunc
 
 // NewServiceRouter creates a router from the registered services.
 // Services are sorted by priority (highest first) for evaluation.
@@ -71,13 +76,28 @@ func (r *Router) WithPathGates(gates map[string][]string) *Router {
 	return r
 }
 
+// WithInterceptor installs i (nil clears it). Call before serving: the router is immutable afterwards.
+func (r *Router) WithInterceptor(i Interceptor) *Router {
+	r.intercept = i
+
+	return r
+}
+
 // RouteHandler returns an Echo middleware that evaluates all registered
 // service matchers by priority and routes to the first matching service.
 // If no service matches, it falls back to the next handler (standard Echo routing).
 func (r *Router) RouteHandler() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			if entry := r.Lookup(c); entry != nil {
+			entry := r.Lookup(c)
+
+			if r.intercept != nil {
+				if h := r.intercept(c, entry); h != nil {
+					return h(c)
+				}
+			}
+
+			if entry != nil {
 				return entry.WrappedHandler(c)
 			}
 
