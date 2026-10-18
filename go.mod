@@ -133,6 +133,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/networkfirewall v1.76.1
 	github.com/aws/aws-sdk-go-v2/service/networkmanager v1.44.4
 	github.com/aws/aws-sdk-go-v2/service/networkmonitor v1.16.4
+	github.com/aws/aws-sdk-go-v2/service/oam v1.31.4
 	github.com/aws/aws-sdk-go-v2/service/omics v1.49.5
 	github.com/aws/aws-sdk-go-v2/service/opensearch v1.75.4
 	github.com/aws/aws-sdk-go-v2/service/opensearchserverless v1.34.4
@@ -154,6 +155,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/redshiftserverless v1.38.5
 	github.com/aws/aws-sdk-go-v2/service/rekognition v1.58.0
 	github.com/aws/aws-sdk-go-v2/service/resiliencehub v1.38.3
+	github.com/aws/aws-sdk-go-v2/service/resourceexplorer2 v1.33.4
 	github.com/aws/aws-sdk-go-v2/service/resourcegroups v1.36.4
 	github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi v1.35.4
 	github.com/aws/aws-sdk-go-v2/service/rolesanywhere v1.26.3
@@ -172,7 +174,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.48.0
 	github.com/aws/aws-sdk-go-v2/service/securityhub v1.75.4
 	github.com/aws/aws-sdk-go-v2/service/serverlessapplicationrepository v1.33.4
+	github.com/aws/aws-sdk-go-v2/service/servicecatalog v1.47.4
 	github.com/aws/aws-sdk-go-v2/service/servicediscovery v1.43.4
+	github.com/aws/aws-sdk-go-v2/service/servicequotas v1.43.4
 	github.com/aws/aws-sdk-go-v2/service/ses v1.37.4
 	github.com/aws/aws-sdk-go-v2/service/sesv2 v1.66.4
 	github.com/aws/aws-sdk-go-v2/service/sfn v1.49.0
@@ -228,6 +232,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/twmb/franz-go v1.22.1
+	github.com/twmb/franz-go/pkg/kmsg v1.14.0
 	github.com/vektah/gqlparser/v2 v2.5.37
 	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto v0.57.0
@@ -254,10 +259,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.13.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/oam v1.31.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/resourceexplorer2 v1.33.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/servicecatalog v1.47.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/servicequotas v1.43.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.9.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bitfield/gotestdox v0.2.2 // indirect
@@ -336,7 +337,6 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
-	github.com/twmb/franz-go/pkg/kmsg v1.14.0 // indirect
 	github.com/twpayne/go-geom v1.6.1 // indirect
 	github.com/yuin/gopher-lua v1.1.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
