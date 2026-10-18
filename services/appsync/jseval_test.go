@@ -61,14 +61,14 @@ func TestInMemoryBackend_EvaluateCode_Eval(t *testing.T) {
 			want:    `{"id":"x1","static":"v"}`,
 		},
 		{
-			name:    "util_toJson",
-			code:    `export function request(ctx) { return util.toJson(ctx.arguments); }`,
+			name:    "json_stringify",
+			code:    `export function request(ctx) { return JSON.stringify(ctx.arguments); }`,
 			context: `{"arguments":{"a":1}}`,
 			want:    `"{\"a\":1}"`,
 		},
 		{
 			name: "util_parseJson",
-			code: `export function request(ctx) { return util.parseJson("{\"k\":true}"); }`,
+			code: `export function request(ctx) { return JSON.parse("{\"k\":true}"); }`,
 			want: `{"k":true}`,
 		},
 		{
@@ -97,7 +97,7 @@ func TestInMemoryBackend_EvaluateCode_Eval(t *testing.T) {
 		},
 		{
 			name:    "util_error_is_error",
-			code:    `export function request(ctx) { return util.error("boom"); }`,
+			code:    `import { util } from '@aws-appsync/utils'; export function request(ctx) { return util.error("boom"); }`,
 			wantErr: true,
 		},
 		{

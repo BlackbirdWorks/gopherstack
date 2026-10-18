@@ -9,8 +9,8 @@
 | --- | --- |
 | PARITY entries audited | 74 (74 ok) |
 | Feature families | 15 (15 ok) |
-| Known gaps | 3 |
-| Structural gaps (can't be emulated) | 3 |
+| Known gaps | 8 |
+| Structural gaps (can't be emulated) | 1 |
 | Deferred items | 2 |
 | Resource leaks | bugs found |
 
@@ -19,13 +19,16 @@
 - Introspection omits __Type.specifiedByURL and isOneOf, and ListTypes/GetType/ListTypesByAssociation ignore the SDL/JSON format parameter; the real per-type JSON shape is unverified. 2026-10-01.
 - GetIntrospectionSchema returns an undeclared BadRequestException for an unknown format; no declared exception (GraphQLSchema/Internal/NotFound/Unauthorized) fits. 2026-10-01.
 - GraphqlApi dns and Api dns are unmodeled: the dns key set is unverified.
+- RDS, OpenSearch/Elasticsearch and EventBridge data sources are not executed (ErrUnsupportedDataSource); only DynamoDB, Lambda, HTTP and NONE run. 2026-10-17.
+- HTTP data source sends unsigned requests: authorizationConfig (SigV4) is stored but not applied. 2026-10-17.
+- ctx.identity is always null in resolvers (authorizer identity is not threaded into the context); errors[].path is set for root fields only; non-null field null-propagation is not implemented. 2026-10-17.
+- $extensions.* calls are recorded but have no effect (no resolver cache layer, subscription filters are not applied); $util.transform.toElasticsearchQueryDSL/toSubscriptionFilter, $util.rds.*, $util.xml, util.http, DynamoDB sync/batch JS helpers and Lambda BatchInvoke are absent. 2026-10-17.
+- EvaluateCode/EvaluateMappingTemplate always return empty logs[] (console.log is discarded) and error carries message only (no codeErrors locations). 2026-10-17.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- Resolver-level PIPELINE before-mapping (RequestMappingTemplate/Code `request`) is not evaluated; stash writes and short-circuit need a full VTL/JS runtime (gopherstack-ivwh). 2026-10-01.
-- The APPSYNC_JS evaluator (jseval.go) supports only a documented literal/context/util.* subset (no control flow, bindings, or util.dynamodb.*) and returns ErrUnsupportedJSCode otherwise; real resolver execution needs a JS runtime. 2026-10-01.
 - Cognito/OIDC issuers with no local signing key are rejected because external JWKS endpoints are never fetched (no external network).
 
 ### Deferred

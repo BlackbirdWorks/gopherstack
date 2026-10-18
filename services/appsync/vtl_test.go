@@ -96,14 +96,14 @@ func TestRenderVTL_Extended(t *testing.T) {
 			tmpl:   "$context.arguments",
 			args:   map[string]any{"key": "val"},
 			result: nil,
-			want:   `{"key":"val"}`,
+			want:   `{key=val}`,
 		},
 		{
 			name:   "bare_ctx_args",
 			tmpl:   "$ctx.args",
 			args:   map[string]any{"x": 1.0},
 			result: nil,
-			want:   `{"x":1}`,
+			want:   `{x=1}`,
 		},
 		{
 			name:   "util_to_json_bare_result",
@@ -120,25 +120,25 @@ func TestRenderVTL_Extended(t *testing.T) {
 			want:   `{"S":"abc"}`,
 		},
 		{
-			name:   "result_field_not_found_returns_null",
+			name:   "missing_result_field_renders_reference",
 			tmpl:   "$context.result.missing",
 			args:   nil,
 			result: map[string]any{"other": "val"},
-			want:   "null",
+			want:   "$context.result.missing",
 		},
 		{
-			name:   "nil_result_returns_null",
+			name:   "nil_result_renders_reference",
 			tmpl:   "$context.result",
 			args:   nil,
 			result: nil,
-			want:   "null",
+			want:   "$context.result",
 		},
 		{
-			name:   "missing_arg_returns_null",
+			name:   "missing_arg_renders_reference",
 			tmpl:   "$ctx.args.missing",
 			args:   map[string]any{"other": "val"},
 			result: nil,
-			want:   "null",
+			want:   "$ctx.args.missing",
 		},
 	}
 
@@ -166,7 +166,7 @@ func TestToDynamoDBJSON(t *testing.T) {
 		{name: "bool_true", input: true, want: `{"BOOL":true}`},
 		{name: "bool_false", input: false, want: `{"BOOL":false}`},
 		{name: "nil", input: nil, want: `{"NULL":true}`},
-		{name: "map_passes_through", input: map[string]any{"x": 1}, want: `{"x":1}`},
+		{name: "map", input: map[string]any{"x": 1}, want: `{"M":{"x":{"N":"1"}}}`},
 	}
 
 	for _, tt := range tests {
@@ -223,13 +223,6 @@ func TestRenderVTL_ResolveExpr_AllBranches(t *testing.T) {
 			args:   nil,
 			result: map[string]any{"id": "1"},
 			want:   `{"id":"1"}`,
-		},
-		{
-			name:   "unknown_expr_passthrough",
-			tmpl:   "$util.toJson(something_unknown)",
-			args:   nil,
-			result: nil,
-			want:   `"something_unknown"`,
 		},
 	}
 

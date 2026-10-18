@@ -97,7 +97,7 @@ func cleanMessage(err error) string {
 
 	for _, sentinel := range []error{
 		ErrNotFound, ErrAlreadyExists, ErrInvalidSchema, ErrGraphQLSchemaInvalid, ErrValidation,
-		ErrUnsupportedJSCode, ErrAPIKeyLimitExceeded, ErrAPIKeyValidityOutOfBounds,
+		ErrAPIKeyLimitExceeded, ErrAPIKeyValidityOutOfBounds,
 	} {
 		if rest, ok := strings.CutPrefix(msg, sentinel.Error()+": "); ok && errors.Is(err, sentinel) {
 			return rest
