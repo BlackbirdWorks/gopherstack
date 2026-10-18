@@ -22,6 +22,7 @@ import (
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	cloudhsmv2backend "github.com/blackbirdworks/gopherstack/services/cloudhsmv2"
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
+	codegurureviewerbackend "github.com/blackbirdworks/gopherstack/services/codegurureviewer"
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	comprehendbackend "github.com/blackbirdworks/gopherstack/services/comprehend"
 	connectbackend "github.com/blackbirdworks/gopherstack/services/connect"
@@ -266,6 +267,12 @@ func applyConnect(reg service.Registerable, l cliconfig.LifecycleSettings) {
 func applyGlobalAccelerator(reg service.Registerable, l cliconfig.LifecycleSettings) {
 	if h, ok := reg.(*globalacceleratorbackend.Handler); ok {
 		h.Backend.SetLifecycleDelay(l.Effective(l.GlobalAccelerator))
+	}
+}
+
+func applyCodeGuruReviewer(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*codegurureviewerbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.Effective(l.CodeGuruReviewer))
 	}
 }
 
@@ -764,6 +771,7 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l cliconfig.Lif
 		"FIS":                 applyFIS,
 		"DSQL":                applyDSQL,
 		"GlobalAccelerator":   applyGlobalAccelerator,
+		"CodeGuruReviewer":    applyCodeGuruReviewer,
 		"Connect":             applyConnect,
 		"CloudHSMV2":          applyCloudHSMV2,
 		"AMP":                 applyAMP,

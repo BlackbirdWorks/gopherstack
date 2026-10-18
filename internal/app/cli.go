@@ -123,6 +123,7 @@ import (
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
+	codegurureviewerbackend "github.com/blackbirdworks/gopherstack/services/codegurureviewer"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
@@ -189,6 +190,8 @@ import (
 	lightsailbackend "github.com/blackbirdworks/gopherstack/services/lightsail"
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
+	marketplaceentitlementservicebackend "github.com/blackbirdworks/gopherstack/services/marketplaceentitlementservice"
+	marketplacemeteringbackend "github.com/blackbirdworks/gopherstack/services/marketplacemetering"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	medialivebackend "github.com/blackbirdworks/gopherstack/services/medialive"
 	mediapackagebackend "github.com/blackbirdworks/gopherstack/services/mediapackage"
@@ -388,6 +391,8 @@ type CLI struct {
 	azureARMHandler               service.Registerable
 	azureBlobHandler              service.Registerable
 	gcpStorageHandler             service.Registerable
+	gcpPubSubHandler              service.Registerable
+	gcpSecretManagerHandler       service.Registerable
 	azureQueueHandler             service.Registerable
 	azureTableHandler             service.Registerable
 	azureServiceBusHandler        service.Registerable
@@ -1794,6 +1799,16 @@ func (c *CLI) GetAzureBlobHandler() service.Registerable { return c.azureBlobHan
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGCPStorageHandler() service.Registerable { return c.gcpStorageHandler }
 
+// GetGCPPubSubHandler returns the Pub/Sub handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPPubSubHandler() service.Registerable { return c.gcpPubSubHandler }
+
+// GetGCPSecretManagerHandler returns the Secret Manager handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPSecretManagerHandler() service.Registerable { return c.gcpSecretManagerHandler }
+
 // GetAzureQueueHandler returns the Azure Queue handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
@@ -3015,6 +3030,8 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.azureARMHandler = byName["AzureARM"]
 	cli.azureBlobHandler = byName["AzureBlob"]
 	cli.gcpStorageHandler = byName["GCPStorage"]
+	cli.gcpPubSubHandler = byName["GCPPubSub"]
+	cli.gcpSecretManagerHandler = byName["GCPSecretManager"]
 	cli.azureQueueHandler = byName["AzureQueue"]
 	cli.azureTableHandler = byName["AzureTable"]
 	cli.azureServiceBusHandler = byName["AzureServiceBus"]
@@ -4081,6 +4098,7 @@ func wireSSOAndRedshiftData(byName map[string]service.Registerable) {
 	wireRedshiftServerlessData(byName)
 	wireRedshiftClusterEngines(byName)
 	wireBillingExports(byName)
+	wireMarketplaceEntitlements(byName)
 }
 
 // wireStorageAndSecretsIntegrations wires Firehose delivery, DynamoDB→S3
@@ -4567,6 +4585,9 @@ func getMostRecentServiceProviders() []service.Provider {
 		&azurearmbackend.Provider{},
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
+		&codegurureviewerbackend.Provider{},
+		&marketplacemeteringbackend.Provider{},
+		&marketplaceentitlementservicebackend.Provider{},
 		&accessanalyzerbackend.Provider{},
 		&accountbackend.Provider{},
 		&rambackend.Provider{},

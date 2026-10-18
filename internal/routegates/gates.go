@@ -57,6 +57,7 @@ func TargetGates() map[string][]string {
 		"KinesisAnalytics":         {"KinesisAnalytics_20150814."},
 		"KinesisAnalyticsV2":       {"KinesisAnalytics_20180523."},
 		"Lightsail":                {"Lightsail_20161128."},
+		"MarketplaceMetering":      {"AWSMPMeteringService."},
 		"MediaStore":               {"MediaStore_20170901."},
 		"NetworkFirewall":          {"NetworkFirewall_20201112."},
 		"OpsWorks":                 {"OpsWorks_20130218."},
