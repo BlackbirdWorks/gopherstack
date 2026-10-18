@@ -9,6 +9,7 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	gasdk "github.com/aws/aws-sdk-go-v2/service/globalaccelerator"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
@@ -64,8 +65,7 @@ func newFixtureFromBackend(t *testing.T, backend *globalaccelerator.InMemoryBack
 }
 
 func apiCode(err error) string {
-	var ae interface{ ErrorCode() string }
-	if errors.As(err, &ae) {
+	if ae, ok := errors.AsType[smithy.APIError](err); ok {
 		return ae.ErrorCode()
 	}
 
