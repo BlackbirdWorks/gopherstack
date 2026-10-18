@@ -50,6 +50,7 @@ type InMemoryBackend struct {
 	work                             *worker.Group
 	baseCtx                          context.Context
 	clusterEng                       *clusterEngine
+	credentials                      CredentialResolver
 	idcApps                          IdcApplicationManager
 	oidcKeys                         *safemap.Map[string, *rsa.PrivateKey]
 	accountID                        string

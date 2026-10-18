@@ -104,7 +104,7 @@ items_still_open:
   - "DescribeClusterVersions IncludeAll has no documented default exclusion (checked api_op_DescribeClusterVersions.go and API_DescribeClusterVersions.html), so it stays a no-op; DescribeAddonVersions owner/publisher filter values and the ConfigUpdate UpdateParam encoding are not stated by the pinned SDK or the API reference."
 structural_gaps:
   - "EksAnywhereSubscription.LicenseArns/Licenses (2026-10-07): issued by AWS licensing for a real subscription purchase; no per-license record exists to derive."
-  - "EKS docker engine IAM (k8s-aws-v1) token authentication, managed nodegroup/Fargate/addon workloads and Insights computed from a live API server need a real Kubernetes control plane (gopherstack-7neth)."
+  - "EKS docker engine (gopherstack-7neth): Fargate profiles stay metadata-only (no virtual-kubelet; pods never run on Fargate), and nodegroup instanceTypes/amiType/launchTemplate/diskSize/min-max autoscaling have no k3s meaning (nodes are k3s agent containers sized by desiredSize only). Add-ons other than coredns/vpc-cni/kube-proxy (aws-ebs-csi-driver, aws-efs-csi-driver, eks-pod-identity-agent, ...) install no workload and report ACTIVE on the timer; vpc-cni maps to k3s flannel and kube-proxy to the k3s-embedded proxy. The k3s server node stays visible and schedulable in `kubectl get nodes`. Access policies with no Kubernetes equivalent (AmazonEKSAutoNodePolicy, hybrid/node policies) create no binding, and AmazonEKSAdminViewPolicy is a get/list/watch */* ClusterRole approximation. Tokens signed with an access key unknown to IAM/STS are accepted as the account root (the emulator's own GetCallerIdentity behaviour) without a signature check, and the presigned STS host is never called."
   - "Insight/DescribeInsight content beyond the two derivable UPGRADE_READINESS checks, Nodegroup.Health.Issues and FargateProfile.Health.Issues, and DeleteCertificateAuthority's only-successor protection (EKS-appended successors come from EKS-driven rotation, never CUSTOMER-created) need a live API server or EKS-initiated events."
   - "UpdateClusterVersion Force and UpdateNodegroupVersion Force override readiness checks and Pod disruption budgets that only a live cluster has; RollbackConfig.TimeoutMinutes is validated (120-10080) but no rollback timer runs. kube-apiserver, kube-controller-manager, kube-scheduler, zonal-shift, scaling-tier, remote-network and outpost members are stored and echoed, not enforced by a control plane."
   - "CreateCluster.BootstrapSelfManagedAddons installs vpc-cni/coredns/kube-proxy as Kubernetes manifests, not EKS add-on resources, and types.Cluster does not echo the flag, so no client-observable state exists."
@@ -126,17 +126,53 @@ free host port, mirroring LocalStack's k3s-backed EKS
 DescribeCluster then returns the real `endpoint` (`https://EKS_CLUSTER_HOST:port`) and
 `certificateAuthority.data` (k3s server CA, base64 PEM).
 
-Auth: a static cluster-admin bearer token (`EKS_CLUSTER_TOKEN`, default
-`gopherstack-eks-cluster-token`, same idea as LocalStack's `K3D_CLUSTER_TOKEN`) via
-the apiserver `token-auth-file`. `aws eks get-token` `k8s-aws-v1` IAM tokens are NOT
-accepted, so use `kubectl --token` or a static-token kubeconfig user. The default token
-is publicly known, so the API port binds 127.0.0.1 only. Setting `EKS_CLUSTER_HOST` to a non-loopback
-host binds all interfaces and REQUIRES `EKS_CLUSTER_TOKEN`: with the default token the docker engine
-refuses to start and clusters stay metadata-only (warning logged).
+Static-token auth: `EKS_CLUSTER_TOKEN` (default `gopherstack-eks-cluster-token`, same idea as
+LocalStack's `K3D_CLUSTER_TOKEN`) is the k3s `token-auth-file` cluster-admin bearer and is also accepted
+by the authenticating endpoint described below. The default token is publicly known, so ports bind
+127.0.0.1 only. Setting `EKS_CLUSTER_HOST` to a non-loopback host binds all interfaces and REQUIRES
+`EKS_CLUSTER_TOKEN`: with the default token the docker engine refuses to start and clusters stay
+metadata-only (warning logged). The raw k3s port (published for readiness probing) also accepts the
+static token and bypasses IAM; it is not advertised in DescribeCluster.
 
-Nodegroups, Fargate profiles and addons stay metadata-only (the k3s server schedules
-pods itself). Container state is runtime-only: Restore relaunches EMPTY clusters;
-DeleteCluster/Reset/Restore/Close remove containers. No persistence version change.
+Container state is runtime-only: Restore relaunches EMPTY clusters (restored nodegroups and
+engine-backed add-ons return to CREATING and re-earn ACTIVE); DeleteCluster/Reset/Restore/Close remove
+the server and agent containers. No persistence version change (Cluster gained an additive `creatorArn`).
+
+### 2026-10-18: IAM-token endpoint, nodegroup agents, add-on health, access-policy RBAC (gopherstack-49qct.2, gopherstack-7neth)
+
+DescribeCluster's `endpoint` is now an in-process TLS proxy in front of k3s (leaf signed by the cluster CA that
+`certificateAuthority.data` returns), so `aws eks update-kubeconfig` + kubectl + the Terraform kubernetes
+provider work with `aws eks get-token`. Per request the proxy accepts: no credentials (forwarded as
+system:anonymous, so /version and /healthz work), the static admin token, or a `k8s-aws-v1.` token.
+A token is the base64url presigned `sts:GetCallerIdentity` URL; it is verified by re-presigning with the real
+SigV4 signer (signed headers must be `host;x-k8s-aws-id`, `x-k8s-aws-id` must equal the cluster name,
+`X-Amz-Expires` <= 60, age <= 15 min, <= 5 min future skew) against the secret of the access key as resolved by
+the emulator's IAM/STS (`CredentialResolver`, wired by `wireEKSTokenAuth` in internal/app). A real
+`aws eks get-token` token was verified against the verifier. The principal maps to a Kubernetes user:
+access entries first (authMode API / API_AND_CONFIG_MAP), then the `kube-system/aws-auth` ConfigMap
+mapRoles/mapUsers (CONFIG_MAP / API_AND_CONFIG_MAP, read from the live cluster, 2s cache); the cluster
+creator (CreateCluster caller, root when the request carries no principal) gets `system:masters` when
+bootstrapClusterCreatorAdminPermissions is true (now defaults to true when accessConfig omits it, as in AWS).
+`{{SessionName}}`, `{{SessionNameRaw}}` and `{{AccessKeyID}}` are expanded in usernames. The proxy forwards
+with the k3s admin credential plus `Impersonate-User/Group/Extra-*`, stripping any client-sent
+Authorization or Impersonate-* headers. Unmapped principals get 401.
+
+A per-cluster reconciler (kicked by every nodegroup/addon/access-entry mutation, plus a 5s resync) converges
+the real cluster: access-policy associations become ClusterRoleBindings (cluster scope) or RoleBindings
+(namespace scope) from the entry's synthetic group `gopherstack:eks:access:<id>` to cluster-admin / admin /
+edit / view (AmazonEKS{ClusterAdmin,Admin,Edit,View}Policy) or a get/list/watch ClusterRole
+(AmazonEKSAdminViewPolicy); stale labelled bindings are pruned. Nodegroups run `desiredSize` real k3s agent
+containers (same image, joined with a per-cluster token to the server container IP found via exec) labelled
+`eks.amazonaws.com/nodegroup`/`capacityType`, with user labels applied through the API and taints through
+`--node-taint`/API patches; the nodegroup is ACTIVE when that many nodes are Ready, CREATE_FAILED after
+10 minutes, and UpdateNodegroupConfig/DeleteNodegroup scale agents and delete Node objects. Agents were chosen
+over server-node labels because they give real node counts, taints and scheduling. coredns (real deployment
+availability), vpc-cni and kube-proxy (a Ready node) statuses follow measured health: CREATING -> ACTIVE,
+ACTIVE <-> DEGRADED with a health issue, CREATE_FAILED after 10 minutes. On a host without docker.io access
+(pause image pull fails) coredns therefore stays CREATING, not a fabricated ACTIVE. Proof:
+`TestAuthenticateIAMToken`, `TestK8sIdentityMapping`, `TestK8sProxy`, `TestReconcile_*`,
+`TestDockerCluster_IAMAuthNodegroupsRBAC` (real k3s: IAM token -> namespaces, view policy 200/403, creator
+admin, agent nodegroup ACTIVE, deletion removes containers).
 
 ### 2026-09-30: items_still_open burn-down
 

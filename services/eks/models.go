@@ -212,6 +212,7 @@ type Cluster struct {
 	AccountID                string                     `json:"accountId"`
 	Region                   string                     `json:"region"`
 	PlatformVersion          string                     `json:"platformVersion,omitempty"`
+	CreatorARN               string                     `json:"creatorArn,omitempty"`
 	CertificateAuthority     string                     `json:"certificateAuthority,omitempty"`
 	UpgradePolicySupportType string                     `json:"upgradePolicySupportType,omitempty"`
 	ClusterLogging           []ClusterLogEntry          `json:"clusterLogging,omitempty"`

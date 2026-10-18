@@ -304,7 +304,10 @@ func TestDockerCluster_Lifecycle(t *testing.T) {
 			_, port, ctrPort, _ := container.ParsePortSpec(spec.Ports[0])
 			assert.Equal(t, "6443", ctrPort)
 
-			assert.Equal(t, "https://eks.test:"+port, d.Endpoint)
+			proxyPort := strings.TrimPrefix(d.Endpoint, "https://eks.test:")
+			_, convErr := strconv.Atoi(proxyPort)
+			require.NoError(t, convErr, "endpoint must be the authenticating proxy: %s", d.Endpoint)
+			assert.NotEqual(t, port, proxyPort, "endpoint must not be the raw k3s port")
 			assert.Equal(t, base64.StdEncoding.EncodeToString([]byte(testCA)), d.CertificateAuthority)
 
 			_, err = b.DeleteCluster("c1")

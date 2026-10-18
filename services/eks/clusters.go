@@ -18,22 +18,15 @@ const clusterTransitionDelay = 100 * time.Millisecond
 
 // ClusterOptionalConfig groups optional cluster configuration for CreateCluster.
 type ClusterOptionalConfig struct {
-	AccessConfig  *AccessConfig
-	ComputeConfig *ComputeConfig
-	StorageConfig *StorageConfig
-	// ConfigBlocks are the opaque config members (zonal shift, scaling tier, kube-*, remote network, outpost).
-	ConfigBlocks map[string]json.RawMessage
-	// UpgradePolicySupportType is CreateClusterInput.UpgradePolicy.SupportType
-	// ("STANDARD" or "EXTENDED"); empty means "not specified", resolved to
-	// the real default of EXTENDED by resolveClusterOptionalConfig.
+	AccessConfig             *AccessConfig
+	ComputeConfig            *ComputeConfig
+	StorageConfig            *StorageConfig
+	ConfigBlocks             map[string]json.RawMessage
 	UpgradePolicySupportType string
-	// LogEntries is CreateClusterInput.Logging.ClusterLogging -- the same
-	// shape UpdateClusterConfig already applies via ClusterConfigUpdate.
-	LogEntries       []ClusterLogEntry
-	EncryptionConfig []EncryptionConfig
-	// DeletionProtection is CreateClusterInput.DeletionProtection; enforced
-	// by DeleteCluster.
-	DeletionProtection bool
+	CreatorARN               string
+	LogEntries               []ClusterLogEntry
+	EncryptionConfig         []EncryptionConfig
+	DeletionProtection       bool
 }
 
 // resolveClusterOptionalConfig deep-copies the (at most one) supplied
@@ -124,6 +117,7 @@ func (b *InMemoryBackend) newClusterLocked(
 	}
 
 	return &Cluster{
+		CreatorARN:       b.creatorARN(extra.CreatorARN),
 		ConfigBlocks:     cloneConfigBlocks(extra.ConfigBlocks),
 		EncryptionConfig: slices.Clone(extra.EncryptionConfig),
 		Name:             name,
@@ -674,4 +668,12 @@ func placeholderCAData(name string) string {
 	}
 
 	return base64.StdEncoding.EncodeToString(ca.certPEM)
+}
+
+func (b *InMemoryBackend) creatorARN(caller string) string {
+	if caller != "" {
+		return caller
+	}
+
+	return arn.Build(arnSvcIAM, "", b.accountID, "root")
 }

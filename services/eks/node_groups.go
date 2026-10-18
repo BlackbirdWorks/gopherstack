@@ -215,15 +215,21 @@ func (b *InMemoryBackend) CreateNodegroup(
 	)
 	b.nodegroups.Put(ng)
 
-	// Schedule async transition CREATING -> ACTIVE.
-	b.work.After("NodegroupTransition", b.dwell(nodegroupTransitionDelay), func() {
-		b.mu.Lock("CreateNodegroup-async")
-		defer b.mu.Unlock()
+	if b.clusterLiveLocked(clusterName) {
+		b.kickClusterLocked(clusterName)
+	} else {
+		b.work.After("NodegroupTransition", b.dwell(nodegroupTransitionDelay), func() {
+			b.mu.Lock("CreateNodegroup-async")
+			defer b.mu.Unlock()
 
-		if n, found := b.nodegroups.Get(nodegroupKey(clusterName, nodegroupName)); found && n.Status == statusCreating {
-			n.Status = statusActive
-		}
-	})
+			if n, found := b.nodegroups.Get(
+				nodegroupKey(clusterName, nodegroupName),
+			); found &&
+				n.Status == statusCreating {
+				n.Status = statusActive
+			}
+		})
+	}
 
 	cp := deepCopyNodegroup(ng)
 
@@ -272,6 +278,7 @@ func (b *InMemoryBackend) ListNodegroups(clusterName string) ([]string, error) {
 func (b *InMemoryBackend) DeleteNodegroup(clusterName, nodegroupName string) (*Nodegroup, error) {
 	b.mu.Lock("DeleteNodegroup")
 	defer b.mu.Unlock()
+	defer b.kickClusterLocked(clusterName)
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
@@ -322,6 +329,7 @@ func (b *InMemoryBackend) UpdateNodegroupConfig(
 
 	b.mu.Lock("UpdateNodegroupConfig")
 	defer b.mu.Unlock()
+	defer b.kickClusterLocked(clusterName)
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)

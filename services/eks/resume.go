@@ -25,7 +25,7 @@ func (b *InMemoryBackend) resumeTransitionsLocked() {
 
 func (b *InMemoryBackend) resumeNodegroupsLocked() {
 	for _, ng := range b.nodegroups.All() {
-		if ng.Status != statusCreating {
+		if ng.Status != statusCreating || b.clusterLiveLocked(ng.ClusterName) {
 			continue
 		}
 
@@ -41,7 +41,7 @@ func (b *InMemoryBackend) resumeNodegroupsLocked() {
 
 func (b *InMemoryBackend) resumeAddonsLocked() {
 	for _, a := range b.addons.All() {
-		if a.Status != statusCreating {
+		if a.Status != statusCreating || (b.clusterLiveLocked(a.ClusterName) && engineBackedAddon(a.AddonName)) {
 			continue
 		}
 
