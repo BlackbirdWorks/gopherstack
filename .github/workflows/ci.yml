@@ -121,14 +121,14 @@ jobs:
       - name: Verify build with all tag combinations
         run: task build-check
 
-      - name: Verify desktop module compiles
+      - name: Verify desktop module compiles (Linux + Windows multi-platform)
         working-directory: desktop
-        env:
-          CGO_ENABLED: "1"
         run: |
           mkdir -p ../dashboard/static/spa
           touch ../dashboard/static/spa/.keep
-          go build -trimpath -buildvcs=false -tags "production,webkit2_41" -o /dev/null .
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -tags "production,webkit2_41" -o /dev/null .
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false -tags "production" -ldflags "-H windowsgui" -o /dev/null .
+          CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -trimpath -buildvcs=false -tags "production" -ldflags "-H windowsgui" -o /dev/null .
 
   modernize:
     runs-on: ubuntu-latest

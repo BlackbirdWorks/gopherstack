@@ -41,6 +41,54 @@ tasks:
           -ldflags "-w -s -X {{.VERSION_PKG}}.Build={{.BUILD_VERSION}}{{if eq OS "windows"}} -H windowsgui{{end}}{{if eq OS "darwin"}} -extldflags '-framework UniformTypeIdentifiers'{{end}}" \
           -o ../bin/{{.BINARY_NAME}}-desktop{{exeExt}} .
 
+  build-desktop-all:
+    desc: Multi-build desktop binaries for darwin/{arm64,amd64}, windows/{amd64,arm64}, and linux/amd64 into bin/desktop/
+    deps: [ui-build]
+    cmds:
+      - mkdir -p bin/desktop
+      - |
+        if [ "$(uname -s)" = "Darwin" ]; then
+          for arch in arm64 amd64; do
+            echo "Building desktop darwin/${arch}..."
+            CGO_ENABLED=1 GOOS=darwin GOARCH="$arch" go -C desktop build \
+              -trimpath -buildvcs=false -tags "production" \
+              -ldflags "-w -s -X {{.VERSION_PKG}}.Build={{.BUILD_VERSION}} -extldflags '-framework UniformTypeIdentifiers'" \
+              -o "../bin/desktop/{{.BINARY_NAME}}-desktop-darwin-${arch}" .
+          done
+        fi
+      - |
+        for arch in amd64 arm64; do
+          echo "Building desktop windows/${arch}..."
+          CGO_ENABLED=0 GOOS=windows GOARCH="$arch" go -C desktop build \
+            -trimpath -buildvcs=false -tags "production" \
+            -ldflags "-w -s -X {{.VERSION_PKG}}.Build={{.BUILD_VERSION}} -H windowsgui" \
+            -o "../bin/desktop/{{.BINARY_NAME}}-desktop-windows-${arch}.exe" .
+        done
+      - |
+        if [ "$(uname -s)" = "Linux" ]; then
+          echo "Building desktop linux/$(go env GOARCH)..."
+          CGO_ENABLED=1 GOOS=linux go -C desktop build \
+            -trimpath -buildvcs=false -tags "production,webkit2_41" \
+            -ldflags "-w -s -X {{.VERSION_PKG}}.Build={{.BUILD_VERSION}}" \
+            -o "../bin/desktop/{{.BINARY_NAME}}-desktop-linux-$(go env GOARCH)" .
+        elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+          for arch in amd64 arm64; do
+            echo "Building desktop linux/${arch} via Docker (webkit2gtk-4.1)..."
+            docker run --rm --platform "linux/${arch}" \
+              -v "$PWD:/src" -w /src/desktop \
+              -e CGO_ENABLED=1 -e GOTOOLCHAIN=auto \
+              golang:1.26-bookworm bash -c "
+                apt-get update -qq && apt-get install -y -qq libgtk-3-dev libwebkit2gtk-4.1-dev >/dev/null &&
+                go build -trimpath -buildvcs=false -tags 'production,webkit2_41' \
+                  -ldflags '-w -s -X {{.VERSION_PKG}}.Build={{.BUILD_VERSION}}' \
+                  -o '../bin/desktop/{{.BINARY_NAME}}-desktop-linux-${arch}' .
+              "
+          done
+        else
+          echo "Skipping linux desktop builds (requires Linux host or running Docker daemon for webkit2gtk-4.1 CGO headers)"
+        fi
+      - ls -lh bin/desktop/
+
   build-check:
     desc: Compile under default, e2e and integration tags (go vet type-checks _test.go files)
     cmds:
