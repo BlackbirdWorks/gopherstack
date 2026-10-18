@@ -23,6 +23,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/account v1.35.4
 	github.com/aws/aws-sdk-go-v2/service/acm v1.49.0
 	github.com/aws/aws-sdk-go-v2/service/acmpca v1.50.0
+	github.com/aws/aws-sdk-go-v2/service/amp v1.54.5
 	github.com/aws/aws-sdk-go-v2/service/amplify v1.47.0
 	github.com/aws/aws-sdk-go-v2/service/apigateway v1.42.4
 	github.com/aws/aws-sdk-go-v2/service/apigatewaymanagementapi v1.32.4
@@ -42,6 +43,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/bcmdataexports v1.25.4
 	github.com/aws/aws-sdk-go-v2/service/bedrock v1.66.4
 	github.com/aws/aws-sdk-go-v2/service/bedrockagent v1.58.4
+	github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol v1.73.0
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.57.1
 	github.com/aws/aws-sdk-go-v2/service/budgets v1.53.1
 	github.com/aws/aws-sdk-go-v2/service/cleanrooms v1.49.4
@@ -167,6 +169,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.111.0
 	github.com/aws/aws-sdk-go-v2/service/s3control v1.73.4
 	github.com/aws/aws-sdk-go-v2/service/s3tables v1.18.4
+	github.com/aws/aws-sdk-go-v2/service/s3vectors v1.16.3
 	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.263.2
 	github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.43.4
 	github.com/aws/aws-sdk-go-v2/service/scheduler v1.20.4
@@ -191,6 +194,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/support v1.34.4
 	github.com/aws/aws-sdk-go-v2/service/swf v1.37.4
 	github.com/aws/aws-sdk-go-v2/service/textract v1.43.4
+	github.com/aws/aws-sdk-go-v2/service/timestreaminfluxdb v1.29.4
 	github.com/aws/aws-sdk-go-v2/service/timestreamquery v1.39.4
 	github.com/aws/aws-sdk-go-v2/service/timestreamwrite v1.38.4
 	github.com/aws/aws-sdk-go-v2/service/transcribe v1.64.0
@@ -254,16 +258,12 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/amp v1.54.5 // indirect
-	github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol v1.73.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.19 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.13.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/s3vectors v1.16.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.9.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/timestreaminfluxdb v1.29.4 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bitfield/gotestdox v0.2.2 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect

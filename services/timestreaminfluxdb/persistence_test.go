@@ -132,5 +132,4 @@ func TestProviderInit(t *testing.T) {
 	assert.Equal(t, "TimestreamInfluxDB", h.Name())
 	assert.Len(t, h.GetSupportedOperations(), 24)
 	assert.NotPanics(t, func() { h.Shutdown(t.Context()) })
-
 }

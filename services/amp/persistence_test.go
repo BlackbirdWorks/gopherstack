@@ -143,5 +143,4 @@ func TestAccountAndRegionIsolation(t *testing.T) {
 		&ampsdk.TagResourceInput{ResourceArn: out.Arn, Tags: map[string]string{"a": "b"}},
 	)
 	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
-
 }
