@@ -174,6 +174,11 @@ func (b *InMemoryBackend) Close() {
 	e.reap(lws)
 	e.wg.Wait()
 
+	// Keep-alive conns to the Connect REST API outlive the workers otherwise (goleak).
+	if h, ok := e.cfg.HTTP.(interface{ CloseIdleConnections() }); ok {
+		h.CloseIdleConnections()
+	}
+
 	if c, ok := e.cfg.Runtime.(io.Closer); ok && e.owns {
 		_ = c.Close()
 	}
