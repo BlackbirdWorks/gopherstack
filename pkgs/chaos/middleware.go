@@ -193,7 +193,7 @@ func Middleware(store *FaultStore) func(echo.HandlerFunc) echo.HandlerFunc {
 
 					store.RecordActivity(event)
 
-					return respondWithFault(c, fe)
+					return respondWithFault(c, fe, svc)
 				}
 
 				store.RecordActivity(event)

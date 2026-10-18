@@ -1,26 +1,47 @@
 package chaos
 
 import (
-	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
-// faultResponse is the JSON body returned to the client when a fault fires.
-type faultResponse struct {
-	// Type is the error code (__type matches the AWS JSON error envelope convention).
-	Type    string `json:"__type"`
-	Message string `json:"message"`
-	// MessageCap: schema-serde SDK clients match the modeled "Message" key case-sensitively.
-	MessageCap string `json:"Message"`
+const faultMessage = "Fault injected by Gopherstack Chaos API"
+
+// protocolFor picks the error envelope the caller's SDK will parse.
+func protocolFor(c *echo.Context, svc string) awserr.Protocol {
+	h := c.Request().Header
+	ct := h.Get("Content-Type")
+
+	switch {
+	case h.Get("X-Amz-Target") != "":
+		if strings.Contains(ct, "json-1.1") {
+			return awserr.ProtocolJSON11
+		}
+
+		return awserr.ProtocolJSON10
+	case strings.HasPrefix(ct, "application/x-www-form-urlencoded"):
+		return awserr.ProtocolQueryXML
+	}
+
+	switch svc {
+	case "s3", "s3control", "cloudfront":
+		return awserr.ProtocolRestXML
+	case "route53":
+		return awserr.ProtocolQueryXML
+	}
+
+	return awserr.ProtocolJSON10
 }
 
-// respondWithFault writes the fault HTTP response and short-circuits the handler chain.
-func respondWithFault(c *echo.Context, fe FaultError) error {
-	statusCode := fe.StatusCode
-	if statusCode <= 0 {
-		statusCode = http.StatusServiceUnavailable
+// respondWithFault writes the fault response in the caller's wire protocol and short-circuits the chain.
+func respondWithFault(c *echo.Context, fe FaultError, svc string) error {
+	status := fe.StatusCode
+	if status <= 0 {
+		status = http.StatusServiceUnavailable
 	}
 
 	code := fe.Code
@@ -28,16 +49,7 @@ func respondWithFault(c *echo.Context, fe FaultError) error {
 		code = "ServiceUnavailable"
 	}
 
-	body, err := json.Marshal(faultResponse{
-		Type:       code,
-		Message:    "Fault injected by Gopherstack Chaos API",
-		MessageCap: "Fault injected by Gopherstack Chaos API",
+	return awserr.Write(c, protocolFor(c, svc), awserr.APIError{
+		Code: code, Message: faultMessage, HTTPStatus: status,
 	})
-	if err != nil {
-		return c.String(statusCode, code)
-	}
-
-	c.Response().Header().Set("Content-Type", "application/json")
-
-	return c.JSONBlob(statusCode, body)
 }

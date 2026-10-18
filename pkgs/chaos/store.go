@@ -2,6 +2,7 @@ package chaos
 
 import (
 	"math/rand/v2"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -208,6 +209,36 @@ func (s *FaultStore) DeleteRuleByIndex(index int) {
 
 	s.rules = append(s.rules[:index], s.rules[index+1:]...)
 	s.refreshBusyLocked()
+}
+
+// DeleteExactRules removes rules equal in every field to a rule in the list.
+func (s *FaultStore) DeleteExactRules(rules []FaultRule) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	kept := make([]FaultRule, 0, len(s.rules))
+
+	for _, existing := range s.rules {
+		if !slices.ContainsFunc(rules, func(r FaultRule) bool { return faultRulesEqual(r, existing) }) {
+			kept = append(kept, existing)
+		}
+	}
+
+	s.rules = kept
+	s.refreshBusyLocked()
+}
+
+func faultRulesEqual(a, b FaultRule) bool {
+	if a.Service != b.Service || a.Region != b.Region || a.Operation != b.Operation ||
+		a.Probability != b.Probability {
+		return false
+	}
+
+	if a.Error == nil || b.Error == nil {
+		return a.Error == b.Error
+	}
+
+	return *a.Error == *b.Error
 }
 
 func rulesContainMatch(candidates []FaultRule, target FaultRule) bool {

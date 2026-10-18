@@ -199,6 +199,7 @@ These LocalStack developer endpoints are served on the edge port:
 | `GET /_localstack/init`, `/_localstack/init/<stage>` | Real init-script state (`--init-script`): `completed` per stage plus `scripts[]` with `SUCCESSFUL`/`ERROR` |
 | `GET /_localstack/config` | Read-only runtime config subset (`DEFAULT_REGION`, `GATEWAY_LISTEN`, `PERSISTENCE`, ...). `POST` returns 400: runtime updates are unsupported |
 | `GET /_localstack/diagnose`, `/_localstack/plugins` | Version/config/service list and runtime stats; services listed as `localstack.aws.provider` plugins |
+| `GET/POST/PATCH/DELETE /_localstack/chaos/faults`, `GET/POST /_localstack/chaos/effects` | LocalStack Chaos API on the real fault engine: rules `{service, region, operation, probability, error:{statusCode, code}}` (omitted field = wildcard, first match wins, `[{}]` fails everything, `[]` clears), effects `{"latency": ms}`. POST replaces, PATCH appends, DELETE removes rules equal in every field. Probability outside 0..1 or a status outside 100..599 returns 400. Injected errors use the caller's protocol (JSON, Query XML, REST XML). Same state as `/_gopherstack/chaos/*` |
 
 Not provided: `/health` (it would shadow an S3 bucket named `health`), `/_aws/sns/*` (SNS keeps no SMS or platform-endpoint message log), `/_aws/lambda/runtimes`, `/_aws/dynamodb/expired`. Bucket names cannot start with `_`, so `/_localstack/*` never collides with S3 path-style routing.
 

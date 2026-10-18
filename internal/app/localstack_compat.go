@@ -16,6 +16,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/inithooks"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -449,6 +450,7 @@ func registerLocalstackInternalEndpoints(e *echo.Echo, cli *CLI, services []serv
 	e.POST("/_localstack/config", buildLocalstackConfigPost())
 	e.GET("/_localstack/diagnose", buildLocalstackDiagnoseHandler(cli, services))
 	e.GET("/_localstack/plugins", buildLocalstackPluginsHandler(services))
+	chaos.RegisterLocalStackRoutes(e, cli.faultStore)
 }
 
 // serveAll serves the main port plus any compat/extra ports.
