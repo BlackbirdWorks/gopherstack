@@ -482,6 +482,7 @@ type CLI struct {
 	Compression                   string                            `                                       name:"compression"             env:"COMPRESSION"                         default:"on"            help:"Runtime response compression: zstd/br/gzip for the dashboard, gzip for DynamoDB clients that opt in."                                                                                         enum:"on,off"` //nolint:lll // config struct tags are intentionally verbose
 	SigV4Secret                   string                            `                                       name:"sigv4-secret"            env:"SIGV4_SECRET"                        default:"test"          help:"Secret access key SigV4 validation signs against (used only when --validate-sigv4 is set)."`                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
 	InitScripts                   []string                          `                                       name:"init-script"             env:"INIT_SCRIPTS"                                                help:"Shell scripts to run on startup (may be specified multiple times)."`                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	InitDirs                      []string                          `                                       name:"init-dir"                env:"INIT_DIR"                                                    help:"Extra init-hook root holding boot.d/start.d/ready.d/shutdown.d (repeatable; /etc/localstack/init and /etc/gopherstack/init are always checked)."`                                                            //nolint:lll // config struct tags are intentionally verbose
 	S3InitBuckets                 []string                          `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                                  help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	ExtraListen                   []string                          `                                       name:"extra-listen"            env:"GOPHERSTACK_EXTRA_LISTEN"                                    help:"Additional ports to serve the same endpoint on (comma-separated)."`                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
 	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
@@ -2226,6 +2227,7 @@ func run(ctx context.Context, cli CLI) error {
 	// Create the fault store before initialising services so the dashboard can
 	// receive it via cli.GetFaultStore() during its Init() call.
 	initRuntimeStores(&cli)
+	startInitStages(ctx, &cli, log)
 
 	services, err := initializeServices(appCtx)
 	if err != nil {
@@ -2260,14 +2262,14 @@ func run(ctx context.Context, cli CLI) error {
 		loadDemoData(ctx, &cli)
 	}
 
-	runInitHooks(ctx, &cli, log)
-	createS3InitBuckets(ctx, &cli, log)
+	runStartupHooks(ctx, &cli, log)
 	// cli.shutdownDeadline is set once, when ctx is first observed as done,
 	// and shared by every teardown stage below (HTTP shutdown, Lambda close,
 	// service shutdown) so the whole sequence honors ONE shutdownTimeout
 	// budget rather than each stage restarting its own clock and stacking
 	// to a multiple of shutdownTimeout.
 	defer shutdownBackends(janitorCancel, cli.lambdaHandler, services, &cli.shutdownDeadline)
+	defer runShutdownStage(ctx, &cli)
 
 	return serveAll(ctx, &cli, e, log)
 }

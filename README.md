@@ -216,6 +216,7 @@ precedence is **defaults < persisted config < env vars / CLI flags**.
 | `--iot-mqtt-port` | `IOT_MQTT_PORT` | `1883` | TCP port of the embedded IoT MQTT broker. `0` picks a free port. |
 | `--iot-mqtt-auth` | `IOT_MQTT_AUTH` | `false` | Opt-in: the IoT MQTT port speaks mutual TLS, clients must present an ACTIVE registered certificate, and CONNECT/PUBLISH/SUBSCRIBE/RECEIVE are authorised by the IoT policies attached to it. |
 | `--init-script` | `INIT_SCRIPTS` | *(none)* | Shell script(s) to run on startup (repeatable flag / comma-separated env var). |
+| `--init-dir` | `INIT_DIR` | *(none)* | Extra init-hook root with `boot.d`/`start.d`/`ready.d`/`shutdown.d` of `.sh`/`.py` scripts, run in lexicographic order (repeatable). `/etc/localstack/init` and `/etc/gopherstack/init` are always checked. Scripts get `AWS_ENDPOINT_URL`, `AWS_DEFAULT_REGION` and dummy credentials; `.py` needs `python3`. |
 | `--init-timeout` | `INIT_TIMEOUT` | `30s` | Per-script timeout for init hooks. |
 | `--s3-bucket` | `S3_BUCKETS` | *(none)* | S3 bucket(s) to create on startup (repeatable flag / comma-separated env var). |
 | `--janitor-timeout` | `JANITOR_TIMEOUT` | `30s` | Per-task timeout for the global janitor loop (TTL sweeps, cleaners). `0` disables it. |

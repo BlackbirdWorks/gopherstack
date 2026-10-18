@@ -302,6 +302,7 @@ type localstackInitSnapshot struct {
 // localstackInitState records init-script outcomes for /_localstack/init.
 type localstackInitState struct {
 	snap atomic.Pointer[localstackInitSnapshot]
+	mgr  atomic.Pointer[inithooks.Manager]
 }
 
 func newLocalstackInitState() *localstackInitState {
@@ -330,10 +331,39 @@ func (s *localstackInitState) record(results []inithooks.Result) {
 	s.snap.Store(&localstackInitSnapshot{scripts: scripts})
 }
 
+func (s *localstackInitState) setManager(m *inithooks.Manager) {
+	if s != nil {
+		s.mgr.Store(m)
+	}
+}
+
+// completed reports stage completion; without a stage-dir manager the legacy
+// behaviour holds (everything but SHUTDOWN is done once the listener is up).
+func (s *localstackInitState) completed(stage string) bool {
+	if s != nil {
+		if m := s.mgr.Load(); m != nil {
+			return m.Completed(inithooks.Stage(stage))
+		}
+	}
+
+	return stage != initStageShutdown
+}
+
 func (s *localstackInitState) scripts() []map[string]string {
 	out := []map[string]string{}
 	if s == nil {
 		return out
+	}
+
+	if m := s.mgr.Load(); m != nil {
+		for _, sc := range m.Status() {
+			e := map[string]string{"stage": string(sc.Stage), "name": sc.Name, "state": string(sc.State)}
+			if sc.Error != "" {
+				e["error"] = sc.Error
+			}
+
+			out = append(out, e)
+		}
 	}
 
 	for _, sc := range s.snap.Load().scripts {
@@ -357,8 +387,11 @@ func buildLocalstackInitHandler(st *localstackInitState, stage string) echo.Hand
 
 		if stage == "" {
 			return c.JSON(http.StatusOK, map[string]any{
-				"completed": map[string]bool{"BOOT": true, "START": true, "READY": true, initStageShutdown: false},
-				"scripts":   scripts,
+				"completed": map[string]bool{
+					"BOOT": st.completed("BOOT"), "START": st.completed("START"),
+					"READY": st.completed(initStageReady), initStageShutdown: st.completed(initStageShutdown),
+				},
+				"scripts": scripts,
 			})
 		}
 
@@ -377,7 +410,7 @@ func buildLocalstackInitHandler(st *localstackInitState, stage string) echo.Hand
 			}
 		}
 
-		return c.JSON(http.StatusOK, map[string]any{"completed": stage != initStageShutdown, "scripts": stageScripts})
+		return c.JSON(http.StatusOK, map[string]any{"completed": st.completed(stage), "scripts": stageScripts})
 	}
 }
 
