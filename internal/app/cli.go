@@ -100,9 +100,11 @@ import (
 	azuretablebackend "github.com/blackbirdworks/gopherstack/services/azuretable"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
+	bcmdataexportsbackend "github.com/blackbirdworks/gopherstack/services/bcmdataexports"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockagentbackend "github.com/blackbirdworks/gopherstack/services/bedrockagent"
 	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
+	budgetsbackend "github.com/blackbirdworks/gopherstack/services/budgets"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
 	cleanroomsbackend "github.com/blackbirdworks/gopherstack/services/cleanrooms"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
@@ -123,6 +125,7 @@ import (
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	comprehendbackend "github.com/blackbirdworks/gopherstack/services/comprehend"
 	cosmosdbbackend "github.com/blackbirdworks/gopherstack/services/cosmosdb"
+	curbackend "github.com/blackbirdworks/gopherstack/services/cur"
 	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	daxbackend "github.com/blackbirdworks/gopherstack/services/dax"
@@ -201,6 +204,7 @@ import (
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	pollybackend "github.com/blackbirdworks/gopherstack/services/polly"
+	pricingbackend "github.com/blackbirdworks/gopherstack/services/pricing"
 	quicksightbackend "github.com/blackbirdworks/gopherstack/services/quicksight"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -2478,6 +2482,7 @@ func buildEchoServer(
 	registerEC2IMDSEndpoints(e, services)
 	registerSSOEndpoints(e, services)
 	registerEC2NetworkEndpoints(e, services)
+	registerPricingEndpoints(e, services)
 	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
 	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))
 	registerPodEndpoints(ctx, log, e, cli.Pods, cli.resolvedDataDir(), persistManager, services)
@@ -3127,6 +3132,7 @@ func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable
 	wireSESInbound(byName)
 	wireSESv2SNS(byName["SESv2"], byName["SNS"])
 	wireCognitoMessageDelivery(byName["CognitoIDP"], byName["SES"], byName["SNS"])
+	wireBudgets(byName)
 
 	// Wire AWS Config's DeliverConfigSnapshot to S3 (and SNS, when a
 	// delivery channel has a topic configured) so snapshot delivery is real.
@@ -3965,6 +3971,7 @@ func wireSSOAndRedshiftData(byName map[string]service.Registerable) {
 	wireSSO(byName)
 	wireRedshiftServerlessData(byName)
 	wireRedshiftClusterEngines(byName)
+	wireBillingExports(byName)
 }
 
 // wireStorageAndSecretsIntegrations wires Firehose delivery, DynamoDB→S3
@@ -4357,7 +4364,9 @@ func getRemainingServiceProviders() []service.Provider {
 		&batchbackend.Provider{},
 		&bedrockbackend.Provider{},
 		&bedrockruntimebackend.Provider{},
+		&budgetsbackend.Provider{},
 		&cebackend.Provider{},
+		&pricingbackend.Provider{},
 		&cloudcontrolbackend.Provider{},
 		&cloudfrontbackend.Provider{},
 		&cfkvsbackend.Provider{},
@@ -4384,6 +4393,8 @@ func getRemainingServiceProviders() []service.Provider {
 		&docdbbackend.Provider{},
 		&dsqlbackend.Provider{},
 		&globalacceleratorbackend.Provider{},
+		&curbackend.Provider{},
+		&bcmdataexportsbackend.Provider{},
 		&glacierbackend.Provider{},
 		&iotanalyticsbackend.Provider{},
 		&iotwirelessbackend.Provider{},

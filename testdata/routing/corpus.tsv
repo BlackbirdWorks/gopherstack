@@ -1508,6 +1508,42 @@ POST	localhost:4566	/v1/updatequotashare	batch				User-Agent:aws-sdk-go-v2/1.41.
 POST	localhost:4566	/v1/updateschedulingpolicy	batch				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
 POST	localhost:4566	/v1/updateserviceenvironment	batch				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
 POST	localhost:4566	/v1/updateservicejob	batch				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
+POST	localhost:4566	/	bcm-data-exports	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.CreateExport	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.CreateExport	{}		BCMDataExports	BCMDataExports
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.CreateExport	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	bcm-data-exports.us-east-1.amazonaws.com	/	bcm-data-exports	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.CreateExport	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbcm-data-exports%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.CreateExport	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/	bcm-data-exports	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.DeleteExport	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.DeleteExport	{}		BCMDataExports	BCMDataExports
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.DeleteExport	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	bcm-data-exports.us-east-1.amazonaws.com	/	bcm-data-exports	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.DeleteExport	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbcm-data-exports%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.DeleteExport	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/	bcm-data-exports	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.GetExecution	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.GetExecution	{}		BCMDataExports	BCMDataExports
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.GetExecution	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	bcm-data-exports.us-east-1.amazonaws.com	/	bcm-data-exports	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.GetExecution	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbcm-data-exports%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.GetExecution	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/	bcm-data-exports	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.GetExport	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.GetExport	{}		BCMDataExports	BCMDataExports
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.GetExport	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	bcm-data-exports.us-east-1.amazonaws.com	/	bcm-data-exports	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.GetExport	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbcm-data-exports%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.GetExport	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/	bcm-data-exports	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.GetTable	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.GetTable	{}		BCMDataExports	BCMDataExports
+POST	localhost:4566	/	bcm-data-exports	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.ListExecutions	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.ListExecutions	{}		BCMDataExports	BCMDataExports
+POST	localhost:4566	/	bcm-data-exports	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.ListExports	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.ListExports	{}		BCMDataExports	BCMDataExports
+POST	localhost:4566	/	bcm-data-exports	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.ListTables	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.ListTables	{}		BCMDataExports	BCMDataExports
+POST	localhost:4566	/	bcm-data-exports	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.ListTagsForResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.ListTagsForResource	{}		BCMDataExports	BCMDataExports
+POST	localhost:4566	/	bcm-data-exports	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.TagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.TagResource	{}		BCMDataExports	BCMDataExports
+POST	localhost:4566	/	bcm-data-exports	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.UntagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.UntagResource	{}		BCMDataExports	BCMDataExports
+POST	localhost:4566	/	bcm-data-exports	application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.UpdateExport	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bcmdataexports#1.0.0	BCMDataExports	BCMDataExports
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBillingAndCostManagementDataExports.UpdateExport	{}		BCMDataExports	BCMDataExports
 POST	localhost:4566	/advanced-prompt-optimization-job/batch-delete	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	Bedrock	Bedrock
 POST	localhost:4566	/advanced-prompt-optimization-job/batch-delete	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	S3	S3
 POST	bedrock.us-east-1.amazonaws.com	/advanced-prompt-optimization-job/batch-delete	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrock#1.0.0	Bedrock	Bedrock
@@ -1773,6 +1809,64 @@ GET	localhost:4566	/async-invoke	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2
 GET	localhost:4566	/async-invoke						BedrockRuntime	BedrockRuntime
 POST	localhost:4566	/async-invoke	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockruntime#1.0.0	BedrockRuntime	BedrockRuntime
 POST	localhost:4566	/async-invoke						BedrockRuntime	BedrockRuntime
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateBudget	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateBudget	{}		Budgets	Budgets
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateBudget	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	budgets.us-east-1.amazonaws.com	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateBudget	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbudgets%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateBudget	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateBudgetAction	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateBudgetAction	{}		Budgets	Budgets
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateBudgetAction	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	budgets.us-east-1.amazonaws.com	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateBudgetAction	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbudgets%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateBudgetAction	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateNotification	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateNotification	{}		Budgets	Budgets
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateNotification	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	budgets.us-east-1.amazonaws.com	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateNotification	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbudgets%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateNotification	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateSubscriber	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateSubscriber	{}		Budgets	Budgets
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateSubscriber	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	budgets.us-east-1.amazonaws.com	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateSubscriber	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbudgets%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	AWSBudgetServiceGateway.CreateSubscriber	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.DeleteBudget	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.DeleteBudget	{}		Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.DeleteBudgetAction	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.DeleteBudgetAction	{}		Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.DeleteNotification	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.DeleteNotification	{}		Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.DeleteSubscriber	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.DeleteSubscriber	{}		Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeBudget	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeBudget	{}		Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeBudgetAction	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeBudgetAction	{}		Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeBudgetActionHistories	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeBudgetActionHistories	{}		Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeBudgetActionsForAccount	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeBudgetActionsForAccount	{}		Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeBudgetActionsForBudget	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeBudgetActionsForBudget	{}		Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeBudgetNotificationsForAccount	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeBudgetNotificationsForAccount	{}		Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeBudgetPerformanceHistory	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeBudgetPerformanceHistory	{}		Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeBudgets	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeBudgets	{}		Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeNotificationsForBudget	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeNotificationsForBudget	{}		Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeSubscribersForNotification	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.DescribeSubscribersForNotification	{}		Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.ExecuteBudgetAction	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.ExecuteBudgetAction	{}		Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.ListTagsForResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSBudgetServiceGateway.ListTagsForResource	{}		Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.TagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.UntagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.UpdateBudget	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.UpdateBudgetAction	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.UpdateNotification	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
+POST	localhost:4566	/	budgets	application/x-amz-json-1.1	AWSBudgetServiceGateway.UpdateSubscriber	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/budgets#1.0.0	Budgets	Budgets
 POST	localhost:4566	/collaborations/xcollab/batch-analysistemplates	cleanrooms				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cleanrooms#1.0.0	CleanRooms	CleanRooms
 POST	localhost:4566	/collaborations/xcollab/batch-analysistemplates	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cleanrooms#1.0.0	CleanRooms	CleanRooms
 POST	cleanrooms.us-east-1.amazonaws.com	/collaborations/xcollab/batch-analysistemplates	cleanrooms				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cleanrooms#1.0.0	CleanRooms	CleanRooms
@@ -3602,6 +3696,32 @@ POST	localhost:4566	/	config	application/x-amz-json-1.1	StarlingDoveService.Star
 POST	localhost:4566	/	config	application/x-amz-json-1.1	StarlingDoveService.StopConfigurationRecorder	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/configservice#1.0.0	AWSConfig	AWSConfig
 POST	localhost:4566	/	config	application/x-amz-json-1.1	StarlingDoveService.TagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/configservice#1.0.0	AWSConfig	AWSConfig
 POST	localhost:4566	/	config	application/x-amz-json-1.1	StarlingDoveService.UntagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/configservice#1.0.0	AWSConfig	AWSConfig
+POST	localhost:4566	/	cur	application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.DeleteReportDefinition	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.DeleteReportDefinition	{}		CUR	CUR
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.DeleteReportDefinition	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	cur.us-east-1.amazonaws.com	/	cur	application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.DeleteReportDefinition	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcur%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.DeleteReportDefinition	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	localhost:4566	/	cur	application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.DescribeReportDefinitions	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.DescribeReportDefinitions	{}		CUR	CUR
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.DescribeReportDefinitions	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	cur.us-east-1.amazonaws.com	/	cur	application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.DescribeReportDefinitions	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcur%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.DescribeReportDefinitions	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	localhost:4566	/	cur	application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.ListTagsForResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.ListTagsForResource	{}		CUR	CUR
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.ListTagsForResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	cur.us-east-1.amazonaws.com	/	cur	application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.ListTagsForResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcur%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.ListTagsForResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	localhost:4566	/	cur	application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.ModifyReportDefinition	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.ModifyReportDefinition	{}		CUR	CUR
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.ModifyReportDefinition	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	cur.us-east-1.amazonaws.com	/	cur	application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.ModifyReportDefinition	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcur%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.ModifyReportDefinition	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	localhost:4566	/	cur	application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.PutReportDefinition	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.PutReportDefinition	{}		CUR	CUR
+POST	localhost:4566	/	cur	application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.TagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.TagResource	{}		CUR	CUR
+POST	localhost:4566	/	cur	application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.UntagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costandusagereportservice#1.0.0	CUR	CUR
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSOrigamiServiceGatewayService.UntagResource	{}		CUR	CUR
 POST	localhost:4566	/	ce	application/x-amz-json-1.1	AWSInsightsIndexService.CreateAnomalyMonitor	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costexplorer#1.0.0	Ce	Ce
 POST	localhost:4566	/		application/x-amz-json-1.1	AWSInsightsIndexService.CreateAnomalyMonitor	{}		Ce	Ce
 POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AWSInsightsIndexService.CreateAnomalyMonitor	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/costexplorer#1.0.0	Ce	Ce
@@ -11296,6 +11416,28 @@ POST	localhost:4566	/v1/synthesisTasks	polly				User-Agent:aws-sdk-go-v2/1.41.0 
 POST	localhost:4566	/v1/synthesisTasks						Polly	Polly
 POST	localhost:4566	/v1/speech	polly				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/polly#1.0.0	Polly	Polly
 POST	localhost:4566	/v1/speech						Polly	Polly
+POST	localhost:4566	/	pricing	application/x-amz-json-1.1	AWSPriceListService.DescribeServices	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pricing#1.0.0	Pricing	Pricing
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSPriceListService.DescribeServices	{}		Pricing	Pricing
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AWSPriceListService.DescribeServices	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pricing#1.0.0	Pricing	Pricing
+POST	pricing.us-east-1.amazonaws.com	/	pricing	application/x-amz-json-1.1	AWSPriceListService.DescribeServices	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pricing#1.0.0	Pricing	Pricing
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fpricing%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	AWSPriceListService.DescribeServices	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pricing#1.0.0	Pricing	Pricing
+POST	localhost:4566	/	pricing	application/x-amz-json-1.1	AWSPriceListService.GetAttributeValues	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pricing#1.0.0	Pricing	Pricing
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSPriceListService.GetAttributeValues	{}		Pricing	Pricing
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AWSPriceListService.GetAttributeValues	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pricing#1.0.0	Pricing	Pricing
+POST	pricing.us-east-1.amazonaws.com	/	pricing	application/x-amz-json-1.1	AWSPriceListService.GetAttributeValues	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pricing#1.0.0	Pricing	Pricing
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fpricing%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	AWSPriceListService.GetAttributeValues	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pricing#1.0.0	Pricing	Pricing
+POST	localhost:4566	/	pricing	application/x-amz-json-1.1	AWSPriceListService.GetPriceListFileUrl	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pricing#1.0.0	Pricing	Pricing
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSPriceListService.GetPriceListFileUrl	{}		Pricing	Pricing
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AWSPriceListService.GetPriceListFileUrl	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pricing#1.0.0	Pricing	Pricing
+POST	pricing.us-east-1.amazonaws.com	/	pricing	application/x-amz-json-1.1	AWSPriceListService.GetPriceListFileUrl	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pricing#1.0.0	Pricing	Pricing
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fpricing%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	AWSPriceListService.GetPriceListFileUrl	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pricing#1.0.0	Pricing	Pricing
+POST	localhost:4566	/	pricing	application/x-amz-json-1.1	AWSPriceListService.GetProducts	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pricing#1.0.0	Pricing	Pricing
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSPriceListService.GetProducts	{}		Pricing	Pricing
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AWSPriceListService.GetProducts	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pricing#1.0.0	Pricing	Pricing
+POST	pricing.us-east-1.amazonaws.com	/	pricing	application/x-amz-json-1.1	AWSPriceListService.GetProducts	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pricing#1.0.0	Pricing	Pricing
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fpricing%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	AWSPriceListService.GetProducts	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pricing#1.0.0	Pricing	Pricing
+POST	localhost:4566	/	pricing	application/x-amz-json-1.1	AWSPriceListService.ListPriceLists	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/pricing#1.0.0	Pricing	Pricing
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSPriceListService.ListPriceLists	{}		Pricing	Pricing
 POST	localhost:4566	/accounts/xawsacc/topics/xtopici/batch-create-reviewed-answers	quicksight				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/quicksight#1.0.0	QuickSight	QuickSight
 POST	localhost:4566	/accounts/xawsacc/topics/xtopici/batch-create-reviewed-answers	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/quicksight#1.0.0	S3	S3
 POST	quicksight.us-east-1.amazonaws.com	/accounts/xawsacc/topics/xtopici/batch-create-reviewed-answers	quicksight				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/quicksight#1.0.0	QuickSight	QuickSight

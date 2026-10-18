@@ -840,7 +840,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [AppStream 2.0](services/appstream/README.md) | A | 44 | 5 structural gaps |
 | [Azurearm](services/azurearm/README.md) | B | 16 | 8 gaps; 3 deferred |
 | [Azurestoragevhost](services/azurestoragevhost/README.md) | B | 2 | 2 gaps; 1 deferred |
+| [Bcmdataexports](services/bcmdataexports/README.md) | B | 12 | 6 gaps |
+| [Budgets](services/budgets/README.md) | B | 26 | 9 gaps |
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | A | 6 | 2 structural gaps |
+| [Cur](services/cur/README.md) | B | 7 | 6 gaps |
 | [Directconnect](services/directconnect/README.md) | A | 64 | 8 structural gaps; 1 deferred |
 | [Dsql](services/dsql/README.md) | A | 16 | 3 structural gaps |
 | [Ecrpublic](services/ecrpublic/README.md) | A | 23 | 3 structural gaps |
@@ -855,6 +858,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Networkfirewall](services/networkfirewall/README.md) | B | 85 | 4 gaps; 3 structural gaps |
 | [Networkmanager](services/networkmanager/README.md) | A | 95 | 4 gaps; 2 structural gaps |
 | [Outposts](services/outposts/README.md) | A | 43 | 2 gaps; 7 structural gaps |
+| [Pricing](services/pricing/README.md) | B | 5 | 4 gaps |
 | [Resiliencehub](services/resiliencehub/README.md) | A | 63 | 7 structural gaps |
 | [Support](services/support/README.md) | A | 16 | 1 structural gap; 1 deferred |
 | [WorkSpaces](services/workspaces/README.md) | A | 34 | 4 gaps; 2 structural gaps |

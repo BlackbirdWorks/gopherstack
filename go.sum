@@ -108,12 +108,16 @@ github.com/aws/aws-sdk-go-v2/service/backup v1.64.0 h1:+wse1x49hFkyZcrn7A9yjZDrY
 github.com/aws/aws-sdk-go-v2/service/backup v1.64.0/go.mod h1:Icviuja3eutvd5i+sMuphBIfrXEeEczrEHqfIRtiK7w=
 github.com/aws/aws-sdk-go-v2/service/batch v1.68.4 h1:9X6sT9BdA05RtOSQHdG2NNiOF0ITjjfNwcb5jZhzGbk=
 github.com/aws/aws-sdk-go-v2/service/batch v1.68.4/go.mod h1:SIIVOlzKdHc8aO8JhWJPoBTD7UQfD88LHjyDn4qyAB0=
+github.com/aws/aws-sdk-go-v2/service/bcmdataexports v1.25.4 h1:ora37PggetRBZrkkP+385V8ih7/qtQIHIPzwSvnLst4=
+github.com/aws/aws-sdk-go-v2/service/bcmdataexports v1.25.4/go.mod h1:A+bGaCbODdVoe5RodJXXJLbhojXxSIBsnEIP6nw7wNg=
 github.com/aws/aws-sdk-go-v2/service/bedrock v1.66.4 h1:OPGQGYloZ7rzjVQI+Ws/ZV5MPvq8aTxARyQJ/L6ppKA=
 github.com/aws/aws-sdk-go-v2/service/bedrock v1.66.4/go.mod h1:xhbORNExXawam0hRGkJ8eHoQ43WyVltje/N+FRHnRw8=
 github.com/aws/aws-sdk-go-v2/service/bedrockagent v1.58.4 h1:WSMh0kuwP1p2rOCJA2cTncULy7I4tP76f+mt75s941c=
 github.com/aws/aws-sdk-go-v2/service/bedrockagent v1.58.4/go.mod h1:NYt2Zq3Yu2fb/AohBBkeSa3x75G9OPDxVsDHPCY3Ud0=
 github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.57.1 h1:ZjxrEBMaFr3BaYDo/Wz+8hfE0FgbC1cESZ8BiE02NOs=
 github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.57.1/go.mod h1:xx9ylHjnvUw9VCNrruAVBM8HycwTZ19+qdCQzk50shg=
+github.com/aws/aws-sdk-go-v2/service/budgets v1.53.1 h1:Ua/xE2mw75XcBcm9P6pGFgDL5+zJ4eCqj9UQ2r73Mzo=
+github.com/aws/aws-sdk-go-v2/service/budgets v1.53.1/go.mod h1:7V6JRjAyHZzbmv7sU+5tGYCJpU1EZBJriqqE3rIMB4Y=
 github.com/aws/aws-sdk-go-v2/service/cleanrooms v1.49.4 h1:+VbC3GgRKKU3IaWxxveQHzuEgNugqMqDVEGui2QmlhA=
 github.com/aws/aws-sdk-go-v2/service/cleanrooms v1.49.4/go.mod h1:9QwEPNVCymN/eZzGGdXneX/7ZCvOEF8gSZRO/Jqz4Lc=
 github.com/aws/aws-sdk-go-v2/service/cloudcontrol v1.32.4 h1:y7hXTDX4oLtXLkyulKdejbF6xAUY4M9ez7u8FZPGnNs=
@@ -152,6 +156,8 @@ github.com/aws/aws-sdk-go-v2/service/comprehend v1.43.4 h1:X22jCzVcQZ/eatzFgTMh8
 github.com/aws/aws-sdk-go-v2/service/comprehend v1.43.4/go.mod h1:C47KI+jjZYh8DaSvP53mfVeBw3xQjLU2OpuG4PPeqpY=
 github.com/aws/aws-sdk-go-v2/service/configservice v1.68.4 h1:L37DoV4JOQFqucVUeYaJrrhIc1995EPra+8UtGRCsgo=
 github.com/aws/aws-sdk-go-v2/service/configservice v1.68.4/go.mod h1:CcqHkp94OiUOXcUgSc2moHZ97ISugWDoClGhmW17CFg=
+github.com/aws/aws-sdk-go-v2/service/costandusagereportservice v1.43.4 h1:2wlMnKGjvS+9FVdftlQBRoTDqr/Xx/TE7jEU9xp06Sg=
+github.com/aws/aws-sdk-go-v2/service/costandusagereportservice v1.43.4/go.mod h1:d9x5APE7+l24zBP2KwRCCYmS0VH9tCb6oio5TBS6sxg=
 github.com/aws/aws-sdk-go-v2/service/costexplorer v1.67.4 h1:VNk2MA9utaj/r1OCqWBQrtNAEw5hjVoDa9VSKSGhBBA=
 github.com/aws/aws-sdk-go-v2/service/costexplorer v1.67.4/go.mod h1:E0E1K0pmb+IDhwsJDhiMA5apcR35rykmyjiL/9w3ymE=
 github.com/aws/aws-sdk-go-v2/service/databasemigrationservice v1.66.4 h1:mlvXhG0afa9vwf9atHByKi+LVb/Sc77iJ/aRi/AE30A=
@@ -322,6 +328,8 @@ github.com/aws/aws-sdk-go-v2/service/pipes v1.26.4 h1:nJhbNTvN6xEO5haqH+yGgyL/ts
 github.com/aws/aws-sdk-go-v2/service/pipes v1.26.4/go.mod h1:CG0YhI9qM1LjSgLT0rqKU5Rt8uzBTLynDg0CrZmEj9s=
 github.com/aws/aws-sdk-go-v2/service/polly v1.60.4 h1:z792aUVo7x9jqS4Q325llOVQ3fU2o376rhJ4TvfNEbw=
 github.com/aws/aws-sdk-go-v2/service/polly v1.60.4/go.mod h1:cAagxeDg1D4+uo5c+XGfCW0D7bnyHgogibE8x+IlDT0=
+github.com/aws/aws-sdk-go-v2/service/pricing v1.49.4 h1:n+3Se7zElT+nf4PnDfKPpouxBzVXILOgBp269L5OkzI=
+github.com/aws/aws-sdk-go-v2/service/pricing v1.49.4/go.mod h1:WM9py9Waai1ar/Lc7/8zF5qEDHRwCJUaZhDSgn3TJ3o=
 github.com/aws/aws-sdk-go-v2/service/quicksight v1.129.0 h1:gLkKy7+/kZItl/4gqZFXSrH49QXm5JDy43R8o15y6oc=
 github.com/aws/aws-sdk-go-v2/service/quicksight v1.129.0/go.mod h1:k7ZNrVJ94clO9kRLq+tirvNACmhacbYvzPLN2hmOI6k=
 github.com/aws/aws-sdk-go-v2/service/ram v1.39.4 h1:HqOZ1Z43h1qmuK45oDsr3A+ePjOY3awL1Aznz+zCrdQ=
