@@ -482,6 +482,7 @@ type CLI struct {
 	S3InitBuckets                 []string                          `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                             help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	ExtraListen                   []string                          `                                       name:"extra-listen"            env:"GOPHERSTACK_EXTRA_LISTEN"                               help:"Additional ports to serve the same endpoint on (comma-separated)."`                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
 	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
+	Pods                          PodsConfig                        `embed:"" prefix:"pod-"`
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
 	AzureARM                      azurearmbackend.Settings          `embed:"" prefix:"azure-arm-"`
@@ -1874,6 +1875,7 @@ func (c *CLI) GetPortAllocator() *portalloc.Allocator { return c.portAlloc }
 type rootCLI struct {
 	Health HealthCmd `cmd:"" help:"Check server health (for Docker healthcheck)."`
 	Serve  CLI       `cmd:"" help:"Start the Gopherstack server."                 default:"withargs"`
+	Pod    PodCmd    `cmd:"" help:"Manage named state snapshots (pods) on a running server."`
 }
 
 // HealthCmd checks a running Gopherstack instance's health endpoint.
@@ -1938,6 +1940,8 @@ func Run() {
 	switch kctx.Command() {
 	case "health":
 		err = root.Health.Run()
+	case "pod save <name>", "pod load <name>", "pod list", "pod versions <name>", "pod delete <name>", "pod inspect <name>":
+		err = kctx.Run()
 	default:
 		// Opt-in pprof server for local profiling / PGO data collection.
 		// No-op unless GOPHERSTACK_PPROF_ADDR is set; see startPprofServer.
@@ -2459,6 +2463,7 @@ func buildEchoServer(
 	registerEC2NetworkEndpoints(e, services)
 	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
 	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))
+	registerPodEndpoints(ctx, log, e, cli.Pods, cli.resolvedDataDir(), persistManager, services)
 
 	registerWebsiteRoutes(e, services)
 
