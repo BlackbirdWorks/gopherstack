@@ -12,12 +12,12 @@ overall: A            # A = genuine fixes found; B = already-accurate, proven op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed InvalidScheme/UnsupportedProtocol/TooManyLoadBalancers/DuplicateTagKeys/TooManyTags error codes (were generic ValidationError); parity-3: inline HTTPS/SSL Listeners.member.N.SSLCertificateId now runs the same ARN-format check as SetLoadBalancerListenerSSLCertificate (was accepted unchecked at creation time, format-checked only on later Set calls); gopherstack-6851: inline SSLCertificateId now also existence-checked against the real ACM/IAM backends when cli.go's wireELBCrossService has wired a CertificateResolver in (nil resolver, e.g. isolated unit tests, stays permissive)"}
+  CreateLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed InvalidScheme/UnsupportedProtocol/TooManyLoadBalancers/DuplicateTagKeys/TooManyTags error codes (were generic ValidationError); parity-3: inline HTTPS/SSL Listeners.member.N.SSLCertificateId now runs the same ARN-format check as SetLoadBalancerListenerSSLCertificate (was accepted unchecked at creation time, format-checked only on later Set calls); gopherstack-6851: inline SSLCertificateId now also existence-checked against the real ACM/IAM backends when internal/app/cli.go's wireELBCrossService has wired a CertificateResolver in (nil resolver, e.g. isolated unit tests, stays permissive)"}
   DeleteLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing DeleteLoadBalancerResult wrapper (real SDK GetElement failed)"}
   DescribeLoadBalancers: {wire: ok, errors: ok, state: ok, persist: ok, note: "parity-3: fixed missing LoadBalancerDescription.Policies field -- was entirely absent from the response struct, so every real client saw an always-empty Policies regardless of what stickiness/other policies existed; now populates AppCookieStickinessPolicies/LBCookieStickinessPolicies/OtherPolicies from the LB's policy set"}
   CreateLoadBalancerListeners: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed UnsupportedProtocol error code via shared parseOneListener; parity-3: fixed classic-listeners limit-exceeded error code (was ValidationError, real op's typed-error switch only has InvalidConfigurationRequest/CertificateNotFound/DuplicateListener/LoadBalancerNotFound/UnsupportedProtocol); inline SSLCertificateId now format-validated (see CreateLoadBalancer note); gopherstack-6851: now also existence-checked via the same CertificateResolver as CreateLoadBalancer/SetLoadBalancerListenerSSLCertificate"}
   DeleteLoadBalancerListeners: {wire: ok, errors: ok, state: ok, persist: ok}
-  RegisterInstancesWithLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok, note: "parity-3: deleted invented classic-registered-instances (1000) hard-reject -- real op's typed-error switch only recognizes InvalidInstance/LoadBalancerNotFound, no typed exception exists for exceeding this DescribeAccountLimits-advertised limit, so enforcing it rejected requests a real AWS client would have had accepted; gopherstack-5c3m: now raises InvalidInstance for an instance id that doesn't resolve against the real EC2 backend, via a new elb.EC2Resolver.InstanceExists method (existing EC2Resolver, previously SecurityGroupExists/SubnetExists only); nil resolver stays permissive; cli.go's wireELBCrossService wiring is OUTSTANDING (cli.go was out of scope for this pass) -- elbEC2ResolverAdapter needs an InstanceExists method added before the repo-wide build passes again"}
+  RegisterInstancesWithLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok, note: "parity-3: deleted invented classic-registered-instances (1000) hard-reject -- real op's typed-error switch only recognizes InvalidInstance/LoadBalancerNotFound, no typed exception exists for exceeding this DescribeAccountLimits-advertised limit, so enforcing it rejected requests a real AWS client would have had accepted; gopherstack-5c3m: now raises InvalidInstance for an instance id that doesn't resolve against the real EC2 backend, via a new elb.EC2Resolver.InstanceExists method (existing EC2Resolver, previously SecurityGroupExists/SubnetExists only); nil resolver stays permissive; internal/app/cli.go's wireELBCrossService wiring is OUTSTANDING (internal/app/cli.go was out of scope for this pass) -- elbEC2ResolverAdapter needs an InstanceExists method added before the repo-wide build passes again"}
   DeregisterInstancesFromLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok}
   ConfigureHealthCheck: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyLoadBalancerAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -25,12 +25,12 @@ ops:
   AddTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed TooManyTags error code (was ValidationError); added missing DuplicateTagKeys same-request validation"}
   DescribeTags: {wire: ok, errors: ok, state: ok, persist: ok}
   RemoveTags: {wire: ok, errors: ok, state: ok, persist: ok}
-  ApplySecurityGroupsToLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-6851: now raises InvalidSecurityGroup for a security group that doesn't resolve against the real EC2 backend, via cli.go's wireELBCrossService (elb.EC2Resolver); nil resolver (e.g. isolated unit tests) stays permissive, matching this package's existing cross-service-resolver convention (services/directconnect/networkmanager)"}
+  ApplySecurityGroupsToLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-6851: now raises InvalidSecurityGroup for a security group that doesn't resolve against the real EC2 backend, via internal/app/cli.go's wireELBCrossService (elb.EC2Resolver); nil resolver (e.g. isolated unit tests) stays permissive, matching this package's existing cross-service-resolver convention (services/directconnect/networkmanager)"}
   AttachLoadBalancerToSubnets: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-6851: now raises SubnetNotFound for a subnet that doesn't resolve against the real EC2 backend, via the same EC2Resolver as ApplySecurityGroupsToLoadBalancer; nil resolver stays permissive"}
   DetachLoadBalancerFromSubnets: {wire: ok, errors: ok, state: ok, persist: ok}
   EnableAvailabilityZonesForLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok}
   DisableAvailabilityZonesForLoadBalancer: {wire: ok, errors: ok, state: ok, persist: ok}
-  SetLoadBalancerListenerSSLCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper; gopherstack-6851: CertificateNotFound now raised for an SSLCertificateId that resolves to neither a real ACM nor a real IAM server certificate, via cli.go's wireELBCrossService (elb.CertificateResolver checks both, since AWS accepts either -- aws-sdk-go-v2/service/elasticloadbalancing@v1.36.4 types/errors.go:36-39); nil resolver stays permissive"}
+  SetLoadBalancerListenerSSLCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper; gopherstack-6851: CertificateNotFound now raised for an SSLCertificateId that resolves to neither a real ACM nor a real IAM server certificate, via internal/app/cli.go's wireELBCrossService (elb.CertificateResolver checks both, since AWS accepts either -- aws-sdk-go-v2/service/elasticloadbalancing@v1.36.4 types/errors.go:36-39); nil resolver stays permissive"}
   SetLoadBalancerPoliciesOfListener: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper"}
   SetLoadBalancerPoliciesForBackendServer: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper"}
   CreateAppCookieStickinessPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Result wrapper"}
@@ -414,7 +414,7 @@ from the pinned SDK before any code was written.
 confirmed no existence check existed against an EC2 instance id -- only format
 (`i-[a-f0-9]{8,17}`) was checked. `elb.EC2Resolver` already existed
 (`services/elb/crossservice.go`) with `SecurityGroupExists`/`SubnetExists`, wired by
-cli.go's `wireELBCrossService`/`elbEC2ResolverAdapter` for `ApplySecurityGroupsToLoadBalancer`/
+internal/app/cli.go's `wireELBCrossService`/`elbEC2ResolverAdapter` for `ApplySecurityGroupsToLoadBalancer`/
 `AttachLoadBalancerToSubnets` -- the title's claim of "no hook wired" was right for
 instances specifically but the interface/setter/wiring convention was already
 established, so this extends it rather than inventing a new mechanism. Error extraction
@@ -425,10 +425,10 @@ established, so this extends it rather than inventing a new mechanism. Error ext
 case) is a real typed error for this op. Added `InstanceExists(id string) bool` to
 `elb.EC2Resolver`; `RegisterInstancesWithLoadBalancer` now calls it per instance (nil
 resolver skips the check entirely -- proven by `TestRegisterInstancesWithLoadBalancer_EC2Resolver/no_resolver_wired_accepts_any_id`).
-**cli.go wiring is OUTSTANDING**: `cli.go` was out of scope for this pass, and
-extending `EC2Resolver` with a new method means `cli.go`'s `elbEC2ResolverAdapter`
+**internal/app/cli.go wiring is OUTSTANDING**: `internal/app/cli.go` was out of scope for this pass, and
+extending `EC2Resolver` with a new method means `internal/app/cli.go`'s `elbEC2ResolverAdapter`
 (which implements only `SecurityGroupExists`/`SubnetExists`) no longer satisfies the
-interface -- `go build ./services/elb/...` is unaffected (elb doesn't import cli.go),
+interface -- `go build ./services/elb/...` is unaffected (elb doesn't import internal/app/cli.go),
 but a repo-wide `go build ./...` will fail until `elbEC2ResolverAdapter` gains an
 `InstanceExists(id string) bool` method (e.g. `len(a.backend.DescribeInstances([]string{id}, ""))
 > 0`, mirroring its existing `SecurityGroupExists`/`SubnetExists`) and `wireELBCrossService`
@@ -681,7 +681,7 @@ Round trips clean. Recorded, unchanged (SDK silent): ModifyLoadBalancerAttribute
 - Error bodies no longer repeat the code ("ValidationError: ValidationError: ..."); not-found/duplicate/policy/listener/certificate errors carry AWS wording ("There is no ACTIVE Load Balancer named 'x'").
 - CreateLoadBalancer is idempotent for an identical config (DuplicateLoadBalancerName only when settings differ); duplicate listener ports, AZs outside the request region, and bad/duplicate/excess initial Tags are rejected up front (a bad Tags set used to leave the load balancer created); duplicate AZs are collapsed.
 - DescribeLoadBalancers: out-of-range PageSize and a bad Marker are ValidationError (PageSize was silently ignored). DescribeLoadBalancerPolicies with an unknown PolicyName is PolicyNotFound.
-- Kept lenient: protocol case, ProxyProtocol attribute values. Needs cli.go wiring (not done): DescribeInstanceHealth always reports InService because `EC2Resolver` only exposes `InstanceExists`; real state needs an instance-state method on the resolver adapter.
+- Kept lenient: protocol case, ProxyProtocol attribute values. Needs internal/app/cli.go wiring (not done): DescribeInstanceHealth always reports InService because `EC2Resolver` only exposes `InstanceExists`; real state needs an instance-state method on the resolver adapter.
 - Tests: `TestRealism_*` (realism_test.go).
 
 ### 2026-10-10 (realism pass)

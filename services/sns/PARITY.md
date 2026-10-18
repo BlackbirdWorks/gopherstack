@@ -116,7 +116,7 @@ exact race class and had defended against it elsewhere — `Publish` captures
 concurrent SetHTTPDeliveryClient calls", and `replayMessagesToSubscription`
 (archive.go) captures `b.emitter` under RLock too — but the three call sites
 above were missed. Not client-observable in production (the `Set*` wiring
-calls in `cli.go` all run once at startup, strictly before the HTTP server
+calls in `internal/app/cli.go` all run once at startup, strictly before the HTTP server
 accepts traffic, so there is a real happens-before edge there), but a real,
 reproducible race under any concurrent test or dynamic-rewiring caller, and
 a genuine Go memory-model violation on interface-typed fields (a torn
@@ -138,7 +138,7 @@ toolchain), not something introduced by this change — flagging for the next
 auditor rather than silently skipping.
 
 Cross-service integration (`test/integration/sns_*_test.go`) was not
-re-run this pass — running `make build-linux`/Docker-based integration
+re-run this pass — running `task build-linux`/Docker-based integration
 tests was judged too heavy/risky while another agent was concurrently
 editing `services/sqs` in the same worktree; SNS→SQS/Lambda ARN
 resolution and event-shape code was instead reviewed statically
@@ -449,7 +449,7 @@ hand-derived guess.
   "EventSource":"aws:sns","EventSubscriptionArn":...,"Sns":{...}}]}` — Lambda does NOT
   support `RawMessageDelivery` (unconditional envelope, unlike HTTP/SQS/Firehose).
 - **SQS**: delivered via the `pkgs/events` emitter (`SetPublishEmitter`/`SubscribeToSNS`
-  in cli.go, out of scope for this service) — SNS's job ends at emitting
+  in internal/app/cli.go, out of scope for this service) — SNS's job ends at emitting
   `events.SNSPublishedEvent` with the same Timestamp/Signature/SigningCertURL used
   everywhere else for this publish.
 - **SMS/Application(mobile push)**: no real external sink in this mock; delivery is
@@ -811,7 +811,7 @@ Lambda, Firehose, SMS, application and archive replay delivered the whole JSON o
 
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
-Emits AWS/SNS (TopicName; sns-monitoring-using-cloudwatch.html): NumberOfMessagesPublished, PublishSize, NumberOfNotificationsDelivered/Failed and NumberOfNotificationsFilteredOut, -NoMessageAttributes, -MessageBody. Delivered/Failed come from the HTTP/Lambda/Firehose delivery outcome; SQS, email, SMS and application deliveries count as delivered when published. Verified by cli_service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
+Emits AWS/SNS (TopicName; sns-monitoring-using-cloudwatch.html): NumberOfMessagesPublished, PublishSize, NumberOfNotificationsDelivered/Failed and NumberOfNotificationsFilteredOut, -NoMessageAttributes, -MessageBody. Delivered/Failed come from the HTTP/Lambda/Firehose delivery outcome; SQS, email, SMS and application deliveries count as delivered when published. Verified by internal/app/service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
 
 ## 2026-10-05 (pass 10, gopherstack-9x62)
 

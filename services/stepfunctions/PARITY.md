@@ -7,8 +7,8 @@ overall: A            # Re-audit against `43aa6d65` baseline (2026-07-11 zero-dr
                        # pass found real drift/gaps despite the "zero drift" label: two commits
                        # ("Parity 4" efc42cbc, "Go refactoring 2" 9d7e36e0) landed on
                        # services/stepfunctions/ since 43aa6d65 and had ALREADY fixed the
-                       # previously-documented SEVERE cli.go ECS/Glue/EventBridge wiring gap
-                       # (confirmed: cli.go now calls SetECSIntegration/SetGlueIntegration/
+                       # previously-documented SEVERE internal/app/cli.go ECS/Glue/EventBridge wiring gap
+                       # (confirmed: internal/app/cli.go now calls SetECSIntegration/SetGlueIntegration/
                        # SetEventBridgeIntegration) -- that gap entry is removed below as
                        # resolved. This pass then deep-audited the 3 previously "spot-checked
                        # only" deferred families (state machine CRUD, activities, Distributed Map
@@ -24,9 +24,9 @@ overall: A            # Re-audit against `43aa6d65` baseline (2026-07-11 zero-dr
                        # encryptionConfiguration or tags (both real AWS fields); (5) SEVERE:
                        # asl.Executor's SetS3Reader (Distributed Map ItemReader S3 CSV/JSON/JSONL
                        # decoding, previously marked "spot-checked, appeared correct") was NEVER
-                       # called anywhere in services/stepfunctions/ or cli.go -- an identical
+                       # called anywhere in services/stepfunctions/ or internal/app/cli.go -- an identical
                        # wiring-gap bug class to the just-resolved ECS/Glue/EventBridge one, fixed
-                       # by adding a NewS3Integration adapter + cli.go wiring. Also fixed
+                       # by adding a NewS3Integration adapter + internal/app/cli.go wiring. Also fixed
                        # Retry.JitterStrategy enum validation (was silently permissive). All gates
                        # green (build/vet/gofmt/race-test/lint, 0 banned nolints).
 ops:
@@ -303,7 +303,7 @@ ops:
 families:
   asl_task:
     status: fixed
-    note: "FIXED (gopherstack-tdp6): a Task's \".sync\" Resource suffix was recognized (ErrSyncPatternUnsupported already rejected it for the services AWS documents as Request-Response-only) but for ECS runTask.sync/Glue startJobRun.sync -- the two services AWS DOES support \"Run a Job\" for -- the task was dispatched fire-and-forget and the state advanced immediately with the start-call response, never observing whether the job actually finished or failed. Now, when an optional ECSSyncWaiter/GlueSyncWaiter is wired (asl/executor.go; cli.go's wireStepFunctionsServiceIntegrations wires both whenever ECS/Glue are registered, via adapters in integrations.go polling ecs.DescribeTasks/glue.GetJobRun), invokeECSTask/invokeGlueTask poll every 25ms until the task reaches ECS's STOPPED or the job run reaches a terminal Glue JobRunState, bounded by ctx -- the same TimeoutSeconds-derived deadline every other Task type in this executor already honors, so a job that never completes doesn't hang the execution forever if TimeoutSeconds is set. On success the state's output is the service's own description of the completed job (ECS DescribeTasks shape / Glue GetJobRun's {\"JobRun\": ...} shape), not the start-call response, matching real AWS .sync. On failure (non-zero ECS container exit code; Glue JobRunState STOPPED/FAILED/TIMEOUT/ERROR/EXPIRED) the Task state fails via the existing FailError/Catch machinery. Unwired (no waiter set) stays exactly fire-and-forget, matching pre-fix behavior -- a silent no-op, never a hang. Batch, EMR, SageMaker, and nested Step Functions still have no completion signal and are out of scope; EMR/APIGateway .sync resources already fall through to a generic unsupported-integration TaskFailed (not ErrSyncPatternUnsupported specifically), which was true before this fix too and was left unchanged."
+    note: "FIXED (gopherstack-tdp6): a Task's \".sync\" Resource suffix was recognized (ErrSyncPatternUnsupported already rejected it for the services AWS documents as Request-Response-only) but for ECS runTask.sync/Glue startJobRun.sync -- the two services AWS DOES support \"Run a Job\" for -- the task was dispatched fire-and-forget and the state advanced immediately with the start-call response, never observing whether the job actually finished or failed. Now, when an optional ECSSyncWaiter/GlueSyncWaiter is wired (asl/executor.go; internal/app/cli.go's wireStepFunctionsServiceIntegrations wires both whenever ECS/Glue are registered, via adapters in integrations.go polling ecs.DescribeTasks/glue.GetJobRun), invokeECSTask/invokeGlueTask poll every 25ms until the task reaches ECS's STOPPED or the job run reaches a terminal Glue JobRunState, bounded by ctx -- the same TimeoutSeconds-derived deadline every other Task type in this executor already honors, so a job that never completes doesn't hang the execution forever if TimeoutSeconds is set. On success the state's output is the service's own description of the completed job (ECS DescribeTasks shape / Glue GetJobRun's {\"JobRun\": ...} shape), not the start-call response, matching real AWS .sync. On failure (non-zero ECS container exit code; Glue JobRunState STOPPED/FAILED/TIMEOUT/ERROR/EXPIRED) the Task state fails via the existing FailError/Catch machinery. Unwired (no waiter set) stays exactly fire-and-forget, matching pre-fix behavior -- a silent no-op, never a hang. Batch, EMR, SageMaker, and nested Step Functions still have no completion signal and are out of scope; EMR/APIGateway .sync resources already fall through to a generic unsupported-integration TaskFailed (not ErrSyncPatternUnsupported specifically), which was true before this fix too and was left unchanged."
   asl_choice:
     status: ok
     note: "Unchanged this pass."
@@ -315,19 +315,19 @@ families:
       correctly implemented and unit-tested at the executor level with
       mocks (asl/intrinsics_extras_test.go's stubS3), and the prior pass's
       PARITY.md carried it forward as "deferred ... spot-checked only,
-      appeared correct" -- but nothing in services/stepfunctions/ or cli.go
+      appeared correct" -- but nothing in services/stepfunctions/ or internal/app/cli.go
       ever called InMemoryBackend.SetS3Reader (which didn't even exist as a
       backend method). e.s3 was always nil in any real running gopherstack
       process, so EVERY Distributed Map ItemReader hard-failed with
       ErrS3ReaderNotConfigured -- an identical bug class to the
-      ECS/Glue/EventBridge cli.go wiring gap a prior pass found and fixed
+      ECS/Glue/EventBridge internal/app/cli.go wiring gap a prior pass found and fixed
       (see notes below). Fixed by: adding InMemoryBackend.s3Reader field +
       SetS3Reader() (store.go), threading it through
       startExecutionLocked/runParsedExecution/StartSyncExecution/
       RedriveExecution alongside the other 6 integrations, adding
       s3Adapter/NewS3Integration (integrations.go, adapts
       services/s3.StorageBackend.GetObject to asl.S3Reader), and wiring
-      cli.go's wireStepFunctionsServiceIntegrations to call
+      internal/app/cli.go's wireStepFunctionsServiceIntegrations to call
       sfnBk.SetS3Reader(sfnbackend.NewS3Integration(s3H.Backend)) alongside
       the existing SQS/SNS/DynamoDB/ECS/Glue/EventBridge calls. Verified
       end-to-end with a real StartExecution against a Map+ItemReader
@@ -343,7 +343,7 @@ families:
       ResultWriterDetails/manifest.json shapes, since aws-sdk-go-v2's sfn
       client has no typed struct for any of these (they're ASL-JSON/
       execution-output only, never part of the control-plane API surface).
-      Wired the same way as S3Reader: cli.go's
+      Wired the same way as S3Reader: internal/app/cli.go's
       wireStepFunctionsServiceIntegrations now also calls
       sfnBk.SetS3ResultWriter(sfnbackend.NewS3ResultWriterIntegration(s3H.Backend)).
       Known deviations: WriterConfig (Transformation/OutputType) is parsed
@@ -548,7 +548,7 @@ naming the aws-sdk path uses. The `<Service>.AccessDeniedException` name for the
 paths is not citable from the docs and is recorded as emulator behavior. Enforcement off is unchanged. Sub-executors
 (Parallel/Map branches) now inherit the SDK integration and the authorizer (previously dropped).
 Mechanism: `pkgs/roleauth.Authorizer`, implemented by `services/iam.RoleAuthorizer` (same evaluator as the enforcement
-middleware, plus permissions boundary and resource policies), wired in `cli_role_authorizer.go`.
+middleware, plus permissions boundary and resource policies), wired in `internal/app/role_authorizer.go`.
 
 ### 2026-10-01 items_still_open burn-down
 
@@ -806,8 +806,8 @@ fabricated AWS operation -- only the wire-level op was deleted. This is the
 "gopherstack-invented op, not in the real SDK, DELETE it" bug class from the
 polly tagging-surface precedent.
 
-**3. Distributed Map ItemReader S3 decoding: the SEVERE cli.go-style wiring
-gap recurred, one level down.** A prior pass fixed cli.go never wiring
+**3. Distributed Map ItemReader S3 decoding: the SEVERE internal/app/cli.go-style wiring
+gap recurred, one level down.** A prior pass fixed internal/app/cli.go never wiring
 `SetECSIntegration`/`SetGlueIntegration`/`SetEventBridgeIntegration` despite
 `asl.Executor` fully implementing and unit-testing those integrations. This
 pass found the exact same bug class for S3: `asl.Executor.SetS3Reader` /
@@ -820,12 +820,12 @@ running gopherstack process. **Trap for the next auditor, restated from the
 prior ECS/Glue/EventBridge finding because it just recurred**: an
 `asl_*`-family or executor-level "ok"/mock-tested verdict proves the
 *executor* dispatches correctly -- it says nothing about whether
-`services/stepfunctions/`'s `InMemoryBackend` (let alone `cli.go`) actually
+`services/stepfunctions/`'s `InMemoryBackend` (let alone `internal/app/cli.go`) actually
 wires the concrete integration through. Every `asl.Executor.SetXIntegration`
 call needs a matching audit trail: backend field -> `SetXIntegration`
 method -> threaded through `startExecutionLocked`/`runParsedExecution`/
 `StartSyncExecution`/`RedriveExecution` -> adapter in `integrations.go` ->
-`cli.go` wiring call. Missing any link in that chain reproduces this bug
+`internal/app/cli.go` wiring call. Missing any link in that chain reproduces this bug
 silently.
 
 **4. Activities: encryptionConfiguration and tags were real, entirely
@@ -861,13 +861,13 @@ nested `Iterator`/`ItemProcessor`/`Branches`) rejecting anything other than
 `StartExecution`/`TestState` uniformly.
 
 **Confirmed already-fixed (not by this pass): the previously-documented
-SEVERE cli.go ECS/Glue/EventBridge wiring gap.** `git log` showed two
+SEVERE internal/app/cli.go ECS/Glue/EventBridge wiring gap.** `git log` showed two
 commits (`efc42cbc` "Parity 4", `9d7e36e0` "Go refactoring 2") landed on
 `services/stepfunctions/` since the `43aa6d65` baseline despite the prior
 pass's "zero drift" framing (that framing compared against a *different*,
-even-older baseline, `ce30166a`) -- `cli.go` now calls
+even-older baseline, `ce30166a`) -- `internal/app/cli.go` now calls
 `sfnBk.SetECSIntegration`/`SetGlueIntegration`/`SetEventBridgeIntegration`
-(verified at `cli.go`'s `wireStepFunctionsServiceIntegrations`, ~L3855-3867).
+(verified at `internal/app/cli.go`'s `wireStepFunctionsServiceIntegrations`, ~L3855-3867).
 Removed the stale gap entry.
 
 **Protocol**: json-1.0, unchanged this pass.
@@ -1368,7 +1368,7 @@ against unmodified code before the fix:
 - No integration test (`test/integration/stepfunctions*`) was added this
   pass -- the backend-level and handler-level regression tests above
   already assert the real emitted wire code end-to-end through the HTTP
-  handler; a full SDK-client round trip would need `make build-linux` +
+  handler; a full SDK-client round trip would need `task build-linux` +
   Docker for a P3 fix already covered at the wire-format layer.
 
 ## 2026-09-08 pass (bd gopherstack-s9zy): DescribeStateMachineForExecution / StateMachineDoesNotExist re-audited, left unfixed
@@ -1513,12 +1513,12 @@ Proof: `jsonata_sdk_test.go` (typed SDK) and `asl/jsonata_test.go`.
 
 ## 2026-10-03 AWS SDK and optimized service integrations (gopherstack-wdw)
 
-- `arn:aws:states:::aws-sdk:<service>:<action>` is served in-process for 55 services (sdk_services.go): the real aws-sdk-go-v2 client builds the protocol-correct request and the full in-process server (cli.go `wireStepFunctionsSDKIntegration`) answers it; Parameters PascalCase in, SDK output PascalCase out (nil members omitted, blobs base64, S3 Body and Lambda Payload as strings). Sources: docs.aws.amazon.com/step-functions/latest/dg/supported-services-awssdk.html, integrate-services.html.
+- `arn:aws:states:::aws-sdk:<service>:<action>` is served in-process for 55 services (sdk_services.go): the real aws-sdk-go-v2 client builds the protocol-correct request and the full in-process server (internal/app/cli.go `wireStepFunctionsSDKIntegration`) answers it; Parameters PascalCase in, SDK output PascalCase out (nil members omitted, blobs base64, S3 Body and Lambda Payload as strings). Sources: docs.aws.amazon.com/step-functions/latest/dg/supported-services-awssdk.html, integrate-services.html.
 - Errors are `<ServicePrefix>.<ErrorName>` with `Exception` appended when absent (`DynamoDb.ResourceNotFoundException`, `S3.NoSuchKeyException`, `Sqs.QueueDoesNotExistException`), so Catch/Retry on those names works; optimized resources use `DynamoDB`/`SQS`/`SNS`/`StepFunctions` prefixes (best effort, not verified against AWS).
 - Optimized `dynamodb:*`, `sqs:*`, `sns:*`, `events:putEvents`, `states:startExecution` (`.sync` string Output, `.sync:2` JSON Output, nested failure = `States.TaskFailed`), `athena:startQueryExecution(.sync)`, `batch:submitJob(.sync)`, `codebuild:startBuild(.sync)` use the same path; `lambda:invoke` (and direct Lambda ARNs) honor Payload/Qualifier/InvocationType and fail with the function `errorType` on a Lambda error payload. SFN_MOCK_CONFIG mocks still win over every integration.
 - With `--enforce-iam`, SDK/optimized calls are signed with temporary credentials for the state machine's RoleArn (`sts.AssumeRoleForService`, trust must allow `states.amazonaws.com`; cached per role, refreshed a minute before expiry), so the role's IAM policies apply and a denial surfaces as `<Service>.AccessDeniedException`. A missing/untrusted role fails the task `States.Permissions` (documented: docs.aws.amazon.com/step-functions/latest/dg/concepts-error-handling.html). Enforcement off keeps static credentials. Direct Lambda/ECS/Glue legacy adapters are not role-scoped.
 - Also fixed: `.sync:2` was mis-parsed as action `2`; a Catch ResultPath was applied to the post-Parameters input instead of the state input; StartExecution with no Name produced an empty-named execution.
-- Tests: `cli_sfn_sdk_integration_test.go` (typed sfn StartSyncExecution against the full in-process server: success, Catch, Retry, JSONPath and JSONata), `sdk_integration_mock_test.go`, `asl/sdk_integration_internal_test.go`. Not covered: bedrock `invokeModel`, `http:invoke`, `eks`.
+- Tests: `internal/app/sfn_sdk_integration_test.go` (typed sfn StartSyncExecution against the full in-process server: success, Catch, Retry, JSONPath and JSONata), `sdk_integration_mock_test.go`, `asl/sdk_integration_internal_test.go`. Not covered: bedrock `invokeModel`, `http:invoke`, `eks`.
 
 ## 2026-10-03 HTTP Task and ECS/Glue on the SDK path
 
@@ -1528,7 +1528,7 @@ Proof: `jsonata_sdk_test.go` (typed SDK) and `asl/jsonata_test.go`.
 - DynamoDB optimized prefix `DynamoDB` is confirmed by `connect-ddb`; the guides for SQS, SNS and Step Functions state no error prefix, so `SQS`/`SNS`/`StepFunctions` stay unverified. `lambda:invoke` against the real Lambda backend is untested: its only container runtime is Docker (tests inject a mock Docker API inside the lambda package).
 - An uncaught Task error now fails the execution with the task's own error name and Cause (DescribeExecution `error`/`cause`: "The error string if the state machine execution failed"); non-AWS-shaped errors become `States.TaskFailed`. It used to be the bare name `TaskFailed`.
 - http:invoke reads credentials through `eventbridge.ResolveConnectionAuth` (an AUTHORIZED connection only; otherwise `Events.ConnectionResource.InvalidConnectionState` or `ResourceNotFound`); `TestStepFunctionsHTTPTaskEventBridgeConnections` drives it with connections made by the typed EventBridge client.
-- Tests: `cli_sfn_http_task_test.go` (typed StartSyncExecution: HTTP success/non-2xx/auth/transform/authz, Glue and ECS `.sync`).
+- Tests: `internal/app/sfn_http_task_test.go` (typed StartSyncExecution: HTTP success/non-2xx/auth/transform/authz, Glue and ECS `.sync`).
 
 ## 2026-10-03 Region-correct cross-service targets
 
@@ -1537,7 +1537,7 @@ Proof: `jsonata_sdk_test.go` (typed SDK) and `asl/jsonata_test.go`.
 
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
-Emits AWS/States (StateMachineArn; procedure-cw-metrics.html): ExecutionsStarted, ExecutionsSucceeded, ExecutionsFailed, ExecutionsAborted, ExecutionsTimedOut (Express sync timeout) and ExecutionTime (Milliseconds, second-resolution start/stop). Verified by cli_service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
+Emits AWS/States (StateMachineArn; procedure-cw-metrics.html): ExecutionsStarted, ExecutionsSucceeded, ExecutionsFailed, ExecutionsAborted, ExecutionsTimedOut (Express sync timeout) and ExecutionTime (Milliseconds, second-resolution start/stop). Verified by internal/app/service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
 
 ## 2026-10-04 integration regions
 

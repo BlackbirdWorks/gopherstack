@@ -248,7 +248,7 @@ func (k *kindCtx) responseFieldKind(c candidate, ident, decl *ast.Ident, refs ma
 }
 
 func nodeAtPos(files []*ast.File) map[token.Pos]ast.Expr {
-	out := map[token.Pos]ast.Expr{}
+	out := make(map[token.Pos]ast.Expr)
 
 	for _, f := range files {
 		ast.Inspect(f, func(n ast.Node) bool {
@@ -292,7 +292,7 @@ func markReturnedLiterals(body *ast.BlockStmt, out map[token.Pos]bool) {
 }
 
 func headerFuncReturns(files []*ast.File) map[token.Pos]bool {
-	out := map[token.Pos]bool{}
+	out := make(map[token.Pos]bool)
 
 	for _, f := range files {
 		for _, d := range f.Decls {

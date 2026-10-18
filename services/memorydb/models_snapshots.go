@@ -19,6 +19,7 @@ type Snapshot struct {
 	KmsKeyID             string                `json:"kmsKeyID"`
 	Source               string                `json:"source"`
 	DataTiering          string                `json:"dataTiering"`
+	Data                 []byte                `json:"data,omitempty"`
 	ClusterConfiguration snapshotClusterConfig `json:"clusterConfiguration"`
 }
 

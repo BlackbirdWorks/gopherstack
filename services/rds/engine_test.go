@@ -20,14 +20,20 @@ const engineWait = 10 * time.Second
 type fakeEngineRuntime struct {
 	running   map[string]bool
 	createErr error
+	execErr   error
+	staged    map[string]string
+	loaded    map[string]string
 	specs     []container.Spec
+	execs     [][]string
 	mu        sync.Mutex
 	stops     int
 	starts    int
 }
 
 func newFakeEngineRuntime() *fakeEngineRuntime {
-	return &fakeEngineRuntime{running: make(map[string]bool)}
+	return &fakeEngineRuntime{
+		running: make(map[string]bool), staged: make(map[string]string), loaded: make(map[string]string),
+	}
 }
 
 func (f *fakeEngineRuntime) CreateAndStart(_ context.Context, spec container.Spec) (string, error) {
@@ -352,11 +358,11 @@ func TestEngineAuroraClusterSharesOneContainer(t *testing.T) {
 	require.Eventually(t, func() bool { return f.cluster(t, "c1").Status == "available" },
 		engineWait, 5*time.Millisecond)
 
-	port := hostPort(t, f.rt.firstSpec())
 	cl := f.cluster(t, "c1")
+	port := cl.Port
+	assert.NotZero(t, port)
 	assert.Equal(t, "127.0.0.1", cl.Endpoint)
 	assert.Equal(t, "127.0.0.1", cl.ReaderEndpoint)
-	assert.Equal(t, port, cl.Port)
 
 	for _, id := range []string{"w1", "r1"} {
 		inst := f.waitInstance(t, id, "available")

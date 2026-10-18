@@ -806,7 +806,7 @@ must commit/push), `cmd/routecollisions/`/`services/_ROUTE_COLLISIONS.md`/
 `services/inspector2/`/`test/integration/tag_routing_test.go`/
 `test/integration/apigateway_quicksight_account_test.go` (the live sibling
 RouteMatcher sweep's in-progress work) confirmed untouched via `git status`
-both before starting and again at the end, no `gendocs`/`make docs` run.
+both before starting and again at the end, no `gendocs`/`task docs` run.
 
 s3's List/Describe/Get families are now fully swept for this issue (45/45
 ops verified against the real deserializer, one op family's finding flagged
@@ -945,7 +945,7 @@ and backend signature (`interfaces.go`, `object_lock.go`) gained a trailing
 `bypassGovernance bool` parameter — `putObjectRetention`
 (`object_ops_retention.go`) now passes
 `aws.ToBool(bypassGovernanceRetentionHeader(r))`, reusing the header parser
-`DeleteObject`/`DeleteObjects` already added. `make build-check` confirmed
+`DeleteObject`/`DeleteObjects` already added. `task build-check` confirmed
 no call sites outside `services/s3/`; the four in-package test call sites
 (`object_lock_test.go` x2, `janitor_lifecycle_test.go` x2) were updated to
 pass `false` — none of them mutate a pre-existing retention, so the new
@@ -992,7 +992,7 @@ Gates: `go build ./...`, `go vet ./services/s3/...`, `go test -race -count=1
 ./services/s3/...` (0 issues after `goimports -w errors.go` re-aligned the
 var block and swapping a raw `errors.As`+`require.True` for
 `require.ErrorAs` per testifylint), `go test ./pkgs/persistence/...` (no
-persisted struct changed — pass anyway per standing rule), `make
+persisted struct changed — pass anyway per standing rule), `task
 build-check` (0 external call sites), banned-nolint grep (0 hits, unchanged).
 
 ## 2026-08-29: error-path sweep (failure-side wire shape) -- no live bugs found
@@ -1734,7 +1734,7 @@ this package).
 
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
-Emits AWS/S3 request metrics (BucketName+FilterId; metrics-dimensions.html) only for buckets with a metrics configuration: AllRequests, Get/Put/Delete/Head/Post/ListRequests, 4xxErrors, 5xxErrors, BytesDownloaded, BytesUploaded, TotalRequestLatency. Daily storage metrics BucketSizeBytes (per StorageType) and NumberOfObjects (AllStorageTypes) are emitted at startup and every 24h by the janitor (bounded ticker). Verified by cli_service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
+Emits AWS/S3 request metrics (BucketName+FilterId; metrics-dimensions.html) only for buckets with a metrics configuration: AllRequests, Get/Put/Delete/Head/Post/ListRequests, 4xxErrors, 5xxErrors, BytesDownloaded, BytesUploaded, TotalRequestLatency. Daily storage metrics BucketSizeBytes (per StorageType) and NumberOfObjects (AllStorageTypes) are emitted at startup and every 24h by the janitor (bounded ticker). Verified by internal/app/service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
 
 ## 2026-10-04 (gopherstack-9lr6d, notification region)
 

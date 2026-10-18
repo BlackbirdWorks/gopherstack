@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // ---- IPAM Routing Policy Registrations ----
@@ -43,7 +43,7 @@ func (b *InMemoryBackend) newRoutingPolicyDeltaLocked(
 	body, _ := json.Marshal(doc)
 
 	delta := &IpamRoutingPolicyRegistrationDelta{
-		DeltaID:                           "ipam-rpr-delta-" + uuid.New().String()[:8],
+		DeltaID:                           awsid.New("ipam-rpr-delta-"),
 		IpamInternetRegistryAssociationID: assocID,
 		DeltaJSON:                         string(body),
 		State:                             ipamRoutingPolicyDeltaStatePublished,
@@ -316,7 +316,7 @@ func (b *InMemoryBackend) BatchModifyIpamRoutingPolicyRegistrations(
 	}
 
 	delta := &IpamRoutingPolicyRegistrationDelta{
-		DeltaID:                           "ipam-rpr-delta-" + uuid.New().String()[:8],
+		DeltaID:                           awsid.New("ipam-rpr-delta-"),
 		IpamInternetRegistryAssociationID: assocID,
 		DeltaJSON:                         deltaJSON,
 		State:                             ipamRoutingPolicyDeltaStatePublished,

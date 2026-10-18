@@ -39,7 +39,7 @@ func (b *InMemoryBackend) GetID(
 		)
 	}
 
-	if err := validateLoginTokens(pool, logins, time.Now()); err != nil {
+	if err := b.validateLoginTokens(pool, logins, time.Now()); err != nil {
 		return nil, err
 	}
 

@@ -21,7 +21,7 @@ type EFSMount struct {
 }
 
 // EFSResolver lets this backend validate FileSystemConfigs against services/efs
-// and obtain the host directory to bind-mount. Wired by cli_lambda_efs.go; the
+// and obtain the host directory to bind-mount. Wired by lambda_efs.go; the
 // EFS backend is resolved at call time.
 type EFSResolver interface {
 	// CheckAccessPoint verifies the access point exists and its file system has

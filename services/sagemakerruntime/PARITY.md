@@ -22,7 +22,7 @@ leaks: {status: clean, note: "sessions/asyncInvocations/invocations are all FIFO
 
 ## Notes
 
-**2026-10-10 (realism pass)**: the EndpointName/InService check never ran in a real server -- Provider.Init looked up the SageMaker handler before cli.go stored it, so the lookup stayed nil and unknown endpoints returned 200. The lookup is now resolved per call (lazyEndpointLookup). Also new: unknown TargetVariant gives ValidationError; header constraints from the service model (CustomAttributes <=1024, InferenceId <=64, InputLocation must be an s3/https URI, RequestTTLSeconds 60..21600, InvocationTimeoutSeconds 1..3600, SessionId and TargetVariant patterns) give ValidationError. Not emulated: ModelError (no model container).
+**2026-10-10 (realism pass)**: the EndpointName/InService check never ran in a real server -- Provider.Init looked up the SageMaker handler before internal/app/cli.go stored it, so the lookup stayed nil and unknown endpoints returned 200. The lookup is now resolved per call (lazyEndpointLookup). Also new: unknown TargetVariant gives ValidationError; header constraints from the service model (CustomAttributes <=1024, InferenceId <=64, InputLocation must be an s3/https URI, RequestTTLSeconds 60..21600, InvocationTimeoutSeconds 1..3600, SessionId and TargetVariant patterns) give ValidationError. Not emulated: ModelError (no model container).
 
 Protocol: restjson1. Three ops, disambiguated purely by path suffix (no
 X-Amz-Target header): `/endpoints/{EndpointName}/invocations`,

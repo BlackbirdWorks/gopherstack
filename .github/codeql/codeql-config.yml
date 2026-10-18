@@ -1,7 +1,7 @@
 name: "gopherstack CodeQL config"
 
 # go/weak-sensitive-data-hashing is excluded, and the exclusion is REPLACED by
-# a repo test rather than simply dropped -- see weak_hash_guard_test.go.
+# a repo test rather than simply dropped -- see test/guards/weak_hash_guard_test.go.
 #
 # Why the query and not the file: CodeQL's paths-ignore does not apply to
 # compiled languages under build-mode autobuild. Excluding

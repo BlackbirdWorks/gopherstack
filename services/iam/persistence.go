@@ -327,8 +327,10 @@ func parseVersionNum(id string) int {
 // server certificates — see tagsSnapshot/restoreTags) so both round-trip
 // through persistence together.
 type handlerSnapshot struct {
-	Tags    map[string]map[string]string `json:"tags,omitempty"`
-	Backend json.RawMessage              `json:"backend,omitempty"`
+	Tags map[string]map[string]string `json:"tags,omitempty"`
+	// Accounts holds each non-default account's handler snapshot.
+	Accounts map[string]json.RawMessage `json:"accounts,omitempty"`
+	Backend  json.RawMessage            `json:"backend,omitempty"`
 }
 
 // Snapshot implements persistence.Persistable. It combines the backend's own
@@ -345,6 +347,8 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 			snap.Backend = json.RawMessage(b)
 		}
 	}
+
+	snap.Accounts = h.accountSnapshots(ctx)
 
 	return persistence.MarshalSnapshot(ctx, "iam", snap)
 }
@@ -379,5 +383,5 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 
 	h.restoreTags(snap.Tags)
 
-	return nil
+	return h.restoreAccounts(ctx, snap.Accounts)
 }

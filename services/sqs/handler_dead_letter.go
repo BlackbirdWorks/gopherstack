@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 type jsonListDeadLetterSourceQueuesReq struct {
@@ -31,7 +29,7 @@ func (h *Handler) handleListDeadLetterSourceQueues(
 
 	out, err := h.Backend.ListDeadLetterSourceQueues(&ListDeadLetterSourceQueuesInput{
 		QueueURL:   req.QueueURL,
-		Region:     httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		Region:     h.requestScope(r),
 		NextToken:  req.NextToken,
 		MaxResults: req.MaxResults,
 	})

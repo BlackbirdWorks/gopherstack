@@ -654,4 +654,4 @@ Create*Namespace validates the per-kind name patterns (printable ASCII, no "arn:
 
 ## Notes (2026-10-11 Route 53 record sets)
 
-With a RecordSetWriter wired (root `cli_ecs_cloudmap.go`), RegisterInstance/DeregisterInstance rebuild the namespace hosted zone's A/AAAA/CNAME record sets for each DnsRecord type configured on the service; SRV records are not written. Test: TestRecordSetWriter_FollowsInstances, TestECSServiceRegistersTasksInCloudMap.
+With a RecordSetWriter wired (root `internal/app/ecs_cloudmap.go`), RegisterInstance/DeregisterInstance rebuild the namespace hosted zone's A/AAAA/CNAME record sets for each DnsRecord type configured on the service; SRV records are not written. Test: TestRecordSetWriter_FollowsInstances, TestECSServiceRegistersTasksInCloudMap.

@@ -392,7 +392,7 @@ instead of conservatively over-reporting it as a live collision). No
 Regression test: `TestInvitationRouting_CrossServiceIsolation`
 (`invitation_routing_cross_service_test.go`) wires detective's and
 guardduty's real `Handler`s into one `service.NewRegistry` +
-`service.NewServiceRouter`, same as production's `cli.go`, and drives both
+`service.NewServiceRouter`, same as production's `internal/app/cli.go`, and drives both
 through their real `aws-sdk-go-v2` clients against the shared `httptest`
 server: a guardduty-signed `ListInvitations` (GET) now reaches guardduty
 (previously the 400 above), and a detective-signed `AcceptInvitation` (PUT)

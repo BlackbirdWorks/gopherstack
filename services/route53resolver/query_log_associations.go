@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // AssociateResolverQueryLogConfig associates a VPC with a query log config.
@@ -44,7 +44,7 @@ func (b *InMemoryBackend) AssociateResolverQueryLogConfig(
 	}
 
 	now := currentTime()
-	id := "rqlca-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-qlcassoc-")
 	assoc := &ResolverQueryLogConfigAssociation{
 		ID:                       id,
 		ResolverQueryLogConfigID: queryLogConfigID,

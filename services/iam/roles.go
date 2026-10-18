@@ -144,6 +144,14 @@ func (b *InMemoryBackend) GetRole(roleName string) (*Role, error) {
 
 // GetRoleByArn retrieves a single IAM role by its full ARN.
 func (b *InMemoryBackend) GetRoleByArn(roleArn string) (*Role, error) {
+	if target, remote := b.routeARN(roleArn); remote {
+		if target == nil {
+			return nil, fmt.Errorf("%w: role with ARN %q not found", ErrRoleNotFound, roleArn)
+		}
+
+		return target.GetRoleByArn(roleArn)
+	}
+
 	b.mu.RLock("GetRoleByArn")
 	defer b.mu.RUnlock()
 
@@ -219,11 +227,20 @@ func (b *InMemoryBackend) ListAttachedRolePolicies(roleName string) ([]AttachedP
 
 // GetPoliciesForRole returns the policy documents for all managed and inline policies attached to the role.
 func (b *InMemoryBackend) GetPoliciesForRole(roleName string) ([]string, error) {
+	docs, remote, err := b.localPoliciesForRole(roleName)
+	if err != nil {
+		return nil, err
+	}
+
+	return append(docs, b.remotePolicyDocs(remote)...), nil
+}
+
+func (b *InMemoryBackend) localPoliciesForRole(roleName string) ([]string, []string, error) {
 	b.mu.RLock("GetPoliciesForRole")
 	defer b.mu.RUnlock()
 
 	if _, exists := b.roles.Get(roleName); !exists {
-		return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+		return nil, nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
 	arns := b.rolePolicies[roleName]
@@ -245,7 +262,7 @@ func (b *InMemoryBackend) GetPoliciesForRole(roleName string) ([]string, error) 
 		}
 	}
 
-	return docs, nil
+	return docs, b.remoteArnsLocked(arns), nil
 }
 
 // PutRolePolicy creates or replaces an inline policy on a role.
@@ -725,7 +742,7 @@ func (b *InMemoryBackend) validateAWSPrincipal(a string, i int) error {
 		accountID := parts[4]
 		resource := parts[5]
 
-		if accountID != b.accountID && accountID != "" {
+		if accountID != b.accountID && accountID != "" && !b.knownAccount(accountID) {
 			return fmt.Errorf("%w: invalid cross-account principal", ErrMalformedPolicyDocument)
 		}
 		if accountID == b.accountID {

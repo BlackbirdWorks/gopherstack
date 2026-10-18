@@ -5,7 +5,7 @@
 # pattern, wires an SQS queue as the rule target, fires the event with
 # PutEvents, then drains the queue and confirms the event was delivered.
 # Exercises the real EventBridge delivery wiring inside gopherstack
-# (DeliveryTargets configured in cli.go).
+# (DeliveryTargets configured in internal/app/cli.go).
 set -eu
 
 AWS="aws --endpoint-url ${ENDPOINT:-http://localhost:8000} --no-cli-pager --output json"

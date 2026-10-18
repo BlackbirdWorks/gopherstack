@@ -144,7 +144,7 @@ type CreateAccountStatus struct {
 	State              string  `json:"State"`
 	FailureReason      string  `json:"FailureReason,omitempty"`
 	RequestedTimestamp float64 `json:"RequestedTimestamp"`
-	CompletedTimestamp float64 `json:"CompletedTimestamp"`
+	CompletedTimestamp float64 `json:"CompletedTimestamp,omitempty"`
 }
 
 // Handshake represents an AWS Organizations handshake invitation or transfer.

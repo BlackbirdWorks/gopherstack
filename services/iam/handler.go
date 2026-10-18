@@ -68,6 +68,8 @@ type Handler struct {
 	callerActions map[string]iamCallerActionFn
 	tags          map[string]*svcTags.Tags
 	tagsMu        *lockmetrics.RWMutex
+	accountsMu    *lockmetrics.RWMutex
+	accounts      map[string]*Handler
 }
 
 // NewHandler creates a new IAM handler with the given storage backend.
@@ -76,6 +78,9 @@ func NewHandler(backend StorageBackend) *Handler {
 		Backend: backend,
 		tags:    make(map[string]*svcTags.Tags),
 		tagsMu:  lockmetrics.New("iam.tags"),
+
+		accountsMu: lockmetrics.New("iam.accounts.handlers"),
+		accounts:   make(map[string]*Handler),
 	}
 	h.actions = h.buildDispatchTable()
 	h.callerActions = h.iamDelegationCallerActions()
@@ -490,7 +495,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		log.DebugContext(ctx, "IAM request", "action", action)
 
-		response, reqErr := h.dispatch(ctx, action, vals)
+		response, reqErr := h.forRequest(ctx).dispatch(ctx, action, vals)
 		if reqErr != nil {
 			return h.handleError(ctx, c, action, reqErr)
 		}
@@ -941,6 +946,13 @@ func parseIndexedValues(vals url.Values, prefix string) []string {
 func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
+	}
+
+	h.accountsMu.RLock("Reset")
+	defer h.accountsMu.RUnlock()
+
+	for _, sh := range h.accounts {
+		sh.restoreTags(nil)
 	}
 }
 

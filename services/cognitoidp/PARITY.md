@@ -776,7 +776,7 @@ Gates run: `go build ./...`, `go vet ./...`, `gofmt -l` (clean),
 `services/cognitoidp/...` and `pkgs/persistence/...` (0 issues, including a
 `fieldalignment` finding on the reordered `SchemaAttribute` struct, fixed by
 hand rather than running `fieldalignment -fix`/`golangci-lint --fix`
-package-wide), `make build-check` (clean). No `//nolint` added.
+package-wide), `task build-check` (clean). No `//nolint` added.
 
 ### What this pass fixed (2026-08-22, gopherstack-zquj: keycheck ambiguous-binding sweep)
 
@@ -934,7 +934,7 @@ this pass is 1 (plus the 2 filed structural gaps), not 304.
 
 All gates green for `services/cognitoidp` (`go build ./...`, `go vet`,
 `gofmt -l`, `go test -race ./services/cognitoidp/...`, `go test
-./pkgs/persistence/...`, `golangci-lint run`, `make build-check`); no
+./pkgs/persistence/...`, `golangci-lint run`, `task build-check`); no
 `//nolint` added.
 
 ### What this pass fixed (2026-08-21, gopherstack-r80d batch 19: required OUTPUT member cut)

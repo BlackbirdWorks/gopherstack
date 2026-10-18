@@ -13,7 +13,7 @@ last_audit_date: 2026-10-12
 # duplicate CreateAccount email -> FAILED/EMAIL_ALREADY_EXISTS status (was InvalidInput); ParentNotFoundException
 # vs malformed parent id; AccountName(<=50)/Email(6-64)/RoleName/OU name(<=128) limits; CloseAccount on mgmt
 # account -> CANNOT_CLOSE_MANAGEMENT_ACCOUNT, already-closed -> AccountAlreadyClosedException.
-# Lenient on purpose: CreateAccount completes SUCCEEDED synchronously (callers read AccountId from the response);
+# Lenient by default: CreateAccount completes SUCCEEDED synchronously (callers read AccountId from the response); opt in to IN_PROGRESS via --lifecycle-organizations;
 # SCP/RCP content only needs valid JSON (dozens of in-repo fixtures use "{}"); MaxResults=0 is "unset" (int field).
 overall: A            # 2026-08-30 (ordering pass): audited every List op's sort key against its actual
                       # unsorted source for tie-safety (Table.All() map walks are unspecified-order; a
@@ -82,7 +82,7 @@ ops:
   DeleteOrganization: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects when non-management member accounts remain, matches AWS"}
   EnableAllFeatures: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns a synthetic ENABLE_ALL_FEATURES handshake in ACCEPTED state (no real multi-account approval flow needed for single-account emulation)"}
   ListRoots: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreateAccountStatus transitions straight to SUCCEEDED (no stuck IN_PROGRESS poll trap)"}
+  CreateAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "On SUCCEEDED (incl. CreateGovCloudAccount) the new account gets RoleName (default OrganizationAccountAccessRole) in its own IAM, trusting the management account root and holding AdministratorAccess, when IAM is wired via SetAccountProvisioner. CreateAccountStatus transitions straight to SUCCEEDED (no stuck IN_PROGRESS poll trap)"}
   CreateGovCloudAccount: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeCreateAccountStatus: {wire: ok, errors: ok, state: ok, persist: ok}
   ListCreateAccountStatus: {wire: fixed, errors: ok, state: ok, persist: ok, note: "MaxResults/NextToken were parsed into the request but never applied -- handler always returned the full unfiltered set. Now wired through pkgs/page.New."}
@@ -143,7 +143,7 @@ ops:
 # Families audited as a group (when per-op is impractical):
 families:
   error_table: {status: ok, note: "getErrorTable() in handler.go covers all 28 sentinel errors defined in backend.go one-to-one; no gap that would surface as a 500 InternalFailure for a known error condition"}
-  persistence: {status: ok, note: "Handler exposes Snapshot(ctx)/Restore(ctx,[]byte) exactly, delegating to InMemoryBackend's own Snapshot/Restore -- correctly registered by cli.go's setupPersistence. Versioned snapshot format (organizationsSnapshotVersion) discards incompatible old snapshots cleanly instead of partially decoding them."}
+  persistence: {status: ok, note: "Handler exposes Snapshot(ctx)/Restore(ctx,[]byte) exactly, delegating to InMemoryBackend's own Snapshot/Restore -- correctly registered by internal/app/cli.go's setupPersistence. Versioned snapshot format (organizationsSnapshotVersion) discards incompatible old snapshots cleanly instead of partially decoding them."}
   arn_shapes: {status: ok, note: "all ARNs built via pkgs/arn.Build, organization/account/root/ou/policy/resource-policy/handshake resource paths verified against real SDK doc comments (global service, no region segment)"}
   id_formats: {status: ok, note: "12-digit account IDs, ou- root- p- h- o- prefixes match AWS patterns"}
   timestamps: {status: ok, note: "epochSeconds(t) in models.go now delegates to pkgs/awstime.Epoch (was a local float64(t.Unix()) reimplementation that truncated sub-second precision). Wire shape (JSON number, epoch seconds) unchanged and still correct; this closes the reuse-hygiene gap flagged in the prior audit. RE-VERIFIED 2026-08-29 (dedicated timestamp-encoding pattern hunt): protocol confirmed JSON-RPC 1.1 (awsAwsjson11_* serializer prefix, organizations@v1.53.5); all 12 *time.Time members across the whole SDK package (Account.JoinedTimestamp, CreateAccountStatus.{Completed,Requested}Timestamp, DelegatedAdministrator.{DelegationEnabledDate,JoinedTimestamp}, DelegatedService.DelegationEnabledDate, EffectivePolicy.LastUpdatedTimestamp, EnabledServicePrincipal.DateEnabled, Handshake.{Expiration,Requested}Timestamp, ResponsibilityTransfer.{End,Start}Timestamp) confirmed against deserializers.go's smithytime.ParseEpochSeconds calls and gopherstack's float64 wire structs -- all correct, 12-of-12. Request-side StartTimestamp/EndTimestamp (InviteOrganizationToTransferResponsibility, TerminateResponsibilityTransfer) parsed via time.Unix(int64(req.Field), 0).UTC(), matching serializers.go's smithytime.FormatEpochSeconds encoding -- also correct. ListEffectivePolicyValidationErrorsOutput.EvaluationTimestamp (a 13th member, Output-struct-only, not in types.go) is never emitted -- correctly ABSENT, not this pass's scope: the op always returns an empty EffectivePolicyValidationErrors list (no validation engine modeled) and there is no genuine 'last evaluated' instant to report without fabricating one."}
@@ -174,7 +174,7 @@ deviations, each with a typed-client regression test (feature_set_flows_test.go)
   `^rp-[0-9a-zA-Z_]{4,128}$`; it is now `rp-<org suffix>`.
 
 Lenient on purpose: CreateAccount still completes SUCCEEDED synchronously (callers, including CloudFormation and
-in-repo fixtures, read AccountId straight from the response); the IN_PROGRESS to SUCCEEDED transition is not modeled.
+in-repo fixtures, read AccountId straight from the response). With `--lifecycle-organizations` / `ORGANIZATIONS_LIFECYCLE_DELAY` > 0 the IN_PROGRESS to SUCCEEDED/FAILED transition is modeled lazily on read; the account is absent from ListAccounts until SUCCEEDED, and a pending create is failed INTERNAL_FAILURE on restore.
 
 ### 2026-10-01 EffectivePolicyType validation
 
@@ -282,7 +282,7 @@ so the next auditor doesn't re-flag them.
   before flagging.
 
 - **CreateAccount lifecycle**: `CreateAccountStatus.State` goes straight to `SUCCEEDED` in the
-  same call (no stuck `IN_PROGRESS` that would make a real client poll
+  same call by default (opt-in delay: see above; no stuck `IN_PROGRESS` that would make a real client poll
   `DescribeCreateAccountStatus` forever) -- correct emulator behavior for this bug class called
   out in parity-principles.
 
@@ -332,7 +332,7 @@ so the next auditor doesn't re-flag them.
 - **Persistence**: `Handler.Snapshot`/`Restore` delegate directly to
   `InMemoryBackend.Snapshot`/`Restore` with the exact method signatures
   `Snapshot(ctx context.Context) []byte` / `Restore(ctx context.Context, []byte) error` that
-  `cli.go`'s `setupPersistence` requires -- correctly registered, not the silent-unregistration
+  `internal/app/cli.go`'s `setupPersistence` requires -- correctly registered, not the silent-unregistration
   bug class fixed elsewhere in the ~12-service sweep. Snapshot format is versioned
   (`organizationsSnapshotVersion`) and discards incompatible snapshots cleanly rather than
   partially decoding them.

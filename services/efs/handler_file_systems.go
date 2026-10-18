@@ -50,7 +50,7 @@ func (h *Handler) handleCreateFileSystem(c *echo.Context, body []byte) error {
 	fs, err := h.Backend.CreateFileSystem(h.contextWithRegion(c), req)
 	if err != nil {
 		if errors.Is(err, ErrCreationTokenExists) || errors.Is(err, ErrAlreadyExists) {
-			c.Response().Header().Set("x-amzn-ErrorType", "FileSystemAlreadyExists")
+			c.Response().Header().Set("X-Amzn-Errortype", "FileSystemAlreadyExists")
 			resp := map[string]string{
 				"ErrorCode":    "FileSystemAlreadyExists",
 				"Message":      err.Error(),

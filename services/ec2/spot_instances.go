@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // ErrSpotRequestNotFound is returned when a spot instance request is not found.
@@ -111,7 +111,7 @@ func (b *InMemoryBackend) RequestSpotInstances(
 		}
 		b.instances.Put(inst)
 
-		reqID := "sir-" + uuid.New().String()[:8]
+		reqID := awsid.New("sir-")
 		req := &SpotInstanceRequest{
 			ID:                           reqID,
 			InstanceID:                   instanceID,

@@ -136,14 +136,24 @@ func TestDockerBrokerLifecycle(t *testing.T) {
 		wantPorts  int
 	}{
 		{
-			name: "rabbitmq", engine: mq.EngineTypeRabbitMQ, image: mq.RabbitMQImage, wantPorts: 2,
+			name: "rabbitmq", engine: mq.EngineTypeRabbitMQ, image: mq.RabbitMQImage, wantPorts: 4,
 			wantEnv:    []string{"RABBITMQ_DEFAULT_USER=admin", "RABBITMQ_DEFAULT_PASS=s3cretpassword"},
-			wantScheme: []string{"amqp://"}, wantEngine: mq.EngineTypeRabbitMQ,
+			wantScheme: []string{"amqps://"}, wantEngine: mq.EngineTypeRabbitMQ,
 		},
 		{
-			name: "activemq", engine: mq.EngineTypeActiveMQ, image: mq.ActiveMQImage, wantPorts: 3,
-			wantEnv:    []string{"ACTIVEMQ_CONNECTION_USER=admin", "ACTIVEMQ_CONNECTION_PASSWORD=s3cretpassword"},
-			wantScheme: []string{"tcp://", "stomp://", "mqtt://"}, wantEngine: mq.EngineTypeActiveMQ,
+			name:      "activemq",
+			engine:    mq.EngineTypeActiveMQ,
+			image:     mq.ActiveMQImage,
+			wantPorts: 11,
+			wantEnv:   []string{"ACTIVEMQ_CONNECTION_USER=admin", "ACTIVEMQ_CONNECTION_PASSWORD=s3cretpassword"},
+			wantScheme: []string{
+				"ssl://",
+				"amqp+ssl://",
+				"stomp+ssl://",
+				"mqtt+ssl://",
+				"wss://",
+			},
+			wantEngine: mq.EngineTypeActiveMQ,
 		},
 	}
 

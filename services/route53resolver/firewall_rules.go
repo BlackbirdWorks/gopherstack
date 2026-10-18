@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // CreateFirewallRuleParams holds all parameters for creating a firewall rule.
@@ -281,11 +280,11 @@ func (b *InMemoryBackend) CreateFirewallRule(ctx context.Context, p CreateFirewa
 	// CreateFirewallRuleParams's doc comment).
 	var threatProtectionID string
 	if p.DNSThreatProtection != "" {
-		threatProtectionID = "rslvr-ftp-" + uuid.New().String()[:8]
+		threatProtectionID = awsid.New("rslvr-ftp-")
 	}
 
 	now := currentTime()
-	id := "rslvr-frr-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-frr-")
 	ruleARN := arn.Build("route53resolver", region, b.accountID, "firewall-rule/"+id)
 	rule := &FirewallRule{
 		ID:                              id,
@@ -333,7 +332,7 @@ func (b *InMemoryBackend) AddFirewallRuleInternal(
 	}
 
 	now := currentTime()
-	id := "rslvr-frr-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-frr-")
 	ruleARN := arn.Build("route53resolver", b.region, b.accountID, "firewall-rule/"+id)
 	rule := &FirewallRule{
 		ID:                   id,

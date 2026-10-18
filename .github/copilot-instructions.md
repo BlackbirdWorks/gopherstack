@@ -2,10 +2,10 @@
 
 - Commit and push after completing each task.
 - Your max session is 1 hour — when approaching the limit, create `checkpoint.md` at the repo root (what is done, what remains, any blockers) and push. Remove `checkpoint.md` when the full issue is complete.
-- Run `make test` after each task before committing. Resolve all lint issues via `make lint-fix`.
+- Run `task test` after each task before committing. Resolve all lint issues via `task lint-fix`.
 - Min test coverage is 85%.
 - Add integration tests in `test/integration/` as you go for everything you implement.
-- Run `make build` before pushing.
+- Run `task build` before pushing.
 
 # Go Development Instructions
 
@@ -275,8 +275,8 @@ Follow idiomatic Go practices and community standards when writing Go code. Thes
 - Tests MUST be table tests. No matter what
 - Tests should always be parallel unless an environment variable is involved
 - Tests should always cover at least 85% of the logic
-- `make test` to run all the unit tests
-- `make integration-test` to run all the integration tests
+- `task test` to run all the unit tests
+- `task integration-test` to run all the integration tests
 - Use `t.Context()` in tests
 - NEVER use `t.Fatal` or `t.Error`; only use `require` and `assert` from `testify`
 
@@ -360,15 +360,15 @@ When developing a UI for a service, ensure:
 
 ## Build and Development Commands
 
-Always use Makefile targets instead of running tools directly:
-- `make build` — build the project
-- `make lint` — run linting (installs deps automatically)
-- `make lint-fix` — auto-fix lint issues including fieldalignment
-- `make test` — run unit tests
-- `make total-coverage` — run all tests with coverage
-- `make integration-test` — run integration tests
+Always use `task` targets instead of running tools directly:
+- `task build` — build the project
+- `task lint` — run linting (installs deps automatically)
+- `task lint-fix` — auto-fix lint issues including fieldalignment
+- `task test` — run unit tests
+- `task total-coverage` — run all tests with coverage
+- `task integration-test` — run integration tests
 
-Do NOT run `golangci-lint`, `fieldalignment`, `go test`, or `go build` directly. The Makefile targets handle tool installation, flags, and configuration automatically.
+Do NOT run `golangci-lint`, `fieldalignment`, `go test`, or `go build` directly. The Taskfile targets handle tool installation, flags, and configuration automatically.
 
 - Always ensure code follows the rules in this file
 - You are to NEVER change the `golangci-lint` configuration

@@ -971,15 +971,7 @@ func (h *Handler) handleGetLineageGroupPolicy(ctx context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: LineageGroupName is required", errInvalidRequest)
 	}
 
-	// GetLineageGroupPolicy always errors: no policy-attachment op exists yet, so a
-	// lineage group never has a policy attached. SA4023 below is a false positive
-	// against that deliberately defensive shape (see its doc in lineage.go).
-	resourcePolicy, err := h.Backend.GetLineageGroupPolicy(ctx, req.LineageGroupName) //nolint:staticcheck // see above
-	if err != nil {                                                                   //nolint:staticcheck // see above
-		return nil, err
-	}
-
-	return json.Marshal(map[string]string{"ResourcePolicy": resourcePolicy})
+	return nil, h.Backend.GetLineageGroupPolicyError(ctx, req.LineageGroupName)
 }
 
 // ---------------------------------------------------------------------------

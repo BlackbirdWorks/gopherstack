@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // ---- IPAM Internet Registry Associations ----
@@ -38,7 +38,7 @@ func (b *InMemoryBackend) CreateIpamInternetRegistryAssociation(
 		return nil, fmt.Errorf("%w: %s", ErrIpamNotFound, ipamID)
 	}
 
-	id := "ipam-ira-" + uuid.New().String()[:8]
+	id := awsid.New("ipam-ira-")
 	assoc := &IpamInternetRegistryAssociation{
 		IpamInternetRegistryAssociationID: id,
 		IpamInternetRegistryAssociationARN: "arn:aws:ec2:" + b.Region + ":" + b.AccountID +

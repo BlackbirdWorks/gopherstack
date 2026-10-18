@@ -185,11 +185,12 @@ gaps: []
   # cleanup item rather than touched this pass.
 residual_gaps: []
 items_still_open:
-  - "Report jobs complete instantly and write nothing to the report plan's S3 delivery channel: the SDK documents only the key path (<prefix>/Backup/<region>/<year>/<month>/<day>/<report-name>), not the CSV/JSON columns, so any content would be invented."
+  - "Report file column names are best-effort: the SDK documents only the key path (<prefix>/Backup/<region>/<year>/<month>/<day>/<report-name>), not the CSV/JSON columns, so headers are derived from the backend's own job fields rather than verified against AWS output. Compliance templates carry only protected-resource or framework-ARN rows (no control evaluation)."
+  - "Restore recreates DynamoDB tables (schema, indexes, items), S3 buckets (objects) and EBS volumes (shape only); EC2 instances, EFS, RDS and other types keep the synthesized CreatedResourceArn. Recovery-point snapshots are held in memory and persisted with the recovery point, so large buckets inflate state."
 structural_gaps:
   - "MPA session approval, GuardDuty malware scanning (PITR results, ScanActions/ScanSettings), the search-index subsystem and cross-account logically-air-gapped vaults are external systems with no emulator counterpart."
   - "CreatedBy on scan jobs and recovery points: plans never run on a schedule here, so every recovery point comes from an on-demand job with no plan or rule lineage (ByBackupPlanId likewise matches nothing)."
-  - "StartBackupJob CompleteWindowMinutes and StartRestoreJob CopySourceTagsToRestoredResource: jobs finish instantly (no window to expire) and restored resources are not materialised (no tags to copy)."
+  - "StartBackupJob CompleteWindowMinutes and StartRestoreJob CopySourceTagsToRestoredResource: backup jobs finish instantly (no window to expire) and restored resources do not copy source tags."
 deferred: []
   # All 4 deferred items from the 2026-07-12 audit are now closed with real
   # fixes + tests (see the matching families/ops entries above):
@@ -216,8 +217,17 @@ On-demand backup, restore, copy and report flows were driven end to end; fixes, 
 - StartReportJob accepted an unknown report plan; it now returns ResourceNotFoundException. CreateReportPlan rejects
   ReportTemplate values outside the five documented templates.
 
-Lenient on purpose: restore and copy jobs still complete synchronously (nothing polls for an intermediate state), and
-restored resources are not materialised (the DynamoDB/S3/EC2 backends would need to be handed to Backup from cli.go).
+### 2026-10-16 (gopherstack-cefu7.48)
+
+- Report jobs now write CSV and/or JSON (ReportDeliveryChannel.Formats, default CSV) to the plan's S3 bucket and prefix
+  through the S3 backend and report ReportDestination (S3BucketName, S3Keys), ReportTemplate and StatusMessage; an S3
+  write failure FAILS the job. Rows come from backup, copy and restore jobs and protected resources.
+- Restore recreates the resource: backup jobs snapshot DynamoDB tables and S3 buckets (EBS shape) into
+  RecoveryPoint.Snapshot (copy jobs carry it to the destination), and StartRestoreJob rebuilds them (targetTableName,
+  DestinationBucketName, availabilityZone/volumeType metadata) and sets CreatedResourceArn. Engine errors FAIL the job.
+- Restore and copy jobs settle lazily after BACKUP_LIFECYCLE_DELAY (default 0 = synchronous): restore PENDING ->
+  RUNNING -> COMPLETED, copy CREATED -> RUNNING -> COMPLETED, destination recovery point and CreatedResourceArn only
+  appear on completion.
 
 ### 2026-10-01 (items_still_open burn-down)
 

@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -11,8 +12,10 @@ import (
 
 // ListCopyJobs returns all copy jobs.
 func (b *InMemoryBackend) ListCopyJobs() []*CopyJob {
-	b.mu.RLock("ListCopyJobs")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListCopyJobs")
+	defer b.mu.Unlock()
+
+	b.settleDueJobsLocked(time.Now().UTC())
 
 	all := b.copyJobs.All()
 	list := make([]*CopyJob, 0, len(all))
@@ -37,8 +40,10 @@ func (b *InMemoryBackend) ListCopyJobs() []*CopyJob {
 
 // DescribeCopyJob returns a copy job by ID.
 func (b *InMemoryBackend) DescribeCopyJob(copyJobID string) (*CopyJob, error) {
-	b.mu.RLock("DescribeCopyJob")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeCopyJob")
+	defer b.mu.Unlock()
+
+	b.settleDueJobsLocked(time.Now().UTC())
 
 	j, ok := b.copyJobs.Get(copyJobID)
 	if !ok {
@@ -54,8 +59,10 @@ func (b *InMemoryBackend) DescribeCopyJob(copyJobID string) (*CopyJob, error) {
 
 // ListCopyJobSummaries counts copy jobs per aggregation window, resource type, state and message category.
 func (b *InMemoryBackend) ListCopyJobSummaries(f JobSummaryFilter) []map[string]any {
-	b.mu.RLock("ListCopyJobSummaries")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListCopyJobSummaries")
+	defer b.mu.Unlock()
+
+	b.settleDueJobsLocked(time.Now().UTC())
 
 	all := b.copyJobs.All()
 	jobs := make([]summaryJob, 0, len(all))
@@ -112,11 +119,9 @@ func (b *InMemoryBackend) StartCopyJobWithLifecycle(
 		return nil, fmt.Errorf("%w: source vault %s not found", ErrNotFound, sourceVaultName)
 	}
 
-	destVaultName, ok := b.vaultARNIndex[destVaultArn]
-	if !ok {
+	if _, ok = b.vaultARNIndex[destVaultArn]; !ok {
 		return nil, fmt.Errorf("%w: destination vault %s not found", ErrNotFound, destVaultArn)
 	}
-	destVault, _ := b.vaults.Get(destVaultName)
 
 	// Best-effort: copy resource metadata from the source recovery point
 	// when this backend tracks it -- a test/client may reasonably
@@ -141,44 +146,76 @@ func (b *InMemoryBackend) StartCopyJobWithLifecycle(
 		ResourceArn:                 resourceArn,
 		ResourceType:                resourceType,
 		IAMRoleArn:                  iamRoleArn,
-		State:                       statusCompleted,
+		State:                       statusCreated,
 		AccountID:                   b.accountID,
 		Region:                      b.region,
 		CreationDate:                now,
-		CompletionDate:              &now,
+		Lifecycle:                   lifecycle,
 	}
 	b.copyJobs.Put(job)
 
-	if destVault != nil {
-		if msg := b.vaultRetentionViolation(destVault, lifecycle); msg != "" {
-			job.State = statusFailed
-			job.StatusMessage = msg
-			job.DestinationRecoveryPointArn = ""
-
-			return job, nil
-		}
-
-		destRP := &RecoveryPoint{
-			RecoveryPointArn:     destRPArn,
-			BackupVaultName:      destVaultName,
-			BackupVaultArn:       destVault.BackupVaultArn,
-			ResourceArn:          resourceArn,
-			ResourceType:         resourceType,
-			IAMRoleArn:           iamRoleArn,
-			Status:               statusCompleted,
-			SourceBackupVaultArn: sourceVault.BackupVaultArn,
-			CreationDate:         now,
-			CompletionDate:       &now,
-			IsEncrypted:          destVault.EncryptionKeyArn != "",
-			EncryptionKeyArn:     destVault.EncryptionKeyArn,
-			Lifecycle:            lifecycle,
-			CalculatedLifecycle:  calculateLifecycle(lifecycle, now),
-		}
-		b.recoveryPoints.Put(destRP)
-		destVault.NumberOfRecoveryPoints++
+	if b.lifecycleDelay > 0 {
+		settleAt := now.Add(b.lifecycleDelay)
+		job.SettleAt = &settleAt
+	} else {
+		b.settleCopyJobLocked(job, now)
 	}
 
-	return job, nil
+	cp := *job
+
+	return &cp, nil
+}
+
+// settleCopyJobLocked finishes a copy job: it materializes the destination recovery point, or FAILS the
+// job when the destination vault's lock retention bounds are broken or the vault is gone.
+func (b *InMemoryBackend) settleCopyJobLocked(job *CopyJob, now time.Time) {
+	job.SettleAt = nil
+	job.CompletionDate = &now
+
+	destVaultName, found := b.vaultARNIndex[job.DestinationBackupVaultArn]
+	destVault, vaultFound := b.vaults.Get(destVaultName)
+	if !found || !vaultFound {
+		job.State = statusFailed
+		job.StatusMessage = "destination vault " + job.DestinationBackupVaultArn + " no longer exists"
+		job.DestinationRecoveryPointArn = ""
+
+		return
+	}
+
+	if msg := b.vaultRetentionViolation(destVault, job.Lifecycle); msg != "" {
+		job.State = statusFailed
+		job.StatusMessage = msg
+		job.DestinationRecoveryPointArn = ""
+
+		return
+	}
+
+	var snapshot json.RawMessage
+	if srcName, ok := b.vaultARNIndex[job.SourceBackupVaultArn]; ok {
+		if srcRP, rpFound := b.recoveryPoints.Get(recoveryPointKey(srcName, job.SourceRecoveryPointArn)); rpFound {
+			snapshot = srcRP.Snapshot
+		}
+	}
+
+	job.State = statusCompleted
+	b.recoveryPoints.Put(&RecoveryPoint{
+		RecoveryPointArn:     job.DestinationRecoveryPointArn,
+		BackupVaultName:      destVaultName,
+		BackupVaultArn:       destVault.BackupVaultArn,
+		ResourceArn:          job.ResourceArn,
+		ResourceType:         job.ResourceType,
+		IAMRoleArn:           job.IAMRoleArn,
+		Status:               statusCompleted,
+		SourceBackupVaultArn: job.SourceBackupVaultArn,
+		CreationDate:         now,
+		CompletionDate:       &now,
+		IsEncrypted:          destVault.EncryptionKeyArn != "",
+		EncryptionKeyArn:     destVault.EncryptionKeyArn,
+		Lifecycle:            job.Lifecycle,
+		CalculatedLifecycle:  calculateLifecycle(job.Lifecycle, now),
+		Snapshot:             snapshot,
+	})
+	destVault.NumberOfRecoveryPoints++
 }
 
 // ---- Backup plan operations ----
@@ -223,11 +260,11 @@ func copyJobMatchesFilter(j *CopyJob, f ListCopyJobsFilter) bool {
 }
 
 // ListCopyJobsFiltered returns copy jobs matching the filter, with pagination.
-//
-//nolint:dupl // structurally identical to ListBackupJobsFiltered but operates on a different type
 func (b *InMemoryBackend) ListCopyJobsFiltered(f ListCopyJobsFilter) ([]*CopyJob, string) {
-	b.mu.RLock("ListCopyJobsFiltered")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListCopyJobsFiltered")
+	defer b.mu.Unlock()
+
+	b.settleDueJobsLocked(time.Now().UTC())
 
 	all := b.copyJobs.All()
 	list := make([]*CopyJob, 0, len(all))

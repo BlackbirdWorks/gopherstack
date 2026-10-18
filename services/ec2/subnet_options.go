@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 const (
@@ -313,7 +313,7 @@ func (b *InMemoryBackend) subnetIPv6AssociationLocked(
 	}
 
 	return &SubnetCIDRAssociation{
-		AssociationID: "subnet-cidr-assoc-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:17],
+		AssociationID: awsid.New("subnet-cidr-assoc-"),
 		IPv6CIDRBlock: cidr,
 		State:         stateAssociated,
 		IPSource:      source,
@@ -383,7 +383,7 @@ func (b *InMemoryBackend) allocateSubnetFromPoolLocked(
 	}
 
 	alloc := &IpamPoolAllocation{
-		IpamPoolAllocationID: "ipam-alloc-" + uuid.New().String()[:8],
+		IpamPoolAllocationID: awsid.New("ipam-alloc-"),
 		IpamPoolID:           poolID,
 		Cidr:                 cidr,
 		ResourceType:         resourceTypeSubnet,

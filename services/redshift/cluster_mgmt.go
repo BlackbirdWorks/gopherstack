@@ -46,6 +46,19 @@ type ModifyClusterOptions struct {
 // applied as soon as possible" (not gated by ApplyImmediately), and Port has
 // no entry in PendingModifiedValues at all.
 func (b *InMemoryBackend) ModifyCluster(id string, opts ModifyClusterOptions) (*Cluster, error) {
+	cp, err := b.modifyCluster(id, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = b.applyMasterPassword(cp.ClusterIdentifier, opts.MasterUserPassword); err != nil {
+		return nil, err
+	}
+
+	return cp, nil
+}
+
+func (b *InMemoryBackend) modifyCluster(id string, opts ModifyClusterOptions) (*Cluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
 	}
@@ -90,6 +103,7 @@ func (b *InMemoryBackend) ModifyCluster(id string, opts ModifyClusterOptions) (*
 
 	b.applyModifyClusterSettingsLocked(cluster, opts.Settings)
 	b.renameClusterLocked(id, opts.NewClusterIdentifier)
+	b.reapplyLiveLocked(cluster)
 
 	cp := cloneCluster(cluster)
 
@@ -250,7 +264,16 @@ func (b *InMemoryBackend) RebootCluster(id string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
 
-	cluster.Status = "rebooting"
+	if lb := b.unitLocked(id); lb != nil && lb.ready {
+		cluster.Status = clusterStatusRebooting
+		b.runUnitOpLocked(lb, opRestart)
+
+		cp := cloneCluster(cluster)
+
+		return &cp, nil
+	}
+
+	cluster.Status = clusterStatusRebooting
 	cp := cloneCluster(cluster)
 	// Immediately set back to available for in-memory simplicity.
 	cluster.Status = clusterStatusAvailable
@@ -302,6 +325,15 @@ func (b *InMemoryBackend) PauseCluster(id string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: cluster %s is in %q state", ErrClusterInvalidState, id, cluster.Status)
 	}
 
+	if lb := b.unitLocked(id); lb != nil && lb.ready {
+		cluster.Status = clusterStatusPausing
+		b.runUnitOpLocked(lb, opStop)
+
+		cp := cloneCluster(cluster)
+
+		return &cp, nil
+	}
+
 	cp := b.beginClusterTransitionLocked(cluster, clusterStatusPausing, clusterStatusPaused)
 
 	return &cp, nil
@@ -325,6 +357,15 @@ func (b *InMemoryBackend) ResumeCluster(id string) (*Cluster, error) {
 
 	if cluster.Status != clusterStatusPaused {
 		return nil, fmt.Errorf("%w: cluster %s is in %q state", ErrClusterInvalidState, id, cluster.Status)
+	}
+
+	if lb := b.unitLocked(id); lb != nil && !lb.ready {
+		cluster.Status = clusterStatusResuming
+		b.runUnitOpLocked(lb, opStart)
+
+		cp := cloneCluster(cluster)
+
+		return &cp, nil
 	}
 
 	cp := b.beginClusterTransitionLocked(cluster, clusterStatusResuming, clusterStatusAvailable)

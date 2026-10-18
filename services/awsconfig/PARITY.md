@@ -604,7 +604,7 @@ clean), `go test -race -count=1 ./services/awsconfig/...` (pass),
   mirroring stepfunctions' `asl.S3Writer` and ses's `SNSPublisher`),
   `SetS3Writer`/`SetSNSPublisher`/`SetClock`, and an `S3WriterIntegration`
   adapter (integrations.go, mirroring
-  `stepfunctions.NewS3ResultWriterIntegration`) wired in cli.go's
+  `stepfunctions.NewS3ResultWriterIntegration`) wired in internal/app/cli.go's
   `wireAWSConfigDelivery` (called alongside `wireSESSNS`) via
   `awsconfigbackend.NewS3WriterIntegration(s3H.Backend)` and a new
   `awsConfigSNSPublisherAdapter` (mirroring `sesSNSPublisherAdapter`). I/O
@@ -711,7 +711,7 @@ clean), `go test -race -count=1 ./services/awsconfig/...` (pass),
   Gates: `go build ./...` (whole module), `go vet ./services/awsconfig/... .`,
   `go test -race -count=1 ./services/awsconfig/... ./pkgs/persistence/...`
   (pass), `golangci-lint run ./services/awsconfig/...` (0 issues),
-  `golangci-lint run --new-from-rev=HEAD .` (0 issues, covers the cli.go
+  `golangci-lint run --new-from-rev=HEAD .` (0 issues, covers the internal/app/cli.go
   wiring change). `awsconfigSnapshotVersion` NOT bumped (additive table
   only, confirmed by the version guard test).
 
@@ -943,5 +943,5 @@ StartResourceEvaluation ClientToken/EvaluationContext and ListResourceEvaluation
 
 ## 2026-10-10 (service realism pass)
 
-FIXED: DescribeConfigurationRecorderStatus `lastStatus` is the RecorderStatus enum (`Pending`/`Success`/`Failure`), not upper-case, and now carries `lastStartTime`/`lastStopTime`/`lastStatusChangeTime` (epoch seconds; the string-typed fields were never populated and would not decode). PutConfigRule keeps `Source.SourceDetails`, `Source.CustomPolicyDetails` and `EvaluationModes` (all were silently dropped, so custom-Lambda rules lost their triggers) and validates Owner, MaximumExecutionFrequency, SourceDetail MessageType and evaluation modes with `InvalidParameterValueException`. DescribeConfigRuleEvaluationStatus lists every rule (ConfigRuleArn/Id, FirstActivatedTime, evaluation times) instead of only evaluated ones and errors `NoSuchConfigRuleException` for an unknown name. PutDeliveryChannel enforces one channel per region (`MaxNumberOfDeliveryChannelsExceededException`) and validates deliveryFrequency. Describe{ConfigurationRecorders,ConfigurationRecorderStatus,DeliveryChannels,DeliveryChannelStatus,ConformancePackStatus} error for an unknown explicit name. Conformance pack names are validated (`[a-zA-Z][-a-zA-Z0-9]*`, 256), status ARN matches the Put ARN, and `SetLifecycleDelay` (default 0, needs a `cli.go` flag) holds a pack in CREATE_IN_PROGRESS/UPDATE_IN_PROGRESS before CREATE_COMPLETE/UPDATE_COMPLETE; status carries ConformancePackId and LastUpdateRequestedTime. Aggregator and aggregation-authorization account ids must be 12 digits. Error messages no longer repeat the code. Proof: `realism_sdk_test.go`.
+FIXED: DescribeConfigurationRecorderStatus `lastStatus` is the RecorderStatus enum (`Pending`/`Success`/`Failure`), not upper-case, and now carries `lastStartTime`/`lastStopTime`/`lastStatusChangeTime` (epoch seconds; the string-typed fields were never populated and would not decode). PutConfigRule keeps `Source.SourceDetails`, `Source.CustomPolicyDetails` and `EvaluationModes` (all were silently dropped, so custom-Lambda rules lost their triggers) and validates Owner, MaximumExecutionFrequency, SourceDetail MessageType and evaluation modes with `InvalidParameterValueException`. DescribeConfigRuleEvaluationStatus lists every rule (ConfigRuleArn/Id, FirstActivatedTime, evaluation times) instead of only evaluated ones and errors `NoSuchConfigRuleException` for an unknown name. PutDeliveryChannel enforces one channel per region (`MaxNumberOfDeliveryChannelsExceededException`) and validates deliveryFrequency. Describe{ConfigurationRecorders,ConfigurationRecorderStatus,DeliveryChannels,DeliveryChannelStatus,ConformancePackStatus} error for an unknown explicit name. Conformance pack names are validated (`[a-zA-Z][-a-zA-Z0-9]*`, 256), status ARN matches the Put ARN, and `SetLifecycleDelay` (default 0, needs a `internal/app/cli.go` flag) holds a pack in CREATE_IN_PROGRESS/UPDATE_IN_PROGRESS before CREATE_COMPLETE/UPDATE_COMPLETE; status carries ConformancePackId and LastUpdateRequestedTime. Aggregator and aggregation-authorization account ids must be 12 digits. Error messages no longer repeat the code. Proof: `realism_sdk_test.go`.
 LENIENT (recorded): AWS managed-rule SourceIdentifiers are not checked against the catalogue (only a handful are modeled); Source and CUSTOM_LAMBDA SourceDetails stay optional because in-repo fixtures omit them; DeleteConformancePack remains instant (no DELETE_IN_PROGRESS); the delivery-channel S3 bucket and recorder precondition (`NoSuchBucketException`, `NoAvailableConfigurationRecorderException`) are not enforced.

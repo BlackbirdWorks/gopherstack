@@ -4,17 +4,12 @@ import (
 	"fmt"
 	"slices"
 	"sort"
-	"strings"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
-// newSubnetID returns a subnet ID in real AWS's shape: "subnet-" followed by
-// lowercase hex digits only. uuid.New().String() is hyphenated
-// (8-4-4-4-12), so a naive [:N] slice embeds literal "-" characters into the
-// ID once N crosses a hyphen boundary; strip them first.
 func newSubnetID() string {
-	return "subnet-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:17]
+	return awsid.New("subnet-")
 }
 
 // CreateDefaultSubnet creates a new default subnet in the given availability zone.
@@ -91,7 +86,7 @@ func (b *InMemoryBackend) AssociateSubnetCidrBlock(
 	}
 
 	assoc := &SubnetCIDRAssociation{
-		AssociationID: "subnet-cidr-assoc-" + uuid.New().String()[:8],
+		AssociationID: awsid.New("subnet-cidr-assoc-"),
 		IPv6CIDRBlock: ipv6CIDRBlock,
 		State:         stateAssociated,
 	}
@@ -163,7 +158,7 @@ func (b *InMemoryBackend) CreateSubnetCidrReservation(
 	}
 
 	reservation := &SubnetCIDRReservation{
-		SubnetCIDRReservationID: "scr-" + uuid.New().String()[:8],
+		SubnetCIDRReservationID: awsid.New("scr-"),
 		SubnetID:                subnetID,
 		CIDR:                    cidr,
 		ReservationType:         reservationType,

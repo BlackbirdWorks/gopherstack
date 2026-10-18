@@ -6,9 +6,8 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 func (b *InMemoryBackend) firewallRuleGroupPoliciesStore(region string) map[string]string {
@@ -42,7 +41,7 @@ func (b *InMemoryBackend) CreateFirewallRuleGroup(
 
 	region := getRegion(ctx, b.region)
 	now := currentTime()
-	id := "rslvr-frg-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-frg-")
 	groupARN := arn.Build("route53resolver", region, b.accountID, "firewall-rule-group/"+id)
 	g := &FirewallRuleGroup{
 		ID:               id,
@@ -86,7 +85,7 @@ func (b *InMemoryBackend) AssociateFirewallRuleGroup(
 	}
 
 	now := currentTime()
-	id := "rslvr-frgassoc-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-frgassoc-")
 	assocARN := arn.Build(
 		"route53resolver",
 		region,
@@ -118,7 +117,7 @@ func (b *InMemoryBackend) AddFirewallRuleGroupInternal(name string) *FirewallRul
 	b.mu.Lock("AddFirewallRuleGroupInternal")
 	defer b.mu.Unlock()
 
-	id := "rslvr-frg-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-frg-")
 	groupARN := arn.Build("route53resolver", b.region, b.accountID, "firewall-rule-group/"+id)
 	g := &FirewallRuleGroup{
 		ID:      id,

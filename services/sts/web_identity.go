@@ -144,7 +144,7 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 // (e.g. in isolated unit tests that never call SetOIDCLookup), the check is
 // skipped (permissive mock behaviour), matching validateOIDCProvider's same
 // "skip when unwired" convention below.
-func (b *InMemoryBackend) checkOutboundWebIdentityFederationEnabled() error {
+func (b *InMemoryBackend) checkOutboundWebIdentityFederationEnabled(account string) error {
 	b.mu.RLock("checkOutboundWebIdentityFederationEnabled")
 	asl := b.accountSettingsLookup
 	b.mu.RUnlock()
@@ -153,7 +153,12 @@ func (b *InMemoryBackend) checkOutboundWebIdentityFederationEnabled() error {
 		return nil
 	}
 
-	if !asl.OutboundWebIdentityFederationEnabled() {
+	enabled := asl.OutboundWebIdentityFederationEnabled()
+	if scoped, ok := asl.(accountScopedSettingsLookup); ok && account != "" {
+		enabled = scoped.OutboundWebIdentityFederationEnabledIn(account)
+	}
+
+	if !enabled {
 		return ErrOutboundWebIdentityFederationDisabled
 	}
 
@@ -177,8 +182,7 @@ func (b *InMemoryBackend) validateOIDCProvider(token, providerID string) error {
 		issuer = extractWebIdentityIssuer(token)
 	}
 
-	if issuer == "" {
-		// No issuer to validate against; allow the call.
+	if issuer == "" || isCognitoIdentityIssuer(issuer) {
 		return nil
 	}
 
@@ -195,6 +199,40 @@ func (b *InMemoryBackend) validateOIDCProvider(token, providerID string) error {
 	}
 
 	return nil
+}
+
+// cognitoIdentityIssuer is the built-in OIDC issuer of Cognito Identity tokens; it needs no IAM OIDC provider.
+const cognitoIdentityIssuer = "cognito-identity.amazonaws.com"
+
+func isCognitoIdentityIssuer(issuer string) bool {
+	return strings.EqualFold(strings.TrimPrefix(issuer, "https://"), cognitoIdentityIssuer)
+}
+
+// extractWebIdentityAMR returns the Cognito amr claim ("authenticated" or "unauthenticated").
+func extractWebIdentityAMR(token string) string {
+	claims := parseJWTPayloadClaims(token)
+	if claims == nil {
+		return ""
+	}
+
+	switch v := claims["amr"].(type) {
+	case string:
+		return v
+	case []any:
+		for _, a := range v {
+			if s, ok := a.(string); ok && s == "authenticated" {
+				return s
+			}
+		}
+
+		if len(v) > 0 {
+			s, _ := v[0].(string)
+
+			return s
+		}
+	}
+
+	return ""
 }
 
 func webIdentityIssuer(input *AssumeRoleWithWebIdentityInput) string {
@@ -239,6 +277,12 @@ func (b *InMemoryBackend) checkWebIdentityTrust(input *AssumeRoleWithWebIdentity
 	if sub := extractWebIdentitySubject(input.WebIdentityToken); sub != "" &&
 		sub != webIdentitySubjectPlaceholder {
 		condCtx[host+":sub"] = sub
+	}
+
+	if isCognitoIdentityIssuer(issuer) {
+		if amr := extractWebIdentityAMR(input.WebIdentityToken); amr != "" {
+			condCtx[host+":amr"] = amr
+		}
 	}
 
 	return evaluateAssumeRoleTrust(meta.TrustPolicy, trustEval{
@@ -383,7 +427,12 @@ func (b *InMemoryBackend) GetWebIdentityToken(
 ) (*GetWebIdentityTokenResponse, error) {
 	b.cntGetWebIdentityToken.Add(1)
 
-	if err := b.checkOutboundWebIdentityFederationEnabled(); err != nil {
+	account := ""
+	if input != nil {
+		account = input.Account
+	}
+
+	if err := b.checkOutboundWebIdentityFederationEnabled(account); err != nil {
 		return nil, err
 	}
 

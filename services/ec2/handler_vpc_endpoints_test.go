@@ -649,10 +649,10 @@ func TestVpcEndpoint_CreateContainsEndpointID(t *testing.T) {
 }
 
 // TestVpcEndpoint_SubnetIDsInResponse verifies SubnetIds are returned
-// in the DescribeVpcEndpoints response (was missing per parity.md §R).
+// in the DescribeVpcEndpoints response (was missing per docs/history/parity.md §R).
 
 // TestVpcEndpoint_SubnetIDsInResponse verifies SubnetIds are returned
-// in the DescribeVpcEndpoints response (was missing per parity.md §R).
+// in the DescribeVpcEndpoints response (was missing per docs/history/parity.md §R).
 func TestVpcEndpoint_SubnetIDsInResponse(t *testing.T) {
 	t.Parallel()
 
@@ -681,10 +681,10 @@ func TestVpcEndpoint_SubnetIDsInResponse(t *testing.T) {
 }
 
 // TestVpcEndpoint_RouteTableIDsInResponse verifies RouteTableIds
-// are returned in the DescribeVpcEndpoints response (was missing per parity.md §R).
+// are returned in the DescribeVpcEndpoints response (was missing per docs/history/parity.md §R).
 
 // TestVpcEndpoint_RouteTableIDsInResponse verifies RouteTableIds
-// are returned in the DescribeVpcEndpoints response (was missing per parity.md §R).
+// are returned in the DescribeVpcEndpoints response (was missing per docs/history/parity.md §R).
 func TestVpcEndpoint_RouteTableIDsInResponse(t *testing.T) {
 	t.Parallel()
 
@@ -836,7 +836,7 @@ func TestVpcEndpoint_MissingServiceNameError(t *testing.T) {
 
 // TestNetworkACL_DescribeReturnsAssociations verifies that
 // DescribeNetworkAcls includes an <associationSet> with association items
-// (was missing per parity.md §R).
+// (was missing per docs/history/parity.md §R).
 
 // TestCreateVpcEndpoint_ResponseShape verifies that CreateVpcEndpoint
 // returns an ID with the "vpce-" prefix, echoes serviceName, state, and vpcId,

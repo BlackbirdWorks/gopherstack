@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/httptarget"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -98,7 +99,7 @@ func invokeAPIDestination(
 		return APIResponse{}, authErr
 	}
 
-	client := &http.Client{Timeout: apiDestTimeout}
+	client := apiDestClient
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -234,7 +235,7 @@ func fetchOAuthToken(ctx context.Context, oauth *ResolvedOAuth) (string, error) 
 
 	applyConnectionHTTPParameters(req, oauth.HeaderParameters, oauth.QueryStringParameters)
 
-	client := &http.Client{Timeout: apiDestTimeout}
+	client := apiDestClient
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -263,3 +264,5 @@ func fetchOAuthToken(ctx context.Context, oauth *ResolvedOAuth) (string, error) 
 }
 
 const maxOAuthResponseBytes = 1 << 20
+
+var apiDestClient = httpclient.New(apiDestTimeout) //nolint:gochecknoglobals // one pooled transport per service package

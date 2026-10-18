@@ -493,8 +493,8 @@ func (b *InMemoryBackend) RestoreFromClusterSnapshot(
 	// restored cluster stayed stuck in "restoring" forever and SDK waiters
 	// polling for cluster-available would never observe completion.
 	initialStatus := clusterStatusAvailable
-	if b.clusterActivationDelay > 0 {
-		initialStatus = "restoring"
+	if b.clusterActivationDelay > 0 || b.engine != nil {
+		initialStatus = clusterStatusRestoring
 	}
 
 	cluster := &Cluster{
@@ -529,7 +529,7 @@ func (b *InMemoryBackend) RestoreFromClusterSnapshot(
 
 	b.clusters.Put(cluster)
 
-	if b.clusterActivationDelay > 0 {
+	if b.clusterActivationDelay > 0 && b.engine == nil {
 		b.scheduleClusterTransitionLocked(clusterID, &clusterTransition{
 			effectiveAt: time.Now().Add(b.clusterActivationDelay),
 			status:      clusterStatusAvailable,
@@ -539,6 +539,8 @@ func (b *InMemoryBackend) RestoreFromClusterSnapshot(
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Register(endpoint)
 	}
+
+	b.provisionClusterLocked(cluster, "")
 
 	cp := cloneCluster(cluster)
 

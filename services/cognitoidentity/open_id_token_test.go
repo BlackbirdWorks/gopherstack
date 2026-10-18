@@ -47,7 +47,9 @@ func TestDeveloperOpenIDTokenClaims(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			pool, err := b.CreateIdentityPool(context.Background(), "claims-pool", true, false, "", nil, nil, nil)
+			pool, err := b.CreateIdentityPool(
+				context.Background(), "claims-pool", true, false, "dev.example.com", nil, nil, nil,
+			)
 			require.NoError(t, err)
 
 			out, err := b.GetOpenIDTokenForDeveloperIdentity(context.Background(),

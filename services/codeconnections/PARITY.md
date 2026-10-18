@@ -458,5 +458,5 @@ codeconnections already region-isolated: same-named resources in two regions sta
 - CreateConnection with only HostArn now works and inherits the host's provider type; with neither ProviderType nor HostArn it is InvalidInputException.
 - List* MaxResults outside 0-100 and malformed NextToken are rejected (were ignored).
 - Bare ResourceNotFoundException messages (empty before) now say "Resource not found. Verify the resource ARN and try again."; other messages drop the repeated code.
-- Opt-in `SetConnectionHandshakeDelay(d)` / `SetHostSetupDelay(d)` (default 0) keep connections/hosts PENDING before AVAILABLE. Needs wiring in cli_lifecycle.go.
+- Opt-in `SetConnectionHandshakeDelay(d)` / `SetHostSetupDelay(d)` (default 0) keep connections/hosts PENDING before AVAILABLE. Needs wiring in internal/app/lifecycle.go.
 - Kept lenient: GetConnection/GetHost do not pattern-check ARNs; ProviderEndpoint is not required to be a URL.

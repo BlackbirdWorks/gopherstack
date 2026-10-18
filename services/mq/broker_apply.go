@@ -24,6 +24,7 @@ var (
 
 	brokerBlockRe     = regexp.MustCompile(`(?s)<broker\s[^>]*>.*</broker>`)
 	transportBlockRe  = regexp.MustCompile(`(?s)<transportConnectors>.*?</transportConnectors>`)
+	sslContextRe      = regexp.MustCompile(`(?s)<sslContext>.*?</sslContext>\s*`)
 	simpleAuthPluginR = regexp.MustCompile(`(?s)<simpleAuthenticationPlugin\b.*?</simpleAuthenticationPlugin>\s*`)
 )
 
@@ -162,7 +163,27 @@ func (b *InMemoryBackend) applyPlan(ctx context.Context, lb *liveBroker, plan re
 		return nil
 	}
 
-	cur, err := rc.Exec(ctx, lb.containerID, []string{"cat", activeMQConfDir + "activemq.xml"})
+	for _, n := range lb.nodes() {
+		if err := applyNode(ctx, rc, n.containerID, plan); err != nil {
+			return err
+		}
+	}
+
+	probe := &liveBroker{
+		engine: lb.engine, username: plan.users[0].Username, password: plan.users[0].Password,
+	}
+
+	for _, n := range lb.nodes() {
+		if err := e.awaitReady(ctx, probe, e.nodeAddr(n, consumerPortName(lb.engine))); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func applyNode(ctx context.Context, rc BrokerReconfigurer, containerID string, plan reconfigPlan) error {
+	cur, err := rc.Exec(ctx, containerID, []string{"cat", activeMQConfDir + "activemq.xml"})
 	if err != nil {
 		return fmt.Errorf("read activemq.xml: %w", err)
 	}
@@ -176,23 +197,19 @@ func (b *InMemoryBackend) applyPlan(ctx context.Context, lb *liveBroker, plan re
 		return err
 	}
 
-	if err = writeBrokerFiles(ctx, rc, lb.containerID, xml, plan.users); err != nil {
+	if err = writeBrokerFiles(ctx, rc, containerID, xml, plan.users); err != nil {
 		return err
 	}
 
-	if err = rc.StopContainer(ctx, lb.containerID); err != nil {
+	if err = rc.StopContainer(ctx, containerID); err != nil {
 		return fmt.Errorf("restart broker: %w", err)
 	}
 
-	if err = rc.StartContainer(ctx, lb.containerID); err != nil {
+	if err = rc.StartContainer(ctx, containerID); err != nil {
 		return fmt.Errorf("restart broker: %w", err)
 	}
 
-	probe := &liveBroker{
-		engine: lb.engine, username: plan.users[0].Username, password: plan.users[0].Password,
-	}
-
-	return e.awaitReady(ctx, probe, e.addr(lb, consumerPortName(lb.engine)))
+	return nil
 }
 
 func writeBrokerFiles(
@@ -248,11 +265,7 @@ func renderActiveMQXML(current string, plan reconfigPlan) (string, error) {
 		}
 	}
 
-	if !transportBlockRe.MatchString(block) {
-		if transports := transportBlockRe.FindString(current[loc[0]:loc[1]]); transports != "" {
-			block = strings.Replace(block, "</broker>", transports+"\n</broker>", 1)
-		}
-	}
+	block = keepManagedTLS(block, current[loc[0]:loc[1]])
 
 	block = simpleAuthPluginR.ReplaceAllString(block, "")
 	plugin := authPluginXML(plan.users)
@@ -264,6 +277,20 @@ func renderActiveMQXML(current string, plan reconfigPlan) (string, error) {
 	}
 
 	return current[:loc[0]] + block + current[loc[1]:], nil
+}
+
+// keepManagedTLS forces the container's transports and sslContext into block so a user configuration
+// cannot drop the published listeners.
+func keepManagedTLS(block, managed string) string {
+	transports := transportBlockRe.FindString(managed)
+	if transports == "" {
+		return block
+	}
+
+	block = sslContextRe.ReplaceAllString(block, "")
+	block = transportBlockRe.ReplaceAllString(block, "")
+
+	return strings.Replace(block, "</broker>", sslContextRe.FindString(managed)+transports+"\n</broker>", 1)
 }
 
 func authPluginXML(users []*User) string {

@@ -62,7 +62,7 @@ func TestCreateQuote_WithOutpost(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, aws.ToString(created.OutpostArn), aws.ToString(out.Quote.OutpostArn))
 
-	got := map[types.OrderingRequirementType]types.OrderingRequirementStatus{}
+	got := make(map[types.OrderingRequirementType]types.OrderingRequirementStatus)
 	for _, req := range out.Quote.OrderingRequirements {
 		got[req.OrderingRequirementType] = req.Status
 	}
@@ -146,7 +146,7 @@ func TestUpdateQuote_OutpostDeletedAfterAssociation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	got := map[types.OrderingRequirementType]types.OrderingRequirementStatus{}
+	got := make(map[types.OrderingRequirementType]types.OrderingRequirementStatus)
 	for _, req := range updated.Quote.OrderingRequirements {
 		got[req.OrderingRequirementType] = req.Status
 	}

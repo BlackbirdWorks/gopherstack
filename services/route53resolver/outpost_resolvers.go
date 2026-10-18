@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // CreateOutpostResolver creates a new Resolver on an Outpost.
@@ -25,7 +24,7 @@ func (b *InMemoryBackend) CreateOutpostResolver(
 		instanceCount = defaultOutpostResolverInstanceCount
 	}
 
-	id := "rslvr-op-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-op-")
 	resolverARN := arn.Build("route53resolver", region, b.accountID, "outpost-resolver/"+id)
 	now := currentTime()
 	r := &OutpostResolver{
@@ -52,7 +51,7 @@ func (b *InMemoryBackend) AddOutpostResolverInternal(name, outpostARN string) *O
 	b.mu.Lock("AddOutpostResolverInternal")
 	defer b.mu.Unlock()
 
-	id := "rslvr-op-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-op-")
 	resolverARN := arn.Build("route53resolver", b.region, b.accountID, "outpost-resolver/"+id)
 	now := currentTime()
 	r := &OutpostResolver{

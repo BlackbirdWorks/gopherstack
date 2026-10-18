@@ -32,6 +32,13 @@ func HasService(ctx context.Context, name string) bool {
 	return ok && tagged == name
 }
 
+// ServiceTag returns the service name WithService attached to ctx, or "".
+func ServiceTag(ctx context.Context) string {
+	tagged, _ := serviceTagKey.Get(ctx)
+
+	return tagged
+}
+
 // Save stores logger in ctx and returns the child context.
 func Save(ctx context.Context, logger *slog.Logger) context.Context {
 	if logger == nil {

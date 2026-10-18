@@ -226,6 +226,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
+	b.dropAllUnitsLocked()
 	b.registry.ResetAll()
 	b.tags = make(map[string]map[string][]Tag)
 	b.eventsLog = make(map[string][]Event)

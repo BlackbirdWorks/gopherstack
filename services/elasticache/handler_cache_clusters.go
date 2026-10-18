@@ -235,6 +235,14 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 		return mapClusterCreateErr(c, err)
 	}
 
+	if snapName := form.Get("SnapshotName"); snapName != "" {
+		if rsErr := h.Backend.RestoreClusterData(ctx, id, snapName); rsErr != nil {
+			_ = h.Backend.DeleteCluster(ctx, id)
+
+			return xmlError(c, http.StatusInternalServerError, "InternalFailure", rsErr.Error())
+		}
+	}
+
 	h.applyCreateTimeTags(ctx, form, cluster.ARN)
 
 	if sgErr := h.applyClusterSubnetGroup(ctx, form, id, cluster); sgErr != nil {

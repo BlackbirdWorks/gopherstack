@@ -78,7 +78,7 @@ func applyMapperDetection(
 // candidate from, so a mapper-consumption verdict lands on the very same
 // finding.
 func collectSentinelDecls(files []*ast.File) map[token.Pos]string {
-	out := map[token.Pos]string{}
+	out := make(map[token.Pos]string)
 
 	for _, f := range files {
 		for _, decl := range f.Decls {

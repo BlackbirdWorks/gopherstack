@@ -155,6 +155,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 		}
 	}
 	b.clusterPut(cluster)
+	b.provisionClusterLocked(cluster)
 	b.recordEvent(region, id, sourceTypeDBCluster, "DB cluster created", "creation")
 	cp := cloneCluster(cluster)
 
@@ -398,6 +399,7 @@ func (b *InMemoryBackend) DeleteDBCluster(
 		}
 	}
 	b.clusterDelete(region, id)
+	b.dropUnitLocked(region, id)
 	delete(b.tagsStore(region), b.clusterARN(region, id))
 	delete(b.clusterRolesStore(region), id)
 
@@ -501,7 +503,9 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	}
 	if opts.NewDBClusterIdentifier != "" && opts.NewDBClusterIdentifier != id {
 		b.renameCluster(region, id, c, opts.NewDBClusterIdentifier)
+		b.rekeyUnitLocked(region, id, c.DBClusterIdentifier)
 	}
+	b.reapplyLiveLocked(c)
 	cp := cloneCluster(c)
 
 	return &cp, nil
@@ -695,7 +699,12 @@ func (b *InMemoryBackend) StopDBCluster(ctx context.Context, id string) (*DBClus
 			id,
 		)
 	}
-	c.Status = clusterStatusStopped
+	if b.unitLocked(region, id) != nil && c.Status != clusterStatusAvailable {
+		return nil, fmt.Errorf("%w: cluster %s is not in available state", ErrInvalidDBClusterStateFault, id)
+	}
+	if !b.stopUnitLocked(c) {
+		c.Status = clusterStatusStopped
+	}
 	b.recordEvent(region, id, sourceTypeDBCluster, "DB cluster stopped", sourceTypeNotification)
 	cp := cloneCluster(c)
 
@@ -718,7 +727,9 @@ func (b *InMemoryBackend) StartDBCluster(ctx context.Context, id string) (*DBClu
 			id,
 		)
 	}
-	c.Status = clusterStatusAvailable
+	if !b.startUnitLocked(c) {
+		c.Status = clusterStatusAvailable
+	}
 	b.recordEvent(region, id, sourceTypeDBCluster, "DB cluster started", sourceTypeNotification)
 	cp := cloneCluster(c)
 
@@ -945,6 +956,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 	}
 	applyRestoreOptions(cluster, opts)
 	b.clusterPut(cluster)
+	b.provisionClusterLocked(cluster)
 	cp := cloneCluster(cluster)
 
 	return &cp, nil
@@ -1091,6 +1103,7 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 	}
 	applyRestoreOptions(cluster, opts.RestoreClusterOptions)
 	b.clusterPut(cluster)
+	b.provisionClusterLocked(cluster)
 	cp := cloneCluster(cluster)
 
 	return &cp, nil

@@ -227,7 +227,7 @@ ops:
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /tags/{ResourceArn}; TagKeys via repeated lowerCamel ?tagKeys= query param (the one exception to this service's PascalCase query casing, confirmed via serializers.go:3235)"}
 # Families audited as a group (when per-op is impractical):
 families:
-  tagging: {status: ok, note: "TagResource/UntagResource/ListTagsForResource wired into cli.go's wireResourceGroupsTagging via wireTaggingOutposts, the 31st service. Both Outpost.Tags and Site.Tags share one ARN-keyed store (tagging.go's resolveTaggableLocked), resourceTypeFromARN derives outposts:outpost vs outposts:site per-ARN since this is a two-resource-kind tag store (unlike Grafana's single-kind constantResourceType)."}
+  tagging: {status: ok, note: "TagResource/UntagResource/ListTagsForResource wired into internal/app/cli.go's wireResourceGroupsTagging via wireTaggingOutposts, the 31st service. Both Outpost.Tags and Site.Tags share one ARN-keyed store (tagging.go's resolveTaggableLocked), resourceTypeFromARN derives outposts:outpost vs outposts:site per-ARN since this is a two-resource-kind tag store (unlike Grafana's single-kind constantResourceType)."}
   route-matcher: {status: ok, note: "handler.go's routeRequest uses a map-of-topLevelRouteFunc keyed by first path segment (kept cyclomatic complexity low without a nolint) rather than one large switch; RouteMatcher prefixes on all 12 top-level path segments; MatchPriority = PriorityPathVersioned"}
 gaps: []
 items_still_open:
@@ -443,7 +443,7 @@ checkout, not assumed from the filed issue's guess):
 
 **Cross-service wiring** (`services/ec2/cross_service.go`, new file): `ec2` imports
 `services/outposts` directly and resolves its handler lazily via `SetAppConfig`/`GetOutpostsHandler`
--- both already exist on `*CLI` from the prior `outposts` pass, so **no `cli.go` edit was needed**.
+-- both already exist on `*CLI` from the prior `outposts` pass, so **no `internal/app/cli.go` edit was needed**.
 This is the mirror image of `services/grafana`'s/`services/mgn`'s cross-service direction (they read
 `ec2`'s state passively); here `ec2`'s own `RunInstances`/`TerminateInstances` must synchronously
 call into `outposts` as part of handling the EC2 request itself (validate-and-consume, or fail the
@@ -485,7 +485,7 @@ with the real `OutpostArn`, `RunInstances`, observe `GetOutpostInstanceTypes`/`L
 reflect the drop, a second launch rejected with `InsufficientInstanceCapacity`,
 `TerminateInstances`, observe capacity and the asset-instance listing both reverse, and the freed
 unit consumable again) and `..._NonexistentOutpostArn` proves the `CreateSubnet`-time rejection.
-Both ran green against the Docker container (`make build-linux` + the real test harness), alongside
+Both ran green against the Docker container (`task build-linux` + the real test harness), alongside
 unit-level coverage in both packages (`services/ec2/cross_service_test.go`,
 `services/outposts/capacity_ledger_test.go`) for the permutation/error cases (insufficient capacity,
 exact-capacity, unconfigured instance type, unknown Outpost, unwired-backend no-ops, filter
@@ -566,7 +566,7 @@ otherwise), Order/Quote/CapacityTask lifecycles with single-hop async transition
 (`Asset.ComputeAttributes.InstanceTypeCapacities`) that `StartCapacityTask` actually mutates and
 `GetOutpostInstanceTypes` actually reads, a deterministic (documented-synthetic) pricing model
 for quotes/renewals, and full tag support for both Outpost and Site wired into
-`resourcegroupstaggingapi` (`cli.go`'s `wireTaggingOutposts`, the 31st tagging-wired service).
+`resourcegroupstaggingapi` (`internal/app/cli.go`'s `wireTaggingOutposts`, the 31st tagging-wired service).
 
 **File layout**: `models.go` (stored-state types) / `wire.go` + `wire_convert.go` (JSON wire
 shapes, PascalCase document members and query params -- see "New finding" below -- and their
@@ -778,15 +778,15 @@ Protocol is `awsRestjson1` (REST-JSON), confirmed from every serializer's struct
 
 **Tagging.** `TagResource`/`UntagResource`/`ListTagsForResource` exist
 (`api_op_TagResource.go`, `api_op_UntagResource.go`, `api_op_ListTagsForResource.go`), so this
-service should be wired into `cli.go`'s `wireResourceGroupsTagging`
+service should be wired into `internal/app/cli.go`'s `wireResourceGroupsTagging`
 (`/home/agbishop/gopherstack/cli.go:5348`), following the `wireTaggingGrafana` pattern
-(`cli.go:6675-6701`, itself calling the generic `wireTaggingCtxARNResources` helper used by
-`wireTaggingEFS` at `cli.go:6127-6152`). Both `Outpost.Tags` and `Site.Tags`
+(`internal/app/cli.go:6675-6701`, itself calling the generic `wireTaggingCtxARNResources` helper used by
+`wireTaggingEFS` at `internal/app/cli.go:6127-6152`). Both `Outpost.Tags` and `Site.Tags`
 (`types/types.go:650`, `:1019`) exist, but there is only ONE generic ARN-keyed tag API shared
 across both resource kinds -- the tag store backing this wiring needs to be keyed by the full
 ARN (Outpost ARN or Site ARN), not scoped to a single resource-type map like most other
 `wireTaggingXxx` functions. `wireResourceGroupsTagging` currently wires exactly 30 services
-(`cli.go:5327-5399`'s own doc comment enumerates them); Outposts would be the 31st entry, added
+(`internal/app/cli.go:5327-5399`'s own doc comment enumerates them); Outposts would be the 31st entry, added
 alongside the existing `wireTaggingGrafana(bk, byName["Grafana"])` line as
 `wireTaggingOutposts(bk, byName["Outposts"])` (name TBD by however this service registers itself
 in `byName`, which is keyed by `service.Registerable.Name()` -- not confirmed here since the

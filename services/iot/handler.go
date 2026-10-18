@@ -81,6 +81,10 @@ func (h *Handler) BackendFor(region string) StorageBackend {
 
 // NewHandler creates a new IoT Handler.
 func NewHandler(backend StorageBackend, broker *Broker) *Handler {
+	if bk, ok := backend.(*InMemoryBackend); ok && broker != nil {
+		bk.setJobNotifier(func(thing string) { broker.publishJobNotifications(bk, thing) })
+	}
+
 	return &Handler{Backend: backend, broker: broker}
 }
 

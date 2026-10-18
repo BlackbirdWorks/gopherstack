@@ -340,6 +340,6 @@ Clean. UpdateApplication keeps omitted Description/Author/HomePageUrl/Labels (an
 - maxItems outside 1-100 is BadRequestException (was silently defaulted); nextToken is opaque base64 and malformed tokens are BadRequestException.
 - CreateCloudFormationTemplate/ChangeSet reject a semanticVersion the application does not have (NotFound / BadRequest per each op's modeled errors); stackName/changeSetName follow `[a-zA-Z][-a-zA-Z0-9]*` (128).
 - PutApplicationPolicy principals must be 12-digit account IDs or `*`.
-- Opt-in `SetTemplatePrepareDelay(d)` (default 0) keeps new templates PREPARING before ACTIVE. Needs wiring in cli_lifecycle.go.
+- Opt-in `SetTemplatePrepareDelay(d)` (default 0) keeps new templates PREPARING before ACTIVE. Needs wiring in internal/app/lifecycle.go.
 - Error messages drop the repeated exception code and are sentence-cased; empty sourceCodeUrl/sourceCodeArchiveUrl are omitted instead of emitted as "".
 - Kept lenient: SpdxLicenseId is not checked against the SPDX list; ParameterOverrides/NotificationArns on change sets are accepted but not modeled (no readback op).

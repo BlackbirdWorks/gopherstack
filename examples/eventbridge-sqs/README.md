@@ -4,7 +4,7 @@ Demonstrates the real EventBridge delivery plumbing inside gopherstack:
 an `aws events put-events` call matches a rule on the default bus, and the
 rule's SQS queue target receives the event — exactly as on real AWS, just
 backed by in-memory storage. The cross-service wiring is set up in
-`cli.go` via `DeliveryTargets`.
+`internal/app/cli.go` via `DeliveryTargets`.
 
 ## Architecture
 

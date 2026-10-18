@@ -10,8 +10,8 @@
 	// reads a CSV object from a caller-supplied S3 bucket/key using a schema
 	// this backend documents as an ASSUMPTION, not something AWS publishes
 	// (services/mgn/s3import.go) -- shown verbatim below so users know what
-	// to upload. As of this pass, cli.go has not yet wired the MGN backend to
-	// the S3 backend (PARITY.md's "Pending cli.go wiring" section), so every
+	// to upload. As of this pass, internal/app/cli.go has not yet wired the MGN backend to
+	// the S3 backend (PARITY.md's "Pending internal/app/cli.go wiring" section), so every
 	// StartImport against a real running server FAILS honestly with no S3
 	// backend configured -- this panel surfaces that failure inline rather
 	// than hiding it.
@@ -383,7 +383,7 @@
 		(semicolon-separated).
 	</p>
 	<p class="text-amber-700 dark:text-amber-400">
-		The S3 accessor is not yet wired into the running server (cli.go), so
+		The S3 accessor is not yet wired into the running server (internal/app/cli.go), so
 		today a real StartImport call fails honestly with no S3 backend
 		configured -- check the errors below rather than assuming the import
 		silently worked.

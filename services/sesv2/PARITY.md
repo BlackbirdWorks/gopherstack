@@ -337,7 +337,7 @@ itself) -- documented per-field in the `ops:` notes, not silently dropped.
 
 ## Notes
 
-**2026-10-12 deep realism pass:** friendly-from `FromEmailAddress` ("Bob <b@example.com>") failed identity verification (now bare address); configuration-set SNS event destinations were stored but never delivered, SendEmail now publishes `Send`/`Delivery` events (SES event-publishing JSON) through the new `SetSNSPublisher` (wired in cli.go by wireSESv2SNS; root test cli_sesv2_sns_event_wiring_test.go). Tests: deep_flows_sdk_test.go. Not delivered: CloudWatch/Firehose/EventBridge destinations, Bounce/Complaint outcomes, suppression-list drop; sandbox recipient verification is not enforced (lenient, would reject most in-repo senders).
+**2026-10-12 deep realism pass:** friendly-from `FromEmailAddress` ("Bob <b@example.com>") failed identity verification (now bare address); configuration-set SNS event destinations were stored but never delivered, SendEmail now publishes `Send`/`Delivery` events (SES event-publishing JSON) through the new `SetSNSPublisher` (wired in internal/app/cli.go by wireSESv2SNS; root test internal/app/sesv2_sns_event_wiring_test.go). Tests: deep_flows_sdk_test.go. Not delivered: CloudWatch/Firehose/EventBridge destinations, Bounce/Complaint outcomes, suppression-list drop; sandbox recipient verification is not enforced (lenient, would reject most in-repo senders).
 
 ### 2026-10-05 (gopherstack-fb5ao): secret-echo audit
 
@@ -611,7 +611,7 @@ real `aws-sdk-go-v2/service/sesv2` client, not just decoded JSON maps.
 - SDK-driven integration test coverage (`test/integration/*_parity_test.go`)
   has not been run for this service — this and prior passes added a
   route/path regression test (`route_matrix_test.go`) and real-SDK-client
-  round-trip unit tests (see "This pass" above); no `make build-linux` +
+  round-trip unit tests (see "This pass" above); no `task build-linux` +
   Docker-based integration run was performed.
 
 ## Traps for the next auditor

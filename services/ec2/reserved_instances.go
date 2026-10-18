@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 func (b *InMemoryBackend) DescribeReservedInstances(ids []string) []*ReservedInstance {
@@ -114,7 +114,7 @@ func (b *InMemoryBackend) PurchaseReservedInstancesOffering(
 		return nil, fmt.Errorf("%w: %s", ErrReservedInstancesOfferingNotFound, offeringID)
 	}
 
-	id := "r-" + uuid.New().String()[:8]
+	id := awsid.New("r-")
 	now := time.Now().UTC()
 	ri := &ReservedInstance{
 		ReservedInstancesID: id,
@@ -158,7 +158,7 @@ func (b *InMemoryBackend) CreateReservedInstancesListing(
 	copy(rendered, schedules)
 	rendered[0].Active = true
 
-	id := "rsl-" + uuid.New().String()[:8]
+	id := awsid.New("rsl-")
 	l := &ReservedInstancesListing{
 		ReservedInstancesListingID: id,
 		ReservedInstancesID:        reservedInstancesID,
@@ -273,7 +273,7 @@ func (b *InMemoryBackend) ModifyReservedInstances(
 	results := b.mintModifiedReservedInstances(sources, targets)
 
 	now := time.Now().UTC()
-	id := "rimod-" + uuid.New().String()[:8]
+	id := awsid.New("rimod-")
 	m := &ReservedInstancesModification{
 		ReservedInstancesModificationID: id,
 		ClientToken:                     clientToken,
@@ -309,7 +309,7 @@ func (b *InMemoryBackend) mintModifiedReservedInstances(
 
 	for _, t := range targets {
 		minted := base
-		minted.ReservedInstancesID = "r-" + uuid.New().String()[:8]
+		minted.ReservedInstancesID = awsid.New("r-")
 		minted.State = SpotFleetStateActive
 		minted.InstanceCount = t.InstanceCount
 

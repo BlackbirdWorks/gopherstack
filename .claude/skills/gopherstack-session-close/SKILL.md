@@ -1,6 +1,6 @@
 ---
 name: gopherstack-session-close
-description: Execute gopherstack's mandatory end-of-session close protocol completely and in order — file follow-up issues, run gates, close/update bd issues, then git pull --rebase, bd dolt push, git push, verify git status is clean. Use whenever a work session in this repo is ending, whenever asked to "wrap up", "close out", "finish this session", or before declaring work done. The single failure mode this exists to prevent is work that is committed but never pushed, or completed but never recorded in bd.
+description: Execute gopherstack's mandatory end-of-session close protocol completely and in order — file follow-up issues, run gates, close/update bd issues, then run task bd-audit, git pull --rebase, git push, verify git status is clean. Use whenever a work session in this repo is ending, whenever asked to "wrap up", "close out", "finish this session", or before declaring work done. The single failure mode this exists to prevent is work that is committed but never pushed, or completed but never recorded in bd.
 ---
 
 # gopherstack session close
@@ -30,9 +30,14 @@ bd create --title="<title>" --description="<desc>" --type=task --priority=<0-4>
 bd update <id> --claim        # if you're taking something on
 bd close <id> [--reason="<why>"]
 
-# 4. MANDATORY push sequence — do not stop partway
+# 4. Audit trailers on the branch, before the PR is squashed; reconcile any
+#    TRAILER MISMATCH / TYPO'D TRAILER ID findings
+task bd-audit
+
+# 5. MANDATORY push sequence — do not stop partway
+# Do NOT run `bd dolt push`: embedded Dolt, no remote, silently does nothing
 git pull --rebase
-bd dolt push
+git add .beads/issues.jsonl   # bd's auto-export hook usually does this
 git push
 git status                    # MUST show "up to date with origin"
 ```
@@ -48,7 +53,7 @@ else's problem (rebase conflict, stale branch, etc.) — resolve it.
 | Nothing (pure investigation/planning) | none — but still push any bd issue changes |
 | One service's Go code | `go test -race ./services/<svc>/...` |
 | Shared `pkgs/` code | `go build ./...` plus tests for every consumer you touched |
-| Anything you intend to open a PR from | full gate: `make lint && make test && make build-linux && make integration-test` |
+| Anything you intend to open a PR from | full gate: `task lint && task test && task build-linux && task integration-test` |
 
 See the `gopherstack-gates` skill for the full decision table and linter
 gotchas — don't re-derive it here.
@@ -71,7 +76,6 @@ gotchas — don't re-derive it here.
 | `bd remember "insight"` / `bd memories <keyword>` / `bd forget <key>` | persistent knowledge — use instead of MEMORY.md files |
 | `bd human <id>` | flag an issue for human decision |
 | `bd prime` | reload full bd context after compaction |
-| `bd dolt push` | push the Dolt-backed tracker DB to remote |
 
 Use `bd` for ALL task tracking in this repo — never TodoWrite, TaskCreate, or
 markdown TODO lists. Use `bd remember` instead of a MEMORY.md file.

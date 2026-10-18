@@ -95,6 +95,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		PerformanceInsightsKMSKeyID: performanceInsightsKMSKeyID,
 		PerformanceInsightsEnabled:  enablePerformanceInsights,
 	}
+	b.joinEngineLocked(inst)
 	b.instancePut(inst)
 	if len(tags) > 0 {
 		b.tagsStore(region)[instanceArn] = tagsFromMap(tags)

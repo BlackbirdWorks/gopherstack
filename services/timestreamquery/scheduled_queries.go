@@ -38,6 +38,10 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 		return nil, err
 	}
 
+	if err := b.checkTableRefs(ctx, queryString); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("CreateScheduledQuery")

@@ -44,7 +44,7 @@ func TestRealClient_BatchDescribeUserLimits(t *testing.T) {
 	assert.Equal(t, "alice", aws.ToString(out.UserLimits[0].UserName))
 	require.Len(t, out.UserLimits[0].EffectiveLimits, 2)
 
-	byType := map[types.ResourceType]types.EffectiveLimit{}
+	byType := make(map[types.ResourceType]types.EffectiveLimit)
 	for _, l := range out.UserLimits[0].EffectiveLimits {
 		byType[l.ResourceType] = l
 	}
@@ -112,7 +112,7 @@ func TestRealClient_BatchDescribeUserLimits_EnterpriseEdition(t *testing.T) {
 	require.Len(t, out.UserLimits, 1)
 	require.Len(t, out.UserLimits[0].EffectiveLimits, 2)
 
-	got := map[types.ResourceType]int64{}
+	got := make(map[types.ResourceType]int64)
 	for _, l := range out.UserLimits[0].EffectiveLimits {
 		got[l.ResourceType] = aws.ToInt64(l.LimitValue)
 	}

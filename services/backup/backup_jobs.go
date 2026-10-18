@@ -276,8 +276,6 @@ func jobMatchesFilter(j *Job, f ListBackupJobsFilter) bool {
 
 // ListBackupJobsFiltered returns backup jobs matching the filter, with pagination.
 // Returns (jobs, nextToken).
-//
-//nolint:dupl // structurally identical to ListCopyJobsFiltered but operates on a different type
 func (b *InMemoryBackend) ListBackupJobsFiltered(f ListBackupJobsFilter) ([]*Job, string) {
 	b.mu.RLock("ListBackupJobsFiltered")
 	defer b.mu.RUnlock()
@@ -378,6 +376,15 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 		}
 	}
 
+	snapshot, snapErr := b.captureSnapshotLocked(job)
+	if snapErr != nil {
+		job.State = statusFailed
+		job.CompletionTime = &now
+		job.StatusMessage = snapErr.Error()
+
+		return nil
+	}
+
 	job.State = statusCompleted
 	job.CompletionTime = &now
 	job.PercentDone = "100.0"
@@ -413,6 +420,7 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 		Tags:                maps.Clone(job.RecoveryPointTags),
 		Lifecycle:           job.Lifecycle,
 		CalculatedLifecycle: calculateLifecycle(job.Lifecycle, now),
+		Snapshot:            snapshot,
 	}
 	b.recoveryPoints.Put(rp)
 	vault.NumberOfRecoveryPoints++

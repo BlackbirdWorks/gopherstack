@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -219,6 +220,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.region = snap.Region
 	b.accountCounter = snap.AccountCounter
 	b.statusCounter = snap.StatusCounter
+	b.failInterruptedCreatesLocked(time.Now())
 
 	return nil
 }

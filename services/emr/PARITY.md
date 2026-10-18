@@ -612,7 +612,7 @@ catch -- the forward check (`TestSDKCompleteness`) only ever verified every
 *real* op was covered, never that every *advertised* op was real, so this
 survived three prior audit passes undetected.
   - **Keep-vs-delete decision:** checked for internal dependents before
-    deciding -- `cli.go`, the dashboard, and `ui/src/routes/emr/` do not
+    deciding -- `internal/app/cli.go`, the dashboard, and `ui/src/routes/emr/` do not
     reference `ListTagsForResource` anywhere; only this package's own tests
     (`handler_tags_test.go`, `handler_wire_shape_test.go`,
     `isolation_test.go`, `persistence_test.go`) call it, and they call it as

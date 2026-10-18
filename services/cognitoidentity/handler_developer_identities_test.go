@@ -140,6 +140,7 @@ func TestHandler_MergeDeveloperIdentities(t *testing.T) {
 				createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
 					"IdentityPoolName":               "merge-pool",
 					"AllowUnauthenticatedIdentities": true,
+					"DeveloperProviderName":          "developer.example.com",
 				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -302,6 +303,7 @@ func TestHandler_UnlinkDeveloperIdentity(t *testing.T) {
 				createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
 					"IdentityPoolName":               "unlink-developer-pool",
 					"AllowUnauthenticatedIdentities": true,
+					"DeveloperProviderName":          "developer.example.com",
 				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 
@@ -395,6 +397,7 @@ func TestHandler_UnlinkDeveloperIdentity_WrongUser_Returns403(t *testing.T) {
 	createRec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
 		"IdentityPoolName":               "unlink-dev-403-pool",
 		"AllowUnauthenticatedIdentities": true,
+		"DeveloperProviderName":          "developer.example.com",
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 

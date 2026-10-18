@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 type jsonChangeVisibilityReq struct {
@@ -37,7 +35,7 @@ func (h *Handler) handleChangeMessageVisibility(
 
 	if err := h.Backend.ChangeMessageVisibility(&ChangeMessageVisibilityInput{
 		QueueURL:          req.QueueURL,
-		Region:            httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		Region:            h.requestScope(r),
 		ReceiptHandle:     req.ReceiptHandle,
 		VisibilityTimeout: req.VisibilityTimeout,
 	}); err != nil {
@@ -65,7 +63,7 @@ func (h *Handler) handleChangeMessageVisibilityBatch(
 
 	out, err := h.Backend.ChangeMessageVisibilityBatch(&ChangeMessageVisibilityBatchInput{
 		QueueURL: req.QueueURL,
-		Region:   httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		Region:   h.requestScope(r),
 		Entries:  entries,
 	})
 	if err != nil {

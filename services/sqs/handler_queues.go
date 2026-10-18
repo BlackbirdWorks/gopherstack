@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -61,7 +60,7 @@ func (h *Handler) handleCreateQueue(
 		scheme = "https"
 	}
 
-	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
+	region := h.requestScope(r)
 
 	var initialTags map[string]string
 	if req.Tags != nil {
@@ -97,7 +96,7 @@ func (h *Handler) handleDeleteQueue(
 		return nil, ErrUnknownAction
 	}
 
-	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
+	region := h.requestScope(r)
 
 	if err := h.Backend.DeleteQueue(&DeleteQueueInput{QueueURL: req.QueueURL, Region: region}); err != nil {
 		return nil, err
@@ -115,7 +114,7 @@ func (h *Handler) handleListQueues(
 	// ListQueues body may be empty; ignore unmarshal errors
 	_ = json.Unmarshal(body, &req)
 
-	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
+	region := h.requestScope(r)
 
 	out, err := h.Backend.ListQueues(&ListQueuesInput{
 		QueueNamePrefix: req.QueueNamePrefix,
@@ -145,7 +144,7 @@ func (h *Handler) handleGetQueueURL(
 		return nil, ErrUnknownAction
 	}
 
-	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
+	region := h.requestScope(r)
 
 	out, err := h.Backend.GetQueueURL(&GetQueueURLInput{
 		QueueName: req.QueueName, Region: region, OwnerAccountID: req.QueueOwnerAWSAccountID,
@@ -169,7 +168,7 @@ func (h *Handler) handlePurgeQueue(
 
 	if err := h.Backend.PurgeQueue(&PurgeQueueInput{
 		QueueURL: req.QueueURL,
-		Region:   httputils.ExtractRegionFromRequest(r, h.DefaultRegion),
+		Region:   h.requestScope(r),
 	}); err != nil {
 		return nil, err
 	}

@@ -1,5 +1,5 @@
 {
-  "_comment": "Project-scoped MCP servers for development only. NOT loaded by the gopherstack runtime binary — Claude Code / compatible IDE clients read this file. Run `make dev-mcp-install` once to install the server CLIs.",
+  "_comment": "Project-scoped MCP servers for development only. NOT loaded by the gopherstack runtime binary — Claude Code / compatible IDE clients read this file. Run `task dev-mcp-install` once to install the server CLIs.",
   "mcpServers": {
     "gopls": {
       "type": "stdio",

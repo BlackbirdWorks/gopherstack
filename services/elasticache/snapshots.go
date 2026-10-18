@@ -65,6 +65,13 @@ func (b *InMemoryBackend) CreateSnapshotFull(
 		snap.SourceClusterCreatedAt = c.CreatedAt
 		snap.CacheNodeIDs = slices.Clone(nodeIDsOf(c))
 		snap.CacheNodeAZs = slices.Clone(c.CacheNodeAZs)
+
+		data, err := b.captureClusterDataLocked(region, c)
+		if err != nil {
+			return nil, err
+		}
+
+		snap.Data = data
 	}
 
 	if replicationGroupID != "" {
@@ -81,6 +88,13 @@ func (b *InMemoryBackend) CreateSnapshotFull(
 		snap.ReplicationGroupID = rg.ReplicationGroupID
 		snap.NodeType = firstNonEmpty(rg.CacheNodeType, snap.NodeType)
 		snapshotGroupState(snap, rg)
+
+		data, err := b.captureGroupDataLocked(region, rg)
+		if err != nil {
+			return nil, err
+		}
+
+		snap.Data = data
 	}
 
 	snapStore.Put(snap)
@@ -181,6 +195,7 @@ func (b *InMemoryBackend) CopySnapshot(
 
 	cp := *src
 	cp.NodeGroups = cloneNodeGroups(src.NodeGroups)
+	cp.Data = cloneSnapshotData(src.Data)
 	cp.SnapshotName = targetSnapshotName
 	cp.ARN = b.snapshotARN(region, targetSnapshotName)
 	cp.CreatedAt = time.Now()
@@ -215,6 +230,7 @@ func (b *InMemoryBackend) CopySnapshotFull(
 
 	cp := *src
 	cp.NodeGroups = cloneNodeGroups(src.NodeGroups)
+	cp.Data = cloneSnapshotData(src.Data)
 	cp.SnapshotName = targetSnapshotName
 	cp.ARN = b.snapshotARN(region, targetSnapshotName)
 	cp.CreatedAt = time.Now()

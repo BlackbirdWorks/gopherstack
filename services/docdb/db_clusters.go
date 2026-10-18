@@ -174,6 +174,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	if err = b.storeNewCluster(cluster, opts); err != nil {
 		return nil, err
 	}
+	b.provisionClusterLocked(cluster, cmp.Or(masterUserPassword, cluster.managedPassword))
 	if len(tags) > 0 {
 		b.tagsStore(region)[clusterArn] = tagsFromMap(tags)
 	}
@@ -255,6 +256,7 @@ func (b *InMemoryBackend) DeleteDBCluster(
 
 	b.releaseMasterSecret(c)
 	b.clusterDelete(region, id)
+	b.dropUnitLocked(region, id)
 	b.detachFromGlobalClusters(cp.DBClusterArn)
 	delete(b.tagsStore(region), b.clusterARN(region, id))
 	b.recordEvent(region, id, sourceTypeDBCluster, cp.DBClusterArn, "DB cluster deleted", eventCatDelete)
@@ -263,6 +265,32 @@ func (b *InMemoryBackend) DeleteDBCluster(
 }
 
 func (b *InMemoryBackend) ModifyDBCluster(
+	ctx context.Context,
+	id, paramGroupName string,
+	deletionProtection *bool,
+	backupRetentionPeriod int,
+	preferredBackupWindow, preferredMaintenanceWindow string,
+	opts *ModifyDBClusterOptions,
+) (*DBCluster, error) {
+	res, err := b.modifyDBCluster(
+		ctx, id, paramGroupName, deletionProtection, backupRetentionPeriod,
+		preferredBackupWindow, preferredMaintenanceWindow, opts,
+	)
+	if err != nil || opts == nil {
+		return res, err
+	}
+	password := opts.MasterUserPassword
+	if res.managedPassword != "" && (opts.RotateMasterUserPassword || opts.ManageMasterUserPassword) {
+		password = res.managedPassword
+	}
+	if err = b.applyMasterPassword(getRegion(ctx, b.region), res.DBClusterIdentifier, password); err != nil {
+		return nil, err
+	}
+
+	return res, nil
+}
+
+func (b *InMemoryBackend) modifyDBCluster(
 	ctx context.Context,
 	id, paramGroupName string,
 	deletionProtection *bool,
@@ -309,6 +337,7 @@ func (b *InMemoryBackend) ModifyDBCluster(
 			return nil, err
 		}
 	}
+	b.reapplyLiveLocked(c)
 
 	return copyCluster(c), nil
 }
@@ -386,6 +415,7 @@ func (b *InMemoryBackend) renameCluster(region, oldID string, c *DBCluster) {
 			inst.DBClusterIdentifier = c.DBClusterIdentifier
 		}
 	}
+	b.rekeyUnitLocked(region, oldID, c.DBClusterIdentifier)
 	b.clusterPut(c)
 }
 
@@ -444,6 +474,10 @@ func (b *InMemoryBackend) StopDBCluster(ctx context.Context, id string) (*DBClus
 		return nil, fmt.Errorf("%w: cluster %s is not in available state", ErrInvalidClusterState, id)
 	}
 	c.Status = statusStopped
+	if lb := b.unitLocked(region, id); lb != nil {
+		c.Status = statusStopping
+		b.runUnitOpLocked(lb, opStop)
+	}
 	b.recordEvent(region, id, sourceTypeDBCluster, c.DBClusterArn, "DB cluster stopped", "availability")
 
 	return copyCluster(c), nil
@@ -461,6 +495,10 @@ func (b *InMemoryBackend) StartDBCluster(ctx context.Context, id string) (*DBClu
 		return nil, fmt.Errorf("%w: cluster %s is not in stopped state", ErrInvalidClusterState, id)
 	}
 	c.Status = statusAvailable
+	if lb := b.unitLocked(region, id); lb != nil {
+		c.Status = statusStarting
+		b.runUnitOpLocked(lb, opStart)
+	}
 	b.recordEvent(region, id, sourceTypeDBCluster, c.DBClusterArn, "DB cluster started", "availability")
 
 	return copyCluster(c), nil
@@ -636,6 +674,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 	}
 	extras.applyTo(cluster)
 	b.clusterPut(cluster)
+	b.provisionClusterLocked(cluster, "")
 
 	return copyCluster(cluster), nil
 }
@@ -719,6 +758,7 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 	}
 	extras.applyTo(cluster)
 	b.clusterPut(cluster)
+	b.provisionClusterLocked(cluster, "")
 
 	return copyCluster(cluster), nil
 }

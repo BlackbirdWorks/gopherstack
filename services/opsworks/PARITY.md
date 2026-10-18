@@ -101,12 +101,12 @@ final DescribeStacks confirming a typed `ResourceNotFoundException`. All
 subtests pass against the real container. Grade moves B -> A.
 
 **Registration (2026-08-08, gopherstack-91e0)**: this package had no `Provider{}`
-entry in `cli.go`'s `getServiceProviders` chain from 2026-06-03 (an accidental
+entry in `internal/app/cli.go`'s `getServiceProviders` chain from 2026-06-03 (an accidental
 drop during an unrelated FSx-service PR's rebase-conflict resolution, per git
 history) until this pass. Every audit above, including the grade below, was
 performed against code that could not actually receive a request. Now
 registered and wired into `wireResourceGroupsTagging`
-(`wireTaggingOpsWorks`); `cli_service_registration_test.go` (repo root) now
+(`wireTaggingOpsWorks`); `internal/app/service_registration_test.go` (repo root) now
 fails the build if a `services/*/` directory ever again lacks a provider
 entry.
 
@@ -260,12 +260,12 @@ close and three newly-found wire-shape bugs:
    All three deleted rather than left as inert dead code.
 
 None of these required a `go.mod`/`go.sum` change, a new goroutine/timer, or
-touching `cli.go`. All changes stayed within `services/opsworks/`.
+touching `internal/app/cli.go`. All changes stayed within `services/opsworks/`.
 
 ## Live re-audit (2026-08-08, gopherstack-vjj2)
 
 The 2026-07-23 pass above (and its `A` grade) was performed while opsworks had
-no `Provider{}` entry in `cli.go` — see the Registration note — so nothing in
+no `Provider{}` entry in `internal/app/cli.go` — see the Registration note — so nothing in
 it had ever been exercised by an actual HTTP request. This pass drove real
 requests through a locally built+running server (`bin/gopherstack serve
 --persist`, via `.claude/skills/run-gopherstack/driver.sh`) with raw `curl`
@@ -293,7 +293,7 @@ assumed).
 
 Persistence was checked through the real snapshot path, not `Snapshot()`
 called directly: started the server with `--persist`, created a stack +
-layer + a stack tag, stopped the server (triggers `cli.go`'s
+layer + a stack tag, stopped the server (triggers `internal/app/cli.go`'s
 `defer persistManager.SaveAll(ctx)` on SIGTERM), confirmed
 `$GOPHERSTACK_DATA_DIR/OpsWorks` was written, restarted, and confirmed
 `DescribeStacks`/`DescribeLayers`/`ListTags` returned the same stack, layer,

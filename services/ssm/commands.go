@@ -145,6 +145,7 @@ func (b *InMemoryBackend) SendCommand(
 		b.commandInvocations[region] = make(map[string][]CommandInvocation)
 	}
 	b.commandInvocationsStore(region)[cmdID] = invocations
+	b.queueAgentCommandsLocked(region, input, invocations, now)
 
 	// Drive Pending → InProgress immediately so the InProgress window is always
 	// observable. When no exec delay is configured the command then completes
@@ -602,6 +603,10 @@ func (b *InMemoryBackend) CancelCommand(
 
 		if invs[i].direct && invs[i].Status != commandStatusPending && invs[i].Status != commandStatusInProgress {
 			continue
+		}
+
+		if invs[i].agent {
+			b.queueAgentCancelLocked(region, invs[i])
 		}
 
 		invs[i].Status = commandStatusCancelled

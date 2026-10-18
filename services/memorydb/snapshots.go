@@ -92,6 +92,13 @@ func (b *InMemoryBackend) CreateSnapshot(ctx context.Context, req *createSnapsho
 		ClusterConfiguration: b.snapshotClusterConfigFor(c),
 	}
 
+	data, err := c.engine.Snapshot()
+	if err != nil {
+		return nil, err
+	}
+
+	s.Data = data
+
 	b.snapshotsStore(region).Put(s)
 	b.arnToResourceStore(region)[snapshotARN] = resourceRef{Kind: resourceKindSnapshot, Name: req.SnapshotName}
 
@@ -211,6 +218,7 @@ func (b *InMemoryBackend) CopySnapshot(ctx context.Context, req *copySnapshotReq
 		Tags:                 tags,
 		CreatedAt:            time.Now(),
 		ClusterConfiguration: src.ClusterConfiguration,
+		Data:                 src.Data,
 	}
 
 	b.snapshotsStore(region).Put(dst)

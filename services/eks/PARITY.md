@@ -1306,7 +1306,7 @@ FIXED: DescribeAddonVersions and DescribeClusterVersions honour maxResults (1-10
 
 ## 2026-10-09 -- Argo CD IdcManagedApplicationArn
 
-`SetIdcApplicationManager` (wired in `cli_eks_idc_wiring.go`) creates an ssoadmin application in the capability's `IdcRegion` (default: the cluster region) for `AwsIdc.IdcInstanceArn`, reports it as `IdcManagedApplicationArn`, and removes it on DeleteCapability/DeleteCluster. An unknown instance fails CreateCapability with InvalidParameterException. The application name and provider ARN are emulator choices (not documented). Proof: `TestCapability_IdcManagedApplication`, root `TestEKSArgoCdIdcManagedApplication`.
+`SetIdcApplicationManager` (wired in `internal/app/eks_idc_wiring.go`) creates an ssoadmin application in the capability's `IdcRegion` (default: the cluster region) for `AwsIdc.IdcInstanceArn`, reports it as `IdcManagedApplicationArn`, and removes it on DeleteCapability/DeleteCluster. An unknown instance fails CreateCapability with InvalidParameterException. The application name and provider ARN are emulator choices (not documented). Proof: `TestCapability_IdcManagedApplication`, root `TestEKSArgoCdIdcManagedApplication`.
 
 ## 2026-10-10 realism pass (CLI/SDK probing)
 
@@ -1328,5 +1328,5 @@ FIXED: DescribeAddonVersions and DescribeClusterVersions honour maxResults (1-10
 - Each cluster's `identity.oidc.issuer` is now `https://oidc.eks.<region>.amazonaws.com/id/<32 hex>` (was 16 hex) and is backed by a real RS256 signing key. The key is derived deterministically from the issuer string (`irsa_key.go`), so it survives snapshot/restore with no snapshot field or version bump. It is derivable by anyone who knows the issuer: fine for an emulator, not a secret.
 - Served on the main port, unauthenticated: `GET /_gopherstack/eks/oidc/id/<id>/.well-known/openid-configuration` and `/keys` (JWKS), plus the same under `Host: oidc.eks.<region>.amazonaws.com` at `/id/<id>/...`. Lookup spans all regions.
 - Token minting (emulator extension, not an AWS API): `POST /_gopherstack/eks/<cluster>/serviceaccount-token` with JSON `{namespace, name, audience | audiences, ttlSeconds, podName}`; defaults `sts.amazonaws.com`, 3600s. Returns `{token, issuer, expirationTimestamp}`. Claims: `iss`, `sub=system:serviceaccount:<ns>:<name>`, `aud`, `exp`, `iat`, `nbf`, `jti`, `kubernetes.io{namespace,serviceaccount{name,uid},pod{name,uid}}`.
-- STS `AssumeRoleWithWebIdentity` verifies these tokens against the issuer's keys (see `services/sts/PARITY.md`). Wired by `wireEKSIRSAToSTS` in `cli_eks_irsa.go`.
+- STS `AssumeRoleWithWebIdentity` verifies these tokens against the issuer's keys (see `services/sts/PARITY.md`). Wired by `wireEKSIRSAToSTS` in `internal/app/eks_irsa.go`.
 - Tests: `irsa_test.go` (`TestMintServiceAccountToken`, `TestOIDCIssuerKeys`, `TestOIDCKeysSurviveRestore`, `TestOIDCEndpoints`, `TestOIDCRouteMatcher`) and `test/integration/eks_irsa_test.go` (SDK, `stscreds.WebIdentityRoleProvider`).

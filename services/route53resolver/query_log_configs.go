@@ -7,9 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 func (b *InMemoryBackend) queryLogConfigPoliciesStore(region string) map[string]string {
@@ -69,7 +68,7 @@ func (b *InMemoryBackend) CreateResolverQueryLogConfig(
 	}
 
 	now := currentTime()
-	id := "rqlc-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-rqlc-")
 	configARN := arn.Build(
 		"route53resolver",
 		region,
@@ -122,7 +121,7 @@ func (b *InMemoryBackend) AddQueryLogConfigInternal(
 	b.mu.Lock("AddQueryLogConfigInternal")
 	defer b.mu.Unlock()
 
-	id := "rqlc-" + uuid.New().String()[:8]
+	id := awsid.New("rslvr-rqlc-")
 	configARN := arn.Build(
 		"route53resolver",
 		b.region,

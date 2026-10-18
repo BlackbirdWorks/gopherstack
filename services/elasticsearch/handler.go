@@ -517,7 +517,7 @@ func (h *Handler) writeError(r *http.Request, w http.ResponseWriter, status int,
 	ctx := r.Context()
 	message = strings.TrimPrefix(message, code+": ")
 	logger.Load(ctx).ErrorContext(r.Context(), "elasticsearch error", "code", code, "message", message)
-	w.Header().Set("x-amzn-ErrorType", code)
+	w.Header().Set("X-Amzn-Errortype", code)
 	httputils.WriteJSON(ctx, w, status, errorResponseJSON{Message: message})
 }
 

@@ -119,14 +119,14 @@ leaks: {status: clean, note: "no goroutines/janitors in this backend; all state 
 
 ## 2026-10-08: RetainSharingOnAccountLeaveOrganization enforced
 
-An Organizations account leave (RemoveAccountFromOrganization, or LeaveOrganization from a member account) now fires `OnAccountLeave` hooks; cli.go `wireRAMOrganizations` registers `ram.HandleAccountLeftOrganization`, which disassociates that account's principal associations from every share whose RetainSharingOnAccountLeaveOrganization is not true ("whether the consumer account retains access ... after leaving the organization"). Tests: `TestHandleAccountLeftOrganization`, `TestAccountLeaveHook`, root `TestWireRAMOrganizations`.
+An Organizations account leave (RemoveAccountFromOrganization, or LeaveOrganization from a member account) now fires `OnAccountLeave` hooks; internal/app/cli.go `wireRAMOrganizations` registers `ram.HandleAccountLeftOrganization`, which disassociates that account's principal associations from every share whose RetainSharingOnAccountLeaveOrganization is not true ("whether the consumer account retains access ... after leaving the organization"). Tests: `TestHandleAccountLeftOrganization`, `TestAccountLeaveHook`, root `TestWireRAMOrganizations`.
 
 ## gopherstack-q91e (2026-09-06): a resource share genuinely has no effect anywhere outside services/ram/ -- structural, not a code bug
 
 **Premise confirmed.** `grep -rn "services/ram" --include=*.go .` outside `services/ram/`
 turns up exactly three call sites, none of them an authorization check:
-`cli.go`/`dashboard/ui.go`/`internal/teststack/teststack.go` construct the backend (registration
-boilerplate), and `cli.go:11087` (`wireTaggingRAM`) wires RAM into the Resource Groups Tagging
+`internal/app/cli.go`/`dashboard/ui.go`/`internal/teststack/teststack.go` construct the backend (registration
+boilerplate), and `internal/app/cli.go:11087` (`wireTaggingRAM`) wires RAM into the Resource Groups Tagging
 API purely so a share's tags show up in `GetResources` -- it reads `ResourceShare.Tags`, never
 `b.associations`, and grants nothing. No other service consults a `ResourceShareAssociation`,
 a `SharePermissionAssociation`, or any RAM state before deciding whether to grant access to
@@ -195,7 +195,7 @@ third new subtest, `organization_ARN_same_account_segment_-_still_external`, gua
 naive fix that would also stop treating same-account-segment org/OU ARNs as external.
 
 Gates: `go build ./services/ram/...` clean; `go test -race -count=1 ./services/ram/...` passes;
-`golangci-lint run services/ram/... ./` reports `0 issues.`. No `cli.go` or other-service files
+`golangci-lint run services/ram/... ./` reports `0 issues.`. No `internal/app/cli.go` or other-service files
 touched, so the repo-wide blast-radius gates were not required.
 
 ## gopherstack-9ojs (2026-09-07): status enums are async modelling gaps, not defects -- but AssociateResourceShare/CreateResourceShare accepted any string as a resourceArns entry with zero validation
@@ -312,7 +312,7 @@ evicted-after-TTL + kept-within-TTL).
 
 Wired the elasticsearch-grafana-and-ram items_still_open gap: EnableSharingWithAwsOrganization
 now creates AWSServiceRoleForResourceAccessManager in the IAM backend via a
-new cross_service.go (grafana's siblingServices pattern). No cli.go changes
+new cross_service.go (grafana's siblingServices pattern). No internal/app/cli.go changes
 needed -- ctx.Config is already generically wired for every provider.
 
 ### 2026-09-18 (gopherstack-xhu2t reqfielddiff tier-1 sweep)
@@ -761,8 +761,8 @@ were unreachable dead code. Verified real semantics before implementing, not gue
   Lake-Formation-mediated Glue sharing.
 
 **Implementation**: `services/glue/interfaces.go`'s new `ResourceShareCreator` seam
-(`PutPolicyBasedShare`/`DeletePolicyBasedShare`), wired in `cli.go`'s
-`wireGlueRAMPolicyShares` (mirrors `wireAWSConfigDelivery`'s adapter-in-cli.go pattern).
+(`PutPolicyBasedShare`/`DeletePolicyBasedShare`), wired in `internal/app/cli.go`'s
+`wireGlueRAMPolicyShares` (mirrors `wireAWSConfigDelivery`'s adapter-in-internal/app/cli.go pattern).
 `services/glue/resource_policies.go`'s `PutResourcePolicy`/`DeleteResourcePolicy` call
 the seam *after* releasing `b.mu` (`services/lambda/lifecycle.go`'s
 capture/release/call/re-lock pattern -- ram's lock never nests inside glue's).
@@ -821,8 +821,8 @@ state-machine table); `services/ram/policy_shares_wire_test.go` (real
 `aws-sdk-go-v2/service/ram` client against `httptest`, `errors.As`-asserting the exact
 typed exceptions for the two state-transition rejections and the full
 create-from-policy -> promote -> `STANDARD` lifecycle -- this is what caught the
-`httpQuery`-vs-body bug above); root `cli_glue_ram_policy_share_wiring_test.go` (mirrors
-`cli_mgn_s3_import_wiring_test.go`: drives the real `initializeServices` composition
+`httpQuery`-vs-body bug above); root `internal/app/glue_ram_policy_share_wiring_test.go` (mirrors
+`internal/app/mgn_s3_import_wiring_test.go`: drives the real `initializeServices` composition
 root, proving `wireGlueRAMPolicyShares` is actually called, not just defined).
 
 **Persistence**: `ResourceShare.FeatureSet`/`.PolicyResourceARN` are additive fields
@@ -843,7 +843,7 @@ field rows, nothing else; **no version bump** (`ramSnapshotVersion` stays `1`).
 checks), new `services/ram/policy_shares.go`; `services/glue/interfaces.go`
 (`ResourceShareCreator`), `services/glue/store.go` (`ramShareCreator` field +
 `SetResourceShareCreator`), `services/glue/resource_policies.go` (seam call sites), new
-`services/glue/policy_shares.go`; `cli.go` (`wireGlueRAMPolicyShares` +
+`services/glue/policy_shares.go`; `internal/app/cli.go` (`wireGlueRAMPolicyShares` +
 `glueRAMShareAdapter`, called from `wireGovernanceIntegrations`);
 `pkgs/persistence/testdata/snapshot_inventory.json` (ram rows only).
 

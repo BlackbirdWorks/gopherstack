@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // secondary_net.go: secondary interfaces, Outpost LAGs, and service link virtual
@@ -158,7 +158,7 @@ func (b *InMemoryBackend) CreateSecondaryNetwork(
 		State:               secondaryStateCreateComplete,
 		Ipv4CidrBlockAssociations: []SecondaryNetworkCidrAssoc{
 			{
-				AssociationID: "secnet-cidr-" + uuid.New().String()[:8],
+				AssociationID: awsid.New("secnet-cidr-"),
 				CidrBlock:     ipv4CidrBlock,
 				State:         secondaryCidrStateAssociated,
 			},
@@ -267,7 +267,7 @@ func (b *InMemoryBackend) CreateSecondarySubnet(
 		State:                secondaryStateCreateComplete,
 		Ipv4CidrBlockAssociations: []SecondarySubnetCidrAssoc{
 			{
-				AssociationID: "secsubnet-cidr-" + uuid.New().String()[:8],
+				AssociationID: awsid.New("secsubnet-cidr-"),
 				CidrBlock:     ipv4CidrBlock,
 				State:         secondaryCidrStateAssociated,
 			},

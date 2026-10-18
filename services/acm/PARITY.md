@@ -77,12 +77,12 @@ overall: A            # A = genuine fix found (wire-shape bug); B = already-accu
 #   2. Route 53 DNS-record verification for AcmeDomainValidation.Status -- investigated
 #      the wiring cost concretely rather than dismissing it: gopherstack DOES have an
 #      established cross-service backend-sharing pattern (services/cloudformation's
-#      ServiceBackends struct, injected in cli.go after core handlers are constructed,
+#      ServiceBackends struct, injected in internal/app/cli.go after core handlers are constructed,
 #      already gives CloudFormation direct in-process access to route53's Handler to
 #      create/read real hosted zones and record sets). Importing route53 into acm is not
 #      blocked by an import cycle (route53 does not import acm). But wiring ACM the same
 #      way is a materially larger change than the two closed this pass: it requires new
-#      cli.go initialization-order wiring (ACM would need to be constructed after/paired
+#      internal/app/cli.go initialization-order wiring (ACM would need to be constructed after/paired
 #      with a Route53 Handler instance, the same way CloudFormation is special-cased
 #      today, not through the generic service.Provider path ACM currently registers
 #      through), a provider-signature change, and reasoning about how a regional ACM
@@ -580,9 +580,9 @@ RequestCertificate with RSA_1024 now returns InvalidParameterException (its real
   safely act on, see gaps). Route 53 DNS-record verification for
   `AcmeDomainValidation.Status` got the deepest re-investigation: confirmed
   gopherstack already has a working cross-service backend-injection precedent
-  (`services/cloudformation`'s `ServiceBackends`, wired in `cli.go`) that `acm` could
+  (`services/cloudformation`'s `ServiceBackends`, wired in `internal/app/cli.go`) that `acm` could
   in principle reuse, and confirmed no import cycle blocks `acm` importing `route53`
-  -- but actually wiring it is cli.go-initialization-order-changing, cross-cutting
+  -- but actually wiring it is internal/app/cli.go-initialization-order-changing, cross-cutting
   work on the same scale as a full family, not a same-file fix, so it was flagged
   with a concrete next-pass path rather than half-wired or dismissed.
 

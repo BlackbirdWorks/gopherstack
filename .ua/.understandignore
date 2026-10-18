@@ -1,0 +1,180 @@
+# .understandignore — patterns for files/dirs to exclude from analysis
+# Syntax: same as .gitignore (globs, # comments, ! negation, trailing / for dirs)
+# Lines below are suggestions — uncomment to activate.
+# Use ! prefix to force-include something excluded by defaults.
+#
+# Built-in defaults (always excluded unless negated):
+#   node_modules/, .git/, dist/, build/, obj/, *.lock, *.min.js, etc.
+#
+
+# --- From .gitignore (uncomment to exclude) ---
+
+# /.idea
+# /Gopherstack.iml
+# .!*
+# *.!*
+# *.swp
+# *.swo
+# *.swn
+# .*.swp
+# .*.swo
+# .*.swn
+# *~
+# \#*#
+# /PLAN.md
+# /new.sh
+# /**/*.out
+# /awsgs
+# *.out
+# main
+# **/main
+# /gopherstack
+# test/terraform/gopherstack
+# test/terraform/bin/
+# /bin/
+# .DS_Store
+# coverage.html
+# **/*.txt
+# *.txt
+# !test/e2e/crosssdk/requirements.txt
+# **/*.log
+# test/e2e/failures/go.mod.bak
+# /go.mod.bak
+# !dashboard/static/favicon.png
+# *.tmp
+# copilot_changes.patch
+# ui/node_modules/
+# ui/.svelte-kit/
+# /.svelte-kit/
+# ui/build/
+# /dashboard/static/spa/*
+# !/dashboard/static/spa/.keep
+# .beads/*
+# !.beads/issues.jsonl
+# .gemini/
+# .runtime/
+# .claude/*
+# !.claude/skills/
+# .logs/
+# state.json
+# CLAUDE.local.md
+# e2e.test
+# .dolt/
+# *.db
+# .beads-credential-key
+# *.py
+# !test/e2e/crosssdk/*.py
+# .terraform
+# *.tfstate
+# *.tfstate.backup
+# lambda.zip
+# .terraform.lock.hcl
+# .terraform.lock.hcl
+# /releaser
+# .claude/settings.local.json
+# checkpoint.md
+# /cpu.pprof
+# /gendocs
+# /test/terraform/bin/gopherstack
+# /examples/s3-lambda-processor/bootstrap
+# .playwright-mcp/
+# .beads/proxieddb/
+# *.gate.lock*
+# /cmd/*/*
+# !/cmd/*/*/
+# !/cmd/*/*.*
+# .ua/intermediate/
+# .ua/diff-overlay.json
+
+# --- Detected directories (uncomment to exclude) ---
+
+# bench/
+# docs/
+# examples/
+# scripts/
+# test/
+# testdata/
+
+# --- Test file patterns (uncomment to exclude) ---
+
+# JS / TS
+# *.test.*
+# *.spec.*
+# *.snap
+# C# / .NET
+# **/*Tests.cs
+# **/*Test.cs
+# **/*Fixture.cs
+# **/*.Tests.csproj
+# Java / Kotlin
+# **/src/test/**
+# **/*Test.java
+# **/*IT.java
+# **/*Spec.kt
+# Go
+# **/*_test.go
+# C++
+# **/*_test.cc
+# **/*_test.cpp
+# **/*_test.cxx
+# **/*Test.cc
+# **/*Test.cpp
+# **/*_unittest.cc
+# **/*_unittest.cpp
+# **/*_browsertest.cc
+# **/*_benchmark.cc
+# **/*Benchmark.cpp
+# Python
+# **/test_*.py
+# **/*_test.py
+# **/tests.py
+# **/conftest.py
+# Rust
+# **/tests.rs
+# **/test_*.rs
+# **/*_test.rs
+# **/bench_*.rs
+# **/*_bench.rs
+# Ruby
+# **/*_spec.rb
+# **/*_test.rb
+# **/test_*.rb
+# **/spec_helper.rb
+# **/test_helper.rb
+# **/rails_helper.rb
+# Swift
+# **/Tests/**/*.swift
+# **/Specs/**/*.swift
+
+# --- Added exclusions ---
+services/azure*/
+services/cosmosdb*/
+test/terraform/azure/
+**/*azure*
+**/*cosmosdb*
+**/*Azure*
+AZURE.md
+examples/azure-services/
+pkgs/azureauth/
+*_test.go
+testdata/
+**/testdata/
+.beads/
+.claude/
+node_modules/
+**/node_modules/
+ui/dist/
+ui/build/
+ui/.svelte-kit/
+ui/coverage/
+dashboard/static/spa/
+go.sum
+package-lock.json
+# generated / large data
+dashboard/api/v1/dashboard.pb.go
+dashboard/api/v1/dashboardv1connect/dashboard.connect.go
+ui/src/lib/api/gopherstack/dashboard/v1/dashboard_pb.ts
+cmd/gendocs/render.go
+examples/s3-lambda-processor/function.zip
+*.zip
+*.tsv

@@ -406,10 +406,13 @@ func (b *InMemoryBackend) UpdateJob(id, queue string, priority *int, hopDestinat
 	return cloneJob(j), nil
 }
 
+// jobIDSuffixLen is the length of the random tail of a job ID ("<13-digit ms>-<6 chars>").
+const jobIDSuffixLen = 6
+
 // generateJobID generates a MediaConvert-style job ID.
 func generateJobID() string {
 	ts := time.Now().UnixMilli()
-	suffix := uuid.NewString()[:13]
+	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")[:jobIDSuffixLen]
 
 	return fmt.Sprintf("%d-%s", ts, suffix)
 }

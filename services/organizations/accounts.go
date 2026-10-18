@@ -2,7 +2,6 @@ package organizations
 
 import (
 	"cmp"
-	"fmt"
 	"slices"
 	"time"
 )
@@ -14,89 +13,25 @@ const (
 	joinedMethodInvited         = "INVITED"
 	joinedMethodCreated         = "CREATED"
 
-	createAccountStateSucceeded = "SUCCEEDED"
-	createAccountStateFailed    = "FAILED"
+	createAccountStateInProgress = "IN_PROGRESS"
+	createAccountStateSucceeded  = "SUCCEEDED"
+	createAccountStateFailed     = "FAILED"
 
 	createAccountFailureEmailExists = "EMAIL_ALREADY_EXISTS"
 )
 
-func (b *InMemoryBackend) failedCreateStatusLocked(name, reason string) *CreateAccountStatus {
-	b.statusCounter++
-	now := epochSeconds(time.Now())
-	status := &CreateAccountStatus{
-		ID:                 fmt.Sprintf("car-%012d", b.statusCounter),
-		AccountName:        name,
-		State:              createAccountStateFailed,
-		FailureReason:      reason,
-		RequestedTimestamp: now,
-		CompletedTimestamp: now,
-	}
-	b.createStatuses.Put(status)
-
-	return status
-}
-
-// createAccountLocked creates an account and status record.
-// Must be called with the write lock held.
-// A duplicate email yields a FAILED status with no account, as in AWS.
-func (b *InMemoryBackend) createAccountLocked(
-	name, email, roleName, iamUserAccessToBilling string,
-	acctIDFn func(counter int) string,
-	govCloudID string,
-	tags []Tag,
-) *CreateAccountStatus {
-	if b.emailToAccountID != nil {
-		if _, exists := b.emailToAccountID[email]; exists {
-			return b.failedCreateStatusLocked(name, createAccountFailureEmailExists)
-		}
-	}
-
-	b.accountCounter++
-	acctID := acctIDFn(b.accountCounter)
-
-	now := time.Now()
-	acct := &Account{
-		ID:                     acctID,
-		ARN:                    b.accountARN(b.org.ID, acctID),
-		Name:                   name,
-		Email:                  email,
-		Status:                 accountStatusActive,
-		JoinedMethod:           joinedMethodCreated,
-		JoinedAt:               now,
-		RoleName:               roleName,
-		IamUserAccessToBilling: iamUserAccessToBilling,
-	}
-
-	b.accounts.Put(acct)
-	b.accountParent[acctID] = b.root.ID
-	b.addAccountChild(b.root.ID, acctID)
-	b.setTagsLocked(acctID, tags)
-
-	if b.emailToAccountID == nil {
-		b.emailToAccountID = make(map[string]string)
-	}
-	b.emailToAccountID[email] = acctID
-
-	b.statusCounter++
-	statusID := fmt.Sprintf("car-%012d", b.statusCounter)
-
-	status := &CreateAccountStatus{
-		ID:                 statusID,
-		AccountID:          acctID,
-		GovCloudAccountID:  govCloudID,
-		AccountName:        name,
-		State:              createAccountStateSucceeded,
-		RequestedTimestamp: epochSeconds(now),
-		CompletedTimestamp: epochSeconds(now),
-	}
-
-	b.createStatuses.Put(status)
-
-	return status
-}
-
 // CreateAccount creates a new account and returns its status.
 func (b *InMemoryBackend) CreateAccount(
+	name, email, roleName, iamUserAccessToBilling string,
+	tags []Tag,
+) (*CreateAccountStatus, error) {
+	status, err := b.createAccount(name, email, roleName, iamUserAccessToBilling, tags)
+	b.flushProvisions()
+
+	return status, err
+}
+
+func (b *InMemoryBackend) createAccount(
 	name, email, roleName, iamUserAccessToBilling string,
 	tags []Tag,
 ) (*CreateAccountStatus, error) {
@@ -111,13 +46,19 @@ func (b *InMemoryBackend) CreateAccount(
 		return nil, err
 	}
 
-	return b.createAccountLocked(name, email, roleName, iamUserAccessToBilling, newAccountID, "", tags), nil
+	p := createParams{
+		name: name, email: email, roleName: roleName, iamUserAccessToBilling: iamUserAccessToBilling, tags: tags,
+	}
+
+	return b.createAccountLocked(p), nil
 }
 
 // DescribeCreateAccountStatus returns the status of a CreateAccount request.
 func (b *InMemoryBackend) DescribeCreateAccountStatus(
 	requestID string,
 ) (*CreateAccountStatus, error) {
+	b.settlePendingCreates()
+
 	b.mu.RLock("DescribeCreateAccountStatus")
 	defer b.mu.RUnlock()
 
@@ -126,11 +67,15 @@ func (b *InMemoryBackend) DescribeCreateAccountStatus(
 		return nil, ErrCreateAccountStatusNotFound
 	}
 
-	return s, nil
+	cp := *s
+
+	return &cp, nil
 }
 
 // DescribeAccount returns an account by ID.
 func (b *InMemoryBackend) DescribeAccount(accountID string) (*Account, error) {
+	b.settlePendingCreates()
+
 	b.mu.RLock("DescribeAccount")
 	defer b.mu.RUnlock()
 
@@ -150,6 +95,8 @@ func (b *InMemoryBackend) DescribeAccount(accountID string) (*Account, error) {
 }
 
 func (b *InMemoryBackend) ListAccounts() ([]*Account, error) {
+	b.settlePendingCreates()
+
 	b.mu.RLock("ListAccounts")
 	defer b.mu.RUnlock()
 
@@ -320,6 +267,16 @@ func (b *InMemoryBackend) CreateGovCloudAccount(
 	name, email, roleName, iamUserAccessToBilling string,
 	tags []Tag,
 ) (*CreateAccountStatus, error) {
+	status, err := b.createGovCloudAccount(name, email, roleName, iamUserAccessToBilling, tags)
+	b.flushProvisions()
+
+	return status, err
+}
+
+func (b *InMemoryBackend) createGovCloudAccount(
+	name, email, roleName, iamUserAccessToBilling string,
+	tags []Tag,
+) (*CreateAccountStatus, error) {
 	b.mu.Lock("CreateGovCloudAccount")
 	defer b.mu.Unlock()
 
@@ -331,14 +288,18 @@ func (b *InMemoryBackend) CreateGovCloudAccount(
 		return nil, err
 	}
 
-	// Pre-calculate the GovCloud account ID using the next counter value.
-	govCloudID := newGovCloudAccountID(b.accountCounter + 1)
+	p := createParams{
+		name: name, email: email, roleName: roleName, iamUserAccessToBilling: iamUserAccessToBilling,
+		tags: tags, govCloud: true,
+	}
 
-	return b.createAccountLocked(name, email, roleName, iamUserAccessToBilling, newAccountID, govCloudID, tags), nil
+	return b.createAccountLocked(p), nil
 }
 
 // ListCreateAccountStatus returns all CreateAccount status records, optionally filtered by state.
 func (b *InMemoryBackend) ListCreateAccountStatus(states []string) ([]*CreateAccountStatus, error) {
+	b.settlePendingCreates()
+
 	b.mu.RLock("ListCreateAccountStatus")
 	defer b.mu.RUnlock()
 

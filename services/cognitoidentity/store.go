@@ -93,6 +93,8 @@ type InMemoryBackend struct {
 	principalTags       *store.Table[PrincipalTagMapping]
 	principalTagsByPool *store.Index[PrincipalTagMapping]
 	registry            *store.Registry
+	assumer             RoleAssumer
+	keyResolver         TokenKeyResolver
 	mu                  *lockmetrics.RWMutex
 	accountID           string
 	region              string

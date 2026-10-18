@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // TransitGatewayClientVpnAttachment represents an attachment between a Client
@@ -71,7 +71,7 @@ func (b *InMemoryBackend) CreateClientVpnEndpointWithOptions(
 		trafficIPAddressType = addressFamilyIPv4
 	}
 
-	id := "cvpn-endpoint-" + uuid.New().String()[:8]
+	id := awsid.New("cvpn-endpoint-")
 	ep := &ClientVpnEndpoint{
 		ClientVpnEndpointID:        id,
 		DNSName:                    id + ".prod.clientvpn." + b.Region + ".amazonaws.com",

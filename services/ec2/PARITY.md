@@ -944,7 +944,7 @@ piecemeal as each op happens to get typed coverage.
 
 Gates: `go build ./...` (whole module -- caught and fixed 2 cross-package
 compile breaks from the `DescribeCustomerGateways`/`DescribeRouteTables`
-signature changes: `cli.go`'s `networkManagerEC2ResolverAdapter.
+signature changes: `internal/app/cli.go`'s `networkManagerEC2ResolverAdapter.
 ResolveCustomerGateway`, plus test call sites across
 cleanup_test.go/main_route_table_test.go/route_tables_test.go/
 persistence_test.go/networking1_test.go/handler_advanced_networking_test.go/
@@ -1408,7 +1408,7 @@ pattern-matching against the snapshots-side bug (bugs 1/2's shape), then confirm
 per-op rather than assumed broken by association.
 
 Gates: `go build ./...` (repo-wide, `Backend.CopyVolumes`'s exported signature changed),
-`make build-check` (`go build ./...`, `go vet -tags e2e ./...`, `go vet -tags integration
+`task build-check` (`go build ./...`, `go vet -tags e2e ./...`, `go vet -tags integration
 ./...`, all clean), `go vet ./services/ec2/...`, `gofmt -l services/ec2/*.go` (clean),
 `go test -race ./services/ec2/... -count=1` (`ok`, full suite including all new tests),
 `go test ./pkgs/persistence/... -count=1` (`ok`), `golangci-lint run ./services/ec2/...`
@@ -1502,7 +1502,7 @@ No persisted struct changed (all three fixes are response-only XML shapes plus o
 backend lookup call already exported); no `ec2SnapshotVersion` bump needed, and none of
 `KeyPair`/`ClientVpnEndpoint`/`IpamPoolAllocation` persisted fields changed.
 
-Gates: `go build ./...` (no exported signature changed, so `make build-check` wasn't
+Gates: `go build ./...` (no exported signature changed, so `task build-check` wasn't
 required, but ran anyway -- clean), `go vet ./services/ec2/...` and `gofmt -l` on every
 touched file (clean), `go test -race ./services/ec2/...` (`ok`, full suite including the
 3 new tests), `golangci-lint run ./services/ec2/...` (0 issues). No banned `//nolint`s.
@@ -1695,7 +1695,7 @@ tests updated, no external callers found via full-repo grep):
 or type changed; no `ec2SnapshotVersion` bump; `go test
 ./services/ec2/... -run TestPersist` green.
 
-Gates: `make build-check` (`go build ./...` + `go vet -tags e2e ./...` +
+Gates: `task build-check` (`go build ./...` + `go vet -tags e2e ./...` +
 `go vet -tags integration ./...`, exit 0 -- run because 7 exported `Backend`
 signatures changed), `gofmt -l` on every touched file (clean), `go test
 -race ./services/ec2/...` (`ok`, full suite including all new tests),
@@ -1881,7 +1881,7 @@ representative failures:
   `TestDescribeClientVpnEndpoints_Pagination_RealClient`: `"1" is not
   greater than or equal to "2"` (paginator never split across pages).
 
-Gates: `go build ./services/ec2/...`, `make build-check` (`go build ./...` +
+Gates: `go build ./services/ec2/...`, `task build-check` (`go build ./...` +
 `go vet -tags e2e ./...` + `go vet -tags integration ./...`, exit 0 -- run
 because `Backend.RevokeSecurityGroupEgress`'s exported signature changed),
 `gofmt -l services/ec2/*.go` (clean), `go test -race ./services/ec2/...
@@ -2264,7 +2264,7 @@ Representative failures:
 Gates: `go build ./...` (clean, exported `Backend` interface signature
 changed -- `CreateTransitGatewayMulticastDomain`/`CreateTransitGatewayMeteringPolicy`
 gained a `tags map[string]string` parameter, single implementer
-`InMemoryBackend`, no other package implements `Backend`), `make build-check`
+`InMemoryBackend`, no other package implements `Backend`), `task build-check`
 (clean: `go build ./...` + `go vet -tags e2e ./...` + `go vet -tags
 integration ./...`), `go vet ./services/ec2/...` (clean), `gofmt -l
 services/ec2/*.go` (clean after `goimports -w`/`golines -w --max-len=120` on
@@ -2565,7 +2565,7 @@ etc. already had `NextToken` fields (dead weight until now);
 
 All ten fixes are handler-layer only (mirroring `pageSlice`'s existing usage
 elsewhere in this package) -- no `Backend` interface signature changed, so
-`make build-check` was run as a precaution but had nothing to fix.
+`task build-check` was run as a precaution but had nothing to fix.
 
 **Recorded as inert, not fixed**: `DescribeCapacityBlockExtensionOfferings`
 also ignores real `MaxResults`/`NextToken`, but this backend's
@@ -2657,7 +2657,7 @@ Gates: `go build ./...` (clean, no exported signature changed),
 full suite including the 10 new tests), `golangci-lint run
 ./services/ec2/...` (`0 issues` -- fixed one `govet` shadow, one `intrange`,
 and three `prealloc` findings by hand, not via `-fix`), `go test
-./pkgs/persistence/...` (`ok`), `make build-check` (clean). No banned
+./pkgs/persistence/...` (`ok`), `task build-check` (clean). No banned
 `//nolint`s.
 
 **Ops not reached this pass**: none within the queue named by the prior
@@ -4630,8 +4630,8 @@ Did NOT commit, push, or run any `bd` write command.
 ## 2026-09-11 pass: gopherstack-a7vs, gopherstack-1qth
 
 **gopherstack-a7vs** ("RunInstances lacks KeyName/SecurityGroups params,
-dropped by the ASG EC2Launcher adapter in cli.go"): mostly ALREADY FIXED at
-HEAD. `cli.go`'s `ec2AutoScalingLauncherAdapter.LaunchInstances` calls
+dropped by the ASG EC2Launcher adapter in internal/app/cli.go"): mostly ALREADY FIXED at
+HEAD. `internal/app/cli.go`'s `ec2AutoScalingLauncherAdapter.LaunchInstances` calls
 `SetInstanceLaunchConfig(inst.ID, spec.KeyName, spec.SecurityGroups)`
 (`instances.go`), which sets `inst.KeyName`/`inst.SecurityGroups` correctly,
 and `KeyName` was already emitted on `DescribeInstances` (`keyName`,
@@ -5136,14 +5136,14 @@ pass). The Backend interface method's signature changed from
 `GetInstanceTypesFromInstanceRequirements(q *instanceRequirementsQuery)
 []string`; `InMemoryBackend` is the only implementer (confirmed by grep).
 
-**`cli.go`/autoscaling seam, not implemented this pass**: `services/
+**`internal/app/cli.go`/autoscaling seam, not implemented this pass**: `services/
 autoscaling`'s `MixedInstancesPolicy` attribute-based instance-type
 selection (`ec2_launch.go`, `handler_auto_scaling_groups.go`'s
 `InstanceRequirements` parsing) has its own independent, self-contained
 `InstanceRequirements`/`LaunchTemplateOverride` model and does not call
 into `services/ec2` at all -- grepped for
 `GetInstanceTypesFromInstanceRequirements`/cross-service references in
-`services/autoscaling/*.go` and `cli.go`, found none. Wiring ASG's
+`services/autoscaling/*.go` and `internal/app/cli.go`, found none. Wiring ASG's
 attribute-based override resolution to actually query this new ec2 matching
 engine (rather than duplicating its own resolution logic) would need a new
 cross-service seam analogous to `services/ec2/cross_service.go`'s existing
@@ -5191,14 +5191,14 @@ push, or run any `bd` write command.
 
 ## 2026-09-11 -- autoscaling/ec2 seam closed: MixedInstancesPolicy InstanceRequirements now calls this catalog engine (gopherstack-jgrn6)
 
-Follow-up to the "cli.go/autoscaling seam, not implemented this pass" note directly above.
+Follow-up to the "internal/app/cli.go/autoscaling seam, not implemented this pass" note directly above.
 `services/ec2/instance_requirements_export.go` (new file) exports `InstanceRequirementsQuery`
 (mirrors the unexported `instanceRequirementsQuery` field-for-field, minus
 `NetworkBandwidthGbps`/`BaselineEbsBandwidthMbps`, which this engine's matching predicates
 never filter on -- see `instanceTypeMatchesNetworkRequirements`'s doc comment) and
 `(*InMemoryBackend) MatchInstanceTypes(q InstanceRequirementsQuery) []string`, a thin wrapper
 around `GetInstanceTypesFromInstanceRequirements` for callers outside this package that don't
-go through the wire-form HTTP parser. `cli.go`'s `wireAutoScalingEC2` now wires it to
+go through the wire-form HTTP parser. `internal/app/cli.go`'s `wireAutoScalingEC2` now wires it to
 `services/autoscaling` via a new `ec2AutoScalingInstanceTypeResolverAdapter` (next to the
 existing `ec2AutoScalingLauncherAdapter`/`SetEC2Launcher` wiring) -- see
 `services/autoscaling/PARITY.md`'s matching 2026-09-11 entry for the full seam shape and
@@ -6305,7 +6305,7 @@ CreateVolume without Size and SnapshotId now fails with MissingParameter (api_op
 
 ## 2026-10-11 instance metadata service (gopherstack-cefu7.19)
 
-- IMDSv1/v2 semantics per instance: `PUT /latest/api/token` (TTL 1-21600, else 400; `X-Forwarded-For` -> 403), tokens scoped to their instance and expiring, `HttpTokens=required` rejects tokenless or bad-token GETs with 401, an invalid token is 401 even when optional, `HttpEndpoint=disabled` -> 403, pending/running instances only (else 404). Proof: `imds_test.go`, `cli_ec2_imds_test.go` (real `feature/ec2/imds` client).
+- IMDSv1/v2 semantics per instance: `PUT /latest/api/token` (TTL 1-21600, else 400; `X-Forwarded-For` -> 403), tokens scoped to their instance and expiring, `HttpTokens=required` rejects tokenless or bad-token GETs with 401, an invalid token is 401 even when optional, `HttpEndpoint=disabled` -> 403, pending/running instances only (else 404). Proof: `imds_test.go`, `internal/app/ec2_imds_test.go` (real `feature/ec2/imds` client).
 - Paths: meta-data (ami-id, instance-id/type, local/public ipv4 and hostname, mac, network/interfaces/macs/<mac>/*, placement/{availability-zone,availability-zone-id,region}, security-groups, block-device-mapping, public-keys, reservation-id, services/*, tags/instance when `InstanceMetadataTags=enabled`), `iam/info`, `iam/security-credentials/<role>` (STS AssumeRoleForService `ec2.amazonaws.com`, session name = instance id, trust policy enforced, reissued within 5 minutes of expiry), `user-data` (original bytes, 404 when none), `dynamic/instance-identity/document`.
 - RunInstances now honours `MetadataOptions` (validated: tokens optional|required, endpoint/tags enabled|disabled, hop limit 1-64; unset fields take account defaults); ModifyInstanceMetadataOptions validates and persists tags/hop limit and returns stored values; DescribeInstances/RunInstances report `metadataOptions`.
 - Reachability: the Go SDK overwrites any path on the IMDS endpoint, so each docker-backed instance gets its own listener (ephemeral port on all interfaces, `cli.Lambda.DockerHost` as host) injected as `AWS_EC2_METADATA_SERVICE_ENDPOINT`; closed on terminate and shutdown. Every instance is also served at `/_gopherstack/ec2/imds/<instance-id>/latest/...` for curl. No host root or iptables needed.

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // ---- Prefix List Resolvers ----
@@ -32,7 +32,7 @@ func (b *InMemoryBackend) CreateIpamPrefixListResolver(
 		return nil, fmt.Errorf("%w: %s", ErrIpamNotFound, ipamID)
 	}
 
-	id := "ipam-prefix-list-resolver-" + uuid.New().String()[:8]
+	id := awsid.New("ipam-prefix-list-resolver-")
 	resolver := &IpamPrefixListResolver{
 		IpamPrefixListResolverID: id,
 		IpamPrefixListResolverARN: "arn:aws:ec2:" + b.Region + ":" + b.AccountID +
@@ -255,7 +255,7 @@ func (b *InMemoryBackend) CreateIpamPrefixListResolverTarget(
 		prefixListRegion = b.Region
 	}
 
-	id := "ipam-prefix-list-resolver-target-" + uuid.New().String()[:8]
+	id := awsid.New("ipam-prefix-list-resolver-target-")
 	target := &IpamPrefixListResolverTarget{
 		IpamPrefixListResolverTargetID: id,
 		IpamPrefixListResolverTargetARN: "arn:aws:ec2:" + b.Region + ":" + b.AccountID +

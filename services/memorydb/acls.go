@@ -128,6 +128,7 @@ func (b *InMemoryBackend) DeleteACL(ctx context.Context, name string) (*ACL, err
 func (b *InMemoryBackend) UpdateACL(ctx context.Context, req *updateACLRequest) (*ACL, error) {
 	b.mu.Lock("UpdateACL")
 	defer b.mu.Unlock()
+	defer b.syncAllAuthLocked()
 
 	region := getRegion(ctx, b.defaultRegion)
 

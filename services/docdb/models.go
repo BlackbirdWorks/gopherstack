@@ -156,6 +156,7 @@ type DBCluster struct {
 	// marshaling DBCluster directly), but persistence.go must carry it
 	// through a DTO explicitly since json.Marshal never sees unexported fields.
 	region                      string
+	managedPassword             string
 	readyAt                     time.Time
 	Tags                        map[string]string    `json:"tags"`
 	DBClusterArn                string               `json:"dbClusterArn"`
@@ -420,6 +421,7 @@ type EventCategoryMap struct {
 // (a bare []Tag) carries no identity of its own to key a store.Table by (see
 // store_setup.go's doc comment for the full rationale).
 type InMemoryBackend struct {
+	engine                         *dbEngine
 	secrets                        SecretsStore
 	subnets                        SubnetResolver
 	eventSubscriptions             *store.Table[EventSubscription]
@@ -444,6 +446,7 @@ type InMemoryBackend struct {
 	accountID                      string
 	region                         string
 	lifecycleDelay                 time.Duration
+	closed                         bool
 }
 
 // CreateDBClusterOptions holds optional parameters for CreateDBCluster.

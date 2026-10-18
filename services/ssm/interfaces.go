@@ -69,6 +69,7 @@ type StorageBackend interface {
 	) (*ListCommandInvocationsOutput, error)
 	// New operations.
 	CancelCommand(ctx context.Context, input *CancelCommandInput) (*CancelCommandOutput, error)
+	AgentBackend
 	CancelMaintenanceWindowExecution(
 		_ context.Context,
 		input *CancelMaintenanceWindowExecutionInput,

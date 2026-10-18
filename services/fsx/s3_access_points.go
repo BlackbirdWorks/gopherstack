@@ -156,40 +156,9 @@ func (b *InMemoryBackend) DescribeS3AccessPointAttachments(
 		maxResults = maxResultsDefault
 	}
 
-	var all []*storedS3AccessPoint
-
-	if len(names) > 0 {
-		for _, name := range names {
-			ap, ok := b.s3AccessPoints.Get(name)
-			if !ok {
-				return nil, "", ErrS3AccessPointAttachmentNotFound
-			}
-
-			all = append(all, ap)
-		}
-	} else {
-		for _, ap := range b.s3AccessPoints.All() {
-			if matchesFilters(filters, func(name string) (string, bool) {
-				switch name {
-				case filterNameVolumeID:
-					return ap.VolumeID, true
-				case "type":
-					return ap.Type, true
-				case filterNameFileSystemID:
-					if vol, ok := b.volumes.Get(ap.VolumeID); ok {
-						return vol.FileSystemID, true
-					}
-
-					return "", true
-				default:
-					return "", false
-				}
-			}) {
-				all = append(all, ap)
-			}
-		}
-
-		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+	all, err := b.selectS3AccessPoints(names, filters)
+	if err != nil {
+		return nil, "", err
 	}
 
 	start, end, next := paginate(len(all), int(maxResults), nextToken, func(i int) string {
@@ -202,6 +171,52 @@ func (b *InMemoryBackend) DescribeS3AccessPointAttachments(
 	}
 
 	return result, next, nil
+}
+
+func (b *InMemoryBackend) selectS3AccessPoints(names []string, filters []wireFilter) ([]*storedS3AccessPoint, error) {
+	var all []*storedS3AccessPoint
+
+	if len(names) > 0 {
+		for _, name := range names {
+			ap, ok := b.s3AccessPoints.Get(name)
+			if !ok {
+				return nil, ErrS3AccessPointAttachmentNotFound
+			}
+
+			all = append(all, ap)
+		}
+
+		return all, nil
+	}
+
+	for _, ap := range b.s3AccessPoints.All() {
+		if matchesFilters(filters, func(name string) (string, bool) {
+			switch name {
+			case filterNameVolumeID:
+				return ap.VolumeID, true
+			case "type":
+				return ap.Type, true
+			case filterNameFileSystemID:
+				return b.volumeFileSystemID(ap.VolumeID), true
+			default:
+				return "", false
+			}
+		}) {
+			all = append(all, ap)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+
+	return all, nil
+}
+
+func (b *InMemoryBackend) volumeFileSystemID(volumeID string) string {
+	if vol, ok := b.volumes.Get(volumeID); ok {
+		return vol.FileSystemID
+	}
+
+	return ""
 }
 
 func (b *InMemoryBackend) s3AccessPointARN(name string) string {

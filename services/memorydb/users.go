@@ -194,6 +194,7 @@ func (b *InMemoryBackend) DeleteUser(ctx context.Context, name string) (*User, e
 func (b *InMemoryBackend) UpdateUser(ctx context.Context, req *updateUserRequest) (*User, error) {
 	b.mu.Lock("UpdateUser")
 	defer b.mu.Unlock()
+	defer b.syncAllAuthLocked()
 
 	region := getRegion(ctx, b.defaultRegion)
 

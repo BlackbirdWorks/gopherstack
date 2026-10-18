@@ -475,7 +475,7 @@ uncommitted per this pass's instructions.
    directly by `s3.InMemoryBackend` (no adapter), `InMemoryBackend.SetS3Backend` setter
    (`store.go`), `Handler.checkS3Object`/`checkImageRef`/`checkVideoRef` (`handler.go`,
    sharing the existing `imageRef`/`videoRef` wire types and `imageRefKey`/`videoRefS3`
-   helpers) calling it, wired from `cli.go`'s `wireRekognitionS3` in
+   helpers) calling it, wired from `internal/app/cli.go`'s `wireRekognitionS3` in
    `wireStorageAndSecretsIntegrations`. Unwired (no `SetS3Backend` call) or Backend not
    `*InMemoryBackend`: no-op, matching this repo's unwired-hook-stays-permissive convention.
    `Image.Bytes` (inline bytes, the real alternative to `Image.S3Object` on the `Image` union)
@@ -495,7 +495,7 @@ uncommitted per this pass's instructions.
    prove the unwired path stays permissive. `TestDetectLabels_InlineBytesUnaffected` proves
    inline `Bytes` is never checked. All fail against a neutered `checkS3Object` (HeadObject
    called but its result discarded) and pass against the fix.
-   `cli_textract_rekognition_s3_wiring_test.go` (root package) drives the real
+   `internal/app/textract_rekognition_s3_wiring_test.go` (root package) drives the real
    `initializeServices` composition root end-to-end.
 
    Gates: `go build ./...`, `go test -race -count=1 ./services/rekognition/...` and `.` (root),

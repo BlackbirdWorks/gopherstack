@@ -96,6 +96,13 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 func (h *Handler) Shutdown(_ context.Context) {
 	h.stopRegionWorkers()
 	h.Backend.StopReconciler()
+	closeBackend(h.Backend)
+}
+
+func closeBackend(b StorageBackend) {
+	if c, ok := b.(interface{ Close() }); ok {
+		c.Close()
+	}
 }
 
 // Ensure Handler satisfies the optional background-lifecycle interfaces.
@@ -586,6 +593,8 @@ func (h *Handler) handleCreateCluster(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	opts.MasterUserPassword = password
 
 	cluster, err := h.Backend.CreateCluster(
 		id,

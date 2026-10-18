@@ -630,13 +630,13 @@ func efsErrClassifications() []errClassification {
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	for _, ec := range efsErrClassifications() {
 		if errors.Is(err, ec.err) {
-			c.Response().Header().Set("x-amzn-ErrorType", ec.code)
+			c.Response().Header().Set("X-Amzn-Errortype", ec.code)
 
 			return c.JSON(ec.status, errResp(ec.code, err.Error()))
 		}
 	}
 
-	c.Response().Header().Set("x-amzn-ErrorType", "InternalServerError")
+	c.Response().Header().Set("X-Amzn-Errortype", "InternalServerError")
 
 	return c.JSON(http.StatusInternalServerError, errResp("InternalServerError", err.Error()))
 }

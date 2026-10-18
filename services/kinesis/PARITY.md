@@ -32,7 +32,7 @@ ops:
   UpdateStreamWarmThroughput: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-nbg8: the prior wire: ok claim was false, and 'intentional no-op' was not: the op decoded fabricated WriteCapacityUnits/ReadCapacityUnits fields with no basis in the real shape, so every real client's request silently no-op'd. The real required field is WarmThroughputMiBps (api_op_UpdateStreamWarmThroughput.go:63-70). Also unmodeled: the real Output (StreamARN/StreamName/WarmThroughput{CurrentMiBps,TargetMiBps}, api_op_UpdateStreamWarmThroughput.go:76-88) -- the handler returned an empty struct{}. Now decodes/validates WarmThroughputMiBps (bounds-checked against AWS's documented 10 GiBps default cap, maxWarmThroughputMiBps), stores it on Stream.WarmThroughputMiBps, and returns the real Output shape. Applied synchronously since this backend has no UPDATING transient-state model (unlike real AWS, which returns the stream to ACTIVE asynchronously) -- Current/Target always match on read; see gaps. 2026-09-26 (gopherstack-nbg8): now that CreateStream/UpdateShardCount/MergeShards/SplitShard/StartStreamEncryption/StopStreamEncryption/UpdateStreamMode/DeleteStream model real CREATING/UPDATING/DELETING transient state, this op's declared ResourceInUseException is reachable (rejects a non-ACTIVE stream); the op itself still applies synchronously (no separate UPDATING transition of its own)."}
   MergeShards: {wire: ok, errors: ok, state: fixed, persist: ok, note: "adjacency check (either shard may be passed first), closed-parent lineage verified 2026-09-26 (gopherstack-nbg8, transient-state pass): CreateStream/UpdateShardCount/MergeShards/SplitShard/StartStreamEncryption/StopStreamEncryption/UpdateStreamMode/DeleteStream now model real transient state (CREATING/UPDATING/DELETING via a lazy ReadyAt deadline resolved on the next read, no goroutines -- see services/dsql's resolveClusterLocked/services/dax's sweepClusterTransitionsLocked for the same pattern) instead of a stream always being ACTIVE. DescribeStream/DescribeStreamSummary/ListStreams now show the transient status; each of these ops now rejects a non-ACTIVE stream with ResourceInUseException, matching its declared SDK error set."}
   SplitShard: {wire: ok, errors: ok, state: fixed, persist: ok, note: "NewStartingHashKey must be strictly inside parent range, verified 2026-09-26 (gopherstack-nbg8, transient-state pass): CreateStream/UpdateShardCount/MergeShards/SplitShard/StartStreamEncryption/StopStreamEncryption/UpdateStreamMode/DeleteStream now model real transient state (CREATING/UPDATING/DELETING via a lazy ReadyAt deadline resolved on the next read, no goroutines -- see services/dsql's resolveClusterLocked/services/dax's sweepClusterTransitionsLocked for the same pattern) instead of a stream always being ACTIVE. DescribeStream/DescribeStreamSummary/ListStreams now show the transient status; each of these ops now rejects a non-ACTIVE stream with ResourceInUseException, matching its declared SDK error set."}
-  StartStreamEncryption: {wire: ok, errors: ok, state: fixed, persist: ok, note: "fixed: KeyId is now required and format-validated (UUID/key ARN/alias ARN/alias name, matching the four shapes the SDK doc comment enumerates) -- InvalidArgumentException if malformed; optional KMSKeyValidator (WithKMSValidator, wired to the real kms backend by cli.go's wireKinesisKMS) additionally verifies the key exists and is usable, returning KMSNotFoundException/KMSDisabledException/KMSInvalidStateException -- all three are real types.KMSNotFoundException-class exceptions confirmed present in the SDK's StartStreamEncryption error set (deserializers.go), contradicting the previous audit's claim that no KMS-specific exception exists for this op. With no validator wired, only the format check applies (a well-formed but nonexistent KeyId is accepted, same permissive behavior as before). 2026-09-26 (gopherstack-nbg8, transient-state pass): CreateStream/UpdateShardCount/MergeShards/SplitShard/StartStreamEncryption/StopStreamEncryption/UpdateStreamMode/DeleteStream now model real transient state (CREATING/UPDATING/DELETING via a lazy ReadyAt deadline resolved on the next read, no goroutines -- see services/dsql's resolveClusterLocked/services/dax's sweepClusterTransitionsLocked for the same pattern) instead of a stream always being ACTIVE. DescribeStream/DescribeStreamSummary/ListStreams now show the transient status; each of these ops now rejects a non-ACTIVE stream with ResourceInUseException, matching its declared SDK error set."}
+  StartStreamEncryption: {wire: ok, errors: ok, state: fixed, persist: ok, note: "fixed: KeyId is now required and format-validated (UUID/key ARN/alias ARN/alias name, matching the four shapes the SDK doc comment enumerates) -- InvalidArgumentException if malformed; optional KMSKeyValidator (WithKMSValidator, wired to the real kms backend by internal/app/cli.go's wireKinesisKMS) additionally verifies the key exists and is usable, returning KMSNotFoundException/KMSDisabledException/KMSInvalidStateException -- all three are real types.KMSNotFoundException-class exceptions confirmed present in the SDK's StartStreamEncryption error set (deserializers.go), contradicting the previous audit's claim that no KMS-specific exception exists for this op. With no validator wired, only the format check applies (a well-formed but nonexistent KeyId is accepted, same permissive behavior as before). 2026-09-26 (gopherstack-nbg8, transient-state pass): CreateStream/UpdateShardCount/MergeShards/SplitShard/StartStreamEncryption/StopStreamEncryption/UpdateStreamMode/DeleteStream now model real transient state (CREATING/UPDATING/DELETING via a lazy ReadyAt deadline resolved on the next read, no goroutines -- see services/dsql's resolveClusterLocked/services/dax's sweepClusterTransitionsLocked for the same pattern) instead of a stream always being ACTIVE. DescribeStream/DescribeStreamSummary/ListStreams now show the transient status; each of these ops now rejects a non-ACTIVE stream with ResourceInUseException, matching its declared SDK error set."}
   StopStreamEncryption: {wire: ok, errors: ok, state: fixed, persist: ok, note: "fixed: KeyId is now required and format-validated like StartStreamEncryption (matches the SDK's required-field validator); never calls the KMS validator since disabling encryption must succeed even if the key was later disabled/deleted 2026-09-26 (gopherstack-nbg8, transient-state pass): CreateStream/UpdateShardCount/MergeShards/SplitShard/StartStreamEncryption/StopStreamEncryption/UpdateStreamMode/DeleteStream now model real transient state (CREATING/UPDATING/DELETING via a lazy ReadyAt deadline resolved on the next read, no goroutines -- see services/dsql's resolveClusterLocked/services/dax's sweepClusterTransitionsLocked for the same pattern) instead of a stream always being ACTIVE. DescribeStream/DescribeStreamSummary/ListStreams now show the transient status; each of these ops now rejects a non-ACTIVE stream with ResourceInUseException, matching its declared SDK error set."}
   DeleteResourcePolicy: {wire: ok, errors: ok, state: ok, persist: n/a, note: "resource policies not yet in backendSnapshot; see gaps"}
   GetResourcePolicy: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -218,14 +218,14 @@ Semantics modeled honestly, per instruction:
   Not fabricated.
 
 Delivery: after checking whether an S3Writer-style seam (services/awsconfig's
-S3Writer, wired in cli.go) could honestly deliver put records to a channel's
+S3Writer, wired in internal/app/cli.go) could honestly deliver put records to a channel's
 S3 destination, the answer was no: S3StorageConfiguration.OutputKeyTemplate's
 own doc comment only says "If not specified, a default template is used"
 with no template given anywhere reachable (SDK doc comments or the
 unfetchable dev-guide page). Inventing an object-key layout not backed by
 verified AWS behavior would itself be exactly the kind of fabricated stub
 this repo's no-stub rule exists to prevent, so no S3Writer seam was added and
-cli.go was NOT touched. Channels exist and are fully manageable
+internal/app/cli.go was NOT touched. Channels exist and are fully manageable
 (create/describe/list/update/delete, plus tagging); records put to their
 source stream are simply never delivered. See gaps.
 
@@ -322,7 +322,7 @@ Implemented (see services/kinesis/channel_delivery.go unless noted):
 - ChannelS3Writer interface (interfaces.go), mirroring
   services/firehose/interfaces.go's S3Storer and
   services/awsconfig/interfaces.go's S3Writer; wired via
-  InMemoryBackend.SetS3Writer and cli.go's new wireKinesisS3Delivery
+  InMemoryBackend.SetS3Writer and internal/app/cli.go's new wireKinesisS3Delivery
   (next to wireAWSConfigDelivery), which binds it directly to
   s3backend.InMemoryBackend.PutObject (no adapter needed, same as
   wireFirehoseDelivery's SetS3Backend(s3Bk)).
@@ -386,8 +386,8 @@ table-driven, real SDK client + a fake ChannelS3Writer: single-record and
 PutRecords-batch delivery with a decompressed body assertion, custom
 OutputKeyTemplate, invalid-UTF8-record-to-dead-letter-queue routing,
 DeleteChannel flushing a buffered record, and the no-writer-wired no-op
-case). cli_kinesis_channel_s3_delivery_wiring_test.go (root package, mirrors
-cli_mgn_s3_import_wiring_test.go) drives the real initializeServices
+case). internal/app/kinesis_channel_s3_delivery_wiring_test.go (root package, mirrors
+internal/app/mgn_s3_import_wiring_test.go) drives the real initializeServices
 composition root end to end: a bucket created through the real S3 backend,
 a real CreateStream/CreateChannel/PutRecord/FlushChannel call sequence
 against the real Kinesis backend, and a real gzip-compressed object read
@@ -638,7 +638,7 @@ Fixed in two layers:
    needs to resolve it).
 2. **Optional cross-service existence/state check** (`KMSKeyValidator` interface + `WithKMSValidator`
    setter, mirroring `services/ssm`'s `KMSEncryptor`/`WithKMS` pattern exactly): when wired --
-   `cli.go`'s `wireKinesisKMS` does this in production, adapting the real `services/kms` backend's
+   `internal/app/cli.go`'s `wireKinesisKMS` does this in production, adapting the real `services/kms` backend's
    `DescribeKey` -- `StartStreamEncryption` additionally verifies the key exists and is `Enabled`,
    returning `KMSNotFoundException` (key doesn't exist), `KMSDisabledException` (key is `Disabled`), or
    `KMSInvalidStateException` (any other non-`Enabled` state, e.g. `PendingDeletion`/`PendingImport`).
@@ -958,7 +958,7 @@ exercised `StreamARN`-only calling or a consumer-ARN tag round trip), not assert
 
 All three fix groups: full gate suite green (`go build`, `go vet`, `gofmt -l` clean, `go test -race`,
 `golangci-lint run` 0 findings / 0 nolints added after fixing 1 `err113` + 3 `modernize` (mapsloop) +
-1 `golines` finding by refactoring, `go fix -diff` no diff, `make build-check` clean). Working tree
+1 `golines` finding by refactoring, `go fix -diff` no diff, `task build-check` clean). Working tree
 left uncommitted per this session's constraints.
 
 ### 2026-09-11: gopherstack-s0ju items 2-4 (on-demand auto-scale, retention-aware trim horizon, SubscribeToShard cadence)
@@ -1119,7 +1119,7 @@ Clean (ListShards filter types/timestamps, ListStreams, ListStreamConsumers). Re
 
 ## 2026-10-04: in-process metric inventory (gopherstack-4m1qr)
 
-Emits AWS/Kinesis (StreamName; docs.aws.amazon.com/streams/latest/dev/monitoring-with-cloudwatch.html) through pkgs/cwmetric: IncomingRecords/IncomingBytes, PutRecord.{Success,Bytes,Latency}, PutRecords.{Success,Records,Bytes,TotalRecords,SuccessfulRecords,FailedRecords,ThrottledRecords,Latency}, GetRecords.{Success,Records,Bytes,Latency,IteratorAgeMilliseconds}, and Read/WriteProvisionedThroughputExceeded when the FIS throughput fault fires. PutRecords reuses the internal putRecord so records are not double-counted. Points are folded per series per second into statistic sets (Sum/SampleCount/Min/Max exact, percentiles not preserved); metrics are off until wired. Verified by cli_service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
+Emits AWS/Kinesis (StreamName; docs.aws.amazon.com/streams/latest/dev/monitoring-with-cloudwatch.html) through pkgs/cwmetric: IncomingRecords/IncomingBytes, PutRecord.{Success,Bytes,Latency}, PutRecords.{Success,Records,Bytes,TotalRecords,SuccessfulRecords,FailedRecords,ThrottledRecords,Latency}, GetRecords.{Success,Records,Bytes,Latency,IteratorAgeMilliseconds}, and Read/WriteProvisionedThroughputExceeded when the FIS throughput fault fires. PutRecords reuses the internal putRecord so records are not double-counted. Points are folded per series per second into statistic sets (Sum/SampleCount/Min/Max exact, percentiles not preserved); metrics are off until wired. Verified by internal/app/service_metrics_test.go (typed SDK, ListMetrics + GetMetricStatistics).
 
 ## 2026-10-04 (reqfielddiff tier-1 pass)
 

@@ -66,7 +66,7 @@ func TestInMemoryBackend_GetCredentialsForIdentity(t *testing.T) {
 				identityID = "us-east-1:nonexistent"
 			}
 
-			creds, err := b.GetCredentialsForIdentity(context.Background(), identityID, nil)
+			creds, err := b.GetCredentialsForIdentity(context.Background(), identityID, nil, "")
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -153,7 +153,7 @@ func TestInMemoryBackend_GetCredentialsForIdentity_EmptyID(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.GetCredentialsForIdentity(context.Background(), "", nil)
+	_, err := b.GetCredentialsForIdentity(context.Background(), "", nil, "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
 }
@@ -178,7 +178,7 @@ func TestInMemoryBackend_GetOpenIDTokenForDeveloperIdentity_InvalidDuration(
 		"dur-pool",
 		true,
 		false,
-		"",
+		"developer.example.com",
 		nil,
 		nil,
 		nil,
@@ -365,7 +365,7 @@ func TestInMemoryBackend_GetCredentialsForIdentity_InvalidIdentityPoolConfigurat
 			identity, err := b.GetID(context.Background(), pool.IdentityPoolID, "", tt.logins)
 			require.NoError(t, err)
 
-			_, err = b.GetCredentialsForIdentity(context.Background(), identity.IdentityID, tt.logins)
+			_, err = b.GetCredentialsForIdentity(context.Background(), identity.IdentityID, tt.logins, "")
 			require.Error(t, err)
 			assert.ErrorIs(t, err, cognitoidentity.ErrInvalidIdentityPoolConfiguration)
 		})
@@ -407,7 +407,7 @@ func TestGetCredentialsForIdentity_LoginMismatch(t *testing.T) {
 
 	_, err = b.GetCredentialsForIdentity(context.Background(), identity.IdentityID, map[string]string{
 		"accounts.google.com": "wrong-token",
-	})
+	}, "")
 	require.Error(t, err)
 	assert.ErrorIs(
 		t,
@@ -431,7 +431,7 @@ func TestGetCredentialsForIdentity_LoginProviderAbsent(t *testing.T) {
 
 	_, err = b.GetCredentialsForIdentity(context.Background(), identity.IdentityID, map[string]string{
 		"login.facebook.com": "fb-token",
-	})
+	}, "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrNotAuthorized)
 }
@@ -455,7 +455,7 @@ func TestGetCredentialsForIdentity_MatchingLogins(t *testing.T) {
 	identity, err := b.GetID(context.Background(), pool.IdentityPoolID, "000000000000", logins)
 	require.NoError(t, err)
 
-	creds, err := b.GetCredentialsForIdentity(context.Background(), identity.IdentityID, logins)
+	creds, err := b.GetCredentialsForIdentity(context.Background(), identity.IdentityID, logins, "")
 	require.NoError(t, err, "matching login tokens must succeed")
 	assert.NotEmpty(t, creds.AccessKeyID)
 }
@@ -478,7 +478,7 @@ func TestGetCredentialsForIdentity_NilLogins(t *testing.T) {
 	identity, err := b.GetID(context.Background(), pool.IdentityPoolID, "000000000000", nil)
 	require.NoError(t, err)
 
-	creds, err := b.GetCredentialsForIdentity(context.Background(), identity.IdentityID, nil)
+	creds, err := b.GetCredentialsForIdentity(context.Background(), identity.IdentityID, nil, "")
 	require.NoError(t, err, "nil logins must succeed (unauthenticated identity)")
 	assert.NotEmpty(t, creds.AccessKeyID)
 }
@@ -559,6 +559,7 @@ func TestGetCredentialsForIdentity_EmptyLoginsBypass(t *testing.T) {
 				context.Background(),
 				identity.IdentityID,
 				tt.reqLogins,
+				"",
 			)
 
 			if tt.wantErr {

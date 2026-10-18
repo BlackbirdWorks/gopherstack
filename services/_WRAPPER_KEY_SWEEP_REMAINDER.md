@@ -1192,7 +1192,7 @@ no git-mutating commands run (all changes uncommitted — orchestrator must
 commit/push), `cmd/routecollisions/`/`services/_ROUTE_COLLISIONS.md`/
 `routecollisions` (the live sibling RouteMatcher sweep's output) confirmed
 untouched via `git status` both before starting and again at the end, no
-`gendocs`/`make docs` run.
+`gendocs`/`task docs` run.
 
 networkmanager's List/Describe/Get families are now fully swept for this
 issue (38/38 ops verified against the real deserializer/serializer). 62 of
@@ -1481,7 +1481,7 @@ before starting and again at the end — a second sibling session's
 `services/apigateway/handler.go`/`test/integration/apigateway_quicksight_account_test.go`
 changes appeared partway through this session and were also left alone
 (confirmed via `git status`, not securityhub-related), no `gendocs`/
-`make docs` run.
+`task docs` run.
 
 securityhub's List/Describe/Get families are now fully swept for this issue
 (47/47 ops verified against the real deserializer/serializer). 63 of 162
@@ -1616,7 +1616,7 @@ only), no git-mutating commands run (all changes uncommitted — orchestrator
 must commit/push), `cmd/routecollisions/`/`services/apigateway/`/
 `services/appconfigdata/`/`services/inspector2/` and their test files left
 untouched (confirmed via `git status` before starting and again at the
-end), no `gendocs`/`make docs` run.
+end), no `gendocs`/`task docs` run.
 
 macie2's List/Describe/Get families are now fully swept for this issue
 (40/40 ops verified against the real deserializer/serializer, plus their
@@ -1775,7 +1775,7 @@ must commit/push), `cmd/routecollisions/`/`services/_ROUTE_COLLISIONS.md`/
 `services/inspector2/`/`test/integration/tag_routing_test.go`/
 `test/integration/apigateway_quicksight_account_test.go` (the live sibling
 RouteMatcher sweep's in-progress work) confirmed untouched via `git status`
-both before starting and again at the end, no `gendocs`/`make docs` run.
+both before starting and again at the end, no `gendocs`/`task docs` run.
 
 s3's List/Describe/Get families are now fully swept for this issue (45/45
 ops verified against the real deserializer, one finding flagged rather than
@@ -2010,7 +2010,7 @@ Per this session's hard constraints: no subagents used (Read/Grep/Bash
 only), no git-mutating commands run (all changes uncommitted —
 orchestrator must commit/push), `services/cloudwatchlogs/zzz_probe_test.go`
 (an unrelated sibling session's untracked file, present at both start and
-end of this session) confirmed untouched, no `gendocs`/`make docs` run.
+end of this session) confirmed untouched, no `gendocs`/`task docs` run.
 
 cognitoidp's List/Describe/Get families are now swept for this issue
 (42/42 self-enumerated ops verified against the real deserializer/live
@@ -2199,7 +2199,7 @@ starting and again at the end. `.beads/issues.jsonl` appeared staged after
 running read-only `bd show`/`bd prime`-style commands — bd's own
 auto-export hook, not a manual `git add`; left as-is since undoing it would
 itself require a git-mutating command this session may not run. No
-`gendocs`/`make docs` run.
+`gendocs`/`task docs` run.
 
 personalize's List/Describe/Get families are now fully swept for this issue
 (39/39 ops verified against the real deserializer/serializer, both the
@@ -2627,7 +2627,7 @@ only), no git-mutating commands run (all `services/workmail` changes
 uncommitted — orchestrator must commit/push), `services/apigatewayv2`
 (the live sibling session's territory, confirmed growing from 2 to 3
 modified files during this session's own investigation) confirmed
-untouched throughout, no `gendocs`/`make docs` run.
+untouched throughout, no `gendocs`/`task docs` run.
 
 workmail's List/Describe/Get families are now fully swept for this issue
 (36/36 ops verified against the real deserializer). 69 of 162 services
@@ -2860,7 +2860,7 @@ only), no git-mutating commands run (all `services/wafv2` changes
 uncommitted — orchestrator must commit/push); `services/workmail` (this
 session's assigned-off-limits sibling) and `services/ce` (a second,
 unannounced sibling session discovered mid-session via `git status`)
-confirmed untouched throughout; no `gendocs`/`make docs` run.
+confirmed untouched throughout; no `gendocs`/`task docs` run.
 
 wafv2's List/Describe/Get families are now fully swept for this issue
 (32/32 ops verified against the real deserializer/serializer). 70 of 162
@@ -3102,7 +3102,7 @@ Per this session's hard constraints: no subagents used (Read/Grep/Bash
 only), no git-mutating commands run (all `services/ce` changes uncommitted
 — orchestrator must commit/push); `services/waf`/`services/wafv2` (the
 assigned-off-limits sibling territory) confirmed untouched throughout,
-verified again at the end via `git status`; no `gendocs`/`make docs` run.
+verified again at the end via `git status`; no `gendocs`/`task docs` run.
 
 ce's List/Describe/Get families are now fully swept for this issue (31/31
 ops verified against the real deserializer/serializer). 71 of 162 services
@@ -3286,7 +3286,7 @@ Per this session's hard constraints: no subagents used (Read/Grep/Bash
 only), no git-mutating commands run (moot — no code changes made, only
 this remainder file was edited), `services/vpclattice` (a sibling session's
 territory, discovered mid-session via `git status`, 10 files modified)
-confirmed untouched throughout; no `gendocs`/`make docs` run.
+confirmed untouched throughout; no `gendocs`/`task docs` run.
 
 waf's List/Describe/Get families are now fully swept for this issue (34/34
 ops verified against the real deserializer/serializer, independently of
@@ -3320,7 +3320,7 @@ non-issue by construction here, like guardduty/pinpoint before it.
 
 **Second client**: none. Only `vpclatticesdk "github.com/aws/aws-sdk-go-v2/service/vpclattice"`
 is imported anywhere in this repo outside `services/vpclattice` itself
-(cli.go, gendocs, teststack, and the terraform/integration test suites all
+(internal/app/cli.go, gendocs, teststack, and the terraform/integration test suites all
 use the one client).
 
 **Dead-deserializer trap checked and found NOT to apply** — traced
@@ -3550,7 +3550,7 @@ own session notes found in this same file) both confirmed untouched
 throughout; two new commits (`baa7502c3` ce, `b0f93c529` waf) landed on
 this branch mid-session from those sibling sessions — noticed via `git log`,
 did not conflict with or require touching anything outside
-`services/vpclattice`; no `gendocs`/`make docs` run.
+`services/vpclattice`; no `gendocs`/`task docs` run.
 
 vpclattice's List/Describe/Get families are now fully swept for this issue
 (30/30 ops verified against the real deserializer/serializer). 73 of 162
@@ -3914,7 +3914,7 @@ cyclop/gocyclo/gocognit/funlen nolints added) all green for `services/emr`.
 No subagents used (Read/Grep/Bash only, per this session's hard
 constraint). No git-mutating commands run — orchestrator must commit/push.
 `services/eventbridge` (a sibling session's territory, appeared mid-session,
-37 files, confirmed via `git status`) never opened. No `gendocs`/`make docs`
+37 files, confirmed via `git status`) never opened. No `gendocs`/`task docs`
 run.
 
 emr's List/Describe/Get families are now fully swept for this issue (30/30

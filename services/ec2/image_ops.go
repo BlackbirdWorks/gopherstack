@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 // image_ops.go implements three image-related families layered on top of the
@@ -314,7 +314,7 @@ func (b *InMemoryBackend) CreateImageUsageReport(
 	}
 
 	now := time.Now().UTC()
-	reportID := "imgusgrpt-" + uuid.New().String()[:8]
+	reportID := awsid.New("imgusgrpt-")
 	report := &UsageReport{ReportID: reportID, ImageID: imageID, CreatedAt: now, State: stateAvailable}
 	b.usageReports.Put(report)
 

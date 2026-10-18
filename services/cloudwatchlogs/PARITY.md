@@ -602,7 +602,7 @@ against the unfixed code before restoring.
 `go fix -diff` (no diff), `golangci-lint run ./services/cloudwatchlogs/...`
 (0 issues after fixing 9 real findings -- golines, gosec G115, 2x
 fieldalignment, 3x shadow, 2x testifylint `error-is-as` -- by refactoring,
-not `//nolint`), `make build-check` (clean; `StorageBackend.UpdateAnomaly`'s
+not `//nolint`), `task build-check` (clean; `StorageBackend.UpdateAnomaly`'s
 signature changed to add `patternID`).
 
 Sweep status: 118/118 ops now covered by at least one structural pass (two
@@ -1094,7 +1094,7 @@ FIXED: UpdateLogAnomalyDetector now applies FilterPattern (api_op_UpdateLogAnoma
 
 ## 2026-10-05 (PARITY burn-down, gopherstack-9x62)
 
-FIXED: DescribeLogGroups logGroupNamePattern (case-sensitive substring, exclusive with the prefix, trims to arn/creationTime/logGroupName) and logGroupIdentifiers (names or ARNs); logGroupIdentifier on DescribeLogStreams/GetLogEvents/FilterLogEvents (ARN accepted, both name and identifier rejected); PutDestination Tags; PutQueryDefinition/DescribeQueryDefinitions queryLanguage (stored, validated, filterable). REMOVED as already fixed: MetricTransformation.Dimensions forwarding (cli_metric_dimensions_test.go).
+FIXED: DescribeLogGroups logGroupNamePattern (case-sensitive substring, exclusive with the prefix, trims to arn/creationTime/logGroupName) and logGroupIdentifiers (names or ARNs); logGroupIdentifier on DescribeLogStreams/GetLogEvents/FilterLogEvents (ARN accepted, both name and identifier rejected); PutDestination Tags; PutQueryDefinition/DescribeQueryDefinitions queryLanguage (stored, validated, filterable). REMOVED as already fixed: MetricTransformation.Dimensions forwarding (internal/app/metric_dimensions_test.go).
 
 ## 2026-10-05 (undeclared response members)
 
