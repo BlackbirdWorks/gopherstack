@@ -341,6 +341,7 @@ func errorProbeUnreachable() map[string]string {
 		"AzureARM":                "non-AWS",
 		"AzureStorageVHost":       "non-AWS",
 		"AzureTable":              "non-AWS",
+		"GCPStorage":              "non-AWS",
 		"Dashboard":               "not an AWS API",
 		"IoTDataPlane":            "path-routed REST",
 		"RDSData":                 "path-routed REST, no probe-safe ops",
