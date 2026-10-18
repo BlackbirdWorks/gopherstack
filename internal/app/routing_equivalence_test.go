@@ -242,7 +242,7 @@ func TestRoutingCorpusCoversServices(t *testing.T) {
 
 	neverMatch := []string{
 		"AzureARM", "AzureBlob", "AzureQueue", "AzureServiceBus", "AzureStorageVHost", "AzureTable", "CosmosDB",
-		"GCPStorage", "GCPPubSub",
+		"GCPStorage", "GCPPubSub", "GCPSecretManager",
 	}
 
 	for _, e := range entries {

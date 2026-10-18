@@ -14366,6 +14366,19 @@
     ],
     "version": 1
   },
+  "gcpsecretmanager": {
+    "fields": [
+      "backendSnapshot.EtagSeq uint64 `json:\"etagSeq\"`",
+      "backendSnapshot.Secrets map[string]secretSnap `json:\"secrets\"`",
+      "secretSnap.NextVer int64 `json:\"nextVer\"`",
+      "secretSnap.Policy json.RawMessage `json:\"policy,omitempty\"`",
+      "secretSnap.Secret json.RawMessage `json:\"secret\"`",
+      "secretSnap.Versions []versionSnap `json:\"versions,omitempty\"`",
+      "versionSnap.Data []byte `json:\"data,omitempty\"`",
+      "versionSnap.Num int64 `json:\"num\"`"
+    ],
+    "version": 1
+  },
   "gcpstorage": {
     "fields": [
       "Bucket.Config map[string]json.RawMessage `json:\"config,omitempty\"`",
