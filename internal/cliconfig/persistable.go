@@ -25,34 +25,34 @@ import (
 
 // PersistableConfig holds settings that can be saved to disk.
 type PersistableConfig struct {
-	DNSListenAddr       string                    `json:"dns_listen_addr"`
-	DNSResolveIP        string                    `json:"dns_resolve_ip"`
+	ElastiCacheEngine   string                    `json:"elasticache_engine"`
+	ElasticsearchEngine string                    `json:"elasticsearch_engine"`
 	Region              string                    `json:"region"`
 	LogLevel            string                    `json:"log_level"`
 	Port                string                    `json:"port"`
 	OpenSearchEngine    string                    `json:"opensearch_engine"`
 	AccountID           string                    `json:"account_id"`
 	DataDir             string                    `json:"data_dir"`
-	ElastiCacheEngine   string                    `json:"elasticache_engine"`
-	ElasticsearchEngine string                    `json:"elasticsearch_engine"`
+	DNSResolveIP        string                    `json:"dns_resolve_ip"`
+	DNSListenAddr       string                    `json:"dns_listen_addr"`
 	CodeBuild           codebuildbackend.Settings `json:"codebuild"`
 	S3                  s3backend.Settings        `json:"s3"`
 	Lambda              lambdabackend.Settings    `json:"lambda"`
 	DynamoDB            ddbbackend.Settings       `json:"dynamodb"`
+	SES                 sesbackend.Settings       `json:"ses"`
 	Batch               batchbackend.Settings     `json:"batch"`
 	EC2                 ec2backend.Settings       `json:"ec2"`
 	StepFunctions       sfnbackend.Settings       `json:"stepfunctions"`
-	EMR                 emrbackend.Settings       `json:"emr"`
 	FIS                 fisbackend.Settings       `json:"fis"`
-	SES                 sesbackend.Settings       `json:"ses"`
+	EMR                 emrbackend.Settings       `json:"emr"`
 	SSM                 ssmbackend.Settings       `json:"ssm"`
 	XRay                xraybackend.Settings      `json:"xray"`
 	Backup              backupbackend.Settings    `json:"backup"`
 	Athena              athenabackend.Settings    `json:"athena"`
 	CloudWatchLogs      cwlogsbackend.Settings    `json:"cloudwatchlogs"`
-	LatencyMs           int                       `json:"latency_ms"`
-	PortRangeStart      int                       `json:"port_range_start"`
 	JanitorTimeout      time.Duration             `json:"janitor_timeout"`
+	PortRangeStart      int                       `json:"port_range_start"`
+	LatencyMs           int                       `json:"latency_ms"`
 	InitScriptTimeout   time.Duration             `json:"init_script_timeout"`
 	STS                 stsbackend.Settings       `json:"sts"`
 	PortRangeEnd        int                       `json:"port_range_end"`

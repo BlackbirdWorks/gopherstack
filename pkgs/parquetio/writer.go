@@ -355,5 +355,13 @@ func twosComplement(u *big.Int, n int) []byte {
 }
 
 func clampInt32(n int64) int32 {
-	return int32(max(math.MinInt32, min(math.MaxInt32, n)))
+	if n < math.MinInt32 {
+		return math.MinInt32
+	}
+
+	if n > math.MaxInt32 {
+		return math.MaxInt32
+	}
+
+	return int32(n)
 }

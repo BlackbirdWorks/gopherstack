@@ -19,7 +19,12 @@ import (
 	"unicode/utf8"
 )
 
-var errBadValue = errors.New("invalid argument")
+var (
+	errBadValue   = errors.New("invalid argument")
+	errPadTooLong = errors.New("pad length too large")
+)
+
+const maxPadLength = 1 << 24
 
 func compileRegexp(v driver.Value) (*regexp.Regexp, error) {
 	p, _ := asString(v)
@@ -49,7 +54,7 @@ func udfRegexpExtract(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 	}
 
 	m := re.FindStringSubmatch(s)
-	if m == nil || group < 0 || int(group) >= len(m) {
+	if m == nil || group < 0 || group >= int64(len(m)) {
 		return sqlNull(), nil
 	}
 
@@ -75,7 +80,7 @@ func udfRegexpExtractAll(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 	out := []any{}
 
 	for _, m := range re.FindAllStringSubmatch(s, -1) {
-		if group >= 0 && int(group) < len(m) {
+		if group >= 0 && group < int64(len(m)) {
 			out = append(out, m[group])
 		}
 	}
@@ -159,12 +164,16 @@ func pad(args []driver.Value, left bool) (driver.Value, error) {
 	}
 
 	r := []rune(s)
-	if int(n) <= len(r) {
+	if n <= int64(len(r)) {
 		return string(r[:n]), nil
 	}
 
+	if n > maxPadLength {
+		return nil, fmt.Errorf("%w: pad length %d exceeds %d", errPadTooLong, n, maxPadLength)
+	}
+
 	f := []rune(fill)
-	padding := make([]rune, int(n)-len(r))
+	padding := make([]rune, n-int64(len(r)))
 
 	for i := range padding {
 		padding[i] = f[i%len(f)]

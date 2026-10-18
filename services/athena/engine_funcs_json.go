@@ -220,7 +220,7 @@ func udfSplit(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 
 	parts := strings.Split(s, d)
 	if len(args) == argsThree {
-		if n, ok := toInt(args[2]); ok && n > 0 && int(n) < len(parts) {
+		if n, ok := toInt(args[2]); ok && n > 0 && n < int64(len(parts)) {
 			parts = append(parts[:n-1], strings.Join(parts[n-1:], d))
 		}
 	}
@@ -238,7 +238,7 @@ func udfSplitPart(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 	}
 
 	parts := strings.Split(s, d)
-	if int(n) > len(parts) {
+	if n > int64(len(parts)) {
 		return sqlNull(), nil
 	}
 
@@ -262,7 +262,7 @@ func udfElementAt(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 			i += int64(len(c)) + 1
 		}
 
-		if i < 1 || int(i) > len(c) {
+		if i < 1 || i > int64(len(c)) {
 			return sqlNull(), nil
 		}
 
@@ -488,11 +488,14 @@ func udfSlice(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 		start += int64(len(a)) + 1
 	}
 
-	if start < 1 || int(start) > len(a) {
+	if start < 1 || start > int64(len(a)) {
 		return jsonText([]any{}), nil
 	}
 
-	end := min(int(start-1+length), len(a))
+	end := int64(len(a))
+	if length < end-(start-1) {
+		end = start - 1 + length
+	}
 
 	return jsonText(a[start-1 : end]), nil
 }
