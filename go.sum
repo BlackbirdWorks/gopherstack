@@ -306,6 +306,8 @@ github.com/aws/aws-sdk-go-v2/service/networkmanager v1.44.4 h1:NqVaABPv2KzNPAFFD
 github.com/aws/aws-sdk-go-v2/service/networkmanager v1.44.4/go.mod h1:Rn3XXfK1IcbCURfY2KNXs/joVMDuIxQGrgLHQzx6df4=
 github.com/aws/aws-sdk-go-v2/service/networkmonitor v1.16.4 h1:a69y4f63C/nbN6eQrjoPazMUqZhbT/sd/Yr/sSvBzL0=
 github.com/aws/aws-sdk-go-v2/service/networkmonitor v1.16.4/go.mod h1:DQ6yUXnzi+HXkT0Wm+imoiNC877IV+JHcOXcZUbGx1g=
+github.com/aws/aws-sdk-go-v2/service/oam v1.31.4 h1:HzlYlS2w7HwXwh4NWuy7zM9tWa790HeWYRwj+bvTOiA=
+github.com/aws/aws-sdk-go-v2/service/oam v1.31.4/go.mod h1:IsxcinAw3ND7xF1jEbfppATwI9k8H+ggdKfFUDnuuHQ=
 github.com/aws/aws-sdk-go-v2/service/omics v1.49.5 h1:Ccs2bCAieQW0R2IqEXGczOwoVAJdRqEWpYcKnwewbEE=
 github.com/aws/aws-sdk-go-v2/service/omics v1.49.5/go.mod h1:t/ZkSaJvFWWkvI5YHSvQnN7yOkip7TK5LE30122jkdc=
 github.com/aws/aws-sdk-go-v2/service/opensearch v1.75.4 h1:GOgYS22J8EuN+fz6o0k8PXMvCgKLRQxH+wguJiZ5IjE=
@@ -348,6 +350,8 @@ github.com/aws/aws-sdk-go-v2/service/rekognition v1.58.0 h1:tffBqo92LWzgBjzIi4ZG
 github.com/aws/aws-sdk-go-v2/service/rekognition v1.58.0/go.mod h1:ane7ZVCfh1bTiziJAHIwC6EDvUP538No6zE1Moe1y0Q=
 github.com/aws/aws-sdk-go-v2/service/resiliencehub v1.38.3 h1:jlnPZK8qKIuVTKNthWLajvKBEiLzQRXvwAgZQnC0OCI=
 github.com/aws/aws-sdk-go-v2/service/resiliencehub v1.38.3/go.mod h1:t0lMUwV557DvgF1JeRREQb+YO+azxL1lGN8QWAzYZys=
+github.com/aws/aws-sdk-go-v2/service/resourceexplorer2 v1.33.4 h1:bFyOLX1Q5wVBX3b4Awvh2hfMQHJrCUmWTYBnte+z7qA=
+github.com/aws/aws-sdk-go-v2/service/resourceexplorer2 v1.33.4/go.mod h1:P6P8O06ycxS2Vha7mMpjoKa6GAHgLA3VukSzA+sxtJM=
 github.com/aws/aws-sdk-go-v2/service/resourcegroups v1.36.4 h1:x9tbnt33GoXnW8bAt05RSyx8CVqbBehzbLuaxIayvDs=
 github.com/aws/aws-sdk-go-v2/service/resourcegroups v1.36.4/go.mod h1:svOtf9VnaricTBjfvH5OinTG1nh+FYwugdkCtu/R8DI=
 github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi v1.35.4 h1:qXd1FD8kRVx+YAU2OJGlllfSGgacw2Di9lhAGeU0iNE=
@@ -384,8 +388,12 @@ github.com/aws/aws-sdk-go-v2/service/securityhub v1.75.4 h1:zZiBp2G+FrtrT5DGcpp6
 github.com/aws/aws-sdk-go-v2/service/securityhub v1.75.4/go.mod h1:zHr00dDys+8JbwQALvat8WGyudYfzc2W3dw79e+bSWs=
 github.com/aws/aws-sdk-go-v2/service/serverlessapplicationrepository v1.33.4 h1:JST4TlacXMEPUOHpe/EC5b/eFpFyRkXtHkNLesS3G/c=
 github.com/aws/aws-sdk-go-v2/service/serverlessapplicationrepository v1.33.4/go.mod h1:8GpuZk+7VJh5vPzivgZnIoZiOHP2AB4p4TgsgHQDkBE=
+github.com/aws/aws-sdk-go-v2/service/servicecatalog v1.47.4 h1:dtfibIqZ3kzT4FM/mNO3i9CXP1HkLd5rBsjlFq61SrY=
+github.com/aws/aws-sdk-go-v2/service/servicecatalog v1.47.4/go.mod h1:cO1kJW+4DW0VQbm2k8tMnjhDYdXTQJRDf4sf4Lfvy4E=
 github.com/aws/aws-sdk-go-v2/service/servicediscovery v1.43.4 h1:yDpDGCB+WQ86x3h3feiVr6IYknnNX8by8+FSy8uYSis=
 github.com/aws/aws-sdk-go-v2/service/servicediscovery v1.43.4/go.mod h1:2HybnlpdcfJa/ojiBUvuUJ+QRPlCkfAO4ebWTIurEcg=
+github.com/aws/aws-sdk-go-v2/service/servicequotas v1.43.4 h1:QbYxB+Z1PPThV2plDrL9LhE8NbZTk+/yclkdztPIVg8=
+github.com/aws/aws-sdk-go-v2/service/servicequotas v1.43.4/go.mod h1:gMqNkh+NTBQWntMO5c+QRXNwoRqLN3JcqQoYtFopw6U=
 github.com/aws/aws-sdk-go-v2/service/ses v1.37.4 h1:tgwIkX/ZZQ5mJM5cYXn8wnq46GcA2xtouQJSnSlBaWs=
 github.com/aws/aws-sdk-go-v2/service/ses v1.37.4/go.mod h1:m3tzwWPeHlsWZhwp51DJ5RxrtDC7a1hgdXbbeV/CmvE=
 github.com/aws/aws-sdk-go-v2/service/sesv2 v1.66.4 h1:br4Yg9yZfFggiPLgSh4ud7oLxXeG4r/UFysUiPFBYD0=

@@ -254,6 +254,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.13.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/oam v1.31.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/resourceexplorer2 v1.33.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/servicecatalog v1.47.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/servicequotas v1.43.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.9.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bitfield/gotestdox v0.2.2 // indirect

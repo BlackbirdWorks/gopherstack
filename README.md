@@ -700,7 +700,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Kinesis Analytics v2](services/kinesisanalyticsv2/README.md) | A | 33 | 3 gaps; 1 structural gap; 1 deferred |
 | [Kinesis Data Firehose](services/firehose/README.md) | A | 12 | 4 structural gaps |
 | [Lake Formation](services/lakeformation/README.md) | A | 61 | 1 gap; 2 structural gaps |
-| [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 1 structural gap |
+| [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 4 gaps; 1 structural gap |
 | [Managed Workflows for Apache Airflow](services/mwaa/README.md) | A | 12 | 2 gaps; 1 structural gap; 1 deferred |
 | [OpenSearch](services/opensearch/README.md) | A | 19 | 1 structural gap |
 | [QuickSight](services/quicksight/README.md) | A | 81 | 3 gaps; 7 structural gaps |
@@ -850,16 +850,20 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Globalaccelerator](services/globalaccelerator/README.md) | B | 56 | 7 gaps; 2 structural gaps |
 | [Grafana](services/grafana/README.md) | A | 25 | 1 structural gap |
 | [HealthOmics](services/omics/README.md) | A | — | 25 families; 5 structural gaps; 1 deferred |
-| [Kafkaconnect](services/kafkaconnect/README.md) | A | 19 | 3 structural gaps |
+| [Kafkaconnect](services/kafkaconnect/README.md) | A | 19 | 3 gaps; 3 structural gaps |
 | [Kinesisvideo](services/kinesisvideo/README.md) | A | 32 | 3 structural gaps |
 | [Lightsail](services/lightsail/README.md) | A | — | 28 families; 1 gap; 6 structural gaps; 2 deferred |
 | [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 3 structural gaps |
 | [Mgn](services/mgn/README.md) | A | 95 | 1 gap; 8 structural gaps; 1 deferred |
 | [Networkfirewall](services/networkfirewall/README.md) | B | 85 | 4 gaps; 3 structural gaps |
 | [Networkmanager](services/networkmanager/README.md) | A | 95 | 4 gaps; 2 structural gaps |
+| [Oam](services/oam/README.md) | B | 15 | 4 gaps; 1 structural gap |
 | [Outposts](services/outposts/README.md) | A | 43 | 2 gaps; 7 structural gaps |
 | [Pricing](services/pricing/README.md) | B | 5 | 4 gaps |
 | [Resiliencehub](services/resiliencehub/README.md) | A | 63 | 7 structural gaps |
+| [Resourceexplorer2](services/resourceexplorer2/README.md) | B | 27 | 13 gaps; 1 structural gap |
+| [Servicecatalog](services/servicecatalog/README.md) | B | 89 | 14 gaps; 1 structural gap |
+| [Servicequotas](services/servicequotas/README.md) | B | 26 | 8 gaps; 1 structural gap |
 | [Support](services/support/README.md) | A | 16 | 1 structural gap; 1 deferred |
 | [WorkSpaces](services/workspaces/README.md) | A | 34 | 4 gaps; 2 structural gaps |
 <!-- END GENERATED SERVICES -->

@@ -74,6 +74,7 @@ import (
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
+	servicequotasbackend "github.com/blackbirdworks/gopherstack/services/servicequotas"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
@@ -254,6 +255,12 @@ func applyNetworkFirewall(reg service.Registerable, l cliconfig.LifecycleSetting
 func applyGlobalAccelerator(reg service.Registerable, l cliconfig.LifecycleSettings) {
 	if h, ok := reg.(*globalacceleratorbackend.Handler); ok {
 		h.Backend.SetLifecycleDelay(l.Effective(l.GlobalAccelerator))
+	}
+}
+
+func applyServiceQuotas(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*servicequotasbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.Effective(l.ServiceQuotas))
 	}
 }
 
@@ -722,6 +729,7 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l cliconfig.Lif
 		"FIS":                 applyFIS,
 		"DSQL":                applyDSQL,
 		"GlobalAccelerator":   applyGlobalAccelerator,
+		"ServiceQuotas":       applyServiceQuotas,
 		"NetworkFirewall":     applyNetworkFirewall,
 		"WorkMail":            applyWorkMail,
 		"Personalize":         applyPersonalize,

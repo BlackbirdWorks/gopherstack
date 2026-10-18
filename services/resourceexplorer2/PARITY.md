@@ -1,0 +1,71 @@
+---
+service: resourceexplorer2
+sdk_module: aws-sdk-go-v2/service/resourceexplorer2@v1.33.4
+last_audit_commit: e1a1dfbea
+last_audit_date: 2026-10-18
+overall: B            # 27 of 32 SDK operations are backed by real state and verified through the SDK client; the five service-linked operations are not implemented and the supported-types catalog is a curated subset.
+ops:
+  AssociateDefaultView: {wire: ok, errors: ok, state: ok, persist: ok}
+  BatchGetView: {wire: ok, errors: ok, state: ok, persist: ok, note: "1-20 ARNs; unknown ARNs come back in Errors"}
+  CreateIndex: {wire: ok, errors: ok, state: ok, persist: ok, note: "LOCAL index per Region and account (ConflictException when one exists); CREATING until the lifecycle delay, then ACTIVE; ClientToken replays"}
+  CreateResourceExplorerSetup: {wire: ok, errors: ok, state: ok, persist: ok, note: "creates a LOCAL (or AGGREGATOR) index and a default view per Region; existing indexes are SKIPPED"}
+  CreateView: {wire: ok, errors: ok, state: ok, persist: ok, note: "name pattern [a-zA-Z0-9-]{1,64}, 50 views per Region, only the tags property; FilterString parsed with the Search grammar; needs an index in the Region; ClientToken replays"}
+  DeleteIndex: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETING then gone; every view of the Region and its default association are removed"}
+  DeleteResourceExplorerSetup: {wire: ok, errors: ok, state: ok, persist: ok, note: "deletes the index (and views) of the listed or all Regions"}
+  DeleteView: {wire: ok, errors: ok, state: ok, persist: ok, note: "clears the default view when it was the default"}
+  DisassociateDefaultView: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetAccountLevelServiceConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "ENABLED when the Organizations backend has resource-explorer-2.amazonaws.com trusted access, else DISABLED"}
+  GetDefaultView: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns no ViewArn when none is set"}
+  GetIndex: {wire: ok, errors: ok, state: ok, persist: ok, note: "ReplicatingFrom/ReplicatingTo are derived from the account's other indexes"}
+  GetManagedView: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResourcePolicy grants the trusted service Search"}
+  GetResourceExplorerSetup: {wire: ok, errors: ok, state: ok, persist: ok, note: "per-Region status derived from live index and view state"}
+  GetView: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListIndexes: {wire: ok, errors: ok, state: ok, persist: ok, note: "Regions and Type filters"}
+  ListIndexesForMembers: {wire: ok, errors: ok, state: ok, persist: ok, note: "lists the indexes of the given accounts; organization membership and delegated-admin rights are not checked"}
+  ListManagedViews: {wire: ok, errors: ok, state: ok, persist: ok, note: "two emulator-defined managed views; names are not AWS-verified"}
+  ListResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "same pipeline as Search without Count; Filters narrows the view filter"}
+  ListSupportedResourceTypes: {wire: ok, errors: ok, state: ok, persist: ok, note: "curated catalog of 46 types, not the full AWS list"}
+  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListViews: {wire: ok, errors: ok, state: ok, persist: ok}
+  Search: {wire: ok, errors: ok, state: ok, persist: ok, note: "keywords, service:, resourcetype:, region: (globs), tag:key=value|key|all|none, tag.key:, tag.value:, accountid:, id:, -negation, quoted phrases; same-name filters OR, different names AND, view filter intersected; 1000-result cap; no default view gives UnauthorizedException"}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "indexes and views, 50 tags, aws: prefix rejected"}
+  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateIndexType: {wire: ok, errors: ok, state: ok, persist: ok, note: "LOCAL<->AGGREGATOR; index must be ACTIVE (UPDATING meanwhile); one aggregator per account; a 24h lock follows leaving or deleting an aggregator"}
+  UpdateView: {wire: ok, errors: ok, state: ok, persist: ok, note: "Filters/IncludedProperties replaced only when present"}
+families:
+  Index: {status: ok, note: "State is a lazy deadline (Transition until SettleAt) evaluated on read; no goroutines. Default lifecycle delay is 0, settable through Backend.SetLifecycleDelay."}
+  View: {status: ok, note: "Views belong to one Region and account; a view ARN from another Region or account is ResourceNotFoundException."}
+  Search: {status: ok, note: "Resources come from the Resource Groups Tagging API aggregation (internal/app/resourceexplorer_wiring.go) plus EC2 instances, VPCs, subnets, security groups and volumes; an AGGREGATOR index searches every Region that has an index."}
+  Setup: {status: ok, note: "CreateResourceExplorerSetup/DeleteResourceExplorerSetup run through the same index and view code as the individual operations."}
+  Tags: {status: ok, note: "Tags on indexes and views only."}
+gaps: []
+items_still_open:
+  - GetServiceIndex: not implemented; service-linked indexes are created by AWS services and no emulator path creates one
+  - GetServiceView: not implemented; same reason as GetServiceIndex
+  - ListServiceIndexes: not implemented; same reason as GetServiceIndex
+  - ListServiceViews: not implemented; same reason as GetServiceIndex
+  - ListStreamingAccessForServices: not implemented; no service streaming access is ever granted
+  - ListSupportedResourceTypes: 46 curated types, not the full AWS catalog
+  - Search: keywords match as case-insensitive substrings over the ARN and tag text, not as AWS tokens; the application filter is unsupported and an unknown filter is treated as a keyword
+  - Search: only services wired into the tagging aggregation (and the five EC2 kinds) are indexed; other emulated services are invisible
+  - GetManagedView: the two managed views (SSM, Resilience Hub) are emulator-defined; real names, ARNs and policies are unverified
+  - ListIndexesForMembers: no organization membership or delegated-administrator check
+  - CreateView: organization and OU scopes are accepted without validating them against Organizations
+  - ConflictException: several conflict and validation cases (view without an index, aggregator rules, duplicate type update) use codes chosen from documented behaviour, not from SDK evidence
+  - MaxResults: the 1-100 (views 1-20) ranges are not in the SDK and are unverified
+structural_gaps:
+  - "Indexing is instantaneous and always complete: there is no crawler, so LastReportedAt is the query time and replication lag between Regions cannot occur."
+deferred: []
+leaks: {status: clean, note: "leak_main_test.go runs goleak over the package; state transitions are lazy deadlines read under the backend lock."}
+---
+
+## Notes
+
+Protocol is REST-JSON (`pkgs/restroute`): every operation is a POST to `/<OperationName>` except the tag operations on `/tags/{resourceArn}`. Timestamps are ISO8601 `date-time` strings because the schemas carry an explicit `timestampFormat`, unlike the JSON-protocol services. Requests are matched by the `resource-explorer-2` SigV4 signing name or the SDK user-agent marker.
+
+Emulator choices the SDK does not document:
+
+- One index per Region and account; a view needs it. Deleting the index deletes the Region's views.
+- Resources with an empty ARN Region (S3) take the Region of the query; IAM, Route 53, CloudFront, Organizations, WAF, Shield, Global Accelerator, Network Manager and STS resources report the Region `global`.
+- A caller whose account differs from the resource ARN account sees nothing.
+- Search results are ordered by ARN; NextToken is an offset token validated by `pkgs/page`.

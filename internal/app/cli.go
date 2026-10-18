@@ -195,6 +195,7 @@ import (
 	networkfirewallbackend "github.com/blackbirdworks/gopherstack/services/networkfirewall"
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
+	oambackend "github.com/blackbirdworks/gopherstack/services/oam"
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	opsworksbackend "github.com/blackbirdworks/gopherstack/services/opsworks"
@@ -213,6 +214,7 @@ import (
 	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	rekognitionbackend "github.com/blackbirdworks/gopherstack/services/rekognition"
 	resiliencehubbackend "github.com/blackbirdworks/gopherstack/services/resiliencehub"
+	resourceexplorer2backend "github.com/blackbirdworks/gopherstack/services/resourceexplorer2"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	rolesanywherebackend "github.com/blackbirdworks/gopherstack/services/rolesanywhere"
@@ -230,7 +232,9 @@ import (
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	securityhubbackend "github.com/blackbirdworks/gopherstack/services/securityhub"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
+	servicecatalogbackend "github.com/blackbirdworks/gopherstack/services/servicecatalog"
 	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
+	servicequotasbackend "github.com/blackbirdworks/gopherstack/services/servicequotas"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
 	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
@@ -3231,6 +3235,8 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// alarm-state-change subscription (gopherstack-x842, gopherstack-9939).
 	wireFISStopConditions(byName["FIS"], byName["CloudWatch"])
 	wireFISTargetResolver(byName)
+	wireResourceExplorer(byName)
+	wireServiceCatalog(byName)
 
 	// Wire Auto Scaling → EC2 so scale-out launches real (mock) EC2 instances
 	// and scale-in terminates them there too, instead of Auto Scaling
@@ -4261,6 +4267,7 @@ func registerCloudFormationAndDashboard(
 	// wireStorageAndSecretsIntegrations, because CloudFormation does not
 	// exist yet when that runs.
 	wireLightsailCloudFormation(byName["Lightsail"], cfnSvc)
+	wireServiceCatalogEngine(byName["ServiceCatalog"], cfnSvc)
 
 	// Wire CloudFormation -> Organizations so SERVICE_MANAGED StackSets can
 	// expand DeploymentTargets.OrganizationalUnitIds against the real OU
@@ -4268,6 +4275,7 @@ func registerCloudFormationAndDashboard(
 	wireCloudFormationOrganizations(cfnSvc, byName["Organizations"])
 	wireRAMOrganizations(byName["RAM"], byName["Organizations"])
 	wireOrganizationsIAM(byName["Organizations"], byName["IAM"])
+	wireQuotaAndObservabilityOrganizations(byName)
 
 	wireVPCLatticeEndpoints(byName["VPCLattice"], byName["EC2"])
 
@@ -4287,7 +4295,10 @@ func registerCloudFormationAndDashboard(
 
 // getServiceProviders returns the list of all available service providers.
 func getServiceProviders() []service.Provider {
-	return append(getCoreServiceProviders(), getRemainingServiceProviders()...)
+	return slices.Concat(getCoreServiceProviders(), getRemainingServiceProviders(), []service.Provider{
+		&resourceexplorer2backend.Provider{},
+		&servicecatalogbackend.Provider{},
+	})
 }
 
 // getCoreServiceProviders returns the foundational service providers.
@@ -4505,6 +4516,8 @@ func getMostRecentServiceProviders() []service.Provider {
 		&mgnbackend.Provider{},
 		&networkmanagerbackend.Provider{},
 		&lightsailbackend.Provider{},
+		&oambackend.Provider{},
+		&servicequotasbackend.Provider{},
 	}
 }
 
