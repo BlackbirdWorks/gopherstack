@@ -92,7 +92,7 @@ skipped=()
 for f in "${changed_files[@]}"; do
   [[ -f "$f" ]] || continue
   case "/$f" in
-    */testdata/*|*/vendor/*|*/.*|desktop/*)
+    */testdata/*|*/vendor/*|*/.*|/desktop/*)
       skipped+=("$f (excluded dir)")
       continue
       ;;

@@ -5,8 +5,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // ResetServiceSpecificCredentialFull resets a service-specific credential (regenerates password).

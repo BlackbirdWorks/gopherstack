@@ -4,9 +4,10 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/ec2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/ec2"
 )
 
 // TestCreate_Tags_RoundTrip_LGWInsightsInstance covers batch 4 of gopherstack-wjlrn: the
