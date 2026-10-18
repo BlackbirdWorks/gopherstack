@@ -24,7 +24,7 @@ func (h *DashboardHandler) registerAzureBlobRoutes() {
 
 	serve := func(c *echo.Context) error {
 		if inner == nil {
-			return c.XML(http.StatusServiceUnavailable, map[string]string{"Code": "ServiceUnavailable"})
+			return c.XML(http.StatusServiceUnavailable, map[string]string{"Code": errServiceUnavailable})
 		}
 
 		r := c.Request()

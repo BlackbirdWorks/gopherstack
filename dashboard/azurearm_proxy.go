@@ -26,7 +26,7 @@ func (h *DashboardHandler) registerAzureARMRoutes() {
 	serve := func(c *echo.Context) error {
 		if inner == nil {
 			return c.JSON(http.StatusServiceUnavailable, map[string]any{
-				"error": map[string]string{"code": "ServiceUnavailable", "message": "Azure ARM is not enabled"},
+				keyError: map[string]string{"code": errServiceUnavailable, "message": "Azure ARM is not enabled"},
 			})
 		}
 

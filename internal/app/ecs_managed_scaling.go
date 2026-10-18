@@ -1,6 +1,7 @@
 package app
 
 import (
+	"math"
 	"strings"
 
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
@@ -80,8 +81,7 @@ func (c ecsASGController) SetDesiredCapacity(ref string, desired int) error {
 	name, region := splitASGRef(ref)
 
 	return c.asg.BackendFor(region).
-		SetDesiredCapacity(name, int32(desired), false)
-	//nolint:gosec // clamped to group max
+		SetDesiredCapacity(name, int32(min(max(desired, math.MinInt32), math.MaxInt32)), false)
 }
 
 func (c ecsASGController) SetInstanceProtection(ref string, ids []string, protected bool) error {

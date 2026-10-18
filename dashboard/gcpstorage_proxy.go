@@ -9,6 +9,8 @@ import (
 )
 
 const (
+	gcpStorageSeg          = "storage"
+	errServiceUnavailable  = "ServiceUnavailable"
 	gcpStorageProxyPrefix  = "/dashboard/api/v1/gcp/storage"
 	gcpStorageMaxBodyBytes = 64 << 20
 	gcpStorageMaxJSONSegs  = 6
@@ -30,7 +32,7 @@ func (h *DashboardHandler) registerGCPStorageRoutes() {
 
 	serve := func(c *echo.Context) error {
 		if router == nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "ServiceUnavailable"})
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: errServiceUnavailable})
 		}
 
 		r := c.Request()
@@ -88,27 +90,33 @@ func gcpStorageProxyPath(escaped string) (string, bool) {
 
 func gcpStorageShapeOK(segs []string) bool {
 	switch segs[0] {
-	case "storage":
-		if len(segs) < gcpStorageBucketIdx || segs[1] != "v1" || segs[2] != "b" {
-			return false
-		}
-
-		if len(segs) > gcpStorageBucketIdx+1 && segs[4] != "o" && segs[4] != "iam" {
-			return false
-		}
-
-		if len(segs) > gcpStorageIAMSegs && segs[4] == "iam" {
-			return false
-		}
-
-		return len(segs) <= gcpStorageMaxJSONSegs
+	case gcpStorageSeg:
+		return gcpStorageJSONShapeOK(segs)
 	case "upload":
-		return len(segs) == gcpStorageUploadSegs && segs[1] == "storage" && segs[2] == "v1" &&
-			segs[3] == "b" && segs[5] == "o"
+		return len(segs) == gcpStorageUploadSegs && gcpStorageV1Bucket(segs) && segs[5] == "o"
 	case "download":
-		return len(segs) == gcpStorageObjectSegs && segs[1] == "storage" && segs[2] == "v1" &&
-			segs[3] == "b" && segs[5] == "o"
+		return len(segs) == gcpStorageObjectSegs && gcpStorageV1Bucket(segs) && segs[5] == "o"
 	default:
 		return false
 	}
+}
+
+func gcpStorageV1Bucket(segs []string) bool {
+	return segs[1] == gcpStorageSeg && segs[2] == "v1" && segs[3] == "b"
+}
+
+func gcpStorageJSONShapeOK(segs []string) bool {
+	if len(segs) < gcpStorageBucketIdx || segs[1] != "v1" || segs[2] != "b" {
+		return false
+	}
+
+	if len(segs) > gcpStorageBucketIdx+1 && segs[4] != "o" && segs[4] != "iam" {
+		return false
+	}
+
+	if len(segs) > gcpStorageIAMSegs && segs[4] == "iam" {
+		return false
+	}
+
+	return len(segs) <= gcpStorageMaxJSONSegs
 }

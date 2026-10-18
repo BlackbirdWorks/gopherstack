@@ -50,16 +50,26 @@ func TestGCPStorageProxy(t *testing.T) {
 			seed: true, wantCode: http.StatusOK, wantBody: `"dir/a.txt"`,
 		},
 		{
-			name: "download", method: http.MethodGet, path: base + "/download/storage/v1/b/bkt1/o/dir%2Fa.txt?alt=media",
+			name: "download", method: http.MethodGet,
+			path: base + "/download/storage/v1/b/bkt1/o/dir%2Fa.txt?alt=media",
 			seed: true, wantCode: http.StatusOK, wantBody: "hello",
 		},
 		{
 			name: "missing object", method: http.MethodGet, path: base + "/storage/v1/b/bkt1/o/nope",
 			seed: true, wantCode: http.StatusNotFound,
 		},
-		{name: "traversal blocked", method: http.MethodGet, path: base + "/storage/v1/b/bkt1/o/%2E%2E", wantCode: http.StatusBadRequest},
-		{name: "xml path blocked", method: http.MethodGet, path: base + "/bkt1/dir/a.txt", wantCode: http.StatusBadRequest},
-		{name: "compose blocked", method: http.MethodPost, path: base + "/storage/v1/b/bkt1/o/x/compose", wantCode: http.StatusBadRequest},
+		{
+			name: "traversal blocked", method: http.MethodGet,
+			path: base + "/storage/v1/b/bkt1/o/%2E%2E", wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "xml path blocked", method: http.MethodGet,
+			path: base + "/bkt1/dir/a.txt", wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "compose blocked", method: http.MethodPost,
+			path: base + "/storage/v1/b/bkt1/o/x/compose", wantCode: http.StatusBadRequest,
+		},
 		{name: "empty", method: http.MethodGet, path: base + "/", wantCode: http.StatusBadRequest},
 	}
 
