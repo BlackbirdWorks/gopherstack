@@ -227,6 +227,8 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 		Privileged: spec.Privileged,
 	}
 
+	r.cfg.Injection.apply(cfg, hostCfg)
+
 	if len(spec.Tmpfs) > 0 {
 		hostCfg.Tmpfs = make(map[string]string, len(spec.Tmpfs))
 		for _, path := range spec.Tmpfs {

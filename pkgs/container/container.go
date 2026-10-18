@@ -43,7 +43,9 @@ const (
 
 // Config holds configuration for the container runtime layer.
 type Config struct {
-	Logger      *slog.Logger
+	Logger *slog.Logger
+	// Injection overrides the env-derived DNS/CA injection for spawned containers.
+	Injection   *Injection
 	Runtime     RuntimeName
 	PoolSize    int
 	IdleTimeout time.Duration

@@ -125,3 +125,45 @@ psql -h my-db.gopherstack.internal -U admin
 ```
 
 > **Note:** RDS and Redshift in Gopherstack are metadata-only stubs; no real database process is started at the resolved address. To test actual database connectivity, run a real PostgreSQL/MySQL container separately and point your DNS entry at its address using `--dns-resolve-ip`.
+
+## Transparent endpoint injection
+
+Unmodified SDKs and CLIs that target real `*.amazonaws.com` endpoints (no
+`endpoint_url`) can reach Gopherstack, like LocalStack's DNS + transparent
+injection.
+
+```bash
+sudo gopherstack --transparent-dns --transparent-ca-dir ~/.gopherstack/ca
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--transparent-dns` | off | Resolve `*.amazonaws.com`, `*.amazonaws.com.cn`, `*.api.aws` to `--dns-resolve-ip`; forward every other name upstream. Listens on `--dns-addr` (default `:53`). |
+| `--transparent-https-addr` | `:443` | HTTPS listener for those names; certificates are issued per SNI from the CA. |
+| `--transparent-dns-skip` | none | Names/zones that still resolve upstream (e.g. `sts.amazonaws.com` for real credentials). |
+| `--transparent-dns-upstream` | `/etc/resolv.conf` | Upstream resolvers (`host:port`). |
+| `--transparent-ca-dir` | ephemeral | Persist the CA so you trust it once. |
+| `--transparent-container-dns` | `--dns-resolve-ip` if not loopback | DNS IP given to spawned containers. |
+
+Point the client at the DNS server (`resolvectl dns <iface> 127.0.0.1`, or
+`/etc/resolv.conf`), then trust the CA, downloadable from
+`http://localhost:<port>/_gopherstack/ca.pem` (or `<ca-dir>/ca.pem`):
+
+```bash
+export AWS_CA_BUNDLE=$PWD/ca.pem          # AWS CLI / SDKs
+export REQUESTS_CA_BUNDLE=$PWD/ca.pem     # Python requests
+export NODE_EXTRA_CA_CERTS=$PWD/ca.pem    # Node.js
+keytool -importcert -noprompt -alias gopherstack -file ca.pem \
+  -keystore $JAVA_HOME/lib/security/cacerts -storepass changeit   # Java
+```
+
+Requests route by wire shape (target header, path, form action) exactly as with
+`endpoint_url`; S3 virtual-hosted names such as `bucket.s3.us-west-2.amazonaws.com`
+are recognised without extra configuration.
+
+Spawned engine containers (Lambda, CodeBuild, ECS, RDS, ...) get `--dns`
+pointing at the embedded DNS, the CA mounted at `/etc/gopherstack/ca.pem`, and
+`AWS_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS` and
+`CURL_CA_BUNDLE` set. Containers cannot use a loopback DNS: set
+`--dns-resolve-ip` (or `--transparent-container-dns`) to a host IP reachable from
+the container network, and make the DNS server listen on port 53.

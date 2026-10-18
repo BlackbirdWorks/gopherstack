@@ -85,3 +85,45 @@ func TestGenerateSelfSignedCertPEM(t *testing.T) {
 	assert.Contains(t, string(certPEM), "BEGIN CERTIFICATE")
 	assert.Contains(t, string(keyPEM), "BEGIN PRIVATE KEY")
 }
+
+func TestCA_IssueVerifies(t *testing.T) {
+	t.Parallel()
+
+	ca, err := devtls.NewCA()
+	require.NoError(t, err)
+
+	leaf, err := ca.Issue("sqs.us-east-1.amazonaws.com", "*.us-east-1.amazonaws.com")
+	require.NoError(t, err)
+
+	parsed, err := x509.ParseCertificate(leaf.Certificate[0])
+	require.NoError(t, err)
+
+	for _, name := range []string{"sqs.us-east-1.amazonaws.com", "sns.us-east-1.amazonaws.com"} {
+		_, err = parsed.Verify(x509.VerifyOptions{Roots: ca.Pool(), DNSName: name})
+		require.NoError(t, err, name)
+	}
+
+	_, err = parsed.Verify(x509.VerifyOptions{Roots: ca.Pool(), DNSName: "sqs.eu-west-1.amazonaws.com"})
+	require.Error(t, err)
+}
+
+func TestLoadOrCreateCA_Persists(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	first, err := devtls.LoadOrCreateCA(dir)
+	require.NoError(t, err)
+
+	second, err := devtls.LoadOrCreateCA(dir)
+	require.NoError(t, err)
+	assert.Equal(t, first.CertPEM(), second.CertPEM())
+
+	leaf, err := second.Issue("x.amazonaws.com")
+	require.NoError(t, err)
+
+	parsed, err := x509.ParseCertificate(leaf.Certificate[0])
+	require.NoError(t, err)
+	_, err = parsed.Verify(x509.VerifyOptions{Roots: first.Pool(), DNSName: "x.amazonaws.com"})
+	require.NoError(t, err)
+}

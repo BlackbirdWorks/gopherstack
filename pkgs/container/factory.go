@@ -22,6 +22,10 @@ var ErrUnknownRuntime = errors.New("unknown container runtime")
 // RuntimeAuto probes the Docker socket first, then the Podman socket.
 // Returns ErrUnavailable if the selected runtime is not reachable.
 func NewRuntime(cfg Config) (Runtime, error) {
+	if cfg.Injection == nil {
+		cfg.Injection = InjectionFromEnv()
+	}
+
 	name := cfg.Runtime
 	if name == "" {
 		if env := os.Getenv("CONTAINER_RUNTIME"); env != "" {
