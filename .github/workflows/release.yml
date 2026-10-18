@@ -237,6 +237,7 @@ jobs:
           ldflags="-s -w -X ${VERSION_PKG}.Build=${version}"
           [ "$RUNNER_OS" = "Linux" ] && tags="$tags,webkit2_41"
           [ "$RUNNER_OS" = "Windows" ] && ldflags="$ldflags -H windowsgui"
+          [ "$RUNNER_OS" = "macOS" ] && ldflags="$ldflags -extldflags '-framework UniformTypeIdentifiers'"
           mkdir -p ../out/pkg
           out=../out/pkg/gopherstack-desktop
           [ "$RUNNER_OS" = "Windows" ] && out="$out.exe"
