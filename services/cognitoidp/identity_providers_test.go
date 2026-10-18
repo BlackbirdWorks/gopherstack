@@ -456,12 +456,23 @@ func TestIdentityProvider_Backend_Direct(t *testing.T) {
 	assert.Equal(t, "urn:username", updated.AttributeMapping["username"])
 }
 
+func createProviderViaHandler(t *testing.T, h *cognitoidp.Handler, poolID, name, ptype string) {
+	t.Helper()
+
+	rec := doCognitoRequest(t, h, "CreateIdentityProvider", map[string]any{
+		"UserPoolId": poolID, "ProviderName": name, "ProviderType": ptype,
+		"ProviderDetails": map[string]string{"client_id": "x", "client_secret": "y", "authorize_scopes": "email"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+}
+
 func TestAdminLinkProviderForUser(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	poolID, clientID := setupHandlerPoolAndClient(t, h, "link-provider-pool")
 	signUpAndConfirmViaHandler(t, h, clientID, "link-user")
+	createProviderViaHandler(t, h, poolID, "Facebook", "Facebook")
 
 	rec := doCognitoRequest(t, h, "AdminLinkProviderForUser", map[string]any{
 		"UserPoolId": poolID,
@@ -612,6 +623,7 @@ func TestHandler_AdminLinkProviderForUser_Links(t *testing.T) {
 	h := newTestHandler(t)
 	poolID, clientID := setupHandlerPoolAndClient(t, h, "link-pool")
 	signUpAndConfirmViaHandler(t, h, clientID, "native-user")
+	createProviderViaHandler(t, h, poolID, "Google", "Google")
 
 	t.Run("success", func(t *testing.T) {
 		t.Parallel()
@@ -679,6 +691,9 @@ func TestHandler_AdminDisableProviderForUser(t *testing.T) {
 				var poolResp map[string]any
 				require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
 				poolID = poolResp["UserPool"].(map[string]any)["Id"].(string)
+				createProviderViaHandler(t, h, poolID, "Google", "Google")
+				_, err := h.Backend.CreateFederatedUserForTest(poolID, "Google", "google-123")
+				require.NoError(t, err)
 			}
 
 			rec := doCognitoRequest(t, h, "AdminDisableProviderForUser", map[string]any{

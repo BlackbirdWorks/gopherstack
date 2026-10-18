@@ -640,7 +640,7 @@ func (b *InMemoryBackend) applyAdminCreateUserAutoVerifyLocked(
 			eventKeyValidationData: stringMapToAny(td.ValidationData),
 			eventKeyClientMetadata: stringMapToAny(td.ClientMetadata),
 		},
-		map[string]any{"autoConfirmUser": false, "autoVerifyEmail": false, "autoVerifyPhone": false},
+		preSignUpDefaults(),
 	)
 	if err != nil {
 		return err

@@ -143,7 +143,7 @@ func (h *Handler) handleChangePassword(
 }
 
 func (h *Handler) handleAdminResetUserPassword(
-	_ context.Context,
+	ctx context.Context,
 	in *adminResetUserPasswordInput,
 ) (*adminResetUserPasswordOutput, error) {
 	code, err := h.Backend.AdminResetUserPasswordCode(in.UserPoolID, in.Username)
@@ -151,9 +151,16 @@ func (h *Handler) handleAdminResetUserPassword(
 		return nil, err
 	}
 
-	if _, _, err = h.Backend.InvokeCustomMessageTriggerForUser(
+	message, subject, err := h.Backend.InvokeCustomMessageTriggerForUser(
 		in.UserPoolID, adminClientID, in.Username, code, triggerSourceCustomMessageForgotPwd, in.ClientMetadata,
-	); err != nil {
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = h.deliverCode(ctx, in.UserPoolID, &MessageRequest{
+		Username: in.Username, Code: code, Kind: MessageForgotPassword, CustomMessage: message, CustomSubject: subject,
+	}, nil); err != nil {
 		return nil, err
 	}
 
@@ -321,7 +328,7 @@ func adminChallengeOutputFromResult(result *AuthResult) *adminRespondToAuthChall
 }
 
 func (h *Handler) handleSignUpAccurate(
-	_ context.Context,
+	ctx context.Context,
 	in *signUpAccurateInput,
 ) (*signUpAccurateOutput, error) {
 	if err := h.Backend.ValidateSecretHash(in.ClientID, in.Username, in.SecretHash); err != nil {
@@ -364,6 +371,13 @@ func (h *Handler) handleSignUpAccurate(
 
 		if subject != "" {
 			out.CodeDeliveryDetails[keyCustomMessageSubject] = subject
+		}
+
+		if err = h.deliverCode(ctx, user.UserPoolID, &MessageRequest{
+			Username: user.Username, Code: user.ConfirmCode, Kind: MessageVerification,
+			CustomMessage: message, CustomSubject: subject,
+		}, out.CodeDeliveryDetails); err != nil {
+			return nil, err
 		}
 	}
 
@@ -518,7 +532,7 @@ func (h *Handler) handleConfirmSignUpAccurate(
 }
 
 func (h *Handler) handleForgotPasswordAccurate(
-	_ context.Context,
+	ctx context.Context,
 	in *forgotPasswordAccurateInput,
 ) (*forgotPasswordAccurateOutput, error) {
 	if err := h.Backend.ValidateSecretHash(in.ClientID, in.Username, in.SecretHash); err != nil {
@@ -552,6 +566,13 @@ func (h *Handler) handleForgotPasswordAccurate(
 		details[keyCustomMessageSubject] = subject
 	}
 
+	if err = h.deliverForClient(ctx, in.ClientID, &MessageRequest{
+		Username: in.Username, Code: code, Kind: MessageForgotPassword,
+		CustomMessage: message, CustomSubject: subject,
+	}, details); err != nil {
+		return nil, err
+	}
+
 	return &forgotPasswordAccurateOutput{CodeDeliveryDetails: details}, nil
 }
 
@@ -573,7 +594,7 @@ func (h *Handler) handleConfirmForgotPasswordAccurate(
 }
 
 func (h *Handler) handleResendConfirmationCodeAccurate(
-	_ context.Context,
+	ctx context.Context,
 	in *resendConfirmationCodeAccurateInput,
 ) (*resendConfirmationCodeAccurateOutput, error) {
 	if err := h.Backend.ValidateSecretHash(in.ClientID, in.Username, in.SecretHash); err != nil {
@@ -605,6 +626,13 @@ func (h *Handler) handleResendConfirmationCodeAccurate(
 
 	if subject != "" {
 		details[keyCustomMessageSubject] = subject
+	}
+
+	if err = h.deliverForClient(ctx, in.ClientID, &MessageRequest{
+		Username: in.Username, Code: code, Kind: MessageVerification,
+		CustomMessage: message, CustomSubject: subject,
+	}, details); err != nil {
+		return nil, err
 	}
 
 	return &resendConfirmationCodeAccurateOutput{CodeDeliveryDetails: details}, nil
@@ -646,4 +674,35 @@ func validateAuthFlowType(flow string) error {
 	}
 
 	return fmt.Errorf("%w: 1 validation error detected: invalid AuthFlow %q", ErrInvalidParameter, flow)
+}
+
+// deliverCode sends a verification message and, when the destination resolves, fills the CodeDeliveryDetails
+// destination/medium/attribute from the user's real contact info instead of the placeholder.
+func (h *Handler) deliverCode(
+	ctx context.Context, poolID string, req *MessageRequest, details map[string]string,
+) error {
+	req.PoolID = poolID
+
+	res, err := h.Backend.DeliverMessage(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	if res.Resolved && details != nil {
+		details[keyDeliveryMedium], details[keyDestination], details[keyAttributeName] =
+			res.Medium, res.Destination, res.AttributeName
+	}
+
+	return nil
+}
+
+func (h *Handler) deliverForClient(
+	ctx context.Context, clientID string, req *MessageRequest, details map[string]string,
+) error {
+	client, ok := h.Backend.oauthClient(clientID)
+	if !ok {
+		return nil
+	}
+
+	return h.deliverCode(ctx, client.UserPoolID, req, details)
 }

@@ -146,7 +146,7 @@ func (b *InMemoryBackend) claimAliasesLocked(pool *UserPool, user *User, force b
 		if c.attr == attrPreferredUsername {
 			delete(c.owner.Attributes, c.attr)
 		} else {
-			c.owner.Attributes[c.attr+"_verified"] = "false"
+			c.owner.Attributes[c.attr+"_verified"] = attrVerifiedFalse
 		}
 	}
 

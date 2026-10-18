@@ -218,3 +218,13 @@ func (b *InMemoryBackend) GetAttrVerificationCodeForTest(poolID, username, attrN
 
 	return ""
 }
+
+// CreateFederatedUserForTest signs a federated identity in without an IdP round trip. For testing only.
+func (b *InMemoryBackend) CreateFederatedUserForTest(poolID, provider, subject string) (string, error) {
+	idp, ok := b.federationProvider(poolID, provider, "")
+	if !ok {
+		return "", ErrUserPoolNotFound
+	}
+
+	return b.federatedSignIn(poolID, "", idp, map[string]any{claimSub: subject}, "https://issuer.test")
+}

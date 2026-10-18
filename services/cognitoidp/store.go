@@ -62,6 +62,7 @@ const (
 // comment lists each one and why.
 type InMemoryBackend struct {
 	lambdaInvoker                 LambdaTriggerInvoker
+	messageSender                 MessageSender
 	domains                       *store.Table[UserPoolDomain]
 	resourceServers               *store.Table[ResourceServer]
 	poolsByName                   *store.Index[UserPool]

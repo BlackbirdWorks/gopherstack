@@ -21,6 +21,7 @@ type AttributeDelivery struct {
 	DeliveryMedium string
 	Destination    string
 	Code           string
+	Raw            string
 }
 
 // AttributeUpdateResult carries the deliveries of an attribute update plus the identity
@@ -70,6 +71,7 @@ func deliveryFor(name, value, code string) AttributeDelivery {
 			DeliveryMedium: deliveryMediumEmail,
 			Destination:    maskEmail(value),
 			Code:           code,
+			Raw:            value,
 		}
 	}
 
@@ -78,6 +80,7 @@ func deliveryFor(name, value, code string) AttributeDelivery {
 		DeliveryMedium: deliveryMediumSMS,
 		Destination:    maskPhone(value),
 		Code:           code,
+		Raw:            value,
 	}
 }
 
@@ -144,7 +147,7 @@ func (b *InMemoryBackend) applyVerifiableLocked(
 		return b.issueAttributeCodeLocked(u, name, val, val), true
 	case needsCode && slices.Contains(pool.AutoVerifiedAttributes, name):
 		u.Attributes[name] = val
-		u.Attributes[name+verifiedSuffix] = "false"
+		u.Attributes[name+verifiedSuffix] = attrVerifiedFalse
 
 		return b.issueAttributeCodeLocked(u, name, val, ""), true
 	default:

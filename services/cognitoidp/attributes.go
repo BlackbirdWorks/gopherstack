@@ -142,7 +142,10 @@ const attrVerificationCodeLen = 6
 const attrPhoneNumber = "phone_number"
 
 // attrVerifiedTrue is the string value for a verified attribute.
-const attrVerifiedTrue = "true"
+const (
+	attrVerifiedTrue  = "true"
+	attrVerifiedFalse = "false"
+)
 
 // maskEmailPrefixLen is the number of chars shown unmasked in an email prefix.
 const maskEmailPrefixLen = 2

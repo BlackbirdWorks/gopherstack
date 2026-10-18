@@ -38,6 +38,7 @@ type idpState struct {
 	ResponseType  string
 	IDPNonce      string
 	IDPRedirect   string
+	SAMLRequestID string
 	Scopes        []string
 }
 
@@ -173,7 +174,7 @@ func mappedAttributes(mapping map[string]string, claims map[string]any) map[stri
 
 // federatedSignIn links or creates the Cognito user for an IdP subject, refreshing its mapped attributes.
 func (b *InMemoryBackend) federatedSignIn(
-	poolID string, idp *IdentityProvider, claims map[string]any, issuer string,
+	poolID, clientID string, idp *IdentityProvider, claims map[string]any, issuer string,
 ) (string, error) {
 	subjectClaim := claimSub
 	if c := idp.AttributeMapping[attrUsernameMap]; c != "" {
@@ -188,7 +189,8 @@ func (b *InMemoryBackend) federatedSignIn(
 	b.mu.Lock("FederatedSignIn")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools.Get(poolID); !ok {
+	pool, ok := b.pools.Get(poolID)
+	if !ok {
 		return "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, poolID)
 	}
 
@@ -200,7 +202,7 @@ func (b *InMemoryBackend) federatedSignIn(
 	}
 
 	if user == nil {
-		return b.createFederatedUserLocked(poolID, idp, subject, issuer, attrs), nil
+		return b.createFederatedUserLocked(pool, clientID, idp, subject, issuer, attrs)
 	}
 
 	if !user.Enabled {
@@ -230,17 +232,34 @@ func (b *InMemoryBackend) linkedUserLocked(poolID, providerName, subject string)
 	return nil
 }
 
+// createFederatedUserLocked runs PreSignUp_ExternalProvider, creates the user and runs PostConfirmation.
 func (b *InMemoryBackend) createFederatedUserLocked(
-	poolID string, idp *IdentityProvider, subject, issuer string, attrs map[string]string,
-) string {
-	now := time.Now()
+	pool *UserPool, clientID string, idp *IdentityProvider, subject, issuer string, attrs map[string]string,
+) (string, error) {
 	username := idp.ProviderName + "_" + subject
 	attrs[attrIdentities] = addIdentity("", idp, subject, issuer)
+
+	if _, err := b.invokeTriggerUnlocked(pool, triggerKeyPreSignUp, triggerSourcePreSignUpExternal, clientID, username,
+		map[string]any{
+			eventKeyUserAttributes: stringMapToAny(attrs),
+			eventKeyValidationData: map[string]any{},
+			eventKeyClientMetadata: map[string]any{},
+		},
+		preSignUpDefaults(),
+	); err != nil {
+		return "", err
+	}
+
+	if err := b.newUserSlotFreeLocked(pool, username); err != nil {
+		return "", err
+	}
+
+	now := time.Now()
 
 	b.users.Put(&User{
 		Sub:        uuid.New().String(),
 		Username:   username,
-		UserPoolID: poolID,
+		UserPoolID: pool.ID,
 		Status:     UserStatusExternalProvider,
 		Attributes: attrs,
 		CreatedAt:  now,
@@ -248,26 +267,64 @@ func (b *InMemoryBackend) createFederatedUserLocked(
 		Enabled:    true,
 	})
 
-	return username
+	if _, err := b.invokeTriggerUnlocked(pool, triggerKeyPostConfirmation, triggerSourcePostConfirmationSignUp,
+		clientID, username,
+		map[string]any{eventKeyUserAttributes: stringMapToAny(attrs), eventKeyClientMetadata: map[string]any{}},
+		map[string]any{},
+	); err != nil {
+		return "", err
+	}
+
+	return username, nil
 }
 
 // addIdentity returns the identities attribute JSON with this provider's record present exactly once.
 func addIdentity(existing string, idp *IdentityProvider, subject, issuer string) string {
+	return appendIdentity(existing, identityRecord{
+		UserID: subject, ProviderName: idp.ProviderName, ProviderType: idp.ProviderType, Issuer: issuer,
+		Primary: "", DateCreated: strconv.FormatInt(time.Now().UnixMilli(), 10),
+	})
+}
+
+func parseIdentities(raw string) []identityRecord {
 	records := make([]identityRecord, 0, 1)
-	if existing != "" {
-		_ = json.Unmarshal([]byte(existing), &records)
+	if raw != "" {
+		_ = json.Unmarshal([]byte(raw), &records)
 	}
 
+	return records
+}
+
+// appendIdentity adds rec unless the provider/user pair is present; an empty Primary means "first record".
+func appendIdentity(existing string, rec identityRecord) string {
+	records := parseIdentities(existing)
+
 	for _, r := range records {
-		if r.ProviderName == idp.ProviderName && r.UserID == subject {
+		if r.ProviderName == rec.ProviderName && r.UserID == rec.UserID {
 			return existing
 		}
 	}
 
-	records = append(records, identityRecord{
-		UserID: subject, ProviderName: idp.ProviderName, ProviderType: idp.ProviderType, Issuer: issuer,
-		Primary: strconv.FormatBool(len(records) == 0), DateCreated: strconv.FormatInt(time.Now().UnixMilli(), 10),
+	if rec.Primary == "" {
+		rec.Primary = strconv.FormatBool(len(records) == 0)
+	}
+
+	out, err := json.Marshal(append(records, rec))
+	if err != nil {
+		return existing
+	}
+
+	return string(out)
+}
+
+// removeIdentity drops the provider/user record, returning "" when none remain.
+func removeIdentity(existing, providerName, userID string) string {
+	records := slices.DeleteFunc(parseIdentities(existing), func(r identityRecord) bool {
+		return r.ProviderName == providerName && r.UserID == userID
 	})
+	if len(records) == 0 {
+		return ""
+	}
 
 	out, err := json.Marshal(records)
 	if err != nil {

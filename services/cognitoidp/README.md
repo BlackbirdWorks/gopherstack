@@ -8,13 +8,15 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 68 (68 ok) |
-| Known gaps | 4 |
-| Structural gaps (can't be emulated) | 4 |
+| Known gaps | 6 |
+| Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- Federation (gopherstack-49qct.19): SAML supports SP-initiated sign-in only. Not modelled: IDPInit (unsolicited responses are rejected), EncryptedAssertion (rejected), signed AuthnRequests (RequestSigningAlgorithm), IDPSignout/SLO, SHA-1 signatures and digests (rejected), SAML attribute multi-values (first value only). Social providers (Google, Facebook, LoginWithAmazon, SignInWithApple) share the OIDC code path with built-in endpoint defaults; DescribeIdentityProvider does not echo those defaults, Google people-API attributes and Apple's first-login `user` form field are not read, and no live provider is exercised in tests.
+- Code delivery (gopherstack-49qct.19): needs MessageSender wired (internal/app/cognito_delivery.go -> SES/SNS). CustomMessage_Authentication is not fired for SMS/email MFA codes (they use the pool template); COGNITO_DEFAULT email send failures only log (the emulator's SES quota would otherwise break sign-up), DEVELOPER email and SMS failures return CodeDeliveryFailureException; EmailConfiguration.SourceArn identity ownership is not checked against the caller account.
 - WebAuthnMfaSettings (passkey MFA applies only when passkey is the first factor, which USER_AUTH here does not offer) and the SignUp/ConfirmSignUp Session auto sign-in are not modelled: the SDK docs for SignUp/ConfirmSignUp/InitiateAuth state the Session is usable with USER_AUTH but name no auth parameter or challenge for consuming it.
 - domains: DomainDescriptionType.Version (app version) is not documented beyond its name, so it stays unpopulated rather than fabricated.
 - MFA_SETUP/AssociateSoftwareToken/VerifySoftwareToken session single-use/rotation semantics across the three-call round trip are not stated anywhere in the SDK's doc prose, so this backend echoes the same session token unchanged through all three (only the final RespondToAuthChallenge deletes it) rather than inventing rotation behavior AWS never documents.
@@ -25,9 +27,8 @@
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
 - AnalyticsMetadata, ContextData and UserContextData are accepted and ignored: no risk engine or Pinpoint analytics consumes them.
-- Pool SmsConfiguration, VerificationMessageTemplate and UserPoolAddOns are stored and echoed only: no SMS/email delivery pipeline or threat-protection engine exists.
+- UserPoolAddOns (advanced security) is stored and echoed only: no threat-protection engine exists. SmsConfiguration SnsCallerArn/ExternalId are stored but the SNS publish is not role-assumed or IAM-checked.
 - SetUICustomization stores ImageFile but ImageUrl is a CloudFront-hosted URL; no CDN exists to host it.
-- SAML, Google, Facebook, LoginWithAmazon and SignInWithApple federation: config is stored but sign-in needs XML-signature validation or the providers' live endpoints; only OIDC providers federate (oauth_federation.go).
 
 ## More
 

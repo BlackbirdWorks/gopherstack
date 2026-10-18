@@ -36,10 +36,11 @@ type fakeIDP struct {
 	signKey   *rsa.PrivateKey
 	claims    map[string]any
 	nonces    map[string]string
+	secretOK  func(string) bool
 	audience  string
-	mu        sync.Mutex
 	expiresIn time.Duration
 	tokenCode int
+	mu        sync.Mutex
 }
 
 func newFakeIDP(t *testing.T) *fakeIDP {
@@ -110,7 +111,12 @@ func (f *fakeIDP) token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseForm(); err != nil || r.PostForm.Get("client_secret") != fedSecret ||
+	secretOK := func(s string) bool { return s == fedSecret }
+	if f.secretOK != nil {
+		secretOK = f.secretOK
+	}
+
+	if err := r.ParseForm(); err != nil || !secretOK(r.PostForm.Get("client_secret")) ||
 		r.PostForm.Get("grant_type") != "authorization_code" {
 		http.Error(w, `{"error":"invalid_client"}`, http.StatusUnauthorized)
 

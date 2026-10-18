@@ -19,7 +19,9 @@ func (h *Handler) handleAdminDisableProviderForUser(
 	_ context.Context,
 	in *adminDisableProviderForUserInput,
 ) (*adminDisableProviderForUserOutput, error) {
-	if err := h.Backend.AdminDisableProviderForUser(in.UserPoolID); err != nil {
+	if err := h.Backend.AdminDisableProviderForUser(
+		in.UserPoolID, in.User.ProviderName, in.User.ProviderAttributeName, in.User.ProviderAttributeValue,
+	); err != nil {
 		return nil, err
 	}
 
