@@ -34,6 +34,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/efs"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
+	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	"github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
 	"github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 	"github.com/blackbirdworks/gopherstack/services/iot"
@@ -117,6 +119,14 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	if gp, hasGCS := ctx.Config.(interface{ GetGCPStorageHandler() service.Registerable }); hasGCS {
 		conf.GCPStorageOps, _ = getHandler[*gcpstorage.Handler](gp.GetGCPStorageHandler())
+	}
+
+	if gp, hasPubSub := ctx.Config.(interface{ GetGCPPubSubHandler() service.Registerable }); hasPubSub {
+		conf.GCPPubSubOps, _ = getHandler[*gcppubsub.Handler](gp.GetGCPPubSubHandler())
+	}
+
+	if gp, hasSM := ctx.Config.(interface{ GetGCPSecretManagerHandler() service.Registerable }); hasSM {
+		conf.GCPSecretManagerOps, _ = getHandler[*gcpsecretmanager.Handler](gp.GetGCPSecretManagerHandler())
 	}
 
 	if qp, hasQueue := ctx.Config.(interface{ GetAzureQueueHandler() service.Registerable }); hasQueue {

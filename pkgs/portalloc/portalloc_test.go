@@ -198,6 +198,7 @@ func TestReserve_OutOfRangeIsNoop(t *testing.T) {
 	require.NoError(t, a.Reserve(1883, "iot-mqtt"))
 	assert.False(t, a.IsAllocated(1883), "a port outside the range is never tracked")
 	assert.Equal(t, 3, a.Available())
+	assert.Equal(t, map[int]string{1883: "iot-mqtt"}, a.Allocated(), "reported though not pooled")
 }
 
 func TestReserve_AlreadyUsedErrors(t *testing.T) {

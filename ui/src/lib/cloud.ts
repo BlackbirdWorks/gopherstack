@@ -94,6 +94,22 @@ export const GCP_SERVICES: readonly GcpService[] = [
     portLabel: "gcpstorage",
     defaultPort: 4443,
   },
+  {
+    id: "pubsub",
+    label: "Pub/Sub",
+    description: "Google Cloud Pub/Sub",
+    healthName: "GCPPubSub",
+    portLabel: "gcppubsub",
+    defaultPort: 8085,
+  },
+  {
+    id: "secretmanager",
+    label: "Secret Manager",
+    description: "Google Secret Manager",
+    healthName: "GCPSecretManager",
+    portLabel: "gcpsecretmanager",
+    defaultPort: 8086,
+  },
 ];
 
 export function parseCloud(value: string | null | undefined): Cloud | null {

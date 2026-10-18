@@ -89,6 +89,8 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
@@ -502,6 +504,9 @@ type Config struct {
 	AzureARMOps *azurearmbackend.Handler
 	// GCPStorageOps is dispatched in-process by the /dashboard/api/v1/gcp/storage proxy.
 	GCPStorageOps *gcpstoragebackend.Handler
+	// GCPPubSubOps and GCPSecretManagerOps are called in-process by their dashboard proxies.
+	GCPPubSubOps        *gcppubsubbackend.Handler
+	GCPSecretManagerOps *gcpsecretmanagerbackend.Handler
 	// AzureBlobOps is dispatched in-process by the /dashboard/api/v1/azure/blob proxy.
 	AzureBlobOps *azureblobbackend.Handler
 	// AzureQueueOps is dispatched in-process by the /dashboard/api/v1/azure/queue proxy.
@@ -749,6 +754,8 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerAzureARMRoutes()
 	h.registerAzureBlobRoutes()
 	h.registerGCPStorageRoutes()
+	h.registerGCPPubSubRoutes()
+	h.registerGCPSecretManagerRoutes()
 	h.registerAzureQueueRoutes()
 	h.registerAzureTableRoutes()
 	h.registerAzureServiceBusRoutes()

@@ -27,6 +27,7 @@ var ErrInvalidRange = errors.New("invalid port range: start must be ≥ 1 and en
 // It is safe for concurrent use.
 type Allocator struct {
 	used  map[int]string
+	fixed map[int]string
 	mu    *lockmetrics.RWMutex
 	start int
 	end   int
@@ -45,6 +46,7 @@ func New(start, end int) (*Allocator, error) {
 		end:   end,
 		next:  start,
 		used:  make(map[int]string),
+		fixed: make(map[int]string),
 		mu:    lockmetrics.New("portalloc"),
 	}, nil
 }
@@ -95,14 +97,16 @@ var ErrPortAlreadyReserved = errors.New("port already reserved or allocated")
 // port to a different caller and causes a surprise address-in-use failure
 // later. Intended to be called once at startup, before any Acquire calls.
 //
-// A port outside [start, end) is a no-op (nil, nil): Acquire never
-// considers it anyway, so there is nothing to protect. Returns
+// A port outside [start, end) is not tracked in the pool (Acquire never
+// considers it) but is remembered for reporting via Allocated. Returns
 // ErrPortAlreadyReserved if port is already marked used.
 func (a *Allocator) Reserve(port int, label string) error {
 	a.mu.Lock("Reserve")
 	defer a.mu.Unlock()
 
 	if port < a.start || port >= a.end {
+		a.fixed[port] = label
+
 		return nil
 	}
 
@@ -132,12 +136,13 @@ func (a *Allocator) IsAllocated(port int) bool {
 	return ok
 }
 
-// Allocated returns a snapshot of all currently allocated ports and their labels.
+// Allocated returns a snapshot of allocated ports and out-of-range reserved fixed ports, with labels.
 func (a *Allocator) Allocated() map[int]string {
 	a.mu.RLock("Allocated")
 	defer a.mu.RUnlock()
 
-	out := make(map[int]string, len(a.used))
+	out := make(map[int]string, len(a.used)+len(a.fixed))
+	maps.Copy(out, a.fixed)
 	maps.Copy(out, a.used)
 
 	return out
