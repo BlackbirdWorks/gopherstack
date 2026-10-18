@@ -162,6 +162,7 @@ import (
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	forecastbackend "github.com/blackbirdworks/gopherstack/services/forecast"
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
+	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	globalacceleratorbackend "github.com/blackbirdworks/gopherstack/services/globalaccelerator"
@@ -540,6 +541,7 @@ type CLI struct {
 	AzureQueue                    azurequeuebackend.Settings        `embed:"" prefix:"azure-queue-"`
 	AzureTable                    azuretablebackend.Settings        `embed:"" prefix:"azure-table-"`
 	GCPStorage                    gcpstoragebackend.Settings        `embed:"" prefix:"gcp-storage-"`
+	GCPPubSub                     gcppubsubbackend.Settings         `embed:"" prefix:"gcp-pubsub-"`
 	AzureStorageVHost             azurestoragevhostbackend.Settings `embed:"" prefix:"azure-storage-vhost-"`
 	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
@@ -619,6 +621,11 @@ func (c *CLI) GetAzureBlobSettings() azureblobbackend.Settings {
 // GetAzureQueueSettings returns Azure Queue settings (azurequeue.ConfigProvider).
 func (c *CLI) GetAzureQueueSettings() azurequeuebackend.Settings {
 	return c.AzureQueue
+}
+
+// GetGCPPubSubSettings returns Google Cloud Pub/Sub settings (gcppubsub.ConfigProvider).
+func (c *CLI) GetGCPPubSubSettings() gcppubsubbackend.Settings {
+	return c.GCPPubSub
 }
 
 // GetGCPStorageSettings returns Google Cloud Storage settings (gcpstorage.ConfigProvider).
@@ -2141,6 +2148,11 @@ func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *port
 	if err := alloc.Reserve(cli.GCPStorage.Port, "gcpstorage"); err != nil {
 		log.WarnContext(ctx, "failed to reserve GCPStorage's fixed port in the shared pool",
 			"port", cli.GCPStorage.Port, "error", err)
+	}
+
+	if err := alloc.Reserve(cli.GCPPubSub.Port, "gcppubsub"); err != nil {
+		log.WarnContext(ctx, "failed to reserve GCPPubSub's fixed port in the shared pool",
+			"port", cli.GCPPubSub.Port, "error", err)
 	}
 
 	// AzureQueue's dedicated listener (services/azurequeue) binds its own
@@ -4538,6 +4550,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&azurestoragevhostbackend.Provider{},
 		&cosmosdbbackend.Provider{},
 		&gcpstoragebackend.Provider{},
+		&gcppubsubbackend.Provider{},
 		&azurearmbackend.Provider{},
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
