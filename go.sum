@@ -13,6 +13,8 @@ cloud.google.com/go/firestore v1.26.0 h1:7Y6wn4aj5JXl2DAsKSTpLzYKPrfrIbhgQnHDjNO
 cloud.google.com/go/firestore v1.26.0/go.mod h1:X7hAjktdf9wIYJEHJ/dRFpYJmpcZanf1WnWxBAq8vJE=
 cloud.google.com/go/iam v1.11.0 h1:KieQ9Pb+LLPak1O3Rv3GgCxhnmkYf7Xyh0P5HfF1jFM=
 cloud.google.com/go/iam v1.11.0/go.mod h1:KP+nKGugNJW4LcLx1uEZcq1ok5sQHFaQehQNl4QDgV4=
+cloud.google.com/go/kms v1.35.0 h1:nJ/ktaqspx1nPM9vIcO0SHbhqCAm8nvAxL1siuVgKm0=
+cloud.google.com/go/kms v1.35.0/go.mod h1:0++71pIHvJL+GmMa8K4jOWFq7gNOX3jm2PRMSJwTKJw=
 cloud.google.com/go/logging v1.18.0 h1:KhzZq+1cSkPH9YUaKLLhLtQxIHitVayBmk0sGfoM9+k=
 cloud.google.com/go/logging v1.18.0/go.mod h1:ZGKnpBaURITh+g/uom2VhbiFoFWvejcrHPDhxFtU/gI=
 cloud.google.com/go/longrunning v1.2.0 h1:WjYH3YHBGCxGJP9M4dWGHBfXr/cFIjMkNgWcJj7/iMM=

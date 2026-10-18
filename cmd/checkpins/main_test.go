@@ -13,10 +13,10 @@ func TestEvaluatePin(t *testing.T) {
 	t.Parallel()
 
 	goModVersions := map[string]string{
-		"dlm":            "v1.39.4",
-		"opsworks":       "v1.31.0",
-		"storage/azblob": "v1.8.0",
-		"pubsub/v2":      "v2.7.0",
+		"dlm":                           "v1.39.4",
+		"opsworks":                      "v1.31.0",
+		"storage/azblob":                "v1.8.0",
+		"cloud.google.com/go/pubsub/v2": "v2.7.0",
 	}
 
 	tests := []struct {

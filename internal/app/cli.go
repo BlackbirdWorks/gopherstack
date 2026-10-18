@@ -165,6 +165,7 @@ import (
 	forecastbackend "github.com/blackbirdworks/gopherstack/services/forecast"
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
+	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
@@ -553,6 +554,7 @@ type CLI struct {
 	GCPStorage                    gcpstoragebackend.Settings        `embed:"" prefix:"gcp-storage-"`
 	GCPPubSub                     gcppubsubbackend.Settings         `embed:"" prefix:"gcp-pubsub-"`
 	GCPSecretManager              gcpsecretmanagerbackend.Settings  `embed:"" prefix:"gcp-secretmanager-"`
+	GCPKMS                        gcpkmsbackend.Settings            `embed:"" prefix:"gcp-kms-"`
 	GCPFirestore                  gcpfirestorebackend.Settings      `embed:"" prefix:"gcp-firestore-"`
 	AzureStorageVHost             azurestoragevhostbackend.Settings `embed:"" prefix:"azure-storage-vhost-"`
 	Extensions                    extensions.Settings               `embed:""`
@@ -640,6 +642,9 @@ func (c *CLI) GetAzureQueueSettings() azurequeuebackend.Settings {
 func (c *CLI) GetGCPPubSubSettings() gcppubsubbackend.Settings {
 	return c.GCPPubSub
 }
+
+// GetGCPKMSSettings returns Google Cloud KMS settings (gcpkms.ConfigProvider).
+func (c *CLI) GetGCPKMSSettings() gcpkmsbackend.Settings { return c.GCPKMS }
 
 // GetGCPSecretManagerSettings returns Google Secret Manager settings (gcpsecretmanager.ConfigProvider).
 func (c *CLI) GetGCPSecretManagerSettings() gcpsecretmanagerbackend.Settings {
@@ -2196,6 +2201,11 @@ func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *port
 	if err := alloc.Reserve(cli.GCPSecretManager.Port, "gcpsecretmanager"); err != nil {
 		log.WarnContext(ctx, "failed to reserve GCPSecretManager's fixed port in the shared pool",
 			"port", cli.GCPSecretManager.Port, "error", err)
+	}
+
+	if err := alloc.Reserve(cli.GCPKMS.Port, "gcpkms"); err != nil {
+		log.WarnContext(ctx, "failed to reserve GCPKMS's fixed port in the shared pool",
+			"port", cli.GCPKMS.Port, "error", err)
 	}
 
 	if err := alloc.Reserve(cli.GCPFirestore.Port, "gcpfirestore"); err != nil {
@@ -4611,6 +4621,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&gcpstoragebackend.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
+		&gcpkmsbackend.Provider{},
 		&gcpfirestorebackend.Provider{},
 		&azurearmbackend.Provider{},
 		&pinpointbackend.Provider{},

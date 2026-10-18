@@ -162,8 +162,8 @@ func loadGoModVersions(path string) (map[string]string, error) {
 			continue
 		}
 
-		if name, ok := strings.CutPrefix(req.Mod.Path, sdkGCPModulePrefix); ok {
-			versions[name] = req.Mod.Version
+		if _, ok := strings.CutPrefix(req.Mod.Path, sdkGCPModulePrefix); ok {
+			versions[req.Mod.Path] = req.Mod.Version
 		}
 	}
 
@@ -305,7 +305,7 @@ func parsePinValue(value string) (string, string, bool) {
 	}
 
 	if m := gcpPinRe.FindStringSubmatch(v); m != nil {
-		return m[1], m[2], true
+		return sdkGCPModulePrefix + m[1], m[2], true
 	}
 
 	return "", "", false
