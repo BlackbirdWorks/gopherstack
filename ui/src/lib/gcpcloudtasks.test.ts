@@ -97,9 +97,7 @@ describe("parsing", () => {
       body: "hi",
       dispatchCount: 2,
     });
-    expect(describeAttempt(t.lastAttempt)).toBe(
-      "NOT_FOUND (HTTP status code Not Found)",
-    );
+    expect(describeAttempt(t.lastAttempt)).toBe("NOT_FOUND (HTTP status code Not Found)");
     expect(attemptOk(t.lastAttempt)).toBe(false);
   });
 
@@ -164,9 +162,7 @@ describe("calls", () => {
   });
 
   it("creates a queue with the full name", async () => {
-    const f = vi
-      .fn()
-      .mockResolvedValue(json({ name: "projects/p/locations/l/queues/q" }));
+    const f = vi.fn().mockResolvedValue(json({ name: "projects/p/locations/l/queues/q" }));
     await createQueue(
       scope,
       {
@@ -192,9 +188,7 @@ describe("calls", () => {
   });
 
   it("qualifies a custom task id and runs tasks", async () => {
-    const f = vi
-      .fn()
-      .mockImplementation(() => Promise.resolve(json({ name: "n" })));
+    const f = vi.fn().mockImplementation(() => Promise.resolve(json({ name: "n" })));
     await createTask(
       scope,
       "q",

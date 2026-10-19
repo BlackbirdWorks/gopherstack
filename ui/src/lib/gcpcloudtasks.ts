@@ -19,15 +19,7 @@ export const DEFAULT_TASKS_PROJECT = "gopherstack-local";
 export const DEFAULT_TASKS_LOCATION = "us-central1";
 const PAGE = 100;
 
-export const HTTP_METHODS = [
-  "POST",
-  "GET",
-  "PUT",
-  "PATCH",
-  "DELETE",
-  "HEAD",
-  "OPTIONS",
-] as const;
+export const HTTP_METHODS = ["POST", "GET", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 
 export type QueueInfo = {
@@ -85,25 +77,21 @@ export type NewTask = {
 };
 
 const enc = encodeURIComponent;
-const locationPath = (p: string, l: string) =>
-  `/projects/${enc(p)}/locations/${enc(l)}`;
+const locationPath = (p: string, l: string) => `/projects/${enc(p)}/locations/${enc(l)}`;
 const queuesPath = (p: string, l: string) => `${locationPath(p, l)}/queues`;
-const queuePath = (p: string, l: string, q: string) =>
-  `${queuesPath(p, l)}/${enc(q)}`;
+const queuePath = (p: string, l: string, q: string) => `${queuesPath(p, l)}/${enc(q)}`;
 const taskPath = (p: string, l: string, q: string, t: string) =>
   `${queuePath(p, l, q)}/tasks/${enc(t)}`;
 
 export function validateQueueId(id: string): string | null {
   if (!id) return "name is required";
-  if (!/^[A-Za-z0-9-]{1,100}$/.test(id))
-    return "use letters, digits and - (max 100)";
+  if (!/^[A-Za-z0-9-]{1,100}$/.test(id)) return "use letters, digits and - (max 100)";
   return null;
 }
 
 export function validateTaskId(id: string): string | null {
   if (!id) return null;
-  if (!/^[A-Za-z0-9_-]{1,500}$/.test(id))
-    return "use letters, digits, - and _ (max 500)";
+  if (!/^[A-Za-z0-9_-]{1,500}$/.test(id)) return "use letters, digits, - and _ (max 500)";
   return null;
 }
 
@@ -111,8 +99,7 @@ export function validateTaskUrl(url: string): string | null {
   if (!url) return "URL is required";
   try {
     const u = new URL(url);
-    if (u.protocol !== "http:" && u.protocol !== "https:")
-      return "URL must be http or https";
+    if (u.protocol !== "http:" && u.protocol !== "https:") return "URL must be http or https";
   } catch {
     return "enter an absolute URL such as http://localhost:9000/hook";
   }
@@ -121,8 +108,7 @@ export function validateTaskUrl(url: string): string | null {
 
 export function validateHeaderKey(key: string): string | null {
   if (!key) return "key is required";
-  if (!/^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(key))
-    return "not a valid header name";
+  if (!/^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(key)) return "not a valid header name";
   return null;
 }
 
@@ -135,18 +121,14 @@ export function optionalNumber(
   if (!t) return { value: null };
   const n = Number(t);
   const min = opts.min ?? 0;
-  if (!Number.isFinite(n) || n < min)
-    return { error: `must be a number >= ${min}` };
-  if (opts.integer && !Number.isInteger(n))
-    return { error: "must be a whole number" };
+  if (!Number.isFinite(n) || n < min) return { error: `must be a number >= ${min}` };
+  if (opts.integer && !Number.isInteger(n)) return { error: "must be a whole number" };
   return { value: n };
 }
 
 const num = (v: unknown): number | null => (typeof v === "number" ? v : null);
-const obj = (v: unknown): Json =>
-  v && typeof v === "object" ? (v as Json) : {};
-const dur = (v: unknown): string =>
-  typeof v === "string" && v ? durationToSeconds(v) + "s" : "";
+const obj = (v: unknown): Json => (v && typeof v === "object" ? (v as Json) : {});
+const dur = (v: unknown): string => (typeof v === "string" && v ? durationToSeconds(v) + "s" : "");
 
 export function parseQueue(raw: Json): QueueInfo {
   const name = str(raw.name);
@@ -241,8 +223,7 @@ export function queueBody(scope: QueueScope, q: NewQueue): Json {
     name: `projects/${scope.project}/locations/${scope.location}/queues/${q.id}`,
   };
   if (Object.keys(rateLimits).length > 0) body.rateLimits = rateLimits;
-  if (q.maxAttempts.trim())
-    body.retryConfig = { maxAttempts: Number(q.maxAttempts) };
+  if (q.maxAttempts.trim()) body.retryConfig = { maxAttempts: Number(q.maxAttempts) };
   return body;
 }
 
@@ -270,13 +251,7 @@ async function listAll<T>(
   let token = "";
   do {
     const url = `${path}?pageSize=${PAGE}${extra}${token ? `&pageToken=${enc(token)}` : ""}`;
-    const body = await restCall<Json>(
-      TASKS_PROXY_BASE,
-      "GET",
-      url,
-      undefined,
-      fetchFn,
-    );
+    const body = await restCall<Json>(TASKS_PROXY_BASE, "GET", url, undefined, fetchFn);
     out.push(...((body[key] as Json[] | undefined) ?? []).map((r) => parse(r)));
     token = str(body.nextPageToken);
   } while (token);
@@ -333,11 +308,7 @@ export async function deleteQueue(
   );
 }
 
-export const listTasks = (
-  s: QueueScope,
-  queue: string,
-  fetchFn: FetchFn = fetch,
-) =>
+export const listTasks = (s: QueueScope, queue: string, fetchFn: FetchFn = fetch) =>
   listAll(
     `${queuePath(s.project, s.location, queue)}/tasks`,
     "tasks",
@@ -408,10 +379,8 @@ function readStored(key: string, fallback: string): string {
   }
 }
 
-export const readStoredTasksProject = () =>
-  readStored(TASKS_PROJECT_KEY, DEFAULT_TASKS_PROJECT);
-export const readStoredTasksLocation = () =>
-  readStored(TASKS_LOCATION_KEY, DEFAULT_TASKS_LOCATION);
+export const readStoredTasksProject = () => readStored(TASKS_PROJECT_KEY, DEFAULT_TASKS_PROJECT);
+export const readStoredTasksLocation = () => readStored(TASKS_LOCATION_KEY, DEFAULT_TASKS_LOCATION);
 
 export function writeStoredTasksScope(project: string, location: string): void {
   try {
