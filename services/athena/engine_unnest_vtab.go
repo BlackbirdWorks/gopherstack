@@ -13,14 +13,15 @@ const (
 	unnestColKey     = "_unnest_key"
 	unnestColValue   = "_unnest_value"
 	unnestColArg     = "_unnest_arg"
+	unnestColPos     = "_unnest_pos"
 	unnestArgColumn  = 2
-	unnestSchema     = "CREATE TABLE x(" + unnestColKey + ", " + unnestColValue + ", " + unnestColArg + " HIDDEN)"
+	unnestPosColumn  = 3
+	unnestNoArgCost  = 1e12
+	unnestSchema     = "CREATE TABLE x(" + unnestColKey + ", " + unnestColValue + ", " +
+		unnestColArg + " HIDDEN, " + unnestColPos + " HIDDEN)"
 )
 
-var (
-	errUnnestArg    = errors.New("UNNEST requires an array or map argument")
-	errUnnestColumn = errors.New("UNNEST has no such column")
-)
+var errUnnestColumn = errors.New("UNNEST has no such column")
 
 // unnestModule is a table-valued function over a JSON array or object; it
 // avoids json_each's id/type/path column names leaking into query scope.
@@ -51,7 +52,9 @@ func (*unnestTable) BestIndex(info *vtab.IndexInfo) error {
 		}
 	}
 
-	return errUnnestArg
+	info.EstimatedCost = unnestNoArgCost
+
+	return nil
 }
 
 func (*unnestTable) Open() (vtab.Cursor, error) { return &unnestCursor{}, nil }
@@ -116,6 +119,8 @@ func (c *unnestCursor) Column(col int) (vtab.Value, error) {
 		return c.rows[c.pos].key, nil
 	case 1:
 		return c.rows[c.pos].val, nil
+	case unnestPosColumn:
+		return int64(c.pos), nil
 	default:
 		return nil, errUnnestColumn
 	}

@@ -59,14 +59,34 @@ func (b *InMemoryBackend) parquetColumns(
 	return cols, nil
 }
 
+const (
+	colString  = "string"
+	colBigint  = "bigint"
+	colDouble  = "double"
+	colBoolean = "boolean"
+)
+
 func inferColumns(objs []map[string]any) []SchemaColumn {
 	types := map[string]string{}
 
 	for _, o := range objs {
 		for k, v := range o {
-			if _, ok := types[k]; !ok || types[k] == "string" {
-				types[k] = inferType(v)
+			prev, seen := types[k]
+			if v == nil {
+				if !seen {
+					types[k] = ""
+				}
+
+				continue
 			}
+
+			types[k] = widenType(prev, inferType(v))
+		}
+	}
+
+	for k, t := range types {
+		if t == "" {
+			types[k] = colString
 		}
 	}
 
@@ -85,18 +105,29 @@ func inferColumns(objs []map[string]any) []SchemaColumn {
 	return cols
 }
 
+func widenType(prev, next string) string {
+	switch {
+	case prev == "" || prev == next:
+		return next
+	case (prev == colBigint && next == colDouble) || (prev == colDouble && next == colBigint):
+		return colDouble
+	default:
+		return colString
+	}
+}
+
 func inferType(v any) string {
 	switch t := v.(type) {
 	case bool:
-		return "boolean"
+		return colBoolean
 	case json.Number:
 		if _, err := t.Int64(); err == nil {
-			return "bigint"
+			return colBigint
 		}
 
-		return "double"
+		return colDouble
 	default:
-		return "string"
+		return colString
 	}
 }
 

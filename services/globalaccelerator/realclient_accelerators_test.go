@@ -118,7 +118,7 @@ func testAcceleratorIPAllocation(t *testing.T, f *fixture) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"75.2.0.1", "75.2.0.2"}, first.Accelerators[0].IpSets[0].IpAddresses)
 	assert.Equal(t, []string{"75.2.0.3", "75.2.0.4"}, first.Accelerators[1].IpSets[0].IpAddresses)
-	assert.Equal(t, []string{"2600:9000:a000::0:1", "2600:9000:a000::0:2"}, first.Accelerators[0].IpSets[1].IpAddresses)
+	assert.Equal(t, []string{"2600:9000:a000::1", "2600:9000:a000::2"}, first.Accelerators[0].IpSets[1].IpAddresses)
 
 	_, err = f.client.UpdateAccelerator(ctx, &gasdk.UpdateAcceleratorInput{
 		AcceleratorArn: first.Accelerators[0].AcceleratorArn, Enabled: aws.Bool(false),

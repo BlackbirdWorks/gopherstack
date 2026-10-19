@@ -86,7 +86,12 @@ func jsImportStmt(clause, mod string) (string, error) {
 
 	switch {
 	case strings.HasPrefix(clause, "*"):
-		name := strings.TrimSpace(reJSAsName.Split(clause, asParts)[1])
+		as := reJSAsName.Split(clause, asParts)
+		if len(as) != asParts || strings.TrimSpace(as[1]) == "" {
+			return "", fmt.Errorf("%w: unsupported import form", ErrValidation)
+		}
+
+		name := strings.TrimSpace(as[1])
 
 		return "var " + name + " = " + obj + ";", nil
 	case strings.HasPrefix(clause, "{"):

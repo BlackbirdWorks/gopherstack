@@ -493,6 +493,10 @@ func (b *InMemoryBackend) ListCustomRoutingPortMappings(
 		if !ok || !g.Custom {
 			return nil, "", fail(ErrEndpointGroupNotFound, "endpoint group %s not found", groupARN)
 		}
+
+		if l, lok := b.listeners.Get(g.ListenerARN); !lok || l.AcceleratorARN != acceleratorARN {
+			return nil, "", fail(ErrEndpointGroupNotFound, "endpoint group %s not found", groupARN)
+		}
 	}
 
 	var out []PortMapping

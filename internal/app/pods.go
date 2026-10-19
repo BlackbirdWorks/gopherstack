@@ -16,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/pods"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	strfold "github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
@@ -112,6 +113,16 @@ func splitCSV(s string) []string {
 	return out
 }
 
+func canonicalServiceName(snaps map[string][]byte, name string) (string, bool) {
+	for k := range snaps {
+		if strfold.Equal(k, name) {
+			return k, true
+		}
+	}
+
+	return "", false
+}
+
 type podSaveRequest struct {
 	Message  string   `json:"message"`
 	Services []string `json:"services"`
@@ -131,12 +142,12 @@ func (a *podAPI) save(c *echo.Context) error {
 		subset := make(map[string][]byte, len(req.Services))
 
 		for _, n := range req.Services {
-			d, ok := snaps[n]
+			canon, ok := canonicalServiceName(snaps, n)
 			if !ok {
 				return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("service %q has no state to save", n))
 			}
 
-			subset[n] = d
+			subset[canon] = snaps[canon]
 		}
 
 		snaps = subset

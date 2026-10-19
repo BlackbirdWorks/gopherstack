@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 // Format identifies the pod archive layout.
@@ -299,17 +300,22 @@ func (s *Service) Load(
 	if len(services) > 0 {
 		want := make(map[string]bool, len(services))
 		for _, n := range services {
-			want[n] = true
+			want[strs.Fold(n)] = true
 		}
 
 		for n := range snaps {
-			if !want[n] {
+			if !want[strs.Fold(n)] {
 				delete(snaps, n)
 			}
 		}
 
+		have := make(map[string]bool, len(snaps))
+		for n := range snaps {
+			have[strs.Fold(n)] = true
+		}
+
 		for _, n := range services {
-			if _, ok := snaps[n]; !ok {
+			if !have[strs.Fold(n)] {
 				return Manifest{}, nil, fmt.Errorf("%w: service %q not in pod %s v%d", ErrNotFound, n, name, v)
 			}
 		}

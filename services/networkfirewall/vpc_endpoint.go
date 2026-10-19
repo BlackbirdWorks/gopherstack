@@ -2,6 +2,7 @@ package networkfirewall
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -204,7 +205,16 @@ func (b *InMemoryBackend) CreateVpcEndpointAssociation(
 		}
 	}
 
-	zone, err := b.zoneForLocked(len(existing)+len(fw.Zones), in.VpcID, in.SubnetMapping.SubnetID)
+	used := maps.Clone(fw.Zones)
+	if used == nil {
+		used = make(map[string]string, len(existing))
+	}
+
+	for _, e := range existing {
+		used[e.Subnet.SubnetID] = e.Zone
+	}
+
+	zone, err := b.zoneForLocked(used, in.VpcID, in.SubnetMapping.SubnetID)
 	if err != nil {
 		return nil, err
 	}

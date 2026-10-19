@@ -60,6 +60,7 @@ func TestRealClient_CustomRouting(t *testing.T) {
 		{testCustomRoutingPortMappings, "port_mappings"},
 		{testCustomRoutingTraffic, "traffic"},
 		{testCustomRoutingValidation, "validation"},
+		{testCustomRoutingForeignGroup, "foreign_group"},
 	}
 
 	for _, tc := range cases {
@@ -434,4 +435,17 @@ func testCustomRoutingValidation(t *testing.T, f *fixture) {
 		},
 	})
 	assert.Equal(t, "InvalidPortRangeException", apiCode(err))
+}
+
+func testCustomRoutingForeignGroup(t *testing.T, f *fixture) {
+	t.Helper()
+
+	ctx := t.Context()
+	a := newCustomStack(t, f, portRange(10000, 20000))
+	b := newCustomStack(t, f, portRange(10000, 20000))
+
+	_, err := f.client.ListCustomRoutingPortMappings(ctx, &gasdk.ListCustomRoutingPortMappingsInput{
+		AcceleratorArn: a.accARN, EndpointGroupArn: b.groupARN,
+	})
+	assert.Equal(t, "EndpointGroupNotFoundException", apiCode(err))
 }

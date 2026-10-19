@@ -119,7 +119,17 @@ func epoch(t time.Time) *float64 {
 	return &e
 }
 
-func toInt32(n int) int32 { return int32(min(n, math.MaxInt32)) } //nolint:gosec // clamped
+func toInt32(n int) int32 {
+	if n > math.MaxInt32 {
+		return math.MaxInt32
+	}
+
+	if n < math.MinInt32 {
+		return math.MinInt32
+	}
+
+	return int32(n)
+}
 
 func tagList(m map[string]string) []Tag {
 	if len(m) == 0 {

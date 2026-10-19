@@ -121,6 +121,16 @@ func TestEngine_PrestoFunctions(t *testing.T) {
 			"SELECT k, v FROM UNNEST(MAP(ARRAY['a', 'b'], ARRAY[1, 2])) AS u(k, v) ORDER BY k",
 			[][]string{{"a", "1"}, {"b", "2"}},
 		},
+		{
+			"unnest map ordinality",
+			"SELECT k, v, n FROM UNNEST(MAP(ARRAY['a', 'b'], ARRAY[1, 2])) WITH ORDINALITY AS u(k, v, n) ORDER BY n",
+			[][]string{{"a", "1", "1"}, {"b", "2", "2"}},
+		},
+		{
+			"unnest comma join",
+			"SELECT t FROM events e, UNNEST(split(e.tags, '|')) AS u(t) WHERE e.id = 1 ORDER BY t",
+			[][]string{{"a"}, {"b"}, {"c"}},
+		},
 		{"count_if", "SELECT count_if(id > 1) AS c FROM events", [][]string{{"1"}}},
 		{"max_by", "SELECT max_by(id, ts) AS m FROM events", [][]string{{"2"}}},
 		{"min_by", "SELECT min_by(id, ts) AS m FROM events", [][]string{{"1"}}},

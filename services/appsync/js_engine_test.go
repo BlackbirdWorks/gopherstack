@@ -132,6 +132,11 @@ func TestEvaluateCode_Errors(t *testing.T) {
 			code:    `import fs from 'fs'; export function request() {}`,
 			wantMsg: "unsupported module",
 		},
+		{
+			name:    "namespace import without as",
+			code:    `import * from '@aws-appsync/utils'; export function request() {}`,
+			wantMsg: "unsupported import form",
+		},
 		{name: "default export", code: `export default function () {}`, wantMsg: "default exports"},
 		{name: "missing handler", code: `export function response(ctx) { return 1; }`, wantMsg: "no request handler"},
 		{

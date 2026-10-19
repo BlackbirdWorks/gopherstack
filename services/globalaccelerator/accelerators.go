@@ -344,7 +344,12 @@ func poolAddr(pool addrPool, n int) string {
 		return fmt.Sprintf("%s%d.%d", poolV4Prefix, n>>byteBits, n&byteMask)
 	}
 
-	return fmt.Sprintf("%s%x:%x", poolV6Prefix, n>>byteBits, n&byteMask)
+	addr, err := netip.ParseAddr(fmt.Sprintf("%s%x:%x", poolV6Prefix, n>>byteBits, n&byteMask))
+	if err != nil {
+		return ""
+	}
+
+	return addr.String()
 }
 
 func (b *InMemoryBackend) usedAddrsLocked(exceptARN string) map[string]bool {

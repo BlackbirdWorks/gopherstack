@@ -466,6 +466,7 @@ func decideRequest(
 	action, matchResource string, condCtx ConditionContext,
 ) requestDecision {
 	idResult, match := ExplainPolicies(policyDocs, action, matchResource, condCtx)
+	identityAllowed := idResult == EvalAllow
 
 	idResult, boundaryDenied, _ := applyPermissionsBoundary(boundaryDocs, action, matchResource, condCtx, idResult)
 	if boundaryDenied {
@@ -489,6 +490,12 @@ func decideRequest(
 	}
 
 	if idResult != EvalAllow {
+		if identityAllowed {
+			return requestDecision{
+				reason: reasonPermissionBoundary, match: EvalMatch{ConditionKeys: match.ConditionKeys},
+			}
+		}
+
 		return requestDecision{reason: reasonImplicitDeny, match: match}
 	}
 

@@ -173,7 +173,7 @@ func (b *InMemoryBackend) resolveSubnetsLocked(r *firewallRecord, vpcID string, 
 	endpoints := make(map[string]string, len(add))
 
 	for _, m := range add {
-		zone, err := b.zoneForLocked(len(zones), vpcID, m.SubnetID)
+		zone, err := b.zoneForLocked(zones, vpcID, m.SubnetID)
 		if err != nil {
 			return err
 		}
@@ -194,9 +194,9 @@ func (b *InMemoryBackend) resolveSubnetsLocked(r *firewallRecord, vpcID string, 
 	return nil
 }
 
-func (b *InMemoryBackend) zoneForLocked(assigned int, vpcID, subnetID string) (string, error) {
+func (b *InMemoryBackend) zoneForLocked(used map[string]string, vpcID, subnetID string) (string, error) {
 	if b.subnets == nil {
-		return b.region + string(rune('a'+assigned%zoneLetters)), nil
+		return b.freeZone(used), nil
 	}
 
 	subnetVpc, _, ok := b.subnets.SubnetNetwork(subnetID)
@@ -211,6 +211,21 @@ func (b *InMemoryBackend) zoneForLocked(assigned int, vpcID, subnetID string) (s
 	zone, _ := b.subnets.SubnetAZ(subnetID)
 
 	return zone, nil
+}
+
+func (b *InMemoryBackend) freeZone(used map[string]string) string {
+	taken := make(map[string]bool, len(used))
+	for _, z := range used {
+		taken[z] = true
+	}
+
+	for i := range zoneLetters {
+		if z := b.region + string(rune('a'+i)); !taken[z] {
+			return z
+		}
+	}
+
+	return b.region + "a"
 }
 
 func (b *InMemoryBackend) configStatusLocked(r *firewallRecord, state string) map[string]PerObjectStatus {
@@ -302,7 +317,7 @@ func (b *InMemoryBackend) firewallViewLocked(r *firewallRecord, now time.Time) (
 
 	st := FirewallStatus{Status: status, ConfigurationSyncStateSummary: sync, SyncStates: syncStates}
 	if r.TGWID != "" {
-		st.TransitGatewayAttachmentSyncState = &TransitGatewayAttachmentSyncState{
+		st.TGWAttachmentSyncState = &TransitGatewayAttachmentSyncState{
 			AttachmentID: r.TGWAttachmentID, TransitGatewayAttachmentStatus: r.tgwStatusAt(now),
 		}
 	}

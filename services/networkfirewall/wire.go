@@ -90,10 +90,11 @@ type SyncState struct {
 
 // FirewallStatus is the FirewallStatus response shape.
 type FirewallStatus struct {
-	TransitGatewayAttachmentSyncState *TransitGatewayAttachmentSyncState `json:"TransitGatewayAttachmentSyncState,omitempty"` //nolint:lll // wire name
-	SyncStates                        map[string]SyncState               `json:"SyncStates,omitempty"`
-	ConfigurationSyncStateSummary     string                             `json:"ConfigurationSyncStateSummary"`
-	Status                            string                             `json:"Status"`
+	TGWAttachmentSyncState *TransitGatewayAttachmentSyncState `json:"TransitGatewayAttachmentSyncState,omitempty"`
+
+	SyncStates                    map[string]SyncState `json:"SyncStates,omitempty"`
+	ConfigurationSyncStateSummary string               `json:"ConfigurationSyncStateSummary"`
+	Status                        string               `json:"Status"`
 }
 
 // AvailabilityZoneMetadata is a supported zone entry.

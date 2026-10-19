@@ -132,7 +132,11 @@ func (b *InMemoryBackend) ListAnalysisReports(
 		return r.FirewallARN != fw.ARN
 	})
 	slices.SortFunc(reports, func(a, c *analysisReportRecord) int {
-		return strings.Compare(c.ReportTime.Format(time.RFC3339Nano)+c.ID, a.ReportTime.Format(time.RFC3339Nano)+a.ID)
+		if n := c.ReportTime.Compare(a.ReportTime); n != 0 {
+			return n
+		}
+
+		return strings.Compare(c.ID, a.ID)
 	})
 
 	all := make([]AnalysisReport, 0, len(reports))

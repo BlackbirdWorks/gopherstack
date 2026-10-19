@@ -84,6 +84,12 @@ func TestWriteErrors(t *testing.T) {
 		{"bad decimal", "decimal(5,2)", "abc", ""},
 		{"bad compression", "int", int64(1), "LZO"},
 		{"bad precision", "decimal(40,2)", "1", ""},
+		{"tinyint overflow", "tinyint", int64(300), ""},
+		{"smallint overflow", "smallint", int64(70000), ""},
+		{"int overflow", "int", int64(1) << 40, ""},
+		{"int32 decimal overflow", "decimal(5,2)", "99999", ""},
+		{"int64 decimal overflow", "decimal(15,0)", "12345678901234567890", ""},
+		{"wide decimal overflow", "decimal(20,2)", "1e40", ""},
 	}
 
 	for _, tt := range tests {

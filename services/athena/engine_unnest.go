@@ -15,6 +15,7 @@ type unnestCol struct {
 const (
 	jsonEachKey   = unnestColKey
 	jsonEachValue = unnestColValue
+	jsonEachPos   = unnestColPos
 )
 
 func (x *translator) nextUnnestAlias() string {
@@ -98,12 +99,12 @@ func (x *translator) registerUnnestCols(alias string, cols []string, ordinality 
 	}
 
 	phys := []string{jsonEachValue}
-	if len(cols) == argsTwo+boolToInt(ordinality) && len(cols) >= argsTwo && (!ordinality || len(cols) == argsThree) {
+	if len(cols) == argsTwo+boolToInt(ordinality) {
 		phys = []string{jsonEachKey, jsonEachValue}
 	}
 
-	if ordinality && len(phys) == 1 {
-		phys = append(phys, jsonEachKey)
+	if ordinality {
+		phys = append(phys, jsonEachPos)
 	}
 
 	for i, c := range cols {
@@ -111,7 +112,7 @@ func (x *translator) registerUnnestCols(alias string, cols []string, ordinality 
 			break
 		}
 
-		x.unnest[c] = unnestCol{alias: alias, physical: phys[i], ordinal: ordinality && i == len(cols)-1}
+		x.unnest[c] = unnestCol{alias: alias, physical: phys[i], ordinal: phys[i] == jsonEachPos}
 	}
 
 	x.unnestAliases = append(x.unnestAliases, alias)

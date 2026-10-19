@@ -318,7 +318,11 @@ func (b *InMemoryBackend) ListFlowOperations(
 			(in.FlowOperationType != "" && r.Type != in.FlowOperationType)
 	})
 	slices.SortFunc(ops, func(a, c *flowOpRecord) int {
-		return strings.Compare(a.Requested.Format(time.RFC3339Nano)+a.ID, c.Requested.Format(time.RFC3339Nano)+c.ID)
+		if n := a.Requested.Compare(c.Requested); n != 0 {
+			return n
+		}
+
+		return strings.Compare(a.ID, c.ID)
 	})
 
 	all := make([]FlowOperationMetadata, 0, len(ops))

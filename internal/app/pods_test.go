@@ -187,3 +187,42 @@ func TestPodAutoload(t *testing.T) {
 	)
 	assert.Equal(t, "saved", a.get())
 }
+
+func TestPodServicesCaseInsensitive(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		saveServices string
+		loadServices string
+	}{
+		{name: "lower-case save and load", saveServices: `["dynamodb"]`, loadServices: "dynamodb"},
+		{name: "exact case", saveServices: `["DynamoDB"]`, loadServices: "DynamoDB"},
+		{name: "upper-case", saveServices: `["S3"]`, loadServices: "s3"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := logger.Save(context.Background(), logger.NewTestLogger())
+			ddb, s3 := &podFakeState{}, &podFakeState{}
+			mgr := persistence.NewManager(ctx, persistence.NullStore{})
+			mgr.Register("DynamoDB", ddb)
+			mgr.Register("S3", s3)
+
+			e := echo.New()
+			registerPodEndpoints(ctx, logger.NewTestLogger(), e, PodsConfig{Dir: t.TempDir()}, "",
+				mgr, []service.Registerable{podFakeService{st: ddb}, podFakeService{st: s3}})
+
+			ddb.state, s3.state = "d", "s"
+			rec := podDo(e, http.MethodPost, "/_gopherstack/pods/demo", `{"services":`+tt.saveServices+`}`)
+			require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+			ddb.state, s3.state = "x", "y"
+			rec = podDo(e, http.MethodPost,
+				"/_gopherstack/pods/demo/load?strategy=service-merge&services="+tt.loadServices, "")
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		})
+	}
+}

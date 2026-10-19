@@ -7,16 +7,22 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
-// byoipSettled maps each transitional state to the state it reaches once the dwell elapses.
-var byoipSettled = map[string]string{ //nolint:gochecknoglobals // immutable state-machine table
-	byoipPendingProvisioning:   byoipReady,
-	byoipPendingAdvertising:    byoipAdvertising,
-	byoipPendingWithdrawing:    byoipReady,
-	byoipPendingDeprovisioning: byoipDeprovisioned,
+// byoipSettled returns the state a transitional state reaches once the dwell elapses.
+func byoipSettled(state string) (string, bool) {
+	switch state {
+	case byoipPendingProvisioning, byoipPendingWithdrawing:
+		return byoipReady, true
+	case byoipPendingAdvertising:
+		return byoipAdvertising, true
+	case byoipPendingDeprovisioning:
+		return byoipDeprovisioned, true
+	default:
+		return "", false
+	}
 }
 
 func byoipEffectiveState(c *ByoipCidr, now time.Time) string {
-	if next, ok := byoipSettled[c.State]; ok && !now.Before(c.PendingUntil) {
+	if next, ok := byoipSettled(c.State); ok && !now.Before(c.PendingUntil) {
 		return next
 	}
 

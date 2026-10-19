@@ -124,11 +124,11 @@ func encoderFor(typ string) (colEnc, error) {
 	case typeBoolean:
 		return colEnc{parquet.Leaf(parquet.BooleanType), encBool}, nil
 	case typeTinyint:
-		return colEnc{parquet.Int(int8Bits), encInt32}, nil
+		return colEnc{parquet.Int(int8Bits), encIntN(int8Bits)}, nil
 	case typeSmall:
-		return colEnc{parquet.Int(int16Bits), encInt32}, nil
+		return colEnc{parquet.Int(int16Bits), encIntN(int16Bits)}, nil
 	case typeInt, typeInteger:
-		return colEnc{parquet.Int(int32Bits), encInt32}, nil
+		return colEnc{parquet.Int(int32Bits), encIntN(int32Bits)}, nil
 	case typeBigint:
 		return colEnc{parquet.Int(int64Bits), encInt64}, nil
 	case typeFloat, typeReal:
@@ -198,13 +198,21 @@ func toInt64(v any) (int64, error) {
 	return n, nil
 }
 
-func encInt32(v any) (parquet.Value, error) {
-	n, err := toInt64(v)
-	if err != nil {
-		return parquet.Value{}, err
-	}
+func encIntN(bits uint) cellEnc {
+	lo, hi := -(int64(1) << (bits - 1)), int64(1)<<(bits-1)-1
 
-	return parquet.Int32Value(clampInt32(n)), nil
+	return func(v any) (parquet.Value, error) {
+		n, err := toInt64(v)
+		if err != nil {
+			return parquet.Value{}, err
+		}
+
+		if n < lo || n > hi {
+			return parquet.Value{}, fmt.Errorf("%w: %d out of range for %d-bit integer", ErrBadValue, n, bits)
+		}
+
+		return parquet.Int32Value(clampInt32(n)), nil
+	}
 }
 
 func encInt64(v any) (parquet.Value, error) {
@@ -298,6 +306,10 @@ func decimalEncoder(typ string) (colEnc, error) {
 		r.Mul(r, new(big.Rat).SetInt(scale))
 
 		q, _ := new(big.Int).QuoRem(r.Num(), r.Denom(), new(big.Int))
+
+		if len(new(big.Int).Abs(q).String()) > p {
+			return nil, fmt.Errorf("%w: %v exceeds decimal(%d,%d)", ErrBadValue, v, p, s)
+		}
 
 		return q, nil
 	}
