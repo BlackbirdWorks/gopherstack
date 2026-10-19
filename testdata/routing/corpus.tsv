@@ -13721,6 +13721,39 @@ PUT	localhost:4566	/v20180820/accessgrantsinstance/location/xaccess	s3				User-A
 POST	localhost:4566	/v20180820/jobs/xjobid/priority	s3				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3control#1.0.0	S3Control	S3Control
 POST	localhost:4566	/v20180820/jobs/xjobid/status	s3				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3control#1.0.0	S3Control	S3Control
 PUT	localhost:4566	/v20180820/storagelensgroup/xname	s3				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3control#1.0.0	S3Control	S3Control
+PUT	localhost:4566	/access-points	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+PUT	localhost:4566	/access-points	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3	S3
+PUT	s3files.us-east-1.amazonaws.com	/access-points	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+PUT	localhost:4566	/access-points?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fs3files%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+PUT	localhost:4566	/file-systems	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+PUT	localhost:4566	/file-systems	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3	S3
+PUT	s3files.us-east-1.amazonaws.com	/file-systems	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+PUT	localhost:4566	/file-systems?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fs3files%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+PUT	localhost:4566	/mount-targets	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+PUT	localhost:4566	/mount-targets	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3	S3
+PUT	s3files.us-east-1.amazonaws.com	/mount-targets	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+PUT	localhost:4566	/mount-targets?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fs3files%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+DELETE	localhost:4566	/access-points/xaccess	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+DELETE	localhost:4566	/access-points/xaccess	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3	S3
+DELETE	s3files.us-east-1.amazonaws.com	/access-points/xaccess	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+DELETE	localhost:4566	/access-points/xaccess?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fs3files%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+DELETE	localhost:4566	/file-systems/xfilesy	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+DELETE	localhost:4566	/file-systems/xfilesy/policy	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+DELETE	localhost:4566	/mount-targets/xmountt	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+GET	localhost:4566	/access-points/xaccess	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+GET	localhost:4566	/file-systems/xfilesy	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+GET	localhost:4566	/file-systems/xfilesy/policy	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+GET	localhost:4566	/mount-targets/xmountt	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+GET	localhost:4566	/file-systems/xfilesy/synchronization-configuration	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+GET	localhost:4566	/access-points	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+GET	localhost:4566	/file-systems	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+GET	localhost:4566	/mount-targets	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+GET	localhost:4566	/resource-tags/xresour	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+PUT	localhost:4566	/file-systems/xfilesy/policy	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+PUT	localhost:4566	/file-systems/xfilesy/synchronization-configuration	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+POST	localhost:4566	/resource-tags/xresour	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+DELETE	localhost:4566	/resource-tags/xresour	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
+PUT	localhost:4566	/mount-targets/xmountt	s3files				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3files#1.0.0	S3Files	S3Files
 PUT	localhost:4566	/namespaces/xtableb	s3tables				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3tables#1.0.0	S3tables	S3tables
 PUT	localhost:4566	/namespaces/xtableb	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3tables#1.0.0	S3tables	S3tables
 PUT	s3tables.us-east-1.amazonaws.com	/namespaces/xtableb	s3tables				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3tables#1.0.0	S3tables	S3tables

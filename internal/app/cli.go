@@ -240,6 +240,7 @@ import (
 	rumbackend "github.com/blackbirdworks/gopherstack/services/rum"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
+	s3filesbackend "github.com/blackbirdworks/gopherstack/services/s3files"
 	s3tablesbackend "github.com/blackbirdworks/gopherstack/services/s3tables"
 	s3vectorsbackend "github.com/blackbirdworks/gopherstack/services/s3vectors"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
@@ -3411,6 +3412,7 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	wireResourceExplorer(byName)
 	wireServiceCatalog(byName)
 	wireAgentCore(byName)
+	wireS3Files(byName)
 
 	// Wire Auto Scaling → EC2 so scale-out launches real (mock) EC2 instances
 	// and scale-in terminates them there too, instead of Auto Scaling
@@ -4525,6 +4527,7 @@ func getRemainingServiceProviders() []service.Provider {
 		&redshiftbackend.ServerlessProvider{},
 		&awsconfigbackend.Provider{},
 		&s3controlbackend.Provider{},
+		&s3filesbackend.Provider{},
 		&resourcegroupsbackend.Provider{},
 		&resourcegroupstaggingapibackend.Provider{},
 		&swfbackend.Provider{},

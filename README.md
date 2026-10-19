@@ -652,6 +652,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [FSx](services/fsx/README.md) | A | — | 13 families; 2 structural gaps |
 | [S3](services/s3/README.md) | A | 26 | 4 gaps; 4 structural gaps |
 | [S3 Control](services/s3control/README.md) | A | 44 | 3 gaps; 6 structural gaps; 2 deferred |
+| [S3 Files](services/s3files/README.md) | B | 21 | 9 gaps; 1 structural gap |
 | [S3 Glacier](services/glacier/README.md) | A | 33 | clean |
 | [S3 Tables](services/s3tables/README.md) | A | 49 | clean |
 

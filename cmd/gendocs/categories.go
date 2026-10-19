@@ -47,7 +47,7 @@ func categoryGroups() []categoryGroup {
 			"ecr", "ecs", "eks",
 		}},
 		{"Storage", []string{
-			"backup", "dlm", "efs", "fsx", "glacier", "s3", "s3control", "s3tables",
+			"backup", "dlm", "efs", "fsx", "glacier", "s3", "s3control", "s3files", "s3tables",
 		}},
 		{"Database", []string{
 			"dax", "docdb", "dynamodb", "dynamodbstreams", "elasticache", "memorydb",
@@ -310,6 +310,7 @@ func displayNamesD() map[string]string {
 		"route53resolver":     "Route 53 Resolver",
 		"s3":                  "S3",
 		"s3control":           "S3 Control",
+		"s3files":             "S3 Files",
 		"s3tables":            "S3 Tables",
 		"sagemaker":           "SageMaker",
 		"sagemakerruntime":    "SageMaker Runtime",
