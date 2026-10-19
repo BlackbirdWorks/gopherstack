@@ -148,7 +148,11 @@ func (v *vault) addCert(
 		return nil, err
 	}
 
-	id := newVersionID()
+	id := mat.id
+	if id == "" {
+		id = newVersionID()
+	}
+
 	attrs := newAttributes(req.attrs, now, v.RetentionDays, protectedVault(v))
 	nbf, exp := cert.NotBefore.Unix(), cert.NotAfter.Unix()
 	attrs.NBF, attrs.Exp = &nbf, &exp
@@ -194,6 +198,7 @@ func (v *vault) checkBackingFree(name string) error {
 }
 
 type certMaterial struct {
+	id    string
 	cert  []byte
 	key   []byte
 	chain [][]byte
@@ -254,10 +259,13 @@ func (v *vault) addBacking(
 	return nil
 }
 
-const pemKeyType = "PRIVATE KEY"
+const (
+	pemKeyType  = "PRIVATE KEY"
+	pemCertType = "CERTIFICATE"
+)
 
 func pemBundle(certDER, keyDER []byte) string {
-	out := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	out := pem.EncodeToMemory(&pem.Block{Type: pemCertType, Bytes: certDER})
 
 	return string(append(out, pem.EncodeToMemory(&pem.Block{Type: pemKeyType, Bytes: keyDER})...))
 }
@@ -275,11 +283,14 @@ func (b *InMemoryBackend) CreateCertificate(
 		}
 
 		pol := req.Policy.normalized(now)
-		if !strings.EqualFold(pol.Issuer.Name, issuerSelf) {
+
+		switch {
+		case strings.EqualFold(pol.Issuer.Name, issuerUnknown):
+			return v.createPending(name, base, pol, req, now, &out)
+		case !strings.EqualFold(pol.Issuer.Name, issuerSelf):
 			return errBadParameter(
-				"Issuer %q is not supported; only the %s issuer can issue certificates.",
-				pol.Issuer.Name,
-				issuerSelf,
+				"Issuer %q is not supported; only the %s and %s issuers can issue certificates.",
+				pol.Issuer.Name, issuerSelf, issuerUnknown,
 			)
 		}
 
@@ -304,6 +315,19 @@ func (b *InMemoryBackend) CreateCertificate(
 	})
 
 	return out, err
+}
+
+func (v *vault) createPending(
+	name, base string, pol *CertPolicy, req *CreateCertRequest, now int64, out *CertOperation,
+) error {
+	pc, err := v.startPending(name, pol, attrsAndTags{tags: req.Tags, attrs: req.Attributes}, now)
+	if err != nil {
+		return err
+	}
+
+	*out = pc.Op.wire(base, name)
+
+	return nil
 }
 
 func (o *CertOperation) wire(base, name string) CertOperation {
@@ -336,7 +360,7 @@ func parsePEMBundle(data []byte) ([]byte, []byte, error) {
 		}
 
 		switch blk.Type {
-		case "CERTIFICATE":
+		case pemCertType:
 			certs = append(certs, blk.Bytes)
 		case pemKeyType, "RSA PRIVATE KEY", "EC PRIVATE KEY":
 			keyDER, err = toPKCS8(blk)
@@ -511,6 +535,12 @@ func (b *InMemoryBackend) GetCertificate(vaultName, base, name, version string) 
 	err := b.do(vaultName, func(v *vault, _ int64) error {
 		e, ver, err := v.findCert(name, version)
 		if err != nil {
+			if pc, ok := v.Pending[name]; ok && version == "" {
+				out = pc.wire(base, name)
+
+				return nil
+			}
+
 			return err
 		}
 
@@ -564,6 +594,13 @@ func (b *InMemoryBackend) GetCertificatePolicy(vaultName, base, name string) (Ce
 	err := b.do(vaultName, func(v *vault, _ int64) error {
 		e, ok := v.Certs.active(name)
 		if !ok {
+			if pc, pending := v.Pending[name]; pending {
+				out = *pc.Policy
+				out.ID = base + "/certificates/" + name + "/policy"
+
+				return nil
+			}
+
 			return errNotFound(kindCertificate, name)
 		}
 
@@ -745,13 +782,12 @@ func (b *InMemoryBackend) GetPendingCertificate(vaultName, base, name string) (C
 	var out CertOperation
 
 	err := b.do(vaultName, func(v *vault, _ int64) error {
-		e, ok := v.Certs.active(name)
-		if !ok || e.CertOp == nil {
-			return newErr(http.StatusNotFound, "PendingCertificateNotFound",
-				"Pending certificate not found: %s", name)
+		op, ok := v.pendingOp(name)
+		if !ok {
+			return errPendingNotFound(name)
 		}
 
-		out = e.CertOp.wire(base, name)
+		out = op.wire(base, name)
 
 		return nil
 	})
@@ -766,13 +802,13 @@ func (b *InMemoryBackend) UpdatePendingCertificate(
 	var out CertOperation
 
 	err := b.do(vaultName, func(v *vault, _ int64) error {
-		e, ok := v.Certs.active(name)
-		if !ok || e.CertOp == nil {
-			return newErr(http.StatusNotFound, "PendingCertificateNotFound", "Pending certificate not found: %s", name)
+		op, ok := v.pendingOp(name)
+		if !ok {
+			return errPendingNotFound(name)
 		}
 
-		e.CertOp.CancellationRequested = req.CancellationRequested
-		out = e.CertOp.wire(base, name)
+		op.CancellationRequested = req.CancellationRequested
+		out = op.wire(base, name)
 
 		return nil
 	})
@@ -785,13 +821,20 @@ func (b *InMemoryBackend) DeletePendingCertificate(vaultName, base, name string)
 	var out CertOperation
 
 	err := b.do(vaultName, func(v *vault, _ int64) error {
-		e, ok := v.Certs.active(name)
-		if !ok || e.CertOp == nil {
-			return newErr(http.StatusNotFound, "PendingCertificateNotFound", "Pending certificate not found: %s", name)
+		op, ok := v.pendingOp(name)
+		if !ok {
+			return errPendingNotFound(name)
 		}
 
-		out = e.CertOp.wire(base, name)
-		e.CertOp = nil
+		out = op.wire(base, name)
+
+		if _, pending := v.Pending[name]; pending {
+			delete(v.Pending, name)
+
+			return nil
+		}
+
+		v.Certs[name].CertOp = nil
 
 		return nil
 	})

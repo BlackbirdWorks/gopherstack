@@ -136,6 +136,15 @@ func certCoreRoutes() []route {
 
 				return http.StatusAccepted, op, nil
 			})),
+		rt(http.MethodPost, "/certificates/{name}/pending/merge", "MergeCertificate", bodyRoute(
+			func(h *Handler, rc *reqCtx, in *MergeCertRequest) (int, any, error) {
+				out, err := h.Backend.MergeCertificate(rc.vault, rc.base, rc.params["name"], in)
+				if err != nil {
+					return 0, nil, err
+				}
+
+				return http.StatusCreated, out, nil
+			})),
 		rt(http.MethodPost, "/certificates/{name}/import", "ImportCertificate", bodyRoute(
 			func(h *Handler, rc *reqCtx, in *ImportCertRequest) (int, any, error) {
 				return reply(h.Backend.ImportCertificate(rc.vault, rc.base, rc.params["name"], in))

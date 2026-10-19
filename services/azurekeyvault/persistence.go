@@ -81,6 +81,10 @@ func (v *vault) normalize() {
 		v.Issuers = make(map[string]*Issuer)
 	}
 
+	if v.Pending == nil {
+		v.Pending = make(map[string]*PendingCert)
+	}
+
 	for _, e := range v.Keys {
 		if e.Rotation == nil {
 			e.Rotation = defaultRotation(0)
