@@ -341,11 +341,11 @@ func cloneMap(m map[string]string) map[string]string {
 	return maps.Clone(m)
 }
 
-// GetAppMonitor returns one app monitor.
-func (b *InMemoryBackend) GetAppMonitor(ctx context.Context, name string) (wireMonitor, error) {
+// getAppMonitor returns one app monitor.
+func (b *InMemoryBackend) getAppMonitor(ctx context.Context, name string) (wireMonitor, error) {
 	sc := b.scopeOf(ctx)
 
-	b.mu.RLock("GetAppMonitor")
+	b.mu.RLock("getAppMonitor")
 	defer b.mu.RUnlock()
 
 	m, err := b.monitorByNameLocked(sc, name)

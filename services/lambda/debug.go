@@ -62,9 +62,9 @@ type debugFile struct {
 	Functions map[string]debugFileEntry `yaml:"functions"`
 }
 
-// LoadDebugConfig builds the debug-mode configuration from LAMBDA_DEBUG_MODE, LAMBDA_DEBUG_MODE_CONFIG_PATH
+// loadDebugConfig builds the debug-mode configuration from LAMBDA_DEBUG_MODE, LAMBDA_DEBUG_MODE_CONFIG_PATH
 // (YAML or JSON) and LAMBDA_DEBUG_MODE_FUNCTIONS ("name[:qualifier]=port,..."). Debug mode off yields an empty config.
-func LoadDebugConfig(getenv func(string) string, readFile func(string) ([]byte, error)) (*debugConfig, error) {
+func loadDebugConfig(getenv func(string) string, readFile func(string) ([]byte, error)) (*debugConfig, error) {
 	if on, _ := strconv.ParseBool(getenv(envDebugMode)); !on {
 		return &debugConfig{}, nil
 	}

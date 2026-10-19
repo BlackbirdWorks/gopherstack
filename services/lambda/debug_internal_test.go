@@ -99,7 +99,7 @@ func TestLoadDebugConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg, err := LoadDebugConfig(debugEnv(tt.env), debugFileReader(tt.file))
+			cfg, err := loadDebugConfig(debugEnv(tt.env), debugFileReader(tt.file))
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				require.ErrorIs(t, err, ErrInvalidDebugConfig)
@@ -121,7 +121,7 @@ func TestLoadDebugConfig(t *testing.T) {
 func TestLoadDebugConfigReadError(t *testing.T) {
 	t.Parallel()
 
-	_, err := LoadDebugConfig(
+	_, err := loadDebugConfig(
 		debugEnv(map[string]string{envDebugMode: "1", envDebugConfigPath: "/x"}),
 		func(string) ([]byte, error) { return nil, errBoom },
 	)

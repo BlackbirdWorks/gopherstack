@@ -71,41 +71,59 @@ export function normalizeReference(value: string, c: FsCtx): string {
   return `${docsRoot(c)}/${v.replace(/^\/+/, "")}`;
 }
 
+function validateInteger(v: string): string | null {
+  if (!/^[+-]?\d+$/.test(v)) return "integer must be a whole number";
+  const big = BigInt(v);
+  return big < INT64_MIN || big > INT64_MAX ? "integer is outside the 64-bit range" : null;
+}
+
+function validateDouble(v: string): string | null {
+  if (SPECIAL_DOUBLES.has(v)) return null;
+  return v !== "" && Number.isFinite(Number(v)) ? null : "double must be a number";
+}
+
+function validateTimestamp(v: string): string | null {
+  return RFC3339.test(v) && !Number.isNaN(Date.parse(v))
+    ? null
+    : "timestamp must be RFC 3339, e.g. 2024-01-02T03:04:05Z";
+}
+
+function outOfRange(raw: string, limit: number): boolean {
+  const num = Number(raw);
+  return raw.trim() === "" || !Number.isFinite(num) || num < -limit || num > limit;
+}
+
+function validateGeopoint(n: FsNode): string | null {
+  if (outOfRange(n.lat, 90)) return "latitude must be between -90 and 90";
+  if (outOfRange(n.lng, 180)) return "longitude must be between -180 and 180";
+  return null;
+}
+
+function validateReference(v: string, c: FsCtx): string | null {
+  if (!v) return "reference path is required";
+  const rel = normalizeReference(v, c).split("/documents/")[1] ?? "";
+  const segs = rel.split("/").filter(Boolean);
+  return segs.length > 0 && segs.length % 2 === 0
+    ? null
+    : "reference must point at a document (collection/doc)";
+}
+
 /** Returns a problem description for a single scalar/leaf node, or null. */
 function validateLeaf(n: FsNode, c: FsCtx): string | null {
   const v = n.value.trim();
   switch (n.type) {
-    case "integer": {
-      if (!/^[+-]?\d+$/.test(v)) return "integer must be a whole number";
-      const big = BigInt(v);
-      return big < INT64_MIN || big > INT64_MAX ? "integer is outside the 64-bit range" : null;
-    }
+    case "integer":
+      return validateInteger(v);
     case "boolean":
       return v === "true" || v === "false" ? null : "choose true or false";
     case "double":
-      if (SPECIAL_DOUBLES.has(v)) return null;
-      return v !== "" && Number.isFinite(Number(v)) ? null : "double must be a number";
+      return validateDouble(v);
     case "timestamp":
-      return RFC3339.test(v) && !Number.isNaN(Date.parse(v))
-        ? null
-        : "timestamp must be RFC 3339, e.g. 2024-01-02T03:04:05Z";
-    case "geopoint": {
-      const lat = Number(n.lat);
-      const lng = Number(n.lng);
-      if (n.lat.trim() === "" || !Number.isFinite(lat) || lat < -90 || lat > 90)
-        return "latitude must be between -90 and 90";
-      if (n.lng.trim() === "" || !Number.isFinite(lng) || lng < -180 || lng > 180)
-        return "longitude must be between -180 and 180";
-      return null;
-    }
-    case "reference": {
-      if (!v) return "reference path is required";
-      const rel = normalizeReference(v, c).split("/documents/")[1] ?? "";
-      const segs = rel.split("/").filter(Boolean);
-      return segs.length > 0 && segs.length % 2 === 0
-        ? null
-        : "reference must point at a document (collection/doc)";
-    }
+      return validateTimestamp(v);
+    case "geopoint":
+      return validateGeopoint(n);
+    case "reference":
+      return validateReference(v, c);
     case "bytes":
       return v === "" || isBase64(v) ? null : "bytes must be base64";
     default:

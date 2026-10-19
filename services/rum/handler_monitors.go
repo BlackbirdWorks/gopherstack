@@ -45,7 +45,7 @@ func (h *Handler) createAppMonitor(ctx context.Context, req *restroute.Request) 
 }
 
 func (h *Handler) getAppMonitor(ctx context.Context, req *restroute.Request) (any, int, error) {
-	m, err := h.Backend.GetAppMonitor(ctx, req.Params[paramName])
+	m, err := h.Backend.getAppMonitor(ctx, req.Params[paramName])
 	if err != nil {
 		return nil, 0, err
 	}

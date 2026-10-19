@@ -278,7 +278,7 @@ func NewInMemoryBackendWithContext(
 	registerAllTables(b)
 
 	var debugErr error
-	if b.debug, debugErr = LoadDebugConfig(os.Getenv, os.ReadFile); debugErr != nil {
+	if b.debug, debugErr = loadDebugConfig(os.Getenv, os.ReadFile); debugErr != nil {
 		logger.Load(svcCtx).ErrorContext(svcCtx, "lambda: debug mode disabled", "error", debugErr)
 	}
 

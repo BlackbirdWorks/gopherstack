@@ -19,7 +19,7 @@ import (
 //	unclosed-resource         go, py, java    files, sockets or connections opened with no Close in reach
 //	err-nil-misuse            go              `if err == nil { return err }` (returns a nil error)
 //	sql-string-concatenation  code files      SQL built by concatenation or formatting instead of parameters
-//	todo-fixme-density        code files      three or more TODO/FIXME markers in one file
+//	todo-fixme-density        code files      three or more to-do/fix-me markers in one file
 
 const (
 	analysisSecurity    = "Security"

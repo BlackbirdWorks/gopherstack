@@ -389,40 +389,73 @@ func evalRuleExpr(expr any, resolved map[string]string) bool {
 		return true
 	}
 
-	if args, is := m["Fn::Equals"].([]any); is && len(args) == 2 {
-		return ruleScalar(args[0], resolved) == ruleScalar(args[1], resolved)
-	}
-
-	if args, is := m["Fn::Contains"].([]any); is && len(args) == 2 {
-		return slices.Contains(ruleList(args[0], resolved), ruleScalar(args[1], resolved))
-	}
-
-	if args, is := m["Fn::EachMemberEquals"].([]any); is && len(args) == 2 {
-		want := ruleScalar(args[1], resolved)
-
-		return !slices.ContainsFunc(ruleList(args[0], resolved), func(s string) bool { return s != want })
-	}
-
-	if args, is := m["Fn::EachMemberIn"].([]any); is && len(args) == 2 {
-		allowed := ruleList(args[1], resolved)
-
-		return !slices.ContainsFunc(
-			ruleList(args[0], resolved),
-			func(s string) bool { return !slices.Contains(allowed, s) },
-		)
-	}
-
-	if args, is := m["Fn::And"].([]any); is {
-		return !slices.ContainsFunc(args, func(a any) bool { return !evalRuleExpr(a, resolved) })
-	}
-
-	if args, is := m["Fn::Or"].([]any); is {
-		return slices.ContainsFunc(args, func(a any) bool { return evalRuleExpr(a, resolved) })
-	}
-
-	if args, is := m["Fn::Not"].([]any); is && len(args) == 1 {
-		return !evalRuleExpr(args[0], resolved)
+	for _, fn := range ruleFns() {
+		if args, is := m[fn.name].([]any); is && fn.arity(len(args)) {
+			return fn.eval(args, resolved)
+		}
 	}
 
 	return true
+}
+
+const (
+	ruleUnary  = 1
+	ruleBinary = 2
+)
+
+type ruleFn struct {
+	arity func(n int) bool
+	eval  func(args []any, resolved map[string]string) bool
+	name  string
+}
+
+func arityIs(want int) func(int) bool { return func(n int) bool { return n == want } }
+
+func arityAny(int) bool { return true }
+
+func ruleFns() []ruleFn {
+	return []ruleFn{
+		{name: "Fn::Equals", arity: arityIs(ruleBinary), eval: ruleEquals},
+		{name: "Fn::Contains", arity: arityIs(ruleBinary), eval: ruleContains},
+		{name: "Fn::EachMemberEquals", arity: arityIs(ruleBinary), eval: ruleEachMemberEquals},
+		{name: "Fn::EachMemberIn", arity: arityIs(ruleBinary), eval: ruleEachMemberIn},
+		{name: "Fn::And", arity: arityAny, eval: ruleAnd},
+		{name: "Fn::Or", arity: arityAny, eval: ruleOr},
+		{name: "Fn::Not", arity: arityIs(ruleUnary), eval: ruleNot},
+	}
+}
+
+func ruleEquals(args []any, resolved map[string]string) bool {
+	return ruleScalar(args[0], resolved) == ruleScalar(args[1], resolved)
+}
+
+func ruleContains(args []any, resolved map[string]string) bool {
+	return slices.Contains(ruleList(args[0], resolved), ruleScalar(args[1], resolved))
+}
+
+func ruleEachMemberEquals(args []any, resolved map[string]string) bool {
+	want := ruleScalar(args[1], resolved)
+
+	return !slices.ContainsFunc(ruleList(args[0], resolved), func(s string) bool { return s != want })
+}
+
+func ruleEachMemberIn(args []any, resolved map[string]string) bool {
+	allowed := ruleList(args[1], resolved)
+
+	return !slices.ContainsFunc(
+		ruleList(args[0], resolved),
+		func(s string) bool { return !slices.Contains(allowed, s) },
+	)
+}
+
+func ruleAnd(args []any, resolved map[string]string) bool {
+	return !slices.ContainsFunc(args, func(a any) bool { return !evalRuleExpr(a, resolved) })
+}
+
+func ruleOr(args []any, resolved map[string]string) bool {
+	return slices.ContainsFunc(args, func(a any) bool { return evalRuleExpr(a, resolved) })
+}
+
+func ruleNot(args []any, resolved map[string]string) bool {
+	return !evalRuleExpr(args[0], resolved)
 }
