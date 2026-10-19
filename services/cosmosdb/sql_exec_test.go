@@ -275,3 +275,35 @@ func TestParseQuery_ModeratelyNestedParensAccepted(t *testing.T) {
 	err := cosmosdb.ParseQuery(query)
 	require.NoError(t, err)
 }
+
+func TestExecuteQuery_TooManySources(t *testing.T) {
+	t.Parallel()
+
+	docs := docInfos(t, `{"id":"1","tags":[1]}`)
+
+	tests := []struct {
+		name    string
+		joins   int
+		wantErr bool
+	}{
+		{name: "few", joins: 3},
+		{name: "excessive", joins: 5000, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			q := "SELECT c.id FROM c" + strings.Repeat(" JOIN t IN c.tags", tt.joins)
+			_, err := cosmosdb.ExecuteQuery(q, nil, docs)
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, cosmosdb.ErrQueryParse)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}

@@ -251,6 +251,10 @@ func (ec *evalCtx) runStmt(stmt *sqlSelectStmt, outer []any, rows queryRows) ([]
 	grouped := stmt.hasAgg || len(stmt.groupBy) > 0
 	st.stream = !grouped && len(stmt.orderBy) == 0
 
+	if len(outer) > maxEnvSlots || len(stmt.sources) > maxEnvSlots {
+		return nil, fmt.Errorf("%w: query nests too many sources", ErrQueryParse)
+	}
+
 	env := make([]any, len(outer), len(outer)+len(stmt.sources))
 	copy(env, outer)
 
@@ -280,6 +284,8 @@ func (ec *evalCtx) runStmt(stmt *sqlSelectStmt, outer []any, rows queryRows) ([]
 
 // groupKeySeparator is the ASCII unit separator between GROUP BY key parts.
 const groupKeySeparator = 0x1f
+
+const maxEnvSlots = 1 << 12
 
 type tupleGroup struct {
 	tuples [][]any

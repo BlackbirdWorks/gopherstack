@@ -87,7 +87,7 @@ func logTargetErr(ctx context.Context, kind string, err error) bool {
 		return false
 	}
 
-	logger.Load(ctx).WarnContext(ctx, "EventBridge failed to deliver to target", "kind", kind, "error", err)
+	logger.Load(ctx).WarnContext(ctx, "EventBridge failed to deliver to target", "kind", kind)
 
 	return true
 }
