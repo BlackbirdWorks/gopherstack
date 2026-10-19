@@ -15778,6 +15778,7 @@
       "Policy.AttachmentCount int `json:\"AttachmentCount,omitempty\"`",
       "Policy.CreateDate time.Time `json:\"CreateDate\"`",
       "Policy.DefaultVersionID string `json:\"DefaultVersionId,omitempty\"`",
+      "Policy.Description string `json:\"Description,omitempty\"`",
       "Policy.IsAttachable bool `json:\"IsAttachable,omitempty\"`",
       "Policy.Path string `json:\"Path,omitempty\"`",
       "Policy.PolicyDocument string `json:\"PolicyDocument,omitempty\"`",

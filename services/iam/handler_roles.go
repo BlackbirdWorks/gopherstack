@@ -40,6 +40,14 @@ func (h *Handler) handleCreateRole(vals url.Values, reqID string) (any, error) {
 		return nil, err
 	}
 
+	if desc := vals.Get("Description"); desc != "" {
+		if updateErr := h.Backend.UpdateRole(r.RoleName, desc); updateErr != nil {
+			return nil, fmt.Errorf("setting description for role %s: %w", r.RoleName, updateErr)
+		}
+
+		r.Description = desc
+	}
+
 	if msd != 0 {
 		if updateErr := h.Backend.UpdateRoleMaxSessionDuration(r.RoleName, msd); updateErr != nil {
 			return nil, fmt.Errorf("updating max session duration for role %s: %w", r.RoleName, updateErr)

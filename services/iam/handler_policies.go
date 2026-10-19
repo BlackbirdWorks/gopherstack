@@ -15,6 +15,14 @@ func (h *Handler) handleCreatePolicy(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
+	if desc := vals.Get("Description"); desc != "" {
+		if descErr := h.Backend.SetPolicyDescription(pol.Arn, desc); descErr != nil {
+			return nil, descErr
+		}
+
+		pol.Description = desc
+	}
+
 	if tags := parseIAMTags(vals); len(tags) > 0 {
 		if tagErr := h.Backend.TagPolicy(pol.Arn, tags); tagErr != nil {
 			return nil, tagErr
@@ -241,6 +249,7 @@ func toPolicyXML(p *Policy, boundaryUsageCount int) PolicyXML {
 		CreateDate:       isoTime(p.CreateDate),
 		UpdateDate:       isoTime(updateDate),
 		DefaultVersionID: defaultVersionID,
+		Description:      p.Description,
 		Tags:             tagsToXML(p.Tags),
 		AttachmentCount:  p.AttachmentCount,
 		IsAttachable:     p.IsAttachable,

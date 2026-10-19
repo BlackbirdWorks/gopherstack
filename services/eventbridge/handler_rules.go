@@ -3,6 +3,8 @@ package eventbridge
 import (
 	"context"
 	"encoding/json"
+
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type deleteRuleInput struct {
@@ -91,7 +93,7 @@ func (h *Handler) ruleActions() map[string]actionFn {
 				return nil, err
 			}
 			if len(input.Tags) > 0 {
-				h.setTags(rule.Arn, input.Tags)
+				h.setTags(rule.Arn, svcTags.MapFromKV(input.Tags))
 			}
 
 			return &putRuleOutput{RuleArn: rule.Arn}, nil

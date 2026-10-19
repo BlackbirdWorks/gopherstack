@@ -50,6 +50,7 @@ type Policy struct {
 	Arn              string            `json:"Arn,omitempty"`
 	Path             string            `json:"Path,omitempty"`
 	PolicyDocument   string            `json:"PolicyDocument,omitempty"`
+	Description      string            `json:"Description,omitempty"`
 	DefaultVersionID string            `json:"DefaultVersionId,omitempty"`
 	AttachmentCount  int               `json:"AttachmentCount,omitempty"`
 	IsAttachable     bool              `json:"IsAttachable,omitempty"`
@@ -303,6 +304,7 @@ type PolicyXML struct {
 	PolicyID         string   `xml:"PolicyId"`
 	Arn              string   `xml:"Arn"`
 	Path             string   `xml:"Path"`
+	Description      string   `xml:"Description,omitempty"`
 	CreateDate       string   `xml:"CreateDate"`
 	UpdateDate       string   `xml:"UpdateDate"`
 	DefaultVersionID string   `xml:"DefaultVersionId"`
