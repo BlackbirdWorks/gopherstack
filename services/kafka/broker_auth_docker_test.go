@@ -51,6 +51,8 @@ func dockerRuntimeOrSkip(t *testing.T) container.Runtime {
 		t.Skipf("container runtime unavailable: %v", err)
 	}
 
+	t.Cleanup(func() { _ = rt.Close() })
+
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 

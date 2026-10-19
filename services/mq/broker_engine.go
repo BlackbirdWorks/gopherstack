@@ -543,17 +543,6 @@ func (b *InMemoryBackend) markRunning(brokerID string, lb *liveBroker) {
 	}
 }
 
-func (b *InMemoryBackend) recordStartFailure(brokerID string, cause error) {
-	if cause == nil {
-		return
-	}
-
-	b.mu.Lock("recordStartFailure")
-	defer b.mu.Unlock()
-
-	b.engine.failures[brokerID] = cause.Error()
-}
-
 // finishBroker marks a still-wanted broker CREATION_FAILED and releases its container.
 func (b *InMemoryBackend) finishBroker(ctx context.Context, brokerID string, lb *liveBroker, cause error) {
 	b.mu.Lock("failBroker")
@@ -570,11 +559,14 @@ func (b *InMemoryBackend) finishBroker(ctx context.Context, brokerID string, lb 
 		br.BrokerState = BrokerStateCreationFailed
 	}
 
+	if cause != nil {
+		b.engine.failures[brokerID] = cause.Error()
+	}
+
 	b.mu.Unlock()
 
 	logger.Load(ctx).WarnContext(ctx, "mq: broker failed to start",
 		"broker", brokerID, "code", brokerStartFailedCode, "error", cause)
-	b.recordStartFailure(brokerID, cause)
 	b.engine.reap([]*liveBroker{lb})
 }
 

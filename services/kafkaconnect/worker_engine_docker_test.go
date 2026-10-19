@@ -27,6 +27,8 @@ func TestWorkerEngine_RealConnectDocker(t *testing.T) {
 		t.Skipf("container runtime unavailable: %v", err)
 	}
 
+	t.Cleanup(func() { _ = rt.Close() })
+
 	pctx, pcancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer pcancel()
 

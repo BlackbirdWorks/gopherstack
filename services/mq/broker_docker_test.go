@@ -32,6 +32,8 @@ func newRealDockerBackend(t *testing.T) *mq.InMemoryBackend {
 		t.Skipf("container runtime unavailable: %v", err)
 	}
 
+	t.Cleanup(func() { _ = rt.Close() })
+
 	if err = rt.Ping(t.Context()); err != nil {
 		t.Skipf("container daemon unreachable: %v", err)
 	}
