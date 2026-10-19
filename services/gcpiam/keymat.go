@@ -60,12 +60,13 @@ func newKeyID() (string, error) {
 	return hex.EncodeToString(raw), nil
 }
 
-func keyBits(alg adminpb.ServiceAccountKeyAlgorithm) (int, adminpb.ServiceAccountKeyAlgorithm, error) {
+// keyAlgorithm validates the requested algorithm; every generated key is bitsDefault RSA.
+func keyAlgorithm(alg adminpb.ServiceAccountKeyAlgorithm) (adminpb.ServiceAccountKeyAlgorithm, error) {
 	if alg == adminpb.ServiceAccountKeyAlgorithm_KEY_ALG_RSA_1024 {
-		return 0, alg, errInvalid("KEY_ALG_RSA_1024 is not supported for new keys; use KEY_ALG_RSA_2048.")
+		return alg, errInvalid("KEY_ALG_RSA_1024 is not supported for new keys; use KEY_ALG_RSA_2048.")
 	}
 
-	return bitsDefault, adminpb.ServiceAccountKeyAlgorithm_KEY_ALG_RSA_2048, nil
+	return adminpb.ServiceAccountKeyAlgorithm_KEY_ALG_RSA_2048, nil
 }
 
 // material is a generated RSA key with its self-signed X.509 certificate and PKIX public key.
@@ -75,8 +76,8 @@ type material struct {
 	pubDER  []byte
 }
 
-func generateMaterial(bits int, email string, from, until time.Time) (*material, error) {
-	priv, err := rsa.GenerateKey(rand.Reader, bits)
+func generateMaterial(email string, from, until time.Time) (*material, error) {
+	priv, err := rsa.GenerateKey(rand.Reader, bitsDefault)
 	if err != nil {
 		return nil, errInternal(err)
 	}

@@ -45,7 +45,7 @@ func (b *InMemoryBackend) ensureSystemKey(name string) (*keyRec, error) {
 
 	now := b.now()
 
-	mat, err := generateMaterial(bitsDefault, acct.GetEmail(), now, farFuture())
+	mat, err := generateMaterial(acct.GetEmail(), now, farFuture())
 	if err != nil {
 		return nil, err
 	}
