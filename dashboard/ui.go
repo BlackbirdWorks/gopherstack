@@ -307,6 +307,7 @@ type StepFunctionsSettings struct {
 
 // Settings holds the overall dashboard internal state/preferences.
 type Settings struct {
+	InitDirs            []string
 	LogLevel            string
 	Port                string
 	ElastiCacheEngine   string

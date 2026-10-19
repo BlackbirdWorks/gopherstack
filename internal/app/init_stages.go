@@ -40,7 +40,11 @@ func initScriptEnv(cli *CLI) []string {
 // startInitStages creates the stage manager and runs BOOT.
 func startInitStages(ctx context.Context, cli *CLI, log *slog.Logger) {
 	m := inithooks.NewManager(inithooks.ManagerConfig{
-		Roots: initStageRoots(cli), Env: initScriptEnv(cli), Timeout: cli.InitScriptTimeout, Log: log,
+		Roots:           initStageRoots(cli),
+		LegacyReadyDirs: inithooks.DefaultLegacyReadyDirs(),
+		Env:             initScriptEnv(cli),
+		Timeout:         cli.InitScriptTimeout,
+		Log:             log,
 	})
 	cli.localstackInit.setManager(m)
 	m.Run(ctx, inithooks.StageBoot)

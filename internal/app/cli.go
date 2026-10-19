@@ -808,6 +808,7 @@ func (c *CLI) GetSettings() dashboard.Settings {
 		PortRangeStart:      c.PortRangeStart,
 		PortRangeEnd:        c.PortRangeEnd,
 		InitScriptTimeout:   c.InitScriptTimeout,
+		InitDirs:            slices.Clone(c.InitDirs),
 
 		// Service settings
 		S3: dashboard.S3Settings{
@@ -911,6 +912,7 @@ func (c *CLI) UpdateSettings(s dashboard.Settings) {
 	c.PortRangeStart = s.PortRangeStart
 	c.PortRangeEnd = s.PortRangeEnd
 	c.InitScriptTimeout = s.InitScriptTimeout
+	c.InitDirs = slices.Clone(s.InitDirs)
 
 	c.applyServiceSettings(s)
 
@@ -1018,6 +1020,7 @@ func (c *CLI) SaveConfig() error {
 		Demo:                c.Demo,
 		DataDir:             c.DataDir,
 		InitScriptTimeout:   c.InitScriptTimeout,
+		InitDirs:            slices.Clone(c.InitDirs),
 
 		// Service settings
 		S3:             c.S3,
@@ -1088,6 +1091,7 @@ func (c *CLI) LoadConfig() error {
 	c.Demo = cfg.Demo
 	c.DataDir = cfg.DataDir
 	c.InitScriptTimeout = cfg.InitScriptTimeout
+	c.InitDirs = slices.Clone(cfg.InitDirs)
 
 	// Service settings
 	c.S3 = cfg.S3
@@ -2404,7 +2408,6 @@ func run(ctx context.Context, cli CLI) error {
 	// to a multiple of shutdownTimeout.
 	defer shutdownBackends(janitorCancel, cli.lambdaHandler, services, &cli.shutdownDeadline)
 	defer cli.stopExtensions(ctx)
-	defer runShutdownStage(ctx, &cli)
 
 	cli.startExtensions(ctx)
 

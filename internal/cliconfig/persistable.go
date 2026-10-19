@@ -25,6 +25,7 @@ import (
 
 // PersistableConfig holds settings that can be saved to disk.
 type PersistableConfig struct {
+	InitDirs            []string                  `json:"init_dirs"`
 	ElastiCacheEngine   string                    `json:"elasticache_engine"`
 	ElasticsearchEngine string                    `json:"elasticsearch_engine"`
 	Region              string                    `json:"region"`
