@@ -339,6 +339,7 @@ func errorProbeUnreachable() map[string]string {
 	return map[string]string{
 		"APIGatewayManagementAPI": "path-routed REST (@connections)",
 		"AzureARM":                "non-AWS",
+		"AzureKeyVault":           "non-AWS",
 		"AzureStorageVHost":       "non-AWS",
 		"AzureTable":              "non-AWS",
 		"GCPStorage":              "non-AWS",

@@ -27,6 +27,11 @@ func allowedWeakHashFiles() map[string]string {
 		// base64 MD5 of the content; integrity checksum, never a credential.
 		"services/gcpstorage/store.go": "GCS Object.md5Hash parity, verified",
 
+		// Key Vault: RSA-OAEP is defined over SHA-1 (JWA RFC 7518 4.3) and the
+		// certificate x5t claim is a SHA-1 thumbprint (RFC 7515 4.1.7).
+		"services/azurekeyvault/keycrypto.go":  "JWA RSA-OAEP (SHA-1) key-vault algorithm, verified",
+		"services/azurekeyvault/certpolicy.go": "certificate x5t SHA-1 thumbprint, verified",
+
 		"services/neptune/engine_probe.go": "RFC 6455 WebSocket Sec-WebSocket-Accept mandates SHA-1, verified",
 		"services/ssm/document_hashes.go":  "DocumentDescription.Sha1 parity, verified",
 

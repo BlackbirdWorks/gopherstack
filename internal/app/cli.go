@@ -97,6 +97,7 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	azurearmbackend "github.com/blackbirdworks/gopherstack/services/azurearm"
 	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
+	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
 	azurestoragevhostbackend "github.com/blackbirdworks/gopherstack/services/azurestoragevhost"
@@ -529,12 +530,13 @@ type CLI struct {
 	ExtraListen                   []string                          `                                       name:"extra-listen"            env:"GOPHERSTACK_EXTRA_LISTEN"                                    help:"Additional ports to serve the same endpoint on (comma-separated)."`                                                                               //nolint:lll // config struct tags are intentionally verbose
 	Transparent                   TransparentSettings               `embed:"" prefix:"transparent-"`
 	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
+	AzureKeyVault                 azurekeyvaultbackend.Settings     `embed:"" prefix:"azure-keyvault-"`
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
-	AzureARM                      azurearmbackend.Settings          `embed:"" prefix:"azure-arm-"`
 	Lambda                        lambdabackend.Settings            `embed:"" prefix:"lambda-"`
 	SES                           sesbackend.Settings               `embed:"" prefix:"ses-"`
 	DynamoDB                      ddbbackend.Settings               `embed:"" prefix:"dynamodb-"`
+	AzureARM                      azurearmbackend.Settings          `embed:"" prefix:"azure-arm-"`
 	Lifecycle                     cliconfig.LifecycleSettings       `embed:"" prefix:"lifecycle-"`
 	Batch                         batchbackend.Settings             `embed:"" prefix:"batch-"`
 	EC2                           ec2backend.Settings               `embed:"" prefix:"ec2-"`
@@ -633,6 +635,17 @@ func (c *CLI) GetS3Settings() s3backend.Settings {
 // GetAzureBlobSettings returns Azure Blob settings (azureblob.ConfigProvider).
 func (c *CLI) GetAzureBlobSettings() azureblobbackend.Settings {
 	return c.AzureBlob
+}
+
+// GetAzureKeyVaultSettings returns Azure Key Vault settings (azurekeyvault.ConfigProvider).
+func (c *CLI) GetAzureKeyVaultSettings() azurekeyvaultbackend.Settings {
+	return c.AzureKeyVault
+}
+
+// GetAzureKeyVaultPort returns the Key Vault listener's configured port
+// (azurearm.KeyVaultPortProvider) so ARM's advertised vaultUri cannot diverge.
+func (c *CLI) GetAzureKeyVaultPort() int {
+	return c.AzureKeyVault.Port
 }
 
 // GetAzureQueueSettings returns Azure Queue settings (azurequeue.ConfigProvider).
@@ -2300,6 +2313,11 @@ func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *port
 	if err := alloc.Reserve(cli.AzureARM.Port, "azurearm"); err != nil {
 		log.WarnContext(ctx, "failed to reserve AzureARM's fixed port in the shared pool",
 			"port", cli.AzureARM.Port, "error", err)
+	}
+
+	if err := alloc.Reserve(cli.AzureKeyVault.Port, "azurekeyvault"); err != nil {
+		log.WarnContext(ctx, "failed to reserve AzureKeyVault's fixed port in the shared pool",
+			"port", cli.AzureKeyVault.Port, "error", err)
 	}
 }
 
@@ -4179,7 +4197,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// Wire ARM's Microsoft.ServiceBus resource provider to
 	// services/azureservicebus's already-initialized handler (AZURE.md
 	// section 10.10's M9 entry).
-	wireAzureARMResourceProviders(byName["AzureARM"], byName["AzureServiceBus"])
+	wireAzureARMResourceProviders(byName["AzureARM"], byName["AzureServiceBus"], byName["AzureKeyVault"])
 
 	// Wire CloudWatch → Firehose so a PutMetricStream/CreateMetricStream
 	// delivery stream actually receives matched metric data instead of
@@ -4643,6 +4661,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&azuretablebackend.Provider{},
 		&azureservicebusbackend.Provider{},
 		&azurestoragevhostbackend.Provider{},
+		&azurekeyvaultbackend.Provider{},
 		&cosmosdbbackend.Provider{},
 		&gcpstoragebackend.Provider{},
 		&gcppubsubbackend.Provider{},
@@ -13199,10 +13218,14 @@ func wireAzureStorageVHost(blobReg, queueReg, tableReg, vhostReg service.Registe
 // ServiceBus's real backend is a sibling service's already-constructed
 // runtime handler, only available here, at wireCrossServiceDependencies
 // time, mirroring wireAzureStorageVHost's post-construction injection.
-func wireAzureARMResourceProviders(armReg, sbReg service.Registerable) {
+func wireAzureARMResourceProviders(armReg, sbReg, kvReg service.Registerable) {
 	armH, ok := armReg.(*azurearmbackend.Handler)
 	if !ok {
 		return
+	}
+
+	if kvH, kvOk := kvReg.(*azurekeyvaultbackend.Handler); kvOk {
+		armH.Registry.SetKeyVaults(&azureKeyVaultsAdapter{backend: kvH.Backend})
 	}
 
 	sbH, ok := sbReg.(*azureservicebusbackend.Handler)

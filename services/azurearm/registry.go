@@ -124,6 +124,19 @@ func (r *Registry) SetServiceBusEntities(e ServiceBusEntities) {
 	}
 }
 
+// SetKeyVaults gives the registered Microsoft.KeyVault provider (if any) a
+// real KeyVaults adapter, replacing its no-op default.
+func (r *Registry) SetKeyVaults(k KeyVaults) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftKeyVault)
+	if !ok {
+		return
+	}
+
+	if kv, kvOk := p.(*KeyVaultProvider); kvOk {
+		kv.dataPlane = k
+	}
+}
+
 // Put creates or updates the resource identified by id.
 func (r *Registry) Put(ctx context.Context, id ResourceID, body map[string]any) (map[string]any, bool, error) {
 	if p := r.providerFor(id); p != nil {

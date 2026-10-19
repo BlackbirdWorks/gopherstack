@@ -241,7 +241,7 @@ func TestRoutingCorpusCoversServices(t *testing.T) {
 	var missing []string
 
 	neverMatch := []string{
-		"AzureARM", "AzureBlob", "AzureQueue", "AzureServiceBus", "AzureStorageVHost", "AzureTable", "CosmosDB",
+		"AzureARM", "AzureBlob", "AzureKeyVault", "AzureQueue", "AzureServiceBus", "AzureStorageVHost", "AzureTable", "CosmosDB",
 		"GCPStorage", "GCPPubSub", "GCPSecretManager", "GCPKMS", "GCPFirestore",
 	}
 

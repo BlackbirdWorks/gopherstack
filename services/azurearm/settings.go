@@ -54,6 +54,10 @@ const DefaultStorageVHostPort = 10010
 // it just for one int constant would be a needless coupling.
 const DefaultServiceBusPort = 10003
 
+// DefaultKeyVaultPort is the default port ARM's Microsoft.KeyVault RP
+// advertises in vaultUri; it must equal services/azurekeyvault.DefaultPort.
+const DefaultKeyVaultPort = 10004
+
 // Settings holds service-level configuration for the ARM emulation backend.
 // Fields are picked up by the Kong CLI parser when embedded in the root CLI
 // command (see cli.go's CLI.AzureARM field), mirroring services/cosmosdb's
@@ -76,9 +80,11 @@ type Settings struct {
 	TLSCertFile           string `json:"tlsCertFile"           env:"AZURE_ARM_TLS_CERT"                                                                     name:"tls-cert"                help:"Path to a PEM certificate for the ARM HTTPS listener. Empty (default): generate a self-signed certificate on every start. Requires --azure-arm-tls-key."`                                               //nolint:lll // config struct tags are intentionally verbose
 	TLSKeyFile            string `json:"tlsKeyFile"            env:"AZURE_ARM_TLS_KEY"                                                                      name:"tls-key"                 help:"Path to the PEM key matching --azure-arm-tls-cert. Required when --azure-arm-tls-cert is set."`                                                                                                         //nolint:lll // config struct tags are intentionally verbose
 	AdvertiseServiceBus   string `json:"advertiseServiceBus"   env:"AZURE_ARM_ADVERTISE_SERVICEBUS_ENDPOINT"                                                name:"advertise-servicebus"    help:"Override the host:port advertised as serviceBusEndpoint. Default: derived from the request's Host and --azure-arm-servicebus-port."`                                                                    //nolint:lll // config struct tags are intentionally verbose
+	AdvertiseKeyVault     string `json:"advertiseKeyVault"     env:"AZURE_ARM_ADVERTISE_KEYVAULT_ENDPOINT"                                                  name:"advertise-keyvault"      help:"Override the host:port advertised in vaultUri (after the {vault}. prefix). Default: derived from the request's Host and --azure-arm-keyvault-port."`                                                    //nolint:lll // config struct tags are intentionally verbose
 	Port                  int    `json:"port"                  env:"AZURE_ARM_PORT"                          default:"10006"                                name:"port"                    help:"Fixed TCP port for the dedicated ARM listener; startup fails if it's unavailable (no fallback pool)."`                                                                                                  //nolint:lll // config struct tags are intentionally verbose
 	StorageVHostPort      int    `json:"storageVhostPort"      env:"AZURE_ARM_STORAGE_VHOST_PORT"            default:"10010"                                name:"storage-vhost-port"      help:"The shared services/azurestoragevhost listener's port, used to build primaryEndpoints when --azure-arm-advertise-storage-vhost isn't set. Must match --azure-storage-vhost-port."`                      //nolint:lll // config struct tags are intentionally verbose
 	ServiceBusPort        int    `json:"serviceBusPort"        env:"AZURE_ARM_SERVICEBUS_PORT"               default:"10003"                                name:"servicebus-port"         help:"The services/azureservicebus listener's port, used to build serviceBusEndpoint when --azure-arm-advertise-servicebus isn't set. Must match --azure-servicebus-port."`                                   //nolint:lll // config struct tags are intentionally verbose
+	KeyVaultPort          int    `json:"keyVaultPort"          env:"AZURE_ARM_KEYVAULT_PORT"                 default:"10004"                                name:"keyvault-port"           help:"The services/azurekeyvault listener's port, used to build vaultUri when --azure-arm-advertise-keyvault isn't set. Must match --azure-keyvault-port."`                                                   //nolint:lll // config struct tags are intentionally verbose
 	ValidateTokens        bool   `json:"validateTokens"        env:"AZURE_ARM_VALIDATE_TOKENS"               default:"false"                                name:"validate-tokens"         help:"Cryptographically validate ARM bearer tokens (opt-in); by default any token, or none, is accepted."`                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 }
 
@@ -95,6 +101,7 @@ func DefaultSettings() Settings {
 		Port:             DefaultPort,
 		StorageVHostPort: DefaultStorageVHostPort,
 		ServiceBusPort:   DefaultServiceBusPort,
+		KeyVaultPort:     DefaultKeyVaultPort,
 		ValidateTokens:   false,
 	}
 }

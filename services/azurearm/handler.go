@@ -606,6 +606,14 @@ func errorDetails(err error) errorEntry {
 				http.StatusConflict,
 			},
 		},
+		{
+			ErrKeyVaultNotFound,
+			errorEntry{armErrorCodeResourceNotFound, "The key vault was not found.", http.StatusNotFound},
+		},
+		{
+			errVaultExistsInOtherResourceGroup,
+			errorEntry{"VaultAlreadyExists", "The vault name is already in use.", http.StatusConflict},
+		},
 		{ErrProviderNotFound, errorEntry{"ProviderNotFound", "Resource provider not found.", http.StatusNotFound}},
 		{ErrInvalidResourceID, errorEntry{"InvalidResourceId", "The resource ID is malformed.", http.StatusBadRequest}},
 		{

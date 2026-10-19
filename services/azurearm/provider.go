@@ -61,6 +61,38 @@ type ServiceBusPortProvider interface {
 	GetAzureServiceBusPort() int
 }
 
+// ErrKeyVaultPortMismatch is returned when Settings.KeyVaultPort (what ARM
+// advertises in vaultUri) disagrees with the Key Vault listener's own port.
+var ErrKeyVaultPortMismatch = errors.New(
+	"azurearm: --azure-arm-keyvault-port must match --azure-keyvault-port",
+)
+
+// KeyVaultPortProvider is a private interface AppContext.Config may implement
+// to expose the Key Vault listener's configured port.
+type KeyVaultPortProvider interface {
+	GetAzureKeyVaultPort() int
+}
+
+// checkKeyVaultPort fails fast when the advertised Key Vault port would diverge
+// from the Key Vault listener's own.
+func checkKeyVaultPort(cfg any, settings Settings) error {
+	if settings.AdvertiseKeyVault != "" {
+		return nil
+	}
+
+	kp, ok := cfg.(KeyVaultPortProvider)
+	if !ok {
+		return nil
+	}
+
+	if actual := kp.GetAzureKeyVaultPort(); actual != 0 && actual != settings.KeyVaultPort {
+		return fmt.Errorf("%w: azure-arm-keyvault-port=%d, azure-keyvault-port=%d",
+			ErrKeyVaultPortMismatch, settings.KeyVaultPort, actual)
+	}
+
+	return nil
+}
+
 // Provider implements service.Provider for the ARM emulation.
 //
 // Like services/azureblob/azurequeue/azuretable/cosmosdb/azureservicebus,
@@ -114,6 +146,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		}
 	}
 
+	if err := checkKeyVaultPort(ctx.Config, settings); err != nil {
+		return nil, err
+	}
+
 	backend := NewInMemoryBackend()
 	registry := NewRegistry(backend)
 
@@ -128,6 +164,11 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		Port:     settings.ServiceBusPort,
 	}
 	registry.Register(NewServiceBusProvider(sbCfg, nil))
+
+	registry.Register(NewKeyVaultProvider(KeyVaultEndpointConfig{
+		Override: settings.AdvertiseKeyVault,
+		Port:     settings.KeyVaultPort,
+	}, nil))
 
 	issuer, err := aadauth.NewIssuer()
 	if err != nil {

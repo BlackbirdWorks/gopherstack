@@ -19,6 +19,7 @@ type categoryGroup struct {
 // repeated-literal check.
 const (
 	slugAzureBlob       = "azureblob"
+	slugAzureKeyVault   = "azurekeyvault"
 	slugAzureQueue      = "azurequeue"
 	slugAzureTable      = "azuretable"
 	slugAzureServiceBus = "azureservicebus"
@@ -106,7 +107,7 @@ func categoryGroups() []categoryGroup {
 			"datasync", "dms", "transfer",
 		}},
 		{"Azure", []string{
-			slugAzureBlob, slugAzureQueue, slugAzureTable, slugAzureServiceBus, slugCosmosDB,
+			slugAzureBlob, slugAzureKeyVault, slugAzureQueue, slugAzureTable, slugAzureServiceBus, slugCosmosDB,
 		}},
 		{"GCP", []string{
 			slugGCPStorage, slugGCPPubSub, slugGCPSecretMgr, slugGCPKMS, slugGCPFirestore,
@@ -178,6 +179,7 @@ func displayNamesA() map[string]string {
 		"autoscaling":             "Auto Scaling",
 		"awsconfig":               "Config",
 		slugAzureBlob:             "Azure Blob Storage",
+		slugAzureKeyVault:         "Azure Key Vault",
 		slugAzureQueue:            "Azure Queue Storage",
 		slugAzureTable:            "Azure Table Storage",
 		slugAzureServiceBus:       "Azure Service Bus",
