@@ -14,14 +14,15 @@ import (
 )
 
 const (
-	pemContentType   = "application/x-pem-file"
-	issuerSelf       = "Self"
-	defaultValidity  = 12
-	certSerialBits   = 127
-	statusCompleted  = "completed"
-	maxValidityMonth = 1200
-	radixDecimal     = 10
-	minOIDArcs       = 2
+	pemContentType    = "application/x-pem-file"
+	pkcs12ContentType = "application/x-pkcs12"
+	issuerSelf        = "Self"
+	defaultValidity   = 12
+	certSerialBits    = 127
+	statusCompleted   = "completed"
+	maxValidityMonth  = 1200
+	radixDecimal      = 10
+	minOIDArcs        = 2
 )
 
 // KeyProps are the certificate policy key properties.
