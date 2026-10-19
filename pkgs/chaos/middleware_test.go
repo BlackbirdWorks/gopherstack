@@ -318,20 +318,40 @@ func TestMiddleware_ScopeParsing(t *testing.T) {
 		region    string
 		wantFault bool
 	}{
-		{"service match", buildSigV4Auth("s3", "us-east-1"), "", chaos.FaultRule{Service: "s3"}, true},
-		{"service case folded", buildSigV4Auth("S3", "us-east-1"), "", chaos.FaultRule{Service: "s3"}, true},
-		{"region match", buildSigV4Auth("s3", "eu-west-1"), "", chaos.FaultRule{Region: "eu-west-1"}, true},
 		{
-			"extra scope parts", "AWS4-HMAC-SHA256 Credential=AK/20231225/eu-west-1/s3/aws4_request/x, Signature=s",
-			"", chaos.FaultRule{Service: "s3", Region: "eu-west-1"}, true,
+			name: "service match", auth: buildSigV4Auth("s3", "us-east-1"),
+			rule: chaos.FaultRule{Service: "s3"}, wantFault: true,
 		},
 		{
-			"short scope uses x-amz-region", "AWS4-HMAC-SHA256 Credential=AK/20231225/eu-west-1/s3, Signature=s",
-			"ap-south-1", chaos.FaultRule{Region: "ap-south-1"}, true,
+			name: "service case folded", auth: buildSigV4Auth("S3", "us-east-1"),
+			rule: chaos.FaultRule{Service: "s3"}, wantFault: true,
 		},
-		{"short scope has no service", "AWS4-HMAC-SHA256 Credential=AK/20231225/eu-west-1/s3, Signature=s",
-			"", chaos.FaultRule{Service: "s3"}, false},
-		{"no auth region header", "", "ap-south-1", chaos.FaultRule{Region: "ap-south-1"}, true},
+		{
+			name: "region match", auth: buildSigV4Auth("s3", "eu-west-1"),
+			rule: chaos.FaultRule{Region: "eu-west-1"}, wantFault: true,
+		},
+		{
+			name:      "extra scope parts",
+			auth:      "AWS4-HMAC-SHA256 Credential=AK/20231225/eu-west-1/s3/aws4_request/x, Signature=s",
+			rule:      chaos.FaultRule{Service: "s3", Region: "eu-west-1"},
+			wantFault: true,
+		},
+		{
+			name:      "short scope uses x-amz-region",
+			auth:      "AWS4-HMAC-SHA256 Credential=AK/20231225/eu-west-1/s3, Signature=s",
+			region:    "ap-south-1",
+			rule:      chaos.FaultRule{Region: "ap-south-1"},
+			wantFault: true,
+		},
+		{
+			name: "short scope has no service",
+			auth: "AWS4-HMAC-SHA256 Credential=AK/20231225/eu-west-1/s3, Signature=s",
+			rule: chaos.FaultRule{Service: "s3"},
+		},
+		{
+			name: "no auth region header", region: "ap-south-1",
+			rule: chaos.FaultRule{Region: "ap-south-1"}, wantFault: true,
+		},
 	}
 
 	for _, tt := range tests {

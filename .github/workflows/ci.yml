@@ -83,12 +83,12 @@ jobs:
             merge_base=$(git merge-base HEAD origin/main)
             if git diff --name-only "$merge_base" HEAD -- .golangci.yml go.mod | grep -q .; then
               echo "lint: .golangci.yml or go.mod changed vs origin/main — running full-repo lint"
-              golangci-lint run --timeout 20m ./...
+              golangci-lint run --timeout 30m ./...
             else
               bash scripts/lint-changed.sh
             fi
           else
-            golangci-lint run --timeout 20m ./...
+            golangci-lint run --timeout 30m ./...
           fi
 
   # Fails fast on tag-gated compile breaks (e2e, integration) before the slow

@@ -16,7 +16,7 @@ run:
   # Cap concurrency to avoid memory/GC thrashing when loading SSA across
   # 200+ packages and large AWS SDK v2 dependency graphs.
   concurrency: 8
-  timeout: 20m
+  timeout: 30m
 
 issues:
   # Maximum count of issues with the same text.
