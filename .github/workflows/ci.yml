@@ -67,6 +67,15 @@ jobs:
           check-latest: true
           cache: true
 
+      # Full-repo lint (go.mod changed) exceeds runner RAM; the runner is killed without swap.
+      - name: Add swap
+        run: |
+          sudo swapoff -a || true
+          sudo fallocate -l 16G /mnt/lint.swap
+          sudo chmod 600 /mnt/lint.swap
+          sudo mkswap /mnt/lint.swap
+          sudo swapon /mnt/lint.swap
+
       - name: Read golangci-lint version
         id: golangci-lint-version
         run: |
