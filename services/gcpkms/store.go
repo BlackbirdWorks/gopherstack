@@ -30,6 +30,7 @@ type versionRec struct {
 	pb       *kmspb.CryptoKeyVersion
 	material []byte
 	id       int64
+	deleted  bool
 }
 
 type keyRec struct {
@@ -50,6 +51,7 @@ type InMemoryBackend struct {
 	rings    map[string]*kmspb.KeyRing
 	keys     map[string]*keyRec
 	jobs     map[string]*jobRec
+	retired  map[string]*kmspb.RetiredResource
 	policies map[string]*iampb.Policy
 	etagSeq  uint64
 }
@@ -66,6 +68,7 @@ func (b *InMemoryBackend) resetMaps() {
 	b.rings = make(map[string]*kmspb.KeyRing)
 	b.keys = make(map[string]*keyRec)
 	b.jobs = make(map[string]*jobRec)
+	b.retired = make(map[string]*kmspb.RetiredResource)
 	b.policies = make(map[string]*iampb.Policy)
 }
 
@@ -201,7 +204,7 @@ func (b *InMemoryBackend) appendVersionLocked(
 }
 
 func (k *keyRec) version(id int64) *versionRec {
-	if id < 1 || id > int64(len(k.versions)) {
+	if id < 1 || id > int64(len(k.versions)) || k.versions[id-1].deleted {
 		return nil
 	}
 
@@ -229,14 +232,6 @@ func pageSizeOf(n int32) (int, error) {
 	}
 
 	return min(int(n), maxPageSize), nil
-}
-
-func rejectListOptions(filter, orderBy string) error {
-	if filter != "" || orderBy != "" {
-		return errUnsupported("filter and order_by are not supported by this emulator.")
-	}
-
-	return nil
 }
 
 // childrenOf returns the names of m's entries directly under parent, sorted.

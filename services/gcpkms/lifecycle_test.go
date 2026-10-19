@@ -65,12 +65,12 @@ func TestKeyRings(t *testing.T) {
 
 			return err
 		}, want: codes.NotFound},
-		{name: "filter unsupported", call: func() error {
-			it := e.client.ListKeyRings(t.Context(), &kmspb.ListKeyRingsRequest{Parent: location, Filter: "name:a"})
+		{name: "filter bad field", call: func() error {
+			it := e.client.ListKeyRings(t.Context(), &kmspb.ListKeyRingsRequest{Parent: location, Filter: "bogus = a"})
 			_, err := it.Next()
 
 			return err
-		}, want: codes.Unimplemented},
+		}, want: codes.InvalidArgument},
 	}
 
 	for _, tt := range tests {
@@ -157,9 +157,9 @@ func TestCreateCryptoKey(t *testing.T) {
 		{&kmspb.CryptoKey{Purpose: sym, VersionTemplate: &kmspb.CryptoKeyVersionTemplate{
 			ProtectionLevel: kmspb.ProtectionLevel_EXTERNAL,
 		}}, "external level", codes.InvalidArgument},
-		{&kmspb.CryptoKey{Purpose: kmspb.CryptoKey_ASYMMETRIC_DECRYPT, VersionTemplate: &kmspb.CryptoKeyVersionTemplate{
-			Algorithm: kmspb.CryptoKeyVersion_RSA_DECRYPT_OAEP_2048_SHA1,
-		}}, "sha1 unsupported", codes.InvalidArgument},
+		{&kmspb.CryptoKey{Purpose: kmspb.CryptoKey_ASYMMETRIC_SIGN, VersionTemplate: &kmspb.CryptoKeyVersionTemplate{
+			Algorithm: kmspb.CryptoKeyVersion_EC_SIGN_SECP256K1_SHA256,
+		}}, "secp256k1 unsupported", codes.InvalidArgument},
 		{&kmspb.CryptoKey{Purpose: sym, Labels: map[string]string{"env": "dev"}}, "labels", codes.OK},
 		{&kmspb.CryptoKey{
 			Purpose: sym, NextRotationTime: future,

@@ -94,10 +94,6 @@ func (b *InMemoryBackend) ListCryptoKeyVersions(
 		return nil, "", 0, err
 	}
 
-	if err := rejectListOptions(req.GetFilter(), req.GetOrderBy()); err != nil {
-		return nil, "", 0, err
-	}
-
 	size, err := pageSizeOf(req.GetPageSize())
 	if err != nil {
 		return nil, "", 0, err
@@ -115,7 +111,16 @@ func (b *InMemoryBackend) ListCryptoKeyVersions(
 
 	all := make([]*kmspb.CryptoKeyVersion, 0, len(k.versions))
 	for _, v := range k.versions {
+		if v.deleted {
+			continue
+		}
+
 		all = append(all, cloneVersion(v.pb))
+	}
+
+	all, err = applyListOptions(all, req.GetFilter(), req.GetOrderBy(), versionSpec())
+	if err != nil {
+		return nil, "", 0, err
 	}
 
 	pg := page.New(all, req.GetPageToken(), size, defaultPageSize)

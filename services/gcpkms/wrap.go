@@ -2,11 +2,11 @@ package gcpkms
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha256"
 	"encoding/binary"
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
@@ -72,33 +72,38 @@ func kwpUnwrapBlocks(block cipher.Block, a *[kwpHalf]byte, c []byte) []byte {
 
 // unwrapImport recovers the target key material from an import job's wrapped key.
 func unwrapImport(method kmspb.ImportJob_ImportMethod, priv *rsa.PrivateKey, wrapped []byte) ([]byte, error) {
-	size := priv.PublicKey.Size()
-
 	switch method {
 	case kmspb.ImportJob_RSA_OAEP_3072_SHA256, kmspb.ImportJob_RSA_OAEP_4096_SHA256:
-		return oaepDecrypt(priv, wrapped)
+		return oaepDecrypt(priv, crypto.SHA256, wrapped)
 	case kmspb.ImportJob_RSA_OAEP_3072_SHA256_AES_256, kmspb.ImportJob_RSA_OAEP_4096_SHA256_AES_256:
-		if len(wrapped) <= size {
-			return nil, errInvalid("The wrapped key is too short.")
-		}
-
-		kek, err := oaepDecrypt(priv, wrapped[:size])
-		if err != nil {
-			return nil, err
-		}
-
-		if len(kek) != aesWrapLen {
-			return nil, errInvalid("The ephemeral AES key must be 256 bits.")
-		}
-
-		return kwpUnwrap(kek, wrapped[size:])
+		return unwrapRSAAES(priv, crypto.SHA256, wrapped)
+	case kmspb.ImportJob_RSA_OAEP_3072_SHA1_AES_256, kmspb.ImportJob_RSA_OAEP_4096_SHA1_AES_256:
+		return unwrapRSAAES(priv, crypto.SHA1, wrapped)
 	default:
 		return nil, errInvalid("Import method %s is not supported by this emulator.", method)
 	}
 }
 
-func oaepDecrypt(priv *rsa.PrivateKey, ct []byte) ([]byte, error) {
-	pt, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, priv, ct, nil)
+func unwrapRSAAES(priv *rsa.PrivateKey, h crypto.Hash, wrapped []byte) ([]byte, error) {
+	size := priv.PublicKey.Size()
+	if len(wrapped) <= size {
+		return nil, errInvalid("The wrapped key is too short.")
+	}
+
+	kek, err := oaepDecrypt(priv, h, wrapped[:size])
+	if err != nil {
+		return nil, err
+	}
+
+	if len(kek) != aesWrapLen {
+		return nil, errInvalid("The ephemeral AES key must be 256 bits.")
+	}
+
+	return kwpUnwrap(kek, wrapped[size:])
+}
+
+func oaepDecrypt(priv *rsa.PrivateKey, h crypto.Hash, ct []byte) ([]byte, error) {
+	pt, err := rsa.DecryptOAEP(h.New(), rand.Reader, priv, ct, nil)
 	if err != nil {
 		return nil, errInvalid("The wrapped key could not be decrypted with the import job's key.")
 	}

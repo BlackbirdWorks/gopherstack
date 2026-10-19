@@ -35,6 +35,10 @@ func allowedWeakHashFiles() map[string]string {
 		"services/neptune/engine_probe.go": "RFC 6455 WebSocket Sec-WebSocket-Accept mandates SHA-1, verified",
 		"services/ssm/document_hashes.go":  "DocumentDescription.Sha1 parity, verified",
 
+		// Cloud KMS defines HMAC_SHA1, RSA_DECRYPT_OAEP_*_SHA1 and RSA_OAEP_*_SHA1_AES_256 import
+		// (kmspb CryptoKeyVersionAlgorithm / ImportJob_ImportMethod); needs the sha1 registration.
+		"services/gcpkms/algs.go": "Cloud KMS HMAC_SHA1 and OAEP SHA1 algorithm parity, verified",
+
 		// Verified 2026-09-19: ChecksumAlgorithm SHA1 is one of the four
 		// algorithms the S3 SDK computes over the request body
 		// (service/internal/checksum@v1.11.2 algorithms.go), sent as

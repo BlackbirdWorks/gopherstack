@@ -288,8 +288,8 @@ func TestImportJobs(t *testing.T) {
 			codes.AlreadyExists,
 		},
 		{func() error {
-			return create("b", kmspb.ImportJob_RSA_OAEP_3072_SHA1_AES_256, kmspb.ProtectionLevel_HSM)
-		}, "sha1 method", codes.InvalidArgument},
+			return create("b", kmspb.ImportJob_IMPORT_METHOD_UNSPECIFIED, kmspb.ProtectionLevel_HSM)
+		}, "unspecified method", codes.InvalidArgument},
 		{
 			func() error { return create("c", kmspb.ImportJob_RSA_OAEP_3072_SHA256, kmspb.ProtectionLevel_EXTERNAL) },
 			"bad level",

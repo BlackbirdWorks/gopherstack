@@ -14484,12 +14484,14 @@
       "backendSnapshot.Jobs map[string]jobSnap `json:\"jobs\"`",
       "backendSnapshot.Keys map[string]keySnap `json:\"keys\"`",
       "backendSnapshot.Policies map[string]json.RawMessage `json:\"policies\"`",
+      "backendSnapshot.Retired map[string]json.RawMessage `json:\"retired,omitempty\"`",
       "backendSnapshot.Rings map[string]json.RawMessage `json:\"rings\"`",
       "jobSnap.Job json.RawMessage `json:\"job\"`",
       "jobSnap.Private []byte `json:\"private,omitempty\"`",
       "keySnap.Key json.RawMessage `json:\"key\"`",
       "keySnap.Primary int64 `json:\"primary\"`",
       "keySnap.Versions []versionSnap `json:\"versions,omitempty\"`",
+      "versionSnap.Deleted bool `json:\"deleted,omitempty\"`",
       "versionSnap.Material []byte `json:\"material,omitempty\"`"
     ],
     "version": 1

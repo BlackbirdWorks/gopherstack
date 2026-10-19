@@ -73,6 +73,10 @@ func signAsymmetric(s algSpec, material []byte, req *kmspb.AsymmetricSignRequest
 		return ed25519.Sign(key, req.GetData()), nil
 	}
 
+	if s.mode == modeRawPKCS1 {
+		return signRawPKCS1(s, material, req)
+	}
+
 	digest, err := signingDigest(s, req)
 	if err != nil {
 		return nil, err
@@ -128,4 +132,37 @@ func decryptAsymmetric(s algSpec, material, ciphertext []byte) ([]byte, error) {
 	}
 
 	return pt, nil
+}
+
+// signRawPKCS1 signs data as an already-encoded PKCS#1 v1.5 message (no hashing, no DigestInfo).
+func signRawPKCS1(s algSpec, material []byte, req *kmspb.AsymmetricSignRequest) ([]byte, error) {
+	if req.GetDigest() != nil || len(req.GetData()) == 0 {
+		return nil, errInvalid("RSA_SIGN_RAW_PKCS1 signs the data field; digest is not accepted.")
+	}
+
+	const (
+		pkcs1Overhead = 11
+		bitsPerByte   = 8
+	)
+
+	if limit := s.size/bitsPerByte - pkcs1Overhead; len(req.GetData()) > limit {
+		return nil, errInvalid("data must be at most %d bytes for this key size.", limit)
+	}
+
+	priv, err := parsePrivate(material)
+	if err != nil {
+		return nil, err
+	}
+
+	key, ok := priv.(*rsa.PrivateKey)
+	if !ok {
+		return nil, errInvalid("Key material is not an RSA key.")
+	}
+
+	sig, err := rsa.SignPKCS1v15(nil, key, 0, req.GetData())
+	if err != nil {
+		return nil, fmt.Errorf("gcpkms: sign: %w", err)
+	}
+
+	return sig, nil
 }

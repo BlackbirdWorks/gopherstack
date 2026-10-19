@@ -6,6 +6,7 @@ import (
 
 	"cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/kms/apiv1/kmspb"
+	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 )
 
 type server struct {
@@ -105,6 +106,37 @@ func (s *server) RestoreCryptoKeyVersion(
 	_ context.Context, in *kmspb.RestoreCryptoKeyVersionRequest,
 ) (*kmspb.CryptoKeyVersion, error) {
 	return s.b.RestoreCryptoKeyVersion(in)
+}
+
+func (s *server) DeleteCryptoKey(
+	_ context.Context, in *kmspb.DeleteCryptoKeyRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.DeleteCryptoKey(in)
+}
+
+func (s *server) DeleteCryptoKeyVersion(
+	_ context.Context, in *kmspb.DeleteCryptoKeyVersionRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.DeleteCryptoKeyVersion(in)
+}
+
+func (s *server) GetRetiredResource(
+	_ context.Context, in *kmspb.GetRetiredResourceRequest,
+) (*kmspb.RetiredResource, error) {
+	return s.b.GetRetiredResource(in.GetName())
+}
+
+func (s *server) ListRetiredResources(
+	_ context.Context, in *kmspb.ListRetiredResourcesRequest,
+) (*kmspb.ListRetiredResourcesResponse, error) {
+	items, next, total, err := s.b.ListRetiredResources(in)
+	if err != nil {
+		return nil, err
+	}
+
+	return &kmspb.ListRetiredResourcesResponse{
+		RetiredResources: items, NextPageToken: next, TotalSize: int64(total),
+	}, nil
 }
 
 func (s *server) CreateImportJob(_ context.Context, in *kmspb.CreateImportJobRequest) (*kmspb.ImportJob, error) {
