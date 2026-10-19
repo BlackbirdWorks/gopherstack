@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/alecthomas/kong"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
 )
 
 func TestTransparentFlagDefaults(t *testing.T) {
@@ -103,6 +105,53 @@ func TestSetupTransparentServesCA(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 			assert.Contains(t, string(body), "BEGIN CERTIFICATE")
+		})
+	}
+}
+
+func TestContainerCAFile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		containered bool
+		useHost     bool
+		wantSkip    bool
+	}{
+		{name: "host temp", containered: false},
+		{name: "containerised skips", containered: true, wantSkip: true},
+		{name: "containerised with host path", containered: true, useHost: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ca, err := devtls.NewCA()
+			require.NoError(t, err)
+
+			hostPath := ""
+			if tt.useHost {
+				hostPath = filepath.Join(t.TempDir(), "ca.pem")
+			}
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			got, err := containerCAFile(ctx, hostPath, tt.containered, ca)
+			require.NoError(t, err)
+
+			if tt.wantSkip {
+				assert.Empty(t, got)
+
+				return
+			}
+
+			assert.FileExists(t, got)
+
+			if tt.useHost {
+				assert.Equal(t, hostPath, got)
+			}
 		})
 	}
 }

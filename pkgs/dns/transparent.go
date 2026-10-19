@@ -48,12 +48,38 @@ func newTransparent(cfg TransparentConfig, self string) *transparent {
 	t := &transparent{suffixes: normZones(cfg.Suffixes), skip: normZones(cfg.Skip)}
 
 	for _, u := range ups {
-		if u != self {
+		if !isSelfAddr(u, self) {
 			t.upstreams = append(t.upstreams, u)
 		}
 	}
 
 	return t
+}
+
+// isSelfAddr reports whether upstream would loop back to the server listening on self.
+func isSelfAddr(upstream, self string) bool {
+	if upstream == self {
+		return true
+	}
+
+	uh, up, err := net.SplitHostPort(upstream)
+	if err != nil {
+		return false
+	}
+
+	sh, sp, err := net.SplitHostPort(self)
+	if err != nil || up != sp {
+		return false
+	}
+
+	if uh == sh {
+		return true
+	}
+
+	uip, sip := net.ParseIP(uh), net.ParseIP(sh)
+	selfLocal := sh == "" || (sip != nil && (sip.IsUnspecified() || sip.IsLoopback()))
+
+	return selfLocal && uip != nil && (uip.IsLoopback() || uip.IsUnspecified())
 }
 
 func normZones(in []string) []string {

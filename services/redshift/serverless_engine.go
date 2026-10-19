@@ -107,6 +107,10 @@ func (h *ServerlessHandler) WorkgroupEngineLogin(region, name string) (EngineLog
 
 func (b *InMemoryBackend) relaunchWorkgroupsLocked() {
 	for _, wg := range b.slWorkgroups.All() {
+		if wg.Status == slStatusDeleting {
+			continue
+		}
+
 		b.provisionWorkgroupLocked(wg)
 	}
 }

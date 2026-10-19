@@ -229,9 +229,11 @@ type sftpWriter struct {
 	buf    []byte
 }
 
+const sftpMaxObjectSize = 5 << 30
+
 // WriteAt buffers the write; the object is stored when the handle closes.
 func (w *sftpWriter) WriteAt(p []byte, off int64) (int, error) {
-	if off < 0 {
+	if off < 0 || off > sftpMaxObjectSize-int64(len(p)) {
 		return 0, os.ErrInvalid
 	}
 

@@ -37,6 +37,10 @@ func unzipPlugin(data []byte, dst string) error {
 }
 
 func extractZipEntry(f *zip.File, dst string, budget int64) (int64, error) {
+	if strings.Contains(f.Name, "..") {
+		return 0, fmt.Errorf("%w: %s", errZipEscape, f.Name)
+	}
+
 	root := filepath.Clean(dst)
 	target := filepath.Join(root, filepath.FromSlash(f.Name))
 
@@ -68,12 +72,19 @@ func extractZipEntry(f *zip.File, dst string, budget int64) (int64, error) {
 		return 0, fmt.Errorf("plugin file: %w", err)
 	}
 
-	defer out.Close()
-
-	n, err := io.Copy(out, io.LimitReader(rc, budget))
+	n, err := copyAndClose(out, io.LimitReader(rc, budget))
 	if err != nil {
 		return n, fmt.Errorf("extract plugin file: %w", err)
 	}
 
 	return n, nil
+}
+
+func copyAndClose(out *os.File, src io.Reader) (int64, error) {
+	n, err := io.Copy(out, src)
+	if cerr := out.Close(); err == nil && cerr != nil {
+		err = cerr
+	}
+
+	return n, err
 }

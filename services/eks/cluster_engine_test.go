@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 )
 
@@ -509,4 +510,33 @@ func TestEnableClusters_RejectsUnsafeConfig(t *testing.T) {
 			require.ErrorIs(t, err, eks.ErrInvalidClusterEngineConfig)
 		})
 	}
+}
+
+func TestDockerCluster_ReleasesProxyPortWhenActivationLosesRace(t *testing.T) {
+	t.Parallel()
+
+	const lo, hi = 24100, 24103
+
+	ports, err := portalloc.New(lo, hi)
+	require.NoError(t, err)
+
+	rt := &fakeClusterRuntime{}
+
+	var b *eks.InMemoryBackend
+
+	probe := func(context.Context, string, string) ([]byte, error) {
+		_, _ = b.DeleteCluster("c1")
+
+		return []byte(testCA), nil
+	}
+
+	b = dockerClusterBackend(t, rt, eks.ClusterEngineConfig{Probe: probe, Ports: ports})
+
+	total := ports.Available()
+
+	_, err = b.CreateCluster("c1", "1.32", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return ports.Available() == total && len(rt.removedIDs()) >= 1 },
+		30*time.Second, 10*time.Millisecond)
 }

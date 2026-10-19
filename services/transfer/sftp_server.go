@@ -237,6 +237,14 @@ func sessionFor(home, homeType string, mappings []HomeDirectoryMapEntry) *sftpSe
 	return &sftpSession{Home: home}
 }
 
+func remoteIP(a net.Addr) string {
+	if host, _, err := net.SplitHostPort(a.String()); err == nil {
+		return host
+	}
+
+	return a.String()
+}
+
 type lambdaAuthResponse struct {
 	Role                 string   `json:"Role"`
 	HomeDirectory        string   `json:"HomeDirectory"`
@@ -259,7 +267,7 @@ func (s *sftpServer) lambdaLogin(
 
 	event := map[string]string{
 		"username": c.User(), "protocol": protocolSFTP,
-		"serverId": s.serverID, "sourceIp": c.RemoteAddr().String(),
+		"serverId": s.serverID, "sourceIp": remoteIP(c.RemoteAddr()),
 	}
 	if password != "" {
 		event["password"] = password

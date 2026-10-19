@@ -1,6 +1,8 @@
 package redshift_test
 
 import (
+	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -129,4 +131,92 @@ func TestWorkgroupEngine_Lifecycle(t *testing.T) {
 			tt.run(t, b, rt, probe)
 		})
 	}
+}
+
+func TestWorkgroupEngine_NamespacePasswordUpdate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setErr       error
+		name         string
+		wantPassword string
+		wantErr      bool
+	}{
+		{name: "applied", wantPassword: "N3wPassword"},
+		{name: "failure", setErr: errRuntimeDown, wantErr: true, wantPassword: "Passw0rdXyz"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var mu sync.Mutex
+
+			var got redshift.PasswordChange
+
+			rt := &fakeEngineRuntime{}
+			b := engineBackend(t, rt, redshift.EngineConfig{
+				Probe: readyProbe,
+				SetPassword: func(_ context.Context, c redshift.PasswordChange) error {
+					mu.Lock()
+					defer mu.Unlock()
+
+					got = c
+
+					return tt.setErr
+				},
+			})
+
+			_, err := b.CreateNamespace(redshift.CreateNamespaceParams{
+				NamespaceName: "ns-eng", AdminUsername: "root", AdminUserPassword: "Passw0rdXyz", DBName: "sales",
+			})
+			require.NoError(t, err)
+
+			_, err = b.CreateWorkgroup("wg-eng", "ns-eng", redshift.WorkgroupParams{}, nil)
+			require.NoError(t, err)
+			require.Eventually(t, func() bool { return workgroupStatus(b, "wg-eng") == "AVAILABLE" },
+				10*time.Second, 5*time.Millisecond)
+
+			_, err = b.UpdateNamespace("ns-eng", redshift.UpdateNamespaceParams{AdminUserPassword: "N3wPassword"})
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			mu.Lock()
+			assert.Equal(t, "N3wPassword", got.NewPassword)
+			mu.Unlock()
+
+			login, ok := b.WorkgroupEngineLogin("wg-eng")
+			require.True(t, ok)
+			assert.Equal(t, tt.wantPassword, login.Password)
+		})
+	}
+}
+
+func TestWorkgroupEngine_RelaunchSkipsDeleting(t *testing.T) {
+	t.Parallel()
+
+	rt := &fakeEngineRuntime{}
+	b := engineBackend(t, rt, redshift.EngineConfig{Probe: readyProbe})
+	_, err := b.CreateNamespace(redshift.CreateNamespaceParams{NamespaceName: "ns-eng", AdminUsername: "root"})
+	require.NoError(t, err)
+
+	_, err = b.CreateWorkgroup("wg-eng", "ns-eng", redshift.WorkgroupParams{}, nil)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return workgroupStatus(b, "wg-eng") == "AVAILABLE" },
+		10*time.Second, 5*time.Millisecond)
+
+	b.SetServerlessLifecycleDelay(time.Hour)
+
+	_, err = b.DeleteWorkgroup("wg-eng")
+	require.NoError(t, err)
+	require.Equal(t, "DELETING", workgroupStatus(b, "wg-eng"))
+
+	before := len(rt.createdSpecs())
+	require.NoError(t, b.Restore(t.Context(), b.Snapshot(t.Context())))
+
+	assert.Equal(t, "DELETING", workgroupStatus(b, "wg-eng"))
+	assert.Len(t, rt.createdSpecs(), before)
 }

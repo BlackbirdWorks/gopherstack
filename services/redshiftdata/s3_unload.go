@@ -65,7 +65,11 @@ func (r *s3Runner) unload(ctx context.Context, q querier, s *unloadSpec) error {
 		return nil
 	}
 
-	return r.store.PutObject(ctx, s.bucket, s.prefix+"manifest", unloadManifest(s, rs, files))
+	if err = r.store.PutObject(ctx, s.bucket, s.prefix+"manifest", unloadManifest(s, rs, files)); err != nil {
+		return stmtErrorf("S3ServiceException:%v,Status 403,Error AccessDenied,Rid 0,CanRetry 1", err)
+	}
+
+	return nil
 }
 
 func runUnloadQuery(ctx context.Context, q querier, query string) (*ResultSet, error) {

@@ -21,12 +21,13 @@ const defaultTransparentDNSAddr = ":53"
 // TransparentSettings configures transparent endpoint injection: unmodified SDKs
 // targeting real *.amazonaws.com names reach gopherstack via the embedded DNS and an HTTPS listener.
 type TransparentSettings struct {
-	HTTPSAddr    string   `name:"https-addr"    env:"TRANSPARENT_HTTPS_ADDR"    default:":443" help:"HTTPS listen addr."`                                //nolint:lll // config struct tags are intentionally verbose
-	ContainerDNS string   `name:"container-dns" env:"TRANSPARENT_CONTAINER_DNS"                help:"DNS IP for spawned containers."`                    //nolint:lll // config struct tags are intentionally verbose
-	CADir        string   `name:"ca-dir"        env:"TRANSPARENT_CA_DIR"                       help:"Directory persisting the CA (default: ephemeral)."` //nolint:lll // config struct tags are intentionally verbose
-	DNSSkip      []string `name:"dns-skip"      env:"TRANSPARENT_DNS_SKIP"                     help:"Names/zones that keep resolving upstream."`         //nolint:lll // config struct tags are intentionally verbose
-	DNSUpstream  []string `name:"dns-upstream"  env:"TRANSPARENT_DNS_UPSTREAM"                 help:"Upstream resolvers host:port."`                     //nolint:lll // config struct tags are intentionally verbose
-	Enabled      bool     `name:"dns"           env:"TRANSPARENT_DNS"                          help:"Resolve AWS endpoint names here and serve HTTPS."`  //nolint:lll // config struct tags are intentionally verbose
+	HTTPSAddr    string   `name:"https-addr"        env:"TRANSPARENT_HTTPS_ADDR"        default:":443" help:"HTTPS listen addr."`                                                                   //nolint:lll // config struct tags are intentionally verbose
+	ContainerDNS string   `name:"container-dns"     env:"TRANSPARENT_CONTAINER_DNS"                    help:"DNS IP for spawned containers."`                                                       //nolint:lll // config struct tags are intentionally verbose
+	CADir        string   `name:"ca-dir"            env:"TRANSPARENT_CA_DIR"                           help:"Directory persisting the CA (default: ephemeral)."`                                    //nolint:lll // config struct tags are intentionally verbose
+	CAHostPath   string   `name:"container-ca-path" env:"TRANSPARENT_CONTAINER_CA_PATH"                help:"CA PEM path visible to the Docker daemon (required when gopherstack runs in Docker)."` //nolint:lll // config struct tags are intentionally verbose
+	DNSSkip      []string `name:"dns-skip"          env:"TRANSPARENT_DNS_SKIP"                         help:"Names/zones that keep resolving upstream."`                                            //nolint:lll // config struct tags are intentionally verbose
+	DNSUpstream  []string `name:"dns-upstream"      env:"TRANSPARENT_DNS_UPSTREAM"                     help:"Upstream resolvers host:port."`                                                        //nolint:lll // config struct tags are intentionally verbose
+	Enabled      bool     `name:"dns"               env:"TRANSPARENT_DNS"                              help:"Resolve AWS endpoint names here and serve HTTPS."`                                     //nolint:lll // config struct tags are intentionally verbose
 }
 
 // transparentRuntime holds the CA used by the HTTPS listener and container injection.
@@ -73,7 +74,7 @@ func setupTransparent(
 		return nil, nil, fmt.Errorf("transparent dns start: %w", startErr)
 	}
 
-	if injErr := injectContainers(ctx, st.ContainerDNS, resolveIP, ca); injErr != nil {
+	if injErr := injectContainers(ctx, st.ContainerDNS, st.CAHostPath, resolveIP, ca); injErr != nil {
 		return nil, nil, injErr
 	}
 
@@ -108,7 +109,7 @@ func loadTransparentCA(dir string) (*devtls.CA, error) {
 
 // injectContainers exports the env read by container.NewRuntime so every spawned
 // engine container (Lambda, CodeBuild, ECS, ...) resolves via the embedded DNS and trusts the CA.
-func injectContainers(ctx context.Context, containerDNS, resolveIP string, ca *devtls.CA) error {
+func injectContainers(ctx context.Context, containerDNS, caHostPath, resolveIP string, ca *devtls.CA) error {
 	dnsIP := containerDNS
 	if dnsIP == "" {
 		if ip := net.ParseIP(resolveIP); ip != nil && !ip.IsLoopback() {
@@ -121,19 +122,9 @@ func injectContainers(ctx context.Context, containerDNS, resolveIP string, ca *d
 			"transparent: containers keep default DNS; set --transparent-container-dns to a host IP reachable from containers")
 	}
 
-	dir, err := os.MkdirTemp("", "gopherstack-ca-")
+	caFile, err := containerCAFile(ctx, caHostPath, inDocker(), ca)
 	if err != nil {
-		return fmt.Errorf("transparent ca dir: %w", err)
-	}
-
-	go func() {
-		<-ctx.Done()
-		_ = os.RemoveAll(dir)
-	}()
-
-	caFile := filepath.Join(dir, "ca.pem")
-	if wErr := os.WriteFile(caFile, ca.CertPEM(), 0o644); wErr != nil { //nolint:gosec // public cert, world-readable
-		return fmt.Errorf("transparent ca file: %w", wErr)
+		return err
 	}
 
 	if dnsIP != "" {
@@ -142,11 +133,54 @@ func injectContainers(ctx context.Context, containerDNS, resolveIP string, ca *d
 		}
 	}
 
+	if caFile == "" {
+		return nil
+	}
+
 	if sErr := os.Setenv(container.EnvInjectCAFile, caFile); sErr != nil {
 		return fmt.Errorf("transparent: %w", sErr)
 	}
 
 	return nil
+}
+
+func inDocker() bool {
+	_, err := os.Stat("/.dockerenv")
+
+	return err == nil
+}
+
+// containerCAFile returns the CA path to bind into containers, or "" to skip injection.
+// A containerised gopherstack's private temp dir does not exist on the Docker daemon host.
+func containerCAFile(ctx context.Context, hostPath string, containerised bool, ca *devtls.CA) (string, error) {
+	if hostPath == "" && containerised {
+		logger.Load(ctx).WarnContext(ctx,
+			"transparent: skipping container CA injection; set --transparent-container-ca-path to a Docker-shared path")
+
+		return "", nil
+	}
+
+	caFile := hostPath
+
+	if caFile == "" {
+		dir, err := os.MkdirTemp("", "gopherstack-ca-")
+		if err != nil {
+			return "", fmt.Errorf("transparent ca dir: %w", err)
+		}
+
+		go func() {
+			<-ctx.Done()
+			_ = os.RemoveAll(dir)
+		}()
+
+		caFile = filepath.Join(dir, "ca.pem")
+	}
+
+	if wErr := os.WriteFile(caFile, ca.CertPEM(), 0o644); wErr != nil { //nolint:gosec // public cert, world-readable
+		return "", fmt.Errorf("transparent ca file: %w", wErr)
+	}
+
+	return caFile, nil
 }
 
 // serveHTTPS registers the CA download route and starts the HTTPS listener on the router.

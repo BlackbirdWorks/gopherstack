@@ -425,6 +425,7 @@ func (b *InMemoryBackend) runCluster(ctx context.Context, name, version string, 
 
 	if !b.markClusterActive(name, lc, caPEM, api, proxy) {
 		proxy.close()
+		e.releasePort(proxy.port)
 		api.close()
 
 		return

@@ -10,7 +10,10 @@ import (
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 )
 
-var errEKSNoSTS = errors.New("STS is not available to resolve the access key")
+var (
+	errEKSNoSTS       = errors.New("STS is not available to resolve the access key")
+	errEKSKeyInactive = errors.New("access key is not active")
+)
 
 type eksIAMKeys interface {
 	ListAllAccessKeys() []iambackend.AccessKey
@@ -48,14 +51,28 @@ func (r eksCredentialResolver) ResolveCredential(
 		return id, nil
 	}
 
-	if r.iam != nil {
-		for _, ak := range r.iam.ListAllAccessKeys() {
-			if ak.AccessKeyID == accessKeyID && (ak.Status == "" || ak.Status == "Active") {
-				id.Secret = ak.SecretAccessKey
+	return r.withIAMSecret(id, accessKeyID)
+}
 
-				break
-			}
+func (r eksCredentialResolver) withIAMSecret(
+	id eksbackend.CredentialIdentity, accessKeyID string,
+) (eksbackend.CredentialIdentity, error) {
+	if r.iam == nil {
+		return id, nil
+	}
+
+	for _, ak := range r.iam.ListAllAccessKeys() {
+		if ak.AccessKeyID != accessKeyID {
+			continue
 		}
+
+		if ak.Status != "" && ak.Status != "Active" {
+			return eksbackend.CredentialIdentity{}, errEKSKeyInactive
+		}
+
+		id.Secret = ak.SecretAccessKey
+
+		return id, nil
 	}
 
 	return id, nil

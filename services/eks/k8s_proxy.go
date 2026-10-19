@@ -156,6 +156,7 @@ func (b *InMemoryBackend) startProxy(name string, ca *clusterCA, api *k8sAPI) (*
 	target, err := url.Parse(api.base)
 	if err != nil {
 		_ = ln.Close()
+		e.releasePort(addr.Port)
 
 		return nil, fmt.Errorf("parse API address: %w", err)
 	}

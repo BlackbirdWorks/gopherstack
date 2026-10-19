@@ -40,9 +40,10 @@ func TestEKSCredentialResolver(t *testing.T) {
 		name       string
 		accessKey  string
 		wantSecret string
+		wantErr    bool
 	}{
 		{name: "iam_user_key", accessKey: "AKIAUSER", wantSecret: "usersecret"},
-		{name: "inactive_key_unverifiable", accessKey: "AKIAOFF", wantSecret: ""},
+		{name: "inactive_key_rejected", accessKey: "AKIAOFF", wantErr: true},
 		{name: "session_key", accessKey: "ASIASESS", wantSecret: "sesssecret"},
 		{name: "unknown_key_root_fallback", accessKey: "test", wantSecret: ""},
 	}
@@ -53,6 +54,12 @@ func TestEKSCredentialResolver(t *testing.T) {
 
 			r := eksCredentialResolver{iam: keys, sts: fakeEKSSTS{arn: "arn:aws:iam::1:user/x", sessions: sess}}
 			id, err := r.ResolveCredential(tt.accessKey, "")
+			if tt.wantErr {
+				require.ErrorIs(t, err, errEKSKeyInactive)
+
+				return
+			}
+
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantSecret, id.Secret)
 			assert.Equal(t, "arn:aws:iam::1:user/x", id.PrincipalARN)
