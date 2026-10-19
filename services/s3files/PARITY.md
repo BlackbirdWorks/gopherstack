@@ -6,10 +6,10 @@ last_audit_date: 2026-10-18
 overall: B            # all 21 SDK operations are real and driven through the SDK client behind the production router; B until the open items close.
 ops:
   CreateAccessPoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotent on ClientToken; uid/gid, path and octal permissions validated; Name taken from the Name tag"}
-  CreateFileSystem: {wire: ok, errors: ok, state: ok, persist: ok, note: "Bucket must be an arn:aws:s3:::name ARN naming a bucket that exists in the S3 emulator (when wired); RoleArn must be an IAM role ARN; ClientToken replays, a changed parameter set is ConflictException"}
-  CreateMountTarget: {wire: ok, errors: ok, state: ok, persist: ok, note: "file system must be available; subnet resolved against EC2 when wired (VPC, AZ id, CIDR); IPv4 allocated from the subnet CIDR or validated; one mount target per file system and subnet"}
+  CreateFileSystem: {wire: ok, errors: ok, state: ok, persist: ok, note: "Bucket must be an arn:aws:s3:::name ARN naming a bucket that exists in the S3 emulator (when wired); RoleArn must be an IAM role ARN naming an existing role and KmsKeyId an existing enabled KMS key (when wired); ClientToken replays, a changed parameter set is ConflictException"}
+  CreateMountTarget: {wire: ok, errors: ok, state: ok, persist: ok, note: "file system must be available; subnet resolved against EC2 when wired (VPC, AZ id, CIDR); when wired a real EC2 network interface is created (described as the mount target's, IPv4 from EC2) and deleted with the mount target; omitted SecurityGroups use the VPC default group, supplied ones must exist (ResourceNotFoundException) and be in the subnet VPC (ValidationException); one mount target per file system and subnet"}
   DeleteAccessPoint: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteFileSystem: {wire: ok, errors: ok, state: ok, persist: ok, note: "ConflictException while mount targets or access points remain"}
+  DeleteFileSystem: {wire: ok, errors: ok, state: ok, persist: ok, note: "ConflictException while mount targets or access points remain, unless ForceDelete deletes them and their network interfaces first"}
   DeleteFileSystemPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResourceNotFoundException when no policy is set"}
   DeleteMountTarget: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAccessPoint: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -25,14 +25,12 @@ ops:
   PutSynchronizationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "LatestVersionNumber is optimistic concurrency: omitted on first put, then must equal the current version"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "at most 50 tags, aws: prefix reserved"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "absent keys ignored"}
-  UpdateMountTarget: {wire: ok, errors: ok, state: ok, persist: ok, note: "replaces security groups, 1 to 5 sg- IDs"}
+  UpdateMountTarget: {wire: ok, errors: ok, state: ok, persist: ok, note: "replaces security groups, 1 to 5 sg- IDs, also on the EC2 network interface"}
 gaps: []
 items_still_open:
-  - "CreateMountTarget: when SecurityGroups is omitted the VPC default security group is not looked up, so none is reported; supplied group IDs are shape-checked only, not resolved against EC2 or checked for VPC membership."
-  - "CreateMountTarget: IPv4 allocation avoids only this backend's mount targets, not addresses EC2 holds; IPv6 is never allocated; the network interface ID is minted here and no ENI exists in EC2."
-  - "CreateFileSystem: RoleArn is shape-checked, not looked up in IAM; KmsKeyId is not looked up in KMS; AcceptBucketWarning is accepted but no bucket warnings exist."
+  - "CreateMountTarget: IPv6 is never allocated; the EC2 emulator models no requester-managed flag on the mount target network interface."
+  - "CreateFileSystem: AcceptBucketWarning is accepted but no bucket warnings exist; the error code for a missing role or key (ValidationException) is inferred, the SDK does not pin it."
   - "GetSynchronizationConfiguration returns ResourceNotFoundException until a configuration is put; the real service may seed a default configuration at creation, which the SDK docs do not state."
-  - "DeleteFileSystem: ForceDelete is accepted but there is no file data plane, so no export is ever pending and the flag changes nothing."
   - "ServiceQuotaExceededException, ThrottlingException and InternalServerException are never returned: the S3 Files quotas are not published in the SDK, so no limit is enforced."
   - "Error HTTP statuses (400/404/409) are inferred; the SDK dispatches on the X-Amzn-Errortype header and does not pin statuses. ConflictException carries resourceId and resourceType."
   - "Access point and file system ARN resource paths (access-point/<id>, file-system/<id>) are assumed from sibling services; the SDK documents ARNs only as opaque strings."
@@ -49,4 +47,4 @@ Protocol: **restjson1**, unversioned paths (`/file-systems`, `/access-points`, `
 
 Timestamps are epoch-seconds numbers. IDs are `fs-`, `fsap-`, `fsmt-` plus 17 hex characters; any input that takes an ID also takes the ARN (URL-escaped in the path).
 
-Cross-service: bucket existence is checked against the S3 emulator and mount-target subnets against EC2 (`internal/app/s3files_wiring.go`); unwired backends accept any bucket and subnet.
+Cross-service: bucket existence is checked against the S3 emulator and mount-target subnets, security groups and network interfaces against EC2, role ARNs against IAM and KMS keys against KMS (`internal/app/s3files_wiring.go`); unwired backends accept any of them.

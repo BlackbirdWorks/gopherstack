@@ -258,7 +258,7 @@ func TestDeleteFileSystemWithChildren(t *testing.T) {
 			cleanup := tt.child(t, f, fsID)
 
 			_, err := f.client.DeleteFileSystem(t.Context(), &s3filessdk.DeleteFileSystemInput{
-				FileSystemId: aws.String(fsID), ForceDelete: aws.Bool(true),
+				FileSystemId: aws.String(fsID),
 			})
 			require.Error(t, err)
 			assert.Equal(t, "ConflictException", apiCode(err))
