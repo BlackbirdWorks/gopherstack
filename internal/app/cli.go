@@ -2006,9 +2006,10 @@ func (c *CLI) GetPortAllocator() *portalloc.Allocator { return c.portAlloc }
 // (the default command); "health" is an explicit subcommand used as a
 // Docker healthcheck from scratch containers.
 type rootCLI struct {
-	Health HealthCmd `cmd:"" help:"Check server health (for Docker healthcheck)."`
-	Pod    PodCmd    `cmd:"" help:"Manage named state snapshots (pods) on a running server."`
-	Serve  CLI       `cmd:"" help:"Start the Gopherstack server."                            default:"withargs"`
+	Health    HealthCmd    `cmd:"" help:"Check server health (for Docker healthcheck)."`
+	Pod       PodCmd       `cmd:"" help:"Manage named state snapshots (pods) on a running server."`
+	Replicate ReplicateCmd `cmd:"" help:"Copy resources from real AWS into a running server."`
+	Serve     CLI          `cmd:"" help:"Start the Gopherstack server."                            default:"withargs"`
 }
 
 // HealthCmd checks a running Gopherstack instance's health endpoint.
@@ -2078,7 +2079,8 @@ func Run() {
 		"pod list",
 		"pod versions <name>",
 		"pod delete <name>",
-		"pod inspect <name>":
+		"pod inspect <name>",
+		"replicate":
 		err = kctx.Run()
 	default:
 		// Opt-in pprof server for local profiling / PGO data collection.
@@ -2638,6 +2640,7 @@ func buildEchoServer(
 	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
 	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))
 	registerPodEndpoints(ctx, log, e, cli.Pods, cli.resolvedDataDir(), persistManager, services)
+	registerReplicateEndpoints(ctx, e)
 
 	registerWebsiteRoutes(e, services)
 
