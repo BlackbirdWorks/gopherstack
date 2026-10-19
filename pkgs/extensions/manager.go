@@ -53,14 +53,18 @@ type extension struct {
 	endpoint *url.URL
 	// registered is closed on the first registration of the current incarnation.
 	registered chan struct{}
+	// restartReq asks the supervisor to recycle the current incarnation.
+	restartReq chan struct{}
 	// seq serializes lifecycle events; started/readySent/shutdownSent are per incarnation, guarded by Manager.mu.
 	seq          chan struct{}
 	token        string
 	status       Status
 	lastError    string
+	output       []string
 	spec         Spec
 	port         int
 	restarts     int
+	running      bool
 	started      bool
 	readySent    bool
 	shutdownSent bool
@@ -73,6 +77,7 @@ type Manager struct {
 	transport *http.Transport
 	hookHTTP  *http.Client
 	cancel    context.CancelFunc
+	runCtx    context.Context //nolint:containedctx // supervisor context for manual restarts
 	opts      Options
 	exts      []*extension
 	cfg       Config
@@ -93,7 +98,12 @@ func New(cfg Config, opts Options) *Manager {
 	m.hookHTTP = &http.Client{Transport: m.transport}
 
 	for _, s := range cfg.Extensions {
-		m.exts = append(m.exts, &extension{spec: s, status: StatusStarting, seq: make(chan struct{}, 1)})
+		m.exts = append(m.exts, &extension{
+			spec:       s,
+			status:     StatusStarting,
+			seq:        make(chan struct{}, 1),
+			restartReq: make(chan struct{}, 1),
+		})
 	}
 
 	return m
@@ -105,8 +115,11 @@ func (m *Manager) Enabled() bool { return m != nil && len(m.exts) > 0 }
 // Start launches every extension supervisor; it returns immediately.
 func (m *Manager) Start(ctx context.Context) {
 	ctx, m.cancel = context.WithCancel(ctx)
+	m.runCtx = ctx
 
 	for _, e := range m.exts {
+		e.running = true
+
 		m.wg.Go(func() { m.supervise(ctx, e) })
 	}
 }
@@ -230,6 +243,11 @@ func (m *Manager) prepare(e *extension) (string, int, error) {
 	e.started, e.readySent, e.shutdownSent = false, false, false
 	e.status = StatusStarting
 
+	select {
+	case <-e.restartReq:
+	default:
+	}
+
 	return token, port, nil
 }
 
@@ -259,11 +277,20 @@ func (m *Manager) newRunner(e *extension, port int, token string) runner {
 		return newContainerRunner(m.opts.NewRuntime, e.spec, port)
 	}
 
-	return newProcessRunner(m.log, e.spec, token)
+	pr := newProcessRunner(m.log, e.spec, token)
+	pr.sink = func(line string) { m.appendOutput(e, line) }
+
+	return pr
 }
 
 // supervise runs the start/monitor/restart loop for one extension.
 func (m *Manager) supervise(ctx context.Context, e *extension) {
+	defer func() {
+		m.mu.Lock("superviseExit")
+		e.running = false
+		m.mu.Unlock()
+	}()
+
 	for {
 		err := m.runOnce(ctx, e)
 
@@ -271,6 +298,12 @@ func (m *Manager) supervise(ctx context.Context, e *extension) {
 			m.setStatus(e, StatusStopped, "")
 
 			return
+		}
+
+		if errors.Is(err, errRestartRequested) {
+			m.markRestarting(e, "")
+
+			continue
 		}
 
 		msg := errExited.Error()
@@ -291,11 +324,7 @@ func (m *Manager) supervise(ctx context.Context, e *extension) {
 			return
 		}
 
-		m.mu.Lock("restart")
-		e.restarts++
-		e.status = StatusRestarting
-		e.lastError = msg
-		m.mu.Unlock()
+		m.markRestarting(e, msg)
 
 		select {
 		case <-ctx.Done():
@@ -322,5 +351,17 @@ func (m *Manager) shouldRestart(e *extension, err error) bool {
 		return err != nil
 	default:
 		return false
+	}
+}
+
+func (m *Manager) markRestarting(e *extension, msg string) {
+	m.mu.Lock("restart")
+	defer m.mu.Unlock()
+
+	e.restarts++
+	e.status = StatusRestarting
+
+	if msg != "" {
+		e.lastError = msg
 	}
 }

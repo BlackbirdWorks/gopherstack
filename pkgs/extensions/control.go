@@ -18,6 +18,7 @@ const (
 	reservedPrefix       = "/_gopherstack"
 	tokenHeader          = "X-Gopherstack-Extension-Token" //nolint:gosec // header name, not a credential
 	keyMessage           = "message"
+	keyName              = "name"
 	bearerPrefix         = "Bearer "
 )
 
@@ -132,7 +133,7 @@ func (m *Manager) ServeRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"name": e.spec.Name, "status": string(StatusReady)})
+	writeJSON(w, http.StatusOK, map[string]string{keyName: e.spec.Name, "status": string(StatusReady)})
 }
 
 func (m *Manager) authenticate(r *http.Request) *extension {

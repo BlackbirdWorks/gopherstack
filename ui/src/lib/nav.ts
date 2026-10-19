@@ -50,6 +50,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "elbv2",
   "emr",
   "eventbridge",
+  "extensions",
   "firehose",
   "fis",
   "globalaccelerator",
@@ -768,6 +769,7 @@ export const sidebarCategories: DashboardCategory[] = [
       { id: "fis", href: "/dashboard/fis", label: "FIS", icon: "fis" },
       { id: "chaos", href: "/dashboard/chaos", label: "Chaos", icon: "chaos" },
       { id: "apptrace", href: "/dashboard/apptrace", label: "App Inspector", icon: "apptrace" },
+      { id: "extensions", href: "/dashboard/extensions", label: "Extensions", icon: "extensions" },
     ],
   },
 ];

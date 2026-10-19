@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -33,9 +34,11 @@ type runner interface {
 
 type processRunner struct {
 	log    *slog.Logger
-	secret string
 	cmd    *exec.Cmd
+	sink   func(line string)
+	secret string
 	spec   Spec
+	done   atomic.Bool
 }
 
 func newProcessRunner(log *slog.Logger, spec Spec, secret string) *processRunner {
@@ -48,7 +51,9 @@ func (p *processRunner) Start(ctx context.Context, env []string) error {
 		p.spec.Command[0],
 		p.spec.Command[1:]...)
 	cmd.Env = append(os.Environ(), env...)
-	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	setProcessGroup(cmd)
+
+	cmd.Cancel = func() error { return signalGroup(cmd, syscall.SIGTERM) }
 	cmd.WaitDelay = stopGrace
 
 	cmd.Stdout = &lineLogger{p: p, stream: "stdout"}
@@ -96,6 +101,12 @@ func (l *lineLogger) emit(line string) {
 		line = strings.ReplaceAll(line, l.p.secret, "[redacted]")
 	}
 
+	line = strings.TrimRight(line, "\r")
+
+	if l.p.sink != nil {
+		l.p.sink(l.stream + ": " + line)
+	}
+
 	l.p.log.Info(
 		"extension output",
 		"extension",
@@ -103,18 +114,30 @@ func (l *lineLogger) emit(line string) {
 		"stream",
 		l.stream,
 		"line",
-		strings.TrimRight(line, "\r"),
+		line,
 	)
 }
 
 func (p *processRunner) Wait() error {
-	return p.cmd.Wait()
+	err := p.cmd.Wait()
+
+	if !p.done.Swap(true) {
+		// Leader exited on its own: reap whatever it left behind.
+		_ = signalGroup(p.cmd, syscall.SIGKILL)
+	}
+
+	return err
 }
 
+// Stop signals the whole process group, then force-kills it after stopGrace.
 func (p *processRunner) Stop() {
-	if p.cmd != nil && p.cmd.Process != nil {
-		_ = p.cmd.Process.Signal(syscall.SIGTERM)
+	if p.cmd == nil || p.cmd.Process == nil || p.done.Swap(true) {
+		return
 	}
+
+	_ = signalGroup(p.cmd, syscall.SIGTERM)
+
+	time.AfterFunc(stopGrace, func() { _ = signalGroup(p.cmd, syscall.SIGKILL) })
 }
 
 type containerRunner struct {

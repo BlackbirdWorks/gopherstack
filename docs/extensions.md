@@ -115,8 +115,21 @@ stream (event streams, websockets) should not use `post` hooks, which buffer the
 
 `GET /_gopherstack/extensions` lists name, type (`process`/`container`), status
 (`starting`, `ready`, `unhealthy`, `restarting`, `failed`, `stopped`), restarts, last
-error, endpoint and the accepted registration. LocalStack has no public HTTP equivalent,
-so there is no `/_localstack/extensions` alias.
+error, endpoint and the accepted registration. The same list is served at
+`GET /_localstack/extensions` as a compatibility alias; LocalStack itself has no public
+HTTP API for extensions, so only the list is aliased.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /_gopherstack/extensions/{name}/restart` | recycle a running extension, or relaunch a failed/stopped one (resets its restart count) |
+| `GET /_gopherstack/extensions/{name}/output` | last 500 captured stdout/stderr lines of a process extension, token redacted |
+
+Both are loopback-only and never expose the extension token. Container extensions have no
+captured output. The dashboard's Extensions page (Settings & Resilience) uses these.
+
+Process extensions run in their own process group; stopping one signals the whole group
+(`SIGTERM`, then `SIGKILL` after 5s), so `sh -c` and `go run` wrappers leave no orphans.
+On Windows only the direct child is terminated.
 
 ## Example
 

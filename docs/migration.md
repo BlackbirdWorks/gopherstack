@@ -181,7 +181,7 @@ don't appear in LocalStack's documentation at all.
 | Policy enforcement | ✅ Pro | ✅ Opt-in (`--enforce-iam` / `GOPHERSTACK_ENFORCE_IAM`) |
 | Real DB/cache | ❌ | ✅ ElastiCache embedded mode (miniredis); RDS and Redshift remain metadata-only |
 | Lambda runtimes | Zip + Image | Zip + Image (requires a Docker or Podman daemon) |
-| Extensions / plugins | ✅ (LocalStack extensions) | ❌ None |
+| Extensions / plugins | ✅ (LocalStack extensions) | ⚠️ Out-of-process extensions ([docs](extensions.md)); no in-process plugins |
 | Endpoint injection | ✅ Transparent (per-service DNS/proxy) | ❌ Single port only |
 | Cloud Pods | ✅ (state sharing/snapshots) | ❌ None (local `--persist` snapshots only) |
 
