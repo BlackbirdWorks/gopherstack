@@ -396,7 +396,10 @@ func (b *InMemoryBackend) runWorker(ctx context.Context, connectorArn string, lw
 		return
 	}
 
-	b.reconcile(ctx, connectorArn, lw, base, true)
+	if !b.reconcile(ctx, connectorArn, lw, base, true) {
+		return
+	}
+
 	b.watchWorker(ctx, connectorArn, lw, base)
 }
 
@@ -703,12 +706,19 @@ func truncate(s string) string {
 }
 
 // reconcile pushes the connector configuration to the worker and settles the connector state from its status.
-func (b *InMemoryBackend) reconcile(ctx context.Context, connectorArn string, lw *liveWorker, base string, apply bool) {
+// It returns false when the worker rejected the configuration, so callers must not watch it back to RUNNING.
+func (b *InMemoryBackend) reconcile(
+	ctx context.Context,
+	connectorArn string,
+	lw *liveWorker,
+	base string,
+	apply bool,
+) bool {
 	e := b.engine
 
 	in, ok := b.snapshotWorkerInput(connectorArn)
 	if !ok {
-		return
+		return true
 	}
 
 	name := in.conn.Name
@@ -728,11 +738,13 @@ func (b *InMemoryBackend) reconcile(ctx context.Context, connectorArn string, lw
 
 			b.failWorker(ctx, connectorArn, lw, fmt.Errorf("%w: %s", errWorkerConnect, truncate(msg)))
 
-			return
+			return false
 		}
 	}
 
 	b.settleFromStatus(ctx, connectorArn, lw, base, name)
+
+	return true
 }
 
 // settleFromStatus waits for a terminal worker state (bounded by StartTimeout) and records it.
@@ -917,7 +929,7 @@ func (b *InMemoryBackend) workerReconfigure(connectorArn string, restart bool) {
 			_, _, _ = e.call(ctx, http.MethodPost, base+"/connectors/"+in.conn.Name+"/restart?includeTasks=true", nil)
 		}
 
-		b.reconcile(ctx, connectorArn, lw, base, !restart)
+		_ = b.reconcile(ctx, connectorArn, lw, base, !restart)
 	})
 }
 
