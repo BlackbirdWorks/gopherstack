@@ -167,6 +167,7 @@ import (
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
+	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
 	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	gcpschedulerbackend "github.com/blackbirdworks/gopherstack/services/gcpscheduler"
@@ -569,6 +570,7 @@ type CLI struct {
 	GCPKMS                        gcpkmsbackend.Settings            `embed:"" prefix:"gcp-kms-"`
 	GCPFirestore                  gcpfirestorebackend.Settings      `embed:"" prefix:"gcp-firestore-"`
 	AzureStorageVHost             azurestoragevhostbackend.Settings `embed:"" prefix:"azure-storage-vhost-"`
+	GCPIAM                        gcpiambackend.Settings            `embed:"" prefix:"gcp-iam-"`
 	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"             default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
@@ -673,6 +675,9 @@ func (c *CLI) GetGCPCloudTasksSettings() gcpcloudtasksbackend.Settings { return 
 
 // GetGCPSchedulerSettings returns Google Cloud Scheduler settings (gcpscheduler.ConfigProvider).
 func (c *CLI) GetGCPSchedulerSettings() gcpschedulerbackend.Settings { return c.GCPScheduler }
+
+// GetGCPIAMSettings returns Google Cloud IAM admin settings (gcpiam.ConfigProvider).
+func (c *CLI) GetGCPIAMSettings() gcpiambackend.Settings { return c.GCPIAM }
 
 // GetGCPSecretManagerSettings returns Google Secret Manager settings (gcpsecretmanager.ConfigProvider).
 func (c *CLI) GetGCPSecretManagerSettings() gcpsecretmanagerbackend.Settings {
@@ -2233,6 +2238,7 @@ func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *port
 		{"GCPKMS", "gcpkms", cli.GCPKMS.Port},
 		{"GCPCloudTasks", "gcpcloudtasks", cli.GCPCloudTasks.Port},
 		{"GCPScheduler", "gcpscheduler", cli.GCPScheduler.Port},
+		{"GCPIAM", "gcpiam", cli.GCPIAM.Port},
 		{"GCPFirestore", "gcpfirestore", cli.GCPFirestore.Port},
 		{"AzureQueue", "azurequeue", cli.AzureQueue.Port},
 		{"AzureTable", "azuretable", cli.AzureTable.Port},
@@ -4603,6 +4609,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&gcpkmsbackend.Provider{},
 		&gcpcloudtasksbackend.Provider{},
 		&gcpschedulerbackend.Provider{},
+		&gcpiambackend.Provider{},
 		&gcpfirestorebackend.Provider{},
 		&azurearmbackend.Provider{},
 		&pinpointbackend.Provider{},

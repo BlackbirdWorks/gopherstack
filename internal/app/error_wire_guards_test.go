@@ -349,6 +349,7 @@ func errorProbeUnreachable() map[string]string {
 		"GCPCloudTasks":           "non-AWS",
 		"GCPScheduler":            "non-AWS",
 		"GCPFirestore":            "non-AWS",
+		"GCPIAM":                  "non-AWS",
 		"Dashboard":               "not an AWS API",
 		"IoTDataPlane":            "path-routed REST",
 		"MarketplaceMetering":     "mutating ops only; probe sends Describe/Get/List/Delete",

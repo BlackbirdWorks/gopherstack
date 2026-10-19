@@ -14459,6 +14459,25 @@
     ],
     "version": 1
   },
+  "gcpiam": {
+    "fields": [
+      "accountSnap.Account json.RawMessage `json:\"account\"`",
+      "accountSnap.DeletedAt time.Time `json:\"deletedAt\"`",
+      "accountSnap.Keys map[string]keySnap `json:\"keys,omitempty\"`",
+      "accountSnap.Policy json.RawMessage `json:\"policy,omitempty\"`",
+      "accountSnap.System *keySnap `json:\"system,omitempty\"`",
+      "backendSnapshot.Accounts map[string]accountSnap `json:\"accounts\"`",
+      "backendSnapshot.EtagSeq uint64 `json:\"etagSeq\"`",
+      "backendSnapshot.Roles map[string]roleSnap `json:\"roles\"`",
+      "keySnap.Cert []byte `json:\"cert,omitempty\"`",
+      "keySnap.Key json.RawMessage `json:\"key\"`",
+      "keySnap.Private []byte `json:\"private,omitempty\"`",
+      "keySnap.Public []byte `json:\"public,omitempty\"`",
+      "roleSnap.DeletedAt time.Time `json:\"deletedAt\"`",
+      "roleSnap.Role json.RawMessage `json:\"role\"`"
+    ],
+    "version": 1
+  },
   "gcpkms": {
     "fields": [
       "backendSnapshot.EtagSeq uint64 `json:\"etagSeq\"`",
