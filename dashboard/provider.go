@@ -39,6 +39,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	"github.com/blackbirdworks/gopherstack/services/gcpkms"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	"github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	"github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
 	"github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	"github.com/blackbirdworks/gopherstack/services/iam"
@@ -224,5 +225,9 @@ func wireGCPOps(ctx *service.AppContext, conf *Config) {
 
 	if gp, hasCT := ctx.Config.(interface{ GetGCPCloudTasksHandler() service.Registerable }); hasCT {
 		conf.GCPCloudTasksOps, _ = getHandler[*gcpcloudtasks.Handler](gp.GetGCPCloudTasksHandler())
+	}
+
+	if gp, hasCS := ctx.Config.(interface{ GetGCPSchedulerHandler() service.Registerable }); hasCS {
+		conf.GCPSchedulerOps, _ = getHandler[*gcpscheduler.Handler](gp.GetGCPSchedulerHandler())
 	}
 }

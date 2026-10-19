@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	"github.com/blackbirdworks/gopherstack/services/gcpkms"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	"github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	"github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
 )
 
@@ -300,6 +301,56 @@ func TestGCPCloudTasksProxy(t *testing.T) {
 
 			h := dashboard.NewHandler(dashboard.Config{
 				GCPCloudTasksOps: gcpcloudtasks.NewHandler(gcpcloudtasks.NewInMemoryBackend()),
+			})
+			runGCPSteps(t, h, tt.steps)
+		})
+	}
+}
+
+func TestGCPSchedulerProxy(t *testing.T) {
+	t.Parallel()
+
+	const (
+		loc     = "/dashboard/api/v1/gcp/scheduler/v1/projects/proj-local/locations/us-central1"
+		jobName = "projects/proj-local/locations/us-central1/jobs/j1"
+		job     = loc + "/jobs/j1"
+		body    = `{"name":"` + jobName + `","schedule":"* * * * *",` +
+			`"httpTarget":{"uri":"http://localhost:1/x","httpMethod":"POST","body":"aGk="}}`
+	)
+
+	tests := []struct {
+		name  string
+		steps []gcpStep
+	}{
+		{"job lifecycle", []gcpStep{
+			{http.MethodPost, loc + "/jobs", body, `"ENABLED"`, 200},
+			{http.MethodPost, loc + "/jobs", body, "ALREADY_EXISTS", http.StatusConflict},
+			{http.MethodGet, loc + "/jobs", "", `"jobs"`, 200},
+			{http.MethodGet, job, "", jobName, 200},
+			{http.MethodPost, job + ":pause", "", `"PAUSED"`, 200},
+			{http.MethodPost, job + ":resume", "", `"ENABLED"`, 200},
+			{http.MethodPatch, job + "?updateMask=schedule,timeZone",
+				`{"schedule":"0 * * * *","timeZone":"America/New_York"}`, `"0 * * * *"`, 200},
+			{http.MethodPost, job + ":run", "", jobName, 200},
+			{http.MethodDelete, job, "", "{}", 200},
+			{http.MethodGet, job, "", "NOT_FOUND", http.StatusNotFound},
+		}},
+		{"rejects", []gcpStep{
+			{http.MethodGet, loc + "/other", "", "unsupported", http.StatusNotFound},
+			{http.MethodPost, job + ":bogus", "", "unsupported", http.StatusNotFound},
+			{http.MethodPost, job + "/extra/x", "", "unsupported", http.StatusNotFound},
+			{http.MethodPut, job, "{}", "unsupported", http.StatusNotFound},
+			{http.MethodPost, loc + "/jobs", `{bad`, "invalid request body", http.StatusBadRequest},
+			{http.MethodPatch, job + "?updateMask=name", `{}`, "NOT_FOUND", http.StatusNotFound},
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := dashboard.NewHandler(dashboard.Config{
+				GCPSchedulerOps: gcpscheduler.NewHandler(gcpscheduler.NewInMemoryBackend()),
 			})
 			runGCPSteps(t, h, tt.steps)
 		})
