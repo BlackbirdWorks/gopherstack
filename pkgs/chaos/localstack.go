@@ -50,7 +50,7 @@ func decodeRules(c *echo.Context) ([]FaultRule, error) {
 	}
 
 	for _, r := range rules {
-		if r.Probability < 0 || r.Probability > 1 {
+		if r.Probability != nil && (*r.Probability < 0 || *r.Probability > 1) {
 			return nil, errInvalidFault
 		}
 

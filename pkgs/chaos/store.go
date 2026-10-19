@@ -47,23 +47,32 @@ type FaultRule struct {
 	Service     string      `json:"service,omitempty"`
 	Region      string      `json:"region,omitempty"`
 	Operation   string      `json:"operation,omitempty"`
-	Probability float64     `json:"probability,omitempty"`
+	Probability *float64    `json:"probability,omitempty"`
 }
 
 // ShouldTrigger reports whether this fault should fire based on its probability.
-// A probability of 0 is treated as 1.0 (always fire).
+// An omitted probability always fires; an explicit 0 never fires.
 func (r FaultRule) ShouldTrigger() bool {
-	p := r.Probability
-	if p <= 0 {
-		p = 1.0
-	}
-
+	p := r.EffectiveProbability()
 	if p >= 1.0 {
 		return true
 	}
 
+	if p <= 0 {
+		return false
+	}
+
 	//nolint:gosec // weak random is intentional — fault injection is not security-sensitive
 	return rand.Float64() < p
+}
+
+// EffectiveProbability returns the firing probability, 1.0 when omitted.
+func (r FaultRule) EffectiveProbability() float64 {
+	if r.Probability == nil {
+		return 1.0
+	}
+
+	return *r.Probability
 }
 
 // EffectiveError returns the FaultError to use, falling back to the default.
@@ -230,7 +239,11 @@ func (s *FaultStore) DeleteExactRules(rules []FaultRule) {
 
 func faultRulesEqual(a, b FaultRule) bool {
 	if a.Service != b.Service || a.Region != b.Region || a.Operation != b.Operation ||
-		a.Probability != b.Probability {
+		(a.Probability == nil) != (b.Probability == nil) {
+		return false
+	}
+
+	if a.Probability != nil && *a.Probability != *b.Probability {
 		return false
 	}
 

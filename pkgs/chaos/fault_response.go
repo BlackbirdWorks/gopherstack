@@ -1,6 +1,7 @@
 package chaos
 
 import (
+	"encoding/xml"
 	"net/http"
 	"strings"
 
@@ -8,6 +9,16 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
+
+// protocolEC2 is the EC2 query error envelope, which awserr has no value for.
+const protocolEC2 = awserr.Protocol(-1)
+
+type ec2Error struct {
+	XMLName   xml.Name `xml:"Response"`
+	Code      string   `xml:"Errors>Error>Code"`
+	Message   string   `xml:"Errors>Error>Message"`
+	RequestID string   `xml:"RequestID"`
+}
 
 const faultMessage = "Fault injected by Gopherstack Chaos API"
 
@@ -23,14 +34,16 @@ func protocolFor(c *echo.Context, svc string) awserr.Protocol {
 		}
 
 		return awserr.ProtocolJSON10
+	case svc == "ec2":
+		return protocolEC2
 	case strings.HasPrefix(ct, "application/x-www-form-urlencoded"):
 		return awserr.ProtocolQueryXML
 	}
 
 	switch svc {
-	case "s3", "s3control", "cloudfront":
+	case "s3", "s3control":
 		return awserr.ProtocolRestXML
-	case "route53":
+	case "route53", "cloudfront":
 		return awserr.ProtocolQueryXML
 	}
 
@@ -49,7 +62,23 @@ func respondWithFault(c *echo.Context, fe FaultError, svc string) error {
 		code = "ServiceUnavailable"
 	}
 
-	return awserr.Write(c, protocolFor(c, svc), awserr.APIError{
-		Code: code, Message: faultMessage, HTTPStatus: status,
-	})
+	proto := protocolFor(c, svc)
+	apiErr := awserr.APIError{Code: code, Message: faultMessage, HTTPStatus: status}
+
+	if proto == protocolEC2 {
+		body, err := xml.Marshal(ec2Error{
+			Code: code, Message: faultMessage, RequestID: c.Request().Header.Get("X-Amzn-Requestid"),
+		})
+		if err != nil {
+			return c.NoContent(http.StatusInternalServerError)
+		}
+
+		return c.Blob(status, "text/xml;charset=UTF-8", append([]byte(xml.Header), body...))
+	}
+
+	if proto == awserr.ProtocolJSON10 || proto == awserr.ProtocolJSON11 {
+		c.Response().Header().Set("X-Amzn-ErrorType", code)
+	}
+
+	return awserr.Write(c, proto, apiErr)
 }

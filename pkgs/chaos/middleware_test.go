@@ -339,7 +339,7 @@ func TestMiddleware_ScopeParsing(t *testing.T) {
 			t.Parallel()
 
 			store := chaos.NewFaultStore()
-			tt.rule.Probability = 1
+			tt.rule.Probability = new(1.0)
 			store.SetRules([]chaos.FaultRule{tt.rule})
 
 			called := false

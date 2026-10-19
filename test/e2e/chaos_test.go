@@ -58,7 +58,7 @@ func TestChaosDashboard_WithExistingFault(t *testing.T) {
 	stack.FaultStore.SetRules([]chaos.FaultRule{
 		{
 			Service:     "s3",
-			Probability: 0.5,
+			Probability: new(0.5),
 			Error:       &chaos.FaultError{StatusCode: 503, Code: "ServiceUnavailable"},
 		},
 	})

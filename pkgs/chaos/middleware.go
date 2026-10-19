@@ -177,7 +177,7 @@ func Middleware(store *FaultStore) func(echo.HandlerFunc) echo.HandlerFunc {
 					Service:     svc,
 					Operation:   op,
 					Region:      region,
-					Probability: rule.Probability,
+					Probability: rule.EffectiveProbability(),
 					Triggered:   triggered,
 				}
 

@@ -744,7 +744,7 @@ func buildFaultRules(action ExperimentTemplateAction) []chaos.FaultRule {
 		return []chaos.FaultRule{
 			{
 				Service:     svcName,
-				Probability: pct,
+				Probability: &pct,
 				Error:       &errCopy,
 			},
 		}
@@ -758,7 +758,7 @@ func buildFaultRules(action ExperimentTemplateAction) []chaos.FaultRule {
 		rules[i] = chaos.FaultRule{
 			Service:     svcName,
 			Operation:   op,
-			Probability: pct,
+			Probability: &pct,
 			Error:       &e,
 		}
 	}

@@ -310,18 +310,23 @@ func TestFaultRule_ShouldTrigger(t *testing.T) {
 		wantTrigger bool
 	}{
 		{
-			name:        "zero probability always triggers (treated as 1.0)",
-			rule:        chaos.FaultRule{Probability: 0},
+			name:        "omitted probability always triggers",
+			rule:        chaos.FaultRule{},
 			wantTrigger: true,
 		},
 		{
+			name:        "explicit zero probability never triggers",
+			rule:        chaos.FaultRule{Probability: new(0.0)},
+			wantTrigger: false,
+		},
+		{
 			name:        "probability 1.0 always triggers",
-			rule:        chaos.FaultRule{Probability: 1.0},
+			rule:        chaos.FaultRule{Probability: new(1.0)},
 			wantTrigger: true,
 		},
 		{
 			name:        "probability above 1.0 always triggers",
-			rule:        chaos.FaultRule{Probability: 2.0},
+			rule:        chaos.FaultRule{Probability: new(2.0)},
 			wantTrigger: true,
 		},
 	}
