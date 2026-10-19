@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/services/gcpkms"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	"github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
 )
@@ -155,11 +156,76 @@ func TestGCPRESTProxyDisabled(t *testing.T) {
 	for _, p := range []string{
 		"/dashboard/api/v1/gcp/pubsub/v1/projects/proj-local/topics",
 		"/dashboard/api/v1/gcp/secretmanager/v1/projects/proj-local/secrets",
+		"/dashboard/api/v1/gcp/kms/v1/projects/proj-local/locations/global/keyRings",
 	} {
 		h := dashboard.NewHandler(dashboard.Config{})
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, p, nil)
 		require.NoError(t, h.Handler()(echo.NewContext(req, rec)))
 		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	}
+}
+
+func TestGCPKMSProxy(t *testing.T) {
+	t.Parallel()
+
+	const (
+		loc    = "/dashboard/api/v1/gcp/kms/v1/projects/proj-local/locations/global"
+		ring   = loc + "/keyRings/r1"
+		sym    = ring + "/cryptoKeys/sym"
+		asym   = ring + "/cryptoKeys/sig"
+		mac    = ring + "/cryptoKeys/mac"
+		symKey = `{"purpose":"ENCRYPT_DECRYPT"}`
+		sigKey = `{"purpose":"ASYMMETRIC_SIGN","versionTemplate":{"algorithm":"EC_SIGN_P256_SHA256"}}`
+		macKey = `{"purpose":"MAC","versionTemplate":{"algorithm":"HMAC_SHA256"}}`
+	)
+
+	tests := []struct {
+		name  string
+		steps []gcpStep
+	}{
+		{"ring key and crypto", []gcpStep{
+			{http.MethodPost, loc + "/keyRings?keyRingId=r1", "", "keyRings/r1", 200},
+			{http.MethodPost, loc + "/keyRings?keyRingId=r1", "", "ALREADY_EXISTS", http.StatusConflict},
+			{http.MethodGet, loc + "/keyRings", "", `"keyRings"`, 200},
+			{http.MethodGet, ring, "", "keyRings/r1", 200},
+			{http.MethodPost, ring + "/cryptoKeys?cryptoKeyId=sym", symKey, "ENCRYPT_DECRYPT", 200},
+			{http.MethodGet, ring + "/cryptoKeys", "", `"cryptoKeys"`, 200},
+			{http.MethodGet, sym, "", `"primary"`, 200},
+			{http.MethodPost, sym + ":encrypt", `{"plaintext":"aGk="}`, `"ciphertext"`, 200},
+			{http.MethodPost, sym + ":decrypt", `{"ciphertext":"AAAA"}`, "INVALID_ARGUMENT", http.StatusBadRequest},
+			{http.MethodGet, sym + "/cryptoKeyVersions", "", `cryptoKeyVersions/1`, 200},
+			{http.MethodPost, sym + "/cryptoKeyVersions", `{}`, `cryptoKeyVersions/2`, 200},
+			{http.MethodPost, sym + ":updatePrimaryVersion", `{"cryptoKeyVersionId":"2"}`, `cryptoKeyVersions/2`, 200},
+			{http.MethodPatch, sym + "/cryptoKeyVersions/1?updateMask=state", `{"state":"DISABLED"}`, "DISABLED", 200},
+			{http.MethodPost, sym + "/cryptoKeyVersions/1:destroy", "", "DESTROY_SCHEDULED", 200},
+			{http.MethodPost, sym + "/cryptoKeyVersions/1:restore", "", "DISABLED", 200},
+		}},
+		{"sign public key mac", []gcpStep{
+			{http.MethodPost, loc + "/keyRings?keyRingId=r1", "", "keyRings/r1", 200},
+			{http.MethodPost, ring + "/cryptoKeys?cryptoKeyId=sig", sigKey, "EC_SIGN_P256_SHA256", 200},
+			{http.MethodPost, asym + "/cryptoKeyVersions/1:asymmetricSign", `{"data":"aGk="}`, `"signature"`, 200},
+			{http.MethodGet, asym + "/cryptoKeyVersions/1/publicKey", "", "BEGIN PUBLIC KEY", 200},
+			{http.MethodPost, ring + "/cryptoKeys?cryptoKeyId=mac", macKey, "HMAC_SHA256", 200},
+			{http.MethodPost, mac + "/cryptoKeyVersions/1:macSign", `{"data":"aGk="}`, `"mac"`, 200},
+		}},
+		{"rejects", []gcpStep{
+			{http.MethodGet, loc + "/importJobs", "", "unsupported", http.StatusNotFound},
+			{http.MethodGet, ring + "/cryptoKeys/x/cryptoKeyVersions/1/other", "", "unsupported", http.StatusNotFound},
+			{http.MethodPost, ring + ":bogus", "", "unsupported", http.StatusNotFound},
+			{http.MethodPost, sym + ":rawDecrypt", `{}`, "unsupported", http.StatusNotFound},
+			{http.MethodPost, ring + "/cryptoKeys?cryptoKeyId=k", `{bad`, "invalid request body", http.StatusBadRequest},
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := dashboard.NewHandler(dashboard.Config{
+				GCPKMSOps: gcpkms.NewHandler(gcpkms.NewInMemoryBackend()),
+			})
+			runGCPSteps(t, h, tt.steps)
+		})
 	}
 }

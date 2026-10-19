@@ -111,6 +111,14 @@ export const GCP_SERVICES: readonly GcpService[] = [
     defaultPort: 8086,
   },
   {
+    id: "kms",
+    label: "Cloud KMS",
+    description: "Google Cloud KMS",
+    healthName: "GCPKMS",
+    portLabel: "gcpkms",
+    defaultPort: 8087,
+  },
+  {
     id: "firestore",
     label: "Firestore",
     description: "Google Cloud Firestore",
