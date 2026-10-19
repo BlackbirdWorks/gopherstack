@@ -25,6 +25,14 @@ func (f *fakeKeyVaults) DeleteVault(name string) {
 	delete(f.vaults, name)
 }
 
+func (f *fakeKeyVaults) SoftDeleteVault(name string) {
+	f.calls = append(f.calls, "SoftDeleteVault:"+name)
+	delete(f.vaults, name)
+}
+
+func (f *fakeKeyVaults) RecoverVault(name string) { f.calls = append(f.calls, "RecoverVault:"+name) }
+func (f *fakeKeyVaults) PurgeVault(name string)   { f.calls = append(f.calls, "PurgeVault:"+name) }
+
 func kvID(t *testing.T, rg, tail string) azurearm.ResourceID {
 	t.Helper()
 

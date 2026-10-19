@@ -22,3 +22,13 @@ func NewTestRegistryWithStorage() (*InMemoryBackend, *Registry) {
 
 	return backend, registry
 }
+
+// NewTestHandlerWithKeyVault builds a Handler with a Microsoft.KeyVault
+// provider over dataPlane.
+func NewTestHandlerWithKeyVault(dataPlane KeyVaults, settings Settings) *Handler {
+	backend := NewInMemoryBackend()
+	registry := NewRegistry(backend)
+	registry.Register(NewKeyVaultProvider(KeyVaultEndpointConfig{}, dataPlane))
+
+	return NewHandler(backend, registry, nil, settings)
+}

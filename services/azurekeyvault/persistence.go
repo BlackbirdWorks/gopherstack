@@ -13,6 +13,7 @@ const snapshotVersion = 1
 
 type backendSnapshot struct {
 	Vaults  map[string]*vault `json:"vaults"`
+	Deleted map[string]*vault `json:"deletedVaults,omitempty"`
 	Version int               `json:"version"`
 }
 
@@ -24,7 +25,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	return persistence.MarshalSnapshot(
 		ctx,
 		"azurekeyvault",
-		backendSnapshot{Version: snapshotVersion, Vaults: b.vaults},
+		backendSnapshot{Version: snapshotVersion, Vaults: b.vaults, Deleted: b.deleted},
 	)
 }
 
@@ -44,24 +45,40 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"gotVersion", snap.Version, "wantVersion", snapshotVersion)
 
 		b.vaults = make(map[string]*vault)
+		b.deleted = make(map[string]*vault)
 
 		return nil
 	}
 
-	vaults := make(map[string]*vault, len(snap.Vaults))
+	vaults, err := normalizeVaults(snap.Vaults)
+	if err != nil {
+		return err
+	}
 
-	for key, v := range snap.Vaults {
-		if v == nil {
-			return fmt.Errorf("%w: vault %q", ErrSnapshotNull, key)
-		}
-
-		v.normalize()
-		vaults[key] = v
+	deleted, err := normalizeVaults(snap.Deleted)
+	if err != nil {
+		return err
 	}
 
 	b.vaults = vaults
+	b.deleted = deleted
 
 	return nil
+}
+
+func normalizeVaults(in map[string]*vault) (map[string]*vault, error) {
+	out := make(map[string]*vault, len(in))
+
+	for key, v := range in {
+		if v == nil {
+			return nil, fmt.Errorf("%w: vault %q", ErrSnapshotNull, key)
+		}
+
+		v.normalize()
+		out[key] = v
+	}
+
+	return out, nil
 }
 
 func (v *vault) normalize() {

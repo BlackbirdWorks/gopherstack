@@ -26,23 +26,27 @@ type armSnapshot struct {
 	ResourceGroups      map[string]*ResourceGroup  `json:"resourceGroups"`
 	Resources           map[string]*Resource       `json:"resources"`
 	RegisteredProviders map[string]map[string]bool `json:"registeredProviders"`
+	KeyVault            *keyVaultSnapshot          `json:"keyVault,omitempty"`
 	Version             int                        `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements
 // persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
+	return persistence.MarshalSnapshot(ctx, "azurearm", b.snapshotState(nil))
+}
+
+func (b *InMemoryBackend) snapshotState(kv *keyVaultSnapshot) armSnapshot {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	snap := armSnapshot{
+	return armSnapshot{
+		KeyVault:            kv,
 		Version:             armSnapshotVersion,
 		ResourceGroups:      b.resourceGroups,
 		Resources:           b.resources,
 		RegisteredProviders: b.registeredProviders,
 	}
-
-	return persistence.MarshalSnapshot(ctx, "azurearm", snap)
 }
 
 // Restore loads backend state from a JSON snapshot. It implements
@@ -51,10 +55,16 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 // metadata, never re-creates or otherwise touches any data-plane service's
 // state.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
+	_, err := b.restore(ctx, data)
+
+	return err
+}
+
+func (b *InMemoryBackend) restore(ctx context.Context, data []byte) (armSnapshot, error) {
 	var snap armSnapshot
 
 	if err := persistence.UnmarshalSnapshot(ctx, "azurearm", data, &snap); err != nil {
-		return err
+		return snap, err
 	}
 
 	b.mu.Lock("Restore")
@@ -70,7 +80,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.byType.Store(nil)
 		b.registeredProviders = make(map[string]map[string]bool)
 
-		return nil
+		return armSnapshot{}, nil
 	}
 
 	if snap.ResourceGroups == nil {
@@ -86,11 +96,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	if err := validateSnapshotResourceGroups(snap.ResourceGroups); err != nil {
-		return err
+		return snap, err
 	}
 
 	if err := validateSnapshotResources(snap.Resources); err != nil {
-		return err
+		return snap, err
 	}
 
 	b.resourceGroups = snap.ResourceGroups
@@ -98,7 +108,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.byType.Store(nil)
 	b.registeredProviders = snap.RegisteredProviders
 
-	return nil
+	return snap, nil
 }
 
 // validateSnapshotResourceGroups rejects a snapshot whose "resourceGroups"
@@ -125,17 +135,26 @@ func validateSnapshotResources(resources map[string]*Resource) error {
 	return nil
 }
 
-// Snapshot implements persistence.Persistable by delegating to
-// InMemoryBackend only -- the registry's Storage RP is not yet included, see
-// armSnapshot's doc comment.
+// Snapshot implements persistence.Persistable: backend state plus the
+// Microsoft.KeyVault provider's ARM-side vaults and deleted vaults.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
-	return h.Backend.Snapshot(ctx)
+	var kv *keyVaultSnapshot
+	if p, ok := h.keyVaultProvider(); ok {
+		kv = p.snapshot()
+	}
+
+	return persistence.MarshalSnapshot(ctx, "azurearm", h.Backend.snapshotState(kv))
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
+// Restore implements persistence.Persistable.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
-	if err := h.Backend.Restore(ctx, data); err != nil {
+	snap, err := h.Backend.restore(ctx, data)
+	if err != nil {
 		return fmt.Errorf("azurearm: restore snapshot: %w", err)
+	}
+
+	if p, ok := h.keyVaultProvider(); ok {
+		p.restore(snap.KeyVault)
 	}
 
 	return nil
