@@ -270,8 +270,9 @@ jobs:
           config-file: ./.github/codeql/codeql-config.yml
 
       # Autobuild ran `make` (the whole UI build) under tracing and was OOM-killed; Go code only.
+      # -p 2: each traced compile runs an extractor; full parallelism exhausts runner RAM.
       - name: Build Go code
-        run: go build ./...
+        run: go build -p 2 ./...
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
