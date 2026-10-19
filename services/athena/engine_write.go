@@ -110,7 +110,7 @@ func (b *InMemoryBackend) planWrite(
 
 	plan, unresolved, err := b.buildPlan(w.body, qctx, cat, get, list)
 	if err != nil {
-		return nil, stmtFail(athenaErrTypeSyntax, "SYNTAX_ERROR: %s", err.Error()), true
+		return nil, planFailure(err), true
 	}
 
 	if len(plan.tables) == 0 && len(unresolved) > 0 {

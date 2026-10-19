@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"sort"
+	"strings"
 
 	sqlitedriver "modernc.org/sqlite"
 )
@@ -150,7 +151,8 @@ func compareValues(a, b driver.Value) int {
 func jsonElem(v driver.Value) any {
 	if s, ok := v.(string); ok {
 		var parsed any
-		if len(s) > 0 && (s[0] == '[' || s[0] == '{') && json.Unmarshal([]byte(s), &parsed) == nil {
+		if t := strings.TrimPrefix(s, containerMark); len(t) > 0 && (t[0] == '[' || t[0] == '{') &&
+			json.Unmarshal([]byte(t), &parsed) == nil {
 			return parsed
 		}
 	}

@@ -10,10 +10,11 @@ var errMultiStatement = errors.New("line 1:1: only a single statement is support
 
 // resolvedRef is a table reference mapped to an attached SQLite schema.
 type resolvedRef struct {
-	schema  string
-	name    string
-	display string
-	found   bool
+	schema     string
+	name       string
+	display    string
+	structCols []string
+	found      bool
 }
 
 type translator struct {
@@ -21,6 +22,8 @@ type translator struct {
 	ctes          map[string]bool
 	err           error
 	unnest        map[string]unnestCol
+	qualifiers    map[string]bool
+	structCols    map[string]bool
 	unresolved    []string
 	unnestAliases []string
 	nUnnest       int
@@ -77,8 +80,8 @@ func renamedAlias(lw string) string {
 
 func isClauseEnder(lw string) bool {
 	switch lw {
-	case "where", "group", "order", "having", "limit", "union", "intersect", "except",
-		"window", "offset", "on", "using", "fetch":
+	case kwWhere, kwGroup, "order", kwHaving, kwLimit, "union", kwIntersect, kwExcept,
+		"window", kwOffset, "on", "using", kwFetch:
 		return true
 	default:
 		return false
@@ -178,8 +181,18 @@ func translateSQL(sql string, resolve func(parts []string) resolvedRef) (string,
 		return "", nil, err
 	}
 
-	x := &translator{resolve: resolve, ctes: collectCTEs(toks)}
-	out := x.rewriteUnnestRefs(x.translate(toks))
+	toks, err = expandGroupingSets(toks)
+	if err != nil {
+		return "", nil, err
+	}
+
+	toks = addNullsLast(toks)
+
+	x := &translator{
+		resolve: resolve, ctes: collectCTEs(toks),
+		qualifiers: map[string]bool{}, structCols: map[string]bool{},
+	}
+	out := x.rewriteStructFields(x.rewriteUnnestRefs(x.translate(toks)))
 
 	if x.err != nil {
 		return "", nil, x.err
@@ -188,7 +201,7 @@ func translateSQL(sql string, resolve func(parts []string) resolvedRef) (string,
 	return strings.TrimSpace(joinTokens(out)), x.unresolved, nil
 }
 
-const fnJSONArray = "json_array"
+const fnJSONArray = "athena_array"
 
 func isArrayBracket(t token, out []token, top *scope) bool {
 	return t.isPunct("[") && lastWordIs(out, fnJSONArray) || t.isPunct("]") && top.opener == fnJSONArray
@@ -244,6 +257,11 @@ func (x *translator) translate(toks []token) []token {
 			}
 		case isArrayBracket(t, out, top):
 			out, stack = arrayBracket(t, out, stack)
+		case t.isPunct("["):
+			var next int
+
+			out, next = x.subscript(toks, i, out)
+			i = next
 		case t.isPunct("("):
 			stack = append(stack, scope{opener: openerOf(toks, i)})
 			out = append(out, t)
@@ -277,6 +295,21 @@ func plainWord(toks []token, i, nxt int, lw string) (token, bool) {
 	}
 }
 
+// preWord handles plain words and INTERVAL literals ahead of scope tracking.
+func (x *translator) preWord(toks []token, i, nxt int, lw string, out []token) ([]token, int, bool) {
+	if res, ok := plainWord(toks, i, nxt, lw); ok {
+		return append(out, res), i, true
+	}
+
+	if lw == "interval" && nxt >= 0 && toks[nxt].kind == tkString {
+		res, end := x.interval(toks, i, out)
+
+		return res, end, true
+	}
+
+	return nil, 0, false
+}
+
 // word handles one word token and returns the new output, last consumed index and scope stack.
 func (x *translator) word(toks []token, i int, out []token, stack []scope) ([]token, int, []scope) {
 	t := toks[i]
@@ -284,8 +317,8 @@ func (x *translator) word(toks []token, i int, out []token, stack []scope) ([]to
 	nxt := nextSig(toks, i)
 	callNext := nxt >= 0 && toks[nxt].isPunct("(")
 
-	if res, ok := plainWord(toks, i, nxt, lw); ok {
-		return append(out, res), i, stack
+	if res, end, ok := x.preWord(toks, i, nxt, lw, out); ok {
+		return res, end, stack
 	}
 
 	if callNext {
@@ -325,7 +358,7 @@ func (x *translator) rewriteCall(
 
 	if lw == "approx_distinct" {
 		res := make([]token, 0, open-i+argsTwo)
-		res = append(res, token{kind: tkWord, text: "count"})
+		res = append(res, token{kind: tkWord, text: fnCount})
 		res = append(res, toks[i+1:open]...)
 		res = append(res, toks[open], token{kind: tkWord, text: "DISTINCT "})
 
@@ -352,7 +385,7 @@ func (x *translator) callWord(toks []token, lw string, open int) ([]token, int, 
 	case "extract":
 		res, end = x.extractCall(toks, open)
 	default:
-		return nil, 0, false
+		res, end = x.lambdaCall(toks, lw, open)
 	}
 
 	return res, end, end > 0
@@ -402,11 +435,49 @@ func (x *translator) tableRef(toks []token, i int, out []token) ([]token, int) {
 		return append(out, toks[j:end+1]...), end
 	}
 
+	x.noteTable(toks, end, parts[len(parts)-1], ref)
+
 	return append(out,
 		token{kind: tkQuoted, text: quoteIdent(ref.schema)},
 		token{kind: tkPunct, text: "."},
 		token{kind: tkQuoted, text: quoteIdent(ref.name)},
 	), end
+}
+
+// noteTable records the qualifiers (table name and alias) and ROW columns of a resolved table.
+func (x *translator) noteTable(toks []token, end int, name string, ref resolvedRef) {
+	x.qualifiers[name] = true
+
+	for _, c := range ref.structCols {
+		x.structCols[c] = true
+	}
+
+	n := nextSig(toks, end)
+	if n >= 0 && toks[n].isWord("as") {
+		n = nextSig(toks, n)
+	}
+
+	if n >= 0 && (toks[n].kind == tkWord || toks[n].kind == tkQuoted) && !isAliasStopper(toks[n]) {
+		x.qualifiers[toks[n].ident()] = true
+	}
+}
+
+func isAliasStopper(t token) bool {
+	if t.kind != tkWord {
+		return false
+	}
+
+	lw := strings.ToLower(t.text)
+	if isClauseEnder(lw) {
+		return true
+	}
+
+	switch lw {
+	case "join", "left", "right", "inner", "outer", "cross", "full", "natural", "tablesample", "with":
+		return true
+	default:
+		return false
+	}
 }
 
 // callRef handles a function-style table reference: UNNEST is rewritten, others pass through.
