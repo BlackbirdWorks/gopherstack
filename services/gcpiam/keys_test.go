@@ -111,15 +111,20 @@ func TestKeyAlgorithmsAndFormats(t *testing.T) {
 	e := newEnv(t)
 	sa := e.account(t, "fmt-sa")
 
-	small, err := e.client.CreateServiceAccountKey(t.Context(), &adminpb.CreateServiceAccountKeyRequest{
+	_, err := e.client.CreateServiceAccountKey(t.Context(), &adminpb.CreateServiceAccountKeyRequest{
 		Name: sa.GetName(), KeyAlgorithm: adminpb.ServiceAccountKeyAlgorithm_KEY_ALG_RSA_1024,
 	})
+	requireCode(t, codes.InvalidArgument, err)
+
+	small, err := e.client.CreateServiceAccountKey(t.Context(), &adminpb.CreateServiceAccountKeyRequest{
+		Name: sa.GetName(), KeyAlgorithm: adminpb.ServiceAccountKeyAlgorithm_KEY_ALG_RSA_2048,
+	})
 	require.NoError(t, err)
-	assert.Equal(t, adminpb.ServiceAccountKeyAlgorithm_KEY_ALG_RSA_1024, small.GetKeyAlgorithm())
+	assert.Equal(t, adminpb.ServiceAccountKeyAlgorithm_KEY_ALG_RSA_2048, small.GetKeyAlgorithm())
 
 	var kf keyFile
 	require.NoError(t, json.Unmarshal(small.GetPrivateKeyData(), &kf), "default type is the credentials file")
-	assert.Equal(t, 1024, parsePrivate(t, kf.PrivateKey).N.BitLen())
+	assert.Equal(t, 2048, parsePrivate(t, kf.PrivateKey).N.BitLen())
 
 	p12, err := e.client.CreateServiceAccountKey(t.Context(), &adminpb.CreateServiceAccountKeyRequest{
 		Name: sa.GetName(), PrivateKeyType: adminpb.ServiceAccountPrivateKeyType_TYPE_PKCS12_FILE,
@@ -196,7 +201,7 @@ func TestUserKeyQuotaAndSystemKeys(t *testing.T) {
 
 	for range 10 {
 		_, err := e.client.CreateServiceAccountKey(ctx, &adminpb.CreateServiceAccountKeyRequest{
-			Name: sa.GetName(), KeyAlgorithm: adminpb.ServiceAccountKeyAlgorithm_KEY_ALG_RSA_1024,
+			Name: sa.GetName(), KeyAlgorithm: adminpb.ServiceAccountKeyAlgorithm_KEY_ALG_RSA_2048,
 		})
 		require.NoError(t, err)
 	}

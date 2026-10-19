@@ -60,12 +60,12 @@ func newKeyID() (string, error) {
 	return hex.EncodeToString(raw), nil
 }
 
-func keyBits(alg adminpb.ServiceAccountKeyAlgorithm) (int, adminpb.ServiceAccountKeyAlgorithm) {
+func keyBits(alg adminpb.ServiceAccountKeyAlgorithm) (int, adminpb.ServiceAccountKeyAlgorithm, error) {
 	if alg == adminpb.ServiceAccountKeyAlgorithm_KEY_ALG_RSA_1024 {
-		return bitsSmall, alg
+		return 0, alg, errInvalid("KEY_ALG_RSA_1024 is not supported for new keys; use KEY_ALG_RSA_2048.")
 	}
 
-	return bitsDefault, adminpb.ServiceAccountKeyAlgorithm_KEY_ALG_RSA_2048
+	return bitsDefault, adminpb.ServiceAccountKeyAlgorithm_KEY_ALG_RSA_2048, nil
 }
 
 // material is a generated RSA key with its self-signed X.509 certificate and PKIX public key.

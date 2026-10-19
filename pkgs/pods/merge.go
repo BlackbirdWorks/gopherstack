@@ -59,7 +59,7 @@ func mergeArray(cur any, inc []any, scopes map[scopeKey]bool) any {
 		return inc
 	}
 
-	out := make([]any, 0, len(curArr)+len(inc))
+	out := []any{}
 
 	for _, e := range curArr {
 		if !inScopes(e, scopes) {
@@ -76,7 +76,7 @@ func mergeMap(cur any, inc map[string]any, scopes map[scopeKey]bool) any {
 		return inc
 	}
 
-	out := make(map[string]any, len(curMap)+len(inc))
+	out := map[string]any{}
 
 	for k, v := range curMap {
 		if !inScopes(v, scopes) {

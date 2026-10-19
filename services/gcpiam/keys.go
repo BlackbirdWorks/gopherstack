@@ -55,7 +55,11 @@ func (b *InMemoryBackend) CreateServiceAccountKey(
 		return nil, err
 	}
 
-	bits, alg := keyBits(req.GetKeyAlgorithm())
+	bits, alg, err := keyBits(req.GetKeyAlgorithm())
+	if err != nil {
+		return nil, err
+	}
+
 	now := b.now()
 
 	mat, err := generateMaterial(bits, acct.GetEmail(), now, farFuture())
