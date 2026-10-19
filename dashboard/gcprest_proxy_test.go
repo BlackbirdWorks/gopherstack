@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	"github.com/blackbirdworks/gopherstack/services/gcpkms"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	"github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
@@ -157,6 +158,7 @@ func TestGCPRESTProxyDisabled(t *testing.T) {
 		"/dashboard/api/v1/gcp/pubsub/v1/projects/proj-local/topics",
 		"/dashboard/api/v1/gcp/secretmanager/v1/projects/proj-local/secrets",
 		"/dashboard/api/v1/gcp/kms/v1/projects/proj-local/locations/global/keyRings",
+		"/dashboard/api/v1/gcp/cloudtasks/v1/projects/proj-local/locations/us-central1/queues",
 	} {
 		h := dashboard.NewHandler(dashboard.Config{})
 		rec := httptest.NewRecorder()
@@ -209,13 +211,28 @@ func TestGCPKMSProxy(t *testing.T) {
 			{http.MethodPost, ring + "/cryptoKeys?cryptoKeyId=mac", macKey, "HMAC_SHA256", 200},
 			{http.MethodPost, mac + "/cryptoKeyVersions/1:macSign", `{"data":"aGk="}`, `"mac"`, 200},
 		}},
-		{"rejects", []gcpStep{
-			{http.MethodGet, loc + "/importJobs", "", "unsupported", http.StatusNotFound},
-			{http.MethodGet, ring + "/cryptoKeys/x/cryptoKeyVersions/1/other", "", "unsupported", http.StatusNotFound},
-			{http.MethodPost, ring + ":bogus", "", "unsupported", http.StatusNotFound},
-			{http.MethodPost, sym + ":rawDecrypt", `{}`, "unsupported", http.StatusNotFound},
-			{http.MethodPost, ring + "/cryptoKeys?cryptoKeyId=k", `{bad`, "invalid request body", http.StatusBadRequest},
-		}},
+		{
+			"rejects",
+			[]gcpStep{
+				{http.MethodGet, loc + "/importJobs", "", "unsupported", http.StatusNotFound},
+				{
+					http.MethodGet,
+					ring + "/cryptoKeys/x/cryptoKeyVersions/1/other",
+					"",
+					"unsupported",
+					http.StatusNotFound,
+				},
+				{http.MethodPost, ring + ":bogus", "", "unsupported", http.StatusNotFound},
+				{http.MethodPost, sym + ":rawDecrypt", `{}`, "unsupported", http.StatusNotFound},
+				{
+					http.MethodPost,
+					ring + "/cryptoKeys?cryptoKeyId=k",
+					`{bad`,
+					"invalid request body",
+					http.StatusBadRequest,
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -224,6 +241,65 @@ func TestGCPKMSProxy(t *testing.T) {
 
 			h := dashboard.NewHandler(dashboard.Config{
 				GCPKMSOps: gcpkms.NewHandler(gcpkms.NewInMemoryBackend()),
+			})
+			runGCPSteps(t, h, tt.steps)
+		})
+	}
+}
+
+func TestGCPCloudTasksProxy(t *testing.T) {
+	t.Parallel()
+
+	const (
+		loc      = "/dashboard/api/v1/gcp/cloudtasks/v1/projects/proj-local/locations/us-central1"
+		queue    = loc + "/queues/q1"
+		taskName = "projects/proj-local/locations/us-central1/queues/q1/tasks/t1"
+		task     = queue + "/tasks/t1"
+		qBody    = `{"name":"projects/proj-local/locations/us-central1/queues/q1"}`
+		tBody    = `{"task":{"name":"` + taskName + `",` +
+			`"httpRequest":{"url":"http://localhost:1/x","httpMethod":"POST","body":"aGk="}}}`
+		t2Body = `{"task":{"httpRequest":{"url":"http://localhost:1/y"}}}`
+	)
+
+	tests := []struct {
+		name  string
+		steps []gcpStep
+	}{
+		{"queue and task lifecycle", []gcpStep{
+			{http.MethodPost, loc + "/queues", qBody, `"RUNNING"`, 200},
+			{http.MethodPost, loc + "/queues", qBody, "ALREADY_EXISTS", http.StatusConflict},
+			{http.MethodGet, loc + "/queues", "", `"queues"`, 200},
+			{http.MethodGet, queue, "", "queues/q1", 200},
+			{http.MethodPost, queue + ":pause", "", `"PAUSED"`, 200},
+			{http.MethodPost, queue + ":resume", "", `"RUNNING"`, 200},
+			{http.MethodPost, queue + "/tasks", tBody, taskName, 200},
+			{http.MethodGet, queue + "/tasks", "", `"tasks"`, 200},
+			{http.MethodGet, queue + "/tasks?responseView=FULL", "", `"body":"aGk="`, 200},
+			{http.MethodGet, task, "", taskName, 200},
+			{http.MethodPost, task + ":run", "", taskName, 200},
+			{http.MethodDelete, task, "", "{}", 200},
+			{http.MethodGet, task, "", "NOT_FOUND", http.StatusNotFound},
+			{http.MethodPost, queue + "/tasks", t2Body, "/tasks/", 200},
+			{http.MethodPost, queue + ":purge", "", "queues/q1", 200},
+			{http.MethodDelete, queue, "", "{}", 200},
+			{http.MethodGet, queue, "", "NOT_FOUND", http.StatusNotFound},
+		}},
+		{"rejects", []gcpStep{
+			{http.MethodGet, loc + "/other", "", "unsupported", http.StatusNotFound},
+			{http.MethodPost, queue + ":bogus", "", "unsupported", http.StatusNotFound},
+			{http.MethodPost, queue + "/tasks/t1/extra", "", "unsupported", http.StatusNotFound},
+			{http.MethodGet, queue + "/other/t1", "", "unsupported", http.StatusNotFound},
+			{http.MethodPatch, queue, "{}", "unsupported", http.StatusNotFound},
+			{http.MethodPost, loc + "/queues", `{bad`, "invalid request body", http.StatusBadRequest},
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := dashboard.NewHandler(dashboard.Config{
+				GCPCloudTasksOps: gcpcloudtasks.NewHandler(gcpcloudtasks.NewInMemoryBackend()),
 			})
 			runGCPSteps(t, h, tt.steps)
 		})

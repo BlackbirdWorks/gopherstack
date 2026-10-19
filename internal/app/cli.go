@@ -400,6 +400,7 @@ type CLI struct {
 	gcpPubSubHandler              service.Registerable
 	gcpFirestoreHandler           service.Registerable
 	gcpSecretManagerHandler       service.Registerable
+	gcpCloudTasksHandler          service.Registerable
 	gcpKMSHandler                 service.Registerable
 	azureQueueHandler             service.Registerable
 	azureTableHandler             service.Registerable
@@ -1856,6 +1857,11 @@ func (c *CLI) GetGCPSecretManagerHandler() service.Registerable { return c.gcpSe
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGCPKMSHandler() service.Registerable { return c.gcpKMSHandler }
 
+// GetGCPCloudTasksHandler returns the Cloud Tasks handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPCloudTasksHandler() service.Registerable { return c.gcpCloudTasksHandler }
+
 // GetAzureQueueHandler returns the Azure Queue handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
@@ -3128,6 +3134,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.gcpPubSubHandler = byName["GCPPubSub"]
 	cli.gcpFirestoreHandler = byName["GCPFirestore"]
 	cli.gcpSecretManagerHandler = byName["GCPSecretManager"]
+	cli.gcpCloudTasksHandler = byName["GCPCloudTasks"]
 	cli.gcpKMSHandler = byName["GCPKMS"]
 	cli.azureQueueHandler = byName["AzureQueue"]
 	cli.azureTableHandler = byName["AzureTable"]

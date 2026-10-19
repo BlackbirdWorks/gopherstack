@@ -35,6 +35,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/efs"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
+	"github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	"github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	"github.com/blackbirdworks/gopherstack/services/gcpkms"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
@@ -219,5 +220,9 @@ func wireGCPOps(ctx *service.AppContext, conf *Config) {
 
 	if gp, hasKMS := ctx.Config.(interface{ GetGCPKMSHandler() service.Registerable }); hasKMS {
 		conf.GCPKMSOps, _ = getHandler[*gcpkms.Handler](gp.GetGCPKMSHandler())
+	}
+
+	if gp, hasCT := ctx.Config.(interface{ GetGCPCloudTasksHandler() service.Registerable }); hasCT {
+		conf.GCPCloudTasksOps, _ = getHandler[*gcpcloudtasks.Handler](gp.GetGCPCloudTasksHandler())
 	}
 }

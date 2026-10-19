@@ -127,6 +127,14 @@ export const GCP_SERVICES: readonly GcpService[] = [
     defaultPort: 8087,
   },
   {
+    id: "cloudtasks",
+    label: "Cloud Tasks",
+    description: "Google Cloud Tasks",
+    healthName: "GCPCloudTasks",
+    portLabel: "gcpcloudtasks",
+    defaultPort: 8123,
+  },
+  {
     id: "firestore",
     label: "Firestore",
     description: "Google Cloud Firestore",

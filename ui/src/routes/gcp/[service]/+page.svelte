@@ -6,6 +6,7 @@
 	import PubSubDashboard from '#lib/components/gcp/PubSubDashboard.svelte';
 	import FirestoreDashboard from '#lib/components/gcp/FirestoreDashboard.svelte';
 	import KmsDashboard from '#lib/components/gcp/KmsDashboard.svelte';
+	import CloudTasksDashboard from '#lib/components/gcp/CloudTasksDashboard.svelte';
 	import SecretManagerDashboard from '#lib/components/gcp/SecretManagerDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedGcpServices } from '#lib/cloud.svelte.ts';
 
@@ -27,6 +28,8 @@
 	<SecretManagerDashboard />
 {:else if service?.id === 'kms'}
 	<KmsDashboard />
+{:else if service?.id === 'cloudtasks'}
+	<CloudTasksDashboard />
 {:else if service?.id === 'firestore'}
 	<FirestoreDashboard />
 {:else}
