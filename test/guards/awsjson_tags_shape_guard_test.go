@@ -45,35 +45,16 @@ func isTagKey(name string) bool {
 // sdkAwsjsonTagShapes maps an SDK package to the JSON key -> shapes the awsjson
 // serializer emits for tag-like keys. Non-awsjson packages are absent.
 func sdkAwsjsonTagShapes(modCache, pkg, version string) map[string]map[tagShape]bool {
-	base := filepath.Join(modCache, "github.com", "aws", "aws-sdk-go-v2", "service", pkg+"@")
-
-	src, err := os.ReadFile(base + version + "/serializers.go")
-	if err != nil {
-		// pinned version not downloaded locally: fall back to any cached one
-		cached, _ := filepath.Glob(base + "*/serializers.go")
-		if len(cached) == 0 {
-			return nil
-		}
-
-		sort.Strings(cached)
-
-		if src, err = os.ReadFile(cached[len(cached)-1]); err != nil {
-			return nil
-		}
+	src := readSDKSerializers(modCache, pkg, version)
+	if src == nil {
+		return nil
 	}
 
 	text := string(src)
 	docShape := map[string]tagShape{}
 
 	for _, m := range sdkFuncRe.FindAllStringSubmatch(text, -1) {
-		switch {
-		case strings.HasPrefix(m[2], "[]"):
-			docShape[m[1]] = shapeList
-		case strings.HasPrefix(m[2], "map["):
-			docShape[m[1]] = shapeMap
-		default:
-			docShape[m[1]] = shapeOther
-		}
+		docShape[m[1]] = paramShape(m[2])
 	}
 
 	out := map[string]map[tagShape]bool{}
@@ -97,6 +78,41 @@ func sdkAwsjsonTagShapes(modCache, pkg, version string) map[string]map[tagShape]
 	}
 
 	return out
+}
+
+func readSDKSerializers(modCache, pkg, version string) []byte {
+	base := filepath.Join(modCache, "github.com", "aws", "aws-sdk-go-v2", "service", pkg+"@")
+
+	src, err := os.ReadFile(base + version + "/serializers.go")
+	if err == nil {
+		return src
+	}
+
+	// pinned version not downloaded locally: fall back to any cached one
+	cached, _ := filepath.Glob(base + "*/serializers.go")
+	if len(cached) == 0 {
+		return nil
+	}
+
+	sort.Strings(cached)
+
+	src, err = os.ReadFile(cached[len(cached)-1])
+	if err != nil {
+		return nil
+	}
+
+	return src
+}
+
+func paramShape(goType string) tagShape {
+	switch {
+	case strings.HasPrefix(goType, "[]"):
+		return shapeList
+	case strings.HasPrefix(goType, "map["):
+		return shapeMap
+	default:
+		return shapeOther
+	}
 }
 
 type handlerTagField struct {
@@ -203,66 +219,94 @@ func decodedRoots(files []*ast.File) map[string]bool {
 
 	for _, f := range files {
 		for _, d := range f.Decls {
-			fd, ok := d.(*ast.FuncDecl)
-			if !ok || fd.Body == nil {
-				continue
+			if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil {
+				collectDecodedRoots(fd, roots)
 			}
-
-			locals := map[string]string{}
-
-			if fd.Type.Params != nil {
-				for _, p := range fd.Type.Params.List {
-					for _, n := range p.Names {
-						locals[n.Name] = typeName(p.Type)
-					}
-				}
-			}
-
-			ast.Inspect(fd.Body, func(n ast.Node) bool {
-				switch x := n.(type) {
-				case *ast.ValueSpec:
-					for _, nm := range x.Names {
-						if x.Type != nil {
-							locals[nm.Name] = typeName(x.Type)
-						}
-					}
-				case *ast.AssignStmt:
-					if len(x.Lhs) == len(x.Rhs) {
-						for i, l := range x.Lhs {
-							if id, isID := l.(*ast.Ident); isID {
-								if tn := typeName(x.Rhs[i]); tn != "" {
-									locals[id.Name] = tn
-								}
-							}
-						}
-					}
-				case *ast.CallExpr:
-					name, targs := calleeName(x.Fun)
-					if !decodeCallRe.MatchString(name) {
-						return true
-					}
-
-					for _, ta := range targs {
-						roots[typeName(ta)] = true
-					}
-
-					for _, a := range x.Args {
-						if id, isID := unaddr(a).(*ast.Ident); isID {
-							if tn := locals[id.Name]; tn != "" {
-								roots[tn] = true
-							}
-						} else if tn := typeName(a); tn != "" {
-							roots[tn] = true
-						}
-					}
-				}
-
-				return true
-			})
 		}
 	}
 
 	return roots
+}
+
+func collectDecodedRoots(fd *ast.FuncDecl, roots map[string]bool) {
+	locals := paramTypes(fd)
+
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.ValueSpec:
+			recordValueSpec(x, locals)
+		case *ast.AssignStmt:
+			recordAssign(x, locals)
+		case *ast.CallExpr:
+			recordDecodeCall(x, locals, roots)
+		}
+
+		return true
+	})
+}
+
+func paramTypes(fd *ast.FuncDecl) map[string]string {
+	locals := map[string]string{}
+
+	if fd.Type.Params == nil {
+		return locals
+	}
+
+	for _, p := range fd.Type.Params.List {
+		for _, n := range p.Names {
+			locals[n.Name] = typeName(p.Type)
+		}
+	}
+
+	return locals
+}
+
+func recordValueSpec(x *ast.ValueSpec, locals map[string]string) {
+	if x.Type == nil {
+		return
+	}
+
+	for _, nm := range x.Names {
+		locals[nm.Name] = typeName(x.Type)
+	}
+}
+
+func recordAssign(x *ast.AssignStmt, locals map[string]string) {
+	if len(x.Lhs) != len(x.Rhs) {
+		return
+	}
+
+	for i, l := range x.Lhs {
+		id, isID := l.(*ast.Ident)
+		if !isID {
+			continue
+		}
+
+		if tn := typeName(x.Rhs[i]); tn != "" {
+			locals[id.Name] = tn
+		}
+	}
+}
+
+func recordDecodeCall(x *ast.CallExpr, locals map[string]string, roots map[string]bool) {
+	name, targs := calleeName(x.Fun)
+	if !decodeCallRe.MatchString(name) {
+		return
+	}
+
+	for _, ta := range targs {
+		roots[typeName(ta)] = true
+	}
+
+	for _, a := range x.Args {
+		if id, isID := unaddr(a).(*ast.Ident); isID {
+			if tn := locals[id.Name]; tn != "" {
+				roots[tn] = true
+			}
+		} else if tn := typeName(a); tn != "" {
+			roots[tn] = true
+		}
+	}
 }
 
 func unaddr(e ast.Expr) ast.Expr {
@@ -319,13 +363,15 @@ func reachable(files []*ast.File, roots map[string]bool) map[string]bool {
 	return seen
 }
 
-func scanHandlerTagFields(t *testing.T, dir string) []handlerTagField {
+type parsedGo struct {
+	files []*ast.File
+	names []string
+}
+
+func parseGuardedDir(t *testing.T, dir string) parsedGo {
 	t.Helper()
 
-	var (
-		files []*ast.File
-		names []string
-	)
+	var pg parsedGo
 
 	fset := token.NewFileSet()
 
@@ -343,12 +389,16 @@ func scanHandlerTagFields(t *testing.T, dir string) []handlerTagField {
 			return perr
 		}
 
-		files = append(files, f)
-		names = append(names, path)
+		pg.files = append(pg.files, f)
+		pg.names = append(pg.names, path)
 
 		return nil
 	}))
 
+	return pg
+}
+
+func collectNamedAndCustom(files []*ast.File) (map[string]ast.Expr, map[string]bool) {
 	named := map[string]ast.Expr{}
 	custom := map[string]bool{}
 
@@ -358,26 +408,62 @@ func scanHandlerTagFields(t *testing.T, dir string) []handlerTagField {
 				custom[typeName(fd.Recv.List[0].Type)] = true
 			}
 
-			gd, ok := d.(*ast.GenDecl)
-			if !ok {
-				continue
-			}
-
-			for _, s := range gd.Specs {
-				if ts, isTS := s.(*ast.TypeSpec); isTS {
-					if _, isStruct := ts.Type.(*ast.StructType); !isStruct {
-						named[ts.Name.Name] = ts.Type
-					}
-				}
+			if gd, ok := d.(*ast.GenDecl); ok {
+				addNonStructTypes(gd, named)
 			}
 		}
 	}
 
-	reach := reachable(files, decodedRoots(files))
+	return named, custom
+}
+
+func addNonStructTypes(gd *ast.GenDecl, named map[string]ast.Expr) {
+	for _, s := range gd.Specs {
+		ts, isTS := s.(*ast.TypeSpec)
+		if !isTS {
+			continue
+		}
+
+		if _, isStruct := ts.Type.(*ast.StructType); !isStruct {
+			named[ts.Name.Name] = ts.Type
+		}
+	}
+}
+
+func structTagFields(
+	file string, ts *ast.TypeSpec, st *ast.StructType, named map[string]ast.Expr, custom map[string]bool,
+) []handlerTagField {
+	var out []handlerTagField
+
+	for _, fld := range st.Fields.List {
+		for _, nm := range fld.Names {
+			key := jsonKey(fld, nm.Name)
+			if key == "-" || !isTagKey(key) {
+				continue
+			}
+
+			out = append(out, handlerTagField{
+				file: filepath.ToSlash(file), strct: ts.Name.Name, field: nm.Name,
+				key: key, shape: exprShape(fld.Type, named, custom, 0),
+			})
+		}
+	}
+
+	return out
+}
+
+func scanHandlerTagFields(t *testing.T, dir string) []handlerTagField {
+	t.Helper()
+
+	pg := parseGuardedDir(t, dir)
+	named, custom := collectNamedAndCustom(pg.files)
+	reach := reachable(pg.files, decodedRoots(pg.files))
 
 	var out []handlerTagField
 
-	for i, f := range files {
+	for i, f := range pg.files {
+		wire := wireFileRe.MatchString(filepath.Base(pg.names[i]))
+
 		ast.Inspect(f, func(n ast.Node) bool {
 			ts, ok := n.(*ast.TypeSpec)
 			if !ok {
@@ -385,22 +471,8 @@ func scanHandlerTagFields(t *testing.T, dir string) []handlerTagField {
 			}
 
 			st, ok := ts.Type.(*ast.StructType)
-			if !ok || (!reach[ts.Name.Name] && !wireFileRe.MatchString(filepath.Base(names[i]))) {
-				return true
-			}
-
-			for _, fld := range st.Fields.List {
-				for _, nm := range fld.Names {
-					key := jsonKey(fld, nm.Name)
-					if key == "-" || !isTagKey(key) {
-						continue
-					}
-
-					out = append(out, handlerTagField{
-						file: filepath.ToSlash(names[i]), strct: ts.Name.Name, field: nm.Name,
-						key: key, shape: exprShape(fld.Type, named, custom, 0),
-					})
-				}
+			if ok && (reach[ts.Name.Name] || wire) {
+				out = append(out, structTagFields(pg.names[i], ts, st, named, custom)...)
 			}
 
 			return true
@@ -487,6 +559,31 @@ func notRequestBodies() map[string]string {
 func dirTagOffenders(t *testing.T, dir string, sdk sdkShapes, pkgs map[string]bool) []string {
 	t.Helper()
 
+	union, hasJSON := unionShapes(sdk, pkgs)
+	if !hasJSON {
+		return nil
+	}
+
+	var offenders []string
+
+	for _, h := range scanHandlerTagFields(t, dir) {
+		want := union[h.key]
+		if shapeAccepted(h, want) {
+			continue
+		}
+
+		if _, skip := notRequestBodies()[h.file+": "+h.strct+"."+h.field]; skip {
+			continue
+		}
+
+		offenders = append(offenders,
+			h.file+": "+h.strct+"."+h.field+" (json "+h.key+") is "+h.shape+", awsjson SDK emits "+shapeSet(want))
+	}
+
+	return offenders
+}
+
+func unionShapes(sdk sdkShapes, pkgs map[string]bool) (map[string]map[tagShape]bool, bool) {
 	union := map[string]map[tagShape]bool{}
 	hasJSON := false
 
@@ -509,28 +606,12 @@ func dirTagOffenders(t *testing.T, dir string, sdk sdkShapes, pkgs map[string]bo
 		}
 	}
 
-	if !hasJSON {
-		return nil
-	}
+	return union, hasJSON
+}
 
-	var offenders []string
-
-	for _, h := range scanHandlerTagFields(t, dir) {
-		want := union[h.key]
-		if len(want) == 0 || want[h.shape] || h.shape == shapeOther ||
-			(len(want) == 1 && want[shapeOther]) || responseNameRe.MatchString(h.strct) {
-			continue
-		}
-
-		if _, skip := notRequestBodies()[h.file+": "+h.strct+"."+h.field]; skip {
-			continue
-		}
-
-		offenders = append(offenders,
-			h.file+": "+h.strct+"."+h.field+" (json "+h.key+") is "+h.shape+", awsjson SDK emits "+shapeSet(want))
-	}
-
-	return offenders
+func shapeAccepted(h handlerTagField, want map[tagShape]bool) bool {
+	return len(want) == 0 || want[h.shape] || h.shape == shapeOther ||
+		(len(want) == 1 && want[shapeOther]) || responseNameRe.MatchString(h.strct)
 }
 
 // TestAwsjsonTagFieldShapesMatchSDK fails when a handler request struct
