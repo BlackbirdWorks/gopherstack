@@ -79,8 +79,10 @@ func TestExtensionRoutingAndHooks(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(regFile, reg, 0o600))
 
+	// Never exits: CI runs internal/app for 12+ minutes and the parallel request
+	// subtests below can be queued that long after the readiness check.
 	script := fmt.Sprintf(`curl -sf -X POST -H "Authorization: Bearer $GOPHERSTACK_EXTENSION_TOKEN" -d @%s `+
-		`"$GOPHERSTACK_CONTROL_URL/_gopherstack/extensions/register" && exec sleep 600`, regFile)
+		`"$GOPHERSTACK_CONTROL_URL/_gopherstack/extensions/register" && exec tail -f /dev/null`, regFile)
 	cfgFile := filepath.Join(dir, "ext.json")
 	cfg, err := json.Marshal(map[string]any{"extensions": []map[string]any{
 		{"name": "t", "command": []string{"sh", "-c", script}, "health_interval": "1h"},
