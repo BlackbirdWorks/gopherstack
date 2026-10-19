@@ -26,18 +26,12 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	lambdapkg "github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
 const (
-	// lambdaTestPortStart is the start of the port range reserved for Lambda runtime API servers
-	// during integration tests. This range is separate from the default (10000-10100) to avoid
-	// conflicts with other test infrastructure.
-	lambdaTestPortStart = 19000
-	// lambdaTestPortEnd is the exclusive end of the Lambda test port range.
-	lambdaTestPortEnd = 19010
 	// lambdaEchoImage is the local image tag for the minimal Go echo Lambda handler.
 	lambdaEchoImage = "gopherstack-lambda-echo-test:latest"
 	// lambdaFunctionName is the function name used throughout the lifecycle test.
@@ -144,8 +138,7 @@ func TestLambdaIntegration_Invoke_DockerEchoContainer(t *testing.T) {
 	buildEchoLambdaImage(ctx, t)
 
 	// Create a port allocator for Lambda Runtime API servers.
-	alloc, err := portalloc.New(lambdaTestPortStart, lambdaTestPortEnd)
-	require.NoError(t, err)
+	alloc := portalloctest.New(t, 10)
 
 	// Wire up the Lambda service with real Docker and portalloc.
 	settings := lambdapkg.DefaultSettings() // DockerHost defaults to 172.17.0.1 (Docker bridge)

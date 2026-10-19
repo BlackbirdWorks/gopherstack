@@ -16,21 +16,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	cwlogspkg "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	lambdapkg "github.com/blackbirdworks/gopherstack/services/lambda"
-)
-
-const (
-	// lambdaLogsPortStart is the start of the port range for Lambda log wiring tests.
-	lambdaLogsPortStart = 21200
-	// lambdaLogsPortEnd is the exclusive end of that range.
-	lambdaLogsPortEnd = 21300
-	// lambdaVersionsPortStart is the start of the port range for Lambda version/alias integration tests.
-	lambdaVersionsPortStart = 21300
-	// lambdaVersionsPortEnd is the exclusive end of that range.
-	lambdaVersionsPortEnd = 21400
 )
 
 // inProcessCWLogsAdapter adapts a cloudwatchlogs.InMemoryBackend to lambdapkg.CWLogsBackend.
@@ -76,8 +65,7 @@ func TestLambdaCWLogs_WiringProducesLogEntries(t *testing.T) {
 
 	ctx := t.Context()
 
-	pa, err := portalloc.New(lambdaLogsPortStart, lambdaLogsPortEnd)
-	require.NoError(t, err)
+	pa := portalloctest.New(t, 100)
 
 	cwlogsBackend := cwlogspkg.NewInMemoryBackend()
 	cwlogsAdapter := &inProcessCWLogsAdapter{backend: cwlogsBackend}
@@ -145,8 +133,7 @@ func TestLambdaCWLogs_WiringProducesLogEntries(t *testing.T) {
 func TestLambdaVersionsAndAliases_Integration(t *testing.T) {
 	t.Parallel()
 
-	pa, err := portalloc.New(lambdaVersionsPortStart, lambdaVersionsPortEnd)
-	require.NoError(t, err)
+	pa := portalloctest.New(t, 100)
 
 	lambdaBackend := lambdapkg.NewInMemoryBackend(
 		nil,

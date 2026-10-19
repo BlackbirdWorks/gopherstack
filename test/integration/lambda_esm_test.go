@@ -24,17 +24,13 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	lambdapkg "github.com/blackbirdworks/gopherstack/services/lambda"
 	sqspkg "github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
 const (
-	// esmTestPortStart is the start of the port range reserved for ESM integration tests.
-	esmTestPortStart = 19020
-	// esmTestPortEnd is the exclusive end of the ESM test port range.
-	esmTestPortEnd = 19030
 	// esmInvokeTimeout is the per-invocation deadline for the Lambda container cold-start.
 	esmInvokeTimeout = 30 * time.Second
 	// esmDrainTimeout is the maximum time to wait for the SQS queue to drain to zero messages.
@@ -138,8 +134,7 @@ func TestIntegration_Lambda_SQS_ESM(t *testing.T) {
 	buildEchoLambdaImage(ctx, t)
 
 	// Create a port allocator for Lambda Runtime API servers.
-	alloc, err := portalloc.New(esmTestPortStart, esmTestPortEnd)
-	require.NoError(t, err)
+	alloc := portalloctest.New(t, 10)
 
 	// --- Build service backends ---
 	sqsBackend := sqspkg.NewInMemoryBackendWithConfig("000000000000", "us-east-1")

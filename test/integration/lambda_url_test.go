@@ -16,16 +16,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	lambdapkg "github.com/blackbirdworks/gopherstack/services/lambda"
-)
-
-const (
-	// urlTestPortStart is the start of the port range for Lambda function URL tests.
-	urlTestPortStart = 21000
-	// urlTestPortEnd is the exclusive end of the Lambda function URL test port range.
-	urlTestPortEnd = 21100
 )
 
 // TestLambdaFunctionURL_CreateGetDelete tests the full lifecycle of a Lambda function URL
@@ -35,8 +28,7 @@ func TestLambdaFunctionURL_CreateGetDelete(t *testing.T) {
 
 	ctx := t.Context()
 
-	pa, err := portalloc.New(urlTestPortStart, urlTestPortEnd)
-	require.NoError(t, err)
+	pa := portalloctest.New(t, 50)
 
 	backend := lambdapkg.NewInMemoryBackend(
 		nil,
@@ -133,8 +125,7 @@ func TestLambdaFunctionURL_CreateGetDelete(t *testing.T) {
 func TestLambdaFunctionURL_HTTPEndpoint(t *testing.T) {
 	t.Parallel()
 
-	pa, err := portalloc.New(urlTestPortStart+50, urlTestPortEnd)
-	require.NoError(t, err)
+	pa := portalloctest.New(t, 50)
 
 	backend := lambdapkg.NewInMemoryBackend(
 		nil,

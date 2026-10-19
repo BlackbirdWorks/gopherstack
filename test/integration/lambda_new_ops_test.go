@@ -16,22 +16,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	lambdapkg "github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
-const (
-	newOpsPortStart = 22000
-	newOpsPortEnd   = 22500
-)
-
 // setupLambdaTestServer creates a test server with a Lambda handler backed by an InMemoryBackend.
-func setupLambdaTestServer(t *testing.T, portStart, portEnd int) *httptest.Server {
+func setupLambdaTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 
-	pa, err := portalloc.New(portStart, portEnd)
-	require.NoError(t, err)
+	pa := portalloctest.New(t, 100)
 
 	backend := lambdapkg.NewInMemoryBackend(
 		nil,
@@ -79,7 +73,7 @@ func TestLambda_AddPermission(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	server := setupLambdaTestServer(t, newOpsPortStart, newOpsPortStart+100)
+	server := setupLambdaTestServer(t)
 	const fnName = "add-permission-fn"
 
 	createLambdaFunction(ctx, t, server.URL, fnName)
@@ -171,7 +165,7 @@ func TestLambda_AddPermission_DuplicateStatementId(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	server := setupLambdaTestServer(t, newOpsPortStart+100, newOpsPortStart+200)
+	server := setupLambdaTestServer(t)
 	const fnName = "dup-perm-fn"
 
 	createLambdaFunction(ctx, t, server.URL, fnName)
@@ -203,7 +197,7 @@ func TestLambda_GetAccountSettings(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	server := setupLambdaTestServer(t, newOpsPortStart+200, newOpsPortStart+300)
+	server := setupLambdaTestServer(t)
 
 	resp, err := doLambdaRequest(ctx, http.MethodGet,
 		server.URL+"/2016-08-19/account-settings", "", nil)
@@ -231,7 +225,7 @@ func TestLambda_CodeSigningConfig(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	server := setupLambdaTestServer(t, newOpsPortStart+300, newOpsPortStart+400)
+	server := setupLambdaTestServer(t)
 	const fnName = "csc-fn"
 
 	createLambdaFunction(ctx, t, server.URL, fnName)
@@ -358,7 +352,7 @@ func TestLambda_CapacityProvider(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	server := setupLambdaTestServer(t, newOpsPortStart+400, newOpsPortStart+500)
+	server := setupLambdaTestServer(t)
 
 	// Create capacity provider
 	createBody, err := json.Marshal(map[string]any{
@@ -477,7 +471,7 @@ func TestLambda_CheckpointDurableExecution(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	server := setupLambdaTestServer(t, newOpsPortStart, newOpsPortEnd)
+	server := setupLambdaTestServer(t)
 
 	resp, err := doLambdaRequest(
 		ctx,
@@ -497,7 +491,7 @@ func TestLambda_FunctionUrlConfig_2021(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	server := setupLambdaTestServer(t, newOpsPortStart+150, newOpsPortStart+250)
+	server := setupLambdaTestServer(t)
 	const fnName = "url-config-2021-fn"
 
 	createLambdaFunction(ctx, t, server.URL, fnName)

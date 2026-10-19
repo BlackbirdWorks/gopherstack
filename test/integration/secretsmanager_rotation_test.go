@@ -26,17 +26,13 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	lambdapkg "github.com/blackbirdworks/gopherstack/services/lambda"
 	smpkg "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
 const (
-	// rotationLambdaPortStart is the start of the port range for the rotation Lambda runtime API.
-	rotationLambdaPortStart = 19100
-	// rotationLambdaPortEnd is the exclusive end of the rotation Lambda port range.
-	rotationLambdaPortEnd = 19110
 	// rotationLambdaImage is the Docker image tag for the rotation Lambda handler.
 	rotationLambdaImage = "gopherstack-lambda-rotation-test:latest"
 	// rotationFunctionName is the function name for the rotation Lambda.
@@ -217,8 +213,7 @@ func TestIntegration_SecretsManager_RotateSecret_WithLambda(t *testing.T) {
 	buildRotationLambdaImage(ctx, t)
 
 	// Create a port allocator for Lambda runtime API servers.
-	alloc, err := portalloc.New(rotationLambdaPortStart, rotationLambdaPortEnd)
-	require.NoError(t, err)
+	alloc := portalloctest.New(t, 10)
 
 	// Wire up the Lambda backend with real Docker.
 	settings := lambdapkg.DefaultSettings()

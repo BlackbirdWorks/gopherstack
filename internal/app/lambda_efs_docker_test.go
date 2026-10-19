@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 )
@@ -68,7 +68,7 @@ func TestLambdaEFSSharedAcrossFunctionsDocker(t *testing.T) {
 	t.Cleanup(func() { _ = rt.Close() })
 
 	cli := &CLI{AccountID: "000000000000", Region: "us-east-1", Port: ":8127"}
-	byName := newWiredServices(t, cli, 19800)
+	byName := newWiredServices(t, cli)
 
 	efsBk := byName["EFS"].(*efsbackend.Handler).Backend
 	efsBk.SetStorageRoot(t.TempDir())
@@ -85,8 +85,7 @@ func TestLambdaEFSSharedAcrossFunctionsDocker(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	pa, err := portalloc.New(19860, 19879)
-	require.NoError(t, err)
+	pa := portalloctest.New(t, 20)
 
 	bk := lambdabackend.NewInMemoryBackend(rt, pa, lambdabackend.DefaultSettings(), "000000000000", "us-east-1")
 	t.Cleanup(func() { bk.Close(context.Background()) })
