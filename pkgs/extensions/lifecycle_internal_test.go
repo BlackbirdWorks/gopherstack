@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,7 +74,7 @@ func TestExtensionProcessLifecycle(t *testing.T) {
 			}
 			m, logFile := newHelperManager(
 				t,
-				Spec{Name: "hello", AllowOverride: tt.override, HealthPath: "/health"},
+				Spec{Name: "hello", AllowOverride: tt.override, HealthPath: "/health", HealthInterval: time.Hour},
 				reg,
 				false,
 			)
@@ -99,6 +100,12 @@ func TestExtensionProcessLifecycle(t *testing.T) {
 			assert.Nil(t, m.Route(httptest.NewRequest(http.MethodGet, "/other", nil), false))
 
 			m.MarkReady(t.Context())
+			require.Eventually(t, func() bool {
+				b, rerr := os.ReadFile(logFile)
+
+				return rerr == nil && strings.Contains(string(b), "/hooks/ready\n")
+			}, 20*time.Second, 20*time.Millisecond)
+
 			m.Stop(context.WithoutCancel(t.Context()))
 
 			assert.Equal(t, StatusStopped, statusOf(m))

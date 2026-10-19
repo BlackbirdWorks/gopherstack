@@ -24,32 +24,20 @@ const (
 )
 
 // lifecycle POSTs a lifecycle event to the extension; failures are logged, never fatal.
+// Events are serialized per extension and gated: ready only after startup, nothing after shutdown.
 func (m *Manager) lifecycle(ctx context.Context, e *extension, event string) {
-	m.mu.RLock("lifecycle")
+	e.seq <- struct{}{}
+	defer func() { <-e.seq }()
 
-	var path string
-
-	if e.reg != nil {
-		switch event {
-		case "on_startup":
-			path = e.reg.Hooks.OnStartup
-		case "on_ready":
-			path = e.reg.Hooks.OnReady
-		case "on_shutdown":
-			path = e.reg.Hooks.OnShutdown
-		}
-	}
-
-	ep := e.endpoint
-	m.mu.RUnlock()
-
+	path, ep := m.claimEvent(e, event)
 	if path == "" || ep == nil {
 		return
 	}
 
 	body := fmt.Appendf(nil, lifecycleBody, event, e.spec.Name)
 
-	if _, err := m.post(ctx, ep, path, body, m.cfg.HookTimeout); err != nil {
+	_, err := m.post(ctx, ep, path, body, m.cfg.HookTimeout)
+	if err != nil {
 		m.log.WarnContext(
 			ctx,
 			"extension lifecycle hook failed",
@@ -61,6 +49,49 @@ func (m *Manager) lifecycle(ctx context.Context, e *extension, event string) {
 			err,
 		)
 	}
+
+	if event == "on_startup" {
+		m.mu.Lock("lifecycle")
+		e.started = true
+		m.mu.Unlock()
+	}
+}
+
+// claimEvent decides whether event may be sent now and records it as sent.
+func (m *Manager) claimEvent(e *extension, event string) (string, *url.URL) {
+	m.mu.Lock("lifecycle")
+	defer m.mu.Unlock()
+
+	if e.reg == nil || e.endpoint == nil {
+		return "", nil
+	}
+
+	switch event {
+	case "on_startup":
+		if m.stopping.Load() || e.started {
+			return "", nil
+		}
+
+		return e.reg.Hooks.OnStartup, e.endpoint
+	case "on_ready":
+		if m.stopping.Load() || !e.started || e.readySent {
+			return "", nil
+		}
+
+		e.readySent = true
+
+		return e.reg.Hooks.OnReady, e.endpoint
+	case "on_shutdown":
+		if !e.started || e.shutdownSent {
+			return "", nil
+		}
+
+		e.shutdownSent = true
+
+		return e.reg.Hooks.OnShutdown, e.endpoint
+	}
+
+	return "", nil
 }
 
 func (m *Manager) post(

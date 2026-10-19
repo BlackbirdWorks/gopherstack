@@ -53,12 +53,17 @@ type extension struct {
 	endpoint *url.URL
 	// registered is closed on the first registration of the current incarnation.
 	registered chan struct{}
-	token      string
-	status     Status
-	lastError  string
-	spec       Spec
-	port       int
-	restarts   int
+	// seq serializes lifecycle events; started/readySent/shutdownSent are per incarnation, guarded by Manager.mu.
+	seq          chan struct{}
+	token        string
+	status       Status
+	lastError    string
+	spec         Spec
+	port         int
+	restarts     int
+	started      bool
+	readySent    bool
+	shutdownSent bool
 }
 
 // Manager owns extension lifecycles, claims and hooks.
@@ -73,6 +78,7 @@ type Manager struct {
 	cfg       Config
 	wg        sync.WaitGroup
 	ready     atomic.Bool
+	stopping  atomic.Bool
 }
 
 // New builds a manager for cfg (already normalized by LoadConfig).
@@ -87,7 +93,7 @@ func New(cfg Config, opts Options) *Manager {
 	m.hookHTTP = &http.Client{Transport: m.transport}
 
 	for _, s := range cfg.Extensions {
-		m.exts = append(m.exts, &extension{spec: s, status: StatusStarting})
+		m.exts = append(m.exts, &extension{spec: s, status: StatusStarting, seq: make(chan struct{}, 1)})
 	}
 
 	return m
@@ -119,6 +125,8 @@ func (m *Manager) Stop(ctx context.Context) {
 	if m.cancel == nil {
 		return
 	}
+
+	m.stopping.Store(true)
 
 	for _, e := range m.registeredExts() {
 		m.lifecycle(ctx, e, "on_shutdown")
@@ -218,6 +226,7 @@ func (m *Manager) prepare(e *extension) (string, int, error) {
 
 	e.token, e.port, e.reg, e.endpoint, e.proxy = token, port, nil, nil, nil
 	e.registered = make(chan struct{})
+	e.started, e.readySent, e.shutdownSent = false, false, false
 	e.status = StatusStarting
 
 	return token, port, nil
