@@ -337,16 +337,30 @@ func (b *InMemoryBackend) syncManagedInstances(t scalingTarget, info ASGInfo) {
 		if ci.ManagedBy == t.provider.Name && ci.Status != statusInactive &&
 			!slices.Contains(info.InServiceInstanceIDs, ci.EC2InstanceID) &&
 			len(b.instanceTasksLocked(t.cluster, ci.ContainerInstanceArn)) == 0 {
-			ci.Status = statusInactive
-			ci.InactiveAt = time.Now()
-			ci.Version++
-			b.emitContainerInstanceStateLocked(ci)
+			b.retireManagedInstanceLocked(ci)
 		}
 	}
 
 	b.mu.Unlock()
 
 	b.placeAwaitingTasks()
+}
+
+func (b *InMemoryBackend) retireManagedInstanceLocked(ci *ContainerInstance) {
+	ci.Status = statusInactive
+	ci.InactiveAt = time.Now()
+	ci.Version++
+	b.emitContainerInstanceStateLocked(ci)
+}
+
+// retireOrphanedManagedInstancesLocked retires idle instances whose provider left the cluster; no scaler tracks them.
+func (b *InMemoryBackend) retireOrphanedManagedInstancesLocked(clusterName string, providers []string) {
+	for _, ci := range slices.Clone(b.containerInstancesByCluster.Get(clusterName)) {
+		if ci.ManagedBy != "" && ci.Status != statusInactive && !slices.Contains(providers, ci.ManagedBy) &&
+			len(b.instanceTasksLocked(clusterName, ci.ContainerInstanceArn)) == 0 {
+			b.retireManagedInstanceLocked(ci)
+		}
+	}
 }
 
 func (b *InMemoryBackend) protectBusyInstances(
