@@ -129,6 +129,15 @@ jobs:
           git rev-parse -q --verify "refs/tags/$RELEASE_TAG" >/dev/null
           test "$(git rev-parse HEAD)" = "$(git rev-list -n1 "$RELEASE_TAG")"
 
+      # Parallel cross-compiles of the full binary exceed runner RAM; the runner is killed without swap.
+      - name: Add swap
+        run: |
+          sudo swapoff -a || true
+          sudo fallocate -l 16G /mnt/release.swap
+          sudo chmod 600 /mnt/release.swap
+          sudo mkswap /mnt/release.swap
+          sudo swapon /mnt/release.swap
+
       # .goreleaser.yml's before hook runs `task ui-build`.
       - name: Install Task
         uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
@@ -170,7 +179,7 @@ jobs:
         with:
           distribution: goreleaser
           version: '~> v2'
-          args: release --clean
+          args: release --clean --parallelism 2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
        
