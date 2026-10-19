@@ -182,6 +182,8 @@ func TestGCPKMSProxy(t *testing.T) {
 		symKey = `{"purpose":"ENCRYPT_DECRYPT"}`
 		sigKey = `{"purpose":"ASYMMETRIC_SIGN","versionTemplate":{"algorithm":"EC_SIGN_P256_SHA256"}}`
 		macKey = `{"purpose":"MAC","versionTemplate":{"algorithm":"HMAC_SHA256"}}`
+
+		labeledKey = `{"purpose":"ENCRYPT_DECRYPT","labels":{"env":"dev"}}`
 	)
 
 	tests := []struct {
@@ -212,6 +214,21 @@ func TestGCPKMSProxy(t *testing.T) {
 			{http.MethodGet, asym + "/cryptoKeyVersions/1/publicKey", "", "BEGIN PUBLIC KEY", 200},
 			{http.MethodPost, ring + "/cryptoKeys?cryptoKeyId=mac", macKey, "HMAC_SHA256", 200},
 			{http.MethodPost, mac + "/cryptoKeyVersions/1:macSign", `{"data":"aGk="}`, `"mac"`, 200},
+		}},
+		{"filter delete retired", []gcpStep{
+			{http.MethodPost, loc + "/keyRings?keyRingId=r1", "", "keyRings/r1", 200},
+			{http.MethodPost, ring + "/cryptoKeys?cryptoKeyId=sym", labeledKey, "dev", 200},
+			{http.MethodPost, ring + "/cryptoKeys?cryptoKeyId=other", symKey, "other", 200},
+			{http.MethodGet, ring + "/cryptoKeys?filter=labels.env%3Ddev&orderBy=name", "", "cryptoKeys/sym", 200},
+			{http.MethodGet, ring + "/cryptoKeys?filter=bogus%20%3D%3D", "", "INVALID_ARGUMENT", http.StatusBadRequest},
+			{http.MethodPatch, sym + "?updateMask=labels", `{"labels":{"env":"prod"}}`, "prod", 200},
+			{http.MethodPost, sym + "/cryptoKeyVersions", `{}`, `cryptoKeyVersions/2`, 200},
+			{http.MethodDelete, sym + "/cryptoKeyVersions/2", "", "FAILED_PRECONDITION", http.StatusBadRequest},
+			{http.MethodPost, sym + "/cryptoKeyVersions/2:destroy", "", "DESTROY_SCHEDULED", 200},
+			{http.MethodDelete, sym, "", "FAILED_PRECONDITION", http.StatusBadRequest},
+			{http.MethodDelete, ring + "/cryptoKeys/other", "", `"done"`, 200},
+			{http.MethodGet, loc + "/retiredResources", "", "cryptoKeys/other", 200},
+			{http.MethodPost, loc + "/retiredResources", "", "unsupported", http.StatusNotFound},
 		}},
 		{
 			"rejects",

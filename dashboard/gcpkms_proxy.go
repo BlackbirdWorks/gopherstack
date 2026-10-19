@@ -6,6 +6,7 @@ import (
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 const (
@@ -38,6 +39,8 @@ const (
 	kmsVerbDestroy   = "destroy"
 	kmsVerbRestore   = "restore"
 	kmsVerbPrimary   = "updatePrimaryVersion"
+	kmsVerbAsymDec   = "asymmetricDecrypt"
+	kmsRetiredKind   = "retiredResources"
 )
 
 // registerGCPKMSRoutes exposes Cloud KMS to the SPA as the REST JSON shapes of
@@ -58,8 +61,15 @@ type gcpKMSAPI struct {
 
 func (a *gcpKMSAPI) route(ctx context.Context, r gcpRESTCall) (proto.Message, error) {
 	n := len(r.segs)
-	if n < kmsRingsSegs || r.segs[0] != gcpRESTProjectsSeg || r.segs[kmsLocationsIdx] != kmsLocationsKind ||
-		r.segs[kmsRingsIdx] != kmsRingsKind {
+	if n < kmsRingsSegs || r.segs[0] != gcpRESTProjectsSeg || r.segs[kmsLocationsIdx] != kmsLocationsKind {
+		return nil, errGCPUnsupported()
+	}
+
+	switch r.segs[kmsRingsIdx] {
+	case kmsRetiredKind:
+		return a.retired(ctx, r)
+	case kmsRingsKind:
+	default:
 		return nil, errGCPUnsupported()
 	}
 
@@ -77,14 +87,30 @@ func (a *gcpKMSAPI) route(ctx context.Context, r gcpRESTCall) (proto.Message, er
 	case kmsVersionSegs:
 		return a.version(ctx, r)
 	case kmsPublicKeySegs:
-		if r.segs[kmsPublicKeyIdx] == kmsPublicKeyKind && r.verb == "" && r.method == http.MethodGet {
-			return a.kms.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{
-				Name: r.name(kmsVersionSegs), PublicKeyFormat: kmspb.PublicKey_PEM,
-			})
-		}
+		return a.publicKey(ctx, r)
 	}
 
 	return nil, errGCPUnsupported()
+}
+
+func (a *gcpKMSAPI) publicKey(ctx context.Context, r gcpRESTCall) (proto.Message, error) {
+	if r.segs[kmsPublicKeyIdx] != kmsPublicKeyKind || r.verb != "" || r.method != http.MethodGet {
+		return nil, errGCPUnsupported()
+	}
+
+	return a.kms.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{
+		Name: r.name(kmsVersionSegs), PublicKeyFormat: kmspb.PublicKey_PEM,
+	})
+}
+
+func (a *gcpKMSAPI) retired(ctx context.Context, r gcpRESTCall) (proto.Message, error) {
+	if len(r.segs) != kmsRingsSegs || r.verb != "" || r.method != http.MethodGet {
+		return nil, errGCPUnsupported()
+	}
+
+	return a.kms.ListRetiredResources(ctx, &kmspb.ListRetiredResourcesRequest{
+		Parent: r.name(kmsLocationSegs), PageSize: r.pageSize(), PageToken: r.query.Get("pageToken"),
+	})
 }
 
 func (a *gcpKMSAPI) ringLevel(ctx context.Context, r gcpRESTCall) (proto.Message, error) {
@@ -142,6 +168,7 @@ func (a *gcpKMSAPI) keys(ctx context.Context, r gcpRESTCall) (proto.Message, err
 	case r.method == http.MethodGet:
 		return a.kms.ListCryptoKeys(ctx, &kmspb.ListCryptoKeysRequest{
 			Parent: parent, PageSize: r.pageSize(), PageToken: r.query.Get("pageToken"),
+			Filter: r.query.Get("filter"), OrderBy: r.query.Get("orderBy"),
 		})
 	case r.method == http.MethodPost:
 		key := &kmspb.CryptoKey{}
@@ -162,37 +189,14 @@ func (a *gcpKMSAPI) key(ctx context.Context, r gcpRESTCall) (proto.Message, erro
 	name := r.name(kmsKeySegs)
 
 	switch {
-	case r.verb == kmsVerbEncrypt && r.method == http.MethodPost:
-		req := &kmspb.EncryptRequest{}
-		if err := r.unmarshal(req); err != nil {
-			return nil, err
-		}
-
-		req.Name = name
-
-		return a.kms.Encrypt(ctx, req)
-	case r.verb == kmsVerbDecrypt && r.method == http.MethodPost:
-		req := &kmspb.DecryptRequest{}
-		if err := r.unmarshal(req); err != nil {
-			return nil, err
-		}
-
-		req.Name = name
-
-		return a.kms.Decrypt(ctx, req)
-	case r.verb == kmsVerbPrimary && r.method == http.MethodPost:
-		req := &kmspb.UpdateCryptoKeyPrimaryVersionRequest{}
-		if err := r.unmarshal(req); err != nil {
-			return nil, err
-		}
-
-		req.Name = name
-
-		return a.kms.UpdateCryptoKeyPrimaryVersion(ctx, req)
+	case r.verb != "" && r.method == http.MethodPost:
+		return a.keyVerb(ctx, r, name)
 	case r.verb != "":
 		return nil, errGCPUnsupported()
 	case r.method == http.MethodGet:
 		return a.kms.GetCryptoKey(ctx, &kmspb.GetCryptoKeyRequest{Name: name})
+	case r.method == http.MethodDelete:
+		return a.kms.DeleteCryptoKey(ctx, &kmspb.DeleteCryptoKeyRequest{Name: name})
 	case r.method == http.MethodPatch:
 		key := &kmspb.CryptoKey{}
 		if err := r.unmarshal(key); err != nil {
@@ -212,6 +216,25 @@ func (a *gcpKMSAPI) key(ctx context.Context, r gcpRESTCall) (proto.Message, erro
 	return nil, errGCPUnsupported()
 }
 
+func (a *gcpKMSAPI) keyVerb(ctx context.Context, r gcpRESTCall, name string) (proto.Message, error) {
+	switch r.verb {
+	case kmsVerbEncrypt:
+		return namedCall(ctx, r, name, &kmspb.EncryptRequest{}, a.kms.Encrypt)
+	case kmsVerbDecrypt:
+		return namedCall(ctx, r, name, &kmspb.DecryptRequest{}, a.kms.Decrypt)
+	case kmsVerbPrimary:
+		return namedCall(
+			ctx,
+			r,
+			name,
+			&kmspb.UpdateCryptoKeyPrimaryVersionRequest{},
+			a.kms.UpdateCryptoKeyPrimaryVersion,
+		)
+	}
+
+	return nil, errGCPUnsupported()
+}
+
 func (a *gcpKMSAPI) versions(ctx context.Context, r gcpRESTCall) (proto.Message, error) {
 	parent := r.name(kmsKeySegs)
 
@@ -221,6 +244,7 @@ func (a *gcpKMSAPI) versions(ctx context.Context, r gcpRESTCall) (proto.Message,
 	case r.method == http.MethodGet:
 		return a.kms.ListCryptoKeyVersions(ctx, &kmspb.ListCryptoKeyVersionsRequest{
 			Parent: parent, PageSize: r.pageSize(), PageToken: r.query.Get("pageToken"),
+			Filter: r.query.Get("filter"), OrderBy: r.query.Get("orderBy"),
 		})
 	case r.method == http.MethodPost:
 		v := &kmspb.CryptoKeyVersion{}
@@ -258,6 +282,8 @@ func (a *gcpKMSAPI) version(ctx context.Context, r gcpRESTCall) (proto.Message, 
 		return a.kms.UpdateCryptoKeyVersion(ctx, &kmspb.UpdateCryptoKeyVersionRequest{
 			CryptoKeyVersion: v, UpdateMask: mask,
 		})
+	case r.verb == "" && r.method == http.MethodDelete:
+		return a.kms.DeleteCryptoKeyVersion(ctx, &kmspb.DeleteCryptoKeyVersionRequest{Name: name})
 	case r.method != http.MethodPost:
 		return nil, errGCPUnsupported()
 	}
@@ -272,33 +298,40 @@ func (a *gcpKMSAPI) versionVerb(ctx context.Context, r gcpRESTCall, name string)
 	case kmsVerbRestore:
 		return a.kms.RestoreCryptoKeyVersion(ctx, &kmspb.RestoreCryptoKeyVersionRequest{Name: name})
 	case kmsVerbSign:
-		req := &kmspb.AsymmetricSignRequest{}
-		if err := r.unmarshal(req); err != nil {
-			return nil, err
-		}
+		return namedCall(ctx, r, name, &kmspb.AsymmetricSignRequest{}, a.kms.AsymmetricSign)
+	}
 
-		req.Name = name
+	return a.macVerb(ctx, r, name)
+}
 
-		return a.kms.AsymmetricSign(ctx, req)
+func (a *gcpKMSAPI) macVerb(ctx context.Context, r gcpRESTCall, name string) (proto.Message, error) {
+	switch r.verb {
 	case kmsVerbMacSign:
-		req := &kmspb.MacSignRequest{}
-		if err := r.unmarshal(req); err != nil {
-			return nil, err
-		}
-
-		req.Name = name
-
-		return a.kms.MacSign(ctx, req)
+		return namedCall(ctx, r, name, &kmspb.MacSignRequest{}, a.kms.MacSign)
+	case kmsVerbAsymDec:
+		return namedCall(ctx, r, name, &kmspb.AsymmetricDecryptRequest{}, a.kms.AsymmetricDecrypt)
 	case kmsVerbMacVerify:
-		req := &kmspb.MacVerifyRequest{}
-		if err := r.unmarshal(req); err != nil {
-			return nil, err
-		}
-
-		req.Name = name
-
-		return a.kms.MacVerify(ctx, req)
+		return namedCall(ctx, r, name, &kmspb.MacVerifyRequest{}, a.kms.MacVerify)
 	}
 
 	return nil, errGCPUnsupported()
+}
+
+// namedCall decodes the JSON body into req, binds its name field to the URL resource, and invokes do.
+func namedCall[Req, Resp proto.Message](
+	ctx context.Context, r gcpRESTCall, name string, req Req, do func(context.Context, Req) (Resp, error),
+) (proto.Message, error) {
+	if err := r.unmarshal(req); err != nil {
+		return nil, err
+	}
+
+	m := req.ProtoReflect()
+	m.Set(m.Descriptor().Fields().ByName("name"), protoreflect.ValueOfString(name))
+
+	resp, err := do(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp, nil
 }
