@@ -28,6 +28,7 @@ const (
 	slugGCPPubSub       = "gcppubsub"
 	slugGCPSecretMgr    = "gcpsecretmanager"
 	slugGCPKMS          = "gcpkms"
+	slugGCPCloudTasks   = "gcpcloudtasks"
 	slugGCPFirestore    = "gcpfirestore"
 )
 
@@ -110,7 +111,7 @@ func categoryGroups() []categoryGroup {
 			slugAzureBlob, slugAzureKeyVault, slugAzureQueue, slugAzureTable, slugAzureServiceBus, slugCosmosDB,
 		}},
 		{"GCP", []string{
-			slugGCPStorage, slugGCPPubSub, slugGCPSecretMgr, slugGCPKMS, slugGCPFirestore,
+			slugGCPStorage, slugGCPPubSub, slugGCPSecretMgr, slugGCPKMS, slugGCPCloudTasks, slugGCPFirestore,
 		}},
 		{"Other", []string{
 			"appstream", "managedblockchain", "omics", "support", "workspaces",
@@ -216,6 +217,7 @@ func displayNamesB() map[string]string {
 		slugGCPPubSub:      "Google Cloud Pub/Sub",
 		slugGCPSecretMgr:   "Google Secret Manager",
 		slugGCPKMS:         "Google Cloud KMS",
+		slugGCPCloudTasks:  "Cloud Tasks",
 		slugGCPFirestore:   "Google Cloud Firestore",
 		"databrew":         "Glue DataBrew",
 		"datasync":         "DataSync",

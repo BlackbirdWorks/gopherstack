@@ -14439,6 +14439,19 @@
     ],
     "version": 2
   },
+  "gcpcloudtasks": {
+    "fields": [
+      "backendSnapshot.Cmek map[string]json.RawMessage `json:\"cmek\"`",
+      "backendSnapshot.EtagSeq uint64 `json:\"etagSeq\"`",
+      "backendSnapshot.Policies map[string]json.RawMessage `json:\"policies\"`",
+      "backendSnapshot.Queues map[string]queueSnap `json:\"queues\"`",
+      "backendSnapshot.TaskSeq uint64 `json:\"taskSeq\"`",
+      "backendSnapshot.Tombstones map[string]time.Time `json:\"tombstones\"`",
+      "queueSnap.Queue json.RawMessage `json:\"queue\"`",
+      "queueSnap.Tasks map[string]json.RawMessage `json:\"tasks,omitempty\"`"
+    ],
+    "version": 1
+  },
   "gcpfirestore": {
     "fields": [
       "backendSnapshot.Docs map[string]json.RawMessage `json:\"docs\"`",

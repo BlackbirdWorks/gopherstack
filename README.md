@@ -869,6 +869,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
+| [Cloud Tasks](services/gcpcloudtasks/README.md) | B | 18 | 5 gaps |
 | [Google Cloud Firestore](services/gcpfirestore/README.md) | B | 15 | 4 gaps |
 | [Google Cloud KMS](services/gcpkms/README.md) | B | 31 | 5 gaps |
 | [Google Cloud Pub/Sub](services/gcppubsub/README.md) | B | 35 | 6 gaps |

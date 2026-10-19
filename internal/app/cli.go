@@ -165,6 +165,7 @@ import (
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	forecastbackend "github.com/blackbirdworks/gopherstack/services/forecast"
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
+	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
@@ -560,6 +561,7 @@ type CLI struct {
 	GCPPubSub                     gcppubsubbackend.Settings         `embed:"" prefix:"gcp-pubsub-"`
 	GCPSecretManager              gcpsecretmanagerbackend.Settings  `embed:"" prefix:"gcp-secretmanager-"`
 	GCPKMS                        gcpkmsbackend.Settings            `embed:"" prefix:"gcp-kms-"`
+	GCPCloudTasks                 gcpcloudtasksbackend.Settings     `embed:"" prefix:"gcp-cloudtasks-"`
 	GCPFirestore                  gcpfirestorebackend.Settings      `embed:"" prefix:"gcp-firestore-"`
 	AzureStorageVHost             azurestoragevhostbackend.Settings `embed:"" prefix:"azure-storage-vhost-"`
 	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
@@ -660,6 +662,9 @@ func (c *CLI) GetGCPPubSubSettings() gcppubsubbackend.Settings {
 
 // GetGCPKMSSettings returns Google Cloud KMS settings (gcpkms.ConfigProvider).
 func (c *CLI) GetGCPKMSSettings() gcpkmsbackend.Settings { return c.GCPKMS }
+
+// GetGCPCloudTasksSettings returns Google Cloud Tasks settings (gcpcloudtasks.ConfigProvider).
+func (c *CLI) GetGCPCloudTasksSettings() gcpcloudtasksbackend.Settings { return c.GCPCloudTasks }
 
 // GetGCPSecretManagerSettings returns Google Secret Manager settings (gcpsecretmanager.ConfigProvider).
 func (c *CLI) GetGCPSecretManagerSettings() gcpsecretmanagerbackend.Settings {
@@ -2228,6 +2233,11 @@ func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *port
 	if err := alloc.Reserve(cli.GCPKMS.Port, "gcpkms"); err != nil {
 		log.WarnContext(ctx, "failed to reserve GCPKMS's fixed port in the shared pool",
 			"port", cli.GCPKMS.Port, "error", err)
+	}
+
+	if err := alloc.Reserve(cli.GCPCloudTasks.Port, "gcpcloudtasks"); err != nil {
+		log.WarnContext(ctx, "failed to reserve GCPCloudTasks's fixed port in the shared pool",
+			"port", cli.GCPCloudTasks.Port, "error", err)
 	}
 
 	if err := alloc.Reserve(cli.GCPFirestore.Port, "gcpfirestore"); err != nil {
@@ -4667,6 +4677,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},
+		&gcpcloudtasksbackend.Provider{},
 		&gcpfirestorebackend.Provider{},
 		&azurearmbackend.Provider{},
 		&pinpointbackend.Provider{},
