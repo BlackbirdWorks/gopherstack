@@ -262,6 +262,16 @@ jobs:
           check-latest: true
           cache: true
 
+      # Traced compiles of the GCP/Azure generated packages exceed runner RAM; the runner is killed without swap.
+      - name: Add swap
+        run: |
+          sudo swapoff -a || true
+          sudo fallocate -l 16G /mnt/codeql.swap
+          sudo chmod 600 /mnt/codeql.swap
+          sudo mkswap /mnt/codeql.swap
+          sudo swapon /mnt/codeql.swap
+          free -h
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
