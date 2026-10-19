@@ -404,6 +404,7 @@ type CLI struct {
 	gcpSecretManagerHandler       service.Registerable
 	gcpCloudTasksHandler          service.Registerable
 	gcpSchedulerHandler           service.Registerable
+	gcpIAMHandler                 service.Registerable
 	gcpKMSHandler                 service.Registerable
 	azureQueueHandler             service.Registerable
 	azureTableHandler             service.Registerable
@@ -1878,6 +1879,11 @@ func (c *CLI) GetGCPCloudTasksHandler() service.Registerable { return c.gcpCloud
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGCPSchedulerHandler() service.Registerable { return c.gcpSchedulerHandler }
 
+// GetGCPIAMHandler returns the Cloud IAM handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPIAMHandler() service.Registerable { return c.gcpIAMHandler }
+
 // GetAzureQueueHandler returns the Azure Queue handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
@@ -3025,6 +3031,17 @@ func storeAdditionalCLIHandlers(cli *CLI, byName map[string]service.Registerable
 }
 
 // storeCLIExtendedHandlers assigns handlers for services added after the initial set.
+func storeGCPHandlers(cli *CLI, byName map[string]service.Registerable) {
+	cli.gcpStorageHandler = byName["GCPStorage"]
+	cli.gcpPubSubHandler = byName["GCPPubSub"]
+	cli.gcpFirestoreHandler = byName["GCPFirestore"]
+	cli.gcpSecretManagerHandler = byName["GCPSecretManager"]
+	cli.gcpCloudTasksHandler = byName["GCPCloudTasks"]
+	cli.gcpSchedulerHandler = byName["GCPScheduler"]
+	cli.gcpIAMHandler = byName["GCPIAM"]
+	cli.gcpKMSHandler = byName["GCPKMS"]
+}
+
 func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.athenaHandler = byName["Athena"]
 	cli.appConfigHandler = byName["AppConfig"]
@@ -3044,13 +3061,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.cloudtrailHandler = byName["CloudTrail"]
 	cli.azureARMHandler = byName["AzureARM"]
 	cli.azureBlobHandler = byName["AzureBlob"]
-	cli.gcpStorageHandler = byName["GCPStorage"]
-	cli.gcpPubSubHandler = byName["GCPPubSub"]
-	cli.gcpFirestoreHandler = byName["GCPFirestore"]
-	cli.gcpSecretManagerHandler = byName["GCPSecretManager"]
-	cli.gcpCloudTasksHandler = byName["GCPCloudTasks"]
-	cli.gcpSchedulerHandler = byName["GCPScheduler"]
-	cli.gcpKMSHandler = byName["GCPKMS"]
+	storeGCPHandlers(cli, byName)
 	cli.azureQueueHandler = byName["AzureQueue"]
 	cli.azureTableHandler = byName["AzureTable"]
 	cli.azureServiceBusHandler = byName["AzureServiceBus"]

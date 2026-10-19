@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
+	"github.com/blackbirdworks/gopherstack/services/gcpiam"
 	"github.com/blackbirdworks/gopherstack/services/gcpkms"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	"github.com/blackbirdworks/gopherstack/services/gcpscheduler"
@@ -352,6 +353,70 @@ func TestGCPSchedulerProxy(t *testing.T) {
 			h := dashboard.NewHandler(dashboard.Config{
 				GCPSchedulerOps: gcpscheduler.NewHandler(gcpscheduler.NewInMemoryBackend()),
 			})
+			runGCPSteps(t, h, tt.steps)
+		})
+	}
+}
+
+func TestGCPIAMProxy(t *testing.T) {
+	t.Parallel()
+
+	const (
+		root    = "/dashboard/api/v1/gcp/iam/v1"
+		accts   = root + "/projects/proj-local/serviceAccounts"
+		acct    = accts + "/sa-one@proj-local.iam.gserviceaccount.com"
+		roles   = root + "/projects/proj-local/roles"
+		sign    = `{"bytesToSign":"aGk="}`
+		saBody  = `{"accountId":"sa-one","serviceAccount":{"displayName":"SA one"}}`
+		roleDef = `{"roleId":"viewer1","role":{"title":"V","includedPermissions":["storage.objects.get"],"stage":"BETA"}}`
+	)
+
+	tests := []struct {
+		name  string
+		steps []gcpStep
+	}{
+		{"account lifecycle", []gcpStep{
+			{http.MethodPost, accts, saBody, `"displayName":"SA one"`, 200},
+			{http.MethodPost, accts, saBody, "ALREADY_EXISTS", http.StatusConflict},
+			{http.MethodGet, accts, "", `"accounts"`, 200},
+			{http.MethodPost, acct + ":disable", "", "{}", 200},
+			{http.MethodGet, acct, "", `"disabled":true`, 200},
+			{http.MethodPost, acct + ":signBlob", sign, "FAILED_PRECONDITION", http.StatusBadRequest},
+			{http.MethodPost, acct + ":enable", "", "{}", 200},
+			{http.MethodPost, acct + ":signBlob", sign, `"signature"`, 200},
+			{http.MethodDelete, acct, "", "{}", 200},
+			{http.MethodGet, acct, "", "NOT_FOUND", http.StatusNotFound},
+		}},
+		{"key lifecycle", []gcpStep{
+			{http.MethodPost, accts, saBody, `"uniqueId"`, 200},
+			{http.MethodPost, acct + "/keys", `{}`, `"privateKeyData"`, 200},
+			{http.MethodGet, acct + "/keys?keyTypes=USER_MANAGED", "", `"keys"`, 200},
+			{http.MethodPost, acct + "/keys/nokey:disable", "", "NOT_FOUND", http.StatusNotFound},
+			{http.MethodDelete, acct + "/keys/nokey", "", "NOT_FOUND", http.StatusNotFound},
+		}},
+		{"roles", []gcpStep{
+			{http.MethodGet, root + "/roles", "", `"roles/viewer"`, 200},
+			{http.MethodPost, roles, roleDef, "storage.objects.get", 200},
+			{http.MethodGet, roles, "", "viewer1", 200},
+			{http.MethodPatch, roles + "/viewer1?updateMask=title", `{"title":"New"}`, `"New"`, 200},
+			{http.MethodDelete, roles + "/viewer1", "", `"deleted":true`, 200},
+			{http.MethodPost, roles + "/viewer1:undelete", "", "viewer1", 200},
+		}},
+		{"rejects", []gcpStep{
+			{http.MethodGet, root + "/projects/proj-local/other", "", "unsupported", http.StatusNotFound},
+			{http.MethodPut, acct, "{}", "unsupported", http.StatusNotFound},
+			{http.MethodPost, acct + ":bogus", "", "unsupported", http.StatusNotFound},
+			{http.MethodPost, accts, `{bad`, "invalid request body", http.StatusBadRequest},
+			{http.MethodPost, root + "/roles", "{}", "unsupported", http.StatusNotFound},
+			{http.MethodGet, acct + "/other", "", "unsupported", http.StatusNotFound},
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := dashboard.NewHandler(dashboard.Config{GCPIAMOps: gcpiam.NewHandler(gcpiam.NewInMemoryBackend())})
 			runGCPSteps(t, h, tt.steps)
 		})
 	}
