@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
@@ -96,6 +97,9 @@ func (lb *liveBroker) nodes() []*liveNode {
 type brokerEngine struct {
 	brokers  map[string]*liveBroker
 	failures map[string]string
+	// reserved holds OS-chosen fallback ports until released, so no two nodes are handed the same port.
+	reserved map[int]struct{}
+	portMu   *lockmetrics.RWMutex
 	cfg      BrokerConfig
 	wg       sync.WaitGroup
 }
@@ -131,6 +135,7 @@ func (b *InMemoryBackend) EnableBrokers(cfg BrokerConfig) {
 
 	b.engine = &brokerEngine{
 		cfg: cfg, brokers: make(map[string]*liveBroker), failures: make(map[string]string),
+		reserved: make(map[int]struct{}), portMu: lockmetrics.New("mq-ports"),
 	}
 }
 
@@ -257,6 +262,13 @@ func (e *brokerEngine) remove(containerID string, ports []int) {
 
 func (e *brokerEngine) releasePorts(ports []int) {
 	if e.cfg.Ports == nil {
+		e.portMu.Lock("releasePorts")
+		defer e.portMu.Unlock()
+
+		for _, p := range ports {
+			delete(e.reserved, p)
+		}
+
 		return
 	}
 
@@ -287,6 +299,30 @@ func (e *brokerEngine) acquirePort(label string) (int, error) {
 		return e.cfg.Ports.Acquire(label) //nolint:wrapcheck // allocator error is self-describing
 	}
 
+	for range brokerPortRetries * brokerPortRetries {
+		p, err := freeLocalPort()
+		if err != nil {
+			return 0, err
+		}
+
+		e.portMu.Lock("acquirePort")
+		_, taken := e.reserved[p]
+
+		if !taken {
+			e.reserved[p] = struct{}{}
+		}
+
+		e.portMu.Unlock()
+
+		if !taken {
+			return p, nil
+		}
+	}
+
+	return 0, fmt.Errorf("find free port: %w", portalloc.ErrNoPortsAvailable)
+}
+
+func freeLocalPort() (int, error) {
 	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		return 0, fmt.Errorf("find free port: %w", err)
