@@ -13649,7 +13649,7 @@ func (a *iotAnalyticsThingRegistryAdapter) DescribeThing(thingName string) (map[
 		"thingArn":      t.ARN,
 		"thingTypeName": t.ThingTypeName,
 		"attributes":    t.Attributes,
-		"version":       t.Version,
+		podKeyVersion:   t.Version,
 	}, nil
 }
 

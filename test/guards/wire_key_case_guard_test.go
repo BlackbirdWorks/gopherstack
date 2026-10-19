@@ -3,7 +3,6 @@ package guards_test
 import (
 	"go/ast"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -15,7 +14,6 @@ import (
 
 var (
 	sdkCaseKeyRe = regexp.MustCompile(`(?:case|object\.Key\()\s*"(\w+)"`)
-	smithyJSONRe = `smithy-go/encoding/json"`
 )
 
 // requestOrStoredRe skips request-only structs (Go decodes keys
@@ -57,56 +55,16 @@ func wireKeyCaseAllowlist() map[string]string {
 		"services/verifiedpermissions/models.go: PolicyStoreAlias":           reasonInternal,
 		"services/verifiedpermissions/models.go: PolicyTemplate":             reasonInternal,
 		"services/sagemaker/training_plan.go: pendingTrainingPlanExtension":  reasonInternal,
-		"services/awsconfig/models.go: wireConfigurationRecorder":            "shadows the embedded field to hide it; must use the embedded key",
-		"services/cloudformation/stack_policy_eval.go: stackPolicyStatement": "IAM-style policy document, not an SDK shape",
-		"services/glue/models.go: JobRun":                                    "WorkflowRunId is internal-only; the SDK JobRun has no such member",
-		"services/opensearch/handler_domain_options.go: ebsOptionsJSON":      "SDK EBSOptions has no KmsKeyId; match is cross-struct",
+		"services/awsconfig/models.go: wireConfigurationRecorder":            "shadows the embedded field; must use its key",
+		"services/cloudformation/stack_policy_eval.go: stackPolicyStatement": "IAM policy document, not an SDK shape",
+		"services/glue/models.go: JobRun":                                    "WorkflowRunId is internal-only",
+		"services/opensearch/handler_domain_options.go: ebsOptionsJSON":      "SDK EBSOptions lacks KmsKeyId",
 		"services/stepfunctions/handler_tags.go: sfnTagEntry":                "SDK Tag uses lowercase key/value",
 		"services/acm/handler_certificates.go: listCertificatesIncludes":     "request-only filter",
 		"services/firehose/handler_delivery_streams.go: aosDeliveryField":    "request-only; decode is case-insensitive",
 		"services/firehose/handler_destination_updates.go: aosUpdateField":   "request-only; decode is case-insensitive",
 		"services/ssm/models_instances.go: InstancePropertyFilter":           "request-only filter",
 	}
-}
-
-// sdkJSONKeys returns the exact wire keys per JSON-protocol SDK package
-// (awsjson and rest-json), read from serializers.go and deserializers.go.
-func sdkJSONKeys(t *testing.T) map[string]map[string]bool {
-	t.Helper()
-
-	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	require.NoError(t, err)
-
-	gomod, err := os.ReadFile("go.mod")
-	require.NoError(t, err)
-
-	res := map[string]map[string]bool{}
-
-	for _, m := range sdkModRe.FindAllStringSubmatch(string(gomod), -1) {
-		keys := readSDKKeys(strings.TrimSpace(string(out)), m[1], m[2])
-		if keys != nil {
-			res[m[1]] = keys
-		}
-	}
-
-	return res
-}
-
-func readSDKKeys(modCache, pkg, version string) map[string]bool {
-	ser := readSDKSerializers(modCache, pkg, version)
-	if ser == nil || !strings.Contains(string(ser), smithyJSONRe) {
-		return nil
-	}
-
-	keys := map[string]bool{}
-	addKeys(keys, ser)
-
-	if des, err := os.ReadFile(filepath.Join(modCache, "github.com", "aws", "aws-sdk-go-v2", "service",
-		pkg+"@"+version, "deserializers.go")); err == nil {
-		addKeys(keys, des)
-	}
-
-	return keys
 }
 
 func addKeys(keys map[string]bool, src []byte) {
@@ -205,7 +163,7 @@ func structCaseMismatches(
 
 	for _, fld := range st.Fields.List {
 		for _, nm := range fld.Names {
-			if fld.Tag == nil {
+			if fld.Tag == nil || !strings.Contains(fld.Tag.Value, `json:"`) {
 				continue
 			}
 
@@ -234,7 +192,7 @@ func structCaseMismatches(
 func TestWireKeysMatchSDKCase(t *testing.T) {
 	t.Parallel()
 
-	sdk := sdkJSONKeys(t)
+	sdk := loadSDK(t).keys
 	require.NotEmpty(t, sdk)
 
 	entries, err := os.ReadDir("services")
@@ -282,7 +240,7 @@ func compact(in []string) []string {
 func TestWireKeyCaseGuardDetectsMiscase(t *testing.T) {
 	t.Parallel()
 
-	sdk := sdkJSONKeys(t)
+	sdk := loadSDK(t).keys
 	require.Contains(t, sdk, "eventbridge")
 
 	got := caseMismatches(t, "test/guards/testdata/wire_key_case/miscased", sdk["eventbridge"])

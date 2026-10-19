@@ -46,10 +46,10 @@ type PodSaveCmd struct {
 // PodLoadCmd is `gopherstack pod load NAME`.
 type PodLoadCmd struct {
 	PodTarget `         embed:""`
-	Services  []string `                help:"Only load these services."                                                          name:"services"` //nolint:lll // config struct tags are intentionally verbose
 	Name      string   `         arg:"" help:"Pod name."`
 	Version   string   `                help:"Version number or 'latest'."                                                        name:"version"  default:"latest"`                                   //nolint:lll // config struct tags are intentionally verbose
 	Strategy  string   `                help:"overwrite replaces all state; service-merge replaces only the services in the pod." name:"strategy" default:"overwrite" enum:"overwrite,service-merge"` //nolint:lll // config struct tags are intentionally verbose
+	Services  []string `                help:"Only load these services."                                                          name:"services"`                                                    //nolint:lll // config struct tags are intentionally verbose
 	Merge     bool     `                help:"Merge per account/region, not whole-service replace."                               name:"merge"`                                                       //nolint:lll // config struct tags are intentionally verbose
 }
 

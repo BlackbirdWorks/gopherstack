@@ -461,12 +461,12 @@ func buildLocalstackDiagnoseHandler(cli *CLI, services []service.Registerable) e
 		runtime.ReadMemStats(&ms)
 
 		return c.JSON(http.StatusOK, map[string]any{
-			"version":    map[string]string{"localstack-version": version.Get()},
-			"info":       map[string]any{"edition": editionCommunity, "uptime": int(time.Since(started).Seconds())},
-			"config":     localstackConfig(cli),
-			"services":   serviceNames(services),
-			"runtime":    map[string]any{"goroutines": runtime.NumGoroutine(), "heap_alloc_bytes": ms.HeapAlloc},
-			"go-version": runtime.Version(),
+			podKeyVersion: map[string]string{"localstack-version": version.Get()},
+			"info":        map[string]any{"edition": editionCommunity, "uptime": int(time.Since(started).Seconds())},
+			"config":      localstackConfig(cli),
+			"services":    serviceNames(services),
+			"runtime":     map[string]any{"goroutines": runtime.NumGoroutine(), "heap_alloc_bytes": ms.HeapAlloc},
+			"go-version":  runtime.Version(),
 		})
 	}
 }

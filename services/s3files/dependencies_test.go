@@ -156,8 +156,8 @@ func TestForceDeleteFileSystem(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		force    bool
 		wantCode string
+		force    bool
 	}{
 		{name: "without force", wantCode: "ConflictException"},
 		{name: "with force", force: true},
@@ -201,7 +201,10 @@ func TestForceDeleteFileSystem(t *testing.T) {
 			})
 			assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 
-			_, err = f.client.GetAccessPoint(t.Context(), &s3filessdk.GetAccessPointInput{AccessPointId: ap.AccessPointId})
+			_, err = f.client.GetAccessPoint(
+				t.Context(),
+				&s3filessdk.GetAccessPointInput{AccessPointId: ap.AccessPointId},
+			)
 			assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 
 			_, err = f.client.GetFileSystem(t.Context(), &s3filessdk.GetFileSystemInput{FileSystemId: aws.String(fsID)})

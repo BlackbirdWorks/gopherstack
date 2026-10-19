@@ -18,9 +18,9 @@ const (
 )
 
 type lsPodRequest struct {
-	Services []string `json:"services"`
 	PodName  string   `json:"pod_name"`
 	Message  string   `json:"message"`
+	Services []string `json:"services"`
 	Version  int      `json:"version"`
 	Merge    bool     `json:"merge"`
 }
@@ -45,7 +45,7 @@ func lsBindPod(c *echo.Context) (lsPodRequest, error) {
 }
 
 func lsPodSummary(m pods.Manifest) map[string]any {
-	return map[string]any{lsKeyPodName: m.Name, "version": m.Version, "message": m.Message, "services": m.Services}
+	return map[string]any{lsKeyPodName: m.Name, podKeyVersion: m.Version, "message": m.Message, "services": m.Services}
 }
 
 func (a *podAPI) lsSave(c *echo.Context) error {

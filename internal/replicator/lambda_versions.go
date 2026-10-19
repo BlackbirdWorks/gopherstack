@@ -154,8 +154,7 @@ func (r *run) publishVersion(ctx context.Context, f fnCopy, version string) (str
 		note = "source does not expose version code; $LATEST code used."
 	}
 
-	vf := fnCopy{name: name, cfg: got.Configuration, zip: zip}
-	vf.vpc = r.vpcFor(ctx, got.Configuration)
+	vf := fnCopy{name: name, cfg: got.Configuration, zip: zip, vpc: r.vpcFor(ctx, got.Configuration)}
 
 	if err = r.updateFunction(ctx, vf); err != nil {
 		return "", "", err

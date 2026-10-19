@@ -228,10 +228,17 @@ func TestPodCLI(t *testing.T) {
 
 	h.a.state = "two"
 
-	require.NoError(t, (&PodLoadCmd{PodTarget: tgt, Name: "cli", Version: "1", Strategy: "service-merge", Merge: true}).Run())
+	require.NoError(
+		t,
+		(&PodLoadCmd{PodTarget: tgt, Name: "cli", Version: "1", Strategy: "service-merge", Merge: true}).Run(),
+	)
 	assert.Equal(t, "one", h.a.get())
 
 	require.NoError(t, (&PodDeleteCmd{PodTarget: tgt, Name: "cli"}).Run())
 	require.ErrorIs(t, (&PodInspectCmd{PodTarget: tgt, Name: "cli", Version: "1"}).Run(), errPodServer)
-	require.ErrorIs(t, (&PodLoadCmd{PodTarget: tgt, Name: "cli", Version: "latest", Strategy: "overwrite"}).Run(), errPodServer)
+	require.ErrorIs(
+		t,
+		(&PodLoadCmd{PodTarget: tgt, Name: "cli", Version: "latest", Strategy: "overwrite"}).Run(),
+		errPodServer,
+	)
 }

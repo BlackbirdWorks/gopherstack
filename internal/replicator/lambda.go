@@ -56,8 +56,7 @@ func (r *run) copyFunction(ctx context.Context, name string) {
 		return
 	}
 
-	f := fnCopy{name: name, cfg: cfg}
-	f.vpc = r.planVPC(ctx, name, cfg)
+	f := fnCopy{name: name, cfg: cfg, vpc: r.planVPC(ctx, name, cfg)}
 
 	if r.cfg.DryRun {
 		r.add(TypeLambda, name, upsert(exists), "")

@@ -5,7 +5,6 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -44,12 +43,7 @@ func isTagKey(name string) bool {
 
 // sdkAwsjsonTagShapes maps an SDK package to the JSON key -> shapes the awsjson
 // serializer emits for tag-like keys. Non-awsjson packages are absent.
-func sdkAwsjsonTagShapes(modCache, pkg, version string) map[string]map[tagShape]bool {
-	src := readSDKSerializers(modCache, pkg, version)
-	if src == nil {
-		return nil
-	}
-
+func sdkAwsjsonTagShapes(src []byte) map[string]map[tagShape]bool {
 	text := string(src)
 	docShape := map[string]tagShape{}
 
@@ -78,30 +72,6 @@ func sdkAwsjsonTagShapes(modCache, pkg, version string) map[string]map[tagShape]
 	}
 
 	return out
-}
-
-func readSDKSerializers(modCache, pkg, version string) []byte {
-	base := filepath.Join(modCache, "github.com", "aws", "aws-sdk-go-v2", "service", pkg+"@")
-
-	src, err := os.ReadFile(base + version + "/serializers.go")
-	if err == nil {
-		return src
-	}
-
-	// pinned version not downloaded locally: fall back to any cached one
-	cached, _ := filepath.Glob(base + "*/serializers.go")
-	if len(cached) == 0 {
-		return nil
-	}
-
-	sort.Strings(cached)
-
-	src, err = os.ReadFile(cached[len(cached)-1])
-	if err != nil {
-		return nil
-	}
-
-	return src
 }
 
 func paramShape(goType string) tagShape {
@@ -514,32 +484,6 @@ type sdkShapes struct {
 	all     map[string]bool
 }
 
-func loadSDKShapes() (sdkShapes, error) {
-	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	if err != nil {
-		return sdkShapes{}, err
-	}
-
-	modCache := strings.TrimSpace(string(out))
-
-	gomod, err := os.ReadFile("go.mod")
-	if err != nil {
-		return sdkShapes{}, err
-	}
-
-	res := sdkShapes{awsjson: map[string]map[string]map[tagShape]bool{}, all: map[string]bool{}}
-
-	for _, m := range sdkModRe.FindAllStringSubmatch(string(gomod), -1) {
-		res.all[m[1]] = true
-
-		if s := sdkAwsjsonTagShapes(modCache, m[1], m[2]); s != nil {
-			res.awsjson[m[1]] = s
-		}
-	}
-
-	return res, nil
-}
-
 var responseNameRe = regexp.MustCompile(`(?i)(output|resp|response|result)$`)
 
 // notRequestBodies lists struct fields the scan matches but that are never
@@ -621,8 +565,7 @@ func shapeAccepted(h handlerTagField, want map[tagShape]bool) bool {
 func TestAwsjsonTagFieldShapesMatchSDK(t *testing.T) {
 	t.Parallel()
 
-	sdk, err := loadSDKShapes()
-	require.NoError(t, err)
+	sdk := loadSDK(t).shapes
 	require.NotEmpty(t, sdk.awsjson, "no awsjson SDK packages resolved from the module cache")
 
 	entries, err := os.ReadDir("services")
@@ -654,8 +597,7 @@ func TestAwsjsonTagFieldShapesMatchSDK(t *testing.T) {
 func TestAwsjsonTagGuardDetectsMapTags(t *testing.T) {
 	t.Parallel()
 
-	sdk, err := loadSDKShapes()
-	require.NoError(t, err)
+	sdk := loadSDK(t).shapes
 
 	got := dirTagOffenders(t, "test/guards/testdata/awsjson_tags/map_tags", sdk, map[string]bool{"eventbridge": true})
 	require.Len(t, got, 1)
