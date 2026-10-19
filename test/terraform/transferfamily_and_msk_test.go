@@ -12,10 +12,11 @@ import (
 	kafkatypes "github.com/aws/aws-sdk-go-v2/service/kafka/types"
 	transfersvc "github.com/aws/aws-sdk-go-v2/service/transfer"
 	transfertypes "github.com/aws/aws-sdk-go-v2/service/transfer/types"
-	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
 )
 
 // TestTerraform_TransferfamilyAndMsk provisions Transfer Family (server, user, SSH key,

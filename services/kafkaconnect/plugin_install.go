@@ -25,20 +25,7 @@ func unzipPlugin(data []byte, dst string) error {
 	var total int64
 
 	for _, f := range zr.File {
-		target := filepath.Join(dst, f.Name) //nolint:gosec // containment is checked below
-		if target != dst && !strings.HasPrefix(target, dst+string(os.PathSeparator)) {
-			return fmt.Errorf("%w: %s", errZipEscape, f.Name)
-		}
-
-		if f.FileInfo().IsDir() {
-			if err = os.MkdirAll(target, workerDirMode); err != nil {
-				return fmt.Errorf("plugin dir: %w", err)
-			}
-
-			continue
-		}
-
-		n, werr := extractZipFile(f, target, maxUnzipBytes-total)
+		n, werr := extractZipEntry(f, dst, maxUnzipBytes-total)
 		if werr != nil {
 			return werr
 		}
@@ -49,7 +36,22 @@ func unzipPlugin(data []byte, dst string) error {
 	return nil
 }
 
-func extractZipFile(f *zip.File, target string, budget int64) (int64, error) {
+func extractZipEntry(f *zip.File, dst string, budget int64) (int64, error) {
+	root := filepath.Clean(dst)
+	target := filepath.Join(root, filepath.FromSlash(f.Name))
+
+	if target != root && !strings.HasPrefix(target, root+string(os.PathSeparator)) {
+		return 0, fmt.Errorf("%w: %s", errZipEscape, f.Name)
+	}
+
+	if f.FileInfo().IsDir() {
+		if err := os.MkdirAll(target, workerDirMode); err != nil {
+			return 0, fmt.Errorf("plugin dir: %w", err)
+		}
+
+		return 0, nil
+	}
+
 	if err := os.MkdirAll(filepath.Dir(target), workerDirMode); err != nil {
 		return 0, fmt.Errorf("plugin dir: %w", err)
 	}

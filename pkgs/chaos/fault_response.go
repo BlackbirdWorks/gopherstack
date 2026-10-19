@@ -77,7 +77,7 @@ func respondWithFault(c *echo.Context, fe FaultError, svc string) error {
 	}
 
 	if proto == awserr.ProtocolJSON10 || proto == awserr.ProtocolJSON11 {
-		c.Response().Header().Set("X-Amzn-ErrorType", code)
+		c.Response().Header().Set("X-Amzn-Errortype", code)
 	}
 
 	return awserr.Write(c, proto, apiErr)

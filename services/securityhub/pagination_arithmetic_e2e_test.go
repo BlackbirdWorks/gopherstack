@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"testing"
 
-	securityhub "github.com/blackbirdworks/gopherstack/services/securityhub"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	securityhub "github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
 // maxWalkPages bounds every walkStrings call: 23 seeded items at page size 5

@@ -67,7 +67,7 @@ func jsonValue(v any) any {
 			"~type": t.Type, "~properties": jsonProps(t.Props),
 		}
 	case *Path:
-		items := make([]any, 0, len(t.Nodes)+len(t.Rels))
+		items := []any{}
 		for i, n := range t.Nodes {
 			items = append(items, jsonValue(n))
 			if i < len(t.Rels) {

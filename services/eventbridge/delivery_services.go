@@ -48,19 +48,19 @@ func deliverToServiceTarget(
 			return false, true
 		}
 
-		return logTargetErr(ctx, "Batch", arn, dt.Batch.SubmitBatchJob(ctx, arn, target.BatchParameters, payload)), true
+		return logTargetErr(ctx, "Batch", dt.Batch.SubmitBatchJob(ctx, arn, target.BatchParameters, payload)), true
 	case strings.HasPrefix(arn, "arn:aws:codebuild:") && strings.Contains(arn, ":project/"):
 		if dt.CodeBuild == nil {
 			return false, true
 		}
 
-		return logTargetErr(ctx, "CodeBuild", arn, dt.CodeBuild.StartCodeBuild(ctx, arn)), true
+		return logTargetErr(ctx, "CodeBuild", dt.CodeBuild.StartCodeBuild(ctx, arn)), true
 	case strings.HasPrefix(arn, "arn:aws:codepipeline:"):
 		if dt.CodePipeline == nil {
 			return false, true
 		}
 
-		return logTargetErr(ctx, "CodePipeline", arn, dt.CodePipeline.StartCodePipeline(ctx, arn)), true
+		return logTargetErr(ctx, "CodePipeline", dt.CodePipeline.StartCodePipeline(ctx, arn)), true
 	case strings.HasPrefix(arn, "arn:aws:sagemaker:") && strings.Contains(arn, ":pipeline/"):
 		if dt.SageMakerPipeline == nil {
 			return false, true
@@ -68,7 +68,7 @@ func deliverToServiceTarget(
 
 		err := dt.SageMakerPipeline.StartSageMakerPipeline(ctx, arn, target.SageMakerPipelineParameters)
 
-		return logTargetErr(ctx, "SageMaker pipeline", arn, err), true
+		return logTargetErr(ctx, "SageMaker pipeline", err), true
 	case strings.HasPrefix(arn, "arn:aws:redshift:") && strings.Contains(arn, ":cluster:"):
 		if dt.RedshiftData == nil {
 			return false, true
@@ -76,18 +76,18 @@ func deliverToServiceTarget(
 
 		err := dt.RedshiftData.ExecuteRedshiftStatement(ctx, arn, target.RedshiftDataParameters)
 
-		return logTargetErr(ctx, "Redshift", arn, err), true
+		return logTargetErr(ctx, "Redshift", err), true
 	}
 
 	return deliverToOpsTarget(ctx, target, dt, payload)
 }
 
-func logTargetErr(ctx context.Context, kind, arn string, err error) bool {
+func logTargetErr(ctx context.Context, kind string, err error) bool {
 	if err == nil {
 		return false
 	}
 
-	logger.Load(ctx).WarnContext(ctx, "EventBridge failed to deliver to target", "kind", kind, "arn", arn, "error", err)
+	logger.Load(ctx).WarnContext(ctx, "EventBridge failed to deliver to target", "kind", kind, "error", err)
 
 	return true
 }

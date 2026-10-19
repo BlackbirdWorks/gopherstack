@@ -17,7 +17,7 @@ type exec struct {
 }
 
 func (r row) with(name string, v any) row {
-	c := make(row, len(r)+1)
+	c := make(row, len(r))
 	maps.Copy(c, r)
 
 	if name != "" {

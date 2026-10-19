@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 )
@@ -165,6 +166,8 @@ func TestIAMEnforcement(t *testing.T) {
 			tt.setupBackend(iamBackend)
 
 			srv := setupKAFKAEnforcementServer(t, iamBackend)
+			hc := httpclient.New(testHTTPTimeout)
+			t.Cleanup(hc.CloseIdleConnections)
 			ctx := t.Context()
 
 			req, err := http.NewRequestWithContext(ctx, tt.method, srv.URL+tt.path, strings.NewReader(tt.body))
@@ -176,7 +179,7 @@ func TestIAMEnforcement(t *testing.T) {
 					"/20260826/us-east-1/kafka/aws4_request, SignedHeaders=host, Signature=mock",
 			)
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := hc.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
 

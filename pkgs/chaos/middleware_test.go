@@ -312,10 +312,10 @@ func TestMiddleware_ScopeParsing(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		rule      chaos.FaultRule
 		name      string
 		auth      string
 		region    string
-		rule      chaos.FaultRule
 		wantFault bool
 	}{
 		{"service match", buildSigV4Auth("s3", "us-east-1"), "", chaos.FaultRule{Service: "s3"}, true},

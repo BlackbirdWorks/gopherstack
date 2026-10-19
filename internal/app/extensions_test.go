@@ -83,7 +83,7 @@ func TestExtensionRoutingAndHooks(t *testing.T) {
 		`"$GOPHERSTACK_CONTROL_URL/_gopherstack/extensions/register" && exec sleep 600`, regFile)
 	cfgFile := filepath.Join(dir, "ext.json")
 	cfg, err := json.Marshal(map[string]any{"extensions": []map[string]any{
-		{"name": "t", "command": []string{"sh", "-c", script}},
+		{"name": "t", "command": []string{"sh", "-c", script}, "health_interval": "1h"},
 	}})
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(cfgFile, cfg, 0o600))

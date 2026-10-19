@@ -308,7 +308,7 @@ func (x *exec) sortRows(items []orderItem, outs []outRow) error {
 	keys := make([][]any, len(outs))
 
 	for i, o := range outs {
-		env := make(row, len(o.src)+len(o.vals))
+		env := make(row, len(o.src))
 		maps.Copy(env, o.src)
 
 		maps.Copy(env, o.vals)

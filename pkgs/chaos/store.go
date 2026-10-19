@@ -44,10 +44,10 @@ var defaultFaultError = FaultError{
 // the first match wins.
 type FaultRule struct {
 	Error       *FaultError `json:"error,omitempty"`
+	Probability *float64    `json:"probability,omitempty"`
 	Service     string      `json:"service,omitempty"`
 	Region      string      `json:"region,omitempty"`
 	Operation   string      `json:"operation,omitempty"`
-	Probability *float64    `json:"probability,omitempty"`
 }
 
 // ShouldTrigger reports whether this fault should fire based on its probability.

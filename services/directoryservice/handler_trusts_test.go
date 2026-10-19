@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/directoryservice"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/directoryservice"
 )
 
 func TestCreateTrust_Validation(t *testing.T) {

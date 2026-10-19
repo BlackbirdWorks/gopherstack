@@ -186,8 +186,8 @@ func TestMiddleware_ProbabilitySemantics(t *testing.T) {
 	const requests = 200
 
 	tests := []struct {
-		name     string
 		prob     *float64
+		name     string
 		wantHits int64
 	}{
 		{name: "omitted_always_fires", prob: nil, wantHits: 0},
