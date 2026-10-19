@@ -14527,6 +14527,17 @@
     ],
     "version": 1
   },
+  "gcpscheduler": {
+    "fields": [
+      "backendSnapshot.JobSeq uint64 `json:\"jobSeq\"`",
+      "backendSnapshot.Jobs map[string]jobSnap `json:\"jobs\"`",
+      "jobSnap.ExecStart time.Time `json:\"execStart\"`",
+      "jobSnap.Failures int32 `json:\"failures\"`",
+      "jobSnap.Job json.RawMessage `json:\"job\"`",
+      "jobSnap.RetryAt time.Time `json:\"retryAt\"`"
+    ],
+    "version": 1
+  },
   "gcpstorage": {
     "fields": [
       "Bucket.Config map[string]json.RawMessage `json:\"config,omitempty\"`",

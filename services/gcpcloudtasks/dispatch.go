@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpdispatch"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -42,36 +43,7 @@ func (r result) ok() bool {
 	return r.err == nil && r.sc >= http.StatusOK && r.sc < http.StatusMultipleChoices
 }
 
-func httpToRPC(sc int) code.Code {
-	switch sc {
-	case http.StatusBadRequest:
-		return code.Code_INVALID_ARGUMENT
-	case http.StatusUnauthorized:
-		return code.Code_UNAUTHENTICATED
-	case http.StatusForbidden:
-		return code.Code_PERMISSION_DENIED
-	case http.StatusNotFound:
-		return code.Code_NOT_FOUND
-	case http.StatusConflict:
-		return code.Code_ABORTED
-	case http.StatusTooManyRequests:
-		return code.Code_RESOURCE_EXHAUSTED
-	case http.StatusInternalServerError:
-		return code.Code_INTERNAL
-	case http.StatusNotImplemented:
-		return code.Code_UNIMPLEMENTED
-	case http.StatusServiceUnavailable:
-		return code.Code_UNAVAILABLE
-	case http.StatusGatewayTimeout:
-		return code.Code_DEADLINE_EXCEEDED
-	}
-
-	if sc >= http.StatusInternalServerError {
-		return code.Code_UNAVAILABLE
-	}
-
-	return code.Code_UNKNOWN
-}
+func httpToRPC(sc int) code.Code { return gcpdispatch.HTTPToRPC(sc) }
 
 // rpcStatus maps an HTTP outcome to the google.rpc.Status recorded on the attempt.
 func (r result) rpcStatus() *rpcstatus.Status {
@@ -304,18 +276,8 @@ func effectiveRetry(queue, task *cloudtaskspb.RetryConfig) *cloudtaskspb.RetryCo
 // backoff is the delay after the failures-th failed attempt: min doubles max_doublings times, then grows
 // linearly, capped at max.
 func backoff(rc *cloudtaskspb.RetryConfig, failures int32) time.Duration {
-	lo, hi := rc.GetMinBackoff().AsDuration(), rc.GetMaxBackoff().AsDuration()
-	i := int(max(failures-1, 0))
-	d := int(rc.GetMaxDoublings())
-
-	var mult float64
-	if i <= d {
-		mult = math.Ldexp(1, i)
-	} else {
-		mult = math.Ldexp(1, d) * float64(i-d+1)
-	}
-
-	return time.Duration(min(float64(lo)*mult, float64(hi)))
+	return gcpdispatch.Backoff(
+		rc.GetMinBackoff().AsDuration(), rc.GetMaxBackoff().AsDuration(), rc.GetMaxDoublings(), failures)
 }
 
 // RunTask forces an immediate attempt regardless of queue state, schedule or rate limits.

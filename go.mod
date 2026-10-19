@@ -8,6 +8,7 @@ require (
 	cloud.google.com/go/iam v1.11.0
 	cloud.google.com/go/kms v1.35.0
 	cloud.google.com/go/pubsub/v2 v2.7.0
+	cloud.google.com/go/scheduler v1.17.0
 	cloud.google.com/go/secretmanager v1.22.0
 	cloud.google.com/go/storage v1.65.1
 	connectrpc.com/connect v1.20.0

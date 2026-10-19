@@ -1,8 +1,6 @@
 package gcpcloudtasks
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"net"
 	"net/http"
 	"net/url"
@@ -11,12 +9,12 @@ import (
 	"time"
 
 	"cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpdispatch"
 )
 
 const (
 	defaultDeadline = 10 * time.Minute
-	tokenTTL        = time.Hour
-	issuer          = "https://accounts.google.com"
 )
 
 // outbound is a fully resolved HTTP request, built under the lock so delivery runs outside it.
@@ -200,35 +198,10 @@ func (b *InMemoryBackend) appEngineOutbound(r *cloudtaskspb.AppEngineHttpRequest
 	return out, nil
 }
 
-func b64(v any) string {
-	raw, _ := json.Marshal(v)
-
-	return base64.RawURLEncoding.EncodeToString(raw)
-}
-
-// oidcToken mints an UNSIGNED JWT (alg none) marked as a gopherstack test token; no verifier will accept it as real.
 func oidcToken(t *cloudtaskspb.OidcToken, targetURL string, now time.Time) string {
-	aud := t.GetAudience()
-	if aud == "" {
-		aud = targetURL
-	}
-
-	claims := map[string]any{
-		"iss": issuer, "aud": aud, "sub": t.GetServiceAccountEmail(), "email": t.GetServiceAccountEmail(),
-		"email_verified": true, "iat": now.Unix(), "exp": now.Add(tokenTTL).Unix(),
-		"gopherstack": "unsigned-test-token",
-	}
-
-	return b64(map[string]string{"alg": "none", "typ": "JWT"}) + "." + b64(claims) + "."
+	return gcpdispatch.OIDCToken(t.GetServiceAccountEmail(), t.GetAudience(), targetURL, now)
 }
 
-// oauthToken returns an opaque placeholder access token tied to the service account and scope.
 func oauthToken(t *cloudtaskspb.OAuthToken) string {
-	scope := t.GetScope()
-	if scope == "" {
-		scope = "https://www.googleapis.com/auth/cloud-platform"
-	}
-
-	return "gopherstack-unsigned-oauth." + base64.RawURLEncoding.EncodeToString(
-		[]byte(t.GetServiceAccountEmail()+"|"+scope))
+	return gcpdispatch.OAuthToken(t.GetServiceAccountEmail(), t.GetScope())
 }
