@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/dns/dnstest"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svctags "github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -420,17 +420,13 @@ func TestServerStartup_WithInitScript(t *testing.T) {
 
 //nolint:paralleltest // uses t.Setenv via parseCLI, which is incompatible with t.Parallel.
 func TestServerStartup_WithDNS(t *testing.T) {
-	// Find a free UDP port for the DNS server.
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	require.NoError(t, err)
-	dnsPort := pc.LocalAddr().(*net.UDPAddr).Port
-	_ = pc.Close()
+	dnsAddr := dnstest.FreeAddr(t)
 
 	port := freeTCPPort(t)
 	cli := parseCLI(t, map[string]string{
 		"PORT": strconv.Itoa(port),
 	})
-	cli.DNSListenAddr = fmt.Sprintf("127.0.0.1:%d", dnsPort)
+	cli.DNSListenAddr = dnsAddr
 	cli.DNSResolveIP = "127.0.0.1"
 
 	ctx, cancel := context.WithCancel(t.Context())

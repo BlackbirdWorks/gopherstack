@@ -1,8 +1,6 @@
 package dns_test
 
 import (
-	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,37 +10,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
+	"github.com/blackbirdworks/gopherstack/pkgs/dns/dnstest"
 )
 
 func startWithConfig(t *testing.T, cfg gopherDNS.Config) (*gopherDNS.Server, string) {
 	t.Helper()
 
-	for range 5 {
-		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-		require.NoError(t, err)
+	srv, addr, _ := dnstest.Start(t, cfg)
 
-		addr := fmt.Sprintf("127.0.0.1:%d", pc.LocalAddr().(*net.UDPAddr).Port)
-		_ = pc.Close()
-
-		cfg.ListenAddr = addr
-
-		srv, err := gopherDNS.New(cfg)
-		require.NoError(t, err)
-
-		if err = srv.Start(t.Context()); err != nil {
-			_ = srv.Stop()
-
-			continue
-		}
-
-		t.Cleanup(func() { _ = srv.Stop() })
-
-		return srv, addr
-	}
-
-	t.Fatal("could not start dns server")
-
-	return nil, ""
+	return srv, addr
 }
 
 func TestTransparentMode(t *testing.T) {

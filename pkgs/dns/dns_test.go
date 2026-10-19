@@ -2,7 +2,6 @@ package dns_test
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net"
 	"testing"
@@ -13,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
+	"github.com/blackbirdworks/gopherstack/pkgs/dns/dnstest"
 )
 
 func TestNew_InvalidIP(t *testing.T) {
@@ -104,51 +104,10 @@ func TestSyntheticHostname(t *testing.T) {
 	}
 }
 
-// startTestServer starts a DNS server on a free port and returns the server, its address, and
-// the cancel func for the context passed to Start. It retries up to 5 times with a fresh random
-// port to avoid TOCTOU port-conflict races in CI. Cleanup cancels the context and calls Stop;
-// both are safe to call again if the test invokes the returned cancel func itself.
 func startTestServer(t *testing.T) (*gopherDNS.Server, string, context.CancelFunc) {
 	t.Helper()
 
-	const maxAttempts = 5
-
-	for range maxAttempts {
-		// Find a free UDP port.
-		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-		require.NoError(t, err)
-
-		port := pc.LocalAddr().(*net.UDPAddr).Port
-		_ = pc.Close()
-
-		addr := fmt.Sprintf("127.0.0.1:%d", port)
-
-		srv, err := gopherDNS.New(gopherDNS.Config{
-			ListenAddr: addr,
-			ResolveIP:  "127.0.0.1",
-		})
-		require.NoError(t, err)
-
-		ctx, cancel := context.WithCancel(t.Context())
-
-		if err = srv.Start(ctx); err != nil {
-			cancel()
-			_ = srv.Stop()
-
-			continue
-		}
-
-		t.Cleanup(func() {
-			cancel()
-			_ = srv.Stop()
-		})
-
-		return srv, addr, cancel
-	}
-
-	t.Fatal("failed to start DNS test server after retries")
-
-	return nil, "", nil
+	return dnstest.Start(t, gopherDNS.Config{ResolveIP: "127.0.0.1"})
 }
 
 // queryA performs a DNS A query and returns the first IP answer.
