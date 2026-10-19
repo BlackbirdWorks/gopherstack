@@ -14,26 +14,26 @@ type AwsVpcConfiguration struct {
 
 // NetworkConfiguration wraps VPC configuration for ECS task targets.
 type NetworkConfiguration struct {
-	AwsvpcConfiguration *AwsVpcConfiguration `json:"AwsvpcConfiguration,omitempty"`
+	AwsvpcConfiguration *AwsVpcConfiguration `json:"awsvpcConfiguration,omitempty"`
 }
 
 // CapacityProviderStrategyItem is a single entry in an ECS capacity provider strategy.
 type CapacityProviderStrategyItem struct {
-	CapacityProvider string `json:"CapacityProvider,omitempty"`
-	Weight           int    `json:"Weight,omitempty"`
-	Base             int    `json:"Base,omitempty"`
+	CapacityProvider string `json:"capacityProvider,omitempty"`
+	Weight           int    `json:"weight,omitempty"`
+	Base             int    `json:"base,omitempty"`
 }
 
 // PlacementConstraint is a constraint for ECS task placement.
 type PlacementConstraint struct {
-	Expression string `json:"Expression,omitempty"`
-	Type       string `json:"Type,omitempty"`
+	Expression string `json:"expression,omitempty"`
+	Type       string `json:"type,omitempty"`
 }
 
 // PlacementStrategy is a placement strategy rule for ECS tasks.
 type PlacementStrategy struct {
-	Field string `json:"Field,omitempty"`
-	Type  string `json:"Type,omitempty"`
+	Field string `json:"field,omitempty"`
+	Type  string `json:"type,omitempty"`
 }
 
 // EcsEnvironmentVariable is a name/value pair overriding an ECS container's environment.

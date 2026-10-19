@@ -70,7 +70,7 @@ type snapshotOptionsJSON struct {
 
 // encryptAtRestOptionsJSON is the JSON representation of encryption at rest options.
 type encryptAtRestOptionsJSON struct {
-	KMSKeyID string `json:"KMSKeyId,omitempty"`
+	KMSKeyID string `json:"KmsKeyId,omitempty"`
 	Enabled  bool   `json:"Enabled"`
 }
 

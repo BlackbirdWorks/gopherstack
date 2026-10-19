@@ -48,7 +48,7 @@ type MSKSourceParameters struct {
 	Credentials                    *MSKAccessCredentials `json:"Credentials,omitempty"`
 	TopicName                      string                `json:"TopicName,omitempty"`
 	StartingPosition               string                `json:"StartingPosition,omitempty"`
-	ConsumerGroupID                string                `json:"ConsumerGroupId,omitempty"`
+	ConsumerGroupID                string                `json:"ConsumerGroupID,omitempty"`
 	BatchSize                      int                   `json:"BatchSize,omitempty"`
 	MaximumBatchingWindowInSeconds int                   `json:"MaximumBatchingWindowInSeconds,omitempty"`
 }
@@ -74,7 +74,7 @@ type SelfManagedKafkaSourceParameters struct {
 	Vpc                            *SelfManagedKafkaVpc               `json:"Vpc,omitempty"`
 	TopicName                      string                             `json:"TopicName,omitempty"`
 	StartingPosition               string                             `json:"StartingPosition,omitempty"`
-	ConsumerGroupID                string                             `json:"ConsumerGroupId,omitempty"`
+	ConsumerGroupID                string                             `json:"ConsumerGroupID,omitempty"`
 	ServerRootCaCertificate        string                             `json:"ServerRootCaCertificate,omitempty"`
 	AdditionalBootstrapServers     []string                           `json:"AdditionalBootstrapServers,omitempty"`
 	BatchSize                      int                                `json:"BatchSize,omitempty"`

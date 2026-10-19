@@ -232,12 +232,12 @@ func TestCreateDomain_EncryptionOptions(t *testing.T) {
 				"DomainName": "enc-enabled",
 				"EncryptionAtRestOptions": map[string]any{
 					"Enabled":  true,
-					"KMSKeyId": "arn:aws:kms:us-east-1:123456789012:key/test-key",
+					"KmsKeyId": "arn:aws:kms:us-east-1:123456789012:key/test-key",
 				},
 			},
 			wantEncryptFields: map[string]any{
 				"Enabled":  true,
-				"KMSKeyId": "arn:aws:kms:us-east-1:123456789012:key/test-key",
+				"KmsKeyId": "arn:aws:kms:us-east-1:123456789012:key/test-key",
 			},
 		},
 		{

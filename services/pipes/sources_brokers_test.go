@@ -1200,7 +1200,7 @@ func TestKafkaSourceLambdaTargetRoundtrip(t *testing.T) {
 			sp := got["SourceParameters"].(map[string]any)
 			smk := sp["SelfManagedKafkaParameters"].(map[string]any)
 			assert.Equal(t, tt.startingPos, smk["StartingPosition"])
-			assert.Equal(t, tt.consumerGroupID, smk["ConsumerGroupId"])
+			assert.Equal(t, tt.consumerGroupID, smk["ConsumerGroupID"])
 		})
 	}
 }
