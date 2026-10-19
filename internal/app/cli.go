@@ -532,6 +532,8 @@ type CLI struct {
 	InitDirs                      []string                          `                                       name:"init-dir"                env:"INIT_DIR"                                                    help:"Extra init-hook root holding boot.d/start.d/ready.d/shutdown.d (repeatable; /etc/localstack/init and /etc/gopherstack/init are always checked)."` //nolint:lll // config struct tags are intentionally verbose
 	S3InitBuckets                 []string                          `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                                  help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."`                                            //nolint:lll // config struct tags are intentionally verbose
 	ExtraListen                   []string                          `                                       name:"extra-listen"            env:"GOPHERSTACK_EXTRA_LISTEN"                                    help:"Additional ports to serve the same endpoint on (comma-separated)."`                                                                               //nolint:lll // config struct tags are intentionally verbose
+	GCPCloudTasks                 gcpcloudtasksbackend.Settings     `embed:"" prefix:"gcp-cloudtasks-"`
+	GCPScheduler                  gcpschedulerbackend.Settings      `embed:"" prefix:"gcp-scheduler-"`
 	Transparent                   TransparentSettings               `embed:"" prefix:"transparent-"`
 	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
 	AzureKeyVault                 azurekeyvaultbackend.Settings     `embed:"" prefix:"azure-keyvault-"`
@@ -564,8 +566,6 @@ type CLI struct {
 	GCPPubSub                     gcppubsubbackend.Settings         `embed:"" prefix:"gcp-pubsub-"`
 	GCPSecretManager              gcpsecretmanagerbackend.Settings  `embed:"" prefix:"gcp-secretmanager-"`
 	GCPKMS                        gcpkmsbackend.Settings            `embed:"" prefix:"gcp-kms-"`
-	GCPCloudTasks                 gcpcloudtasksbackend.Settings     `embed:"" prefix:"gcp-cloudtasks-"`
-	GCPScheduler                  gcpschedulerbackend.Settings      `embed:"" prefix:"gcp-scheduler-"`
 	GCPFirestore                  gcpfirestorebackend.Settings      `embed:"" prefix:"gcp-firestore-"`
 	AzureStorageVHost             azurestoragevhostbackend.Settings `embed:"" prefix:"azure-storage-vhost-"`
 	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
@@ -2206,150 +2206,42 @@ func setupPortAllocator(
 
 // reserveFixedServicePorts marks ports bound directly by services outside
 // the shared PortAlloc pool as unavailable within that pool, so Acquire
-// never hands the same port number to a different caller.
-//
-// AzureBlob's dedicated listener (services/azureblob) binds a fixed,
-// protocol-conventional default port (10000, matching Azurite's own Blob
-// service port) via a raw net.Listen call, not through PortAlloc -- and that
-// default sits squarely inside PortRangeStart/PortRangeEnd's own default
-// range (10000-10100). Without this reservation, PortAlloc has no way to
-// know AzureBlob already holds 10000 and could hand it to an unrelated
-// caller (e.g. an ElastiCache instance), which would only surface later as
-// a confusing address-in-use failure when that caller tries to actually
-// bind it. See AZURE.md section 4 for the full rationale.
-//
-// A failed reservation is logged, not fatal: AzureBlob's own StartWorker
-// bind is still synchronous and fails fast on a genuine conflict (see
-// handler.go), so the worst outcome here is losing this early-warning
-// cross-service protection, not an unrecoverable startup failure.
+// never hands the same port number to a different caller. A failed
+// reservation is logged, not fatal: each service's own bind still fails fast
+// on a genuine conflict. CosmosDB's default (8081) is outside the default
+// range but a custom range may include it.
 func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *portalloc.Allocator, cli CLI) {
 	if alloc == nil {
 		return
 	}
 
-	if err := alloc.Reserve(cli.AzureBlob.Port, "azureblob"); err != nil {
-		log.WarnContext(ctx, "failed to reserve AzureBlob's fixed port in the shared pool",
-			"port", cli.AzureBlob.Port, "error", err)
+	fixed := []struct {
+		label string
+		key   string
+		port  int
+	}{
+		{"AzureBlob", "azureblob", cli.AzureBlob.Port},
+		{"GCPStorage", "gcpstorage", cli.GCPStorage.Port},
+		{"GCPPubSub", "gcppubsub", cli.GCPPubSub.Port},
+		{"GCPSecretManager", "gcpsecretmanager", cli.GCPSecretManager.Port},
+		{"GCPKMS", "gcpkms", cli.GCPKMS.Port},
+		{"GCPCloudTasks", "gcpcloudtasks", cli.GCPCloudTasks.Port},
+		{"GCPScheduler", "gcpscheduler", cli.GCPScheduler.Port},
+		{"GCPFirestore", "gcpfirestore", cli.GCPFirestore.Port},
+		{"AzureQueue", "azurequeue", cli.AzureQueue.Port},
+		{"AzureTable", "azuretable", cli.AzureTable.Port},
+		{"AzureStorageVHost", "azurestoragevhost", cli.AzureStorageVHost.Port},
+		{"CosmosDB", "cosmosdb", cli.CosmosDB.Port},
+		{"AzureServiceBus", "azureservicebus", cli.AzureServiceBus.Port},
+		{"AzureARM", "azurearm", cli.AzureARM.Port},
+		{"AzureKeyVault", "azurekeyvault", cli.AzureKeyVault.Port},
 	}
 
-	if err := alloc.Reserve(cli.GCPStorage.Port, "gcpstorage"); err != nil {
-		log.WarnContext(ctx, "failed to reserve GCPStorage's fixed port in the shared pool",
-			"port", cli.GCPStorage.Port, "error", err)
-	}
-
-	if err := alloc.Reserve(cli.GCPPubSub.Port, "gcppubsub"); err != nil {
-		log.WarnContext(ctx, "failed to reserve GCPPubSub's fixed port in the shared pool",
-			"port", cli.GCPPubSub.Port, "error", err)
-	}
-
-	if err := alloc.Reserve(cli.GCPSecretManager.Port, "gcpsecretmanager"); err != nil {
-		log.WarnContext(ctx, "failed to reserve GCPSecretManager's fixed port in the shared pool",
-			"port", cli.GCPSecretManager.Port, "error", err)
-	}
-
-	if err := alloc.Reserve(cli.GCPKMS.Port, "gcpkms"); err != nil {
-		log.WarnContext(ctx, "failed to reserve GCPKMS's fixed port in the shared pool",
-			"port", cli.GCPKMS.Port, "error", err)
-	}
-
-	if err := alloc.Reserve(cli.GCPCloudTasks.Port, "gcpcloudtasks"); err != nil {
-		log.WarnContext(ctx, "failed to reserve GCPCloudTasks's fixed port in the shared pool",
-			"port", cli.GCPCloudTasks.Port, "error", err)
-	}
-
-	if err := alloc.Reserve(cli.GCPScheduler.Port, "gcpscheduler"); err != nil {
-		log.WarnContext(ctx, "failed to reserve GCPScheduler's fixed port in the shared pool",
-			"port", cli.GCPScheduler.Port, "error", err)
-	}
-
-	if err := alloc.Reserve(cli.GCPFirestore.Port, "gcpfirestore"); err != nil {
-		log.WarnContext(ctx, "failed to reserve GCPFirestore's fixed port in the shared pool",
-			"port", cli.GCPFirestore.Port, "error", err)
-	}
-
-	// AzureQueue's dedicated listener (services/azurequeue) binds its own
-	// fixed, protocol-conventional default port (10001, matching Azurite's
-	// own Queue service port) the same way AzureBlob does above -- see that
-	// call's comment and AZURE.md section 4 for the full rationale. It sits
-	// in the same PortRangeStart/PortRangeEnd default range, so it needs the
-	// same reservation.
-	if err := alloc.Reserve(cli.AzureQueue.Port, "azurequeue"); err != nil {
-		log.WarnContext(ctx, "failed to reserve AzureQueue's fixed port in the shared pool",
-			"port", cli.AzureQueue.Port, "error", err)
-	}
-
-	// AzureTable's dedicated listener (services/azuretable) binds its own
-	// fixed, protocol-conventional default port (10002, matching Azurite's
-	// own Table service port) the same way AzureBlob/AzureQueue do above --
-	// see those calls' comments and AZURE.md section 4 for the full
-	// rationale. It sits in the same PortRangeStart/PortRangeEnd default
-	// range, so it needs the same reservation.
-	if err := alloc.Reserve(cli.AzureTable.Port, "azuretable"); err != nil {
-		log.WarnContext(ctx, "failed to reserve AzureTable's fixed port in the shared pool",
-			"port", cli.AzureTable.Port, "error", err)
-	}
-
-	// AzureStorageVHost's dedicated listener (services/azurestoragevhost)
-	// binds its own fixed port the same way AzureBlob/AzureQueue/AzureTable
-	// do above -- see AZURE.md section 10.8 for why a shared virtual-hosted
-	// listener exists alongside those three's own path-style ports. It sits
-	// in the same PortRangeStart/PortRangeEnd default range, so it needs
-	// the same reservation.
-	if err := alloc.Reserve(cli.AzureStorageVHost.Port, "azurestoragevhost"); err != nil {
-		log.WarnContext(ctx, "failed to reserve AzureStorageVHost's fixed port in the shared pool",
-			"port", cli.AzureStorageVHost.Port, "error", err)
-	}
-
-	// CosmosDB's dedicated listener (services/cosmosdb) binds its own fixed,
-	// protocol-conventional default port -- but unlike AzureBlob/AzureQueue/
-	// AzureTable above, that default (8081, the real Cosmos DB Local
-	// Emulator's own published port) sits OUTSIDE PortRangeStart/
-	// PortRangeEnd's own default range (10000-10100), exactly mirroring
-	// services/iot's MQTT broker default (1883). This Reserve call is
-	// therefore a no-op against the default range -- but the range is
-	// user-configurable (--port-range-start/--port-range-end), so a custom
-	// range that happens to include 8081 (e.g. 8000-8100) still needs this
-	// reservation to keep PortAlloc from handing 8081 to an unrelated
-	// caller. See AZURE.md section 4, services/cosmosdb/settings.go's
-	// DefaultPort doc comment, and cosmosdb_port_reservation_test.go's
-	// table (which -- unlike AzureBlob/AzureQueue/AzureTable's tables --
-	// covers both the outside-range default case AND a custom in-range
-	// case, since only CosmosDB's default port has this inverted default
-	// behavior).
-	if err := alloc.Reserve(cli.CosmosDB.Port, "cosmosdb"); err != nil {
-		log.WarnContext(ctx, "failed to reserve CosmosDB's fixed port in the shared pool",
-			"port", cli.CosmosDB.Port, "error", err)
-	}
-
-	// AzureServiceBus's dedicated listener (services/azureservicebus) binds
-	// its own fixed port (10003, the next available slot in gopherstack's own
-	// numbering convention after AzureTable's 10002 -- there is no Azurite
-	// Service Bus emulator to mirror) the same way AzureBlob/AzureQueue/
-	// AzureTable do above -- see those calls' comments and AZURE.md section 9
-	// (M5) for the full rationale. It sits in the same
-	// PortRangeStart/PortRangeEnd default range, so it needs the same
-	// reservation.
-	if err := alloc.Reserve(cli.AzureServiceBus.Port, "azureservicebus"); err != nil {
-		log.WarnContext(ctx, "failed to reserve AzureServiceBus's fixed port in the shared pool",
-			"port", cli.AzureServiceBus.Port, "error", err)
-	}
-
-	// AzureARM's dedicated HTTPS listener (services/azurearm) binds its own
-	// fixed port (10006, the next available slot after AzureServiceBus's
-	// 10003 -- Key Vault's 10004 and App Configuration's 10005 are reserved
-	// for M11/M12, see AZURE.md section 10.7) the same way
-	// AzureBlob/AzureQueue/AzureTable/AzureServiceBus do above -- see those
-	// calls' comments for the full rationale. It sits in the same
-	// PortRangeStart/PortRangeEnd default range, so it needs the same
-	// reservation.
-	if err := alloc.Reserve(cli.AzureARM.Port, "azurearm"); err != nil {
-		log.WarnContext(ctx, "failed to reserve AzureARM's fixed port in the shared pool",
-			"port", cli.AzureARM.Port, "error", err)
-	}
-
-	if err := alloc.Reserve(cli.AzureKeyVault.Port, "azurekeyvault"); err != nil {
-		log.WarnContext(ctx, "failed to reserve AzureKeyVault's fixed port in the shared pool",
-			"port", cli.AzureKeyVault.Port, "error", err)
+	for _, f := range fixed {
+		if err := alloc.Reserve(f.port, f.key); err != nil {
+			log.WarnContext(ctx, "failed to reserve "+f.label+"'s fixed port in the shared pool",
+				"port", f.port, "error", err)
+		}
 	}
 }
 
