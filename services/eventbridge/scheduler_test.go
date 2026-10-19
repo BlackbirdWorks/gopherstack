@@ -17,8 +17,8 @@ func TestScheduler(t *testing.T) {
 
 	tests := []struct {
 		check      func(t *testing.T, backend *eventbridge.InMemoryBackend)
-		rule       eventbridge.PutRuleInput
 		name       string
+		rule       eventbridge.PutRuleInput
 		ctxTimeout time.Duration
 		runAsync   bool
 	}{

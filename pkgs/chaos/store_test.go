@@ -305,23 +305,28 @@ func TestFaultRule_ShouldTrigger(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
 		rule        chaos.FaultRule
+		name        string
 		wantTrigger bool
 	}{
 		{
-			name:        "zero probability always triggers (treated as 1.0)",
-			rule:        chaos.FaultRule{Probability: 0},
+			name:        "omitted probability always triggers",
+			rule:        chaos.FaultRule{},
 			wantTrigger: true,
 		},
 		{
+			name:        "explicit zero probability never triggers",
+			rule:        chaos.FaultRule{Probability: new(0.0)},
+			wantTrigger: false,
+		},
+		{
 			name:        "probability 1.0 always triggers",
-			rule:        chaos.FaultRule{Probability: 1.0},
+			rule:        chaos.FaultRule{Probability: new(1.0)},
 			wantTrigger: true,
 		},
 		{
 			name:        "probability above 1.0 always triggers",
-			rule:        chaos.FaultRule{Probability: 2.0},
+			rule:        chaos.FaultRule{Probability: new(2.0)},
 			wantTrigger: true,
 		},
 	}
@@ -340,9 +345,9 @@ func TestFaultRule_EffectiveError(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		rule           chaos.FaultRule
 		name           string
 		wantCode       string
-		rule           chaos.FaultRule
 		wantStatusCode int
 	}{
 		{

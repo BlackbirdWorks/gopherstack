@@ -9,16 +9,22 @@
 | --- | --- |
 | PARITY entries audited | 59 (58 ok, 1 partial) |
 | Feature families | 4 (4 ok) |
-| Known gaps | none |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 1 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- Docker engine (--codebuild-engine=docker, gopherstack-49qct.14): GITHUB/GITHUB_ENTERPRISE/BITBUCKET/GITLAB sources are not cloned (the build FAILs in DOWNLOAD_SOURCE); only S3 zip/object, CODECOMMIT, NO_SOURCE and CODEPIPELINE-with-buildspec are materialised, and S3 folder-prefix sources are not.
+- Docker engine: command output reaches CloudWatch Logs when each buildspec phase script finishes, not line by line while it runs (the container runtime's Exec returns buffered output).
+- Docker engine: buildspec reports, cache, exported-variables, runtime-versions, proxy, run-as and artifact-name $(command) substitution are parsed-and-ignored; build batches and BuildGroups still use the simulated path; AWS_ENDPOINT_URL for the emulator is not injected into the container.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- DescribeCodeCoverages/DescribeTestCases/GetReportGroupTrend return empty content: report data is ingested on AWS by the managed build agent parsing buildspec reports and artifact files, and this emulator runs no build commands.
+- DescribeCodeCoverages/DescribeTestCases/GetReportGroupTrend return empty content: report data is ingested on AWS by the managed build agent parsing buildspec reports and artifact files. Default (stub) mode runs no build commands; docker engine mode runs them but does not parse report files.
 - BuildBatchConfig.CombineArtifacts and BatchReportMode are round-tripped config only: no artifact store to merge into and no Git host to report status to.
 
 ### Deferred

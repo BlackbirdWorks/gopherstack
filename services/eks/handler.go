@@ -595,7 +595,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 }
 
 func errResp(code, msg string) map[string]string {
-	return map[string]string{"code": code, "message": msg}
+	return map[string]string{keyCode: code, keyMessage: msg}
 }
 
 // clientMessage drops the "<ExceptionName>: " prefix sentinel wrapping adds to messages.

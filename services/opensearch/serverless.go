@@ -8,9 +8,10 @@ import (
 	"maps"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
-	"github.com/google/uuid"
 )
 
 const defaultSamlSessionTimeoutB64 = "MTY4MDAwMDAwMDAwMA=="

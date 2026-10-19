@@ -17,7 +17,7 @@
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- No SFTP/FTP/FTPS/AS2 listener exists: servers, users, keys and workflows are control-plane records, so a managed workflow never runs on upload and HomeDirectory mappings are never exercised by a real client.
+- No FTP/FTPS/AS2 listener exists, and workflows (WorkflowDetails OnUpload) never run on SFTP upload. SFTP is real but opt-in (sftp.go, EnableSFTP): ONLINE SFTP servers bind a loopback SSH listener (dynamic port, SFTPAddress) mapped onto S3. SERVICE_MANAGED key auth and AWS_LAMBDA key/password auth work; API_GATEWAY/AWS_DIRECTORY_SERVICE logins are refused, SftpAuthenticationMethods *_AND_PASSWORD is unsupported, user Role/Policy are not enforced against S3, EFS is not modeled, host-key changes apply on the next listener (re)start, directory rename is unsupported.
 - StartFileTransfer.CustomHttpHeaders is accepted but cannot be applied: the emulator never sends AS2 messages and no SDK output (ListFileTransferResults) echoes request headers.
 
 ## More

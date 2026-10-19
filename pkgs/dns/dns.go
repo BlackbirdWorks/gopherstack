@@ -56,6 +56,8 @@ type Config struct {
 	ListenAddr string
 	// ResolveIP is the IP address returned for every registered name (default "127.0.0.1").
 	ResolveIP string
+	// Transparent enables real-AWS-endpoint interception and upstream forwarding.
+	Transparent TransparentConfig
 }
 
 // dnsEntry stores the record type and values for a per-record DNS registration.
@@ -68,6 +70,7 @@ type dnsEntry struct {
 // synthetic hostnames with a fixed IP address.
 type Server struct {
 	interceptor Interceptor
+	transparent *transparent
 	names       map[string]struct{}
 	records     map[string][]*dnsEntry // per-record typed values (RegisterRecord)
 
@@ -106,13 +109,14 @@ func New(cfg Config) (*Server, error) {
 	}
 
 	return &Server{
-		names:      make(map[string]struct{}),
-		records:    make(map[string][]*dnsEntry),
-		cfg:        cfg,
-		resolveIP:  ip,
-		listenAddr: cfg.ListenAddr,
-		mu:         lockmetrics.New("dns"),
-		stopCh:     make(chan struct{}),
+		transparent: newTransparent(cfg.Transparent, cfg.ListenAddr),
+		names:       make(map[string]struct{}),
+		records:     make(map[string][]*dnsEntry),
+		cfg:         cfg,
+		resolveIP:   ip,
+		listenAddr:  cfg.ListenAddr,
+		mu:          lockmetrics.New("dns"),
+		stopCh:      make(chan struct{}),
 	}, nil
 }
 
@@ -331,6 +335,10 @@ func (s *Server) localAnswer(r *dns.Msg) *dns.Msg {
 		entries := s.records[name]
 		_, inNames := s.names[name]
 		s.mu.RUnlock()
+
+		if s.transparent != nil && entries == nil && !inNames {
+			return s.transparent.answer(s, r, q)
+		}
 
 		switch q.Qtype {
 		case dns.TypeA:

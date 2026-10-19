@@ -61,10 +61,8 @@ type selectInputSerialization struct {
 	CompressionType string              `xml:"CompressionType"`
 }
 
-// selectParquetInput marks that the source object is Parquet-formatted.
-// Only its presence is used - Parquet input is not supported and is rejected
-// with a clear error rather than being silently parsed as CSV, which the
-// zero-value InputSerialization would otherwise fall back to.
+// selectParquetInput marks that the source object is Parquet-formatted; only
+// its presence is used, so it is not mistaken for the CSV default.
 type selectParquetInput struct{}
 
 // selectCSVInput holds CSV input settings.
@@ -317,7 +315,7 @@ func (h *S3Handler) evaluateQuery(
 	req *selectRequest,
 ) (int64, error) {
 	if req.InputSerialization.Parquet != nil {
-		return 0, fmt.Errorf("UnsupportedFileType: %w", errParquetUnsupported)
+		return evaluateParquetQuery(w, query, data, req)
 	}
 
 	data, decErr := decompressSelectInput(data, req.InputSerialization.CompressionType)
@@ -341,8 +339,6 @@ func (h *S3Handler) evaluateQuery(
 		return evaluateCSVQuery(w, query, data, req)
 	}
 }
-
-var errParquetUnsupported = errors.New("parquet input serialization is not supported")
 
 // decompressSelectInput decompresses data per CompressionType before it reaches
 // the CSV/JSON parser. Previously CompressionType was parsed off the wire and
@@ -384,7 +380,7 @@ func parseSQLSelectError(err error) (string, string, bool) {
 	msg := err.Error()
 	for _, knownCode := range []string{
 		"MissingSQLColumn", "ParseException", "InvalidExpressionType", "UnsupportedFileType",
-		"GZIPDecompression", "BZIP2Decompression", "InvalidCompressionFormat",
+		"GZIPDecompression", "BZIP2Decompression", "InvalidCompressionFormat", "ParquetParsingError",
 	} {
 		prefix := knownCode + ":"
 		if strings.HasPrefix(msg, prefix) {

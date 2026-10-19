@@ -94,8 +94,8 @@ func templateParseFormatErr(body string, err error) error {
 // before any stack exists. A template with a Transform or Fn::ForEach is only
 // checked for syntax: macro expansion can add the resources and parameters
 // the static checks would otherwise flag.
-func preflightTemplateErr(body string, params []Parameter) error {
-	tmpl, err := preflightTemplateStructure(body)
+func preflightTemplateErr(body string, params []Parameter, registered typeKnown) error {
+	tmpl, err := preflightTemplateStructure(body, registered)
 	if errors.Is(err, errEmptyOrTransformed) {
 		return nil
 	}
@@ -104,12 +104,22 @@ func preflightTemplateErr(body string, params []Parameter) error {
 		return err
 	}
 
-	return parameterValuesErr(tmpl, params)
+	if err = parameterValuesErr(tmpl, params); err != nil {
+		return err
+	}
+
+	resolved := ResolveParameters(tmpl, params)
+
+	if err = ValidateParameters(tmpl, resolved); err != nil {
+		return err
+	}
+
+	return evaluateRules(tmpl, resolved)
 }
 
 // preflightTemplateStructure runs the parameter-independent checks and returns
 // the parsed template, or errEmptyOrTransformed when no static check applies.
-func preflightTemplateStructure(body string) (*Template, error) {
+func preflightTemplateStructure(body string, registered typeKnown) (*Template, error) {
 	if strings.TrimSpace(body) == "" {
 		return nil, errEmptyOrTransformed
 	}
@@ -137,6 +147,18 @@ func preflightTemplateStructure(body string) (*Template, error) {
 		}
 	}
 
+	if err = unrecognizedResourceTypesErr(tmpl, registered); err != nil {
+		return nil, err
+	}
+
+	if err = templateSectionsErr(tmpl); err != nil {
+		return nil, err
+	}
+
+	if err = unresolvedConditionsErr(tmpl); err != nil {
+		return nil, err
+	}
+
 	if err = unresolvedReferencesErr(tmpl); err != nil {
 		return nil, err
 	}
@@ -150,8 +172,8 @@ func preflightTemplateStructure(body string) (*Template, error) {
 
 // validateTemplateStructure is preflightTemplateStructure for callers that
 // only need the verdict.
-func validateTemplateStructure(body string) error {
-	if _, err := preflightTemplateStructure(body); err != nil && !errors.Is(err, errEmptyOrTransformed) {
+func validateTemplateStructure(body string, registered typeKnown) error {
+	if _, err := preflightTemplateStructure(body, registered); err != nil && !errors.Is(err, errEmptyOrTransformed) {
 		return err
 	}
 
@@ -169,7 +191,8 @@ func sortedResourceIDs(tmpl *Template) []string {
 }
 
 func unresolvedReferencesErr(tmpl *Template) error {
-	missing := map[string]struct{}{}
+	resourceMissing := map[string]struct{}{}
+	outputMissing := map[string]struct{}{}
 	known := func(name string) bool {
 		if _, ok := tmpl.Resources[name]; ok {
 			return true
@@ -182,31 +205,40 @@ func unresolvedReferencesErr(tmpl *Template) error {
 	}
 
 	for _, res := range tmpl.Resources {
-		collectUnknownRefs(res.Properties, known, missing)
+		collectUnknownRefs(res.Properties, known, resourceMissing)
 		for _, dep := range res.DependsOn {
 			if _, ok := tmpl.Resources[dep]; !ok {
-				missing[dep] = struct{}{}
+				resourceMissing[dep] = struct{}{}
 			}
 		}
 	}
 
 	for _, out := range tmpl.Outputs {
-		collectUnknownRefs(out.Value, known, missing)
+		collectUnknownRefs(out.Value, known, outputMissing)
 	}
 
-	if len(missing) == 0 {
-		return nil
+	for _, blk := range []struct {
+		missing map[string]struct{}
+		name    string
+	}{{resourceMissing, blockResources}, {outputMissing, blockOutputs}} {
+		if len(blk.missing) == 0 {
+			continue
+		}
+
+		names := make([]string, 0, len(blk.missing))
+		for n := range blk.missing {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+
+		return templateFormatErr(
+			"Unresolved resource dependencies [%s] in the %s block of the template",
+			strings.Join(names, ", "),
+			blk.name,
+		)
 	}
 
-	names := make([]string, 0, len(missing))
-	for n := range missing {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-
-	return templateFormatErr(
-		"Unresolved resource dependencies [%s] in the Resources block of the template", strings.Join(names, ", "),
-	)
+	return nil
 }
 
 func collectUnknownRefs(v any, known func(string) bool, missing map[string]struct{}) {

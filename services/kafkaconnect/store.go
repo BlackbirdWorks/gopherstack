@@ -10,6 +10,7 @@ import (
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	appConfig            any
+	engine               *workerEngine
 	connectors           *store.Table[Connector]
 	customPlugins        *store.Table[CustomPlugin]
 	workerConfigurations *store.Table[WorkerConfiguration]
@@ -33,9 +34,14 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // Reset clears all backend state.
 func (b *InMemoryBackend) Reset() {
+	var lws []*liveWorker
+
+	defer func() { b.reapDetached(lws...) }()
+
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
+	lws = b.detachAllWorkersLocked()
 	b.registry.ResetAll()
 }
 

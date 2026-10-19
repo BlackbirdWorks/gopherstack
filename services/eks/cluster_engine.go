@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +20,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 )
 
 // Engine modes for EKS.
@@ -116,32 +118,37 @@ type ClusterRuntime interface {
 
 // ClusterEngineConfig configures docker-backed EKS clusters.
 type ClusterEngineConfig struct {
-	Runtime ClusterRuntime
-	// Ports hands out host ports; nil falls back to OS-chosen free ports.
-	Ports  *portalloc.Allocator
-	Logger *slog.Logger
-	// Probe overrides the readiness check; it returns the server CA (PEM) once addr answers /readyz for token.
-	Probe func(ctx context.Context, addr, token string) ([]byte, error)
-	// Host is the address clients use to reach the API server; default 127.0.0.1.
-	Host string
-	// Token is the static cluster-admin bearer token; default DefaultClusterToken.
-	Token string
-	// Image overrides the version-mapped k3s image.
-	Image string
-	// StartTimeout bounds how long a cluster may stay CREATING before FAILED.
+	Runtime      ClusterRuntime
+	Credentials  CredentialResolver
+	Ports        *portalloc.Allocator
+	Logger       *slog.Logger
+	Probe        func(ctx context.Context, addr, token string) ([]byte, error)
+	Host         string
+	Token        string
+	Image        string
 	StartTimeout time.Duration
 }
 
 type liveCluster struct {
 	cancel      context.CancelFunc
+	api         *k8sAPI
+	proxy       *k8sProxy
+	kick        chan struct{}
+	serverIP    atomic.Pointer[string]
+	name        string
 	containerID string
+	image       string
+	joinToken   string
 	ca          []byte
 	port        int
+	proxyPort   int
+	dead        atomic.Bool
 	ready       bool
 }
 
 type clusterEngine struct {
 	clusters map[string]*liveCluster
+	agents   *safemap.Map[string, *agentNode]
 	cfg      ClusterEngineConfig
 	wg       sync.WaitGroup
 }
@@ -173,7 +180,12 @@ func (b *InMemoryBackend) EnableClusters(cfg ClusterEngineConfig) error {
 	b.mu.Lock("EnableClusters")
 	defer b.mu.Unlock()
 
-	b.clusterEng = &clusterEngine{cfg: cfg, clusters: make(map[string]*liveCluster)}
+	b.credentials = cfg.Credentials
+	b.clusterEng = &clusterEngine{
+		cfg:      cfg,
+		clusters: make(map[string]*liveCluster),
+		agents:   safemap.New[string, *agentNode]("eks.cluster.agents"),
+	}
 
 	return nil
 }
@@ -192,13 +204,13 @@ func (e *clusterEngine) image(version string) string {
 	return img
 }
 
-func (e *clusterEngine) spec(name, version string, port int, ca *clusterCA) container.Spec {
+func (e *clusterEngine) spec(name string, lc *liveCluster, port int, ca *clusterCA) container.Spec {
 	return container.Spec{
 		Name:       "gopherstack-eks-" + name + "-" + uuid.NewString()[:8],
-		Image:      e.image(version),
+		Image:      lc.image,
 		Entrypoint: []string{"/bin/sh", "-c", k3sScript},
 		Env: []string{
-			envAdminAuth + "=" + e.cfg.Token, envHost + "=" + e.cfg.Host,
+			envAdminAuth + "=" + e.cfg.Token, envHost + "=" + e.cfg.Host, "K3S_TOKEN=" + lc.joinToken,
 			envCACert + "=" + string(ca.certPEM), envCAKey + "=" + string(ca.keyPEM),
 		},
 		Ports: []string{
@@ -260,11 +272,33 @@ func (e *clusterEngine) reap(lcs []*liveCluster) {
 			continue
 		}
 
+		lc.dead.Store(true)
 		lc.cancel()
+		e.reapAgents(lc)
+
+		if lc.proxy != nil {
+			lc.proxy.close()
+			e.releasePort(lc.proxyPort)
+		}
+
+		if lc.api != nil {
+			lc.api.close()
+		}
 
 		if lc.containerID != "" {
 			e.wg.Go(func() { e.remove(lc.containerID, lc.port) })
 		}
+	}
+}
+
+func (e *clusterEngine) reapAgents(lc *liveCluster) {
+	for _, a := range e.agents.Values() {
+		if a.cluster != lc.name {
+			continue
+		}
+
+		e.agents.Delete(a.containerID)
+		e.wg.Go(func() { e.remove(a.containerID, 0) })
 	}
 }
 
@@ -312,6 +346,7 @@ func (b *InMemoryBackend) closeClusters() {
 
 	e.reap(lcs)
 	e.wg.Wait()
+	e.agents.Close()
 
 	if c, ok := e.cfg.Runtime.(io.Closer); ok {
 		_ = c.Close()
@@ -326,7 +361,9 @@ func (b *InMemoryBackend) launchClusterLocked(name, version string) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	lc := &liveCluster{cancel: cancel}
+	lc := &liveCluster{
+		cancel: cancel, name: name, kick: make(chan struct{}, 1), image: e.image(version), joinToken: randomHex32(),
+	}
 	e.clusters[name] = lc
 
 	e.wg.Go(func() { b.runCluster(ctx, name, version, lc) })
@@ -350,7 +387,7 @@ func (b *InMemoryBackend) runCluster(ctx context.Context, name, version string, 
 		return
 	}
 
-	id, err := e.cfg.Runtime.CreateAndStart(ctx, e.spec(name, version, port, ca))
+	id, err := e.cfg.Runtime.CreateAndStart(ctx, e.spec(name, lc, port, ca))
 	if err != nil {
 		e.releasePort(port)
 		b.failCluster(ctx, name, lc, err)
@@ -371,7 +408,30 @@ func (b *InMemoryBackend) runCluster(ctx context.Context, name, version string, 
 		return
 	}
 
-	b.markClusterActive(name, lc, caPEM)
+	api, err := newK8sAPI(e.addr(lc), e.cfg.Token, ca.certPEM)
+	if err != nil {
+		b.failCluster(ctx, name, lc, err)
+
+		return
+	}
+
+	proxy, err := b.startProxy(name, ca, api)
+	if err != nil {
+		api.close()
+		b.failCluster(ctx, name, lc, err)
+
+		return
+	}
+
+	if !b.markClusterActive(name, lc, caPEM, api, proxy) {
+		proxy.close()
+		e.releasePort(proxy.port)
+		api.close()
+
+		return
+	}
+
+	e.wg.Go(func() { b.runReconciler(ctx, name, version, lc) })
 }
 
 func (b *InMemoryBackend) recordCluster(name string, lc *liveCluster, id string, port int) bool {
@@ -388,20 +448,27 @@ func (b *InMemoryBackend) recordCluster(name string, lc *liveCluster, id string,
 	return true
 }
 
-func (b *InMemoryBackend) markClusterActive(name string, lc *liveCluster, ca []byte) {
+func (b *InMemoryBackend) markClusterActive(
+	name string, lc *liveCluster, ca []byte, api *k8sAPI, proxy *k8sProxy,
+) bool {
 	b.mu.Lock("markClusterActive")
 	defer b.mu.Unlock()
 
 	if b.clusterEng.clusters[name] != lc {
-		return
+		return false
 	}
 
 	lc.ca = ca
+	lc.api = api
+	lc.proxy = proxy
+	lc.proxyPort = proxy.port
 	lc.ready = true
 
 	if cl, ok := b.clusters.Get(name); ok && cl.Status == statusCreating {
 		cl.Status = statusActive
 	}
+
+	return true
 }
 
 // failCluster marks a still-wanted cluster FAILED and releases its container.
@@ -418,6 +485,12 @@ func (b *InMemoryBackend) failCluster(ctx context.Context, name string, lc *live
 
 	if cl, ok := b.clusters.Get(name); ok {
 		cl.Status = statusFailed
+	}
+
+	for _, ng := range b.nodegroupsByCluster.Get(name) {
+		if ng.Status == statusCreating {
+			ng.Status = statusCreateFail
+		}
 	}
 
 	b.mu.Unlock()
@@ -471,7 +544,7 @@ func (b *InMemoryBackend) applyLiveEndpoint(cp *Cluster) {
 		return
 	}
 
-	cp.Endpoint = "https://" + b.clusterEng.addr(lc)
+	cp.Endpoint = "https://" + net.JoinHostPort(b.clusterEng.cfg.Host, strconv.Itoa(lc.proxyPort))
 	cp.CertificateAuthority = base64.StdEncoding.EncodeToString(lc.ca)
 }
 
@@ -488,5 +561,22 @@ func (b *InMemoryBackend) relaunchClustersLocked() {
 
 		cl.Status = statusCreating
 		b.launchClusterLocked(cl.Name, cl.Version)
+		b.resetEngineResourcesLocked(cl.Name)
+	}
+}
+
+// resetEngineResourcesLocked returns restored nodegroups and engine-backed add-ons to CREATING so the fresh cluster
+// re-earns ACTIVE from real nodes and deployments.
+func (b *InMemoryBackend) resetEngineResourcesLocked(cluster string) {
+	for _, ng := range b.nodegroupsByCluster.Get(cluster) {
+		if ng.Status == statusActive || ng.Status == statusCreateFail {
+			ng.Status = statusCreating
+		}
+	}
+
+	for _, a := range b.addonsByCluster.Get(cluster) {
+		if engineBackedAddon(a.AddonName) && a.Status != statusDeleting {
+			a.Status = statusCreating
+		}
 	}
 }

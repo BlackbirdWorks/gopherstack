@@ -324,6 +324,7 @@ func (b *InMemoryBackend) PutClusterCapacityProviders(
 
 	c.CapacityProviders = capacityProviders
 	c.DefaultCapacityProviderStrategy = defaultCapacityProviderStrategy
+	b.retireOrphanedManagedInstancesLocked(clusterName, capacityProviders)
 
 	cp := b.enrichCluster(c)
 

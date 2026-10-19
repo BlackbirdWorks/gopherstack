@@ -32,6 +32,7 @@ type registerContainerInstanceInput struct {
 	InstanceIdentityDocumentSignature string           `json:"instanceIdentityDocumentSignature,omitempty"`
 	Attributes                        []attributeInput `json:"attributes,omitempty"`
 	Tags                              []Tag            `json:"tags,omitempty"`
+	TotalResources                    []Resource       `json:"totalResources,omitempty"`
 }
 
 type registerContainerInstanceOutput struct {
@@ -75,6 +76,7 @@ func (h *Handler) handleRegisterContainerInstance(
 		VersionInfo: in.VersionInfo,
 		Attributes:  attrs,
 		Tags:        in.Tags,
+		Resources:   in.TotalResources,
 	})
 	if err != nil {
 		return nil, err
@@ -224,6 +226,8 @@ type containerInstanceView struct {
 	AgentUpdateStatus    string           `json:"agentUpdateStatus,omitempty"`
 	Attributes           []attributeInput `json:"attributes,omitempty"`
 	Tags                 []Tag            `json:"tags,omitempty"`
+	RegisteredResources  []Resource       `json:"registeredResources"`
+	RemainingResources   []Resource       `json:"remainingResources"`
 	RegisteredAt         float64          `json:"registeredAt"`
 	Version              int64            `json:"version"`
 	RunningTasksCount    int              `json:"runningTasksCount"`
@@ -240,6 +244,8 @@ func toContainerInstanceView(ci ContainerInstance) containerInstanceView {
 	return containerInstanceView{
 		VersionInfo:          ci.VersionInfo,
 		Attributes:           attrs,
+		RegisteredResources:  nonNilResources(ci.RegisteredResources),
+		RemainingResources:   nonNilResources(ci.RemainingResources),
 		ContainerInstanceArn: ci.ContainerInstanceArn,
 		EC2InstanceID:        ci.EC2InstanceID,
 		Status:               ci.Status,
@@ -388,4 +394,12 @@ func (h *Handler) handleUpdateContainerAgent(
 	}
 
 	return &updateContainerAgentOutput{ContainerInstance: toContainerInstanceView(*ci)}, nil
+}
+
+func nonNilResources(rs []Resource) []Resource {
+	if rs == nil {
+		return []Resource{}
+	}
+
+	return rs
 }

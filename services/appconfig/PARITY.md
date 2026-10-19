@@ -222,6 +222,8 @@ leaks: {status: clean, note: "FIXED — DeleteApplication/DeleteEnvironment/Dele
 
 ## Notes
 
+**2026-10-18 (non-hosted content cache):** the fetched content of non-hosted profiles (`fetchedConfigs`) is now cached on deployment even with no AppConfigData publisher wired, and persists in `backendSnapshot.FetchedConfigs`; `GetConfiguration` for a non-hosted profile survives Snapshot/Restore (`non_hosted_content_persistence_test.go`).
+
 **2026-10-07 (extension action points):** ON_DEPLOYMENT_START/STEP/BAKING/COMPLETE/ROLLED_BACK run asynchronously and in order (errors logged and ignored) and AT_DEPLOYMENT_TICK runs synchronously on each progression step, rolling the deployment back on a function error, `Error` response or `Directive: ROLL_BACK`. Action URIs may be Lambda, SNS topic (Message = event JSON, `MessageType` attribute), SQS queue (body = event JSON) or EventBridge bus (`aws.appconfig`, detail-type "On Deployment Complete") per the user guide payload pages; delivery goes through the sibling backends (`extension_events.go`, tests `extension_events_test.go`, `extension_sibling_test.go`).
 
 **2026-09-18 (over-wide response class census):** `cmd/overwidecandidates`

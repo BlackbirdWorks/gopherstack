@@ -396,12 +396,8 @@ func testAuthEventFeedbackRealClient(t *testing.T) {
 	assert.Equal(t, types.FeedbackValueTypeInvalid, afterFeedback.AuthEvents[0].EventFeedback.FeedbackValue)
 }
 
-// testAdminProviderLinkingRealClient covers AdminDisableProviderForUser and
-// AdminLinkProviderForUser. Neither op's effect is exposed on any read op's
-// wire shape today (LinkedProviders is stored internally but never
-// serialized -- see identity_providers.go), so these are legitimate
-// void-result assertions: a real client must see the call succeed and must
-// see it fail against a nonexistent pool/user.
+// testAdminProviderLinkingRealClient covers AdminLinkProviderForUser and AdminDisableProviderForUser:
+// a link must be removable exactly once, and linking to a missing user must fail.
 func testAdminProviderLinkingRealClient(t *testing.T) {
 	t.Helper()
 
@@ -420,11 +416,10 @@ func testAdminProviderLinkingRealClient(t *testing.T) {
 	require.NoError(t, err)
 	username := aws.ToString(created.User.Username)
 
-	_, err = client.AdminDisableProviderForUser(t.Context(), &cognitoidpsdk.AdminDisableProviderForUserInput{
-		UserPoolId: aws.String(poolID),
-		User: &types.ProviderUserIdentifierType{
-			ProviderName: aws.String("Facebook"), ProviderAttributeValue: aws.String(username),
-		},
+	_, err = client.CreateIdentityProvider(t.Context(), &cognitoidpsdk.CreateIdentityProviderInput{
+		UserPoolId: aws.String(poolID), ProviderName: aws.String("Facebook"),
+		ProviderType:    types.IdentityProviderTypeTypeFacebook,
+		ProviderDetails: map[string]string{"client_id": "fb", "client_secret": "s", "authorize_scopes": "email"},
 	})
 	require.NoError(t, err)
 
@@ -437,6 +432,24 @@ func testAdminProviderLinkingRealClient(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+
+	_, err = client.AdminDisableProviderForUser(t.Context(), &cognitoidpsdk.AdminDisableProviderForUserInput{
+		UserPoolId: aws.String(poolID),
+		User: &types.ProviderUserIdentifierType{
+			ProviderName: aws.String("Facebook"), ProviderAttributeName: aws.String("Cognito_Subject"),
+			ProviderAttributeValue: aws.String("fb-1234"),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.AdminDisableProviderForUser(t.Context(), &cognitoidpsdk.AdminDisableProviderForUserInput{
+		UserPoolId: aws.String(poolID),
+		User: &types.ProviderUserIdentifierType{
+			ProviderName: aws.String("Facebook"), ProviderAttributeName: aws.String("Cognito_Subject"),
+			ProviderAttributeValue: aws.String("fb-1234"),
+		},
+	})
+	require.Error(t, err, "the identity is no longer linked")
 
 	_, err = client.AdminLinkProviderForUser(t.Context(), &cognitoidpsdk.AdminLinkProviderForUserInput{
 		UserPoolId:      aws.String(poolID),

@@ -20,7 +20,6 @@ import (
 // comment. p.RedshiftIdcApplicationArn is likewise accepted but not
 // persisted, since real AWS never surfaces it back either.
 func (b *InMemoryBackend) CreateNamespace(p CreateNamespaceParams) (*Namespace, error) {
-	_ = p.AdminUserPassword         // credential: intentionally never persisted, see doc comment above
 	_ = p.RedshiftIdcApplicationArn // intentionally never persisted, see doc comment above
 
 	if err := slValidName("namespaceName", p.NamespaceName); err != nil {
@@ -38,6 +37,8 @@ func (b *InMemoryBackend) CreateNamespace(p CreateNamespaceParams) (*Namespace, 
 			p.NamespaceName,
 		)
 	}
+
+	b.rememberNamespacePasswordLocked(p.NamespaceName, p.AdminUserPassword)
 
 	id := randomHex(slIDHexBytes)
 	nsArn := arn.Build("redshift-serverless", b.region, b.accountID, "namespace/"+id)
@@ -134,8 +135,62 @@ func (b *InMemoryBackend) ListNamespaces(maxResults int, nextToken string) ([]*N
 // p.AdminUserPassword is a credential: it is read from the wire but never
 // stored, logged, or echoed back -- see UpdateNamespaceParams' doc comment.
 func (b *InMemoryBackend) UpdateNamespace(namespaceName string, p UpdateNamespaceParams) (*Namespace, error) {
-	_ = p.AdminUserPassword // credential: intentionally never persisted, see doc comment above
+	b.mu.RLock("UpdateNamespacePrev")
+	prev, hadPrev := b.slNsPasswords[namespaceName]
+	b.mu.RUnlock()
 
+	ns, err := b.updateNamespace(namespaceName, p)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = b.applyNamespacePassword(namespaceName, p.AdminUserPassword); err != nil {
+		b.mu.Lock("UpdateNamespaceRevert")
+		if hadPrev {
+			b.slNsPasswords[namespaceName] = prev
+		} else {
+			delete(b.slNsPasswords, namespaceName)
+		}
+		b.mu.Unlock()
+
+		return nil, err
+	}
+
+	return ns, nil
+}
+
+// applyNamespacePassword pushes a new admin password into the namespace's running workgroup engines.
+func (b *InMemoryBackend) applyNamespacePassword(namespaceName, password string) error {
+	if password == "" {
+		return nil
+	}
+
+	b.mu.RLock("applyNamespacePassword")
+
+	var names []string
+
+	for _, wg := range b.slWorkgroups.All() {
+		if wg.NamespaceName == namespaceName && wg.Status != slStatusDeleting {
+			names = append(names, wg.WorkgroupName)
+		}
+	}
+
+	b.mu.RUnlock()
+
+	for _, name := range names {
+		if err := b.applyMasterPassword(workgroupUnitKey(name), password); err != nil {
+			return fmt.Errorf(
+				"%w: the admin password could not be applied to workgroup %q",
+				ErrServerlessConflict,
+				name,
+			)
+		}
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) updateNamespace(namespaceName string, p UpdateNamespaceParams) (*Namespace, error) {
 	b.mu.Lock("UpdateNamespace")
 	defer b.mu.Unlock()
 	b.settleServerlessLocked(time.Now())
@@ -148,6 +203,8 @@ func (b *InMemoryBackend) UpdateNamespace(namespaceName string, p UpdateNamespac
 	if ns.Status != slStatusAvailable {
 		return nil, slBusy("namespace", namespaceName)
 	}
+
+	b.rememberNamespacePasswordLocked(namespaceName, p.AdminUserPassword)
 
 	if p.AdminUsername != "" {
 		ns.AdminUsername = p.AdminUsername
@@ -264,6 +321,7 @@ func (b *InMemoryBackend) DeleteNamespace(
 	}
 
 	b.slNamespaces.Delete(namespaceName)
+	delete(b.slNsPasswords, namespaceName)
 	b.slNamespaceIdx.remove(namespaceName)
 
 	return cp, nil

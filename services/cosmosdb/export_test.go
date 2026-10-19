@@ -91,3 +91,19 @@ type TriState = sqlTriState
 func TriAnd(a, b TriState) TriState { return triAnd(a, b) }
 func TriOr(a, b TriState) TriState  { return triOr(a, b) }
 func TriNot(a TriState) TriState    { return triNot(a) }
+
+// SetHandlerClock replaces the handler's time source (auth clock-skew checks).
+func SetHandlerClock(h *Handler, fn func() time.Time) { h.clock = fn }
+
+// DocumentCount returns the number of physically stored documents (expired ones included).
+func DocumentCount(b *InMemoryBackend, dbID, containerID string) int {
+	b.mu.RLock("DocumentCount")
+	defer b.mu.RUnlock()
+
+	c, err := b.findContainer(dbID, containerID)
+	if err != nil {
+		return -1
+	}
+
+	return len(c.Documents)
+}

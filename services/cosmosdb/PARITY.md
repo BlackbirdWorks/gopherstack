@@ -1,59 +1,61 @@
 ---
 service: cosmosdb
 sdk_module: azure-sdk-for-go/sdk/data/azcosmos@v1.5.0
-last_audit_commit: 043fe8d10
-last_audit_date: 2026-09-05
-overall: C
+last_audit_commit: 19af2a18c
+last_audit_date: 2026-10-18
+overall: B
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   GetDatabaseAccount: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "GET (and HEAD) / (or empty path) -- the database-account root resource. Every real Cosmos SDK, azcosmos included, issues this call before it will make a single data-plane call, to discover the account's readable/writable regional endpoints (azure-sdk-for-go/sdk/data/azcosmos's globalEndpointManager.GetAccountProperties); omitting this resource entirely made the service unreachable by any unmodified SDK until this was added -- an integration-test-only failure mode no unit test could catch, since unit tests call the handler directly rather than going through a real SDK's client-construction path. Returns writableLocations/readableLocations (one entry each, region name \"South Central US\" purely for verisimilitude), enableMultipleWriteLocations: false, and userConsistencyPolicy.defaultConsistencyLevel: \"Session\". databaseAccountEndpoint in each location is built from the REQUEST's own Host header, never from the server's configured port: under testcontainers (or any port-mapping/proxy setup) the container's configured port is frequently not the port a client actually connects through, so advertising the configured port instead of echoing the client's own Host would make the SDK \"discover\" a location pointing at a port nothing is listening on and redirect every subsequent request there -- see TestHandler_AccountRoot_EndpointEchoesRequestHost."}
   CreateDatabase: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /dbs, body {\"id\":\"..\"}. 201 + database body (id/_rid/_self/_etag/_ts/_colls/_users). 409 Conflict on duplicate id."}
   GetDatabase: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /dbs/{db}. 200 + database body; 404 NotFound if absent."}
-  ListDatabases: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /dbs -> {\"_rid\":\"\",\"Databases\":[...],\"_count\":N}, sorted by id. No continuation-token pagination -- returns everything in one page."}
+  ListDatabases: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /dbs -> {\"_rid\":\"\",\"Databases\":[...],\"_count\":N}, sorted by id. x-ms-max-item-count / x-ms-continuation page the feed (see families.continuation); a malformed token is 400."}
   DeleteDatabase: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /dbs/{db}. 204; cascades to delete every container/document beneath it. 404 NotFound if absent."}
-  CreateContainer: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /dbs/{db}/colls, body {\"id\":\"..\",\"partitionKey\":{\"paths\":[\"/pk\"],\"kind\":\"Hash\"}}. Exactly one non-empty partition-key path is required (400 BadRequest otherwise -- checked at both the handler and the backend, so an empty-string path element can't slip past a bare length check -- hierarchical/multi-path partition keys are out of scope, see gaps). 201 + container body; 409 Conflict on duplicate id; 404 NotFound if the database doesn't exist."}
+  CreateContainer: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /dbs/{db}/colls, body {id, partitionKey:{paths,kind,version}, defaultTtl, indexingPolicy}. One to three distinct \"/\"-prefixed paths; more than one needs kind MultiHash (hierarchical keys, see families.partition_keys); 400 otherwise. defaultTtl must be -1 or a positive integer. indexingPolicy is stored and echoed (default policy when absent), never enforced. 201 + container body; 409 on duplicate id; 404 if the database is missing."}
   GetContainer: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /dbs/{db}/colls/{coll}. 200 + container body (including its partitionKey definition); 404 if absent."}
-  ListContainers: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /dbs/{db}/colls -> {\"_rid\":\"\",\"DocumentCollections\":[...],\"_count\":N}, sorted by id. No continuation-token pagination."}
+  ListContainers: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /dbs/{db}/colls -> {\"_rid\":\"\",\"DocumentCollections\":[...],\"_count\":N}, sorted by id; paged like ListDatabases."}
   DeleteContainer: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /dbs/{db}/colls/{coll}. 204; cascades to delete every document in it. 404 if absent."}
-  CreateDocument: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /dbs/{db}/colls/{coll}/docs. Also serves as Upsert Document when x-ms-documentdb-is-upsert: true is set. id is taken from the body if present (must be a non-empty string) or server-generated (UUID v4) if absent; partition key value is extracted from the body per the container's declared path (missing -> null partition key, matching real Cosmos's undefined-partition-key behavior). 201 + document body (id/_rid/_self/_etag/_ts/_attachments overlaid on the stored fields) + ETag header; 409 Conflict on duplicate (id, partitionKey) without upsert; 404 if database/container missing; 400 BadRequest on malformed JSON or a non-string id."}
-  QueryDocuments: {wire: ok, errors: ok, state: ok, persist: n/a, note: "POST /dbs/{db}/colls/{coll}/docs with x-ms-documentdb-isquery: True (case-insensitive) and/or Content-Type: application/query+json, body {\"query\":\"...\",\"parameters\":[{\"name\":\"@p\",\"value\":...}]}. Runs the hand-written SQL-subset engine (sql_tokenizer.go/sql_parser.go/sql_exec.go) cross-partition (scans every document in the container). Response {\"_rid\":\"\",\"Documents\":[...],\"_count\":N}. A parse error surfaces as 400 BadRequest, never a panic. See families.sql_query for the supported grammar."}
-  ListDocuments: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /dbs/{db}/colls/{coll}/docs (read feed). Response {\"_rid\":\"\",\"Documents\":[...],\"_count\":N}, sorted by id. No continuation-token pagination -- returns every document in one page."}
-  GetDocument: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /dbs/{db}/colls/{coll}/docs/{id}. Requires x-ms-documentdb-partitionkey (a JSON array carrying EXACTLY ONE scalar partition key value, e.g. [\"foo\"] or [null]) -- 400 BadRequest if absent, malformed, empty ([]), carrying more than one element, or carrying a non-scalar (object/array) element; an earlier version silently truncated a multi-element array to its first entry instead of rejecting it. 200 + document body + ETag; 404 if not found."}
+  QueryDatabases: {wire: ok, errors: ok, state: ok, persist: n/a, note: "POST /dbs with the query header (what the SDK's query-databases pager sends): the SQL engine runs over database resource bodies; paged like ListDatabases."}
+  QueryContainers: {wire: ok, errors: ok, state: ok, persist: n/a, note: "POST /dbs/{db}/colls with the query header: the SQL engine runs over container resource bodies; 404 if the database is missing."}
+  ReplaceContainer: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /dbs/{db}/colls/{coll}. Updates defaultTtl (omitted disables TTL) and indexingPolicy; the partition key is immutable (400); id must match the path; 404 if absent."}
+  CreateDocument: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /dbs/{db}/colls/{coll}/docs; also Upsert when x-ms-documentdb-is-upsert: true. id from the body (non-empty string) or generated; partition key extracted per the container's paths (absent component -> null). Per-item ttl must be -1 or a positive integer (400 otherwise). 201 + body + ETag; 409 on duplicate (id, partition key) unless upsert; an expired document does not conflict."}
+  QueryDocuments: {wire: ok, errors: ok, state: ok, persist: n/a, note: "POST /dbs/{db}/colls/{coll}/docs with x-ms-documentdb-isquery: True and/or Content-Type: application/query+json, body {\"query\":\"...\",\"parameters\":[...]}. Runs the SQL engine (families.sql_query). Cross-partition unless x-ms-documentdb-partitionkey carries a non-empty key, which scopes the query to that partition (a leading prefix on hierarchical containers). Paged via x-ms-max-item-count / x-ms-continuation; x-ms-request-charge follows the RU model. Parse errors are 400 BadRequest."}
+  ListDocuments: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /dbs/{db}/colls/{coll}/docs (read feed). Response {\"_rid\":\"\",\"Documents\":[...],\"_count\":N}, sorted by (id, partition key); expired (TTL) documents are hidden; paged via x-ms-max-item-count / x-ms-continuation."}
+  GetDocument: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /dbs/{db}/colls/{coll}/docs/{id}. Requires x-ms-documentdb-partitionkey: a JSON array of one to three scalars matching the container's path count exactly (400 otherwise, also for malformed, trailing-content or non-scalar values). 200 + document body + ETag; 404 if absent or expired."}
   ReplaceDocument: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /dbs/{db}/colls/{coll}/docs/{id}. Requires x-ms-documentdb-partitionkey like GetDocument. If-Match absent -> unconditional replace (upsert semantics: creates if absent); If-Match: <etag> -> 412 PreconditionFailed on mismatch. Always full-body replace (drops fields not present in the new body); id/partition key are fixed by the path/header, not the body -- but if the replacement body itself declares a value at the container's partition-key path, it MUST agree with the header's partition key (400 BadRequest on a mismatch), so a document can never end up stored under one partition while its own body claims another."}
   DeleteDocument: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /dbs/{db}/colls/{coll}/docs/{id}. Requires x-ms-documentdb-partitionkey. If-Match absent -> unconditional delete OF AN EXISTING DOCUMENT (still 404 if the document is already absent -- Delete, unlike Replace, has no upsert concept, so an earlier version's absent-plus-no-If-Match short-circuit that returned 204 for a document that never existed was a real bug); If-Match: <etag> -> 412 on mismatch. 404 if not found."}
 families:
-  auth: {status: partial, note: "masterkey.go implements Cosmos's master-key HMAC-SHA256 scheme (parseMasterKeyAuthorization/masterKeyStringToSign/signMasterKey/VerifyMasterKey), independently of pkgs/azureauth per AZURE.md section 3 (the two schemes' header shape and canonicalization are different enough not to share). Verification is opt-in (Settings.ValidateAuth, default false). With the flag OFF -- the default, mirroring services/azuretable's and services/azureblob's parse-don't-validate stance -- any Authorization header is accepted. With the flag ON, a *present* header must carry a structurally valid, correctly signed master-key signature or the request is rejected with 401 Unauthorized, matching the opt-in-validation precedent AZURE.md section 5 names as the model (services/s3's PresignSecret/WithPresignValidation, which rejects with 403 AccessDenied). An absent Authorization header stays anonymous-accepted even under ValidateAuth: the flag opts into verifying offered signatures, not into requiring authentication, so it cannot break the no-credentials local-dev workflow. See masterkey_test.go's hand-computed known-answer vector (TestVerifyMasterKey_KnownAnswerVector) for proof the algorithm itself is correct."}
-  wire_protocol: {status: ok, note: "REST+JSON (no XML anywhere). x-ms-version (pinned to 2020-07-15), x-ms-request-id, Date, x-ms-request-charge (static \"1\" -- fake RU accounting, see gaps), x-ms-session-token (static \"0:0#0\"), and x-ms-activity-id are set on every response. Errors use Cosmos's {\"code\":\"...\",\"message\":\"...\"} JSON envelope with the matching HTTP status (never XML, never Table Storage's odata.error envelope)."}
-  sql_query: {status: partial, note: "Hand-written tokenizer -> recursive-descent parser -> AST -> executor (sql_tokenizer.go/sql_parser.go/sql_exec.go), modeled directly on services/azuretable/odata_filter.go's and services/s3/select_sql_*.go's identical shape (per AZURE.md section 6's explicit reuse plan). Supports SELECT * and SELECT <path>[.<path>...] [AS alias] projections (top-level and dotted/nested fields); FROM <alias> [<realias>] (a single source, no JOINs) -- every field reference MUST be qualified with whichever alias is in effect (an unqualified field, or one qualified with an unknown alias, is a parse error, not silently resolved); WHERE with =, !=/<>, <, <=, >, >=, AND, OR, NOT, parentheses, IS NULL/IS NOT NULL, string/number/bool/null literals, and @param bindings; ORDER BY <path> [ASC|DESC] (multiple keys, left-to-right tie-break); TOP n; and OFFSET n LIMIT n. Recursion is depth-bounded (maxQueryDepth=100, counted per genuine nesting level exactly like odata_filter.go's corrected discipline) against stack-overflow DoS. A parse error always surfaces as 400 BadRequest, never a panic. WHERE evaluation implements real Cosmos SQL's three-valued logic (sqlTriState: true/false/undefined), not a simplified two-valued model: a missing field or unbound @param is Undefined (not false), and Undefined does NOT flip to true under NOT -- `NOT (c.missing = 1)` still excludes the row, matching real Cosmos. AND/OR follow standard SQL 3VL. IS NULL/IS NOT NULL are the one place Undefined is not propagated: both evaluate to a definite false against an undefined operand, matching real Cosmos. A resolved comparison between mismatched types still evaluates to a definite false (this emulator does not replicate every nuance of Cosmos's type-coercion rules). Numeric literals and comparisons use json.Number (parsed as int64 first, falling back to float64 only when either side isn't an exact integer) rather than a blanket float64 conversion, so magnitudes beyond 2^53 compare correctly (TestExecuteQuery_Int64PrecisionInComparison). Query execution is always cross-partition (scans every document in the container) -- see gaps for what's NOT supported (subqueries, JOIN, aggregates, built-in functions, array/object literals)."}
+  auth: {status: ok, note: "Opt-in (--cosmosdb-validate-auth / COSMOSDB_VALIDATE_AUTH, default off: every request accepted, malformed headers only logged). When on, EVERY route (account root, databases, containers, documents, Table API) needs a valid Authorization: type=master&ver=1.0&sig=<base64 HMAC-SHA256> over verb/resourceType/resourceId/x-ms-date (masterkey.go, known-answer vector in masterkey_test.go). A missing header, a missing or unparsable x-ms-date/Date, a date more than 15 minutes from server time, and a bad signature all return 401 Unauthorized. Table API routes also accept SharedKey/SharedKeyLite signed with the same key (pkgs/azureauth). The dashboard proxy signs its forwarded requests server-side with the in-process key (Handler.SignRequest), so it keeps working with validation on and no key reaches the browser. Verified end to end with the azcosmos SDK (sdk_test.go)."}
+  wire_protocol: {status: ok, note: "REST+JSON. x-ms-version (2020-07-15), x-ms-request-id, Date, x-ms-request-charge (RU model, families.request_charge), x-ms-session-token (static 0:0#0), x-ms-activity-id on every response; x-ms-item-count and x-ms-continuation on feeds and queries. Errors use {\"code\",\"message\"} with the matching status."}
+  sql_query: {status: ok, note: "Lexer -> recursive-descent parser -> resolver -> executor (sql_tokenizer.go, sql_parser.go, sql_resolve.go, sql_exec.go, sql_eval.go, sql_funcs.go, sql_agg.go). SELECT [DISTINCT] [TOP n] (* | VALUE expr | expr [AS name], ...) FROM container [alias] (JOIN x IN expr | JOIN expr alias)* WHERE GROUP BY ORDER BY (multiple keys, ASC/DESC, any expression) OFFSET n LIMIT n, with @params anywhere a value fits (including TOP/OFFSET/LIMIT). Expressions: comparison, AND/OR/NOT, IN, BETWEEN, LIKE [ESCAPE], IS [NOT] NULL, arithmetic, ||, ??, ?:, property and [index] access, array and object literals, undefined. Subqueries: EXISTS(...), ARRAY(...), scalar (...), correlated, with their own FROM x IN c.arr. Aggregates COUNT/SUM/AVG/MIN/MAX (also VALUE COUNT(1)); an aggregate over an empty set yields COUNT 0 and an undefined SUM/AVG/MIN/MAX. Built-ins: string (CONCAT CONTAINS STARTSWITH ENDSWITH LOWER UPPER LENGTH SUBSTRING REPLACE TRIM LTRIM RTRIM LEFT RIGHT REVERSE REPLICATE INDEX_OF TOSTRING STRINGEQUALS REGEXMATCH STRINGTONUMBER STRINGTOBOOLEAN STRINGTONULL), math (ABS CEILING FLOOR ROUND TRUNC SQRT SQUARE POWER SIGN EXP LOG LOG10 PI), type checks (IS_DEFINED IS_NULL IS_NUMBER IS_STRING IS_BOOL IS_ARRAY IS_OBJECT IS_PRIMITIVE IS_FINITE_NUMBER IS_INTEGER), array (ARRAY_CONTAINS ARRAY_LENGTH ARRAY_SLICE ARRAY_CONCAT SETINTERSECT SETUNION), date (GetCurrentDateTime/Timestamp/Ticks and Static variants, DateTimeAdd, DateTimeDiff, DateTimePart, DateTimeToTimestamp, TimestampToDateTime). Three-valued logic: a missing field or unbound parameter is undefined and never flips under NOT; only a definite true keeps a row; IS NULL on undefined is false. Every identifier must resolve to a FROM/JOIN/subquery alias (unqualified or unknown names are 400). Numbers stay json.Number, int64-exact beyond 2^53. Recursion is bounded (maxQueryDepth=100). Unnamed projections are named $1, $2 as in Cosmos. Parse and runtime-argument errors are 400, never a panic."}
+  continuation: {status: ok, note: "ListDatabases, ListContainers, ListDocuments, QueryDatabases, QueryContainers and QueryDocuments honor x-ms-max-item-count (absent or <= 0 means one unbounded page) and x-ms-continuation, via pkgs/page opaque tokens over the stable sort (id, then partition key; query results in result order). A query is re-executed per page and sliced, so a concurrent write between pages can shift results. A malformed token is 400."}
+  ttl: {status: ok, note: "Container defaultTtl (-1 = on, no default expiry; absent = off; 0 and < -1 rejected) and per-item ttl (-1 never, positive seconds; a container with TTL off ignores item ttl). Expiry is _ts + ttl. Enforced lazily on every read, query, list, replace, delete and create-conflict check (an expired document reads as absent) and physically removed by a worker.Group janitor (TTLSweeper, every 10s, Handler.SweepInterval) started in StartWorker and stopped in Shutdown. PUT on the container updates defaultTtl."}
+  request_charge: {status: partial, note: "x-ms-request-charge is computed per operation, not static: point read 1 + 0.09 RU per KB beyond the first; create/upsert 5.5 + 0.73 per KB beyond the first; replace 2x create; delete 5.5; read feed = read cost of the returned payload; query 2.3 + 0.005 per scanned item + 0.1 per KB returned; metadata operations 1. Sizes are the JSON payload length (ru.go). An approximation of documented costs for default indexing, not a metering of index lookups; no throughput limit or 429 exists."}
+  partition_keys: {status: ok, note: "Single-path (Hash) and hierarchical (MultiHash, 2-3 paths) keys. A hierarchical document is keyed by the JSON array of its components (absent component -> null); point operations need every component (400 otherwise); the body's key must agree with the request's on replace (400). A query's x-ms-documentdb-partitionkey header scopes it to that partition, a leading prefix on hierarchical containers; an empty array means cross-partition."}
+  tls: {status: ok, note: "Opt-in HTTPS via COSMOSDB_TLS=true (read in Provider.Init; COSMOSDB_TLS_HOSTS adds comma-separated names/IPs to the certificate): the listener serves an in-memory self-signed certificate from pkgs/devtls valid for localhost, 127.0.0.1 and ::1. Handler.TLSCertPEM returns the certificate for clients to trust. The account root advertises https:// endpoints when TLS is on. Default is plain HTTP."}
   edm_fidelity: {status: ok, note: "Document bodies are decoded (decodeJSONObject) and deep-copied (deepCopyBody/deepCopyJSONValue) via json.Decoder.UseNumber throughout the create/replace/get/query/snapshot paths, so a JSON number beyond float64's 53-bit mantissa (e.g. 9007199254740993) never silently loses precision -- covered end-to-end by TestInMemoryBackend_Int64PrecisionPreservedThroughStorage, TestBackend_SnapshotRestore_Int64PrecisionRoundTrip, and TestExecuteQuery_Int64PrecisionInComparison, at the math.MaxInt64/MinInt64 boundaries too."}
   etag_and_timestamp: {status: ok, note: "ETag format \"<hex-encoded UnixNano>\" derived from a document's Timestamp (models.go's etagFor) -- an opaque quoted token real SDKs never parse, only echo back via If-Match. Every mutation advances Timestamp by at least 100ns past its previous value even if the injected clock returns the same instant twice in a row (store.go's bumpTimestampFrom), guaranteeing a distinct ETag on every write -- covered by TestInMemoryBackend_ETagChangesOnEveryWrite."}
   aliasing: {status: ok, note: "Every document body that crosses the backend boundary (incoming request body, outgoing DocumentInfo.Body, snapshot round-trip) is deep-copied via deepCopyBody/deepCopyJSONValue -- a full marshal/unmarshal round trip through json.Decoder.UseNumber, not a shallow map copy -- so a caller mutating what it passed in or received back can never alias/corrupt stored state, closing the exact bug class AZURE.md's process rules flag from M2."}
   composite_keys: {status: ok, note: "Documents are keyed within a container by documentCompositeKey, a {PartitionKeyJSON, ID} struct (persisted via MarshalText as a JSON string array), not a delimiter-joined string -- closing the same NUL/delimiter-collision class services/azuretable's entityCompositeKey closes for (PartitionKey, RowKey)."}
-  persistence: {status: ok, note: "Snapshot version 1. storedDocument's Body field marshals/unmarshals through a json.RawMessage wire shape (storedDocumentWire) specifically so Restore re-decodes it with json.Decoder.UseNumber -- a derived (default) UnmarshalJSON would silently decode every JSON number as float64, corrupting any snapshot value beyond 2^53 on every restart. Restore tolerates a JSON null \"databases\"/\"Containers\"/\"Documents\" map (legal JSON, decodes to a nil Go map, not a nil pointer) by initializing it to an empty map rather than leaving it nil, which would panic the first time anything inserted into it -- this was a real M2 bug in services/azuretable and is guarded here from day one (TestBackend_Restore_NilNestedMapsAreInitialized)."}
+  persistence: {status: ok, note: "Snapshot version 1, unchanged: new container fields (DefaultTTL, PartitionKeyPaths, IndexingPolicy) and the Table API state (tableApi, the odatatable snapshot) are optional additions that older snapshots simply lack. storedDocument.Body round-trips through json.RawMessage with UseNumber so numbers beyond 2^53 survive. Restore tolerates null nested maps, rejects null entries, and a snapshot without tableApi empties the Table API."}
   routing_isolation: {status: ok, note: "Runs on its own dedicated *http.Server, bound synchronously in StartWorker to a fixed port (default 8081 via --cosmosdb-port/COSMOSDB_PORT, the real Cosmos DB Local Emulator's own published default -- NOT any of Azurite's 10000/10001/10002; no fallback pool -- fails fast if unavailable). Unlike AzureBlob/AzureQueue/AzureTable, 8081 sits OUTSIDE --port-range-start/--port-range-end's own default range (10000-10100), exactly like services/iot's MQTT broker default (1883) -- but cli.go's reserveFixedServicePorts still reserves it in the shared PortAlloc pool, since a custom operator-configured range could include 8081. See cli_cosmosdb_port_reservation_test.go's table, which (unlike AzureTable's) covers both the outside-range default case and a custom in-range case."}
   observability: {status: ok, note: "StartWorker wraps its Echo handler with telemetry.WrapEchoHandler so ExtractOperation/ExtractResource feed Prometheus metrics. InMemoryBackend uses *lockmetrics.RWMutex instead of raw sync.RWMutex, matching repo convention."}
-  table_api: {status: partial, note: "Cosmos DB's Table API (AZURE.md section 9's M6 milestone): table_api.go/table_api_ops.go serve Table/entity CRUD and $filter query on this same fixed port, routed by path shape (a single path segment that isn't \"dbs\" -- see isTableAPIPath) rather than a new port, since real Cosmos disambiguates Table vs. Core/SQL the same way on one hostname. Delegates entirely to pkgs/odatatable -- the exact same entity CRUD/$filter engine services/azuretable imports -- via its own independent TableBackend (*odatatable.InMemoryBackend) instance, so Table API state is disjoint from Core/SQL's database/container/document state. Auth is Cosmos's existing master-key HMAC scheme, unchanged, applied identically to both surfaces. See this file's Table API addendum (below the deferred section) for what's shared vs. what's new, and services/azuretable/PARITY.md for the engine's own known gaps rather than duplicating that list here."}
-gaps:
-  - "No RU (request unit) accounting -- x-ms-request-charge is a static \"1\" on every response, per AZURE.md section 2's explicit MVP scope note (\"MVP can return static/fake values rather than real RU accounting\")."
-  - "No continuation-token pagination on List Databases/List Containers/List Documents/Query Documents -- all return every matching result in one page."
-  - "Hierarchical (multi-path) partition keys are not supported -- CreateContainer requires exactly one partitionKey.paths entry (400 BadRequest otherwise)."
-  - "SQL query subset does not support subqueries, JOIN, aggregate functions (COUNT/SUM/AVG/MIN/MAX), built-in scalar/array/object functions (e.g. CONTAINS, STARTSWITH, ARRAY_CONTAINS), GROUP BY, or array/object literals in projections/WHERE -- see families.sql_query for exactly what IS supported."
-  - "Query execution is always cross-partition (no partition-key-scoped optimization); functionally correct but not representative of a real Cosmos query's RU cost profile."
-  - "TLS is not implemented -- plain HTTP only. Clients must connect to http://localhost:8081 (or, for SDKs that default to HTTPS against local emulators, disable SSL verification / point explicitly at plain HTTP). A self-signed cert is a documented non-goal for this milestone, per AZURE.md section 5."
-  - "No container-level DefaultTimeToLive (TTL) enforcement -- documents never expire, and there is deliberately no janitor.go (see provider.go's Provider doc comment)."
-  - "Database/container ETags are static (derived from their RID, never versioned) since neither resource has an \"update in place\" operation in this milestone."
-  - "Auth verification is off by default (permissive, matching the other three Azure services); --cosmosdb-validate-auth opts into enforcing it, but even then only for requests that actually send an Authorization header -- anonymous requests are always accepted. See families.auth."
-  - "Table API state (TableBackend) is not yet included in Handler.Snapshot/Restore's persistence lifecycle -- only Core/SQL's Backend is snapshotted today. Table API tables/entities do not survive a snapshot/restore cycle. See this file's Table API addendum below."
-  All gaps above are intentional MVP scope per AZURE.md's M3/M6 entries (see AZURE.md section 8), not oversights.
-deferred:
-  - "Continuation-token pagination (see gaps)."
-  - "RU accounting, TLS/self-signed cert support, and container TTL enforcement (see gaps)."
-  - "SQL subset completeness beyond what's listed in families.sql_query (subqueries, JOIN, aggregates, built-in functions -- see gaps)."
-  - "Table API's $batch (multipart/mixed changesets) -- matches Azure Table Storage's own M2 deferral; see this file's Table API addendum and services/azuretable/PARITY.md."
-  - "Initial implementation pass (2026-09-05): seeded this service from scratch per AZURE.md M3 (see AZURE.md section 8). This completes the full 4-service Azure milestone plan (Blob, Queue, Table, Cosmos); M4 (docs/polish, cross-SDK e2e) is the only unstarted item. Structurally mirrors services/azuretable's implementation and PARITY.md format; the SQL query engine borrows services/azuretable/odata_filter.go's and services/s3/select_sql_*.go's tokenizer/parser/AST/executor shape directly, per AZURE.md section 6's explicit reuse plan."
-  - "M6 (Table API, see AZURE.md section 8): table_api.go/table_api_ops.go added, delegating to the newly-extracted pkgs/odatatable engine -- see this file's Table API addendum below."
-leaks: {status: clean, note: "The dedicated *http.Server started by StartWorker is stopped by Shutdown via srv.Shutdown(ctx) (falling back to srv.Close() on a graceful-shutdown error, both logged), mirroring services/azuretable and cli.go's own top-level server lifecycle. No background goroutines beyond the listener itself -- there is no janitor (see gaps)."}
+  table_api: {status: partial, note: "Table API CRUD and $filter on the same port, routed by path shape, delegating to pkgs/odatatable via an independent TableBackend; auth as families.auth (master key or SharedKey). Table state is included in Snapshot/Restore/Reset. $batch is not implemented (501); see services/azuretable/PARITY.md for the engine's own gaps."}
+gaps: []
+items_still_open:
+  - Throughput: provisioned throughput, autoscale, serverless limits and 429 throttling do not exist; x-ms-request-charge is reported but never limited, and the offers/throughput APIs are not served
+  - IndexingPolicy: stored and echoed on containers but never enforced; queries always scan the container, so index-dependent behaviors (composite-index-required ORDER BY, excluded paths, EnableScanInQuery) are not reproduced
+  - MultiRegion: one fixed region (South Central US) with a single writable location; failover, multi-write, preferred regions and consistency levels other than a static session token are not modeled
+  - RequestCharge: an approximation of documented costs, not a metering of index and storage work
+  - Continuation: a query is re-executed for every page, so results can shift if the container changes between pages
+  - SQL: user-defined functions, spatial functions (ST_*), the remaining date and conversion built-ins, regex modifier x, and ORDER BY combined with GROUP BY are not implemented; unsupported functions are a 400 parse error
+  - ItemOperations: PATCH, transactional batch, bulk, change feed, stored procedures, triggers and conflict-resolution policy are not served
+  - Containers: unique-key policy and the geospatial/vector/computed-property settings are not stored or enforced; database and container ETags are static
+  - TableAPI: $batch (multipart changesets) is not implemented, and Table API responses carry no per-operation request charge or continuation beyond what pkgs/odatatable provides
+structural_gaps: []
+deferred: []
+leaks: {status: clean, note: "The listener http.Server and the TTL sweeper worker.Group are both stopped by Shutdown (Group.Stop joins the sweeper goroutine); TestTTL_JanitorSweepsAndStops covers start and double shutdown."}
 ---
 
 ## Notes
@@ -67,7 +69,7 @@ at all. Picking 8081 (rather than continuing the 10003 pattern) matches
 AZURE.md section 4's stated intent ("Cosmos its own port, mirroring the real
 emulator's fixed 8081 default") and means `UseDevelopmentStorage`-style
 zero-configuration client setups pointed at the real emulator's documented
-endpoint (`https://localhost:8081`, minus the TLS -- see below) work
+endpoint (`https://localhost:8081`, with `COSMOSDB_TLS=true` -- see below) work
 unmodified against gopherstack too.
 
 One consequence: 8081 sits **outside** `--port-range-start`/
@@ -84,12 +86,14 @@ range is user-configurable, so an operator who narrows it to (say)
 `wantBlockedFromPool: false`, and a *separate* custom-range case
 demonstrates the reservation actually taking effect.
 
-### TLS is a documented non-goal
-Real Cosmos SDKs often default to HTTPS even against local emulators. This
-milestone serves plain HTTP only (`http://localhost:8081`); clients must
-either be pointed explicitly at that scheme or configured to disable SSL
-verification, matching AZURE.md section 5's stated MVP scope. A self-signed
-cert on the Cosmos listener remains a stretch goal, not attempted here.
+### TLS is opt-in
+SDKs default to HTTPS against local emulators. Set `COSMOSDB_TLS=true` (and
+optionally `COSMOSDB_TLS_HOSTS=name1,10.0.0.5`) to serve the listener over TLS
+with an in-memory self-signed certificate from `pkgs/devtls` (valid for
+`localhost`, `127.0.0.1`, `::1` plus the extra hosts). The certificate is new
+on every start; clients must skip verification or trust
+`Handler.TLSCertPEM()`. The flag is an environment variable read in
+`Provider.Init` rather than a CLI flag. Default stays plain HTTP.
 
 ### Master-key auth: why it isn't in pkgs/azureauth
 AZURE.md section 3 states this explicitly: Cosmos's master-key HMAC scheme
@@ -111,44 +115,28 @@ lowercase(verb) + "\n" + lowercase(resourceType) + "\n" + resourceId +
 path). `masterkey_test.go`'s `TestVerifyMasterKey_KnownAnswerVector` proves
 the HMAC-SHA256 signing algorithm itself is correct against a hand-computed
 vector (independently verified via Python's `hmac`/`hashlib`), even though
-enforcement (`--cosmosdb-validate-auth`) is opt-in and off by default.
+enforcement (`--cosmosdb-validate-auth`) is opt-in and off by default; when on it covers every route (see `families.auth`).
 
 ### SQL query grammar
 ```text
-query      := SELECT [TOP number] selectList FROM ident [ident]
-              [WHERE expr] [ORDER BY orderList] [OFFSET number LIMIT number]
-selectList := '*' | projection (',' projection)*
-projection := path [AS ident]
-path       := ident ('.' ident)*
-orderList  := orderItem (',' orderItem)*
-orderItem  := path [ASC|DESC]
-expr       := orExpr
-orExpr     := andExpr ('OR' andExpr)*
-andExpr    := unary ('AND' unary)*
-unary      := 'NOT' unary | primary
-primary    := '(' expr ')' | operand 'IS' ['NOT'] 'NULL' | comparison
-comparison := operand ('='|'!='|'<>'|'<'|'<='|'>'|'>=') operand
-operand    := path | '@param' | 'string' | number | true | false | null
+query      := SELECT [DISTINCT] [TOP operand] ( '*' | [VALUE] item (',' item)* )
+              FROM source (JOIN source)* [WHERE expr] [GROUP BY expr (',' expr)*]
+              [ORDER BY expr [ASC|DESC] (',' expr [ASC|DESC])*] [OFFSET operand LIMIT operand]
+source     := ident [AS] [ident]                  -- top-level container, first source only
+            | ident IN expr | expr [AS] ident     -- JOINs and subqueries
+item       := expr [AS ident]
 ```
-Implemented as a real lexer -> recursive-descent parser -> AST -> executor
-(`sql_tokenizer.go`/`sql_parser.go`/`sql_exec.go`), directly modeled on
-`services/azuretable/odata_filter.go`'s identical shape (which is itself
-modeled on `services/dynamodb/expr`) and `services/s3/select_sql_*.go`'s SQL
-tokenizer/parser/executor precedent -- per AZURE.md section 6's explicit
-instruction to reuse that muscle rather than invent a third parsing
-approach. Recursion depth is bounded (`maxQueryDepth = 100`, counted only at
-genuine nesting points -- `NOT` and `(...)` -- not per precedence-climbing
-layer, replicating `odata_filter.go`'s own corrected discipline) so a
-maliciously deep query fails with a parse error instead of overflowing the
-stack (`TestParseQuery_DeepNestingBounded`/
-`TestParseQuery_ModeratelyNestedParensAccepted`). A parse error of any kind
-always surfaces as `400 BadRequest`, never a panic and never a 500.
-
-The leading identifier in every path (`c` in `c.age`, or a bare `c`) is
-always treated as the query's single source alias and stripped before
-evaluation -- this emulator has no JOINs, so there is exactly one row
-source, and the alias name itself is not validated against the `FROM`
-clause's declared alias (any leading segment is accepted and discarded).
+Expressions cover comparison, `AND`/`OR`/`NOT`, `IN`, `BETWEEN`, `LIKE`,
+`IS [NOT] NULL`, arithmetic, `||`, `??`, `?:`, property and index access,
+array/object literals, calls, and subqueries (`EXISTS`, `ARRAY`, scalar).
+Every identifier must resolve to a `FROM`/`JOIN`/subquery alias; the resolver
+binds each to an environment slot, so an unqualified field or unknown alias is
+a parse error rather than silently resolved. Execution is a streaming pipeline
+over source tuples (container rows x JOIN expansions): WHERE, then GROUP BY /
+aggregates, projection, DISTINCT, ORDER BY, then OFFSET/LIMIT or TOP, with an
+early exit when no ordering or grouping needs the full set. Recursion is
+bounded (`maxQueryDepth = 100`) and a parse error is always `400`, never a
+panic. `sql_engine_test.go` is the table of supported queries.
 
 ### Int64/float64 precision (the M2 bug class, guarded from day one)
 Every JSON-number-bearing path in this package -- request body decode
@@ -190,12 +178,8 @@ deferral, and so on -- see **`services/azuretable/PARITY.md`** directly
 rather than duplicating that list here: every gap recorded there applies
 here identically, since it's the same code.
 
-The one gap specific to *this* service's Table API integration (not the
-engine itself) is persistence: `TableBackend` is not yet wired into
-`Handler.Snapshot`/`Restore` (see this file's own `gaps` list above) --
-`pkgs/odatatable.InMemoryBackend` already implements `Snapshot`/`Restore`
-(the same methods `services/azuretable` relies on), so wiring it in is a
-follow-up, not a redesign.
+Table API state is part of `Handler.Snapshot`/`Restore`/`Reset`: the
+`odatatable` snapshot rides in the backend snapshot under `tableApi`.
 
 ## More
 

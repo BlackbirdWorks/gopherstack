@@ -47,6 +47,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		handler.WithSMTPRelay(r)
 	}
 
+	if settings.InboundEnabled {
+		handler.WithInbound(InboundConfig{Addr: settings.InboundAddr, MaxSize: settings.InboundMaxSize})
+	}
+
 	handler.WithJanitor(settings.JanitorInterval, ctx.JanitorTimeout)
 	handler.EnableRegions()
 

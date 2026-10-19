@@ -25,37 +25,37 @@ import (
 
 // PersistableConfig holds settings that can be saved to disk.
 type PersistableConfig struct {
-	ElasticsearchEngine string                    `json:"elasticsearch_engine"`
 	ElastiCacheEngine   string                    `json:"elasticache_engine"`
+	ElasticsearchEngine string                    `json:"elasticsearch_engine"`
 	Region              string                    `json:"region"`
 	LogLevel            string                    `json:"log_level"`
 	Port                string                    `json:"port"`
 	OpenSearchEngine    string                    `json:"opensearch_engine"`
 	AccountID           string                    `json:"account_id"`
 	DataDir             string                    `json:"data_dir"`
-	DNSListenAddr       string                    `json:"dns_listen_addr"`
 	DNSResolveIP        string                    `json:"dns_resolve_ip"`
+	DNSListenAddr       string                    `json:"dns_listen_addr"`
+	CodeBuild           codebuildbackend.Settings `json:"codebuild"`
 	S3                  s3backend.Settings        `json:"s3"`
 	Lambda              lambdabackend.Settings    `json:"lambda"`
 	DynamoDB            ddbbackend.Settings       `json:"dynamodb"`
+	SES                 sesbackend.Settings       `json:"ses"`
 	Batch               batchbackend.Settings     `json:"batch"`
 	EC2                 ec2backend.Settings       `json:"ec2"`
-	CodeBuild           codebuildbackend.Settings `json:"codebuild"`
+	StepFunctions       sfnbackend.Settings       `json:"stepfunctions"`
 	FIS                 fisbackend.Settings       `json:"fis"`
-	Athena              athenabackend.Settings    `json:"athena"`
 	EMR                 emrbackend.Settings       `json:"emr"`
-	SES                 sesbackend.Settings       `json:"ses"`
 	SSM                 ssmbackend.Settings       `json:"ssm"`
 	XRay                xraybackend.Settings      `json:"xray"`
 	Backup              backupbackend.Settings    `json:"backup"`
-	PortRangeEnd        int                       `json:"port_range_end"`
-	InitScriptTimeout   time.Duration             `json:"init_script_timeout"`
-	LatencyMs           int                       `json:"latency_ms"`
-	PortRangeStart      int                       `json:"port_range_start"`
-	JanitorTimeout      time.Duration             `json:"janitor_timeout"`
+	Athena              athenabackend.Settings    `json:"athena"`
 	CloudWatchLogs      cwlogsbackend.Settings    `json:"cloudwatchlogs"`
+	JanitorTimeout      time.Duration             `json:"janitor_timeout"`
+	PortRangeStart      int                       `json:"port_range_start"`
+	LatencyMs           int                       `json:"latency_ms"`
+	InitScriptTimeout   time.Duration             `json:"init_script_timeout"`
 	STS                 stsbackend.Settings       `json:"sts"`
-	StepFunctions       sfnbackend.Settings       `json:"stepfunctions"`
+	PortRangeEnd        int                       `json:"port_range_end"`
 	AutoPurgeTTL        time.Duration             `json:"auto_purge_ttl"`
 	Kinesis             kinesisbackend.Settings   `json:"kinesis"`
 	KMS                 kmsbackend.Settings       `json:"kms"`

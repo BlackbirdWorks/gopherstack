@@ -66,9 +66,34 @@ type SQLExecutor interface {
 	ExecuteSQL(ctx context.Context, login EngineLogin, sqls []string, params []SQLParameter, atomic bool) []SQLOutcome
 }
 
+// WorkgroupEngines resolves the live SQL engine behind a Redshift Serverless workgroup, if any.
+type WorkgroupEngines interface {
+	WorkgroupEngineLogin(region, name string) (EngineLogin, bool)
+}
+
 type engineState struct {
-	engines ClusterEngines
-	exec    SQLExecutor
+	engines    ClusterEngines
+	workgroups WorkgroupEngines
+	exec       SQLExecutor
+}
+
+// SetWorkgroupEngines wires the lookup of live workgroup engines; statements against such workgroups run real SQL.
+func (b *InMemoryBackend) SetWorkgroupEngines(e WorkgroupEngines) {
+	b.mu.Lock("SetWorkgroupEngines")
+	defer b.mu.Unlock()
+
+	if b.engineState == nil {
+		b.engineState = &engineState{exec: NewPGXExecutor()}
+	}
+
+	b.engineState.workgroups = e
+}
+
+// SetWorkgroupEngines wires the live workgroup engine lookup into the Data API backend.
+func (h *Handler) SetWorkgroupEngines(e WorkgroupEngines) {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.SetWorkgroupEngines(e)
+	}
 }
 
 // SetClusterEngines wires the lookup of live cluster engines; statements against such clusters run real SQL.
@@ -110,9 +135,10 @@ type engineRun struct {
 
 // runEngine executes sqls on the live engine behind clusterID; live is false when no engine backs it.
 func (b *InMemoryBackend) runEngine(
-	ctx context.Context, region, clusterID, database string, sqls []string, params []SQLParameter, atomic bool,
+	ctx context.Context, region, clusterID, workgroup, database string,
+	sqls []string, params []SQLParameter, atomic bool,
 ) (engineRun, bool) {
-	if clusterID == "" {
+	if clusterID == "" && workgroup == "" {
 		return engineRun{}, false
 	}
 
@@ -120,11 +146,11 @@ func (b *InMemoryBackend) runEngine(
 	st := b.engineState
 	b.mu.RUnlock()
 
-	if st == nil || st.engines == nil || st.exec == nil {
+	if st == nil || st.exec == nil {
 		return engineRun{}, false
 	}
 
-	login, ok := st.engines.EngineLogin(region, clusterID)
+	login, ok := st.login(region, clusterID, workgroup)
 	if !ok {
 		return engineRun{}, false
 	}
@@ -137,6 +163,22 @@ func (b *InMemoryBackend) runEngine(
 	outcomes := st.exec.ExecuteSQL(ctx, login, sqls, params, atomic)
 
 	return engineRun{outcomes: outcomes, started: started, elapsed: time.Since(started)}, true
+}
+
+func (st *engineState) login(region, clusterID, workgroup string) (EngineLogin, bool) {
+	if clusterID != "" {
+		if st.engines == nil {
+			return EngineLogin{}, false
+		}
+
+		return st.engines.EngineLogin(region, clusterID)
+	}
+
+	if st.workgroups == nil {
+		return EngineLogin{}, false
+	}
+
+	return st.workgroups.WorkgroupEngineLogin(region, workgroup)
 }
 
 var errEngineNoOutcome = errors.New("the engine returned no outcome for the statement")

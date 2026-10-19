@@ -363,9 +363,9 @@ func TestPutRule(t *testing.T) {
 
 	tests := []struct {
 		wantErr   error
-		input     eventbridge.PutRuleInput
 		name      string
 		wantState string
+		input     eventbridge.PutRuleInput
 	}{
 		{
 			name: "DefaultState",

@@ -3,6 +3,7 @@ package cosmosdb
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,11 +14,13 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/odatatable"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 // cosmosVersion is the x-ms-version value echoed on every response -- a
@@ -38,6 +41,9 @@ const (
 	opDeleteContainer    = "DeleteContainer"
 	opCreateDocument     = "CreateDocument"
 	opQueryDocuments     = "QueryDocuments"
+	opQueryDatabases     = "QueryDatabases"
+	opQueryContainers    = "QueryContainers"
+	opReplaceContainer   = "ReplaceContainer"
 	opListDocuments      = "ListDocuments"
 	opGetDocument        = "GetDocument"
 	opReplaceDocument    = "ReplaceDocument"
@@ -59,36 +65,29 @@ const (
 	headerContentTypeQuery = "application/query+json"
 )
 
-// staticRequestCharge is the fake RU charge every response reports. Real RU
-// accounting is out of scope for this milestone (see PARITY.md); a static,
-// plausible value satisfies SDKs that merely read and log/report it.
-const staticRequestCharge = "1"
+// defaultRequestCharge is reported by routes without a size-based charge (see ru.go).
+const defaultRequestCharge = "1"
 
 // Handler is the Echo HTTP handler for Azure Cosmos DB (Core/SQL API)
 // operations.
 type Handler struct {
-	Backend StorageBackend
-	// TableBackend holds Table API tables/entities -- a completely
-	// independent odatatable.InMemoryBackend instance from Backend's own
-	// database/container/document state (see table_api.go and AZURE.md
-	// section 9's M6 milestone). It is not yet included in
-	// Handler.Snapshot/Restore's persistence lifecycle -- see PARITY.md's
-	// Table API addendum.
-	TableBackend *odatatable.InMemoryBackend
-	srvMu        *lockmetrics.RWMutex
-	srv          *http.Server
-	// MasterKey is the base64-encoded master key checkAuth verifies
-	// against when ValidateAuth is true.
-	MasterKey string
-	// Port is the TCP port StartWorker binds. Set from Settings at Init time
-	// (see provider.go); defaults to DefaultPort. Like services/azuretable,
-	// this is a single fixed, protocol-conventional port -- no fallback
-	// pool, so StartWorker fails fast if it's unavailable.
-	Port int
-	// ValidateAuth opts into cryptographic master-key signature
-	// verification. See masterkey.go and checkAuth.
-	ValidateAuth bool
+	Backend       StorageBackend
+	TableBackend  *odatatable.InMemoryBackend
+	srvMu         *lockmetrics.RWMutex
+	srv           *http.Server
+	janitor       *worker.Group
+	clock         func() time.Time
+	MasterKey     string
+	certPEM       []byte
+	TLSHosts      []string
+	Port          int
+	SweepInterval time.Duration
+	ValidateAuth  bool
+	TLS           bool
 }
+
+// defaultSweepInterval is the TTL janitor period; reads already hide expired documents.
+const defaultSweepInterval = 10 * time.Second
 
 // tableAPIBackendLockMetricsLabel is the lockmetrics label for TableBackend,
 // distinguishing its lock-contention metrics from services/azuretable's own
@@ -97,31 +96,26 @@ type Handler struct {
 // label if the engine picked its own internally.
 const tableAPIBackendLockMetricsLabel = "cosmosdb"
 
-// tableAPIBackendVersion is the snapshot-version TableBackend's own
-// Restore enforces (see pkgs/odatatable/persistence.go). Deliberately NOT
-// named with a "SnapshotVersion" suffix: that name shape is what
-// pkgs/persistence's snapshot-version guard (snapshotversion_guard_test.go)
-// scans services/*/ packages for, and TableBackend is NOT wired into
-// Handler.Snapshot/Restore's persistence lifecycle (see TableBackend's own
-// doc comment below) -- it has no golden-tracked shape for the guard to
-// enforce yet, so it must not look like it does. If/when TableBackend is
-// wired into snapshot/restore, rename this to cosmosdbTableSnapshotVersion
-// and add a matching guard-visible struct, mirroring
-// services/azuretable/persistence.go's azureTableSnapshotVersion/
-// azureTableSnapshot.
+// tableAPIBackendVersion is the snapshot version TableBackend enforces on Restore.
 const tableAPIBackendVersion = 2
 
 // NewHandler creates a new Cosmos DB Handler. Port/MasterKey default to
 // DefaultPort/DefaultMasterKey; callers (typically provider.go) override
 // them from Settings.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{
+	h := &Handler{
 		Backend:      backend,
 		TableBackend: odatatable.NewInMemoryBackend(tableAPIBackendLockMetricsLabel, tableAPIBackendVersion),
 		Port:         DefaultPort,
 		MasterKey:    DefaultMasterKey,
 		srvMu:        lockmetrics.New("cosmosdb.server"),
 	}
+
+	if a, ok := backend.(interface{ AttachTableAPI(t tableSnapshotter) }); ok {
+		a.AttachTableAPI(h.TableBackend)
+	}
+
+	return h
 }
 
 var (
@@ -138,8 +132,8 @@ func (h *Handler) Name() string { return "CosmosDB" }
 func (h *Handler) GetSupportedOperations() []string {
 	coreOps := []string{
 		opGetDatabaseAccount,
-		opListDatabases, opCreateDatabase, opGetDatabase, opDeleteDatabase,
-		opListContainers, opCreateContainer, opGetContainer, opDeleteContainer,
+		opListDatabases, opQueryDatabases, opCreateDatabase, opGetDatabase, opDeleteDatabase,
+		opListContainers, opQueryContainers, opCreateContainer, opGetContainer, opReplaceContainer, opDeleteContainer,
 		opCreateDocument, opQueryDocuments, opListDocuments, opGetDocument, opReplaceDocument, opDeleteDocument,
 	}
 	tableOps := tableAPISupportedOperations()
@@ -188,14 +182,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		h.setCommonHeaders(c)
 
-		if !h.checkAuth(r) {
-			return h.writeError(
-				c,
-				http.StatusUnauthorized,
-				"Unauthorized",
-				"The input authorization token can't serve the request. Please check that the expected "+
-					"payload is built as per the protocol, and check the key being used.",
-			)
+		if authErr := h.authorize(r); authErr != nil {
+			logger.Load(r.Context()).WarnContext(r.Context(), "cosmosdb: request rejected", "error", authErr)
+
+			return h.writeError(c, http.StatusUnauthorized, "Unauthorized", authErrorMessage(authErr))
 		}
 
 		if isTableAPIPath(r.URL.Path) {
@@ -230,53 +220,6 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-// checkAuth reports whether the request is authorized to proceed.
-//
-// By default (h.ValidateAuth false) it is intentionally permissive,
-// mirroring services/azuretable's checkAuth: an absent, malformed, or
-// wrongly-signed Authorization header is accepted, matching this repo's
-// permissive-by-default auth philosophy (see services/s3/sigv4.go and
-// pkgs/azureauth) so unmodified SDKs work with zero configuration.
-//
-// When h.ValidateAuth is set (via --cosmosdb-validate-auth), a *present*
-// Authorization header must carry a structurally valid, correctly signed
-// master-key signature or the request is rejected -- the caller turns a
-// false return into 401 Unauthorized. This deliberately enforces rather
-// than merely logging, matching the opt-in validation precedent AZURE.md
-// section 5 names as the model: services/s3's PresignSecret /
-// WithPresignValidation, which rejects a bad signature with 403 AccessDenied
-// (see services/s3/presign.go). An opt-in flag literally named "validate"
-// that never rejects would be actively misleading.
-//
-// An absent Authorization header stays anonymous-accepted even under
-// ValidateAuth: the flag opts into *verifying signatures that are offered*,
-// not into requiring authentication, so enabling it cannot break the
-// no-credentials local-dev workflow the other Azure services support.
-func (h *Handler) checkAuth(r *http.Request) bool {
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		return true // anonymous; accepted by design at this milestone
-	}
-
-	if !h.ValidateAuth {
-		if _, ok := parseMasterKeyAuthorization(authHeader); !ok {
-			logger.Load(r.Context()).DebugContext(r.Context(), "cosmosdb: malformed Authorization header accepted")
-		}
-
-		return true
-	}
-
-	ok, err := VerifyMasterKey(h.MasterKey, r)
-	if err != nil || !ok {
-		logger.Load(r.Context()).WarnContext(r.Context(),
-			"cosmosdb: master-key signature validation failed; rejecting request", "error", err)
-
-		return false
-	}
-
-	return true
-}
-
 // setCommonHeaders sets the headers real Cosmos SDKs expect on every
 // response, success or error: x-ms-version, x-ms-request-id, Date,
 // x-ms-request-charge (fake RU accounting), x-ms-session-token, and
@@ -286,7 +229,7 @@ func (h *Handler) setCommonHeaders(c *echo.Context) {
 	hdr.Set("X-Ms-Version", cosmosVersion)
 	hdr.Set("X-Ms-Request-Id", newRequestID())
 	hdr.Set("Date", time.Now().UTC().Format(http.TimeFormat))
-	hdr.Set(headerRequestCharge, staticRequestCharge)
+	hdr.Set(headerRequestCharge, defaultRequestCharge)
 	hdr.Set("X-Ms-Session-Token", "0:0#0")
 	hdr.Set(headerActivityID, newRequestID())
 }
@@ -422,13 +365,13 @@ func operationFor(r *http.Request) string {
 
 		return unknownOperation
 	case resourceDatabases:
-		return collectionOperationFor(r.Method, opCreateDatabase, opListDatabases)
+		return collectionOperationFor(r, opCreateDatabase, opListDatabases, opQueryDatabases)
 	case resourceDatabaseItem:
 		return itemOperationFor(r.Method, opGetDatabase, "", opDeleteDatabase)
 	case resourceContainers:
-		return collectionOperationFor(r.Method, opCreateContainer, opListContainers)
+		return collectionOperationFor(r, opCreateContainer, opListContainers, opQueryContainers)
 	case resourceContainerItem:
-		return itemOperationFor(r.Method, opGetContainer, "", opDeleteContainer)
+		return itemOperationFor(r.Method, opGetContainer, opReplaceContainer, opDeleteContainer)
 	case resourceDocuments:
 		return documentsCollectionOperationFor(r)
 	case resourceDocumentItem:
@@ -438,9 +381,13 @@ func operationFor(r *http.Request) string {
 	}
 }
 
-func collectionOperationFor(method, createOp, listOp string) string {
-	switch method {
+func collectionOperationFor(r *http.Request, createOp, listOp, queryOp string) string {
+	switch r.Method {
 	case http.MethodPost:
+		if isQueryRequest(r) {
+			return queryOp
+		}
+
 		return createOp
 	case http.MethodGet:
 		return listOp
@@ -493,10 +440,8 @@ func isQueryRequest(r *http.Request) bool {
 	return strings.Contains(strings.ToLower(r.Header.Get("Content-Type")), headerContentTypeQuery)
 }
 
-// StartWorker binds the dedicated Cosmos DB listener and starts serving on
-// it. See provider.go's Provider doc comment for why CosmosDB needs its own
-// listener, and services/azuretable's StartWorker for the synchronous-bind
-// rationale this mirrors exactly.
+// StartWorker binds the dedicated Cosmos DB listener (optionally TLS) and starts the TTL janitor. The bind is
+// synchronous so a port conflict is returned to the caller.
 func (h *Handler) StartWorker(ctx context.Context) error {
 	var listenConfig net.ListenConfig
 
@@ -505,17 +450,20 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		return fmt.Errorf("cosmosdb: bind port %d: %w", h.Port, err)
 	}
 
-	// If h.Port was 0 (let the OS assign an ephemeral port), reflect the
-	// actual bound port back onto h.Port so a caller -- typically a test --
-	// can read it off immediately after StartWorker returns, with zero
-	// release-then-rebind window. Tests that instead pick a port via a
-	// separate "bind :0, read it, close it, then tell StartWorker to bind
-	// that same number" helper have a real (if narrow) race: another
-	// process can grab the port in between. Setting h.Port here lets
-	// StartWorker itself be the single source of truth for which port it
-	// ended up on.
+	// Port 0 binds an ephemeral port; reflect it so tests can read it without a release-and-rebind race.
 	if addr, ok := listener.Addr().(*net.TCPAddr); ok {
 		h.Port = addr.Port
+	}
+
+	if h.TLS {
+		tlsListener, tlsErr := h.wrapTLS(listener)
+		if tlsErr != nil {
+			_ = listener.Close()
+
+			return tlsErr
+		}
+
+		listener = tlsListener
 	}
 
 	e := echo.New()
@@ -530,14 +478,15 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		IdleTimeout:       cosmosdbIdleTimeout,
 	}
 
-	h.srvMu.Lock("StartWorker")
-	h.srv = srv
-	h.srvMu.Unlock()
-
 	workerCtx := logger.WithWorker(ctx, "cosmosdb", "listener")
 	log := logger.Load(workerCtx)
 
-	log.InfoContext(workerCtx, "cosmosdb: starting dedicated listener", "port", h.Port)
+	h.srvMu.Lock("StartWorker")
+	h.srv = srv
+	h.janitor = h.startJanitor(ctx)
+	h.srvMu.Unlock()
+
+	log.InfoContext(workerCtx, "cosmosdb: starting dedicated listener", "port", h.Port, "tls", h.TLS)
 
 	go func() {
 		if serveErr := srv.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
@@ -546,6 +495,61 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+// wrapTLS serves listener over TLS with an in-memory self-signed certificate valid for localhost and TLSHosts.
+func (h *Handler) wrapTLS(listener net.Listener) (net.Listener, error) {
+	certPEM, keyPEM, err := devtls.GenerateSelfSignedCertPEM(h.TLSHosts...)
+	if err != nil {
+		return nil, fmt.Errorf("cosmosdb: generate self-signed certificate: %w", err)
+	}
+
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("cosmosdb: load self-signed certificate: %w", err)
+	}
+
+	h.srvMu.Lock("wrapTLS")
+	h.certPEM = certPEM
+	h.srvMu.Unlock()
+
+	return tls.NewListener(listener, &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+		NextProtos:   []string{"http/1.1"},
+	}), nil
+}
+
+// TLSCertPEM returns the self-signed certificate (PEM) the TLS listener serves, for clients to trust; nil unless
+// TLS is enabled and the worker started.
+func (h *Handler) TLSCertPEM() []byte {
+	h.srvMu.RLock("TLSCertPEM")
+	defer h.srvMu.RUnlock()
+
+	return h.certPEM
+}
+
+// startJanitor starts the TTL sweeper when the backend supports it.
+func (h *Handler) startJanitor(ctx context.Context) *worker.Group {
+	sweeper, ok := h.Backend.(interface{ SweepExpired() int })
+	if !ok {
+		return nil
+	}
+
+	interval := h.SweepInterval
+	if interval <= 0 {
+		interval = defaultSweepInterval
+	}
+
+	g := worker.NewGroup(ctx, "cosmosdb")
+	g.Ticker("TTLSweeper", interval, 0, func(sweepCtx context.Context) {
+		if n := sweeper.SweepExpired(); n > 0 {
+			telemetry.RecordWorkerItems("cosmosdb", "TTLSweeper", n)
+			logger.Load(sweepCtx).DebugContext(sweepCtx, "cosmosdb: expired documents removed", "count", n)
+		}
+	})
+
+	return g
 }
 
 // Timeouts for the dedicated Cosmos DB http.Server. ReadHeaderTimeout/
@@ -575,9 +579,13 @@ const (
 // Shutdown stops the dedicated Cosmos DB listener.
 func (h *Handler) Shutdown(ctx context.Context) {
 	h.srvMu.Lock("Shutdown")
-	srv := h.srv
-	h.srv = nil
+	srv, janitor := h.srv, h.janitor
+	h.srv, h.janitor = nil, nil
 	h.srvMu.Unlock()
+
+	if janitor != nil {
+		janitor.Stop()
+	}
 
 	if srv == nil {
 		return
@@ -597,13 +605,15 @@ func (h *Handler) Shutdown(ctx context.Context) {
 // writeJSON marshals v and writes it as the response body with
 // Content-Type: application/json.
 func (h *Handler) writeJSON(c *echo.Context, status int, v any) error {
-	body, err := json.Marshal(v)
+	body, err := jsonMarshal(v)
 	if err != nil {
 		return h.writeErrorNoRecurse(c, http.StatusInternalServerError, "InternalError", "Failed to marshal response.")
 	}
 
 	return c.Blob(status, "application/json", body)
 }
+
+func jsonMarshal(v any) ([]byte, error) { return json.Marshal(v) }
 
 // cosmosErrorBody is Cosmos DB's JSON error envelope shape:
 // {"code":"NotFound","message":"..."}.

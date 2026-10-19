@@ -52,6 +52,12 @@ type oidcConfig struct {
 	jwksURI       string
 	attrMethod    string
 	scopes        string
+	subjectClaim  string
+	providerType  string
+	appleKeyPEM   string
+	appleTeamID   string
+	appleKeyID    string
+	hasIDToken    bool
 }
 
 type discoveryDoc struct {
@@ -82,15 +88,20 @@ func httpURL(raw string) bool {
 }
 
 // loadOIDCConfig reads ProviderDetails and, for any missing endpoint, discovers it from the issuer.
-func loadOIDCConfig(ctx context.Context, details map[string]string) (*oidcConfig, error) {
+func loadOIDCConfig(ctx context.Context, providerType string, details map[string]string) (*oidcConfig, error) {
 	cfg := &oidcConfig{
 		clientID: details[detailClientID], secret: details[detailSecret], issuer: details[detailIssuer],
 		authorizeURL: details[detailAuthorize], tokenURL: details[detailToken],
 		attributesURL: details[detailAttributes], jwksURI: details[detailJWKS],
 		attrMethod: strings.ToUpper(details[detailAttrMethod]), scopes: details[detailScopes],
+		subjectClaim: claimSub, providerType: providerType, hasIDToken: true,
+		appleKeyPEM: details[detailApplePrivateKey], appleTeamID: details[detailAppleTeamID],
+		appleKeyID: details[detailAppleKeyID],
 	}
 
-	if cfg.clientID == "" || cfg.issuer == "" {
+	applySocialDefaults(cfg)
+
+	if cfg.clientID == "" || (cfg.issuer == "" && cfg.hasIDToken) {
 		return nil, idpErrorf("provider requires client_id and oidc_issuer")
 	}
 
@@ -98,13 +109,18 @@ func loadOIDCConfig(ctx context.Context, details map[string]string) (*oidcConfig
 		cfg.scopes = idpDefaultScopes
 	}
 
-	if cfg.authorizeURL == "" || cfg.tokenURL == "" || cfg.jwksURI == "" {
+	if cfg.hasIDToken && (cfg.authorizeURL == "" || cfg.tokenURL == "" || cfg.jwksURI == "") {
 		if err := cfg.discover(ctx); err != nil {
 			return nil, err
 		}
 	}
 
-	for _, u := range []string{cfg.authorizeURL, cfg.tokenURL, cfg.jwksURI} {
+	endpoints := []string{cfg.authorizeURL, cfg.tokenURL}
+	if cfg.hasIDToken {
+		endpoints = append(endpoints, cfg.jwksURI)
+	}
+
+	for _, u := range endpoints {
 		if !httpURL(u) {
 			return nil, idpErrorf("endpoint %q is not an http(s) URL", u)
 		}
@@ -198,8 +214,13 @@ func (c *oidcConfig) exchangeCode(ctx context.Context, code, redirectURI string)
 		"grant_type": {grantAuthCode}, "code": {code}, "redirect_uri": {redirectURI},
 		"client_id": {c.clientID},
 	}
-	if c.secret != "" {
-		form.Set("client_secret", c.secret)
+	secret, err := c.clientSecret()
+	if err != nil {
+		return "", "", err
+	}
+
+	if secret != "" {
+		form.Set("client_secret", secret)
 	}
 
 	var tok struct {
@@ -207,12 +228,16 @@ func (c *oidcConfig) exchangeCode(ctx context.Context, code, redirectURI string)
 		AccessToken string `json:"access_token"`
 	}
 
-	if err := idpFetchJSON(ctx, http.MethodPost, c.tokenURL, form, "", &tok); err != nil {
+	if err = idpFetchJSON(ctx, http.MethodPost, c.tokenURL, form, "", &tok); err != nil {
 		return "", "", err
 	}
 
-	if tok.IDToken == "" {
+	if tok.IDToken == "" && c.hasIDToken {
 		return "", "", idpErrorf("token response has no id_token")
+	}
+
+	if tok.AccessToken == "" && !c.hasIDToken {
+		return "", "", idpErrorf("token response has no access_token")
 	}
 
 	return tok.IDToken, tok.AccessToken, nil
@@ -279,6 +304,10 @@ func rsaKey(n, e string) (*rsa.PublicKey, error) {
 
 // fetchAttributes overlays userinfo claims; its sub must match the id_token subject.
 func (c *oidcConfig) fetchAttributes(ctx context.Context, accessToken string, claims map[string]any) error {
+	if !c.hasIDToken && (c.attributesURL == "" || accessToken == "") {
+		return idpErrorf("provider %s requires a userinfo endpoint", c.providerType)
+	}
+
 	if c.attributesURL == "" || accessToken == "" {
 		return nil
 	}
@@ -297,6 +326,13 @@ func (c *oidcConfig) fetchAttributes(ctx context.Context, accessToken string, cl
 
 	if err := idpFetchJSON(ctx, method, c.attributesURL, form, accessToken, &info); err != nil {
 		return err
+	}
+
+	if !c.hasIDToken {
+		claims[claimSub] = claimString(info[c.subjectClaim])
+		maps.Copy(claims, info)
+
+		return nil
 	}
 
 	if sub, ok := info[claimSub]; ok && claimString(sub) != claimString(claims[claimSub]) {

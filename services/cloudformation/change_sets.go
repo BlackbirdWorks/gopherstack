@@ -54,7 +54,7 @@ func (b *InMemoryBackend) CreateChangeSet(
 		return nil, ErrChangeSetExists
 	}
 
-	if err := validateTemplateStructure(templateBody); err != nil {
+	if err := validateTemplateStructure(templateBody, b.typeCheckLocked(opts.DisableValidation)); err != nil {
 		return nil, err
 	}
 
@@ -110,7 +110,7 @@ func (b *InMemoryBackend) CreateChangeSet(
 		stack = nil
 	}
 
-	cs.Changes = b.computeChanges(templateBody, stack)
+	cs.Changes = b.computeChanges(templateBody, stack, params)
 
 	// AWS marks a change set with no actual changes as FAILED / UNAVAILABLE so
 	// it cannot be executed; only a change set that contains changes is
@@ -172,7 +172,7 @@ func resolveChangeSetType(requested string, stackExists bool) (string, error) {
 // from the template, and Modify (with property-level Details, Scope and a
 // Replacement flag) for resources whose type or properties changed. Pre-existing
 // resources that are unchanged are omitted entirely, matching AWS.
-func (b *InMemoryBackend) computeChanges(templateBody string, stack *Stack) []Change {
+func (b *InMemoryBackend) computeChanges(templateBody string, stack *Stack, params []Parameter) []Change {
 	if templateBody == "" {
 		return nil
 	}
@@ -182,6 +182,8 @@ func (b *InMemoryBackend) computeChanges(templateBody string, stack *Stack) []Ch
 		return nil
 	}
 
+	pruneConditional(newTmpl, ResolveParameters(newTmpl, params))
+
 	// CREATE change set: no prior stack, so every resource is an Add.
 	if stack == nil {
 		return addChangesForTemplate(newTmpl)
@@ -190,6 +192,9 @@ func (b *InMemoryBackend) computeChanges(templateBody string, stack *Stack) []Ch
 	var oldTmpl *Template
 	if stack.TemplateBody != "" {
 		oldTmpl, _ = ParseTemplate(stack.TemplateBody)
+		if oldTmpl != nil {
+			pruneConditional(oldTmpl, ResolveParameters(oldTmpl, stack.Parameters))
+		}
 	}
 
 	return diffTemplates(oldTmpl, newTmpl, b.resources[stack.StackID])

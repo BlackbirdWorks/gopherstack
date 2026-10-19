@@ -33,4 +33,10 @@ var (
 	// has ErrorFault() == smithy.FaultClient, so it is HTTP 400 like the other client
 	// faults here, not 500.
 	ErrClientTokenConflict = awserr.New("ClientTokenConflictException", awserr.ErrConflict)
+	// ErrUnsupportedAction is returned when a resource type has no handler for the requested
+	// action (UnsupportedActionException, a client fault like the other modeled exceptions).
+	ErrUnsupportedAction = awserr.New("UnsupportedActionException", awserr.ErrInvalidParameter)
+	// ErrNotUpdatable is returned when an UpdateResource patch touches properties the
+	// resource cannot change in place (NotUpdatableException).
+	ErrNotUpdatable = awserr.New("NotUpdatableException", awserr.ErrInvalidParameter)
 )

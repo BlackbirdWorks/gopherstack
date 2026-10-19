@@ -19,10 +19,18 @@ type categoryGroup struct {
 // repeated-literal check.
 const (
 	slugAzureBlob       = "azureblob"
+	slugAzureKeyVault   = "azurekeyvault"
 	slugAzureQueue      = "azurequeue"
 	slugAzureTable      = "azuretable"
 	slugAzureServiceBus = "azureservicebus"
 	slugCosmosDB        = "cosmosdb"
+	slugGCPStorage      = "gcpstorage"
+	slugGCPPubSub       = "gcppubsub"
+	slugGCPSecretMgr    = "gcpsecretmanager"
+	slugGCPKMS          = "gcpkms"
+	slugGCPCloudTasks   = "gcpcloudtasks"
+	slugGCPScheduler    = "gcpscheduler"
+	slugGCPFirestore    = "gcpfirestore"
 )
 
 // categoryGroups is the curated slug -> category assignment for every
@@ -42,7 +50,7 @@ func categoryGroups() []categoryGroup {
 			"ecr", "ecs", "eks",
 		}},
 		{"Storage", []string{
-			"backup", "dlm", "efs", "fsx", "glacier", "s3", "s3control", "s3tables",
+			"backup", "dlm", "efs", "fsx", "glacier", "s3", "s3control", "s3files", "s3tables",
 		}},
 		{"Database", []string{
 			"dax", "docdb", "dynamodb", "dynamodbstreams", "elasticache", "memorydb",
@@ -101,7 +109,11 @@ func categoryGroups() []categoryGroup {
 			"datasync", "dms", "transfer",
 		}},
 		{"Azure", []string{
-			slugAzureBlob, slugAzureQueue, slugAzureTable, slugAzureServiceBus, slugCosmosDB,
+			slugAzureBlob, slugAzureKeyVault, slugAzureQueue, slugAzureTable, slugAzureServiceBus, slugCosmosDB,
+		}},
+		{"GCP", []string{
+			slugGCPStorage, slugGCPPubSub, slugGCPSecretMgr, slugGCPKMS, slugGCPCloudTasks, slugGCPScheduler,
+			slugGCPFirestore,
 		}},
 		{"Other", []string{
 			"appstream", "managedblockchain", "omics", "support", "workspaces",
@@ -170,6 +182,7 @@ func displayNamesA() map[string]string {
 		"autoscaling":             "Auto Scaling",
 		"awsconfig":               "Config",
 		slugAzureBlob:             "Azure Blob Storage",
+		slugAzureKeyVault:         "Azure Key Vault",
 		slugAzureQueue:            "Azure Queue Storage",
 		slugAzureTable:            "Azure Table Storage",
 		slugAzureServiceBus:       "Azure Service Bus",
@@ -202,6 +215,13 @@ func displayNamesB() map[string]string {
 		"cognitoidp":       "Cognito Identity Provider",
 		"comprehend":       "Comprehend",
 		slugCosmosDB:       "Azure Cosmos DB",
+		slugGCPStorage:     "Google Cloud Storage",
+		slugGCPPubSub:      "Google Cloud Pub/Sub",
+		slugGCPSecretMgr:   "Google Secret Manager",
+		slugGCPKMS:         "Google Cloud KMS",
+		slugGCPCloudTasks:  "Cloud Tasks",
+		slugGCPScheduler:   "Cloud Scheduler",
+		slugGCPFirestore:   "Google Cloud Firestore",
 		"databrew":         "Glue DataBrew",
 		"datasync":         "DataSync",
 		"dax":              "DAX",
@@ -297,6 +317,7 @@ func displayNamesD() map[string]string {
 		"route53resolver":     "Route 53 Resolver",
 		"s3":                  "S3",
 		"s3control":           "S3 Control",
+		"s3files":             "S3 Files",
 		"s3tables":            "S3 Tables",
 		"sagemaker":           "SageMaker",
 		"sagemakerruntime":    "SageMaker Runtime",

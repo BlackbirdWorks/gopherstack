@@ -25,6 +25,7 @@ const (
 	fmtDelimited dataFormat = iota
 	fmtCSVSerde
 	fmtJSON
+	fmtParquet
 )
 
 const (
@@ -115,13 +116,14 @@ func detectFormat(def *GlueTableDef) (tableFormat, error) {
 
 	switch {
 	case strings.Contains(lib, "parquet") || strings.Contains(in, "parquet"):
-		return f, fmt.Errorf("%w: Parquet (SerDe %q); the embedded SQL engine reads CSV, TSV and JSON lines only",
-			errUnsupportedFormat, def.SerdeLibrary)
+		f.kind = fmtParquet
+
+		return f, nil
 	case strings.Contains(lib, "orc") || strings.Contains(in, "orc"):
-		return f, fmt.Errorf("%w: ORC (SerDe %q); the embedded SQL engine reads CSV, TSV and JSON lines only",
+		return f, fmt.Errorf("%w: ORC (SerDe %q); the embedded SQL engine reads CSV, TSV, JSON lines and Parquet only",
 			errUnsupportedFormat, def.SerdeLibrary)
 	case strings.Contains(lib, "avro") || strings.Contains(in, "avro"):
-		return f, fmt.Errorf("%w: Avro (SerDe %q); the embedded SQL engine reads CSV, TSV and JSON lines only",
+		return f, fmt.Errorf("%w: Avro (SerDe %q); the embedded SQL engine reads CSV, TSV, JSON lines and Parquet only",
 			errUnsupportedFormat, def.SerdeLibrary)
 	case strings.Contains(lib, "jsonserde"):
 		f.kind = fmtJSON
@@ -245,6 +247,7 @@ type rowSink struct {
 type tableLoader struct {
 	get     S3Getter
 	list    S3Lister
+	want    columnSet
 	limits  EngineLimits
 	scanned int64
 	rows    int
@@ -345,6 +348,10 @@ func (l *tableLoader) loadObject(
 		return fmt.Errorf("HIVE_CANNOT_OPEN_SPLIT: Error opening Hive split s3://%s/%s: %w", bucket, key, err)
 	}
 	defer func() { _ = out.Body.Close() }()
+
+	if f.kind == fmtParquet {
+		return l.loadParquet(ctx, out.Body, bucket, key, cols, sink)
+	}
 
 	counted := &countingReader{r: out.Body, n: &l.scanned}
 	br := bufio.NewReaderSize(counted, readBufBytes)

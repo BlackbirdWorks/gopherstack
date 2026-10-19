@@ -2,6 +2,7 @@ package cosmosdb
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -18,6 +19,7 @@ const cosmosdbSnapshotVersion = 1
 // backendSnapshot is the top-level on-disk shape for the Cosmos DB backend.
 type backendSnapshot struct {
 	Databases map[string]*storedDatabase `json:"databases"`
+	TableAPI  json.RawMessage            `json:"tableApi,omitempty"`
 	Version   int                        `json:"version"`
 }
 
@@ -30,6 +32,10 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	snap := backendSnapshot{
 		Version:   cosmosdbSnapshotVersion,
 		Databases: b.databases,
+	}
+
+	if b.tableAPI != nil {
+		snap.TableAPI = b.tableAPI.Snapshot(ctx)
 	}
 
 	return persistence.MarshalSnapshot(ctx, "cosmosdb", snap)
@@ -59,6 +65,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.databases = make(map[string]*storedDatabase)
 
+		if b.tableAPI != nil {
+			b.tableAPI.Reset()
+		}
+
 		return nil
 	}
 
@@ -70,7 +80,30 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
+	if err := b.restoreTableAPI(ctx, snap.TableAPI); err != nil {
+		return err
+	}
+
 	b.databases = snap.Databases
+
+	return nil
+}
+
+// restoreTableAPI restores the attached Table API state; a snapshot without it empties the Table API.
+func (b *InMemoryBackend) restoreTableAPI(ctx context.Context, data json.RawMessage) error {
+	if b.tableAPI == nil {
+		return nil
+	}
+
+	if len(data) == 0 {
+		b.tableAPI.Reset()
+
+		return nil
+	}
+
+	if err := b.tableAPI.Restore(ctx, data); err != nil {
+		return fmt.Errorf("cosmosdb: restore table api: %w", err)
+	}
 
 	return nil
 }

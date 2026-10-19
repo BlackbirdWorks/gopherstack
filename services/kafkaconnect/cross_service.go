@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/md5" //nolint:gosec // MSK Connect's fileMd5 is defined as an MD5 digest, not a security control
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"io"
 	"strings"
 
@@ -92,3 +94,37 @@ func (b *InMemoryBackend) readPluginObject(bucketArn, fileKey, version string) (
 
 	return pluginObject{md5: hex.EncodeToString(sum.Sum(nil)), size: n}, true
 }
+
+// readPluginBytes returns the plugin archive stored in emulated S3.
+func (b *InMemoryBackend) readPluginBytes(bucketArn, fileKey, version string) ([]byte, error) {
+	backend, ok := b.s3Backend()
+	if !ok {
+		return nil, errS3Unavailable
+	}
+
+	_, bucket, found := strings.Cut(bucketArn, s3BucketARNPrefix)
+	if !found || bucket == "" {
+		return nil, errPluginLocation
+	}
+
+	in := &awss3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(fileKey)}
+	if version != "" {
+		in.VersionId = aws.String(version)
+	}
+
+	out, err := backend.GetObject(context.Background(), in)
+	if err != nil {
+		return nil, fmt.Errorf("get plugin object: %w", err)
+	}
+
+	defer out.Body.Close()
+
+	return io.ReadAll(io.LimitReader(out.Body, maxPluginBytes)) //nolint:wrapcheck // read errors are self-describing
+}
+
+const maxPluginBytes = 512 << 20
+
+var (
+	errS3Unavailable  = errors.New("emulated S3 is not wired")
+	errPluginLocation = errors.New("plugin bucket ARN is malformed")
+)

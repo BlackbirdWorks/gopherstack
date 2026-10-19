@@ -46,12 +46,14 @@ func (b *InMemoryBackend) SetLambdaTriggerInvoker(inv LambdaTriggerInvoker) {
 const (
 	triggerSourcePreSignUpSignUp           = "PreSignUp_SignUp"
 	triggerSourcePreSignUpAdminCreateUser  = "PreSignUp_AdminCreateUser"
+	triggerSourcePreSignUpExternal         = "PreSignUp_ExternalProvider"
 	triggerSourcePostConfirmationSignUp    = "PostConfirmation_ConfirmSignUp"
 	triggerSourcePostConfirmationForgotPwd = "PostConfirmation_ConfirmForgotPassword"
 	triggerSourceTokenGenAuthentication    = "TokenGeneration_Authentication"
 	triggerSourceTokenGenNewPasswordFlow   = "TokenGeneration_NewPasswordChallenge"
 	triggerSourceTokenGenRefreshTokens     = "TokenGeneration_RefreshTokens"
 	triggerSourceTokenGenHostedAuth        = "TokenGeneration_HostedAuth"
+	triggerSourceCustomMessageAdminCreate  = "CustomMessage_AdminCreateUser"
 	triggerSourceCustomMessageSignUp       = "CustomMessage_SignUp"
 	triggerSourceCustomMessageResendCode   = "CustomMessage_ResendCode"
 	triggerSourceCustomMessageForgotPwd    = "CustomMessage_ForgotPassword"
@@ -824,4 +826,9 @@ func (b *InMemoryBackend) invokeUserMigrationTriggerForgotPassword(
 	}
 
 	return parseUserMigrationResponse(resp), nil
+}
+
+// preSignUpDefaults is the PreSignUp response a function that returns nothing yields.
+func preSignUpDefaults() map[string]any {
+	return map[string]any{"autoConfirmUser": false, "autoVerifyEmail": false, "autoVerifyPhone": false}
 }

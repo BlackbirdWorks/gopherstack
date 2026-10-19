@@ -33,6 +33,23 @@ type enginePlan struct {
 	tables []*planTable
 }
 
+// standalone reports a SELECT that needs no table (no FROM, or only UNNEST),
+// which the legacy in-memory evaluator cannot run.
+func (p *enginePlan) standalone() bool {
+	toks, err := tokenize(p.sql)
+	if err != nil {
+		return false
+	}
+
+	for _, t := range toks {
+		if t.isWord(kwFrom) {
+			return strings.Contains(p.sql, unnestModuleName+"(")
+		}
+	}
+
+	return true
+}
+
 // glueSchema maps a Glue database to the attached SQLite schema name.
 func glueSchema(db string) string {
 	if db == "main" || db == "temp" {
@@ -80,7 +97,7 @@ func (b *InMemoryBackend) planEngineQuery(
 		return nil, stmtFail(athenaErrTypeSyntax, "SYNTAX_ERROR: %s", err.Error()), true
 	}
 
-	if len(plan.tables) == 0 {
+	if len(plan.tables) == 0 && !plan.standalone() {
 		return nil, stmtOK(), false
 	}
 
@@ -181,10 +198,20 @@ func (p *enginePlan) run(ctx context.Context, limits EngineLimits) (*sqlResult, 
 		}
 	}
 
-	loader := &tableLoader{get: p.get, list: p.list, limits: limits}
+	loader := &tableLoader{get: p.get, list: p.list, limits: limits, want: referencedColumns(p.sql)}
 
 	if err = p.load(ctx, conn, loader); err != nil {
 		return nil, loader.scanned, engineFailure(err)
+	}
+
+	if strings.Contains(p.sql, unnestModuleName+"(") {
+		if err = execAll(
+			ctx,
+			conn,
+			"CREATE VIRTUAL TABLE temp."+unnestModuleName+" USING "+unnestModuleName,
+		); err != nil {
+			return nil, loader.scanned, engineFailure(err)
+		}
 	}
 
 	if err = execAll(ctx, conn, "PRAGMA case_sensitive_like=ON", "PRAGMA query_only=ON"); err != nil {

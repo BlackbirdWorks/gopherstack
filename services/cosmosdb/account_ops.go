@@ -55,7 +55,12 @@ func (h *Handler) handleAccountRoot(c *echo.Context) error {
 // mode than never implementing this resource at all, since it would look
 // like a routing bug rather than a missing feature.
 func (h *Handler) accountPropertiesBody(r *http.Request) map[string]any {
-	endpoint := "http://" + r.Host + "/"
+	scheme := "http"
+	if h.TLS || r.TLS != nil {
+		scheme = "https"
+	}
+
+	endpoint := scheme + "://" + r.Host + "/"
 
 	location := map[string]any{"name": accountRegionName, "databaseAccountEndpoint": endpoint}
 

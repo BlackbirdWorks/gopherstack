@@ -160,7 +160,11 @@ func (h *Handler) handleGraphQL(ctx context.Context, c *echo.Context, apiID stri
 			// transport-level auth failure, distinct from the 200 + GraphQL
 			// errors[].errorType "Unauthorized" shape used for resolver-level
 			// (@aws_auth field) authorization failures.
-			return c.JSON(http.StatusUnauthorized, map[string]string{"message": ErrUnauthorized.Error()})
+			return c.JSON(http.StatusUnauthorized, map[string]string{keyMessage: ErrUnauthorized.Error()})
+		}
+
+		if fe, ok := errors.AsType[*partialResultError](execErr); ok {
+			return c.JSON(http.StatusOK, graphqlResponse{Data: result, Errors: fe.errs})
 		}
 
 		return c.JSON(http.StatusOK, graphqlResponse{

@@ -66,6 +66,10 @@ func (b *InMemoryBackend) slBeginLocked(kind, name, interim, final string, remov
 // transitional statuses. Caller must hold b.mu for writing.
 func (b *InMemoryBackend) settleServerlessLocked(now time.Time) {
 	for _, wg := range b.slWorkgroups.All() {
+		if b.workgroupStartingLocked(wg.WorkgroupName) {
+			continue
+		}
+
 		if b.settleOneLocked(slKindWorkgroup, wg.WorkgroupName, &wg.Status, now) {
 			b.slWorkgroups.Delete(wg.WorkgroupName)
 			b.slWorkgroupIdx.remove(wg.WorkgroupName)

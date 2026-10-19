@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	"github.com/blackbirdworks/gopherstack/services/azureservicebus"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
@@ -170,3 +171,18 @@ func (a *schedECSAdapter) RunSchedulerTask(
 
 	return err
 }
+
+// azureKeyVaultsAdapter adapts services/azurekeyvault's backend to
+// services/azurearm.KeyVaults (see azurearm/interfaces.go).
+type azureKeyVaultsAdapter struct {
+	backend *azurekeyvault.InMemoryBackend
+}
+
+func (a *azureKeyVaultsAdapter) CreateVault(name string, retentionDays int, purgeProtection bool) {
+	a.backend.CreateVault(
+		name,
+		azurekeyvault.VaultOptions{RetentionDays: retentionDays, PurgeProtection: purgeProtection},
+	)
+}
+
+func (a *azureKeyVaultsAdapter) DeleteVault(name string) { a.backend.DeleteVault(name) }

@@ -138,6 +138,7 @@ type Server struct {
 	PreAuthenticationLoginBanner  string                   `json:"pre_authentication_login_banner,omitempty"`
 	PostAuthenticationLoginBanner string                   `json:"post_authentication_login_banner,omitempty"`
 	HostKey                       string                   `json:"host_key,omitempty"`
+	SFTPHostKey                   string                   `json:"sftp_host_key,omitempty"`
 	Certificate                   string                   `json:"certificate,omitempty"`
 	SecurityPolicyName            string                   `json:"security_policy_name,omitempty"`
 	IPAddressType                 string                   `json:"ip_address_type,omitempty"`

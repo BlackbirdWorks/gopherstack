@@ -19,7 +19,7 @@
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
 - Service Connect: ServiceConnectConfiguration is stored and echoed, and ListServicesByNamespace matches on it, but Service Connect proxies and its Cloud Map instance registration are not modeled.
-- Cloud Map registration of bridge/host-mode EC2 tasks: container instances have no modeled private IP, so only awsvpc tasks (ENI IP) are registered; tasks carry no placement AZ, so AVAILABILITY_ZONE is <region>a."  - "Managed scaling / managed termination protection (2026-10-07): settings are validated against the ECS API reference ranges and defaults, but the group is never scaled or protected: ECS drives scale-out from the CapacityProviderReservation metric over container-instance resource accounting, and tasks here run on a runner with no per-instance CPU/memory ledger.
+- Cloud Map registration of bridge/host-mode EC2 tasks: container instances have no modeled private IP, so only awsvpc tasks (ENI IP) are registered; tasks carry no placement AZ, so AVAILABILITY_ZONE is <region>a.
 - AWS/ECS CPUUtilization/MemoryUtilization are emitted only for docker-runtime tasks; the noop runner has no container stats to measure.
 - Daemon-launched tasks: ECS Managed Daemons run only on Managed Instances capacity providers, which provision EC2 hosts this emulator does not model, so ListTasks.daemonName filters correctly but no task ever belongs to a daemon.
 - awslogs without awslogs-stream-prefix names the stream after the runtime container ID: exact under the docker runtime, but without a container runtime no container ID exists and the task ID stands in.

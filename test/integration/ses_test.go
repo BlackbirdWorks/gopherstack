@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -64,18 +65,28 @@ func TestIntegration_SES_SendEmail(t *testing.T) {
 		"EmailAddress": {"sender@integ-test.com"},
 	}))
 
-	// Send email.
-	resp := sesPost(t, url.Values{
-		"Action":                           {"SendEmail"},
-		"Source":                           {"sender@integ-test.com"},
-		"Destination.ToAddresses.member.1": {"recipient@integ-test.com"},
-		"Message.Subject.Data":             {"Integration Test Email"},
-		"Message.Body.Text.Data":           {"Hello from integration test"},
-		"Message.Body.Html.Data":           {"<p>Hello from integration test</p>"},
-	})
-	body := sesReadBody(t, resp)
+	// MaxSendRate is 1/s and parallel SES/SESv2 tests share the server; retry
+	// Throttling like the SDKs do (raw form posts have no retryer).
+	var (
+		status int
+		body   string
+	)
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
+	require.Eventually(t, func() bool {
+		resp := sesPost(t, url.Values{
+			"Action":                           {"SendEmail"},
+			"Source":                           {"sender@integ-test.com"},
+			"Destination.ToAddresses.member.1": {"recipient@integ-test.com"},
+			"Message.Subject.Data":             {"Integration Test Email"},
+			"Message.Body.Text.Data":           {"Hello from integration test"},
+			"Message.Body.Html.Data":           {"<p>Hello from integration test</p>"},
+		})
+		status, body = resp.StatusCode, sesReadBody(t, resp)
+
+		return !strings.Contains(body, "<Code>Throttling</Code>")
+	}, 10*time.Second, 250*time.Millisecond)
+
+	assert.Equal(t, http.StatusOK, status, "body: %s", body)
 
 	var sendResp struct {
 		XMLName xml.Name `xml:"SendEmailResponse"`

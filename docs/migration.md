@@ -195,7 +195,30 @@ These LocalStack developer endpoints are served on the edge port:
 | `GET /_aws/sqs/messages?QueueUrl=...` and `/_aws/sqs/messages/<region>/<account>/<queue>` | Peek at queue messages without changing visibility or receive counts; XML by default, JSON with `Accept: application/json`; `ShowInvisible`/`ShowDelayed` supported |
 | `GET /_aws/cloudwatch/metrics/raw` | `{"metrics":[{"ns","n","v","t","d","account","region"}]}` for single-value datapoints |
 | `POST /_localstack/state/reset` | Alias for `POST /_gopherstack/reset` |
-| `GET /_localstack/health`, `/_aws/health`, `/_localstack/info`, `/_localstack/init` | Already supported |
+| `GET /_localstack/health`, `/_aws/health`, `/_localstack/info` | Service list, version and `edition` |
+| `GET /_localstack/init`, `/_localstack/init/<stage>` | Real init state (`--init-script` as READY plus `{boot,start,ready,shutdown}.d` stage dirs): `completed` per stage plus `scripts[]` with `UNKNOWN`/`RUNNING`/`SUCCESSFUL`/`ERROR` |
+| `GET /_localstack/config` | Read-only runtime config subset (`DEFAULT_REGION`, `GATEWAY_LISTEN`, `PERSISTENCE`, ...). `POST` returns 400: runtime updates are unsupported |
+| `GET /_localstack/diagnose`, `/_localstack/plugins` | Version/config/service list and runtime stats; services listed as `localstack.aws.provider` plugins |
+| `GET/POST/PATCH/DELETE /_localstack/chaos/faults`, `GET/POST /_localstack/chaos/effects` | LocalStack Chaos API on the real fault engine: rules `{service, region, operation, probability, error:{statusCode, code}}` (omitted field = wildcard, first match wins, `[{}]` fails everything, `[]` clears), effects `{"latency": ms}`. POST replaces, PATCH appends, DELETE removes rules equal in every field. Omitted `probability` always fires, explicit `0` never fires. Probability outside 0..1 or a status outside 100..599 returns 400. Injected errors use the service's protocol (JSON with `__type` and `x-amzn-ErrorType`, Query `<ErrorResponse>`, EC2 `<Response><Errors>`, REST-XML `<Error>`). Same state as `/_gopherstack/chaos/*` |
+
+Not provided: `/health` (it would shadow an S3 bucket named `health`), `/_aws/sns/*` (SNS keeps no SMS or platform-endpoint message log), `/_aws/lambda/runtimes`, `/_aws/dynamodb/expired`. Bucket names cannot start with `_`, so `/_localstack/*` never collides with S3 path-style routing.
+
+## Drop-in compat mode
+
+Set `GOPHERSTACK_LOCALSTACK_COMPAT=true` (or `--localstack-compat`) to serve on port 4566 in addition to the main port, so `localstack/localstack` can be swapped out with `-p 4566:4566` untouched. It turns on automatically when any `LOCALSTACK_*`, `GATEWAY_LISTEN`, `LS_LOG`, `HOSTNAME_EXTERNAL` or `PERSISTENCE` variable is set. `GOPHERSTACK_EXTRA_LISTEN=4571,4572` adds further ports. If a port is taken, a warning is logged and the main listener is unaffected.
+
+LocalStack variables are translated at startup; a variable already set under its Gopherstack name wins.
+
+| LocalStack | Gopherstack |
+|---|---|
+| `DEBUG=1`, `LS_LOG=trace\|debug\|info\|warn\|error` | `LOG_LEVEL` |
+| `PERSISTENCE=1`, `LOCALSTACK_PERSISTENCE=1` | `PERSIST=true` |
+| `DATA_DIR` | `GOPHERSTACK_DATA_DIR` |
+| `GATEWAY_LISTEN=host:port,...` | first port becomes `PORT`, the rest `GOPHERSTACK_EXTRA_LISTEN` |
+| `DEFAULT_REGION`, `AWS_DEFAULT_REGION` | `REGION` |
+| `LAMBDA_REMOVE_CONTAINERS=0` | `LAMBDA_KEEP_CONTAINERS=true` |
+| `LOCALSTACK_HOST`, `HOSTNAME_EXTERNAL` | Not needed: SQS queue URLs and similar follow the request `Host` header |
+| `SERVICES`, `EAGER_SERVICE_LOADING`, `LOCALSTACK_AUTH_TOKEN`, other `LOCALSTACK_*` | Ignored (no service filtering; all services always run); logged once at debug |
 
 ## Terraform / OpenTofu provider
 

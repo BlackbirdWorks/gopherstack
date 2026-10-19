@@ -3,6 +3,7 @@ package docdb
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -57,8 +58,20 @@ func isMasterMessage() []byte {
 
 // probeMongo proves a mongod answers on addr: a published docker port accepts TCP before the server is up,
 // so only a real command reply counts.
-func probeMongo(ctx context.Context, addr string) error {
-	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+func probeMongo(ctx context.Context, addr string) error { return probeMongoConn(ctx, addr, nil) }
+
+func probeMongoConn(ctx context.Context, addr string, tlsCfg *tls.Config) error {
+	var (
+		conn net.Conn
+		err  error
+	)
+
+	if tlsCfg != nil {
+		conn, err = (&tls.Dialer{Config: tlsCfg}).DialContext(ctx, "tcp", addr)
+	} else {
+		conn, err = (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+	}
+
 	if err != nil {
 		return fmt.Errorf("dial mongod: %w", err)
 	}

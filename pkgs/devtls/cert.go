@@ -69,7 +69,7 @@ func GenerateSelfSignedCertPEM(hosts ...string) ([]byte, []byte, error) {
 
 	template := x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: "gopherstack", Organization: []string{"gopherstack"}},
+		Subject:               pkix.Name{CommonName: orgName, Organization: []string{orgName}},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(DefaultValidity),
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,

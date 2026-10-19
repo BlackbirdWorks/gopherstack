@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -400,7 +401,8 @@ func TestPartitionKeyFromHeader_ExactlyOneScalarElement(t *testing.T) {
 		{name: "single string element", header: `["foo"]`, wantErr: false},
 		{name: "single null element is the valid way to express a null PK", header: `[null]`, wantErr: false},
 		{name: "empty array is rejected, not treated as null", header: `[]`, wantErr: true},
-		{name: "two elements is rejected, not truncated", header: `["a","b"]`, wantErr: true},
+		{name: "two elements is a hierarchical key", header: `["a","b"]`, wantErr: false},
+		{name: "four elements exceed the hierarchy limit", header: `["a","b","c","d"]`, wantErr: true},
 		{name: "object element is rejected (not a scalar)", header: `[{"x":1}]`, wantErr: true},
 		{name: "array element is rejected (not a scalar)", header: `[[1,2]]`, wantErr: true},
 		{name: "trailing content after the array is rejected, not silently ignored", header: `["a"]{}`, wantErr: true},
@@ -583,21 +585,10 @@ func TestIsQueryRequest(t *testing.T) {
 	}
 }
 
-// TestHandler_ValidateAuthEnforcement covers the opt-in master-key
-// enforcement path. The flag deliberately behaves like services/s3's
-// PresignSecret/WithPresignValidation (the precedent AZURE.md section 5
-// names): OFF by default and fully permissive, but when ON a *present*
-// Authorization header must verify or the request is rejected -- an opt-in
-// flag named "validate" that only logged would be actively misleading.
-// An absent header stays anonymous-accepted either way, so enabling the
-// flag can never break the no-credentials local-dev workflow.
-//
-// The signed case reuses masterkey_test.go's hand-computed known-answer
-// vector (independently reproducible: base64(HMAC-SHA256(base64decode(
-// DefaultMasterKey), "get\ndbs\ndbs/mydb\nthu, 01 jan 1970 00:00:00 gmt\n\n"))).
-// That database does not exist, so a passing signature yields 404, not 200 --
-// the assertion is precisely "not 401", which is what distinguishes an
-// auth rejection from ordinary resource handling.
+// TestHandler_ValidateAuthEnforcement covers the opt-in master-key enforcement: off by default and permissive;
+// when on, every request needs a correctly signed Authorization header. The signed case reuses
+// masterkey_test.go's known-answer vector. The database does not exist, so a passing signature yields 404 --
+// the assertion is "not 401".
 func TestHandler_ValidateAuthEnforcement(t *testing.T) {
 	t.Parallel()
 
@@ -632,10 +623,10 @@ func TestHandler_ValidateAuthEnforcement(t *testing.T) {
 			wantStatus:   http.StatusUnauthorized,
 		},
 		{
-			name:         "validate on still accepts an anonymous request",
+			name:         "validate on rejects an anonymous request",
 			authHeader:   "",
 			validateAuth: true,
-			wantStatus:   http.StatusNotFound,
+			wantStatus:   http.StatusUnauthorized,
 		},
 		{
 			name:         "validate on accepts a correctly signed request",
@@ -651,6 +642,7 @@ func TestHandler_ValidateAuthEnforcement(t *testing.T) {
 
 			h := newTestHandler(t)
 			h.ValidateAuth = tt.validateAuth
+			cosmosdb.SetHandlerClock(h, func() time.Time { return time.Unix(0, 0) })
 
 			headers := map[string]string{"X-Ms-Date": "Thu, 01 Jan 1970 00:00:00 GMT"}
 			if tt.authHeader != "" {

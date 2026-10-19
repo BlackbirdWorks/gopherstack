@@ -56,26 +56,25 @@ type EngineRuntime interface {
 
 // EngineConfig configures docker-backed Neptune clusters.
 type EngineConfig struct {
-	Runtime EngineRuntime
-	// Ports hands out host ports; nil falls back to OS-chosen free ports.
-	Ports *portalloc.Allocator
-	// Probe returns nil once the Gremlin server at addr answers a request; nil sends g.V().count() over WebSocket.
-	Probe func(ctx context.Context, addr string) error
-	// Host is the address clients use to reach published ports; default 127.0.0.1.
-	Host string
-	// StartTimeout bounds how long a cluster may stay unreachable before it is marked failed.
+	Runtime      EngineRuntime
+	Ports        *portalloc.Allocator
+	Probe        func(ctx context.Context, addr string) error
+	Host         string
 	StartTimeout time.Duration
+	OpenCypher   bool
 }
 
 type liveCluster struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
+	front       *cypherFront
 	key         string
 	region      string
 	id          string
 	version     string
 	containerID string
 	port        int
+	innerPort   int
 	ready       bool
 }
 
@@ -132,15 +131,24 @@ func gremlinTag(engineVersion string) string {
 }
 
 func (e *dbEngine) spec(lb *liveCluster) container.Spec {
+	bind, port := container.BindHostFor(e.cfg.Host), lb.port
+	if lb.innerPort != 0 {
+		bind, port = container.LoopbackHost, lb.innerPort
+	}
+
 	return container.Spec{
 		Name:  "gopherstack-neptune-" + uuid.NewString()[:12],
 		Image: gremlinImageRepo + lb.version,
-		Ports: []string{container.PortSpec(
-			container.BindHostFor(e.cfg.Host), strconv.Itoa(lb.port), strconv.Itoa(gremlinContainerPort))},
+		Ports: []string{container.PortSpec(bind, strconv.Itoa(port), strconv.Itoa(gremlinContainerPort))},
 	}
 }
 
+// addr is where the Gremlin Server answers: the published port, or the loopback inner port behind the front.
 func (e *dbEngine) addr(lb *liveCluster) string {
+	if lb.innerPort != 0 {
+		return net.JoinHostPort(container.LoopbackHost, strconv.Itoa(lb.innerPort))
+	}
+
 	return net.JoinHostPort(e.cfg.Host, strconv.Itoa(lb.port))
 }
 
@@ -170,7 +178,7 @@ func (e *dbEngine) releasePort(port int) {
 	}
 }
 
-func (e *dbEngine) remove(containerID string, port int) {
+func (e *dbEngine) remove(containerID string, ports ...int) {
 	ctx, cancel := context.WithTimeout(context.Background(), engineStopTimeout)
 	defer cancel()
 
@@ -181,7 +189,9 @@ func (e *dbEngine) remove(containerID string, port int) {
 		}
 	}
 
-	e.releasePort(port)
+	for _, port := range ports {
+		e.releasePort(port)
+	}
 }
 
 func (e *dbEngine) reap(lbs ...*liveCluster) {
@@ -192,8 +202,14 @@ func (e *dbEngine) reap(lbs ...*liveCluster) {
 
 		lb.cancel()
 
-		id, port := lb.containerID, lb.port
-		e.wg.Go(func() { e.remove(id, port) })
+		id, port, inner, front := lb.containerID, lb.port, lb.innerPort, lb.front
+		e.wg.Go(func() {
+			if front != nil {
+				front.Close()
+			}
+
+			e.remove(id, port, inner)
+		})
 	}
 }
 
@@ -274,8 +290,20 @@ func (b *InMemoryBackend) runUnit(lb *liveCluster) {
 		return
 	}
 
-	if !b.recordPort(lb, port) {
+	inner := 0
+
+	if e.cfg.OpenCypher {
+		if inner, err = e.acquirePort(); err != nil {
+			e.releasePort(port)
+			b.failUnit(lb)
+
+			return
+		}
+	}
+
+	if !b.recordPort(lb, port, inner) {
 		e.releasePort(port)
+		e.releasePort(inner)
 
 		return
 	}
@@ -287,8 +315,24 @@ func (b *InMemoryBackend) runUnit(lb *liveCluster) {
 		return
 	}
 
-	if !b.recordContainer(lb, id) {
-		e.remove(id, port)
+	var front *cypherFront
+
+	if inner != 0 {
+		front, err = startCypherFront(e.cfg.Host, port, net.JoinHostPort(container.LoopbackHost, strconv.Itoa(inner)))
+		if err != nil {
+			e.remove(id, port, inner)
+			b.failUnit(lb)
+
+			return
+		}
+	}
+
+	if !b.recordContainer(lb, id, front) {
+		if front != nil {
+			front.Close()
+		}
+
+		e.remove(id, port, inner)
 
 		return
 	}
@@ -296,7 +340,7 @@ func (b *InMemoryBackend) runUnit(lb *liveCluster) {
 	b.awaitAndMark(lb)
 }
 
-func (b *InMemoryBackend) recordPort(lb *liveCluster, port int) bool {
+func (b *InMemoryBackend) recordPort(lb *liveCluster, port, inner int) bool {
 	b.mu.Lock("neptuneEnginePort")
 	defer b.mu.Unlock()
 
@@ -304,12 +348,12 @@ func (b *InMemoryBackend) recordPort(lb *liveCluster, port int) bool {
 		return false
 	}
 
-	lb.port = port
+	lb.port, lb.innerPort = port, inner
 
 	return true
 }
 
-func (b *InMemoryBackend) recordContainer(lb *liveCluster, id string) bool {
+func (b *InMemoryBackend) recordContainer(lb *liveCluster, id string, front *cypherFront) bool {
 	b.mu.Lock("neptuneEngineContainer")
 	defer b.mu.Unlock()
 
@@ -317,7 +361,7 @@ func (b *InMemoryBackend) recordContainer(lb *liveCluster, id string) bool {
 		return false
 	}
 
-	lb.containerID = id
+	lb.containerID, lb.front = id, front
 
 	return true
 }
@@ -404,6 +448,10 @@ func (b *InMemoryBackend) markUnitReady(lb *liveCluster) {
 	}
 
 	lb.ready = true
+	if lb.front != nil {
+		lb.front.up.Store(true)
+	}
+
 	b.applyLiveEndpointsLocked(lb)
 }
 
@@ -445,6 +493,10 @@ func (b *InMemoryBackend) failUnit(lb *liveCluster) {
 // runUnitOpLocked stops or starts lb's container in the background; the caller sets the cluster status.
 func (b *InMemoryBackend) runUnitOpLocked(lb *liveCluster, op unitOp) {
 	lb.ready = false
+	if lb.front != nil {
+		lb.front.up.Store(false)
+	}
+
 	id := lb.containerID
 
 	b.engine.wg.Go(func() { b.execUnitOp(lb, id, op) })

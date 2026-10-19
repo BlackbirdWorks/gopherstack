@@ -160,6 +160,137 @@ jobs:
           path: dist/*
           retention-days: 1
 
+  # CGO + system webview cannot be cross-compiled by goreleaser, so each
+  # desktop target builds on its native runner and attaches to the release
+  # goreleaser created (hence needs: goreleaser).
+  desktop:
+    needs: [create-tag, goreleaser]
+    if: always() && needs.goreleaser.result == 'success'
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: Linux_x86_64
+            ext: tar.gz
+          - os: ubuntu-24.04-arm
+            name: Linux_arm64
+            ext: tar.gz
+          - os: macos-latest
+            name: Darwin_arm64
+            ext: zip
+          - os: macos-15-intel
+            name: Darwin_x86_64
+            ext: zip
+          - os: windows-latest
+            name: Windows_x86_64
+            ext: zip
+          - os: windows-11-arm
+            name: Windows_arm64
+            ext: zip
+    runs-on: ${{ matrix.os }}
+    env:
+      TAG: ${{ needs.create-tag.outputs.new_tag || github.ref_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.create-tag.outputs.new_tag || github.ref }}
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            desktop/go.sum
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install Linux webview dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Build SPA
+        shell: bash
+        run: |
+          npm --prefix ui ci
+          NODE_OPTIONS="--max-old-space-size=8192" npm --prefix ui run build
+          touch dashboard/static/spa/.keep
+
+      - name: Build desktop app
+        shell: bash
+        env:
+          CGO_ENABLED: '1'
+          VERSION_PKG: github.com/blackbirdworks/gopherstack/pkgs/version
+        run: |
+          set -euo pipefail
+          cd desktop
+          version="${TAG#v}"
+          tags=production
+          ldflags="-s -w -X ${VERSION_PKG}.Build=${version}"
+          [ "$RUNNER_OS" = "Linux" ] && tags="$tags,webkit2_41"
+          [ "$RUNNER_OS" = "Windows" ] && ldflags="$ldflags -H windowsgui"
+          [ "$RUNNER_OS" = "macOS" ] && ldflags="$ldflags -extldflags '-framework UniformTypeIdentifiers'"
+          mkdir -p ../out/pkg
+          out=../out/pkg/gopherstack-desktop
+          [ "$RUNNER_OS" = "Windows" ] && out="$out.exe"
+          go build -trimpath -buildvcs=false -tags "$tags" -ldflags "$ldflags" -o "$out" .
+
+      # Unsigned for now; code signing and notarization are follow-ups.
+      - name: Package macOS app bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app=out/pkg/Gopherstack.app
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+          mv out/pkg/gopherstack-desktop "$app/Contents/MacOS/Gopherstack"
+          cat > "$app/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleName</key><string>Gopherstack</string>
+            <key>CFBundleDisplayName</key><string>Gopherstack</string>
+            <key>CFBundleExecutable</key><string>Gopherstack</string>
+            <key>CFBundleIdentifier</key><string>com.blackbirdworks.gopherstack</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>${TAG#v}</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          PLIST
+
+      - name: Archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="gopherstack-desktop_${TAG#v}_${{ matrix.name }}.${{ matrix.ext }}"
+          cd out/pkg
+          if [ "${{ matrix.ext }}" = "tar.gz" ]; then
+            tar -czf "../$archive" *
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            7z a "../$archive" ./*
+          else
+            zip -qr "../$archive" ./*
+          fi
+          echo "ARCHIVE=out/$archive" >> "$GITHUB_ENV"
+
+      - name: Upload to release
+        shell: bash
+        run: gh release upload "$TAG" "$ARCHIVE" --clobber
+
   cleanup-releases:
     runs-on: ubuntu-latest
     needs: [goreleaser]

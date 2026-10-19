@@ -34,7 +34,7 @@ func extractFunctionName(name string) string {
 	if strings.Contains(name, ":function:") {
 		parts := strings.Split(name, ":")
 		for i, p := range parts {
-			if p == "function" && i+1 < len(parts) {
+			if p == arnResourceFunction && i+1 < len(parts) {
 				return parts[i+1]
 			}
 		}
@@ -60,7 +60,7 @@ func extractFunctionName(name string) string {
 func functionNameAndQualifierFromARN(name string) (string, string) {
 	parts := strings.Split(name, ":")
 	for i, p := range parts {
-		if p == "function" && i+1 < len(parts) {
+		if p == arnResourceFunction && i+1 < len(parts) {
 			fnName := parts[i+1]
 			qualifier := ""
 			if i+2 < len(parts) {

@@ -25,6 +25,10 @@ func (b *InMemoryBackend) AdminCreateUser(
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
+	if err := b.reservedFederatedNameLocked(userPoolID, username); err != nil {
+		return nil, err
+	}
+
 	if b.usernameExistsLocked(userPoolID, username) {
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUsernameExists, username)
 	}
@@ -640,7 +644,7 @@ func (b *InMemoryBackend) applyAdminCreateUserAutoVerifyLocked(
 			eventKeyValidationData: stringMapToAny(td.ValidationData),
 			eventKeyClientMetadata: stringMapToAny(td.ClientMetadata),
 		},
-		map[string]any{"autoConfirmUser": false, "autoVerifyEmail": false, "autoVerifyPhone": false},
+		preSignUpDefaults(),
 	)
 	if err != nil {
 		return err

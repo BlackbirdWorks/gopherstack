@@ -58,6 +58,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           token: ${{ env.GH_CI_TOKEN }}
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -66,15 +67,38 @@ jobs:
           check-latest: true
           cache: true
 
+      # Full-repo lint (go.mod changed) exceeds runner RAM; the runner is killed without swap.
+      - name: Add swap
+        run: |
+          sudo swapoff -a || true
+          sudo fallocate -l 16G /mnt/lint.swap
+          sudo chmod 600 /mnt/lint.swap
+          sudo mkswap /mnt/lint.swap
+          sudo swapon /mnt/lint.swap
+
       - name: Read golangci-lint version
         id: golangci-lint-version
         run: |
           echo "version=$(sed -n 's/^  GOLANGCI_LINT_VERSION: \(.*\)$/\1/p' Taskfile.yml)" >> "$GITHUB_OUTPUT"
 
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
-        with:
-          version: v${{ steps.golangci-lint-version.outputs.version }}
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin" "v${{ steps.golangci-lint-version.outputs.version }}"
+
+      - name: Run golangci-lint (changed packages or full repo on config change)
+        run: |
+          set -euo pipefail
+          if git rev-parse --verify -q origin/main >/dev/null 2>&1; then
+            merge_base=$(git merge-base HEAD origin/main)
+            if git diff --name-only "$merge_base" HEAD -- .golangci.yml go.mod | grep -q .; then
+              echo "lint: .golangci.yml or go.mod changed vs origin/main — running full-repo lint"
+              golangci-lint run --timeout 30m ./...
+            else
+              bash scripts/lint-changed.sh
+            fi
+          else
+            golangci-lint run --timeout 30m ./...
+          fi
 
   # Fails fast on tag-gated compile breaks (e2e, integration) before the slow
   # e2e/integration/terraform jobs run any tests -- see gopherstack-0bpp.
@@ -98,8 +122,22 @@ jobs:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install Linux webview dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
       - name: Verify build with all tag combinations
         run: task build-check
+
+      - name: Verify desktop module compiles (Linux + Windows multi-platform)
+        working-directory: desktop
+        run: |
+          mkdir -p ../dashboard/static/spa
+          touch ../dashboard/static/spa/.keep
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -tags "production,webkit2_41" -o /dev/null .
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false -tags "production" -ldflags "-H windowsgui" -o /dev/null .
+          CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -trimpath -buildvcs=false -tags "production" -ldflags "-H windowsgui" -o /dev/null .
 
   modernize:
     runs-on: ubuntu-latest
@@ -233,6 +271,16 @@ jobs:
           check-latest: true
           cache: true
 
+      # Traced compiles of the GCP/Azure generated packages exceed runner RAM; the runner is killed without swap.
+      - name: Add swap
+        run: |
+          sudo swapoff -a || true
+          sudo fallocate -l 16G /mnt/codeql.swap
+          sudo chmod 600 /mnt/codeql.swap
+          sudo mkswap /mnt/codeql.swap
+          sudo swapon /mnt/codeql.swap
+          free -h
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
@@ -241,8 +289,9 @@ jobs:
           config-file: ./.github/codeql/codeql-config.yml
 
       # Autobuild ran `make` (the whole UI build) under tracing and was OOM-killed; Go code only.
+      # -p 2: each traced compile runs an extractor; full parallelism exhausts runner RAM.
       - name: Build Go code
-        run: go build ./...
+        run: go build -p 2 ./...
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4

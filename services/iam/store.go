@@ -257,6 +257,7 @@ type StorageBackend interface {
 	UntagUser(userName string, keys []string) error
 	TagRole(roleName string, tags map[string]string) error
 	UntagRole(roleName string, keys []string) error
+	SetPolicyDescription(policyArn, description string) error
 	TagPolicy(policyArn string, tags map[string]string) error
 	UntagPolicy(policyArn string, keys []string) error
 	// Note: Group is not taggable in real IAM — no TagGroup/UntagGroup here.

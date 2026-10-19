@@ -167,7 +167,7 @@ func deliverToSSM(ctx context.Context, target *Target, dt DeliveryTargets, paylo
 			return false
 		}
 
-		return logTargetErr(ctx, "SSM Automation", target.Arn,
+		return logTargetErr(ctx, "SSM Automation",
 			dt.SSMAutomation.StartSSMAutomation(ctx, BuildSSMAutomationRequest(target, payload)))
 	}
 
@@ -177,10 +177,10 @@ func deliverToSSM(ctx context.Context, target *Target, dt DeliveryTargets, paylo
 
 	req, err := BuildSSMCommandRequest(target, payload)
 	if err != nil {
-		return logTargetErr(ctx, "SSM Run Command", target.Arn, err)
+		return logTargetErr(ctx, "SSM Run Command", err)
 	}
 
-	return logTargetErr(ctx, "SSM Run Command", target.Arn, dt.SSMCommand.SendSSMCommand(ctx, req))
+	return logTargetErr(ctx, "SSM Run Command", dt.SSMCommand.SendSSMCommand(ctx, req))
 }
 
 // deliverToAppSync runs AppSyncParameters.GraphQLOperation with the payload object as variables.
@@ -190,16 +190,16 @@ func deliverToAppSync(ctx context.Context, target *Target, dt DeliveryTargets, p
 	}
 
 	if target.AppSyncParameters == nil || target.AppSyncParameters.GraphQLOperation == "" {
-		return logTargetErr(ctx, "AppSync", target.Arn, errNoGraphQLOperation)
+		return logTargetErr(ctx, "AppSync", errNoGraphQLOperation)
 	}
 
 	var vars map[string]any
 
 	if err := json.Unmarshal([]byte(payload), &vars); err != nil {
-		return logTargetErr(ctx, "AppSync", target.Arn, fmt.Errorf("payload is not a JSON object: %w", err))
+		return logTargetErr(ctx, "AppSync", fmt.Errorf("payload is not a JSON object: %w", err))
 	}
 
 	err := dt.AppSync.ExecuteAppSyncOperation(ctx, target.Arn, target.AppSyncParameters.GraphQLOperation, vars)
 
-	return logTargetErr(ctx, "AppSync", target.Arn, err)
+	return logTargetErr(ctx, "AppSync", err)
 }

@@ -16,14 +16,36 @@
 # at commit time needs the branch-vs-merge-base diff.
 #
 # Usage:
-#   scripts/lint-changed.sh          # auto-detect changed files from git
-#   scripts/lint-changed.sh FILE...  # lint only these files' packages
+#   scripts/lint-changed.sh                # auto-detect changed files (working tree + branch vs origin/main)
+#   scripts/lint-changed.sh --wip          # only uncommitted + last commit (HEAD~1) changes (fast on huge branches)
+#   scripts/lint-changed.sh --base <ref>   # diff against <ref> instead of origin/main
+#   scripts/lint-changed.sh FILE...        # lint only these files' packages
 
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
 BATCH_SIZE=300
+BASE_REF="${LINT_BASE:-}"
+WIP_ONLY=0
+
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --wip)
+      WIP_ONLY=1
+      shift
+      ;;
+    --base)
+      BASE_REF="$2"
+      shift 2
+      ;;
+    *)
+      args+=("$1")
+      shift
+      ;;
+  esac
+done
 
 for bin in golangci-lint go; do
   command -v "$bin" >/dev/null 2>&1 || {
@@ -32,11 +54,19 @@ for bin in golangci-lint go; do
   }
 done
 
-if [[ $# -gt 0 ]]; then
-  changed_files=("$@")
+if [[ ${#args[@]} -gt 0 ]]; then
+  changed_files=("${args[@]}")
 else
   merge_base=""
-  if git rev-parse --verify -q origin/main >/dev/null 2>&1; then
+  if [[ "$WIP_ONLY" -eq 1 ]]; then
+    if git rev-parse --verify -q HEAD~1 >/dev/null 2>&1; then
+      merge_base="HEAD~1"
+    fi
+  elif [[ -n "$BASE_REF" ]]; then
+    if git rev-parse --verify -q "$BASE_REF" >/dev/null 2>&1; then
+      merge_base=$(git merge-base HEAD "$BASE_REF")
+    fi
+  elif git rev-parse --verify -q origin/main >/dev/null 2>&1; then
     merge_base=$(git merge-base HEAD origin/main)
   fi
   changed_files=()
@@ -52,7 +82,7 @@ else
 fi
 
 if [[ ${#changed_files[@]} -eq 0 ]]; then
-  echo "lint-changed: no changed Go files (working tree vs HEAD, HEAD vs origin/main) -- nothing to check."
+  echo "lint-changed: no changed Go files -- nothing to check."
   exit 0
 fi
 
@@ -62,7 +92,7 @@ skipped=()
 for f in "${changed_files[@]}"; do
   [[ -f "$f" ]] || continue
   case "/$f" in
-    */testdata/*|*/vendor/*|*/.*)
+    */testdata/*|*/vendor/*|*/.*|/desktop/*)
       skipped+=("$f (excluded dir)")
       continue
       ;;
@@ -98,31 +128,85 @@ if [[ ${#skipped[@]} -gt 0 ]]; then
   printf '  %s\n' "${skipped[@]}"
 fi
 
+# Packages whose files all carry a //go:build constraint (test/e2e) are empty
+# under default tags and make go vet/golangci-lint fail with "build
+# constraints exclude all Go files". Detect the tags and lint those packages
+# in their own group with the tags set.
+detect_tags() {
+  local d="$1"
+  if [[ -n "$(go list -e -f '{{.GoFiles}}{{.TestGoFiles}}{{.XTestGoFiles}}' "$d" 2>/dev/null | tr -d '[] ')" ]]; then
+    return 0
+  fi
+  cat "$d"/*.go 2>/dev/null | grep -h '^//go:build' | sed -E 's/![A-Za-z0-9_.]+//g' |
+    tr -c 'A-Za-z0-9_\n' ' ' | tr ' ' '\n' |
+    grep -Ev '^(go|build|ignore|cgo|linux|darwin|windows|freebsd|amd64|arm64|386|arm|unix|)$' |
+    sort -u | paste -sd, -
+}
+
+declare -A group_pats
+tagless=()
+for p in "${sorted_patterns[@]}"; do
+  tags=$(detect_tags "$p")
+  if [[ -z "$tags" ]]; then
+    if [[ -z "$(go list -e -f '{{.GoFiles}}{{.TestGoFiles}}{{.XTestGoFiles}}' "$p" 2>/dev/null | tr -d '[] ')" ]]; then
+      echo "lint-changed: skipping $p (every file is build-constrained and no tag could be determined)"
+      continue
+    fi
+    tagless+=("$p")
+  else
+    echo "lint-changed: $p is build-tagged -- using tags: $tags"
+    group_pats["$tags"]+="$p"$'\n'
+  fi
+done
+
 # Batched, not one giant argv, so a large diff can't silently hit an OS
 # argv limit -- every package printed above is guaranteed to land in some
 # batch and every batch's result is folded into the final exit status.
+# Usage: run_batched DESC TAGS CMD... -- the tags are appended as
+# golangci-lint --build-tags / go vet -tags by the callers via TAGFLAG.
 run_batched() {
-  local desc="$1"
-  shift
+  local desc="$1" tags="$2" flag="$3"
+  shift 3
   local -a cmd=("$@")
-  local status=0
-  local i=0
-  local n=${#sorted_patterns[@]}
+  [[ -n "$tags" ]] && cmd+=("$flag=$tags")
+  local -a pats
+  if [[ -z "$tags" ]]; then
+    pats=("${tagless[@]}")
+  else
+    mapfile -t pats < <(printf '%s' "${group_pats[$tags]}")
+  fi
+  local status=0 i=0 n=${#pats[@]}
   while [[ $i -lt $n ]]; do
-    local batch=("${sorted_patterns[@]:$i:$BATCH_SIZE}")
+    local batch=("${pats[@]:$i:$BATCH_SIZE}")
     "${cmd[@]}" "${batch[@]}" || status=1
     i=$((i + BATCH_SIZE))
   done
   if [[ $status -ne 0 ]]; then
-    echo "lint-changed: $desc FAILED"
+    echo "lint-changed: $desc${tags:+ [tags=$tags]} FAILED"
   else
-    echo "lint-changed: $desc passed"
+    echo "lint-changed: $desc${tags:+ [tags=$tags]} passed"
   fi
   return $status
 }
 
 overall=0
-run_batched "golangci-lint" golangci-lint run --timeout 20m || overall=1
-run_batched "go vet" go vet || overall=1
+mulint_bin=""
+mulint_bin=$(go tool -n mulint-vet 2>/dev/null) || mulint_bin=""
+group_keys=("")
+for k in "${!group_pats[@]}"; do group_keys+=("$k"); done
+for tags in "${group_keys[@]}"; do
+  if [[ -z "$tags" && ${#tagless[@]} -eq 0 ]]; then continue; fi
+  if [[ -z "$tags" ]]; then
+    run_batched "golangci-lint" "" --build-tags golangci-lint run --timeout 20m || overall=1
+  else
+    while IFS= read -r p; do
+      [[ -n "$p" ]] && echo "lint-changed: golangci-lint skipped for build-tagged package $p (CI does not lint it)"
+    done <<<"${group_pats[$tags]}"
+  fi
+  run_batched "go vet" "$tags" -tags go vet || overall=1
+  if [[ -n "$mulint_bin" ]]; then
+    run_batched "mulint-vet" "$tags" -tags go vet -vettool="$mulint_bin" || overall=1
+  fi
+done
 
 exit $overall

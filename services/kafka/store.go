@@ -76,6 +76,8 @@ type InMemoryBackend struct {
 	clusterOperationsByCluster *store.Index[ClusterOperation]
 	registry                   *store.Registry
 	engine                     *brokerEngine
+	scramSecretSource          ScramSecretResolver
+	iamAuth                    IAMAuthResolver
 	mu                         *lockmetrics.RWMutex
 	clusterOperations          *store.Table[ClusterOperation]
 	region                     string

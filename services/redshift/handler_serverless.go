@@ -1,6 +1,7 @@
 package redshift
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -151,6 +152,17 @@ func (h *ServerlessHandler) Reset() {
 	h.Backend.slLakehouseConfig.Reset()
 	h.Backend.slReservations.Reset()
 	h.Backend.resetServerlessIndexes()
+	h.Backend.dropWorkgroupUnitsLocked()
+	h.Backend.slNsPasswords = nil
+}
+
+// Shutdown implements service.Shutdowner; it removes every workgroup engine container.
+func (h *ServerlessHandler) Shutdown(_ context.Context) {
+	for _, p := range h.peers.All() {
+		p.Backend.Close()
+	}
+
+	h.Backend.Close()
 }
 
 const slTargetPrefix = "RedshiftServerless."

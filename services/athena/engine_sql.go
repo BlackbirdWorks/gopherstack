@@ -17,10 +17,13 @@ type resolvedRef struct {
 }
 
 type translator struct {
-	resolve    func(parts []string) resolvedRef
-	ctes       map[string]bool
-	err        error
-	unresolved []string
+	resolve       func(parts []string) resolvedRef
+	ctes          map[string]bool
+	err           error
+	unnest        map[string]unnestCol
+	unresolved    []string
+	unnestAliases []string
+	nUnnest       int
 }
 
 type scope struct {
@@ -51,6 +54,23 @@ func renamedFunc(lw string) string {
 	case "if":
 		return "iif"
 	default:
+		return renamedAlias(lw)
+	}
+}
+
+func renamedAlias(lw string) string {
+	switch lw {
+	case "json_extract":
+		return "athena_json_extract"
+	case "greatest":
+		return "max"
+	case "least":
+		return "min"
+	case "ceiling":
+		return "ceil"
+	case "truncate":
+		return "trunc"
+	default:
 		return ""
 	}
 }
@@ -67,7 +87,7 @@ func isClauseEnder(lw string) bool {
 
 func isReservedWord(lw string) bool {
 	switch lw {
-	case "select", kwFrom, "where", "group", "order", "having", "limit", "join", "on", "union", "as":
+	case "select", kwFrom, "where", "group", "order", "having", "limit", kwJoin, "on", "union", "as":
 		return true
 	default:
 		return false
@@ -159,13 +179,44 @@ func translateSQL(sql string, resolve func(parts []string) resolvedRef) (string,
 	}
 
 	x := &translator{resolve: resolve, ctes: collectCTEs(toks)}
-	out := x.translate(toks)
+	out := x.rewriteUnnestRefs(x.translate(toks))
 
 	if x.err != nil {
 		return "", nil, x.err
 	}
 
 	return strings.TrimSpace(joinTokens(out)), x.unresolved, nil
+}
+
+const fnJSONArray = "json_array"
+
+func isArrayBracket(t token, out []token, top *scope) bool {
+	return t.isPunct("[") && lastWordIs(out, fnJSONArray) || t.isPunct("]") && top.opener == fnJSONArray
+}
+
+// arrayBracket turns ARRAY[ ... ] into json_array( ... ).
+func arrayBracket(t token, out []token, stack []scope) ([]token, []scope) {
+	if t.isPunct("[") {
+		return append(out, token{kind: tkPunct, text: "("}), append(stack, scope{opener: fnJSONArray})
+	}
+
+	return append(out, token{kind: tkPunct, text: ")"}), stack[:len(stack)-1]
+}
+
+func openerOf(toks []token, i int) string {
+	if p := prevSig(toks, i); p >= 0 && toks[p].kind == tkWord {
+		return strings.ToLower(toks[p].text)
+	}
+
+	return ""
+}
+
+func lastWordIs(out []token, w string) bool {
+	if p := prevSig(out, len(out)); p >= 0 {
+		return out[p].isWord(w)
+	}
+
+	return false
 }
 
 func (x *translator) translate(toks []token) []token {
@@ -191,13 +242,10 @@ func (x *translator) translate(toks []token) []token {
 				out, next = x.tableRef(toks, i, out)
 				i = next
 			}
+		case isArrayBracket(t, out, top):
+			out, stack = arrayBracket(t, out, stack)
 		case t.isPunct("("):
-			opener := ""
-			if p := prevSig(toks, i); p >= 0 && toks[p].kind == tkWord {
-				opener = strings.ToLower(toks[p].text)
-			}
-
-			stack = append(stack, scope{opener: opener})
+			stack = append(stack, scope{opener: openerOf(toks, i)})
 			out = append(out, t)
 		case t.isPunct(")"):
 			if len(stack) > 1 {
@@ -217,6 +265,18 @@ func (x *translator) translate(toks []token) []token {
 	return out
 }
 
+// plainWord handles words that need no scope tracking: dotted members and ARRAY literals.
+func plainWord(toks []token, i, nxt int, lw string) (token, bool) {
+	switch {
+	case i > 0 && toks[i-1].isPunct("."):
+		return toks[i], true
+	case lw == "array" && nxt >= 0 && toks[nxt].isPunct("["):
+		return token{kind: tkWord, text: fnJSONArray}, true
+	default:
+		return token{}, false
+	}
+}
+
 // word handles one word token and returns the new output, last consumed index and scope stack.
 func (x *translator) word(toks []token, i int, out []token, stack []scope) ([]token, int, []scope) {
 	t := toks[i]
@@ -224,8 +284,8 @@ func (x *translator) word(toks []token, i int, out []token, stack []scope) ([]to
 	nxt := nextSig(toks, i)
 	callNext := nxt >= 0 && toks[nxt].isPunct("(")
 
-	if i > 0 && toks[i-1].isPunct(".") {
-		return append(out, t), i, stack
+	if res, ok := plainWord(toks, i, nxt, lw); ok {
+		return append(out, res), i, stack
 	}
 
 	if callNext {
@@ -238,7 +298,7 @@ func (x *translator) word(toks []token, i int, out []token, stack []scope) ([]to
 
 	switch {
 	case lw == kwFrom && isFromInFunc(top.opener):
-	case lw == kwFrom || lw == "join":
+	case lw == kwFrom || lw == kwJoin:
 		top.fromList = true
 
 		var end int
@@ -313,7 +373,7 @@ func (x *translator) tableRef(toks []token, i int, out []token) ([]token, int) {
 	}
 
 	if n := nextSig(toks, j); n >= 0 && toks[n].isPunct("(") {
-		return out, j - 1
+		return x.callRef(toks, j, out)
 	}
 
 	if toks[j].kind == tkWord && isReservedWord(toks[j].ident()) {
@@ -347,6 +407,15 @@ func (x *translator) tableRef(toks []token, i int, out []token) ([]token, int) {
 		token{kind: tkPunct, text: "."},
 		token{kind: tkQuoted, text: quoteIdent(ref.name)},
 	), end
+}
+
+// callRef handles a function-style table reference: UNNEST is rewritten, others pass through.
+func (x *translator) callRef(toks []token, j int, out []token) ([]token, int) {
+	if toks[j].isWord("unnest") {
+		return x.unnestRef(toks, j, out)
+	}
+
+	return out, j - 1
 }
 
 func quoteIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }

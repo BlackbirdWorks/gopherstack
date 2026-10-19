@@ -82,6 +82,10 @@ func (b *InMemoryBackend) CreateResourceContext(
 ) (*ProgressEvent, error) {
 	h := b.typeHandler(typeName)
 	if h == nil {
+		if err := b.unsupportedType(typeName, "CREATE"); err != nil {
+			return nil, err
+		}
+
 		return b.CreateResource(typeName, desiredState, clientToken)
 	}
 
@@ -122,6 +126,10 @@ func (b *InMemoryBackend) readModel(ctx context.Context, h TypeHandler, identifi
 func (b *InMemoryBackend) GetResourceContext(ctx context.Context, typeName, identifier string) (*Resource, error) {
 	h := b.typeHandler(typeName)
 	if h == nil {
+		if err := b.unsupportedType(typeName, "READ"); err != nil {
+			return nil, err
+		}
+
 		return b.GetResource(typeName, identifier)
 	}
 
@@ -139,6 +147,10 @@ func (b *InMemoryBackend) DeleteResourceContext(
 ) (*ProgressEvent, error) {
 	h := b.typeHandler(typeName)
 	if h == nil {
+		if err := b.unsupportedType(typeName, "DELETE"); err != nil {
+			return nil, err
+		}
+
 		return b.DeleteResource(typeName, identifier, clientToken)
 	}
 
@@ -161,6 +173,10 @@ func (b *InMemoryBackend) UpdateResourceContext(
 ) (*ProgressEvent, error) {
 	h := b.typeHandler(typeName)
 	if h == nil {
+		if err := b.unsupportedType(typeName, "UPDATE"); err != nil {
+			return nil, err
+		}
+
 		return b.UpdateResource(typeName, identifier, patchDocument, clientToken)
 	}
 
@@ -208,6 +224,10 @@ func (b *InMemoryBackend) ListResourcesContext(
 ) ([]*Resource, string, error) {
 	h := b.typeHandler(typeName)
 	if h == nil {
+		if err := b.unsupportedType(typeName, "LIST"); err != nil {
+			return nil, "", err
+		}
+
 		if tokErr := page.ValidateToken(nextToken); tokErr != nil {
 			return nil, "", errInvalidNextToken
 		}

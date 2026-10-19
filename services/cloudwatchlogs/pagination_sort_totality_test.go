@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
 // walkAttempts is how many times each paginated walk is repeated against the

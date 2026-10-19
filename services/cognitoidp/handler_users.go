@@ -194,7 +194,7 @@ func (h *Handler) handleGetUserAccurate(
 }
 
 func (h *Handler) handleAdminCreateUserFull(
-	_ context.Context,
+	ctx context.Context,
 	in *adminCreateUserFullInput,
 ) (*adminCreateUserFullOutput, error) {
 	attrs := attributeListToMap(in.UserAttributes)
@@ -213,8 +213,26 @@ func (h *Handler) handleAdminCreateUserFull(
 		return nil, err
 	}
 
+	if in.MessageAction != messageActionSuppress && user.TemporaryPassword != "" {
+		message, subject, cmErr := h.Backend.InvokeCustomMessageTriggerForUser(
+			in.UserPoolID, adminClientID, user.Username, user.TemporaryPassword,
+			triggerSourceCustomMessageAdminCreate, in.ClientMetadata)
+		if cmErr != nil {
+			return nil, cmErr
+		}
+
+		if err = h.deliverCode(ctx, in.UserPoolID, &MessageRequest{
+			Username: user.Username, Code: user.TemporaryPassword, Kind: MessageInvite,
+			Mediums: in.DesiredDeliveryMediums, CustomMessage: message, CustomSubject: subject,
+		}, nil); err != nil {
+			return nil, err
+		}
+	}
+
 	return &adminCreateUserFullOutput{User: toAdminUserJSON(user)}, nil
 }
+
+const messageActionSuppress = "SUPPRESS"
 
 func toAdminUserJSON(u *User) *adminUserJSON {
 	return &adminUserJSON{

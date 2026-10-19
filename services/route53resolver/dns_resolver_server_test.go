@@ -1,7 +1,6 @@
 package route53resolver_test
 
 import (
-	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
+	"github.com/blackbirdworks/gopherstack/pkgs/dns/dnstest"
 )
 
 func TestDNSResolverThroughEmbeddedServer(t *testing.T) {
@@ -31,16 +31,7 @@ func TestDNSResolverThroughEmbeddedServer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-			require.NoError(t, err)
-
-			addr := fmt.Sprintf("127.0.0.1:%d", pc.LocalAddr().(*net.UDPAddr).Port)
-			require.NoError(t, pc.Close())
-
-			srv, err := gopherDNS.New(gopherDNS.Config{ListenAddr: addr, ResolveIP: "127.0.0.1"})
-			require.NoError(t, err)
-			require.NoError(t, srv.Start(t.Context()))
-			t.Cleanup(func() { _ = srv.Stop() })
+			srv, addr, _ := dnstest.Start(t, gopherDNS.Config{ResolveIP: "127.0.0.1"})
 
 			e := newDNSEnv(t)
 			e.b.SetVPCLocator(func(net.IP) (string, string, bool) { return testRegion, vpc1, true })

@@ -29,7 +29,7 @@
       }
     },
     {
-      "files": ["src/routes/**/+page.svelte"],
+      "files": ["src/routes/**/+page.svelte", "src/routes/+layout.svelte"],
       "rules": {
         "import/max-dependencies": "off"
       }

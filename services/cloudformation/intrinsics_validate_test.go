@@ -23,6 +23,7 @@ func TestCreateStack_IntrinsicErrorPropagation(t *testing.T) {
 		wantStatus     string
 		wantReasonPart string
 		wantEvent      string
+		wantErr        string
 	}{
 		{
 			name: "getatt_undefined_resource_fails",
@@ -65,9 +66,17 @@ func TestCreateStack_IntrinsicErrorPropagation(t *testing.T) {
 }
 }
 }`,
-			wantStatus:     "ROLLBACK_COMPLETE",
-			wantReasonPart: "unsupported resource type",
-			wantEvent:      "CREATE_FAILED",
+			wantErr: "Template format error: Unrecognized resource types: [NotAValidType]",
+		},
+		{
+			name: "unknown_service_namespace_fails",
+			template: `{
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"Thing": {"Type": "AWS::SomeFuture::Widget", "Properties": {}}
+}
+}`,
+			wantErr: "Template format error: Unrecognized resource types: [AWS::SomeFuture::Widget]",
 		},
 		{
 			name: "getatt_defined_resource_succeeds",
@@ -130,7 +139,7 @@ func TestCreateStack_IntrinsicErrorPropagation(t *testing.T) {
 			template: `{
 "AWSTemplateFormatVersion": "2010-09-09",
 "Resources": {
-"Thing": {"Type": "AWS::SomeFuture::Widget", "Properties": {}}
+"Thing": {"Type": "AWS::EC2::CapacityReservationFleet", "Properties": {}}
 }
 }`,
 			wantStatus: "CREATE_COMPLETE",
@@ -143,6 +152,12 @@ func TestCreateStack_IntrinsicErrorPropagation(t *testing.T) {
 
 			b := newBackend()
 			stack, err := b.CreateStack(t.Context(), tt.name, tt.template, nil, cloudformation.StackOptions{})
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+
+				return
+			}
+
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.wantStatus, stack.StackStatus)

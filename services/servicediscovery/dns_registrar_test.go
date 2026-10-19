@@ -1,10 +1,7 @@
 package servicediscovery_test
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
-	"net"
 	"net/http"
 	"testing"
 	"time"
@@ -14,48 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
+	"github.com/blackbirdworks/gopherstack/pkgs/dns/dnstest"
 	"github.com/blackbirdworks/gopherstack/services/servicediscovery"
 )
 
-// startTestDNSServer starts a real embedded DNS server on a free UDP port,
-// mirroring pkgs/dns/dns_test.go's helper of the same shape.
 func startTestDNSServer(t *testing.T) (*gopherDNS.Server, string) {
 	t.Helper()
 
-	const maxAttempts = 5
+	srv, addr, _ := dnstest.Start(t, gopherDNS.Config{ResolveIP: "127.0.0.1"})
 
-	for range maxAttempts {
-		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-		require.NoError(t, err)
-
-		port := pc.LocalAddr().(*net.UDPAddr).Port
-		_ = pc.Close()
-
-		addr := fmt.Sprintf("127.0.0.1:%d", port)
-
-		srv, err := gopherDNS.New(gopherDNS.Config{ListenAddr: addr, ResolveIP: "127.0.0.1"})
-		require.NoError(t, err)
-
-		ctx, cancel := context.WithCancel(t.Context())
-
-		if err = srv.Start(ctx); err != nil {
-			cancel()
-			_ = srv.Stop()
-
-			continue
-		}
-
-		t.Cleanup(func() {
-			cancel()
-			_ = srv.Stop()
-		})
-
-		return srv, addr
-	}
-
-	t.Fatal("failed to start DNS test server after retries")
-
-	return nil, ""
+	return srv, addr
 }
 
 // queryA performs a real UDP DNS A query and returns the first answer's IP and the response code.

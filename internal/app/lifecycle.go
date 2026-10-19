@@ -7,6 +7,7 @@ import (
 	accessanalyzerbackend "github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 	accountbackend "github.com/blackbirdworks/gopherstack/services/account"
 	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
+	ampbackend "github.com/blackbirdworks/gopherstack/services/amp"
 	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
 	appstreambackend "github.com/blackbirdworks/gopherstack/services/appstream"
 	arczonalshiftbackend "github.com/blackbirdworks/gopherstack/services/arczonalshift"
@@ -15,12 +16,16 @@ import (
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockagentbackend "github.com/blackbirdworks/gopherstack/services/bedrockagent"
+	bedrockagentcorecontrolbackend "github.com/blackbirdworks/gopherstack/services/bedrockagentcorecontrol"
 	cleanroomsbackend "github.com/blackbirdworks/gopherstack/services/cleanrooms"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
+	cloudhsmv2backend "github.com/blackbirdworks/gopherstack/services/cloudhsmv2"
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
+	codegurureviewerbackend "github.com/blackbirdworks/gopherstack/services/codegurureviewer"
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	comprehendbackend "github.com/blackbirdworks/gopherstack/services/comprehend"
+	connectbackend "github.com/blackbirdworks/gopherstack/services/connect"
 	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
 	daxbackend "github.com/blackbirdworks/gopherstack/services/dax"
 	detectivebackend "github.com/blackbirdworks/gopherstack/services/detective"
@@ -35,6 +40,7 @@ import (
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	forecastbackend "github.com/blackbirdworks/gopherstack/services/forecast"
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
+	globalacceleratorbackend "github.com/blackbirdworks/gopherstack/services/globalaccelerator"
 	grafanabackend "github.com/blackbirdworks/gopherstack/services/grafana"
 	inspector2backend "github.com/blackbirdworks/gopherstack/services/inspector2"
 	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
@@ -52,6 +58,7 @@ import (
 	mgnbackend "github.com/blackbirdworks/gopherstack/services/mgn"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	networkfirewallbackend "github.com/blackbirdworks/gopherstack/services/networkfirewall"
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
@@ -72,9 +79,11 @@ import (
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
+	servicequotasbackend "github.com/blackbirdworks/gopherstack/services/servicequotas"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
+	timestreaminfluxdbbackend "github.com/blackbirdworks/gopherstack/services/timestreaminfluxdb"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	translatebackend "github.com/blackbirdworks/gopherstack/services/translate"
 	vpclatticebackend "github.com/blackbirdworks/gopherstack/services/vpclattice"
@@ -240,6 +249,60 @@ func applyDSQL(reg service.Registerable, l cliconfig.LifecycleSettings) {
 		if bk, isBk := h.Backend.(*dsqlbackend.InMemoryBackend); isBk {
 			bk.SetLifecycleDelay(l.Effective(l.DSQL))
 		}
+	}
+}
+
+func applyNetworkFirewall(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*networkfirewallbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.Effective(l.NetworkFirewall))
+	}
+}
+
+func applyConnect(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*connectbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.Effective(l.Connect))
+	}
+}
+
+func applyGlobalAccelerator(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*globalacceleratorbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.Effective(l.GlobalAccelerator))
+	}
+}
+
+func applyCodeGuruReviewer(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*codegurureviewerbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.Effective(l.CodeGuruReviewer))
+	}
+}
+
+func applyCloudHSMV2(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*cloudhsmv2backend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.Effective(l.CloudHSMV2))
+	}
+}
+
+func applyBedrockAgentCoreControl(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*bedrockagentcorecontrolbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.Effective(l.BedrockAgentCore))
+	}
+}
+
+func applyAMP(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*ampbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.Effective(l.AMP))
+	}
+}
+
+func applyTimestreamInfluxDB(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*timestreaminfluxdbbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.Effective(l.TimestreamInfluxDB))
+	}
+}
+
+func applyServiceQuotas(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*servicequotasbackend.Handler); ok {
+		h.Backend.SetLifecycleDelay(l.Effective(l.ServiceQuotas))
 	}
 }
 
@@ -707,6 +770,14 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l cliconfig.Lif
 		"AppStream":           applyAppStream,
 		"FIS":                 applyFIS,
 		"DSQL":                applyDSQL,
+		"GlobalAccelerator":   applyGlobalAccelerator,
+		"CodeGuruReviewer":    applyCodeGuruReviewer,
+		"Connect":             applyConnect,
+		"CloudHSMV2":          applyCloudHSMV2,
+		"AMP":                 applyAMP,
+		"TimestreamInfluxDB":  applyTimestreamInfluxDB,
+		"ServiceQuotas":       applyServiceQuotas,
+		"NetworkFirewall":     applyNetworkFirewall,
 		"WorkMail":            applyWorkMail,
 		"Personalize":         applyPersonalize,
 		"OpsWorks":            applyOpsWorks,
@@ -766,6 +837,7 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l cliconfig.Lif
 
 		"Route53RecoveryControlConfig": applyRoute53Recovery,
 		"ARCZonalShift":                applyARCZonalShift,
+		"BedrockAgentCoreControl":      applyBedrockAgentCoreControl,
 	}
 
 	for name, apply := range appliers {

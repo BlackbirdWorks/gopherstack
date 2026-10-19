@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 func makeStrPage(n int) []string {

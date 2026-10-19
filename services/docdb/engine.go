@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -65,21 +66,19 @@ type PasswordChange struct {
 	User        string
 	OldPassword string
 	NewPassword string
+	// TLSCAFile is the in-container CA path the shell must trust; empty when the cluster is plaintext.
+	TLSCAFile string
 }
 
 // EngineConfig configures docker-backed DocDB clusters.
 type EngineConfig struct {
-	Runtime EngineRuntime
-	// Ports hands out host ports; nil falls back to OS-chosen free ports.
-	Ports *portalloc.Allocator
-	// Probe returns nil once the MongoDB server at addr answers; nil uses the OP_MSG wire probe.
-	Probe func(ctx context.Context, addr string) error
-	// SetPassword changes the master password inside the engine; nil execs the mongo shell in the container.
-	SetPassword func(ctx context.Context, change PasswordChange) error
-	// Host is the address clients use to reach published ports; default 127.0.0.1.
-	Host string
-	// StartTimeout bounds how long a cluster may stay unreachable before it is marked failed.
+	Runtime      EngineRuntime
+	Ports        *portalloc.Allocator
+	Probe        func(ctx context.Context, addr string) error
+	SetPassword  func(ctx context.Context, change PasswordChange) error
+	Host         string
 	StartTimeout time.Duration
+	TLS          bool
 }
 
 type liveCluster struct {
@@ -92,11 +91,13 @@ type liveCluster struct {
 	user        string
 	password    string
 	containerID string
+	tlsDir      string
 	port        int
 	ready       bool
 }
 
 type dbEngine struct {
+	tls   *tlsAuthority
 	units map[string]*liveCluster
 	cfg   EngineConfig
 	wg    sync.WaitGroup
@@ -119,8 +120,20 @@ func (b *InMemoryBackend) EnableEngine(cfg EngineConfig) {
 		cfg.StartTimeout = engineStartTimeout
 	}
 
+	var authority *tlsAuthority
+
+	if cfg.TLS {
+		var err error
+		if authority, err = newTLSAuthority(); err != nil {
+			logger.Load(context.Background()).Warn("docdb: TLS unavailable; clusters stay plaintext", "error", err)
+		}
+	}
+
 	if cfg.Probe == nil {
 		cfg.Probe = probeMongo
+		if authority != nil {
+			cfg.Probe = probeMongoTLS(authority.clientConfig())
+		}
 	}
 
 	if cfg.SetPassword == nil {
@@ -132,7 +145,7 @@ func (b *InMemoryBackend) EnableEngine(cfg EngineConfig) {
 	b.mu.Lock("EnableEngine")
 	defer b.mu.Unlock()
 
-	b.engine = &dbEngine{cfg: cfg, units: make(map[string]*liveCluster)}
+	b.engine = &dbEngine{cfg: cfg, tls: authority, units: make(map[string]*liveCluster)}
 }
 
 // mongoTag maps a DocDB major.minor to the official mongo image tag that stands in for it.
@@ -148,14 +161,21 @@ func mongoTag(engineVersion string) string {
 	}
 }
 
-func (e *dbEngine) spec(lb *liveCluster) container.Spec {
-	return container.Spec{
+func (e *dbEngine) spec(lb *liveCluster, tlsDir string) container.Spec {
+	spec := container.Spec{
 		Name:  "gopherstack-docdb-" + uuid.NewString()[:12],
 		Image: "mongo:" + lb.version,
 		Env:   []string{"MONGO_INITDB_ROOT_USERNAME=" + lb.user, "MONGO_INITDB_ROOT_PASSWORD=" + lb.password},
 		Ports: []string{container.PortSpec(
 			container.BindHostFor(e.cfg.Host), strconv.Itoa(lb.port), strconv.Itoa(mongoContainerPort))},
 	}
+
+	if tlsDir != "" {
+		spec.Mounts = []string{tlsDir + ":" + tlsMountDir + ":ro"}
+		spec.Cmd = tlsArgs()
+	}
+
+	return spec
 }
 
 func (e *dbEngine) addr(lb *liveCluster) string {
@@ -188,7 +208,7 @@ func (e *dbEngine) releasePort(port int) {
 	}
 }
 
-func (e *dbEngine) remove(containerID string, port int) {
+func (e *dbEngine) remove(containerID string, port int, tlsDir string) {
 	ctx, cancel := context.WithTimeout(context.Background(), engineStopTimeout)
 	defer cancel()
 
@@ -197,6 +217,10 @@ func (e *dbEngine) remove(containerID string, port int) {
 			logger.Load(ctx).WarnContext(ctx, "docdb: engine container removal failed",
 				"container", containerID, "error", err)
 		}
+	}
+
+	if tlsDir != "" {
+		_ = os.RemoveAll(tlsDir)
 	}
 
 	e.releasePort(port)
@@ -210,8 +234,8 @@ func (e *dbEngine) reap(lbs ...*liveCluster) {
 
 		lb.cancel()
 
-		id, port := lb.containerID, lb.port
-		e.wg.Go(func() { e.remove(id, port) })
+		id, port, dir := lb.containerID, lb.port, lb.tlsDir
+		e.wg.Go(func() { e.remove(id, port, dir) })
 	}
 }
 
@@ -304,15 +328,26 @@ func (b *InMemoryBackend) runUnit(lb *liveCluster) {
 		return
 	}
 
-	id, err := e.cfg.Runtime.CreateAndStart(lb.ctx, e.spec(lb))
+	tlsDir, err := e.prepareTLS()
 	if err != nil {
 		b.failUnit(lb)
 
 		return
 	}
 
-	if !b.recordContainer(lb, id) {
-		e.remove(id, port)
+	id, err := e.cfg.Runtime.CreateAndStart(lb.ctx, e.spec(lb, tlsDir))
+	if err != nil {
+		if tlsDir != "" {
+			_ = os.RemoveAll(tlsDir)
+		}
+
+		b.failUnit(lb)
+
+		return
+	}
+
+	if !b.recordContainer(lb, id, tlsDir) {
+		e.remove(id, port, tlsDir)
 
 		return
 	}
@@ -333,7 +368,15 @@ func (b *InMemoryBackend) recordPort(lb *liveCluster, port int) bool {
 	return true
 }
 
-func (b *InMemoryBackend) recordContainer(lb *liveCluster, id string) bool {
+func (e *dbEngine) prepareTLS() (string, error) {
+	if e.tls == nil {
+		return "", nil
+	}
+
+	return e.tls.writeDir(e.cfg.Host)
+}
+
+func (b *InMemoryBackend) recordContainer(lb *liveCluster, id, tlsDir string) bool {
 	b.mu.Lock("docdbEngineContainer")
 	defer b.mu.Unlock()
 
@@ -341,7 +384,7 @@ func (b *InMemoryBackend) recordContainer(lb *liveCluster, id string) bool {
 		return false
 	}
 
-	lb.containerID = id
+	lb.containerID, lb.tlsDir = id, tlsDir
 
 	return true
 }
@@ -526,6 +569,9 @@ func (b *InMemoryBackend) applyMasterPassword(region, id, newPassword string) er
 		ContainerID: lb.containerID, Version: lb.version, User: lb.user,
 		OldPassword: lb.password, NewPassword: newPassword,
 	}
+	if lb.tlsDir != "" {
+		change.TLSCAFile = tlsMountDir + "/" + tlsCAFile
+	}
 	ready, set := lb.ready, b.engine.cfg.SetPassword
 	b.mu.RUnlock()
 
@@ -555,6 +601,10 @@ func execSetPassword(ctx context.Context, rt EngineRuntime, c PasswordChange) er
 	cmd := []string{
 		mongoShell, "--quiet", "-u", c.User, "-p", c.OldPassword,
 		"--authenticationDatabase", "admin", "--eval", script,
+	}
+
+	if c.TLSCAFile != "" {
+		cmd = append(cmd, "--tls", "--tlsCAFile", c.TLSCAFile, "--host", tlsServerName)
 	}
 
 	res, err := rt.Exec(ctx, c.ContainerID, cmd)

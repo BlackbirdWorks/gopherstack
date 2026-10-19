@@ -73,6 +73,10 @@ func (b *InMemoryBackend) evictLRURuntimeLocked(skipName string) *functionRuntim
 			continue
 		}
 
+		if _, debugging := b.debug.forName(name); debugging {
+			continue
+		}
+
 		if lruRT == nil || rt.lastUsed.Before(lruRT.lastUsed) {
 			lruName = name
 			lruRT = rt
@@ -640,6 +644,8 @@ func (b *InMemoryBackend) startContainer(
 			"function", fn.FunctionName, "error", layerErr)
 	}
 
+	ctx, layerDirs = b.withDebugPlan(ctx, fn, layerDirs)
+
 	if fn.PackageType == PackageTypeZip {
 		zipDir, containerID, err := b.startZipContainer(ctx, fn, env, layerMount)
 
@@ -662,6 +668,7 @@ func (b *InMemoryBackend) startContainer(
 	}
 
 	spec.Mounts = append(spec.Mounts, efsBinds...)
+	applyDebugPlan(ctx, &spec)
 
 	containerID, err := b.docker.CreateAndStart(ctx, spec)
 
@@ -790,6 +797,8 @@ func (b *InMemoryBackend) createZipContainer(
 	} else if fn.Handler != "" {
 		spec.Cmd = []string{fn.Handler}
 	}
+
+	applyDebugPlan(ctx, &spec)
 
 	return b.docker.CreateAndStart(ctx, spec)
 }

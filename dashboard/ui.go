@@ -44,6 +44,12 @@ import (
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	azurearmbackend "github.com/blackbirdworks/gopherstack/services/azurearm"
+	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
+	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
+	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
+	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
+	azuretablebackend "github.com/blackbirdworks/gopherstack/services/azuretable"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
@@ -64,6 +70,7 @@ import (
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	cosmosdbbackend "github.com/blackbirdworks/gopherstack/services/cosmosdb"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -83,6 +90,12 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
+	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
+	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
+	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
+	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
@@ -491,6 +504,31 @@ type Config struct {
 	CognitoIdentityOps *cognitoidentitybackend.Handler
 	// AppSyncOps provides access to the AppSync backend.
 	AppSyncOps *appsyncbackend.Handler
+	// AzureARMOps is dispatched in-process by the /dashboard/api/v1/azure/arm proxy.
+	AzureARMOps *azurearmbackend.Handler
+	// GCPStorageOps is dispatched in-process by the /dashboard/api/v1/gcp/storage proxy.
+	GCPStorageOps *gcpstoragebackend.Handler
+	// GCPPubSubOps and GCPSecretManagerOps are called in-process by their dashboard proxies.
+	GCPPubSubOps        *gcppubsubbackend.Handler
+	GCPSecretManagerOps *gcpsecretmanagerbackend.Handler
+	// GCPKMSOps is called in-process by the /dashboard/api/v1/gcp/kms proxy.
+	GCPKMSOps *gcpkmsbackend.Handler
+	// GCPCloudTasksOps is called in-process by the /dashboard/api/v1/gcp/cloudtasks proxy.
+	GCPCloudTasksOps *gcpcloudtasksbackend.Handler
+	// GCPFirestoreOps is called in-process by the /dashboard/api/v1/gcp/firestore proxy.
+	GCPFirestoreOps *gcpfirestorebackend.Handler
+	// AzureBlobOps is dispatched in-process by the /dashboard/api/v1/azure/blob proxy.
+	AzureBlobOps *azureblobbackend.Handler
+	// AzureQueueOps is dispatched in-process by the /dashboard/api/v1/azure/queue proxy.
+	AzureQueueOps *azurequeuebackend.Handler
+	// AzureTableOps is dispatched in-process by the /dashboard/api/v1/azure/table proxy.
+	AzureTableOps *azuretablebackend.Handler
+	// AzureServiceBusOps is dispatched in-process by the /dashboard/api/v1/azure/servicebus proxy.
+	AzureServiceBusOps *azureservicebusbackend.Handler
+	// AzureKeyVaultOps is dispatched in-process by the /dashboard/api/v1/azure/keyvault proxy.
+	AzureKeyVaultOps *azurekeyvaultbackend.Handler
+	// AzureCosmosOps is dispatched in-process by the /dashboard/api/v1/azure/cosmos proxy.
+	AzureCosmosOps *cosmosdbbackend.Handler
 	// CognitoIDPOps provides access to the Cognito IDP backend.
 	CognitoIDPOps *cognitoidpbackend.Handler
 	// IoTDataPlaneOps provides access to the IoT Data Plane backend.
@@ -725,6 +763,19 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerCoreRoutes()
 	h.registerCodeStarConnectionsListRoute()
 	h.registerSystemRoutes()
+	h.registerAzureARMRoutes()
+	h.registerAzureBlobRoutes()
+	h.registerGCPStorageRoutes()
+	h.registerGCPPubSubRoutes()
+	h.registerGCPSecretManagerRoutes()
+	h.registerGCPKMSRoutes()
+	h.registerGCPCloudTasksRoutes()
+	h.registerGCPFirestoreRoutes()
+	h.registerAzureQueueRoutes()
+	h.registerAzureTableRoutes()
+	h.registerAzureServiceBusRoutes()
+	h.registerAzureCosmosRoutes()
+	h.registerAzureKeyVaultRoutes()
 	h.registerSTSMetricsRoute()
 	h.registerCodeStarConnectionsMutationRoutes()
 	h.registerCognitoUserPoolRoutes()

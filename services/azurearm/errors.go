@@ -19,6 +19,10 @@ var (
 	ErrServiceBusTopicNotFound        = errors.New("azurearm: service bus topic not found")
 	ErrServiceBusSubscriptionNotFound = errors.New("azurearm: service bus subscription not found")
 
+	ErrKeyVaultNotFound = errors.New("azurearm: key vault not found")
+
+	errVaultExistsInOtherResourceGroup = errors.New("azurearm: key vault name already exists in another resource group")
+
 	// ErrSnapshotResourceGroupNull/ErrSnapshotResourceNull are returned by
 	// Restore when a persisted snapshot's map holds a JSON null entry, which
 	// decodes to a nil pointer that would panic on first dereference if

@@ -53,13 +53,26 @@ type graphqlResponse struct {
 }
 
 type graphqlError struct {
+	Data      any    `json:"data,omitempty"`
+	ErrorInfo any    `json:"errorInfo,omitempty"`
 	Message   string `json:"message"`
 	ErrorType string `json:"errorType,omitempty"`
+	Path      []any  `json:"path,omitempty"`
 }
+
+// partialResultError carries the resolver errors of an otherwise executed operation:
+// the partial data comes back alongside it.
+type partialResultError struct{ errs []graphqlError }
+
+func (f *partialResultError) Error() string { return f.errs[0].Message }
 
 // newGraphQLError maps an execution error to the GraphQL error object;
 // DynamoDB failures carry errorType "DynamoDB:<code>" as AppSync reports them.
 func newGraphQLError(err error) graphqlError {
+	if re, ok := errors.AsType[*resolverError](err); ok {
+		return re.graphql()
+	}
+
 	if de, ok := errors.AsType[*DynamoDBError](err); ok {
 		return graphqlError{Message: de.Error(), ErrorType: "DynamoDB:" + de.Code}
 	}
@@ -78,6 +91,7 @@ func executeGraphQL(
 	functions map[string]*Function,
 	query, operationName string,
 	variables map[string]any,
+	headers map[string]any,
 ) (map[string]any, error) {
 	if schema == nil || schema.SDL == "" {
 		return nil, ErrNoSchema
@@ -115,12 +129,16 @@ func executeGraphQL(
 
 	env := &execEnv{
 		backend: backend, resolvers: resolvers, datasources: datasources,
-		functions: functions, variables: variables,
+		functions: functions, variables: variables, headers: headers,
 	}
 
 	result, err := env.executeSelectionSet(ctx, parentTypeName, op.SelectionSet)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(env.errs) > 0 {
+		return result, &partialResultError{errs: env.errs}
 	}
 
 	backend.publishMutation(apiID, op, result)
@@ -162,6 +180,8 @@ type execEnv struct {
 	datasources map[string]*DataSource
 	functions   map[string]*Function
 	variables   map[string]any
+	headers     map[string]any
+	errs        []graphqlError
 }
 
 // executeSelectionSet resolves all root fields in a selection set.
@@ -205,15 +225,90 @@ func (e *execEnv) resolveFieldValue(
 	source map[string]any,
 ) (any, error) {
 	resolver := e.resolvers[resolverKey(parentTypeName, field.Name)]
+	cc := e.newCallCtx(parentTypeName, field, source == nil)
 
 	val, err := resolveField(
-		ctx, e.backend, resolver, e.datasources, e.functions, extractArguments(field, e.variables), source,
+		ctx, e.backend, resolver, e.datasources, e.functions, extractArguments(field, e.variables), source, cc,
 	)
 	if err != nil {
+		if re, ok := errors.AsType[*resolverError](err); ok {
+			ge := re.graphql()
+			if source == nil {
+				ge.Path = []any{field.Alias}
+			}
+
+			e.errs = append(e.errs, ge)
+
+			return noValue(), nil
+		}
+
 		return nil, fmt.Errorf("error resolving %s.%s: %w", parentTypeName, field.Name, err)
 	}
 
 	return e.project(ctx, val, field.SelectionSet)
+}
+
+func (e *execEnv) newCallCtx(parentTypeName string, field *ast.Field, root bool) *callCtx {
+	vars := e.variables
+	if vars == nil {
+		vars = map[string]any{}
+	}
+
+	list := selectionSetList(field.SelectionSet, "")
+	items := make([]any, len(list))
+
+	for i, n := range list {
+		items[i] = n
+	}
+
+	cc := &callCtx{
+		info: map[string]any{
+			"fieldName": field.Name, "parentTypeName": parentTypeName, "variables": vars,
+			"selectionSetList": items, "selectionSetGraphQL": selectionSetGraphQL(field.SelectionSet),
+		},
+		request: map[string]any{keyHeaders: e.headers},
+		sink: func(ge graphqlError) {
+			if root {
+				ge.Path = []any{field.Alias}
+			}
+
+			e.errs = append(e.errs, ge)
+		},
+	}
+
+	return cc
+}
+
+func selectionSetList(set ast.SelectionSet, prefix string) []string {
+	var out []string
+
+	for _, sel := range set {
+		f, ok := sel.(*ast.Field)
+		if !ok {
+			continue
+		}
+
+		out = append(out, prefix+f.Alias)
+		out = append(out, selectionSetList(f.SelectionSet, prefix+f.Alias+"/")...)
+	}
+
+	return out
+}
+
+func selectionSetGraphQL(set ast.SelectionSet) string {
+	if len(set) == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, len(set))
+
+	for _, sel := range set {
+		if f, ok := sel.(*ast.Field); ok {
+			parts = append(parts, f.Alias+" "+selectionSetGraphQL(f.SelectionSet))
+		}
+	}
+
+	return "{ " + strings.TrimSpace(strings.Join(parts, " ")) + " }"
 }
 
 // extractArguments builds the arguments map for a field.
@@ -284,12 +379,14 @@ func resolveValue(val *ast.Value, variables map[string]any) any {
 // empty for pipeline functions, which carry no field/type identity of their
 // own and so fall back to a smaller default (see buildLambdaEvent).
 type mappingUnit struct {
+	Source           any
+	Call             *callCtx
 	RequestTemplate  string
 	ResponseTemplate string
 	Code             string
-	Source           any
 	FieldName        string
 	TypeName         string
+	PipelineAfter    bool
 }
 
 func sourceValue(m map[string]any) any {
@@ -320,77 +417,6 @@ func functionMappingUnit(f *Function, source any) mappingUnit {
 	}
 }
 
-// evalRequestMapping evaluates mu's configured request mapping -- an
-// APPSYNC_JS module's exported `request` handler (mu.Code) or a VTL
-// RequestMappingTemplate -- against args/prevResult. Real AppSync
-// resolvers/functions configure exactly one runtime, never both; Code takes
-// precedence when both happen to be set. ok is false when neither is
-// configured, signaling the caller to apply its own data-source-specific
-// default request shape.
-func evalRequestMapping(mu mappingUnit, args map[string]any, prevResult any) (any, bool, error) {
-	switch {
-	case mu.Code != "":
-		ctxJSON, mErr := json.Marshal(map[string]any{
-			jsCtxKeyArguments: args,
-			jsCtxKeyPrev:      map[string]any{jsCtxKeyResult: prevResult},
-			jsCtxKeySource:    mu.Source,
-		})
-		if mErr != nil {
-			return nil, true, mErr
-		}
-
-		out, evalErr := evaluateAppSyncJS(mu.Code, string(ctxJSON), jsHandlerRequest)
-		if evalErr != nil {
-			return nil, true, evalErr
-		}
-
-		return unmarshalOrRaw(out), true, nil
-	case mu.RequestTemplate != "":
-		rendered, vtlErr := renderVTLFull(
-			mu.RequestTemplate, vtlContext{args: args, prev: prevResult, source: mu.Source},
-		)
-		if vtlErr != nil {
-			return nil, true, vtlErr
-		}
-
-		return unmarshalOrRaw(rendered), true, nil
-	default:
-		return nil, false, nil
-	}
-}
-
-// evalResponseMapping evaluates mu's configured response mapping (Code's
-// `response` handler or a VTL ResponseMappingTemplate) against the data
-// source's raw result, returning result unmodified when neither is
-// configured.
-func evalResponseMapping(mu mappingUnit, args map[string]any, result any) (any, error) {
-	switch {
-	case mu.Code != "":
-		ctxJSON, err := json.Marshal(map[string]any{
-			jsCtxKeyArguments: args, jsCtxKeyResult: result, jsCtxKeySource: mu.Source,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		out, err := evaluateAppSyncJS(mu.Code, string(ctxJSON), jsHandlerResponse)
-		if err != nil {
-			return nil, err
-		}
-
-		return unmarshalOrRaw(out), nil
-	case mu.ResponseTemplate != "":
-		rendered, err := renderVTLFull(mu.ResponseTemplate, vtlContext{args: args, result: result, source: mu.Source})
-		if err != nil {
-			return nil, err
-		}
-
-		return unmarshalOrRaw(rendered), nil
-	default:
-		return result, nil
-	}
-}
-
 // unmarshalOrRaw JSON-decodes s, returning it as the raw string when it
 // isn't valid JSON (a Lambda payload, for instance, need not be a JSON
 // object -- callers that require one check the decoded type themselves).
@@ -414,30 +440,22 @@ func resolveField(
 	functions map[string]*Function,
 	args map[string]any,
 	source map[string]any,
+	cc *callCtx,
 ) (any, error) {
+	mu := resolverMappingUnit(resolver, source)
+	mu.Call = cc
+
 	if resolver.Kind == resolverKindPipeline {
-		return executePipeline(ctx, backend, resolver, datasources, functions, args, source)
+		return executePipeline(ctx, backend, resolver, datasources, functions, args, source, cc)
 	}
 
-	return executeDataSourceStep(
-		ctx, backend, resolverMappingUnit(resolver, source), resolver.DataSourceName, datasources, args, nil,
-	)
+	return executeDataSourceStep(ctx, backend, mu, resolver.DataSourceName, datasources, args, nil)
 }
 
-// executePipeline runs a PIPELINE resolver: each configured Function's
-// data-source step in order (each function's own result becomes
-// ctx.prev.result for the next function's request mapping), then the
-// resolver's own after-mapping (ResponseMappingTemplate or Code's
-// `response` handler) over the last function's result.
-//
-// The resolver-level before-mapping (RequestMappingTemplate / Code's
-// `request` handler) is intentionally NOT evaluated: on real AppSync its
-// only effects beyond a request object nothing here consumes are writing to
-// ctx.stash and short-circuiting the pipeline (via util.error / an early
-// return) -- neither of which this evaluator's documented subset (see
-// jseval.go's doc comment) implements. Evaluating it and discarding the
-// result would be pointless; skipping it honestly reflects what's actually
-// supported rather than fabricating stash semantics. See PARITY.md.
+// executePipeline runs a PIPELINE resolver: the before mapping (its output is
+// the first function's ctx.prev.result), each Function's data-source step in
+// order, then the after mapping over the last function's result. An early
+// return in the before mapping skips the functions.
 func executePipeline(
 	ctx context.Context,
 	backend *InMemoryBackend,
@@ -446,8 +464,25 @@ func executePipeline(
 	functions map[string]*Function,
 	args map[string]any,
 	source map[string]any,
+	cc *callCtx,
 ) (any, error) {
-	var prevResult any
+	unit := mappingUnit{
+		RequestTemplate: resolver.RequestMappingTemplate, ResponseTemplate: resolver.ResponseMappingTemplate,
+		Code: resolver.Code, Source: sourceValue(source), Call: cc,
+		FieldName: resolver.FieldName, TypeName: resolver.TypeName,
+	}
+
+	prevResult, _, err := evalRequestMapping(unit, args, nil)
+	if err != nil {
+		early, isEarly := evalEarly(err)
+		if !isEarly {
+			return nil, err
+		}
+
+		unit.PipelineAfter = true
+
+		return evalResponseMapping(unit, args, early)
+	}
 
 	for _, funcID := range resolver.PipelineConfig {
 		fn := functions[funcID]
@@ -455,34 +490,31 @@ func executePipeline(
 			return nil, fmt.Errorf("%w: %q", ErrFunctionNotFound, funcID)
 		}
 
-		result, err := executeDataSourceStep(
-			ctx,
-			backend,
-			functionMappingUnit(fn, sourceValue(source)),
-			fn.DataSourceName,
-			datasources,
-			args,
-			prevResult,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("pipeline function %q: %w", fn.Name, err)
+		fmu := functionMappingUnit(fn, sourceValue(source))
+		fmu.Call = cc
+
+		result, stepErr := executeDataSourceStep(ctx, backend, fmu, fn.DataSourceName, datasources, args, prevResult)
+		if stepErr != nil {
+			if _, isRes := errors.AsType[*resolverError](stepErr); isRes {
+				return nil, stepErr
+			}
+
+			return nil, fmt.Errorf("pipeline function %q: %w", fn.Name, stepErr)
 		}
 
 		prevResult = result
 	}
 
-	after := mappingUnit{
-		ResponseTemplate: resolver.ResponseMappingTemplate, Code: resolver.Code, Source: sourceValue(source),
-	}
+	unit.PipelineAfter = true
 
-	return evalResponseMapping(after, args, prevResult)
+	return evalResponseMapping(unit, args, prevResult)
 }
 
 // executeDataSourceStep builds mu's request mapping, invokes dsName's data
 // source, and applies mu's response mapping -- the single-data-source unit
 // shared by a UNIT resolver and each function in a PIPELINE resolver's
-// chain. prevResult feeds ctx.prev.result for the request mapping (nil for
-// a UNIT resolver, the previous pipeline function's result otherwise).
+// chain. An early return in the request mapping skips the data source and
+// response mapping.
 func executeDataSourceStep(
 	ctx context.Context,
 	backend *InMemoryBackend,
@@ -497,18 +529,31 @@ func executeDataSourceStep(
 		return nil, fmt.Errorf("%w: %q", ErrDataSourceNotFound, dsName)
 	}
 
+	var (
+		out any
+		err error
+	)
+
 	switch ds.Type {
 	case DataSourceTypeLambda:
-		return invokeLambdaDataSource(ctx, backend, mu, ds, args, prevResult)
+		out, err = invokeLambdaDataSource(ctx, backend, mu, ds, args, prevResult)
 	case DataSourceTypeDynamoDB:
-		return invokeDynamoDBDataSource(ctx, backend, mu, ds, args, prevResult)
+		out, err = invokeDynamoDBDataSource(ctx, backend, mu, ds, args, prevResult)
 	case DataSourceTypeNone:
-		return invokeNoneDataSource(mu, args, prevResult)
-	case DataSourceTypeHTTP, DataSourceTypeRelational, DataSourceTypeOpenSearch:
+		out, err = invokeNoneDataSource(mu, args, prevResult)
+	case DataSourceTypeHTTP:
+		out, err = invokeHTTPDataSource(ctx, mu, ds, args, prevResult)
+	case DataSourceTypeRelational, DataSourceTypeOpenSearch:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedDataSource, ds.Type)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedDataSource, ds.Type)
 	}
+
+	if early, ok := evalEarly(err); ok {
+		return early, nil
+	}
+
+	return out, err
 }
 
 // invokeLambdaDataSource invokes the configured Lambda function with mu's
@@ -566,6 +611,12 @@ func buildLambdaEvent(mu mappingUnit, args map[string]any, prevResult any) ([]by
 	}
 
 	if ok {
+		if m, isMap := value.(map[string]any); isMap && m["operation"] == "Invoke" {
+			if payload, has := m["payload"]; has {
+				value = payload
+			}
+		}
+
 		return json.Marshal(value)
 	}
 
@@ -628,10 +679,6 @@ func invokeDynamoDBDataSource(
 // output becomes the "result" mu's response mapping (if any) sees. Matches
 // the real API's use of NONE data sources for local/pass-through resolvers.
 func invokeNoneDataSource(mu mappingUnit, args map[string]any, prevResult any) (any, error) {
-	if mu.ResponseTemplate == "" && mu.Code == "" {
-		return args, nil
-	}
-
 	reqResult, ok, err := evalRequestMapping(mu, args, prevResult)
 	if err != nil {
 		return nil, err
@@ -725,6 +772,7 @@ func (b *InMemoryBackend) ExecuteGraphQL(
 
 	return executeGraphQL(
 		ctx, apiID, b, schema, resolversCopy, datasourcesCopy, functionsCopy, query, operationName, variables,
+		requestHeaders(auth),
 	)
 }
 
@@ -736,4 +784,20 @@ func firstNonEmpty(vals ...string) string {
 	}
 
 	return ""
+}
+
+func requestHeaders(auth GraphQLAuth) map[string]any {
+	out := map[string]any{}
+
+	if auth.Request == nil {
+		return out
+	}
+
+	for k, v := range auth.Request.Header {
+		if len(v) > 0 {
+			out[strings.ToLower(k)] = v[0]
+		}
+	}
+
+	return out
 }

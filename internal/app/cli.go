@@ -63,7 +63,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
 	snsevents "github.com/blackbirdworks/gopherstack/pkgs/events"
+	"github.com/blackbirdworks/gopherstack/pkgs/extensions"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
 	"github.com/blackbirdworks/gopherstack/pkgs/inithooks"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
@@ -76,12 +78,14 @@ import (
 	accountbackend "github.com/blackbirdworks/gopherstack/services/account"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
+	ampbackend "github.com/blackbirdworks/gopherstack/services/amp"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
+	appintegrationsbackend "github.com/blackbirdworks/gopherstack/services/appintegrations"
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	appmeshbackend "github.com/blackbirdworks/gopherstack/services/appmesh"
 	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
@@ -93,21 +97,26 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	azurearmbackend "github.com/blackbirdworks/gopherstack/services/azurearm"
 	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
+	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
 	azurestoragevhostbackend "github.com/blackbirdworks/gopherstack/services/azurestoragevhost"
 	azuretablebackend "github.com/blackbirdworks/gopherstack/services/azuretable"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
+	bcmdataexportsbackend "github.com/blackbirdworks/gopherstack/services/bcmdataexports"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockagentbackend "github.com/blackbirdworks/gopherstack/services/bedrockagent"
+	bedrockagentcorecontrolbackend "github.com/blackbirdworks/gopherstack/services/bedrockagentcorecontrol"
 	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
+	budgetsbackend "github.com/blackbirdworks/gopherstack/services/budgets"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
 	cleanroomsbackend "github.com/blackbirdworks/gopherstack/services/cleanrooms"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	cfkvsbackend "github.com/blackbirdworks/gopherstack/services/cloudfrontkeyvaluestore"
+	cloudhsmv2backend "github.com/blackbirdworks/gopherstack/services/cloudhsmv2"
 	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -116,12 +125,15 @@ import (
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
+	codegurureviewerbackend "github.com/blackbirdworks/gopherstack/services/codegurureviewer"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	comprehendbackend "github.com/blackbirdworks/gopherstack/services/comprehend"
+	connectbackend "github.com/blackbirdworks/gopherstack/services/connect"
 	cosmosdbbackend "github.com/blackbirdworks/gopherstack/services/cosmosdb"
+	curbackend "github.com/blackbirdworks/gopherstack/services/cur"
 	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	daxbackend "github.com/blackbirdworks/gopherstack/services/dax"
@@ -153,7 +165,15 @@ import (
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	forecastbackend "github.com/blackbirdworks/gopherstack/services/forecast"
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
+	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
+	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
+	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
+	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	gcpschedulerbackend "github.com/blackbirdworks/gopherstack/services/gcpscheduler"
+	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
+	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
+	globalacceleratorbackend "github.com/blackbirdworks/gopherstack/services/globalaccelerator"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	grafanabackend "github.com/blackbirdworks/gopherstack/services/grafana"
 	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
@@ -176,6 +196,8 @@ import (
 	lightsailbackend "github.com/blackbirdworks/gopherstack/services/lightsail"
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
+	marketplaceentitlementservicebackend "github.com/blackbirdworks/gopherstack/services/marketplaceentitlementservice"
+	marketplacemeteringbackend "github.com/blackbirdworks/gopherstack/services/marketplacemetering"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	medialivebackend "github.com/blackbirdworks/gopherstack/services/medialive"
 	mediapackagebackend "github.com/blackbirdworks/gopherstack/services/mediapackage"
@@ -187,8 +209,10 @@ import (
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	networkfirewallbackend "github.com/blackbirdworks/gopherstack/services/networkfirewall"
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
+	oambackend "github.com/blackbirdworks/gopherstack/services/oam"
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	opsworksbackend "github.com/blackbirdworks/gopherstack/services/opsworks"
@@ -198,6 +222,7 @@ import (
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	pollybackend "github.com/blackbirdworks/gopherstack/services/polly"
+	pricingbackend "github.com/blackbirdworks/gopherstack/services/pricing"
 	quicksightbackend "github.com/blackbirdworks/gopherstack/services/quicksight"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -206,6 +231,7 @@ import (
 	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	rekognitionbackend "github.com/blackbirdworks/gopherstack/services/rekognition"
 	resiliencehubbackend "github.com/blackbirdworks/gopherstack/services/resiliencehub"
+	resourceexplorer2backend "github.com/blackbirdworks/gopherstack/services/resourceexplorer2"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	rolesanywherebackend "github.com/blackbirdworks/gopherstack/services/rolesanywhere"
@@ -214,16 +240,21 @@ import (
 	route53recoverycontrolconfigbackend "github.com/blackbirdworks/gopherstack/services/route53recoverycontrolconfig"
 	route53recoveryreadinessbackend "github.com/blackbirdworks/gopherstack/services/route53recoveryreadiness"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
+	rumbackend "github.com/blackbirdworks/gopherstack/services/rum"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
+	s3filesbackend "github.com/blackbirdworks/gopherstack/services/s3files"
 	s3tablesbackend "github.com/blackbirdworks/gopherstack/services/s3tables"
+	s3vectorsbackend "github.com/blackbirdworks/gopherstack/services/s3vectors"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerruntime"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	securityhubbackend "github.com/blackbirdworks/gopherstack/services/securityhub"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
+	servicecatalogbackend "github.com/blackbirdworks/gopherstack/services/servicecatalog"
 	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
+	servicequotasbackend "github.com/blackbirdworks/gopherstack/services/servicequotas"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
 	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
@@ -238,6 +269,7 @@ import (
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
+	timestreaminfluxdbbackend "github.com/blackbirdworks/gopherstack/services/timestreaminfluxdb"
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
@@ -287,8 +319,8 @@ type CLI struct {
 	SNS                           struct{}            `embed:"" prefix:"sns-"`
 	IAM                           struct{}            `embed:"" prefix:"iam-"`
 	shutdownDeadline              time.Time
-	kinesisHandler                service.Registerable
 	athenaHandler                 service.Registerable
+	kafkaconnectHandler           service.Registerable
 	emrserverlessHandler          service.Registerable
 	s3tablesHandler               service.Registerable
 	grafanaHandler                service.Registerable
@@ -358,11 +390,24 @@ type CLI struct {
 	apiGatewayMgmtHandler         service.Registerable
 	appConfigDataHandler          service.Registerable
 	amplifyHandler                service.Registerable
-	autoscalingHandler            service.Registerable
+	inspector2Handler             service.Registerable
 	apiGatewayV2Handler           service.Registerable
 	secretsManagerHandler         service.Registerable
 	backupHandler                 service.Registerable
 	cloudtrailHandler             service.Registerable
+	azureARMHandler               service.Registerable
+	azureBlobHandler              service.Registerable
+	gcpStorageHandler             service.Registerable
+	gcpPubSubHandler              service.Registerable
+	gcpFirestoreHandler           service.Registerable
+	gcpSecretManagerHandler       service.Registerable
+	gcpCloudTasksHandler          service.Registerable
+	gcpKMSHandler                 service.Registerable
+	azureQueueHandler             service.Registerable
+	azureTableHandler             service.Registerable
+	azureServiceBusHandler        service.Registerable
+	azureKeyVaultHandler          service.Registerable
+	cosmosDBHandler               service.Registerable
 	appConfigHandler              service.Registerable
 	applicationautoscalingHandler service.Registerable
 	batchHandler                  service.Registerable
@@ -400,14 +445,14 @@ type CLI struct {
 	emrHandler                    service.Registerable
 	glacierHandler                service.Registerable
 	iotwirelessHandler            service.Registerable
-	kinesisanalyticsHandler       service.Registerable
+	kinesisHandler                service.Registerable
 	lakeformationHandler          service.Registerable
 	glueHandler                   service.Registerable
 	guarddutyHandler              service.Registerable
-	inspector2Handler             service.Registerable
-	iotanalyticsHandler           service.Registerable
+	sagemakerHandler              service.Registerable
+	kinesisanalyticsHandler       service.Registerable
+	autoscalingHandler            service.Registerable
 	kafkaHandler                  service.Registerable
-	kafkaconnectHandler           service.Registerable
 	kinesisanalyticsv2Handler     service.Registerable
 	kinesisvideoHandler           service.Registerable
 	managedblockchainHandler      service.Registerable
@@ -424,12 +469,12 @@ type CLI struct {
 	rdsdataHandler                service.Registerable
 	ramHandler                    service.Registerable
 	redshiftdataHandler           service.Registerable
-	sagemakerHandler              service.Registerable
+	iotanalyticsHandler           service.Registerable
 	datasyncHandler               service.Registerable
 	macie2Handler                 service.Registerable
 	accessanalyzerHandler         service.Registerable
 	fsxHandler                    service.Registerable
-	ssmClient                     *ssmsdk.Client
+	iamClient                     *iam.Client
 	ecsClient                     *ecs.Client
 	amplifyClient                 *amplifysdk.Client
 	codePipelineSDKClient         *codepipelinesdk.Client
@@ -443,81 +488,103 @@ type CLI struct {
 	stsClient                     *stssdk.Client
 	ddbClient                     *dynamodb.Client
 	faultStore                    *chaos.FaultStore
+	extHost                       *extensionHost
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
-	iamClient                     *iam.Client
+	ssmClient                     *ssmsdk.Client
 	s3Client                      *s3.Client
 	globalConfig                  *config.GlobalConfig
+	iamStream                     *iampolicystream.Recorder
 	portAlloc                     *portalloc.Allocator
-	ElastiCacheEngine             string                            `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"             default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                            //nolint:lll // config struct tags are intentionally verbose
-	MemoryDBEngine                string                            `                                       name:"memorydb-engine"         env:"MEMORYDB_ENGINE"                default:"embedded"      help:"MemoryDB engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                               //nolint:lll // config struct tags are intentionally verbose
-	KafkaEngine                   string                            `                                       name:"kafka-engine"            env:"KAFKA_ENGINE"                   default:"stub"          help:"MSK engine mode: stub (metadata only) or docker (real Kafka broker per cluster)."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	MQEngine                      string                            `                                       name:"mq-engine"               env:"MQ_ENGINE"                      default:"stub"          help:"Amazon MQ engine mode: stub (metadata only) or docker (real RabbitMQ/ActiveMQ container per broker)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
-	EKSEngine                     string                            `                                       name:"eks-engine"              env:"EKS_ENGINE"                     default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
-	RDSEngine                     string                            `                                       name:"rds-engine"              env:"RDS_ENGINE"                     default:"stub"          help:"RDS engine mode: stub (metadata only) or docker (real database container)."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
-	DocDBEngine                   string                            `                                       name:"docdb-engine"            env:"DOCDB_ENGINE"                   default:"stub"          help:"DocumentDB engine mode: stub (metadata only) or docker (real MongoDB container per cluster)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
-	RedshiftEngine                string                            `                                       name:"redshift-engine"         env:"REDSHIFT_ENGINE"                default:"stub"          help:"Redshift engine mode: stub (metadata only) or docker (real Postgres container per cluster; Data API runs SQL against it)."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
-	NeptuneEngine                 string                            `                                       name:"neptune-engine"          env:"NEPTUNE_ENGINE"                 default:"stub"          help:"Neptune engine mode: stub (metadata only) or docker (real Apache TinkerPop Gremlin Server container per cluster)."`                                                                                          //nolint:lll // config struct tags are intentionally verbose
-	EC2Provider                   string                            `                                       name:"ec2-provider"            env:"EC2_PROVIDER"                   default:"inmemory"      help:"EC2 compute provider: inmemory (stub) or docker (launches real containers as instances)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerImage                string                            `                                       name:"ec2-docker-image"        env:"EC2_DOCKER_IMAGE"               default:"amazonlinux:2" help:"Docker image used by the EC2 docker provider when launching instances."`                                                                                                                                     //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerNetwork              string                            `                                       name:"ec2-docker-network"      env:"EC2_DOCKER_NETWORK"             default:""              help:"Docker network EC2 docker-provider containers attach to (empty = daemon default bridge)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerSSHHostIP            string                            `                                       name:"ec2-docker-ssh-host-ip"  env:"EC2_DOCKER_SSH_HOST_IP"         default:"127.0.0.1"     help:"Host IP that mapped EC2-docker SSH ports bind to (use 0.0.0.0 to expose externally)."`                                                                                                                       //nolint:lll // config struct tags are intentionally verbose
-	Port                          string                            `                                       name:"port"                    env:"PORT"                           default:"8000"          help:"HTTP server port."`                                                                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
-	DataDir                       string                            `                                       name:"data-dir"                env:"GOPHERSTACK_DATA_DIR"           default:""              help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
-	DNSListenAddr                 string                            `                                       name:"dns-addr"                env:"DNS_ADDR"                       default:""              help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	LogLevel                      string                            `                                       name:"log-level"               env:"LOG_LEVEL"                      default:"info"          help:"Log level (debug|info|warn|error)."`                                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
-	Region                        string                            `                                       name:"region"                  env:"REGION"                         default:"us-east-1"     help:"AWS region (also read from AWS_DEFAULT_REGION and AWS_REGION)."`                                                                                                                                             //nolint:lll // config struct tags are intentionally verbose
-	OpenSearchEngine              string                            `                                       name:"opensearch-engine"       env:"OPENSEARCH_ENGINE"              default:"stub"          help:"OpenSearch engine mode: stub (API-only) or docker."`                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
-	ElasticsearchEngine           string                            `                                       name:"elasticsearch-engine"    env:"ELASTICSEARCH_ENGINE"           default:"stub"          help:"Elasticsearch engine mode: stub (API-only) or docker."`                                                                                                                                                      //nolint:lll // config struct tags are intentionally verbose
-	DNSResolveIP                  string                            `                                       name:"dns-resolve-ip"          env:"DNS_RESOLVE_IP"                 default:"127.0.0.1"     help:"IP address synthetic hostnames resolve to."`                                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
-	AccountID                     string                            `                                       name:"account-id"              env:"ACCOUNT_ID"                     default:"000000000000"  help:"Mock AWS account ID used in ARNs."`                                                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
-	TLSCertFile                   string                            `                                       name:"tls-cert"                env:"TLS_CERT"                       default:""              help:"Path to a TLS certificate (PEM). Enables an HTTPS listener; requires --tls-key. Empty = HTTP only."`                                                                                                         //nolint:lll // config struct tags are intentionally verbose
-	TLSKeyFile                    string                            `                                       name:"tls-key"                 env:"TLS_KEY"                        default:""              help:"Path to a TLS private key (PEM). Required with --tls-cert."`                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
-	Compression                   string                            `                                       name:"compression"             env:"COMPRESSION"                    default:"on"            help:"Runtime response compression: zstd/br/gzip for the dashboard, gzip for DynamoDB clients that opt in."                                                                                         enum:"on,off"` //nolint:lll // config struct tags are intentionally verbose
-	SigV4Secret                   string                            `                                       name:"sigv4-secret"            env:"SIGV4_SECRET"                   default:"test"          help:"Secret access key SigV4 validation signs against (used only when --validate-sigv4 is set)."`                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
-	InitScripts                   []string                          `                                       name:"init-script"             env:"INIT_SCRIPTS"                                           help:"Shell scripts to run on startup (may be specified multiple times)."`                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
-	S3InitBuckets                 []string                          `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                             help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
-	AzureARM                      azurearmbackend.Settings          `embed:"" prefix:"azure-arm-"`
+	engineModes                   map[string]string
+	localstackInit                *localstackInitState
+	EngineSwitch                  EngineSettings                    `embed:""`
+	Region                        string                            `                                       name:"region"                  env:"REGION"                              default:"us-east-1"     help:"AWS region (also read from AWS_DEFAULT_REGION and AWS_REGION)."`                                                                                                                                             //nolint:lll // config struct tags are intentionally verbose
+	DNSResolveIP                  string                            `                                       name:"dns-resolve-ip"          env:"DNS_RESOLVE_IP"                      default:"127.0.0.1"     help:"IP address synthetic hostnames resolve to."`                                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	KafkaEngine                   string                            `                                       name:"kafka-engine"            env:"KAFKA_ENGINE"                        default:"stub"          help:"MSK engine mode: stub (metadata only) or docker (real Kafka broker per cluster)."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	MQEngine                      string                            `                                       name:"mq-engine"               env:"MQ_ENGINE"                           default:"stub"          help:"Amazon MQ engine mode: stub (metadata only) or docker (real RabbitMQ/ActiveMQ container per broker)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
+	EKSEngine                     string                            `                                       name:"eks-engine"              env:"EKS_ENGINE"                          default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	RDSEngine                     string                            `                                       name:"rds-engine"              env:"RDS_ENGINE"                          default:"stub"          help:"RDS engine mode: stub (metadata only) or docker (real database container)."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	DocDBEngine                   string                            `                                       name:"docdb-engine"            env:"DOCDB_ENGINE"                        default:"stub"          help:"DocumentDB engine mode: stub (metadata only) or docker (real MongoDB container per cluster)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
+	RedshiftEngine                string                            `                                       name:"redshift-engine"         env:"REDSHIFT_ENGINE"                     default:"stub"          help:"Redshift engine mode: stub (metadata only) or docker (real Postgres container per cluster; Data API runs SQL against it)."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
+	NeptuneEngine                 string                            `                                       name:"neptune-engine"          env:"NEPTUNE_ENGINE"                      default:"stub"          help:"Neptune engine mode: stub (metadata only) or docker (real Apache TinkerPop Gremlin Server container per cluster)."`                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	EC2Provider                   string                            `                                       name:"ec2-provider"            env:"EC2_PROVIDER"                        default:"inmemory"      help:"EC2 compute provider: inmemory (stub) or docker (launches real containers as instances)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerImage                string                            `                                       name:"ec2-docker-image"        env:"EC2_DOCKER_IMAGE"                    default:"amazonlinux:2" help:"Docker image used by the EC2 docker provider when launching instances."`                                                                                                                                     //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerNetwork              string                            `                                       name:"ec2-docker-network"      env:"EC2_DOCKER_NETWORK"                  default:""              help:"Docker network EC2 docker-provider containers attach to (empty = daemon default bridge)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerSSHHostIP            string                            `                                       name:"ec2-docker-ssh-host-ip"  env:"EC2_DOCKER_SSH_HOST_IP"              default:"127.0.0.1"     help:"Host IP that mapped EC2-docker SSH ports bind to (use 0.0.0.0 to expose externally)."`                                                                                                                       //nolint:lll // config struct tags are intentionally verbose
+	TransferSFTPHost              string                            `                                       name:"transfer-sftp-host"      env:"TRANSFER_SFTP_HOST"                  default:"127.0.0.1"     help:"Host the Transfer Family SFTP listener binds to."`                                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	Port                          string                            `                                       name:"port"                    env:"PORT"                                default:"8000"          help:"HTTP server port."`                                                                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	DataDir                       string                            `                                       name:"data-dir"                env:"GOPHERSTACK_DATA_DIR"                default:""              help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
+	DNSListenAddr                 string                            `                                       name:"dns-addr"                env:"DNS_ADDR"                            default:""              help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	LogLevel                      string                            `                                       name:"log-level"               env:"LOG_LEVEL"                           default:"info"          help:"Log level (debug|info|warn|error)."`                                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	SigV4Secret                   string                            `                                       name:"sigv4-secret"            env:"SIGV4_SECRET"                        default:"test"          help:"Secret access key SigV4 validation signs against (used only when --validate-sigv4 is set)."`                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	OpenSearchEngine              string                            `                                       name:"opensearch-engine"       env:"OPENSEARCH_ENGINE"                   default:"stub"          help:"OpenSearch engine mode: stub (API-only) or docker."`                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	ElasticsearchEngine           string                            `                                       name:"elasticsearch-engine"    env:"ELASTICSEARCH_ENGINE"                default:"stub"          help:"Elasticsearch engine mode: stub (API-only) or docker."`                                                                                                                                                      //nolint:lll // config struct tags are intentionally verbose
+	MemoryDBEngine                string                            `                                       name:"memorydb-engine"         env:"MEMORYDB_ENGINE"                     default:"embedded"      help:"MemoryDB engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                               //nolint:lll // config struct tags are intentionally verbose
+	AccountID                     string                            `                                       name:"account-id"              env:"ACCOUNT_ID"                          default:"000000000000"  help:"Mock AWS account ID used in ARNs."`                                                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	TLSCertFile                   string                            `                                       name:"tls-cert"                env:"TLS_CERT"                            default:""              help:"Path to a TLS certificate (PEM). Enables an HTTPS listener; requires --tls-key. Empty = HTTP only."`                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	TLSKeyFile                    string                            `                                       name:"tls-key"                 env:"TLS_KEY"                             default:""              help:"Path to a TLS private key (PEM). Required with --tls-cert."`                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	Compression                   string                            `                                       name:"compression"             env:"COMPRESSION"                         default:"on"            help:"Runtime response compression: zstd/br/gzip for the dashboard, gzip for DynamoDB clients that opt in."                                                                                         enum:"on,off"` //nolint:lll // config struct tags are intentionally verbose
+	ElastiCacheEngine             string                            `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"                  default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                            //nolint:lll // config struct tags are intentionally verbose
+	Pods                          PodsConfig                        `embed:"" prefix:"pod-"`
+	Extensions                    extensions.Settings               `embed:""`
+	InitScripts                   []string                          `                                       name:"init-script"             env:"INIT_SCRIPTS"                                                help:"Shell scripts to run on startup (may be specified multiple times)."`                                                                              //nolint:lll // config struct tags are intentionally verbose
+	InitDirs                      []string                          `                                       name:"init-dir"                env:"INIT_DIR"                                                    help:"Extra init-hook root holding boot.d/start.d/ready.d/shutdown.d (repeatable; /etc/localstack/init and /etc/gopherstack/init are always checked)."` //nolint:lll // config struct tags are intentionally verbose
+	S3InitBuckets                 []string                          `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                                  help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."`                                            //nolint:lll // config struct tags are intentionally verbose
+	ExtraListen                   []string                          `                                       name:"extra-listen"            env:"GOPHERSTACK_EXTRA_LISTEN"                                    help:"Additional ports to serve the same endpoint on (comma-separated)."`                                                                               //nolint:lll // config struct tags are intentionally verbose
+	GCPCloudTasks                 gcpcloudtasksbackend.Settings     `embed:"" prefix:"gcp-cloudtasks-"`
+	GCPScheduler                  gcpschedulerbackend.Settings      `embed:"" prefix:"gcp-scheduler-"`
+	Transparent                   TransparentSettings               `embed:"" prefix:"transparent-"`
+	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
+	AzureKeyVault                 azurekeyvaultbackend.Settings     `embed:"" prefix:"azure-keyvault-"`
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
 	Lambda                        lambdabackend.Settings            `embed:"" prefix:"lambda-"`
+	SES                           sesbackend.Settings               `embed:"" prefix:"ses-"`
 	DynamoDB                      ddbbackend.Settings               `embed:"" prefix:"dynamodb-"`
-	EC2                           ec2backend.Settings               `embed:"" prefix:"ec2-"`
+	AzureARM                      azurearmbackend.Settings          `embed:"" prefix:"azure-arm-"`
+	Lifecycle                     cliconfig.LifecycleSettings       `embed:"" prefix:"lifecycle-"`
 	Batch                         batchbackend.Settings             `embed:"" prefix:"batch-"`
+	EC2                           ec2backend.Settings               `embed:"" prefix:"ec2-"`
 	StepFunctions                 sfnbackend.Settings               `embed:"" prefix:"stepfunctions-"`
-	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
 	Backup                        backupbackend.Settings            `embed:"" prefix:"backup-"`
 	SSM                           ssmbackend.Settings               `embed:"" prefix:"ssm-"`
 	XRay                          xraybackend.Settings              `embed:"" prefix:"xray-"`
-	SES                           sesbackend.Settings               `embed:"" prefix:"ses-"`
 	FIS                           fisbackend.Settings               `embed:"" prefix:"fis-"`
 	EMR                           emrbackend.Settings               `embed:"" prefix:"emr-"`
 	Athena                        athenabackend.Settings            `embed:"" prefix:"athena-"`
 	CloudWatchLogs                cwlogsbackend.Settings            `embed:"" prefix:"cloudwatchlogs-"`
+	AzureServiceBus               azureservicebusbackend.Settings   `embed:"" prefix:"azure-servicebus-"`
+	IoT                           iotbackend.Settings               `embed:"" prefix:"iot-"`
+	AzureBlob                     azureblobbackend.Settings         `embed:"" prefix:"azure-blob-"`
 	KMS                           kmsbackend.Settings               `embed:"" prefix:"kms-"`
 	Kinesis                       kinesisbackend.Settings           `embed:"" prefix:"kinesis-"`
 	STS                           stsbackend.Settings               `embed:"" prefix:"sts-"`
-	AzureBlob                     azureblobbackend.Settings         `embed:"" prefix:"azure-blob-"`
 	AzureQueue                    azurequeuebackend.Settings        `embed:"" prefix:"azure-queue-"`
 	AzureTable                    azuretablebackend.Settings        `embed:"" prefix:"azure-table-"`
-	AzureServiceBus               azureservicebusbackend.Settings   `embed:"" prefix:"azure-servicebus-"`
+	GCPStorage                    gcpstoragebackend.Settings        `embed:"" prefix:"gcp-storage-"`
+	GCPPubSub                     gcppubsubbackend.Settings         `embed:"" prefix:"gcp-pubsub-"`
+	GCPSecretManager              gcpsecretmanagerbackend.Settings  `embed:"" prefix:"gcp-secretmanager-"`
+	GCPKMS                        gcpkmsbackend.Settings            `embed:"" prefix:"gcp-kms-"`
+	GCPFirestore                  gcpfirestorebackend.Settings      `embed:"" prefix:"gcp-firestore-"`
 	AzureStorageVHost             azurestoragevhostbackend.Settings `embed:"" prefix:"azure-storage-vhost-"`
-	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"               default:"10000"         help:"Start of the port range for resource endpoints."`           //nolint:lll // config struct tags are intentionally verbose
-	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                 default:"10100"         help:"End (exclusive) of the port range for resource endpoints."` //nolint:lll // config struct tags are intentionally verbose
-	IoT                           iotbackend.Settings               `embed:"" prefix:"iot-"`
-	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"        default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."` //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerSSHPortMax           int                               `                                       name:"ec2-docker-ssh-port-max" env:"EC2_DOCKER_SSH_PORT_MAX"        default:"0"             help:"Upper bound of the host TCP port range used to map EC2-docker SSH."`                       //nolint:lll // config struct tags are intentionally verbose
-	Lifecycle                     cliconfig.LifecycleSettings       `embed:"" prefix:"lifecycle-"`
-	ElasticsearchProcessingDelay  time.Duration                     `                                       name:"es-processing-delay"     env:"ELASTICSEARCH_PROCESSING_DELAY" default:"0s"            help:"Elasticsearch domain Processing window; 0 settles instantly."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
-	InitScriptTimeout             time.Duration                     `                                       name:"init-timeout"            env:"INIT_TIMEOUT"                   default:"30s"           help:"Per-script timeout for init hooks."`                                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	JanitorTimeout                time.Duration                     `                                       name:"janitor-timeout"         env:"JANITOR_TIMEOUT"                default:"30s"           help:"Per-task timeout for janitor operations (TTL sweeps, table cleaners, etc.). Zero disables per-task timeouts. Higher values prevent deadlocks; lower values keep the janitor loop responsive."` //nolint:lll // config struct tags are intentionally verbose
-	LatencyMs                     int                               `                                       name:"latency-ms"              env:"LATENCY_MS"                     default:"0"             help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."`                                                                   //nolint:lll // config struct tags are intentionally verbose
-	AutoPurgeTTL                  time.Duration                     `                                       name:"auto-purge-ttl"          env:"AUTO_PURGE_TTL"                                         help:"If set, automatically reset all services on a timer based on the TTL (e.g., 10m)."`                                                                                                            //nolint:lll // config struct tags are intentionally verbose
-	EnforceIAM                    bool                              `                                       name:"enforce-iam"             env:"GOPHERSTACK_ENFORCE_IAM"        default:"false"         help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
-	Persist                       bool                              `                                       name:"persist"                 env:"PERSIST"                        default:"false"         help:"Enable snapshot-based persistence across restarts."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	Demo                          bool                              `                                       name:"demo"                    env:"DEMO"                           default:"false"         help:"Load demo data on startup."`                                                                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
-	TLS                           bool                              `                                       name:"tls"                     env:"TLS"                            default:"false"         help:"Serve over HTTPS. With --tls-cert/--tls-key uses those files; otherwise a self-signed certificate is generated on demand."`                                                                    //nolint:lll // config struct tags are intentionally verbose
-	ValidateSigV4                 bool                              `                                       name:"validate-sigv4"          env:"VALIDATE_SIGV4"                 default:"false"         help:"Cryptographically validate AWS SigV4 request signatures (opt-in). Signed requests whose signature does not match --sigv4-secret are rejected."`                                                //nolint:lll // config struct tags are intentionally verbose
+	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
+	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"             default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerSSHPortMax           int                               `                                       name:"ec2-docker-ssh-port-max" env:"EC2_DOCKER_SSH_PORT_MAX"             default:"0"             help:"Upper bound of the host TCP port range used to map EC2-docker SSH."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	ElasticsearchProcessingDelay  time.Duration                     `                                       name:"es-processing-delay"     env:"ELASTICSEARCH_PROCESSING_DELAY"      default:"0s"            help:"Elasticsearch domain Processing window; 0 settles instantly."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	InitScriptTimeout             time.Duration                     `                                       name:"init-timeout"            env:"INIT_TIMEOUT"                        default:"30s"           help:"Per-script timeout for init hooks."`                                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	JanitorTimeout                time.Duration                     `                                       name:"janitor-timeout"         env:"JANITOR_TIMEOUT"                     default:"30s"           help:"Per-task timeout for janitor operations (TTL sweeps, table cleaners, etc.). Zero disables per-task timeouts. Higher values prevent deadlocks; lower values keep the janitor loop responsive."` //nolint:lll // config struct tags are intentionally verbose
+	LatencyMs                     int                               `                                       name:"latency-ms"              env:"LATENCY_MS"                          default:"0"             help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."`                                                                   //nolint:lll // config struct tags are intentionally verbose
+	AutoPurgeTTL                  time.Duration                     `                                       name:"auto-purge-ttl"          env:"AUTO_PURGE_TTL"                                              help:"If set, automatically reset all services on a timer based on the TTL (e.g., 10m)."`                                                                                                            //nolint:lll // config struct tags are intentionally verbose
+	EnforceIAM                    bool                              `                                       name:"enforce-iam"             env:"GOPHERSTACK_ENFORCE_IAM"             default:"false"         help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
+	IAMAudit                      bool                              `                                       name:"iam-audit"               env:"GOPHERSTACK_IAM_AUDIT,IAM_SOFT_MODE" default:"false"         help:"IAM audit (soft) mode: evaluate and record every request in the IAM Policy Stream but never deny."`                                                                                            //nolint:lll // config struct tags are intentionally verbose
+	LocalstackCompat              bool                              `                                       name:"localstack-compat"       env:"GOPHERSTACK_LOCALSTACK_COMPAT"       default:"false"         help:"LocalStack drop-in mode: also listen on 4566 (auto-enabled when LOCALSTACK_*, GATEWAY_LISTEN, LS_LOG or PERSISTENCE is set)."`                                                                 //nolint:lll // config struct tags are intentionally verbose
+	Persist                       bool                              `                                       name:"persist"                 env:"PERSIST"                             default:"false"         help:"Enable snapshot-based persistence across restarts."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	Demo                          bool                              `                                       name:"demo"                    env:"DEMO"                                default:"false"         help:"Load demo data on startup."`                                                                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
+	TLS                           bool                              `                                       name:"tls"                     env:"TLS"                                 default:"false"         help:"Serve over HTTPS. With --tls-cert/--tls-key uses those files; otherwise a self-signed certificate is generated on demand."`                                                                    //nolint:lll // config struct tags are intentionally verbose
+	TransferSFTP                  bool                              `                                       name:"transfer-sftp"           env:"TRANSFER_SFTP"                       default:"false"         help:"Serve a real SFTP listener per Transfer Family server."`                                                                                                                                       //nolint:lll // config struct tags are intentionally verbose
+	ValidateSigV4                 bool                              `                                       name:"validate-sigv4"          env:"VALIDATE_SIGV4"                      default:"false"         help:"Cryptographically validate AWS SigV4 request signatures (opt-in). Signed requests whose signature does not match --sigv4-secret are rejected."`                                                //nolint:lll // config struct tags are intentionally verbose
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -576,9 +643,49 @@ func (c *CLI) GetAzureBlobSettings() azureblobbackend.Settings {
 	return c.AzureBlob
 }
 
+// GetAzureKeyVaultSettings returns Azure Key Vault settings (azurekeyvault.ConfigProvider).
+func (c *CLI) GetAzureKeyVaultSettings() azurekeyvaultbackend.Settings {
+	return c.AzureKeyVault
+}
+
+// GetAzureKeyVaultPort returns the Key Vault listener's configured port
+// (azurearm.KeyVaultPortProvider) so ARM's advertised vaultUri cannot diverge.
+func (c *CLI) GetAzureKeyVaultPort() int {
+	return c.AzureKeyVault.Port
+}
+
 // GetAzureQueueSettings returns Azure Queue settings (azurequeue.ConfigProvider).
 func (c *CLI) GetAzureQueueSettings() azurequeuebackend.Settings {
 	return c.AzureQueue
+}
+
+// GetGCPPubSubSettings returns Google Cloud Pub/Sub settings (gcppubsub.ConfigProvider).
+func (c *CLI) GetGCPPubSubSettings() gcppubsubbackend.Settings {
+	return c.GCPPubSub
+}
+
+// GetGCPKMSSettings returns Google Cloud KMS settings (gcpkms.ConfigProvider).
+func (c *CLI) GetGCPKMSSettings() gcpkmsbackend.Settings { return c.GCPKMS }
+
+// GetGCPCloudTasksSettings returns Google Cloud Tasks settings (gcpcloudtasks.ConfigProvider).
+func (c *CLI) GetGCPCloudTasksSettings() gcpcloudtasksbackend.Settings { return c.GCPCloudTasks }
+
+// GetGCPSchedulerSettings returns Google Cloud Scheduler settings (gcpscheduler.ConfigProvider).
+func (c *CLI) GetGCPSchedulerSettings() gcpschedulerbackend.Settings { return c.GCPScheduler }
+
+// GetGCPSecretManagerSettings returns Google Secret Manager settings (gcpsecretmanager.ConfigProvider).
+func (c *CLI) GetGCPSecretManagerSettings() gcpsecretmanagerbackend.Settings {
+	return c.GCPSecretManager
+}
+
+// GetGCPFirestoreSettings returns Google Cloud Firestore settings (gcpfirestore.ConfigProvider).
+func (c *CLI) GetGCPFirestoreSettings() gcpfirestorebackend.Settings {
+	return c.GCPFirestore
+}
+
+// GetGCPStorageSettings returns Google Cloud Storage settings (gcpstorage.ConfigProvider).
+func (c *CLI) GetGCPStorageSettings() gcpstoragebackend.Settings {
+	return c.GCPStorage
 }
 
 // GetAzureTableSettings returns Azure Table settings (azuretable.ConfigProvider).
@@ -1020,7 +1127,10 @@ func (c *CLI) GetCloudWatchLogsSettings() cwlogsbackend.Settings {
 
 // GetCodeBuildSettings returns CodeBuild settings (codebuild.ConfigProvider).
 func (c *CLI) GetCodeBuildSettings() codebuildbackend.Settings {
-	return c.CodeBuild
+	st := c.CodeBuild
+	st.Engine = c.engineMode("codebuild-engine", st.Engine)
+
+	return st
 }
 
 // GetEC2Settings returns EC2 settings (ec2.ConfigProvider).
@@ -1183,31 +1293,33 @@ func (c *CLI) GetKinesisHandler() service.Registerable { return c.kinesisHandler
 func (c *CLI) GetElastiCacheHandler() service.Registerable { return c.elasticacheHandler }
 
 // GetElastiCacheEngine returns the ElastiCache engine mode (elasticache.EngineConfig).
-func (c *CLI) GetElastiCacheEngine() string { return c.ElastiCacheEngine }
+func (c *CLI) GetElastiCacheEngine() string {
+	return c.engineMode("elasticache-engine", c.ElastiCacheEngine)
+}
 
 // GetMemoryDBEngine returns the MemoryDB engine mode (memorydb.EngineConfig).
-func (c *CLI) GetMemoryDBEngine() string { return c.MemoryDBEngine }
+func (c *CLI) GetMemoryDBEngine() string { return c.engineMode("memorydb-engine", c.MemoryDBEngine) }
 
 // GetEKSEngine returns the EKS engine mode (eks.EngineConfig).
-func (c *CLI) GetEKSEngine() string { return c.EKSEngine }
+func (c *CLI) GetEKSEngine() string { return c.engineMode("eks-engine", c.EKSEngine) }
 
 // GetMQEngine returns the Amazon MQ engine mode (mq.EngineConfig).
-func (c *CLI) GetMQEngine() string { return c.MQEngine }
+func (c *CLI) GetMQEngine() string { return c.engineMode("mq-engine", c.MQEngine) }
 
 // GetRDSEngine returns the RDS engine mode (rds.EngineModeConfig).
-func (c *CLI) GetRDSEngine() string { return c.RDSEngine }
+func (c *CLI) GetRDSEngine() string { return c.engineMode("rds-engine", c.RDSEngine) }
 
 // GetRedshiftEngine returns the Redshift engine mode (redshift.EngineModeConfig).
-func (c *CLI) GetRedshiftEngine() string { return c.RedshiftEngine }
+func (c *CLI) GetRedshiftEngine() string { return c.engineMode("redshift-engine", c.RedshiftEngine) }
 
 // GetNeptuneEngine returns the Neptune engine mode (neptune.EngineModeConfig).
-func (c *CLI) GetNeptuneEngine() string { return c.NeptuneEngine }
+func (c *CLI) GetNeptuneEngine() string { return c.engineMode("neptune-engine", c.NeptuneEngine) }
 
 // GetDocDBEngine returns the DocumentDB engine mode (docdb.EngineModeConfig).
-func (c *CLI) GetDocDBEngine() string { return c.DocDBEngine }
+func (c *CLI) GetDocDBEngine() string { return c.engineMode("docdb-engine", c.DocDBEngine) }
 
 // GetKafkaEngine returns the MSK engine mode (kafka.EngineConfig).
-func (c *CLI) GetKafkaEngine() string { return c.KafkaEngine }
+func (c *CLI) GetKafkaEngine() string { return c.engineMode("kafka-engine", c.KafkaEngine) }
 
 // GetRoute53Handler returns the Route 53 handler (dashboard.AWSSDKProvider).
 //
@@ -1230,7 +1342,9 @@ func (c *CLI) GetSESv2Handler() service.Registerable { return c.sesv2Handler }
 func (c *CLI) GetEC2Handler() service.Registerable { return c.ec2Handler }
 
 // GetElasticsearchEngine returns the Elasticsearch engine mode (elasticsearch.EngineConfig).
-func (c *CLI) GetElasticsearchEngine() string { return c.ElasticsearchEngine }
+func (c *CLI) GetElasticsearchEngine() string {
+	return c.engineMode("elasticsearch-engine", c.ElasticsearchEngine)
+}
 
 // GetElasticsearchProcessingDelay returns the domain Processing window (elasticsearch.ProcessingDelayConfig).
 func (c *CLI) GetElasticsearchProcessingDelay() time.Duration {
@@ -1243,7 +1357,9 @@ func (c *CLI) GetElasticsearchProcessingDelay() time.Duration {
 func (c *CLI) GetElasticsearchHandler() service.Registerable { return c.elasticsearchHandler }
 
 // GetOpenSearchEngine returns the OpenSearch engine mode (opensearch.EngineConfig).
-func (c *CLI) GetOpenSearchEngine() string { return c.OpenSearchEngine }
+func (c *CLI) GetOpenSearchEngine() string {
+	return c.engineMode("opensearch-engine", c.OpenSearchEngine)
+}
 
 // GetOpenSearchHandler returns the OpenSearch handler.
 //
@@ -1711,6 +1827,71 @@ func (c *CLI) GetBackupHandler() service.Registerable { return c.backupHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCloudTrailHandler() service.Registerable { return c.cloudtrailHandler }
 
+// GetAzureARMHandler returns the Azure Resource Manager handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAzureARMHandler() service.Registerable { return c.azureARMHandler }
+
+// GetAzureBlobHandler returns the Azure Blob handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAzureBlobHandler() service.Registerable { return c.azureBlobHandler }
+
+// GetGCPStorageHandler returns the GCS handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPStorageHandler() service.Registerable { return c.gcpStorageHandler }
+
+// GetGCPPubSubHandler returns the Pub/Sub handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPPubSubHandler() service.Registerable { return c.gcpPubSubHandler }
+
+// GetGCPFirestoreHandler returns the Firestore handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPFirestoreHandler() service.Registerable { return c.gcpFirestoreHandler }
+
+// GetGCPSecretManagerHandler returns the Secret Manager handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPSecretManagerHandler() service.Registerable { return c.gcpSecretManagerHandler }
+
+// GetGCPKMSHandler returns the Cloud KMS handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPKMSHandler() service.Registerable { return c.gcpKMSHandler }
+
+// GetGCPCloudTasksHandler returns the Cloud Tasks handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPCloudTasksHandler() service.Registerable { return c.gcpCloudTasksHandler }
+
+// GetAzureQueueHandler returns the Azure Queue handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAzureQueueHandler() service.Registerable { return c.azureQueueHandler }
+
+// GetAzureTableHandler returns the Azure Table handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAzureTableHandler() service.Registerable { return c.azureTableHandler }
+
+// GetAzureServiceBusHandler returns the Azure Service Bus handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAzureServiceBusHandler() service.Registerable { return c.azureServiceBusHandler }
+
+// GetAzureKeyVaultHandler returns the Azure Key Vault handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAzureKeyVaultHandler() service.Registerable { return c.azureKeyVaultHandler }
+
+// GetCosmosDBHandler returns the Cosmos DB handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCosmosDBHandler() service.Registerable { return c.cosmosDBHandler }
+
 // GetAppConfigHandler returns the AppConfig handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1867,8 +2048,10 @@ func (c *CLI) GetPortAllocator() *portalloc.Allocator { return c.portAlloc }
 // (the default command); "health" is an explicit subcommand used as a
 // Docker healthcheck from scratch containers.
 type rootCLI struct {
-	Health HealthCmd `cmd:"" help:"Check server health (for Docker healthcheck)."`
-	Serve  CLI       `cmd:"" help:"Start the Gopherstack server."                 default:"withargs"`
+	Health    HealthCmd    `cmd:"" help:"Check server health (for Docker healthcheck)."`
+	Pod       PodCmd       `cmd:"" help:"Manage named state snapshots (pods) on a running server."`
+	Replicate ReplicateCmd `cmd:"" help:"Copy resources from real AWS into a running server."`
+	Serve     CLI          `cmd:"" help:"Start the Gopherstack server."                            default:"withargs"`
 }
 
 // HealthCmd checks a running Gopherstack instance's health endpoint.
@@ -1916,6 +2099,8 @@ func (h *HealthCmd) Run() error {
 func Run() {
 	var root rootCLI
 
+	applyLocalstackEnv()
+
 	kctx := kong.Parse(
 		&root,
 		kong.Name("gopherstack"),
@@ -1931,6 +2116,14 @@ func Run() {
 	switch kctx.Command() {
 	case "health":
 		err = root.Health.Run()
+	case "pod save <name>",
+		"pod load <name>",
+		"pod list",
+		"pod versions <name>",
+		"pod delete <name>",
+		"pod inspect <name>",
+		"replicate":
+		err = kctx.Run()
 	default:
 		// Opt-in pprof server for local profiling / PGO data collection.
 		// No-op unless GOPHERSTACK_PPROF_ADDR is set; see startPprofServer.
@@ -2013,110 +2206,42 @@ func setupPortAllocator(
 
 // reserveFixedServicePorts marks ports bound directly by services outside
 // the shared PortAlloc pool as unavailable within that pool, so Acquire
-// never hands the same port number to a different caller.
-//
-// AzureBlob's dedicated listener (services/azureblob) binds a fixed,
-// protocol-conventional default port (10000, matching Azurite's own Blob
-// service port) via a raw net.Listen call, not through PortAlloc -- and that
-// default sits squarely inside PortRangeStart/PortRangeEnd's own default
-// range (10000-10100). Without this reservation, PortAlloc has no way to
-// know AzureBlob already holds 10000 and could hand it to an unrelated
-// caller (e.g. an ElastiCache instance), which would only surface later as
-// a confusing address-in-use failure when that caller tries to actually
-// bind it. See AZURE.md section 4 for the full rationale.
-//
-// A failed reservation is logged, not fatal: AzureBlob's own StartWorker
-// bind is still synchronous and fails fast on a genuine conflict (see
-// handler.go), so the worst outcome here is losing this early-warning
-// cross-service protection, not an unrecoverable startup failure.
+// never hands the same port number to a different caller. A failed
+// reservation is logged, not fatal: each service's own bind still fails fast
+// on a genuine conflict. CosmosDB's default (8081) is outside the default
+// range but a custom range may include it.
 func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *portalloc.Allocator, cli CLI) {
 	if alloc == nil {
 		return
 	}
 
-	if err := alloc.Reserve(cli.AzureBlob.Port, "azureblob"); err != nil {
-		log.WarnContext(ctx, "failed to reserve AzureBlob's fixed port in the shared pool",
-			"port", cli.AzureBlob.Port, "error", err)
+	fixed := []struct {
+		label string
+		key   string
+		port  int
+	}{
+		{"AzureBlob", "azureblob", cli.AzureBlob.Port},
+		{"GCPStorage", "gcpstorage", cli.GCPStorage.Port},
+		{"GCPPubSub", "gcppubsub", cli.GCPPubSub.Port},
+		{"GCPSecretManager", "gcpsecretmanager", cli.GCPSecretManager.Port},
+		{"GCPKMS", "gcpkms", cli.GCPKMS.Port},
+		{"GCPCloudTasks", "gcpcloudtasks", cli.GCPCloudTasks.Port},
+		{"GCPScheduler", "gcpscheduler", cli.GCPScheduler.Port},
+		{"GCPFirestore", "gcpfirestore", cli.GCPFirestore.Port},
+		{"AzureQueue", "azurequeue", cli.AzureQueue.Port},
+		{"AzureTable", "azuretable", cli.AzureTable.Port},
+		{"AzureStorageVHost", "azurestoragevhost", cli.AzureStorageVHost.Port},
+		{"CosmosDB", "cosmosdb", cli.CosmosDB.Port},
+		{"AzureServiceBus", "azureservicebus", cli.AzureServiceBus.Port},
+		{"AzureARM", "azurearm", cli.AzureARM.Port},
+		{"AzureKeyVault", "azurekeyvault", cli.AzureKeyVault.Port},
 	}
 
-	// AzureQueue's dedicated listener (services/azurequeue) binds its own
-	// fixed, protocol-conventional default port (10001, matching Azurite's
-	// own Queue service port) the same way AzureBlob does above -- see that
-	// call's comment and AZURE.md section 4 for the full rationale. It sits
-	// in the same PortRangeStart/PortRangeEnd default range, so it needs the
-	// same reservation.
-	if err := alloc.Reserve(cli.AzureQueue.Port, "azurequeue"); err != nil {
-		log.WarnContext(ctx, "failed to reserve AzureQueue's fixed port in the shared pool",
-			"port", cli.AzureQueue.Port, "error", err)
-	}
-
-	// AzureTable's dedicated listener (services/azuretable) binds its own
-	// fixed, protocol-conventional default port (10002, matching Azurite's
-	// own Table service port) the same way AzureBlob/AzureQueue do above --
-	// see those calls' comments and AZURE.md section 4 for the full
-	// rationale. It sits in the same PortRangeStart/PortRangeEnd default
-	// range, so it needs the same reservation.
-	if err := alloc.Reserve(cli.AzureTable.Port, "azuretable"); err != nil {
-		log.WarnContext(ctx, "failed to reserve AzureTable's fixed port in the shared pool",
-			"port", cli.AzureTable.Port, "error", err)
-	}
-
-	// AzureStorageVHost's dedicated listener (services/azurestoragevhost)
-	// binds its own fixed port the same way AzureBlob/AzureQueue/AzureTable
-	// do above -- see AZURE.md section 10.8 for why a shared virtual-hosted
-	// listener exists alongside those three's own path-style ports. It sits
-	// in the same PortRangeStart/PortRangeEnd default range, so it needs
-	// the same reservation.
-	if err := alloc.Reserve(cli.AzureStorageVHost.Port, "azurestoragevhost"); err != nil {
-		log.WarnContext(ctx, "failed to reserve AzureStorageVHost's fixed port in the shared pool",
-			"port", cli.AzureStorageVHost.Port, "error", err)
-	}
-
-	// CosmosDB's dedicated listener (services/cosmosdb) binds its own fixed,
-	// protocol-conventional default port -- but unlike AzureBlob/AzureQueue/
-	// AzureTable above, that default (8081, the real Cosmos DB Local
-	// Emulator's own published port) sits OUTSIDE PortRangeStart/
-	// PortRangeEnd's own default range (10000-10100), exactly mirroring
-	// services/iot's MQTT broker default (1883). This Reserve call is
-	// therefore a no-op against the default range -- but the range is
-	// user-configurable (--port-range-start/--port-range-end), so a custom
-	// range that happens to include 8081 (e.g. 8000-8100) still needs this
-	// reservation to keep PortAlloc from handing 8081 to an unrelated
-	// caller. See AZURE.md section 4, services/cosmosdb/settings.go's
-	// DefaultPort doc comment, and cosmosdb_port_reservation_test.go's
-	// table (which -- unlike AzureBlob/AzureQueue/AzureTable's tables --
-	// covers both the outside-range default case AND a custom in-range
-	// case, since only CosmosDB's default port has this inverted default
-	// behavior).
-	if err := alloc.Reserve(cli.CosmosDB.Port, "cosmosdb"); err != nil {
-		log.WarnContext(ctx, "failed to reserve CosmosDB's fixed port in the shared pool",
-			"port", cli.CosmosDB.Port, "error", err)
-	}
-
-	// AzureServiceBus's dedicated listener (services/azureservicebus) binds
-	// its own fixed port (10003, the next available slot in gopherstack's own
-	// numbering convention after AzureTable's 10002 -- there is no Azurite
-	// Service Bus emulator to mirror) the same way AzureBlob/AzureQueue/
-	// AzureTable do above -- see those calls' comments and AZURE.md section 9
-	// (M5) for the full rationale. It sits in the same
-	// PortRangeStart/PortRangeEnd default range, so it needs the same
-	// reservation.
-	if err := alloc.Reserve(cli.AzureServiceBus.Port, "azureservicebus"); err != nil {
-		log.WarnContext(ctx, "failed to reserve AzureServiceBus's fixed port in the shared pool",
-			"port", cli.AzureServiceBus.Port, "error", err)
-	}
-
-	// AzureARM's dedicated HTTPS listener (services/azurearm) binds its own
-	// fixed port (10006, the next available slot after AzureServiceBus's
-	// 10003 -- Key Vault's 10004 and App Configuration's 10005 are reserved
-	// for M11/M12, see AZURE.md section 10.7) the same way
-	// AzureBlob/AzureQueue/AzureTable/AzureServiceBus do above -- see those
-	// calls' comments for the full rationale. It sits in the same
-	// PortRangeStart/PortRangeEnd default range, so it needs the same
-	// reservation.
-	if err := alloc.Reserve(cli.AzureARM.Port, "azurearm"); err != nil {
-		log.WarnContext(ctx, "failed to reserve AzureARM's fixed port in the shared pool",
-			"port", cli.AzureARM.Port, "error", err)
+	for _, f := range fixed {
+		if err := alloc.Reserve(f.port, f.key); err != nil {
+			log.WarnContext(ctx, "failed to reserve "+f.label+"'s fixed port in the shared pool",
+				"port", f.port, "error", err)
+		}
 	}
 }
 
@@ -2129,6 +2254,35 @@ func setupPortAllocatorWithReservations(ctx context.Context, log *slog.Logger, c
 	reserveFixedServicePorts(ctx, log, alloc, cli)
 
 	return alloc
+}
+
+// initRuntimeStores creates the stores services read from the CLI during Init.
+func initRuntimeStores(cli *CLI) {
+	cli.faultStore, cli.localstackInit = chaos.NewFaultStore(), newLocalstackInitState()
+	cli.iamStream = iampolicystream.New(iampolicystream.DefaultCapacity)
+}
+
+func wireEchoServer(
+	ctx context.Context,
+	e *echo.Echo,
+	log *slog.Logger,
+	cli *CLI,
+	services []service.Registerable,
+	tr *transparentRuntime,
+) error {
+	if err := cli.initExtensions(log, e); err != nil {
+		return err
+	}
+
+	if err := setupChaosAndRegistry(e, log, cli, services); err != nil {
+		return err
+	}
+
+	if tr != nil {
+		return tr.serveHTTPS(ctx, e)
+	}
+
+	return nil
 }
 
 // run starts the server with the given CLI configuration.
@@ -2148,18 +2302,15 @@ func run(ctx context.Context, cli CLI) error {
 	}
 
 	cli = applyExplicitOverrides(original, cli)
-	cli.GetGlobalConfig().Update(
-		cli.AccountID, cli.Region, cli.LatencyMs,
-		cli.JanitorTimeout, cli.EnforceIAM, cli.AutoPurgeTTL,
-	)
+	cli.applyRuntimeConfig(ctx, log)
 
 	// --- Port allocator ---
 	cli.portAlloc = setupPortAllocatorWithReservations(ctx, log, cli)
 
 	// --- Embedded DNS server ---
-	var dnsSrv *gopherDNS.Server
-	if cli.DNSListenAddr != "" {
-		dnsSrv = startEmbeddedDNS(ctx, cli.DNSListenAddr, cli.DNSResolveIP)
+	tr, dnsSrv, err := startDNSAndTransparent(ctx, &cli)
+	if err != nil {
+		return err
 	}
 
 	inMemMux := http.NewServeMux()
@@ -2197,7 +2348,8 @@ func run(ctx context.Context, cli CLI) error {
 
 	// Create the fault store before initialising services so the dashboard can
 	// receive it via cli.GetFaultStore() during its Init() call.
-	cli.faultStore = chaos.NewFaultStore()
+	initRuntimeStores(&cli)
+	startInitStages(ctx, &cli, log)
 
 	services, err := initializeServices(appCtx)
 	if err != nil {
@@ -2212,22 +2364,13 @@ func run(ctx context.Context, cli CLI) error {
 
 	e := buildEchoServer(ctx, log, persistManager, services, cli)
 
-	if setupErr := setupChaosAndRegistry(e, log, &cli, services); setupErr != nil {
-		return setupErr
+	if wireErr := wireEchoServer(ctx, e, log, &cli, services, tr); wireErr != nil {
+		return wireErr
 	}
 
 	startBackgroundWorkers(janitorCtx, services)
 
-	// Start automatic purge background worker. It dynamically checks for TTL updates from the config.
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.ErrorContext(ctx, "purge worker: panic recovered",
-					"panic", fmt.Sprintf("%v", r))
-			}
-		}()
-		startPurgeWorker(janitorCtx, cli.globalConfig, services)
-	}()
+	launchPurgeWorker(janitorCtx, ctx, log, &cli, services)
 
 	inMemMux.Handle("/", e)
 
@@ -2235,16 +2378,19 @@ func run(ctx context.Context, cli CLI) error {
 		loadDemoData(ctx, &cli)
 	}
 
-	runInitHooks(ctx, &cli, log)
-	createS3InitBuckets(ctx, &cli, log)
+	runStartupHooks(ctx, &cli, log)
 	// cli.shutdownDeadline is set once, when ctx is first observed as done,
 	// and shared by every teardown stage below (HTTP shutdown, Lambda close,
 	// service shutdown) so the whole sequence honors ONE shutdownTimeout
 	// budget rather than each stage restarting its own clock and stacking
 	// to a multiple of shutdownTimeout.
 	defer shutdownBackends(janitorCancel, cli.lambdaHandler, services, &cli.shutdownDeadline)
+	defer cli.stopExtensions(ctx)
+	defer runShutdownStage(ctx, &cli)
 
-	return startServer(ctx, cli.Port, e, tlsConfigFromCLI(&cli), &cli.shutdownDeadline)
+	cli.startExtensions(ctx)
+
+	return serveAll(ctx, &cli, e, log)
 }
 
 // tlsSettings carries the resolved TLS configuration for the listener.
@@ -2276,7 +2422,7 @@ func runInitHooks(ctx context.Context, cli *CLI, log *slog.Logger) {
 	}
 
 	runner := inithooks.New(cli.InitScripts, cli.InitScriptTimeout, log)
-	runner.Run(ctx)
+	cli.localstackInit.record(runner.Run(ctx))
 }
 
 // createS3InitBuckets creates S3 buckets listed in cli.S3InitBuckets on startup.
@@ -2424,6 +2570,7 @@ func buildEchoServer(
 	e.Use(httputils.RequestIDMiddleware())
 	e.Use(logger.APIConsoleMiddleware())
 	e.Use(telemetry.MemoryStatsMiddleware)
+	registerAppInspector(e)
 	e.Pre(logger.EchoMiddleware(log))
 	e.Pre(awsMetaMiddleware(cli.Region, cli.AccountID))
 
@@ -2441,18 +2588,21 @@ func buildEchoServer(
 	e.GET("/_gopherstack/health", buildHealthHandler(services))
 	e.GET("/_localstack/health", buildLocalstackHealthHandler(services))
 	e.GET("/_aws/health", buildLocalstackHealthHandler(services))
-	e.GET("/_localstack/init", buildLocalstackInitHandler())
-	e.GET("/_localstack/init/ready", buildLocalstackInitHandler())
+	registerLocalstackInternalEndpoints(e, &cli, services)
 	e.GET("/_localstack/info", buildLocalstackInfoHandler())
 	e.POST("/_gopherstack/reset", buildResetHandler(services))
 	e.GET(logger.RequestsEndpointPath, buildRequestsHandler(logger.GlobalRingBuffer))
 	registerLocalstackDevEndpoints(e, services)
 	registerECSTaskEndpoints(e, services)
+	registerIAMPolicyStreamEndpoints(e, cli.IAMPolicyStream())
 	registerEC2IMDSEndpoints(e, services)
 	registerSSOEndpoints(e, services)
 	registerEC2NetworkEndpoints(e, services)
+	registerPricingEndpoints(e, services)
 	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
 	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))
+	registerPodEndpoints(ctx, log, e, cli.Pods, cli.resolvedDataDir(), persistManager, services)
+	registerReplicateEndpoints(ctx, e)
 
 	registerWebsiteRoutes(e, services)
 
@@ -2880,6 +3030,19 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.identitystoreHandler = byName["IdentityStore"]
 	cli.backupHandler = byName["Backup"]
 	cli.cloudtrailHandler = byName["CloudTrail"]
+	cli.azureARMHandler = byName["AzureARM"]
+	cli.azureBlobHandler = byName["AzureBlob"]
+	cli.gcpStorageHandler = byName["GCPStorage"]
+	cli.gcpPubSubHandler = byName["GCPPubSub"]
+	cli.gcpFirestoreHandler = byName["GCPFirestore"]
+	cli.gcpSecretManagerHandler = byName["GCPSecretManager"]
+	cli.gcpCloudTasksHandler = byName["GCPCloudTasks"]
+	cli.gcpKMSHandler = byName["GCPKMS"]
+	cli.azureQueueHandler = byName["AzureQueue"]
+	cli.azureTableHandler = byName["AzureTable"]
+	cli.azureServiceBusHandler = byName["AzureServiceBus"]
+	cli.azureKeyVaultHandler = byName["AzureKeyVault"]
+	cli.cosmosDBHandler = byName["CosmosDB"]
 	cli.ceHandler = byName["Ce"]
 	cli.cloudcontrolHandler = byName["CloudControl"]
 	cli.cloudFrontHandler = byName["CloudFront"]
@@ -2988,6 +3151,10 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Build name-based lookup for cross-service wiring.
 	byName := serviceByName(services)
 
+	if cli, ok := appCtx.Config.(*CLI); ok {
+		wireTransferSFTP(cli.TransferSFTP, cli.TransferSFTPHost, byName)
+	}
+
 	wireCrossServiceDependencies(appCtx, services, byName)
 
 	services, err = registerCloudFormationAndDashboard(appCtx, services, byName)
@@ -3092,7 +3259,10 @@ func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable
 	// destinations to SNS, so bounce/complaint/delivery outcomes are
 	// actually published instead of silently validated-and-stored.
 	wireSESSNS(byName["SES"], byName["SNS"])
+	wireSESInbound(byName)
 	wireSESv2SNS(byName["SESv2"], byName["SNS"])
+	wireCognitoMessageDelivery(byName["CognitoIDP"], byName["SES"], byName["SNS"])
+	wireBudgets(byName)
 
 	// Wire AWS Config's DeliverConfigSnapshot to S3 (and SNS, when a
 	// delivery channel has a topic configured) so snapshot delivery is real.
@@ -3190,6 +3360,11 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// alarm-state-change subscription (gopherstack-x842, gopherstack-9939).
 	wireFISStopConditions(byName["FIS"], byName["CloudWatch"])
 	wireFISTargetResolver(byName)
+	wireResourceExplorer(byName)
+	wireServiceCatalog(byName)
+	wireAgentCore(byName)
+	wireS3Files(byName)
+	wireGCPScheduler(byName)
 
 	// Wire Auto Scaling → EC2 so scale-out launches real (mock) EC2 instances
 	// and scale-in terminates them there too, instead of Auto Scaling
@@ -3246,6 +3421,9 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// actually starts instead of failing with ErrLambdaUnavailable: S3 code
 	// delivery requires S3 integration.
 	wireLambdaS3(byName["Lambda"], byName["S3"])
+
+	// Wire S3/CloudWatch Logs/CodeCommit/SSM/Secrets Manager → CodeBuild docker engine.
+	wireCodeBuildEngine(byName)
 
 	// Wire ECR → Lambda so Code.ImageUri on an Image package-type
 	// CreateFunction/UpdateFunctionCode is validated against real ECR state
@@ -3928,6 +4106,8 @@ func wireSSOAndRedshiftData(byName map[string]service.Registerable) {
 	wireSSO(byName)
 	wireRedshiftServerlessData(byName)
 	wireRedshiftClusterEngines(byName)
+	wireBillingExports(byName)
+	wireMarketplaceEntitlements(byName)
 }
 
 // wireStorageAndSecretsIntegrations wires Firehose delivery, DynamoDB→S3
@@ -3944,7 +4124,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// Wire ARM's Microsoft.ServiceBus resource provider to
 	// services/azureservicebus's already-initialized handler (AZURE.md
 	// section 10.10's M9 entry).
-	wireAzureARMResourceProviders(byName["AzureARM"], byName["AzureServiceBus"])
+	wireAzureARMResourceProviders(byName["AzureARM"], byName["AzureServiceBus"], byName["AzureKeyVault"])
 
 	// Wire CloudWatch → Firehose so a PutMetricStream/CreateMetricStream
 	// delivery stream actually receives matched metric data instead of
@@ -3953,6 +4133,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 
 	// Wire Firehose → S3 and Lambda for actual record delivery and transformation.
 	wireFirehoseDelivery(byName["Firehose"], byName["S3"], byName["Lambda"])
+	wireFirehoseGlue(byName["Firehose"], byName["Glue"])
 
 	// Wire Firehose → Kinesis so a KinesisStreamAsSource delivery stream actually
 	// polls and ingests records instead of accepting the stream and never
@@ -4173,6 +4354,7 @@ func wireGovernanceIntegrations(byName map[string]service.Registerable, services
 	// Wire IAM → STS for ExternalId validation and MaxSessionDuration enforcement.
 	wireIAMToSTS(byName["IAM"], byName["STS"])
 	wireEKSIRSAToSTS(byName["EKS"], byName["STS"])
+	wireEKSTokenAuth(byName)
 	wireCognitoIdentity(byName["CognitoIdentity"], byName["STS"], byName["CognitoIDP"])
 
 	// Collect all services implementing FISActionProvider and register them with the FIS backend.
@@ -4214,6 +4396,7 @@ func registerCloudFormationAndDashboard(
 	// wireStorageAndSecretsIntegrations, because CloudFormation does not
 	// exist yet when that runs.
 	wireLightsailCloudFormation(byName["Lightsail"], cfnSvc)
+	wireServiceCatalogEngine(byName["ServiceCatalog"], cfnSvc)
 
 	// Wire CloudFormation -> Organizations so SERVICE_MANAGED StackSets can
 	// expand DeploymentTargets.OrganizationalUnitIds against the real OU
@@ -4221,6 +4404,7 @@ func registerCloudFormationAndDashboard(
 	wireCloudFormationOrganizations(cfnSvc, byName["Organizations"])
 	wireRAMOrganizations(byName["RAM"], byName["Organizations"])
 	wireOrganizationsIAM(byName["Organizations"], byName["IAM"])
+	wireQuotaAndObservabilityOrganizations(byName)
 
 	wireVPCLatticeEndpoints(byName["VPCLattice"], byName["EC2"])
 
@@ -4240,7 +4424,18 @@ func registerCloudFormationAndDashboard(
 
 // getServiceProviders returns the list of all available service providers.
 func getServiceProviders() []service.Provider {
-	return append(getCoreServiceProviders(), getRemainingServiceProviders()...)
+	return slices.Concat(getCoreServiceProviders(), getRemainingServiceProviders(), []service.Provider{
+		&resourceexplorer2backend.Provider{},
+		&servicecatalogbackend.Provider{},
+		&ampbackend.Provider{},
+		&timestreaminfluxdbbackend.Provider{},
+		&bedrockagentcorecontrolbackend.Provider{},
+		&s3vectorsbackend.Provider{},
+		&cloudhsmv2backend.Provider{},
+		&rumbackend.Provider{},
+		&appintegrationsbackend.Provider{},
+		&connectbackend.Provider{},
+	})
 }
 
 // getCoreServiceProviders returns the foundational service providers.
@@ -4284,6 +4479,7 @@ func getRemainingServiceProviders() []service.Provider {
 		&redshiftbackend.ServerlessProvider{},
 		&awsconfigbackend.Provider{},
 		&s3controlbackend.Provider{},
+		&s3filesbackend.Provider{},
 		&resourcegroupsbackend.Provider{},
 		&resourcegroupstaggingapibackend.Provider{},
 		&swfbackend.Provider{},
@@ -4318,7 +4514,9 @@ func getRemainingServiceProviders() []service.Provider {
 		&batchbackend.Provider{},
 		&bedrockbackend.Provider{},
 		&bedrockruntimebackend.Provider{},
+		&budgetsbackend.Provider{},
 		&cebackend.Provider{},
+		&pricingbackend.Provider{},
 		&cloudcontrolbackend.Provider{},
 		&cloudfrontbackend.Provider{},
 		&cfkvsbackend.Provider{},
@@ -4344,6 +4542,9 @@ func getRemainingServiceProviders() []service.Provider {
 		&inspector2backend.Provider{},
 		&docdbbackend.Provider{},
 		&dsqlbackend.Provider{},
+		&globalacceleratorbackend.Provider{},
+		&curbackend.Provider{},
+		&bcmdataexportsbackend.Provider{},
 		&glacierbackend.Provider{},
 		&iotanalyticsbackend.Provider{},
 		&iotwirelessbackend.Provider{},
@@ -4352,6 +4553,7 @@ func getRemainingServiceProviders() []service.Provider {
 		&kafkaconnectbackend.Provider{},
 		&kinesisanalyticsv2backend.Provider{},
 		&kinesisvideobackend.Provider{},
+		&networkfirewallbackend.Provider{},
 		&ecrpublicbackend.Provider{},
 		&lakeformationbackend.Provider{},
 		&managedblockchainbackend.Provider{},
@@ -4386,10 +4588,21 @@ func getMostRecentServiceProviders() []service.Provider {
 		&azuretablebackend.Provider{},
 		&azureservicebusbackend.Provider{},
 		&azurestoragevhostbackend.Provider{},
+		&azurekeyvaultbackend.Provider{},
 		&cosmosdbbackend.Provider{},
+		&gcpstoragebackend.Provider{},
+		&gcppubsubbackend.Provider{},
+		&gcpsecretmanagerbackend.Provider{},
+		&gcpkmsbackend.Provider{},
+		&gcpcloudtasksbackend.Provider{},
+		&gcpschedulerbackend.Provider{},
+		&gcpfirestorebackend.Provider{},
 		&azurearmbackend.Provider{},
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
+		&codegurureviewerbackend.Provider{},
+		&marketplacemeteringbackend.Provider{},
+		&marketplaceentitlementservicebackend.Provider{},
 		&accessanalyzerbackend.Provider{},
 		&accountbackend.Provider{},
 		&rambackend.Provider{},
@@ -4452,6 +4665,8 @@ func getMostRecentServiceProviders() []service.Provider {
 		&mgnbackend.Provider{},
 		&networkmanagerbackend.Provider{},
 		&lightsailbackend.Provider{},
+		&oambackend.Provider{},
+		&servicequotasbackend.Provider{},
 	}
 }
 
@@ -4798,9 +5013,10 @@ type sqsSenderAdapter struct {
 }
 
 func (a *sqsSenderAdapter) SendMessageToQueue(
-	_ context.Context,
+	ctx context.Context,
 	queueARN, messageBody string,
 ) error {
+	done := traceSQSDelivery(ctx, queueARN)
 	// Convert SQS ARN to queue name (last segment after ':').
 	queueURL := arnToSQSQueueURL(queueARN)
 	_, err := a.backend.SendMessage(&sqsbackend.SendMessageInput{
@@ -4808,6 +5024,7 @@ func (a *sqsSenderAdapter) SendMessageToQueue(
 		Region:      arnRegion(queueARN),
 		MessageBody: messageBody,
 	})
+	done(err)
 
 	return err
 }
@@ -11913,9 +12130,9 @@ func buildLogger(level string) *slog.Logger {
 	switch strings.ToLower(strings.TrimSpace(level)) {
 	case logLevelDebug:
 		slogLevel = slog.LevelDebug
-	case "warn":
+	case levelWarn:
 		slogLevel = slog.LevelWarn
-	case "error":
+	case levelError:
 		slogLevel = slog.LevelError
 	default:
 		slogLevel = slog.LevelInfo
@@ -11950,12 +12167,6 @@ type localstackHealthResponse struct {
 	Edition  string            `json:"edition"`
 }
 
-// localstackInitResponse is the JSON body returned by LocalStack-compatible init endpoints.
-type localstackInitResponse struct {
-	Scripts   []string `json:"scripts"`
-	Completed bool     `json:"completed"`
-}
-
 func buildLocalstackHealthHandler(services []service.Registerable) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		svcMap := make(map[string]string, len(services))
@@ -11966,16 +12177,7 @@ func buildLocalstackHealthHandler(services []service.Registerable) echo.HandlerF
 		return c.JSON(http.StatusOK, localstackHealthResponse{
 			Services: svcMap,
 			Version:  version.Get(),
-			Edition:  "community",
-		})
-	}
-}
-
-func buildLocalstackInitHandler() echo.HandlerFunc {
-	return func(c *echo.Context) error {
-		return c.JSON(http.StatusOK, localstackInitResponse{
-			Completed: true,
-			Scripts:   []string{},
+			Edition:  editionCommunity,
 		})
 	}
 }
@@ -11991,7 +12193,7 @@ func buildLocalstackInfoHandler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		return c.JSON(http.StatusOK, localstackInfoResponse{
 			Version:   version.Get(),
-			Edition:   "community",
+			Edition:   editionCommunity,
 			IsAuth:    false,
 			SessionID: "00000000-0000-0000-0000-000000000000",
 		})
@@ -12017,6 +12219,9 @@ func setupChaosAndRegistry(
 		cli.GetGlobalConfig(),
 		faultStore,
 		cli.Compression != compressionOff,
+		cli.IAMAudit,
+		cli.IAMPolicyStream(),
+		cli.extensionInterceptor(),
 	)
 	if err != nil {
 		return err
@@ -12029,6 +12234,7 @@ func setupChaosAndRegistry(
 	wireCloudControlHandlers(e, services)
 	wireServiceRoleAuthorizer(services, cli.EnforceIAM)
 	wireRDSIAMAuth(e, services, cli.EnforceIAM)
+	wireKafkaAuth(e, services, cli.EnforceIAM)
 
 	return nil
 }
@@ -12110,6 +12316,9 @@ func setupRegistry(
 	globalCfg *config.GlobalConfig,
 	faultStore *chaos.FaultStore,
 	compression bool,
+	iamAudit bool,
+	iamRecorder *iampolicystream.Recorder,
+	interceptor service.Interceptor,
 ) (*service.Registry, error) {
 	registry := service.NewRegistry()
 
@@ -12141,7 +12350,7 @@ func setupRegistry(
 		registry.Use(service.Middleware(principalMiddleware(principalResolvers)))
 	}
 
-	if enforceIAM {
+	if enforceIAM || iamAudit {
 		iamBackend := findIAMBackend(services)
 		if iamBackend != nil {
 			log.Info("IAM policy enforcement enabled")
@@ -12150,6 +12359,8 @@ func setupRegistry(
 				Global:            globalCfg,
 				ResourceProviders: buildResourcePolicyProviders(services),
 				ActionExtractors:  buildActionExtractors(services),
+				Recorder:          iamRecorder,
+				Audit:             iamAudit,
 			}
 
 			registry.Use(service.Middleware(iambackend.EnforcementMiddleware(iamBackend, ecfg)))
@@ -12168,7 +12379,8 @@ func setupRegistry(
 
 	router := service.NewServiceRouter(registry).
 		WithTargetGates(routegates.TargetGates()).
-		WithPathGates(routegates.PathGates())
+		WithPathGates(routegates.PathGates()).
+		WithInterceptor(interceptor)
 	e.Use(router.RouteHandler())
 
 	return registry, nil
@@ -12658,6 +12870,37 @@ func (a *bedrockPolicyAdapter) GetResourcePolicy(
 	return rp.PolicyDocument, nil
 }
 
+// launchPurgeWorker starts the TTL purge worker; it re-reads the TTL from config dynamically.
+func launchPurgeWorker(
+	janitorCtx, ctx context.Context,
+	log *slog.Logger,
+	cli *CLI,
+	services []service.Registerable,
+) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.ErrorContext(ctx, "purge worker: panic recovered",
+					"panic", fmt.Sprintf("%v", r))
+			}
+		}()
+		startPurgeWorker(janitorCtx, cli.globalConfig, services)
+	}()
+}
+
+// startDNSAndTransparent starts the embedded DNS server, in transparent mode when enabled.
+func startDNSAndTransparent(ctx context.Context, cli *CLI) (*transparentRuntime, *gopherDNS.Server, error) {
+	if cli.Transparent.Enabled {
+		return setupTransparent(ctx, cli.Transparent, cli.DNSListenAddr, cli.DNSResolveIP)
+	}
+
+	if cli.DNSListenAddr != "" {
+		return nil, startEmbeddedDNS(ctx, cli.DNSListenAddr, cli.DNSResolveIP), nil
+	}
+
+	return nil, nil, nil
+}
+
 // startEmbeddedDNS creates and starts the embedded DNS server.
 // Configuration errors and startup failures are logged as warnings; the server
 // continues to run without DNS in those cases.
@@ -12904,10 +13147,14 @@ func wireAzureStorageVHost(blobReg, queueReg, tableReg, vhostReg service.Registe
 // ServiceBus's real backend is a sibling service's already-constructed
 // runtime handler, only available here, at wireCrossServiceDependencies
 // time, mirroring wireAzureStorageVHost's post-construction injection.
-func wireAzureARMResourceProviders(armReg, sbReg service.Registerable) {
+func wireAzureARMResourceProviders(armReg, sbReg, kvReg service.Registerable) {
 	armH, ok := armReg.(*azurearmbackend.Handler)
 	if !ok {
 		return
+	}
+
+	if kvH, kvOk := kvReg.(*azurekeyvaultbackend.Handler); kvOk {
+		armH.Registry.SetKeyVaults(&azureKeyVaultsAdapter{backend: kvH.Backend})
 	}
 
 	sbH, ok := sbReg.(*azureservicebusbackend.Handler)

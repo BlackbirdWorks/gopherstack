@@ -148,9 +148,12 @@ families:
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to InMemoryBackend.Snapshot/Restore, versioned (codebuildSnapshotVersion), backed by store.Registry across all store.Table-based resource maps plus a plain resourcePolicies map"}
   janitor: {status: ok, note: "janitor.tick runs sweepCompletedBuilds (TTL eviction) then advanceInProgressBuilds (status advancement) every tick. FIXED 2026-09-11 (gopherstack-9ckk): advanceInProgressBuilds used to unconditionally flip every IN_PROGRESS BuildBatch straight to SUCCEEDED, ignoring groups entirely. Now advances plain builds (batch children included) as before, then calls reconcileBatch per IN_PROGRESS batch, which starts any build-graph group whose dependencies just went terminal and derives the batch's real status from its groups."}
   tags: {status: ok, note: "REMOVED this pass: TagResource/UntagResource/ListTagsForResource were gopherstack-invented operations with no counterpart on the real aws-sdk-go-v2/service/codebuild Client (verified: the SDK module has no api_op_TagResource.go/api_op_UntagResource.go/api_op_ListTagsForResource.go, and Client's exported method set — grepped directly from api_op_*.go — has no such methods). Real AWS CodeBuild only supports tagging inline via the `tags` field on CreateProject/CreateReportGroup/CreateFleet/UpdateProject (already implemented and unaffected). Deleted services/codebuild/tags.go, handler_tags.go, tags_test.go; removed the 3 ops from GetSupportedOperations()/dispatchTable(); TestHandler_GetSupportedOperations now asserts their absence."}
-items_still_open: []
+items_still_open:
+  - "Docker engine (--codebuild-engine=docker, gopherstack-49qct.14): GITHUB/GITHUB_ENTERPRISE/BITBUCKET/GITLAB sources are not cloned (the build FAILs in DOWNLOAD_SOURCE); only S3 zip/object, CODECOMMIT, NO_SOURCE and CODEPIPELINE-with-buildspec are materialised, and S3 folder-prefix sources are not."
+  - "Docker engine: command output reaches CloudWatch Logs when each buildspec phase script finishes, not line by line while it runs (the container runtime's Exec returns buffered output)."
+  - "Docker engine: buildspec reports, cache, exported-variables, runtime-versions, proxy, run-as and artifact-name $(command) substitution are parsed-and-ignored; build batches and BuildGroups still use the simulated path; AWS_ENDPOINT_URL for the emulator is not injected into the container."
 structural_gaps:
-  - "DescribeCodeCoverages/DescribeTestCases/GetReportGroupTrend return empty content: report data is ingested on AWS by the managed build agent parsing buildspec reports and artifact files, and this emulator runs no build commands."
+  - "DescribeCodeCoverages/DescribeTestCases/GetReportGroupTrend return empty content: report data is ingested on AWS by the managed build agent parsing buildspec reports and artifact files. Default (stub) mode runs no build commands; docker engine mode runs them but does not parse report files."
   - "BuildBatchConfig.CombineArtifacts and BatchReportMode are round-tripped config only: no artifact store to merge into and no Git host to report status to."
 gaps: []
                            # ComputeConfiguration/ProxyConfiguration/VpcConfig/ScalingConfiguration
@@ -1071,3 +1074,28 @@ StartBuild, RetryBuild, StartBuildBatch, RetryBuildBatch and StartSandbox honour
 ## 2026-10-09 realism pass
 
 Build IDs are `project:<uuid>`. When the janitor completes a build it records the full phase timeline (QUEUED through FINALIZING, then COMPLETED). StopBuild on a finished build returns it unchanged instead of rewriting SUCCEEDED to STOPPED. Create/UpdateProject validate the name pattern, timeouts (5-2160, queued 5-480) and environment/source/artifacts enums; StartBuild bounds timeoutInMinutesOverride. NotFound/AlreadyExists carry AWS-style messages and no code prefix. Lenient on purpose: serviceRole is not ARN-checked (fixtures use placeholders). Tests: realism_validation_test.go.
+
+## 2026-10-17 docker build engine (gopherstack-49qct.14)
+
+Opt-in `--codebuild-engine=docker` (`CODEBUILD_ENGINE`; default `stub`, behaviour unchanged) makes
+`StartBuild` run the buildspec in a container via `pkgs/container` (`--codebuild-engine-image`
+stands in for `aws/codebuild/*`; custom images are used as-is).
+
+- Source: S3 zip/object (emulator S3), CODECOMMIT (emulator codecommit tree at `sourceVersion`),
+  NO_SOURCE / CODEPIPELINE; buildspec from `buildspecOverride`, inline project buildspec, an
+  `arn:aws:s3:::` buildspec, a path in the source, or `buildspec.yml`.
+- Phases: QUEUED, PROVISIONING, DOWNLOAD_SOURCE, INSTALL, PRE_BUILD, BUILD, POST_BUILD,
+  UPLOAD_ARTIFACTS, FINALIZING, COMPLETED with real start/end/duration and failure contexts
+  (`COMMAND_EXECUTION_ERROR`, `YAML_FILE_ERROR`, `CLIENT_ERROR`, `BUILD_TIMED_OUT`). Buildspec 0.2
+  shares one shell per phase (cwd and exports persist across phases); 0.1 runs one shell per command.
+  `finally` always runs; `on-failure: CONTINUE` proceeds (build still ends FAILED), `ABORT` stops.
+  Unset on-failure: install/pre_build failure skips the rest, a build failure still runs post_build.
+  These transition rules are from the CodeBuild docs as recalled, not SDK-verified.
+- Env: buildspec variables < project < `environmentVariablesOverride`; PARAMETER_STORE and
+  SECRETS_MANAGER (`id:json-key:stage:version`) resolve from the emulator's ssm/secretsmanager and are
+  masked in logs; `CODEBUILD_*`, `AWS_REGION` set; `CODEBUILD_BUILD_SUCCEEDING` per phase.
+- Logs: CloudWatch group/stream default `/aws/codebuild/<project>` / build uuid, S3 logs `.gz`.
+- Artifacts: files / discard-paths / base-directory / name, NONE or ZIP packaging, BUILD_ID namespace,
+  secondary-artifacts, to the emulator's S3.
+- `StopBuild` kills the container (STOPPED); `timeoutInMinutes` yields TIMED_OUT. The janitor skips
+  builds the engine is executing. Open items are in `items_still_open`.

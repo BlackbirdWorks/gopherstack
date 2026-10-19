@@ -3,10 +3,13 @@ package app
 import (
 	"context"
 	"errors"
+	"net"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,7 +29,10 @@ import (
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
-var errFakeRuntime = errors.New("fake container runtime")
+var (
+	errFakeRuntime       = errors.New("fake container runtime")
+	errNoFreeLambdaPorts = errors.New("no free lambda runtime port block")
+)
 
 // startRecorder is a container runtime that records which region and function tried to start.
 type startRecorder struct {
@@ -67,13 +73,53 @@ func (r *startRecorder) has(entry string) bool {
 	return slices.Contains(r.started(), entry)
 }
 
+const (
+	lambdaPortBase  = 19910
+	lambdaPortSpan  = 4
+	lambdaPortSlots = 20
+)
+
+//nolint:gochecknoglobals // hands each test a disjoint port block so parallel tests never bind the same port
+var lambdaPortSlot atomic.Int32
+
+// newFreeLambdaPortRange returns an allocator over a port block no other test holds and nothing is listening on.
+func newFreeLambdaPortRange(t *testing.T) (*portalloc.Allocator, error) {
+	t.Helper()
+
+	for range lambdaPortSlots {
+		slot := int(lambdaPortSlot.Add(1)-1) % lambdaPortSlots
+		start := lambdaPortBase + slot*lambdaPortSpan
+
+		if portsFree(t.Context(), start, lambdaPortSpan) {
+			return portalloc.New(start, start+lambdaPortSpan)
+		}
+	}
+
+	return nil, errNoFreeLambdaPorts
+}
+
+func portsFree(ctx context.Context, start, n int) bool {
+	var lc net.ListenConfig
+
+	for p := start; p < start+n; p++ {
+		ln, err := lc.Listen(ctx, "tcp", ":"+strconv.Itoa(p))
+		if err != nil {
+			return false
+		}
+
+		_ = ln.Close()
+	}
+
+	return true
+}
+
 // regionalLambda builds a multi-region Lambda handler whose containers are recorded instead of started.
 func regionalLambda(t *testing.T) (*lambdabackend.Handler, *startRecorder) {
 	t.Helper()
 
 	rec := &startRecorder{}
 
-	pa, err := portalloc.New(19701, 19799)
+	pa, err := newFreeLambdaPortRange(t)
 	require.NoError(t, err)
 
 	bk := lambdabackend.NewInMemoryBackendWithContext(
@@ -300,7 +346,7 @@ func TestInitializeServices_LambdaPolicyAdapterReadsARNRegion(t *testing.T) {
 
 const cfnLambdaTemplate = `{"Resources":{
 "F":{"Type":"AWS::Lambda::Function","Properties":{"FunctionName":"cfn-fn","Runtime":"nodejs20.x",
-"Handler":"index.handler","Role":"arn:aws:iam::000000000000:role/r"}}}}`
+"Handler":"index.handler","Code":{"ZipFile":"x"},"Role":"arn:aws:iam::000000000000:role/r"}}}}`
 
 func TestInitializeServices_CloudFormationCreatesLambdaInStackRegion(t *testing.T) {
 	t.Parallel()

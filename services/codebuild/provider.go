@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -39,9 +40,24 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	backend := NewInMemoryBackend(accountID, region)
+	if settings.Engine == EngineDocker {
+		enableDockerEngine(ctx, backend, settings)
+	}
+
 	handler := NewHandler(backend)
 	handler.WithJanitor(settings.JanitorInterval, settings.BuildTTL, ctx.JanitorTimeout)
 	handler.EnableRegions(ctx.JanitorCtx)
 
 	return handler, nil
+}
+
+func enableDockerEngine(ctx *service.AppContext, backend *InMemoryBackend, settings Settings) {
+	rt, err := container.NewRuntime(container.Config{Logger: ctx.Logger})
+	if err != nil {
+		ctx.Logger.Warn("CodeBuild: container runtime unavailable; builds stay simulated", "error", err)
+
+		return
+	}
+
+	backend.EnableEngine(EngineConfig{Runtime: rt, DefaultImage: settings.EngineImage})
 }

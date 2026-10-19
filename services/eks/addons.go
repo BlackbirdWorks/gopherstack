@@ -123,14 +123,18 @@ func (b *InMemoryBackend) CreateAddon(
 	b.addons.Put(addon)
 	b.replaceAddonPodIdentityAssociationsLocked(clusterName, addon, podIdentityAssociations)
 
-	b.work.After("AddonTransition", b.dwell(addonTransitionDelay), func() {
-		b.mu.Lock("CreateAddon-async")
-		defer b.mu.Unlock()
+	if b.clusterLiveLocked(clusterName) && engineBackedAddon(addonName) {
+		b.kickClusterLocked(clusterName)
+	} else {
+		b.work.After("AddonTransition", b.dwell(addonTransitionDelay), func() {
+			b.mu.Lock("CreateAddon-async")
+			defer b.mu.Unlock()
 
-		if a, ok := b.addons.Get(addonKey(clusterName, addonName)); ok && a.Status == statusCreating {
-			a.Status = statusActive
-		}
-	})
+			if a, ok := b.addons.Get(addonKey(clusterName, addonName)); ok && a.Status == statusCreating {
+				a.Status = statusActive
+			}
+		})
+	}
 
 	cp := *addon
 
@@ -145,6 +149,7 @@ func (b *InMemoryBackend) CreateAddon(
 func (b *InMemoryBackend) DeleteAddon(clusterName, addonName string, preserve bool) (*Addon, error) {
 	b.mu.Lock("DeleteAddon")
 	defer b.mu.Unlock()
+	defer b.kickClusterLocked(clusterName)
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
@@ -227,6 +232,7 @@ func (b *InMemoryBackend) UpdateAddon(
 ) (*Addon, error) {
 	b.mu.Lock("UpdateAddon")
 	defer b.mu.Unlock()
+	defer b.kickClusterLocked(clusterName)
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)

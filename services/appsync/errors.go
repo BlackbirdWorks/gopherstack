@@ -21,11 +21,6 @@ var (
 	ErrGraphQLSchemaInvalid = awserr.New("GraphQLSchemaException", awserr.ErrInvalidParameter)
 	// ErrValidation is returned when input validation fails.
 	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
-	// ErrUnsupportedJSCode is returned when EvaluateCode is given an APPSYNC_JS
-	// construct the emulator's evaluator does not support. The request is
-	// well-formed, but the code uses features beyond the documented patterns the
-	// emulator faithfully evaluates (the emulator does not embed a JS engine).
-	ErrUnsupportedJSCode = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 	// ErrAPIKeyLimitExceeded is returned by CreateAPIKey when an API already
 	// has the maximum number of API keys (appsync@v1.56.4 types/errors.go:36:
 	// "The API key exceeded a limit. Try your request again.").

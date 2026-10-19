@@ -175,7 +175,7 @@ func resourceTypeAndIDFor(_, path string) (string, string) {
 // VerifyMasterKey recomputes the master-key signature for r using
 // masterKey, and reports whether it matches the signature the client sent.
 // This is an explicit, opt-in check: nothing in this package calls it
-// implicitly -- see handler.go's checkAuth, which only calls this when
+// implicitly -- see auth.go's authorize, which only calls this when
 // Settings.ValidateAuth is true, mirroring pkgs/azureauth.VerifySharedKey's
 // identical opt-in stance.
 func VerifyMasterKey(masterKey string, r *http.Request) (bool, error) {
@@ -196,4 +196,9 @@ func VerifyMasterKey(masterKey string, r *http.Request) (bool, error) {
 	}
 
 	return hmac.Equal([]byte(expected), []byte(auth.Signature)), nil
+}
+
+// encodeMasterKeyAuthorization builds the URL-encoded Authorization header value for sig.
+func encodeMasterKeyAuthorization(sig string) string {
+	return url.QueryEscape("type=master&ver=1.0&sig=" + sig)
 }

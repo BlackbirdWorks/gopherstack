@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -417,6 +418,12 @@ func (b *InMemoryBackend) markUnitReady(lb *liveCluster) {
 		return
 	}
 
+	if strings.HasPrefix(lb.id, workgroupUnitPrefix) {
+		b.markWorkgroupReadyLocked(lb)
+
+		return
+	}
+
 	lb.ready = true
 
 	c, ok := b.clusters.Get(lb.id)
@@ -459,6 +466,14 @@ func (b *InMemoryBackend) failUnit(lb *liveCluster) {
 	}
 
 	delete(b.engine.units, lb.id)
+
+	if strings.HasPrefix(lb.id, workgroupUnitPrefix) {
+		b.failWorkgroupLocked(lb)
+		b.mu.Unlock()
+		b.engine.reap(lb)
+
+		return
+	}
 
 	if c, ok := b.clusters.Get(lb.id); ok {
 		c.Status = clusterStatusEngineError
@@ -593,6 +608,8 @@ func (b *InMemoryBackend) relaunchClustersLocked() {
 			b.provisionClusterLocked(c, "")
 		}
 	}
+
+	b.relaunchWorkgroupsLocked()
 }
 
 // Close removes every cluster container and waits for in-flight work to finish.

@@ -3,6 +3,7 @@ package kafka_test
 import (
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
@@ -13,9 +14,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 )
+
+const testHTTPTimeout = 30 * time.Second
 
 // newTestKafkaClient stands up the real aws-sdk-go-v2 Kafka (MSK) client
 // against an httptest server running this package's Handler, wired through
@@ -31,8 +35,12 @@ func newTestKafkaClient(t *testing.T, h *kafka.Handler) *kafkasdk.Client {
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 
+	hc := httpclient.New(testHTTPTimeout)
+	t.Cleanup(hc.CloseIdleConnections)
+
 	cfg, err := awscfg.LoadDefaultConfig(
 		t.Context(),
+		awscfg.WithHTTPClient(hc),
 		awscfg.WithRegion("us-east-1"),
 		awscfg.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider("test", "test", ""),

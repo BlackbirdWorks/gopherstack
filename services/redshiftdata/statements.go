@@ -39,7 +39,7 @@ func (b *InMemoryBackend) ExecuteStatement(
 	}
 
 	region := getRegion(ctx, b.defaultRegion)
-	run, live := b.runEngine(ctx, region, clusterIdentifier, database, []string{sql}, parameters, false)
+	run, live := b.runEngine(ctx, region, clusterIdentifier, workgroupName, database, []string{sql}, parameters, false)
 
 	b.mu.Lock("ExecuteStatement")
 	defer b.mu.Unlock()
@@ -119,7 +119,7 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 	}
 
 	region := getRegion(ctx, b.defaultRegion)
-	run, live := b.runEngine(ctx, region, clusterIdentifier, database, sqls, parameters,
+	run, live := b.runEngine(ctx, region, clusterIdentifier, workgroupName, database, sqls, parameters,
 		executionMode == executionModeTransaction)
 
 	b.mu.Lock("BatchExecuteStatement")

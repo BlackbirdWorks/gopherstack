@@ -1764,3 +1764,7 @@ End-to-end CLI/SDK flows (cp/sync/mv, multipart, object lock, CORS, conditional 
 - A lifecycle rule with no action is 400 InvalidRequest. Proof: `TestLifecycleRuleRequiresAction`.
 
 Kept lenient: CORS `Access-Control-Allow-Origin` echoes the origin even for a `*` rule; static website serving stays on `/_gopherstack/website/{bucket}/{key}` (no Host-based endpoint); presigned URLs are not method-bound.
+
+## 2026-10-18: SelectObjectContent Parquet input (cefu7.36)
+
+`InputSerialization.Parquet` is now read for real (`select_parquet.go`, `pkgs/parquetio`) instead of failing UnsupportedFileType: all columns are decoded, the object is queried through the same SQL engine as JSON input, and CSV/JSON output both work (SELECT * to CSV keeps the file's column order). A file that is not Parquet returns ParquetParsingError; a CompressionType other than NONE returns InvalidCompressionFormat (the file's own page codecs are read transparently). Date/timestamp/decimal columns surface as strings and nested columns as JSON values; ScanRange is ignored for Parquet. BytesScanned still reports the object size, not the pruned column chunks.

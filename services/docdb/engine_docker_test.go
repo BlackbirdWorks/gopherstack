@@ -109,7 +109,8 @@ func TestEngineDockerRealMongo(t *testing.T) {
 	_, err = b.StopDBCluster(t.Context(), "c1")
 	require.NoError(t, err)
 	waitClusterStatusFor(t, b, "stopped", dockerEngineWait)
-	assert.Equal(t, "exited", dockerContainerState(t, id))
+	require.Eventually(t, func() bool { return dockerContainerState(t, id) == "exited" },
+		time.Minute, 250*time.Millisecond)
 
 	_, err = b.StartDBCluster(t.Context(), "c1")
 	require.NoError(t, err)

@@ -86,11 +86,9 @@ export function response(ctx) {
 	}
 }
 
-// TestInMemoryBackend_ExecuteGraphQL_JSCodeResolver_UnsupportedConstruct
-// verifies that JS code outside the documented evaluator subset (see
-// jseval.go) fails the resolution rather than silently returning an empty
-// or wrong result.
-func TestInMemoryBackend_ExecuteGraphQL_JSCodeResolver_UnsupportedConstruct(t *testing.T) {
+// TestInMemoryBackend_ExecuteGraphQL_JSCodeResolver_Bindings verifies that a
+// handler with local bindings and arithmetic runs on the real JS engine.
+func TestInMemoryBackend_ExecuteGraphQL_JSCodeResolver_Bindings(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
@@ -98,19 +96,21 @@ func TestInMemoryBackend_ExecuteGraphQL_JSCodeResolver_UnsupportedConstruct(t *t
 	key, keyErr := b.CreateAPIKey(api.APIID, "", 0)
 	require.NoError(t, keyErr)
 	auth := appsync.GraphQLAuth{APIKey: key.ID}
-	_, _ = b.StartSchemaCreation(api.APIID, `type Query { greet: String }`)
+	_, _ = b.StartSchemaCreation(api.APIID, `type Query { greet: Int }`)
 	_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{Name: "DS", Type: appsync.DataSourceTypeNone})
 	_, _ = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
 		FieldName:      "greet",
 		DataSourceName: "DS",
 		Code: `export function request(ctx) {
   let x = 1 + 1;
-  return x;
-}`,
+  return { payload: x };
+}
+export function response(ctx) { return ctx.result; }`,
 	})
 
-	_, err := b.ExecuteGraphQL(t.Context(), api.APIID, `query { greet }`, "", nil, auth)
-	require.Error(t, err)
+	got, err := b.ExecuteGraphQL(t.Context(), api.APIID, `query { greet }`, "", nil, auth)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, got["greet"])
 }
 
 // TestInMemoryBackend_ExecuteGraphQL_PipelineResolver verifies a PIPELINE

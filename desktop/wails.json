@@ -1,0 +1,10 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "Gopherstack",
+  "outputfilename": "gopherstack-desktop",
+  "info": {
+    "companyName": "Blackbird Works",
+    "productName": "Gopherstack",
+    "comments": "AWS emulator with a native dashboard window"
+  }
+}

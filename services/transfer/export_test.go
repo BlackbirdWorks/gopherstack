@@ -1,5 +1,7 @@
 package transfer
 
+import "net"
+
 // ServerCount returns the number of servers stored in the backend.
 // This is exported for use in tests only.
 func ServerCount(b *InMemoryBackend) int {
@@ -119,4 +121,12 @@ func SSHKeyBodyIndexCount(b *InMemoryBackend) int {
 	}
 
 	return n
+}
+
+// RemoteIP exposes remoteIP for tests.
+func RemoteIP(a net.Addr) string { return remoteIP(a) }
+
+// WriteAtForTest drives sftpWriter.WriteAt on a detached writer.
+func WriteAtForTest(p []byte, off int64) (int, error) {
+	return (&sftpWriter{}).WriteAt(p, off)
 }

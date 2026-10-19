@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/lightsail"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/lightsail"
 )
 
 // walkAttempts is how many times each paginated walk is repeated against the

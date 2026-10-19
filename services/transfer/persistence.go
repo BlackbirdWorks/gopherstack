@@ -73,6 +73,20 @@ func snapshotTagsStore(src map[string]map[string]string) map[string]map[string]s
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
+	if err := b.restore(ctx, data); err != nil {
+		return err
+	}
+
+	b.stopAllSFTP()
+
+	for _, s := range b.ListServers() {
+		b.reconcileSFTP(s.ServerID)
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
 	if err := persistence.UnmarshalSnapshot(ctx, "transfer", data, &snap); err != nil {

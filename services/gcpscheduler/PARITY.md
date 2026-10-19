@@ -1,0 +1,39 @@
+---
+service: gcpscheduler
+sdk_module: cloud.google.com/go/scheduler@v1.17.0
+last_audit_commit: e410c4cd9
+last_audit_date: 2026-10-18
+overall: B
+# Per-op or per-op-family status. Values: ok | partial | gap | deferred.
+# wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
+ops:
+  CreateJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "Job ID [a-zA-Z0-9_-]{1,500}, auto numeric name when unset (emulator-chosen); exactly one of http_target, app_engine_http_target, pubsub_target, each validated; unix-cron schedule and IANA time_zone (default Etc/UTC) parsed; retry_config defaults filled (retry_count 0, min 5s, max 3600s, max_doublings 5; zero means unset); attempt_deadline 15s-30m (HTTP/Pub/Sub) or 15s-24h (App Engine), default 3m. Output-only fields are reset: state ENABLED, schedule_time = next fire, user_update_time = now. Duplicate is ALREADY_EXISTS. The location is not checked against the region catalog."}
+  GetJob: {wire: ok, errors: ok, state: ok, persist: n/a}
+  ListJobs: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Sorted by name, paged via pkgs/page; page_size default and cap 500."}
+  UpdateJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "Field-mask driven via protoreflect: description, schedule, time_zone, retry_config(.*), attempt_deadline, http_target/app_engine_http_target/pubsub_target (and sub-fields). Empty mask replaces every mutable field. name, state, status, schedule_time, last_attempt_time and user_update_time are INVALID_ARGUMENT; the merged job is fully revalidated and a failure changes nothing. A missing job is NOT_FOUND (no upsert). Enabled jobs get schedule_time recomputed from now."}
+  DeleteJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "In-flight attempts finish but their outcome is discarded."}
+  PauseJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "Only ENABLED jobs; clears schedule_time and any pending retry; otherwise FAILED_PRECONDITION."}
+  ResumeJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "Only PAUSED jobs; schedule_time is the next slot after now (missed slots are not replayed); otherwise FAILED_PRECONDITION."}
+  RunJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "Starts an attempt now regardless of state (paused jobs included) or an attempt already running; returns immediately with last_attempt_time set, the attempt completes asynchronously and applies the job's retry_config. The cron schedule is not disturbed."}
+  ListLocations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "google.cloud.location.Locations on the same listener; static catalog of 40 Cloud Scheduler regions with display names and the cloud.googleapis.com/region label; filter is INVALID_ARGUMENT."}
+  GetLocation: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Unknown region is NOT_FOUND."}
+families:
+  cron: {status: partial, note: "Five-field unix-cron: *, lists, ranges, steps (n, a-b/n, */n), month and weekday names, weekday 7 = Sunday, day-of-month/day-of-week OR when both are restricted, plus @hourly/@daily/@midnight/@weekly/@monthly/@yearly/@annually (accepted as an extension; not verified against the real service). Evaluated in the job's time zone with DST gaps firing once. App Engine cron syntax (every 5 minutes) is rejected with INVALID_ARGUMENT. Slots missed while the process was down or the clock jumped collapse into one fire."}
+  dispatch: {status: ok, note: "A 250ms ticker fires ENABLED jobs whose schedule_time has passed, then advances schedule_time. A job with an attempt in flight waits for it before its next cron fire. HttpTarget is really sent with pkgs/httpclient (method default POST, headers, body, attempt_deadline timeout, redirects not followed); 2xx is success. X-CloudScheduler, X-CloudScheduler-JobName and X-CloudScheduler-ScheduleTime headers and User-Agent Google-Cloud-Scheduler are set. job.status records the google.rpc.Status of the last finished attempt and last_attempt_time its start."}
+  retries: {status: ok, note: "A failed attempt retries after min_backoff, doubling max_doublings times then growing linearly, capped at max_backoff; retries continue while either retry_count or max_retry_duration (measured from the first attempt) is not exhausted. A new cron fire or RunJob starts a fresh execution and cancels a pending retry; pause also cancels it. Pending retry state is persisted."}
+  pubsub_target: {status: ok, note: "Publishes into the in-process Pub/Sub emulator (internal/app wiring, GCPPubSub handler Backend.Publish) with data, attributes and the googclient_schedulejobname / googclient_scheduletime attributes. A missing topic fails the attempt with the publish NOT_FOUND status; if Pub/Sub is not registered the attempt fails with FAILED_PRECONDITION."}
+  app_engine: {status: partial, note: "AppEngineHttpTarget is sent to --gcp-scheduler-appengine-url / GCP_SCHEDULER_APPENGINE_URL plus relative_uri; app_engine_routing only contributes X-Appengine-Routing-Host. With no base URL the attempt fails with FAILED_PRECONDITION 'not dispatchable' and follows the retry policy."}
+  auth_tokens: {status: partial, note: "OIDC tokens are UNSIGNED JWTs (alg none, claim gopherstack=unsigned-test-token) and OAuth tokens are opaque placeholders; no verifier accepts them as real credentials. oauth_token is not restricted to googleapis.com hosts."}
+  routing_isolation: {status: ok, note: "Own gRPC server bound in StartWorker to --gcp-scheduler-port / GCP_SCHEDULER_PORT (default 8124, fails fast if taken); never registered on the shared AWS router. cli.go reserves the port in the shared PortAlloc pool. The official client has no emulator variable: use option.WithEndpoint with insecure credentials."}
+  auth: {status: partial, note: "No request is authenticated or authorised; there is no IAM policy surface in the v1 Cloud Scheduler API."}
+  observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; attempts that will not be retried are logged at warn. gRPC calls are not fed to the shared telemetry operation metrics."}
+items_still_open:
+  - "Job state DISABLED and UPDATE_FAILED are never produced (updates are applied atomically); ResumeJob and PauseJob refuse them if they appear."
+  - "App Engine cron schedule syntax (every N minutes, every monday 09:00) is not supported; only unix-cron."
+  - "CreateJob does not validate the location against the supported-region catalog or the project against any registry."
+  - "Persisted in-flight attempts are not resumed mid-flight; after a restore the next cron slot or the persisted retry time applies."
+  - "Cloud Scheduler job-level max_doublings default (5) follows the documentation; the value the live service echoes was not verified."
+leaks: {status: clean, note: "Background resources are the grpc.Server, the dispatcher ticker goroutine and in-flight delivery goroutines; Shutdown cancels the run context and joins all of them (goleak in TestMain)."}
+---
+
+Initial implementation (2026-10-18): google.cloud.scheduler.v1 CloudScheduler and google.cloud.location.Locations gRPC verified against cloud.google.com/go/scheduler v1.17.0 through the official client in the package tests; cron firing, retry spacing and attempt deadlines covered with a fake clock and testing/synctest runs of the real ticker loop.

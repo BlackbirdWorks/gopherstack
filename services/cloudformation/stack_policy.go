@@ -53,7 +53,7 @@ func (b *InMemoryBackend) checkStackPolicy(stack *Stack, newTemplateBody string,
 		return nil
 	}
 
-	for _, change := range b.computeChanges(newTemplateBody, stack) {
+	for _, change := range b.computeChanges(newTemplateBody, stack, nil) {
 		action, gated := stackPolicyActionForChange(change.ResourceChange)
 		if !gated {
 			continue

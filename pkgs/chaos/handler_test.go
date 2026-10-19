@@ -115,11 +115,11 @@ func TestChaosHandler_Faults_PostReplacesRules(t *testing.T) {
 			name: "post multiple rules",
 			body: []chaos.FaultRule{
 				{Service: "s3"},
-				{Service: "dynamodb", Operation: "PutItem", Probability: 0.5},
+				{Service: "dynamodb", Operation: "PutItem", Probability: new(0.5)},
 			},
 			wantRules: []chaos.FaultRule{
 				{Service: "s3"},
-				{Service: "dynamodb", Operation: "PutItem", Probability: 0.5},
+				{Service: "dynamodb", Operation: "PutItem", Probability: new(0.5)},
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -689,7 +689,7 @@ func TestChaosHandler_Query_WithData(t *testing.T) {
 	t.Parallel()
 
 	store := chaos.NewFaultStore()
-	store.AppendRules([]chaos.FaultRule{{Service: "s3", Probability: 0.5}})
+	store.AppendRules([]chaos.FaultRule{{Service: "s3", Probability: new(0.5)}})
 	store.SetEffects(chaos.NetworkEffects{Latency: 100})
 	store.RecordActivity(chaos.ActivityEvent{Service: "dynamodb", Operation: "PutItem", Triggered: true})
 
@@ -707,7 +707,8 @@ func TestChaosHandler_Query_WithData(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
 	require.Len(t, resp.Faults, 1)
 	assert.Equal(t, "s3", resp.Faults[0].Service)
-	assert.InDelta(t, 0.5, resp.Faults[0].Probability, 0.001)
+	require.NotNil(t, resp.Faults[0].Probability)
+	assert.InDelta(t, 0.5, *resp.Faults[0].Probability, 0.001)
 	assert.Equal(t, 100, resp.Effects.Latency)
 	require.Len(t, resp.Activity, 1)
 	assert.Equal(t, "dynamodb", resp.Activity[0].Service)
@@ -718,8 +719,8 @@ func TestChaosHandler_ClearFaults(t *testing.T) {
 
 	store := chaos.NewFaultStore()
 	store.AppendRules([]chaos.FaultRule{
-		{Service: "s3", Probability: 0.5},
-		{Service: "dynamodb", Probability: 1.0},
+		{Service: "s3", Probability: new(0.5)},
+		{Service: "dynamodb", Probability: new(1.0)},
 	})
 
 	reg := service.NewRegistry()

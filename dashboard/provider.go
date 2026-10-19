@@ -16,11 +16,18 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	"github.com/blackbirdworks/gopherstack/services/athena"
 	"github.com/blackbirdworks/gopherstack/services/autoscaling"
+	"github.com/blackbirdworks/gopherstack/services/azurearm"
+	"github.com/blackbirdworks/gopherstack/services/azureblob"
+	"github.com/blackbirdworks/gopherstack/services/azurekeyvault"
+	"github.com/blackbirdworks/gopherstack/services/azurequeue"
+	"github.com/blackbirdworks/gopherstack/services/azureservicebus"
+	"github.com/blackbirdworks/gopherstack/services/azuretable"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 	"github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/ec2"
 	"github.com/blackbirdworks/gopherstack/services/ecr"
@@ -28,6 +35,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/efs"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
+	"github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
+	"github.com/blackbirdworks/gopherstack/services/gcpfirestore"
+	"github.com/blackbirdworks/gopherstack/services/gcpkms"
+	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	"github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
+	"github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
@@ -100,6 +113,36 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		linkHandlers(&conf, ap)
 	}
 
+	if ap, hasARM := ctx.Config.(interface{ GetAzureARMHandler() service.Registerable }); hasARM {
+		conf.AzureARMOps, _ = getHandler[*azurearm.Handler](ap.GetAzureARMHandler())
+	}
+
+	if bp, hasBlob := ctx.Config.(interface{ GetAzureBlobHandler() service.Registerable }); hasBlob {
+		conf.AzureBlobOps, _ = getHandler[*azureblob.Handler](bp.GetAzureBlobHandler())
+	}
+
+	wireGCPOps(ctx, &conf)
+
+	if qp, hasQueue := ctx.Config.(interface{ GetAzureQueueHandler() service.Registerable }); hasQueue {
+		conf.AzureQueueOps, _ = getHandler[*azurequeue.Handler](qp.GetAzureQueueHandler())
+	}
+
+	if tp, hasTable := ctx.Config.(interface{ GetAzureTableHandler() service.Registerable }); hasTable {
+		conf.AzureTableOps, _ = getHandler[*azuretable.Handler](tp.GetAzureTableHandler())
+	}
+
+	if sp, hasBus := ctx.Config.(interface{ GetAzureServiceBusHandler() service.Registerable }); hasBus {
+		conf.AzureServiceBusOps, _ = getHandler[*azureservicebus.Handler](sp.GetAzureServiceBusHandler())
+	}
+
+	if kp, hasKV := ctx.Config.(interface{ GetAzureKeyVaultHandler() service.Registerable }); hasKV {
+		conf.AzureKeyVaultOps, _ = getHandler[*azurekeyvault.Handler](kp.GetAzureKeyVaultHandler())
+	}
+
+	if cp, hasCosmos := ctx.Config.(interface{ GetCosmosDBHandler() service.Registerable }); hasCosmos {
+		conf.AzureCosmosOps, _ = getHandler[*cosmosdb.Handler](cp.GetCosmosDBHandler())
+	}
+
 	h := NewHandler(conf)
 
 	return h, nil
@@ -155,4 +198,31 @@ func getHandler[T any](h service.Registerable) (T, bool) {
 	v, ok := h.(T)
 
 	return v, ok
+}
+
+// wireGCPOps resolves the in-process GCP backends the dashboard proxies call.
+func wireGCPOps(ctx *service.AppContext, conf *Config) {
+	if gp, hasGCS := ctx.Config.(interface{ GetGCPStorageHandler() service.Registerable }); hasGCS {
+		conf.GCPStorageOps, _ = getHandler[*gcpstorage.Handler](gp.GetGCPStorageHandler())
+	}
+
+	if gp, hasPubSub := ctx.Config.(interface{ GetGCPPubSubHandler() service.Registerable }); hasPubSub {
+		conf.GCPPubSubOps, _ = getHandler[*gcppubsub.Handler](gp.GetGCPPubSubHandler())
+	}
+
+	if gp, hasFS := ctx.Config.(interface{ GetGCPFirestoreHandler() service.Registerable }); hasFS {
+		conf.GCPFirestoreOps, _ = getHandler[*gcpfirestore.Handler](gp.GetGCPFirestoreHandler())
+	}
+
+	if gp, hasSM := ctx.Config.(interface{ GetGCPSecretManagerHandler() service.Registerable }); hasSM {
+		conf.GCPSecretManagerOps, _ = getHandler[*gcpsecretmanager.Handler](gp.GetGCPSecretManagerHandler())
+	}
+
+	if gp, hasKMS := ctx.Config.(interface{ GetGCPKMSHandler() service.Registerable }); hasKMS {
+		conf.GCPKMSOps, _ = getHandler[*gcpkms.Handler](gp.GetGCPKMSHandler())
+	}
+
+	if gp, hasCT := ctx.Config.(interface{ GetGCPCloudTasksHandler() service.Registerable }); hasCT {
+		conf.GCPCloudTasksOps, _ = getHandler[*gcpcloudtasks.Handler](gp.GetGCPCloudTasksHandler())
+	}
 }

@@ -65,6 +65,7 @@ func mrConfigs(t *testing.T, h *svc.Handler) func(region string) aws.Config {
 			return d.DialContext(ctx, network, addr)
 		},
 	}}
+	t.Cleanup(httpClient.CloseIdleConnections)
 
 	return func(region string) aws.Config {
 		cfg, err := awscfg.LoadDefaultConfig(

@@ -9,16 +9,23 @@
 | --- | --- |
 | PARITY entries audited | 64 (55 ok, 9 gap) |
 | Feature families | 13 (13 ok) |
-| Known gaps | none |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- UpdateSecurity on a docker-backed cluster does not reconfigure the running broker's listeners (needs a rolling relaunch that keeps topics).
+- TLS client-certificate (mutual TLS / ACM PCA) authentication is not enforced: the TLS listener is server-TLS only.
+- AWS_MSK_IAM enforces kafka-cluster:Connect only; per-API actions (WriteData, ReadData, CreateTopic, ...) are not evaluated against policies.
+- Lambda MSK event source mappings only resolve the plaintext bootstrap; SCRAM/IAM clusters need credentials plumbed into the poller.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- Docker engine (--kafka-engine=docker) runs ONE plaintext single-node KRaft broker per provisioned cluster; serverless clusters, TLS/SASL/IAM listeners and the MSK Topic API metadata are not backed by a real multi-broker cluster.
+- Docker engine (--kafka-engine=docker) runs ONE single-node KRaft broker per provisioned cluster (apache/kafka 3.9.1); serverless clusters and the MSK Topic API metadata are not backed by a real multi-broker cluster. Clusters with no explicit encryption/auth settings keep the original single plaintext listener; any explicit EncryptionInfo or ClientAuthentication switches to MSK-style listeners (see 2026-10-18 section).
 
 ## More
 

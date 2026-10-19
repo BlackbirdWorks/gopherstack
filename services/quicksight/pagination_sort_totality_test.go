@@ -3,8 +3,9 @@ package quicksight_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/quicksight"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/quicksight"
 )
 
 // walkAttempts is how many times each paginated walk is repeated against the

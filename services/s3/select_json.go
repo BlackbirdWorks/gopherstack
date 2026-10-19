@@ -140,8 +140,19 @@ func serializeJSONQueryResults(
 	resultRows []map[string]any,
 	out selectOutputSerialization,
 ) ([]byte, error) {
+	return serializeJSONQueryResultsOrdered(query, resultRows, out, nil)
+}
+
+// serializeJSONQueryResultsOrdered is serializeJSONQueryResults with the
+// source column order, which SELECT * to CSV needs.
+func serializeJSONQueryResultsOrdered(
+	query *sqlQuery,
+	resultRows []map[string]any,
+	out selectOutputSerialization,
+	headers []string,
+) ([]byte, error) {
 	if out.CSV != nil {
-		return serializeJSONRowsAsCSV(query, resultRows, out.CSV)
+		return serializeJSONRowsAsCSV(query, resultRows, out.CSV, headers)
 	}
 
 	return serializeJSONRows(resultRows, out.JSON)
@@ -153,7 +164,9 @@ func serializeJSONQueryResults(
 // order - json.Unmarshal into map[string]any discards it - so it falls back
 // to alphabetical via serializeCSVRows; a known, documented gap rather than
 // a fix attempted here.
-func serializeJSONRowsAsCSV(query *sqlQuery, rows []map[string]any, csvOut *selectCSVOutput) ([]byte, error) {
+func serializeJSONRowsAsCSV(
+	query *sqlQuery, rows []map[string]any, csvOut *selectCSVOutput, headers []string,
+) ([]byte, error) {
 	strRows := make([]map[string]string, 0, len(rows))
 
 	for _, row := range rows {
@@ -165,7 +178,7 @@ func serializeJSONRowsAsCSV(query *sqlQuery, rows []map[string]any, csvOut *sele
 		strRows = append(strRows, strRow)
 	}
 
-	buf := serializeCSVRows(strRows, csvOut, csvOutputColumnOrder(query, nil))
+	buf := serializeCSVRows(strRows, csvOut, csvOutputColumnOrder(query, headers))
 
 	return buf, nil
 }

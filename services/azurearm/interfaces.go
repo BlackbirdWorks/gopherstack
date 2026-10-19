@@ -88,3 +88,18 @@ func (noopServiceBusEntities) DeleteSubscription(string, string) error { return 
 func (noopServiceBusEntities) SubscriptionExists(string, string) bool  { return false }
 
 var _ ServiceBusEntities = noopServiceBusEntities{}
+
+// KeyVaults is the seam the Microsoft.KeyVault resource provider uses to
+// register and remove vaults in the Key Vault data plane. Primitive types only,
+// so this package never imports services/azurekeyvault.
+type KeyVaults interface {
+	CreateVault(name string, retentionDays int, purgeProtection bool)
+	DeleteVault(name string)
+}
+
+type noopKeyVaults struct{}
+
+func (noopKeyVaults) CreateVault(string, int, bool) {}
+func (noopKeyVaults) DeleteVault(string)            {}
+
+var _ KeyVaults = noopKeyVaults{}

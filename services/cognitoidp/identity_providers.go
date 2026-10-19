@@ -5,19 +5,49 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strconv"
 	"time"
 )
 
-// AdminDisableProviderForUser prevents a federated identity from signing in for a user.
-// Since this mock does not track federated identity providers, this validates the pool exists
-// and returns success (matching AWS behaviour for unknown provider links).
-func (b *InMemoryBackend) AdminDisableProviderForUser(userPoolID string) error {
-	b.mu.RLock("AdminDisableProviderForUser")
-	defer b.mu.RUnlock()
+// AdminDisableProviderForUser unlinks a linked external identity from its native user, or deletes the
+// standalone federated profile, so the identity must sign in afresh.
+func (b *InMemoryBackend) AdminDisableProviderForUser(userPoolID, providerName, _, attrValue string) error {
+	b.mu.Lock("AdminDisableProviderForUser")
+	defer b.mu.Unlock()
 
 	if _, ok := b.pools.Get(userPoolID); !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
+
+	if providerName == "" || attrValue == "" {
+		return fmt.Errorf("%w: User.ProviderName and User.ProviderAttributeValue are required", ErrInvalidParameter)
+	}
+
+	if _, ok := b.identityProviders.Get(identityProviderKey(userPoolID, providerName)); !ok {
+		return fmt.Errorf(
+			"%w: identity provider %q not found in pool %q",
+			ErrUserPoolNotFound,
+			providerName,
+			userPoolID,
+		)
+	}
+
+	if owner := b.linkedUserLocked(userPoolID, providerName, attrValue); owner != nil {
+		owner.LinkedProviders = slices.DeleteFunc(owner.LinkedProviders, func(l ProviderLink) bool {
+			return l.ProviderName == providerName && l.ProviderAttributeValue == attrValue
+		})
+		owner.Attributes[attrIdentities] = removeIdentity(owner.Attributes[attrIdentities], providerName, attrValue)
+		owner.UpdatedAt = time.Now()
+
+		return nil
+	}
+
+	fed, ok := b.users.Get(userKey(userPoolID, providerName+"_"+attrValue))
+	if !ok || fed.Status != UserStatusExternalProvider {
+		return fmt.Errorf("%w: no user is linked to %s identity %q", ErrUserNotFound, providerName, attrValue)
+	}
+
+	b.deleteUserStateLocked(userPoolID, fed.Username)
 
 	return nil
 }
@@ -269,8 +299,8 @@ func (b *InMemoryBackend) DeleteIdentityProvider(userPoolID, providerName string
 	return nil
 }
 
-// AdminLinkProviderForUser links a federated identity (SourceUser) to an
-// existing Cognito user (DestinationUser) in the given pool.
+// AdminLinkProviderForUser links an external identity (SourceUser) to an existing native user
+// (DestinationUser); a standalone federated profile for that identity is merged away.
 func (b *InMemoryBackend) AdminLinkProviderForUser(
 	userPoolID, destinationUsername string,
 	sourceProviderName, sourceAttrName, sourceAttrValue string,
@@ -291,10 +321,33 @@ func (b *InMemoryBackend) AdminLinkProviderForUser(
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, destinationUsername)
 	}
 
+	if user.Status == UserStatusExternalProvider {
+		return fmt.Errorf("%w: DestinationUser must be a native Cognito user", ErrInvalidParameter)
+	}
+
 	if sourceProviderName == "" || sourceAttrName == "" || sourceAttrValue == "" {
 		return fmt.Errorf(
 			"%w: SourceUser must include ProviderName, ProviderAttributeName, and ProviderAttributeValue",
 			ErrInvalidParameter)
+	}
+
+	idp, ok := b.identityProviders.Get(identityProviderKey(userPoolID, sourceProviderName))
+	if !ok {
+		return fmt.Errorf("%w: identity provider %q not found in pool %q",
+			ErrUserPoolNotFound, sourceProviderName, userPoolID)
+	}
+
+	if owner := b.linkedUserLocked(userPoolID, sourceProviderName, sourceAttrValue); owner != nil {
+		if owner == user {
+			return nil
+		}
+
+		return fmt.Errorf("%w: identity %q is already linked to another user", ErrAliasExists, sourceAttrValue)
+	}
+
+	if fed, found := b.users.Get(userKey(userPoolID, sourceProviderName+"_"+sourceAttrValue)); found &&
+		fed.Status == UserStatusExternalProvider {
+		b.deleteUserStateLocked(userPoolID, fed.Username)
 	}
 
 	user.LinkedProviders = append(user.LinkedProviders, ProviderLink{
@@ -302,6 +355,16 @@ func (b *InMemoryBackend) AdminLinkProviderForUser(
 		ProviderAttributeName:  sourceAttrName,
 		ProviderAttributeValue: sourceAttrValue,
 	})
+
+	if user.Attributes == nil {
+		user.Attributes = make(map[string]string)
+	}
+
+	user.Attributes[attrIdentities] = appendIdentity(user.Attributes[attrIdentities], identityRecord{
+		UserID: sourceAttrValue, ProviderName: sourceProviderName, ProviderType: idp.ProviderType,
+		Primary: attrVerifiedFalse, DateCreated: strconv.FormatInt(time.Now().UnixMilli(), 10),
+	})
+	user.UpdatedAt = time.Now()
 
 	return nil
 }

@@ -1,3 +1,4 @@
+AMP	/scraperconfiguration /scrapers /tags /workspaces
 APIGatewayManagementAPI	/@connections /_gopherstack
 APIGatewayV2	/v2
 AccessAnalyzer	/access-preview /analyzed-resource /analyzer /archive-rule /finding /policy /recommendation /resource /service-linked-analyzer /tags
@@ -5,16 +6,20 @@ Account	/acceptPrimaryEmailUpdate /deleteAlternateContact /disableRegion /enable
 Amplify	/apps /artifacts /tags /webhooks
 AppConfig	/applications /deployementstrategies /deploymentstrategies /experimentdefinitions /extensionassociations /extensions /settings /tags
 AppConfigData	/configuration
+AppIntegrations	/applications /dataIntegrations /eventIntegrations /tags
 AppMesh	/v20190125
 AppSync	/v1 /v2
 Backup	/account-settings /audit /backup /copy-jobs /global-settings /indexes /legal-holds /logically-air-gapped-backup-vaults /resources /restore-access-backup-vaults /restore-jobs /restore-testing /scan /supported-resource-types /tags /tiering-configurations /untag
 Batch	/v1
 Bedrock	/advanced-prompt-optimization-job /automated-reasoning-policies /create-foundation-model-agreement /custom-models /data-retention /delete-foundation-model-agreement /enforcedGuardrailsConfiguration /evaluation-job /foundation-model-availability /foundation-models /guardrails /imported-models /inference-profiles /list-foundation-model-agreement-offers /listTagsForResource /logging /marketplace-model /model-copy-jobs /model-customization /model-import-jobs /model-invocation-job /prompt-routers /provisioned-model-throughput /resource-policy /tagResource /untagResource /use-case-for-model-access
 BedrockAgent	/agents /flows /knowledgebases /prompts /resourcepolicy /tags
+BedrockAgentCoreControl	/browser-profiles /browsers /capacity-providers /code-interpreters /configuration-bundles /datasets /evaluators /gateways /harnesses /identities /memories /online-evaluation-configs /payments /policy-engine-summaries /policy-engines /registries /resourcepolicy /runtimes /tags
 BedrockRuntime	/async-invoke /guardrail /model
 CloudFront	/2020-05-31
 CloudFront KeyValueStore	/key-value-stores
 CodeArtifact	/v1
+CodeGuruReviewer	/associations /codereviews /feedback /tags
+Connect	/agent-status /analytics-data /associate-security-profiles /attached-files /auth /chat-integration-event /contact /cross-region-routing /data-tables /default-vocabulary /disassociate-security-profiles /effective-hours-of-operations /email-addresses /entity-security-profiles-summary /evaluation-forms /extraction-definitions /flow-associations /hours-of-operations /instance /metrics /notifications /phone-number /predefined-attributes /prompts /push-notification /queues /quick-connects /routing-profiles /rules /search- /security-profiles /tags /test-case /traffic-distribution /user /views /vocabulary /workspaces
 DLM	/policies /tags
 DSQL	/cluster /stream /tags
 Dashboard	/dashboard
@@ -51,9 +56,12 @@ Polly	/v1
 QuickSight	/account /governance /resources /v1
 RAM	/acceptresourceshareinvitation /associateresourceshare /createpermission /createresourceshare /deletepermission /deleteresourceshare /disassociateresourceshare /enablesharingwithawsorganization /getpermission /getresourcepolicies /getresourceshareassociations /getresourceshareinvitations /getresourceshares /listpendinginvitationresources /listpermissionassociations /listpermissions /listpermissionversions /listprincipals /listreplacepermissionassociationswork /listresources /listresourcetypes /listsourceassociations /listtagsforresource /promotepermissioncreatedfrompolicy /promoteresourcesharecreatedfrompolicy /rejectresourceshareinvitation /replacepermissionassociations /setdefaultpermissionversion /tagresource /untagresource /updateresourceshare
 RDSData	/BatchExecute /BeginTransaction /CommitTransaction /Execute /RollbackTransaction
+ResourceExplorer2	/AssociateDefaultView /BatchGetView /CreateIndex /CreateResourceExplorerSetup /CreateView /DeleteIndex /DeleteResourceExplorerSetup /DeleteView /DisassociateDefaultView /GetAccountLevelServiceConfiguration /GetDefaultView /GetIndex /GetManagedView /GetResourceExplorerSetup /GetServiceIndex /GetServiceView /GetView /ListIndexes /ListIndexesForMembers /ListManagedViews /ListResources /ListServiceIndexes /ListServiceViews /ListStreamingAccessForServices /ListSupportedResourceTypes /ListViews /Search /UpdateIndexType /UpdateView /tags
 RolesAnywhere	/ListTagsForResource /TagResource /UntagResource /crl /profile /put-notifications-settings /reset-notifications-settings /subject /trustanchor
 Route53	/2013-04-01
+RUM	/appmonitor /appmonitors /rummetrics /tags
 S3Control	/v20180820
+S3Vectors	/CreateIndex /CreateVectorBucket /DeleteIndex /DeleteVectorBucket /DeleteVectorBucketPolicy /DeleteVectors /GetIndex /GetVectorBucket /GetVectorBucketPolicy /GetVectors /ListIndexes /ListVectorBuckets /ListVectors /PutVectorBucketDefaultIndexMode /PutVectorBucketPolicy /PutVectors /QueryVectors /UpdateIndexMode /tags
 S3tables	/buckets /get-table /namespaces /replication-status /table-bucket-replication /table-record-expiration /table-replication /tables /tag
 SESv2	/v2
 SageMakerRuntime	/endpoints

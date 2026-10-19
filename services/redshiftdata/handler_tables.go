@@ -196,7 +196,7 @@ func buildDemoColumns() []map[string]any {
 	return []map[string]any{
 		{
 			keyName:       "id",
-			keyTypeName:   "int4",
+			keyTypeName:   pgInt4,
 			keyLength:     sizeInt,
 			keyNullable:   notNull,
 			keySchemaName: schemaPublic,
@@ -217,14 +217,14 @@ func buildDemoColumns() []map[string]any {
 		},
 		{
 			keyName:       "created_at",
-			keyTypeName:   "timestamp",
+			keyTypeName:   pgTimestamp,
 			keyLength:     sizeTimestamp,
 			keyNullable:   nullable,
 			keySchemaName: schemaPublic,
 		},
 		{
 			keyName:       "updated_at",
-			keyTypeName:   "timestamp",
+			keyTypeName:   pgTimestamp,
 			keyLength:     sizeTimestamp,
 			keyNullable:   nullable,
 			keySchemaName: schemaPublic,

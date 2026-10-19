@@ -5,6 +5,11 @@ import (
 	"strconv"
 )
 
+const (
+	ddbTagBool = "BOOL"
+	ddbTagNull = "NULL"
+)
+
 // ddbPlain converts DynamoDB AttributeValue JSON ({"S":"x"}, {"N":"1"}, ...)
 // to plain JSON values, as AppSync does for DynamoDB resolver results.
 func ddbPlain(v any) any {
@@ -19,9 +24,9 @@ func ddbPlain(v any) any {
 			return val
 		case "N":
 			return ddbNumber(val)
-		case "BOOL":
+		case ddbTagBool:
 			return val
-		case "NULL":
+		case ddbTagNull:
 			return nil
 		case "L":
 			return ddbPlainList(val, false)

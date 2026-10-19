@@ -409,8 +409,8 @@ func TestPutRule_MutualExclusion(t *testing.T) {
 
 	tests := []struct {
 		wantErr error
-		input   eventbridge.PutRuleInput
 		name    string
+		input   eventbridge.PutRuleInput
 	}{
 		{
 			name: "both set rejects",

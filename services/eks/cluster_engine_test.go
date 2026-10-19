@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 )
 
@@ -304,7 +305,10 @@ func TestDockerCluster_Lifecycle(t *testing.T) {
 			_, port, ctrPort, _ := container.ParsePortSpec(spec.Ports[0])
 			assert.Equal(t, "6443", ctrPort)
 
-			assert.Equal(t, "https://eks.test:"+port, d.Endpoint)
+			proxyPort := strings.TrimPrefix(d.Endpoint, "https://eks.test:")
+			_, convErr := strconv.Atoi(proxyPort)
+			require.NoError(t, convErr, "endpoint must be the authenticating proxy: %s", d.Endpoint)
+			assert.NotEqual(t, port, proxyPort, "endpoint must not be the raw k3s port")
 			assert.Equal(t, base64.StdEncoding.EncodeToString([]byte(testCA)), d.CertificateAuthority)
 
 			_, err = b.DeleteCluster("c1")
@@ -506,4 +510,33 @@ func TestEnableClusters_RejectsUnsafeConfig(t *testing.T) {
 			require.ErrorIs(t, err, eks.ErrInvalidClusterEngineConfig)
 		})
 	}
+}
+
+func TestDockerCluster_ReleasesProxyPortWhenActivationLosesRace(t *testing.T) {
+	t.Parallel()
+
+	const lo, hi = 24100, 24103
+
+	ports, err := portalloc.New(lo, hi)
+	require.NoError(t, err)
+
+	rt := &fakeClusterRuntime{}
+
+	var b *eks.InMemoryBackend
+
+	probe := func(context.Context, string, string) ([]byte, error) {
+		_, _ = b.DeleteCluster("c1")
+
+		return []byte(testCA), nil
+	}
+
+	b = dockerClusterBackend(t, rt, eks.ClusterEngineConfig{Probe: probe, Ports: ports})
+
+	total := ports.Available()
+
+	_, err = b.CreateCluster("c1", "1.32", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return ports.Available() == total && len(rt.removedIDs()) >= 1 },
+		30*time.Second, 10*time.Millisecond)
 }

@@ -282,6 +282,10 @@ func TestPersistence_DeviceWebAuthnAndUserSettingsSurviveSnapshot(t *testing.T) 
 		{DeliveryMedium: "SMS", AttributeName: "phone_number"},
 	}))
 
+	_, err = b.CreateIdentityProviderFull(pool.ID, "Facebook", "Facebook",
+		map[string]string{"client_id": "fb"}, nil, nil)
+	require.NoError(t, err)
+
 	require.NoError(t, b.AdminLinkProviderForUser(
 		pool.ID, "persist-families-user", "Facebook", "Cognito_Subject", "fb-persist-1",
 	))

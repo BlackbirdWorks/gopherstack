@@ -15,6 +15,7 @@ func (h *Handler) EnableRegions() {
 		nb := NewInMemoryBackend()
 		if home, ok := h.Backend.(*InMemoryBackend); ok {
 			nb.SetAppConfig(home.appConfigValue())
+			nb.inheritWorkers(home)
 		}
 
 		p := NewHandler(nb)
@@ -89,5 +90,14 @@ func (h *Handler) Reset() {
 
 	for _, p := range h.peers.Drain() {
 		p.resetHome()
+	}
+}
+
+// Shutdown stops every docker-backed connector worker in all regions.
+func (h *Handler) Shutdown(_ context.Context) {
+	for _, b := range h.RegionBackends() {
+		if c, ok := b.(interface{ Close() }); ok {
+			c.Close()
+		}
 	}
 }

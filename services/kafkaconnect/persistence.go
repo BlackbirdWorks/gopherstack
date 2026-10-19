@@ -79,6 +79,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return fmt.Errorf("kafkaconnect: restore snapshot tables: %w", err)
 	}
 
+	b.relaunchWorkersLocked()
+
 	return nil
 }
 

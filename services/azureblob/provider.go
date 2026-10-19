@@ -55,6 +55,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	backend := NewInMemoryBackend()
 	handler := NewHandler(backend)
 	handler.Port = settings.Port
+	handler.EnforcePublicAccess = settings.EnforcePublicAccess
 
 	return handler, nil
 }

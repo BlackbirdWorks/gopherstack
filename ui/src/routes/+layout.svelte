@@ -9,6 +9,9 @@
 	import ServiceIcon from '#lib/components/ServiceIcon.svelte';
 	import ConfirmDialog from '#lib/components/ConfirmDialog.svelte';
 	import RegionPicker from '#lib/components/RegionPicker.svelte';
+	import CloudSwitcher from '#lib/components/CloudSwitcher.svelte';
+	import { categoriesForCloud, CLOUD_PARAM } from '#lib/cloud.ts';
+	import { currentCloud, loadBackendInfo, servedAzureServices, servedGcpServices, syncCloudFromUrl } from '#lib/cloud.svelte.ts';
 	import { registerConfirmDialog, unregisterConfirmDialog } from '#lib/confirm-dialog.ts';
 
 	let { children } = $props();
@@ -26,7 +29,14 @@
 	let showAllServices = $state(false);
 	let confirmDialog = $state<ConfirmDialog | null>(null);
 
+	$effect(() => {
+		syncCloudFromUrl(page.url.searchParams.get(CLOUD_PARAM));
+	});
+
+	const cloud = $derived(currentCloud());
+
 	const visibleSidebarCategories = $derived.by(() => {
+		if (cloud !== 'aws') return categoriesForCloud(cloud, sidebarCategories, servedAzureServices(), servedGcpServices());
 		// By default, show only the common (most-used) implemented services. When
 		// showAllServices is toggled on, also surface the "uncommon" (long-tail)
 		// implemented services via getUncommonCategories(), organized by category.
@@ -52,11 +62,12 @@
 		if (!searchQuery.trim()) return [];
 		const query = searchQuery.toLowerCase();
 		const results = [];
-		
-		for (const category of sidebarCategories) {
+		const isAws = cloud === 'aws';
+
+		for (const category of isAws ? sidebarCategories : categoriesForCloud(cloud, sidebarCategories, servedAzureServices(), servedGcpServices())) {
 			for (const route of category.routes) {
 				if ((route.label.toLowerCase().includes(query) || route.id.toLowerCase().includes(query)) &&
-					implementedDashboardRouteIds.has(route.id)) {
+					(!isAws || implementedDashboardRouteIds.has(route.id))) {
 					results.push({ ...route, categoryLabel: category.label });
 				}
 			}
@@ -90,6 +101,7 @@
 
 	onMount(() => {
 		registerConfirmDialog(confirmHandler);
+		void loadBackendInfo();
 		theme = initializeTheme(document, window.localStorage, window.matchMedia('(prefers-color-scheme: dark)').matches);
 		sidebarMini = window.localStorage.getItem('gopherstack-sidebar-mini') === 'true';
 		showAllServices = window.localStorage.getItem('gopherstack-sidebar-show-all') === 'true';
@@ -130,7 +142,7 @@
 	}
 
 	function toggleSection(id: string) {
-		expandedSections[id] = !expandedSections[id];
+		expandedSections[id] = expandedSections[id] === false;
 	}
 
 	function isActive(pathname: string, href: string): boolean {
@@ -171,8 +183,10 @@
 					<span class="drop-shadow-[0_0_8px_rgba(255,255,255,0.5)] dark:drop-shadow-[0_0_8px_rgba(255,255,255,0.5)]">Gopherstack</span>
 				</a>
 			</div>
-			
-			<div class="hidden md:flex justify-start max-w-2xl lg:ml-4 relative group">
+
+			<CloudSwitcher />
+
+			<div class="hidden md:flex justify-start max-w-2xl ml-4 relative group">
                 <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
                     <svg class="w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                 </div>
@@ -261,12 +275,12 @@
 						{#if !sidebarMini}
 							<button class="category-btn flex items-center justify-between w-full px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors" onclick={() => toggleSection(category.id)}>
 								<span class="category-header-text">{category.label}</span>
-								<svg class={`w-3 h-3 chevron-icon transition-transform duration-200 ${expandedSections[category.id] ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+								<svg class={`w-3 h-3 chevron-icon transition-transform duration-200 ${expandedSections[category.id] !== false ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
 							</button>
 						{:else}
 							<div class="mt-4 border-t border-slate-100 dark:border-white/5"></div>
 						{/if}
-						{#if sidebarMini || expandedSections[category.id]}
+						{#if sidebarMini || expandedSections[category.id] !== false}
 							<ul class="space-y-1 mt-1 origin-top block">
 								{#each category.routes as route}
 									<li>
@@ -283,11 +297,16 @@
 					</li>
 				{/each}
 			</ul>
+			{#if visibleSidebarCategories.length === 0}
+				<p id="sidebar-empty" class="px-3 mt-6 text-sm text-slate-500 dark:text-slate-400">
+					{cloud === 'gcp' ? 'No GCP services are served by this backend.' : 'No Azure services are served by this backend.'}
+				</p>
+			{/if}
 		</div>
 
 		<!-- Sidebar Footer Toggle -->
 		<div class="p-4 border-t border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-transparent hidden lg:flex justify-between items-center pr-4 shrink-0" id="sidebar-footer-toggle">
-			<button id="sidebar-show-all-toggle" onclick={toggleShowAllServices} type="button" aria-pressed={showAllServices} class={`p-1 transition-colors bg-white dark:bg-slate-800 rounded border shadow-sm ${showAllServices ? 'text-indigo-600 dark:text-indigo-400 border-indigo-300 dark:border-indigo-500/40' : 'text-slate-400 hover:text-slate-900 dark:text-slate-500 dark:hover:text-white border-slate-200 dark:border-white/10'}`} title={showAllServices ? 'Showing all services — click to show common services only' : 'Showing common services only — click to show all services'}>
+			<button id="sidebar-show-all-toggle" disabled={cloud !== 'aws'} onclick={toggleShowAllServices} type="button" aria-pressed={showAllServices} class={`p-1 transition-colors bg-white dark:bg-slate-800 rounded border shadow-sm ${showAllServices ? 'text-indigo-600 dark:text-indigo-400 border-indigo-300 dark:border-indigo-500/40' : 'text-slate-400 hover:text-slate-900 dark:text-slate-500 dark:hover:text-white border-slate-200 dark:border-white/10'}`} title={showAllServices ? 'Showing all services — click to show common services only' : 'Showing common services only — click to show all services'}>
 				<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
 			</button>
 			<button onclick={toggleMiniMode} class="p-1 text-slate-400 hover:text-slate-900 dark:text-slate-500 dark:hover:text-white transition-colors bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-white/10 shadow-sm" title="Toggle Sidebar Width">

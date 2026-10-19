@@ -9,10 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 71 (69 ok, 2 partial) |
 | Feature families | 21 (21 ok) |
-| Known gaps | none |
-| Structural gaps (can't be emulated) | 4 |
+| Known gaps | 2 |
+| Structural gaps (can't be emulated) | 3 |
 | Deferred items | 1 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- Inbound SMTP: BounceAction rejects at SMTP time but emits no DSN message to the sender, and WorkMail/Connect actions are recorded only (no delivery path).
+- Inbound SMTP: spf/dkim/dmarc verdicts are always GRAY and spam/virus verdicts are PASS or DISABLED by ScanEnabled alone; nothing is scanned or authenticated.
 
 ### Structural gaps
 
@@ -20,7 +25,6 @@ These do not block an A grade — no implementation could produce real data here
 
 - GetSendStatistics Rejects is always 0: AWS rejects only via virus scan and there is no content scanner.
 - SendRawEmail FromArn and SendTemplatedEmail/SendBulkTemplatedEmail TemplateArn are accepted but not acted on: no cross-account identity/policy/template model, and the SDK models no format to validate.
-- Receipt rule actions never fire: there is no inbound-mail path (no SMTP listener or inject-message API).
 - SendBounce is addressed to the bounced recipients: there is no inbound mailbox to resolve the original sender or OriginalMessageId.
 
 ### Deferred

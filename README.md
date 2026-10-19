@@ -73,6 +73,22 @@ docker run -p 8000:8000 ghcr.io/blackbirdworks/gopherstack:latest
 
 The API and the dashboard are both served on port `8000`.
 
+### Desktop app
+
+Each release also ships `gopherstack-desktop`, a native window around the same
+server and dashboard (system webview, no browser needed). Download
+`gopherstack-desktop_<version>_<OS>_<arch>` from the
+[releases page](https://github.com/blackbirdworks/gopherstack/releases):
+
+- macOS: unzip and open `Gopherstack.app` (unsigned; right-click, Open on first launch)
+- Windows: unzip and run `gopherstack-desktop.exe` (needs the WebView2 runtime, preinstalled on Windows 11)
+- Linux: extract and run `gopherstack-desktop` (needs `libgtk-3` and `libwebkit2gtk-4.1`)
+
+It serves on port 8000 if free, otherwise a random loopback port, and accepts
+the same flags and environment variables as the headless binary (e.g. `--port`).
+Build it locally with `task build-desktop` (CGO and the webview libraries are
+required; the headless binary stays pure Go).
+
 ### Docker Compose
 
 ```yaml
@@ -184,6 +200,16 @@ A built-in UI at `http://localhost:8000/dashboard` for inspecting and managing l
   create tables
 - **S3** — list buckets, browse files with folder support, upload/download, manage
   versioning, view object metadata
+- **Cloud switcher** — a top-nav dropdown scopes the dashboard to AWS, Azure or GCP;
+  Azure pages cover Resource Manager, Blob Storage and Queue Storage
+
+### Desktop App
+
+`gopherstack-desktop` runs the full emulator and its dashboard as a native app on
+macOS, Windows and Linux, with no browser or terminal needed. It's built with Wails
+on the system webview, so it adds only a few MB over the headless binary, and it
+ships with every release next to the headless `gopherstack`. See
+[Desktop app](#desktop-app) for install steps.
 
 ### Configuration
 
@@ -216,6 +242,7 @@ precedence is **defaults < persisted config < env vars / CLI flags**.
 | `--iot-mqtt-port` | `IOT_MQTT_PORT` | `1883` | TCP port of the embedded IoT MQTT broker. `0` picks a free port. |
 | `--iot-mqtt-auth` | `IOT_MQTT_AUTH` | `false` | Opt-in: the IoT MQTT port speaks mutual TLS, clients must present an ACTIVE registered certificate, and CONNECT/PUBLISH/SUBSCRIBE/RECEIVE are authorised by the IoT policies attached to it. |
 | `--init-script` | `INIT_SCRIPTS` | *(none)* | Shell script(s) to run on startup (repeatable flag / comma-separated env var). |
+| `--init-dir` | `INIT_DIR` | *(none)* | Extra init-hook root with `boot.d`/`start.d`/`ready.d`/`shutdown.d` of `.sh`/`.py` scripts, run in lexicographic order (repeatable). `/etc/localstack/init` and `/etc/gopherstack/init` are always checked. Scripts get `AWS_ENDPOINT_URL`, `AWS_DEFAULT_REGION` and dummy credentials; `.py` needs `python3`. |
 | `--init-timeout` | `INIT_TIMEOUT` | `30s` | Per-script timeout for init hooks. |
 | `--s3-bucket` | `S3_BUCKETS` | *(none)* | S3 bucket(s) to create on startup (repeatable flag / comma-separated env var). |
 | `--janitor-timeout` | `JANITOR_TIMEOUT` | `30s` | Per-task timeout for the global janitor loop (TTL sweeps, cleaners). `0` disables it. |
@@ -237,13 +264,26 @@ that already exports them (e.g. `awslocal`) works without remapping. These are n
 
 #### Per-service engine & provider selection
 
+A single switch picks the default for every container-backed engine (RDS/Aurora, MSK, MQ, OpenSearch, Elasticsearch, DocumentDB, Neptune, Redshift, EKS, ElastiCache, MemoryDB, CodeBuild, Timestream for InfluxDB, ECS tasks). `auto` probes the Docker then Podman socket once at startup (5s bound, result logged) and uses real containers when one is reachable, otherwise stays on the stub; it never fails startup. Per-service flags or env vars always override it. See [docs/engines.md](docs/engines.md).
+
 | Flag | Env var | Default | Description |
 |------|---------|---------|-------------|
+| `--engines` | `GOPHERSTACK_ENGINES` | `stub` | Global engine default: `stub`, `auto` (docker/podman if reachable, else stub), or `docker`. |
+| `--ecs-runtime` | `GOPHERSTACK_ECS_RUNTIME` | *(follows `--engines`)* | ECS task runtime: `none` or `docker`. |
 | `--elasticache-engine` | `ELASTICACHE_ENGINE` | `embedded` | ElastiCache engine mode: `embedded` (miniredis), `stub`, or `docker`. |
 | `--memorydb-engine` | `MEMORYDB_ENGINE` | `embedded` | MemoryDB engine mode: `embedded` (miniredis per cluster, ACL passwords enforced via AUTH), `stub`, or `docker` (no server, as ElastiCache). |
 | `--kafka-engine` | `KAFKA_ENGINE` | `stub` | MSK engine mode: `stub` (metadata only) or `docker` (real single-node `apache/kafka` broker per provisioned cluster; `KAFKA_BROKER_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces). |
 | `--eks-engine` | `EKS_ENGINE` | `stub` | EKS engine mode: `stub` (metadata only) or `docker` (one privileged single-node `rancher/k3s` container per cluster, tag mapped from the requested version; `DescribeCluster` returns the real endpoint and CA; clusters accept the static admin bearer token `EKS_CLUSTER_TOKEN`, default `gopherstack-eks-cluster-token`; `EKS_CLUSTER_HOST` sets the advertised host, default `127.0.0.1`, and the port binds loopback only unless it is non-loopback, which then requires `EKS_CLUSTER_TOKEN`; `EKS_K3S_IMAGE` overrides the image). |
 | `--mq-engine` | `MQ_ENGINE` | `stub` | Amazon MQ engine mode: `stub` (metadata only) or `docker` (one `rabbitmq:3.13.7-management` or `apache/activemq-classic:5.18.7` container per broker with a user; plaintext endpoints; `MQ_BROKER_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces). |
+| `--transfer-sftp` | `TRANSFER_SFTP` | `false` | Serve a real SFTP listener per Transfer Family server. |
+| `--transfer-sftp-host` | `TRANSFER_SFTP_HOST` | `127.0.0.1` | Host the Transfer Family SFTP listener binds to. |
+| `--transparent-dns` | `TRANSPARENT_DNS` | `false` | Resolve `*.amazonaws.com` (and `.com.cn`, `api.aws`) to this server and serve HTTPS for them. |
+| `--transparent-https-addr` | `TRANSPARENT_HTTPS_ADDR` | `:443` | HTTPS listen address for real AWS endpoint names. |
+| `--transparent-dns-skip` | `TRANSPARENT_DNS_SKIP` | none | Names/zones that keep resolving upstream (e.g. `sts.amazonaws.com`). |
+| `--transparent-dns-upstream` | `TRANSPARENT_DNS_UPSTREAM` | `/etc/resolv.conf` | Upstream resolvers `host:port` for non-AWS names. |
+| `--transparent-container-dns` | `TRANSPARENT_CONTAINER_DNS` | `--dns-resolve-ip` unless loopback | DNS IP handed to spawned containers. |
+| `--transparent-ca-dir` | `TRANSPARENT_CA_DIR` | ephemeral | Directory to persist the CA so it is trusted once. |
+| `--transparent-container-ca-path` | `TRANSPARENT_CONTAINER_CA_PATH` | temp file (skipped when containerised) | CA PEM path visible to the Docker daemon; required to inject the CA when gopherstack itself runs in Docker. |
 | `--rds-engine` | `RDS_ENGINE` | `stub` | RDS engine mode: `stub` (metadata only) or `docker` (real `postgres`/`mysql`/`mariadb` container per DB instance, one per Aurora cluster; Data API stays on SQLite; `RDS_DB_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces). |
 | `--docdb-engine` | `DOCDB_ENGINE` | `stub` | DocumentDB engine mode: `stub` (metadata only) or `docker` (one plaintext `mongo` container per cluster, `mongo:4.4` for 3.6/4.0 and `mongo:5.0` for 5.0; `DOCDB_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces). |
 | `--redshift-engine` | `REDSHIFT_ENGINE` | `stub` | Redshift engine mode: `stub` (metadata only) or `docker` (one `postgres:17` container per provisioned cluster with MasterUsername/MasterUserPassword/DBName; Endpoint reports the published `127.0.0.1` port and the Redshift Data API runs SQL against it; `REDSHIFT_HOST` overrides the advertised host; Serverless workgroups stay metadata-only). |
@@ -272,7 +312,7 @@ configuration](#lambda-configuration) below. A few more exist:
 | `--lambda-disable-hot-reload` | `LAMBDA_DISABLE_HOT_RELOAD` | `false` | Disable Lambda hot reloading from local directories. |
 | `--lambda-keep-containers` | `LAMBDA_KEEP_CONTAINERS` | `false` | If true, keep Lambda containers alive for debugging. |
 | *(none)* | `CONTAINER_HOST` | *(empty)* | Generic container endpoint override (e.g. a Podman socket URL). Takes precedence over runtime auto-detection. |
-| *(none)* | `GOPHERSTACK_ECS_RUNTIME` | *(unset = no-op)* | Set to `docker` to run ECS tasks as real containers. Unset or any other value is a no-op runner. |
+| `--ecs-runtime` | `GOPHERSTACK_ECS_RUNTIME` | *(unset = no-op)* | Set to `docker` to run ECS tasks as real containers; also driven by `--engines`. Unset or any other value is a no-op runner. |
 | *(none)* | `GOPHERSTACK_ENABLE_LOCAL_REGISTRY` | `false` (set to `1` to enable) | Run a real embedded Docker Registry v2 backend for ECR instead of the in-memory stub. |
 
 #### Per-service tuning (janitor intervals & TTLs)
@@ -314,6 +354,9 @@ commonly set via env var:
 | `S3_JANITOR_INTERVAL` | `500ms` | S3 janitor tick interval. |
 | `S3_COMPRESSION_MIN_BYTES` | `1024` | Minimum object size for gzip compression. `0` compresses everything. |
 | `SES_JANITOR_INTERVAL` | `1m` | SES janitor tick interval. |
+| `SES_INBOUND_ENABLED` | `false` | Run an SMTP listener that applies the active SES receipt rule set to received mail. |
+| `SES_INBOUND_ADDR` | `127.0.0.1:2525` | Listen address of the SES inbound SMTP server. |
+| `SES_INBOUND_MAX_SIZE` | `41943040` | Maximum SES inbound message size in bytes. |
 | `SES_EMAIL_TTL` | `24h` | TTL for stored sent emails. |
 | `SMTP_HOST` | unset | Relay SES/SESv2 mail to this SMTP server (`host[:port]`, port 25 default) as well as the simulator. |
 | `SMTP_USER` | unset | SMTP login username; sent only over STARTTLS or to localhost. |
@@ -610,6 +653,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [FSx](services/fsx/README.md) | A | — | 13 families; 2 structural gaps |
 | [S3](services/s3/README.md) | A | 26 | 4 gaps; 4 structural gaps |
 | [S3 Control](services/s3control/README.md) | A | 44 | 3 gaps; 6 structural gaps; 2 deferred |
+| [S3 Files](services/s3files/README.md) | B | 21 | 9 gaps; 1 structural gap |
 | [S3 Glacier](services/glacier/README.md) | A | 33 | clean |
 | [S3 Tables](services/s3tables/README.md) | A | 49 | clean |
 
@@ -623,7 +667,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
 | [ElastiCache](services/elasticache/README.md) | A | 75 | 2 gaps; 4 structural gaps; 1 deferred |
 | [MemoryDB](services/memorydb/README.md) | A | 45 | 3 gaps; 2 structural gaps; 3 deferred |
-| [Neptune](services/neptune/README.md) | A | — | 13 families; 4 gaps; 2 structural gaps; 2 deferred |
+| [Neptune](services/neptune/README.md) | A | — | 13 families; 5 gaps; 2 structural gaps; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
 | [RDS](services/rds/README.md) | A | 52 | 4 gaps; 7 structural gaps |
@@ -659,12 +703,12 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Amazon MQ](services/mq/README.md) | A | 25 | 2 structural gaps; 1 deferred |
-| [AppSync](services/appsync/README.md) | A | 74 | 3 gaps; 3 structural gaps; 2 deferred |
+| [AppSync](services/appsync/README.md) | A | 74 | 8 gaps; 1 structural gap; 2 deferred |
 | [EventBridge](services/eventbridge/README.md) | A | 66 | 2 gaps; 3 structural gaps; 2 deferred |
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 2 structural gaps |
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
 | [Pinpoint](services/pinpoint/README.md) | A | 51 | 2 structural gaps; 3 deferred |
-| [SES](services/ses/README.md) | A | 71 | 4 structural gaps; 1 deferred |
+| [SES](services/ses/README.md) | A | 71 | 2 gaps; 3 structural gaps; 1 deferred |
 | [SES v2](services/sesv2/README.md) | A | 112 | 2 gaps; 2 structural gaps |
 | [SNS](services/sns/README.md) | A | 34 | 1 structural gap; 1 deferred |
 | [SQS](services/sqs/README.md) | A | 20 | 2 gaps; 1 structural gap |
@@ -688,7 +732,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Kinesis Analytics v2](services/kinesisanalyticsv2/README.md) | A | 33 | 3 gaps; 1 structural gap; 1 deferred |
 | [Kinesis Data Firehose](services/firehose/README.md) | A | 12 | 4 structural gaps |
 | [Lake Formation](services/lakeformation/README.md) | A | 61 | 1 gap; 2 structural gaps |
-| [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 1 structural gap |
+| [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 4 gaps; 1 structural gap |
 | [Managed Workflows for Apache Airflow](services/mwaa/README.md) | A | 12 | 2 gaps; 1 structural gap; 1 deferred |
 | [OpenSearch](services/opensearch/README.md) | A | 19 | 1 structural gap |
 | [QuickSight](services/quicksight/README.md) | A | 81 | 3 gaps; 7 structural gaps |
@@ -716,7 +760,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 1 gap; 4 deferred |
-| [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 4 gaps; 4 structural gaps |
+| [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 6 gaps; 3 structural gaps |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 1 gap; 2 structural gaps; 1 deferred |
 | [IAM](services/iam/README.md) | A | 38 | 2 gaps; 4 structural gaps |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 1 gap; 5 structural gaps; 1 deferred |
@@ -756,7 +800,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Amplify](services/amplify/README.md) | A | 37 | 3 structural gaps |
 | [CodeArtifact](services/codeartifact/README.md) | A | 48 | 3 gaps; 3 structural gaps |
-| [CodeBuild](services/codebuild/README.md) | A | 59 | 2 structural gaps; 1 deferred |
+| [CodeBuild](services/codebuild/README.md) | A | 59 | 3 gaps; 2 structural gaps; 1 deferred |
 | [CodeCommit](services/codecommit/README.md) | A | 79 | 1 gap; 1 structural gap |
 | [CodeConnections](services/codeconnections/README.md) | A | 27 | 1 gap |
 | [CodeDeploy](services/codedeploy/README.md) | A | 47 | 3 structural gaps; 1 deferred |
@@ -815,34 +859,68 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Azure Blob Storage](services/azureblob/README.md) | C | 11 | 9 gaps; 3 deferred |
-| [Azure Cosmos DB](services/cosmosdb/README.md) | C | 15 | 10 gaps; 6 deferred |
+| [Azure Blob Storage](services/azureblob/README.md) | C | 19 | 8 gaps; 3 deferred |
+| [Azure Cosmos DB](services/cosmosdb/README.md) | B | 18 | 9 gaps |
+| [Azure Key Vault](services/azurekeyvault/README.md) | B | 14 | 6 gaps |
 | [Azure Queue Storage](services/azurequeue/README.md) | C | 11 | 7 gaps; 1 deferred |
 | [Azure Service Bus](services/azureservicebus/README.md) | B | 17 | 4 gaps; 2 deferred |
 | [Azure Table Storage](services/azuretable/README.md) | C | 13 | 6 gaps; 3 deferred |
+
+### GCP
+
+| Service | Parity | PARITY Entries | Notes |
+|---|---|---|---|
+| [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | 5 gaps |
+| [Cloud Tasks](services/gcpcloudtasks/README.md) | B | 18 | 5 gaps |
+| [Google Cloud Firestore](services/gcpfirestore/README.md) | B | 15 | 4 gaps |
+| [Google Cloud KMS](services/gcpkms/README.md) | B | 31 | 5 gaps |
+| [Google Cloud Pub/Sub](services/gcppubsub/README.md) | B | 35 | 6 gaps |
+| [Google Cloud Storage](services/gcpstorage/README.md) | B | 23 | 8 gaps |
+| [Google Secret Manager](services/gcpsecretmanager/README.md) | B | 15 | 4 gaps |
 
 ### Other
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
+| [Amp](services/amp/README.md) | B | 44 | 11 gaps; 2 structural gaps |
 | [AppStream 2.0](services/appstream/README.md) | A | 44 | 5 structural gaps |
+| [Appintegrations](services/appintegrations/README.md) | B | 23 | 4 gaps; 1 structural gap |
 | [Azurearm](services/azurearm/README.md) | B | 16 | 8 gaps; 3 deferred |
 | [Azurestoragevhost](services/azurestoragevhost/README.md) | B | 2 | 2 gaps; 1 deferred |
+| [Bcmdataexports](services/bcmdataexports/README.md) | B | 12 | 6 gaps |
+| [Bedrockagentcorecontrol](services/bedrockagentcorecontrol/README.md) | B | 171 | 13 gaps; 2 structural gaps |
+| [Budgets](services/budgets/README.md) | B | 26 | 9 gaps |
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | A | 6 | 2 structural gaps |
+| [Cloudhsmv2](services/cloudhsmv2/README.md) | B | 18 | 9 gaps; 3 structural gaps |
+| [Codegurureviewer](services/codegurureviewer/README.md) | B | 14 | 6 gaps; 2 structural gaps |
+| [Connect](services/connect/README.md) | B | 141 | 34 gaps; 2 structural gaps |
+| [Cur](services/cur/README.md) | B | 7 | 6 gaps |
 | [Directconnect](services/directconnect/README.md) | A | 64 | 8 structural gaps; 1 deferred |
 | [Dsql](services/dsql/README.md) | A | 16 | 3 structural gaps |
 | [Ecrpublic](services/ecrpublic/README.md) | A | 23 | 3 structural gaps |
+| [Globalaccelerator](services/globalaccelerator/README.md) | B | 56 | 7 gaps; 2 structural gaps |
 | [Grafana](services/grafana/README.md) | A | 25 | 1 structural gap |
 | [HealthOmics](services/omics/README.md) | A | — | 25 families; 5 structural gaps; 1 deferred |
-| [Kafkaconnect](services/kafkaconnect/README.md) | A | 19 | 3 structural gaps |
+| [Kafkaconnect](services/kafkaconnect/README.md) | A | 19 | 3 gaps; 3 structural gaps |
 | [Kinesisvideo](services/kinesisvideo/README.md) | A | 32 | 3 structural gaps |
 | [Lightsail](services/lightsail/README.md) | A | — | 28 families; 1 gap; 6 structural gaps; 2 deferred |
 | [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 3 structural gaps |
+| [Marketplaceentitlementservice](services/marketplaceentitlementservice/README.md) | B | 1 | 3 gaps; 1 structural gap |
+| [Marketplacemetering](services/marketplacemetering/README.md) | B | 4 | 5 gaps; 2 structural gaps |
 | [Mgn](services/mgn/README.md) | A | 95 | 1 gap; 8 structural gaps; 1 deferred |
+| [Networkfirewall](services/networkfirewall/README.md) | B | 85 | 4 gaps; 3 structural gaps |
 | [Networkmanager](services/networkmanager/README.md) | A | 95 | 4 gaps; 2 structural gaps |
+| [Oam](services/oam/README.md) | B | 15 | 4 gaps; 1 structural gap |
 | [Outposts](services/outposts/README.md) | A | 43 | 2 gaps; 7 structural gaps |
+| [Pricing](services/pricing/README.md) | B | 5 | 4 gaps |
 | [Resiliencehub](services/resiliencehub/README.md) | A | 63 | 7 structural gaps |
+| [Resourceexplorer2](services/resourceexplorer2/README.md) | B | 27 | 13 gaps; 1 structural gap |
+| [Rum](services/rum/README.md) | B | 20 | 9 gaps; 2 structural gaps |
+| [S3vectors](services/s3vectors/README.md) | B | 21 | 8 gaps; 1 structural gap |
+| [Servicecatalog](services/servicecatalog/README.md) | B | 89 | 14 gaps; 1 structural gap |
+| [Servicequotas](services/servicequotas/README.md) | B | 26 | 8 gaps; 1 structural gap |
 | [Support](services/support/README.md) | A | 16 | 1 structural gap; 1 deferred |
+| [Timestreaminfluxdb](services/timestreaminfluxdb/README.md) | B | 24 | 10 gaps; 2 structural gaps |
 | [WorkSpaces](services/workspaces/README.md) | A | 34 | 4 gaps; 2 structural gaps |
 <!-- END GENERATED SERVICES -->
 

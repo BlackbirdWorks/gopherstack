@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -351,6 +352,7 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 	_ = json.Unmarshal(body, &blocksIn)
 
 	opt := buildClusterOptConfig(in)
+	opt.CreatorARN = awsmeta.CallerArn(c.Request().Context())
 	opt.ConfigBlocks = blocksIn.blocks(true)
 
 	return h.withIdempotency(c, opCreateCluster, in.ClientRequestToken, body, func() (int, any, error) {
@@ -375,7 +377,10 @@ func buildClusterOptConfig(in createClusterBody) ClusterOptionalConfig {
 	var opt ClusterOptionalConfig
 
 	if in.AccessConfig != nil {
-		ac := &AccessConfig{AuthenticationMode: in.AccessConfig.AuthenticationMode}
+		ac := &AccessConfig{
+			AuthenticationMode:                      in.AccessConfig.AuthenticationMode,
+			BootstrapClusterCreatorAdminPermissions: true,
+		}
 		if in.AccessConfig.BootstrapClusterCreatorAdminPermissions != nil {
 			ac.BootstrapClusterCreatorAdminPermissions = *in.AccessConfig.BootstrapClusterCreatorAdminPermissions
 		}

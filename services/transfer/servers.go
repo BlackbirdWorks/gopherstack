@@ -303,12 +303,7 @@ func (b *InMemoryBackend) CreateServerFull(in *CreateServerInput) (*Server, erro
 	b.initTagsStore(serverARN(b.accountID, b.region, serverID), merged)
 
 	b.work.After("CreateServerTransition", startServerTransitionDelay, func() {
-		b.mu.Lock("CreateServer-async")
-		defer b.mu.Unlock()
-
-		if sv, found := b.servers.Get(serverID); found && sv.State == serverStatusStarting {
-			sv.State = serverStatusOnline
-		}
+		b.finishTransition(serverID, serverStatusStarting, serverStatusOnline)
 	})
 
 	return cloneServer(s), nil
@@ -363,6 +358,13 @@ func (b *InMemoryBackend) ListServers() []Server {
 // destroy a normal (ONLINE) server if AWS required OFFLINE first. A prior
 // version of this backend invented that requirement; removed.
 func (b *InMemoryBackend) DeleteServer(serverID string) error {
+	err := b.deleteServer(serverID)
+	b.reconcileSFTP(serverID)
+
+	return err
+}
+
+func (b *InMemoryBackend) deleteServer(serverID string) error {
 	b.mu.Lock("DeleteServer")
 	defer b.mu.Unlock()
 
@@ -401,6 +403,17 @@ func (b *InMemoryBackend) DeleteServer(serverID string) error {
 	return nil
 }
 
+// finishTransition moves a server from one transitional state to its settled state, then syncs its SFTP listener.
+func (b *InMemoryBackend) finishTransition(serverID, from, to string) {
+	b.mu.Lock("finishTransition")
+	if sv, found := b.servers.Get(serverID); found && sv.State == from {
+		sv.State = to
+	}
+	b.mu.Unlock()
+
+	b.reconcileSFTP(serverID)
+}
+
 // startServerTransitionDelay is the async delay before a server reaches ONLINE/OFFLINE state.
 const startServerTransitionDelay = 100 * time.Millisecond
 
@@ -424,12 +437,7 @@ func (b *InMemoryBackend) StartServer(serverID string) error {
 	s.State = serverStatusStarting
 
 	b.work.After("StartServerTransition", startServerTransitionDelay, func() {
-		b.mu.Lock("StartServer-async")
-		defer b.mu.Unlock()
-
-		if sv, found := b.servers.Get(serverID); found && sv.State == serverStatusStarting {
-			sv.State = serverStatusOnline
-		}
+		b.finishTransition(serverID, serverStatusStarting, serverStatusOnline)
 	})
 
 	return nil
@@ -438,6 +446,13 @@ func (b *InMemoryBackend) StartServer(serverID string) error {
 // StopServer transitions a server to OFFLINE state (via STOPPING).
 // Calling StopServer on an already-OFFLINE server is idempotent (no-op, no error).
 func (b *InMemoryBackend) StopServer(serverID string) error {
+	err := b.stopServer(serverID)
+	b.reconcileSFTP(serverID)
+
+	return err
+}
+
+func (b *InMemoryBackend) stopServer(serverID string) error {
 	b.mu.Lock("StopServer")
 	defer b.mu.Unlock()
 
@@ -455,12 +470,7 @@ func (b *InMemoryBackend) StopServer(serverID string) error {
 	s.State = serverStatusStopping
 
 	b.work.After("StopServerTransition", startServerTransitionDelay, func() {
-		b.mu.Lock("StopServer-async")
-		defer b.mu.Unlock()
-
-		if sv, found := b.servers.Get(serverID); found && sv.State == serverStatusStopping {
-			sv.State = serverStatusOffline
-		}
+		b.finishTransition(serverID, serverStatusStopping, serverStatusOffline)
 	})
 
 	return nil
@@ -576,6 +586,13 @@ func applyServerStructFields(s *Server, in *UpdateServerInput) {
 
 // UpdateServerFull updates all mutable fields on an existing server.
 func (b *InMemoryBackend) UpdateServerFull(in *UpdateServerInput) (*Server, error) {
+	s, err := b.updateServerFull(in)
+	b.reconcileSFTP(in.ServerID)
+
+	return s, err
+}
+
+func (b *InMemoryBackend) updateServerFull(in *UpdateServerInput) (*Server, error) {
 	b.mu.Lock("UpdateServer")
 	defer b.mu.Unlock()
 

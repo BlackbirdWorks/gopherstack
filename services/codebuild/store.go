@@ -53,6 +53,8 @@ type InMemoryBackend struct {
 	// not change").
 	buildBatchNumbers map[string]int64
 	mu                *lockmetrics.RWMutex
+	engine            *engineState
+	runs              map[string]*buildRun
 	accountID         string
 	region            string
 }
@@ -63,6 +65,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		resourcePolicies:  make(map[string]string),
 		idem:              idempotency.New("codebuild"),
 		buildBatchNumbers: make(map[string]int64),
+		runs:              make(map[string]*buildRun),
 		registry:          store.NewRegistry(),
 		accountID:         accountID,
 		region:            region,
@@ -82,6 +85,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
+	b.cancelRunsLocked()
 	b.registry.ResetAll()
 	b.resourcePolicies = make(map[string]string)
 	b.idem.Clear()

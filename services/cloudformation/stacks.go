@@ -275,7 +275,7 @@ func (b *InMemoryBackend) CreateStack(
 	b.mu.Lock("CreateStack")
 	defer b.mu.Unlock()
 
-	if err := preflightTemplateErr(templateBody, params); err != nil {
+	if err := preflightTemplateErr(templateBody, params, b.typeCheckLocked(opts.DisableValidation)); err != nil {
 		return nil, err
 	}
 
@@ -451,6 +451,16 @@ func (b *InMemoryBackend) createStackFromTemplate(
 	if !disableValidation {
 		if intErr := validateIntrinsics(tmpl); intErr != nil {
 			b.failAndRollback(stack, intErr.Error())
+
+			return
+		}
+	}
+
+	pruneConditional(tmpl, resolvedParams)
+
+	if !disableValidation {
+		if propErr := validateRequiredProperties(tmpl); propErr != nil {
+			b.failAndRollback(stack, propErr.Error())
 
 			return
 		}
@@ -831,6 +841,16 @@ func (b *InMemoryBackend) parseAndValidateUpdateTemplate(
 	if !disableValidation {
 		if intErr := validateIntrinsics(tmpl); intErr != nil {
 			b.updateFailAndRollback(stack, intErr.Error())
+
+			return nil, nil
+		}
+	}
+
+	pruneConditional(tmpl, resolvedParams)
+
+	if !disableValidation {
+		if propErr := validateRequiredProperties(tmpl); propErr != nil {
+			b.updateFailAndRollback(stack, propErr.Error())
 
 			return nil, nil
 		}
@@ -1218,7 +1238,7 @@ func (b *InMemoryBackend) prepareUpdateLocked(
 		return nil, nil, err
 	}
 
-	if err = preflightTemplateErr(templateBody, merged); err != nil {
+	if err = preflightTemplateErr(templateBody, merged, b.typeCheckLocked(opts.DisableValidation)); err != nil {
 		return nil, nil, err
 	}
 

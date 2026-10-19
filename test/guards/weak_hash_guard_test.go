@@ -23,6 +23,15 @@ func allowedWeakHashFiles() map[string]string {
 		// member beside Hash/HashType (ssm@v1.73.4 types/enums.go:708-724), so an
 		// emulator cannot populate it without computing SHA1. Content-integrity
 		// checksum echoed on the wire, never a credential. gopherstack-ziv9.
+		// GCS objects carry an md5Hash field and X-Goog-Hash md5= value defined as the
+		// base64 MD5 of the content; integrity checksum, never a credential.
+		"services/gcpstorage/store.go": "GCS Object.md5Hash parity, verified",
+
+		// Key Vault: RSA-OAEP is defined over SHA-1 (JWA RFC 7518 4.3) and the
+		// certificate x5t claim is a SHA-1 thumbprint (RFC 7515 4.1.7).
+		"services/azurekeyvault/keycrypto.go":  "JWA RSA-OAEP (SHA-1) key-vault algorithm, verified",
+		"services/azurekeyvault/certpolicy.go": "certificate x5t SHA-1 thumbprint, verified",
+
 		"services/neptune/engine_probe.go": "RFC 6455 WebSocket Sec-WebSocket-Accept mandates SHA-1, verified",
 		"services/ssm/document_hashes.go":  "DocumentDescription.Sha1 parity, verified",
 
@@ -36,6 +45,9 @@ func allowedWeakHashFiles() map[string]string {
 		// Verified 2026-10-03: the IoT SQL reference defines md5() and sha1()
 		// as rule functions over payload data, never credentials.
 		"services/iot/sql_funcs_message.go": "IoT SQL md5()/sha1() functions, verified",
+
+		// Athena SQL md5()/sha1() are Presto/Trino built-ins, never credentials.
+		"services/athena/engine_funcs_str.go": "Athena SQL md5()/sha1() functions, verified",
 
 		// Verified 2026-10-05: kafkaconnect types.CustomPluginFileDescription.FileMd5
 		// is defined as the hex-encoded MD5 checksum of the plugin file, so the

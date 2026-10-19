@@ -94,6 +94,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			if blob == nil {
 				return fmt.Errorf("%w: %q in container %q", ErrSnapshotBlobNull, blobName, name)
 			}
+
+			for id, snap := range blob.Snapshots {
+				if snap == nil {
+					return fmt.Errorf("%w: snapshot %q of %q in container %q", ErrSnapshotBlobNull, id, blobName, name)
+				}
+			}
 		}
 	}
 

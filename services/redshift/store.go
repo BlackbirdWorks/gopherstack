@@ -111,6 +111,7 @@ type InMemoryBackend struct {
 	// clusterTransitions.
 	tableRestoreReadyAt     map[string]time.Time
 	slPending               map[string]*slTransition
+	slNsPasswords           map[string]string
 	mu                      *lockmetrics.RWMutex
 	reconcileStop           chan struct{}
 	region                  string
@@ -172,6 +173,7 @@ func (b *InMemoryBackend) Reset() {
 	b.clusterTransitions = make(map[string]*clusterTransition)
 	b.tableRestoreReadyAt = make(map[string]time.Time)
 	b.slPending = make(map[string]*slTransition)
+	b.slNsPasswords = nil
 	b.resetServerlessIndexes()
 }
 

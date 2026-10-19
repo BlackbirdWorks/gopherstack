@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/dns/dnstest"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svctags "github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -420,17 +420,13 @@ func TestServerStartup_WithInitScript(t *testing.T) {
 
 //nolint:paralleltest // uses t.Setenv via parseCLI, which is incompatible with t.Parallel.
 func TestServerStartup_WithDNS(t *testing.T) {
-	// Find a free UDP port for the DNS server.
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	require.NoError(t, err)
-	dnsPort := pc.LocalAddr().(*net.UDPAddr).Port
-	_ = pc.Close()
+	dnsAddr := dnstest.FreeAddr(t)
 
 	port := freeTCPPort(t)
 	cli := parseCLI(t, map[string]string{
 		"PORT": strconv.Itoa(port),
 	})
-	cli.DNSListenAddr = fmt.Sprintf("127.0.0.1:%d", dnsPort)
+	cli.DNSListenAddr = dnsAddr
 	cli.DNSResolveIP = "127.0.0.1"
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -3174,7 +3170,11 @@ func TestLocalstackCompatibilityEndpoints(t *testing.T) {
 			path: "/_localstack/init",
 			validate: func(t *testing.T, body map[string]any) {
 				t.Helper()
-				assert.Equal(t, true, body["completed"])
+				assert.Equal(
+					t,
+					map[string]any{"BOOT": true, "START": true, "READY": true, "SHUTDOWN": false},
+					body["completed"],
+				)
 				assert.NotNil(t, body["scripts"])
 			},
 		},
@@ -3198,6 +3198,22 @@ func TestLocalstackCompatibilityEndpoints(t *testing.T) {
 			},
 		},
 	}
+
+	// READY runs after the listener accepts, so wait for it before asserting stage state.
+	require.Eventually(t, func() bool {
+		resp, err := client.Get(fmt.Sprintf("http://localhost:%d/_localstack/init/ready", port))
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+
+		var body map[string]any
+		if json.NewDecoder(resp.Body).Decode(&body) != nil {
+			return false
+		}
+
+		return body["completed"] == true
+	}, 10*time.Second, 20*time.Millisecond)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

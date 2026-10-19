@@ -19,6 +19,7 @@ import (
 var errRuntimeDown = errors.New("runtime down")
 
 type fakeEngineRuntime struct {
+	stopGate  chan struct{}
 	createErr error
 	specs     []container.Spec
 	removed   []string
@@ -49,7 +50,15 @@ func (f *fakeEngineRuntime) StopAndRemove(_ context.Context, id string) error {
 	return nil
 }
 
-func (f *fakeEngineRuntime) StopContainer(_ context.Context, id string) error {
+func (f *fakeEngineRuntime) StopContainer(ctx context.Context, id string) error {
+	if f.stopGate != nil {
+		select {
+		case <-f.stopGate:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -287,7 +296,7 @@ func TestEngineStartFailureMarksCluster(t *testing.T) {
 func TestEnginePauseResumeRebootDelete(t *testing.T) {
 	t.Parallel()
 
-	rt := &fakeEngineRuntime{}
+	rt := &fakeEngineRuntime{stopGate: make(chan struct{}, 2)}
 	b := engineBackend(t, rt, redshift.EngineConfig{})
 	createEngineCluster(t, b, "")
 	created := waitStatus(t, b, "available")
@@ -296,6 +305,7 @@ func TestEnginePauseResumeRebootDelete(t *testing.T) {
 	_, err := b.PauseCluster("c1")
 	require.NoError(t, err)
 	assert.Equal(t, "pausing", clusterOf(b, "c1").Status)
+	rt.stopGate <- struct{}{}
 	waitStatus(t, b, "paused")
 
 	_, _, stopped, _ := rt.lists()
@@ -313,6 +323,7 @@ func TestEnginePauseResumeRebootDelete(t *testing.T) {
 	_, err = b.RebootCluster("c1")
 	require.NoError(t, err)
 	assert.Equal(t, "rebooting", clusterOf(b, "c1").Status)
+	rt.stopGate <- struct{}{}
 	waitStatus(t, b, "available")
 
 	_, _, stopped, started := rt.lists()

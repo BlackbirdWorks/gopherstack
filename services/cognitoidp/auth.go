@@ -27,6 +27,10 @@ func (b *InMemoryBackend) SignUp(clientID, username, password string, userAttrib
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
 	}
 
+	if err := b.reservedFederatedNameLocked(client.UserPoolID, username); err != nil {
+		return nil, err
+	}
+
 	if b.usernameExistsLocked(client.UserPoolID, username) {
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUsernameExists, username)
 	}
@@ -1022,7 +1026,7 @@ func (b *InMemoryBackend) SignUpWithTriggerData(
 			eventKeyValidationData: stringMapToAny(td.ValidationData),
 			eventKeyClientMetadata: stringMapToAny(td.ClientMetadata),
 		},
-		map[string]any{"autoConfirmUser": false, "autoVerifyEmail": false, "autoVerifyPhone": false},
+		preSignUpDefaults(),
 	)
 	if err != nil {
 		return nil, err

@@ -80,15 +80,17 @@ func TestPutRule_TagsPersisted(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		tags     map[string]any
 		wantTags map[string]string
 		name     string
 		ruleName string
+		tags     []map[string]string
 	}{
 		{
 			name:     "tags at rule creation are stored",
 			ruleName: "tagged-rule",
-			tags:     map[string]any{"owner": "alice", "cost-center": "eng"},
+			tags: []map[string]string{
+				{"Key": "owner", "Value": "alice"}, {"Key": "cost-center", "Value": "eng"},
+			},
 			wantTags: map[string]string{
 				"owner":       "alice",
 				"cost-center": "eng",
@@ -181,7 +183,7 @@ func TestDeleteRule_CleansUpTags(t *testing.T) {
 
 	// Create a rule (Tags is map[string]string in this backend's JSON encoding).
 	rec := makeRequestWithHandler(t, handler, e, "PutRule",
-		`{"Name":"temp-rule","EventPattern":"{\"source\":[\"test\"]}","Tags":{"team":"backend"}}`)
+		`{"Name":"temp-rule","EventPattern":"{\"source\":[\"test\"]}","Tags":[{"Key":"team","Value":"backend"}]}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var putOut map[string]string

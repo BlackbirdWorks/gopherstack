@@ -60,6 +60,7 @@ type Handler struct {
 	Backend StorageBackend
 	ops     map[string]service.JSONOpFunc
 	peers   *regionpeers.Set[Handler]
+	sftpCfg *SFTPConfig
 }
 
 // NewHandler creates a new Transfer handler.

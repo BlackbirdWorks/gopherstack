@@ -135,6 +135,8 @@ func (b *InMemoryBackend) buildContainerEnv(
 		}
 	}
 
+	b.applyDebugEnv(fn, vars)
+
 	env := make([]string, 0, len(vars))
 	for k, v := range vars {
 		env = append(env, k+"="+v)

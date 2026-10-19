@@ -988,7 +988,9 @@ type Task struct {
 	Attachments          []TaskAttachment `json:"attachments,omitempty"`
 	Containers           []Container      `json:"containers,omitempty"`
 	EnableExecuteCommand bool             `json:"enableExecuteCommand,omitempty"`
-	version              int64
+	// AwaitingCapacity marks a PROVISIONING task waiting for a managed-scaling provider to add instances.
+	AwaitingCapacity bool `json:"awaitingCapacity,omitempty"`
+	version          int64
 }
 
 // CreateClusterInput holds input for CreateCluster.
@@ -1125,13 +1127,19 @@ type ContainerInstance struct {
 	// remainingResources instead); this is purely gopherstack's internal
 	// placement-bookkeeping, persisted additively so reservations survive a
 	// restart instead of going stale.
-	AllocatedPorts       map[string]bool `json:"allocatedPorts,omitempty"`
-	VersionInfo          *VersionInfo    `json:"versionInfo,omitempty"`
-	ContainerInstanceArn string          `json:"containerInstanceArn"`
-	EC2InstanceID        string          `json:"ec2InstanceId"`
-	ClusterArn           string          `json:"clusterArn"`
-	Status               string          `json:"status"`
-	AgentUpdateStatus    string          `json:"agentUpdateStatus,omitempty"`
+	AllocatedPorts map[string]bool `json:"allocatedPorts,omitempty"`
+	// RegisteredResources is the capacity the instance reported at registration; empty (legacy) means unmetered.
+	RegisteredResources []Resource `json:"registeredResources,omitempty"`
+	// RemainingResources is derived on read from RegisteredResources and the instance's live tasks.
+	RemainingResources   []Resource   `json:"-"`
+	VersionInfo          *VersionInfo `json:"versionInfo,omitempty"`
+	ContainerInstanceArn string       `json:"containerInstanceArn"`
+	EC2InstanceID        string       `json:"ec2InstanceId"`
+	ClusterArn           string       `json:"clusterArn"`
+	Status               string       `json:"status"`
+	AgentUpdateStatus    string       `json:"agentUpdateStatus,omitempty"`
+	// ManagedBy names the capacity provider whose scaler registered this instance.
+	ManagedBy string `json:"managedBy,omitempty"`
 	// Attributes is derived from the cluster attribute table on read.
 	Attributes        []Attribute `json:"-"`
 	Version           int64       `json:"version"`
@@ -1150,6 +1158,8 @@ type VersionInfo struct {
 // ContainerInstanceDetails carries the optional RegisterContainerInstance members.
 type ContainerInstanceDetails struct {
 	VersionInfo *VersionInfo
+	ManagedBy   string
+	Resources   []Resource
 	Attributes  []Attribute
 	Tags        []Tag
 }

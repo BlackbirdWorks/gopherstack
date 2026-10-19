@@ -9,16 +9,22 @@
 | --- | --- |
 | PARITY entries audited | 19 (19 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | none |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- IAM client authentication to the MSK cluster (kafkaClusterClientAuthentication IAM) is rejected as FAILED: the worker image does not bundle aws-msk-iam-auth.
+- TLS in-transit to docker-backed brokers is wired (CA trust via SetTrustCAPEM) but has no real-worker test.
+- Capacity (workerCount/mcuCount/autoscaling) is recorded but does not scale the single worker container.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- No Kafka Connect runtime: connector tasks never run, there is no worker fleet or autoscaling metric source, and MSK bootstrap-broker / VPC reachability, connector.class resolution and plugin-archive validity are never exercised. AWS surfaces those failures asynchronously as FAILED states whose StateDescription code vocabulary is not published, so connectors here never reach FAILED.
+- Without --kafka-engine=docker there is no Kafka Connect runtime: connector tasks never run and connectors never reach FAILED. With the docker engine a single apache/kafka 3.9.1 Connect worker container runs per connector (kafkaConnectVersion is not mapped to an image); the StateDescription code `WORKER_FAILED` is ours, AWS does not publish its vocabulary.
 - A custom plugin whose S3 object is absent ends CREATE_FAILED with a message-only StateDescription (the code vocabulary is unpublished); archive contents are not validated as a real ZIP/JAR.
 - UpdateCustomPlugin / UpdateWorkerConfiguration do not exist in the pinned SDK (v1.39.1), so plugin and worker-configuration revisions stay at 1.
 

@@ -119,13 +119,20 @@ func placementViolatesDistinctInstance(
 	return false
 }
 
+// ledgerView lets placement consult the container-instance resource ledger.
+type ledgerView struct {
+	shortfall func(ci *ContainerInstance) string
+	free      func(ci *ContainerInstance) (cpu, mem int64, ok bool)
+}
+
 // selectContainerInstance picks a container instance for task placement according
-// to the service's PlacementStrategy. Returns "" when no suitable instance is found.
+// to the service's PlacementStrategy. It returns "" when no instance is suitable;
+// resourceReason then names the CPU/MEMORY shortfall that excluded instances, if any.
 //
-// Supported strategies (evaluated in order):
-//   - random  → uniform random selection among eligible instances
-//   - spread  → fewest-tasks-first among eligible instances (field ignored)
-//   - binpack → most-tasks-first among eligible instances (field ignored)
+// Strategies (first entry decides):
+//   - random  -> uniform random among eligible instances
+//   - spread  -> fewest-tasks-first
+//   - binpack -> least remaining cpu/memory first when the field names one, else most-tasks-first
 //
 // Falls back to random when the strategy list is empty or the type is unrecognized.
 func selectContainerInstance(
@@ -135,51 +142,115 @@ func selectContainerInstance(
 	strategies []PlacementStrategy,
 	serviceName string,
 	skip map[string]bool,
-) string {
-	// Collect eligible instances (ACTIVE + not violating constraints).
-	eligible := make([]string, 0, len(instances))
-
-	for _, ci := range instances {
-		arn := ci.ContainerInstanceArn
-		if ci.Status != statusActive || skip[arn] {
-			continue
-		}
-
-		violates := false
-
-		for _, c := range constraints {
-			if strings.EqualFold(c.Type, "distinctInstance") {
-				if placementViolatesDistinctInstance(clusterTasks, arn, serviceName) {
-					violates = true
-
-					break
-				}
-			}
-		}
-
-		if !violates {
-			eligible = append(eligible, arn)
-		}
+	ledger ledgerView,
+) (string, string) {
+	eligible, reason := eligibleInstances(instances, clusterTasks, constraints, serviceName, skip, ledger)
+	if len(eligible) == 0 {
+		return "", reason
 	}
 
-	if len(eligible) == 0 {
-		return ""
+	arns := make([]string, len(eligible))
+	for i, ci := range eligible {
+		arns[i] = ci.ContainerInstanceArn
 	}
 
 	if len(strategies) == 0 {
-		return cryptoRandChoice(eligible)
+		return cryptoRandChoice(arns), ""
 	}
 
 	switch strings.ToLower(strategies[0].Type) {
-	case "random":
-		return cryptoRandChoice(eligible)
 	case "spread":
-		return leastLoadedInstance(eligible, clusterTasks)
+		return leastLoadedInstance(arns, clusterTasks), ""
 	case "binpack":
-		return mostLoadedInstance(eligible, clusterTasks)
+		if arn, ok := binpackByLedger(eligible, strategies[0].Field, ledger); ok {
+			return arn, ""
+		}
+
+		return mostLoadedInstance(arns, clusterTasks), ""
 	default:
-		return cryptoRandChoice(eligible)
+		return cryptoRandChoice(arns), ""
 	}
+}
+
+// eligibleInstances filters to ACTIVE instances that satisfy constraints and the resource ledger.
+func eligibleInstances(
+	instances []*ContainerInstance,
+	clusterTasks []*Task,
+	constraints []PlacementConstraint,
+	serviceName string,
+	skip map[string]bool,
+	ledger ledgerView,
+) ([]*ContainerInstance, string) {
+	eligible := make([]*ContainerInstance, 0, len(instances))
+	reason := ""
+
+	for _, ci := range instances {
+		arn := ci.ContainerInstanceArn
+		if ci.Status != statusActive || skip[arn] ||
+			violatesDistinctInstance(constraints, clusterTasks, arn, serviceName) {
+			continue
+		}
+
+		if ledger.shortfall != nil {
+			if r := ledger.shortfall(ci); r != "" {
+				reason = pickShortfall(reason, r)
+
+				continue
+			}
+		}
+
+		eligible = append(eligible, ci)
+	}
+
+	return eligible, reason
+}
+
+func violatesDistinctInstance(cs []PlacementConstraint, clusterTasks []*Task, arn, serviceName string) bool {
+	for _, c := range cs {
+		if strings.EqualFold(c.Type, "distinctInstance") &&
+			placementViolatesDistinctInstance(clusterTasks, arn, serviceName) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// pickShortfall keeps the more specific reason: CPU over MEMORY.
+func pickShortfall(cur, next string) string {
+	if cur == failureReasonCPU || next == "" {
+		return cur
+	}
+
+	return next
+}
+
+// binpackByLedger picks the eligible instance with the least remaining cpu or memory (per field).
+func binpackByLedger(eligible []*ContainerInstance, field string, ledger ledgerView) (string, bool) {
+	f := strings.ToLower(field)
+	if (f != "cpu" && f != "memory") || ledger.free == nil {
+		return "", false
+	}
+
+	best, bestFree, found := "", int64(0), false
+
+	for _, ci := range eligible {
+		cpu, mem, ok := ledger.free(ci)
+		if !ok {
+			continue
+		}
+
+		v := mem
+		if f == "cpu" {
+			v = cpu
+		}
+
+		if !found || v < bestFree {
+			best, bestFree, found = ci.ContainerInstanceArn, v, true
+		}
+	}
+
+	return best, found
 }
 
 // cryptoRandChoice picks a random element from a non-empty slice using crypto/rand.

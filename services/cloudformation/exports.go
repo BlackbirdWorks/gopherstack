@@ -61,7 +61,12 @@ func (b *InMemoryBackend) ListImports(exportName, nextToken string) (page.Page[s
 func (b *InMemoryBackend) registerExports(stackID string, exportMap map[string]string) error {
 	for name, value := range exportMap {
 		if existing, ok := b.exports.Get(name); ok && existing.ExportingStackID != stackID {
-			return fmt.Errorf("%w: %s", ErrDuplicateExport, name)
+			owner := existing.ExportingStackID
+			if s, found := b.resolveStack(owner); found {
+				owner = s.StackName
+			}
+
+			return awsErrorf(ErrDuplicateExport, "Export with name %s is already exported by stack %s", name, owner)
 		}
 
 		b.exports.Put(&Export{

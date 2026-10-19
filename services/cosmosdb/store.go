@@ -1,13 +1,16 @@
 package cosmosdb
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 )
 
@@ -25,6 +28,8 @@ type InMemoryBackend struct {
 	etagFunc func(time.Time) string
 	// parsed caches parsed SQL statements by query text.
 	parsed *safemap.Map[string, *sqlSelectStmt]
+	// tableAPI is the Table API backend snapshotted and restored alongside this one; nil when detached.
+	tableAPI tableSnapshotter
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend.
@@ -150,14 +155,13 @@ func (b *InMemoryBackend) DeleteDatabase(id string) error {
 // ErrDatabaseNotFound if dbID doesn't exist, or ErrContainerAlreadyExists if
 // a container with the same ID already exists in it.
 func (b *InMemoryBackend) CreateContainer(dbID string, spec ContainerSpec) (ContainerInfo, error) {
-	// Real Cosmos requires the partition key path to be "/"-prefixed (e.g.
-	// "/pk", not "pk") -- reject anything else here rather than accepting
-	// it silently, since extractPartitionKeyValue's own path-walking trims
-	// leading/trailing slashes and would otherwise treat "pk" and "/pk"
-	// identically, masking a client sending a malformed definition that
-	// real Cosmos itself would reject.
-	if spec.PartitionKeyPath == "" || !strings.HasPrefix(spec.PartitionKeyPath, "/") {
-		return ContainerInfo{}, ErrInvalidPartitionKeyPath
+	paths, err := normalizePartitionKeyPaths(spec)
+	if err != nil {
+		return ContainerInfo{}, err
+	}
+
+	if ttlErr := validateDefaultTTL(spec.DefaultTTL); ttlErr != nil {
+		return ContainerInfo{}, ttlErr
 	}
 
 	b.mu.Lock("CreateContainer")
@@ -172,20 +176,61 @@ func (b *InMemoryBackend) CreateContainer(dbID string, spec ContainerSpec) (Cont
 		return ContainerInfo{}, ErrContainerAlreadyExists
 	}
 
-	d.Containers[spec.ID] = &storedContainer{
+	c := &storedContainer{
 		ID:               spec.ID,
-		PartitionKeyPath: spec.PartitionKeyPath,
+		PartitionKeyPath: paths[0],
+		DefaultTTL:       spec.DefaultTTL,
+		IndexingPolicy:   spec.IndexingPolicy,
 		Documents:        make(map[documentCompositeKey]*storedDocument),
 	}
+	if len(paths) > 1 {
+		c.PartitionKeyPaths = paths
+	}
 
-	return b.containerInfo(dbID, d.Containers[spec.ID]), nil
+	d.Containers[spec.ID] = c
+
+	return b.containerInfo(dbID, c), nil
+}
+
+// ReplaceContainer updates a container's defaultTtl and indexing policy. The partition key is immutable.
+func (b *InMemoryBackend) ReplaceContainer(dbID string, spec ContainerSpec) (ContainerInfo, error) {
+	paths, err := normalizePartitionKeyPaths(spec)
+	if err != nil {
+		return ContainerInfo{}, err
+	}
+
+	if ttlErr := validateDefaultTTL(spec.DefaultTTL); ttlErr != nil {
+		return ContainerInfo{}, ttlErr
+	}
+
+	b.mu.Lock("ReplaceContainer")
+	defer b.mu.Unlock()
+
+	c, err := b.findContainer(dbID, spec.ID)
+	if err != nil {
+		return ContainerInfo{}, err
+	}
+
+	if !slices.Equal(paths, c.paths()) {
+		return ContainerInfo{}, ErrPartitionKeyImmutable
+	}
+
+	c.DefaultTTL = spec.DefaultTTL
+	if len(spec.IndexingPolicy) > 0 {
+		c.IndexingPolicy = spec.IndexingPolicy
+	}
+
+	return b.containerInfo(dbID, c), nil
 }
 
 func (b *InMemoryBackend) containerInfo(dbID string, c *storedContainer) ContainerInfo {
 	return ContainerInfo{
-		ID:               c.ID,
-		RID:              fakeRID("dbs/" + dbID + "/colls/" + c.ID),
-		PartitionKeyPath: c.PartitionKeyPath,
+		ID:                c.ID,
+		RID:               fakeRID("dbs/" + dbID + "/colls/" + c.ID),
+		PartitionKeyPath:  c.PartitionKeyPath,
+		PartitionKeyPaths: slices.Clone(c.paths()),
+		DefaultTTL:        c.DefaultTTL,
+		IndexingPolicy:    c.IndexingPolicy,
 	}
 }
 
@@ -288,17 +333,20 @@ func extractPartitionKeyValue(body map[string]any, path string) (any, bool) {
 }
 
 // prepareDocumentBody validates and clones body for storage, extracting its
-// ID (generating one if absent) and partition key JSON per c's declared
-// path. System property keys are stripped -- they are always
-// server-managed, never client-supplied (mirrors services/azuretable's
-// treatment of "Timestamp").
-func prepareDocumentBody(body map[string]any, path string) (string, string, map[string]any, error) {
+// ID (generating one if absent) and partition key JSON per the container's
+// declared paths. System property keys are stripped -- they are always
+// server-managed, never client-supplied.
+func prepareDocumentBody(body map[string]any, paths []string) (string, string, map[string]any, error) {
 	clone, err := deepCopyBody(body)
 	if err != nil {
 		return "", "", nil, err
 	}
 
 	stripSystemProperties(clone)
+
+	if ttlErr := validateItemTTL(clone); ttlErr != nil {
+		return "", "", nil, ttlErr
+	}
 
 	id, err := resolveDocumentID(clone)
 	if err != nil {
@@ -307,9 +355,7 @@ func prepareDocumentBody(body map[string]any, path string) (string, string, map[
 
 	clone["id"] = id
 
-	pkValue, _ := extractPartitionKeyValue(clone, path)
-
-	pkJSON, err := canonicalPartitionKeyJSON(pkValue)
+	pkJSON, err := partitionKeyForBody(clone, paths)
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -346,19 +392,18 @@ func (b *InMemoryBackend) CreateDocument(
 		return DocumentInfo{}, err
 	}
 
-	id, pkJSON, clean, err := prepareDocumentBody(body, c.PartitionKeyPath)
+	id, pkJSON, clean, err := prepareDocumentBody(body, c.paths())
 	if err != nil {
 		return DocumentInfo{}, err
 	}
 
 	key := documentCompositeKey{PartitionKeyJSON: pkJSON, ID: id}
+	now := b.now()
 
-	existing, exists := c.Documents[key]
+	existing, exists := c.lookup(key, now)
 	if exists && !upsert {
 		return DocumentInfo{}, ErrDocumentAlreadyExists
 	}
-
-	now := b.now()
 
 	prevTimestamp := now
 	if exists {
@@ -417,7 +462,11 @@ func (b *InMemoryBackend) GetDocument(dbID, containerID, partitionKey, id string
 		return DocumentInfo{}, err
 	}
 
-	d, ok := c.Documents[documentCompositeKey{PartitionKeyJSON: partitionKey, ID: id}]
+	if pkErr := c.checkPartitionKey(partitionKey); pkErr != nil {
+		return DocumentInfo{}, pkErr
+	}
+
+	d, ok := c.lookup(documentCompositeKey{PartitionKeyJSON: partitionKey, ID: id}, b.now())
 	if !ok {
 		return DocumentInfo{}, ErrDocumentNotFound
 	}
@@ -460,8 +509,12 @@ func (b *InMemoryBackend) ReplaceDocument(
 		return DocumentInfo{}, err
 	}
 
+	if pkErr := c.checkPartitionKey(partitionKey); pkErr != nil {
+		return DocumentInfo{}, pkErr
+	}
+
 	key := documentCompositeKey{PartitionKeyJSON: partitionKey, ID: id}
-	existing, exists := c.Documents[key]
+	existing, exists := c.lookup(key, b.now())
 
 	if matchErr := b.checkIfMatch(existing, exists, ifMatch); matchErr != nil {
 		return DocumentInfo{}, matchErr
@@ -474,15 +527,15 @@ func (b *InMemoryBackend) ReplaceDocument(
 
 	stripSystemProperties(clean)
 
+	if ttlErr := validateItemTTL(clean); ttlErr != nil {
+		return DocumentInfo{}, ttlErr
+	}
+
 	clean["id"] = id
 
-	// The replacement body's own partition-key-path field, if it declares
-	// one at all, must agree with the caller-supplied partition key -- see
-	// ErrPartitionKeyMismatch's doc comment for why silently allowing a
-	// contradiction here would leave a document stored under one partition
-	// while its own body claims another.
-	if pkValue, ok := extractPartitionKeyValue(clean, c.PartitionKeyPath); ok {
-		bodyPK, pkErr := canonicalPartitionKeyJSON(pkValue)
+	// A body that declares partition key value(s) must agree with the request's key (ErrPartitionKeyMismatch).
+	if bodyDeclaresPartitionKey(clean, c.paths()) {
+		bodyPK, pkErr := partitionKeyForBody(clean, c.paths())
 		if pkErr != nil {
 			return DocumentInfo{}, pkErr
 		}
@@ -521,9 +574,13 @@ func (b *InMemoryBackend) DeleteDocument(dbID, containerID, partitionKey, id, if
 		return err
 	}
 
+	if pkErr := c.checkPartitionKey(partitionKey); pkErr != nil {
+		return pkErr
+	}
+
 	key := documentCompositeKey{PartitionKeyJSON: partitionKey, ID: id}
 
-	existing, exists := c.Documents[key]
+	existing, exists := c.lookup(key, b.now())
 	if !exists {
 		// checkIfMatch alone is not sufficient here: with ifMatch == "" it
 		// returns nil unconditionally (that's the correct contract for
@@ -545,7 +602,7 @@ func (b *InMemoryBackend) DeleteDocument(dbID, containerID, partitionKey, id, if
 	return nil
 }
 
-// ListDocuments returns every document in containerID, ordered by ID.
+// ListDocuments returns every live document in containerID, ordered by ID.
 func (b *InMemoryBackend) ListDocuments(dbID, containerID string) ([]DocumentInfo, error) {
 	b.mu.RLock("ListDocuments")
 	defer b.mu.RUnlock()
@@ -555,7 +612,7 @@ func (b *InMemoryBackend) ListDocuments(dbID, containerID string) ([]DocumentInf
 		return nil, err
 	}
 
-	docs := c.sortedDocs()
+	docs := c.liveDocs(b.now())
 
 	out := make([]DocumentInfo, 0, len(docs))
 	for _, d := range docs {
@@ -565,10 +622,48 @@ func (b *InMemoryBackend) ListDocuments(dbID, containerID string) ([]DocumentInf
 	return out, nil
 }
 
+// ListDocumentsPaged returns one page of live documents; token and limit follow pkgs/page (limit <= 0 is
+// unbounded).
+func (b *InMemoryBackend) ListDocumentsPaged(
+	dbID, containerID, token string, limit int,
+) (page.Page[DocumentInfo], error) {
+	b.mu.RLock("ListDocumentsPaged")
+	defer b.mu.RUnlock()
+
+	c, err := b.findContainer(dbID, containerID)
+	if err != nil {
+		return page.Page[DocumentInfo]{}, err
+	}
+
+	docs := c.liveDocs(b.now())
+	pg := page.New(docs, token, limit, max(len(docs), 1))
+
+	out := make([]DocumentInfo, 0, len(pg.Data))
+	for _, d := range pg.Data {
+		out = append(out, b.documentInfo(dbID, containerID, d))
+	}
+
+	return page.Page[DocumentInfo]{Data: out, Next: pg.Next}, nil
+}
+
 // Reset clears all in-memory state.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
 	b.databases = make(map[string]*storedDatabase)
+}
+
+type tableSnapshotter interface {
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
+	Reset()
+}
+
+// AttachTableAPI includes t in this backend's Snapshot/Restore/Reset.
+func (b *InMemoryBackend) AttachTableAPI(t tableSnapshotter) {
+	b.mu.Lock("AttachTableAPI")
+	defer b.mu.Unlock()
+
+	b.tableAPI = t
 }

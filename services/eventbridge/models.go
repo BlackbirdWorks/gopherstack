@@ -1,6 +1,10 @@
 package eventbridge
 
-import "time"
+import (
+	"time"
+
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
+)
 
 // EventBus represents an EventBridge event bus.
 //
@@ -262,14 +266,13 @@ type EventResultEntry struct {
 
 // PutRuleInput is the input for PutRule.
 type PutRuleInput struct {
-	Tags               map[string]string `json:"Tags,omitempty"`
-	Name               string            `json:"Name"`
-	EventBusName       string            `json:"EventBusName,omitempty"`
-	EventPattern       string            `json:"EventPattern,omitempty"`
-	State              string            `json:"State,omitempty"`
-	Description        string            `json:"Description,omitempty"`
-	ScheduleExpression string            `json:"ScheduleExpression,omitempty"`
-	RoleArn            string            `json:"RoleArn,omitempty"`
+	Name               string `json:"Name"`
+	EventBusName       string `json:"EventBusName,omitempty"`
+	EventPattern       string `json:"EventPattern,omitempty"`
+	State              string `json:"State,omitempty"`
+	Description        string `json:"Description,omitempty"`
+	ScheduleExpression string `json:"ScheduleExpression,omitempty"`
+	RoleArn            string `json:"RoleArn,omitempty"`
 	// ManagedBy is deliberately NOT wire-visible (json:"-"): the real AWS
 	// PutRuleInput has no ManagedBy member at all -- it is a server-populated,
 	// Describe/List-only field (see Rule.ManagedBy / DescribeRuleOutput.ManagedBy).
@@ -279,7 +282,8 @@ type PutRuleInput struct {
 	// same-process AWS-service integration (e.g. EventBridge Scheduler) that
 	// wants to mark a rule it creates as service-managed; PutRule still rejects
 	// (ManagedRuleException) any attempt to modify a rule that already has one.
-	ManagedBy string `json:"-"`
+	ManagedBy string       `json:"-"`
+	Tags      []svcTags.KV `json:"Tags,omitempty"`
 }
 
 // FailedEntry describes a target or event that failed to process.

@@ -150,6 +150,28 @@ gopherstack --persist
 
 State is saved to `~/.gopherstack/data/` on macOS/Linux or `/data/` in container environments. A debounced snapshot is taken 500 ms after each mutation.
 
+## Pods (named, versioned state snapshots)
+
+A pod is a named series of full-emulator snapshots. Each save creates a new version (zip with `manifest.json` plus one JSON snapshot per service, the same data `POST /_gopherstack/snapshot` returns).
+
+```bash
+gopherstack pod save demo -m "seeded users"        # new version, all services
+gopherstack pod save demo --services s3,dynamodb   # subset
+gopherstack pod list
+gopherstack pod versions demo
+gopherstack pod inspect demo --version 1
+gopherstack pod load demo                          # latest, strategy=overwrite
+gopherstack pod load demo --version 1 --strategy service-merge
+gopherstack pod delete demo --version 1            # omit --version to delete the pod
+gopherstack --pod-autoload demo:1                  # load at startup (name[:version])
+```
+
+`overwrite` resets every service, then restores the pod; `service-merge` replaces only the services present in the pod and leaves the rest untouched. Account/region-level merge is not supported.
+
+Pods live in `<data-dir>/pods` by default (`--pod-dir`). To use an S3-compatible remote set `--pod-s3-bucket` (plus `--pod-s3-prefix`, `--pod-s3-endpoint`, `--pod-s3-region`, `--pod-s3-access-key`/`--pod-s3-secret-key`, `--pod-s3-path-style`); with no endpoint it targets real AWS S3 using the default credential chain. The `pod` subcommands call a running instance (`--endpoint`, default `http://localhost:8000`).
+
+HTTP API: `GET /_gopherstack/pods`, `POST|GET|DELETE /_gopherstack/pods/{name}` (POST body `{"message","services"}`; DELETE takes `?version=`), `GET /_gopherstack/pods/{name}/versions/{version|latest}`, `POST /_gopherstack/pods/{name}/load?version=&strategy=&services=`.
+
 ## Next steps
 
 - [docker.md](docker.md) — Docker Compose setup for CI/CD

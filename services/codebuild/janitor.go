@@ -161,7 +161,7 @@ func (j *Janitor) collectInProgressIDs() ([]string, []string) {
 	var buildIDs, batchIDs []string
 
 	for _, build := range j.Backend.builds.All() {
-		if build.BuildStatus == buildStatusInProgress {
+		if build.BuildStatus == buildStatusInProgress && !j.Backend.buildExecuting(build.ID) {
 			buildIDs = append(buildIDs, build.ID)
 		}
 	}

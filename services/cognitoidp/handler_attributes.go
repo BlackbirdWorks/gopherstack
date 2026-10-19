@@ -35,7 +35,7 @@ func sortedAttributeList(m map[string]string) []attributeType {
 }
 
 func (h *Handler) handleUpdateUserAttributes(
-	_ context.Context,
+	ctx context.Context,
 	in *updateUserAttributesInput,
 ) (*updateUserAttributesOutput, error) {
 	res, err := h.Backend.UpdateUserAttributesWithDelivery(in.AccessToken, attributeListToMap(in.UserAttributes))
@@ -43,7 +43,7 @@ func (h *Handler) handleUpdateUserAttributes(
 		return nil, err
 	}
 
-	details, err := h.deliverAttributeCodes(res, in.ClientMetadata, true)
+	details, err := h.deliverAttributeCodes(ctx, res, in.ClientMetadata, true)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +52,7 @@ func (h *Handler) handleUpdateUserAttributes(
 }
 
 func (h *Handler) handleAdminUpdateUserAttributes(
-	_ context.Context,
+	ctx context.Context,
 	in *adminUpdateUserAttributesInput,
 ) (*adminUpdateUserAttributesOutput, error) {
 	res, err := h.Backend.AdminUpdateUserAttributesWithDelivery(
@@ -61,7 +61,7 @@ func (h *Handler) handleAdminUpdateUserAttributes(
 		return nil, err
 	}
 
-	if _, err = h.deliverAttributeCodes(res, in.ClientMetadata, false); err != nil {
+	if _, err = h.deliverAttributeCodes(ctx, res, in.ClientMetadata, false); err != nil {
 		return nil, err
 	}
 
@@ -71,7 +71,7 @@ func (h *Handler) handleAdminUpdateUserAttributes(
 // deliverAttributeCodes fires CustomMessage_UpdateUserAttribute for each verification message
 // and, when includeCode is set, returns the CodeDeliveryDetailsList wire entries.
 func (h *Handler) deliverAttributeCodes(
-	res *AttributeUpdateResult, meta map[string]string, includeCode bool,
+	ctx context.Context, res *AttributeUpdateResult, meta map[string]string, includeCode bool,
 ) ([]map[string]string, error) {
 	var out []map[string]string
 
@@ -95,6 +95,13 @@ func (h *Handler) deliverAttributeCodes(
 
 		if subject != "" {
 			entry[keyCustomMessageSubject] = subject
+		}
+
+		if err = h.deliverCode(ctx, res.PoolID, &MessageRequest{
+			Username: res.Username, Code: d.Code, Kind: MessageVerification, Attribute: d.AttributeName,
+			Medium: d.DeliveryMedium, Destination: d.Raw, CustomMessage: message, CustomSubject: subject,
+		}, nil); err != nil {
+			return nil, err
 		}
 
 		out = append(out, entry)
@@ -137,7 +144,7 @@ func (h *Handler) handleDeleteUserAttributes(
 }
 
 func (h *Handler) handleGetUserAttributeVerificationCodeFull(
-	_ context.Context,
+	ctx context.Context,
 	in *getUserAttributeVerifCodeFullInput,
 ) (*getUserAttributeVerifCodeFullOutput, error) {
 	code, dest, medium, err := h.Backend.GetUserAttributeVerificationCode(in.AccessToken, in.AttributeName)
@@ -159,6 +166,13 @@ func (h *Handler) handleGetUserAttributeVerificationCodeFull(
 	message, subject, err := h.Backend.InvokeCustomMessageTriggerForUser(
 		poolID, clientID, username, code, triggerSourceCustomMessageVerifyAttr, in.ClientMetadata)
 	if err != nil {
+		return nil, err
+	}
+
+	if err = h.deliverCode(ctx, poolID, &MessageRequest{
+		Username: username, Code: code, Kind: MessageVerification, Attribute: in.AttributeName,
+		CustomMessage: message, CustomSubject: subject,
+	}, nil); err != nil {
 		return nil, err
 	}
 

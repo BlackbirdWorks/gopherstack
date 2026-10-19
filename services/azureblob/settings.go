@@ -24,6 +24,8 @@ type Settings struct {
 	// handler.go's StartWorker for what happens when it's unavailable
 	// (fails fast; no fallback pool, matching services/iot's MQTT broker).
 	Port int `json:"port" env:"AZURE_BLOB_PORT" default:"10000" name:"port" help:"Fixed TCP port for the dedicated Azure Blob listener; startup fails if it's unavailable (no fallback pool)."` //nolint:lll // config struct tags are intentionally verbose
+	// EnforcePublicAccess rejects anonymous requests the container's public-access level does not allow.
+	EnforcePublicAccess bool `json:"enforcePublicAccess" env:"AZURE_BLOB_ENFORCE_PUBLIC_ACCESS" name:"enforce-public-access" help:"Reject anonymous (unsigned) requests that a container's public access level does not allow; off by default so unauthenticated curl keeps working."` //nolint:lll // config struct tags are intentionally verbose
 }
 
 // DefaultSettings returns the default Settings. Used when no ConfigProvider

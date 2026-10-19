@@ -42,6 +42,12 @@ const (
 	connectorOperationTypeRestart            = "RESTART_CONNECTOR"
 )
 
+// StateDescription mirrors types.StateDescription: why a connector is in a failed state.
+type StateDescription struct {
+	Code    string
+	Message string
+}
+
 // AutoScaling mirrors types.AutoScalingDescription.
 type AutoScaling struct {
 	MinWorkerCount          int32

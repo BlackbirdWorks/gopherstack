@@ -304,16 +304,22 @@ func TestEngine_Failures(t *testing.T) {
 		limits     athena.EngineLimits
 	}{
 		{
-			name:       "parquet serde",
+			name:       "parquet serde on non-parquet file",
 			sql:        "SELECT * FROM sales",
 			serde:      "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe",
-			wantReason: "NOT_SUPPORTED: unsupported data format: Parquet",
+			wantReason: "HIVE_CANNOT_OPEN_SPLIT",
 		},
 		{
-			name:       "parquet input format",
+			name:       "parquet input format on non-parquet file",
 			sql:        "SELECT * FROM sales",
 			inputFmt:   "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
-			wantReason: "Parquet",
+			wantReason: "invalid parquet file",
+		},
+		{
+			name:       "avro",
+			sql:        "SELECT * FROM sales",
+			serde:      "org.apache.hadoop.hive.serde2.avro.AvroSerDe",
+			wantReason: "NOT_SUPPORTED: unsupported data format: Avro",
 		},
 		{
 			name:       "orc",

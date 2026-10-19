@@ -3,37 +3,70 @@ package appsync
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
-// EvaluateMappingTemplate evaluates a VTL mapping template with the provided context JSON.
-// The context is expected to be a JSON object with optional "arguments" and "result" keys.
-func (b *InMemoryBackend) EvaluateMappingTemplate(template, contextJSON string) (string, error) {
-	var ctx struct {
-		Arguments map[string]any `json:"arguments"`
-		Result    any            `json:"result"`
-	}
+// evalContext decodes an EvaluateMappingTemplate/EvaluateCode context JSON
+// into a full AppSync context map (args/arguments aliased, stash present).
+func evalContext(contextJSON string) (map[string]any, error) {
+	ctx := map[string]any{}
 
-	if contextJSON != "" {
+	if strings.TrimSpace(contextJSON) != "" {
 		if err := json.Unmarshal([]byte(contextJSON), &ctx); err != nil {
-			return "", fmt.Errorf("%w: invalid context JSON", ErrValidation)
+			return nil, fmt.Errorf("%w: invalid context JSON", ErrValidation)
 		}
 	}
 
-	out, err := renderVTL(template, ctx.Arguments, ctx.Result)
+	args, hasArgs := ctx[jsCtxKeyArguments]
+	alias, hasAlias := ctx["args"]
+
+	switch {
+	case hasArgs && !hasAlias:
+		ctx["args"] = args
+	case hasAlias && !hasArgs:
+		ctx[jsCtxKeyArguments] = alias
+	case !hasArgs:
+		empty := map[string]any{}
+		ctx[jsCtxKeyArguments], ctx["args"] = empty, empty
+	}
+
+	if _, ok := ctx["stash"].(map[string]any); !ok {
+		ctx["stash"] = map[string]any{}
+	}
+
+	for _, k := range []string{jsCtxKeyPrev, "info", "request"} {
+		if _, ok := ctx[k].(map[string]any); !ok {
+			ctx[k] = map[string]any{}
+		}
+	}
+
+	return ctx, nil
+}
+
+// EvaluateMappingTemplate renders a VTL template against the context JSON.
+// A #return value or $util.error surfaces as in a live resolver.
+func (b *InMemoryBackend) EvaluateMappingTemplate(template, contextJSON string) (string, error) {
+	ctx, err := evalContext(contextJSON)
 	if err != nil {
 		return "", err
 	}
 
-	return out, nil
+	cc := &callCtx{}
+
+	out, err := runVTL(template, ctx, cc.utilEnv())
+	if err != nil {
+		return "", err
+	}
+
+	if out.Returned {
+		return returnedString(out.Value), nil
+	}
+
+	return out.Output, nil
 }
 
-// EvaluateCode evaluates an APPSYNC_JS module against the supplied context and
-// returns the JSON-stringified return value of the selected handler.
-//
-// gopherstack does not embed a JavaScript engine, so this evaluates the documented
-// APPSYNC_JS patterns directly (see appsync_js.go). Constructs beyond that set
-// return ErrUnsupportedJSCode rather than a fabricated result, so callers can
-// distinguish "evaluated" from "not supported by the emulator".
+// EvaluateCode runs an APPSYNC_JS module's request or response handler against
+// the context JSON and returns the JSON-stringified return value.
 func (b *InMemoryBackend) EvaluateCode(code, contextJSON, function, runtime string) (string, error) {
 	if code == "" {
 		return "", fmt.Errorf("%w: code is required", ErrValidation)
@@ -43,9 +76,34 @@ func (b *InMemoryBackend) EvaluateCode(code, contextJSON, function, runtime stri
 		return "", fmt.Errorf("%w: unsupported runtime %q", ErrValidation, runtime)
 	}
 
-	if function != "" && function != jsHandlerRequest && function != jsHandlerResponse {
+	if function == "" {
+		function = jsHandlerRequest
+	}
+
+	if function != jsHandlerRequest && function != jsHandlerResponse {
 		return "", fmt.Errorf("%w: function must be 'request' or 'response'", ErrValidation)
 	}
 
-	return evaluateAppSyncJS(code, contextJSON, function)
+	ctx, err := evalContext(contextJSON)
+	if err != nil {
+		return "", err
+	}
+
+	cc := &callCtx{}
+
+	out, err := runJS(code, function, ctx, cc.utilEnv())
+	if err != nil {
+		if handlerMissing(err) {
+			return "", fmt.Errorf("%w: no %s handler found in code", ErrValidation, function)
+		}
+
+		return "", err
+	}
+
+	raw, err := json.Marshal(out.Value)
+	if err != nil {
+		return "", fmt.Errorf("%w: result is not JSON-serializable", ErrValidation)
+	}
+
+	return string(raw), nil
 }

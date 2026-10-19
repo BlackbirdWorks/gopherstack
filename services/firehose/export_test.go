@@ -55,3 +55,6 @@ func PollerCount(b *InMemoryBackend) int {
 
 	return total
 }
+
+// InferColumns exposes inferColumns for white-box testing.
+func InferColumns(objs []map[string]any) []SchemaColumn { return inferColumns(objs) }

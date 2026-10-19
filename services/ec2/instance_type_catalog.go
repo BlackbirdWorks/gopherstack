@@ -1302,3 +1302,13 @@ const (
 	gpuNameA10G = "A10G"
 	gpuNameV100 = "V100"
 )
+
+// InstanceTypeResources returns the vCPU count and memory (MiB) of a catalogued instance type.
+func InstanceTypeResources(instanceType string) (int, int, bool) {
+	spec, found := instanceTypeCatalog[instanceType]
+	if !found || spec.vcpus == 0 || spec.memoryMiB == 0 {
+		return 0, 0, false
+	}
+
+	return int(spec.vcpus), int(spec.memoryMiB), true
+}

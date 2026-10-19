@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
 func TestFederatedOIDCCodeFlow(t *testing.T) {
@@ -312,6 +314,92 @@ func TestFederatedOIDCLinkedAndDisabledUsers(t *testing.T) {
 			claims := env.verifyAgainstJWKS(t, env.redeem(t, first.Get("code"))["id_token"].(string))
 			assert.Equal(t, oauthUser, claims["cognito:username"])
 			assert.Nil(t, env.federatedUser(t))
+		})
+	}
+}
+
+func TestFederatedOIDCBrowserBinding(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		cookie     string
+		wantStatus int
+	}{
+		{name: "valid cookie", cookie: "good", wantStatus: http.StatusFound},
+		{name: "no cookie", cookie: "", wantStatus: http.StatusBadRequest},
+		{name: "wrong cookie", cookie: "bad", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			env := newFedEnv(t, newFakeIDP(t), []string{fedProvider}, false)
+			authResp := env.authorizeToIDP(t, url.Values{"identity_provider": {fedProvider}})
+
+			ck := bindingCookie(authResp)
+			require.NotNil(t, ck)
+			assert.True(t, ck.HttpOnly)
+			assert.Equal(t, http.SameSiteLaxMode, ck.SameSite)
+			assert.Equal(t, "/oauth2/idpresponse", ck.Path)
+
+			cb := env.viaIDP(t, authResp)
+			req, err := http.NewRequest(http.MethodGet, env.srv.URL+cb, nil)
+			require.NoError(t, err)
+
+			switch tt.cookie {
+			case "good":
+				req.AddCookie(ck)
+			case "bad":
+				req.AddCookie(&http.Cookie{Name: ck.Name, Value: "forged"})
+			}
+
+			assert.Equal(t, tt.wantStatus, bareDo(t, req).StatusCode)
+		})
+	}
+}
+
+func TestFederatedUsernameNamespaceReserved(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		username string
+		wantErr  bool
+	}{
+		{name: "provider prefix", username: "Corp_abc", wantErr: true},
+		{name: "prefix case-insensitive", username: "corp_abc", wantErr: true},
+		{name: "other prefix", username: "Other_abc"},
+		{name: "no underscore", username: "Corpabc"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			pool, err := b.CreateUserPool("p")
+			require.NoError(t, err)
+
+			_, err = b.CreateIdentityProviderFull(pool.ID, fedProvider, "OIDC", map[string]string{}, nil, nil)
+			require.NoError(t, err)
+
+			client, err := b.CreateUserPoolClient(pool.ID, "c")
+			require.NoError(t, err)
+
+			_, signErr := b.SignUp(client.ClientID, tt.username, "Pass1234!", nil)
+			_, adminErr := b.AdminCreateUser(pool.ID, tt.username+"x", "Pass1234!", nil)
+
+			if tt.wantErr {
+				require.ErrorIs(t, signErr, cognitoidp.ErrInvalidParameter)
+				require.ErrorIs(t, adminErr, cognitoidp.ErrInvalidParameter)
+
+				return
+			}
+
+			require.NoError(t, signErr)
+			require.NoError(t, adminErr)
 		})
 	}
 }

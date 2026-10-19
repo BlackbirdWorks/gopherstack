@@ -15,11 +15,15 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/kafkaconnect"
 )
 
-const testRegion = "us-east-1"
+const (
+	testRegion      = "us-east-1"
+	testHTTPTimeout = 30 * time.Second
+)
 const testAccountID = "123456789012"
 
 // newTestClient stands up the real aws-sdk-go-v2 kafkaconnect client against
@@ -36,8 +40,12 @@ func newTestClient(t *testing.T, h *kafkaconnect.Handler) *kafkaconnectsdk.Clien
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 
+	hc := httpclient.New(testHTTPTimeout)
+	t.Cleanup(hc.CloseIdleConnections)
+
 	cfg, err := awscfg.LoadDefaultConfig(
 		t.Context(),
+		awscfg.WithHTTPClient(hc),
 		awscfg.WithRegion(testRegion),
 		awscfg.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider("test", "test", ""),

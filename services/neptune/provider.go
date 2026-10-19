@@ -3,6 +3,7 @@ package neptune
 import (
 	"errors"
 	"os"
+	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -53,5 +54,15 @@ func enableDockerEngine(ctx *service.AppContext, backend *InMemoryBackend) {
 		return
 	}
 
-	backend.EnableEngine(EngineConfig{Runtime: er, Ports: ctx.PortAlloc, Host: os.Getenv("NEPTUNE_HOST")})
+	backend.EnableEngine(EngineConfig{Runtime: er, Ports: ctx.PortAlloc, Host: os.Getenv("NEPTUNE_HOST"),
+		OpenCypher: envBool("NEPTUNE_OPENCYPHER", true)})
+}
+
+func envBool(name string, def bool) bool {
+	v, err := strconv.ParseBool(os.Getenv(name))
+	if err != nil {
+		return def
+	}
+
+	return v
 }

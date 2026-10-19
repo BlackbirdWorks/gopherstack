@@ -105,9 +105,10 @@ func testCreateStackDisableValidation(t *testing.T) {
 	ctx := t.Context()
 
 	badTypeTemplate := `{"AWSTemplateFormatVersion":"2010-09-09",` +
-		`"Resources":{"Thing":{"Type":"NotARealType","Properties":{}}}}`
+		`"Resources":{"Thing":{"Type":"AWS::SNS::Topic",` +
+		`"Properties":{"TopicName":{"Fn::Sub":"${Missing.Arn}"}}}}}`
 
-	// Without DisableValidation, the unsupported resource type fails
+	// Without DisableValidation, the Fn::Sub on an undefined resource fails
 	// intrinsics validation and the stack rolls back.
 	_, err := client.CreateStack(ctx, &cfnsdk.CreateStackInput{
 		StackName:    aws.String("disablevalidation-off"),
@@ -210,7 +211,8 @@ func testExecuteChangeSetDisableRollback(t *testing.T) {
 
 	badTypeTemplate := `{"AWSTemplateFormatVersion":"2010-09-09",` +
 		`"Resources":{"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}},` +
-		`"Thing":{"Type":"NotARealType","Properties":{}}}}`
+		`"Thing":{"Type":"AWS::SNS::Topic",` +
+		`"Properties":{"TopicName":{"Fn::Sub":"${Missing.Arn}"}}}}}`
 
 	_, err := client.CreateChangeSet(ctx, &cfnsdk.CreateChangeSetInput{
 		StackName:     aws.String("execchangeset-disablerollback"),

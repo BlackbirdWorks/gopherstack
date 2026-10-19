@@ -18,6 +18,7 @@ func (b *InMemoryBackend) CreateAccessEntry(
 ) (*AccessEntry, error) {
 	b.mu.Lock("CreateAccessEntry")
 	defer b.mu.Unlock()
+	defer b.kickClusterLocked(clusterName)
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
@@ -79,6 +80,7 @@ func (b *InMemoryBackend) CreateAccessEntry(
 func (b *InMemoryBackend) DeleteAccessEntry(clusterName, principalARN string) error {
 	b.mu.Lock("DeleteAccessEntry")
 	defer b.mu.Unlock()
+	defer b.kickClusterLocked(clusterName)
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
 		return errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
@@ -157,6 +159,7 @@ func (b *InMemoryBackend) UpdateAccessEntry(
 ) (*AccessEntry, error) {
 	b.mu.Lock("UpdateAccessEntry")
 	defer b.mu.Unlock()
+	defer b.kickClusterLocked(clusterName)
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
@@ -216,6 +219,7 @@ func (b *InMemoryBackend) AssociateAccessPolicy(
 ) (*AccessPolicyAssociation, error) {
 	b.mu.Lock("AssociateAccessPolicy")
 	defer b.mu.Unlock()
+	defer b.kickClusterLocked(clusterName)
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)
@@ -302,6 +306,7 @@ func (b *InMemoryBackend) ListAssociatedAccessPolicies(
 func (b *InMemoryBackend) DisassociateAccessPolicy(clusterName, principalARN, policyARN string) error {
 	b.mu.Lock("DisassociateAccessPolicy")
 	defer b.mu.Unlock()
+	defer b.kickClusterLocked(clusterName)
 
 	if _, ok := b.clusters.Get(clusterName); !ok {
 		return errMsgf(ErrNotFound, "No cluster found for name: %s.", clusterName)

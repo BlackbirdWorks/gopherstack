@@ -767,16 +767,15 @@ func TestCreateStack_AllowedValues_NoOverride_UsesDefault(t *testing.T) {
 		"Resources": {"Q": {"Type": "AWS::SQS::Queue"}}
 	}`
 
-	stack, err := b.CreateStack(
+	_, err := b.CreateStack(
 		t.Context(),
 		"av-bad-default",
 		tmpl,
 		nil,
 		cloudformation.StackOptions{},
 	)
-	require.NoError(t, err)
-	// Default "qa" not in AllowedValues → ROLLBACK_COMPLETE.
-	assert.Equal(t, "ROLLBACK_COMPLETE", stack.StackStatus)
+	// Default "qa" not in AllowedValues is rejected synchronously.
+	require.ErrorIs(t, err, cloudformation.ErrParameterValidation)
 }
 
 // ---- Backend: ChangeSet changes computed correctly ----------------------------

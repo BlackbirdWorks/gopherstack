@@ -62,6 +62,8 @@ const connectivityConnected = "CONNECTED"
 type taskWork struct {
 	task *Task
 	td   *TaskDefinition
+	// waiting tasks stay PROVISIONING until a managed-scaling provider supplies capacity.
+	waiting bool
 }
 
 // RunTask starts one or more tasks on the given cluster. A per-task
@@ -120,7 +122,7 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, []Failure, error)
 
 		launchType := input.LaunchType
 		if launchType == "" {
-			launchType = launchTypeFargate
+			launchType = defaultLaunchType(input.CapacityProviderStrategy)
 		}
 
 		// Resolve task tags respecting propagateTags + ECS-managed-tags semantics.
@@ -175,6 +177,10 @@ func (b *InMemoryBackend) startTasksOutsideLock(work []taskWork) {
 		clusterName := clusterKey(clusterFromTaskARN(w.task.TaskArn))
 
 		b.ensureAwslogsStreams(w.task, w.td)
+
+		if w.waiting {
+			continue
+		}
 
 		if _, noop := b.runner.(noopRunner); b.runner == nil || noop {
 			if b.maybeRegisterStartLifecycle(w.task, clusterName) {
@@ -338,20 +344,24 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 	for range count {
 		task := newTaskEntryLocked(b.region, b.accountID, clusterName, clusterArn, launchType, resolvedTags, td, input)
 
-		var hostPortBindings map[string][]NetworkBinding
+		var (
+			hostPortBindings map[string][]NetworkBinding
+			waiting          bool
+		)
 
 		if launchType == launchTypeFargate {
 			subnet := firstRequestedSubnet(input.NetworkConfiguration)
 			task.Attachments = []TaskAttachment{newFargateTaskAttachment(task.TaskArn, subnet)}
 		} else {
-			bindings, failure := b.placeEC2TaskLocked(clusterName, task, td, input)
+			bindings, wait, failure := b.placeEC2TaskLocked(clusterName, task, td, input)
 			if failure != nil {
 				failures = append(failures, *failure)
 
 				continue
 			}
 
-			hostPortBindings = bindings
+			hostPortBindings, waiting = bindings, wait
+			task.AwaitingCapacity = wait
 		}
 
 		// Mirror tags into the resourceTags side map so TagResource/UntagResource/
@@ -371,7 +381,7 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 
 		b.tasks.Put(task)
 		b.emitTaskStateLocked(task)
-		work = append(work, taskWork{task: task, td: td})
+		work = append(work, taskWork{task: task, td: td, waiting: waiting})
 
 		// Increment the cached pending counter on the cluster.
 		if c, _ := b.clusters.Get(clusterName); c != nil {
@@ -439,35 +449,56 @@ func newTaskEntryLocked(
 	}
 }
 
-// placeEC2TaskLocked selects a container instance for an EC2-launch-type
-// task, respecting placement constraints/strategy, and reserves any host
-// ports its network mode requires. On success it sets task.ContainerInstanceArn,
-// indexes the task on the instance, and returns the resulting NetworkBinding
-// map (see reserveTaskHostPortsLocked). On failure it returns a Failure
-// describing why the task could not be placed (see host_ports.go's
-// failureReasonResource/failureReasonResourcePorts) and task is left
-// unmodified -- the caller must not create a task entry for it. Must be
-// called with the write lock held.
+// placeEC2TaskLocked selects a container instance for an EC2-launch-type task, honouring placement
+// constraints/strategy and the CPU/memory/port ledger, and reserves the host ports its network mode needs.
+// On success it sets task.ContainerInstanceArn and returns the NetworkBinding map. When no instance fits but
+// the task's capacity provider has managed scaling ENABLED it returns waiting=true (the task stays
+// PROVISIONING). Otherwise it returns a RESOURCE:* Failure and leaves task unmodified. Write lock held.
 func (b *InMemoryBackend) placeEC2TaskLocked(
 	clusterName string, task *Task, td *TaskDefinition, input RunTaskInput,
-) (map[string][]NetworkBinding, *Failure) {
+) (map[string][]NetworkBinding, bool, *Failure) {
 	constraints := mergeConstraints(td.PlacementConstraints, input.PlacementConstraints)
-	skip := map[string]bool{}
+
+	bindings, failure := b.tryPlaceTaskLocked(
+		clusterName, task, td, constraints, input.PlacementStrategy, input.serviceNameForTags,
+	)
+	if failure == nil {
+		return bindings, false, nil
+	}
+
+	if b.managedScalingEnabledLocked(task.CapacityProviderName) {
+		return nil, true, nil
+	}
+
+	return nil, false, failure
+}
+
+// tryPlaceTaskLocked runs one placement attempt, committing the instance and ports on success.
+func (b *InMemoryBackend) tryPlaceTaskLocked(
+	clusterName string, task *Task, td *TaskDefinition,
+	constraints []PlacementConstraint, strategies []PlacementStrategy, serviceName string,
+) (map[string][]NetworkBinding, *Failure) {
+	skip := b.providerSkipLocked(clusterName, task.CapacityProviderName)
 	portsBlocked := false
+	cpu, mem := taskReservation(task, td)
+	ledger := ledgerView{
+		shortfall: func(ci *ContainerInstance) string {
+			return b.resourceShortfallLocked(clusterName, ci, int64(cpu), int64(mem))
+		},
+		free: func(ci *ContainerInstance) (int64, int64, bool) { return b.instanceFreeLocked(clusterName, ci) },
+	}
 
 	var (
 		instanceArn string
+		reason      string
 		bindings    map[string][]NetworkBinding
 	)
 
 	for {
-		instanceArn = selectContainerInstance(
+		instanceArn, reason = selectContainerInstance(
 			b.containerInstancesByCluster.Get(clusterName),
 			b.tasksByCluster.Get(clusterName),
-			constraints,
-			input.PlacementStrategy,
-			input.serviceNameForTags,
-			skip,
+			constraints, strategies, serviceName, skip, ledger,
 		)
 
 		if instanceArn == "" {
@@ -484,28 +515,39 @@ func (b *InMemoryBackend) placeEC2TaskLocked(
 		portsBlocked = true
 	}
 
-	if instanceArn == "" && portsBlocked {
-		return nil, &Failure{
-			Reason: failureReasonResourcePorts,
-			Detail: fmt.Sprintf(
-				"no container instance has the host ports required by task definition %s",
-				td.TaskDefinitionArn,
-			),
-		}
-	}
-
 	if instanceArn == "" {
-		return nil, &Failure{
-			Reason: failureReasonResource,
-			Detail: "no container instance available in the cluster that satisfies " +
-				"the requested placement constraints",
-		}
+		return nil, placementFailure(td, portsBlocked, reason)
 	}
 
 	task.ContainerInstanceArn = instanceArn
 	b.indexTaskOnInstance(clusterName, instanceArn, task.TaskArn)
 
 	return bindings, nil
+}
+
+func placementFailure(td *TaskDefinition, portsBlocked bool, reason string) *Failure {
+	switch {
+	case portsBlocked:
+		return &Failure{
+			Reason: failureReasonResourcePorts,
+			Detail: fmt.Sprintf(
+				"no container instance has the host ports required by task definition %s",
+				td.TaskDefinitionArn,
+			),
+		}
+	case reason != "":
+		return &Failure{
+			Reason: reason,
+			Detail: "no container instance has enough " + strings.ToLower(strings.TrimPrefix(reason, "RESOURCE:")) +
+				" for task definition " + td.TaskDefinitionArn,
+		}
+	default:
+		return &Failure{
+			Reason: failureReasonResource,
+			Detail: "no container instance available in the cluster that satisfies " +
+				"the requested placement constraints",
+		}
+	}
 }
 
 // DescribeTasks returns tasks on a given cluster, optionally filtered by ARN.

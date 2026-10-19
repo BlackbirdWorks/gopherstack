@@ -297,16 +297,16 @@ func TestAthenaEngine_PartitionsAndFailures(t *testing.T) {
 			wantState: athenatypes.QueryExecutionStateSucceeded,
 		},
 		{
-			name:       "parquet unsupported",
+			name:       "parquet ddl",
 			query:      "CREATE EXTERNAL TABLE logs.pq (a string) STORED AS PARQUET LOCATION 's3://lake/pq/'",
 			wantState:  athenatypes.QueryExecutionStateSucceeded,
 			wantReason: "",
 		},
 		{
-			name:       "parquet select fails",
+			name:       "parquet select on corrupt file fails",
 			query:      "SELECT * FROM logs.pq",
 			wantState:  athenatypes.QueryExecutionStateFailed,
-			wantReason: "Parquet",
+			wantReason: "invalid parquet file",
 		},
 		{
 			name:       "syntax error",

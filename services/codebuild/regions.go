@@ -15,6 +15,7 @@ func (h *Handler) EnableRegions(ctx context.Context) {
 
 	h.peers = regionpeers.New(h.Backend.region, func(region string) *Handler {
 		p := NewHandler(NewInMemoryBackend(h.Backend.accountID, region))
+		p.Backend.engine = h.Backend.shareEngine()
 
 		if h.janitor == nil {
 			return p

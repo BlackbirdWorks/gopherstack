@@ -53,6 +53,27 @@ func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) 
 	return &pol, nil
 }
 
+// SetPolicyDescription sets the description of a customer managed policy.
+func (b *InMemoryBackend) SetPolicyDescription(policyArn, description string) error {
+	b.mu.Lock("SetPolicyDescription")
+	defer b.mu.Unlock()
+
+	name, ok := b.policyByARN[policyArn]
+	if !ok {
+		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+	}
+
+	pol, exists := b.policies.Get(name)
+	if !exists {
+		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+	}
+
+	pol.Description = description
+	b.policies.Put(pol)
+
+	return nil
+}
+
 // DeletePolicy deletes an IAM policy by ARN.
 func (b *InMemoryBackend) DeletePolicy(policyArn string) error {
 	if err := rejectAWSManagedMutation(policyArn); err != nil {

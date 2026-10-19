@@ -554,6 +554,10 @@ func (h *S3Handler) parseBucketAndKey(r *http.Request) (string, string, error) {
 // when using virtual-hosted-style URLs (e.g. my-bucket.localhost:8080).
 // Returns "" when Endpoint is not configured or the Host does not match.
 func (h *S3Handler) extractVirtualHostedBucketName(r *http.Request) string {
+	if b := awsVirtualHostBucket(r.Host); b != "" {
+		return b
+	}
+
 	if h.Endpoint == "" {
 		return ""
 	}

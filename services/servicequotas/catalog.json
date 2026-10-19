@@ -1,0 +1,536 @@
+[
+ {
+  "code": "ec2",
+  "name": "Amazon Elastic Compute Cloud (Amazon EC2)",
+  "quotas": [
+   {
+    "code": "L-1216C47A",
+    "name": "Running On-Demand Standard (A, C, D, H, I, M, R, T, Z) instances",
+    "default": 5,
+    "unit": "None",
+    "adjustable": true,
+    "description": "Maximum number of vCPUs assigned to the Running On-Demand Standard (A, C, D, H, I, M, R, T, Z) instances.",
+    "usage": {
+     "namespace": "AWS/Usage",
+     "name": "ResourceCount",
+     "statistic": "Maximum",
+     "dimensions": {
+      "Class": "Standard/OnDemand",
+      "Resource": "vCPU",
+      "Service": "EC2",
+      "Type": "Resource"
+     }
+    }
+   },
+   {
+    "code": "L-34B43A08",
+    "name": "All Standard (A, C, D, H, I, M, R, T, Z) Spot Instance Requests",
+    "default": 5,
+    "unit": "None",
+    "adjustable": true,
+    "description": "Maximum number of vCPUs for all running or requested Standard (A, C, D, H, I, M, R, T, Z) Spot Instances.",
+    "usage": {
+     "namespace": "AWS/Usage",
+     "name": "ResourceCount",
+     "statistic": "Maximum",
+     "dimensions": {
+      "Class": "Standard/Spot",
+      "Resource": "vCPU",
+      "Service": "EC2",
+      "Type": "Resource"
+     }
+    }
+   },
+   {
+    "code": "L-0263D0A3",
+    "name": "EC2-VPC Elastic IPs",
+    "default": 5,
+    "unit": "None",
+    "adjustable": true,
+    "description": "The maximum number of Elastic IP addresses that you can allocate for EC2-VPC in this Region."
+   },
+   {
+    "code": "L-DB2E81BA",
+    "name": "Running On-Demand G and VT instances",
+    "default": 0,
+    "unit": "None",
+    "adjustable": true,
+    "description": "Maximum number of vCPUs assigned to the Running On-Demand G and VT instances.",
+    "usage": {
+     "namespace": "AWS/Usage",
+     "name": "ResourceCount",
+     "statistic": "Maximum",
+     "dimensions": {
+      "Class": "G/OnDemand",
+      "Resource": "vCPU",
+      "Service": "EC2",
+      "Type": "Resource"
+     }
+    }
+   },
+   {
+    "code": "L-417A185B",
+    "name": "Running On-Demand P instances",
+    "default": 0,
+    "unit": "None",
+    "adjustable": true,
+    "description": "Maximum number of vCPUs assigned to the Running On-Demand P instances.",
+    "usage": {
+     "namespace": "AWS/Usage",
+     "name": "ResourceCount",
+     "statistic": "Maximum",
+     "dimensions": {
+      "Class": "P/OnDemand",
+      "Resource": "vCPU",
+      "Service": "EC2",
+      "Type": "Resource"
+     }
+    }
+   },
+   {
+    "code": "L-7212CCBC",
+    "name": "All P Spot Instance Requests",
+    "default": 0,
+    "unit": "None",
+    "adjustable": true,
+    "description": "Maximum number of vCPUs for all running or requested P Spot Instances.",
+    "usage": {
+     "namespace": "AWS/Usage",
+     "name": "ResourceCount",
+     "statistic": "Maximum",
+     "dimensions": {
+      "Class": "P/Spot",
+      "Resource": "vCPU",
+      "Service": "EC2",
+      "Type": "Resource"
+     }
+    }
+   },
+   {
+    "code": "L-3819A6DF",
+    "name": "All G and VT Spot Instance Requests",
+    "default": 0,
+    "unit": "None",
+    "adjustable": true,
+    "description": "Maximum number of vCPUs for all running or requested G and VT Spot Instances.",
+    "usage": {
+     "namespace": "AWS/Usage",
+     "name": "ResourceCount",
+     "statistic": "Maximum",
+     "dimensions": {
+      "Class": "G/Spot",
+      "Resource": "vCPU",
+      "Service": "EC2",
+      "Type": "Resource"
+     }
+    }
+   },
+   {
+    "code": "L-74FC7D96",
+    "name": "Running On-Demand F instances",
+    "default": 0,
+    "unit": "None",
+    "adjustable": true,
+    "description": "Maximum number of vCPUs assigned to the Running On-Demand F instances.",
+    "usage": {
+     "namespace": "AWS/Usage",
+     "name": "ResourceCount",
+     "statistic": "Maximum",
+     "dimensions": {
+      "Class": "F/OnDemand",
+      "Resource": "vCPU",
+      "Service": "EC2",
+      "Type": "Resource"
+     }
+    }
+   },
+   {
+    "code": "L-7295265B",
+    "name": "Running On-Demand X instances",
+    "default": 0,
+    "unit": "None",
+    "adjustable": true,
+    "description": "Maximum number of vCPUs assigned to the Running On-Demand X instances.",
+    "usage": {
+     "namespace": "AWS/Usage",
+     "name": "ResourceCount",
+     "statistic": "Maximum",
+     "dimensions": {
+      "Class": "X/OnDemand",
+      "Resource": "vCPU",
+      "Service": "EC2",
+      "Type": "Resource"
+     }
+    }
+   },
+   {
+    "code": "L-1945791B",
+    "name": "Running On-Demand Inf instances",
+    "default": 0,
+    "unit": "None",
+    "adjustable": true,
+    "description": "Maximum number of vCPUs assigned to the Running On-Demand Inf instances.",
+    "usage": {
+     "namespace": "AWS/Usage",
+     "name": "ResourceCount",
+     "statistic": "Maximum",
+     "dimensions": {
+      "Class": "Inf/OnDemand",
+      "Resource": "vCPU",
+      "Service": "EC2",
+      "Type": "Resource"
+     }
+    }
+   },
+   {
+    "code": "L-43DA4232",
+    "name": "Running On-Demand High Memory instances",
+    "default": 0,
+    "unit": "None",
+    "adjustable": true,
+    "description": "Maximum number of vCPUs assigned to the Running On-Demand High Memory instances.",
+    "usage": {
+     "namespace": "AWS/Usage",
+     "name": "ResourceCount",
+     "statistic": "Maximum",
+     "dimensions": {
+      "Class": "High Memory/OnDemand",
+      "Resource": "vCPU",
+      "Service": "EC2",
+      "Type": "Resource"
+     }
+    }
+   }
+  ]
+ },
+ {
+  "code": "vpc",
+  "name": "Amazon Virtual Private Cloud (Amazon VPC)",
+  "quotas": [
+   {
+    "code": "L-F678F1CE",
+    "name": "VPCs per Region",
+    "default": 5,
+    "unit": "None",
+    "adjustable": true,
+    "description": "The maximum number of VPCs per Region. This quota is directly tied to the maximum number of internet gateways per Region."
+   },
+   {
+    "code": "L-A4707A72",
+    "name": "Internet gateways per Region",
+    "default": 5,
+    "unit": "None",
+    "adjustable": true,
+    "description": "The maximum number of internet gateways per Region. This quota is directly tied to the maximum number of VPCs per Region."
+   },
+   {
+    "code": "L-FE5A380F",
+    "name": "NAT gateways per Availability Zone",
+    "default": 5,
+    "unit": "None",
+    "adjustable": true
+   },
+   {
+    "code": "L-DF5E4CA3",
+    "name": "Network interfaces per Region",
+    "default": 5000,
+    "unit": "None",
+    "adjustable": true
+   },
+   {
+    "code": "L-E79EC296",
+    "name": "VPC security groups per Region",
+    "default": 2500,
+    "unit": "None",
+    "adjustable": true
+   },
+   {
+    "code": "L-2AFB9258",
+    "name": "Security groups per network interface",
+    "default": 5,
+    "unit": "None",
+    "adjustable": true
+   },
+   {
+    "code": "L-0EA8095F",
+    "name": "Inbound or outbound rules per security group",
+    "default": 60,
+    "unit": "None",
+    "adjustable": true
+   },
+   {
+    "code": "L-29B6F2EB",
+    "name": "Interface VPC endpoints per VPC",
+    "default": 50,
+    "unit": "None",
+    "adjustable": true
+   },
+   {
+    "code": "L-45FE3B85",
+    "name": "Egress-only internet gateways per Region",
+    "default": 5,
+    "unit": "None",
+    "adjustable": true
+   },
+   {
+    "code": "L-589F43AA",
+    "name": "Route tables per VPC",
+    "default": 200,
+    "unit": "None",
+    "adjustable": true
+   },
+   {
+    "code": "L-407747CB",
+    "name": "Subnets per VPC",
+    "default": 200,
+    "unit": "None",
+    "adjustable": true
+   },
+   {
+    "code": "L-93826ACB",
+    "name": "Routes per route table",
+    "default": 50,
+    "unit": "None",
+    "adjustable": true
+   },
+   {
+    "code": "L-1B52E74A",
+    "name": "Gateway VPC endpoints per Region",
+    "default": 20,
+    "unit": "None",
+    "adjustable": true
+   },
+   {
+    "code": "L-83CA0A9D",
+    "name": "IPv4 CIDR blocks per VPC",
+    "default": 5,
+    "unit": "None",
+    "adjustable": true
+   }
+  ]
+ },
+ {
+  "code": "lambda",
+  "name": "AWS Lambda",
+  "quotas": [
+   {
+    "code": "L-B99A9384",
+    "name": "Concurrent executions",
+    "default": 1000,
+    "unit": "None",
+    "adjustable": true,
+    "description": "The maximum number of events that functions can process simultaneously in the current Region."
+   },
+   {
+    "code": "L-2ACBD22F",
+    "name": "Function and layer storage",
+    "default": 75,
+    "unit": "Gigabytes",
+    "adjustable": true,
+    "description": "The amount of storage available for your uploaded .zip file archives and layers in the current Region."
+   },
+   {
+    "code": "L-9FEE3D26",
+    "name": "Elastic network interfaces per VPC",
+    "default": 250,
+    "unit": "None",
+    "adjustable": true,
+    "description": "The maximum number of network interfaces that Lambda can create per VPC."
+   }
+  ]
+ },
+ {
+  "code": "s3",
+  "name": "Amazon Simple Storage Service (Amazon S3)",
+  "quotas": [
+   {
+    "code": "L-DC2B2D3D",
+    "name": "Buckets",
+    "default": 100,
+    "unit": "None",
+    "adjustable": true,
+    "description": "The maximum number of Amazon S3 buckets that you can create in your account."
+   }
+  ]
+ },
+ {
+  "code": "dynamodb",
+  "name": "Amazon DynamoDB",
+  "quotas": [
+   {
+    "code": "L-F98FE922",
+    "name": "Table per account",
+    "default": 2500,
+    "unit": "None",
+    "adjustable": true,
+    "description": "Maximum number of tables that can be created in an account in the current Region."
+   }
+  ]
+ },
+ {
+  "code": "iam",
+  "name": "AWS Identity and Access Management (IAM)",
+  "quotas": [
+   {
+    "code": "L-F4A5425F",
+    "name": "Roles",
+    "default": 1000,
+    "unit": "None",
+    "adjustable": true,
+    "global": true,
+    "description": "Maximum number of IAM roles in the account."
+   },
+   {
+    "code": "L-F55AF5E4",
+    "name": "Users",
+    "default": 5000,
+    "unit": "None",
+    "adjustable": true,
+    "global": true,
+    "description": "Maximum number of IAM users in the account."
+   },
+   {
+    "code": "L-BF35879D",
+    "name": "Groups",
+    "default": 300,
+    "unit": "None",
+    "adjustable": true,
+    "global": true,
+    "description": "Maximum number of IAM groups in the account."
+   },
+   {
+    "code": "L-0DA4ABF3",
+    "name": "Customer managed policies",
+    "default": 1500,
+    "unit": "None",
+    "adjustable": true,
+    "global": true,
+    "description": "Maximum number of customer managed policies in the account."
+   },
+   {
+    "code": "L-C07B4B0D",
+    "name": "Managed policies per role",
+    "default": 10,
+    "unit": "None",
+    "adjustable": true,
+    "global": true,
+    "description": "Maximum number of managed policies attached to an IAM role."
+   },
+   {
+    "code": "L-858F3967",
+    "name": "Managed policies per user",
+    "default": 10,
+    "unit": "None",
+    "adjustable": true,
+    "global": true,
+    "description": "Maximum number of managed policies attached to an IAM user."
+   },
+   {
+    "code": "L-E95E4862",
+    "name": "Instance profiles",
+    "default": 1000,
+    "unit": "None",
+    "adjustable": true,
+    "global": true,
+    "description": "Maximum number of instance profiles in the account."
+   }
+  ]
+ },
+ {
+  "code": "cloudformation",
+  "name": "AWS CloudFormation",
+  "quotas": [
+   {
+    "code": "L-0485CB21",
+    "name": "Stack count",
+    "default": 2000,
+    "unit": "None",
+    "adjustable": true,
+    "description": "Maximum number of AWS CloudFormation stacks that you can create."
+   },
+   {
+    "code": "L-9DE9F29D",
+    "name": "Stack sets per administrator account",
+    "default": 100,
+    "unit": "None",
+    "adjustable": true
+   }
+  ]
+ },
+ {
+  "code": "rds",
+  "name": "Amazon Relational Database Service (Amazon RDS)",
+  "quotas": [
+   {
+    "code": "L-7B6409FD",
+    "name": "DB instances",
+    "default": 40,
+    "unit": "None",
+    "adjustable": true,
+    "description": "Maximum number of RDS DB instances allowed in this account in the current Region."
+   },
+   {
+    "code": "L-952B80B8",
+    "name": "DB clusters",
+    "default": 40,
+    "unit": "None",
+    "adjustable": true,
+    "description": "Maximum number of Aurora DB clusters allowed in this account in the current Region."
+   }
+  ]
+ },
+ {
+  "code": "elasticloadbalancing",
+  "name": "Elastic Load Balancing",
+  "quotas": [
+   {
+    "code": "L-53DA6B97",
+    "name": "Application Load Balancers per Region",
+    "default": 50,
+    "unit": "None",
+    "adjustable": true
+   },
+   {
+    "code": "L-69A177A2",
+    "name": "Network Load Balancers per Region",
+    "default": 50,
+    "unit": "None",
+    "adjustable": true
+   },
+   {
+    "code": "L-E9E9831D",
+    "name": "Classic Load Balancers per Region",
+    "default": 20,
+    "unit": "None",
+    "adjustable": true
+   }
+  ]
+ },
+ {
+  "code": "ecs",
+  "name": "Amazon Elastic Container Service (Amazon ECS)",
+  "quotas": [
+   {
+    "code": "L-21C621EB",
+    "name": "Clusters per account",
+    "default": 10000,
+    "unit": "None",
+    "adjustable": true
+   }
+  ]
+ },
+ {
+  "code": "eks",
+  "name": "Amazon Elastic Kubernetes Service (Amazon EKS)",
+  "quotas": [
+   {
+    "code": "L-1194D53C",
+    "name": "Cluster count",
+    "default": 100,
+    "unit": "None",
+    "adjustable": true,
+    "description": "Maximum number of EKS clusters in this account in the current Region."
+   }
+  ]
+ }
+]

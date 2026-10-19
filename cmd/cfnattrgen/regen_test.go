@@ -10,9 +10,11 @@ import (
 )
 
 const (
-	fixtureSpecPath      = "testdata/cfn_resource_spec.json"
-	cloudformationSrcDir = "../../services/cloudformation"
-	committedTablePath   = "../../services/cloudformation/cfn_attributes.json"
+	fixtureSpecPath       = "testdata/cfn_resource_spec.json"
+	cloudformationSrcDir  = "../../services/cloudformation"
+	committedTablePath    = "../../services/cloudformation/cfn_attributes.json"
+	committedServicesPath = "../../services/cloudformation/cfn_resource_services.json"
+	committedTypesPath    = "../../services/cloudformation/cfn_provisionable_types.json"
 )
 
 // TestGeneratedTableUpToDate guards gopherstack-erj2j: regenerating from the
@@ -90,4 +92,43 @@ func TestRenderJSON_Deterministic(t *testing.T) {
 	var roundTrip map[string][]string
 	require.NoError(t, json.Unmarshal(first, &roundTrip))
 	assert.Equal(t, table, roundTrip)
+}
+
+// TestGeneratedServicesUpToDate guards services/cloudformation's unrecognized
+// resource-type check: the namespace list must match the spec fixture plus
+// every resource-type literal the provisioner references.
+func TestGeneratedServicesUpToDate(t *testing.T) {
+	t.Parallel()
+
+	spec, err := loadSpec(fixtureSpecPath)
+	require.NoError(t, err)
+
+	files, err := parseDir(cloudformationSrcDir)
+	require.NoError(t, err)
+
+	got, err := renderServices(buildServices(spec, collectResourceTypeLiterals(files)))
+	require.NoError(t, err)
+
+	want, err := os.ReadFile(committedServicesPath)
+	require.NoError(t, err)
+
+	assert.Equal(t, string(want), string(got),
+		"cfn_resource_services.json is stale -- run `task cfn-attrs-gen` and commit the result")
+}
+
+// TestGeneratedProvisionableTypesUpToDate guards the Cloud Control type list.
+func TestGeneratedProvisionableTypesUpToDate(t *testing.T) {
+	t.Parallel()
+
+	files, err := parseDir(cloudformationSrcDir)
+	require.NoError(t, err)
+
+	got, err := renderServices(buildProvisionableTypes(collectResourceTypeLiterals(files)))
+	require.NoError(t, err)
+
+	want, err := os.ReadFile(committedTypesPath)
+	require.NoError(t, err)
+
+	assert.Equal(t, string(want), string(got),
+		"cfn_provisionable_types.json is stale -- run `task cfn-attrs-gen` and commit the result")
 }
