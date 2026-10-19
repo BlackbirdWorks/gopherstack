@@ -151,7 +151,8 @@ type EcsParameters struct {
 // NetworkConfiguration specifies the awsvpc network configuration for an ECS
 // target task.
 type NetworkConfiguration struct {
-	AwsvpcConfiguration *AwsVpcConfiguration `json:"AwsvpcConfiguration,omitempty"`
+	// SDK key is lowerCamel (schemas.NetworkConfiguration_awsvpcConfiguration).
+	AwsvpcConfiguration *AwsVpcConfiguration `json:"awsvpcConfiguration,omitempty"`
 }
 
 // AwsVpcConfiguration specifies the subnets, security groups, and public-IP

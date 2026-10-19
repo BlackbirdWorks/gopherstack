@@ -201,6 +201,18 @@ func (r *run) remapTarget(t ebtypes.Target) ebtypes.Target {
 		t.DeadLetterConfig = &ebtypes.DeadLetterConfig{Arn: aws.String(r.rm.ARN(*t.DeadLetterConfig.Arn))}
 	}
 
+	if t.EcsParameters != nil {
+		ep := *t.EcsParameters
+		ep.TaskDefinitionArn = aws.String(r.rm.ARN(aws.ToString(ep.TaskDefinitionArn)))
+		t.EcsParameters = &ep
+	}
+
+	if t.BatchParameters != nil {
+		bp := *t.BatchParameters
+		bp.JobDefinition = aws.String(r.rm.ARN(aws.ToString(bp.JobDefinition)))
+		t.BatchParameters = &bp
+	}
+
 	return t
 }
 

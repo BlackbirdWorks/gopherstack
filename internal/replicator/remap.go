@@ -71,3 +71,32 @@ func (m *Remapper) Text(s string) string {
 
 	return strings.ReplaceAll(s, `"`+m.srcAccount+`"`, `"`+m.dstAccount+`"`)
 }
+
+// KeyRef maps a KMS key reference (id, key ARN or alias) to its target form. Aliases pass
+// through (the kms type replicates them); AWS-managed aliases and unreplicated keys report false.
+func (m *Remapper) KeyRef(ref string) (string, bool) {
+	if strings.HasPrefix(ref, "alias/aws/") {
+		return "", false
+	}
+
+	if strings.HasPrefix(ref, "alias/") {
+		return ref, true
+	}
+
+	if p, err := awsarn.Parse(ref); err == nil {
+		id, ok := strings.CutPrefix(p.Resource, "key/")
+		if !ok {
+			return "", false
+		}
+
+		if _, found := m.keys[id]; !found {
+			return "", false
+		}
+
+		return m.ARN(ref), true
+	}
+
+	dst, found := m.keys[ref]
+
+	return dst, found
+}

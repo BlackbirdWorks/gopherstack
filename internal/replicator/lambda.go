@@ -42,7 +42,7 @@ func (r *run) copyFunction(ctx context.Context, name string) {
 
 	cfg := got.Configuration
 	if cfg.PackageType == lambdatypes.PackageTypeImage {
-		r.add(TypeLambda, name, ActionSkipped, "container image functions are not supported")
+		r.add(TypeLambda, name, ActionSkipped, imageSkipReason(got))
 
 		return
 	}
@@ -56,8 +56,12 @@ func (r *run) copyFunction(ctx context.Context, name string) {
 		return
 	}
 
+	f := fnCopy{name: name, cfg: cfg}
+	f.vpc = r.planVPC(ctx, name, cfg)
+
 	if r.cfg.DryRun {
 		r.add(TypeLambda, name, upsert(exists), "")
+		r.copyExtras(ctx, f, exists)
 
 		return
 	}
@@ -75,13 +79,28 @@ func (r *run) copyFunction(ctx context.Context, name string) {
 		return
 	}
 
+	f.zip = zip
+
 	if exists {
-		err = r.updateFunction(ctx, cfg, zip)
+		err = r.updateFunction(ctx, f)
 	} else {
-		err = r.createFunction(ctx, cfg, zip, got.Tags)
+		err = r.createFunction(ctx, f, got.Tags)
 	}
 
 	r.done(TypeLambda, name, upsert(exists), err)
+
+	if err == nil {
+		r.copyExtras(ctx, f, exists)
+	}
+}
+
+func imageSkipReason(got *lambda.GetFunctionOutput) string {
+	uri := ""
+	if got.Code != nil {
+		uri = aws.ToString(got.Code.ImageUri)
+	}
+
+	return "container image function (image " + uri + " lives in ECR; ECR replication is not available)"
 }
 
 func (r *run) downloadCode(ctx context.Context, location string) ([]byte, error) {
@@ -112,15 +131,15 @@ func (r *run) downloadCode(ctx context.Context, location string) ([]byte, error)
 
 var errNoCodeLocation = errors.New("source returned no code location")
 
-func (r *run) createFunction(
-	ctx context.Context, c *lambdatypes.FunctionConfiguration, zip []byte, tags map[string]string,
-) error {
+func (r *run) createFunction(ctx context.Context, f fnCopy, tags map[string]string) error {
+	c, zip := f.cfg, f.zip
 	in := &lambda.CreateFunctionInput{
 		FunctionName: c.FunctionName, Runtime: c.Runtime, Handler: c.Handler,
 		Role:        aws.String(r.rm.ARN(aws.ToString(c.Role))),
 		Code:        &lambdatypes.FunctionCode{ZipFile: zip},
 		Description: c.Description, Timeout: c.Timeout, MemorySize: c.MemorySize,
 		Architectures: c.Architectures, Tags: tags, PackageType: lambdatypes.PackageTypeZip,
+		VpcConfig: f.vpc,
 	}
 	if c.Environment != nil && len(c.Environment.Variables) > 0 {
 		in.Environment = &lambdatypes.Environment{Variables: c.Environment.Variables}
@@ -151,7 +170,8 @@ func (r *run) createFunction(
 	return nil
 }
 
-func (r *run) updateFunction(ctx context.Context, c *lambdatypes.FunctionConfiguration, zip []byte) error {
+func (r *run) updateFunction(ctx context.Context, f fnCopy) error {
+	c, zip := f.cfg, f.zip
 	if _, err := r.dst.lambda.UpdateFunctionCode(ctx, &lambda.UpdateFunctionCodeInput{
 		FunctionName: c.FunctionName, ZipFile: zip,
 	}); err != nil {
@@ -162,6 +182,7 @@ func (r *run) updateFunction(ctx context.Context, c *lambdatypes.FunctionConfigu
 		FunctionName: c.FunctionName, Runtime: c.Runtime, Handler: c.Handler,
 		Role:        aws.String(r.rm.ARN(aws.ToString(c.Role))),
 		Description: c.Description, Timeout: c.Timeout, MemorySize: c.MemorySize,
+		VpcConfig: f.vpc,
 	}
 	if c.Environment != nil {
 		in.Environment = &lambdatypes.Environment{Variables: c.Environment.Variables}

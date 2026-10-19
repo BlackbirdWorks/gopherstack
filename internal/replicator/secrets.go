@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -60,27 +61,45 @@ func (r *run) copySecret(ctx context.Context, name string) {
 		return
 	}
 
+	kmsID, kmsNote := r.secretKMS(desc)
+
 	if !exists {
 		_, err = r.dst.sm.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
 			Name: &name, Description: desc.Description, SecretString: val.SecretString,
-			SecretBinary: val.SecretBinary, Tags: desc.Tags,
+			SecretBinary: val.SecretBinary, Tags: desc.Tags, KmsKeyId: kmsID,
+			ClientRequestToken: val.VersionId,
 		})
 		if err == nil {
 			err = r.copySecretPolicy(ctx, name)
 		}
 
-		r.done(TypeSecrets, name, ActionCreated, err)
+		r.finishSecret(ctx, name, ActionCreated, kmsNote, err)
 
 		return
 	}
 
-	action, err := r.updateSecret(ctx, name, desc, val, cur)
-	r.done(TypeSecrets, name, action, err)
+	action, err := r.updateSecret(ctx, name, desc, val, cur, kmsID)
+	r.finishSecret(ctx, name, action, kmsNote, err)
+}
+
+// finishSecret copies the older staged versions, then records the secret result.
+func (r *run) finishSecret(ctx context.Context, name, action, note string, err error) {
+	if err == nil {
+		err = r.copySecretVersions(ctx, name)
+	}
+
+	if err != nil {
+		r.fail(TypeSecrets, name, err)
+
+		return
+	}
+
+	r.add(TypeSecrets, name, action, note)
 }
 
 func (r *run) updateSecret(
 	ctx context.Context, name string, desc *secretsmanager.DescribeSecretOutput,
-	val, cur *secretsmanager.GetSecretValueOutput,
+	val, cur *secretsmanager.GetSecretValueOutput, kmsID *string,
 ) (string, error) {
 	action := ActionUpdated
 
@@ -91,13 +110,14 @@ func (r *run) updateSecret(
 		ctx,
 		&secretsmanager.PutSecretValueInput{
 			SecretId: &name, SecretString: val.SecretString, SecretBinary: val.SecretBinary,
+			ClientRequestToken: val.VersionId,
 		},
 	); err != nil {
 		return action, fmt.Errorf("put value: %w", err)
 	}
 
 	if _, err := r.dst.sm.UpdateSecret(ctx, &secretsmanager.UpdateSecretInput{
-		SecretId: &name, Description: desc.Description,
+		SecretId: &name, Description: desc.Description, KmsKeyId: kmsID,
 	}); err != nil {
 		return action, fmt.Errorf("update: %w", err)
 	}
@@ -111,6 +131,25 @@ func (r *run) updateSecret(
 	}
 
 	return action, r.copySecretPolicy(ctx, name)
+}
+
+// secretKMS maps the source KmsKeyId to a replicated key; AWS-managed or unreplicated keys
+// fall back to the target default with a note.
+func (r *run) secretKMS(desc *secretsmanager.DescribeSecretOutput) (*string, string) {
+	ref := aws.ToString(desc.KmsKeyId)
+	if ref == "" {
+		return nil, ""
+	}
+
+	if id, ok := r.rm.KeyRef(ref); ok {
+		return &id, ""
+	}
+
+	if strings.HasPrefix(ref, "alias/aws/") {
+		return nil, ""
+	}
+
+	return nil, "KmsKeyId " + ref + " was not replicated (replicate kms first); using the target default key"
 }
 
 func (r *run) copySecretPolicy(ctx context.Context, name string) error {
