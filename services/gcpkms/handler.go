@@ -11,6 +11,7 @@ import (
 
 	"cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/kms/apiv1/kmspb"
+	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"github.com/labstack/echo/v5"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -132,6 +133,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	srv := grpc.NewServer(grpc.UnaryInterceptor(logInterceptor(log)))
 	kmspb.RegisterKeyManagementServiceServer(srv, &server{b: h.Backend})
 	iampb.RegisterIAMPolicyServer(srv, &iamServer{b: h.Backend})
+	longrunningpb.RegisterOperationsServer(srv, h.Backend.ops)
 
 	sweepCtx, cancel := context.WithCancel(context.WithoutCancel(workerCtx))
 

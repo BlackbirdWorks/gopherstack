@@ -40,6 +40,7 @@ type backendSnapshot struct {
 	Keys     map[string]keySnap         `json:"keys"`
 	Jobs     map[string]jobSnap         `json:"jobs"`
 	Retired  map[string]json.RawMessage `json:"retired,omitempty"`
+	Ops      map[string]json.RawMessage `json:"operations,omitempty"`
 	Policies map[string]json.RawMessage `json:"policies"`
 	EtagSeq  uint64                     `json:"etagSeq"`
 	Version  int                        `json:"version"`
@@ -101,6 +102,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		snap.Policies[name] = marshalPB(p)
 	}
 
+	snap.Ops = b.ops.Snapshot()
+
 	return persistence.MarshalSnapshot(ctx, "gcpkms", snap)
 }
 
@@ -120,6 +123,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"gotVersion", snap.Version, "wantVersion", snapshotVersion)
 
 		b.resetMaps()
+		b.ops.Reset()
 
 		return nil
 	}
@@ -133,6 +137,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.rings, b.keys, b.jobs, b.policies = fresh.rings, fresh.keys, fresh.jobs, fresh.policies
 	b.retired = fresh.retired
+
+	if err := b.ops.Restore(snap.Ops); err != nil {
+		return err
+	}
+
 	b.etagSeq = max(b.etagSeq, snap.EtagSeq)
 
 	return nil

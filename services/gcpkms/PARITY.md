@@ -24,7 +24,7 @@ ops:
   CreateImportJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "RSA_OAEP_3072/4096_SHA256, RSA_OAEP_3072/4096_SHA256_AES_256 and RSA_OAEP_3072/4096_SHA1_AES_256; a real RSA wrapping key is generated, public_key.pem returned, expires after 3 days (state EXPIRED)."}
   GetImportJob: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListImportJobs: {wire: ok, errors: ok, state: ok, persist: n/a, note: "filter fields: name, createTime, expireTime, state, importMethod, protectionLevel; order_by name, createTime."}
-  DeleteCryptoKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "Returns a done long-running operation (metadata.retired_resource, Empty response). Every non-primary version must be DESTROYED or deleted (the primary goes with the key); records a RetiredResource, drops the key IAM policy; the name cannot be recreated (ALREADY_EXISTS). GetOperation is not served (operations are born done)."}
+  DeleteCryptoKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "Returns a done long-running operation (metadata.retired_resource, Empty response). Every non-primary version must be DESTROYED or deleted (the primary goes with the key); records a RetiredResource, drops the key IAM policy; the name cannot be recreated (ALREADY_EXISTS). The operation is stored in pkgs/gcplro and served by GetOperation/ListOperations/WaitOperation (born done)."}
   DeleteCryptoKeyVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "Only DESTROYED, non-primary versions; key material is wiped, the version disappears from Get/List and its id is never reused (tombstone persisted as versionSnap.deleted)."}
   GetRetiredResource: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListRetiredResources: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Per location, sorted by name, paged, total_size; records persist in backendSnapshot.retired."}
@@ -53,7 +53,6 @@ items_still_open:
   - "EkmService, Autokey, AutokeyAdmin and HsmManagement services are not served; EKM connections and crypto_key_backend are rejected."
   - "EC_SIGN_SECP256K1_SHA256 (no stdlib curve), post-quantum and KEM algorithms, AES_256_KWP (AES_WRAPPING purpose has no RPC that uses it) and EXTERNAL_SYMMETRIC_ENCRYPTION are rejected as unsupported."
   - "Attestation, key_access_justifications_policy and the version view parameter are not populated."
-  - "The google.longrunning Operations service is not served; DeleteCryptoKey and DeleteCryptoKeyVersion return already-done operations."
 leaks: {status: clean, note: "Background resources are the grpc.Server and the rotation janitor goroutine, both stopped and joined by Shutdown."}
 ---
 

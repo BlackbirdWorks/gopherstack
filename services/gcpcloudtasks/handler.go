@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
+	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"github.com/labstack/echo/v5"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -78,6 +79,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTasks",
 		"DeleteTask",
 		"RunTask",
+		"BatchCreateTasks",
+		"BatchDeleteTasks",
 		"GetCmekConfig",
 		"UpdateCmekConfig",
 	}
@@ -143,6 +146,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 	srv := grpc.NewServer(grpc.UnaryInterceptor(logInterceptor(log)))
 	cloudtaskspb.RegisterCloudTasksServer(srv, &server{b: h.Backend})
+	longrunningpb.RegisterOperationsServer(srv, h.Backend.ops)
 
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(workerCtx))
 	h.Backend.SetRunContext(runCtx)

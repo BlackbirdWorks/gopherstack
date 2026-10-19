@@ -23,9 +23,13 @@ ops:
   ListTasks: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Ordered by schedule_time then name, paged."}
   DeleteTask: {wire: ok, errors: ok, state: ok, persist: ok}
   RunTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "Starts an attempt now regardless of queue state, schedule or rate limits; returns immediately with dispatch_count bumped, the attempt completes asynchronously."}
+  BatchCreateTasks: {wire: ok, errors: ok, state: ok, persist: ok, note: "Up to 100 CreateTaskRequests sharing the batch parent. Returns a done operation (BatchCreateTasksResponse.tasks = created tasks; metadata.failed_requests maps request index to a google.rpc.Status such as ALREADY_EXISTS). request_id makes retries return the same operation without re-creating."}
+  BatchDeleteTasks: {wire: ok, errors: ok, state: ok, persist: ok, note: "Up to 1000 task names; Empty response, per-index NOT_FOUND / INVALID_ARGUMENT in metadata.failed_requests; deleted names reserved 1h. request_id is idempotent."}
   GetCmekConfig: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Unconfigured locations report an empty kms_key."}
   UpdateCmekConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "kms_key format validated and stored; nothing is encrypted."}
 families:
+  operations: {status: ok, note: "google.longrunning.Operations (Get, List, Wait, Cancel, Delete) is served on the same gRPC listener by pkgs/gcplro. Operations are recorded already done, so WaitOperation returns at once and CancelOperation is a no-op success; ListOperations takes the queue name as parent and rejects a filter. Operations persist in the snapshot."}
+  queue_state_disabled: {status: ok, note: "Queue.State DISABLED only arises when an App Engine queue.yaml/queue.xml upload omits the queue and cannot be set directly (cloudtaskspb Queue.State docs), so no RPC can produce it here by design; ResumeQueue refuses it if it ever appears."}
   dispatch: {status: ok, note: "A ticker (100ms) picks due tasks of RUNNING queues; a per-queue token bucket (max_dispatches_per_second, burst = max_burst_size) and max_concurrent_dispatches gate starts. HttpRequest is really sent with pkgs/httpclient (method, headers, body, dispatch_deadline timeout, redirects not followed); 2xx deletes the task, anything else is a failure. X-CloudTasks-* headers are set."}
   retries: {status: ok, note: "Failure waits min_backoff, doubling max_doublings times, then growing linearly, capped at max_backoff; stops at max_attempts (-1 unlimited) or max_retry_duration and then drops the task. dispatch_count, response_count, first_attempt and last_attempt (with a google.rpc.Status mapped from the HTTP status) are recorded. 429/503 get no special treatment."}
   auth_tokens: {status: partial, note: "OIDC tokens are UNSIGNED JWTs (alg none, claim gopherstack=unsigned-test-token) and OAuth tokens are opaque placeholders; no verifier accepts them as real credentials."}
@@ -35,8 +39,6 @@ families:
   auth: {status: partial, note: "No request is authenticated or authorised; IAM policies are stored but not enforced."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; dropped tasks are logged at warn. gRPC calls are not fed to the shared telemetry operation metrics."}
 items_still_open:
-  - "BatchCreateTasks and BatchDeleteTasks are UNIMPLEMENTED (they need a google.longrunning.Operations server)."
-  - "Queue state DISABLED is never produced (it only arises from App Engine queue.yaml); ResumeQueue refuses it if it appears."
   - "ListQueues filter supports only state=, name= and name: terms."
   - "Queue max_burst_size is an emulator-chosen derivation; real Cloud Tasks burst sizing is not documented."
   - "Persisted in-flight attempts are not resumed mid-flight: after a restore the task is simply due again and its attempt count keeps the interrupted attempt."

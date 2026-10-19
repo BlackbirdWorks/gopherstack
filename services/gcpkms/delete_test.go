@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
+	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -160,4 +161,31 @@ func TestRetiredResourcesPersist(t *testing.T) {
 		&kmspb.ListRetiredResourcesRequest{Parent: location}).Next, (*kmspb.RetiredResource).GetOriginalResource)
 	require.NoError(t, err)
 	assert.Equal(t, []string{key.GetName()}, list)
+}
+
+func TestDeleteOperationServed(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	ring := e.ring(t, "ops")
+	sym := e.key(t, ring, "sym", kmspb.CryptoKey_ENCRYPT_DECRYPT, kmspb.CryptoKeyVersion_GOOGLE_SYMMETRIC_ENCRYPTION)
+
+	op, err := e.client.DeleteCryptoKey(t.Context(), &kmspb.DeleteCryptoKeyRequest{Name: sym.GetName()})
+	require.NoError(t, err)
+
+	got, err := e.client.LROClient.GetOperation(t.Context(), &longrunningpb.GetOperationRequest{Name: op.Name()})
+	require.NoError(t, err)
+	assert.True(t, got.GetDone())
+	assert.Equal(t, op.Name(), got.GetName())
+
+	dst := newEnv(t)
+	require.NoError(t, dst.handler.Restore(t.Context(), e.handler.Snapshot(t.Context())))
+
+	_, err = dst.client.LROClient.GetOperation(t.Context(), &longrunningpb.GetOperationRequest{Name: op.Name()})
+	require.NoError(t, err, "operations persist")
+
+	_, err = e.client.LROClient.GetOperation(
+		t.Context(), &longrunningpb.GetOperationRequest{Name: location + "/operations/none"},
+	)
+	assert.Equal(t, codes.NotFound, status.Code(err))
 }

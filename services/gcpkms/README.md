@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 35 (35 ok) |
 | Feature families | 5 (2 ok, 3 partial) |
-| Known gaps | 5 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -19,7 +19,6 @@
 - EkmService, Autokey, AutokeyAdmin and HsmManagement services are not served; EKM connections and crypto_key_backend are rejected.
 - EC_SIGN_SECP256K1_SHA256 (no stdlib curve), post-quantum and KEM algorithms, AES_256_KWP (AES_WRAPPING purpose has no RPC that uses it) and EXTERNAL_SYMMETRIC_ENCRYPTION are rejected as unsupported.
 - Attestation, key_access_justifications_policy and the version view parameter are not populated.
-- The google.longrunning Operations service is not served; DeleteCryptoKey and DeleteCryptoKeyVersion return already-done operations.
 
 ## More
 

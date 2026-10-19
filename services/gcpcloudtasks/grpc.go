@@ -5,6 +5,7 @@ import (
 
 	"cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
 	"cloud.google.com/go/iam/apiv1/iampb"
+	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -91,6 +92,18 @@ func (s *server) DeleteTask(_ context.Context, in *cloudtaskspb.DeleteTaskReques
 
 func (s *server) RunTask(_ context.Context, in *cloudtaskspb.RunTaskRequest) (*cloudtaskspb.Task, error) {
 	return s.b.RunTask(in)
+}
+
+func (s *server) BatchCreateTasks(
+	_ context.Context, in *cloudtaskspb.BatchCreateTasksRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.BatchCreateTasks(in)
+}
+
+func (s *server) BatchDeleteTasks(
+	_ context.Context, in *cloudtaskspb.BatchDeleteTasksRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.BatchDeleteTasks(in)
 }
 
 func (s *server) GetCmekConfig(

@@ -7,16 +7,14 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 18 (18 ok) |
-| Feature families | 8 (3 ok, 5 partial) |
-| Known gaps | 5 |
+| PARITY entries audited | 20 (20 ok) |
+| Feature families | 10 (5 ok, 5 partial) |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- BatchCreateTasks and BatchDeleteTasks are UNIMPLEMENTED (they need a google.longrunning.Operations server).
-- Queue state DISABLED is never produced (it only arises from App Engine queue.yaml); ResumeQueue refuses it if it appears.
 - ListQueues filter supports only state=, name= and name: terms.
 - Queue max_burst_size is an emulator-chosen derivation; real Cloud Tasks burst sizing is not documented.
 - Persisted in-flight attempts are not resumed mid-flight: after a restore the task is simply due again and its attempt count keeps the interrupted attempt.

@@ -14443,6 +14443,7 @@
     "fields": [
       "backendSnapshot.Cmek map[string]json.RawMessage `json:\"cmek\"`",
       "backendSnapshot.EtagSeq uint64 `json:\"etagSeq\"`",
+      "backendSnapshot.Ops map[string]json.RawMessage `json:\"operations,omitempty\"`",
       "backendSnapshot.Policies map[string]json.RawMessage `json:\"policies\"`",
       "backendSnapshot.Queues map[string]queueSnap `json:\"queues\"`",
       "backendSnapshot.TaskSeq uint64 `json:\"taskSeq\"`",
@@ -14483,6 +14484,7 @@
       "backendSnapshot.EtagSeq uint64 `json:\"etagSeq\"`",
       "backendSnapshot.Jobs map[string]jobSnap `json:\"jobs\"`",
       "backendSnapshot.Keys map[string]keySnap `json:\"keys\"`",
+      "backendSnapshot.Ops map[string]json.RawMessage `json:\"operations,omitempty\"`",
       "backendSnapshot.Policies map[string]json.RawMessage `json:\"policies\"`",
       "backendSnapshot.Retired map[string]json.RawMessage `json:\"retired,omitempty\"`",
       "backendSnapshot.Rings map[string]json.RawMessage `json:\"rings\"`",
@@ -14535,6 +14537,17 @@
     ],
     "version": 1
   },
+  "gcpscheduler": {
+    "fields": [
+      "backendSnapshot.JobSeq uint64 `json:\"jobSeq\"`",
+      "backendSnapshot.Jobs map[string]jobSnap `json:\"jobs\"`",
+      "jobSnap.ExecStart time.Time `json:\"execStart\"`",
+      "jobSnap.Failures int32 `json:\"failures\"`",
+      "jobSnap.Job json.RawMessage `json:\"job\"`",
+      "jobSnap.RetryAt time.Time `json:\"retryAt\"`"
+    ],
+    "version": 1
+  },
   "gcpsecretmanager": {
     "fields": [
       "backendSnapshot.EtagSeq uint64 `json:\"etagSeq\"`",
@@ -14545,17 +14558,6 @@
       "secretSnap.Versions []versionSnap `json:\"versions,omitempty\"`",
       "versionSnap.Data []byte `json:\"data,omitempty\"`",
       "versionSnap.Num int64 `json:\"num\"`"
-    ],
-    "version": 1
-  },
-  "gcpscheduler": {
-    "fields": [
-      "backendSnapshot.JobSeq uint64 `json:\"jobSeq\"`",
-      "backendSnapshot.Jobs map[string]jobSnap `json:\"jobs\"`",
-      "jobSnap.ExecStart time.Time `json:\"execStart\"`",
-      "jobSnap.Failures int32 `json:\"failures\"`",
-      "jobSnap.Job json.RawMessage `json:\"job\"`",
-      "jobSnap.RetryAt time.Time `json:\"retryAt\"`"
     ],
     "version": 1
   },

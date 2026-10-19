@@ -296,12 +296,5 @@ func (b *InMemoryBackend) DeleteTask(name string) error {
 		return errQueueMissing()
 	}
 
-	if _, ok = q.tasks[name]; !ok {
-		return errTaskMissing()
-	}
-
-	delete(q.tasks, name)
-	b.tombstones[name] = b.now().Add(taskTombstoneTTL)
-
-	return nil
+	return b.deleteTaskLocked(q, name)
 }

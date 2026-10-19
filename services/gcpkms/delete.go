@@ -6,10 +6,10 @@ import (
 	"cloud.google.com/go/kms/apiv1/kmspb"
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -24,20 +24,13 @@ func cloneRetired(r *kmspb.RetiredResource) *kmspb.RetiredResource {
 	return out
 }
 
-func doneOperation(name string, meta, resp proto.Message) (*longrunningpb.Operation, error) {
-	m, err := anypb.New(meta)
+func (b *InMemoryBackend) doneOperation(name string, meta, resp proto.Message) (*longrunningpb.Operation, error) {
+	op, err := gcplro.Done(name, meta, resp)
 	if err != nil {
-		return nil, errInvalid("operation metadata: %v", err)
+		return nil, errInvalid("%v", err)
 	}
 
-	r, err := anypb.New(resp)
-	if err != nil {
-		return nil, errInvalid("operation response: %v", err)
-	}
-
-	return &longrunningpb.Operation{
-		Name: name, Metadata: m, Done: true, Result: &longrunningpb.Operation_Response{Response: r},
-	}, nil
+	return b.ops.Put(op), nil
 }
 
 func opName(resourceName string) string {
@@ -76,7 +69,7 @@ func (b *InMemoryBackend) DeleteCryptoKey(req *kmspb.DeleteCryptoKeyRequest) (*l
 	delete(b.keys, req.GetName())
 	delete(b.policies, req.GetName())
 
-	return doneOperation(
+	return b.doneOperation(
 		opName(req.GetName()),
 		&kmspb.DeleteCryptoKeyMetadata{RetiredResource: rname},
 		&emptypb.Empty{},
@@ -123,7 +116,7 @@ func (b *InMemoryBackend) DeleteCryptoKeyVersion(
 	v.deleted = true
 	v.material = nil
 
-	return doneOperation(opName(req.GetName()), &kmspb.DeleteCryptoKeyVersionMetadata{}, &emptypb.Empty{})
+	return b.doneOperation(opName(req.GetName()), &kmspb.DeleteCryptoKeyVersionMetadata{}, &emptypb.Empty{})
 }
 
 // retiredNameLocked reports whether a deleted key already used name.

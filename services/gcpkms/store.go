@@ -10,6 +10,7 @@ import (
 	"cloud.google.com/go/kms/apiv1/kmspb"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -53,12 +54,13 @@ type InMemoryBackend struct {
 	jobs     map[string]*jobRec
 	retired  map[string]*kmspb.RetiredResource
 	policies map[string]*iampb.Policy
+	ops      *gcplro.Store
 	etagSeq  uint64
 }
 
 // NewInMemoryBackend creates an empty backend.
 func NewInMemoryBackend() *InMemoryBackend {
-	b := &InMemoryBackend{mu: lockmetrics.New("gcpkms"), now: time.Now}
+	b := &InMemoryBackend{mu: lockmetrics.New("gcpkms"), now: time.Now, ops: gcplro.New("gcpkms")}
 	b.resetMaps()
 
 	return b
@@ -78,6 +80,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.resetMaps()
+	b.ops.Reset()
 	b.etagSeq = 0
 }
 
