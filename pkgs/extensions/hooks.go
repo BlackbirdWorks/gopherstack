@@ -49,12 +49,6 @@ func (m *Manager) lifecycle(ctx context.Context, e *extension, event string) {
 			err,
 		)
 	}
-
-	if event == "on_startup" {
-		m.mu.Lock("lifecycle")
-		e.started = true
-		m.mu.Unlock()
-	}
 }
 
 // claimEvent decides whether event may be sent now and records it as sent.
@@ -71,6 +65,8 @@ func (m *Manager) claimEvent(e *extension, event string) (string, *url.URL) {
 		if m.stopping.Load() || e.started {
 			return "", nil
 		}
+
+		e.started = true
 
 		return e.reg.Hooks.OnStartup, e.endpoint
 	case "on_ready":

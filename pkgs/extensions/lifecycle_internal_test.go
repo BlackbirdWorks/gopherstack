@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -192,4 +193,112 @@ func TestExtensionStartTimeout(t *testing.T) {
 	t.Cleanup(func() { m.Stop(context.WithoutCancel(t.Context())) })
 
 	require.Eventually(t, func() bool { return statusOf(m) == StatusFailed }, 20*time.Second, 20*time.Millisecond)
+}
+
+func newRegisteredManager(t *testing.T, spec Spec, reg Registration) (*Manager, *extension) {
+	t.Helper()
+
+	spec.Name = "unit"
+	spec.Command = []string{"true"}
+
+	cfg, err := Config{Extensions: []Spec{spec}}.normalize()
+	require.NoError(t, err)
+
+	m := New(cfg, Options{Logger: logger.NewTestLogger()})
+	t.Cleanup(m.mu.Close)
+
+	e := m.exts[0]
+	_, _, err = m.prepare(e)
+	require.NoError(t, err)
+	require.NoError(t, m.register(e, reg))
+
+	return m, e
+}
+
+func TestExtensionRestartKeepsClaims(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status Status
+	}{
+		{name: "restarting", status: StatusRestarting},
+		{name: "starting", status: StatusStarting},
+		{name: "unhealthy", status: StatusUnhealthy},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m, e := newRegisteredManager(t, Spec{}, Registration{
+				Endpoint: "http://127.0.0.1:1",
+				Routes:   Routes{PathPrefixes: []string{"/c"}},
+			})
+
+			assert.Equal(t, StatusReady, statusOf(m))
+
+			_, _, err := m.prepare(e)
+			require.NoError(t, err)
+			m.setStatus(e, tt.status, "")
+
+			h := m.Route(httptest.NewRequest(http.MethodGet, "/c", nil), false)
+			require.NotNil(t, h)
+
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/c", nil))
+			assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+		})
+	}
+}
+
+func TestExtensionLifecycleWithoutStartupHook(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		hooks Hooks
+		want  []string
+	}{
+		{name: "ready only", hooks: Hooks{OnReady: "/ready"}, want: []string{"/ready"}},
+		{
+			name:  "ready and shutdown",
+			hooks: Hooks{OnReady: "/ready", OnShutdown: "/down"},
+			want:  []string{"/ready", "/down"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var (
+				mu   sync.Mutex
+				seen []string
+			)
+
+			srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				seen = append(seen, r.URL.Path)
+				mu.Unlock()
+			}))
+			t.Cleanup(srv.Close)
+
+			m, e := newRegisteredManager(t, Spec{}, Registration{
+				Endpoint: srv.URL,
+				Routes:   Routes{PathPrefixes: []string{"/c"}},
+				Hooks:    tt.hooks,
+			})
+
+			ctx := t.Context()
+			m.lifecycle(ctx, e, "on_startup")
+			m.lifecycle(ctx, e, "on_ready")
+			m.lifecycle(ctx, e, "on_shutdown")
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			assert.Equal(t, tt.want, seen)
+		})
+	}
 }

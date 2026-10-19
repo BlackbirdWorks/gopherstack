@@ -207,7 +207,8 @@ func freePort() (int, error) {
 	return addr.Port, nil
 }
 
-// prepare issues a fresh token and port and clears the previous registration.
+// prepare issues a fresh token and port. The previous registration stays until the new
+// incarnation registers, so claimed routes answer 503 rather than falling through to built-ins.
 func (m *Manager) prepare(e *extension) (string, int, error) {
 	token, err := newToken()
 	if err != nil {
@@ -224,7 +225,7 @@ func (m *Manager) prepare(e *extension) (string, int, error) {
 	m.mu.Lock("prepare")
 	defer m.mu.Unlock()
 
-	e.token, e.port, e.reg, e.endpoint, e.proxy = token, port, nil, nil, nil
+	e.token, e.port = token, port
 	e.registered = make(chan struct{})
 	e.started, e.readySent, e.shutdownSent = false, false, false
 	e.status = StatusStarting
@@ -294,7 +295,6 @@ func (m *Manager) supervise(ctx context.Context, e *extension) {
 		e.restarts++
 		e.status = StatusRestarting
 		e.lastError = msg
-		e.reg, e.endpoint, e.proxy = nil, nil, nil
 		m.mu.Unlock()
 
 		select {
