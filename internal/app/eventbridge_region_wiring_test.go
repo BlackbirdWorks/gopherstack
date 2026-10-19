@@ -19,11 +19,13 @@ import (
 func TestEventBridge_DefaultBusExistsInEveryRegion(t *testing.T) {
 	t.Parallel()
 
+	url := newRegionServer(t)
+
 	for _, region := range []string{regionA, regionB, "ap-southeast-2"} {
 		t.Run(region, func(t *testing.T) {
 			t.Parallel()
 
-			out, err := eventbridge.NewFromConfig(regionConfig(t, region)).DescribeEventBus(t.Context(),
+			out, err := eventbridge.NewFromConfig(regionConfig(t, url, region)).DescribeEventBus(t.Context(),
 				&eventbridge.DescribeEventBusInput{})
 			require.NoError(t, err)
 			assert.Equal(t, "default", aws.ToString(out.Name))
@@ -34,6 +36,8 @@ func TestEventBridge_DefaultBusExistsInEveryRegion(t *testing.T) {
 
 func TestS3Notifications_NonHomeBucketUsesRegionalEventBridgeAndPayloadRegion(t *testing.T) {
 	t.Parallel()
+
+	url := newRegionServer(t)
 
 	tests := []struct {
 		name   string
@@ -48,7 +52,7 @@ func TestS3Notifications_NonHomeBucketUsesRegionalEventBridgeAndPayloadRegion(t 
 			t.Parallel()
 
 			ctx := t.Context()
-			cfg := regionConfig(t, tc.region)
+			cfg := regionConfig(t, url, tc.region)
 			sqsC := sqs.NewFromConfig(cfg)
 			ebC := eventbridge.NewFromConfig(cfg)
 			s3C := s3.NewFromConfig(cfg, func(o *s3.Options) { o.UsePathStyle = true })

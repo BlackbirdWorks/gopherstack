@@ -226,7 +226,10 @@ func TestS3FilesRoleAndKeyWiring(t *testing.T) {
 		{name: "valid key", role: env.roleARN, key: enabled.KeyMetadata.KeyId},
 		{name: "no key", role: env.roleARN},
 		{name: "unknown role", role: "arn:aws:iam::000000000000:role/ghost", wantCode: "ValidationException"},
-		{name: "unknown key", role: env.roleARN, key: aws.String("1234abcd-12ab-34cd-56ef-1234567890ab"), wantCode: "ValidationException"},
+		{
+			name: "unknown key", role: env.roleARN,
+			key: aws.String("1234abcd-12ab-34cd-56ef-1234567890ab"), wantCode: "ValidationException",
+		},
 		{name: "disabled key", role: env.roleARN, key: disabled.KeyMetadata.KeyId, wantCode: "ValidationException"},
 	}
 
