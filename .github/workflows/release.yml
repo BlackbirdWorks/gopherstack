@@ -321,9 +321,23 @@ jobs:
         shell: bash
         run: gh release upload "$TAG" "$ARCHIVE" --clobber
 
+  # Publishing makes the release immutable, so it waits for every desktop asset.
+  publish:
+    needs: [create-tag, goreleaser, desktop]
+    if: always() && needs.goreleaser.result == 'success' && needs.desktop.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.release_tag || needs.create-tag.outputs.new_tag || github.ref_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Publish draft release
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+
   cleanup-releases:
     runs-on: ubuntu-latest
-    needs: [goreleaser]
+    needs: [publish]
     if: always()
     permissions:
       contents: write
