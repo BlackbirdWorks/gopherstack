@@ -404,6 +404,7 @@ type CLI struct {
 	azureQueueHandler             service.Registerable
 	azureTableHandler             service.Registerable
 	azureServiceBusHandler        service.Registerable
+	azureKeyVaultHandler          service.Registerable
 	cosmosDBHandler               service.Registerable
 	appConfigHandler              service.Registerable
 	applicationautoscalingHandler service.Registerable
@@ -1870,6 +1871,11 @@ func (c *CLI) GetAzureTableHandler() service.Registerable { return c.azureTableH
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAzureServiceBusHandler() service.Registerable { return c.azureServiceBusHandler }
 
+// GetAzureKeyVaultHandler returns the Azure Key Vault handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAzureKeyVaultHandler() service.Registerable { return c.azureKeyVaultHandler }
+
 // GetCosmosDBHandler returns the Cosmos DB handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
@@ -3126,6 +3132,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.azureQueueHandler = byName["AzureQueue"]
 	cli.azureTableHandler = byName["AzureTable"]
 	cli.azureServiceBusHandler = byName["AzureServiceBus"]
+	cli.azureKeyVaultHandler = byName["AzureKeyVault"]
 	cli.cosmosDBHandler = byName["CosmosDB"]
 	cli.ceHandler = byName["Ce"]
 	cli.cloudcontrolHandler = byName["CloudControl"]

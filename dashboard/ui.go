@@ -46,6 +46,7 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	azurearmbackend "github.com/blackbirdworks/gopherstack/services/azurearm"
 	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
+	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
 	azuretablebackend "github.com/blackbirdworks/gopherstack/services/azuretable"
@@ -521,6 +522,8 @@ type Config struct {
 	AzureTableOps *azuretablebackend.Handler
 	// AzureServiceBusOps is dispatched in-process by the /dashboard/api/v1/azure/servicebus proxy.
 	AzureServiceBusOps *azureservicebusbackend.Handler
+	// AzureKeyVaultOps is dispatched in-process by the /dashboard/api/v1/azure/keyvault proxy.
+	AzureKeyVaultOps *azurekeyvaultbackend.Handler
 	// AzureCosmosOps is dispatched in-process by the /dashboard/api/v1/azure/cosmos proxy.
 	AzureCosmosOps *cosmosdbbackend.Handler
 	// CognitoIDPOps provides access to the Cognito IDP backend.
@@ -768,6 +771,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerAzureTableRoutes()
 	h.registerAzureServiceBusRoutes()
 	h.registerAzureCosmosRoutes()
+	h.registerAzureKeyVaultRoutes()
 	h.registerSTSMetricsRoute()
 	h.registerCodeStarConnectionsMutationRoutes()
 	h.registerCognitoUserPoolRoutes()

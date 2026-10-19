@@ -1,6 +1,7 @@
 package azurekeyvault
 
 import (
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -66,6 +67,21 @@ func (b *InMemoryBackend) DeleteVault(name string) {
 	defer b.mu.Unlock()
 
 	delete(b.vaults, strs.Fold(name))
+}
+
+// ListVaults returns the registered vault names in sorted order.
+func (b *InMemoryBackend) ListVaults() []string {
+	b.mu.RLock("ListVaults")
+	defer b.mu.RUnlock()
+
+	names := make([]string, 0, len(b.vaults))
+	for _, v := range b.vaults {
+		names = append(names, v.Name)
+	}
+
+	slices.Sort(names)
+
+	return names
 }
 
 // VaultExists reports whether the vault is registered.

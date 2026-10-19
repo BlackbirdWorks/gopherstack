@@ -18,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/autoscaling"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
+	"github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	"github.com/blackbirdworks/gopherstack/services/azurequeue"
 	"github.com/blackbirdworks/gopherstack/services/azureservicebus"
 	"github.com/blackbirdworks/gopherstack/services/azuretable"
@@ -131,6 +132,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	if sp, hasBus := ctx.Config.(interface{ GetAzureServiceBusHandler() service.Registerable }); hasBus {
 		conf.AzureServiceBusOps, _ = getHandler[*azureservicebus.Handler](sp.GetAzureServiceBusHandler())
+	}
+
+	if kp, hasKV := ctx.Config.(interface{ GetAzureKeyVaultHandler() service.Registerable }); hasKV {
+		conf.AzureKeyVaultOps, _ = getHandler[*azurekeyvault.Handler](kp.GetAzureKeyVaultHandler())
 	}
 
 	if cp, hasCosmos := ctx.Config.(interface{ GetCosmosDBHandler() service.Registerable }); hasCosmos {

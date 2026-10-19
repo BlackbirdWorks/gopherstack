@@ -57,6 +57,14 @@ export const AZURE_SERVICES: readonly AzureService[] = [
     defaultPort: 10003,
   },
   {
+    id: "keyvault",
+    label: "Key Vault",
+    description: "Azure Key Vault",
+    healthName: "AzureKeyVault",
+    portLabel: "azurekeyvault",
+    defaultPort: 10004,
+  },
+  {
     id: "arm",
     label: "Resource Manager",
     description: "Azure Resource Manager (ARM)",
