@@ -27,7 +27,9 @@ const recorder = (bodies: unknown[], status = 200) => {
   const fn = ((url: string, init: RequestInit) => {
     calls.push({ url, init: init ?? {} });
     const body = bodies[Math.min(calls.length - 1, bodies.length - 1)];
-    return Promise.resolve(new Response(body === undefined ? "" : JSON.stringify(body), { status }));
+    return Promise.resolve(
+      new Response(body === undefined ? "" : JSON.stringify(body), { status }),
+    );
   }) as unknown as typeof fetch;
   return { calls, fn };
 };
@@ -92,8 +94,12 @@ describe("encoding", () => {
 
 describe("urls", () => {
   it("builds vault and object urls", () => {
-    expect(vaultUrl("v 1", "secrets", "a=b")).toBe("/dashboard/api/v1/azure/keyvault/vaults/v%201/secrets?a=b");
-    expect(objectUrl("v", "keys", "k", "create")).toBe("/dashboard/api/v1/azure/keyvault/vaults/v/keys/k/create");
+    expect(vaultUrl("v 1", "secrets", "a=b")).toBe(
+      "/dashboard/api/v1/azure/keyvault/vaults/v%201/secrets?a=b",
+    );
+    expect(objectUrl("v", "keys", "k", "create")).toBe(
+      "/dashboard/api/v1/azure/keyvault/vaults/v/keys/k/create",
+    );
   });
 });
 
@@ -113,7 +119,10 @@ describe("client", () => {
 
   it("follows nextLink pages and sorts", async () => {
     const r = recorder([
-      { value: [{ id: "https://h/secrets/b", attributes: { enabled: false } }], nextLink: "https://h/x?$skiptoken=T1" },
+      {
+        value: [{ id: "https://h/secrets/b", attributes: { enabled: false } }],
+        nextLink: "https://h/x?$skiptoken=T1",
+      },
       { value: [{ id: "https://h/secrets/a" }] },
     ]);
     const out = await listItems("v", "secrets", false, r.fn);
@@ -123,7 +132,11 @@ describe("client", () => {
   });
 
   it("hides managed secrets backing certificates", async () => {
-    const r = recorder([{ value: [{ id: "https://h/secrets/cert", managed: true }, { id: "https://h/secrets/real" }] }]);
+    const r = recorder([
+      {
+        value: [{ id: "https://h/secrets/cert", managed: true }, { id: "https://h/secrets/real" }],
+      },
+    ]);
     expect((await listItems("v", "secrets", false, r.fn)).map((i) => i.name)).toEqual(["real"]);
   });
 
@@ -142,7 +155,10 @@ describe("client", () => {
 
   it("maps Key Vault errors", async () => {
     const r = recorder([{ error: { code: "SecretNotFound", message: "nope" } }], 404);
-    await expect(revealSecret("v", "s", "", r.fn)).rejects.toMatchObject({ code: "SecretNotFound", status: 404 });
+    await expect(revealSecret("v", "s", "", r.fn)).rejects.toMatchObject({
+      code: "SecretNotFound",
+      status: 404,
+    });
     await expect(revealSecret("v", "s", "", r.fn)).rejects.toBeInstanceOf(KvError);
   });
 
@@ -160,7 +176,9 @@ describe("client", () => {
   });
 
   it("builds a self-signed certificate policy", () => {
-    const body = certBody({ name: "c", subject: "CN=x", validityMonths: 6 }) as { policy: { x509_props: unknown; issuer: unknown } };
+    const body = certBody({ name: "c", subject: "CN=x", validityMonths: 6 }) as {
+      policy: { x509_props: unknown; issuer: unknown };
+    };
     expect(body.policy.x509_props).toEqual({ subject: "CN=x", validity_months: 6 });
     expect(body.policy.issuer).toEqual({ name: "Self" });
   });

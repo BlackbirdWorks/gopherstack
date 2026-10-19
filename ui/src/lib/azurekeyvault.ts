@@ -22,7 +22,12 @@ export type KvItem = {
   tags: Record<string, string>;
 };
 
-export type KeyDetail = KvItem & { kty: string; crv: string; keyOps: string[]; keySize: number | null };
+export type KeyDetail = KvItem & {
+  kty: string;
+  crv: string;
+  keyOps: string[];
+  keySize: number | null;
+};
 export type CertDetail = KvItem & { x5t: string; cer: string; subject: string };
 
 export class KvError extends Error {
@@ -44,7 +49,9 @@ const seg = (s: string) => encodeURIComponent(s);
 
 export function validateVaultName(name: string): string {
   if (!name) return "Vault name is required";
-  return VAULT_NAME_RE.test(name) ? "" : "3-24 characters: letters, digits and hyphens, starting with a letter";
+  return VAULT_NAME_RE.test(name)
+    ? ""
+    : "3-24 characters: letters, digits and hyphens, starting with a letter";
 }
 
 export function validateObjectName(name: string): string {
@@ -65,7 +72,13 @@ export function vaultUrl(vault: string, path: string, query = ""): string {
   return query ? `${url}?${query}` : url;
 }
 
-export function objectUrl(vault: string, area: string, name: string, tail = "", query = ""): string {
+export function objectUrl(
+  vault: string,
+  area: string,
+  name: string,
+  tail = "",
+  query = "",
+): string {
   return vaultUrl(vault, `${area}/${seg(name)}${tail ? `/${tail}` : ""}`, query);
 }
 
@@ -88,7 +101,16 @@ export const bytesText = (b: Uint8Array): string => new TextDecoder().decode(b);
 /** Splits a Key Vault object id into its name and (optional) version. */
 export function parseId(id: string): { name: string; version: string } {
   const parts = id.split("/").filter(Boolean);
-  const i = parts.findIndex((p) => ["secrets", "keys", "certificates", "deletedsecrets", "deletedkeys", "deletedcertificates"].includes(p));
+  const i = parts.findIndex((p) =>
+    [
+      "secrets",
+      "keys",
+      "certificates",
+      "deletedsecrets",
+      "deletedkeys",
+      "deletedcertificates",
+    ].includes(p),
+  );
   if (i < 0) return { name: parts.at(-1) ?? "", version: "" };
   return { name: decodeURIComponent(parts[i + 1] ?? ""), version: parts[i + 2] ?? "" };
 }
@@ -148,7 +170,9 @@ export function certPem(cerBase64: string): string {
 /** Converts the base64url x5t thumbprint into colon-separated uppercase hex. */
 export function thumbprintHex(x5t: string): string {
   if (!x5t) return "";
-  return Array.from(b64uDecode(x5t), (b) => b.toString(16).padStart(2, "0").toUpperCase()).join(":");
+  return Array.from(b64uDecode(x5t), (b) => b.toString(16).padStart(2, "0").toUpperCase()).join(
+    ":",
+  );
 }
 
 export function formatEpoch(epoch: number | null): string {
@@ -159,7 +183,8 @@ export type KeyAlgs = { encrypt: string[]; sign: string[] };
 
 /** Algorithms a key type supports for the try-it panel. */
 export function algsFor(kty: string, crv: string): KeyAlgs {
-  if (kty.startsWith("RSA")) return { encrypt: ["RSA-OAEP", "RSA-OAEP-256"], sign: ["RS256", "RS384", "RS512", "PS256"] };
+  if (kty.startsWith("RSA"))
+    return { encrypt: ["RSA-OAEP", "RSA-OAEP-256"], sign: ["RS256", "RS384", "RS512", "PS256"] };
   if (kty.startsWith("EC")) {
     const sign = { "P-384": "ES384", "P-521": "ES512" }[crv] ?? "ES256";
     return { encrypt: [], sign: [sign] };
@@ -167,7 +192,11 @@ export function algsFor(kty: string, crv: string): KeyAlgs {
   return { encrypt: [], sign: [] };
 }
 
-const HASH_BY_SUFFIX: Record<string, string> = { "256": "SHA-256", "384": "SHA-384", "512": "SHA-512" };
+const HASH_BY_SUFFIX: Record<string, string> = {
+  "256": "SHA-256",
+  "384": "SHA-384",
+  "512": "SHA-512",
+};
 
 export async function digestFor(alg: string, text: string): Promise<string> {
   const hash = HASH_BY_SUFFIX[alg.slice(-3)] ?? "SHA-256";
@@ -180,7 +209,11 @@ async function toKvError(res: Response): Promise<KvError> {
   try {
     const json = JSON.parse(body) as { error?: { code?: string; message?: string } };
     if (json.error) {
-      return new KvError(res.status, json.error.code ?? `HTTP${res.status}`, json.error.message ?? `HTTP ${res.status}`);
+      return new KvError(
+        res.status,
+        json.error.code ?? `HTTP${res.status}`,
+        json.error.message ?? `HTTP ${res.status}`,
+      );
     }
   } catch {
     // fall through to the raw body
@@ -188,7 +221,12 @@ async function toKvError(res: Response): Promise<KvError> {
   return new KvError(res.status, `HTTP${res.status}`, body || `HTTP ${res.status}`);
 }
 
-async function call(url: string, method: string, body: unknown, fetchFn: FetchFn): Promise<Json | null> {
+async function call(
+  url: string,
+  method: string,
+  body: unknown,
+  fetchFn: FetchFn,
+): Promise<Json | null> {
   const init: RequestInit = { method };
   if (body !== undefined) {
     init.body = JSON.stringify(body);
@@ -212,7 +250,10 @@ async function listAll(vault: string, path: string, fetchFn: FetchFn): Promise<J
     const q = `maxresults=${PAGE_SIZE}${token ? `&$skiptoken=${encodeURIComponent(token)}` : ""}`;
     const res = (await call(vaultUrl(vault, path, q), "GET", undefined, fetchFn)) ?? {};
     out.push(...((res.value as Json[] | undefined) ?? []));
-    const next = typeof res.nextLink === "string" ? new URL(res.nextLink).searchParams.get("$skiptoken") : null;
+    const next =
+      typeof res.nextLink === "string"
+        ? new URL(res.nextLink).searchParams.get("$skiptoken")
+        : null;
     if (!next) break;
     token = next;
   }
@@ -232,7 +273,12 @@ export async function createVault(name: string, fetchFn: FetchFn = fetch): Promi
 }
 
 /** Lists objects; secrets and keys backing a certificate (managed) are hidden. */
-export async function listItems(vault: string, kind: Kind, deleted = false, fetchFn: FetchFn = fetch): Promise<KvItem[]> {
+export async function listItems(
+  vault: string,
+  kind: Kind,
+  deleted = false,
+  fetchFn: FetchFn = fetch,
+): Promise<KvItem[]> {
   const raws = await listAll(vault, deleted ? deletedArea(kind) : kind, fetchFn);
   return raws
     .map((r) => item(r, idFieldFor(kind)))
@@ -240,20 +286,42 @@ export async function listItems(vault: string, kind: Kind, deleted = false, fetc
     .toSorted((a, b) => a.name.localeCompare(b.name));
 }
 
-export async function listVersions(vault: string, kind: Kind, name: string, fetchFn: FetchFn = fetch): Promise<KvItem[]> {
+export async function listVersions(
+  vault: string,
+  kind: Kind,
+  name: string,
+  fetchFn: FetchFn = fetch,
+): Promise<KvItem[]> {
   const raws = await listAll(vault, `${kind}/${seg(name)}/versions`, fetchFn);
-  return raws.map((r) => item(r, idFieldFor(kind))).toSorted((a, b) => (b.created ?? 0) - (a.created ?? 0));
+  return raws
+    .map((r) => item(r, idFieldFor(kind)))
+    .toSorted((a, b) => (b.created ?? 0) - (a.created ?? 0));
 }
 
-export async function recoverItem(vault: string, kind: Kind, name: string, fetchFn: FetchFn = fetch): Promise<void> {
+export async function recoverItem(
+  vault: string,
+  kind: Kind,
+  name: string,
+  fetchFn: FetchFn = fetch,
+): Promise<void> {
   await call(objectUrl(vault, deletedArea(kind), name, "recover"), "POST", undefined, fetchFn);
 }
 
-export async function purgeItem(vault: string, kind: Kind, name: string, fetchFn: FetchFn = fetch): Promise<void> {
+export async function purgeItem(
+  vault: string,
+  kind: Kind,
+  name: string,
+  fetchFn: FetchFn = fetch,
+): Promise<void> {
   await call(objectUrl(vault, deletedArea(kind), name), "DELETE", undefined, fetchFn);
 }
 
-export async function deleteItem(vault: string, kind: Kind, name: string, fetchFn: FetchFn = fetch): Promise<void> {
+export async function deleteItem(
+  vault: string,
+  kind: Kind,
+  name: string,
+  fetchFn: FetchFn = fetch,
+): Promise<void> {
   await call(objectUrl(vault, kind, name), "DELETE", undefined, fetchFn);
 }
 
@@ -282,43 +350,119 @@ export async function revealSecret(
 
 export type KeySpec = { name: string; kty: "RSA" | "EC"; size?: number; crv?: string };
 
-export async function createKey(vault: string, spec: KeySpec, fetchFn: FetchFn = fetch): Promise<KeyDetail> {
+export async function createKey(
+  vault: string,
+  spec: KeySpec,
+  fetchFn: FetchFn = fetch,
+): Promise<KeyDetail> {
   const body: Json = { kty: spec.kty };
   if (spec.kty === "RSA") body.key_size = spec.size ?? 2048;
   else body.crv = spec.crv ?? "P-256";
-  return parseKeyDetail((await call(objectUrl(vault, "keys", spec.name, "create"), "POST", body, fetchFn)) ?? {});
+  return parseKeyDetail(
+    (await call(objectUrl(vault, "keys", spec.name, "create"), "POST", body, fetchFn)) ?? {},
+  );
 }
 
-export async function rotateKey(vault: string, name: string, fetchFn: FetchFn = fetch): Promise<KeyDetail> {
-  return parseKeyDetail((await call(objectUrl(vault, "keys", name, "rotate"), "POST", undefined, fetchFn)) ?? {});
+export async function rotateKey(
+  vault: string,
+  name: string,
+  fetchFn: FetchFn = fetch,
+): Promise<KeyDetail> {
+  return parseKeyDetail(
+    (await call(objectUrl(vault, "keys", name, "rotate"), "POST", undefined, fetchFn)) ?? {},
+  );
 }
 
-export async function getKey(vault: string, name: string, version = "", fetchFn: FetchFn = fetch): Promise<KeyDetail> {
-  return parseKeyDetail((await call(objectUrl(vault, "keys", name, version), "GET", undefined, fetchFn)) ?? {});
+export async function getKey(
+  vault: string,
+  name: string,
+  version = "",
+  fetchFn: FetchFn = fetch,
+): Promise<KeyDetail> {
+  return parseKeyDetail(
+    (await call(objectUrl(vault, "keys", name, version), "GET", undefined, fetchFn)) ?? {},
+  );
 }
 
-async function keyOp(vault: string, name: string, version: string, op: string, body: Json, fetchFn: FetchFn): Promise<Json> {
+async function keyOp(
+  vault: string,
+  name: string,
+  version: string,
+  op: string,
+  body: Json,
+  fetchFn: FetchFn,
+): Promise<Json> {
   const tail = version ? `${seg(version)}/${op}` : op;
   return (await call(objectUrl(vault, "keys", name, tail), "POST", body, fetchFn)) ?? {};
 }
 
-export async function encryptText(vault: string, name: string, version: string, alg: string, text: string, fetchFn: FetchFn = fetch): Promise<string> {
-  const res = await keyOp(vault, name, version, "encrypt", { alg, value: b64uEncode(textBytes(text)) }, fetchFn);
+export async function encryptText(
+  vault: string,
+  name: string,
+  version: string,
+  alg: string,
+  text: string,
+  fetchFn: FetchFn = fetch,
+): Promise<string> {
+  const res = await keyOp(
+    vault,
+    name,
+    version,
+    "encrypt",
+    { alg, value: b64uEncode(textBytes(text)) },
+    fetchFn,
+  );
   return String(res.value ?? "");
 }
 
-export async function decryptText(vault: string, name: string, version: string, alg: string, cipher: string, fetchFn: FetchFn = fetch): Promise<string> {
+export async function decryptText(
+  vault: string,
+  name: string,
+  version: string,
+  alg: string,
+  cipher: string,
+  fetchFn: FetchFn = fetch,
+): Promise<string> {
   const res = await keyOp(vault, name, version, "decrypt", { alg, value: cipher.trim() }, fetchFn);
   return bytesText(b64uDecode(String(res.value ?? "")));
 }
 
-export async function signText(vault: string, name: string, version: string, alg: string, text: string, fetchFn: FetchFn = fetch): Promise<string> {
-  const res = await keyOp(vault, name, version, "sign", { alg, value: await digestFor(alg, text) }, fetchFn);
+export async function signText(
+  vault: string,
+  name: string,
+  version: string,
+  alg: string,
+  text: string,
+  fetchFn: FetchFn = fetch,
+): Promise<string> {
+  const res = await keyOp(
+    vault,
+    name,
+    version,
+    "sign",
+    { alg, value: await digestFor(alg, text) },
+    fetchFn,
+  );
   return String(res.value ?? "");
 }
 
-export async function verifyText(vault: string, name: string, version: string, alg: string, text: string, signature: string, fetchFn: FetchFn = fetch): Promise<boolean> {
-  const res = await keyOp(vault, name, version, "verify", { alg, digest: await digestFor(alg, text), value: signature.trim() }, fetchFn);
+export async function verifyText(
+  vault: string,
+  name: string,
+  version: string,
+  alg: string,
+  text: string,
+  signature: string,
+  fetchFn: FetchFn = fetch,
+): Promise<boolean> {
+  const res = await keyOp(
+    vault,
+    name,
+    version,
+    "verify",
+    { alg, digest: await digestFor(alg, text), value: signature.trim() },
+    fetchFn,
+  );
   return res.value === true;
 }
 
@@ -335,11 +479,27 @@ export function certBody(spec: CertSpec): Json {
   };
 }
 
-export async function createCert(vault: string, spec: CertSpec, fetchFn: FetchFn = fetch): Promise<CertDetail> {
-  await call(objectUrl(vault, "certificates", spec.name, "create"), "POST", certBody(spec), fetchFn);
+export async function createCert(
+  vault: string,
+  spec: CertSpec,
+  fetchFn: FetchFn = fetch,
+): Promise<CertDetail> {
+  await call(
+    objectUrl(vault, "certificates", spec.name, "create"),
+    "POST",
+    certBody(spec),
+    fetchFn,
+  );
   return getCert(vault, spec.name, "", fetchFn);
 }
 
-export async function getCert(vault: string, name: string, version = "", fetchFn: FetchFn = fetch): Promise<CertDetail> {
-  return parseCertDetail((await call(objectUrl(vault, "certificates", name, version), "GET", undefined, fetchFn)) ?? {});
+export async function getCert(
+  vault: string,
+  name: string,
+  version = "",
+  fetchFn: FetchFn = fetch,
+): Promise<CertDetail> {
+  return parseCertDetail(
+    (await call(objectUrl(vault, "certificates", name, version), "GET", undefined, fetchFn)) ?? {},
+  );
 }
