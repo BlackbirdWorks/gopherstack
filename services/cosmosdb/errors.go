@@ -57,6 +57,9 @@ var (
 	ErrSnapshotContainerNull = errors.New("cosmosdb: restore snapshot: container is null")
 	ErrSnapshotDocumentNull  = errors.New("cosmosdb: restore snapshot: document is null")
 
+	ErrSnapshotUserNull       = errors.New("cosmosdb: restore snapshot: user is null")
+	ErrSnapshotPermissionNull = errors.New("cosmosdb: restore snapshot: permission is null")
+
 	// ErrPartitionKeyMismatch is returned by ReplaceDocument when the
 	// replacement body's own partition-key-path field is present but
 	// disagrees with the caller-supplied partition key (the

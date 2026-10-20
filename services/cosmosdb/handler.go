@@ -74,7 +74,7 @@ const (
 )
 
 // coreOpsCapacity is the number of Core/SQL operations GetSupportedOperations lists.
-const coreOpsCapacity = 45
+const coreOpsCapacity = 57
 
 // defaultRequestCharge is reported by routes without a size-based charge (see ru.go).
 const defaultRequestCharge = "1"
@@ -158,6 +158,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opPatchDocument, opExecuteBatch, opReadChangeFeed, opReadPKRanges,
 		opListOffers, opQueryOffers, opGetOffer, opReplaceOffer,
 	)
+	coreOps = append(coreOps, userSupportedOperations()...)
 	coreOps = append(coreOps, scriptSupportedOperations()...)
 	tableOps := tableAPISupportedOperations()
 
@@ -209,7 +210,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if authErr := h.authorize(r); authErr != nil {
 			logger.Load(r.Context()).WarnContext(r.Context(), "cosmosdb: request rejected", "error", authErr)
 
-			return h.writeError(c, http.StatusUnauthorized, "Unauthorized", authErrorMessage(authErr))
+			status, code := authErrorStatus(authErr)
+
+			return h.writeError(c, status, code, authErrorMessage(authErr))
 		}
 
 		if isTableAPIPath(r.URL.Path) {
@@ -249,6 +252,10 @@ func (h *Handler) dispatch(c *echo.Context, kind resourceKind, dbID, collID, doc
 	case resourceOfferItem:
 		return h.handleOfferItem(c, dbID)
 	default:
+		if handled, err := h.dispatchUsers(c, kind, dbID, collID, docID); handled {
+			return err
+		}
+
 		if sk, isItem, ok := scriptKindOf(kind); ok {
 			return h.handleScripts(c, sk, isItem, dbID, collID, docID)
 		}
@@ -318,6 +325,10 @@ const (
 	resourcePKRanges
 	resourceOffers
 	resourceOfferItem
+	resourceUsers
+	resourceUserItem
+	resourcePermissions
+	resourcePermissionItem
 )
 
 // parseResourcePath classifies path ("", "/dbs", "/dbs/{db}",
@@ -383,6 +394,10 @@ func parseOffersPath(segments []string) (resourceKind, string, string, string) {
 }
 
 func parseContainersPath(segments []string) (resourceKind, string, string, string) {
+	if segments[2] == usersSegment {
+		return resourceUsers, segments[1], "", ""
+	}
+
 	if segments[2] != collsSegment {
 		return resourceInvalid, "", "", ""
 	}
@@ -391,6 +406,10 @@ func parseContainersPath(segments []string) (resourceKind, string, string, strin
 }
 
 func parseContainerItemPath(segments []string) (resourceKind, string, string, string) {
+	if segments[2] == usersSegment {
+		return resourceUserItem, segments[1], segments[3], ""
+	}
+
 	if segments[2] != collsSegment {
 		return resourceInvalid, "", "", ""
 	}
@@ -415,6 +434,10 @@ func collectionKindsFor(segment string) ([2]resourceKind, bool) {
 }
 
 func parseDocumentsPath(segments []string) (resourceKind, string, string, string) {
+	if segments[2] == usersSegment && segments[4] == permissionsSegment {
+		return resourcePermissions, segments[1], segments[3], ""
+	}
+
 	if segments[2] != collsSegment {
 		return resourceInvalid, "", "", ""
 	}
@@ -432,6 +455,10 @@ func parseDocumentsPath(segments []string) (resourceKind, string, string, string
 }
 
 func parseDocumentItemPath(segments []string) (resourceKind, string, string, string) {
+	if segments[2] == usersSegment && segments[4] == permissionsSegment {
+		return resourcePermissionItem, segments[1], segments[3], segments[5]
+	}
+
 	if segments[2] != collsSegment {
 		return resourceInvalid, "", "", ""
 	}
@@ -485,6 +512,10 @@ func operationFor(r *http.Request) string {
 }
 
 func offerOrScriptOperationFor(kind resourceKind, r *http.Request) string {
+	if op, ok := userOperationFor(kind, r); ok {
+		return op
+	}
+
 	switch kind {
 	case resourceOffers:
 		return collectionOperationFor(r, unknownOperation, opListOffers, opQueryOffers)

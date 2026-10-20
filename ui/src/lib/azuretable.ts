@@ -1,7 +1,10 @@
 /** Client for the Azure Table emulator via the dashboard's in-process proxy. */
 
 export const TABLE_PROXY_BASE = "/dashboard/api/v1/azure/table";
+export const COSMOS_TABLE_PROXY_BASE = "/dashboard/api/v1/azure/cosmos-table";
 export const DEFAULT_ACCOUNT = "devstoreaccount1";
+/** Selects the Cosmos DB Table API proxy; Cosmos has no account path segment, the name is a placeholder. */
+export const COSMOS_TABLE_ACCOUNT = "cosmosdb";
 export const PAGE_SIZES = [25, 50, 100, 250] as const;
 export const DEFAULT_PAGE_SIZE = 25;
 export const SYSTEM_PROPERTIES = ["PartitionKey", "RowKey", "Timestamp"] as const;
@@ -73,7 +76,8 @@ export function keyPredicate(partitionKey: string, rowKey: string): string {
 }
 
 export function tableUrl(account: string, resource = "", query = ""): string {
-  let url = `${TABLE_PROXY_BASE}/${encodeURIComponent(account)}`;
+  const base = account === COSMOS_TABLE_ACCOUNT ? COSMOS_TABLE_PROXY_BASE : TABLE_PROXY_BASE;
+  let url = `${base}/${encodeURIComponent(account)}`;
   if (resource) url += `/${resource}`;
   return query ? `${url}?${query}` : url;
 }

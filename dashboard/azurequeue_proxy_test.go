@@ -48,14 +48,24 @@ func TestAzureQueueProxy(t *testing.T) {
 			seed: true, wantCode: http.StatusNoContent,
 		},
 		{name: "missing queue", method: http.MethodDelete, path: base + "/nope", wantCode: http.StatusNotFound},
-		{name: "traversal blocked", method: http.MethodGet, path: base + "/queue1/../x", wantCode: http.StatusBadRequest},
+		{
+			name:     "traversal blocked",
+			method:   http.MethodGet,
+			path:     base + "/queue1/../x",
+			wantCode: http.StatusBadRequest,
+		},
 		{
 			name:     "unknown subresource",
 			method:   http.MethodGet,
 			path:     base + "/queue1/other",
 			wantCode: http.StatusBadRequest,
 		},
-		{name: "too deep", method: http.MethodGet, path: base + "/queue1/messages/a/b", wantCode: http.StatusBadRequest},
+		{
+			name:     "too deep",
+			method:   http.MethodGet,
+			path:     base + "/queue1/messages/a/b",
+			wantCode: http.StatusBadRequest,
+		},
 		{
 			name:     "no account",
 			method:   http.MethodGet,

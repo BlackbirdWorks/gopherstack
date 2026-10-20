@@ -796,6 +796,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerAzureTableRoutes()
 	h.registerAzureServiceBusRoutes()
 	h.registerAzureCosmosRoutes()
+	h.registerAzureCosmosTableRoutes()
 	h.registerAzureKeyVaultRoutes()
 	h.registerSTSMetricsRoute()
 	h.registerCodeStarConnectionsMutationRoutes()

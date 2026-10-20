@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  COSMOS_TABLE_ACCOUNT,
   TableError,
   buildEntityBody,
   buildFilter,
@@ -46,6 +47,14 @@ describe("urls", () => {
     [tableUrl("acct"), "/dashboard/api/v1/azure/table/acct"],
     [tableUrl("acct", "Tables"), "/dashboard/api/v1/azure/table/acct/Tables"],
     [tableUrl("acct", "t1", "$top=5"), "/dashboard/api/v1/azure/table/acct/t1?$top=5"],
+    [
+      tableUrl(COSMOS_TABLE_ACCOUNT, "Tables"),
+      "/dashboard/api/v1/azure/cosmos-table/cosmosdb/Tables",
+    ],
+    [
+      entityUrl(COSMOS_TABLE_ACCOUNT, "t1", "p", "r"),
+      "/dashboard/api/v1/azure/cosmos-table/cosmosdb/t1(PartitionKey%3D'p'%2CRowKey%3D'r')",
+    ],
     [tableItemUrl("acct", "t1"), "/dashboard/api/v1/azure/table/acct/Tables('t1')"],
     [
       entityUrl("acct", "t1", "p", "r"),

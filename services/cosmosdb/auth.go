@@ -45,6 +45,10 @@ func (h *Handler) authorize(r *http.Request) error {
 		return err
 	}
 
+	if parsed, ok := parseMasterKeyAuthorization(header); ok && parsed.Type == tokenTypeResource {
+		return h.authorizeResourceToken(r, parsed.Signature)
+	}
+
 	var (
 		ok  bool
 		err error
@@ -115,9 +119,29 @@ func (h *Handler) SignRequest(r *http.Request) error {
 	return nil
 }
 
+// authErrorStatus is the HTTP status and Cosmos error code for err: 403 for an out-of-scope or expired resource
+// token, 401 for everything else.
+func authErrorStatus(err error) (int, string) {
+	if errors.Is(err, ErrInsufficientPermissions) || errors.Is(err, ErrTokenExpired) {
+		return http.StatusForbidden, "Forbidden"
+	}
+
+	return http.StatusUnauthorized, "Unauthorized"
+}
+
 // authErrorMessage is the 401 body text for err.
 func authErrorMessage(err error) string {
+	var window *tokenWindowError
+
 	switch {
+	case errors.Is(err, ErrInsufficientPermissions):
+		return "Insufficient permissions provided in the authorization header for the corresponding request. " +
+			"Please retry with another authorization header."
+	case errors.As(err, &window):
+		return fmt.Sprintf("The authorization token is not valid at the current time. Please create another "+
+			"token and retry (token start time: %s, token expiry time: %s, current server time: %s).",
+			window.start.Format(http.TimeFormat), window.end.Format(http.TimeFormat),
+			window.now.Format(http.TimeFormat))
 	case errors.Is(err, ErrMissingAuthorization):
 		return "Authorization header is missing. The input authorization token can't serve the request."
 	case errors.Is(err, ErrMissingDate):

@@ -27,6 +27,18 @@ type StorageBackend interface {
 	ListDatabases() []DatabaseInfo
 	DeleteDatabase(id string) error
 
+	CreateUser(dbID, id string) (UserInfo, error)
+	GetUser(dbID, id string) (UserInfo, error)
+	ListUsers(dbID string) ([]UserInfo, error)
+	ReplaceUser(dbID, id, newID string) (UserInfo, error)
+	DeleteUser(dbID, id string) error
+
+	CreatePermission(dbID, userID string, spec PermissionSpec) (PermissionInfo, error)
+	GetPermission(dbID, userID, id string) (PermissionInfo, error)
+	ListPermissions(dbID, userID string) ([]PermissionInfo, error)
+	ReplacePermission(dbID, userID, id string, spec PermissionSpec) (PermissionInfo, error)
+	DeletePermission(dbID, userID, id string) error
+
 	CreateContainer(dbID string, spec ContainerSpec) (ContainerInfo, error)
 	GetContainer(dbID, containerID string) (ContainerInfo, error)
 	ListContainers(dbID string) ([]ContainerInfo, error)

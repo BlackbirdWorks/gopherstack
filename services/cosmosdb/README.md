@@ -7,9 +7,9 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 30 (30 ok) |
-| Feature families | 21 (17 ok, 4 partial) |
-| Known gaps | 9 |
+| PARITY entries audited | 32 (32 ok) |
+| Feature families | 22 (17 ok, 5 partial) |
+| Known gaps | 10 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -24,6 +24,7 @@
 - ItemOperations: the change feed has no all-versions-and-deletes mode (deletes and TTL expiries never appear) and a single partition key range; pre/post triggers do not fire for PATCH or batch operations; stored procedure callbacks run synchronously and hold the backend write lock; there is no server-side bulk operation (the SDKs implement bulk client-side over batches and point operations)
 - Containers: vectorEmbeddingPolicy, fullTextPolicy and geospatialConfig are stored and echoed only (no VectorDistance, full-text search or planar Geometry behaviour); computed properties are not used for index selection; the replace-time error text for a changed unique key policy is unverified
 - TableAPI: $batch handles a single changeset of writes only (a batch holding a query/retrieve, several changesets or a 4MB+ payload is 400), and Table API responses carry no per-operation request charge or continuation beyond what pkgs/odatatable provides
+- ResourceTokens: a document permission matches by document id across all partition keys (ids repeat across keys); permissions on stored procedures, triggers, UDFs and attachments are rejected rather than modelled; a permission left pointing at a deleted container simply grants nothing; the minimum x-ms-documentdb-expiry-seconds is unverified
 
 ## More
 

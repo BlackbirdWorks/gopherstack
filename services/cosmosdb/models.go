@@ -150,6 +150,7 @@ type storedDatabase struct {
 	Modified   time.Time    `json:"Modified"`
 	Offer      *storedOffer `json:"Offer,omitempty"`
 	Containers map[string]*storedContainer
+	Users      map[string]*storedUser `json:"Users,omitempty"`
 	ID         string
 }
 

@@ -6,6 +6,7 @@
 	import Modal from '#lib/components/Modal.svelte';
 	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 	import {
+		COSMOS_TABLE_ACCOUNT,
 		DEFAULT_ACCOUNT,
 		DEFAULT_PAGE_SIZE,
 		EDM_TYPES,
@@ -34,7 +35,13 @@
 		type UpdateMode
 	} from '#lib/azuretable.ts';
 
-	const account = DEFAULT_ACCOUNT;
+	let { account = DEFAULT_ACCOUNT }: { account?: string } = $props();
+
+	const isCosmos = $derived(account === COSMOS_TABLE_ACCOUNT);
+	const title = $derived(isCosmos ? 'Cosmos DB Table API' : 'Table Storage');
+	const description = $derived(
+		isCosmos ? 'Azure Cosmos DB (Table API): tables and entities' : 'Azure Table Storage: tables and entities'
+	);
 
 	let tables = $state<TableInfo[]>([]);
 	let current = $state<string | null>(null);
@@ -322,8 +329,8 @@
 <div class="space-y-6 pb-20" data-testid="table-dashboard">
 	<PageHeader
 		icon={Table2}
-		title="Table Storage"
-		description="Azure Table Storage: tables and entities"
+		{title}
+		{description}
 		color="blue"
 		onRefresh={refresh}
 	>
@@ -338,13 +345,15 @@
 		{/snippet}
 	</PageHeader>
 
-	<p class="text-xs text-gray-500 dark:text-gray-400">
-		Storage account <span class="font-mono" data-testid="table-account">{account}</span>
-	</p>
+	{#if !isCosmos}
+		<p class="text-xs text-gray-500 dark:text-gray-400">
+			Storage account <span class="font-mono" data-testid="table-account">{account}</span>
+		</p>
+	{/if}
 
 	{#if loadError}
 		<div class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300" role="alert" data-testid="table-error">
-			<p class="font-medium">Could not reach Azure Table Storage</p>
+			<p class="font-medium">Could not reach {isCosmos ? 'the Cosmos DB Table API' : 'Azure Table Storage'}</p>
 			<p>{loadError}</p>
 			<button class="mt-2 underline" onclick={loadTables}>Retry</button>
 		</div>

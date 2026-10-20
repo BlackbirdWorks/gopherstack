@@ -128,6 +128,30 @@ func validateSnapshotDatabases(databases map[string]*storedDatabase) error {
 		if err := validateSnapshotContainers(dbName, d.Containers); err != nil {
 			return err
 		}
+
+		if err := validateSnapshotUsers(dbName, d); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateSnapshotUsers(dbName string, d *storedDatabase) error {
+	for id, u := range d.Users {
+		if u == nil {
+			return fmt.Errorf("%w: %s/%s", ErrSnapshotUserNull, dbName, id)
+		}
+
+		if u.Permissions == nil {
+			u.Permissions = make(map[string]*storedPermission)
+		}
+
+		for pid, p := range u.Permissions {
+			if p == nil {
+				return fmt.Errorf("%w: %s/%s/%s", ErrSnapshotPermissionNull, dbName, id, pid)
+			}
+		}
 	}
 
 	return nil
