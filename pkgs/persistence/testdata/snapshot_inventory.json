@@ -22421,6 +22421,7 @@
       "backendSnapshot.ClusterParameterOverrides map[string]map[string]ParameterValue `json:\"clusterParameterOverrides\"`",
       "backendSnapshot.ClusterRoles map[string]map[string][]string `json:\"clusterRoles\"`",
       "backendSnapshot.EventsLog map[string][]Event `json:\"eventsLog\"`",
+      "backendSnapshot.OpenCypherGraphs map[string]json.RawMessage `json:\"openCypherGraphs,omitempty\"`",
       "backendSnapshot.ParameterOverrides map[string]map[string]ParameterValue `json:\"parameterOverrides\"`",
       "backendSnapshot.PendingMaintenanceActions map[string]map[string]PendingMaintenanceAction `json:\"pendingMaintenanceActions\"`",
       "backendSnapshot.Region string `json:\"region\"`",

@@ -223,13 +223,26 @@ func (g *Graph) Execute(ctx context.Context, src string, params map[string]any) 
 		return nil, err
 	}
 
+	if aerr := g.acquire(ctx); aerr != nil {
+		return nil, aerr
+	}
+	defer g.release()
+
+	return g.runLocked(ctx, q, params)
+}
+
+func (g *Graph) acquire(ctx context.Context) error {
 	select {
 	case g.sem <- struct{}{}:
-		defer func() { <-g.sem }()
+		return nil
 	case <-ctx.Done():
-		return nil, fmt.Errorf("waiting for graph: %w", ctx.Err())
+		return fmt.Errorf("waiting for graph: %w", ctx.Err())
 	}
+}
 
+func (g *Graph) release() { <-g.sem }
+
+func (g *Graph) runLocked(ctx context.Context, q *query, params map[string]any) (*Result, error) {
 	var snap snapshot
 	if q.write {
 		snap = g.snapshot()
@@ -246,5 +259,54 @@ func (g *Graph) Execute(ctx context.Context, src string, params map[string]any) 
 		return nil, err
 	}
 
+	res.Write = q.write
+
 	return res, nil
+}
+
+// Tx is an explicit transaction holding the graph exclusively until Commit or Rollback.
+type Tx struct {
+	g    *Graph
+	snap snapshot
+	done bool
+}
+
+// Begin starts an explicit transaction, waiting for other users of the graph.
+func (g *Graph) Begin(ctx context.Context) (*Tx, error) {
+	if err := g.acquire(ctx); err != nil {
+		return nil, err
+	}
+
+	return &Tx{g: g, snap: g.snapshot()}, nil
+}
+
+// Execute runs a query inside the transaction.
+func (t *Tx) Execute(ctx context.Context, src string, params map[string]any) (*Result, error) {
+	q, err := parse(src)
+	if err != nil {
+		return nil, err
+	}
+
+	if t.done {
+		return nil, constraint("transaction is closed")
+	}
+
+	return t.g.runLocked(ctx, q, params)
+}
+
+// Commit keeps the transaction's writes and releases the graph.
+func (t *Tx) Commit() {
+	if !t.done {
+		t.done = true
+		t.g.release()
+	}
+}
+
+// Rollback discards the transaction's writes and releases the graph.
+func (t *Tx) Rollback() {
+	if !t.done {
+		t.done = true
+		t.g.restore(t.snap)
+		t.g.release()
+	}
 }

@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/bolt"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
@@ -39,29 +40,38 @@ type cypherFront struct {
 	tr      *http.Transport
 	graph   *opencypher.Graph
 	queries *queryTracker
+	ctx     context.Context //nolint:containedctx // lifetime of the listener
+	cancel  context.CancelFunc
 	up      atomic.Bool
 }
 
-func startCypherFront(host string, port int, innerAddr string) (*cypherFront, error) {
+func startCypherFront(host string, port int, innerAddr string, graph *opencypher.Graph) (*cypherFront, error) {
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp",
 		net.JoinHostPort(container.BindHostFor(host), strconv.Itoa(port)))
 	if err != nil {
 		return nil, fmt.Errorf("listen for openCypher: %w", err)
 	}
 
-	f := &cypherFront{graph: opencypher.NewGraph(), queries: newQueryTracker(), tr: httpclient.NewTransport()}
+	if graph == nil {
+		graph = opencypher.NewGraph()
+	}
+
+	f := &cypherFront{graph: graph, queries: newQueryTracker(), tr: httpclient.NewTransport()}
+	f.ctx, f.cancel = context.WithCancel(context.Background())
 	target := &url.URL{Scheme: "http", Host: innerAddr}
 	f.proxy = httputil.NewSingleHostReverseProxy(target)
 	f.proxy.Transport = f.tr
 	f.srv = &http.Server{Handler: f, ReadHeaderTimeout: cypherReadHeader}
 
-	go func() { _ = f.srv.Serve(ln) }()
+	go func() { _ = f.srv.Serve(bolt.Split(ln, f.serveBolt)) }()
 
 	return f, nil
 }
 
 // Close stops the listener and drops idle upstream connections.
 func (f *cypherFront) Close() {
+	f.cancel()
+
 	ctx, cancel := context.WithTimeout(context.Background(), cypherCloseTimeout)
 	defer cancel()
 
@@ -283,4 +293,18 @@ func writeCypherFailure(ctx context.Context, w http.ResponseWriter, err error) {
 	}
 
 	writeCypherError(w, http.StatusInternalServerError, "InternalFailureException", err.Error())
+}
+
+// serveBolt runs a Bolt connection against the cluster's graph; connections are refused while it is down.
+func (f *cypherFront) serveBolt(c net.Conn) {
+	if !f.up.Load() {
+		_ = c.Close()
+
+		return
+	}
+
+	bolt.Serve(f.ctx, c, bolt.Config{
+		Backend: &boltBackend{graph: f.graph, queries: f.queries},
+		Agent:   boltAgent, Database: boltDatabase,
+	})
 }

@@ -15,6 +15,7 @@ import (
 type Result struct {
 	Columns []string
 	Rows    [][]any
+	Write   bool
 }
 
 // MarshalJSON renders the rows as Neptune's openCypher results array (entities use ~id/~entityType shapes).

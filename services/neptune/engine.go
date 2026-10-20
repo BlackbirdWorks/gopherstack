@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
 
 // Engine modes for Neptune.
@@ -68,6 +69,7 @@ type liveCluster struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	front       *cypherFront
+	graph       *opencypher.Graph
 	key         string
 	region      string
 	id          string
@@ -235,6 +237,8 @@ func (b *InMemoryBackend) dropUnitLocked(region, id string) {
 		delete(b.engine.units, key)
 		b.engine.reap(lb)
 	}
+
+	delete(b.graphs, key)
 }
 
 func (b *InMemoryBackend) dropAllUnitsLocked() {
@@ -251,8 +255,14 @@ func (b *InMemoryBackend) dropAllUnitsLocked() {
 func (b *InMemoryBackend) rekeyUnitLocked(region, oldID, newID string) {
 	if lb := b.unitLocked(region, oldID); lb != nil {
 		delete(b.engine.units, lb.key)
+		oldKey := lb.key
 		lb.id, lb.key = newID, regionKey(region, newID)
 		b.engine.units[lb.key] = lb
+
+		if g, ok := b.graphs[oldKey]; ok {
+			delete(b.graphs, oldKey)
+			b.graphs[lb.key] = g
+		}
 	}
 }
 
@@ -267,6 +277,7 @@ func (b *InMemoryBackend) provisionClusterLocked(c *DBCluster) {
 	lb := &liveCluster{
 		ctx: ctx, cancel: cancel, key: regionKey(c.region, c.DBClusterIdentifier), region: c.region,
 		id: c.DBClusterIdentifier, version: gremlinTag(c.EngineVersion),
+		graph: b.graphLocked(regionKey(c.region, c.DBClusterIdentifier)),
 	}
 
 	if old, ok := e.units[lb.key]; ok {
@@ -318,7 +329,12 @@ func (b *InMemoryBackend) runUnit(lb *liveCluster) {
 	var front *cypherFront
 
 	if inner != 0 {
-		front, err = startCypherFront(e.cfg.Host, port, net.JoinHostPort(container.LoopbackHost, strconv.Itoa(inner)))
+		front, err = startCypherFront(
+			e.cfg.Host,
+			port,
+			net.JoinHostPort(container.LoopbackHost, strconv.Itoa(inner)),
+			lb.graph,
+		)
 		if err != nil {
 			e.remove(id, port, inner)
 			b.failUnit(lb)
@@ -568,7 +584,7 @@ func (b *InMemoryBackend) startUnitLocked(c *DBCluster) bool {
 	return true
 }
 
-// relaunchClustersLocked starts an empty container per restored cluster; graph data is not persisted.
+// relaunchClustersLocked starts a container per restored cluster (the Gremlin graph is not persisted).
 func (b *InMemoryBackend) relaunchClustersLocked() {
 	if b.engine == nil {
 		return

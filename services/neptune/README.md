@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 13 (13 ok) |
-| Known gaps | 5 |
+| Known gaps | 6 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 2 |
 | Resource leaks | clean |
@@ -17,9 +17,10 @@
 
 - UNVERIFIABLE: OrderableDBInstanceOption.SupportedNetworkTypes stays empty; the pinned SDK states no per-instance-class network type support.
 - --neptune-engine=docker: IAM database authentication (SigV4 on the Gremlin endpoint) is not enforced; the container accepts unauthenticated requests whatever EnableIAMDatabaseAuthentication says.
-- --neptune-engine=docker: Bolt (neo4j drivers) and SPARQL are not served (the stock tinkerpop/gremlin-server image has neither). openCypher is served in-process at /openCypher on the cluster port, but its property graph is separate from the container's Gremlin graph (writes through one are invisible to the other), is not captured by snapshots or persistence, and the port speaks plain HTTP, not HTTPS.
+- --neptune-engine=docker: SPARQL is not served (the stock tinkerpop/gremlin-server image has none). The in-process openCypher/Bolt property graph is separate from the container's Gremlin graph (writes through one are invisible to the other; the stock image has no openCypher plugin and there is no in-process Gremlin), and the port speaks plain HTTP/unencrypted Bolt, not TLS.
+- Bolt: auth schemes none and basic are accepted without checking; Neptune IAM (SigV4-signed password) tokens are not signature-verified. Explicit Bolt transactions hold the cluster graph exclusively until COMMIT/ROLLBACK/disconnect, and results are materialised before PULL streaming. Not smoke-tested against a real neo4j driver (none available on the dev box); proven by the pkgs/bolt protocol tests and the neptune bolt_front_test.go.
 - openCypher subset (services/neptune/opencypher): CALL/UNION/FOREACH/LOAD CSV, pattern predicates in WHERE, list comprehensions, shortestPath, temporal/spatial types and constraints are not implemented and return UnsupportedOperationException or MalformedQueryException.
-- --neptune-engine=docker: graph data is not captured by cluster snapshots or persistence; restored and relaunched clusters start with an empty graph. The writer and reader endpoints are the same host:port.
+- --neptune-engine=docker: the Gremlin graph in the container is not captured by cluster snapshots or persistence; relaunched clusters start with an empty Gremlin graph (the openCypher graph is persisted). The writer and reader endpoints are the same host:port.
 
 ### Structural gaps
 
