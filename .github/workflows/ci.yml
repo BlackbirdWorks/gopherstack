@@ -67,6 +67,14 @@ jobs:
           check-latest: true
           cache: true
 
+      - name: Download Go modules (retry proxy stream errors)
+        run: |
+          for i in 1 2 3 4 5; do
+            go mod download && exit 0
+            sleep $((i * 15))
+          done
+          exit 1
+
       # Full-repo lint (go.mod changed) exceeds runner RAM; the runner is killed without swap.
       - name: Add swap
         run: |
@@ -116,6 +124,14 @@ jobs:
           check-latest: true
           cache: true
 
+      - name: Download Go modules (retry proxy stream errors)
+        run: |
+          for i in 1 2 3 4 5; do
+            go mod download && exit 0
+            sleep $((i * 15))
+          done
+          exit 1
+
       - name: Install Task
         uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
         with:
@@ -153,6 +169,14 @@ jobs:
           check-latest: true
           cache: true
 
+      - name: Download Go modules (retry proxy stream errors)
+        run: |
+          for i in 1 2 3 4 5; do
+            go mod download && exit 0
+            sleep $((i * 15))
+          done
+          exit 1
+
       - name: go fix (modernize)
         run: go fix -diff ./...
 
@@ -169,6 +193,14 @@ jobs:
           go-version-file: go.mod
           check-latest: true
           cache: true
+
+      - name: Download Go modules (retry proxy stream errors)
+        run: |
+          for i in 1 2 3 4 5; do
+            go mod download && exit 0
+            sleep $((i * 15))
+          done
+          exit 1
 
       - name: Install Task
         uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
@@ -218,6 +250,14 @@ jobs:
           go-version: '1.27'
           check-latest: true
           cache: true
+
+      - name: Download Go modules (retry proxy stream errors)
+        run: |
+          for i in 1 2 3 4 5; do
+            go mod download && exit 0
+            sleep $((i * 15))
+          done
+          exit 1
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@19b0bb6a272792b9afa8a6983c3e9b9a1816947f
@@ -271,6 +311,14 @@ jobs:
           check-latest: true
           cache: true
 
+      - name: Download Go modules (retry proxy stream errors)
+        run: |
+          for i in 1 2 3 4 5; do
+            go mod download && exit 0
+            sleep $((i * 15))
+          done
+          exit 1
+
       # Traced compiles of the GCP/Azure generated packages exceed runner RAM; the runner is killed without swap.
       - name: Add swap
         run: |
@@ -312,6 +360,14 @@ jobs:
           check-latest: true
           cache: true
 
+      - name: Download Go modules (retry proxy stream errors)
+        run: |
+          for i in 1 2 3 4 5; do
+            go mod download && exit 0
+            sleep $((i * 15))
+          done
+          exit 1
+
       - name: Install Task
         uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
         with:
@@ -352,6 +408,14 @@ jobs:
           go-version-file: go.mod
           check-latest: true
           cache: true
+
+      - name: Download Go modules (retry proxy stream errors)
+        run: |
+          for i in 1 2 3 4 5; do
+            go mod download && exit 0
+            sleep $((i * 15))
+          done
+          exit 1
 
       # cmd/errcodeaudit/cmd/errtargetaudit read pinned SDK modules straight
       # off disk as ground truth, without importing them -- round-robin
@@ -428,6 +492,14 @@ jobs:
           check-latest: true
           cache: true
 
+      - name: Download Go modules (retry proxy stream errors)
+        run: |
+          for i in 1 2 3 4 5; do
+            go mod download && exit 0
+            sleep $((i * 15))
+          done
+          exit 1
+
       - name: Build static binary
         run: |
           mkdir -p dashboard/static/spa
@@ -471,6 +543,14 @@ jobs:
           go-version-file: go.mod
           check-latest: true
           cache: true
+
+      - name: Download Go modules (retry proxy stream errors)
+        run: |
+          for i in 1 2 3 4 5; do
+            go mod download && exit 0
+            sleep $((i * 15))
+          done
+          exit 1
 
       - name: Download binary
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
@@ -554,6 +634,14 @@ jobs:
           check-latest: true
           cache: true
 
+      - name: Download Go modules (retry proxy stream errors)
+        run: |
+          for i in 1 2 3 4 5; do
+            go mod download && exit 0
+            sleep $((i * 15))
+          done
+          exit 1
+
       - name: Download binary
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
@@ -631,6 +719,14 @@ jobs:
           go-version-file: go.mod
           check-latest: true
           cache: true
+
+      - name: Download Go modules (retry proxy stream errors)
+        run: |
+          for i in 1 2 3 4 5; do
+            go mod download && exit 0
+            sleep $((i * 15))
+          done
+          exit 1
 
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -735,6 +831,14 @@ jobs:
           go-version-file: go.mod
           check-latest: true
           cache: true
+
+      - name: Download Go modules (retry proxy stream errors)
+        run: |
+          for i in 1 2 3 4 5; do
+            go mod download && exit 0
+            sleep $((i * 15))
+          done
+          exit 1
 
       - name: Download All Coverage Artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
