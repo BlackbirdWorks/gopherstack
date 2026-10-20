@@ -43,13 +43,20 @@ type sftpEnv struct {
 func newSFTPEnv(t *testing.T, lambda transfer.LambdaInvoker, in *transfer.CreateServerInput) *sftpEnv {
 	t.Helper()
 
+	return newSFTPEnvCfg(t, transfer.SFTPConfig{Lambda: lambda}, in)
+}
+
+func newSFTPEnvCfg(t *testing.T, cfg transfer.SFTPConfig, in *transfer.CreateServerInput) *sftpEnv {
+	t.Helper()
+
 	store := s3.NewInMemoryBackend(nil)
 	_, err := store.CreateBucket(t.Context(), &awss3.CreateBucketInput{Bucket: aws.String("bkt")})
 	require.NoError(t, err)
 
 	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	t.Cleanup(b.Close)
-	b.EnableSFTP(transfer.SFTPConfig{Store: store, Lambda: lambda})
+	cfg.Store = store
+	b.EnableSFTP(cfg)
 
 	if in == nil {
 		in = &transfer.CreateServerInput{}

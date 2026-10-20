@@ -26,6 +26,9 @@ type LambdaInvoker interface {
 
 // sftpSession is the resolved identity of an authenticated SFTP login.
 type sftpSession struct {
+	User     string                  `json:"user,omitempty"`
+	Role     string                  `json:"role,omitempty"`
+	Policy   string                  `json:"policy,omitempty"`
 	Home     string                  `json:"home"`
 	Mappings []HomeDirectoryMapEntry `json:"mappings,omitempty"`
 	Logical  bool                    `json:"logical"`
@@ -137,7 +140,11 @@ func (s *sftpServer) runChannel(ch ssh.Channel, reqs <-chan *ssh.Request, sess *
 
 		_ = req.Reply(true, nil)
 
-		fs := &sftpFS{ctx: s.ctx, store: s.cfg.Store, sess: sess, setStat: s.backend.sftpSetStatNoOp(s.serverID)}
+		fs, ferr := s.newFS(sess)
+		if ferr != nil {
+			return
+		}
+
 		rs := sftp.NewRequestServer(ch, sftp.Handlers{
 			FileGet: fs, FilePut: fs, FileCmd: fs, FileList: fs,
 		}, sftp.WithStartDirectory(fs.startDir()))
@@ -167,6 +174,8 @@ func (s *sftpServer) authenticate(c ssh.ConnMetadata, key ssh.PublicKey, passwor
 		return nil, errSFTPDenied
 	}
 
+	sess.User = c.User()
+
 	raw, err := json.Marshal(sess)
 	if err != nil {
 		return nil, errSFTPDenied
@@ -193,6 +202,8 @@ func (s *sftpServer) resolveLogin(c ssh.ConnMetadata, key ssh.PublicKey, passwor
 	switch srv.IdentityProviderType {
 	case identityProviderLambda:
 		return s.lambdaLogin(srv, c, key, password)
+	case identityProviderAPIGateway:
+		return s.apiGatewayLogin(srv, c, key, password)
 	case identityProviderServiceManaged, "":
 		if key == nil {
 			return nil, errSFTPDenied
@@ -212,7 +223,10 @@ func (s *sftpServer) managedLogin(userName string, key ssh.PublicKey) (*sftpSess
 
 	for _, k := range s.backend.ListSSHPublicKeys(s.serverID, userName) {
 		if keyMatches(k.SSHPublicKeyBody, key) {
-			return sessionFor(u.HomeDir, u.HomeDirectoryType, u.HomeDirectoryMappings), nil
+			sess := sessionFor(u.HomeDir, u.HomeDirectoryType, u.HomeDirectoryMappings)
+			sess.Role, sess.Policy = u.Role, u.Policy
+
+			return sess, nil
 		}
 	}
 
@@ -245,11 +259,12 @@ func remoteIP(a net.Addr) string {
 	return a.String()
 }
 
-type lambdaAuthResponse struct {
+type idpAuthResponse struct {
 	Role                 string   `json:"Role"`
 	HomeDirectory        string   `json:"HomeDirectory"`
 	HomeDirectoryType    string   `json:"HomeDirectoryType"`
 	HomeDirectoryDetails string   `json:"HomeDirectoryDetails"`
+	Policy               string   `json:"Policy"`
 	PublicKeys           []string `json:"PublicKeys"`
 }
 
@@ -283,8 +298,17 @@ func (s *sftpServer) lambdaLogin(
 		return nil, err
 	}
 
-	var resp lambdaAuthResponse
-	if jerr := json.Unmarshal(out, &resp); jerr != nil || resp.Role == "" {
+	var resp idpAuthResponse
+	if jerr := json.Unmarshal(out, &resp); jerr != nil {
+		return nil, errSFTPDenied
+	}
+
+	return resp.session(key)
+}
+
+// session validates an identity provider response (shared by AWS_LAMBDA and API_GATEWAY).
+func (resp *idpAuthResponse) session(key ssh.PublicKey) (*sftpSession, error) {
+	if resp.Role == "" {
 		return nil, errSFTPDenied
 	}
 
@@ -301,7 +325,10 @@ func (s *sftpServer) lambdaLogin(
 		resp.HomeDirectoryType = homeDirectoryTypeLogical
 	}
 
-	return sessionFor(resp.HomeDirectory, resp.HomeDirectoryType, mappings), nil
+	sess := sessionFor(resp.HomeDirectory, resp.HomeDirectoryType, mappings)
+	sess.Role, sess.Policy = resp.Role, resp.Policy
+
+	return sess, nil
 }
 
 func parseLambdaMappings(details string) ([]HomeDirectoryMapEntry, error) {
@@ -323,4 +350,29 @@ func parseLambdaMappings(details string) ([]HomeDirectoryMapEntry, error) {
 	}
 
 	return out, nil
+}
+
+// newFS binds the session to the server's storage domain (S3 or EFS) and its role policy enforcement.
+func (s *sftpServer) newFS(sess *sftpSession) (*sftpFS, error) {
+	srv, err := s.backend.DescribeServer(s.serverID)
+	if err != nil {
+		return nil, err
+	}
+
+	efs := srv.Domain == domainEFS
+
+	store := s.cfg.Store
+
+	if efs {
+		if s.cfg.EFS == nil {
+			return nil, errSFTPDenied
+		}
+
+		store = &efsStore{efs: s.cfg.EFS, region: srv.Region}
+	}
+
+	return &sftpFS{
+		ctx: s.ctx, store: store, sess: sess, setStat: s.backend.sftpSetStatNoOp(s.serverID),
+		authz: newSFTPAuthz(s.cfg.Policies, sess, sess.User, srv.Region, s.backend.accountID, efs),
+	}, nil
 }

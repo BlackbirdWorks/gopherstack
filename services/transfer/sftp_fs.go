@@ -41,6 +41,7 @@ type sftpFS struct {
 	ctx     context.Context
 	store   ObjectStore
 	sess    *sftpSession
+	authz   *sftpAuthz
 	setStat bool
 }
 
@@ -208,6 +209,10 @@ func (f *sftpFS) Fileread(r *sftp.Request) (io.ReaderAt, error) {
 		return nil, os.ErrInvalid
 	}
 
+	if err = f.authz.check(opRead, l.bucket, l.key); err != nil {
+		return nil, err
+	}
+
 	out, err := f.store.GetObject(f.ctx, &s3.GetObjectInput{Bucket: aws.String(l.bucket), Key: aws.String(l.key)})
 	if err != nil {
 		return nil, mapS3Err(err)
@@ -267,6 +272,10 @@ func (f *sftpFS) Filewrite(r *sftp.Request) (io.WriterAt, error) {
 		return nil, os.ErrPermission
 	}
 
+	if err = f.authz.check(opWrite, l.bucket, l.key); err != nil {
+		return nil, err
+	}
+
 	if _, herr := f.store.HeadBucket(f.ctx, &s3.HeadBucketInput{Bucket: aws.String(l.bucket)}); herr != nil {
 		return nil, mapS3Err(herr)
 	}
@@ -324,7 +333,7 @@ func (f *sftpFS) Filecmd(r *sftp.Request) error {
 	}
 }
 
-func (f *sftpFS) fileLoc(p string) (loc, error) {
+func (f *sftpFS) fileLoc(p string, op sftpOp) (loc, error) {
 	l, err := f.resolve(p)
 	if err != nil {
 		return l, err
@@ -334,11 +343,11 @@ func (f *sftpFS) fileLoc(p string) (loc, error) {
 		return l, os.ErrPermission
 	}
 
-	return l, nil
+	return l, f.authz.check(op, l.bucket, l.key)
 }
 
 func (f *sftpFS) mkdir(p string) error {
-	l, err := f.fileLoc(p)
+	l, err := f.fileLoc(p, opMkdir)
 	if err != nil {
 		return err
 	}
@@ -356,7 +365,7 @@ func (f *sftpFS) mkdir(p string) error {
 }
 
 func (f *sftpFS) remove(p string) error {
-	l, err := f.fileLoc(p)
+	l, err := f.fileLoc(p, opDelete)
 	if err != nil {
 		return err
 	}
@@ -376,7 +385,7 @@ func (f *sftpFS) remove(p string) error {
 }
 
 func (f *sftpFS) rmdir(p string) error {
-	l, err := f.fileLoc(p)
+	l, err := f.fileLoc(p, opDelete)
 	if err != nil {
 		return err
 	}
@@ -412,12 +421,16 @@ func (f *sftpFS) rmdir(p string) error {
 
 // rename moves a file (get, put, delete); S3 has no directory rename.
 func (f *sftpFS) rename(from, to string) error {
-	src, err := f.fileLoc(from)
+	src, err := f.fileLoc(from, opRead)
 	if err != nil {
 		return err
 	}
 
-	dst, err := f.fileLoc(to)
+	if err = f.authz.check(opDelete, src.bucket, src.key); err != nil {
+		return err
+	}
+
+	dst, err := f.fileLoc(to, opWrite)
 	if err != nil {
 		return err
 	}
@@ -507,6 +520,12 @@ func (f *sftpFS) list(p string) (sftp.ListerAt, error) {
 	l, err := f.resolve(p)
 	if err != nil {
 		return nil, err
+	}
+
+	if !l.virtual {
+		if err = f.authz.check(opList, l.bucket, l.key); err != nil {
+			return nil, err
+		}
 	}
 
 	var out []os.FileInfo

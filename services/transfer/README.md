@@ -9,7 +9,7 @@
 | --- | --- |
 | Feature families | 20 (20 ok) |
 | Known gaps | none |
-| Structural gaps (can't be emulated) | 2 |
+| Structural gaps (can't be emulated) | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -17,7 +17,9 @@
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- No FTP/FTPS/AS2 listener exists, and workflows (WorkflowDetails OnUpload) never run on SFTP upload. SFTP is real but opt-in (sftp.go, EnableSFTP): ONLINE SFTP servers bind a loopback SSH listener (dynamic port, SFTPAddress) mapped onto S3. SERVICE_MANAGED key auth and AWS_LAMBDA key/password auth work; API_GATEWAY/AWS_DIRECTORY_SERVICE logins are refused, SftpAuthenticationMethods *_AND_PASSWORD is unsupported, user Role/Policy are not enforced against S3, EFS is not modeled, host-key changes apply on the next listener (re)start, directory rename is unsupported.
+- No FTP/FTPS/AS2 listener exists, and workflows (WorkflowDetails OnUpload) never run on SFTP upload. SFTP is real but opt-in (sftp.go, EnableSFTP): ONLINE SFTP servers bind a loopback SSH listener (dynamic port, SFTPAddress) mapped onto S3 (Domain=S3) or an EFS file system's host directory (Domain=EFS). SERVICE_MANAGED key auth, AWS_LAMBDA key/password auth and API_GATEWAY key/password auth work; SftpAuthenticationMethods *_AND_PASSWORD is unsupported, host-key changes apply on the next listener (re)start, directory rename is unsupported.
+- AWS_DIRECTORY_SERVICE logins are refused: the Directory Service emulator models directories but no users or credentials, so there is nothing to authenticate against (Access/ExternalId group resolution is likewise unmodeled).
+- SFTP role enforcement runs only when the IAM emulator knows the user's role; an unknown role is unrestricted (emulated setups often use placeholder roles). Known roles are evaluated with services/iam EvaluatePolicies (role policies AND the session Policy, with ${transfer:UserName/HomeDirectory/HomeBucket/HomeFolder} substituted): read=s3:GetObject, write/mkdir=s3:PutObject, delete/rmdir=s3:DeleteObject, list=s3:ListBucket (s3:prefix/s3:delimiter context), root listing=s3:ListAllMyBuckets; EFS: elasticfilesystem:ClientMount for read/list, ClientWrite for write/delete/mkdir. Stat is not gated. FTPS is not implemented.
 - StartFileTransfer.CustomHttpHeaders is accepted but cannot be applied: the emulator never sends AS2 messages and no SDK output (ListFileTransferResults) echoes request headers.
 
 ## More

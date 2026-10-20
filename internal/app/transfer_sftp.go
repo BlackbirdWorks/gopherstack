@@ -2,6 +2,9 @@ package app
 
 import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
+	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
@@ -36,5 +39,23 @@ func wireTransferSFTP(enabled bool, host string, byName map[string]service.Regis
 		}
 	}
 
+	wireTransferSFTPIntegrations(&cfg, byName)
+
 	xferH.EnableSFTP(cfg)
+}
+
+// wireTransferSFTPIntegrations adds the API Gateway identity provider, IAM role enforcement and EFS homes.
+func wireTransferSFTPIntegrations(cfg *transferbackend.SFTPConfig, byName map[string]service.Registerable) {
+	gw, _ := byName["APIGateway"].(*apigwbackend.Handler)
+	cfg.APIGateway = &transferAPIGatewayClient{gw: gw, outbound: transferbackend.NewHTTPAPIGatewayClient()}
+
+	if iamH, ok := byName["IAM"].(*iambackend.Handler); ok {
+		if src, srcOk := iamH.Backend.(transferbackend.RolePolicySource); srcOk {
+			cfg.Policies = src
+		}
+	}
+
+	if efsH, ok := byName["EFS"].(*efsbackend.Handler); ok {
+		cfg.EFS = efsH.Backend
+	}
 }

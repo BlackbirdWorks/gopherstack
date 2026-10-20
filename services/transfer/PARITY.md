@@ -68,13 +68,19 @@ families:
 gaps: []
 items_still_open: []
 structural_gaps:
-  - "No FTP/FTPS/AS2 listener exists, and workflows (WorkflowDetails OnUpload) never run on SFTP upload. SFTP is real but opt-in (sftp.go, EnableSFTP): ONLINE SFTP servers bind a loopback SSH listener (dynamic port, SFTPAddress) mapped onto S3. SERVICE_MANAGED key auth and AWS_LAMBDA key/password auth work; API_GATEWAY/AWS_DIRECTORY_SERVICE logins are refused, SftpAuthenticationMethods *_AND_PASSWORD is unsupported, user Role/Policy are not enforced against S3, EFS is not modeled, host-key changes apply on the next listener (re)start, directory rename is unsupported."
+  - "No FTP/FTPS/AS2 listener exists, and workflows (WorkflowDetails OnUpload) never run on SFTP upload. SFTP is real but opt-in (sftp.go, EnableSFTP): ONLINE SFTP servers bind a loopback SSH listener (dynamic port, SFTPAddress) mapped onto S3 (Domain=S3) or an EFS file system's host directory (Domain=EFS). SERVICE_MANAGED key auth, AWS_LAMBDA key/password auth and API_GATEWAY key/password auth work; SftpAuthenticationMethods *_AND_PASSWORD is unsupported, host-key changes apply on the next listener (re)start, directory rename is unsupported."
+  - "AWS_DIRECTORY_SERVICE logins are refused: the Directory Service emulator models directories but no users or credentials, so there is nothing to authenticate against (Access/ExternalId group resolution is likewise unmodeled)."
+  - "SFTP role enforcement runs only when the IAM emulator knows the user's role; an unknown role is unrestricted (emulated setups often use placeholder roles). Known roles are evaluated with services/iam EvaluatePolicies (role policies AND the session Policy, with ${transfer:UserName/HomeDirectory/HomeBucket/HomeFolder} substituted): read=s3:GetObject, write/mkdir=s3:PutObject, delete/rmdir=s3:DeleteObject, list=s3:ListBucket (s3:prefix/s3:delimiter context), root listing=s3:ListAllMyBuckets; EFS: elasticfilesystem:ClientMount for read/list, ClientWrite for write/delete/mkdir. Stat is not gated. FTPS is not implemented."
   - "StartFileTransfer.CustomHttpHeaders is accepted but cannot be applied: the emulator never sends AS2 messages and no SDK output (ListFileTransferResults) echoes request headers."
 deferred: []
 leaks: {status: clean, note: "Shutdown(ctx) stops the backend's worker (StartServer/StopServer async-transition timer) via Backend.Close(); no goroutine or timer outlives the service. leak_test.go / leak_main_test.go already cover this. No new goroutines/tickers were introduced this pass."}
 ---
 
 ## Notes
+
+### 2026-10-19 (gopherstack-49qct.30): SFTP identity providers, role enforcement, EFS
+
+API_GATEWAY IdP calls GET {Url}/servers/{id}/users/{user}/config?protocol=SFTP&sourceIp=... with a Password header (sftp_apigw.go); app wiring resolves execute-api hosts and /restapis/ URLs in-process via InvokeStage, anything else goes through pkgs/httpclient. Responses share the Lambda shape (Role, Policy, HomeDirectory, HomeDirectoryDetails, PublicKeys). Role/session-policy enforcement in sftp_authz.go; Domain=EFS homes in sftp_efs.go over efs.FileSystemHostDir. Proven by real pkg/sftp client tests (sftp_idp_authz_test.go).
 
 ### 2026-10-12 (deep realism pass)
 
