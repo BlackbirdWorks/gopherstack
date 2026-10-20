@@ -303,3 +303,55 @@ func TestStorageProvider_NamespaceAndResourceTypes(t *testing.T) {
 	assert.Equal(t, "storageAccounts", types[0].Type)
 	assert.NotEmpty(t, types[0].APIVersions)
 }
+
+func TestStorageProvider_PropertiesRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		sent map[string]any
+		want map[string]any
+		name string
+	}{
+		{
+			name: "defaults",
+			sent: nil,
+			want: map[string]any{"supportsHttpsTrafficOnly": true, "minimumTlsVersion": "TLS1_2"},
+		},
+		{
+			name: "sent values win",
+			sent: map[string]any{
+				"supportsHttpsTrafficOnly": false, "minimumTlsVersion": "TLS1_0", "allowBlobPublicAccess": true,
+			},
+			want: map[string]any{
+				"supportsHttpsTrafficOnly": false, "minimumTlsVersion": "TLS1_0", "allowBlobPublicAccess": true,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sp := azurearm.NewStorageProvider(azurearm.StorageEndpointConfig{}, nil)
+			id := storageAccountID("acct1")
+			reqBody := map[string]any{"location": "westus"}
+
+			if tt.sent != nil {
+				reqBody["properties"] = tt.sent
+			}
+
+			_, err := sp.Put(t.Context(), id, reqBody)
+			require.NoError(t, err)
+
+			got, err := sp.Get(t.Context(), id)
+			require.NoError(t, err)
+
+			props, ok := got["properties"].(map[string]any)
+			require.True(t, ok)
+
+			for k, v := range tt.want {
+				assert.Equal(t, v, props[k], k)
+			}
+		})
+	}
+}

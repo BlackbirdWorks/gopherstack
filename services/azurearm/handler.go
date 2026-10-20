@@ -349,6 +349,15 @@ var armResourceRoutes = []armRoute{
 		},
 	},
 	{
+		match: func(segs []string, r *http.Request) bool {
+			return len(segs) == 3 && isSubscriptionScoped(segs) && r.Method == http.MethodGet &&
+				segAt(segs, providersOrResourceGroupsIdx, resourcesSegment)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error {
+			return h.handleListSubscriptionResources(c, segs[1])
+		},
+	},
+	{
 		match: func(segs []string, _ *http.Request) bool {
 			return len(segs) == 3 && isSubscriptionScoped(segs) &&
 				segAt(segs, providersOrResourceGroupsIdx, resourceGroupsSegment)
@@ -472,6 +481,8 @@ func operationForSubscriptionPath(method string, segs []string) string {
 		return opGetProvider
 	case len(segs) == 5 && strings.EqualFold(segs[2], providersSegment):
 		return opRegisterProvider
+	case len(segs) == 3 && strings.EqualFold(segs[2], resourcesSegment):
+		return opListResources
 	case len(segs) == 3 && strings.EqualFold(segs[2], resourceGroupsSegment):
 		return opListResourceGroups
 	case len(segs) == 4 && strings.EqualFold(segs[2], resourceGroupsSegment):

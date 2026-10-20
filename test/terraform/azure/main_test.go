@@ -18,6 +18,7 @@ package azure_test
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
@@ -27,6 +28,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"syscall"
 	"testing"
 	"time"
@@ -69,6 +71,9 @@ const (
 	// serviceBusEndpoint at (container-internal 10003 isn't reachable from
 	// the host-side tofu process, mirroring hostPortStorageVHost's rationale).
 	hostPortServiceBus = "18003"
+	// hostPortKeyVault is services/azurekeyvault's published HTTPS port;
+	// AZURE_ARM_ADVERTISE_KEYVAULT_ENDPOINT points ARM's vaultUri at it.
+	hostPortKeyVault = "18004"
 )
 
 // containerCertPath/containerKeyPath are where the stable dev certificate
@@ -252,7 +257,7 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 		},
 		AutoRemove: true,
 		ExposedPorts: []string{
-			"10006/tcp", "10000/tcp", "10001/tcp", "10002/tcp", "10010/tcp", "10003/tcp",
+			"10006/tcp", "10000/tcp", "10001/tcp", "10002/tcp", "10010/tcp", "10003/tcp", "10004/tcp",
 		},
 		HostConfigModifier: func(hc *dockercontainer.HostConfig) {
 			hc.PortBindings = mustFixedPortMap(map[string]string{
@@ -262,6 +267,7 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 				"10002/tcp": hostPortTable,
 				"10010/tcp": hostPortStorageVHost,
 				"10003/tcp": hostPortServiceBus,
+				"10004/tcp": hostPortKeyVault,
 			})
 		},
 		// M8: services/azurearm's advertiseVHostEndpoint (rp_storage.go)
@@ -300,7 +306,10 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 			// container-internal port 10003, which a host-side tofu process
 			// cannot reach.
 			"AZURE_ARM_ADVERTISE_SERVICEBUS_ENDPOINT": "localhost:" + hostPortServiceBus,
-			"LOG_LEVEL": "debug",
+			"AZURE_ARM_ADVERTISE_KEYVAULT_ENDPOINT":   "vault.localhost:" + hostPortKeyVault,
+			"AZURE_KEYVAULT_TLS_CERT":                 containerCertPath,
+			"AZURE_KEYVAULT_TLS_KEY":                  containerKeyPath,
+			"LOG_LEVEL":                               "debug",
 			// A stable cert/key (see prepareStableCert), copied into the
 			// container below via Files, rather than services/azurearm's
 			// default of generating a fresh self-signed certificate on every
@@ -467,7 +476,7 @@ func prepareStableCert(logger *slog.Logger) string {
 		return ""
 	}
 
-	certPEM, keyPEM, err := devtls.GenerateSelfSignedCertPEM("localhost", "127.0.0.1")
+	certPEM, keyPEM, err := devtls.GenerateSelfSignedCertPEM("localhost", "*.vault.localhost", "127.0.0.1")
 	if err != nil {
 		return fmt.Sprintf("could not generate stable ARM dev certificate: %v", err)
 	}
@@ -500,9 +509,14 @@ func certExistsAndParses(certPath, keyPath string) bool {
 		return false
 	}
 
-	_, err = tls.X509KeyPair(certPEM, keyPEM)
+	pair, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil || len(pair.Certificate) == 0 {
+		return false
+	}
 
-	return err == nil
+	leaf, err := x509.ParseCertificate(pair.Certificate[0])
+
+	return err == nil && slices.Contains(leaf.DNSNames, "*.vault.localhost")
 }
 
 // azurermProviderBlock returns the HCL required_providers + provider
@@ -561,14 +575,17 @@ output "storage_account_id" {
 }
 `
 
-// applyAzureTofu writes hcl to dir/main.tf and runs tofu/terraform init,
-// apply, and (via t.Cleanup) destroy against it, trusting
-// services/azurearm's self-signed certificate via SSL_CERT_FILE (AZURE.md
-// section 10.8). Unlike test/terraform's applyTofu, this doesn't reuse a
-// pre-initialized .terraform directory across tests -- there is currently
-// only one Azure Terraform test, so the AWS suite's parallel-test disk/lock
-// optimization isn't worth the complexity here yet.
-func applyAzureTofu(t *testing.T, dir, hcl string) {
+// applyAzureTofuNoDrift runs init, apply and (via t.Cleanup) destroy against hcl,
+// trusting services/azurearm's self-signed certificate via SSL_CERT_FILE, then
+// requires an empty second plan (`-detailed-exitcode` == 0) so every attribute
+// the provider reads back round-trips.
+func applyAzureTofuNoDrift(t *testing.T, dir, hcl string) {
+	t.Helper()
+
+	applyAzureTofuOpts(t, dir, hcl, true)
+}
+
+func applyAzureTofuOpts(t *testing.T, dir, hcl string, checkDrift bool) {
 	t.Helper()
 
 	cfgPath := filepath.Join(dir, "main.tf")
@@ -616,11 +633,15 @@ func applyAzureTofu(t *testing.T, dir, hcl string) {
 			"see AZURE.md section 10.8 and services/azurearm/PARITY.md for this suite's known environment limitations")
 	}
 
-	run(true, "apply", "-auto-approve", "-no-color")
-
 	t.Cleanup(func() {
 		run(false, "destroy", "-auto-approve", "-no-color")
 	})
+
+	run(true, "apply", "-auto-approve", "-no-color")
+
+	if checkDrift {
+		run(true, "plan", "-detailed-exitcode", "-no-color")
+	}
 }
 
 // TestTerraform_Azure_ResourceGroupAndStorageAccount proves that an
@@ -638,5 +659,5 @@ func TestTerraform_Azure_ResourceGroupAndStorageAccount(t *testing.T) {
 	dir := t.TempDir()
 	hcl := azurermProviderBlock(endpoint) + azureResourceGroupAndStorageAccountFixture
 
-	applyAzureTofu(t, dir, hcl)
+	applyAzureTofuNoDrift(t, dir, hcl)
 }
