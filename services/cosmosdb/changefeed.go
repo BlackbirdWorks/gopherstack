@@ -99,10 +99,10 @@ func parseHTTPDate(v string) (time.Time, error) {
 	return http.ParseTime(v)
 }
 
-// ReadChangeFeed returns the latest version of every document changed after the request's start position, in
+// readChangeFeed returns the latest version of every document changed after the request's start position, in
 // modification order. Deletes are not part of the latest-version feed.
-func (b *InMemoryBackend) ReadChangeFeed(dbID, collID string, req changeFeedRequest) (changeFeedPage, error) {
-	b.mu.RLock("ReadChangeFeed")
+func (b *InMemoryBackend) readChangeFeed(dbID, collID string, req changeFeedRequest) (changeFeedPage, error) {
+	b.mu.RLock("readChangeFeed")
 	defer b.mu.RUnlock()
 
 	c, err := b.findContainer(dbID, collID)
@@ -155,7 +155,7 @@ func changedDocs(live []*storedDocument, req changeFeedRequest) []*storedDocumen
 }
 
 type changeFeedReader interface {
-	ReadChangeFeed(dbID, collID string, req changeFeedRequest) (changeFeedPage, error)
+	readChangeFeed(dbID, collID string, req changeFeedRequest) (changeFeedPage, error)
 }
 
 func (h *Handler) readChangeFeed(c *echo.Context, dbID, collID string) error {
@@ -173,7 +173,7 @@ func (h *Handler) readChangeFeed(c *echo.Context, dbID, collID string) error {
 		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowed", "The backend has no change feed.")
 	}
 
-	pg, err := reader.ReadChangeFeed(dbID, collID, req)
+	pg, err := reader.readChangeFeed(dbID, collID, req)
 	if err != nil {
 		return h.writeDocumentError(c, err)
 	}

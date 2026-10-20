@@ -26,9 +26,9 @@ type docOpResult struct {
 	deleted bool
 }
 
-// RunTriggered runs a create/upsert/replace/delete with its pre- and post-triggers in one transaction.
-func (b *InMemoryBackend) RunTriggered(dbID, collID string, op docOp) (docOpResult, error) {
-	b.mu.Lock("RunTriggered")
+// runTriggered runs a create/upsert/replace/delete with its pre- and post-triggers in one transaction.
+func (b *InMemoryBackend) runTriggered(dbID, collID string, op docOp) (docOpResult, error) {
+	b.mu.Lock("runTriggered")
 	defer b.mu.Unlock()
 
 	tx, err := b.beginTx(dbID, collID)

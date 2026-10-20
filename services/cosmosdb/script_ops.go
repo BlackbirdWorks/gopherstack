@@ -391,7 +391,7 @@ func triggerRequest(r *http.Request) requestedTriggers {
 }
 
 type triggerRunner interface {
-	RunTriggered(dbID, collID string, op docOp) (docOpResult, error)
+	runTriggered(dbID, collID string, op docOp) (docOpResult, error)
 }
 
 // runWithTriggers executes a document write with its pre/post triggers and writes the response.
@@ -401,7 +401,7 @@ func (h *Handler) runWithTriggers(c *echo.Context, dbID, collID string, op docOp
 		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowed", "The backend has no triggers.")
 	}
 
-	res, err := runner.RunTriggered(dbID, collID, op)
+	res, err := runner.runTriggered(dbID, collID, op)
 	if err != nil {
 		return h.writeDocumentError(c, err)
 	}
