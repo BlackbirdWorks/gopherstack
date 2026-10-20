@@ -206,6 +206,10 @@ func (b *InMemoryBackend) launch(fn *functionspb.Function, data []byte) (box, er
 	id, err := runner.CreateAndStart(ctx, functionSpec(fn, rt, dir, port))
 	if err == nil {
 		err = gcpserve.WaitReady(ctx, port)
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = fmt.Errorf("function did not become ready within %s: %w", timeout, err)
+		}
+
 		if err != nil {
 			b.stopContainer(runner, id)
 		}

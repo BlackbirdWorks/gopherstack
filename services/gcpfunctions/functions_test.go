@@ -30,7 +30,7 @@ func TestFunction_LifecycleAndInvoke(t *testing.T) {
 	assert.Equal(t, functionspb.ServiceConfig_ALLOW_ALL, fn.GetServiceConfig().GetIngressSettings())
 	assert.NotEmpty(t, fn.GetServiceConfig().GetRevision())
 	assert.NotNil(t, fn.GetBuildConfig().GetSourceProvenance().GetResolvedStorageSource())
-	assert.Equal(t, 0, e.rt.running(), "containers start lazily")
+	assert.Equal(t, 1, e.rt.running(), "container starts during deploy")
 
 	code, body := e.call(t, http.MethodGet, hostOf(fn), "/some/path", "")
 	require.Equal(t, http.StatusOK, code)
@@ -239,7 +239,7 @@ func TestFunction_Update(t *testing.T) {
 	assert.Equal(t, "updated", updated.GetDescription())
 	assert.NotEqual(t, fn.GetServiceConfig().GetRevision(), updated.GetServiceConfig().GetRevision())
 	assert.Equal(t, "nodejs22", updated.GetBuildConfig().GetRuntime(), "unmasked build_config is kept")
-	assert.Equal(t, 0, e.rt.running(), "old container is replaced")
+	assert.Equal(t, 1, e.rt.running(), "old container is replaced")
 
 	_, body = e.call(t, http.MethodGet, hostOf(updated), "/", "")
 	assert.Equal(t, "hello again", decode(t, body).Env["GREETING"])
@@ -336,16 +336,27 @@ func TestFunction_InvalidArchiveFailsDeployment(t *testing.T) {
 	}
 }
 
-func TestFunction_StartFailureIs502(t *testing.T) {
+func TestFunction_StartFailureFailsDeploy(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, true)
 	e.rt.failRun = assert.AnError
-	fn := e.createFunction(t, "boom", fnSpec(e.upload(t, zipOf(t, nodeFilesFn()))))
 
-	code, body := e.call(t, http.MethodGet, hostOf(fn), "/", "")
-	assert.Equal(t, http.StatusBadGateway, code)
-	assert.Contains(t, body, "function is not serving")
+	op, err := e.client.CreateFunction(t.Context(), &functionspb.CreateFunctionRequest{
+		Parent: parent, FunctionId: "boom", Function: fnSpec(e.upload(t, zipOf(t, nodeFilesFn()))),
+	})
+	require.NoError(t, err)
+
+	_, err = op.Wait(t.Context())
+	require.Error(t, err)
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+
+	got, err := e.client.GetFunction(t.Context(), &functionspb.GetFunctionRequest{Name: parent + "/functions/boom"})
+	require.NoError(t, err)
+	assert.Equal(t, functionspb.Function_FAILED, got.GetState())
+
+	code, _ := e.call(t, http.MethodGet, hostOf(got), "/", "")
+	assert.Equal(t, http.StatusServiceUnavailable, code)
 }
 
 func TestFunction_Ingress(t *testing.T) {

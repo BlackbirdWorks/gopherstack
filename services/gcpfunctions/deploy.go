@@ -27,7 +27,36 @@ func (b *InMemoryBackend) run(j job) {
 	}
 
 	err := b.prepare(j)
+	if err == nil {
+		err = b.warm(j.name)
+	}
+
 	b.finishDeploy(j, err)
+}
+
+// warm replaces the running container with one for the new revision and waits until it answers HTTP.
+// Without a container runtime the function is still deployed; invocations then return 503.
+func (b *InMemoryBackend) warm(name string) error {
+	b.mu.Lock("warm")
+
+	rec, ok := b.functions[name]
+	if !ok {
+		b.mu.Unlock()
+
+		return errFunctionGone
+	}
+
+	old := b.takeBoxLocked(rec)
+	b.mu.Unlock()
+
+	b.teardown(old)
+
+	err := b.startFunction(b.baseCtx(), name)
+	if errors.Is(err, errNoRuntime) {
+		return nil
+	}
+
+	return err
 }
 
 // prepare validates the archive and wires the event trigger for the job's function.
@@ -130,8 +159,6 @@ func (b *InMemoryBackend) finishDeploy(j job, deployErr error) {
 	rec.pending = 0
 	rec.pb.UpdateTime = b.ts()
 
-	var old box
-
 	if deployErr != nil {
 		rec.failure = status.Convert(deployErr).Message()
 		rec.pb.State = functionspb.Function_FAILED
@@ -141,13 +168,15 @@ func (b *InMemoryBackend) finishDeploy(j job, deployErr error) {
 	} else {
 		rec.failure, rec.startErr = "", ""
 		rec.pb.State, rec.pb.StateMessages = functionspb.Function_ACTIVE, nil
-		old = b.takeBoxLocked(rec)
+	}
+
+	if rec.deployed != nil {
+		close(rec.deployed)
+		rec.deployed = nil
 	}
 
 	view := b.viewLocked(rec)
 	b.mu.Unlock()
-
-	b.teardown(old)
 
 	if deployErr != nil {
 		b.failOp(j, status.New(codes.FailedPrecondition, status.Convert(deployErr).Message()))
@@ -170,6 +199,10 @@ func (b *InMemoryBackend) runDelete(j job) {
 	}
 
 	x, sub, bus := b.takeBoxLocked(rec), rec.subName, b.events
+	if rec.deployed != nil {
+		close(rec.deployed)
+	}
+
 	delete(b.functions, j.name)
 	b.mu.Unlock()
 

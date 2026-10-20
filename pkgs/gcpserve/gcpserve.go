@@ -15,13 +15,18 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 const (
 	pingTimeout       = 5 * time.Second
+	probeTimeout      = 2 * time.Second
 	readyPollInterval = 25 * time.Millisecond
 )
+
+// ProbeUserAgent identifies readiness probes sent to workload containers.
+const ProbeUserAgent = "gopherstack-readiness-probe"
 
 // Runner is the slice of the container runtime that served workloads need.
 type Runner interface {
@@ -89,29 +94,56 @@ func (l *LazyRuntime) Close() error {
 	return nil
 }
 
-// WaitReady blocks until a TCP connection to the loopback port succeeds or ctx ends.
+// WaitReady blocks until the loopback port accepts TCP and answers an HTTP request (any status), or ctx ends.
+// The TCP check alone is not enough: a published container port accepts connections before the app listens.
 func WaitReady(ctx context.Context, port int) error {
 	addr := net.JoinHostPort(container.LoopbackHost, strconv.Itoa(port))
 	tick := time.NewTicker(readyPollInterval)
 
 	defer tick.Stop()
 
+	tr := httpclient.NewTransport()
+	tr.DisableKeepAlives = true
+
+	defer tr.CloseIdleConnections()
+
+	probe := &http.Client{Transport: tr, Timeout: probeTimeout}
+
 	var d net.Dialer
 
 	for {
-		conn, err := d.DialContext(ctx, "tcp", addr)
-		if err == nil {
+		if conn, err := d.DialContext(ctx, "tcp", addr); err == nil {
 			_ = conn.Close()
 
-			return nil
+			if httpAnswers(ctx, probe, "http://"+addr+"/") {
+				return nil
+			}
 		}
 
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("container did not accept connections on its port: %w", ctx.Err())
+			return fmt.Errorf("container did not accept connections and answer HTTP on its port: %w", ctx.Err())
 		case <-tick.C:
 		}
 	}
+}
+
+func httpAnswers(ctx context.Context, c *http.Client, url string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return false
+	}
+
+	req.Header.Set("User-Agent", ProbeUserAgent)
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return false
+	}
+
+	_ = resp.Body.Close()
+
+	return true
 }
 
 // AcquirePort takes a host port from pool, or a free loopback port when pool is nil.

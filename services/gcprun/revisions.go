@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -23,7 +23,6 @@ const (
 	defaultRevTimeout    = 300 * time.Second
 	maxContainers        = 10
 	maxPort              = 65535
-	readyPollInterval    = 25 * time.Millisecond
 	teardownTimeout      = 15 * time.Second
 )
 
@@ -205,30 +204,6 @@ func (b *InMemoryBackend) baseCtx() context.Context {
 	return b.runCtx
 }
 
-func waitReady(ctx context.Context, port int) error {
-	addr := net.JoinHostPort(container.LoopbackHost, strconv.Itoa(port))
-	tick := time.NewTicker(readyPollInterval)
-
-	defer tick.Stop()
-
-	var d net.Dialer
-
-	for {
-		conn, err := d.DialContext(ctx, "tcp", addr)
-		if err == nil {
-			_ = conn.Close()
-
-			return nil
-		}
-
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("container did not accept connections on its port: %w", ctx.Err())
-		case <-tick.C:
-		}
-	}
-}
-
 // launch starts the revision's ingress container and waits until it accepts connections.
 func (b *InMemoryBackend) launch(rev *runpb.Revision) (string, int, error) {
 	runner, err := b.runner()
@@ -255,7 +230,7 @@ func (b *InMemoryBackend) launch(rev *runpb.Revision) (string, int, error) {
 		return "", 0, fmt.Errorf("start container: %w", err)
 	}
 
-	if err = waitReady(ctx, port); err != nil {
+	if err = gcpserve.WaitReady(ctx, port); err != nil {
 		b.stopContainer(runner, id)
 		b.releasePort(port)
 

@@ -42,6 +42,7 @@ type ObjectReader interface {
 type fnRec struct {
 	pb          *functionspb.Function
 	starting    chan struct{}
+	deployed    chan struct{}
 	failure     string
 	containerID string
 	startErr    string

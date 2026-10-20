@@ -99,3 +99,57 @@ func TestWaitReadyAndProxy(t *testing.T) {
 
 	require.Error(t, gcpserve.WaitReady(ctx, 1))
 }
+
+func TestWaitReadyRequiresHTTP(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		answers bool
+		wantErr bool
+	}{
+		{name: "tcp only like a published port", wantErr: true},
+		{name: "http answers", answers: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var lc net.ListenConfig
+
+			l, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+
+			if tt.answers {
+				srv := &http.Server{Handler: http.NotFoundHandler(), ReadHeaderTimeout: time.Second}
+				go func() { _ = srv.Serve(l) }()
+
+				t.Cleanup(func() { _ = srv.Close() })
+			} else {
+				t.Cleanup(func() { _ = l.Close() })
+
+				go func() {
+					for {
+						c, aerr := l.Accept()
+						if aerr != nil {
+							return
+						}
+
+						_ = c.Close()
+					}
+				}()
+			}
+
+			ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+			defer cancel()
+
+			err = gcpserve.WaitReady(ctx, l.Addr().(*net.TCPAddr).Port)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

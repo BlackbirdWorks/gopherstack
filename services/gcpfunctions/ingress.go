@@ -135,8 +135,41 @@ func (b *InMemoryBackend) byName(name string) (target, bool) {
 	return target{}, false
 }
 
+// awaitDeploy waits, bounded by the startup timeout and ctx, for t's deployment to finish and returns its fresh view.
+func (b *InMemoryBackend) awaitDeploy(ctx context.Context, t target) target {
+	b.mu.RLock("awaitDeploy")
+
+	var done chan struct{}
+	if rec := b.functions[t.name]; rec != nil {
+		done = rec.deployed
+	}
+
+	limit := b.startupTimeout
+	b.mu.RUnlock()
+
+	if done != nil {
+		wctx, cancel := context.WithTimeout(ctx, limit)
+		defer cancel()
+
+		select {
+		case <-done:
+		case <-wctx.Done():
+		}
+	}
+
+	if cur, ok := b.byName(t.name); ok {
+		return cur
+	}
+
+	return t
+}
+
 // readyPort starts t's container if needed and returns its host port, or writes the error response.
 func (b *InMemoryBackend) readyPort(w http.ResponseWriter, r *http.Request, t target) (int, bool) {
+	if t.state == functionspb.Function_DEPLOYING {
+		t = b.awaitDeploy(r.Context(), t)
+	}
+
 	switch t.state { //nolint:exhaustive // other states are serviceable or handled below
 	case functionspb.Function_DEPLOYING:
 		http.Error(w, "function is still deploying", http.StatusServiceUnavailable)
@@ -226,6 +259,12 @@ func (b *InMemoryBackend) serveEvent(w http.ResponseWriter, r *http.Request) {
 	var env pushEnvelope
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxEventBytes)).Decode(&env); err != nil {
 		http.Error(w, "invalid push envelope: "+err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	if t.state == functionspb.Function_DEPLOYING {
+		http.Error(w, "function is still deploying; retry", http.StatusServiceUnavailable)
 
 		return
 	}

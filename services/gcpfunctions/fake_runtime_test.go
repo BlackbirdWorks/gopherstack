@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 )
 
 type received struct {
@@ -30,6 +31,7 @@ type fakeContainer struct {
 // fakeRuntime stands in for the container runtime: every container serves HTTP on its published port and
 // answers with a JSON description of the request it received.
 type fakeRuntime struct {
+	gate    chan struct{}
 	failRun error
 	boxes   map[string]*fakeContainer
 	started []container.Spec
@@ -68,14 +70,23 @@ func (f *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (st
 		return "", err
 	}
 
-	l, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", host))
-	if err != nil {
-		return "", err
+	addr := net.JoinHostPort("127.0.0.1", host)
+
+	var l net.Listener
+
+	if f.gate == nil {
+		if l, err = net.Listen("tcp", addr); err != nil {
+			return "", err
+		}
 	}
 
 	env := envMap(spec)
 	c := &fakeContainer{spec: spec}
 	c.srv = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.UserAgent() == gcpserve.ProbeUserAgent {
+			return
+		}
+
 		body, _ := io.ReadAll(r.Body)
 		hdr := map[string]string{}
 
@@ -93,7 +104,7 @@ func (f *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (st
 		_ = json.NewEncoder(w).Encode(rec)
 	})}
 
-	go func() { _ = c.srv.Serve(l) }()
+	go f.serve(c, l, addr)
 
 	id := fmt.Sprintf("fake-%d", f.seq.Add(1))
 
@@ -138,4 +149,18 @@ func (f *fakeRuntime) requests() []received {
 	defer f.mu.Unlock()
 
 	return append([]received(nil), f.reqs...)
+}
+
+// serve starts listening immediately, or once the readiness gate opens when one is set.
+func (f *fakeRuntime) serve(c *fakeContainer, l net.Listener, addr string) {
+	if l == nil {
+		<-f.gate
+
+		var err error
+		if l, err = net.Listen("tcp", addr); err != nil {
+			return
+		}
+	}
+
+	_ = c.srv.Serve(l)
 }

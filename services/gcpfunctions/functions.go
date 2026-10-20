@@ -53,7 +53,7 @@ func (b *InMemoryBackend) newRecLocked(n resName, req *functionspb.Function, res
 		UpdateTime:  now,
 	}
 
-	rec := &fnRec{pb: pb, revSeq: 1, pending: 1}
+	rec := &fnRec{pb: pb, revSeq: 1, pending: 1, deployed: make(chan struct{})}
 	pb.BuildConfig = buildConfigFor(n, req.GetBuildConfig(), res)
 	pb.ServiceConfig = applyDefaults(clone(req.GetServiceConfig()))
 	pb.ServiceConfig.Revision = revisionName(n.id, rec.revSeq, uid)
@@ -287,6 +287,7 @@ func (b *InMemoryBackend) commitUpdate(
 
 	next.State, next.UpdateTime = functionspb.Function_DEPLOYING, now
 	rec.pb, rec.epoch, rec.pending = next, rec.epoch+1, 1
+	rec.deployed = make(chan struct{})
 	j := job{name: n.full(), kind: opUpdate, created: now}
 	b.mu.Unlock()
 
