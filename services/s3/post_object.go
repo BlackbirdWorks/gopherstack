@@ -201,7 +201,7 @@ func (h *S3Handler) dispatchPostObjectNotification(
 	}
 
 	go h.notifier.DispatchObjectPosted(
-		h.notificationDispatchContext(), bucketName, key, etag, int64(size), notifXML,
+		h.notificationLinkedContext(ctx), bucketName, key, etag, int64(size), notifXML,
 	)
 }
 

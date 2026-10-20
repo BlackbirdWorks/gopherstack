@@ -56,6 +56,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
+	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -2325,6 +2326,7 @@ func run(ctx context.Context, cli CLI) error {
 
 	cli = applyExplicitOverrides(original, cli)
 	cli.applyRuntimeConfig(ctx, log)
+	ctx = apptrace.WithTracer(ctx, newAppTracer())
 
 	// --- Port allocator ---
 	cli.portAlloc = setupPortAllocatorWithReservations(ctx, log, cli)
@@ -2591,7 +2593,7 @@ func buildEchoServer(
 	e.Use(httputils.RequestIDMiddleware())
 	e.Use(logger.APIConsoleMiddleware())
 	e.Use(telemetry.MemoryStatsMiddleware)
-	registerAppInspector(e)
+	registerAppInspector(ctx, e)
 	e.Pre(logger.EchoMiddleware(log))
 	e.Pre(awsMetaMiddleware(cli.Region, cli.AccountID))
 
@@ -5099,8 +5101,8 @@ type snsPublisherAdapter struct {
 	backend *snsbackend.InMemoryBackend
 }
 
-func (a *snsPublisherAdapter) PublishToTopic(_ context.Context, topicARN, message string) error {
-	_, err := a.backend.Publish(topicARN, message, "", "", nil)
+func (a *snsPublisherAdapter) PublishToTopic(ctx context.Context, topicARN, message string) error {
+	_, err := a.backend.PublishContext(ctx, topicARN, message, "", "", nil)
 
 	return err
 }
@@ -5380,10 +5382,10 @@ type s3SNSPublisherAdapter struct {
 }
 
 func (a *s3SNSPublisherAdapter) PublishToTopic(
-	_ context.Context,
+	ctx context.Context,
 	topicARN, message, subject string,
 ) error {
-	_, err := a.backend.Publish(topicARN, message, subject, "", nil)
+	_, err := a.backend.PublishContext(ctx, topicARN, message, subject, "", nil)
 
 	return err
 }

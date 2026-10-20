@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -18,7 +19,7 @@ func inspectorServer(t *testing.T) (*echo.Echo, *apptrace.Tracer) {
 	t.Helper()
 
 	e := echo.New()
-	tr := registerAppInspector(e)
+	tr := registerAppInspector(context.Background(), e)
 
 	e.Any("/api", func(c *echo.Context) error {
 		apptrace.FromContext(c.Request().Context()).SetOperation("sns", "Publish", "topic")

@@ -191,6 +191,16 @@ func splitExpiredEvents(events []streamEvent, maxAge time.Duration, now time.Tim
 func (p *EventSourcePoller) invokeStream(
 	ctx context.Context, m *EventSourceMapping, ref streamShardRef, payload []byte,
 ) invokeOutcome {
+	sctx, span := startESMSpan(ctx, m.FunctionARN, m.EventSourceARN)
+	out := p.invokeStreamUntraced(sctx, m, ref, payload)
+	span.FinishErr(out.err)
+
+	return out
+}
+
+func (p *EventSourcePoller) invokeStreamUntraced(
+	ctx context.Context, m *EventSourceMapping, ref streamShardRef, payload []byte,
+) invokeOutcome {
 	fnName, qualifier := functionNameAndQualifierFromARN(m.FunctionARN)
 	if fnName == "" {
 		fnName = m.FunctionARN

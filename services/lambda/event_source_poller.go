@@ -1090,11 +1090,15 @@ func (p *EventSourcePoller) invokeLambdaForSQS(
 		invokeErr error
 	)
 
+	sctx, span := startESMSpan(ctx, m.FunctionARN, m.EventSourceARN)
+
 	if p.sqsInvoker != nil {
-		respBody, invokeErr = p.sqsInvoker(ctx, fnName)
+		respBody, invokeErr = p.sqsInvoker(sctx, fnName)
 	} else {
-		respBody, invokeErr = p.invokeESMFunctionEvent(ctx, fnName, qualifier, payload)
+		respBody, invokeErr = p.invokeESMFunctionEvent(sctx, fnName, qualifier, payload)
 	}
+
+	span.FinishErr(invokeErr)
 
 	if invokeErr != nil {
 		p.esmInvokeMetrics(m, len(msgs), len(msgs))

@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/ctxval"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -500,13 +501,21 @@ func attemptDelivery(
 		dt.obs.retried()
 	}
 
+	spanCtx, span := apptrace.StartChild(ctx, targetSpanInfo(target.Arn))
+
 	var delivErr bool
 	if timeout <= 0 {
-		delivErr = deliverToTarget(ctx, target, envelope, dt)
+		delivErr = deliverToTarget(spanCtx, target, envelope, dt)
 	} else {
-		tCtx, cancel := context.WithTimeout(ctx, timeout)
+		tCtx, cancel := context.WithTimeout(spanCtx, timeout)
 		delivErr = deliverToTarget(tCtx, target, envelope, dt)
 		cancel()
+	}
+
+	if delivErr {
+		span.Finish(errCodeTargetDelivery)
+	} else {
+		span.Finish("")
 	}
 
 	if attempt == 0 {
@@ -521,6 +530,52 @@ func attemptDelivery(
 	dt.obs.latency("IngestionToInvocationSuccessLatency", extractEventAge(envelope))
 
 	return true
+}
+
+const errCodeTargetDelivery = "DeliveryFailed"
+
+const (
+	opPutEvents       = "PutEvents"
+	opPutRecord       = "PutRecord"
+	arnFieldsWithAcct = 5
+)
+
+// targetSpanOp names the downstream API call for an ARN service segment.
+func targetSpanOp(service string) string {
+	switch service {
+	case "lambda", "execute-api":
+		return "Invoke"
+	case "sqs":
+		return "SendMessage"
+	case "sns":
+		return "Publish"
+	case "kinesis", "firehose":
+		return opPutRecord
+	case "states":
+		return "StartExecution"
+	case "events":
+		return opPutEvents
+	case "logs":
+		return "PutLogEvents"
+	case "ecs":
+		return "RunTask"
+	}
+
+	return "Deliver"
+}
+
+// targetSpanInfo names the downstream call a target ARN resolves to.
+func targetSpanInfo(targetARN string) apptrace.ChildInfo {
+	parts := strings.SplitN(targetARN, ":", arnFieldsWithAcct)
+	if len(parts) < arnFieldsWithAcct {
+		return apptrace.ChildInfo{Service: "events", Operation: "Deliver", Resource: targetARN}
+	}
+
+	acct, _, _ := strings.Cut(parts[4], ":")
+
+	return apptrace.ChildInfo{
+		Service: parts[2], Operation: targetSpanOp(parts[2]), Resource: targetARN, Region: parts[3], Account: acct,
+	}
 }
 
 // waitRetryBackoff pauses before the next attempt; EventBridge retries with exponential backoff.

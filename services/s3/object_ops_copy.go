@@ -87,7 +87,7 @@ func (h *S3Handler) dispatchCopyNotification(
 		return
 	}
 	go h.notifier.DispatchObjectCopied(
-		h.notificationDispatchContext(),
+		h.notificationLinkedContext(ctx),
 		bucket,
 		key,
 		etag,

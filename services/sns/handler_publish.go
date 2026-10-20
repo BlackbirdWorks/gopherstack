@@ -1,6 +1,7 @@
 package sns
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -42,7 +43,9 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 			return h.publishFIFOTopic(c, topicArn, message, subject, messageStructure, attrs)
 		}
 
-		messageID, err = h.Backend.Publish(topicArn, message, subject, messageStructure, attrs)
+		messageID, err = h.Backend.PublishContext(
+			c.Request().Context(), topicArn, message, subject, messageStructure, attrs,
+		)
 		if err != nil {
 			return h.handleBackendError(c, err)
 		}
@@ -107,7 +110,9 @@ func (h *Handler) publishFIFOTopic(
 		})
 	}
 
-	messageID, err := h.Backend.Publish(topicArn, message, subject, messageStructure, attrs)
+	messageID, err := h.Backend.PublishContext(
+		c.Request().Context(), topicArn, message, subject, messageStructure, attrs,
+	)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -242,7 +247,7 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 	isFIFO := strings.HasSuffix(topicArn, ".fifo")
 
 	for _, entry := range entries {
-		ok, fail := h.processBatchEntry(topicArn, entry, isFIFO)
+		ok, fail := h.processBatchEntry(c.Request().Context(), topicArn, entry, isFIFO)
 		if fail != nil {
 			failed = append(failed, *fail)
 
@@ -263,7 +268,7 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 // returns either a success or failure entry. Exactly one of the returned
 // pointers is non-nil.
 func (h *Handler) processBatchEntry(
-	topicArn string, entry batchEntry, isFIFO bool,
+	ctx context.Context, topicArn string, entry batchEntry, isFIFO bool,
 ) (*XMLPublishBatchSuccessEntry, *XMLPublishBatchFailEntry) {
 	if isFIFO && entry.messageGroupID == "" {
 		return nil, &XMLPublishBatchFailEntry{
@@ -289,7 +294,8 @@ func (h *Handler) processBatchEntry(
 		effectiveDedupID = id
 	}
 
-	msgID, err := h.Backend.Publish(
+	msgID, err := h.Backend.PublishContext(
+		ctx,
 		topicArn,
 		entry.message,
 		entry.subject,

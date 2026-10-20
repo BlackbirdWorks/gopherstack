@@ -1,6 +1,7 @@
 package stepfunctions
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -183,12 +184,17 @@ func (h *Handler) handleDescribeStateMachineForExecution(b []byte) (any, error) 
 }
 
 func (h *Handler) handleStartExecution(b []byte) (any, error) {
+	return h.handleStartExecutionCtx(h.svcCtx, b)
+}
+
+func (h *Handler) handleStartExecutionCtx(ctx context.Context, b []byte) (any, error) {
 	var input startExecutionInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
 
-	exec, err := h.Backend.StartExecutionWithTrace(
+	exec, err := h.Backend.StartExecutionWithTraceContext(
+		ctx,
 		input.StateMachineArn,
 		input.Name,
 		input.Input,

@@ -23,6 +23,7 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
@@ -1583,6 +1584,16 @@ func (e *Executor) recordTaskFailed(executionARN, stateName, resource, errCode, 
 
 // invokeTask performs the actual task invocation.
 func (e *Executor) invokeTask(ctx context.Context, state *State, input any, heartbeatSeconds int) (any, error) {
+	sctx, span := apptrace.StartChild(ctx, taskSpanInfo(state.Resource))
+	out, err := e.invokeTaskUntraced(sctx, state, input, heartbeatSeconds)
+	span.FinishErr(err)
+
+	return out, err
+}
+
+func (e *Executor) invokeTaskUntraced(
+	ctx context.Context, state *State, input any, heartbeatSeconds int,
+) (any, error) {
 	if err := checkSyncPatternSupported(state.Resource); err != nil {
 		return nil, err
 	}

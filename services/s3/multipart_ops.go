@@ -364,7 +364,7 @@ func (h *S3Handler) completeMultipartUpload(
 				size = aws.ToInt64(headOut.ContentLength)
 			}
 			go h.notifier.DispatchObjectCompleted(
-				h.notificationDispatchContext(),
+				h.notificationLinkedContext(ctx),
 				bucketName,
 				key,
 				etag,

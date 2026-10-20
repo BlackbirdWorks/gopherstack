@@ -243,7 +243,7 @@ func (h *S3Handler) handleRestoreObject(
 			ctx, bucket,
 		); ncErr == nil && notifXML != "" {
 			go h.notifier.DispatchObjectRestorePost(
-				h.notificationDispatchContext(), bucket, key, notifXML,
+				h.notificationLinkedContext(ctx), bucket, key, notifXML,
 			)
 		}
 	}

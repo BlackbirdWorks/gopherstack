@@ -390,6 +390,14 @@ func (p *EventSourcePoller) commitKafka(
 }
 
 func (p *EventSourcePoller) invokeKafka(ctx context.Context, functionARN string, payload []byte) error {
+	sctx, span := startESMSpan(ctx, functionARN, "")
+	err := p.invokeKafkaUntraced(sctx, functionARN, payload)
+	span.FinishErr(err)
+
+	return err
+}
+
+func (p *EventSourcePoller) invokeKafkaUntraced(ctx context.Context, functionARN string, payload []byte) error {
 	fnName, qualifier := functionNameAndQualifierFromARN(functionARN)
 	if fnName == "" {
 		fnName = functionARN

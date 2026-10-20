@@ -243,6 +243,13 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 	switch action {
 	case "GetActivityTask":
 		return h.handleGetActivityTask(ctx, body)
+	case actionStartExecution:
+		resp, err := h.handleStartExecutionCtx(ctx, body)
+		if err != nil {
+			return nil, err
+		}
+
+		return json.Marshal(resp)
 	case "CreateStateMachine":
 		resp, err := h.createStateMachineAction(ctx, body)
 		if err != nil {
@@ -251,22 +258,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 
 		return json.Marshal(resp)
 	case "ListStateMachines":
-		var input listStateMachinesInput
-		if err := json.Unmarshal(body, &input); err != nil {
-			return nil, err
-		}
-
-		sms, next, err := h.Backend.ListStateMachines(ctx, input.NextToken, input.MaxResults)
-		if err != nil {
-			return nil, err
-		}
-
-		items := make([]stateMachineListItem, len(sms))
-		for i := range sms {
-			items[i] = newStateMachineListItem(&sms[i])
-		}
-
-		return json.Marshal(&listStateMachinesOutput{StateMachines: items, NextToken: next})
+		return h.listStateMachinesAction(ctx, body)
 	case "CreateActivity":
 		resp, err := h.handleCreateActivity(ctx, body)
 		if err != nil {
@@ -461,3 +453,24 @@ func (h *Handler) Shutdown(ctx context.Context) {
 
 // Ensure Handler implements service.Shutdowner at compile time.
 var _ service.Shutdowner = (*Handler)(nil)
+
+const actionStartExecution = "StartExecution"
+
+func (h *Handler) listStateMachinesAction(ctx context.Context, body []byte) ([]byte, error) {
+	var input listStateMachinesInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, err
+	}
+
+	sms, next, err := h.Backend.ListStateMachines(ctx, input.NextToken, input.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]stateMachineListItem, len(sms))
+	for i := range sms {
+		items[i] = newStateMachineListItem(&sms[i])
+	}
+
+	return json.Marshal(&listStateMachinesOutput{StateMachines: items, NextToken: next})
+}

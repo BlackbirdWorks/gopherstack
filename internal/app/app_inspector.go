@@ -34,10 +34,16 @@ func appInspectorConfig(getenv func(string) string) apptrace.Config {
 	return cfg
 }
 
+// newAppTracer builds the process tracer from the environment.
+func newAppTracer() *apptrace.Tracer { return apptrace.New(appInspectorConfig(os.Getenv)) }
+
 // registerAppInspector installs the request-trace middleware and its
 // /_gopherstack/apptrace API on e, and returns the tracer.
-func registerAppInspector(e *echo.Echo) *apptrace.Tracer {
-	tr := apptrace.New(appInspectorConfig(os.Getenv))
+func registerAppInspector(ctx context.Context, e *echo.Echo) *apptrace.Tracer {
+	tr := apptrace.TracerFrom(ctx)
+	if tr == nil {
+		tr = newAppTracer()
+	}
 
 	e.Use(apptrace.Middleware(tr))
 
