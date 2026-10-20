@@ -2,13 +2,15 @@
 service: azurequeue
 sdk_module: azure-sdk-for-go/sdk/storage/azqueue@v1.0.1
 last_audit_commit: c7cf3aec
-last_audit_date: 2026-09-04
+last_audit_date: 2026-10-20
 overall: C
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  ListQueues: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /<account>?comp=list. No prefix/marker/maxresults pagination support yet -- returns all queues in one page with an always-empty NextMarker. No queue metadata (x-ms-meta-*) is stored or returned."}
-  CreateQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /<account>/<queue>. No metadata (x-ms-meta-*) support -- a pre-existing queue of any prior state is treated as identical metadata and returns 204 (idempotent), never 409 QueueAlreadyExists; that code is wired but currently unreachable."}
+  ListQueues: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /<account>?comp=list. include=metadata returns each queue Metadata. No prefix/marker/maxresults pagination -- returns all queues in one page with an always-empty NextMarker."}
+  CreateQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /<account>/<queue> with optional x-ms-meta-*. Name validated server-side: 3-63 chars else 400 OutOfRangeInput; lowercase letters/digits/hyphens, alnum start/end, no consecutive hyphens else 400 InvalidResourceName. Existing queue with equal metadata -> 204, different metadata -> 409 QueueAlreadyExists."}
+  SetQueueMetadata: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /<account>/<queue>?comp=metadata replaces x-ms-meta-* (400 InvalidMetadata for non-identifier names); 204."}
+  GetQueueMetadata: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET/HEAD /<account>/<queue>?comp=metadata returns x-ms-meta-* and x-ms-approximate-messages-count (non-expired messages, visible or in flight). Metadata names are lowercased."}
   DeleteQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /<account>/<queue>. No lease/If-Match conditional support."}
   PutMessage: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /<account>/<queue>/messages. visibilitytimeout/messagettl query params supported; messagettl=-1 (Azure's 'never expire' sentinel) is accepted but modeled as a 100-year TTL rather than true infinite retention. MessageText is stored verbatim -- never base64 decoded/re-encoded."}
   GetMessages: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /<account>/<queue>/messages?numofmessages=N&visibilitytimeout=T. Dequeues up to numofmessages (1-32) visible, non-expired messages in insertion order, hiding each until its new visibilitytimeout elapses, rotating PopReceipt, and incrementing DequeueCount."}
@@ -25,10 +27,9 @@ families:
   visibility_and_ttl: {status: ok, note: "Visibility timeout (default 30s on Get Messages, 0/immediate on Put Message) and message TTL (default 7 days) are modeled with an injectable clock (InMemoryBackend.nowFunc, see export_test.go's SetNowFunc) rather than wall-clock sleeps, so unit tests exercise expiry/visibility deterministically. A Janitor background sweep (janitor.go, mirroring services/sqs's MessageRetentionPeriod sweeper) removes TTL-expired messages across all queues on a timer; visibility-timeout expiry itself is checked lazily at read time (Get/Peek), not swept."}
   observability: {status: ok, note: "StartWorker wraps its Echo handler with telemetry.WrapEchoHandler so ExtractOperation/ExtractResource feed Prometheus metrics, and derives its listener logger via logger.WithWorker(ctx, \"azurequeue\", \"listener\"). InMemoryBackend and the server-lifecycle mutex both use *lockmetrics.RWMutex instead of raw sync.RWMutex/Mutex, matching repo convention."}
 gaps:
-  - "No queue metadata (x-ms-meta-*) support -- neither stored on Create nor returned on List; Create is therefore always idempotent (204) for a pre-existing queue, and QueueAlreadyExists (409) is unreachable in this MVP."
   - "messagettl=-1 (Azure's 'never expire' sentinel) is modeled as a 100-year TTL, not true infinite retention."
   - "List Queues returns every result in one page; no prefix/marker/maxresults pagination."
-  - "No SetQueueMetadata/GetQueueMetadata, no queue ACL (Set/Get Queue ACL / SAS-scoped access policies)."
+  - "No queue ACL (Set/Get Queue ACL / SAS-scoped access policies). Queue creation time is not exposed: it is not part of the Azure Queue REST surface."
   - "No poison-message / dead-letter handling -- DequeueCount is tracked and returned but nothing acts on it (contrast services/sqs's DLQ)."
   - "Visibility-timeout expiry is checked lazily at read time (Get/Peek Messages), not proactively swept -- functionally correct (a message becomes visible again exactly when TimeNextVisible passes, regardless of sweep timing) but differs from message-TTL expiry, which the Janitor does proactively sweep."
   - "Auth verification is not enforced -- see families.auth. pkgs/azureauth.VerifySharedKey exists and is unit-tested but checkAuth does not call it yet."

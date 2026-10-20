@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -308,7 +309,7 @@ func EncodeEntity(entity EntityInfo, table, level, selectParam, endpoint, accoun
 			continue
 		}
 
-		encodePropertyInto(m, name, prop)
+		encodePropertyInto(m, name, prop, level != MetadataLevelNoMetadata)
 	}
 
 	return m
@@ -332,8 +333,22 @@ func SelectSet(selectParam string) map[string]bool {
 	return set
 }
 
+// encodeDouble annotates whole-number doubles, which would otherwise read back as Edm.Int32.
+func encodeDouble(m map[string]any, name string, prop EntityProperty, annotate bool) {
+	f, ok := prop.Value.(float64)
+	if !ok {
+		return
+	}
+
+	m[name] = f
+
+	if annotate && f == math.Trunc(f) {
+		m[name+"@odata.type"] = string(EdmDouble)
+	}
+}
+
 //nolint:cyclop // per-EDM-type dispatch; splitting would obscure it
-func encodePropertyInto(m map[string]any, name string, prop EntityProperty) {
+func encodePropertyInto(m map[string]any, name string, prop EntityProperty, annotate bool) {
 	switch prop.Type {
 	case EdmString:
 		if s, ok := prop.Value.(string); ok {
@@ -344,9 +359,7 @@ func encodePropertyInto(m map[string]any, name string, prop EntityProperty) {
 			m[name] = n
 		}
 	case EdmDouble:
-		if f, ok := prop.Value.(float64); ok {
-			m[name] = f
-		}
+		encodeDouble(m, name, prop, annotate)
 	case EdmBoolean:
 		if b, ok := prop.Value.(bool); ok {
 			m[name] = b

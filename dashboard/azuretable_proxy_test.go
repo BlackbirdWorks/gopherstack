@@ -21,7 +21,7 @@ func TestAzureTableProxy(t *testing.T) {
 
 	const entity = `{"PartitionKey":"p","RowKey":"r","Name":"bob"}`
 
-	const item = base + "/t1(PartitionKey='p',RowKey='r')"
+	const item = base + "/tbl1(PartitionKey='p',RowKey='r')"
 
 	tests := []struct {
 		name     string
@@ -34,7 +34,7 @@ func TestAzureTableProxy(t *testing.T) {
 	}{
 		{
 			name: "create table", method: http.MethodPost, path: base + "/Tables",
-			body: `{"TableName":"t1"}`, wantCode: http.StatusCreated, wantBody: "t1",
+			body: `{"TableName":"tbl1"}`, wantCode: http.StatusCreated, wantBody: "tbl1",
 		},
 		{
 			name:     "list tables",
@@ -42,16 +42,16 @@ func TestAzureTableProxy(t *testing.T) {
 			path:     base + "/Tables",
 			seed:     true,
 			wantCode: 200,
-			wantBody: "t1",
+			wantBody: "tbl1",
 		},
 		{
-			name: "insert entity", method: http.MethodPost, path: base + "/t1",
+			name: "insert entity", method: http.MethodPost, path: base + "/tbl1",
 			body: entity, seed: true, wantCode: http.StatusConflict, wantBody: "EntityAlreadyExists",
 		},
 		{
 			name:     "query entities",
 			method:   http.MethodGet,
-			path:     base + "/t1?$top=1",
+			path:     base + "/tbl1?$top=1",
 			seed:     true,
 			wantCode: 200,
 			wantBody: "bob",
@@ -66,19 +66,19 @@ func TestAzureTableProxy(t *testing.T) {
 			body: `{"Age":3}`, seed: true, wantCode: http.StatusNoContent,
 		},
 		{name: "delete entity", method: http.MethodDelete, path: item, seed: true, wantCode: http.StatusBadRequest},
-		{name: "delete table", method: http.MethodDelete, path: base + "/Tables('t1')", seed: true, wantCode: 204},
+		{name: "delete table", method: http.MethodDelete, path: base + "/Tables('tbl1')", seed: true, wantCode: 204},
 		{name: "missing table", method: http.MethodGet, path: base + "/nope", wantCode: http.StatusNotFound},
 		{name: "batch blocked", method: http.MethodPost, path: base + "/$batch", wantCode: http.StatusBadRequest},
-		{name: "traversal blocked", method: http.MethodGet, path: base + "/t1/../x", wantCode: http.StatusBadRequest},
-		{name: "too deep", method: http.MethodGet, path: base + "/t1/x", wantCode: http.StatusBadRequest},
+		{name: "traversal blocked", method: http.MethodGet, path: base + "/tbl1/../x", wantCode: http.StatusBadRequest},
+		{name: "too deep", method: http.MethodGet, path: base + "/tbl1/x", wantCode: http.StatusBadRequest},
 		{name: "account only", method: http.MethodGet, path: base, wantCode: http.StatusBadRequest},
 		{
 			name:     "put on collection",
 			method:   http.MethodPut,
-			path:     base + "/t1?comp=acl",
+			path:     base + "/tbl1?comp=acl",
 			wantCode: http.StatusBadRequest,
 		},
-		{name: "delete collection", method: http.MethodDelete, path: base + "/t1", wantCode: http.StatusBadRequest},
+		{name: "delete collection", method: http.MethodDelete, path: base + "/tbl1", wantCode: http.StatusBadRequest},
 		{
 			name: "no account", method: http.MethodGet,
 			path: "/dashboard/api/v1/azure/table/", wantCode: http.StatusBadRequest,
@@ -95,8 +95,8 @@ func TestAzureTableProxy(t *testing.T) {
 
 			if tt.seed {
 				for _, s := range []struct{ path, body string }{
-					{base + "/Tables", `{"TableName":"t1"}`},
-					{base + "/t1", entity},
+					{base + "/Tables", `{"TableName":"tbl1"}`},
+					{base + "/tbl1", entity},
 				} {
 					req := httptest.NewRequest(http.MethodPost, s.path, strings.NewReader(s.body))
 					require.NoError(t, h.Handler()(echo.NewContext(req, httptest.NewRecorder())))

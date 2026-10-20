@@ -233,6 +233,58 @@ export async function clearMessages(
   await send(queueUrl(account, queue, ""), { method: "DELETE" }, fetchFn);
 }
 
+export type QueueProperties = { approximateMessages: number; metadata: Record<string, string> };
+
+export type UpdatedMessage = { popReceipt: string; timeNextVisible: string };
+
+export function parseQueueProperties(headers: Headers): QueueProperties {
+  const metadata: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    if (key.toLowerCase().startsWith("x-ms-meta-"))
+      metadata[key.slice("x-ms-meta-".length)] = value;
+  });
+  return {
+    approximateMessages: Number(headers.get("x-ms-approximate-messages-count") ?? "0"),
+    metadata,
+  };
+}
+
+export async function getQueueProperties(
+  account: string,
+  queue: string,
+  fetchFn: FetchFn = fetch,
+): Promise<QueueProperties> {
+  const res = await send(
+    queueUrl(account, queue, undefined, "comp=metadata"),
+    { method: "GET" },
+    fetchFn,
+  );
+  return parseQueueProperties(res.headers);
+}
+
+/** Update Message: sets a new visibility timeout, optionally replacing the text; rotates the pop receipt. */
+export async function updateMessage(
+  account: string,
+  queue: string,
+  id: string,
+  popReceipt: string,
+  visibilityTimeout: number,
+  newText?: string,
+  fetchFn: FetchFn = fetch,
+): Promise<UpdatedMessage> {
+  const query = `popreceipt=${encodeURIComponent(popReceipt)}&visibilitytimeout=${visibilityTimeout}`;
+  const init: RequestInit = { method: "PUT" };
+  if (newText !== undefined) {
+    init.headers = { "Content-Type": "application/xml" };
+    init.body = `<QueueMessage><MessageText>${escapeXml(newText)}</MessageText></QueueMessage>`;
+  }
+  const res = await send(queueUrl(account, queue, id, query), init, fetchFn);
+  return {
+    popReceipt: res.headers.get("x-ms-popreceipt") ?? "",
+    timeNextVisible: res.headers.get("x-ms-time-next-visible") ?? "",
+  };
+}
+
 export function validateQueueName(name: string): string | null {
   if (!name) return "Name is required";
   if (name.length < 3 || name.length > 63) return "Must be 3-63 characters";

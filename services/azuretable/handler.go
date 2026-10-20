@@ -43,6 +43,7 @@ const (
 	opDeleteTable          = "DeleteTable"
 	opGetTable             = "GetTable"
 	opSetTableACL          = "SetTableACL"
+	opGetTableACL          = "GetTableACL"
 	opInsertEntity         = "InsertEntity"
 	opGetEntity            = "GetEntity"
 	opQueryEntities        = "QueryEntities"
@@ -151,6 +152,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opDeleteTable,
 		opGetTable,
 		opSetTableACL,
+		opGetTableACL,
 		opInsertEntity,
 		opGetEntity,
 		opQueryEntities,
@@ -430,6 +432,8 @@ func entityCollectionOperationFor(r *http.Request) string {
 	switch {
 	case r.Method == http.MethodPost:
 		return opInsertEntity
+	case r.Method == http.MethodGet && r.URL.Query().Get(queryComp) == compACL:
+		return opGetTableACL
 	case r.Method == http.MethodGet:
 		return opQueryEntities
 	case r.Method == http.MethodPut && r.URL.Query().Get(queryComp) == compACL:
@@ -492,6 +496,8 @@ func (h *Handler) handleEntityCollection(c *echo.Context, table string) error {
 	switch {
 	case c.Request().Method == http.MethodPost:
 		return h.insertEntity(c, table)
+	case c.Request().Method == http.MethodGet && c.QueryParam(queryComp) == compACL:
+		return h.getTableACL(c, table)
 	case c.Request().Method == http.MethodGet:
 		return h.queryEntities(c, table)
 	case c.Request().Method == http.MethodPut && c.QueryParam(queryComp) == compACL:
@@ -500,33 +506,6 @@ func (h *Handler) handleEntityCollection(c *echo.Context, table string) error {
 		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
 			"The resource doesn't support the specified HTTP verb.")
 	}
-}
-
-// setTableACL serves PUT /<account>/<table>?comp=acl -- real Azure's "Set
-// Table ACL", used by terraform-provider-azurerm's azurerm_storage_table
-// (via jackofallops/giovanni's tables.Client.SetACL) whenever the resource
-// exists check finds nothing to update on create, and unconditionally on
-// every subsequent plan/apply that leaves the table unchanged (SignedIdentifier
-// stored access policies aren't part of this resource's schema, so the
-// provider always sends an empty list). Accepted but not persisted: this
-// service has no stored-access-policy support (see PARITY.md's known
-// gaps). Returns 404 if the table doesn't exist, matching real Azure.
-func (h *Handler) setTableACL(c *echo.Context, table string) error {
-	found := false
-
-	for _, ti := range h.Backend.ListTables() {
-		if ti.Name == table {
-			found = true
-
-			break
-		}
-	}
-
-	if !found {
-		return h.writeTableNotFoundError(c)
-	}
-
-	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *Handler) handleEntityItem(c *echo.Context, table, keyPredicate string) error {
@@ -549,16 +528,6 @@ func (h *Handler) handleEntityItem(c *echo.Context, table, keyPredicate string) 
 		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
 			"The resource doesn't support the specified HTTP verb.")
 	}
-}
-
-// handleBatch handles POST /<account>/$batch. Batch (multipart/mixed
-// changesets) is explicitly out of scope for this milestone -- see
-// PARITY.md's deferred section -- so this returns a clean 501 with a message
-// pointing there, rather than a confusing 404/400 that would suggest a
-// routing bug instead of a deliberate scope decision.
-func (h *Handler) handleBatch(c *echo.Context) error {
-	return h.writeError(c, http.StatusNotImplemented, "NotImplemented",
-		"$batch (multipart/mixed changesets) is not implemented; see PARITY.md's deferred section.")
 }
 
 // StartWorker binds the dedicated Table listener and starts serving on it.

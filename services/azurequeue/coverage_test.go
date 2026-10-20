@@ -319,7 +319,13 @@ func TestShutdown_ForcesCloseOnGracefulTimeout(t *testing.T) {
 // expected to be called.
 type fakeBackend struct{}
 
-func (fakeBackend) CreateQueue(string) (bool, error)   { return false, nil }
+func (fakeBackend) CreateQueueWithMetadata(string, map[string]string) (bool, error) {
+	return false, nil
+}
+func (fakeBackend) SetQueueMetadata(string, map[string]string) error { return nil }
+func (fakeBackend) GetQueueProperties(string) (azurequeue.QueueProperties, error) {
+	return azurequeue.QueueProperties{}, nil
+}
 func (fakeBackend) DeleteQueue(string) error           { return nil }
 func (fakeBackend) ListQueues() []azurequeue.QueueInfo { return nil }
 func (fakeBackend) PutMessage(string, string, time.Duration, time.Duration) (azurequeue.MessageInfo, error) {

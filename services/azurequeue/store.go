@@ -1,6 +1,7 @@
 package azurequeue
 
 import (
+	"maps"
 	"sort"
 	"time"
 
@@ -53,23 +54,30 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 func (b *InMemoryBackend) now() time.Time { return b.nowFunc().UTC() }
 
-// CreateQueue creates a new, empty queue. If a queue with the same name
-// already exists, created is false and err is nil -- this backend has no
-// queue metadata (see PARITY.md known gaps), so any pre-existing queue is by
-// definition "the same metadata" and Create is idempotent (204), matching
-// real Azure Queue Storage's semantics for a metadata-identical retry.
-// ErrQueueAlreadyExists is reserved for a future metadata-bearing Create.
+// CreateQueue creates a queue with no metadata; see CreateQueueWithMetadata.
 func (b *InMemoryBackend) CreateQueue(name string) (bool, error) {
+	return b.CreateQueueWithMetadata(name, nil)
+}
+
+// CreateQueueWithMetadata creates a queue. A pre-existing queue with equal
+// metadata yields created=false (idempotent 204); different metadata yields
+// ErrQueueAlreadyExists.
+func (b *InMemoryBackend) CreateQueueWithMetadata(name string, metadata map[string]string) (bool, error) {
 	b.mu.Lock("CreateQueue")
 	defer b.mu.Unlock()
 
-	if _, ok := b.queues[name]; ok {
-		return false, nil
+	if q, ok := b.queues[name]; ok {
+		if maps.Equal(q.Metadata, metadata) || (len(q.Metadata) == 0 && len(metadata) == 0) {
+			return false, nil
+		}
+
+		return false, ErrQueueAlreadyExists
 	}
 
 	b.queues[name] = &storedQueue{
 		Name:      name,
 		CreatedAt: b.now(),
+		Metadata:  cloneMetadata(metadata),
 	}
 
 	return true, nil
@@ -98,7 +106,7 @@ func (b *InMemoryBackend) ListQueues() []QueueInfo {
 
 	out := make([]QueueInfo, 0, len(b.queues))
 	for _, q := range b.queues {
-		out = append(out, QueueInfo{Name: q.Name, CreatedAt: q.CreatedAt})
+		out = append(out, QueueInfo{Name: q.Name, CreatedAt: q.CreatedAt, Metadata: cloneMetadata(q.Metadata)})
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })

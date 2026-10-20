@@ -80,15 +80,14 @@ func TestHandler_InvalidURI(t *testing.T) {
 	}
 }
 
-func TestHandler_Batch_NotImplemented(t *testing.T) {
+func TestHandler_Batch_Malformed(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/"+testAccount+"/$batch", []byte("--batch"))
 
-	assert.Equal(t, http.StatusNotImplemented, rec.Code)
-	assert.Equal(t, "NotImplemented", rec.Header().Get("X-Ms-Error-Code"))
-	assert.Contains(t, rec.Body.String(), "PARITY.md")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "InvalidInput", rec.Header().Get("X-Ms-Error-Code"))
 }
 
 func TestHandler_MethodNotAllowed(t *testing.T) {

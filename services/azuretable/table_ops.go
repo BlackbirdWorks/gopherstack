@@ -8,6 +8,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/odatatable"
 )
 
 // preferReturnNoContent is the Prefer request header value that makes a
@@ -39,6 +40,11 @@ func (h *Handler) createTable(c *echo.Context) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInput", "TableName must not be empty.")
 	}
 
+	if !validTableName(req.TableName) {
+		return h.writeError(c, http.StatusBadRequest, "InvalidResourceName",
+			"The specifed resource name contains invalid characters.")
+	}
+
 	if createErr := h.Backend.CreateTable(req.TableName); createErr != nil {
 		if errors.Is(createErr, ErrTableAlreadyExists) {
 			return h.writeError(c, http.StatusConflict, "TableAlreadyExists",
@@ -60,11 +66,30 @@ func (h *Handler) createTable(c *echo.Context) error {
 }
 
 func (h *Handler) listTables(c *echo.Context) error {
-	infos := h.Backend.ListTables()
-	level := odataLevelFromAccept(c.Request().Header.Get("Accept"))
+	top, topErr := odatatable.ParseTop(c.QueryParam("$top"))
+	if topErr != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInput", "The value for $top is invalid.")
+	}
 
-	values := make([]map[string]any, 0, len(infos))
-	for _, ti := range infos {
+	if top <= 0 || top > odatatable.MaxPageSize {
+		top = odatatable.MaxPageSize
+	}
+
+	start := c.QueryParam(headerNextTableNameParam)
+	level := odataLevelFromAccept(c.Request().Header.Get("Accept"))
+	values := make([]map[string]any, 0, top)
+
+	for _, ti := range h.Backend.ListTables() {
+		if ti.Name < start {
+			continue
+		}
+
+		if len(values) >= top {
+			c.Response().Header().Set(headerNextTableName, ti.Name)
+
+			break
+		}
+
 		values = append(values, h.tableEntityBody(ti.Name, level))
 	}
 

@@ -384,6 +384,7 @@ type storedTable struct {
 	Entities map[entityCompositeKey]*storedEntity
 	sorted   atomic.Pointer[[]*storedEntity]
 	Name     string
+	ACL      []SignedIdentifier `json:"ACL,omitempty"`
 }
 
 // StoredTable is an exported alias for storedTable, existing solely so a

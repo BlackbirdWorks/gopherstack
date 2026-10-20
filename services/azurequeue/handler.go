@@ -41,6 +41,8 @@ const (
 	opDeleteMessage        = "DeleteMessage"
 	opUpdateMessage        = "UpdateMessage"
 	opClearMessages        = "ClearMessages"
+	opSetQueueMetadata     = "SetQueueMetadata"
+	opGetQueueMetadata     = "GetQueueMetadata"
 	unknownOperation       = "Unknown"
 )
 
@@ -113,6 +115,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		opDeleteMessage,
 		opUpdateMessage,
 		opClearMessages,
+		opSetQueueMetadata,
+		opGetQueueMetadata,
 	}
 }
 
@@ -285,6 +289,8 @@ func operationFor(r *http.Request) string {
 		return messageOperationFor(r.Method)
 	case sub == messagesSegment:
 		return messagesOperationFor(r)
+	case queue != "" && r.URL.Query().Get(queryComp) == compMetadata:
+		return metadataOperationFor(r.Method)
 	case queue != "":
 		return queueOperationFor(r.Method)
 	default:
@@ -316,8 +322,19 @@ func queueOperationFor(method string) string {
 		return opCreateQueue
 	case http.MethodDelete:
 		return opDeleteQueue
-	case http.MethodGet:
+	case http.MethodGet, http.MethodHead:
 		return opQueueExists
+	default:
+		return unknownOperation
+	}
+}
+
+func metadataOperationFor(method string) string {
+	switch method {
+	case http.MethodPut:
+		return opSetQueueMetadata
+	case http.MethodGet, http.MethodHead:
+		return opGetQueueMetadata
 	default:
 		return unknownOperation
 	}
@@ -379,6 +396,7 @@ func (h *Handler) handleAccountLevel(c *echo.Context) error {
 			"A query parameter is not supported for this operation.")
 	}
 
+	includeMeta := strings.Contains(c.QueryParam("include"), compMetadata)
 	queues := h.Backend.ListQueues()
 	result := enumerationResults{
 		ServiceEndpoint: h.serviceEndpoint(),
@@ -386,7 +404,12 @@ func (h *Handler) handleAccountLevel(c *echo.Context) error {
 	}
 
 	for _, qi := range queues {
-		result.Queues.Queue = append(result.Queues.Queue, queueEntry{Name: qi.Name})
+		entry := queueEntry{Name: qi.Name}
+		if includeMeta {
+			entry.Metadata = metadataToXML(qi.Metadata)
+		}
+
+		result.Queues.Queue = append(result.Queues.Queue, entry)
 	}
 
 	return h.writeXML(c, http.StatusOK, result)
@@ -395,13 +418,29 @@ func (h *Handler) handleAccountLevel(c *echo.Context) error {
 // handleQueueLevel serves the two queue-scoped operations: Create Queue and
 // Delete Queue.
 func (h *Handler) handleQueueLevel(c *echo.Context, queue string) error {
+	if c.QueryParam(queryComp) == compMetadata {
+		return h.handleQueueMetadata(c, queue)
+	}
+
 	switch c.Request().Method {
 	case http.MethodPut:
 		return h.createQueue(c, queue)
 	case http.MethodDelete:
 		return h.deleteQueue(c, queue)
-	case http.MethodGet:
+	case http.MethodGet, http.MethodHead:
 		return h.getQueueExists(c, queue)
+	default:
+		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
+			"The resource doesn't support the specified HTTP verb.")
+	}
+}
+
+func (h *Handler) handleQueueMetadata(c *echo.Context, queue string) error {
+	switch c.Request().Method {
+	case http.MethodPut:
+		return h.setQueueMetadata(c, queue)
+	case http.MethodGet, http.MethodHead:
+		return h.getQueueMetadata(c, queue)
 	default:
 		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
 			"The resource doesn't support the specified HTTP verb.")
@@ -426,14 +465,18 @@ func (h *Handler) getQueueExists(c *echo.Context, queue string) error {
 }
 
 func (h *Handler) createQueue(c *echo.Context, queue string) error {
-	created, err := h.Backend.CreateQueue(queue)
-	if err != nil {
-		if errors.Is(err, ErrQueueAlreadyExists) {
-			return h.writeError(c, http.StatusConflict, "QueueAlreadyExists",
-				"The specified queue already exists and has different metadata.")
-		}
+	if code, msg := validateQueueName(queue); code != "" {
+		return h.writeError(c, http.StatusBadRequest, code, msg)
+	}
 
-		return h.writeError(c, http.StatusInternalServerError, "InternalError", err.Error())
+	md, ok := parseMetadata(c.Request())
+	if !ok {
+		return h.writeInvalidMetadata(c)
+	}
+
+	created, err := h.Backend.CreateQueueWithMetadata(queue, md)
+	if err != nil {
+		return h.writeCreateQueueError(c, err)
 	}
 
 	if created {

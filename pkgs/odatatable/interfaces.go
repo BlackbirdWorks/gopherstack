@@ -42,6 +42,13 @@ type StorageBackend interface {
 	MergeEntity(table, partitionKey, rowKey string, props map[string]EntityProperty, ifMatch string) (EntityInfo, error)
 	DeleteEntity(table, partitionKey, rowKey, ifMatch string) error
 
+	// QueryEntitiesPage is QueryEntities with an explicit continuation start key and a MaxPageSize cap.
+	QueryEntitiesPage(table string, filter Node, limit int, startPK, startRK string) (EntityPage, error)
+	// ExecuteBatch applies ops atomically; failures are *BatchError.
+	ExecuteBatch(table string, ops []BatchOp) ([]EntityInfo, error)
+	SetTableACL(table string, ids []SignedIdentifier) error
+	GetTableACL(table string) ([]SignedIdentifier, error)
+
 	// Reset clears all in-memory state. Used by callers' own
 	// POST /_gopherstack/reset endpoint for CI pipelines and rapid local
 	// development.

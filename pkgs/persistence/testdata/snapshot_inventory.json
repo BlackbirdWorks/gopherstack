@@ -3218,6 +3218,7 @@
       "storedMessage.seq uint64",
       "storedQueue.CreatedAt time.Time",
       "storedQueue.Messages []*storedMessage",
+      "storedQueue.Metadata map[string]string `json:\"Metadata,omitempty\"`",
       "storedQueue.Name string",
       "storedQueue.idx queueIndex"
     ],

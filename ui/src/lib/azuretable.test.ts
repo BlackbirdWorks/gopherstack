@@ -233,6 +233,7 @@ describe("filters", () => {
 
   it("builds query strings", () => {
     expect(queryString({})).toBe("");
+    expect(queryString({ select: ["A", "B C"], top: 2 })).toBe("$select=A%2CB%20C&$top=2");
     expect(queryString({ filter: " Age gt 3 ", top: 10 })).toBe("$filter=Age%20gt%203&$top=10");
     expect(queryString({ top: 5, next: { partitionKey: "a b", rowKey: "r" } })).toBe(
       "$top=5&NextPartitionKey=a%20b&NextRowKey=r",
