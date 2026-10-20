@@ -349,6 +349,7 @@ func errorProbeUnreachable() map[string]string {
 		"GCPCloudTasks":           "non-AWS",
 		"GCPScheduler":            "non-AWS",
 		"GCPRun":                  "non-AWS",
+		"GCPFunctions":            "non-AWS",
 		"GCPFirestore":            "non-AWS",
 		"GCPIAM":                  "non-AWS",
 		"Dashboard":               "not an AWS API",

@@ -14558,6 +14558,21 @@
     ],
     "version": 1
   },
+  "gcpfunctions": {
+    "fields": [
+      "backendSnapshot.Functions map[string]fnSnap `json:\"functions\"`",
+      "backendSnapshot.Operations map[string]json.RawMessage `json:\"operations\"`",
+      "backendSnapshot.Uploads map[string]uploadSnap `json:\"uploads\"`",
+      "fnSnap.Failure string `json:\"failure\"`",
+      "fnSnap.Function json.RawMessage `json:\"function\"`",
+      "fnSnap.RevSeq int `json:\"revSeq\"`",
+      "fnSnap.SubName string `json:\"subName\"`",
+      "fnSnap.Zip []byte `json:\"zip\"`",
+      "uploadSnap.Data []byte `json:\"data\"`",
+      "uploadSnap.Generation int64 `json:\"generation\"`"
+    ],
+    "version": 1
+  },
   "gcpiam": {
     "fields": [
       "accountSnap.Account json.RawMessage `json:\"account\"`",

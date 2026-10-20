@@ -168,6 +168,7 @@ import (
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
+	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
 	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
@@ -541,6 +542,7 @@ type CLI struct {
 	GCPCloudTasks                 gcpcloudtasksbackend.Settings     `embed:"" prefix:"gcp-cloudtasks-"`
 	GCPScheduler                  gcpschedulerbackend.Settings      `embed:"" prefix:"gcp-scheduler-"`
 	GCPRun                        gcprunbackend.Settings            `embed:"" prefix:"gcp-run-"`
+	GCPFunctions                  gcpfunctionsbackend.Settings      `embed:"" prefix:"gcp-functions-"`
 	Transparent                   TransparentSettings               `embed:"" prefix:"transparent-"`
 	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
 	AzureKeyVault                 azurekeyvaultbackend.Settings     `embed:"" prefix:"azure-keyvault-"`
@@ -683,6 +685,9 @@ func (c *CLI) GetGCPSchedulerSettings() gcpschedulerbackend.Settings { return c.
 
 // GetGCPRunSettings returns Google Cloud Run settings (gcprun.ConfigProvider).
 func (c *CLI) GetGCPRunSettings() gcprunbackend.Settings { return c.GCPRun }
+
+// GetGCPFunctionsSettings returns Google Cloud Functions settings (gcpfunctions.ConfigProvider).
+func (c *CLI) GetGCPFunctionsSettings() gcpfunctionsbackend.Settings { return c.GCPFunctions }
 
 // GetGCPIAMSettings returns Google Cloud IAM admin settings (gcpiam.ConfigProvider).
 func (c *CLI) GetGCPIAMSettings() gcpiambackend.Settings { return c.GCPIAM }
@@ -2262,6 +2267,8 @@ func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *port
 		{"GCPScheduler", "gcpscheduler", cli.GCPScheduler.Port},
 		{"GCPRun", "gcprun", cli.GCPRun.Port},
 		{"GCPRunIngress", "gcprun-ingress", cli.GCPRun.IngressPort},
+		{"GCPFunctions", "gcpfunctions", cli.GCPFunctions.Port},
+		{"GCPFunctionsIngress", "gcpfunctions-ingress", cli.GCPFunctions.IngressPort},
 		{"GCPIAM", "gcpiam", cli.GCPIAM.Port},
 		{"GCPFirestore", "gcpfirestore", cli.GCPFirestore.Port},
 		{"AzureQueue", "azurequeue", cli.AzureQueue.Port},
@@ -3408,6 +3415,7 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	wireAgentCore(byName)
 	wireS3Files(byName)
 	wireGCPScheduler(byName)
+	wireGCPFunctions(byName)
 
 	// Wire Auto Scaling → EC2 so scale-out launches real (mock) EC2 instances
 	// and scale-in terminates them there too, instead of Auto Scaling
@@ -4640,6 +4648,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&gcpcloudtasksbackend.Provider{},
 		&gcpschedulerbackend.Provider{},
 		&gcprunbackend.Provider{},
+		&gcpfunctionsbackend.Provider{},
 		&gcpiambackend.Provider{},
 		&gcpfirestorebackend.Provider{},
 		&azurearmbackend.Provider{},

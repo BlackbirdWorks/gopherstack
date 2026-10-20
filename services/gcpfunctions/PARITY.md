@@ -1,0 +1,40 @@
+---
+service: gcpfunctions
+sdk_module: cloud.google.com/go/functions@v1.26.0
+last_audit_commit: 8d369e7be
+last_audit_date: 2026-10-19
+overall: B
+# Per-op or per-op-family status. Values: ok | partial | gap | deferred.
+# wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
+ops:
+  CreateFunction: {wire: ok, errors: ok, state: ok, persist: ok, note: "function_id (or the last segment of function.name) must match [a-z][-a-z0-9]{0,62}. build_config needs a supported runtime, entry_point and a storage_source that resolves (GenerateUploadUrl slot that was PUT, or an object in the GCS emulator); repo_source/git_uri are rejected. Returns a pending operation that resolves to the Function once the archive is validated and the event trigger is wired; a bad archive ends FAILED with state_messages and a FAILED_PRECONDITION operation error."}
+  GetFunction: {wire: ok, errors: ok, state: ok, persist: n/a, note: "url and service_config.uri are http://<function>-<hash>-<region>.localhost:<ingress port>; service_config.service is the synthetic Cloud Run service name. The revision field is not supported (INVALID_ARGUMENT)."}
+  ListFunctions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Sorted by name, paged via pkgs/page; parent locations/- lists every location; filter and order_by are rejected with INVALID_ARGUMENT."}
+  UpdateFunction: {wire: ok, errors: ok, state: ok, persist: ok, note: "update_mask supports dotted paths into build_config, service_config and event_trigger plus description, labels and kms_key_name; an empty mask copies populated mutable fields. A changed source is re-resolved; every update adds a revision, redeploys, and replaces the running container. A function cannot switch between HTTP and event triggers. A concurrent operation is FAILED_PRECONDITION."}
+  DeleteFunction: {wire: ok, errors: ok, state: ok, persist: ok, note: "Marks DELETING, stops the container, removes the Pub/Sub trigger subscription and the function; the operation resolves with google.protobuf.Empty."}
+  GenerateUploadUrl: {wire: ok, errors: ok, state: ok, persist: ok, note: "Returns http://localhost:<ingress port>/_gcf/upload/<bucket>/<object> and the storage_source to reference. Only issued slots accept a PUT (any content type, 100 MiB cap). The bucket is a synthetic gcf-v2-uploads-<hash>-<region> held by the service itself, not visible in the GCS emulator. GEN_1 is rejected."}
+  GenerateDownloadUrl: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Returns an unauthenticated ingress URL serving the function's stored source zip."}
+  ListRuntimes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Lists the runtimes the emulator can run (go122-go125, nodejs20/22/24, python310-313), all GEN_2 and stage GA. The filter accepts only environment=GEN_1|GEN_2; display names and stages are the emulator's, not Google's lifecycle data."}
+families:
+  operations: {status: ok, note: "google.longrunning.Operations (Get, List, Wait, Cancel, Delete) is served on the same gRPC listener by pkgs/gcplro. OperationMetadata carries target, verb, operation_type and end_time; stages and build_name are not populated. Operations persist; pending ones are aborted on restore."}
+  execution: {status: partial, note: "Functions run in real containers through pkgs/container. The source zip is unpacked into a scratch directory, mounted read-only at /src and copied to /workspace by the container command, which then runs the official Functions Framework: nodejs -> node:<v> image, npm install then npx --yes @google-cloud/functions-framework; python -> python:3.<v>, pip install functions-framework and requirements.txt, then functions-framework; go -> golang:1.<v>, a generated gopherstack_main package importing the root package, go get functions-framework-go and go run. Needs the image (pulled by the runtime) and registry/proxy network access at start. Containers start lazily on the first request and must accept TCP within --gcp-functions-startup-timeout. The Docker path has an opt-in test (GOPHERSTACK_GCF_DOCKER_TEST=1) that has not run in CI."}
+  http_trigger: {status: ok, note: "Second listener (--gcp-functions-ingress-port, default 8129) routes <function>-<hash>-<region>.localhost[:port] to the container with the service_config timeout as a deadline. 404 unknown host/function or deleting, 503 deploying/failed/no runtime, 502 start failure, 504 timeout."}
+  event_trigger: {status: partial, note: "Only google.cloud.pubsub.topic.v1.messagePublished with a pubsub_topic that exists in the Pub/Sub emulator. Deploy creates a push subscription gcf-<function>-<region>-<topic> targeting /_gcf/events/<function> on the ingress; the ingress turns the push envelope into a binary-mode CloudEvent (ce-id/type/source/time, MessagePublishedData body) for the container. RETRY_POLICY_DO_NOT_RETRY (default) acknowledges after a failed delivery, RETRY relays the failure so Pub/Sub redelivers. event_filters, channel, other event types and Eventarc are rejected."}
+  runtime_unavailable: {status: ok, note: "With --gcp-functions-engine=none or no reachable daemon, functions deploy and report ACTIVE but invocations return 503 'container runtime is unavailable'."}
+  routing_isolation: {status: ok, note: "Own gRPC server bound in StartWorker to --gcp-functions-port / GCP_FUNCTIONS_PORT (default 8128, fails fast if taken) plus the ingress port; never registered on the shared AWS router. cli.go reserves both ports in the shared PortAlloc pool. The official client has no emulator variable: use option.WithEndpoint with insecure credentials."}
+  persistence: {status: partial, note: "Functions (protojson), source zips, upload slots and operations persist. Containers and in-flight work do not: interrupted deployments end FAILED and a restored function starts its container again on its first request. Trigger subscriptions persist with Pub/Sub, not here."}
+  auth: {status: partial, note: "No request is authenticated; ingress_settings, service accounts, vpc_connector, kms_key_name, security_level and binary_authorization are stored but not enforced."}
+  iam: {status: gap, note: "GetIamPolicy, SetIamPolicy, TestIamPermissions and the Locations service are not served (gRPC UNIMPLEMENTED)."}
+  observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; container logs are not collected."}
+items_still_open:
+  - "GEN_1 functions (cloudfunctions.v1 API), repo_source/git_uri builds and Cloud Build are not implemented."
+  - "Event types other than Pub/Sub messagePublished (Cloud Storage, Firestore, audit logs, custom channels) and event_filters are rejected."
+  - "secret_environment_variables and secret_volumes are rejected; memory, cpu, concurrency, min/max instances, vpc_connector and ingress_settings are stored but not applied."
+  - "Functions IAM policy RPCs and the Locations service are not served."
+  - "GetFunction does not support the revision field; ListFunctions rejects filter and order_by; there is no unreachable list."
+  - "URLs are http .localhost addresses, not https://*.cloudfunctions.net or *.run.app, and the upload bucket is synthetic rather than a GCS bucket."
+  - "The container build path (npm/pip/go get at start) needs network access and has only been exercised against a fake runtime."
+leaks: {status: clean, note: "Background resources are the two servers, deployment goroutines and the containers and scratch directories they own; Shutdown joins them and removes every container (goleak in TestMain)."}
+---
+
+Initial implementation (2026-10-19): google.cloud.functions.v2 FunctionService verified against cloud.google.com/go/functions v1.26.0 through the official client in the package tests, using an in-process fake container runtime and Pub/Sub bus. Event delivery into the real Pub/Sub emulator is covered by the internal/app wiring test; a Docker-backed run is opt-in and has not been exercised in CI.
