@@ -875,7 +875,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Azure Blob Storage](services/azureblob/README.md) | C | 19 | 8 gaps; 3 deferred |
-| [Azure Cosmos DB](services/cosmosdb/README.md) | B | 26 | 9 gaps |
+| [Azure Cosmos DB](services/cosmosdb/README.md) | B | 30 | 9 gaps |
 | [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 5 gaps |
 | [Azure Queue Storage](services/azurequeue/README.md) | C | 13 | 6 gaps; 1 deferred |
 | [Azure Service Bus](services/azureservicebus/README.md) | B | 24 | 4 gaps; 3 deferred |
