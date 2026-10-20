@@ -24,6 +24,7 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
@@ -4315,7 +4316,7 @@ func isActivityResource(resource string) bool {
 // isLambdaResource returns true if the resource ARN is a Lambda function.
 func isLambdaResource(resource string) bool {
 	return strings.Contains(resource, ":lambda:") ||
-		strings.HasPrefix(resource, "arn:aws:lambda:") ||
+		arn.HasService(resource, "lambda") ||
 		strings.HasPrefix(resource, "arn:aws:states:::aws-sdk:lambda:")
 }
 

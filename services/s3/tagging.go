@@ -282,7 +282,7 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 		}
 		bucket.mu.RUnlock()
 
-		out = append(out, TaggedEntry{ARN: arn.BuildS3(bucket.Name), Tags: tags})
+		out = append(out, TaggedEntry{ARN: arn.S3(bucket.Region, bucket.Name), Tags: tags})
 	}
 
 	return out

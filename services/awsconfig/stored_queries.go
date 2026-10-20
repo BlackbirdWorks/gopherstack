@@ -4,11 +4,13 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // storedQueryArn returns the ARN for the stored query named name.
 func (b *InMemoryBackend) storedQueryArn(name string) string {
-	return fmt.Sprintf("arn:aws:config:%s:%s:stored-query/%s", b.region, b.accountID, name)
+	return arn.Build("config", b.region, b.accountID, fmt.Sprintf("stored-query/%s", name))
 }
 
 // PutStoredQuery creates or updates a stored query by name. A pre-existing

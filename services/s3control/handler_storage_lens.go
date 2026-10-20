@@ -2,7 +2,6 @@ package s3control
 
 import (
 	"encoding/xml"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -411,7 +410,7 @@ func (h *Handler) handleListStorageLensConfigurations(c *echo.Context) error {
 		items = append(items, listStorageLensConfigItemXML{
 			ID:             n,
 			HomeRegion:     region,
-			StorageLensArn: fmt.Sprintf(arnFmtStorageLensConfig, region, accountID, n),
+			StorageLensArn: resourceARN("s3", region, accountID, arnFmtStorageLensConfig, n),
 			IsEnabled:      storageLensConfigIsEnabled(raw),
 		})
 	}

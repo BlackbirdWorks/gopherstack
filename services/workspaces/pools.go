@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -49,10 +50,7 @@ func (b *InMemoryBackend) CreateWorkspacesPool(
 	}
 
 	id := b.nextID("wsp-")
-	arn := fmt.Sprintf(
-		"arn:aws:workspaces:%s:%s:workspacespool/%s",
-		b.region, b.accountID, id,
-	)
+	arn := arn.Build("workspaces", b.region, b.accountID, fmt.Sprintf("workspacespool/%s", id))
 
 	stored := cloneTags(tags)
 	pool := &storedPool{

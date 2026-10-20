@@ -1,7 +1,6 @@
 package s3control
 
 import (
-	"fmt"
 	"maps"
 	"sort"
 	"strings"
@@ -12,7 +11,7 @@ func (b *InMemoryBackend) CreateStorageLensGroup(accountID, name string) *Storag
 	b.mu.Lock("CreateStorageLensGroup")
 	defer b.mu.Unlock()
 
-	arn := fmt.Sprintf(arnFmtStorageLensGroup, b.region, accountID, name)
+	arn := resourceARN("s3", b.region, accountID, arnFmtStorageLensGroup, name)
 
 	grp := &StorageLensGroup{
 		AccountID:           accountID,

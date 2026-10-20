@@ -3,6 +3,8 @@ package redshift
 import (
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // CreateIntegration creates a new zero-ETL integration.
@@ -28,7 +30,7 @@ func (b *InMemoryBackend) CreateIntegration(
 		return nil, fmt.Errorf("%w: integration %s already exists", ErrIntegrationAlreadyExists, integrationName)
 	}
 
-	arn := "arn:aws:redshift:" + b.region + ":" + b.accountID + ":integration/" + integrationName
+	arn := arn.Build("redshift", b.region, b.accountID, "integration/"+integrationName)
 	ig := &Integration{
 		IntegrationArn:  arn,
 		IntegrationName: integrationName,

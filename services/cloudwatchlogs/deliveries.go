@@ -202,7 +202,7 @@ func (b *InMemoryBackend) PutDeliveryDestination(
 
 	dest := DeliveryDestination{
 		Name:                    name,
-		Arn:                     "arn:aws:logs:" + b.region + ":" + b.accountID + ":delivery-destination:" + name,
+		Arn:                     arn.Build("logs", b.region, b.accountID, "delivery-destination:"+name),
 		TargetArn:               targetArn,
 		OutputFormat:            outputFormat,
 		DeliveryDestinationType: destinationType,
@@ -392,7 +392,7 @@ func (b *InMemoryBackend) PutDeliverySource(
 
 	src := DeliverySource{
 		Name:                        name,
-		Arn:                         "arn:aws:logs:" + b.region + ":" + b.accountID + ":delivery-source:" + name,
+		Arn:                         arn.Build("logs", b.region, b.accountID, "delivery-source:"+name),
 		LogType:                     logType,
 		ResourceArns:                resourceArns,
 		Service:                     service,

@@ -289,7 +289,7 @@ func esmARN(m *EventSourceMapping) string {
 // esmFunctionName normalizes a function reference (bare name or full function ARN)
 // to the bare function name used for event-source-mapping indexing.
 func esmFunctionName(functionName string) string {
-	if !strings.HasPrefix(functionName, "arn:aws:lambda:") {
+	if !arn.HasService(functionName, "lambda") {
 		return functionName
 	}
 

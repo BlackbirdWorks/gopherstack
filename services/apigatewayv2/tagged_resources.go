@@ -1,6 +1,10 @@
 package apigatewayv2
 
-import "maps"
+import (
+	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+)
 
 // TaggedEntry pairs a taggable resource ARN with its tags.
 type TaggedEntry struct {
@@ -9,7 +13,7 @@ type TaggedEntry struct {
 }
 
 func (b *InMemoryBackend) taggingARN(path string) string {
-	return "arn:aws:apigateway:" + b.region + "::/" + path
+	return arn.Build("apigateway", b.region, "", "/"+path)
 }
 
 // TaggedResources returns every tagged API, stage, VPC link, domain name, portal and portal product.

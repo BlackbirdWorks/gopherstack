@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -242,8 +243,7 @@ func buildRouteArn(region, apiID, stage, method, resourcePath string) string {
 	}
 
 	// arn:aws:execute-api:region:account:apiId/stage/METHOD/resource-path
-	return "arn:aws:execute-api:" + region + ":" + config.DefaultAccountID + ":" +
-		apiID + "/" + stage + "/" + method + resourcePath
+	return arn.Build("execute-api", region, config.DefaultAccountID, apiID+"/"+stage+"/"+method+resourcePath)
 }
 
 // enforceRequestAuthorizer invokes a REQUEST (Lambda) authorizer for the matched

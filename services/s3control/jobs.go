@@ -62,7 +62,7 @@ func (b *InMemoryBackend) CreateJob(accountID, roleArn string, priority int32) (
 	defer b.mu.Unlock()
 
 	id := b.newID("job")
-	arn := fmt.Sprintf(arnFmtJob, b.region, accountID, id)
+	arn := resourceARN("s3", b.region, accountID, arnFmtJob, id)
 
 	job := &BatchJob{
 		AccountID:    accountID,

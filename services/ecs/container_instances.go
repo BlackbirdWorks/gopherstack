@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // RegisterContainerInstance registers a container instance to a cluster.
@@ -57,9 +59,11 @@ func (b *InMemoryBackend) registerContainerInstanceLocked(
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
-	instanceArn := fmt.Sprintf(
-		"arn:aws:ecs:%s:%s:container-instance/%s/%s",
-		b.region, b.accountID, clusterName, uuid.NewString(),
+	instanceArn := arn.Build(
+		"ecs",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("container-instance/%s/%s", clusterName, uuid.NewString()),
 	)
 
 	ci := &ContainerInstance{

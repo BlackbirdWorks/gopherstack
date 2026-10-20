@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
+
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
@@ -1018,17 +1020,17 @@ func buildDeliveryEnvelopeWithDetail(entry EventEntry, accountID, region string,
 
 // isLambdaARN returns true if the ARN identifies a Lambda function.
 func isLambdaARN(arn string) bool {
-	return strings.Contains(arn, ":lambda:") || strings.HasPrefix(arn, "arn:aws:lambda:")
+	return strings.Contains(arn, ":lambda:") || arnpkg.HasService(arn, "lambda")
 }
 
 // isSQSARN returns true if the ARN identifies an SQS queue.
 func isSQSARN(arn string) bool {
-	return strings.Contains(arn, ":sqs:") || strings.HasPrefix(arn, "arn:aws:sqs:")
+	return strings.Contains(arn, ":sqs:") || arnpkg.HasService(arn, "sqs")
 }
 
 // isSNSARN returns true if the ARN identifies an SNS topic.
 func isSNSARN(arn string) bool {
-	return strings.Contains(arn, ":sns:") || strings.HasPrefix(arn, "arn:aws:sns:")
+	return strings.Contains(arn, ":sns:") || arnpkg.HasService(arn, "sns")
 }
 
 // isKinesisFirehoseARN returns true if the ARN identifies a Kinesis Data Firehose delivery stream.
@@ -1070,16 +1072,16 @@ func deliverToStepFunctions(
 }
 
 func isCloudWatchLogsARN(arn string) bool {
-	return strings.HasPrefix(arn, "arn:aws:logs:")
+	return arnpkg.HasService(arn, "logs")
 }
 
 func isAPIDestinationARN(arn string) bool {
-	return strings.HasPrefix(arn, "arn:aws:events:") && strings.Contains(arn, ":api-destination/")
+	return arnpkg.HasService(arn, "events") && strings.Contains(arn, ":api-destination/")
 }
 
 // isEventBusARN returns true if the ARN identifies an EventBridge event bus.
 func isEventBusARN(arn string) bool {
-	return strings.HasPrefix(arn, "arn:aws:events:") && strings.Contains(arn, ":event-bus/")
+	return arnpkg.HasService(arn, "events") && strings.Contains(arn, ":event-bus/")
 }
 
 func deliverToEventBus(ctx context.Context, router EventBusRouter, arn string, envelope map[string]any) bool {

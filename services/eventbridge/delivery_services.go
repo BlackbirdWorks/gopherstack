@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 
+	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -43,25 +45,25 @@ func deliverToServiceTarget(
 	arn := target.Arn
 
 	switch {
-	case strings.HasPrefix(arn, "arn:aws:batch:") && strings.Contains(arn, ":job-queue/"):
+	case arnpkg.HasService(arn, "batch") && strings.Contains(arn, ":job-queue/"):
 		if dt.Batch == nil {
 			return false, true
 		}
 
 		return logTargetErr(ctx, "Batch", dt.Batch.SubmitBatchJob(ctx, arn, target.BatchParameters, payload)), true
-	case strings.HasPrefix(arn, "arn:aws:codebuild:") && strings.Contains(arn, ":project/"):
+	case arnpkg.HasService(arn, "codebuild") && strings.Contains(arn, ":project/"):
 		if dt.CodeBuild == nil {
 			return false, true
 		}
 
 		return logTargetErr(ctx, "CodeBuild", dt.CodeBuild.StartCodeBuild(ctx, arn)), true
-	case strings.HasPrefix(arn, "arn:aws:codepipeline:"):
+	case arnpkg.HasService(arn, "codepipeline"):
 		if dt.CodePipeline == nil {
 			return false, true
 		}
 
 		return logTargetErr(ctx, "CodePipeline", dt.CodePipeline.StartCodePipeline(ctx, arn)), true
-	case strings.HasPrefix(arn, "arn:aws:sagemaker:") && strings.Contains(arn, ":pipeline/"):
+	case arnpkg.HasService(arn, "sagemaker") && strings.Contains(arn, ":pipeline/"):
 		if dt.SageMakerPipeline == nil {
 			return false, true
 		}
@@ -69,7 +71,7 @@ func deliverToServiceTarget(
 		err := dt.SageMakerPipeline.StartSageMakerPipeline(ctx, arn, target.SageMakerPipelineParameters)
 
 		return logTargetErr(ctx, "SageMaker pipeline", err), true
-	case strings.HasPrefix(arn, "arn:aws:redshift:") && strings.Contains(arn, ":cluster:"):
+	case arnpkg.HasService(arn, "redshift") && strings.Contains(arn, ":cluster:"):
 		if dt.RedshiftData == nil {
 			return false, true
 		}

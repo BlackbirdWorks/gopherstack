@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
@@ -34,9 +35,8 @@ func (b *InMemoryBackend) CreateIpamPrefixListResolver(
 
 	id := awsid.New("ipam-prefix-list-resolver-")
 	resolver := &IpamPrefixListResolver{
-		IpamPrefixListResolverID: id,
-		IpamPrefixListResolverARN: "arn:aws:ec2:" + b.Region + ":" + b.AccountID +
-			":ipam-prefix-list-resolver/" + id,
+		IpamPrefixListResolverID:  id,
+		IpamPrefixListResolverARN: arn.Build("ec2", b.Region, b.AccountID, "ipam-prefix-list-resolver/"+id),
 		IpamID:                    ipamID,
 		IpamARN:                   ipam.IpamARN,
 		IpamRegion:                b.Region,
@@ -258,8 +258,12 @@ func (b *InMemoryBackend) CreateIpamPrefixListResolverTarget(
 	id := awsid.New("ipam-prefix-list-resolver-target-")
 	target := &IpamPrefixListResolverTarget{
 		IpamPrefixListResolverTargetID: id,
-		IpamPrefixListResolverTargetARN: "arn:aws:ec2:" + b.Region + ":" + b.AccountID +
-			":ipam-prefix-list-resolver-target/" + id,
+		IpamPrefixListResolverTargetARN: arn.Build(
+			"ec2",
+			b.Region,
+			b.AccountID,
+			"ipam-prefix-list-resolver-target/"+id,
+		),
 		IpamPrefixListResolverID: resolverID,
 		OwnerID:                  b.AccountID,
 		PrefixListID:             prefixListID,

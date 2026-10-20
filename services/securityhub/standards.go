@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // clone deep-copies s's map fields and its unexported pollCount, which
@@ -126,7 +128,7 @@ func isKnownStandard(standardsArn string) bool {
 func (b *InMemoryBackend) standardsSubscriptionArn(standardsArn string) string {
 	key, _ := standardsKey(standardsArn)
 
-	return fmt.Sprintf("arn:aws:securityhub:%s:%s:subscription/%s", b.region, b.accountID, key)
+	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("subscription/%s", key))
 }
 
 func (b *InMemoryBackend) BatchEnableStandards(requests []map[string]any) ([]*StandardsSubscription, []map[string]any) {

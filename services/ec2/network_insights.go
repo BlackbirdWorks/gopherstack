@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
@@ -23,7 +24,7 @@ func (b *InMemoryBackend) CreateNetworkInsightsPath(
 	id := awsid.New("nip-")
 	p := &NetworkInsightsPath{
 		NetworkInsightsPathID:  id,
-		NetworkInsightsPathArn: "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":network-insights-path/" + id,
+		NetworkInsightsPathArn: arn.Build("ec2", b.Region, b.AccountID, "network-insights-path/"+id),
 		SourceID:               sourceID,
 		DestinationID:          destinationID,
 		Protocol:               protocol,
@@ -82,7 +83,7 @@ func (b *InMemoryBackend) StartNetworkInsightsAnalysis(pathID string) (*NetworkI
 	id := awsid.New("nia-")
 	a := &NetworkInsightsAnalysis{
 		NetworkInsightsAnalysisID:  id,
-		NetworkInsightsAnalysisARN: "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":network-insights-analysis/" + id,
+		NetworkInsightsAnalysisARN: arn.Build("ec2", b.Region, b.AccountID, "network-insights-analysis/"+id),
 		NetworkInsightsPathID:      pathID,
 		Status:                     stateAnalysisSucceeded,
 		StartDate:                  time.Now().UTC(),
@@ -141,7 +142,7 @@ func (b *InMemoryBackend) CreateNetworkInsightsAccessScope() (*NetworkInsightsAc
 	id := awsid.New("nias-")
 	s := &NetworkInsightsAccessScope{
 		NetworkInsightsAccessScopeID:  id,
-		NetworkInsightsAccessScopeArn: "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":network-insights-access-scope/" + id,
+		NetworkInsightsAccessScopeArn: arn.Build("ec2", b.Region, b.AccountID, "network-insights-access-scope/"+id),
 	}
 	b.networkInsightsAccessScopes.Put(s)
 

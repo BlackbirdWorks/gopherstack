@@ -243,6 +243,7 @@ precedence is **defaults < persisted config < env vars / CLI flags**.
 | `--tls-key` | `TLS_KEY` | *(empty)* | Path to a TLS private key (PEM). |
 | `--compression` | `COMPRESSION` | `on` | Runtime response compression (`on`/`off`). See [Response compression](#response-compression). |
 | `--validate-sigv4` | `VALIDATE_SIGV4` | `false` | Cryptographically validate AWS SigV4 request signatures (opt-in). |
+| (env only) | `GOPHERSTACK_PARTITION_STRICT` | `true` | Reject signed requests that reference an ARN from another partition than the signing region (e.g. `arn:aws-cn:` from `us-east-1`). In `cn-*`/`us-gov-*` regions `arn:aws:` ARNs are tolerated while IAM/S3 still emit them. Set `false` to disable. |
 | `--sigv4-secret` | `SIGV4_SECRET` | `test` | Secret access key SigV4 validation signs against (only used with `--validate-sigv4`). |
 | `--dns-addr` | `DNS_ADDR` | *(empty)* | Address for the embedded DNS server (e.g. `:10053`). Empty disables it. |
 | `--dns-resolve-ip` | `DNS_RESOLVE_IP` | `127.0.0.1` | IP address synthetic hostnames resolve to. |

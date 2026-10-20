@@ -3,6 +3,7 @@ package xray
 import (
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -89,11 +90,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 }
 
 func (b *InMemoryBackend) groupARN(name string) string {
-	return "arn:aws:xray:" + b.region + ":" + b.accountID + ":group/default/" + name
+	return arn.Build("xray", b.region, b.accountID, "group/default/"+name)
 }
 
 func (b *InMemoryBackend) samplingRuleARN(name string) string {
-	return "arn:aws:xray:" + b.region + ":" + b.accountID + ":sampling-rule/" + name
+	return arn.Build("xray", b.region, b.accountID, "sampling-rule/"+name)
 }
 
 // Reset clears all backend state, resetting to an empty store.

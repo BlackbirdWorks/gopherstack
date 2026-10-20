@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -381,7 +382,7 @@ func (h *Handler) dispatchSQS(ctx context.Context, region, spec string, payload 
 		return errSQSQueuePathMalformed
 	}
 
-	queueARN := "arn:aws:sqs:" + region + ":" + segments[0] + ":" + segments[1]
+	queueARN := arn.Build("sqs", region, segments[0], segments[1])
 
 	return h.sqsSender.SendMessageToQueue(ctx, queueARN, string(payload))
 }

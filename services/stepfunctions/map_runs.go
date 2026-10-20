@@ -3,6 +3,8 @@ package stepfunctions
 import (
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // mapRunARNFor builds a Map Run ARN from an execution ARN and a state name.
@@ -13,13 +15,7 @@ func (b *InMemoryBackend) mapRunARNFor(execARN, stateName string) string {
 	parts := strings.Split(execARN, ":")
 	const execARNMinParts = 8
 	if len(parts) < execARNMinParts {
-		return fmt.Sprintf(
-			"arn:aws:states:%s:%s:mapRun:unknown/%s/%s",
-			b.region,
-			b.accountID,
-			"unknown",
-			stateName,
-		)
+		return arn.Build("states", b.region, b.accountID, fmt.Sprintf("mapRun:unknown/%s/%s", "unknown", stateName))
 	}
 	// parts[3]=region, parts[4]=account, parts[6]=smName, parts[7]=execName
 	region := parts[3]
@@ -27,14 +23,7 @@ func (b *InMemoryBackend) mapRunARNFor(execARN, stateName string) string {
 	smName := parts[6]
 	execName := parts[7]
 
-	return fmt.Sprintf(
-		"arn:aws:states:%s:%s:mapRun:%s/%s/%s",
-		region,
-		account,
-		smName,
-		execName,
-		stateName,
-	)
+	return arn.Build("states", region, account, fmt.Sprintf("mapRun:%s/%s/%s", smName, execName, stateName))
 }
 
 // syncMapRunNotifier wraps InMemoryBackend to provide MapRunNotifier for

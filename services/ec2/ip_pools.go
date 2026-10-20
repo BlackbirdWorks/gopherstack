@@ -6,6 +6,8 @@ import (
 	"maps"
 	"slices"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // ip_pools.go implements three related "address pool" families: Customer-Owned IP
@@ -114,7 +116,7 @@ func (b *InMemoryBackend) CreateCoipPool(localGatewayRouteTableID string, tags m
 	id := newCoIPPoolID()
 	pool := &CoipPool{
 		PoolID:                   id,
-		PoolArn:                  "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":coip-pool/" + id,
+		PoolArn:                  arn.Build("ec2", b.Region, b.AccountID, "coip-pool/"+id),
 		LocalGatewayRouteTableID: localGatewayRouteTableID,
 	}
 	b.coipPools.Put(pool)

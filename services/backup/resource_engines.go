@@ -11,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 const (
@@ -327,5 +329,5 @@ func (e *ebsEngine) restore(_ context.Context, data json.RawMessage, md map[stri
 		return "", fmt.Errorf("create volume: %w", err)
 	}
 
-	return "arn:aws:ec2:" + e.region + ":" + e.accountID + ":volume/" + id, nil
+	return arn.Build("ec2", e.region, e.accountID, "volume/"+id), nil
 }

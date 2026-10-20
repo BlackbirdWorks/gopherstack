@@ -24,7 +24,7 @@ func PartitionForRegion(region string) string {
 	case strings.HasPrefix(region, "us-isob-"):
 		return "aws-iso-b"
 	default:
-		return "aws"
+		return partitionAWS
 	}
 }
 

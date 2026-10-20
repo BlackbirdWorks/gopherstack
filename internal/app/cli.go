@@ -2646,6 +2646,7 @@ func buildEchoServer(
 	registerAppInspector(ctx, e)
 	e.Pre(logger.EchoMiddleware(log))
 	e.Pre(awsMetaMiddleware(cli.Region, cli.AccountID))
+	e.Pre(partitionStrictMiddleware())
 
 	// Optional, opt-in SigV4 signature validation. Off by default so existing
 	// clients (which sign with dummy creds) are not rejected.

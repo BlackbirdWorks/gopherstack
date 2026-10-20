@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
@@ -563,7 +564,7 @@ func (b *InMemoryBackend) CreateInstanceConnectEndpoint(
 	id := awsid.New("eice-")
 	ep := &InstanceConnectEndpoint{
 		InstanceConnectEndpointID:  id,
-		InstanceConnectEndpointARN: "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":instance-connect-endpoint/" + id,
+		InstanceConnectEndpointARN: arn.Build("ec2", b.Region, b.AccountID, "instance-connect-endpoint/"+id),
 		SubnetID:                   subnetID,
 		VPCID:                      subnet.VPCID,
 		SecurityGroupIDs:           securityGroupIDs,

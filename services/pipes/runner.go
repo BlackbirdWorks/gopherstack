@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
@@ -328,17 +330,17 @@ func (r *Runner) pollPipe(ctx context.Context, p *Pipe) {
 }
 
 func isSQSARN(resourceARN string) bool {
-	return strings.HasPrefix(resourceARN, "arn:aws:sqs:")
+	return arnpkg.HasService(resourceARN, "sqs")
 }
 
 func isKinesisARN(resourceARN string) bool {
-	return strings.HasPrefix(resourceARN, "arn:aws:kinesis:")
+	return arnpkg.HasService(resourceARN, "kinesis")
 }
 
 // isDynamoDBStreamARN reports whether resourceARN identifies a DynamoDB stream
 // (as opposed to a plain table ARN, which has no "/stream/" segment).
 func isDynamoDBStreamARN(resourceARN string) bool {
-	return strings.HasPrefix(resourceARN, "arn:aws:dynamodb:") && strings.Contains(resourceARN, "/stream/")
+	return arnpkg.HasService(resourceARN, "dynamodb") && strings.Contains(resourceARN, "/stream/")
 }
 
 func (r *Runner) pollSQSPipe(ctx context.Context, p *Pipe) {
@@ -439,13 +441,13 @@ func (r *Runner) handlePipeFailure(
 // queue and SNS topic dead-letter targets are supported.
 func (r *Runner) sendToDLQ(ctx context.Context, dlqARN string, payload []byte) error {
 	switch {
-	case strings.HasPrefix(dlqARN, "arn:aws:sqs:"):
+	case arnpkg.HasService(dlqARN, "sqs"):
 		if r.sqsSender == nil {
 			return fmt.Errorf("%w: sqs DLQ %q", ErrEnrichmentInvokerUnwired, dlqARN)
 		}
 
 		return r.sqsSender.SendMessage(ctx, dlqARN, string(payload), "", "")
-	case strings.HasPrefix(dlqARN, "arn:aws:sns:"):
+	case arnpkg.HasService(dlqARN, "sns"):
 		if r.sns == nil {
 			return fmt.Errorf("%w: sns DLQ %q", ErrEnrichmentInvokerUnwired, dlqARN)
 		}
@@ -465,7 +467,7 @@ func (r *Runner) invokeEnrichment(ctx context.Context, p *Pipe, payload []byte) 
 	}
 
 	switch {
-	case strings.HasPrefix(enrichARN, "arn:aws:lambda:"):
+	case arnpkg.HasService(enrichARN, "lambda"):
 		if r.lambda == nil {
 			return nil, fmt.Errorf("%w: lambda enrichment %q", ErrEnrichmentInvokerUnwired, enrichARN)
 		}
@@ -487,7 +489,7 @@ func (r *Runner) invokeEnrichment(ctx context.Context, p *Pipe, payload []byte) 
 
 		return result, nil
 
-	case strings.HasPrefix(enrichARN, "arn:aws:states:"):
+	case arnpkg.HasService(enrichARN, "states"):
 		if r.sfn == nil {
 			return nil, fmt.Errorf("%w: step functions enrichment %q", ErrEnrichmentInvokerUnwired, enrichARN)
 		}
@@ -582,25 +584,25 @@ func (r *Runner) dispatchTarget(ctx context.Context, p *Pipe, payload []byte) er
 	}
 
 	switch {
-	case strings.HasPrefix(p.Target, "arn:aws:lambda:"):
+	case arnpkg.HasService(p.Target, "lambda"):
 		return r.invokeLambdaTarget(ctx, p, payload)
-	case strings.HasPrefix(p.Target, "arn:aws:states:"):
+	case arnpkg.HasService(p.Target, "states"):
 		return r.invokeSFNTarget(ctx, p, payload)
-	case strings.HasPrefix(p.Target, "arn:aws:sns:"):
+	case arnpkg.HasService(p.Target, "sns"):
 		return r.invokeSNSTarget(ctx, p, payload)
-	case strings.HasPrefix(p.Target, "arn:aws:sqs:"):
+	case arnpkg.HasService(p.Target, "sqs"):
 		return r.invokeSQSTarget(ctx, p, payload)
-	case strings.HasPrefix(p.Target, "arn:aws:kinesis:"):
+	case arnpkg.HasService(p.Target, "kinesis"):
 		return r.invokeKinesisTarget(ctx, p, payload)
 	case isAPIDestinationARN(p.Target), isAPIGatewayARN(p.Target):
 		_, err := r.invokeHTTPTarget(ctx, p, payload)
 
 		return err
-	case strings.HasPrefix(p.Target, "arn:aws:events:"):
+	case arnpkg.HasService(p.Target, "events"):
 		return r.invokeEventBridgeTarget(ctx, p, payload)
-	case strings.HasPrefix(p.Target, "arn:aws:logs:"):
+	case arnpkg.HasService(p.Target, "logs"):
 		return r.invokeCloudWatchLogsTarget(ctx, p, payload)
-	case strings.HasPrefix(p.Target, "arn:aws:firehose:"):
+	case arnpkg.HasService(p.Target, "firehose"):
 		return r.invokeFirehoseTarget(ctx, p, payload)
 	}
 

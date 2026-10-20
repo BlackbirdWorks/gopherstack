@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -48,9 +49,11 @@ func (b *InMemoryBackend) CreatePrefetchSchedule(
 		return nil, fmt.Errorf("%w: playback configuration %s not found", ErrNotFound, playbackConfigName)
 	}
 
-	psARN := fmt.Sprintf(
-		"arn:aws:mediatailor:%s:%s:prefetchSchedule/%s/%s",
-		b.region, b.accountID, playbackConfigName, name,
+	psARN := arn.Build(
+		"mediatailor",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("prefetchSchedule/%s/%s", playbackConfigName, name),
 	)
 	ps := &PrefetchSchedule{
 		ARN:                            psARN,

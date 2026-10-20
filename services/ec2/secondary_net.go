@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
@@ -152,7 +153,7 @@ func (b *InMemoryBackend) CreateSecondaryNetwork(
 	id := newSecondaryNetworkID()
 	net := &SecondaryNetwork{
 		SecondaryNetworkID:  id,
-		SecondaryNetworkArn: fmt.Sprintf("arn:aws:ec2:%s:%s:secondary-network/%s", b.Region, b.AccountID, id),
+		SecondaryNetworkArn: arn.Build("ec2", b.Region, b.AccountID, fmt.Sprintf("secondary-network/%s", id)),
 		OwnerID:             b.AccountID,
 		Type:                networkType,
 		State:               secondaryStateCreateComplete,
@@ -258,7 +259,7 @@ func (b *InMemoryBackend) CreateSecondarySubnet(
 	id := newSecondarySubnetID()
 	sub := &SecondarySubnet{
 		SecondarySubnetID:    id,
-		SecondarySubnetArn:   fmt.Sprintf("arn:aws:ec2:%s:%s:secondary-subnet/%s", b.Region, b.AccountID, id),
+		SecondarySubnetArn:   arn.Build("ec2", b.Region, b.AccountID, fmt.Sprintf("secondary-subnet/%s", id)),
 		SecondaryNetworkID:   secondaryNetworkID,
 		SecondaryNetworkType: net.Type,
 		OwnerID:              b.AccountID,

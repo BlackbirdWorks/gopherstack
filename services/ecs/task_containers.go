@@ -15,10 +15,7 @@ const (
 
 // buildContainerArn constructs a container ARN from a task ARN.
 func buildContainerArn(taskArn string) string {
-	return "arn:aws:ecs:" + strings.TrimPrefix(
-		taskArn,
-		"arn:aws:ecs:",
-	) + "/container/" + uuid.NewString()
+	return taskArn + "/container/" + uuid.NewString()
 }
 
 // buildNetworkBindingsForContainer converts a container definition's port mappings

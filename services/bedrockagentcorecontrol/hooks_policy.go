@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
@@ -299,8 +300,18 @@ func (b *InMemoryBackend) validateProviderUpdate(r *Resource, patch map[string]a
 }
 
 func (b *InMemoryBackend) managedSecretARN(sc scope, kind, name, suffix string) string {
-	return fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:bedrock-agentcore-identity!default/%s/%s/%s-%s",
-		sc.region, sc.account, kind, name, suffix, awsid.NewN("", secretSuffixLen))
+	return arn.Build(
+		"secretsmanager",
+		sc.region,
+		sc.account,
+		fmt.Sprintf(
+			"secret:bedrock-agentcore-identity!default/%s/%s/%s-%s",
+			kind,
+			name,
+			suffix,
+			awsid.NewN("", secretSuffixLen),
+		),
+	)
 }
 
 // secretMembers converts caller-supplied secret inputs into the output members clients read back.

@@ -12,7 +12,7 @@ func (b *InMemoryBackend) CreateAccessPoint(accountID, name, bucket string) *Acc
 	b.mu.Lock("CreateAccessPoint")
 	defer b.mu.Unlock()
 
-	arn := fmt.Sprintf(arnFmtAccessPoint, b.region, accountID, name)
+	arn := resourceARN("s3", b.region, accountID, arnFmtAccessPoint, name)
 
 	// Guard against short accountIDs to prevent panics on slice operations.
 	aliasPrefix := accountID

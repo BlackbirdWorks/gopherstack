@@ -1,6 +1,10 @@
 package codebuild
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+)
 
 // ImportSourceCredentials imports source credentials and returns the ARN.
 // shouldOverwrite mirrors ImportSourceCredentialsInput.ShouldOverwrite ("Set
@@ -15,7 +19,7 @@ func (b *InMemoryBackend) ImportSourceCredentials(
 	b.mu.Lock("ImportSourceCredentials")
 	defer b.mu.Unlock()
 
-	arnStr := "arn:aws:codebuild:" + b.region + ":" + b.accountID + ":token/" + serverType
+	arnStr := arn.Build("codebuild", b.region, b.accountID, "token/"+serverType)
 
 	if !shouldOverwrite {
 		if _, ok := b.sourceCredentials.Get(arnStr); ok {

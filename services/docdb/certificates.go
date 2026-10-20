@@ -3,6 +3,8 @@ package docdb
 import (
 	"context"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 func certificateCatalog() []Certificate {
@@ -40,7 +42,7 @@ func (b *InMemoryBackend) DescribeCertificates(ctx context.Context, certificateI
 	region := getRegion(ctx, b.region)
 
 	for i := range certs {
-		certs[i].CertificateArn = fmt.Sprintf("arn:aws:rds:%s::cert:%s", region, certs[i].CertificateIdentifier)
+		certs[i].CertificateArn = arn.Build("rds", region, "", fmt.Sprintf("cert:%s", certs[i].CertificateIdentifier))
 	}
 
 	if certificateID == "" {

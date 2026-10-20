@@ -39,7 +39,7 @@ func (b *InMemoryBackend) CreateAccessPointForObjectLambda(accountID, name strin
 	b.mu.Lock("CreateAccessPointForObjectLambda")
 	defer b.mu.Unlock()
 
-	arn := fmt.Sprintf(arnFmtObjectLambda, b.region, accountID, name)
+	arn := resourceARN("s3-object-lambda", b.region, accountID, arnFmtObjectLambda, name)
 
 	const (
 		maxAliasLen = 63

@@ -3,7 +3,8 @@ package pipes
 import (
 	"context"
 	"fmt"
-	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // PipeBatchSubmitter submits an AWS Batch job to the queue named by queueARN.
@@ -44,7 +45,7 @@ func (r *Runner) dispatchJobTarget(ctx context.Context, p *Pipe, payload []byte)
 	tp := p.TargetParameters
 
 	switch {
-	case strings.HasPrefix(t, "arn:aws:batch:"):
+	case arn.HasService(t, "batch"):
 		if r.jobs.Batch == nil {
 			return true, fmt.Errorf("%w: batch target %q", ErrTargetInvokerUnwired, t)
 		}
@@ -55,7 +56,7 @@ func (r *Runner) dispatchJobTarget(ctx context.Context, p *Pipe, payload []byte)
 		}
 
 		return true, r.jobs.Batch.SubmitBatchJob(ctx, t, bp)
-	case strings.HasPrefix(t, "arn:aws:sagemaker:"):
+	case arn.HasService(t, "sagemaker"):
 		if r.jobs.SageMaker == nil {
 			return true, fmt.Errorf("%w: sagemaker target %q", ErrTargetInvokerUnwired, t)
 		}
@@ -66,7 +67,7 @@ func (r *Runner) dispatchJobTarget(ctx context.Context, p *Pipe, payload []byte)
 		}
 
 		return true, r.jobs.SageMaker.StartSageMakerPipeline(ctx, t, sp)
-	case strings.HasPrefix(t, "arn:aws:redshift:"):
+	case arn.HasService(t, "redshift"):
 		if r.jobs.Redshift == nil {
 			return true, fmt.Errorf("%w: redshift target %q", ErrTargetInvokerUnwired, t)
 		}
@@ -77,9 +78,9 @@ func (r *Runner) dispatchJobTarget(ctx context.Context, p *Pipe, payload []byte)
 		}
 
 		return true, r.jobs.Redshift.ExecuteRedshiftStatement(ctx, t, rp)
-	case strings.HasPrefix(t, "arn:aws:timestream:"):
+	case arn.HasService(t, "timestream"):
 		return true, r.invokeTimestreamTarget(ctx, p, payload)
-	case strings.HasPrefix(t, "arn:aws:ecs:"):
+	case arn.HasService(t, "ecs"):
 		if r.jobs.ECS == nil {
 			return true, fmt.Errorf("%w: ecs target %q", ErrTargetInvokerUnwired, t)
 		}

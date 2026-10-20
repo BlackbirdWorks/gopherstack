@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // aggregationAuthKey returns a composite key for an aggregation authorization.
@@ -22,10 +24,7 @@ func (b *InMemoryBackend) PutAggregationAuthorization(accountID, region string, 
 	b.mu.Lock("PutAggregationAuthorization")
 	defer b.mu.Unlock()
 
-	arn := fmt.Sprintf(
-		"arn:aws:config:%s:%s:aggregation-authorization/%s/%s",
-		b.region, b.accountID, accountID, region,
-	)
+	arn := arn.Build("config", b.region, b.accountID, fmt.Sprintf("aggregation-authorization/%s/%s", accountID, region))
 
 	b.aggregationAuths.Put(&AggregationAuthorization{
 		AuthorizedAccountID:         accountID,
@@ -115,22 +114,24 @@ func (b *InMemoryBackend) PutConfigurationAggregator(
 	b.mu.Lock("PutConfigurationAggregator")
 	defer b.mu.Unlock()
 
-	arn, ok := existingAggregatorArnLocked(b, name)
+	aggArn, ok := existingAggregatorArnLocked(b, name)
 	if !ok {
 		b.aggregatorCounter++
-		arn = fmt.Sprintf(
-			"arn:aws:config:%s:%s:config-aggregator/config-aggregator-%08d",
-			b.region, b.accountID, b.aggregatorCounter,
+		aggArn = arn.Build(
+			"config",
+			b.region,
+			b.accountID,
+			fmt.Sprintf("config-aggregator/config-aggregator-%08d", b.aggregatorCounter),
 		)
 	}
 
 	b.aggregators.Put(&ConfigurationAggregator{
 		ConfigurationAggregatorName:   name,
-		ConfigurationAggregatorArn:    arn,
+		ConfigurationAggregatorArn:    aggArn,
 		AccountAggregationSources:     accountSources,
 		OrganizationAggregationSource: orgSource,
 	})
-	b.setResourceTagsLocked(arn, tags)
+	b.setResourceTagsLocked(aggArn, tags)
 
 	return nil
 }

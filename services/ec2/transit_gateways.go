@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // EnableVgwRoutePropagation enables route propagation for a VGW in a route table.
@@ -195,7 +197,7 @@ func (b *InMemoryBackend) CreateTransitGateway(p CreateTransitGatewayParams) (*T
 
 	tgw := &TransitGateway{
 		ID:           id,
-		Arn:          "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":transit-gateway/" + id,
+		Arn:          arn.Build("ec2", b.Region, b.AccountID, "transit-gateway/"+id),
 		Description:  p.Description,
 		State:        stateAvailable,
 		OwnerID:      b.AccountID,

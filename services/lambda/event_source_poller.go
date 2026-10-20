@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -681,12 +683,12 @@ func functionNameFromARN(arn string) string {
 
 // isSQSARN reports whether the given ARN identifies an SQS queue.
 func isSQSARN(resourceARN string) bool {
-	return strings.HasPrefix(resourceARN, "arn:aws:sqs:")
+	return arnpkg.HasService(resourceARN, "sqs")
 }
 
 // isDynamoDBStreamARN reports whether the given ARN identifies a DynamoDB stream.
 func isDynamoDBStreamARN(resourceARN string) bool {
-	return strings.HasPrefix(resourceARN, "arn:aws:dynamodb:") && strings.Contains(resourceARN, "/stream/")
+	return arnpkg.HasService(resourceARN, "dynamodb") && strings.Contains(resourceARN, "/stream/")
 }
 
 // processDynamoDBStreamMapping polls all shards of a DynamoDB stream and invokes Lambda.

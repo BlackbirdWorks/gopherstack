@@ -210,9 +210,7 @@ func (b *InMemoryBackend) CreateExpressGatewayService(
 		serviceName = "express-" + uuid.NewString()
 	}
 
-	serviceArn := fmt.Sprintf(
-		"arn:aws:ecs:%s:%s:service/%s/%s", b.region, b.accountID, clusterName, serviceName,
-	)
+	serviceArn := arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("service/%s/%s", clusterName, serviceName))
 
 	if b.expressGatewayServices.Has(serviceArn) {
 		return nil, fmt.Errorf("%w: express gateway service %s already exists", ErrInvalidParameter, serviceName)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
@@ -550,7 +551,7 @@ func (b *InMemoryBackend) ModifyVpnTunnelCertificate(
 		)
 	}
 
-	certARN := fmt.Sprintf("arn:aws:acm:%s:%s:certificate/%s", b.Region, b.AccountID, uuid.New().String())
+	certARN := arn.Build("acm", b.Region, b.AccountID, fmt.Sprintf("certificate/%s", uuid.New().String()))
 	conn.Options.TunnelOptions[idx].CertificateARN = certARN
 
 	for i := range conn.VgwTelemetry {

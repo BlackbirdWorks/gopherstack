@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -337,7 +338,7 @@ func appendTaggedEntry(out []TaggedEntry, t *tags.Tags, arn string) []TaggedEntr
 }
 
 func apigwResourceArn(kind, id string) string {
-	return "arn:aws:apigateway:" + apigwTaggingARNRegion + "::/" + kind + "/" + id
+	return arn.Build("apigateway", apigwTaggingARNRegion, "", "/"+kind+"/"+id)
 }
 
 func apigwRestAPIArn(apiID string) string {

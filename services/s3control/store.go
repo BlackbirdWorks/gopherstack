@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -20,14 +21,14 @@ const (
 	aliasAccountIDMaxLen = 8
 
 	// ARN format constants.
-	arnFmtAccessGrantsInstance = "arn:aws:s3:%s:%s:access-grants/default"
-	arnFmtAccessGrant          = "arn:aws:s3:%s:%s:access-grants/default/grant/%s"
-	arnFmtAccessGrantsLocation = "arn:aws:s3:%s:%s:access-grants/default/location/%s"
-	arnFmtAccessPoint          = "arn:aws:s3:%s:%s:accesspoint/%s"
-	arnFmtObjectLambda         = "arn:aws:s3-object-lambda:%s:%s:accesspoint/%s"
+	arnFmtAccessGrantsInstance = "access-grants/default"
+	arnFmtAccessGrant          = "access-grants/default/grant/%s"
+	arnFmtAccessGrantsLocation = "access-grants/default/location/%s"
+	arnFmtAccessPoint          = "accesspoint/%s"
+	arnFmtObjectLambda         = "accesspoint/%s"
 	defaultOutpostID           = "op-00000000"
-	arnFmtOutpostsBucket       = "arn:aws:s3-outposts:%s:%s:outpost/%s/bucket/%s"
-	arnFmtJob                  = "arn:aws:s3:%s:%s:job/%s"
+	arnFmtOutpostsBucket       = "outpost/%s/bucket/%s"
+	arnFmtJob                  = "job/%s"
 	// arnFmtMRAPToken is the ARN for MRAP async request tokens; gosec false positive (not a credential).
 	arnFmtMRAPToken = "arn:aws:s3::%s:async-request/mrap/create/%s" //nolint:gosec // ARN format, not a credential
 	// arnFmtMRAPPutPolicyToken is the ARN for MRAP PutMultiRegionAccessPointPolicy
@@ -37,8 +38,8 @@ const (
 	arnFmtMRAPPutPolicyToken = "arn:aws:s3::%s:async-request/mrap/put-policy/%s" //nolint:gosec // ARN, not a credential
 	// arnFmtMRAPDeleteToken is the ARN for MRAP DeleteMultiRegionAccessPoint async request tokens.
 	arnFmtMRAPDeleteToken   = "arn:aws:s3::%s:async-request/mrap/delete/%s" //nolint:gosec // ARN format, not a credential
-	arnFmtStorageLensGroup  = "arn:aws:s3:%s:%s:storage-lens-group/%s"
-	arnFmtStorageLensConfig = "arn:aws:s3:%s:%s:storage-lens/%s"
+	arnFmtStorageLensGroup  = "storage-lens-group/%s"
+	arnFmtStorageLensConfig = "storage-lens/%s"
 )
 
 // InMemoryBackend is the in-memory store for S3 Control resources.
@@ -187,4 +188,8 @@ func (b *InMemoryBackend) newID(prefix string) string {
 // nowRFC3339 returns the current UTC time formatted as RFC3339.
 func nowRFC3339() string {
 	return time.Now().UTC().Format(time.RFC3339)
+}
+
+func resourceARN(svc, region, accountID, resourceFmt string, args ...any) string {
+	return arn.Build(svc, region, accountID, fmt.Sprintf(resourceFmt, args...))
 }

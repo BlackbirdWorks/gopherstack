@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // CreateIntegration creates a new zero-ETL integration.
@@ -21,12 +23,7 @@ func (b *InMemoryBackend) CreateIntegration(
 	}
 
 	intg := &Integration{
-		IntegrationArn: fmt.Sprintf(
-			"arn:aws:rds:%s:%s:integration:%s",
-			b.region,
-			b.accountID,
-			name,
-		),
+		IntegrationArn:         arn.Build("rds", b.region, b.accountID, fmt.Sprintf("integration:%s", name)),
 		IntegrationName:        name,
 		SourceArn:              sourceARN,
 		TargetArn:              targetARN,

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -214,29 +215,31 @@ type RegisterDaemonTaskDefinitionInput struct {
 
 // daemonARN builds the ARN for a daemon within a cluster.
 func (b *InMemoryBackend) daemonARN(clusterName, daemonName string) string {
-	return fmt.Sprintf("arn:aws:ecs:%s:%s:daemon/%s/%s", b.region, b.accountID, clusterName, daemonName)
+	return arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("daemon/%s/%s", clusterName, daemonName))
 }
 
 // daemonTaskDefinitionARN builds the ARN for a daemon task definition revision.
 func (b *InMemoryBackend) daemonTaskDefinitionARN(family string, revision int) string {
-	return fmt.Sprintf(
-		"arn:aws:ecs:%s:%s:daemon-task-definition/%s:%d", b.region, b.accountID, family, revision,
-	)
+	return arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("daemon-task-definition/%s:%d", family, revision))
 }
 
 // daemonDeploymentARN builds the ARN for a daemon deployment.
 func (b *InMemoryBackend) daemonDeploymentARN(clusterName, daemonName string) string {
-	return fmt.Sprintf(
-		"arn:aws:ecs:%s:%s:daemon-deployment/%s/%s/%s",
-		b.region, b.accountID, clusterName, daemonName, uuid.NewString(),
+	return arn.Build(
+		"ecs",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("daemon-deployment/%s/%s/%s", clusterName, daemonName, uuid.NewString()),
 	)
 }
 
 // daemonRevisionARN builds the ARN for a daemon revision.
 func (b *InMemoryBackend) daemonRevisionARN(clusterName, daemonName string) string {
-	return fmt.Sprintf(
-		"arn:aws:ecs:%s:%s:daemon-revision/%s/%s/%s",
-		b.region, b.accountID, clusterName, daemonName, uuid.NewString(),
+	return arn.Build(
+		"ecs",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("daemon-revision/%s/%s/%s", clusterName, daemonName, uuid.NewString()),
 	)
 }
 
@@ -365,7 +368,7 @@ func (b *InMemoryBackend) CreateDaemon(input CreateDaemonInput) (*Daemon, error)
 		UpdatedAt:               now,
 		DaemonArn:               daemonArn,
 		DaemonName:              input.DaemonName,
-		ClusterArn:              fmt.Sprintf("arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterName),
+		ClusterArn:              arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", clusterName)),
 		DaemonTaskDefinitionArn: input.DaemonTaskDefinitionArn,
 		Status:                  daemonStatusActive,
 		CapacityProviderArns:    input.CapacityProviderArns,
@@ -512,8 +515,11 @@ func (b *InMemoryBackend) ListDaemons(input ListDaemonsInput) ([]Daemon, error) 
 	b.mu.RLock("ListDaemons")
 	defer b.mu.RUnlock()
 
-	wantCluster := fmt.Sprintf(
-		"arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterKey(b.resolveCluster(input.ClusterArn)),
+	wantCluster := arn.Build(
+		"ecs",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("cluster/%s", clusterKey(b.resolveCluster(input.ClusterArn))),
 	)
 
 	wantCP := make(map[string]bool, len(input.CapacityProviderArns))

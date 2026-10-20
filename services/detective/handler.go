@@ -8,6 +8,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
@@ -202,7 +203,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 
 		if strings.HasPrefix(path, pathTagsPrefix) {
-			return strings.HasPrefix(path[len(pathTagsPrefix):], "arn:aws:detective:")
+			return arn.HasService(path[len(pathTagsPrefix):], "detective")
 		}
 
 		// guardduty's ListInvitations sends GET /invitation (same exact path,

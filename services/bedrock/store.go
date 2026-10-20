@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -239,7 +240,7 @@ func (b *InMemoryBackend) resetAuxState() {
 func (b *InMemoryBackend) seedFoundationModels() {
 	// Real AWS foundation model ARNs use region but NOT account ID:
 	// arn:{partition}:bedrock:{region}::foundation-model/{modelId}
-	prefix := "arn:aws:bedrock:" + b.region + "::foundation-model/"
+	prefix := arn.Build("bedrock", b.region, "", "foundation-model/")
 	active := &FoundationModelLifecycle{Status: lifecycleActive}
 
 	b.foundationModels = []*FoundationModelSummary{

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // CreateIdentityPool creates a new identity pool.
@@ -44,12 +46,7 @@ func (b *InMemoryBackend) CreateIdentityPool(
 	}
 
 	poolID := region + ":" + uuid.New().String()
-	arn := fmt.Sprintf(
-		"arn:aws:cognito-identity:%s:%s:identitypool/%s",
-		region,
-		b.accountID,
-		poolID,
-	)
+	arn := arn.Build("cognito-identity", region, b.accountID, fmt.Sprintf("identitypool/%s", poolID))
 
 	var cfg PoolExtendedConfig
 	if len(opts) > 0 && opts[0] != nil {

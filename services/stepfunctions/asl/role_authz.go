@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
 
@@ -58,7 +59,7 @@ func (e *Executor) authorizeHTTPTask(input any) error {
 
 	region, account := e.regionAndAccount()
 	_, name, _ := strings.Cut(connARN, "connection/")
-	secretARN := "arn:aws:secretsmanager:" + region + ":" + account + ":secret:events!connection/" + name
+	secretARN := arn.Build("secretsmanager", region, account, "secret:events!connection/"+name)
 
 	for _, check := range [][2]string{
 		{"events:RetrieveConnectionCredentials", connARN},

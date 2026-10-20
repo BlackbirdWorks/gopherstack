@@ -10,10 +10,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 const (
-	scheduledQueryArnFormat     = "arn:aws:timestream:%s:%s:scheduled-query/%s"
+	scheduledQueryArnFormat     = "scheduled-query/%s"
 	scheduledQueryStateEnabled  = "ENABLED"
 	scheduledQueryStateDisabled = "DISABLED"
 )
@@ -59,7 +61,7 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 		}
 	}
 
-	arnStr := fmt.Sprintf(scheduledQueryArnFormat, region, b.accountID, name)
+	arnStr := arn.Build("timestream", region, b.accountID, fmt.Sprintf(scheduledQueryArnFormat, name))
 	if b.scheduledQueries.Has(arnStr) {
 		return nil, fmt.Errorf("%w: scheduled query %q already exists", ErrAlreadyExists, name)
 	}

@@ -19,7 +19,7 @@ func (b *InMemoryBackend) AssociateAccessGrantsIdentityCenter(accountID, identit
 		inst = &AccessGrantsInstance{
 			AccountID:               accountID,
 			AccessGrantsInstanceID:  defaultAccessGrantsInstanceID,
-			AccessGrantsInstanceArn: fmt.Sprintf(arnFmtAccessGrantsInstance, b.region, accountID),
+			AccessGrantsInstanceArn: resourceARN("s3", b.region, accountID, arnFmtAccessGrantsInstance),
 			CreatedAt:               nowRFC3339(),
 		}
 		b.accessGrantsInstances.Put(inst)
@@ -37,7 +37,7 @@ func (b *InMemoryBackend) CreateAccessGrantsInstance(accountID, identityCenterAr
 	inst := &AccessGrantsInstance{
 		AccountID:                 accountID,
 		AccessGrantsInstanceID:    defaultAccessGrantsInstanceID,
-		AccessGrantsInstanceArn:   fmt.Sprintf(arnFmtAccessGrantsInstance, b.region, accountID),
+		AccessGrantsInstanceArn:   resourceARN("s3", b.region, accountID, arnFmtAccessGrantsInstance),
 		IdentityCenterArn:         identityCenterArn,
 		IdentityCenterInstanceArn: identityCenterArn,
 		CreatedAt:                 nowRFC3339(),
@@ -67,7 +67,7 @@ func (b *InMemoryBackend) CreateAccessGrant(
 	}
 
 	id := b.newID("grant")
-	arn := fmt.Sprintf(arnFmtAccessGrant, b.region, accountID, id)
+	arn := resourceARN("s3", b.region, accountID, arnFmtAccessGrant, id)
 
 	grant := &AccessGrant{
 		AccountID:              accountID,
@@ -96,7 +96,7 @@ func (b *InMemoryBackend) CreateAccessGrantsLocation(
 	defer b.mu.Unlock()
 
 	id := b.newID("location")
-	arn := fmt.Sprintf(arnFmtAccessGrantsLocation, b.region, accountID, id)
+	arn := resourceARN("s3", b.region, accountID, arnFmtAccessGrantsLocation, id)
 
 	loc := &AccessGrantsLocation{
 		AccountID:               accountID,

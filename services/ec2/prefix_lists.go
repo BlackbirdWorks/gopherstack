@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
@@ -28,7 +29,7 @@ func (b *InMemoryBackend) CreateManagedPrefixList(
 	pl := &ManagedPrefixList{
 		PrefixListID:   id,
 		PrefixListName: name,
-		PrefixListArn:  "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":prefix-list/" + id,
+		PrefixListArn:  arn.Build("ec2", b.Region, b.AccountID, "prefix-list/"+id),
 		AddressFamily:  addressFamily,
 		State:          "create-complete",
 		MaxEntries:     maxEntries,

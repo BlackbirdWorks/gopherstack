@@ -11,6 +11,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/ctxval"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
@@ -238,7 +239,7 @@ func FromRequest(r *http.Request, defaultRegion string) *Metadata {
 	m := &Metadata{
 		Account:       DefaultAccount,
 		Region:        region,
-		Partition:     DefaultPartition,
+		Partition:     arn.PartitionForRegion(region),
 		RequestID:     httputils.SanitizeHeaderString(httputils.HeaderValue(r.Header, "X-Amz-Request-Id")),
 		AccessKeyID:   accessKeyID,
 		SecurityToken: httputils.ExtractSecurityTokenFromRequest(r),

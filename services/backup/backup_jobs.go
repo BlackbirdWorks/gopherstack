@@ -11,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // completedJobBytes is the simulated transfer / backup size for completed jobs.
@@ -394,7 +396,7 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 
 	// Build a recovery point ARN.
 	rpID := job.BackupJobID
-	rpArn := "arn:aws:backup:" + b.region + ":" + b.accountID + ":recovery-point:" + rpID
+	rpArn := arn.Build("backup", b.region, b.accountID, "recovery-point:"+rpID)
 	job.RecoveryPointArn = rpArn
 
 	vault, ok2 := b.vaults.Get(job.BackupVaultName)

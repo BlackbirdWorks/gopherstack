@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // connectorNamePrefix names every connector this backend creates. Real AWS
@@ -22,7 +24,7 @@ const connectorNamePrefix = "connector-"
 // "arn:aws:config:..." rather than pkgs/arn, for consistency with the rest of
 // this package).
 func (b *InMemoryBackend) connectorArn(name string) string {
-	return fmt.Sprintf("arn:aws:config:%s:%s:connector/%s", b.region, b.accountID, name)
+	return arn.Build("config", b.region, b.accountID, fmt.Sprintf("connector/%s", name))
 }
 
 // connectorConfigurationsMatch reports whether a and b describe the same

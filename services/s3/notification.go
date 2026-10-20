@@ -192,7 +192,7 @@ func buildS3EventPayload(
 			ConfigurationID: configID,
 			Bucket: s3EventBucket{
 				Name: bucket,
-				ARN:  arn.BuildS3(bucket),
+				ARN:  arn.S3(region, bucket),
 			},
 			Object: s3EventObject{
 				Key:       key,

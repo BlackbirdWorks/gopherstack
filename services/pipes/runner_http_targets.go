@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 var errHTTPTargetStatus = errors.New("pipes: HTTP target returned an error status")
@@ -38,10 +40,10 @@ type HTTPTargets struct {
 // SetHTTPTargets installs the API Gateway and API destination invokers.
 func (r *Runner) SetHTTPTargets(h HTTPTargets) { r.http = h }
 
-func isAPIGatewayARN(arn string) bool { return strings.HasPrefix(arn, "arn:aws:execute-api:") }
+func isAPIGatewayARN(arn string) bool { return arnpkg.HasService(arn, "execute-api") }
 
 func isAPIDestinationARN(arn string) bool {
-	return strings.HasPrefix(arn, "arn:aws:events:") && strings.Contains(arn, ":api-destination/")
+	return arnpkg.HasService(arn, "events") && strings.Contains(arn, ":api-destination/")
 }
 
 // callHTTP invokes an API Gateway or API destination ARN; handled is false for any other ARN.

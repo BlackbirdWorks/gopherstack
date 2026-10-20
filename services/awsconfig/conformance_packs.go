@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"slices"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 const (
@@ -124,10 +126,7 @@ func (b *InMemoryBackend) PutConformancePackWithParams(
 	}
 
 	packID := fmt.Sprintf("conformance-pack-%08d", b.conformancePackCounter)
-	arn := fmt.Sprintf(
-		"arn:aws:config:%s:%s:conformance-pack/%s/%s",
-		b.region, b.accountID, name, packID,
-	)
+	arn := arn.Build("config", b.region, b.accountID, fmt.Sprintf("conformance-pack/%s/%s", name, packID))
 
 	b.conformancePacks.Put(&ConformancePack{
 		ConformancePackName: name,

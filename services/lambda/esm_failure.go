@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -190,7 +191,7 @@ func (b *InMemoryBackend) deliverFailureRecord(
 			now.Format("2006-01-02T15.04.05"), uuid.New().String())
 
 		return s3w.PutObject(ctx, bucket, key, body)
-	case strings.HasPrefix(dest, "arn:aws:sqs:"), strings.HasPrefix(dest, "arn:aws:sns:"):
+	case arn.HasService(dest, "sqs"), arn.HasService(dest, "sns"):
 		if delivery == nil {
 			return errNoFailureDelivery
 		}

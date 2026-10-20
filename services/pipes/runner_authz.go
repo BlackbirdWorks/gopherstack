@@ -1,7 +1,7 @@
 package pipes
 
 import (
-	"strings"
+	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
@@ -47,7 +47,7 @@ func (r *Runner) authorizeCall(p *Pipe, arn string, enrichment bool) error {
 	}
 
 	action, ok := roleauth.TargetAction(arn)
-	if strings.HasPrefix(arn, "arn:aws:logs:") {
+	if arnpkg.HasService(arn, "logs") {
 		action, ok = "logs:PutLogEvents", true
 	}
 
@@ -55,7 +55,7 @@ func (r *Runner) authorizeCall(p *Pipe, arn string, enrichment bool) error {
 		return nil
 	}
 
-	if enrichment && strings.HasPrefix(arn, "arn:aws:states:") {
+	if enrichment && arnpkg.HasService(arn, "states") {
 		action = "states:StartSyncExecution"
 	}
 

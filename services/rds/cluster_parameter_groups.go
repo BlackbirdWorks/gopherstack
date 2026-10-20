@@ -3,6 +3,8 @@ package rds
 import (
 	"fmt"
 	"slices"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // CreateDBClusterParameterGroup creates a new cluster parameter group.
@@ -119,7 +121,7 @@ func (b *InMemoryBackend) DeleteDBClusterParameterGroup(name string) error {
 	b.clusterParameterGroups.Delete(normalizeID(name))
 	// Use pg.DBParameterGroupName (the stored, creation-time casing) rather
 	// than the raw name argument -- see normalizeID.
-	arn := "arn:aws:rds:" + b.region + ":" + b.accountID + ":cluster-pg:" + pg.DBParameterGroupName
+	arn := arn.Build("rds", b.region, b.accountID, "cluster-pg:"+pg.DBParameterGroupName)
 	delete(b.tags, arn)
 
 	return nil
