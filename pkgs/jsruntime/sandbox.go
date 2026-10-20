@@ -36,11 +36,12 @@ type Options struct {
 
 // Sandbox is one single-use goja VM with a deadline.
 type Sandbox struct {
-	VM      *goja.Runtime
-	timer   *time.Timer
-	started time.Time
-	logs    []string
-	maxLogs int
+	VM       *goja.Runtime
+	timer    *time.Timer
+	started  time.Time
+	interMsg string
+	logs     []string
+	maxLogs  int
 }
 
 // New creates a Sandbox; call Close when done.
@@ -64,7 +65,7 @@ func New(opts Options) *Sandbox {
 	vm := goja.New()
 	vm.SetMaxCallStackSize(opts.MaxCallStack)
 
-	s := &Sandbox{VM: vm, started: time.Now(), maxLogs: opts.MaxLogLines}
+	s := &Sandbox{VM: vm, started: time.Now(), interMsg: opts.InterruptMsg, maxLogs: opts.MaxLogLines}
 	s.timer = time.AfterFunc(opts.Timeout, func() { vm.Interrupt(opts.InterruptMsg) })
 
 	if opts.Console {
@@ -72,6 +73,14 @@ func New(opts Options) *Sandbox {
 	}
 
 	return s
+}
+
+// Rearm restarts the deadline and Elapsed clock with a fresh timeout, discarding any pending interrupt.
+func (s *Sandbox) Rearm(timeout time.Duration) {
+	s.timer.Stop()
+	s.VM.ClearInterrupt()
+	s.started = time.Now()
+	s.timer = time.AfterFunc(timeout, func() { s.VM.Interrupt(s.interMsg) })
 }
 
 // Close stops the deadline timer.

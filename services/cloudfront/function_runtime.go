@@ -26,6 +26,8 @@ const (
 	// fnDefaultMultiplier scales the 1ms budget into the lenient local deadline (250ms).
 	fnDefaultMultiplier = 250
 	fnMaxStack          = 200
+	// fnSetupTimeout bounds runtime setup, which the compute budget excludes.
+	fnSetupTimeout = 30 * time.Second
 	// fnComputeBudget is the real per-invocation limit that ComputeUtilization is a percentage of.
 	fnComputeBudget = time.Millisecond
 	fnMaxUtil       = 100
@@ -105,13 +107,14 @@ func runCloudFrontFunction(run fnRun) fnResult {
 	}
 
 	sb := jsruntime.New(jsruntime.Options{
-		Timeout: fnComputeBudget * time.Duration(mult), MaxCallStack: fnMaxStack, Console: true,
+		Timeout: fnSetupTimeout, MaxCallStack: fnMaxStack, Console: true,
 		InterruptMsg: "function timed out",
 	})
 	defer sb.Close()
 
+	budget := fnComputeBudget * time.Duration(mult)
 	st := &originState{vm: sb.VM, cat: run.Origins, eventType: run.EventType}
-	out, err := execCloudFrontFunction(sb, run, st)
+	out, err := execCloudFrontFunction(sb, run, st, budget)
 
 	res := fnResult{Output: out, Logs: sb.Logs(), Utilization: computeUtilization(sb.Elapsed()), Origin: st.dir}
 	if err != nil {
@@ -134,7 +137,7 @@ func computeUtilization(d time.Duration) string {
 	return strconv.Itoa(pct)
 }
 
-func execCloudFrontFunction(sb *jsruntime.Sandbox, run fnRun, st *originState) (string, error) {
+func execCloudFrontFunction(sb *jsruntime.Sandbox, run fnRun, st *originState, budget time.Duration) (string, error) {
 	src, err := jsruntime.RewriteModule(run.Code, fnModules())
 	if err != nil {
 		return "", err
@@ -145,6 +148,8 @@ func execCloudFrontFunction(sb *jsruntime.Sandbox, run fnRun, st *originState) (
 	if err = runPreludes(sb, run.Runtime); err != nil {
 		return "", err
 	}
+
+	sb.Rearm(budget)
 
 	if _, err = sb.Run(src); err != nil {
 		return "", fnJSError(err)
