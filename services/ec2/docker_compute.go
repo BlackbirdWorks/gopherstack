@@ -18,6 +18,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/internal/linklocal"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/registryauth"
 )
 
 // defaultDockerImage is the Docker image used by the EC2 docker provider when
@@ -45,6 +46,8 @@ type DockerComputeConfig struct {
 	SSHPortMin int    `json:"sshPortMin,omitempty"`
 	SSHPortMax int    `json:"sshPortMax,omitempty"`
 }
+
+var errNoImageTag = errors.New("docker client cannot tag images")
 
 // dockerAPI is the subset of the Docker SDK the DockerCompute uses.
 // It is an interface so tests can inject a fake.
@@ -349,9 +352,29 @@ func (d *DockerCompute) Stop(ctx context.Context, _, providerID string) error {
 // Errors here are non-fatal — Docker create will surface "no such image"
 // itself if the pull failed for the wrong reason.
 func (d *DockerCompute) ensureImage(ctx context.Context) error {
-	rc, err := d.api.ImagePull(ctx, d.cfg.Image, mobyclient.ImagePullOptions{})
+	return registryauth.Pull(ctx, d.cfg.Image, d.pullOnce, registryauth.TaggerFrom(imageTagAdapter{d.api}))
+}
+
+// imageTagAdapter exposes the moby ImageTag call, when the client has one, as a registryauth.ImageTagger.
+type imageTagAdapter struct{ api dockerAPI }
+
+func (a imageTagAdapter) ImageTag(ctx context.Context, source, target string) error {
+	t, ok := a.api.(interface {
+		ImageTag(ctx context.Context, opts mobyclient.ImageTagOptions) (mobyclient.ImageTagResult, error)
+	})
+	if !ok {
+		return errNoImageTag
+	}
+
+	_, err := t.ImageTag(ctx, mobyclient.ImageTagOptions{Source: source, Target: target})
+
+	return err
+}
+
+func (d *DockerCompute) pullOnce(ctx context.Context, ref, auth string) error {
+	rc, err := d.api.ImagePull(ctx, ref, mobyclient.ImagePullOptions{RegistryAuth: auth})
 	if err != nil {
-		return fmt.Errorf("image pull %q: %w", d.cfg.Image, err)
+		return fmt.Errorf("image pull %q: %w", ref, err)
 	}
 
 	defer func() { _ = rc.Close() }()

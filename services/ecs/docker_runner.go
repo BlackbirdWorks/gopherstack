@@ -20,6 +20,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/registryauth"
 )
 
 // dockerClient is the subset of the Docker API used by realDockerRunner.
@@ -302,7 +303,11 @@ func (r *realDockerRunner) rollbackContainers(ctx context.Context, containerIDs 
 
 // pullImage pulls a Docker image and drains the response body.
 func (r *realDockerRunner) pullImage(ctx context.Context, image string) error {
-	reader, err := r.cli.ImagePull(ctx, image, dockerimage.PullOptions{})
+	return registryauth.Pull(ctx, image, r.pullOnce, registryauth.TaggerFrom(r.cli))
+}
+
+func (r *realDockerRunner) pullOnce(ctx context.Context, image, auth string) error {
+	reader, err := r.cli.ImagePull(ctx, image, dockerimage.PullOptions{RegistryAuth: auth})
 	if err != nil {
 		return fmt.Errorf("pull image %s: %w", image, err)
 	}

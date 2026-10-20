@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/registryauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -89,6 +90,8 @@ func (b *InMemoryBackend) SetEndpoint(endpoint string) {
 	defer b.mu.Unlock()
 
 	b.endpoint = endpoint
+
+	registryauth.Default().RegisterEmulated(endpoint, dummyUser, dummyPassword)
 }
 
 // ProxyEndpoint returns the registry endpoint used in repository URIs and

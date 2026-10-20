@@ -21,6 +21,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/registryauth"
 )
 
 // ErrDockerUnavailable is returned when Docker is not available on the host.
@@ -112,6 +113,10 @@ func (r *realDockerClient) ImagePull(
 	return r.c.ImagePull(ctx, refStr, options)
 }
 
+func (r *realDockerClient) ImageTag(ctx context.Context, source, target string) error {
+	return r.c.ImageTag(ctx, source, target)
+}
+
 func (r *realDockerClient) ImageList(ctx context.Context, options image.ListOptions) ([]image.Summary, error) {
 	return r.c.ImageList(ctx, options)
 }
@@ -199,9 +204,13 @@ func (c *Client) Ping(ctx context.Context) error {
 // The pull output is discarded; callers that need progress should use the
 // Docker SDK directly.
 func (c *Client) PullImage(ctx context.Context, imageRef string) error {
-	rc, err := c.docker.ImagePull(ctx, imageRef, image.PullOptions{})
+	return registryauth.Pull(ctx, imageRef, c.pullOnce, registryauth.TaggerFrom(c.docker))
+}
+
+func (c *Client) pullOnce(ctx context.Context, ref, auth string) error {
+	rc, err := c.docker.ImagePull(ctx, ref, image.PullOptions{RegistryAuth: auth})
 	if err != nil {
-		return fmt.Errorf("image pull %q: %w", imageRef, err)
+		return fmt.Errorf("image pull %q: %w", ref, err)
 	}
 	defer rc.Close()
 

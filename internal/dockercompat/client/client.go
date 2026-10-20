@@ -57,7 +57,17 @@ func (c *Client) ImagePull(
 	refStr string,
 	options compatimage.PullOptions,
 ) (io.ReadCloser, error) {
-	return c.inner.ImagePull(ctx, refStr, mobyclient.ImagePullOptions{All: options.All})
+	return c.inner.ImagePull(ctx, refStr, mobyclient.ImagePullOptions{
+		All:          options.All,
+		RegistryAuth: options.RegistryAuth,
+	})
+}
+
+// ImageTag adds the target tag to the source image.
+func (c *Client) ImageTag(ctx context.Context, source, target string) error {
+	_, err := c.inner.ImageTag(ctx, mobyclient.ImageTagOptions{Source: source, Target: target})
+
+	return err
 }
 
 // ImageList lists local images.

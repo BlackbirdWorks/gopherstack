@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/registryauth"
 )
 
 // defaultIdleTimeout is the duration after which an idle container is reaped.
@@ -74,6 +75,10 @@ type ExecStreamAPIClient interface {
 // realDockerClient wraps the standard Docker SDK client to satisfy APIClient.
 type realDockerClient struct {
 	c *client.Client
+}
+
+func (r *realDockerClient) ImageTag(ctx context.Context, source, target string) error {
+	return r.c.ImageTag(ctx, source, target)
 }
 
 func (r *realDockerClient) ImagePull(
@@ -203,9 +208,13 @@ func (r *DockerRuntime) Ping(ctx context.Context) error {
 
 // PullImage pulls the specified image from the registry.
 func (r *DockerRuntime) PullImage(ctx context.Context, imageRef string) error {
-	rc, err := r.docker.ImagePull(ctx, imageRef, image.PullOptions{})
+	return registryauth.Pull(ctx, imageRef, r.pullOnce, registryauth.TaggerFrom(r.docker))
+}
+
+func (r *DockerRuntime) pullOnce(ctx context.Context, ref, auth string) error {
+	rc, err := r.docker.ImagePull(ctx, ref, image.PullOptions{RegistryAuth: auth})
 	if err != nil {
-		return fmt.Errorf("image pull %q: %w", imageRef, err)
+		return fmt.Errorf("image pull %q: %w", ref, err)
 	}
 	defer rc.Close()
 
