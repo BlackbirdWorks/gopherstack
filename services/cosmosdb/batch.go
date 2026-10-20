@@ -200,7 +200,7 @@ func statusForError(err error) int {
 	switch {
 	case errors.Is(err, ErrDocumentNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, ErrDocumentAlreadyExists):
+	case errors.Is(err, ErrDocumentAlreadyExists), errors.Is(err, ErrUniqueKeyViolation):
 		return http.StatusConflict
 	case errors.Is(err, ErrETagMismatch), errors.Is(err, ErrPatchConditionFailed):
 		return http.StatusPreconditionFailed

@@ -30,6 +30,17 @@ var (
 	// ErrPartitionKeyImmutable is returned when a container replace tries to change the partition key.
 	ErrPartitionKeyImmutable = errors.New("cosmosdb: the partition key of an existing container cannot be changed")
 
+	// ErrInvalidContainerPolicy is returned for a malformed unique-key, geospatial, vector or computed-property setting.
+	ErrInvalidContainerPolicy = errors.New("cosmosdb: invalid container policy")
+
+	// ErrUniqueKeyPolicyImmutable is returned when a container replace tries to change the unique key policy.
+	ErrUniqueKeyPolicyImmutable = errors.New(
+		"cosmosdb: the unique key policy of an existing container cannot be changed",
+	)
+
+	// ErrUniqueKeyViolation is returned when a write would duplicate a unique key value within a logical partition.
+	ErrUniqueKeyViolation = errors.New("cosmosdb: unique index constraint violation")
+
 	// ErrInvalidContinuation is returned for a malformed x-ms-continuation token.
 	ErrInvalidContinuation = errors.New("cosmosdb: invalid continuation token")
 

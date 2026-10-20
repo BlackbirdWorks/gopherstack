@@ -116,6 +116,8 @@ func parsePartitionKeyHeader(raw string) (string, error) {
 
 // writeDocumentError maps a backend error to its Cosmos status and body.
 func (h *Handler) writeDocumentError(c *echo.Context, err error) error {
+	var indexErr *queryIndexError
+
 	switch {
 	case errors.Is(err, ErrDatabaseNotFound):
 		return h.writeDatabaseNotFoundError(c)
@@ -125,6 +127,8 @@ func (h *Handler) writeDocumentError(c *echo.Context, err error) error {
 		return h.writeDocumentNotFoundError(c)
 	case errors.Is(err, ErrDocumentAlreadyExists):
 		return h.writeError(c, http.StatusConflict, "Conflict", "Document with the specified id already exists.")
+	case errors.Is(err, ErrUniqueKeyViolation):
+		return h.writeError(c, http.StatusConflict, "Conflict", "Unique index constraint violation.")
 	case errors.Is(err, ErrETagMismatch), errors.Is(err, ErrPatchConditionFailed):
 		return h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailed",
 			"Operation cannot be performed because one of the specified precondition is not met.")
@@ -137,6 +141,8 @@ func (h *Handler) writeDocumentError(c *echo.Context, err error) error {
 		return h.writeError(c, http.StatusRequestTimeout, "RequestTimeout", err.Error())
 	case errors.Is(err, ErrScriptFailed):
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", err.Error())
+	case errors.As(err, &indexErr):
+		return h.writeError(c, http.StatusBadRequest, "BadRequest", indexErr.msg)
 	case errors.Is(err, ErrQueryParse), errors.Is(err, ErrQueryTooDeep):
 		return h.writeError(c, http.StatusBadRequest, "BadRequest",
 			fmt.Sprintf("The SQL query text is invalid or has one or more syntax errors: %s", err.Error()))
@@ -358,7 +364,7 @@ func (h *Handler) queryDocuments(c *echo.Context, dbID, collID string) error {
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", scopeErr.Error())
 	}
 
-	res, execErr := h.runQuery(dbID, collID, req, scope)
+	res, execErr := h.runQuery(dbID, collID, req, scope, queryOptions(r))
 	if execErr != nil {
 		return h.writeDocumentError(c, execErr)
 	}
@@ -371,6 +377,18 @@ func (h *Handler) queryDocuments(c *echo.Context, dbID, collID string) error {
 	return h.writeJSONCharged(c, http.StatusOK, payload, func(size int) float64 {
 		return queryCharge(res.Scanned, size)
 	})
+}
+
+// queryOptions reads the scan switch; azcosmos sends x-ms-documentdb-force-query-scan, the REST docs
+// x-ms-documentdb-query-enable-scan.
+func queryOptions(r *http.Request) QueryOptions {
+	for _, name := range []string{"x-ms-documentdb-query-enable-scan", "x-ms-documentdb-force-query-scan"} {
+		if strings.EqualFold(strings.TrimSpace(r.Header.Get(name)), trueText) {
+			return QueryOptions{AllowScan: true}
+		}
+	}
+
+	return QueryOptions{}
 }
 
 // queryPartitionScope returns the partition key a query is scoped to ("" for cross-partition). An empty key
@@ -399,8 +417,21 @@ type partitionQuerier interface {
 	RunQuery(dbID, containerID, query string, params []QueryParameter, partitionKey string) (QueryResult, error)
 }
 
+// indexedQuerier is implemented by backends that enforce the container's indexing policy.
+type indexedQuerier interface {
+	RunQueryOpts(
+		dbID, containerID, query string, params []QueryParameter, partitionKey string, opts QueryOptions,
+	) (QueryResult, error)
+}
+
 // runQuery uses the backend's direct query path when it has one, otherwise ListDocuments plus ExecuteQuery.
-func (h *Handler) runQuery(dbID, collID string, req queryRequestBody, partitionKey string) (QueryResult, error) {
+func (h *Handler) runQuery(
+	dbID, collID string, req queryRequestBody, partitionKey string, opts QueryOptions,
+) (QueryResult, error) {
+	if q, ok := h.Backend.(indexedQuerier); ok {
+		return q.RunQueryOpts(dbID, collID, req.Query, req.Parameters, partitionKey, opts)
+	}
+
 	if q, ok := h.Backend.(partitionQuerier); ok {
 		return q.RunQuery(dbID, collID, req.Query, req.Parameters, partitionKey)
 	}

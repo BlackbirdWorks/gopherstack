@@ -55,6 +55,9 @@ const dataServiceVersion = "3.0;"
 // identical constant.
 const preferReturnNoContent = "return-no-content"
 
+// tableErrorLang is the language tag of Table API error messages.
+const tableErrorLang = "en-US"
+
 // tablesResourceName is the fixed "Tables" collection resource segment used
 // for table-CRUD operations (POST/GET /Tables, DELETE /Tables('name')).
 const tablesResourceName = "Tables"
@@ -102,7 +105,7 @@ const (
 func tableAPISupportedOperations() []string {
 	return []string{
 		opListTables, opCreateTable, opDeleteTable,
-		opInsertEntity, opGetEntity, opQueryEntities, opReplaceEntity, opMergeEntity, opDeleteEntity,
+		opInsertEntity, opGetEntity, opQueryEntities, opReplaceEntity, opMergeEntity, opDeleteEntity, opTableAPIBatch,
 	}
 }
 
@@ -343,14 +346,6 @@ func (h *Handler) handleEntityItem(c *echo.Context, table, keyPredicate string) 
 	}
 }
 
-// handleTableBatch handles POST /$batch. Batch (multipart/mixed changesets)
-// is explicitly out of scope for this milestone, matching Table Storage's
-// own M2 deferral -- see PARITY.md's deferred section.
-func (h *Handler) handleTableBatch(c *echo.Context) error {
-	return h.writeTableError(c, http.StatusNotImplemented, "NotImplemented",
-		"$batch (multipart/mixed changesets) is not implemented; see PARITY.md's deferred section.")
-}
-
 // --- Table CRUD ---
 
 // createTableBody is the request body shape for POST /Tables.
@@ -519,7 +514,7 @@ func (h *Handler) writeTableError(c *echo.Context, status int, code, message str
 	return h.writeTableJSON(c, status, tableODataErrorEnvelope{
 		Error: tableODataErrorDetail{
 			Code:    code,
-			Message: tableODataErrorMessage{Lang: "en-US", Value: message},
+			Message: tableODataErrorMessage{Lang: tableErrorLang, Value: message},
 		},
 	})
 }
@@ -529,7 +524,7 @@ func (h *Handler) writeTableError(c *echo.Context, status int, code, message str
 func (h *Handler) writeTableErrorNoRecurse(c *echo.Context, status int, code, message string) error {
 	c.Response().Header().Set("X-Ms-Error-Code", code)
 	body, _ := json.Marshal(tableODataErrorEnvelope{
-		Error: tableODataErrorDetail{Code: code, Message: tableODataErrorMessage{Lang: "en-US", Value: message}},
+		Error: tableODataErrorDetail{Code: code, Message: tableODataErrorMessage{Lang: tableErrorLang, Value: message}},
 	})
 
 	return c.Blob(status, "application/json;odata=minimalmetadata;streaming=true;charset=utf-8", body)

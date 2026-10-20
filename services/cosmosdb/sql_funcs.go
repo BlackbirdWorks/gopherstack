@@ -15,6 +15,7 @@ const (
 	nullText         = "null"
 	arityPair        = 2
 	arityTriple      = 3
+	maxDateTimeParts = 7
 	datePartYearLong = "yyyy"
 	datePartYear     = "year"
 	datePartMonth    = "month"
@@ -76,6 +77,16 @@ const (
 	biSquare                    = "SQUARE"
 	biStartswith                = "STARTSWITH"
 	biStringequals              = "STRINGEQUALS"
+	biStringtoarray             = "STRINGTOARRAY"
+	biStringtoobject            = "STRINGTOOBJECT"
+	biStDistance                = "ST_DISTANCE"
+	biStWithin                  = "ST_WITHIN"
+	biStIntersects              = "ST_INTERSECTS"
+	biStIsValid                 = "ST_ISVALID"
+	biStIsValidDetailed         = "ST_ISVALIDDETAILED"
+	biDatetimefromparts         = "DATETIMEFROMPARTS"
+	biDatetimetoticks           = "DATETIMETOTICKS"
+	biTickstodatetime           = "TICKSTODATETIME"
 	biStringtoboolean           = "STRINGTOBOOLEAN"
 	biStringtonull              = "STRINGTONULL"
 	biStringtonumber            = "STRINGTONUMBER"
@@ -99,6 +110,7 @@ const (
 	fnDate
 	fnAggregate
 	fnUDF
+	fnSpatial
 )
 
 // udfNamespace is the prefix of a user-defined function call: udf.name(args).
@@ -108,8 +120,10 @@ func builtinKind(name string) fnKind {
 	switch name {
 	case biConcat, biContains, biStartswith, biEndswith, biLower, biUpper, biLength, biSubstring, biReplace,
 		biTrim, biLtrim, biRtrim, biLeft, biRight, biReverse, biReplicate, biIndexOf, biTostring, biStringequals,
-		biRegexmatch, biStringtonumber, biStringtoboolean, biStringtonull:
+		biRegexmatch, biStringtonumber, biStringtoboolean, biStringtonull, biStringtoarray, biStringtoobject:
 		return fnString
+	case biStDistance, biStWithin, biStIntersects, biStIsValid, biStIsValidDetailed:
+		return fnSpatial
 	case biAbs,
 		biCeiling,
 		biFloor,
@@ -131,7 +145,7 @@ func builtinKind(name string) fnKind {
 		return fnArray
 	case biGetcurrentdatetime, biGetcurrentdatetimestatic, biGetcurrenttimestamp, biGetcurrenttimestampstatic,
 		biGetcurrentticks, biGetcurrentticksstatic, biDatetimeadd, biDatetimediff, biDatetimepart,
-		biDatetimetotimestamp, biTimestamptodatetime:
+		biDatetimetotimestamp, biTimestamptodatetime, biDatetimefromparts, biDatetimetoticks, biTickstodatetime:
 		return fnDate
 	case aggCount, aggSum, aggAvg, aggMin, aggMax:
 		return fnAggregate
@@ -148,6 +162,10 @@ func builtinArity(name string) (int, int) {
 		return 0, 0
 	case biConcat, biArrayConcat:
 		return arityPair, -1
+	case biDatetimefromparts:
+		return arityTriple, maxDateTimeParts
+	case biStDistance, biStWithin, biStIntersects:
+		return arityPair, arityPair
 	case biContains, biStartswith, biEndswith, biStringequals, biRegexmatch, biArrayContains, biArraySlice:
 		return arityPair, arityTriple
 	case biLeft, biRight, biReplicate, biIndexOf, biPower, biSetintersect, biSetunion, biDatetimepart:
@@ -173,6 +191,8 @@ func (ec *evalCtx) callBuiltin(kind fnKind, name string, args []any) any {
 		return callArray(name, args)
 	case fnDate:
 		return ec.callDate(name, args)
+	case fnSpatial:
+		return callSpatial(name, args)
 	default:
 		return undef{}
 	}
@@ -249,7 +269,7 @@ func (ec *evalCtx) callString(name string, args []any) any {
 		return ec.regexMatch(args)
 	case biTostring:
 		return toStringValue(args[0])
-	case biStringtonumber, biStringtoboolean, biStringtonull:
+	case biStringtonumber, biStringtoboolean, biStringtonull, biStringtoarray, biStringtoobject:
 		return parseStringValue(name, args[0])
 	default:
 		return stringTransform(name, args)
@@ -396,6 +416,8 @@ func parseStringValue(name string, v any) any {
 	s = strings.TrimSpace(s)
 
 	switch name {
+	case biStringtoarray, biStringtoobject:
+		return parseJSONContainer(name, s)
 	case biStringtonumber:
 		f, err := strconv.ParseFloat(s, 64)
 		if err != nil {
@@ -444,6 +466,9 @@ func (ec *evalCtx) regexMatch(args []any) any {
 
 			return -1
 		}, mods)
+		if strings.ContainsRune(mods, 'x') {
+			pat = stripFreeSpacing(pat)
+		}
 		if flags != "" {
 			pat = "(?" + flags + ")" + pat
 		}
@@ -774,6 +799,8 @@ func (ec *evalCtx) callDate(name string, args []any) any {
 		}
 
 		return time.UnixMilli(int64(numFloat(ms))).UTC().Format(dateTimeLayout)
+	case biDatetimefromparts, biDatetimetoticks, biTickstodatetime:
+		return dateTicksOp(name, args)
 	case biDatetimetotimestamp:
 		t, ok := parseDateTime(args[0])
 		if !ok {

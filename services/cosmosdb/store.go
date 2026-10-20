@@ -47,6 +47,10 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 func (b *InMemoryBackend) now() time.Time { return b.nowFunc().UTC() }
 
+func databaseInfo(d *storedDatabase) DatabaseInfo {
+	return DatabaseInfo{ID: d.ID, RID: fakeRID("dbs/" + d.ID), Modified: d.Modified}
+}
+
 // bumpTimestamp returns the Timestamp a mutated document should receive,
 // identical in spirit to services/azuretable/store.go's bumpTimestamp:
 // b.now() for a brand-new document, or b.now() advanced by at least
@@ -102,9 +106,10 @@ func (b *InMemoryBackend) CreateDatabase(id string) (DatabaseInfo, error) {
 		return DatabaseInfo{}, ErrDatabaseAlreadyExists
 	}
 
-	b.databases[id] = &storedDatabase{ID: id, Containers: make(map[string]*storedContainer)}
+	d := &storedDatabase{ID: id, Containers: make(map[string]*storedContainer), Modified: b.now()}
+	b.databases[id] = d
 
-	return DatabaseInfo{ID: id, RID: fakeRID("dbs/" + id)}, nil
+	return databaseInfo(d), nil
 }
 
 // GetDatabase retrieves a single database. Returns ErrDatabaseNotFound if
@@ -118,7 +123,7 @@ func (b *InMemoryBackend) GetDatabase(id string) (DatabaseInfo, error) {
 		return DatabaseInfo{}, ErrDatabaseNotFound
 	}
 
-	return DatabaseInfo{ID: d.ID, RID: fakeRID("dbs/" + d.ID)}, nil
+	return databaseInfo(d), nil
 }
 
 // ListDatabases returns a snapshot of all databases, sorted by ID.
@@ -128,7 +133,7 @@ func (b *InMemoryBackend) ListDatabases() []DatabaseInfo {
 
 	out := make([]DatabaseInfo, 0, len(b.databases))
 	for _, d := range b.databases {
-		out = append(out, DatabaseInfo{ID: d.ID, RID: fakeRID("dbs/" + d.ID)})
+		out = append(out, databaseInfo(d))
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -166,6 +171,10 @@ func (b *InMemoryBackend) CreateContainer(dbID string, spec ContainerSpec) (Cont
 		return ContainerInfo{}, ttlErr
 	}
 
+	if polErr := spec.ContainerPolicies.validate(); polErr != nil {
+		return ContainerInfo{}, polErr
+	}
+
 	b.mu.Lock("CreateContainer")
 	defer b.mu.Unlock()
 
@@ -186,10 +195,13 @@ func (b *InMemoryBackend) CreateContainer(dbID string, spec ContainerSpec) (Cont
 		Documents:        make(map[documentCompositeKey]*storedDocument),
 
 		ConflictResolutionPolicy: spec.ConflictResolutionPolicy,
+		Modified:                 b.now(),
 	}
 	if len(paths) > 1 {
 		c.PartitionKeyPaths = paths
 	}
+
+	_ = c.applyPolicies(spec.ContainerPolicies, false)
 
 	d.Containers[spec.ID] = c
 
@@ -207,6 +219,10 @@ func (b *InMemoryBackend) ReplaceContainer(dbID string, spec ContainerSpec) (Con
 		return ContainerInfo{}, ttlErr
 	}
 
+	if polErr := spec.ContainerPolicies.validate(); polErr != nil {
+		return ContainerInfo{}, polErr
+	}
+
 	b.mu.Lock("ReplaceContainer")
 	defer b.mu.Unlock()
 
@@ -219,6 +235,10 @@ func (b *InMemoryBackend) ReplaceContainer(dbID string, spec ContainerSpec) (Con
 		return ContainerInfo{}, ErrPartitionKeyImmutable
 	}
 
+	if polErr := c.applyPolicies(spec.ContainerPolicies, true); polErr != nil {
+		return ContainerInfo{}, polErr
+	}
+
 	c.DefaultTTL = spec.DefaultTTL
 	if len(spec.IndexingPolicy) > 0 {
 		c.IndexingPolicy = spec.IndexingPolicy
@@ -227,6 +247,8 @@ func (b *InMemoryBackend) ReplaceContainer(dbID string, spec ContainerSpec) (Con
 	if len(spec.ConflictResolutionPolicy) > 0 {
 		c.ConflictResolutionPolicy = spec.ConflictResolutionPolicy
 	}
+
+	c.touch(b.now())
 
 	return b.containerInfo(dbID, c), nil
 }
@@ -239,8 +261,10 @@ func (b *InMemoryBackend) containerInfo(dbID string, c *storedContainer) Contain
 		PartitionKeyPaths: slices.Clone(c.paths()),
 		DefaultTTL:        c.DefaultTTL,
 		IndexingPolicy:    c.IndexingPolicy,
+		Modified:          c.Modified,
 
 		ConflictResolutionPolicy: c.ConflictResolutionPolicy,
+		ContainerPolicies:        c.policies(),
 	}
 }
 

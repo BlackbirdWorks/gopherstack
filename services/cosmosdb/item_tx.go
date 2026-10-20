@@ -97,6 +97,10 @@ func (tx *containerTx) createDoc(scope string, body map[string]any, upsert bool)
 	}
 
 	doc := &storedDocument{ID: id, PartitionKeyJSON: pkJSON, Body: clean, Timestamp: tx.stamp(existing, exists)}
+	if uniqueErr := tx.checkUnique(key, doc); uniqueErr != nil {
+		return DocumentInfo{}, false, uniqueErr
+	}
+
 	tx.put(key, doc)
 
 	return tx.info(doc), exists, nil
@@ -135,6 +139,10 @@ func (tx *containerTx) replaceDoc(
 	}
 
 	doc := &storedDocument{ID: id, PartitionKeyJSON: partitionKey, Body: clean, Timestamp: tx.stamp(existing, exists)}
+	if uniqueErr := tx.checkUnique(key, doc); uniqueErr != nil {
+		return DocumentInfo{}, uniqueErr
+	}
+
 	tx.put(key, doc)
 
 	return tx.info(doc), nil
@@ -220,6 +228,10 @@ func (tx *containerTx) patchDoc(partitionKey, id string, req patchRequest, ifMat
 	}
 
 	doc := &storedDocument{ID: id, PartitionKeyJSON: partitionKey, Body: patched, Timestamp: tx.stamp(existing, true)}
+	if uniqueErr := tx.checkUnique(key, doc); uniqueErr != nil {
+		return DocumentInfo{}, uniqueErr
+	}
+
 	tx.put(key, doc)
 
 	return tx.info(doc), nil

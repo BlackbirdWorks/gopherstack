@@ -96,8 +96,9 @@ func etagFor(t time.Time) string {
 // DatabaseInfo is a read-only snapshot of a database, returned by the
 // StorageBackend database accessors.
 type DatabaseInfo struct {
-	ID  string
-	RID string
+	Modified time.Time
+	ID       string
+	RID      string
 }
 
 // ContainerSpec is the caller-supplied shape for creating or replacing a container. PartitionKeyPaths (up to
@@ -110,6 +111,7 @@ type ContainerSpec struct {
 	IndexingPolicy    json.RawMessage
 
 	ConflictResolutionPolicy json.RawMessage
+	ContainerPolicies
 }
 
 // ContainerInfo is a read-only snapshot of a container, returned by the
@@ -121,8 +123,10 @@ type ContainerInfo struct {
 	PartitionKeyPath  string
 	PartitionKeyPaths []string
 	IndexingPolicy    json.RawMessage
+	Modified          time.Time
 
 	ConflictResolutionPolicy json.RawMessage
+	ContainerPolicies
 }
 
 // DocumentInfo is a read-only snapshot of a document, returned by the
@@ -143,28 +147,32 @@ type DocumentInfo struct {
 
 // storedDatabase is the backend's internal representation of a database.
 type storedDatabase struct {
+	Modified   time.Time `json:"Modified"`
 	Containers map[string]*storedContainer
 	ID         string
 }
 
 // storedContainer is the backend's internal representation of a container.
 type storedContainer struct {
-	Documents  map[documentCompositeKey]*storedDocument
-	DefaultTTL *int `json:"DefaultTTL,omitempty"`
-	sorted     atomic.Pointer[[]*storedDocument]
-	Sprocs     map[string]*storedScript `json:"Sprocs,omitempty"`
-	Triggers   map[string]*storedScript `json:"Triggers,omitempty"`
-	UDFs       map[string]*storedScript `json:"UDFs,omitempty"`
-
+	Modified         time.Time                `json:"Modified"`
+	Triggers         map[string]*storedScript `json:"Triggers,omitempty"`
+	sorted           atomic.Pointer[[]*storedDocument]
+	Sprocs           map[string]*storedScript `json:"Sprocs,omitempty"`
+	Documents        map[documentCompositeKey]*storedDocument
+	UDFs             map[string]*storedScript `json:"UDFs,omitempty"`
+	DefaultTTL       *int                     `json:"DefaultTTL,omitempty"`
 	ID               string
 	PartitionKeyPath string
-
-	PartitionKeyPaths []string        `json:"PartitionKeyPaths,omitempty"`
-	IndexingPolicy    json.RawMessage `json:"IndexingPolicy,omitempty"`
 	// ConflictResolutionPolicy is stored and echoed only: a single-region emulator never produces conflicts.
 	ConflictResolutionPolicy json.RawMessage `json:"ConflictResolutionPolicy,omitempty"`
-
-	ChangeSeq int64 `json:"ChangeSeq,omitempty"`
+	IndexingPolicy           json.RawMessage `json:"IndexingPolicy,omitempty"`
+	PartitionKeyPaths        []string        `json:"PartitionKeyPaths,omitempty"`
+	UniqueKeyPolicy          json.RawMessage `json:"UniqueKeyPolicy,omitempty"`
+	GeospatialConfig         json.RawMessage `json:"GeospatialConfig,omitempty"`
+	VectorEmbeddingPolicy    json.RawMessage `json:"VectorEmbeddingPolicy,omitempty"`
+	FullTextPolicy           json.RawMessage `json:"FullTextPolicy,omitempty"`
+	ComputedProperties       json.RawMessage `json:"ComputedProperties,omitempty"`
+	ChangeSeq                int64           `json:"ChangeSeq,omitempty"`
 }
 
 // storedDocument is the backend's internal representation of a document.
