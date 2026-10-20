@@ -80,7 +80,7 @@ server and dashboard (system webview, no browser needed). Download
 `gopherstack-desktop_<version>_<OS>_<arch>` from the
 [releases page](https://github.com/blackbirdworks/gopherstack/releases):
 
-- macOS: unzip and open `Gopherstack.app` (unsigned; right-click, Open on first launch)
+- macOS: unzip and open `Gopherstack.app`. It is ad-hoc signed, not notarized, so the first launch needs approval: System Settings → Privacy & Security → Open Anyway, or `xattr -dr com.apple.quarantine Gopherstack.app`
 - Windows: unzip and run `gopherstack-desktop.exe` (needs the WebView2 runtime, preinstalled on Windows 11)
 - Linux: extract and run `gopherstack-desktop` (needs `libgtk-3` and `libwebkit2gtk-4.1`)
 

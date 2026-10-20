@@ -301,6 +301,10 @@ jobs:
             <key>NSHighResolutionCapable</key><true/>
           </dict></plist>
           PLIST
+          # Bind Info.plist and seal the bundle; the linker's ad-hoc signature alone makes
+          # macOS report the app as damaged. Not notarized: first launch still needs approval.
+          codesign --force --sign - --identifier com.blackbirdworks.gopherstack "$app"
+          codesign --verify --strict --verbose=2 "$app"
 
       - name: Archive
         shell: bash
@@ -313,7 +317,7 @@ jobs:
           elif [ "$RUNNER_OS" = "Windows" ]; then
             7z a "../$archive" ./*
           else
-            zip -qr "../$archive" ./*
+            ditto -c -k --keepParent Gopherstack.app "../$archive"
           fi
           echo "ARCHIVE=out/$archive" >> "$GITHUB_ENV"
 
