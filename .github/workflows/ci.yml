@@ -760,6 +760,11 @@ jobs:
           npm ci
           pip install --require-hashes -r requirements.txt
 
+      - name: Run AWS cross-SDK suites (boto3, AWS SDK v3, AWS CLI)
+        run: |
+          go build -o "$RUNNER_TEMP/gopherstack" .
+          test/e2e/crosssdk/run_aws_suites.sh "$RUNNER_TEMP/gopherstack"
+
       - name: Run E2E Tests
         run: |
           COVERPKGS=$(go list ./... | grep -v -E '(test/|/demo$|/modules/|/teststack$)' | tr '\n' ',' | sed 's/,$//')
