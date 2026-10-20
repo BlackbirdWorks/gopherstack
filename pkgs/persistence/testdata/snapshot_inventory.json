@@ -8344,6 +8344,7 @@
       "storedScript.ID string",
       "storedScript.Timestamp time.Time",
       "storedScript.TriggerOperation string `json:\",omitempty\"`",
+      "storedScript.TriggerType string `json:\",omitempty\"`"
     ],
     "version": 1
   },
