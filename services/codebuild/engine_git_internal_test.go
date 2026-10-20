@@ -71,8 +71,8 @@ func newTestRepo(t *testing.T) testRepo {
 	gitRun(t, dir, "init", "-q")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "buildspec.yml"), []byte(gitBuildspec), 0o600))
 
-	r := testRepo{dir: dir}
-	r.first = commitFile(t, dir, "VERSION", "one")
+	r := testRepo{dir: dir,
+		first: commitFile(t, dir, "VERSION", "one")}
 	gitRun(t, dir, "tag", "v1")
 	gitRun(t, dir, "checkout", "-q", "-b", "feature")
 	commitFile(t, dir, "VERSION", "feature")

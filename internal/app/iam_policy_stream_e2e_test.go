@@ -23,8 +23,8 @@ func newEnforcedIAMServer(t *testing.T) *httptest.Server {
 	t.Helper()
 
 	log := buildLogger("")
-	cli := CLI{AccountID: "000000000000", Region: "us-east-1", EnforceIAM: true}
-	cli.iamStream = iampolicystream.New(100)
+	cli := CLI{AccountID: "000000000000", Region: "us-east-1", EnforceIAM: true,
+		iamStream: iampolicystream.New(100)}
 	cli.portAlloc = setupPortAllocatorWithReservations(t.Context(), log, cli)
 	cli.faultStore = chaos.NewFaultStore()
 
