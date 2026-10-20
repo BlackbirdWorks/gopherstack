@@ -9,6 +9,7 @@
 	import CloudTasksDashboard from '#lib/components/gcp/CloudTasksDashboard.svelte';
 	import IamDashboard from '#lib/components/gcp/IamDashboard.svelte';
 	import SchedulerDashboard from '#lib/components/gcp/SchedulerDashboard.svelte';
+	import RunDashboard from '#lib/components/gcp/RunDashboard.svelte';
 	import SecretManagerDashboard from '#lib/components/gcp/SecretManagerDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedGcpServices } from '#lib/cloud.svelte.ts';
 
@@ -34,6 +35,8 @@
 	<CloudTasksDashboard />
 {:else if service?.id === 'scheduler'}
 	<SchedulerDashboard />
+{:else if service?.id === 'run'}
+	<RunDashboard />
 {:else if service?.id === 'iam'}
 	<IamDashboard />
 {:else if service?.id === 'firestore'}

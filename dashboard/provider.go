@@ -40,6 +40,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/gcpiam"
 	"github.com/blackbirdworks/gopherstack/services/gcpkms"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	"github.com/blackbirdworks/gopherstack/services/gcprun"
 	"github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	"github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
 	"github.com/blackbirdworks/gopherstack/services/gcpstorage"
@@ -230,6 +231,10 @@ func wireGCPOps(ctx *service.AppContext, conf *Config) {
 
 	if gp, hasCS := ctx.Config.(interface{ GetGCPSchedulerHandler() service.Registerable }); hasCS {
 		conf.GCPSchedulerOps, _ = getHandler[*gcpscheduler.Handler](gp.GetGCPSchedulerHandler())
+	}
+
+	if gp, hasRun := ctx.Config.(interface{ GetGCPRunHandler() service.Registerable }); hasRun {
+		conf.GCPRunOps, _ = getHandler[*gcprun.Handler](gp.GetGCPRunHandler())
 	}
 
 	if gp, hasIAM := ctx.Config.(interface{ GetGCPIAMHandler() service.Registerable }); hasIAM {

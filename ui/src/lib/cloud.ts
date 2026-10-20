@@ -143,6 +143,14 @@ export const GCP_SERVICES: readonly GcpService[] = [
     defaultPort: 8124,
   },
   {
+    id: "run",
+    label: "Cloud Run",
+    description: "Google Cloud Run",
+    healthName: "GCPRun",
+    portLabel: "gcprun",
+    defaultPort: 8126,
+  },
+  {
     id: "iam",
     label: "Cloud IAM",
     description: "Google Cloud IAM",
