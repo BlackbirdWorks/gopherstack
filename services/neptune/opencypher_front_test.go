@@ -132,7 +132,7 @@ func TestOpenCypherEndpoint(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, code)
 	assert.Equal(t, "MalformedQueryException", out["code"])
 	assert.NotEmpty(t, out["requestId"])
-	assert.NotEmpty(t, out["detail"])
+	assert.NotEmpty(t, out["detailedMessage"])
 
 	code, out = cypherDo(t, http.MethodPost, base+"/openCypher", form, "")
 	assert.Equal(t, http.StatusBadRequest, code)

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -66,8 +65,6 @@ type PasswordChange struct {
 	User        string
 	OldPassword string
 	NewPassword string
-	// TLSCAFile is the in-container CA path the shell must trust; empty when the cluster is plaintext.
-	TLSCAFile string
 }
 
 // EngineConfig configures docker-backed DocDB clusters.
@@ -84,6 +81,7 @@ type EngineConfig struct {
 type liveCluster struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
+	proxy       *tlsProxy
 	key         string
 	region      string
 	id          string
@@ -91,8 +89,8 @@ type liveCluster struct {
 	user        string
 	password    string
 	containerID string
-	tlsDir      string
 	port        int
+	inner       int
 	ready       bool
 }
 
@@ -131,9 +129,6 @@ func (b *InMemoryBackend) EnableEngine(cfg EngineConfig) {
 
 	if cfg.Probe == nil {
 		cfg.Probe = probeMongo
-		if authority != nil {
-			cfg.Probe = probeMongoTLS(authority.clientConfig())
-		}
 	}
 
 	if cfg.SetPassword == nil {
@@ -161,18 +156,17 @@ func mongoTag(engineVersion string) string {
 	}
 }
 
-func (e *dbEngine) spec(lb *liveCluster, tlsDir string) container.Spec {
+func (e *dbEngine) spec(lb *liveCluster) container.Spec {
+	bindHost, hostPort := container.BindHostFor(e.cfg.Host), lb.port
+	if lb.inner != 0 {
+		bindHost, hostPort = container.LoopbackHost, lb.inner
+	}
+
 	spec := container.Spec{
 		Name:  "gopherstack-docdb-" + uuid.NewString()[:12],
 		Image: "mongo:" + lb.version,
 		Env:   []string{"MONGO_INITDB_ROOT_USERNAME=" + lb.user, "MONGO_INITDB_ROOT_PASSWORD=" + lb.password},
-		Ports: []string{container.PortSpec(
-			container.BindHostFor(e.cfg.Host), strconv.Itoa(lb.port), strconv.Itoa(mongoContainerPort))},
-	}
-
-	if tlsDir != "" {
-		spec.Mounts = []string{tlsDir + ":" + tlsMountDir + ":ro"}
-		spec.Cmd = tlsArgs()
+		Ports: []string{container.PortSpec(bindHost, strconv.Itoa(hostPort), strconv.Itoa(mongoContainerPort))},
 	}
 
 	return spec
@@ -208,7 +202,7 @@ func (e *dbEngine) releasePort(port int) {
 	}
 }
 
-func (e *dbEngine) remove(containerID string, port int, tlsDir string) {
+func (e *dbEngine) remove(containerID string, port, inner int, proxy *tlsProxy) {
 	ctx, cancel := context.WithTimeout(context.Background(), engineStopTimeout)
 	defer cancel()
 
@@ -219,11 +213,12 @@ func (e *dbEngine) remove(containerID string, port int, tlsDir string) {
 		}
 	}
 
-	if tlsDir != "" {
-		_ = os.RemoveAll(tlsDir)
+	if proxy != nil {
+		proxy.Close()
 	}
 
 	e.releasePort(port)
+	e.releasePort(inner)
 }
 
 func (e *dbEngine) reap(lbs ...*liveCluster) {
@@ -234,8 +229,8 @@ func (e *dbEngine) reap(lbs ...*liveCluster) {
 
 		lb.cancel()
 
-		id, port, dir := lb.containerID, lb.port, lb.tlsDir
-		e.wg.Go(func() { e.remove(id, port, dir) })
+		id, port, inner, proxy := lb.containerID, lb.port, lb.inner, lb.proxy
+		e.wg.Go(func() { e.remove(id, port, inner, proxy) })
 	}
 }
 
@@ -315,30 +310,31 @@ func (b *InMemoryBackend) provisionClusterLocked(c *DBCluster, password string) 
 func (b *InMemoryBackend) runUnit(lb *liveCluster) {
 	e := b.engine
 
-	port, err := e.acquirePort()
+	port, inner, err := e.acquirePorts()
 	if err != nil {
 		b.failUnit(lb)
 
 		return
 	}
 
-	if !b.recordPort(lb, port) {
+	if !b.recordPorts(lb, port, inner) {
 		e.releasePort(port)
+		e.releasePort(inner)
 
 		return
 	}
 
-	tlsDir, err := e.prepareTLS()
+	proxy, err := b.startProxy(lb)
 	if err != nil {
 		b.failUnit(lb)
 
 		return
 	}
 
-	id, err := e.cfg.Runtime.CreateAndStart(lb.ctx, e.spec(lb, tlsDir))
+	id, err := e.cfg.Runtime.CreateAndStart(lb.ctx, e.spec(lb))
 	if err != nil {
-		if tlsDir != "" {
-			_ = os.RemoveAll(tlsDir)
+		if proxy != nil {
+			proxy.Close()
 		}
 
 		b.failUnit(lb)
@@ -346,8 +342,8 @@ func (b *InMemoryBackend) runUnit(lb *liveCluster) {
 		return
 	}
 
-	if !b.recordContainer(lb, id, tlsDir) {
-		e.remove(id, port, tlsDir)
+	if !b.recordContainer(lb, id, proxy) {
+		e.remove(id, port, inner, proxy)
 
 		return
 	}
@@ -355,7 +351,24 @@ func (b *InMemoryBackend) runUnit(lb *liveCluster) {
 	b.awaitAndMark(lb)
 }
 
-func (b *InMemoryBackend) recordPort(lb *liveCluster, port int) bool {
+// acquirePorts reserves the published port and, when TLS fronts the container, the loopback port behind it.
+func (e *dbEngine) acquirePorts() (int, int, error) {
+	port, err := e.acquirePort()
+	if err != nil || e.tls == nil {
+		return port, 0, err
+	}
+
+	inner, err := e.acquirePort()
+	if err != nil {
+		e.releasePort(port)
+
+		return 0, 0, err
+	}
+
+	return port, inner, nil
+}
+
+func (b *InMemoryBackend) recordPorts(lb *liveCluster, port, inner int) bool {
 	b.mu.Lock("docdbEnginePort")
 	defer b.mu.Unlock()
 
@@ -363,20 +376,28 @@ func (b *InMemoryBackend) recordPort(lb *liveCluster, port int) bool {
 		return false
 	}
 
-	lb.port = port
+	lb.port, lb.inner = port, inner
 
 	return true
 }
 
-func (e *dbEngine) prepareTLS() (string, error) {
+// startProxy opens the TLS-terminating listener in front of lb's container; nil when TLS is off for the engine.
+func (b *InMemoryBackend) startProxy(lb *liveCluster) (*tlsProxy, error) {
+	e := b.engine
 	if e.tls == nil {
-		return "", nil
+		return nil, nil //nolint:nilnil // no proxy is a valid state
 	}
 
-	return e.tls.writeDir(e.cfg.Host)
+	b.mu.RLock("docdbEngineProxy")
+	require := b.clusterTLSByID(lb.region, lb.id)
+	b.mu.RUnlock()
+
+	upstream := net.JoinHostPort(container.LoopbackHost, strconv.Itoa(lb.inner))
+
+	return e.tls.startProxy(e.cfg.Host, lb.port, upstream, require)
 }
 
-func (b *InMemoryBackend) recordContainer(lb *liveCluster, id, tlsDir string) bool {
+func (b *InMemoryBackend) recordContainer(lb *liveCluster, id string, proxy *tlsProxy) bool {
 	b.mu.Lock("docdbEngineContainer")
 	defer b.mu.Unlock()
 
@@ -384,7 +405,7 @@ func (b *InMemoryBackend) recordContainer(lb *liveCluster, id, tlsDir string) bo
 		return false
 	}
 
-	lb.containerID, lb.tlsDir = id, tlsDir
+	lb.containerID, lb.proxy = id, proxy
 
 	return true
 }
@@ -392,6 +413,10 @@ func (b *InMemoryBackend) recordContainer(lb *liveCluster, id, tlsDir string) bo
 func (b *InMemoryBackend) awaitAndMark(lb *liveCluster) {
 	b.mu.RLock("docdbEngineAddr")
 	addr := b.engine.addr(lb)
+	if lb.inner != 0 {
+		addr = net.JoinHostPort(container.LoopbackHost, strconv.Itoa(lb.inner))
+	}
+
 	b.mu.RUnlock()
 
 	ctx, cancel := context.WithTimeout(lb.ctx, b.engine.cfg.StartTimeout)
@@ -569,9 +594,6 @@ func (b *InMemoryBackend) applyMasterPassword(region, id, newPassword string) er
 		ContainerID: lb.containerID, Version: lb.version, User: lb.user,
 		OldPassword: lb.password, NewPassword: newPassword,
 	}
-	if lb.tlsDir != "" {
-		change.TLSCAFile = tlsMountDir + "/" + tlsCAFile
-	}
 	ready, set := lb.ready, b.engine.cfg.SetPassword
 	b.mu.RUnlock()
 
@@ -601,10 +623,6 @@ func execSetPassword(ctx context.Context, rt EngineRuntime, c PasswordChange) er
 	cmd := []string{
 		mongoShell, "--quiet", "-u", c.User, "-p", c.OldPassword,
 		"--authenticationDatabase", "admin", "--eval", script,
-	}
-
-	if c.TLSCAFile != "" {
-		cmd = append(cmd, "--tls", "--tlsCAFile", c.TLSCAFile, "--host", tlsServerName)
 	}
 
 	res, err := rt.Exec(ctx, c.ContainerID, cmd)

@@ -60,6 +60,10 @@ func (x *exec) execUnwind(c unwindClause, rows []row) ([]row, error) {
 		case nil:
 		case []any:
 			for _, e := range t {
+				if cerr := x.ctx.Err(); cerr != nil {
+					return nil, fmt.Errorf("query cancelled: %w", cerr)
+				}
+
 				out = append(out, r.with(c.v, e))
 			}
 		default:

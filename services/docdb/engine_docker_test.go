@@ -2,9 +2,12 @@ package docdb_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,7 +21,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/docdb"
 )
 
-const dockerEngineWait = 5 * time.Minute
+const (
+	dockerEngineWait = 5 * time.Minute
+	listDBs          = "if(db.adminCommand({listDatabases:1}).ok!==1){quit(1)}"
+)
 
 type recordingEngineRuntime struct {
 	docdb.EngineRuntime
@@ -122,4 +128,88 @@ func TestEngineDockerRealMongo(t *testing.T) {
 	_, err = b.DeleteDBCluster(t.Context(), "c1", &docdb.DeleteDBClusterOptions{SkipFinalSnapshot: true})
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return dockerContainerState(t, id) == "" }, time.Minute, 250*time.Millisecond)
+}
+
+func mongoShellExit(t *testing.T, args ...string) int {
+	t.Helper()
+
+	cmd := exec.CommandContext(t.Context(), "docker", append([]string{"run", "--rm", "--network", "host"}, args...)...)
+	if err := cmd.Run(); err != nil {
+		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
+			return ee.ExitCode()
+		}
+
+		require.NoError(t, err)
+	}
+
+	return 0
+}
+
+func TestEngineDockerTLSAndSCRAM(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker CLI not available")
+	}
+
+	rt, err := container.NewRuntime(container.Config{})
+	if err != nil {
+		t.Skipf("container runtime unavailable: %v", err)
+	}
+
+	er, ok := rt.(docdb.EngineRuntime)
+	if !ok {
+		t.Skip("container runtime cannot stop/start containers")
+	}
+
+	if err = rt.Ping(t.Context()); err != nil {
+		t.Skipf("container daemon unreachable: %v", err)
+	}
+
+	b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+	b.EnableEngine(docdb.EngineConfig{Runtime: &recordingEngineRuntime{EngineRuntime: er}, TLS: true})
+	t.Cleanup(b.Close)
+
+	ctx := t.Context()
+	_, err = b.CreateDBClusterParameterGroup(ctx, "pg", "docdb5.0", "d", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateDBCluster(ctx, "c1", "docdb", "5.0.0", "admin1", "s3cretpassword",
+		"", "pg", "", 0, false, false, 0, "", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	c := waitClusterStatusFor(t, b, "available", dockerEngineWait)
+
+	_, err = b.CreateDBInstance(ctx, "i1", "c1", "", "docdb", 0, nil, nil)
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca.pem"), b.TLSCAPEM(), 0o644))
+
+	host := net.JoinHostPort(c.Endpoint, strconv.Itoa(c.Port))
+	shell := func(extra ...string) int {
+		args := append([]string{"-v", dir + ":/c:ro", "mongo:5.0", "mongo", "--quiet", "--host", c.Endpoint,
+			"--port", strconv.Itoa(c.Port)}, extra...)
+
+		return mongoShellExit(t, args...)
+	}
+	login := func(pass string) []string {
+		return []string{"-u", "admin1", "-p", pass, "--authenticationDatabase", "admin", "--eval", listDBs}
+	}
+	secure := []string{"--tls", "--tlsCAFile", "/c/ca.pem"}
+
+	assert.Zero(t, shell(append(append([]string{}, secure...), login("s3cretpassword")...)...), "tls + scram")
+	assert.NotZero(t, shell(append(append([]string{}, secure...), login("wrongpassword")...)...), "wrong password")
+	assert.NotZero(t, shell(append(append([]string{}, secure...), "--eval", listDBs)...), "unauthenticated")
+	assert.NotZero(t, shell(login("s3cretpassword")...), "plaintext refused while tls is enabled: "+host)
+
+	_, err = b.ModifyDBClusterParameterGroup(ctx, "pg", map[string]string{"tls": "disabled"})
+	require.NoError(t, err)
+	_, err = b.RebootDBInstance(ctx, "i1")
+	require.NoError(t, err)
+
+	assert.Zero(t, shell(login("s3cretpassword")...), "plaintext + scram once tls is disabled")
+	assert.NotZero(t, shell(login("wrongpassword")...), "wrong password still fails")
+	assert.NotZero(t, shell(append(append([]string{}, secure...), login("s3cretpassword")...)...),
+		"tls refused when disabled")
 }

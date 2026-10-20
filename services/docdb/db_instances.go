@@ -244,14 +244,30 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	return copyInstance(inst), nil
 }
 
+// RebootDBInstance clears the instance's pending-reboot flag and applies the cluster's tls parameter to its engine.
 func (b *InMemoryBackend) RebootDBInstance(ctx context.Context, id string) (*DBInstance, error) {
+	inst, err := b.rebootInstance(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if inst.DBClusterIdentifier != "" {
+		b.applyTLSMode(getRegion(ctx, b.region), inst.DBClusterIdentifier)
+	}
+
+	return inst, nil
+}
+
+func (b *InMemoryBackend) rebootInstance(ctx context.Context, id string) (*DBInstance, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("RebootDBInstance")
 	defer b.mu.Unlock()
+
 	inst, exists := b.instanceGet(region, id)
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
+
 	inst.ParameterPendingReboot = false
 
 	return copyInstance(inst), nil

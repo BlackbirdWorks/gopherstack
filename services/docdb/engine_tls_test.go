@@ -4,22 +4,41 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/pem"
-	"os"
-	"os/exec"
-	"path/filepath"
+	"net"
 	"strconv"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/services/docdb"
 )
+
+func caPool(t *testing.T, b *docdb.InMemoryBackend) *x509.CertPool {
+	t.Helper()
+
+	pool := x509.NewCertPool()
+	require.True(t, pool.AppendCertsFromPEM(b.TLSCAPEM()))
+
+	return pool
+}
+
+func tlsHandshakeOK(c docdb.DBCluster, pool *x509.CertPool, serverName string) bool {
+	d := &tls.Dialer{
+		NetDialer: &net.Dialer{Timeout: 5 * time.Second},
+		Config:    &tls.Config{RootCAs: pool, ServerName: serverName, MinVersion: tls.VersionTLS12},
+	}
+
+	conn, err := d.DialContext(context.Background(), "tcp", net.JoinHostPort(c.Endpoint, strconv.Itoa(c.Port)))
+	if err != nil {
+		return false
+	}
+
+	_ = conn.Close()
+
+	return true
+}
 
 func TestEngineTLS(t *testing.T) {
 	t.Parallel()
@@ -37,26 +56,7 @@ func TestEngineTLS(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var (
-				mu     sync.Mutex
-				server []byte
-				ca     []byte
-				dir    string
-			)
-
-			rt := &fakeEngineRuntime{onCreate: func(spec container.Spec) {
-				if len(spec.Mounts) == 0 {
-					return
-				}
-
-				mu.Lock()
-				defer mu.Unlock()
-
-				dir = strings.SplitN(spec.Mounts[0], ":", 2)[0]
-				server, _ = os.ReadFile(filepath.Join(dir, "server.pem"))
-				ca, _ = os.ReadFile(filepath.Join(dir, "ca.pem"))
-			}}
-
+			rt := &fakeEngineRuntime{}
 			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
 			b.EnableEngine(docdb.EngineConfig{
 				Runtime: rt, Probe: readyProbe, StartTimeout: time.Minute, TLS: tt.tls,
@@ -64,60 +64,38 @@ func TestEngineTLS(t *testing.T) {
 			t.Cleanup(b.Close)
 
 			createEngineCluster(t, b, "5.0.0")
-			waitClusterStatus(t, b, "available")
+			c := waitClusterStatus(t, b, "available")
 
 			specs := rt.createdSpecs()
 			require.Len(t, specs, 1)
+			assert.Empty(t, specs[0].Mounts)
+			assert.Empty(t, specs[0].Cmd)
 
 			if !tt.wantTLS {
-				assert.Empty(t, specs[0].Mounts)
-				assert.Empty(t, specs[0].Cmd)
 				assert.Nil(t, b.TLSCAPEM())
 
 				return
 			}
 
-			assert.Equal(t, "requireTLS", specs[0].Cmd[2])
-			assert.Contains(t, specs[0].Cmd, "/gopherstack-tls/server.pem")
-			assert.Equal(t, b.TLSCAPEM(), ca)
+			assert.Contains(t, specs[0].Ports[0], "127.0.0.1:")
+			assert.NotContains(t, specs[0].Ports[0], ":"+strconv.Itoa(c.Port)+":")
 
-			mu.Lock()
-			srvPEM, mountDir := append([]byte(nil), server...), dir
-			mu.Unlock()
-
-			pair, err := tls.X509KeyPair(srvPEM, srvPEM)
-			require.NoError(t, err)
-
-			leaf, err := x509.ParseCertificate(pair.Certificate[0])
-			require.NoError(t, err)
-
-			pool := x509.NewCertPool()
-			block, _ := pem.Decode(b.TLSCAPEM())
-			require.NotNil(t, block)
-
-			caCert, err := x509.ParseCertificate(block.Bytes)
-			require.NoError(t, err)
-			pool.AddCert(caCert)
-
+			pool := caPool(t, b)
 			for _, name := range []string{"localhost", "127.0.0.1"} {
-				_, err = leaf.Verify(x509.VerifyOptions{
-					Roots: pool, DNSName: name, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-				})
-				require.NoError(t, err, name)
+				assert.True(t, tlsHandshakeOK(c, pool, name), name)
 			}
 
-			_, err = b.DeleteDBCluster(t.Context(), "c1", &docdb.DeleteDBClusterOptions{SkipFinalSnapshot: true})
-			require.NoError(t, err)
-			require.Eventually(t, func() bool {
-				_, serr := os.Stat(mountDir)
+			assert.False(t, tlsHandshakeOK(c, x509.NewCertPool(), "localhost"), "untrusted CA")
 
-				return os.IsNotExist(serr)
-			}, 10*time.Second, 5*time.Millisecond)
+			_, err := b.DeleteDBCluster(t.Context(), "c1", &docdb.DeleteDBClusterOptions{SkipFinalSnapshot: true})
+			require.NoError(t, err)
+			require.Eventually(t, func() bool { return !tlsHandshakeOK(c, pool, "localhost") },
+				10*time.Second, 5*time.Millisecond)
 		})
 	}
 }
 
-func TestEngineTLSPasswordChangeUsesTLSShell(t *testing.T) {
+func TestEngineTLSPasswordChangeUsesPlainShell(t *testing.T) {
 	t.Parallel()
 
 	rt := &fakeEngineRuntime{}
@@ -134,72 +112,63 @@ func TestEngineTLSPasswordChangeUsesTLSShell(t *testing.T) {
 
 	execs := rt.execCalls()
 	require.Len(t, execs, 1)
-	assert.Contains(t, execs[0], "--tls")
-	assert.Contains(t, execs[0], "/gopherstack-tls/ca.pem")
+	assert.NotContains(t, execs[0], "--tls")
 }
 
-func TestEngineDockerRealMongoTLSAndSCRAM(t *testing.T) {
+func TestEngineTLSParameterGroup(t *testing.T) {
 	t.Parallel()
 
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker CLI not available")
+	tests := []struct {
+		name       string
+		launchTLS  string
+		rebootTLS  string
+		wantBefore bool
+		wantAfter  bool
+	}{
+		{name: "default enabled", wantBefore: true, wantAfter: true},
+		{name: "disabled at launch", launchTLS: "disabled"},
+		{name: "disable on reboot", launchTLS: "enabled", rebootTLS: "disabled", wantBefore: true},
+		{name: "enable on reboot", launchTLS: "disabled", rebootTLS: "enabled", wantAfter: true},
 	}
 
-	rt, err := container.NewRuntime(container.Config{})
-	if err != nil {
-		t.Skipf("container runtime unavailable: %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	er, ok := rt.(docdb.EngineRuntime)
-	if !ok {
-		t.Skip("container runtime cannot stop/start containers")
-	}
+			rt := &fakeEngineRuntime{}
+			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+			b.EnableEngine(docdb.EngineConfig{Runtime: rt, Probe: readyProbe, StartTimeout: time.Minute, TLS: true})
+			t.Cleanup(b.Close)
 
-	if err = rt.Ping(t.Context()); err != nil {
-		t.Skipf("container daemon unreachable: %v", err)
-	}
+			ctx := t.Context()
+			_, err := b.CreateDBClusterParameterGroup(ctx, "pg", "docdb5.0", "d", nil)
+			require.NoError(t, err)
 
-	rec := &recordingEngineRuntime{EngineRuntime: er}
-	b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-	b.EnableEngine(docdb.EngineConfig{Runtime: rec, TLS: true})
-	t.Cleanup(b.Close)
+			if tt.launchTLS != "" {
+				_, err = b.ModifyDBClusterParameterGroup(ctx, "pg", map[string]string{"tls": tt.launchTLS})
+				require.NoError(t, err)
+			}
 
-	createEngineCluster(t, b, "5.0.0")
+			_, err = b.CreateDBCluster(ctx, "c1", "docdb", "5.0.0", "admin1", "s3cretpassword",
+				"", "pg", "", 0, false, false, 0, "", "", nil, nil, nil)
+			require.NoError(t, err)
+			c := waitClusterStatus(t, b, "available")
 
-	c := waitClusterStatusFor(t, b, "available", dockerEngineWait)
-	require.Len(t, rec.containerIDs(), 1)
-	id := rec.containerIDs()[0]
-	addr := "127.0.0.1:" + strconv.Itoa(c.Port)
+			_, err = b.CreateDBInstance(ctx, "i1", "c1", "", "docdb", 0, nil, nil)
+			require.NoError(t, err)
 
-	pool := x509.NewCertPool()
-	require.True(t, pool.AppendCertsFromPEM(b.TLSCAPEM()))
+			pool := caPool(t, b)
+			assert.Equal(t, tt.wantBefore, tlsHandshakeOK(c, pool, "localhost"))
 
-	conn, err := (&tls.Dialer{Config: &tls.Config{RootCAs: pool, ServerName: "localhost", MinVersion: tls.VersionTLS12}}).
-		DialContext(
-			t.Context(),
-			"tcp",
-			addr,
-		)
-	require.NoError(t, err)
-	require.NoError(t, conn.Close())
+			if tt.rebootTLS != "" {
+				_, err = b.ModifyDBClusterParameterGroup(ctx, "pg", map[string]string{"tls": tt.rebootTLS})
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantBefore, tlsHandshakeOK(c, pool, "localhost"), "static until reboot")
+			}
 
-	shell := func(ctx context.Context, user, pass, mech string) container.ExecResult {
-		res, eerr := er.Exec(ctx, id, []string{
-			"mongo", "--quiet", "--tls", "--tlsCAFile", "/gopherstack-tls/ca.pem", "--host", "localhost",
-			"-u", user, "-p", pass, "--authenticationDatabase", "admin", "--authenticationMechanism", mech,
-			"--eval", "db.runCommand({connectionStatus:1}).authInfo.authenticatedUsers[0].user",
+			_, err = b.RebootDBInstance(ctx, "i1")
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantAfter, tlsHandshakeOK(c, pool, "localhost"))
 		})
-		require.NoError(t, eerr)
-
-		return res
-	}
-
-	for _, mech := range []string{"SCRAM-SHA-1", "SCRAM-SHA-256"} {
-		good := shell(t.Context(), "admin1", "s3cretpassword", mech)
-		assert.Equal(t, 0, good.ExitCode, mech+": "+good.Stderr+good.Stdout)
-		assert.Contains(t, good.Stdout, "admin1")
-
-		bad := shell(t.Context(), "admin1", "wrong", mech)
-		assert.NotEqual(t, 0, bad.ExitCode, mech)
 	}
 }
