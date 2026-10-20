@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 )
 
 // Handler is the Echo HTTP handler for RDS operations.
@@ -23,6 +24,7 @@ type Handler struct {
 	handlers      map[string]*Handler
 	accountID     string
 	secretsStore  SecretsStore
+	sgEnforcer    *sgfilter.Enforcer
 	defaultRegion string
 	mu            sync.Mutex
 }
@@ -58,6 +60,7 @@ func (h *Handler) getHandlerForRegion(region string) *Handler {
 		backend.SetSecretsStore(h.secretsStore)
 	}
 	backend.SetAutoPause(h.Backend.AutoPause())
+	backend.SetSecurityGroupEnforcer(h.sgEnforcer)
 	backend.SetMetricEmitter(h.Backend.metrics.Emitter())
 	h.backends[region] = backend
 	handler := &Handler{Backend: backend}

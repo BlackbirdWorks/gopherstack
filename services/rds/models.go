@@ -7,6 +7,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -865,6 +866,7 @@ type InMemoryBackend struct {
 	metrics                   cwmetric.Sink
 	dnsRegistrar              DNSRegistrar
 	secrets                   SecretsStore
+	sgEnforcer                *sgfilter.Enforcer
 	engine                    *dbEngine
 	pause                     map[string]*pauseTracker
 	registry                  *store.Registry

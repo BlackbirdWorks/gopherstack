@@ -118,6 +118,7 @@ type liveDB struct {
 	once        sync.Once
 	serverID    uint32
 	monitoring  atomic.Bool
+	dbPort      atomic.Int32
 	ready       bool
 	paused      bool
 }
@@ -496,6 +497,7 @@ func (b *InMemoryBackend) launchSeededUnitLocked(
 		version: version, user: user, password: password, dbName: dbName, seed: seed,
 		ctrName: "gopherstack-rds-" + randomPassword(), serverID: randomServerID(),
 	}
+	lb.dbPort.Store(int32(b.recordedPortLocked(lb))) //nolint:gosec // TCP port fits int32
 	if seed.replicate {
 		lb.repl = &replicaState{srcKey: seed.fromKey}
 		lb.net.Store(seed.net)

@@ -87,6 +87,8 @@ func (s *portSwitch) commit() {
 	default:
 	}
 
+	s.lb.dbPort.Store(int32(s.port)) //nolint:gosec // TCP port fits int32
+
 	if s.lb.kind == enginePostgres {
 		p := &pgProxy{be: s.be, lb: s.lb, ln: s.ln, port: s.port, tlsCfg: s.be.engine.serverTLS()}
 		p.wg.Add(1)

@@ -164,6 +164,10 @@ func (l *endpointListener) upstream() string {
 func (l *endpointListener) serve(client net.Conn) {
 	defer func() { _ = client.Close() }()
 
+	if !l.be.admitClient(l.lb, client.RemoteAddr()) {
+		return
+	}
+
 	addr := l.upstream()
 	if addr == "" {
 		return
