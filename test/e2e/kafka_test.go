@@ -64,8 +64,7 @@ func TestKafkaDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Clusters", "my-test-cluster")
 	assert.Contains(t, content, "Clusters")
 	assert.Contains(t, content, "my-test-cluster")
 }
@@ -118,7 +117,6 @@ func TestKafkaDashboard_CreateCluster(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-cluster")
 	assert.Contains(t, content, "e2e-cluster")
 }

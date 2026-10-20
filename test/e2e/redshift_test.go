@@ -48,8 +48,7 @@ func TestRedshiftDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-cluster")
 	assert.Contains(t, content, "test-cluster")
 }
 
@@ -83,7 +82,6 @@ func TestRedshiftDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No clusters found")
 	assert.Contains(t, content, "No clusters found")
 }

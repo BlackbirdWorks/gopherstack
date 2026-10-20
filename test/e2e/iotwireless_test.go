@@ -48,8 +48,7 @@ func TestIoTWirelessDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-thing", "AWS IoT Core")
 	assert.Contains(t, content, "e2e-test-thing")
 	assert.Contains(t, content, "AWS IoT Core")
 }
@@ -84,7 +83,6 @@ func TestIoTWirelessDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No IoT things found")
 	assert.Contains(t, content, "No IoT things found")
 }

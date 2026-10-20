@@ -45,8 +45,7 @@ func TestCodeConnectionsDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-conn")
 	assert.Contains(t, content, "e2e-test-conn")
 }
 
@@ -81,7 +80,6 @@ func TestCodeConnectionsDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "CodeConnections")
 	assert.Contains(t, content, "CodeConnections")
 }

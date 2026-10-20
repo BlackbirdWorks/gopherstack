@@ -74,8 +74,7 @@ func TestDynamoDBStreamsDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "streams-dashboard-e2e", "NEW_AND_OLD_IMAGES")
 	assert.Contains(t, content, "streams-dashboard-e2e")
 	assert.Contains(t, content, "NEW_AND_OLD_IMAGES")
 }
@@ -110,7 +109,6 @@ func TestDynamoDBStreamsDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No tables found")
 	assert.Contains(t, content, "No tables found")
 }

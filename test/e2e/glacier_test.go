@@ -82,7 +82,6 @@ func TestGlacierDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No vaults found")
 	assert.Contains(t, content, "No vaults found")
 }

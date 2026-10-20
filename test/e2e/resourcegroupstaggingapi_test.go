@@ -59,8 +59,7 @@ func TestResourceGroupsTaggingAPIDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, testTaggingARN, "env=e2e")
 	assert.Contains(t, content, testTaggingARN)
 	assert.Contains(t, content, "env=e2e")
 }
@@ -95,7 +94,6 @@ func TestResourceGroupsTaggingAPIDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No tagged resources found")
 	assert.Contains(t, content, "No tagged resources found")
 }

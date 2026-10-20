@@ -55,8 +55,7 @@ func TestAppSyncDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-api")
 	assert.Contains(t, content, "e2e-test-api")
 }
 
@@ -90,7 +89,6 @@ func TestAppSyncDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "AppSync")
 	assert.Contains(t, content, "AppSync")
 }

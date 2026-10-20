@@ -44,8 +44,7 @@ func TestVerifiedPermissionsDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Amazon Verified Permissions", "Policy Stores")
 	assert.Contains(t, content, "Amazon Verified Permissions")
 	assert.Contains(t, content, "Policy Stores")
 }
@@ -80,8 +79,7 @@ func TestVerifiedPermissionsDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No policy stores found")
 	assert.Contains(t, content, "No policy stores found")
 }
 
@@ -118,8 +116,7 @@ func TestVerifiedPermissionsDashboard_CreatePolicyStore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Amazon Verified Permissions", "Policy Stores")
 	assert.Contains(t, content, "Amazon Verified Permissions")
 	assert.Contains(t, content, "Policy Stores")
 }

@@ -43,8 +43,7 @@ func TestChaosDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Fault Rules", "Network Effects", "Activity Log", "Add Fault")
 	assert.Contains(t, content, "Fault Rules")
 	assert.Contains(t, content, "Network Effects")
 	assert.Contains(t, content, "Activity Log")
@@ -96,8 +95,7 @@ func TestChaosDashboard_WithExistingFault(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "s3", "50% probability")
 	assert.Contains(t, content, "s3")
 	assert.Contains(t, content, "50% probability")
 }
@@ -150,8 +148,7 @@ func TestChaosDashboard_AddFault(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "dynamodb")
 	assert.Contains(t, content, "dynamodb")
 }
 

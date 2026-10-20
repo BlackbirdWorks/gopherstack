@@ -48,8 +48,7 @@ func TestRDSDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-db", "postgres")
 	assert.Contains(t, content, "test-db")
 	assert.Contains(t, content, "postgres")
 }
@@ -84,8 +83,7 @@ func TestRDSDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No RDS instances")
 	assert.Contains(t, content, "No RDS instances")
 }
 
@@ -129,8 +127,7 @@ func TestRDSDashboard_CreateAndDelete(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Use the AWS console or CLI")
 	assert.Contains(t, content, "Use the AWS console or CLI")
 
 	err = page.Locator("button:has-text('Close')").First().Click()

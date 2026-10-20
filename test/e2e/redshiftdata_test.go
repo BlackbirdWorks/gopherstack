@@ -43,8 +43,7 @@ func TestRedshiftDataDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Redshift Data", "Run Query")
 	assert.Contains(t, content, "Redshift Data")
 	assert.Contains(t, content, "Run Query")
 }
@@ -81,8 +80,7 @@ func TestRedshiftDataDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Redshift Data")
 	assert.Contains(t, content, "Redshift Data")
 	// The rebuilt page's default tab (Query Console) renders its SQL
 	// textarea with aria-label "SQL Query" (see +page.svelte's `rd-sql`

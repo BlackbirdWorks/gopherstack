@@ -46,8 +46,7 @@ func TestRAMDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "AWS Resource Access Manager", "Resource Shares")
 	assert.Contains(t, content, "AWS Resource Access Manager")
 	assert.Contains(t, content, "Resource Shares")
 }
@@ -82,7 +81,6 @@ func TestRAMDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No resource shares found")
 	assert.Contains(t, content, "No resource shares found")
 }

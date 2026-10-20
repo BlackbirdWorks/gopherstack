@@ -44,8 +44,7 @@ func TestCodeCommitDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-repo")
 	assert.Contains(t, content, "e2e-test-repo")
 }
 
@@ -79,7 +78,6 @@ func TestCodeCommitDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No repositories found")
 	assert.Contains(t, content, "No repositories found")
 }

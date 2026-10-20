@@ -44,8 +44,7 @@ func TestSWFDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-domain")
 	assert.Contains(t, content, "test-domain")
 }
 
@@ -79,7 +78,6 @@ func TestSWFDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No domains found")
 	assert.Contains(t, content, "No domains found")
 }

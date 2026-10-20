@@ -93,7 +93,6 @@ func TestACMDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Certificate Manager")
 	assert.Contains(t, content, "Certificate Manager")
 }

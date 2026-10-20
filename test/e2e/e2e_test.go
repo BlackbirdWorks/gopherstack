@@ -1172,3 +1172,35 @@ func TestE2E_SidebarNavigation(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+// pageContentContaining polls the rendered DOM until it contains every want
+// string (the SPA renders after load) and returns the final content.
+func pageContentContaining(t *testing.T, page playwright.Page, want ...string) string {
+	t.Helper()
+
+	var content string
+	deadline := time.Now().Add(30 * time.Second)
+
+	for {
+		c, err := page.Content()
+		require.NoError(t, err)
+
+		content = c
+
+		missing := false
+
+		for _, w := range want {
+			if !strings.Contains(content, w) {
+				missing = true
+
+				break
+			}
+		}
+
+		if !missing || time.Now().After(deadline) {
+			return content
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+}

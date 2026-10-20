@@ -48,8 +48,7 @@ func TestSTSDashboard(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "000000000000")
 	assert.Contains(t, content, "000000000000")
 }
 
@@ -113,8 +112,7 @@ func TestSTSDashboard_GenerateSessionToken(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "ASIA", "expires in")
 	assert.Contains(t, content, "ASIA", "access key ID should be visible")
 	assert.Contains(t, content, "expires in", "relative expiration time should appear")
 }
@@ -187,8 +185,7 @@ func TestSTSDashboard_AssumeRole(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "ASIA")
 	assert.Contains(t, content, "ASIA", "assumed role access key should be visible")
 }
 
@@ -288,8 +285,7 @@ func TestSTSDashboard_MetricsPanel(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Session Metrics")
 	// Metrics panel heading must be present (rebuilt page titles it "Session
 	// Metrics" — the panel itself, its aggregate counters, and the janitor
 	// stats it renders are unchanged; only the heading wording moved).

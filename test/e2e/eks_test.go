@@ -44,8 +44,7 @@ func TestEKSDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-cluster")
 	assert.Contains(t, content, "e2e-test-cluster")
 }
 
@@ -79,7 +78,6 @@ func TestEKSDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "EKS Clusters")
 	assert.Contains(t, content, "EKS Clusters")
 }

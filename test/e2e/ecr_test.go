@@ -48,8 +48,7 @@ func TestECRDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "demo-app/backend", "demo-app/frontend")
 	assert.Contains(t, content, "demo-app/backend")
 	assert.Contains(t, content, "demo-app/frontend")
 }
@@ -85,8 +84,7 @@ func TestECRDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Repositories", "No repositories found")
 	assert.Contains(t, content, "Repositories")
 	assert.Contains(t, content, "No repositories found")
 }
@@ -139,8 +137,7 @@ func TestECRDashboard_CreateAndDeleteRepository(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-repo")
 	assert.Contains(t, content, "e2e-test-repo")
 
 	// Delete the repository

@@ -53,8 +53,7 @@ func TestIoTDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-device-1", "test-device-2")
 	assert.Contains(t, content, "test-device-1")
 	assert.Contains(t, content, "test-device-2")
 }
@@ -89,8 +88,7 @@ func TestIoTDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Things", "No IoT things found")
 	assert.Contains(t, content, "Things")
 	assert.Contains(t, content, "No IoT things found")
 }
@@ -143,8 +141,7 @@ func TestIoTDashboard_CreateAndDeleteThing(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-device")
 	assert.Contains(t, content, "e2e-test-device")
 
 	// Delete the thing

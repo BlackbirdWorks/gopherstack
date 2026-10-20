@@ -55,8 +55,7 @@ func TestTransferDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "SFTP", "ONLINE")
 	assert.Contains(t, content, "SFTP")
 	assert.Contains(t, content, "ONLINE")
 }
@@ -91,8 +90,7 @@ func TestTransferDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No Transfer Family servers found")
 	assert.Contains(t, content, "No Transfer Family servers found")
 }
 
@@ -146,7 +144,6 @@ func TestTransferDashboard_CreateServer(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Transfer Family")
 	assert.Contains(t, content, "Transfer Family")
 }

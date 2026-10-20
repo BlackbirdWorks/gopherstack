@@ -54,8 +54,7 @@ func TestServerlessRepoDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-app", "Publish App")
 	assert.Contains(t, content, "e2e-test-app")
 	assert.Contains(t, content, "Publish App")
 }
@@ -90,7 +89,6 @@ func TestServerlessRepoDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No serverless applications found")
 	assert.Contains(t, content, "No serverless applications found")
 }

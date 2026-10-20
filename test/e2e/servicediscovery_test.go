@@ -44,8 +44,7 @@ func TestServiceDiscoveryDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-namespace", "Namespaces")
 	assert.Contains(t, content, "e2e-namespace")
 	assert.Contains(t, content, "Namespaces")
 }
@@ -80,7 +79,6 @@ func TestServiceDiscoveryDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No namespaces found")
 	assert.Contains(t, content, "No namespaces found")
 }

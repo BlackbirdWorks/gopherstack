@@ -53,8 +53,7 @@ func TestShieldDashboard(t *testing.T) {
 		})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Shield Advanced")
 	assert.Contains(t, content, "Shield Advanced")
 }
 
@@ -88,7 +87,6 @@ func TestShieldDashboard_NoSubscription(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Enable Shield Advanced")
 	assert.Contains(t, content, "Enable Shield Advanced")
 }

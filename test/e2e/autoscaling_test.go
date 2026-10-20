@@ -59,8 +59,7 @@ func TestAutoscalingDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-asg", "Auto Scaling Groups")
 	assert.Contains(t, content, "e2e-test-asg")
 	assert.Contains(t, content, "Auto Scaling Groups")
 }
@@ -95,7 +94,6 @@ func TestAutoscalingDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Auto Scaling")
 	assert.Contains(t, content, "Auto Scaling")
 }

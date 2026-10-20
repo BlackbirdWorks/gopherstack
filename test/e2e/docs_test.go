@@ -41,8 +41,14 @@ func TestDocsDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(
+		t,
+		page,
+		"Documentation",
+		"Supported Services",
+		"github.com/BlackbirdWorks/gopherstack",
+		"GitHub",
+	)
 	assert.Contains(t, content, "Documentation")
 	assert.Contains(t, content, "Supported Services")
 	assert.Contains(t, content, "github.com/BlackbirdWorks/gopherstack")
@@ -122,8 +128,7 @@ func TestDocsDashboard_StatsCards(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Services with Dashboard UI", "Service Categories")
 	assert.Contains(t, content, "Services with Dashboard UI")
 	assert.Contains(t, content, "Service Categories")
 }

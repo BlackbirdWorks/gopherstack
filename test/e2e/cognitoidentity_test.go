@@ -53,8 +53,7 @@ func TestCognitoIdentityDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-pool")
 	assert.Contains(t, content, "e2e-test-pool")
 }
 
@@ -88,8 +87,7 @@ func TestCognitoIdentityDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Cognito Identity", "No identity pools found")
 	assert.Contains(t, content, "Cognito Identity")
 	assert.Contains(t, content, "No identity pools found")
 }

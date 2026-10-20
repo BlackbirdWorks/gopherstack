@@ -52,8 +52,7 @@ func TestAthenaDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-wg", "primary")
 	assert.Contains(t, content, "e2e-test-wg")
 	assert.Contains(t, content, "primary")
 }
@@ -88,8 +87,7 @@ func TestAthenaDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Athena", "primary")
 	assert.Contains(t, content, "Athena")
 	assert.Contains(t, content, "primary")
 }

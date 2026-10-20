@@ -48,7 +48,6 @@ func TestOpenSearchDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-domain")
 	require.Contains(t, content, "test-domain")
 }

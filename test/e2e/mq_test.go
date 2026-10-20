@@ -56,8 +56,7 @@ func TestMQDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-broker", "Create Broker")
 	assert.Contains(t, content, "e2e-test-broker")
 	assert.Contains(t, content, "Create Broker")
 }
@@ -92,7 +91,6 @@ func TestMQDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No brokers found")
 	assert.Contains(t, content, "No brokers found")
 }

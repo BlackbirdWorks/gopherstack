@@ -48,8 +48,7 @@ func TestIoTAnalyticsDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "IoT Analytics", "e2e_test_channel")
 	assert.Contains(t, content, "IoT Analytics")
 	assert.Contains(t, content, "e2e_test_channel")
 }
@@ -84,8 +83,7 @@ func TestIoTAnalyticsDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "IoT Analytics", "No channels found")
 	assert.Contains(t, content, "IoT Analytics")
 	assert.Contains(t, content, "No channels found")
 }
@@ -134,8 +132,7 @@ func TestIoTAnalyticsDashboard_CreateAndDeleteChannel(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "ui_test_channel")
 	assert.Contains(t, content, "ui_test_channel")
 
 	err = page.Locator("button:has-text('Delete')").First().Click()

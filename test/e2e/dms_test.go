@@ -50,8 +50,7 @@ func TestDMSDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-rep-inst")
 	assert.Contains(t, content, "e2e-rep-inst")
 }
 
@@ -85,7 +84,6 @@ func TestDMSDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No replication instances")
 	assert.Contains(t, content, "No replication instances")
 }

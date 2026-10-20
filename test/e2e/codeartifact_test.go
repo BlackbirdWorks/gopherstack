@@ -51,8 +51,7 @@ func TestCodeArtifactDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-domain", "Active")
 	assert.Contains(t, content, "e2e-test-domain")
 	assert.Contains(t, content, "Active")
 }
@@ -87,7 +86,6 @@ func TestCodeArtifactDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No domains found")
 	assert.Contains(t, content, "No domains found")
 }

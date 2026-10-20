@@ -58,8 +58,7 @@ func TestRoute53ResolverDashboard(t *testing.T) {
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-endpoint", "INBOUND")
 	assert.Contains(t, content, "test-endpoint")
 	assert.Contains(t, content, "INBOUND")
 }
@@ -92,8 +91,7 @@ func TestRoute53ResolverDashboard_Empty(t *testing.T) {
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No resolver endpoints found")
 	assert.Contains(t, content, "No resolver endpoints found")
 }
 

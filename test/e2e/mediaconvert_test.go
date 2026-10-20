@@ -50,8 +50,7 @@ func TestMediaConvertDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-queue")
 	assert.Contains(t, content, "e2e-test-queue")
 }
 
@@ -90,8 +89,7 @@ func TestMediaConvertDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Default")
 	assert.Contains(t, content, "Default")
 	assert.NotContains(t, content, "No queues found")
 }

@@ -41,8 +41,7 @@ func TestIoTDataPlaneDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "IoT Data Plane", "Publish", "Thing Shadows")
 	assert.Contains(t, content, "IoT Data Plane")
 	assert.Contains(t, content, "Publish")
 	assert.Contains(t, content, "Thing Shadows")
@@ -78,7 +77,6 @@ func TestIoTDataPlaneDashboard_Snippet(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Retained Messages")
 	assert.Contains(t, content, "Retained Messages")
 }

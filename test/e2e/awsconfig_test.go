@@ -56,8 +56,7 @@ func TestAWSConfigDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "default")
 	assert.Contains(t, content, "default")
 }
 
@@ -94,8 +93,7 @@ func TestAWSConfigDashboard_Empty(t *testing.T) {
 	err = page.Locator("button:has-text('Recorder')").Click()
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "AWS Config", "Configuration Recorder")
 	assert.Contains(t, content, "AWS Config")
 	assert.Contains(t, content, "Configuration Recorder")
 }

@@ -68,8 +68,7 @@ func TestTimestreamQueryDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-query", "ENABLED")
 	assert.Contains(t, content, "e2e-test-query")
 	assert.Contains(t, content, "ENABLED")
 }
@@ -115,8 +114,7 @@ func TestTimestreamQueryDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No scheduled queries found")
 	assert.Contains(t, content, "No scheduled queries found")
 }
 
@@ -176,7 +174,6 @@ func TestTimestreamQueryDashboard_Create(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "ui-test-query")
 	assert.Contains(t, content, "ui-test-query")
 }

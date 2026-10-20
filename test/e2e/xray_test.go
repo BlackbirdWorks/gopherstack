@@ -51,8 +51,7 @@ func TestXrayDashboard(t *testing.T) {
 		Timeout: playwright.Float(10000),
 	}))
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "AWS X-Ray", "Groups")
 	assert.Contains(t, content, "AWS X-Ray")
 	assert.Contains(t, content, "Groups")
 }
@@ -90,8 +89,7 @@ func TestXrayDashboard_Empty(t *testing.T) {
 	err = page.Locator("button:has-text('Groups')").First().Click()
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "AWS X-Ray", "Groups")
 	assert.Contains(t, content, "AWS X-Ray")
 	assert.Contains(t, content, "Groups")
 }
@@ -132,8 +130,7 @@ func TestXrayDashboard_CreateGroup(t *testing.T) {
 	err = page.Locator("button:has-text('Groups')").First().Click()
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "AWS X-Ray", "Groups")
 	assert.Contains(t, content, "AWS X-Ray")
 	assert.Contains(t, content, "Groups")
 }

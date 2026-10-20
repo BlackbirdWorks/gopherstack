@@ -51,8 +51,7 @@ func TestS3ControlDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "S3 Control")
 	assert.Contains(t, content, "S3 Control")
 }
 
@@ -86,7 +85,6 @@ func TestS3ControlDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "S3 Control")
 	assert.Contains(t, content, "S3 Control")
 }

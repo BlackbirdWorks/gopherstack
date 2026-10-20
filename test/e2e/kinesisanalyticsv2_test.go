@@ -51,8 +51,7 @@ func TestKinesisAnalyticsV2Dashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Kinesis Data Streams", "my-test-stream")
 	assert.Contains(t, content, "Kinesis Data Streams")
 	assert.Contains(t, content, "my-test-stream")
 }
@@ -111,7 +110,6 @@ func TestKinesisAnalyticsV2Dashboard_CreateApplication(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-analytics-stream")
 	assert.Contains(t, content, "e2e-analytics-stream")
 }

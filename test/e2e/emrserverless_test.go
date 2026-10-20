@@ -54,8 +54,7 @@ func TestEMRServerlessDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-spark-app", "Amazon EMR Serverless")
 	assert.Contains(t, content, "e2e-spark-app")
 	assert.Contains(t, content, "Amazon EMR Serverless")
 }
@@ -90,8 +89,7 @@ func TestEMRServerlessDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Amazon EMR Serverless", "No applications found")
 	assert.Contains(t, content, "Amazon EMR Serverless")
 	assert.Contains(t, content, "No applications found")
 }
@@ -167,8 +165,7 @@ func TestEMRServerlessDashboard_JobRuns(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, jr.JobRunID)
 	assert.Contains(t, content, jr.JobRunID)
 }
 
@@ -258,8 +255,7 @@ func TestEMRServerlessDashboard_Filtering(t *testing.T) {
 	require.NoError(t, err)
 
 	// Both jobs, in their distinct states, should be visible unfiltered.
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "running-job", "submitted-job", "CANCELLED", "SUBMITTED")
 	assert.Contains(t, content, "running-job")
 	assert.Contains(t, content, "submitted-job")
 	assert.Contains(t, content, "CANCELLED")
@@ -276,8 +272,7 @@ func TestEMRServerlessDashboard_Filtering(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err = page.Content()
-	require.NoError(t, err)
+	content = pageContentContaining(t, page, "running-job")
 	assert.Contains(t, content, "running-job")
 	assert.NotContains(t, content, "submitted-job")
 }
@@ -313,8 +308,7 @@ func TestEMRServerlessDashboard_Refresh(t *testing.T) {
 	require.NoError(t, err)
 
 	// Initially no applications.
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No applications found")
 	assert.Contains(t, content, "No applications found")
 
 	// Add an application after page load.

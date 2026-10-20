@@ -49,8 +49,7 @@ func TestEventBridgeDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-bus")
 	assert.Contains(t, content, "test-bus")
 }
 
@@ -105,8 +104,7 @@ func TestEventBridgeDashboard_Rules(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-rule", "rules-bus")
 	assert.Contains(t, content, "test-rule")
 	assert.Contains(t, content, "rules-bus")
 }

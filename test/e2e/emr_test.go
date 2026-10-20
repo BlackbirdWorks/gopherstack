@@ -50,8 +50,7 @@ func TestEMRDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-cluster")
 	assert.Contains(t, content, "e2e-test-cluster")
 }
 
@@ -85,7 +84,6 @@ func TestEMRDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Amazon EMR")
 	assert.Contains(t, content, "Amazon EMR")
 }

@@ -53,8 +53,7 @@ func TestCloudFormationDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-stack")
 	assert.Contains(t, content, "e2e-test-stack")
 }
 
@@ -88,7 +87,6 @@ func TestCloudFormationDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "CloudFormation")
 	assert.Contains(t, content, "CloudFormation")
 }

@@ -77,8 +77,7 @@ func TestIdentityStoreDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "alice.smith", "Alice Smith", "Engineering")
 	assert.Contains(t, content, "alice.smith")
 	assert.Contains(t, content, "Alice Smith")
 	assert.Contains(t, content, "Engineering")
@@ -114,8 +113,7 @@ func TestIdentityStoreDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Identity Store")
 	assert.Contains(t, content, "Identity Store")
 }
 
@@ -171,8 +169,7 @@ func TestIdentityStoreDashboard_CreateUser(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "bob.jones", "Bob Jones")
 	assert.Contains(t, content, "bob.jones")
 	assert.Contains(t, content, "Bob Jones")
 }
@@ -239,8 +236,7 @@ func TestIdentityStoreDashboard_CreateGroup(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Platform Team")
 	assert.Contains(t, content, "Platform Team")
 }
 

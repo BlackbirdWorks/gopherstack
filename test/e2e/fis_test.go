@@ -83,8 +83,7 @@ func TestFISDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Experiment Templates", "Stop DynamoDB writes")
 	assert.Contains(t, content, "Experiment Templates")
 	assert.Contains(t, content, "Stop DynamoDB writes")
 }
@@ -119,8 +118,7 @@ func TestFISDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "AWS Fault Injection Simulator", "No experiment templates found")
 	assert.Contains(t, content, "AWS Fault Injection Simulator")
 	assert.Contains(t, content, "No experiment templates found")
 }
@@ -186,8 +184,7 @@ func TestFISDashboard_TemplatesTab(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "E2E template")
 	assert.Contains(t, content, "E2E template")
 }
 
@@ -274,8 +271,7 @@ func TestFISDashboard_StartAndStopExperiment(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "running")
 	assert.Contains(t, content, "running")
 
 	err = page.Locator("button[title='Stop']").Click()

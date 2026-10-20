@@ -49,8 +49,7 @@ func TestCloudWatchDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "CloudWatch", "No metrics found")
 	assert.Contains(t, content, "CloudWatch")
 	assert.Contains(t, content, "No metrics found")
 }
@@ -85,8 +84,7 @@ func TestCloudWatchDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "CloudWatch", "No alarms found")
 	assert.Contains(t, content, "CloudWatch")
 	assert.Contains(t, content, "No alarms found")
 }
@@ -129,8 +127,7 @@ func TestCloudWatchDashboard_Dashboards(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Dashboards", "No dashboards found")
 	assert.Contains(t, content, "Dashboards")
 	assert.Contains(t, content, "No dashboards found")
 }

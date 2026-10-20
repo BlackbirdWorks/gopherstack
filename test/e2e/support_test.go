@@ -46,8 +46,7 @@ func TestSupportDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Test support case", "amazon-s3")
 	assert.Contains(t, content, "Test support case")
 	assert.Contains(t, content, "amazon-s3")
 }
@@ -82,8 +81,7 @@ func TestSupportDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No support cases found")
 	assert.Contains(t, content, "No support cases found")
 }
 
@@ -122,7 +120,6 @@ func TestSupportDashboard_CreateCase(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "UI created case")
 	assert.Contains(t, content, "UI created case")
 }

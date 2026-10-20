@@ -60,8 +60,7 @@ func TestSchedulerDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-schedule", "EventBridge Scheduler")
 	assert.Contains(t, content, "test-schedule")
 	assert.Contains(t, content, "EventBridge Scheduler")
 }
@@ -96,8 +95,7 @@ func TestSchedulerDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No schedules")
 	assert.Contains(t, content, "No schedules")
 }
 
@@ -158,7 +156,6 @@ func TestSchedulerDashboard_CreateAndDelete(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "EventBridge Scheduler")
 	assert.Contains(t, content, "EventBridge Scheduler")
 }

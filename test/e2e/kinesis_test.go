@@ -50,8 +50,7 @@ func TestKinesisDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-stream")
 	assert.Contains(t, content, "test-stream")
 }
 
@@ -85,8 +84,7 @@ func TestKinesisDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Kinesis Data Streams", "No streams found")
 	assert.Contains(t, content, "Kinesis Data Streams")
 	assert.Contains(t, content, "No streams found")
 }

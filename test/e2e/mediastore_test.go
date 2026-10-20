@@ -49,8 +49,7 @@ func TestMediaStoreDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-container", "New Container")
 	assert.Contains(t, content, "e2e-test-container")
 	assert.Contains(t, content, "New Container")
 }
@@ -85,7 +84,6 @@ func TestMediaStoreDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No containers found")
 	assert.Contains(t, content, "No containers found")
 }

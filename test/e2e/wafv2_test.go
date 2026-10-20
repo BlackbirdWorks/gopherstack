@@ -57,8 +57,7 @@ func TestWafv2Dashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-acl", "REGIONAL")
 	assert.Contains(t, content, "e2e-test-acl")
 	assert.Contains(t, content, "REGIONAL")
 }
@@ -93,7 +92,6 @@ func TestWafv2Dashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No Web ACLs found")
 	assert.Contains(t, content, "No Web ACLs found")
 }

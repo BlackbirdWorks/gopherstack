@@ -47,8 +47,7 @@ func TestCloudTrailDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-trail")
 	assert.Contains(t, content, "e2e-test-trail")
 }
 
@@ -82,7 +81,6 @@ func TestCloudTrailDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No trails found")
 	assert.Contains(t, content, "No trails found")
 }

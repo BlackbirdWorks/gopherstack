@@ -58,8 +58,7 @@ func TestELBDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-lb")
 	assert.Contains(t, content, "e2e-test-lb")
 }
 
@@ -93,8 +92,7 @@ func TestELBDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No load balancers")
 	assert.Contains(t, content, "No load balancers")
 }
 
@@ -142,8 +140,7 @@ func TestELBDashboard_CreateAndDelete(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-create-lb")
 	assert.Contains(t, content, "e2e-create-lb")
 
 	err = page.Locator("button:has-text('Delete')").First().Click()

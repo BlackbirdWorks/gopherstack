@@ -50,8 +50,7 @@ func TestECSDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "demo-cluster", "production-cluster")
 	assert.Contains(t, content, "demo-cluster")
 	assert.Contains(t, content, "production-cluster")
 }
@@ -86,8 +85,7 @@ func TestECSDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Amazon ECS", "No clusters found")
 	// Rebuilt page titles the header "Amazon ECS" (not "ECS Clusters") and the
 	// Clusters tab's empty state reads "No clusters found" (not "No ECS
 	// clusters found") — same page heading and empty-state protections, new

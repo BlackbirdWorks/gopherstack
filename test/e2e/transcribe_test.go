@@ -52,8 +52,7 @@ func TestTranscribeDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Amazon Transcribe", "Transcription Jobs")
 	assert.Contains(t, content, "Amazon Transcribe")
 	assert.Contains(t, content, "Transcription Jobs")
 }
@@ -88,8 +87,7 @@ func TestTranscribeDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No transcription jobs found")
 	assert.Contains(t, content, "No transcription jobs found")
 }
 
@@ -132,7 +130,6 @@ func TestTranscribeDashboard_StartJob(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Amazon Transcribe")
 	assert.Contains(t, content, "Amazon Transcribe")
 }

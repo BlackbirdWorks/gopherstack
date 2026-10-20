@@ -56,8 +56,7 @@ func TestCodeBuildDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-project")
 	assert.Contains(t, content, "e2e-test-project")
 }
 
@@ -91,8 +90,7 @@ func TestCodeBuildDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "CodeBuild Operations", "No build projects found.")
 	assert.Contains(t, content, "CodeBuild Operations")
 	assert.Contains(t, content, "No build projects found.")
 }
@@ -141,7 +139,6 @@ func TestCodeBuildDashboard_CreateProject(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-created-project")
 	assert.Contains(t, content, "e2e-created-project")
 }

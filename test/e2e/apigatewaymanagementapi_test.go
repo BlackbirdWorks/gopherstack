@@ -41,8 +41,7 @@ func TestAPIGatewayManagementAPIDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "API Gateway Management API", "PostToConnection")
 	assert.Contains(t, content, "API Gateway Management API")
 	assert.Contains(t, content, "PostToConnection")
 }
@@ -97,7 +96,6 @@ func TestAPIGatewayManagementAPIDashboard_CreateConnection(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-conn-001")
 	assert.Contains(t, content, "e2e-conn-001")
 }

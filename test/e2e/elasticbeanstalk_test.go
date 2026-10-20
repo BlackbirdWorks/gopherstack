@@ -109,8 +109,7 @@ func TestElasticbeanstalkDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No applications found")
 	assert.Contains(t, content, "No applications found")
 
 	err = page.Locator("button:has-text('Environments')").Click()

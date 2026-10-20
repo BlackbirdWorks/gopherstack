@@ -44,8 +44,7 @@ func TestCloudWatchLogsDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-log-group")
 	assert.Contains(t, content, "e2e-log-group")
 }
 
@@ -79,7 +78,6 @@ func TestCloudWatchLogsDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "CloudWatch Logs")
 	assert.Contains(t, content, "CloudWatch Logs")
 }

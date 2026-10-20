@@ -91,7 +91,6 @@ func TestIAMDashboard(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, content, "No policies found")
 
-	pageContent, err := page.Content()
-	require.NoError(t, err)
+	pageContent := pageContentContaining(t, page, "IAM")
 	assert.Contains(t, pageContent, "IAM")
 }

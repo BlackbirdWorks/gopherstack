@@ -50,8 +50,7 @@ func TestLakeFormationDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Lake Formation")
 	assert.Contains(t, content, "Lake Formation")
 }
 
@@ -85,7 +84,6 @@ func TestLakeFormationDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No resources registered")
 	assert.Contains(t, content, "No resources registered")
 }

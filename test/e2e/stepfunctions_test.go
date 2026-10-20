@@ -50,8 +50,7 @@ func TestStepFunctionsDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-state-machine")
 	assert.Contains(t, content, "test-state-machine")
 }
 
@@ -85,7 +84,6 @@ func TestStepFunctionsDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Step Functions")
 	assert.Contains(t, content, "Step Functions")
 }
