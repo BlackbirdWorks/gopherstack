@@ -92,6 +92,7 @@ func executeGraphQL(
 	query, operationName string,
 	variables map[string]any,
 	headers map[string]any,
+	rc requestIdentity,
 ) (map[string]any, error) {
 	if schema == nil || schema.SDL == "" {
 		return nil, ErrNoSchema
@@ -129,7 +130,7 @@ func executeGraphQL(
 
 	env := &execEnv{
 		backend: backend, resolvers: resolvers, datasources: datasources,
-		functions: functions, variables: variables, headers: headers,
+		functions: functions, variables: variables, headers: headers, rc: rc,
 	}
 	env.addHeader, _ = respHeaderKey.Get(ctx)
 
@@ -182,6 +183,7 @@ type execEnv struct {
 	functions   map[string]*Function
 	variables   map[string]any
 	headers     map[string]any
+	rc          requestIdentity
 	addHeader   func(name, value string)
 	errs        []graphqlError
 }
@@ -268,7 +270,9 @@ func (e *execEnv) newCallCtx(parentTypeName string, field *ast.Field, root bool)
 			"fieldName": field.Name, "parentTypeName": parentTypeName, "variables": vars,
 			"selectionSetList": items, "selectionSetGraphQL": selectionSetGraphQL(field.SelectionSet),
 		},
-		request:    map[string]any{keyHeaders: e.headers},
+		identity:   e.rc.identity,
+		authType:   e.rc.authType,
+		request:    map[string]any{keyHeaders: e.headers, "domainName": e.rc.domainName},
 		headerSink: e.addHeader,
 		sink: func(ge graphqlError) {
 			if root {
@@ -545,9 +549,13 @@ func executeDataSourceStep(
 	case DataSourceTypeNone:
 		out, err = invokeNoneDataSource(mu, args, prevResult)
 	case DataSourceTypeHTTP:
-		out, err = invokeHTTPDataSource(ctx, mu, ds, args, prevResult)
-	case DataSourceTypeRelational, DataSourceTypeOpenSearch:
-		return nil, fmt.Errorf("%w: %s", ErrUnsupportedDataSource, ds.Type)
+		out, err = invokeHTTPDataSource(ctx, backend, mu, ds, args, prevResult)
+	case DataSourceTypeEventBridge:
+		out, err = invokeEventBridgeDataSource(ctx, backend, mu, ds, args, prevResult)
+	case DataSourceTypeOpenSearch, DataSourceTypeElasticsearch:
+		out, err = invokeOpenSearchDataSource(ctx, backend, mu, ds, args, prevResult)
+	case DataSourceTypeRelational:
+		out, err = invokeRDSDataSource(ctx, backend, mu, ds, args, prevResult)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedDataSource, ds.Type)
 	}
@@ -761,21 +769,26 @@ func (b *InMemoryBackend) ExecuteGraphQL(
 		additionalAuthProvs = api.AdditionalAuthenticationProviders
 	}
 
+	customDomain := b.customDomainOf(auth.Request)
+
 	b.mu.RUnlock()
 
 	if !apiOK {
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	if authErr := b.authorizeGraphQL(
+	res, authErr := b.authorizeGraphQL(
 		ctx, apiID, primaryAuth, additionalAuthProvs, query, operationName, variables, auth,
-	); authErr != nil {
+	)
+	if authErr != nil {
 		return nil, authErr
 	}
 
+	rc := requestIdentity{identity: res.identity, authType: res.authType, domainName: customDomain}
+
 	return executeGraphQL(
 		ctx, apiID, b, schema, resolversCopy, datasourcesCopy, functionsCopy, query, operationName, variables,
-		requestHeaders(auth),
+		requestHeaders(auth), rc,
 	)
 }
 

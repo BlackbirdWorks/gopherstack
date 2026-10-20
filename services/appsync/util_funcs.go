@@ -52,6 +52,7 @@ type utilEnv struct {
 	fns        map[string]utilFn
 	field      string
 	typeName   string
+	authType   AuthenticationType
 	ext        []map[string]any
 }
 
@@ -59,7 +60,7 @@ type utilFn func(u *utilEnv, a []any) (any, error)
 
 func isUtilNamespace(name string) bool {
 	switch name {
-	case "time", "dynamodb", "transform", "str", "math", "list", "map", "xml", "http":
+	case "time", "dynamodb", "transform", "str", "math", "list", "map", "xml", "http", "rds":
 		return true
 	}
 
@@ -74,7 +75,8 @@ func (u *utilEnv) registry() map[string]utilFn {
 	u.fns = map[string]utilFn{}
 
 	for _, m := range []map[string]utilFn{
-		utilCore(), utilTypes(), utilTime(), utilDynamo(), utilTransform(), utilCollections(), utilExtensions(), utilExtra(),
+		utilCore(), utilTypes(), utilTime(), utilDynamo(), utilTransform(), utilCollections(),
+		utilExtensions(), utilExtra(), utilRDS(),
 	} {
 		maps.Copy(u.fns, m)
 	}
@@ -129,6 +131,7 @@ func utilCore() map[string]utilFn {
 
 			return "", nil
 		},
+		"authType": func(u *utilEnv, _ []any) (any, error) { return authTypeLabel(u.authType), nil },
 		"unauthorized": func(u *utilEnv, _ []any) (any, error) {
 			msg := "Unauthorized"
 			if u.field != "" {

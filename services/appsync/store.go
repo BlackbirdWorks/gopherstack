@@ -285,6 +285,9 @@ type InMemoryBackend struct {
 	lambdaFn               LambdaInvoker
 	webACLs                WebACLResolver
 	ddbBackend             DynamoDBBackend
+	ebPutter               EventBridgePutter
+	osRequester            OpenSearchRequester
+	rdsExec                RDSDataExecutor
 	jwksProvider           JWKSProvider
 	mu                     *lockmetrics.RWMutex
 	accountID              string

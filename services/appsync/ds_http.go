@@ -3,6 +3,8 @@ package appsync
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +12,9 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 )
@@ -24,6 +29,7 @@ const (
 // {statusCode, headers, body} result.
 func invokeHTTPDataSource(
 	ctx context.Context,
+	backend *InMemoryBackend,
 	mu mappingUnit,
 	ds *DataSource,
 	args map[string]any,
@@ -45,6 +51,10 @@ func invokeHTTPDataSource(
 
 	httpReq, err := buildHTTPRequest(ctx, ds.HTTPConfig.Endpoint, req)
 	if err != nil {
+		return nil, err
+	}
+
+	if err = signHTTPRequest(ctx, httpReq, ds.HTTPConfig, backend.sigv4Secret); err != nil {
 		return nil, err
 	}
 
@@ -71,6 +81,42 @@ func invokeHTTPDataSource(
 	result := map[string]any{"statusCode": int64(resp.StatusCode), keyHeaders: headers, "body": string(body)}
 
 	return evalResponseMapping(mu, args, result)
+}
+
+// signHTTPRequest SigV4-signs req when the data source has an AWS_IAM
+// authorizationConfig, with the emulator's default test credentials.
+func signHTTPRequest(ctx context.Context, req *http.Request, cfg *HTTPDataSourceConfig, secret string) error {
+	ac := cfg.AuthorizationConfig
+	if ac == nil || ac.AwsIamConfig == nil {
+		return nil
+	}
+
+	var payload []byte
+
+	if req.GetBody != nil {
+		rc, err := req.GetBody()
+		if err != nil {
+			return fmt.Errorf("http data source body read failed: %w", err)
+		}
+
+		payload, err = io.ReadAll(rc)
+		_ = rc.Close()
+
+		if err != nil {
+			return fmt.Errorf("http data source body read failed: %w", err)
+		}
+	}
+
+	sum := sha256.Sum256(payload)
+	creds := aws.Credentials{AccessKeyID: "test", SecretAccessKey: firstNonEmpty(secret, "test")}
+
+	err := v4.NewSigner().SignHTTP(ctx, creds, req, hex.EncodeToString(sum[:]),
+		ac.AwsIamConfig.SigningServiceName, ac.AwsIamConfig.SigningRegion, time.Now())
+	if err != nil {
+		return fmt.Errorf("http data source signing failed: %w", err)
+	}
+
+	return nil
 }
 
 func buildHTTPRequest(ctx context.Context, endpoint string, req map[string]any) (*http.Request, error) {

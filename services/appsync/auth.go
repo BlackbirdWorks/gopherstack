@@ -71,7 +71,8 @@ type lambdaAuthorizerRequestContext struct {
 // ResolverContext (field-level authorization and $ctx.identity.resolverContext
 // propagation) are a separate, larger feature and are not implemented.
 type lambdaAuthorizerResponse struct {
-	IsAuthorized bool `json:"isAuthorized"`
+	ResolverContext map[string]any `json:"resolverContext"`
+	IsAuthorized    bool           `json:"isAuthorized"`
 }
 
 // graphQLAuthConfig bundles the auth-relevant fields of one configured
@@ -130,6 +131,13 @@ func graphQLAuthConfigFromAdditional(p AdditionalAuthenticationProvider) graphQL
 	return cfg
 }
 
+// authResult is the outcome of authorizing a request: the matched provider's
+// auth type and the $ctx.identity it yields.
+type authResult struct {
+	identity any
+	authType AuthenticationType
+}
+
 // authorizeGraphQL checks the request's credentials against the API's primary
 // AuthenticationType and, failing that, each AdditionalAuthenticationProviders
 // entry -- a request authenticates if ANY configured provider accepts it,
@@ -142,23 +150,23 @@ func (b *InMemoryBackend) authorizeGraphQL(
 	query, operationName string,
 	variables map[string]any,
 	auth GraphQLAuth,
-) error {
-	if b.checkAuthProvider(ctx, apiID, primary, query, operationName, variables, auth) {
-		return nil
+) (authResult, error) {
+	if id, ok := b.checkAuthProvider(ctx, apiID, primary, query, operationName, variables, auth); ok {
+		return authResult{identity: id, authType: primary.AuthType}, nil
 	}
 
 	for _, p := range additional {
-		if b.checkAuthProvider(
-			ctx, apiID, graphQLAuthConfigFromAdditional(p), query, operationName, variables, auth,
-		) {
-			return nil
+		cfg := graphQLAuthConfigFromAdditional(p)
+		if id, ok := b.checkAuthProvider(ctx, apiID, cfg, query, operationName, variables, auth); ok {
+			return authResult{identity: id, authType: cfg.AuthType}, nil
 		}
 	}
 
-	return ErrUnauthorized
+	return authResult{}, ErrUnauthorized
 }
 
-// checkAuthProvider evaluates a single auth provider (primary or additional).
+// checkAuthProvider evaluates a single auth provider (primary or additional)
+// and returns the $ctx.identity it yields.
 func (b *InMemoryBackend) checkAuthProvider(
 	ctx context.Context,
 	apiID string,
@@ -166,20 +174,30 @@ func (b *InMemoryBackend) checkAuthProvider(
 	query, operationName string,
 	variables map[string]any,
 	auth GraphQLAuth,
-) bool {
+) (any, bool) {
 	switch cfg.AuthType {
 	case AuthTypeAPIKey:
-		return b.checkAPIKeyAuth(apiID, auth.APIKey)
+		return nil, b.checkAPIKeyAuth(apiID, auth.APIKey)
 	case AuthTypeLambda:
-		return b.checkLambdaAuth(ctx, apiID, cfg.LambdaCfg, query, operationName, variables, auth.AuthToken)
+		rc, ok := b.checkLambdaAuth(ctx, apiID, cfg.LambdaCfg, query, operationName, variables, auth.AuthToken)
+
+		return lambdaIdentity(rc), ok
 	case AuthTypeIAM:
-		return auth.ServiceInvoked || b.checkIAMAuth(auth.Request)
+		if !auth.ServiceInvoked && !b.checkIAMAuth(auth.Request) {
+			return nil, false
+		}
+
+		return b.iamIdentity(ctx, auth), true
 	case AuthTypeCognito:
-		return b.checkCognitoAuth(auth.AuthToken, cfg.UserPoolID, cfg.ClientIDRegex)
+		claims, ok := b.checkCognitoAuth(auth.AuthToken, cfg.UserPoolID, cfg.ClientIDRegex)
+
+		return cognitoIdentity(claims, auth.Request), ok
 	case AuthTypeOIDC:
-		return b.checkOIDCAuth(auth.AuthToken, cfg.OIDCIssuer, cfg.OIDCClientID)
+		claims, ok := b.checkOIDCAuth(auth.AuthToken, cfg.OIDCIssuer, cfg.OIDCClientID)
+
+		return oidcIdentity(claims), ok
 	default:
-		return false
+		return nil, false
 	}
 }
 
@@ -221,9 +239,9 @@ func (b *InMemoryBackend) checkLambdaAuth(
 	query, operationName string,
 	variables map[string]any,
 	authToken string,
-) bool {
+) (map[string]any, bool) {
 	if cfg == nil || b.lambdaFn == nil || authToken == "" {
-		return false
+		return nil, false
 	}
 
 	event := lambdaAuthorizerEvent{
@@ -239,21 +257,21 @@ func (b *InMemoryBackend) checkLambdaAuth(
 
 	payload, marshalErr := json.Marshal(event)
 	if marshalErr != nil {
-		return false
+		return nil, false
 	}
 
 	result, _, invokeErr := b.lambdaFn.InvokeFunction(
 		withRegion(ctx, b.region), cfg.AuthorizerURI, "RequestResponse", payload)
 	if invokeErr != nil {
-		return false
+		return nil, false
 	}
 
 	var resp lambdaAuthorizerResponse
 	if jsonErr := json.Unmarshal(result, &resp); jsonErr != nil {
-		return false
+		return nil, false
 	}
 
-	return resp.IsAuthorized
+	return resp.ResolverContext, resp.IsAuthorized
 }
 
 // checkCognitoAuth verifies authToken as an AMAZON_COGNITO_USER_POOLS bearer
@@ -265,21 +283,21 @@ func (b *InMemoryBackend) checkLambdaAuth(
 //
 // If b.jwksProvider is unset (SetJWKSProvider never called -- see its doc
 // comment), this passes the request through instead of rejecting it.
-func (b *InMemoryBackend) checkCognitoAuth(authToken, userPoolID, clientIDRegex string) bool {
+func (b *InMemoryBackend) checkCognitoAuth(authToken, userPoolID, clientIDRegex string) (jwt.MapClaims, bool) {
 	if b.jwksProvider == nil {
-		return true
+		return unverifiedClaims(authToken), true
 	}
 
 	if userPoolID == "" {
-		return false
+		return nil, false
 	}
 
 	claims, ok := b.verifyJWTBearer(authToken, fmt.Sprintf("%s/%s", b.endpoint, userPoolID))
 	if !ok {
-		return false
+		return nil, false
 	}
 
-	return cognitoClientIDMatches(claims, clientIDRegex)
+	return claims, cognitoClientIDMatches(claims, clientIDRegex)
 }
 
 // checkOIDCAuth verifies authToken as an OPENID_CONNECT bearer JWT against
@@ -294,25 +312,25 @@ func (b *InMemoryBackend) checkCognitoAuth(authToken, userPoolID, clientIDRegex 
 //
 // If b.jwksProvider is unset (SetJWKSProvider never called -- see its doc
 // comment), this passes the request through instead of rejecting it.
-func (b *InMemoryBackend) checkOIDCAuth(authToken, issuer, clientID string) bool {
+func (b *InMemoryBackend) checkOIDCAuth(authToken, issuer, clientID string) (jwt.MapClaims, bool) {
 	if b.jwksProvider == nil {
-		return true
+		return unverifiedClaims(authToken), true
 	}
 
 	if issuer == "" {
-		return false
+		return nil, false
 	}
 
 	claims, ok := b.verifyJWTBearer(authToken, issuer)
 	if !ok {
-		return false
+		return nil, false
 	}
 
 	if clientID == "" {
-		return true
+		return claims, true
 	}
 
-	return slices.Contains(jwtClaimStrings(claims, "aud"), clientID)
+	return claims, slices.Contains(jwtClaimStrings(claims, "aud"), clientID)
 }
 
 // verifyJWTBearer parses and verifies authToken as a JWT bearer credential:

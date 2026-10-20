@@ -4411,6 +4411,7 @@ func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable, s
 
 	// Wire AppSync → Cognito for AMAZON_COGNITO_USER_POOLS/OPENID_CONNECT JWT signature verification.
 	wireAppSyncCognito(byName["AppSync"], byName["CognitoIDP"])
+	wireAppSyncDataSources(byName)
 
 	wireAppSyncSigV4(byName["AppSync"], sigV4Secret)
 	wireLambdaSigV4(byName["Lambda"], sigV4Secret)

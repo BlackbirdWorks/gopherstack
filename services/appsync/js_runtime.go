@@ -25,6 +25,7 @@ const (
 	jsMaxCallStack   = 200
 	jsModUtils       = "@aws-appsync/utils"
 	jsModDynamoDB    = "@aws-appsync/utils/dynamodb"
+	jsModRDS         = "@aws-appsync/utils/rds"
 	jsErrTypeRuntime = "APPSYNC_JS_RUNTIME_ERROR"
 )
 
@@ -32,7 +33,7 @@ const (
 var errJSNoHandler = errors.New("handler not found")
 
 func jsModules() map[string]string {
-	return map[string]string{jsModUtils: "__mod_utils", jsModDynamoDB: "__mod_ddb"}
+	return map[string]string{jsModUtils: "__mod_utils", jsModDynamoDB: "__mod_ddb", jsModRDS: "__mod_rds"}
 }
 
 type jsOutcome struct {
@@ -77,7 +78,7 @@ func runJS(code, handler string, ctx map[string]any, ue *utilEnv) (jsOutcome, er
 func execJS(sb *jsruntime.Sandbox, src, handler string, ctx map[string]any, ue *utilEnv) (jsOutcome, error) {
 	bindJSGlobals(sb, ue)
 
-	if _, err := sb.Run(jsPrelude); err != nil {
+	if _, err := sb.Run(jsPrelude + jsPreludeRDS); err != nil {
 		return jsOutcome{}, fmt.Errorf("%w: prelude: %w", ErrValidation, err)
 	}
 

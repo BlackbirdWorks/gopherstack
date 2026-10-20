@@ -277,7 +277,7 @@ func (b *InMemoryBackend) authorizeRealtime(
 		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	err := b.authorizeGraphQL(ctx, apiID, primary, additional, req.Query, req.OperationName, req.Variables, auth)
+	_, err := b.authorizeGraphQL(ctx, apiID, primary, additional, req.Query, req.OperationName, req.Variables, auth)
 	if err != nil {
 		return nil, err
 	}
