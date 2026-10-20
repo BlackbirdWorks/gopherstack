@@ -78,7 +78,7 @@ func containerSpec(c azurearm.CosmosContainer) cosmosdb.ContainerSpec {
 		ID: c.ID, PartitionKeyPaths: c.PartitionKeyPaths, DefaultTTL: c.DefaultTTL,
 		IndexingPolicy:           json.RawMessage(c.IndexingPolicy),
 		ConflictResolutionPolicy: json.RawMessage(c.ConflictResolutionPolicy),
-		ContainerPolicies:        cosmosdb.ContainerPolicies{UniqueKeyPolicy: json.RawMessage(c.UniqueKeyPolicy)},
+		UniqueKeyPolicy:          json.RawMessage(c.UniqueKeyPolicy),
 	}
 }
 
