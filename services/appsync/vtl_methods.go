@@ -10,6 +10,7 @@ import (
 const (
 	mToString   = "toString"
 	mContains   = "contains"
+	mBeginsWith = "beginsWith"
 	mIsEmpty    = "isEmpty"
 	mMatches    = "matches"
 	mSet        = "set"

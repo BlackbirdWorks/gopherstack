@@ -210,6 +210,7 @@ type StorageBackend interface {
 	EvaluateMappingTemplate(template, context string) (string, error)
 	// EvaluateCode evaluates APPSYNC_JS code.
 	EvaluateCode(code, contextJSON, function, runtime string) (string, error)
+	EvaluateCodeLogs(code, contextJSON, function, runtime string) (string, []string, error)
 	// StartDataSourceIntrospection starts an RDS Data API introspection job. Not
 	// scoped to any existing AppSync API/DataSource -- see DataSourceIntrospection's
 	// doc comment in models.go.

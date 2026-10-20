@@ -22,8 +22,8 @@
 - RDS, OpenSearch/Elasticsearch and EventBridge data sources are not executed (ErrUnsupportedDataSource); only DynamoDB, Lambda, HTTP and NONE run. 2026-10-17.
 - HTTP data source sends unsigned requests: authorizationConfig (SigV4) is stored but not applied. 2026-10-17.
 - ctx.identity is always null in resolvers (authorizer identity is not threaded into the context); errors[].path is set for root fields only; non-null field null-propagation is not implemented. 2026-10-17.
-- $extensions.* calls are recorded but have no effect (no resolver cache layer, subscription filters are not applied); $util.transform.toElasticsearchQueryDSL/toSubscriptionFilter, $util.rds.*, $util.xml, util.http, DynamoDB sync/batch JS helpers and Lambda BatchInvoke are absent. 2026-10-17.
-- EvaluateCode/EvaluateMappingTemplate always return empty logs[] (console.log is discarded) and error carries message only (no codeErrors locations). 2026-10-17.
+- $extensions.* calls are recorded but have no effect (no resolver cache layer, subscription filters are not applied); $util.transform.toElasticsearchQueryDSL, $util.rds.*, DynamoDB sync/batch JS helpers and Lambda BatchInvoke are absent. 2026-10-20.
+- EvaluateCode/EvaluateMappingTemplate errors carry message only (no codeErrors locations); EvaluateMappingTemplate has no logs. 2026-10-20.
 
 ### Structural gaps
 

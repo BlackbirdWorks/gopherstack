@@ -16,6 +16,7 @@ type functionConfigXML struct {
 	Comment      string   `xml:"Comment"`
 	Runtime      string   `xml:"Runtime"`
 	FunctionCode string   `xml:"FunctionCode"`
+	KVSARNs      []string `xml:"KeyValueStoreAssociations>Items>KeyValueStoreAssociation>KeyValueStoreARN"`
 }
 
 // functionRequestFields is shared by Create and Update, whose real request
@@ -98,6 +99,12 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
+
+	if kvsErr := h.Backend.SetFunctionKVSAssociations(fn.Name, req.FunctionConfig.KVSARNs); kvsErr != nil {
+		return h.handleError(c, kvsErr)
+	}
+
+	fn.KVSARNs = req.FunctionConfig.KVSARNs
 
 	c.Response().Header().Set("ETag", fn.ETag)
 	c.Response().Header().Set("Location", cfPathPrefix+"function/"+fn.Name)
@@ -280,6 +287,12 @@ func (h *Handler) handleUpdateFunction(c *echo.Context, name string) error {
 		return h.handleError(c, updateErr)
 	}
 
+	if kvsErr := h.Backend.SetFunctionKVSAssociations(name, req.FunctionConfig.KVSARNs); kvsErr != nil {
+		return h.handleError(c, kvsErr)
+	}
+
+	fn.KVSARNs = req.FunctionConfig.KVSARNs
+
 	c.Response().Header().Set("ETag", fn.ETag)
 
 	return xmlResp(c, http.StatusOK, functionResponseXML(fn))
@@ -321,13 +334,7 @@ type testFunctionRequestXML struct {
 	Stage       string   `xml:"Stage"`
 }
 
-// handleTestFunction validates the request (function exists, If-Match matches, EventObject is
-// present and well-formed JSON) and then reports a structural gap: gopherstack vendors no
-// JavaScript engine, so it cannot genuinely execute the function against the event and refuses
-// to fabricate FunctionOutput/logs that would look like real execution. TestFunctionFailed is
-// TestFunction's own declared error for exactly this case ("the CloudFront function failed",
-// HTTP 500 per the API reference) -- distinct from InvalidArgument/InvalidIfMatchVersion, which
-// cover malformed requests rather than an execution failure.
+// handleTestFunction validates the request, then runs the function against the event.
 func (h *Handler) handleTestFunction(c *echo.Context, name string) error {
 	current, err := h.Backend.GetFunction(name)
 	if err != nil {
@@ -384,25 +391,42 @@ func (h *Handler) handleTestFunction(c *echo.Context, name string) error {
 		)
 	}
 
-	return xmlResp(
-		c,
-		http.StatusInternalServerError,
-		cfErrorXML(
-			"TestFunctionFailed",
-			"gopherstack does not implement a JavaScript engine and cannot execute CloudFront "+
-				"Function code; TestFunction is a structural parity gap (see PARITY.md)",
-		),
-	)
+	return h.runTestFunction(c, name, req.Stage, eventObject)
 }
 
 func functionResponseXML(fn *Function) string {
-	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<FunctionSummary xmlns="%s">`+
+	return `<?xml version="1.0" encoding="UTF-8"?>` +
+		strings.Replace(functionSummaryXML(fn), "<FunctionSummary>", `<FunctionSummary xmlns="`+cfNS+`">`, 1)
+}
+
+func kvsAssociationsXML(arns []string) string {
+	if len(arns) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	fmt.Fprintf(&sb, "<KeyValueStoreAssociations><Quantity>%d</Quantity><Items>", len(arns))
+
+	for _, a := range arns {
+		sb.WriteString(
+			"<KeyValueStoreAssociation><KeyValueStoreARN>" + a + "</KeyValueStoreARN></KeyValueStoreAssociation>",
+		)
+	}
+
+	sb.WriteString("</Items></KeyValueStoreAssociations>")
+
+	return sb.String()
+}
+
+func functionSummaryXML(fn *Function) string {
+	return fmt.Sprintf(`<FunctionSummary>`+
 		`<Name>%s</Name>`+
 		`<Status>%s</Status>`+
 		`<FunctionConfig>`+
 		`<Comment>%s</Comment>`+
 		`<Runtime>%s</Runtime>`+
+		`%s`+
 		`</FunctionConfig>`+
 		`<FunctionMetadata>`+
 		`<FunctionARN>%s</FunctionARN>`+
@@ -411,7 +435,7 @@ func functionResponseXML(fn *Function) string {
 		`<LastModifiedTime>%s</LastModifiedTime>`+
 		`</FunctionMetadata>`+
 		`</FunctionSummary>`,
-		cfNS, fn.Name, fn.Status, fn.Comment, fn.Runtime,
+		fn.Name, fn.Status, fn.Comment, fn.Runtime, kvsAssociationsXML(fn.KVSARNs),
 		fn.ARN, fn.Status, fn.CreatedTime, fn.LastModifiedTime)
 }
 

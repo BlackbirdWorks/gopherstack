@@ -680,22 +680,17 @@ func testFunctionRealClient(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, code, getOut.FunctionCode)
 
-	// TestFunction is a disclosed structural parity gap (PARITY.md:
-	// gopherstack vendors no JavaScript engine, so a well-formed request
-	// gets the real, declared TestFunctionFailed error rather than a
-	// fabricated result) -- this exercises the op for real (If-Match/
-	// EventObject validated) and asserts the documented failure mode.
 	eventObject := `{"version":"1.0","context":{"eventType":"viewer-request"},` +
 		`"viewer":{"ip":"1.2.3.4"},"request":{"method":"GET","uri":"/",` +
 		`"headers":{},"cookies":{},"querystring":{}}}`
 
-	_, err = client.TestFunction(ctx, &cfsdk.TestFunctionInput{
+	testOut, err := client.TestFunction(ctx, &cfsdk.TestFunctionInput{
 		Name:        aws.String("slice8function"),
 		IfMatch:     descOut.ETag,
 		EventObject: []byte(eventObject),
 	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "TestFunctionFailed")
+	require.NoError(t, err)
+	assert.Contains(t, aws.ToString(testOut.TestResult.FunctionOutput), `"uri":"/"`)
 
 	updateOut, err := client.UpdateFunction(ctx, &cfsdk.UpdateFunctionInput{
 		Name:    aws.String("slice8function"),

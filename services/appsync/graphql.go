@@ -131,6 +131,7 @@ func executeGraphQL(
 		backend: backend, resolvers: resolvers, datasources: datasources,
 		functions: functions, variables: variables, headers: headers,
 	}
+	env.addHeader, _ = respHeaderKey.Get(ctx)
 
 	result, err := env.executeSelectionSet(ctx, parentTypeName, op.SelectionSet)
 	if err != nil {
@@ -181,6 +182,7 @@ type execEnv struct {
 	functions   map[string]*Function
 	variables   map[string]any
 	headers     map[string]any
+	addHeader   func(name, value string)
 	errs        []graphqlError
 }
 
@@ -266,7 +268,8 @@ func (e *execEnv) newCallCtx(parentTypeName string, field *ast.Field, root bool)
 			"fieldName": field.Name, "parentTypeName": parentTypeName, "variables": vars,
 			"selectionSetList": items, "selectionSetGraphQL": selectionSetGraphQL(field.SelectionSet),
 		},
-		request: map[string]any{keyHeaders: e.headers},
+		request:    map[string]any{keyHeaders: e.headers},
+		headerSink: e.addHeader,
 		sink: func(ge graphqlError) {
 			if root {
 				ge.Path = []any{field.Alias}

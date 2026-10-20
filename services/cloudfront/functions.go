@@ -3,6 +3,7 @@ package cloudfront
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"time"
 
@@ -108,6 +109,7 @@ func functionAtStage(fn *Function, stage string) (*Function, bool) {
 		}
 
 		cp.Comment, cp.Runtime, cp.FunctionCode = live.Comment, live.Runtime, live.FunctionCode
+		cp.KVSARNs = live.KVSARNs
 		cp.ETag, cp.LastModifiedTime, cp.Status = live.ETag, live.LastModifiedTime, functionStageLive
 
 		return &cp, true
@@ -177,10 +179,26 @@ func (b *InMemoryBackend) PublishFunction(name string) (*Function, error) {
 		FunctionCode:     fn.FunctionCode,
 		ETag:             fn.ETag,
 		LastModifiedTime: fn.LastModifiedTime,
+		KVSARNs:          slices.Clone(fn.KVSARNs),
 	}
 	cp := *fn
 
 	return &cp, nil
+}
+
+// SetFunctionKVSAssociations replaces the Key Value Stores a function is configured with.
+func (b *InMemoryBackend) SetFunctionKVSAssociations(name string, arns []string) error {
+	b.mu.Lock("SetFunctionKVSAssociations")
+	defer b.mu.Unlock()
+
+	fn, ok := b.functions.Get(name)
+	if !ok {
+		return fmt.Errorf("%w: function %s not found", ErrFunctionNotFound, name)
+	}
+
+	fn.KVSARNs = slices.Clone(arns)
+
+	return nil
 }
 
 // UpdateFunction updates an existing CloudFront Function.

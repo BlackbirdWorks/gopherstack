@@ -387,14 +387,12 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 
 				return map[string]string{"If-Match": fn.ETag}
 			},
-			// gopherstack has no JavaScript engine, so a well-formed TestFunction request
-			// (valid EventObject, matching If-Match) reports the real declared
-			// TestFunctionFailed structural gap rather than a fabricated success -- see
-			// TestTestFunction for the full validation matrix.
-			wantStatus: http.StatusInternalServerError,
+			// A well-formed request executes the function; a ReferenceError in the code
+			// is reported in FunctionErrorMessage, not as an HTTP failure.
+			wantStatus: http.StatusOK,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
 				t.Helper()
-				assert.Contains(t, rec.Body.String(), "TestFunctionFailed")
+				assert.Contains(t, rec.Body.String(), "FunctionErrorMessage")
 			},
 		},
 	}
@@ -427,11 +425,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 	}
 }
 
-// TestTestFunction covers TestFunction's required-field validation and the honest
-// TestFunctionFailed structural-gap response for a well-formed request. gopherstack has no
-// JavaScript engine (no goja/otto/v8 in go.mod, and the one existing precedent -- appsync's
-// jseval.go -- only covers a narrow return-expression DSL, not general-purpose CloudFront
-// Functions JS), so it must not fabricate FunctionOutput/logs for a request it cannot execute.
+// TestTestFunction covers TestFunction request validation; execution is in function_runtime_test.go.
 func TestTestFunction(t *testing.T) {
 	t.Parallel()
 
@@ -492,13 +486,6 @@ func TestTestFunction(t *testing.T) {
 			body:       `<TestFunctionRequest><EventObject>bm90IGpzb24=</EventObject></TestFunctionRequest>`,
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "InvalidArgument",
-		},
-		{
-			name:       "valid_request_reports_structural_gap_not_canned_success",
-			ifMatch:    "correct",
-			body:       validEvent,
-			wantStatus: http.StatusInternalServerError,
-			wantCode:   "TestFunctionFailed",
 		},
 	}
 

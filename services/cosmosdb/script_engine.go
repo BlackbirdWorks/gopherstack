@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/dop251/goja"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsruntime"
 )
 
 const (
@@ -28,12 +30,11 @@ func (b *InMemoryBackend) scriptLimit() time.Duration {
 // newSandbox returns a bare goja runtime (no require, console, fs or network) that is interrupted after the
 // script time limit; stop must be called when the script finishes.
 func (b *InMemoryBackend) newSandbox() (*goja.Runtime, func()) {
-	vm := goja.New()
-	vm.SetMaxCallStackSize(jsMaxCallStack)
+	sb := jsruntime.New(jsruntime.Options{
+		Timeout: b.scriptLimit(), MaxCallStack: jsMaxCallStack, InterruptMsg: "script execution timed out",
+	})
 
-	timer := time.AfterFunc(b.scriptLimit(), func() { vm.Interrupt("script execution timed out") })
-
-	return vm, func() { timer.Stop() }
+	return sb.VM, sb.Close
 }
 
 // compileScript checks that body parses as a single function.

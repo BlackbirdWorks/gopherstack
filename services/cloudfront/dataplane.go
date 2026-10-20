@@ -237,7 +237,7 @@ func (h *Handler) serveBehavior(w http.ResponseWriter, v *viewerReq, d *Distribu
 	r := v.r
 	beh := cfg.behaviorFor(v.path)
 
-	if !h.admit(w, v, d, beh) {
+	if !h.admit(w, v, d, beh) || h.applyViewerRequest(w, d, beh, v) {
 		return
 	}
 
@@ -257,7 +257,14 @@ func (h *Handler) serveBehavior(w http.ResponseWriter, v *viewerReq, d *Distribu
 
 	if beh.caches(r.Method) {
 		if e, ok := h.dp.cache.get(key); ok {
-			h.writeResponse(w, v, rhp, &originResp{status: e.status, header: e.header, body: e.body}, xCacheHit, e)
+			hit := h.applyViewerResponse(
+				d,
+				beh,
+				v,
+				originResp{status: e.status, header: e.header.Clone(), body: e.body},
+			)
+
+			h.writeResponse(w, v, rhp, &hit, xCacheHit, e)
 
 			return
 		}
@@ -272,6 +279,8 @@ func (h *Handler) serveBehavior(w http.ResponseWriter, v *viewerReq, d *Distribu
 	} else if beh.caches(r.Method) {
 		h.storeInCache(d.ID, key, v, &pol, &resp)
 	}
+
+	resp = h.applyViewerResponse(d, beh, v, resp)
 
 	h.writeResponse(w, v, rhp, &resp, xcache, nil)
 }

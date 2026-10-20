@@ -70,14 +70,15 @@ type dpBehavior struct {
 	DefaultTTL            *int64             `xml:"DefaultTTL"`
 	MaxTTL                *int64             `xml:"MaxTTL"`
 	Forwarded             *dpForwarded       `xml:"ForwardedValues"`
-	PathPattern           string             `xml:"PathPattern"`
-	TargetOriginID        string             `xml:"TargetOriginId"`
 	ViewerProtocolPolicy  string             `xml:"ViewerProtocolPolicy"`
+	TargetOriginID        string             `xml:"TargetOriginId"`
+	PathPattern           string             `xml:"PathPattern"`
 	CachePolicyID         string             `xml:"CachePolicyId"`
 	OriginRequestPolicyID string             `xml:"OriginRequestPolicyId"`
 	ResponseHeadersID     string             `xml:"ResponseHeadersPolicyId"`
 	Methods               []string           `xml:"AllowedMethods>Items>Method"`
 	CachedMethods         []string           `xml:"AllowedMethods>CachedMethods>Items>Method"`
+	Functions             []dpFunctionAssoc  `xml:"FunctionAssociations>Items>FunctionAssociation"`
 	KeyGroups             dpTrustedKeyGroups `xml:"TrustedKeyGroups"`
 }
 

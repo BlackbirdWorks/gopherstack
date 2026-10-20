@@ -23,6 +23,7 @@ type Query {
   cached: String
   warned: String
   beforeShort: String
+  headered: String
 }
 type Mutation { createTodo(id: ID!, title: String): Todo }
 `
@@ -169,6 +170,12 @@ export function response(ctx) { return ctx.result.greeting; }`,
 export function response(ctx) { util.error('response must not run'); }`,
 			},
 			{
+				FieldName: "headered", DataSourceName: "None",
+				RequestMappingTemplate: `$util.http.addResponseHeader("X-Custom", "v1")` +
+					`$util.http.addResponseHeaders({"X-Other": "v2"}){"payload":"ok"}`,
+				ResponseMappingTemplate: `$util.toJson($ctx.result)`,
+			},
+			{
 				FieldName: "warned", DataSourceName: "None",
 				RequestMappingTemplate:  `{"payload":"ok"}`,
 				ResponseMappingTemplate: `$util.appendError("heads up", "Warning")$util.toJson($ctx.result)`,
@@ -304,4 +311,17 @@ func TestResolverRuntime_Errors(t *testing.T) {
 	assert.Equal(t, "ok", warned.Data["warned"], "appendError keeps the field value")
 	require.Len(t, warned.Errors, 1)
 	assert.Equal(t, "Warning", warned.Errors[0].ErrorType)
+}
+
+func TestResolverRuntime_ResponseHeaders(t *testing.T) {
+	t.Parallel()
+
+	env := newRuntimeEnv(t)
+	rec := doRequestWithHeaders(t, env.handler, "/v1/apis/"+env.api.APIID+"/graphql",
+		map[string]any{"query": `query { headered }`}, map[string]string{"X-Api-Key": env.key})
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "v1", rec.Header().Get("X-Custom"))
+	assert.Equal(t, "v2", rec.Header().Get("X-Other"))
+	assert.Contains(t, rec.Body.String(), `"headered":"ok"`)
 }

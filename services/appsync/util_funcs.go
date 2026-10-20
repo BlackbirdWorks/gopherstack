@@ -47,18 +47,19 @@ func (e *earlyReturnError) Error() string { return "early return" }
 
 // utilEnv is the per-call environment behind $util / util.
 type utilEnv struct {
-	appendErr func(*resolverError)
-	fns       map[string]utilFn
-	field     string
-	typeName  string
-	ext       []map[string]any
+	appendErr  func(*resolverError)
+	headerSink func(name, value string)
+	fns        map[string]utilFn
+	field      string
+	typeName   string
+	ext        []map[string]any
 }
 
 type utilFn func(u *utilEnv, a []any) (any, error)
 
 func isUtilNamespace(name string) bool {
 	switch name {
-	case "time", "dynamodb", "transform", "str", "math", "list", "map":
+	case "time", "dynamodb", "transform", "str", "math", "list", "map", "xml", "http":
 		return true
 	}
 
@@ -73,7 +74,7 @@ func (u *utilEnv) registry() map[string]utilFn {
 	u.fns = map[string]utilFn{}
 
 	for _, m := range []map[string]utilFn{
-		utilCore(), utilTypes(), utilTime(), utilDynamo(), utilTransform(), utilCollections(), utilExtensions(),
+		utilCore(), utilTypes(), utilTime(), utilDynamo(), utilTransform(), utilCollections(), utilExtensions(), utilExtra(),
 	} {
 		maps.Copy(u.fns, m)
 	}
