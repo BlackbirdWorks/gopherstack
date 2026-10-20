@@ -85,7 +85,7 @@ export async function loadBackendInfo(fetchFn: typeof fetch = fetch): Promise<vo
   backend = { services, disabled, ports, loaded: true };
 }
 
-const routeKey = (s: string) => s.toLowerCase().replace(/[-_. ]/g, "");
+const routeKey = (s: string) => s.toLowerCase().replaceAll(/[-_. ]/g, "");
 
 /** True when the backend reports this dashboard route's service as disabled. */
 export function isRouteDisabled(routeId: string): boolean {
