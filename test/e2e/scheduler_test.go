@@ -16,6 +16,7 @@ import (
 
 // TestSchedulerDashboard verifies the Scheduler dashboard UI renders schedules and supports create/delete.
 func TestSchedulerDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.SchedulerHandler.Backend.CreateSchedule(
@@ -67,6 +68,7 @@ func TestSchedulerDashboard(t *testing.T) {
 
 // TestSchedulerDashboard_Empty verifies the empty state renders correctly.
 func TestSchedulerDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -101,6 +103,7 @@ func TestSchedulerDashboard_Empty(t *testing.T) {
 
 // TestSchedulerDashboard_CreateAndDelete verifies creating and deleting a schedule via the UI.
 func TestSchedulerDashboard_CreateAndDelete(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

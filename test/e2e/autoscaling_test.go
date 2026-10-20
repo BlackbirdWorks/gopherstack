@@ -15,6 +15,7 @@ import (
 
 // TestAutoscalingDashboard verifies the Autoscaling dashboard UI renders groups and launch configurations.
 func TestAutoscalingDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.AutoscalingHandler.Backend.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
@@ -66,6 +67,7 @@ func TestAutoscalingDashboard(t *testing.T) {
 
 // TestAutoscalingDashboard_Empty verifies the Autoscaling dashboard empty state renders correctly.
 func TestAutoscalingDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

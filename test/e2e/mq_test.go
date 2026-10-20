@@ -13,6 +13,7 @@ import (
 
 // TestMQDashboard verifies the Amazon MQ dashboard UI renders broker data.
 func TestMQDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.MQHandler.Backend.CreateBroker(
@@ -63,6 +64,7 @@ func TestMQDashboard(t *testing.T) {
 
 // TestMQDashboard_Empty verifies the Amazon MQ dashboard renders correctly with no brokers.
 func TestMQDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

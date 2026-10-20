@@ -13,6 +13,7 @@ import (
 
 // TestServiceDiscoveryDashboard verifies the Service Discovery dashboard UI renders namespace data.
 func TestServiceDiscoveryDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.ServiceDiscoveryHandler.Backend.CreateHTTPNamespace("e2e-namespace", "e2e test namespace", nil)
@@ -51,6 +52,7 @@ func TestServiceDiscoveryDashboard(t *testing.T) {
 
 // TestServiceDiscoveryDashboard_Empty verifies the Service Discovery dashboard renders with no namespaces.
 func TestServiceDiscoveryDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

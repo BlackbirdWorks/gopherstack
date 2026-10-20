@@ -196,13 +196,7 @@ group_keys=("")
 for k in "${!group_pats[@]}"; do group_keys+=("$k"); done
 for tags in "${group_keys[@]}"; do
   if [[ -z "$tags" && ${#tagless[@]} -eq 0 ]]; then continue; fi
-  if [[ -z "$tags" ]]; then
-    run_batched "golangci-lint" "" --build-tags golangci-lint run --timeout 20m || overall=1
-  else
-    while IFS= read -r p; do
-      [[ -n "$p" ]] && echo "lint-changed: golangci-lint skipped for build-tagged package $p (CI does not lint it)"
-    done <<<"${group_pats[$tags]}"
-  fi
+  run_batched "golangci-lint" "$tags" --build-tags golangci-lint run --timeout 20m || overall=1
   run_batched "go vet" "$tags" -tags go vet || overall=1
   if [[ -n "$mulint_bin" ]]; then
     run_batched "mulint-vet" "$tags" -tags go vet -vettool="$mulint_bin" || overall=1

@@ -13,6 +13,7 @@ import (
 
 // TestMediaConvertDashboard verifies the MediaConvert dashboard UI renders queue data.
 func TestMediaConvertDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.MediaConvertHandler.Backend.CreateQueue(
@@ -56,6 +57,7 @@ func TestMediaConvertDashboard(t *testing.T) {
 
 // TestMediaConvertDashboard_Empty verifies the MediaConvert dashboard lists the SYSTEM Default queue on a fresh stack.
 func TestMediaConvertDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

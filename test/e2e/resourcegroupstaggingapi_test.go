@@ -19,6 +19,7 @@ const testTaggingARN = "arn:aws:s3:::e2e-tagged-bucket"
 // TestResourceGroupsTaggingAPIDashboard verifies the Resource Groups Tagging API dashboard
 // renders tagged resources seeded via a registered resource provider.
 func TestResourceGroupsTaggingAPIDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	stack.ResourceGroupsTaggingHandler.Backend.RegisterProvider(
@@ -66,6 +67,7 @@ func TestResourceGroupsTaggingAPIDashboard(t *testing.T) {
 
 // TestResourceGroupsTaggingAPIDashboard_Empty verifies the empty state renders correctly.
 func TestResourceGroupsTaggingAPIDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

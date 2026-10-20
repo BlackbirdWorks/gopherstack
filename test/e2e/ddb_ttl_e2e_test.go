@@ -14,6 +14,7 @@ import (
 )
 
 func TestE2E_DynamoDB_TTL(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -65,9 +66,9 @@ func TestE2E_DynamoDB_TTL(t *testing.T) {
 	)
 
 	// 4. Configure TTL via UI
-	require.NoError(t, page.Fill("input[name='attributeName']", "ttl_attr"))
-	require.NoError(t, page.Check("#ttl-enabled"))
-	require.NoError(t, page.Click("button:has-text('Update TTL')"))
+	require.NoError(t, page.Locator("input[name='attributeName']").First().Fill("ttl_attr"))
+	require.NoError(t, page.Locator("#ttl-enabled").First().Check())
+	require.NoError(t, page.Locator("button:has-text('Update TTL')").First().Click())
 
 	// 5. Verify success toast and UI update
 	require.NoError(
@@ -91,8 +92,8 @@ func TestE2E_DynamoDB_TTL(t *testing.T) {
 	require.Equal(t, "ttl_attr", *desc.TimeToLiveDescription.AttributeName)
 
 	// 7. Disable TTL via UI
-	require.NoError(t, page.Uncheck("#ttl-enabled"))
-	require.NoError(t, page.Click("button:has-text('Update TTL')"))
+	require.NoError(t, page.Locator("#ttl-enabled").First().Uncheck())
+	require.NoError(t, page.Locator("button:has-text('Update TTL')").First().Click())
 
 	// 8. Verify success toast and UI update
 	require.NoError(

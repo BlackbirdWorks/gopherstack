@@ -13,6 +13,7 @@ import (
 
 // TestCloudWatchLogsDashboard verifies the CloudWatch Logs dashboard UI renders log groups.
 func TestCloudWatchLogsDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.CloudWatchLogsHandler.Backend.CreateLogGroup(t.Context(), "/test/e2e-log-group", "", "")
@@ -50,6 +51,7 @@ func TestCloudWatchLogsDashboard(t *testing.T) {
 
 // TestCloudWatchLogsDashboard_Empty verifies the empty state renders correctly.
 func TestCloudWatchLogsDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

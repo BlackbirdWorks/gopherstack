@@ -15,6 +15,7 @@ import (
 
 // TestRDSDashboard verifies the RDS dashboard UI renders instances.
 func TestRDSDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.RDSHandler.Backend.CreateDBInstance(
@@ -55,6 +56,7 @@ func TestRDSDashboard(t *testing.T) {
 
 // TestRDSDashboard_Empty verifies the empty state renders correctly.
 func TestRDSDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -89,6 +91,7 @@ func TestRDSDashboard_Empty(t *testing.T) {
 
 // TestRDSDashboard_CreateAndDelete verifies the create-instance modal behavior in the current UI.
 func TestRDSDashboard_CreateAndDelete(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

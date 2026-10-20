@@ -15,6 +15,7 @@ import (
 
 // TestEMRServerlessDashboard verifies the EMR Serverless dashboard renders applications.
 func TestEMRServerlessDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	app, err := stack.EmrServerlessHandler.Backend.CreateApplication(
@@ -61,6 +62,7 @@ func TestEMRServerlessDashboard(t *testing.T) {
 
 // TestEMRServerlessDashboard_Empty verifies the empty state renders correctly.
 func TestEMRServerlessDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -96,6 +98,7 @@ func TestEMRServerlessDashboard_Empty(t *testing.T) {
 
 // TestEMRServerlessDashboard_JobRuns verifies job runs appear after clicking an application.
 func TestEMRServerlessDashboard_JobRuns(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	app, err := stack.EmrServerlessHandler.Backend.CreateApplication(
@@ -176,6 +179,7 @@ func TestEMRServerlessDashboard_JobRuns(t *testing.T) {
 // by TestEMRServerlessDashboard_StateFilter) -- filtering in the UI is the
 // same free-text SearchInput every other tab on this page uses.
 func TestEMRServerlessDashboard_Filtering(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	app, err := stack.EmrServerlessHandler.Backend.CreateApplication(
@@ -280,6 +284,7 @@ func TestEMRServerlessDashboard_Filtering(t *testing.T) {
 
 // TestEMRServerlessDashboard_Refresh verifies the refresh button reloads applications.
 func TestEMRServerlessDashboard_Refresh(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -339,6 +344,7 @@ func TestEMRServerlessDashboard_Refresh(t *testing.T) {
 
 // TestEMRServerlessDashboard_Tags verifies TagResource and ListTagsForResource round-trips.
 func TestEMRServerlessDashboard_Tags(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	app, err := stack.EmrServerlessHandler.Backend.CreateApplication(
@@ -372,6 +378,7 @@ func TestEMRServerlessDashboard_Tags(t *testing.T) {
 
 // TestEMRServerlessDashboard_StateFilter verifies the ListJobRuns states query param.
 func TestEMRServerlessDashboard_StateFilter(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	app, err := stack.EmrServerlessHandler.Backend.CreateApplication(
@@ -427,7 +434,12 @@ func TestEMRServerlessDashboard_StateFilter(t *testing.T) {
 	assert.Equal(t, emrserverlessbackend.JobRunStateSubmitted, runs[0].State)
 
 	// No filter: should return all 2.
-	runs, _, err = stack.EmrServerlessHandler.Backend.ListJobRuns(app.ApplicationID, "", 0, emrserverlessbackend.JobRunFilter{})
+	runs, _, err = stack.EmrServerlessHandler.Backend.ListJobRuns(
+		app.ApplicationID,
+		"",
+		0,
+		emrserverlessbackend.JobRunFilter{},
+	)
 	require.NoError(t, err)
 	assert.Len(t, runs, 2)
 }

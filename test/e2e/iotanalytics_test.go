@@ -14,6 +14,7 @@ import (
 
 // TestIoTAnalyticsDashboard verifies the IoT Analytics dashboard renders channels correctly.
 func TestIoTAnalyticsDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.IoTAnalyticsHandler.Backend.CreateChannel(
@@ -55,6 +56,7 @@ func TestIoTAnalyticsDashboard(t *testing.T) {
 
 // TestIoTAnalyticsDashboard_Empty verifies the IoT Analytics dashboard renders correctly with no data.
 func TestIoTAnalyticsDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -90,6 +92,7 @@ func TestIoTAnalyticsDashboard_Empty(t *testing.T) {
 
 // TestIoTAnalyticsDashboard_CreateAndDeleteChannel tests channel creation and deletion via UI.
 func TestIoTAnalyticsDashboard_CreateAndDeleteChannel(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

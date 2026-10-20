@@ -16,6 +16,7 @@ import (
 
 // TestDynamoDBStreamsDashboard verifies the DynamoDB dashboard renders stream configuration for a table.
 func TestDynamoDBStreamsDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	ctx := t.Context()
@@ -81,6 +82,7 @@ func TestDynamoDBStreamsDashboard(t *testing.T) {
 
 // TestDynamoDBStreamsDashboard_Empty verifies the DynamoDB dashboard empty state when no tables exist.
 func TestDynamoDBStreamsDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

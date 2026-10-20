@@ -15,6 +15,7 @@ import (
 
 // TestAthenaDashboard verifies the Athena dashboard UI renders workgroups.
 func TestAthenaDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	err := stack.AthenaHandler.Backend.CreateWorkGroup(
@@ -59,6 +60,7 @@ func TestAthenaDashboard(t *testing.T) {
 
 // TestAthenaDashboard_Empty verifies the Athena dashboard empty state (only primary workgroup).
 func TestAthenaDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

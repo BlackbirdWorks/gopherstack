@@ -13,6 +13,7 @@ import (
 
 // TestAWSConfigDashboard verifies the AWS Config dashboard UI renders configuration recorders.
 func TestAWSConfigDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	err := stack.AWSConfigHandler.Backend.PutConfigurationRecorder(
@@ -62,6 +63,7 @@ func TestAWSConfigDashboard(t *testing.T) {
 
 // TestAWSConfigDashboard_Empty verifies the empty state renders correctly.
 func TestAWSConfigDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

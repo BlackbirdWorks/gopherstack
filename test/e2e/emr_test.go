@@ -16,6 +16,7 @@ import (
 
 // TestEMRDashboard verifies the EMR dashboard UI renders clusters.
 func TestEMRDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.EMRHandler.Backend.RunJobFlow(context.Background(), emr.RunJobFlowParams{
@@ -56,6 +57,7 @@ func TestEMRDashboard(t *testing.T) {
 
 // TestEMRDashboard_Empty verifies the EMR dashboard empty state renders correctly.
 func TestEMRDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

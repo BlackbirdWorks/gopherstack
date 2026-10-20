@@ -12,6 +12,7 @@ import (
 
 // TestEC2Dashboard verifies the EC2 dashboard UI renders with instances, security groups, and key pairs.
 func TestEC2Dashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	// Seed some EC2 data so the dashboard has something to show.

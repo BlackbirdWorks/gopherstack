@@ -17,6 +17,7 @@ import (
 // TestE2E_LambdaDashboard_EmptyState verifies that the Lambda dashboard renders
 // the function list page correctly when no functions exist.
 func TestE2E_LambdaDashboard_EmptyState(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -52,7 +53,7 @@ func TestE2E_LambdaDashboard_EmptyState(t *testing.T) {
 	require.NoError(t, err)
 
 	// No functions exist, so the page should say "No Lambda functions" or show an empty table.
-	body, err := page.TextContent("body")
+	body, err := page.Locator("body").First().TextContent()
 	require.NoError(t, err)
 	assert.Contains(t, body, "Lambda", "expected 'Lambda' on the page")
 }
@@ -60,6 +61,7 @@ func TestE2E_LambdaDashboard_EmptyState(t *testing.T) {
 // TestE2E_LambdaDashboard_FunctionList verifies that the Lambda dashboard shows a pre-seeded
 // function and allows navigating to the function detail page.
 func TestE2E_LambdaDashboard_FunctionList(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	// Pre-seed a Lambda function in the backend so the dashboard can display it.
@@ -106,7 +108,7 @@ func TestE2E_LambdaDashboard_FunctionList(t *testing.T) {
 	require.NoError(t, err)
 
 	// Click the function to navigate to the detail page.
-	err = page.Click("a:has-text('e2e-test-fn')")
+	err = page.Locator("a:has-text('e2e-test-fn')").First().Click()
 	require.NoError(t, err)
 
 	err = page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
@@ -115,7 +117,7 @@ func TestE2E_LambdaDashboard_FunctionList(t *testing.T) {
 	require.NoError(t, err)
 
 	// The detail page should show the function name.
-	body, err := page.TextContent("body")
+	body, err := page.Locator("body").First().TextContent()
 	require.NoError(t, err)
 	assert.Contains(t, body, "e2e-test-fn")
 }
@@ -123,6 +125,7 @@ func TestE2E_LambdaDashboard_FunctionList(t *testing.T) {
 // TestE2E_LambdaDashboard_FunctionDetail_ZipFunction verifies that the detail page for a
 // Zip function shows runtime and handler fields.
 func TestE2E_LambdaDashboard_FunctionDetail_ZipFunction(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	// Pre-seed a Zip Lambda function.
@@ -162,7 +165,7 @@ func TestE2E_LambdaDashboard_FunctionDetail_ZipFunction(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body, err := page.TextContent("body")
+	body, err := page.Locator("body").First().TextContent()
 	require.NoError(t, err)
 	assert.Contains(t, body, "python3.12", "expected runtime on detail page")
 	assert.Contains(t, body, "index.handler", "expected handler on detail page")
@@ -171,6 +174,7 @@ func TestE2E_LambdaDashboard_FunctionDetail_ZipFunction(t *testing.T) {
 
 // TestE2E_LambdaDashboard_NavLink verifies the Lambda nav item appears in the sidebar.
 func TestE2E_LambdaDashboard_NavLink(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -200,7 +204,7 @@ func TestE2E_LambdaDashboard_NavLink(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body, err := page.TextContent("body")
+	body, err := page.Locator("body").First().TextContent()
 	require.NoError(t, err)
 	assert.Contains(t, body, "Lambda")
 }

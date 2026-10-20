@@ -14,6 +14,7 @@ import (
 
 // TestACMDashboard verifies the ACM dashboard UI renders certificates.
 func TestACMDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.ACMHandler.Backend.RequestCertificate(
@@ -64,6 +65,7 @@ func TestACMDashboard(t *testing.T) {
 
 // TestACMDashboard_Empty verifies the empty state renders correctly.
 func TestACMDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

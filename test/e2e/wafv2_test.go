@@ -14,6 +14,7 @@ import (
 
 // TestWafv2Dashboard verifies the WAFv2 dashboard UI renders Web ACL data.
 func TestWafv2Dashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.Wafv2Handler.Backend.CreateWebACL(
@@ -64,6 +65,7 @@ func TestWafv2Dashboard(t *testing.T) {
 
 // TestWafv2Dashboard_Empty verifies the WAFv2 dashboard renders correctly with no Web ACLs.
 func TestWafv2Dashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

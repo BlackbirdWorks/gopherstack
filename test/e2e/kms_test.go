@@ -14,6 +14,7 @@ import (
 
 // TestKMSDashboard tests the KMS dashboard UI: create key, view detail, encrypt, decrypt.
 func TestKMSDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

@@ -13,6 +13,7 @@ import (
 
 // TestEKSDashboard verifies the EKS dashboard UI renders clusters.
 func TestEKSDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.EKSHandler.Backend.CreateCluster("e2e-test-cluster", "1.32", "", nil, nil, nil)
@@ -50,6 +51,7 @@ func TestEKSDashboard(t *testing.T) {
 
 // TestEKSDashboard_Empty verifies the EKS dashboard renders correctly when there are no clusters.
 func TestEKSDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

@@ -12,6 +12,7 @@ import (
 
 // TestSESv2Dashboard_NotFound verifies the SESv2 dashboard renders.
 func TestSESv2Dashboard_NotFound(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

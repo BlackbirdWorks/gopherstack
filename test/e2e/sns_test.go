@@ -13,6 +13,7 @@ import (
 
 // TestSNSDashboard tests the SNS Dashboard UI behavior.
 func TestSNSDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -46,13 +47,13 @@ func TestSNSDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Step 1: Create a Topic via modal.
-	err = page.Click("button:has-text('Create Topic')")
+	err = page.Locator("button:has-text('Create Topic')").First().Click()
 	require.NoError(t, err)
 
 	topicInput := page.Locator("input[placeholder='e.g. my-notifications']")
 	require.NoError(t, topicInput.Fill("test-notifications"))
 
-	err = page.Click("button[type='submit']:has-text('Create Topic')")
+	err = page.Locator("button[type='submit']:has-text('Create Topic')").First().Click()
 	require.NoError(t, err)
 
 	// Verify the new topic appears in the list.
@@ -108,6 +109,7 @@ func TestSNSDashboard(t *testing.T) {
 
 // TestSNSDashboard_Empty verifies empty state renders correctly.
 func TestSNSDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

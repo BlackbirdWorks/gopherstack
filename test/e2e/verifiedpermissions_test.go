@@ -13,6 +13,7 @@ import (
 
 // TestVerifiedPermissionsDashboard verifies the Verified Permissions dashboard UI renders policy stores.
 func TestVerifiedPermissionsDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.VerifiedPermissionsHandler.Backend.CreatePolicyStore("My Test Store", nil, "OFF", "", "")
@@ -51,6 +52,7 @@ func TestVerifiedPermissionsDashboard(t *testing.T) {
 
 // TestVerifiedPermissionsDashboard_Empty verifies the empty state renders correctly.
 func TestVerifiedPermissionsDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -85,6 +87,7 @@ func TestVerifiedPermissionsDashboard_Empty(t *testing.T) {
 
 // TestVerifiedPermissionsDashboard_CreatePolicyStore verifies the create policy store form works.
 func TestVerifiedPermissionsDashboard_CreatePolicyStore(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.VerifiedPermissionsHandler.Backend.CreatePolicyStore("E2E Test Store", nil, "OFF", "", "")

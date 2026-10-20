@@ -13,6 +13,7 @@ import (
 
 // TestBedrockDashboard verifies the Bedrock dashboard UI renders foundation models.
 func TestBedrockDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 	var err error
 
@@ -50,6 +51,7 @@ func TestBedrockDashboard(t *testing.T) {
 
 // TestBedrockDashboard_Empty verifies the Bedrock dashboard empty state (only foundation models).
 func TestBedrockDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -85,6 +87,7 @@ func TestBedrockDashboard_Empty(t *testing.T) {
 
 // TestBedrockDashboard_CustomModels verifies the custom models tab renders.
 func TestBedrockDashboard_CustomModels(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

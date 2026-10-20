@@ -13,6 +13,7 @@ import (
 
 // TestMediaStoreDataDashboard verifies the MediaStore Data dashboard UI renders object data.
 func TestMediaStoreDataDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, _ = stack.MediaStoreDataHandler.Backend.PutObject(
@@ -82,6 +83,7 @@ func TestMediaStoreDataDashboard(t *testing.T) {
 
 // TestMediaStoreDataDashboard_Empty verifies the MediaStore Data dashboard renders correctly with no data.
 func TestMediaStoreDataDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

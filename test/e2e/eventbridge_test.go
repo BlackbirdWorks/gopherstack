@@ -15,6 +15,7 @@ import (
 
 // TestEventBridgeDashboard verifies the EventBridge dashboard UI renders event buses.
 func TestEventBridgeDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.EventBridgeHandler.Backend.CreateEventBus(t.Context(), ebbackend.CreateEventBusParams{
@@ -55,6 +56,7 @@ func TestEventBridgeDashboard(t *testing.T) {
 
 // TestEventBridgeDashboard_Rules verifies the EventBridge rules page.
 func TestEventBridgeDashboard_Rules(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.EventBridgeHandler.Backend.CreateEventBus(t.Context(), ebbackend.CreateEventBusParams{

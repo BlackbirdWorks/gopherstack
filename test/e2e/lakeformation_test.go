@@ -15,6 +15,7 @@ import (
 
 // TestLakeFormationDashboard verifies the Lake Formation dashboard UI renders resource data.
 func TestLakeFormationDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	err := stack.LakeFormationHandler.Backend.RegisterResource(
@@ -56,6 +57,7 @@ func TestLakeFormationDashboard(t *testing.T) {
 
 // TestLakeFormationDashboard_Empty verifies the Lake Formation dashboard renders correctly with no data.
 func TestLakeFormationDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

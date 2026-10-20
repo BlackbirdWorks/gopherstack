@@ -14,6 +14,7 @@ import (
 
 // TestOpenSearchDashboard verifies the OpenSearch dashboard UI renders domains.
 func TestOpenSearchDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.OpenSearchHandler.Backend.CreateDomain(opensearchbackend.CreateDomainInput{

@@ -15,6 +15,7 @@ import (
 
 // TestSageMakerDashboard verifies the SageMaker dashboard UI renders model data.
 func TestSageMakerDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.SageMakerHandler.Backend.CreateModel(
@@ -62,6 +63,7 @@ func TestSageMakerDashboard(t *testing.T) {
 
 // TestSageMakerDashboard_Empty verifies the SageMaker dashboard renders correctly with no models.
 func TestSageMakerDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

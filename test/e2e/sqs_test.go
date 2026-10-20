@@ -13,6 +13,7 @@ import (
 
 // TestSQSDashboard tests the SQS dashboard UI.
 func TestSQSDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -47,15 +48,15 @@ func TestSQSDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Step 1: Create a queue via the create modal
-	err = page.Click("button:has-text('Create Queue')")
+	err = page.Locator("button:has-text('Create Queue')").First().Click()
 	require.NoError(t, err)
 
 	// Fill the queue form
-	require.NoError(t, page.Fill("input[placeholder='e.g. order-processing']", "test-sqs-queue"))
-	require.NoError(t, page.Fill("input[type='number']", "30"))
+	require.NoError(t, page.Locator("input[placeholder='e.g. order-processing']").First().Fill("test-sqs-queue"))
+	require.NoError(t, page.Locator("input[type='number']").First().Fill("30"))
 
 	// Submit the form
-	err = page.Click("button[type='submit']")
+	err = page.Locator("button[type='submit']").First().Click()
 	require.NoError(t, err)
 
 	// Verify the new queue appears in the list and select the actual clickable card

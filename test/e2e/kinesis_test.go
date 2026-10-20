@@ -16,6 +16,7 @@ import (
 
 // TestKinesisDashboard verifies the Kinesis dashboard UI renders streams.
 func TestKinesisDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	err := stack.KinesisHandler.Backend.CreateStream(context.Background(), &kinesisbackend.CreateStreamInput{
@@ -56,6 +57,7 @@ func TestKinesisDashboard(t *testing.T) {
 
 // TestKinesisDashboard_Empty verifies the empty state renders correctly.
 func TestKinesisDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

@@ -15,6 +15,7 @@ import (
 
 // TestTranscribeDashboard verifies the Transcribe dashboard UI renders transcription jobs.
 func TestTranscribeDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.TranscribeHandler.Backend.StartTranscriptionJob(
@@ -59,6 +60,7 @@ func TestTranscribeDashboard(t *testing.T) {
 
 // TestTranscribeDashboard_Empty verifies the empty state renders correctly.
 func TestTranscribeDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -93,6 +95,7 @@ func TestTranscribeDashboard_Empty(t *testing.T) {
 
 // TestTranscribeDashboard_StartJob verifies transcription jobs are displayed on the current UI.
 func TestTranscribeDashboard_StartJob(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.TranscribeHandler.Backend.StartTranscriptionJob(

@@ -16,6 +16,7 @@ import (
 
 // TestElasticbeanstalkDashboard verifies the Elastic Beanstalk dashboard UI renders applications and environments.
 func TestElasticbeanstalkDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.ElasticbeanstalkHandler.Backend.CreateApplication(
@@ -80,6 +81,7 @@ func TestElasticbeanstalkDashboard(t *testing.T) {
 
 // TestElasticbeanstalkDashboard_Empty verifies the Elastic Beanstalk dashboard empty state renders correctly.
 func TestElasticbeanstalkDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

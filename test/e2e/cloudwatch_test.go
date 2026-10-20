@@ -13,6 +13,7 @@ import (
 
 // TestCloudWatchDashboard verifies the CloudWatch dashboard UI renders metrics.
 func TestCloudWatchDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -56,6 +57,7 @@ func TestCloudWatchDashboard(t *testing.T) {
 
 // TestCloudWatchDashboard_Empty verifies the empty state renders correctly.
 func TestCloudWatchDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -91,6 +93,7 @@ func TestCloudWatchDashboard_Empty(t *testing.T) {
 
 // TestCloudWatchDashboard_Dashboards verifies the dashboards section renders correctly.
 func TestCloudWatchDashboard_Dashboards(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

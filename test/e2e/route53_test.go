@@ -12,6 +12,7 @@ import (
 
 // TestRoute53Dashboard verifies the Route 53 dashboard UI: list zones page renders.
 func TestRoute53Dashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

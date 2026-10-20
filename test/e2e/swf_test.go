@@ -13,6 +13,7 @@ import (
 
 // TestSWFDashboard verifies the SWF dashboard UI renders domains.
 func TestSWFDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	err := stack.SWFHandler.Backend.RegisterDomain("test-domain", "an e2e test domain", "NONE")
@@ -50,6 +51,7 @@ func TestSWFDashboard(t *testing.T) {
 
 // TestSWFDashboard_Empty verifies the empty state renders correctly.
 func TestSWFDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

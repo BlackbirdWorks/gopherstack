@@ -13,6 +13,7 @@ import (
 
 // TestCodeDeployDashboard verifies the CodeDeploy dashboard UI renders applications.
 func TestCodeDeployDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.CodeDeployHandler.Backend.CreateApplication("e2e-test-app", "Server", nil)
@@ -50,6 +51,7 @@ func TestCodeDeployDashboard(t *testing.T) {
 
 // TestCodeDeployDashboard_Empty verifies the CodeDeploy dashboard empty state renders correctly.
 func TestCodeDeployDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

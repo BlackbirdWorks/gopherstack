@@ -13,6 +13,7 @@ import (
 
 // TestServerlessRepoDashboard verifies the Serverless Application Repository dashboard UI renders application data.
 func TestServerlessRepoDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.ServerlessRepoHandler.Backend.CreateApplication(
@@ -61,6 +62,7 @@ func TestServerlessRepoDashboard(t *testing.T) {
 
 // TestServerlessRepoDashboard_Empty verifies the dashboard renders correctly with no applications.
 func TestServerlessRepoDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

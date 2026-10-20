@@ -17,6 +17,9 @@ run:
   # 200+ packages and large AWS SDK v2 dependency graphs.
   concurrency: 8
   timeout: 55m
+  # test/e2e is wholly //go:build e2e; without the tag the full-repo run skips it.
+  build-tags:
+    - e2e
 
 issues:
   # Maximum count of issues with the same text.

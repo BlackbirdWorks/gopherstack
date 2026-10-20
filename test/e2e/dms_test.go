@@ -16,6 +16,7 @@ import (
 
 // TestDMSDashboard verifies the DMS dashboard UI renders replication instances.
 func TestDMSDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.DMSHandler.Backend.CreateReplicationInstance(
@@ -56,6 +57,7 @@ func TestDMSDashboard(t *testing.T) {
 
 // TestDMSDashboard_Empty verifies the DMS dashboard empty state renders correctly.
 func TestDMSDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

@@ -15,6 +15,7 @@ import (
 
 // TestIoTWirelessDashboard verifies the IoT Wireless dashboard UI renders service profile data.
 func TestIoTWirelessDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.IoTHandler.Backend.CreateThing(&iotbackend.CreateThingInput{
@@ -55,6 +56,7 @@ func TestIoTWirelessDashboard(t *testing.T) {
 
 // TestIoTWirelessDashboard_Empty verifies the IoT Wireless dashboard renders correctly with no data.
 func TestIoTWirelessDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

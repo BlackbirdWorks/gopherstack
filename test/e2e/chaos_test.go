@@ -15,6 +15,7 @@ import (
 
 // TestChaosDashboard verifies the Chaos Engineering dashboard renders correctly.
 func TestChaosDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -52,6 +53,7 @@ func TestChaosDashboard(t *testing.T) {
 
 // TestChaosDashboard_WithExistingFault verifies faults seeded via backend appear in the UI.
 func TestChaosDashboard_WithExistingFault(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	// Seed a fault directly in the store.
@@ -102,6 +104,7 @@ func TestChaosDashboard_WithExistingFault(t *testing.T) {
 
 // TestChaosDashboard_AddFault verifies the Add Fault form works end-to-end.
 func TestChaosDashboard_AddFault(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -154,6 +157,7 @@ func TestChaosDashboard_AddFault(t *testing.T) {
 
 // TestChaosDashboard_NoError verifies that the chaos page does not show an error on load.
 func TestChaosDashboard_NoError(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

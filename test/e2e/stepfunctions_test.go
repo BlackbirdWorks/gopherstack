@@ -13,6 +13,7 @@ import (
 
 // TestStepFunctionsDashboard verifies the Step Functions dashboard UI renders state machines.
 func TestStepFunctionsDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.StepFunctionsHandler.Backend.CreateStateMachine(
@@ -56,6 +57,7 @@ func TestStepFunctionsDashboard(t *testing.T) {
 
 // TestStepFunctionsDashboard_Empty verifies the empty state renders correctly.
 func TestStepFunctionsDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

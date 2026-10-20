@@ -15,6 +15,7 @@ import (
 
 // TestIoTDashboard verifies the IoT dashboard UI: things and rules render correctly.
 func TestIoTDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.IoTHandler.Backend.CreateThing(&iotbackend.CreateThingInput{
@@ -60,6 +61,7 @@ func TestIoTDashboard(t *testing.T) {
 
 // TestIoTDashboard_Empty verifies the IoT dashboard empty state renders correctly.
 func TestIoTDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -95,6 +97,7 @@ func TestIoTDashboard_Empty(t *testing.T) {
 
 // TestIoTDashboard_CreateAndDeleteThing verifies the create and delete thing UI flows.
 func TestIoTDashboard_CreateAndDeleteThing(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

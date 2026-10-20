@@ -16,6 +16,7 @@ import (
 
 // TestCloudFormationDashboard verifies the CloudFormation dashboard UI renders stacks.
 func TestCloudFormationDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.CloudFormationHandler.Backend.CreateStack(
@@ -59,6 +60,7 @@ func TestCloudFormationDashboard(t *testing.T) {
 
 // TestCloudFormationDashboard_Empty verifies the empty state renders correctly.
 func TestCloudFormationDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

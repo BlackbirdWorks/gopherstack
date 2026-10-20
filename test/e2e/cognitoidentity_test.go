@@ -13,6 +13,7 @@ import (
 
 // TestCognitoIdentityDashboard verifies the Cognito Identity dashboard UI renders identity pools.
 func TestCognitoIdentityDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.CognitoIdentityHandler.Backend.CreateIdentityPool(
@@ -59,6 +60,7 @@ func TestCognitoIdentityDashboard(t *testing.T) {
 
 // TestCognitoIdentityDashboard_Empty verifies the empty state renders correctly.
 func TestCognitoIdentityDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

@@ -15,6 +15,7 @@ import (
 
 // TestFISDashboard verifies the FIS dashboard renders template data in the current UI.
 func TestFISDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	// Seed an experiment template via the backend.
@@ -90,6 +91,7 @@ func TestFISDashboard(t *testing.T) {
 
 // TestFISDashboard_Empty verifies the FIS dashboard renders correctly with no data.
 func TestFISDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -125,6 +127,7 @@ func TestFISDashboard_Empty(t *testing.T) {
 
 // TestFISDashboard_TemplatesTab verifies the templates tab lists seeded templates.
 func TestFISDashboard_TemplatesTab(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.FISHandler.Backend.CreateExperimentTemplate(
@@ -190,6 +193,7 @@ func TestFISDashboard_TemplatesTab(t *testing.T) {
 
 // TestFISDashboard_StartAndStopExperiment verifies starting and stopping an experiment.
 func TestFISDashboard_StartAndStopExperiment(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	// Pre-create a template.

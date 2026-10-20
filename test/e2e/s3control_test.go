@@ -15,6 +15,7 @@ import (
 
 // TestS3ControlDashboard verifies the S3 Control dashboard UI renders public access block configs.
 func TestS3ControlDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	stack.S3ControlHandler.Backend.PutPublicAccessBlock(s3controlbackend.PublicAccessBlock{
@@ -57,6 +58,7 @@ func TestS3ControlDashboard(t *testing.T) {
 
 // TestS3ControlDashboard_Empty verifies the empty state renders correctly.
 func TestS3ControlDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

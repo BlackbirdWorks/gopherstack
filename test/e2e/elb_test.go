@@ -16,6 +16,7 @@ import (
 
 // TestELBDashboard verifies the ELB dashboard UI renders load balancers.
 func TestELBDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.ELBHandler.Backend.CreateLoadBalancer(context.Background(), elbbackend.CreateLoadBalancerInput{
@@ -64,6 +65,7 @@ func TestELBDashboard(t *testing.T) {
 
 // TestELBDashboard_Empty verifies the ELB dashboard renders with no load balancers.
 func TestELBDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -98,6 +100,7 @@ func TestELBDashboard_Empty(t *testing.T) {
 
 // TestELBDashboard_CreateAndDelete verifies the ELB dashboard create and delete flows.
 func TestELBDashboard_CreateAndDelete(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

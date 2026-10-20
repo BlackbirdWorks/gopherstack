@@ -17,6 +17,7 @@ const testE2EStoreID = "d-0000000000"
 
 // TestIdentityStoreDashboard verifies the Identity Store dashboard renders with seeded data.
 func TestIdentityStoreDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	// Seed a user.
@@ -85,6 +86,7 @@ func TestIdentityStoreDashboard(t *testing.T) {
 
 // TestIdentityStoreDashboard_Empty verifies the Identity Store dashboard renders with no data.
 func TestIdentityStoreDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -119,6 +121,7 @@ func TestIdentityStoreDashboard_Empty(t *testing.T) {
 
 // TestIdentityStoreDashboard_CreateUser verifies the create user form flow.
 func TestIdentityStoreDashboard_CreateUser(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -176,6 +179,7 @@ func TestIdentityStoreDashboard_CreateUser(t *testing.T) {
 
 // TestIdentityStoreDashboard_CreateGroup verifies the create group form flow.
 func TestIdentityStoreDashboard_CreateGroup(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -243,6 +247,7 @@ func TestIdentityStoreDashboard_CreateGroup(t *testing.T) {
 // TestIdentityStoreDashboard_MembershipAndProfileFlow verifies profile editing,
 // group membership add/remove, and identity store selector behavior.
 func TestIdentityStoreDashboard_MembershipAndProfileFlow(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

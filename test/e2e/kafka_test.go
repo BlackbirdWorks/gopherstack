@@ -16,6 +16,7 @@ import (
 
 // TestKafkaDashboard verifies the Kafka (MSK) dashboard renders with cluster list.
 func TestKafkaDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	// Seed a cluster via the backend.
@@ -71,6 +72,7 @@ func TestKafkaDashboard(t *testing.T) {
 
 // TestKafkaDashboard_CreateCluster verifies creating a cluster via the dashboard form.
 func TestKafkaDashboard_CreateCluster(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

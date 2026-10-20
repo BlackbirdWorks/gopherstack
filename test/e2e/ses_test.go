@@ -16,6 +16,7 @@ import (
 
 // TestSESDashboard verifies the rewritten SES dashboard identities and send-email flows.
 func TestSESDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

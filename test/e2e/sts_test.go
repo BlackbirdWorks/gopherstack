@@ -14,6 +14,7 @@ import (
 
 // TestSTSDashboard verifies the STS dashboard UI.
 func TestSTSDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -54,6 +55,7 @@ func TestSTSDashboard(t *testing.T) {
 
 // TestSTSDashboard_GenerateSessionToken verifies the session token generation flow.
 func TestSTSDashboard_GenerateSessionToken(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -119,6 +121,7 @@ func TestSTSDashboard_GenerateSessionToken(t *testing.T) {
 
 // TestSTSDashboard_AssumeRole verifies the AssumeRole form flow.
 func TestSTSDashboard_AssumeRole(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -191,6 +194,7 @@ func TestSTSDashboard_AssumeRole(t *testing.T) {
 
 // TestSTSDashboard_ValidatorClear verifies the validator has a clear button.
 func TestSTSDashboard_ValidatorClear(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -252,6 +256,7 @@ func TestSTSDashboard_ValidatorClear(t *testing.T) {
 
 // TestSTSDashboard_MetricsPanel verifies the STS metrics panel renders.
 func TestSTSDashboard_MetricsPanel(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -293,6 +298,7 @@ func TestSTSDashboard_MetricsPanel(t *testing.T) {
 
 // TestSTSDashboard_DecodeAuthMessageClear verifies the decode panel clear button.
 func TestSTSDashboard_DecodeAuthMessageClear(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

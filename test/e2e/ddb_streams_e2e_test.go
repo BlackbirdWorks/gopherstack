@@ -16,6 +16,7 @@ import (
 )
 
 func TestE2E_DynamoDB_Streams(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -67,13 +68,12 @@ func TestE2E_DynamoDB_Streams(t *testing.T) {
 	)
 
 	// 4. Enable Streams via UI
-	_, err = page.SelectOption(
-		"select[name='viewType']",
+	_, err = page.Locator("select[name='viewType']").First().SelectOption(
 		playwright.SelectOptionValues{Values: &[]string{"NEW_AND_OLD_IMAGES"}},
 	)
 	require.NoError(t, err)
-	require.NoError(t, page.Click("label[for='streams-enabled']"))
-	require.NoError(t, page.Click("button:has-text('Update Streams')"))
+	require.NoError(t, page.Locator("label[for='streams-enabled']").First().Click())
+	require.NoError(t, page.Locator("button:has-text('Update Streams')").First().Click())
 
 	// 5. Verify UI update (wait for card to show ENABLED)
 	streamsCard = page.Locator("div.grid > div:has-text('Streams')")
@@ -93,7 +93,7 @@ func TestE2E_DynamoDB_Streams(t *testing.T) {
 	require.NoError(t, err)
 
 	// 7. Click on "Stream Events" tab
-	require.NoError(t, page.Click("button:has-text('Stream Events')"))
+	require.NoError(t, page.Locator("button:has-text('Stream Events')").First().Click())
 
 	// 8. Verify the INSERT event appears in the recent events table
 	require.NoError(
@@ -176,9 +176,9 @@ func TestE2E_DynamoDB_Streams(t *testing.T) {
 	)
 
 	// 9. Disable Streams via UI
-	require.NoError(t, page.Click("button:has-text('Overview')"))
-	require.NoError(t, page.Uncheck("#streams-enabled"))
-	require.NoError(t, page.Click("button:has-text('Update Streams')"))
+	require.NoError(t, page.Locator("button:has-text('Overview')").First().Click())
+	require.NoError(t, page.Locator("#streams-enabled").First().Uncheck())
+	require.NoError(t, page.Locator("button:has-text('Update Streams')").First().Click())
 
 	// 10. Verify UI update (wait for card to show DISABLED)
 	streamsCard = page.Locator("div.grid > div:has-text('Streams')")

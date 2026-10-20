@@ -14,6 +14,7 @@ import (
 
 // TestTransferDashboard verifies the Transfer dashboard UI renders servers.
 func TestTransferDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	srv, err := stack.TransferHandler.Backend.CreateServer([]string{"SFTP"}, nil)
@@ -62,6 +63,7 @@ func TestTransferDashboard(t *testing.T) {
 
 // TestTransferDashboard_Empty verifies the empty state renders correctly.
 func TestTransferDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -96,6 +98,7 @@ func TestTransferDashboard_Empty(t *testing.T) {
 
 // TestTransferDashboard_CreateServer verifies the create server form works.
 func TestTransferDashboard_CreateServer(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

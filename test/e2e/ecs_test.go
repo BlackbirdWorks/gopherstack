@@ -15,6 +15,7 @@ import (
 
 // TestECSDashboard verifies the ECS dashboard UI: clusters render correctly.
 func TestECSDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.ECSHandler.Backend.CreateCluster(ecsbackend.CreateClusterInput{ClusterName: "demo-cluster"})
@@ -57,6 +58,7 @@ func TestECSDashboard(t *testing.T) {
 
 // TestECSDashboard_Empty verifies the ECS dashboard empty state renders correctly.
 func TestECSDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -96,6 +98,7 @@ func TestECSDashboard_Empty(t *testing.T) {
 
 // TestECSDashboard_CapacityProvidersTab verifies the Capacity Providers tab renders.
 func TestECSDashboard_CapacityProvidersTab(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.ECSHandler.Backend.CreateCluster(ecsbackend.CreateClusterInput{ClusterName: "cap-cluster"})
@@ -142,6 +145,7 @@ func TestECSDashboard_CapacityProvidersTab(t *testing.T) {
 
 // Note: Create/Delete UI flow via dashboard is not currently implemented.
 func TestECSDashboard_CreateAndDeleteCluster(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	// Create cluster via SDK

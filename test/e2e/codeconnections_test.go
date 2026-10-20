@@ -13,6 +13,7 @@ import (
 
 // TestCodeConnectionsDashboard verifies the CodeConnections dashboard UI renders connections.
 func TestCodeConnectionsDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.CodeConnectionsHandler.Backend.CreateConnection(t.Context(), "e2e-test-conn", "GitHub", "", nil)
@@ -51,6 +52,7 @@ func TestCodeConnectionsDashboard(t *testing.T) {
 
 // TestCodeConnectionsDashboard_Empty verifies the CodeConnections dashboard empty state renders correctly.
 func TestCodeConnectionsDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

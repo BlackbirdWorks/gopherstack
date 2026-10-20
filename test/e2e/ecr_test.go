@@ -13,6 +13,7 @@ import (
 
 // TestECRDashboard verifies the ECR dashboard UI: repositories render correctly.
 func TestECRDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.ECRHandler.Backend.CreateRepository(t.Context(), "demo-app/backend", "", false, "", "")
@@ -55,6 +56,7 @@ func TestECRDashboard(t *testing.T) {
 
 // TestECRDashboard_Empty verifies the ECR dashboard empty state renders correctly.
 func TestECRDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -91,6 +93,7 @@ func TestECRDashboard_Empty(t *testing.T) {
 
 // TestECRDashboard_CreateAndDeleteRepository verifies the create and delete repository UI flows.
 func TestECRDashboard_CreateAndDeleteRepository(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

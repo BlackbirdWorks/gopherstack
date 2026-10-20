@@ -16,6 +16,7 @@ import (
 
 // TestCodePipelineDashboard verifies the CodePipeline dashboard UI renders pipelines.
 func TestCodePipelineDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.CodePipelineHandler.Backend.CreatePipeline(
@@ -80,6 +81,7 @@ func TestCodePipelineDashboard(t *testing.T) {
 
 // TestCodePipelineDashboard_Empty verifies the CodePipeline dashboard renders with no pipelines.
 func TestCodePipelineDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -115,6 +117,7 @@ func TestCodePipelineDashboard_Empty(t *testing.T) {
 
 // TestCodePipelineDashboard_CreatePipeline verifies creating a pipeline via the dashboard.
 func TestCodePipelineDashboard_CreatePipeline(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

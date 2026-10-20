@@ -13,6 +13,7 @@ import (
 
 // TestDocsDashboard verifies the Docs page renders with service list and GitHub link.
 func TestDocsDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -50,6 +51,7 @@ func TestDocsDashboard(t *testing.T) {
 
 // TestDocsDashboard_ServiceLinks verifies that service links point to their dashboards.
 func TestDocsDashboard_ServiceLinks(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -92,6 +94,7 @@ func TestDocsDashboard_ServiceLinks(t *testing.T) {
 
 // TestDocsDashboard_StatsCards verifies the stats cards render.
 func TestDocsDashboard_StatsCards(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -127,6 +130,7 @@ func TestDocsDashboard_StatsCards(t *testing.T) {
 
 // TestDocsDashboard_NavDocsLink verifies the Docs link exists in the top navigation.
 func TestDocsDashboard_NavDocsLink(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

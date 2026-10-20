@@ -13,6 +13,7 @@ import (
 
 // TestIAMDashboard verifies the IAM dashboard tabs and empty states render.
 func TestIAMDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -47,11 +48,11 @@ func TestIAMDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.TextContent("#empty-state-text")
+	content, err := page.Locator("#empty-state-text").First().TextContent()
 	require.NoError(t, err)
 	assert.Contains(t, content, "No users found")
 
-	err = page.Click("#roles-tab")
+	err = page.Locator("#roles-tab").First().Click()
 	require.NoError(t, err)
 
 	err = page.Locator("#empty-state-text").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -60,11 +61,11 @@ func TestIAMDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err = page.TextContent("#empty-state-text")
+	content, err = page.Locator("#empty-state-text").First().TextContent()
 	require.NoError(t, err)
 	assert.Contains(t, content, "No roles found")
 
-	err = page.Click("#groups-tab")
+	err = page.Locator("#groups-tab").First().Click()
 	require.NoError(t, err)
 
 	err = page.Locator("#empty-state-text").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -73,11 +74,11 @@ func TestIAMDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err = page.TextContent("#empty-state-text")
+	content, err = page.Locator("#empty-state-text").First().TextContent()
 	require.NoError(t, err)
 	assert.Contains(t, content, "No groups found")
 
-	err = page.Click("#policies-tab")
+	err = page.Locator("#policies-tab").First().Click()
 	require.NoError(t, err)
 
 	err = page.Locator("#empty-state-text").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -86,7 +87,7 @@ func TestIAMDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err = page.TextContent("#empty-state-text")
+	content, err = page.Locator("#empty-state-text").First().TextContent()
 	require.NoError(t, err)
 	assert.Contains(t, content, "No policies found")
 

@@ -15,6 +15,7 @@ import (
 
 // TestFirehoseDashboard verifies the Firehose dashboard UI renders delivery streams.
 func TestFirehoseDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.FirehoseHandler.Backend.CreateDeliveryStream(
@@ -54,6 +55,7 @@ func TestFirehoseDashboard(t *testing.T) {
 
 // TestFirehoseDashboard_Empty verifies the empty state renders correctly.
 func TestFirehoseDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

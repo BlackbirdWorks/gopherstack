@@ -15,6 +15,7 @@ import (
 
 // TestRedshiftDashboard verifies the Redshift dashboard UI renders clusters.
 func TestRedshiftDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.RedshiftHandler.Backend.CreateCluster(
@@ -54,6 +55,7 @@ func TestRedshiftDashboard(t *testing.T) {
 
 // TestRedshiftDashboard_Empty verifies the empty state renders correctly.
 func TestRedshiftDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

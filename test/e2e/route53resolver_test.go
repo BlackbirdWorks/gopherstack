@@ -15,6 +15,7 @@ import (
 
 // TestRoute53ResolverDashboard verifies the Route53 Resolver dashboard UI renders endpoints.
 func TestRoute53ResolverDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.Route53ResolverHandler.Backend.CreateResolverEndpoint(
@@ -65,6 +66,7 @@ func TestRoute53ResolverDashboard(t *testing.T) {
 
 // TestRoute53ResolverDashboard_Empty verifies the empty state renders correctly.
 func TestRoute53ResolverDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -97,6 +99,7 @@ func TestRoute53ResolverDashboard_Empty(t *testing.T) {
 
 // TestRoute53ResolverDashboard_CreateAndDelete verifies list updates after backend create/delete while viewing UI.
 func TestRoute53ResolverDashboard_CreateAndDelete(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

@@ -14,6 +14,7 @@ import (
 
 // TestCodeArtifactDashboard verifies the CodeArtifact dashboard UI renders domains.
 func TestCodeArtifactDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.CodeArtifactHandler.Backend.CreateDomain(context.Background(), "e2e-test-domain", "", nil)
@@ -58,6 +59,7 @@ func TestCodeArtifactDashboard(t *testing.T) {
 
 // TestCodeArtifactDashboard_Empty verifies the CodeArtifact dashboard empty state renders correctly.
 func TestCodeArtifactDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

@@ -13,6 +13,7 @@ import (
 
 // TestSageMakerRuntimeDashboard verifies the SageMaker Runtime dashboard UI renders invocation data.
 func TestSageMakerRuntimeDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -48,6 +49,7 @@ func TestSageMakerRuntimeDashboard(t *testing.T) {
 
 // TestSageMakerRuntimeDashboard_Empty verifies the SageMaker Runtime dashboard renders correctly with no invocations.
 func TestSageMakerRuntimeDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

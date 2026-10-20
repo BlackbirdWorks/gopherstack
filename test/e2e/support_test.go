@@ -13,6 +13,7 @@ import (
 
 // TestSupportDashboard verifies the Support dashboard UI renders support cases.
 func TestSupportDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.SupportHandler.Backend.CreateCase(
@@ -53,6 +54,7 @@ func TestSupportDashboard(t *testing.T) {
 
 // TestSupportDashboard_Empty verifies the empty state renders correctly.
 func TestSupportDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -87,6 +89,7 @@ func TestSupportDashboard_Empty(t *testing.T) {
 
 // TestSupportDashboard_CreateCase verifies support cases are rendered in the current UI.
 func TestSupportDashboard_CreateCase(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.SupportHandler.Backend.CreateCase(

@@ -73,6 +73,7 @@ func assertReadOnlyField(t *testing.T, locator playwright.Locator, label string)
 }
 
 func TestE2E_SettingsPage(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	want := testServerSettings()
@@ -142,6 +143,7 @@ func TestE2E_SettingsPage(t *testing.T) {
 }
 
 func TestE2E_SettingsPage_NavbarIcon(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	want := testServerSettings()
@@ -177,7 +179,7 @@ func TestE2E_SettingsPage_NavbarIcon(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body, err := page.TextContent("body")
+	body, err := page.Locator("body").First().TextContent()
 	require.NoError(t, err)
 	assert.Contains(t, body, "There is no write path from this page")
 

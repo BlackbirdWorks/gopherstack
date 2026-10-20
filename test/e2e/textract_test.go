@@ -13,6 +13,7 @@ import (
 
 // TestTextractDashboard verifies the rewritten Textract dashboard renders adapter-focused UI.
 func TestTextractDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -50,6 +51,7 @@ func TestTextractDashboard(t *testing.T) {
 
 // TestTextractDashboard_Empty verifies the empty adapter state renders correctly.
 func TestTextractDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -88,6 +90,7 @@ func TestTextractDashboard_Empty(t *testing.T) {
 // (that message only appears once an adapter is selected and it has zero
 // versions -- see TestTextractDashboard for the analogous adapters-empty case).
 func TestTextractDashboard_VersionsTab(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

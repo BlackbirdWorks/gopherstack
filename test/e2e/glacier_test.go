@@ -13,6 +13,7 @@ import (
 
 // TestGlacierDashboard verifies the Glacier dashboard UI renders vault data.
 func TestGlacierDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.GlacierHandler.Backend.CreateVault("000000000000", "us-east-1", "e2e-test-vault")
@@ -53,6 +54,7 @@ func TestGlacierDashboard(t *testing.T) {
 
 // TestGlacierDashboard_Empty verifies the Glacier dashboard renders correctly with no data.
 func TestGlacierDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

@@ -13,6 +13,7 @@ import (
 
 // TestAPIGatewayManagementAPIDashboard verifies the API Gateway Management API dashboard renders correctly.
 func TestAPIGatewayManagementAPIDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -48,6 +49,7 @@ func TestAPIGatewayManagementAPIDashboard(t *testing.T) {
 
 // TestAPIGatewayManagementAPIDashboard_CreateConnection verifies creating a simulated connection via the dashboard.
 func TestAPIGatewayManagementAPIDashboard_CreateConnection(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

@@ -13,6 +13,7 @@ import (
 
 // TestIoTDataPlaneDashboard verifies the IoT Data Plane dashboard renders correctly.
 func TestIoTDataPlaneDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -49,6 +50,7 @@ func TestIoTDataPlaneDashboard(t *testing.T) {
 
 // TestIoTDataPlaneDashboard_Snippet verifies the IoT Data Plane dashboard snippet data renders.
 func TestIoTDataPlaneDashboard_Snippet(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

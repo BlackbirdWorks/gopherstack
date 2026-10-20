@@ -13,6 +13,7 @@ import (
 
 // TestCodeCommitDashboard verifies the CodeCommit dashboard UI renders repositories.
 func TestCodeCommitDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.CodeCommitHandler.Backend.CreateRepository("e2e-test-repo", "E2E test repository", "", nil)
@@ -50,6 +51,7 @@ func TestCodeCommitDashboard(t *testing.T) {
 
 // TestCodeCommitDashboard_Empty verifies the CodeCommit dashboard empty state renders correctly.
 func TestCodeCommitDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

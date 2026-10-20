@@ -13,6 +13,7 @@ import (
 
 // TestResourceGroupsDashboard verifies the Resource Groups dashboard UI renders groups.
 func TestResourceGroupsDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.ResourceGroupsHandler.Backend.CreateGroup(
@@ -57,6 +58,7 @@ func TestResourceGroupsDashboard(t *testing.T) {
 
 // TestResourceGroupsDashboard_Empty verifies the empty state renders correctly.
 func TestResourceGroupsDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

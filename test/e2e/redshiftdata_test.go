@@ -13,6 +13,7 @@ import (
 
 // TestRedshiftDataDashboard verifies the RedshiftData dashboard UI renders the SQL editor.
 func TestRedshiftDataDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_ = stack.RedshiftDataHandler
@@ -50,6 +51,7 @@ func TestRedshiftDataDashboard(t *testing.T) {
 
 // TestRedshiftDataDashboard_Empty verifies the RedshiftData dashboard empty state.
 func TestRedshiftDataDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_ = stack.RedshiftDataHandler

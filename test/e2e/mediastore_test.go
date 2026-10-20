@@ -13,6 +13,7 @@ import (
 
 // TestMediaStoreDashboard verifies the MediaStore dashboard UI renders container data.
 func TestMediaStoreDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.MediaStoreHandler.Backend.CreateContainer(
@@ -56,6 +57,7 @@ func TestMediaStoreDashboard(t *testing.T) {
 
 // TestMediaStoreDashboard_Empty verifies the MediaStore dashboard renders correctly with no data.
 func TestMediaStoreDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

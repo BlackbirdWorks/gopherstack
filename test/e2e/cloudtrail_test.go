@@ -13,6 +13,7 @@ import (
 
 // TestCloudTrailDashboard verifies the CloudTrail dashboard UI renders trails.
 func TestCloudTrailDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.CloudTrailHandler.Backend.CreateTrail(
@@ -53,6 +54,7 @@ func TestCloudTrailDashboard(t *testing.T) {
 
 // TestCloudTrailDashboard_Empty verifies the CloudTrail dashboard renders with no trails.
 func TestCloudTrailDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

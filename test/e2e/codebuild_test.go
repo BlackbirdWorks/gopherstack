@@ -15,6 +15,7 @@ import (
 
 // TestCodeBuildDashboard verifies the CodeBuild dashboard UI renders projects.
 func TestCodeBuildDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.CodeBuildHandler.Backend.CreateProject(codebuildbackend.ProjectConfig{
@@ -62,6 +63,7 @@ func TestCodeBuildDashboard(t *testing.T) {
 
 // TestCodeBuildDashboard_Empty verifies the CodeBuild dashboard renders with no projects.
 func TestCodeBuildDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -97,6 +99,7 @@ func TestCodeBuildDashboard_Empty(t *testing.T) {
 
 // TestCodeBuildDashboard_CreateProject verifies creating a project via the dashboard.
 func TestCodeBuildDashboard_CreateProject(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
