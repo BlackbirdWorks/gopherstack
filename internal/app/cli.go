@@ -4230,7 +4230,9 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// Wire ARM's Microsoft.ServiceBus resource provider to
 	// services/azureservicebus's already-initialized handler (AZURE.md
 	// section 10.10's M9 entry).
-	wireAzureARMResourceProviders(byName["AzureARM"], byName["AzureServiceBus"], byName["AzureKeyVault"])
+	wireAzureARMResourceProviders(
+		byName["AzureARM"], byName["AzureServiceBus"], byName["AzureKeyVault"], byName["CosmosDB"],
+	)
 
 	// Wire CloudWatch → Firehose so a PutMetricStream/CreateMetricStream
 	// delivery stream actually receives matched metric data instead of
@@ -13259,7 +13261,7 @@ func wireAzureStorageVHost(blobReg, queueReg, tableReg, vhostReg service.Registe
 // ServiceBus's real backend is a sibling service's already-constructed
 // runtime handler, only available here, at wireCrossServiceDependencies
 // time, mirroring wireAzureStorageVHost's post-construction injection.
-func wireAzureARMResourceProviders(armReg, sbReg, kvReg service.Registerable) {
+func wireAzureARMResourceProviders(armReg, sbReg, kvReg, cosmosReg service.Registerable) {
 	armH, ok := armReg.(*azurearmbackend.Handler)
 	if !ok {
 		return
@@ -13267,6 +13269,10 @@ func wireAzureARMResourceProviders(armReg, sbReg, kvReg service.Registerable) {
 
 	if kvH, kvOk := kvReg.(*azurekeyvaultbackend.Handler); kvOk {
 		armH.Registry.SetKeyVaults(&azureKeyVaultsAdapter{backend: kvH.Backend})
+	}
+
+	if cosmosH, cosmosOk := cosmosReg.(*cosmosdbbackend.Handler); cosmosOk {
+		armH.Registry.SetCosmosResources(&azureCosmosAdapter{handler: cosmosH})
 	}
 
 	sbH, ok := sbReg.(*azureservicebusbackend.Handler)

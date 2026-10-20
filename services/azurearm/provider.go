@@ -170,6 +170,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		Port:     settings.KeyVaultPort,
 	}, nil))
 
+	registry.Register(NewCosmosProvider(CosmosEndpointConfig{Override: settings.AdvertiseCosmosDB}, nil))
+
 	issuer, err := aadauth.NewIssuer()
 	if err != nil {
 		return nil, err

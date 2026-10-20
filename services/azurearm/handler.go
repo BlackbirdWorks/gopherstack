@@ -431,6 +431,10 @@ func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
 		return err
 	}
 
+	if handled, err := matchRoutes(cosmosRoutes, h, c, segs); handled {
+		return err
+	}
+
 	if handled, err := matchRoutes(armResourceRoutes, h, c, segs); handled {
 		return err
 	}
@@ -576,6 +580,10 @@ func (h *Handler) writeError(c *echo.Context, status int, code, message string) 
 // errorDetails maps a sentinel error to its ARM error code, message, and
 // HTTP status, mirroring services/sqs's errorDetails pattern.
 func errorDetails(err error) errorEntry {
+	if e, ok := cosmosErrorDetails(err); ok {
+		return e
+	}
+
 	table := []struct {
 		err   error
 		entry errorEntry

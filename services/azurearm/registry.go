@@ -137,6 +137,19 @@ func (r *Registry) SetKeyVaults(k KeyVaults) {
 	}
 }
 
+// SetCosmosResources gives the registered Microsoft.DocumentDB provider (if any) a real data-plane adapter,
+// replacing its no-op default.
+func (r *Registry) SetCosmosResources(c CosmosResources) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftDocumentDB)
+	if !ok {
+		return
+	}
+
+	if cp, cpOk := p.(*CosmosProvider); cpOk {
+		cp.dataPlane = c
+	}
+}
+
 // Put creates or updates the resource identified by id.
 func (r *Registry) Put(ctx context.Context, id ResourceID, body map[string]any) (map[string]any, bool, error) {
 	if p := r.providerFor(id); p != nil {

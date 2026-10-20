@@ -1,6 +1,9 @@
 package azurearm
 
-import "errors"
+import (
+	"errors"
+	"net/http"
+)
 
 // Sentinel errors for Azure Resource Manager (ARM) emulation. Mapped to ARM
 // error codes/HTTP statuses in the errorDetails table (handler.go), modeled
@@ -20,6 +23,17 @@ var (
 	ErrServiceBusSubscriptionNotFound = errors.New("azurearm: service bus subscription not found")
 
 	ErrKeyVaultNotFound = errors.New("azurearm: key vault not found")
+
+	ErrCosmosAccountNotFound    = errors.New("azurearm: cosmos db account not found")
+	ErrCosmosDatabaseNotFound   = errors.New("azurearm: cosmos db database not found")
+	ErrCosmosContainerNotFound  = errors.New("azurearm: cosmos db container not found")
+	ErrCosmosThroughputNotFound = errors.New("azurearm: cosmos db throughput settings not found")
+	ErrCosmosConflict           = errors.New("azurearm: cosmos db resource conflict")
+	ErrCosmosBadRequest         = errors.New("azurearm: cosmos db invalid request")
+	ErrCosmosUnavailable        = errors.New("azurearm: cosmos db data plane unavailable")
+	errCosmosAccountOtherGroup  = errors.New(
+		"azurearm: cosmos db account name already exists in another resource group",
+	)
 
 	errVaultSoftDeleted     = errors.New("azurearm: key vault name is in use by a soft-deleted vault")
 	ErrDeletedVaultNotFound = errors.New("azurearm: deleted key vault not found")
@@ -42,4 +56,58 @@ type errorEntry struct {
 	code    string
 	message string
 	status  int
+}
+
+// cosmosErrorDetails maps the Microsoft.DocumentDB sentinels to their ARM error entries.
+func cosmosErrorDetails(err error) (errorEntry, bool) {
+	table := []struct {
+		err   error
+		entry errorEntry
+	}{
+		{
+			ErrCosmosAccountNotFound,
+			errorEntry{armErrorCodeResourceNotFound, "The Cosmos DB account was not found.", http.StatusNotFound},
+		},
+		{
+			ErrCosmosDatabaseNotFound,
+			errorEntry{armErrorCodeResourceNotFound, "The Cosmos DB database was not found.", http.StatusNotFound},
+		},
+		{
+			ErrCosmosContainerNotFound,
+			errorEntry{armErrorCodeResourceNotFound, "The Cosmos DB container was not found.", http.StatusNotFound},
+		},
+		{
+			ErrCosmosThroughputNotFound,
+			errorEntry{
+				armErrorCodeResourceNotFound,
+				"Throughput is not configured for the resource.",
+				http.StatusNotFound,
+			},
+		},
+		{
+			errCosmosAccountOtherGroup,
+			errorEntry{"AccountNameAlreadyExists", "The Cosmos DB account name is already taken.", http.StatusConflict},
+		},
+		{
+			ErrCosmosConflict,
+			errorEntry{"Conflict", "The Cosmos DB resource conflicts with an existing one.", http.StatusConflict},
+		},
+		{ErrCosmosBadRequest, errorEntry{"BadRequest", "The Cosmos DB request is invalid.", http.StatusBadRequest}},
+		{
+			ErrCosmosUnavailable,
+			errorEntry{
+				"ServiceUnavailable",
+				"The Cosmos DB data plane is not available.",
+				http.StatusServiceUnavailable,
+			},
+		},
+	}
+
+	for _, e := range table {
+		if errors.Is(err, e.err) {
+			return e.entry, true
+		}
+	}
+
+	return errorEntry{}, false
 }

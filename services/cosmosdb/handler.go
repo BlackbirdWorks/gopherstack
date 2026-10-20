@@ -81,6 +81,8 @@ type Handler struct {
 	Backend       StorageBackend
 	TableBackend  *odatatable.InMemoryBackend
 	srvMu         *lockmetrics.RWMutex
+	keysMu        *lockmetrics.RWMutex
+	extraKeys     map[string]struct{}
 	srv           *http.Server
 	janitor       *worker.Group
 	clock         func() time.Time
@@ -116,6 +118,8 @@ func NewHandler(backend StorageBackend) *Handler {
 		Port:         DefaultPort,
 		MasterKey:    DefaultMasterKey,
 		srvMu:        lockmetrics.New("cosmosdb.server"),
+		keysMu:       lockmetrics.New("cosmosdb.keys"),
+		extraKeys:    make(map[string]struct{}),
 	}
 
 	if a, ok := backend.(interface{ AttachTableAPI(t tableSnapshotter) }); ok {

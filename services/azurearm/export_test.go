@@ -32,3 +32,12 @@ func NewTestHandlerWithKeyVault(dataPlane KeyVaults, settings Settings) *Handler
 
 	return NewHandler(backend, registry, nil, settings)
 }
+
+// NewTestHandlerWithCosmos builds a Handler with a Microsoft.DocumentDB provider over dataPlane.
+func NewTestHandlerWithCosmos(dataPlane CosmosResources, settings Settings) *Handler {
+	backend := NewInMemoryBackend()
+	registry := NewRegistry(backend)
+	registry.Register(NewCosmosProvider(CosmosEndpointConfig{Override: settings.AdvertiseCosmosDB}, dataPlane))
+
+	return NewHandler(backend, registry, nil, settings)
+}

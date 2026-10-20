@@ -51,9 +51,9 @@ func (h *Handler) authorize(r *http.Request) error {
 	)
 
 	if _, shared := azureauth.ParseAuthorizationHeader(header); shared && isTableAPIPath(r.URL.Path) {
-		ok, err = azureauth.VerifySharedKey(h.MasterKey, r)
+		ok, err = h.verifyAnyKey(r, azureauth.VerifySharedKey)
 	} else {
-		ok, err = VerifyMasterKey(h.MasterKey, r)
+		ok, err = h.verifyAnyKey(r, VerifyMasterKey)
 	}
 
 	if err != nil {

@@ -27,21 +27,23 @@ type armSnapshot struct {
 	Resources           map[string]*Resource       `json:"resources"`
 	RegisteredProviders map[string]map[string]bool `json:"registeredProviders"`
 	KeyVault            *keyVaultSnapshot          `json:"keyVault,omitempty"`
+	Cosmos              *cosmosSnapshot            `json:"cosmos,omitempty"`
 	Version             int                        `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements
 // persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	return persistence.MarshalSnapshot(ctx, "azurearm", b.snapshotState(nil))
+	return persistence.MarshalSnapshot(ctx, "azurearm", b.snapshotState(nil, nil))
 }
 
-func (b *InMemoryBackend) snapshotState(kv *keyVaultSnapshot) armSnapshot {
+func (b *InMemoryBackend) snapshotState(kv *keyVaultSnapshot, cosmos *cosmosSnapshot) armSnapshot {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
 	return armSnapshot{
 		KeyVault:            kv,
+		Cosmos:              cosmos,
 		Version:             armSnapshotVersion,
 		ResourceGroups:      b.resourceGroups,
 		Resources:           b.resources,
@@ -143,7 +145,12 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		kv = p.snapshot()
 	}
 
-	return persistence.MarshalSnapshot(ctx, "azurearm", h.Backend.snapshotState(kv))
+	var cosmos *cosmosSnapshot
+	if p, ok := h.cosmosProvider(); ok {
+		cosmos = p.snapshot()
+	}
+
+	return persistence.MarshalSnapshot(ctx, "azurearm", h.Backend.snapshotState(kv, cosmos))
 }
 
 // Restore implements persistence.Persistable.
@@ -155,6 +162,10 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 
 	if p, ok := h.keyVaultProvider(); ok {
 		p.restore(snap.KeyVault)
+	}
+
+	if p, ok := h.cosmosProvider(); ok {
+		p.restore(snap.Cosmos)
 	}
 
 	return nil

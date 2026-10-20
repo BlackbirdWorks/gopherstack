@@ -112,3 +112,72 @@ func (noopKeyVaults) RecoverVault(string)           {}
 func (noopKeyVaults) PurgeVault(string)             {}
 
 var _ KeyVaults = noopKeyVaults{}
+
+// CosmosDatabase is a Cosmos DB database as the data plane reports it.
+type CosmosDatabase struct {
+	Modified time.Time
+	ID       string
+	RID      string
+}
+
+// CosmosContainer is a Cosmos DB container as the data plane reports it; the policy fields are raw JSON.
+type CosmosContainer struct {
+	Modified                 time.Time
+	DefaultTTL               *int
+	ID                       string
+	RID                      string
+	PartitionKeyPaths        []string
+	IndexingPolicy           []byte
+	UniqueKeyPolicy          []byte
+	ConflictResolutionPolicy []byte
+}
+
+// CosmosResources is the seam the Microsoft.DocumentDB resource provider uses to reach the Cosmos DB data plane.
+// Errors are the package's ErrCosmos* sentinels.
+type CosmosResources interface {
+	// Endpoint reports the data-plane listener's port and whether it serves TLS.
+	Endpoint() (port int, tls bool)
+	// MasterKey is the data plane's configured master key.
+	MasterKey() string
+	// AcceptKey and RevokeKey manage extra keys the data plane authorizes.
+	AcceptKey(key string)
+	RevokeKey(key string)
+
+	CreateDatabase(id string) (CosmosDatabase, error)
+	GetDatabase(id string) (CosmosDatabase, error)
+	ListDatabases() []CosmosDatabase
+	DeleteDatabase(id string) error
+
+	// PutContainer creates the container, or replaces its mutable settings when it already exists.
+	PutContainer(db string, c CosmosContainer) (CosmosContainer, error)
+	GetContainer(db, id string) (CosmosContainer, error)
+	ListContainers(db string) ([]CosmosContainer, error)
+	DeleteContainer(db, id string) error
+}
+
+type noopCosmosResources struct{}
+
+func (noopCosmosResources) Endpoint() (int, bool) { return DefaultCosmosDBPort, false }
+func (noopCosmosResources) MasterKey() string     { return "" }
+func (noopCosmosResources) AcceptKey(string)      {}
+func (noopCosmosResources) RevokeKey(string)      {}
+func (noopCosmosResources) CreateDatabase(string) (CosmosDatabase, error) {
+	return CosmosDatabase{}, ErrCosmosUnavailable
+}
+func (noopCosmosResources) GetDatabase(string) (CosmosDatabase, error) {
+	return CosmosDatabase{}, ErrCosmosUnavailable
+}
+func (noopCosmosResources) ListDatabases() []CosmosDatabase { return nil }
+func (noopCosmosResources) DeleteDatabase(string) error     { return ErrCosmosUnavailable }
+func (noopCosmosResources) PutContainer(string, CosmosContainer) (CosmosContainer, error) {
+	return CosmosContainer{}, ErrCosmosUnavailable
+}
+func (noopCosmosResources) GetContainer(string, string) (CosmosContainer, error) {
+	return CosmosContainer{}, ErrCosmosUnavailable
+}
+func (noopCosmosResources) ListContainers(string) ([]CosmosContainer, error) {
+	return nil, ErrCosmosUnavailable
+}
+func (noopCosmosResources) DeleteContainer(string, string) error { return ErrCosmosUnavailable }
+
+var _ CosmosResources = noopCosmosResources{}
