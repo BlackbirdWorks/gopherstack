@@ -78,11 +78,7 @@ func (b *InMemoryBackend) Reset() {
 
 	for _, srv := range urlServers {
 		wg.Go(func() {
-			_ = srv.server.Shutdown(ctx)
-
-			if b.portAlloc != nil {
-				_ = b.portAlloc.Release(srv.port)
-			}
+			b.stopURLListener(ctx, srv)
 		})
 	}
 

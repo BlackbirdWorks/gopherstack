@@ -403,7 +403,8 @@ func TestInMemoryBackend_SetDNSRegistrar(t *testing.T) {
 
 	// DNS should have been registered
 	dns.mu.Lock()
-	assert.NotEmpty(t, dns.registered)
+	require.NotEmpty(t, dns.registered)
+	assert.Contains(t, cfg.FunctionURL, "https://"+dns.registered[0]+"/")
 	dns.mu.Unlock()
 
 	// Delete should deregister
@@ -538,6 +539,7 @@ func TestBuildURLEventPayload(t *testing.T) {
 		wantRouteKey       string
 		wantRawPath        string
 		wantRawQueryString string
+		wantBody           string
 		wantBase64Encoded  bool
 		wantNoBody         bool
 	}{
@@ -551,7 +553,15 @@ func TestBuildURLEventPayload(t *testing.T) {
 			wantRouteKey:       "$default",
 			wantRawPath:        "/my/path",
 			wantRawQueryString: "foo=bar",
-			wantBase64Encoded:  true,
+			wantBody:           "hello world",
+		},
+		{
+			name:              "BinaryBody",
+			method:            http.MethodPost,
+			url:               "http://example.com/",
+			body:              "\x00\x01binary",
+			contentType:       "application/octet-stream",
+			wantBase64Encoded: true,
 		},
 		{
 			name:       "EmptyBody",
@@ -599,6 +609,10 @@ func TestBuildURLEventPayload(t *testing.T) {
 			}
 			if tt.wantRawQueryString != "" {
 				assert.Equal(t, tt.wantRawQueryString, event["rawQueryString"])
+			}
+			if tt.wantBody != "" {
+				assert.Equal(t, tt.wantBody, event["body"])
+				assert.False(t, event["isBase64Encoded"].(bool))
 			}
 			if tt.wantBase64Encoded {
 				assert.True(t, event["isBase64Encoded"].(bool), "body should be base64-encoded")
@@ -690,12 +704,13 @@ func TestFunctionURLConfig_HTTPEndpoint(t *testing.T) {
 
 	cfg, err := backend.CreateFunctionURLConfig(t.Context(), "http-test-fn", "NONE", nil, "")
 	require.NoError(t, err)
-	assert.Contains(t, cfg.FunctionURL, "127.0.0.1", "URL should use loopback when no DNS")
+	assert.Regexp(t, `^https://[0-9a-f]{32}\.lambda-url\.us-east-1\.on\.aws/$`, cfg.FunctionURL)
+	assert.Contains(t, backend.FunctionURLListenAddr("http-test-fn", ""), "127.0.0.1")
 
 	// The listener is running — make an HTTP request to it.
 	client := newHTTPClient(t, 5*time.Second)
 	req, err := http.NewRequestWithContext(
-		t.Context(), http.MethodGet, cfg.FunctionURL, nil,
+		t.Context(), http.MethodGet, "http://"+backend.FunctionURLListenAddr("http-test-fn", "")+"/", nil,
 	)
 	require.NoError(t, err)
 
@@ -780,12 +795,16 @@ func TestInMemoryBackend_Close_StopsFunctionURLServers(t *testing.T) {
 	}
 	require.NoError(t, backend.CreateFunction(fn))
 
-	cfg, err := backend.CreateFunctionURLConfig(t.Context(), "close-url-fn", "NONE", nil, "")
+	_, err := backend.CreateFunctionURLConfig(t.Context(), "close-url-fn", "NONE", nil, "")
 	require.NoError(t, err)
+
+	localURL := "http://" + backend.FunctionURLListenAddr("close-url-fn", "") + "/"
 
 	// Server should be reachable before Close.
 	client := newHTTPClient(t, 2*time.Second)
-	req, reqErr := http.NewRequestWithContext(t.Context(), http.MethodGet, cfg.FunctionURL, nil)
+	req, reqErr := http.NewRequestWithContext(
+		t.Context(), http.MethodGet, localURL, nil,
+	)
 	require.NoError(t, reqErr)
 
 	resp, doErr := client.Do(req)
@@ -800,7 +819,7 @@ func TestInMemoryBackend_Close_StopsFunctionURLServers(t *testing.T) {
 	backend.Close(closeCtx)
 
 	// After Close, the server should no longer accept connections.
-	reqAfter, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, cfg.FunctionURL, nil)
+	reqAfter, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, localURL, nil)
 	_, afterErr := client.Do(reqAfter)
 	require.Error(t, afterErr, "server should be unreachable after Close")
 }
@@ -847,7 +866,9 @@ func TestInMemoryBackend_Close_MultipleURLServers(t *testing.T) {
 		cfg, cfgErr := backend.CreateFunctionURLConfig(t.Context(), name, "NONE", nil, "")
 		require.NoError(t, cfgErr)
 
-		urls = append(urls, cfg.FunctionURL)
+		require.NotEmpty(t, cfg.FunctionURL)
+
+		urls = append(urls, "http://"+backend.FunctionURLListenAddr(name, "")+"/")
 	}
 
 	// All servers should respond before Close.

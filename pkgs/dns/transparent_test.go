@@ -50,6 +50,7 @@ func TestTransparentMode(t *testing.T) {
 		{"aws vhost s3", "bkt.s3.us-west-2.amazonaws.com.", "10.1.2.3", 1, dns.TypeA},
 		{"aws cn", "ec2.cn-north-1.amazonaws.com.cn.", "10.1.2.3", 1, dns.TypeA},
 		{"api aws", "s3.us-east-1.api.aws.", "10.1.2.3", 1, dns.TypeA},
+		{"lambda url", "abc123.lambda-url.us-east-1.on.aws.", "10.1.2.3", 1, dns.TypeA},
 		{"aws aaaa nodata", "sqs.us-east-1.amazonaws.com.", "", 0, dns.TypeAAAA},
 		{"skip upstream", "sts.amazonaws.com.", "9.9.9.9", 1, dns.TypeA},
 		{"other upstream", "example.org.", "9.9.9.9", 1, dns.TypeA},

@@ -36,7 +36,7 @@ func IsAWSHost(host string) bool {
 
 	host = strings.Trim(strings.ToLower(host), ".")
 
-	for _, z := range []string{"amazonaws.com", "amazonaws.com.cn", "api.aws"} {
+	for _, z := range []string{"amazonaws.com", "amazonaws.com.cn", "api.aws", "on.aws"} {
 		if strings.HasSuffix(host, "."+z) {
 			return true
 		}
@@ -64,7 +64,7 @@ func (c *CertSource) Close() { c.cache.Close() }
 func (c *CertSource) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	name := strings.Trim(strings.ToLower(hello.ServerName), ".")
 	if name == "" || net.ParseIP(name) != nil {
-		return c.get("default", "localhost", "*.amazonaws.com", "*.amazonaws.com.cn", "*.api.aws")
+		return c.get("default", "localhost", "*.amazonaws.com", "*.amazonaws.com.cn", "*.api.aws", "*.on.aws")
 	}
 
 	_, parent, ok := strings.Cut(name, ".")
