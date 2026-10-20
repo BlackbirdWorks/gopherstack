@@ -32,6 +32,7 @@ const (
 	slugGCPScheduler    = "gcpscheduler"
 	slugGCPRun          = "gcprun"
 	slugGCPFunctions    = "gcpfunctions"
+	slugGCPBigQuery     = "gcpbigquery"
 	slugGCPFirestore    = "gcpfirestore"
 	slugGCPIAM          = "gcpiam"
 )
@@ -116,7 +117,7 @@ func categoryGroups() []categoryGroup {
 		}},
 		{"GCP", []string{
 			slugGCPStorage, slugGCPPubSub, slugGCPSecretMgr, slugGCPKMS, slugGCPCloudTasks, slugGCPScheduler,
-			slugGCPFirestore, slugGCPIAM, slugGCPRun, slugGCPFunctions,
+			slugGCPFirestore, slugGCPIAM, slugGCPRun, slugGCPFunctions, slugGCPBigQuery,
 		}},
 		{"Other", []string{
 			"appstream", "managedblockchain", "omics", "support", "workspaces",
@@ -226,6 +227,7 @@ func displayNamesB() map[string]string {
 		slugGCPScheduler:   "Cloud Scheduler",
 		slugGCPRun:         "Cloud Run",
 		slugGCPFunctions:   "Cloud Functions",
+		slugGCPBigQuery:    "BigQuery",
 		slugGCPFirestore:   "Google Cloud Firestore",
 		slugGCPIAM:         "Cloud IAM",
 		"databrew":         "Glue DataBrew",

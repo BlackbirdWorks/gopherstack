@@ -864,13 +864,14 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Azure Cosmos DB](services/cosmosdb/README.md) | B | 18 | 9 gaps |
 | [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 5 gaps |
 | [Azure Queue Storage](services/azurequeue/README.md) | C | 11 | 7 gaps; 1 deferred |
-| [Azure Service Bus](services/azureservicebus/README.md) | B | 17 | 4 gaps; 2 deferred |
+| [Azure Service Bus](services/azureservicebus/README.md) | B | 19 | 4 gaps; 2 deferred |
 | [Azure Table Storage](services/azuretable/README.md) | C | 13 | 6 gaps; 3 deferred |
 
 ### GCP
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
+| [BigQuery](services/gcpbigquery/README.md) | B | 23 | 8 gaps |
 | [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 7 gaps |
 | [Cloud IAM](services/gcpiam/README.md) | B | 31 | 5 gaps |
 | [Cloud Run](services/gcprun/README.md) | B | 20 | 6 gaps |

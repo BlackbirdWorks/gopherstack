@@ -3,6 +3,7 @@ module github.com/blackbirdworks/gopherstack
 go 1.27.0
 
 require (
+	cloud.google.com/go/bigquery v1.85.0
 	cloud.google.com/go/cloudtasks v1.20.0
 	cloud.google.com/go/firestore v1.26.0
 	cloud.google.com/go/functions v1.26.0
@@ -292,6 +293,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/antlr/antlr4 v0.0.0-20181218183524-be58ebffde8e // indirect
+	github.com/apache/arrow/go/v15 v15.0.2 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.2 // indirect
@@ -335,7 +337,9 @@ require (
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/go-stack/stack v1.8.1 // indirect
+	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/gofrs/uuid v4.4.0+incompatible // indirect
+	github.com/google/flatbuffers v23.5.26+incompatible // indirect
 	github.com/google/pprof v0.0.0-20260802141513-ef3492d7dac3 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
@@ -350,6 +354,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
+	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260802145828-341c2f0c90b5 // indirect
 	github.com/magiconair/properties v1.18.11 // indirect
@@ -390,6 +395,7 @@ require (
 	github.com/twpayne/go-geom v1.6.1 // indirect
 	github.com/yuin/gopher-lua v1.1.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
+	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/bridges/prometheus v0.71.0 // indirect
@@ -429,6 +435,7 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
 	golang.org/x/vuln v1.7.0 // indirect
+	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260904194346-d0f1323225a4 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gotest.tools/gotestsum v1.13.0 // indirect
