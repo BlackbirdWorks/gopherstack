@@ -82,7 +82,7 @@ func (rc *ResourceCreator) createEC2RouteServer(
 
 	rs, err := rc.backends.EC2.Backend.CreateRouteServer(
 		int64Prop(props, "AmazonSideAsn", params, physicalIDs),
-		strProp(props, "PersistRoutesState", params, physicalIDs),
+		routeServerPersistState(strProp(props, "PersistRoutes", params, physicalIDs)),
 		int64Prop(props, "PersistRoutesDuration", params, physicalIDs),
 		boolProp(props, "SnsNotificationsEnabled"),
 	)
@@ -163,4 +163,17 @@ func (rc *ResourceCreator) createEC2RouteServerPeer(
 	physicalIDs[logicalID+"/VpcId"] = peer.VpcID
 
 	return peer.RouteServerPeerID, nil
+}
+
+// routeServerPersistState maps the template PersistRoutes action ("enable",
+// "disable") to the backend's state spelling.
+func routeServerPersistState(action string) string {
+	switch action {
+	case "enable":
+		return "enabled"
+	case "disable":
+		return "disabled"
+	}
+
+	return action
 }

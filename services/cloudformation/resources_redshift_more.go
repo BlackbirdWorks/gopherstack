@@ -1,6 +1,9 @@
 package cloudformation
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 const (
 	resTypeRedshiftClusterParameterGroup = "AWS::Redshift::ClusterParameterGroup"
@@ -92,10 +95,7 @@ func (rc *ResourceCreator) createRedshiftClusterSubnetGroup(
 		return logicalID + "-stub", nil
 	}
 
-	groupName := strProp(props, "ClusterSubnetGroupName", params, physicalIDs)
-	if groupName == "" {
-		groupName = logicalID
-	}
+	groupName := strings.ToLower(logicalID)
 
 	sg, err := rc.backends.Redshift.Backend.CreateClusterSubnetGroup(
 		groupName,

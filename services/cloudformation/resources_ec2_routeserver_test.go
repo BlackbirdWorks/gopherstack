@@ -26,7 +26,7 @@ func testEC2RouteServerChain(t *testing.T) {
     "Properties": {"VpcId": {"Ref": "VPC"}, "CidrBlock": "10.0.1.0/24"}},
   "RS": {
     "Type": "AWS::EC2::RouteServer",
-    "Properties": {"AmazonSideAsn": 65000, "PersistRoutesState": "enabled"}
+    "Properties": {"AmazonSideAsn": 65000, "PersistRoutes": "enable"}
   },
   "Endpoint": {
     "Type": "AWS::EC2::RouteServerEndpoint",

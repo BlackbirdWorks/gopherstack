@@ -410,6 +410,11 @@ tasks:
     cmds:
       - go run ./cmd/cfnattrgen -spec cmd/cfnattrgen/testdata/cfn_resource_spec.json -src services/cloudformation -out services/cloudformation/cfn_attributes.json -services-out services/cloudformation/cfn_resource_services.json -types-out services/cloudformation/cfn_provisionable_types.json
 
+  cfn-props-gen:
+    desc: Regenerate cfn_property_schemas.json from the full CFN spec (SPEC=/path/to/CloudFormationResourceSpecification.json)
+    cmds:
+      - go run ./cmd/cfnpropgen -spec {{.SPEC}} -types services/cloudformation/cfn_provisionable_types.json -out services/cloudformation/cfn_property_schemas.json
+
   cfn-attrs-spec-refresh:
     desc: Refresh the CloudFormation resource spec fixture (then run cfn-attrs-gen)
     cmds:

@@ -38,7 +38,7 @@ func testEC2PlacementGroup(t *testing.T) {
 
 	tmpl := `{
 "Resources": {
-  "PG": {"Type": "AWS::EC2::PlacementGroup", "Properties": {"GroupName": "unit-pg", "Strategy": "spread"}}
+  "PG": {"Type": "AWS::EC2::PlacementGroup", "Properties": {"Strategy": "spread"}}
 },
 "Outputs": {
   "Ref": {"Value": {"Ref": "PG"}},
@@ -47,13 +47,13 @@ func testEC2PlacementGroup(t *testing.T) {
 }`
 
 	outputs := createStackAndGetOutputs(t, client, "ec2-pg-stack", tmpl)
-	assert.Equal(t, "unit-pg", outputs["Ref"])
-	assert.Equal(t, "unit-pg", outputs["GroupName"])
-	require.Len(t, backends.EC2.Backend.DescribePlacementGroups([]string{"unit-pg"}), 1)
+	assert.Equal(t, "PG", outputs["Ref"])
+	assert.Equal(t, "PG", outputs["GroupName"])
+	require.Len(t, backends.EC2.Backend.DescribePlacementGroups([]string{"PG"}), 1)
 
 	_, err := client.DeleteStack(t.Context(), &cfnsdk.DeleteStackInput{StackName: aws.String("ec2-pg-stack")})
 	require.NoError(t, err)
-	assert.Empty(t, backends.EC2.Backend.DescribePlacementGroups([]string{"unit-pg"}))
+	assert.Empty(t, backends.EC2.Backend.DescribePlacementGroups([]string{"PG"}))
 }
 
 func testEC2PrefixList(t *testing.T) {
@@ -165,7 +165,6 @@ func testEC2NetworkInterfacePermission(t *testing.T) {
     "Properties": {
       "NetworkInterfaceId": {"Ref": "ENI"},
       "AwsAccountId": "111111111111",
-      "AwsService": "ec2.amazonaws.com",
       "Permission": "INSTANCE-ATTACH"
     }
   }

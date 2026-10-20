@@ -1,6 +1,10 @@
 package cloudformation
 
-import "context"
+import (
+	"context"
+
+	accessanalyzerbackend "github.com/blackbirdworks/gopherstack/services/accessanalyzer"
+)
 
 // RollbackUpdateResourcesForTest exposes rollbackUpdateResources for
 // white-box testing: updateResources creates newly-added resources by
@@ -192,4 +196,19 @@ func (b *InMemoryBackend) ForceModifyResourceProperties(stackName, logicalID str
 	if res, ok2 := b.resources[stack.StackID][logicalID]; ok2 {
 		res.Properties = props
 	}
+}
+
+// ValidatePropertySchemasForTest exposes validatePropertySchemas.
+func ValidatePropertySchemasForTest(tmpl *Template, schemas map[string]map[string]string) error {
+	return validatePropertySchemas(tmpl, schemas)
+}
+
+// EmbeddedPropertySchemasForTest exposes the embedded schema table.
+func EmbeddedPropertySchemasForTest() map[string]map[string]string {
+	return embeddedPropertySchemas()
+}
+
+// AccessAnalyzerFilterForTest exposes accessAnalyzerFilter.
+func AccessAnalyzerFilterForTest(v any) map[string]accessanalyzerbackend.FilterCriterion {
+	return accessAnalyzerFilter(v, nil, nil)
 }

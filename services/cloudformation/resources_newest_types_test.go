@@ -732,7 +732,7 @@ func testAccessAnalyzerArchiveRule(t *testing.T) {
   "Rule": {"Type": "AWS::AccessAnalyzer::ArchiveRule", "Properties": {
     "AnalyzerName": {"Fn::GetAtt": ["A", "Arn"]},
     "RuleName": "my-rule",
-    "Filter": [{"Property": "principal.AWS", "Eq": ["123456789012"]}]
+    "Filter": {"principal.AWS": {"Eq": ["123456789012"]}}
   }}
 },
 "Outputs": {"Ref": {"Value": {"Ref": "Rule"}}}
@@ -1003,18 +1003,16 @@ func testRedshiftClusterSubnetGroup(t *testing.T) {
 
 	tmpl := `{
 "Resources": {"SG": {"Type": "AWS::Redshift::ClusterSubnetGroup", "Properties": {
-  "ClusterSubnetGroupName": "my-subnet-group",
   "Description": "test subnet group",
   "SubnetIds": ["subnet-aaaa", "subnet-bbbb"]
 }}},
 "Outputs": {
-  "Ref": {"Value": {"Ref": "SG"}},
-  "Name": {"Value": {"Fn::GetAtt": ["SG", "ClusterSubnetGroupName"]}}
+  "Ref": {"Value": {"Ref": "SG"}}
 }
 }`
 
 	outputs := createStackAndGetOutputs(t, client, "rs-sg-stack", tmpl)
-	assert.Equal(t, outputs["Ref"], outputs["Name"])
+	assert.Equal(t, "sg", outputs["Ref"])
 
 	_, _, err := backends.Redshift.Backend.DescribeClusterSubnetGroups(outputs["Ref"], "", 0, nil, nil)
 	require.NoError(t, err)

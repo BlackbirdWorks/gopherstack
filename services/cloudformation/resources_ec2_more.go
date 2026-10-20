@@ -141,30 +141,40 @@ func (rc *ResourceCreator) deleteEC2NetworkingResource(resourceType, physicalID 
 	}
 }
 
+// dhcpOptionKeys maps AWS::EC2::DHCPOptions properties to DHCP option keys.
+//
+//nolint:gochecknoglobals // immutable lookup table
+var dhcpOptionKeys = []struct{ prop, key string }{
+	{"DomainName", "domain-name"},
+	{"DomainNameServers", "domain-name-servers"},
+	{"NtpServers", "ntp-servers"},
+	{"NetbiosNameServers", "netbios-name-servers"},
+	{"NetbiosNodeType", "netbios-node-type"},
+	{"Ipv6AddressPreferredLeaseTime", "ipv6-address-preferred-lease-time"},
+}
+
 func dhcpConfigurationsFromProps(
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) []ec2backend.DhcpConfiguration {
-	raw, ok := props["DhcpConfigurations"].([]any)
-	if !ok {
-		return nil
-	}
+	var out []ec2backend.DhcpConfiguration
 
-	out := make([]ec2backend.DhcpConfiguration, 0, len(raw))
-
-	for _, item := range raw {
-		m, itemOK := item.(map[string]any)
-		if !itemOK {
+	for _, o := range dhcpOptionKeys {
+		raw, ok := props[o.prop]
+		if !ok {
 			continue
 		}
 
-		key := strProp(m, "Key", params, physicalIDs)
-		if key == "" {
-			continue
+		var values []string
+		if _, isList := raw.([]any); isList {
+			values = strSliceProp(raw, params, physicalIDs)
+		} else if v := strProp(props, o.prop, params, physicalIDs); v != "" {
+			values = []string{v}
 		}
 
-		values := strSliceProp(m["Values"], params, physicalIDs)
-		out = append(out, ec2backend.DhcpConfiguration{Key: key, Values: values})
+		if len(values) > 0 {
+			out = append(out, ec2backend.DhcpConfiguration{Key: o.key, Values: values})
+		}
 	}
 
 	return out

@@ -145,7 +145,7 @@ func (rc *ResourceCreator) deleteKinesisResourcePolicy(ctx context.Context, reso
 
 // ---- AWS::Lambda::ResourcePolicy ----
 // Ref returns the primary ID of the resource (ResourceArn), i.e. the
-// function's FunctionResourceArn.
+// function's ResourceArn.
 
 func (rc *ResourceCreator) createLambdaResourcePolicy(
 	logicalID string,
@@ -161,7 +161,7 @@ func (rc *ResourceCreator) createLambdaResourcePolicy(
 		return logicalID + "-stub", nil
 	}
 
-	resourceARN := strProp(props, "FunctionResourceArn", params, physicalIDs)
+	resourceARN := strProp(props, "ResourceArn", params, physicalIDs)
 
 	_, err := imb.PutResourcePolicy(resourceARN, jsonProp(props, "PolicyDocument"), "")
 	if err != nil {

@@ -143,7 +143,7 @@ func testLambdaResourcePolicy(t *testing.T) {
   "RP": {
     "Type": "AWS::Lambda::ResourcePolicy",
     "Properties": {
-      "FunctionResourceArn": {"Ref": "Fn"},
+      "ResourceArn": {"Ref": "Fn"},
       "PolicyDocument": {
         "Version": "2012-10-17",
         "Id": "default",
