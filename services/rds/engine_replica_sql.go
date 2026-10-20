@@ -68,6 +68,10 @@ func (b *InMemoryBackend) seedReplica(ctx context.Context, lb *liveDB, seed engi
 
 	_, srcIn, err := b.awaitLiveSource(ctx, seed.fromKey)
 	if err != nil {
+		if b.standaloneAfterSourceLoss(ctx, lb) {
+			return nil
+		}
+
 		return err
 	}
 

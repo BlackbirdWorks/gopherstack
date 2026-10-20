@@ -128,7 +128,7 @@ func (b *InMemoryBackend) recordRestorePoints() {
 	}
 }
 
-func (b *InMemoryBackend) restorePointTarget(lb *liveDB) (unitInfo, bool) {
+func (b *InMemoryBackend) restorePointTarget(lb *liveDB, force bool) (unitInfo, bool) {
 	b.mu.RLock("rdsRestorePointTarget")
 	defer b.mu.RUnlock()
 
@@ -137,7 +137,11 @@ func (b *InMemoryBackend) restorePointTarget(lb *liveDB) (unitInfo, bool) {
 		return unitInfo{}, false
 	}
 
-	if _, can := e.execer(); !can || b.unitRetentionLocked(lb) <= 0 {
+	if _, can := e.execer(); !can {
+		return unitInfo{}, false
+	}
+
+	if b.unitRetentionLocked(lb) <= 0 && !force && len(e.points[lb.key]) == 0 {
 		return unitInfo{}, false
 	}
 
@@ -146,8 +150,14 @@ func (b *InMemoryBackend) restorePointTarget(lb *liveDB) (unitInfo, bool) {
 
 // recordRestorePoint dumps lb now and keeps the result as a restore point (or just extends the previous one
 // when nothing changed).
-func (b *InMemoryBackend) recordRestorePoint(lb *liveDB) {
-	in, ok := b.restorePointTarget(lb)
+func (b *InMemoryBackend) recordRestorePoint(lb *liveDB) { b.captureRestorePoint(lb, false) }
+
+// recordRestorePointForced captures a restore point even when automated backups are off, so a promoted replica
+// keeps its own data across a restart.
+func (b *InMemoryBackend) recordRestorePointForced(lb *liveDB) { b.captureRestorePoint(lb, true) }
+
+func (b *InMemoryBackend) captureRestorePoint(lb *liveDB, force bool) {
+	in, ok := b.restorePointTarget(lb, force)
 	if !ok {
 		return
 	}

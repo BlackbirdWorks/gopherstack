@@ -2,6 +2,7 @@ package rds_test
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"sync"
@@ -16,17 +17,26 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
+var errNetDown = errors.New("network daemon down")
+
 type streamFakeRuntime struct {
 	*fakeEngineRuntime
 	nets      []string
 	connected []string
 	removed   []string
 	netMu     sync.Mutex
+	failNets  int
 }
 
 func (s *streamFakeRuntime) CreateNetwork(_ context.Context, name string) (string, error) {
 	s.netMu.Lock()
 	defer s.netMu.Unlock()
+
+	if s.failNets > 0 {
+		s.failNets--
+
+		return "", errNetDown
+	}
 
 	s.nets = append(s.nets, name)
 
@@ -77,6 +87,12 @@ type streamFixture struct {
 func newStreamFixture(t *testing.T) *streamFixture {
 	t.Helper()
 
+	return newStreamFixtureIn(t, "")
+}
+
+func newStreamFixtureIn(t *testing.T, dumpDir string) *streamFixture {
+	t.Helper()
+
 	f := &streamFixture{
 		rt: &streamFakeRuntime{fakeEngineRuntime: newFakeEngineRuntime()},
 		b:  rds.NewInMemoryBackend("123456789012", "us-east-1"),
@@ -87,6 +103,7 @@ func newStreamFixture(t *testing.T) *streamFixture {
 		Runtime:             f.rt,
 		StartTimeout:        engineWait,
 		ReplicaPollInterval: 5 * time.Millisecond,
+		DumpDir:             dumpDir,
 		Probe:               func(context.Context, rds.EngineLogin) error { return nil },
 		ReplicaStatus: func(context.Context, rds.EngineLogin) (rds.ReplicaStatus, error) {
 			return *f.status.Load(), nil

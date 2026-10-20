@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"sync"
 	"sync/atomic"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
@@ -36,11 +35,12 @@ var errNoNetworkRuntime = errors.New("container runtime cannot create networks")
 
 // replNet is the docker network a source shares with its replicas; it is removed once nothing uses it.
 type replNet struct {
-	err  error
-	id   atomic.Pointer[string]
-	name string
-	once sync.Once
-	refs atomic.Int32
+	id        atomic.Pointer[string]
+	gate      chan struct{}
+	name      string
+	refs      atomic.Int32
+	ready     atomic.Bool
+	connected atomic.Bool
 }
 
 // replPlan tells a replica's container how to reach its source.
@@ -80,7 +80,7 @@ func (e *dbEngine) canStream() bool {
 func (lb *liveDB) acquireNet() *replNet {
 	n := lb.net.Load()
 	if n == nil {
-		n = &replNet{name: "gopherstack-rds-net-" + randomPassword()}
+		n = &replNet{name: "gopherstack-rds-net-" + randomPassword(), gate: make(chan struct{}, 1)}
 		n.refs.Store(1)
 		lb.net.Store(n)
 	}
@@ -104,10 +104,30 @@ func (b *InMemoryBackend) seedReplicaLocked(inst *DBInstance, src *liveDB) {
 	b.seedRestoredInstanceLocked(inst, src, seed)
 }
 
+// readyNet creates the network and attaches the source once; a failed attempt is retried by the next caller.
 func (e *dbEngine) readyNet(ctx context.Context, n *replNet, sourceContainer string) error {
-	n.once.Do(func() { n.err = e.createNet(ctx, n, sourceContainer) })
+	if n.ready.Load() {
+		return nil
+	}
 
-	return n.err
+	select {
+	case n.gate <- struct{}{}:
+		defer func() { <-n.gate }()
+	case <-ctx.Done():
+		return fmt.Errorf("replication network: %w", ctx.Err())
+	}
+
+	if n.ready.Load() {
+		return nil
+	}
+
+	if err := e.createNet(ctx, n, sourceContainer); err != nil {
+		return err
+	}
+
+	n.ready.Store(true)
+
+	return nil
 }
 
 func (e *dbEngine) createNet(ctx context.Context, n *replNet, sourceContainer string) error {
@@ -119,16 +139,26 @@ func (e *dbEngine) createNet(ctx context.Context, n *replNet, sourceContainer st
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), engineOpTimeout)
 	defer cancel()
 
-	id, err := rt.CreateNetwork(ctx, n.name)
-	if err != nil {
-		return fmt.Errorf("create replication network: %w", err)
+	idp := n.id.Load()
+	if idp == nil {
+		id, err := rt.CreateNetwork(ctx, n.name)
+		if err != nil {
+			return fmt.Errorf("create replication network: %w", err)
+		}
+
+		idp = &id
+		n.id.Store(idp)
 	}
 
-	n.id.Store(&id)
+	if n.connected.Load() {
+		return nil
+	}
 
-	if err = rt.ConnectNetwork(ctx, id, sourceContainer); err != nil {
+	if err := rt.ConnectNetwork(ctx, *idp, sourceContainer); err != nil {
 		return fmt.Errorf("connect source to replication network: %w", err)
 	}
+
+	n.connected.Store(true)
 
 	return nil
 }
@@ -175,6 +205,10 @@ func (b *InMemoryBackend) replicaPlan(ctx context.Context, lb *liveDB) (replPlan
 
 	src, in, err := b.awaitLiveSource(ctx, seed.fromKey)
 	if err != nil {
+		if b.standaloneAfterSourceLoss(ctx, lb) {
+			return replPlan{}, nil
+		}
+
 		return replPlan{}, err
 	}
 
@@ -276,4 +310,23 @@ func (e *dbEngine) prepareSource(ctx context.Context, in unitInfo, pass string) 
 	}
 
 	return nil
+}
+
+// standaloneAfterSourceLoss turns a replica whose source was deleted mid-creation into a plain primary, which is
+// what its promotion amounts to.
+func (b *InMemoryBackend) standaloneAfterSourceLoss(ctx context.Context, lb *liveDB) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+
+	b.mu.Lock("rdsReplicaSourceLost")
+	defer b.mu.Unlock()
+
+	if lb.repl == nil || !lb.repl.promoting {
+		return false
+	}
+
+	lb.seed, lb.repl = engineSeed{}, nil
+
+	return true
 }

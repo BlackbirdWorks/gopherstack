@@ -34,6 +34,12 @@ func replicaDockerCases() []replicaDockerCase {
 func newDockerReplicaBackend(t *testing.T) (*rds.InMemoryBackend, *recordingEngineRuntime) {
 	t.Helper()
 
+	return newDockerReplicaBackendIn(t, "")
+}
+
+func newDockerReplicaBackendIn(t *testing.T, dumpDir string) (*rds.InMemoryBackend, *recordingEngineRuntime) {
+	t.Helper()
+
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker CLI not available")
 	}
@@ -54,7 +60,9 @@ func newDockerReplicaBackend(t *testing.T) (*rds.InMemoryBackend, *recordingEngi
 
 	rec := &recordingEngineRuntime{EngineRuntime: er}
 	b := rds.NewInMemoryBackend("123456789012", "us-east-1")
-	b.EnableEngine(rds.EngineConfig{Runtime: rec, ReplicaPollInterval: replicaPoll, RestorePointInterval: -1})
+	b.EnableEngine(rds.EngineConfig{
+		Runtime: rec, ReplicaPollInterval: replicaPoll, RestorePointInterval: -1, DumpDir: dumpDir,
+	})
 	t.Cleanup(b.Close)
 
 	return b, rec
@@ -215,15 +223,69 @@ func TestEngineDockerDeleteSourcePromotesReplica(t *testing.T) {
 				return werr == nil
 			}, time.Minute, 250*time.Millisecond)
 
+			awaitDockerInstance(t, b, "replica")
+
 			got, err := b.DescribeDBInstances("replica")
 			require.NoError(t, err)
 			assert.Empty(t, got[0].ReplicaSourceDBInstanceIdentifier)
-			assert.Equal(t, "available", got[0].DBInstanceStatus)
 
 			_, err = b.DeleteDBInstanceWithOptions("replica", true, "", true)
 			require.NoError(t, err)
 
 			requireGone(t, rec)
+		})
+	}
+}
+
+func TestEngineDockerReplicaSurvivesRestart(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range replicaDockerCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			b1, rec1 := newDockerReplicaBackendIn(t, dir)
+
+			_, err := b1.CreateDBInstance("src", tc.engine, "db.t3.micro", "appdb", "master", "", 20,
+				rds.DBInstanceOptions{MasterUserPassword: "firstpass1", BackupRetentionPeriod: 1})
+			require.NoError(t, err)
+
+			srcDB := openEngineDB(t, tc.kind, awaitDockerInstance(t, b1, "src"), "firstpass1")
+			_, err = srcDB.ExecContext(t.Context(), createItems)
+			require.NoError(t, err)
+			_, err = srcDB.ExecContext(t.Context(), insertItem)
+			require.NoError(t, err)
+
+			_, err = b1.CreateDBInstanceReadReplica("replica", "src", "", "", "", rds.DBInstanceOptions{})
+			require.NoError(t, err)
+			awaitItems(t, openEngineDB(t, tc.kind, awaitDockerInstance(t, b1, "replica"), "firstpass1"), 1)
+
+			rds.RecordRestorePointsForTest(b1)
+			snap := b1.Snapshot(t.Context())
+			b1.Close()
+			requireGone(t, rec1)
+
+			b2, rec2 := newDockerReplicaBackendIn(t, dir)
+			require.NoError(t, b2.Restore(t.Context(), snap))
+
+			srcDB = openEngineDB(t, tc.kind, awaitDockerInstance(t, b2, "src"), "firstpass1")
+			awaitItems(t, srcDB, 1)
+
+			repDB := openEngineDB(t, tc.kind, awaitDockerInstance(t, b2, "replica"), "firstpass1")
+			awaitItems(t, repDB, 1)
+
+			_, err = srcDB.ExecContext(t.Context(), "INSERT INTO items VALUES (2, 'beta')")
+			require.NoError(t, err)
+			awaitItems(t, repDB, 2)
+			requireReplicating(t, b2, "replica")
+
+			for _, id := range []string{"replica", "src"} {
+				_, err = b2.DeleteDBInstanceWithOptions(id, true, "", true)
+				require.NoError(t, err)
+			}
+
+			requireGone(t, rec2)
 		})
 	}
 }

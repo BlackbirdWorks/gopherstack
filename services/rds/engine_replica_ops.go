@@ -154,7 +154,7 @@ func (b *InMemoryBackend) finishPromote(lb *liveDB) {
 	defer cancel()
 
 	_, in, err := b.awaitLiveSource(ctx, lb.key)
-	if err == nil {
+	if err == nil && b.stillReplica(lb) {
 		err = b.engine.promoteEngine(ctx, in)
 	}
 
@@ -165,11 +165,25 @@ func (b *InMemoryBackend) finishPromote(lb *liveDB) {
 		return
 	}
 
+	if b.markPromoted(lb) {
+		b.recordRestorePointForced(lb)
+	}
+}
+
+// stillReplica is false for a replica that already started as a primary because its source vanished.
+func (b *InMemoryBackend) stillReplica(lb *liveDB) bool {
+	b.mu.RLock("rdsStillReplica")
+	defer b.mu.RUnlock()
+
+	return lb.repl != nil
+}
+
+func (b *InMemoryBackend) markPromoted(lb *liveDB) bool {
 	b.mu.Lock("rdsEnginePromoted")
 	defer b.mu.Unlock()
 
 	if !b.attachedLocked(lb) {
-		return
+		return false
 	}
 
 	lb.repl = nil
@@ -180,6 +194,8 @@ func (b *InMemoryBackend) finishPromote(lb *liveDB) {
 
 		b.publishInstanceEventLocked(inst.DBInstanceIdentifier, "DB instance promoted to standalone")
 	}, func(*DBCluster) {})
+
+	return true
 }
 
 // promoteReplicasOfLocked promotes every replica of a source that is being deleted, as AWS does.
