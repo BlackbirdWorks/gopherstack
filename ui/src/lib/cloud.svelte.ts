@@ -28,12 +28,14 @@ export function setCloud(next: Cloud): void {
 export type BackendInfo = {
   /** Names reported by /_gopherstack/health; null until loaded or if unreachable. */
   services: string[] | null;
+  /** Services disabled via --services / --disable-services. */
+  disabled: string[];
   /** Port reservations by label from /dashboard/api/system/state. */
   ports: Record<string, number>;
   loaded: boolean;
 };
 
-let backend = $state<BackendInfo>({ services: null, ports: {}, loaded: false });
+let backend = $state<BackendInfo>({ services: null, disabled: [], ports: {}, loaded: false });
 
 export function backendInfo(): BackendInfo {
   return backend;
@@ -51,11 +53,15 @@ export function servedGcpServices(): GcpService[] {
 
 export async function loadBackendInfo(fetchFn: typeof fetch = fetch): Promise<void> {
   let services: string[] | null = null;
+  let disabled: string[] = [];
   const ports: Record<string, number> = {};
   try {
     const res = await fetchFn("/_gopherstack/health");
     if (res.ok) {
-      const body = (await res.json()) as { services?: unknown };
+      const body = (await res.json()) as { services?: unknown; disabled?: unknown };
+      if (Array.isArray(body.disabled)) {
+        disabled = body.disabled.filter((s): s is string => typeof s === "string");
+      }
       if (Array.isArray(body.services)) {
         services = body.services.filter((s): s is string => typeof s === "string");
       }
@@ -76,5 +82,13 @@ export async function loadBackendInfo(fetchFn: typeof fetch = fetch): Promise<vo
   } catch {
     // ports stay unknown; the UI shows only what the backend reported
   }
-  backend = { services, ports, loaded: true };
+  backend = { services, disabled, ports, loaded: true };
+}
+
+const routeKey = (s: string) => s.toLowerCase().replace(/[-_. ]/g, "");
+
+/** True when the backend reports this dashboard route's service as disabled. */
+export function isRouteDisabled(routeId: string): boolean {
+  const id = routeKey(routeId);
+  return backend.disabled.some((name) => routeKey(name) === id);
 }

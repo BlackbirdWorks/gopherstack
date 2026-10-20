@@ -509,6 +509,9 @@ type CLI struct {
 	engineModes                   map[string]string
 	localstackInit                *localstackInitState
 	EngineSwitch                  EngineSettings                    `embed:""`
+	ServiceFilter                 ServiceFilterSettings             `embed:""`
+	CORS                          CORSSettings                      `embed:"" prefix:"cors-"`
+	Network                       NetworkSettings                   `embed:""`
 	Region                        string                            `                                       name:"region"                  env:"REGION"                              default:"us-east-1"     help:"AWS region (also read from AWS_DEFAULT_REGION and AWS_REGION)."`                                                                                                                                             //nolint:lll // config struct tags are intentionally verbose
 	DNSResolveIP                  string                            `                                       name:"dns-resolve-ip"          env:"DNS_RESOLVE_IP"                      default:"127.0.0.1"     help:"IP address synthetic hostnames resolve to."`                                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
 	KafkaEngine                   string                            `                                       name:"kafka-engine"            env:"KAFKA_ENGINE"                        default:"stub"          help:"MSK engine mode: stub (metadata only) or docker (real Kafka broker per cluster)."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
@@ -2340,6 +2343,10 @@ func wireEchoServer(
 		return err
 	}
 
+	if mw := corsMiddleware(cli.CORS); mw != nil {
+		e.Pre(mw)
+	}
+
 	if err := setupChaosAndRegistry(e, log, cli, services); err != nil {
 		return err
 	}
@@ -2651,9 +2658,9 @@ func buildEchoServer(
 	e.GET("/favicon.ico", func(c *echo.Context) error {
 		return c.Redirect(http.StatusFound, "/dashboard/static/favicon.png")
 	})
-	e.GET("/_gopherstack/health", buildHealthHandler(services))
-	e.GET("/_localstack/health", buildLocalstackHealthHandler(services))
-	e.GET("/_aws/health", buildLocalstackHealthHandler(services))
+	e.GET("/_gopherstack/health", buildHealthHandler(cli.enabledServices(services), cli.disabledServiceNames(services)))
+	e.GET("/_localstack/health", buildLocalstackHealthHandler(cli.enabledServices(services)))
+	e.GET("/_aws/health", buildLocalstackHealthHandler(cli.enabledServices(services)))
 	registerLocalstackInternalEndpoints(e, &cli, services)
 	e.GET("/_localstack/info", buildLocalstackInfoHandler())
 	e.POST("/_gopherstack/reset", buildResetHandler(services))
@@ -2718,7 +2725,7 @@ func buildHTTPErrorHandler() func(*echo.Context, error) {
 
 // buildHealthHandler returns the /_gopherstack/health handler. It reports service
 // names and runtime memory/goroutine stats.
-func buildHealthHandler(services []service.Registerable) echo.HandlerFunc {
+func buildHealthHandler(services []service.Registerable, disabled []string) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		names := make([]string, 0, len(services))
 		for _, svc := range services {
@@ -2734,6 +2741,7 @@ func buildHealthHandler(services []service.Registerable) echo.HandlerFunc {
 			Status:     "ok",
 			Version:    version.Get(),
 			Services:   names,
+			Disabled:   disabled,
 			Goroutines: runtime.NumGoroutine(),
 			HeapAllocB: ms.HeapAlloc,
 			HeapInuseB: ms.HeapInuse,
@@ -12109,9 +12117,7 @@ func startServer(
 ) error {
 	log := logger.Load(ctx)
 
-	if port[0] != ':' {
-		port = ":" + port
-	}
+	port = normalizeListenAddr(port)
 
 	scheme := "http"
 	if tlsCfg.enabled {
@@ -12119,9 +12125,10 @@ func startServer(
 	}
 
 	log.InfoContext(ctx, "Starting Gopherstack (DynamoDB + S3)", "port", port, "scheme", scheme)
-	log.InfoContext(ctx, "  DynamoDB endpoint", "url", scheme+"://localhost"+port)
-	log.InfoContext(ctx, "  S3 endpoint      ", "url", scheme+"://localhost"+port+" (path-style)")
-	log.InfoContext(ctx, "  Dashboard        ", "url", scheme+"://localhost"+port+"/dashboard")
+	disp := listenPortSuffix(port)
+	log.InfoContext(ctx, "  DynamoDB endpoint", "url", scheme+"://localhost"+disp)
+	log.InfoContext(ctx, "  S3 endpoint      ", "url", scheme+"://localhost"+disp+" (path-style)")
+	log.InfoContext(ctx, "  Dashboard        ", "url", scheme+"://localhost"+disp+"/dashboard")
 
 	server := &http.Server{
 		Addr:    port,
@@ -12230,6 +12237,8 @@ type healthResponse struct {
 	Version string `json:"version"`
 	// Services lists all registered mock AWS services.
 	Services []string `json:"services"`
+	// Disabled lists services turned off via --services / --disable-services.
+	Disabled []string `json:"disabled,omitempty"`
 	// Goroutines is the current number of live goroutines (runtime.NumGoroutine).
 	// A sustained upward trend indicates a goroutine leak.
 	Goroutines int `json:"goroutines"`
@@ -12302,7 +12311,7 @@ func setupChaosAndRegistry(
 		cli.Compression != compressionOff,
 		cli.IAMAudit,
 		cli.IAMPolicyStream(),
-		cli.extensionInterceptor(),
+		chainInterceptors(cli.serviceGateInterceptor(), cli.extensionInterceptor()),
 	)
 	if err != nil {
 		return err

@@ -54,9 +54,9 @@ func TestLocalstackEnvPlan(t *testing.T) {
 			want: map[string]string{"LAMBDA_KEEP_CONTAINERS": "true"},
 		},
 		{
-			name: "ignored_and_prefix", environ: []string{"SERVICES=s3,sqs", "LOCALSTACK_AUTH_TOKEN=x"},
+			name: "ignored_and_prefix", environ: []string{"EAGER_SERVICE_LOADING=1", "LOCALSTACK_AUTH_TOKEN=x"},
 			want: map[string]string{}, wantEnable: true,
-			wantIgnored: []string{"LOCALSTACK_AUTH_TOKEN", "SERVICES"},
+			wantIgnored: []string{"EAGER_SERVICE_LOADING", "LOCALSTACK_AUTH_TOKEN"},
 		},
 	}
 

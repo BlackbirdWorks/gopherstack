@@ -46,7 +46,7 @@ func localstackTriggerKeys() []string {
 // localstackIgnoredKeys have no Gopherstack equivalent and are logged once at debug.
 func localstackIgnoredKeys() []string {
 	return []string{
-		"SERVICES", "EAGER_SERVICE_LOADING", "HOSTNAME_EXTERNAL", "DISABLE_EVENTS", "DISABLE_CORS_CHECKS",
+		"EAGER_SERVICE_LOADING", "HOSTNAME_EXTERNAL", "DISABLE_EVENTS",
 		"SKIP_SSL_CERT_DOWNLOAD", "ALLOW_NONSTANDARD_REGIONS", "DNS_ADDRESS", "DOCKER_FLAGS",
 	}
 }
@@ -261,7 +261,7 @@ func serveExtraPorts(ctx context.Context, h http.Handler, ports []string, tlsCfg
 
 func serveExtraPort(ctx context.Context, h http.Handler, port string, tlsCfg tlsSettings, log *slog.Logger) {
 	srv := &http.Server{
-		Addr:              ":" + port,
+		Addr:              normalizeListenAddr(port),
 		Handler:           h,
 		ReadTimeout:       defaultTimeout,
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
@@ -508,9 +508,10 @@ func serveAll(ctx context.Context, cli *CLI, h *echo.Echo, log *slog.Logger) err
 	}()
 
 	tlsCfg := tlsConfigFromCLI(cli)
-	serveExtraPorts(srvCtx, h, extraListenPorts(cli), tlsCfg, log)
+	warnIfRemote(log, cli.Network, inContainer())
+	serveExtraPorts(srvCtx, h, hostedPorts(cli.Network.Host, extraListenPorts(cli)), tlsCfg, log)
 
-	err := startServer(srvCtx, cli.Port, h, tlsCfg, &cli.shutdownDeadline)
+	err := startServer(srvCtx, listenAddr(cli.Network.Host, cli.Port), h, tlsCfg, &cli.shutdownDeadline)
 	shutdownStage()
 
 	return err

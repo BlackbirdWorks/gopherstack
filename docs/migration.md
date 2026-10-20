@@ -70,7 +70,7 @@ services:
       - PERSIST=true
 ```
 
-No `SERVICES` list is needed — all services run in a single binary.
+No `SERVICES` list is needed — all services run in a single binary (set `SERVICES` / `--services` only to restrict them).
 
 ## SDK configuration migration
 
@@ -220,7 +220,9 @@ LocalStack variables are translated at startup; a variable already set under its
 | `DEFAULT_REGION`, `AWS_DEFAULT_REGION` | `REGION` |
 | `LAMBDA_REMOVE_CONTAINERS=0` | `LAMBDA_KEEP_CONTAINERS=true` |
 | `LOCALSTACK_HOST`, `HOSTNAME_EXTERNAL` | Not needed: SQS queue URLs and similar follow the request `Host` header |
-| `SERVICES`, `EAGER_SERVICE_LOADING`, `LOCALSTACK_AUTH_TOKEN`, other `LOCALSTACK_*` | Ignored (no service filtering; all services always run); logged once at debug |
+| `SERVICES` | Supported: `--services` / `GOPHERSTACK_SERVICES` (`SERVICES` is read directly; names are case-insensitive, LocalStack aliases like `logs`, `events`, `es`, `sfn` accepted; unknown names in `SERVICES` are skipped with a warning, unlike `--services`, where they fail startup) |
+| `EXTRA_CORS_ALLOWED_ORIGINS`, `EXTRA_CORS_ALLOWED_HEADERS`, `EXTRA_CORS_EXPOSE_HEADERS`, `DISABLE_CORS_CHECKS` | Supported as aliases of `--cors-allow-origins`, `--cors-allow-headers`, `--cors-expose-headers`, `--cors-disable-checks` |
+| `EAGER_SERVICE_LOADING`, `LOCALSTACK_AUTH_TOKEN`, other `LOCALSTACK_*` | Ignored; logged once at debug |
 
 ## Terraform / OpenTofu provider
 

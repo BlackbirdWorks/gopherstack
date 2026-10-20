@@ -222,6 +222,15 @@ precedence is **defaults < persisted config < env vars / CLI flags**.
 | Flag | Env var | Default | Description |
 |------|---------|---------|-------------|
 | `--port` | `PORT` | `8000` | HTTP server port. |
+| `--host` | `GOPHERSTACK_HOST` | *(empty = all interfaces)* | Listen host for the HTTP listener. A non-loopback host logs a security warning unless acknowledged. |
+| `--allow-remote` | `GOPHERSTACK_ALLOW_REMOTE` | `false` | Acknowledge a non-loopback listen address (silences the warning; inside a container the warning is skipped automatically). |
+| `--services` | `GOPHERSTACK_SERVICES` (LocalStack `SERVICES` also read) | *(empty = all)* | Comma-separated services to enable (case-insensitive provider names plus LocalStack aliases such as `logs`, `events`, `es`, `sfn`). Unknown names in the flag or `GOPHERSTACK_SERVICES` fail startup with the valid list; unknown names from `SERVICES` are skipped with a warning. |
+| `--disable-services` | `GOPHERSTACK_DISABLE_SERVICES` | *(empty)* | Services to disable, applied after `--services`. Disabled services answer with a protocol-correct `ServiceNotEnabled` (HTTP 501) error and are hidden from the dashboard. |
+| `--cors-allow-origins` | `GOPHERSTACK_CORS_ALLOW_ORIGINS`, `EXTRA_CORS_ALLOWED_ORIGINS` | *(empty)* | Origins allowed by the global CORS middleware (or `*`). Empty leaves CORS handling unchanged. |
+| `--cors-allow-headers` | `GOPHERSTACK_CORS_ALLOW_HEADERS`, `EXTRA_CORS_ALLOWED_HEADERS` | *(empty)* | Extra headers allowed on preflight. |
+| `--cors-expose-headers` | `GOPHERSTACK_CORS_EXPOSE_HEADERS`, `EXTRA_CORS_EXPOSE_HEADERS` | *(empty)* | Response headers exposed to browsers. |
+| `--cors-allow-credentials` | `GOPHERSTACK_CORS_ALLOW_CREDENTIALS` | `false` | Send `Access-Control-Allow-Credentials: true`. |
+| `--cors-disable-checks` | `GOPHERSTACK_DISABLE_CORS_CHECKS`, `DISABLE_CORS_CHECKS` | `false` | Allow any origin. |
 | `--region` | `REGION` | `us-east-1` | Mock AWS region (also honors `AWS_REGION` / `AWS_DEFAULT_REGION`, see below). |
 | `--log-level` | `LOG_LEVEL` | `info` | Log level: `debug`, `info`, `warn`, or `error`. |
 | `--data-dir` | `GOPHERSTACK_DATA_DIR` | *(empty)* | Directory for persistence data files. Empty resolves to `~/.gopherstack/data`, or `/data` inside a container. |
