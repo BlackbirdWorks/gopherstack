@@ -1051,6 +1051,10 @@ func (p *sqlParser) parseIdentOrCall() (sqlExpr, error) {
 
 	p.advance()
 
+	if strings.EqualFold(name, udfNamespace) && p.cur.typ == sqlTokDot && p.udfCallAhead() {
+		return p.parseUDFCall()
+	}
+
 	if p.cur.typ != sqlTokLParen {
 		return &exprVar{name: name}, nil
 	}
@@ -1090,6 +1094,38 @@ func (p *sqlParser) parseSubqueryCall(upper string) (sqlExpr, error) {
 	return &exprSubquery{stmt: sub, kind: kind}, nil
 }
 
+// udfCallAhead reports whether the tokens after the current "." are `name (`.
+func (p *sqlParser) udfCallAhead() bool {
+	lx := *p.lx
+	name, paren := lx.next(), lx.next()
+
+	return name.typ == sqlTokIdent && paren.typ == sqlTokLParen
+}
+
+// parseUDFCall parses `udf.name(args)`; the current token is the ".".
+func (p *sqlParser) parseUDFCall() (sqlExpr, error) {
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+
+	defer p.leave()
+
+	p.advance()
+
+	name := p.cur.lit
+
+	p.advance()
+	p.advance()
+
+	call := &exprCall{name: name, kind: fnUDF}
+
+	if err := p.parseCallArgs(call); err != nil {
+		return nil, err
+	}
+
+	return call, nil
+}
+
 func (p *sqlParser) parseCall(upper string) (sqlExpr, error) {
 	kind := builtinKind(upper)
 	if kind == fnUnknown {
@@ -1106,22 +1142,7 @@ func (p *sqlParser) parseCall(upper string) (sqlExpr, error) {
 
 	call := &exprCall{name: upper, kind: kind}
 
-	for p.cur.typ != sqlTokRParen {
-		arg, err := p.parseExpr()
-		if err != nil {
-			return nil, err
-		}
-
-		call.args = append(call.args, arg)
-
-		if p.cur.typ != sqlTokComma {
-			break
-		}
-
-		p.advance()
-	}
-
-	if _, err := p.expect(sqlTokRParen, "')'"); err != nil {
+	if err := p.parseCallArgs(call); err != nil {
 		return nil, err
 	}
 
@@ -1135,4 +1156,26 @@ func (p *sqlParser) parseCall(upper string) (sqlExpr, error) {
 	}
 
 	return call, nil
+}
+
+// parseCallArgs parses a comma-separated argument list up to and including the closing ")".
+func (p *sqlParser) parseCallArgs(call *exprCall) error {
+	for p.cur.typ != sqlTokRParen {
+		arg, err := p.parseExpr()
+		if err != nil {
+			return err
+		}
+
+		call.args = append(call.args, arg)
+
+		if p.cur.typ != sqlTokComma {
+			break
+		}
+
+		p.advance()
+	}
+
+	_, err := p.expect(sqlTokRParen, "')'")
+
+	return err
 }

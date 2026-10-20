@@ -22,6 +22,7 @@ func isUndef(v any) bool {
 
 // evalCtx carries per-query evaluation state. group is non-nil only while evaluating a GROUP BY output row.
 type evalCtx struct {
+	udf     *udfRuntime
 	params  map[string]any
 	regex   map[string]*regexp.Regexp
 	now     time.Time
@@ -35,7 +36,9 @@ func newEvalCtx(params []QueryParameter) *evalCtx {
 		pv[p.Name] = normalizeParam(p.Value)
 	}
 
-	return &evalCtx{params: pv, now: time.Now().UTC(), regex: make(map[string]*regexp.Regexp)}
+	return &evalCtx{
+		params: pv, now: time.Now().UTC(), regex: make(map[string]*regexp.Regexp), udf: &udfRuntime{},
+	}
 }
 
 // normalizeParam converts Go numeric kinds in a bound parameter to json.Number so comparisons stay exact.
@@ -395,6 +398,10 @@ func (ec *evalCtx) evalCall(n *exprCall, env []any) any {
 	args := make([]any, len(n.args))
 	for i, a := range n.args {
 		args[i] = ec.eval(a, env)
+	}
+
+	if n.kind == fnUDF {
+		return ec.udf.call(n.name, args)
 	}
 
 	return ec.callBuiltin(n.kind, n.name, args)

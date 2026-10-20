@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -147,9 +148,37 @@ func validateSnapshotContainers(dbName string, containers map[string]*storedCont
 				return fmt.Errorf("%w: %s/%s key %v", ErrSnapshotDocumentNull, dbName, collName, key)
 			}
 		}
+
+		backfillChangeSeq(c)
 	}
 
 	return nil
+}
+
+// backfillChangeSeq gives documents persisted before the change feed existed a sequence, oldest first.
+func backfillChangeSeq(c *storedContainer) {
+	var unset []*storedDocument
+
+	for _, d := range c.Documents {
+		c.ChangeSeq = max(c.ChangeSeq, d.Seq)
+
+		if d.Seq == 0 {
+			unset = append(unset, d)
+		}
+	}
+
+	sort.Slice(unset, func(i, j int) bool {
+		if !unset[i].Timestamp.Equal(unset[j].Timestamp) {
+			return unset[i].Timestamp.Before(unset[j].Timestamp)
+		}
+
+		return unset[i].ID < unset[j].ID
+	})
+
+	for _, d := range unset {
+		c.ChangeSeq++
+		d.Seq = c.ChangeSeq
+	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

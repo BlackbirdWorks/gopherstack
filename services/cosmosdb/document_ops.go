@@ -17,8 +17,16 @@ import (
 func (h *Handler) handleDocuments(c *echo.Context, dbID, collID string) error {
 	switch c.Request().Method {
 	case http.MethodGet:
+		if isChangeFeedRequest(c.Request()) {
+			return h.readChangeFeed(c, dbID, collID)
+		}
+
 		return h.listDocuments(c, dbID, collID)
 	case http.MethodPost:
+		if isBatchRequest(c.Request()) {
+			return h.executeBatch(c, dbID, collID)
+		}
+
 		if isQueryRequest(c.Request()) {
 			return h.queryDocuments(c, dbID, collID)
 		}
@@ -40,6 +48,8 @@ func (h *Handler) handleDocumentItem(c *echo.Context, dbID, collID, docID string
 		return h.getDocument(c, dbID, collID, docID)
 	case http.MethodPut:
 		return h.replaceDocument(c, dbID, collID, docID)
+	case http.MethodPatch:
+		return h.patchDocument(c, dbID, collID, docID)
 	case http.MethodDelete:
 		return h.deleteDocument(c, dbID, collID, docID)
 	default:
@@ -115,10 +125,17 @@ func (h *Handler) writeDocumentError(c *echo.Context, err error) error {
 		return h.writeDocumentNotFoundError(c)
 	case errors.Is(err, ErrDocumentAlreadyExists):
 		return h.writeError(c, http.StatusConflict, "Conflict", "Document with the specified id already exists.")
-	case errors.Is(err, ErrETagMismatch):
+	case errors.Is(err, ErrETagMismatch), errors.Is(err, ErrPatchConditionFailed):
 		return h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailed",
 			"Operation cannot be performed because one of the specified precondition is not met.")
-	case errors.Is(err, ErrInvalidDocument), errors.Is(err, ErrPartitionKeyMismatch):
+	case errors.Is(err, ErrInvalidDocument), errors.Is(err, ErrPartitionKeyMismatch), errors.Is(err, ErrInvalidPatch),
+		errors.Is(err, ErrBatchTooLarge), errors.Is(err, ErrInvalidTrigger), errors.Is(err, ErrInvalidPKRange):
+		return h.writeError(c, http.StatusBadRequest, "BadRequest", err.Error())
+	case errors.Is(err, ErrScriptNotFound):
+		return h.writeError(c, http.StatusNotFound, "NotFound", "Resource Not Found")
+	case errors.Is(err, ErrScriptTimeout):
+		return h.writeError(c, http.StatusRequestTimeout, "RequestTimeout", err.Error())
+	case errors.Is(err, ErrScriptFailed):
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", err.Error())
 	case errors.Is(err, ErrQueryParse), errors.Is(err, ErrQueryTooDeep):
 		return h.writeError(c, http.StatusBadRequest, "BadRequest",
@@ -140,6 +157,15 @@ func (h *Handler) createDocument(c *echo.Context, dbID, collID string) error {
 	}
 
 	upsert := strings.EqualFold(c.Request().Header.Get(headerIsUpsert), "true")
+
+	if trig := triggerRequest(c.Request()); trig.requested() {
+		kind := batchCreate
+		if upsert {
+			kind = batchUpsert
+		}
+
+		return h.runWithTriggers(c, dbID, collID, docOp{kind: kind, body: doc, pre: trig.pre, post: trig.post})
+	}
 
 	info, createErr := h.Backend.CreateDocument(dbID, collID, doc, upsert)
 	if createErr != nil {
@@ -185,9 +211,51 @@ func (h *Handler) replaceDocument(c *echo.Context, dbID, collID, docID string) e
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", "The input is not valid JSON.")
 	}
 
+	if trig := triggerRequest(r); trig.requested() {
+		return h.runWithTriggers(c, dbID, collID, docOp{
+			kind: batchReplace, pk: pk, id: docID, body: doc, ifMatch: r.Header.Get("If-Match"),
+			pre: trig.pre, post: trig.post,
+		})
+	}
+
 	info, replaceErr := h.Backend.ReplaceDocument(dbID, collID, pk, docID, doc, r.Header.Get("If-Match"))
 	if replaceErr != nil {
 		return h.writeDocumentError(c, replaceErr)
+	}
+
+	c.Response().Header().Set("ETag", info.ETag)
+
+	return h.writeJSONCharged(c, http.StatusOK, h.encodeDocument(info), replaceCharge)
+}
+
+func (h *Handler) patchDocument(c *echo.Context, dbID, collID, docID string) error {
+	r := c.Request()
+
+	pk, pkErr := partitionKeyFromHeader(r)
+	if pkErr != nil {
+		return h.writeError(c, http.StatusBadRequest, "BadRequest", pkErr.Error())
+	}
+
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		return h.writeError(c, http.StatusInternalServerError, "InternalError", "Failed to read request body.")
+	}
+
+	req, parseErr := parsePatchRequest(body)
+	if parseErr != nil {
+		return h.writeDocumentError(c, parseErr)
+	}
+
+	patcher, ok := h.Backend.(interface {
+		PatchDocument(dbID, containerID, partitionKey, id string, req patchRequest, ifMatch string) (DocumentInfo, error)
+	})
+	if !ok {
+		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowed", "The backend cannot patch documents.")
+	}
+
+	info, patchErr := patcher.PatchDocument(dbID, collID, pk, docID, req, r.Header.Get("If-Match"))
+	if patchErr != nil {
+		return h.writeDocumentError(c, patchErr)
 	}
 
 	c.Response().Header().Set("ETag", info.ETag)
@@ -201,6 +269,12 @@ func (h *Handler) deleteDocument(c *echo.Context, dbID, collID, docID string) er
 	pk, pkErr := partitionKeyFromHeader(r)
 	if pkErr != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", pkErr.Error())
+	}
+
+	if trig := triggerRequest(r); trig.requested() {
+		return h.runWithTriggers(c, dbID, collID, docOp{
+			kind: batchDelete, pk: pk, id: docID, ifMatch: r.Header.Get("If-Match"), pre: trig.pre, post: trig.post,
+		})
 	}
 
 	if err := h.Backend.DeleteDocument(dbID, collID, pk, docID, r.Header.Get("If-Match")); err != nil {
@@ -247,7 +321,7 @@ func (h *Handler) listDocuments(c *echo.Context, dbID, collID string) error {
 	setPageHeaders(c, len(values), pg.Next)
 
 	return h.writeJSONCharged(c, http.StatusOK,
-		map[string]any{sysPropRID: "", "Documents": values, sysPropCount: len(values)}, readCharge)
+		map[string]any{sysPropRID: "", listDocumentsKey: values, sysPropCount: len(values)}, readCharge)
 }
 
 // queryRequestBody is the request body shape for a SQL query POST:
@@ -292,7 +366,7 @@ func (h *Handler) queryDocuments(c *echo.Context, dbID, collID string) error {
 	pg := paginate(res.Rows, token, limit)
 	setPageHeaders(c, len(pg.Data), pg.Next)
 
-	payload := map[string]any{sysPropRID: "", "Documents": pg.Data, sysPropCount: len(pg.Data)}
+	payload := map[string]any{sysPropRID: "", listDocumentsKey: pg.Data, sysPropCount: len(pg.Data)}
 
 	return h.writeJSONCharged(c, http.StatusOK, payload, func(size int) float64 {
 		return queryCharge(res.Scanned, size)

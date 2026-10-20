@@ -24,6 +24,8 @@ type containerBodyRequest struct {
 	ID             string              `json:"id"`
 	PartitionKey   partitionKeyDefSpec `json:"partitionKey"`
 	IndexingPolicy json.RawMessage     `json:"indexingPolicy"`
+
+	ConflictResolutionPolicy json.RawMessage `json:"conflictResolutionPolicy"`
 }
 
 const partitionKindMultiHash = "MultiHash"
@@ -31,6 +33,7 @@ const partitionKindMultiHash = "MultiHash"
 func (r containerBodyRequest) spec() ContainerSpec {
 	spec := ContainerSpec{
 		ID: r.ID, DefaultTTL: r.DefaultTTL, PartitionKeyPaths: r.PartitionKey.Paths, IndexingPolicy: r.IndexingPolicy,
+		ConflictResolutionPolicy: r.ConflictResolutionPolicy,
 	}
 	if len(r.PartitionKey.Paths) > 0 {
 		spec.PartitionKeyPath = r.PartitionKey.Paths[0]
@@ -263,6 +266,10 @@ const partitionKeyDefVersion = 2
 const defaultIndexingPolicy = `{"indexingMode":"consistent","automatic":true,"includedPaths":[{"path":"/*"}],` +
 	`"excludedPaths":[{"path":"/\"_etag\"/?"}]}`
 
+// defaultConflictResolutionPolicy is reported for a container created without one (last-writer-wins on _ts).
+const defaultConflictResolutionPolicy = `{"mode":"LastWriterWins","conflictResolutionPath":"/_ts",` +
+	`"conflictResolutionProcedure":""}`
+
 // containerBody builds a Cosmos DB container (DocumentCollection) resource's JSON response body.
 func containerBody(info ContainerInfo) map[string]any {
 	kind := "Hash"
@@ -292,6 +299,11 @@ func containerBody(info ContainerInfo) map[string]any {
 
 	if info.DefaultTTL != nil {
 		body["defaultTtl"] = *info.DefaultTTL
+	}
+
+	body["conflictResolutionPolicy"] = json.RawMessage(defaultConflictResolutionPolicy)
+	if len(info.ConflictResolutionPolicy) > 0 {
+		body["conflictResolutionPolicy"] = info.ConflictResolutionPolicy
 	}
 
 	return body

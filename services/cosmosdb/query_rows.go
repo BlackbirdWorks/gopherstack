@@ -141,6 +141,13 @@ func (b *InMemoryBackend) RunQuery(
 		return QueryResult{}, err
 	}
 
+	return b.queryLocked(c, dbID, containerID, query, params, partitionKey)
+}
+
+// queryLocked runs a query over c; the caller holds the backend lock (read or write).
+func (b *InMemoryBackend) queryLocked(
+	c *storedContainer, dbID, containerID, query string, params []QueryParameter, partitionKey string,
+) (QueryResult, error) {
 	stmt, err := b.parseCached(query)
 	if err != nil {
 		return QueryResult{}, err
@@ -161,5 +168,8 @@ func (b *InMemoryBackend) RunQuery(
 
 	rows := storedRows{docs: docs, src: &docSource{b: b, dbID: dbID, containerID: containerID}}
 
-	return executeStatement(stmt, params, rows)
+	udf := b.newUDFRuntime(c.UDFs)
+	defer udf.close()
+
+	return executeStatementWith(stmt, params, rows, udf)
 }

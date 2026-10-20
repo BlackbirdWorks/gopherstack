@@ -72,4 +72,15 @@ var (
 	// meaning the input carried more than the one JSON value callers
 	// require.
 	ErrUnexpectedTrailingJSON = errors.New("cosmosdb: unexpected additional JSON value")
+
+	ErrInvalidPatch         = errors.New("cosmosdb: invalid patch request")
+	ErrPatchConditionFailed = errors.New("cosmosdb: patch condition not satisfied")
+	ErrBatchTooLarge        = errors.New("cosmosdb: batch has more operations than the 100 allowed")
+	ErrScriptNotFound       = errors.New("cosmosdb: script not found")
+	ErrScriptAlreadyExists  = errors.New("cosmosdb: script already exists")
+	ErrInvalidScript        = errors.New("cosmosdb: invalid script definition")
+	ErrScriptFailed         = errors.New("cosmosdb: script execution failed")
+	ErrScriptTimeout        = errors.New("cosmosdb: script execution timed out")
+	ErrInvalidTrigger       = errors.New("cosmosdb: trigger not usable for this operation")
+	ErrInvalidPKRange       = errors.New("cosmosdb: unknown partition key range")
 )

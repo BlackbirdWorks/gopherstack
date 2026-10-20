@@ -98,7 +98,11 @@ const (
 	fnArray
 	fnDate
 	fnAggregate
+	fnUDF
 )
+
+// udfNamespace is the prefix of a user-defined function call: udf.name(args).
+const udfNamespace = "udf"
 
 func builtinKind(name string) fnKind {
 	switch name {

@@ -48,6 +48,10 @@ const (
 	opGetDocument        = "GetDocument"
 	opReplaceDocument    = "ReplaceDocument"
 	opDeleteDocument     = "DeleteDocument"
+	opPatchDocument      = "PatchDocument"
+	opExecuteBatch       = "ExecuteTransactionalBatch"
+	opReadChangeFeed     = "ReadChangeFeed"
+	opReadPKRanges       = "ReadPartitionKeyRanges"
 	unknownOperation     = "Unknown"
 )
 
@@ -64,6 +68,9 @@ const (
 	headerActivityID       = "X-Ms-Activity-Id"
 	headerContentTypeQuery = "application/query+json"
 )
+
+// coreOpsCapacity is the number of Core/SQL operations GetSupportedOperations lists.
+const coreOpsCapacity = 41
 
 // defaultRequestCharge is reported by routes without a size-based charge (see ru.go).
 const defaultRequestCharge = "1"
@@ -130,12 +137,15 @@ func (h *Handler) Name() string { return "CosmosDB" }
 // GetSupportedOperations returns the list of supported Cosmos DB operations,
 // Core/SQL and Table API combined.
 func (h *Handler) GetSupportedOperations() []string {
-	coreOps := []string{
+	coreOps := make([]string, 0, coreOpsCapacity)
+	coreOps = append(coreOps,
 		opGetDatabaseAccount,
 		opListDatabases, opQueryDatabases, opCreateDatabase, opGetDatabase, opDeleteDatabase,
 		opListContainers, opQueryContainers, opCreateContainer, opGetContainer, opReplaceContainer, opDeleteContainer,
 		opCreateDocument, opQueryDocuments, opListDocuments, opGetDocument, opReplaceDocument, opDeleteDocument,
-	}
+		opPatchDocument, opExecuteBatch, opReadChangeFeed, opReadPKRanges,
+	)
+	coreOps = append(coreOps, scriptSupportedOperations()...)
 	tableOps := tableAPISupportedOperations()
 
 	ops := make([]string, 0, len(coreOps)+len(tableOps))
@@ -209,7 +219,13 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleDocuments(c, dbID, collID)
 		case resourceDocumentItem:
 			return h.handleDocumentItem(c, dbID, collID, docID)
+		case resourcePKRanges:
+			return h.handlePKRanges(c, dbID, collID)
 		default:
+			if sk, isItem, ok := scriptKindOf(kind); ok {
+				return h.handleScripts(c, sk, isItem, dbID, collID, docID)
+			}
+
 			return h.writeError(
 				c,
 				http.StatusBadRequest,
@@ -267,6 +283,13 @@ const (
 	resourceContainerItem
 	resourceDocuments
 	resourceDocumentItem
+	resourceSprocs
+	resourceSprocItem
+	resourceTriggers
+	resourceTriggerItem
+	resourceUDFs
+	resourceUDFItem
+	resourcePKRanges
 )
 
 // parseResourcePath classifies path ("", "/dbs", "/dbs/{db}",
@@ -293,7 +316,7 @@ func parseResourcePath(path string) (resourceKind, string, string, string) {
 	}
 
 	segments := strings.Split(trimmed, "/")
-	if segments[0] != "dbs" {
+	if segments[0] != dbsSegment {
 		return resourceInvalid, "", "", ""
 	}
 
@@ -331,20 +354,50 @@ func parseContainerItemPath(segments []string) (resourceKind, string, string, st
 	return resourceContainerItem, segments[1], segments[3], ""
 }
 
+// collectionKindsFor maps the container's child-collection segment to its collection and item resource kinds.
+func collectionKindsFor(segment string) ([2]resourceKind, bool) {
+	switch segment {
+	case docsSegment:
+		return [2]resourceKind{resourceDocuments, resourceDocumentItem}, true
+	case "sprocs":
+		return [2]resourceKind{resourceSprocs, resourceSprocItem}, true
+	case "triggers":
+		return [2]resourceKind{resourceTriggers, resourceTriggerItem}, true
+	case "udfs":
+		return [2]resourceKind{resourceUDFs, resourceUDFItem}, true
+	default:
+		return [2]resourceKind{}, false
+	}
+}
+
 func parseDocumentsPath(segments []string) (resourceKind, string, string, string) {
-	if segments[2] != collsSegment || segments[4] != "docs" {
+	if segments[2] != collsSegment {
 		return resourceInvalid, "", "", ""
 	}
 
-	return resourceDocuments, segments[1], segments[3], ""
+	if segments[4] == "pkranges" {
+		return resourcePKRanges, segments[1], segments[3], ""
+	}
+
+	kinds, ok := collectionKindsFor(segments[4])
+	if !ok {
+		return resourceInvalid, "", "", ""
+	}
+
+	return kinds[0], segments[1], segments[3], ""
 }
 
 func parseDocumentItemPath(segments []string) (resourceKind, string, string, string) {
-	if segments[2] != collsSegment || segments[4] != "docs" {
+	if segments[2] != collsSegment {
 		return resourceInvalid, "", "", ""
 	}
 
-	return resourceDocumentItem, segments[1], segments[3], segments[5]
+	kinds, ok := collectionKindsFor(segments[4])
+	if !ok {
+		return resourceInvalid, "", "", ""
+	}
+
+	return kinds[1], segments[1], segments[3], segments[5]
 }
 
 // operationFor determines the Cosmos DB operation name for a request, for
@@ -375,9 +428,15 @@ func operationFor(r *http.Request) string {
 	case resourceDocuments:
 		return documentsCollectionOperationFor(r)
 	case resourceDocumentItem:
+		if r.Method == http.MethodPatch {
+			return opPatchDocument
+		}
+
 		return itemOperationFor(r.Method, opGetDocument, opReplaceDocument, opDeleteDocument)
+	case resourcePKRanges:
+		return opReadPKRanges
 	default:
-		return unknownOperation
+		return scriptOperationFor(kind, r)
 	}
 }
 
@@ -416,8 +475,16 @@ func itemOperationFor(method, getOp, putOp, deleteOp string) string {
 func documentsCollectionOperationFor(r *http.Request) string {
 	switch r.Method {
 	case http.MethodGet:
+		if isChangeFeedRequest(r) {
+			return opReadChangeFeed
+		}
+
 		return opListDocuments
 	case http.MethodPost:
+		if isBatchRequest(r) {
+			return opExecuteBatch
+		}
+
 		if isQueryRequest(r) {
 			return opQueryDocuments
 		}

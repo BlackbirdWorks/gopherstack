@@ -103,11 +103,25 @@ func (r mapRows) count() int       { return len(r) }
 func (r mapRows) row(i int) sqlRow { return sqlRow{m: r[i]} }
 
 func executeStatement(stmt *sqlSelectStmt, params []QueryParameter, rs queryRows) (QueryResult, error) {
+	return executeStatementWith(stmt, params, rs, nil)
+}
+
+// executeStatementWith is executeStatement with the container's user-defined functions available.
+func executeStatementWith(
+	stmt *sqlSelectStmt, params []QueryParameter, rs queryRows, udf *udfRuntime,
+) (QueryResult, error) {
 	ec := newEvalCtx(params)
+	if udf != nil {
+		ec.udf = udf
+	}
 
 	rows, err := ec.runStmt(stmt, nil, rs)
 	if err != nil {
 		return QueryResult{}, err
+	}
+
+	if ec.udf.err != nil {
+		return QueryResult{}, ec.udf.err
 	}
 
 	return QueryResult{Rows: rows, Scanned: rs.count()}, nil

@@ -107,3 +107,6 @@ func DocumentCount(b *InMemoryBackend, dbID, containerID string) int {
 
 	return len(c.Documents)
 }
+
+// SetScriptTimeout overrides the stored procedure / trigger / UDF time limit.
+func SetScriptTimeout(b *InMemoryBackend, d time.Duration) { b.scriptTimeout = d }
