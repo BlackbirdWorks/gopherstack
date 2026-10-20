@@ -17,11 +17,15 @@ To run these examples locally, you need:
 |---------|---------|----------------|
 | **`apigw-websocket-chat`** | Real-time chat app using API Gateway WebSockets and Node.js Lambda backend. | OpenTofu, Node.js (`wscat`) |
 | **`azure-services`** | Exercises Azure Blob/Queue/Table Storage and Azure Cosmos DB side-by-side in one gopherstack instance. | Bash (`curl`, `grep`, `head`, `sed`) |
+| **`azure-keyvault-app`** | Go app reads its config from a Key Vault secret, signs a payload with a Key Vault key and verifies it. | Go, Bash (`curl`) |
+| **`azure-servicebus-cosmos-worker`** | Go worker consumes a Service Bus queue into Cosmos DB, plus a change-feed reader printing the new documents. | Go, Bash (`curl`) |
 | **`cognito-api-auth`** | Secures API Gateway endpoints using Cognito User Pool Authorizer and JWTs. | OpenTofu, Bash |
 | **`ddb-lambda-chain`** | A 3-table event stream pipeline where DynamoDB Streams trigger a Go Lambda function. | Go, Bash |
 | **`ec2-docker`** | Demonstrates provisioning EC2 instances and running SSH commands on them locally. | Bash (`ssh`, `dig`) |
 | **`elasticache-valkey`** | Demonstrates provisioning an ElastiCache Valkey cluster and connecting via embedded DNS. | Bash (`valkey-cli` or `redis-cli`) |
 | **`eventbridge-sqs`** | Routes custom events from Amazon EventBridge to an SQS queue. | OpenTofu |
+| **`gcp-bigquery-gcs-load`** | Uploads a CSV to Cloud Storage, runs a BigQuery load job and an aggregate query. | Go, Bash (`curl`) |
+| **`gcp-run-pubsub-push`** | A Cloud Run service (Docker image) receiving Pub/Sub push messages. | Docker, Go, Bash (`curl`) |
 | **`kinesis-lambda-aggregator`** | Kinesis stream invokes a Node.js Lambda to aggregate events into DynamoDB. | OpenTofu, Bash |
 | **`s3-access-logs`** | Demonstrates configuring S3 server access logging. | OpenTofu |
 | **`s3-lambda-processor`** | S3 object uploads trigger a Go Lambda function to process the object. | OpenTofu, Go, Bash |
@@ -30,7 +34,7 @@ To run these examples locally, you need:
 
 ## Running an Example
 
-All examples include a `docker-compose.yml` file to quickly spin up Gopherstack and any necessary network dependencies.
+All examples (except `gcp-run-pubsub-push`, which needs gopherstack on the host next to Docker) include a `docker-compose.yml` file to quickly spin up Gopherstack and any necessary network dependencies.
 
 To run an example, first start Gopherstack in the background:
 ```bash
