@@ -92,6 +92,7 @@ import (
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
+	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
 	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
@@ -523,6 +524,8 @@ type Config struct {
 	GCPSchedulerOps *gcpschedulerbackend.Handler
 	// GCPRunOps is called in-process by the /dashboard/api/v1/gcp/run proxy.
 	GCPRunOps *gcprunbackend.Handler
+	// GCPFunctionsOps is called in-process by the /dashboard/api/v1/gcp/functions proxy.
+	GCPFunctionsOps *gcpfunctionsbackend.Handler
 	// GCPIAMOps is called in-process by the /dashboard/api/v1/gcp/iam proxy.
 	GCPIAMOps *gcpiambackend.Handler
 	// GCPFirestoreOps is called in-process by the /dashboard/api/v1/gcp/firestore proxy.
@@ -782,6 +785,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerGCPCloudTasksRoutes()
 	h.registerGCPSchedulerRoutes()
 	h.registerGCPRunRoutes()
+	h.registerGCPFunctionsRoutes()
 	h.registerGCPIAMRoutes()
 	h.registerGCPFirestoreRoutes()
 	h.registerAzureQueueRoutes()

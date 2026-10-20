@@ -408,6 +408,7 @@ type CLI struct {
 	gcpCloudTasksHandler          service.Registerable
 	gcpSchedulerHandler           service.Registerable
 	gcpRunHandler                 service.Registerable
+	gcpFunctionsHandler           service.Registerable
 	gcpIAMHandler                 service.Registerable
 	gcpKMSHandler                 service.Registerable
 	azureQueueHandler             service.Registerable
@@ -1900,6 +1901,11 @@ func (c *CLI) GetGCPSchedulerHandler() service.Registerable { return c.gcpSchedu
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGCPRunHandler() service.Registerable { return c.gcpRunHandler }
 
+// GetGCPFunctionsHandler returns the Cloud Functions handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPFunctionsHandler() service.Registerable { return c.gcpFunctionsHandler }
+
 // GetGCPIAMHandler returns the Cloud IAM handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
@@ -3064,6 +3070,7 @@ func storeGCPHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.gcpCloudTasksHandler = byName["GCPCloudTasks"]
 	cli.gcpSchedulerHandler = byName["GCPScheduler"]
 	cli.gcpRunHandler = byName["GCPRun"]
+	cli.gcpFunctionsHandler = byName["GCPFunctions"]
 	cli.gcpIAMHandler = byName["GCPIAM"]
 	cli.gcpKMSHandler = byName["GCPKMS"]
 }

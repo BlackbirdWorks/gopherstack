@@ -37,6 +37,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 	"github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	"github.com/blackbirdworks/gopherstack/services/gcpfirestore"
+	"github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	"github.com/blackbirdworks/gopherstack/services/gcpiam"
 	"github.com/blackbirdworks/gopherstack/services/gcpkms"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
@@ -235,6 +236,10 @@ func wireGCPOps(ctx *service.AppContext, conf *Config) {
 
 	if gp, hasRun := ctx.Config.(interface{ GetGCPRunHandler() service.Registerable }); hasRun {
 		conf.GCPRunOps, _ = getHandler[*gcprun.Handler](gp.GetGCPRunHandler())
+	}
+
+	if gp, hasFn := ctx.Config.(interface{ GetGCPFunctionsHandler() service.Registerable }); hasFn {
+		conf.GCPFunctionsOps, _ = getHandler[*gcpfunctions.Handler](gp.GetGCPFunctionsHandler())
 	}
 
 	if gp, hasIAM := ctx.Config.(interface{ GetGCPIAMHandler() service.Registerable }); hasIAM {
