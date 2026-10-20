@@ -48,6 +48,7 @@ type entry struct {
 	timer       *time.Timer
 	name        string
 	generation  uint64 // incremented on each Notify; callback checks it hasn't changed
+	flushed     uint64 // generation last written by FlushDirty
 	mu          sync.Mutex
 }
 
@@ -55,8 +56,9 @@ type entry struct {
 // It restores state on startup and performs debounced async saves on mutation.
 type Manager struct {
 	store   Store
+	baseCtx context.Context
 	entries map[string]*entry
-	baseCtx context.Context //nolint:containedctx // lifecycle ctx for the async (debounce) save path; no request ctx.
+	policy  Policy
 	mu      sync.RWMutex
 }
 
@@ -99,6 +101,10 @@ func (m *Manager) RestoreAll(ctx context.Context) {
 	defer m.mu.RUnlock()
 
 	forEachEntry(m.entries, func(name string, e *entry) {
+		if _, on := m.policy.ModeFor(name); !on {
+			return
+		}
+
 		ectx := entryCtx(ctx, name)
 		log := logger.Load(ectx)
 
@@ -148,11 +154,20 @@ func (m *Manager) Notify(name string) {
 		return
 	}
 
+	mode, on := m.policy.ModeFor(name)
+	if !on {
+		return
+	}
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	e.generation++
 	gen := e.generation
+
+	if mode != ModeSnapshot {
+		return
+	}
 
 	if e.timer != nil {
 		e.timer.Stop()
@@ -163,7 +178,7 @@ func (m *Manager) Notify(name string) {
 	})
 }
 
-// SaveAll immediately persists all registered backends.
+// SaveAll immediately persists all enabled backends.
 // Pending debounce timers are stopped to prevent concurrent writes on shutdown.
 // It is intended for graceful shutdown.
 func (m *Manager) SaveAll(ctx context.Context) {
@@ -171,6 +186,10 @@ func (m *Manager) SaveAll(ctx context.Context) {
 	defer m.mu.RUnlock()
 
 	forEachEntry(m.entries, func(_ string, e *entry) {
+		if _, on := m.policy.ModeFor(e.name); !on {
+			return
+		}
+
 		e.mu.Lock()
 		if e.timer != nil {
 			e.timer.Stop()
