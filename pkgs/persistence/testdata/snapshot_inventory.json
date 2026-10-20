@@ -14635,6 +14635,25 @@
     ],
     "version": 1
   },
+  "gcprun": {
+    "fields": [
+      "backendSnapshot.Executions map[string]json.RawMessage `json:\"executions\"`",
+      "backendSnapshot.Jobs map[string]json.RawMessage `json:\"jobs\"`",
+      "backendSnapshot.Operations map[string]json.RawMessage `json:\"operations\"`",
+      "backendSnapshot.Revisions map[string]revSnap `json:\"revisions\"`",
+      "backendSnapshot.Services map[string]svcSnap `json:\"services\"`",
+      "backendSnapshot.Tasks map[string]taskSnap `json:\"tasks\"`",
+      "revSnap.Revision json.RawMessage `json:\"revision\"`",
+      "revSnap.Seq int `json:\"seq\"`",
+      "revSnap.StartErr string `json:\"startErr\"`",
+      "svcSnap.Failure string `json:\"failure\"`",
+      "svcSnap.RevSeq int `json:\"revSeq\"`",
+      "svcSnap.Service json.RawMessage `json:\"service\"`",
+      "taskSnap.State string `json:\"state\"`",
+      "taskSnap.Task json.RawMessage `json:\"task\"`"
+    ],
+    "version": 1
+  },
   "gcpscheduler": {
     "fields": [
       "backendSnapshot.JobSeq uint64 `json:\"jobSeq\"`",

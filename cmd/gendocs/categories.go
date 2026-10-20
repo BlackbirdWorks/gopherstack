@@ -30,6 +30,7 @@ const (
 	slugGCPKMS          = "gcpkms"
 	slugGCPCloudTasks   = "gcpcloudtasks"
 	slugGCPScheduler    = "gcpscheduler"
+	slugGCPRun          = "gcprun"
 	slugGCPFirestore    = "gcpfirestore"
 	slugGCPIAM          = "gcpiam"
 )
@@ -114,7 +115,7 @@ func categoryGroups() []categoryGroup {
 		}},
 		{"GCP", []string{
 			slugGCPStorage, slugGCPPubSub, slugGCPSecretMgr, slugGCPKMS, slugGCPCloudTasks, slugGCPScheduler,
-			slugGCPFirestore, slugGCPIAM,
+			slugGCPFirestore, slugGCPIAM, slugGCPRun,
 		}},
 		{"Other", []string{
 			"appstream", "managedblockchain", "omics", "support", "workspaces",
@@ -222,6 +223,7 @@ func displayNamesB() map[string]string {
 		slugGCPKMS:         "Google Cloud KMS",
 		slugGCPCloudTasks:  "Cloud Tasks",
 		slugGCPScheduler:   "Cloud Scheduler",
+		slugGCPRun:         "Cloud Run",
 		slugGCPFirestore:   "Google Cloud Firestore",
 		slugGCPIAM:         "Cloud IAM",
 		"databrew":         "Glue DataBrew",

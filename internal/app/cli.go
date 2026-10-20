@@ -171,6 +171,7 @@ import (
 	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
 	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	gcprunbackend "github.com/blackbirdworks/gopherstack/services/gcprun"
 	gcpschedulerbackend "github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
@@ -538,6 +539,7 @@ type CLI struct {
 	ExtraListen                   []string                          `                                       name:"extra-listen"            env:"GOPHERSTACK_EXTRA_LISTEN"                                    help:"Additional ports to serve the same endpoint on (comma-separated)."`                                                                               //nolint:lll // config struct tags are intentionally verbose
 	GCPCloudTasks                 gcpcloudtasksbackend.Settings     `embed:"" prefix:"gcp-cloudtasks-"`
 	GCPScheduler                  gcpschedulerbackend.Settings      `embed:"" prefix:"gcp-scheduler-"`
+	GCPRun                        gcprunbackend.Settings            `embed:"" prefix:"gcp-run-"`
 	Transparent                   TransparentSettings               `embed:"" prefix:"transparent-"`
 	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
 	AzureKeyVault                 azurekeyvaultbackend.Settings     `embed:"" prefix:"azure-keyvault-"`
@@ -677,6 +679,9 @@ func (c *CLI) GetGCPCloudTasksSettings() gcpcloudtasksbackend.Settings { return 
 
 // GetGCPSchedulerSettings returns Google Cloud Scheduler settings (gcpscheduler.ConfigProvider).
 func (c *CLI) GetGCPSchedulerSettings() gcpschedulerbackend.Settings { return c.GCPScheduler }
+
+// GetGCPRunSettings returns Google Cloud Run settings (gcprun.ConfigProvider).
+func (c *CLI) GetGCPRunSettings() gcprunbackend.Settings { return c.GCPRun }
 
 // GetGCPIAMSettings returns Google Cloud IAM admin settings (gcpiam.ConfigProvider).
 func (c *CLI) GetGCPIAMSettings() gcpiambackend.Settings { return c.GCPIAM }
@@ -2249,6 +2254,8 @@ func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *port
 		{"GCPKMS", "gcpkms", cli.GCPKMS.Port},
 		{"GCPCloudTasks", "gcpcloudtasks", cli.GCPCloudTasks.Port},
 		{"GCPScheduler", "gcpscheduler", cli.GCPScheduler.Port},
+		{"GCPRun", "gcprun", cli.GCPRun.Port},
+		{"GCPRunIngress", "gcprun-ingress", cli.GCPRun.IngressPort},
 		{"GCPIAM", "gcpiam", cli.GCPIAM.Port},
 		{"GCPFirestore", "gcpfirestore", cli.GCPFirestore.Port},
 		{"AzureQueue", "azurequeue", cli.AzureQueue.Port},
@@ -4625,6 +4632,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&gcpkmsbackend.Provider{},
 		&gcpcloudtasksbackend.Provider{},
 		&gcpschedulerbackend.Provider{},
+		&gcprunbackend.Provider{},
 		&gcpiambackend.Provider{},
 		&gcpfirestorebackend.Provider{},
 		&azurearmbackend.Provider{},

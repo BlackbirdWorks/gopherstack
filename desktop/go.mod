@@ -14,6 +14,7 @@ require (
 	cloud.google.com/go/kms v1.35.0 // indirect
 	cloud.google.com/go/longrunning v1.2.0 // indirect
 	cloud.google.com/go/pubsub/v2 v2.7.0 // indirect
+	cloud.google.com/go/run v1.23.0 // indirect
 	cloud.google.com/go/scheduler v1.17.0 // indirect
 	cloud.google.com/go/secretmanager v1.22.0 // indirect
 	connectrpc.com/connect v1.20.0 // indirect
