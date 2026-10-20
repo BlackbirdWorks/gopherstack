@@ -16,6 +16,22 @@ import (
 
 const replicaPoll = 500 * time.Millisecond
 
+// replicaDockerSlot serialises the docker replica tests: each starts several containers and a base backup, and
+// running them side by side starves slow CI runners.
+var replicaDockerSlot = make(chan struct{}, 1) //nolint:gochecknoglobals // test-wide semaphore
+
+func serializeReplicaDocker(t *testing.T) {
+	t.Helper()
+
+	select {
+	case replicaDockerSlot <- struct{}{}:
+	case <-t.Context().Done():
+		t.FailNow()
+	}
+
+	t.Cleanup(func() { <-replicaDockerSlot })
+}
+
 type replicaDockerCase struct {
 	name        string
 	engine      string
@@ -145,6 +161,7 @@ func TestEngineDockerStreamingReplicaAndPromote(t *testing.T) {
 	for _, tc := range replicaDockerCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			serializeReplicaDocker(t)
 
 			b, rec := newDockerReplicaBackend(t)
 			srcDB := createDockerSource(t, b, tc)
@@ -203,6 +220,7 @@ func TestEngineDockerDeleteSourcePromotesReplica(t *testing.T) {
 	for _, tc := range replicaDockerCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			serializeReplicaDocker(t)
 
 			b, rec := newDockerReplicaBackend(t)
 			srcDB := createDockerSource(t, b, tc)
@@ -243,6 +261,7 @@ func TestEngineDockerReplicaSurvivesRestart(t *testing.T) {
 	for _, tc := range replicaDockerCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			serializeReplicaDocker(t)
 
 			dir := t.TempDir()
 			b1, rec1 := newDockerReplicaBackendIn(t, dir)
