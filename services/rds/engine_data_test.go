@@ -27,6 +27,9 @@ func (f *fakeEngineRuntime) Exec(_ context.Context, id string, cmd []string) (co
 	}
 
 	switch {
+	case f.dumpText != "" && (slices.Contains(cmd, "pg_dump") || slices.Contains(cmd, "mysqldump") ||
+		slices.Contains(cmd, "mariadb-dump")):
+		return container.ExecResult{Stdout: f.dumpText}, nil
 	case slices.Contains(cmd, "pg_dump"):
 		return container.ExecResult{Stdout: "pgdump-of-" + id}, nil
 	case slices.Contains(cmd, "SHOW DATABASES"):
@@ -45,6 +48,20 @@ func (f *fakeEngineRuntime) Exec(_ context.Context, id string, cmd []string) (co
 	}
 
 	return container.ExecResult{}, nil
+}
+
+func (f *fakeEngineRuntime) setDump(text string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.dumpText = text
+}
+
+func (f *fakeEngineRuntime) loadedBy(id string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.loaded[id]
 }
 
 func (f *fakeEngineRuntime) secondLoaded() string {

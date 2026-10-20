@@ -26,9 +26,9 @@ func TestDeleteDBCluster_CascadeDeletesClusterEndpoints(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateDBClusterEndpoint("leak-endpoint-1", "leak-cluster", "READER")
+	_, err = b.CreateDBClusterEndpoint("leak-endpoint-1", "leak-cluster", "READER", rds.ClusterEndpointOptions{})
 	require.NoError(t, err)
-	_, err = b.CreateDBClusterEndpoint("leak-endpoint-2", "leak-cluster", "WRITER")
+	_, err = b.CreateDBClusterEndpoint("leak-endpoint-2", "leak-cluster", "WRITER", rds.ClusterEndpointOptions{})
 	require.NoError(t, err)
 
 	// Sanity check: both endpoints exist before delete.
@@ -165,10 +165,10 @@ func TestModifyDBClusterEndpoint(t *testing.T) {
 					rds.DBClusterOptions{},
 				)
 				require.NoError(t, err)
-				_, err = b.CreateDBClusterEndpoint(tt.endpointID, "my-cluster", "WRITER")
+				_, err = b.CreateDBClusterEndpoint(tt.endpointID, "my-cluster", "WRITER", rds.ClusterEndpointOptions{})
 				require.NoError(t, err)
 			}
-			got, err := b.ModifyDBClusterEndpoint(tt.endpointID, tt.endpointType)
+			got, err := b.ModifyDBClusterEndpoint(tt.endpointID, tt.endpointType, rds.ClusterEndpointOptions{})
 			if tt.wantErr {
 				require.Error(t, err)
 				require.ErrorIs(t, err, tt.wantErrIs)

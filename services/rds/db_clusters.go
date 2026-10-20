@@ -231,6 +231,7 @@ func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
 		cp := *cluster
 		cloneDBClusterMutableSlices(&cp)
 		b.overlayFailoverStatusRLocked(&cp)
+		b.overlayClusterRestorableRLocked(&cp)
 
 		return []DBCluster{cp}, nil
 	}
@@ -239,6 +240,7 @@ func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
 		cp := *cluster
 		cloneDBClusterMutableSlices(&cp)
 		b.overlayFailoverStatusRLocked(&cp)
+		b.overlayClusterRestorableRLocked(&cp)
 		result = append(result, cp)
 	}
 	slices.SortFunc(result, func(a, b DBCluster) int {
@@ -743,7 +745,13 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 	opts.BackupRetentionPeriod = cmp.Or(opts.BackupRetentionPeriod, source.BackupRetentionPeriod)
 	opts.DatabaseName = cmp.Or(opts.DatabaseName, source.DatabaseName)
 
-	seed := liveSeedLocked(b.clusterUnitLocked(source.DBClusterIdentifier))
+	seed, err := b.restoreSeedLocked(
+		b.clusterUnitLocked(source.DBClusterIdentifier), opts.restoreRequest(),
+		source.ClusterCreateTime, source.BackupRetentionPeriod)
+	if err != nil {
+		return nil, err
+	}
+
 	opts.DatabaseName = cmp.Or(opts.DatabaseName, seed.dbName)
 
 	return b.putRestoredClusterLocked(clusterID, source.Engine, source.MasterUsername, opts, seed)

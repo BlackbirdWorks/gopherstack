@@ -15,16 +15,15 @@ import (
 func TestRealClient_RestoreToPointInTimeTimeConflict(t *testing.T) {
 	t.Parallel()
 
-	when := aws.Time(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
 	tests := []struct {
-		restore   *time.Time
 		name      string
+		restore   bool
 		useLatest bool
 		wantErr   bool
 	}{
-		{name: "both rejected", restore: when, useLatest: true, wantErr: true},
+		{name: "both rejected", restore: true, useLatest: true, wantErr: true},
 		{name: "latest only", useLatest: true},
-		{name: "time only", restore: when},
+		{name: "time only", restore: true},
 	}
 
 	for _, tt := range tests {
@@ -35,22 +34,27 @@ func TestRealClient_RestoreToPointInTimeTimeConflict(t *testing.T) {
 			ctx := t.Context()
 
 			_, err := backend.CreateDBInstance(
-				"src-i", "mysql", "db.t3.micro", "", "admin", "", 20, rds.DBInstanceOptions{},
+				"src-i", "mysql", "db.t3.micro", "", "admin", "", 20, rds.DBInstanceOptions{BackupRetentionPeriod: 1},
 			)
 			require.NoError(t, err)
 			waitForInstanceAvailable(t, backend, "src-i")
 			_, err = backend.CreateDBCluster(
-				"src-c", "aurora-mysql", "admin", "mydb", "", 3306, nil, rds.DBClusterOptions{},
+				"src-c", "aurora-mysql", "admin", "mydb", "", 3306, nil, rds.DBClusterOptions{BackupRetentionPeriod: 1},
 			)
 			require.NoError(t, err)
 
+			var when *time.Time
+			if tt.restore {
+				when = aws.Time(time.Now())
+			}
+
 			_, ierr := client.RestoreDBInstanceToPointInTime(ctx, &rdssdk.RestoreDBInstanceToPointInTimeInput{
 				SourceDBInstanceIdentifier: aws.String("src-i"), TargetDBInstanceIdentifier: aws.String("tgt-i"),
-				RestoreTime: tt.restore, UseLatestRestorableTime: aws.Bool(tt.useLatest),
+				RestoreTime: when, UseLatestRestorableTime: aws.Bool(tt.useLatest),
 			})
 			_, cerr := client.RestoreDBClusterToPointInTime(ctx, &rdssdk.RestoreDBClusterToPointInTimeInput{
 				SourceDBClusterIdentifier: aws.String("src-c"), DBClusterIdentifier: aws.String("tgt-c"),
-				RestoreToTime: tt.restore, UseLatestRestorableTime: aws.Bool(tt.useLatest),
+				RestoreToTime: when, UseLatestRestorableTime: aws.Bool(tt.useLatest),
 			})
 
 			insts, err := client.DescribeDBInstances(ctx, &rdssdk.DescribeDBInstancesInput{})

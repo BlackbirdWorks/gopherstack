@@ -538,6 +538,8 @@ func rdsErrorCode(opErr error) string {
 		{ErrUnknownAction, "InvalidAction"},
 		{ErrInvalidDBInstanceState, "InvalidDBInstanceState"},
 		{ErrResourceNotFound, "ResourceNotFoundFault"},
+		{ErrInvalidRestore, "InvalidRestoreFault"},
+		{ErrPointInTimeRestoreNotEnabled, "PointInTimeRestoreNotEnabled"},
 		{ErrCustomDBEngineVersionNotFound, "CustomDBEngineVersionNotFoundFault"},
 		{ErrCustomDBEngineVersionAlreadyExists, "CustomDBEngineVersionAlreadyExistsFault"},
 		{ErrParameterGroupNotFound, "DBParameterGroupNotFound"},

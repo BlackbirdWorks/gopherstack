@@ -185,7 +185,10 @@ func TestRealClient_MasterUserSecret(t *testing.T) {
 			run: func(t *testing.T, b *rds.InMemoryBackend, c *rdssdk.Client) {
 				t.Helper()
 
-				seedInstance(t, b, "sec-src")
+				_, serr := b.CreateDBInstance(
+					"sec-src", "mysql", "db.t3.micro", "db", "admin", "", 20,
+					rds.DBInstanceOptions{BackupRetentionPeriod: 1})
+				require.NoError(t, serr)
 				_, err := b.CreateDBSnapshot("sec-snap", "sec-src")
 				require.NoError(t, err)
 

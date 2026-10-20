@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -90,18 +91,26 @@ type EngineConfig struct {
 	Probe func(ctx context.Context, l EngineLogin) error
 	// SetPassword changes the login's own password inside the engine; nil uses the real drivers.
 	SetPassword func(ctx context.Context, l EngineLogin, newPassword string) error
+	// Now is the clock for restore points; nil uses time.Now.
+	Now func() time.Time
 	// Host is the address clients use to reach published ports; default 127.0.0.1.
 	Host string
 	// CADir persists the local CA that signs the postgres proxy certificate; empty keeps it in memory.
 	CADir string
+	// DumpDir persists snapshot dumps and restore points so restores survive a restart; empty keeps them in memory.
+	DumpDir string
 	// StartTimeout bounds how long a database may stay unreachable before it is marked failed.
 	StartTimeout time.Duration
+	// RestorePointInterval is how often ready databases with backups enabled are dumped for point-in-time
+	// restore; zero uses five minutes and a negative value disables it.
+	RestorePointInterval time.Duration
 }
 
 type liveDB struct {
 	gone        chan struct{}
 	proxy       atomic.Pointer[pgProxy]
 	fwd         atomic.Pointer[tcpForwarder]
+	eps         sync.Map
 	seed        engineSeed
 	password    string
 	kind        string
@@ -128,6 +137,14 @@ func (lb *liveDB) release() {
 		if f := lb.fwd.Load(); f != nil {
 			f.close()
 		}
+
+		lb.eps.Range(func(_, v any) bool {
+			if l, ok := v.(*endpointListener); ok {
+				l.close()
+			}
+
+			return true
+		})
 	})
 }
 
@@ -166,13 +183,17 @@ func (lb *liveDB) opContext(timeout time.Duration) (context.Context, context.Can
 }
 
 type dbEngine struct {
-	units   map[string]*liveDB
-	data    map[string]engineData
-	ca      *engineCA
-	tlsCfg  *tls.Config
-	cfg     EngineConfig
-	wg      sync.WaitGroup
-	tlsOnce sync.Once
+	units      map[string]*liveDB
+	data       map[string]engineData
+	points     map[string][]restorePoint
+	checked    map[string]time.Time
+	store      *dumpStore
+	ca         *engineCA
+	tlsCfg     *tls.Config
+	cfg        EngineConfig
+	wg         sync.WaitGroup
+	tlsOnce    sync.Once
+	execBroken atomic.Bool
 }
 
 // EnableEngine switches the backend to docker mode: postgres/mysql/mariadb (and Aurora) get a real container.
@@ -196,7 +217,21 @@ func (b *InMemoryBackend) EnableEngine(cfg EngineConfig) {
 	b.mu.Lock("EnableEngine")
 	defer b.mu.Unlock()
 
-	b.engine = &dbEngine{cfg: cfg, units: make(map[string]*liveDB), data: make(map[string]engineData)}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+
+	b.engine = &dbEngine{
+		cfg: cfg, units: make(map[string]*liveDB), data: make(map[string]engineData),
+		points: make(map[string][]restorePoint), checked: make(map[string]time.Time),
+	}
+
+	if cfg.DumpDir != "" {
+		b.engine.store = newDumpStore(filepath.Join(cfg.DumpDir, b.region))
+		b.engine.loadDumps()
+	}
+
+	b.startRestorePointLoop()
 }
 
 // engineKind maps an RDS engine name to its base database; "" means no real engine is available.
@@ -350,6 +385,14 @@ func (e *dbEngine) reap(lbs ...*liveDB) {
 				f.wg.Wait()
 			}
 
+			lb.eps.Range(func(_, v any) bool {
+				if l, ok := v.(*endpointListener); ok {
+					l.wg.Wait()
+				}
+
+				return true
+			})
+
 			e.remove(id, port)
 		})
 	}
@@ -403,6 +446,8 @@ func (b *InMemoryBackend) dropUnitLocked(key string) {
 		return
 	}
 
+	b.dropPointsLocked(key)
+
 	if lb, ok := b.engine.units[key]; ok {
 		delete(b.engine.units, key)
 		b.engine.reap(lb)
@@ -419,7 +464,11 @@ func (b *InMemoryBackend) dropAllUnitsLocked() {
 		b.engine.reap(lb)
 	}
 
-	clear(b.engine.data)
+	if b.engine.store == nil {
+		clear(b.engine.data)
+		clear(b.engine.points)
+		clear(b.engine.checked)
+	}
 }
 
 // launchSeededUnitLocked registers a database unit and starts its container in the background; the seed is
@@ -592,6 +641,7 @@ func (b *InMemoryBackend) awaitAndMark(ctx context.Context, lb *liveDB) {
 	}
 
 	b.markUnitReady(lb)
+	b.recordRestorePoint(lb)
 }
 
 func (e *dbEngine) awaitReady(ctx context.Context, login EngineLogin) error {
@@ -656,6 +706,8 @@ func (b *InMemoryBackend) markUnitReady(lb *liveDB) {
 
 	lb.ready = true
 	host := b.engine.cfg.Host
+
+	defer b.syncClusterEndpointsLocked(lb)
 
 	b.unitStatusesLocked(lb, func(inst *DBInstance) {
 		inst.Endpoint, inst.Port = host, lb.advertisedPort()

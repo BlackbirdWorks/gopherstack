@@ -1,6 +1,7 @@
 package rds
 
 import (
+	"cmp"
 	"fmt"
 	"net/url"
 	"slices"
@@ -9,6 +10,7 @@ import (
 // CreateDBClusterEndpoint creates a custom endpoint for the given cluster.
 func (b *InMemoryBackend) CreateDBClusterEndpoint(
 	endpointID, clusterID, endpointType string,
+	opts ClusterEndpointOptions,
 ) (*DBClusterEndpoint, error) {
 	if endpointID == "" {
 		return nil, fmt.Errorf("%w: DBClusterEndpointIdentifier must not be empty", ErrInvalidParameter)
@@ -16,16 +18,23 @@ func (b *InMemoryBackend) CreateDBClusterEndpoint(
 	if clusterID == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
 	}
+	if endpointType == "" {
+		endpointType = clusterEndpointAny
+	}
+	if err := validateClusterEndpointInput(endpointType, opts); err != nil {
+		return nil, err
+	}
 	b.mu.Lock("CreateDBClusterEndpoint")
 	defer b.mu.Unlock()
 	if _, exists := b.clusterEndpoints.Get(endpointID); exists {
 		return nil, fmt.Errorf("%w: cluster endpoint %s already exists", ErrClusterEndpointAlreadyExists, endpointID)
 	}
-	if _, exists := b.clusters.Get(normalizeID(clusterID)); !exists {
+	cluster, exists := b.clusters.Get(normalizeID(clusterID))
+	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
-	if endpointType == "" {
-		endpointType = "ANY"
+	if err := checkEndpointMembers(cluster, opts); err != nil {
+		return nil, err
 	}
 	ep := &DBClusterEndpoint{
 		DBClusterEndpointIdentifier: endpointID,
@@ -33,17 +42,53 @@ func (b *InMemoryBackend) CreateDBClusterEndpoint(
 		DBClusterEndpointArn:        b.rdsARN("cluster-endpoint", endpointID),
 		EndpointType:                endpointType,
 		Status:                      instanceStatusAvailable,
+		StaticMembers:               slices.Clone(opts.StaticMembers),
+		ExcludedMembers:             slices.Clone(opts.ExcludedMembers),
 		Endpoint: fmt.Sprintf(
-			"%s.cluster-custom.%s.%s.rds.amazonaws.com",
+			"%s.%s.%s.rds.amazonaws.com",
 			endpointID,
 			b.accountID,
 			b.region,
 		),
 	}
 	b.clusterEndpoints.Put(ep)
-	cp := *ep
+	b.syncClusterEndpointsLocked(b.clusterUnitLocked(clusterID))
 
-	return &cp, nil
+	return b.endpointViewLocked(ep), nil
+}
+
+const (
+	clusterEndpointReader = "READER"
+	clusterEndpointWriter = "WRITER"
+	clusterEndpointAny    = "ANY"
+)
+
+func validateClusterEndpointInput(endpointType string, opts ClusterEndpointOptions) error {
+	switch endpointType {
+	case clusterEndpointReader, clusterEndpointWriter, clusterEndpointAny:
+	default:
+		return fmt.Errorf("%w: EndpointType must be one of READER, WRITER, ANY", ErrInvalidParameter)
+	}
+	if len(opts.StaticMembers) > 0 && len(opts.ExcludedMembers) > 0 {
+		return fmt.Errorf("%w: StaticMembers and ExcludedMembers can't both be specified",
+			ErrInvalidParameterCombination)
+	}
+
+	return nil
+}
+
+// checkEndpointMembers requires every named member to be an instance of the cluster.
+func checkEndpointMembers(cluster *DBCluster, opts ClusterEndpointOptions) error {
+	for _, id := range slices.Concat(opts.StaticMembers, opts.ExcludedMembers) {
+		if !slices.ContainsFunc(cluster.DBClusterMembers, func(m DBClusterMember) bool {
+			return idEqual(m.DBInstanceIdentifier, id)
+		}) {
+			return fmt.Errorf("%w: instance %s is not a member of cluster %s",
+				ErrInstanceNotFound, id, cluster.DBClusterIdentifier)
+		}
+	}
+
+	return nil
 }
 
 // DescribeDBClusterEndpoints returns cluster endpoints, filtered by cluster or endpoint ID.
@@ -71,7 +116,7 @@ func (b *InMemoryBackend) DescribeDBClusterEndpoints(clusterID, endpointID strin
 		if endpointID != "" && ep.DBClusterEndpointIdentifier != endpointID {
 			continue
 		}
-		result = append(result, *ep)
+		result = append(result, *b.endpointViewLocked(ep))
 	}
 	slices.SortFunc(result, func(a, b DBClusterEndpoint) int {
 		if a.DBClusterEndpointIdentifier < b.DBClusterEndpointIdentifier {
@@ -163,25 +208,45 @@ func (b *InMemoryBackend) DeleteDBClusterEndpoint(endpointID string) (*DBCluster
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster endpoint %s not found", ErrClusterEndpointNotFound, endpointID)
 	}
-	cp := *ep
+	cp := b.endpointViewLocked(ep)
+	b.closeEndpointListenerLocked(ep)
 	b.clusterEndpoints.Delete(endpointID)
 	delete(b.tags, b.rdsARN("cluster-endpoint", endpointID))
 
-	return &cp, nil
+	return cp, nil
 }
 
-// ModifyDBClusterEndpoint modifies a custom DB cluster endpoint.
-func (b *InMemoryBackend) ModifyDBClusterEndpoint(endpointID, endpointType string) (*DBClusterEndpoint, error) {
+// ModifyDBClusterEndpoint modifies a custom DB cluster endpoint; supplying one member list replaces and
+// clears the other.
+func (b *InMemoryBackend) ModifyDBClusterEndpoint(
+	endpointID, endpointType string,
+	opts ClusterEndpointOptions,
+) (*DBClusterEndpoint, error) {
+	if endpointType != "" || len(opts.StaticMembers) > 0 || len(opts.ExcludedMembers) > 0 {
+		if err := validateClusterEndpointInput(cmp.Or(endpointType, clusterEndpointAny), opts); err != nil {
+			return nil, err
+		}
+	}
 	b.mu.Lock("ModifyDBClusterEndpoint")
 	defer b.mu.Unlock()
 	ep, exists := b.clusterEndpoints.Get(endpointID)
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster endpoint %s not found", ErrClusterEndpointNotFound, endpointID)
 	}
+	if cluster, ok := b.clusters.Get(normalizeID(ep.DBClusterIdentifier)); ok {
+		if err := checkEndpointMembers(cluster, opts); err != nil {
+			return nil, err
+		}
+	}
 	if endpointType != "" {
 		ep.EndpointType = endpointType
 	}
-	cp := *ep
+	switch {
+	case len(opts.StaticMembers) > 0:
+		ep.StaticMembers, ep.ExcludedMembers = slices.Clone(opts.StaticMembers), nil
+	case len(opts.ExcludedMembers) > 0:
+		ep.StaticMembers, ep.ExcludedMembers = nil, slices.Clone(opts.ExcludedMembers)
+	}
 
-	return &cp, nil
+	return b.endpointViewLocked(ep), nil
 }

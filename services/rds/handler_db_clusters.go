@@ -414,6 +414,12 @@ func (h *Handler) handleRestoreDBClusterToPointInTime(vals url.Values) (any, err
 		return nil, err
 	}
 
+	if restoreOpts.RestoreTime, err = parseRestoreTime(vals, "RestoreToTime"); err != nil {
+		return nil, err
+	}
+
+	restoreOpts.UseLatestRestorableTime = vals.Get("UseLatestRestorableTime") == formTrue
+
 	cluster, err := h.Backend.RestoreDBClusterToPointInTime(clusterID, sourceClusterID, restoreOpts)
 	if err != nil {
 		return nil, err
@@ -462,6 +468,8 @@ func toXMLCluster(c *DBCluster, roles []DBClusterRole) xmlDBCluster {
 		KmsKeyID:                           c.KmsKeyID,
 		MonitoringRoleArn:                  c.MonitoringRoleArn,
 		ClusterCreateTime:                  clusterCreateTime,
+		EarliestRestorableTime:             formatOptionalTime(c.EarliestRestorableTime),
+		LatestRestorableTime:               formatOptionalTime(c.LatestRestorableTime),
 		BacktrackWindow:                    c.BacktrackWindow,
 		BackupRetentionPeriod:              c.BackupRetentionPeriod,
 		MonitoringInterval:                 c.MonitoringInterval,
@@ -731,6 +739,8 @@ type xmlDBCluster struct {
 	KmsKeyID                        string `xml:"KmsKeyId,omitempty"`
 	MonitoringRoleArn               string `xml:"MonitoringRoleArn,omitempty"`
 	ClusterCreateTime               string `xml:"ClusterCreateTime,omitempty"`
+	EarliestRestorableTime          string `xml:"EarliestRestorableTime,omitempty"`
+	LatestRestorableTime            string `xml:"LatestRestorableTime,omitempty"`
 	ClusterScalabilityType          string `xml:"ClusterScalabilityType,omitempty"`
 	PerformanceInsightsKMSKeyID     string `xml:"PerformanceInsightsKMSKeyId,omitempty"`
 	LocalWriteForwardingStatus      string `xml:"LocalWriteForwardingStatus,omitempty"`

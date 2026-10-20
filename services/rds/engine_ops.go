@@ -198,7 +198,8 @@ func (b *InMemoryBackend) relaunchUnitsLocked() {
 			continue
 		}
 
-		b.provisionClusterLocked(c, "")
+		seed := b.latestPointSeedLocked(unitKeyForCluster(c.DBClusterIdentifier))
+		b.provisionSeededClusterLocked(c, "", seed)
 		delete(b.clusterReadyAt, c.DBClusterIdentifier)
 	}
 
@@ -209,7 +210,8 @@ func (b *InMemoryBackend) relaunchUnitsLocked() {
 
 		inst.DBInstanceStatus = instanceStatusCreating
 
-		if b.provisionInstanceLocked(inst, "") {
+		seed := b.latestPointSeedLocked(unitKeyForInstance(inst.DBInstanceIdentifier))
+		if b.provisionSeededInstanceLocked(inst, "", seed) {
 			delete(b.instanceReadyAt, inst.DBInstanceIdentifier)
 		} else {
 			inst.DBInstanceStatus = instanceStatusAvailable

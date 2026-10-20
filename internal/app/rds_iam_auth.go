@@ -23,6 +23,16 @@ func (c *CLI) GetRDSCADir() string {
 	return filepath.Join(c.resolvedDataDir(), "rds-ca")
 }
 
+// GetRDSDumpDir persists docker-mode snapshot dumps and restore points under the data dir when --persist is on
+// (rds.EngineDumpDirConfig).
+func (c *CLI) GetRDSDumpDir() string {
+	if !c.Persist {
+		return ""
+	}
+
+	return filepath.Join(c.resolvedDataDir(), "rds-dumps")
+}
+
 // wireRDSIAMAuth connects RDS IAM database authentication to IAM and STS and serves the engine CA at rdsCAPath.
 func wireRDSIAMAuth(e *echo.Echo, services []service.Registerable, enforceIAM bool) {
 	var (

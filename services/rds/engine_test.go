@@ -21,6 +21,7 @@ type fakeEngineRuntime struct {
 	running   map[string]bool
 	createErr error
 	execErr   error
+	dumpText  string
 	staged    map[string]string
 	loaded    map[string]string
 	specs     []container.Spec

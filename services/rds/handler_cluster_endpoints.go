@@ -3,13 +3,14 @@ package rds
 import (
 	"encoding/xml"
 	"net/url"
+	"slices"
 )
 
 func (h *Handler) handleCreateDBClusterEndpoint(vals url.Values) (any, error) {
 	endpointID := vals.Get("DBClusterEndpointIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
 	endpointType := vals.Get("EndpointType")
-	ep, err := h.Backend.CreateDBClusterEndpoint(endpointID, clusterID, endpointType)
+	ep, err := h.Backend.CreateDBClusterEndpoint(endpointID, clusterID, endpointType, parseEndpointMembers(vals))
 	if err != nil {
 		return nil, err
 	}
@@ -82,20 +83,44 @@ func toXMLClusterEndpointFields(ep *DBClusterEndpoint) xmlDBClusterEndpointField
 		CustomEndpointType:          ep.EndpointType,
 		Status:                      ep.Status,
 		Endpoint:                    ep.Endpoint,
+		StaticMembers:               xmlMemberList(ep.StaticMembers),
+		ExcludedMembers:             xmlMemberList(ep.ExcludedMembers),
 	}
+}
+
+func parseEndpointMembers(vals url.Values) ClusterEndpointOptions {
+	return ClusterEndpointOptions{
+		StaticMembers:   parseMultiValueParam(vals, "StaticMembers.member"),
+		ExcludedMembers: parseMultiValueParam(vals, "ExcludedMembers.member"),
+	}
+}
+
+// xmlMemberList is the <member> wrapper the SDK expects for a string list; nil omits the element.
+func xmlMemberList(ids []string) *xmlEndpointMembers {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	return &xmlEndpointMembers{Members: slices.Clone(ids)}
+}
+
+type xmlEndpointMembers struct {
+	Members []string `xml:"member"`
 }
 
 // xmlDBClusterEndpointFields contains the individual fields of a cluster endpoint.
 // It is used both standalone (for Create/Delete, whose results inline all fields) and
 // inside the DescribeDBClusterEndpoints list (as DBClusterEndpointList items).
 type xmlDBClusterEndpointFields struct {
-	DBClusterEndpointIdentifier string `xml:"DBClusterEndpointIdentifier"`
-	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
-	DBClusterEndpointArn        string `xml:"DBClusterEndpointArn,omitempty"`
-	EndpointType                string `xml:"EndpointType"`
-	CustomEndpointType          string `xml:"CustomEndpointType,omitempty"`
-	Status                      string `xml:"Status"`
-	Endpoint                    string `xml:"Endpoint,omitempty"`
+	StaticMembers               *xmlEndpointMembers `xml:"StaticMembers,omitempty"`
+	ExcludedMembers             *xmlEndpointMembers `xml:"ExcludedMembers,omitempty"`
+	DBClusterEndpointIdentifier string              `xml:"DBClusterEndpointIdentifier"`
+	DBClusterIdentifier         string              `xml:"DBClusterIdentifier"`
+	DBClusterEndpointArn        string              `xml:"DBClusterEndpointArn,omitempty"`
+	EndpointType                string              `xml:"EndpointType"`
+	CustomEndpointType          string              `xml:"CustomEndpointType,omitempty"`
+	Status                      string              `xml:"Status"`
+	Endpoint                    string              `xml:"Endpoint,omitempty"`
 }
 
 type xmlDBClusterEndpointList struct {
@@ -109,9 +134,9 @@ type createDBClusterEndpointResult struct {
 }
 
 type createDBClusterEndpointResponse struct {
+	Result  createDBClusterEndpointResult `xml:"CreateDBClusterEndpointResult"`
 	XMLName xml.Name                      `xml:"CreateDBClusterEndpointResponse"`
 	Xmlns   string                        `xml:"xmlns,attr"`
-	Result  createDBClusterEndpointResult `xml:"CreateDBClusterEndpointResult"`
 }
 
 type describeDBClusterEndpointsResponse struct {
@@ -127,15 +152,15 @@ type deleteDBClusterEndpointResult struct {
 }
 
 type deleteDBClusterEndpointResponse struct {
+	Result  deleteDBClusterEndpointResult `xml:"DeleteDBClusterEndpointResult"`
 	XMLName xml.Name                      `xml:"DeleteDBClusterEndpointResponse"`
 	Xmlns   string                        `xml:"xmlns,attr"`
-	Result  deleteDBClusterEndpointResult `xml:"DeleteDBClusterEndpointResult"`
 }
 
 func (h *Handler) handleModifyDBClusterEndpoint(vals url.Values) (any, error) {
 	endpointID := vals.Get("DBClusterEndpointIdentifier")
 	endpointType := vals.Get("EndpointType")
-	ep, err := h.Backend.ModifyDBClusterEndpoint(endpointID, endpointType)
+	ep, err := h.Backend.ModifyDBClusterEndpoint(endpointID, endpointType, parseEndpointMembers(vals))
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +176,7 @@ type modifyDBClusterEndpointResult struct {
 }
 
 type modifyDBClusterEndpointResponse struct {
+	Result  modifyDBClusterEndpointResult `xml:"ModifyDBClusterEndpointResult"`
 	XMLName xml.Name                      `xml:"ModifyDBClusterEndpointResponse"`
 	Xmlns   string                        `xml:"xmlns,attr"`
-	Result  modifyDBClusterEndpointResult `xml:"ModifyDBClusterEndpointResult"`
 }

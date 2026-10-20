@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -137,8 +138,8 @@ func (e *dbEngine) dumpUnit(ctx context.Context, in unitInfo) (string, error) {
 	}
 
 	cmd := append([]string{
-		cmdEnv, env, dumper, "-u" + mysqlRootUser, "--single-transaction", "--routines", "--events", "--triggers",
-		"--databases",
+		cmdEnv, env, dumper, "-u" + mysqlRootUser, "--single-transaction", "--skip-dump-date",
+		"--routines", "--events", "--triggers", "--databases",
 	}, names...)
 
 	return e.run(ctx, x, in.containerID, cmd)
@@ -285,7 +286,15 @@ func (b *InMemoryBackend) storeSnapDataLocked(kind, snapshotID string, d engineD
 		return
 	}
 
-	b.engine.data[snapDataKey(kind, snapshotID)] = d
+	key := snapDataKey(kind, snapshotID)
+	b.engine.data[key] = d
+	b.persistSnapData(key, d)
+}
+
+func (b *InMemoryBackend) persistSnapData(key string, d engineData) {
+	if err := b.engine.store.save(key, time.Time{}, d); err != nil {
+		logger.Load(context.Background()).Warn("rds: persisting snapshot dump failed", "key", key, "error", err)
+	}
 }
 
 func (b *InMemoryBackend) copySnapDataLocked(kind, from, to string) {
@@ -294,13 +303,17 @@ func (b *InMemoryBackend) copySnapDataLocked(kind, from, to string) {
 	}
 
 	if d, ok := b.engine.data[snapDataKey(kind, from)]; ok {
-		b.engine.data[snapDataKey(kind, to)] = d
+		key := snapDataKey(kind, to)
+		b.engine.data[key] = d
+		b.persistSnapData(key, d)
 	}
 }
 
 func (b *InMemoryBackend) dropSnapDataLocked(kind, snapshotID string) {
 	if b.engine != nil {
-		delete(b.engine.data, snapDataKey(kind, snapshotID))
+		key := snapDataKey(kind, snapshotID)
+		delete(b.engine.data, key)
+		b.engine.store.remove(key)
 	}
 }
 

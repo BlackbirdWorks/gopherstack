@@ -124,7 +124,9 @@ type StorageBackend interface {
 	CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshotID string, copyTags bool) (*DBClusterSnapshot, error)
 
 	// DB cluster endpoint operations
-	CreateDBClusterEndpoint(endpointID, clusterID, endpointType string) (*DBClusterEndpoint, error)
+	CreateDBClusterEndpoint(
+		endpointID, clusterID, endpointType string, opts ClusterEndpointOptions,
+	) (*DBClusterEndpoint, error)
 	DescribeDBClusterEndpoints(clusterID, endpointID string) ([]DBClusterEndpoint, error)
 	DeleteDBClusterEndpoint(endpointID string) (*DBClusterEndpoint, error)
 
