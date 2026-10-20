@@ -2310,6 +2310,8 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"AzureStorageVHost", "azurestoragevhost", cli.AzureStorageVHost.Port},
 		{"CosmosDB", "cosmosdb", cli.CosmosDB.Port},
 		{"AzureServiceBus", "azureservicebus", cli.AzureServiceBus.Port},
+		{"AzureServiceBusAMQP", "azureservicebus-amqp", cli.AzureServiceBus.AMQPPort},
+		{"AzureServiceBusAMQPTLS", "azureservicebus-amqp-tls", cli.AzureServiceBus.AMQPTLSPort},
 		{"AzureARM", "azurearm", cli.AzureARM.Port},
 		{"AzureKeyVault", "azurekeyvault", cli.AzureKeyVault.Port},
 	}

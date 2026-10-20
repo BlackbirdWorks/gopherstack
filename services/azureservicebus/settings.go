@@ -27,11 +27,18 @@ type Settings struct {
 	// WithSharedKeyValidation. Off by default: SAS tokens are always
 	// structurally parsed (key name + resource scope extracted) but not
 	// cryptographically checked unless this is set.
-	ValidateSAS bool `json:"validateSAS" env:"AZURE_SERVICEBUS_VALIDATE_SAS" default:"false" name:"validate-sas" help:"Cryptographically validate Service Bus SAS token signatures (opt-in). Signed requests whose signature does not match the configured key are rejected."` //nolint:lll // config struct tags are intentionally verbose
+	// AMQPPort is the plain-text AMQP 1.0 listener port (0 disables). AMQP is
+	// what every Service Bus SDK speaks; azservicebus reaches it with
+	// UseDevelopmentEmulator=true in the connection string.
+	AMQPPort int `json:"amqpPort" env:"AZURE_SERVICEBUS_AMQP_PORT" default:"5672" name:"amqp-port" help:"Plain-text AMQP 1.0 listener port for Service Bus SDKs (0 disables)."` //nolint:lll // config struct tags are intentionally verbose
+	// AMQPTLSPort is the AMQP 1.0 over TLS listener port (0 disables). It serves
+	// a generated self-signed dev certificate for localhost.
+	AMQPTLSPort int  `json:"amqpTLSPort" env:"AZURE_SERVICEBUS_AMQP_TLS_PORT" default:"5671"  name:"amqp-tls-port" help:"AMQP 1.0 over TLS listener port, self-signed dev certificate (0 disables)."`                                                                            //nolint:lll // config struct tags are intentionally verbose
+	ValidateSAS bool `json:"validateSAS" env:"AZURE_SERVICEBUS_VALIDATE_SAS"  default:"false" name:"validate-sas"  help:"Cryptographically validate Service Bus SAS token signatures (opt-in). Signed requests whose signature does not match the configured key are rejected."` //nolint:lll // config struct tags are intentionally verbose
 }
 
 // DefaultSettings returns the default Settings. Used when no ConfigProvider
 // is available at init time (e.g. tests constructing a Provider directly).
 func DefaultSettings() Settings {
-	return Settings{Port: DefaultPort, ValidateSAS: false}
+	return Settings{Port: DefaultPort, AMQPPort: DefaultAMQPPort, AMQPTLSPort: DefaultAMQPTLSPort}
 }

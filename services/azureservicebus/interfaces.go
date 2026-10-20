@@ -1,10 +1,9 @@
 // Package azureservicebus provides a local, in-memory emulation of Azure
 // Service Bus's Brokered Messaging REST API: queue and topic/subscription
 // CRUD, and the full send/peek-lock/complete/abandon/dead-letter message
-// lifecycle over HTTP+SharedAccessSignature auth. It deliberately does NOT
-// implement AMQP 1.0 -- sessions and full AMQP compatibility are out of
-// scope for this MVP. See AZURE.md section 9 (M5) and PARITY.md for scope
-// and known gaps.
+// lifecycle over HTTP+SharedAccessSignature auth, plus an AMQP 1.0 plane
+// (pkgs/amqp1) over the same backend for the official SDKs. Sessions are not
+// implemented. See PARITY.md for scope and known gaps.
 package azureservicebus
 
 import (
@@ -151,8 +150,14 @@ type NewMessage struct {
 	MessageID     string
 	ReplyTo       string
 	SessionID     string
-	Body          []byte
-	TimeToLive    time.Duration
+	To            string
+	// ReplyToSessionID, AppProps and ScheduledFor are populated by the AMQP
+	// plane; ScheduledFor in the future holds the message back until then.
+	ReplyToSessionID string
+	AppProps         map[string]any
+	ScheduledFor     time.Time
+	Body             []byte
+	TimeToLive       time.Duration
 }
 
 // MessageInfo is the public, read-only snapshot of a stored message returned
@@ -161,19 +166,25 @@ type NewMessage struct {
 type MessageInfo struct {
 	EnqueuedTime               time.Time
 	LockedUntil                time.Time
+	ExpiresAt                  time.Time
+	ScheduledFor               time.Time
 	CustomHeaders              map[string]string
+	AppProps                   map[string]any
+	ReplyToSessionID           string
 	MessageID                  string
-	Label                      string
-	CorrelationID              string
-	ContentType                string
-	ReplyTo                    string
 	SessionID                  string
+	To                         string
+	ContentType                string
+	CorrelationID              string
+	Label                      string
+	ReplyTo                    string
+	DeadLetterErrorDescription string
 	LockToken                  string
 	DeadLetterReason           string
-	DeadLetterErrorDescription string
 	Body                       []byte
 	SequenceNumber             int64
 	DeliveryCount              int64
+	Deferred                   bool
 }
 
 // StorageBackend defines the interface for an Azure Service Bus backend.

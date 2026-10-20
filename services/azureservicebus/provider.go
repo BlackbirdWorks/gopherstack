@@ -54,6 +54,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	backend := NewInMemoryBackend()
 	handler := NewHandler(backend).WithJanitor(0)
 	handler.Port = settings.Port
+	handler.AMQPPort = settings.AMQPPort
+	handler.AMQPTLSPort = settings.AMQPTLSPort
 
 	if settings.ValidateSAS {
 		handler.WithSASValidation(DefaultKeyValue)

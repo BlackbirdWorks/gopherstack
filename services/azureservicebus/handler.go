@@ -3,6 +3,7 @@ package azureservicebus
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
@@ -78,20 +80,17 @@ const MaxPeekLockWaitTimeout = 30 * time.Second
 
 // Handler is the Echo HTTP handler for Azure Service Bus operations.
 type Handler struct {
-	Backend StorageBackend
-	srv     *http.Server
-	janitor *Janitor
-	// Endpoint is e.g. "http://127.0.0.1:10003".
-	Endpoint string
-	// SASKeyValue is the base64 key WithSASValidation checks signatures
-	// against. Defaults to DefaultKeyValue when empty.
+	Backend     StorageBackend
+	srv         *http.Server
+	janitor     *Janitor
+	AMQPCert    *tls.Certificate
+	amqp        *amqpService
+	amqpMu      *lockmetrics.RWMutex
+	Endpoint    string
 	SASKeyValue string
-	// Port is the TCP port StartWorker binds. Set from Settings at Init time
-	// (see provider.go); defaults to DefaultPort. Single fixed,
-	// protocol-conventional port -- no fallback pool.
-	Port int
-	// ValidateSAS opts checkAuth into cryptographic SAS verification. See
-	// WithSASValidation.
+	Port        int
+	AMQPPort    int
+	AMQPTLSPort int
 	ValidateSAS bool
 }
 
@@ -99,8 +98,11 @@ type Handler struct {
 // DefaultPort; callers (typically provider.go) override it from Settings.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
-		Backend: backend,
-		Port:    DefaultPort,
+		Backend:     backend,
+		Port:        DefaultPort,
+		AMQPPort:    DefaultAMQPPort,
+		AMQPTLSPort: DefaultAMQPTLSPort,
+		amqpMu:      lockmetrics.New("azureservicebus.amqp"),
 	}
 }
 
@@ -1135,7 +1137,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		go h.janitor.Run(ctx)
 	}
 
-	return nil
+	return h.startAMQP(ctx)
 }
 
 // Timeouts for the dedicated Service Bus http.Server. Mirrors
@@ -1149,6 +1151,8 @@ const (
 // Shutdown stops the dedicated Service Bus listener. Mirrors
 // services/azurequeue's Shutdown.
 func (h *Handler) Shutdown(ctx context.Context) {
+	h.stopAMQP()
+
 	srv := h.srv
 	h.srv = nil
 

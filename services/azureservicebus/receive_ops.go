@@ -54,7 +54,7 @@ func (b *InMemoryBackend) ReceiveAndDelete(ref EntityRef, deadLetter bool) (Mess
 	now := b.now()
 
 	for i, msg := range mq.liveList(deadLetter) {
-		if msg.isExpired(now) || msg.isLocked(now) {
+		if msg.isExpired(now) || msg.isLocked(now) || msg.Deferred {
 			continue
 		}
 

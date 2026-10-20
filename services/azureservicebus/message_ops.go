@@ -48,8 +48,19 @@ func (b *InMemoryBackend) Send(ref EntityRef, msg NewMessage) (MessageInfo, erro
 
 	var first MessageInfo
 
+	var group int64
+
 	for i, sub := range sortedSubscriptions(t) {
 		stored := b.newStoredMessageLocked(msg, t.Config, now)
+
+		if i == 0 {
+			group = stored.SequenceNumber
+		}
+
+		if !stored.ScheduledFor.IsZero() {
+			stored.SchedGroup = group
+		}
+
 		sub.appendLive(stored)
 		sub.broadcastLocked()
 
@@ -112,19 +123,30 @@ func (b *InMemoryBackend) newStoredMessageLocked(msg NewMessage, cfg EntityConfi
 		id = b.idFunc()
 	}
 
-	return &storedMessage{
-		MessageID:      id,
-		SequenceNumber: b.nextSequenceNumberLocked(),
-		Body:           append([]byte(nil), msg.Body...),
-		ContentType:    msg.ContentType,
-		Label:          msg.Label,
-		CorrelationID:  msg.CorrelationID,
-		ReplyTo:        msg.ReplyTo,
-		SessionID:      msg.SessionID,
-		CustomHeaders:  msg.CustomHeaders,
-		EnqueuedTime:   now,
-		ExpiresAt:      now.Add(ttl),
+	sm := &storedMessage{
+		To:               msg.To,
+		ReplyToSessionID: msg.ReplyToSessionID,
+		AppProps:         msg.AppProps,
+		MessageID:        id,
+		SequenceNumber:   b.nextSequenceNumberLocked(),
+		Body:             append([]byte(nil), msg.Body...),
+		ContentType:      msg.ContentType,
+		Label:            msg.Label,
+		CorrelationID:    msg.CorrelationID,
+		ReplyTo:          msg.ReplyTo,
+		SessionID:        msg.SessionID,
+		CustomHeaders:    msg.CustomHeaders,
+		EnqueuedTime:     now,
+		ExpiresAt:        now.Add(ttl),
 	}
+
+	if msg.ScheduledFor.After(now) {
+		sm.ScheduledFor = msg.ScheduledFor.UTC()
+		sm.LockedUntil = sm.ScheduledFor
+		sm.ExpiresAt = sm.ScheduledFor.Add(ttl)
+	}
+
+	return sm
 }
 
 // PeekLock returns the oldest visible (unlocked, non-expired) message on ref
@@ -227,7 +249,7 @@ func (b *InMemoryBackend) peekLockOnce(
 	for i := start; i < len(list); i++ {
 		msg := list[i]
 
-		if msg.isExpired(now) {
+		if msg.isExpired(now) || msg.Deferred {
 			continue
 		}
 
