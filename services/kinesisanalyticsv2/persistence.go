@@ -325,6 +325,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.snapshots.Restore(liveSnaps)
+	b.reconcileFlinkLocked()
 
 	// operations and versions are deliberately left untouched here, exactly
 	// matching pre-Phase-3.3 behavior: neither was ever part of

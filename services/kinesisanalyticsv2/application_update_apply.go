@@ -267,6 +267,7 @@ func buildCodeContentDescription(text string, zip []byte, s3Bucket, s3Key, s3Ver
 		sum := md5.Sum(zip) //nolint:gosec // see file-level nolint rationale
 		desc.CodeMD5 = hex.EncodeToString(sum[:])
 		desc.CodeSize = int64(len(zip))
+		desc.zipContent = zip
 	case s3Bucket != "" || s3Key != "":
 		desc.S3ApplicationCodeLocationDescription = &S3CodeLocationDesc{
 			BucketARN:     s3Bucket,

@@ -41,6 +41,13 @@ func (h *Handler) Reset() {
 	}
 }
 
+// Shutdown stops every Flink cluster the backend started.
+func (h *Handler) Shutdown(_ context.Context) {
+	if c, ok := h.Backend.(interface{ Close() }); ok {
+		c.Close()
+	}
+}
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "KinesisAnalyticsV2" }
 

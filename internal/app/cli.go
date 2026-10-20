@@ -517,6 +517,7 @@ type CLI struct {
 	Region                        string                            `                                       name:"region"                  env:"REGION"                              default:"us-east-1"     help:"AWS region (also read from AWS_DEFAULT_REGION and AWS_REGION)."`                                                                                                                                             //nolint:lll // config struct tags are intentionally verbose
 	DNSResolveIP                  string                            `                                       name:"dns-resolve-ip"          env:"DNS_RESOLVE_IP"                      default:"127.0.0.1"     help:"IP address synthetic hostnames resolve to."`                                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
 	KafkaEngine                   string                            `                                       name:"kafka-engine"            env:"KAFKA_ENGINE"                        default:"stub"          help:"MSK engine mode: stub (metadata only) or docker (real Kafka broker per cluster)."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	FlinkEngine                   string                            `                                       name:"flink-engine"            env:"FLINK_ENGINE"                        default:"stub"          help:"Managed Flink engine mode: stub (state only) or docker (real Flink cluster and job per running application)."`                                                                                               //nolint:lll // config struct tags are intentionally verbose
 	MQEngine                      string                            `                                       name:"mq-engine"               env:"MQ_ENGINE"                           default:"stub"          help:"Amazon MQ engine mode: stub (metadata only) or docker (real RabbitMQ/ActiveMQ container per broker)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	EKSEngine                     string                            `                                       name:"eks-engine"              env:"EKS_ENGINE"                          default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
 	RDSEngine                     string                            `                                       name:"rds-engine"              env:"RDS_ENGINE"                          default:"stub"          help:"RDS engine mode: stub (metadata only) or docker (real database container)."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
@@ -1353,6 +1354,18 @@ func (c *CLI) GetNeptuneEngine() string { return c.engineMode("neptune-engine", 
 
 // GetDocDBEngine returns the DocumentDB engine mode (docdb.EngineModeConfig).
 func (c *CLI) GetDocDBEngine() string { return c.engineMode("docdb-engine", c.DocDBEngine) }
+
+// GetFlinkEngine returns the Managed Flink engine mode (kinesisanalyticsv2.EngineConfig).
+func (c *CLI) GetFlinkEngine() string { return c.engineMode("flink-engine", c.FlinkEngine) }
+
+// GetFlinkEndpointURL returns the gopherstack URL as seen from Flink containers.
+func (c *CLI) GetFlinkEndpointURL() string {
+	if c.Port == "" {
+		return ""
+	}
+
+	return lambdaEndpointURL(c.Lambda.DockerHost, c.Port)
+}
 
 // GetKafkaEngine returns the MSK engine mode (kafka.EngineConfig).
 func (c *CLI) GetKafkaEngine() string { return c.engineMode("kafka-engine", c.KafkaEngine) }

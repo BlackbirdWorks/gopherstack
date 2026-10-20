@@ -295,6 +295,7 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string, cr
 		b.snapshots.Delete(snapshotKey(region, name, s.SnapshotName))
 	}
 
+	b.deleteFlinkLocked(applicationKey(region, name))
 	b.applications.Delete(applicationKey(region, name))
 	delete(b.versionsStore(region), name)
 	if b.operations[region] != nil {
@@ -338,12 +339,34 @@ func (b *InMemoryBackend) StartApplication(
 		}
 	}
 
+	if b.flinkEnabledFor(app) {
+		return b.startFlinkLocked(region, app, runConfig)
+	}
+
 	app.ApplicationStatus = ApplicationStatusRunning
 	b.beginTransition(app, ApplicationStatusStarting)
 	applyRunConfigInput(app, runConfig)
 	applySQLRunConfigurations(app, sqlRunConfigs)
 
 	return b.recordOperation(region, name, "StartApplication"), nil
+}
+
+// startFlinkLocked begins a real Flink job; the app is STARTING until the job reports RUNNING.
+func (b *InMemoryBackend) startFlinkLocked(region string, app *Application, rc *RunConfigInput) (string, error) {
+	in, err := b.prepareFlinkLaunchLocked(region, app, rc)
+	if err != nil {
+		return "", err
+	}
+
+	applyRunConfigInput(app, rc)
+	app.ApplicationStatus = ApplicationStatusStarting
+	app.transitionalStatus = ""
+
+	opID := b.recordOperation(region, app.ApplicationName, "StartApplication")
+	b.setOperationStatusLocked(region, app.ApplicationName, opID, operationInProgress)
+	b.launchFlinkLocked(in, opID)
+
+	return opID, nil
 }
 
 // applySQLRunConfigurations stores each SqlRunConfiguration's starting
@@ -397,6 +420,15 @@ func (b *InMemoryBackend) StopApplication(ctx context.Context, name string, forc
 
 	if force && app.RuntimeEnvironment == runtimeEnvironmentSQL {
 		return "", ErrValidation
+	}
+
+	if lj, managed := b.flinkManagedLocked(applicationKey(region, name)); managed {
+		status := app.effectiveStatus()
+		if status != ApplicationStatusRunning && (!force || status != ApplicationStatusStarting) {
+			return "", ErrAlreadyExists
+		}
+
+		return b.stopFlinkLocked(lj, region, app, force), nil
 	}
 
 	if app.effectiveStatus() != ApplicationStatusRunning {

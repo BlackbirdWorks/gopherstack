@@ -59,6 +59,8 @@ type InMemoryBackend struct {
 	applicationsByARN    *store.Index[Application]
 	snapshots            *store.Table[Snapshot]
 	snapshotsByApp       *store.Index[Snapshot]
+	flink                *flinkEngine
+	appConfig            any
 	operations           map[string]map[string][]*ApplicationOperation
 	versions             map[string]map[string][]*Application
 	mu                   *lockmetrics.RWMutex
@@ -140,6 +142,12 @@ func (b *InMemoryBackend) GenerateApplicationARN(name string) string {
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
+
+	if b.flink != nil {
+		for key := range b.flink.jobs {
+			b.deleteFlinkLocked(key)
+		}
+	}
 
 	b.registry.ResetAll()
 	b.operations = make(map[string]map[string][]*ApplicationOperation)
