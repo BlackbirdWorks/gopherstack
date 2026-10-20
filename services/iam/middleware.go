@@ -361,15 +361,27 @@ func applyPermissionsBoundary(
 	condCtx ConditionContext,
 	idResult EvaluationResult,
 ) (EvaluationResult, bool, bool) {
+	res, denied, allowed, _ := applyBoundaryTraced(boundaryDocs, action, resource, condCtx, idResult)
+
+	return res, denied, allowed
+}
+
+// applyBoundaryTraced is applyPermissionsBoundary plus the boundary's deciding statement.
+func applyBoundaryTraced(
+	boundaryDocs []string, action, resource string,
+	condCtx ConditionContext,
+	idResult EvaluationResult,
+) (EvaluationResult, bool, bool, boundaryTrace) {
 	if len(boundaryDocs) == 0 {
-		return idResult, false, false
+		return idResult, false, false, boundaryTrace{}
 	}
 
-	boundaryResult := EvaluatePolicies(boundaryDocs, action, resource, condCtx)
+	boundaryResult, bm := ExplainPolicies(boundaryDocs, action, resource, condCtx)
+	trace := boundaryTrace{present: true, match: bm}
 
 	switch boundaryResult {
 	case EvalExplicitDeny:
-		return idResult, true, false
+		return idResult, true, false, trace
 	case EvalImplicitDeny:
 		if idResult == EvalAllow {
 			idResult = EvalImplicitDeny
@@ -377,7 +389,7 @@ func applyPermissionsBoundary(
 	case EvalAllow:
 	}
 
-	return idResult, false, boundaryResult == EvalAllow
+	return idResult, false, boundaryResult == EvalAllow, trace
 }
 
 // enforceIAMPolicy evaluates IAM policies for the request and either allows or denies it.
@@ -440,6 +452,12 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 	}
 
 	dec := decideRequest(policyDocs, boundaryDocs, resourceDocs, action, matchResource, condCtx)
+	if cfg.Recorder != nil {
+		dec = dec.attribute(backend, attribution{
+			principalArn: condCtx.PrincipalARN, resourceArn: resourceARN, identity: policyDocs, resource: resourceDocs,
+		})
+	}
+
 	cfg.record(c, dec, action, matchResource, condCtx.PrincipalARN, callerName)
 
 	if dec.allow {
@@ -468,38 +486,57 @@ func decideRequest(
 	idResult, match := ExplainPolicies(policyDocs, action, matchResource, condCtx)
 	identityAllowed := idResult == EvalAllow
 
-	idResult, boundaryDenied, _ := applyPermissionsBoundary(boundaryDocs, action, matchResource, condCtx, idResult)
+	idResult, boundaryDenied, _, bt := applyBoundaryTraced(boundaryDocs, action, matchResource, condCtx, idResult)
+
+	explainResource := func() (EvaluationResult, EvalMatch) {
+		if len(resourceDocs) == 0 {
+			return EvalImplicitDeny, EvalMatch{}
+		}
+
+		return ExplainPolicies(resourceDocs, action, matchResource, condCtx)
+	}
+
+	dec := decideAfterBoundary(idResult, identityAllowed, boundaryDenied, bt, match, explainResource)
+	dec.boundary = bt
+
+	return dec
+}
+
+func decideAfterBoundary(
+	idResult EvaluationResult, identityAllowed, boundaryDenied bool, bt boundaryTrace, match EvalMatch,
+	resource func() (EvaluationResult, EvalMatch),
+) requestDecision {
+	boundaryDeny := requestDecision{
+		reason: reasonPermissionBoundary, source: sourceBoundary, match: bt.match, explicit: boundaryDenied,
+	}
+	boundaryDeny.match.ConditionKeys = match.ConditionKeys
+
 	if boundaryDenied {
-		return requestDecision{reason: reasonPermissionBoundary, match: EvalMatch{ConditionKeys: match.ConditionKeys}}
+		return boundaryDeny
 	}
 
 	if idResult == EvalExplicitDeny {
-		return requestDecision{reason: reasonIdentityPolicy, match: match}
+		return requestDecision{reason: reasonIdentityPolicy, source: sourceIdentity, match: match, explicit: true}
 	}
 
-	if len(resourceDocs) > 0 {
-		resResult, resMatch := ExplainPolicies(resourceDocs, action, matchResource, condCtx)
-
-		if resResult == EvalExplicitDeny {
-			return requestDecision{reason: reasonResourcePolicy, match: resMatch}
-		}
-
-		if resResult == EvalAllow {
-			return requestDecision{allow: true, reason: reasonResourcePolicy, match: resMatch}
+	if resResult, resMatch := resource(); resMatch.Matched {
+		return requestDecision{
+			allow: resResult == EvalAllow, explicit: resResult == EvalExplicitDeny,
+			reason: reasonResourcePolicy, source: sourceResource, match: resMatch,
 		}
 	}
 
-	if idResult != EvalAllow {
-		if identityAllowed {
-			return requestDecision{
-				reason: reasonPermissionBoundary, match: EvalMatch{ConditionKeys: match.ConditionKeys},
-			}
-		}
-
-		return requestDecision{reason: reasonImplicitDeny, match: match}
+	if idResult == EvalAllow {
+		return requestDecision{allow: true, reason: reasonIdentityPolicy, source: sourceIdentity, match: match}
 	}
 
-	return requestDecision{allow: true, reason: reasonIdentityPolicy, match: match}
+	if identityAllowed {
+		boundaryDeny.match = EvalMatch{ConditionKeys: match.ConditionKeys}
+
+		return boundaryDeny
+	}
+
+	return requestDecision{reason: reasonImplicitDeny, match: match}
 }
 
 // extractActionFromProviders calls each action extractor until one returns a non-empty action.

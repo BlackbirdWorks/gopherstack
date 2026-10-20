@@ -25,5 +25,10 @@ Deny log lines carry `reason` (`identity-policy`, `resource-policy`,
 | `GET /_gopherstack/iam/policy-stream/suggest` | Least-privilege Allow policy aggregated from the filtered events (denied only; `include=all` adds allowed). Explicit-Deny and boundary blocks are listed in `blockedByExplicitDeny`. |
 | `DELETE /_gopherstack/iam/policy-stream` | Clear the ring. |
 
-Limits: matched statements are identified by policy and statement index plus
-`Sid`; policy ARNs are not tracked. Boundary denials report no `Sid`.
+Each event also carries `denyType` (`explicit`/`implicit`), `policy` (the deciding
+policy: `managed` with ARN, `inline` with name and owner such as `user/alice`,
+`resource` with the resource ARN, or `permission-boundary` with ARN) and, when
+the caller has a permissions boundary, `boundary` (`arn`, `sid`, `statementIndex`,
+`matched`; `matched: false` means no boundary statement applied, so the boundary
+caused an implicit deny). SCPs are not modeled. The dashboard view is
+`/dashboard/policystream` and consumes `?follow=1` over SSE.

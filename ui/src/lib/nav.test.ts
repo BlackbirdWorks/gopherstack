@@ -36,6 +36,7 @@ const BACKEND_CHECK_EXEMPT_ROUTE_IDS = new Set<string>([
   "apptrace",
   "chaos",
   "extensions",
+  "policystream",
   "resources",
 ]);
 
