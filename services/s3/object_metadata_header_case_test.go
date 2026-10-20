@@ -43,3 +43,11 @@ func TestHandler_GetHeadObject_UserMetadataHeaderIsLowercase(t *testing.T) {
 		})
 	}
 }
+
+func metaHeader(h http.Header, key string) string {
+	if v := h["x-amz-meta-"+strings.ToLower(key)]; len(v) > 0 {
+		return v[0]
+	}
+
+	return ""
+}

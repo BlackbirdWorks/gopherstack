@@ -252,7 +252,7 @@ func TestCopyObject_MetadataDirectiveReplace(t *testing.T) {
 	headRec := doRequest(handler, http.MethodHead, "/dst-meta/dst", nil, nil)
 	require.Equal(t, http.StatusOK, headRec.Code)
 	assert.Equal(t, "application/json", headRec.Header().Get("Content-Type"))
-	assert.Equal(t, "newval", headRec.Header().Get("X-Amz-Meta-Newkey"))
+	assert.Equal(t, "newval", metaHeader(headRec.Header(), "Newkey"))
 }
 
 func TestCopyObject_MetadataDirectiveCopy(t *testing.T) {
@@ -281,7 +281,7 @@ func TestCopyObject_MetadataDirectiveCopy(t *testing.T) {
 	headRec := doRequest(handler, http.MethodHead, "/dst-copy-meta/dst", nil, nil)
 	require.Equal(t, http.StatusOK, headRec.Code)
 	assert.Equal(t, "text/html", headRec.Header().Get("Content-Type"))
-	assert.Equal(t, "yes", headRec.Header().Get("X-Amz-Meta-Original"))
+	assert.Equal(t, "yes", metaHeader(headRec.Header(), "Original"))
 }
 
 func TestCopyObject_TaggingDirectiveReplace(t *testing.T) {
@@ -482,7 +482,7 @@ func TestHandler_CopyObject(t *testing.T) {
 				rec = httptest.NewRecorder()
 				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
-				assert.Equal(t, "Value", rec.Header().Get("X-Amz-Meta-New"))
+				assert.Equal(t, "Value", metaHeader(rec.Header(), "New"))
 				assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 
 			case "missing source header routes to put object":
