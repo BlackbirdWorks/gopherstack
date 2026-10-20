@@ -91,6 +91,10 @@ func (b *InMemoryBackend) CreateFileSystem(
 		return nil, false, validation("Bucket " + in.Bucket + " does not exist")
 	}
 
+	if err = b.checkFileSystemDeps(ctx, in); err != nil {
+		return nil, false, err
+	}
+
 	id := awsid.New("fs-")
 	rec := &FileSystem{
 		ID:          id,
@@ -199,8 +203,8 @@ func validatePageToken(token string) error {
 	return nil
 }
 
-// DeleteFileSystem deletes a file system that has no mount targets or access points.
-func (b *InMemoryBackend) DeleteFileSystem(ctx context.Context, ref string, _ bool) error {
+// DeleteFileSystem deletes a file system; with force it first deletes its mount targets and access points.
+func (b *InMemoryBackend) DeleteFileSystem(ctx context.Context, ref string, force bool) error {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("DeleteFileSystem")
@@ -213,16 +217,10 @@ func (b *InMemoryBackend) DeleteFileSystem(ctx context.Context, ref string, _ bo
 		return err
 	}
 
-	for _, mt := range b.mountTargets.All() {
-		if mt.FileSystemID == fs.ID {
-			return conflict("FileSystem", fs.ID, "File system "+fs.ID+" still has mount targets")
-		}
-	}
-
-	for _, ap := range b.accessPoints.All() {
-		if ap.FileSystemID == fs.ID {
-			return conflict("FileSystem", fs.ID, "File system "+fs.ID+" still has access points")
-		}
+	if force {
+		b.deleteChildren(fs.ID)
+	} else if err = b.checkNoChildren(fs.ID); err != nil {
+		return err
 	}
 
 	if b.beginDelete(&fs.Lifecycle) {
@@ -230,6 +228,37 @@ func (b *InMemoryBackend) DeleteFileSystem(ctx context.Context, ref string, _ bo
 	}
 
 	return nil
+}
+
+func (b *InMemoryBackend) checkNoChildren(fsID string) error {
+	for _, mt := range b.mountTargets.All() {
+		if mt.FileSystemID == fsID {
+			return conflict("FileSystem", fsID, "File system "+fsID+" still has mount targets")
+		}
+	}
+
+	for _, ap := range b.accessPoints.All() {
+		if ap.FileSystemID == fsID {
+			return conflict("FileSystem", fsID, "File system "+fsID+" still has access points")
+		}
+	}
+
+	return nil
+}
+
+// deleteChildren deletes the mount targets (and their interfaces) and access points of a file system.
+func (b *InMemoryBackend) deleteChildren(fsID string) {
+	for _, mt := range b.mountTargets.All() {
+		if mt.FileSystemID == fsID && b.beginDelete(&mt.Lifecycle) {
+			b.removeMountTarget(mt)
+		}
+	}
+
+	for _, ap := range b.accessPoints.All() {
+		if ap.FileSystemID == fsID && b.beginDelete(&ap.Lifecycle) {
+			b.accessPoints.Delete(ap.ID)
+		}
+	}
 }
 
 // PutFileSystemPolicy sets the resource policy of a file system.

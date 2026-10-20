@@ -21,6 +21,10 @@ var (
 
 	ErrKeyVaultNotFound = errors.New("azurearm: key vault not found")
 
+	errVaultSoftDeleted     = errors.New("azurearm: key vault name is in use by a soft-deleted vault")
+	ErrDeletedVaultNotFound = errors.New("azurearm: deleted key vault not found")
+	ErrVaultPurgeProtected  = errors.New("azurearm: key vault has purge protection enabled")
+
 	errVaultExistsInOtherResourceGroup = errors.New("azurearm: key vault name already exists in another resource group")
 
 	// ErrSnapshotResourceGroupNull/ErrSnapshotResourceNull are returned by

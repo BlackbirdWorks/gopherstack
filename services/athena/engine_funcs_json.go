@@ -20,14 +20,25 @@ func parseJSONArg(v driver.Value) (any, bool) {
 	}
 
 	var out any
-	if err := json.Unmarshal([]byte(s), &out); err != nil {
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(s, containerMark)), &out); err != nil {
 		return nil, false
 	}
 
 	return out, true
 }
 
+// jsonText encodes an ARRAY/MAP value; containerMark tags it so results render Trino-style.
 func jsonText(v any) driver.Value {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return sqlNull()
+	}
+
+	return containerMark + string(b)
+}
+
+// jsonPlain encodes a JSON-typed value, which renders as raw JSON text.
+func jsonPlain(v any) driver.Value {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return sqlNull()
@@ -176,7 +187,7 @@ func udfJSONExtract(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 		return sqlNull(), nil
 	}
 
-	return jsonText(v), nil
+	return jsonPlain(v), nil
 }
 
 func udfJSONParse(_ *fnCtx, args []driver.Value) (driver.Value, error) {
@@ -184,7 +195,9 @@ func udfJSONParse(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 		return nil, fmt.Errorf("%w: Cannot convert value to JSON", errBadValue)
 	}
 
-	return args[0], nil
+	s, _ := asString(args[0])
+
+	return strings.TrimPrefix(s, containerMark), nil
 }
 
 func udfJSONSize(_ *fnCtx, args []driver.Value) (driver.Value, error) {

@@ -60,12 +60,12 @@ Types run in dependency order (keys and roles first, rules last):
 | `sqs` | Queues, attributes, tags; dead-letter queues are created before the queues that redrive to them |
 | `sns` | Topics, attributes, tags, and confirmed subscriptions; SQS/Lambda/Firehose endpoints are remapped to replicated ARNs |
 | `dynamodb` | Schema, GSIs/LSIs, billing mode, streams spec, SSE, table class, tags, TTL; items with `--include-data` |
-| `iam` | Customer-managed policies, roles (trust policy, description, tags, boundary), attached policies, inline policies |
-| `lambda` | Zip functions: configuration, environment, tags and code (downloaded from the presigned `Code.Location`) |
+| `iam` | Customer-managed policies; roles (trust policy, description, tags, boundary); groups; users (tags, boundary, group membership); instance profiles with their roles; attached and inline policies for roles, users and groups |
+| `lambda` | Zip functions: configuration, environment, tags, VPC config and code (downloaded from the presigned `Code.Location`); published versions, aliases (with routing weights) and SQS/Kinesis/DynamoDB-stream event source mappings |
 | `ssm` | Parameters and tags; SecureString only with `--with-decryption` (skipped otherwise) |
-| `secretsmanager` | Secrets (current value), description, tags, resource policy |
+| `secretsmanager` | Secrets (current value and version ids), labelled previous versions (`AWSPREVIOUS`, custom staging labels), description, tags, resource policy, `KmsKeyId` remapped to the replicated key |
 | `kms` | Customer-managed key metadata, key policy, tags, aliases |
-| `eventbridge` | Custom buses, rules, tags and targets (the default bus gets its rules only) |
+| `eventbridge` | Custom buses, rules, tags and targets, including `EcsParameters` and `BatchParameters` (task and job definition ARNs remapped); the default bus gets its rules only |
 | `kinesis` | Streams (shards or on-demand), retention, tags |
 | `logs` | Log groups, retention, tags |
 
@@ -77,12 +77,36 @@ rewritten to the target's account and region. Replicated KMS key ids are mapped 
 Re-running updates or skips what already exists. Each resource yields `created`, `updated`,
 `skipped` or `failed` with a reason; a dry run reports what each action would be.
 
+## Lambda details
+
+- Versions are republished in source order: for each missing version the target's `$LATEST` is pointed
+  at that version's code and configuration, published, and `$LATEST` is restored afterwards. Source and
+  target versions pair by position, so reruns publish nothing new. Version numbers match unless the source
+  has gaps (deleted versions); the result's reason then says `published as version N`. Aliases are mapped
+  to the target version numbers, including `AdditionalVersionWeights`.
+- If the source does not expose a version's code (Gopherstack does not), that version is published with the
+  `$LATEST` code and the result's reason says so.
+- Event source mappings run after queues, streams and tables (type order). Source ARNs are remapped; a
+  DynamoDB stream maps to the target table's latest stream. A mapping whose source is missing in the target
+  (or whose type is MSK, MQ, DocumentDB, ...) is `skipped` with a reason. Reruns update the mapping in place.
+- VPC config is applied only when every subnet and security group id exists in the target (ids are not
+  remapped, so they must match); otherwise the function is copied without it and a `<name>:vpc` result is
+  `skipped` with the missing ids.
+- Container-image functions are `skipped` (the image lives in ECR and ECR replication is not available);
+  their versions, aliases and mappings are skipped with them.
+
+## IAM details
+
+Users, groups and instance profiles are copied with policies and membership. Access keys, login profiles
+(passwords), MFA devices and SSH keys are never copied or created.
+
 ## Limitations
 
 - KMS key material cannot be exported: keys are recreated empty with the same metadata and aliases.
-- Lambda container-image functions are skipped; VPC config, aliases, versions and event source
-  mappings are not copied. Layers are referenced by remapped ARN and must exist in the target.
+- Lambda layers are referenced by remapped ARN and must exist in the target.
 - SNS subscriptions pending confirmation are skipped.
-- IAM users, groups and instance profiles are not copied.
-- Secrets Manager: only the current version is copied; KMS key bindings are dropped.
+- Secrets Manager: unlabelled (deprecated) versions are not copied; a `KmsKeyId` whose key was not
+  replicated (or an AWS-managed key) falls back to the target default key and the result says so.
+- EventBridge target `Input` JSON is copied verbatim; only target, role, dead-letter, ECS task definition
+  and Batch job definition ARNs are remapped.
 - Objects and items are streamed through the process; very large data sets are slow.

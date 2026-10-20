@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -460,12 +461,12 @@ func buildLocalstackDiagnoseHandler(cli *CLI, services []service.Registerable) e
 		runtime.ReadMemStats(&ms)
 
 		return c.JSON(http.StatusOK, map[string]any{
-			"version":    map[string]string{"localstack-version": version.Get()},
-			"info":       map[string]any{"edition": editionCommunity, "uptime": int(time.Since(started).Seconds())},
-			"config":     localstackConfig(cli),
-			"services":   serviceNames(services),
-			"runtime":    map[string]any{"goroutines": runtime.NumGoroutine(), "heap_alloc_bytes": ms.HeapAlloc},
-			"go-version": runtime.Version(),
+			podKeyVersion: map[string]string{"localstack-version": version.Get()},
+			"info":        map[string]any{"edition": editionCommunity, "uptime": int(time.Since(started).Seconds())},
+			"config":      localstackConfig(cli),
+			"services":    serviceNames(services),
+			"runtime":     map[string]any{"goroutines": runtime.NumGoroutine(), "heap_alloc_bytes": ms.HeapAlloc},
+			"go-version":  runtime.Version(),
 		})
 	}
 }
@@ -488,8 +489,29 @@ func registerLocalstackInternalEndpoints(e *echo.Echo, cli *CLI, services []serv
 
 // serveAll serves the main port plus any compat/extra ports.
 func serveAll(ctx context.Context, cli *CLI, h *echo.Echo, log *slog.Logger) error {
-	tlsCfg := tlsConfigFromCLI(cli)
-	serveExtraPorts(ctx, h, extraListenPorts(cli), tlsCfg, log)
+	// SHUTDOWN scripts run while the listeners are still up; they stop only
+	// once srvCtx is cancelled after the stage.
+	srvCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancel()
 
-	return startServer(ctx, cli.Port, h, tlsCfg, &cli.shutdownDeadline)
+	var once sync.Once
+
+	shutdownStage := func() { once.Do(func() { runShutdownStage(ctx, cli) }) }
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			shutdownStage()
+			cancel()
+		case <-srvCtx.Done():
+		}
+	}()
+
+	tlsCfg := tlsConfigFromCLI(cli)
+	serveExtraPorts(srvCtx, h, extraListenPorts(cli), tlsCfg, log)
+
+	err := startServer(srvCtx, cli.Port, h, tlsCfg, &cli.shutdownDeadline)
+	shutdownStage()
+
+	return err
 }

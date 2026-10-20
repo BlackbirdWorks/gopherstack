@@ -43,6 +43,7 @@ func registerEngineFuncs() {
 		reg("athena_hour", 1, datePart(func(t time.Time) int64 { return int64(t.Hour()) }))
 		reg("athena_regexp_like", argsTwo, udfRegexpLike)
 		registerExtraFuncs()
+		registerComplexFuncs()
 		registerAggregates()
 		registerUnnestModule()
 	})
@@ -181,16 +182,25 @@ func udfDateAdd(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 	case unitWeek:
 		t = t.AddDate(0, 0, int(n)*daysPerWeek)
 	case unitMonth:
-		t = t.AddDate(0, int(n), 0)
+		t = addMonthsClamped(t, int(n))
 	case unitQuarter:
-		t = t.AddDate(0, int(n)*monthsPerQuart, 0)
+		t = addMonthsClamped(t, int(n)*monthsPerQuart)
 	case unitYear:
-		t = t.AddDate(int(n), 0, 0)
+		t = addMonthsClamped(t, int(n)*monthsPerYear)
 	default:
 		return nil, fmt.Errorf("%w: date_add unit %v", errBadUnit, args[0])
 	}
 
 	return formatLike(t, isDateOnly(args[2])), nil
+}
+
+// addMonthsClamped adds n months, clamping to the last day of a shorter month as Trino does.
+func addMonthsClamped(t time.Time, n int) time.Time {
+	y, m, d := t.Date()
+	first := time.Date(y, m+time.Month(n), 1, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.UTC)
+	last := time.Date(first.Year(), first.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
+
+	return first.AddDate(0, 0, min(d, last)-1)
 }
 
 func udfDateDiff(_ *fnCtx, args []driver.Value) (driver.Value, error) {

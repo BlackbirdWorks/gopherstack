@@ -23,16 +23,26 @@ func TestUDFHugeIntegerArgs(t *testing.T) {
 		name string
 		args []driver.Value
 	}{
-		{name: "split limit huge", fn: udfSplit, args: []driver.Value{"a,b,c", ",", huge}, want: `["a","b","c"]`},
+		{
+			name: "split limit huge",
+			fn:   udfSplit,
+			args: []driver.Value{"a,b,c", ",", huge},
+			want: containerMark + `["a","b","c"]`,
+		},
 		{name: "split_part huge", fn: udfSplitPart, args: []driver.Value{"a,b", ",", huge}, want: nil},
 		{name: "element_at huge", fn: udfElementAt, args: []driver.Value{arr, huge}, want: nil},
 		{name: "element_at tiny", fn: udfElementAt, args: []driver.Value{arr, tiny}, want: nil},
-		{name: "slice start huge", fn: udfSlice, args: []driver.Value{arr, huge, int64(1)}, want: `[]`},
-		{name: "slice length huge", fn: udfSlice, args: []driver.Value{arr, int64(2), huge}, want: `[2,3]`},
+		{name: "slice start huge", fn: udfSlice, args: []driver.Value{arr, huge, int64(1)}, want: containerMark + `[]`},
+		{
+			name: "slice length huge",
+			fn:   udfSlice,
+			args: []driver.Value{arr, int64(2), huge},
+			want: containerMark + `[2,3]`,
+		},
 		{name: "regexp_extract group huge", fn: udfRegexpExtract, args: []driver.Value{"abc", "(b)", huge}, want: nil},
 		{
 			name: "regexp_extract_all group huge", fn: udfRegexpExtractAll,
-			args: []driver.Value{"abc", "(b)", huge}, want: `[]`,
+			args: []driver.Value{"abc", "(b)", huge}, want: containerMark + `[]`,
 		},
 	}
 

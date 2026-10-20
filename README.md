@@ -653,7 +653,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [FSx](services/fsx/README.md) | A | — | 13 families; 2 structural gaps |
 | [S3](services/s3/README.md) | A | 26 | 4 gaps; 4 structural gaps |
 | [S3 Control](services/s3control/README.md) | A | 44 | 3 gaps; 6 structural gaps; 2 deferred |
-| [S3 Files](services/s3files/README.md) | B | 21 | 9 gaps; 1 structural gap |
+| [S3 Files](services/s3files/README.md) | B | 21 | 7 gaps; 1 structural gap |
 | [S3 Glacier](services/glacier/README.md) | A | 33 | clean |
 | [S3 Tables](services/s3tables/README.md) | A | 49 | clean |
 
@@ -720,7 +720,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Athena](services/athena/README.md) | A | 26 | 1 gap; 6 structural gaps; 1 deferred |
+| [Athena](services/athena/README.md) | A | 26 | 7 gaps; 6 structural gaps; 1 deferred |
 | [Clean Rooms](services/cleanrooms/README.md) | A | — | 17 families; 5 structural gaps |
 | [EMR](services/emr/README.md) | A | 65 | 7 structural gaps |
 | [EMR Serverless](services/emrserverless/README.md) | A | 22 | 1 structural gap |
@@ -861,7 +861,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Azure Blob Storage](services/azureblob/README.md) | C | 19 | 8 gaps; 3 deferred |
 | [Azure Cosmos DB](services/cosmosdb/README.md) | B | 18 | 9 gaps |
-| [Azure Key Vault](services/azurekeyvault/README.md) | B | 14 | 6 gaps |
+| [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 5 gaps |
 | [Azure Queue Storage](services/azurequeue/README.md) | C | 11 | 7 gaps; 1 deferred |
 | [Azure Service Bus](services/azureservicebus/README.md) | B | 17 | 4 gaps; 2 deferred |
 | [Azure Table Storage](services/azuretable/README.md) | C | 13 | 6 gaps; 3 deferred |
@@ -870,10 +870,11 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
+| [Cloud IAM](services/gcpiam/README.md) | B | 31 | 5 gaps |
 | [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | 5 gaps |
-| [Cloud Tasks](services/gcpcloudtasks/README.md) | B | 18 | 5 gaps |
+| [Cloud Tasks](services/gcpcloudtasks/README.md) | B | 20 | 3 gaps |
 | [Google Cloud Firestore](services/gcpfirestore/README.md) | B | 15 | 4 gaps |
-| [Google Cloud KMS](services/gcpkms/README.md) | B | 31 | 5 gaps |
+| [Google Cloud KMS](services/gcpkms/README.md) | B | 35 | 4 gaps |
 | [Google Cloud Pub/Sub](services/gcppubsub/README.md) | B | 35 | 6 gaps |
 | [Google Cloud Storage](services/gcpstorage/README.md) | B | 23 | 8 gaps |
 | [Google Secret Manager](services/gcpsecretmanager/README.md) | B | 15 | 4 gaps |

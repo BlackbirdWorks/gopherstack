@@ -95,11 +95,20 @@ var _ ServiceBusEntities = noopServiceBusEntities{}
 type KeyVaults interface {
 	CreateVault(name string, retentionDays int, purgeProtection bool)
 	DeleteVault(name string)
+	// SoftDeleteVault retires the vault, keeping its contents for RecoverVault.
+	SoftDeleteVault(name string)
+	// RecoverVault restores a soft-deleted vault with its contents.
+	RecoverVault(name string)
+	// PurgeVault permanently discards a soft-deleted vault's contents.
+	PurgeVault(name string)
 }
 
 type noopKeyVaults struct{}
 
 func (noopKeyVaults) CreateVault(string, int, bool) {}
 func (noopKeyVaults) DeleteVault(string)            {}
+func (noopKeyVaults) SoftDeleteVault(string)        {}
+func (noopKeyVaults) RecoverVault(string)           {}
+func (noopKeyVaults) PurgeVault(string)             {}
 
 var _ KeyVaults = noopKeyVaults{}

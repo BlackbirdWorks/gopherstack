@@ -1,30 +1,38 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import { KeyRound, Plus, RefreshCw, Copy, X, Star } from 'lucide-svelte';
+	import { KeyRound, Plus, RefreshCw, Copy, X, Star, Trash2, Pencil, Search } from 'lucide-svelte';
 	import PageHeader from '#lib/components/PageHeader.svelte';
 	import Modal from '#lib/components/Modal.svelte';
 	import KeyValueEditor from '#lib/components/gcp/KeyValueEditor.svelte';
 	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 	import { describeGcpError } from '#lib/gcprest.ts';
-	import { rowsToMap, validateRows, type MetaRow } from '#lib/gcpstorage.ts';
+	import { metadataToRows, rowsToMap, validateRows, type MetaRow } from '#lib/gcpstorage.ts';
 	import {
 		ALGORITHMS,
 		PROTECTION_LEVELS,
 		PURPOSES,
 		createKey,
 		createKeyRing,
+		asymmetricDecryptText,
 		createVersion,
+		deleteKey,
+		deleteVersion,
 		decryptText,
 		encryptText,
 		getKey,
 		getPublicKey,
 		listKeyRings,
 		listKeys,
+		listRetired,
 		listVersions,
 		macSignText,
+		macVerifyText,
 		readStoredKmsLocation,
 		readStoredKmsProject,
+		rotationDaysInput,
+		rsaEncryptText,
+		updateKey,
 		rotationFields,
 		setPrimary,
 		signText,
@@ -35,6 +43,7 @@
 		type KeyInfo,
 		type KeyRef,
 		type KeyRingInfo,
+		type RetiredInfo,
 		type Purpose,
 		type VersionAction,
 		type VersionInfo
@@ -68,6 +77,15 @@
 	let keyTouched = $state(false);
 	const keyIdError = $derived(validateKmsId(fKeyId.trim()));
 
+	let keyFilter = $state('');
+	let keyOrder = $state('');
+	let retired = $state<RetiredInfo[]>([]);
+	let showRetired = $state(false);
+
+	let editModal = $state<Modal | null>(null);
+	let eLabels = $state<MetaRow[]>([]);
+	let eRotation = $state('');
+
 	let tryVersion = $state('');
 	let plaintext = $state('');
 	let aad = $state('');
@@ -78,6 +96,11 @@
 	let signature = $state('');
 	let macInput = $state('');
 	let macOut = $state('');
+	let macCheck = $state('');
+	let macResult = $state<boolean | null>(null);
+	let rsaPlain = $state('');
+	let rsaCipher = $state('');
+	let rsaDecrypted = $state<{ text: string | null; base64: string } | null>(null);
 	let publicKey = $state<{ pem: string; algorithm: string } | null>(null);
 
 	const describe = describeGcpError;
@@ -115,7 +138,7 @@
 		const r = ring;
 		if (!r) return;
 		try {
-			keys = (await listKeys(project, location, r.id)).toSorted((a, b) => a.id.localeCompare(b.id));
+			keys = (await listKeys(project, location, r.id, fetch, { filter: keyFilter, orderBy: keyOrder })).toSorted((a, b) => a.id.localeCompare(b.id));
 			if (current && !keys.some((k) => k.name === current?.name)) current = null;
 		} catch (e) {
 			toast.error(`Failed to load keys: ${describe(e)}`);
@@ -140,6 +163,26 @@
 		ring = r;
 		current = null;
 		keys = [];
+		keyFilter = '';
+		keyOrder = '';
+		await loadKeys();
+	}
+
+	async function loadRetired() {
+		try {
+			retired = (await listRetired(project, location)).toSorted((a, b) => b.deleteTime.localeCompare(a.deleteTime));
+		} catch (e) {
+			toast.error(`Failed to load retired resources: ${describe(e)}`);
+		}
+	}
+
+	async function toggleRetired() {
+		showRetired = !showRetired;
+		if (showRetired) await loadRetired();
+	}
+
+	async function applyFilter(event: Event) {
+		event.preventDefault();
 		await loadKeys();
 	}
 
@@ -153,6 +196,11 @@
 		signature = '';
 		macInput = '';
 		macOut = '';
+		macCheck = '';
+		macResult = null;
+		rsaPlain = '';
+		rsaCipher = '';
+		rsaDecrypted = null;
 		publicKey = null;
 	}
 
@@ -300,6 +348,76 @@
 		await run('mac', async () => { macOut = await macSignText(r, tryVersion, macInput); }, 'MAC computed', 'MAC sign failed');
 	}
 
+	async function doMacVerify() {
+		const r = ref;
+		if (!r || !macInput || !tryVersion || !macCheck.trim()) return;
+		await run('mac-verify', async () => { macResult = await macVerifyText(r, tryVersion, macInput, macCheck); }, '', 'MAC verify failed');
+	}
+
+	async function doRsaEncrypt() {
+		const r = ref;
+		if (!r || !rsaPlain || !tryVersion) return;
+		await run('rsa-encrypt', async () => {
+			const pk = await getPublicKey(r, tryVersion);
+			publicKey = pk;
+			rsaCipher = await rsaEncryptText(pk.pem, pk.algorithm, rsaPlain);
+			rsaDecrypted = null;
+		}, 'Encrypted in the browser with the public key', 'Encrypt failed');
+	}
+
+	async function doRsaDecrypt() {
+		const r = ref;
+		if (!r || !rsaCipher.trim() || !tryVersion) return;
+		await run('rsa-decrypt', async () => { rsaDecrypted = await asymmetricDecryptText(r, tryVersion, rsaCipher); }, 'Decrypted', 'Decrypt failed');
+	}
+
+	function openEdit() {
+		const k = current;
+		if (!k) return;
+		eLabels = metadataToRows(k.labels);
+		eRotation = rotationDaysInput(k.rotationPeriod);
+		editModal?.open();
+	}
+
+	async function submitEdit(event: Event) {
+		event.preventDefault();
+		const r = ref;
+		const k = current;
+		if (!r || !k) return;
+		const bad = validateRows(eLabels, validateLabelKey);
+		if (bad) return void toast.error(`Invalid label ${bad}`);
+		const rot = rotationFields(eRotation);
+		if (rot && 'error' in rot) return void toast.error(rot.error);
+		const ok = await run('update-key', async () => { await updateKey(r, { labels: rowsToMap(eLabels), rotationDays: eRotation }); }, `Updated ${k.id}`, `Failed to update ${k.id}`);
+		if (ok) {
+			editModal?.close('updated');
+			await loadKeys();
+			await loadDetail(k);
+		}
+	}
+
+	async function removeVersion(v: VersionInfo) {
+		const r = ref;
+		const k = current;
+		if (!r || !k) return;
+		if (!(await confirmDestructive({ title: 'Delete version', message: `Permanently delete destroyed version ${v.id} of "${k.id}"? Its id is never reused.` }))) return;
+		const ok = await run(`delete-${v.id}`, async () => { await deleteVersion(r, v.id); }, `Deleted version ${v.id}`, `Failed to delete version ${v.id}`);
+		if (ok) await loadDetail(k);
+	}
+
+	async function removeKey() {
+		const r = ref;
+		const k = current;
+		if (!r || !k) return;
+		if (!(await confirmDestructive({ title: 'Delete key', message: `Permanently delete key "${k.id}"? Its name can never be reused and it moves to Retired.` }))) return;
+		const ok = await run('delete-key', async () => { await deleteKey(r); }, `Deleted key ${k.id}`, `Failed to delete ${k.id}`);
+		if (ok) {
+			current = null;
+			await loadKeys();
+			if (showRetired) await loadRetired();
+		}
+	}
+
 	async function doPublicKey() {
 		const r = ref;
 		if (!r || !tryVersion) return;
@@ -387,8 +505,18 @@
 							<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Keys in {ring.id}</h2>
 							<button class={mini} onclick={openKey} data-testid="kms-new-key"><Plus class="inline h-3.5 w-3.5" /> New key</button>
 						</div>
+						<form class="flex gap-1" onsubmit={applyFilter}>
+							<input class="{input} !py-1 text-xs" bind:value={keyFilter} placeholder="filter, e.g. labels.env=dev" aria-label="Filter keys" data-testid="kms-key-filter" />
+							<select class="{input} !w-auto !py-1 text-xs" bind:value={keyOrder} onchange={loadKeys} aria-label="Order keys" data-testid="kms-key-order">
+								<option value="">name</option>
+								<option value="name desc">name desc</option>
+								<option value="create_time desc">newest</option>
+								<option value="create_time">oldest</option>
+							</select>
+							<button type="submit" class={mini} aria-label="Apply filter" data-testid="kms-key-filter-apply"><Search class="h-3.5 w-3.5" /></button>
+						</form>
 						{#if keys.length === 0}
-							<p class="py-6 text-center text-sm text-gray-500 dark:text-gray-400" data-testid="kms-no-keys">No keys in this key ring</p>
+							<p class="py-6 text-center text-sm text-gray-500 dark:text-gray-400" data-testid="kms-no-keys">{keyFilter.trim() ? 'No keys match the filter' : 'No keys in this key ring'}</p>
 						{:else}
 							<ul class="divide-y divide-gray-100 dark:divide-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
 								{#each keys as k (k.name)}
@@ -403,6 +531,27 @@
 						{/if}
 					</section>
 				{/if}
+
+				<section aria-label="Retired" class="space-y-2">
+					<button class="text-sm font-semibold text-gray-700 dark:text-gray-300 hover:underline" onclick={toggleRetired} data-testid="kms-retired-toggle">
+						Retired {showRetired ? `(${retired.length})` : ''}
+					</button>
+					{#if showRetired}
+						{#if retired.length === 0}
+							<p class="text-xs text-gray-500 dark:text-gray-400" data-testid="kms-no-retired">No retired resources</p>
+						{:else}
+							<ul class="divide-y divide-gray-100 dark:divide-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+								{#each retired as r (r.name)}
+									<li class="px-3 py-2 text-xs" data-testid="kms-retired-row">
+										<span class="block truncate font-medium text-gray-900 dark:text-gray-100">{r.originalId}</span>
+										<span class="block truncate text-gray-500 dark:text-gray-400">{r.resourceType} · {r.deleteTime}</span>
+										<span class="block break-all font-mono text-[10px] text-gray-500 dark:text-gray-400">{r.original}</span>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+					{/if}
+				</section>
 			</div>
 
 			<section aria-label="Key details" class="min-w-0">
@@ -413,7 +562,11 @@
 					<div class="rounded-lg border border-gray-200 dark:border-gray-700 p-5 space-y-5" data-testid="kms-detail">
 						<div class="flex items-start justify-between gap-4">
 							<div class="min-w-0"><h3 class="text-lg font-semibold text-gray-900 dark:text-white break-all">{k.id}</h3><p class="font-mono text-xs text-gray-500 dark:text-gray-400 break-all">{k.name}</p></div>
-							<button class="rounded p-1 hover:bg-gray-100 dark:hover:bg-slate-800" onclick={() => (current = null)} aria-label="Close details"><X class="h-4 w-4" /></button>
+							<div class="flex items-center gap-1">
+								<button class={mini} onclick={openEdit} data-testid="kms-edit-key"><Pencil class="inline h-3.5 w-3.5" /> Edit</button>
+								<button class="{mini} text-red-600" disabled={busy === 'delete-key'} onclick={removeKey} data-testid="kms-delete-key"><Trash2 class="inline h-3.5 w-3.5" /> Delete</button>
+								<button class="rounded p-1 hover:bg-gray-100 dark:hover:bg-slate-800" onclick={() => (current = null)} aria-label="Close details"><X class="h-4 w-4" /></button>
+							</div>
 						</div>
 						<dl class="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
 							<dt class={dt}>Purpose</dt><dd class={dd} data-testid="kms-purpose">{k.purpose}</dd>
@@ -455,6 +608,8 @@
 															<button class="{mini} text-red-600" disabled={busy === `destroy-${v.id}`} onclick={() => act(v, 'destroy')} data-testid="kms-destroy-{v.id}">Destroy</button>
 														{:else if v.state === 'DESTROY_SCHEDULED'}
 															<button class={mini} disabled={busy === `restore-${v.id}`} onclick={() => act(v, 'restore')} data-testid="kms-restore-{v.id}">Restore</button>
+														{:else if v.state === 'DESTROYED' && v.id !== k.primaryId}
+															<button class="{mini} text-red-600" disabled={busy === `delete-${v.id}`} onclick={() => removeVersion(v)} data-testid="kms-delete-{v.id}">Delete</button>
 														{/if}
 													</td>
 												</tr>
@@ -519,6 +674,22 @@
 								</div>
 							{:else if k.purpose === 'ASYMMETRIC_DECRYPT'}
 								<button class={mini} disabled={busy === 'pubkey' || !tryVersion} onclick={doPublicKey} data-testid="kms-get-pubkey">Get public key</button>
+								<div class="space-y-2">
+									<label class="block text-xs font-medium text-gray-600 dark:text-gray-400" for="kms-rsa-plain">Plaintext (encrypted in this browser with the public key)</label>
+									<textarea id="kms-rsa-plain" class="{input} font-mono" rows="3" bind:value={rsaPlain} placeholder="text to encrypt" data-testid="kms-rsa-plain"></textarea>
+									<button class={btn} disabled={busy === 'rsa-encrypt' || !rsaPlain || !tryVersion} onclick={doRsaEncrypt} data-testid="kms-rsa-encrypt">Encrypt in browser</button>
+									<label class="block text-xs font-medium text-gray-600 dark:text-gray-400" for="kms-rsa-cipher">Ciphertext (base64)</label>
+									<textarea id="kms-rsa-cipher" class="{input} font-mono" rows="3" bind:value={rsaCipher} placeholder="encrypt above or paste ciphertext" data-testid="kms-rsa-cipher"></textarea>
+									<button class={btn} disabled={busy === 'rsa-decrypt' || !rsaCipher.trim() || !tryVersion} onclick={doRsaDecrypt} data-testid="kms-rsa-decrypt">Decrypt with KMS</button>
+									{#if rsaDecrypted}
+										{#if rsaDecrypted.text !== null}
+											<pre class={out} data-testid="kms-rsa-decrypted">{rsaDecrypted.text}</pre>
+										{:else}
+											<p class="text-[11px] text-gray-500 dark:text-gray-400">Binary plaintext (not valid UTF-8)</p>
+										{/if}
+										<p class="font-mono text-[11px] text-gray-500 dark:text-gray-400 break-all">base64: {rsaDecrypted.base64}</p>
+									{/if}
+								</div>
 							{:else if k.purpose === 'MAC'}
 								<div class="space-y-2">
 									<label class="block text-xs font-medium text-gray-600 dark:text-gray-400" for="kms-mac-in">Data to MAC</label>
@@ -527,6 +698,13 @@
 									{#if macOut}
 										<p class="text-xs font-medium text-gray-600 dark:text-gray-400">MAC (base64)</p>
 										<div class="flex items-start gap-2"><pre class={out + ' flex-1'} data-testid="kms-mac">{macOut}</pre><button class="rounded p-1 hover:bg-gray-100 dark:hover:bg-slate-800" aria-label="Copy MAC" onclick={() => copy(macOut)}><Copy class="h-4 w-4" /></button></div>
+									<button class={mini} onclick={() => (macCheck = macOut)} data-testid="kms-mac-use">Use for verify</button>
+									{/if}
+									<label class="block text-xs font-medium text-gray-600 dark:text-gray-400" for="kms-mac-check">MAC to verify (base64, checked against the data above)</label>
+									<input id="kms-mac-check" class="{input} font-mono" bind:value={macCheck} oninput={() => (macResult = null)} data-testid="kms-mac-check" />
+									<button class={btn} disabled={busy === 'mac-verify' || !macInput || !tryVersion || !macCheck.trim()} onclick={doMacVerify} data-testid="kms-mac-verify">MAC verify</button>
+									{#if macResult !== null}
+										<p class="text-sm font-medium {macResult ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400'}" data-testid="kms-mac-result">{macResult ? 'Valid: the MAC matches' : 'Invalid: the MAC does not match'}</p>
 									{/if}
 								</div>
 							{/if}
@@ -598,5 +776,22 @@
 	{#snippet footer()}
 		<button type="button" class="rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-slate-800" onclick={() => keyModal?.close()}>Cancel</button>
 		<button type="submit" form="kms-key-form" class="rounded-md bg-amber-600 px-4 py-2 text-sm text-white hover:bg-amber-700 disabled:opacity-50" disabled={busy === 'create-key'} data-testid="kms-key-submit">{busy === 'create-key' ? 'Creating…' : 'Create'}</button>
+	{/snippet}
+</Modal>
+
+<Modal bind:this={editModal} title="Edit key" titleId="kms-edit-title">
+	{#snippet children()}
+		<form id="kms-edit-form" class="space-y-3" onsubmit={submitEdit} novalidate>
+			<label class="block space-y-1 text-sm">
+				<span class="font-medium text-gray-700 dark:text-gray-300">Rotation period (days, blank for none)</span>
+				<input class={input} bind:value={eRotation} placeholder="90" aria-label="Rotation period days" data-testid="kms-edit-rotation" />
+				<span class="block text-xs text-gray-500 dark:text-gray-400">Next rotation is set to that many days from now.</span>
+			</label>
+			<KeyValueEditor bind:rows={eLabels} label="Labels" testId="kms-edit-labels" validateKey={validateLabelKey} hideSave />
+		</form>
+	{/snippet}
+	{#snippet footer()}
+		<button type="button" class="rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-slate-800" onclick={() => editModal?.close()}>Cancel</button>
+		<button type="submit" form="kms-edit-form" class="rounded-md bg-amber-600 px-4 py-2 text-sm text-white hover:bg-amber-700 disabled:opacity-50" disabled={busy === 'update-key'} data-testid="kms-edit-submit">{busy === 'update-key' ? 'Saving…' : 'Save'}</button>
 	{/snippet}
 </Modal>

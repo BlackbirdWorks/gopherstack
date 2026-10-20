@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
@@ -54,8 +54,7 @@ func TestInitializeServices_LambdaS3CodeWiring(t *testing.T) {
 	t.Parallel()
 
 	cli := &CLI{AccountID: "000000000000", Region: "us-east-1"}
-	portAlloc, err := portalloc.New(19000, 19100)
-	require.NoError(t, err)
+	portAlloc := portalloctest.New(t, 100)
 
 	appCtx := &service.AppContext{
 		Logger:     slog.Default(),

@@ -186,26 +186,23 @@ func (b *InMemoryBackend) CreateMountTarget(ctx context.Context, in CreateMountT
 		}
 	}
 
-	ipv4, err := b.pickIPv4(in, info, known)
-	if err != nil {
-		return nil, err
-	}
-
 	mt := &MountTarget{
 		ID:                 awsid.New("fsmt-"),
 		FileSystemID:       fs.ID,
 		SubnetID:           in.SubnetID,
 		VPCID:              info.VPCID,
 		AvailabilityZoneID: info.AvailabilityZoneID,
-		IPv4Address:        ipv4,
 		IPv6Address:        in.IPv6Address,
 		IPAddressType:      in.IPAddressType,
-		NetworkInterfaceID: awsid.New("eni-"),
 		OwnerID:            b.accountID,
 		Region:             region,
-		SecurityGroups:     slices.Clone(in.SecurityGroups),
 		Lifecycle:          b.newLifecycle(),
 	}
+
+	if err = b.provisionNetwork(in, mt, info, known); err != nil {
+		return nil, err
+	}
+
 	b.mountTargets.Put(mt)
 
 	return b.mtView(mt), nil
@@ -306,6 +303,12 @@ func (b *InMemoryBackend) UpdateMountTarget(ctx context.Context, id string, sgs 
 		return nil, conflict("MountTarget", mt.ID, "Mount target "+mt.ID+" is "+state+", not available")
 	}
 
+	if b.network != nil {
+		if err = b.network.SetENISecurityGroups(mt.NetworkInterfaceID, sgs); err != nil {
+			return nil, err
+		}
+	}
+
 	mt.SecurityGroups = slices.Clone(sgs)
 
 	return b.mtView(mt), nil
@@ -326,7 +329,7 @@ func (b *InMemoryBackend) DeleteMountTarget(ctx context.Context, id string) erro
 	}
 
 	if b.beginDelete(&mt.Lifecycle) {
-		b.mountTargets.Delete(mt.ID)
+		b.removeMountTarget(mt)
 	}
 
 	return nil

@@ -46,6 +46,9 @@ type InMemoryBackend struct {
 	accessPoints *store.Table[AccessPoint]
 	buckets      BucketResolver
 	subnets      SubnetResolver
+	network      NetworkResolver
+	roles        RoleResolver
+	keys         KeyResolver
 	now          func() time.Time
 	accountID    string
 	region       string
@@ -159,7 +162,7 @@ func (b *InMemoryBackend) sweepLocked() {
 
 	for _, v := range b.mountTargets.All() {
 		if _, gone := b.state(&v.Lifecycle); gone {
-			b.mountTargets.Delete(v.ID)
+			b.removeMountTarget(v)
 		}
 	}
 

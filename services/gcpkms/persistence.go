@@ -21,6 +21,7 @@ const snapshotVersion = 1
 type versionSnap struct {
 	Version  json.RawMessage `json:"version"`
 	Material []byte          `json:"material,omitempty"`
+	Deleted  bool            `json:"deleted,omitempty"`
 }
 
 type keySnap struct {
@@ -38,6 +39,8 @@ type backendSnapshot struct {
 	Rings    map[string]json.RawMessage `json:"rings"`
 	Keys     map[string]keySnap         `json:"keys"`
 	Jobs     map[string]jobSnap         `json:"jobs"`
+	Retired  map[string]json.RawMessage `json:"retired,omitempty"`
+	Ops      map[string]json.RawMessage `json:"operations,omitempty"`
 	Policies map[string]json.RawMessage `json:"policies"`
 	EtagSeq  uint64                     `json:"etagSeq"`
 	Version  int                        `json:"version"`
@@ -67,6 +70,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Rings:    make(map[string]json.RawMessage, len(b.rings)),
 		Keys:     make(map[string]keySnap, len(b.keys)),
 		Jobs:     make(map[string]jobSnap, len(b.jobs)),
+		Retired:  make(map[string]json.RawMessage, len(b.retired)),
 		Policies: make(map[string]json.RawMessage, len(b.policies)),
 	}
 
@@ -77,7 +81,10 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	for name, k := range b.keys {
 		ks := keySnap{Key: marshalPB(k.pb), Primary: k.primary}
 		for _, v := range k.versions {
-			ks.Versions = append(ks.Versions, versionSnap{Version: marshalPB(v.pb), Material: v.material})
+			ks.Versions = append(
+				ks.Versions,
+				versionSnap{Version: marshalPB(v.pb), Material: v.material, Deleted: v.deleted},
+			)
 		}
 
 		snap.Keys[name] = ks
@@ -87,9 +94,15 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		snap.Jobs[name] = jobSnap{Job: marshalPB(j.pb), Private: j.private}
 	}
 
+	for name, r := range b.retired {
+		snap.Retired[name] = marshalPB(r)
+	}
+
 	for name, p := range b.policies {
 		snap.Policies[name] = marshalPB(p)
 	}
+
+	snap.Ops = b.ops.Snapshot()
 
 	return persistence.MarshalSnapshot(ctx, "gcpkms", snap)
 }
@@ -110,6 +123,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"gotVersion", snap.Version, "wantVersion", snapshotVersion)
 
 		b.resetMaps()
+		b.ops.Reset()
 
 		return nil
 	}
@@ -122,6 +136,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.rings, b.keys, b.jobs, b.policies = fresh.rings, fresh.keys, fresh.jobs, fresh.policies
+	b.retired = fresh.retired
+
+	if err := b.ops.Restore(snap.Ops); err != nil {
+		return err
+	}
+
 	b.etagSeq = max(b.etagSeq, snap.EtagSeq)
 
 	return nil
@@ -155,6 +175,15 @@ func (b *InMemoryBackend) decode(snap backendSnapshot) error {
 		b.jobs[name] = &jobRec{pb: j, private: js.Private}
 	}
 
+	for name, raw := range snap.Retired {
+		r := &kmspb.RetiredResource{}
+		if err := unmarshalPB(raw, r); err != nil {
+			return fmt.Errorf("gcpkms: restore retired resource %q: %w", name, err)
+		}
+
+		b.retired[name] = r
+	}
+
 	for name, raw := range snap.Policies {
 		p := &iampb.Policy{}
 		if err := unmarshalPB(raw, p); err != nil {
@@ -181,7 +210,10 @@ func decodeKey(name string, ks keySnap) (*keyRec, error) {
 			return nil, fmt.Errorf("gcpkms: restore version %d of %q: %w", i+1, name, err)
 		}
 
-		k.versions = append(k.versions, &versionRec{pb: vpb, material: vs.Material, id: int64(i + 1)})
+		k.versions = append(
+			k.versions,
+			&versionRec{pb: vpb, material: vs.Material, id: int64(i + 1), deleted: vs.Deleted},
+		)
 	}
 
 	return k, nil

@@ -20,7 +20,7 @@ import (
 	dockercontainer "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -97,7 +97,7 @@ func TestLambdaEFSAccessPointMount(t *testing.T) {
 	t.Parallel()
 
 	cli := &CLI{AccountID: "000000000000", Region: "us-east-1", Port: ":8125"}
-	byName := newWiredServices(t, cli, 19600)
+	byName := newWiredServices(t, cli)
 
 	ec2H := byName["EC2"].(*ec2backend.Handler)
 	efsBk := byName["EFS"].(*efsbackend.Handler).Backend
@@ -136,8 +136,7 @@ func TestLambdaEFSAccessPointMount(t *testing.T) {
 
 	api := &lambdaBindDockerAPI{binds: map[string][]string{}}
 	rt := container.NewDockerRuntimeWithAPI(api, container.Config{PoolSize: 2, IdleTimeout: time.Minute})
-	pa, err := portalloc.New(19660, 19669)
-	require.NoError(t, err)
+	pa := portalloctest.New(t, 10)
 
 	bk := lambdabackend.NewInMemoryBackend(rt, pa, lambdabackend.DefaultSettings(), "000000000000", "us-east-1")
 	t.Cleanup(func() { bk.Close(context.Background()) })
@@ -204,7 +203,7 @@ func TestInitializeServicesWiresLambdaEFS(t *testing.T) {
 	t.Parallel()
 
 	cli := &CLI{AccountID: "000000000000", Region: "us-east-1", Port: ":8126"}
-	byName := newWiredServices(t, cli, 19700)
+	byName := newWiredServices(t, cli)
 
 	lambdaH := byName["Lambda"].(*lambdabackend.Handler)
 	t.Cleanup(func() { lambdaH.Backend.(*lambdabackend.InMemoryBackend).Close(context.Background()) })

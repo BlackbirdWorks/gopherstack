@@ -47,6 +47,7 @@ type Handler struct {
 	Backend  *InMemoryBackend
 	srvMu    *lockmetrics.RWMutex
 	srv      *http.Server
+	stopJan  func()
 	routes   []route
 	Settings Settings
 	Port     int
@@ -341,6 +342,8 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	log := logger.Load(workerCtx)
 	log.InfoContext(workerCtx, "azurekeyvault: starting dedicated HTTPS listener", "port", h.Port)
 
+	h.startJanitor(ctx)
+
 	go func() {
 		if serveErr := srv.Serve(tlsListener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			log.ErrorContext(workerCtx, "azurekeyvault: listener stopped", "error", serveErr)
@@ -350,12 +353,34 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
-// Shutdown stops the listener.
+func (h *Handler) startJanitor(ctx context.Context) {
+	jctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		NewJanitor(h.Backend, 0).Run(jctx)
+	}()
+
+	h.srvMu.Lock("startJanitor")
+	h.stopJan = func() {
+		cancel()
+		<-done
+	}
+	h.srvMu.Unlock()
+}
+
+// Shutdown stops the listener and the lifetime-action janitor.
 func (h *Handler) Shutdown(ctx context.Context) {
 	h.srvMu.Lock("Shutdown")
-	srv := h.srv
-	h.srv = nil
+	srv, stop := h.srv, h.stopJan
+	h.srv, h.stopJan = nil, nil
 	h.srvMu.Unlock()
+
+	if stop != nil {
+		stop()
+	}
 
 	if srv == nil {
 		return

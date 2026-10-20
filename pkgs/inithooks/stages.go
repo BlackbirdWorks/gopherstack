@@ -44,6 +44,9 @@ func Stages() []Stage { return []Stage{StageBoot, StageStart, StageReady, StageS
 // DefaultRoots are the stage-directory roots scanned when present.
 func DefaultRoots() []string { return []string{"/etc/localstack/init", "/etc/gopherstack/init"} }
 
+// DefaultLegacyReadyDirs are LocalStack's deprecated flat READY-stage script directories.
+func DefaultLegacyReadyDirs() []string { return []string{"/docker-entrypoint-initaws.d"} }
+
 // ScriptStatus is the status of one discovered script.
 type ScriptStatus struct {
 	Stage Stage
@@ -56,9 +59,11 @@ type ScriptStatus struct {
 type ManagerConfig struct {
 	Log *slog.Logger
 	// Env is appended to the process environment for every script.
-	Env     []string
-	Roots   []string
-	Timeout time.Duration
+	Env   []string
+	Roots []string
+	// LegacyReadyDirs are flat script dirs run in READY after the ready.d scripts.
+	LegacyReadyDirs []string
+	Timeout         time.Duration
 }
 
 type managerState struct {
@@ -72,6 +77,7 @@ type Manager struct {
 	log     *slog.Logger
 	env     []string
 	roots   []string
+	legacy  []string
 	timeout time.Duration
 }
 
@@ -85,7 +91,7 @@ func NewManager(cfg ManagerConfig) *Manager {
 		cfg.Log = slog.New(slog.DiscardHandler)
 	}
 
-	m := &Manager{log: cfg.Log, env: cfg.Env, roots: cfg.Roots, timeout: cfg.Timeout}
+	m := &Manager{log: cfg.Log, env: cfg.Env, roots: cfg.Roots, legacy: cfg.LegacyReadyDirs, timeout: cfg.Timeout}
 	m.state.Store(&managerState{completed: make(map[Stage]bool)})
 
 	return m
@@ -136,31 +142,49 @@ func (m *Manager) setScript(stage Stage, idx int, st State, errMsg string) {
 	})
 }
 
+// listScripts returns the sorted .sh/.py script paths directly inside dir.
+func listScripts(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+
+	names := make([]string, 0, len(entries))
+
+	for _, e := range entries {
+		ext := filepath.Ext(e.Name())
+		if !e.IsDir() && (ext == ".sh" || ext == ".py") {
+			names = append(names, e.Name())
+		}
+	}
+
+	slices.Sort(names)
+
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		out = append(out, filepath.Join(dir, n))
+	}
+
+	return out
+}
+
 // discover returns the sorted script paths of the stage, one sorted batch per root.
 func (m *Manager) discover(stage Stage) []string {
 	var out []string
 
 	for _, root := range m.roots {
-		dir := filepath.Join(root, strings.ToLower(string(stage))+".d")
+		out = append(out, listScripts(filepath.Join(root, strings.ToLower(string(stage))+".d"))...)
+	}
 
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
+	if stage != StageReady {
+		return out
+	}
 
-		names := make([]string, 0, len(entries))
+	for _, dir := range m.legacy {
+		if legacy := listScripts(dir); len(legacy) > 0 {
+			m.log.Warn("init hook: legacy directory is deprecated; move scripts to <root>/ready.d", "dir", dir)
 
-		for _, e := range entries {
-			ext := filepath.Ext(e.Name())
-			if !e.IsDir() && (ext == ".sh" || ext == ".py") {
-				names = append(names, e.Name())
-			}
-		}
-
-		slices.Sort(names)
-
-		for _, n := range names {
-			out = append(out, filepath.Join(dir, n))
+			out = append(out, legacy...)
 		}
 	}
 

@@ -9,6 +9,7 @@ import (
 	"cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
 	"cloud.google.com/go/iam/apiv1/iampb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -46,6 +47,7 @@ type InMemoryBackend struct {
 	policies   map[string]*iampb.Policy
 	cmek       map[string]*cloudtaskspb.CmekConfig
 	wg         *sync.WaitGroup
+	ops        *gcplro.Store
 	appEngine  string
 	etagSeq    uint64
 	taskSeq    uint64
@@ -59,6 +61,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		runCtx: context.Background(),
 		client: newDispatchClient(),
 		wg:     &sync.WaitGroup{},
+		ops:    gcplro.New("gcpcloudtasks"),
 	}
 	b.resetMaps()
 
@@ -85,6 +88,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.resetMaps()
+	b.ops.Reset()
 	b.etagSeq = 0
 	b.taskSeq = 0
 }

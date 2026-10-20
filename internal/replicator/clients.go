@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -41,6 +42,7 @@ type sdkClients struct {
 	sns    *sns.Client
 	ddb    *dynamodb.Client
 	iam    *iam.Client
+	ec2    *ec2.Client
 	lambda *lambda.Client
 	ssm    *ssm.Client
 	sm     *secretsmanager.Client
@@ -94,6 +96,7 @@ func newClients(ctx context.Context, ep Endpoint, isTarget bool) (*sdkClients, e
 		sns:    sns.NewFromConfig(cfg),
 		ddb:    dynamodb.NewFromConfig(cfg),
 		iam:    iam.NewFromConfig(cfg),
+		ec2:    ec2.NewFromConfig(cfg),
 		lambda: lambda.NewFromConfig(cfg),
 		ssm:    ssm.NewFromConfig(cfg),
 		sm:     secretsmanager.NewFromConfig(cfg),

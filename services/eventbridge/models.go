@@ -151,7 +151,8 @@ type EcsParameters struct {
 // NetworkConfiguration specifies the awsvpc network configuration for an ECS
 // target task.
 type NetworkConfiguration struct {
-	AwsvpcConfiguration *AwsVpcConfiguration `json:"AwsvpcConfiguration,omitempty"`
+	// SDK key is lowerCamel (schemas.NetworkConfiguration_awsvpcConfiguration).
+	AwsvpcConfiguration *AwsVpcConfiguration `json:"awsvpcConfiguration,omitempty"`
 }
 
 // AwsVpcConfiguration specifies the subnets, security groups, and public-IP
@@ -165,21 +166,21 @@ type AwsVpcConfiguration struct {
 // CapacityProviderStrategyItem is a single entry in an ECS target's capacity
 // provider strategy.
 type CapacityProviderStrategyItem struct {
-	CapacityProvider string `json:"CapacityProvider"`
-	Base             int32  `json:"Base,omitempty"`
-	Weight           int32  `json:"Weight,omitempty"`
+	CapacityProvider string `json:"capacityProvider"`
+	Base             int32  `json:"base,omitempty"`
+	Weight           int32  `json:"weight,omitempty"`
 }
 
 // PlacementConstraint is a single ECS task placement constraint.
 type PlacementConstraint struct {
-	Expression string `json:"Expression,omitempty"`
-	Type       string `json:"Type,omitempty"`
+	Expression string `json:"expression,omitempty"`
+	Type       string `json:"type,omitempty"`
 }
 
 // PlacementStrategy is a single ECS task placement strategy rule.
 type PlacementStrategy struct {
-	Field string `json:"Field,omitempty"`
-	Type  string `json:"Type,omitempty"`
+	Field string `json:"field,omitempty"`
+	Type  string `json:"type,omitempty"`
 }
 
 // EcsTag is a key/value tag applied to an ECS target task (distinct from the

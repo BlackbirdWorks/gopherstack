@@ -9,20 +9,26 @@
 | --- | --- |
 | PARITY entries audited | 26 (26 ok) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 1 |
+| Known gaps | 7 |
 | Structural gaps (can't be emulated) | 6 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- ORC/Avro input and output formats: no pure-Go ORC or Avro library in go.mod (only parquet-go), so these stay NOT_SUPPORTED until a dependency is approved.
+- Complex-type results: Boolean expression results render 1/0 rather than true/false (SQLite has no boolean type); ROW(...) constructors, CAST(... AS ROW(...)) and anonymous rows are unsupported; map and row expression results both report ColumnInfo type map; integral doubles inside arrays render without the .0 suffix; col.field dereference works on ROW columns of a referenced table only (not CTE/subquery outputs or lambda parameters).
+- Lambda functions cover transform, filter, reduce, any_match/all_match/none_match, map_filter, transform_values, transform_keys and zip_with; array_sort(arr, comparator), map_zip_with, reduce_agg and zip_with over more than two arrays are not translated.
+- INTERVAL literals are supported only as the right operand of + or - (INTERVAL n UNIT, YEAR TO MONTH, 'D HH:MM:SS' DAY TO SECOND) via date_add semantics with end-of-month clamping; timestamp - timestamp interval results, standalone INTERVAL values/comparisons and fractional-second intervals are unsupported.
+- GROUP BY ROLLUP/CUBE/GROUPING SETS are expanded to UNION ALL of plain GROUP BY branches: not combinable with UNION/INTERSECT/EXCEPT in the same query block, and the outer ORDER BY may reference only output columns or ordinals.
+- Partition projection (enum/integer/date/injected) enumerates partitions from table properties and prunes by simple WHERE conjuncts (=, IN, BETWEEN, comparisons; OR or non-literal predicates disable pruning); the INVALID_TABLE_PROPERTY/EXCEEDED_LIMIT failure wording for a missing injected filter or oversized enumeration is modeled, UNVERIFIED against live Athena; SHOW PARTITIONS does not list projected partitions.
 - QueryExecution.SubstatementType is not modeled: the pinned SDK documents it only as "The kind of query statement that was run" with no enum or value list, so the vocabulary cannot be verified.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- ORC and Avro tables cannot be read or written (no pure-Go ORC/Avro library in go.mod): SELECT fails NOT_SUPPORTED; CTAS/UNLOAD with format ORC/AVRO fail NOT_SUPPORTED. SQL is SQLite semantics behind a Presto/Trino translation layer, not Trino: lambda functions (transform/filter/reduce/zip_with), ROW/struct dereference (col.field), array subscripts (a[1]), INTERVAL arithmetic, GROUP BY ROLLUP/CUBE/GROUPING SETS, TABLESAMPLE and multi-argument UNNEST fail as SYNTAX_ERROR. Arrays, maps and structs are stored and returned as JSON text (varchar), not Trino's `[a, b]` / `{k=v}` rendering. Partition projection is ignored.
+- ORC and Avro tables cannot be read or written (go.mod carries only parquet-go; no pure-Go ORC/Avro reader): SELECT fails NOT_SUPPORTED; CTAS/UNLOAD with format ORC/AVRO fail NOT_SUPPORTED. SQL is SQLite semantics behind a Presto/Trino translation layer, not Trino; TABLESAMPLE and multi-argument UNNEST fail as SYNTAX_ERROR.
 - DeleteDataCatalogInput.DeleteCatalogOnly has no effect: a FEDERATED catalog's CFN Stack/Lambda/Glue Connection resources are not simulated.
 - WorkGroup.IdentityCenterApplicationArn is never set: the IAM Identity Center application AWS provisions for an Identity Center workgroup does not exist here.
 - WorkGroup on GetDatabase/ListDatabases/GetTableMetadata/ListTableMetadata/GetDataCatalog/ListDataCatalogs is accepted and ignored: it only matters for IAM Identity Center-enabled Glue catalogs, which do not exist here.

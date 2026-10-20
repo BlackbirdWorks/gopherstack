@@ -135,6 +135,22 @@ export const GCP_SERVICES: readonly GcpService[] = [
     defaultPort: 8123,
   },
   {
+    id: "scheduler",
+    label: "Cloud Scheduler",
+    description: "Google Cloud Scheduler",
+    healthName: "GCPScheduler",
+    portLabel: "gcpscheduler",
+    defaultPort: 8124,
+  },
+  {
+    id: "iam",
+    label: "Cloud IAM",
+    description: "Google Cloud IAM",
+    healthName: "GCPIAM",
+    portLabel: "gcpiam",
+    defaultPort: 8125,
+  },
+  {
     id: "firestore",
     label: "Firestore",
     description: "Google Cloud Firestore",

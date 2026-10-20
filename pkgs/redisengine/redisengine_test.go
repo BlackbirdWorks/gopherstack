@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/redisengine"
 )
 
@@ -30,9 +31,7 @@ func TestEngine_StartClose(t *testing.T) {
 
 			var alloc *portalloc.Allocator
 			if tt.withAlloc {
-				var err error
-				alloc, err = portalloc.New(41000, 41100)
-				require.NoError(t, err)
+				alloc = portalloctest.New(t, 10)
 			}
 
 			e, err := redisengine.Start(alloc, "test")

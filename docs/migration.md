@@ -181,7 +181,7 @@ don't appear in LocalStack's documentation at all.
 | Policy enforcement | ✅ Pro | ✅ Opt-in (`--enforce-iam` / `GOPHERSTACK_ENFORCE_IAM`) |
 | Real DB/cache | ❌ | ✅ ElastiCache embedded mode (miniredis); RDS and Redshift remain metadata-only |
 | Lambda runtimes | Zip + Image | Zip + Image (requires a Docker or Podman daemon) |
-| Extensions / plugins | ✅ (LocalStack extensions) | ❌ None |
+| Extensions / plugins | ✅ (LocalStack extensions) | ⚠️ Out-of-process extensions ([docs](extensions.md)); no in-process plugins |
 | Endpoint injection | ✅ Transparent (per-service DNS/proxy) | ❌ Single port only |
 | Cloud Pods | ✅ (state sharing/snapshots) | ❌ None (local `--persist` snapshots only) |
 
@@ -195,6 +195,8 @@ These LocalStack developer endpoints are served on the edge port:
 | `GET /_aws/sqs/messages?QueueUrl=...` and `/_aws/sqs/messages/<region>/<account>/<queue>` | Peek at queue messages without changing visibility or receive counts; XML by default, JSON with `Accept: application/json`; `ShowInvisible`/`ShowDelayed` supported |
 | `GET /_aws/cloudwatch/metrics/raw` | `{"metrics":[{"ns","n","v","t","d","account","region"}]}` for single-value datapoints |
 | `POST /_localstack/state/reset` | Alias for `POST /_gopherstack/reset` |
+| `GET/POST/PUT/PATCH /_localstack/pods`, `DELETE /_localstack/pods/<name>` | Cloud Pods-style aliases onto `/_gopherstack/pods`: GET lists `{"cloudpods":[{pod_name,max_version,last_change}]}`; POST/PUT saves `{pod_name, message?, services?}`; PATCH loads `{pod_name, version?, merge?, services?}`; DELETE removes a pod. Shapes are best-effort; LocalStack's pod API is not publicly specified |
+| `GET/POST /_localstack/state/export`, `POST /_localstack/state/import[?merge=true]` | Export or import all service state as a `gopherstack-snapshot/v1` bundle |
 | `GET /_localstack/health`, `/_aws/health`, `/_localstack/info` | Service list, version and `edition` |
 | `GET /_localstack/init`, `/_localstack/init/<stage>` | Real init state (`--init-script` as READY plus `{boot,start,ready,shutdown}.d` stage dirs): `completed` per stage plus `scripts[]` with `UNKNOWN`/`RUNNING`/`SUCCESSFUL`/`ERROR` |
 | `GET /_localstack/config` | Read-only runtime config subset (`DEFAULT_REGION`, `GATEWAY_LISTEN`, `PERSISTENCE`, ...). `POST` returns 400: runtime updates are unsupported |
@@ -241,3 +243,7 @@ provider "aws" {
   }
 }
 ```
+
+## Pod load semantics
+
+Loading a pod is atomic: every section is validated first (a corrupt section returns 422 with no state touched), and if a service fails to restore, all services are rolled back to their pre-load state. `?merge=true` (CLI `--merge`) merges per account/region: records in the pod's account/regions replace the current ones for those scopes and other scopes are kept. Services whose snapshot has no account/region records are replaced whole.

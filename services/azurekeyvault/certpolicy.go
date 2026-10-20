@@ -14,14 +14,15 @@ import (
 )
 
 const (
-	pemContentType   = "application/x-pem-file"
-	issuerSelf       = "Self"
-	defaultValidity  = 12
-	certSerialBits   = 127
-	statusCompleted  = "completed"
-	maxValidityMonth = 1200
-	radixDecimal     = 10
-	minOIDArcs       = 2
+	pemContentType    = "application/x-pem-file"
+	pkcs12ContentType = "application/x-pkcs12"
+	issuerSelf        = "Self"
+	defaultValidity   = 12
+	certSerialBits    = 127
+	statusCompleted   = "completed"
+	maxValidityMonth  = 1200
+	radixDecimal      = 10
+	minOIDArcs        = 2
 )
 
 // KeyProps are the certificate policy key properties.
@@ -279,10 +280,6 @@ func applySANs(t *x509.Certificate, s *SANs) error {
 		return nil
 	}
 
-	if len(s.UPNs) > 0 {
-		return errBadParameter("UPN subject alternative names are not supported.")
-	}
-
 	t.EmailAddresses = s.Emails
 	t.DNSNames = s.DNSNames
 
@@ -304,11 +301,16 @@ func applySANs(t *x509.Certificate, s *SANs) error {
 		t.IPAddresses = append(t.IPAddresses, parsed)
 	}
 
-	return nil
+	return applyUPNs(t, s.UPNs)
 }
 
 // selfSign generates key material and a self-signed certificate for pol.
 func selfSign(pol *CertPolicy, now time.Time) ([]byte, []byte, error) {
+	return selfSignWithKey(pol, nil, now)
+}
+
+// selfSignWithKey is selfSign reusing keyDER (PKCS#8) when non-nil.
+func selfSignWithKey(pol *CertPolicy, keyDER []byte, now time.Time) ([]byte, []byte, error) {
 	if pol.X509Props == nil || pol.X509Props.Subject == "" {
 		return nil, nil, errBadParameter("The policy must contain x509_props.subject.")
 	}
@@ -323,9 +325,11 @@ func selfSign(pol *CertPolicy, now time.Time) ([]byte, []byte, error) {
 		return nil, nil, errBadParameter("validity_months must be between 1 and %d.", maxValidityMonth)
 	}
 
-	keyDER, _, _, err := generateKeyMaterial(pol.KeyProps.Kty, pol.KeyProps.KeySize, pol.KeyProps.Crv)
-	if err != nil {
-		return nil, nil, err
+	if keyDER == nil {
+		keyDER, _, _, err = generateKeyMaterial(pol.KeyProps.Kty, pol.KeyProps.KeySize, pol.KeyProps.Crv)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	priv, err := x509.ParsePKCS8PrivateKey(keyDER)

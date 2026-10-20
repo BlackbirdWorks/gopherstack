@@ -29,6 +29,7 @@ type backendSnapshot struct {
 	Tombstones map[string]time.Time       `json:"tombstones"`
 	Policies   map[string]json.RawMessage `json:"policies"`
 	Cmek       map[string]json.RawMessage `json:"cmek"`
+	Ops        map[string]json.RawMessage `json:"operations,omitempty"`
 	EtagSeq    uint64                     `json:"etagSeq"`
 	TaskSeq    uint64                     `json:"taskSeq"`
 	Version    int                        `json:"version"`
@@ -81,6 +82,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		snap.Cmek[n] = marshalPB(c)
 	}
 
+	snap.Ops = b.ops.Snapshot()
+
 	return persistence.MarshalSnapshot(ctx, "gcpcloudtasks", snap)
 }
 
@@ -100,6 +103,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"gotVersion", snap.Version, "wantVersion", snapshotVersion)
 
 		b.resetMaps()
+		b.ops.Reset()
 
 		return nil
 	}
@@ -108,6 +112,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	fresh.resetMaps()
 
 	if err := fresh.decode(snap); err != nil {
+		return err
+	}
+
+	if err := b.ops.Restore(snap.Ops); err != nil {
 		return err
 	}
 

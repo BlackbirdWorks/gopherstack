@@ -4,9 +4,12 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"net/http"
 	"sort"
 	"strings"
+
+	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
 
 // CertVersion is one stored version of a certificate.
@@ -16,6 +19,7 @@ type CertVersion struct {
 	X5T   string            `json:"x5t"`
 	Attrs Attributes        `json:"attrs"`
 	Cer   []byte            `json:"cer"`
+	Chain [][]byte          `json:"chain,omitempty"`
 }
 
 // VersionID implements Versioned.
@@ -126,8 +130,10 @@ func (v *vault) findCert(name, version string) (*Entity[*CertVersion], *CertVers
 
 // addCert stores a certificate version plus its backing key and secret.
 func (v *vault) addCert(
-	name string, certDER, keyDER []byte, pol *CertPolicy, req attrsAndTags, now int64,
+	name string, mat certMaterial, pol *CertPolicy, req attrsAndTags, now int64,
 ) (*CertVersion, error) {
+	certDER := mat.cert
+
 	cert, err := x509.ParseCertificate(certDER)
 	if err != nil {
 		return nil, errBadParameter("The certificate could not be parsed.")
@@ -142,16 +148,23 @@ func (v *vault) addCert(
 		return nil, err
 	}
 
-	id := newVersionID()
+	id := mat.id
+	if id == "" {
+		id = newVersionID()
+	}
+
 	attrs := newAttributes(req.attrs, now, v.RetentionDays, protectedVault(v))
 	nbf, exp := cert.NotBefore.Unix(), cert.NotAfter.Unix()
 	attrs.NBF, attrs.Exp = &nbf, &exp
 
-	ver := &CertVersion{ID: id, X5T: thumbprint(certDER), Cer: certDER, Tags: cloneTags(req.tags), Attrs: attrs}
+	ver := &CertVersion{
+		ID: id, X5T: thumbprint(certDER), Cer: certDER, Chain: mat.chain,
+		Tags: cloneTags(req.tags), Attrs: attrs,
+	}
 	ce.Versions = append(ce.Versions, ver)
 	ce.CertPolicy = pol
 
-	if err = v.addBacking(name, id, certDER, keyDER, attrs, req.tags, now); err != nil {
+	if err = v.addBacking(name, id, mat, pol.SecretProps.ContentType, attrs, req.tags, now); err != nil {
 		return nil, err
 	}
 
@@ -184,6 +197,13 @@ func (v *vault) checkBackingFree(name string) error {
 	return nil
 }
 
+type certMaterial struct {
+	id    string
+	cert  []byte
+	key   []byte
+	chain [][]byte
+}
+
 type attrsAndTags struct {
 	tags  map[string]string
 	attrs *Attributes
@@ -191,11 +211,14 @@ type attrsAndTags struct {
 
 func (v *vault) addBacking(
 	name, id string,
-	certDER, keyDER []byte,
+	mat certMaterial,
+	contentType string,
 	attrs Attributes,
 	tags map[string]string,
 	now int64,
 ) error {
+	keyDER := mat.key
+
 	priv, err := x509.ParsePKCS8PrivateKey(keyDER)
 	if err != nil {
 		return err
@@ -222,8 +245,13 @@ func (v *vault) addBacking(
 		return err
 	}
 
+	value, contentType, err := backingSecret(mat, priv, contentType)
+	if err != nil {
+		return err
+	}
+
 	secEnt.Versions = append(secEnt.Versions, &SecretVersion{
-		ID: id, Value: pemBundle(certDER, keyDER), ContentType: pemContentType,
+		ID: id, Value: value, ContentType: contentType,
 		Tags: cloneTags(tags), Attrs: attrs, Managed: true,
 		KID: "",
 	})
@@ -231,10 +259,13 @@ func (v *vault) addBacking(
 	return nil
 }
 
-const pemKeyType = "PRIVATE KEY"
+const (
+	pemKeyType  = "PRIVATE KEY"
+	pemCertType = "CERTIFICATE"
+)
 
 func pemBundle(certDER, keyDER []byte) string {
-	out := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	out := pem.EncodeToMemory(&pem.Block{Type: pemCertType, Bytes: certDER})
 
 	return string(append(out, pem.EncodeToMemory(&pem.Block{Type: pemKeyType, Bytes: keyDER})...))
 }
@@ -252,11 +283,14 @@ func (b *InMemoryBackend) CreateCertificate(
 		}
 
 		pol := req.Policy.normalized(now)
-		if !strings.EqualFold(pol.Issuer.Name, issuerSelf) {
+
+		switch {
+		case strings.EqualFold(pol.Issuer.Name, issuerUnknown):
+			return v.createPending(name, base, pol, req, now, &out)
+		case !strings.EqualFold(pol.Issuer.Name, issuerSelf):
 			return errBadParameter(
-				"Issuer %q is not supported; only the %s issuer can issue certificates.",
-				pol.Issuer.Name,
-				issuerSelf,
+				"Issuer %q is not supported; only the %s and %s issuers can issue certificates.",
+				pol.Issuer.Name, issuerSelf, issuerUnknown,
 			)
 		}
 
@@ -267,8 +301,7 @@ func (b *InMemoryBackend) CreateCertificate(
 
 		if _, err = v.addCert(
 			name,
-			certDER,
-			keyDER,
+			certMaterial{cert: certDER, key: keyDER},
 			pol,
 			attrsAndTags{tags: req.Tags, attrs: req.Attributes},
 			now,
@@ -282,6 +315,19 @@ func (b *InMemoryBackend) CreateCertificate(
 	})
 
 	return out, err
+}
+
+func (v *vault) createPending(
+	name, base string, pol *CertPolicy, req *CreateCertRequest, now int64, out *CertOperation,
+) error {
+	pc, err := v.startPending(name, pol, attrsAndTags{tags: req.Tags, attrs: req.Attributes}, now)
+	if err != nil {
+		return err
+	}
+
+	*out = pc.Op.wire(base, name)
+
+	return nil
 }
 
 func (o *CertOperation) wire(base, name string) CertOperation {
@@ -314,7 +360,7 @@ func parsePEMBundle(data []byte) ([]byte, []byte, error) {
 		}
 
 		switch blk.Type {
-		case "CERTIFICATE":
+		case pemCertType:
 			certs = append(certs, blk.Bytes)
 		case pemKeyType, "RSA PRIVATE KEY", "EC PRIVATE KEY":
 			keyDER, err = toPKCS8(blk)
@@ -364,31 +410,22 @@ func toPKCS8(blk *pem.Block) ([]byte, error) {
 	return x509.MarshalPKCS8PrivateKey(k)
 }
 
-// ImportCertificate imports a PEM certificate with its private key.
+// ImportCertificate imports a PEM or PKCS#12 certificate with its private key.
 func (b *InMemoryBackend) ImportCertificate(vaultName, base, name string, req *ImportCertRequest) (CertWire, error) {
 	var out CertWire
 
 	err := b.do(vaultName, func(v *vault, now int64) error {
-		raw, err := base64.StdEncoding.DecodeString(req.Value)
-		if err != nil {
-			raw = []byte(req.Value)
-		}
-
-		if !strings.Contains(string(raw), "-----BEGIN") {
-			return errBadParameter("Only PEM certificate values are supported; PKCS#12 import is not available.")
-		}
-
-		certDER, keyDER, err := parsePEMBundle(raw)
+		mat, format, err := parseImportValue(req)
 		if err != nil {
 			return err
 		}
 
-		pol, err := derivePolicy(req.Policy, certDER, keyDER, now)
+		pol, err := derivePolicy(withDefaultContentType(req.Policy, format), mat.cert, mat.key, now)
 		if err != nil {
 			return err
 		}
 
-		ver, err := v.addCert(name, certDER, keyDER, pol, attrsAndTags{tags: req.Tags, attrs: req.Attributes}, now)
+		ver, err := v.addCert(name, mat, pol, attrsAndTags{tags: req.Tags, attrs: req.Attributes}, now)
 		if err != nil {
 			return err
 		}
@@ -401,6 +438,96 @@ func (b *InMemoryBackend) ImportCertificate(vaultName, base, name string, req *I
 	return out, err
 }
 
+// parseImportValue decodes a PEM or base64 PKCS#12 import value and returns
+// the detected content type.
+func parseImportValue(req *ImportCertRequest) (certMaterial, string, error) {
+	raw, err := base64.StdEncoding.DecodeString(req.Value)
+	if err != nil {
+		raw = []byte(req.Value)
+	}
+
+	if strings.Contains(string(raw), "-----BEGIN") {
+		certDER, keyDER, pErr := parsePEMBundle(raw)
+
+		return certMaterial{cert: certDER, key: keyDER}, pemContentType, pErr
+	}
+
+	mat, err := parsePFX(raw, req.Password)
+
+	return mat, pkcs12ContentType, err
+}
+
+func withDefaultContentType(in *CertPolicy, contentType string) *CertPolicy {
+	out := &CertPolicy{}
+	if in != nil {
+		*out = *in
+	}
+
+	if out.SecretProps == nil || out.SecretProps.ContentType == "" {
+		out.SecretProps = &SecretProps{ContentType: contentType}
+	}
+
+	return out
+}
+
+func parsePFX(data []byte, password string) (certMaterial, error) {
+	priv, leaf, chain, err := pkcs12.DecodeChain(data, password)
+	if err != nil {
+		if errors.Is(err, pkcs12.ErrIncorrectPassword) {
+			return certMaterial{}, errBadParameter("The PKCS#12 password is incorrect.")
+		}
+
+		return certMaterial{}, errBadParameter("The certificate value is not a valid PEM or PKCS#12 bundle.")
+	}
+
+	keyDER, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		return certMaterial{}, errBadParameter("The private key could not be parsed.")
+	}
+
+	if !samePublicKey(leaf.PublicKey, publicOf(priv)) {
+		return certMaterial{}, errBadParameter("The certificate does not match the private key.")
+	}
+
+	mat := certMaterial{cert: leaf.Raw, key: keyDER}
+	for _, c := range chain {
+		mat.chain = append(mat.chain, c.Raw)
+	}
+
+	return mat, nil
+}
+
+// backingSecret renders the certificate's backing secret value; a PKCS#12
+// secret is a base64 PFX without a password, as Key Vault returns it.
+func backingSecret(mat certMaterial, priv any, contentType string) (string, string, error) {
+	if contentType != pkcs12ContentType {
+		return pemBundle(mat.cert, mat.key), pemContentType, nil
+	}
+
+	leaf, err := x509.ParseCertificate(mat.cert)
+	if err != nil {
+		return "", "", err
+	}
+
+	var chain []*x509.Certificate
+
+	for _, der := range mat.chain {
+		c, cErr := x509.ParseCertificate(der)
+		if cErr != nil {
+			return "", "", cErr
+		}
+
+		chain = append(chain, c)
+	}
+
+	pfx, err := pkcs12.Modern.Encode(priv, leaf, chain, "")
+	if err != nil {
+		return "", "", err
+	}
+
+	return base64.StdEncoding.EncodeToString(pfx), pkcs12ContentType, nil
+}
+
 // GetCertificate returns a certificate version (latest when version is empty).
 func (b *InMemoryBackend) GetCertificate(vaultName, base, name, version string) (CertWire, error) {
 	var out CertWire
@@ -408,6 +535,12 @@ func (b *InMemoryBackend) GetCertificate(vaultName, base, name, version string) 
 	err := b.do(vaultName, func(v *vault, _ int64) error {
 		e, ver, err := v.findCert(name, version)
 		if err != nil {
+			if pc, ok := v.Pending[name]; ok && version == "" {
+				out = pc.wire(base, name)
+
+				return nil
+			}
+
 			return err
 		}
 
@@ -461,6 +594,13 @@ func (b *InMemoryBackend) GetCertificatePolicy(vaultName, base, name string) (Ce
 	err := b.do(vaultName, func(v *vault, _ int64) error {
 		e, ok := v.Certs.active(name)
 		if !ok {
+			if pc, pending := v.Pending[name]; pending {
+				out = *pc.Policy
+				out.ID = base + "/certificates/" + name + "/policy"
+
+				return nil
+			}
+
 			return errNotFound(kindCertificate, name)
 		}
 
@@ -642,13 +782,12 @@ func (b *InMemoryBackend) GetPendingCertificate(vaultName, base, name string) (C
 	var out CertOperation
 
 	err := b.do(vaultName, func(v *vault, _ int64) error {
-		e, ok := v.Certs.active(name)
-		if !ok || e.CertOp == nil {
-			return newErr(http.StatusNotFound, "PendingCertificateNotFound",
-				"Pending certificate not found: %s", name)
+		op, ok := v.pendingOp(name)
+		if !ok {
+			return errPendingNotFound(name)
 		}
 
-		out = e.CertOp.wire(base, name)
+		out = op.wire(base, name)
 
 		return nil
 	})
@@ -663,13 +802,13 @@ func (b *InMemoryBackend) UpdatePendingCertificate(
 	var out CertOperation
 
 	err := b.do(vaultName, func(v *vault, _ int64) error {
-		e, ok := v.Certs.active(name)
-		if !ok || e.CertOp == nil {
-			return newErr(http.StatusNotFound, "PendingCertificateNotFound", "Pending certificate not found: %s", name)
+		op, ok := v.pendingOp(name)
+		if !ok {
+			return errPendingNotFound(name)
 		}
 
-		e.CertOp.CancellationRequested = req.CancellationRequested
-		out = e.CertOp.wire(base, name)
+		op.CancellationRequested = req.CancellationRequested
+		out = op.wire(base, name)
 
 		return nil
 	})
@@ -682,13 +821,20 @@ func (b *InMemoryBackend) DeletePendingCertificate(vaultName, base, name string)
 	var out CertOperation
 
 	err := b.do(vaultName, func(v *vault, _ int64) error {
-		e, ok := v.Certs.active(name)
-		if !ok || e.CertOp == nil {
-			return newErr(http.StatusNotFound, "PendingCertificateNotFound", "Pending certificate not found: %s", name)
+		op, ok := v.pendingOp(name)
+		if !ok {
+			return errPendingNotFound(name)
 		}
 
-		out = e.CertOp.wire(base, name)
-		e.CertOp = nil
+		out = op.wire(base, name)
+
+		if _, pending := v.Pending[name]; pending {
+			delete(v.Pending, name)
+
+			return nil
+		}
+
+		v.Certs[name].CertOp = nil
 
 		return nil
 	})

@@ -8,18 +8,16 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 21 (21 ok) |
-| Known gaps | 9 |
+| Known gaps | 7 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- CreateMountTarget: when SecurityGroups is omitted the VPC default security group is not looked up, so none is reported; supplied group IDs are shape-checked only, not resolved against EC2 or checked for VPC membership.
-- CreateMountTarget: IPv4 allocation avoids only this backend's mount targets, not addresses EC2 holds; IPv6 is never allocated; the network interface ID is minted here and no ENI exists in EC2.
-- CreateFileSystem: RoleArn is shape-checked, not looked up in IAM; KmsKeyId is not looked up in KMS; AcceptBucketWarning is accepted but no bucket warnings exist.
+- CreateMountTarget: IPv6 is never allocated; the EC2 emulator models no requester-managed flag on the mount target network interface.
+- CreateFileSystem: AcceptBucketWarning is accepted but no bucket warnings exist; the error code for a missing role or key (ValidationException) is inferred, the SDK does not pin it.
 - GetSynchronizationConfiguration returns ResourceNotFoundException until a configuration is put; the real service may seed a default configuration at creation, which the SDK docs do not state.
-- DeleteFileSystem: ForceDelete is accepted but there is no file data plane, so no export is ever pending and the flag changes nothing.
 - ServiceQuotaExceededException, ThrottlingException and InternalServerException are never returned: the S3 Files quotas are not published in the SDK, so no limit is enforced.
 - Error HTTP statuses (400/404/409) are inferred; the SDK dispatches on the X-Amzn-Errortype header and does not pin statuses. ConflictException carries resourceId and resourceType.
 - Access point and file system ARN resource paths (access-point/<id>, file-system/<id>) are assumed from sibling services; the SDK documents ARNs only as opaque strings.

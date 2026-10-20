@@ -225,6 +225,7 @@ type vault struct {
 	Keys            Collection[*KeyVersion]    `json:"keys"`
 	Certs           Collection[*CertVersion]   `json:"certs"`
 	Issuers         map[string]*Issuer         `json:"issuers"`
+	Pending         map[string]*PendingCert    `json:"pending,omitempty"`
 	Contacts        *Contacts                  `json:"contacts,omitempty"`
 	Name            string                     `json:"name"`
 	RetentionDays   int                        `json:"retentionDays"`
@@ -239,6 +240,7 @@ func newVault(name string) *vault {
 		Keys:          make(Collection[*KeyVersion]),
 		Certs:         make(Collection[*CertVersion]),
 		Issuers:       make(map[string]*Issuer),
+		Pending:       make(map[string]*PendingCert),
 	}
 }
 

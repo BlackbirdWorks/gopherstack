@@ -32,8 +32,18 @@ const (
 	unitQuarter = "quarter"
 	unitYear    = "year"
 
-	kwFrom = "from"
-	kwJoin = "join"
+	kwFrom      = "from"
+	kwJoin      = "join"
+	kwWhere     = "where"
+	kwHaving    = "having"
+	kwExcept    = "except"
+	kwFetch     = "fetch"
+	fnCount     = "count"
+	kwGroup     = "group"
+	kwOffset    = "offset"
+	kwLimit     = "limit"
+	kwIntersect = "intersect"
+	fnFilter    = "filter"
 
 	argsTwo           = 2
 	argsThree         = 3

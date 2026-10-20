@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -24,6 +25,9 @@ const (
 	kvFieldTenantID            = "tenantId"
 	kvPublicNetworkEnabled     = "Enabled"
 	kvDefaultHost              = "localhost"
+	kvFieldCreateMode          = "createMode"
+	kvCreateModeRecover        = "recover"
+	kvDeletedVaultsType        = "deletedVaults"
 )
 
 func keyVaultAPIVersions() []string { return []string{"2023-07-01", "2022-07-01"} }
@@ -42,6 +46,7 @@ type storedKeyVault struct {
 	resourceGroup string
 	location      string
 	host          string
+	subscription  string
 }
 
 // KeyVaultProvider implements ResourceProvider for Microsoft.KeyVault/vaults.
@@ -50,6 +55,8 @@ type KeyVaultProvider struct {
 	dataPlane KeyVaults
 	mu        *lockmetrics.RWMutex
 	vaults    map[string]*storedKeyVault
+	deleted   map[string]*deletedKeyVault
+	now       func() time.Time
 	cfg       KeyVaultEndpointConfig
 }
 
@@ -66,6 +73,8 @@ func NewKeyVaultProvider(cfg KeyVaultEndpointConfig, dataPlane KeyVaults) *KeyVa
 	return &KeyVaultProvider{
 		mu:        lockmetrics.New("azurearm.keyvaultprovider"),
 		vaults:    make(map[string]*storedKeyVault),
+		deleted:   make(map[string]*deletedKeyVault),
+		now:       time.Now,
 		cfg:       cfg,
 		dataPlane: dataPlane,
 	}
@@ -129,16 +138,42 @@ func (p *KeyVaultProvider) Put(ctx context.Context, id ResourceID, body map[stri
 		)
 	}
 
+	p.mu.Lock("Put")
+	res, err := p.putLocked(ctx, id, body)
+	p.mu.Unlock()
+
+	if err != nil {
+		return nil, err
+	}
+
+	name := id.LeafName()
+	if res.recovered {
+		p.dataPlane.RecoverVault(name)
+	}
+
+	props := res.props
+	retention := intProp(props, "softDeleteRetentionInDays", kvDefaultRetentionDays)
+	protect, _ := props["enablePurgeProtection"].(bool)
+	p.dataPlane.CreateVault(name, retention, protect)
+
+	return res.out, nil
+}
+
+type kvPutResult struct {
+	out       map[string]any
+	props     map[string]any
+	recovered bool
+}
+
+// putLocked stores the vault; the caller holds p.mu. recovered reports that a
+// soft-deleted vault was restored.
+func (p *KeyVaultProvider) putLocked(ctx context.Context, id ResourceID, body map[string]any) (kvPutResult, error) {
 	name := id.LeafName()
 	key := strings.ToLower(name)
-
-	p.mu.Lock("Put")
-
 	existing, existed := p.vaults[key]
-	if existed && !resourceGroupsEqual(existing.resourceGroup, id.ResourceGroup) {
-		p.mu.Unlock()
 
-		return nil, errVaultExistsInOtherResourceGroup
+	if existed && !resourceGroupsEqual(existing.resourceGroup, id.ResourceGroup) {
+		return kvPutResult{}, errVaultExistsInOtherResourceGroup
 	}
 
 	props, _ := body[fieldProperties].(map[string]any)
@@ -146,11 +181,27 @@ func (p *KeyVaultProvider) Put(ctx context.Context, id ResourceID, body map[stri
 		props = map[string]any{}
 	}
 
+	mode, _ := props[kvFieldCreateMode].(string)
+	delete(props, kvFieldCreateMode)
+
+	gone, softDeleted := p.deleted[key]
+
+	switch {
+	case softDeleted && !strings.EqualFold(mode, kvCreateModeRecover):
+		return kvPutResult{}, errVaultSoftDeleted
+	case !softDeleted && !existed && strings.EqualFold(mode, kvCreateModeRecover):
+		return kvPutResult{}, ErrKeyVaultNotFound
+	}
+
 	location := DefaultLocation
-	if loc, ok := body[fieldLocation].(string); ok && loc != "" {
+
+	switch loc, _ := body[fieldLocation].(string); {
+	case loc != "":
 		location = loc
-	} else if existed {
+	case existed:
 		location = existing.location
+	case softDeleted:
+		location = gone.vault.location
 	}
 
 	host := RequestHostFromContext(ctx)
@@ -159,18 +210,13 @@ func (p *KeyVaultProvider) Put(ctx context.Context, id ResourceID, body map[stri
 	}
 
 	v := &storedKeyVault{
-		name: name, resourceGroup: id.ResourceGroup, location: location,
+		name: name, resourceGroup: id.ResourceGroup, location: location, subscription: id.SubscriptionID,
 		tags: stringTags(body[fieldTags]), properties: props, host: host,
 	}
 	p.vaults[key] = v
-	retention := intProp(props, "softDeleteRetentionInDays", kvDefaultRetentionDays)
-	protect, _ := props["enablePurgeProtection"].(bool)
-	out := p.buildBody(id, v)
-	p.mu.Unlock()
+	delete(p.deleted, key)
 
-	p.dataPlane.CreateVault(name, retention, protect)
-
-	return out, nil
+	return kvPutResult{out: p.buildBody(id, v), props: props, recovered: softDeleted}, nil
 }
 
 func (p *KeyVaultProvider) putAccessPolicies(id ResourceID, body map[string]any) (map[string]any, error) {
@@ -299,22 +345,27 @@ func (p *KeyVaultProvider) Delete(_ context.Context, id ResourceID) error {
 
 	p.mu.Lock("Delete")
 
-	if _, ok := p.owned(id.ResourceGroup, id.LeafName()); !ok {
+	v, ok := p.owned(id.ResourceGroup, id.LeafName())
+	if !ok {
 		p.mu.Unlock()
 
 		return ErrKeyVaultNotFound
 	}
 
-	delete(p.vaults, strings.ToLower(id.LeafName()))
+	soft := p.retireLocked(v)
 	p.mu.Unlock()
 
-	p.dataPlane.DeleteVault(id.LeafName())
+	p.releaseDataPlane(v.name, soft)
 
 	return nil
 }
 
 // List implements ResourceProvider.
 func (p *KeyVaultProvider) List(_ context.Context, id ResourceID) ([]map[string]any, error) {
+	if strings.EqualFold(id.LeafType(), kvDeletedVaultsType) {
+		return p.listDeleted(id.SubscriptionID), nil
+	}
+
 	vaults := p.inGroup(id.ResourceGroup)
 	out := make([]map[string]any, 0, len(vaults))
 
@@ -358,25 +409,30 @@ func (p *KeyVaultProvider) Reset() {
 	defer p.mu.Unlock()
 
 	p.vaults = make(map[string]*storedKeyVault)
+	p.deleted = make(map[string]*deletedKeyVault)
 }
 
 // DeleteResourcesInGroup implements ResourceProvider.
 func (p *KeyVaultProvider) DeleteResourcesInGroup(_ context.Context, resourceGroup string) {
 	p.mu.Lock("DeleteResourcesInGroup")
 
-	var gone []string
+	type retired struct {
+		name string
+		soft bool
+	}
 
-	for key, v := range p.vaults {
+	var gone []retired
+
+	for _, v := range p.vaults {
 		if resourceGroupsEqual(v.resourceGroup, resourceGroup) {
-			gone = append(gone, v.name)
-			delete(p.vaults, key)
+			gone = append(gone, retired{v.name, p.retireLocked(v)})
 		}
 	}
 
 	p.mu.Unlock()
 
-	for _, name := range gone {
-		p.dataPlane.DeleteVault(name)
+	for _, g := range gone {
+		p.releaseDataPlane(g.name, g.soft)
 	}
 }
 

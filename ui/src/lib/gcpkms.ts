@@ -132,6 +132,12 @@ export function describeRotation(period: string): string {
   return secs % DAY_SECONDS === 0 ? `${secs / DAY_SECONDS} days` : `${secs}s`;
 }
 
+/** Days input prefill from a described rotation ("90 days" -> "90"; "" when not whole days). */
+export function rotationDaysInput(described: string): string {
+  const m = /^(\d+) days$/.exec(described);
+  return m ? m[1] : "";
+}
+
 export function parseVersion(raw: Json): VersionInfo {
   const name = str(raw.name);
   return {
@@ -145,16 +151,27 @@ export function parseVersion(raw: Json): VersionInfo {
   };
 }
 
+export type ListOptions = { filter?: string; orderBy?: string };
+
+function listQuery(opts: ListOptions, token: string): string {
+  const q = new URLSearchParams({ pageSize: String(PAGE) });
+  if (opts.filter?.trim()) q.set("filter", opts.filter.trim());
+  if (opts.orderBy?.trim()) q.set("orderBy", opts.orderBy.trim());
+  if (token) q.set("pageToken", token);
+  return q.toString();
+}
+
 async function listAll<T>(
   path: string,
   key: string,
   parse: (raw: Json) => T,
   fetchFn: FetchFn,
+  opts: ListOptions = {},
 ): Promise<T[]> {
   const out: T[] = [];
   let token = "";
   do {
-    const url = `${path}?pageSize=${PAGE}${token ? `&pageToken=${encodeURIComponent(token)}` : ""}`;
+    const url = `${path}?${listQuery(opts, token)}`;
     const body = await restCall<Json>(KMS_PROXY_BASE, "GET", url, undefined, fetchFn);
     out.push(...((body[key] as Json[] | undefined) ?? []).map((r) => parse(r)));
     token = str(body.nextPageToken);
@@ -187,7 +204,96 @@ export const listKeys = (
   location: string,
   ring: string,
   fetchFn: FetchFn = fetch,
-) => listAll(`${ringPath(project, location, ring)}/cryptoKeys`, "cryptoKeys", parseKey, fetchFn);
+  opts: ListOptions = {},
+) =>
+  listAll(`${ringPath(project, location, ring)}/cryptoKeys`, "cryptoKeys", parseKey, fetchFn, opts);
+
+export type RetiredInfo = {
+  name: string;
+  id: string;
+  original: string;
+  originalId: string;
+  resourceType: string;
+  deleteTime: string;
+};
+
+export function parseRetired(raw: Json): RetiredInfo {
+  const name = str(raw.name);
+  const original = str(raw.originalResource);
+  return {
+    name,
+    id: shortName(name),
+    original,
+    originalId: shortName(original),
+    resourceType: str(raw.resourceType),
+    deleteTime: str(raw.deleteTime),
+  };
+}
+
+export const listRetired = (project: string, location: string, fetchFn: FetchFn = fetch) =>
+  listAll(
+    `${locationPath(project, location)}/retiredResources`,
+    "retiredResources",
+    parseRetired,
+    fetchFn,
+  );
+
+export async function deleteKey(ref: KeyRef, fetchFn: FetchFn = fetch): Promise<void> {
+  await restCall(
+    KMS_PROXY_BASE,
+    "DELETE",
+    keyPath(ref.project, ref.location, ref.ring, ref.key),
+    undefined,
+    fetchFn,
+  );
+}
+
+export async function deleteVersion(
+  ref: KeyRef,
+  version: string,
+  fetchFn: FetchFn = fetch,
+): Promise<void> {
+  await restCall(
+    KMS_PROXY_BASE,
+    "DELETE",
+    versionPath(ref.project, ref.location, ref.ring, ref.key, version),
+    undefined,
+    fetchFn,
+  );
+}
+
+export type UpdateKeyInput = { labels: Labels; rotationDays: string };
+
+/** PATCH body and field mask for a labels + rotation update; null when the rotation input is invalid. */
+export function updateKeyPlan(
+  i: UpdateKeyInput,
+  now: Date = new Date(),
+): { body: Json; mask: string } | { error: string } {
+  const rot = rotationFields(i.rotationDays, now);
+  if (rot && "error" in rot) return rot;
+  const body: Json = { labels: i.labels };
+  if (rot) Object.assign(body, rot);
+  return { body, mask: "labels,rotationPeriod,nextRotationTime" };
+}
+
+export async function updateKey(
+  ref: KeyRef,
+  input: UpdateKeyInput,
+  fetchFn: FetchFn = fetch,
+): Promise<KeyInfo> {
+  const plan = updateKeyPlan(input);
+  if ("error" in plan) throw new Error(plan.error);
+  const path = keyPath(ref.project, ref.location, ref.ring, ref.key);
+  return parseKey(
+    await restCall(
+      KMS_PROXY_BASE,
+      "PATCH",
+      `${path}?updateMask=${enc(plan.mask)}`,
+      plan.body,
+      fetchFn,
+    ),
+  );
+}
 
 export async function getKey(
   project: string,
@@ -399,6 +505,82 @@ export async function macSignText(
     fetchFn,
   );
   return str(res.mac);
+}
+
+export async function macVerifyText(
+  ref: KeyRef,
+  version: string,
+  text: string,
+  mac: string,
+  fetchFn: FetchFn = fetch,
+): Promise<boolean> {
+  const res = await restCall<Json>(
+    KMS_PROXY_BASE,
+    "POST",
+    `${versionPath(ref.project, ref.location, ref.ring, ref.key, version)}:macVerify`,
+    { data: utf8ToBase64(text), mac: mac.trim() },
+    fetchFn,
+  );
+  return res.success === true;
+}
+
+/** WebCrypto hash name for an RSA_DECRYPT_OAEP_<bits>_<hash> algorithm. */
+export function oaepHash(algorithm: string): string {
+  const m = /_(SHA\d+)$/.exec(algorithm);
+  if (!m) throw new Error(`Unsupported algorithm ${algorithm}`);
+  return `SHA-${m[1].slice(3)}`;
+}
+
+export function pemToDer(pem: string): Uint8Array<ArrayBuffer> {
+  const body = pem.replaceAll(/-----[A-Z ]+-----/g, "").replaceAll(/\s+/g, "");
+  const bin = atob(body);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.codePointAt(i) ?? 0;
+  return out;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = "";
+  for (const b of bytes) bin += String.fromCodePoint(b);
+  return btoa(bin);
+}
+
+/** RSA-OAEP encrypts text client-side with a KMS public key; returns base64 ciphertext. */
+export async function rsaEncryptText(
+  pem: string,
+  algorithm: string,
+  text: string,
+): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "spki",
+    pemToDer(pem),
+    { name: "RSA-OAEP", hash: oaepHash(algorithm) },
+    false,
+    ["encrypt"],
+  );
+  const out = await crypto.subtle.encrypt(
+    { name: "RSA-OAEP" },
+    key,
+    new TextEncoder().encode(text),
+  );
+  return bytesToBase64(new Uint8Array(out));
+}
+
+export async function asymmetricDecryptText(
+  ref: KeyRef,
+  version: string,
+  ciphertextB64: string,
+  fetchFn: FetchFn = fetch,
+): Promise<{ text: string | null; base64: string }> {
+  const res = await restCall<Json>(
+    KMS_PROXY_BASE,
+    "POST",
+    `${versionPath(ref.project, ref.location, ref.ring, ref.key, version)}:asymmetricDecrypt`,
+    { ciphertext: ciphertextB64.trim() },
+    fetchFn,
+  );
+  const b64 = str(res.plaintext);
+  return { text: base64ToUtf8(b64), base64: b64 };
 }
 
 export async function getPublicKey(

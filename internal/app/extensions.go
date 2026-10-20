@@ -18,6 +18,9 @@ import (
 const (
 	extensionsListPath     = "/_gopherstack/extensions"
 	extensionsRegisterPath = "/_gopherstack/extensions/register"
+	extensionsRestartPath  = "/_gopherstack/extensions/:name/restart"
+	extensionsOutputPath   = "/_gopherstack/extensions/:name/output"
+	localstackExtensions   = "/_localstack/extensions"
 )
 
 // extensionHost owns the extension manager and the lazily created container runtime.
@@ -55,7 +58,33 @@ func (c *CLI) initExtensions(log *slog.Logger, e *echo.Echo) error {
 		return nil
 	})
 
+	e.POST(extensionsRestartPath, func(ec *echo.Context) error {
+		mgr.ServeRestart(ec.Response(), ec.Request(), ec.Param("name"))
+
+		return nil
+	})
+	e.GET(extensionsOutputPath, func(ec *echo.Context) error {
+		mgr.ServeOutput(ec.Response(), ec.Request(), ec.Param("name"))
+
+		return nil
+	})
+
+	registerLocalstackExtensionsAlias(e, c.extHost)
+
 	return nil
+}
+
+// registerLocalstackExtensionsAlias serves the extension list at the LocalStack-style path.
+func registerLocalstackExtensionsAlias(e *echo.Echo, h *extensionHost) {
+	if h == nil {
+		return
+	}
+
+	e.GET(localstackExtensions, func(ec *echo.Context) error {
+		h.mgr.ServeList(ec.Response(), ec.Request())
+
+		return nil
+	})
 }
 
 func (c *CLI) extensionInterceptor() service.Interceptor {

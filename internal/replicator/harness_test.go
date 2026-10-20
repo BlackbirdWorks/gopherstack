@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
+	"github.com/blackbirdworks/gopherstack/services/ec2"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
@@ -41,6 +42,7 @@ func newInstance(t *testing.T, account string) string {
 		sqs.NewHandler(sqs.NewInMemoryBackendWithConfig(account, region)),
 		sns.NewHandler(sns.NewInMemoryBackendWithConfig(account, region)),
 		dynamodb.NewHandler(dynamodb.NewInMemoryDB()),
+		ec2.NewHandler(ec2.NewInMemoryBackend(account, region)),
 		iam.NewHandler(iam.NewInMemoryBackendWithConfig(account)),
 		ssm.NewHandler(ssm.NewInMemoryBackend()),
 		secretsmanager.NewHandler(secretsmanager.NewInMemoryBackendWithConfig(account, region)),

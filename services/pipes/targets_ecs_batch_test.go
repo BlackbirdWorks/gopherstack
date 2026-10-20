@@ -190,7 +190,7 @@ func TestECS_NetworkConfiguration(t *testing.T) {
 			require.True(t, ok, "EcsTaskParameters missing")
 			nc, ok := ecs["NetworkConfiguration"].(map[string]any)
 			require.True(t, ok, "NetworkConfiguration missing")
-			vpc, ok := nc["AwsvpcConfiguration"].(map[string]any)
+			vpc, ok := nc["awsvpcConfiguration"].(map[string]any)
 			require.True(t, ok, "AwsvpcConfiguration missing")
 
 			if len(tt.subnets) > 0 {
@@ -264,7 +264,7 @@ func TestECS_CapacityProviderStrategy(t *testing.T) {
 			assert.Len(t, cps, tt.wantLen)
 
 			first := cps[0].(map[string]any)
-			assert.Equal(t, tt.providers[0]["CapacityProvider"], first["CapacityProvider"])
+			assert.Equal(t, tt.providers[0]["CapacityProvider"], first["capacityProvider"])
 		})
 	}
 }
@@ -327,7 +327,7 @@ func TestECS_PlacementConstraints(t *testing.T) {
 			assert.Len(t, pc, tt.wantLen)
 
 			first := pc[0].(map[string]any)
-			assert.Equal(t, tt.constraints[0]["Type"], first["Type"])
+			assert.Equal(t, tt.constraints[0]["Type"], first["type"])
 		})
 	}
 }
@@ -392,9 +392,9 @@ func TestECS_PlacementStrategy(t *testing.T) {
 			assert.Len(t, ps, tt.wantLen)
 
 			first := ps[0].(map[string]any)
-			assert.Equal(t, tt.wantType, first["Type"])
+			assert.Equal(t, tt.wantType, first["type"])
 			if tt.wantField != "" {
-				assert.Equal(t, tt.wantField, first["Field"])
+				assert.Equal(t, tt.wantField, first["field"])
 			}
 		})
 	}

@@ -188,7 +188,7 @@ func TestECSWiringSetsEndpointAndIssuer(t *testing.T) {
 
 	cli := &CLI{AccountID: "000000000000", Region: "us-east-1", Port: ":8125"}
 	cli.Lambda.DockerHost = "172.17.0.1"
-	byName := newWiredServices(t, cli, 19580)
+	byName := newWiredServices(t, cli)
 
 	bk := ecsBackendOf(byName)
 	require.NotNil(t, bk)

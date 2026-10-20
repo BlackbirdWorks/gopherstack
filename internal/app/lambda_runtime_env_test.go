@@ -18,7 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -66,11 +66,10 @@ func (m *lambdaEnvDockerAPI) Close() error                        { return nil }
 const lambdaEnvTrust = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
 	`"Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 
-func newWiredServices(t *testing.T, cli *CLI, portStart int) map[string]service.Registerable {
+func newWiredServices(t *testing.T, cli *CLI) map[string]service.Registerable {
 	t.Helper()
 
-	portAlloc, err := portalloc.New(portStart, portStart+50)
-	require.NoError(t, err)
+	portAlloc := portalloctest.New(t, 50)
 
 	cli.faultStore = chaos.NewFaultStore()
 	services, err := initializeServices(&service.AppContext{
@@ -86,7 +85,7 @@ func TestInitializeServices_LambdaEndpointWiring(t *testing.T) {
 
 	cli := &CLI{AccountID: "000000000000", Region: "us-east-1", Port: ":8123"}
 	cli.Lambda.DockerHost = "172.17.0.1"
-	byName := newWiredServices(t, cli, 19400)
+	byName := newWiredServices(t, cli)
 
 	lambdaH, ok := byName["Lambda"].(*lambdabackend.Handler)
 	require.True(t, ok)
@@ -103,7 +102,7 @@ func TestLambdaRuntimeEnvAssumedRoleIdentity(t *testing.T) {
 
 	cli := &CLI{AccountID: "000000000000", Region: "us-east-1", Port: ":8124"}
 	cli.Lambda.DockerHost = "172.17.0.1"
-	byName := newWiredServices(t, cli, 19460)
+	byName := newWiredServices(t, cli)
 
 	iamBk := byName["IAM"].(*iambackend.Handler).Backend.(*iambackend.InMemoryBackend)
 	stsBk := byName["STS"].(*stsbackend.Handler).Backend.(*stsbackend.InMemoryBackend)
@@ -113,8 +112,7 @@ func TestLambdaRuntimeEnvAssumedRoleIdentity(t *testing.T) {
 
 	api := &lambdaEnvDockerAPI{}
 	rt := container.NewDockerRuntimeWithAPI(api, container.Config{PoolSize: 1, IdleTimeout: time.Minute})
-	pa, err := portalloc.New(19520, 19529)
-	require.NoError(t, err)
+	pa := portalloctest.New(t, 10)
 
 	bk := lambdabackend.NewInMemoryBackend(rt, pa, lambdabackend.DefaultSettings(), "000000000000", "us-east-1")
 	t.Cleanup(func() { bk.Close(context.Background()) })

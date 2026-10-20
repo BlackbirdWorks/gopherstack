@@ -7,7 +7,6 @@ import (
 	"math/big"
 	"net/http"
 	"sort"
-	"strings"
 )
 
 const (
@@ -568,16 +567,11 @@ func (b *InMemoryBackend) RotateKey(vaultName, base, name string) (KeyWire, erro
 			return errNotFound(kindKey, name)
 		}
 
-		cur := e.latest()
-		next, err := v.newKeyVersion(&CreateKeyRequest{
-			Kty: cur.Kty, Crv: cur.Crv, KeySize: cur.KeySize, KeyOps: cur.KeyOps, Tags: cur.Tags,
-			Attributes: &Attributes{Enabled: cur.Attrs.Enabled},
-		}, now)
+		next, err := v.rotateKey(e, now)
 		if err != nil {
 			return err
 		}
 
-		e.Versions = append(e.Versions, next)
 		out = next.wire(base, name, true, nil)
 
 		return nil
@@ -617,10 +611,8 @@ func (b *InMemoryBackend) SetRotationPolicy(
 			return errNotFound(kindKey, name)
 		}
 
-		for _, la := range in.LifetimeActions {
-			if !strings.EqualFold(la.Action.Type, "Rotate") && !strings.EqualFold(la.Action.Type, "Notify") {
-				return errBadParameter("Unsupported lifetime action type %q.", la.Action.Type)
-			}
+		if err := in.validate(); err != nil {
+			return err
 		}
 
 		e.Rotation = &RotationPolicy{

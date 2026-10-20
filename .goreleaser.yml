@@ -150,7 +150,9 @@ release:
   github:
     owner: blackbirdworks
     name: gopherstack
-  draft: false
+  # Draft: releases are immutable once published, and the desktop job attaches
+  # assets afterwards; release.yml publishes the draft when every target is up.
+  draft: true
   prerelease: auto
   mode: replace
   header: |

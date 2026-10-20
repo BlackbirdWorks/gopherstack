@@ -12,6 +12,7 @@ import (
 type InMemoryBackend struct {
 	mu         *lockmetrics.RWMutex
 	vaults     map[string]*vault
+	deleted    map[string]*vault
 	now        func() time.Time
 	autoCreate bool
 }
@@ -22,6 +23,7 @@ func NewInMemoryBackend(autoCreate bool) *InMemoryBackend {
 	return &InMemoryBackend{
 		mu:         lockmetrics.New("azurekeyvault"),
 		vaults:     make(map[string]*vault),
+		deleted:    make(map[string]*vault),
 		now:        time.Now,
 		autoCreate: autoCreate,
 	}
@@ -33,6 +35,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.vaults = make(map[string]*vault)
+	b.deleted = make(map[string]*vault)
 }
 
 // VaultOptions are the ARM-controlled vault properties.
@@ -67,6 +70,39 @@ func (b *InMemoryBackend) DeleteVault(name string) {
 	defer b.mu.Unlock()
 
 	delete(b.vaults, strs.Fold(name))
+}
+
+// SoftDeleteVault moves a vault, contents intact, out of service until
+// RecoverVault or PurgeVault.
+func (b *InMemoryBackend) SoftDeleteVault(name string) {
+	b.mu.Lock("SoftDeleteVault")
+	defer b.mu.Unlock()
+
+	key := strs.Fold(name)
+	if v, ok := b.vaults[key]; ok {
+		b.deleted[key] = v
+		delete(b.vaults, key)
+	}
+}
+
+// RecoverVault restores a soft-deleted vault with its contents.
+func (b *InMemoryBackend) RecoverVault(name string) {
+	b.mu.Lock("RecoverVault")
+	defer b.mu.Unlock()
+
+	key := strs.Fold(name)
+	if v, ok := b.deleted[key]; ok {
+		b.vaults[key] = v
+		delete(b.deleted, key)
+	}
+}
+
+// PurgeVault permanently discards a soft-deleted vault.
+func (b *InMemoryBackend) PurgeVault(name string) {
+	b.mu.Lock("PurgeVault")
+	defer b.mu.Unlock()
+
+	delete(b.deleted, strs.Fold(name))
 }
 
 // ListVaults returns the registered vault names in sorted order.

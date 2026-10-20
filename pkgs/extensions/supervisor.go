@@ -13,6 +13,8 @@ import (
 var (
 	errStartTimeout = errors.New("extension did not register in time")
 	errUnhealthy    = errors.New("extension failed health checks")
+
+	errRestartRequested = errors.New("restart requested")
 )
 
 // runOnce starts one incarnation and blocks until it exits, turns unhealthy or ctx ends.
@@ -56,6 +58,8 @@ func (m *Manager) runOnce(ctx context.Context, e *extension) error {
 	case <-registered:
 	case <-exited:
 		return errOrExited(waitErr)
+	case <-e.restartReq:
+		return errRestartRequested
 	case <-timer.C:
 		return errStartTimeout
 	case <-ctx.Done():
@@ -91,6 +95,8 @@ func (m *Manager) monitor(ctx context.Context, e *extension, port int, exited <-
 			return nil
 		case <-exited:
 			return errOrExited(*waitErr)
+		case <-e.restartReq:
+			return errRestartRequested
 		case <-tick.C:
 		}
 

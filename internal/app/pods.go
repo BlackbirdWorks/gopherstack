@@ -28,6 +28,7 @@ const (
 	podKeyStrategy          = "strategy"
 	podKeyServices          = "services"
 	podKeyStatus            = "status"
+	podKeyMerge             = "merge"
 )
 
 // PodsConfig configures named, versioned state snapshots (pods).
@@ -123,6 +124,26 @@ func canonicalServiceName(snaps map[string][]byte, name string) (string, bool) {
 	return "", false
 }
 
+// pickServices narrows snaps to the named services (case-insensitive); empty means all.
+func pickServices(snaps map[string][]byte, names []string) (map[string][]byte, error) {
+	if len(names) == 0 {
+		return snaps, nil
+	}
+
+	subset := make(map[string][]byte, len(names))
+
+	for _, n := range names {
+		canon, ok := canonicalServiceName(snaps, n)
+		if !ok {
+			return nil, echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("service %q has no state to save", n))
+		}
+
+		subset[canon] = snaps[canon]
+	}
+
+	return subset, nil
+}
+
 type podSaveRequest struct {
 	Message  string   `json:"message"`
 	Services []string `json:"services"`
@@ -136,21 +157,9 @@ func (a *podAPI) save(c *echo.Context) error {
 		}
 	}
 
-	snaps := a.manager.ExportAll()
-
-	if len(req.Services) > 0 {
-		subset := make(map[string][]byte, len(req.Services))
-
-		for _, n := range req.Services {
-			canon, ok := canonicalServiceName(snaps, n)
-			if !ok {
-				return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("service %q has no state to save", n))
-			}
-
-			subset[canon] = snaps[canon]
-		}
-
-		snaps = subset
+	snaps, err := pickServices(a.manager.ExportAll(), req.Services)
+	if err != nil {
+		return err
 	}
 
 	m, err := a.svc.Save(c.Request().Context(), c.Param(podKeyName), req.Message, snaps)
@@ -161,18 +170,7 @@ func (a *podAPI) save(c *echo.Context) error {
 	return c.JSON(http.StatusCreated, m)
 }
 
-// apply restores snaps using strategy. overwrite resets every service first.
-func (a *podAPI) apply(ctx context.Context, strategy string, snaps map[string][]byte) error {
-	if strategy == podStrategyOverwrite {
-		for _, svc := range a.services {
-			if r, ok := svc.(service.Resettable); ok {
-				r.Reset()
-			}
-		}
-	}
-
-	return a.manager.ImportAll(ctx, snaps)
-}
+func podMergeParam(c *echo.Context) bool { return c.QueryParam(podKeyMerge) == ccTrue }
 
 func (a *podAPI) load(c *echo.Context) error {
 	strategy := c.QueryParam(podKeyStrategy)
@@ -204,8 +202,10 @@ func (a *podAPI) load(c *echo.Context) error {
 		return podHTTPError(err)
 	}
 
-	if err = a.apply(ctx, strategy, snaps); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "restore failed: "+err.Error())
+	merge := podMergeParam(c)
+
+	if err = a.apply(ctx, strategy, merge, snaps); err != nil {
+		return podApplyHTTPError(err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -213,6 +213,7 @@ func (a *podAPI) load(c *echo.Context) error {
 		podKeyName:     m.Name,
 		podKeyVersion:  m.Version,
 		podKeyStrategy: strategy,
+		podKeyMerge:    merge,
 		"loaded":       len(snaps),
 	})
 }
@@ -287,6 +288,7 @@ func registerPodEndpoints(
 	e.DELETE(podsBasePath+"/:name", a.remove)
 	e.GET(podsBasePath+"/:name/versions/:version", a.inspect)
 	e.POST(podsBasePath+"/:name/load", a.load)
+	a.registerLocalstackAliases(e)
 
 	if cfg.Autoload != "" {
 		if err = a.autoload(ctx, cfg.Autoload); err != nil {
@@ -310,5 +312,5 @@ func (a *podAPI) autoload(ctx context.Context, spec string) error {
 		return fmt.Errorf("load pod: %w", err)
 	}
 
-	return a.apply(ctx, podStrategyOverwrite, snaps)
+	return a.apply(ctx, podStrategyOverwrite, false, snaps)
 }

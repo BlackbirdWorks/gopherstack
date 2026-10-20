@@ -418,6 +418,10 @@ var armResourceRoutes = []armRoute{
 // dispatchARMResource routes every /subscriptions/... and /tenants shape via
 // armResourceRoutes.
 func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
+	if handled, err := matchRoutes(keyVaultRoutes, h, c, segs); handled {
+		return err
+	}
+
 	if handled, err := matchRoutes(armResourceRoutes, h, c, segs); handled {
 		return err
 	}
@@ -554,7 +558,7 @@ func (h *Handler) writeJSON(c *echo.Context, status int, v any) error {
 // writeError writes the ARM error envelope {"error":{"code","message"}}.
 func (h *Handler) writeError(c *echo.Context, status int, code, message string) error {
 	return h.writeJSON(c, status, map[string]any{
-		"error": map[string]any{"code": code, "message": message},
+		"error": map[string]any{"code": code, fieldMessage: message},
 	})
 }
 
@@ -613,6 +617,26 @@ func errorDetails(err error) errorEntry {
 		{
 			errVaultExistsInOtherResourceGroup,
 			errorEntry{"VaultAlreadyExists", "The vault name is already in use.", http.StatusConflict},
+		},
+		{
+			errVaultSoftDeleted,
+			errorEntry{
+				"VaultAlreadyExists",
+				"The vault name is in use by a soft-deleted vault; recover or purge it first.",
+				http.StatusConflict,
+			},
+		},
+		{
+			ErrDeletedVaultNotFound,
+			errorEntry{armErrorCodeResourceNotFound, "The deleted vault was not found.", http.StatusNotFound},
+		},
+		{
+			ErrVaultPurgeProtected,
+			errorEntry{
+				"ActionNotAllowed",
+				"The vault cannot be purged because purge protection is enabled.",
+				http.StatusForbidden,
+			},
 		},
 		{ErrProviderNotFound, errorEntry{"ProviderNotFound", "Resource provider not found.", http.StatusNotFound}},
 		{ErrInvalidResourceID, errorEntry{"InvalidResourceId", "The resource ID is malformed.", http.StatusBadRequest}},

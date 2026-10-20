@@ -27,7 +27,13 @@ func isServiceLinked(path, name string) bool {
 
 func (r *run) replicateIAM(ctx context.Context) {
 	r.copyLocalPolicies(ctx)
+	r.copyRoles(ctx)
+	r.copyGroups(ctx)
+	r.copyUsers(ctx)
+	r.copyInstanceProfiles(ctx)
+}
 
+func (r *run) copyRoles(ctx context.Context) {
 	pager := iam.NewListRolesPaginator(r.src.iam, &iam.ListRolesInput{})
 	for pager.HasMorePages() {
 		page, err := pager.NextPage(ctx)
@@ -268,41 +274,6 @@ func (r *run) refreshRole(ctx context.Context, role *iamtypes.Role, trust string
 
 	if _, err := r.dst.iam.TagRole(ctx, &iam.TagRoleInput{RoleName: role.RoleName, Tags: role.Tags}); err != nil {
 		return fmt.Errorf("tag role: %w", err)
-	}
-
-	return nil
-}
-
-func (r *run) copyRolePolicies(ctx context.Context, name string) error {
-	att := iam.NewListAttachedRolePoliciesPaginator(r.src.iam, &iam.ListAttachedRolePoliciesInput{RoleName: &name})
-	for att.HasMorePages() {
-		page, err := att.NextPage(ctx)
-		if err != nil {
-			return fmt.Errorf("list attached: %w", err)
-		}
-
-		for _, p := range page.AttachedPolicies {
-			target := r.rm.ARN(aws.ToString(p.PolicyArn))
-			if _, err = r.dst.iam.AttachRolePolicy(ctx, &iam.AttachRolePolicyInput{
-				RoleName: &name, PolicyArn: &target,
-			}); err != nil {
-				return fmt.Errorf("attach %s: %w", target, err)
-			}
-		}
-	}
-
-	inl := iam.NewListRolePoliciesPaginator(r.src.iam, &iam.ListRolePoliciesInput{RoleName: &name})
-	for inl.HasMorePages() {
-		page, err := inl.NextPage(ctx)
-		if err != nil {
-			return fmt.Errorf("list inline: %w", err)
-		}
-
-		for _, pn := range page.PolicyNames {
-			if err = r.copyInlinePolicy(ctx, name, pn); err != nil {
-				return err
-			}
-		}
 	}
 
 	return nil

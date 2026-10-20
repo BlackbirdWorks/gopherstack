@@ -20,9 +20,11 @@ func cloneJob(j *kmspb.ImportJob) *kmspb.ImportJob {
 
 func wrappingBits(m kmspb.ImportJob_ImportMethod) (int, bool) {
 	switch m {
-	case kmspb.ImportJob_RSA_OAEP_3072_SHA256_AES_256, kmspb.ImportJob_RSA_OAEP_3072_SHA256:
+	case kmspb.ImportJob_RSA_OAEP_3072_SHA256_AES_256, kmspb.ImportJob_RSA_OAEP_3072_SHA256,
+		kmspb.ImportJob_RSA_OAEP_3072_SHA1_AES_256:
 		return bits3072, true
-	case kmspb.ImportJob_RSA_OAEP_4096_SHA256_AES_256, kmspb.ImportJob_RSA_OAEP_4096_SHA256:
+	case kmspb.ImportJob_RSA_OAEP_4096_SHA256_AES_256, kmspb.ImportJob_RSA_OAEP_4096_SHA256,
+		kmspb.ImportJob_RSA_OAEP_4096_SHA1_AES_256:
 		return bits4096, true
 	default:
 		return 0, false
@@ -43,7 +45,7 @@ func (b *InMemoryBackend) CreateImportJob(req *kmspb.CreateImportJobRequest) (*k
 
 	bits, ok := wrappingBits(in.GetImportMethod())
 	if !ok {
-		return nil, errInvalid("import_method %s is not supported; use an RSA_OAEP_*_SHA256 method.",
+		return nil, errInvalid("import_method %s is not supported; use an RSA_OAEP_3072/4096 method.",
 			in.GetImportMethod())
 	}
 
@@ -119,10 +121,6 @@ func (b *InMemoryBackend) ListImportJobs(req *kmspb.ListImportJobsRequest) ([]*k
 		return nil, "", 0, err
 	}
 
-	if err := rejectListOptions(req.GetFilter(), req.GetOrderBy()); err != nil {
-		return nil, "", 0, err
-	}
-
 	size, err := pageSizeOf(req.GetPageSize())
 	if err != nil {
 		return nil, "", 0, err
@@ -142,6 +140,11 @@ func (b *InMemoryBackend) ListImportJobs(req *kmspb.ListImportJobsRequest) ([]*k
 
 	for _, n := range names {
 		all = append(all, cloneJob(b.jobs[n].pb))
+	}
+
+	all, err = applyListOptions(all, req.GetFilter(), req.GetOrderBy(), importJobSpec())
+	if err != nil {
+		return nil, "", 0, err
 	}
 
 	pg := page.New(all, req.GetPageToken(), size, defaultPageSize)

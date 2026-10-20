@@ -60,13 +60,13 @@ func TestBatchExecWiring(t *testing.T) {
 		{name: "untrusted_role", principal: "lambda.amazonaws.com", wantStatus: "FAILED"},
 	}
 
-	for i, tt := range tests {
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			cli := &CLI{AccountID: "000000000000", Region: "us-east-1", Port: ":8125"}
 			cli.Lambda.DockerHost = "172.17.0.1"
-			byName := newWiredServices(t, cli, 19600+i*60)
+			byName := newWiredServices(t, cli)
 
 			iamBk := byName["IAM"].(*iambackend.Handler).Backend.(*iambackend.InMemoryBackend)
 			stsBk := byName["STS"].(*stsbackend.Handler).Backend.(*stsbackend.InMemoryBackend)

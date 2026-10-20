@@ -5,6 +5,7 @@ import (
 	"context"
 	"hash/crc32"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -155,23 +156,24 @@ func TestCompressionDynamoDBSDK(t *testing.T) {
 	t.Parallel()
 
 	srv := compressionFixture(t)
+	run := strconv.FormatUint(uint64(rand.Uint32()), 16)
 
 	t.Run("gzip opt-in with CRC validation", func(t *testing.T) {
 		t.Parallel()
 
 		c, rt := ddbClient(t, srv.on, true)
-		payload := seedCompressionTable(t, c, "gz-table")
+		payload := seedCompressionTable(t, c, "gz-table-"+run)
 		ctx := t.Context()
 
 		get, err := c.GetItem(ctx, &sdkdynamodb.GetItemInput{
-			TableName: aws.String("gz-table"),
+			TableName: aws.String("gz-table-" + run),
 			Key:       map[string]ddbtypes.AttributeValue{"id": &ddbtypes.AttributeValueMemberS{Value: "k"}},
 		})
 		require.NoError(t, err)
 		assert.Equal(t, payload, get.Item["body"].(*ddbtypes.AttributeValueMemberS).Value)
 
 		q, err := c.Query(ctx, &sdkdynamodb.QueryInput{
-			TableName:              aws.String("gz-table"),
+			TableName:              aws.String("gz-table-" + run),
 			KeyConditionExpression: aws.String("id = :k"),
 			ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{
 				":k": &ddbtypes.AttributeValueMemberS{Value: "k"},
@@ -181,7 +183,7 @@ func TestCompressionDynamoDBSDK(t *testing.T) {
 		require.Len(t, q.Items, 1)
 		assert.Equal(t, payload, q.Items[0]["body"].(*ddbtypes.AttributeValueMemberS).Value)
 
-		scan, err := c.Scan(ctx, &sdkdynamodb.ScanInput{TableName: aws.String("gz-table")})
+		scan, err := c.Scan(ctx, &sdkdynamodb.ScanInput{TableName: aws.String("gz-table-" + run)})
 		require.NoError(t, err)
 		require.Len(t, scan.Items, 1)
 		assert.Equal(t, payload, scan.Items[0]["body"].(*ddbtypes.AttributeValueMemberS).Value)
@@ -197,13 +199,13 @@ func TestCompressionDynamoDBSDK(t *testing.T) {
 
 		onC, onRT := ddbClient(t, srv.on, false)
 		offC, _ := ddbClient(t, srv.off, false)
-		seedCompressionTable(t, onC, "plain-table")
-		seedCompressionTable(t, offC, "plain-table")
+		seedCompressionTable(t, onC, "plain-table-"+run)
+		seedCompressionTable(t, offC, "plain-table-"+run)
 
 		for _, target := range []string{"GetItem", "Scan"} {
-			body := `{"TableName":"plain-table","Key":{"id":{"S":"k"}}}`
+			body := `{"TableName":"plain-table-` + run + `","Key":{"id":{"S":"k"}}}`
 			if target == "Scan" {
-				body = `{"TableName":"plain-table"}`
+				body = `{"TableName":"plain-table-` + run + `"}`
 			}
 
 			on := rawDDB(srv.on, target, body, "identity")
@@ -228,9 +230,9 @@ func TestCompressionDynamoDBSDK(t *testing.T) {
 		t.Parallel()
 
 		c, _ := ddbClient(t, srv.on, true)
-		seedCompressionTable(t, c, "crc-table")
+		seedCompressionTable(t, c, "crc-table-"+run)
 
-		rec := rawDDB(srv.on, "Scan", `{"TableName":"crc-table"}`, "gzip")
+		rec := rawDDB(srv.on, "Scan", `{"TableName":"crc-table-`+run+`"}`, "gzip")
 		require.Equal(t, "gzip", rec.Header().Get("Content-Encoding"))
 		assert.Equal(
 			t,

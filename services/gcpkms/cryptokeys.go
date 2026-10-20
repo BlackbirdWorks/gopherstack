@@ -147,6 +147,10 @@ func (b *InMemoryBackend) CreateCryptoKey(req *kmspb.CreateCryptoKeyRequest) (*k
 		return nil, errExists("CryptoKey", name)
 	}
 
+	if b.retiredNameLocked(name) {
+		return nil, errExists("CryptoKey", name+" (retired; deleted key names cannot be reused)")
+	}
+
 	return b.insertKeyLocked(req, name, tmpl)
 }
 
@@ -215,10 +219,6 @@ func (b *InMemoryBackend) ListCryptoKeys(req *kmspb.ListCryptoKeysRequest) ([]*k
 		return nil, "", 0, err
 	}
 
-	if err := rejectListOptions(req.GetFilter(), req.GetOrderBy()); err != nil {
-		return nil, "", 0, err
-	}
-
 	size, err := pageSizeOf(req.GetPageSize())
 	if err != nil {
 		return nil, "", 0, err
@@ -238,6 +238,11 @@ func (b *InMemoryBackend) ListCryptoKeys(req *kmspb.ListCryptoKeysRequest) ([]*k
 
 	for _, n := range names {
 		all = append(all, b.keys[n].view())
+	}
+
+	all, err = applyListOptions(all, req.GetFilter(), req.GetOrderBy(), cryptoKeySpec())
+	if err != nil {
+		return nil, "", 0, err
 	}
 
 	pg := page.New(all, req.GetPageToken(), size, defaultPageSize)

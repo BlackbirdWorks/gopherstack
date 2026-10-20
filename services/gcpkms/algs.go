@@ -3,6 +3,7 @@ package gcpkms
 import (
 	"crypto"
 	"crypto/elliptic"
+	_ "crypto/sha1"   //nolint:gosec // HMAC_SHA1 and RSA_DECRYPT_OAEP_*_SHA1 are Cloud KMS algorithms; see weak-hash allowlist
 	_ "crypto/sha256" // registers SHA-224 and SHA-256 for crypto.Hash.New
 	_ "crypto/sha512" // registers SHA-384 and SHA-512 for crypto.Hash.New
 
@@ -34,6 +35,7 @@ const (
 	modePSS
 	modePKCS1
 	modeOAEP
+	modeRawPKCS1
 )
 
 const (
@@ -118,6 +120,12 @@ func rsaSignSpec(a alg) (algSpec, bool) {
 		return rsaSpec(sign, bits4096, crypto.SHA256, modePKCS1)
 	case kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_4096_SHA512:
 		return rsaSpec(sign, bits4096, crypto.SHA512, modePKCS1)
+	case kmspb.CryptoKeyVersion_RSA_SIGN_RAW_PKCS1_2048:
+		return rsaSpec(sign, bits2048, 0, modeRawPKCS1)
+	case kmspb.CryptoKeyVersion_RSA_SIGN_RAW_PKCS1_3072:
+		return rsaSpec(sign, bits3072, 0, modeRawPKCS1)
+	case kmspb.CryptoKeyVersion_RSA_SIGN_RAW_PKCS1_4096:
+		return rsaSpec(sign, bits4096, 0, modeRawPKCS1)
 	default:
 		return algSpec{}, false
 	}
@@ -135,6 +143,12 @@ func rsaDecryptSpec(a alg) (algSpec, bool) {
 		return rsaSpec(dec, bits4096, crypto.SHA256, modeOAEP)
 	case kmspb.CryptoKeyVersion_RSA_DECRYPT_OAEP_4096_SHA512:
 		return rsaSpec(dec, bits4096, crypto.SHA512, modeOAEP)
+	case kmspb.CryptoKeyVersion_RSA_DECRYPT_OAEP_2048_SHA1:
+		return rsaSpec(dec, bits2048, crypto.SHA1, modeOAEP)
+	case kmspb.CryptoKeyVersion_RSA_DECRYPT_OAEP_3072_SHA1:
+		return rsaSpec(dec, bits3072, crypto.SHA1, modeOAEP)
+	case kmspb.CryptoKeyVersion_RSA_DECRYPT_OAEP_4096_SHA1:
+		return rsaSpec(dec, bits4096, crypto.SHA1, modeOAEP)
 	default:
 		return algSpec{}, false
 	}
@@ -161,6 +175,7 @@ func hmacSpec(a alg) (algSpec, bool) {
 	}
 
 	const (
+		size160 = 20
 		size224 = 28
 		size256 = 32
 		size384 = 48
@@ -168,6 +183,8 @@ func hmacSpec(a alg) (algSpec, bool) {
 	)
 
 	switch a {
+	case kmspb.CryptoKeyVersion_HMAC_SHA1:
+		return mac(size160, crypto.SHA1)
 	case kmspb.CryptoKeyVersion_HMAC_SHA224:
 		return mac(size224, crypto.SHA224)
 	case kmspb.CryptoKeyVersion_HMAC_SHA256:

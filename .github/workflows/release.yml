@@ -11,6 +11,11 @@ on:
         options:
           - minor
           - major
+      release_tag:
+        description: 'Release an EXISTING tag instead of creating one (e.g. a tag whose release run failed). Never re-points the tag.'
+        required: false
+        default: ''
+        type: string
   push:
     tags:
       - 'v*'
@@ -19,8 +24,8 @@ permissions: read-all
 
 jobs:
   create-tag:
-    # Only run on manual workflow dispatch
-    if: github.event_name == 'workflow_dispatch'
+    # Only run on manual workflow dispatch that is not re-releasing an existing tag
+    if: github.event_name == 'workflow_dispatch' && inputs.release_tag == ''
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -101,7 +106,8 @@ jobs:
     if: |
       always() &&
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
-      (needs.create-tag.result == 'success')
+      (needs.create-tag.result == 'success') ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     permissions:
       contents: write
       packages: write
@@ -111,6 +117,30 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          ref: ${{ inputs.release_tag || needs.create-tag.outputs.new_tag || github.ref }}
+
+      - name: Verify existing tag
+        if: inputs.release_tag != ''
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          echo "$RELEASE_TAG" | grep -qE '^v1\.[1-9][0-9]*\.[0-9]+$'
+          git rev-parse -q --verify "refs/tags/$RELEASE_TAG" >/dev/null
+          test "$(git rev-parse HEAD)" = "$(git rev-list -n1 "$RELEASE_TAG")"
+
+      # Parallel cross-compiles of the full binary exceed runner RAM; the runner is killed without swap.
+      - name: Add swap
+        run: |
+          sudo swapoff -a || true
+          sudo fallocate -l 16G /mnt/release.swap
+          sudo chmod 600 /mnt/release.swap
+          sudo mkswap /mnt/release.swap
+          sudo swapon /mnt/release.swap
+
+      # .goreleaser.yml's before hook runs `task ui-build`.
+      - name: Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -149,7 +179,7 @@ jobs:
         with:
           distribution: goreleaser
           version: '~> v2'
-          args: release --clean
+          args: release --clean --parallelism 2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
        
@@ -192,14 +222,14 @@ jobs:
             ext: zip
     runs-on: ${{ matrix.os }}
     env:
-      TAG: ${{ needs.create-tag.outputs.new_tag || github.ref_name }}
+      TAG: ${{ inputs.release_tag || needs.create-tag.outputs.new_tag || github.ref_name }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ needs.create-tag.outputs.new_tag || github.ref }}
+          ref: ${{ inputs.release_tag || needs.create-tag.outputs.new_tag || github.ref }}
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -291,9 +321,23 @@ jobs:
         shell: bash
         run: gh release upload "$TAG" "$ARCHIVE" --clobber
 
+  # Publishing makes the release immutable, so it waits for every desktop asset.
+  publish:
+    needs: [create-tag, goreleaser, desktop]
+    if: always() && needs.goreleaser.result == 'success' && needs.desktop.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.release_tag || needs.create-tag.outputs.new_tag || github.ref_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Publish draft release
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+
   cleanup-releases:
     runs-on: ubuntu-latest
-    needs: [goreleaser]
+    needs: [publish]
     if: always()
     permissions:
       contents: write

@@ -22,9 +22,10 @@ import (
 
 type engineS3 struct {
 	objects map[string][]byte
+	listed  []string
+	mu      sync.Mutex
 	// blockGet makes GetObject wait for the caller's context to end.
 	blockGet bool
-	mu       sync.Mutex
 }
 
 func (f *engineS3) PutObject(_ context.Context, in *sdk_s3.PutObjectInput) (*sdk_s3.PutObjectOutput, error) {
@@ -64,6 +65,7 @@ func (f *engineS3) ListObjectsV2(
 	defer f.mu.Unlock()
 
 	prefix := aws.ToString(in.Bucket) + "/" + aws.ToString(in.Prefix)
+	f.listed = append(f.listed, prefix)
 
 	var keys []string
 

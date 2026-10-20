@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -105,4 +106,49 @@ func TestManager_Timeout(t *testing.T) {
 	assert.Equal(t, inithooks.StateError, got[0].State)
 	assert.NotEmpty(t, got[0].Error)
 	assert.True(t, m.Completed(inithooks.StageShutdown))
+}
+
+func TestManager_LegacyReadyDirs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		stage inithooks.Stage
+		want  []string
+	}{
+		{name: "ready runs legacy last", stage: inithooks.StageReady, want: []string{"new1", "new2", "old1"}},
+		{name: "start ignores legacy", stage: inithooks.StageStart, want: []string{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root, legacy, out := t.TempDir(), t.TempDir(), filepath.Join(t.TempDir(), "order")
+			writeScript := func(dir, name string) {
+				body := "echo " + name + " >> " + out + "\n"
+				require.NoError(t, os.WriteFile(filepath.Join(dir, name+".sh"), []byte(body), 0o600))
+			}
+
+			require.NoError(t, os.MkdirAll(filepath.Join(root, "ready.d"), 0o750))
+			writeScript(filepath.Join(root, "ready.d"), "new2")
+			writeScript(filepath.Join(root, "ready.d"), "new1")
+			writeScript(legacy, "old1")
+
+			m := inithooks.NewManager(inithooks.ManagerConfig{
+				Roots: []string{root}, LegacyReadyDirs: []string{legacy, filepath.Join(legacy, "missing")},
+			})
+			m.Run(t.Context(), tt.stage)
+
+			got := []string{}
+
+			if data, err := os.ReadFile(out); err == nil {
+				got = strings.Fields(string(data))
+			}
+
+			assert.Equal(t, tt.want, got)
+			assert.True(t, m.Completed(tt.stage))
+			assert.Len(t, m.Status(), len(tt.want))
+		})
+	}
 }

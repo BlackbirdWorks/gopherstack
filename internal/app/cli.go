@@ -167,6 +167,7 @@ import (
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
+	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
 	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	gcpschedulerbackend "github.com/blackbirdworks/gopherstack/services/gcpscheduler"
@@ -402,6 +403,8 @@ type CLI struct {
 	gcpFirestoreHandler           service.Registerable
 	gcpSecretManagerHandler       service.Registerable
 	gcpCloudTasksHandler          service.Registerable
+	gcpSchedulerHandler           service.Registerable
+	gcpIAMHandler                 service.Registerable
 	gcpKMSHandler                 service.Registerable
 	azureQueueHandler             service.Registerable
 	azureTableHandler             service.Registerable
@@ -568,6 +571,7 @@ type CLI struct {
 	GCPKMS                        gcpkmsbackend.Settings            `embed:"" prefix:"gcp-kms-"`
 	GCPFirestore                  gcpfirestorebackend.Settings      `embed:"" prefix:"gcp-firestore-"`
 	AzureStorageVHost             azurestoragevhostbackend.Settings `embed:"" prefix:"azure-storage-vhost-"`
+	GCPIAM                        gcpiambackend.Settings            `embed:"" prefix:"gcp-iam-"`
 	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"             default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
@@ -672,6 +676,9 @@ func (c *CLI) GetGCPCloudTasksSettings() gcpcloudtasksbackend.Settings { return 
 
 // GetGCPSchedulerSettings returns Google Cloud Scheduler settings (gcpscheduler.ConfigProvider).
 func (c *CLI) GetGCPSchedulerSettings() gcpschedulerbackend.Settings { return c.GCPScheduler }
+
+// GetGCPIAMSettings returns Google Cloud IAM admin settings (gcpiam.ConfigProvider).
+func (c *CLI) GetGCPIAMSettings() gcpiambackend.Settings { return c.GCPIAM }
 
 // GetGCPSecretManagerSettings returns Google Secret Manager settings (gcpsecretmanager.ConfigProvider).
 func (c *CLI) GetGCPSecretManagerSettings() gcpsecretmanagerbackend.Settings {
@@ -801,6 +808,7 @@ func (c *CLI) GetSettings() dashboard.Settings {
 		PortRangeStart:      c.PortRangeStart,
 		PortRangeEnd:        c.PortRangeEnd,
 		InitScriptTimeout:   c.InitScriptTimeout,
+		InitDirs:            slices.Clone(c.InitDirs),
 
 		// Service settings
 		S3: dashboard.S3Settings{
@@ -904,6 +912,7 @@ func (c *CLI) UpdateSettings(s dashboard.Settings) {
 	c.PortRangeStart = s.PortRangeStart
 	c.PortRangeEnd = s.PortRangeEnd
 	c.InitScriptTimeout = s.InitScriptTimeout
+	c.InitDirs = slices.Clone(s.InitDirs)
 
 	c.applyServiceSettings(s)
 
@@ -1011,6 +1020,7 @@ func (c *CLI) SaveConfig() error {
 		Demo:                c.Demo,
 		DataDir:             c.DataDir,
 		InitScriptTimeout:   c.InitScriptTimeout,
+		InitDirs:            slices.Clone(c.InitDirs),
 
 		// Service settings
 		S3:             c.S3,
@@ -1081,6 +1091,7 @@ func (c *CLI) LoadConfig() error {
 	c.Demo = cfg.Demo
 	c.DataDir = cfg.DataDir
 	c.InitScriptTimeout = cfg.InitScriptTimeout
+	c.InitDirs = slices.Clone(cfg.InitDirs)
 
 	// Service settings
 	c.S3 = cfg.S3
@@ -1867,6 +1878,16 @@ func (c *CLI) GetGCPKMSHandler() service.Registerable { return c.gcpKMSHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGCPCloudTasksHandler() service.Registerable { return c.gcpCloudTasksHandler }
 
+// GetGCPSchedulerHandler returns the Cloud Scheduler handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPSchedulerHandler() service.Registerable { return c.gcpSchedulerHandler }
+
+// GetGCPIAMHandler returns the Cloud IAM handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPIAMHandler() service.Registerable { return c.gcpIAMHandler }
+
 // GetAzureQueueHandler returns the Azure Queue handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
@@ -2227,6 +2248,7 @@ func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *port
 		{"GCPKMS", "gcpkms", cli.GCPKMS.Port},
 		{"GCPCloudTasks", "gcpcloudtasks", cli.GCPCloudTasks.Port},
 		{"GCPScheduler", "gcpscheduler", cli.GCPScheduler.Port},
+		{"GCPIAM", "gcpiam", cli.GCPIAM.Port},
 		{"GCPFirestore", "gcpfirestore", cli.GCPFirestore.Port},
 		{"AzureQueue", "azurequeue", cli.AzureQueue.Port},
 		{"AzureTable", "azuretable", cli.AzureTable.Port},
@@ -2386,7 +2408,6 @@ func run(ctx context.Context, cli CLI) error {
 	// to a multiple of shutdownTimeout.
 	defer shutdownBackends(janitorCancel, cli.lambdaHandler, services, &cli.shutdownDeadline)
 	defer cli.stopExtensions(ctx)
-	defer runShutdownStage(ctx, &cli)
 
 	cli.startExtensions(ctx)
 
@@ -3013,6 +3034,17 @@ func storeAdditionalCLIHandlers(cli *CLI, byName map[string]service.Registerable
 }
 
 // storeCLIExtendedHandlers assigns handlers for services added after the initial set.
+func storeGCPHandlers(cli *CLI, byName map[string]service.Registerable) {
+	cli.gcpStorageHandler = byName["GCPStorage"]
+	cli.gcpPubSubHandler = byName["GCPPubSub"]
+	cli.gcpFirestoreHandler = byName["GCPFirestore"]
+	cli.gcpSecretManagerHandler = byName["GCPSecretManager"]
+	cli.gcpCloudTasksHandler = byName["GCPCloudTasks"]
+	cli.gcpSchedulerHandler = byName["GCPScheduler"]
+	cli.gcpIAMHandler = byName["GCPIAM"]
+	cli.gcpKMSHandler = byName["GCPKMS"]
+}
+
 func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.athenaHandler = byName["Athena"]
 	cli.appConfigHandler = byName["AppConfig"]
@@ -3032,12 +3064,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.cloudtrailHandler = byName["CloudTrail"]
 	cli.azureARMHandler = byName["AzureARM"]
 	cli.azureBlobHandler = byName["AzureBlob"]
-	cli.gcpStorageHandler = byName["GCPStorage"]
-	cli.gcpPubSubHandler = byName["GCPPubSub"]
-	cli.gcpFirestoreHandler = byName["GCPFirestore"]
-	cli.gcpSecretManagerHandler = byName["GCPSecretManager"]
-	cli.gcpCloudTasksHandler = byName["GCPCloudTasks"]
-	cli.gcpKMSHandler = byName["GCPKMS"]
+	storeGCPHandlers(cli, byName)
 	cli.azureQueueHandler = byName["AzureQueue"]
 	cli.azureTableHandler = byName["AzureTable"]
 	cli.azureServiceBusHandler = byName["AzureServiceBus"]
@@ -4596,6 +4623,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&gcpkmsbackend.Provider{},
 		&gcpcloudtasksbackend.Provider{},
 		&gcpschedulerbackend.Provider{},
+		&gcpiambackend.Provider{},
 		&gcpfirestorebackend.Provider{},
 		&azurearmbackend.Provider{},
 		&pinpointbackend.Provider{},
@@ -13621,7 +13649,7 @@ func (a *iotAnalyticsThingRegistryAdapter) DescribeThing(thingName string) (map[
 		"thingArn":      t.ARN,
 		"thingTypeName": t.ThingTypeName,
 		"attributes":    t.Attributes,
-		"version":       t.Version,
+		podKeyVersion:   t.Version,
 	}, nil
 }
 

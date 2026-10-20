@@ -186,3 +186,9 @@ func (a *azureKeyVaultsAdapter) CreateVault(name string, retentionDays int, purg
 }
 
 func (a *azureKeyVaultsAdapter) DeleteVault(name string) { a.backend.DeleteVault(name) }
+
+func (a *azureKeyVaultsAdapter) SoftDeleteVault(name string) { a.backend.SoftDeleteVault(name) }
+
+func (a *azureKeyVaultsAdapter) RecoverVault(name string) { a.backend.RecoverVault(name) }
+
+func (a *azureKeyVaultsAdapter) PurgeVault(name string) { a.backend.PurgeVault(name) }

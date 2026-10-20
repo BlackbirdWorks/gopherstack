@@ -526,16 +526,3 @@ func TestBackoffSchedule(t *testing.T) {
 		assert.Equal(t, time.Duration(w)*time.Second, gcpcloudtasks.Backoff(rc, int32(i+1)), "failure %d", i+1)
 	}
 }
-
-func TestBatchRPCsUnimplemented(t *testing.T) {
-	t.Parallel()
-
-	e := newEnv(t)
-	q := e.queue(t, "batch").GetName()
-
-	_, err := e.client.BatchDeleteTasks(
-		t.Context(),
-		&cloudtaskspb.BatchDeleteTasksRequest{Parent: q, Names: []string{q + "/tasks/x"}},
-	)
-	assert.Equal(t, codes.Unimplemented, status.Code(err))
-}

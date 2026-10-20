@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -42,57 +41,40 @@ type regionCase struct {
 	uniqueNames bool
 }
 
-//nolint:gochecknoglobals // one full composition root shared by every region-isolation subtest
-var (
-	regionSrvOnce sync.Once
-	regionSrvURL  string
-	errRegionSrv  error
-)
-
-func regionIsolationURL(t *testing.T) string {
+// newRegionServer starts a fresh full composition root so every test run, including -count>1, starts empty.
+func newRegionServer(t *testing.T) string {
 	t.Helper()
 
-	regionSrvOnce.Do(func() {
-		cli := &CLI{AccountID: "000000000000", Region: regionA}
-		cli.faultStore = chaos.NewFaultStore()
+	cli := &CLI{AccountID: "000000000000", Region: regionA}
+	cli.faultStore = chaos.NewFaultStore()
 
-		services, err := initializeServices(&service.AppContext{
-			Logger: slog.Default(), Config: cli, JanitorCtx: context.Background(),
-		})
-		if err != nil {
-			errRegionSrv = err
-
-			return
-		}
-
-		registry := service.NewRegistry()
-
-		for _, svc := range services {
-			if err = registry.Register(svc); err != nil {
-				errRegionSrv = err
-
-				return
-			}
-		}
-
-		e := echo.New()
-		e.Pre(awsMetaMiddleware(regionA, "000000000000"))
-		router := service.NewServiceRouter(registry).
-			WithTargetGates(routegates.TargetGates()).
-			WithPathGates(routegates.PathGates())
-		e.Use(router.RouteHandler())
-		regionSrvURL = httptest.NewServer(e).URL
+	services, err := initializeServices(&service.AppContext{
+		Logger: slog.Default(), Config: cli, JanitorCtx: t.Context(),
 	})
+	require.NoError(t, err)
 
-	require.NoError(t, errRegionSrv)
+	registry := service.NewRegistry()
 
-	return regionSrvURL
+	for _, svc := range services {
+		require.NoError(t, registry.Register(svc))
+	}
+
+	e := echo.New()
+	e.Pre(awsMetaMiddleware(regionA, "000000000000"))
+	router := service.NewServiceRouter(registry).
+		WithTargetGates(routegates.TargetGates()).
+		WithPathGates(routegates.PathGates())
+	e.Use(router.RouteHandler())
+
+	srv := httptest.NewServer(e)
+	t.Cleanup(srv.Close)
+
+	return srv.URL
 }
 
-func regionConfig(t *testing.T, region string) aws.Config {
+func regionConfig(t *testing.T, url, region string) aws.Config {
 	t.Helper()
 
-	url := regionIsolationURL(t)
 	addr := strings.TrimPrefix(url, "http://")
 	httpClient := &http.Client{Transport: &http.Transport{
 		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
@@ -116,11 +98,11 @@ func regionConfig(t *testing.T, region string) aws.Config {
 }
 
 // isolationProblems creates in two regions and reports every way region B is visible from region A or vice versa.
-func isolationProblems(t *testing.T, tc regionCase) []string {
+func isolationProblems(t *testing.T, url string, tc regionCase) []string {
 	t.Helper()
 
 	ctx := t.Context()
-	cfgA, cfgB := regionConfig(t, regionA), regionConfig(t, regionB)
+	cfgA, cfgB := regionConfig(t, url, regionA), regionConfig(t, url, regionB)
 	nameA, nameB, shared := "rg-a-"+tc.name, "rg-b-"+tc.name, "rg-both-"+tc.name
 
 	require.NoError(t, tc.create(ctx, cfgA, nameA))
@@ -159,6 +141,8 @@ func isolationProblems(t *testing.T, tc regionCase) []string {
 func TestRegionIsolation(t *testing.T) {
 	t.Parallel()
 
+	url := newRegionServer(t)
+
 	cases := slices.Concat(
 		regionIsolationCases(), platformIsolationCases(),
 		servicesAIsolationCases(), servicesBIsolationCases(),
@@ -169,12 +153,12 @@ func TestRegionIsolation(t *testing.T) {
 			t.Parallel()
 
 			if tc.global {
-				require.NoError(t, tc.create(t.Context(), regionConfig(t, regionB), "rg-b-"+tc.name))
+				require.NoError(t, tc.create(t.Context(), regionConfig(t, url, regionB), "rg-b-"+tc.name))
 
 				return
 			}
 
-			problems := isolationProblems(t, tc)
+			problems := isolationProblems(t, url, tc)
 			if tc.knownCollision {
 				assert.NotEmpty(t, problems, "service is now region-isolated: drop knownCollision")
 

@@ -195,6 +195,10 @@ func sqliteDecl(glueType string) string {
 	case typeTimestamp:
 		return declTimestampText
 	default:
+		if decl, ok := complexTypeOf(t); ok {
+			return decl
+		}
+
 		return declVarchar
 	}
 }

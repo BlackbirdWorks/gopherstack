@@ -7,18 +7,17 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 14 (11 ok, 3 partial) |
+| PARITY entries audited | 15 (12 ok, 3 partial) |
 | Feature families | 5 (4 ok, 1 partial) |
-| Known gaps | 6 |
+| Known gaps | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- PKCS#12: certificate import and a PFX backing secret need a PKCS#12 module (software.sslmate.com/src/go-pkcs12); backing secrets are PEM (application/x-pem-file) today even when the policy asks for application/x-pkcs12.
-- Certificate issuers other than Self (Unknown/CSR + MergeCertificate, DigiCert, GlobalSign) are not implemented; UPN subject alternative names are rejected.
-- Key release (ReleaseKey, release_policy), GetKeyAttestation and ES256K/P-256K are not implemented.
-- Automatic key rotation and certificate lifetime actions are stored, not executed.
+- Third-party certificate issuers (DigiCert, GlobalSign) are rejected; AutoRenew of Unknown-issuer certificates (which would open a new pending CSR) is not executed.
+- Key release (ReleaseKey, release_policy), GetKeyAttestation and ES256K/P-256K (no secp256k1 in go.mod) are not implemented.
+- Notify and EmailContacts lifetime actions are recorded only; nothing is delivered.
 - ARM Microsoft.KeyVault: deletedVaults, checkNameAvailability and vault purge are not implemented; ARM vault metadata is not persisted.
 - Backups use an opaque gopherstack blob, not Azure's format.
 

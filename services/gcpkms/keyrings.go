@@ -63,10 +63,6 @@ func (b *InMemoryBackend) ListKeyRings(req *kmspb.ListKeyRingsRequest) ([]*kmspb
 		return nil, "", 0, err
 	}
 
-	if err := rejectListOptions(req.GetFilter(), req.GetOrderBy()); err != nil {
-		return nil, "", 0, err
-	}
-
 	size, err := pageSizeOf(req.GetPageSize())
 	if err != nil {
 		return nil, "", 0, err
@@ -80,6 +76,11 @@ func (b *InMemoryBackend) ListKeyRings(req *kmspb.ListKeyRingsRequest) ([]*kmspb
 
 	for _, n := range names {
 		all = append(all, cloneRing(b.rings[n]))
+	}
+
+	all, err = applyListOptions(all, req.GetFilter(), req.GetOrderBy(), keyRingSpec())
+	if err != nil {
+		return nil, "", 0, err
 	}
 
 	pg := page.New(all, req.GetPageToken(), size, defaultPageSize)

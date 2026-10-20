@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var (
@@ -41,8 +42,15 @@ func (p *enginePlan) standalone() bool {
 		return false
 	}
 
+	depth := 0
+
 	for _, t := range toks {
-		if t.isWord(kwFrom) {
+		switch {
+		case t.isPunct("("):
+			depth++
+		case t.isPunct(")"):
+			depth--
+		case depth == 0 && t.isWord(kwFrom):
 			return strings.Contains(p.sql, unnestModuleName+"(")
 		}
 	}
@@ -94,7 +102,7 @@ func (b *InMemoryBackend) planEngineQuery(
 
 	plan, unresolved, err := b.buildPlan(query, qctx, cat, get, list)
 	if err != nil {
-		return nil, stmtFail(athenaErrTypeSyntax, "SYNTAX_ERROR: %s", err.Error()), true
+		return nil, planFailure(err), true
 	}
 
 	if len(plan.tables) == 0 && !plan.standalone() {
@@ -107,6 +115,14 @@ func (b *InMemoryBackend) planEngineQuery(
 	}
 
 	return plan, stmtOK(), true
+}
+
+func planFailure(err error) statementOutcome {
+	if pe, ok := errors.AsType[*projectionError](err); ok {
+		return stmtFail(athenaErrTypeSyntax, "%s", pe.Error())
+	}
+
+	return stmtFail(athenaErrTypeSyntax, "SYNTAX_ERROR: %s", err.Error())
 }
 
 // buildPlan translates one SELECT and resolves its Glue-backed tables.
@@ -150,7 +166,7 @@ func (b *InMemoryBackend) buildPlan(
 		seen[key] = pt
 		plan.tables = append(plan.tables, pt)
 
-		return resolvedRef{schema: pt.schema, name: pt.name, found: true}
+		return resolvedRef{schema: pt.schema, name: pt.name, found: true, structCols: rowColumns(def)}
 	}
 
 	sqlText, unresolved, err := translateSQL(query, resolve)
@@ -159,6 +175,10 @@ func (b *InMemoryBackend) buildPlan(
 	}
 
 	plan.sql = sqlText
+
+	if err = applyProjection(plan, query, time.Now()); err != nil {
+		return nil, nil, err
+	}
 
 	return plan, unresolved, nil
 }
@@ -218,7 +238,7 @@ func (p *enginePlan) run(ctx context.Context, limits EngineLimits) (*sqlResult, 
 		return nil, loader.scanned, engineFailure(err)
 	}
 
-	res, err := readResult(ctx, conn, p.sql, limits)
+	res, err := readResult(ctx, conn, p.sql, limits, p.write == nil)
 	if err != nil {
 		return nil, loader.scanned, engineFailure(err)
 	}
@@ -254,6 +274,18 @@ func (p *enginePlan) load(ctx context.Context, conn *sql.Conn, l *tableLoader) e
 	}
 
 	return nil
+}
+
+func rowColumns(def *GlueTableDef) []string {
+	var out []string
+
+	for _, c := range def.Columns {
+		if decl, ok := complexTypeOf(c.Type); ok && decl == declRow {
+			out = append(out, strings.ToLower(c.Name))
+		}
+	}
+
+	return out
 }
 
 func tableColumns(def *GlueTableDef) []Column {
@@ -530,9 +562,31 @@ type resultBuilder struct {
 	inferred []bool
 	limits   EngineLimits
 	size     int64
+	display  bool
 }
 
-func newResultBuilder(rows *sql.Rows, limits EngineLimits) (*resultBuilder, error) {
+// cellText formats one cell; display mode renders ARRAY/MAP/ROW values Trino-style.
+func (rb *resultBuilder) cellText(i int, v any) string {
+	s := formatCell(v, rb.decls[i])
+
+	if !strings.HasPrefix(s, containerMark) && !isComplexDecl(rb.decls[i]) {
+		return s
+	}
+
+	if rb.display {
+		if out, kind, ok := displayComplex(s, rb.decls[i]); ok {
+			rb.res.columns[i].typ = kind
+			rb.res.columns[i].glue = columnTypeString
+			rb.inferred[i] = false
+
+			return out
+		}
+	}
+
+	return strings.TrimPrefix(s, containerMark)
+}
+
+func newResultBuilder(rows *sql.Rows, limits EngineLimits, display bool) (*resultBuilder, error) {
 	names, err := rows.Columns()
 	if err != nil {
 		return nil, err
@@ -546,12 +600,17 @@ func newResultBuilder(rows *sql.Rows, limits EngineLimits) (*resultBuilder, erro
 	rb := &resultBuilder{
 		res:      &sqlResult{columns: make([]sqlColumn, len(names))},
 		limits:   limits,
+		display:  display,
 		decls:    make([]string, len(names)),
 		inferred: make([]bool, len(names)),
 	}
 
 	for i := range names {
 		rb.decls[i] = ctypes[i].DatabaseTypeName()
+		if !display && isComplexDecl(rb.decls[i]) {
+			rb.decls[i] = declVarchar
+		}
+
 		rb.res.columns[i] = sqlColumn{
 			name: resultColName(names[i], rb.decls[i], i), typ: athenaTypeOfDecl(rb.decls[i]),
 			glue: glueTypeOfDecl(rb.decls[i]),
@@ -586,7 +645,7 @@ func (rb *resultBuilder) add(values []any) error {
 			nulls[i] = true
 		}
 
-		row[i] = formatCell(v, rb.decls[i])
+		row[i] = rb.cellText(i, v)
 		rb.size += int64(len(row[i]))
 	}
 
@@ -611,14 +670,16 @@ func (rb *resultBuilder) finish() *sqlResult {
 	return rb.res
 }
 
-func readResult(ctx context.Context, conn *sql.Conn, query string, limits EngineLimits) (*sqlResult, error) {
+func readResult(
+	ctx context.Context, conn *sql.Conn, query string, limits EngineLimits, display bool,
+) (*sqlResult, error) {
 	rows, err := conn.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 
-	rb, err := newResultBuilder(rows, limits)
+	rb, err := newResultBuilder(rows, limits, display)
 	if err != nil {
 		return nil, err
 	}
@@ -657,6 +718,10 @@ func engineFailure(err error) statementOutcome {
 	case errors.Is(err, errRowLimit), errors.Is(err, errScanLimit),
 		errors.Is(err, errResultRows), errors.Is(err, errResultBytes):
 		return stmtFail(athenaErrTypeSyntax, "EXCEEDED_LIMIT: %s", msg)
+	}
+
+	if _, tail, ok := strings.Cut(msg, errArgPrefix); ok {
+		return stmtFail(athenaErrTypeSyntax, "%s%s", errArgPrefix, strings.TrimSuffix(tail, ")"))
 	}
 
 	if m := noSuchColumn.FindStringSubmatch(msg); m != nil {
