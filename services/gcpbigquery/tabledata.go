@@ -292,8 +292,9 @@ func dataPage(schema []bqsql.Field, rows [][]any, o DataOptions, etag string) ma
 		end = start + limit
 	}
 
-	cells := make([]map[string]any, 0, end-start)
-	for _, r := range rows[start:end] {
+	pageRows := rows[start:end]
+	cells := make([]map[string]any, 0, len(pageRows))
+	for _, r := range pageRows {
 		cells = append(cells, bqsql.RowFor(schema, r, bqsql.CellOptions{Int64Timestamp: o.Int64Timestamp}))
 	}
 

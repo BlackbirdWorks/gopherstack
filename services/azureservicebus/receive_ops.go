@@ -21,7 +21,7 @@ func (b *InMemoryBackend) Peek(ref EntityRef, deadLetter bool, fromSeq int64, ma
 	}
 
 	now := b.now()
-	out := make([]MessageInfo, 0, min(maxCount, len(mq.liveList(deadLetter))))
+	out := []MessageInfo{}
 
 	for _, msg := range mq.liveList(deadLetter) {
 		if len(out) >= maxCount {
