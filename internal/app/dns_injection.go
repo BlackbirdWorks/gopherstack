@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 
@@ -21,20 +22,23 @@ const defaultTransparentDNSAddr = ":53"
 // TransparentSettings configures transparent endpoint injection: unmodified SDKs
 // targeting real *.amazonaws.com names reach gopherstack via the embedded DNS and an HTTPS listener.
 type TransparentSettings struct {
-	HTTPSAddr    string   `name:"https-addr"        env:"TRANSPARENT_HTTPS_ADDR"        default:":443" help:"HTTPS listen addr."`                                                                   //nolint:lll // config struct tags are intentionally verbose
-	ContainerDNS string   `name:"container-dns"     env:"TRANSPARENT_CONTAINER_DNS"                    help:"DNS IP for spawned containers."`                                                       //nolint:lll // config struct tags are intentionally verbose
-	CADir        string   `name:"ca-dir"            env:"TRANSPARENT_CA_DIR"                           help:"Directory persisting the CA (default: ephemeral)."`                                    //nolint:lll // config struct tags are intentionally verbose
-	CAHostPath   string   `name:"container-ca-path" env:"TRANSPARENT_CONTAINER_CA_PATH"                help:"CA PEM path visible to the Docker daemon (required when gopherstack runs in Docker)."` //nolint:lll // config struct tags are intentionally verbose
-	DNSSkip      []string `name:"dns-skip"          env:"TRANSPARENT_DNS_SKIP"                         help:"Names/zones that keep resolving upstream."`                                            //nolint:lll // config struct tags are intentionally verbose
-	DNSUpstream  []string `name:"dns-upstream"      env:"TRANSPARENT_DNS_UPSTREAM"                     help:"Upstream resolvers host:port."`                                                        //nolint:lll // config struct tags are intentionally verbose
-	Enabled      bool     `name:"dns"               env:"TRANSPARENT_DNS"                              help:"Resolve AWS endpoint names here and serve HTTPS."`                                     //nolint:lll // config struct tags are intentionally verbose
+	HTTPAddr     string   `name:"http-addr"         env:"TRANSPARENT_HTTP_ADDR"                        help:"Optional plain-HTTP listen addr (e.g. :80) for http:// AWS endpoint URLs; empty disables."` //nolint:lll // config struct tags are intentionally verbose
+	HTTPSAddr    string   `name:"https-addr"        env:"TRANSPARENT_HTTPS_ADDR"        default:":443" help:"HTTPS listen addr."`                                                                        //nolint:lll // config struct tags are intentionally verbose
+	ContainerDNS string   `name:"container-dns"     env:"TRANSPARENT_CONTAINER_DNS"                    help:"DNS IP for spawned containers."`                                                            //nolint:lll // config struct tags are intentionally verbose
+	CADir        string   `name:"ca-dir"            env:"TRANSPARENT_CA_DIR"                           help:"Directory persisting the CA (default: ephemeral)."`                                         //nolint:lll // config struct tags are intentionally verbose
+	CAHostPath   string   `name:"container-ca-path" env:"TRANSPARENT_CONTAINER_CA_PATH"                help:"CA PEM path visible to the Docker daemon (required when gopherstack runs in Docker)."`      //nolint:lll // config struct tags are intentionally verbose
+	DNSSkip      []string `name:"dns-skip"          env:"TRANSPARENT_DNS_SKIP"                         help:"Names/zones that keep resolving upstream."`                                                 //nolint:lll // config struct tags are intentionally verbose
+	DNSUpstream  []string `name:"dns-upstream"      env:"TRANSPARENT_DNS_UPSTREAM"                     help:"Upstream resolvers host:port."`                                                             //nolint:lll // config struct tags are intentionally verbose
+	Enabled      bool     `name:"dns"               env:"TRANSPARENT_DNS"                              help:"Resolve AWS endpoint names here and serve HTTPS."`                                          //nolint:lll // config struct tags are intentionally verbose
 }
 
 // transparentRuntime holds the CA used by the HTTPS listener and container injection.
 type transparentRuntime struct {
 	ca       *devtls.CA
 	srv      *transparent.Server
+	plain    *transparent.PlainServer
 	httpsAdr string
+	httpAddr string
 }
 
 // setupTransparent starts the DNS server in transparent mode, creates the CA and
@@ -86,7 +90,7 @@ func setupTransparent(
 	log.InfoContext(ctx, "Transparent endpoint injection enabled",
 		"dns", addr, "https", httpsAddr, "ca", transparent.CAPath)
 
-	return &transparentRuntime{ca: ca, httpsAdr: httpsAddr}, dnsSrv, nil
+	return &transparentRuntime{ca: ca, httpsAdr: httpsAddr, httpAddr: st.HTTPAddr}, dnsSrv, nil
 }
 
 func loadTransparentCA(dir string) (*devtls.CA, error) {
@@ -183,17 +187,39 @@ func containerCAFile(ctx context.Context, hostPath string, containerised bool, c
 	return caFile, nil
 }
 
-// serveHTTPS registers the CA download route and starts the HTTPS listener on the router.
-// Call after the Echo server is fully built, before serving.
+// serveHTTPS registers the CA download route and starts the HTTPS listener (and the
+// optional plain-HTTP one) on the router. Call after the Echo server is fully built.
 func (t *transparentRuntime) serveHTTPS(ctx context.Context, e *echo.Echo) error {
 	e.GET(transparent.CAPath, echo.WrapHandler(transparent.CAHandler(t.ca)))
 
-	srv, err := transparent.Start(ctx, t.httpsAdr, e, t.ca)
+	h := transparent.S3HostRouter(e)
+
+	srv, err := transparent.Start(ctx, t.httpsAdr, h, t.ca)
 	if err != nil {
 		return fmt.Errorf("transparent https: %w", err)
 	}
 
 	t.srv = srv
+	t.servePlainHTTP(ctx, h)
 
 	return nil
+}
+
+// servePlainHTTP binds the optional :80 listener; a bind failure only warns.
+func (t *transparentRuntime) servePlainHTTP(ctx context.Context, h http.Handler) {
+	if t.httpAddr == "" {
+		return
+	}
+
+	log := logger.Load(ctx)
+
+	plain, err := transparent.StartHTTP(ctx, t.httpAddr, h)
+	if err != nil {
+		log.WarnContext(ctx, "transparent: plain HTTP listener disabled", "addr", t.httpAddr, "error", err)
+
+		return
+	}
+
+	t.plain = plain
+	log.InfoContext(ctx, "Transparent plain HTTP listener enabled", "addr", plain.Addr().String())
 }

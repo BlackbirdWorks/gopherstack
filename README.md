@@ -279,6 +279,7 @@ A single switch picks the default for every container-backed engine (RDS/Aurora,
 | `--transfer-sftp-host` | `TRANSFER_SFTP_HOST` | `127.0.0.1` | Host the Transfer Family SFTP listener binds to. |
 | `--transparent-dns` | `TRANSPARENT_DNS` | `false` | Resolve `*.amazonaws.com` (and `.com.cn`, `api.aws`) to this server and serve HTTPS for them. |
 | `--transparent-https-addr` | `TRANSPARENT_HTTPS_ADDR` | `:443` | HTTPS listen address for real AWS endpoint names. |
+| `--transparent-http-addr` | `TRANSPARENT_HTTP_ADDR` | off | Optional plain-HTTP listener (e.g. `:80`) for `http://` AWS endpoint URLs; bind failure only warns. |
 | `--transparent-dns-skip` | `TRANSPARENT_DNS_SKIP` | none | Names/zones that keep resolving upstream (e.g. `sts.amazonaws.com`). |
 | `--transparent-dns-upstream` | `TRANSPARENT_DNS_UPSTREAM` | `/etc/resolv.conf` | Upstream resolvers `host:port` for non-AWS names. |
 | `--transparent-container-dns` | `TRANSPARENT_CONTAINER_DNS` | `--dns-resolve-ip` unless loopback | DNS IP handed to spawned containers. |

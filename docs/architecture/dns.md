@@ -140,6 +140,7 @@ sudo gopherstack --transparent-dns --transparent-ca-dir ~/.gopherstack/ca
 |---|---|---|
 | `--transparent-dns` | off | Resolve `*.amazonaws.com`, `*.amazonaws.com.cn`, `*.api.aws` to `--dns-resolve-ip`; forward every other name upstream. Listens on `--dns-addr` (default `:53`). |
 | `--transparent-https-addr` | `:443` | HTTPS listener for those names; certificates are issued per SNI from the CA. |
+| `--transparent-http-addr` | off | Optional plain-HTTP listener (e.g. `:80`) so `http://s3.amazonaws.com` URLs work without TLS; a bind failure logs a warning and startup continues. |
 | `--transparent-dns-skip` | none | Names/zones that still resolve upstream (e.g. `sts.amazonaws.com` for real credentials). |
 | `--transparent-dns-upstream` | `/etc/resolv.conf` | Upstream resolvers (`host:port`). |
 | `--transparent-ca-dir` | ephemeral | Persist the CA so you trust it once. |
@@ -159,7 +160,19 @@ keytool -importcert -noprompt -alias gopherstack -file ca.pem \
 
 Requests route by wire shape (target header, path, form action) exactly as with
 `endpoint_url`; S3 virtual-hosted names such as `bucket.s3.us-west-2.amazonaws.com`
-are recognised without extra configuration.
+are recognised without extra configuration. The DNS answers every name under the
+AWS zones and the per-SNI certificates carry a one-label wildcard on the parent
+zone, so these S3 hostnames also work, dual-stack (`s3.dualstack.<region>`) and
+FIPS (`s3-fips.<region>`, `s3-accesspoint-fips`, `s3-control-fips`) variants included:
+
+| Hostname | Dispatch |
+|----------|----------|
+| `<name>-<account>.s3-accesspoint.<region>.amazonaws.com` | Access point resolved via S3 Control, request served as path-style on its bucket (`NoSuchAccessPoint` 404 if unknown). |
+| `<bucket>.s3-website[-.]<region>.amazonaws.com` | GET served by the website handler (`/_gopherstack/website/<bucket>/...`) when website serving is registered. |
+| `<account>.s3-control.<region>.amazonaws.com` | S3 Control (`/v20180820/...`), account taken from the host when `x-amz-account-id` is absent. |
+
+The host-to-path mapping runs in front of the router on the transparent
+listeners only (`pkgs/transparent` `S3HostRouter`).
 
 Spawned engine containers (Lambda, CodeBuild, ECS, RDS, ...) get `--dns`
 pointing at the embedded DNS, the CA mounted at `/etc/gopherstack/ca.pem`, and
