@@ -34,6 +34,7 @@ type InMemoryBackend struct {
 	reportGroupsByARN          *store.Index[ReportGroup]
 	reports                    *store.Table[Report]
 	reportsByGroup             *store.Index[Report]
+	reportDetails              *store.Table[reportDetail]
 	buildBatches               *store.Table[BuildBatch]
 	buildBatchesByARN          *store.Index[BuildBatch]
 	buildBatchesByProject      *store.Index[BuildBatch]

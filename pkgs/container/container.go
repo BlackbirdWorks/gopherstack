@@ -10,6 +10,7 @@ package container
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"time"
 )
@@ -80,6 +81,12 @@ type ExecResult struct {
 	Stderr string
 	// ExitCode is the command's exit status.
 	ExitCode int
+}
+
+// StreamExecer is implemented by runtimes that can stream a command's output while it runs.
+type StreamExecer interface {
+	// ExecStream runs cmd, writing combined stdout and stderr to out as produced; it returns the exit status.
+	ExecStream(ctx context.Context, containerID string, cmd []string, out io.Writer) (int, error)
 }
 
 // PooledContainer tracks a container managed by the warm pool.

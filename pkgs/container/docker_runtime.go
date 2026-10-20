@@ -61,6 +61,16 @@ type ExecAPIClient interface {
 	) (stdout, stderr []byte, exitCode int, err error)
 }
 
+// ExecStreamAPIClient is implemented by clients that can stream a command's output while it runs.
+type ExecStreamAPIClient interface {
+	ContainerExecStream(
+		ctx context.Context,
+		containerID string,
+		cmd []string,
+		stdout, stderr io.Writer,
+	) (int, error)
+}
+
 // realDockerClient wraps the standard Docker SDK client to satisfy APIClient.
 type realDockerClient struct {
 	c *client.Client
@@ -119,6 +129,15 @@ func (r *realDockerClient) ContainerExec(
 	cmd []string,
 ) ([]byte, []byte, int, error) {
 	return r.c.ContainerExec(ctx, containerID, cmd)
+}
+
+func (r *realDockerClient) ContainerExecStream(
+	ctx context.Context,
+	containerID string,
+	cmd []string,
+	stdout, stderr io.Writer,
+) (int, error) {
+	return r.c.ContainerExecStream(ctx, containerID, cmd, stdout, stderr)
 }
 
 func (r *realDockerClient) Ping(ctx context.Context) (any, error) {
@@ -338,6 +357,21 @@ func (r *DockerRuntime) Exec(ctx context.Context, containerID string, cmd []stri
 	}
 
 	return ExecResult{Stdout: string(stdout), Stderr: string(stderr), ExitCode: code}, nil
+}
+
+// ExecStream runs cmd like Exec but writes stdout and stderr to out as the command produces them.
+func (r *DockerRuntime) ExecStream(ctx context.Context, containerID string, cmd []string, out io.Writer) (int, error) {
+	api, ok := r.docker.(ExecStreamAPIClient)
+	if !ok {
+		return 0, ErrExecUnsupported
+	}
+
+	code, err := api.ContainerExecStream(ctx, containerID, cmd, out, out)
+	if err != nil {
+		return 0, fmt.Errorf("container exec %q: %w", containerID, err)
+	}
+
+	return code, nil
 }
 
 // AcquireWarm returns a warm container from the pool for the given image.

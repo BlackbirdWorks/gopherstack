@@ -128,11 +128,13 @@ func (h *Handler) handleDeleteReportGroup(
 }
 
 type describeCodeCoveragesInput struct {
-	ReportArn  string `json:"reportArn"`
-	SortBy     string `json:"sortBy,omitempty"`
-	SortOrder  string `json:"sortOrder,omitempty"`
-	NextToken  string `json:"nextToken,omitempty"`
-	MaxResults int32  `json:"maxResults,omitempty"`
+	MinLineCoveragePercentage *float64 `json:"minLineCoveragePercentage,omitempty"`
+	MaxLineCoveragePercentage *float64 `json:"maxLineCoveragePercentage,omitempty"`
+	ReportArn                 string   `json:"reportArn"`
+	SortBy                    string   `json:"sortBy,omitempty"`
+	SortOrder                 string   `json:"sortOrder,omitempty"`
+	NextToken                 string   `json:"nextToken,omitempty"`
+	MaxResults                int32    `json:"maxResults,omitempty"`
 }
 
 type describeCodeCoveragesOutput struct {
@@ -155,7 +157,10 @@ func (h *Handler) handleDescribeCodeCoverages(
 		return nil, fmt.Errorf("%w: reportArn is required", errInvalidRequest)
 	}
 
-	coverages, err := h.Backend.DescribeCodeCoverages(in.ReportArn)
+	coverages, err := h.Backend.DescribeCodeCoverages(in.ReportArn, CoverageQuery{
+		MinLine: in.MinLineCoveragePercentage, MaxLine: in.MaxLineCoveragePercentage,
+		SortBy: in.SortBy, SortOrder: in.SortOrder,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -169,6 +174,10 @@ func (h *Handler) handleDescribeCodeCoverages(
 }
 
 type describeTestCasesInput struct {
+	Filter *struct {
+		Keyword string `json:"keyword"`
+		Status  string `json:"status"`
+	} `json:"filter,omitempty"`
 	ReportArn  string `json:"reportArn"`
 	NextToken  string `json:"nextToken,omitempty"`
 	MaxResults int32  `json:"maxResults,omitempty"`
@@ -187,7 +196,7 @@ func (h *Handler) handleDescribeTestCases(
 		return nil, fmt.Errorf("%w: reportArn is required", errInvalidRequest)
 	}
 
-	cases, err := h.Backend.DescribeTestCases(in.ReportArn)
+	cases, err := h.Backend.DescribeTestCases(in.ReportArn, testCaseQuery(in))
 	if err != nil {
 		return nil, err
 	}
@@ -395,4 +404,12 @@ func (h *Handler) handleUpdateReportGroup(
 	}
 
 	return &updateReportGroupOutput{ReportGroup: rg}, nil
+}
+
+func testCaseQuery(in *describeTestCasesInput) TestCaseQuery {
+	if in.Filter == nil {
+		return TestCaseQuery{}
+	}
+
+	return TestCaseQuery{Status: in.Filter.Status, Keyword: in.Filter.Keyword}
 }

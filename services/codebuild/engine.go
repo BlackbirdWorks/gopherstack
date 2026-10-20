@@ -2,6 +2,8 @@ package codebuild
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -71,6 +73,10 @@ type EngineConfig struct {
 	DefaultImage string
 	// WorkDir is the host directory build workspaces are created under; default is the OS temp dir.
 	WorkDir string
+	// CacheDir holds LOCAL caches between builds of a project; default is under the OS temp dir.
+	CacheDir string
+	// AllowFileGitSources lets git sources use file:// locations (host paths); off by default.
+	AllowFileGitSources bool
 	// TimeoutUnit scales timeoutInMinutes; default one minute.
 	TimeoutUnit time.Duration
 }
@@ -91,6 +97,10 @@ type engineState struct {
 func newEngineState(cfg EngineConfig) *engineState {
 	if cfg.DefaultImage == "" {
 		cfg.DefaultImage = defaultEngineImage
+	}
+
+	if cfg.CacheDir == "" {
+		cfg.CacheDir = filepath.Join(os.TempDir(), "gopherstack-codebuild-cache")
 	}
 
 	if cfg.TimeoutUnit <= 0 {

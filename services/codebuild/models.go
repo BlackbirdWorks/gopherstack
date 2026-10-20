@@ -299,15 +299,46 @@ type ReportGroup struct {
 	LastModified float64            `json:"lastModified,omitempty"`
 }
 
+// TestReportSummary is the aggregate of a test report
+// (aws-sdk-go-v2/service/codebuild/types.TestReportSummary).
+type TestReportSummary struct {
+	StatusCounts          map[string]int32 `json:"statusCounts"`
+	Total                 int32            `json:"total"`
+	DurationInNanoSeconds int64            `json:"durationInNanoSeconds"`
+}
+
+// CodeCoverageReportSummary is the aggregate of a code coverage report
+// (aws-sdk-go-v2/service/codebuild/types.CodeCoverageReportSummary).
+type CodeCoverageReportSummary struct {
+	LineCoveragePercentage   float64 `json:"lineCoveragePercentage"`
+	LinesCovered             int32   `json:"linesCovered"`
+	LinesMissed              int32   `json:"linesMissed"`
+	BranchCoveragePercentage float64 `json:"branchCoveragePercentage"`
+	BranchesCovered          int32   `json:"branchesCovered"`
+	BranchesMissed           int32   `json:"branchesMissed"`
+}
+
 // Report represents an in-memory AWS CodeBuild report.
 type Report struct {
-	Arn            string  `json:"arn"`
-	ReportGroupArn string  `json:"reportGroupArn,omitempty"`
-	ExecutionID    string  `json:"executionId,omitempty"`
-	Type           string  `json:"type,omitempty"`
-	Status         string  `json:"status"`
-	Created        float64 `json:"created,omitempty"`
-	Expired        float64 `json:"expired,omitempty"`
+	TestSummary         *TestReportSummary         `json:"testSummary,omitempty"`
+	CodeCoverageSummary *CodeCoverageReportSummary `json:"codeCoverageSummary,omitempty"`
+	ExportConfig        *ReportExportConfig        `json:"exportConfig,omitempty"`
+	Arn                 string                     `json:"arn"`
+	Name                string                     `json:"name,omitempty"`
+	ReportGroupArn      string                     `json:"reportGroupArn,omitempty"`
+	ExecutionID         string                     `json:"executionId,omitempty"`
+	Type                string                     `json:"type,omitempty"`
+	Status              string                     `json:"status"`
+	Created             float64                    `json:"created,omitempty"`
+	Expired             float64                    `json:"expired,omitempty"`
+	Truncated           bool                       `json:"truncated,omitempty"`
+}
+
+// reportDetail holds the parsed content behind a Report for DescribeTestCases/DescribeCodeCoverages.
+type reportDetail struct {
+	ReportArn string         `json:"reportArn"`
+	TestCases []TestCase     `json:"testCases,omitempty"`
+	Coverages []CodeCoverage `json:"coverages,omitempty"`
 }
 
 // FleetStatus represents the operational status of a compute fleet.
@@ -591,6 +622,8 @@ type SourceCredentials struct {
 	Arn        string `json:"arn"`
 	ServerType string `json:"serverType"`
 	AuthType   string `json:"authType"`
+	Username   string `json:"username,omitempty"`
+	Token      string `json:"token,omitempty"`
 }
 
 // CodeCoverage represents a code coverage entry returned by DescribeCodeCoverages

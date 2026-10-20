@@ -2,6 +2,7 @@ package codebuild
 
 import (
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,7 +44,8 @@ func dockerEngineHarness(t *testing.T) *engineHarness {
 		logs:  &fakeLogs{mu: lockmetrics.New("fakelogs")},
 	}
 	h.b.EnableEngine(EngineConfig{
-		Runtime: rt, DefaultImage: dockerTestImage, WorkDir: t.TempDir(), TimeoutUnit: time.Minute,
+		Runtime: rt, DefaultImage: dockerTestImage, WorkDir: t.TempDir(), CacheDir: t.TempDir(),
+		TimeoutUnit: time.Minute,
 	})
 	h.b.SetEngineServices(EngineServices{Store: h.store, Logs: h.logs, Values: fakeValues{}})
 
@@ -165,4 +167,53 @@ func TestDockerEngineFailureAndStop(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDockerEngineStreamsLogsWhileRunning(t *testing.T) {
+	t.Parallel()
+
+	h := dockerEngineHarness(t)
+	h.project(t, ProjectConfig{Source: &ProjectSource{
+		Type:      "NO_SOURCE",
+		Buildspec: "version: 0.2\nphases:\n  build:\n    commands: [echo STREAMED_LINE, sleep 300]\n",
+	}})
+
+	b, err := h.b.StartBuild("proj", StartBuildConfig{})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return strings.Contains(h.logs.joined(), "STREAMED_LINE") },
+		2*time.Minute, 100*time.Millisecond)
+
+	got, _ := h.b.BatchGetBuilds([]string{b.ID})
+	assert.Equal(t, "IN_PROGRESS", got[0].BuildStatus)
+
+	_, err = h.b.StopBuild(b.ID)
+	require.NoError(t, err)
+	h.b.WaitBuilds()
+}
+
+func TestDockerEngineAbsoluteLocalCache(t *testing.T) {
+	t.Parallel()
+
+	spec := `version: 0.2
+phases:
+  build:
+    commands:
+      - if [ -f /root/.cachetest/x ]; then echo CACHE_HIT; else echo CACHE_MISS; fi
+      - mkdir -p /root/.cachetest && echo hi > /root/.cachetest/x
+cache:
+  paths:
+    - /root/.cachetest/**/*
+`
+	h := dockerEngineHarness(t)
+	h.project(t, ProjectConfig{
+		Source: &ProjectSource{Type: "NO_SOURCE", Buildspec: spec},
+		Cache:  &ProjectCache{Type: "LOCAL", Modes: []string{"LOCAL_CUSTOM_CACHE"}},
+	})
+
+	require.Equal(t, "SUCCEEDED", h.run(t, StartBuildConfig{}).BuildStatus)
+	assert.Contains(t, h.logs.joined(), "CACHE_MISS")
+
+	require.Equal(t, "SUCCEEDED", h.run(t, StartBuildConfig{}).BuildStatus)
+	assert.Contains(t, h.logs.joined(), "CACHE_HIT")
 }

@@ -1,6 +1,7 @@
 package codebuild
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -359,16 +360,17 @@ func (b *InMemoryBackend) UpdateProjectVisibility(projectArn, visibility, resour
 	return p.PublicProjectAlias, nil
 }
 
-// InvalidateProjectCache is a no-op cache invalidation (returns ErrNotFound if project missing).
-func (b *InMemoryBackend) InvalidateProjectCache(projectName string) error {
+// InvalidateProjectCache drops the project's build caches (engine mode) after confirming it exists.
+func (b *InMemoryBackend) InvalidateProjectCache(ctx context.Context, projectName string) error {
 	b.mu.RLock("InvalidateProjectCache")
 	defer b.mu.RUnlock()
 
-	if !b.projects.Has(projectName) {
+	proj, ok := b.projects.Get(projectName)
+	if !ok {
 		return fmt.Errorf("%w: Project cannot be found: %s", ErrNotFound, b.buildProjectARN(projectName))
 	}
 
-	return nil
+	return b.invalidateEngineCache(ctx, proj)
 }
 
 // ListSharedProjects returns an empty list (no shared projects in emulator).

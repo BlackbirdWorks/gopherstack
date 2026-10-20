@@ -9,13 +9,12 @@ import "fmt"
 // already exists, the import is rejected with ResourceAlreadyExistsException
 // instead of silently replacing it.
 func (b *InMemoryBackend) ImportSourceCredentials(
-	authType, serverType, token string,
+	authType, serverType, token, username string,
 	shouldOverwrite bool,
 ) (string, error) {
 	b.mu.Lock("ImportSourceCredentials")
 	defer b.mu.Unlock()
 
-	_ = token
 	arnStr := "arn:aws:codebuild:" + b.region + ":" + b.accountID + ":token/" + serverType
 
 	if !shouldOverwrite {
@@ -32,6 +31,8 @@ func (b *InMemoryBackend) ImportSourceCredentials(
 		Arn:        arnStr,
 		ServerType: serverType,
 		AuthType:   authType,
+		Username:   username,
+		Token:      token,
 	})
 
 	return arnStr, nil
@@ -63,4 +64,18 @@ func (b *InMemoryBackend) ListSourceCredentials() []*SourceCredentials {
 	}
 
 	return result
+}
+
+// sourceToken returns the imported token and username for serverType.
+func (b *InMemoryBackend) sourceToken(serverType string) (string, string, bool) {
+	b.mu.RLock("sourceToken")
+	defer b.mu.RUnlock()
+
+	for _, sc := range b.sourceCredentials.All() {
+		if sc.ServerType == serverType && sc.Token != "" {
+			return sc.Token, sc.Username, true
+		}
+	}
+
+	return "", "", false
 }

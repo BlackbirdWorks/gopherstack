@@ -276,25 +276,41 @@ func (c *Client) ContainerExec(
 	containerID string,
 	cmd []string,
 ) ([]byte, []byte, int, error) {
+	var stdout, stderr bytes.Buffer
+
+	code, err := c.ContainerExecStream(ctx, containerID, cmd, &stdout, &stderr)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	return stdout.Bytes(), stderr.Bytes(), code, nil
+}
+
+// ContainerExecStream runs cmd in a running container, writing demultiplexed output to the writers as it arrives.
+func (c *Client) ContainerExecStream(
+	ctx context.Context,
+	containerID string,
+	cmd []string,
+	stdout, stderr io.Writer,
+) (int, error) {
 	created, err := c.inner.ExecCreate(ctx, containerID, mobyclient.ExecCreateOptions{
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          cmd,
 	})
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("exec create: %w", err)
+		return 0, fmt.Errorf("exec create: %w", err)
 	}
 
 	attached, err := c.inner.ExecAttach(ctx, created.ID, mobyclient.ExecAttachOptions{})
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("exec attach: %w", err)
+		return 0, fmt.Errorf("exec attach: %w", err)
 	}
 
 	defer attached.Close()
 
-	var stdout, stderr bytes.Buffer
-	if _, err = stdcopy.StdCopy(&stdout, &stderr, attached.Reader); err != nil {
-		return nil, nil, 0, fmt.Errorf("exec read: %w", err)
+	if _, err = stdcopy.StdCopy(stdout, stderr, attached.Reader); err != nil {
+		return 0, fmt.Errorf("exec read: %w", err)
 	}
 
 	ticker := time.NewTicker(execPollInterval)
@@ -303,16 +319,16 @@ func (c *Client) ContainerExec(
 	for {
 		info, ierr := c.inner.ExecInspect(ctx, created.ID, mobyclient.ExecInspectOptions{})
 		if ierr != nil {
-			return nil, nil, 0, fmt.Errorf("exec inspect: %w", ierr)
+			return 0, fmt.Errorf("exec inspect: %w", ierr)
 		}
 
 		if !info.Running {
-			return stdout.Bytes(), stderr.Bytes(), info.ExitCode, nil
+			return info.ExitCode, nil
 		}
 
 		select {
 		case <-ctx.Done():
-			return nil, nil, 0, fmt.Errorf("exec wait: %w", ctx.Err())
+			return 0, fmt.Errorf("exec wait: %w", ctx.Err())
 		case <-ticker.C:
 		}
 	}

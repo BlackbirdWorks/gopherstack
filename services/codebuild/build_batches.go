@@ -655,6 +655,10 @@ func (b *InMemoryBackend) startBatchChildBuild(bb *BuildBatch, node batchNode, n
 	}
 	b.builds.Put(build)
 
+	if b.engine != nil {
+		b.launchBuildLocked(build)
+	}
+
 	return build
 }
 
@@ -844,6 +848,8 @@ func (b *InMemoryBackend) stopChildIfInProgress(buildArn string, now float64) (*
 	if child.BuildStatus != buildStatusInProgress {
 		return child, false
 	}
+
+	b.stopRunLocked(child)
 
 	child.BuildStatus = buildStatusStopped
 	child.EndTime = now

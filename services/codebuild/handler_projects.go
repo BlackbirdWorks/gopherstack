@@ -287,14 +287,14 @@ type invalidateProjectCacheInput struct {
 type invalidateProjectCacheOutput struct{}
 
 func (h *Handler) handleInvalidateProjectCache(
-	_ context.Context,
+	ctx context.Context,
 	in *invalidateProjectCacheInput,
 ) (*invalidateProjectCacheOutput, error) {
 	if in.ProjectName == "" {
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.InvalidateProjectCache(in.ProjectName); err != nil {
+	if err := h.Backend.InvalidateProjectCache(ctx, in.ProjectName); err != nil {
 		return nil, err
 	}
 
