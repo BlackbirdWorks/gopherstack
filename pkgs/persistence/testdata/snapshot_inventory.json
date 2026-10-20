@@ -18823,7 +18823,6 @@
       "AliasRoutingConfig.AdditionalVersionWeights map[string]float64 `json:\"AdditionalVersionWeights,omitempty\"`",
       "AllowedPublishers.SigningProfileVersionArns []string `json:\"SigningProfileVersionArns\"`",
       "AmazonManagedKafkaEventSourceConfig.ConsumerGroupID string `json:\"ConsumerGroupId,omitempty\"`",
-      "CapacityProvider.AssignedFunctionVersions []string `json:\"-\"`",
       "CapacityProvider.CapacityProviderArn string `json:\"CapacityProviderArn\"`",
       "CapacityProvider.CapacityProviderScalingConfig *CapacityProviderScalingConfig `json:\"CapacityProviderScalingConfig,omitempty\"`",
       "CapacityProvider.InstanceRequirements *InstanceRequirements `json:\"InstanceRequirements,omitempty\"`",

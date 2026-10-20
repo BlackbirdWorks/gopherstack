@@ -82,7 +82,8 @@ func TestInvoke_UnqualifiedResolvesLatestPublished(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, _ := newInMemoryHandler(t)
+			h, bk := newInMemoryHandler(t)
+			createCPTestProvider(t, bk, "cp1")
 			create := `{"FunctionName":"inv-fn","PackageType":"Image","Role":"arn:aws:iam::000000000000:role/r",` +
 				`"Code":{"ImageUri":"x"}` + tt.capacity + `}`
 			require.Equal(t, http.StatusCreated,

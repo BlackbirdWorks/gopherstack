@@ -3,6 +3,7 @@ package lambda_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -82,19 +83,12 @@ func newCapacityProviderTestBackend(t *testing.T) *lambda.InMemoryBackend {
 	return bk
 }
 
-// TestListFunctionVersionsByCapacityProvider_SeededAssignments verifies that
-// function-version ARNs seeded onto a capacity provider via the internal seeding
-// helper are returned by ListFunctionVersionsByCapacityProvider in sorted order.
-//
-// AWS exposes no public assignment API in this emulator's surface, so seeding is
-// the only way to populate these assignments.
-func TestListFunctionVersionsByCapacityProvider_SeededAssignments(t *testing.T) {
-	t.Parallel()
+// createCPTestProvider creates a capacity provider and returns its ARN.
+func createCPTestProvider(t *testing.T, bk *lambda.InMemoryBackend, name string) string {
+	t.Helper()
 
-	bk := newCapacityProviderTestBackend(t)
-
-	_, err := bk.CreateCapacityProvider(&lambda.CreateCapacityProviderInput{
-		CapacityProviderName: "my-cp",
+	cp, err := bk.CreateCapacityProvider(&lambda.CreateCapacityProviderInput{
+		CapacityProviderName: name,
 		PermissionsConfig: &lambda.CapacityProviderPermissionsConfig{
 			CapacityProviderOperatorRoleArn: "arn:aws:iam::000000000000:role/cp-role",
 		},
@@ -105,70 +99,167 @@ func TestListFunctionVersionsByCapacityProvider_SeededAssignments(t *testing.T) 
 	})
 	require.NoError(t, err)
 
-	const (
-		v1 = "arn:aws:lambda:us-east-1:000000000000:function:fn:1"
-		v2 = "arn:aws:lambda:us-east-1:000000000000:function:fn:2"
-	)
-
-	// Seed in reverse order to confirm deterministic sorted output.
-	require.NoError(t, bk.SeedCapacityProviderFunctionVersions("my-cp", v2, v1))
-
-	p, err := bk.ListFunctionVersionsByCapacityProvider("my-cp", "", 0)
-	require.NoError(t, err)
-	assert.Empty(t, p.Next)
-	assert.Equal(t, []string{v1, v2}, p.Data)
+	return cp.CapacityProviderArn
 }
 
-// TestListFunctionVersionsByCapacityProvider_Pagination verifies that the
-// MaxItems/Marker pagination is honoured for seeded assignments.
-func TestListFunctionVersionsByCapacityProvider_Pagination(t *testing.T) {
+// createCPTestFunction creates a function bound to cpARN and publishes one version.
+func createCPTestFunction(t *testing.T, h *lambda.Handler, fnName, cpARN string) {
+	t.Helper()
+
+	body := fmt.Sprintf(`{"FunctionName":%q,"PackageType":"Image","Code":{"ImageUri":"x"},`+
+		`"Role":"arn:aws:iam::000000000000:role/r","CapacityProviderConfig":`+
+		`{"LambdaManagedInstancesCapacityProviderConfig":{"CapacityProviderArn":%q}}}`, fnName, cpARN)
+	rec := callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions", body)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+	rec = callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions/"+fnName+"/versions", `{}`)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+}
+
+// TestListFunctionVersionsByCapacityProvider_Derived derives the listing from functions
+// whose CapacityProviderConfig references the provider.
+func TestListFunctionVersionsByCapacityProvider_Derived(t *testing.T) {
 	t.Parallel()
 
-	bk := newCapacityProviderTestBackend(t)
-
-	_, err := bk.CreateCapacityProvider(&lambda.CreateCapacityProviderInput{
-		CapacityProviderName: "cp",
-		PermissionsConfig: &lambda.CapacityProviderPermissionsConfig{
-			CapacityProviderOperatorRoleArn: "arn:aws:iam::000000000000:role/cp-role",
+	tests := []struct {
+		name      string
+		wantFirst []string
+		functions []string
+		maxItems  int
+		wantNext  bool
+	}{
+		{name: "none", functions: nil, wantFirst: nil},
+		{
+			name:      "latest_and_published",
+			functions: []string{"fn"},
+			wantFirst: []string{
+				"arn:aws:lambda:us-east-1:000000000000:function:fn:$LATEST",
+				"arn:aws:lambda:us-east-1:000000000000:function:fn:1",
+			},
 		},
-		VpcConfig: &lambda.CapacityProviderVpcConfig{
-			SubnetIDs:        []string{"subnet-1"},
-			SecurityGroupIDs: []string{"sg-1"},
+		{
+			name:      "paginated",
+			functions: []string{"fn"},
+			maxItems:  1,
+			wantFirst: []string{"arn:aws:lambda:us-east-1:000000000000:function:fn:$LATEST"},
+			wantNext:  true,
 		},
-	})
-	require.NoError(t, err)
+	}
 
-	const (
-		v1 = "arn:aws:lambda:us-east-1:000000000000:function:fn:1"
-		v2 = "arn:aws:lambda:us-east-1:000000000000:function:fn:2"
-		v3 = "arn:aws:lambda:us-east-1:000000000000:function:fn:3"
-	)
-	require.NoError(t, bk.SeedCapacityProviderFunctionVersions("cp", v1, v2, v3))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	first, err := bk.ListFunctionVersionsByCapacityProvider("cp", "", 2)
-	require.NoError(t, err)
-	assert.Equal(t, []string{v1, v2}, first.Data)
-	require.NotEmpty(t, first.Next)
+			h, bk := newInMemoryHandler(t)
+			cpARN := createCPTestProvider(t, bk, "cp")
 
-	second, err := bk.ListFunctionVersionsByCapacityProvider("cp", first.Next, 2)
-	require.NoError(t, err)
-	assert.Equal(t, []string{v3}, second.Data)
-	assert.Empty(t, second.Next)
+			for _, fn := range tt.functions {
+				createCPTestFunction(t, h, fn, cpARN)
+			}
+
+			p, gotARN, err := bk.ListFunctionVersionsByCapacityProvider("cp", "", tt.maxItems)
+			require.NoError(t, err)
+			assert.Equal(t, cpARN, gotARN)
+			assert.Equal(t, tt.wantNext, p.Next != "")
+
+			got := make([]string, 0, len(p.Data))
+			for _, v := range p.Data {
+				got = append(got, v.FunctionArn)
+			}
+
+			assert.ElementsMatch(t, tt.wantFirst, append([]string(nil), got...))
+		})
+	}
 }
 
-// TestListFunctionVersionsByCapacityProvider_NotFound verifies that listing or
-// seeding versions for a missing capacity provider returns ErrFunctionNotFound,
-// which the handler maps to ResourceNotFoundException.
+// TestListFunctionVersionsByCapacityProvider_NotFound verifies a missing
+// provider yields ErrFunctionNotFound (ResourceNotFoundException on the wire).
 func TestListFunctionVersionsByCapacityProvider_NotFound(t *testing.T) {
 	t.Parallel()
 
 	bk := newCapacityProviderTestBackend(t)
 
-	_, err := bk.ListFunctionVersionsByCapacityProvider("missing", "", 0)
+	_, _, err := bk.ListFunctionVersionsByCapacityProvider("missing", "", 0)
 	require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
+}
 
-	err = bk.SeedCapacityProviderFunctionVersions("missing", "arn:whatever")
-	require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
+// TestCapacityProvider_FunctionReferenceLifecycle covers function-level
+// validation against provider existence and delete-while-in-use.
+func TestCapacityProvider_FunctionReferenceLifecycle(t *testing.T) {
+	t.Parallel()
+
+	h, bk := newInMemoryHandler(t)
+
+	const missingARN = "arn:aws:lambda:us-east-1:000000000000:capacity-provider:nope"
+
+	rec := callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions",
+		`{"FunctionName":"bad","PackageType":"Image","Code":{"ImageUri":"x"},`+
+			`"Role":"arn:aws:iam::000000000000:role/r","CapacityProviderConfig":`+
+			`{"LambdaManagedInstancesCapacityProviderConfig":{"CapacityProviderArn":"`+missingARN+`"}}}`)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+
+	cpARN := createCPTestProvider(t, bk, "used-cp")
+	createCPTestFunction(t, h, "user-fn", cpARN)
+
+	rec = callInMemoryHandler(t, h, http.MethodDelete, "/2025-11-30/capacity-providers/used-cp", "")
+	require.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ResourceConflictException")
+
+	rec = callInMemoryHandler(t, h, http.MethodDelete, "/2015-03-31/functions/user-fn", "")
+	require.Less(t, rec.Code, 300)
+
+	rec = callInMemoryHandler(t, h, http.MethodDelete, "/2025-11-30/capacity-providers/used-cp", "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "Deleting")
+}
+
+// TestCapacityProvider_StateTransitionAndTags covers Pending to Active and tag round trips.
+func TestCapacityProvider_StateTransitionAndTags(t *testing.T) {
+	t.Parallel()
+
+	bk := newCapacityProviderTestBackend(t)
+	h := lambda.NewHandler(bk)
+
+	rec := callInMemoryHandler(t, h, http.MethodPost, "/2025-11-30/capacity-providers",
+		`{"CapacityProviderName":"tagged","PermissionsConfig":{"CapacityProviderOperatorRoleArn":"r"},`+
+			`"VpcConfig":{"SubnetIds":["s"],"SecurityGroupIds":["g"]},"Tags":{"k":"v"}}`)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), `"State":"Pending"`)
+
+	var created struct {
+		CapacityProvider struct {
+			CapacityProviderArn string `json:"CapacityProviderArn"`
+		} `json:"CapacityProvider"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+
+	rec = callInMemoryHandler(t, h, http.MethodGet, "/2025-11-30/capacity-providers/tagged", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"State":"Active"`)
+
+	tagsPath := "/2017-03-31/tags/" + created.CapacityProvider.CapacityProviderArn
+	rec = callInMemoryHandler(t, h, http.MethodGet, tagsPath, "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), `"k":"v"`)
+}
+
+// TestCapacityProvider_SnapshotRestore verifies providers survive Snapshot/Restore.
+func TestCapacityProvider_SnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	bk := newCapacityProviderTestBackend(t)
+	cpARN := createCPTestProvider(t, bk, "persisted")
+
+	snap := bk.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	restored := newCapacityProviderTestBackend(t)
+	require.NoError(t, restored.Restore(t.Context(), snap))
+
+	got, err := restored.GetCapacityProvider("persisted")
+	require.NoError(t, err)
+	assert.Equal(t, cpARN, got.CapacityProviderArn)
+	assert.Equal(t, "persisted", got.Name)
 }
 
 // --- CapacityProvider tests ---
@@ -221,7 +312,7 @@ func Test_SDKRoundTrip_CreateCapacityProvider(t *testing.T) {
 	assert.Equal(t, []string{"m5.large"}, cp.InstanceRequirements.AllowedInstanceTypes)
 	require.NotNil(t, cp.KmsKeyArn)
 	assert.Equal(t, "arn:aws:kms:us-east-1:000000000000:key/test-key", *cp.KmsKeyArn)
-	assert.Equal(t, types.CapacityProviderStateActive, cp.State)
+	assert.Equal(t, types.CapacityProviderStatePending, cp.State)
 
 	got, err := client.GetCapacityProvider(t.Context(), &lambdasdk.GetCapacityProviderInput{
 		CapacityProviderName: aws.String("sdk-cp"),
@@ -318,7 +409,7 @@ func Test_SDKRoundTrip_DeleteCapacityProvider(t *testing.T) {
 	require.NotNil(t, deleted.CapacityProvider)
 	require.NotNil(t, deleted.CapacityProvider.CapacityProviderArn)
 	assert.Contains(t, *deleted.CapacityProvider.CapacityProviderArn, "delete-cp")
-	assert.Equal(t, types.CapacityProviderStateActive, deleted.CapacityProvider.State)
+	assert.Equal(t, types.CapacityProviderStateDeleting, deleted.CapacityProvider.State)
 
 	_, err = client.GetCapacityProvider(t.Context(), &lambdasdk.GetCapacityProviderInput{
 		CapacityProviderName: aws.String("delete-cp"),
@@ -353,8 +444,9 @@ func Test_SDKRoundTrip_ListFunctionVersionsByCapacityProvider(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	createCPTestFunction(t, h, "fn", *created.CapacityProvider.CapacityProviderArn)
+
 	const versionArn = "arn:aws:lambda:us-east-1:000000000000:function:fn:1"
-	require.NoError(t, backend.SeedCapacityProviderFunctionVersions("list-versions-cp", versionArn))
 
 	listed, err := client.ListFunctionVersionsByCapacityProvider(
 		t.Context(),
@@ -364,9 +456,9 @@ func Test_SDKRoundTrip_ListFunctionVersionsByCapacityProvider(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, *created.CapacityProvider.CapacityProviderArn, *listed.CapacityProviderArn)
-	require.Len(t, listed.FunctionVersions, 1)
-	assert.Equal(t, versionArn, *listed.FunctionVersions[0].FunctionArn)
-	assert.Equal(t, types.StateActive, listed.FunctionVersions[0].State)
+	require.Len(t, listed.FunctionVersions, 2)
+	assert.Equal(t, versionArn, *listed.FunctionVersions[1].FunctionArn)
+	assert.Equal(t, types.StateActive, listed.FunctionVersions[1].State)
 }
 
 // TestCapacityProvider_MissingRequiredFields verifies that

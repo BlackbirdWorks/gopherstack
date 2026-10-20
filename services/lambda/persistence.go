@@ -157,7 +157,7 @@ type backendSnapshot struct {
 	// entry and a "functions" entry, both built separately from DTOs (see
 	// Snapshot/Restore below) -- neither b.permissions nor b.functions is
 	// registered on b.registry; see store_setup.go's package doc. Tables registered on
-	// b.ephemeralRegistry (codeSigningConfigs, capacityProviders,
+	// b.ephemeralRegistry (codeSigningConfigs,
 	// provisionedConcurrencies) are deliberately NOT included here -- they
 	// were never persisted before this refactor and must stay that way.
 	Tables map[string]json.RawMessage `json:"tables"`
@@ -284,7 +284,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		// upgrading gopherstack across a snapshot-format change), not data
 		// corruption. Mirrors the services/sqs pilot (commit 0f09d77c) and the
 		// services/ec2 conversion (commit 12e611a4). Only b.registry is reset:
-		// b.ephemeralRegistry's tables (codeSigningConfigs, capacityProviders,
+		// b.ephemeralRegistry's tables (codeSigningConfigs,
 		// provisionedConcurrencies) were never persisted, so Restore has never
 		// touched them and must not start now.
 		logger.Load(ctx).WarnContext(ctx,
@@ -301,6 +301,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	if err := b.registry.RestoreAll(snap.Tables); err != nil {
 		return fmt.Errorf("lambda: restore snapshot tables: %w", err)
+	}
+
+	for _, cp := range b.capacityProviders.All() {
+		cp.Name = capacityProviderKeyFn(cp)
 	}
 
 	if err := b.restoreFunctionsFromDTO(snap.Tables); err != nil {

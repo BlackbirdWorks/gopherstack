@@ -8,6 +8,9 @@ var ErrFunctionNotFound = errors.New("ResourceNotFoundException")
 // ErrFunctionAlreadyExists is returned when creating a function that already exists.
 var ErrFunctionAlreadyExists = errors.New("ResourceConflictException")
 
+// ErrCapacityProviderInUse is returned when deleting a capacity provider that functions still reference.
+var ErrCapacityProviderInUse = errors.New("ResourceConflictException")
+
 // ErrLambdaUnavailable is returned when Lambda cannot invoke (no Docker or no port range).
 var ErrLambdaUnavailable = errors.New("ServiceException")
 

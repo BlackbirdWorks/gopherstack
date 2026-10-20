@@ -26,7 +26,7 @@ These do not block an A grade — no implementation could produce real data here
 - ESM ScalingConfig.MaximumConcurrency and ProvisionedPollerConfig are validated and stored but cannot bind: the poller is a single serial loop per mapping, so there is no fleet to cap or size.
 - Function-level KMSKeyArn and UpdateFunctionCode SourceKMSKeyArn are stored and echoed only: no environment-variable or package encryption exists to apply the key to.
 - FileSystemConfigs: EFS access points are bind-mounted at LocalMountPath from a host directory (data dir with --persist, else a temp dir); the PosixUser uid:gid is not applied to the function process (runtime images run as root; no NFS-level identity enforcement), and mount-target subnet/AZ and security-group NFS reachability are checked only as VPC membership. EFSIO/EFSMount* exceptions are never raised. Deleting an access point a function references is allowed, as no EFS error documents otherwise.
-- CapacityProviderConfig is stored and echoed (including on published versions) but invocations are not routed to a capacity provider: Lambda-managed instances compute does not exist here.
+- CapacityProviderConfig is validated against provider existence and stored (including on published versions) but invocations are not routed to a capacity provider: Lambda-managed instances compute does not exist here.
 
 ## More
 

@@ -128,6 +128,14 @@ func (h *Handler) validateCapacityProviderConfig(c *echo.Context, cfg *CapacityP
 		return false
 	}
 
+	cpArn := cfg.ManagedInstances.CapacityProviderArn
+	if bk, ok := h.Backend.(*InMemoryBackend); ok && !bk.CapacityProviderExists(cpArn) {
+		_ = h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+			"Capacity provider not found: "+cpArn)
+
+		return false
+	}
+
 	return true
 }
 
