@@ -32,12 +32,19 @@ type throughputServer struct {
 func newThroughputServer(t *testing.T, enforce, serverless bool) *throughputServer {
 	t.Helper()
 
+	return newBurstServer(t, enforce, serverless, false)
+}
+
+func newBurstServer(t *testing.T, enforce, serverless, burst bool) *throughputServer {
+	t.Helper()
+
 	backend := cosmosdb.NewInMemoryBackend()
 	backend.SetServerless(serverless)
 
 	h := cosmosdb.NewHandler(backend)
 	h.Port = 0
 	h.EnforceThroughput = enforce
+	h.BurstCapacity = burst
 
 	clock := &fakeClock{}
 	cosmosdb.SetHandlerClock(h, clock.now)

@@ -19,11 +19,6 @@ const (
 	headerIfModified  = "If-Modified-Since"
 
 	incrementalFeed = "incremental feed"
-	// onlyPKRangeID is the single physical partition range the emulator reports.
-	onlyPKRangeID = "0"
-	// pkRangeMax is the exclusive upper bound of the hash space of the single range.
-	pkRangeMax  = "FF"
-	pkRangeETag = `"1"`
 )
 
 func isChangeFeedRequest(r *http.Request) bool {
@@ -33,6 +28,9 @@ func isChangeFeedRequest(r *http.Request) bool {
 type changeFeedRequest struct {
 	Since        time.Time
 	PartitionKey string
+	RangeID      string
+	rangeIdx     int
+	rangeCount   int
 	AfterSeq     int64
 	Limit        int
 	FromNow      bool
@@ -49,9 +47,7 @@ func etagForSeq(seq int64) string { return `"` + strconv.FormatInt(seq, 10) + `"
 func parseChangeFeedRequest(r *http.Request) (changeFeedRequest, error) {
 	var req changeFeedRequest
 
-	if id := r.Header.Get(headerPKRangeID); id != "" && id != onlyPKRangeID {
-		return req, fmt.Errorf("%w: %q", ErrInvalidPKRange, id)
-	}
+	req.RangeID = r.Header.Get(headerPKRangeID)
 
 	scope, err := queryPartitionScope(r)
 	if err != nil {
@@ -111,6 +107,11 @@ func (b *InMemoryBackend) readChangeFeed(dbID, collID string, req changeFeedRequ
 	}
 
 	rid := b.containerInfo(dbID, c).RID
+
+	if err = b.resolveRange(dbID, collID, &req); err != nil {
+		return changeFeedPage{}, err
+	}
+
 	if req.FromNow {
 		return changeFeedPage{RID: rid, Seq: c.ChangeSeq}, nil
 	}
@@ -132,6 +133,25 @@ func (b *InMemoryBackend) readChangeFeed(dbID, collID string, req changeFeedRequ
 	return changeFeedPage{RID: rid, Docs: infos, Seq: seq}, nil
 }
 
+// resolveRange validates the requested partition key range id against the container's current ranges; the lock
+// must be held.
+func (b *InMemoryBackend) resolveRange(dbID, collID string, req *changeFeedRequest) error {
+	if req.RangeID == "" {
+		return nil
+	}
+
+	n := b.budgetOf(b.databases[dbID], collID).Partitions
+
+	idx, err := strconv.Atoi(req.RangeID)
+	if err != nil || idx < 0 || idx >= n {
+		return fmt.Errorf("%w: %q", ErrInvalidPKRange, req.RangeID)
+	}
+
+	req.rangeIdx, req.rangeCount = idx, n
+
+	return nil
+}
+
 func changedDocs(live []*storedDocument, req changeFeedRequest) []*storedDocument {
 	out := make([]*storedDocument, 0, len(live))
 
@@ -145,6 +165,10 @@ func changedDocs(live []*storedDocument, req changeFeedRequest) []*storedDocumen
 		}
 
 		if req.PartitionKey != "" && !partitionKeyMatches(d.PartitionKeyJSON, req.PartitionKey) {
+			continue
+		}
+
+		if req.rangeCount > 0 && rangeIndex(d.PartitionKeyJSON, req.rangeCount) != req.rangeIdx {
 			continue
 		}
 
@@ -211,22 +235,27 @@ func (h *Handler) handlePKRanges(c *echo.Context, dbID, collID string) error {
 		return h.writeDocumentError(c, err)
 	}
 
-	hdr := c.Response().Header()
-	hdr.Set("ETag", pkRangeETag)
+	n := 1
+	if tb, ok := h.Backend.(ThroughputBackend); ok {
+		n = max(1, tb.ThroughputBudget(dbID, collID).Partitions)
+	}
 
-	if strings.TrimSpace(c.Request().Header.Get(headerIfNoneMatch)) == pkRangeETag {
+	etag := pkRangeETagFor(n)
+	c.Response().Header().Set("ETag", etag)
+
+	if strings.TrimSpace(c.Request().Header.Get(headerIfNoneMatch)) == etag {
 		return c.NoContent(http.StatusNotModified)
 	}
 
 	setCharge(c, ruMetadata)
 
-	rng := map[string]any{
-		"id": onlyPKRangeID, sysPropRID: info.RID + "AAAA", sysPropETag: pkRangeETag, "minInclusive": "",
-		"maxExclusive": pkRangeMax, "ridPrefix": 0, sysPropSelf: "dbs/" + dbID + "/colls/" + collID + "/pkranges/0/",
-		"throughputFraction": 1, "status": "online", "parents": []string{}, sysPropTS: time.Now().Unix(), "lsn": 1,
+	ranges := make([]map[string]any, n)
+	for i := range ranges {
+		ranges[i] = pkRangeBody(info.RID, dbID, collID, i, n)
+		ranges[i][sysPropTS] = time.Now().Unix()
 	}
 
 	return h.writeJSON(c, http.StatusOK, map[string]any{
-		sysPropRID: info.RID, "PartitionKeyRanges": []map[string]any{rng}, sysPropCount: 1,
+		sysPropRID: info.RID, "PartitionKeyRanges": ranges, sysPropCount: n,
 	})
 }

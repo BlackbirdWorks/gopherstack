@@ -68,6 +68,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	handler.MasterKey = settings.MasterKey
 	handler.ValidateAuth = settings.ValidateAuth
 	handler.EnforceThroughput = settings.EnforceThroughput
+	handler.BurstCapacity = settings.BurstCapacity
 	handler.TLS = os.Getenv(envTLS) == trueText
 	handler.TLSHosts = splitHosts(os.Getenv(envTLSHosts))
 

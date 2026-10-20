@@ -100,6 +100,8 @@ type Handler struct {
 	TLS           bool
 	// EnforceThroughput rejects requests with 429 once a container's provisioned RU/s budget is overdrawn.
 	EnforceThroughput bool
+	// BurstCapacity lets a partition spend up to 300 s of idle RU/s, at up to 3000 RU/s, before throttling.
+	BurstCapacity bool
 }
 
 // defaultSweepInterval is the TTL janitor period; reads already hide expired documents.

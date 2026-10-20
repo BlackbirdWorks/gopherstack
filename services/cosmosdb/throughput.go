@@ -325,33 +325,52 @@ func (b *InMemoryBackend) ReplaceThroughputByRID(offerRID string, spec Throughpu
 	return b.storeOffer(t, spec)
 }
 
-// ThroughputBudget reports the RU/s budget governing container coll of db: a stable bucket key shared by every
-// container drawing on the same offer, the per-second rate (0 = unlimited) and an epoch that changes whenever an
-// offer is set, so callers can reset their meters.
-func (b *InMemoryBackend) ThroughputBudget(db, coll string) (string, float64, int64) {
+// RUBudget is the RU/s budget governing a container: a bucket key shared by every container drawing on the same
+// offer, the total rate (0 = unlimited), the physical partition count and an epoch that changes whenever an offer
+// is set, so callers can reset their meters.
+type RUBudget struct {
+	Key        string
+	Rate       float64
+	Epoch      int64
+	Partitions int
+}
+
+// ThroughputBudget reports the RU/s budget governing container coll of db.
+func (b *InMemoryBackend) ThroughputBudget(db, coll string) RUBudget {
 	b.mu.RLock("ThroughputBudget")
 	defer b.mu.RUnlock()
 
-	d, ok := b.databases[db]
-	if !ok {
-		return "", 0, b.budgetEpoch
+	bud := RUBudget{Partitions: 1}
+	if d, ok := b.databases[db]; ok {
+		bud = b.budgetOf(d, coll)
 	}
 
+	bud.Epoch = b.budgetEpoch
+
+	return bud
+}
+
+func (b *InMemoryBackend) budgetOf(d *storedDatabase, coll string) RUBudget {
 	if c, found := d.Containers[coll]; found && c.Offer != nil {
-		return db + budgetKeySeparator + coll, c.Offer.rate(), b.budgetEpoch
+		return offerBudget(d.ID+budgetKeySeparator+coll, c.Offer)
 	}
 
 	switch {
 	case b.serverless:
-		return db + budgetKeySeparator + coll, serverlessBurstRUs, b.budgetEpoch
+		return RUBudget{Key: d.ID + budgetKeySeparator + coll, Rate: serverlessBurstRUs, Partitions: 1}
 	case d.Offer != nil:
-		return db, d.Offer.rate(), b.budgetEpoch
+		return offerBudget(d.ID, d.Offer)
 	}
 
-	return "", 0, b.budgetEpoch
+	return RUBudget{Partitions: 1}
 }
 
-// rate is the enforcement ceiling: autoscale scales up instantly, so its ceiling is the configured maximum.
+func offerBudget(key string, o *storedOffer) RUBudget {
+	return RUBudget{Key: key, Rate: o.rate(), Partitions: partitionsForRU(int(o.rate()))}
+}
+
+// rate is the enforcement ceiling: autoscale scales instantly within [10% of max, max], so a request can always
+// draw up to the configured maximum.
 func (o *storedOffer) rate() float64 {
 	if o.AutoscaleMax > 0 {
 		return float64(o.AutoscaleMax)
@@ -368,7 +387,7 @@ type ThroughputBackend interface {
 	ListThroughputs() []ThroughputInfo
 	GetThroughputByRID(offerRID string) (ThroughputInfo, error)
 	ReplaceThroughputByRID(offerRID string, spec ThroughputSpec) (ThroughputInfo, error)
-	ThroughputBudget(db, coll string) (key string, rate float64, epoch int64)
+	ThroughputBudget(db, coll string) RUBudget
 }
 
 var _ ThroughputBackend = (*InMemoryBackend)(nil)
