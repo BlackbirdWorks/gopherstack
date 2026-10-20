@@ -742,8 +742,8 @@ func (b *InMemoryBackend) validateAWSPrincipal(a string, i int) error {
 		accountID := parts[4]
 		resource := parts[5]
 
-		if accountID != b.accountID && accountID != "" && !b.knownAccount(accountID) {
-			return fmt.Errorf("%w: invalid cross-account principal", ErrMalformedPolicyDocument)
+		if accountID != "" && !isAccountID(accountID) {
+			return fmt.Errorf("%w: invalid principal in policy", ErrMalformedPolicyDocument)
 		}
 		if accountID == b.accountID {
 			if err := b.validatePrincipalResource(resource); err != nil {
