@@ -3547,6 +3547,7 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 		wireLambdaRuntimeEnv(cli, byName)
 		wireLambdaEFS(cli, byName)
 		wireECSRuntime(cli, byName)
+		wireFlinkRoleCredentials(byName)
 		wireBatchExec(cli, byName)
 		wireEC2IMDS(appCtx.JanitorCtx, cli, byName)
 		wireLinkLocal(appCtx.JanitorCtx, cli, byName)

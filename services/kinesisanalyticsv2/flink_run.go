@@ -23,7 +23,7 @@ func flinkServerScript() string {
 		"/docker-entrypoint.sh taskmanager & wait -n"
 }
 
-func (e *flinkEngine) spec(in flinkLaunch, stageDir string, port int) container.Spec {
+func (e *flinkEngine) spec(in flinkLaunch, stageDir string, port int, creds []string) container.Spec {
 	props := []string{
 		"jobmanager.rpc.address: localhost",
 		"rest.bind-address: 0.0.0.0",
@@ -40,9 +40,8 @@ func (e *flinkEngine) spec(in flinkLaunch, stageDir string, port int) container.
 		"JOB_MANAGER_RPC_ADDRESS=localhost",
 		"AWS_REGION=" + in.region,
 		"AWS_DEFAULT_REGION=" + in.region,
-		"AWS_ACCESS_KEY_ID=" + flinkDefaultKey,
-		"AWS_SECRET_ACCESS_KEY=" + flinkDefaultKey,
 	}
+	env = append(env, creds...)
 
 	if e.cfg.EndpointURL != "" {
 		env = append(env, "AWS_ENDPOINT_URL="+e.cfg.EndpointURL)
@@ -147,7 +146,12 @@ func (b *InMemoryBackend) bootFlink(e *flinkEngine, lj *flinkJob, in flinkLaunch
 		return err
 	}
 
-	if lj.containerID, err = e.cfg.Runtime.CreateAndStart(ctx, e.spec(in, lj.stageDir, lj.port)); err != nil {
+	creds, err := credentialEnv(in)
+	if err != nil {
+		return err
+	}
+
+	if lj.containerID, err = e.cfg.Runtime.CreateAndStart(ctx, e.spec(in, lj.stageDir, lj.port, creds)); err != nil {
 		return fmt.Errorf("start flink container: %w", err)
 	}
 

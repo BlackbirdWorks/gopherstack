@@ -60,6 +60,8 @@ type InMemoryBackend struct {
 	snapshots            *store.Table[Snapshot]
 	snapshotsByApp       *store.Index[Snapshot]
 	flink                *flinkEngine
+	flinkStopSaves       map[string]flinkStopSave
+	roleIssuer           RoleCredentialIssuer
 	appConfig            any
 	operations           map[string]map[string][]*ApplicationOperation
 	versions             map[string]map[string][]*Application
@@ -73,12 +75,13 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory Kinesis Data Analytics v2 backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		registry:      store.NewRegistry(),
-		operations:    make(map[string]map[string][]*ApplicationOperation),
-		versions:      make(map[string]map[string][]*Application),
-		mu:            lockmetrics.New("kinesisanalyticsv2"),
-		accountID:     accountID,
-		defaultRegion: region,
+		registry:       store.NewRegistry(),
+		operations:     make(map[string]map[string][]*ApplicationOperation),
+		versions:       make(map[string]map[string][]*Application),
+		flinkStopSaves: make(map[string]flinkStopSave),
+		mu:             lockmetrics.New("kinesisanalyticsv2"),
+		accountID:      accountID,
+		defaultRegion:  region,
 	}
 	registerAllTables(b)
 
@@ -147,8 +150,11 @@ func (b *InMemoryBackend) Reset() {
 		for key := range b.flink.jobs {
 			b.deleteFlinkLocked(key)
 		}
+
+		b.flink.wipePersistent()
 	}
 
+	b.flinkStopSaves = make(map[string]flinkStopSave)
 	b.registry.ResetAll()
 	b.operations = make(map[string]map[string][]*ApplicationOperation)
 	b.versions = make(map[string]map[string][]*Application)

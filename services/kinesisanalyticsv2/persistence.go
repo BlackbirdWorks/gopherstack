@@ -53,13 +53,13 @@ type persistedApplication struct {
 	RollbackEnabled                   *bool                            `json:"RollbackEnabled,omitempty"`
 	SnapshotsEnabled                  *bool                            `json:"SnapshotsEnabled,omitempty"`
 	FlinkConfig                       *FlinkApplicationConfigDesc      `json:"FlinkConfig,omitempty"`
+
 	// ZeppelinConfig kept in its own alignment group: its long type name
-	// would otherwise force gofmt to pad every sibling field's tag column
-	// past the 120-char lll limit.
+	// would otherwise push every sibling tag past the 120-char lll limit.
 	ZeppelinConfig *ZeppelinApplicationConfigDescription `json:"ZeppelinConfig,omitempty"`
 
-	RuntimeEnvironment              string                           `json:"RuntimeEnvironment"`
 	ApplicationName                 string                           `json:"ApplicationName"`
+	FlinkCodeFile                   string                           `json:"FlinkCodeFile,omitempty"`
 	Region                          string                           `json:"region"`
 	ApplicationARN                  string                           `json:"ApplicationARN"`
 	ApplicationStatus               string                           `json:"ApplicationStatus"`
@@ -67,13 +67,14 @@ type persistedApplication struct {
 	ApplicationDescription          string                           `json:"ApplicationDescription,omitempty"`
 	ApplicationMode                 string                           `json:"ApplicationMode,omitempty"`
 	MaintenanceWindowStartTime      string                           `json:"MaintenanceWindowStartTime,omitempty"`
+	RuntimeEnvironment              string                           `json:"RuntimeEnvironment"`
 	Tags                            []Tag                            `json:"Tags"`
-	EnvironmentPropertyGroups       []PropertyGroup                  `json:"EnvironmentPropertyGroups,omitempty"`
 	VpcConfigurationDescriptions    []VpcConfigurationDescription    `json:"VpcConfigurationDescriptions"`
 	ReferenceDataSourceDescriptions []ReferenceDataSourceDescription `json:"ReferenceDataSourceDescriptions"`
 	CloudWatchLoggingOptionDescs    []CloudWatchLoggingOptionDesc    `json:"CloudWatchLoggingOptionDescs"`
 	OutputDescriptions              []OutputDescription              `json:"OutputDescriptions"`
 	InputDescriptions               []InputDescription               `json:"InputDescriptions"`
+	EnvironmentPropertyGroups       []PropertyGroup                  `json:"EnvironmentPropertyGroups,omitempty"`
 	ApplicationVersionID            int64                            `json:"ApplicationVersionId"`
 }
 
@@ -95,6 +96,7 @@ type persistedSnapshot struct {
 	ApplicationARN     string    `json:"ApplicationARN"`
 	SnapshotName       string    `json:"SnapshotName"`
 	SnapshotStatus     string    `json:"SnapshotStatus"`
+	SavepointPath      string    `json:"SavepointPath,omitempty"`
 	ApplicationVersion int64     `json:"ApplicationVersionId"`
 }
 
@@ -208,6 +210,7 @@ func toPersistedSnap(s *Snapshot) *persistedSnapshot {
 		ApplicationARN:     s.ApplicationARN,
 		SnapshotName:       s.SnapshotName,
 		SnapshotStatus:     s.SnapshotStatus,
+		SavepointPath:      s.savepointPath,
 		ApplicationVersion: s.ApplicationVersion,
 	}
 }
@@ -220,6 +223,7 @@ func fromPersistedSnap(p *persistedSnapshot) *Snapshot {
 		ApplicationARN:     p.ApplicationARN,
 		SnapshotName:       p.SnapshotName,
 		SnapshotStatus:     p.SnapshotStatus,
+		savepointPath:      p.SavepointPath,
 		ApplicationVersion: p.ApplicationVersion,
 	}
 }
@@ -235,9 +239,11 @@ func fromPersistedSnap(p *persistedSnapshot) *Snapshot {
 // decoding a snapshot from an incompatible (older or newer) build of this
 // backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables  map[string]json.RawMessage `json:"tables"`
-	NextID  int64                      `json:"next_id"`
-	Version int                        `json:"version"`
+	Tables map[string]json.RawMessage `json:"tables"`
+	// FlinkStopSaves keeps each application's stop-with-savepoint location for RESTORE_FROM_LATEST_SNAPSHOT.
+	FlinkStopSaves map[string]persistedStopSave `json:"flink_stop_saves,omitempty"`
+	NextID         int64                        `json:"next_id"`
+	Version        int                          `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -248,7 +254,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	dtoReg, appDTOs, snapDTOs := newDTORegistry()
 
 	for _, app := range b.applications.Snapshot() {
-		appDTOs.Put(toPersistedApp(app))
+		p := toPersistedApp(app)
+		if b.flink != nil {
+			p.FlinkCodeFile = b.persistCodeLocked(ctx, app)
+		}
+
+		appDTOs.Put(p)
 	}
 
 	for _, s := range b.snapshots.Snapshot() {
@@ -271,6 +282,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Version: kinesisanalyticsv2SnapshotVersion,
 		Tables:  tables,
 		NextID:  b.nextID,
+
+		FlinkStopSaves: toPersistedStopSaves(b.flinkStopSaves),
 	}
 
 	return persistence.MarshalSnapshot(ctx, "kinesisanalyticsv2", &snap)
@@ -298,6 +311,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"kinesisanalyticsv2: discarding incompatible snapshot version, starting empty",
 			"gotVersion", snap.Version, "wantVersion", kinesisanalyticsv2SnapshotVersion)
 
+		b.flinkStopSaves = make(map[string]flinkStopSave)
 		b.registry.ResetAll()
 		b.operations = make(map[string]map[string][]*ApplicationOperation)
 		b.versions = make(map[string]map[string][]*Application)
@@ -314,7 +328,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	liveApps := make([]*Application, 0, appDTOs.Len())
 	for _, p := range appDTOs.All() {
-		liveApps = append(liveApps, fromPersistedApp(p))
+		app := fromPersistedApp(p)
+		if b.flink != nil {
+			b.loadCodeLocked(app, p.FlinkCodeFile)
+		}
+
+		liveApps = append(liveApps, app)
 	}
 
 	b.applications.Restore(liveApps)
@@ -325,6 +344,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.snapshots.Restore(liveSnaps)
+	b.flinkStopSaves = fromPersistedStopSaves(snap.FlinkStopSaves)
 	b.reconcileFlinkLocked()
 
 	// operations and versions are deliberately left untouched here, exactly

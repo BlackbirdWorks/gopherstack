@@ -67,24 +67,16 @@ type FlinkCodeFetcher func(ctx context.Context, bucketARN, fileKey, version stri
 
 // FlinkConfig configures docker-backed Flink jobs for StartApplication.
 type FlinkConfig struct {
-	Runtime FlinkRuntime
-	// Ports hands out host ports for each cluster's REST API; nil picks a free OS port.
-	Ports *portalloc.Allocator
-	// HTTP calls the Flink REST API; nil uses an isolated client.
-	HTTP FlinkHTTP
-	// Code reads application JARs; nil uses the emulated S3 backend wired through SetAppConfig.
-	Code FlinkCodeFetcher
-	// Host is the address cluster REST ports are reached on; default 127.0.0.1.
-	Host string
-	// EndpointURL is the gopherstack URL as seen from inside containers (AWS_ENDPOINT_URL).
-	EndpointURL string
-	// Image overrides the flink:<version> image derived from RuntimeEnvironment.
-	Image string
-	// StartTimeout bounds cluster boot plus job submission.
+	Runtime      FlinkRuntime
+	HTTP         FlinkHTTP
+	Ports        *portalloc.Allocator
+	Code         FlinkCodeFetcher
+	Host         string
+	EndpointURL  string
+	Image        string
+	DataDir      string
 	StartTimeout time.Duration
-	// StopTimeout bounds the stop-with-savepoint and cancel calls.
-	StopTimeout time.Duration
-	// PollInterval is how often cluster and job state is re-read.
+	StopTimeout  time.Duration
 	PollInterval time.Duration
 }
 
@@ -101,12 +93,11 @@ type flinkJob struct {
 }
 
 type flinkEngine struct {
-	jobs      map[string]*flinkJob
-	dirs      map[string]string
-	stopSaves map[string]flinkStopSave
-	cfg       FlinkConfig
-	wg        sync.WaitGroup
-	owns      bool
+	jobs map[string]*flinkJob
+	dirs map[string]string
+	cfg  FlinkConfig
+	wg   sync.WaitGroup
+	owns bool
 }
 
 // flinkLaunch is the immutable input one job launch needs, copied under the backend lock.
@@ -117,6 +108,8 @@ type flinkLaunch struct {
 	image         string
 	savepointPath string
 	saveDir       string
+	roleARN       string
+	issuer        RoleCredentialIssuer
 	props         []PropertyGroup
 	code          CodeContentDescription
 	checkpointMS  int64
@@ -150,15 +143,16 @@ func (b *InMemoryBackend) EnableFlink(cfg FlinkConfig) {
 		cfg.Code = b.fetchFlinkCode
 	}
 
+	cfg.DataDir = absDataDir(cfg.DataDir)
+
 	b.mu.Lock("EnableFlink")
 	defer b.mu.Unlock()
 
 	b.flink = &flinkEngine{
-		cfg:       cfg,
-		jobs:      make(map[string]*flinkJob),
-		dirs:      make(map[string]string),
-		stopSaves: make(map[string]flinkStopSave),
-		owns:      true,
+		cfg:  cfg,
+		jobs: make(map[string]*flinkJob),
+		dirs: make(map[string]string),
+		owns: true,
 	}
 	b.reconcileFlinkLocked()
 }
@@ -185,8 +179,10 @@ func (b *InMemoryBackend) Close() {
 
 	e.wg.Wait()
 
-	for _, d := range dirs {
-		_ = os.RemoveAll(d)
+	if !e.persistent() {
+		for _, d := range dirs {
+			_ = os.RemoveAll(d)
+		}
 	}
 
 	if h, ok := e.cfg.HTTP.(interface{ CloseIdleConnections() }); ok {

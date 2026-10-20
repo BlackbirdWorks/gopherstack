@@ -26,6 +26,17 @@ func (b *InMemoryBackend) saveDirLocked(key string) (string, error) {
 		return d, nil
 	}
 
+	if e.persistent() {
+		d, err := e.ensureStateDir(key)
+		if err != nil {
+			return "", err
+		}
+
+		e.dirs[key] = d
+
+		return d, nil
+	}
+
 	d, err := os.MkdirTemp("", "kda-flink-state-*")
 	if err != nil {
 		return "", fmt.Errorf("create savepoint dir: %w", err)
@@ -85,6 +96,8 @@ func (b *InMemoryBackend) prepareFlinkLaunchLocked(
 		name:         app.ApplicationName,
 		image:        b.flink.cfg.Image,
 		saveDir:      dir,
+		roleARN:      app.ServiceExecutionRole,
+		issuer:       b.roleIssuer,
 		props:        slices.Clone(app.EnvironmentPropertyGroups),
 		checkpointMS: checkpointIntervalMS(app),
 		parallelism:  parallelismOf(app),
@@ -153,6 +166,18 @@ func (b *InMemoryBackend) restorePathLocked(
 	return b.latestSavepointLocked(region, app.ApplicationName), nil
 }
 
+// savepointUsableLocked reports whether a persisted savepoint still exists on disk; temp-dir mode trusts the path.
+func (b *InMemoryBackend) savepointUsableLocked(region, name, loc string) bool {
+	e := b.flink
+	if !e.persistent() {
+		return true
+	}
+
+	_, err := os.Stat(savepointHostPath(e.stateDir(applicationKey(region, name)), loc))
+
+	return err == nil
+}
+
 func (b *InMemoryBackend) customSavepointLocked(
 	region, name string, restore *ApplicationRestoreConfig,
 ) (string, error) {
@@ -177,12 +202,15 @@ func (b *InMemoryBackend) latestSavepointLocked(region, name string) string {
 
 	for _, s := range b.snapshotsByApp.Get(appParentKey(region, name)) {
 		if s.savepointPath != "" && s.SnapshotStatus == snapshotReady &&
+			b.savepointUsableLocked(region, name, s.savepointPath) &&
 			(best == nil || s.SnapshotCreation.After(best.SnapshotCreation)) {
 			best = s
 		}
 	}
 
-	stop, hasStop := b.flink.stopSaves[applicationKey(region, name)]
+	stop, hasStop := b.flinkStopSaves[applicationKey(region, name)]
+
+	hasStop = hasStop && b.savepointUsableLocked(region, name, stop.path)
 
 	switch {
 	case hasStop && (best == nil || stop.at.After(best.SnapshotCreation)):
@@ -262,7 +290,7 @@ func (b *InMemoryBackend) stopWithSavepoint(e *flinkEngine, lj *flinkJob, key st
 	b.mu.Lock("stopWithSavepoint")
 	defer b.mu.Unlock()
 
-	e.stopSaves[key] = flinkStopSave{path: loc, at: time.Now().UTC()}
+	b.flinkStopSaves[key] = flinkStopSave{path: loc, at: time.Now().UTC()}
 }
 
 // savepoint triggers a savepoint (or stop-with-savepoint) and waits for its location.
@@ -317,13 +345,18 @@ func (b *InMemoryBackend) deleteFlinkLocked(key string) {
 	lj, hasJob := e.jobs[key]
 	dir := e.dirs[key]
 
+	if e.persistent() {
+		dir = e.stateDir(key)
+		e.removeCode(key)
+	}
+
 	delete(e.jobs, key)
 	delete(e.dirs, key)
-	delete(e.stopSaves, key)
+	delete(b.flinkStopSaves, key)
 
 	if !hasJob {
 		if dir != "" {
-			_ = os.RemoveAll(dir)
+			removeAllLogged(dir)
 		}
 
 		return
@@ -335,7 +368,7 @@ func (b *InMemoryBackend) deleteFlinkLocked(key string) {
 		<-lj.done
 
 		if dir != "" {
-			_ = os.RemoveAll(dir)
+			removeAllLogged(dir)
 		}
 	})
 }
@@ -371,23 +404,40 @@ func (b *InMemoryBackend) startFlinkSnapshotLocked(lj *flinkJob, snap *Snapshot)
 	})
 }
 
-// removeSavepoint deletes a snapshot's savepoint files from the app's state dir.
+// savepointHostPath maps a container savepoint location to its path under the host state dir.
+func savepointHostPath(dir, loc string) string {
+	rel, found := strings.CutPrefix(path.Clean(strings.TrimPrefix(loc, "file:")), flinkSavepointsDir+"/")
+	if !found || rel == "" || strings.Contains(rel, "..") {
+		return ""
+	}
+
+	return filepath.Join(dir, rel)
+}
+
+// removeSavepointLocked deletes a snapshot's savepoint files from the app's state dir.
 func (b *InMemoryBackend) removeSavepointLocked(key string, s *Snapshot) {
 	dir, ok := b.flink.dirs[key]
+	if !ok && b.flink.persistent() {
+		dir, ok = b.flink.stateDir(key), true
+	}
+
 	if !ok || s.savepointPath == "" {
 		return
 	}
 
-	rel, found := strings.CutPrefix(path.Clean(strings.TrimPrefix(s.savepointPath, "file:")), flinkSavepointsDir+"/")
-	if !found || rel == "" || strings.Contains(rel, "..") {
-		return
+	if host := savepointHostPath(dir, s.savepointPath); host != "" {
+		removeAllLogged(host)
 	}
-
-	_ = os.RemoveAll(filepath.Join(dir, rel))
 }
 
 // reconcileFlinkLocked aligns restored applications with the engine: containers do not survive a restart.
 func (b *InMemoryBackend) reconcileFlinkLocked() {
+	for _, s := range b.snapshots.All() {
+		if s.SnapshotStatus == snapshotCreating {
+			s.SnapshotStatus = snapshotFailed
+		}
+	}
+
 	for _, app := range b.applications.All() {
 		if !isFlinkRuntime(app.RuntimeEnvironment) {
 			continue
@@ -416,7 +466,11 @@ func (b *InMemoryBackend) relaunchFlinkLocked(app *Application) {
 		return
 	}
 
-	in, err := b.prepareFlinkLaunchLocked(app.Region, app, nil)
+	latest := &RunConfigInput{ApplicationRestoreConfiguration: &ApplicationRestoreConfig{
+		ApplicationRestoreType: restoreLatest,
+	}}
+
+	in, err := b.prepareFlinkLaunchLocked(app.Region, app, latest)
 	if err != nil {
 		app.ApplicationStatus = ApplicationStatusReady
 

@@ -20,6 +20,11 @@ type EngineConfig interface {
 	GetFlinkEndpointURL() string
 }
 
+// DataDirConfig locates the directory persisting application code and savepoints; empty keeps them in temp dirs.
+type DataDirConfig interface {
+	GetFlinkDataDir() string
+}
+
 // Provider implements service.Provider for Kinesis Data Analytics v2.
 type Provider struct{}
 
@@ -40,13 +45,21 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	backend.SetAppConfig(ctx.Config)
 
 	if ec, ok := ctx.Config.(EngineConfig); ok && ec.GetFlinkEngine() == EngineDocker {
-		enableDockerFlink(ctx, backend, ec.GetFlinkEndpointURL())
+		enableDockerFlink(ctx, backend, ec.GetFlinkEndpointURL(), flinkDataDir(ctx.Config))
 	}
 
 	return NewHandler(backend), nil
 }
 
-func enableDockerFlink(ctx *service.AppContext, backend *InMemoryBackend, endpoint string) {
+func flinkDataDir(cfg any) string {
+	if dc, ok := cfg.(DataDirConfig); ok {
+		return dc.GetFlinkDataDir()
+	}
+
+	return ""
+}
+
+func enableDockerFlink(ctx *service.AppContext, backend *InMemoryBackend, endpoint, dataDir string) {
 	rt, err := container.NewRuntime(container.Config{Logger: ctx.Logger})
 	if err != nil {
 		ctx.Logger.Warn("KinesisAnalyticsV2: container runtime unavailable; applications stay state-only", "error", err)
@@ -54,5 +67,5 @@ func enableDockerFlink(ctx *service.AppContext, backend *InMemoryBackend, endpoi
 		return
 	}
 
-	backend.EnableFlink(FlinkConfig{Runtime: rt, Ports: ctx.PortAlloc, EndpointURL: endpoint})
+	backend.EnableFlink(FlinkConfig{Runtime: rt, Ports: ctx.PortAlloc, EndpointURL: endpoint, DataDir: dataDir})
 }

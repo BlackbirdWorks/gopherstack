@@ -18549,6 +18549,7 @@
       "ZeppelinApplicationConfigDescription.DeployAsApplicationConfigurationDescription *DeployAsApplicationConfigDescription `json:\"DeployAsApplicationConfigurationDescription,omitempty\"`",
       "ZeppelinApplicationConfigDescription.MonitoringConfigurationDescription *ZeppelinMonitoringConfigDesc `json:\"MonitoringConfigurationDescription\"`",
       "ZeppelinMonitoringConfigDesc.LogLevel string `json:\"LogLevel\"`",
+      "backendSnapshot.FlinkStopSaves map[string]persistedStopSave `json:\"flink_stop_saves,omitempty\"`",
       "backendSnapshot.NextID int64 `json:\"next_id\"`",
       "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`",
       "persistedApplication.ApplicationARN string `json:\"ApplicationARN\"`",
@@ -18566,6 +18567,7 @@
       "persistedApplication.CreatedAt time.Time `json:\"created_at\"`",
       "persistedApplication.EncryptionConfig *ApplicationEncryptionConfigDesc `json:\"EncryptionConfig,omitempty\"`",
       "persistedApplication.EnvironmentPropertyGroups []PropertyGroup `json:\"EnvironmentPropertyGroups,omitempty\"`",
+      "persistedApplication.FlinkCodeFile string `json:\"FlinkCodeFile,omitempty\"`",
       "persistedApplication.FlinkConfig *FlinkApplicationConfigDesc `json:\"FlinkConfig,omitempty\"`",
       "persistedApplication.InputDescriptions []InputDescription `json:\"InputDescriptions\"`",
       "persistedApplication.LastUpdateTimestamp time.Time `json:\"last_update_timestamp\"`",
@@ -18585,9 +18587,12 @@
       "persistedSnapshot.ApplicationARN string `json:\"ApplicationARN\"`",
       "persistedSnapshot.ApplicationVersion int64 `json:\"ApplicationVersionId\"`",
       "persistedSnapshot.Region string `json:\"region\"`",
+      "persistedSnapshot.SavepointPath string `json:\"SavepointPath,omitempty\"`",
       "persistedSnapshot.SnapshotCreation time.Time `json:\"snapshot_creation\"`",
       "persistedSnapshot.SnapshotName string `json:\"SnapshotName\"`",
-      "persistedSnapshot.SnapshotStatus string `json:\"SnapshotStatus\"`"
+      "persistedSnapshot.SnapshotStatus string `json:\"SnapshotStatus\"`",
+      "persistedStopSave.At time.Time `json:\"at\"`",
+      "persistedStopSave.Path string `json:\"path\"`"
     ],
     "version": 2
   },
