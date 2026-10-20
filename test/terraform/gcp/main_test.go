@@ -2,10 +2,9 @@
 // an unmodified hashicorp/google provider applies, re-plans (no drift) and
 // destroys resources against a running gopherstack container.
 //
-// Only services that speak the REST/JSON surface the provider calls are
-// covered (Cloud Storage, BigQuery). Pub/Sub, Secret Manager, KMS, Cloud
-// Tasks, Scheduler, IAM, Firestore, Cloud Run and Cloud Functions are
-// gRPC-only in gopherstack, and the provider has no gRPC transport for them.
+// The gRPC-first services (Pub/Sub, Secret Manager, KMS, Cloud Tasks,
+// Scheduler) are reached through the REST transcoder in pkgs/gcprest, which
+// shares each service's gRPC port.
 package gcp_test
 
 import (
@@ -37,17 +36,33 @@ const (
 	containerBigQueryPort = "9050/tcp"
 	hostStoragePort       = "14443"
 	hostBigQueryPort      = "19050"
+
+	containerPubSubPort   = "8085/tcp"
+	containerSecretsPort  = "8086/tcp"
+	containerKMSPort      = "8087/tcp"
+	containerTasksPort    = "8123/tcp"
+	containerSchedulePort = "8124/tcp"
+	hostPubSubPort        = "18085"
+	hostSecretsPort       = "18086"
+	hostKMSPort           = "18087"
+	hostTasksPort         = "18123"
+	hostSchedulePort      = "18124"
 )
 
 var errDockerPanic = errors.New("docker check panicked")
 
 //nolint:gochecknoglobals // set once in TestMain, read-only during tests
 var (
-	tofuBinaryPath   string
-	sharedContainer  testcontainers.Container
-	providerCacheDir = filepath.Join(os.TempDir(), "gopherstack-tofu-google-provider-cache")
-	storageEndpoint  = "http://localhost:" + hostStoragePort + "/storage/v1/"
-	bigQueryEndpoint = "http://localhost:" + hostBigQueryPort + "/bigquery/v2/"
+	tofuBinaryPath    string
+	sharedContainer   testcontainers.Container
+	providerCacheDir  = filepath.Join(os.TempDir(), "gopherstack-tofu-google-provider-cache")
+	storageEndpoint   = "http://localhost:" + hostStoragePort + "/storage/v1/"
+	bigQueryEndpoint  = "http://localhost:" + hostBigQueryPort + "/bigquery/v2/"
+	pubSubEndpoint    = "http://localhost:" + hostPubSubPort + "/v1/"
+	secretsEndpoint   = "http://localhost:" + hostSecretsPort + "/v1/"
+	kmsEndpoint       = "http://localhost:" + hostKMSPort + "/v1/"
+	tasksEndpoint     = "http://localhost:" + hostTasksPort + "/v2/"
+	schedulerEndpoint = "http://localhost:" + hostSchedulePort + "/v1/"
 )
 
 func TestMain(m *testing.M) {
@@ -151,17 +166,30 @@ func startContainer(ctx context.Context, logger *slog.Logger) (testcontainers.Co
 			options.NoCache = false
 			options.PullParent = false
 		},
-		AutoRemove:   true,
-		ExposedPorts: []string{containerStoragePort, containerBigQueryPort},
+		AutoRemove: true,
+		ExposedPorts: []string{
+			containerStoragePort, containerBigQueryPort, containerPubSubPort, containerSecretsPort,
+			containerKMSPort, containerTasksPort, containerSchedulePort,
+		},
 		HostConfigModifier: func(hc *dockercontainer.HostConfig) {
 			hc.PortBindings = fixedPortMap(map[string]string{
 				containerStoragePort:  hostStoragePort,
 				containerBigQueryPort: hostBigQueryPort,
+				containerPubSubPort:   hostPubSubPort,
+				containerSecretsPort:  hostSecretsPort,
+				containerKMSPort:      hostKMSPort,
+				containerTasksPort:    hostTasksPort,
+				containerSchedulePort: hostSchedulePort,
 			})
 		},
 		WaitingFor: wait.ForAll(
 			wait.ForListeningPort(containerStoragePort).WithStartupTimeout(60*time.Second),
 			wait.ForListeningPort(containerBigQueryPort).WithStartupTimeout(60*time.Second),
+			wait.ForListeningPort(containerPubSubPort).WithStartupTimeout(60*time.Second),
+			wait.ForListeningPort(containerSecretsPort).WithStartupTimeout(60*time.Second),
+			wait.ForListeningPort(containerKMSPort).WithStartupTimeout(60*time.Second),
+			wait.ForListeningPort(containerTasksPort).WithStartupTimeout(60*time.Second),
+			wait.ForListeningPort(containerSchedulePort).WithStartupTimeout(60*time.Second),
 		),
 	}
 

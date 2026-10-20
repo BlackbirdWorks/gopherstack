@@ -19,7 +19,7 @@ ops:
   GetCryptoKeyVersion: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListCryptoKeyVersions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Ascending version order, paged."}
   UpdateCryptoKeyVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "update_mask must be state; ENABLED and DISABLED only; scheduled or destroyed versions are FAILED_PRECONDITION."}
-  DestroyCryptoKeyVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "Schedules destruction after the key's destroy_scheduled_duration; the primary version is refused. Due versions become DESTROYED lazily and by the janitor, and their material is wiped."}
+  DestroyCryptoKeyVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "Schedules destruction after the key's destroy_scheduled_duration; the primary version may be destroyed (the Terraform provider destroys every version on delete). Due versions become DESTROYED lazily and by the janitor, and their material is wiped."}
   RestoreCryptoKeyVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "DESTROY_SCHEDULED to DISABLED."}
   CreateImportJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "RSA_OAEP_3072/4096_SHA256, RSA_OAEP_3072/4096_SHA256_AES_256 and RSA_OAEP_3072/4096_SHA1_AES_256; a real RSA wrapping key is generated, public_key.pem returned, expires after 3 days (state EXPIRED)."}
   GetImportJob: {wire: ok, errors: ok, state: ok, persist: n/a}

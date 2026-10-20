@@ -26,10 +26,16 @@ provider "google" {
   region       = "us-central1"
   access_token = "fake"
 
-  storage_custom_endpoint  = %q
-  big_query_custom_endpoint = %q
+  storage_custom_endpoint         = %q
+  big_query_custom_endpoint       = %q
+  pubsub_custom_endpoint          = %q
+  secret_manager_custom_endpoint  = %q
+  kms_custom_endpoint             = %q
+  cloud_tasks_custom_endpoint     = %q
+  cloud_scheduler_custom_endpoint = %q
 }
-`, googleProviderVersion, storageEndpoint, bigQueryEndpoint)
+`, googleProviderVersion, storageEndpoint, bigQueryEndpoint, pubSubEndpoint, secretsEndpoint, kmsEndpoint,
+		tasksEndpoint, schedulerEndpoint)
 }
 
 type tofuRunner struct {

@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcprest"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -189,7 +190,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	log.InfoContext(workerCtx, "gcprun: starting dedicated gRPC listener", "port", h.Port, "ingressPort", h.IngressPort)
 
 	h.wg.Go(func() {
-		if serveErr := srv.Serve(grpcL); serveErr != nil && !errors.Is(serveErr, grpc.ErrServerStopped) {
+		if serveErr := gcprest.Serve(srv, grpcL); serveErr != nil && !errors.Is(serveErr, grpc.ErrServerStopped) {
 			log.ErrorContext(workerCtx, "gcprun: listener stopped", "error", serveErr)
 		}
 	})

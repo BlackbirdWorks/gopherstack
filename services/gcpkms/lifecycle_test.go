@@ -446,8 +446,6 @@ func TestVersionStates(t *testing.T) {
 	key := e.key(t, ring, "k", kmspb.CryptoKey_ENCRYPT_DECRYPT, kmspb.CryptoKeyVersion_GOOGLE_SYMMETRIC_ENCRYPTION,
 		func(k *kmspb.CryptoKey) { k.DestroyScheduledDuration = durationpb.New(48 * time.Hour) })
 
-	v1 := key.GetPrimary().GetName()
-
 	v2, err := e.client.CreateCryptoKeyVersion(t.Context(), &kmspb.CreateCryptoKeyVersionRequest{Parent: key.GetName()})
 	require.NoError(t, err)
 
@@ -484,9 +482,6 @@ func TestVersionStates(t *testing.T) {
 
 	_, err = setState(v2.GetName(), kmspb.CryptoKeyVersion_DESTROYED)
 	assert.Equal(t, codes.InvalidArgument, status.Code(err), "destroyed is not settable")
-
-	_, err = e.client.DestroyCryptoKeyVersion(t.Context(), &kmspb.DestroyCryptoKeyVersionRequest{Name: v1})
-	assert.Equal(t, codes.FailedPrecondition, status.Code(err), "primary cannot be destroyed")
 
 	destroyed, err := e.client.DestroyCryptoKeyVersion(
 		t.Context(),
@@ -664,4 +659,21 @@ func TestIamPolicy(t *testing.T) {
 	stale := &iampb.Policy{Etag: []byte("stale"), Bindings: []*iampb.Binding{{Role: "r", Members: []string{"user:b"}}}}
 	_, err = e.handler.Backend.SetIamPolicy(&iampb.SetIamPolicyRequest{Resource: key.GetName(), Policy: stale})
 	assert.Equal(t, codes.Aborted, status.Code(err))
+}
+
+func TestDestroyPrimaryVersion(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	key := e.key(t, e.ring(t, "dp"), "k", kmspb.CryptoKey_ENCRYPT_DECRYPT,
+		kmspb.CryptoKeyVersion_GOOGLE_SYMMETRIC_ENCRYPTION)
+
+	got, err := e.client.DestroyCryptoKeyVersion(
+		t.Context(), &kmspb.DestroyCryptoKeyVersionRequest{Name: key.GetPrimary().GetName()},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, kmspb.CryptoKeyVersion_DESTROY_SCHEDULED, got.GetState())
+
+	_, err = e.client.Encrypt(t.Context(), &kmspb.EncryptRequest{Name: key.GetName(), Plaintext: []byte("x")})
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 }

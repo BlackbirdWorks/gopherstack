@@ -342,8 +342,9 @@ func TestPauseResume(t *testing.T) {
 	j := e.job(t, "pr", httpJob("https://example.test"), withSchedule("0 9 * * *"))
 	ctx := t.Context()
 
-	_, err := e.client.ResumeJob(ctx, &schedulerpb.ResumeJobRequest{Name: j.GetName()})
-	assert.Equal(t, codes.FailedPrecondition, status.Code(err), "resume needs PAUSED")
+	same, err := e.client.ResumeJob(ctx, &schedulerpb.ResumeJobRequest{Name: j.GetName()})
+	require.NoError(t, err, "the Terraform provider resumes every new job")
+	assert.Equal(t, schedulerpb.Job_ENABLED, same.GetState())
 
 	paused, err := e.client.PauseJob(ctx, &schedulerpb.PauseJobRequest{Name: j.GetName()})
 	require.NoError(t, err)
