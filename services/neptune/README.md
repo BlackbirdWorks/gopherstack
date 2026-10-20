@@ -17,7 +17,7 @@
 
 - UNVERIFIABLE: OrderableDBInstanceOption.SupportedNetworkTypes stays empty; the pinned SDK states no per-instance-class network type support.
 - --neptune-engine=docker: IAM database authentication (SigV4 on the Gremlin endpoint) is not enforced; the container accepts unauthenticated requests whatever EnableIAMDatabaseAuthentication says.
-- --neptune-engine=docker: Bolt and SPARQL are not served (the stock tinkerpop/gremlin-server image has neither). openCypher is served in-process at /openCypher on the cluster port, but its property graph is separate from the container's Gremlin graph (writes through one are invisible to the other), is not captured by snapshots or persistence, and the port speaks plain HTTP, not HTTPS.
+- --neptune-engine=docker: Bolt (neo4j drivers) and SPARQL are not served (the stock tinkerpop/gremlin-server image has neither). openCypher is served in-process at /openCypher on the cluster port, but its property graph is separate from the container's Gremlin graph (writes through one are invisible to the other), is not captured by snapshots or persistence, and the port speaks plain HTTP, not HTTPS.
 - openCypher subset (services/neptune/opencypher): CALL/UNION/FOREACH/LOAD CSV, pattern predicates in WHERE, list comprehensions, shortestPath, temporal/spatial types and constraints are not implemented and return UnsupportedOperationException or MalformedQueryException.
 - --neptune-engine=docker: graph data is not captured by cluster snapshots or persistence; restored and relaunched clusters start with an empty graph. The writer and reader endpoints are the same host:port.
 
