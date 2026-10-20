@@ -28,22 +28,28 @@ type armSnapshot struct {
 	RegisteredProviders map[string]map[string]bool `json:"registeredProviders"`
 	KeyVault            *keyVaultSnapshot          `json:"keyVault,omitempty"`
 	Cosmos              *cosmosSnapshot            `json:"cosmos,omitempty"`
+	EventHub            *eventHubSnapshot          `json:"eventHub,omitempty"`
 	Version             int                        `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements
 // persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	return persistence.MarshalSnapshot(ctx, "azurearm", b.snapshotState(nil, nil))
+	return persistence.MarshalSnapshot(ctx, "azurearm", b.snapshotState(nil, nil, nil))
 }
 
-func (b *InMemoryBackend) snapshotState(kv *keyVaultSnapshot, cosmos *cosmosSnapshot) armSnapshot {
+func (b *InMemoryBackend) snapshotState(
+	kv *keyVaultSnapshot,
+	cosmos *cosmosSnapshot,
+	eh *eventHubSnapshot,
+) armSnapshot {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
 	return armSnapshot{
 		KeyVault:            kv,
 		Cosmos:              cosmos,
+		EventHub:            eh,
 		Version:             armSnapshotVersion,
 		ResourceGroups:      b.resourceGroups,
 		Resources:           b.resources,
@@ -150,7 +156,12 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		cosmos = p.snapshot()
 	}
 
-	return persistence.MarshalSnapshot(ctx, "azurearm", h.Backend.snapshotState(kv, cosmos))
+	var eh *eventHubSnapshot
+	if p, ok := h.eventHubProvider(); ok {
+		eh = p.snapshot()
+	}
+
+	return persistence.MarshalSnapshot(ctx, "azurearm", h.Backend.snapshotState(kv, cosmos, eh))
 }
 
 // Restore implements persistence.Persistable.
@@ -166,6 +177,10 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 
 	if p, ok := h.cosmosProvider(); ok {
 		p.restore(snap.Cosmos)
+	}
+
+	if p, ok := h.eventHubProvider(); ok {
+		p.restore(snap.EventHub)
 	}
 
 	return nil

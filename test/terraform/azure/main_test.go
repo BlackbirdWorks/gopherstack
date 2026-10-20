@@ -77,6 +77,9 @@ const (
 	// hostPortCosmos is services/cosmosdb's published port; AZURE_ARM_ADVERTISE_COSMOSDB_ENDPOINT
 	// points ARM's documentEndpoint at it.
 	hostPortCosmos = "18081"
+	// hostPortEventHubsAMQP is services/azureeventhubs's published plain AMQP port;
+	// AZURE_ARM_ADVERTISE_EVENTHUB_ENDPOINT points ARM's connection strings at it.
+	hostPortEventHubsAMQP = "15673"
 )
 
 // containerCertPath/containerKeyPath are where the stable dev certificate
@@ -260,7 +263,15 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 		},
 		AutoRemove: true,
 		ExposedPorts: []string{
-			"10006/tcp", "10000/tcp", "10001/tcp", "10002/tcp", "10010/tcp", "10003/tcp", "10004/tcp", "8081/tcp",
+			"10006/tcp",
+			"10000/tcp",
+			"10001/tcp",
+			"10002/tcp",
+			"10010/tcp",
+			"10003/tcp",
+			"10004/tcp",
+			"8081/tcp",
+			"5673/tcp",
 		},
 		HostConfigModifier: func(hc *dockercontainer.HostConfig) {
 			hc.PortBindings = mustFixedPortMap(map[string]string{
@@ -272,6 +283,7 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 				"10003/tcp": hostPortServiceBus,
 				"10004/tcp": hostPortKeyVault,
 				"8081/tcp":  hostPortCosmos,
+				"5673/tcp":  hostPortEventHubsAMQP,
 			})
 		},
 		// M8: services/azurearm's advertiseVHostEndpoint (rp_storage.go)
@@ -312,6 +324,7 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 			"AZURE_ARM_ADVERTISE_SERVICEBUS_ENDPOINT": "localhost:" + hostPortServiceBus,
 			"AZURE_ARM_ADVERTISE_KEYVAULT_ENDPOINT":   "vault.localhost:" + hostPortKeyVault,
 			"AZURE_ARM_ADVERTISE_COSMOSDB_ENDPOINT":   "localhost:" + hostPortCosmos,
+			"AZURE_ARM_ADVERTISE_EVENTHUB_ENDPOINT":   "localhost:" + hostPortEventHubsAMQP,
 			"COSMOSDB_VALIDATE_AUTH":                  "true",
 			"AZURE_KEYVAULT_TLS_CERT":                 containerCertPath,
 			"AZURE_KEYVAULT_TLS_KEY":                  containerKeyPath,

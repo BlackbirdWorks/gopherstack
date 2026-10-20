@@ -99,6 +99,7 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	azurearmbackend "github.com/blackbirdworks/gopherstack/services/azurearm"
 	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
+	azureeventhubsbackend "github.com/blackbirdworks/gopherstack/services/azureeventhubs"
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
@@ -575,6 +576,7 @@ type CLI struct {
 	Athena                        athenabackend.Settings            `embed:"" prefix:"athena-"`
 	CloudWatchLogs                cwlogsbackend.Settings            `embed:"" prefix:"cloudwatchlogs-"`
 	AzureServiceBus               azureservicebusbackend.Settings   `embed:"" prefix:"azure-servicebus-"`
+	AzureEventHubs                azureeventhubsbackend.Settings    `embed:"" prefix:"azure-eventhubs-"`
 	IoT                           iotbackend.Settings               `embed:"" prefix:"iot-"`
 	AzureBlob                     azureblobbackend.Settings         `embed:"" prefix:"azure-blob-"`
 	KMS                           kmsbackend.Settings               `embed:"" prefix:"kms-"`
@@ -736,6 +738,12 @@ func (c *CLI) GetIoTSettings() iotbackend.Settings {
 // GetCosmosDBSettings returns Cosmos DB settings (cosmosdb.ConfigProvider).
 func (c *CLI) GetCosmosDBSettings() cosmosdbbackend.Settings {
 	return c.CosmosDB
+}
+
+// GetAzureEventHubsSettings returns Azure Event Hubs settings
+// (azureeventhubs.ConfigProvider).
+func (c *CLI) GetAzureEventHubsSettings() azureeventhubsbackend.Settings {
+	return c.AzureEventHubs
 }
 
 // GetAzureServiceBusSettings returns Azure Service Bus settings
@@ -2335,6 +2343,9 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"AzureServiceBus", "azureservicebus", cli.AzureServiceBus.Port},
 		{"AzureServiceBusAMQP", "azureservicebus-amqp", cli.AzureServiceBus.AMQPPort},
 		{"AzureServiceBusAMQPTLS", "azureservicebus-amqp-tls", cli.AzureServiceBus.AMQPTLSPort},
+		{"AzureEventHubs", "azureeventhubs", cli.AzureEventHubs.Port},
+		{"AzureEventHubsAMQP", "azureeventhubs-amqp", cli.AzureEventHubs.AMQPPort},
+		{"AzureEventHubsAMQPTLS", "azureeventhubs-amqp-tls", cli.AzureEventHubs.AMQPTLSPort},
 		{"AzureARM", "azurearm", cli.AzureARM.Port},
 		{"AzureKeyVault", "azurekeyvault", cli.AzureKeyVault.Port},
 	}
@@ -4242,6 +4253,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// section 10.10's M9 entry).
 	wireAzureARMResourceProviders(
 		byName["AzureARM"], byName["AzureServiceBus"], byName["AzureKeyVault"], byName["CosmosDB"],
+		byName["AzureEventHubs"],
 	)
 
 	// Wire CloudWatch → Firehose so a PutMetricStream/CreateMetricStream
@@ -4707,6 +4719,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&azurequeuebackend.Provider{},
 		&azuretablebackend.Provider{},
 		&azureservicebusbackend.Provider{},
+		&azureeventhubsbackend.Provider{},
 		&azurestoragevhostbackend.Provider{},
 		&azurekeyvaultbackend.Provider{},
 		&cosmosdbbackend.Provider{},
@@ -13273,11 +13286,13 @@ func wireAzureStorageVHost(blobReg, queueReg, tableReg, vhostReg service.Registe
 // ServiceBus's real backend is a sibling service's already-constructed
 // runtime handler, only available here, at wireCrossServiceDependencies
 // time, mirroring wireAzureStorageVHost's post-construction injection.
-func wireAzureARMResourceProviders(armReg, sbReg, kvReg, cosmosReg service.Registerable) {
+func wireAzureARMResourceProviders(armReg, sbReg, kvReg, cosmosReg, ehReg service.Registerable) {
 	armH, ok := armReg.(*azurearmbackend.Handler)
 	if !ok {
 		return
 	}
+
+	wireAzureARMEventHubs(armReg, ehReg)
 
 	if kvH, kvOk := kvReg.(*azurekeyvaultbackend.Handler); kvOk {
 		armH.Registry.SetKeyVaults(&azureKeyVaultsAdapter{backend: kvH.Backend})

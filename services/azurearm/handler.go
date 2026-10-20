@@ -584,6 +584,10 @@ func errorDetails(err error) errorEntry {
 		return e
 	}
 
+	if e, ok := eventHubErrorDetails(err); ok {
+		return e
+	}
+
 	table := []struct {
 		err   error
 		entry errorEntry

@@ -1,5 +1,12 @@
 package azurearm
 
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
 // This file exposes internals needed by the blackbox (azurearm_test) test
 // suite, following this repo's export_test.go convention (see e.g.
 // services/cosmosdb) so tests can stay in package azurearm_test rather than
@@ -40,4 +47,21 @@ func NewTestHandlerWithCosmos(dataPlane CosmosResources, settings Settings) *Han
 	registry.Register(NewCosmosProvider(CosmosEndpointConfig{Override: settings.AdvertiseCosmosDB}, dataPlane))
 
 	return NewHandler(backend, registry, nil, settings)
+}
+
+// EventHubSnapshotJSON marshals the provider's ARM-side snapshot.
+func EventHubSnapshotJSON(p *EventHubProvider) []byte {
+	b, _ := json.Marshal(p.snapshot())
+
+	return b
+}
+
+// EventHubRestoreJSON restores a provider from EventHubSnapshotJSON output.
+func EventHubRestoreJSON(t *testing.T, p *EventHubProvider, data []byte) {
+	t.Helper()
+
+	var s eventHubSnapshot
+
+	require.NoError(t, json.Unmarshal(data, &s))
+	p.restore(&s)
 }

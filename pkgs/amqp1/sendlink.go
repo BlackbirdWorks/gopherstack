@@ -121,6 +121,7 @@ func (l *sendLink) run() {
 		}
 
 		out, err := l.ep.Next(nctx)
+		interrupted := nctx.Err() != nil
 		stop()
 
 		switch {
@@ -130,7 +131,7 @@ func (l *sendLink) run() {
 			}
 
 			return
-		case err != nil && nctx.Err() == nil:
+		case err != nil && !interrupted:
 			l.fail(err)
 
 			return

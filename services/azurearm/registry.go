@@ -124,6 +124,19 @@ func (r *Registry) SetServiceBusEntities(e ServiceBusEntities) {
 	}
 }
 
+// SetEventHubs gives the registered Microsoft.EventHub provider (if any) a
+// real data-plane adapter, replacing its no-op default.
+func (r *Registry) SetEventHubs(e EventHubs) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftEventHub)
+	if !ok {
+		return
+	}
+
+	if eh, ehOk := p.(*EventHubProvider); ehOk {
+		eh.dataPlane = e
+	}
+}
+
 // SetKeyVaults gives the registered Microsoft.KeyVault provider (if any) a
 // real KeyVaults adapter, replacing its no-op default.
 func (r *Registry) SetKeyVaults(k KeyVaults) {

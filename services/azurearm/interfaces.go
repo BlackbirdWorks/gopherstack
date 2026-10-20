@@ -89,6 +89,60 @@ func (noopServiceBusEntities) SubscriptionExists(string, string) bool  { return 
 
 var _ ServiceBusEntities = noopServiceBusEntities{}
 
+// EventHubInfo is the data plane's view of an event hub.
+type EventHubInfo struct {
+	CreatedAt    time.Time
+	PartitionIDs []string
+	Retention    time.Duration
+}
+
+// EventHubRule is the data plane's view of an authorization rule.
+type EventHubRule struct {
+	PrimaryKey   string
+	SecondaryKey string
+	Rights       []string
+}
+
+// EventHubs is the seam the Microsoft.EventHub resource provider uses to keep
+// the Event Hubs data plane in step with ARM. Primitive types only, so this
+// package never imports services/azureeventhubs. hub is empty for
+// namespace-scoped rules.
+type EventHubs interface {
+	EnsureNamespace(name string) error
+	DeleteNamespace(name string) error
+	CreateHub(ns, name string, partitionCount int, retention time.Duration) (EventHubInfo, error)
+	HubInfo(ns, name string) (EventHubInfo, bool)
+	DeleteHub(ns, name string) error
+	CreateConsumerGroup(ns, hub, name string) error
+	DeleteConsumerGroup(ns, hub, name string) error
+	PutRule(ns, hub, name string, rights []string) (EventHubRule, error)
+	GetRule(ns, hub, name string) (EventHubRule, bool)
+	DeleteRule(ns, hub, name string) error
+}
+
+type noopEventHubs struct{}
+
+func (noopEventHubs) EnsureNamespace(string) error { return nil }
+func (noopEventHubs) DeleteNamespace(string) error { return nil }
+func (noopEventHubs) CreateHub(string, string, int, time.Duration) (EventHubInfo, error) {
+	return EventHubInfo{}, ErrEventHubNotFound
+}
+func (noopEventHubs) HubInfo(string, string) (EventHubInfo, bool) { return EventHubInfo{}, false }
+func (noopEventHubs) DeleteHub(string, string) error              { return nil }
+func (noopEventHubs) CreateConsumerGroup(string, string, string) error {
+	return nil
+}
+func (noopEventHubs) DeleteConsumerGroup(string, string, string) error { return nil }
+func (noopEventHubs) PutRule(string, string, string, []string) (EventHubRule, error) {
+	return EventHubRule{}, ErrEventHubRuleNotFound
+}
+func (noopEventHubs) GetRule(string, string, string) (EventHubRule, bool) {
+	return EventHubRule{}, false
+}
+func (noopEventHubs) DeleteRule(string, string, string) error { return nil }
+
+var _ EventHubs = noopEventHubs{}
+
 // KeyVaults is the seam the Microsoft.KeyVault resource provider uses to
 // register and remove vaults in the Key Vault data plane. Primitive types only,
 // so this package never imports services/azurekeyvault.

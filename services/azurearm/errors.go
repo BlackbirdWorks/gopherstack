@@ -24,6 +24,11 @@ var (
 
 	ErrKeyVaultNotFound = errors.New("azurearm: key vault not found")
 
+	ErrEventHubNamespaceNotFound     = errors.New("azurearm: event hubs namespace not found")
+	ErrEventHubNotFound              = errors.New("azurearm: event hub not found")
+	ErrEventHubConsumerGroupNotFound = errors.New("azurearm: event hubs consumer group not found")
+	ErrEventHubRuleNotFound          = errors.New("azurearm: event hubs authorization rule not found")
+
 	ErrCosmosAccountNotFound    = errors.New("azurearm: cosmos db account not found")
 	ErrCosmosDatabaseNotFound   = errors.New("azurearm: cosmos db database not found")
 	ErrCosmosContainerNotFound  = errors.New("azurearm: cosmos db container not found")

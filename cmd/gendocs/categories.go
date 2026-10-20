@@ -23,6 +23,7 @@ const (
 	slugAzureQueue      = "azurequeue"
 	slugAzureTable      = "azuretable"
 	slugAzureServiceBus = "azureservicebus"
+	slugAzureEventHubs  = "azureeventhubs"
 	slugCosmosDB        = "cosmosdb"
 	slugGCPStorage      = "gcpstorage"
 	slugGCPPubSub       = "gcppubsub"
@@ -112,9 +113,18 @@ func categoryGroups() []categoryGroup {
 		{"Migration & Transfer", []string{
 			"datasync", "dms", "transfer",
 		}},
-		{"Azure", []string{
-			slugAzureBlob, slugAzureKeyVault, slugAzureQueue, slugAzureTable, slugAzureServiceBus, slugCosmosDB,
-		}},
+		{
+			"Azure",
+			[]string{
+				slugAzureBlob,
+				slugAzureKeyVault,
+				slugAzureQueue,
+				slugAzureTable,
+				slugAzureServiceBus,
+				slugAzureEventHubs,
+				slugCosmosDB,
+			},
+		},
 		{"GCP", []string{
 			slugGCPStorage, slugGCPPubSub, slugGCPSecretMgr, slugGCPKMS, slugGCPCloudTasks, slugGCPScheduler,
 			slugGCPFirestore, slugGCPIAM, slugGCPRun, slugGCPFunctions, slugGCPBigQuery,
@@ -190,6 +200,7 @@ func displayNamesA() map[string]string {
 		slugAzureQueue:            "Azure Queue Storage",
 		slugAzureTable:            "Azure Table Storage",
 		slugAzureServiceBus:       "Azure Service Bus",
+		slugAzureEventHubs:        "Azure Event Hubs",
 		"backup":                  "Backup",
 		"batch":                   "Batch",
 		"bedrock":                 "Bedrock",
