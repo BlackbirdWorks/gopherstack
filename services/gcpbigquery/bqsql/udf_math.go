@@ -188,14 +188,14 @@ func udfRound(f func(float64) float64) udfFn {
 			return nil, err
 		}
 
-		digits := int64(0)
+		digits := 0
 		if len(a) > 1 {
-			if digits, err = toInt(a[1]); err != nil {
+			if digits, err = toSmallInt(a[1]); err != nil {
 				return nil, err
 			}
 		}
 
-		scale := math.Pow10(int(digits))
+		scale := math.Pow10(digits)
 
 		return f(x*scale) / scale, nil
 	}

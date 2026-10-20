@@ -1,7 +1,6 @@
 package bqsql
 
 import (
-	"database/sql/driver"
 	"encoding/hex"
 	"math"
 	"strconv"
@@ -63,37 +62,6 @@ func jsonVal(g *gx) string {
 	}
 
 	return g.sql
-}
-
-func sqlLiteral(v driver.Value) string {
-	switch t := v.(type) {
-	case nil:
-		return litNull
-	case int64:
-		return strconv.FormatInt(t, decimalBase)
-	case float64:
-		switch {
-		case math.IsNaN(t):
-			return litNull
-		case math.IsInf(t, 1):
-			return "9e999"
-		case math.IsInf(t, -1):
-			return "-9e999"
-		}
-
-		s := strconv.FormatFloat(t, 'g', -1, bitSize)
-		if !strings.ContainsAny(s, ".eE") {
-			s += ".0"
-		}
-
-		return s
-	case string:
-		return quoteStr(t)
-	case []byte:
-		return "X'" + hex.EncodeToString(t) + "'"
-	}
-
-	return litNull
 }
 
 func (c *compiler) expr(n *node, sc *scope) (*gx, error) {
@@ -178,7 +146,17 @@ func (c *compiler) literal(n *node) (*gx, error) {
 
 		return &gx{sql: n.str, typ: scalar(KindInt), lit: n}, nil
 	case nFloat:
-		return &gx{sql: n.str, typ: scalar(KindFloat), lit: n}, nil
+		f, err := strconv.ParseFloat(n.str, bitSize)
+		if err != nil || math.IsInf(f, 0) || math.IsNaN(f) {
+			return nil, invalid("Floating point literal %s is out of range", n.str)
+		}
+
+		txt := strconv.FormatFloat(f, 'g', -1, bitSize)
+		if !strings.ContainsAny(txt, ".eE") {
+			txt += ".0"
+		}
+
+		return &gx{sql: txt, typ: scalar(KindFloat), lit: n}, nil
 	case nString:
 		return &gx{sql: quoteStr(n.str), typ: scalar(KindString), lit: n}, nil
 	case nBytes:
@@ -249,7 +227,7 @@ func (c *compiler) param(n *node) (*gx, error) {
 	}
 
 	typ := p.Field.SQLType()
-	sql := sqlLiteral(ToSQLite(p.Field, p.Value))
+	sql := c.bind(p)
 
 	if typ.Kind == KindStruct || typ.Kind == KindArray {
 		sql = "json(" + sql + ")"

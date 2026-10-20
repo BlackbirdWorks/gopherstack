@@ -84,7 +84,7 @@ func (c *compiler) runQuery(ctx context.Context, st *Statement, dryRun bool) (*R
 		return nil, err
 	}
 
-	res.Rows, err = queryRows(ctx, db, cq.sql, res.Fields)
+	res.Rows, err = queryRows(ctx, db, cq.sql, res.Fields, c.binds...)
 	if err != nil {
 		return nil, err
 	}
@@ -190,8 +190,8 @@ func loadTable(ctx context.Context, db *sql.DB, lt *loadedTable) error {
 	return mapSQLiteErr(tx.Commit())
 }
 
-func queryRows(ctx context.Context, db *sql.DB, query string, fields []Field) ([][]any, error) {
-	rows, err := db.QueryContext(ctx, query)
+func queryRows(ctx context.Context, db *sql.DB, query string, fields []Field, args ...any) ([][]any, error) {
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, mapSQLiteErr(err)
 	}

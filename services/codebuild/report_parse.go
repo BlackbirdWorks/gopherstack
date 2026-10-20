@@ -208,10 +208,11 @@ func addClassCoverage(files map[string]*fileCoverage, c coberturaClass) {
 		}
 
 		if m := conditionRe.FindStringSubmatch(l.Condition); m != nil && isTrue(l.Branch) {
-			cov, _ := strconv.Atoi(m[1])
-			tot, _ := strconv.Atoi(m[2])
-			fc.bCovered += int32(cov)            //nolint:gosec // bounded by file size
-			fc.bMissed += int32(max(tot-cov, 0)) //nolint:gosec // bounded by file size
+			cov, _ := strconv.ParseInt(m[1], 10, 32)
+			tot, _ := strconv.ParseInt(m[2], 10, 32)
+			covered, total := int32(cov), int32(tot)
+			fc.bCovered += covered
+			fc.bMissed += max(total-covered, 0)
 		}
 	}
 }

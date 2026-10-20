@@ -114,7 +114,7 @@ func (c *compiler) runDML(ctx context.Context, st *Statement, dryRun bool) (*Res
 		return nil, err
 	}
 
-	if err = runSteps(ctx, db, steps, res); err != nil {
+	if err = runSteps(ctx, db, steps, c.binds, res); err != nil {
 		return nil, err
 	}
 
@@ -153,9 +153,9 @@ func checkRequired(fields []Field, rows [][]any) error {
 	return nil
 }
 
-func runSteps(ctx context.Context, db *sql.DB, steps []dmlStep, res *Result) error {
+func runSteps(ctx context.Context, db *sql.DB, steps []dmlStep, binds []any, res *Result) error {
 	for _, s := range steps {
-		r, err := db.ExecContext(ctx, s.sql)
+		r, err := db.ExecContext(ctx, s.sql, binds...)
 		if err != nil {
 			return mapSQLiteErr(err)
 		}
@@ -344,6 +344,10 @@ func (c *compiler) setClauses(set []assignment, t *dmlTarget, sc *scope) (string
 		pb.WriteString("$")
 
 		for _, p := range a.target[1:] {
+			if strings.ContainsAny(p, `"\`) {
+				return "", invalid("Unsupported field name in assignment target: %s", p)
+			}
+
 			pb.WriteString(`."` + p + `"`)
 		}
 

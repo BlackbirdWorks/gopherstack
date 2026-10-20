@@ -318,6 +318,8 @@ const (
 	hexBase      = 16
 	escapeLen    = 2
 	maxRune      = 0x10FFFF
+	byteBits     = 8
+	runeBits     = 31
 )
 
 var errEscape = errors.New("invalid escape sequence")
@@ -366,16 +368,25 @@ func unescape(src string, i int, sb *strings.Builder, isBytes bool) (int, error)
 		return 0, errEscape
 	}
 
-	n, err := strconv.ParseUint(src[i+escapeLen:i+escapeLen+width], hexBase, bitSize)
+	digits := src[i+escapeLen : i+escapeLen+width]
+
+	if (c == 'x' || c == 'X') && isBytes {
+		b, err := strconv.ParseUint(digits, hexBase, byteBits)
+		if err != nil {
+			return 0, errEscape
+		}
+
+		sb.WriteByte(byte(b))
+
+		return i + escapeLen + width, nil
+	}
+
+	n, err := strconv.ParseUint(digits, hexBase, runeBits)
 	if err != nil || n > maxRune {
 		return 0, errEscape
 	}
 
-	if (c == 'x' || c == 'X') && isBytes {
-		sb.WriteByte(byte(n)) //nolint:gosec // two hex digits fit in a byte
-	} else {
-		sb.WriteRune(rune(n))
-	}
+	sb.WriteRune(rune(n))
 
 	return i + escapeLen + width, nil
 }

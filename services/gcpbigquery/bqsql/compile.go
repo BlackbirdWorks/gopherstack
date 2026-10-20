@@ -1,6 +1,8 @@
 package bqsql
 
 import (
+	"database/sql"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -94,6 +96,8 @@ type compiler struct {
 	dataset   string
 	loads     []*loadedTable
 	ctes      []map[string]*cteDef
+	bound     map[*Param]string
+	binds     []any
 	seq       int
 	viewDepth int
 }
@@ -102,11 +106,31 @@ const maxViewDepth = 16
 
 func newCompiler(in *Input) *compiler {
 	c := &compiler{
-		in: in, loadIdx: map[TableRef]*loadedTable{}, project: in.Project, dataset: in.Dataset,
+		in: in, loadIdx: map[TableRef]*loadedTable{}, bound: map[*Param]string{},
+		project: in.Project, dataset: in.Dataset,
 	}
 	c.fns = functionTable()
 
 	return c
+}
+
+// bind registers p as a named SQLite parameter and returns its placeholder.
+func (c *compiler) bind(p *Param) string {
+	if name, ok := c.bound[p]; ok {
+		return name
+	}
+
+	name := "@bqp" + strconv.Itoa(len(c.bound))
+	v := ToSQLite(p.Field, p.Value)
+
+	if f, isF := v.(float64); isF && math.IsNaN(f) {
+		v = nil
+	}
+
+	c.bound[p] = name
+	c.binds = append(c.binds, sql.Named(name[1:], v))
+
+	return name
 }
 
 func (c *compiler) uniq(prefix string) string {

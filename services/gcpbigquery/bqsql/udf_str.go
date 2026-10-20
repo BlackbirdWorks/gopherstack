@@ -159,16 +159,16 @@ func udfRepeat(a []driver.Value) (driver.Value, error) {
 		return nil, nil //nolint:nilnil // NULL in, NULL out
 	}
 
-	n, err := toInt(a[1])
+	n, err := toSmallInt(a[1])
 	if err != nil {
 		return nil, err
 	}
 
-	if n < 0 || n*int64(len(toStr(a[0]))) > 1<<24 {
+	if n < 0 || n*len(toStr(a[0])) > 1<<24 {
 		return nil, errBQ("invalid REPEAT count %d", n)
 	}
 
-	return strings.Repeat(toStr(a[0]), int(n)), nil
+	return strings.Repeat(toStr(a[0]), n), nil
 }
 
 func udfReplace(a []driver.Value) (driver.Value, error) {
@@ -252,13 +252,13 @@ func sideFn(left bool) udfFn {
 			return nil, nil
 		}
 
-		n, err := toInt(a[1])
+		n, err := toSmallInt(a[1])
 		if err != nil || n < 0 {
 			return nil, errBQ("invalid length argument")
 		}
 
 		r := []rune(toStr(a[0]))
-		if int(n) >= len(r) {
+		if n >= len(r) {
 			return string(r), nil
 		}
 
@@ -266,7 +266,7 @@ func sideFn(left bool) udfFn {
 			return string(r[:n]), nil
 		}
 
-		return string(r[len(r)-int(n):]), nil
+		return string(r[len(r)-n:]), nil
 	}
 }
 

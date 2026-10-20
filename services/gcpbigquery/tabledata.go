@@ -287,7 +287,10 @@ func dataPage(schema []bqsql.Field, rows [][]any, o DataOptions, etag string) ma
 		limit = defaultDataPage
 	}
 
-	end := min(start+limit, len(rows))
+	end := len(rows)
+	if limit < end-start {
+		end = start + limit
+	}
 
 	cells := make([]map[string]any, 0, end-start)
 	for _, r := range rows[start:end] {

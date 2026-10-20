@@ -2,6 +2,7 @@ package azureservicebus_test
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"testing"
 
@@ -209,4 +210,38 @@ func TestBackend_AutoDeadLetterReason(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, dl, 1)
 	assert.Equal(t, azureservicebus.ReasonMaxDeliveryCountExceeded, dl[0].DeadLetterReason)
+}
+
+func TestPeekCountBounds(t *testing.T) {
+	t.Parallel()
+
+	const sent = 300
+
+	tests := []struct {
+		name  string
+		count int
+		want  int
+	}{
+		{"huge count capped", math.MaxInt, 256},
+		{"negative count empty", -5, 0},
+		{"within cap", 10, 10},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newQueueBackend(t)
+			ref := azureservicebus.EntityRef{Queue: "q"}
+
+			for range sent {
+				_, err := b.Send(ref, azureservicebus.NewMessage{Body: []byte("x")})
+				require.NoError(t, err)
+			}
+
+			got, err := b.Peek(ref, false, 0, tt.count)
+			require.NoError(t, err)
+			assert.Len(t, got, tt.want)
+		})
+	}
 }

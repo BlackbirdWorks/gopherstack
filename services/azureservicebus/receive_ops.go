@@ -4,6 +4,14 @@ import "time"
 
 // Peek implements StorageBackend.Peek.
 func (b *InMemoryBackend) Peek(ref EntityRef, deadLetter bool, fromSeq int64, maxCount int) ([]MessageInfo, error) {
+	if maxCount < 0 {
+		maxCount = 0
+	}
+
+	if maxCount > maxPeekCount {
+		maxCount = maxPeekCount
+	}
+
 	b.mu.RLock("Peek")
 	defer b.mu.RUnlock()
 
@@ -13,7 +21,7 @@ func (b *InMemoryBackend) Peek(ref EntityRef, deadLetter bool, fromSeq int64, ma
 	}
 
 	now := b.now()
-	out := make([]MessageInfo, 0, min(max(maxCount, 0), len(mq.liveList(deadLetter))))
+	out := make([]MessageInfo, 0, min(maxCount, len(mq.liveList(deadLetter))))
 
 	for _, msg := range mq.liveList(deadLetter) {
 		if len(out) >= maxCount {

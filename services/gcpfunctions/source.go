@@ -216,8 +216,14 @@ func extractArchive(data []byte, dir string) error {
 }
 
 func extractEntry(f *zip.File, dir string) error {
-	target := filepath.Join(dir, filepath.FromSlash(f.Name))
-	if target != dir && !strings.HasPrefix(target, dir+string(os.PathSeparator)) {
+	if strings.Contains(f.Name, "..") {
+		return fmt.Errorf("%w: %s", errUnsafePath, f.Name)
+	}
+
+	root := filepath.Clean(dir)
+	target := filepath.Join(root, filepath.FromSlash(f.Name))
+
+	if target != root && !strings.HasPrefix(target, root+string(os.PathSeparator)) {
 		return fmt.Errorf("%w: %s", errUnsafePath, f.Name)
 	}
 

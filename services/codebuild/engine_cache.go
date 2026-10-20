@@ -454,21 +454,43 @@ func untarGz(data []byte, dir string) error {
 			continue
 		}
 
-		body, rerr := io.ReadAll(io.LimitReader(tr, maxExtractedBytes))
-		if rerr != nil {
-			return fmt.Errorf("read %s: %w", hdr.Name, rerr)
-		}
-
-		if rerr = writeSafeFile(dir, hdr.Name, body); rerr != nil {
-			return rerr
-		}
-
-		if hdr.Mode&0o111 != 0 {
-			if full, jerr := safeJoin(dir, hdr.Name); jerr == nil {
-				_ = os.Chmod(full, fs.FileMode(hdr.Mode).Perm()) //nolint:gosec // owner-controlled cache archive
-			}
+		if nerr = extractCacheEntry(dir, hdr, tr); nerr != nil {
+			return nerr
 		}
 	}
+}
+
+func extractCacheEntry(dir string, hdr *tar.Header, r io.Reader) error {
+	if strings.Contains(hdr.Name, "..") {
+		return fmt.Errorf("%w: %s", errUnsafePath, hdr.Name)
+	}
+
+	root := filepath.Clean(dir)
+	full := filepath.Join(root, filepath.FromSlash(hdr.Name))
+
+	if !strings.HasPrefix(full, root+string(filepath.Separator)) {
+		return fmt.Errorf("%w: %s", errUnsafePath, hdr.Name)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r, maxExtractedBytes))
+	if err != nil {
+		return fmt.Errorf("read %s: %w", hdr.Name, err)
+	}
+
+	if err = os.MkdirAll(filepath.Dir(full), dirPerm); err != nil {
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(full), err)
+	}
+
+	mode := fs.FileMode(filePerm)
+	if hdr.Mode&0o111 != 0 {
+		mode = dirPerm
+	}
+
+	if err = os.WriteFile(full, body, mode); err != nil {
+		return fmt.Errorf("write %s: %w", full, err)
+	}
+
+	return os.Chmod(full, mode)
 }
 
 // invalidateEngineCache removes a project's local caches and empties its S3 cache archive.

@@ -127,15 +127,15 @@ func udfDate(a []driver.Value) (driver.Value, error) {
 	}
 
 	if len(a) == 3 { //nolint:mnd // DATE(year, month, day)
-		y, e1 := toInt(a[0])
-		m, e2 := toInt(a[1])
-		d, e3 := toInt(a[2])
+		y, e1 := toSmallInt(a[0])
+		m, e2 := toSmallInt(a[1])
+		d, e3 := toSmallInt(a[2])
 
 		if e1 != nil || e2 != nil || e3 != nil {
 			return nil, errBQ("invalid DATE arguments")
 		}
 
-		t := time.Date(int(y), time.Month(m), int(d), 0, 0, 0, 0, time.UTC)
+		t := time.Date(y, time.Month(m), d, 0, 0, 0, 0, time.UTC)
 
 		return FormatTemporal(KindDate, t), nil
 	}
@@ -163,12 +163,12 @@ func udfDatetime(a []driver.Value) (driver.Value, error) {
 		n := make([]int, len(a))
 
 		for i, v := range a {
-			x, err := toInt(v)
+			x, err := toSmallInt(v)
 			if err != nil {
 				return nil, err
 			}
 
-			n[i] = int(x)
+			n[i] = x
 		}
 
 		return FormatTemporal(KindDatetime, time.Date(n[0], time.Month(n[1]), n[2], n[3], n[4], n[5], 0, time.UTC)), nil
@@ -207,11 +207,15 @@ func udfTime(a []driver.Value) (driver.Value, error) {
 	}
 
 	if len(a) == 3 { //nolint:mnd // TIME(h, m, s)
-		h, _ := toInt(a[0])
-		m, _ := toInt(a[1])
-		s, _ := toInt(a[2])
+		h, e1 := toSmallInt(a[0])
+		m, e2 := toSmallInt(a[1])
+		s, e3 := toSmallInt(a[2])
 
-		return FormatTemporal(KindTime, time.Date(1970, 1, 1, int(h), int(m), int(s), 0, time.UTC)), nil
+		if e1 != nil || e2 != nil || e3 != nil {
+			return nil, errBQ("invalid TIME arguments")
+		}
+
+		return FormatTemporal(KindTime, time.Date(1970, 1, 1, h, m, s, 0, time.UTC)), nil
 	}
 
 	t, k, err := parseAny(a[0])
@@ -393,32 +397,32 @@ func udfDateAdd(a []driver.Value) (driver.Value, error) {
 		return nil, err
 	}
 
-	n, err := toInt(a[1])
+	n, err := toSmallInt(a[1])
 	if err != nil {
 		return nil, err
 	}
 
 	switch strings.ToUpper(toStr(a[2])) {
 	case litYear:
-		t = addMonths(t, int(n)*12) //nolint:mnd // months per year
+		t = addMonths(t, n*12) //nolint:mnd // months per year
 	case litQuarter:
-		t = addMonths(t, int(n)*3) //nolint:mnd // months per quarter
+		t = addMonths(t, n*3) //nolint:mnd // months per quarter
 	case litMonth:
-		t = addMonths(t, int(n))
+		t = addMonths(t, n)
 	case litWeek:
-		t = t.AddDate(0, 0, int(n)*7) //nolint:mnd // days per week
+		t = t.AddDate(0, 0, n*7) //nolint:mnd // days per week
 	case litDay:
-		t = t.AddDate(0, 0, int(n))
+		t = t.AddDate(0, 0, n)
 	case litHour:
-		t = t.Add(time.Duration(n) * time.Hour)
+		t = t.Add(time.Duration(int64(n)) * time.Hour)
 	case litMinute:
-		t = t.Add(time.Duration(n) * time.Minute)
+		t = t.Add(time.Duration(int64(n)) * time.Minute)
 	case litSecond:
-		t = t.Add(time.Duration(n) * time.Second)
+		t = t.Add(time.Duration(int64(n)) * time.Second)
 	case litMillisecond:
-		t = t.Add(time.Duration(n) * time.Millisecond)
+		t = t.Add(time.Duration(int64(n)) * time.Millisecond)
 	case litMicrosecond:
-		t = t.Add(time.Duration(n) * time.Microsecond)
+		t = t.Add(time.Duration(int64(n)) * time.Microsecond)
 	default:
 		return nil, errBQ("invalid date part %s", toStr(a[2]))
 	}

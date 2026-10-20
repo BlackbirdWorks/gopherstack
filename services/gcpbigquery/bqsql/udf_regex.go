@@ -94,29 +94,29 @@ func udfRegexExtract(a []driver.Value) (driver.Value, error) {
 	}
 
 	s := toStr(a[0])
-	pos := int64(1)
+	pos := 1
 
 	if len(a) > 2 && a[2] != nil {
-		if pos, err = toInt(a[2]); err != nil {
+		if pos, err = toSmallInt(a[2]); err != nil {
 			return nil, err
 		}
 	}
 
 	r := []rune(s)
-	if pos < 1 || int(pos) > len(r)+1 {
+	if pos < 1 || pos > len(r)+1 {
 		return nil, errBQ("Position must be between 1 and the string length")
 	}
 
-	occ := int64(1)
+	occ := 1
 
 	if len(a) > 3 && a[3] != nil {
-		if occ, err = toInt(a[3]); err != nil {
+		if occ, err = toSmallInt(a[3]); err != nil {
 			return nil, err
 		}
 	}
 
 	ms := re.FindAllStringSubmatch(string(r[pos-1:]), -1)
-	if occ < 1 || int(occ) > len(ms) {
+	if occ < 1 || occ > len(ms) {
 		return nil, nil //nolint:nilnil // no match is NULL
 	}
 

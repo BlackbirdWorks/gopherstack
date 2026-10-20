@@ -4,6 +4,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -141,6 +142,20 @@ func toInt(v driver.Value) (int64, error) {
 	}
 
 	return 0, errBQ("expected an integer")
+}
+
+// toSmallInt is toInt narrowed to the int32 range, the bound BigQuery's calendar and string functions accept.
+func toSmallInt(v driver.Value) (int, error) {
+	n, err := toInt(v)
+	if err != nil {
+		return 0, err
+	}
+
+	if n < math.MinInt32 || n > math.MaxInt32 {
+		return 0, errBQ("Integer argument %d is out of range", n)
+	}
+
+	return int(n), nil
 }
 
 func boolVal(b bool) driver.Value {
