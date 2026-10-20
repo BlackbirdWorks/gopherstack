@@ -7,23 +7,23 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 24 (22 ok, 2 partial) |
-| Feature families | 10 (7 ok, 1 partial, 2 deferred) |
-| Known gaps | 4 |
-| Deferred items | 3 |
+| PARITY entries audited | 25 (22 ok, 3 partial) |
+| Feature families | 10 (8 ok, 1 partial, 1 deferred) |
+| Known gaps | 3 |
+| Deferred items | 4 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - AMQP bodies are flattened: amqp-value and sequence bodies are stored as bytes and returned as a data section; application property types survive in memory but are strings after a persistence restore or when set through REST. See families.amqp_transport.
 - No SQL-filter rule evaluation for subscriptions -- every subscription is effectively TrueFilter (match-all). See families.filter_evaluation.
-- No sessions (ordered/exclusive per-SessionId delivery) -- SessionId round-trips but has no locking/FIFO semantics. See families.sessions.
 - Client dead-letter and PeekMessages use emulator-extension REST shapes (BrokerProperties DeadLetterReason on the Unlock PUT; GET .../messages); the AMQP plane now does both natively. All gaps above are intentional MVP scope per AZURE.md section 9's M5 entry (or, for DeadLetter, a deliberate pause pending human input), not oversights.
 
 ### Deferred
 
 - Initial implementation pass (2026-09-06): seeded this service from scratch per AZURE.md M5 (see AZURE.md section 9). Structurally mirrors services/azurequeue's pop-receipt/visibility-timeout pattern for message locks and services/sns's topic/subscription fan-out bookkeeping; no prior audit history to reconcile.
-- Follow-up pass (2026-09-07): closed five bounded parity gaps -- per-entity LockDuration/MaxDeliveryCount/DefaultMessageTimeToLive, PeekLock long-poll, full Atom+XML entity-kind parsing, and Get/List operations. Left the explicit client-initiated DeadLetter gap as-is after research found the wire shape unconfirmed (see gaps above); SQL-filter evaluation, sessions remain deferred per AZURE.md section 9.
+- Follow-up pass (2026-09-07): closed five bounded parity gaps -- per-entity LockDuration/MaxDeliveryCount/DefaultMessageTimeToLive, PeekLock long-poll, full Atom+XML entity-kind parsing, and Get/List operations. Left the explicit client-initiated DeadLetter gap as-is after research found the wire shape unconfirmed (see gaps above); SQL-filter evaluation, sessions remained deferred per AZURE.md section 9.
+- Sessions pass (2026-10-20): RequiresSession entities, session-filter receivers with locks, session state, renew-session-lock, FIFO per session, persisted in the snapshot.
 - AMQP 1.0 pass (2026-10-20): added pkgs/amqp1 and the AMQP listener (plain 5672, TLS 5671) over the shared backend, with Defer, ReceiveDeferred, RenewLock, scheduled enqueue/cancel and lock-token lookup added to the backend; verified with the real azservicebus client.
 
 ## More

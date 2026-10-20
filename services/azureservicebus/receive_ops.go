@@ -46,9 +46,13 @@ func (b *InMemoryBackend) ReceiveAndDelete(ref EntityRef, deadLetter bool) (Mess
 	b.mu.Lock("ReceiveAndDelete")
 	defer b.mu.Unlock()
 
-	mq, err := b.resolveMessageQueueLocked(ref)
+	mq, cfg, err := b.resolveEntityLocked(ref)
 	if err != nil {
 		return MessageInfo{}, err
+	}
+
+	if cfg.RequiresSession && !deadLetter {
+		return MessageInfo{}, ErrSessionRequired
 	}
 
 	now := b.now()

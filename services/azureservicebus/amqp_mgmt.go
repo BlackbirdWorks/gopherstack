@@ -20,6 +20,9 @@ const (
 	opSchedule          = "com.microsoft:schedule-message"
 	opCancelScheduled   = "com.microsoft:cancel-scheduled-message"
 	opUpdateDisposition = "com.microsoft:update-disposition"
+	opRenewSession      = "com.microsoft:renew-session-lock"
+	opGetSessionState   = "com.microsoft:get-session-state"
+	opSetSessionState   = "com.microsoft:set-session-state"
 )
 
 func ok(body any) rpcResponse { return rpcResponse{status: rpcOK, desc: "OK", body: body} }
@@ -30,7 +33,8 @@ func fail(status int32, err error) rpcResponse {
 
 func statusFor(err error) int32 {
 	switch {
-	case errors.Is(err, ErrMessageNotFound), errors.Is(err, ErrLockTokenMismatch), errors.Is(err, ErrMessageNotLocked):
+	case errors.Is(err, ErrMessageNotFound), errors.Is(err, ErrLockTokenMismatch), errors.Is(err, ErrMessageNotLocked),
+		errors.Is(err, ErrSessionLockLost):
 		return rpcLockLost
 	case errors.Is(err, ErrQueueNotFound), errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound):
 		return rpcNotFound
@@ -47,10 +51,13 @@ func (c *amqpConn) manage(ref EntityRef, req *amqp1.Message) rpcResponse {
 
 	op, _ := req.ApplicationProperties["operation"].(string)
 	body, _ := req.Value.(amqp1.Map)
+	owner, _ := req.ApplicationProperties["associated-link-name"].(string)
 
 	switch op {
+	case opRenewSession, opGetSessionState, opSetSessionState:
+		return c.mgmtSession(ref, op, owner, body)
 	case opPeek:
-		return c.mgmtPeek(ref, body)
+		return c.mgmtPeek(ref, owner, body)
 	case opRenewLock:
 		return c.mgmtRenew(ref, body)
 	case opReceiveBySeq:
@@ -60,7 +67,7 @@ func (c *amqpConn) manage(ref EntityRef, req *amqp1.Message) rpcResponse {
 	case opCancelScheduled:
 		return c.mgmtCancel(ref, body)
 	case opUpdateDisposition:
-		return c.mgmtDisposition(ref, body)
+		return c.mgmtDisposition(ref, owner, body)
 	}
 
 	return rpcResponse{status: rpcNotImpl, desc: "unsupported management operation: " + op}
@@ -81,7 +88,7 @@ func int64Arg(v any) int64 {
 	return 0
 }
 
-func (c *amqpConn) mgmtPeek(ref EntityRef, body amqp1.Map) rpcResponse {
+func (c *amqpConn) mgmtPeek(ref EntityRef, owner string, body amqp1.Map) rpcResponse {
 	if ref.Topic != "" && ref.Subscription == "" {
 		return rpcResponse{status: rpcBadReq, desc: "peek requires a queue or subscription"}
 	}
@@ -89,7 +96,16 @@ func (c *amqpConn) mgmtPeek(ref EntityRef, body amqp1.Map) rpcResponse {
 	from := int64Arg(body["from-sequence-number"])
 	count := int(min(max(int64Arg(body["message-count"]), 1), maxMgmtBatch))
 
-	msgs, err := c.b.Peek(ref, false, from, count)
+	var msgs []MessageInfo
+
+	var err error
+
+	if sid, held := c.b.SessionOf(ref, owner); held {
+		msgs, err = c.b.PeekSession(ref, sid, from, count)
+	} else {
+		msgs, err = c.b.Peek(ref, false, from, count)
+	}
+
 	if err != nil {
 		return fail(statusFor(err), err)
 	}
@@ -220,7 +236,7 @@ func (c *amqpConn) mgmtCancel(ref EntityRef, body amqp1.Map) rpcResponse {
 	return ok(nil)
 }
 
-func (c *amqpConn) mgmtDisposition(ref EntityRef, body amqp1.Map) rpcResponse {
+func (c *amqpConn) mgmtDisposition(ref EntityRef, owner string, body amqp1.Map) rpcResponse {
 	status, _ := body["disposition-status"].(string)
 	reason, _ := body["deadletter-reason"].(string)
 	desc, _ := body["deadletter-description"].(string)
@@ -229,6 +245,13 @@ func (c *amqpConn) mgmtDisposition(ref EntityRef, body amqp1.Map) rpcResponse {
 		info, dl, ferr := c.b.FindByLockToken(ref, tok)
 		if ferr != nil {
 			return fail(statusFor(ferr), ferr)
+		}
+
+		if info.SessionID != "" {
+			serr := c.b.CheckSessionLock(ref, info.SessionID, owner)
+			if serr != nil && !errors.Is(serr, ErrNotSessionEntity) {
+				return fail(statusFor(serr), serr)
+			}
 		}
 
 		if aerr := c.applyDisposition(ref, status, dl, info, reason, desc); aerr != nil {
@@ -258,4 +281,41 @@ func (c *amqpConn) applyDisposition(
 	}
 
 	return fmt.Errorf("%w: unknown disposition %q", ErrInvalidEntityRef, status)
+}
+
+func (c *amqpConn) mgmtSession(ref EntityRef, op, owner string, body amqp1.Map) rpcResponse {
+	sid, _ := body["session-id"].(string)
+
+	switch op {
+	case opRenewSession:
+		until, err := c.b.RenewSessionLock(ref, sid, owner)
+		if err != nil {
+			return fail(statusFor(err), err)
+		}
+
+		return ok(map[string]any{"expiration": until.UTC()})
+	case opGetSessionState:
+		state, err := c.b.GetSessionState(ref, sid, owner)
+		if err != nil {
+			return fail(statusFor(err), err)
+		}
+
+		var val any
+		if state != nil {
+			val = state
+		}
+
+		return ok(map[string]any{"session-state": val})
+	}
+
+	state, _ := body["session-state"].([]byte)
+	if len(state) > MaxSessionStateBytes {
+		return rpcResponse{status: rpcBadReq, desc: "session state is too large"}
+	}
+
+	if err := c.b.SetSessionState(ref, sid, owner, state); err != nil {
+		return fail(statusFor(err), err)
+	}
+
+	return ok(nil)
 }

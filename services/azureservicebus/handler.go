@@ -903,6 +903,10 @@ func (h *Handler) handleSendLevel(c *echo.Context, req parsedRequest) error {
 	}
 
 	if _, sendErr := h.Backend.Send(ref, newMsg); sendErr != nil {
+		if errors.Is(sendErr, ErrSessionIDRequired) {
+			return h.writeError(c, http.StatusBadRequest, "BadRequest", sendErr.Error())
+		}
+
 		return h.writeError(c, http.StatusInternalServerError, "InternalError", sendErr.Error())
 	}
 
@@ -1073,6 +1077,8 @@ func (h *Handler) writeEntityLookupError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrQueueNotFound), errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound):
 		return h.writeError(c, http.StatusNotFound, "NotFound", "The messaging entity could not be found.")
+	case errors.Is(err, ErrSessionRequired):
+		return h.writeError(c, http.StatusBadRequest, "BadRequest", err.Error())
 	default:
 		return h.writeError(c, http.StatusInternalServerError, "InternalError", err.Error())
 	}

@@ -178,6 +178,10 @@ func sweepMessageQueueLocked(mq *messageQueue, cfg EntityConfig, now time.Time) 
 		mq.reindexLive()
 	}
 
+	if mq.sweepSessionsLocked(now) {
+		notifyNeeded = true
+	}
+
 	if notifyNeeded {
 		mq.broadcastLocked()
 	}

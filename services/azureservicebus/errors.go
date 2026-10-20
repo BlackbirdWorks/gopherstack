@@ -17,6 +17,16 @@ var (
 	ErrInvalidEntityConfig  = errors.New("azureservicebus: invalid entity configuration")
 	ErrDeadLetterSource     = errors.New("azureservicebus: cannot dead-letter a dead-lettered message")
 
+	ErrSessionIDRequired = errors.New("the SessionId was not set on a message, and it cannot be sent to the entity. " +
+		"Entities that have session support enabled can only receive messages that have the SessionId set to a valid value")
+	ErrSessionRequired = errors.New("it is not possible for an entity that requires sessions " +
+		"to create a non-sessionful message receiver")
+	ErrNotSessionEntity = errors.New("it is not possible to create a session receiver " +
+		"on an entity that does not require sessions")
+	ErrSessionCannotBeLocked = errors.New("the requested session cannot be accepted: it is locked by another receiver")
+	ErrSessionLockLost       = errors.New("the session lock has expired or was lost")
+	ErrNoSessionAvailable    = errors.New("no session is available")
+
 	// ErrSnapshotNull* are returned by Restore when a snapshot map/slice holds
 	// a JSON null entry, which decodes to a nil pointer that would panic on
 	// first dereference if stored as-is. Mirrors services/azurequeue's

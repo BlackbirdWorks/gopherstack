@@ -52,17 +52,66 @@ func (s *session) attachSender(a *Attach) bool {
 	s.links[a.Handle] = l
 	s.mu.Unlock()
 
+	if d, ok := ep.(DeferredAttach); ok {
+		go l.openAsync(d, a)
+
+		return true
+	}
+
+	return l.open(a)
+}
+
+func (l *sendLink) open(a *Attach) bool {
 	reply := &Attach{
 		Name: a.Name, Handle: a.Handle, Role: false, SndSettleMode: a.SndSettleMode, RcvSettleMode: a.RcvSettleMode,
 		Source: a.Source, Target: a.Target, MaxMessageSize: 0,
 	}
-	if !s.send(reply) {
+
+	if r, ok := l.ep.(AttachReplier); ok {
+		r.ReplyAttach(reply)
+	}
+
+	if !l.s.send(reply) {
 		return false
 	}
 
 	go l.run()
 
 	return true
+}
+
+func (l *sendLink) openAsync(d DeferredAttach, a *Attach) {
+	e := d.Ready(l.ctx)
+	if l.ctx.Err() != nil {
+		l.ep.Close()
+
+		return
+	}
+
+	if e != nil {
+		l.s.mu.Lock()
+		delete(l.s.links, l.handle)
+		l.s.mu.Unlock()
+		l.cancel()
+		l.ep.Close()
+		l.s.refuse(a, e)
+
+		return
+	}
+
+	if !l.open(a) {
+		l.cancel()
+		l.ep.Close()
+	}
+}
+
+func (l *sendLink) abort(e *Error) {
+	l.s.mu.Lock()
+	delete(l.s.links, l.handle)
+	l.s.mu.Unlock()
+
+	l.s.send(&Detach{Handle: l.handle, Closed: true, Error: e})
+	l.cancel()
 }
 
 func (s *session) attachReceiver(a *Attach) bool {

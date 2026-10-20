@@ -3,7 +3,6 @@ package azureservicebus
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -81,12 +80,6 @@ func unsupportedFilter(src *amqp1.Source) bool {
 		return true
 	}
 
-	for k := range src.Filter {
-		if strings.Contains(strings.ToLower(amqpKey(k)), "session") {
-			return true
-		}
-	}
-
 	return false
 }
 
@@ -120,7 +113,7 @@ func (c *amqpConn) AttachSender(a *amqp1.Attach) (amqp1.SenderEndpoint, *amqp1.E
 	}
 
 	if unsupportedFilter(a.Source) {
-		return nil, &amqp1.Error{Condition: amqp1.CondNotImplemented, Description: "sessions are not supported"}
+		return nil, &amqp1.Error{Condition: amqp1.CondNotImplemented, Description: "dynamic sources are not supported"}
 	}
 
 	if !c.authorized() {
@@ -131,12 +124,21 @@ func (c *amqpConn) AttachSender(a *amqp1.Attach) (amqp1.SenderEndpoint, *amqp1.E
 		return nil, notFound(a.Source.Address)
 	}
 
-	return &entitySender{
-		b:        c.b,
-		ref:      addr.ref,
-		dlq:      addr.dlq,
-		peekLock: a.RcvSettleMode == amqp1.ReceiverSettleSecond,
-	}, nil
+	return c.attachEntitySender(a, addr)
+}
+
+func (c *amqpConn) attachEntitySender(a *amqp1.Attach, addr amqpAddr) (amqp1.SenderEndpoint, *amqp1.Error) {
+	peekLock := a.RcvSettleMode == amqp1.ReceiverSettleSecond
+
+	if sf, ok := sessionFilterOf(a.Source); ok {
+		return c.attachSessionSender(a, addr, sf, peekLock)
+	}
+
+	if req, _ := c.b.RequiresSession(addr.ref); req && !addr.dlq {
+		return nil, &amqp1.Error{Condition: amqp1.CondNotAllowed, Description: ErrSessionRequired.Error()}
+	}
+
+	return &entitySender{b: c.b, ref: addr.ref, dlq: addr.dlq, peekLock: peekLock}, nil
 }
 
 func (c *amqpConn) AttachReceiver(a *amqp1.Attach) (amqp1.ReceiverEndpoint, *amqp1.Error) {
@@ -187,11 +189,19 @@ func (r *entityReceiver) Deliver(_ context.Context, in *amqp1.Incoming) amqp1.De
 
 	for _, m := range msgs {
 		if _, serr := r.b.Send(r.ref, fromAMQP(m)); serr != nil {
-			return rejected(amqp1.CondNotFound, serr.Error())
+			return rejected(sendErrCondition(serr), serr.Error())
 		}
 	}
 
 	return amqp1.DeliveryState{Kind: amqp1.StateAccepted}
+}
+
+func sendErrCondition(err error) amqp1.Symbol {
+	if errors.Is(err, ErrSessionIDRequired) {
+		return amqp1.CondNotAllowed
+	}
+
+	return amqp1.CondNotFound
 }
 
 func rejected(cond amqp1.Symbol, desc string) amqp1.DeliveryState {

@@ -14,6 +14,10 @@ func (b *InMemoryBackend) Send(ref EntityRef, msg NewMessage) (MessageInfo, erro
 
 	now := b.now()
 
+	if err := b.checkSendLocked(ref, msg); err != nil {
+		return MessageInfo{}, err
+	}
+
 	if ref.IsQueue() {
 		q, ok := b.queues[ref.Queue]
 		if !ok {
@@ -236,6 +240,10 @@ func (b *InMemoryBackend) peekLockOnce(
 	mq, cfg, err := b.resolveEntityLocked(ref)
 	if err != nil {
 		return MessageInfo{}, nil, err
+	}
+
+	if cfg.RequiresSession && !deadLetter {
+		return MessageInfo{}, nil, ErrSessionRequired
 	}
 
 	if lockDuration <= 0 {

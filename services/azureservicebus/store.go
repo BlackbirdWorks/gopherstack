@@ -103,6 +103,7 @@ type messageQueue struct {
 	notify     chan struct{}
 	Messages   []*storedMessage
 	DeadLetter []*storedMessage
+	Sessions   map[string]*sessionRecord `json:"Sessions,omitempty"`
 	idx        mqIndex
 }
 

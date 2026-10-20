@@ -51,6 +51,27 @@ type SenderEndpoint interface {
 	Close()
 }
 
+// AttachReplier is implemented by a SenderEndpoint that amends the attach
+// reply (for example to report a negotiated source filter or link properties).
+type AttachReplier interface {
+	ReplyAttach(reply *Attach)
+}
+
+// DeferredAttach is implemented by a SenderEndpoint whose attach completes
+// asynchronously. Ready blocks (off the connection read loop) until the link
+// may open, or returns the error that refuses it; it must return when ctx is
+// done.
+type DeferredAttach interface {
+	Ready(ctx context.Context) *Error
+}
+
+// SettleGuard is implemented by a SenderEndpoint that can invalidate a
+// settlement; a non-nil error detaches the link with that error instead of
+// settling.
+type SettleGuard interface {
+	SettleError(o *Outgoing) *Error
+}
+
 // ReceiverEndpoint consumes messages sent by the peer.
 type ReceiverEndpoint interface {
 	// Deliver handles one message and returns the outcome to report.
@@ -70,4 +91,5 @@ const (
 	CondFrameSize       Symbol = "amqp:connection:framing-error"
 	CondDecode          Symbol = "amqp:decode-error"
 	CondIllegalState    Symbol = "amqp:illegal-state"
+	CondNotAllowed      Symbol = "amqp:not-allowed"
 )

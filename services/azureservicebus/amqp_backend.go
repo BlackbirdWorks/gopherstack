@@ -9,6 +9,7 @@ import (
 // StorageBackend.
 type AMQPBackend interface {
 	StorageBackend
+	SessionBackend
 	Defer(ref EntityRef, messageID, lockToken string) error
 	ReceiveDeferred(ref EntityRef, seqs []int64, lock bool) ([]MessageInfo, error)
 	RenewLock(ref EntityRef, lockToken string) (time.Time, error)

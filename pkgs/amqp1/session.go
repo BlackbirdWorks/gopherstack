@@ -194,6 +194,15 @@ func (s *session) onDisposition(d *Disposition) {
 }
 
 func (s *session) settleSent(id uint32, sd *sentDelivery, d *Disposition) {
+	if g, ok := sd.link.ep.(SettleGuard); ok {
+		if e := g.SettleError(sd.out); e != nil {
+			sd.link.ep.Release(sd.out)
+			sd.link.abort(e)
+
+			return
+		}
+	}
+
 	if d.State == nil || d.State.Kind == StateReceived {
 		sd.link.ep.Release(sd.out)
 	} else {

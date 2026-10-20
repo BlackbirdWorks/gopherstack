@@ -2,8 +2,8 @@
 // Service Bus's Brokered Messaging REST API: queue and topic/subscription
 // CRUD, and the full send/peek-lock/complete/abandon/dead-letter message
 // lifecycle over HTTP+SharedAccessSignature auth, plus an AMQP 1.0 plane
-// (pkgs/amqp1) over the same backend for the official SDKs. Sessions are not
-// implemented. See PARITY.md for scope and known gaps.
+// (pkgs/amqp1) over the same backend for the official SDKs, including sessions
+// over AMQP. See PARITY.md for scope and known gaps.
 package azureservicebus
 
 import (
@@ -30,6 +30,7 @@ type EntityConfig struct {
 	LockDuration      time.Duration
 	DefaultMessageTTL time.Duration
 	MaxDeliveryCount  int
+	RequiresSession   bool
 }
 
 func (c EntityConfig) lockDuration() time.Duration {
@@ -101,6 +102,7 @@ type QueueInfo struct {
 	LockDuration      time.Duration
 	DefaultMessageTTL time.Duration
 	MaxDeliveryCount  int
+	RequiresSession   bool
 
 	ActiveMessageCount     int
 	DeadLetterMessageCount int
@@ -121,6 +123,7 @@ type SubscriptionInfo struct {
 	Name             string
 	LockDuration     time.Duration
 	MaxDeliveryCount int
+	RequiresSession  bool
 
 	ActiveMessageCount     int
 	DeadLetterMessageCount int
