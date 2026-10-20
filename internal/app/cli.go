@@ -518,6 +518,7 @@ type CLI struct {
 	DNSResolveIP                  string                            `                                       name:"dns-resolve-ip"          env:"DNS_RESOLVE_IP"                      default:"127.0.0.1"     help:"IP address synthetic hostnames resolve to."`                                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
 	KafkaEngine                   string                            `                                       name:"kafka-engine"            env:"KAFKA_ENGINE"                        default:"stub"          help:"MSK engine mode: stub (metadata only) or docker (real Kafka broker per cluster)."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
 	FlinkEngine                   string                            `                                       name:"flink-engine"            env:"FLINK_ENGINE"                        default:"stub"          help:"Managed Flink engine mode: stub (state only) or docker (real Flink cluster and job per running application)."`                                                                                               //nolint:lll // config struct tags are intentionally verbose
+	MWAAEngine                    string                            `                                       name:"mwaa-engine"            env:"MWAA_ENGINE"                        default:"stub"          help:"MWAA engine mode: stub (state only) or docker (real Apache Airflow container per environment)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
 	MQEngine                      string                            `                                       name:"mq-engine"               env:"MQ_ENGINE"                           default:"stub"          help:"Amazon MQ engine mode: stub (metadata only) or docker (real RabbitMQ/ActiveMQ container per broker)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	EKSEngine                     string                            `                                       name:"eks-engine"              env:"EKS_ENGINE"                          default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
 	RDSEngine                     string                            `                                       name:"rds-engine"              env:"RDS_ENGINE"                          default:"stub"          help:"RDS engine mode: stub (metadata only) or docker (real database container)."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
@@ -1366,6 +1367,12 @@ func (c *CLI) GetFlinkEndpointURL() string {
 
 	return lambdaEndpointURL(c.Lambda.DockerHost, c.Port)
 }
+
+// GetMWAAEngine returns the MWAA engine mode (mwaa.EngineConfig).
+func (c *CLI) GetMWAAEngine() string { return c.engineMode("mwaa-engine", c.MWAAEngine) }
+
+// GetMWAAEndpointURL returns the gopherstack URL as seen from Airflow containers.
+func (c *CLI) GetMWAAEndpointURL() string { return c.GetFlinkEndpointURL() }
 
 // GetKafkaEngine returns the MSK engine mode (kafka.EngineConfig).
 func (c *CLI) GetKafkaEngine() string { return c.engineMode("kafka-engine", c.KafkaEngine) }

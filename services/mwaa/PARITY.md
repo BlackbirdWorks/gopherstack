@@ -35,10 +35,13 @@ families:
 persistence: {status: ok, note: "Snapshot/Restore round-trips verified unaffected by this pass's field/validation changes (NetworkConfiguration, status constants, WorkerReplacementStrategy removal all covered by existing + new tests); no persistence.go edits were needed since none of the fixed fields had bespoke DTO mapping"}
 gaps: []
 items_still_open:
+  - "docker engine: StartupScriptS3Path is stored but the script is not run in the container; MinWorkers/MaxWorkers/Schedulers/EnvironmentClass are ignored (airflow standalone, single process)."
+  - "docker engine: Airflow 3.x InvokeRestApi is proxied to /api/v2 without a JWT (2.x verified only); CLI commands are not restricted to MWAA's allowed set."
+  - "docker engine: the published webserver port (127.0.0.1) accepts anonymous Admin access (AUTH_ROLE_PUBLIC); the web login token is only checked by the emulator's /aws_mwaa/aws-console-sso redirect."
   - "CreateWebLoginToken populates IamIdentity from the caller ARN but not AirflowIdentity (UNVERIFIABLE): mwaa@v1.43.4 only says \"user name of the Apache Airflow identity\" with no IAM-to-Airflow mapping."
   - "MethodNotAllowedException (405) for verb mismatches is not in the MWAA model (UNVERIFIABLE): the real gateway response is not documented, and no conformant SDK client sends a wrong verb."
 structural_gaps:
-  - "InvokeRestApi always returns 200 with an empty RestApiResponse: no Apache Airflow webserver exists to execute the call, so there is no downstream status to map to RestApiStatusCode, RestApiClientException or RestApiServerException."
+  - "Without --mwaa-engine=docker (or no container runtime) InvokeRestApi always returns 200 with an empty RestApiResponse and CreateCliToken/CreateWebLoginToken return synthetic tokens: no Apache Airflow webserver exists. With the docker engine all three reach a real container; see the 2026-10-20 section."
 deferred:
   - Chaos/fault-injection interaction with this pass's status-constant and NetworkConfiguration-validation changes (not re-audited; ChaosOperations() surface is GetSupportedOperations() minus nothing new -- it shrank by one entry this pass since GetMetrics was removed, see Notes).
 leaks: {status: clean, note: "no goroutines by default; the opt-in transition delay uses time.AfterFunc timers that spawn nothing until they fire; leak_main_test.go still green"}
@@ -577,3 +580,15 @@ mwaa already isolates regions internally: environments are keyed per region. Pro
 ## 2026-10-05 (gopherstack-uox6 pass 9, value semantics)
 
 Round trips clean. Recorded, unchanged (SDK silent): UpdateEnvironment replaces LoggingConfiguration wholesale, so a module omitted from the update disappears from Describe; AWS-web-docs-only: Describe lists all five modules with Enabled=false.
+
+## 2026-10-20 (gopherstack-cefu7.62, real Airflow)
+
+`--mwaa-engine=docker` (`MWAA_ENGINE`, or `--engines=docker|auto`) runs one `apache/airflow:<AirflowVersion>` container per environment (`airflow standalone`, SQLite). Default stays state-only; without a container runtime the service logs a warning and keeps the old behaviour.
+
+- CreateEnvironment: CREATING until the webserver `/health` reports a healthy database and scheduler, then AVAILABLE (CREATE_FAILED on boot error). `WebserverUrl` is the published `127.0.0.1` port.
+- DAGs: `SourceBucketArn` + `DagS3Path` are mirrored from the emulated S3 into a bind-mounted dags dir on create, every 30s, and on UpdateEnvironment. `RequirementsS3Path` is `pip install`ed at boot, `PluginsS3Path` (zip) is extracted into plugins. `AirflowConfigurationOptions` become `AIRFLOW__SECTION__KEY`; the emulator endpoint and dummy credentials are injected for AWS operators.
+- UpdateEnvironment: UPDATING then AVAILABLE; DAG-only changes re-sync, version/options/requirements/plugins changes restart the container. DeleteEnvironment: DELETING until the container is removed.
+- CreateCliToken tokens are random, expire after 60s and are accepted by `POST /aws_mwaa/cli` (Bearer), which runs `airflow <body>` via exec and returns base64 `stdout`/`stderr`. `WebServerHostname` is the emulator host so that endpoint resolves.
+- CreateWebLoginToken tokens are accepted by `GET /aws_mwaa/aws-console-sso?login=true#<token>`, which redirects to the real webserver; the webserver itself runs with the public role set to Admin.
+- InvokeRestApi proxies Method/Path/QueryParameters/Body to `/api/v1` and returns the real status and JSON.
+- Restore relaunches containers for restored environments.

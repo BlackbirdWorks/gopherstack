@@ -128,6 +128,8 @@ type InMemoryBackend struct {
 	registry             *store.Registry
 	metrics              map[string]map[string][]MetricDatum
 	mu                   *lockmetrics.RWMutex
+	airflow              *airflowEngine
+	appConfig            any
 	region               string
 	accountID            string
 	transitionNanos      atomic.Int64
@@ -182,6 +184,10 @@ func (b *InMemoryBackend) metricsStoreRO(region string) map[string][]MetricDatum
 
 // Reset closes the current mutex and reinitialises all state.
 func (b *InMemoryBackend) Reset() {
+	if e := b.stopAirflowEnvs(); e != nil {
+		e.tokens.Clear()
+	}
+
 	b.mu.Close()
 	b.mu = lockmetrics.New("mwaa")
 	b.registry.ResetAll()
@@ -230,5 +236,5 @@ func (b *InMemoryBackend) findByARN(region, resourceARN string) *Environment {
 // The URL is stored as "https://hostname" (no trailing slash, no path), so this
 // strips the scheme prefix to match the AWS CLI/web-login token wire format.
 func webserverHostname(webserverURL string) string {
-	return strings.TrimPrefix(webserverURL, "https://")
+	return strings.TrimPrefix(strings.TrimPrefix(webserverURL, "https://"), "http://")
 }

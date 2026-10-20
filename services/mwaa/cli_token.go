@@ -20,5 +20,9 @@ func (b *InMemoryBackend) CreateCliToken(ctx context.Context, envName string) (s
 		return "", "", ErrEnvironmentNotFound
 	}
 
+	if tok, managed := b.airflowTokenLocked(regionKey(region, envName), envName, tokenKindCLI); managed {
+		return tok, webserverHostname(env.WebserverURL), nil
+	}
+
 	return generateMWAAToken(envName, "cli"), webserverHostname(env.WebserverURL), nil
 }

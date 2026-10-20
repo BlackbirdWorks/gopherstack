@@ -9,13 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 12 (10 ok, 2 partial) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 2 |
+| Known gaps | 5 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- docker engine: StartupScriptS3Path is stored but the script is not run in the container; MinWorkers/MaxWorkers/Schedulers/EnvironmentClass are ignored (airflow standalone, single process).
+- docker engine: Airflow 3.x InvokeRestApi is proxied to /api/v2 without a JWT (2.x verified only); CLI commands are not restricted to MWAA's allowed set.
+- docker engine: the published webserver port (127.0.0.1) accepts anonymous Admin access (AUTH_ROLE_PUBLIC); the web login token is only checked by the emulator's /aws_mwaa/aws-console-sso redirect.
 - CreateWebLoginToken populates IamIdentity from the caller ARN but not AirflowIdentity (UNVERIFIABLE): mwaa@v1.43.4 only says "user name of the Apache Airflow identity" with no IAM-to-Airflow mapping.
 - MethodNotAllowedException (405) for verb mismatches is not in the MWAA model (UNVERIFIABLE): the real gateway response is not documented, and no conformant SDK client sends a wrong verb.
 
@@ -23,7 +26,7 @@
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- InvokeRestApi always returns 200 with an empty RestApiResponse: no Apache Airflow webserver exists to execute the call, so there is no downstream status to map to RestApiStatusCode, RestApiClientException or RestApiServerException.
+- Without --mwaa-engine=docker (or no container runtime) InvokeRestApi always returns 200 with an empty RestApiResponse and CreateCliToken/CreateWebLoginToken return synthetic tokens: no Apache Airflow webserver exists. With the docker engine all three reach a real container; see the 2026-10-20 section.
 
 ### Deferred
 

@@ -36,7 +36,7 @@ func (h *Handler) handleCreateWebLoginToken(c *echo.Context, name string) error 
 
 	out := map[string]string{
 		"WebToken":          token,
-		"WebServerHostname": hostname,
+		"WebServerHostname": h.webHostname(c, hostname),
 	}
 	if id := iamIdentity(awsmeta.CallerArn(c.Request().Context())); id != "" {
 		out["IamIdentity"] = id

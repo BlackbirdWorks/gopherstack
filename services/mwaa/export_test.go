@@ -1,5 +1,10 @@
 package mwaa
 
+import (
+	"encoding/json"
+	"testing"
+)
+
 // EnvironmentCount returns the total number of environments in the backend across
 // all regions.
 func EnvironmentCount(b *InMemoryBackend) int {
@@ -51,4 +56,21 @@ func ARNIndexSize(b *InMemoryBackend) int {
 // HandlerOpsLen returns the number of operations returned by GetSupportedOperations.
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
+}
+
+// NewInvokeRequest builds an InvokeRestApi request with no body.
+func NewInvokeRequest(method, path string) *invokeRestAPIRequest {
+	return &invokeRestAPIRequest{Method: method, Path: path}
+}
+
+// ResponseJSON renders the REST response document as JSON.
+func ResponseJSON(t *testing.T, r *InvokeRestAPIResponse) string {
+	t.Helper()
+
+	raw, err := json.Marshal(r.RestAPIResponse)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return string(raw)
 }

@@ -199,6 +199,7 @@ func (b *InMemoryBackend) restoreResourceTables(tables map[string]json.RawMessag
 	}
 
 	b.environments.Restore(items)
+	b.reconcileAirflowLocked()
 
 	return nil
 }

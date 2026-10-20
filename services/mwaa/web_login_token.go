@@ -20,5 +20,9 @@ func (b *InMemoryBackend) CreateWebLoginToken(ctx context.Context, envName strin
 		return "", "", ErrEnvironmentNotFound
 	}
 
+	if tok, managed := b.airflowTokenLocked(regionKey(region, envName), envName, tokenKindWeb); managed {
+		return tok, webserverHostname(env.WebserverURL), nil
+	}
+
 	return generateMWAAToken(envName, "web"), webserverHostname(env.WebserverURL), nil
 }

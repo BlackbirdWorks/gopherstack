@@ -47,7 +47,10 @@ func (b *InMemoryBackend) CreateEnvironment(
 	env.region = region
 
 	b.environments.Put(env)
-	b.settleEnvironment(regionKey(region, name), envStatusCreating)
+
+	if !b.launchAirflowLocked(env, nil) {
+		b.settleEnvironment(regionKey(region, name), envStatusCreating)
+	}
 
 	return env, nil
 }
@@ -231,7 +234,7 @@ func (b *InMemoryBackend) GetEnvironment(ctx context.Context, name string) (*Env
 	}
 
 	cp := cloneEnvironment(env)
-	if !b.timedTransitions() {
+	if !b.timedTransitions() && !b.airflowManagedLocked(regionKey(region, name)) {
 		promoteTransientStatus(env)
 	}
 
@@ -262,6 +265,12 @@ func (b *InMemoryBackend) DeleteEnvironment(ctx context.Context, name string) (*
 	env, ok := b.environments.Get(regionKey(region, name))
 	if !ok {
 		return nil, envNotFound(name)
+	}
+
+	if ae := b.airflowEnvLocked(regionKey(region, name)); ae != nil {
+		b.deleteAirflowEnvLocked(env, ae)
+
+		return cloneEnvironment(env), nil
 	}
 
 	if b.timedTransitions() {
@@ -342,8 +351,10 @@ func (b *InMemoryBackend) UpdateEnvironment(
 		env.LoggingConfiguration = convertLoggingConfiguration(req.LoggingConfiguration)
 	}
 
+	key := regionKey(region, name)
 	lastStatus := lastUpdateSuccess
-	if b.timedTransitions() {
+
+	if b.timedTransitions() || b.airflowManagedLocked(key) {
 		lastStatus = lastUpdatePending
 	}
 
@@ -357,7 +368,10 @@ func (b *InMemoryBackend) UpdateEnvironment(
 	// Reflect the AWS lifecycle: UpdateEnvironment puts the env into UPDATING,
 	// then it returns to AVAILABLE on the next observation.
 	env.Status = envStatusUpdating
-	b.settleEnvironment(regionKey(region, name), envStatusUpdating)
+
+	if !b.updateAirflowLocked(env, req) {
+		b.settleEnvironment(key, envStatusUpdating)
+	}
 
 	return env, nil
 }
