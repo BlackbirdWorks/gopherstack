@@ -18,7 +18,7 @@
 
 - StopApplication without Force: API_StopApplication says a snapshot is taken on stop, but neither it nor the SDK documents the snapshot's name or whether snapshots must be enabled, so none is invented.
 - Zeppelin Glue/S3 and other ARN fields are not cross-service validated: no doc says which fields AWS existence-checks at call time.
-- DeleteApplication is synchronous (ApplicationStatusDeleting unused) and Start/Stop are instantaneous: API_DeleteApplication/StartApplication/StopApplication document no transition windows or durations.
+- DeleteApplication is synchronous (ApplicationStatusDeleting unused); without the docker Flink engine Start/Stop are instantaneous (API docs give no durations). With it, savepoints and ZIPFILE code live only in process memory/temp dirs: after a restart running apps relaunch fresh and snapshots cannot be restored from. No container runtime -> applications stay state-only (logged, not a stub: no job ever claims to run).
 
 ### Structural gaps
 
