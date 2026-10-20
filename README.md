@@ -702,7 +702,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [ARC Zonal Shift](services/arczonalshift/README.md) | A | 15 | 1 structural gap |
 | [App Mesh](services/appmesh/README.md) | A | 38 | 1 structural gap |
 | [Cloud Map](services/servicediscovery/README.md) | A | 30 | 4 structural gaps; 1 deferred |
-| [CloudFront](services/cloudfront/README.md) | A | 60 | 2 gaps; 4 structural gaps; 4 deferred |
+| [CloudFront](services/cloudfront/README.md) | A | 60 | 3 gaps; 4 structural gaps; 4 deferred |
 | [CloudWatch Network Monitor](services/networkmonitor/README.md) | A | 12 | 1 deferred |
 | [ELB (Classic)](services/elb/README.md) | A | 29 | 1 gap; 1 deferred |
 | [ELBv2](services/elbv2/README.md) | A | 51 | 2 gaps; 2 structural gaps; 2 deferred |
@@ -904,7 +904,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Amp](services/amp/README.md) | B | 44 | 11 gaps; 2 structural gaps |
 | [AppStream 2.0](services/appstream/README.md) | A | 44 | 5 structural gaps |
 | [Appintegrations](services/appintegrations/README.md) | B | 23 | 4 gaps; 1 structural gap |
-| [Azurearm](services/azurearm/README.md) | B | 16 | 8 gaps; 3 deferred |
+| [Azurearm](services/azurearm/README.md) | B | 17 | 8 gaps; 3 deferred |
 | [Azurestoragevhost](services/azurestoragevhost/README.md) | B | 2 | 2 gaps; 1 deferred |
 | [Bcmdataexports](services/bcmdataexports/README.md) | B | 12 | 6 gaps |
 | [Bedrockagentcorecontrol](services/bedrockagentcorecontrol/README.md) | B | 171 | 13 gaps; 2 structural gaps |
