@@ -68,21 +68,22 @@ func planFor(c *Cluster) brokerPlan {
 	}
 
 	p.tls = p.tls || (auth != nil && auth.TLS != nil && auth.TLS.Enabled)
-	p.applyMutualTLS(auth)
 
-	return p
+	return p.withMutualTLS(auth)
 }
 
-// applyMutualTLS requires client certificates on the TLS listener when TLS authentication names CAs;
+// withMutualTLS requires client certificates on the TLS listener when TLS authentication names CAs;
 // an enabled unauthenticated mode keeps the certificate optional, as MSK does.
-func (p *brokerPlan) applyMutualTLS(auth *ClientAuthentication) {
+func (p brokerPlan) withMutualTLS(auth *ClientAuthentication) brokerPlan {
 	if auth == nil || auth.TLS == nil || !auth.TLS.Enabled || len(auth.TLS.CertificateAuthorityArnList) == 0 {
-		return
+		return p
 	}
 
 	p.mtls = true
 	p.caArns = slices.Clone(auth.TLS.CertificateAuthorityArnList)
 	p.mtlsOptional = auth.Unauthenticated != nil && auth.Unauthenticated.Enabled
+
+	return p
 }
 
 func (p brokerPlan) clientAuthMode() string {

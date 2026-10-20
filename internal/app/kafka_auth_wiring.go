@@ -57,31 +57,8 @@ func (s kafkaScramSource) ResolveScramSecret(ctx context.Context, secretArn stri
 // wireKafkaAuth connects MSK client authentication to Secrets Manager (SASL/SCRAM), IAM and STS (AWS_MSK_IAM)
 // and serves the broker CA at kafkaCAPath.
 func wireKafkaAuth(e *echo.Echo, services []service.Registerable, enforceIAM bool) {
-	var (
-		kafkaH *kafka.Handler
-		iamH   *iambackend.Handler
-		stsH   *stsbackend.Handler
-		smH    *secretsmanagerbackend.Handler
-		kcH    *kafkaconnect.Handler
-		pcaH   *acmpcabackend.Handler
-	)
-
-	for _, svc := range services {
-		switch h := svc.(type) {
-		case *kafka.Handler:
-			kafkaH = h
-		case *iambackend.Handler:
-			iamH = h
-		case *stsbackend.Handler:
-			stsH = h
-		case *secretsmanagerbackend.Handler:
-			smH = h
-		case *kafkaconnect.Handler:
-			kcH = h
-		case *acmpcabackend.Handler:
-			pcaH = h
-		}
-	}
+	hs := collectKafkaAuthHandlers(services)
+	kafkaH, iamH, stsH, smH, kcH, pcaH := hs.kafka, hs.iam, hs.sts, hs.sm, hs.kc, hs.pca
 
 	if kafkaH == nil {
 		return
@@ -122,6 +99,38 @@ func wireKafkaAuth(e *echo.Echo, services []service.Registerable, enforceIAM boo
 
 		return c.Blob(http.StatusOK, "application/x-pem-file", pem)
 	})
+}
+
+type kafkaAuthHandlers struct {
+	kafka *kafka.Handler
+	iam   *iambackend.Handler
+	sts   *stsbackend.Handler
+	sm    *secretsmanagerbackend.Handler
+	kc    *kafkaconnect.Handler
+	pca   *acmpcabackend.Handler
+}
+
+func collectKafkaAuthHandlers(services []service.Registerable) kafkaAuthHandlers {
+	var hs kafkaAuthHandlers
+
+	for _, svc := range services {
+		switch h := svc.(type) {
+		case *kafka.Handler:
+			hs.kafka = h
+		case *iambackend.Handler:
+			hs.iam = h
+		case *stsbackend.Handler:
+			hs.sts = h
+		case *secretsmanagerbackend.Handler:
+			hs.sm = h
+		case *kafkaconnect.Handler:
+			hs.kc = h
+		case *acmpcabackend.Handler:
+			hs.pca = h
+		}
+	}
+
+	return hs
 }
 
 func kafkaIAMAuthConfig(iamH *iambackend.Handler, stsH *stsbackend.Handler, enforceIAM bool) kafka.IAMAuthConfig {
