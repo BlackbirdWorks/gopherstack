@@ -325,6 +325,8 @@ func (b *InMemoryBackend) Abandon(ref EntityRef, deadLetter bool, messageID, loc
 
 	if !deadLetter && msg.DeliveryCount >= cfg.maxDeliveryCount() {
 		mq.removeAt(false, idx)
+		msg.DeadLetterReason = ReasonMaxDeliveryCountExceeded
+		msg.DeadLetterErrorDescription = descMaxDeliveryCountExceeded
 		mq.DeadLetter = append(mq.DeadLetter, msg)
 	}
 

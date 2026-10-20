@@ -3244,6 +3244,8 @@
       "storedMessage.ContentType string",
       "storedMessage.CorrelationID string",
       "storedMessage.CustomHeaders map[string]string",
+      "storedMessage.DeadLetterErrorDescription string",
+      "storedMessage.DeadLetterReason string",
       "storedMessage.DeliveryCount int64",
       "storedMessage.EnqueuedTime time.Time",
       "storedMessage.ExpiresAt time.Time",

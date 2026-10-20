@@ -93,5 +93,8 @@ func queueInfoLocked(q *storedQueue) QueueInfo {
 		LockDuration:      q.Config.lockDuration(),
 		MaxDeliveryCount:  int(q.Config.maxDeliveryCount()),
 		DefaultMessageTTL: q.Config.defaultMessageTTL(),
+
+		ActiveMessageCount:     len(q.Messages),
+		DeadLetterMessageCount: len(q.DeadLetter),
 	}
 }

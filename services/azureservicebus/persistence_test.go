@@ -116,3 +116,33 @@ func TestHandler_SnapshotRestore(t *testing.T) {
 	require.NoError(t, other.Restore(t.Context(), snap))
 	assert.True(t, other.Backend.QueueExists("q"))
 }
+
+func TestInMemoryBackend_SnapshotRestoreDeadLetter(t *testing.T) {
+	t.Parallel()
+
+	b := azureservicebus.NewInMemoryBackend()
+	ref := azureservicebus.EntityRef{Queue: "q"}
+	_, err := b.CreateQueue("q")
+	require.NoError(t, err)
+
+	_, err = b.Send(ref, azureservicebus.NewMessage{Body: []byte("m"), CustomHeaders: map[string]string{"K": "v"}})
+	require.NoError(t, err)
+
+	locked, err := b.PeekLock(ref, false, time.Minute)
+	require.NoError(t, err)
+	require.NoError(t, b.DeadLetter(ref, locked.MessageID, locked.LockToken, "why", "desc"))
+
+	restored := azureservicebus.NewInMemoryBackend()
+	require.NoError(t, restored.Restore(t.Context(), b.Snapshot(t.Context())))
+
+	dl, err := restored.Peek(ref, true, 0, 5)
+	require.NoError(t, err)
+	require.Len(t, dl, 1)
+	assert.Equal(t, "why", dl[0].DeadLetterReason)
+	assert.Equal(t, "desc", dl[0].DeadLetterErrorDescription)
+	assert.Equal(t, "v", dl[0].CustomHeaders["K"])
+
+	next, err := restored.Send(ref, azureservicebus.NewMessage{})
+	require.NoError(t, err)
+	assert.Greater(t, next.SequenceNumber, dl[0].SequenceNumber)
+}

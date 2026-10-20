@@ -102,6 +102,9 @@ type QueueInfo struct {
 	LockDuration      time.Duration
 	DefaultMessageTTL time.Duration
 	MaxDeliveryCount  int
+
+	ActiveMessageCount     int
+	DeadLetterMessageCount int
 }
 
 // TopicInfo is the read-only metadata snapshot returned by GetTopicInfo/
@@ -119,6 +122,9 @@ type SubscriptionInfo struct {
 	Name             string
 	LockDuration     time.Duration
 	MaxDeliveryCount int
+
+	ActiveMessageCount     int
+	DeadLetterMessageCount int
 }
 
 // EntityRef identifies a brokered-messaging entity that can hold messages:
@@ -153,19 +159,21 @@ type NewMessage struct {
 // by Send/PeekLock. LockToken/LockedUntil are populated only for a
 // peek-locked read; Send returns them zero.
 type MessageInfo struct {
-	EnqueuedTime   time.Time
-	LockedUntil    time.Time
-	CustomHeaders  map[string]string
-	ContentType    string
-	Label          string
-	CorrelationID  string
-	MessageID      string
-	ReplyTo        string
-	SessionID      string
-	LockToken      string
-	Body           []byte
-	SequenceNumber int64
-	DeliveryCount  int64
+	EnqueuedTime               time.Time
+	LockedUntil                time.Time
+	CustomHeaders              map[string]string
+	MessageID                  string
+	Label                      string
+	CorrelationID              string
+	ContentType                string
+	ReplyTo                    string
+	SessionID                  string
+	LockToken                  string
+	DeadLetterReason           string
+	DeadLetterErrorDescription string
+	Body                       []byte
+	SequenceNumber             int64
+	DeliveryCount              int64
 }
 
 // StorageBackend defines the interface for an Azure Service Bus backend.
@@ -253,6 +261,18 @@ type StorageBackend interface {
 	// configured MaxDeliveryCount (see EntityConfig) it is moved to the
 	// dead-letter sub-queue instead.
 	Abandon(ref EntityRef, deadLetter bool, messageID, lockToken string) error
+
+	// Peek returns up to maxCount non-expired messages with SequenceNumber >=
+	// fromSeq, oldest first, without locking them or touching DeliveryCount.
+	Peek(ref EntityRef, deadLetter bool, fromSeq int64, maxCount int) ([]MessageInfo, error)
+
+	// ReceiveAndDelete removes and returns the oldest visible message
+	// (ErrMessageNotFound if none).
+	ReceiveAndDelete(ref EntityRef, deadLetter bool) (MessageInfo, error)
+
+	// DeadLetter moves a locked live message to the dead-letter sub-queue,
+	// recording reason and description.
+	DeadLetter(ref EntityRef, messageID, lockToken, reason, description string) error
 
 	// Reset clears all in-memory state. Used by the
 	// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.

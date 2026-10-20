@@ -15,6 +15,7 @@ var (
 	ErrMessageNotLocked     = errors.New("azureservicebus: message is not locked")
 	ErrInvalidEntityRef     = errors.New("azureservicebus: invalid entity reference")
 	ErrInvalidEntityConfig  = errors.New("azureservicebus: invalid entity configuration")
+	ErrDeadLetterSource     = errors.New("azureservicebus: cannot dead-letter a dead-lettered message")
 
 	// ErrSnapshotNull* are returned by Restore when a snapshot map/slice holds
 	// a JSON null entry, which decodes to a nil pointer that would panic on

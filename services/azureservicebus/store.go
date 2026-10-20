@@ -37,20 +37,22 @@ const (
 // subscription's delivery/lock/dead-letter state evolves independently, the
 // same way real Service Bus subscriptions behave.
 type storedMessage struct {
-	EnqueuedTime   time.Time
-	LockedUntil    time.Time // zero value = not locked
-	ExpiresAt      time.Time
-	CustomHeaders  map[string]string
-	ContentType    string
-	Label          string
-	CorrelationID  string
-	MessageID      string
-	ReplyTo        string
-	SessionID      string
-	LockToken      string
-	Body           []byte
-	SequenceNumber int64
-	DeliveryCount  int64
+	EnqueuedTime               time.Time
+	LockedUntil                time.Time
+	ExpiresAt                  time.Time
+	CustomHeaders              map[string]string
+	ReplyTo                    string
+	Label                      string
+	CorrelationID              string
+	MessageID                  string
+	ContentType                string
+	SessionID                  string
+	LockToken                  string
+	DeadLetterReason           string
+	DeadLetterErrorDescription string
+	Body                       []byte
+	SequenceNumber             int64
+	DeliveryCount              int64
 }
 
 func (m *storedMessage) isExpired(now time.Time) bool { return !now.Before(m.ExpiresAt) }
@@ -71,6 +73,9 @@ func (m *storedMessage) info() MessageInfo {
 		LockToken:      m.LockToken,
 		LockedUntil:    m.LockedUntil,
 		CustomHeaders:  m.CustomHeaders,
+
+		DeadLetterReason:           m.DeadLetterReason,
+		DeadLetterErrorDescription: m.DeadLetterErrorDescription,
 	}
 }
 

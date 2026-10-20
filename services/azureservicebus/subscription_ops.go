@@ -99,5 +99,8 @@ func subscriptionInfoLocked(sub *storedSubscription) SubscriptionInfo {
 		CreatedAt:        sub.CreatedAt,
 		LockDuration:     sub.Config.lockDuration(),
 		MaxDeliveryCount: int(sub.Config.maxDeliveryCount()),
+
+		ActiveMessageCount:     len(sub.Messages),
+		DeadLetterMessageCount: len(sub.DeadLetter),
 	}
 }
