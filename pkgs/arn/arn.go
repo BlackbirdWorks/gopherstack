@@ -16,13 +16,13 @@ import (
 func PartitionForRegion(region string) string {
 	switch {
 	case strings.HasPrefix(region, "us-gov-"):
-		return "aws-us-gov"
+		return partitionGov
 	case strings.HasPrefix(region, "cn-"):
-		return "aws-cn"
+		return partitionCN
 	case strings.HasPrefix(region, "us-iso-"):
-		return "aws-iso"
+		return partitionISO
 	case strings.HasPrefix(region, "us-isob-"):
-		return "aws-iso-b"
+		return partitionISOB
 	default:
 		return partitionAWS
 	}

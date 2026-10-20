@@ -324,10 +324,10 @@ func extractVirtualHostedResourceARN(r *http.Request, path string) string {
 	}
 
 	if path == "" {
-		return "arn:aws:s3:::" + vhBucket
+		return arn.S3("", vhBucket)
 	}
 
-	return "arn:aws:s3:::" + vhBucket + "/" + path
+	return arn.S3("", vhBucket+"/"+path)
 }
 
 func extractPathBasedResourceARN(path, region, accountID string) string {
@@ -405,5 +405,5 @@ func extractSQSResourceARN(path, region, accountID string) string {
 
 // extractS3ResourceARN builds an S3 ARN from a path-style S3 URL path.
 func extractS3ResourceARN(path string) string {
-	return "arn:aws:s3:::" + path
+	return arn.S3("", path)
 }

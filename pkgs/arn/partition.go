@@ -11,11 +11,19 @@ var ErrPartitionMismatch = errors.New("ARN partition does not match the request 
 
 const arnPrefix = "arn:"
 
-const partitionAWS = "aws"
+const (
+	partitionAWS  = "aws"
+	partitionCN   = "aws-cn"
+	partitionGov  = "aws-us-gov"
+	partitionISO  = "aws-iso"
+	partitionISOB = "aws-iso-b"
+	partitionISOE = "aws-iso-e"
+	partitionISOF = "aws-iso-f"
+)
 
 func knownPartition(p string) bool {
 	switch p {
-	case partitionAWS, "aws-cn", "aws-us-gov", "aws-iso", "aws-iso-b", "aws-iso-e", "aws-iso-f":
+	case partitionAWS, partitionCN, partitionGov, partitionISO, partitionISOB, partitionISOE, partitionISOF:
 		return true
 	default:
 		return false

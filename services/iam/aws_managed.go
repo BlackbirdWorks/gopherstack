@@ -64,7 +64,7 @@ func parseAWSManagedCatalog(raw []byte) (*awsManagedCatalog, error) {
 			return nil, fmt.Errorf("iam: AWS managed policy %q document: %w", e.Name, err)
 		}
 
-		arn := awsManagedPolicyPrefix + strings.TrimPrefix(e.Path, "/") + e.Name
+		arn := awsManagedPolicyPrefix() + strings.TrimPrefix(e.Path, "/") + e.Name
 		if e.PolicyID == "" {
 			e.PolicyID = deriveAWSManagedPolicyID(arn)
 		}
@@ -96,7 +96,7 @@ func deriveAWSManagedPolicyID(arn string) string {
 }
 
 func isAWSManagedPolicyARN(policyArn string) bool {
-	return strings.HasPrefix(policyArn, awsManagedPolicyPrefix)
+	return strings.HasPrefix(policyArn, awsManagedPolicyPrefix())
 }
 
 // awsManagedPolicyLocked returns the catalog policy for policyArn with its live AttachmentCount.

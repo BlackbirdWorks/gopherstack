@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
@@ -199,6 +200,8 @@ func (h *Handler) dispatch(ctx context.Context, r *http.Request) (any, error) {
 		return nil, fmt.Errorf("parse form: %w", err)
 	}
 
+	canonicalizeForm(r, requestPartition(ctx))
+
 	action := r.FormValue("Action")
 	if action == "" {
 		return nil, ErrMissingAction
@@ -352,7 +355,9 @@ func writeXMLResponse(c *echo.Context, code int, payload any) error {
 		return err
 	}
 
-	return c.Blob(code, "text/xml; charset=utf-8", body)
+	localized := arn.Localize(string(body), requestPartition(c.Request().Context()))
+
+	return c.Blob(code, "text/xml; charset=utf-8", []byte(localized))
 }
 
 // parseFormValues parses URL-encoded form bytes into a simple key→value map.
@@ -469,4 +474,26 @@ func (h *Handler) getCallerIdentity(r *http.Request) (*GetCallerIdentityResponse
 	}
 
 	return h.Backend.GetCallerIdentity(accessKey, token)
+}
+
+// requestPartition is the ARN partition of the request's signing region. The backend stores every ARN in the
+// commercial partition; the handler rewrites ARNs at the request and response boundary.
+func requestPartition(ctx context.Context) string {
+	return arn.PartitionForRegion(awsmeta.Region(ctx))
+}
+
+func canonicalizeForm(r *http.Request, partition string) {
+	if partition == awsmeta.DefaultPartition {
+		return
+	}
+
+	for _, form := range []url.Values{r.Form, r.PostForm} {
+		for k, vs := range form {
+			for i, v := range vs {
+				vs[i] = arn.Canonical(v)
+			}
+
+			form[k] = vs
+		}
+	}
 }

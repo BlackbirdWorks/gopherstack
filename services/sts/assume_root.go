@@ -17,11 +17,11 @@ const rootSessionName = "root"
 // approvedRootTaskPolicies returns the AWS-approved task policy ARNs for AssumeRoot (Gap #7).
 func approvedRootTaskPolicies() []string {
 	return []string{
-		"arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials",
-		"arn:aws:iam::aws:policy/root-task/IAMCreateRootUserPassword",
-		"arn:aws:iam::aws:policy/root-task/IAMDeleteRootUserCredentials",
-		"arn:aws:iam::aws:policy/root-task/S3UnlockBucketPolicy",
-		"arn:aws:iam::aws:policy/root-task/SQSUnlockQueuePolicy",
+		arn.Build("iam", "", "aws", "policy/root-task/IAMAuditRootUserCredentials"),
+		arn.Build("iam", "", "aws", "policy/root-task/IAMCreateRootUserPassword"),
+		arn.Build("iam", "", "aws", "policy/root-task/IAMDeleteRootUserCredentials"),
+		arn.Build("iam", "", "aws", "policy/root-task/S3UnlockBucketPolicy"),
+		arn.Build("iam", "", "aws", "policy/root-task/SQSUnlockQueuePolicy"),
 	}
 }
 

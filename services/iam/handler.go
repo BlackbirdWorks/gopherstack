@@ -16,6 +16,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -493,6 +495,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.writeError(c, http.StatusBadRequest, "MissingAction", "missing Action parameter")
 		}
 
+		partition := requestPartition(ctx)
+		canonicalizeARNs(vals, partition)
+
 		log.DebugContext(ctx, "IAM request", "action", action)
 
 		response, reqErr := h.forRequest(ctx).dispatch(ctx, action, vals)
@@ -509,7 +514,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.writeError(c, http.StatusInternalServerError, "ServiceFailure", "internal server error")
 		}
 
-		return c.Blob(http.StatusOK, "text/xml", xmlBytes)
+		return c.Blob(http.StatusOK, "text/xml", []byte(arn.Localize(string(xmlBytes), partition)))
 	}
 }
 
@@ -690,7 +695,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		log.WarnContext(ctx, "IAM request error", "error", reqErr, "action", action)
 	}
 
-	return h.writeError(c, statusCode, code, errorMessage(reqErr))
+	return h.writeError(c, statusCode, code, arn.Localize(errorMessage(reqErr), requestPartition(ctx)))
 }
 
 // writeError writes an IAM XML error response.
@@ -1053,4 +1058,24 @@ func (h *Handler) iamComprehensiveDispatchTable() map[string]iamActionFn {
 	maps.Copy(combined, h.iamVirtualMFAFullDispatch())
 
 	return combined
+}
+
+// requestPartition is the ARN partition of the request's signing region. The backend stores every ARN in the
+// commercial partition; the handler rewrites ARNs at the request and response boundary.
+func requestPartition(ctx context.Context) string {
+	return arn.PartitionForRegion(awsmeta.Region(ctx))
+}
+
+func canonicalizeARNs(vals url.Values, partition string) {
+	if partition == awsmeta.DefaultPartition {
+		return
+	}
+
+	for k, vs := range vals {
+		for i, v := range vs {
+			vs[i] = arn.Canonical(v)
+		}
+
+		vals[k] = vs
+	}
 }

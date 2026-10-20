@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
@@ -439,9 +440,9 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 	}
 
 	resourceARN := extractResourceARN(r, accountID, region)
-	resourceDocs := collectResourcePolicies(ctx, cfg.ResourceProviders, resourceARN)
+	resourceDocs := canonicalDocs(collectResourcePolicies(ctx, cfg.ResourceProviders, resourceARN))
 
-	matchResource := resourceARN
+	matchResource := arn.Canonical(resourceARN)
 	if matchResource == "" {
 		matchResource = "*"
 	}
@@ -790,4 +791,14 @@ func writeAccessDenied(c *echo.Context, action, resource string) error {
 	}
 
 	return writeQueryXMLAccessDenied(c, action)
+}
+
+// canonicalDocs rewrites non-commercial ARN partitions to the form the evaluator matches against.
+func canonicalDocs(docs []string) []string {
+	out := make([]string, len(docs))
+	for i, d := range docs {
+		out[i] = arn.Canonical(d)
+	}
+
+	return out
 }

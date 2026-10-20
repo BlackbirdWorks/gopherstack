@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
@@ -49,11 +50,12 @@ func (h *S3Handler) notificationDestinationsAllowed(bucket string, body []byte) 
 		dests = append(dests, l.CloudFunc)
 	}
 
-	source := "arn:aws:s3:::" + bucket
+	source := arn.S3("", bucket)
 
 	for _, dest := range dests {
 		action, ok := roleauth.ResourcePolicyAction(dest)
-		if ok && roleauth.AuthorizeResource(auth, roleauth.PrincipalS3, action, dest, source) != nil {
+		src := arn.Localize(source, arn.Partition(dest))
+		if ok && roleauth.AuthorizeResource(auth, roleauth.PrincipalS3, action, dest, src) != nil {
 			return false
 		}
 	}

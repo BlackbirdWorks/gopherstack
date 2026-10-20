@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // Data-plane access control. This file evaluates the stored bucket policy + ACL
@@ -107,7 +109,7 @@ func (h *S3Handler) evaluateBucketPolicy(
 	}
 
 	var doc bucketPolicyDocument
-	if uErr := json.Unmarshal([]byte(policyJSON), &doc); uErr != nil {
+	if uErr := json.Unmarshal([]byte(arn.Canonical(policyJSON)), &doc); uErr != nil {
 		return effectDefault
 	}
 
@@ -143,10 +145,10 @@ func (h *S3Handler) evaluateBucketPolicy(
 // address the bucket itself; object actions address bucket/key.
 func objectResourceARN(bucket, key string, action s3Action) string {
 	if action == actionListBucket {
-		return "arn:aws:s3:::" + bucket
+		return arn.S3("", bucket)
 	}
 
-	return "arn:aws:s3:::" + bucket + "/" + key
+	return arn.S3("", bucket+"/"+key)
 }
 
 // bucketPolicyDocument is the subset of an IAM/bucket policy we evaluate.

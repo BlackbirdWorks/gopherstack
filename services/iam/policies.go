@@ -896,8 +896,8 @@ func (b *InMemoryBackend) ListPolicyVersions(policyArn string) ([]StoredPolicyVe
 	return append(versions, storedVersions...), nil
 }
 
-// awsManagedPolicyPrefix is the ARN prefix of AWS managed policies (seeded in aws_managed.go).
-const awsManagedPolicyPrefix = "arn:aws:iam::aws:policy/"
+// awsManagedPolicyPrefix returns the ARN prefix of AWS managed policies (seeded in aws_managed.go).
+func awsManagedPolicyPrefix() string { return arn.Build("iam", "", "aws", "policy/") }
 
 func (b *InMemoryBackend) requireBoundaryLocked(policyArn string) error {
 	if policyArn == "" {

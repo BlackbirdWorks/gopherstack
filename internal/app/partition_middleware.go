@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -14,9 +13,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
-
-// envPartitionStrict set to "false" disables cross-partition ARN rejection.
-const envPartitionStrict = "GOPHERSTACK_PARTITION_STRICT"
 
 const (
 	svcSQS = "sqs"
@@ -28,7 +24,7 @@ const maxPartitionScanBody = 1 << 20
 // partitionStrictMiddleware rejects signed requests that reference an ARN from a partition other than the one
 // the signing region belongs to, as AWS does. Requests with no foreign ARN are unaffected.
 func partitionStrictMiddleware() echo.MiddlewareFunc {
-	enabled := !strings.EqualFold(os.Getenv(envPartitionStrict), "false")
+	enabled := arn.PartitionStrict()
 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -57,15 +53,14 @@ func isSigV4Request(r *http.Request) bool {
 
 func foreignPartitionARN(r *http.Request, region, service string) (string, bool) {
 	partition := arn.PartitionForRegion(region)
-	tolerant := partition != "aws"
 
-	if bad, ok := arn.FindMismatch(r.URL.Path, partition, tolerant); ok {
+	if bad, ok := arn.FindMismatch(r.URL.Path, partition, false); ok {
 		return bad, true
 	}
 
 	for _, vs := range r.URL.Query() {
 		for _, v := range vs {
-			if bad, ok := arn.FindMismatch(v, partition, tolerant); ok {
+			if bad, ok := arn.FindMismatch(v, partition, false); ok {
 				return bad, true
 			}
 		}
@@ -77,7 +72,7 @@ func foreignPartitionARN(r *http.Request, region, service string) (string, bool)
 		}
 
 		for _, v := range vs {
-			if bad, ok := arn.FindMismatch(v, partition, tolerant); ok {
+			if bad, ok := arn.FindMismatch(v, partition, false); ok {
 				return bad, true
 			}
 		}
@@ -87,7 +82,7 @@ func foreignPartitionARN(r *http.Request, region, service string) (string, bool)
 		return "", false
 	}
 
-	return scanBody(r, partition, tolerant)
+	return scanBody(r, partition)
 }
 
 func scannableBody(r *http.Request, service string) bool {
@@ -104,7 +99,7 @@ func scannableBody(r *http.Request, service string) bool {
 	return strings.Contains(ct, "json") || strings.Contains(ct, "xml") || strings.Contains(ct, "x-www-form-urlencoded")
 }
 
-func scanBody(r *http.Request, partition string, tolerant bool) (string, bool) {
+func scanBody(r *http.Request, partition string) (string, bool) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxPartitionScanBody+1))
 	_ = r.Body.Close()
 	r.Body = io.NopCloser(bytes.NewReader(body))
@@ -120,7 +115,7 @@ func scanBody(r *http.Request, partition string, tolerant bool) (string, bool) {
 		}
 	}
 
-	return arn.FindMismatch(text, partition, tolerant)
+	return arn.FindMismatch(text, partition, false)
 }
 
 func flattenValues(vals url.Values) string {
