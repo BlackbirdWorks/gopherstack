@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| Feature families | 10 (10 ok) |
+| Feature families | 11 (11 ok) |
 | Known gaps | none |
 | Structural gaps (can't be emulated) | 10 |
 | Deferred items | 0 |

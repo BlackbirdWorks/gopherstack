@@ -262,6 +262,7 @@ func TestIsAWSHost(t *testing.T) {
 		{"bkt.s3.amazonaws.com:443", true},
 		{"ec2.cn-north-1.amazonaws.com.cn", true},
 		{"s3.us-east-1.api.aws", true},
+		{"abc123.lambda-url.us-east-1.on.aws", true},
 		{"amazonaws.com.evil.example", false},
 		{"localhost:4566", false},
 	}

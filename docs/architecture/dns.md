@@ -138,7 +138,7 @@ sudo gopherstack --transparent-dns --transparent-ca-dir ~/.gopherstack/ca
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--transparent-dns` | off | Resolve `*.amazonaws.com`, `*.amazonaws.com.cn`, `*.api.aws` to `--dns-resolve-ip`; forward every other name upstream. Listens on `--dns-addr` (default `:53`). |
+| `--transparent-dns` | off | Resolve `*.amazonaws.com`, `*.amazonaws.com.cn`, `*.api.aws`, `*.on.aws` (Lambda function URLs) to `--dns-resolve-ip`; forward every other name upstream. Listens on `--dns-addr` (default `:53`). |
 | `--transparent-https-addr` | `:443` | HTTPS listener for those names; certificates are issued per SNI from the CA. |
 | `--transparent-http-addr` | off | Optional plain-HTTP listener (e.g. `:80`) so `http://s3.amazonaws.com` URLs work without TLS; a bind failure logs a warning and startup continues. |
 | `--transparent-dns-skip` | none | Names/zones that still resolve upstream (e.g. `sts.amazonaws.com` for real credentials). |

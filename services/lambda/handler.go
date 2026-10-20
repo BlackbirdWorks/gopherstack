@@ -179,7 +179,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 		target := c.Request().Header.Get("X-Amz-Target")
 
-		return isLambdaPath(path) || strings.HasPrefix(target, "AWSLambda")
+		return isLambdaPath(path) || strings.HasPrefix(target, "AWSLambda") ||
+			IsFunctionURLHost(c.Request().Host)
 	}
 }
 
@@ -194,6 +195,10 @@ func (h *Handler) MatchPriority() int { return service.PriorityHeaderPartial }
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	path := c.Request().URL.Path
 	method := c.Request().Method
+
+	if IsFunctionURLHost(c.Request().Host) {
+		return opInvokeFunctionURL
+	}
 
 	// Identify layer operations first (different path prefix).
 	if after, ok := strings.CutPrefix(path, lambdaLayersPathPrefix); ok {
@@ -592,6 +597,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
 
+		if handled := h.serveFunctionURLHost(c); handled {
+			return nil
+		}
+
 		if p := h.peers.Get(awsmeta.Region(ctx)); p != nil {
 			return p.Handler()(c)
 		}
@@ -660,4 +669,27 @@ func (h *Handler) checkRevisionID(c *echo.Context, currentRevisionID string, pro
 			"and try again.")
 
 	return false
+}
+
+const opInvokeFunctionURL = "InvokeFunctionUrl"
+
+// serveFunctionURLHost serves a request whose Host is a function URL host, using
+// the region backend named in the host.
+func (h *Handler) serveFunctionURLHost(c *echo.Context) bool {
+	_, region, ok := parseFunctionURLHost(c.Request().Host)
+	if !ok {
+		return false
+	}
+
+	target := h
+	if p := h.peers.Get(region); p != nil {
+		target = p
+	}
+
+	bk, isMem := target.Backend.(*InMemoryBackend)
+	if !isMem {
+		return false
+	}
+
+	return bk.ServeFunctionURLHost(c.Response(), c.Request())
 }

@@ -47,6 +47,10 @@ func (h *Handler) handleCreateFunctionURLConfig(c *echo.Context, name string) er
 				"Function not found: "+name)
 		}
 
+		if errors.Is(createErr, ErrInvalidParameterValue) {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", createErr.Error())
+		}
+
 		if errors.Is(createErr, ErrFunctionAlreadyExists) {
 			return h.writeError(c, http.StatusConflict, "ResourceConflictException",
 				"Function URL config already exists for: "+name)
@@ -178,6 +182,10 @@ func (h *Handler) handleUpdateFunctionURLConfig(c *echo.Context, name string) er
 		name, c.QueryParam("Qualifier"), input.AuthType, input.Cors, input.InvokeMode,
 	)
 	if updateErr != nil {
+		if errors.Is(updateErr, ErrInvalidParameterValue) {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", updateErr.Error())
+		}
+
 		if errors.Is(updateErr, ErrFunctionURLNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 				"Function URL config not found: "+name)

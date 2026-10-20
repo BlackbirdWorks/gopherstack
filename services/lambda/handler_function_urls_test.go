@@ -183,7 +183,7 @@ func TestFunctionUrl_HTTP_ForwardsToLambda(t *testing.T) {
 			cfg, createErr := bk.CreateFunctionURLConfig(t.Context(), tt.funcName, "NONE", nil, "")
 			require.NoError(t, createErr)
 			assert.NotEmpty(t, cfg.FunctionURL)
-			assert.Contains(t, cfg.FunctionURL, "http://")
+			assert.Contains(t, cfg.FunctionURL, ".lambda-url.us-east-1.on.aws/")
 		})
 	}
 }
