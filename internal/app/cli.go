@@ -510,6 +510,7 @@ type CLI struct {
 	localstackInit                *localstackInitState
 	EngineSwitch                  EngineSettings                    `embed:""`
 	ServiceFilter                 ServiceFilterSettings             `embed:""`
+	PersistModes                  PersistModeSettings               `embed:""`
 	CORS                          CORSSettings                      `embed:"" prefix:"cors-"`
 	Network                       NetworkSettings                   `embed:""`
 	Region                        string                            `                                       name:"region"                  env:"REGION"                              default:"us-east-1"     help:"AWS region (also read from AWS_DEFAULT_REGION and AWS_REGION)."`                                                                                                                                             //nolint:lll // config struct tags are intentionally verbose
@@ -2403,14 +2404,12 @@ func run(ctx context.Context, cli CLI) error {
 	defer janitorCancel() // also passed to shutdownBackends so janitors stop before backends are torn down
 
 	// --- Persistence ---
-	persistManager, err := initPersistenceManager(ctx, &cli)
+	persistManager, persistRT, err := initPersistence(ctx, &cli)
 	if err != nil {
 		return err
 	}
 
-	if cli.Persist {
-		defer persistManager.SaveAll(ctx)
-	}
+	defer persistRT.stop(ctx)
 
 	appCtx := &service.AppContext{
 		Logger:         log,
@@ -14549,27 +14548,6 @@ type recoveredPanicError struct {
 
 func (e recoveredPanicError) Error() string {
 	return fmt.Sprintf("panic: %v", e.val)
-}
-
-// persistenceMiddleware returns an Echo middleware that schedules a debounced snapshot
-// after each mutating request.
-func persistenceMiddleware(
-	m *persistence.Manager,
-	services []service.Registerable,
-) echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c *echo.Context) error {
-			handlerErr := next(c)
-
-			if isMutatingMethod(c.Request().Method) {
-				if svcName := extractServiceName(c, services); svcName != "" {
-					m.Notify(svcName)
-				}
-			}
-
-			return handlerErr
-		}
-	}
 }
 
 // isMutatingMethod reports whether the HTTP method is a state-mutating method.
