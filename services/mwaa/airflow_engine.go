@@ -109,6 +109,8 @@ type airflowEnv struct {
 	containerID string
 	base        string
 	stageDir    string
+	version     string
+	adminPass   string
 	port        int
 }
 
@@ -125,7 +127,9 @@ func (b *InMemoryBackend) EnableAirflow(cfg AirflowConfig) {
 	cfg = withAirflowDefaults(cfg)
 
 	if cfg.HTTP == nil {
-		cfg.HTTP = httpclient.New(airflowHTTPTimeout)
+		hc := httpclient.New(airflowHTTPTimeout)
+		hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		cfg.HTTP = hc
 	}
 
 	if cfg.Objects == nil {

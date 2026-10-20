@@ -35,9 +35,8 @@ families:
 persistence: {status: ok, note: "Snapshot/Restore round-trips verified unaffected by this pass's field/validation changes (NetworkConfiguration, status constants, WorkerReplacementStrategy removal all covered by existing + new tests); no persistence.go edits were needed since none of the fixed fields had bespoke DTO mapping"}
 gaps: []
 items_still_open:
-  - "docker engine: StartupScriptS3Path is stored but the script is not run in the container; MinWorkers/MaxWorkers/Schedulers/EnvironmentClass are ignored (airflow standalone, single process)."
-  - "docker engine: Airflow 3.x InvokeRestApi is proxied to /api/v2 without a JWT (2.x verified only); CLI commands are not restricted to MWAA's allowed set."
-  - "docker engine: the published webserver port (127.0.0.1) accepts anonymous Admin access (AUTH_ROLE_PUBLIC); the web login token is only checked by the emulator's /aws_mwaa/aws-console-sso redirect."
+  - "docker engine: startup-script output stays in container logs (CloudWatch Logs is not modelled by MWAA); MinWorkers/MaxWorkers/Schedulers/EnvironmentClass are ignored (airflow standalone, single process)."
+  - "docker engine: Airflow 3.x auth (JWT REST, simple auth manager login) is implemented but verified only against a fake; 2.10.3 verified in docker."
   - "CreateWebLoginToken populates IamIdentity from the caller ARN but not AirflowIdentity (UNVERIFIABLE): mwaa@v1.43.4 only says \"user name of the Apache Airflow identity\" with no IAM-to-Airflow mapping."
   - "MethodNotAllowedException (405) for verb mismatches is not in the MWAA model (UNVERIFIABLE): the real gateway response is not documented, and no conformant SDK client sends a wrong verb."
 structural_gaps:

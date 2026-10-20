@@ -28,7 +28,7 @@ func (b *InMemoryBackend) InvokeRestAPI(
 	envName string,
 	req *invokeRestAPIRequest,
 ) (*InvokeRestAPIResponse, error) {
-	e, base, version, err := b.restTarget(ctx, envName)
+	e, target, err := b.restTarget(ctx, envName)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +38,7 @@ func (b *InMemoryBackend) InvokeRestAPI(
 	}
 
 	if e != nil {
-		return e.proxyRest(ctx, base, version, req)
+		return e.proxyRest(ctx, target, req)
 	}
 
 	return &InvokeRestAPIResponse{
@@ -48,7 +48,7 @@ func (b *InMemoryBackend) InvokeRestAPI(
 }
 
 // restTarget checks the environment is AVAILABLE; the engine is non-nil when a real Airflow serves it.
-func (b *InMemoryBackend) restTarget(ctx context.Context, envName string) (*airflowEngine, string, string, error) {
+func (b *InMemoryBackend) restTarget(ctx context.Context, envName string) (*airflowEngine, airflowTarget, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("InvokeRestAPI")
@@ -56,15 +56,15 @@ func (b *InMemoryBackend) restTarget(ctx context.Context, envName string) (*airf
 
 	env, ok := b.environments.Get(regionKey(region, envName))
 	if !ok || env.Status != envStatusAvailable {
-		return nil, "", "", ErrEnvironmentNotFound
+		return nil, airflowTarget{}, ErrEnvironmentNotFound
 	}
 
-	e, base, version, managed := b.restTargetLocked(regionKey(region, envName))
+	e, target, managed := b.restTargetLocked(regionKey(region, envName))
 	if !managed {
-		return nil, "", "", nil
+		return nil, airflowTarget{}, nil
 	}
 
-	return e, base, version, nil
+	return e, target, nil
 }
 
 func validateInvokeRequest(req *invokeRestAPIRequest) error {

@@ -19,11 +19,9 @@ const (
 	lastUpdateFailed = "FAILED"
 	airflowHome      = "/opt/airflow"
 	mwaaMountDir     = "/mwaa"
+	airflowStateDir  = "/mwaa-state"
 	webserverConfig  = "from flask_appbuilder.const import AUTH_DB\n" +
-		"AUTH_TYPE = AUTH_DB\n" +
-		"AUTH_ROLE_PUBLIC = \"Admin\"\n"
-	startScript = "[ -s " + mwaaMountDir + "/requirements.txt ] && " +
-		"pip install --no-cache-dir -r " + mwaaMountDir + "/requirements.txt; exec airflow standalone"
+		"AUTH_TYPE = AUTH_DB\n"
 )
 
 // airflowLaunch is the immutable input one container launch needs, copied under the backend lock.
@@ -39,6 +37,9 @@ type airflowLaunch struct {
 	reqVersion     string
 	pluginsPath    string
 	pluginsVersion string
+	startupPath    string
+	startupVersion string
+	adminPass      string
 }
 
 func newAirflowLaunch(env *Environment) airflowLaunch {
@@ -56,6 +57,8 @@ func newAirflowLaunch(env *Environment) airflowLaunch {
 		reqVersion:     env.RequirementsS3ObjectVersion,
 		pluginsPath:    env.PluginsS3Path,
 		pluginsVersion: env.PluginsS3ObjectVersion,
+		startupPath:    env.StartupScriptS3Path,
+		startupVersion: env.StartupScriptS3ObjectVersion,
 		options:        opts,
 	}
 }
@@ -69,8 +72,11 @@ func (b *InMemoryBackend) launchAirflowLocked(env *Environment, prior *airflowEn
 	}
 
 	in := newAirflowLaunch(env)
+	in.adminPass = newAdminPassword()
 	ctx, cancel := context.WithCancel(context.Background())
-	ae := &airflowEnv{ctx: ctx, cancel: cancel, done: make(chan struct{})}
+	ae := &airflowEnv{
+		ctx: ctx, cancel: cancel, done: make(chan struct{}), version: env.AirflowVersion, adminPass: in.adminPass,
+	}
 	e.envs[in.key] = ae
 
 	e.wg.Go(func() {
@@ -139,6 +145,10 @@ func (b *InMemoryBackend) bootAirflow(e *airflowEngine, ae *airflowEnv, in airfl
 	b.mu.Unlock()
 
 	return pollUntil(ctx, e.cfg.PollInterval, func(c context.Context) (bool, error) {
+		if ferr := containerExitError(dir); ferr != nil {
+			return false, ferr
+		}
+
 		return e.healthy(c, ae.base), nil
 	})
 }
@@ -250,13 +260,16 @@ func (e *airflowEngine) spec(in airflowLaunch, stageDir string, port int) contai
 	return container.Spec{
 		Image: e.image(in),
 		Env:   e.envVars(in),
-		Cmd:   []string{"bash", "-c", startScript},
+		Cmd:   []string{"bash", "-c", startScript(in.version)},
 		Ports: []string{bind + strconv.Itoa(port) + ":" + airflowWebPort},
 		Mounts: []string{
 			filepath.Join(stageDir, "dags") + ":" + airflowHome + "/dags",
 			filepath.Join(stageDir, "plugins") + ":" + airflowHome + "/plugins",
 			filepath.Join(stageDir, "webserver_config.py") + ":" + airflowHome + "/webserver_config.py:ro",
 			filepath.Join(stageDir, "requirements.txt") + ":" + mwaaMountDir + "/requirements.txt:ro",
+			filepath.Join(stageDir, "startup.sh") + ":" + mwaaMountDir + "/startup.sh:ro",
+			filepath.Join(stageDir, "state") + ":" + airflowStateDir,
+			filepath.Join(stageDir, "simple_auth_passwords.json") + ":" + airflowHome + "/simple_auth_passwords.json",
 		},
 	}
 }
@@ -265,8 +278,6 @@ func (e *airflowEngine) spec(in airflowLaunch, stageDir string, port int) contai
 func (e *airflowEngine) envVars(in airflowLaunch) []string {
 	vars := map[string]string{
 		"AIRFLOW__CORE__LOAD_EXAMPLES":                  "False",
-		"AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS": "True",
-		"AIRFLOW__API__AUTH_BACKENDS":                   "airflow.api.auth.backend.default",
 		"AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL":     "5",
 		"AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL": "5",
 		"AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL":      "5",
@@ -274,7 +285,10 @@ func (e *airflowEngine) envVars(in airflowLaunch) []string {
 		"AWS_DEFAULT_REGION":    in.region,
 		"AWS_ACCESS_KEY_ID":     airflowDefaultKey,
 		"AWS_SECRET_ACCESS_KEY": airflowDefaultKey,
+		"MWAA_ADMIN_PASSWORD":   in.adminPass,
 	}
+
+	maps.Copy(vars, authEnv(in.version))
 
 	if e.cfg.EndpointURL != "" {
 		vars["AWS_ENDPOINT_URL"] = e.cfg.EndpointURL
@@ -294,6 +308,19 @@ func (e *airflowEngine) envVars(in airflowLaunch) []string {
 	sort.Strings(out)
 
 	return out
+}
+
+func authEnv(version string) map[string]string {
+	if isAirflowV3(version) {
+		return map[string]string{
+			"AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS":          airflowAdminUser + ":admin",
+			"AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE": airflowHome + "/simple_auth_passwords.json",
+		}
+	}
+
+	return map[string]string{
+		"AIRFLOW__API__AUTH_BACKENDS": "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session",
+	}
 }
 
 // airflowOptionEnv maps "core.dag_concurrency" to AIRFLOW__CORE__DAG_CONCURRENCY.
@@ -372,5 +399,5 @@ func (b *InMemoryBackend) updateAirflowLocked(env *Environment, req *updateEnvir
 
 func needsAirflowRestart(req *updateEnvironmentRequest) bool {
 	return req.AirflowVersion != "" || req.AirflowConfigurationOptions != nil ||
-		req.RequirementsS3Path != "" || req.PluginsS3Path != ""
+		req.RequirementsS3Path != "" || req.PluginsS3Path != "" || req.StartupScriptS3Path != ""
 }

@@ -28,6 +28,7 @@ import (
 const healthyBody = `{"metadatabase":{"status":"healthy"},"scheduler":{"status":"healthy"}}`
 
 type fakeRuntime struct {
+	onStart func(container.Spec)
 	execs   map[string]container.ExecResult
 	started []container.Spec
 	removed []string
@@ -40,6 +41,10 @@ func (r *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (st
 	defer r.mu.Unlock()
 
 	r.started = append(r.started, spec)
+
+	if r.onStart != nil {
+		r.onStart(spec)
+	}
 
 	return "ctr-" + string(rune('a'+len(r.started)-1)), nil
 }
@@ -77,15 +82,22 @@ func (r *fakeRuntime) removedIDs() []string {
 }
 
 type fakeAirflowHTTP struct {
-	lastURL string
-	healthy atomic.Bool
-	mu      sync.Mutex
+	lastURL  string
+	lastAuth string
+	lastForm string
+	healthy  atomic.Bool
+	mu       sync.Mutex
 }
 
 func (f *fakeAirflowHTTP) Do(req *http.Request) (*http.Response, error) {
 	f.mu.Lock()
 	f.lastURL = req.Method + " " + req.URL.Path + "?" + req.URL.RawQuery
+	f.lastAuth = req.Header.Get("Authorization")
 	f.mu.Unlock()
+
+	if req.URL.Path == "/login/" {
+		return f.login(req), nil
+	}
 
 	switch {
 	case req.URL.Path == "/health" && !f.healthy.Load():
@@ -97,6 +109,35 @@ func (f *fakeAirflowHTTP) Do(req *http.Request) (*http.Response, error) {
 	}
 
 	return fakeResponse(http.StatusNotFound, ""), nil
+}
+
+func (f *fakeAirflowHTTP) login(req *http.Request) *http.Response {
+	if req.Method == http.MethodGet {
+		resp := fakeResponse(http.StatusOK,
+			`<form><input id="csrf_token" name="csrf_token" type="hidden" value="csrf-123"></form>`)
+		resp.Header.Add("Set-Cookie", "session=anon; Path=/")
+
+		return resp
+	}
+
+	raw, _ := io.ReadAll(req.Body)
+
+	f.mu.Lock()
+	f.lastForm = string(raw) + "|" + req.Header.Get("Cookie")
+	f.mu.Unlock()
+
+	resp := fakeResponse(http.StatusFound, "")
+	resp.Header.Set("Location", "/")
+	resp.Header.Add("Set-Cookie", "session=authed; Path=/; HttpOnly")
+
+	return resp
+}
+
+func (f *fakeAirflowHTTP) lastLogin() (string, string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.lastAuth, f.lastForm
 }
 
 func (f *fakeAirflowHTTP) last() string {
@@ -112,7 +153,15 @@ func fakeResponse(code int, body string) *http.Response {
 
 type fakeObjects struct {
 	files map[string]string
+	gets  []string
 	mu    sync.Mutex
+}
+
+func (o *fakeObjects) fetched() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	return append([]string(nil), o.gets...)
 }
 
 func (o *fakeObjects) set(key, val string) {
@@ -137,9 +186,11 @@ func (o *fakeObjects) List(_ context.Context, _, prefix string) ([]string, error
 	return keys, nil
 }
 
-func (o *fakeObjects) Get(_ context.Context, _, key, _ string) ([]byte, error) {
+func (o *fakeObjects) Get(_ context.Context, _, key, version string) ([]byte, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+
+	o.gets = append(o.gets, key+"@"+version)
 
 	return []byte(o.files[key]), nil
 }
@@ -223,6 +274,17 @@ func (r *airflowRig) createAvailable(t *testing.T, name string) {
 	assert.Equal(t, "CREATING", r.status(t, name))
 	r.ht.healthy.Store(true)
 	r.waitStatus(t, name, "AVAILABLE")
+}
+
+func rawRequestHost(t *testing.T, rig *airflowRig, host, path string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Host = host
+	rec := httptest.NewRecorder()
+	require.NoError(t, rig.h.Handler()(echo.New().NewContext(req, rec)))
+
+	return rec
 }
 
 func rawRequest(
@@ -413,6 +475,7 @@ func TestAirflowEngine_WebLoginAndRest(t *testing.T) {
 	redirect := rawRequest(t, rig.h, http.MethodGet, ssoPath, "", nil)
 	assert.Equal(t, http.StatusFound, redirect.Code)
 	assert.Equal(t, env.WebserverURL, redirect.Header().Get("Location"))
+	assert.Contains(t, redirect.Header().Get("Set-Cookie"), "session=authed")
 
 	denied := rawRequest(t, rig.h, http.MethodGet, "/aws_mwaa/aws-console-sso?login=true&token=bad", "", nil)
 	assert.Equal(t, http.StatusForbidden, denied.Code)

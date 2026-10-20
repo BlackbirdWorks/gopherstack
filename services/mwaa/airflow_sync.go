@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -188,9 +189,24 @@ func (e *airflowEngine) stageStatic(ctx context.Context, dir string, in airflowL
 		return err
 	}
 
+	startup, err := e.singleObject(ctx, in, in.startupPath, in.startupVersion)
+	if err != nil {
+		return fmt.Errorf("startup script: %w", err)
+	}
+
+	if err = os.MkdirAll(filepath.Join(dir, "state"), airflowDirMode); err != nil {
+		return fmt.Errorf("create state dir: %w", err)
+	}
+
+	_ = os.Chmod(filepath.Join(dir, "state"), airflowDirMode)
+
+	passwords, _ := json.Marshal(map[string]string{airflowAdminUser: in.adminPass})
+
 	for name, data := range map[string][]byte{
-		"requirements.txt":    reqs,
-		"webserver_config.py": []byte(webserverConfig),
+		"requirements.txt":           reqs,
+		"startup.sh":                 startup,
+		"webserver_config.py":        []byte(webserverConfig),
+		"simple_auth_passwords.json": passwords,
 	} {
 		if err = writeFileAtomic(filepath.Join(dir, name), data); err != nil {
 			return err

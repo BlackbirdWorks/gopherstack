@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -22,7 +24,7 @@ const (
 type airflowBackend interface {
 	AirflowEnabled() bool
 	ExecCLI(ctx context.Context, token, command string) (string, string, error)
-	WebLoginTarget(token string) (string, error)
+	WebLogin(ctx context.Context, token string) (*WebSession, error)
 }
 
 // Shutdown stops every Airflow container the backend started.
@@ -114,12 +116,45 @@ func (h *Handler) handleAirflowSSO(c *echo.Context) error {
 		return c.HTML(http.StatusOK, ssoPage)
 	}
 
-	target, err := ab.WebLoginTarget(token)
+	sess, err := ab.WebLogin(c.Request().Context(), token)
 	if err != nil {
 		return writeAirflowError(c, err)
 	}
 
-	return c.Redirect(http.StatusFound, target)
+	for _, ck := range sess.Cookies {
+		ck.Path, ck.HttpOnly, ck.SameSite = "/", true, http.SameSiteLaxMode
+		http.SetCookie(c.Response(), ck)
+	}
+
+	return c.Redirect(http.StatusFound, browserTarget(sess.Target, c.Request().Host))
+}
+
+// browserTarget points the browser at the webserver using the hostname it reached gopherstack with, so the
+// host-scoped session cookie applies; non-loopback hostnames keep the webserver's own address.
+func browserTarget(target, reqHost string) string {
+	host, _, err := net.SplitHostPort(reqHost)
+	if err != nil {
+		host = reqHost
+	}
+
+	if host != "localhost" && !isLoopbackIP(host) {
+		return target
+	}
+
+	u, err := url.Parse(target)
+	if err != nil {
+		return target
+	}
+
+	u.Host = net.JoinHostPort(strings.Trim(host, "[]"), u.Port())
+
+	return u.String()
+}
+
+func isLoopbackIP(host string) bool {
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+
+	return ip != nil && ip.IsLoopback()
 }
 
 // webHostname returns the host clients should use for /aws_mwaa/* calls when Airflow runs in a container.

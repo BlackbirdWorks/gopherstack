@@ -45,8 +45,42 @@ func (e *airflowEngine) healthy(ctx context.Context, base string) bool {
 	return false
 }
 
-// do performs one Airflow HTTP call; a JSON body is decoded into out when set, the raw bytes are returned.
+type airflowResponse struct {
+	header  http.Header
+	cookies []*http.Cookie
+	body    []byte
+	status  int
+}
+
+// do performs one unauthenticated Airflow HTTP call; a JSON body is decoded into out when set.
 func (e *airflowEngine) do(ctx context.Context, method, target string, body []byte, out any) (int, []byte, error) {
+	var hdr http.Header
+	if body != nil {
+		hdr = http.Header{headerContentType: {"application/json"}}
+	}
+
+	return e.doWith(ctx, method, target, body, hdr, out)
+}
+
+func (e *airflowEngine) doWith(
+	ctx context.Context, method, target string, body []byte, hdr http.Header, out any,
+) (int, []byte, error) {
+	res, err := e.request(ctx, method, target, body, hdr)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	if out != nil && len(res.body) > 0 {
+		_ = json.Unmarshal(res.body, out)
+	}
+
+	return res.status, res.body, nil
+}
+
+// request performs one Airflow HTTP call without following redirects.
+func (e *airflowEngine) request(
+	ctx context.Context, method, target string, body []byte, hdr http.Header,
+) (*airflowResponse, error) {
 	var rd io.Reader
 	if body != nil {
 		rd = bytes.NewReader(body)
@@ -54,30 +88,28 @@ func (e *airflowEngine) do(ctx context.Context, method, target string, body []by
 
 	req, err := http.NewRequestWithContext(ctx, method, target, rd)
 	if err != nil {
-		return 0, nil, fmt.Errorf("build airflow request: %w", err)
+		return nil, fmt.Errorf("build airflow request: %w", err)
 	}
 
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	for k, vs := range hdr {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
 	}
 
 	resp, err := e.cfg.HTTP.Do(req)
 	if err != nil {
-		return 0, nil, fmt.Errorf("airflow %s %s: %w", method, target, err)
+		return nil, fmt.Errorf("airflow %s %s: %w", method, target, err)
 	}
 
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, airflowMaxBody))
 	if err != nil {
-		return 0, nil, fmt.Errorf("read airflow response: %w", err)
+		return nil, fmt.Errorf("read airflow response: %w", err)
 	}
 
-	if out != nil && len(raw) > 0 {
-		_ = json.Unmarshal(raw, out)
-	}
-
-	return resp.StatusCode, raw, nil
+	return &airflowResponse{status: resp.StatusCode, header: resp.Header, cookies: resp.Cookies(), body: raw}, nil
 }
 
 // newToken issues a short-lived opaque JWT-shaped token bound to one environment.
@@ -143,6 +175,10 @@ func (b *InMemoryBackend) ExecCLI(ctx context.Context, token, command string) (s
 		return "", "", fmt.Errorf("%w: empty airflow command", ErrInvalidParameter)
 	}
 
+	if err := checkCLICommand(args); err != nil {
+		return "", "", err
+	}
+
 	e, ae, err := b.resolveToken(token, tokenKindCLI)
 	if err != nil {
 		return "", "", err
@@ -158,19 +194,6 @@ func (b *InMemoryBackend) ExecCLI(ctx context.Context, token, command string) (s
 	}
 
 	return res.Stdout, res.Stderr, nil
-}
-
-// WebLoginTarget validates a web login token and returns the environment's real webserver URL.
-func (b *InMemoryBackend) WebLoginTarget(token string) (string, error) {
-	_, ae, err := b.resolveToken(token, tokenKindWeb)
-	if err != nil {
-		return "", err
-	}
-
-	b.mu.RLock("WebLoginTarget")
-	defer b.mu.RUnlock()
-
-	return ae.base, nil
 }
 
 // splitCommand splits a command line on whitespace, honouring single and double quotes.
@@ -217,30 +240,33 @@ func (c *cmdSplitter) flush() {
 	}
 }
 
-// restTargetLocked returns the engine, webserver base URL and Airflow version of an AVAILABLE container-backed env.
-func (b *InMemoryBackend) restTargetLocked(key string) (*airflowEngine, string, string, bool) {
+// restTargetLocked returns the engine and webserver target of an AVAILABLE container-backed env.
+func (b *InMemoryBackend) restTargetLocked(key string) (*airflowEngine, airflowTarget, bool) {
 	if !b.airflowManagedLocked(key) {
-		return nil, "", "", false
+		return nil, airflowTarget{}, false
 	}
 
 	env, ok := b.environments.Get(key)
 	if !ok {
-		return nil, "", "", false
+		return nil, airflowTarget{}, false
 	}
 
-	return b.airflow, b.airflow.envs[key].base, env.AirflowVersion, true
+	t := b.airflow.envs[key].target()
+	t.version = env.AirflowVersion
+
+	return b.airflow, t, true
 }
 
 // proxyRest forwards an InvokeRestApi call to the Airflow REST API.
 func (e *airflowEngine) proxyRest(
-	ctx context.Context, base, version string, req *invokeRestAPIRequest,
+	ctx context.Context, t airflowTarget, req *invokeRestAPIRequest,
 ) (*InvokeRestAPIResponse, error) {
 	apiRoot := "/api/v1"
-	if strings.HasPrefix(version, "3.") {
+	if isAirflowV3(t.version) {
 		apiRoot = "/api/v2"
 	}
 
-	target := base + apiRoot + "/" + strings.TrimLeft(req.Path, "/")
+	target := t.base + apiRoot + "/" + strings.TrimLeft(req.Path, "/")
 
 	if q := queryString(req.QueryParameters); q != "" {
 		target += "?" + q
@@ -255,7 +281,16 @@ func (e *airflowEngine) proxyRest(
 		}
 	}
 
-	status, raw, err := e.do(ctx, req.Method, target, body, nil)
+	hdr, err := e.restHeaders(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+
+	if body != nil {
+		hdr.Set(headerContentType, "application/json")
+	}
+
+	status, raw, err := e.doWith(ctx, req.Method, target, body, hdr, nil)
 	if err != nil {
 		return nil, err
 	}
