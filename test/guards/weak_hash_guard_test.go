@@ -30,6 +30,10 @@ func allowedWeakHashFiles() map[string]string {
 		// GoogleSQL defines MD5() and SHA1() as those digests of the argument; a content hash, never a credential.
 		"services/gcpbigquery/bqsql/udf_str.go": "GoogleSQL MD5()/SHA1() function parity, verified",
 
+		// CloudFront Functions' crypto module exposes createHash/createHmac with md5 and sha1;
+		// user-script digests, never credential storage.
+		"services/cloudfront/function_runtime.go": "CloudFront Functions crypto md5/sha1 parity, verified",
+
 		// Key Vault: RSA-OAEP is defined over SHA-1 (JWA RFC 7518 4.3) and the
 		// certificate x5t claim is a SHA-1 thumbprint (RFC 7515 4.1.7).
 		"services/azurekeyvault/keycrypto.go":  "JWA RSA-OAEP (SHA-1) key-vault algorithm, verified",
