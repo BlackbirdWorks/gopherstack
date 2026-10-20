@@ -9,17 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 64 (55 ok, 9 gap) |
 | Feature families | 13 (13 ok) |
-| Known gaps | 4 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- UpdateSecurity on a docker-backed cluster does not reconfigure the running broker's listeners (needs a rolling relaunch that keeps topics).
-- TLS client-certificate (mutual TLS / ACM PCA) authentication is not enforced: the TLS listener is server-TLS only.
-- AWS_MSK_IAM enforces kafka-cluster:Connect only; per-API actions (WriteData, ReadData, CreateTopic, ...) are not evaluated against policies.
-- Lambda MSK event source mappings only resolve the plaintext bootstrap; SCRAM/IAM clusters need credentials plumbed into the poller.
+- UpdateSecurity relaunches the broker as a fresh container: topics and messages written before the update are lost (no persistent log dir).
+- Per-API IAM: ListGroups, DescribeCluster, DescribeLogDirs and transactional/ACL APIs are not gated; a partially denied multi-topic request is rejected as a whole; denied AlterConfigs/CreatePartitions/DescribeConfigs/OffsetFetch/DescribeGroups/DeleteGroups requests close the connection instead of returning an authorization error; Metadata with a null topic list is not filtered.
+- Lambda MSK event source mappings reach plaintext, server-TLS and SASL/SCRAM clusters; AWS_MSK_IAM-only and mutual-TLS-only clusters are still not polled (no function-role credentials or client certificate plumbed into the poller).
 
 ### Structural gaps
 

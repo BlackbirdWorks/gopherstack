@@ -17773,6 +17773,7 @@
       "ClusterOperation.OperationType string `json:\"operationType\"`",
       "ClusterOperation.SourceClusterInfo *MutableClusterInfo `json:\"sourceClusterInfo,omitempty\"`",
       "ClusterOperation.TargetClusterInfo *MutableClusterInfo `json:\"targetClusterInfo,omitempty\"`",
+      "ClusterOperation.awaitBroker bool",
       "ClusterOperation.doneAt time.Time",
       "Configuration.Arn string `json:\"arn\"`",
       "Configuration.CreationTime string `json:\"creationTime\"`",

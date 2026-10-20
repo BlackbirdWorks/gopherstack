@@ -108,7 +108,7 @@ func (b *InMemoryBackend) CreateCluster(
 		cluster.readyAt = b.now().Add(b.lifecycleDelay)
 	}
 	b.clusters.Put(cluster)
-	b.launchBrokerLocked(clusterArn, name)
+	b.launchBrokerLocked(clusterArn, name, "")
 
 	return cloneCluster(cluster), nil
 }

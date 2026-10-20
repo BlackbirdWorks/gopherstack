@@ -6100,7 +6100,7 @@ func wireMSKLambda(kafkaReg, lambdaReg service.Registerable) {
 
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
 		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
-			lambdaBk.SetMSKBrokerResolver(kafkaBk)
+			lambdaBk.SetMSKBrokerResolver(kafkaLambdaResolver{bk: kafkaBk})
 		}
 	}
 }

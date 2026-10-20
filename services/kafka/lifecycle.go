@@ -44,7 +44,7 @@ func (b *InMemoryBackend) viewCluster(c *Cluster) *Cluster {
 func (b *InMemoryBackend) viewOperation(op *ClusterOperation) *ClusterOperation {
 	cp := cloneClusterOperation(op)
 
-	if op.OperationState == ClusterOperationStateUpdateInProgress && !b.now().Before(op.doneAt) {
+	if op.OperationState == ClusterOperationStateUpdateInProgress && !op.awaitBroker && !b.now().Before(op.doneAt) {
 		cp.OperationState = ClusterOperationStateUpdateComplete
 		cp.EndTime = op.doneAt.UTC().Format(time.RFC3339)
 	}

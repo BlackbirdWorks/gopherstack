@@ -2,11 +2,14 @@ package lambda
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sasl/scram"
 )
 
 const kafkaFetchMaxWait = 250 * time.Millisecond
@@ -16,8 +19,11 @@ type kafkaConsumerConfig struct {
 	StartTimestamp   time.Time
 	GroupID          string
 	StartingPosition string
+	Username         string
+	Password         string
 	Brokers          []string
 	Topics           []string
+	RootCAPEM        []byte
 }
 
 // kafkaConsumer reads batches from a Kafka group and commits processed offsets.
@@ -46,15 +52,44 @@ func kafkaResetOffset(cfg kafkaConsumerConfig) kgo.Offset {
 	}
 }
 
+var errKafkaRootCA = errors.New("kafka: no certificate in broker CA PEM")
+
+// kafkaSecurityOpts adds TLS (trusting RootCAPEM) and SASL/SCRAM-SHA-512 when the config asks for them.
+func kafkaSecurityOpts(cfg kafkaConsumerConfig) ([]kgo.Opt, error) {
+	var opts []kgo.Opt
+
+	if len(cfg.RootCAPEM) > 0 {
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(cfg.RootCAPEM) {
+			return nil, errKafkaRootCA
+		}
+
+		opts = append(opts, kgo.DialTLSConfig(&tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}))
+	}
+
+	if cfg.Username != "" {
+		opts = append(opts, kgo.SASL(scram.Auth{User: cfg.Username, Pass: cfg.Password}.AsSha512Mechanism()))
+	}
+
+	return opts, nil
+}
+
 func newFranzConsumer(cfg kafkaConsumerConfig) (kafkaConsumer, error) {
-	cl, err := kgo.NewClient(
+	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.Brokers...),
 		kgo.ConsumerGroup(cfg.GroupID),
 		kgo.ConsumeTopics(cfg.Topics...),
 		kgo.ConsumeResetOffset(kafkaResetOffset(cfg)),
 		kgo.DisableAutoCommit(),
 		kgo.FetchMaxWait(kafkaFetchMaxWait),
-	)
+	}
+
+	secOpts, err := kafkaSecurityOpts(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	cl, err := kgo.NewClient(append(opts, secOpts...)...)
 	if err != nil {
 		return nil, fmt.Errorf("kafka client: %w", err)
 	}

@@ -96,7 +96,9 @@ func GetStoredCluster(b *InMemoryBackend, clusterArn string) *Cluster {
 
 // AuthenticateIAMPayloadForTest exposes AWS_MSK_IAM payload verification.
 func AuthenticateIAMPayloadForTest(cfg IAMAuthConfig, clusterArn string, raw []byte, now time.Time) error {
-	return authenticateIAMPayload(cfg, clusterArn, raw, "", now)
+	_, err := authenticateIAMPayload(cfg, clusterArn, raw, "", now)
+
+	return err
 }
 
 // PlanListenersForTest reports which listeners a cluster's security settings enable.

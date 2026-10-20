@@ -78,6 +78,7 @@ type InMemoryBackend struct {
 	engine                     *brokerEngine
 	scramSecretSource          ScramSecretResolver
 	iamAuth                    IAMAuthResolver
+	clientCAs                  ClientCAResolver
 	mu                         *lockmetrics.RWMutex
 	clusterOperations          *store.Table[ClusterOperation]
 	region                     string

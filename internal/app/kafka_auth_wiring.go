@@ -9,9 +9,11 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 	"github.com/blackbirdworks/gopherstack/services/kafkaconnect"
+	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 )
@@ -61,6 +63,7 @@ func wireKafkaAuth(e *echo.Echo, services []service.Registerable, enforceIAM boo
 		stsH   *stsbackend.Handler
 		smH    *secretsmanagerbackend.Handler
 		kcH    *kafkaconnect.Handler
+		pcaH   *acmpcabackend.Handler
 	)
 
 	for _, svc := range services {
@@ -75,6 +78,8 @@ func wireKafkaAuth(e *echo.Echo, services []service.Registerable, enforceIAM boo
 			smH = h
 		case *kafkaconnect.Handler:
 			kcH = h
+		case *acmpcabackend.Handler:
+			pcaH = h
 		}
 	}
 
@@ -93,6 +98,12 @@ func wireKafkaAuth(e *echo.Echo, services []service.Registerable, enforceIAM boo
 		if smBk, smOk := smH.Backend.(*secretsmanagerbackend.InMemoryBackend); smOk {
 			bk.SetScramSecretResolver(kafkaScramSource{backend: smBk})
 		}
+	}
+
+	if pcaH != nil {
+		bk.SetClientCAResolver(func(_ context.Context, caArn string) ([]byte, error) {
+			return pcaH.Backend.CertificatePEMForARN(caArn)
+		})
 	}
 
 	if kcH != nil {
@@ -129,4 +140,36 @@ func kafkaIAMAuthConfig(iamH *iambackend.Handler, stsH *stsbackend.Handler, enfo
 	}
 
 	return cfg
+}
+
+const scramSourceAccessType = "SASL_SCRAM_512_AUTH"
+
+// kafkaLambdaResolver lets Lambda MSK event source mappings reach plaintext, TLS and SASL/SCRAM clusters.
+type kafkaLambdaResolver struct {
+	bk *kafka.InMemoryBackend
+}
+
+func (r kafkaLambdaResolver) BootstrapServers(clusterARN string) []string {
+	return r.bk.BootstrapServers(clusterARN)
+}
+
+func (r kafkaLambdaResolver) MSKConnection(
+	ctx context.Context, clusterARN string, access []lambdabackend.SourceAccessConfiguration,
+) (lambdabackend.MSKConnection, bool) {
+	secret := ""
+
+	for _, a := range access {
+		if a.Type == scramSourceAccessType {
+			secret = a.URI
+		}
+	}
+
+	ep, ok := r.bk.ClientEndpointFor(ctx, clusterARN, secret)
+	if !ok {
+		return lambdabackend.MSKConnection{}, false
+	}
+
+	return lambdabackend.MSKConnection{
+		Brokers: ep.Brokers, RootCAPEM: ep.RootCAPEM, Username: ep.Username, Password: ep.Password,
+	}, true
 }

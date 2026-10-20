@@ -189,12 +189,42 @@ type MSKBrokerResolver interface {
 	BootstrapServers(clusterARN string) []string
 }
 
+// MSKConnection is how the poller dials an MSK cluster that is not plaintext.
+// RootCAPEM enables TLS; a username and password select SASL/SCRAM-SHA-512.
+type MSKConnection struct {
+	Username  string
+	Password  string
+	Brokers   []string
+	RootCAPEM []byte
+}
+
+// MSKConnectionResolver is implemented by an MSKBrokerResolver that can reach TLS and SASL/SCRAM clusters.
+// access carries the mapping's SourceAccessConfigurations (SASL_SCRAM_512_AUTH names the credential secret).
+type MSKConnectionResolver interface {
+	MSKConnection(ctx context.Context, clusterARN string, access []SourceAccessConfiguration) (MSKConnection, bool)
+}
+
 // SetMSKBrokerResolver sets the resolver used to poll MSK event sources.
 func (p *EventSourcePoller) SetMSKBrokerResolver(r MSKBrokerResolver) {
 	p.mu.Lock("SetMSKBrokerResolver")
 	defer p.mu.Unlock()
 
 	p.mskResolver = r
+}
+
+func (p *EventSourcePoller) mskConnection(
+	ctx context.Context, clusterARN string, access []SourceAccessConfiguration,
+) (MSKConnection, bool) {
+	p.mu.RLock("mskConnection")
+	r := p.mskResolver
+	p.mu.RUnlock()
+
+	cr, ok := r.(MSKConnectionResolver)
+	if !ok {
+		return MSKConnection{}, false
+	}
+
+	return cr.MSKConnection(ctx, clusterARN, access)
 }
 
 func (p *EventSourcePoller) mskBrokers(clusterARN string) []string {
