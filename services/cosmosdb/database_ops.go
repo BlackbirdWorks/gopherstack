@@ -66,6 +66,11 @@ func (h *Handler) createDatabase(c *echo.Context) error {
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", "id must not be empty.")
 	}
 
+	spec, hasOffer, specOK := h.checkCreateThroughput(c, false)
+	if !specOK {
+		return nil
+	}
+
 	info, createErr := h.Backend.CreateDatabase(req.ID)
 	if createErr != nil {
 		if errors.Is(createErr, ErrDatabaseAlreadyExists) {
@@ -73,6 +78,12 @@ func (h *Handler) createDatabase(c *echo.Context) error {
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "InternalError", createErr.Error())
+	}
+
+	if hasOffer {
+		if offerErr := h.provisionOffer(c, req.ID, "", spec); offerErr != nil {
+			return offerErr
+		}
 	}
 
 	c.Response().Header().Set("ETag", databaseETag(info))

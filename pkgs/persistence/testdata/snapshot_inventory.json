@@ -8297,6 +8297,9 @@
   },
   "cosmosdb": {
     "fields": [
+      "ThroughputSpec.AutoscaleMax int `json:\"AutoscaleMax,omitempty\"`",
+      "ThroughputSpec.IncrementPercent int `json:\"IncrementPercent,omitempty\"`",
+      "ThroughputSpec.Manual int `json:\"Throughput,omitempty\"`",
       "backendSnapshot.Databases map[string]*storedDatabase `json:\"databases\"`",
       "backendSnapshot.TableAPI json.RawMessage `json:\"tableApi,omitempty\"`",
       "documentCompositeKey.ID string",
@@ -8311,6 +8314,7 @@
       "storedContainer.ID string",
       "storedContainer.IndexingPolicy json.RawMessage `json:\"IndexingPolicy,omitempty\"`",
       "storedContainer.Modified time.Time `json:\"Modified\"`",
+      "storedContainer.Offer *storedOffer `json:\"Offer,omitempty\"`",
       "storedContainer.PartitionKeyPath string",
       "storedContainer.PartitionKeyPaths []string `json:\"PartitionKeyPaths,omitempty\"`",
       "storedContainer.Sprocs map[string]*storedScript `json:\"Sprocs,omitempty\"`",
@@ -8322,6 +8326,7 @@
       "storedDatabase.Containers map[string]*storedContainer",
       "storedDatabase.ID string",
       "storedDatabase.Modified time.Time `json:\"Modified\"`",
+      "storedDatabase.Offer *storedOffer `json:\"Offer,omitempty\"`",
       "storedDocument.Body map[string]any",
       "storedDocument.ID string",
       "storedDocument.PartitionKeyJSON string",
@@ -8329,6 +8334,7 @@
       "storedDocument.Timestamp time.Time",
       "storedDocument.{MarshalJSON}",
       "storedDocument.{UnmarshalJSON}",
+      "storedOffer.Modified time.Time `json:\"Modified\"`",
       "storedScript.Body string",
       "storedScript.ID string",
       "storedScript.Timestamp time.Time",

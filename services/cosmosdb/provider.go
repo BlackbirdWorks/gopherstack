@@ -62,10 +62,12 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	backend := NewInMemoryBackend()
+	backend.SetServerless(settings.Serverless)
 	handler := NewHandler(backend)
 	handler.Port = settings.Port
 	handler.MasterKey = settings.MasterKey
 	handler.ValidateAuth = settings.ValidateAuth
+	handler.EnforceThroughput = settings.EnforceThroughput
 	handler.TLS = os.Getenv(envTLS) == trueText
 	handler.TLSHosts = splitHosts(os.Getenv(envTLSHosts))
 

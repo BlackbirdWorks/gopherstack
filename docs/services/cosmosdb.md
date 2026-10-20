@@ -34,6 +34,8 @@ Cosmos DB runs on its own dedicated, synchronously-bound TCP port, mirroring the
 | Port | `8081` (real Cosmos DB Local Emulator's default) | `--cosmosdb-port` | `COSMOSDB_PORT` |
 | Master key | real emulator's well-known fixed key (below) | `--cosmosdb-master-key` | `COSMOSDB_MASTER_KEY` |
 | Validate auth | `false` | `--cosmosdb-validate-auth` | `COSMOSDB_VALIDATE_AUTH` |
+| Enforce throughput | `false` | `--cosmosdb-enforce-throughput` | `COSMOSDB_ENFORCE_THROUGHPUT` |
+| Serverless | `false` | `--cosmosdb-serverless` | `COSMOSDB_SERVERLESS` |
 | TLS (self-signed) | `false` | (env only) | `COSMOSDB_TLS=true` |
 | Extra TLS hosts | none | (env only) | `COSMOSDB_TLS_HOSTS=name1,10.0.0.5` |
 
@@ -48,6 +50,8 @@ C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67
 ```
 
 Cosmos DB has an **opt-in** `--cosmosdb-validate-auth` flag. With it off (the default), any Authorization header, or none, is accepted. With it on, **every** request (account root, databases, containers, documents and the Table API) must carry a correctly signed master-key `Authorization: type=master&ver=1.0&sig=...` header and an `x-ms-date` (or `Date`) within 15 minutes of server time, otherwise the response is `401 Unauthorized`. Table API requests may alternatively be SharedKey/SharedKeyLite signed with the same key. The dashboard's Cosmos DB page keeps working with validation on: its in-process proxy signs forwarded requests server-side, so the key never reaches the browser.
+
+Throughput offers (`/offers`, the `x-ms-offer-throughput` / `x-ms-cosmos-offer-autopilot-settings` create headers, azcosmos `ReadThroughput`/`ReplaceThroughput`, ARM `throughputSettings`) are always served. With **opt-in** `--cosmosdb-enforce-throughput`, a container's (or its database's shared) provisioned RU/s is enforced from the request charges: an overdrawn budget answers `429 TooManyRequests` with `x-ms-retry-after-ms` and `x-ms-substatus: 3200`. `--cosmosdb-serverless` rejects throughput provisioning and caps containers at 5000 RU/s.
 
 ## Request charge
 

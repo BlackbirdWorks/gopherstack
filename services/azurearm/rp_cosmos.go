@@ -78,6 +78,8 @@ type storedCosmosAccount struct {
 	instanceID    string
 }
 
+// cosmosThroughput is a provisioned-throughput setting: manual RU/s or an autoscale maximum. The JSON names
+// are also the legacy ARM-snapshot shape.
 type cosmosThroughput struct {
 	Throughput   int `json:"throughput,omitempty"`
 	AutoscaleMax int `json:"autoscaleMax,omitempty"`
@@ -85,12 +87,13 @@ type cosmosThroughput struct {
 
 // CosmosProvider implements ResourceProvider for Microsoft.DocumentDB. Databases and containers live in the
 // Cosmos DB data plane behind the CosmosResources seam; this provider keeps account metadata, ownership and
-// throughput settings.
+// the legacy throughput entries of snapshots written before offers moved to the data plane.
 type CosmosProvider struct {
-	dataPlane  CosmosResources
-	mu         *lockmetrics.RWMutex
-	accounts   map[string]*storedCosmosAccount
-	dbOwner    map[string]string
+	dataPlane CosmosResources
+	mu        *lockmetrics.RWMutex
+	accounts  map[string]*storedCosmosAccount
+	dbOwner   map[string]string
+	// throughput holds only entries restored from an older snapshot that the data plane has not yet absorbed.
 	throughput map[string]cosmosThroughput
 	extras     map[string]cosmosContainerExtras
 	cfg        CosmosEndpointConfig

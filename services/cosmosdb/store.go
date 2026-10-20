@@ -32,6 +32,10 @@ type InMemoryBackend struct {
 	tableAPI tableSnapshotter
 	// scriptTimeout bounds one stored procedure, trigger or UDF run; zero means the 5s default.
 	scriptTimeout time.Duration
+	// serverless rejects provisioned throughput and caps every container at serverlessBurstRUs.
+	serverless bool
+	// budgetEpoch changes whenever an offer is set, resetting the handler's RU meters.
+	budgetEpoch int64
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend.

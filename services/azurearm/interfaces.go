@@ -132,6 +132,9 @@ type CosmosContainer struct {
 	ConflictResolutionPolicy []byte
 }
 
+// CosmosThroughput is a provisioned-throughput setting: manual RU/s or an autoscale maximum.
+type CosmosThroughput = cosmosThroughput
+
 // CosmosResources is the seam the Microsoft.DocumentDB resource provider uses to reach the Cosmos DB data plane.
 // Errors are the package's ErrCosmos* sentinels.
 type CosmosResources interface {
@@ -153,6 +156,12 @@ type CosmosResources interface {
 	GetContainer(db, id string) (CosmosContainer, error)
 	ListContainers(db string) ([]CosmosContainer, error)
 	DeleteContainer(db, id string) error
+
+	// GetThroughput reads the offer of a database (container == "") or container; ErrCosmosThroughputNotFound
+	// when none is provisioned.
+	GetThroughput(db, container string) (CosmosThroughput, error)
+	// PutThroughput creates or replaces that offer.
+	PutThroughput(db, container string, t CosmosThroughput) error
 }
 
 type noopCosmosResources struct{}
@@ -179,5 +188,11 @@ func (noopCosmosResources) ListContainers(string) ([]CosmosContainer, error) {
 	return nil, ErrCosmosUnavailable
 }
 func (noopCosmosResources) DeleteContainer(string, string) error { return ErrCosmosUnavailable }
+func (noopCosmosResources) GetThroughput(string, string) (CosmosThroughput, error) {
+	return CosmosThroughput{}, ErrCosmosUnavailable
+}
+func (noopCosmosResources) PutThroughput(string, string, CosmosThroughput) error {
+	return ErrCosmosUnavailable
+}
 
 var _ CosmosResources = noopCosmosResources{}

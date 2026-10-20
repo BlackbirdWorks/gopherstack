@@ -7,15 +7,15 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 26 (26 ok) |
-| Feature families | 20 (16 ok, 4 partial) |
+| PARITY entries audited | 30 (30 ok) |
+| Feature families | 21 (17 ok, 4 partial) |
 | Known gaps | 9 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Throughput: provisioned throughput, autoscale, serverless limits and 429 throttling do not exist; x-ms-request-charge is reported but never limited, and the offers/throughput APIs are not served
+- Throughput: enforcement is a one-second token bucket per offer, not the service's partition-level RU allocation (no per-physical-partition split, no burst capacity); autoscale ceilings throttle at the maximum with no modeled scale-up lag, and its 10% floor is only reported as the minimum; serverless accounts are a single process-wide mode (--cosmosdb-serverless) with the 5000 RU/s container cap but no 50 GB storage limit; the replace between manual and autoscale is accepted on the data plane; minimum throughput is a flat 400 RU/s (not storage- or container-count-derived); Table API and metadata operations are not metered; the throughput error texts (min 400 manual / 1000 autoscale, steps of 100 / 1000, max 1,000,000) are from documented limits and the 429 text follows the task wording, not captured service responses
 - IndexingPolicy: multi-key ORDER BY composite-index and excluded-path/scan enforcement exist (families.indexing); still open are ORDER BY on an excluded path, composite-index rules for filter plus ORDER BY, spatial/vector/full-text index validation, lazy mode, and enforcement inside stored-procedure queries
 - MultiRegion: one fixed region (South Central US) with a single writable location; failover, multi-write, preferred regions, the conflicts feed and consistency levels other than a static session token are not modeled
 - RequestCharge: an approximation of documented costs, not a metering of index and storage work

@@ -34,6 +34,8 @@ func cosmosErr(err error) error {
 		return fmt.Errorf("%w: %w", azurearm.ErrCosmosDatabaseNotFound, err)
 	case errors.Is(err, cosmosdb.ErrContainerNotFound):
 		return fmt.Errorf("%w: %w", azurearm.ErrCosmosContainerNotFound, err)
+	case errors.Is(err, cosmosdb.ErrThroughputNotFound):
+		return fmt.Errorf("%w: %w", azurearm.ErrCosmosThroughputNotFound, err)
 	case errors.Is(err, cosmosdb.ErrDatabaseAlreadyExists), errors.Is(err, cosmosdb.ErrContainerAlreadyExists),
 		errors.Is(err, cosmosdb.ErrPartitionKeyImmutable), errors.Is(err, cosmosdb.ErrUniqueKeyPolicyImmutable):
 		return fmt.Errorf("%w: %w", azurearm.ErrCosmosConflict, err)
@@ -138,4 +140,39 @@ func (a *azureCosmosAdapter) ListContainers(db string) ([]azurearm.CosmosContain
 
 func (a *azureCosmosAdapter) DeleteContainer(db, id string) error {
 	return cosmosErr(a.handler.Backend.DeleteContainer(db, id))
+}
+
+func (a *azureCosmosAdapter) throughputBackend() (cosmosdb.ThroughputBackend, error) {
+	tb, ok := a.handler.Backend.(cosmosdb.ThroughputBackend)
+	if !ok {
+		return nil, azurearm.ErrCosmosUnavailable
+	}
+
+	return tb, nil
+}
+
+func (a *azureCosmosAdapter) GetThroughput(db, container string) (azurearm.CosmosThroughput, error) {
+	tb, err := a.throughputBackend()
+	if err != nil {
+		return azurearm.CosmosThroughput{}, err
+	}
+
+	info, err := tb.GetThroughput(db, container)
+	if err != nil {
+		return azurearm.CosmosThroughput{}, cosmosErr(err)
+	}
+
+	return azurearm.CosmosThroughput{Throughput: info.Manual, AutoscaleMax: info.AutoscaleMax}, nil
+}
+
+func (a *azureCosmosAdapter) PutThroughput(db, container string, t azurearm.CosmosThroughput) error {
+	tb, err := a.throughputBackend()
+	if err != nil {
+		return err
+	}
+
+	spec := cosmosdb.ThroughputSpec{Manual: t.Throughput, AutoscaleMax: t.AutoscaleMax}
+	_, err = tb.SetThroughput(db, container, spec)
+
+	return cosmosErr(err)
 }

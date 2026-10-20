@@ -155,6 +155,10 @@ func resourceTypeAndIDFor(_, path string) (string, string) {
 
 	segments := strings.Split(trimmed, "/")
 
+	if len(segments) == segCountDatabaseItem && segments[0] == offersSegment {
+		return offersSegment, strings.ToLower(segments[1])
+	}
+
 	// An odd number of segments means the path names a collection resource
 	// (e.g. "dbs", "dbs/mydb/colls", "dbs/mydb/colls/mycoll/docs"); an even
 	// number names a specific item within one (e.g. "dbs/mydb",

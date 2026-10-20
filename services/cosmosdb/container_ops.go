@@ -132,9 +132,20 @@ func (h *Handler) createContainer(c *echo.Context, dbID string) error {
 		return nil
 	}
 
+	spec, hasOffer, specOK := h.checkCreateThroughput(c, true)
+	if !specOK {
+		return nil
+	}
+
 	info, createErr := h.Backend.CreateContainer(dbID, req.spec())
 	if createErr != nil {
 		return h.writeContainerError(c, createErr)
+	}
+
+	if hasOffer {
+		if offerErr := h.provisionOffer(c, dbID, info.ID, spec); offerErr != nil {
+			return offerErr
+		}
 	}
 
 	c.Response().Header().Set("ETag", containerETag(info))

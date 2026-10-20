@@ -121,7 +121,7 @@ func tableAPISupportedOperations() []string {
 // here so parseResourcePath's own dispatch still owns it.
 func isTableAPIPath(path string) bool {
 	trimmed := strings.Trim(path, "/")
-	if trimmed == "" || trimmed == dbsSegment {
+	if trimmed == "" || trimmed == dbsSegment || trimmed == offersSegment {
 		return false
 	}
 

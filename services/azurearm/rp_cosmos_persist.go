@@ -98,4 +98,6 @@ func (p *CosmosProvider) restore(snap *cosmosSnapshot) {
 	maps.Copy(p.throughput, snap.Throughput)
 
 	maps.Copy(p.extras, snap.Extras)
+
+	p.migrateLegacyThroughput()
 }

@@ -52,6 +52,10 @@ const (
 	opExecuteBatch       = "ExecuteTransactionalBatch"
 	opReadChangeFeed     = "ReadChangeFeed"
 	opReadPKRanges       = "ReadPartitionKeyRanges"
+	opListOffers         = "ListOffers"
+	opQueryOffers        = "QueryOffers"
+	opGetOffer           = "GetOffer"
+	opReplaceOffer       = "ReplaceOffer"
 	unknownOperation     = "Unknown"
 )
 
@@ -70,7 +74,7 @@ const (
 )
 
 // coreOpsCapacity is the number of Core/SQL operations GetSupportedOperations lists.
-const coreOpsCapacity = 41
+const coreOpsCapacity = 45
 
 // defaultRequestCharge is reported by routes without a size-based charge (see ru.go).
 const defaultRequestCharge = "1"
@@ -86,6 +90,7 @@ type Handler struct {
 	srv           *http.Server
 	janitor       *worker.Group
 	clock         func() time.Time
+	meter         *ruMeter
 	MasterKey     string
 	certPEM       []byte
 	TLSHosts      []string
@@ -93,6 +98,8 @@ type Handler struct {
 	SweepInterval time.Duration
 	ValidateAuth  bool
 	TLS           bool
+	// EnforceThroughput rejects requests with 429 once a container's provisioned RU/s budget is overdrawn.
+	EnforceThroughput bool
 }
 
 // defaultSweepInterval is the TTL janitor period; reads already hide expired documents.
@@ -120,6 +127,7 @@ func NewHandler(backend StorageBackend) *Handler {
 		srvMu:        lockmetrics.New("cosmosdb.server"),
 		keysMu:       lockmetrics.New("cosmosdb.keys"),
 		extraKeys:    make(map[string]struct{}),
+		meter:        newRUMeter(),
 	}
 
 	if a, ok := backend.(interface{ AttachTableAPI(t tableSnapshotter) }); ok {
@@ -148,6 +156,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListContainers, opQueryContainers, opCreateContainer, opGetContainer, opReplaceContainer, opDeleteContainer,
 		opCreateDocument, opQueryDocuments, opListDocuments, opGetDocument, opReplaceDocument, opDeleteDocument,
 		opPatchDocument, opExecuteBatch, opReadChangeFeed, opReadPKRanges,
+		opListOffers, opQueryOffers, opGetOffer, opReplaceOffer,
 	)
 	coreOps = append(coreOps, scriptSupportedOperations()...)
 	tableOps := tableAPISupportedOperations()
@@ -187,6 +196,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 func (h *Handler) Reset() {
 	h.Backend.Reset()
 	h.TableBackend.Reset()
+	h.meter.reset()
 }
 
 // Handler returns the Echo handler function for Cosmos DB operations.
@@ -208,35 +218,47 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		kind, dbID, collID, docID := parseResourcePath(r.URL.Path)
 
-		switch kind {
-		case resourceAccountRoot:
-			return h.handleAccountRoot(c)
-		case resourceDatabases:
-			return h.handleDatabases(c)
-		case resourceDatabaseItem:
-			return h.handleDatabaseItem(c, dbID)
-		case resourceContainers:
-			return h.handleContainers(c, dbID)
-		case resourceContainerItem:
-			return h.handleContainerItem(c, dbID, collID)
-		case resourceDocuments:
-			return h.handleDocuments(c, dbID, collID)
-		case resourceDocumentItem:
-			return h.handleDocumentItem(c, dbID, collID, docID)
-		case resourcePKRanges:
-			return h.handlePKRanges(c, dbID, collID)
-		default:
-			if sk, isItem, ok := scriptKindOf(kind); ok {
-				return h.handleScripts(c, sk, isItem, dbID, collID, docID)
-			}
-
-			return h.writeError(
-				c,
-				http.StatusBadRequest,
-				"BadRequest",
-				"The requested URI does not represent a valid Cosmos DB resource.",
-			)
+		if h.EnforceThroughput && isMetered(kind) {
+			return h.serveMetered(c, dbID, collID, func() error { return h.dispatch(c, kind, dbID, collID, docID) })
 		}
+
+		return h.dispatch(c, kind, dbID, collID, docID)
+	}
+}
+
+func (h *Handler) dispatch(c *echo.Context, kind resourceKind, dbID, collID, docID string) error {
+	switch kind {
+	case resourceAccountRoot:
+		return h.handleAccountRoot(c)
+	case resourceDatabases:
+		return h.handleDatabases(c)
+	case resourceDatabaseItem:
+		return h.handleDatabaseItem(c, dbID)
+	case resourceContainers:
+		return h.handleContainers(c, dbID)
+	case resourceContainerItem:
+		return h.handleContainerItem(c, dbID, collID)
+	case resourceDocuments:
+		return h.handleDocuments(c, dbID, collID)
+	case resourceDocumentItem:
+		return h.handleDocumentItem(c, dbID, collID, docID)
+	case resourcePKRanges:
+		return h.handlePKRanges(c, dbID, collID)
+	case resourceOffers:
+		return h.handleOffers(c)
+	case resourceOfferItem:
+		return h.handleOfferItem(c, dbID)
+	default:
+		if sk, isItem, ok := scriptKindOf(kind); ok {
+			return h.handleScripts(c, sk, isItem, dbID, collID, docID)
+		}
+
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"BadRequest",
+			"The requested URI does not represent a valid Cosmos DB resource.",
+		)
 	}
 }
 
@@ -294,6 +316,8 @@ const (
 	resourceUDFs
 	resourceUDFItem
 	resourcePKRanges
+	resourceOffers
+	resourceOfferItem
 )
 
 // parseResourcePath classifies path ("", "/dbs", "/dbs/{db}",
@@ -320,6 +344,10 @@ func parseResourcePath(path string) (resourceKind, string, string, string) {
 	}
 
 	segments := strings.Split(trimmed, "/")
+	if segments[0] == offersSegment {
+		return parseOffersPath(segments)
+	}
+
 	if segments[0] != dbsSegment {
 		return resourceInvalid, "", "", ""
 	}
@@ -337,6 +365,18 @@ func parseResourcePath(path string) (resourceKind, string, string, string) {
 		return parseDocumentsPath(segments)
 	case segCountDocumentItem:
 		return parseDocumentItemPath(segments)
+	default:
+		return resourceInvalid, "", "", ""
+	}
+}
+
+// parseOffersPath classifies "/offers" and "/offers/{rid}"; the offer rid is returned in the database slot.
+func parseOffersPath(segments []string) (resourceKind, string, string, string) {
+	switch len(segments) {
+	case segCountDatabases:
+		return resourceOffers, "", "", ""
+	case segCountDatabaseItem:
+		return resourceOfferItem, segments[1], "", ""
 	default:
 		return resourceInvalid, "", "", ""
 	}
@@ -439,6 +479,17 @@ func operationFor(r *http.Request) string {
 		return itemOperationFor(r.Method, opGetDocument, opReplaceDocument, opDeleteDocument)
 	case resourcePKRanges:
 		return opReadPKRanges
+	default:
+		return offerOrScriptOperationFor(kind, r)
+	}
+}
+
+func offerOrScriptOperationFor(kind resourceKind, r *http.Request) string {
+	switch kind {
+	case resourceOffers:
+		return collectionOperationFor(r, unknownOperation, opListOffers, opQueryOffers)
+	case resourceOfferItem:
+		return itemOperationFor(r.Method, opGetOffer, opReplaceOffer, unknownOperation)
 	default:
 		return scriptOperationFor(kind, r)
 	}

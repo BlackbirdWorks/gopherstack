@@ -77,6 +77,8 @@ func (p *CosmosProvider) putChild(id ResourceID, body map[string]any) (map[strin
 	p.mu.Lock("PutChild")
 	defer p.mu.Unlock()
 
+	p.migrateLegacyThroughput()
+
 	a, err := p.accountOf(id)
 	if err != nil {
 		return nil, err
@@ -211,7 +213,9 @@ func (p *CosmosProvider) putDatabase(
 	}
 
 	if tp != nil {
-		p.throughput[throughputKey(a.name, name)] = *tp
+		if err = p.dataPlane.PutThroughput(name, "", *tp); err != nil {
+			return nil, err
+		}
 	}
 
 	return databaseBody(id, db), nil
@@ -364,7 +368,7 @@ func (p *CosmosProvider) putThroughput(
 		return nil, ErrCosmosThroughputNotFound
 	}
 
-	key, err := p.throughputOwner(id, a, kind)
+	db, container, err := p.throughputOwner(id, a, kind)
 	if err != nil {
 		return nil, err
 	}
@@ -381,31 +385,37 @@ func (p *CosmosProvider) putThroughput(
 		return nil, fmt.Errorf("%w: throughput or autoscaleSettings is required", ErrCosmosBadRequest)
 	}
 
-	p.throughput[key] = *tp
+	if err = p.dataPlane.PutThroughput(db, container, *tp); err != nil {
+		return nil, err
+	}
+
+	delete(p.throughput, legacyKey(a.name, db, container))
 
 	return throughputBody(id, *tp), nil
 }
 
-// throughputOwner verifies the parent database or container exists and returns the throughput map key.
-func (p *CosmosProvider) throughputOwner(id ResourceID, a *storedCosmosAccount, kind cosmosChildKind) (string, error) {
+// throughputOwner verifies the parent database or container exists and returns its data-plane names.
+func (p *CosmosProvider) throughputOwner(
+	id ResourceID, a *storedCosmosAccount, kind cosmosChildKind,
+) (string, string, error) {
 	db := id.Names[1]
 	if !p.visible(a, db) {
-		return "", ErrCosmosDatabaseNotFound
+		return "", "", ErrCosmosDatabaseNotFound
 	}
 
 	if _, err := p.dataPlane.GetDatabase(db); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	if kind == cosmosKindDatabaseThroughput {
-		return throughputKey(a.name, db), nil
+		return db, "", nil
 	}
 
 	if _, err := p.dataPlane.GetContainer(db, id.Names[2]); err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	return throughputKey(a.name, db, id.Names[2]), nil
+	return db, id.Names[2], nil
 }
 
 func (p *CosmosProvider) getThroughput(
@@ -415,14 +425,23 @@ func (p *CosmosProvider) getThroughput(
 		return nil, ErrCosmosThroughputNotFound
 	}
 
-	key, err := p.throughputOwner(id, a, kind)
+	db, container, err := p.throughputOwner(id, a, kind)
 	if err != nil {
 		return nil, err
 	}
 
-	tp, ok := p.throughput[key]
-	if !ok {
-		return nil, ErrCosmosThroughputNotFound
+	tp, err := p.dataPlane.GetThroughput(db, container)
+	if errors.Is(err, ErrCosmosThroughputNotFound) {
+		legacy, ok := p.throughput[legacyKey(a.name, db, container)]
+		if !ok {
+			return nil, err
+		}
+
+		tp, err = legacy, nil
+	}
+
+	if err != nil {
+		return nil, err
 	}
 
 	return throughputBody(id, tp), nil
@@ -477,7 +496,9 @@ func (p *CosmosProvider) putContainer(
 	p.extras[throughputKey(a.name, db, name)] = extras
 
 	if tp != nil {
-		p.throughput[throughputKey(a.name, db, name)] = *tp
+		if err = p.dataPlane.PutThroughput(db, name, *tp); err != nil {
+			return nil, err
+		}
 	}
 
 	return p.containerBody(id, a, c), nil

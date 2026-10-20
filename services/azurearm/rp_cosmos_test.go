@@ -26,6 +26,7 @@ const (
 type fakeCosmos struct {
 	dbs      map[string]map[string]azurearm.CosmosContainer
 	accepted map[string]bool
+	tps      map[string]azurearm.CosmosThroughput
 	mu       sync.Mutex
 	rid      int
 	port     int
@@ -34,7 +35,10 @@ type fakeCosmos struct {
 
 func newFakeCosmos() *fakeCosmos {
 	return &fakeCosmos{
-		dbs: map[string]map[string]azurearm.CosmosContainer{}, accepted: map[string]bool{}, port: 8081,
+		dbs:      map[string]map[string]azurearm.CosmosContainer{},
+		accepted: map[string]bool{},
+		tps:      map[string]azurearm.CosmosThroughput{},
+		port:     8081,
 	}
 }
 
@@ -106,6 +110,33 @@ func (f *fakeCosmos) DeleteDatabase(id string) error {
 	}
 
 	delete(f.dbs, id)
+
+	for k := range f.tps {
+		if k == id || strings.HasPrefix(k, id+"/") {
+			delete(f.tps, k)
+		}
+	}
+
+	return nil
+}
+
+func (f *fakeCosmos) GetThroughput(db, container string) (azurearm.CosmosThroughput, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	tp, ok := f.tps[strings.TrimSuffix(db+"/"+container, "/")]
+	if !ok {
+		return azurearm.CosmosThroughput{}, azurearm.ErrCosmosThroughputNotFound
+	}
+
+	return tp, nil
+}
+
+func (f *fakeCosmos) PutThroughput(db, container string, t azurearm.CosmosThroughput) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.tps[strings.TrimSuffix(db+"/"+container, "/")] = t
 
 	return nil
 }
@@ -656,6 +687,7 @@ func TestCosmos_SnapshotRestore(t *testing.T) {
 	h2, fake2 := newCosmosHandler()
 	_, err := fake2.CreateDatabase("db1")
 	require.NoError(t, err)
+	require.NoError(t, fake2.PutThroughput("db1", "", azurearm.CosmosThroughput{Throughput: 500}))
 	require.NoError(t, h2.Restore(context.Background(), snap))
 
 	st, got := cosmosDo(t, h2, http.MethodGet, cosmosAcct, nil)
@@ -684,4 +716,46 @@ func TestCosmos_DocumentEndpointOverride(t *testing.T) {
 
 	out := putCosmosAccount(t, h, map[string]any{})
 	assert.Equal(t, "https://localhost:18081/", asMap(t, out["properties"])["documentEndpoint"])
+}
+
+func TestCosmos_LegacyThroughputSnapshotMigrates(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newCosmosHandler()
+	putCosmosAccount(t, h, map[string]any{})
+
+	var env map[string]any
+	require.NoError(t, json.Unmarshal(h.Snapshot(context.Background()), &env))
+	inject(t, env, map[string]any{"acct1/db1": map[string]any{"autoscaleMax": 4000}})
+	raw, err := json.Marshal(env)
+	require.NoError(t, err)
+
+	h2, fake2 := newCosmosHandler()
+	_, err = fake2.CreateDatabase("db1")
+	require.NoError(t, err)
+	require.NoError(t, h2.Restore(context.Background(), raw))
+
+	tp, err := fake2.GetThroughput("db1", "")
+	require.NoError(t, err, "restore moves the legacy entry onto the data plane")
+	assert.Equal(t, 4000, tp.AutoscaleMax)
+}
+
+// inject sets the legacy throughput map in whichever object of env carries the cosmos accounts.
+func inject(t *testing.T, node any, legacy map[string]any) {
+	t.Helper()
+
+	m, ok := node.(map[string]any)
+	if !ok {
+		return
+	}
+
+	if _, has := m["accounts"]; has {
+		m["throughput"] = legacy
+
+		return
+	}
+
+	for _, v := range m {
+		inject(t, v, legacy)
+	}
 }

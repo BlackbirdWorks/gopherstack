@@ -147,7 +147,8 @@ type DocumentInfo struct {
 
 // storedDatabase is the backend's internal representation of a database.
 type storedDatabase struct {
-	Modified   time.Time `json:"Modified"`
+	Modified   time.Time    `json:"Modified"`
+	Offer      *storedOffer `json:"Offer,omitempty"`
 	Containers map[string]*storedContainer
 	ID         string
 }
@@ -155,6 +156,7 @@ type storedDatabase struct {
 // storedContainer is the backend's internal representation of a container.
 type storedContainer struct {
 	Modified         time.Time                `json:"Modified"`
+	Offer            *storedOffer             `json:"Offer,omitempty"`
 	Triggers         map[string]*storedScript `json:"Triggers,omitempty"`
 	sorted           atomic.Pointer[[]*storedDocument]
 	Sprocs           map[string]*storedScript `json:"Sprocs,omitempty"`
