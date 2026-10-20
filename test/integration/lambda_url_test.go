@@ -152,7 +152,12 @@ func TestLambdaFunctionURL_HTTPEndpoint(t *testing.T) {
 	// (may fail with invocation error since Docker isn't available,
 	// but the listener itself should respond).
 	client := &http.Client{Timeout: 5 * time.Second}
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+backend.FunctionURLListenAddr(fnName, "")+"/", nil)
+	req, err := http.NewRequestWithContext(
+		t.Context(),
+		http.MethodGet,
+		"http://"+backend.FunctionURLListenAddr(fnName, "")+"/",
+		nil,
+	)
 	require.NoError(t, err)
 
 	httpResp, err := client.Do(req)

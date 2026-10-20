@@ -191,6 +191,12 @@ var azureServiceBusEndpoint string
 //nolint:gochecknoglobals // Set in TestMain for integration tests.
 var azureARMEndpoint string
 
+// azureKeyVaultEndpoint is the Key Vault HTTPS data-plane endpoint (self-signed
+// certificate); vaults are addressed with a /vaults/<name> path prefix.
+//
+//nolint:gochecknoglobals // set once in TestMain, read-only during tests
+var azureKeyVaultEndpoint string
+
 // sharedContainer holds a reference to the container for cleanup and log dumping on test failures.
 // This is initialized by TestMain before running integration tests.
 //
@@ -338,7 +344,8 @@ func TestMain(m *testing.M) {
 			options.PullParent = false
 		},
 		ExposedPorts: []string{
-			"8000/tcp", "1883/tcp", "10000/tcp", "10001/tcp", "10002/tcp", "10003/tcp", "10006/tcp", "8081/tcp",
+			"8000/tcp", "1883/tcp", "10000/tcp", "10001/tcp", "10002/tcp", "10003/tcp", "10004/tcp",
+			"10006/tcp", "8081/tcp",
 		},
 		WaitingFor: wait.ForAll(
 			wait.ForHTTP("/").
@@ -355,12 +362,17 @@ func TestMain(m *testing.M) {
 				WithStartupTimeout(60*time.Second),
 			wait.ForListeningPort("10003/tcp").
 				WithStartupTimeout(60*time.Second),
+			wait.ForListeningPort("10004/tcp").
+				WithStartupTimeout(60*time.Second),
 			wait.ForListeningPort("10006/tcp").
 				WithStartupTimeout(60*time.Second),
 			wait.ForListeningPort("8081/tcp").
 				WithStartupTimeout(60*time.Second),
 		),
 	}
+
+	req.ExposedPorts = append(req.ExposedPorts, gcpExposedPorts()...)
+	req.WaitingFor = wait.ForAll(append([]wait.Strategy{req.WaitingFor}, gcpWaitStrategies()...)...)
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
@@ -407,6 +419,11 @@ func TestMain(m *testing.M) {
 	azureARMEndpoint = resolveMappedEndpoint(
 		ctx, container, logger, "10006", "https",
 		"Azure Resource Manager emulation endpoint", "Azure ARM")
+
+	azureKeyVaultEndpoint = resolveMappedEndpoint(
+		ctx, container, logger, "10004", "https", "Azure Key Vault data-plane endpoint", "Azure Key Vault")
+
+	resolveGCPAddrs(ctx, container, logger)
 
 	code := m.Run()
 
