@@ -16,8 +16,8 @@
 
 ### Known gaps
 
-- Inbound SMTP: BounceAction rejects at SMTP time but emits no DSN message to the sender, and WorkMail/Connect actions are recorded only (no delivery path).
-- Inbound SMTP: spf/dkim/dmarc verdicts are always GRAY and spam/virus verdicts are PASS or DISABLED by ScanEnabled alone; nothing is scanned or authenticated.
+- Inbound SMTP: WorkMail/Connect actions are recorded only (no delivery path); spam/virus verdicts are PASS or DISABLED by ScanEnabled alone (no content scanner).
+- Inbound SMTP: SPF evaluates ip4/ip6/include/redirect/all only (the resolver is TXT-only, so a/mx/exists/ptr never match); DMARC organizational domain is a heuristic, not the public suffix list.
 
 ### Structural gaps
 

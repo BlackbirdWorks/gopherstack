@@ -39,14 +39,15 @@ const (
 
 // Handler is the Echo HTTP handler for SES operations.
 type Handler struct {
-	Backend    StorageBackend
-	janitor    *Janitor
-	relay      *smtprelay.Relay
-	inbound    *inboundServer
-	inboundCfg *InboundConfig
-	peers      *regionpeers.Set[Handler]
-	workerCtx  atomic.Pointer[context.Context]
-	janitorRun worker.SingleRun
+	Backend         StorageBackend
+	janitor         *Janitor
+	relay           *smtprelay.Relay
+	inbound         *inboundServer
+	inboundCfg      *InboundConfig
+	peers           *regionpeers.Set[Handler]
+	workerCtx       atomic.Pointer[context.Context]
+	janitorRun      worker.SingleRun
+	inboundRegional []*inboundServer
 }
 
 // NewHandler creates a new SES handler with the given backend and logger.

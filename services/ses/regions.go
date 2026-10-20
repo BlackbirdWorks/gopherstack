@@ -19,6 +19,8 @@ func (h *Handler) EnableRegions() {
 		home.mu.RLock("newRegionBackend")
 		nb.snsPublisher = home.snsPublisher
 		nb.relay = home.relay
+		nb.inboundStore, nb.inboundLambda = home.inboundStore, home.inboundLambda
+		nb.inboundKMS, nb.inboundDNS = home.inboundKMS, home.inboundDNS
 		nb.emailTTL, nb.configuredEmailTTL = home.emailTTL, home.configuredEmailTTL
 		nb.limits, nb.configuredLimits = home.limits, home.configuredLimits
 		home.mu.RUnlock()

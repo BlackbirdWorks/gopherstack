@@ -48,7 +48,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	if settings.InboundEnabled {
-		handler.WithInbound(InboundConfig{Addr: settings.InboundAddr, MaxSize: settings.InboundMaxSize})
+		handler.WithInbound(InboundConfig{
+			Addr: settings.InboundAddr, MaxSize: settings.InboundMaxSize,
+			RegionAddrs: ParseInboundRegions(settings.InboundRegions),
+		})
 	}
 
 	handler.WithJanitor(settings.JanitorInterval, ctx.JanitorTimeout)
