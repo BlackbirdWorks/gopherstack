@@ -575,6 +575,12 @@ jobs:
           path: /tmp/gopherstack-tofu-provider-cache
           key: tofu-providers-${{ runner.os }}-aws5
 
+      - name: Cache OpenTofu Google provider
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: /tmp/gopherstack-tofu-google-provider-cache
+          key: tofu-providers-${{ runner.os }}-google8.5.0
+
       - name: Compute test pattern for chunk
         id: tests
         run: |
@@ -587,6 +593,7 @@ jobs:
           # Terraform suite (M7/M8) never actually ran in CI despite
           # `./test/terraform/...` being the -v target below.
           TESTS=$(grep -rh '^func Test' test/terraform/*_test.go test/terraform/azure/*_test.go \
+            test/terraform/gcp/*_test.go \
             | sed 's/func \(Test[^ (]*\).*/\1/' | sort -u)
           # Round-robin distribute tests across chunks
           CHUNK_TESTS=$(echo "$TESTS" | awk "NR % ${TOTAL_CHUNKS} == ${CHUNK}")
