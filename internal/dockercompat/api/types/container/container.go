@@ -12,6 +12,9 @@ type Config = mobycontainer.Config
 // HostConfig aliases the Moby host config type.
 type HostConfig = mobycontainer.HostConfig
 
+// NetworkMode aliases the Moby container network mode type.
+type NetworkMode = mobycontainer.NetworkMode
+
 // CreateResponse aliases the Moby create response type.
 type CreateResponse = mobycontainer.CreateResponse
 

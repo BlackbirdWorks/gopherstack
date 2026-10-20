@@ -346,6 +346,7 @@ func (b *InMemoryBackend) deleteDBInstanceLocked(
 	}
 
 	b.detachClusterReplicaLocked(inst)
+	b.promoteReplicasOfLocked(inst)
 
 	// Remove this instance from its cluster's DBClusterMembers, if any.
 	if inst.DBClusterIdentifier != "" {
@@ -424,6 +425,7 @@ func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
 			}
 			result = []DBInstance{*inst}
 			b.overlayInstanceRestorableRLocked(&result[0])
+			b.overlayInstanceReplicaRLocked(&result[0])
 
 			return
 		}
@@ -432,6 +434,7 @@ func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
 		for _, inst := range b.instances.All() {
 			cp := *inst
 			b.overlayInstanceRestorableRLocked(&cp)
+			b.overlayInstanceReplicaRLocked(&cp)
 			instances = append(instances, cp)
 		}
 		result = instances
@@ -1054,7 +1057,7 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(
 	applyReplicaOverrides(replica, &inherited, opts)
 	applyVpcSecurityGroups(replica, opts.VpcSecurityGroupIDs)
 	b.instances.Put(replica)
-	b.seedFromLiveSourceLocked(replica, b.replicaSourceUnitLocked(source, sourceCluster))
+	b.seedReplicaLocked(replica, b.replicaSourceUnitLocked(source, sourceCluster))
 	b.publishInstanceEventLocked(id, "DB read replica created")
 
 	// Track reverse read replica reference on source instance or cluster.
@@ -1083,11 +1086,6 @@ func (b *InMemoryBackend) replicaSourceUnitLocked(source *DBInstance, sourceClus
 	default:
 		return nil
 	}
-}
-
-// seedFromLiveSourceLocked gives inst its own engine loaded with a copy of src's data; no-op without a live src.
-func (b *InMemoryBackend) seedFromLiveSourceLocked(inst *DBInstance, src *liveDB) {
-	b.seedRestoredInstanceLocked(inst, src, liveSeedLocked(src))
 }
 
 // seedRestoredInstanceLocked gives inst its own engine loaded with seed; no-op without a live src.
@@ -1182,6 +1180,7 @@ func (b *InMemoryBackend) PromoteReadReplica(id string) (*DBInstance, error) {
 
 	b.detachClusterReplicaLocked(inst)
 	inst.ReplicaSourceDBInstanceIdentifier = ""
+	b.promoteReplicaUnitLocked(inst)
 	cp := *inst
 
 	return &cp, nil

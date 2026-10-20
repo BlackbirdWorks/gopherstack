@@ -18,8 +18,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
@@ -84,25 +82,17 @@ type EngineLogin struct {
 
 // EngineConfig configures docker-backed RDS databases.
 type EngineConfig struct {
-	Runtime EngineRuntime
-	// Ports hands out host ports; nil falls back to OS-chosen free ports.
-	Ports *portalloc.Allocator
-	// Probe returns nil once the login works against the engine; nil uses the real drivers.
-	Probe func(ctx context.Context, l EngineLogin) error
-	// SetPassword changes the login's own password inside the engine; nil uses the real drivers.
-	SetPassword func(ctx context.Context, l EngineLogin, newPassword string) error
-	// Now is the clock for restore points; nil uses time.Now.
-	Now func() time.Time
-	// Host is the address clients use to reach published ports; default 127.0.0.1.
-	Host string
-	// CADir persists the local CA that signs the postgres proxy certificate; empty keeps it in memory.
-	CADir string
-	// DumpDir persists snapshot dumps and restore points so restores survive a restart; empty keeps them in memory.
-	DumpDir string
-	// StartTimeout bounds how long a database may stay unreachable before it is marked failed.
-	StartTimeout time.Duration
-	// RestorePointInterval is how often ready databases with backups enabled are dumped for point-in-time
-	// restore; zero uses five minutes and a negative value disables it.
+	Runtime              EngineRuntime
+	Ports                *portalloc.Allocator
+	Probe                func(ctx context.Context, l EngineLogin) error
+	SetPassword          func(ctx context.Context, l EngineLogin, newPassword string) error
+	Now                  func() time.Time
+	ReplicaStatus        func(ctx context.Context, l EngineLogin) (ReplicaStatus, error)
+	Host                 string
+	CADir                string
+	DumpDir              string
+	ReplicaPollInterval  time.Duration
+	StartTimeout         time.Duration
 	RestorePointInterval time.Duration
 }
 
@@ -110,18 +100,24 @@ type liveDB struct {
 	gone        chan struct{}
 	proxy       atomic.Pointer[pgProxy]
 	fwd         atomic.Pointer[tcpForwarder]
+	net         atomic.Pointer[replNet]
+	repl        *replicaState
 	eps         sync.Map
-	seed        engineSeed
-	password    string
 	kind        string
+	containerID string
+	replPass    string
+	ctrName     string
+	key         string
 	version     string
 	user        string
 	resourceID  string
 	dbName      string
-	containerID string
-	key         string
+	password    string
+	seed        engineSeed
 	port        int
 	once        sync.Once
+	serverID    uint32
+	monitoring  atomic.Bool
 	ready       bool
 	paused      bool
 }
@@ -208,6 +204,10 @@ func (b *InMemoryBackend) EnableEngine(cfg EngineConfig) {
 
 	if cfg.Probe == nil {
 		cfg.Probe = probeEngine
+	}
+
+	if cfg.ReplicaStatus == nil {
+		cfg.ReplicaStatus = queryReplicaStatus
 	}
 
 	if cfg.SetPassword == nil {
@@ -306,14 +306,18 @@ func engineEnv(lb *liveDB) []string {
 	return env
 }
 
-func (e *dbEngine) spec(lb *liveDB) container.Spec {
-	return container.Spec{
-		Name:  "gopherstack-rds-" + uuid.NewString()[:12],
+func (e *dbEngine) spec(lb *liveDB, plan replPlan) container.Spec {
+	s := container.Spec{
+		Name:  lb.ctrName,
 		Image: engineImage(lb.kind, lb.version),
 		Env:   engineEnv(lb),
 		Ports: []string{container.PortSpec(
 			container.BindHostFor(e.cfg.Host), strconv.Itoa(lb.port), strconv.Itoa(engineContainerPort(lb.kind)))},
+		Network: plan.network,
 	}
+	applyReplicationFlags(&s, lb, plan)
+
+	return s
 }
 
 func (e *dbEngine) login(lb *liveDB) EngineLogin {
@@ -376,6 +380,7 @@ func (e *dbEngine) reap(lbs ...*liveDB) {
 		lb.release()
 
 		id, port := lb.containerID, lb.port
+		netw := lb.net.Load()
 		e.wg.Go(func() {
 			if p := lb.proxy.Load(); p != nil {
 				p.wg.Wait()
@@ -394,6 +399,7 @@ func (e *dbEngine) reap(lbs ...*liveDB) {
 			})
 
 			e.remove(id, port)
+			e.releaseNet(netw)
 		})
 	}
 }
@@ -488,7 +494,13 @@ func (b *InMemoryBackend) launchSeededUnitLocked(
 	lb := &liveDB{
 		gone: make(chan struct{}), key: key, resourceID: resourceID, kind: engineKind(engine),
 		version: version, user: user, password: password, dbName: dbName, seed: seed,
+		ctrName: "gopherstack-rds-" + randomPassword(), serverID: randomServerID(),
 	}
+	if seed.replicate {
+		lb.repl = &replicaState{srcKey: seed.fromKey}
+		lb.net.Store(seed.net)
+	}
+
 	e.units[key] = lb
 
 	e.wg.Go(func() { b.runUnit(lb) })
@@ -564,7 +576,14 @@ func (b *InMemoryBackend) runUnit(lb *liveDB) {
 		return
 	}
 
-	id, err := e.cfg.Runtime.CreateAndStart(ctx, e.spec(lb))
+	plan, err := b.replicaPlan(ctx, lb)
+	if err != nil {
+		b.failUnit(ctx, lb)
+
+		return
+	}
+
+	id, err := e.cfg.Runtime.CreateAndStart(ctx, e.spec(lb, plan))
 	if err != nil {
 		b.failUnit(ctx, lb)
 
@@ -618,7 +637,7 @@ func (b *InMemoryBackend) awaitAndMark(ctx context.Context, lb *liveDB) {
 	ctx, cancel := context.WithTimeout(ctx, b.engine.cfg.StartTimeout)
 	defer cancel()
 
-	if b.engine.awaitReady(ctx, login) != nil || b.applySeed(ctx, lb) != nil {
+	if b.engine.awaitReady(ctx, login) != nil || b.applySeed(ctx, lb) != nil || b.guardReplica(ctx, lb) != nil {
 		b.failUnit(ctx, lb)
 
 		return
@@ -641,6 +660,7 @@ func (b *InMemoryBackend) awaitAndMark(ctx context.Context, lb *liveDB) {
 	}
 
 	b.markUnitReady(lb)
+	b.startReplicaMonitor(lb)
 	b.recordRestorePoint(lb)
 }
 

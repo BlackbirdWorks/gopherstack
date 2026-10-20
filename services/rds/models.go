@@ -161,6 +161,7 @@ type DBInstance struct {
 	NetworkType                        string                       `json:"networkType,omitempty"`
 	VpcSecurityGroups                  []VpcSecurityGroupMembership `json:"vpcSecurityGroups,omitempty"`
 	DBSecurityGroups                   []DBSecurityGroupMembership  `json:"dbSecurityGroups,omitempty"`
+	StatusInfos                        []DBInstanceStatusInfo       `json:"-"`
 	ReadReplicaIdentifiers             []string                     `json:"readReplicaIdentifiers,omitempty"`
 	EnabledCloudwatchLogsExports       []string                     `json:"enabledCloudwatchLogsExports,omitempty"`
 	PerformanceInsightsRetentionPeriod int                          `json:"performanceInsightsRetentionPeriod,omitempty"`

@@ -459,6 +459,8 @@ func toXMLInstance(inst *DBInstance, roles []DBInstanceRole) xmlDBInstance {
 // group, and option group membership fields of result from inst. Split out
 // of toXMLInstance to keep that function under the funlen limit.
 func applyXMLInstanceGroups(inst *DBInstance, result *xmlDBInstance) {
+	result.StatusInfos = xmlStatusInfos(inst.StatusInfos)
+
 	if inst.DBInstanceStatus == instanceStatusModifying {
 		if pv := inst.PendingModifiedValues; pv != nil {
 			xpv := &xmlPendingModifiedValues{
@@ -613,6 +615,7 @@ type xmlDBInstance struct {
 	VpcSecurityGroups                *xmlVpcSecurityGroupList      `xml:"VpcSecurityGroups,omitempty"`
 	DBSecurityGroups                 *xmlDBSecGroupList            `xml:"DBSecurityGroups,omitempty"`
 	ReadReplicaDBInstanceIdentifiers *xmlReadReplicaIdentifierList `xml:"ReadReplicaDBInstanceIdentifiers,omitempty"`
+	StatusInfos                      *xmlStatusInfoList            `xml:"StatusInfos,omitempty"`
 	EnabledCloudwatchLogsExports     *xmlLogTypeList               `xml:"EnabledCloudwatchLogsExports,omitempty"`
 	PendingModifiedValues            *xmlPendingModifiedValues     `xml:"PendingModifiedValues,omitempty"`
 	OptionGroupMemberships           *xmlOptionGroupMembershipList `xml:"OptionGroupMemberships,omitempty"`
@@ -669,6 +672,30 @@ type xmlDBInstance struct {
 	MultiAZ                          bool `xml:"MultiAZ"`
 	AutoMinorVersionUpgrade          bool `xml:"AutoMinorVersionUpgrade,omitempty"`
 	MultiTenant                      bool `xml:"MultiTenant,omitempty"`
+}
+
+type xmlStatusInfo struct {
+	StatusType string `xml:"StatusType"`
+	Status     string `xml:"Status"`
+	Message    string `xml:"Message,omitempty"`
+	Normal     bool   `xml:"Normal"`
+}
+
+type xmlStatusInfoList struct {
+	Members []xmlStatusInfo `xml:"DBInstanceStatusInfo"`
+}
+
+func xmlStatusInfos(infos []DBInstanceStatusInfo) *xmlStatusInfoList {
+	if len(infos) == 0 {
+		return nil
+	}
+
+	members := make([]xmlStatusInfo, 0, len(infos))
+	for _, si := range infos {
+		members = append(members, xmlStatusInfo(si))
+	}
+
+	return &xmlStatusInfoList{Members: members}
 }
 
 type xmlEndpoint struct {

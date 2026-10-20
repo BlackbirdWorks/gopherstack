@@ -72,6 +72,13 @@ type ExecStreamAPIClient interface {
 	) (int, error)
 }
 
+// NetworkAPIClient is implemented by clients that can manage user-defined networks.
+type NetworkAPIClient interface {
+	NetworkCreate(ctx context.Context, name string) (string, error)
+	NetworkConnect(ctx context.Context, networkID, containerID string) error
+	NetworkRemove(ctx context.Context, networkID string) error
+}
+
 // realDockerClient wraps the standard Docker SDK client to satisfy APIClient.
 type realDockerClient struct {
 	c *client.Client
@@ -143,6 +150,18 @@ func (r *realDockerClient) ContainerExecStream(
 	stdout, stderr io.Writer,
 ) (int, error) {
 	return r.c.ContainerExecStream(ctx, containerID, cmd, stdout, stderr)
+}
+
+func (r *realDockerClient) NetworkCreate(ctx context.Context, name string) (string, error) {
+	return r.c.NetworkCreate(ctx, name)
+}
+
+func (r *realDockerClient) NetworkConnect(ctx context.Context, networkID, containerID string) error {
+	return r.c.NetworkConnect(ctx, networkID, containerID)
+}
+
+func (r *realDockerClient) NetworkRemove(ctx context.Context, networkID string) error {
+	return r.c.NetworkRemove(ctx, networkID)
 }
 
 func (r *realDockerClient) Ping(ctx context.Context) (any, error) {
@@ -255,6 +274,10 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 		Privileged: spec.Privileged,
 	}
 
+	if spec.Network != "" {
+		hostCfg.NetworkMode = dockercontainer.NetworkMode(spec.Network)
+	}
+
 	r.cfg.Injection.apply(cfg, hostCfg)
 
 	if len(spec.Tmpfs) > 0 {
@@ -351,6 +374,36 @@ func (r *DockerRuntime) StartContainer(ctx context.Context, containerID string) 
 	}
 
 	return nil
+}
+
+// CreateNetwork creates a bridge network and returns its ID.
+func (r *DockerRuntime) CreateNetwork(ctx context.Context, name string) (string, error) {
+	api, ok := r.docker.(NetworkAPIClient)
+	if !ok {
+		return "", ErrNetworkUnsupported
+	}
+
+	return api.NetworkCreate(ctx, name)
+}
+
+// ConnectNetwork attaches a running container to the network.
+func (r *DockerRuntime) ConnectNetwork(ctx context.Context, networkID, containerID string) error {
+	api, ok := r.docker.(NetworkAPIClient)
+	if !ok {
+		return ErrNetworkUnsupported
+	}
+
+	return api.NetworkConnect(ctx, networkID, containerID)
+}
+
+// RemoveNetwork deletes the network.
+func (r *DockerRuntime) RemoveNetwork(ctx context.Context, networkID string) error {
+	api, ok := r.docker.(NetworkAPIClient)
+	if !ok {
+		return ErrNetworkUnsupported
+	}
+
+	return api.NetworkRemove(ctx, networkID)
 }
 
 // Exec runs cmd inside a running container and waits for it to finish.

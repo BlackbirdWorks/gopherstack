@@ -344,6 +344,35 @@ func (c *Client) ContainerExecStream(
 	}
 }
 
+// NetworkCreate creates a bridge network and returns its ID.
+func (c *Client) NetworkCreate(ctx context.Context, name string) (string, error) {
+	res, err := c.inner.NetworkCreate(ctx, name, mobyclient.NetworkCreateOptions{Driver: "bridge"})
+	if err != nil {
+		return "", fmt.Errorf("network create: %w", err)
+	}
+
+	return res.ID, nil
+}
+
+// NetworkConnect attaches a container to a network.
+func (c *Client) NetworkConnect(ctx context.Context, networkID, containerID string) error {
+	_, err := c.inner.NetworkConnect(ctx, networkID, mobyclient.NetworkConnectOptions{Container: containerID})
+	if err != nil {
+		return fmt.Errorf("network connect: %w", err)
+	}
+
+	return nil
+}
+
+// NetworkRemove deletes a network.
+func (c *Client) NetworkRemove(ctx context.Context, networkID string) error {
+	if _, err := c.inner.NetworkRemove(ctx, networkID, mobyclient.NetworkRemoveOptions{}); err != nil {
+		return fmt.Errorf("network remove: %w", err)
+	}
+
+	return nil
+}
+
 // ErrNoContainerIP is returned when a container has no network address.
 var ErrNoContainerIP = errors.New("container has no network address")
 

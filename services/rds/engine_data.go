@@ -36,10 +36,13 @@ type EngineExecRuntime interface {
 
 // engineSeed describes data a new unit loads once its engine is up.
 type engineSeed struct {
+	net      *replNet
 	dump     string
 	fromKey  string
 	password string
 	dbName   string
+	// replicate makes the unit a streaming replica of fromKey instead of a restored copy.
+	replicate bool
 }
 
 func (s engineSeed) empty() bool { return s.dump == "" && s.fromKey == "" }
@@ -98,6 +101,11 @@ func pgDatabase(l EngineLogin) (string, error) {
 
 // dumpUnit captures the unit's logical content with the engine's own dump tool.
 func (e *dbEngine) dumpUnit(ctx context.Context, in unitInfo) (string, error) {
+	return e.dumpUnitFor(ctx, in, false)
+}
+
+// dumpUnitFor is dumpUnit; forReplica also records the binlog/GTID position a replica resumes from.
+func (e *dbEngine) dumpUnitFor(ctx context.Context, in unitInfo, forReplica bool) (string, error) {
 	x, ok := e.execer()
 	if !ok || in.containerID == "" {
 		return "", nil
@@ -115,6 +123,11 @@ func (e *dbEngine) dumpUnit(ctx context.Context, in unitInfo) (string, error) {
 		})
 	}
 
+	return e.dumpMySQL(ctx, x, in, forReplica)
+}
+
+func (e *dbEngine) dumpMySQL(ctx context.Context, x EngineExecRuntime, in unitInfo, forReplica bool) (string, error) {
+	l := in.login
 	client, dumper := mysqlClients(l.Kind)
 	env := "MYSQL_PWD=" + l.Password
 
@@ -134,15 +147,62 @@ func (e *dbEngine) dumpUnit(ctx context.Context, in unitInfo) (string, error) {
 	}
 
 	if len(names) == 0 {
+		if forReplica {
+			return e.mysqlPositionScript(ctx, x, in)
+		}
+
 		return "", nil
 	}
 
 	cmd := append([]string{
 		cmdEnv, env, dumper, "-u" + mysqlRootUser, "--single-transaction", "--skip-dump-date",
-		"--routines", "--events", "--triggers", "--databases",
-	}, names...)
+		"--routines", "--events", "--triggers",
+	}, mysqlDumpPositionFlags(l.Kind, forReplica)...)
 
-	return e.run(ctx, x, in.containerID, cmd)
+	cmd = append(cmd, "--databases")
+
+	return e.run(ctx, x, in.containerID, append(cmd, names...))
+}
+
+// mysqlPositionScript returns the statement that starts a replica of a source holding no user databases at
+// the source's current GTID position.
+func (e *dbEngine) mysqlPositionScript(ctx context.Context, x EngineExecRuntime, in unitInfo) (string, error) {
+	l := in.login
+	client, _ := mysqlClients(l.Kind)
+	expr, format := "@@GLOBAL.gtid_executed", "SET @@GLOBAL.GTID_PURGED='%s';\n"
+
+	if l.Kind == engineMariaDB {
+		expr, format = "@@GLOBAL.gtid_binlog_pos", "SET GLOBAL gtid_slave_pos='%s';\n"
+	}
+
+	out, err := e.run(ctx, x, in.containerID, []string{
+		cmdEnv, "MYSQL_PWD=" + l.Password, client, "-u" + mysqlRootUser, "-N", "-B", "-e", "SELECT " + expr,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	gtid := strings.ReplaceAll(strings.Join(strings.Fields(out), ""), `\n`, "")
+	if gtid == "" || gtid == "NULL" {
+		return "", nil
+	}
+
+	return fmt.Sprintf(format, gtid), nil
+}
+
+// mysqlDumpPositionFlags picks the dump flags that tie its content to a binlog position (replicas) or keep
+// it loadable into a GTID-enabled server (everything else).
+func mysqlDumpPositionFlags(kind string, forReplica bool) []string {
+	switch {
+	case kind == engineMariaDB && forReplica:
+		return []string{"--master-data=1", "--gtid"}
+	case kind == engineMariaDB:
+		return nil
+	case forReplica:
+		return []string{"--source-data=2", "--set-gtid-purged=ON"}
+	default:
+		return []string{"--set-gtid-purged=OFF"}
+	}
 }
 
 func isMySQLSystemSchema(name string) bool {
@@ -356,6 +416,10 @@ func (b *InMemoryBackend) applySeed(ctx context.Context, lb *liveDB) error {
 		return nil
 	}
 
+	if seed.replicate {
+		return b.seedReplica(ctx, lb, seed, in)
+	}
+
 	dump := seed.dump
 	if seed.fromKey != "" {
 		var err error
@@ -373,6 +437,16 @@ func (b *InMemoryBackend) applySeed(ctx context.Context, lb *liveDB) error {
 
 // dumpLiveSource waits for the source unit to be ready, then dumps it.
 func (b *InMemoryBackend) dumpLiveSource(ctx context.Context, key string) (string, error) {
+	_, in, err := b.awaitLiveSource(ctx, key)
+	if err != nil {
+		return "", err
+	}
+
+	return b.engine.dumpUnit(ctx, in)
+}
+
+// awaitLiveSource waits for the unit under key to be ready and returns how to reach it.
+func (b *InMemoryBackend) awaitLiveSource(ctx context.Context, key string) (*liveDB, unitInfo, error) {
 	ticker := time.NewTicker(engineProbeInterval)
 	defer ticker.Stop()
 
@@ -389,16 +463,16 @@ func (b *InMemoryBackend) dumpLiveSource(ctx context.Context, key string) (strin
 		b.mu.RUnlock()
 
 		if !ok {
-			return "", fmt.Errorf("%w", errSeedSource)
+			return nil, unitInfo{}, fmt.Errorf("%w", errSeedSource)
 		}
 
 		if ready {
-			return b.engine.dumpUnit(ctx, in)
+			return src, in, nil
 		}
 
 		select {
 		case <-ctx.Done():
-			return "", fmt.Errorf("%w: %w", errSeedSource, ctx.Err())
+			return nil, unitInfo{}, fmt.Errorf("%w: %w", errSeedSource, ctx.Err())
 		case <-ticker.C:
 		}
 	}
