@@ -878,7 +878,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Azure Cosmos DB](services/cosmosdb/README.md) | B | 30 | 9 gaps |
 | [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 5 gaps |
 | [Azure Queue Storage](services/azurequeue/README.md) | C | 13 | 6 gaps; 1 deferred |
-| [Azure Service Bus](services/azureservicebus/README.md) | B | 24 | 4 gaps; 3 deferred |
+| [Azure Service Bus](services/azureservicebus/README.md) | B | 25 | 3 gaps; 4 deferred |
 | [Azure Table Storage](services/azuretable/README.md) | C | 14 | 4 gaps; 3 deferred |
 
 ### GCP
