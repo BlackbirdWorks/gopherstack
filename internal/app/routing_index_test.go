@@ -1,6 +1,7 @@
 package app
 
 import (
+	"github.com/blackbirdworks/gopherstack/dashboard/api/v1/dashboardv1connect"
 	"github.com/blackbirdworks/gopherstack/internal/routegates"
 
 	"math/rand/v2"
@@ -256,6 +257,14 @@ func TestRoutingPathGatedAlternatives(t *testing.T) {
 		{"apigateway", "POST", "/", "APIGateway.GetRestApis", "APIGateway"},
 		{"lambda", "POST", "/", "AWSLambda.ListFunctions", "Lambda"},
 		{"iotdataplane_admin", "POST", "/_admin/connections/client-1", "", "IoTDataPlane"},
+		{
+			"dashboard_stream_console", "POST",
+			dashboardv1connect.DashboardServiceStreamConsoleProcedure, "", "Dashboard",
+		},
+		{
+			"dashboard_stream_metrics", "POST",
+			dashboardv1connect.DashboardServiceStreamMetricsProcedure, "", "Dashboard",
+		},
 	}
 
 	for _, tt := range tests {
