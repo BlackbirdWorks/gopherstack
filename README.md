@@ -871,6 +871,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
+| [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 7 gaps |
 | [Cloud IAM](services/gcpiam/README.md) | B | 31 | 5 gaps |
 | [Cloud Run](services/gcprun/README.md) | B | 20 | 6 gaps |
 | [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | 5 gaps |
@@ -1047,6 +1048,19 @@ task lint            # linters
 task docs            # regenerate the service docs from each PARITY.md
 task pgo             # regenerate the PGO profile
 ```
+
+**Scoped lint.** `task lint-changed` (branch vs `origin/main` plus working tree) and
+`task lint-wip` (working tree + `HEAD`) lint only the touched packages, in batches to bound
+memory. Tunables: `LINT_BATCH` (packages per invocation, default 15), `LINT_TIMEOUT`
+(per batch, default 30m; a timeout names the batch), `LINT_CONCURRENCY` (default from
+`GOFLAGS=-p=N`, else half the cores), `LINT_LOCK_RETRIES` (waits 15s each while another
+`golangci-lint` holds the lock). The golangci-lint cache is reused, never cleaned.
+
+**Build cache.** `task gocache-trim` deletes `GOCACHE` entries older than
+`GOCACHE_TRIM_MINUTES` (default 180), or runs `go clean -cache` if the cache exceeds
+`GOCACHE_CLEAN_GB` (default 200), and prints before/after sizes. `lint-changed`, `build-check`,
+`lint`, `test` and `integration-test` run it automatically when the `GOCACHE` filesystem has
+less than `GOCACHE_MIN_FREE_GB` (default 5) free.
 
 ## Versioning
 
