@@ -197,13 +197,12 @@ func (h *Handler) completeFederatedLogin(c *echo.Context, st *idpState, username
 	}, username)
 }
 
-func readRandom(b []byte) (int, error) {
-	n, err := rand.Read(b)
-	if err != nil {
-		return n, fmt.Errorf("random: %w", err)
+func readRandom(b []byte) error {
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Errorf("random: %w", err)
 	}
 
-	return n, nil
+	return nil
 }
 
 // completeFederation exchanges the IdP code, validates the id_token and signs the federated user in.

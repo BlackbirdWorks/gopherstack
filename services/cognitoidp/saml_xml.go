@@ -69,7 +69,7 @@ type xmlBuilder struct {
 
 // parseXML builds a namespace-aware tree preserving prefixes; DOCTYPE and entity declarations are rejected.
 func parseXML(data []byte) (*xnode, error) {
-	dec := xml.NewDecoder(bytes.NewReader(data))
+	dec := xml.NewDecoder(bytes.NewReader(data)) //nolint:gosec // RawToken only; directives are rejected in add
 	dec.Strict = true
 
 	var b xmlBuilder
@@ -444,6 +444,20 @@ func digest(h crypto.Hash, data []byte) []byte {
 // verifiedElements returns every element whose enveloped XML-DSig signature verifies against keys.
 // Only SHA-2 RSA signatures over exclusive C14N are accepted; the signed element must carry a unique ID.
 func verifiedElements(root *xnode, keys []*rsa.PublicKey) ([]*xnode, error) {
+	out, err := signedElements(root, keys)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(out) == 0 {
+		return nil, sigErrorf("document is not signed")
+	}
+
+	return out, nil
+}
+
+// signedElements is verifiedElements that tolerates an unsigned document; any signature present must verify.
+func signedElements(root *xnode, keys []*rsa.PublicKey) ([]*xnode, error) {
 	ids := map[string]int{}
 
 	root.walk(func(n *xnode) {
@@ -473,10 +487,6 @@ func verifiedElements(root *xnode, keys []*rsa.PublicKey) ([]*xnode, error) {
 		}
 
 		out = append(out, signed)
-	}
-
-	if len(out) == 0 {
-		return nil, sigErrorf("document is not signed")
 	}
 
 	return out, nil

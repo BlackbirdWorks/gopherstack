@@ -314,6 +314,18 @@ func (h *Handler) finishLogin(c *echo.Context, req *authorizeRequest, username s
 	return h.completeLogin(c, req, username)
 }
 
+// samlLinkOf returns the SAML login behind the request's session cookie, if any.
+func (h *Handler) samlLinkOf(c *echo.Context, client *UserPoolClient) *samlLink {
+	cookie, err := c.Request().Cookie(sessionCookie)
+	if err != nil || cookie.Value == "" {
+		return nil
+	}
+
+	link, _ := h.Backend.samlSessionLink(cookie.Value, client.UserPoolID)
+
+	return link
+}
+
 func (h *Handler) endSession(c *echo.Context) {
 	if cookie, err := c.Request().Cookie(sessionCookie); err == nil {
 		h.Backend.deleteHostedSession(cookie.Value)
@@ -495,12 +507,19 @@ func (h *Handler) handleHostedLogout(c *echo.Context) error {
 		return renderErrorPage(c, http.StatusBadRequest, errInvalidRequest, "client_id not found")
 	}
 
+	link := h.samlLinkOf(c, client)
 	h.endSession(c)
 
 	if logout := q.Get("logout_uri"); logout != "" {
 		registered, found := registeredURL(client.LogoutURLs, logout)
 		if !found {
 			return renderErrorPage(c, http.StatusBadRequest, errInvalidRequest, "logout_uri is not registered")
+		}
+
+		if link != nil {
+			if sent, err := h.idpLogout(c, client, link, registered); sent {
+				return err
+			}
 		}
 
 		return c.Redirect(http.StatusFound, registered)

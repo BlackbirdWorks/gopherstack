@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"maps"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -46,14 +47,20 @@ type samlOpts struct {
 	nameID     string
 	sign       string
 	extraAud   string
+	encryptTo  *rsa.PublicKey
+	encMode    string
 	noDest     bool
+	unsolicit  bool
 	expires    time.Duration
 }
 
 type samlIDP struct {
-	srv  *httptest.Server
-	key  *rsa.PrivateKey
-	cert []byte
+	srv        *httptest.Server
+	key        *rsa.PrivateKey
+	cert       []byte
+	ssoPost    bool
+	slo        bool
+	wantSigned bool
 }
 
 func newSAMLIDP(t *testing.T) *samlIDP {
@@ -85,14 +92,29 @@ func newSAMLIDP(t *testing.T) *samlIDP {
 }
 
 func (i *samlIDP) metadata() string {
+	binding, want := "Redirect", ""
+	if i.ssoPost {
+		binding = "POST"
+	}
+
+	if i.wantSigned {
+		want = ` WantAuthnRequestsSigned="true"`
+	}
+
+	slo := ""
+	if i.slo {
+		slo = `<md:SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="` +
+			i.srv.URL + `/slo"/>`
+	}
+
 	return `<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="` + samlEntityID + `">` +
-		`<md:IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">` +
+		`<md:IDPSSODescriptor` + want + ` protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">` +
 		`<md:KeyDescriptor use="signing"><ds:KeyInfo xmlns:ds="` + samlNSDSig + `"><ds:X509Data><ds:X509Certificate>` +
 		base64.StdEncoding.EncodeToString(
 			i.cert,
 		) + `</ds:X509Certificate></ds:X509Data></ds:KeyInfo></md:KeyDescriptor>` +
-		`<md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="` +
-		i.srv.URL + `/sso"/></md:IDPSSODescriptor></md:EntityDescriptor>`
+		slo + `<md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-` + binding +
+		`" Location="` + i.srv.URL + `/sso"/></md:IDPSSODescriptor></md:EntityDescriptor>`
 }
 
 // signed builds open+before+Signature+after+close, signing the element's hand-written exclusive-C14N form.
@@ -130,7 +152,7 @@ func (i *samlIDP) response(requestID, acs, poolID string, o *samlOpts) string {
 
 	body := `<saml:Subject><saml:NameID>` + o.nameID + `</saml:NameID>` +
 		`<saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">` +
-		`<saml:SubjectConfirmationData InResponseTo="` + o.inResponse + `" NotOnOrAfter="` + stamp(o.expires) +
+		`<saml:SubjectConfirmationData` + o.irt(o.inResponse) + ` NotOnOrAfter="` + stamp(o.expires) +
 		`" Recipient="` + acs + `"></saml:SubjectConfirmationData></saml:SubjectConfirmation></saml:Subject>` +
 		`<saml:Conditions NotBefore="` + stamp(-time.Minute) + `" NotOnOrAfter="` + stamp(o.expires) + `">` +
 		`<saml:AudienceRestriction><saml:Audience>` + o.audience + `</saml:Audience></saml:AudienceRestriction>` +
@@ -149,7 +171,7 @@ func (i *samlIDP) response(requestID, acs, poolID string, o *samlOpts) string {
 	}
 
 	rOpen := `<samlp:Response xmlns:samlp="` + samlNSProtocol + `"` + dest +
-		` ID="_resp1" InResponseTo="` + requestID + `" IssueInstant="` + stamp(0) + `" Version="2.0">`
+		` ID="_resp1"` + o.irt(requestID) + ` IssueInstant="` + stamp(0) + `" Version="2.0">`
 	status := `<samlp:Status><samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success">` +
 		`</samlp:StatusCode></samlp:Status>`
 
@@ -157,11 +179,12 @@ func (i *samlIDP) response(requestID, acs, poolID string, o *samlOpts) string {
 
 	switch o.sign {
 	case "assertion":
-		doc = rOpen + status + i.signed(o.signKey, "_assert1", aOpen, aBefore, body, aClose) + `</samlp:Response>`
+		signedA := i.signed(o.signKey, "_assert1", aOpen, aBefore, body, aClose)
+		doc = rOpen + status + o.wrap(signedA) + `</samlp:Response>`
 	case "response":
-		doc = i.signed(o.signKey, "_resp1", rOpen, status, aOpen+aBefore+body+aClose, `</samlp:Response>`)
+		doc = i.signed(o.signKey, "_resp1", rOpen, status, o.wrap(aOpen+aBefore+body+aClose), `</samlp:Response>`)
 	default:
-		doc = rOpen + status + aOpen + aBefore + body + aClose + `</samlp:Response>`
+		doc = rOpen + status + o.wrap(aOpen+aBefore+body+aClose) + `</samlp:Response>`
 	}
 
 	if o.mutate != nil {
@@ -169,6 +192,22 @@ func (i *samlIDP) response(requestID, acs, poolID string, o *samlOpts) string {
 	}
 
 	return base64.StdEncoding.EncodeToString([]byte(doc))
+}
+
+func (o *samlOpts) irt(id string) string {
+	if o.unsolicit {
+		return ""
+	}
+
+	return ` InResponseTo="` + id + `"`
+}
+
+func (o *samlOpts) wrap(assertion string) string {
+	if o.encryptTo == nil {
+		return assertion
+	}
+
+	return encryptAssertionXML(o.encryptTo, assertion, o.encMode)
 }
 
 func (o *samlOpts) extraRestriction() string {
@@ -223,13 +262,26 @@ type samlEnv struct {
 func newSAMLEnv(t *testing.T, byURL bool) *samlEnv {
 	t.Helper()
 
+	return newSAMLEnvWith(t, byURL, nil, nil)
+}
+
+// newSAMLEnvWith builds a SAML pool; tweak adjusts the test IdP and extra is merged into ProviderDetails.
+func newSAMLEnvWith(t *testing.T, byURL bool, tweak func(*samlIDP), extra map[string]string) *samlEnv {
+	t.Helper()
+
 	idp := newSAMLIDP(t)
+	if tweak != nil {
+		tweak(idp)
+	}
+
 	env := newOAuthEnv(t)
 
 	details := map[string]string{detailMetadataFile: idp.metadata()}
 	if byURL {
 		details = map[string]string{"MetadataURL": idp.srv.URL + "/metadata"}
 	}
+
+	maps.Copy(details, extra)
 
 	_, err := env.backend.CreateIdentityProviderFull(env.poolID, fedProvider, "SAML", details,
 		map[string]string{"email": samlEmailAttr}, nil)
@@ -238,6 +290,7 @@ func newSAMLEnv(t *testing.T, byURL bool) *samlEnv {
 	client, err := env.backend.CreateUserPoolClientWithOpts(env.poolID, "saml", cognitoidp.UserPoolClientOptions{
 		AllowedOAuthFlows: []string{"code"}, AllowedOAuthFlowsUserPoolClient: true,
 		AllowedOAuthScopes: []string{"openid", "email", "profile"}, CallbackURLs: []string{oauthRedirect},
+		LogoutURLs:                 []string{oauthLogout},
 		SupportedIdentityProviders: []string{fedProvider},
 	})
 	require.NoError(t, err)

@@ -22,6 +22,7 @@ const (
 // hostedSession is a runtime-only managed-login session, bound to a pool and a user record.
 type hostedSession struct {
 	ExpiresAt      time.Time
+	SAML           *samlLink
 	PoolID         string
 	Username       string
 	Sub            string
@@ -37,6 +38,11 @@ func sessionKey(id string) string {
 }
 
 func (b *InMemoryBackend) createHostedSession(poolID, username string) (string, error) {
+	return b.createHostedSessionFor(poolID, username, nil)
+}
+
+// createHostedSessionFor starts a session, remembering the SAML login (if any) for single logout.
+func (b *InMemoryBackend) createHostedSessionFor(poolID, username string, link *samlLink) (string, error) {
 	raw := make([]byte, sessionIDBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return "", fmt.Errorf("generating session id: %w", err)
@@ -68,7 +74,7 @@ func (b *InMemoryBackend) createHostedSession(poolID, username string) (string, 
 	b.tokenSeq++
 	b.hostedSessions[sessionKey(id)] = &hostedSession{
 		ExpiresAt: now.Add(hostedSessionTTL), PoolID: poolID, Username: user.Username, Sub: user.Sub,
-		PasswordDigest: sha256.Sum256([]byte(user.PasswordHash)), Seq: b.tokenSeq,
+		PasswordDigest: sha256.Sum256([]byte(user.PasswordHash)), Seq: b.tokenSeq, SAML: link,
 	}
 
 	return id, nil

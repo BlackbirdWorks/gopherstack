@@ -467,6 +467,7 @@ var cognitoSentinelErrors = []struct { //nolint:gochecknoglobals // package-leve
 	{ErrSecretNotFound, ErrSecretNotFound.Error()},
 	{ErrLimitExceeded, ErrLimitExceeded.Error()},
 	{ErrCodeDeliveryFailure, ErrCodeDeliveryFailure.Error()},
+	{ErrInvalidSMSRoleTrust, ErrInvalidSMSRoleTrust.Error()},
 	{errUnknownAction, "UnknownOperationException"},
 }
 

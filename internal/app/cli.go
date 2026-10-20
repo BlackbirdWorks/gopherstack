@@ -3290,7 +3290,7 @@ func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable
 	wireSESSNS(byName["SES"], byName["SNS"])
 	wireSESInbound(byName)
 	wireSESv2SNS(byName["SESv2"], byName["SNS"])
-	wireCognitoMessageDelivery(byName["CognitoIDP"], byName["SES"], byName["SNS"])
+	wireCognitoMessageDelivery(byName["CognitoIDP"], byName["SES"], byName["SNS"], byName["STS"])
 	wireBudgets(byName)
 
 	// Wire AWS Config's DeliverConfigSnapshot to S3 (and SNS, when a

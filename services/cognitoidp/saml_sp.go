@@ -14,7 +14,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 	"time"
 
@@ -26,6 +25,10 @@ import (
 const (
 	pathSAMLIDPResponse = "/saml2/idpresponse"
 	opSAMLIDPResponse   = "SAML2IDPResponse"
+	pathSAMLLogout      = "/saml2/logout"
+	opSAMLLogout        = "SAML2Logout"
+	pathSAMLMetadata    = "/saml2/metadata"
+	opSAMLMetadata      = "SAML2Metadata"
 
 	nsSAMLMetadata  = "urn:oasis:names:tc:SAML:2.0:metadata"
 	nsSAMLProtocol  = "urn:oasis:names:tc:SAML:2.0:protocol"
@@ -52,10 +55,25 @@ func samlErrorf(format string, args ...any) error {
 }
 
 type samlMetadata struct {
-	entityID    string
-	ssoRedirect string
-	ssoPost     string
-	keys        []*rsa.PublicKey
+	entityID        string
+	ssoRedirect     string
+	ssoPost         string
+	sloRedirect     string
+	sloPost         string
+	keys            []*rsa.PublicKey
+	wantAuthnSigned bool
+}
+
+// sloEndpoint prefers the redirect binding; the bool reports whether it is the redirect one.
+func (md *samlMetadata) sloEndpoint() (string, bool, bool) {
+	switch {
+	case md.sloRedirect != "":
+		return md.sloRedirect, true, true
+	case md.sloPost != "":
+		return md.sloPost, false, true
+	default:
+		return "", false, false
+	}
 }
 
 func idpFetchRaw(ctx context.Context, target string) ([]byte, error) {
@@ -130,7 +148,19 @@ func parseSAMLMetadata(raw []byte) (*samlMetadata, error) {
 		return nil, samlErrorf("metadata has no IDPSSODescriptor")
 	}
 
-	md := &samlMetadata{entityID: idpDesc.parent.attr("entityID"), keys: signingKeys(idpDesc)}
+	md := &samlMetadata{
+		entityID: idpDesc.parent.attr("entityID"), keys: signingKeys(idpDesc),
+		wantAuthnSigned: strings.EqualFold(idpDesc.attr("WantAuthnRequestsSigned"), "true"),
+	}
+
+	for _, s := range idpDesc.childrenNamed(nsSAMLMetadata, "SingleLogoutService") {
+		switch s.attr("Binding") {
+		case bindingRedirect:
+			md.sloRedirect = s.attr("Location")
+		case bindingPost:
+			md.sloPost = s.attr("Location")
+		}
+	}
 
 	for _, s := range idpDesc.childrenNamed(nsSAMLMetadata, "SingleSignOnService") {
 		switch s.attr("Binding") {
@@ -149,9 +179,9 @@ func (md *samlMetadata) validate() error {
 		return samlErrorf("metadata needs an entityID, a signing certificate and a SingleSignOnService")
 	}
 
-	for _, u := range []string{md.ssoRedirect, md.ssoPost} {
+	for _, u := range []string{md.ssoRedirect, md.ssoPost, md.sloRedirect, md.sloPost} {
 		if u != "" && !httpURL(u) {
-			return samlErrorf("SingleSignOnService %q is not an http(s) URL", u)
+			return samlErrorf("IdP endpoint %q is not an http(s) URL", u)
 		}
 	}
 
@@ -196,7 +226,15 @@ func signingKeys(idpDesc *xnode) []*rsa.PublicKey {
 }
 
 func samlACSURL(r *http.Request) string {
-	return strings.TrimSuffix(idpCallbackURL(r), pathOAuthIDPResponse) + pathSAMLIDPResponse
+	return samlBaseURL(r) + pathSAMLIDPResponse
+}
+
+func samlSLOURL(r *http.Request) string {
+	return samlBaseURL(r) + pathSAMLLogout
+}
+
+func samlBaseURL(r *http.Request) string {
+	return strings.TrimSuffix(idpCallbackURL(r), pathOAuthIDPResponse)
 }
 
 func buildAuthnRequest(id, poolID, destination, acs string, now time.Time) string {
@@ -226,19 +264,110 @@ func deflateBase64(data string) (string, error) {
 	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
 }
 
+// samlOutbound describes one SP-to-IdP protocol message and how to deliver it.
+type samlOutbound struct {
+	sign     *rsa.PrivateKey
+	endpoint string
+	param    string
+	relay    string
+	redirect bool
+}
+
+// signingKey returns the pool key when the provider (or its metadata) wants signed SP messages.
+func (b *InMemoryBackend) signingKey(
+	poolID string,
+	details map[string]string,
+	md *samlMetadata,
+) (*rsa.PrivateKey, error) {
+	if details[detailRequestSigning] != signAlgRSASHA256 && !md.wantAuthnSigned {
+		return nil, nil //nolint:nilnil // nil key means unsigned
+	}
+
+	sp, err := b.spIdentity(poolID)
+	if err != nil {
+		return nil, err
+	}
+
+	return sp.key, nil
+}
+
+// sendSAML delivers xmlMsg by HTTP-Redirect (deflated, query-signed) or auto-submitted HTTP-POST form.
+func sendSAML(c *echo.Context, out *samlOutbound, xmlMsg string) error {
+	if out.redirect {
+		return redirectSAML(c, out, xmlMsg)
+	}
+
+	if out.sign != nil {
+		signed, err := signEnveloped(xmlMsg, "</saml:Issuer>", out.sign)
+		if err != nil {
+			return renderErrorPage(c, http.StatusInternalServerError, errServerError, "")
+		}
+
+		xmlMsg = signed
+	}
+
+	page := `<!doctype html><html><body onload="document.forms[0].submit()"><form method="post" action="` +
+		html.EscapeString(out.endpoint) + `"><input type="hidden" name="` + out.param + `" value="` +
+		base64.StdEncoding.EncodeToString([]byte(xmlMsg)) + `"><input type="hidden" name="RelayState" value="` +
+		html.EscapeString(
+			out.relay,
+		) + `"><noscript><button type="submit">Continue</button></noscript></form></body></html>`
+
+	return c.HTML(http.StatusOK, page)
+}
+
+func redirectSAML(c *echo.Context, out *samlOutbound, xmlMsg string) error {
+	encoded, err := deflateBase64(xmlMsg)
+	if err != nil {
+		return renderErrorPage(c, http.StatusInternalServerError, errServerError, "")
+	}
+
+	if out.sign != nil {
+		loc, serr := signedRedirectURL(out.endpoint, out.param, encoded, out.relay, out.sign)
+		if serr != nil {
+			return renderErrorPage(c, http.StatusInternalServerError, errServerError, "")
+		}
+
+		return c.Redirect(http.StatusFound, loc)
+	}
+
+	target, err := url.Parse(out.endpoint)
+	if err != nil {
+		return renderErrorPage(c, http.StatusInternalServerError, errServerError, "")
+	}
+
+	q := target.Query()
+	q.Set(out.param, encoded)
+
+	if out.relay != "" {
+		q.Set(paramRelayState, out.relay)
+	}
+
+	target.RawQuery = q.Encode()
+
+	return c.Redirect(http.StatusFound, target.String())
+}
+
 func (h *Handler) startSAML(c *echo.Context, req *authorizeRequest, idp *IdentityProvider) error {
-	fail := func(code, desc string) error {
-		return (&authorizeFailure{redirect: req.redirectURI, code: code, desc: desc, state: req.state}).respond(c)
+	fail := func(desc string) error {
+		return (&authorizeFailure{
+			redirect: req.redirectURI, code: errServerError, desc: desc, state: req.state,
+		}).respond(c)
 	}
 
 	md, err := loadSAMLMetadata(c.Request().Context(), idp.ProviderDetails)
 	if err != nil {
-		return fail(errServerError, "identity provider is misconfigured")
+		return fail("identity provider is misconfigured")
+	}
+
+	signKey, err := h.Backend.signingKey(req.client.UserPoolID, idp.ProviderDetails, md)
+	if err != nil {
+		return fail("")
 	}
 
 	rawID := make([]byte, samlRequestIDBytes)
-	if _, err = readRandom(rawID); err != nil {
-		return fail(errServerError, "")
+	if err = readRandom(rawID); err != nil {
+		return fail("")
 	}
 
 	requestID := "_" + hex.EncodeToString(rawID)
@@ -251,43 +380,27 @@ func (h *Handler) startSAML(c *echo.Context, req *authorizeRequest, idp *Identit
 		IDPRedirect: acs, SAMLRequestID: requestID,
 	})
 	if err != nil {
-		return fail(errServerError, "")
+		return fail("")
 	}
 
 	setIDPBinding(c, key, pathSAMLIDPResponse, true)
 	c.Response().Header().Set("Cache-Control", "no-store")
 
-	if md.ssoRedirect != "" {
-		return redirectAuthnRequest(c, md.ssoRedirect, req.client.UserPoolID, requestID, acs, key)
+	out := &samlOutbound{param: paramSAMLRequest, relay: key, sign: signKey}
+	endpoint := md.ssoRedirect
+
+	if out.redirect = endpoint != ""; !out.redirect {
+		endpoint = md.ssoPost
 	}
 
-	xmlReq := buildAuthnRequest(requestID, req.client.UserPoolID, md.ssoPost, acs, time.Now())
+	out.endpoint = endpoint
 
-	page := `<!doctype html><html><body onload="document.forms[0].submit()"><form method="post" action="` +
-		html.EscapeString(md.ssoPost) + `"><input type="hidden" name="SAMLRequest" value="` +
-		base64.StdEncoding.EncodeToString([]byte(xmlReq)) + `"><input type="hidden" name="RelayState" value="` +
-		html.EscapeString(key) + `"><noscript><button type="submit">Continue</button></noscript></form></body></html>`
-
-	return c.HTML(http.StatusOK, page)
+	return sendSAML(c, out, buildAuthnRequest(requestID, req.client.UserPoolID, endpoint, acs, time.Now()))
 }
 
-func redirectAuthnRequest(c *echo.Context, sso, poolID, requestID, acs, relay string) error {
-	encoded, err := deflateBase64(buildAuthnRequest(requestID, poolID, sso, acs, time.Now()))
-	if err != nil {
-		return renderErrorPage(c, http.StatusInternalServerError, errServerError, "")
-	}
-
-	target, err := url.Parse(sso)
-	if err != nil {
-		return renderErrorPage(c, http.StatusInternalServerError, errServerError, "")
-	}
-
-	q := target.Query()
-	q.Set("SAMLRequest", encoded)
-	q.Set("RelayState", relay)
-	target.RawQuery = q.Encode()
-
-	return c.Redirect(http.StatusFound, target.String())
+// idpInitRelay reports whether a RelayState carries IdP-initiated app parameters rather than a state key.
+func idpInitRelay(relay string) bool {
+	return strings.Contains(relay, "client_id=")
 }
 
 func (h *Handler) handleSAMLResponse(c *echo.Context) error {
@@ -298,12 +411,17 @@ func (h *Handler) handleSAMLResponse(c *echo.Context) error {
 		return renderErrorPage(c, http.StatusBadRequest, errInvalidRequest, "malformed form body")
 	}
 
-	if !verifyIDPBinding(r, r.PostForm.Get("RelayState"), true) {
+	relay := r.PostForm.Get(paramRelayState)
+	if idpInitRelay(relay) {
+		return h.handleIDPInitiated(c, relay)
+	}
+
+	if !verifyIDPBinding(r, relay, true) {
 		return renderErrorPage(c, http.StatusBadRequest, errInvalidRequest, "state does not match this browser session")
 	}
 
-	st, ok := h.Backend.consumeIDPState(r.PostForm.Get("RelayState"))
-	if !ok || st.SAMLRequestID == "" {
+	st, ok := h.Backend.consumeIDPState(relay)
+	if !ok || st.SAMLRequestID == "" || st.Logout {
 		return renderErrorPage(c, http.StatusBadRequest, errInvalidRequest, "state is invalid or has expired")
 	}
 
@@ -313,7 +431,7 @@ func (h *Handler) handleSAMLResponse(c *echo.Context) error {
 		}).respond(c)
 	}
 
-	raw, err := base64.StdEncoding.DecodeString(stripSpace(r.PostForm.Get("SAMLResponse")))
+	raw, err := base64.StdEncoding.DecodeString(stripSpace(r.PostForm.Get(paramSAMLResponse)))
 	if err != nil || len(raw) == 0 {
 		return fail("SAMLResponse is missing or not base64")
 	}
@@ -331,7 +449,9 @@ func (h *Handler) handleSAMLResponse(c *echo.Context) error {
 		return fail("identity provider metadata could not be loaded")
 	}
 
-	claims, err := validateSAMLResponse(raw, md, st, time.Now())
+	exp := h.samlExpectation(st.PoolID, st.IDPRedirect, st.SAMLRequestID)
+
+	res, err := validateSAMLResponse(raw, md, exp, time.Now())
 	if err != nil {
 		logger.Load(r.Context()).WarnContext(r.Context(), "cognitoidp: SAML response rejected",
 			"pool", st.PoolID, "provider", st.ProviderName, "error", err)
@@ -339,177 +459,46 @@ func (h *Handler) handleSAMLResponse(c *echo.Context) error {
 		return fail("SAML response validation failed")
 	}
 
-	username, err := h.Backend.federatedSignIn(st.PoolID, st.ClientID, idp, claims, md.entityID)
+	return h.finishSAMLLogin(c, st, idp, md, res)
+}
+
+// samlExpectation binds a Response to this endpoint and request, with the pool key for decryption.
+func (h *Handler) samlExpectation(poolID, acs, requestID string) *samlExpect {
+	exp := &samlExpect{poolID: poolID, acs: acs, requestID: requestID}
+	if sp, err := h.Backend.spIdentity(poolID); err == nil {
+		exp.sp = sp.key
+	}
+
+	return exp
+}
+
+// finishSAMLLogin burns the assertion ID, signs the federated user in and resumes the app's flow.
+func (h *Handler) finishSAMLLogin(
+	c *echo.Context, st *idpState, idp *IdentityProvider, md *samlMetadata, res *samlResult,
+) error {
+	fail := func(desc string) error {
+		return (&authorizeFailure{
+			redirect: st.RedirectURI, code: errInvalidRequest, desc: truncateDesc(desc), state: st.AppState,
+		}).respond(c)
+	}
+
+	if !h.Backend.claimSAMLAssertion(st.PoolID, res.assertionID, res.validUntil) {
+		logger.Load(c.Request().Context()).WarnContext(c.Request().Context(),
+			"cognitoidp: SAML assertion replayed", "pool", st.PoolID, "provider", st.ProviderName)
+
+		return fail("SAML response validation failed")
+	}
+
+	username, err := h.Backend.federatedSignIn(st.PoolID, st.ClientID, idp, res.claims, md.entityID)
 	if err != nil {
 		return fail(strings.TrimSpace(err.Error()))
 	}
 
+	link := &samlLink{provider: idp.ProviderName, nameID: res.nameID, sessionIndex: res.sessionIndex}
+
+	if id, serr := h.Backend.createHostedSessionFor(st.PoolID, username, link); serr == nil {
+		setSessionCookie(c.Response(), c.Request(), id, hostedSessionTTL)
+	}
+
 	return h.completeFederatedLogin(c, st, username)
-}
-
-// validateSAMLResponse verifies the XML signature against the pinned IdP certificates, then the
-// issuer, destination, request binding, audience and validity window, using only signed content.
-func validateSAMLResponse(raw []byte, md *samlMetadata, st *idpState, now time.Time) (map[string]any, error) {
-	root, err := parseXML(raw)
-	if err != nil {
-		return nil, samlErrorf("%v", err)
-	}
-
-	if !root.is(nsSAMLProtocol, "Response") {
-		return nil, samlErrorf("root element is not a SAML Response")
-	}
-
-	signed, err := verifiedElements(root, md.keys)
-	if err != nil {
-		return nil, err
-	}
-
-	if slices.Contains(signed, root) {
-		if err = checkSignedResponse(root, st); err != nil {
-			return nil, err
-		}
-	}
-
-	if len(root.childrenNamed(nsSAMLAssertion, "EncryptedAssertion")) > 0 {
-		return nil, samlErrorf("encrypted assertions are not supported")
-	}
-
-	assertion, err := signedAssertion(root, signed)
-	if err != nil {
-		return nil, err
-	}
-
-	return assertionClaims(assertion, md, st, now)
-}
-
-// checkSignedResponse validates the Response-level attributes, which are only trustworthy when the
-// Response element itself is covered by a verified signature.
-func checkSignedResponse(root *xnode, st *idpState) error {
-	if root.attr("Destination") != st.IDPRedirect {
-		return samlErrorf("response destination does not match this endpoint")
-	}
-
-	if root.attr("InResponseTo") != st.SAMLRequestID {
-		return samlErrorf("response is not a reply to the pending request")
-	}
-
-	status := root.child(nsSAMLProtocol, "Status")
-	if status == nil || status.child(nsSAMLProtocol, "StatusCode") == nil ||
-		status.child(nsSAMLProtocol, "StatusCode").attr("Value") != samlStatusOK {
-		return samlErrorf("identity provider returned a non-success status")
-	}
-
-	return nil
-}
-
-// signedAssertion returns the single assertion whose content is covered by a verified signature.
-func signedAssertion(root *xnode, signed []*xnode) (*xnode, error) {
-	assertions := root.childrenNamed(nsSAMLAssertion, "Assertion")
-	if len(assertions) != 1 {
-		return nil, samlErrorf("response must contain exactly one assertion")
-	}
-
-	a := assertions[0]
-	if !slices.Contains(signed, a) && !slices.Contains(signed, root) {
-		return nil, samlErrorf("assertion is not covered by a valid signature")
-	}
-
-	return a, nil
-}
-
-func assertionClaims(a *xnode, md *samlMetadata, st *idpState, now time.Time) (map[string]any, error) {
-	if iss := a.child(nsSAMLAssertion, "Issuer"); iss == nil || iss.textContent() != md.entityID {
-		return nil, samlErrorf("assertion issuer does not match the identity provider")
-	}
-
-	subj := a.child(nsSAMLAssertion, "Subject")
-	if subj == nil {
-		return nil, samlErrorf("assertion has no subject")
-	}
-
-	if err := checkConfirmation(subj, st, now); err != nil {
-		return nil, err
-	}
-
-	if err := checkConditions(a, st.PoolID, now); err != nil {
-		return nil, err
-	}
-
-	nameID := subj.child(nsSAMLAssertion, "NameID")
-	if nameID == nil || nameID.textContent() == "" {
-		return nil, samlErrorf("assertion has no NameID")
-	}
-
-	claims := map[string]any{}
-
-	if stmt := a.child(nsSAMLAssertion, "AttributeStatement"); stmt != nil {
-		for _, attr := range stmt.childrenNamed(nsSAMLAssertion, "Attribute") {
-			if vals := attr.childrenNamed(nsSAMLAssertion, "AttributeValue"); len(vals) > 0 && attr.attr("Name") != "" {
-				claims[attr.attr("Name")] = vals[0].textContent()
-			}
-		}
-	}
-
-	claims[claimSub] = nameID.textContent()
-	claims[claimNameID] = nameID.textContent()
-
-	return claims, nil
-}
-
-func checkConfirmation(subj *xnode, st *idpState, now time.Time) error {
-	for _, sc := range subj.childrenNamed(nsSAMLAssertion, "SubjectConfirmation") {
-		if sc.attr("Method") != samlConfirmation {
-			continue
-		}
-
-		data := sc.child(nsSAMLAssertion, "SubjectConfirmationData")
-		if data == nil || data.attr("Recipient") != st.IDPRedirect || data.attr("InResponseTo") != st.SAMLRequestID {
-			continue
-		}
-
-		notAfter, err := time.Parse(time.RFC3339, data.attr("NotOnOrAfter"))
-		if err != nil || !now.Before(notAfter.Add(samlClockSkew)) {
-			continue
-		}
-
-		return nil
-	}
-
-	return samlErrorf("assertion has no valid bearer subject confirmation")
-}
-
-func checkConditions(a *xnode, poolID string, now time.Time) error {
-	cond := a.child(nsSAMLAssertion, "Conditions")
-	if cond == nil {
-		return samlErrorf("assertion has no conditions")
-	}
-
-	notAfter, err := time.Parse(time.RFC3339, cond.attr("NotOnOrAfter"))
-	if err != nil || !now.Before(notAfter.Add(samlClockSkew)) {
-		return samlErrorf("assertion has expired")
-	}
-
-	if nb := cond.attr("NotBefore"); nb != "" {
-		notBefore, perr := time.Parse(time.RFC3339, nb)
-		if perr != nil || now.Add(samlClockSkew).Before(notBefore) {
-			return samlErrorf("assertion is not yet valid")
-		}
-	}
-
-	want := samlSPPrefix + poolID
-
-	restrictions := cond.childrenNamed(nsSAMLAssertion, "AudienceRestriction")
-	if len(restrictions) == 0 {
-		return samlErrorf("assertion audience is not %s", want)
-	}
-
-	for _, ar := range restrictions {
-		if !slices.ContainsFunc(ar.childrenNamed(nsSAMLAssertion, "Audience"), func(a *xnode) bool {
-			return a.textContent() == want
-		}) {
-			return samlErrorf("assertion audience is not %s", want)
-		}
-	}
-
-	return nil
 }

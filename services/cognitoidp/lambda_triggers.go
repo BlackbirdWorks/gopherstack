@@ -59,6 +59,7 @@ const (
 	triggerSourceCustomMessageForgotPwd    = "CustomMessage_ForgotPassword"
 	triggerSourceCustomMessageUpdateAttr   = "CustomMessage_UpdateUserAttribute"
 	triggerSourceCustomMessageVerifyAttr   = "CustomMessage_VerifyUserAttribute"
+	triggerSourceCustomMessageAuth         = "CustomMessage_Authentication"
 	triggerSourcePreAuthentication         = "PreAuthentication_Authentication"
 	triggerSourcePostAuthentication        = "PostAuthentication_Authentication"
 	triggerSourceDefineAuthChallenge       = "DefineAuthChallenge_Authentication"

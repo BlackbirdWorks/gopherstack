@@ -32,6 +32,10 @@ func allowedWeakHashFiles() map[string]string {
 		"services/azurekeyvault/keycrypto.go":  "JWA RSA-OAEP (SHA-1) key-vault algorithm, verified",
 		"services/azurekeyvault/certpolicy.go": "certificate x5t SHA-1 thumbprint, verified",
 
+		// XML-Enc rsa-oaep-mgf1p defaults to SHA-1 (W3C xmlenc-core1 5.4.2); the digest is OAEP
+		// padding for an IdP-encrypted SAML assertion, never a credential hash.
+		"services/cognitoidp/saml_decrypt.go": "XML-Enc rsa-oaep-mgf1p default SHA-1 digest, verified",
+
 		"services/neptune/engine_probe.go": "RFC 6455 WebSocket Sec-WebSocket-Accept mandates SHA-1, verified",
 		"services/ssm/document_hashes.go":  "DocumentDescription.Sha1 parity, verified",
 

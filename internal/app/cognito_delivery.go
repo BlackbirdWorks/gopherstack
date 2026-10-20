@@ -10,7 +10,24 @@ import (
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
+	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 )
+
+const (
+	cognitoServicePrincipal = "cognito-idp.amazonaws.com"
+	cognitoSMSSessionName   = "CognitoIdpSmsRole"
+)
+
+// cognitoSMSRoleAssumer checks the pool's SnsCallerArn role is assumable by Cognito through the STS emulator.
+type cognitoSMSRoleAssumer struct{ sts *stsbackend.InMemoryBackend }
+
+func (a cognitoSMSRoleAssumer) AssumeSMSRole(_ context.Context, roleARN, _ string) error {
+	if _, err := a.sts.AssumeRoleForService(cognitoServicePrincipal, roleARN, cognitoSMSSessionName); err != nil {
+		return fmt.Errorf("sts assume sms role: %w", err)
+	}
+
+	return nil
+}
 
 var errCognitoSenderUnavailable = errors.New("cognito message delivery backend is not running")
 
@@ -62,10 +79,19 @@ func (s *cognitoMessageSender) SendSMS(_ context.Context, m cognitoidpbackend.SM
 
 // wireCognitoMessageDelivery connects Cognito code delivery (SignUp, ForgotPassword, ResendConfirmationCode,
 // AdminCreateUser, attribute verification, SMS/email MFA) to SES for email and SNS for SMS.
-func wireCognitoMessageDelivery(cognitoReg, sesReg, snsReg service.Registerable) {
+// An optional STS registration enables SnsCallerArn role assumption before SMS is published.
+func wireCognitoMessageDelivery(cognitoReg, sesReg, snsReg service.Registerable, stsReg ...service.Registerable) {
 	cognitoH, ok := cognitoReg.(*cognitoidpbackend.Handler)
 	if !ok {
 		return
+	}
+
+	for _, reg := range stsReg {
+		if stsH, stsOK := reg.(*stsbackend.Handler); stsOK {
+			if bk, bkOK := stsH.Backend.(*stsbackend.InMemoryBackend); bkOK {
+				cognitoH.Backend.SetSMSRoleAssumer(cognitoSMSRoleAssumer{sts: bk})
+			}
+		}
 	}
 
 	sender := &cognitoMessageSender{}
