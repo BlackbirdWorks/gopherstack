@@ -43,7 +43,7 @@ func (h *S3Handler) setCommonHeaders(w http.ResponseWriter, out objectCommonDeta
 	}
 
 	for k, v := range out.Metadata {
-		w.Header().Set("X-Amz-Meta-"+k, v)
+		w.Header()["x-amz-meta-"+strings.ToLower(k)] = []string{v}
 	}
 
 	if out.VersionID != nil && *out.VersionID != NullVersion {

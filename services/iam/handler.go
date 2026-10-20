@@ -744,7 +744,7 @@ func encodePolicyDocument(doc string) string {
 		return ""
 	}
 
-	return url.QueryEscape(doc)
+	return strings.ReplaceAll(url.QueryEscape(doc), "+", "%20")
 }
 
 // maxItemsUpperBound is the AWS upper bound on the MaxItems pagination

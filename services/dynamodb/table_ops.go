@@ -431,6 +431,8 @@ func buildCreateTableOutput(
 		rcu, wcu = 0, 0
 	}
 
+	streamsEnabled, streamARN, streamViewType := snapshotStreamForCreateOutputRLocked(t)
+
 	td := &types.TableDescription{
 		TableName:              input.TableName,
 		TableArn:               aws.String(t.TableArn),
@@ -455,10 +457,18 @@ func buildCreateTableOutput(
 		td.TableId = aws.String(t.TableID)
 	}
 	applySSEDescription(td, sseEnabled, sseType, sseKMSMasterKeyArn)
+	applyStreamSpec(td, streamsEnabled, streamARN, streamViewType)
 	td.VectorIndexes = models.ToSDKVectorIndexDescriptions(vectorDescriptionsRLocked(t))
 	td.WarmThroughput = models.ToSDKTableWarmThroughput(warmThroughputDescription(t.WarmThroughput))
 
 	return &dynamodb.CreateTableOutput{TableDescription: td}
+}
+
+func snapshotStreamForCreateOutputRLocked(t *Table) (bool, string, string) {
+	t.mu.RLock("buildCreateTableOutput.stream")
+	defer t.mu.RUnlock()
+
+	return t.StreamsEnabled, t.StreamARN, t.StreamViewType
 }
 
 // snapshotTableForCreateOutputRLocked copies every field buildCreateTableOutput
