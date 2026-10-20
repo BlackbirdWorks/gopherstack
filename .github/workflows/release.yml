@@ -301,6 +301,10 @@ jobs:
             <key>NSHighResolutionCapable</key><true/>
           </dict></plist>
           PLIST
+          # Bind Info.plist and seal the bundle; the linker's ad-hoc signature alone makes
+          # macOS report the app as damaged. Not notarized: first launch still needs approval.
+          codesign --force --sign - --identifier com.blackbirdworks.gopherstack "$app"
+          codesign --verify --strict --verbose=2 "$app"
 
       - name: Archive
         shell: bash
@@ -313,7 +317,7 @@ jobs:
           elif [ "$RUNNER_OS" = "Windows" ]; then
             7z a "../$archive" ./*
           else
-            zip -qr "../$archive" ./*
+            ditto -c -k --keepParent Gopherstack.app "../$archive"
           fi
           echo "ARCHIVE=out/$archive" >> "$GITHUB_ENV"
 
@@ -345,8 +349,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Keep only latest 2 releases
+      # Tags are kept: they are proxy.golang.org module versions. Drafts don't count.
+      - name: Keep only latest 10 published releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release list -L 100 | awk '{print $1}' | tail -n +3 | xargs -I {} gh release delete {} --yes --cleanup-tag || true
+          gh release list -L 100 --exclude-drafts --json tagName --jq '.[].tagName' \
+            | tail -n +11 | xargs -I {} gh release delete {} --yes || true
