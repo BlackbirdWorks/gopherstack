@@ -36,7 +36,10 @@ var __mod_qs = {
     return parts.join('&');
   }
 };
-var __mod_cf = typeof __kvs === 'function' ? { kvs: __kvs } : undefined;
+var __mod_cf = typeof __kvs === 'function' ? {
+  kvs: __kvs, updateRequestOrigin: __cf_update, selectRequestOriginById: __cf_select,
+  createRequestOriginGroup: __cf_group
+} : undefined;
 var __mods = { crypto: __mod_crypto, querystring: __mod_qs, cloudfront: __mod_cf };
 function require(name) {
   if (__allowed.indexOf(name) < 0 || !__mods[name]) { throw new Error("Cannot find module '" + name + "'"); }

@@ -143,7 +143,7 @@ function handler(event) { event.request.uri = qs.stringify(qs.parse('a=1&b=2'));
 		{
 			name: "infinite_loop_times_out", runtime: "cloudfront-js-1.0", event: reqEvent,
 			code:    `function handler(e) { while (true) {} }`,
-			wantErr: "timed out",
+			wantErr: "maximum allowed compute time",
 		},
 		{
 			name: "deep_recursion_bounded", runtime: "cloudfront-js-1.0", event: reqEvent,

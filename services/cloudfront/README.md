@@ -16,9 +16,9 @@
 
 ### Known gaps
 
-- CloudFront Functions: the cloudfront module origin helpers (updateRequestOrigin, selectRequestOriginById, createRequestOriginGroup), KVS meta(), the buffer module and the 1ms hard limit are not modelled; ComputeUtilization is wall-clock against 1ms. 2026-10-20.
 - Data plane unverified against real AWS: disabled distribution answers 403, redirect-to-https answers 301 (GET/HEAD) or 307 (other methods), POST to an S3 origin answers 403, and non-trailing-wildcard aliases are not matched.
 - AnycastIPList.AnycastIps are always IPv4-formatted whatever IpAddressType says: the pinned SDK documents no ipv6 or dualstack address count, so the dualstack shape is unverifiable.
+- CloudFront Functions origin helpers: parameters are validated against the documented shape but sslProtocols, ipAddressType, originShield, connectionTimeout, keepAliveTimeout and originAccessControlConfig signing settings have no data-plane effect; the exact AWS validation messages and the originIds object form are unverified against real AWS. The origin choice does not enter the cache key.
 
 ### Structural gaps
 

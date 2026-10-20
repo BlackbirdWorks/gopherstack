@@ -23,8 +23,9 @@ const (
 	runtimeJS1 = "cloudfront-js-1.0"
 	runtimeJS2 = "cloudfront-js-2.0"
 
-	fnExecTimeout = 250 * time.Millisecond
-	fnMaxStack    = 200
+	// fnDefaultMultiplier scales the 1ms budget into the lenient local deadline (250ms).
+	fnDefaultMultiplier = 250
+	fnMaxStack          = 200
 	// fnComputeBudget is the real per-invocation limit that ComputeUtilization is a percentage of.
 	fnComputeBudget = time.Millisecond
 	fnMaxUtil       = 100
@@ -45,41 +46,83 @@ const (
 // errFnInvalidOutput means the handler returned neither a request nor a response object.
 var errFnInvalidOutput = errors.New("the function returned an invalid value; expected a request or response object")
 
+const errTimeoutMsg fnError = "the function exceeded the maximum allowed compute time"
+
+// kvsMeta is the metadata returned by kvs().meta().
+type kvsMeta struct {
+	Created     string
+	LastUpdated string
+	KeyCount    int
+}
+
 // kvsReader resolves Key Value Store reads for a running function.
 type kvsReader interface {
 	// KVSIDs lists the stores associated with the function.
 	KVSIDs() []string
 	// Value returns the value of key in store id.
 	Value(id, key string) (string, bool)
+	// Meta returns the metadata of store id.
+	Meta(id string) (kvsMeta, bool)
+}
+
+// fnRun is one function invocation request.
+type fnRun struct {
+	Event      any
+	KVS        kvsReader
+	Origins    *originCatalog
+	Runtime    string
+	Code       string
+	EventType  string
+	Multiplier int
 }
 
 // fnResult is one function execution outcome.
 type fnResult struct {
+	Origin      *originDirective
 	Output      string
 	ErrMsg      string
 	Utilization string
 	Logs        []string
+	TimedOut    bool
 }
 
-const modQuerystring = "querystring"
+const (
+	modQuerystring = "querystring"
+	modBuffer      = "buffer"
+)
 
 func fnModules() map[string]string {
-	return map[string]string{"cloudfront": "__mod_cf", "crypto": "__mod_crypto", modQuerystring: "__mod_qs"}
+	return map[string]string{
+		"cloudfront": "__mod_cf", "crypto": "__mod_crypto", modQuerystring: "__mod_qs", modBuffer: "__mod_buffer",
+	}
 }
 
-// runCloudFrontFunction executes handler(event) from code under the given runtime.
-func runCloudFrontFunction(runtime, code string, event any, kvs kvsReader) fnResult {
+// runCloudFrontFunction executes handler(event) under run.Runtime.
+func runCloudFrontFunction(run fnRun) fnResult {
+	mult := run.Multiplier
+	if mult <= 0 {
+		mult = fnDefaultMultiplier
+	}
+
 	sb := jsruntime.New(jsruntime.Options{
-		Timeout: fnExecTimeout, MaxCallStack: fnMaxStack, Console: true, InterruptMsg: "function timed out",
+		Timeout: fnComputeBudget * time.Duration(mult), MaxCallStack: fnMaxStack, Console: true,
+		InterruptMsg: "function timed out",
 	})
 	defer sb.Close()
 
-	out, err := execCloudFrontFunction(sb, runtime, code, event, kvs)
+	st := &originState{vm: sb.VM, cat: run.Origins, eventType: run.EventType}
+	out, err := execCloudFrontFunction(sb, run, st)
 
-	res := fnResult{Output: out, Logs: sb.Logs(), Utilization: computeUtilization(sb.Elapsed())}
+	res := fnResult{Output: out, Logs: sb.Logs(), Utilization: computeUtilization(sb.Elapsed()), Origin: st.dir}
 	if err != nil {
 		res.Output = ""
+		res.Origin = nil
 		res.ErrMsg = fnErrPrefix + err.Error()
+
+		if errors.Is(err, errTimeoutMsg) {
+			res.TimedOut = true
+			res.Utilization = strconv.Itoa(fnMaxUtil)
+		}
 	}
 
 	return res
@@ -91,23 +134,23 @@ func computeUtilization(d time.Duration) string {
 	return strconv.Itoa(pct)
 }
 
-func execCloudFrontFunction(sb *jsruntime.Sandbox, runtime, code string, event any, kvs kvsReader) (string, error) {
-	src, err := jsruntime.RewriteModule(code, fnModules())
+func execCloudFrontFunction(sb *jsruntime.Sandbox, run fnRun, st *originState) (string, error) {
+	src, err := jsruntime.RewriteModule(run.Code, fnModules())
 	if err != nil {
 		return "", err
 	}
 
-	bindFnGlobals(sb, runtime, kvs)
+	bindFnGlobals(sb, run, st)
 
-	if _, err = sb.Run(fnPrelude); err != nil {
-		return "", fmt.Errorf("prelude: %w", err)
+	if err = runPreludes(sb, run.Runtime); err != nil {
+		return "", err
 	}
 
 	if _, err = sb.Run(src); err != nil {
 		return "", fnJSError(err)
 	}
 
-	ev, err := sb.ToJS(event)
+	ev, err := sb.ToJS(run.Event)
 	if err != nil {
 		return "", err
 	}
@@ -125,12 +168,31 @@ func execCloudFrontFunction(sb *jsruntime.Sandbox, runtime, code string, event a
 	return fnOutput(sb, res)
 }
 
+func runPreludes(sb *jsruntime.Sandbox, runtime string) error {
+	if _, err := sb.Run(fnPrelude); err != nil {
+		return fmt.Errorf("prelude: %w", err)
+	}
+
+	if runtime != runtimeJS2 {
+		return nil
+	}
+
+	if _, err := sb.Run(fnBufferPrelude); err != nil {
+		return fmt.Errorf("buffer prelude: %w", err)
+	}
+
+	return nil
+}
+
 func fnJSError(err error) error {
 	if errors.Is(err, jsruntime.ErrNoFunction) {
 		return errFnNoHandler
 	}
 
-	_, msg := jsruntime.Classify(err)
+	kind, msg := jsruntime.Classify(err)
+	if kind == jsruntime.KindTimeout {
+		return errTimeoutMsg
+	}
 
 	return fnError(msg)
 }
@@ -170,14 +232,19 @@ func fnOutput(sb *jsruntime.Sandbox, res goja.Value) (string, error) {
 	return s, nil
 }
 
-func bindFnGlobals(sb *jsruntime.Sandbox, runtime string, kvs kvsReader) {
+func bindFnGlobals(sb *jsruntime.Sandbox, run fnRun, st *originState) {
 	sb.Set("__hash", func(alg, data, enc string) (string, error) { return digestOf(alg, "", data, enc, false) })
 	sb.Set("__hmac", func(alg, key, data, enc string) (string, error) { return digestOf(alg, key, data, enc, true) })
 
 	allowed := []string{"crypto", modQuerystring}
-	if runtime == runtimeJS2 {
-		allowed = append(allowed, "cloudfront")
-		sb.Set("__kvs", kvsBinding(sb, kvs))
+	if run.Runtime == runtimeJS2 {
+		allowed = append(allowed, "cloudfront", modBuffer)
+		sb.Set("__js2", true)
+		sb.Set("__kvs", kvsBinding(sb, run.KVS))
+		sb.Set("__cf_update", st.update)
+		sb.Set("__cf_select", st.selectByID)
+		sb.Set("__cf_group", st.createGroup)
+		bindBufferGlobals(sb)
 	}
 
 	sb.Set("__allowed", allowed)
@@ -228,6 +295,7 @@ func kvsBinding(sb *jsruntime.Sandbox, kvs kvsReader) func(goja.FunctionCall) go
 
 		h := vm.NewObject()
 		_ = h.Set("get", func(c goja.FunctionCall) goja.Value { return kvsGet(sb, kvs, id, c) })
+		_ = h.Set("meta", func(goja.FunctionCall) goja.Value { return kvsMetaPromise(vm, kvs, id) })
 		_ = h.Set("exists", func(c goja.FunctionCall) goja.Value {
 			_, ok := kvs.Value(id, c.Argument(0).String())
 
@@ -300,4 +368,17 @@ func wantsJSON(opts goja.Value) bool {
 	f := o.Get("format")
 
 	return f != nil && f.String() == "json"
+}
+
+func kvsMetaPromise(vm *goja.Runtime, kvs kvsReader, id string) goja.Value {
+	m, ok := kvs.Meta(id)
+	if !ok {
+		return promiseOf(vm, nil, vm.NewGoError(fnError("Key Value Store "+id+" does not exist")))
+	}
+
+	return promiseOf(vm, vm.ToValue(map[string]any{
+		"creationDateTime":    m.Created,
+		"lastUpdatedDateTime": m.LastUpdated,
+		"keyCount":            m.KeyCount,
+	}), nil)
 }

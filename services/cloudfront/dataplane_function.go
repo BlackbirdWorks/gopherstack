@@ -102,37 +102,49 @@ func (h *Handler) functionEvent(d *Distribution, v *viewerReq, eventType string,
 	return ev
 }
 
-// runFunction executes fn and decodes its JSON output; ok is false on failure.
-func (h *Handler) runFunction(fn *Function, event map[string]any) (map[string]any, bool) {
-	res := runCloudFrontFunction(fn.Runtime, fn.FunctionCode, event, h.Backend.kvsReaderFor(fn))
+// runFunction executes fn; ok is false on failure (res.TimedOut distinguishes a compute-limit failure).
+func (h *Handler) runFunction(
+	fn *Function, eventType string, event map[string]any, cat *originCatalog,
+) (map[string]any, fnResult, bool) {
+	res := runCloudFrontFunction(fnRun{
+		Runtime: fn.Runtime, Code: fn.FunctionCode, Event: event, KVS: h.Backend.kvsReaderFor(fn),
+		Origins: cat, EventType: eventType, Multiplier: int(h.Backend.fnMultiplier.Load()),
+	})
 	if res.ErrMsg != "" {
-		return nil, false
+		return nil, res, false
 	}
 
 	var out map[string]any
 	if err := json.Unmarshal([]byte(res.Output), &out); err != nil {
-		return nil, false
+		return nil, res, false
 	}
 
-	return out, true
+	return out, res, true
+}
+
+// fnFailure is the edge status of a failed function: 503 when it exceeded its compute limit.
+func fnFailure(res fnResult) int {
+	if res.TimedOut {
+		return http.StatusServiceUnavailable
+	}
+
+	return http.StatusBadGateway
 }
 
 // applyViewerRequest runs the viewer-request function; it returns true when the
 // function answered the request itself or failed (the response was written).
-func (h *Handler) applyViewerRequest(w http.ResponseWriter, d *Distribution, beh *dpBehavior, v *viewerReq) bool {
+func (h *Handler) applyViewerRequest(
+	w http.ResponseWriter, d *Distribution, cfg *dpDistConfig, beh *dpBehavior, v *viewerReq,
+) bool {
 	fn := h.viewerFunction(beh, eventViewerRequest)
 	if fn == nil {
 		return false
 	}
 
-	out, ok := h.runFunction(fn, h.functionEvent(d, v, eventViewerRequest, nil))
+	out, res, ok := h.runFunction(fn, eventViewerRequest, h.functionEvent(d, v, eventViewerRequest, nil),
+		newOriginCatalog(cfg.originIDs()))
 	if !ok {
-		writeEdgeError(
-			w,
-			v,
-			http.StatusBadGateway,
-			fnFailedMsg,
-		)
+		writeEdgeError(w, v, fnFailure(res), fnFailedMsg)
 
 		return true
 	}
@@ -145,6 +157,7 @@ func (h *Handler) applyViewerRequest(w http.ResponseWriter, d *Distribution, beh
 	}
 
 	mutateRequest(v, out)
+	v.origin = res.Origin
 
 	return false
 }
@@ -164,12 +177,9 @@ func (h *Handler) applyViewerResponse(d *Distribution, beh *dpBehavior, v *viewe
 		return resp
 	}
 
-	out, ok := h.runFunction(fn, h.functionEvent(d, v, eventViewerResponse, &resp))
+	out, res, ok := h.runFunction(fn, eventViewerResponse, h.functionEvent(d, v, eventViewerResponse, &resp), nil)
 	if !ok {
-		return httpErrorResp(
-			http.StatusBadGateway,
-			fnFailedMsg,
-		)
+		return httpErrorResp(fnFailure(res), fnFailedMsg)
 	}
 
 	if _, isResp := out["statusCode"]; !isResp {

@@ -3,6 +3,7 @@ package cloudfront
 import (
 	"context"
 	"math/rand/v2"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -191,6 +192,8 @@ type InMemoryBackend struct {
 	accountID   string
 	region      string
 	deployDelay time.Duration
+	// fnMultiplier scales the 1ms CloudFront Function budget into the enforced deadline; 0 = lenient default.
+	fnMultiplier atomic.Int64
 }
 
 // NewInMemoryBackend creates a new in-memory CloudFront backend. ctx roots

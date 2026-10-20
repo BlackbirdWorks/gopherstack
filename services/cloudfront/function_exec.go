@@ -24,6 +24,29 @@ func (s *storeKVS) Value(id, key string) (string, bool) {
 	return v, err == nil
 }
 
+func (s *storeKVS) Meta(id string) (kvsMeta, bool) {
+	return s.b.kvsMetaOf(id)
+}
+
+func (b *InMemoryBackend) kvsMetaOf(id string) (kvsMeta, bool) {
+	b.mu.RLock("kvsMetaOf")
+	defer b.mu.RUnlock()
+
+	kvs, ok := b.keyValueStores.Get(id)
+	if !ok {
+		return kvsMeta{}, false
+	}
+
+	return kvsMeta{
+		Created: kvs.CreatedTime, LastUpdated: kvs.LastModifiedTime, KeyCount: len(b.keyValueStoreData[id]),
+	}, true
+}
+
+// SetFunctionComputeMultiplier sets the deadline of a function run to n times the 1ms CloudFront
+// Functions budget. n <= 0 restores the lenient default (250x) that keeps local use flaky-free;
+// n = 1 enforces the real 1ms limit.
+func (b *InMemoryBackend) SetFunctionComputeMultiplier(n int) { b.fnMultiplier.Store(int64(max(n, 0))) }
+
 // kvsReaderFor builds the reader for a function's associated stores.
 func (b *InMemoryBackend) kvsReaderFor(fn *Function) kvsReader {
 	ids := make([]string, 0, len(fn.KVSARNs))
@@ -41,7 +64,12 @@ func (b *InMemoryBackend) ExecuteFunction(name, stage string, event any) (*Funct
 		return nil, fnResult{}, err
 	}
 
-	return fn, runCloudFrontFunction(fn.Runtime, fn.FunctionCode, event, b.kvsReaderFor(fn)), nil
+	run := fnRun{
+		Runtime: fn.Runtime, Code: fn.FunctionCode, Event: event, KVS: b.kvsReaderFor(fn),
+		EventType: eventTypeOf(event), Multiplier: int(b.fnMultiplier.Load()),
+	}
+
+	return fn, runCloudFrontFunction(run), nil
 }
 
 func (h *Handler) runTestFunction(c *echo.Context, name, stage string, eventObject []byte) error {
@@ -79,4 +107,12 @@ func testResultXML(fn *Function, res fnResult) string {
 	sb.WriteString("<FunctionOutput>" + html.EscapeString(res.Output) + "</FunctionOutput></TestResult>")
 
 	return sb.String()
+}
+
+func eventTypeOf(event any) string {
+	m, _ := event.(map[string]any)
+	ctx, _ := m["context"].(map[string]any)
+	et, _ := ctx["eventType"].(string)
+
+	return et
 }
