@@ -29,11 +29,13 @@ func TestStageRequestFor(t *testing.T) {
 	}{
 		{
 			name: "execute-api host", ok: true, api: "abc123", stage: "prod",
-			url: "https://abc123.execute-api.us-east-1.amazonaws.com/prod/servers/s-1/users/u/config?protocol=SFTP", path: "/servers/s-1/users/u/config",
+			url:  "https://abc123.execute-api.us-east-1.amazonaws.com/prod/servers/s-1/users/u/config?protocol=SFTP",
+			path: "/servers/s-1/users/u/config",
 		},
 		{
 			name: "restapis path", ok: true, api: "abc123", stage: "dev",
-			url: "http://localhost:4566/restapis/abc123/dev/_user_request_/servers/s-1/users/u/config", path: "/servers/s-1/users/u/config",
+			url:  "http://localhost:4566/restapis/abc123/dev/_user_request_/servers/s-1/users/u/config",
+			path: "/servers/s-1/users/u/config",
 		},
 		{name: "external host", url: "https://idp.example.com/prod/servers/s-1"},
 		{name: "no stage", url: "https://abc123.execute-api.us-east-1.amazonaws.com/"},

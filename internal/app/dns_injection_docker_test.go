@@ -22,7 +22,9 @@ import (
 const (
 	dockerProbeImage = "public.ecr.aws/lambda/nodejs:20"
 	dockerRunTimeout = 90 * time.Second
-	nodeHTTPSProbe   = `require('https').get('https://s3.amazonaws.com/',r=>{console.log('STATUS '+r.statusCode);r.resume()}).on('error',e=>{console.log('ERR '+e.message);process.exit(1)})`
+	nodeHTTPSProbe   = `require('https').get('https://s3.amazonaws.com/',r=>{` +
+		`console.log('STATUS '+r.statusCode);r.resume()}).on('error',e=>{` +
+		`console.log('ERR '+e.message);process.exit(1)})`
 )
 
 func dockerOut(ctx context.Context, args ...string) (string, error) {
@@ -52,7 +54,8 @@ func bridgeGateway(t *testing.T) string {
 	return strings.Fields(gw)[0]
 }
 
-func TestTransparentInjectionRealDockerContainer(t *testing.T) { //nolint:paralleltest // binds fixed ports :53/:443 and sets process env
+//nolint:paralleltest // fixed ports, process env
+func TestTransparentInjectionRealDockerContainer(t *testing.T) {
 	gw := bridgeGateway(t)
 
 	ca, err := devtls.NewCA()
@@ -80,7 +83,7 @@ func TestTransparentInjectionRealDockerContainer(t *testing.T) { //nolint:parall
 	t.Cleanup(func() { _ = srv.Close() })
 
 	caFile := filepath.Join(t.TempDir(), "ca.pem")
-	require.NoError(t, os.WriteFile(caFile, ca.CertPEM(), 0o644)) //nolint:gosec // public cert
+	require.NoError(t, os.WriteFile(caFile, ca.CertPEM(), 0o644))
 
 	ctx, cancel := context.WithTimeout(t.Context(), dockerRunTimeout)
 	defer cancel()

@@ -42,7 +42,15 @@ func TestSESInboundKMSAndAuthWiring(t *testing.T) {
 
 	fx := newSFNFixture(t)
 	ctx := t.Context()
-	sesC, s3C, kmsC, r53C := ses.NewFromConfig(fx.cfg), s3.NewFromConfig(fx.cfg), kms.NewFromConfig(fx.cfg), route53.NewFromConfig(fx.cfg)
+	sesC, s3C, kmsC, r53C := ses.NewFromConfig(
+		fx.cfg,
+	), s3.NewFromConfig(
+		fx.cfg,
+	), kms.NewFromConfig(
+		fx.cfg,
+	), route53.NewFromConfig(
+		fx.cfg,
+	)
 
 	key, err := kmsC.CreateKey(ctx, &kms.CreateKeyInput{})
 	require.NoError(t, err)

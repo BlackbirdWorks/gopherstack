@@ -61,12 +61,17 @@ type sesInboundDNS struct {
 	bk *route53backend.InMemoryBackend
 }
 
+const (
+	sesInboundMaxZones   = 1000 // page size for hosted-zone scan
+	sesInboundMaxRecords = 100  // page size for TXT record lookup
+)
+
 var errSESInboundNoRecord = errors.New("no TXT record")
 
 func (a sesInboundDNS) LookupTXT(_ context.Context, name string) ([]string, error) {
 	fqdn := strings.ToLower(strings.TrimSuffix(name, ".")) + "."
 
-	zones, err := a.bk.ListHostedZones("", 1000, "", "")
+	zones, err := a.bk.ListHostedZones("", sesInboundMaxZones, "", "")
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +90,7 @@ func (a sesInboundDNS) LookupTXT(_ context.Context, name string) ([]string, erro
 }
 
 func (a sesInboundDNS) zoneTXT(zoneID, fqdn string) []string {
-	pg, err := a.bk.ListResourceRecordSets(zoneID, fqdn, "TXT", "", 100)
+	pg, err := a.bk.ListResourceRecordSets(zoneID, fqdn, "TXT", "", sesInboundMaxRecords)
 	if err != nil {
 		return nil
 	}
