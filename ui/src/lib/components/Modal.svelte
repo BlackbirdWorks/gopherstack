@@ -12,6 +12,8 @@
 		headerAction?: Snippet;
 		footer?: Snippet;
 		titleId?: string;
+		/** Tailwind max-width class for the panel. */
+		widthClass?: string;
 		descriptionId?: string;
 		role?: 'dialog' | 'alertdialog';
 		/** Element to focus once the dialog opens. Defaults to the first focusable element. */
@@ -28,6 +30,7 @@
 		headerAction,
 		footer,
 		titleId = 'modal-title',
+		widthClass = 'max-w-md',
 		descriptionId,
 		role = 'dialog',
 		initialFocus,
@@ -136,7 +139,7 @@
 	onclose={handleClose}
 	class="m-auto rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
 >
-	<div class="w-full max-w-md space-y-4 p-6">
+	<div class="w-full {widthClass} space-y-4 p-6">
 		<div class="flex items-center justify-between">
 			<h2 id={titleId} class="text-lg font-semibold tracking-tight">{title}</h2>
 			{#if headerAction}

@@ -35,6 +35,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/efs"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
+	"github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	"github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	"github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	"github.com/blackbirdworks/gopherstack/services/gcpfunctions"
@@ -208,6 +209,10 @@ func getHandler[T any](h service.Registerable) (T, bool) {
 func wireGCPOps(ctx *service.AppContext, conf *Config) {
 	if gp, hasGCS := ctx.Config.(interface{ GetGCPStorageHandler() service.Registerable }); hasGCS {
 		conf.GCPStorageOps, _ = getHandler[*gcpstorage.Handler](gp.GetGCPStorageHandler())
+	}
+
+	if gp, hasBQ := ctx.Config.(interface{ GetGCPBigQueryHandler() service.Registerable }); hasBQ {
+		conf.GCPBigQueryOps, _ = getHandler[*gcpbigquery.Handler](gp.GetGCPBigQueryHandler())
 	}
 
 	if gp, hasPubSub := ctx.Config.(interface{ GetGCPPubSubHandler() service.Registerable }); hasPubSub {

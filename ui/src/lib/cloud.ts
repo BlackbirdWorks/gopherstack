@@ -159,6 +159,14 @@ export const GCP_SERVICES: readonly GcpService[] = [
     defaultPort: 8128,
   },
   {
+    id: "bigquery",
+    label: "BigQuery",
+    description: "Google BigQuery",
+    healthName: "GCPBigQuery",
+    portLabel: "gcpbigquery",
+    defaultPort: 9050,
+  },
+  {
     id: "iam",
     label: "Cloud IAM",
     description: "Google Cloud IAM",

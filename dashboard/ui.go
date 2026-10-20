@@ -90,6 +90,7 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
@@ -513,6 +514,8 @@ type Config struct {
 	AzureARMOps *azurearmbackend.Handler
 	// GCPStorageOps is dispatched in-process by the /dashboard/api/v1/gcp/storage proxy.
 	GCPStorageOps *gcpstoragebackend.Handler
+	// GCPBigQueryOps is dispatched in-process by the /dashboard/api/v1/gcp/bigquery proxy.
+	GCPBigQueryOps *gcpbigquerybackend.Handler
 	// GCPPubSubOps and GCPSecretManagerOps are called in-process by their dashboard proxies.
 	GCPPubSubOps        *gcppubsubbackend.Handler
 	GCPSecretManagerOps *gcpsecretmanagerbackend.Handler
@@ -779,6 +782,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerAzureARMRoutes()
 	h.registerAzureBlobRoutes()
 	h.registerGCPStorageRoutes()
+	h.registerGCPBigQueryRoutes()
 	h.registerGCPPubSubRoutes()
 	h.registerGCPSecretManagerRoutes()
 	h.registerGCPKMSRoutes()
@@ -861,11 +865,6 @@ func (h *DashboardHandler) registerSystemRoutes() {
 			defaultPortRangeEnd   = 10000
 		)
 
-		type allocatedPort struct {
-			Label string `json:"label"`
-			Port  int    `json:"port"`
-		}
-
 		portRangeStart := defaultPortRangeStart
 		portRangeEnd := defaultPortRangeEnd
 		if h.ConfigManager != nil {
@@ -878,17 +877,7 @@ func (h *DashboardHandler) registerSystemRoutes() {
 			}
 		}
 
-		allocated := make([]allocatedPort, 0)
-		if h.config.PortAlloc != nil {
-			snapshot := h.config.PortAlloc.Allocated()
-			allocated = make([]allocatedPort, 0, len(snapshot))
-			for port, label := range snapshot {
-				allocated = append(allocated, allocatedPort{Port: port, Label: label})
-			}
-			sort.Slice(allocated, func(i, j int) bool {
-				return allocated[i].Port < allocated[j].Port
-			})
-		}
+		allocated := CollectAllocatedPorts(h.config.PortAlloc)
 
 		return c.JSON(http.StatusOK, map[string]any{
 			"portRangeStart": portRangeStart,

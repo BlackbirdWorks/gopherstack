@@ -242,3 +242,32 @@ func TestReserve_AlreadyUsedErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestReserved(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		port int
+		want bool
+	}{
+		{"in range", 50, true},
+		{"out of range", 500, true},
+		{"disabled zero", 0, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a, err := portalloc.New(10, 100)
+			require.NoError(t, err)
+			require.NoError(t, a.Reserve(tt.port, "svc"))
+
+			_, ok := a.Reserved()[tt.port]
+			assert.Equal(t, tt.want, ok)
+			_, ok = a.Allocated()[tt.port]
+			assert.Equal(t, tt.want, ok)
+		})
+	}
+}

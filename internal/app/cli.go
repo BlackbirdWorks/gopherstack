@@ -410,6 +410,7 @@ type CLI struct {
 	gcpSchedulerHandler           service.Registerable
 	gcpRunHandler                 service.Registerable
 	gcpFunctionsHandler           service.Registerable
+	gcpBigQueryHandler            service.Registerable
 	gcpIAMHandler                 service.Registerable
 	gcpKMSHandler                 service.Registerable
 	azureQueueHandler             service.Registerable
@@ -1911,6 +1912,11 @@ func (c *CLI) GetGCPRunHandler() service.Registerable { return c.gcpRunHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGCPFunctionsHandler() service.Registerable { return c.gcpFunctionsHandler }
 
+// GetGCPBigQueryHandler returns the BigQuery handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPBigQueryHandler() service.Registerable { return c.gcpBigQueryHandler }
+
 // GetGCPIAMHandler returns the Cloud IAM handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
@@ -2264,11 +2270,23 @@ func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *port
 		return
 	}
 
-	fixed := []struct {
-		label string
-		key   string
-		port  int
-	}{
+	for _, f := range fixedServicePorts(cli) {
+		if err := alloc.Reserve(f.port, f.key); err != nil {
+			log.WarnContext(ctx, "failed to reserve "+f.label+"'s fixed port in the shared pool",
+				"port", f.port, "error", err)
+		}
+	}
+}
+
+type fixedServicePort struct {
+	label string
+	key   string
+	port  int
+}
+
+// fixedServicePorts is the single table of dedicated service ports.
+func fixedServicePorts(cli CLI) []fixedServicePort {
+	return []fixedServicePort{
 		{"AzureBlob", "azureblob", cli.AzureBlob.Port},
 		{"GCPStorage", "gcpstorage", cli.GCPStorage.Port},
 		{"GCPPubSub", "gcppubsub", cli.GCPPubSub.Port},
@@ -2290,13 +2308,6 @@ func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *port
 		{"AzureServiceBus", "azureservicebus", cli.AzureServiceBus.Port},
 		{"AzureARM", "azurearm", cli.AzureARM.Port},
 		{"AzureKeyVault", "azurekeyvault", cli.AzureKeyVault.Port},
-	}
-
-	for _, f := range fixed {
-		if err := alloc.Reserve(f.port, f.key); err != nil {
-			log.WarnContext(ctx, "failed to reserve "+f.label+"'s fixed port in the shared pool",
-				"port", f.port, "error", err)
-		}
 	}
 }
 
@@ -3077,6 +3088,7 @@ func storeGCPHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.gcpSchedulerHandler = byName["GCPScheduler"]
 	cli.gcpRunHandler = byName["GCPRun"]
 	cli.gcpFunctionsHandler = byName["GCPFunctions"]
+	cli.gcpBigQueryHandler = byName["GCPBigQuery"]
 	cli.gcpIAMHandler = byName["GCPIAM"]
 	cli.gcpKMSHandler = byName["GCPKMS"]
 }
