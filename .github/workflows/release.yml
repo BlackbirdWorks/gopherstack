@@ -350,9 +350,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Tags are kept: they are proxy.golang.org module versions. Drafts don't count.
-      - name: Keep only latest 2 published releases
+      - name: Keep only latest 10 published releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release list -L 100 --exclude-drafts --json tagName --jq '.[].tagName' \
-            | tail -n +3 | xargs -I {} gh release delete {} --yes || true
+            | tail -n +11 | xargs -I {} gh release delete {} --yes || true
