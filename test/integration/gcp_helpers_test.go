@@ -18,7 +18,7 @@ import (
 
 // gcpPorts lists every dedicated GCP emulator port exposed by the test container.
 var gcpPorts = []string{ //nolint:gochecknoglobals // static port table consumed by TestMain
-	"4443", "8080", "8085", "8086", "8087", "8123", "8124", "8125", "8126", "8128", "8129", "9050",
+	"4443", "8080", "8085", "8086", "8087", "8123", "8124", "8125", "8126", "8128", "8129", "8131", "9050",
 }
 
 // gcpAddrs maps a container GCP port to its host "localhost:<port>" address.

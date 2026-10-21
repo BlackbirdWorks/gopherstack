@@ -150,6 +150,19 @@ func (r *Registry) SetEventGrid(e EventGrid) {
 	}
 }
 
+// SetAppConfig gives the registered Microsoft.AppConfiguration provider (if any) a real
+// data-plane adapter, replacing its no-op default.
+func (r *Registry) SetAppConfig(a AppConfig) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftAppConfig)
+	if !ok {
+		return
+	}
+
+	if ac, acOk := p.(*AppConfigProvider); acOk {
+		ac.dataPlane = a
+	}
+}
+
 // SetKeyVaults gives the registered Microsoft.KeyVault provider (if any) a
 // real KeyVaults adapter, replacing its no-op default.
 func (r *Registry) SetKeyVaults(k KeyVaults) {

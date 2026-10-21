@@ -34,9 +34,10 @@ provider "google" {
   cloud_tasks_custom_endpoint     = %q
   cloud_scheduler_custom_endpoint = %q
   sql_custom_endpoint             = %q
+  logging_custom_endpoint         = %q
 }
 `, googleProviderVersion, storageEndpoint, bigQueryEndpoint, pubSubEndpoint, secretsEndpoint, kmsEndpoint,
-		tasksEndpoint, schedulerEndpoint, sqlEndpoint)
+		tasksEndpoint, schedulerEndpoint, sqlEndpoint, loggingEndpoint)
 }
 
 type tofuRunner struct {

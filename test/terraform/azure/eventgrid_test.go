@@ -123,7 +123,13 @@ func armHTTPClient(t *testing.T) *http.Client {
 func armCall(ctx context.Context, t *testing.T, c *http.Client, method, path string) map[string]any {
 	t.Helper()
 
-	req, err := http.NewRequestWithContext(ctx, method, "https://"+endpoint+path+"?api-version=2025-02-15",
+	return armCallAPI(ctx, t, c, method, path, "2025-02-15")
+}
+
+func armCallAPI(ctx context.Context, t *testing.T, c *http.Client, method, path, apiVersion string) map[string]any {
+	t.Helper()
+
+	req, err := http.NewRequestWithContext(ctx, method, "https://"+endpoint+path+"?api-version="+apiVersion,
 		bytes.NewReader(nil))
 	require.NoError(t, err)
 

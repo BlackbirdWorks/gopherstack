@@ -35,6 +35,16 @@ var (
 	ErrEventGridNamespaceTopicNotFound = errors.New("azurearm: event grid namespace topic not found")
 	ErrEventGridUnavailable            = errors.New("azurearm: event grid data plane is not available")
 
+	ErrAppConfigStoreNotFound    = errors.New("azurearm: app configuration store not found")
+	ErrAppConfigKeyValueNotFound = errors.New("azurearm: app configuration key-value not found")
+	ErrAppConfigReplicaNotFound  = errors.New("azurearm: app configuration replica not found")
+	ErrAppConfigDeletedNotFound  = errors.New("azurearm: deleted app configuration store not found")
+	ErrAppConfigKeyLocked        = errors.New("azurearm: app configuration key-value is read-only")
+	ErrAppConfigNameTaken        = errors.New("azurearm: app configuration store name is already in use")
+	ErrAppConfigSoftDeleted      = errors.New("azurearm: app configuration store name is soft-deleted")
+	ErrAppConfigPurgeProtected   = errors.New("azurearm: app configuration store has purge protection enabled")
+	ErrAppConfigUnavailable      = errors.New("azurearm: app configuration data plane is not available")
+
 	ErrCosmosAccountNotFound    = errors.New("azurearm: cosmos db account not found")
 	ErrCosmosDatabaseNotFound   = errors.New("azurearm: cosmos db database not found")
 	ErrCosmosContainerNotFound  = errors.New("azurearm: cosmos db container not found")

@@ -15,13 +15,14 @@ import (
 )
 
 // wireAzureARMAndEventGrid wires ARM's resource providers (Service Bus, Key Vault, Cosmos DB,
-// Event Hubs) and then Event Grid.
+// Event Hubs), then Event Grid and App Configuration.
 func wireAzureARMAndEventGrid(byName map[string]service.Registerable) {
 	wireAzureARMResourceProviders(
 		byName["AzureARM"], byName["AzureServiceBus"], byName["AzureKeyVault"], byName["CosmosDB"],
 		byName["AzureEventHubs"],
 	)
 	wireAzureEventGrid(byName)
+	wireAzureAppConfig(byName)
 }
 
 // wireAzureEventGrid connects Event Grid to ARM's Microsoft.EventGrid provider and to

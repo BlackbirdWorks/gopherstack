@@ -27,6 +27,7 @@ AZURE_PORTS = {
     "eventhubs": 10005,
     "arm": 10006,
     "eventgrid": 10007,
+    "appconfig": 10008,
     "storagevhost": 10010,
     "cosmosdb": 8081,
 }
@@ -43,6 +44,7 @@ GCP_PORTS = {
     "run": 8126,
     "functions": 8128,
     "sql": 8130,
+    "logging": 8131,
     "bigquery": 9050,
 }
 

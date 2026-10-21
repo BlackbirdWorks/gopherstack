@@ -97,6 +97,7 @@ import (
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	azureappconfigbackend "github.com/blackbirdworks/gopherstack/services/azureappconfig"
 	azurearmbackend "github.com/blackbirdworks/gopherstack/services/azurearm"
 	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
 	azureeventgridbackend "github.com/blackbirdworks/gopherstack/services/azureeventgrid"
@@ -175,6 +176,7 @@ import (
 	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
 	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
+	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	gcprunbackend "github.com/blackbirdworks/gopherstack/services/gcprun"
 	gcpschedulerbackend "github.com/blackbirdworks/gopherstack/services/gcpscheduler"
@@ -562,6 +564,7 @@ type CLI struct {
 	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
 	AzureKeyVault                 azurekeyvaultbackend.Settings     `embed:"" prefix:"azure-keyvault-"`
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
+	AzureAppConfig                azureappconfigbackend.Settings    `embed:"" prefix:"azure-appconfig-"`
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
 	GCPSQL                        gcpsqlbackend.Settings            `embed:"" prefix:"gcp-sql-"`
 	Lambda                        lambdabackend.Settings            `embed:"" prefix:"lambda-"`
@@ -596,6 +599,7 @@ type CLI struct {
 	AzureStorageVHost             azurestoragevhostbackend.Settings `embed:"" prefix:"azure-storage-vhost-"`
 	GCPIAM                        gcpiambackend.Settings            `embed:"" prefix:"gcp-iam-"`
 	GCPBigQuery                   gcpbigquerybackend.Settings       `embed:"" prefix:"gcp-bigquery-"`
+	GCPLogging                    gcploggingbackend.Settings        `embed:"" prefix:"gcp-logging-"`
 	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"             default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
@@ -711,6 +715,9 @@ func (c *CLI) GetGCPFunctionsSettings() gcpfunctionsbackend.Settings { return c.
 // GetGCPBigQuerySettings returns Google BigQuery settings (gcpbigquery.ConfigProvider).
 func (c *CLI) GetGCPBigQuerySettings() gcpbigquerybackend.Settings { return c.GCPBigQuery }
 
+// GetGCPLoggingSettings returns Google Cloud Logging settings (gcplogging.ConfigProvider).
+func (c *CLI) GetGCPLoggingSettings() gcploggingbackend.Settings { return c.GCPLogging }
+
 // GetGCPSQLSettings returns Google Cloud SQL settings (gcpsql.ConfigProvider).
 func (c *CLI) GetGCPSQLSettings() gcpsqlbackend.Settings { return c.GCPSQL }
 
@@ -745,6 +752,12 @@ func (c *CLI) GetIoTSettings() iotbackend.Settings {
 // GetCosmosDBSettings returns Cosmos DB settings (cosmosdb.ConfigProvider).
 func (c *CLI) GetCosmosDBSettings() cosmosdbbackend.Settings {
 	return c.CosmosDB
+}
+
+// GetAzureAppConfigSettings returns Azure App Configuration settings
+// (azureappconfig.ConfigProvider).
+func (c *CLI) GetAzureAppConfigSettings() azureappconfigbackend.Settings {
+	return c.AzureAppConfig
 }
 
 // GetAzureEventGridSettings returns Azure Event Grid settings
@@ -2348,6 +2361,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"GCPFunctionsIngress", "gcpfunctions-ingress", cli.GCPFunctions.IngressPort},
 		{"GCPBigQuery", "gcpbigquery", cli.GCPBigQuery.Port},
 		{"GCPSQL", "gcpsql", cli.GCPSQL.Port},
+		{"GCPLogging", "gcplogging", cli.GCPLogging.Port},
 		{"GCPIAM", "gcpiam", cli.GCPIAM.Port},
 		{"GCPFirestore", "gcpfirestore", cli.GCPFirestore.Port},
 		{"AzureQueue", "azurequeue", cli.AzureQueue.Port},
@@ -2361,6 +2375,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"AzureEventHubsAMQP", "azureeventhubs-amqp", cli.AzureEventHubs.AMQPPort},
 		{"AzureEventHubsAMQPTLS", "azureeventhubs-amqp-tls", cli.AzureEventHubs.AMQPTLSPort},
 		{"AzureEventGrid", "azureeventgrid", cli.AzureEventGrid.Port},
+		{"AzureAppConfig", "azureappconfig", cli.AzureAppConfig.Port},
 		{"AzureARM", "azurearm", cli.AzureARM.Port},
 		{"AzureKeyVault", "azurekeyvault", cli.AzureKeyVault.Port},
 	}
@@ -3507,6 +3522,7 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	wireGCPFunctions(byName)
 	wireGCPBigQuery(byName)
 	wireGCPSQL(byName)
+	wireGCPLogging(byName)
 
 	// Wire Auto Scaling → EC2 so scale-out launches real (mock) EC2 instances
 	// and scale-in terminates them there too, instead of Auto Scaling
@@ -4734,6 +4750,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&azureservicebusbackend.Provider{},
 		&azureeventhubsbackend.Provider{},
 		&azureeventgridbackend.Provider{},
+		&azureappconfigbackend.Provider{},
 		&azurestoragevhostbackend.Provider{},
 		&azurekeyvaultbackend.Provider{},
 		&cosmosdbbackend.Provider{},
@@ -4747,6 +4764,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&gcpfunctionsbackend.Provider{},
 		&gcpbigquerybackend.Provider{},
 		&gcpsqlbackend.Provider{},
+		&gcploggingbackend.Provider{},
 		&gcpiambackend.Provider{},
 		&gcpfirestorebackend.Provider{},
 		&azurearmbackend.Provider{},

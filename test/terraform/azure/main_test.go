@@ -83,6 +83,9 @@ const (
 	// hostPortEventGrid is services/azureeventgrid's published HTTPS port;
 	// AZURE_ARM_ADVERTISE_EVENTGRID_ENDPOINT points ARM's topic endpoints at it.
 	hostPortEventGrid = "18007"
+	// hostPortAppConfig is services/azureappconfig's published HTTPS port;
+	// AZURE_ARM_ADVERTISE_APPCONFIG_ENDPOINT points ARM's store endpoints at it.
+	hostPortAppConfig = "18008"
 )
 
 // containerCertPath/containerKeyPath are where the stable dev certificate
@@ -276,6 +279,7 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 			"8081/tcp",
 			"5673/tcp",
 			"10007/tcp",
+			"10008/tcp",
 		},
 		HostConfigModifier: func(hc *dockercontainer.HostConfig) {
 			hc.PortBindings = mustFixedPortMap(map[string]string{
@@ -289,6 +293,7 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 				"8081/tcp":  hostPortCosmos,
 				"5673/tcp":  hostPortEventHubsAMQP,
 				"10007/tcp": hostPortEventGrid,
+				"10008/tcp": hostPortAppConfig,
 			})
 		},
 		// M8: services/azurearm's advertiseVHostEndpoint (rp_storage.go)
@@ -331,6 +336,10 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 			"AZURE_ARM_ADVERTISE_COSMOSDB_ENDPOINT":   "localhost:" + hostPortCosmos,
 			"AZURE_ARM_ADVERTISE_EVENTHUB_ENDPOINT":   "localhost:" + hostPortEventHubsAMQP,
 			"AZURE_ARM_ADVERTISE_EVENTGRID_ENDPOINT":  "localhost:" + hostPortEventGrid,
+			"AZURE_ARM_ADVERTISE_APPCONFIG_ENDPOINT":  "azconfig.localhost:" + hostPortAppConfig,
+			"AZURE_APPCONFIG_TLS_CERT":                containerCertPath,
+			"AZURE_APPCONFIG_TLS_KEY":                 containerKeyPath,
+			"AZURE_APPCONFIG_VALIDATE_HMAC":           "true",
 			"AZURE_EVENTGRID_TLS_CERT":                containerCertPath,
 			"AZURE_EVENTGRID_TLS_KEY":                 containerKeyPath,
 			"COSMOSDB_VALIDATE_AUTH":                  "true",
@@ -503,7 +512,9 @@ func prepareStableCert(logger *slog.Logger) string {
 		return ""
 	}
 
-	certPEM, keyPEM, err := devtls.GenerateSelfSignedCertPEM("localhost", "*.vault.localhost", "127.0.0.1")
+	certPEM, keyPEM, err := devtls.GenerateSelfSignedCertPEM(
+		"localhost", "*.vault.localhost", "*.azconfig.localhost", "127.0.0.1",
+	)
 	if err != nil {
 		return fmt.Sprintf("could not generate stable ARM dev certificate: %v", err)
 	}
@@ -543,7 +554,8 @@ func certExistsAndParses(certPath, keyPath string) bool {
 
 	leaf, err := x509.ParseCertificate(pair.Certificate[0])
 
-	return err == nil && slices.Contains(leaf.DNSNames, "*.vault.localhost")
+	return err == nil && slices.Contains(leaf.DNSNames, "*.vault.localhost") &&
+		slices.Contains(leaf.DNSNames, "*.azconfig.localhost")
 }
 
 // azurermProviderBlock returns the HCL required_providers + provider

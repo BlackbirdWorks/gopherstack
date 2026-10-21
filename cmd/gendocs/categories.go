@@ -25,6 +25,7 @@ const (
 	slugAzureServiceBus = "azureservicebus"
 	slugAzureEventHubs  = "azureeventhubs"
 	slugAzureEventGrid  = "azureeventgrid"
+	slugAzureAppConfig  = "azureappconfig"
 	slugCosmosDB        = "cosmosdb"
 	slugGCPStorage      = "gcpstorage"
 	slugGCPPubSub       = "gcppubsub"
@@ -36,6 +37,7 @@ const (
 	slugGCPFunctions    = "gcpfunctions"
 	slugGCPBigQuery     = "gcpbigquery"
 	slugGCPSQL          = "gcpsql"
+	slugGCPLogging      = "gcplogging"
 	slugGCPFirestore    = "gcpfirestore"
 	slugGCPIAM          = "gcpiam"
 )
@@ -125,12 +127,14 @@ func categoryGroups() []categoryGroup {
 				slugAzureServiceBus,
 				slugAzureEventHubs,
 				slugAzureEventGrid,
+				slugAzureAppConfig,
 				slugCosmosDB,
 			},
 		},
 		{"GCP", []string{
 			slugGCPStorage, slugGCPPubSub, slugGCPSecretMgr, slugGCPKMS, slugGCPCloudTasks, slugGCPScheduler,
 			slugGCPFirestore, slugGCPIAM, slugGCPRun, slugGCPFunctions, slugGCPBigQuery, slugGCPSQL,
+			slugGCPLogging,
 		}},
 		{"Other", []string{
 			"appstream", "managedblockchain", "omics", "support", "workspaces",
@@ -205,6 +209,7 @@ func displayNamesA() map[string]string {
 		slugAzureServiceBus:       "Azure Service Bus",
 		slugAzureEventHubs:        "Azure Event Hubs",
 		slugAzureEventGrid:        "Azure Event Grid",
+		slugAzureAppConfig:        "Azure App Configuration",
 		"backup":                  "Backup",
 		"batch":                   "Batch",
 		"bedrock":                 "Bedrock",
@@ -244,6 +249,7 @@ func displayNamesB() map[string]string {
 		slugGCPFunctions:   "Cloud Functions",
 		slugGCPBigQuery:    "BigQuery",
 		slugGCPSQL:         "Cloud SQL",
+		slugGCPLogging:     "Cloud Logging",
 		slugGCPFirestore:   "Google Cloud Firestore",
 		slugGCPIAM:         "Cloud IAM",
 		"databrew":         "Glue DataBrew",

@@ -241,10 +241,10 @@ func TestRoutingCorpusCoversServices(t *testing.T) {
 	var missing []string
 
 	neverMatch := []string{
-		"AzureARM", "AzureBlob", "AzureEventGrid", "AzureEventHubs", "AzureKeyVault", "AzureQueue", "AzureServiceBus",
-		"AzureStorageVHost", "AzureTable", "CosmosDB",
+		"AzureAppConfig", "AzureARM", "AzureBlob", "AzureEventGrid", "AzureEventHubs", "AzureKeyVault", "AzureQueue",
+		"AzureServiceBus", "AzureStorageVHost", "AzureTable", "CosmosDB",
 		"GCPStorage", "GCPPubSub", "GCPSecretManager", "GCPKMS", "GCPCloudTasks", "GCPScheduler",
-		"GCPFirestore", "GCPIAM", "GCPRun", "GCPFunctions", "GCPBigQuery", "GCPSQL",
+		"GCPFirestore", "GCPIAM", "GCPRun", "GCPFunctions", "GCPBigQuery", "GCPSQL", "GCPLogging",
 	}
 
 	for _, e := range entries {

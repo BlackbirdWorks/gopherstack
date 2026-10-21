@@ -338,3 +338,64 @@ func (noopEventGrid) GetPullSubscription(string, string, string) (map[string]any
 func (noopEventGrid) DeletePullSubscription(string, string, string) error { return nil }
 
 var _ EventGrid = noopEventGrid{}
+
+// AppConfigKey is one of a configuration store's access keys.
+type AppConfigKey struct {
+	LastModified time.Time
+	ID           string
+	Name         string
+	Value        string
+	ReadOnly     bool
+}
+
+// AppConfigKV is a key-value as the ARM keyValues resources see it.
+type AppConfigKV struct {
+	LastModified time.Time
+	Value        *string
+	ContentType  *string
+	Tags         map[string]string
+	Key          string
+	Label        string
+	ETag         string
+	Locked       bool
+}
+
+// AppConfig is the seam the Microsoft.AppConfiguration resource provider uses to keep the
+// App Configuration data plane in step with ARM, so stores, access keys and key-values are
+// shared between both planes.
+type AppConfig interface {
+	PutStore(name string) (time.Time, error)
+	StoreCreated(name string) (time.Time, bool)
+	DeleteStore(name string) error
+	StoreKeys(name string) ([]AppConfigKey, error)
+	RegenerateStoreKey(name, keyID string) (AppConfigKey, error)
+
+	PutKeyValue(store string, kv AppConfigKV) (AppConfigKV, error)
+	GetKeyValue(store, key, label string) (AppConfigKV, bool)
+	DeleteKeyValue(store, key, label string) error
+	ListKeyValues(store string) ([]AppConfigKV, error)
+}
+
+type noopAppConfig struct{}
+
+func (noopAppConfig) PutStore(string) (time.Time, error)    { return time.Time{}, ErrAppConfigUnavailable }
+func (noopAppConfig) StoreCreated(string) (time.Time, bool) { return time.Time{}, false }
+func (noopAppConfig) DeleteStore(string) error              { return nil }
+func (noopAppConfig) StoreKeys(string) ([]AppConfigKey, error) {
+	return nil, ErrAppConfigUnavailable
+}
+
+func (noopAppConfig) RegenerateStoreKey(string, string) (AppConfigKey, error) {
+	return AppConfigKey{}, ErrAppConfigUnavailable
+}
+
+func (noopAppConfig) PutKeyValue(string, AppConfigKV) (AppConfigKV, error) {
+	return AppConfigKV{}, ErrAppConfigUnavailable
+}
+func (noopAppConfig) GetKeyValue(string, string, string) (AppConfigKV, bool) {
+	return AppConfigKV{}, false
+}
+func (noopAppConfig) DeleteKeyValue(string, string, string) error { return nil }
+func (noopAppConfig) ListKeyValues(string) ([]AppConfigKV, error) { return nil, nil }
+
+var _ AppConfig = noopAppConfig{}

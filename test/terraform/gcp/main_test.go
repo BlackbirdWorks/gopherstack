@@ -38,6 +38,8 @@ const (
 	hostBigQueryPort      = "19050"
 	containerSQLPort      = "8130/tcp"
 	hostSQLPort           = "18130"
+	containerLoggingPort  = "8131/tcp"
+	hostLoggingPort       = "18131"
 
 	containerPubSubPort   = "8085/tcp"
 	containerSecretsPort  = "8086/tcp"
@@ -66,6 +68,7 @@ var (
 	tasksEndpoint     = "http://localhost:" + hostTasksPort + "/v2/"
 	schedulerEndpoint = "http://localhost:" + hostSchedulePort + "/v1/"
 	sqlEndpoint       = "http://localhost:" + hostSQLPort + "/sql/v1beta4/"
+	loggingEndpoint   = "http://localhost:" + hostLoggingPort + "/v2/"
 )
 
 func TestMain(m *testing.M) {
@@ -173,6 +176,7 @@ func startContainer(ctx context.Context, logger *slog.Logger) (testcontainers.Co
 		ExposedPorts: []string{
 			containerStoragePort, containerBigQueryPort, containerPubSubPort, containerSecretsPort,
 			containerKMSPort, containerTasksPort, containerSchedulePort, containerSQLPort,
+			containerLoggingPort,
 		},
 		HostConfigModifier: func(hc *dockercontainer.HostConfig) {
 			hc.PortBindings = fixedPortMap(map[string]string{
@@ -184,6 +188,7 @@ func startContainer(ctx context.Context, logger *slog.Logger) (testcontainers.Co
 				containerTasksPort:    hostTasksPort,
 				containerSchedulePort: hostSchedulePort,
 				containerSQLPort:      hostSQLPort,
+				containerLoggingPort:  hostLoggingPort,
 			})
 		},
 		WaitingFor: wait.ForAll(
@@ -195,6 +200,7 @@ func startContainer(ctx context.Context, logger *slog.Logger) (testcontainers.Co
 			wait.ForListeningPort(containerTasksPort).WithStartupTimeout(60*time.Second),
 			wait.ForListeningPort(containerSchedulePort).WithStartupTimeout(60*time.Second),
 			wait.ForListeningPort(containerSQLPort).WithStartupTimeout(60*time.Second),
+			wait.ForListeningPort(containerLoggingPort).WithStartupTimeout(60*time.Second),
 		),
 	}
 

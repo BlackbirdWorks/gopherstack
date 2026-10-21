@@ -91,3 +91,41 @@ func EventGridRestoreJSON(t *testing.T, p *EventGridProvider, data []byte) {
 	require.NoError(t, json.Unmarshal(data, &s))
 	p.restore(&s)
 }
+
+// NewTestHandlerWithAppConfig builds a Handler with a Microsoft.AppConfiguration provider over dataPlane.
+func NewTestHandlerWithAppConfig(dataPlane AppConfig, settings Settings) *Handler {
+	backend := NewInMemoryBackend()
+	registry := NewRegistry(backend)
+	registry.Register(NewAppConfigProvider(AppConfigEndpointConfig{Override: settings.AdvertiseAppConfig}, dataPlane))
+
+	return NewHandler(backend, registry, nil, settings)
+}
+
+// AppConfigSnapshotJSON marshals the provider's ARM-side snapshot.
+func AppConfigSnapshotJSON(p *AppConfigProvider) []byte {
+	b, _ := json.Marshal(p.snapshot())
+
+	return b
+}
+
+// AppConfigRestoreJSON restores a provider from AppConfigSnapshotJSON output.
+func AppConfigRestoreJSON(t *testing.T, p *AppConfigProvider, data []byte) {
+	t.Helper()
+
+	var s appConfigSnapshot
+
+	require.NoError(t, json.Unmarshal(data, &s))
+	p.restore(&s)
+}
+
+// EscapeKVName and DecodeKVName expose the ARM key-value name codec.
+func EscapeKVName(key, label string) string {
+	if label == "" {
+		return escapeKV(key)
+	}
+
+	return escapeKV(key) + acKVSeparator + escapeKV(label)
+}
+
+// DecodeKVName splits an ARM key-value name into key and label.
+func DecodeKVName(name string) (string, string, error) { return decodeKVName(name) }

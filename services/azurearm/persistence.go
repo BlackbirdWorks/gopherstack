@@ -30,13 +30,14 @@ type armSnapshot struct {
 	Cosmos              *cosmosSnapshot            `json:"cosmos,omitempty"`
 	EventHub            *eventHubSnapshot          `json:"eventHub,omitempty"`
 	EventGrid           *eventGridSnapshot         `json:"eventGrid,omitempty"`
+	AppConfig           *appConfigSnapshot         `json:"appConfig,omitempty"`
 	Version             int                        `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements
 // persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	return persistence.MarshalSnapshot(ctx, "azurearm", b.snapshotState(nil, nil, nil, nil))
+	return persistence.MarshalSnapshot(ctx, "azurearm", b.snapshotState(nil, nil, nil, nil, nil))
 }
 
 func (b *InMemoryBackend) snapshotState(
@@ -44,6 +45,7 @@ func (b *InMemoryBackend) snapshotState(
 	cosmos *cosmosSnapshot,
 	eh *eventHubSnapshot,
 	eg *eventGridSnapshot,
+	ac *appConfigSnapshot,
 ) armSnapshot {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
@@ -53,6 +55,7 @@ func (b *InMemoryBackend) snapshotState(
 		Cosmos:              cosmos,
 		EventHub:            eh,
 		EventGrid:           eg,
+		AppConfig:           ac,
 		Version:             armSnapshotVersion,
 		ResourceGroups:      b.resourceGroups,
 		Resources:           b.resources,
@@ -169,7 +172,12 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		eg = p.snapshot()
 	}
 
-	return persistence.MarshalSnapshot(ctx, "azurearm", h.Backend.snapshotState(kv, cosmos, eh, eg))
+	var ac *appConfigSnapshot
+	if p, ok := h.appConfigProvider(); ok {
+		ac = p.snapshot()
+	}
+
+	return persistence.MarshalSnapshot(ctx, "azurearm", h.Backend.snapshotState(kv, cosmos, eh, eg, ac))
 }
 
 // Restore implements persistence.Persistable.
@@ -193,6 +201,10 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 
 	if p, ok := h.eventGridProvider(); ok {
 		p.restore(snap.EventGrid)
+	}
+
+	if p, ok := h.appConfigProvider(); ok {
+		p.restore(snap.AppConfig)
 	}
 
 	return nil

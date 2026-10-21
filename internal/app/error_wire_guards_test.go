@@ -338,6 +338,7 @@ func errorMessageExclusions() map[string]string {
 func errorProbeUnreachable() map[string]string {
 	return map[string]string{
 		"APIGatewayManagementAPI": "path-routed REST (@connections)",
+		"AzureAppConfig":          "non-AWS",
 		"AzureARM":                "non-AWS",
 		"AzureKeyVault":           "non-AWS",
 		"AzureEventGrid":          "non-AWS",
