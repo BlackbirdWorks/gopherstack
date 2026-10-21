@@ -6,7 +6,8 @@ import (
 	"strings"
 )
 
-type receiverReg struct {
+// ReceiverReg is a partition receiver attached to a consumer group; kicked closes when a newer epoch takes over.
+type ReceiverReg struct {
 	epoch  *int64
 	kicked chan struct{}
 	key    string
@@ -16,12 +17,12 @@ type receiverReg struct {
 }
 
 // Kicked is closed when a higher-epoch receiver supersedes this one.
-func (r *receiverReg) Kicked() <-chan struct{} { return r.kicked }
+func (r *ReceiverReg) Kicked() <-chan struct{} { return r.kicked }
 
 // Reason describes why the receiver was disconnected; valid once Kicked is closed.
-func (r *receiverReg) Reason() string { return r.reason }
+func (r *ReceiverReg) Reason() string { return r.reason }
 
-func (r *receiverReg) kick(reason string) {
+func (r *ReceiverReg) kick(reason string) {
 	if r.done {
 		return
 	}
@@ -73,7 +74,7 @@ func (b *InMemoryBackend) RegisterReceiver(
 	pid int,
 	name string,
 	epoch *int64,
-) (*receiverReg, error) {
+) (*ReceiverReg, error) {
 	b.mu.Lock("RegisterReceiver")
 	defer b.mu.Unlock()
 
@@ -87,7 +88,7 @@ func (b *InMemoryBackend) RegisterReceiver(
 	}
 
 	key := receiverKey(ref, cg, pid)
-	reg := &receiverReg{key: key, name: name, epoch: epoch, kicked: make(chan struct{})}
+	reg := &ReceiverReg{key: key, name: name, epoch: epoch, kicked: make(chan struct{})}
 
 	if admitErr := b.admitLocked(reg); admitErr != nil {
 		return nil, admitErr
@@ -98,7 +99,7 @@ func (b *InMemoryBackend) RegisterReceiver(
 	return reg, nil
 }
 
-func (b *InMemoryBackend) admitLocked(reg *receiverReg) error {
+func (b *InMemoryBackend) admitLocked(reg *ReceiverReg) error {
 	cur := b.receivers[reg.key]
 
 	if reg.epoch == nil {
@@ -136,7 +137,7 @@ func (b *InMemoryBackend) admitLocked(reg *receiverReg) error {
 	return nil
 }
 
-func admitPlain(cur []*receiverReg) error {
+func admitPlain(cur []*ReceiverReg) error {
 	for _, r := range cur {
 		if r.epoch != nil {
 			return fmt.Errorf(
@@ -156,7 +157,7 @@ func admitPlain(cur []*receiverReg) error {
 }
 
 // UnregisterReceiver removes a receiver registration.
-func (b *InMemoryBackend) UnregisterReceiver(reg *receiverReg) {
+func (b *InMemoryBackend) UnregisterReceiver(reg *ReceiverReg) {
 	b.mu.Lock("UnregisterReceiver")
 	defer b.mu.Unlock()
 

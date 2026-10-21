@@ -15,7 +15,7 @@ import (
 type InMemoryBackend struct {
 	mu         *lockmetrics.RWMutex
 	namespaces map[string]*namespace
-	receivers  map[string][]*receiverReg
+	receivers  map[string][]*ReceiverReg
 	now        func() time.Time
 }
 
@@ -24,7 +24,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		mu:         lockmetrics.New("azureeventhubs"),
 		namespaces: map[string]*namespace{},
-		receivers:  map[string][]*receiverReg{},
+		receivers:  map[string][]*ReceiverReg{},
 		now:        time.Now,
 	}
 }

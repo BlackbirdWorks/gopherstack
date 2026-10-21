@@ -155,7 +155,7 @@ func newEvent(m *amqp1.Message, fallbackKey string) (NewEvent, error) {
 type eventReader struct {
 	c      *amqpConn
 	b      *InMemoryBackend
-	reg    *receiverReg
+	reg    *ReceiverReg
 	ref    HubRef
 	cursor int64
 	pid    int
