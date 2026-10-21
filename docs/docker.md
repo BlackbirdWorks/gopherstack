@@ -15,6 +15,8 @@ curl http://localhost:8000/health
 # {"status":"ok"}
 ```
 
+Testcontainers modules for Go, Python and Node: see [testcontainers.md](testcontainers.md).
+
 ## Docker Compose
 
 The repository ships a ready-to-use `docker-compose.yml`:
