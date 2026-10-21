@@ -13,6 +13,7 @@ require (
 	cloud.google.com/go/functions v1.26.0 // indirect
 	cloud.google.com/go/iam v1.11.0 // indirect
 	cloud.google.com/go/kms v1.35.0 // indirect
+	cloud.google.com/go/logging v1.18.0 // indirect
 	cloud.google.com/go/longrunning v1.2.0 // indirect
 	cloud.google.com/go/pubsub/v2 v2.7.0 // indirect
 	cloud.google.com/go/run v1.23.0 // indirect
