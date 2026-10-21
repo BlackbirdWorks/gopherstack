@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
 
 const flinkMaxPollFailures = 5
@@ -142,16 +143,27 @@ func (b *InMemoryBackend) bootFlink(e *flinkEngine, lj *flinkJob, in flinkLaunch
 		return err
 	}
 
-	if lj.port, err = e.acquirePort(in.name); err != nil {
-		return err
-	}
-
 	creds, err := credentialEnv(in)
 	if err != nil {
 		return err
 	}
 
-	if lj.containerID, err = e.cfg.Runtime.CreateAndStart(ctx, e.spec(in, lj.stageDir, lj.port, creds)); err != nil {
+	lj.containerID, err = container.CreateAndStartRetry(ctx, e.cfg.Runtime,
+		func() (container.Spec, error) {
+			p, perr := e.acquirePort(in.name)
+			if perr != nil {
+				return container.Spec{}, perr
+			}
+
+			lj.port = p
+
+			return e.spec(in, lj.stageDir, p, creds), nil
+		},
+		func() {
+			portalloc.ReleaseTo(e.cfg.Ports, lj.port)
+			lj.port = 0
+		})
+	if err != nil {
 		return fmt.Errorf("start flink container: %w", err)
 	}
 

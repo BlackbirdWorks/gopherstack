@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -180,29 +181,11 @@ func (e *dbEngine) login(lb *liveCluster) EngineLogin {
 }
 
 func (e *dbEngine) acquirePort() (int, error) {
-	if e.cfg.Ports != nil {
-		return e.cfg.Ports.Acquire("redshift") //nolint:wrapcheck // allocator error is self-describing
-	}
-
-	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("find free port: %w", err)
-	}
-
-	defer func() { _ = l.Close() }()
-
-	a, ok := l.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, fmt.Errorf("find free port: %w", io.ErrUnexpectedEOF)
-	}
-
-	return a.Port, nil
+	return portalloc.AcquireFrom(e.cfg.Ports, "redshift")
 }
 
 func (e *dbEngine) releasePort(port int) {
-	if e.cfg.Ports != nil && port != 0 {
-		_ = e.cfg.Ports.Release(port)
-	}
+	portalloc.ReleaseTo(e.cfg.Ports, port)
 }
 
 func (e *dbEngine) remove(containerID string, port int) {
@@ -304,25 +287,38 @@ func (b *InMemoryBackend) provisionClusterLocked(c *Cluster, password string) {
 	e.wg.Go(func() { b.runUnit(lb) })
 }
 
+var errUnitDetached = errors.New("engine unit detached")
+
 func (b *InMemoryBackend) runUnit(lb *liveCluster) {
 	e := b.engine
 
-	port, err := e.acquirePort()
+	var port int
+
+	id, err := container.CreateAndStartRetry(lb.ctx, e.cfg.Runtime,
+		func() (container.Spec, error) {
+			p, perr := e.acquirePort()
+			if perr != nil {
+				return container.Spec{}, perr
+			}
+
+			port = p
+
+			if !b.recordPort(lb, p) {
+				e.releasePort(p)
+
+				return container.Spec{}, errUnitDetached
+			}
+
+			return e.spec(lb), nil
+		},
+		func() {
+			e.releasePort(port)
+			b.recordPort(lb, 0)
+		})
 	if err != nil {
-		b.failUnit(lb)
-
-		return
-	}
-
-	if !b.recordPort(lb, port) {
-		e.releasePort(port)
-
-		return
-	}
-
-	id, err := e.cfg.Runtime.CreateAndStart(lb.ctx, e.spec(lb))
-	if err != nil {
-		b.failUnit(lb)
+		if !errors.Is(err, errUnitDetached) {
+			b.failUnit(lb)
+		}
 
 		return
 	}

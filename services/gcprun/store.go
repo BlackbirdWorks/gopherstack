@@ -3,7 +3,6 @@ package gcprun
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -18,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
 
 const defaultPageSize = 100
@@ -222,27 +222,16 @@ func clone[T proto.Message](m T) T {
 	return out
 }
 
-// acquirePort returns a free loopback host port and a release func.
 func (b *InMemoryBackend) acquirePort() (int, error) {
 	b.mu.RLock("acquirePort")
 	pool := b.ports
 	b.mu.RUnlock()
 
-	if pool != nil {
-		return pool.Acquire("gcprun")
+	if pool == nil {
+		return portalloc.AcquireEphemeral()
 	}
 
-	var lc net.ListenConfig
-
-	l, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
-	}
-	defer l.Close()
-
-	addr, _ := l.Addr().(*net.TCPAddr)
-
-	return addr.Port, nil
+	return pool.Acquire("gcprun")
 }
 
 func (b *InMemoryBackend) releasePort(port int) {
@@ -250,7 +239,11 @@ func (b *InMemoryBackend) releasePort(port int) {
 	pool := b.ports
 	b.mu.RUnlock()
 
-	if pool != nil && port > 0 {
+	switch {
+	case port <= 0:
+	case pool == nil:
+		portalloc.ReleaseEphemeral(port)
+	default:
 		_ = pool.Release(port)
 	}
 }

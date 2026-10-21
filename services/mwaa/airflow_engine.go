@@ -234,23 +234,7 @@ func (b *InMemoryBackend) airflowManagedLocked(key string) bool {
 }
 
 func (e *airflowEngine) acquirePort(name string) (int, error) {
-	if e.cfg.Ports != nil {
-		return e.cfg.Ports.Acquire("mwaa-" + name) //nolint:wrapcheck // allocator error is self-describing
-	}
-
-	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("find free port: %w", err)
-	}
-
-	defer func() { _ = l.Close() }()
-
-	addr, ok := l.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, io.ErrUnexpectedEOF
-	}
-
-	return addr.Port, nil
+	return portalloc.AcquireFrom(e.cfg.Ports, "mwaa-"+name)
 }
 
 func (e *airflowEngine) baseURL(port int) string {
@@ -273,9 +257,7 @@ func (e *airflowEngine) teardown(ae *airflowEnv) {
 		_ = os.RemoveAll(ae.stageDir)
 	}
 
-	if e.cfg.Ports != nil && ae.port > 0 {
-		_ = e.cfg.Ports.Release(ae.port)
-	}
+	portalloc.ReleaseTo(e.cfg.Ports, ae.port)
 }
 
 // airflowImage maps an MWAA AirflowVersion (2.10.3) to its image (apache/airflow:2.10.3).

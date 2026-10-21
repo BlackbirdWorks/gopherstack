@@ -211,11 +211,6 @@ func (b *InMemoryBackend) launch(rev *runpb.Revision) (string, int, error) {
 		return "", 0, err
 	}
 
-	port, err := b.acquirePort()
-	if err != nil {
-		return "", 0, fmt.Errorf("allocate host port: %w", err)
-	}
-
 	b.mu.RLock("launch")
 	timeout := b.startupTimeout
 	b.mu.RUnlock()
@@ -223,10 +218,21 @@ func (b *InMemoryBackend) launch(rev *runpb.Revision) (string, int, error) {
 	ctx, cancel := context.WithTimeout(b.baseCtx(), timeout)
 	defer cancel()
 
-	id, err := runner.CreateAndStart(ctx, revisionSpec(rev, port))
-	if err != nil {
-		b.releasePort(port)
+	var port int
 
+	id, err := container.CreateAndStartRetry(ctx, runner,
+		func() (container.Spec, error) {
+			p, perr := b.acquirePort()
+			if perr != nil {
+				return container.Spec{}, fmt.Errorf("allocate host port: %w", perr)
+			}
+
+			port = p
+
+			return revisionSpec(rev, p), nil
+		},
+		func() { b.releasePort(port) })
+	if err != nil {
 		return "", 0, fmt.Errorf("start container: %w", err)
 	}
 

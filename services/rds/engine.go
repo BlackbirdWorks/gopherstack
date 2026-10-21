@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -332,29 +333,11 @@ func (e *dbEngine) login(lb *liveDB) EngineLogin {
 }
 
 func (e *dbEngine) acquirePort() (int, error) {
-	if e.cfg.Ports != nil {
-		return e.cfg.Ports.Acquire("rds") //nolint:wrapcheck // allocator error is self-describing
-	}
-
-	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("find free port: %w", err)
-	}
-
-	defer func() { _ = l.Close() }()
-
-	a, ok := l.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, fmt.Errorf("find free port: %w", io.ErrUnexpectedEOF)
-	}
-
-	return a.Port, nil
+	return portalloc.AcquireFrom(e.cfg.Ports, "rds")
 }
 
 func (e *dbEngine) releasePort(port int) {
-	if e.cfg.Ports != nil && port != 0 {
-		_ = e.cfg.Ports.Release(port)
-	}
+	portalloc.ReleaseTo(e.cfg.Ports, port)
 }
 
 func (e *dbEngine) remove(containerID string, port int) {
@@ -559,35 +542,48 @@ func (b *InMemoryBackend) provisionSeededClusterLocked(c *DBCluster, password st
 	return true
 }
 
+var errUnitDetached = errors.New("engine unit detached")
+
 func (b *InMemoryBackend) runUnit(lb *liveDB) {
 	e := b.engine
 	ctx, cancel := lb.opContext(0)
 
 	defer cancel()
 
-	port, err := e.acquirePort()
+	var port int
+
+	id, err := container.CreateAndStartRetry(ctx, e.cfg.Runtime,
+		func() (container.Spec, error) {
+			p, err := e.acquirePort()
+			if err != nil {
+				return container.Spec{}, err
+			}
+
+			port = p
+
+			if !b.recordPort(lb, p) {
+				e.releasePort(p)
+
+				return container.Spec{}, errUnitDetached
+			}
+
+			plan, err := b.replicaPlan(ctx, lb)
+			if err != nil {
+				e.releasePort(p)
+
+				return container.Spec{}, err
+			}
+
+			return e.spec(lb, plan), nil
+		},
+		func() {
+			e.releasePort(port)
+			b.recordPort(lb, 0)
+		})
 	if err != nil {
-		b.failUnit(ctx, lb)
-
-		return
-	}
-
-	if !b.recordPort(lb, port) {
-		e.releasePort(port)
-
-		return
-	}
-
-	plan, err := b.replicaPlan(ctx, lb)
-	if err != nil {
-		b.failUnit(ctx, lb)
-
-		return
-	}
-
-	id, err := e.cfg.Runtime.CreateAndStart(ctx, e.spec(lb, plan))
-	if err != nil {
-		b.failUnit(ctx, lb)
+		if !errors.Is(err, errUnitDetached) {
+			b.failUnit(ctx, lb)
+		}
 
 		return
 	}

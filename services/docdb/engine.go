@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -177,29 +178,11 @@ func (e *dbEngine) addr(lb *liveCluster) string {
 }
 
 func (e *dbEngine) acquirePort() (int, error) {
-	if e.cfg.Ports != nil {
-		return e.cfg.Ports.Acquire("docdb") //nolint:wrapcheck // allocator error is self-describing
-	}
-
-	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("find free port: %w", err)
-	}
-
-	defer func() { _ = l.Close() }()
-
-	a, ok := l.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, fmt.Errorf("find free port: %w", io.ErrUnexpectedEOF)
-	}
-
-	return a.Port, nil
+	return portalloc.AcquireFrom(e.cfg.Ports, "docdb")
 }
 
 func (e *dbEngine) releasePort(port int) {
-	if e.cfg.Ports != nil && port != 0 {
-		_ = e.cfg.Ports.Release(port)
-	}
+	portalloc.ReleaseTo(e.cfg.Ports, port)
 }
 
 func (e *dbEngine) remove(containerID string, port, inner int, proxy *tlsProxy) {
@@ -307,37 +290,55 @@ func (b *InMemoryBackend) provisionClusterLocked(c *DBCluster, password string) 
 	e.wg.Go(func() { b.runUnit(lb) })
 }
 
+var errUnitDetached = errors.New("engine unit detached")
+
 func (b *InMemoryBackend) runUnit(lb *liveCluster) {
 	e := b.engine
 
-	port, inner, err := e.acquirePorts()
+	var (
+		port, inner int
+		proxy       *tlsProxy
+	)
+
+	id, err := container.CreateAndStartRetry(lb.ctx, e.cfg.Runtime,
+		func() (container.Spec, error) {
+			var perr error
+
+			if port, inner, perr = e.acquirePorts(); perr != nil {
+				return container.Spec{}, perr
+			}
+
+			if !b.recordPorts(lb, port, inner) {
+				e.releasePort(port)
+				e.releasePort(inner)
+
+				return container.Spec{}, errUnitDetached
+			}
+
+			if proxy, perr = b.startProxy(lb); perr != nil {
+				e.releasePort(port)
+				e.releasePort(inner)
+				b.recordPorts(lb, 0, 0)
+
+				return container.Spec{}, perr
+			}
+
+			return e.spec(lb), nil
+		},
+		func() {
+			if proxy != nil {
+				proxy.Close()
+				proxy = nil
+			}
+
+			e.releasePort(port)
+			e.releasePort(inner)
+			b.recordPorts(lb, 0, 0)
+		})
 	if err != nil {
-		b.failUnit(lb)
-
-		return
-	}
-
-	if !b.recordPorts(lb, port, inner) {
-		e.releasePort(port)
-		e.releasePort(inner)
-
-		return
-	}
-
-	proxy, err := b.startProxy(lb)
-	if err != nil {
-		b.failUnit(lb)
-
-		return
-	}
-
-	id, err := e.cfg.Runtime.CreateAndStart(lb.ctx, e.spec(lb))
-	if err != nil {
-		if proxy != nil {
-			proxy.Close()
+		if !errors.Is(err, errUnitDetached) {
+			b.failUnit(lb)
 		}
-
-		b.failUnit(lb)
 
 		return
 	}

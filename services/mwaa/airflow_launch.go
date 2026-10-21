@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
 
 const (
@@ -124,18 +125,27 @@ func (b *InMemoryBackend) bootAirflow(e *airflowEngine, ae *airflowEnv, in airfl
 		return err
 	}
 
-	port, err := e.acquirePort(in.name)
-	if err != nil {
-		return err
-	}
+	id, err := container.CreateAndStartRetry(ctx, e.cfg.Runtime,
+		func() (container.Spec, error) {
+			port, perr := e.acquirePort(in.name)
+			if perr != nil {
+				return container.Spec{}, perr
+			}
 
-	b.mu.Lock("bootAirflow")
-	ae.port = port
-	ae.base = e.baseURL(port)
-	b.setWebserverURLLocked(in.key, ae.base)
-	b.mu.Unlock()
+			b.mu.Lock("bootAirflow")
+			ae.port = port
+			ae.base = e.baseURL(port)
+			b.setWebserverURLLocked(in.key, ae.base)
+			b.mu.Unlock()
 
-	id, err := e.cfg.Runtime.CreateAndStart(ctx, e.spec(in, dir, port))
+			return e.spec(in, dir, port), nil
+		},
+		func() {
+			b.mu.Lock("bootAirflow")
+			portalloc.ReleaseTo(e.cfg.Ports, ae.port)
+			ae.port = 0
+			b.mu.Unlock()
+		})
 	if err != nil {
 		return fmt.Errorf("start airflow container: %w", err)
 	}

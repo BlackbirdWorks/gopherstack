@@ -212,23 +212,7 @@ func (b *InMemoryBackend) flinkManagedLocked(key string) (*flinkJob, bool) {
 }
 
 func (e *flinkEngine) acquirePort(name string) (int, error) {
-	if e.cfg.Ports != nil {
-		return e.cfg.Ports.Acquire("flink-" + name) //nolint:wrapcheck // allocator error is self-describing
-	}
-
-	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("find free port: %w", err)
-	}
-
-	defer func() { _ = l.Close() }()
-
-	addr, ok := l.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, io.ErrUnexpectedEOF
-	}
-
-	return addr.Port, nil
+	return portalloc.AcquireFrom(e.cfg.Ports, "flink-"+name)
 }
 
 func (e *flinkEngine) rest(lj *flinkJob) flinkREST {
@@ -250,9 +234,7 @@ func (e *flinkEngine) teardown(lj *flinkJob) {
 		_ = os.RemoveAll(lj.stageDir)
 	}
 
-	if e.cfg.Ports != nil && lj.port > 0 {
-		_ = e.cfg.Ports.Release(lj.port)
-	}
+	portalloc.ReleaseTo(e.cfg.Ports, lj.port)
 }
 
 func (e *flinkEngine) baseURL(port int) string {

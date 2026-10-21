@@ -246,9 +246,7 @@ func (e *brokerEngine) reap(lbs []*liveBroker) {
 }
 
 func (e *brokerEngine) releasePort(port int) {
-	if e.cfg.Ports != nil && port > 0 {
-		_ = e.cfg.Ports.Release(port)
-	}
+	portalloc.ReleaseTo(e.cfg.Ports, port)
 }
 
 func (e *brokerEngine) teardown(lb *liveBroker) {
@@ -421,23 +419,7 @@ func (e *brokerEngine) startProxy(res *brokerRes, clusterArn string, auth iamAut
 }
 
 func (e *brokerEngine) acquirePort(name string) (int, error) {
-	if e.cfg.Ports != nil {
-		return e.cfg.Ports.Acquire("msk-" + name) //nolint:wrapcheck // allocator error is self-describing
-	}
-
-	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("find free port: %w", err)
-	}
-
-	defer func() { _ = l.Close() }()
-
-	addr, ok := l.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, fmt.Errorf("find free port: %w", io.ErrUnexpectedEOF)
-	}
-
-	return addr.Port, nil
+	return portalloc.AcquireFrom(e.cfg.Ports, "msk-"+name)
 }
 
 // launchBrokerLocked registers a pending broker for cluster and starts it in the background.
@@ -469,19 +451,35 @@ func (b *InMemoryBackend) runBroker(ctx context.Context, clusterArn, name string
 		return
 	}
 
-	res, err := e.provision(name, plan, trust, clusterArn, func(payload []byte, remote string) (iamAuthorizer, error) {
-		return b.authenticateIAM(clusterArn, payload, remote, time.Now())
-	})
-	if err != nil {
-		b.finishBroker(ctx, clusterArn, lb, fmt.Errorf("provision broker resources: %w", err))
+	var res *brokerRes
 
-		return
-	}
+	provisionFailed := false
 
-	id, err := e.cfg.Runtime.CreateAndStart(ctx, e.spec(name, plan, res))
+	id, err := container.CreateAndStartRetry(ctx, e.cfg.Runtime,
+		func() (container.Spec, error) {
+			r, perr := e.provision(name, plan, trust, clusterArn,
+				func(payload []byte, remote string) (iamAuthorizer, error) {
+					return b.authenticateIAM(clusterArn, payload, remote, time.Now())
+				})
+			if perr != nil {
+				provisionFailed = true
+
+				return container.Spec{}, perr
+			}
+
+			res = r
+
+			return e.spec(name, plan, r), nil
+		},
+		func() { e.teardown(&liveBroker{res: res}) })
 	if err != nil {
-		e.teardown(&liveBroker{res: res})
-		b.finishBroker(ctx, clusterArn, lb, fmt.Errorf("start broker container: %w", err))
+		if provisionFailed {
+			err = fmt.Errorf("provision broker resources: %w", err)
+		} else {
+			err = fmt.Errorf("start broker container: %w", err)
+		}
+
+		b.finishBroker(ctx, clusterArn, lb, err)
 
 		return
 	}

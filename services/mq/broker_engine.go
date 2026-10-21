@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
-	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
@@ -32,7 +31,6 @@ const (
 	brokerProbeInterval = 500 * time.Millisecond
 	brokerProbeTimeout  = 5 * time.Second
 	brokerStopTimeout   = 30 * time.Second
-	brokerPortRetries   = 5
 
 	brokerStartFailedCode = "BROKER_START_FAILED"
 	brokerPasswordBytes   = 24
@@ -97,9 +95,6 @@ func (lb *liveBroker) nodes() []*liveNode {
 type brokerEngine struct {
 	brokers  map[string]*liveBroker
 	failures map[string]string
-	// reserved holds OS-chosen fallback ports until released, so no two nodes are handed the same port.
-	reserved map[int]struct{}
-	portMu   *lockmetrics.RWMutex
 	cfg      BrokerConfig
 	wg       sync.WaitGroup
 }
@@ -135,7 +130,6 @@ func (b *InMemoryBackend) EnableBrokers(cfg BrokerConfig) {
 
 	b.engine = &brokerEngine{
 		cfg: cfg, brokers: make(map[string]*liveBroker), failures: make(map[string]string),
-		reserved: make(map[int]struct{}), portMu: lockmetrics.New("mq-ports"),
 	}
 }
 
@@ -261,19 +255,8 @@ func (e *brokerEngine) remove(containerID string, ports []int) {
 }
 
 func (e *brokerEngine) releasePorts(ports []int) {
-	if e.cfg.Ports == nil {
-		e.portMu.Lock("releasePorts")
-		defer e.portMu.Unlock()
-
-		for _, p := range ports {
-			delete(e.reserved, p)
-		}
-
-		return
-	}
-
 	for _, p := range ports {
-		_ = e.cfg.Ports.Release(p)
+		portalloc.ReleaseTo(e.cfg.Ports, p)
 	}
 }
 
@@ -295,47 +278,7 @@ func (e *brokerEngine) acquirePorts(name string, maps []portMap) ([]int, error) 
 }
 
 func (e *brokerEngine) acquirePort(label string) (int, error) {
-	if e.cfg.Ports != nil {
-		return e.cfg.Ports.Acquire(label) //nolint:wrapcheck // allocator error is self-describing
-	}
-
-	for range brokerPortRetries * brokerPortRetries {
-		p, err := freeLocalPort()
-		if err != nil {
-			return 0, err
-		}
-
-		e.portMu.Lock("acquirePort")
-		_, taken := e.reserved[p]
-
-		if !taken {
-			e.reserved[p] = struct{}{}
-		}
-
-		e.portMu.Unlock()
-
-		if !taken {
-			return p, nil
-		}
-	}
-
-	return 0, fmt.Errorf("find free port: %w", portalloc.ErrNoPortsAvailable)
-}
-
-func freeLocalPort() (int, error) {
-	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("find free port: %w", err)
-	}
-
-	defer func() { _ = l.Close() }()
-
-	a, ok := l.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, fmt.Errorf("find free port: %w", io.ErrUnexpectedEOF)
-	}
-
-	return a.Port, nil
+	return portalloc.AcquireFrom(e.cfg.Ports, label)
 }
 
 func (e *brokerEngine) spec(name string, lb *liveBroker, n *liveNode) container.Spec {
@@ -454,43 +397,26 @@ func (e *brokerEngine) startNodes(ctx context.Context, name string, lb *liveBrok
 
 // startNode retries on a host-port bind race: a probed-free port can be taken before docker binds it.
 func (e *brokerEngine) startNode(ctx context.Context, name string, lb *liveBroker) (*liveNode, error) {
-	var err error
-
-	for range brokerPortRetries {
-		var n *liveNode
-
-		n, err = e.startNodeOnce(ctx, name, lb)
-		if err == nil || !isPortBindError(err) || ctx.Err() != nil {
-			return n, err
-		}
-	}
-
-	return nil, err
-}
-
-func isPortBindError(err error) bool {
-	msg := err.Error()
-
-	return strings.Contains(msg, "port is already allocated") || strings.Contains(msg, "address already in use")
-}
-
-func (e *brokerEngine) startNodeOnce(ctx context.Context, name string, lb *liveBroker) (*liveNode, error) {
 	maps := portMapsFor(lb.engine)
 
-	ports, err := e.acquirePorts(name, maps)
+	var n *liveNode
+
+	id, err := container.CreateAndStartRetry(ctx, e.cfg.Runtime,
+		func() (container.Spec, error) {
+			ports, err := e.acquirePorts(name, maps)
+			if err != nil {
+				return container.Spec{}, err
+			}
+
+			n = &liveNode{ports: ports, hostPorts: make(map[string]int, len(ports))}
+			for i, pm := range maps {
+				n.hostPorts[pm.name] = ports[i]
+			}
+
+			return e.spec(name, lb, n), nil
+		},
+		func() { e.releasePorts(n.ports) })
 	if err != nil {
-		return nil, err
-	}
-
-	n := &liveNode{ports: ports, hostPorts: make(map[string]int, len(ports))}
-	for i, pm := range maps {
-		n.hostPorts[pm.name] = ports[i]
-	}
-
-	id, err := e.cfg.Runtime.CreateAndStart(ctx, e.spec(name, lb, n))
-	if err != nil {
-		e.releasePorts(ports)
-
 		return nil, fmt.Errorf("start broker container: %w", err)
 	}
 
