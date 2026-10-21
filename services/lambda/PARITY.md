@@ -20,6 +20,7 @@ families:
 gaps: []
 # 2026-10-08: CreateFunction defaults an omitted PackageType to Zip (was Image).
 items_still_open:
+  - "--lambda-isolation=firecracker is rejected at startup: no firecracker binary is installed on the build host, so no microVM runner exists. Design: export the function image with `docker export` into an ext4 rootfs, boot it under firecracker with a configured kernel image (--lambda-firecracker-kernel), and reach the Runtime API over vsock (or a TAP device) instead of the docker bridge. Needs /dev/kvm access and a firecracker binary to build and test (gopherstack-cefu7.7)."
 structural_gaps:
   - "ESM SchemaRegistryErrorCount and ProvisionedPollers/EventPollerUnit metrics: no Glue/Confluent schema-registry integration and no provisioned poller fleet exist to measure."
   - "Kafka ESM LoggingConfig DEBUG offsets are logged on every commit, not once a minute, and omit endOffset; INFO/WARN omit securityProtocol, saslMechanism, networkConfig, assignedPartitions (no VPC/auth/rebalance model)."

@@ -108,3 +108,24 @@ Env form timeouts: `LAMBDA_DEBUG_MODE_ENFORCE_TIMEOUTS=false`. Each function nee
 | .NET, Go, other | port published only | start `vsdbg` / `dlv --listen=:PORT` yourself (e.g. in a `provided.*` bootstrap) |
 
 A debug-mode function keeps one warm container that the idle reaper and LRU eviction skip; invocations of it queue on that container. A qualifier in the config only matches invocations of that published version.
+
+## Isolation modes
+
+`--lambda-isolation` (env `LAMBDA_ISOLATION`) selects how function containers are sandboxed. The default, `container`, is the daemon's default OCI runtime (runc) and is unchanged.
+
+| Mode | Sandbox | Requirement |
+|------|---------|-------------|
+| `container` | runc, shared host kernel | none |
+| `gvisor` | gVisor user-space kernel (`runsc`) | `runsc` registered with the Docker daemon |
+| `kata` | Kata Containers lightweight VM | `kata` or `kata-runtime` registered with the daemon, plus KVM |
+| `firecracker` | not implemented; startup fails | see PARITY.md |
+
+For gVisor install `runsc` and register it in `/etc/docker/daemon.json`, then restart dockerd:
+
+```json
+{ "runtimes": { "runsc": { "path": "/usr/local/bin/runsc" } } }
+```
+
+At startup Gopherstack asks the daemon for its registered runtimes and refuses to start if the one for the chosen mode is missing. Every Lambda container is then created with that runtime (`HostConfig.Runtime`).
+
+Performance: gVisor adds syscall interception overhead (noticeable for I/O-heavy or syscall-heavy functions) and Kata adds VM boot time to each cold start; warm invocations are close to runc. Bind mounts (code, layers, EFS) are slower under both.

@@ -273,6 +273,21 @@ func (c *Client) Ping(ctx context.Context) (any, error) {
 	return struct{}{}, nil
 }
 
+// Runtimes lists the OCI runtime names registered with the daemon.
+func (c *Client) Runtimes(ctx context.Context) ([]string, error) {
+	res, err := c.inner.Info(ctx, mobyclient.InfoOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(res.Info.Runtimes))
+	for name := range res.Info.Runtimes {
+		names = append(names, name)
+	}
+
+	return names, nil
+}
+
 // Close releases the underlying client.
 func (c *Client) Close() error {
 	return c.inner.Close()

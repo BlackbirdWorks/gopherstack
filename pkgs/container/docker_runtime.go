@@ -168,6 +168,10 @@ func (r *realDockerClient) Ping(ctx context.Context) (any, error) {
 	return r.c.Ping(ctx)
 }
 
+func (r *realDockerClient) Runtimes(ctx context.Context) ([]string, error) {
+	return r.c.Runtimes(ctx)
+}
+
 func (r *realDockerClient) Close() error {
 	return r.c.Close()
 }
@@ -272,6 +276,7 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 	hostCfg := &dockercontainer.HostConfig{
 		Binds:      spec.Mounts,
 		Privileged: spec.Privileged,
+		Runtime:    spec.OCIRuntime,
 	}
 
 	if spec.Network != "" {

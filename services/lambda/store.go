@@ -103,6 +103,7 @@ type InMemoryBackend struct {
 	endpointURL        string
 	metrics            cwmetric.Sink
 	docker             container.Runtime
+	ociRuntime         string
 	dnsRegistrar       DNSRegistrar
 	ctx                context.Context
 	logSem             chan struct{}

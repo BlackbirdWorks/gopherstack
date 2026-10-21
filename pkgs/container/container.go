@@ -54,9 +54,11 @@ type Config struct {
 
 // Spec holds the specification for creating a container.
 type Spec struct {
-	Image      string
-	Name       string
-	Network    string
+	Image   string
+	Name    string
+	Network string
+	// OCIRuntime selects the daemon-registered OCI runtime (e.g. runsc); empty uses the daemon default.
+	OCIRuntime string
 	Env        []string
 	Mounts     []string
 	Cmd        []string

@@ -16,6 +16,8 @@ type Settings struct {
 	// ContainerRuntime selects the container runtime: docker, podman, or auto.
 	// Defaults to "docker". Can be overridden via CONTAINER_RUNTIME env var.
 	ContainerRuntime string `json:"container_runtime" name:"container-runtime" env:"CONTAINER_RUNTIME"      default:"docker"     help:"Container runtime to use: docker, podman, or auto."` //nolint:lll,golines // config struct tags are intentionally verbose
+	// Isolation selects the function sandbox: container (default), gvisor (runsc), kata, or firecracker (unsupported).
+	Isolation string `json:"isolation" name:"isolation" env:"LAMBDA_ISOLATION" default:"container" help:"Lambda isolation: container, gvisor, kata (firecracker is not yet supported)."` //nolint:lll // config struct tags are intentionally verbose
 	// PoolSize is the max number of warm containers per function.
 	PoolSize int `json:"pool_size"         name:"pool-size"         env:"LAMBDA_POOL_SIZE"       default:"3"          help:"Max warm containers per Lambda function."` //nolint:lll,golines // config struct tags are intentionally verbose
 	// IdleTimeout is how long an idle container is kept before reaping.
@@ -92,6 +94,7 @@ func DefaultSettings() Settings {
 		IdleTimeout:      idleTimeout,
 		MaxRuntimes:      maxRuntimes,
 		KeepContainers:   keepContainers,
+		Isolation:        isolationFromEnv(),
 	}
 
 	return st.withHotReloadEnv()

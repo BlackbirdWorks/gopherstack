@@ -669,6 +669,7 @@ func (b *InMemoryBackend) startContainer(
 
 	spec.Mounts = append(spec.Mounts, efsBinds...)
 	applyDebugPlan(ctx, &spec)
+	spec.OCIRuntime = b.ociRuntime
 
 	containerID, err := b.docker.CreateAndStart(ctx, spec)
 
@@ -799,6 +800,7 @@ func (b *InMemoryBackend) createZipContainer(
 	}
 
 	applyDebugPlan(ctx, &spec)
+	spec.OCIRuntime = b.ociRuntime
 
 	return b.docker.CreateAndStart(ctx, spec)
 }
