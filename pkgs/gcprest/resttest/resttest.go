@@ -30,7 +30,10 @@ type Step struct {
 func Run(t *testing.T, base string, steps []Step) {
 	t.Helper()
 
-	client := httpclient.New(requestTimeout)
+	// No keep-alive: a pooled connection's readLoop can outlive the test and trip goleak.
+	tr := httpclient.NewTransport()
+	tr.DisableKeepAlives = true
+	client := &http.Client{Timeout: requestTimeout, Transport: tr}
 	t.Cleanup(client.CloseIdleConnections)
 
 	for _, s := range steps {

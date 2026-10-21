@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -97,7 +96,8 @@ func TestIntegration_GCP_Logging_SinkExclusionMetric(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "severity>=ERROR", got.Filter)
 	require.NoError(t, ac.DeleteSink(ctx, id))
-	assert.Equal(t, codes.NotFound, status.Code(func() error { _, e := ac.Sink(ctx, id); return e }()))
+	_, err = ac.Sink(ctx, id)
+	assert.Equal(t, codes.NotFound, status.Code(err))
 
 	mid := gcpName("it-metric")
 	require.NoError(t, ac.CreateMetric(ctx, &logadmin.Metric{ID: mid, Filter: "severity>=ERROR", Description: "d"}))
@@ -139,6 +139,6 @@ func TestIntegration_GCP_Logging_SinkToPubSub(t *testing.T) {
 	require.NoError(t, lg.Flush())
 
 	msg := receiveOne(t, ps, sub)
-	assert.True(t, strings.Contains(string(msg.Data), "routed to topic"), string(msg.Data))
+	assert.Contains(t, string(msg.Data), "routed to topic")
 	assert.Contains(t, string(msg.Data), logID)
 }
