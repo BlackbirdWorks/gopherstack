@@ -877,6 +877,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Azure Blob Storage](services/azureblob/README.md) | C | 19 | 8 gaps; 3 deferred |
 | [Azure Cosmos DB](services/cosmosdb/README.md) | B | 32 | 10 gaps |
+| [Azure Event Grid](services/azureeventgrid/README.md) | B | 9 | 19 gaps |
 | [Azure Event Hubs](services/azureeventhubs/README.md) | B | 15 | 9 gaps |
 | [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 5 gaps |
 | [Azure Queue Storage](services/azurequeue/README.md) | C | 13 | 6 gaps; 1 deferred |
@@ -907,7 +908,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Amp](services/amp/README.md) | B | 44 | 11 gaps; 2 structural gaps |
 | [AppStream 2.0](services/appstream/README.md) | A | 44 | 5 structural gaps |
 | [Appintegrations](services/appintegrations/README.md) | B | 23 | 4 gaps; 1 structural gap |
-| [Azurearm](services/azurearm/README.md) | B | 18 | 8 gaps; 3 deferred |
+| [Azurearm](services/azurearm/README.md) | B | 19 | 8 gaps; 3 deferred |
 | [Azurestoragevhost](services/azurestoragevhost/README.md) | B | 2 | 2 gaps; 1 deferred |
 | [Bcmdataexports](services/bcmdataexports/README.md) | B | 12 | 6 gaps |
 | [Bedrockagentcorecontrol](services/bedrockagentcorecontrol/README.md) | B | 171 | 13 gaps; 2 structural gaps |
