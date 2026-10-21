@@ -8,10 +8,14 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 11 (11 ok) |
-| Known gaps | none |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 10 |
 | Deferred items | 0 |
 | Resource leaks | ok |
+
+### Known gaps
+
+- --lambda-isolation=firecracker is rejected at startup: no firecracker binary is installed on the build host, so no microVM runner exists. Design: export the function image with `docker export` into an ext4 rootfs, boot it under firecracker with a configured kernel image (--lambda-firecracker-kernel), and reach the Runtime API over vsock (or a TAP device) instead of the docker bridge. Needs /dev/kvm access and a firecracker binary to build and test (gopherstack-cefu7.7).
 
 ### Structural gaps
 

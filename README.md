@@ -649,7 +649,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Batch](services/batch/README.md) | A | 45 | 3 structural gaps |
 | [EC2](services/ec2/README.md) | A | — | 22 families; 3 gaps; 18 structural gaps; 5 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 47 | 4 structural gaps |
-| [Lambda](services/lambda/README.md) | A | — | 11 families; 10 structural gaps |
+| [Lambda](services/lambda/README.md) | A | — | 11 families; 1 gap; 10 structural gaps |
 
 ### Containers
 
@@ -891,6 +891,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 7 gaps |
 | [Cloud IAM](services/gcpiam/README.md) | B | 31 | 5 gaps |
 | [Cloud Run](services/gcprun/README.md) | B | 20 | 6 gaps |
+| [Cloud SQL](services/gcpsql/README.md) | B | 38 | 7 gaps |
 | [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | 5 gaps |
 | [Cloud Tasks](services/gcpcloudtasks/README.md) | B | 20 | 3 gaps |
 | [Google Cloud Firestore](services/gcpfirestore/README.md) | B | 15 | 4 gaps |
