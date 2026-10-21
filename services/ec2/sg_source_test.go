@@ -70,3 +70,44 @@ func TestSecurityGroupSourceReferenceAndEgress(t *testing.T) {
 }
 
 func addr(s string) netip.Addr { return netip.MustParseAddr(s) }
+
+func TestDefaultSecurityGroupSelfReference(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	enf := sgfilter.New()
+	enf.SetSource(ec2.NewHandler(b).SecurityGroupSource())
+
+	member, err := b.CreateNetworkInterfaceWithOptions("subnet-default", ec2.NetworkInterfaceOptions{})
+	require.NoError(t, err)
+	require.Equal(t, []string{"sg-default"}, member.SecurityGroupIDs, "no groups means the VPC default group")
+
+	custom, err := b.CreateSecurityGroup("custom", "custom", "vpc-default")
+	require.NoError(t, err)
+
+	other, err := b.CreateNetworkInterfaceWithOptions("subnet-default",
+		ec2.NetworkInterfaceOptions{SecurityGroupIDs: []string{custom.ID}})
+	require.NoError(t, err)
+
+	fromMember := &net.TCPAddr{IP: net.ParseIP(member.PrivateIP)}
+	fromOther := &net.TCPAddr{IP: net.ParseIP(other.PrivateIP)}
+	fromOutside := &net.TCPAddr{IP: net.ParseIP("203.0.113.9")}
+
+	tests := []struct {
+		remote net.Addr
+		name   string
+		ids    []string
+		want   bool
+	}{
+		{name: "default group admits its own members", ids: []string{"sg-default"}, remote: fromMember, want: true},
+		{name: "default group refuses other groups", ids: []string{"sg-default"}, remote: fromOther, want: false},
+		{name: "default group refuses outsiders", ids: []string{"sg-default"}, remote: fromOutside, want: false},
+		{name: "no groups behaves as the default group", ids: nil, remote: fromMember, want: true},
+		{name: "no groups refuses outsiders", ids: nil, remote: fromOutside, want: false},
+		{name: "custom group has no implicit self rule", ids: []string{custom.ID}, remote: fromOther, want: false},
+	}
+
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, enf.AdmitIngress(tt.ids, "tcp", 5432, tt.remote), tt.name)
+	}
+}

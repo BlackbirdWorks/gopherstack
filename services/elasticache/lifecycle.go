@@ -328,9 +328,7 @@ func (b *InMemoryBackend) releaseClusterLocked(c *Cluster) {
 	if b.dnsRegistrar != nil && c.Endpoint != "" {
 		b.dnsRegistrar.Deregister(c.Endpoint)
 	}
-	if c.mini != nil {
-		c.mini.Close()
-	}
+	closeEngine(c)
 	if b.allocator != nil && c.AllocatedPort > 0 {
 		_ = b.allocator.Release(c.AllocatedPort)
 	}

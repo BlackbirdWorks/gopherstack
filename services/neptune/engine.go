@@ -1,6 +1,7 @@
 package neptune
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
 
@@ -70,6 +72,7 @@ type liveCluster struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	front       *cypherFront
+	relay       *sgfilter.Proxy
 	graph       *opencypher.Graph
 	key         string
 	region      string
@@ -78,6 +81,7 @@ type liveCluster struct {
 	containerID string
 	port        int
 	innerPort   int
+	svcPort     int
 	ready       bool
 }
 
@@ -187,11 +191,9 @@ func (e *dbEngine) reap(lbs ...*liveCluster) {
 
 		lb.cancel()
 
-		id, port, inner, front := lb.containerID, lb.port, lb.innerPort, lb.front
+		id, port, inner, front, relay := lb.containerID, lb.port, lb.innerPort, lb.front, lb.relay
 		e.wg.Go(func() {
-			if front != nil {
-				front.Close()
-			}
+			closeFronts(front, relay)
 
 			e.remove(id, port, inner)
 		})
@@ -260,7 +262,8 @@ func (b *InMemoryBackend) provisionClusterLocked(c *DBCluster) {
 	lb := &liveCluster{
 		ctx: ctx, cancel: cancel, key: regionKey(c.region, c.DBClusterIdentifier), region: c.region,
 		id: c.DBClusterIdentifier, version: gremlinTag(c.EngineVersion),
-		graph: b.graphLocked(regionKey(c.region, c.DBClusterIdentifier)),
+		graph:   b.graphLocked(regionKey(c.region, c.DBClusterIdentifier)),
+		svcPort: cmp.Or(c.Port, defaultNeptunePort),
 	}
 
 	if old, ok := e.units[lb.key]; ok {
@@ -291,7 +294,7 @@ func (b *InMemoryBackend) runUnit(lb *liveCluster) {
 
 			inner = 0
 
-			if e.cfg.OpenCypher {
+			if e.cfg.OpenCypher || b.enforcing() {
 				if inner, perr = e.acquirePort(); perr != nil {
 					e.releasePort(port)
 
@@ -321,27 +324,16 @@ func (b *InMemoryBackend) runUnit(lb *liveCluster) {
 		return
 	}
 
-	var front *cypherFront
+	front, relay, err := b.startFronts(lb, port, inner)
+	if err != nil {
+		e.remove(id, port, inner)
+		b.failUnit(lb)
 
-	if inner != 0 {
-		front, err = startCypherFront(
-			e.cfg.Host,
-			port,
-			net.JoinHostPort(container.LoopbackHost, strconv.Itoa(inner)),
-			lb.graph,
-		)
-		if err != nil {
-			e.remove(id, port, inner)
-			b.failUnit(lb)
-
-			return
-		}
+		return
 	}
 
-	if !b.recordContainer(lb, id, front) {
-		if front != nil {
-			front.Close()
-		}
+	if !b.recordContainer(lb, id, front, relay) {
+		closeFronts(front, relay)
 
 		e.remove(id, port, inner)
 
@@ -364,7 +356,9 @@ func (b *InMemoryBackend) recordPort(lb *liveCluster, port, inner int) bool {
 	return true
 }
 
-func (b *InMemoryBackend) recordContainer(lb *liveCluster, id string, front *cypherFront) bool {
+func (b *InMemoryBackend) recordContainer(
+	lb *liveCluster, id string, front *cypherFront, relay *sgfilter.Proxy,
+) bool {
 	b.mu.Lock("neptuneEngineContainer")
 	defer b.mu.Unlock()
 
@@ -372,7 +366,7 @@ func (b *InMemoryBackend) recordContainer(lb *liveCluster, id string, front *cyp
 		return false
 	}
 
-	lb.containerID, lb.front = id, front
+	lb.containerID, lb.front, lb.relay = id, front, relay
 
 	return true
 }

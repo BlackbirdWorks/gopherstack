@@ -54,12 +54,49 @@ func (b *InMemoryBackend) enforcementGroups(ids []string) []sgfilter.Group {
 
 		out = append(out, sgfilter.Group{
 			ID:      sg.ID,
-			Ingress: b.enforcementRulesLocked(sg.IngressRules),
+			Ingress: b.groupIngressLocked(sg),
 			Egress:  b.enforcementRulesLocked(sg.EgressRules),
 		})
 	}
 
 	return out
+}
+
+// groupIngressLocked adds the implicit allow-all-from-itself rule AWS gives every VPC's default group.
+func (b *InMemoryBackend) groupIngressLocked(sg *SecurityGroup) []sgfilter.Rule {
+	rules := b.enforcementRulesLocked(sg.IngressRules)
+
+	if sg.Name == defaultSecurityGroupName {
+		rules = append(rules, sgfilter.Rule{Protocol: sgfilter.ProtoAll, Groups: []string{sg.ID}})
+	}
+
+	return rules
+}
+
+// DefaultGroupID implements sgfilter.DefaultGroupSource.
+func (s *sgSource) DefaultGroupID(vpcID string) string {
+	for _, b := range s.backends() {
+		if id := b.defaultGroupOf(vpcID); id != "" {
+			return id
+		}
+	}
+
+	return ""
+}
+
+func (b *InMemoryBackend) defaultGroupOf(vpcID string) string {
+	b.mu.RLock("defaultGroupOf")
+	defer b.mu.RUnlock()
+
+	if vpcID == "" {
+		for _, v := range b.vpcs.All() {
+			if v.IsDefault {
+				vpcID = v.ID
+			}
+		}
+	}
+
+	return b.defaultSecurityGroupIDLocked(vpcID)
 }
 
 func (b *InMemoryBackend) enforcementRulesLocked(rules []SecurityGroupRule) []sgfilter.Rule {

@@ -94,6 +94,7 @@ func newDockerRunnerWithClient(ctx context.Context, cli dockerClient) *realDocke
 		containers:  make(map[string][]string),
 		logCancels:  make(map[string]context.CancelFunc),
 		waitCancels: make(map[string]context.CancelFunc),
+		fronts:      newSGFronts(),
 		svcCtx:      ctx,
 	}
 }
@@ -109,6 +110,7 @@ type realDockerRunner struct {
 	taskEnv           func(task *Task, containerName string) []string
 	attach            func(ctx context.Context, containerID string) error
 	svcCtx            context.Context
+	fronts            *sgFronts
 	logWG             sync.WaitGroup
 	waitWG            sync.WaitGroup
 	mu                sync.Mutex
@@ -232,9 +234,17 @@ func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
 				)
 			}
 
+			r.closeFronts(containerID)
 			r.rollbackContainers(ctx, started)
 
 			return fmt.Errorf("start container %s: %w", containerID, startErr)
+		}
+
+		if frontErr := r.startFronts(containerID); frontErr != nil {
+			started = append(started, containerID)
+			r.rollbackContainers(ctx, started)
+
+			return fmt.Errorf("front container %s: %w", containerID, frontErr)
 		}
 
 		started = append(started, containerID)
@@ -276,6 +286,7 @@ func (r *realDockerRunner) rollbackContainers(ctx context.Context, containerIDs 
 		// must not report task completion.
 		r.cancelLogForwarding(id)
 		r.cancelContainerWait(id)
+		r.closeFronts(id)
 
 		if err := r.cli.ContainerStop(ctx, id, dockertypes.StopOptions{Timeout: &timeout}); err != nil {
 			log.WarnContext(
@@ -332,6 +343,7 @@ func (r *realDockerRunner) createContainer(
 	cd ContainerDefinition,
 ) (string, error) {
 	portBindings, exposedPorts := buildPortMappings(cd.PortMappings)
+	diverted := r.divertPorts(task, cd.PortMappings, portBindings)
 	env := append(r.runtimeEnv(task, cd.Name), buildEnv(cd.Environment)...)
 
 	resp, err := r.cli.ContainerCreate(
@@ -353,11 +365,16 @@ func (r *realDockerRunner) createContainer(
 		"",
 	)
 	if err != nil {
+		releasePending(diverted)
+
 		return "", fmt.Errorf("create container for %s: %w", cd.Image, err)
 	}
 
+	r.stashFronts(resp.ID, diverted)
+
 	if attachErr := r.attachContainer(ctx, resp.ID); attachErr != nil {
 		_ = r.cli.ContainerRemove(ctx, resp.ID, dockertypes.RemoveOptions{Force: true})
+		r.closeFronts(resp.ID)
 
 		return "", fmt.Errorf("attach container %s to link-local network: %w", resp.ID, attachErr)
 	}
@@ -458,6 +475,7 @@ func (r *realDockerRunner) StopTask(task *Task) error {
 		// producing output worth forwarding, or may yet exit on its own.
 		r.cancelLogForwarding(containerID)
 		r.cancelContainerWait(containerID)
+		r.closeFronts(containerID)
 	}
 
 	// Update the tracking map: remove the entry entirely on full success, or
@@ -556,6 +574,7 @@ func (r *realDockerRunner) watchContainerExit(
 
 		select {
 		case res := <-result.Result:
+			r.closeFronts(containerID)
 			handler(taskArn, containerName, int(res.StatusCode))
 		case err := <-result.Error:
 			if err != nil && ctx.Err() == nil {

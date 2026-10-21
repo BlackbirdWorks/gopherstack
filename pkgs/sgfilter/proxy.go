@@ -2,6 +2,7 @@ package sgfilter
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -119,4 +120,46 @@ func Pipe(client, up net.Conn) {
 
 	<-done
 	<-done
+}
+
+// Front listens on bind and relays accepted clients to upstream, refusing those admit rejects; Close stops it.
+func Front(ctx context.Context, bind, upstream string, admit Admitter) (*Proxy, error) {
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", bind)
+	if err != nil {
+		return nil, fmt.Errorf("sgfilter listen %s: %w", bind, err)
+	}
+
+	p := NewProxy(ln, upstream, admit, nil)
+	p.Start()
+
+	return p, nil
+}
+
+// Guard wraps ln so Accept drops clients admit rejects; a nil admit returns ln unchanged.
+func Guard(ln net.Listener, admit Admitter) net.Listener {
+	if admit == nil {
+		return ln
+	}
+
+	return &guardedListener{Listener: ln, admit: admit}
+}
+
+type guardedListener struct {
+	net.Listener
+	admit Admitter
+}
+
+func (g *guardedListener) Accept() (net.Conn, error) {
+	for {
+		c, err := g.Listener.Accept()
+		if err != nil {
+			return nil, err //nolint:wrapcheck // listener errors must reach the server unwrapped
+		}
+
+		if g.admit(c.RemoteAddr()) {
+			return c, nil
+		}
+
+		_ = c.Close()
+	}
 }

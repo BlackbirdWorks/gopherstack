@@ -11,6 +11,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -340,6 +341,7 @@ type InMemoryBackend struct {
 	usageMu      *lockmetrics.RWMutex
 	compute      Compute
 	dnsRegistrar DNSRegistrar
+	sgEnforcer   *sgfilter.Enforcer
 	// appConfig is the service.AppContext.Config value Provider.Init
 	// received, recorded so RunInstances/TerminateInstances can resolve the
 	// Outposts backend on demand -- see cross_service.go's SetAppConfig doc

@@ -14,6 +14,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kmsg"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 )
 
 const (
@@ -57,7 +58,7 @@ type iamProxy struct {
 }
 
 func startIAMProxy(
-	bind string, cfg *tls.Config, backend, password, clusterArn string, auth iamAuthFunc,
+	bind string, cfg *tls.Config, backend, password, clusterArn string, auth iamAuthFunc, admit sgfilter.Admitter,
 ) (*iamProxy, error) {
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", bind)
 	if err != nil {
@@ -65,7 +66,10 @@ func startIAMProxy(
 	}
 
 	p := &iamProxy{
-		ln: tls.NewListener(ln, cfg), backend: backend, password: password, clusterArn: clusterArn, auth: auth,
+		ln: tls.NewListener(
+			sgfilter.Guard(ln, admit),
+			cfg,
+		), backend: backend, password: password, clusterArn: clusterArn, auth: auth,
 	}
 	p.wg.Go(p.serve)
 

@@ -73,6 +73,8 @@ func (h *Handler) launchOnCompute(
 			req.VPCCIDR, req.PublishPorts = nc.ComputeNetworkContext(inst)
 		}
 
+		req.Admit = admitFactory(cb, inst.ID)
+
 		res, err := c.Launch(ctx, req)
 		if err != nil {
 			h.imds.forget(inst.ID)

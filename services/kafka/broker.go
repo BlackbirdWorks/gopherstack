@@ -24,6 +24,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 )
 
 const (
@@ -80,8 +81,10 @@ type liveBroker struct {
 
 type brokerEngine struct {
 	brokers map[string]*liveBroker
-	cfg     BrokerConfig
-	wg      sync.WaitGroup
+	// admit returns the security-group check for a cluster's client port; nil result means not enforced.
+	admit func(clusterArn string, port int) sgfilter.Admitter
+	cfg   BrokerConfig
+	wg    sync.WaitGroup
 }
 
 // EnableBrokers switches the backend to docker mode: provisioned clusters get a real broker.
@@ -115,7 +118,7 @@ func (b *InMemoryBackend) EnableBrokers(cfg BrokerConfig) {
 	b.mu.Lock("EnableBrokers")
 	defer b.mu.Unlock()
 
-	b.engine = &brokerEngine{cfg: cfg, brokers: make(map[string]*liveBroker)}
+	b.engine = &brokerEngine{cfg: cfg, brokers: make(map[string]*liveBroker), admit: b.clusterAdmit}
 }
 
 // ManagedBootstrap returns the real broker addresses of a docker-backed cluster.
@@ -268,6 +271,10 @@ func (e *brokerEngine) teardown(lb *liveBroker) {
 		lb.res.proxy.close()
 	}
 
+	for _, r := range lb.res.relays {
+		r.Close()
+	}
+
 	if lb.res.keystoreDir != "" {
 		_ = os.RemoveAll(lb.res.keystoreDir)
 	}
@@ -296,6 +303,10 @@ func (e *brokerEngine) provision(
 		}
 
 		res.ports[l] = p
+	}
+
+	if err := e.startRelays(res, plan, clusterArn); err != nil {
+		return fail(err)
 	}
 
 	if plan.needsKeystore() {
@@ -413,7 +424,7 @@ func (e *brokerEngine) startProxy(res *brokerRes, clusterArn string, auth iamAut
 
 	res.proxy, err = startIAMProxy(bind, &tls.Config{
 		Certificates: []tls.Certificate{*cert}, MinVersion: tls.VersionTLS12,
-	}, backend, res.iamPassword, clusterArn, auth)
+	}, backend, res.iamPassword, clusterArn, auth, e.admitFor(clusterArn, iamClientPort))
 
 	return err
 }
@@ -510,7 +521,7 @@ func (e *brokerEngine) probeAddress(plan brokerPlan, res *brokerRes) string {
 	}
 
 	host := brokerDefaultHost
-	if !plan.secure {
+	if !plan.secure && res.ports[listenerPlaintext+relaySuffix] == 0 {
 		host = e.cfg.Host
 	}
 
@@ -518,7 +529,7 @@ func (e *brokerEngine) probeAddress(plan brokerPlan, res *brokerRes) string {
 }
 
 func (e *brokerEngine) endpoints(plan brokerPlan, res *brokerRes) ManagedEndpoints {
-	at := func(name string) string { return net.JoinHostPort(e.cfg.Host, strconv.Itoa(res.ports[name])) }
+	at := func(name string) string { return net.JoinHostPort(e.cfg.Host, strconv.Itoa(res.clientPort(name))) }
 
 	var ep ManagedEndpoints
 

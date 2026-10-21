@@ -242,6 +242,7 @@ precedence is **defaults < persisted config < env vars / CLI flags**.
 | `--persist-flush-interval` | `GOPHERSTACK_PERSIST_FLUSH_INTERVAL` | `5s` | Hybrid flush interval (worst-case loss on a crash). |
 | `--demo` | `DEMO` | `false` | Load demo data on startup. |
 | `--enforce-iam` | `GOPHERSTACK_ENFORCE_IAM` | `false` | Evaluate every request against attached IAM policies. |
+| `--enforce-security-groups` | `GOPHERSTACK_ENFORCE_SECURITY_GROUPS` | `false` | Admit clients to container-backed endpoints only when a security-group ingress rule allows them (RDS, EC2 docker instances, DocumentDB, MSK, ElastiCache, MemoryDB, Amazon MQ, Neptune, ECS awsvpc tasks). Egress is not enforced. See [docs/security-groups.md](docs/security-groups.md). |
 | `--tls` | `TLS` | `false` | Serve over HTTPS (self-signed certificate unless `--tls-cert`/`--tls-key` are set). |
 | `--tls-cert` | `TLS_CERT` | *(empty)* | Path to a TLS certificate (PEM). Requires `--tls-key`. |
 | `--tls-key` | `TLS_KEY` | *(empty)* | Path to a TLS private key (PEM). |
@@ -1046,6 +1047,7 @@ cdk deploy
 
 - [Quickstart](docs/quickstart.md)
 - [Running with Docker](docs/docker.md)
+- [Security group enforcement](docs/security-groups.md)
 - [Migrating from LocalStack](docs/migration.md)
 - [Architecture](docs/architecture/README.md)
 - [Examples](examples/README.md)

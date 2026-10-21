@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 )
 
 const (
@@ -68,14 +69,19 @@ type portMap struct {
 }
 
 type liveNode struct {
-	hostPorts   map[string]int
+	hostPorts map[string]int
+	// inner maps port names to the loopback ports behind security-group relays; nil when not relayed.
+	inner       map[string]int
 	containerID string
-	ports       []int
+	relays      []*sgfilter.Proxy
+	// ports are the allocated host ports: the advertised ones, then the loopback ones when relayed.
+	ports []int
 }
 
 type liveBroker struct {
 	ctx    context.Context
 	cancel context.CancelFunc
+	id     string
 	engine string
 	// username and password are the engine credentials.
 	username string
@@ -93,6 +99,8 @@ func (lb *liveBroker) nodes() []*liveNode {
 }
 
 type brokerEngine struct {
+	// admit returns the security-group check for a broker's client port; nil result means not enforced.
+	admit    func(brokerID string, port int) sgfilter.Admitter
 	brokers  map[string]*liveBroker
 	failures map[string]string
 	cfg      BrokerConfig
@@ -130,6 +138,7 @@ func (b *InMemoryBackend) EnableBrokers(cfg BrokerConfig) {
 
 	b.engine = &brokerEngine{
 		cfg: cfg, brokers: make(map[string]*liveBroker), failures: make(map[string]string),
+		admit: b.brokerAdmit,
 	}
 }
 
@@ -168,7 +177,7 @@ func consumerPortName(engine string) string {
 }
 
 func (e *brokerEngine) addr(lb *liveBroker, name string) string {
-	return e.nodeAddr(&lb.liveNode, name)
+	return e.probeAddr(&lb.liveNode, name)
 }
 
 func (e *brokerEngine) nodeAddr(n *liveNode, name string) string {
@@ -236,7 +245,7 @@ func (e *brokerEngine) reap(lbs []*liveBroker) {
 
 		for _, n := range lb.nodes() {
 			if n.containerID != "" {
-				e.wg.Go(func() { e.remove(n.containerID, n.ports) })
+				e.wg.Go(func() { e.removeNode(n) })
 			}
 		}
 	}
@@ -287,7 +296,12 @@ func (e *brokerEngine) spec(name string, lb *liveBroker, n *liveNode) container.
 	bind := container.BindHostFor(e.cfg.Host)
 
 	for i, pm := range maps {
-		ports[i] = container.PortSpec(bind, strconv.Itoa(n.ports[i]), strconv.Itoa(pm.container))
+		host, hostPort := bind, n.ports[i]
+		if n.inner != nil {
+			host, hostPort = container.LoopbackHost, n.ports[len(maps)+i]
+		}
+
+		ports[i] = container.PortSpec(host, strconv.Itoa(hostPort), strconv.Itoa(pm.container))
 	}
 
 	spec := container.Spec{
@@ -335,7 +349,7 @@ func (b *InMemoryBackend) launchBrokerLocked(br *Broker, u *User) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	lb := &liveBroker{
-		ctx: ctx, cancel: cancel, engine: br.EngineType, username: u.Username, password: u.Password,
+		ctx: ctx, cancel: cancel, id: br.BrokerID, engine: br.EngineType, username: u.Username, password: u.Password,
 		standbyWant: standbyCount(br.EngineType, br.DeploymentMode),
 	}
 	e.brokers[br.BrokerID] = lb
@@ -356,7 +370,7 @@ func (b *InMemoryBackend) runBroker(ctx context.Context, brokerID, name string, 
 
 	if !b.recordContainers(brokerID, lb, nodes) {
 		for _, n := range nodes {
-			e.remove(n.containerID, n.ports)
+			e.removeNode(n)
 		}
 
 		return
@@ -383,7 +397,7 @@ func (e *brokerEngine) startNodes(ctx context.Context, name string, lb *liveBrok
 		n, err := e.startNode(ctx, name, lb)
 		if err != nil {
 			for _, started := range nodes {
-				e.remove(started.containerID, started.ports)
+				e.removeNode(started)
 			}
 
 			return nil, err
@@ -403,15 +417,12 @@ func (e *brokerEngine) startNode(ctx context.Context, name string, lb *liveBroke
 
 	id, err := container.CreateAndStartRetry(ctx, e.cfg.Runtime,
 		func() (container.Spec, error) {
-			ports, err := e.acquirePorts(name, maps)
+			ports, err := e.acquireNodePorts(name, lb, maps)
 			if err != nil {
 				return container.Spec{}, err
 			}
 
-			n = &liveNode{ports: ports, hostPorts: make(map[string]int, len(ports))}
-			for i, pm := range maps {
-				n.hostPorts[pm.name] = ports[i]
-			}
+			n = newLiveNode(ports, maps, e.admit != nil && e.admit(lb.id, 0) != nil)
 
 			return e.spec(name, lb, n), nil
 		},
@@ -422,12 +433,18 @@ func (e *brokerEngine) startNode(ctx context.Context, name string, lb *liveBroke
 
 	n.containerID = id
 
+	if err = e.startRelays(n, lb, maps); err != nil {
+		e.removeNode(n)
+
+		return nil, err
+	}
+
 	return n, nil
 }
 
 func (e *brokerEngine) awaitAllReady(ctx context.Context, lb *liveBroker) error {
 	for _, n := range lb.nodes() {
-		if err := e.awaitReady(ctx, lb, e.nodeAddr(n, consumerPortName(lb.engine))); err != nil {
+		if err := e.awaitReady(ctx, lb, e.probeAddr(n, consumerPortName(lb.engine))); err != nil {
 			return err
 		}
 
@@ -444,7 +461,7 @@ func (e *brokerEngine) awaitTLS(ctx context.Context, lb *liveBroker, n *liveNode
 		return nil
 	}
 
-	endpoints, console := e.liveEndpoints(lb.engine, n)
+	endpoints, console := e.endpointsWith(lb.engine, func(name string) string { return e.probeAddr(n, name) })
 
 	ctx, cancel := context.WithTimeout(ctx, e.cfg.StartTimeout)
 	defer cancel()

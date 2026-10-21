@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
@@ -144,6 +145,7 @@ const (
 // (a bare []string / []Tag) carry no identity of their own to key a
 // store.Table by (see store_setup.go's doc comment for the full rationale).
 type InMemoryBackend struct {
+	sgEnforcer                     *sgfilter.Enforcer
 	subnets                        SubnetResolver
 	clusterEndpoints               *store.Table[DBClusterEndpoint]
 	eventsLog                      map[string][]Event

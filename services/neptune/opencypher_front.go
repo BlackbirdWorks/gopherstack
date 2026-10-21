@@ -20,6 +20,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/bolt"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
 
@@ -45,7 +46,9 @@ type cypherFront struct {
 	up      atomic.Bool
 }
 
-func startCypherFront(host string, port int, innerAddr string, graph *opencypher.Graph) (*cypherFront, error) {
+func startCypherFront(
+	host string, port int, innerAddr string, graph *opencypher.Graph, admit sgfilter.Admitter,
+) (*cypherFront, error) {
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp",
 		net.JoinHostPort(container.BindHostFor(host), strconv.Itoa(port)))
 	if err != nil {
@@ -63,7 +66,7 @@ func startCypherFront(host string, port int, innerAddr string, graph *opencypher
 	f.proxy.Transport = f.tr
 	f.srv = &http.Server{Handler: f, ReadHeaderTimeout: cypherReadHeader}
 
-	go func() { _ = f.srv.Serve(bolt.Split(ln, f.serveBolt)) }()
+	go func() { _ = f.srv.Serve(bolt.Split(sgfilter.Guard(ln, admit), f.serveBolt)) }()
 
 	return f, nil
 }

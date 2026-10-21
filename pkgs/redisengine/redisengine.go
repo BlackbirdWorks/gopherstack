@@ -3,19 +3,26 @@
 package redisengine
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strconv"
+	"sync/atomic"
 
 	"github.com/alicebob/miniredis/v2"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 )
 
 // Engine is a running in-process Redis-protocol server.
 type Engine struct {
-	Mini          *miniredis.Miniredis
-	alloc         *portalloc.Allocator
+	Mini  *miniredis.Miniredis
+	alloc *portalloc.Allocator
+	// Front relays clients to Mini behind an admit check; nil for ungated engines.
+	Front *sgfilter.Proxy
+	// Gate decides Front's admissions; deny-all until Set.
+	Gate          *Gate
 	Host          string
 	Port          int
 	AllocatedPort int
@@ -55,6 +62,69 @@ func Start(alloc *portalloc.Allocator, label string) (*Engine, error) {
 	return e, nil
 }
 
+// Gate holds a connection check installed after the engine starts, once its owner can name the target;
+// until then every client is refused.
+type Gate struct {
+	p atomic.Pointer[sgfilter.Admitter]
+}
+
+// Set installs the check.
+func (g *Gate) Set(a sgfilter.Admitter) { g.p.Store(&a) }
+
+// Admit implements sgfilter.Admitter.
+func (g *Gate) Admit(remote net.Addr) bool {
+	a := g.p.Load()
+
+	return a != nil && *a != nil && (*a)(remote)
+}
+
+// StartGated is Start with the client-facing port served by a relay in front of a loopback-only server, so
+// Gate can refuse clients. The allocator port (or an ephemeral loopback one) is the relay's.
+func StartGated(alloc *portalloc.Allocator, label string) (*Engine, error) {
+	mr := miniredis.NewMiniRedis()
+	if err := mr.StartAddr("127.0.0.1:0"); err != nil {
+		return nil, fmt.Errorf("start miniredis: %w", err)
+	}
+
+	e := &Engine{Mini: mr, alloc: alloc, Gate: &Gate{}}
+	bind := "127.0.0.1:0"
+
+	if alloc != nil {
+		port, err := alloc.Acquire(label)
+		if err != nil {
+			mr.Close()
+
+			return nil, fmt.Errorf("allocate redis port: %w", err)
+		}
+
+		e.AllocatedPort, bind = port, net.JoinHostPort("0.0.0.0", strconv.Itoa(port))
+	}
+
+	front, err := sgfilter.Front(context.Background(), bind, mr.Addr(), e.Gate.Admit)
+	if err != nil {
+		e.Close()
+
+		return nil, fmt.Errorf("start redis relay: %w", err)
+	}
+
+	e.Front = front
+	e.setAddr(front.Addr())
+
+	return e, nil
+}
+
+func (e *Engine) setAddr(addr net.Addr) {
+	tcp, ok := addr.(*net.TCPAddr)
+	if !ok {
+		return
+	}
+
+	e.Port, e.Host = tcp.Port, tcp.IP.String()
+	if tcp.IP.IsUnspecified() {
+		e.Host = "127.0.0.1"
+	}
+}
+
 // Addr returns the connectable host:port.
 func (e *Engine) Addr() string { return net.JoinHostPort(e.Host, strconv.Itoa(e.Port)) }
 
@@ -62,6 +132,11 @@ func (e *Engine) Addr() string { return net.JoinHostPort(e.Host, strconv.Itoa(e.
 func (e *Engine) Close() {
 	if e == nil || e.Mini == nil {
 		return
+	}
+
+	if e.Front != nil {
+		e.Front.Close()
+		e.Front = nil
 	}
 
 	e.Mini.Close()

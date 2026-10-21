@@ -3,11 +3,13 @@ package mq
 
 import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // InMemoryBackend stores Amazon MQ state in memory.
 type InMemoryBackend struct {
+	sgEnforcer     *sgfilter.Enforcer
 	brokers        *store.Table[Broker]
 	configurations *store.Table[Configuration]
 	tags           map[string]map[string]string

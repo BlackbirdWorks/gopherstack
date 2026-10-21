@@ -19,6 +19,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/linklocal"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/registryauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 )
 
 // defaultDockerImage is the Docker image used by the EC2 docker provider when
@@ -87,7 +88,11 @@ type DockerCompute struct {
 	ports *sshPortPool
 	nets  *netRegistry
 	ll    *linkLocalState
-	cfg   DockerComputeConfig
+	// fronts holds the security-group relays of enforced instances; shared across region views.
+	fronts *frontRegistry
+	// dialer reaches containers' loopback ports from the relays; nil means a plain net.Dialer.
+	dialer sgfilter.Dialer
+	cfg    DockerComputeConfig
 }
 
 // sshPortPool is shared by every region's view of one Docker daemon so two
@@ -124,6 +129,8 @@ func newDockerComputeWithAPI(api dockerAPI, cfg DockerComputeConfig) *DockerComp
 		ports: &sshPortPool{used: make(map[int]struct{})},
 		nets:  newNetRegistry(),
 		ll:    &linkLocalState{},
+
+		fronts: newFrontRegistry(),
 	}
 }
 
@@ -145,6 +152,10 @@ func (d *DockerCompute) forRegion(region string) Compute {
 
 // Close releases the underlying Docker client.
 func (d *DockerCompute) Close() error {
+	for _, f := range d.fronts.drain() {
+		f.close()
+	}
+
 	if err := d.api.Close(); err != nil {
 		return fmt.Errorf("docker close: %w", err)
 	}
@@ -261,6 +272,20 @@ func (d *DockerCompute) Launch(ctx context.Context, req LaunchRequest) (LaunchRe
 		resolvedPort = got.sshPort
 	}
 
+	if req.Admit != nil {
+		f, frontErr := d.frontLaunch(ctx, resp.ID, req, hostPort, got)
+		if frontErr != nil {
+			d.cleanupAfterFailure(ctx, resp.ID, hostPort)
+
+			return LaunchResult{}, frontErr
+		}
+
+		got.published, resolvedPort = f.ports, hostPort
+		if f.sshPort != 0 {
+			resolvedPort = f.sshPort
+		}
+	}
+
 	return LaunchResult{
 		ProviderID: resp.ID,
 		PrivateIP:  got.ip,
@@ -300,6 +325,7 @@ func (d *DockerCompute) Terminate(ctx context.Context, instanceID, providerID st
 
 	log := logger.Load(ctx)
 	timeout := stopTimeoutSec
+	frontPort, fronted := d.closeFronts(providerID)
 
 	if _, err := d.api.ContainerStop(ctx, providerID, mobyclient.ContainerStopOptions{Timeout: &timeout}); err != nil {
 		log.WarnContext(ctx, "docker stop on terminate", "instance", instanceID, "container", providerID, "error", err)
@@ -312,7 +338,12 @@ func (d *DockerCompute) Terminate(ctx context.Context, instanceID, providerID st
 		return fmt.Errorf("container remove: %w", err)
 	}
 
-	d.releaseProviderPort(ctx, providerID)
+	if fronted {
+		d.releaseSSHPort(frontPort)
+	} else {
+		d.releaseProviderPort(ctx, providerID)
+	}
+
 	d.releaseLinkLocal(providerID)
 
 	return nil
@@ -386,6 +417,15 @@ func (d *DockerCompute) pullOnce(ctx context.Context, ref, auth string) error {
 	return nil
 }
 
+// sshBinding publishes sshd on the reserved host port, or on a loopback-only port when a relay fronts it.
+func (d *DockerCompute) sshBinding(hostPort int, fronted bool) []mobynetwork.PortBinding {
+	if fronted {
+		return []mobynetwork.PortBinding{{HostIP: parseHostIP(publishHostIP)}}
+	}
+
+	return []mobynetwork.PortBinding{{HostIP: parseHostIP(d.cfg.SSHHostIP), HostPort: strconv.Itoa(hostPort)}}
+}
+
 func (d *DockerCompute) buildContainerConfigs(
 	hostPort int, req LaunchRequest, vn vpcNetwork, hasNet bool,
 ) (*mobycontainer.HostConfig, *mobynetwork.NetworkingConfig, mobynetwork.PortSet) {
@@ -393,14 +433,12 @@ func (d *DockerCompute) buildContainerConfigs(
 	exposed := mobynetwork.PortSet{containerSSHPort: struct{}{}}
 
 	if hostPort > 0 {
-		portBindings[containerSSHPort] = []mobynetwork.PortBinding{
-			{HostIP: parseHostIP(d.cfg.SSHHostIP), HostPort: strconv.Itoa(hostPort)},
-		}
+		portBindings[containerSSHPort] = d.sshBinding(hostPort, req.Admit != nil)
 	}
 
 	for _, spec := range req.PublishPorts {
 		key, err := spec.key()
-		if err != nil || key == containerSSHPort {
+		if err != nil || key == containerSSHPort || (req.Admit != nil && spec.Protocol != protoTCP) {
 			continue
 		}
 

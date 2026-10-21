@@ -103,17 +103,22 @@ func tlsEnv(host string) []string {
 
 // liveEndpoints returns the AWS-form TLS endpoints and console URL for one broker node.
 func (e *brokerEngine) liveEndpoints(engine string, n *liveNode) ([]string, string) {
+	return e.endpointsWith(engine, func(name string) string { return e.nodeAddr(n, name) })
+}
+
+// endpointsWith renders the TLS endpoints with addr resolving each port name to a host:port.
+func (e *brokerEngine) endpointsWith(engine string, addr func(name string) string) ([]string, string) {
 	if engine == EngineTypeRabbitMQ {
-		return []string{"amqps://" + e.nodeAddr(n, "amqp-tls")}, "https://" + e.nodeAddr(n, "console-tls")
+		return []string{"amqps://" + addr("amqp-tls")}, "https://" + addr("console-tls")
 	}
 
 	return []string{
-		"ssl://" + e.nodeAddr(n, "openwire-tls"),
-		"amqp+ssl://" + e.nodeAddr(n, "amqp-tls"),
-		"stomp+ssl://" + e.nodeAddr(n, "stomp-tls"),
-		"mqtt+ssl://" + e.nodeAddr(n, "mqtt-tls"),
-		"wss://" + e.nodeAddr(n, "wss"),
-	}, "https://" + e.nodeAddr(n, "console-tls")
+		"ssl://" + addr("openwire-tls"),
+		"amqp+ssl://" + addr("amqp-tls"),
+		"stomp+ssl://" + addr("stomp-tls"),
+		"mqtt+ssl://" + addr("mqtt-tls"),
+		"wss://" + addr("wss"),
+	}, "https://" + addr("console-tls")
 }
 
 // standbyCount is how many extra containers a deployment mode runs beside the primary.

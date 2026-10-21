@@ -20,6 +20,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -135,17 +136,45 @@ type tlsProxy struct {
 	cfg      *tls.Config
 	ctx      context.Context
 	cancel   context.CancelFunc
+	admit    sgfilter.Admitter
 	upstream string
 	wg       sync.WaitGroup
 	require  atomic.Bool
 }
 
-func (a *tlsAuthority) startProxy(host string, port int, upstream string, require bool) (*tlsProxy, error) {
+func (a *tlsAuthority) startProxy(
+	host string, port int, upstream string, require bool, admit sgfilter.Admitter,
+) (*tlsProxy, error) {
 	cert, err := a.serverCert(host)
 	if err != nil {
 		return nil, err
 	}
 
+	p, err := newFrontProxy(host, port, upstream, admit)
+	if err != nil {
+		return nil, err
+	}
+
+	p.cfg = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+	p.require.Store(require)
+	p.wg.Go(p.accept)
+
+	return p, nil
+}
+
+// startPlainProxy fronts a plaintext cluster with a security-group check only.
+func startPlainProxy(host string, port int, upstream string, admit sgfilter.Admitter) (*tlsProxy, error) {
+	p, err := newFrontProxy(host, port, upstream, admit)
+	if err != nil {
+		return nil, err
+	}
+
+	p.wg.Go(p.accept)
+
+	return p, nil
+}
+
+func newFrontProxy(host string, port int, upstream string, admit sgfilter.Admitter) (*tlsProxy, error) {
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp",
 		net.JoinHostPort(container.BindHostFor(host), strconv.Itoa(port)))
 	if err != nil {
@@ -153,14 +182,8 @@ func (a *tlsAuthority) startProxy(host string, port int, upstream string, requir
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	p := &tlsProxy{
-		ln: ln, ctx: ctx, cancel: cancel, upstream: upstream,
-		cfg: &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12},
-	}
-	p.require.Store(require)
-	p.wg.Go(p.accept)
 
-	return p, nil
+	return &tlsProxy{ln: ln, ctx: ctx, cancel: cancel, upstream: upstream, admit: admit}, nil
 }
 
 func (p *tlsProxy) accept() {
@@ -174,12 +197,18 @@ func (p *tlsProxy) accept() {
 	}
 }
 
-func (p *tlsProxy) serve(client net.Conn) {
-	stop := context.AfterFunc(p.ctx, func() { _ = client.Close() })
+func (p *tlsProxy) serve(raw net.Conn) {
+	stop := context.AfterFunc(p.ctx, func() { _ = raw.Close() })
 	defer stop()
-	defer func() { _ = client.Close() }()
+	defer func() { _ = raw.Close() }()
 
-	if p.require.Load() {
+	client := raw
+
+	if p.admit != nil && !p.admit(client.RemoteAddr()) {
+		return
+	}
+
+	if p.cfg != nil && p.require.Load() {
 		tc := tls.Server(client, p.cfg)
 
 		hctx, cancel := context.WithTimeout(p.ctx, tlsHandshake)

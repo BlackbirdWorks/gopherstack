@@ -1,6 +1,7 @@
 package docdb
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -92,6 +93,7 @@ type liveCluster struct {
 	containerID string
 	port        int
 	inner       int
+	svcPort     int
 	ready       bool
 }
 
@@ -282,6 +284,7 @@ func (b *InMemoryBackend) provisionClusterLocked(c *DBCluster, password string) 
 	lb := &liveCluster{
 		ctx: ctx, cancel: cancel, key: regionKey(c.region, c.DBClusterIdentifier), region: c.region,
 		id: c.DBClusterIdentifier, version: mongoTag(c.EngineVersion), user: c.MasterUsername, password: password,
+		svcPort: cmp.Or(c.Port, defaultDocDBPort),
 	}
 	e.units[lb.key] = lb
 	c.Status = statusCreating
@@ -304,7 +307,7 @@ func (b *InMemoryBackend) runUnit(lb *liveCluster) {
 		func() (container.Spec, error) {
 			var perr error
 
-			if port, inner, perr = e.acquirePorts(); perr != nil {
+			if port, inner, perr = e.acquirePorts(b.enforcing()); perr != nil {
 				return container.Spec{}, perr
 			}
 
@@ -352,10 +355,11 @@ func (b *InMemoryBackend) runUnit(lb *liveCluster) {
 	b.awaitAndMark(lb)
 }
 
-// acquirePorts reserves the published port and, when TLS fronts the container, the loopback port behind it.
-func (e *dbEngine) acquirePorts() (int, int, error) {
+// acquirePorts reserves the published port and, when TLS or a security-group relay fronts the container, the
+// loopback port behind it.
+func (e *dbEngine) acquirePorts(relay bool) (int, int, error) {
 	port, err := e.acquirePort()
-	if err != nil || e.tls == nil {
+	if err != nil || (e.tls == nil && !relay) {
 		return port, 0, err
 	}
 
@@ -385,7 +389,9 @@ func (b *InMemoryBackend) recordPorts(lb *liveCluster, port, inner int) bool {
 // startProxy opens the TLS-terminating listener in front of lb's container; nil when TLS is off for the engine.
 func (b *InMemoryBackend) startProxy(lb *liveCluster) (*tlsProxy, error) {
 	e := b.engine
-	if e.tls == nil {
+	admit := b.clusterAdmit(lb)
+
+	if e.tls == nil && admit == nil {
 		return nil, nil //nolint:nilnil // no proxy is a valid state
 	}
 
@@ -394,8 +400,11 @@ func (b *InMemoryBackend) startProxy(lb *liveCluster) (*tlsProxy, error) {
 	b.mu.RUnlock()
 
 	upstream := net.JoinHostPort(container.LoopbackHost, strconv.Itoa(lb.inner))
+	if e.tls == nil {
+		return startPlainProxy(e.cfg.Host, lb.port, upstream, admit)
+	}
 
-	return e.tls.startProxy(e.cfg.Host, lb.port, upstream, require)
+	return e.tls.startProxy(e.cfg.Host, lb.port, upstream, require, admit)
 }
 
 func (b *InMemoryBackend) recordContainer(lb *liveCluster, id string, proxy *tlsProxy) bool {

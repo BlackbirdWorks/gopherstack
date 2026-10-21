@@ -309,9 +309,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 func (b *InMemoryBackend) closeLiveClusterEnginesLocked() {
 	for _, regionClusters := range b.clusters {
 		for _, c := range regionClusters.All() {
-			if c.mini != nil {
-				c.mini.Close()
-			}
+			closeEngine(c)
 		}
 	}
 }

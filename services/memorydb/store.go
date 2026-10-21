@@ -3,11 +3,13 @@ package memorydb
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -167,6 +169,7 @@ func getRegion(ctx context.Context, defaultRegion string) string {
 // map key, not a value field), and events is slice-valued
 // (map[string][]*Event), neither of which store.Table can represent.
 type InMemoryBackend struct {
+	sgEnforcer                 atomic.Pointer[sgfilter.Enforcer]
 	parameterGroups            map[string]*store.Table[ParameterGroup]
 	reservedNodes              map[string]*store.Table[ReservedNode]
 	multiRegionParameterGroups *store.Table[MultiRegionParameterGroup]

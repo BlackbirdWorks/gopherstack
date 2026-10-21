@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 )
 
 const (
@@ -109,6 +110,7 @@ type brokerRes struct {
 	ports       map[string]int
 	keystoreDir string
 	iamPassword string
+	relays      []*sgfilter.Proxy
 }
 
 type listenerDef struct {
@@ -124,14 +126,16 @@ func (e *brokerEngine) listenerDefs(plan brokerPlan, res *brokerRes) []listenerD
 	local := func(name, protocol, cport string, public bool) listenerDef {
 		host, bind := brokerDefaultHost, container.LoopbackHost
 		if public {
-			host, bind = e.cfg.Host, container.BindHostFor(e.cfg.Host)
+			host = e.cfg.Host
+
+			if res.ports[name+relaySuffix] == 0 {
+				bind = container.BindHostFor(e.cfg.Host)
+			}
 		}
 
-		port := res.ports[name]
-
 		return listenerDef{
-			name: name, protocol: protocol, cport: cport, hostPort: port, bind: bind,
-			advertised: net.JoinHostPort(host, strconv.Itoa(port)),
+			name: name, protocol: protocol, cport: cport, hostPort: res.ports[name], bind: bind,
+			advertised: net.JoinHostPort(host, strconv.Itoa(res.clientPort(name))),
 		}
 	}
 
