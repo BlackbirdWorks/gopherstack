@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import urllib.parse
 import urllib.request
 
 from testcontainers.core.container import DockerContainer
@@ -88,11 +89,13 @@ class GopherstackContainer(DockerContainer):
 
     def _wait_healthy(self) -> None:
         url = self.get_endpoint() + HEALTH_PATH
+        if urllib.parse.urlparse(url).scheme not in ("http", "https"):
+            raise ValueError(f"unexpected health URL scheme: {url}")
         deadline = time.monotonic() + self._startup_timeout
         last: Exception | None = None
         while time.monotonic() < deadline:
             try:
-                with urllib.request.urlopen(url, timeout=2) as resp:  # noqa: S310
+                with urllib.request.urlopen(url, timeout=2) as resp:  # noqa: S310  # nosec B310
                     if resp.status == 200:
                         return
             except Exception as exc:  # noqa: BLE001
