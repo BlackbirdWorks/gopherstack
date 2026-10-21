@@ -29,6 +29,12 @@ var (
 	ErrEventHubConsumerGroupNotFound = errors.New("azurearm: event hubs consumer group not found")
 	ErrEventHubRuleNotFound          = errors.New("azurearm: event hubs authorization rule not found")
 
+	ErrEventGridTopicNotFound          = errors.New("azurearm: event grid topic not found")
+	ErrEventGridSubscriptionNotFound   = errors.New("azurearm: event subscription not found")
+	ErrEventGridNamespaceNotFound      = errors.New("azurearm: event grid namespace not found")
+	ErrEventGridNamespaceTopicNotFound = errors.New("azurearm: event grid namespace topic not found")
+	ErrEventGridUnavailable            = errors.New("azurearm: event grid data plane is not available")
+
 	ErrCosmosAccountNotFound    = errors.New("azurearm: cosmos db account not found")
 	ErrCosmosDatabaseNotFound   = errors.New("azurearm: cosmos db database not found")
 	ErrCosmosContainerNotFound  = errors.New("azurearm: cosmos db container not found")

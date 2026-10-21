@@ -65,3 +65,29 @@ func EventHubRestoreJSON(t *testing.T, p *EventHubProvider, data []byte) {
 	require.NoError(t, json.Unmarshal(data, &s))
 	p.restore(&s)
 }
+
+// NewTestHandlerWithEventGrid builds a Handler with a Microsoft.EventGrid provider over dataPlane.
+func NewTestHandlerWithEventGrid(dataPlane EventGrid, settings Settings) *Handler {
+	backend := NewInMemoryBackend()
+	registry := NewRegistry(backend)
+	registry.Register(NewEventGridProvider(EventGridEndpointConfig{Override: settings.AdvertiseEventGrid}, dataPlane))
+
+	return NewHandler(backend, registry, nil, settings)
+}
+
+// EventGridSnapshotJSON marshals the provider's ARM-side snapshot.
+func EventGridSnapshotJSON(p *EventGridProvider) []byte {
+	b, _ := json.Marshal(p.snapshot())
+
+	return b
+}
+
+// EventGridRestoreJSON restores a provider from EventGridSnapshotJSON output.
+func EventGridRestoreJSON(t *testing.T, p *EventGridProvider, data []byte) {
+	t.Helper()
+
+	var s eventGridSnapshot
+
+	require.NoError(t, json.Unmarshal(data, &s))
+	p.restore(&s)
+}

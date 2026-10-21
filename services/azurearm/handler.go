@@ -435,6 +435,10 @@ func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
 		return err
 	}
 
+	if handled, err := matchRoutes(eventGridRoutes, h, c, segs); handled {
+		return err
+	}
+
 	if handled, err := matchRoutes(armResourceRoutes, h, c, segs); handled {
 		return err
 	}
@@ -585,6 +589,10 @@ func errorDetails(err error) errorEntry {
 	}
 
 	if e, ok := eventHubErrorDetails(err); ok {
+		return e
+	}
+
+	if e, ok := eventGridErrorDetails(err); ok {
 		return e
 	}
 

@@ -1,6 +1,9 @@
 package azurearm
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StorageAccounts is the narrow, consumer-defined seam the Microsoft.Storage
 // resource provider (rp_storage.go) delegates account lifecycle events
@@ -250,3 +253,88 @@ func (noopCosmosResources) PutThroughput(string, string, CosmosThroughput) error
 }
 
 var _ CosmosResources = noopCosmosResources{}
+
+// EventGridTopic is the data plane's view of a custom topic.
+type EventGridTopic struct {
+	CreatedAt   time.Time
+	InputSchema string
+}
+
+// EventGrid is the seam the Microsoft.EventGrid resource provider uses to keep
+// the Event Grid data plane in step with ARM. Subscription and namespace-topic
+// subscription properties cross as ARM property maps, so this package never
+// imports services/azureeventgrid.
+type EventGrid interface {
+	PutTopic(name, resourceID, inputSchema string) (EventGridTopic, error)
+	TopicInfo(name string) (EventGridTopic, bool)
+	DeleteTopic(name string) error
+	TopicKeys(name string) (key1, key2 string, err error)
+	RegenerateTopicKey(name, keyName string) (key1, key2 string, err error)
+
+	PutSubscription(ctx context.Context, topic, name string, props map[string]any) (map[string]any, error)
+	GetSubscription(topic, name string) (map[string]any, bool)
+	DeleteSubscription(topic, name string) error
+	SubscriptionFullURL(topic, name string) (string, error)
+
+	PutNamespace(name string) error
+	DeleteNamespace(name string) error
+	NamespaceKeys(name string) (key1, key2 string, err error)
+	RegenerateNamespaceKey(name, keyName string) (key1, key2 string, err error)
+	PutNamespaceTopic(ns, name string) (time.Time, error)
+	NamespaceTopicCreated(ns, name string) (time.Time, bool)
+	DeleteNamespaceTopic(ns, name string) error
+
+	PutPullSubscription(ns, topic, name string, props map[string]any) (map[string]any, error)
+	GetPullSubscription(ns, topic, name string) (map[string]any, bool)
+	DeletePullSubscription(ns, topic, name string) error
+}
+
+type noopEventGrid struct{}
+
+func (noopEventGrid) PutTopic(string, string, string) (EventGridTopic, error) {
+	return EventGridTopic{}, ErrEventGridUnavailable
+}
+func (noopEventGrid) TopicInfo(string) (EventGridTopic, bool) { return EventGridTopic{}, false }
+func (noopEventGrid) DeleteTopic(string) error                { return nil }
+func (noopEventGrid) TopicKeys(string) (string, string, error) {
+	return "", "", ErrEventGridUnavailable
+}
+
+func (noopEventGrid) RegenerateTopicKey(string, string) (string, string, error) {
+	return "", "", ErrEventGridUnavailable
+}
+
+func (noopEventGrid) PutSubscription(context.Context, string, string, map[string]any) (map[string]any, error) {
+	return nil, ErrEventGridUnavailable
+}
+func (noopEventGrid) GetSubscription(string, string) (map[string]any, bool) { return nil, false }
+func (noopEventGrid) DeleteSubscription(string, string) error               { return nil }
+func (noopEventGrid) SubscriptionFullURL(string, string) (string, error) {
+	return "", ErrEventGridUnavailable
+}
+func (noopEventGrid) PutNamespace(string) error    { return ErrEventGridUnavailable }
+func (noopEventGrid) DeleteNamespace(string) error { return nil }
+func (noopEventGrid) NamespaceKeys(string) (string, string, error) {
+	return "", "", ErrEventGridUnavailable
+}
+
+func (noopEventGrid) RegenerateNamespaceKey(string, string) (string, string, error) {
+	return "", "", ErrEventGridUnavailable
+}
+
+func (noopEventGrid) PutNamespaceTopic(string, string) (time.Time, error) {
+	return time.Time{}, ErrEventGridUnavailable
+}
+func (noopEventGrid) NamespaceTopicCreated(string, string) (time.Time, bool) {
+	return time.Time{}, false
+}
+func (noopEventGrid) DeleteNamespaceTopic(string, string) error { return nil }
+func (noopEventGrid) PutPullSubscription(string, string, string, map[string]any) (map[string]any, error) {
+	return nil, ErrEventGridUnavailable
+}
+func (noopEventGrid) GetPullSubscription(string, string, string) (map[string]any, bool) {
+	return nil, false
+}
+func (noopEventGrid) DeletePullSubscription(string, string, string) error { return nil }
+
+var _ EventGrid = noopEventGrid{}

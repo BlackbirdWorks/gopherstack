@@ -224,6 +224,11 @@ func isCosmosOperationPath(segs []string) bool {
 // handleCosmosDelete deletes the resource and answers 202 with an Azure-AsyncOperation URL, as azurerm's
 // long-running-operation poller expects; the operation is already complete when polled.
 func (h *Handler) handleCosmosDelete(c *echo.Context, segs []string) error {
+	return h.deleteAsync(c, segs, namespaceMicrosoftDocumentDB, cosmosOperationsStatus)
+}
+
+// deleteAsync deletes the resource at segs and answers 202 with an operationsStatus URL under providerNS.
+func (h *Handler) deleteAsync(c *echo.Context, segs []string, providerNS, opsSegment string) error {
 	id, err := ParseGenericResourcePath("/" + joinSegs(segs))
 	if err != nil {
 		return h.writeAPIError(c, err)
@@ -234,8 +239,7 @@ func (h *Handler) handleCosmosDelete(c *echo.Context, segs []string) error {
 	}
 
 	op := h.baseURLFor(c.Request()) + "/subscriptions/" + id.SubscriptionID + "/providers/" +
-		namespaceMicrosoftDocumentDB + "/locations/" + DefaultLocation + "/" + cosmosOperationsStatus + "/" +
-		uuid.NewString()
+		providerNS + "/locations/" + DefaultLocation + "/" + opsSegment + "/" + uuid.NewString()
 	c.Response().Header().Set("Azure-Asyncoperation", op)
 	c.Response().Header().Set("Location", op)
 	c.Response().Header().Set("Retry-After", "1")

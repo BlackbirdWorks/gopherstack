@@ -99,6 +99,7 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	azurearmbackend "github.com/blackbirdworks/gopherstack/services/azurearm"
 	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
+	azureeventgridbackend "github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 	azureeventhubsbackend "github.com/blackbirdworks/gopherstack/services/azureeventhubs"
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
@@ -557,6 +558,7 @@ type CLI struct {
 	GCPRun                        gcprunbackend.Settings            `embed:"" prefix:"gcp-run-"`
 	GCPFunctions                  gcpfunctionsbackend.Settings      `embed:"" prefix:"gcp-functions-"`
 	Transparent                   TransparentSettings               `embed:"" prefix:"transparent-"`
+	AzureEventGrid                azureeventgridbackend.Settings    `embed:"" prefix:"azure-eventgrid-"`
 	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
 	AzureKeyVault                 azurekeyvaultbackend.Settings     `embed:"" prefix:"azure-keyvault-"`
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
@@ -743,6 +745,12 @@ func (c *CLI) GetIoTSettings() iotbackend.Settings {
 // GetCosmosDBSettings returns Cosmos DB settings (cosmosdb.ConfigProvider).
 func (c *CLI) GetCosmosDBSettings() cosmosdbbackend.Settings {
 	return c.CosmosDB
+}
+
+// GetAzureEventGridSettings returns Azure Event Grid settings
+// (azureeventgrid.ConfigProvider).
+func (c *CLI) GetAzureEventGridSettings() azureeventgridbackend.Settings {
+	return c.AzureEventGrid
 }
 
 // GetAzureEventHubsSettings returns Azure Event Hubs settings
@@ -2352,6 +2360,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"AzureEventHubs", "azureeventhubs", cli.AzureEventHubs.Port},
 		{"AzureEventHubsAMQP", "azureeventhubs-amqp", cli.AzureEventHubs.AMQPPort},
 		{"AzureEventHubsAMQPTLS", "azureeventhubs-amqp-tls", cli.AzureEventHubs.AMQPTLSPort},
+		{"AzureEventGrid", "azureeventgrid", cli.AzureEventGrid.Port},
 		{"AzureARM", "azurearm", cli.AzureARM.Port},
 		{"AzureKeyVault", "azurekeyvault", cli.AzureKeyVault.Port},
 	}
@@ -4258,10 +4267,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// Wire ARM's Microsoft.ServiceBus resource provider to
 	// services/azureservicebus's already-initialized handler (AZURE.md
 	// section 10.10's M9 entry).
-	wireAzureARMResourceProviders(
-		byName["AzureARM"], byName["AzureServiceBus"], byName["AzureKeyVault"], byName["CosmosDB"],
-		byName["AzureEventHubs"],
-	)
+	wireAzureARMAndEventGrid(byName)
 
 	// Wire CloudWatch → Firehose so a PutMetricStream/CreateMetricStream
 	// delivery stream actually receives matched metric data instead of
@@ -4727,6 +4733,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&azuretablebackend.Provider{},
 		&azureservicebusbackend.Provider{},
 		&azureeventhubsbackend.Provider{},
+		&azureeventgridbackend.Provider{},
 		&azurestoragevhostbackend.Provider{},
 		&azurekeyvaultbackend.Provider{},
 		&cosmosdbbackend.Provider{},

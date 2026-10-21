@@ -65,6 +65,10 @@ const (
 	DefaultEventHubAMQPPort = 5673
 )
 
+// DefaultEventGridPort is the Event Grid data plane's HTTPS port ARM advertises; it
+// must equal services/azureeventgrid.DefaultPort.
+const DefaultEventGridPort = 10007
+
 // DefaultCosmosDBPort is the Cosmos DB data plane's default port, used for documentEndpoint when no
 // data-plane adapter is wired; it must equal services/cosmosdb.DefaultPort.
 const DefaultCosmosDBPort = 8081
@@ -94,12 +98,14 @@ type Settings struct {
 	AdvertiseKeyVault     string `json:"advertiseKeyVault"     env:"AZURE_ARM_ADVERTISE_KEYVAULT_ENDPOINT"                                                  name:"advertise-keyvault"      help:"Override the host:port advertised in vaultUri (after the {vault}. prefix). Default: derived from the request's Host and --azure-arm-keyvault-port."`                                                    //nolint:lll // config struct tags are intentionally verbose
 	AdvertiseCosmosDB     string `json:"advertiseCosmosDb"     env:"AZURE_ARM_ADVERTISE_COSMOSDB_ENDPOINT"                                                  name:"advertise-cosmosdb"      help:"Override the host:port advertised in documentEndpoint. Default: derived from the request's Host and the Cosmos DB listener's port."`                                                                    //nolint:lll // config struct tags are intentionally verbose
 	AdvertiseEventHub     string `json:"advertiseEventHub"     env:"AZURE_ARM_ADVERTISE_EVENTHUB_ENDPOINT"                                                  name:"advertise-eventhub"      help:"Override the host:port advertised as the AMQP endpoint in Event Hubs connection strings. Default: derived from the request's Host and --azure-arm-eventhub-amqp-port."`                                 //nolint:lll // config struct tags are intentionally verbose
+	AdvertiseEventGrid    string `json:"advertiseEventGrid"    env:"AZURE_ARM_ADVERTISE_EVENTGRID_ENDPOINT"                                                 name:"advertise-eventgrid"     help:"Override the host:port advertised in Event Grid topic endpoints and namespace hostnames. Default: derived from the request's Host and --azure-arm-eventgrid-port."`                                     //nolint:lll // config struct tags are intentionally verbose
 	Port                  int    `json:"port"                  env:"AZURE_ARM_PORT"                          default:"10006"                                name:"port"                    help:"Fixed TCP port for the dedicated ARM listener; startup fails if it's unavailable (no fallback pool)."`                                                                                                  //nolint:lll // config struct tags are intentionally verbose
 	StorageVHostPort      int    `json:"storageVhostPort"      env:"AZURE_ARM_STORAGE_VHOST_PORT"            default:"10010"                                name:"storage-vhost-port"      help:"The shared services/azurestoragevhost listener's port, used to build primaryEndpoints when --azure-arm-advertise-storage-vhost isn't set. Must match --azure-storage-vhost-port."`                      //nolint:lll // config struct tags are intentionally verbose
 	ServiceBusPort        int    `json:"serviceBusPort"        env:"AZURE_ARM_SERVICEBUS_PORT"               default:"10003"                                name:"servicebus-port"         help:"The services/azureservicebus listener's port, used to build serviceBusEndpoint when --azure-arm-advertise-servicebus isn't set. Must match --azure-servicebus-port."`                                   //nolint:lll // config struct tags are intentionally verbose
 	KeyVaultPort          int    `json:"keyVaultPort"          env:"AZURE_ARM_KEYVAULT_PORT"                 default:"10004"                                name:"keyvault-port"           help:"The services/azurekeyvault listener's port, used to build vaultUri when --azure-arm-advertise-keyvault isn't set. Must match --azure-keyvault-port."`                                                   //nolint:lll // config struct tags are intentionally verbose
 	EventHubPort          int    `json:"eventHubPort"          env:"AZURE_ARM_EVENTHUB_PORT"                 default:"10005"                                name:"eventhub-port"           help:"The services/azureeventhubs HTTP listener's port, used for serviceBusEndpoint. Must match --azure-eventhubs-port."`                                                                                     //nolint:lll // config struct tags are intentionally verbose
 	EventHubAMQPPort      int    `json:"eventHubAmqpPort"      env:"AZURE_ARM_EVENTHUB_AMQP_PORT"            default:"5673"                                 name:"eventhub-amqp-port"      help:"The services/azureeventhubs plain AMQP port, used to build connection strings when --azure-arm-advertise-eventhub isn't set. Must match --azure-eventhubs-amqp-port."`                                  //nolint:lll // config struct tags are intentionally verbose
+	EventGridPort         int    `json:"eventGridPort"         env:"AZURE_ARM_EVENTGRID_PORT"                default:"10007"                                name:"eventgrid-port"          help:"The services/azureeventgrid HTTPS listener's port, used to build topic endpoints when --azure-arm-advertise-eventgrid isn't set. Must match --azure-eventgrid-port."`                                   //nolint:lll // config struct tags are intentionally verbose
 	ValidateTokens        bool   `json:"validateTokens"        env:"AZURE_ARM_VALIDATE_TOKENS"               default:"false"                                name:"validate-tokens"         help:"Cryptographically validate ARM bearer tokens (opt-in); by default any token, or none, is accepted."`                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 }
 
@@ -119,6 +125,7 @@ func DefaultSettings() Settings {
 		KeyVaultPort:     DefaultKeyVaultPort,
 		EventHubPort:     DefaultEventHubPort,
 		EventHubAMQPPort: DefaultEventHubAMQPPort,
+		EventGridPort:    DefaultEventGridPort,
 		ValidateTokens:   false,
 	}
 }

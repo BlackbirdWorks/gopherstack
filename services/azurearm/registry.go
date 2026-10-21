@@ -137,6 +137,19 @@ func (r *Registry) SetEventHubs(e EventHubs) {
 	}
 }
 
+// SetEventGrid gives the registered Microsoft.EventGrid provider (if any) a real
+// data-plane adapter, replacing its no-op default.
+func (r *Registry) SetEventGrid(e EventGrid) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftEventGrid)
+	if !ok {
+		return
+	}
+
+	if eg, egOk := p.(*EventGridProvider); egOk {
+		eg.dataPlane = e
+	}
+}
+
 // SetKeyVaults gives the registered Microsoft.KeyVault provider (if any) a
 // real KeyVaults adapter, replacing its no-op default.
 func (r *Registry) SetKeyVaults(k KeyVaults) {

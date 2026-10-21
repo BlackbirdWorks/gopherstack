@@ -176,6 +176,11 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		AMQPPort: settings.EventHubAMQPPort,
 	}, nil))
 
+	registry.Register(NewEventGridProvider(EventGridEndpointConfig{
+		Override: settings.AdvertiseEventGrid,
+		Port:     settings.EventGridPort,
+	}, nil))
+
 	registry.Register(NewCosmosProvider(CosmosEndpointConfig{Override: settings.AdvertiseCosmosDB}, nil))
 
 	issuer, err := aadauth.NewIssuer()
