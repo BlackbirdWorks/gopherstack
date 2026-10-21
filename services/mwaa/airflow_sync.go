@@ -251,6 +251,10 @@ func unzipFiles(raw []byte) (map[string][]byte, error) {
 			continue
 		}
 
+		if path.IsAbs(f.Name) || strings.Contains(f.Name, "..") || strings.Contains(f.Name, `\`) {
+			return nil, fmt.Errorf("%w: %q", errAirflowUnsafePath, f.Name)
+		}
+
 		data, rerr := readZipEntry(f)
 		if rerr != nil {
 			return nil, rerr

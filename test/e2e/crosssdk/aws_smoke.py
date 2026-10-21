@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 import traceback
+import urllib.parse
 import urllib.request
 import uuid
 import zipfile
@@ -168,7 +169,9 @@ def s3_presigned_url_get():
     s3.create_bucket(Bucket=b)
     s3.put_object(Bucket=b, Key="k.txt", Body=b"presigned-body")
     url = s3.generate_presigned_url("get_object", Params={"Bucket": b, "Key": "k.txt"}, ExpiresIn=300)
-    with urllib.request.urlopen(url, timeout=10) as resp:
+    if urllib.parse.urlparse(url).scheme not in ("http", "https"):
+        raise ValueError(f"unsupported presigned URL scheme: {url}")
+    with urllib.request.urlopen(url, timeout=10) as resp:  # nosec B310 - scheme validated above
         assert resp.status == 200
         assert resp.read() == b"presigned-body"
     s3.delete_object(Bucket=b, Key="k.txt")

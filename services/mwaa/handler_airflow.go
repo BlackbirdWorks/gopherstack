@@ -121,12 +121,18 @@ func (h *Handler) handleAirflowSSO(c *echo.Context) error {
 		return writeAirflowError(c, err)
 	}
 
+	secure := isHTTPSRequest(c.Request())
+
 	for _, ck := range sess.Cookies {
-		ck.Path, ck.HttpOnly, ck.SameSite = "/", true, http.SameSiteLaxMode
+		ck.Path, ck.HttpOnly, ck.SameSite, ck.Secure = "/", true, http.SameSiteLaxMode, secure
 		http.SetCookie(c.Response(), ck)
 	}
 
 	return c.Redirect(http.StatusFound, browserTarget(sess.Target, c.Request().Host))
+}
+
+func isHTTPSRequest(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 // browserTarget points the browser at the webserver using the hostname it reached gopherstack with, so the

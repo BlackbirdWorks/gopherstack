@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -103,7 +104,12 @@ func (b *InMemoryBackend) guardReplica(ctx context.Context, lb *liveDB) error {
 		return nil
 	}
 
-	err := b.engine.mysqlExec(ctx, in, replicaReadOnlyStmt(lb, in.login.User))
+	stmt, err := replicaReadOnlyStmt(lb, in.login.User)
+	if err != nil {
+		return err
+	}
+
+	err = b.engine.mysqlExec(ctx, in, stmt)
 	if errors.Is(err, container.ErrExecUnsupported) {
 		return nil
 	}
@@ -113,14 +119,19 @@ func (b *InMemoryBackend) guardReplica(ctx context.Context, lb *liveDB) error {
 
 // replicaReadOnlyStmt makes the replica reject writes. MariaDB has no super_read_only, so the master user also
 // loses the privilege that bypasses read_only (SUPER before 10.11, READ ONLY ADMIN since).
-func replicaReadOnlyStmt(lb *liveDB, user string) string {
+func replicaReadOnlyStmt(lb *liveDB, user string) (string, error) {
 	if lb.kind != engineMariaDB {
-		return "SET GLOBAL super_read_only=ON"
+		return "SET GLOBAL super_read_only=ON", nil
 	}
 
 	stmt := "SET GLOBAL read_only=ON"
 	if user == mysqlRootUser {
-		return stmt
+		return stmt, nil
+	}
+
+	acct, err := mysqlAccount(user)
+	if err != nil {
+		return "", err
 	}
 
 	priv := "READ ONLY ADMIN"
@@ -128,7 +139,18 @@ func replicaReadOnlyStmt(lb *liveDB, user string) string {
 		priv = "SUPER"
 	}
 
-	return stmt + "; REVOKE " + priv + " ON *.* FROM '" + user + "'@'%'"
+	return stmt + "; REVOKE " + priv + " ON *.* FROM " + acct, nil
+}
+
+var mysqlUserRe = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
+
+// mysqlAccount renders user as a quoted 'user'@'%' account; only the RDS master-username alphabet is accepted.
+func mysqlAccount(user string) (string, error) {
+	if !mysqlUserRe.MatchString(user) {
+		return "", fmt.Errorf("%w: unsupported master username %q", errEngineExec, user)
+	}
+
+	return "'" + strings.ReplaceAll(user, "'", "''") + "'@'%'", nil
 }
 
 // promoteEngine detaches a replica from its source and makes it writable.
@@ -164,7 +186,12 @@ func (e *dbEngine) promoteEngine(ctx context.Context, in unitInfo) error {
 	if l.Kind != engineMariaDB {
 		stmts += "; SET GLOBAL super_read_only=OFF"
 	} else if l.User != mysqlRootUser {
-		stmts += "; GRANT ALL PRIVILEGES ON *.* TO '" + l.User + "'@'%' WITH GRANT OPTION"
+		acct, aerr := mysqlAccount(l.User)
+		if aerr != nil {
+			return aerr
+		}
+
+		stmts += "; GRANT ALL PRIVILEGES ON *.* TO " + acct + " WITH GRANT OPTION"
 	}
 
 	return e.mysqlExec(ctx, in, stmts)

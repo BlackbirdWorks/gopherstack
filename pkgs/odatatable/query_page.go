@@ -37,7 +37,7 @@ func (b *InMemoryBackend) QueryEntitiesPage(
 		return e.PartitionKey > startPK || (e.PartitionKey == startPK && e.RowKey >= startRK)
 	})
 
-	page := EntityPage{Entities: make([]EntityInfo, 0, min(limit, defaultQueryCap))}
+	page := EntityPage{Entities: make([]EntityInfo, 0, min(len(entities), limit, defaultQueryCap))}
 
 	for _, e := range entities[from:] {
 		if filter != nil && !EvaluateFilter(filter, EntityInfo{

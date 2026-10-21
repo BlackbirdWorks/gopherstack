@@ -2,6 +2,7 @@ package mwaa
 
 import (
 	"encoding/json"
+	"net/http"
 	"testing"
 )
 
@@ -74,3 +75,7 @@ func ResponseJSON(t *testing.T, r *InvokeRestAPIResponse) string {
 
 	return string(raw)
 }
+
+func UnzipFiles(raw []byte) (map[string][]byte, error) { return unzipFiles(raw) }
+
+func IsHTTPSRequest(r *http.Request) bool { return isHTTPSRequest(r) }
